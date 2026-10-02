@@ -1,0 +1,60 @@
+name: Food Hub Security Audit
+
+on:
+  push:
+    branches:
+      - develop/foodhub-rc9
+    paths:
+      - ".github/workflows/security-audit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Capture npm audit
+        shell: bash
+        run: |
+          set +e
+          npm audit --json > audit.json
+          AUDIT_EXIT=$?
+          set -e
+          node <<'NODE'
+          const fs = require('fs');
+          const data = JSON.parse(fs.readFileSync('audit.json','utf8'));
+          const vulns = data.vulnerabilities || {};
+          const rows = Object.entries(vulns)
+            .map(([name,v]) => ({
+              name,
+              severity: v.severity,
+              direct: !!v.isDirect,
+              range: v.range,
+              fixAvailable: v.fixAvailable,
+              via: Array.isArray(v.via) ? v.via.map(x => typeof x === 'string' ? x : {
+                source: x.source,
+                name: x.name,
+                severity: x.severity,
+                title: x.title,
+                range: x.range
+              }) : v.via
+            }))
+            .sort((a,b) => {
+              const rank={critical:4,high:3,moderate:2,low:1,info:0};
+              return (rank[b.severity]||0)-(rank[a.severity]||0) || a.name.localeCompare(b.name);
+            });
+          console.log(JSON.stringify({metadata:data.metadata, vulnerabilities:rows}, null, 2));
+          NODE
+          echo "npm_audit_exit=$AUDIT_EXIT"

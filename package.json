@@ -1,0 +1,40 @@
+{
+  "name": "takatak-accounting-control-tower",
+  "version": "1.4.0-foodhub-rc9",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "qa:seed": "node scripts/qa-seed-check.mjs",
+    "qa:env": "node scripts/env-check.mjs",
+    "test": "vitest run",
+    "connector:readiness": "node scripts/phase25-connector-readiness.mjs",
+    "preflight": "node scripts/final-readiness-check.mjs",
+    "release:check": "npm run qa:env && npm run connector:readiness && npm run preflight",
+    "sync:dry-run": "node scripts/sync-dry-run.mjs",
+    "setup": "node scripts/setup-wizard.mjs",
+    "verify:foodhub": "node scripts/foodhub-e2e.mjs",
+    "demo:foodhub": "node scripts/foodhub-e2e.mjs --demo"
+  },
+  "dependencies": {
+    "@supabase/ssr": "latest",
+    "@supabase/supabase-js": "latest",
+    "date-fns": "latest",
+    "fflate": "^0.8.3",
+    "next": "16.3.8",
+    "react": "latest",
+    "react-dom": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "eslint": "latest",
+    "eslint-config-next": "latest",
+    "typescript": "latest",
+    "vitest": "5.0.3"
+  }
+}

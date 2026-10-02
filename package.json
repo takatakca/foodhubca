@@ -23,7 +23,7 @@
     "@supabase/supabase-js": "latest",
     "date-fns": "latest",
     "fflate": "^0.8.3",
-    "next": "latest",
+    "next": "16.3.8",
     "react": "latest",
     "react-dom": "latest",
     "zod": "latest"
@@ -35,6 +35,6 @@
     "eslint": "latest",
     "eslint-config-next": "latest",
     "typescript": "latest",
-    "vitest": "latest"
+    "vitest": "5.0.3"
   }
 }

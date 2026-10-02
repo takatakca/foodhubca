@@ -1,0 +1,72 @@
+name: Food Hub Security Upgrade
+
+on:
+  push:
+    branches:
+      - develop/foodhub-rc9
+    paths:
+      - ".github/workflows/security-upgrade.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: foodhub-security-upgrade
+  cancel-in-progress: false
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout development branch
+        uses: actions/checkout@v4
+        with:
+          ref: develop/foodhub-rc9
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install baseline
+        run: npm ci
+
+      - name: Upgrade vulnerable direct dependencies
+        run: |
+          npm install --save-exact next@16.3.8
+          npm install --save-dev --save-exact vitest@5.0.3
+
+      - name: Block high and critical vulnerabilities
+        run: npm audit --audit-level=high
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+      - name: Release readiness
+        run: npm run release:check
+        env:
+          LIVE_CONNECTORS_GLOBAL_ENABLED: "false"
+
+      - name: Food Hub verification
+        run: npm run verify:foodhub
+        env:
+          LIVE_CONNECTORS_GLOBAL_ENABLED: "false"
+
+      - name: Commit verified dependency upgrade
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f .github/workflows/security-upgrade.yml
+          git add package.json package-lock.json .github/workflows/security-upgrade.yml
+          git diff --cached --stat
+          git commit -m "security: upgrade Next.js and Vitest"
+          git push origin HEAD:develop/foodhub-rc9

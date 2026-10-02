@@ -40,6 +40,9 @@ jobs:
           npm install --save-exact next@16.3.8
           npm install --save-dev --save-exact vitest@5.0.3
 
+      - name: Apply safe transitive fixes
+        run: npm audit fix
+
       - name: Block high and critical vulnerabilities
         run: npm audit --audit-level=high
 

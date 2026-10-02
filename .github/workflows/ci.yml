@@ -3,6 +3,9 @@ name: Food Hub CI
 on:
   push:
     branches: [main, "develop/**"]
+    paths-ignore:
+      - ".bootstrap/**"
+      - ".github/workflows/bootstrap-rc9.yml"
   pull_request:
     branches: [main]
 

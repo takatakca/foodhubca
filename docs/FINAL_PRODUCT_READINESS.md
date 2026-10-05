@@ -28,7 +28,7 @@ The rules every change must respect are in [LOCKED_DECISIONS.md](LOCKED_DECISION
 | Unit tests | `npm test` | 62 tests across orders, menus, reconciliation, RC9 features |
 | Production build | `npm run build` | every page and API route builds |
 | Release readiness | `npm run release:check` | required files present, env contract and connector readiness reported (never prints secrets) |
-| Food Hub verification | `npm run verify:foodhub` | 275 end-to-end checks against simulated Uber Eats, DoorDash, Skip (JET Connect), Clover and Resend |
+| Food Hub verification | `npm run verify:foodhub` | 276 end-to-end checks against simulated Uber Eats, DoorDash, Skip (JET Connect), Clover and Resend |
 
 ## Live-data rule
 

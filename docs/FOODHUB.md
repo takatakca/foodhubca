@@ -154,7 +154,7 @@ Finance covers every location's money, so it is only for logins that see all loc
 | Store Hours | Opening hours, brand exceptions, holidays → published to every platform. |
 | Stores | Map store ids, connect Uber stores, pause/resume a whole location, prep time and busy mode. |
 | Analytics | Sales, orders, average order, cancellations (who / when / why), items, busiest hours, accept & prep times, store uptime — vs the previous period. |
-| Reports | 7 reports in CSV or Excel; *Email* sends one now, *Schedule* sends it daily / weekly / monthly (needs `RESEND_API_KEY` + `REPORT_EMAIL_FROM`). |
+| Reports | 7 reports in CSV or Excel; *Email* sends one now, *Schedule* sends it daily / weekly / monthly (needs `RESEND_API_KEY` + `REPORT_EMAIL_FROM`; owner/manager only). The `vercel.json` reports cron runs at 13:05 UTC (08:05 EST / 09:05 EDT) and catches up: a late or missed run still sends the latest completed period. |
 | Activity Log | Who paused, 86'd, published, changed hours or users, signed in — and whether the platform accepted it. |
 | Users & Roles / Brands & Locations | Team logins (owner, manager, store operator, menu editor, analyst) and your business structure. |
 | TGTG Bags | 10 seconds at closing: bags offered, sold, price per location. |
@@ -181,9 +181,9 @@ desktop notifications for that device (kitchen tablet and office PC can differ).
 
 ## Proof
 ```bash
-npm test                                   # 62 unit tests (signatures, parsers, menus, hours, 86, roles, reports,
+npm test                                   # 150 unit tests (signatures, parsers, menus, hours, 86, roles, reports,
                                            # analytics, statements, expected payouts, ledger, couriers, scheduling)
-npm run build && npm run verify:foodhub    # 275 end-to-end checks against simulated Uber Eats (incl. Reporting API),
+npm run build && npm run verify:foodhub    # 276 end-to-end checks against simulated Uber Eats (incl. Reporting API),
                                            # DoorDash, Skip (JET Connect), Clover and Resend
 npm run demo:foodhub                       # same, then keeps running with a new order every 40 s
 ```

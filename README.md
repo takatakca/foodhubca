@@ -38,8 +38,8 @@ Without Supabase the app runs in demo memory mode (the screen says so).
 ## Proof
 
 ```bash
-npm run check                             # typecheck + lint + __UNIT__ unit tests
-npm run build && npm run verify:foodhub   # __E2E__ end-to-end checks against simulated Uber Eats,
+npm run check                             # typecheck + lint + 150 unit tests
+npm run build && npm run verify:foodhub   # 276 end-to-end checks against simulated Uber Eats,
                                           # DoorDash, Skip (JET Connect), Clover and Resend
 npm run demo:foodhub                      # keeps running with a simulated order every 40 s
 npm run release:check                     # what is configured / missing (never prints secrets)

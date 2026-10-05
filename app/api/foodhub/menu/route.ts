@@ -1,5 +1,5 @@
 import { logActivity } from '@/lib/foodhub/activity';
-import { withPerm } from '@/lib/foodhub/auth';
+import { approvalGate, withPerm } from '@/lib/foodhub/auth';
 import { getCatalog } from '@/lib/foodhub/catalog';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { getRepo } from '@/lib/foodhub/repo';
@@ -31,7 +31,9 @@ const itemSchema = z.object({
   price, imageUrl: text(2000), categoryRef: ref, available: z.boolean().default(true), posItemRef: text(120), note: text(500),
   channelPrices: z.partialRecord(marketplace, price).optional(), modifierGroupRefs: z.array(z.string().max(120)).max(50).default([]),
 });
-const menuSchema = z.object({ brandName: z.string().trim().min(1).max(80), categories: z.array(categorySchema).max(200), items: z.array(itemSchema).max(2000), modifierGroups: z.array(groupSchema).max(500).default([]) });
+// Platform markups: percentage added to every price on that platform (-50 … 200). Clover holds the in-store price.
+const markupSchema = z.partialRecord(z.enum(['uber_eats', 'doordash', 'skip']), z.number().finite().min(-50).max(200)).optional();
+const menuSchema = z.object({ brandName: z.string().trim().min(1).max(80), categories: z.array(categorySchema).max(200), items: z.array(itemSchema).max(2000), modifierGroups: z.array(groupSchema).max(500).default([]), channelMarkupPct: markupSchema });
 
 function firstIssue(e: z.ZodError): string {
   const i = e.issues[0];
@@ -65,11 +67,25 @@ export const PUT = withPerm('menu:edit', async (req, _ctx, actor) => {
       seen.add(x.ref);
     }
   }
+  // Price changes (items, options, platform markups) are a gated action: a manager PIN may be required (policy.ts).
+  const priceOf = (i: { price: number; channelPrices?: Record<string, number | undefined> }) => JSON.stringify([Number(i.price), i.channelPrices ?? {}]);
+  const before = new Map((current?.items ?? []).map((i) => [i.ref, priceOf(i)]));
+  const repriced = menu.items.filter((i) => before.has(i.ref) && before.get(i.ref) !== priceOf(i));
+  const modPrice = new Map((current?.modifierGroups ?? []).flatMap((g) => g.modifiers.map((m) => [m.ref, Number(m.price)] as [string, number])));
+  const modRepriced = menu.modifierGroups.flatMap((g) => g.modifiers).filter((m) => modPrice.has(m.ref) && modPrice.get(m.ref) !== Number(m.price));
+  const markupChanged = JSON.stringify(current?.channelMarkupPct ?? {}) !== JSON.stringify(menu.channelMarkupPct ?? {});
+  if (repriced.length || modRepriced.length || (current && markupChanged)) {
+    const what = [...repriced, ...modRepriced].slice(0, 3).map((i) => i.name);
+    if (markupChanged) what.unshift(`markup ${Object.entries(menu.channelMarkupPct ?? {}).map(([k, v]) => `${k} +${v}%`).join(', ') || 'removed'}`);
+    const gate = await approvalGate(req, actor, 'menu.price', null, `${menu.brandName}: ${what.join(', ')}`);
+    if (gate) return gate;
+  }
   // Keep what the editor does not own: the 86 state managed on the 86 Board (the editor may hold an older copy)
   // and the stored hours/Clover merchant. Nothing else from the request body reaches the stored menu.
   const kept = current as (MasterMenu & { posMerchantId?: string }) | null;
   const saved = await getRepo().saveMenu({
     brandName: menu.brandName, categories: menu.categories, items: menu.items, modifierGroups: menu.modifierGroups,
+    ...(menu.channelMarkupPct && Object.keys(menu.channelMarkupPct).length ? { channelMarkupPct: menu.channelMarkupPct } : {}),
     hours: kept?.hours, unavailableByLocation: kept?.unavailableByLocation, unavailableUntil: kept?.unavailableUntil,
     ...(kept?.posMerchantId ? { posMerchantId: kept.posMerchantId } : {}),
     updatedAt: new Date().toISOString(),

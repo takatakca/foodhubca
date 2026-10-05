@@ -5,6 +5,7 @@
 //    managed once and pushed to every channel.
 import { fromCents, missingEnv, stripSlash, timedFetch, toCents, MARKETPLACE_LABELS } from '../config';
 import type { MasterMenu, MenuCategory, MenuItem, MenuModifierGroup, StoredOrder } from '../types';
+import { cloverAppConfigured, cloverOAuthToken, connectedCloverMerchantIds } from './clover-oauth';
 
 export function cloverBaseUrl() {
   return stripSlash(process.env.CLOVER_BASE_URL || 'https://api.clover.com');
@@ -22,19 +23,34 @@ export function cloverTokenFor(merchantId: string): string | null {
   return null;
 }
 
+/** Token for a merchant: env tokens first (CLOVER_MERCHANT_TOKENS / CLOVER_ACCESS_TOKEN), then the Clover app connection (OAuth, auto-refreshed). */
+export async function cloverToken(merchantId: string): Promise<string | null> {
+  return cloverTokenFor(merchantId) ?? (await cloverOAuthToken(merchantId));
+}
+
 export function cloverInjectionEnabled(): boolean {
   return process.env.FOODHUB_POS_INJECTION !== 'off';
 }
 
 export function cloverReadiness() {
   const missing = missingEnv(['CLOVER_MERCHANT_ID', 'CLOVER_ACCESS_TOKEN']);
+  const app = cloverAppConfigured();
   return {
-    configured: missing.length === 0,
+    // Either a merchant API token in the environment, or the Clover app (merchants connect with one click).
+    configured: missing.length === 0 || app,
+    appConfigured: app,
     injectionEnabled: cloverInjectionEnabled(),
     missing,
     note: missing.length === 0
-      ? 'Orders will be created in Clover automatically. Extra locations: add CLOVER_MERCHANT_TOKENS={"MERCHANT_ID":"token"}.'
-      : 'Add CLOVER_MERCHANT_ID and CLOVER_ACCESS_TOKEN to inject orders into Clover.',
+      ? 'Orders will be created in Clover automatically. Extra locations: connect them with the Clover app, or add CLOVER_MERCHANT_TOKENS={"MERCHANT_ID":"token"}.'
+      : app
+        ? 'Clover app keys are set: connect each Clover merchant with "Connect a Clover merchant" (or by opening the app from Clover).'
+        : 'Add the Clover app keys (CLOVER_CLIENT_ID / CLOVER_CLIENT_SECRET), or CLOVER_MERCHANT_ID and CLOVER_ACCESS_TOKEN, to inject orders into Clover.',
+    noteFr: missing.length === 0
+      ? 'Les commandes sont créées dans Clover automatiquement. Autres succursales : branchez-les avec l’app Clover, ou ajoutez CLOVER_MERCHANT_TOKENS={"MERCHANT_ID":"jeton"}.'
+      : app
+        ? 'Les clés de l’app Clover sont en place : branchez chaque marchand Clover avec « Brancher un marchand Clover » (ou en ouvrant l’app depuis Clover).'
+        : 'Ajoutez les clés de l’app Clover (CLOVER_CLIENT_ID / CLOVER_CLIENT_SECRET), ou CLOVER_MERCHANT_ID et CLOVER_ACCESS_TOKEN, pour envoyer les commandes dans Clover.',
   };
 }
 
@@ -51,9 +67,9 @@ export async function injectOrder(order: StoredOrder, merchantId?: string | null
   const mid = merchantId || process.env.CLOVER_MERCHANT_ID;
   // No merchant for this store: harmless only when Clover is not configured at all; otherwise the store mapping is incomplete.
   if (!mid) return { ok: false, skipped: knownCloverMerchants().length === 0, error: 'No Clover merchant configured for this store.' };
-  const token = cloverTokenFor(mid);
+  const token = await cloverToken(mid);
   // A mapped merchant without a token is a configuration fault, never a reason to accept without Clover.
-  if (!token) return { ok: false, skipped: false, error: `No Clover API token for merchant ${mid} (add it to CLOVER_MERCHANT_TOKENS).` };
+  if (!token) return { ok: false, skipped: false, error: `No Clover API token for merchant ${mid} (install the Clover app for it, or add it to CLOVER_MERCHANT_TOKENS).` };
 
   const lineItems: Record<string, unknown>[] = [];
   for (const line of order.lines) {
@@ -119,7 +135,7 @@ async function cloverGetAll(mid: string, token: string, path: string, expand: st
 export async function importMenuFromClover(brandName: string, merchantId?: string | null): Promise<MasterMenu> {
   const mid = merchantId || process.env.CLOVER_MERCHANT_ID;
   if (!mid) throw new Error('No Clover merchant id. Set CLOVER_MERCHANT_ID or pass a merchant id.');
-  const token = cloverTokenFor(mid);
+  const token = await cloverToken(mid);
   if (!token) throw new Error(`No Clover API token for merchant ${mid}.`);
 
   const [items, groups] = await Promise.all([
@@ -203,7 +219,7 @@ export function cloverPrintDeviceFor(merchantId: string): string | null {
 export async function printCloverOrder(posOrderId: string, merchantId?: string | null): Promise<{ ok: boolean; message: string; printEventId?: string }> {
   const mid = merchantId || process.env.CLOVER_MERCHANT_ID;
   if (!mid) return { ok: false, message: 'No Clover merchant configured.' };
-  const token = cloverTokenFor(mid);
+  const token = await cloverToken(mid);
   if (!token) return { ok: false, message: `No Clover API token for merchant ${mid}.` };
   const device = cloverPrintDeviceFor(mid);
   try {
@@ -233,8 +249,11 @@ export interface CloverSales {
   error?: string;
 }
 
+// Payments recorded with a platform tender ("Uber Eats", "DoorDash", "DoorDash Payment"…) are delivery sales,
+// never in-store — whether Food Hub recorded them or Clover's own platform integration did.
+
 // Payments recorded with a platform tender ("Uber Eats", "DoorDash"…) are delivery sales, never in-store.
-const PLATFORM_TENDERS = new Set(['uber eats', 'doordash', 'skipthedishes', 'too good to go']);
+const PLATFORM_TENDERS = new Set(['uber eats', 'doordash', 'skipthedishes', 'skip the dishes', 'skip', 'too good to go', 'tgtg', 'uber']);
 
 async function cloverPaged(merchantId: string, token: string, resource: 'payments' | 'refunds', sinceMs: number): Promise<any[]> {
   const out: any[] = [];
@@ -259,7 +278,7 @@ async function cloverPaged(merchantId: string, token: string, resource: 'payment
  */
 export async function cloverSalesSince(merchantId: string, sinceMs: number, excludeOrderIds: Set<string> = new Set()): Promise<CloverSales> {
   const empty = { merchantId, gross: 0, tips: 0, tax: 0, refunds: 0, net: 0, payments: 0 };
-  const token = cloverTokenFor(merchantId);
+  const token = await cloverToken(merchantId);
   if (!token) return { ...empty, ok: false, error: `No Clover API token for merchant ${merchantId}` };
   try {
     const platformTender = (tender: any) => PLATFORM_TENDERS.has(String(tender?.label ?? '').trim().toLowerCase());
@@ -285,6 +304,13 @@ export async function cloverSalesSince(merchantId: string, sinceMs: number, excl
   } catch (error) {
     return { ...empty, ok: false, error: error instanceof Error ? error.message : String(error) };
   }
+}
+
+/** Same as knownCloverMerchants, plus every merchant connected through the Clover app. */
+export async function allCloverMerchants(storeMerchantIds: Array<string | null | undefined> = []): Promise<string[]> {
+  const set = new Set(knownCloverMerchants(storeMerchantIds));
+  for (const m of await connectedCloverMerchantIds().catch(() => [] as string[])) set.add(m);
+  return [...set];
 }
 
 /** Every Clover merchant Food Hub knows about: the default one, the token map, and store mappings. */

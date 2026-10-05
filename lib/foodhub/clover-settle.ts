@@ -17,6 +17,8 @@ async function patch(order: StoredOrder, t: OrderTimeline): Promise<StoredOrder>
 
 export async function settleInClover(order: StoredOrder | null): Promise<StoredOrder | null> {
   if (!order?.posOrderId) return order;
+  // Orders that came through Clover's own platform integration are already paid / closed by that integration.
+  if (order.viaPos) return order;
   const repo = getRepo();
   const tag = `${CHANNEL_LABELS[order.channel]} #${order.displayId || order.externalOrderId.slice(0, 8)}`;
   try {

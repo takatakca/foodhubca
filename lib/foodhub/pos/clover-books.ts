@@ -12,7 +12,7 @@
 import { CHANNEL_LABELS, timedFetch, toCents } from '../config';
 import { getRepo } from '../repo';
 import type { ChannelKey, StoredOrder } from '../types';
-import { cloverBaseUrl, cloverTokenFor } from './clover';
+import { cloverBaseUrl, cloverToken } from './clover';
 
 const KV = 'clover_refs';
 type Refs = Record<string, { tenders?: Record<string, string>; orderTypes?: Record<string, string> }>;
@@ -33,7 +33,7 @@ export function platformLabel(channel: ChannelKey) {
 }
 
 async function cloverJson(mid: string, path: string, init: RequestInit = {}): Promise<{ ok: boolean; status: number; json: any }> {
-  const token = cloverTokenFor(mid);
+  const token = await cloverToken(mid);
   if (!token) return { ok: false, status: 0, json: { message: `No Clover API token for merchant ${mid}` } };
   const res = await timedFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}${path}`, {
     ...init,

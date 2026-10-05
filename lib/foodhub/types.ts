@@ -42,6 +42,16 @@ export interface OrderTimeline {
   posClosedAt?: string;
   /** Items reported missing to the platform after accepting (Skip modification). */
   missingItems?: Array<{ name: string; ref?: string; quantity: number; at: string }>;
+  /** A person saw the new-order pop-up (auto-accepted orders still need eyes in the kitchen). */
+  seenAt?: string;
+  seenBy?: string;
+  /** Extra minutes added to the kitchen timer ("+5 min"). The platform keeps its own estimate. */
+  delayedMinutes?: number;
+  /** Who approved a gated action with a manager PIN (reject, cancel, missing item, delay). */
+  approvedBy?: string;
+  /** The kitchen confirmed it saw that the platform / customer cancelled this order (stop cooking). */
+  cancelSeenAt?: string;
+  cancelSeenBy?: string;
 }
 
 export type CourierStatus = 'assigned' | 'arriving' | 'at_store' | 'picked_up' | 'delivered' | 'unassigned';
@@ -101,6 +111,11 @@ export interface NormalizedOrder {
   raw: unknown;
   /** Courier details when the platform sends them with the order. */
   courier?: Partial<CourierInfo>;
+  /**
+   * 'clover' = the platform sent this order to Clover through Clover's own integration (Clover ↔ DoorDash…);
+   * Food Hub only follows it: no accept / reject / cancel, never re-sent to Clover, no Clover payment recorded.
+   */
+  viaPos?: 'clover';
 }
 
 export interface StoredOrder extends NormalizedOrder {
@@ -223,6 +238,11 @@ export interface MasterMenu {
   unavailableUntil?: Record<string, number>;
   /** Clover merchant the master menu was imported from (posItemRef ids belong to that merchant). */
   posMerchantId?: string;
+  /**
+   * Percentage added to every item and modifier price on a platform (e.g. { doordash: 20 } = +20%).
+   * The base price stays the in-store (Clover) price; a per-item channelPrices override always wins.
+   */
+  channelMarkupPct?: Partial<Record<Marketplace, number>>;
   updatedAt: string;
 }
 
@@ -269,6 +289,10 @@ export interface ChannelReadiness {
   canSend: boolean;
   missing: string[];
   note: string;
+  /** Same note in French (the console is French first). */
+  noteFr?: string;
+  /** Linked to Clover directly (FOODHUB_VIA_CLOVER): orders are read from Clover, nothing is sent to the platform. */
+  viaClover?: boolean;
   webhookPath: string;
   /** Extra webhook URLs some platforms need (e.g. Skip: cancel, offline, menu status). */
   extraWebhooks?: Array<{ label: string; path: string }>;
@@ -316,7 +340,8 @@ export const CANCEL_REASON_LABELS: Record<CancelReason, string> = {
 // ---------- Activity log (Atlas "Store Action Report") ----------
 
 export type ActivitySource = 'dashboard' | 'automation' | 'platform' | 'schedule' | 'api';
-export type ActivityKind = 'order' | 'store_status' | 'item_availability' | 'menu_publish' | 'hours' | 'settings' | 'users' | 'login';
+export type ActivityKind = 'order' | 'store_status' | 'item_availability' | 'menu_publish' | 'hours' | 'settings' | 'users' | 'login'
+  | 'device' | 'incident' | 'message' | 'approval' | 'security';
 
 export interface ActivityEntry {
   id?: string;
@@ -339,6 +364,20 @@ export interface ActivityEntry {
 
 export type Role = 'owner' | 'manager' | 'operator' | 'menu' | 'analyst';
 
+export interface UserPrefs {
+  /** Interface language. */
+  lang?: 'fr' | 'en';
+  /** Receive Watchtower alerts by SMS / phone call / email. */
+  alertSms?: boolean;
+  alertCall?: boolean;
+  alertEmail?: boolean;
+  /** Personal quiet hours ("22:00"-"07:00"); critical alerts still go through when on duty. */
+  quietFrom?: string;
+  quietTo?: string;
+  /** On duty for escalations (managers) — off = never called. */
+  onDuty?: boolean;
+}
+
 export interface FoodHubUser {
   id: string;
   username: string;
@@ -346,7 +385,14 @@ export interface FoodHubUser {
   role: Role;
   /** Empty = every location. */
   locations: string[];
-  passwordHash: string;
+  /** Sign-in: a one-time code or link is sent here. At least one of email / phone. */
+  email?: string | null;
+  phone?: string | null;
+  /** Optional legacy password (owner recovery, scripts). */
+  passwordHash?: string | null;
+  /** 4–6 digit staff PIN (scrypt) — unlocks a kitchen tablet and approves gated actions. */
+  pinHash?: string | null;
+  prefs?: UserPrefs;
   active: boolean;
   createdAt: string;
   lastLoginAt?: string | null;

@@ -2,7 +2,8 @@
 
 TAKATAK Food Hub replaces UrbanPiper. It talks **directly** to Uber Eats, DoorDash,
 SkipTheDishes and Clover, so there is no aggregator in the middle and no monthly
-integration fee. Everything shows on one screen: the **Command Center** (`/`).
+integration fee. Everything shows in one console (French / English): **Overview** (`/`), Orders, Kitchen,
+Stores, Menus, Alerts, Insights, Money and Settings.
 
 ```
 Uber Eats ─┐                                   ┌─► Clover (kitchen gets the order)
@@ -11,6 +12,32 @@ Skip ──────┤    (signed)                       └─► Command C
 TGTG ──────┘
              ◄── status sync every 2 min: Uber + DoorDash store status, Clover in-store sales
 ```
+
+## New in RC10 — the kitchen-first console
+
+| What | How it works |
+|---|---|
+| **Sign-in without passwords** | `/login`: email or cell → a 6-digit code (Resend email or Twilio SMS, valid 10 min, 5 tries, 5 requests per 15 min) or the one-tap link in the same message. Unknown contacts get the same answer (nobody can probe who has access). Phones auto-fill the code (WebOTP). Sessions last 14 days. |
+| **First run** | No account yet → *Create the owner account* (name + your email or cell). In production it only works with `FOODHUB_OWNER_EMAIL` / `FOODHUB_OWNER_PHONE`, or with `DASHBOARD_PASSWORD` typed as the setup key. |
+| **Recovery** | *Owner recovery sign-in* (user `owner` + `DASHBOARD_PASSWORD`) if email / SMS are down. Type it yourself — never in chat. |
+| **Kitchen tablets** | Settings → Tablets → *Enrol this screen* (on the tablet). It keeps a signed device cookie for a year and shows the **PIN screen** (`/kitchen/lock`) instead of the email sign-in. Staff tap their name + PIN → 14-hour session on that tablet. *Lock* returns to the PIN screen. Lost tablet → *Remove*: it is signed out at once. |
+| **Tablet health** | Every 30 s the tablet reports: on, sound unlocked, screen visible, battery. Off for 90 s during opening hours → *Tablet off* incident; muted / hidden → *Tablet muted*. |
+| **New order pop-up** | Full screen, beep loop until someone looks: brand, location, items, allergies, total, countdown to the platform deadline (Uber 11.5 min, Skip 5 min). *Accept* with the prep time (10–45 min; DoorDash receives it), *Reject* with a reason, *Later (1 min)*, *Next*. Auto-accepted orders still pop up until someone taps *Seen*. Keyboard: Enter / Esc / →. |
+| **Cancellation alarm** | Customer or platform cancels → every screen of that kitchen turns red and beeps until someone taps *Got it — stopping* (once clears it everywhere; logged). The locked PIN screen shows it too. |
+| **Manager PIN** | Settings → Manager PIN: per action *Open* / *Manager PIN* / *Always PIN*. Defaults: reject, cancel, missing-item refund, text a customer, pause a store and change a price need a manager. The screen asks for the PIN, the approver's name goes on the order and in the activity log. 5 wrong PINs → 5-minute lock. PINs are 4–6 digits, unique, never trivial, stored hashed (scrypt). Staff never see Money at all. |
+| **Watchtower** | Checks every 20 s while a screen is open, every 30 s on a long-running server, and every minute from your scheduler (below): orders waiting / not seen / late, couriers waiting, Clover failures, stores offline or deactivated, tablets off or muted, cancellation spikes, sync stale, unreadable messages, refused actions, money to recover. Escalation: screen + chat → after 2 min **the kitchen phone rings** (Settings → Business) and **the managers on duty are texted** → 5 min (urgent) they are **called** → 10 min the **owner** and the **support line** are texted and called. *I'm on it* stops it; it closes by itself when fixed. Quiet hours: only urgent alerts escalate. |
+| **AI** | With `ANTHROPIC_API_KEY`, Claude explains each alert in plain French and answers the **Copilot** ("what's wrong right now?"). Without it, built-in rules do. AI never approves, refunds, posts or deletes anything. |
+| **Customers** | Order → *Text the customer* (when the platform shares a real mobile number) with ready-made late messages; *Call* dials the platform relay number with its access code. Optional: text late customers automatically. |
+| **Team chat** | `ALERT_WEBHOOK_URL` (Slack, Teams, Google Chat, Discord): warnings and urgent alerts are posted there. |
+| **Message log** | Alerts → *Messages sent*: every email / SMS / call / chat with masked numbers. Sign-in codes are never stored. |
+
+### Keep the Watchtower running when no screen is open
+The tablet being **off** is exactly when nobody has a screen open. Pick one:
+- **Long-running server** (`next start` on a VM, Render, Railway, Fly): nothing to do — it runs every
+  30 s (`FOODHUB_WATCH_INTERVAL_S`).
+- **Vercel**: call `GET https://YOUR-DOMAIN/api/foodhub/cron/watch` every minute with the header
+  `Authorization: Bearer <CRON_SECRET>` — Vercel Pro cron (`* * * * *`), Supabase `pg_cron` + `pg_net`,
+  or a free pinger such as cron-job.org. (Vercel Hobby crons only run once a day.)
 
 ## What runs by itself
 
@@ -39,15 +66,15 @@ Create a project at supabase.com → SQL Editor → paste **`supabase/INSTALL_AL
 ```bash
 npm install
 npm run setup     # asks for each key, writes .env.local, generates the webhook secrets
-npm run dev       # http://localhost:3000  → sign in as "owner" with your DASHBOARD_PASSWORD
+npm run dev       # http://localhost:3000  → "Create the owner account" with your email → enter the code
 ```
 Never paste keys in a chat or an email. For hosting (Vercel), copy the same values into
 Project → Settings → Environment Variables, and set `FOODHUB_PUBLIC_URL` to your domain.
 
 ### 3. Connect each platform
 
-Everything you must give a platform (URLs and secrets) is on **Channels & Setup**
-(`/foodhub/channels`) → *Show secrets to give platforms*.
+Everything you must give a platform (URLs and secrets) is on **Settings → Platforms & Clover**
+(`/settings/channels`) → *Show secrets*.
 
 **Clover** (orders into the kitchen + menu import + in-store sales)
 1. Clover web dashboard → *Account & Setup* → *API Tokens* → create a token with
@@ -107,18 +134,18 @@ Clover too, and the day log is not counted twice.
    (now, or scheduled; all stores or chosen ones).
 3. **Stores** → map every brand + location on each app (Uber is one click, see above); set the
    normal and busy prep time per location.
-4. **Users & Roles** → one login per person; store staff can be limited to their location.
+4. **Settings → Team** → managers (email or cell + PIN), staff (PIN); limit them to their location.
+   **Settings → Tablets** → enrol each kitchen tablet. **Settings → Business** → each kitchen's phone.
 5. **Menu Manager → Languages** → French names (item, category, option) and which language each
    app gets: Uber Eats bilingual by default, DoorDash / Skip English or French.
 6. **Payouts & Money → Commission Plans** → check your plan per app (Uber Eats and DoorDash
    rate cards are pre-filled; Skip and TGTG from your contract) and tick *Matches my contract*.
-7. **Go-Live Checklist** (`/go-live`) shows what is left, computed from your real configuration.
+7. **Settings → Go-live** (`/settings/go-live`) shows what is left, computed from your real configuration.
 8. Last step: `LIVE_CONNECTORS_GLOBAL_ENABLED=true`. Before that, orders are received and shown,
-   but nothing is sent back to the platforms. A `DASHBOARD_PASSWORD` is mandatory once live.
+   but nothing is sent back to the platforms. `SESSION_SECRET` (or `DASHBOARD_PASSWORD`) is required in production.
 
 ### 5. 24/7 status sync (optional)
-The Command Center syncs every 2 minutes while it is open (leave it on a screen in the
-kitchen/office — *Screen mode* hides the menu). For sync even when no screen is open:
+Store statuses sync every 2 minutes while any screen is open. For sync even when no screen is open:
 - `vercel.json` already schedules a daily sync (works on every Vercel plan). On Vercel Pro, change
   the schedule to `*/5 * * * *`.
 - Or use any free pinger (e.g. cron-job.org): `GET https://YOUR-DOMAIN/api/foodhub/cron/sync`
@@ -146,9 +173,11 @@ Finance covers every location's money, so it is only for logins that see all loc
 
 | Screen | Use it for |
 |---|---|
-| **Command Center** `/` | Everything at once: sales today (delivery + in-store), orders to handle with countdowns, alerts, each app's sales and connection, every brand × location × app status (click a cell to pause / resume), sales by hour, top brands, by location. Sound on new orders. |
-| Order Board | Today's orders: New → Preparing → Ready → Picked up → Done. Reject / cancel with a reason. |
-| Orders | History with filters and search; each order shows its full timeline, Clover id, ticket and reprint. |
+| **Overview** `/` | What needs you now, sales today (delivery + in-store), platforms, kitchens and tablets, store health (brand × location), sales by hour, top brands. |
+| **Kitchen** `/kitchen` | Big cards for the line: Seen, Ready, +5 min, busy mode, full screen. |
+| **Alerts** `/alerts` | Watchtower incidents with their escalation steps, explanation, *I'm on it* / *Fixed* / *Snooze*, text the customer; message log. |
+| Orders `/orders` | Live board New → Preparing → Ready → Out (+ Scheduled), and History. Reject / cancel with a reason. |
+| Order page | Full timeline, courier, customer (text / call), Clover id, ticket and reprint. |
 | Menu Manager | Master menu per brand, platform prices, item details, category schedules, menu check, publish now or later. |
 | 86 Board | Items **and options** off/on per location or everywhere, for a set time or until you turn them back. |
 | Store Hours | Opening hours, brand exceptions, holidays → published to every platform. |
@@ -156,21 +185,20 @@ Finance covers every location's money, so it is only for logins that see all loc
 | Analytics | Sales, orders, average order, cancellations (who / when / why), items, busiest hours, accept & prep times, store uptime — vs the previous period. |
 | Reports | 7 reports in CSV or Excel; *Email* sends one now, *Schedule* sends it daily / weekly / monthly (needs `RESEND_API_KEY` + `REPORT_EMAIL_FROM`; owner/manager only). The `vercel.json` reports cron runs at 13:05 UTC (08:05 EST / 09:05 EDT) and catches up: a late or missed run still sends the latest completed period. |
 | Activity Log | Who paused, 86'd, published, changed hours or users, signed in — and whether the platform accepted it. |
-| Users & Roles / Brands & Locations | Team logins (owner, manager, store operator, menu editor, analyst) and your business structure. |
+| Settings | Profile + PIN, Team, Tablets, Manager PIN rules, Alerts, Platforms & Clover, Business, Go-live. |
 | TGTG Bags | 10 seconds at closing: bags offered, sold, price per location. |
 | Payouts & Money | Where is my money, orders vs payouts, disputes, deposits, internal ledger, statements, commission plans. |
 
 **Kitchen tablet app.** Open Food Hub on the tablet → browser menu → *Add to Home Screen* /
-*Install app*. It opens full screen, keeps the screen awake (🔔 Alerts → keep awake) and shows a red
-bar if the connection drops.
+*Install app*. It opens full screen, keeps the screen awake, shows a red bar if the connection drops, and
+reports its health to the Watchtower. Enrol it once (Settings → Tablets).
 
 **Kitchen printing.** Every order that reaches Clover prints a kitchen ticket on the Clover printer
 (`FOODHUB_CLOVER_AUTOPRINT=on`, optional `CLOVER_PRINT_DEVICE_ID`); *Reprint* sends it again, and
 *Print ticket* opens an 80 mm ticket for any receipt printer.
 
-**Alerts on each screen.** 🔔 *Alerts* sets the sound, repeat-until-handled, platform-cancel and
+**Alerts on each screen.** Settings → Alerts → *This screen*: beep, full-screen pop-up, repeat, volume and
 desktop notifications for that device (kitchen tablet and office PC can differ).
-| Channels & Setup | Connection status, webhook URLs, secrets to give platforms, recent jobs, unparsed payloads. |
 
 ## Rules that never change
 - Never accept an order Clover did not receive.
@@ -181,10 +209,10 @@ desktop notifications for that device (kitchen tablet and office PC can differ).
 
 ## Proof
 ```bash
-npm test                                   # 160 unit tests (signatures, parsers, menus, hours, 86, roles, reports,
-                                           # analytics, statements, expected payouts, ledger, couriers, scheduling)
-npm run build && npm run verify:foodhub    # 276 end-to-end checks against simulated Uber Eats (incl. Reporting API),
-                                           # DoorDash, Skip (JET Connect), Clover and Resend
+npm run check                              # typecheck + lint + 173 unit tests (incl. sessions, PINs, approvals,
+                                           # sign-in codes, Watchtower detection and escalation)
+npm run build && npm run verify:foodhub    # 374 end-to-end checks against simulated Uber Eats (incl. Reporting API),
+                                           # DoorDash, Skip (JET Connect), Clover, Resend, Twilio and a team chat
 npm run demo:foodhub                       # same, then keeps running with a new order every 40 s
 ```
 
@@ -201,5 +229,11 @@ npm run demo:foodhub                       # same, then keeps running with a new
   each confirmation; for Uber Eats and Skip it is printed on the ticket only — set their prep time in
   their own store settings.
 - Too Good To Go has no public store API: bags are logged, not synced.
+- Texting a customer only works when the platform shares a real mobile number; Uber Eats and DoorDash
+  usually give a relay number with an access code, which can be called but not texted.
+- SMS, calls and emails need your own Twilio and Resend accounts (pay-per-use on their side). Without
+  them, sign-in uses the owner recovery password and alerts stay on screen and in the team chat.
+- The Watchtower needs a screen open, a long-running server, or the 1-minute cron call to watch
+  24/7 (see *Keep the Watchtower running*).
 - What Atlas has that is not built yet (combos, ratings and reviews, own-courier dispatch for phone
   orders, SSO) is listed in [ATLAS_PARITY.md](ATLAS_PARITY.md).

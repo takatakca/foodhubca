@@ -27,6 +27,7 @@ function headers() {
 function readiness() {
   return buildReadiness(KEY, ['SKIP_JET_API_KEY', 'SKIP_WEBHOOK_HMAC_SECRET'], {
     note: 'Direct via JET Connect. Your Skip partnership manager issues the X-Flyt-Api-Key and links your restaurants to your store ids.',
+    noteFr: 'Direct par JET Connect. Votre responsable de partenariat Skip fournit la clé X-Flyt-Api-Key et relie vos restaurants à vos identifiants de magasin.',
     extraWebhooks: [
       { label: 'Cancel order notification', path: '/api/foodhub/webhooks/skip/cancel' },
       { label: 'Restaurant temporarily offline notification', path: '/api/foodhub/webhooks/skip/offline' },

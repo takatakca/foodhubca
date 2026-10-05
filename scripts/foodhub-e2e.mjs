@@ -10,10 +10,15 @@
 // analytics and the activity log — and RC9: Clover bookkeeping (order types, paid at hand-off, cancelled
 // orders removed), Clover → platforms 86/price sync, couriers, Skip missing items + backup flow, scheduled
 // orders, payouts & reconciliation (Uber Reporting API, DoorDash/Skip statements, disputes, deposits,
-// internal ledger), Too Good To Go bag log, French menus and the installable kitchen app.
+// internal ledger), Too Good To Go bag log, French menus and the installable kitchen app — and RC10: sign-in by
+// code or one-tap link (email via Resend, SMS via Twilio), kitchen tablets with staff PINs, manager approvals,
+// the cancellation alarm and the Watchtower (incidents, kitchen-phone call, SMS / call / chat tests, copilot).
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs';
 
 const MOCK_PORT = 4799;
 const APP_PORT = 4800;
@@ -26,10 +31,12 @@ const JET_API_KEY = 'jet-api-key-e2e';
 const SKIP_HMAC = 'skip-hmac-secret-e2e';
 const SKIP_NOTIFY_KEY = 'skip-notify-key-e2e';
 const CLOVER_TOKEN = 'clover-token-e2e';
+const CLOVER_APP_TOKEN = 'clover-app-token-e2e';
 const DEMO = process.argv.includes('--demo');
 
 const log = [];
 let cloverSeq = 0;
+let twilioSeq = 0;
 
 // ---------------- mock platform state ----------------
 const uberStatus = new Map();   // store id → { status, offlineReason }
@@ -46,6 +53,9 @@ const cloverTenders = [{ id: 'T-CASH', label: 'Cash' }];
 const cloverOrderTypes = [{ id: 'OT-DINE', label: 'Dine In' }];
 const cloverOrderTotals = new Map(); // Clover order id → total (cents)
 let cloverObjSeq = 0;
+const cloverNativeOrders = []; // orders created in Clover by Clover's own DoorDash integration
+const cloverTags = [{ id: 'TAG-K', name: 'Cuisine', printers: { elements: [{ id: 'PR-1' }] } }, { id: 'TAG-B', name: 'Bar', printers: { elements: [] } }];
+const cloverTagLinks = []; // { item, tag }
 const cloverItems = [
   { id: 'clv-item-1', name: 'Poulet Grillé', price: 1499, available: true, categories: { elements: [{ id: 'clv-cat-1', name: 'Plats', sortOrder: 1 }] }, modifierGroups: { elements: [{ id: 'grp-1' }] } },
   { id: 'clv-item-2', name: 'Frites', price: 499, available: true, categories: { elements: [{ id: 'clv-cat-2', name: 'Accompagnements', sortOrder: 2 }] }, modifierGroups: { elements: [] } },
@@ -147,6 +157,15 @@ const mock = http.createServer(async (req, res) => {
   }
   // ---- Clover ----
   if (p.startsWith('/clover/')) {
+    // Clover app (OAuth v2, expiring tokens): code → tokens, refresh, merchant name.
+    if (p === '/clover/oauth/v2/token' && req.method === 'POST') {
+      if (body?.client_id !== 'CLVAPPE2E' || body?.client_secret !== 'clover-app-secret-e2e' || body?.code !== 'clv-good-code') return send(400, { message: 'invalid code' });
+      const now = Math.floor(Date.now() / 1000);
+      return send(200, { access_token: CLOVER_APP_TOKEN, access_token_expiration: now + 1800, refresh_token: 'clv-refresh-e2e', refresh_token_expiration: now + 86400 });
+    }
+    if (p === '/clover/v3/merchants/APPMERCHANT' && req.method === 'GET') {
+      return req.headers.authorization === `Bearer ${CLOVER_APP_TOKEN}` ? send(200, { id: 'APPMERCHANT', name: 'On2GO.CA (app)' }) : send(401, {});
+    }
     const mid = p.split('/')[4];
     if (mid === 'FAILMERCHANT') return send(500, { message: 'Clover is down' });
     if (req.headers.authorization !== `Bearer ${CLOVER_TOKEN}`) return send(401, {});
@@ -168,6 +187,10 @@ const mock = http.createServer(async (req, res) => {
       cloverPayments.push({ id, amount: body.amount, taxAmount: body.taxAmount, tipAmount: 0, result: 'SUCCESS', order: { id: pay[1] }, tender: { id: tender.id, label: tender.label }, externalPaymentId: body.externalPaymentId });
       return send(200, { id });
     }
+    if (/\/v3\/merchants\/[^/]+\/orders$/.test(p) && req.method === 'GET') {
+      const since = Number((url.searchParams.get('filter') || '').split('>=')[1] || 0);
+      return send(200, { elements: Number(url.searchParams.get('offset') || 0) ? [] : cloverNativeOrders.filter((o) => o.mid === mid && o.createdTime >= since) });
+    }
     const ord = p.match(/\/v3\/merchants\/[^/]+\/orders\/([^/]+)$/);
     if (ord) {
       if (req.method === 'DELETE') return cloverOrderTotals.delete(ord[1]) ? send(200, {}) : send(404, {});
@@ -177,14 +200,25 @@ const mock = http.createServer(async (req, res) => {
     const itm = p.match(/\/items\/([^/]+)$/);
     if (itm) { const it = cloverItems.find((i) => i.id === itm[1]); return it ? send(200, it) : send(404, {}); }
     if (p.endsWith('/print_event')) return body?.orderRef?.id ? send(200, { id: `PE-${body.orderRef.id}`, state: 'CREATED' }) : send(400, { message: 'orderRef.id required' });
-    if (p.endsWith('/items')) return send(200, { elements: cloverItems });
+    if (p.endsWith('/tags')) return send(200, { elements: cloverTags });
+    if (p.endsWith('/tax_rates')) return send(200, { elements: [{ id: 'TX-1', name: 'Sales Tax', rate: 14975, isDefault: true }] });
+    if (p.endsWith('/tag_items') && req.method === 'POST') { for (const e of body?.elements || []) cloverTagLinks.push({ item: e.item?.id, tag: e.tag?.id }); return send(200, {}); }
+    if (p.endsWith('/items')) return send(200, { elements: Number(url.searchParams.get('offset') || 0) ? [] : cloverItems.map((i) => (url.searchParams.get('expand') || '').includes('tags') ? { ...i, tags: { elements: cloverTagLinks.filter((l) => l.item === i.id).map((l) => ({ id: l.tag })) } } : i) });
     if (p.endsWith('/modifier_groups')) return send(200, { elements: [{ id: 'grp-1', name: 'Sauce', minRequired: 0, maxAllowed: 1, modifiers: { elements: [{ id: 'mod-1', name: 'Piri-piri', price: 100 }] } }] });
     if (p.endsWith('/payments')) return send(200, { elements: Number(url.searchParams.get('offset') || 0) ? [] : cloverPayments });
     if (p.endsWith('/refunds')) return send(200, { elements: Number(url.searchParams.get('offset') || 0) ? [] : cloverRefunds });
     return send(404, {});
   }
-  // ---- Resend (report emails) ----
+  // ---- Resend (report + sign-in emails) ----
   if (p === '/resend/emails') return req.headers.authorization === 'Bearer re_e2e' ? send(200, { id: 'email-1' }) : send(401, {});
+  // ---- Twilio (SMS + voice) ----
+  if (p.startsWith('/twilio/2010-04-01/Accounts/AC_e2e/')) {
+    if (req.headers.authorization !== `Basic ${Buffer.from('AC_e2e:tw-e2e').toString('base64')}`) return send(401, { message: 'auth' });
+    if (p.endsWith('/Messages.json')) return send(201, { sid: `SM${++twilioSeq}` });
+    if (p.endsWith('/Calls.json')) return send(201, { sid: `CA${++twilioSeq}` });
+  }
+  // ---- team chat incoming webhook (Slack / Teams / Google Chat) ----
+  if (p === '/chat') return send(200, { ok: true });
   send(404, {});
 });
 
@@ -259,15 +293,21 @@ const env = {
   FOODHUB_TRUST_PROXY: 'true', // the harness plays several clients through x-forwarded-for // report downloads are otherwise limited to https uber.com / amazonaws.com
   DASHBOARD_PASSWORD: PASSWORD,
   CRON_SECRET: 'cron-e2e',
-  UBER_BASE_URL: `${MOCK}/uber`, UBER_AUTH_URL: `${MOCK}/uber/oauth/v2/token`, UBER_CLIENT_ID: 'uber-id', UBER_CLIENT_SECRET: UBER_SECRET,
+  UBER_BASE_URL: `${MOCK}/uber`, UBER_AUTH_URL: `${MOCK}/uber/oauth/v2/token`, UBER_CLIENT_ID: 'uber-id', UBER_CLIENT_SECRET: UBER_SECRET, UBER_WEBHOOK_SIGNING_KEY: 'uber-signing-key-e2e',
   DOORDASH_BASE_URL: `${MOCK}/dd`, DOORDASH_DEVELOPER_ID: 'dd-dev-e2e', DOORDASH_KEY_ID: 'dd-key-e2e', DOORDASH_SIGNING_SECRET: DD_SECRET_B64, DOORDASH_PROVIDER_TYPE: 'takatak_e2e', DOORDASH_WEBHOOK_SECRET: 'dd-hook-e2e',
   SKIP_JET_BASE_URL: `${MOCK}/skip`, SKIP_JET_API_KEY: JET_API_KEY, SKIP_WEBHOOK_HMAC_SECRET: SKIP_HMAC, SKIP_WEBHOOK_API_KEY: SKIP_NOTIFY_KEY,
   TGTG_WEBHOOK_SECRET: 'tgtg-hook-e2e',
   CLOVER_BASE_URL: `${MOCK}/clover`, CLOVER_MERCHANT_ID: 'MAINMERCHANT', CLOVER_ACCESS_TOKEN: CLOVER_TOKEN,
   CLOVER_MERCHANT_TOKENS: JSON.stringify({ FAILMERCHANT: 'x' }), CLOVER_WEBHOOK_AUTH: 'clover-auth-e2e',
+  CLOVER_CLIENT_ID: 'CLVAPPE2E', CLOVER_CLIENT_SECRET: 'clover-app-secret-e2e', CLOVER_WEB_URL: 'https://www.clover.com',
+  FOODHUB_MEDIA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'fh-e2e-media-')),
   RESEND_API_KEY: 're_e2e', REPORT_EMAIL_FROM: 'TAKATAK Reports <reports@takatak.example>', RESEND_BASE_URL: `${MOCK}/resend`,
+  AUTH_EMAIL_FROM: 'TAKATAK <connexion@takatak.example>',
+  TWILIO_ACCOUNT_SID: 'AC_e2e', TWILIO_AUTH_TOKEN: 'tw-e2e', TWILIO_FROM: '+15140000000', TWILIO_BASE_URL: `${MOCK}/twilio`,
+  ALERT_WEBHOOK_URL: `${MOCK}/chat`,
+  FOODHUB_WATCH_INTERVAL_S: '0', // the e2e drives the Watchtower itself (cron/watch), so runs are deterministic
 };
-for (const k of ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'UBER_ACCESS_TOKEN', 'TGTG_SPEC_CONFIRMED', 'SESSION_SECRET', 'FOODHUB_CLOVER_AUTOPRINT', 'CLOVER_PRINT_DEVICE_ID', 'FOODHUB_SYNC_MIN_INTERVAL_S', 'FOODHUB_CLOVER_RECORD_PAYMENT', 'FOODHUB_CLOVER_ORDER_TYPES', 'FOODHUB_CLOVER_INVENTORY_SYNC', 'FOODHUB_CLOVER_DELETE_CANCELLED', 'FOODHUB_SCHEDULED_AFTER_MIN']) delete env[k];
+for (const k of ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'UBER_ACCESS_TOKEN', 'TGTG_SPEC_CONFIRMED', 'SESSION_SECRET', 'FOODHUB_CLOVER_AUTOPRINT', 'CLOVER_PRINT_DEVICE_ID', 'FOODHUB_SYNC_MIN_INTERVAL_S', 'FOODHUB_CLOVER_RECORD_PAYMENT', 'FOODHUB_CLOVER_ORDER_TYPES', 'FOODHUB_CLOVER_INVENTORY_SYNC', 'FOODHUB_CLOVER_DELETE_CANCELLED', 'FOODHUB_SCHEDULED_AFTER_MIN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'FOODHUB_INSECURE_SHOW_CODES', 'TWILIO_MESSAGING_SERVICE_SID', 'FOODHUB_OWNER_EMAIL', 'FOODHUB_OWNER_PHONE']) delete env[k];
 const app = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '-p', String(APP_PORT)], { env, stdio: ['ignore', 'pipe', 'pipe'] });
 let appLog = '';
 app.stdout.on('data', (d) => { appLog += d; });
@@ -283,8 +323,11 @@ try {
   check('API without sign-in → 401 JSON', (await call('GET', '/api/foodhub/command', { auth: false })).status === 401);
   check('login page is public', (await call('GET', '/login', { auth: false })).status === 200);
   const home = await call('GET', '/');
-  check('Command Center opens with the password', home.status === 200 && home.text.includes('TAKATAK Command Center'));
-  check('Finance overview moved to /finance', (await call('GET', '/finance')).status === 200);
+  check('console opens with the owner recovery password', home.status === 200 && home.text.includes('href="/orders"') && home.text.includes('href="/money"'));
+  check('Money section at /money', (await call('GET', '/money')).status === 200);
+  check('a malformed sign-in gets a clean error, never a stack trace', !(await call('POST', '/api/foodhub/auth/verify', { auth: false, body: { challengeId: 'x', code: 'abc' } })).text.includes(' at '));
+  { const rawK = '{"event_type":"e2e.ping","meta":{"resource_id":"e2e"}}';
+    check('Uber webhook accepts the dashboard Signing Key (Basic HMAC)', (await call('POST', '/api/foodhub/webhooks/uber-eats', { auth: false, raw: rawK, headers: { 'x-uber-signature': crypto.createHmac('sha256', 'uber-signing-key-e2e').update(rawK).digest('hex') } })).status === 200); }
   check('Uber webhook rejects a bad signature', (await call('POST', '/api/foodhub/webhooks/uber-eats', { auth: false, raw: '{"event_type":"orders.notification"}', headers: { 'x-uber-signature': 'deadbeef' } })).status === 401);
   check('DoorDash webhook rejects a wrong token', (await call('POST', '/api/foodhub/webhooks/doordash', { auth: false, headers: { authorization: 'nope' }, body: { id: 'x' } })).status === 401);
   check('Skip order webhook rejects a forged JET hash', (await call('POST', '/api/foodhub/webhooks/skip/orders', { auth: false, raw: '{"id":"x","items":[]}', headers: { 'x-jet-connect-hash': jetHash('{"id":"x","items":[]}', 'wrong-secret') } })).status === 401);
@@ -319,6 +362,8 @@ try {
   ids.uberFail = await mk({ channel: 'uber_eats', channelStoreId: 'uber-store-stl', brandName: 'Po Poulet', locationCode: 'SAINT_LEONARD', cloverMerchantId: 'FAILMERCHANT' });
   ids.tgtg = await mk({ channel: 'tgtg', channelStoreId: 'tgtg-ndg', brandName: 'Po Poulet', locationCode: 'NDG_MAIN' });
   check('7 store mappings saved', Object.values(ids).every((s) => s?.id));
+  const known = (await call('GET', '/api/foodhub/stores/known')).json?.stores || [];
+  check('your 7 Uber Eats store UUIDs are pre-loaded with their brand, waiting for a location', known.length === 7 && known.every((k) => k.suggestedBrand && !k.mapped) && known.find((k) => k.name === 'Nutri Shake')?.suggestedBrand === 'Nutrition Shake', JSON.stringify(known.map((k) => [k.name, k.suggestedBrand])));
   const disc = await call('POST', '/api/foodhub/stores/discover', { body: { channel: 'uber_eats' } });
   check('Uber store discovery returns the provisioned store', disc.json?.stores?.[0]?.id === 'uber-store-uuid-1');
 
@@ -450,7 +495,8 @@ try {
   const ev7 = (await call('GET', `/api/foodhub/orders/${o7?.id}`)).json?.events || [];
   check('TGTG bag order received, in Clover; accept logged as "nothing sent" (no fake API call)', o7?.locationCode === 'NDG_MAIN' && o7.status === 'accepted' && ev7.some((e) => e.type === 'accepted' && e.detail?.response?.status === 'skipped'));
   await call('POST', '/api/foodhub/webhooks/tgtg', { auth: false, headers: { authorization: 'tgtg-hook-e2e' }, body: { weird: true } });
-  check('unknown payload kept, not lost', !!(await waitFor(async () => (await call('GET', '/api/foodhub/channels')).json?.unparsed?.length === 1)));
+  const unparsedTgtg = await waitFor(async () => ((await call('GET', '/api/foodhub/channels')).json?.unparsed || []).find((j) => j.channel === 'tgtg'));
+  check('unknown payload kept, not lost', !!unparsedTgtg && JSON.stringify(unparsedTgtg.request).includes('weird'), JSON.stringify(unparsedTgtg)?.slice(0, 160));
 
   console.log('\n14. Automatic sync: platform status + Clover in-store sales');
   uberStatus.set('uber-store-uuid-1', { status: 'OFFLINE', offlineReason: 'OUT_OF_MENU_HOURS' });
@@ -525,10 +571,10 @@ try {
   check('operator cannot publish menus, manage users, see analytics or reveal secrets', denied.every((r) => r.status === 403), denied.map((r) => r.status).join(','));
   const opCc = (await call('GET', '/api/foodhub/command', { cookie })).json;
   check('operator Command Center shows HOCHELAGA only', opCc?.byLocation?.length === 1 && opCc.byLocation[0].locationCode === 'HOCHELAGA' && opCc.matrix.every((r) => r.locationCode === 'HOCHELAGA'));
-  const opPage = await call('GET', '/foodhub', { cookie });
-  check('operator menu hides admin pages', opPage.status === 200 && !opPage.text.includes('href="/foodhub/users"') && opPage.text.includes('Sign out') && opPage.text.includes('Sara'));
-  const noSess = await call('GET', '/foodhub/analytics', { auth: false, redirect: 'manual' });
-  check('pages without a session go to /login?next=…', [302, 307].includes(noSess.status) && /\/login\?next=%2Ffoodhub%2Fanalytics/.test(noSess.location || ''), noSess.location);
+  const opPage = await call('GET', '/', { cookie });
+  check('operator menu hides Money, Insights and admin pages', opPage.status === 200 && opPage.text.includes('href="/orders"') && !opPage.text.includes('href="/money"') && !opPage.text.includes('href="/insights"') && opPage.text.includes('Sara'));
+  const noSess = await call('GET', '/insights', { auth: false, redirect: 'manual' });
+  check('pages without a session go to /login?next=…', [302, 307].includes(noSess.status) && /\/login\?next=%2Finsights/.test(noSess.location || ''), noSess.location);
   check('a forged session cookie is refused', (await call('GET', '/api/foodhub/auth/me', { cookie: `${cookie.slice(0, -4)}AAAA` })).status === 401);
 
   console.log('\n17. Store hours + holidays → every platform');
@@ -601,6 +647,24 @@ try {
   check('menu check lists errors, warnings and tips + per-store publish status', chk?.check?.ok === false && Array.isArray(chk.check.warnings) && chk.check.tips.length > 0 && chk.stores.some((s) => s.channelStoreId === 'uber-store-uuid-1' && s.status === 'done'));
   await call('PUT', '/api/foodhub/menu', { body: { menu: m18 } });
   check('menu fixed → check passes again', (await call('GET', '/api/foodhub/menu/publish?brand=Po%20Poulet')).json?.check?.ok === true);
+
+  console.log('\n19b. Platform markup (in-store price stays in Clover, +20 % on DoorDash)');
+  const m19 = (await call('GET', '/api/foodhub/menu?brand=Po%20Poulet')).json.menu;
+  check('a markup outside -50..200 % is refused', (await call('PUT', '/api/foodhub/menu', { body: { menu: { ...m19, channelMarkupPct: { doordash: 500 } } } })).status === 400);
+  check('DoorDash +20 % saved on the menu', (await call('PUT', '/api/foodhub/menu', { body: { menu: { ...m19, channelMarkupPct: { doordash: 20 } } } })).json?.ok === true);
+  const before19b = log.length;
+  await call('POST', '/api/foodhub/menu/publish', { body: { brand: 'Po Poulet' } });
+  const after19b = log.slice(before19b);
+  const dd19 = after19b.find((e) => /\/dd\/api\/v1\/menus/.test(e.path) && e.body?.store?.merchant_supplied_id === 'dd-popoulet-ndg')?.body;
+  const ddItems19 = dd19?.menu?.categories?.flatMap((c) => c.items) || [];
+  const plain19 = m19.items.find((i) => !(i.channelPrices?.doordash > 0) && i.price > 0);
+  const ddPlain = ddItems19.find((i) => i.merchant_supplied_id === plain19?.ref);
+  check('DoorDash item price = in-store price × 1.20', !!ddPlain && ddPlain.price === Math.round(plain19.price * 120 + 1e-6), `${plain19?.price} → ${ddPlain?.price}`);
+  const ddMod19 = ddItems19.flatMap((i) => i.extras || []).flatMap((x) => x.options || []).find((o) => o.merchant_supplied_id === 'mod-1');
+  check('DoorDash modifier price marked up too (1.00 $ → 1.20 $)', ddMod19?.price === 120, JSON.stringify(ddMod19));
+  const uber19 = after19b.find((e) => e.method === 'PUT' && /uber-store-uuid-1\/menus$/.test(e.path))?.body;
+  check('Uber keeps its own per-item price (no markup set for Uber)', uber19?.items?.find((i) => i.id === 'clv-item-1')?.price_info?.price === 1649 && uber19.items.find((i) => i.id === 'mod:mod-1')?.price_info?.price === 100);
+  check('markup removed again', (await call('PUT', '/api/foodhub/menu', { body: { menu: { ...m19, channelMarkupPct: {} } } })).json?.ok === true);
 
   console.log('\n20. Scheduled publish');
   check('a time in the past is refused', (await call('POST', '/api/foodhub/menu/publish', { body: { brand: 'Po Poulet', at: new Date(Date.now() - 60_000).toISOString() } })).status === 400);
@@ -701,7 +765,9 @@ try {
   const kinds = new Set(acts.map((e) => e.kind));
   check('records orders, pauses, 86, menus, hours, users and sign-ins', ['order', 'store_status', 'item_availability', 'menu_publish', 'hours', 'users', 'login'].every((k) => kinds.has(k)), [...kinds].join(','));
   check('platform-side changes are logged too (store went offline on DoorDash)', acts.some((e) => e.kind === 'store_status' && e.source === 'platform'));
-  check('/api/backend/* with a bogus Basic header → 401 (never passes the gate unverified)', (await call('GET', '/api/backend/qa/seed', { auth: false, headers: { authorization: 'Basic eDp4' } })).status === 401);
+  const bogusPage = await call('GET', '/orders', { auth: false, redirect: 'manual', headers: { authorization: 'Basic eDp4' } });
+  check('a page with a bogus Basic header is sent to sign-in (never passes the gate unverified)', bogusPage.status >= 300 && bogusPage.status < 400 && String(bogusPage.location).includes('/login'), `${bogusPage.status} ${bogusPage.location}`);
+  check('/api/foodhub/* with a bogus Basic header → 401', (await call('GET', '/api/foodhub/activity?limit=1', { auth: false, headers: { authorization: 'Basic eDp4' } })).status === 401);
   check('failed sign-in is logged', acts.some((e) => e.kind === 'login' && e.status === 'failed'));
   check('activity filter by type', ((await call('GET', '/api/foodhub/activity?kinds=hours')).json?.entries || []).every((e) => e.kind === 'hours'));
 
@@ -879,8 +945,8 @@ try {
   const mli = await call('POST', '/api/foodhub/auth/login', { auth: false, body: { username: 'mo.hoch', password: 'manager-pass-1' } });
   const mcookie = (mli.cookie || '').split(';')[0];
   const mRecon = await call('GET', `/api/foodhub/recon?from=${today}&to=${today}`, { cookie: mcookie });
-  const mPage = await call('GET', '/foodhub', { cookie: mcookie });
-  check('a manager limited to one location cannot see payouts (they cover every location)', mli.status === 200 && mRecon.status === 403 && mPage.status === 200 && !mPage.text.includes('href="/finance/disputes"'));
+  const mPage = await call('GET', '/', { cookie: mcookie });
+  check('a manager limited to one location cannot see payouts (they cover every location)', mli.status === 200 && mRecon.status === 403 && mPage.status === 200 && !mPage.text.includes('href="/money"'));
 
   console.log('\n32. Too Good To Go daily bags');
   const yday = localDay(-1);
@@ -923,15 +989,237 @@ try {
   check('app icon served without sign-in', (await call('GET', '/icons/icon-192.png', { auth: false })).status === 200);
 
   console.log('\n35. Every screen renders');
-  const screens = ['/', '/foodhub', '/foodhub/orders', `/foodhub/orders/${o8?.id}`, `/foodhub/orders/${o8?.id}/ticket`, '/foodhub/menu', '/foodhub/availability', '/foodhub/hours', '/foodhub/stores', '/foodhub/analytics', '/foodhub/reports', '/foodhub/activity', '/foodhub/users', '/foodhub/business', '/foodhub/channels', '/go-live',
-    '/foodhub/tgtg', '/finance', '/finance/reconciliation', '/finance/disputes', '/finance/payouts', '/finance/ledger', '/finance/imports', '/finance/fees', '/fix-tasks'];
+  const screens = ['/', '/orders', `/orders/${o8?.id}`, `/ticket/${o8?.id}`, '/kitchen', '/stores', '/stores/hours', '/stores/mapping', '/menu', '/menu/86', '/alerts',
+    '/insights', '/insights/reports', '/insights/activity', '/money', '/money/reconciliation', '/money/disputes', '/money/payouts', '/money/ledger', '/money/statements', '/money/fees', '/money/tgtg',
+    '/settings', '/settings/profile', '/settings/team', '/settings/devices', '/settings/security', '/settings/alerts', '/settings/channels', '/settings/business', '/settings/go-live'];
   const rendered = await Promise.all(screens.map((s2) => call('GET', s2)));
-  check(`${screens.length} screens return 200`, rendered.every((r) => r.status === 200), screens.filter((_, i) => rendered[i].status !== 200).join(','));
-  const gl = rendered[screens.indexOf('/go-live')].text;
-  check('go-live checklist includes store hours, menus, users, printing, email', ['Store hours set for every location', 'Master menu built', 'Team logins created', 'Kitchen ticket auto-print', 'Report emails'].every((t) => gl.includes(t)));
-  check('go-live checklist includes Clover bookkeeping, commission plans, statements, French menus', ['Clover bookkeeping', 'Commission plans confirmed', 'First payout statement imported', 'French menus'].every((t) => gl.includes(t)));
-  const oldPages = await Promise.all(['/imports', '/ledger'].map((x) => call('GET', x, { redirect: 'manual' })));
-  check('old Imports / Ledger pages lead to the new Statements / Internal ledger', [307, 308].includes(oldPages[0].status) && /\/finance\/imports$/.test(oldPages[0].location || '') && /\/finance\/ledger$/.test(oldPages[1].location || ''), oldPages.map((r) => `${r.status} ${r.location}`).join(' '));
+  check(`${screens.length} screens return 200`, rendered.every((r) => r.status === 200), screens.filter((_, i) => rendered[i].status !== 200).map((x, i) => `${x}`).join(','));
+  const oldPages = await Promise.all(['/imports', '/ledger', '/finance/disputes', '/foodhub/orders', '/go-live'].map((x) => call('GET', x, { redirect: 'manual' })));
+  check('old bookmarks lead to the new pages', oldPages.every((r) => [307, 308].includes(r.status)) && /\/money\/statements$/.test(oldPages[0].location || '') && /\/money\/ledger$/.test(oldPages[1].location || '') && /\/money\/disputes$/.test(oldPages[2].location || '') && /\/orders$/.test(oldPages[3].location || '') && /\/settings\/go-live$/.test(oldPages[4].location || ''), oldPages.map((r) => `${r.status} ${r.location}`).join(' '));
+
+  console.log('\n36. RC10 — sign-in by code, kitchen tablets, staff PINs, manager approvals, cancellation alarm, Watchtower');
+  const twilioMsgs = () => log.filter((e) => e.method === 'POST' && e.path.endsWith('/Messages.json')).map((e) => Object.fromEntries(new URLSearchParams(String(e.body || ''))));
+  const twilioCalls = () => log.filter((e) => e.method === 'POST' && e.path.endsWith('/Calls.json')).map((e) => Object.fromEntries(new URLSearchParams(String(e.body || ''))));
+  const mails = () => log.filter((e) => e.path === '/resend/emails').map((e) => e.body);
+  check('first-run owner setup is closed once accounts exist', (await call('GET', '/api/foodhub/auth/setup', { auth: false })).json?.needed === false);
+
+  // --- people
+  const nadia = await call('POST', '/api/foodhub/users', { body: { name: 'Nadia Gérante', role: 'manager', locations: ['HOCHELAGA'], email: 'nadia@takatak.example', phone: '514 555 0177', pin: '4827', invite: true } });
+  check('manager added with email + cell + PIN; invitation emailed; no PIN or hash returned', nadia.json?.user?.username === 'nadia.gerante' && nadia.json.user.hasPin === true && nadia.json.user.phone === '+15145550177' && nadia.json.invite?.ok === true && !/pin1\$|scrypt/.test(nadia.text), nadia.text.slice(0, 300));
+  const leo = await call('POST', '/api/foodhub/users', { body: { name: 'Léo Cuisine', role: 'operator', locations: ['HOCHELAGA'], pin: '7342' } });
+  check('kitchen staff added with a PIN only (no email, no password)', leo.json?.user?.username === 'leo.cuisine' && leo.json.user.hasPin === true && !leo.json.user.email && leo.json.user.hasPassword === false);
+  check('a trivial PIN (1234) is refused', (await call('POST', '/api/foodhub/users', { body: { name: 'Bad Pin', role: 'operator', locations: ['HOCHELAGA'], pin: '1234' } })).status === 400);
+  check('the same PIN cannot belong to two people', (await call('POST', '/api/foodhub/users', { body: { name: 'Dup Pin', role: 'operator', locations: ['HOCHELAGA'], pin: '7342' } })).status === 400);
+
+  // --- sign-in by email code
+  const m0 = mails().length;
+  const st1 = await call('POST', '/api/foodhub/auth/start', { auth: false, body: { contact: ' Nadia@Takatak.example ' } });
+  const mail1 = await waitFor(async () => mails().slice(m0).find((m) => m?.to?.[0] === 'nadia@takatak.example'));
+  const code1 = /(\d{6})/.exec(mail1?.subject || '')?.[1];
+  check('sign-in code emailed from the sign-in address; masked on screen; never in the API answer (production)', st1.status === 200 && /^n•+@takatak\.example$/.test(st1.json?.sentTo || '') && !st1.json.devCode && !!code1 && /connexion@takatak\.example/.test(mail1.from) && (mail1.html || '').includes(code1), JSON.stringify(st1.json));
+  check('wrong code refused', (await call('POST', '/api/foodhub/auth/verify', { auth: false, body: { challengeId: st1.json?.challengeId, code: code1 === '000000' ? '111111' : '000000' } })).status === 401);
+  const v1 = await call('POST', '/api/foodhub/auth/verify', { auth: false, body: { challengeId: st1.json?.challengeId, code: code1 } });
+  const ncookie = (v1.cookie || '').split(';')[0];
+  check('right code → 14-day HttpOnly session', v1.status === 200 && /^takatak_session=/.test(ncookie) && /HttpOnly/i.test(v1.cookie || '') && /Max-Age=1209600/i.test(v1.cookie || ''), v1.cookie);
+  check('a code works only once', (await call('POST', '/api/foodhub/auth/verify', { auth: false, body: { challengeId: st1.json?.challengeId, code: code1 } })).status >= 400);
+  const meN = (await call('GET', '/api/foodhub/auth/me', { cookie: ncookie })).json?.user;
+  check('Nadia is a HOCHELAGA manager with a PIN', meN?.role === 'manager' && meN.locations?.[0] === 'HOCHELAGA' && meN.hasPin === true, JSON.stringify(meN));
+  const g0 = mails().length;
+  const ghost = await call('POST', '/api/foodhub/auth/start', { auth: false, body: { contact: 'stranger@example.com' } });
+  await sleep(200);
+  check('unknown email: same answer, nothing sent (nobody can probe who has access)', ghost.status === 200 && !!ghost.json?.challengeId && mails().length === g0);
+  for (let i = 0; i < 5; i++) await call('POST', '/api/foodhub/auth/start', { auth: false, body: { contact: 'stranger@example.com' } });
+  check('sign-in requests are rate-limited (5 per 15 min per contact)', (await call('POST', '/api/foodhub/auth/start', { auth: false, body: { contact: 'stranger@example.com' } })).status === 429);
+
+  // --- sign-in by SMS + one-tap link
+  const s0 = twilioMsgs().length;
+  const st2 = await call('POST', '/api/foodhub/auth/start', { auth: false, body: { contact: '514-555-0177', next: '/orders' } });
+  const sms2 = await waitFor(async () => twilioMsgs().slice(s0).find((m) => m.To === '+15145550177'));
+  const code2 = /(?:code est|code is) (\d{6})/.exec(sms2?.Body || '')?.[1];
+  check('code by SMS (Twilio) with the one-tap link and the auto-fill line (@domain #code)', st2.json?.channel === 'sms' && !!code2 && (sms2.Body || '').includes(`@takatak.example #${code2}`) && (sms2.Body || '').includes('/api/foodhub/auth/link?c='), sms2?.Body);
+  const link2 = /https:\/\/takatak\.example(\/api\/foodhub\/auth\/link\?c=\S+)/.exec(sms2?.Body || '')?.[1] || '/x';
+  const lk = await call('GET', link2, { auth: false, redirect: 'manual' });
+  check('one-tap link signs in and opens the page asked for', [302, 307].includes(lk.status) && lk.location === 'https://takatak.example/orders' && /takatak_session=/.test(lk.cookie || ''), `${lk.status} ${lk.location}`);
+  check('the link works only once', /\/login\?error=/.test((await call('GET', link2, { auth: false, redirect: 'manual' })).location || ''));
+  const ob = await call('GET', '/api/foodhub/messages');
+  check('message log keeps masked numbers and never the sign-in codes', ob.status === 200 && ob.json?.messages?.some((m) => m.purpose === 'sign_in') && !ob.text.includes(code1) && !ob.text.includes(code2) && !ob.text.includes('5145550177'));
+
+  // --- kitchen tablet
+  const en = await call('POST', '/api/foodhub/devices', { cookie: ncookie, body: { name: 'Passe Hochelaga', locationCode: 'HOCHELAGA' } });
+  const dcookie = (en.cookie || '').split(';')[0];
+  check('manager enrols the HOCHELAGA tablet (1-year signed device cookie)', en.json?.ok === true && /^takatak_device=/.test(dcookie) && /Max-Age=31536000/.test(en.cookie || ''), en.cookie);
+  check('a manager cannot enrol a tablet for another kitchen', (await call('POST', '/api/foodhub/devices', { cookie: ncookie, body: { name: 'X', locationCode: 'NDG_MAIN' } })).status === 403);
+  const lockRedirect = await call('GET', '/orders', { auth: false, cookie: dcookie, redirect: 'manual' });
+  check('the tablet opens the PIN screen, not the email sign-in', [302, 307].includes(lockRedirect.status) && /\/kitchen\/lock/.test(lockRedirect.location || ''), `${lockRedirect.status} ${lockRedirect.location}`);
+  check('PIN screen loads on the tablet', (await call('GET', '/kitchen/lock', { auth: false, cookie: dcookie })).status === 200);
+  const people = (await call('GET', '/api/foodhub/auth/pin', { auth: false, cookie: dcookie })).json;
+  check('PIN screen lists HOCHELAGA people with a PIN — no contact details', people?.device?.locationCode === 'HOCHELAGA' && people.people.some((x) => x.username === 'leo.cuisine') && people.people.some((x) => x.username === 'nadia.gerante') && !JSON.stringify(people).includes('takatak.example'), JSON.stringify(people));
+  check('PIN screen refused on a normal browser', (await call('GET', '/api/foodhub/auth/pin', { auth: false })).status === 403);
+  const hb1 = await call('POST', '/api/foodhub/devices/heartbeat', { auth: false, cookie: dcookie, body: { soundOn: false, visible: true, battery: 0.42, charging: false, screen: 'lock' } });
+  check('tablet heartbeat: counts orders waiting and orders cancelled by the customer', hb1.json?.ok === true && typeof hb1.json.waiting === 'number' && hb1.json.cancelled >= 1, JSON.stringify(hb1.json));
+  check('wrong PIN refused on the tablet', (await call('POST', '/api/foodhub/auth/pin', { auth: false, cookie: dcookie, body: { username: 'leo.cuisine', pin: '9031' } })).status === 401);
+  const un = await call('POST', '/api/foodhub/auth/pin', { auth: false, cookie: dcookie, body: { username: 'leo.cuisine', pin: '7342' } });
+  const lcookie = `${dcookie}; ${(un.cookie || '').split(';')[0]}`;
+  check('Léo unlocks with his PIN (14-hour session tied to the tablet)', un.status === 200 && /Max-Age=50400/.test(un.cookie || ''), un.cookie);
+  const meL = (await call('GET', '/api/foodhub/auth/me', { cookie: lcookie })).json?.user;
+  check('staff session knows its tablet and kitchen', meL?.role === 'operator' && meL.device?.locationCode === 'HOCHELAGA', JSON.stringify(meL));
+  await call('POST', '/api/foodhub/devices/heartbeat', { cookie: lcookie, body: { soundOn: true, visible: true, battery: 0.42, charging: true, screen: 'console' } });
+  const myDev = (await call('GET', '/api/foodhub/devices', { cookie: ncookie })).json?.devices?.find((d) => d.name === 'Passe Hochelaga');
+  check('tablet listed online with battery and who is signed in', myDev?.status === 'online' && myDev.battery === 0.42 && myDev.soundOn === true && myDev.signedIn === 'Léo Cuisine', JSON.stringify(myDev));
+
+  // --- cancellation alarm
+  const pz0 = (await call('GET', '/api/foodhub/pulse', { cookie: lcookie })).json;
+  const cAl = (pz0?.cancelAlerts || []).find((x) => x.id === o4?.id);
+  check('order cancelled by the customer → red alarm on the HOCHELAGA tablet', cAl?.cancelledBy === 'customer' && cAl.wasCooking === true, JSON.stringify(pz0?.cancelAlerts));
+  const ackC = await call('POST', `/api/foodhub/orders/${o4?.id}`, { cookie: lcookie, body: { action: 'ack' } });
+  const pz1 = (await call('GET', '/api/foodhub/pulse', { cookie: lcookie })).json;
+  check('"Got it" clears the alarm on every screen (logged)', ackC.json?.result?.ok === true && !(pz1?.cancelAlerts || []).some((x) => x.id === o4?.id) && (await call('POST', '/api/foodhub/devices/heartbeat', { auth: false, cookie: dcookie, body: {} })).json?.cancelled === 0);
+
+  // --- manager approvals
+  await skipWebhook('orders', skipOrder('skip-order-0036', 'HOCH-POPOULET', 'tx-0036'));
+  const o36 = await waitFor(async () => { const o = await findOrder('skip-order-0036'); return o?.posOrderId ? o : null; });
+  const pz2 = (await call('GET', '/api/foodhub/pulse', { cookie: lcookie })).json;
+  check('live pulse: new order pops up on the HOCHELAGA tablet with its Skip deadline (and only HOCHELAGA)', pz2?.incoming?.some((x) => x.id === o36?.id && x.deadlineAt) && pz2.incoming.every((x) => x.locationCode === 'HOCHELAGA'));
+  const rj1 = await call('POST', `/api/foodhub/orders/${o36?.id}`, { cookie: lcookie, body: { action: 'deny', reasonCode: 'out_of_stock' } });
+  check('staff reject → 428: manager PIN needed', rj1.status === 428 && rj1.json?.needsApproval === true && rj1.json.action === 'order.reject' && /Refuser/.test(rj1.json.labelFr || ''), rj1.text.slice(0, 200));
+  const rj2 = await call('POST', `/api/foodhub/orders/${o36?.id}`, { cookie: lcookie, headers: { 'x-approval-pin': '7342' }, body: { action: 'deny', reasonCode: 'out_of_stock' } });
+  check('staff cannot approve with their own PIN', rj2.status === 403 && rj2.json?.wrongPin === true);
+  const rj3 = await call('POST', `/api/foodhub/orders/${o36?.id}`, { cookie: lcookie, headers: { 'x-approval-pin': '4827' }, body: { action: 'deny', reasonCode: 'out_of_stock' } });
+  check('Nadia’s PIN approves: Skip order handed back to the Skip tablet, approver kept on the order', rj3.status === 200 && rj3.json?.order?.status === 'failed' && rj3.json.order.timeline?.approvedBy === 'Nadia Gérante' && sent('POST', /^\/skip\/order\/skip-order-0036\/sent-to-pos-failed$/).length === 1, rj3.text.slice(0, 300));
+  const act36 = (await call('GET', '/api/foodhub/activity?limit=80')).json?.entries || [];
+  check('activity log: "Nadia approved … for Léo"', JSON.stringify(act36).includes('Nadia Gérante approved'), JSON.stringify(act36).slice(0, 200));
+  check('a store-cancelled order does not ring the cancellation alarm', !((await call('GET', '/api/foodhub/pulse', { cookie: lcookie })).json?.cancelAlerts || []).some((x) => x.id === o36?.id));
+  check('staff pausing a store also needs a manager', (await call('POST', '/api/foodhub/stores/status', { cookie: lcookie, body: { storeIds: [ids.skipManual.id], online: false } })).status === 428);
+  check('staff cannot touch money at all (no permission)', (await call('POST', '/api/foodhub/recon/run', { cookie: lcookie, body: {} })).status === 403);
+  const pol = await call('PUT', '/api/foodhub/security', { body: { policy: { 'order.delay': 'manager', bogus: 'off', 'order.reject': 'nope' } } });
+  check('owner changes the PIN rules (unknown values ignored)', pol.json?.policy?.['order.delay'] === 'manager' && pol.json.policy['order.reject'] === 'manager' && !('bogus' in (pol.json.policy || {})));
+  check('a manager cannot change the PIN rules', (await call('PUT', '/api/foodhub/security', { cookie: ncookie, body: { policy: { 'order.reject': 'off' } } })).status === 403);
+
+  // --- Watchtower
+  check('Watchtower cron refuses a missing secret', (await call('GET', '/api/foodhub/cron/watch', { auth: false })).status === 401);
+  const ws = await call('PUT', '/api/foodhub/watch/settings', { body: { settings: { unacceptedAfterSec: 20, supportPhones: ['514 555 0199'] } } });
+  check('alert rules saved (thresholds clamped, support line normalised)', ws.json?.settings?.unacceptedAfterSec === 20 && ws.json.settings.supportPhones?.[0] === '+15145550199', JSON.stringify(ws.json?.settings));
+  await call('POST', '/api/foodhub/catalog', { body: { location: { code: 'HOCHELAGA', name: 'HOCHELAGA', address: '3583 Rue Sainte-Catherine E', city: 'Montréal', phone: '514-555-0100', active: true } } });
+  await skipWebhook('orders', skipOrder('skip-order-0037', 'HOCH-POPOULET', 'tx-0037'));
+  const o37 = await waitFor(async () => { const o = await findOrder('skip-order-0037'); return o?.posOrderId ? o : null; });
+  await sleep(21_000);
+  const wr = await call('GET', '/api/foodhub/cron/watch', { auth: false, headers: { authorization: 'Bearer cron-e2e' } });
+  const inc37 = ((await call('GET', '/api/foodhub/incidents?status=open')).json?.incidents || []).find((i) => i.orderId === o37?.id);
+  check('order waiting 20 s → Watchtower incident with a plain explanation (rules, no AI key)', wr.json?.report?.ran === true && inc37?.kind === 'order_unaccepted' && (inc37.explanation || '').length > 20, JSON.stringify(wr.json?.report));
+  check('incident posted to the team chat', log.some((e) => e.path === '/chat' && /skip-order-0037|SK0037|attend/.test(JSON.stringify(e.body))));
+  check('incident shows on every screen of that kitchen (pulse)', ((await call('GET', '/api/foodhub/pulse', { cookie: lcookie })).json?.incidents?.top || []).some((i) => i.id === inc37?.id));
+  const ack37 = await call('POST', '/api/foodhub/incidents', { cookie: ncookie, body: { id: inc37?.id, action: 'ack' } });
+  check('"I’m on it" stops the escalation', ack37.json?.incident?.status === 'acknowledged');
+  await call('POST', `/api/foodhub/orders/${o37?.id}`, { cookie: ncookie, body: { action: 'accept' } });
+  await call('POST', '/api/foodhub/watch/run', { body: {} }); // "Check now" (the cron is throttled to one run per 20 s)
+  await sleep(100);
+  const r37 = (await call('GET', `/api/foodhub/incidents?id=${inc37?.id}&days=1`)).json?.incidents?.[0];
+  check('order accepted → incident closes by itself', r37?.status === 'resolved', JSON.stringify(r37 && { s: r37.status }));
+  const dl = await call('POST', `/api/foodhub/orders/${o37?.id}`, { cookie: lcookie, body: { action: 'delay', delayMinutes: 5 } });
+  check('"+5 min" now needs a manager (rule changed by the owner)', dl.status === 428);
+  const dl2 = await call('POST', `/api/foodhub/orders/${o37?.id}`, { cookie: lcookie, headers: { 'x-approval-pin': '4827' }, body: { action: 'delay', delayMinutes: 5 } });
+  check('approved "+5 min" moves the kitchen timer', dl2.json?.result?.ok === true && dl2.json.order.timeline.delayedMinutes === 5);
+
+  // --- tests, profile, copilot
+  const tsms = await call('POST', '/api/foodhub/watch/test', { cookie: ncookie, body: { channel: 'sms' } });
+  check('"Text me a test" goes out through Twilio', tsms.json?.result?.ok === true && twilioMsgs().some((m) => m.To === '+15145550177' && /test/i.test(m.Body)));
+  const tcall = await call('POST', '/api/foodhub/watch/test', { cookie: ncookie, body: { channel: 'call' } });
+  check('"Call me": Twilio voice call reading the alert twice in French', tcall.json?.result?.ok === true && /<Say[^>]*fr-CA[^>]*>[\s\S]*<Say[^>]*fr-CA/.test(twilioCalls().pop()?.Twiml || ''));
+  check('"Test chat" reaches the team chat', (await call('POST', '/api/foodhub/watch/test', { body: { channel: 'chat' } })).json?.result?.ok === true);
+  check("you can't take someone else's PIN", (await call('POST', '/api/foodhub/auth/my-pin', { cookie: ncookie, body: { pin: '7342' } })).status === 400);
+  const prof = await call('PATCH', '/api/foodhub/auth/me', { cookie: ncookie, body: { prefs: { lang: 'en', alertCall: false } } });
+  check('profile: language and alert choices saved', prof.json?.user?.prefs?.lang === 'en' && prof.json.user.prefs.alertCall === false && prof.json.user.prefs.alertSms === true);
+  const cp = await call('POST', '/api/foodhub/copilot', { cookie: ncookie, body: { question: 'Combien de commandes aujourd’hui ?', lang: 'fr' } });
+  check('copilot answers without an AI key (built-in rules)', cp.status === 200 && typeof cp.json?.answer === 'string' && cp.json.answer.length > 10 && cp.json.source === 'rules');
+
+  // --- lost tablet
+  const rv = await call('DELETE', `/api/foodhub/devices/${myDev?.id}`, { cookie: ncookie });
+  check('lost tablet removed → its staff session and PIN screen stop at once', rv.json?.ok === true && (await call('GET', '/api/foodhub/auth/me', { cookie: lcookie })).status === 401 && (await call('POST', '/api/foodhub/auth/pin', { auth: false, cookie: dcookie, body: { username: 'leo.cuisine', pin: '7342' } })).status === 403);
+  await call('POST', '/api/foodhub/users', { body: { username: 'nadia.gerante', active: false } });
+  check('removing a person signs them out everywhere', (await call('GET', '/api/foodhub/auth/me', { cookie: ncookie })).status === 401);
+
+  console.log('\n37. Clover App Market app — connect a merchant, keep tokens server-side, uninstall');
+  const cst = await call('GET', '/api/foodhub/clover-connect/start', { redirect: 'manual' });
+  const cAuth = cst.location ? new URL(cst.location) : null;
+  check('"Connect a Clover merchant" sends the owner to Clover with the Food Hub callback', [302, 307].includes(cst.status) && cAuth?.origin === 'https://www.clover.com' && cAuth.pathname === '/oauth/v2/authorize' && cAuth.searchParams.get('client_id') === 'CLVAPPE2E' && cAuth.searchParams.get('redirect_uri') === 'https://takatak.example/api/foodhub/clover-connect/callback', `${cst.status} ${cst.location}`);
+  check('starting a Clover connection needs sign-in', [302, 307, 401].includes((await call('GET', '/api/foodhub/clover-connect/start', { auth: false, redirect: 'manual' })).status));
+  const cBad = await call('GET', '/api/foodhub/clover-connect/callback?code=nope&merchant_id=APPMERCHANT&client_id=CLVAPPE2E', { auth: false, redirect: 'manual' });
+  check('a refused Clover code shows an error, no connection', /\/welcome\/clover\?status=error/.test(cBad.location || ''), cBad.location);
+  const cOther = await call('GET', '/api/foodhub/clover-connect/callback?code=clv-good-code&merchant_id=APPMERCHANT&client_id=SOMEOTHERAPP', { auth: false, redirect: 'manual' });
+  check('a code for another Clover app is refused', /status=error/.test(cOther.location || ''), cOther.location);
+  const cOk = await call('GET', '/api/foodhub/clover-connect/callback?code=clv-good-code&merchant_id=APPMERCHANT&client_id=CLVAPPE2E', { auth: false, redirect: 'manual' });
+  check('unknown merchant opening the app from Clover waits for the owner (public welcome page)', /\/welcome\/clover\?status=pending&mid=APPMERCHANT/.test(cOk.location || ''), cOk.location);
+  const welcome = await call('GET', new URL(cOk.location || 'http://x/').pathname + new URL(cOk.location || 'http://x/').search, { auth: false });
+  check('welcome page opens without sign-in and says it is waiting for approval', welcome.status === 200 && welcome.text.includes('Demande reçue') && welcome.text.includes('On2GO.CA (app)'), String(welcome.status));
+  const chPending = (await call('GET', '/api/foodhub/channels')).json?.clover?.app;
+  check('Channels shows it as pending; it is not used for orders or sync yet', chPending?.merchants?.find((m) => m.merchantId === 'APPMERCHANT')?.status === 'pending');
+  check('only the owner can approve a Clover merchant', (await call('POST', '/api/foodhub/clover-connect/merchants', { auth: false, body: { merchantId: 'APPMERCHANT' } })).status === 401);
+  check('owner approves it', (await call('POST', '/api/foodhub/clover-connect/merchants', { body: { merchantId: 'APPMERCHANT' } })).json?.approved === 'APPMERCHANT');
+  const chApp = (await call('GET', '/api/foodhub/channels?reveal=1')).json?.clover?.app;
+  check('Channels lists the approved merchant with its Clover name', chApp?.merchants?.some((m) => m.merchantId === 'APPMERCHANT' && m.name === 'On2GO.CA (app)' && m.status === 'active') && chApp.siteUrl === 'https://takatak.example' && chApp.launchPath === '/api/foodhub/clover-connect/callback');
+  check('Channels gives the privacy, terms and support URLs for the Clover listing', chApp?.legal?.privacy === 'https://takatak.example/legal/privacy' && chApp.legal.terms === 'https://takatak.example/legal/terms' && chApp.legal.support === 'https://takatak.example/legal/support' && chApp.legalStatus?.approved === false && chApp.legalStatus.supportEmailSet === false);
+  const legalPages = await Promise.all(['/legal/privacy', '/legal/terms', '/legal/support'].map((u) => call('GET', u, { auth: false })));
+  check('privacy, terms and support pages are public, in French and English', legalPages.every((r) => r.status === 200) && legalPages[0].text.includes('Politique de confidentialité') && legalPages[0].text.includes('Commission d’accès à l’information') && legalPages[1].text.includes('La version française prévaut') && legalPages[2].text.includes('Soutien'), legalPages.map((r) => r.status).join(','));
+  check('Clover app tokens and secret are never sent to the browser', !JSON.stringify(chApp || {}).includes(CLOVER_APP_TOKEN) && !JSON.stringify(chApp || {}).includes('clv-refresh-e2e') && !JSON.stringify(chApp || {}).includes('clover-app-secret-e2e'));
+  const mlist = await call('GET', '/api/foodhub/clover-connect/merchants');
+  check('merchant list API works and hides tokens', mlist.status === 200 && mlist.json?.merchants?.length >= 1 && !mlist.text.includes(CLOVER_APP_TOKEN));
+  check('Clover app uninstall (A:<appId> DELETE) refused without X-Clover-Auth', (await call('POST', '/api/foodhub/webhooks/clover', { auth: false, body: { appId: 'CLVAPPE2E', merchants: { APPMERCHANT: [{ objectId: 'A:CLVAPPE2E', type: 'DELETE' }] } } })).status === 401);
+  const cUninstall = await call('POST', '/api/foodhub/webhooks/clover', { auth: false, headers: { 'x-clover-auth': 'clover-auth-e2e' }, body: { appId: 'CLVAPPE2E', merchants: { APPMERCHANT: [{ objectId: 'A:CLVAPPE2E', type: 'DELETE' }] } } });
+  const gone = await waitFor(async () => !((await call('GET', '/api/foodhub/clover-connect/merchants')).json?.merchants || []).some((m) => m.merchantId === 'APPMERCHANT'));
+  check('merchant that uninstalls the app is disconnected', cUninstall.status === 200 && !!gone);
+
+  console.log('\n38. DoorDash orders received through Clover\'s own DoorDash integration (read-only)');
+  if (!cloverOrderTypes.some((t) => t.label === 'DoorDash')) cloverOrderTypes.push({ id: 'OT-DD-NATIVE', label: 'DoorDash' });
+  const ddType = cloverOrderTypes.find((t) => t.label === 'DoorDash');
+  cloverNativeOrders.push({
+    mid: 'MAINMERCHANT', id: 'DDNATIVE-1', createdTime: Date.now() - 125_000, title: 'DoorDash #9F3K2', total: 2499, currency: 'CAD', state: 'locked', orderType: { id: ddType.id },
+    lineItems: { elements: [{ id: 'L1', name: 'Poulet Grillé', price: 1599, item: { id: 'clv-item-1' }, modifications: { elements: [{ name: 'Piri-piri', amount: 100 }] } }, { id: 'L2', name: 'Frites', price: 499 }] },
+    payments: { elements: [{ id: 'P-DDN', amount: 2499, taxAmount: 301, tipAmount: 0, tender: { id: 'T-DDN', label: 'DoorDash' } }] },
+  });
+  cloverPayments.push({ id: 'P-DDN', amount: 2499, taxAmount: 301, tipAmount: 0, result: 'SUCCESS', order: { id: 'DDNATIVE-1' }, tender: { id: 'T-DDN', label: 'DoorDash' } });
+  const injectsBefore = sent('POST', /\/atomic_order\/orders$/).length;
+  const sy38 = await call('POST', '/api/foodhub/sync', { body: { force: true } });
+  const main38 = sy38.json?.report?.clover?.find((c) => c.merchantId === 'MAINMERCHANT');
+  check('sync reads the DoorDash order Clover received by itself', main38?.platformOrders === 1, JSON.stringify(main38));
+  check('…and it is never counted as an in-store sale ($35.00)', main38?.net === 35, JSON.stringify(main38));
+  const native = (await call('GET', '/api/foodhub/orders?limit=500')).json.orders.find((o) => o.externalOrderId === 'clover-DDNATIVE-1');
+  check('it shows in Food Hub as a DoorDash order "via Clover", already in the kitchen', native?.channel === 'doordash' && native.viaPos === 'clover' && native.status === 'accepted' && native.posOrderId === 'DDNATIVE-1' && native.displayId === '9F3K2' && native.total === 24.99, JSON.stringify(native && { ch: native.channel, via: native.viaPos, st: native.status, d: native.displayId }));
+  const nd = (await call('GET', `/api/foodhub/orders/${native?.id}`)).json;
+  check('read-only: no accept / reject / cancel / resend — only Ready, Completed, Reprint', JSON.stringify(nd?.actions) === JSON.stringify(['ready', 'complete', 'print']), JSON.stringify(nd?.actions));
+  check('refused: cancel is not possible on a via-Clover order', (await call('POST', `/api/foodhub/orders/${native?.id}`, { body: { action: 'cancel', reasonCode: 'other' } })).json?.result?.ok !== true);
+  const nDone = await call('POST', `/api/foodhub/orders/${native?.id}`, { body: { action: 'complete' } });
+  check('completed in Food Hub only: no Clover payment recorded, not sent to Clover again', nDone.json?.order?.status === 'completed' && !payPosts().some((e) => e.path.endsWith('/orders/DDNATIVE-1/payments')) && sent('POST', /\/atomic_order\/orders$/).length === injectsBefore);
+  const sy38b = await call('POST', '/api/foodhub/sync', { body: { force: true } });
+  check('read only once (next sync adds nothing)', (sy38b.json?.report?.clover?.find((c) => c.merchantId === 'MAINMERCHANT')?.platformOrders ?? -1) === 0 && (await call('GET', '/api/foodhub/orders?limit=500')).json.orders.filter((o) => o.externalOrderId === 'clover-DDNATIVE-1').length === 1);
+
+  console.log('\n39. Menu photo upload (served publicly for the delivery apps)');
+  const pngBuf = Buffer.alloc(33);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(pngBuf, 0);
+  pngBuf.writeUInt32BE(13, 8); pngBuf.write('IHDR', 12, 'ascii'); pngBuf.writeUInt32BE(1200, 16); pngBuf.writeUInt32BE(800, 20);
+  const upload = async (buf, type, auth = true) => {
+    const fd = new FormData();
+    fd.append('file', new Blob([buf], { type }), 'photo');
+    const res = await fetch(`${APP}/api/foodhub/media`, { method: 'POST', headers: auth ? { authorization: basic } : {}, body: fd });
+    return { status: res.status, json: await res.json().catch(() => null) };
+  };
+  const up = await upload(pngBuf, 'image/png');
+  check('photo uploaded → public URL on Food Hub', up.status === 200 && /^https:\/\/takatak\.example\/media\/[a-f0-9]{24}\.png$/.test(up.json?.url || '') && up.json.width === 1200, JSON.stringify(up.json));
+  const mediaPath = new URL(up.json?.url || 'https://x/none').pathname;
+  const served = await call('GET', mediaPath, { auth: false });
+  check('photo served without sign-in (Uber / DoorDash / Skip download it)', served.status === 200 && served.contentType === 'image/png' && served.buf.length === 33);
+  check('a file that is not a photo is refused', (await upload(Buffer.from('<script>alert(1)</script>'), 'image/png')).status === 415);
+  check('upload needs sign-in', [401, 302, 307].includes((await upload(pngBuf, 'image/png', false)).status));
+  check('no path tricks on the public photo route', (await call('GET', '/media/..%2F..%2Fpackage.json', { auth: false })).status === 404);
+
+  console.log('\n40. Clover kitchen printing check (items without a printer label)');
+  const lab = (await call('GET', '/api/foodhub/clover-labels?merchantId=MAINMERCHANT')).json;
+  check('lists the items no printer label covers (hidden items ignored)', lab?.report?.ok === true && lab.report.unprintedCount === 2 && lab.report.items === 2 && lab.report.kitchenLabels.length === 1 && lab.report.kitchenLabels[0].name === 'Cuisine', JSON.stringify(lab?.report && { n: lab.report.unprintedCount, k: lab.report.kitchenLabels }));
+  check('a label without a printer cannot be used', (await call('POST', '/api/foodhub/clover-labels', { body: { merchantId: 'MAINMERCHANT', tagId: 'TAG-B', all: true } })).status === 400);
+  const labAdd = await call('POST', '/api/foodhub/clover-labels', { body: { merchantId: 'MAINMERCHANT', tagId: 'TAG-K', all: true } });
+  check('owner adds the kitchen label in Clover (links only)', labAdd.json?.added === 2 && cloverTagLinks.filter((l) => l.tag === 'TAG-K').length === 2, JSON.stringify(labAdd.json));
+  check('re-check: every item now prints in the kitchen', (await call('GET', '/api/foodhub/clover-labels?merchantId=MAINMERCHANT')).json?.report?.unprintedCount === 0);
+  check('unknown merchant refused', (await call('GET', '/api/foodhub/clover-labels?merchantId=NOPE')).status === 404);
+  check('Clover tax check flags "Sales Tax" 0.14975 % (should be 14.975 %), read-only', lab?.taxes?.ok === true && /14\.975%/.test(lab.taxes.problems?.[0] || '') && !log.some((e) => /tax_rates/.test(e.path) && e.method !== 'GET'), JSON.stringify(lab?.taxes));
 
   await sleep(300);
   const crashes = appLog.split('\n').filter((l) => /\[foodhub\] .* failed|Unhandled|TypeError|ReferenceError/.test(l));
@@ -944,8 +1232,8 @@ try {
 }
 
 if (DEMO && !failed) {
-  console.log(`\nDemo running with simulated platforms: http://localhost:${APP_PORT}/   (Command Center)`);
-  console.log(`Sign in as "owner" with password "${PASSWORD}" (or sara.hoch is disabled at the end of the run). A new simulated order arrives every 40 s. Ctrl+C to stop.`);
+  console.log(`\nDemo running with simulated platforms: http://localhost:${APP_PORT}/`);
+  console.log(`Sign in with "Owner recovery sign-in": user "owner", password "${PASSWORD}". A new simulated order arrives every 40 s. Ctrl+C to stop.`);
   uberStatus.set('uber-store-uuid-1', { status: 'ONLINE' });
   let n = 100;
   const tick = async () => {

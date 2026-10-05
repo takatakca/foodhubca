@@ -21,9 +21,11 @@ import { runDuePublishes } from './menu/schedule';
 import { fireDueScheduled } from './scheduling';
 import { applyHolidayClosures, reenableExpiredItems, reopenExpiredPauses } from './ops';
 import { sendDueReports } from './reports';
-import { cloverReadiness, cloverSalesSince, knownCloverMerchants, type CloverSales } from './pos/clover';
+import { cloverReadiness, cloverSalesSince, allCloverMerchants, type CloverSales } from './pos/clover';
+import { importCloverPlatformOrders } from './pos/clover-platform-orders';
 import { getRepo } from './repo';
 import { startOfLocalDayMs } from './time';
+import { runWatch, type WatchReport } from './watch/engine';
 import type { ChannelKey, ChannelStore, PlatformState, PlatformStatus, StoredOrder } from './types';
 
 export interface StoreSyncRow {
@@ -63,10 +65,12 @@ export interface SyncReport {
   /** Once a day: reconciliation cases opened / closed. */
   recon: { opened: number; closed: number } | null;
   stores: StoreSyncRow[];
-  clover: Array<CloverSales & { locationCodes: string[] }>;
+  clover: Array<CloverSales & { locationCodes: string[]; platformOrders?: number; platformOrdersError?: string }>;
   cloverConfigured: boolean;
   /** Per-platform problems of this run (a platform that stopped answering, Clover sales failures…). Partial reports are still saved. */
   platformErrors?: Partial<Record<ChannelKey | 'clover', string>>;
+  /** Watchtower run that followed the sync. */
+  watch?: WatchReport | null;
 }
 
 const LAST_KEY = 'sync:last';
@@ -224,7 +228,7 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
     const dayStart = startOfLocalDayMs();
     const todays = await repo.listOrders({ since: new Date(dayStart).toISOString(), limit: 2000 });
     const injected = new Set(todays.map((o) => o.posOrderId).filter(Boolean) as string[]);
-    const merchants = knownCloverMerchants(stores.map((s) => s.cloverMerchantId));
+    const merchants = await allCloverMerchants(stores.map((s) => s.cloverMerchantId));
 
     // Each platform polls with its own pool, so one platform that hangs never starves the others; after
     // MAX_CONSECUTIVE_TIMEOUTS in a row the rest of that platform is skipped for this run (reported, not hidden).
@@ -246,9 +250,13 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
       ['push-only', pool(stores.filter((s) => s.channel !== 'uber_eats' && s.channel !== 'doordash'), 8, (s) => pollStore(s).catch((e) => errorRow(s, e)))],
     ];
     const cloverRun = pool(merchants, 3, async (mid) => {
-      const sales = await cloverSalesSince(mid, dayStart, injected);
+      // Delivery orders that reached Clover through Clover's own platform integration: added to Food Hub
+      // (read-only) and kept out of the in-store sales.
+      const viaClover = await importCloverPlatformOrders(mid).catch((e) => ({ imported: 0, posOrderIds: [] as string[], error: String(e?.message ?? e) }));
+      const excluded = new Set([...injected, ...viaClover.posOrderIds]);
+      const sales = await cloverSalesSince(mid, dayStart, excluded);
       const locationCodes = [...new Set(stores.filter((s) => (s.cloverMerchantId || process.env.CLOVER_MERCHANT_ID) === mid).map((s) => s.locationCode))];
-      return { ...sales, locationCodes };
+      return { ...sales, locationCodes, platformOrders: viaClover.imported, ...(viaClover.error ? { platformOrdersError: viaClover.error } : {}) };
     });
     const settled = await Promise.allSettled([...groups.map(([, p]) => p), cloverRun]);
     const storeRows: StoreSyncRow[] = [];
@@ -282,6 +290,8 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
       ...(Object.keys(platformErrors).length ? { platformErrors } : {}),
     };
     await repo.setKv(LAST_KEY, report);
+    // The Watchtower looks at the fresh statuses right away (tablets, late orders, stores…).
+    report.watch = await runWatch({ trigger: `sync:${report.trigger}`, force: true }).catch(() => null);
     return { ran: true, report };
   } finally {
     g[LOCK_KEY] = false;

@@ -9,8 +9,10 @@ Start here:
 | [GO_LIVE_STEPS.md](GO_LIVE_STEPS.md) | Same steps, kept for the release readiness check |
 | [FINAL_PRODUCT_READINESS.md](FINAL_PRODUCT_READINESS.md) | Locked architecture, release gates, live-data rule, what "operational" means |
 | [LOCKED_DECISIONS.md](LOCKED_DECISIONS.md) | The rules every change must respect |
-| [ATLAS_PARITY.md](ATLAS_PARITY.md) | Atlas (UrbanPiper) module → TAKATAK equivalent → status |
-| [RELEASE_NOTES.md](RELEASE_NOTES.md) | What changed in 1.4.0 and how it was verified |
+| [ATLAS_PARITY.md](ATLAS_PARITY.md) | Feature reference only: Atlas (UrbanPiper) module → TAKATAK equivalent → status. UrbanPiper is not used. |
+| [CLOVER_APP.md](CLOVER_APP.md), [CLOVER_APP_LISTING.md](CLOVER_APP_LISTING.md) | The Clover App Market app: OAuth per merchant, listing texts |
+| [INSTALLER_SERVEUR.md](INSTALLER_SERVEUR.md) | VPS install (Caddy or Traefik, systemd, cron pingers) — `deploy/` |
+| [RELEASE_NOTES.md](RELEASE_NOTES.md) | What changed in 1.5.7 (and 1.4.0) and how it was verified |
 
 History (provenance only — these describe earlier release candidates and an architecture that is no longer used):
 

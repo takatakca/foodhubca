@@ -4,7 +4,7 @@
 // so the screen can refresh every few seconds without touching any API limits.
 import rawLocations from '../../data/actual/locations.json';
 import rawDoorDashStores from '../../data/actual/platform-stores-doordash.json';
-import { ADAPTERS, CHANNEL_KEYS } from './adapters';
+import { CHANNEL_KEYS, getAdapter } from './adapters';
 import { CHANNEL_LABELS, liveConnectorsGloballyEnabled, round2 } from './config';
 import { getCatalog } from './catalog';
 import { cloverReadiness } from './pos/clover';
@@ -20,8 +20,8 @@ import type { ChannelKey, ChannelStore, PlatformState, PlatformStatus, StoredOrd
 
 export const REQUIRED_CHANNELS: ChannelKey[] = ['uber_eats', 'doordash', 'skip'];
 
-/** Minutes a platform gives you to answer a new order before it is cancelled / re-routed. */
-export const ORDER_DEADLINE_MIN: Partial<Record<ChannelKey, number>> = { uber_eats: 11.5, skip: 5 };
+import { deadlineFor, ORDER_DEADLINE_MIN } from './deadline';
+export { deadlineFor, ORDER_DEADLINE_MIN };
 
 export type CellState = PlatformState | 'not_synced' | 'missing';
 
@@ -110,10 +110,6 @@ function sum(list: StoredOrder[]) { return round2(list.reduce((s, o) => s + (Num
 
 function shortId(o: StoredOrder) { return o.displayId || o.externalOrderId.slice(0, 8); }
 
-export function deadlineFor(o: StoredOrder): string | null {
-  const min = ORDER_DEADLINE_MIN[o.channel];
-  return min ? new Date(new Date(o.createdAt).getTime() + min * 60_000).toISOString() : null;
-}
 
 export async function buildCommandCenter(opts: { now?: number; locationCodes?: string[] } = {}) {
   const now = opts.now ?? Date.now();
@@ -170,7 +166,7 @@ export async function buildCommandCenter(opts: { now?: number; locationCodes?: s
 
   // ---------- Channels ----------
   const channels = CHANNEL_KEYS.map((ch) => {
-    const r = ADAPTERS[ch].readiness();
+    const r = getAdapter(ch).readiness();
     const chOrders = counted.filter((o) => o.channel === ch);
     const chStores = stores.filter((s) => s.channel === ch);
     return {
@@ -265,41 +261,41 @@ export async function buildCommandCenter(opts: { now?: number; locationCodes?: s
   const unmapped = new Map<string, StoredOrder>();
   for (const o of today.filter((x) => !x.locationCode)) unmapped.set(`${o.channel}|${o.channelStoreId}`, o);
   for (const o of unmapped.values()) {
-    alerts.push({ id: `unmapped:${o.channel}:${o.channelStoreId}`, severity: 'warning', title: `Orders from an unmapped ${CHANNEL_LABELS[o.channel]} store`, detail: `Store id ${o.channelStoreId || '(none)'} — add it under Stores so orders get the right brand, location and Clover.`, href: '/foodhub/stores', at: o.createdAt });
+    alerts.push({ id: `unmapped:${o.channel}:${o.channelStoreId}`, severity: 'warning', title: `Orders from an unmapped ${CHANNEL_LABELS[o.channel]} store`, detail: `Store id ${o.channelStoreId || '(none)'} — add it under Stores so orders get the right brand, location and Clover.`, href: '/stores', at: o.createdAt });
   }
-  if (kpis.cancelled) alerts.push({ id: 'cancelled', severity: 'info', title: `${kpis.cancelled} order(s) cancelled today`, href: '/foodhub' });
+  if (kpis.cancelled) alerts.push({ id: 'cancelled', severity: 'info', title: `${kpis.cancelled} order(s) cancelled today`, href: '/orders' });
 
   for (const s of stores) {
     const st = storeState(s);
     const ps = s.meta?.platformStatus as PlatformStatus | undefined;
     const name = `${s.brandName} · ${locName(s.locationCode)} on ${CHANNEL_LABELS[s.channel]}`;
-    if (st.state === 'deactivated') alerts.push({ id: `deact:${s.id}`, severity: 'critical', title: `${name} is DEACTIVATED`, detail: [st.detail, ps?.error].filter(Boolean).join(' — ') || undefined, href: '/foodhub/stores', at: st.checkedAt });
-    else if (st.state === 'paused' && ps?.source !== 'dashboard') alerts.push({ id: `pause:${s.id}`, severity: 'warning', title: `${name} was paused by the platform`, detail: st.detail, href: '/foodhub/stores', at: st.checkedAt });
-    else if (st.state === 'paused') alerts.push({ id: `pause:${s.id}`, severity: 'info', title: `${name} paused from TAKATAK`, detail: st.until ? `Re-opens automatically at ${new Date(st.until).toLocaleTimeString('fr-CA', { timeZone: tz, hour: '2-digit', minute: '2-digit' })}` : 'Until you resume it', href: '/foodhub/stores' });
-    if (ps?.error && st.state !== 'deactivated') alerts.push({ id: `syncerr:${s.id}`, severity: 'warning', title: `Could not read ${name}`, detail: ps.error, href: '/foodhub/channels', at: ps.checkedAt });
+    if (st.state === 'deactivated') alerts.push({ id: `deact:${s.id}`, severity: 'critical', title: `${name} is DEACTIVATED`, detail: [st.detail, ps?.error].filter(Boolean).join(' — ') || undefined, href: '/stores', at: st.checkedAt });
+    else if (st.state === 'paused' && ps?.source !== 'dashboard') alerts.push({ id: `pause:${s.id}`, severity: 'warning', title: `${name} was paused by the platform`, detail: st.detail, href: '/stores', at: st.checkedAt });
+    else if (st.state === 'paused') alerts.push({ id: `pause:${s.id}`, severity: 'info', title: `${name} paused from TAKATAK`, detail: st.until ? `Re-opens automatically at ${new Date(st.until).toLocaleTimeString('fr-CA', { timeZone: tz, hour: '2-digit', minute: '2-digit' })}` : 'Until you resume it', href: '/stores' });
+    if (ps?.error && st.state !== 'deactivated') alerts.push({ id: `syncerr:${s.id}`, severity: 'warning', title: `Could not read ${name}`, detail: ps.error, href: '/settings/channels', at: ps.checkedAt });
   }
 
   for (const ch of REQUIRED_CHANNELS) {
     const missing = matrix.filter((r) => r.cells[ch].state === 'missing').length;
-    if (missing) alerts.push({ id: `missing:${ch}`, severity: 'warning', title: `${CHANNEL_LABELS[ch]} not connected for ${missing} brand/location${missing > 1 ? 's' : ''}`, detail: 'Required service (DoorDash + Uber Eats + SkipTheDishes for every brand/location). Map the store id under Stores.', href: '/foodhub/stores' });
+    if (missing) alerts.push({ id: `missing:${ch}`, severity: 'warning', title: `${CHANNEL_LABELS[ch]} not connected for ${missing} brand/location${missing > 1 ? 's' : ''}`, detail: 'Required service (DoorDash + Uber Eats + SkipTheDishes for every brand/location). Map the store id under Stores.', href: '/stores' });
   }
   const ddSeedDeact = matrix.filter((r) => r.cells.doordash.source === 'screenshot' && r.cells.doordash.state === 'deactivated').length;
-  if (ddSeedDeact) alerts.push({ id: 'seed:dd-deact', severity: 'warning', title: `DoorDash: ${ddSeedDeact} brand/location${ddSeedDeact > 1 ? 's' : ''} deactivated (from your screenshots)`, detail: 'Not yet verified live — map the DoorDash store ids so Food Hub checks them automatically.', href: '/foodhub/stores' });
+  if (ddSeedDeact) alerts.push({ id: 'seed:dd-deact', severity: 'warning', title: `DoorDash: ${ddSeedDeact} brand/location${ddSeedDeact > 1 ? 's' : ''} deactivated (from your screenshots)`, detail: 'Not yet verified live — map the DoorDash store ids so Food Hub checks them automatically.', href: '/stores' });
 
   for (const c of channels) {
-    if (!c.configured) alerts.push({ id: `cfg:${c.channel}`, severity: 'info', title: `${c.label} not connected yet`, detail: `Needs ${c.missing.join(', ')} — run npm run setup.`, href: '/foodhub/channels' });
+    if (!c.configured) alerts.push({ id: `cfg:${c.channel}`, severity: 'info', title: `${c.label} not connected yet`, detail: `Needs ${c.missing.join(', ')} — run npm run setup.`, href: '/settings/channels' });
   }
-  if (!cloverInfo.configured) alerts.push({ id: 'cfg:clover', severity: 'warning', title: 'Clover not connected — delivery orders will not reach the kitchen POS', detail: `Needs ${cloverInfo.missing.join(', ')}.`, href: '/foodhub/channels' });
+  if (!cloverInfo.configured) alerts.push({ id: 'cfg:clover', severity: 'warning', title: 'Clover not connected — delivery orders will not reach the kitchen POS', detail: `Needs ${cloverInfo.missing.join(', ')}.`, href: '/settings/channels' });
   for (const c of cloverFresh.filter((x) => !x.ok)) alerts.push({ id: `clover:${c.merchantId}`, severity: 'warning', title: `Clover sales unavailable for merchant ${c.merchantId}`, detail: c.error });
-  if (!live && channels.some((c) => c.configured)) alerts.push({ id: 'live-off', severity: 'warning', title: 'Live switch is OFF', detail: 'Orders are received, but nothing is sent back to the platforms (no accept, no menu, no pause). Set LIVE_CONNECTORS_GLOBAL_ENABLED=true.', href: '/foodhub/channels' });
+  if (!live && channels.some((c) => c.configured)) alerts.push({ id: 'live-off', severity: 'warning', title: 'Live switch is OFF', detail: 'Orders are received, but nothing is sent back to the platforms (no accept, no menu, no pause). Set LIVE_CONNECTORS_GLOBAL_ENABLED=true.', href: '/settings/channels' });
 
   const dayAgo = new Date(now - 24 * 3600_000).toISOString();
   const unparsed = jobs.filter((j) => j.kind === 'webhook_unparsed' && j.createdAt >= dayAgo);
-  if (unparsed.length) alerts.push({ id: 'unparsed', severity: 'warning', title: `${unparsed.length} webhook payload(s) could not be read`, detail: 'Kept safely — see Channels → Unparsed payloads.', href: '/foodhub/channels' });
+  if (unparsed.length) alerts.push({ id: 'unparsed', severity: 'warning', title: `${unparsed.length} webhook payload(s) could not be read`, detail: 'Kept safely — see Channels → Unparsed payloads.', href: '/settings/channels' });
   const failedJobs = jobs.filter((j) => j.status === 'error' && j.kind !== 'webhook_unparsed' && j.createdAt >= dayAgo);
-  if (failedJobs.length) alerts.push({ id: 'jobs-failed', severity: 'warning', title: `${failedJobs.length} menu/item/store action(s) failed in the last 24 h`, detail: [...new Set(failedJobs.map((j) => `${CHANNEL_LABELS[j.channel as ChannelKey] ?? j.channel} ${j.kind.replace('_', ' ')}`))].join(', '), href: '/foodhub/channels' });
+  if (failedJobs.length) alerts.push({ id: 'jobs-failed', severity: 'warning', title: `${failedJobs.length} menu/item/store action(s) failed in the last 24 h`, detail: [...new Set(failedJobs.map((j) => `${CHANNEL_LABELS[j.channel as ChannelKey] ?? j.channel} ${j.kind.replace('_', ' ')}`))].join(', '), href: '/settings/channels' });
   const stuck = jobs.filter((j) => j.status === 'queued' && now - new Date(j.createdAt).getTime() > 30 * 60_000 && j.createdAt >= dayAgo);
-  if (stuck.length) alerts.push({ id: 'jobs-stuck', severity: 'info', title: `${stuck.length} platform confirmation(s) still pending after 30 min`, href: '/foodhub/channels' });
+  if (stuck.length) alerts.push({ id: 'jobs-stuck', severity: 'info', title: `${stuck.length} platform confirmation(s) still pending after 30 min`, href: '/settings/channels' });
 
   // Every timed automation (re-opens, timed 86s, scheduled publishes and orders, Clover sales) runs inside the sync:
   // after 10 minutes without one, say so — always, whatever is mapped.
@@ -309,21 +305,21 @@ export async function buildCommandCenter(opts: { now?: number; locationCodes?: s
 
   // Clover bookkeeping, inventory sync and money
   const unpaid = active.filter((o) => o.posOrderId && !o.timeline?.posPaymentId && o.timeline?.posPaymentError && o.status !== 'cancelled');
-  if (unpaid.length) alerts.push({ id: 'clover-unpaid', severity: 'warning', title: `${unpaid.length} delivery order(s) not recorded as paid in Clover`, detail: unpaid[0].timeline?.posPaymentError, href: '/foodhub/channels' });
+  if (unpaid.length) alerts.push({ id: 'clover-unpaid', severity: 'warning', title: `${unpaid.length} delivery order(s) not recorded as paid in Clover`, detail: unpaid[0].timeline?.posPaymentError, href: '/settings/channels' });
   const priceChanges = await listCloverPriceChanges().catch(() => []);
-  if (priceChanges.length) alerts.push({ id: 'clover-prices', severity: 'info', title: `${priceChanges.length} price(s) changed in Clover`, detail: priceChanges.slice(0, 3).map((c) => `${c.name} (${c.brandName}): ${c.foodhubPrice.toFixed(2)} → ${c.cloverPrice.toFixed(2)} $`).join(' · '), href: '/foodhub/menu' });
+  if (priceChanges.length) alerts.push({ id: 'clover-prices', severity: 'info', title: `${priceChanges.length} price(s) changed in Clover`, detail: priceChanges.slice(0, 3).map((c) => `${c.name} (${c.brandName}): ${c.foodhubPrice.toFixed(2)} → ${c.cloverPrice.toFixed(2)} $`).join(' · '), href: '/menu' });
   const verification = await repo.getKv<{ code: string; at: string }>(VERIFY_KEY).catch(() => null);
-  if (verification && !process.env.CLOVER_WEBHOOK_AUTH) alerts.push({ id: 'clover-verify', severity: 'info', title: 'Finish connecting Clover webhooks', detail: 'Clover sent a verification code — see Channels & Setup.', href: '/foodhub/channels', at: verification.at });
+  if (verification && !process.env.CLOVER_WEBHOOK_AUTH) alerts.push({ id: 'clover-verify', severity: 'info', title: 'Finish connecting Clover webhooks', detail: 'Clover sent a verification code — see Channels & Setup.', href: '/settings/channels', at: verification.at });
   for (const s of stores.filter((x) => x.meta?.provisioned === false)) {
-    alerts.push({ id: `deprov:${s.id}`, severity: 'critical', title: `${s.brandName} · ${locName(s.locationCode)} was disconnected by ${CHANNEL_LABELS[s.channel]}`, detail: 'Orders from this store no longer reach Food Hub or Clover. Reconnect it under Stores.', href: '/foodhub/stores' });
+    alerts.push({ id: `deprov:${s.id}`, severity: 'critical', title: `${s.brandName} · ${locName(s.locationCode)} was disconnected by ${CHANNEL_LABELS[s.channel]}`, detail: 'Orders from this store no longer reach Food Hub or Clover. Reconnect it under Stores.', href: '/stores' });
   }
   if (!scope) {
     const all = await listCases({ status: ['open', 'disputed'] }).catch(() => []);
     const cases = all.filter((c) => RECOVERABLE.includes(c.type));
     const unknown = all.filter((c) => c.type === 'unknown_order').length;
     const owed = Math.round(cases.reduce((a, c) => a + c.amount, 0) * 100) / 100;
-    if (cases.length) alerts.push({ id: 'recon-cases', severity: 'warning', title: `${owed.toFixed(2)} $ to recover from the platforms (${cases.length} case${cases.length > 1 ? 's' : ''})`, detail: `Short payouts, missing orders, error charges — see Disputes.${unknown ? ` Also ${unknown} paid order(s) Food Hub never received — check the store mapping.` : ''}`, href: '/finance/disputes' });
-    else if (unknown) alerts.push({ id: 'recon-unknown', severity: 'warning', title: `${unknown} paid order(s) on the statements that Food Hub never received`, detail: 'A webhook was missed or a store is not mapped — see Disputes.', href: '/finance/disputes' });
+    if (cases.length) alerts.push({ id: 'recon-cases', severity: 'warning', title: `${owed.toFixed(2)} $ to recover from the platforms (${cases.length} case${cases.length > 1 ? 's' : ''})`, detail: `Short payouts, missing orders, error charges — see Disputes.${unknown ? ` Also ${unknown} paid order(s) Food Hub never received — check the store mapping.` : ''}`, href: '/money/disputes' });
+    else if (unknown) alerts.push({ id: 'recon-unknown', severity: 'warning', title: `${unknown} paid order(s) on the statements that Food Hub never received`, detail: 'A webhook was missed or a store is not mapped — see Disputes.', href: '/money/disputes' });
   }
 
   const sevRank = { critical: 0, warning: 1, info: 2 };

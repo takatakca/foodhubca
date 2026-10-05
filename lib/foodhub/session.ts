@@ -1,10 +1,16 @@
-// Signed session cookie (HMAC-SHA256, Web Crypto) — usable from proxy.ts and route handlers.
-// No database access here, so the proxy stays fast (proxy.ts runs on the Node runtime, so node:crypto is fine).
+// Signed cookies (HMAC-SHA256, Web Crypto) — usable from proxy.ts and route handlers. No database here,
+// so the sign-in gate stays fast (proxy.ts runs on the Node runtime, so node:crypto is fine).
+//   takatak_session  who is signed in (14 days; 14 hours for a staff PIN session on a kitchen tablet)
+//   takatak_device   this browser is an enrolled kitchen tablet (1 year) — survives sign-out, so the
+//                    tablet comes back to its PIN screen instead of the email sign-in.
 import { createHash, scryptSync, timingSafeEqual } from 'node:crypto';
 import type { Role } from './types';
 
 export const SESSION_COOKIE = 'takatak_session';
+export const DEVICE_COOKIE = 'takatak_device';
 export const SESSION_DAYS = 14;
+export const STAFF_SESSION_HOURS = 14;
+export const DEVICE_DAYS = 365;
 
 export interface SessionPayload {
   /** username */
@@ -16,10 +22,22 @@ export interface SessionPayload {
   l: string[];
   /** expiry, epoch seconds */
   exp: number;
-  /** true for the built-in owner login (DASHBOARD_PASSWORD) */
+  /** true for the built-in owner recovery login (DASHBOARD_PASSWORD) */
   b?: boolean;
-  /** session version: changes when the password behind the session changes (see sessionVersion) */
+  /** session version: changes when the credential behind the session changes (see sessionVersion) */
   v?: string;
+  /** kitchen device id when the session was opened with a PIN on an enrolled tablet */
+  d?: string;
+  /** how the person signed in */
+  k?: 'otp' | 'link' | 'pin' | 'password';
+}
+
+export interface DevicePayload {
+  /** device id */
+  d: string;
+  /** location code */
+  l: string;
+  exp: number;
 }
 
 const enc = new TextEncoder();
@@ -43,30 +61,48 @@ export function safeEqual(a: string | null | undefined, b: string | null | undef
   return ab.length === bb.length && timingSafeEqual(ab, bb);
 }
 
-// Without SESSION_SECRET the signing key is derived from DASHBOARD_PASSWORD with scrypt (never the raw
-// password: a leaked cookie must not be an offline oracle for the owner password). Cached per password value.
-const derived = new Map<string, Uint8Array>();
-function keyMaterial(): Uint8Array | null {
-  if (process.env.SESSION_SECRET) return enc.encode(process.env.SESSION_SECRET);
-  const password = process.env.DASHBOARD_PASSWORD;
-  if (!password) return null;
-  let key = derived.get(password);
-  if (!key) {
-    key = new Uint8Array(scryptSync(password, 'takatak-session-v1', 32));
-    derived.clear(); // only the current password matters
-    derived.set(password, key);
-  }
-  return key;
+/**
+ * Where the signing secret comes from: SESSION_SECRET, else one derived from DASHBOARD_PASSWORD with scrypt
+ * (never the raw password: a leaked cookie must not be an offline oracle for the owner password), else — in
+ * development only — a fixed dev secret so sign-in works out of the box. In production with neither set → null
+ * (the proxy then refuses every request with a clear message).
+ */
+export type SessionSecretSource = 'env' | 'password' | 'dev';
+export function sessionSecretSource(): SessionSecretSource | null {
+  if (process.env.SESSION_SECRET) return 'env';
+  if (process.env.DASHBOARD_PASSWORD) return 'password';
+  if (process.env.NODE_ENV !== 'production') return 'dev';
+  return null;
 }
 
-/** SESSION_SECRET, or a key derived from DASHBOARD_PASSWORD. Null = no password set (open dev mode). */
+const DEV_SECRET = 'takatak-dev-only-session-secret';
+const derived = new Map<string, Uint8Array>();
+function keyMaterial(): Uint8Array | null {
+  switch (sessionSecretSource()) {
+    case 'env': return enc.encode(process.env.SESSION_SECRET);
+    case 'dev': return enc.encode(DEV_SECRET);
+    case 'password': {
+      const password = process.env.DASHBOARD_PASSWORD!;
+      let key = derived.get(password);
+      if (!key) {
+        key = new Uint8Array(scryptSync(password, 'takatak-session-v1', 32));
+        derived.clear(); // only the current password matters
+        derived.set(password, key);
+      }
+      return key;
+    }
+    default: return null;
+  }
+}
+
+/** The HMAC key behind every cookie. Null = no secret at all (production without SESSION_SECRET / DASHBOARD_PASSWORD). */
 export async function sessionKey(): Promise<CryptoKey | null> {
   const material = keyMaterial();
   if (!material) return null;
   return crypto.subtle.importKey('raw', material as BufferSource, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
 }
 
-/** Short fingerprint of the secret behind a session: a cookie is only valid while its version matches. */
+/** Short fingerprint of the credential behind a session: a cookie is only valid while its version matches. */
 export function sessionVersion(secret: string): string {
   return createHash('sha256').update(secret).digest('hex').slice(0, 12);
 }
@@ -76,29 +112,39 @@ export function ownerSessionVersion(): string {
   return process.env.DASHBOARD_PASSWORD ? sessionVersion(process.env.DASHBOARD_PASSWORD) : '';
 }
 
-export async function signSession(payload: SessionPayload): Promise<string> {
-  const key = await sessionKey();
-  if (!key) throw new Error('Set DASHBOARD_PASSWORD (or SESSION_SECRET) to enable sign-in.');
+/** Version of a team member's sessions: resetting or removing their password signs their devices out. */
+export function userSessionVersion(user: { passwordHash?: string | null }): string {
+  return sessionVersion(user.passwordHash || '');
+}
+
+async function sign(prefix: string, payload: object): Promise<string> {
+  const k = await sessionKey();
+  if (!k) throw new Error('Set SESSION_SECRET (npm run setup) to enable sign-in.');
   const body = b64url(enc.encode(JSON.stringify(payload)));
-  const sig = new Uint8Array(await crypto.subtle.sign('HMAC', key, enc.encode(body)));
+  const sig = new Uint8Array(await crypto.subtle.sign('HMAC', k, enc.encode(`${prefix}.${body}`)));
   return `${body}.${b64url(sig)}`;
 }
 
-export async function verifySession(token: string | undefined | null): Promise<SessionPayload | null> {
+async function verify<T extends { exp: number }>(prefix: string, token: string | null | undefined): Promise<T | null> {
   if (!token || !token.includes('.')) return null;
-  const key = await sessionKey();
-  if (!key) return null;
+  const k = await sessionKey();
+  if (!k) return null;
   const [body, sig] = token.split('.');
   try {
-    const ok = await crypto.subtle.verify('HMAC', key, fromB64url(sig) as BufferSource, enc.encode(body));
+    const ok = await crypto.subtle.verify('HMAC', k, fromB64url(sig) as BufferSource, enc.encode(`${prefix}.${body}`));
     if (!ok) return null;
-    const payload = JSON.parse(new TextDecoder().decode(fromB64url(body))) as SessionPayload;
+    const payload = JSON.parse(new TextDecoder().decode(fromB64url(body))) as T;
     if (!payload.exp || payload.exp * 1000 < Date.now()) return null;
     return payload;
   } catch {
     return null;
   }
 }
+
+export const signSession = (p: SessionPayload) => sign('s', p);
+export const verifySession = (t: string | null | undefined) => verify<SessionPayload>('s', t);
+export const signDevice = (p: DevicePayload) => sign('d', p);
+export const verifyDevice = (t: string | null | undefined) => verify<DevicePayload>('d', t);
 
 export function readCookie(header: string | null, name = SESSION_COOKIE): string | null {
   if (!header) return null;
@@ -112,6 +158,12 @@ export function readCookie(header: string | null, name = SESSION_COOKIE): string
   return null;
 }
 
+/** Cookie attributes: Secure on https deployments. */
+export function cookieFlags(maxAgeSeconds: number): string {
+  const secure = (process.env.FOODHUB_PUBLIC_URL || '').startsWith('https://') || Boolean(process.env.VERCEL_URL);
+  return `Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.max(0, Math.round(maxAgeSeconds))}${secure ? '; Secure' : ''}`;
+}
+
 // ---------- Brute-force throttle (per process, keyed by client IP + username) ----------
 // 5 failures lock the key for 60 s; every further failure doubles the lock, up to 15 min.
 // Keyed by IP so nobody can lock the owner out for everyone by hammering the username alone.
@@ -121,13 +173,14 @@ const LOCK_MAX_MS = 15 * 60_000;
 const MAX_KEYS = 1000;
 const attempts = new Map<string, { count: number; until: number }>();
 
-/** First x-forwarded-for value (Vercel / reverse proxies), else "local". */
-/** x-forwarded-for is only trustworthy behind a proxy that sets it: Vercel always, others with FOODHUB_TRUST_PROXY=true. */
+/** x-forwarded-for is only trustworthy behind a proxy that sets it: Vercel always, others (nginx, Caddy, Traefik, Cloudflare) with FOODHUB_TRUST_PROXY=true. */
 export function trustProxy(): boolean {
   return Boolean(process.env.VERCEL) || process.env.FOODHUB_TRUST_PROXY === 'true';
 }
+
+/** First x-forwarded-for value behind a trusted proxy, else "local" (every client shares one bucket). */
 export function clientIp(headers: Headers): string {
-  if (!trustProxy()) return 'local'; // no proxy: the header is client-supplied, so every client shares one bucket
+  if (!trustProxy()) return 'local'; // no proxy: the header is client-supplied
   return (headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'local';
 }
 
@@ -156,9 +209,9 @@ export function clearFailures(key: string): void {
   attempts.delete(key);
 }
 
-/** Test hook. */
 /** Number of throttle buckets held in memory (tests). */
 export function throttleSize(): number { return attempts.size; }
+/** Test hook. */
 export function resetThrottle(): void {
   attempts.clear();
 }
@@ -176,7 +229,7 @@ export function decodeBasic(header: string | null): { username: string; password
 }
 
 /**
- * Owner password check for "Authorization: Basic …" (scripts, older bookmarks).
+ * Owner recovery password for "Authorization: Basic …" (scripts, monitoring, the e2e suite).
  * With `ip`, failures count against the IP+username throttle and a locked key is refused without comparing.
  */
 export function basicOwner(header: string | null, ip?: string): boolean {
@@ -193,18 +246,18 @@ export function basicOwner(header: string | null, ip?: string): boolean {
   return ok;
 }
 
-// ---------- Roles (Atlas standard roles, simplified to what a multi-brand restaurant group needs) ----------
+// ---------- Roles ----------
 
 export type Permission =
-  | 'view'            // Command Center, order board
-  | 'orders:act'      // accept / reject / ready / cancel / print
+  | 'view'            // overview, live orders, kitchen screen
+  | 'orders:act'      // accept / ready / picked up / print / acknowledge alerts
   | 'stores:toggle'   // pause / resume, busy mode
-  | 'items:toggle'    // 86 items and modifiers
+  | 'items:toggle'    // 86 items and options
   | 'menu:edit'       // menus, prices, hours, publish
-  | 'stores:map'      // store mappings, Uber store activation
-  | 'analytics:view'  // analytics, reports, activity log, payouts & reconciliation (read)
-  | 'finance:edit'    // statement imports, commission settings, disputes, deposits, ledger approval
-  | 'admin';          // users, brands/locations, secrets, report schedules
+  | 'stores:map'      // store mappings, Uber store activation, kitchen tablets
+  | 'analytics:view'  // insights, reports, activity, payouts (read)
+  | 'finance:edit'    // statements, commission plans, disputes, deposits, ledger approval
+  | 'admin';          // team, security rules, alert rules, brands & locations, secrets
 
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   owner: ['view', 'orders:act', 'stores:toggle', 'items:toggle', 'menu:edit', 'stores:map', 'analytics:view', 'finance:edit', 'admin'],
@@ -215,11 +268,19 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
 };
 
 export const ROLE_LABELS: Record<Role, string> = {
-  owner: 'Owner — everything',
-  manager: 'Manager — operations, menus, stores, analytics',
-  operator: 'Store operator — orders, 86, pause (own locations)',
-  menu: 'Menu editor — menus, prices, hours, 86',
-  analyst: 'Analyst — analytics and reports (read-only)',
+  owner: 'Owner',
+  manager: 'Manager',
+  operator: 'Staff',
+  menu: 'Menu editor',
+  analyst: 'Accountant / analyst',
+};
+
+export const ROLE_LABELS_FR: Record<Role, string> = {
+  owner: 'Propriétaire',
+  manager: 'Gérant',
+  operator: 'Employé',
+  menu: 'Éditeur de menu',
+  analyst: 'Comptable / analyste',
 };
 
 export function can(role: Role, perm: Permission): boolean {

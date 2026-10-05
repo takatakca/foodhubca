@@ -1,3 +1,4 @@
+import { approvalGate } from '@/lib/foodhub/auth';
 import { isChannelKey } from '@/lib/foodhub/adapters';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { listCases, updateCase, type CaseStatus } from '@/lib/foodhub/recon/engine';
@@ -17,6 +18,8 @@ export const GET = withFinance('analytics:view', async (req) => {
 
 // { id, status?, note?, platformCaseId?, recoveredAmount? }
 export const POST = withFinance('finance:edit', async (req, _ctx, actor) => {
+  const gate = await approvalGate(req, actor, 'money.edit');
+  if (gate) return gate;
   const b = await readJson(req);
   if (!b.id) return fail('id is required');
   if (b.status && !STATUSES.includes(b.status)) return fail(`status must be one of ${STATUSES.join(', ')}`);

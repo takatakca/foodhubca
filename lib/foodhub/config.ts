@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { liveConnectorsGloballyEnabled, missingEnv, timedFetch } from '../backend/connectors/env-utils';
+import { liveConnectorsGloballyEnabled, missingEnv, timedFetch } from './env-utils';
 import type { ChannelKey, ChannelResult, Marketplace } from './types';
 
 export { liveConnectorsGloballyEnabled, missingEnv, timedFetch };

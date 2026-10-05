@@ -9,8 +9,8 @@ export const dynamic = 'force-dynamic';
 // "Connect Uber Eats stores" button → Uber login (owner signs in with the Uber Eats Manager account).
 export async function GET(req: Request) {
   const actor = await getActor(req);
-  if (!actor || !can(actor.role, 'stores:map')) return NextResponse.redirect(`${publicBaseUrl()}/foodhub/stores?uber_error=${encodeURIComponent('Only the owner or a manager can connect Uber stores.')}`);
+  if (!actor || !can(actor.role, 'stores:map')) return NextResponse.redirect(`${publicBaseUrl()}/stores/mapping?uber_error=${encodeURIComponent('Only the owner or a manager can connect Uber stores.')}`);
   const missing = missingEnv(['UBER_CLIENT_ID', 'UBER_CLIENT_SECRET']);
-  if (missing.length) return NextResponse.redirect(`${publicBaseUrl()}/foodhub/stores?uber_error=${encodeURIComponent(`Add ${missing.join(', ')} first (npm run setup).`)}`);
+  if (missing.length) return NextResponse.redirect(`${publicBaseUrl()}/stores/mapping?uber_error=${encodeURIComponent(`Add ${missing.join(', ')} first (npm run setup).`)}`);
   return NextResponse.redirect(await startUberConnect());
 }

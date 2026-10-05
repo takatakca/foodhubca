@@ -1,10 +1,11 @@
-import { ADAPTERS, CHANNEL_KEYS } from '@/lib/foodhub/adapters';
+import { CHANNEL_KEYS, getAdapter } from '@/lib/foodhub/adapters';
 import { liveConnectorsGloballyEnabled, publicBaseUrl } from '@/lib/foodhub/config';
 import { withPerm } from '@/lib/foodhub/auth';
 import { ok } from '@/lib/foodhub/http';
 import { can } from '@/lib/foodhub/session';
 import { VERIFY_KEY, cloverInventorySyncEnabled } from '@/lib/foodhub/clover-sync';
 import { cloverReadiness } from '@/lib/foodhub/pos/clover';
+import { cloverAppReadiness, listCloverConnections } from '@/lib/foodhub/pos/clover-oauth';
 import { cloverOrderTypesEnabled, cloverRecordPaymentEnabled } from '@/lib/foodhub/pos/clover-books';
 import { getRepo } from '@/lib/foodhub/repo';
 
@@ -21,7 +22,7 @@ export const GET = withPerm('stores:map', async (req, _ctx, actor) => {
   const repo = getRepo();
   const base = publicBaseUrl();
   const channels = CHANNEL_KEYS.map((k) => {
-    const r = ADAPTERS[k].readiness();
+    const r = getAdapter(k).readiness();
     return {
       ...r,
       webhookUrl: `${base}${r.webhookPath}`,
@@ -44,6 +45,8 @@ export const GET = withPerm('stores:map', async (req, _ctx, actor) => {
       recordPayments: cloverRecordPaymentEnabled(),
       orderTypes: cloverOrderTypesEnabled(),
       inventorySync: cloverInventorySyncEnabled(),
+      // Clover App Market app: Site URL + launch path to enter in the Clover developer dashboard, connected merchants.
+      app: { ...cloverAppReadiness(), connectUrl: `${base}/api/foodhub/clover-connect/start`, merchants: await listCloverConnections().catch(() => []) },
     },
     channels,
     jobs: jobs.filter((j) => j.kind !== 'webhook_unparsed'),

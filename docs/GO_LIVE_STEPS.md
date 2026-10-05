@@ -11,7 +11,7 @@ Short version:
    DoorDash, SkipTheDishes via JET Connect, optional Too Good To Go).
 5. Stores → *Connect Uber Eats stores*; map DoorDash and Skip store ids.
 6. Menu Manager → Import from Clover → Publish.
-7. `/go-live` must show every required step Done → set `LIVE_CONNECTORS_GLOBAL_ENABLED=true`.
+7. `/settings/go-live` must show every required step Done → set `LIVE_CONNECTORS_GLOBAL_ENABLED=true`.
 8. Keep the sync running: the Command Center (`/`) syncs store status, Clover sales, timed re-opens and scheduled
    publishes every 2 minutes while it is open on a screen. When no screen is open, a pinger must call
    `GET /api/foodhub/cron/sync` with `Authorization: Bearer <CRON_SECRET>` every 5 minutes (Vercel Pro cron or

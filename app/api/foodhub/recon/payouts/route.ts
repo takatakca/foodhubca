@@ -1,3 +1,4 @@
+import { approvalGate } from '@/lib/foodhub/auth';
 import { isChannelKey } from '@/lib/foodhub/adapters';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { payoutBatches, recordDeposit } from '@/lib/foodhub/recon/engine';
@@ -15,6 +16,8 @@ export const GET = withFinance('analytics:view', async (req) => {
 
 // Bank deposit for one payout: { key, amount, date, note? }
 export const POST = withFinance('finance:edit', async (req, _ctx, actor) => {
+  const gate = await approvalGate(req, actor, 'money.edit');
+  if (gate) return gate;
   const b = await readJson(req);
   if (!b.key) return fail('key is required');
   await recordDeposit(String(b.key), { amount: Number(b.amount), date: String(b.date || ''), note: b.note ? String(b.note) : undefined }, actor);

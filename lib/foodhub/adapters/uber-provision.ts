@@ -38,10 +38,22 @@ async function getSession(id: string): Promise<Session | null> {
 
 const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
 
-/** Suggests the brand (longest brand name found in the store name) and location (street number in the address). */
+/** Other names the platforms use for your brands (Uber Eats store names differ from DoorDash ones). */
+export const BRAND_ALIASES: Record<string, string[]> = {
+  'Gateau Montreal': ['Gateaux Montreal', 'Gateaux Montréal', 'Gâteau Montréal'],
+  'Nutrition Shake': ['Nutri Shake', 'Nutrishake'],
+  'Cafe Bolon': ['Bolon Cafe', 'Bolon Café', 'Café Bolon'],
+  OOeuf: ["O'Oeufs", 'O Oeufs', 'OOeufs', 'Ooeuf'],
+  'Bin molle & Bin Dure': ['Bin Molle Bin Dure', 'Binmolle Bindure'],
+  'Dejeuner & Dinner': ['Dejeuner et Dinner', 'Déjeuner & Dîner'],
+};
+
+/** Suggests the brand (longest brand name or alias found in the store name) and location (street number in the address). */
 export function suggestMapping(name: string, address = ''): { suggestedBrand?: string; suggestedLocation?: string } {
   const n = norm(name);
-  const brand = (rawBrands as string[]).filter((b) => b !== 'Too Good To Go' && n.includes(norm(b))).sort((a, b) => norm(b).length - norm(a).length)[0];
+  const names = (rawBrands as string[]).filter((b) => b !== 'Too Good To Go').flatMap((b) => [b, ...(BRAND_ALIASES[b] ?? [])].map((alias) => ({ brand: b, alias: norm(alias) })));
+  // "Crèmerie Bin Molle Bin Dure" must win over "Bin molle & Bin Dure" when both match: longest match first.
+  const brand = names.filter((x) => x.alias && n.includes(x.alias)).sort((a, b) => b.alias.length - a.alias.length)[0]?.brand;
   const text = `${address} ${name}`;
   const loc = (rawLocations as Array<{ code: string; address_line_1: string }>).find((l) => new RegExp(`\\b${l.address_line_1.split(' ')[0]}\\b`).test(text));
   let suggestedLocation = loc?.code;

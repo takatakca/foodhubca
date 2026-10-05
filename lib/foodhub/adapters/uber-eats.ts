@@ -103,8 +103,10 @@ export function reportDownloadLinks(body: unknown): string[] {
 function readiness() {
   return buildReadiness(KEY, ['UBER_CLIENT_ID', 'UBER_CLIENT_SECRET'], {
     // A static UBER_ACCESS_TOKEN cannot be refreshed (client-credentials tokens expire after 30 days).
-    note: `${process.env.UBER_ACCESS_TOKEN ? 'UBER_ACCESS_TOKEN override in use — it expires after 30 days and is never refreshed; remove it to use client credentials. ' : ''}Direct mode. Requires Uber to approve your app for eats.order + eats.store + eats.pos_provisioning. Webhooks are verified with your Client Secret automatically. Then: Stores → “Connect Uber Eats stores”.`,
+    note: `${process.env.UBER_ACCESS_TOKEN ? 'UBER_ACCESS_TOKEN override in use — it expires after 30 days and is never refreshed; remove it to use client credentials. ' : ''}Direct mode. Requires Uber to approve your app for eats.order + eats.store + eats.pos_provisioning. Uber developer dashboard → Webhooks → Primary Webhook, Basic HMAC, Signing Key = the value below. Then: Stores → Store connections → “Connect Uber Eats”.`,
+    noteFr: `${process.env.UBER_ACCESS_TOKEN ? 'UBER_ACCESS_TOKEN est utilisé — il expire après 30 jours et n’est jamais renouvelé ; retirez-le pour utiliser les identifiants client. ' : ''}Mode direct. Uber doit approuver votre app pour eats.order + eats.store + eats.pos_provisioning. Tableau de bord développeur Uber → Webhooks → Primary Webhook, Basic HMAC, Signing Key = la valeur ci-dessous. Ensuite : Magasins → Branchement des magasins → « Brancher Uber Eats ».`,
     extraWebhooks: [{ label: 'OAuth redirect URI (Uber developer dashboard → your app → Redirect URIs)', path: '/api/foodhub/uber-connect/callback' }],
+    handoff: [{ label: 'Webhook Signing Key (Basic HMAC)', envKey: 'UBER_WEBHOOK_SIGNING_KEY' }],
   });
 }
 
@@ -148,12 +150,12 @@ export const uberEatsAdapter: ChannelAdapter = {
   label: 'Uber Eats (direct)',
   readiness,
   verifyWebhook(h, rawBody) {
-    // Uber signs the raw body: lowercase hex HMAC-SHA256 keyed with the app client secret.
-    const secret = process.env.UBER_CLIENT_SECRET;
+    // Uber signs the raw body: lowercase hex HMAC-SHA256. New developer dashboards ask for a "Signing Key"
+    // (and an optional secondary one for rotation) on the webhook; older apps sign with the client secret.
     const sig = h.get('x-uber-signature');
-    if (!secret || !sig) return false;
-    const expected = crypto.createHmac('sha256', secret).update(rawBody, 'utf8').digest('hex');
-    return safeEqual(expected, sig.toLowerCase());
+    if (!sig) return false;
+    const keys = [process.env.UBER_WEBHOOK_SIGNING_KEY, process.env.UBER_WEBHOOK_SIGNING_KEY_2, process.env.UBER_CLIENT_SECRET].filter((k): k is string => Boolean(k));
+    return keys.some((key) => safeEqual(crypto.createHmac('sha256', key).update(rawBody, 'utf8').digest('hex'), sig.toLowerCase()));
   },
   acceptOrder: (order, posRef) => send('POST', `/v1/eats/orders/${encodeURIComponent(order.externalOrderId)}/accept_pos_order`, {
     reason: 'Accepted by TAKATAK Food Hub',
@@ -230,6 +232,20 @@ export async function fetchUberStoreStatus(storeId: string): Promise<{ ok: boole
     return { ok: true, ...normalizeUberStatus(await res.json()) };
   } catch (error) {
     return { ok: false, state: 'unknown', error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** One store's details (name + address) — read-only; used to confirm which kitchen a known store UUID belongs to. */
+export async function fetchUberStoreDetails(storeId: string): Promise<{ ok: boolean; name?: string; address?: string; error?: string }> {
+  if (!readiness().configured) return { ok: false, error: 'Uber Eats credentials missing' };
+  try {
+    const res = await timedFetch(`${base()}/v1/eats/stores/${encodeURIComponent(storeId)}`, { headers: await headers() });
+    if (!res.ok) return { ok: false, error: `Uber store HTTP ${res.status}` };
+    const s = await res.json();
+    const address = [s?.location?.address, s?.location?.address_2, s?.location?.city].filter(Boolean).join(', ') || undefined;
+    return { ok: true, name: s?.name ? String(s.name) : undefined, address };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
 

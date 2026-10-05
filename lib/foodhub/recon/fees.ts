@@ -29,7 +29,7 @@ export interface FeePlan {
   payoutLagDays: number;
 }
 
-export interface PlanPreset { plan: string; deliveryPct: number; pickupPct: number; note?: string }
+export interface PlanPreset { plan: string; deliveryPct: number; pickupPct: number; note?: string; noteFr?: string }
 
 export const PLAN_PRESETS: Record<ChannelKey, PlanPreset[]> = {
   uber_eats: [
@@ -40,11 +40,11 @@ export const PLAN_PRESETS: Record<ChannelKey, PlanPreset[]> = {
   ],
   doordash: [
     { plan: 'Basic', deliveryPct: 20, pickupPct: 10 },
-    { plan: 'Plus', deliveryPct: 25, pickupPct: 8, note: 'DashPass orders are 27%' },
+    { plan: 'Plus', deliveryPct: 25, pickupPct: 8, note: 'DashPass orders are 27%', noteFr: 'Les commandes DashPass sont à 27 %' },
     { plan: 'Premier', deliveryPct: 29, pickupPct: 8 },
   ],
-  skip: [{ plan: 'Contract', deliveryPct: 25, pickupPct: 15, note: 'Skip does not publish rates — enter the ones in your agreement' }],
-  tgtg: [{ plan: 'Contract', deliveryPct: 0, pickupPct: 0, note: 'Enter Too Good To Go’s fee from your agreement' }],
+  skip: [{ plan: 'Contract', deliveryPct: 25, pickupPct: 15, note: 'Skip does not publish rates — enter the ones in your agreement', noteFr: 'Skip ne publie pas ses taux — entrez ceux de votre entente' }],
+  tgtg: [{ plan: 'Contract', deliveryPct: 0, pickupPct: 0, note: 'Enter Too Good To Go’s fee from your agreement', noteFr: 'Entrez les frais Too Good To Go de votre entente' }],
 };
 
 export const PLAN_NOTES: Record<ChannelKey, string> = {
@@ -52,6 +52,13 @@ export const PLAN_NOTES: Record<ChannelKey, string> = {
   doordash: 'Pickup rates require DoorDash prices to match in-store prices. No payment processing fee in Canada.',
   skip: 'SkipTheDishes does not publish a rate card — use the percentages in your contract.',
   tgtg: 'Too Good To Go does not publish its fee — use your agreement. Payouts are monthly or quarterly.',
+};
+
+export const PLAN_NOTES_FR: Record<ChannelKey, string> = {
+  uber_eats: 'Pour emporter : 15 % au lieu de 10 % sauf si vos prix Uber Eats sont ceux du magasin. Les commandes des membres Plus peuvent coûter 5 % de plus.',
+  doordash: 'Les taux pour emporter exigent des prix DoorDash égaux à ceux du magasin. Aucuns frais de traitement de paiement au Canada.',
+  skip: 'SkipTheDishes ne publie pas de grille tarifaire — utilisez les pourcentages de votre contrat.',
+  tgtg: 'Too Good To Go ne publie pas ses frais — utilisez votre entente. Les paiements sont mensuels ou trimestriels.',
 };
 
 const DEFAULT_LAG: Record<ChannelKey, number> = { uber_eats: 10, doordash: 10, skip: 14, tgtg: 100 };

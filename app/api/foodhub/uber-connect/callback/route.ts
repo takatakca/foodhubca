@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
   const state = req.nextUrl.searchParams.get('state') || '';
   const code = req.nextUrl.searchParams.get('code') || '';
   const denied = req.nextUrl.searchParams.get('error');
-  const back = `${publicBaseUrl()}/foodhub/stores`;
+  const back = `${publicBaseUrl()}/stores/mapping`;
   if (denied || !code || !state) return NextResponse.redirect(`${back}?uber_error=${encodeURIComponent(denied ? `Uber: ${denied}` : 'Uber did not return a code.')}`);
   const r = await finishUberConnect(state, code);
   return NextResponse.redirect(r.ok ? `${back}?uber_connect=${r.id}` : `${back}?uber_error=${encodeURIComponent(r.error || 'Uber connection failed')}`);

@@ -7,7 +7,7 @@ import { logActivity, type Actor } from './activity';
 import { fromCents, nowIso } from './config';
 import { setItemAvailability } from './ops';
 import { cloverItemSellable, cloverItemsModifiedSince, getCloverItem } from './pos/clover-books';
-import { knownCloverMerchants } from './pos/clover';
+import { allCloverMerchants } from './pos/clover';
 import { getRepo } from './repo';
 import type { MasterMenu } from './types';
 
@@ -132,7 +132,7 @@ export async function pollCloverInventory(now = Date.now()): Promise<CloverItemO
   if (!(await repo.listMenus()).some((m) => m.items.some((i) => i.posItemRef))) return total;
   const since = (await repo.getKv<Record<string, number>>(SINCE_KEY)) ?? {};
   const stores = await repo.listStores();
-  for (const mid of knownCloverMerchants(stores.map((s) => s.cloverMerchantId))) {
+  for (const mid of await allCloverMerchants(stores.map((s) => s.cloverMerchantId))) {
     try {
       const items = await cloverItemsModifiedSince(mid, since[mid] ?? now - 15 * 60_000);
       for (const item of items) {

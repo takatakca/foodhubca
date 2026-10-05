@@ -93,7 +93,7 @@ export async function buildReport(key: ReportKey, f: ReportFilter): Promise<Repo
       for (const s of stores.filter((x) => x.brandName === menu.brandName && (!f.locationCodes?.length || f.locationCodes.includes(x.locationCode)) && (!f.channels?.length || f.channels.includes(x.channel)))) {
         const off = offRefsAt(menu, s.locationCode);
         for (const i of menu.items) {
-          rows.push([menu.brandName, locName(s.locationCode), CHANNEL_LABELS[s.channel], s.channelStoreId, cats.get(i.categoryRef) ?? '', i.ref, i.name, i.available && !off.has(i.ref) ? 1 : 0, money(i.price), money(priceFor(i, CHANNEL_MARKETPLACE[s.channel])), i.posItemRef ?? '']);
+          rows.push([menu.brandName, locName(s.locationCode), CHANNEL_LABELS[s.channel], s.channelStoreId, cats.get(i.categoryRef) ?? '', i.ref, i.name, i.available && !off.has(i.ref) ? 1 : 0, money(i.price), money(priceFor(i, CHANNEL_MARKETPLACE[s.channel], menu)), i.posItemRef ?? '']);
         }
       }
     }

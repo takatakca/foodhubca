@@ -13,6 +13,7 @@ export const tgtgAdapter: ChannelAdapter = (() => {
   const readiness = () => buildReadiness(key, ['TGTG_WEBHOOK_SECRET'], {
     specConfirmed: process.env.TGTG_SPEC_CONFIRMED === 'true',
     note: 'Bag orders are received on the webhook when TGTG enables a partner feed. Bag quantities stay in TGTG MyStore.',
+    noteFr: 'Les paniers arrivent par le webhook quand TGTG active un flux partenaire. Les quantités de paniers restent dans TGTG MyStore.',
     handoff: [{ label: 'Webhook token (Authorization or X-Api-Key header)', envKey: 'TGTG_WEBHOOK_SECRET' }],
   });
   const blocked = async () => result(key, 'blocked', 'Too Good To Go has no public merchant API — manage bags in TGTG MyStore.');

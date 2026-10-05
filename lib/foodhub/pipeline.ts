@@ -168,8 +168,10 @@ function summarize(r: ChannelResult) {
 }
 
 /** 'accept_no_pos' = explicit "Accept without Clover (entered by hand)" override when Clover did not receive the order. */
-export type OrderAction = 'accept' | 'accept_no_pos' | 'deny' | 'ready' | 'dispatch' | 'complete' | 'cancel' | 'retry_pos' | 'print' | 'report_missing';
-export const ORDER_ACTIONS: OrderAction[] = ['accept', 'accept_no_pos', 'deny', 'ready', 'dispatch', 'complete', 'cancel', 'retry_pos', 'print', 'report_missing'];
+export type OrderAction = 'accept' | 'accept_no_pos' | 'deny' | 'ready' | 'dispatch' | 'complete' | 'cancel' | 'retry_pos' | 'print' | 'report_missing' | 'ack' | 'delay';
+export const ORDER_ACTIONS: OrderAction[] = ['accept', 'accept_no_pos', 'deny', 'ready', 'dispatch', 'complete', 'cancel', 'retry_pos', 'print', 'report_missing', 'ack', 'delay'];
+/** Not buttons of their own: "seen" on the new-order pop-up, and "+5 min" on an order in the kitchen. */
+const META_ACTIONS: OrderAction[] = ['ack', 'delay'];
 
 const NEXT_STATUS: Partial<Record<OrderAction, OrderStatus>> = { accept: 'accepted', accept_no_pos: 'accepted', deny: 'cancelled', ready: 'ready', dispatch: 'dispatched', complete: 'completed', cancel: 'cancelled' };
 
@@ -182,6 +184,14 @@ export function acceptNeedsClover(order: Pick<StoredOrder, 'posOrderId' | 'posEr
 /** Which actions make sense for an order right now (the UI shows only these buttons). */
 export function allowedActions(order: StoredOrder): OrderAction[] {
   const a: OrderAction[] = [];
+  // Received through Clover's own platform integration: Food Hub only follows it. The kitchen can still move it
+  // on its own screen (Ready / Completed) and reprint it; nothing is sent to the platform.
+  if (order.viaPos) {
+    if (order.status === 'accepted') a.push('ready');
+    if (order.status === 'ready' || order.status === 'accepted') a.push('complete');
+    if (order.posOrderId) a.push('print');
+    return a;
+  }
   if (order.status === 'new') a.push(acceptNeedsClover(order) ? 'accept_no_pos' : 'accept', 'deny');
   // Only Uber Eats lets a store cancel an accepted order by API; DoorDash/Skip cancellations are done
   // in their merchant portal / tablet and arrive back here through their webhooks.
@@ -199,26 +209,49 @@ export function allowedActions(order: StoredOrder): OrderAction[] {
 
 const ACTION_LABEL: Record<OrderAction, string> = {
   accept: 'Accepted', accept_no_pos: 'Accepted without Clover (entered by hand)', deny: 'Rejected', ready: 'Marked ready', dispatch: 'Handed to courier', complete: 'Completed', cancel: 'Cancelled', retry_pos: 'Sent to Clover', print: 'Printed in kitchen',
-  report_missing: 'Reported missing items',
+  report_missing: 'Reported missing items', ack: 'Seen', delay: 'More time',
 };
 
-export async function runOrderAction(orderId: string, action: OrderAction, opts: { reason?: string; reasonCode?: CancelReason; actor?: Actor; missing?: Array<{ line: number; quantity: number }> } = {}): Promise<{ order: StoredOrder | null; result: ChannelResult | { ok: boolean; message: string } }> {
+export async function runOrderAction(orderId: string, action: OrderAction, opts: { reason?: string; reasonCode?: CancelReason; actor?: Actor; missing?: Array<{ line: number; quantity: number }>; prepMinutes?: number; delayMinutes?: number; approvedBy?: string } = {}): Promise<{ order: StoredOrder | null; result: ChannelResult | { ok: boolean; message: string } }> {
   const repo = getRepo();
   const order = await repo.getOrder(orderId);
   if (!order) return { order: null, result: { ok: false, message: 'Order not found.' } };
   const actor = opts.actor ?? { username: 'owner', name: 'Owner', source: 'dashboard' as const };
-  const adapter = getAdapter(order.channel);
   const tag = `${CHANNEL_LABELS[order.channel]} #${order.displayId || order.externalOrderId.slice(0, 8)}`;
   const log = (status: 'success' | 'failed' | 'info', message: string) => logActivity({
     actor: actor.name, source: actor.source, kind: 'order', action, status, channel: order.channel, brandName: order.brandName, locationCode: order.locationCode, orderId: order.id,
-    summary: `${ACTION_LABEL[action]}: ${tag}${opts.reasonCode ? ` — ${CANCEL_REASON_LABELS[opts.reasonCode]}` : opts.reason ? ` — ${opts.reason}` : ''}${status === 'failed' ? ` (failed: ${message})` : ''}`,
+    summary: `${ACTION_LABEL[action]}: ${tag}${opts.reasonCode ? ` — ${CANCEL_REASON_LABELS[opts.reasonCode]}` : opts.reason ? ` — ${opts.reason}` : ''}${opts.approvedBy ? ` (approved by ${opts.approvedBy})` : ''}${status === 'failed' ? ` (failed: ${message})` : ''}`,
   });
 
   if (action === 'accept' && order.status === 'new' && acceptNeedsClover(order)) {
     // Nothing is sent to the platform: the kitchen has no Clover order yet.
     return { order, result: { ok: false, message: 'Clover did not receive this order — use "Send to Clover" first. If you entered it in Clover by hand, use "Accept without Clover (entered by hand)".' } };
   }
-  if (!allowedActions(order).includes(action)) {
+  if (action === 'ack' && order.status === 'cancelled') {
+    if (order.timeline?.cancelSeenAt) return { order, result: { ok: true, message: 'Already seen.' } };
+    const updated = await patchTimeline(order, { cancelSeenAt: nowIso(), cancelSeenBy: actor.name });
+    await repo.addEvent(order.id, 'cancel_seen', { by: actor.name });
+    await log('info', 'cancellation seen in the kitchen');
+    return { order: updated, result: { ok: true, message: 'Seen.' } };
+  }
+  if (action === 'ack') {
+    if (order.timeline?.seenAt) return { order, result: { ok: true, message: 'Already seen.' } };
+    const updated = await patchTimeline(order, { seenAt: nowIso(), seenBy: actor.name });
+    await repo.addEvent(order.id, 'seen', { by: actor.name });
+    return { order: updated, result: { ok: true, message: 'Seen.' } };
+  }
+
+  if (action === 'delay') {
+    const minutes = Math.round(Number(opts.delayMinutes) || 0);
+    if (!['accepted', 'ready'].includes(order.status) || minutes < 1 || minutes > 60) return { order, result: { ok: false, message: 'Add 1–60 minutes to an order in the kitchen.' } };
+    const base = Math.max(Date.now(), Date.parse(order.timeline?.readyTarget ?? '') || Date.now());
+    const updated = await patchTimeline(order, { readyTarget: new Date(base + minutes * 60_000).toISOString(), delayedMinutes: (order.timeline?.delayedMinutes ?? 0) + minutes });
+    await repo.addEvent(order.id, 'delayed', { minutes, by: actor.name, message: `+${minutes} min on the kitchen timer (the platform keeps its own estimate)` });
+    await logActivity({ actor: actor.name, source: actor.source, kind: 'order', action, status: 'success', channel: order.channel, brandName: order.brandName, locationCode: order.locationCode, orderId: order.id, summary: `+${minutes} min: ${tag}` });
+    return { order: updated, result: { ok: true, message: `+${minutes} min on the kitchen timer. ${order.channel === 'uber_eats' || order.channel === 'doordash' ? 'The courier follows the platform estimate — call support if it is a long delay.' : ''}`.trim() } };
+  }
+
+  if (!allowedActions(order).includes(action) && !META_ACTIONS.includes(action)) {
     return { order, result: { ok: false, message: `"${ACTION_LABEL[action]}" is not possible while the order is ${order.status}.` } };
   }
 
@@ -259,8 +292,15 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
   }
 
   const reasonText = opts.reasonCode ? `${CANCEL_REASON_LABELS[opts.reasonCode]}${opts.reason?.trim() ? ` — ${opts.reason.trim()}` : ''}` : opts.reason || 'Rejected by restaurant';
+  const adapter = getAdapter(order.channel);
   let res: ChannelResult | { ok: boolean; message: string };
-  if (action === 'accept' || action === 'accept_no_pos') res = await adapter.acceptOrder(order, order.posOrderId);
+  let working = order;
+  if ((action === 'accept' || action === 'accept_no_pos') && opts.prepMinutes && opts.prepMinutes >= 5 && opts.prepMinutes <= 120) {
+    // The cook's estimate from the pop-up becomes the ready-by target (DoorDash receives it as prep_time).
+    working = await patchTimeline(order, { readyTarget: new Date(Date.now() + Math.round(opts.prepMinutes) * 60_000).toISOString() });
+  }
+  if (order.viaPos) res = { ok: true, message: action === 'ready' ? 'Marked ready in Food Hub only — this order is handled by Clover’s own platform integration.' : 'Marked completed in Food Hub.' };
+  else if (action === 'accept' || action === 'accept_no_pos') res = await adapter.acceptOrder(working, order.posOrderId);
   else if (action === 'deny') res = await adapter.denyOrder(order, reasonText);
   else if (action === 'cancel') res = await adapter.cancelOrder(order, opts.reasonCode ?? 'other', opts.reason);
   else if (action === 'ready') res = await adapter.markReady(order, order.posOrderId);
@@ -271,7 +311,9 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
   const now = nowIso();
   const t: OrderTimeline = {};
   if (res.ok) {
-    if (action === 'accept' || action === 'accept_no_pos') Object.assign(t, { acceptedAt: now, acceptedBy: actor.username });
+    if (action === 'accept' || action === 'accept_no_pos') Object.assign(t, { acceptedAt: now, acceptedBy: actor.username, seenAt: order.timeline?.seenAt ?? now, seenBy: order.timeline?.seenBy ?? actor.name });
+    if (action === 'deny') Object.assign(t, { seenAt: order.timeline?.seenAt ?? now, seenBy: order.timeline?.seenBy ?? actor.name });
+    if (opts.approvedBy) t.approvedBy = opts.approvedBy;
     if (action === 'ready') t.readyAt = now;
     if (action === 'dispatch') Object.assign(t, { dispatchedAt: now, readyAt: order.timeline?.readyAt ?? now });
     if (action === 'complete') t.completedAt = now;
@@ -280,10 +322,10 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
     }
   }
   let updated = res.ok
-    ? await patchTimeline(order, t, { status: nextStatus, channelError: nextStatus === 'failed' ? 'Sent to the Skip tablet (backup flow).' : undefined })
+    ? await patchTimeline(working, t, { status: nextStatus, channelError: nextStatus === 'failed' ? 'Sent to the Skip tablet (backup flow).' : undefined })
     : await repo.updateOrder(order.id, { channelError: res.message });
   const eventType = action === 'accept_no_pos' ? 'accept_without_pos' : action;
-  await repo.addEvent(order.id, res.ok ? eventType : `${eventType}_failed`, { message: res.message, reason: reasonText, by: actor.name, ...(action === 'accept_no_pos' ? { note: 'Operator confirmed the order was entered in Clover by hand.' } : {}) });
+  await repo.addEvent(order.id, res.ok ? eventType : `${eventType}_failed`, { message: res.message, reason: reasonText, by: actor.name, ...(action === 'accept_no_pos' ? { note: 'Operator confirmed the order was entered in Clover by hand.' } : {}), ...(opts.approvedBy ? { approvedBy: opts.approvedBy } : {}) });
   // Clover follows: paid when it leaves the kitchen, removed from the register when cancelled (or handed to the Skip tablet).
   if (res.ok) updated = await settleInClover(updated);
   await log(res.ok ? 'success' : 'failed', res.message);

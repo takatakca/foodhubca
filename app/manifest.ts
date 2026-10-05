@@ -1,17 +1,17 @@
 import type { MetadataRoute } from 'next';
 
-// Installable kitchen / office app (TAKATAK "Prime"): Add to Home Screen on an iPad or Android tablet.
+// Installable app (Add to Home Screen on iPad / Android): opens straight on the kitchen screen.
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'TAKATAK Food Hub',
+    name: 'TAKATAK',
     short_name: 'TAKATAK',
-    description: 'Uber Eats, DoorDash, SkipTheDishes, Too Good To Go and Clover on one screen.',
+    description: 'Commandes Uber Eats, DoorDash, SkipTheDishes, Too Good To Go et Clover sur un seul écran.',
     start_url: '/',
     scope: '/',
     display: 'standalone',
     orientation: 'any',
-    background_color: '#101828',
-    theme_color: '#101828',
+    background_color: '#121211',
+    theme_color: '#121211',
     icons: [
       { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
       { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },

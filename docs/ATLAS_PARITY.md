@@ -4,7 +4,7 @@ Atlas is UrbanPiper's restaurant dashboard (Ordermark is part of UrbanPiper). Th
 TAKATAK Food Hub does for each Atlas module, where to find it, and what is **not** built.
 TAKATAK talks to the platforms **directly** — there is no aggregator and no monthly fee.
 
-Legend: **Done** = built and covered by the end-to-end test (`npm run verify:foodhub`, 276 checks) ·
+Legend: **Done** = built and covered by the end-to-end test (`npm run verify:foodhub`, 374 checks) ·
 **Platform limit** = the platform's API does not allow it · **Not built** = missing today.
 
 ## Orders
@@ -18,7 +18,7 @@ Legend: **Done** = built and covered by the end-to-end test (`npm run verify:foo
 | Order details + timeline | Items, options, notes, totals, every step with time and who did it, event log | Orders → click an order | Done |
 | Order history, filters, search, export | Date range, location, platform, brand, status, search by order # / customer / Clover id; CSV + Excel | Orders | Done |
 | Print kitchen ticket (KOT) | Printed on the Clover printer automatically; reprint button; 80 mm browser ticket | Order → Reprint / Print ticket | Done |
-| New-order alerts | Sound (3 tones), repeat every 20 s until handled, platform-cancel alert, desktop notifications — set per screen | 🔔 Alerts | Done |
+| New-order alerts | Full-screen pop-up with beep loop until someone looks (also for auto-accepted orders), countdown to the platform deadline, accept with prep time or reject with a reason; red cancellation alarm on every screen; desktop notifications — set per screen | Every screen, Settings → Alerts | Done |
 | Prep time / busy mode | Normal and busy minutes per location; busy toggle on the Command Center | Command Center → Kitchen, Stores | Done (DoorDash receives it; Uber/Skip: printed ready-by time) |
 | Cancel after accepting | Uber Eats by API with reason; DoorDash/Skip in their portal/tablet (Food Hub updates when they confirm) | Order → Cancel… | Done for Uber · Platform limit for DoorDash/Skip |
 | Courier / rider details | Skip driver status, DoorDash Dasher status (name, phone, car, arriving / at the store), Uber courier details when shared; picked up / delivered move the order forward | Order card, order page | Done |
@@ -77,7 +77,7 @@ Every chart has a table view and CSV download; filters live in the link (Copy li
 
 Order Transactions · Order Status Transitions · Item-wise Order Transactions · Option-wise Order
 Transactions · Items Summary Across All Locations · Menu Snapshot Across All Locations · Store Action
-Report — **Done** (`/foodhub/reports`; email through Resend).
+Report — **Done** (`/insights/reports`; email through Resend).
 
 ## Users & control
 
@@ -85,20 +85,32 @@ Report — **Done** (`/foodhub/reports`; email through Resend).
 |---|---|---|
 | Users, roles, permissions | Owner, Manager, Store operator, Menu editor, Analyst | Done |
 | Location-limited users | A user sees and acts on their locations only (orders, stores, Command Center, reports) | Done |
-| Activity log | Who paused, 86'd, published, changed hours/users, signed in — and the platform result | Done |
-| Single sign-on / 2-step login | — | Not built |
+| Activity log | Who paused, 86'd, published, changed hours/users, signed in, approved with a PIN — and the platform result | Done |
+| Login | Passwordless: 6-digit code or one-tap link by email or SMS; kitchen tablets with staff PINs | Done |
+| Manager approval | Staff need a manager PIN to reject, cancel, refund, pause, change a price or text a customer (configurable per action) | Done (beyond Atlas) |
+| Single sign-on (Google / Microsoft) | — | Not built |
 
 ## Kitchen device
 
 | Atlas | TAKATAK | Status |
 |---|---|---|
-| Tablet app for the kitchen | Installable app (Add to Home Screen): full screen, screen kept awake, offline warning, sound alerts | Done (web app — no app-store install) |
+| Tablet app for the kitchen | Installable app (Add to Home Screen): full screen, screen kept awake, offline warning, sound alerts, PIN screen | Done (web app — no app-store install) |
+| "Your tablet is off" | Heartbeat every 30 s; off / muted during opening hours → the kitchen phone rings, managers are texted then called | Done |
+
+## Watchtower (beyond Atlas)
+
+| What | Status |
+|---|---|
+| Background supervisor: waiting / unseen / late orders, couriers waiting, Clover failures, stores offline or deactivated, tablets, cancellation spikes, sync, unreadable messages, refused actions, money to recover | Done |
+| Escalation: screen → team chat → kitchen phone → SMS → call → owner + support line; quiet hours; *I'm on it* | Done |
+| AI explanations + copilot (Claude, optional; rules without a key) — AI never approves or posts anything | Done |
+| Text / call the customer from the order (when the platform shares a number) | Done |
 
 ## Not built yet
 
 Combos / nested options · ratings & reviews · own-courier dispatch for phone orders (DoorDash Drive /
-Uber Direct) · single sign-on.
+Uber Direct) · single sign-on (Google / Microsoft).
 
 ## Not in scope (Atlas add-ons)
 
-Promotions / ads manager, loyalty, customer messaging, native app-store app, multi-language interface.
+Promotions / ads manager, loyalty, native app-store app. (Customer texts and a French / English interface are now built.)

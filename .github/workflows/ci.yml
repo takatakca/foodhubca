@@ -37,10 +37,6 @@ jobs:
         run: npm test
       - name: Build
         run: npm run build
-      - name: Release readiness
-        run: npm run release:check
-        env:
-          LIVE_CONNECTORS_GLOBAL_ENABLED: "false"
       - name: Food Hub verification
         run: npm run verify:foodhub
         env:

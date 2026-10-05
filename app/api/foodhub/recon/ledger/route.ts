@@ -1,3 +1,4 @@
+import { approvalGate } from '@/lib/foodhub/auth';
 import { NextResponse } from 'next/server';
 import { isChannelKey } from '@/lib/foodhub/adapters';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
@@ -24,6 +25,8 @@ export const GET = withFinance('analytics:view', async (req) => {
 
 // Owner approval of one entry: { key }. Approval only marks the entry as reviewed — nothing is posted anywhere.
 export const POST = withFinance('finance:edit', async (req, _ctx, actor) => {
+  const gate = await approvalGate(req, actor, 'money.edit');
+  if (gate) return gate;
   const b = await readJson(req);
   if (!b.key) return fail('key is required');
   const entries = await ledger({ from: new Date(0).toISOString(), to: new Date(Date.now() + 86400_000 * 400).toISOString() }).catch(() => []);

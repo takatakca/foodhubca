@@ -1,11 +1,12 @@
-// Regenerates supabase/INSTALL_ALL.sql (one paste in Supabase SQL Editor) from the 9 install files.
+// Regenerates supabase/INSTALL_ALL.sql (one paste in the Supabase SQL Editor) from the Food Hub install files.
+// Every file is idempotent, so INSTALL_ALL.sql can be run again after an upgrade.
 import { readFileSync, writeFileSync } from 'node:fs';
 
-const files = ['schema.sql', 'seed.sql', 'storage.sql', 'rls.sql', 'phase25_live_connectors.sql', 'final_operational_patch.sql', 'rc4_security_patch.sql', 'foodhub.sql', 'release_1_4_0_patch.sql'];
+const files = ['foodhub.sql', 'rc10.sql'];
 const parts = [
-  '-- TAKATAK Accounting Control Tower + Food Hub — ONE-PASTE DATABASE INSTALL',
-  '-- Paste this entire file into Supabase SQL Editor and click Run once.',
-  `-- It contains all ${files.length} install files in the correct order. Regenerate with: node scripts/build-install-sql.mjs`,
+  '-- TAKATAK Food Hub — ONE-PASTE DATABASE INSTALL',
+  '-- Paste this entire file into the Supabase SQL Editor and click Run. Safe to run again after an upgrade.',
+  `-- It contains ${files.length} install files in order. Regenerate with: node scripts/build-install-sql.mjs`,
   '',
 ];
 for (const f of files) {

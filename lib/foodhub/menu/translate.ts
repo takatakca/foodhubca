@@ -14,9 +14,28 @@ export function defaultHours(): WeeklyHours {
   return allDayWeek();
 }
 
-export function priceFor(item: MenuItem, marketplace: Marketplace): number {
+/** Markup percentage for a platform (0 when none), clamped to a sane range. */
+export function markupPct(menu: Pick<MasterMenu, 'channelMarkupPct'> | null | undefined, marketplace: Marketplace): number {
+  const v = Number(menu?.channelMarkupPct?.[marketplace] ?? 0);
+  return Number.isFinite(v) ? Math.min(Math.max(v, -50), 200) : 0;
+}
+
+/** Base price × (1 + markup), rounded to the cent (a 0 $ price stays 0 $). */
+export function withMarkup(price: number, pct: number): number {
+  const p = Number(price) || 0;
+  if (!pct || p <= 0) return p;
+  return Math.round(p * (100 + pct) + 1e-6) / 100;
+}
+
+/** Item price on a platform: per-item override first, otherwise the base price plus the platform markup. */
+export function priceFor(item: MenuItem, marketplace: Marketplace, menu?: Pick<MasterMenu, 'channelMarkupPct'> | null): number {
   const override = item.channelPrices?.[marketplace];
-  return typeof override === 'number' && override > 0 ? override : item.price;
+  return typeof override === 'number' && override > 0 ? override : withMarkup(item.price, markupPct(menu, marketplace));
+}
+
+/** Modifier price on a platform (same markup as the items). */
+export function modifierPriceFor(mod: { price: number }, marketplace: Marketplace, menu?: Pick<MasterMenu, 'channelMarkupPct'> | null): number {
+  return withMarkup(mod.price, markupPct(menu, marketplace));
 }
 
 /** Items that are in a valid category, in category order. */
@@ -94,7 +113,7 @@ export function toSkipMenu(menu: MasterMenu, restaurantRefs: string[], callbackU
       name: label(i.name, i.nameFr, lang),
       description: describe(i, lang),
       plu: i.ref,
-      price: toCents(priceFor(i, 'skip')),
+      price: toCents(priceFor(i, 'skip', menu)),
       out_of_stock: !i.available || offRefs.has(i.ref),
       ...(i.imageUrl ? { gallery: [{ url: i.imageUrl }] } : {}),
       modifiers: i.modifierGroupRefs.map((ref) => groups.get(ref)).filter(Boolean).map((g) => ({
@@ -106,7 +125,7 @@ export function toSkipMenu(menu: MasterMenu, restaurantRefs: string[], callbackU
         options: g!.modifiers.map((m) => ({
           name: label(m.name, m.nameFr, lang),
           plu: m.ref,
-          price: toCents(m.price),
+          price: toCents(modifierPriceFor(m, 'skip', menu)),
           out_of_stock: !m.available || offRefs.has(m.ref),
         })),
       })),
@@ -139,7 +158,7 @@ export function toUberMenu(menu: MasterMenu, ctx?: PublishContext, offRefs: Set<
     id: `mod:${m.ref}`,
     external_data: m.ref,
     title: text(m.name, m.nameFr),
-    price_info: { price: toCents(m.price) },
+    price_info: { price: toCents(modifierPriceFor(m, 'uber_eats', menu)) },
     quantity_info: {},
     ...(m.available && !offRefs.has(m.ref) ? {} : SUSPEND_FOREVER),
   })));
@@ -166,7 +185,7 @@ export function toUberMenu(menu: MasterMenu, ctx?: PublishContext, offRefs: Set<
         title: text(i.name, i.nameFr),
         description: (() => { const en = platformDescription(i, 'en'); const fr = platformDescription(i, 'fr'); return text(en, i.descriptionFr || i.nameFr ? fr : undefined); })(),
         ...(i.imageUrl ? { image_url: i.imageUrl } : {}),
-        price_info: { price: toCents(priceFor(i, 'uber_eats')) },
+        price_info: { price: toCents(priceFor(i, 'uber_eats', menu)) },
         modifier_group_ids: { ids: i.modifierGroupRefs },
         ...(typeof i.calories === 'number' && i.calories > 0 ? { nutritional_info: { calories: { lower_range: Math.round(i.calories), upper_range: Math.round(i.calories) } } } : {}),
         ...(i.available && !offRefs.has(i.ref) ? {} : SUSPEND_FOREVER),
@@ -234,7 +253,7 @@ export function toDoorDashMenu(menu: MasterMenu, merchantSuppliedId: string, pro
             description: describe(i, lang),
             merchant_supplied_id: i.ref,
             active: i.available && !offRefs.has(i.ref),
-            price: toCents(priceFor(i, 'doordash')),
+            price: toCents(priceFor(i, 'doordash', menu)),
             sort_id: ii,
             ...((i.tags ?? []).includes('alcohol') ? { is_alcohol: true } : {}),
             ...(i.imageUrl ? { original_image_url: i.imageUrl } : {}),
@@ -251,7 +270,7 @@ export function toDoorDashMenu(menu: MasterMenu, merchantSuppliedId: string, pro
                 name: label(m.name, m.nameFr, lang),
                 merchant_supplied_id: m.ref,
                 active: m.available && !offRefs.has(m.ref),
-                price: toCents(m.price),
+                price: toCents(modifierPriceFor(m, 'doordash', menu)),
                 sort_id: mi,
               })),
             })),

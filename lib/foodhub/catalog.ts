@@ -1,5 +1,6 @@
 // Brands and locations (Atlas "Brands" + "Locations"). Seeded from your real data
 // (data/actual), plus anything added in Food Hub → Business setup. Stored in fh_kv.
+import { normalizePhone } from './notify';
 import rawBrands from '../../data/actual/brands.json';
 import rawLocations from '../../data/actual/locations.json';
 import { getRepo } from './repo';
@@ -10,6 +11,8 @@ export interface LocationDef {
   address: string;
   city?: string;
   postalCode?: string;
+  /** The kitchen's own phone (landline): the Watchtower calls it first when a tablet is off or an order waits — like Uber does. */
+  phone?: string | null;
   active: boolean;
   seed?: boolean;
 }
@@ -60,7 +63,7 @@ export async function saveLocation(def: LocationDef): Promise<Catalog> {
   if (!def.name?.trim()) throw new Error('Location name is required.');
   const stored = (await getRepo().getKv<Partial<Catalog>>(KEY)) ?? {};
   const list = (stored.locations ?? []).filter((l) => l.code !== def.code);
-  list.push({ code: def.code, name: def.name.trim(), address: (def.address || '').trim(), city: def.city?.trim(), postalCode: def.postalCode?.trim(), active: def.active !== false });
+  list.push({ code: def.code, name: def.name.trim(), address: (def.address || '').trim(), city: def.city?.trim(), postalCode: def.postalCode?.trim(), phone: def.phone ? normalizePhone(def.phone) : null, active: def.active !== false });
   await getRepo().setKv(KEY, { ...stored, locations: list });
   return getCatalog();
 }

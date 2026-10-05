@@ -1,0 +1,12 @@
+{
+  "source": "Uber Eats store UUIDs given by the owner on 2026-10-04 (Uber Eats Manager). Locations are confirmed from Uber's own address when the stores are connected (Stores → Mapping → Connect Uber Eats).",
+  "stores": [
+    { "store_id": "b6b36ca0-bc57-50d0-a184-1d28bf74771f", "uber_name": "Pi Pita" },
+    { "store_id": "627d09f0-8fb4-57f2-8ec1-6a71984ad267", "uber_name": "PPP Pizzeria" },
+    { "store_id": "d4e00c50-971f-5eb4-afa2-d48231f98a48", "uber_name": "Gateaux Montréal" },
+    { "store_id": "c5585882-ab06-5a2f-bbc2-66fe5ec9179c", "uber_name": "O'Oeufs Montréal" },
+    { "store_id": "8c0a69ee-1667-5aa7-a8e6-7fdb707095da", "uber_name": "Nutri Shake" },
+    { "store_id": "8179598e-a40f-509e-8b03-59ce49d57d77", "uber_name": "Bolon Café" },
+    { "store_id": "7656b055-48d1-5f46-a6a7-2a0d23668c0b", "uber_name": "BIN MOLLE BIN DURE" }
+  ]
+}

@@ -19,7 +19,7 @@ export const POST = withPerm('admin', async (req, _ctx, actor) => {
 async function save(b: Record<string, any>, actor: AuthUser) {
   if (b.location) {
     const l = b.location;
-    const catalog = await saveLocation({ code: String(l.code || '').toUpperCase().trim(), name: String(l.name || ''), address: String(l.address || ''), city: l.city, postalCode: l.postalCode, active: l.active !== false });
+    const catalog = await saveLocation({ code: String(l.code || '').toUpperCase().trim(), name: String(l.name || ''), address: String(l.address || ''), city: l.city, postalCode: l.postalCode, phone: l.phone ? String(l.phone) : null, active: l.active !== false });
     await logActivity({ actor: actor.name, source: actor.source, kind: 'settings', action: 'location_saved', status: 'success', locationCode: String(l.code).toUpperCase(), summary: `Location ${String(l.code).toUpperCase()} saved (${l.name}${l.active === false ? ', deactivated' : ''})` });
     return ok({ ...catalog });
   }

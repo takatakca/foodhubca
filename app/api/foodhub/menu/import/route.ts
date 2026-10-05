@@ -56,6 +56,8 @@ export const POST = withPerm('menu:edit', async (req, _ctx, actor) => {
     hours: existing?.hours,
     unavailableByLocation: existing?.unavailableByLocation,
     unavailableUntil: existing?.unavailableUntil,
+    // Platform markups (e.g. DoorDash +20%) survive a re-import: Clover holds in-store prices.
+    channelMarkupPct: existing?.channelMarkupPct,
     categories: [
       ...imported.categories.map((c) => {
         const prevCat = (existing?.categories ?? []).find((x) => x.ref === c.ref);

@@ -1,5 +1,5 @@
 -- TAKATAK Food Hub — operations tables (orders, stores, menus, jobs).
--- Run AFTER rc4_security_patch.sql (file 8 of 8). Also included in INSTALL_ALL.sql.
+-- File 1 of 2 (then rc10.sql). Both are included in INSTALL_ALL.sql.
 
 create table if not exists fh_channel_stores (
   id uuid primary key default gen_random_uuid(),

@@ -1,19 +1,22 @@
-// Sign-in, users and permissions for route handlers.
-//  - Built-in owner: username "owner" + DASHBOARD_PASSWORD (cannot be locked out by username alone:
-//    the throttle is keyed by client IP + username).
-//  - Team members: Food Hub → Users (scrypt-hashed passwords, roles, location scope).
-//  - Every request is re-checked against the user record, so deactivating someone takes effect at once;
-//    the cookie carries a session version, so resetting a password signs that person's devices out too.
+// Who is calling, what they may do, and manager approvals — for every route handler.
+//   - People sign in with a one-time code / link (identity/otp.ts) or, on a kitchen tablet, with their PIN.
+//   - "owner" + DASHBOARD_PASSWORD stays as the recovery login and for scripts (Authorization: Basic). It cannot
+//     be locked out by username alone: the sign-in throttle is keyed by client IP + username.
+//   - Every request is re-checked against the user record, so deactivating someone signs them out at once,
+//     and against the device record, so removing a tablet signs it out too. The cookie carries a session
+//     version, so resetting a password (or rotating DASHBOARD_PASSWORD) signs those devices out as well.
+//   - Gated actions (policy.ts) answer HTTP 428 until a manager PIN comes with the retry (x-approval-pin).
 import crypto from 'node:crypto';
-import { cookies, headers } from 'next/headers';
-import { notFound, redirect } from 'next/navigation';
 import { NextResponse } from 'next/server';
 import { logActivity, type Actor } from './activity';
 import { fail } from './http';
+import { getDevice } from './identity/devices';
+import { clientKey, findApprover, lockedFor, noteFailure, noteSuccess } from './identity/pin';
+import { ACTIONS, APPROVER_ROLES, getPolicy, needsApproval, type PolicyAction } from './policy';
 import { getRepo } from './repo';
 import {
-  basicOwner, can, clearFailures, clientIp, decodeBasic, isLocked, ownerSessionVersion, readCookie, recordFailure, safeEqual,
-  SESSION_COOKIE, SESSION_DAYS, sessionVersion, signSession, throttleKey, verifySession, type Permission,
+  basicOwner, can, clearFailures, clientIp, cookieFlags, decodeBasic, isLocked, ownerSessionVersion, readCookie, recordFailure, safeEqual,
+  SESSION_COOKIE, SESSION_DAYS, signSession, STAFF_SESSION_HOURS, throttleKey, userSessionVersion, verifySession, type Permission, type SessionPayload,
 } from './session';
 import type { FoodHubUser, Role } from './types';
 
@@ -21,9 +24,15 @@ export interface AuthUser extends Actor {
   role: Role;
   /** [] = all locations */
   locations: string[];
+  /** Kitchen tablet the session was opened on (PIN session). */
+  deviceId?: string;
+  /** Built-in owner recovery login. */
+  builtin?: boolean;
+  /** Set by approvalGate when a manager PIN approved the current action. */
+  approvedBy?: string;
 }
 
-const OWNER: AuthUser = { username: 'owner', name: 'Owner', role: 'owner', locations: [], source: 'dashboard' };
+export const OWNER: AuthUser = { username: 'owner', name: 'Owner', role: 'owner', locations: [], source: 'dashboard', builtin: true };
 
 export function hashPassword(password: string): string {
   const salt = crypto.randomBytes(16);
@@ -31,7 +40,8 @@ export function hashPassword(password: string): string {
   return `scrypt$${salt.toString('base64')}$${hash.toString('base64')}`;
 }
 
-export function verifyPassword(password: string, stored: string): boolean {
+export function verifyPassword(password: string, stored: string | null | undefined): boolean {
+  if (!stored) return false;
   const [scheme, salt, hash] = stored.split('$');
   if (scheme !== 'scrypt' || !salt || !hash) return false;
   const expected = Buffer.from(hash, 'base64');
@@ -44,7 +54,7 @@ export function passwordProblem(password: string): string | null {
   return null;
 }
 
-function toAuthUser(u: FoodHubUser): AuthUser {
+export function toAuthUser(u: FoodHubUser): AuthUser {
   return { username: u.username, name: u.name, role: u.role, locations: u.locations ?? [], source: 'dashboard' };
 }
 
@@ -61,17 +71,13 @@ async function logBasicFailure(ip: string, username: string): Promise<void> {
 
 /** Who is calling. Null = not signed in (also when the IP+username is locked after repeated failures). */
 export async function getActor(req: Request): Promise<AuthUser | null> {
-  if (!process.env.DASHBOARD_PASSWORD && !process.env.SESSION_SECRET) {
-    // Open local/dev mode (proxy.ts refuses live mode without a password).
-    return OWNER;
-  }
   const auth = req.headers.get('authorization');
   const basic = decodeBasic(auth);
   if (basic) {
     const ip = clientIp(req.headers);
     const key = throttleKey(ip, basic.username);
     if (isLocked(key)) return null;
-    if (basicOwner(auth)) { clearFailures(key); return OWNER; }
+    if (basicOwner(auth)) { clearFailures(key); return { ...OWNER }; }
     try {
       const user = await getRepo().getUser(basic.username);
       if (user?.active && verifyPassword(basic.password, user.passwordHash)) { clearFailures(key); return { ...toAuthUser(user), source: 'api' }; }
@@ -83,21 +89,13 @@ export async function getActor(req: Request): Promise<AuthUser | null> {
   const session = await verifySession(readCookie(req.headers.get('cookie')));
   if (!session?.v) return null; // cookies from before session versions are signed out once
   if (session.b) return session.v === ownerSessionVersion() ? { ...OWNER, name: session.n || OWNER.name } : null;
+  if (session.d) {
+    const device = await getDevice(session.d);
+    if (!device || device.revoked) return null;
+  }
   const user = await getRepo().getUser(session.u);
-  return user?.active && session.v === sessionVersion(user.passwordHash) ? toAuthUser(user) : null;
-}
-
-/**
- * Server-rendered pages: resolve the signed-in person (DB check for active + session version) or send them
- * to /login?next=…; a signed-in person without the permission gets a 404 (the nav hides the page from them).
- */
-export async function requirePage(perm?: Permission, path = '/'): Promise<AuthUser> {
-  const h = await headers();
-  await cookies(); // marks the page per-request, like the layout
-  const actor = await getActor(new Request('http://foodhub.local/', { headers: h }));
-  if (!actor) redirect(`/login?next=${encodeURIComponent(path)}`);
-  if (perm && !can(actor.role, perm)) notFound();
-  return actor;
+  if (!user?.active || session.v !== userSessionVersion(user)) return null;
+  return { ...toAuthUser(user), ...(session.d ? { deviceId: session.d } : {}) };
 }
 
 /** An error whose message is safe and useful to show the person (validation, missing input). */
@@ -145,7 +143,58 @@ export function scopeFilter(actor: AuthUser, requested?: string[]): string[] | u
   return allowed.length ? allowed : ['__none__'];
 }
 
-// ---------- Sign-in ----------
+/** "Sara (approved by Marc)" — what the activity log and the order timeline show. */
+export function actorLabel(actor: AuthUser): string {
+  return actor.approvedBy ? `${actor.name} (approved by ${actor.approvedBy})` : actor.name;
+}
+
+/**
+ * Manager approval for a gated action. Returns null when the action may go ahead (and sets
+ * actor.approvedBy when a PIN approved it), or a JSON response:
+ *   428 { needsApproval: true }            — ask for a manager PIN and retry with header x-approval-pin
+ *   403 { needsApproval: true, wrongPin }  — that PIN is not a manager's (5 tries, then 5 minutes locked)
+ */
+export async function approvalGate(req: Request, actor: AuthUser, action: PolicyAction, locationCode?: string | null, what?: string): Promise<Response | null> {
+  // The owner recovery login (DASHBOARD_PASSWORD) is the master key: scripts and recovery are never blocked.
+  if (actor.builtin) return null;
+  const rule = (await getPolicy())[action];
+  if (!needsApproval(rule, actor.role)) return null;
+  const label = ACTIONS[action];
+  const pin = req.headers.get('x-approval-pin')?.trim();
+  if (!pin) return NextResponse.json({ ok: false, needsApproval: true, action, rule, label: label.en, labelFr: label.fr, error: `Manager approval needed: ${label.en}.` }, { status: 428 });
+  const who = clientKey(req, actor.deviceId, actor.username);
+  const wait = lockedFor(who);
+  if (wait) return NextResponse.json({ ok: false, needsApproval: true, locked: wait, action, error: `Too many wrong PINs. Try again in ${Math.ceil(wait / 60)} min.` }, { status: 429 });
+  const approver = await findApprover(pin, APPROVER_ROLES, locationCode);
+  if (!approver) {
+    noteFailure(who);
+    await logActivity({ actor: actor.name, source: actor.source, kind: 'approval', action, status: 'failed', locationCode: locationCode ?? null, summary: `Wrong manager PIN for "${label.en}"${what ? ` — ${what}` : ''}` });
+    return NextResponse.json({ ok: false, needsApproval: true, wrongPin: true, action, error: 'PIN not recognised for a manager here.' }, { status: 403 });
+  }
+  noteSuccess(who);
+  actor.approvedBy = approver.username === actor.username ? undefined : approver.name;
+  await logActivity({ actor: approver.name, source: actor.source, kind: 'approval', action, status: 'success', locationCode: locationCode ?? null,
+    summary: approver.username === actor.username ? `${approver.name} confirmed "${label.en}" with their PIN${what ? ` — ${what}` : ''}` : `${approver.name} approved "${label.en}" for ${actor.name}${what ? ` — ${what}` : ''}` });
+  return null;
+}
+
+// ---------- Session cookies ----------
+
+/** Signed session cookie. The version (`v`) ties it to the credential behind it: see getActor(). */
+export async function sessionCookieFor(user: FoodHubUser | null, kind: NonNullable<SessionPayload['k']>, deviceId?: string): Promise<string> {
+  const staff = Boolean(deviceId);
+  const seconds = staff ? STAFF_SESSION_HOURS * 3600 : SESSION_DAYS * 86400;
+  const payload: SessionPayload = user
+    ? { u: user.username, n: user.name, r: user.role, l: user.locations ?? [], exp: Math.floor(Date.now() / 1000) + seconds, k: kind, v: userSessionVersion(user), ...(deviceId ? { d: deviceId } : {}) }
+    : { u: 'owner', n: 'Owner', r: 'owner', l: [], exp: Math.floor(Date.now() / 1000) + seconds, b: true, k: kind, v: ownerSessionVersion() };
+  return `${SESSION_COOKIE}=${encodeURIComponent(await signSession(payload))}; ${cookieFlags(seconds)}`;
+}
+
+export function signOutCookie(): string {
+  return `${SESSION_COOKIE}=; ${cookieFlags(0)}`;
+}
+
+// ---------- Owner recovery login (DASHBOARD_PASSWORD) and legacy passwords ----------
 
 /** `ip` = clientIp(req.headers): failures are throttled per IP + username (see session.ts). */
 export async function signIn(username: string, password: string, ip = 'local'): Promise<{ user: AuthUser; cookie: string } | { error: string; status: number }> {
@@ -153,14 +202,16 @@ export async function signIn(username: string, password: string, ip = 'local'): 
   const key = throttleKey(ip, name);
   if (isLocked(key)) return { error: 'Too many attempts. Wait a minute and try again.', status: 429 };
   let user: AuthUser | null = null;
-  let version = '';
+  let stored: FoodHubUser | null = null;
   if (name === 'owner' && safeEqual(password, process.env.DASHBOARD_PASSWORD)) {
-    user = OWNER; version = ownerSessionVersion();
+    user = { ...OWNER };
   } else {
-    const stored = await getRepo().getUser(name);
+    stored = await getRepo().getUser(name);
     if (stored?.active && verifyPassword(password, stored.passwordHash)) {
-      user = toAuthUser(stored); version = sessionVersion(stored.passwordHash);
+      user = toAuthUser(stored);
       await getRepo().saveUser({ ...stored, lastLoginAt: new Date().toISOString() });
+    } else {
+      stored = null;
     }
   }
   if (!user) {
@@ -168,15 +219,7 @@ export async function signIn(username: string, password: string, ip = 'local'): 
     return { error: 'Wrong username or password.', status: 401 };
   }
   clearFailures(key);
-  const builtin = user === OWNER;
-  const token = await signSession({ u: user.username, n: user.name, r: user.role, l: user.locations, exp: Math.floor(Date.now() / 1000) + SESSION_DAYS * 86400, v: version, ...(builtin ? { b: true } : {}) });
-  const secure = (process.env.FOODHUB_PUBLIC_URL || '').startsWith('https://') || Boolean(process.env.VERCEL_URL);
-  const cookie = `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}${secure ? '; Secure' : ''}`;
-  return { user, cookie };
-}
-
-export function signOutCookie(): string {
-  return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+  return { user, cookie: await sessionCookieFor(stored, 'password') };
 }
 
 export function json(data: Record<string, unknown>, init?: ResponseInit) {

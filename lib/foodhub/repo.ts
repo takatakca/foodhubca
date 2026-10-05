@@ -297,7 +297,10 @@ function rowToJob(r: Row): FoodHubJob {
 }
 
 function rowToUser(r: Row): FoodHubUser {
-  return { id: r.id, username: r.username, name: r.name, role: r.role, locations: r.locations ?? [], passwordHash: r.password_hash, active: r.active, createdAt: r.created_at, lastLoginAt: r.last_login_at };
+  return {
+    id: r.id, username: r.username, name: r.name, role: r.role, locations: r.locations ?? [], email: r.email ?? null, phone: r.phone ?? null,
+    passwordHash: r.password_hash ?? null, pinHash: r.pin_hash ?? null, prefs: r.prefs ?? {}, active: r.active, createdAt: r.created_at, lastLoginAt: r.last_login_at,
+  };
 }
 
 function must<T>(res: { data: T; error: { message: string } | null }): T {
@@ -513,7 +516,10 @@ function supabaseRepo(): FoodHubRepo {
       return data ? rowToUser(data) : null;
     },
     async saveUser(u) {
-      const row = { username: u.username.toLowerCase(), name: u.name, role: u.role, locations: u.locations, password_hash: u.passwordHash, active: u.active, last_login_at: u.lastLoginAt ?? null };
+      const row = {
+        username: u.username.toLowerCase(), name: u.name, role: u.role, locations: u.locations, email: u.email ? u.email.toLowerCase() : null, phone: u.phone || null,
+        password_hash: u.passwordHash ?? null, pin_hash: u.pinHash ?? null, prefs: u.prefs ?? {}, active: u.active, last_login_at: u.lastLoginAt ?? null,
+      };
       const data = must(await db.from('fh_users').upsert(row, { onConflict: 'username' }).select('*').single());
       return rowToUser(data);
     },

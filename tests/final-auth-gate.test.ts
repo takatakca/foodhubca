@@ -177,9 +177,10 @@ describe('getActor', () => {
     expect(await getActor(req({ authorization: basic('owner', 'Owner-pass-123'), 'x-forwarded-for': '5.5.5.5' }))).toBeNull();
     expect((await getActor(req({ authorization: basic('owner', 'Owner-pass-123') })))?.role).toBe('owner');
   });
-  it('open dev mode (no password, no secret) is the owner', async () => {
+  it('open dev mode (no password, no secret) still needs a sign-in: nobody is the owner by default', async () => {
     process.env.DASHBOARD_PASSWORD = '';
-    expect((await getActor(req()))?.role).toBe('owner');
+    expect(await getActor(req())).toBeNull();
+    expect(await getActor(req({ authorization: basic('owner', '') }))).toBeNull();
   });
 });
 

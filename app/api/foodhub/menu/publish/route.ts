@@ -1,5 +1,5 @@
 import { isChannelKey } from '@/lib/foodhub/adapters';
-import { withPerm } from '@/lib/foodhub/auth';
+import { approvalGate, withPerm } from '@/lib/foodhub/auth';
 import { getHours } from '@/lib/foodhub/hours';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { cancelScheduled, listScheduled, schedulePublish } from '@/lib/foodhub/menu/schedule';
@@ -53,6 +53,8 @@ export const POST = withPerm('menu:edit', async (req, _ctx, actor) => {
     if (!storeIds.length) return fail(`No ${brand} stores at your locations.`, 403);
   }
   if (!stores.some((s) => s.brandName === brand && (!storeIds || storeIds.includes(s.id)))) return fail(`No stores are mapped for ${brand}. Map them in Food Hub → Stores first.`, 409);
+  const gate = await approvalGate(req, actor, 'menu.publish', null, brand);
+  if (gate) return gate;
   if (b.at) {
     try {
       const scheduled = await schedulePublish({ brand, storeIds, channels: channels.length ? channels : undefined, at: String(b.at) }, actor);

@@ -1,7 +1,7 @@
 import { scopeFilter, withPerm } from '@/lib/foodhub/auth';
 import { fail, ok } from '@/lib/foodhub/http';
 import { allowedActions } from '@/lib/foodhub/pipeline';
-import { parseRange } from '@/lib/foodhub/report-filter';
+import { parseLimit, parseRange } from '@/lib/foodhub/report-filter';
 import { getRepo } from '@/lib/foodhub/repo';
 import type { OrderStatus } from '@/lib/foodhub/types';
 
@@ -13,7 +13,7 @@ const list = (v: string | null) => (v || '').split(',').map((x) => x.trim()).fil
 export const GET = withPerm('view', async (req, _ctx, actor) => {
   const q = new URL(req.url).searchParams;
   const statuses = list(q.get('status')) as OrderStatus[];
-  const limit = Math.min(Number(q.get('limit') || 100), 5000);
+  const limit = parseLimit(q.get('limit'), 100, 5000);
   let since = q.get('since') || undefined;
   let until = q.get('until') || undefined;
   // from/to = local business days (YYYY-MM-DD, `to` inclusive) like the reports.

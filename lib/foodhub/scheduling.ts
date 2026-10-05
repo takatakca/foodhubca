@@ -48,8 +48,10 @@ export async function fireDueScheduled(now = Date.now()): Promise<number> {
       const p = await printCloverOrder(o.posOrderId, store?.cloverMerchantId);
       await repo.addEvent(o.id, p.ok ? 'printed' : 'print_failed', { message: `${p.message} (scheduled order — fire time, attempt ${attempts})` });
       if (p.ok) printedAt = nowIso(); else printError = p.message;
+    } else if (!o.posOrderId) {
+      printError = 'order is not in Clover — use "Send to Clover", then Reprint';
     }
-    if (printError && attempts < MAX_FIRE_PRINT_ATTEMPTS) {
+    if (printError && o.posOrderId && attempts < MAX_FIRE_PRINT_ATTEMPTS) {
       // Ticket did not print: keep the order in the Scheduled lane (firedAt unset) and retry on the next sync.
       await repo.patchOrder(o.id, { printError, printAttempts: attempts });
       await logActivity({ actor: 'TAKATAK automation', source: 'automation', kind: 'order', action: 'scheduled_fire', status: 'failed', channel: o.channel, brandName: o.brandName, locationCode: o.locationCode, orderId: o.id,

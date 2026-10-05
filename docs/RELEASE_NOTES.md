@@ -42,7 +42,9 @@ and the fixes below. Nothing here changes a locked decision ([LOCKED_DECISIONS.m
   `/api/backend/*` route authenticates itself; the unauthenticated legacy webhook stub and the generic REST
   connectors (which sent the DoorDash signing secret as a bearer token) are gone.
 - Sign-in attempts are throttled per client and per user (login form and Basic auth), failed Basic attempts
-  are logged, and the owner can never be locked out by someone else's attempts.
+  are logged, the owner password only counts under the owner username, and the owner can never be locked
+  out by someone else's attempts. The client address comes from `x-forwarded-for` only behind a trusted proxy
+  (automatic on Vercel, `FOODHUB_TRUST_PROXY=true` behind nginx/Caddy/Cloudflare).
 - Without `SESSION_SECRET` the cookie key is derived with scrypt from the password (never the raw password);
   `npm run qa:env` warns when the secret is missing. With live connectors on, `DASHBOARD_PASSWORD` is
   mandatory regardless of `SESSION_SECRET`.
@@ -50,7 +52,8 @@ and the fixes below. Nothing here changes a locked decision ([LOCKED_DECISIONS.m
   location scope and role; prototype-named keys (`constructor`, `__proto__`) are rejected everywhere a key
   is looked up; Uber report downloads only follow https links on `uber.com` / `amazonaws.com`, capped at 15 MB;
   server errors never echo database messages to the browser; deferred webhook work that fails is kept under
-  *Channels → Unparsed payloads* instead of being lost.
+  *Channels → Unparsed payloads* instead of being lost; a platform cancel that lands while an order is being
+  put in Clover or accepted wins over the acceptance; Uber `resource_href` links are only followed on the Uber API origin.
 
 ### Data and infrastructure
 
@@ -83,8 +86,8 @@ and the fixes below. Nothing here changes a locked decision ([LOCKED_DECISIONS.m
 
 ### Known limitations (documented, not fixed in this release)
 
-- Sign-in throttling is per server instance (serverless instances do not share the counter); the log entry
-  and the per-user lock still hold on each instance.
+- Sign-in throttling is per server instance (serverless instances do not share the counter), and when the app
+  faces clients directly (no trusted proxy) every client shares one bucket.
 - Vercel Hobby runs the sync cron once a day; timed re-opens, timed 86s, scheduled publishes and scheduled
   orders fire while a Command Center screen is open or when a 5-minute pinger calls `/api/foodhub/cron/sync`
   ([GO_LIVE_NOW.md](GO_LIVE_NOW.md), step 8). The Command Center warns after 10 minutes without a sync.
@@ -101,7 +104,7 @@ and the fixes below. Nothing here changes a locked decision ([LOCKED_DECISIONS.m
 |---|---|
 | `npm run typecheck` | pass |
 | `npm run lint` | pass (0 errors; remaining warnings are `no-explicit-any` at the platform edges) |
-| `npm test` | 150 tests pass |
+| `npm test` | 160 tests pass |
 | `npm run build` | pass |
 | `npm run release:check` | pass |
 | `npm run verify:foodhub` | 276 end-to-end checks pass against simulated Uber Eats, DoorDash, Skip (JET Connect), Clover and Resend |

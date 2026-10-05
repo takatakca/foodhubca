@@ -80,7 +80,8 @@ export async function handleUberReportWebhook(body: any): Promise<{ imported: nu
   for (const url of links) {
     try {
       if (!allowedReportUrl(url)) throw new Error(`download refused: ${url.slice(0, 80)} is not an https uber.com / amazonaws.com link`);
-      const res = await timedFetch(url, {});
+      const res = await timedFetch(url, { redirect: 'manual' }); // a redirect could leave the allow-listed host
+      if (res.status >= 300 && res.status < 400) throw new Error(`download refused: ${url.slice(0, 80)} redirects elsewhere`);
       if (!res.ok) throw new Error(`download HTTP ${res.status}`);
       const bytes = await readCapped(res, MAX_REPORT_BYTES, 60_000);
       const name = decodeURIComponent(new URL(url).pathname.split('/').pop() || '') || `uber-report-${localDate(Date.now())}.csv`;

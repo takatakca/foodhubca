@@ -181,7 +181,7 @@ desktop notifications for that device (kitchen tablet and office PC can differ).
 
 ## Proof
 ```bash
-npm test                                   # 150 unit tests (signatures, parsers, menus, hours, 86, roles, reports,
+npm test                                   # 160 unit tests (signatures, parsers, menus, hours, 86, roles, reports,
                                            # analytics, statements, expected payouts, ledger, couriers, scheduling)
 npm run build && npm run verify:foodhub    # 276 end-to-end checks against simulated Uber Eats (incl. Reporting API),
                                            # DoorDash, Skip (JET Connect), Clover and Resend

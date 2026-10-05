@@ -255,7 +255,8 @@ const env = {
   FOODHUB_PUBLIC_URL: 'https://takatak.example',
   FOODHUB_TIMEZONE: 'America/Toronto',
   LIVE_CONNECTORS_GLOBAL_ENABLED: 'true',
-  UBER_REPORT_ALLOWED_HOSTS: '127.0.0.1', // report downloads are otherwise limited to https uber.com / amazonaws.com
+  UBER_REPORT_ALLOWED_HOSTS: '127.0.0.1',
+  FOODHUB_TRUST_PROXY: 'true', // the harness plays several clients through x-forwarded-for // report downloads are otherwise limited to https uber.com / amazonaws.com
   DASHBOARD_PASSWORD: PASSWORD,
   CRON_SECRET: 'cron-e2e',
   UBER_BASE_URL: `${MOCK}/uber`, UBER_AUTH_URL: `${MOCK}/uber/oauth/v2/token`, UBER_CLIENT_ID: 'uber-id', UBER_CLIENT_SECRET: UBER_SECRET,

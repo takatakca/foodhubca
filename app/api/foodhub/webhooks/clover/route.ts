@@ -27,9 +27,9 @@ export async function POST(req: NextRequest) {
     const code = String(body.verificationCode).slice(0, 200);
     const current = await repo.getKv<{ code: string; at: string }>(VERIFY_KEY).catch(() => null);
     const recent = Boolean(current?.at) && Date.now() - new Date(String(current?.at)).getTime() < VERIFY_MIN_INTERVAL_MS;
-    if (current?.code !== code && !recent) {
+    if (current?.code !== code) {
       await repo.setKv(VERIFY_KEY, { code, at: nowIso() });
-      await logActivity({ actor: 'Clover', source: 'platform', kind: 'settings', action: 'clover_webhook_verification', status: 'info', summary: 'Clover sent a webhook verification code — copy it from Channels & Setup into the Clover developer dashboard.' });
+      if (!recent) await logActivity({ actor: 'Clover', source: 'platform', kind: 'settings', action: 'clover_webhook_verification', status: 'info', summary: 'Clover sent a webhook verification code — copy it from Channels & Setup into the Clover developer dashboard.' });
     }
     return NextResponse.json({ ok: true });
   }

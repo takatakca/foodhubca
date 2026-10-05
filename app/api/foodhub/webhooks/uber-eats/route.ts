@@ -3,7 +3,7 @@ import { fetchUberOrder, parseUberOrder, uberEatsAdapter } from '@/lib/foodhub/a
 import { applyExternalStatus, processIncomingOrder } from '@/lib/foodhub/pipeline';
 import { logActivity } from '@/lib/foodhub/activity';
 import { nowIso } from '@/lib/foodhub/config';
-import { applyCourierUpdate } from '@/lib/foodhub/courier';
+import { applyCourierUpdate, readPending } from '@/lib/foodhub/courier';
 import { handleUberReportWebhook } from '@/lib/foodhub/recon/automation';
 import { getRepo } from '@/lib/foodhub/repo';
 import type { PlatformStatus } from '@/lib/foodhub/types';
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
     background(`uber courier ${orderId}`, async () => {
       if (!status || !orderId) return keepUnparsed('uber_eats', body, `Uber delivery state not recognized (${String(rawState ?? 'missing')})`, orderId || null);
       const saved = await applyCourierUpdate('uber_eats', orderId, { status }, 'uber_eats:delivery.state_changed');
-      if (!saved) await keepUnparsed('uber_eats', body, 'Uber courier update for an order Food Hub does not have', orderId);
+      if (!saved && !(await readPending('uber_eats', orderId))) await keepUnparsed('uber_eats', body, 'Uber courier update for an order Food Hub does not have', orderId);
     }, ctx('order'));
   } else if (event.startsWith('eats.report') || event.includes('report')) {
     // Reporting API: the requested payment report is ready → download, import, reconcile.
@@ -76,6 +76,9 @@ export async function POST(req: NextRequest) {
           channel: 'uber_eats', brandName: store.brandName, locationCode: store.locationCode, storeId: store.id, summary: `${store.brandName} · ${store.locationCode} on Uber Eats is now ${online ? 'online' : 'paused'}` });
       }
     }, ctx('store_status'));
+  } else if (/^orders\.release$|^orders\.fulfillment_issues|menu_refresh_request/.test(event)) {
+    // Routine Uber events with nothing to do here (release of a scheduled order, menu refresh request): noted, not an alert.
+    background(`uber ${event}`, () => logActivity({ actor: 'Uber Eats', source: 'platform', kind: 'order', action: 'uber_event', status: 'info', channel: 'uber_eats', orderId: null, summary: `Uber Eats event ${event} noted${orderId ? ` for order ${orderId}` : ''} — no action needed` }));
   } else {
     // Unknown event types are kept under Channels → Unparsed payloads, never dropped.
     background(`uber ${event || 'unknown'} event`, () => keepUnparsed('uber_eats', body, `Unhandled Uber event ${event || '(no event_type)'}`, orderId || null));

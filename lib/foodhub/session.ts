@@ -122,7 +122,12 @@ const MAX_KEYS = 1000;
 const attempts = new Map<string, { count: number; until: number }>();
 
 /** First x-forwarded-for value (Vercel / reverse proxies), else "local". */
+/** x-forwarded-for is only trustworthy behind a proxy that sets it: Vercel always, others with FOODHUB_TRUST_PROXY=true. */
+export function trustProxy(): boolean {
+  return Boolean(process.env.VERCEL) || process.env.FOODHUB_TRUST_PROXY === 'true';
+}
 export function clientIp(headers: Headers): string {
+  if (!trustProxy()) return 'local'; // no proxy: the header is client-supplied, so every client shares one bucket
   return (headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'local';
 }
 
@@ -152,6 +157,8 @@ export function clearFailures(key: string): void {
 }
 
 /** Test hook. */
+/** Number of throttle buckets held in memory (tests). */
+export function throttleSize(): number { return attempts.size; }
 export function resetThrottle(): void {
   attempts.clear();
 }
@@ -176,7 +183,10 @@ export function basicOwner(header: string | null, ip?: string): boolean {
   const password = process.env.DASHBOARD_PASSWORD;
   const basic = decodeBasic(header);
   if (!password || !basic) return false;
-  const key = ip ? throttleKey(ip, basic.username) : null;
+  // The owner password only counts under the owner username (or none): otherwise rotating usernames would dodge the throttle.
+  const u = basic.username.toLowerCase().trim();
+  if (u && u !== 'owner') return false;
+  const key = ip ? throttleKey(ip, 'owner') : null;
   if (key && isLocked(key)) return false;
   const ok = safeEqual(basic.password, password);
   if (key) { if (ok) clearFailures(key); else recordFailure(key); }

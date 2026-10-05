@@ -28,7 +28,7 @@ const groupSchema = z.object({ ref, name, nameFr: text(200), min: z.number().int
 const itemSchema = z.object({
   ref, name, description: text(2000), nameFr: text(200), descriptionFr: text(2000),
   tags: z.array(z.string().max(40)).max(20).optional(), allergens: z.array(z.string().max(60)).max(40).optional(), calories: z.number().min(0).max(100_000).optional(),
-  price, imageUrl: text(2000), categoryRef: ref, available: z.boolean().default(true), posItemRef: text(120),
+  price, imageUrl: text(2000), categoryRef: ref, available: z.boolean().default(true), posItemRef: text(120), note: text(500),
   channelPrices: z.partialRecord(marketplace, price).optional(), modifierGroupRefs: z.array(z.string().max(120)).max(50).default([]),
 });
 const menuSchema = z.object({ brandName: z.string().trim().min(1).max(80), categories: z.array(categorySchema).max(200), items: z.array(itemSchema).max(2000), modifierGroups: z.array(groupSchema).max(500).default([]) });

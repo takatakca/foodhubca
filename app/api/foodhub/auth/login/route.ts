@@ -10,7 +10,8 @@ export async function POST(req: Request) {
   const b = await readJson(req);
   const r = await signIn(String(b.username || 'owner'), String(b.password || ''), clientIp(req.headers));
   if ('error' in r) {
-    await logActivity({ actor: String(b.username || 'owner'), source: 'dashboard', kind: 'login', action: 'sign_in', status: 'failed', summary: `Failed sign-in for ${String(b.username || 'owner')}` });
+    const who = String(b.username || 'owner').slice(0, 40);
+    if (r.status !== 429) await logActivity({ actor: who, source: 'dashboard', kind: 'login', action: 'sign_in', status: 'failed', summary: `Failed sign-in for ${who}` });
     return fail(r.error, r.status);
   }
   await logActivity({ actor: r.user.name, source: 'dashboard', kind: 'login', action: 'sign_in', status: 'success', summary: `${r.user.name} signed in (${r.user.role})` });

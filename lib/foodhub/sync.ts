@@ -181,7 +181,9 @@ export async function autoCompleteOldOrders(now = Date.now()): Promise<number> {
   // Scheduled (advance) orders wait for their fire time: their age only starts counting from fireAt, never before.
   const stale = (await repo.listOrders({ statuses: ['accepted', 'ready', 'dispatched'], limit: 1000 }))
     .filter((o) => !(o.timeline?.fireAt && Date.parse(o.timeline.fireAt) > now))
-    .filter((o) => now - autoCompleteBaseMs(o) > minutes * 60_000);
+    .filter((o) => now - autoCompleteBaseMs(o) > minutes * 60_000)
+    // Never sweep up ancient open orders (an upgrade, a long outage): only those expected done in the last 48 h.
+    .filter((o) => now - autoCompleteBaseMs(o) < 48 * 3600_000);
   for (const o of stale) {
     const done = await repo.patchOrder(o.id, { completedAt: o.timeline?.completedAt ?? new Date(now).toISOString() }, { status: 'completed' });
     await repo.addEvent(o.id, 'auto_completed', { afterMinutes: minutes });

@@ -85,12 +85,16 @@ export function uberCourierDetails(o: any): Partial<CourierInfo> | undefined {
 /** Saves a courier update on the order and moves the order forward when the courier picks it up / delivers it. */
 export async function applyCourierUpdate(channel: ChannelKey, externalOrderId: string, update: Partial<CourierInfo> & { status: CourierStatus }, source: string): Promise<StoredOrder | null> {
   const repo = getRepo();
-  const order = await repo.findOrder(channel, externalOrderId);
+  let order = await repo.findOrder(channel, externalOrderId);
   if (!order) {
     // Not stored yet: keep the update for the pipeline instead of dropping it.
     const prev = (await readPending(channel, externalOrderId)) ?? {};
-    await repo.setKv(pendingKey(channel, externalOrderId), { ...prev, courier: [...(prev.courier ?? []), { update, source, at: nowIso() }] }).catch(() => undefined);
-    return null;
+    const parked = { ...prev, courier: [...(prev.courier ?? []), { update, source, at: nowIso() }] };
+    await repo.setKv(pendingKey(channel, externalOrderId), parked).catch(() => undefined);
+    // Inserted while we parked it: apply now and mark the note consumed so the pipeline does not apply it twice.
+    order = await repo.findOrder(channel, externalOrderId);
+    if (!order) return null;
+    await repo.setKv(pendingKey(channel, externalOrderId), { ...parked, consumedAt: nowIso() }).catch(() => undefined);
   }
   const now = nowIso();
   const clean = Object.fromEntries(Object.entries(update).filter(([, v]) => v !== undefined && v !== '')) as Partial<CourierInfo>;

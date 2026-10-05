@@ -2,8 +2,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { errorResponse, getActor, hashPassword, isSystemError, signIn, UserError, withPerm } from '../lib/foodhub/auth';
 import { getRepo } from '../lib/foodhub/repo';
+
+process.env.FOODHUB_TRUST_PROXY = 'true'; // the throttle tests send x-forwarded-for like a trusted proxy would
 import {
-  basicOwner, clearFailures, clientIp, decodeBasic, isLocked, ownerSessionVersion, readCookie, recordFailure, resetThrottle, safeEqual,
+  basicOwner, clearFailures, clientIp, decodeBasic, isLocked, ownerSessionVersion, readCookie, recordFailure, resetThrottle, safeEqual, throttleSize,
   SESSION_COOKIE, sessionKey, sessionVersion, signSession, throttleKey, verifySession,
 } from '../lib/foodhub/session';
 
@@ -67,6 +69,7 @@ describe('readCookie / decodeBasic / safeEqual', () => {
     expect(safeEqual('x', undefined)).toBe(false);
   });
   it('clientIp takes the first x-forwarded-for value, else "local"', () => {
+    process.env.FOODHUB_TRUST_PROXY = 'true';
     expect(clientIp(new Headers({ 'x-forwarded-for': '203.0.113.9, 10.0.0.1' }))).toBe('203.0.113.9');
     expect(clientIp(new Headers())).toBe('local');
   });
@@ -88,6 +91,7 @@ describe('throttle', () => {
     for (let i = 0; i < 1200; i++) recordFailure(`ip${i}|u`);
     recordFailure('fresh|u');
     // the map never holds more than ~1000 keys; the newest key survives
+    expect(throttleSize()).toBeLessThanOrEqual(1001);
     expect(isLocked('fresh|u')).toBe(false);
     for (let i = 0; i < 5; i++) recordFailure('fresh|u');
     expect(isLocked('fresh|u')).toBe(true);

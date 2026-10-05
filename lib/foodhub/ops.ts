@@ -267,7 +267,7 @@ export function menuCallbackOutcome(body: any): 'success' | 'failed' | null {
  */
 export async function handleSkipMenuStatus(body: any): Promise<{ updated: number; message: string; keep?: string }> {
   const repo = getRepo();
-  const jobs = (await repo.listJobs(200)).filter((j) => j.channel === 'skip' && j.kind === 'menu_push' && j.status === 'queued');
+  const jobs = (await repo.listJobs(2000)).filter((j) => j.channel === 'skip' && j.kind === 'menu_push' && j.status === 'queued');
   const restaurants: string[] = (Array.isArray(body?.restaurants) ? body.restaurants : [body?.restaurant ?? body?.restaurantId ?? body?.restaurant_id ?? body?.posLocationId]).filter(Boolean).map(String);
   const outcome = menuCallbackOutcome(body);
   const targets = restaurants.length ? jobs.filter((j) => restaurants.includes(String(j.request.channelStoreId))) : [];

@@ -96,6 +96,10 @@ export async function processIncomingOrder(n: NormalizedOrder): Promise<Pipeline
   });
   if (scheduled) await repo.addEvent(order.id, 'scheduled', { message: `Scheduled for ${localTimeLabel(scheduled.scheduledFor, { date: true })} — kitchen ticket at ${localTimeLabel(scheduled.fireAt)}` });
 
+  // A platform cancel can land between the insert and this point: never cook, inject or accept a cancelled order.
+  const cancelledMeanwhile = async () => (await repo.getOrder(order.id))?.status === 'cancelled';
+  if (await cancelledMeanwhile()) return { order: (await repo.getOrder(order.id)) ?? current, duplicate: false, pos: { ok: false, skipped: true, error: 'Cancelled by the platform before processing.' } };
+
   // 1) POS injection (+ order type, payment record, kitchen ticket)
   const pos = await injectOrder(current, store?.cloverMerchantId, { orderTypeId: await cloverOrderTypeFor(store?.cloverMerchantId || process.env.CLOVER_MERCHANT_ID, n.channel) });
   if (pos.ok) {
@@ -111,9 +115,16 @@ export async function processIncomingOrder(n: NormalizedOrder): Promise<Pipeline
   const wantsAuto = store ? store.autoAccept : autoAcceptDefault();
   const posBlocksAccept = !pos.ok && !pos.skipped;
   let accept: ChannelResult | undefined;
-  if (wantsAuto && !posBlocksAccept) {
+  if (wantsAuto && !posBlocksAccept && (await cancelledMeanwhile())) {
+    await repo.addEvent(order.id, 'accept_skipped', { reason: 'Cancelled by the platform while it was being put in Clover — nothing sent to the platform; the Clover copy is removed.' });
+    current = (await settleInClover((await repo.getOrder(order.id)) ?? current)) ?? current;
+  } else if (wantsAuto && !posBlocksAccept) {
     accept = await getAdapter(n.channel).acceptOrder(current, pos.ok ? pos.posOrderId : undefined);
-    if (accept.ok) {
+    if (accept.ok && (await cancelledMeanwhile())) {
+      // Cancelled during the accept call itself: keep the cancellation, never write 'accepted' over it.
+      await repo.addEvent(order.id, 'needs_attention', { reason: 'Accepted on the platform, but the platform cancelled the order meanwhile — check the platform; the Clover copy is removed.' });
+      current = (await settleInClover((await repo.getOrder(order.id)) ?? current)) ?? current;
+    } else if (accept.ok) {
       current = await patchTimeline(current, { acceptedAt: nowIso(), acceptedBy: 'auto' }, { status: 'accepted', channelError: undefined });
       await repo.addEvent(order.id, 'accepted', { auto: true, response: summarize(accept) });
     } else {
@@ -128,7 +139,7 @@ export async function processIncomingOrder(n: NormalizedOrder): Promise<Pipeline
       const tag = `Skip #${order.displayId || order.externalOrderId.slice(0, 8)}`;
       if (fallback.ok) {
         await repo.addEvent(order.id, 'routed_to_skip_tablet', { status: fallback.status, message: fallback.message });
-        current = (await repo.updateOrder(order.id, { status: 'failed', channelError: 'Clover failed — order sent to the Skip tablet (backup flow).' })) ?? current;
+        if (!(await cancelledMeanwhile())) current = (await repo.updateOrder(order.id, { status: 'failed', channelError: 'Clover failed — order sent to the Skip tablet (backup flow).' })) ?? current;
         await logActivity({ actor: 'TAKATAK automation', source: 'automation', kind: 'order', action: 'skip_tablet_fallback', status: 'info', channel: 'skip', brandName, locationCode: store?.locationCode, orderId: order.id,
           summary: `${tag} sent to the Skip tablet (Clover did not receive it)` });
       } else {
@@ -163,8 +174,9 @@ export const ORDER_ACTIONS: OrderAction[] = ['accept', 'accept_no_pos', 'deny', 
 const NEXT_STATUS: Partial<Record<OrderAction, OrderStatus>> = { accept: 'accepted', accept_no_pos: 'accepted', deny: 'cancelled', ready: 'ready', dispatch: 'dispatched', complete: 'completed', cancel: 'cancelled' };
 
 /** Locked rule: never accept an order Clover did not receive — unless Clover is not part of this deployment. */
-export function acceptNeedsClover(order: Pick<StoredOrder, 'posOrderId'>): boolean {
-  return !order.posOrderId && cloverExpected();
+export function acceptNeedsClover(order: Pick<StoredOrder, 'posOrderId' | 'posError'>): boolean {
+  // Clover is expected for this deployment, or it was expected for this very order (its injection failed).
+  return !order.posOrderId && (cloverExpected() || Boolean(order.posError));
 }
 
 /** Which actions make sense for an order right now (the UI shows only these buttons). */
@@ -281,12 +293,15 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
 /** Status changes pushed by a platform (customer cancellation, courier picked up, completed…). */
 export async function applyExternalStatus(channel: ChannelKey, externalOrderId: string, platformState: string, detail: Record<string, unknown> = {}) {
   const repo = getRepo();
-  const order = await repo.findOrder(channel, externalOrderId);
+  let order = await repo.findOrder(channel, externalOrderId);
   if (!order) {
     // Not stored yet (webhooks race the order fetch): keep it for processIncomingOrder instead of dropping it.
     const prev = (await readPending(channel, externalOrderId)) ?? {};
     await repo.setKv(pendingKey(channel, externalOrderId), { ...prev, status: { platformState, detail, at: nowIso() } }).catch(() => undefined);
-    return null;
+    // The order may have been inserted while we wrote the note: then apply it now and mark the note consumed.
+    order = await repo.findOrder(channel, externalOrderId);
+    if (!order) return null;
+    await repo.setKv(pendingKey(channel, externalOrderId), { ...prev, status: { platformState, detail, at: nowIso() }, consumedAt: nowIso() }).catch(() => undefined);
   }
   const s = platformState.toLowerCase();
   const status: OrderStatus | null =
@@ -309,8 +324,9 @@ export async function applyExternalStatus(channel: ChannelKey, externalOrderId: 
     if (status === 'dispatched') t.dispatchedAt = now;
     if (status === 'ready') t.readyAt = now;
     if (status === 'accepted') t.acceptedAt = order.timeline?.acceptedAt ?? now;
-    await settleInClover(await patchTimeline(order, t, { status }));
+    const updated = await patchTimeline(order, t, { status });
+    order = (await settleInClover(updated)) ?? updated;
   }
   await repo.addEvent(order.id, 'platform_status', { state: platformState, ...detail, at: nowIso() });
-  return order;
+  return order; // the order as stored after the update
 }

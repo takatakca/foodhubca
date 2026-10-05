@@ -63,7 +63,8 @@ describe('ledger preview (lib/backend/ledger)', () => {
     const d = createPayoutLedgerPreview({ platform: 'doordash', gross_sales: 100.1, tips: 0.2, actual_payout: 100.3, source_id: 'x' });
     expect(d.lines.find((l) => l.account.endsWith('expected payout receivable'))?.debit).toBe(100.3);
     expect(d.lines.find((l) => l.account.endsWith('taxes/tips clearing'))?.credit).toBe(0.2);
-    expect(d.lines.every((l) => Number.isInteger(l.debit * 100 + 1e-9 - ((l.debit * 100 + 1e-9) % 1)) )).toBe(true);
+    const wholeCents = (n: number) => Math.abs(n * 100 - Math.round(n * 100)) < 1e-6;
+    expect(d.lines.every((l) => wholeCents(l.debit) && wholeCents(l.credit))).toBe(true);
     expect(JSON.stringify(d)).not.toMatch(/\d\.\d{3,}/);
   });
 });

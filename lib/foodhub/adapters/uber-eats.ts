@@ -199,7 +199,9 @@ export const uberEatsAdapter: ChannelAdapter = {
 
 /** GET order details from the resource_href in the orders.notification webhook. */
 export async function fetchUberOrder(resourceHrefOrId: string): Promise<any> {
-  const url = resourceHrefOrId.startsWith('http') ? resourceHrefOrId : `${base()}/v2/eats/order/${encodeURIComponent(resourceHrefOrId)}`;
+  // A resource_href is only followed on the Uber API origin: the bearer token never goes anywhere else.
+  const sameOrigin = (u: string) => { try { return new URL(u).origin === new URL(base()).origin; } catch { return false; } };
+  const url = resourceHrefOrId.startsWith('http') && sameOrigin(resourceHrefOrId) ? resourceHrefOrId : `${base()}/v2/eats/order/${encodeURIComponent(resourceHrefOrId.startsWith('http') ? (resourceHrefOrId.split('/').pop() || '') : resourceHrefOrId)}`;
   const res = await uberFetch(url, { headers: { 'Content-Type': 'application/json' } });
   if (!res.ok) throw new Error(`Uber order fetch failed: HTTP ${res.status}`);
   return res.json();

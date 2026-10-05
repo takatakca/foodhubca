@@ -77,7 +77,7 @@ export default function CommandCenter() {
   const [syncMsg, setSyncMsg] = useState('');
   const notify = useNotify();
   const alertRef = useRef(notify.alert);
-  alertRef.current = notify.alert;
+  useEffect(() => { alertRef.current = notify.alert; }, [notify.alert]);
   const [showNotify, setShowNotify] = useState(false);
   const [reasonFor, setReasonFor] = useState<{ order: QueueOrder; action: 'deny' | 'cancel' } | null>(null);
   const { locName } = useCatalog();

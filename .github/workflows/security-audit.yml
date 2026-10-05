@@ -1,10 +1,13 @@
 name: Food Hub Security Audit
 
 on:
-  push:
-    branches:
-      - develop/foodhub-rc9
+  schedule:
+    # Mondays 11:00 UTC (07:00 Montréal) — a full report including dev-only tooling.
+    - cron: "0 11 * * 1"
+  pull_request:
     paths:
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/security-audit.yml"
   workflow_dispatch:
 
@@ -25,7 +28,9 @@ jobs:
           cache: npm
       - name: Install
         run: npm ci
-      - name: Capture npm audit
+      - name: Production dependencies must be clean (high+)
+        run: npm audit --omit=dev --audit-level=high
+      - name: Full audit report (informational, includes dev tooling)
         shell: bash
         run: |
           set +e

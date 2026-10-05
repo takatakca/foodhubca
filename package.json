@@ -1,15 +1,18 @@
 {
   "name": "takatak-accounting-control-tower",
-  "version": "1.4.0-foodhub-rc9",
+  "version": "1.4.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "check": "npm run typecheck && npm run lint && npm test",
+    "test": "vitest run",
+    "audit:prod": "npm audit --omit=dev --audit-level=high",
     "qa:seed": "node scripts/qa-seed-check.mjs",
     "qa:env": "node scripts/env-check.mjs",
-    "test": "vitest run",
     "connector:readiness": "node scripts/phase25-connector-readiness.mjs",
     "preflight": "node scripts/final-readiness-check.mjs",
     "release:check": "npm run qa:env && npm run connector:readiness && npm run preflight",
@@ -19,22 +22,25 @@
     "demo:foodhub": "node scripts/foodhub-e2e.mjs --demo"
   },
   "dependencies": {
-    "@supabase/ssr": "latest",
-    "@supabase/supabase-js": "latest",
-    "date-fns": "latest",
+    "@supabase/ssr": "^0.12.0",
+    "@supabase/supabase-js": "^2.110.0",
+    "date-fns": "^4.4.0",
     "fflate": "^0.8.3",
     "next": "16.3.8",
-    "react": "latest",
-    "react-dom": "latest",
-    "zod": "latest"
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/node": "latest",
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
-    "eslint": "latest",
-    "eslint-config-next": "latest",
-    "typescript": "latest",
+    "@types/node": "^26.1.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "eslint": "^9.39.4",
+    "eslint-config-next": "^16.2.10",
+    "typescript": "^6.0.3",
     "vitest": "5.0.3"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

@@ -38,7 +38,7 @@ export default function LiveOrdersPage() {
   const [showNotify, setShowNotify] = useState(false);
   const notify = useNotify();
   const alertRef = useRef(notify.alert);
-  alertRef.current = notify.alert;
+  useEffect(() => { alertRef.current = notify.alert; }, [notify.alert]);
   const { activeLocations, locName } = useCatalog();
   const { can } = useMe();
   const seen = useRef<Set<string> | null>(null);

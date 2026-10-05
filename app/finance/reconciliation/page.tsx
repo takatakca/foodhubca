@@ -144,8 +144,8 @@ function explain(o: OrderRecon) {
   }
 }
 
-function StatementOnly({ data }: { data: Recon | null }) {
-  const Table = ({ rows, empty }: { rows: Unmatched[]; empty: string }) => (
+function UnmatchedTable({ rows, empty }: { rows: Unmatched[]; empty: string }) {
+  return (
     <div className="fh-table-wrap">
       <table className="fin-table">
         <thead><tr><th>Platform</th><th>Order date</th><th>Payout date</th><th>Reference</th><th>Type</th><th>Description</th><th className="num">Amount</th></tr></thead>
@@ -158,17 +158,20 @@ function StatementOnly({ data }: { data: Recon | null }) {
       </table>
     </div>
   );
+}
+
+function StatementOnly({ data }: { data: Recon | null }) {
   return (
     <>
       <section className="card" style={{ marginBottom: 16 }}>
         <h2 style={{ marginTop: 0, fontSize: 17 }}>Paid orders Food Hub never received</h2>
         <p className="small">The platform paid these orders but Food Hub has no order with that number: a webhook was missed, or the store is not connected to Food Hub yet. Check the store mapping in Channels &amp; Setup.</p>
-        <Table rows={data?.unmatched ?? []} empty="None — every paid order on the statements is in Food Hub." />
+        <UnmatchedTable rows={data?.unmatched ?? []} empty="None — every paid order on the statements is in Food Hub." />
       </section>
       <section className="card">
         <h2 style={{ marginTop: 0, fontSize: 17 }}>Charges and credits without an order</h2>
         <p className="small">Ads, tablet fees, monthly fees, adjustments and credits that are not tied to one order. They go to the internal ledger under “Ads &amp; other platform charges”.</p>
-        <Table rows={data?.other ?? []} empty="None in this period." />
+        <UnmatchedTable rows={data?.other ?? []} empty="None in this period." />
       </section>
     </>
   );

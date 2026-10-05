@@ -21,6 +21,8 @@ no UrbanPiper, no aggregator, no monthly integration fee — on **one screen**.
   installable kitchen tablet app.
 
 **Full guide: [docs/FOODHUB.md](docs/FOODHUB.md)** — exactly what to request from each platform and where to paste it.
+All documents: [docs/README.md](docs/README.md) · what changed in this release: [docs/RELEASE_NOTES.md](docs/RELEASE_NOTES.md) ·
+security policy: [SECURITY.md](SECURITY.md).
 
 ## Quick start
 
@@ -36,12 +38,15 @@ Without Supabase the app runs in demo memory mode (the screen says so).
 ## Proof
 
 ```bash
-npm test                                  # 62 unit tests
-npm run build && npm run verify:foodhub   # 275 end-to-end checks against simulated Uber Eats,
+npm run check                             # typecheck + lint + __UNIT__ unit tests
+npm run build && npm run verify:foodhub   # __E2E__ end-to-end checks against simulated Uber Eats,
                                           # DoorDash, Skip (JET Connect), Clover and Resend
 npm run demo:foodhub                      # keeps running with a simulated order every 40 s
 npm run release:check                     # what is configured / missing (never prints secrets)
+npm run audit:prod                        # production dependencies carry no high/critical advisory
 ```
+
+CI runs every one of these on each push and pull request (`.github/workflows/ci.yml`).
 
 ## Screens
 

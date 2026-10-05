@@ -8,6 +8,7 @@ import { cloverReadiness } from '@/lib/foodhub/pos/clover';
 import { cloverAppReadiness, listCloverConnections } from '@/lib/foodhub/pos/clover-oauth';
 import { cloverOrderTypesEnabled, cloverRecordPaymentEnabled } from '@/lib/foodhub/pos/clover-books';
 import { getRepo } from '@/lib/foodhub/repo';
+import { urbanPiperReadiness } from '@/lib/foodhub/adapters/urbanpiper';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,6 +50,12 @@ export const GET = withPerm('stores:map', async (req, _ctx, actor) => {
       app: { ...cloverAppReadiness(), connectUrl: `${base}/api/foodhub/clover-connect/start`, merchants: await listCloverConnections().catch(() => []) },
     },
     channels,
+    // Skip / DoorDash through the owner's UrbanPiper hub (Atlas → Webhooks → "Order Placed" + "Order Status Change").
+    urbanpiper: {
+      ...urbanPiperReadiness(),
+      webhookUrl: `${base}/api/foodhub/webhooks/urbanpiper?token=${reveal ? process.env.URBANPIPER_WEBHOOK_SECRET || '' : '••••••••'}`,
+      revealed: reveal,
+    },
     jobs: jobs.filter((j) => j.kind !== 'webhook_unparsed'),
     unparsed: jobs.filter((j) => j.kind === 'webhook_unparsed'),
   });

@@ -8,10 +8,11 @@ import { cloverAutoPrintEnabled, injectOrder, printCloverOrder } from './pos/clo
 import { cloverOrderTypeFor } from './pos/clover-books';
 import { settleInClover } from './clover-settle';
 import { reportSkipMissingItems } from './adapters/skip';
+import { urbanPiperActions } from './adapters/urbanpiper';
 import { prepFor } from './prep';
 import { isWaitingScheduled, scheduledInfo } from './scheduling';
 import { getRepo } from './repo';
-import { CANCEL_REASON_LABELS, type CancelReason, type ChannelKey, type ChannelResult, type NormalizedOrder, type OrderStatus, type OrderTimeline, type StoredOrder } from './types';
+import { CANCEL_REASON_LABELS, type CancelReason, type ChannelAdapter, type ChannelKey, type ChannelResult, type NormalizedOrder, type OrderStatus, type OrderTimeline, type StoredOrder } from './types';
 
 export interface PipelineOutcome {
   order: StoredOrder;
@@ -36,6 +37,11 @@ async function autoPrint(order: StoredOrder, merchantId?: string | null): Promis
   const p = await printCloverOrder(order.posOrderId, merchantId);
   await getRepo().addEvent(order.id, p.ok ? 'printed' : 'print_failed', { message: p.message, printEventId: p.printEventId });
   return p.ok ? patchTimeline(order, { printedAt: nowIso() }) : order;
+}
+
+/** Where an order's platform actions go: the platform's own API, or the hub it came through (UrbanPiper). */
+function actionsFor(order: { channel: ChannelKey; viaHub?: 'urbanpiper' }): Pick<ChannelAdapter, 'acceptOrder' | 'denyOrder' | 'markReady' | 'cancelOrder'> {
+  return order.viaHub === 'urbanpiper' ? urbanPiperActions : getAdapter(order.channel);
 }
 
 export async function processIncomingOrder(n: NormalizedOrder): Promise<PipelineOutcome> {
@@ -93,7 +99,7 @@ export async function processIncomingOrder(n: NormalizedOrder): Promise<Pipeline
   const posBlocksAccept = !pos.ok && !pos.skipped;
   let accept: ChannelResult | undefined;
   if (wantsAuto && !posBlocksAccept) {
-    accept = await getAdapter(n.channel).acceptOrder(current, pos.ok ? pos.posOrderId : undefined);
+    accept = await actionsFor(current).acceptOrder(current, pos.ok ? pos.posOrderId : undefined);
     if (accept.ok) {
       current = await patchTimeline(current, { acceptedAt: nowIso(), acceptedBy: 'auto' }, { status: 'accepted', channelError: undefined });
       await repo.addEvent(order.id, 'accepted', { auto: true, response: summarize(accept) });
@@ -102,7 +108,7 @@ export async function processIncomingOrder(n: NormalizedOrder): Promise<Pipeline
       await repo.addEvent(order.id, 'accept_failed', { auto: true, status: accept.status, message: accept.message });
     }
   } else if (posBlocksAccept) {
-    if (n.channel === 'skip') {
+    if (n.channel === 'skip' && !n.viaHub) {
       // Skip/JET Connect: tell JET right away so the order falls back to the Skip tablet
       // instead of waiting out the 5-minute timeout. 'failed' = handed back to the platform (still a sale).
       const fallback = await getAdapter('skip').denyOrder(current, 'Clover did not receive the order');
@@ -164,7 +170,6 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
   const order = await repo.getOrder(orderId);
   if (!order) return { order: null, result: { ok: false, message: 'Order not found.' } };
   const actor = opts.actor ?? { username: 'owner', name: 'Owner', source: 'dashboard' as const };
-  const adapter = getAdapter(order.channel);
   const tag = `${CHANNEL_LABELS[order.channel]} #${order.displayId || order.externalOrderId.slice(0, 8)}`;
   const log = (status: 'success' | 'failed' | 'info', message: string) => logActivity({
     actor: actor.name, source: actor.source, kind: 'order', action, status, channel: order.channel, brandName: order.brandName, locationCode: order.locationCode, orderId: order.id,
@@ -243,14 +248,14 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
     working = await patchTimeline(order, { readyTarget: new Date(Date.now() + Math.round(opts.prepMinutes) * 60_000).toISOString() });
   }
   if (order.viaPos) res = { ok: true, message: action === 'ready' ? 'Marked ready in Food Hub only — this order is handled by Clover’s own platform integration.' : 'Marked completed in Food Hub.' };
-  else if (action === 'accept') res = await adapter.acceptOrder(working, order.posOrderId);
-  else if (action === 'deny') res = await adapter.denyOrder(order, reasonText);
-  else if (action === 'cancel') res = await adapter.cancelOrder(order, opts.reasonCode ?? 'other', opts.reason);
-  else if (action === 'ready') res = await adapter.markReady(order, order.posOrderId);
+  else if (action === 'accept') res = await actionsFor(order).acceptOrder(working, order.posOrderId);
+  else if (action === 'deny') res = await actionsFor(order).denyOrder(order, reasonText);
+  else if (action === 'cancel') res = await actionsFor(order).cancelOrder(order, opts.reasonCode ?? 'other', opts.reason);
+  else if (action === 'ready') res = await actionsFor(order).markReady(order, order.posOrderId);
   else res = { ok: true, message: action === 'dispatch' ? 'Handed to the courier.' : 'Marked completed in Food Hub.' };
 
   // On Skip, "reject" hands the order to the Skip tablet (JET backup flow) — it is not cancelled for the customer.
-  const nextStatus: OrderStatus = action === 'deny' && order.channel === 'skip' ? 'failed' : NEXT_STATUS[action]!;
+  const nextStatus: OrderStatus = action === 'deny' && order.channel === 'skip' && !order.viaHub ? 'failed' : NEXT_STATUS[action]!;
   const now = nowIso();
   const t: OrderTimeline = {};
   if (res.ok) {

@@ -1,6 +1,6 @@
 {
   "name": "takatak-accounting-control-tower",
-  "version": "1.5.6-foodhub-rc10.6",
+  "version": "1.5.7-foodhub-rc10.7",
   "private": true,
   "scripts": {
     "dev": "next dev",

@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/foodhub/cron/sync",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/foodhub/cron/reports",
+      "schedule": "5 12 * * *"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "name": "takatak-accounting-control-tower",
+  "version": "1.5.6-foodhub-rc10.6",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run lint && npm test",
+    "setup": "node scripts/setup-wizard.mjs",
+    "sql:install": "node scripts/build-install-sql.mjs",
+    "verify:foodhub": "node scripts/foodhub-e2e.mjs",
+    "demo:foodhub": "node scripts/foodhub-e2e.mjs --demo"
+  },
+  "dependencies": {
+    "@fontsource-variable/manrope": "^5.3.0",
+    "@supabase/ssr": "latest",
+    "@supabase/supabase-js": "latest",
+    "@tailwindcss/postcss": "^4.3.3",
+    "clsx": "^2.1.1",
+    "date-fns": "latest",
+    "fflate": "^0.8.3",
+    "lucide-react": "^1.51.0",
+    "next": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "tailwind-merge": "^3.7.0",
+    "tailwindcss": "^4.3.3",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "eslint": "latest",
+    "eslint-config-next": "latest",
+    "typescript": "latest",
+    "vitest": "latest"
+  }
+}

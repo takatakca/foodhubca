@@ -1,0 +1,165 @@
+@import 'tailwindcss';
+
+/* ------------------------------------------------------------------------------------------------
+   TAKATAK Food Hub — design tokens (RC10)
+   Warm neutrals, one brand colour (TAKATAK orange), four signal colours, platform tags.
+   Everything is a CSS variable so the kitchen screen can switch to its dark theme.
+------------------------------------------------------------------------------------------------- */
+@theme {
+  --font-sans: 'Manrope Variable', 'Manrope', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, monospace;
+
+  --color-canvas: #f5f4f0;
+  --color-surface: #ffffff;
+  --color-raised: #faf9f6;
+  --color-sunken: #efeee9;
+  --color-ink: #151514;
+  --color-ink-2: #4a4843;
+  --color-ink-3: #85827a;
+  --color-ink-4: #b7b4ab;
+  --color-line: #e7e5de;
+  --color-line-2: #d8d5cb;
+  --color-rail: #121211;
+  --color-rail-2: #1e1e1c;
+  --color-rail-3: #2b2b28;
+
+  --color-brand: #ff5b14;
+  --color-brand-2: #e14b07;
+  --color-brand-soft: #fff0e8;
+
+  --color-go: #0e9f5a;
+  --color-go-2: #0b7f48;
+  --color-go-soft: #e6f6ed;
+  --color-wait: #d99a00;
+  --color-wait-2: #a87500;
+  --color-wait-soft: #fff5d6;
+  --color-stop: #e23b3e;
+  --color-stop-2: #bd2427;
+  --color-stop-soft: #fdeceb;
+  --color-info: #2f6fed;
+  --color-info-2: #1f56c7;
+  --color-info-soft: #eaf1fe;
+  --color-violet: #7357f6;
+  --color-violet-soft: #f0ecff;
+
+  --color-uber: #06c167;
+  --color-doordash: #ff3008;
+  --color-skip: #f57c00;
+  --color-tgtg: #00706d;
+  --color-clover: #1c9b4b;
+
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 28px;
+
+  --shadow-card: 0 1px 2px rgb(20 20 18 / 0.04), 0 1px 0 rgb(20 20 18 / 0.02);
+  --shadow-pop: 0 18px 50px -12px rgb(20 20 18 / 0.28), 0 2px 8px rgb(20 20 18 / 0.08);
+  --shadow-ring: 0 0 0 4px rgb(255 91 20 / 0.18);
+
+  --animate-ring: ring 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-slide-in: slide-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-rise: rise 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-fade: fade 0.18s ease-out;
+  --animate-pulse-soft: pulse-soft 2s ease-in-out infinite;
+
+  @keyframes ring { 0% { box-shadow: 0 0 0 0 rgb(255 91 20 / 0.55); } 70% { box-shadow: 0 0 0 22px rgb(255 91 20 / 0); } 100% { box-shadow: 0 0 0 0 rgb(255 91 20 / 0); } }
+  @keyframes slide-in { from { transform: translateX(24px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+  @keyframes rise { from { transform: translateY(10px) scale(0.985); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
+  @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes pulse-soft { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+}
+
+/* Kitchen screen: dark, high contrast, readable from 2 m. */
+.theme-kitchen {
+  --color-canvas: #0c0c0b;
+  --color-surface: #171716;
+  --color-raised: #1f1f1d;
+  --color-sunken: #0f0f0e;
+  --color-ink: #f6f5f0;
+  --color-ink-2: #c9c6bd;
+  --color-ink-3: #8f8c84;
+  --color-ink-4: #5d5b55;
+  --color-line: #2b2b28;
+  --color-line-2: #3a3a36;
+  --color-brand-soft: #3a1c0d;
+  --color-go-soft: #0e2d1d;
+  --color-wait-soft: #33280a;
+  --color-stop-soft: #3a1415;
+  --color-info-soft: #13213e;
+  --color-violet-soft: #221b45;
+  --shadow-card: 0 0 0 1px rgb(255 255 255 / 0.04);
+  color-scheme: dark;
+}
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; text-rendering: optimizeLegibility; }
+  body { @apply bg-canvas text-ink font-sans antialiased; font-feature-settings: 'ss01', 'cv11'; }
+  ::selection { background: rgb(255 91 20 / 0.22); }
+  :focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; border-radius: 6px; }
+  input, select, textarea, button { font: inherit; color: inherit; }
+  input[type='number']::-webkit-inner-spin-button { opacity: 0.4; }
+  h1, h2, h3 { letter-spacing: -0.015em; }
+  a { color: inherit; text-decoration: none; }
+  button:disabled { cursor: not-allowed; }
+}
+
+@utility num { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-2) transparent;
+}
+@utility no-scrollbar { scrollbar-width: none; &::-webkit-scrollbar { display: none; } }
+@utility safe-bottom { padding-bottom: max(env(safe-area-inset-bottom), 0px); }
+
+/* ---------------- Chart kit ---------------- */
+.viz-wrap { position: relative; width: 100%; }
+.viz-wrap svg { display: block; outline: none; }
+.viz-wrap svg:focus-visible { outline: 2px solid var(--color-info); outline-offset: 2px; border-radius: 6px; }
+.viz-axis { font-size: 11px; fill: var(--color-ink-3); font-variant-numeric: tabular-nums; }
+.viz-end { font-size: 12px; fill: var(--color-ink); font-weight: 700; }
+.viz-tip { position: absolute; z-index: 5; pointer-events: none; background: var(--color-surface); border: 1px solid var(--color-line); box-shadow: var(--shadow-pop); border-radius: 12px; padding: 8px 10px; min-width: 150px; font-size: 13px; color: var(--color-ink-2); }
+.viz-tip-title { font-size: 12px; color: var(--color-ink-3); margin-bottom: 4px; }
+.viz-tip-row { display: flex; align-items: center; gap: 6px; }
+.viz-tip-row strong { color: var(--color-ink); }
+.viz-key { display: inline-block; width: 14px; height: 0; border-top: 2px solid; margin-right: 6px; vertical-align: middle; }
+.viz-legend { display: inline-flex; gap: 14px; font-size: 12px; color: var(--color-ink-2); }
+.viz-empty { color: var(--color-ink-3); font-size: 13px; padding: 20px 0; }
+.viz-hbars { display: flex; flex-direction: column; gap: 6px; }
+.viz-hbar { display: grid; grid-template-columns: minmax(90px, 34%) 1fr; gap: 10px; align-items: center; outline: none; border-radius: 8px; padding: 3px 4px; }
+.viz-hbar:hover, .viz-hbar:focus-visible { background: var(--color-raised); }
+.viz-hbar-label { font-size: 13px; color: var(--color-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.viz-hbar-track { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.viz-hbar-fill { height: 14px; background: var(--color-info); border-radius: 0 5px 5px 0; flex: 0 0 auto; }
+.viz-hbar-val { font-size: 12px; color: var(--color-ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.viz-cols { display: flex; gap: 2px; }
+.viz-col { flex: 1; display: flex; flex-direction: column; outline: none; border-radius: 6px; min-width: 0; }
+.viz-col:hover, .viz-col:focus-visible { background: var(--color-raised); }
+.viz-col-area { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; border-bottom: 1px solid var(--color-line-2); }
+.viz-col-bar { width: min(24px, 70%); background: var(--color-info); border-radius: 5px 5px 0 0; }
+.viz-col-val { font-size: 11px; color: var(--color-ink-2); margin-bottom: 2px; font-variant-numeric: tabular-nums; }
+.viz-col-label { font-size: 11px; color: var(--color-ink-3); margin-top: 4px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.viz-heat { display: grid; grid-template-columns: 36px repeat(24, minmax(10px, 1fr)); gap: 2px; }
+.viz-heat-row { display: contents; }
+.viz-heat-h { font-size: 10px; color: var(--color-ink-3); text-align: left; }
+.viz-heat-d { font-size: 11px; color: var(--color-ink-2); align-self: center; }
+.viz-heat-cell { height: 20px; border-radius: 4px; outline: none; }
+.viz-heat-cell:hover, .viz-heat-cell:focus-visible { box-shadow: 0 0 0 2px var(--color-ink) inset; }
+.viz-heat-legend { display: flex; align-items: center; gap: 4px; margin-top: 8px; font-size: 12px; color: var(--color-ink-3); }
+.viz-heat-swatch { width: 18px; height: 10px; border-radius: 3px; display: inline-block; }
+@media (max-width: 900px) { .viz-heat { grid-template-columns: 30px repeat(24, minmax(6px, 1fr)); } }
+
+/* ---------------- 80 mm kitchen / bag ticket ---------------- */
+.ticket { width: 72mm; background: white; color: black; font-family: 'Courier New', monospace; font-size: 13px; padding: 4mm; border: 1px dashed #c8c5bb; }
+.t-center { text-align: center; } .t-big { font-size: 16px; font-weight: 700; } .t-huge { font-size: 28px; font-weight: 700; margin: 2px 0; }
+.t-rule { border-top: 1px dashed black; margin: 6px 0; }
+.t-row { display: flex; justify-content: space-between; gap: 8px; }
+.t-line { margin: 4px 0; } .t-mod { padding-left: 14px; font-size: 12px; }
+@media print {
+  @page { size: 80mm auto; margin: 0; }
+  body { background: white !important; }
+  .no-print { display: none !important; }
+  .ticket { border: 0; width: 72mm; }
+}

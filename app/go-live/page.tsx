@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { ADAPTERS } from '@/lib/foodhub/adapters';
+import { requirePage } from '@/lib/foodhub/auth';
 import { liveConnectorsGloballyEnabled } from '@/lib/foodhub/config';
+import { foodhubTimeZone } from '@/lib/foodhub/time';
 import { getCatalog } from '@/lib/foodhub/catalog';
 import { getHours } from '@/lib/foodhub/hours';
 import { getMenuLanguages } from '@/lib/foodhub/menu/language';
@@ -17,6 +19,7 @@ type Gate = { label: string; done: boolean; how: string; required: boolean };
 
 // Live checklist: every line is computed from the real configuration, not ticked by hand.
 export default async function GoLivePage() {
+  await requirePage('stores:map', '/go-live'); // shows which secrets are configured: signed-in, active, stores:map only
   const has = (k: string) => Boolean(process.env[k]);
   const repo = getRepo();
   const [stores, sync, catalog, hours, menus, users, fees, statements, languages] = await Promise.all([
@@ -55,7 +58,7 @@ export default async function GoLivePage() {
     { label: 'Report emails (Resend)', done: has('RESEND_API_KEY') && has('REPORT_EMAIL_FROM'), how: 'RESEND_API_KEY + REPORT_EMAIL_FROM — for emailed / scheduled reports', required: false },
     { label: 'Webhook URLs + secrets given to each platform', done: stores.length > 0 && r('uber_eats').configured, how: 'Food Hub → Channels → “Show secrets to give platforms”', required: true },
     { label: 'Scheduled sync secret set', done: has('CRON_SECRET'), how: 'npm run setup generates CRON_SECRET', required: false },
-    { label: 'First status sync ran', done: Boolean(sync), how: sync ? `last sync ${new Date(sync.at).toLocaleString('fr-CA')}` : 'open the Command Center (it syncs automatically)', required: false },
+    { label: 'First status sync ran', done: Boolean(sync), how: sync ? `last sync ${new Date(sync.at).toLocaleString('fr-CA', { timeZone: foodhubTimeZone() })}` : 'open the Command Center (it syncs automatically)', required: false },
     { label: 'LIVE switch on', done: liveConnectorsGloballyEnabled(), how: 'LIVE_CONNECTORS_GLOBAL_ENABLED=true (last step)', required: true },
   ];
   const doneRequired = gates.filter((g) => g.required && g.done).length;

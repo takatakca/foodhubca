@@ -1,9 +1,14 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { getLiveConnector, parsePlatformKey } from '@/lib/backend/connectors/live-registry';
+import { withPerm } from '@/lib/foodhub/auth';
+import { readJson } from '@/lib/foodhub/http';
 
-export async function POST(request: NextRequest) {
+export const dynamic = 'force-dynamic';
+
+// Calls the platform (when the live switch allows it) — admin only.
+export const POST = withPerm('admin', async (req) => {
   try {
-    const body = await request.json().catch(() => ({}));
+    const body = await readJson(req);
     const platformKey = parsePlatformKey(body.platformKey);
     const connector = getLiveConnector(platformKey);
     const health = await connector.testConnection();
@@ -15,4 +20,4 @@ export async function POST(request: NextRequest) {
     const status = message.startsWith('Unsupported platform') ? 400 : 500;
     return NextResponse.json({ ok: false, error: message }, { status });
   }
-}
+});

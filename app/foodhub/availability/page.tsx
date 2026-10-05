@@ -20,6 +20,20 @@ function minutesUntilEndOfDay() {
   return Math.max(5, Math.round((end.getTime() - Date.now()) / 60000));
 }
 
+type ToggleResponse = { results: Array<{ result: { ok: boolean; status: string; message: string } }>; okCount?: number; blockedCount?: number; errorCount?: number };
+const SYNC_NOTE = 'DoorDash timers and scheduled publishes fire on the next sync (every 2 min while the Command Center is open, or by cron).';
+
+/** Honest headline from the per-store results: never say "86'd" as if every platform changed when none did. */
+function platformSummary(d: ToggleResponse): { allOk: boolean; text: string } {
+  const n = d.results.length;
+  const okN = d.okCount ?? d.results.filter((r) => r.result.ok).length;
+  const blocked = d.blockedCount ?? d.results.filter((r) => r.result.status === 'blocked').length;
+  const errors = d.errorCount ?? n - okN - blocked;
+  if (okN === n) return { allOk: true, text: `${n}/${n} platform store(s) updated` };
+  const why = [blocked ? `blocked: ${d.results.find((r) => r.result.status === 'blocked')?.result.message ?? 'live connectors off'}` : '', errors ? `${errors} error(s) — see the table` : ''].filter(Boolean).join('; ');
+  return { allOk: false, text: `Saved in Food Hub — ${okN}/${n} platform store(s) updated${why ? ` (${why})` : ''}` };
+}
+
 // 86 Board (Atlas "Item & modifier availability"): sold out at one location → off on every platform there.
 export default function AvailabilityPage() {
   const { activeLocations } = useCatalog();
@@ -35,6 +49,7 @@ export default function AvailabilityPage() {
   const [busy, setBusy] = useState('');
   const [results, setResults] = useState<any[]>([]);
   const [msg, setMsg] = useState('');
+  const [warn, setWarn] = useState(false);
 
   const myLocations = useMemo(() => activeLocations.filter((l) => !me?.locations.length || me.locations.includes(l.code)), [activeLocations, me]);
   const allowAll = !me?.locations.length;
@@ -69,13 +84,20 @@ export default function AvailabilityPage() {
 
   async function toggle(refs: string[], available: boolean) {
     if (!refs.length) return;
-    setBusy(refs.join(',')); setMsg('');
+    setBusy(refs.join(',')); setMsg(''); setWarn(false);
     try {
       const minutes = available ? 0 : duration === -1 ? minutesUntilEndOfDay() : duration;
-      const d = await api<{ results: any[] }>('/api/foodhub/availability', { method: 'POST', json: { brand, locationCode: location === '*' ? undefined : location, itemRefs: refs, available, minutes } });
+      const d = await api<ToggleResponse>('/api/foodhub/availability', { method: 'POST', json: { brand, locationCode: location === '*' ? undefined : location, itemRefs: refs, available, minutes } });
       setResults(d.results);
+      const entries = `${refs.length} ${refs.length === 1 ? 'entry' : 'entries'}`;
+      const timer = !available && minutes ? ` Comes back automatically in ${minutes >= 60 ? `${Math.round(minutes / 6) / 10} h` : `${minutes} min`}. ${SYNC_NOTE}` : '';
       if (!d.results.length) setMsg('Saved in Food Hub. No stores are mapped for this brand at this location yet, so no platform was updated.');
-      else setMsg(`${available ? 'Back on' : "86'd"}: ${refs.length} ${refs.length === 1 ? 'entry' : 'entries'}${!available && minutes ? ` — comes back automatically in ${minutes >= 60 ? `${Math.round(minutes / 6) / 10} h` : `${minutes} min`}` : ''}.`);
+      else {
+        const s = platformSummary(d);
+        setWarn(!s.allOk);
+        // Success copy only when every platform store really changed; otherwise say what was (not) sent.
+        setMsg(s.allOk ? `${available ? 'Back on' : "86'd"}: ${entries} — ${s.text}.${timer}` : `${s.text} for ${entries}.${timer}`);
+      }
       await load();
     } catch (e) { setMsg(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
   }
@@ -98,7 +120,7 @@ export default function AvailabilityPage() {
           <select value={duration} onChange={(e) => setDuration(Number(e.target.value))} aria-label="For how long">{DURATIONS.map(([l, v]) => <option key={l} value={v}>{l}</option>)}</select>
         </div>
       </div>
-      {msg && <div className="fh-banner info">{msg}</div>}
+      {msg && <div className={`fh-banner ${warn ? 'warn' : 'info'}`}>{msg}</div>}
       <ResultsTable results={results} />
 
       <div className="fh-row" style={{ marginBottom: 10 }}>

@@ -2,12 +2,12 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { ChartCard, Columns, CompareLine, compactMoney, fmtInt, fmtMoney, HBars, Heatmap, LineLegend, StatTile, VIZ } from '../charts';
-import { api, FilterBar, useCatalog, useFilters } from '../ui';
+import { api, FilterBar, TZ, useCatalog, useFilters } from '../ui';
 
 type Kpi = { value: number; previous: number; change: number };
 type Group = { key: string; label: string; sales: number; orders: number; lostOrders: number; lostRevenue: number; prevSales: number; aov: number; share: number; change: number };
 type Analytics = {
-  range: { from: string; to: string; days: number; previousFrom: string; previousTo: string; timezone: string };
+  range: { from: string; to: string; days: number; previousFrom: string; previousTo: string; timezone: string; truncated?: boolean };
   kpis: Record<string, Kpi>;
   daily: Array<{ date: string; sales: number; orders: number; prevSales: number; prevOrders: number }>;
   byChannel: Group[]; byBrand: Group[]; byLocation: Group[];
@@ -20,7 +20,8 @@ type Analytics = {
   customers: { identified: number; coveragePct: number; newCustomers: number; repeatCustomers: number; repeatRate: number };
 };
 
-const fmtDay = (iso: string) => new Date(iso).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' });
+// Labels in the business zone (from the server's range.timezone): Toronto-midnight instants must not shift a day for a viewer abroad.
+const fmtDay = (iso: string, timeZone = TZ) => new Date(iso).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', timeZone });
 const mins = (n: number) => (n >= 120 ? `${(n / 60).toFixed(1)} h` : `${Math.round(n)} min`);
 const WHO: Record<string, string> = { store: 'Store (you)', platform: 'Platform', customer: 'Customer', unknown: 'Not reported' };
 const prettyReason = (r: string) => (/^[a-z_]+$/.test(r) ? (r.charAt(0).toUpperCase() + r.slice(1)).replace(/_/g, ' ') : r);
@@ -46,7 +47,8 @@ export default function AnalyticsPage() {
     return () => { alive = false; };
   }, [query]);
 
-  const prevLabel = data ? `${fmtDay(data.range.previousFrom)} – ${fmtDay(new Date(new Date(data.range.previousTo).getTime() - 1).toISOString())}` : 'previous period';
+  const zone = data?.range.timezone || TZ;
+  const prevLabel = data ? `${fmtDay(data.range.previousFrom, zone)} – ${fmtDay(new Date(new Date(data.range.previousTo).getTime() - 1).toISOString(), zone)}` : 'previous period';
   const linePoints = useMemo(() => (data?.daily ?? []).map((d) => ({ label: d.date, cur: metric === 'sales' ? d.sales : d.orders, prev: metric === 'sales' ? d.prevSales : d.prevOrders })), [data, metric]);
 
   function copyLink() {
@@ -75,6 +77,7 @@ export default function AnalyticsPage() {
       </div>
       <FilterBar filters={filters} set={set} brands={brands.filter((b) => b.active).map((b) => b.name)} locations={activeLocations} />
       {error && <div className="fh-banner warn">Could not load analytics: {error}</div>}
+      {data?.range.truncated && <div className="fh-banner warn">This period has more orders than analytics reads at once (50 000): the figures cover the newest ones only. Narrow the range to get complete numbers.</div>}
       {!data && !error && <p className="small">Loading…</p>}
 
       {data && k && (
@@ -92,7 +95,7 @@ export default function AnalyticsPage() {
 
           <ChartCard
             title={metric === 'sales' ? 'Sales per day' : 'Orders per day'}
-            subtitle={`${fmtDay(data.range.from)} – ${fmtDay(new Date(new Date(data.range.to).getTime() - 1).toISOString())} vs ${prevLabel}`}
+            subtitle={`${fmtDay(data.range.from, zone)} – ${fmtDay(new Date(new Date(data.range.to).getTime() - 1).toISOString(), zone)} vs ${prevLabel}`}
             legend={<>
               <LineLegend items={[{ label: 'This period', color: VIZ.series }, { label: 'Previous period', color: VIZ.compare, dash: true }]} />
               <span className="viz-switch" role="group" aria-label="Metric">

@@ -60,7 +60,7 @@ export default function ImportsPage() {
 
   async function pick(file: File | undefined) {
     if (!file) return;
-    if (file.size > 15 * 1024 * 1024) { setMsg('File too large (max 15 MB).'); return; }
+    if (file.size > 4 * 1024 * 1024) { setMsg('File too large (max 4 MB) — split the export by week or month.'); return; }
     if (!/\.(csv|txt|tsv|xlsx)$/i.test(file.name)) { setMsg('Choose a CSV or Excel (.xlsx) file. For a PDF statement, export the CSV version from the platform portal.'); return; }
     await send(file, await toBase64(file));
   }
@@ -98,7 +98,7 @@ export default function ImportsPage() {
             </label>
             <input ref={fileRef} type="file" accept=".csv,.tsv,.txt,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={!edit || busy} onChange={(e) => pick(e.target.files?.[0])} aria-label="Statement file" />
           </div>
-          <p className="small">CSV or Excel (.xlsx), up to 15 MB. Uber Eats “Payment details” and DoorDash transaction exports are recognised automatically; any other file asks you once which column is which.</p>
+          <p className="small">CSV or Excel (.xlsx), up to 4 MB (split larger exports by week or month). Uber Eats “Payment details” and DoorDash transaction exports are recognised automatically; any other file asks you once which column is which.</p>
           {busy && <p className="small">Reading the file…</p>}
         </section>
 

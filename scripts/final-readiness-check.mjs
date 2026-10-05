@@ -7,6 +7,7 @@ const requiredFiles = [
   'supabase/final_operational_patch.sql',
   'supabase/rc4_security_patch.sql',
   'supabase/foodhub.sql',
+  'supabase/release_1_4_0_patch.sql',
   'lib/backend/connectors/live-registry.ts',
   'lib/backend/live-sync-orchestrator.ts',
   'docs/FINAL_PRODUCT_READINESS.md',

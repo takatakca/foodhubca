@@ -3,6 +3,7 @@ import { parseGenericOrder, tgtgAdapter } from '@/lib/foodhub/adapters/partner';
 import { background, keepUnparsed, parseJson, queueOrder, unauthorized } from '@/lib/foodhub/webhook-utils';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 // Too Good To Go bag orders (when a partner feed is enabled). Token protected.
 // Unknown shapes are kept under Channels → Unparsed payloads, never lost.

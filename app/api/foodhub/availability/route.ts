@@ -1,4 +1,5 @@
 import { inScope, withPerm } from '@/lib/foodhub/auth';
+import { clearCloverOrigin } from '@/lib/foodhub/clover-sync';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { setItemAvailability } from '@/lib/foodhub/ops';
 
@@ -18,5 +19,11 @@ export const POST = withPerm('items:toggle', async (req, _ctx, actor) => {
     untilMs: !b.available && minutes > 0 ? Date.now() + minutes * 60_000 : undefined,
     actor,
   });
-  return ok({ results });
+  // A person had the last word on these items: a later Clover restock must not undo a staff 86 (or re-86).
+  await clearCloverOrigin(String(b.brand), refs, locationCode).catch(() => 0);
+  // Honest headline for the UI: how many platform stores really changed.
+  const okCount = results.filter((r) => r.result.ok).length;
+  const blockedCount = results.filter((r) => r.result.status === 'blocked').length;
+  const errorCount = results.length - okCount - blockedCount;
+  return ok({ results, okCount, blockedCount, errorCount });
 });

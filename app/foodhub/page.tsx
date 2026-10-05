@@ -8,7 +8,7 @@ type Order = {
   id: string; channel: string; marketplace: string; externalOrderId: string; displayId?: string; brandName?: string; locationCode?: string;
   customerName?: string; fulfillment: string; status: string; total: number; createdAt: string; posOrderId?: string; posError?: string; channelError?: string;
   notes?: string; lines: Array<{ name: string; quantity: number; notes?: string; modifiers: Array<{ name: string; quantity: number }> }>;
-  timeline?: { readyTarget?: string | null; cancelReason?: string | null; cancelledBy?: string | null; scheduledFor?: string; fireAt?: string; firedAt?: string; courier?: { status: string; name?: string; etaAt?: string } };
+  timeline?: { printedAt?: string; printError?: string; readyTarget?: string | null; cancelReason?: string | null; cancelledBy?: string | null; scheduledFor?: string; fireAt?: string; firedAt?: string; courier?: { status: string; name?: string; etaAt?: string } };
   actions: string[];
 };
 
@@ -25,7 +25,7 @@ const COLUMNS: Array<{ key: string; title: string; statuses: string[]; filter?: 
   { key: 'done', title: 'Done / cancelled / on tablet', statuses: ['completed', 'cancelled', 'failed'] },
 ];
 
-const ACTION_LABEL: Record<string, string> = { accept: 'Accept', ready: 'Mark ready', dispatch: 'Courier picked up', complete: 'Done', retry_pos: 'Send to Clover', print: 'Reprint', cancel: 'Cancel…', report_missing: 'Missing item…' };
+const ACTION_LABEL: Record<string, string> = { accept: 'Accept', accept_no_pos: 'Accept without Clover (entered by hand)', ready: 'Mark ready', dispatch: 'Courier picked up', complete: 'Done', retry_pos: 'Send to Clover', print: 'Reprint', cancel: 'Cancel…', report_missing: 'Missing item…' };
 
 export default function LiveOrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -47,13 +47,13 @@ export default function LiveOrdersPage() {
   const load = useCallback(async () => {
     try {
       const since = new Date(Date.now() - 24 * 3600_000).toISOString();
-      const data = await api<{ orders: Order[]; mode: string }>(`/api/foodhub/orders?limit=300&since=${encodeURIComponent(since)}${location ? `&locations=${location}` : ''}`);
+      const data = await api<{ orders: Order[]; mode: string }>(`/api/foodhub/orders?limit=300&openAlso=1&since=${encodeURIComponent(since)}${location ? `&locations=${location}` : ''}`);
       setMode(data.mode);
       setError('');
       const fresh = data.orders.filter((o) => o.status === 'new' && seen.current && !seen.current.has(o.id));
       if (fresh.length) alertRef.current(`New order #${fresh[0].displayId || fresh[0].externalOrderId.slice(0, 8)}`, `${fresh[0].brandName ?? ''} · ${money(fresh[0].total)}`, 'order');
       const newlyCancelled = data.orders.filter((o) => o.status === 'cancelled' && seenCancelled.current && !seenCancelled.current.has(o.id) && o.timeline?.cancelledBy !== 'store');
-      if (newlyCancelled.length) alertRef.current(`Order #${newlyCancelled[0].displayId} cancelled by ${newlyCancelled[0].timeline?.cancelledBy ?? 'the platform'}`, newlyCancelled[0].timeline?.cancelReason ?? '', 'cancel');
+      if (newlyCancelled.length) alertRef.current(`Order #${newlyCancelled[0].displayId || newlyCancelled[0].externalOrderId.slice(0, 8)} cancelled by ${newlyCancelled[0].timeline?.cancelledBy ?? 'the platform'}`, newlyCancelled[0].timeline?.cancelReason ?? '', 'cancel');
       seen.current = new Set(data.orders.map((o) => o.id));
       seenCancelled.current = new Set(data.orders.filter((o) => o.status === 'cancelled').map((o) => o.id));
       setOrders(data.orders);
@@ -164,6 +164,7 @@ export default function LiveOrdersPage() {
                   {o.notes && <div className="small">Note: {o.notes}</div>}
                   <div className="fh-row" style={{ marginTop: 6 }}>
                     {o.posOrderId ? <span className="badge badge-green">In Clover</span> : o.posError ? <span className="badge badge-red" title={o.posError}>Clover: not sent</span> : o.status === 'cancelled' ? null : <span className="badge badge-yellow">Clover pending</span>}
+                    {o.posOrderId && o.timeline?.printError && !o.timeline?.printedAt && <span className="badge badge-yellow" title={o.timeline.printError}>Ticket not printed — use Reprint</span>}
                     {o.channelError && <span className="badge badge-yellow" title={o.channelError}>Platform not updated — hover for reason</span>}
                   </div>
                   {can('orders:act') && (

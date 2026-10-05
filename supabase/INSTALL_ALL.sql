@@ -1,6 +1,6 @@
 -- TAKATAK Accounting Control Tower + Food Hub — ONE-PASTE DATABASE INSTALL
 -- Paste this entire file into Supabase SQL Editor and click Run once.
--- It contains all 8 install files in the correct order. Regenerate with: node scripts/build-install-sql.mjs
+-- It contains all 9 install files in the correct order. Regenerate with: node scripts/build-install-sql.mjs
 
 -- ============================================================
 -- FILE: schema.sql
@@ -66,14 +66,11 @@ create table if not exists platform_stores (
   updated_at timestamptz not null default now()
 );
 
-create table if not exists urbanpiper_locations (
-  id uuid primary key default gen_random_uuid(),
-  location_id uuid references locations(id),
-  urbanpiper_location_id text not null unique,
-  account_name text,
-  raw_payload jsonb not null default '{}'::jsonb,
-  created_at timestamptz not null default now()
-);
+-- Re-running the installer must not duplicate the seeded stores: one row per platform × brand × location × store name.
+delete from platform_stores a using platform_stores b
+  where a.platform_id is not distinct from b.platform_id and a.brand_id is not distinct from b.brand_id and a.location_id is not distinct from b.location_id
+    and a.store_name = b.store_name and (b.created_at < a.created_at or (b.created_at = a.created_at and b.id < a.id));
+create unique index if not exists platform_stores_identity_uidx on platform_stores (platform_id, brand_id, location_id, store_name);
 
 create table if not exists platform_connector_configs (
   id uuid primary key default gen_random_uuid(),
@@ -122,6 +119,11 @@ create table if not exists ai_supervision_findings (
   review_status text not null default 'new',
   created_at timestamptz not null default now()
 );
+
+-- One connector configuration per platform.
+delete from platform_connector_configs a using platform_connector_configs b
+  where a.platform_id = b.platform_id and (b.created_at < a.created_at or (b.created_at = a.created_at and b.id < a.id));
+create unique index if not exists platform_connector_configs_platform_uidx on platform_connector_configs (platform_id);
 
 create table if not exists fix_tasks (
   id uuid primary key default gen_random_uuid(),
@@ -243,7 +245,6 @@ create table if not exists audit_logs (
 insert into companies (name) values ('Quadro Holdings LTEE') on conflict (name) do nothing;
 
 insert into platforms (key, name, required_for_service_check) values
-  ('urbanpiper','UrbanPiper',false),
   ('clover','Clover',false),
   ('doordash','DoorDash',true),
   ('uber_eats','Uber Eats',true),
@@ -278,11 +279,6 @@ insert into brands (company_id, name) values
 ((select id from companies where name='Quadro Holdings LTEE'), 'Crèmerie Bin Molle Bin Dure'),
 ((select id from companies where name='Quadro Holdings LTEE'), 'Too Good To Go')
 on conflict (name) do nothing;
-
-insert into urbanpiper_locations (location_id, urbanpiper_location_id, account_name, raw_payload) values
-((select id from locations where code='HOCHELAGA'), '181521', 'Quadro holding ltee', '{"urbanpiper_location_id": "181521", "location_code": "HOCHELAGA", "address_line_1": "3583 Rue Sainte-Catherine E", "city": "Montr\u00e9al", "services": ["uber_eats", "doordash", "skip_the_dishes"]}'::jsonb),
-((select id from locations where code='NDG_MAIN'), '182304', 'Quadro holding ltee', '{"urbanpiper_location_id": "182304", "location_code": "NDG_MAIN", "address_line_1": "6280 Av Somerled", "city": "Montr\u00e9al", "services": ["uber_eats", "doordash", "skip_the_dishes"]}'::jsonb)
-on conflict (urbanpiper_location_id) do update set raw_payload=excluded.raw_payload;
 
 insert into platform_stores (platform_id, brand_id, location_id, external_business_id, external_store_id, store_name, address_line_1, city, province, postal_code, country, activation_status, open_status, status_symbol, needs_review, review_note, raw_payload) values
 ((select id from platforms where key='doordash'), (select id from brands where name='Nutrition Shake'), (select id from locations where code='NDG_6284'), '12606537', '', 'Nutrition', '6284 Av Somerled', 'Montréal', 'QC', 'H3X 2B6', 'CA', 'active', 'closed', 'Z', false, '', '{"brand_name": "Nutrition Shake", "store_name": "Nutrition", "location_code": "NDG_6284", "address_line_1": "6284 Av Somerled", "activation_status": "active", "open_status": "closed", "status_symbol": "Z", "external_business_id": "12606537"}'::jsonb),
@@ -327,19 +323,20 @@ insert into platform_stores (platform_id, brand_id, location_id, external_busine
 ((select id from platforms where key='doordash'), (select id from brands where name='Taco Mexican'), (select id from locations where code='HOCHELAGA'), '13080099', '', 'Taco Mexican HOCHELAGA', '3583 Rue Sainte-Catherine E', 'Montréal', 'QC', 'H1W 2E6', 'CA', 'active', 'closed', 'Z', false, '', '{"brand_name": "Taco Mexican", "store_name": "Taco Mexican HOCHELAGA", "location_code": "HOCHELAGA", "address_line_1": "3583 Rue Sainte-Catherine E", "activation_status": "active", "open_status": "closed", "status_symbol": "Z", "external_business_id": "13080099"}'::jsonb),
 ((select id from platforms where key='doordash'), (select id from brands where name='Taco Mexican'), (select id from locations where code='NDG_6284'), '13080099', '', 'Taco Mexican NDG', '6284 Av Somerled', 'Montréal', 'QC', 'H3X 2B6', 'CA', 'active', 'closed', 'Z', false, '', '{"brand_name": "Taco Mexican", "store_name": "Taco Mexican NDG", "location_code": "NDG_6284", "address_line_1": "6284 Av Somerled", "activation_status": "active", "open_status": "closed", "status_symbol": "Z", "external_business_id": "13080099"}'::jsonb),
 ((select id from platforms where key='doordash'), (select id from brands where name='Crèmerie Bin Molle Bin Dure'), (select id from locations where code='SAINT_LEONARD'), '14353843', '', 'Crèmerie Bin Molle Bin Dure ST LÉONARD', '5837 Rue Jean-Talon E', 'Saint-Léonard', 'QC', 'H1S 1M4', 'CA', 'deactivated', 'unknown', 'grey_circle', false, '', '{"brand_name": "Crèmerie Bin Molle Bin Dure", "store_name": "Crèmerie Bin Molle Bin Dure ST LÉONARD", "location_code": "SAINT_LEONARD", "address_line_1": "5837 Rue Jean-Talon E", "activation_status": "deactivated", "open_status": "unknown", "status_symbol": "grey_circle", "external_business_id": "14353843"}'::jsonb),
-((select id from platforms where key='doordash'), (select id from brands where name='Crèmerie Bin Molle Bin Dure'), (select id from locations where code='NDG_MAIN'), '14353843', '', 'Crèmerie Bin Molle Bin Dure (NOTRE-DAME-DE-GRÂCE)', '6280 Av Somerled', 'Montréal', 'QC', 'H3X 2B6', 'CA', 'deactivated', 'unknown', 'grey_circle', false, '', '{"brand_name": "Crèmerie Bin Molle Bin Dure", "store_name": "Crèmerie Bin Molle Bin Dure (NOTRE-DAME-DE-GRÂCE)", "location_code": "NDG_MAIN", "address_line_1": "6280 Av Somerled", "activation_status": "deactivated", "open_status": "unknown", "status_symbol": "grey_circle", "external_business_id": "14353843"}'::jsonb);
+((select id from platforms where key='doordash'), (select id from brands where name='Crèmerie Bin Molle Bin Dure'), (select id from locations where code='NDG_MAIN'), '14353843', '', 'Crèmerie Bin Molle Bin Dure (NOTRE-DAME-DE-GRÂCE)', '6280 Av Somerled', 'Montréal', 'QC', 'H3X 2B6', 'CA', 'deactivated', 'unknown', 'grey_circle', false, '', '{"brand_name": "Crèmerie Bin Molle Bin Dure", "store_name": "Crèmerie Bin Molle Bin Dure (NOTRE-DAME-DE-GRÂCE)", "location_code": "NDG_MAIN", "address_line_1": "6280 Av Somerled", "activation_status": "deactivated", "open_status": "unknown", "status_symbol": "grey_circle", "external_business_id": "14353843"}'::jsonb)
+on conflict (platform_id, brand_id, location_id, store_name) do nothing;
 
 
 -- Connector config placeholders. Secrets are not stored here; secret_reference points to env/vault names only.
 insert into platform_connector_configs (platform_id, mode, enabled, credential_status, secret_reference, notes)
 select id,
-  case key when 'urbanpiper' then 'api_key' when 'clover' then 'oauth' when 'doordash' then 'api_key' when 'uber_eats' then 'oauth' when 'skip_the_dishes' then 'api_key' when 'too_good_to_go' then 'api_key' else 'disabled' end,
+  case key when 'clover' then 'oauth' when 'doordash' then 'api_key' when 'uber_eats' then 'oauth' when 'skip_the_dishes' then 'api_key' when 'too_good_to_go' then 'api_key' else 'disabled' end,
   false,
   'missing',
   upper(key) || '_SERVER_SECRET',
   'Live connector disabled until credentials, health check, and owner approval are complete.'
 from platforms
-on conflict do nothing;
+on conflict (platform_id) do nothing;
 
 -- Generate initial fix tasks for deactivated DoorDash stores.
 insert into fix_tasks (source_type, source_id, priority, title, detail)
@@ -348,7 +345,8 @@ from platform_stores ps
 join brands b on b.id = ps.brand_id
 join locations l on l.id = ps.location_id
 join platforms p on p.id = ps.platform_id
-where p.key='doordash' and ps.activation_status='deactivated';
+where p.key='doordash' and ps.activation_status='deactivated'
+  and not exists (select 1 from fix_tasks f where f.source_type = 'platform_store' and f.source_id = ps.id);
 
 -- ============================================================
 -- FILE: storage.sql
@@ -368,7 +366,6 @@ alter table locations enable row level security;
 alter table brands enable row level security;
 alter table platforms enable row level security;
 alter table platform_stores enable row level security;
-alter table urbanpiper_locations enable row level security;
 alter table platform_connector_configs enable row level security;
 alter table connector_runs enable row level security;
 alter table ingest_events enable row level security;
@@ -514,8 +511,6 @@ create table if not exists ai_ingestion_findings (
 );
 
 insert into connector_secret_requirements (platform_key, secret_key, label, required, storage_mode, description) values
-('urbanpiper','URBANPIPER_API_KEY','UrbanPiper API Key',true,'server_env','Used to call UrbanPiper APIs or exports.'),
-('urbanpiper','URBANPIPER_BASE_URL','UrbanPiper Base URL',true,'server_env','Configured base URL for the UrbanPiper account/API.'),
 ('clover','CLOVER_CLIENT_ID','Clover Client ID',true,'server_env','OAuth app client ID.'),
 ('clover','CLOVER_CLIENT_SECRET','Clover Client Secret',true,'server_env','OAuth app secret.'),
 ('clover','CLOVER_MERCHANT_ID','Clover Merchant ID',true,'server_env','Merchant/location ID for Clover.'),
@@ -524,12 +519,11 @@ insert into connector_secret_requirements (platform_key, secret_key, label, requ
 ('doordash','DOORDASH_SIGNING_SECRET','DoorDash Signing Secret',true,'server_env','DoorDash signing secret.'),
 ('uber_eats','UBER_CLIENT_ID','Uber Client ID',true,'server_env','Uber OAuth client id.'),
 ('uber_eats','UBER_CLIENT_SECRET','Uber Client Secret',true,'server_env','Uber OAuth secret.'),
-('skip_the_dishes','SKIP_API_KEY','Skip API Key',false,'server_env','If partner/API access is available.'),
-('too_good_to_go','TGTG_API_KEY','Too Good To Go API Key',false,'server_env','If partner/API/report access is available.')
+('skip_the_dishes','SKIP_JET_API_KEY','SkipTheDishes JET Connect API key',true,'server_env','JET Connect (Flyt) API key used for menus, item 86 and order confirmation.'),
+('too_good_to_go','TGTG_WEBHOOK_SECRET','Too Good To Go webhook secret',true,'server_env','Webhook-only integration: there is no public merchant API to call.')
 on conflict (platform_key, secret_key) do nothing;
 
 insert into connector_feature_flags (platform_key, live_enabled, owner_approved, allow_autodiscovery, allow_sync_now, allow_scheduled_sync, notes) values
-('urbanpiper', false, false, false, false, false, 'Enable first. Control/matching layer.'),
 ('clover', false, false, false, false, false, 'POS source for orders/payments/inventory.'),
 ('doordash', false, false, false, false, false, 'Delivery platform verification source.'),
 ('uber_eats', false, false, false, false, false, 'Delivery platform verification source.'),
@@ -629,8 +623,6 @@ create table if not exists ai_post_sync_reviews (
 );
 
 insert into connector_schedules (platform_key, sync_type, cadence, enabled, owner_approved) values
-('urbanpiper','stores','manual',false,false),
-('urbanpiper','orders','manual',false,false),
 ('clover','orders','manual',false,false),
 ('clover','inventory','manual',false,false),
 ('doordash','payouts','manual',false,false),
@@ -826,4 +818,43 @@ create table if not exists fh_docs (
 create index if not exists fh_docs_collection_at_idx on fh_docs (collection, at desc);
 create index if not exists fh_docs_collection_key_idx on fh_docs (collection, key);
 alter table fh_docs enable row level security;
+
+-- ============================================================
+-- FILE: release_1_4_0_patch.sql
+-- ============================================================
+-- Release 1.4.0 patch.
+-- Run AFTER foodhub.sql (file 9 of 9). Safe to re-run: every statement is idempotent.
+
+-- 1) Sync-now dedupe. Manual syncs overlap (Clover defaults to the last 7 days), so the same
+--    order was inserted again on every click, each time with a fresh AI finding. One row per
+--    (platform, record type, external id) from now on; the server upserts with "ignore duplicates".
+--    Existing duplicates are removed first (keeping the earliest copy; their AI findings cascade)
+--    so the unique index can be created on installs that already have data.
+delete from ingested_platform_records r
+using ingested_platform_records older
+where r.external_id is not null
+  and older.platform_key = r.platform_key
+  and older.record_type = r.record_type
+  and older.external_id = r.external_id
+  and (older.created_at < r.created_at or (older.created_at = r.created_at and older.id < r.id));
+
+create unique index if not exists ingested_platform_records_platform_type_external_uidx
+  on ingested_platform_records (platform_key, record_type, external_id);
+
+-- 2) UrbanPiper is no longer used (LOCKED_DECISIONS): remove its table and seed rows from
+--    installs made with an earlier installer. The platform row is only removed when no
+--    platform_stores row still points at it.
+drop table if exists urbanpiper_locations;
+delete from connector_secret_requirements where platform_key = 'urbanpiper';
+delete from connector_feature_flags where platform_key = 'urbanpiper';
+delete from connector_schedules where platform_key = 'urbanpiper';
+delete from platform_connector_configs where platform_id in (select id from platforms where key = 'urbanpiper');
+delete from platforms p where p.key = 'urbanpiper' and not exists (select 1 from platform_stores s where s.platform_id = p.id);
+
+-- 3) Secret requirements now name the variables the setup wizard actually writes.
+delete from connector_secret_requirements where (platform_key, secret_key) in (('skip_the_dishes','SKIP_API_KEY'), ('too_good_to_go','TGTG_API_KEY'));
+insert into connector_secret_requirements (platform_key, secret_key, label, required, storage_mode, description) values
+('skip_the_dishes','SKIP_JET_API_KEY','SkipTheDishes JET Connect API key',true,'server_env','JET Connect (Flyt) API key used for menus, item 86 and order confirmation.'),
+('too_good_to_go','TGTG_WEBHOOK_SECRET','Too Good To Go webhook secret',true,'server_env','Webhook-only integration: there is no public merchant API to call.')
+on conflict (platform_key, secret_key) do nothing;
 

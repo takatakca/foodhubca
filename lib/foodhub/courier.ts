@@ -9,6 +9,22 @@ import { settleInClover } from './clover-settle';
 import { getRepo } from './repo';
 import type { ChannelKey, CourierInfo, CourierStatus, OrderTimeline, StoredOrder } from './types';
 
+/**
+ * Platform events (cancel, courier) that arrive before the order itself is stored — Uber's order fetch can take
+ * seconds, and webhook deliveries are not ordered. They wait in the KV store and the pipeline applies them
+ * right after the insert (a pending cancel stops injection and acceptance).
+ */
+export interface PendingPlatformEvents {
+  status?: { platformState: string; detail: Record<string, unknown>; at: string };
+  courier?: Array<{ update: Partial<CourierInfo> & { status: CourierStatus }; source: string; at: string }>;
+  consumedAt?: string;
+}
+export const pendingKey = (channel: ChannelKey, externalOrderId: string) => `pending:${channel}:${externalOrderId}`;
+export async function readPending(channel: ChannelKey, externalOrderId: string): Promise<PendingPlatformEvents | null> {
+  const p = await getRepo().getKv<PendingPlatformEvents>(pendingKey(channel, externalOrderId)).catch(() => null);
+  return p && !p.consumedAt ? p : null;
+}
+
 export const COURIER_LABEL: Record<CourierStatus, string> = {
   assigned: 'Courier assigned', arriving: 'Courier arriving', at_store: 'Courier at the store', picked_up: 'Picked up', delivered: 'Delivered', unassigned: 'Courier unassigned',
 };
@@ -70,23 +86,29 @@ export function uberCourierDetails(o: any): Partial<CourierInfo> | undefined {
 export async function applyCourierUpdate(channel: ChannelKey, externalOrderId: string, update: Partial<CourierInfo> & { status: CourierStatus }, source: string): Promise<StoredOrder | null> {
   const repo = getRepo();
   const order = await repo.findOrder(channel, externalOrderId);
-  if (!order) return null;
+  if (!order) {
+    // Not stored yet: keep the update for the pipeline instead of dropping it.
+    const prev = (await readPending(channel, externalOrderId)) ?? {};
+    await repo.setKv(pendingKey(channel, externalOrderId), { ...prev, courier: [...(prev.courier ?? []), { update, source, at: nowIso() }] }).catch(() => undefined);
+    return null;
+  }
   const now = nowIso();
   const clean = Object.fromEntries(Object.entries(update).filter(([, v]) => v !== undefined && v !== '')) as Partial<CourierInfo>;
   const courier: CourierInfo = { ...(order.timeline?.courier ?? {}), ...clean, status: update.status, updatedAt: now, source } as CourierInfo;
-  const timeline: OrderTimeline = { ...(order.timeline ?? {}), courier };
+  const patch: OrderTimeline = { courier };
   let status = order.status;
   if (update.status === 'picked_up' && ['new', 'accepted', 'ready'].includes(order.status)) {
     status = 'dispatched';
-    timeline.dispatchedAt = timeline.dispatchedAt ?? now;
-    timeline.readyAt = timeline.readyAt ?? now;
+    patch.dispatchedAt = order.timeline?.dispatchedAt ?? now;
+    patch.readyAt = order.timeline?.readyAt ?? now;
   }
   if (update.status === 'delivered' && !['cancelled', 'completed'].includes(order.status)) {
     status = 'completed';
-    timeline.dispatchedAt = timeline.dispatchedAt ?? now;
-    timeline.completedAt = timeline.completedAt ?? now;
+    patch.dispatchedAt = order.timeline?.dispatchedAt ?? now;
+    patch.completedAt = order.timeline?.completedAt ?? now;
   }
-  let saved = await repo.updateOrder(order.id, { timeline, status });
+  // Patch (not replace) the timeline so an operator click in flight does not lose the courier block, and vice versa.
+  let saved = await repo.patchOrder(order.id, patch, { status });
   if (status !== order.status) saved = await settleInClover(saved); // picked up / delivered → paid in Clover
   await repo.addEvent(order.id, 'courier', { status: update.status, name: courier.name, etaAt: courier.etaAt, source, message: COURIER_LABEL[update.status] });
   if (status !== order.status) {

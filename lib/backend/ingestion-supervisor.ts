@@ -9,12 +9,24 @@ export type AiFinding = {
   sourceExternalId?: string;
 };
 
+const str = (value: unknown) => (typeof value === 'string' ? value.trim().toLowerCase() : '');
+const DEACTIVATED = new Set(['deactivated', 'inactive', 'disabled']);
+
+/**
+ * Locked status rules on the fields platforms actually use, not on the JSON text:
+ *  - name "(I)" / activation_status or status = deactivated|inactive|disabled → deactivated
+ *  - name "(Z)" / open_status or status = closed → active but closed
+ * (So `{"deactivated": false}` or a Clover order `state: "closed"` no longer trips a finding.)
+ */
 export function analyzeIncomingEvent(event: IngestEvent): AiFinding[] {
   const findings: AiFinding[] = [];
-  const payload = event.payload as Record<string, any>;
-  const text = JSON.stringify(payload).toLowerCase();
+  const payload = (event.payload && typeof event.payload === 'object' ? event.payload : {}) as Record<string, any>;
+  const name = str(payload.name ?? payload.store_name);
+  const status = str(payload.status);
+  const activation = str(payload.activation_status);
+  const openStatus = str(payload.open_status);
 
-  if (text.includes('deactivated') || text.includes('(i)')) {
+  if (name.includes('(i)') || DEACTIVATED.has(activation) || DEACTIVATED.has(status)) {
     findings.push({
       severity: 'high',
       type: 'store_deactivated',
@@ -25,7 +37,7 @@ export function analyzeIncomingEvent(event: IngestEvent): AiFinding[] {
     });
   }
 
-  if (text.includes('(z)') || text.includes('closed')) {
+  if (name.includes('(z)') || openStatus === 'closed' || status === 'closed') {
     findings.push({
       severity: 'medium',
       type: 'store_active_closed',

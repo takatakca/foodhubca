@@ -3,7 +3,6 @@ alter table locations enable row level security;
 alter table brands enable row level security;
 alter table platforms enable row level security;
 alter table platform_stores enable row level security;
-alter table urbanpiper_locations enable row level security;
 alter table platform_connector_configs enable row level security;
 alter table connector_runs enable row level security;
 alter table ingest_events enable row level security;

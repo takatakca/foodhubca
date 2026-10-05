@@ -12,8 +12,10 @@ export type StoreDataResult = {
 
 /**
  * Supabase-first store data with local seed fallback.
- * - When Supabase is configured and platform_stores has rows, the dashboard
- *   reflects the live database (which sync/discovery keeps updated).
+ * - When Supabase is configured and platform_stores has rows, those rows are shown.
+ *   Nothing in the app writes platform_stores (only supabase/seed.sql does), so either
+ *   way this is the seed snapshot from the owner's screenshots. Live store status
+ *   (Uber / DoorDash / Skip sync) lives in the Food Hub store repo → Command Center.
  * - Before Supabase is set up (or if the query fails), the captured seed data
  *   is shown, clearly labeled, so the app is never blank and never pretends.
  */

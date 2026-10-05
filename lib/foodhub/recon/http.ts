@@ -1,4 +1,4 @@
-import { withPerm, type AuthUser } from '../auth';
+import { errorResponse, withPerm, type AuthUser } from '../auth';
 import { fail } from '../http';
 import type { Permission } from '../session';
 
@@ -9,7 +9,8 @@ export function withFinance<C = unknown>(perm: Permission, handler: (req: Reques
     try {
       return await handler(req, ctx, actor);
     } catch (e) {
-      return fail(e instanceof Error ? e.message : String(e), 400);
+      // Validation messages keep their text (400); Supabase/Postgres/network errors never reach the browser (generic 500 + log).
+      return errorResponse(e, `${req.method} ${new URL(req.url).pathname}`);
     }
   });
 }

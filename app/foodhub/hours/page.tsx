@@ -46,6 +46,8 @@ export default function HoursPage() {
       ...Object.entries(hours.locations).flatMap(([k, w]) => weekProblems(w).map((p) => `${locName(k)} — ${p}`)),
       ...Object.entries(hours.brands).flatMap(([k, w]) => weekProblems(w).map((p) => `${k} — ${p}`)),
       ...hours.holidays.filter((h) => !/^\d{4}-\d{2}-\d{2}$/.test(h.date)).map((h) => `Holiday "${h.name}" needs a date`),
+      // Holiday special hours are one local day: a slot crossing midnight would lose its after-midnight part on save.
+      ...hours.holidays.filter((h) => !h.closed).flatMap((h) => (h.slots ?? []).filter((s) => !s.open || !s.close || s.close <= s.open).map((s) => `Holiday "${h.name}": ${s.open || '?'}–${s.close || '?'} must end after it starts (holiday hours cannot cross midnight — use up to 23:59)`)),
     ];
   }, [hours, locName]);
 

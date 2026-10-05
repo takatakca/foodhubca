@@ -20,7 +20,8 @@ export const POST = withFinance('finance:edit', async (req, _ctx, actor) => {
   const b = await readJson(req);
   if (!b.fileName || !b.contentBase64) return fail('Choose a CSV or Excel file.');
   const bytes = new Uint8Array(Buffer.from(String(b.contentBase64), 'base64'));
-  if (bytes.length > 15 * 1024 * 1024) return fail('File too large (max 15 MB).');
+  // Vercel accepts 4.5 MB request bodies and base64 adds a third: 4 MB of file is the real ceiling.
+  if (bytes.length > 4 * 1024 * 1024) return fail('File too large (max 4 MB) — split the export by week or month.');
   const channel = b.channel && isChannelKey(String(b.channel)) ? (String(b.channel) as ChannelKey) : null;
   const mapping = b.mapping && typeof b.mapping === 'object' ? (b.mapping as ColumnMapping) : undefined;
   const out = await importStatement({ fileName: String(b.fileName), bytes, channel, mapping, actor });

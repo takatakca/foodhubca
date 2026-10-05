@@ -32,6 +32,9 @@ if (live && !has('DASHBOARD_PASSWORD')) {
   console.log('❌ Live mode requires DASHBOARD_PASSWORD (the dashboard refuses to serve without it).');
   blocking++;
 }
+if (has('DASHBOARD_PASSWORD') && !has('SESSION_SECRET')) {
+  console.log('⚠️  SESSION_SECRET is not set: session cookies are signed with a key derived from DASHBOARD_PASSWORD. Set SESSION_SECRET (npm run setup generates one) so the password is not the signing secret.');
+}
 if (!live) console.log('Live mode is off: orders are received and shown, but nothing is sent to platforms.');
 console.log('\nMissing credentials are warnings — each channel turns on by itself once its keys are added (npm run setup).');
 process.exit(blocking ? 1 : 0);

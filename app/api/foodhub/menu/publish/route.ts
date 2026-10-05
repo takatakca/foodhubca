@@ -18,9 +18,18 @@ export const GET = withPerm('menu:edit', async (req) => {
   const repo = getRepo();
   const [menu, stores, jobs, hours] = await Promise.all([repo.getMenu(brand), repo.listStores(), repo.listJobs(500), getHours()]);
   const mine = stores.filter((s) => s.brandName === brand);
+  // Jobs fill up fast with 86 toggles; when a store's last publish is older than the job window, fall back to
+  // the activity log (publishes are rare there) so a live, published menu never shows as "never".
+  const publishes = mine.some((s) => !jobs.some((j) => j.kind === 'menu_push' && j.request?.storeId === s.id))
+    ? (await repo.listActivity({ kinds: ['menu_publish'], limit: 500 }).catch(() => [])).filter((a) => a.action === 'publish' && a.storeId)
+    : [];
   const status = mine.map((s) => {
     const job = jobs.find((j) => j.kind === 'menu_push' && j.request?.storeId === s.id);
-    return { storeId: s.id, channel: s.channel, locationCode: s.locationCode, channelStoreId: s.channelStoreId, status: job?.status ?? 'never', at: job?.updatedAt ?? null, message: (job?.result as { message?: string } | undefined)?.message ?? null };
+    if (job) return { storeId: s.id, channel: s.channel, locationCode: s.locationCode, channelStoreId: s.channelStoreId, status: job.status, at: job.updatedAt, message: (job.result as { message?: string } | undefined)?.message ?? null };
+    const act = publishes.find((a) => a.storeId === s.id);
+    const res = (act?.detail as { result?: { status?: string; message?: string } } | undefined)?.result;
+    const st = res?.status === 'queued' ? 'queued' : res?.status === 'done' ? 'done' : act ? 'error' : 'never';
+    return { storeId: s.id, channel: s.channel, locationCode: s.locationCode, channelStoreId: s.channelStoreId, status: st, at: act?.at ?? null, message: res?.message ?? null };
   });
   return ok({ check: menu ? verifyMenu(menu, { stores, hours, languages: await getMenuLanguages() }) : null, stores: status, scheduled: await listScheduled(brand) });
 });
@@ -53,7 +62,9 @@ export const POST = withPerm('menu:edit', async (req, _ctx, actor) => {
     }
   }
   const results = await publishMenu(brand, { storeIds, channels, actor });
-  return ok({ results, check });
+  const okCount = results.filter((r) => r.result.ok).length;
+  const blockedCount = results.filter((r) => r.result.status === 'blocked').length;
+  return ok({ results, check, okCount, blockedCount, errorCount: results.length - okCount - blockedCount });
 });
 
 export const DELETE = withPerm('menu:edit', async (req, _ctx, actor) => {

@@ -38,14 +38,22 @@ export function cloverReadiness() {
   };
 }
 
+/** `skipped` = Clover is deliberately not in the picture (injection off, or no merchant configured anywhere); every other miss is a failure. */
 export type InjectResult = { ok: true; posOrderId: string } | { ok: false; skipped?: boolean; error: string };
+
+/** True when this deployment expects orders to reach Clover (injection on and at least one merchant configured). */
+export function cloverExpected(): boolean {
+  return cloverInjectionEnabled() && knownCloverMerchants().length > 0;
+}
 
 export async function injectOrder(order: StoredOrder, merchantId?: string | null, opts: { orderTypeId?: string | null } = {}): Promise<InjectResult> {
   if (!cloverInjectionEnabled()) return { ok: false, skipped: true, error: 'POS injection is turned off (FOODHUB_POS_INJECTION=off).' };
   const mid = merchantId || process.env.CLOVER_MERCHANT_ID;
-  if (!mid) return { ok: false, skipped: true, error: 'No Clover merchant configured for this store.' };
+  // No merchant for this store: harmless only when Clover is not configured at all; otherwise the store mapping is incomplete.
+  if (!mid) return { ok: false, skipped: knownCloverMerchants().length === 0, error: 'No Clover merchant configured for this store.' };
   const token = cloverTokenFor(mid);
-  if (!token) return { ok: false, skipped: true, error: `No Clover API token for merchant ${mid}.` };
+  // A mapped merchant without a token is a configuration fault, never a reason to accept without Clover.
+  if (!token) return { ok: false, skipped: false, error: `No Clover API token for merchant ${mid} (add it to CLOVER_MERCHANT_TOKENS).` };
 
   const lineItems: Record<string, unknown>[] = [];
   for (const line of order.lines) {
@@ -127,14 +135,17 @@ export async function importMenuFromClover(brandName: string, merchantId?: strin
     .map((it) => {
       const cat = it.categories?.elements?.[0];
       if (cat?.id && !categories.has(cat.id)) categories.set(cat.id, { ref: cat.id, name: cat.name || 'Category', sortOrder: Number(cat.sortOrder ?? categories.size) });
+      // VARIABLE / PER_UNIT items have no fixed price in Clover: never publish them as $0 — import them unavailable with a note.
+      const fixedPrice = !it.priceType || String(it.priceType).toUpperCase() === 'FIXED';
       return {
         ref: String(it.id),
         posItemRef: String(it.id),
         name: String(it.name),
         description: it.alternateName || undefined,
-        price: fromCents(it.price),
+        price: fixedPrice ? fromCents(it.price) : 0,
+        ...(fixedPrice ? {} : { note: `Clover price type ${String(it.priceType).toUpperCase()} (no fixed price) — set a price in Food Hub before making it available.` }),
         categoryRef: cat?.id ? String(cat.id) : uncategorized.ref,
-        available: it.available !== false,
+        available: fixedPrice && it.available !== false,
         modifierGroupRefs: (it.modifierGroups?.elements ?? []).map((g: any) => String(g.id)),
       } satisfies MenuItem;
     });
@@ -171,10 +182,22 @@ export async function importMenuFromClover(brandName: string, merchantId?: strin
  * Prints the order on the Clover device's order (kitchen) printer:
  * POST /v3/merchants/{mId}/print_event  { orderRef: { id } }  — needs "Write orders" permission.
  * Orders created through the API do not print by themselves, so Food Hub fires this right after injection
- * (FOODHUB_CLOVER_AUTOPRINT=off to disable; CLOVER_PRINT_DEVICE_ID to target one device).
+ * (FOODHUB_CLOVER_AUTOPRINT=off to disable; CLOVER_PRINT_DEVICE_ID targets one device of CLOVER_MERCHANT_ID,
+ * CLOVER_PRINT_DEVICES={"MERCHANT_ID":"deviceId"} one device per merchant — a device belongs to a single merchant).
  */
 export function cloverAutoPrintEnabled(): boolean {
   return process.env.FOODHUB_CLOVER_AUTOPRINT !== 'off';
+}
+
+/** Kitchen printer device for a merchant, or null = the merchant's default printer. */
+export function cloverPrintDeviceFor(merchantId: string): string | null {
+  try {
+    const map = JSON.parse(process.env.CLOVER_PRINT_DEVICES || '{}') as Record<string, string>;
+    if (map[merchantId]) return String(map[merchantId]);
+  } catch { /* ignore malformed map */ }
+  const single = process.env.CLOVER_PRINT_DEVICE_ID;
+  if (single && (!process.env.CLOVER_MERCHANT_ID || process.env.CLOVER_MERCHANT_ID === merchantId)) return single;
+  return null;
 }
 
 export async function printCloverOrder(posOrderId: string, merchantId?: string | null): Promise<{ ok: boolean; message: string; printEventId?: string }> {
@@ -182,7 +205,7 @@ export async function printCloverOrder(posOrderId: string, merchantId?: string |
   if (!mid) return { ok: false, message: 'No Clover merchant configured.' };
   const token = cloverTokenFor(mid);
   if (!token) return { ok: false, message: `No Clover API token for merchant ${mid}.` };
-  const device = process.env.CLOVER_PRINT_DEVICE_ID;
+  const device = cloverPrintDeviceFor(mid);
   try {
     const res = await timedFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}/print_event`, {
       method: 'POST',
@@ -217,7 +240,8 @@ async function cloverPaged(merchantId: string, token: string, resource: 'payment
   const out: any[] = [];
   const limit = 1000;
   for (let page = 0; page < 20; page++) {
-    const qs = new URLSearchParams({ filter: `createdTime>=${sinceMs}`, limit: String(limit), offset: String(page * limit), ...(resource === 'payments' ? { expand: 'tender' } : {}) });
+    // Refunds carry a bare orderRef { id }; the payment is expanded for the fallback order/tender lookup.
+    const qs = new URLSearchParams({ filter: `createdTime>=${sinceMs}`, limit: String(limit), offset: String(page * limit), expand: resource === 'payments' ? 'tender' : 'payment' });
     const res = await timedFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(merchantId)}/${resource}?${qs}`, { headers: { Authorization: `Bearer ${token}` } });
     if (!res.ok) throw new Error(`Clover ${resource} HTTP ${res.status}`);
     const json = await res.json();
@@ -238,10 +262,13 @@ export async function cloverSalesSince(merchantId: string, sinceMs: number, excl
   const token = cloverTokenFor(merchantId);
   if (!token) return { ...empty, ok: false, error: `No Clover API token for merchant ${merchantId}` };
   try {
+    const platformTender = (tender: any) => PLATFORM_TENDERS.has(String(tender?.label ?? '').trim().toLowerCase());
+    // Voided payments keep result SUCCESS with voided:true — they are not sales.
     const payments = (await cloverPaged(merchantId, token, 'payments', sinceMs))
-      .filter((p) => (p.result ?? 'SUCCESS') === 'SUCCESS' && !(p.order?.id && excludeOrderIds.has(String(p.order.id))) && !PLATFORM_TENDERS.has(String(p.tender?.label ?? '').trim().toLowerCase()));
+      .filter((p) => (p.result ?? 'SUCCESS') === 'SUCCESS' && !p.voided && !(p.order?.id && excludeOrderIds.has(String(p.order.id))) && !platformTender(p.tender));
+    // Clover v3 Refund references the order as orderRef { id } (payment.order.id only when the payment is expanded).
     const refunds = (await cloverPaged(merchantId, token, 'refunds', sinceMs).catch(() => []))
-      .filter((r) => !(r.payment?.order?.id && excludeOrderIds.has(String(r.payment.order.id))));
+      .filter((r) => { const oid = r.orderRef?.id ?? r.payment?.order?.id; return !(oid && excludeOrderIds.has(String(oid))) && !platformTender(r.payment?.tender); });
     const sum = (rows: any[], f: string) => rows.reduce((s, r) => s + (Number(r[f]) || 0), 0);
     const gross = fromCents(sum(payments, 'amount'));
     const refundTotal = fromCents(sum(refunds, 'amount'));

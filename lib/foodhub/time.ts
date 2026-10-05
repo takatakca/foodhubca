@@ -37,6 +37,14 @@ export function localHour(ms: number, timeZone = foodhubTimeZone()): number {
   return localParts(ms, timeZone).hour;
 }
 
+/** Human-readable local time for persisted texts (events, activity log): "14:30" or "2026-10-05 14:30". */
+export function localTimeLabel(when: number | string, opts: { date?: boolean } = {}, timeZone = foodhubTimeZone()): string {
+  const ms = typeof when === 'number' ? when : Date.parse(when);
+  if (!Number.isFinite(ms)) return String(when);
+  const t = localTimestamp(ms, timeZone); // "YYYY-MM-DD HH:MM:SS"
+  return opts.date ? t.slice(0, 16) : t.slice(11, 16);
+}
+
 export function localDateLabel(ms = Date.now(), timeZone = foodhubTimeZone()): string {
   return new Intl.DateTimeFormat('fr-CA', { timeZone, weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(ms));
 }

@@ -1,4 +1,4 @@
-import { timedFetch } from './env-utils';
+import { liveConnectorsGloballyEnabled, missingEnv, timedFetch } from './env-utils';
 import { AbstractLiveConnector } from './abstract-live-connector';
 import { ConnectorHealthResult, ConnectorSyncRequest, DiscoveredEntity, IngestedRecordCandidate } from './live-connector-types';
 
@@ -7,25 +7,20 @@ let cachedToken: { value: string; expiresAt: number } | null = null;
 
 export class UberEatsLiveConnector extends AbstractLiveConnector {
   platformKey = 'uber_eats' as const;
-  requiredEnv = ['UBER_BASE_URL'];
+  // The supported credential set (setup wizard / Channels & Setup). A static UBER_ACCESS_TOKEN
+  // is still accepted in place of the client id + secret.
+  requiredEnv = ['UBER_BASE_URL', 'UBER_CLIENT_ID', 'UBER_CLIENT_SECRET'];
 
-  // Auth accepted in either form:
-  //  - UBER_ACCESS_TOKEN (static token), or
-  //  - UBER_CLIENT_ID + UBER_CLIENT_SECRET (token fetched + refreshed automatically)
+  missingCredentials(): string[] {
+    const missing = missingEnv(['UBER_BASE_URL']);
+    if (!process.env.UBER_ACCESS_TOKEN?.trim()) missing.push(...missingEnv(['UBER_CLIENT_ID', 'UBER_CLIENT_SECRET']));
+    return missing;
+  }
+
   protected readinessCheck(): ConnectorHealthResult | null {
-    const baseBlocked = super.readinessCheck();
-    if (baseBlocked) return baseBlocked;
-    const hasStatic = Boolean(process.env.UBER_ACCESS_TOKEN);
-    const hasOauth = Boolean(process.env.UBER_CLIENT_ID && process.env.UBER_CLIENT_SECRET);
-    if (!hasStatic && !hasOauth) {
-      return {
-        platformKey: this.platformKey,
-        status: 'not_configured',
-        canCallLive: false,
-        missingSecretKeys: ['UBER_ACCESS_TOKEN (or UBER_CLIENT_ID + UBER_CLIENT_SECRET)'],
-        message: 'Provide UBER_ACCESS_TOKEN, or UBER_CLIENT_ID + UBER_CLIENT_SECRET so a token can be fetched automatically.',
-      };
-    }
+    const missing = this.missingCredentials();
+    if (missing.length) return this.blockedResult(missing);
+    if (!liveConnectorsGloballyEnabled()) return this.blockedResult([]);
     return null;
   }
 

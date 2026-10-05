@@ -6,10 +6,27 @@ import { CHANNEL_LABELS, nowIso, result } from './config';
 import { getHours, holidaysFor, localDate, publishContext } from './hours';
 import { getMenuLanguages } from './menu/language';
 import { getRepo } from './repo';
-import { startOfLocalDayMs } from './time';
+import { foodhubTimeZone, startOfLocalDayMs } from './time';
 import type { ChannelKey, ChannelResult, ChannelStore, FoodHubJob, MasterMenu, PlatformStatus } from './types';
 
 export interface FanOutRow { storeId: string; channel: ChannelKey; channelStoreId: string; brandName: string; locationCode: string; result: ChannelResult }
+/** okCount counts done/queued/skipped; allFailed = at least one store and none ok (nothing reached a platform). */
+export interface FanOutSummary { okCount: number; blockedCount: number; errorCount: number; allFailed: boolean }
+/** Per-store rows (array, as before) plus summary flags — JSON-serialized callers still get the plain array. */
+export type FanOut = FanOutRow[] & { summary: FanOutSummary };
+
+export function summarize(rows: FanOutRow[]): FanOutSummary {
+  const okCount = rows.filter((r) => r.result.ok).length;
+  const blockedCount = rows.filter((r) => r.result.status === 'blocked').length;
+  return { okCount, blockedCount, errorCount: rows.length - okCount - blockedCount, allFailed: rows.length > 0 && okCount === 0 };
+}
+
+function withSummary(rows: FanOutRow[]): FanOut { return Object.assign(rows, { summary: summarize(rows) }); }
+
+/** Wall-clock time in the hub's zone (Vercel runs in UTC), e.g. "15 h 30" — for persisted summaries. */
+function hhmm(ms: number): string {
+  return new Intl.DateTimeFormat('fr-CA', { timeZone: foodhubTimeZone(), hour: '2-digit', minute: '2-digit' }).format(new Date(ms));
+}
 
 async function record(kind: FoodHubJob['kind'], store: ChannelStore, res: ChannelResult, request: Record<string, unknown>) {
   await getRepo().addJob({
@@ -63,7 +80,7 @@ export function menuForLocation(menu: MasterMenu, locationCode: string, now = Da
 }
 
 /** Push the brand's master menu (with store hours, holidays, category schedules) to the mapped stores. */
-export async function publishMenu(brandName: string, opts: { storeIds?: string[]; channels?: ChannelKey[]; locationCodes?: string[]; actor?: Actor } = {}): Promise<FanOutRow[]> {
+export async function publishMenu(brandName: string, opts: { storeIds?: string[]; channels?: ChannelKey[]; locationCodes?: string[]; actor?: Actor } = {}): Promise<FanOut> {
   const actor = opts.actor ?? SYSTEM_ACTOR;
   const menu = await getRepo().getMenu(brandName);
   if (!menu) throw new Error(`No master menu saved for ${brandName}. Import from Clover or create items first.`);
@@ -78,14 +95,14 @@ export async function publishMenu(brandName: string, opts: { storeIds?: string[]
     await logStore(actor, 'menu_publish', 'publish', store, res, `Menu published (${menu.items.length} items${ctx.hours ? '' : ', no store hours set'})`);
     rows.push(row(store, res));
   }
-  return rows;
+  return withSummary(rows);
 }
 
 /**
  * 86 / un-86 items AND modifiers at a location (all channels), or everywhere when no location is given.
  * untilMs = automatic re-enable (Uber/Skip natively; DoorDash and the menu by Food Hub's sync).
  */
-export async function setItemAvailability(brandName: string, refs: string[], available: boolean, opts: { locationCode?: string; untilMs?: number; actor?: Actor } = {}): Promise<FanOutRow[]> {
+export async function setItemAvailability(brandName: string, refs: string[], available: boolean, opts: { locationCode?: string; untilMs?: number; actor?: Actor } = {}): Promise<FanOut> {
   const actor = opts.actor ?? SYSTEM_ACTOR;
   const repo = getRepo();
   const menu = await repo.getMenu(brandName);
@@ -122,18 +139,23 @@ export async function setItemAvailability(brandName: string, refs: string[], ava
     }
     await record('item_toggle', store, res, { brandName, itemRefs, modifierRefs: modRefs, available, untilMs: opts.untilMs ?? null });
     await logStore(actor, 'item_availability', available ? 'item_on' : 'item_off', store, res,
-      `${available ? 'Back in stock' : "86'd"}: ${label}${!available && opts.untilMs ? ` until ${new Date(opts.untilMs).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' })}` : ''}`, { refs });
+      `${available ? 'Back in stock' : "86'd"}: ${label}${!available && opts.untilMs ? ` until ${hhmm(opts.untilMs)}` : ''}`, { refs });
     rows.push(row(store, res));
   }
+  const out = withSummary(rows);
   if (!stores.length) {
     await logActivity({ actor: actor.name, source: actor.source, kind: 'item_availability', action: available ? 'item_on' : 'item_off', status: 'info', brandName, locationCode: opts.locationCode ?? null,
       summary: `${available ? 'Back in stock' : "86'd"} in Food Hub only (no mapped stores): ${label} — ${brandName}${opts.locationCode ? ` · ${opts.locationCode}` : ''}` });
+  } else if (out.summary.allFailed) {
+    // Food Hub state is saved, but no platform got it: say so plainly instead of letting the per-store rows be the only hint.
+    await logActivity({ actor: actor.name, source: actor.source, kind: 'item_availability', action: available ? 'item_on' : 'item_off', status: 'failed', brandName, locationCode: opts.locationCode ?? null,
+      summary: `${available ? 'Back in stock' : "86'd"} in Food Hub only — no platform received it (${out.summary.blockedCount} blocked, ${out.summary.errorCount} failed): ${label} — ${brandName}${opts.locationCode ? ` · ${opts.locationCode}` : ''}`, detail: { refs, notSent: true, summary: out.summary } });
   }
-  return rows;
+  return out;
 }
 
 /** Pause / resume stores on every channel. */
-export async function setStoresOnline(storeIds: string[], online: boolean, opts: { untilMs?: number; reason?: string; actor?: Actor } = {}): Promise<FanOutRow[]> {
+export async function setStoresOnline(storeIds: string[], online: boolean, opts: { untilMs?: number; reason?: string; actor?: Actor } = {}): Promise<FanOut> {
   const actor = opts.actor ?? SYSTEM_ACTOR;
   const repo = getRepo();
   const stores = await storesFor({ storeIds });
@@ -147,16 +169,46 @@ export async function setStoresOnline(storeIds: string[], online: boolean, opts:
     }
     await record('store_toggle', store, res, { online, untilMs: opts.untilMs ?? null, reason: opts.reason ?? null });
     await logStore(actor, 'store_status', online ? 'resume' : 'pause', store, res,
-      online ? 'Store resumed' : `Store paused${opts.untilMs ? ` until ${new Date(opts.untilMs).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' })}` : ''}${opts.reason ? ` (${opts.reason})` : ''}`, { online, untilMs: opts.untilMs ?? null });
+      online ? 'Store resumed' : `Store paused${opts.untilMs ? ` until ${hhmm(opts.untilMs)}` : ''}${opts.reason ? ` (${opts.reason})` : ''}`, { online, untilMs: opts.untilMs ?? null });
     rows.push(row(store, res));
   }
-  return rows;
+  const out = withSummary(rows);
+  if (out.summary.allFailed) {
+    await logActivity({ actor: actor.name, source: actor.source, kind: 'store_status', action: online ? 'resume' : 'pause', status: 'failed',
+      summary: `Store ${online ? 'resume' : 'pause'} not applied on any platform (${out.summary.blockedCount} blocked, ${out.summary.errorCount} failed): ${stores.map((s) => `${s.brandName} · ${s.locationCode} (${CHANNEL_LABELS[s.channel]})`).join(', ')}`,
+      detail: { online, untilMs: opts.untilMs ?? null, reason: opts.reason ?? null, notSent: true, summary: out.summary } });
+  }
+  return out;
 }
 
+/** Minutes to wait before retrying a failed automatic re-open: 5, 15, then every 60. */
+const REOPEN_RETRY_MIN = [5, 15, 60];
+
 /** Re-opens stores whose timed pause has expired (for channels without native timed pause). */
-export async function reopenExpiredPauses(): Promise<FanOutRow[]> {
-  const stores = (await getRepo().listStores()).filter((s) => !s.online && s.pausedUntil && new Date(s.pausedUntil).getTime() <= Date.now());
-  return stores.length ? setStoresOnline(stores.map((s) => s.id), true, { reason: 'Timed pause ended' }) : [];
+export async function reopenExpiredPauses(now = Date.now()): Promise<FanOut> {
+  const repo = getRepo();
+  const due = (await repo.listStores()).filter((s) => !s.online && s.pausedUntil && new Date(s.pausedUntil).getTime() <= now);
+  // A failed re-open backs off (meta.reopenAttempts / reopenAttemptAt) instead of a failed job + alert on every sync.
+  const stores = due.filter((s) => {
+    const attempts = Number(s.meta?.reopenAttempts ?? 0);
+    const last = s.meta?.reopenAttemptAt ? new Date(String(s.meta.reopenAttemptAt)).getTime() : 0;
+    return !attempts || !last || now - last >= REOPEN_RETRY_MIN[Math.min(attempts, REOPEN_RETRY_MIN.length) - 1] * 60_000;
+  });
+  if (!stores.length) return withSummary([]);
+  const rows = await setStoresOnline(stores.map((s) => s.id), true, { reason: 'Timed pause ended' });
+  for (const r of rows) {
+    const store = await repo.getStore(r.storeId);
+    if (!store) continue;
+    const { reopenAttempts, reopenAttemptAt, ...meta } = store.meta;
+    if (r.result.ok) { if (reopenAttempts !== undefined || reopenAttemptAt !== undefined) await repo.updateStore(store.id, { meta }); continue; }
+    const attempts = Number(reopenAttempts ?? 0) + 1;
+    await repo.updateStore(store.id, { meta: { ...meta, reopenAttempts: attempts, reopenAttemptAt: new Date(now).toISOString() } });
+    if (attempts === 1) {
+      await logActivity({ actor: SYSTEM_ACTOR.name, source: SYSTEM_ACTOR.source, kind: 'store_status', action: 'reopen_failed', status: 'failed', channel: store.channel, brandName: store.brandName, locationCode: store.locationCode, storeId: store.id,
+        summary: `Automatic re-open failed — ${store.brandName} · ${store.locationCode} on ${CHANNEL_LABELS[store.channel]} stays paused (${r.result.message}). Food Hub retries in 5, 15 then every 60 min; resume it from Stores if needed.` });
+    }
+  }
+  return rows;
 }
 
 /** Timed 86s that ended: switch the items back on everywhere (DoorDash has no native timer). */
@@ -191,15 +243,40 @@ export async function applyHolidayClosures(now = Date.now()): Promise<number> {
   return closing.length;
 }
 
-/** Skip (JET Connect) menu status callback: mark the latest queued Skip menu push done/failed. */
-export async function handleSkipMenuStatus(body: any): Promise<string> {
+/**
+ * Menu-status callbacks (JET Connect, DoorDash): only an explicit indicator closes a queued menu push.
+ * 'success' / 'failed' / null — null means nothing explicit, so the job stays queued and the payload is kept.
+ */
+export function menuCallbackOutcome(body: any): 'success' | 'failed' | null {
+  if (!body || typeof body !== 'object') return null;
+  const flags = [body.success, body.ok, body.succeeded, body.published];
+  if (flags.some((f) => f === false)) return 'failed';
+  if (flags.some((f) => f === true)) return 'success';
+  if (Array.isArray(body.errors) && body.errors.length) return 'failed';
+  const raw = body.status ?? body.result ?? body.state ?? body.menu?.status ?? body.event?.status;
+  if (raw == null) return null;
+  const text = typeof raw === 'string' ? raw : JSON.stringify(raw);
+  if (/fail|error|reject|invalid|denied|inactive|unpublish/i.test(text)) return 'failed';
+  if (/success|succeeded|\bok\b|publish|complete|accept|active|valid/i.test(text)) return 'success';
+  return null;
+}
+
+/**
+ * Skip (JET Connect) menu status callback: close the queued Skip menu push(es) for the restaurant(s) it names.
+ * No restaurant or no explicit result → nothing is closed (never claim "published" on a guess); `keep` says why the payload must be kept.
+ */
+export async function handleSkipMenuStatus(body: any): Promise<{ updated: number; message: string; keep?: string }> {
   const repo = getRepo();
   const jobs = (await repo.listJobs(200)).filter((j) => j.channel === 'skip' && j.kind === 'menu_push' && j.status === 'queued');
-  const restaurants: string[] = Array.isArray(body?.restaurants) ? body.restaurants.map(String) : body?.restaurant ? [String(body.restaurant)] : [];
-  const failed = /fail|error|reject/i.test(JSON.stringify(body?.status ?? body?.result ?? body?.errors ?? ''));
-  const targets = restaurants.length ? jobs.filter((j) => restaurants.includes(String(j.request.channelStoreId))) : jobs.slice(0, 1);
-  for (const job of targets) await repo.updateJob(job.id, { status: failed ? 'error' : 'done', result: { ...(job.result ?? {}), callback: body } });
-  return `${targets.length} Skip menu job(s) updated`;
+  const restaurants: string[] = (Array.isArray(body?.restaurants) ? body.restaurants : [body?.restaurant ?? body?.restaurantId ?? body?.restaurant_id ?? body?.posLocationId]).filter(Boolean).map(String);
+  const outcome = menuCallbackOutcome(body);
+  const targets = restaurants.length ? jobs.filter((j) => restaurants.includes(String(j.request.channelStoreId))) : [];
+  if (!restaurants.length || !outcome) {
+    for (const job of targets) await repo.updateJob(job.id, { result: { ...(job.result ?? {}), callback: body } });
+    return { updated: 0, message: '0 Skip menu job(s) updated (callback kept)', keep: !restaurants.length ? 'Skip menu-status callback does not identify the restaurant' : 'Skip menu-status callback without an explicit success/failure indicator — menu push left queued' };
+  }
+  for (const job of targets) await repo.updateJob(job.id, { status: outcome === 'success' ? 'done' : 'error', result: { ...(job.result ?? {}), callback: body } });
+  return { updated: targets.length, message: `${targets.length} Skip menu job(s) updated` };
 }
 
 export function noStoresResult(channel: ChannelKey) {

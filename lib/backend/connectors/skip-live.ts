@@ -3,7 +3,8 @@ import { ConnectorHealthResult, ConnectorSyncRequest, DiscoveredEntity, Ingested
 
 export class SkipTheDishesLiveConnector extends AbstractLiveConnector {
   platformKey = 'skip_the_dishes' as const;
-  requiredEnv = ['SKIP_BASE_URL', 'SKIP_API_KEY'];
+  // Same variables as the Food Hub Skip adapter and the setup wizard (JET Connect / Flyt).
+  requiredEnv = ['SKIP_JET_BASE_URL', 'SKIP_JET_API_KEY'];
 
   protected async performTestConnection(): Promise<ConnectorHealthResult> {
     // HONESTY RULE: never report "healthy" without a real API call.
@@ -12,7 +13,7 @@ export class SkipTheDishesLiveConnector extends AbstractLiveConnector {
       status: 'blocked',
       canCallLive: false,
       missingSecretKeys: [],
-      message: 'SkipTheDishes credentials are present, but partner API access must be confirmed and the endpoint configured before live sync is allowed.',
+      message: 'SkipTheDishes JET Connect credentials are present, but JET Connect has no reporting/sync endpoint for this connector yet. Orders, menus and store status already flow through Food Hub → Channels; this live sync stays blocked.',
     };
   }
   protected async performAutodiscover(): Promise<DiscoveredEntity[]> {

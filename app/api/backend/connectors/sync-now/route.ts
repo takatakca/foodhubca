@@ -1,14 +1,21 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { getLiveConnector, parsePlatformKey } from '@/lib/backend/connectors/live-registry';
 import { createSyncRun, finishSyncRun, insertIngestedRecords } from '@/lib/backend/connector-run-service';
 import { runAiIngestionSupervisorForRecords } from '@/lib/backend/ai-live-ingestion-supervisor';
+import { withPerm } from '@/lib/foodhub/auth';
+import { readJson } from '@/lib/foodhub/http';
 import { hasSupabaseEnv } from '@/lib/supabase/server';
 
-export async function POST(request: NextRequest) {
+export const dynamic = 'force-dynamic';
+
+// Calls the platform and persists records — admin only.
+export const POST = withPerm('admin', async (req) => {
   try {
-    const body = await request.json().catch(() => ({}));
+    const body = await readJson(req);
     const platformKey = parsePlatformKey(body.platformKey);
-    const syncType = body.syncType ?? 'stores';
+    const SYNC_TYPES = ['stores', 'orders', 'payouts', 'inventory', 'documents', 'full'] as const;
+    const syncType = String(body.syncType ?? 'stores') as (typeof SYNC_TYPES)[number];
+    if (!(SYNC_TYPES as readonly string[]).includes(syncType)) return NextResponse.json({ ok: false, error: `syncType must be one of ${SYNC_TYPES.join(', ')}` }, { status: 400 });
     const connector = getLiveConnector(platformKey);
     const health = await connector.testConnection();
     if (!health.canCallLive) return NextResponse.json({ ok: false, blocked: true, health }, { status: 400 });
@@ -21,9 +28,10 @@ export async function POST(request: NextRequest) {
       }, { status: 503 });
     }
 
-    const run = await createSyncRun(platformKey, syncType);
+    const run = await createSyncRun(platformKey, syncType, { startDate: body.startDate, endDate: body.endDate });
     try {
       const records = await connector.sync({ syncType, startDate: body.startDate, endDate: body.endDate });
+      // Records already ingested by an earlier (overlapping) sync are skipped; findings only for new rows.
       const inserted = await insertIngestedRecords(run.id, records);
       const findings = await runAiIngestionSupervisorForRecords(inserted);
       await finishSyncRun(run.id, { status: 'completed', records_fetched: records.length, records_ingested: inserted.length, ai_findings_created: findings.length, raw_summary: { syncType } });
@@ -37,4 +45,4 @@ export async function POST(request: NextRequest) {
     const status = message.startsWith('Unsupported platform') ? 400 : 500;
     return NextResponse.json({ ok: false, error: message }, { status });
   }
-}
+});

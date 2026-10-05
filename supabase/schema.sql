@@ -59,14 +59,11 @@ create table if not exists platform_stores (
   updated_at timestamptz not null default now()
 );
 
-create table if not exists urbanpiper_locations (
-  id uuid primary key default gen_random_uuid(),
-  location_id uuid references locations(id),
-  urbanpiper_location_id text not null unique,
-  account_name text,
-  raw_payload jsonb not null default '{}'::jsonb,
-  created_at timestamptz not null default now()
-);
+-- Re-running the installer must not duplicate the seeded stores: one row per platform × brand × location × store name.
+delete from platform_stores a using platform_stores b
+  where a.platform_id is not distinct from b.platform_id and a.brand_id is not distinct from b.brand_id and a.location_id is not distinct from b.location_id
+    and a.store_name = b.store_name and (b.created_at < a.created_at or (b.created_at = a.created_at and b.id < a.id));
+create unique index if not exists platform_stores_identity_uidx on platform_stores (platform_id, brand_id, location_id, store_name);
 
 create table if not exists platform_connector_configs (
   id uuid primary key default gen_random_uuid(),
@@ -115,6 +112,11 @@ create table if not exists ai_supervision_findings (
   review_status text not null default 'new',
   created_at timestamptz not null default now()
 );
+
+-- One connector configuration per platform.
+delete from platform_connector_configs a using platform_connector_configs b
+  where a.platform_id = b.platform_id and (b.created_at < a.created_at or (b.created_at = a.created_at and b.id < a.id));
+create unique index if not exists platform_connector_configs_platform_uidx on platform_connector_configs (platform_id);
 
 create table if not exists fix_tasks (
   id uuid primary key default gen_random_uuid(),

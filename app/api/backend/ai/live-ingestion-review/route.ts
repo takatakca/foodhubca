@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
+import { withPerm } from '@/lib/foodhub/auth';
 import { createServiceClient, hasSupabaseEnv } from '@/lib/supabase/server';
 
-export async function GET() {
+export const dynamic = 'force-dynamic';
+
+export const GET = withPerm('analytics:view', async () => {
   if (!hasSupabaseEnv()) {
     return NextResponse.json({
       ok: false,
@@ -19,4 +22,4 @@ export async function GET() {
     .limit(100);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true, configured: true, findings: data ?? [] });
-}
+});

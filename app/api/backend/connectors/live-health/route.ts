@@ -1,10 +1,14 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { getLiveConnector, listLiveConnectors, parsePlatformKey } from '@/lib/backend/connectors/live-registry';
 import { logConnectorHealth } from '@/lib/backend/connector-run-service';
+import { withPerm } from '@/lib/foodhub/auth';
 
-export async function GET(request: NextRequest) {
+export const dynamic = 'force-dynamic';
+
+// Makes real platform calls (when the live switch allows it) — admin only.
+export const GET = withPerm('admin', async (req) => {
   try {
-    const platform = request.nextUrl.searchParams.get('platform');
+    const platform = new URL(req.url).searchParams.get('platform');
     const connectors = platform ? [getLiveConnector(parsePlatformKey(platform))] : listLiveConnectors();
     const results = [];
     for (const connector of connectors) {
@@ -18,4 +22,4 @@ export async function GET(request: NextRequest) {
     const status = message.startsWith('Unsupported platform') ? 400 : 500;
     return NextResponse.json({ ok: false, error: message }, { status });
   }
-}
+});

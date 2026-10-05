@@ -7,7 +7,7 @@ import { api, useCatalog, useFilters, useMe } from '../../foodhub/ui';
 import { CH_NAME, FinanceError, FinanceFilters, FinanceHead, cad, day } from '../finance-ui';
 
 type Line = { account: string; debit: number; credit: number; memo?: string };
-type Entry = { key: string; date: string | null; channel: string; memo: string; lines: Line[]; debit: number; credit: number; balanced: boolean; status: 'draft' | 'approved'; approvedBy?: string; approvedAt?: string; warnings: string[] };
+type Entry = { key: string; date: string | null; channel: string; memo: string; lines: Line[]; debit: number; credit: number; balanced: boolean; status: 'draft' | 'approved' | 'approved_stale'; approvedBy?: string; approvedAt?: string; warnings: string[] };
 type Tab = 'draft' | 'approved' | 'all';
 
 export default function LedgerPage() {
@@ -24,7 +24,9 @@ export default function LedgerPage() {
   const load = useCallback(() => api<{ entries: Entry[] }>(`/api/foodhub/recon/ledger?${query}`).then((d) => { setEntries(d.entries); setErr(''); setLoaded(true); }).catch((e) => setErr(e.message)), [query]);
   useEffect(() => { load(); }, [load]);
 
-  const rows = useMemo(() => entries.filter((e) => tab === 'all' || e.status === tab), [entries, tab]);
+  // "To approve" includes entries whose figures changed after approval (approved_stale): they need a new review.
+  const inTab = (e: Entry, t: Tab) => t === 'all' || (t === 'approved' ? e.status === 'approved' : e.status !== 'approved');
+  const rows = useMemo(() => entries.filter((e) => inTab(e, tab)), [entries, tab]);
   const byAccount = useMemo(() => {
     const m = new Map<string, { debit: number; credit: number }>();
     for (const e of entries) for (const l of e.lines) { const a = m.get(l.account) ?? { debit: 0, credit: 0 }; a.debit += l.debit; a.credit += l.credit; m.set(l.account, a); }
@@ -47,7 +49,7 @@ export default function LedgerPage() {
       {msg && <div className="fh-banner info" role="status">{msg}</div>}
       <FinanceFilters filters={filters} set={set} locations={activeLocations} showLocations={false} extra={
         <div className="fh-tabs" role="tablist" style={{ marginBottom: 0 }}>
-          {([['draft', 'To approve'], ['approved', 'Approved'], ['all', 'All']] as Array<[Tab, string]>).map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l} ({entries.filter((e) => k === 'all' || e.status === k).length})</button>)}
+          {([['draft', 'To approve'], ['approved', 'Approved'], ['all', 'All']] as Array<[Tab, string]>).map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l} ({entries.filter((e) => inTab(e, k)).length})</button>)}
         </div>} />
 
       {rows.map((e) => (
@@ -61,7 +63,10 @@ export default function LedgerPage() {
               {e.balanced ? <span className="badge badge-green">✓ Balanced</span> : <span className="badge badge-red">✕ Does not balance</span>}
               {e.status === 'approved'
                 ? <span className="badge badge-blue">✓ Approved by {e.approvedBy}{e.approvedAt ? ` · ${day(e.approvedAt)}` : ''}</span>
-                : can('finance:edit') && <button className="btn-sm" disabled={!e.balanced || busy === e.key} onClick={() => approve(e)}>{busy === e.key ? 'Approving…' : 'Approve'}</button>}
+                : <>
+                    {e.status === 'approved_stale' && <span className="badge badge-yellow">Changed since approval by {e.approvedBy}</span>}
+                    {can('finance:edit') && <button className="btn-sm" disabled={!e.balanced || busy === e.key} onClick={() => approve(e)}>{busy === e.key ? 'Approving…' : e.status === 'approved_stale' ? 'Approve again' : 'Approve'}</button>}
+                  </>}
             </div>
           </div>
           {e.warnings.map((w, i) => <div key={i} className="fh-banner warn" style={{ marginBottom: 6 }}>{w}</div>)}

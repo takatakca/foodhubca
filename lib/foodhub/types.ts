@@ -26,6 +26,9 @@ export interface OrderTimeline {
   /** Target ready time given to the platform / kitchen (prep time). */
   readyTarget?: string;
   printedAt?: string;
+  /** Last kitchen-ticket print failure (cleared by a successful print/reprint) and how many fire-time attempts were made. */
+  printError?: string;
+  printAttempts?: number;
   /** Scheduled (advance) order: when the customer wants it, and when the kitchen should start. */
   scheduledFor?: string;
   fireAt?: string;
@@ -185,6 +188,8 @@ export interface MenuItem {
   allergens?: string[];
   calories?: number;
   price: number;
+  /** Operator note (never sent to the platforms), e.g. why an imported item is unavailable. */
+  note?: string;
   imageUrl?: string;
   categoryRef: string;
   available: boolean;
@@ -216,6 +221,8 @@ export interface MasterMenu {
   unavailableByLocation?: Record<string, string[]>;
   /** When a timed 86 ends: "locationCode|ref" -> epoch ms. */
   unavailableUntil?: Record<string, number>;
+  /** Clover merchant the master menu was imported from (posItemRef ids belong to that merchant). */
+  posMerchantId?: string;
   updatedAt: string;
 }
 

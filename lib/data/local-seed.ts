@@ -1,12 +1,10 @@
 import rawLocations from '@/data/actual/locations.json';
 import rawBrands from '@/data/actual/brands.json';
 import rawDoorDashStores from '@/data/actual/platform-stores-doordash.json';
-import rawUrbanpiperLocations from '@/data/actual/urbanpiper-confirmed-locations.json';
 import { PlatformStore } from '@/lib/types';
 
 const locations = rawLocations as Array<any>;
 const brands = rawBrands as string[];
-const urbanpiperLocations = rawUrbanpiperLocations as Array<any>;
 
 const locationByCode = new Map(locations.map(l => [l.code, l]));
 const doordashStores: PlatformStore[] = (rawDoorDashStores as Array<any>).map((s) => {
@@ -34,8 +32,7 @@ export const localSeed = {
   company: { name: 'Quadro Holdings LTEE' },
   locations,
   brands,
-  doordashStores,
-  urbanpiperLocations
+  doordashStores
 };
 
 export function seedStats() {
@@ -47,7 +44,6 @@ export function seedStats() {
     doordashStores: stores.length,
     activeStores: stores.filter(s => s.activation_status === 'active').length,
     closedStores: stores.filter(s => s.activation_status === 'active' && s.open_status === 'closed').length,
-    deactivatedStores: stores.filter(s => s.activation_status === 'deactivated').length,
-    urbanpiperConfirmedLocations: urbanpiperLocations.length
+    deactivatedStores: stores.filter(s => s.activation_status === 'deactivated').length
   };
 }

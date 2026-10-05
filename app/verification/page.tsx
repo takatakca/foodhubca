@@ -1,9 +1,12 @@
+import Link from 'next/link';
+import { requirePage } from '@/lib/foodhub/auth';
 import { getPlatformStores } from '@/lib/data/store-data';
 import { runVerification } from '@/lib/backend/verification-engine';
 
 export const dynamic = 'force-dynamic';
 
 export default async function VerificationPage() {
+  await requirePage('analytics:view', '/verification');
   const result = await getPlatformStores();
   const verification = runVerification(result.stores);
   return (
@@ -11,6 +14,7 @@ export default async function VerificationPage() {
       <h1>AI Verification</h1>
       {result.warning && <div className="card"><span className="badge badge-yellow">Data source</span> <span className="small">{result.warning}</span></div>}
       <p className="small">Rule-based AI supervisor is active now. LLM analysis can be enabled later with a provider key. AI cannot approve or resolve issues.</p>
+      <p className="small"><span className="badge badge-yellow">Seed snapshot</span> From your screenshots; live store status is on the <Link href="/">Command Center</Link>.</p>
       <div className="grid grid-4">
         <div className="card"><div className="small">Issues</div><div className="stat">{verification.summary.issues}</div></div>
         <div className="card"><div className="small">Missing Services</div><div className="stat">{verification.summary.missing}</div></div>

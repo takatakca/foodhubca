@@ -1,7 +1,7 @@
-// Regenerates supabase/INSTALL_ALL.sql (one paste in Supabase SQL Editor) from the 8 install files.
+// Regenerates supabase/INSTALL_ALL.sql (one paste in Supabase SQL Editor) from the 9 install files.
 import { readFileSync, writeFileSync } from 'node:fs';
 
-const files = ['schema.sql', 'seed.sql', 'storage.sql', 'rls.sql', 'phase25_live_connectors.sql', 'final_operational_patch.sql', 'rc4_security_patch.sql', 'foodhub.sql'];
+const files = ['schema.sql', 'seed.sql', 'storage.sql', 'rls.sql', 'phase25_live_connectors.sql', 'final_operational_patch.sql', 'rc4_security_patch.sql', 'foodhub.sql', 'release_1_4_0_patch.sql'];
 const parts = [
   '-- TAKATAK Accounting Control Tower + Food Hub — ONE-PASTE DATABASE INSTALL',
   '-- Paste this entire file into Supabase SQL Editor and click Run once.',

@@ -90,9 +90,12 @@ export default function CommandCenter() {
   const seenNew = useRef<Set<string> | null>(null);
   const seenCritical = useRef<Set<string> | null>(null);
 
+  const loadSeq = useRef(0);
   const load = useCallback(async () => {
+    const my = ++loadSeq.current;
     try {
       const d = await api<Data>('/api/foodhub/command');
+      if (my !== loadSeq.current) return; // a newer poll already answered (or an action refreshed the screen)
       setError('');
       const newOrders = d.queue.filter((o) => o.status === 'new');
       const newIds = newOrders.map((o) => o.id);
@@ -118,6 +121,8 @@ export default function CommandCenter() {
   }, [waiting, notify.settings.repeat]);
 
   const sync = useCallback(async (force: boolean) => {
+    // Analysts / menu editors cannot trigger a sync (403): the cron or an operator's screen keeps the data fresh.
+    if (!can('stores:toggle')) return;
     setSyncing(true);
     try {
       const r = await api<{ ran: boolean; reason: string | null; report: { stores: unknown[]; durationMs: number } | null }>('/api/foodhub/sync', { method: 'POST', json: { force, trigger: force ? 'manual' : 'auto' } });
@@ -128,7 +133,7 @@ export default function CommandCenter() {
       setSyncing(false);
       load();
     }
-  }, [load]);
+  }, [load, can]);
 
   useEffect(() => { load(); const t = setInterval(load, REFRESH_MS); return () => clearInterval(t); }, [load]);
   useEffect(() => { sync(false); const t = setInterval(() => sync(false), SYNC_EVERY_MS); return () => clearInterval(t); }, [sync]);

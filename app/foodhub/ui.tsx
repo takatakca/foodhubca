@@ -18,6 +18,10 @@ export async function api<T = any>(path: string, init?: RequestInit & { json?: u
     cache: 'no-store',
   });
   const data = await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }));
+  // Session expired or revoked: go to sign-in instead of polling forever with 'Please sign in.'
+  if (res.status === 401 && typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+    window.location.href = `/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+  }
   if (!res.ok || data.ok === false) throw new Error(data.error || `HTTP ${res.status}`);
   return data as T;
 }
@@ -225,17 +229,25 @@ export function NotifyPanel({ settings, update, onClose }: { settings: NotifySet
 export type RangePreset = 'today' | 'yesterday' | '7d' | '30d' | 'month' | 'last_month' | 'custom';
 export const RANGE_LABELS: Record<RangePreset, string> = { today: 'Today', yesterday: 'Yesterday', '7d': 'Last 7 days', '30d': 'Last 30 days', month: 'This month', last_month: 'Last month', custom: 'Custom' };
 
-function ymd(d: Date) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+/** The business time zone: presets and date/time labels use it so a viewer abroad sees the Montréal business day. */
+export const TZ = 'America/Toronto';
+/** Today's Y/M/D in the business zone. */
+function businessToday(now = new Date()): { y: number; m: number; d: number } {
+  const p = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now).reduce<Record<string, string>>((a, x) => { a[x.type] = x.value; return a; }, {});
+  return { y: +p.year, m: +p.month, d: +p.day };
+}
+const ymdUtc = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 export function presetRange(p: RangePreset, custom?: { from: string; to: string }): { from: string; to: string } {
-  const now = new Date();
-  const day = (offset: number) => { const d = new Date(now); d.setDate(d.getDate() + offset); return ymd(d); };
+  const { y, m, d } = businessToday();
+  // Calendar arithmetic on UTC dates (no DST) from the business-zone date.
+  const day = (offset: number) => ymdUtc(Date.UTC(y, m - 1, d + offset));
   switch (p) {
     case 'today': return { from: day(0), to: day(0) };
     case 'yesterday': return { from: day(-1), to: day(-1) };
     case '7d': return { from: day(-6), to: day(0) };
     case '30d': return { from: day(-29), to: day(0) };
-    case 'month': return { from: ymd(new Date(now.getFullYear(), now.getMonth(), 1)), to: day(0) };
-    case 'last_month': return { from: ymd(new Date(now.getFullYear(), now.getMonth() - 1, 1)), to: ymd(new Date(now.getFullYear(), now.getMonth(), 0)) };
+    case 'month': return { from: ymdUtc(Date.UTC(y, m - 1, 1)), to: day(0) };
+    case 'last_month': return { from: ymdUtc(Date.UTC(y, m - 2, 1)), to: ymdUtc(Date.UTC(y, m - 1, 0)) };
     default: return custom ?? { from: day(0), to: day(0) };
   }
 }
@@ -317,7 +329,8 @@ export function FilterBar({ filters, set, brands, locations, extra }: { filters:
 
 /** Client-side CSV download for any table on screen (UTF-8 BOM for Excel). */
 export function downloadCsv(filename: string, columns: string[], rows: Array<Array<string | number | null | undefined>>) {
-  const cell = (v: unknown) => { const s = v === null || v === undefined ? '' : String(v); return /[",\n]/.test(s) || /^[=+\-@]/.test(s) ? `"${(/^[=+\-@]/.test(s) && typeof v === 'string' ? `'${s}` : s).replace(/"/g, '""')}"` : s; };
+  // Numeric-looking strings ("-3.40" from toFixed) pass through untouched so Excel sums the column; only formula-like text is neutralised.
+  const cell = (v: unknown) => { const s = v === null || v === undefined ? '' : String(v); const formula = /^[=+\-@]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s); return /[",\n]/.test(s) || formula ? `"${(formula && typeof v === 'string' ? `'${s}` : s).replace(/"/g, '""')}"` : s; };
   const blob = new Blob(['﻿' + [columns, ...rows].map((r) => r.map(cell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -328,7 +341,7 @@ export function downloadCsv(filename: string, columns: string[], rows: Array<Arr
 
 export function fmtTime(iso?: string | null, withDate = false) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleString('fr-CA', withDate ? { dateStyle: 'short', timeStyle: 'short' } : { hour: '2-digit', minute: '2-digit' });
+  return new Date(iso).toLocaleString('fr-CA', withDate ? { dateStyle: 'short', timeStyle: 'short', timeZone: TZ } : { hour: '2-digit', minute: '2-digit', timeZone: TZ });
 }
 
 export const STATUS_LABEL: Record<string, string> = { new: 'New', accepted: 'Preparing', ready: 'Ready', dispatched: 'Picked up', completed: 'Completed', cancelled: 'Cancelled', failed: 'On Skip tablet' };

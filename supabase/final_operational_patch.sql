@@ -87,8 +87,6 @@ create table if not exists ai_post_sync_reviews (
 );
 
 insert into connector_schedules (platform_key, sync_type, cadence, enabled, owner_approved) values
-('urbanpiper','stores','manual',false,false),
-('urbanpiper','orders','manual',false,false),
 ('clover','orders','manual',false,false),
 ('clover','inventory','manual',false,false),
 ('doordash','payouts','manual',false,false),

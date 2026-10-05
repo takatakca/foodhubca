@@ -82,7 +82,9 @@ export type BookResult = { ok: true; paymentId: string; amount: number } | { ok:
 
 /**
  * Records the platform's payment on the Clover order (custom tender), so the order closes as paid.
- * The amount is what Clover computed for the order (falls back to the platform total), so Clover balances.
+ * amount and taxAmount both come from the platform order (what the customer really paid for the food:
+ * subtotal − discount + tax, and its tax), so they agree with each other and with the payout statements;
+ * Clover's own order total is only a fallback when the platform numbers are missing.
  * Never blocks the order: a failure is logged on the order and shown in alerts.
  */
 export async function recordCloverPayment(order: StoredOrder, mid: string | null | undefined): Promise<BookResult> {
@@ -92,14 +94,19 @@ export async function recordCloverPayment(order: StoredOrder, mid: string | null
   try {
     const tenderId = await ensureLabeled(merchant, 'tenders', platformLabel(order.channel));
     if (!tenderId) return { ok: false, error: `Could not find or create the "${platformLabel(order.channel)}" tender in Clover (needs the Payments write permission).` };
-    const current = await cloverJson(merchant, `/orders/${encodeURIComponent(order.posOrderId)}`);
-    const cloverTotal = Number(current.json?.total);
-    const amount = Number.isFinite(cloverTotal) && cloverTotal > 0 ? cloverTotal : toCents(order.subtotal - (order.discount || 0) + order.tax);
+    const amounts = cloverPaymentAmounts(order);
+    const taxAmount = amounts.taxAmount;
+    let amount = amounts.amount;
+    if (!(amount > 0)) {
+      // Platform numbers missing (e.g. a bag log with no breakdown): fall back to what Clover computed for the order.
+      const cloverTotal = Number((await cloverJson(merchant, `/orders/${encodeURIComponent(order.posOrderId)}`)).json?.total);
+      if (Number.isFinite(cloverTotal) && cloverTotal > 0) amount = cloverTotal;
+    }
     const res = await cloverJson(merchant, `/orders/${encodeURIComponent(order.posOrderId)}/payments`, {
       method: 'POST',
       body: JSON.stringify({
         amount,
-        taxAmount: toCents(order.tax),
+        taxAmount,
         tipAmount: 0,
         tender: { id: tenderId },
         externalPaymentId: externalPaymentId(order),
@@ -111,6 +118,13 @@ export async function recordCloverPayment(order: StoredOrder, mid: string | null
   } catch (error) {
     return { ok: false, error: `Clover payment error: ${error instanceof Error ? error.message : String(error)}` };
   }
+}
+
+/** Payment amounts in cents from the platform order: amount = subtotal − discount + tax, taxAmount = tax (always consistent). */
+export function cloverPaymentAmounts(order: Pick<StoredOrder, 'subtotal' | 'discount' | 'tax'>): { amount: number; taxAmount: number } {
+  const taxAmount = Math.max(0, toCents(order.tax));
+  const amount = Math.max(0, toCents((Number(order.subtotal) || 0) - (Number(order.discount) || 0) + (Number(order.tax) || 0)));
+  return { amount, taxAmount: Math.min(taxAmount, amount) };
 }
 
 const SHORT: Record<ChannelKey, string> = { uber_eats: 'ue', doordash: 'dd', skip: 'sk', tgtg: 'tg' };

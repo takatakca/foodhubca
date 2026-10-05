@@ -30,6 +30,6 @@ export const POST = withFinance('finance:edit', async (req, _ctx, actor) => {
   const entry = entries.find((e) => e.key === b.key);
   if (!entry) return fail('Entry not found', 404);
   if (!entry.balanced) return fail('This entry does not balance — fix the statement first.', 409);
-  await approveEntry(String(b.key), actor);
+  await approveEntry(entry, actor);
   return ok();
 });

@@ -1,13 +1,20 @@
 // Sign-in, users and permissions for route handlers.
-//  - Built-in owner: username "owner" + DASHBOARD_PASSWORD (cannot be locked out).
+//  - Built-in owner: username "owner" + DASHBOARD_PASSWORD (cannot be locked out by username alone:
+//    the throttle is keyed by client IP + username).
 //  - Team members: Food Hub → Users (scrypt-hashed passwords, roles, location scope).
-//  - Every request is re-checked against the user record, so deactivating someone takes effect at once.
+//  - Every request is re-checked against the user record, so deactivating someone takes effect at once;
+//    the cookie carries a session version, so resetting a password signs that person's devices out too.
 import crypto from 'node:crypto';
+import { cookies, headers } from 'next/headers';
+import { notFound, redirect } from 'next/navigation';
 import { NextResponse } from 'next/server';
-import type { Actor } from './activity';
+import { logActivity, type Actor } from './activity';
 import { fail } from './http';
 import { getRepo } from './repo';
-import { basicOwner, can, readCookie, SESSION_COOKIE, SESSION_DAYS, signSession, verifySession, type Permission } from './session';
+import {
+  basicOwner, can, clearFailures, clientIp, decodeBasic, isLocked, ownerSessionVersion, readCookie, recordFailure, safeEqual,
+  SESSION_COOKIE, SESSION_DAYS, sessionVersion, signSession, throttleKey, verifySession, type Permission,
+} from './session';
 import type { FoodHubUser, Role } from './types';
 
 export interface AuthUser extends Actor {
@@ -41,28 +48,76 @@ function toAuthUser(u: FoodHubUser): AuthUser {
   return { username: u.username, name: u.name, role: u.role, locations: u.locations ?? [], source: 'dashboard' };
 }
 
-/** Who is calling. Null = not signed in. */
+// Failed Basic attempts go to the activity log at most once per minute per IP (never the password).
+const basicLogged = new Map<string, number>();
+async function logBasicFailure(ip: string, username: string): Promise<void> {
+  const now = Date.now();
+  const last = basicLogged.get(ip) ?? 0;
+  if (now - last < 60_000) return;
+  if (basicLogged.size > 1000) for (const [k, t] of basicLogged) if (now - t >= 60_000) basicLogged.delete(k);
+  basicLogged.set(ip, now);
+  await logActivity({ actor: username || 'owner', source: 'api', kind: 'login', action: 'sign_in', status: 'failed', summary: `Failed Basic-auth sign-in for ${username || 'owner'} from ${ip}` });
+}
+
+/** Who is calling. Null = not signed in (also when the IP+username is locked after repeated failures). */
 export async function getActor(req: Request): Promise<AuthUser | null> {
   if (!process.env.DASHBOARD_PASSWORD && !process.env.SESSION_SECRET) {
     // Open local/dev mode (proxy.ts refuses live mode without a password).
     return OWNER;
   }
   const auth = req.headers.get('authorization');
-  if (basicOwner(auth)) return OWNER;
-  if (auth?.startsWith('Basic ')) {
+  const basic = decodeBasic(auth);
+  if (basic) {
+    const ip = clientIp(req.headers);
+    const key = throttleKey(ip, basic.username);
+    if (isLocked(key)) return null;
+    if (basicOwner(auth)) { clearFailures(key); return OWNER; }
     try {
-      const decoded = Buffer.from(auth.slice(6), 'base64').toString('utf8');
-      const i = decoded.indexOf(':');
-      const user = await getRepo().getUser(decoded.slice(0, i));
-      if (user?.active && verifyPassword(decoded.slice(i + 1), user.passwordHash)) return { ...toAuthUser(user), source: 'api' };
+      const user = await getRepo().getUser(basic.username);
+      if (user?.active && verifyPassword(basic.password, user.passwordHash)) { clearFailures(key); return { ...toAuthUser(user), source: 'api' }; }
     } catch { /* fall through */ }
+    recordFailure(key);
+    await logBasicFailure(ip, basic.username);
     return null;
   }
   const session = await verifySession(readCookie(req.headers.get('cookie')));
-  if (!session) return null;
-  if (session.b) return { ...OWNER, name: session.n || OWNER.name };
+  if (!session?.v) return null; // cookies from before session versions are signed out once
+  if (session.b) return session.v === ownerSessionVersion() ? { ...OWNER, name: session.n || OWNER.name } : null;
   const user = await getRepo().getUser(session.u);
-  return user?.active ? toAuthUser(user) : null;
+  return user?.active && session.v === sessionVersion(user.passwordHash) ? toAuthUser(user) : null;
+}
+
+/**
+ * Server-rendered pages: resolve the signed-in person (DB check for active + session version) or send them
+ * to /login?next=…; a signed-in person without the permission gets a 404 (the nav hides the page from them).
+ */
+export async function requirePage(perm?: Permission, path = '/'): Promise<AuthUser> {
+  const h = await headers();
+  await cookies(); // marks the page per-request, like the layout
+  const actor = await getActor(new Request('http://foodhub.local/', { headers: h }));
+  if (!actor) redirect(`/login?next=${encodeURIComponent(path)}`);
+  if (perm && !can(actor.role, perm)) notFound();
+  return actor;
+}
+
+/** An error whose message is safe and useful to show the person (validation, missing input). */
+export class UserError extends Error {
+  constructor(message: string) { super(message); this.name = 'UserError'; }
+}
+
+// Infrastructure failures (Supabase/Postgres, network, programming errors) must not reach the browser verbatim.
+const SYSTEM_MESSAGE = /^(Supabase\b|fetch failed|ECONN|ENOTFOUND|ETIMEDOUT|getaddrinfo|connect )|PGRST|relation "|column "|JWT/i;
+export function isSystemError(error: unknown): boolean {
+  if (!(error instanceof Error)) return true;
+  if (error instanceof UserError) return false;
+  return error.name !== 'Error' || SYSTEM_MESSAGE.test(error.message);
+}
+
+/** Turns a thrown error into JSON: validation messages keep their text (400), anything else is a generic 500 (detail in the server log). */
+export function errorResponse(error: unknown, where = 'api'): Response {
+  if (!isSystemError(error)) return fail((error as Error).message, 400);
+  console.error(`[foodhub] ${where} error:`, error);
+  return fail('Something went wrong — see the server log.', 500);
 }
 
 /** Route wrapper: checks the permission, passes the actor, turns errors into clean JSON. */
@@ -74,7 +129,7 @@ export function withPerm<C = unknown>(perm: Permission, handler: (req: Request, 
       if (!can(actor.role, perm)) return fail(`Your role (${actor.role}) cannot do this.`, 403);
       return await handler(req, ctx, actor);
     } catch (error) {
-      return fail(error instanceof Error ? error.message : String(error), 500);
+      return errorResponse(error, `${req.method} ${new URL(req.url).pathname}`);
     }
   };
 }
@@ -92,29 +147,29 @@ export function scopeFilter(actor: AuthUser, requested?: string[]): string[] | u
 
 // ---------- Sign-in ----------
 
-const attempts = new Map<string, { count: number; until: number }>();
-
-export async function signIn(username: string, password: string): Promise<{ user: AuthUser; cookie: string } | { error: string; status: number }> {
-  const key = (username || 'owner').toLowerCase().trim();
-  const a = attempts.get(key);
-  if (a && a.count >= 5 && a.until > Date.now()) return { error: 'Too many attempts. Wait a minute and try again.', status: 429 };
+/** `ip` = clientIp(req.headers): failures are throttled per IP + username (see session.ts). */
+export async function signIn(username: string, password: string, ip = 'local'): Promise<{ user: AuthUser; cookie: string } | { error: string; status: number }> {
+  const name = (username || 'owner').toLowerCase().trim();
+  const key = throttleKey(ip, name);
+  if (isLocked(key)) return { error: 'Too many attempts. Wait a minute and try again.', status: 429 };
   let user: AuthUser | null = null;
-  let builtin = false;
-  if (key === 'owner' && process.env.DASHBOARD_PASSWORD && password === process.env.DASHBOARD_PASSWORD) {
-    user = OWNER; builtin = true;
+  let version = '';
+  if (name === 'owner' && safeEqual(password, process.env.DASHBOARD_PASSWORD)) {
+    user = OWNER; version = ownerSessionVersion();
   } else {
-    const stored = await getRepo().getUser(key);
+    const stored = await getRepo().getUser(name);
     if (stored?.active && verifyPassword(password, stored.passwordHash)) {
-      user = toAuthUser(stored);
+      user = toAuthUser(stored); version = sessionVersion(stored.passwordHash);
       await getRepo().saveUser({ ...stored, lastLoginAt: new Date().toISOString() });
     }
   }
   if (!user) {
-    attempts.set(key, { count: (a && a.until > Date.now() ? a.count : 0) + 1, until: Date.now() + 60_000 });
+    recordFailure(key);
     return { error: 'Wrong username or password.', status: 401 };
   }
-  attempts.delete(key);
-  const token = await signSession({ u: user.username, n: user.name, r: user.role, l: user.locations, exp: Math.floor(Date.now() / 1000) + SESSION_DAYS * 86400, ...(builtin ? { b: true } : {}) });
+  clearFailures(key);
+  const builtin = user === OWNER;
+  const token = await signSession({ u: user.username, n: user.name, r: user.role, l: user.locations, exp: Math.floor(Date.now() / 1000) + SESSION_DAYS * 86400, v: version, ...(builtin ? { b: true } : {}) });
   const secure = (process.env.FOODHUB_PUBLIC_URL || '').startsWith('https://') || Boolean(process.env.VERCEL_URL);
   const cookie = `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}${secure ? '; Secure' : ''}`;
   return { user, cookie };

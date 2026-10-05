@@ -11,6 +11,8 @@ type Order = {
 };
 
 const PAGE = 50;
+/** The API returns at most this many (newest first); when it is hit the page says so instead of showing partial totals as complete. */
+const LIMIT = 5000;
 const STATUSES = ['new', 'accepted', 'ready', 'dispatched', 'completed', 'cancelled', 'failed'];
 
 // Order history (Atlas "Orders"): every order from every app, filterable, searchable, exportable.
@@ -29,7 +31,7 @@ export default function OrdersHistoryPage() {
     let alive = true;
     setLoading(true);
     const t = setTimeout(() => {
-      api<{ orders: Order[]; mode: string }>(`/api/foodhub/orders?limit=5000&${query}${status ? `&status=${status}` : ''}${search.trim() ? `&q=${encodeURIComponent(search.trim())}` : ''}`)
+      api<{ orders: Order[]; mode: string }>(`/api/foodhub/orders?limit=${LIMIT}&${query}${status ? `&status=${status}` : ''}${search.trim() ? `&q=${encodeURIComponent(search.trim())}` : ''}`)
         .then((d) => { if (alive) { setOrders(d.orders); setMode(d.mode); setError(''); setPage(0); } })
         .catch((e) => alive && setError(e instanceof Error ? e.message : String(e)))
         .finally(() => alive && setLoading(false));
@@ -67,6 +69,7 @@ export default function OrdersHistoryPage() {
         </>}
       />
       {error && <div className="fh-banner warn">{error}</div>}
+      {orders.length >= LIMIT && <div className="fh-banner warn">Showing the newest {LIMIT.toLocaleString('fr-CA')} orders only — the totals below and the search cover just these. Narrow the date range or filters to see everything.</div>}
 
       <div className="fh-row" style={{ marginBottom: 10 }}>
         <span className="badge badge-blue">{orders.length} orders</span>

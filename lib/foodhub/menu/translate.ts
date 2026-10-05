@@ -25,6 +25,11 @@ function liveItems(menu: MasterMenu) {
   return menu.items.filter((i) => cats.has(i.categoryRef));
 }
 
+/** Categories in the order the Menu Manager shows them (sortOrder), so every platform matches the editor. */
+export function sortedCategories(menu: MasterMenu): MenuCategory[] {
+  return [...menu.categories].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+}
+
 const TAG_LABELS: Record<string, string> = { vegetarian: 'Vegetarian', vegan: 'Vegan', gluten_free: 'Gluten-free', spicy: 'Spicy', halal: 'Halal', alcohol: 'Contains alcohol' };
 const TAG_LABELS_FR: Record<string, string> = { vegetarian: 'Végétarien', vegan: 'Végétalien', gluten_free: 'Sans gluten', spicy: 'Épicé', halal: 'Halal', alcohol: "Contient de l'alcool" };
 
@@ -59,7 +64,7 @@ function storeWeek(menu: MasterMenu, ctx?: PublishContext): WeeklyHours {
 /** Categories grouped by the hours they are sold: [store-hours group, ...scheduled groups]. */
 export function scheduleGroups(menu: MasterMenu, store: WeeklyHours): Array<{ key: string; hours: WeeklyHours; categories: MenuCategory[] }> {
   const groups = new Map<string, { key: string; hours: WeeklyHours; categories: MenuCategory[] }>();
-  for (const c of menu.categories) {
+  for (const c of sortedCategories(menu)) {
     const own = c.hours && !weekIsEmpty(c.hours) ? intersectWeeks(normalizeWeek(c.hours), store) : null;
     const hours = own ?? store;
     const key = own ? JSON.stringify(own) : 'store';
@@ -122,8 +127,9 @@ export function toSkipMenu(menu: MasterMenu, restaurantRefs: string[], callbackU
 }
 
 // ---------------- Uber Eats ----------------
-/** Uber Eats takes every language at once: { translations: { en, fr } }. */
-const text = (value: string, fr?: string) => ({ translations: { en: value, ...(fr?.trim() && fr.trim() !== value ? { fr: fr.trim() } : {}) } });
+/** Uber MultiLanguageText is keyed by locale (<lang>_<country>): en_ca + fr_ca for Québec stores. */
+export const UBER_LOCALES = { en: 'en_ca', fr: 'fr_ca' } as const;
+const text = (value: string, fr?: string) => ({ translations: { [UBER_LOCALES.en]: value, ...(fr?.trim() && fr.trim() !== value ? { [UBER_LOCALES.fr]: fr.trim() } : {}) } });
 const SUSPEND_FOREVER = { suspension_info: { suspension: { suspend_until: 8640000000, reason: 'Unavailable' } } };
 
 export function toUberMenu(menu: MasterMenu, ctx?: PublishContext, offRefs: Set<string> = new Set()) {
@@ -148,7 +154,7 @@ export function toUberMenu(menu: MasterMenu, ctx?: PublishContext, offRefs: Set<
       service_availability: availability(g.hours),
       category_ids: g.categories.map((c) => c.ref),
     })),
-    categories: menu.categories.map((c) => ({
+    categories: sortedCategories(menu).map((c) => ({
       id: c.ref,
       title: text(c.name, c.nameFr),
       entities: items.filter((i) => i.categoryRef === c.ref).map((i) => ({ id: i.ref, type: 'ITEM' })),
@@ -177,11 +183,11 @@ export function toUberMenu(menu: MasterMenu, ctx?: PublishContext, offRefs: Set<
   };
 }
 
-/** Uber holiday hours body: POST /v1/eats/stores/{id}/holiday-hours (closed day = 00:00–00:00). */
+/** Uber holiday hours body: POST /v1/eats/stores/{id}/holiday-hours (closed day = empty open_time_periods). */
 export function toUberHolidayHours(holidays: Holiday[]) {
   return {
     holiday_hours: Object.fromEntries(holidays.map((h) => [h.date, {
-      open_time_periods: h.closed || !(h.slots?.length) ? [{ start_time: '00:00', end_time: '00:00' }] : h.slots!.map((s) => ({ start_time: s.open, end_time: s.close })),
+      open_time_periods: h.closed || !(h.slots?.length) ? [] : h.slots!.map((s) => ({ start_time: s.open, end_time: s.close })),
     }])),
   };
 }
@@ -204,17 +210,18 @@ export function toDoorDashMenu(menu: MasterMenu, merchantSuppliedId: string, pro
   return {
     reference,
     store: { merchant_supplied_id: merchantSuppliedId, provider_type: providerType },
-    // DoorDash: a day that is always closed is sent as 00:00–00:00.
-    open_hours: DAYS.flatMap((d) => (store[d]?.length ? store[d] : [{ open: '00:00', close: '00:00' }]).map((p) => ({ day_index: DD_DAY[d], start_time: sec(p.open), end_time: sec(p.close) }))),
+    // DoorDash: open_hours lists open intervals only — a closed day is simply omitted.
+    open_hours: DAYS.flatMap((d) => (store[d] ?? []).map((p) => ({ day_index: DD_DAY[d], start_time: sec(p.open), end_time: sec(p.close) }))),
+    // A closed special day carries no times ({ date, closed: true }).
     special_hours: (ctx?.holidays ?? []).flatMap((h) => (h.closed || !(h.slots?.length)
-      ? [{ date: h.date, closed: true, start_time: '00:00:00', end_time: '00:00:00' }]
+      ? [{ date: h.date, closed: true }]
       : h.slots!.map((s) => ({ date: h.date, closed: false, start_time: sec(s.open), end_time: sec(s.close) })))),
     menu: {
       name: menu.brandName,
       subtitle: '',
       merchant_supplied_id: `menu-${merchantSuppliedId}`,
       active: true,
-      categories: menu.categories.filter((c) => visibleCats.has(c.ref)).map((c, ci) => ({
+      categories: sortedCategories(menu).filter((c) => visibleCats.has(c.ref)).map((c, ci) => ({
         name: label(c.name, c.nameFr, lang),
         subtitle: '',
         merchant_supplied_id: c.ref,

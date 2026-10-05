@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { api, LOCATIONS, ModeBanner, ResultsTable, Section, useCatalog, useMe } from '../ui';
+import { api, ModeBanner, ResultsTable, Section, useCatalog, useMe } from '../ui';
 
 type Store = {
   id: string; channel: string; channelStoreId: string; brandName: string; locationCode: string; cloverMerchantId?: string | null; autoAccept: boolean; online: boolean;
@@ -19,7 +19,8 @@ const CHANNELS: Array<[string, string, string]> = [
   ['tgtg', 'Too Good To Go', 'TGTG store id'],
 ];
 const PAUSES: Array<[string, number]> = [['15 min', 15], ['30 min', 30], ['1 hour', 60], ['Until resumed', 0]];
-const blank = { channel: 'uber_eats', channelStoreId: '', brandName: '', locationCode: LOCATIONS[0].code, cloverMerchantId: '', autoAccept: true };
+// locationCode is filled from the catalog's active locations once loaded (never a static/inactive default).
+const blank = { channel: 'uber_eats', channelStoreId: '', brandName: '', locationCode: '', cloverMerchantId: '', autoAccept: true };
 
 export default function StoresPage() {
   const [stores, setStores] = useState<Store[]>([]);
@@ -71,6 +72,11 @@ export default function StoresPage() {
     setForm((f) => ({ ...f, brandName: f.brandName || m.brands[0] || '' }));
   }, []);
   useEffect(() => { load().catch((e) => setMsg(e.message)); }, [load]);
+  // Default the new-mapping location to the first ACTIVE location, and never keep one that was deactivated.
+  useEffect(() => {
+    if (!activeLocations.length) return;
+    setForm((f) => (activeLocations.some((l) => l.code === f.locationCode) ? f : { ...f, locationCode: activeLocations[0].code }));
+  }, [activeLocations]);
 
   async function run(label: string, fn: () => Promise<void>) {
     setBusy(label); setMsg('');

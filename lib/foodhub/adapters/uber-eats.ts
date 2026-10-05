@@ -11,43 +11,54 @@ const KEY = 'uber_eats' as const;
 
 function base() { return stripSlash(process.env.UBER_BASE_URL || 'https://api.uber.com'); }
 
-let cachedToken: { value: string; expiresAt: number } | null = null;
+// Client-credentials tokens, one per scope set. A cache entry holds the token and, while a request is
+// pending, the shared promise so concurrent callers (sync pool, webhook bursts) make ONE token call.
+type TokenCache = { value: string; expiresAt: number } | null;
+const tokens: Record<'orders' | 'report', { cached: TokenCache; inflight: Promise<string> | null }> = { orders: { cached: null, inflight: null }, report: { cached: null, inflight: null } };
+
+async function fetchClientToken(kind: 'orders' | 'report'): Promise<string> {
+  const slot = tokens[kind];
+  if (slot.cached && slot.cached.expiresAt > Date.now() + 60_000) return slot.cached.value;
+  if (slot.inflight) return slot.inflight;
+  slot.inflight = (async () => {
+    const res = await timedFetch(process.env.UBER_AUTH_URL || 'https://auth.uber.com/oauth/v2/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: process.env.UBER_CLIENT_ID || '',
+        client_secret: process.env.UBER_CLIENT_SECRET || '',
+        grant_type: 'client_credentials',
+        scope: kind === 'report' ? process.env.UBER_REPORT_SCOPE || 'eats.report' : process.env.UBER_OAUTH_SCOPE || 'eats.order eats.store eats.store.status.write',
+      }).toString(),
+    });
+    if (!res.ok) throw new Error(kind === 'report' ? `Uber Reporting token refused (HTTP ${res.status}) — ask Uber to add the eats.report scope to your app.` : `Uber OAuth token request failed: HTTP ${res.status}`);
+    const json = await res.json();
+    if (!json.access_token) throw new Error('Uber OAuth response had no access_token.');
+    slot.cached = { value: json.access_token, expiresAt: Date.now() + (Number(json.expires_in) || 2592000) * 1000 };
+    return slot.cached.value;
+  })().finally(() => { slot.inflight = null; });
+  return slot.inflight;
+}
+
+/** Drops the cached token (Uber answered 401: secret rotated or token revoked) so the next call fetches a fresh one. */
+export function invalidateUberToken(kind: 'orders' | 'report' = 'orders') { tokens[kind].cached = null; }
 
 export async function uberAccessToken(): Promise<string> {
   if (process.env.UBER_ACCESS_TOKEN) return process.env.UBER_ACCESS_TOKEN;
-  if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) return cachedToken.value;
-  const res = await timedFetch(process.env.UBER_AUTH_URL || 'https://auth.uber.com/oauth/v2/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: process.env.UBER_CLIENT_ID || '',
-      client_secret: process.env.UBER_CLIENT_SECRET || '',
-      grant_type: 'client_credentials',
-      scope: process.env.UBER_OAUTH_SCOPE || 'eats.order eats.store eats.store.status.write',
-    }).toString(),
-  });
-  if (!res.ok) throw new Error(`Uber OAuth token request failed: HTTP ${res.status}`);
-  const json = await res.json();
-  if (!json.access_token) throw new Error('Uber OAuth response had no access_token.');
-  cachedToken = { value: json.access_token, expiresAt: Date.now() + (Number(json.expires_in) || 2592000) * 1000 };
-  return cachedToken.value;
+  return fetchClientToken('orders');
 }
 
-let cachedReportToken: { value: string; expiresAt: number } | null = null;
-
 /** Separate token for the Reporting API (scope eats.report), so an app without it keeps working for orders. */
-async function uberReportToken(): Promise<string> {
-  if (cachedReportToken && cachedReportToken.expiresAt > Date.now() + 60_000) return cachedReportToken.value;
-  const res = await timedFetch(process.env.UBER_AUTH_URL || 'https://auth.uber.com/oauth/v2/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ client_id: process.env.UBER_CLIENT_ID || '', client_secret: process.env.UBER_CLIENT_SECRET || '', grant_type: 'client_credentials', scope: process.env.UBER_REPORT_SCOPE || 'eats.report' }).toString(),
-  });
-  if (!res.ok) throw new Error(`Uber Reporting token refused (HTTP ${res.status}) — ask Uber to add the eats.report scope to your app.`);
-  const json = await res.json();
-  if (!json.access_token) throw new Error('Uber OAuth response had no access_token.');
-  cachedReportToken = { value: json.access_token, expiresAt: Date.now() + (Number(json.expires_in) || 2592000) * 1000 };
-  return cachedReportToken.value;
+const uberReportToken = () => fetchClientToken('report');
+
+/** fetch with the Uber token; on 401 the cached token is invalidated and the call retried once with a fresh one. */
+async function uberFetch(url: string, init: RequestInit = {}, kind: 'orders' | 'report' = 'orders'): Promise<Response> {
+  const token = kind === 'report' ? uberReportToken : uberAccessToken;
+  const run = async () => timedFetch(url, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), Authorization: `Bearer ${await token()}` } });
+  const res = await run();
+  if (res.status !== 401 || (kind === 'orders' && process.env.UBER_ACCESS_TOKEN)) return res;
+  invalidateUberToken(kind);
+  return run();
 }
 
 export const UBER_REPORT_TYPES = ['PAYMENT_DETAILS_REPORT', 'FINANCE_SUMMARY_REPORT', 'ORDER_HISTORY_REPORT', 'ORDERS_AND_ITEMS_REPORT', 'DOWNTIME_REPORT', 'ORDER_ERRORS_TRANSACTION_REPORT'] as const;
@@ -55,17 +66,19 @@ export const UBER_REPORT_TYPES = ['PAYMENT_DETAILS_REPORT', 'FINANCE_SUMMARY_REP
 /**
  * Uber Eats Reporting API: POST /v1/eats/report { report_type, store_uuids, start_date, end_date } → { workflow_id }.
  * The report is built asynchronously; Uber calls the webhook (eats.report.success) with the download link.
- * Read-only, so it works before the live switch is on.
+ * It creates a workflow on Uber's side, so it is gated by LIVE_CONNECTORS_GLOBAL_ENABLED like every other write.
  */
-export async function requestUberReport(storeUuids: string[], startDate: string, endDate: string, reportType: (typeof UBER_REPORT_TYPES)[number] = 'PAYMENT_DETAILS_REPORT'): Promise<{ ok: boolean; workflowId?: string; message: string }> {
-  if (!process.env.UBER_CLIENT_ID || !process.env.UBER_CLIENT_SECRET) return { ok: false, message: 'Uber Eats is not connected (UBER_CLIENT_ID / UBER_CLIENT_SECRET).' };
-  if (!storeUuids.length) return { ok: false, message: 'No Uber Eats stores are mapped yet.' };
+export async function requestUberReport(storeUuids: string[], startDate: string, endDate: string, reportType: (typeof UBER_REPORT_TYPES)[number] = 'PAYMENT_DETAILS_REPORT'): Promise<{ ok: boolean; status?: 'blocked' | 'error'; workflowId?: string; message: string }> {
+  if (!process.env.UBER_CLIENT_ID || !process.env.UBER_CLIENT_SECRET) return { ok: false, status: 'blocked', message: 'Uber Eats is not connected (UBER_CLIENT_ID / UBER_CLIENT_SECRET).' };
+  const r = readiness();
+  if (!r.canSend) return { ok: false, status: 'blocked', message: blockedResult(KEY, r).message };
+  if (!storeUuids.length) return { ok: false, status: 'error', message: 'No Uber Eats stores are mapped yet.' };
   try {
-    const res = await timedFetch(`${base()}/v1/eats/report`, {
+    const res = await uberFetch(`${base()}/v1/eats/report`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${await uberReportToken()}`, 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ report_type: reportType, store_uuids: storeUuids, start_date: startDate, end_date: endDate }),
-    });
+    }, 'report');
     const json = await res.json().catch(() => ({}));
     if (!res.ok) return { ok: false, message: `Uber Reporting API HTTP ${res.status}: ${String(json?.message ?? json?.error ?? '').slice(0, 200)}` };
     const workflowId = json?.workflow_id ?? json?.workflowId ?? json?.id;
@@ -87,22 +100,28 @@ export function reportDownloadLinks(body: unknown): string[] {
   return [...out];
 }
 
-async function headers() {
-  return { Authorization: `Bearer ${await uberAccessToken()}`, 'Content-Type': 'application/json' };
-}
-
 function readiness() {
   return buildReadiness(KEY, ['UBER_CLIENT_ID', 'UBER_CLIENT_SECRET'], {
-    note: 'Direct mode. Requires Uber to approve your app for eats.order + eats.store + eats.pos_provisioning. Webhooks are verified with your Client Secret automatically. Then: Stores → “Connect Uber Eats stores”.',
+    // A static UBER_ACCESS_TOKEN cannot be refreshed (client-credentials tokens expire after 30 days).
+    note: `${process.env.UBER_ACCESS_TOKEN ? 'UBER_ACCESS_TOKEN override in use — it expires after 30 days and is never refreshed; remove it to use client credentials. ' : ''}Direct mode. Requires Uber to approve your app for eats.order + eats.store + eats.pos_provisioning. Webhooks are verified with your Client Secret automatically. Then: Stores → “Connect Uber Eats stores”.`,
     extraWebhooks: [{ label: 'OAuth redirect URI (Uber developer dashboard → your app → Redirect URIs)', path: '/api/foodhub/uber-connect/callback' }],
   });
+}
+
+async function headers() {
+  return { Authorization: `Bearer ${await uberAccessToken()}`, 'Content-Type': 'application/json' };
 }
 
 async function send(method: string, path: string, body?: unknown, okStatus: 'done' | 'queued' = 'done') {
   const r = readiness();
   if (!r.canSend) return blockedResult(KEY, r);
   try {
-    return await callApi(KEY, `${base()}${path}`, { method, headers: await headers(), body: body === undefined ? undefined : JSON.stringify(body) }, okStatus);
+    const init = { method, body: body === undefined ? undefined : JSON.stringify(body) };
+    const first = await callApi(KEY, `${base()}${path}`, { ...init, headers: await headers() }, okStatus);
+    // 401 = the cached token died (secret rotated / revoked): refresh once and retry.
+    if (first.httpStatus !== 401 || process.env.UBER_ACCESS_TOKEN) return first;
+    invalidateUberToken();
+    return await callApi(KEY, `${base()}${path}`, { ...init, headers: await headers() }, okStatus);
   } catch (error) {
     return result(KEY, 'error', error instanceof Error ? error.message : String(error));
   }
@@ -173,7 +192,7 @@ export const uberEatsAdapter: ChannelAdapter = {
     }
     return last;
   },
-  setStoreOnline: (store, online, untilMs, reason) => send('POST', `/v1/eats/store/${encodeURIComponent(store.channelStoreId)}/status`, online
+  setStoreOnline: (store, online, untilMs, reason) => send('POST', `/v1/eats/stores/${encodeURIComponent(store.channelStoreId)}/status`, online
     ? { status: 'ONLINE' }
     : { status: 'PAUSED', reason: reason || 'Paused from TAKATAK Food Hub', ...(untilMs ? { paused_until: new Date(untilMs).toISOString() } : {}) }),
 };
@@ -181,12 +200,12 @@ export const uberEatsAdapter: ChannelAdapter = {
 /** GET order details from the resource_href in the orders.notification webhook. */
 export async function fetchUberOrder(resourceHrefOrId: string): Promise<any> {
   const url = resourceHrefOrId.startsWith('http') ? resourceHrefOrId : `${base()}/v2/eats/order/${encodeURIComponent(resourceHrefOrId)}`;
-  const res = await timedFetch(url, { headers: await headers() });
+  const res = await uberFetch(url, { headers: { 'Content-Type': 'application/json' } });
   if (!res.ok) throw new Error(`Uber order fetch failed: HTTP ${res.status}`);
   return res.json();
 }
 
-/** Normalizes GET /v1/eats/store/{id}/status → { status: ONLINE|OFFLINE|PAUSED, offlineReason }. */
+/** Normalizes GET /v1/eats/stores/{store_id}/status → { status: ONLINE|OFFLINE|PAUSED, offlineReason }. */
 export function normalizeUberStatus(body: any): { state: PlatformState; detail?: string; until?: string | null } {
   const status = String(body?.status ?? '').toUpperCase();
   const reason = String(body?.offlineReason ?? body?.offline_reason ?? '').toUpperCase();
@@ -199,12 +218,13 @@ export function normalizeUberStatus(body: any): { state: PlatformState; detail?:
   return { state: 'unknown', detail: status || 'No status in Uber response' };
 }
 
-/** Read-only status check. Runs whenever credentials exist (it changes nothing on Uber). */
+/** Read-only status check (GET /v1/eats/stores/{store_id}/status). Runs whenever credentials exist — see LOCKED_DECISIONS (it changes nothing on Uber). */
 export async function fetchUberStoreStatus(storeId: string): Promise<{ ok: boolean; state: PlatformState; detail?: string; until?: string | null; error?: string }> {
   if (!readiness().configured) return { ok: false, state: 'unknown', error: 'Uber Eats credentials missing' };
   try {
-    const res = await timedFetch(`${base()}/v1/eats/store/${encodeURIComponent(storeId)}/status`, { headers: await headers() });
-    if (!res.ok) return { ok: false, state: res.status === 404 ? 'deactivated' : 'unknown', error: `Uber status HTTP ${res.status}` };
+    const res = await uberFetch(`${base()}/v1/eats/stores/${encodeURIComponent(storeId)}/status`);
+    // Any HTTP error (incl. 404) is 'unknown': the last good state is kept. Deactivation only comes from an explicit offlineReason.
+    if (!res.ok) return { ok: false, state: 'unknown', error: `Uber status HTTP ${res.status}` };
     return { ok: true, ...normalizeUberStatus(await res.json()) };
   } catch (error) {
     return { ok: false, state: 'unknown', error: error instanceof Error ? error.message : String(error) };
@@ -213,7 +233,7 @@ export async function fetchUberStoreStatus(storeId: string): Promise<{ ok: boole
 
 /** Lists stores provisioned to this app — used for one-click store discovery. */
 export async function discoverUberStores(): Promise<Array<{ id: string; name: string; address?: string }>> {
-  const res = await timedFetch(`${base()}/v1/eats/stores`, { headers: await headers() });
+  const res = await uberFetch(`${base()}/v1/eats/stores`);
   if (!res.ok) throw new Error(`Uber store discovery failed: HTTP ${res.status}`);
   const json = await res.json();
   const rows: any[] = Array.isArray(json?.stores) ? json.stores : Array.isArray(json?.data) ? json.data : [];
@@ -221,6 +241,14 @@ export async function discoverUberStores(): Promise<Array<{ id: string; name: st
 }
 
 const money = (m: any) => (m && typeof m === 'object' ? (typeof m.amount_e5 === 'number' ? m.amount_e5 / 100000 : fromCents(m.amount)) : 0);
+/** Restaurant-funded promotion on the order (payment.charges.total_promo_applied, or the promotions list), in dollars; 0 when absent. */
+function uberDiscount(payment: any): number {
+  const charges = payment?.charges ?? {};
+  const direct = money(charges.total_promo_applied) || money(charges.promotion) || money(charges.promo) || money(charges.discount);
+  if (direct) return Math.abs(direct);
+  const promos: any[] = Array.isArray(payment?.promotions) ? payment.promotions : Array.isArray(charges.promotions) ? charges.promotions : [];
+  return Math.round(promos.reduce((s, p) => s + Math.abs(money(p?.promo_discount_value ?? p?.discount_value ?? p?.amount ?? p?.value)), 0) * 100) / 100;
+}
 
 export function parseUberOrder(o: any, storeIdFallback?: string): NormalizedOrder | null {
   if (!o?.id) return null;
@@ -263,7 +291,7 @@ export function parseUberOrder(o: any, storeIdFallback?: string): NormalizedOrde
     tax: money(charges.tax),
     deliveryFee: money(charges.delivery_fee),
     tip: money(charges.tip),
-    discount: 0,
+    discount: uberDiscount(o.payment),
     total: money(charges.total),
     notes: o.cart?.special_instructions || undefined,
     lines,

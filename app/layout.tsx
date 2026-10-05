@@ -44,10 +44,7 @@ const sections: Array<[string, NavLink[]]> = [
     ['/store-health', 'Store Health', 'analytics:view'],
     ['/service-check', '3-Service Check', 'analytics:view'],
     ['/verification', 'AI Verification', 'analytics:view'],
-    ['/ai-ingestion', 'AI Ingestion', 'analytics:view'],
-    ['/documents', 'Documents + Stock', 'analytics:view'],
     ['/qa', 'QA', 'admin'],
-    ['/settings', 'Settings', 'admin'],
   ]],
 ];
 

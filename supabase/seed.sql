@@ -1,7 +1,6 @@
 insert into companies (name) values ('Quadro Holdings LTEE') on conflict (name) do nothing;
 
 insert into platforms (key, name, required_for_service_check) values
-  ('urbanpiper','UrbanPiper',false),
   ('clover','Clover',false),
   ('doordash','DoorDash',true),
   ('uber_eats','Uber Eats',true),
@@ -36,11 +35,6 @@ insert into brands (company_id, name) values
 ((select id from companies where name='Quadro Holdings LTEE'), 'Crèmerie Bin Molle Bin Dure'),
 ((select id from companies where name='Quadro Holdings LTEE'), 'Too Good To Go')
 on conflict (name) do nothing;
-
-insert into urbanpiper_locations (location_id, urbanpiper_location_id, account_name, raw_payload) values
-((select id from locations where code='HOCHELAGA'), '181521', 'Quadro holding ltee', '{"urbanpiper_location_id": "181521", "location_code": "HOCHELAGA", "address_line_1": "3583 Rue Sainte-Catherine E", "city": "Montr\u00e9al", "services": ["uber_eats", "doordash", "skip_the_dishes"]}'::jsonb),
-((select id from locations where code='NDG_MAIN'), '182304', 'Quadro holding ltee', '{"urbanpiper_location_id": "182304", "location_code": "NDG_MAIN", "address_line_1": "6280 Av Somerled", "city": "Montr\u00e9al", "services": ["uber_eats", "doordash", "skip_the_dishes"]}'::jsonb)
-on conflict (urbanpiper_location_id) do update set raw_payload=excluded.raw_payload;
 
 insert into platform_stores (platform_id, brand_id, location_id, external_business_id, external_store_id, store_name, address_line_1, city, province, postal_code, country, activation_status, open_status, status_symbol, needs_review, review_note, raw_payload) values
 ((select id from platforms where key='doordash'), (select id from brands where name='Nutrition Shake'), (select id from locations where code='NDG_6284'), '12606537', '', 'Nutrition', '6284 Av Somerled', 'Montréal', 'QC', 'H3X 2B6', 'CA', 'active', 'closed', 'Z', false, '', '{"brand_name": "Nutrition Shake", "store_name": "Nutrition", "location_code": "NDG_6284", "address_line_1": "6284 Av Somerled", "activation_status": "active", "open_status": "closed", "status_symbol": "Z", "external_business_id": "12606537"}'::jsonb),
@@ -85,19 +79,20 @@ insert into platform_stores (platform_id, brand_id, location_id, external_busine
 ((select id from platforms where key='doordash'), (select id from brands where name='Taco Mexican'), (select id from locations where code='HOCHELAGA'), '13080099', '', 'Taco Mexican HOCHELAGA', '3583 Rue Sainte-Catherine E', 'Montréal', 'QC', 'H1W 2E6', 'CA', 'active', 'closed', 'Z', false, '', '{"brand_name": "Taco Mexican", "store_name": "Taco Mexican HOCHELAGA", "location_code": "HOCHELAGA", "address_line_1": "3583 Rue Sainte-Catherine E", "activation_status": "active", "open_status": "closed", "status_symbol": "Z", "external_business_id": "13080099"}'::jsonb),
 ((select id from platforms where key='doordash'), (select id from brands where name='Taco Mexican'), (select id from locations where code='NDG_6284'), '13080099', '', 'Taco Mexican NDG', '6284 Av Somerled', 'Montréal', 'QC', 'H3X 2B6', 'CA', 'active', 'closed', 'Z', false, '', '{"brand_name": "Taco Mexican", "store_name": "Taco Mexican NDG", "location_code": "NDG_6284", "address_line_1": "6284 Av Somerled", "activation_status": "active", "open_status": "closed", "status_symbol": "Z", "external_business_id": "13080099"}'::jsonb),
 ((select id from platforms where key='doordash'), (select id from brands where name='Crèmerie Bin Molle Bin Dure'), (select id from locations where code='SAINT_LEONARD'), '14353843', '', 'Crèmerie Bin Molle Bin Dure ST LÉONARD', '5837 Rue Jean-Talon E', 'Saint-Léonard', 'QC', 'H1S 1M4', 'CA', 'deactivated', 'unknown', 'grey_circle', false, '', '{"brand_name": "Crèmerie Bin Molle Bin Dure", "store_name": "Crèmerie Bin Molle Bin Dure ST LÉONARD", "location_code": "SAINT_LEONARD", "address_line_1": "5837 Rue Jean-Talon E", "activation_status": "deactivated", "open_status": "unknown", "status_symbol": "grey_circle", "external_business_id": "14353843"}'::jsonb),
-((select id from platforms where key='doordash'), (select id from brands where name='Crèmerie Bin Molle Bin Dure'), (select id from locations where code='NDG_MAIN'), '14353843', '', 'Crèmerie Bin Molle Bin Dure (NOTRE-DAME-DE-GRÂCE)', '6280 Av Somerled', 'Montréal', 'QC', 'H3X 2B6', 'CA', 'deactivated', 'unknown', 'grey_circle', false, '', '{"brand_name": "Crèmerie Bin Molle Bin Dure", "store_name": "Crèmerie Bin Molle Bin Dure (NOTRE-DAME-DE-GRÂCE)", "location_code": "NDG_MAIN", "address_line_1": "6280 Av Somerled", "activation_status": "deactivated", "open_status": "unknown", "status_symbol": "grey_circle", "external_business_id": "14353843"}'::jsonb);
+((select id from platforms where key='doordash'), (select id from brands where name='Crèmerie Bin Molle Bin Dure'), (select id from locations where code='NDG_MAIN'), '14353843', '', 'Crèmerie Bin Molle Bin Dure (NOTRE-DAME-DE-GRÂCE)', '6280 Av Somerled', 'Montréal', 'QC', 'H3X 2B6', 'CA', 'deactivated', 'unknown', 'grey_circle', false, '', '{"brand_name": "Crèmerie Bin Molle Bin Dure", "store_name": "Crèmerie Bin Molle Bin Dure (NOTRE-DAME-DE-GRÂCE)", "location_code": "NDG_MAIN", "address_line_1": "6280 Av Somerled", "activation_status": "deactivated", "open_status": "unknown", "status_symbol": "grey_circle", "external_business_id": "14353843"}'::jsonb)
+on conflict (platform_id, brand_id, location_id, store_name) do nothing;
 
 
 -- Connector config placeholders. Secrets are not stored here; secret_reference points to env/vault names only.
 insert into platform_connector_configs (platform_id, mode, enabled, credential_status, secret_reference, notes)
 select id,
-  case key when 'urbanpiper' then 'api_key' when 'clover' then 'oauth' when 'doordash' then 'api_key' when 'uber_eats' then 'oauth' when 'skip_the_dishes' then 'api_key' when 'too_good_to_go' then 'api_key' else 'disabled' end,
+  case key when 'clover' then 'oauth' when 'doordash' then 'api_key' when 'uber_eats' then 'oauth' when 'skip_the_dishes' then 'api_key' when 'too_good_to_go' then 'api_key' else 'disabled' end,
   false,
   'missing',
   upper(key) || '_SERVER_SECRET',
   'Live connector disabled until credentials, health check, and owner approval are complete.'
 from platforms
-on conflict do nothing;
+on conflict (platform_id) do nothing;
 
 -- Generate initial fix tasks for deactivated DoorDash stores.
 insert into fix_tasks (source_type, source_id, priority, title, detail)
@@ -106,4 +101,5 @@ from platform_stores ps
 join brands b on b.id = ps.brand_id
 join locations l on l.id = ps.location_id
 join platforms p on p.id = ps.platform_id
-where p.key='doordash' and ps.activation_status='deactivated';
+where p.key='doordash' and ps.activation_status='deactivated'
+  and not exists (select 1 from fix_tasks f where f.source_type = 'platform_store' and f.source_id = ps.id);

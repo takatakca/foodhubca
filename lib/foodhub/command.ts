@@ -135,6 +135,10 @@ export async function buildCommandCenter(opts: { now?: number; locationCodes?: s
     lastSyncReport(),
   ]);
   const today = allOrders.filter((o) => new Date(o.createdAt).getTime() >= dayStart);
+  // Open orders stay on the queue and in the alerts whatever day they arrived (an advance order can be days old).
+  const openEver = await repo.listOrders({ statuses: OPEN, limit: 500, locationCodes: scope });
+  const todayIds = new Set(today.map((o) => o.id));
+  const active = [...today, ...openEver.filter((o) => !todayIds.has(o.id))];
   const yesterday = allOrders.filter((o) => { const t = new Date(o.createdAt).getTime(); return t >= yStart && t < dayStart; });
   const yesterdaySameTime = yesterday.filter((o) => new Date(o.createdAt).getTime() - yStart <= now - dayStart);
   const counted = today.filter(COUNTED);
@@ -208,7 +212,7 @@ export async function buildCommandCenter(opts: { now?: number; locationCodes?: s
   // ---------- Action queue ----------
   const rank: Record<string, number> = { new: 0, accepted: 1, ready: 2, dispatched: 3 };
   const waitRank = (o: StoredOrder) => (isWaitingScheduled(o, now) ? 10 : 0);
-  const queue = today
+  const queue = active
     .filter((o) => OPEN.includes(o.status))
     .sort((a, b) => (rank[a.status] ?? 3) + waitRank(a) - ((rank[b.status] ?? 3) + waitRank(b)) || (a.timeline?.fireAt ?? a.createdAt).localeCompare(b.timeline?.fireAt ?? b.createdAt))
     .slice(0, 40)
@@ -233,7 +237,7 @@ export async function buildCommandCenter(opts: { now?: number; locationCodes?: s
 
   // ---------- Alerts ----------
   const alerts: Alert[] = [];
-  for (const o of today.filter((x) => x.status === 'new')) {
+  for (const o of active.filter((x) => x.status === 'new')) {
     const ageS = (now - new Date(o.createdAt).getTime()) / 1000;
     if (ageS < 45) continue;
     const deadline = deadlineFor(o);
@@ -246,13 +250,16 @@ export async function buildCommandCenter(opts: { now?: number; locationCodes?: s
       at: o.createdAt, orderId: o.id,
     });
   }
-  for (const o of today.filter((x) => x.posError && !x.posOrderId && OPEN.includes(x.status))) {
+  for (const o of active.filter((x) => x.posOrderId && x.timeline?.printError && !x.timeline?.printedAt && OPEN.includes(x.status))) {
+    alerts.push({ id: `print:${o.id}`, severity: 'warning', title: `Kitchen ticket not printed for ${CHANNEL_LABELS[o.channel]} #${shortId(o)}`, detail: `${o.timeline?.printError} — press Reprint on the order.`, at: o.updatedAt, orderId: o.id });
+  }
+  for (const o of active.filter((x) => x.posError && !x.posOrderId && OPEN.includes(x.status))) {
     alerts.push({ id: `pos:${o.id}`, severity: 'critical', title: `Clover did not receive ${CHANNEL_LABELS[o.channel]} #${shortId(o)}`, detail: o.posError ?? undefined, at: o.createdAt, orderId: o.id });
   }
-  for (const o of today.filter((x) => x.status === 'failed' && x.channel === 'skip' && now - new Date(x.updatedAt).getTime() < 3 * 3600_000)) {
+  for (const o of active.filter((x) => x.status === 'failed' && x.channel === 'skip' && now - new Date(x.updatedAt).getTime() < 3 * 3600_000)) {
     alerts.push({ id: `tablet:${o.id}`, severity: 'warning', title: `SkipTheDishes #${shortId(o)} is on the Skip tablet`, detail: `${o.brandName ?? 'Unmapped store'} · ${locName(o.locationCode)} — make it from the tablet (it is not in Clover).`, at: o.updatedAt, orderId: o.id });
   }
-  for (const o of today.filter((x) => x.channelError && OPEN.includes(x.status))) {
+  for (const o of active.filter((x) => x.channelError && OPEN.includes(x.status))) {
     alerts.push({ id: `ch:${o.id}`, severity: 'warning', title: `${CHANNEL_LABELS[o.channel]} not updated for #${shortId(o)}`, detail: o.channelError ?? undefined, at: o.updatedAt, orderId: o.id });
   }
   const unmapped = new Map<string, StoredOrder>();
@@ -294,13 +301,14 @@ export async function buildCommandCenter(opts: { now?: number; locationCodes?: s
   const stuck = jobs.filter((j) => j.status === 'queued' && now - new Date(j.createdAt).getTime() > 30 * 60_000 && j.createdAt >= dayAgo);
   if (stuck.length) alerts.push({ id: 'jobs-stuck', severity: 'info', title: `${stuck.length} platform confirmation(s) still pending after 30 min`, href: '/foodhub/channels' });
 
-  const polledStores = stores.filter((s) => s.channel === 'uber_eats' || s.channel === 'doordash').length;
-  if (polledStores && (!sync || now - new Date(sync.at).getTime() > 15 * 60_000)) {
-    alerts.push({ id: 'sync-stale', severity: 'warning', title: sync ? 'Store status not refreshed for 15+ min' : 'Store status never synced yet', detail: 'Keep this screen open (it syncs every 2 min) or schedule /api/foodhub/cron/sync.' });
+  // Every timed automation (re-opens, timed 86s, scheduled publishes and orders, Clover sales) runs inside the sync:
+  // after 10 minutes without one, say so — always, whatever is mapped.
+  if (!sync || now - new Date(sync.at).getTime() > 10 * 60_000) {
+    alerts.push({ id: 'sync-stale', severity: 'warning', title: sync ? 'No sync for 10+ min — timers and scheduled orders are waiting' : 'Store status never synced yet', detail: 'Keep the Command Center open (it syncs every 2 min) or call /api/foodhub/cron/sync every 5 min with the CRON_SECRET (Vercel Pro cron or a pinger such as cron-job.org).' });
   }
 
   // Clover bookkeeping, inventory sync and money
-  const unpaid = today.filter((o) => o.posOrderId && !o.timeline?.posPaymentId && o.timeline?.posPaymentError && o.status !== 'cancelled');
+  const unpaid = active.filter((o) => o.posOrderId && !o.timeline?.posPaymentId && o.timeline?.posPaymentError && o.status !== 'cancelled');
   if (unpaid.length) alerts.push({ id: 'clover-unpaid', severity: 'warning', title: `${unpaid.length} delivery order(s) not recorded as paid in Clover`, detail: unpaid[0].timeline?.posPaymentError, href: '/foodhub/channels' });
   const priceChanges = await listCloverPriceChanges().catch(() => []);
   if (priceChanges.length) alerts.push({ id: 'clover-prices', severity: 'info', title: `${priceChanges.length} price(s) changed in Clover`, detail: priceChanges.slice(0, 3).map((c) => `${c.name} (${c.brandName}): ${c.foodhubPrice.toFixed(2)} → ${c.cloverPrice.toFixed(2)} $`).join(' · '), href: '/foodhub/menu' });

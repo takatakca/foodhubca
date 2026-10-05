@@ -2,6 +2,17 @@
 
 import { useState } from 'react';
 
+/** Only same-origin paths may follow a sign-in (the URL parser treats "/\\evil.com" like "//evil.com"). */
+function safeNext(next: string | null): string {
+  if (!next) return '/';
+  try {
+    const u = new URL(next, window.location.origin);
+    return u.origin === window.location.origin && u.pathname !== '/login' ? u.pathname + u.search + u.hash : '/';
+  } catch {
+    return '/';
+  }
+}
+
 export default function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -15,8 +26,7 @@ export default function LoginPage() {
       const res = await fetch('/api/foodhub/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: username || 'owner', password }) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      const next = new URLSearchParams(window.location.search).get('next');
-      window.location.href = next && next.startsWith('/') && !next.startsWith('//') ? next : '/';
+      window.location.href = safeNext(new URLSearchParams(window.location.search).get('next'));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

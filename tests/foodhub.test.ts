@@ -122,7 +122,7 @@ describe('platform status normalizers', () => {
   it('maps DoorDash store_details current_deactivations', () => {
     expect(normalizeDoorDashDetails({ merchant_supplied_id: 'x', current_deactivations: [] }).state).toBe('online');
     expect(normalizeDoorDashDetails({ current_deactivations: [{ reason: 'Merchant operational issues', end_time: '2026-10-01T20:00:00Z' }] })).toMatchObject({ state: 'paused', until: '2026-10-01T20:00:00Z' });
-    expect(normalizeDoorDashDetails({ current_deactivations: [{ reason: 'Merchant operational issues', notes: 'store deactivated' }] })).toMatchObject({ state: 'deactivated', detail: 'Merchant operational issues — store deactivated' });
+    expect(normalizeDoorDashDetails({ current_deactivations: [{ reason: 'out_of_business', notes: 'store deactivated' }] })).toMatchObject({ state: 'deactivated', detail: 'out_of_business — store deactivated' });
   });
 });
 

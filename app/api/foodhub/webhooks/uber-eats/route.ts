@@ -3,12 +3,15 @@ import { fetchUberOrder, parseUberOrder, uberEatsAdapter } from '@/lib/foodhub/a
 import { applyExternalStatus, processIncomingOrder } from '@/lib/foodhub/pipeline';
 import { logActivity } from '@/lib/foodhub/activity';
 import { nowIso } from '@/lib/foodhub/config';
+import { applyCourierUpdate } from '@/lib/foodhub/courier';
 import { handleUberReportWebhook } from '@/lib/foodhub/recon/automation';
 import { getRepo } from '@/lib/foodhub/repo';
 import type { PlatformStatus } from '@/lib/foodhub/types';
-import { background, keepUnparsed, parseJson, unauthorized } from '@/lib/foodhub/webhook-utils';
+import { background, keepUnparsed, parseJson, uberDeliveryStatus, unauthorized } from '@/lib/foodhub/webhook-utils';
 
 export const dynamic = 'force-dynamic';
+// The deferred pipeline (Uber fetch + Clover + accept) runs in after(): give it the same budget as the cron routes.
+export const maxDuration = 60;
 
 // Uber Eats Primary Webhook URL. Uber signs every request with X-Uber-Signature
 // (HMAC-SHA256 of the raw body, keyed with the app client secret) and expects a fast 200.
@@ -22,20 +25,33 @@ export async function POST(req: NextRequest) {
   const event = String(body.event_type || '');
   const orderId = String(body.meta?.resource_id || '');
 
+  const ctx = (kind: 'order' | 'settings' | 'store_status', reference: string | null = orderId || null) => ({ channel: 'uber_eats' as const, body, reference, kind });
+
   if (event === 'orders.notification' || event === 'orders.scheduled.notification') {
     background(`uber order ${orderId}`, async () => {
-      const details = await fetchUberOrder(body.resource_href || orderId);
+      const href = body.resource_href || orderId;
+      // One retry: Uber does not resend the notification, so a slow/failed fetch must not lose the order.
+      const details = await fetchUberOrder(href).catch(() => fetchUberOrder(href));
       const order = parseUberOrder(details, body.meta?.user_id);
-      if (!order) return keepUnparsed('uber_eats', details, 'Uber order details could not be parsed');
+      if (!order) return keepUnparsed('uber_eats', details, 'Uber order details could not be parsed', orderId || null);
       await processIncomingOrder(order);
-    });
+    }, ctx('order'));
   } else if (event === 'orders.cancel' || event === 'orders.failure') {
-    background(`uber cancel ${orderId}`, () => applyExternalStatus('uber_eats', orderId, 'cancelled', { event }));
+    background(`uber cancel ${orderId}`, () => applyExternalStatus('uber_eats', orderId, 'cancelled', { event }), ctx('order'));
+  } else if (event === 'delivery.state_changed') {
+    // Courier state from the webhook itself (body.meta.status); anything we cannot map with confidence is kept, not guessed.
+    const rawState = body.meta?.status ?? body.delivery?.status ?? body.delivery?.current_status ?? body.status;
+    const status = uberDeliveryStatus(rawState);
+    background(`uber courier ${orderId}`, async () => {
+      if (!status || !orderId) return keepUnparsed('uber_eats', body, `Uber delivery state not recognized (${String(rawState ?? 'missing')})`, orderId || null);
+      const saved = await applyCourierUpdate('uber_eats', orderId, { status }, 'uber_eats:delivery.state_changed');
+      if (!saved) await keepUnparsed('uber_eats', body, 'Uber courier update for an order Food Hub does not have', orderId);
+    }, ctx('order'));
   } else if (event.startsWith('eats.report') || event.includes('report')) {
     // Reporting API: the requested payment report is ready → download, import, reconcile.
     if (/fail|error/i.test(event)) {
       background('uber report failed', () => logActivity({ actor: 'Uber Eats', source: 'platform', kind: 'settings', action: 'uber_report_failed', status: 'failed', channel: 'uber_eats', summary: `Uber could not build the requested report (${event})` }));
-    } else background('uber report', () => handleUberReportWebhook(body));
+    } else background('uber report', () => handleUberReportWebhook(body), ctx('settings', String(body.workflow_id || '') || null));
   } else if (event === 'store.provisioned' || event === 'store.deprovisioned') {
     background(`uber ${event}`, async () => {
       const repo = getRepo();
@@ -46,7 +62,7 @@ export async function POST(req: NextRequest) {
       await logActivity({ actor: 'Uber Eats', source: 'platform', kind: 'store_status', action: off ? 'platform_deprovisioned' : 'platform_provisioned', status: off ? 'failed' : 'success', channel: 'uber_eats',
         brandName: store?.brandName, locationCode: store?.locationCode, storeId: store?.id,
         summary: off ? `Uber Eats disconnected store ${store ? `${store.brandName} · ${store.locationCode}` : storeId} from Food Hub — orders will no longer arrive here. Reconnect it under Stores.` : `Uber Eats connected store ${store ? `${store.brandName} · ${store.locationCode}` : storeId} to Food Hub` });
-    });
+    }, ctx('store_status'));
   } else if (event === 'store.status.changed') {
     background('uber store status', async () => {
       const repo = getRepo();
@@ -59,7 +75,10 @@ export async function POST(req: NextRequest) {
         await logActivity({ actor: 'Uber Eats', source: 'platform', kind: 'store_status', action: online ? 'platform_online' : 'platform_paused', status: online ? 'success' : 'info',
           channel: 'uber_eats', brandName: store.brandName, locationCode: store.locationCode, storeId: store.id, summary: `${store.brandName} · ${store.locationCode} on Uber Eats is now ${online ? 'online' : 'paused'}` });
       }
-    });
+    }, ctx('store_status'));
+  } else {
+    // Unknown event types are kept under Channels → Unparsed payloads, never dropped.
+    background(`uber ${event || 'unknown'} event`, () => keepUnparsed('uber_eats', body, `Unhandled Uber event ${event || '(no event_type)'}`, orderId || null));
   }
   return new NextResponse(null, { status: 200 });
 }

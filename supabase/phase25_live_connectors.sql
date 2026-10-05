@@ -102,8 +102,6 @@ create table if not exists ai_ingestion_findings (
 );
 
 insert into connector_secret_requirements (platform_key, secret_key, label, required, storage_mode, description) values
-('urbanpiper','URBANPIPER_API_KEY','UrbanPiper API Key',true,'server_env','Used to call UrbanPiper APIs or exports.'),
-('urbanpiper','URBANPIPER_BASE_URL','UrbanPiper Base URL',true,'server_env','Configured base URL for the UrbanPiper account/API.'),
 ('clover','CLOVER_CLIENT_ID','Clover Client ID',true,'server_env','OAuth app client ID.'),
 ('clover','CLOVER_CLIENT_SECRET','Clover Client Secret',true,'server_env','OAuth app secret.'),
 ('clover','CLOVER_MERCHANT_ID','Clover Merchant ID',true,'server_env','Merchant/location ID for Clover.'),
@@ -112,12 +110,11 @@ insert into connector_secret_requirements (platform_key, secret_key, label, requ
 ('doordash','DOORDASH_SIGNING_SECRET','DoorDash Signing Secret',true,'server_env','DoorDash signing secret.'),
 ('uber_eats','UBER_CLIENT_ID','Uber Client ID',true,'server_env','Uber OAuth client id.'),
 ('uber_eats','UBER_CLIENT_SECRET','Uber Client Secret',true,'server_env','Uber OAuth secret.'),
-('skip_the_dishes','SKIP_API_KEY','Skip API Key',false,'server_env','If partner/API access is available.'),
-('too_good_to_go','TGTG_API_KEY','Too Good To Go API Key',false,'server_env','If partner/API/report access is available.')
+('skip_the_dishes','SKIP_JET_API_KEY','SkipTheDishes JET Connect API key',true,'server_env','JET Connect (Flyt) API key used for menus, item 86 and order confirmation.'),
+('too_good_to_go','TGTG_WEBHOOK_SECRET','Too Good To Go webhook secret',true,'server_env','Webhook-only integration: there is no public merchant API to call.')
 on conflict (platform_key, secret_key) do nothing;
 
 insert into connector_feature_flags (platform_key, live_enabled, owner_approved, allow_autodiscovery, allow_sync_now, allow_scheduled_sync, notes) values
-('urbanpiper', false, false, false, false, false, 'Enable first. Control/matching layer.'),
 ('clover', false, false, false, false, false, 'POS source for orders/payments/inventory.'),
 ('doordash', false, false, false, false, false, 'Delivery platform verification source.'),
 ('uber_eats', false, false, false, false, false, 'Delivery platform verification source.'),

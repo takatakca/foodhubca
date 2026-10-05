@@ -33,11 +33,27 @@ export const tgtgAdapter: ChannelAdapter = (() => {
   };
 })();
 
-const amount = (v: any) => {
+const AMOUNT_KEYS = ['unitPrice', 'unit_price', 'price', 'total', 'totalPrice', 'subtotal', 'subTotal', 'tax'];
+/** Every plain-number amount in the payload (items + order level). Objects like { amount } are cents by contract. */
+function plainAmounts(o: any): number[] {
+  const rows: any[] = [o, ...(Array.isArray(o?.items ?? o?.lines ?? o?.lineItems ?? o?.basket?.items) ? (o.items ?? o.lines ?? o.lineItems ?? o.basket.items) : [])];
+  return rows.flatMap((r) => AMOUNT_KEYS.map((k) => r?.[k])).filter((v) => v != null && typeof v !== 'object').map(Number).filter(Number.isFinite);
+}
+/**
+ * TGTG has no published feed spec, so the unit is decided ONCE per payload, never per value: any fractional
+ * amount anywhere → dollars; an all-integer payload follows TGTG_AMOUNTS_IN_CENTS (default true). The same
+ * divisor is then applied to every amount so $5.99 and $11.98 never land in different units.
+ */
+export function amountDivisor(o: any): 1 | 100 {
+  const nums = plainAmounts(o);
+  if (nums.some((n) => !Number.isInteger(n))) return 1;
+  return process.env.TGTG_AMOUNTS_IN_CENTS === 'false' ? 1 : 100;
+}
+const amountWith = (divisor: 1 | 100) => (v: any) => {
   if (v == null) return 0;
   if (typeof v === 'object') return typeof v.amount === 'number' ? fromCents(v.amount) : Number(v.value || 0);
   const n = Number(v);
-  return Number.isInteger(n) && Math.abs(n) >= 1000 ? n / 100 : n;
+  return Number.isFinite(n) ? Math.round((n / divisor) * 100) / 100 : 0;
 };
 
 /** Best-effort parser for a partner payload without a published spec. Returns null when the shape is unknown. */
@@ -46,6 +62,7 @@ export function parseGenericOrder(channel: ChannelKey, marketplace: Marketplace,
   const id = o?.id ?? o?.orderId ?? o?.order_id ?? o?.reference;
   const rawItems: any[] = o?.items ?? o?.lines ?? o?.lineItems ?? o?.basket?.items ?? [];
   if (!id || !Array.isArray(rawItems) || rawItems.length === 0) return null;
+  const amount = amountWith(amountDivisor(o));
   const lines: OrderLine[] = rawItems.map((it) => {
     const qty = Number(it.quantity ?? it.qty ?? 1);
     const unit = amount(it.unitPrice ?? it.unit_price ?? it.price);

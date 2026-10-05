@@ -1,11 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { api, CHANNEL_OPTIONS, FilterBar, Modal, MultiPick, Section, useCatalog, useFilters } from '../ui';
+import { api, CHANNEL_OPTIONS, FilterBar, Modal, MultiPick, Section, TZ, useCatalog, useFilters, useMe } from '../ui';
 
 type Report = { key: string; title: string; description: string };
 type Schedule = { id: string; report: string; frequency: 'daily' | 'weekly' | 'monthly'; emails: string[]; format: 'csv' | 'xlsx'; filter: { locationCodes?: string[]; channels?: string[]; brands?: string[] }; createdBy: string; lastSentAt?: string; lastError?: string | null };
-type Preview = { title: string; columns: string[]; rows: Array<Array<string | number>>; total: number };
+type Preview = { title: string; columns: string[]; rows: Array<Array<string | number>>; total: number; truncated?: boolean };
 
 const FREQ: Record<string, string> = { daily: 'Daily — yesterday, sent each morning', weekly: 'Weekly — last Mon–Sun, sent Monday morning', monthly: 'Monthly — last month, sent on the 1st' };
 
@@ -13,6 +13,8 @@ const FREQ: Record<string, string> = { daily: 'Daily — yesterday, sent each mo
 export default function ReportsPage() {
   const { filters, set, query } = useFilters('yesterday');
   const { brands, activeLocations, locName } = useCatalog();
+  const { can } = useMe();
+  const canSend = can('finance:edit'); // emailing / scheduling sends data off-site: owner + manager only
   const [reports, setReports] = useState<Report[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [emailOn, setEmailOn] = useState(false);
@@ -59,8 +61,8 @@ export default function ReportsPage() {
               <a className="button btn-sm" href={`/api/foodhub/reports/${r.key}?format=xlsx&${query}`}>Excel</a>
               <a className="button btn-sm btn-light" href={`/api/foodhub/reports/${r.key}?format=csv&${query}`}>CSV</a>
               <button className="btn-sm btn-light" onClick={() => showPreview(r.key)}>Preview</button>
-              <button className="btn-sm btn-light" disabled={!emailOn} onClick={() => setEmailFor(r)}>Email</button>
-              <button className="btn-sm btn-light" disabled={!emailOn} onClick={() => setSchedFor(r)}>Schedule</button>
+              <button className="btn-sm btn-light" disabled={!emailOn || !canSend} title={canSend ? '' : 'Owner or manager only'} onClick={() => setEmailFor(r)}>Email</button>
+              <button className="btn-sm btn-light" disabled={!emailOn || !canSend} title={canSend ? '' : 'Owner or manager only'} onClick={() => setSchedFor(r)}>Schedule</button>
             </div>
           </div>
         ))}
@@ -74,23 +76,23 @@ export default function ReportsPage() {
               <tr key={s.id}>
                 <td>{titleOf(s.report)} <span className="small">({s.format.toUpperCase()})</span></td>
                 <td className="small">{FREQ[s.frequency]}</td>
-                <td className="small">{s.emails.join(', ')}</td>
+                <td className="small">{s.emails.join(', ')}<div className="small">by {s.createdBy}</div></td>
                 <td className="small">{[s.filter.locationCodes?.map(locName).join(', '), s.filter.channels?.join(', '), s.filter.brands?.join(', ')].filter(Boolean).join(' · ') || 'Everything'}</td>
-                <td className="small">{s.lastSentAt ? new Date(s.lastSentAt).toLocaleString('fr-CA') : 'not yet'}{s.lastError ? <><br /><span className="badge badge-red" title={s.lastError}>last attempt failed</span></> : null}</td>
-                <td><button className="btn-sm btn-light" onClick={() => removeSchedule(s.id)}>Stop</button></td>
+                <td className="small">{s.lastSentAt ? new Date(s.lastSentAt).toLocaleString('fr-CA', { timeZone: TZ }) : 'not yet'}{s.lastError ? <><br /><span className="badge badge-red" title={s.lastError}>last attempt failed</span><div className="small">{s.lastError}</div></> : null}</td>
+                <td><button className="btn-sm btn-light" disabled={!canSend} title={canSend ? '' : 'Owner or manager only'} onClick={() => removeSchedule(s.id)}>Stop</button></td>
               </tr>
             ))}
             {schedules.length === 0 && <tr><td colSpan={6} className="small">No scheduled reports. Use “Schedule” on any report.</td></tr>}
           </tbody>
         </table>
-        <p className="small">Scheduled reports go out after 8:00 (Montréal) via the daily /api/foodhub/cron/reports job — on Vercel it is already in vercel.json.</p>
+        <p className="small">Scheduled reports go out after 8:00 (Montréal) via the daily /api/foodhub/cron/reports job — on Vercel it is already in vercel.json (13:05 UTC). A run that is late or missed catches up: the latest completed day / week / month is sent as soon as the next run happens, and a failed send is retried on the next run.</p>
       </Section>
 
       {preview && (
         <Modal title={preview.data?.title ?? 'Loading…'} wide onClose={() => setPreview(null)}>
           {!preview.data ? <p className="small">Loading…</p> : (
             <>
-              <p className="small">First {preview.data.rows.length} of {preview.data.total} rows.</p>
+              <p className="small">First {preview.data.rows.length} of {preview.data.total} rows.{preview.data.truncated ? ' This period has more rows than one report reads (50 000) — only the newest are included; narrow the range.' : ''}</p>
               <div className="fh-table-wrap" style={{ maxHeight: '60vh' }}>
                 <table>
                   <thead><tr>{preview.data.columns.map((c) => <th key={c}>{c}</th>)}</tr></thead>

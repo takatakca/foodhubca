@@ -162,6 +162,14 @@ export const skipAdapter: ChannelAdapter = {
 
 const cents = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) ? Math.round(n) / 100 : Number(n) ? Number(n) / 100 : 0);
 const masked = (s: unknown) => (typeof s === 'string' && s && !/^\*+$/.test(s) ? s : undefined);
+/** Restaurant-funded discount / voucher on a JET order (payment.discount, discounts[] or vouchers[]), in dollars; 0 when absent. */
+function skipDiscount(o: any, pay: any): number {
+  const one = (v: any) => (v && typeof v === 'object' ? cents(v.amount ?? v.value ?? v.inc_tax ?? 0) : cents(v ?? 0));
+  const direct = one(pay?.discount) || one(o?.discount) || one(o?.voucher);
+  if (direct) return Math.abs(direct);
+  const list: any[] = [...(Array.isArray(pay?.discounts) ? pay.discounts : []), ...(Array.isArray(o?.discounts) ? o.discounts : []), ...(Array.isArray(o?.vouchers) ? o.vouchers : [])];
+  return Math.round(list.reduce((s, d) => s + Math.abs(one(d)), 0) * 100) / 100;
+}
 
 export function parseSkipOrder(o: any): NormalizedOrder | null {
   if (!o?.id || !Array.isArray(o.items)) return null;
@@ -206,7 +214,7 @@ export function parseSkipOrder(o: any): NormalizedOrder | null {
     tax: cents(final.tax ?? 0),
     deliveryFee: 0,
     tip: 0,
-    discount: 0,
+    discount: skipDiscount(o, pay),
     total: cents(o.total ?? final.inc_tax ?? 0),
     notes: [o.kitchen_notes, o.delivery_notes, o.collection_notes].filter(Boolean).join(' · ') || undefined,
     lines,

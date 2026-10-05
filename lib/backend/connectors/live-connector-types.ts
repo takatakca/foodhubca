@@ -53,6 +53,8 @@ export type IngestedRecordCandidate = {
 export interface LiveConnector {
   platformKey: PlatformKey;
   requiredEnv: string[];
+  /** Missing credential variables, when the connector accepts more than one credential set (Uber). Defaults to missingEnv(requiredEnv). */
+  missingCredentials?(): string[];
   testConnection(): Promise<ConnectorHealthResult>;
   autodiscover(): Promise<DiscoveredEntity[]>;
   sync(request: ConnectorSyncRequest): Promise<IngestedRecordCandidate[]>;

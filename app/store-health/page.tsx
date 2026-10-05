@@ -1,8 +1,11 @@
+import Link from 'next/link';
+import { requirePage } from '@/lib/foodhub/auth';
 import { getPlatformStores } from '@/lib/data/store-data';
 
 export const dynamic = 'force-dynamic';
 
 export default async function StoreHealthPage() {
+  await requirePage('analytics:view', '/store-health');
   const result = await getPlatformStores();
   const stores = result.stores;
   const active = stores.filter(s => s.activation_status === 'active');
@@ -11,7 +14,7 @@ export default async function StoreHealthPage() {
     <div className="grid">
       <h1>Store Health</h1>
       {result.warning && <div className="card"><span className="badge badge-yellow">Data source</span> <span className="small">{result.warning}</span></div>}
-      {result.source === 'supabase' && <p className="small"><span className="badge badge-green">Live database</span> Showing platform_stores from Supabase.</p>}
+      <p className="small"><span className="badge badge-yellow">Seed snapshot</span> From your screenshots; live store status is on the <Link href="/">Command Center</Link>.</p>
       <div className="card"><strong>Rules:</strong> (Z) = active but closed. (I) or grey circle = deactivated.</div>
       <h2>Active Stores ({active.length})</h2>
       <table><thead><tr><th>Brand</th><th>Store</th><th>Location</th><th>Open Status</th><th>Platform</th></tr></thead><tbody>

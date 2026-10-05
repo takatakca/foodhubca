@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api, downloadCsv, MK_LABEL, MultiPick, presetRange, RANGE_LABELS, useCatalog, type RangePreset } from '../ui';
+import { api, downloadCsv, MK_LABEL, MultiPick, presetRange, RANGE_LABELS, TZ, useCatalog, type RangePreset } from '../ui';
 
 type Entry = { id?: string; at: string; actor: string; source: string; kind: string; action: string; status: 'success' | 'failed' | 'queued' | 'info'; summary: string; channel?: string | null; brandName?: string | null; locationCode?: string | null };
 
@@ -11,6 +11,9 @@ const KINDS: Array<[string, string]> = [
 ];
 const SOURCE: Record<string, string> = { dashboard: 'Dashboard', automation: 'Automatic', platform: 'Platform', schedule: 'Scheduled', api: 'API', system: 'System' };
 const STATUS_CLS: Record<string, string> = { success: 'badge-green', failed: 'badge-red', queued: 'badge-yellow', info: 'badge-blue' };
+/** Newest entries the API returns; a busy week exceeds it, so the page says when the list is cut. */
+const LIMIT = 2000;
+const when = (iso: string, opts: Intl.DateTimeFormatOptions = {}) => new Date(iso).toLocaleString('fr-CA', { ...opts, timeZone: TZ });
 
 // Activity log (Atlas "Store Action Report"): who did what, when, where and whether it worked.
 export default function ActivityPage() {
@@ -28,7 +31,7 @@ export default function ActivityPage() {
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    const q = new URLSearchParams({ from: range.from, to: range.to, limit: '2000' });
+    const q = new URLSearchParams({ from: range.from, to: range.to, limit: String(LIMIT) });
     if (kinds.length) q.set('kinds', kinds.join(','));
     if (locations.length) q.set('locations', locations.join(','));
     if (search.trim()) q.set('q', search.trim());
@@ -49,7 +52,7 @@ export default function ActivityPage() {
         </div>
         <div className="fh-row">
           <button className="btn-light" onClick={() => downloadCsv('takatak-activity', ['When', 'Who', 'From', 'Type', 'Action', 'Result', 'Platform', 'Brand', 'Location', 'Details'],
-            shown.map((e) => [new Date(e.at).toLocaleString('fr-CA'), e.actor, SOURCE[e.source] ?? e.source, e.kind, e.action, e.status, e.channel ? MK_LABEL[e.channel] ?? e.channel : '', e.brandName ?? '', e.locationCode ? locName(e.locationCode) : '', e.summary]))}>Export CSV</button>
+            shown.map((e) => [when(e.at), e.actor, SOURCE[e.source] ?? e.source, e.kind, e.action, e.status, e.channel ? MK_LABEL[e.channel] ?? e.channel : '', e.brandName ?? '', e.locationCode ? locName(e.locationCode) : '', e.summary]))}>Export CSV</button>
         </div>
       </div>
       <div className="fh-filters">
@@ -64,13 +67,14 @@ export default function ActivityPage() {
         {loading && <span className="small">Loading…</span>}
       </div>
       {error && <div className="fh-banner warn">{error}</div>}
+      {entries.length >= LIMIT && <div className="fh-banner warn">Showing the newest {LIMIT.toLocaleString('fr-CA')} entries only — the export is cut too. Narrow the date range or the type filter to see everything.</div>}
       <div className="fh-table-wrap">
         <table>
           <thead><tr><th>When</th><th>Who</th><th>Type</th><th>What happened</th><th>Where</th><th>Result</th></tr></thead>
           <tbody>
             {shown.map((e, i) => (
               <tr key={e.id ?? i}>
-                <td className="small">{new Date(e.at).toLocaleString('fr-CA', { dateStyle: 'short', timeStyle: 'medium' })}</td>
+                <td className="small">{when(e.at, { dateStyle: 'short', timeStyle: 'medium' })}</td>
                 <td>{e.actor}<div className="small">{SOURCE[e.source] ?? e.source}</div></td>
                 <td className="small">{KINDS.find(([k]) => k === e.kind)?.[1] ?? e.kind}</td>
                 <td style={{ whiteSpace: 'normal', minWidth: 280 }}>{e.summary}</td>

@@ -13,3 +13,7 @@
 - `(I)` means deactivated.
 - Grey circle means deactivated.
 - No live API connector runs until credentials are securely configured and owner-approved.
+- `LIVE_CONNECTORS_GLOBAL_ENABLED` gates every outbound platform call that changes anything on a platform
+  (orders, menus, 86, pause/resume, the Uber report request). Explicit exception, by design: read-only
+  store-status polls (Uber/DoorDash `GET` status) and the owner-initiated "Connect Uber Eats stores" OAuth
+  exchange run as soon as credentials exist, so the dashboard reflects the platforms before go-live.

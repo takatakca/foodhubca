@@ -18,6 +18,8 @@ type Issue = { level: 'error' | 'warning' | 'tip'; code: string; message: string
 type Check = { ok: boolean; errors: Issue[]; warnings: Issue[]; tips: Issue[] };
 type StoreStatus = { storeId: string; channel: string; locationCode: string; channelStoreId: string; status: string; at: string | null; message: string | null };
 type Scheduled = { id: string; at: string; status: string; createdBy: string; storeIds?: string[]; result?: string };
+type CloverMerchant = { id: string; isDefault: boolean; locations: string[] };
+const SYNC_NOTE = 'DoorDash timers and scheduled publishes fire on the next sync (every 2 min while the Command Center is open, or by cron).';
 
 const PRICE_CHANNELS: Array<[string, string]> = [['uber_eats', 'Uber'], ['doordash', 'DoorDash'], ['skip', 'Skip']];
 const TAGS: Array<[string, string]> = [['vegetarian', 'Vegetarian'], ['vegan', 'Vegan'], ['gluten_free', 'Gluten-free'], ['spicy', 'Spicy'], ['halal', 'Halal'], ['alcohol', 'Contains alcohol']];
@@ -47,6 +49,8 @@ export default function MenuPage() {
   const [priceChanges, setPriceChanges] = useState<PriceChange[]>([]);
   const [languages, setLanguages] = useState<Languages | null>(null);
   const [langOpen, setLangOpen] = useState(false);
+  const [merchants, setMerchants] = useState<CloverMerchant[]>([]);
+  const [merchant, setMerchant] = useState('');
   const editable = can('menu:edit');
 
   useEffect(() => {
@@ -69,6 +73,11 @@ export default function MenuPage() {
   const loadPrices = useCallback(() => { if (brand) api<{ changes: PriceChange[] }>(`/api/foodhub/menu/clover-prices?brand=${encodeURIComponent(brand)}`).then((d) => setPriceChanges(d.changes)).catch(() => undefined); }, [brand]);
   useEffect(() => { loadPrices(); }, [loadPrices]);
   useEffect(() => { api<{ languages: Languages }>('/api/foodhub/menu/languages').then((d) => setLanguages(d.languages)).catch(() => undefined); }, []);
+  // Clover merchants a menu can be imported from (several when extra locations have their own Clover).
+  useEffect(() => {
+    if (!editable) return;
+    api<{ merchants: CloverMerchant[]; defaultMerchantId: string | null }>('/api/foodhub/menu/import').then((d) => { setMerchants(d.merchants); setMerchant((m) => m || d.defaultMerchantId || d.merchants[0]?.id || ''); }).catch(() => undefined);
+  }, [editable]);
   async function resolvePrice(c: PriceChange, accept: boolean) {
     if (dirty && !window.confirm('You have unsaved changes — they will be reloaded. Continue?')) return;
     await run('price', async () => { await api('/api/foodhub/menu/clover-prices', { method: 'POST', json: { brand: c.brandName, ref: c.ref, accept } }); await load(brand); loadPrices(); setMsg(accept ? `${c.name} now ${c.cloverPrice.toFixed(2)} $ — publish to send it to the platforms.` : `Kept ${c.foodhubPrice.toFixed(2)} $ for ${c.name}.`); });
@@ -89,10 +98,12 @@ export default function MenuPage() {
     loadStatus(brand);
   });
   const importClover = () => run('import', async () => {
-    if (menu?.items.length && !window.confirm('Re-import from Clover? Names, prices and modifiers come from Clover; your platform prices, descriptions, photos, tags and category schedules are kept.')) return;
-    const d = await api<{ menu: Menu; imported: { items: number; categories: number; modifierGroups: number } }>('/api/foodhub/menu/import', { method: 'POST', json: { brand } });
+    const from = merchants.length > 1 ? ` (merchant ${merchant})` : '';
+    if (menu?.items.length && !window.confirm(`Re-import from Clover${from}? Clover items get Clover's names, prices and option groups; your platform prices, descriptions, photos, tags, French names and category schedules are kept, and so are the items, categories and option groups you created in Food Hub. Clover items that no longer exist in Clover are removed.`)) return;
+    const d = await api<{ menu: Menu; imported: { items: number; categories: number; modifierGroups: number }; kept?: { items: number; categories: number; modifierGroups: number } }>('/api/foodhub/menu/import', { method: 'POST', json: { brand, merchantId: merchant || undefined } });
     setMenu(d.menu); setDirty(false);
-    setMsg(`Imported ${d.imported.items} items, ${d.imported.categories} categories, ${d.imported.modifierGroups} modifier groups from Clover.`);
+    const kept = d.kept && d.kept.items + d.kept.categories + d.kept.modifierGroups > 0 ? ` Kept from Food Hub: ${d.kept.items} item(s), ${d.kept.categories} categor${d.kept.categories === 1 ? 'y' : 'ies'}, ${d.kept.modifierGroups} option group(s).` : '';
+    setMsg(`Imported ${d.imported.items} items, ${d.imported.categories} categories, ${d.imported.modifierGroups} modifier groups from Clover${from}.${kept}`);
     loadStatus(brand);
   });
 
@@ -133,6 +144,11 @@ export default function MenuPage() {
         <div className="fh-row">
           <select value={brand} onChange={(e) => { if (dirty && !window.confirm('Discard unsaved changes?')) return; setBrand(e.target.value); }} aria-label="Brand">{brands.map((b) => <option key={b}>{b}</option>)}</select>
           {editable && <>
+            {merchants.length > 1 && (
+              <select value={merchant} onChange={(e) => setMerchant(e.target.value)} aria-label="Clover merchant to import from" title="Clover merchant to import from">
+                {merchants.map((m) => <option key={m.id} value={m.id}>Clover {m.id}{m.isDefault ? ' (default)' : ''}{m.locations.length ? ` — ${m.locations.map((l) => locName(l)).join(', ')}` : ''}</option>)}
+              </select>
+            )}
             <button className="btn-light" disabled={!!busy} onClick={importClover}>{busy === 'import' ? 'Importing…' : 'Import from Clover'}</button>
             <button className="btn-light" disabled={!!busy} onClick={() => setCopyOpen(true)}>Copy from brand…</button>
             <button disabled={!!busy || !dirty} onClick={save}>{busy === 'save' ? 'Saving…' : dirty ? 'Save changes' : 'Saved'}</button>
@@ -321,12 +337,13 @@ export default function MenuPage() {
                           <td>{new Date(s.at).toLocaleString('fr-CA')}</td>
                           <td className="small">{s.storeIds?.length ? `${s.storeIds.length} selected` : 'All mapped stores'}</td>
                           <td className="small">{s.createdBy}</td>
-                          <td><span className={`badge ${s.status === 'done' ? 'badge-green' : s.status === 'failed' ? 'badge-red' : s.status === 'cancelled' ? 'badge-blue' : 'badge-yellow'}`}>{s.status}</span> <span className="small">{s.result ?? ''}</span></td>
+                          <td><span className={`badge ${s.status === 'done' ? 'badge-green' : s.status === 'failed' ? 'badge-red' : s.status === 'cancelled' ? 'badge-blue' : 'badge-yellow'}`}>{s.status === 'running' ? 'running…' : s.status}</span> <span className="small">{s.result ?? ''}</span></td>
                           <td>{s.status === 'scheduled' && <button className="btn-sm btn-light" onClick={() => run('cancel', async () => { await api(`/api/foodhub/menu/publish?id=${s.id}`, { method: 'DELETE' }); setMsg('Scheduled publish cancelled.'); loadStatus(brand); })}>Cancel</button>}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
+                  <p className="small">{SYNC_NOTE} “running…” means a sync picked it up and is sending it now; a run cut off before every store answered is reported as failed within 10 minutes.</p>
                 </>
               )}
             </Section>
@@ -421,9 +438,20 @@ function PublishDialog({ brand, stores, check, locName, onClose, onDone }: { bra
     try {
       const body: Record<string, unknown> = { brand, storeIds: selected.length === stores.length ? undefined : selected };
       if (when === 'later') body.at = new Date(at).toISOString();
-      const d = await api<{ results?: any[]; scheduled?: { at: string } }>('/api/foodhub/menu/publish', { method: 'POST', json: body });
-      if (d.scheduled) onDone(`Publish scheduled for ${new Date(d.scheduled.at).toLocaleString('fr-CA')}.`);
-      else onDone('Publish sent. Skip and DoorDash confirm in the background — see Publish status.', d.results);
+      const d = await api<{ results?: Array<{ result: { ok: boolean; status: string; message: string } }>; scheduled?: { at: string }; okCount?: number; blockedCount?: number; errorCount?: number }>('/api/foodhub/menu/publish', { method: 'POST', json: body });
+      if (d.scheduled) onDone(`Publish scheduled for ${new Date(d.scheduled.at).toLocaleString('fr-CA')}. ${SYNC_NOTE}`);
+      else {
+        // Headline from the per-store results — never "sent" when no platform accepted it.
+        const results = d.results ?? [];
+        const n = results.length;
+        const okN = d.okCount ?? results.filter((r) => r.result.ok).length;
+        const blocked = d.blockedCount ?? results.filter((r) => r.result.status === 'blocked').length;
+        const errors = d.errorCount ?? n - okN - blocked;
+        const why = [blocked ? `blocked: ${results.find((r) => r.result.status === 'blocked')?.result.message ?? 'live connectors off'}` : '', errors ? `${errors} error(s) — see the table` : ''].filter(Boolean).join('; ');
+        onDone(okN === n && n > 0
+          ? `Publish sent to ${okN}/${n} store(s). Skip and DoorDash confirm in the background — see Publish status.`
+          : `Saved in Food Hub — ${okN}/${n} platform store(s) updated${why ? ` (${why})` : ''}. ${okN ? 'Skip and DoorDash confirm in the background — see Publish status.' : 'Nothing was sent to the platforms.'}`, d.results);
+      }
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
   return (

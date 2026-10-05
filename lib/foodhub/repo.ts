@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { createServiceClient, hasSupabaseEnv } from '../supabase/server';
 import { nowIso } from './config';
-import type { ActivityEntry, ActivityKind, ChannelKey, ChannelStore, FoodHubJob, FoodHubUser, MasterMenu, NormalizedOrder, OrderEvent, OrderStatus, StoredOrder } from './types';
+import type { ActivityEntry, ActivityKind, ChannelKey, ChannelStore, FoodHubJob, FoodHubUser, MasterMenu, NormalizedOrder, OrderEvent, OrderStatus, OrderTimeline, StoredOrder } from './types';
 
 export interface OrderFilter { limit?: number; statuses?: OrderStatus[]; since?: string; until?: string; locationCodes?: string[] }
 export interface ActivityFilter { limit?: number; since?: string; until?: string; kinds?: ActivityKind[]; locationCodes?: string[] }
@@ -15,6 +15,12 @@ export interface FoodHubRepo {
   getOrder(id: string): Promise<StoredOrder | null>;
   findOrder(channel: ChannelKey, externalOrderId: string): Promise<StoredOrder | null>;
   updateOrder(id: string, patch: Partial<StoredOrder>): Promise<StoredOrder | null>;
+  /**
+   * Merges a timeline patch (plus optional top-level fields) into the order as stored NOW, so two writers
+   * (courier webhook + operator click, auto-complete + cancel) do not overwrite each other's timeline fields.
+   * Supabase: optimistic concurrency on updated_at with one retry; memory: read-merge-write.
+   */
+  patchOrder(id: string, timeline: OrderTimeline, extra?: Partial<StoredOrder>): Promise<StoredOrder | null>;
   listOrders(filter?: OrderFilter): Promise<StoredOrder[]>;
   addEvent(orderId: string, type: string, detail?: Record<string, unknown>): Promise<void>;
   listEvents(orderId: string): Promise<OrderEvent[]>;
@@ -93,6 +99,11 @@ const memoryRepo: FoodHubRepo = {
     const next = { ...cur, ...patch, updatedAt: nowIso() };
     s.orders.set(id, next);
     return next;
+  },
+  async patchOrder(id, timeline, extra = {}) {
+    const cur = memState().orders.get(id);
+    if (!cur) return null;
+    return memoryRepo.updateOrder(id, { ...extra, timeline: { ...(cur.timeline ?? {}), ...timeline } });
   },
   async listOrders(filter = {}) {
     let list = [...memState().orders.values()];
@@ -202,6 +213,13 @@ const memoryRepo: FoodHubRepo = {
 
 type Row = Record<string, any>;
 
+function toIso(v: unknown): string | null {
+  if (v == null || v === '') return null;
+  const n = typeof v === 'number' ? v : (/^\d{9,13}$/.test(String(v)) ? Number(v) : NaN);
+  const ms = Number.isFinite(n) ? (n < 1e11 ? n * 1000 : n) : Date.parse(String(v));
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+}
+
 function orderToRow(o: Partial<StoredOrder>): Row {
   const row: Row = {};
   if (o.channel !== undefined) row.channel = o.channel;
@@ -212,13 +230,16 @@ function orderToRow(o: Partial<StoredOrder>): Row {
   if (o.locationCode !== undefined) row.location_code = o.locationCode;
   if (o.status !== undefined) row.status = o.status;
   if (o.total !== undefined) row.total = o.total;
-  if (o.posOrderId !== undefined) row.pos_order_id = o.posOrderId;
-  if (o.posError !== undefined) row.pos_error = o.posError;
-  if (o.channelError !== undefined) row.channel_error = o.channelError;
-  if (o.placedAt !== undefined) row.placed_at = o.placedAt;
+  // Key presence, not value: a patch of `undefined` clears the column (the pipeline clears errors that way).
+  if ('posOrderId' in o) row.pos_order_id = o.posOrderId ?? null;
+  if ('posError' in o) row.pos_error = o.posError ?? null;
+  if ('channelError' in o) row.channel_error = o.channelError ?? null;
+  // timestamptz column: normalise whatever the partner feed sent (ISO, epoch seconds/ms, locale text → null) so the insert never fails.
+  if (o.placedAt !== undefined) row.placed_at = toIso(o.placedAt);
   if (o.timeline !== undefined) row.timeline = o.timeline;
   return row;
 }
+export { orderToRow as orderToSupabaseRow };
 
 const DATA_FIELDS = ['lines', 'subtotal', 'tax', 'total', 'discount', 'deliveryFee', 'tip', 'notes', 'customerName', 'courier', 'readyBy', 'fulfillment'] as const;
 
@@ -331,13 +352,27 @@ function supabaseRepo(): FoodHubRepo {
       const data = must(res);
       return data ? rowToOrder(data) : null;
     },
+    async patchOrder(id, timeline, extra = {}) {
+      // Optimistic concurrency: write only if nobody changed the row since we read it; re-read and retry once.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const cur = await repo.getOrder(id);
+        if (!cur) return null;
+        const row: Row = { ...orderToRow({ ...extra, timeline: { ...(cur.timeline ?? {}), ...timeline } }), updated_at: nowIso() };
+        const res = await db.from('fh_orders').update(row).eq('id', id).eq('updated_at', cur.updatedAt).select('*').maybeSingle();
+        const data = must(res);
+        if (data) return rowToOrder(data);
+      }
+      // Still racing after a retry: last writer wins (same as before), never lose the patch itself.
+      const cur = await repo.getOrder(id);
+      return cur ? repo.updateOrder(id, { ...extra, timeline: { ...(cur.timeline ?? {}), ...timeline } }) : null;
+    },
     async listOrders(filter = {}) {
       // PostgREST returns at most 1000 rows per request on Supabase: page through.
       const limit = filter.limit ?? 200;
       const out: StoredOrder[] = [];
       for (let from = 0; from < limit; from += 1000) {
         const to = Math.min(limit, from + 1000) - 1;
-        let q = db.from('fh_orders').select('*').order('created_at', { ascending: false }).range(from, to);
+        let q = db.from('fh_orders').select('*').order('created_at', { ascending: false }).order('id').range(from, to);
         if (filter.statuses?.length) q = q.in('status', filter.statuses);
         if (filter.since) q = q.gte('created_at', filter.since);
         if (filter.until) q = q.lt('created_at', filter.until);
@@ -430,7 +465,7 @@ function supabaseRepo(): FoodHubRepo {
       const out: ActivityEntry[] = [];
       for (let from = 0; from < limit; from += 1000) {
         const to = Math.min(limit, from + 1000) - 1;
-        let q = db.from('fh_activity').select('*').order('at', { ascending: false }).range(from, to);
+        let q = db.from('fh_activity').select('*').order('at', { ascending: false }).order('id').range(from, to);
         if (filter.since) q = q.gte('at', filter.since);
         if (filter.until) q = q.lt('at', filter.until);
         if (filter.kinds?.length) q = q.in('kind', filter.kinds);
@@ -456,7 +491,7 @@ function supabaseRepo(): FoodHubRepo {
       const keys = filter.keys?.length ? filter.keys : null;
       for (let from = 0; from < limit; from += 1000) {
         const to = Math.min(limit, from + 1000) - 1;
-        let q = db.from('fh_docs').select('id,key,at,data').eq('collection', collection).order('at', { ascending: false, nullsFirst: false }).range(from, to);
+        let q = db.from('fh_docs').select('id,key,at,data').eq('collection', collection).order('at', { ascending: false, nullsFirst: false }).order('id').range(from, to);
         if (filter.since) q = q.gte('at', filter.since);
         if (filter.until) q = q.lt('at', filter.until);
         if (keys) q = q.in('key', keys.slice(0, 500));

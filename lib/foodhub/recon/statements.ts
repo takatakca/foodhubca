@@ -17,6 +17,8 @@ export type LineKind = 'order' | 'refund' | 'adjustment' | 'error_charge' | 'pro
 export interface PayoutLine {
   id: string;
   importId: string;
+  /** Every statement import that contained this line (the first import only knows `importId`); a line survives until its last import is deleted. */
+  importIds?: string[];
   channel: ChannelKey;
   /** Order reference as printed on the statement (platform order id / workflow id / short code). */
   orderRef: string | null;

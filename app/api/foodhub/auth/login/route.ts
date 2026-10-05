@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { logActivity } from '@/lib/foodhub/activity';
 import { signIn } from '@/lib/foodhub/auth';
 import { fail, readJson } from '@/lib/foodhub/http';
+import { clientIp } from '@/lib/foodhub/session';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,9 +10,10 @@ export const dynamic = 'force-dynamic';
 // Everyone else signs in with a code or link (auth/start → auth/verify).
 export async function POST(req: Request) {
   const b = await readJson(req);
-  const r = await signIn(String(b.username || 'owner'), String(b.password || ''));
+  const who = String(b.username || 'owner').slice(0, 40);
+  const r = await signIn(who, String(b.password || ''), clientIp(req.headers));
   if ('error' in r) {
-    await logActivity({ actor: String(b.username || 'owner'), source: 'dashboard', kind: 'login', action: 'sign_in', status: 'failed', summary: `Failed recovery sign-in for ${String(b.username || 'owner')}` });
+    if (r.status !== 429) await logActivity({ actor: who, source: 'dashboard', kind: 'login', action: 'sign_in', status: 'failed', summary: `Failed recovery sign-in for ${who}` });
     return fail(r.error, r.status);
   }
   await logActivity({ actor: r.user.name, source: 'dashboard', kind: 'login', action: 'sign_in', status: 'success', summary: `${r.user.name} signed in with the recovery password (${r.user.role})` });

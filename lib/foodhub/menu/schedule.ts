@@ -14,11 +14,15 @@ export interface ScheduledPublish {
   at: string;
   createdBy: string;
   createdAt: string;
-  status: 'scheduled' | 'done' | 'failed' | 'cancelled';
+  status: 'scheduled' | 'running' | 'done' | 'failed' | 'cancelled';
+  /** When the publish was claimed by a sync/cron run. */
+  startedAt?: string;
   result?: string;
 }
 
 const KEY = 'scheduled_publishes';
+/** A "running" entry older than this was cut off (function timeout / crash) and is reported as failed. */
+export const STALE_RUNNING_MS = 10 * 60_000;
 
 export async function listScheduled(brand?: string): Promise<ScheduledPublish[]> {
   const all = (await getRepo().getKv<ScheduledPublish[]>(KEY).catch(() => null)) ?? [];
@@ -53,21 +57,30 @@ export async function cancelScheduled(id: string, actor: Actor): Promise<boolean
 /** Runs every due scheduled publish once. Called by the sync engine and the cron. */
 export async function runDuePublishes(now = Date.now()): Promise<number> {
   const all = (await getRepo().getKv<ScheduledPublish[]>(KEY).catch(() => null)) ?? [];
+  // A publish claimed by an earlier run that never wrote its result was cut off (timeout/crash):
+  // never leave it looking "in progress" (or done) — report it failed so the owner publishes again.
+  let stale = 0;
+  for (const x of all) {
+    if (x.status !== 'running' || Date.parse(x.startedAt ?? x.at) > now - STALE_RUNNING_MS) continue;
+    x.status = 'failed'; x.result = 'Interrupted before every store was updated (timeout) — publish again.'; stale++;
+    await logActivity({ actor: SCHEDULE_ACTOR.name, source: SCHEDULE_ACTOR.source, kind: 'menu_publish', action: 'scheduled_publish', status: 'failed', brandName: x.brand, summary: `Scheduled menu publish for ${x.brand} was interrupted — publish again` });
+  }
   const due = all.filter((x) => x.status === 'scheduled' && Date.parse(x.at) <= now);
-  if (!due.length) return 0;
-  // Mark first so two concurrent syncs cannot both publish.
-  for (const d of due) d.status = 'done';
+  if (!due.length) { if (stale) await saveAll(all); return 0; }
+  // Claim as "running" first so two concurrent syncs cannot both publish; the real outcome is written per entry below.
+  for (const d of due) { d.status = 'running'; d.startedAt = new Date(now).toISOString(); }
   await saveAll(all);
   for (const d of due) {
     try {
       const rows = await publishMenu(d.brand, { storeIds: d.storeIds, channels: d.channels, actor: { ...SCHEDULE_ACTOR, name: `Scheduled by ${d.createdBy}` } });
       d.result = `${rows.filter((r) => r.result.ok).length}/${rows.length} stores updated`;
-      if (rows.some((r) => !r.result.ok)) d.status = 'failed';
+      d.status = !rows.length || rows.some((r) => !r.result.ok) ? 'failed' : 'done';
     } catch (error) {
       d.status = 'failed';
       d.result = error instanceof Error ? error.message : String(error);
     }
+    // Persist each result immediately: a crash on the next entry must not hide this one's outcome.
+    await saveAll(all);
   }
-  await saveAll(all);
   return due.length;
 }

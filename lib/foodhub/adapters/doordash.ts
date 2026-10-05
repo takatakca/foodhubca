@@ -95,13 +95,19 @@ export const doorDashAdapter: ChannelAdapter = {
     : { is_active: false, reason: 'operational_issues', notes: reason || 'Paused from TAKATAK Food Hub', ...(untilMs ? { end_time: new Date(untilMs).toISOString() } : {}) }),
 };
 
+/** Merchant-controllable pause: the reason Food Hub itself sends (operational_issues) or our own pause note. */
+const MERCHANT_PAUSE = (d: any) => /operational[\s_-]?issues|merchant[\s_-]?pause|paused?[\s_-]?by[\s_-]?merchant/i.test(String(d?.reason ?? '')) || /takatak|food hub/i.test(String(d?.notes ?? ''));
+
 /** Normalizes GET /api/v1/stores/{msid}/store_details (current_deactivations[] / is_active). */
 export function normalizeDoorDashDetails(body: any): { state: PlatformState; detail?: string; until?: string | null } {
   const list: any[] = Array.isArray(body?.current_deactivations) ? body.current_deactivations : [];
   if (body?.is_active === false || list.length) {
     const first = list[0] ?? {};
     const detail = [first.reason, first.notes].filter(Boolean).join(' — ') || 'Deactivated on DoorDash';
-    return first.end_time ? { state: 'paused', detail, until: String(first.end_time) } : { state: 'deactivated', detail };
+    // A pause (timed or "until resumed") is 'paused'; 'deactivated' is reserved for DoorDash-initiated reasons
+    // (out_of_business, policy/fraud, …) so an untimed Food Hub pause never raises a DEACTIVATED alert.
+    if (first.end_time || MERCHANT_PAUSE(first)) return { state: 'paused', detail, until: first.end_time ? String(first.end_time) : null };
+    return { state: 'deactivated', detail };
   }
   return { state: 'online' };
 }
@@ -119,6 +125,13 @@ export async function fetchDoorDashStoreStatus(msid: string): Promise<{ ok: bool
 }
 
 const cents = (n: unknown) => fromCents(Number(n) || 0);
+/** Merchant-funded discount on the order (DoorDash sends it in cents under a few names); 0 when absent. */
+function doorDashDiscount(o: any): number {
+  const direct = cents(o?.merchant_funded_discount ?? o?.merchant_discount ?? o?.merchant_funded_discount_amount ?? o?.discount_amount ?? o?.discount);
+  if (direct) return Math.abs(direct);
+  const list: any[] = Array.isArray(o?.discounts) ? o.discounts : Array.isArray(o?.promotions) ? o.promotions : [];
+  return Math.round(list.filter((d) => d && (d.merchant_funded === true || /merchant/i.test(String(d.funded_by ?? d.funding_source ?? 'merchant')))).reduce((s, d) => s + Math.abs(cents(d.amount ?? d.discount_amount ?? d.value)), 0) * 100) / 100;
+}
 
 export function parseDoorDashOrder(body: any): NormalizedOrder | null {
   const o = body?.order ?? body;
@@ -162,7 +175,7 @@ export function parseDoorDashOrder(body: any): NormalizedOrder | null {
     tax: cents(o.tax),
     deliveryFee: 0,
     tip: cents(o.tip_amount ?? o.tip),
-    discount: 0,
+    discount: doorDashDiscount(o),
     total: cents(o.subtotal) + cents(o.tax),
     notes: o.order_special_instructions || undefined,
     lines,

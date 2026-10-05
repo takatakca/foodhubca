@@ -3,6 +3,7 @@ import { parseSkipOrder, skipAdapter } from '@/lib/foodhub/adapters/skip';
 import { background, keepUnparsed, parseJson, queueOrder, unauthorized } from '@/lib/foodhub/webhook-utils';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 // JET Connect "Receive Order" for SkipTheDishes. Signed with X-JET-Connect-Hash.
 // We answer 202 (async) immediately; Food Hub then creates the order in Clover and calls

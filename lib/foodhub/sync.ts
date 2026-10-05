@@ -26,7 +26,7 @@ import { importCloverPlatformOrders } from './pos/clover-platform-orders';
 import { getRepo } from './repo';
 import { startOfLocalDayMs } from './time';
 import { runWatch, type WatchReport } from './watch/engine';
-import type { ChannelStore, PlatformState, PlatformStatus } from './types';
+import type { ChannelKey, ChannelStore, PlatformState, PlatformStatus, StoredOrder } from './types';
 
 export interface StoreSyncRow {
   storeId: string;
@@ -67,15 +67,31 @@ export interface SyncReport {
   stores: StoreSyncRow[];
   clover: Array<CloverSales & { locationCodes: string[]; platformOrders?: number; platformOrdersError?: string }>;
   cloverConfigured: boolean;
+  /** Per-platform problems of this run (a platform that stopped answering, Clover sales failures…). Partial reports are still saved. */
+  platformErrors?: Partial<Record<ChannelKey | 'clover', string>>;
   /** Watchtower run that followed the sync. */
   watch?: WatchReport | null;
 }
 
 const LAST_KEY = 'sync:last';
 const LOCK_KEY = '__foodhubSyncRunning';
+/** KV claim so two dashboards / cron on separate serverless instances never run the housekeeping twice. */
+const KV_LOCK_KEY = 'sync:lock';
+const KV_LOCK_TTL_MS = 90_000;
+/** Status reads are cheap: a platform that does not answer in this time is treated as unreadable, not waited for. */
+const STATUS_READ_TIMEOUT_MS = 5_000;
+const MAX_CONSECUTIVE_TIMEOUTS = 3;
+type SyncLock = { at: string; id: string; done?: boolean };
 
 function minIntervalMs() {
   return Math.max(10, Number(process.env.FOODHUB_SYNC_MIN_INTERVAL_S) || 60) * 1000;
+}
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)} s`)), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  });
 }
 
 export async function lastSyncReport(): Promise<SyncReport | null> {
@@ -95,12 +111,28 @@ async function pool<T, R>(items: T[], size: number, fn: (t: T) => Promise<R>): P
   return out;
 }
 
-async function pollStore(store: ChannelStore): Promise<StoreSyncRow> {
+type Fetched = { ok: boolean; state: PlatformState; detail?: string; until?: string | null; error?: string };
+
+/** Polls one store; `timedOut` reports back so the caller can stop hammering a platform that stopped answering. */
+async function pollStore(store: ChannelStore, opts: { skipReason?: string; timedOut?: (v: boolean) => void } = {}): Promise<StoreSyncRow> {
   const base = { storeId: store.id, channel: store.channel, brandName: store.brandName, locationCode: store.locationCode, channelStoreId: store.channelStoreId };
   const previous = (store.meta?.platformStatus ?? null) as PlatformStatus | null;
-  let fetched: { ok: boolean; state: PlatformState; detail?: string; until?: string | null; error?: string } | null = null;
-  if (store.channel === 'uber_eats') fetched = await fetchUberStoreStatus(store.channelStoreId);
-  else if (store.channel === 'doordash') fetched = await fetchDoorDashStoreStatus(store.channelStoreId);
+  let fetched: Fetched | null = null;
+  const polled = store.channel === 'uber_eats' || store.channel === 'doordash';
+  if (polled && opts.skipReason) {
+    return { ...base, polled: true, ok: false, state: previous?.state ?? 'unknown', detail: previous?.detail, error: opts.skipReason, changed: false };
+  }
+  if (polled) {
+    const read = store.channel === 'uber_eats' ? fetchUberStoreStatus(store.channelStoreId) : fetchDoorDashStoreStatus(store.channelStoreId);
+    try {
+      fetched = await withTimeout(read, STATUS_READ_TIMEOUT_MS, `${CHANNEL_LABELS[store.channel]} status read`);
+      opts.timedOut?.(false);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      opts.timedOut?.(/timed out/.test(msg));
+      fetched = { ok: false, state: 'unknown', error: msg };
+    }
+  }
 
   if (!fetched) {
     // Pushed by webhook (Skip offline notification) or set by us; keep the last known state.
@@ -115,7 +147,11 @@ async function pollStore(store: ChannelStore): Promise<StoreSyncRow> {
     return { ...base, polled: true, ok: false, state: previous?.state ?? 'unknown', detail: previous?.detail, error: fetched.error, changed: false };
   }
 
-  const status: PlatformStatus = { state: fetched.state, detail: fetched.detail, until: fetched.until ?? null, checkedAt: nowIso(), source: 'sync', error: fetched.ok ? undefined : fetched.error };
+  // A pause made from TAKATAK stays "from TAKATAK" (with its reason and re-open time) as long as the platform agrees on the state.
+  const keepDashboard = previous?.source === 'dashboard' && previous.state === fetched.state;
+  const status: PlatformStatus = keepDashboard
+    ? { ...previous, checkedAt: nowIso(), error: fetched.ok ? undefined : fetched.error }
+    : { state: fetched.state, detail: fetched.detail, until: fetched.until ?? null, checkedAt: nowIso(), source: 'sync', error: fetched.ok ? undefined : fetched.error };
   const patch: Partial<ChannelStore> = { meta: { ...store.meta, platformStatus: status } };
   // The platform is the source of truth for whether the store takes orders.
   if (fetched.state === 'online' && !store.online) { patch.online = true; patch.pausedUntil = null; patch.lastStatusSource = `${store.channel}:platform`; }
@@ -134,15 +170,26 @@ async function pollStore(store: ChannelStore): Promise<StoreSyncRow> {
   return { ...base, polled: true, ok: fetched.ok, state: fetched.state, detail: fetched.detail, error: fetched.error, changed };
 }
 
+/** When the kitchen was expected to be done with an order: the later of arrival, fire time and ready target. */
+export function autoCompleteBaseMs(o: Pick<StoredOrder, 'createdAt' | 'timeline'>): number {
+  const created = new Date(o.createdAt).getTime();
+  const expected = Date.parse(o.timeline?.fireAt ?? o.timeline?.readyTarget ?? o.createdAt);
+  return Math.max(created, Number.isFinite(expected) ? expected : created);
+}
+
 /** Keeps "Orders to handle" clean: in-kitchen/ready orders older than the threshold are closed (logged). */
 export async function autoCompleteOldOrders(now = Date.now()): Promise<number> {
   const minutes = Number(process.env.FOODHUB_AUTO_COMPLETE_MIN ?? 90);
   if (!(minutes > 0)) return 0;
   const repo = getRepo();
-  const stale = (await repo.listOrders({ statuses: ['accepted', 'ready', 'dispatched'], since: new Date(now - 48 * 3600_000).toISOString(), limit: 1000 }))
-    .filter((o) => now - new Date(o.createdAt).getTime() > minutes * 60_000);
+  // Scheduled (advance) orders wait for their fire time: their age only starts counting from fireAt, never before.
+  const stale = (await repo.listOrders({ statuses: ['accepted', 'ready', 'dispatched'], limit: 1000 }))
+    .filter((o) => !(o.timeline?.fireAt && Date.parse(o.timeline.fireAt) > now))
+    .filter((o) => now - autoCompleteBaseMs(o) > minutes * 60_000)
+    // Never sweep up ancient open orders (an upgrade, a long outage): only those expected done in the last 48 h.
+    .filter((o) => now - autoCompleteBaseMs(o) < 48 * 3600_000);
   for (const o of stale) {
-    const done = await repo.updateOrder(o.id, { status: 'completed', timeline: { ...(o.timeline ?? {}), completedAt: o.timeline?.completedAt ?? new Date(now).toISOString() } });
+    const done = await repo.patchOrder(o.id, { completedAt: o.timeline?.completedAt ?? new Date(now).toISOString() }, { status: 'completed' });
     await repo.addEvent(o.id, 'auto_completed', { afterMinutes: minutes });
     await settleInClover(done); // closes the Clover order as paid
   }
@@ -157,8 +204,16 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
   }
   const g = globalThis as unknown as Record<string, boolean>;
   if (g[LOCK_KEY]) return { ran: false, reason: 'A sync is already running', report: last };
+  // Claim the run in the KV store (serverless instances do not share memory); a fresh claim by another run wins.
+  const runId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const held = await repo.getKv<SyncLock>(KV_LOCK_KEY).catch(() => null);
+  if (held && !held.done && Date.now() - new Date(held.at).getTime() < KV_LOCK_TTL_MS) return { ran: false, reason: 'A sync is already running (another instance)', report: last };
+  await repo.setKv(KV_LOCK_KEY, { at: nowIso(), id: runId } satisfies SyncLock).catch(() => undefined);
+  const confirm = await repo.getKv<SyncLock>(KV_LOCK_KEY).catch(() => null);
+  if (confirm && confirm.id !== runId) return { ran: false, reason: 'A sync is already running (another instance)', report: last };
   g[LOCK_KEY] = true;
   const started = Date.now();
+  const platformErrors: NonNullable<SyncReport['platformErrors']> = {};
   try {
     const reopened = await reopenExpiredPauses().catch(() => []);
     const autoCompleted = await autoCompleteOldOrders().catch(() => 0);
@@ -170,16 +225,31 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
     const inv = await pollCloverInventory().catch((e) => ({ turnedOff: 0, turnedOn: 0, priceChanges: 0, errors: [String(e?.message ?? e)] }));
     const recon = await dailyReconciliation().catch(() => null);
     const stores = await repo.listStores();
-    const storeRows = await pool(stores, 4, (s) => pollStore(s).catch((e) => ({
-      storeId: s.id, channel: s.channel, brandName: s.brandName, locationCode: s.locationCode, channelStoreId: s.channelStoreId,
-      polled: true, ok: false, state: 'unknown' as PlatformState, error: e instanceof Error ? e.message : String(e), changed: false,
-    })));
-
     const dayStart = startOfLocalDayMs();
     const todays = await repo.listOrders({ since: new Date(dayStart).toISOString(), limit: 2000 });
     const injected = new Set(todays.map((o) => o.posOrderId).filter(Boolean) as string[]);
     const merchants = await allCloverMerchants(stores.map((s) => s.cloverMerchantId));
-    const clover = await pool(merchants, 3, async (mid) => {
+
+    // Each platform polls with its own pool, so one platform that hangs never starves the others; after
+    // MAX_CONSECUTIVE_TIMEOUTS in a row the rest of that platform is skipped for this run (reported, not hidden).
+    const errorRow = (s: ChannelStore, e: unknown): StoreSyncRow => ({
+      storeId: s.id, channel: s.channel, brandName: s.brandName, locationCode: s.locationCode, channelStoreId: s.channelStoreId,
+      polled: true, ok: false, state: 'unknown' as PlatformState, error: e instanceof Error ? e.message : String(e), changed: false,
+    });
+    const pollPlatform = (channel: ChannelKey) => {
+      let streak = 0;
+      return pool(stores.filter((s) => s.channel === channel), 4, (s) => {
+        const skipReason = streak >= MAX_CONSECUTIVE_TIMEOUTS ? `${CHANNEL_LABELS[channel]} stopped answering (${streak} status reads timed out) — skipped for this run` : undefined;
+        if (skipReason) platformErrors[channel] = skipReason;
+        return pollStore(s, { skipReason, timedOut: (t) => { streak = t ? streak + 1 : 0; } }).catch((e) => errorRow(s, e));
+      });
+    };
+    const groups: Array<[string, Promise<StoreSyncRow[]>]> = [
+      ['uber_eats', pollPlatform('uber_eats')],
+      ['doordash', pollPlatform('doordash')],
+      ['push-only', pool(stores.filter((s) => s.channel !== 'uber_eats' && s.channel !== 'doordash'), 8, (s) => pollStore(s).catch((e) => errorRow(s, e)))],
+    ];
+    const cloverRun = pool(merchants, 3, async (mid) => {
       // Delivery orders that reached Clover through Clover's own platform integration: added to Food Hub
       // (read-only) and kept out of the in-store sales.
       const viaClover = await importCloverPlatformOrders(mid).catch((e) => ({ imported: 0, posOrderIds: [] as string[], error: String(e?.message ?? e) }));
@@ -188,6 +258,17 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
       const locationCodes = [...new Set(stores.filter((s) => (s.cloverMerchantId || process.env.CLOVER_MERCHANT_ID) === mid).map((s) => s.locationCode))];
       return { ...sales, locationCodes, platformOrders: viaClover.imported, ...(viaClover.error ? { platformOrdersError: viaClover.error } : {}) };
     });
+    const settled = await Promise.allSettled([...groups.map(([, p]) => p), cloverRun]);
+    const storeRows: StoreSyncRow[] = [];
+    groups.forEach(([name, _p], i) => {
+      const r = settled[i];
+      if (r.status === 'fulfilled') storeRows.push(...(r.value as StoreSyncRow[]));
+      else platformErrors[name as ChannelKey] = r.reason instanceof Error ? r.reason.message : String(r.reason);
+    });
+    const cloverRes = settled[groups.length];
+    const clover: SyncReport['clover'] = cloverRes.status === 'fulfilled' ? (cloverRes.value as SyncReport['clover']) : [];
+    if (cloverRes.status === 'rejected') platformErrors.clover = cloverRes.reason instanceof Error ? cloverRes.reason.message : String(cloverRes.reason);
+    storeRows.sort((a, b) => (a.brandName + a.locationCode + a.channel).localeCompare(b.brandName + b.locationCode + b.channel));
 
     const report: SyncReport = {
       at: nowIso(),
@@ -206,6 +287,7 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
       stores: storeRows,
       clover,
       cloverConfigured: cloverReadiness().configured,
+      ...(Object.keys(platformErrors).length ? { platformErrors } : {}),
     };
     await repo.setKv(LAST_KEY, report);
     // The Watchtower looks at the fresh statuses right away (tablets, late orders, stores…).
@@ -213,5 +295,8 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
     return { ran: true, report };
   } finally {
     g[LOCK_KEY] = false;
+    // Release the claim (only ours); a run killed by the platform leaves it to expire after KV_LOCK_TTL_MS.
+    const cur = await repo.getKv<SyncLock>(KV_LOCK_KEY).catch(() => null);
+    if (!cur || cur.id === runId) await repo.setKv(KV_LOCK_KEY, { at: nowIso(), id: runId, done: true } satisfies SyncLock).catch(() => undefined);
   }
 }

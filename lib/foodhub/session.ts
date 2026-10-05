@@ -1,8 +1,9 @@
 // Signed cookies (HMAC-SHA256, Web Crypto) — usable from proxy.ts and route handlers. No database here,
-// so the sign-in gate stays fast.
+// so the sign-in gate stays fast (proxy.ts runs on the Node runtime, so node:crypto is fine).
 //   takatak_session  who is signed in (14 days; 14 hours for a staff PIN session on a kitchen tablet)
 //   takatak_device   this browser is an enrolled kitchen tablet (1 year) — survives sign-out, so the
 //                    tablet comes back to its PIN screen instead of the email sign-in.
+import { createHash, scryptSync, timingSafeEqual } from 'node:crypto';
 import type { Role } from './types';
 
 export const SESSION_COOKIE = 'takatak_session';
@@ -23,6 +24,8 @@ export interface SessionPayload {
   exp: number;
   /** true for the built-in owner recovery login (DASHBOARD_PASSWORD) */
   b?: boolean;
+  /** session version: changes when the credential behind the session changes (see sessionVersion) */
+  v?: string;
   /** kitchen device id when the session was opened with a PIN on an enrolled tablet */
   d?: string;
   /** how the person signed in */
@@ -50,26 +53,72 @@ function fromB64url(s: string): Uint8Array {
   return Uint8Array.from(bin, (c) => c.charCodeAt(0));
 }
 
+/** Constant-time string comparison (never compare passwords with ===). */
+export function safeEqual(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ab.length === bb.length && timingSafeEqual(ab, bb);
+}
+
 /**
- * The signing secret: SESSION_SECRET, else one derived from DASHBOARD_PASSWORD. In development a fixed
- * dev-only secret is used so sign-in works out of the box. In production with neither set → null
+ * Where the signing secret comes from: SESSION_SECRET, else one derived from DASHBOARD_PASSWORD with scrypt
+ * (never the raw password: a leaked cookie must not be an offline oracle for the owner password), else — in
+ * development only — a fixed dev secret so sign-in works out of the box. In production with neither set → null
  * (the proxy then refuses every request with a clear message).
  */
-export function sessionSecret(): string | null {
-  if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
-  if (process.env.DASHBOARD_PASSWORD) return `takatak-session|${process.env.DASHBOARD_PASSWORD}`;
-  if (process.env.NODE_ENV !== 'production') return 'takatak-dev-only-session-secret';
+export type SessionSecretSource = 'env' | 'password' | 'dev';
+export function sessionSecretSource(): SessionSecretSource | null {
+  if (process.env.SESSION_SECRET) return 'env';
+  if (process.env.DASHBOARD_PASSWORD) return 'password';
+  if (process.env.NODE_ENV !== 'production') return 'dev';
   return null;
 }
 
-async function key(): Promise<CryptoKey | null> {
-  const secret = sessionSecret();
-  if (!secret) return null;
-  return crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
+const DEV_SECRET = 'takatak-dev-only-session-secret';
+const derived = new Map<string, Uint8Array>();
+function keyMaterial(): Uint8Array | null {
+  switch (sessionSecretSource()) {
+    case 'env': return enc.encode(process.env.SESSION_SECRET);
+    case 'dev': return enc.encode(DEV_SECRET);
+    case 'password': {
+      const password = process.env.DASHBOARD_PASSWORD!;
+      let key = derived.get(password);
+      if (!key) {
+        key = new Uint8Array(scryptSync(password, 'takatak-session-v1', 32));
+        derived.clear(); // only the current password matters
+        derived.set(password, key);
+      }
+      return key;
+    }
+    default: return null;
+  }
+}
+
+/** The HMAC key behind every cookie. Null = no secret at all (production without SESSION_SECRET / DASHBOARD_PASSWORD). */
+export async function sessionKey(): Promise<CryptoKey | null> {
+  const material = keyMaterial();
+  if (!material) return null;
+  return crypto.subtle.importKey('raw', material as BufferSource, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
+}
+
+/** Short fingerprint of the credential behind a session: a cookie is only valid while its version matches. */
+export function sessionVersion(secret: string): string {
+  return createHash('sha256').update(secret).digest('hex').slice(0, 12);
+}
+
+/** Version of the built-in owner's sessions (changes when DASHBOARD_PASSWORD changes). '' = no password. */
+export function ownerSessionVersion(): string {
+  return process.env.DASHBOARD_PASSWORD ? sessionVersion(process.env.DASHBOARD_PASSWORD) : '';
+}
+
+/** Version of a team member's sessions: resetting or removing their password signs their devices out. */
+export function userSessionVersion(user: { passwordHash?: string | null }): string {
+  return sessionVersion(user.passwordHash || '');
 }
 
 async function sign(prefix: string, payload: object): Promise<string> {
-  const k = await key();
+  const k = await sessionKey();
   if (!k) throw new Error('Set SESSION_SECRET (npm run setup) to enable sign-in.');
   const body = b64url(enc.encode(JSON.stringify(payload)));
   const sig = new Uint8Array(await crypto.subtle.sign('HMAC', k, enc.encode(`${prefix}.${body}`)));
@@ -78,7 +127,7 @@ async function sign(prefix: string, payload: object): Promise<string> {
 
 async function verify<T extends { exp: number }>(prefix: string, token: string | null | undefined): Promise<T | null> {
   if (!token || !token.includes('.')) return null;
-  const k = await key();
+  const k = await sessionKey();
   if (!k) return null;
   const [body, sig] = token.split('.');
   try {
@@ -102,6 +151,7 @@ export function readCookie(header: string | null, name = SESSION_COOKIE): string
   for (const part of header.split(';')) {
     const [k, ...v] = part.trim().split('=');
     if (k === name) {
+      // A corrupted cookie (bad % sequence) must mean "not signed in", not a 500 on every page.
       try { return decodeURIComponent(v.join('=')); } catch { return null; }
     }
   }
@@ -114,20 +164,86 @@ export function cookieFlags(maxAgeSeconds: number): string {
   return `Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.max(0, Math.round(maxAgeSeconds))}${secure ? '; Secure' : ''}`;
 }
 
-/** Owner recovery password for "Authorization: Basic …" (scripts, monitoring, the e2e suite). */
-export function basicOwner(header: string | null): boolean {
-  const password = process.env.DASHBOARD_PASSWORD;
-  if (!password || !header?.startsWith('Basic ')) return false;
-  try {
-    const decoded = atob(header.slice(6));
-    const given = decoded.slice(decoded.indexOf(':') + 1);
-    if (given.length !== password.length) return false;
-    let diff = 0;
-    for (let i = 0; i < given.length; i++) diff |= given.charCodeAt(i) ^ password.charCodeAt(i);
-    return diff === 0;
-  } catch {
-    return false;
+// ---------- Brute-force throttle (per process, keyed by client IP + username) ----------
+// 5 failures lock the key for 60 s; every further failure doubles the lock, up to 15 min.
+// Keyed by IP so nobody can lock the owner out for everyone by hammering the username alone.
+const LOCK_AFTER = 5;
+const LOCK_MS = 60_000;
+const LOCK_MAX_MS = 15 * 60_000;
+const MAX_KEYS = 1000;
+const attempts = new Map<string, { count: number; until: number }>();
+
+/** x-forwarded-for is only trustworthy behind a proxy that sets it: Vercel always, others (nginx, Caddy, Traefik, Cloudflare) with FOODHUB_TRUST_PROXY=true. */
+export function trustProxy(): boolean {
+  return Boolean(process.env.VERCEL) || process.env.FOODHUB_TRUST_PROXY === 'true';
+}
+
+/** First x-forwarded-for value behind a trusted proxy, else "local" (every client shares one bucket). */
+export function clientIp(headers: Headers): string {
+  if (!trustProxy()) return 'local'; // no proxy: the header is client-supplied
+  return (headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'local';
+}
+
+export function throttleKey(ip: string, username: string): string {
+  return `${ip}|${(username || 'owner').toLowerCase().trim()}`;
+}
+
+export function isLocked(key: string): boolean {
+  const a = attempts.get(key);
+  return !!a && a.count >= LOCK_AFTER && a.until > Date.now();
+}
+
+export function recordFailure(key: string): void {
+  const now = Date.now();
+  const a = attempts.get(key);
+  const count = a && a.until > now ? a.count + 1 : 1;
+  const lock = count < LOCK_AFTER ? LOCK_MS : Math.min(LOCK_MAX_MS, LOCK_MS * 2 ** (count - LOCK_AFTER));
+  attempts.set(key, { count, until: now + lock });
+  if (attempts.size > MAX_KEYS) {
+    for (const [k, v] of attempts) if (v.until <= now) attempts.delete(k);
+    for (const k of attempts.keys()) { if (attempts.size <= MAX_KEYS) break; attempts.delete(k); } // oldest first
   }
+}
+
+export function clearFailures(key: string): void {
+  attempts.delete(key);
+}
+
+/** Number of throttle buckets held in memory (tests). */
+export function throttleSize(): number { return attempts.size; }
+/** Test hook. */
+export function resetThrottle(): void {
+  attempts.clear();
+}
+
+/** Decodes "Authorization: Basic …" into its two parts (null when it is not a Basic header). */
+export function decodeBasic(header: string | null): { username: string; password: string } | null {
+  if (!header?.startsWith('Basic ')) return null;
+  try {
+    const decoded = Buffer.from(header.slice(6), 'base64').toString('utf8');
+    const i = decoded.indexOf(':');
+    return i < 0 ? { username: '', password: decoded } : { username: decoded.slice(0, i), password: decoded.slice(i + 1) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Owner recovery password for "Authorization: Basic …" (scripts, monitoring, the e2e suite).
+ * With `ip`, failures count against the IP+username throttle and a locked key is refused without comparing.
+ */
+export function basicOwner(header: string | null, ip?: string): boolean {
+  const password = process.env.DASHBOARD_PASSWORD;
+  const basic = decodeBasic(header);
+  if (!password || !basic) return false;
+  // The owner password only counts under the owner username (or none): otherwise rotating usernames would dodge the throttle.
+  const u = basic.username.toLowerCase().trim();
+  if (u && u !== 'owner') return false;
+  const key = ip ? throttleKey(ip, 'owner') : null;
+  if (key && isLocked(key)) return false;
+  const ok = safeEqual(basic.password, password);
+  if (key) { if (ok) clearFailures(key); else recordFailure(key); }
+  return ok;
 }
 
 // ---------- Roles ----------

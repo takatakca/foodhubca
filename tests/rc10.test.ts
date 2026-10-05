@@ -91,6 +91,8 @@ describe('passwordless sign-in (memory store, dev codes)', () => {
     expect(parseContact('hello')).toBeNull();
     expect(safeNext('/orders?open=1')).toBe('/orders?open=1');
     expect(safeNext('//evil.example')).toBe('/');
+    expect(safeNext('/\\evil.example')).toBe('/');
+    expect(safeNext('/orders/\\evil.example')).toBe('/');
     expect(safeNext('https://evil.example')).toBe('/');
   });
   it('code by email: wrong code refused, right code signs in once, unknown contacts look the same, rate limited', async () => {

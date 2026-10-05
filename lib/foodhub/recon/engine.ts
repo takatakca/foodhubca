@@ -13,11 +13,12 @@ import { localDate } from '../hours';
 import { getRepo, type Doc } from '../repo';
 import type { ChannelKey, StoredOrder } from '../types';
 import { expectedPayout, getFees, planFor, type Expected, type FeeConfig } from './fees';
-import { headerSignature, lineId, parseStatement, type ColumnMapping, type FormatKey, type PayoutLine } from './statements';
+import { headerSignature, lineId, parseStatement, type ColumnMapping, type FormatKey, type LineKind, type PayoutLine } from './statements';
 
 export const COL = { imports: 'payout_imports', lines: 'payout_lines', cases: 'recon_cases', deposits: 'payout_deposits', mappings: 'statement_mappings', approvals: 'ledger_approvals' } as const;
 const DAY = 86400_000;
-const r2 = (n: number) => Math.round(n * 100) / 100;
+const r2 = (n: number) => Math.round(n * 100) / 100 || 0;
+const dayDiff = (a: string, b: string) => Math.round((Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / DAY);
 
 export interface StatementImport {
   id: string;
@@ -70,15 +71,17 @@ export async function importStatement(input: { fileName: string; bytes: Uint8Arr
     const base = lineId(channel, l, 0);
     const n = occurrences.get(base) ?? 0;
     occurrences.set(base, n + 1);
-    return { ...l, id: n ? lineId(channel, l, n) : base, importId, channel };
+    return { ...l, id: n ? lineId(channel, l, n) : base, importId, importIds: [importId], channel };
   });
-  const existing = new Set((await repo.listDocs<PayoutLine>(COL.lines, {})).map((d) => d.id));
+  const existing = new Map((await repo.listDocs<PayoutLine>(COL.lines, {})).map((d) => [d.id, d]));
   const fresh = lines.filter((l) => !existing.has(l.id));
-  await repo.putDocs(COL.lines, fresh.map((l) => ({ id: l.id, key: refKey(l.orderRef) ?? refKey(l.orderRef2), at: lineAt(l), data: l })));
-  const dates = lines.map((l) => l.orderDate ?? l.payoutDate).filter(Boolean).sort() as string[];
+  // A line an earlier file already had now belongs to both imports, so it survives deleting either one.
+  const shared = lines.filter((l) => existing.has(l.id)).map((l) => { const d = existing.get(l.id)!; return { ...d, data: { ...d.data, importIds: [...new Set([...lineImportIds(d.data), importId])] } }; });
+  await repo.putDocs(COL.lines, [...fresh.map((l) => ({ id: l.id, key: refKey(l.orderRef) ?? refKey(l.orderRef2), at: lineAt(l), data: l })), ...shared]);
+  const { periodFrom, periodTo } = statementPeriod(lines);
   const record: StatementImport = {
     id: importId, channel, fileName: input.fileName.slice(0, 120), format: parsed.format, rows: parsed.lines.length + parsed.skipped, lines: lines.length, newLines: fresh.length,
-    skipped: parsed.skipped, totalNet: r2(lines.reduce((s, l) => s + l.net, 0)), periodFrom: dates[0]?.slice(0, 10) ?? null, periodTo: dates[dates.length - 1]?.slice(0, 10) ?? null,
+    skipped: parsed.skipped, totalNet: r2(lines.reduce((s, l) => s + l.net, 0)), periodFrom, periodTo,
     importedBy: input.actor.name, importedAt: nowIso(), source: input.source ?? 'upload',
   };
   await repo.putDocs(COL.imports, [{ id: importId, at: record.importedAt, key: channel, data: record }]);
@@ -87,14 +90,38 @@ export async function importStatement(input: { fileName: string; bytes: Uint8Arr
   return { ok: true, import: record };
 }
 
+/**
+ * Days a statement covers: from the earliest order date of its order rows to its latest payout date. Refund, adjustment and
+ * error-charge rows carry the date of an older order and would stretch the period over weeks whose statement was never imported.
+ */
+export function statementPeriod(lines: Array<Pick<PayoutLine, 'kind' | 'orderDate' | 'payoutDate'>>): { periodFrom: string | null; periodTo: string | null } {
+  const backdated: LineKind[] = ['refund', 'adjustment', 'error_charge', 'other'];
+  const d10 = (s: string | null) => (s ? s.slice(0, 10) : null);
+  const starts = (lines.filter((l) => !backdated.includes(l.kind)).map((l) => d10(l.orderDate ?? l.payoutDate)).filter(Boolean) as string[]).sort();
+  const ends = (lines.map((l) => d10(l.payoutDate ?? l.orderDate)).filter(Boolean) as string[]).sort();
+  const periodFrom = starts[0] ?? ends[0] ?? null;
+  const periodTo = ends[ends.length - 1] ?? null;
+  return { periodFrom, periodTo: periodFrom && periodTo && periodTo < periodFrom ? periodFrom : periodTo };
+}
+
+/** Imports a line belongs to (older lines only know their first import). */
+export function lineImportIds(l: Pick<PayoutLine, 'importId' | 'importIds'>): string[] {
+  return l.importIds?.length ? l.importIds : [l.importId];
+}
+
 export async function deleteImport(id: string, actor: Actor): Promise<boolean> {
   const repo = getRepo();
   const imp = await repo.getDoc<StatementImport>(COL.imports, id);
   if (!imp) return false;
-  const lines = (await repo.listDocs<PayoutLine>(COL.lines, {})).filter((d) => d.data.importId === id);
-  await repo.deleteDocs(COL.lines, lines.map((d) => d.id));
+  const docs = (await repo.listDocs<PayoutLine>(COL.lines, {})).filter((d) => lineImportIds(d.data).includes(id));
+  // Lines another statement also contains stay with that statement; only lines nobody else references go.
+  const gone = docs.filter((d) => lineImportIds(d.data).length === 1);
+  const kept = docs.filter((d) => lineImportIds(d.data).length > 1).map((d) => { const ids = lineImportIds(d.data).filter((x) => x !== id); return { ...d, data: { ...d.data, importId: ids[0], importIds: ids } }; });
+  await repo.deleteDocs(COL.lines, gone.map((d) => d.id));
+  if (kept.length) await repo.putDocs(COL.lines, kept);
   await repo.deleteDocs(COL.imports, [id]);
-  await logActivity({ actor: actor.name, source: actor.source, kind: 'settings', action: 'statement_deleted', status: 'success', channel: imp.data.channel, summary: `Statement removed: ${imp.data.fileName} (${lines.length} line(s))` });
+  await logActivity({ actor: actor.name, source: actor.source, kind: 'settings', action: 'statement_deleted', status: 'success', channel: imp.data.channel,
+    summary: `Statement removed: ${imp.data.fileName} (${gone.length} line(s) removed${kept.length ? `, ${kept.length} kept — also in another statement` : ''})` });
   return true;
 }
 
@@ -137,6 +164,8 @@ export interface OrderRecon {
   refunds: number;
   errorCharges: number;
   adjustments: number;
+  /** Promotions the restaurant funded, as the statement shows them (≤ 0) — already inside `actual`, so `diff` is against expected + promotions. */
+  promotions: number;
   planConfirmed: boolean;
   /** Dispute case for this order, when one exists (owner decisions: recovered / written off / ignored). */
   caseStatus: CaseStatus | null;
@@ -206,27 +235,46 @@ export async function reconcile(q: { from: string; to: string; channels?: Channe
     byRef.set(key, [...(byRef.get(key) ?? []), l]);
   }
   const used = new Set<string>();
-  const linesFor = (o: StoredOrder) => {
-    const keys = [refKey(o.externalOrderId), refKey(o.displayId)].filter(Boolean).map((k) => `${o.channel}|${k}`);
-    const found = new Map<string, PayoutLine>();
-    for (const k of keys) for (const l of byRef.get(k) ?? []) found.set(l.id, l);
-    return [...found.values()];
+  const storeOf = new Map(stores.map((s) => [`${s.channel}|${s.channelStoreId}`, s]));
+  const orderDay = (o: StoredOrder) => localDate(Date.parse(o.createdAt));
+  // Short display codes (Uber 5 characters, DoorDash short code, Skip 4 digits) are reused across stores and weeks: they only
+  // match as a fallback, on the same day (±1) and the same store, and a statement line pays at most one order.
+  const lineFits = (l: PayoutLine, o: StoredOrder) => {
+    const dd = l.orderDate ? dayDiff(l.orderDate.slice(0, 10), orderDay(o)) : NaN;
+    if (!Number.isFinite(dd) || Math.abs(dd) > 1) return false;
+    const sref = refKey(l.storeRef);
+    if (!sref) return true;
+    const st = storeOf.get(`${o.channel}|${o.channelStoreId}`);
+    const mine = [o.channelStoreId, st?.id, st?.brandName, o.brandName].map(refKey).filter(Boolean) as string[];
+    return mine.some((m) => sref === m || sref.includes(m));
   };
+  const scope = orders.filter((x) => inScope(x.channel) && x.status !== 'new');
+  const assigned = new Map<string, PayoutLine[]>();
+  // A line is indexed under both its refs (order id + workflow id); when they normalise to the same key it appears twice — count it once.
+  const take = (o: StoredOrder, ls: PayoutLine[]) => { const free = [...new Map(ls.filter((l) => !used.has(l.id)).map((l) => [l.id, l])).values()]; if (free.length) { assigned.set(o.id, free); free.forEach((l) => used.add(l.id)); } };
+  for (const o of scope) { const k = refKey(o.externalOrderId); if (k) take(o, byRef.get(`${o.channel}|${k}`) ?? []); }
+  for (const o of scope) {
+    const k = refKey(o.displayId);
+    if (assigned.has(o.id) || !k || k === refKey(o.externalOrderId)) continue;
+    take(o, (byRef.get(`${o.channel}|${k}`) ?? []).filter((l) => lineFits(l, o)));
+  }
   const covered = (ch: ChannelKey, date: string) => (cover[ch] ?? []).some(([a, b]) => date >= a && date <= b);
 
   const rows: OrderRecon[] = [];
-  for (const o of orders.filter((x) => inScope(x.channel) && x.status !== 'new')) {
+  for (const o of scope) {
     const storeId = storeIdOf.get(`${o.channel}|${o.channelStoreId}`) ?? null;
     const plan = planFor(fees, o.channel, storeId);
     const exp = expectedPayout(o, plan);
-    const ls = linesFor(o);
-    ls.forEach((l) => used.add(l.id));
-    const date = localDate(Date.parse(o.createdAt));
+    const ls = assigned.get(o.id) ?? [];
+    const date = orderDay(o);
     const actual = ls.length ? r2(ls.reduce((s, l) => s + l.net, 0)) : null;
     const refunds = r2(ls.filter((l) => l.kind === 'refund').reduce((s, l) => s + Math.min(0, l.net), 0));
     const errorCharges = r2(ls.reduce((s, l) => s + (l.kind === 'error_charge' ? Math.min(0, l.net) : 0), 0));
     const adjustments = r2(ls.reduce((s, l) => s + l.adjustments, 0));
-    const diff = actual === null ? null : r2(actual - exp.net);
+    // Promotions the restaurant funded ("Promotions on items", "discounts funded by you") are already taken out of the statement
+    // net and were agreed to: the platform owes expected + promotions, so a difference they explain is not money to recover.
+    const promotions = r2(ls.reduce((s, l) => s + Math.min(0, l.promotions), 0));
+    const diff = actual === null ? null : r2(actual - (exp.net + promotions));
     let status: ReconStatus;
     if (actual === null) {
       if (o.status === 'cancelled') status = 'cancelled';
@@ -239,13 +287,21 @@ export async function reconcile(q: { from: string; to: string; channels?: Channe
     rows.push({
       orderId: o.id, channel: o.channel, ref: o.externalOrderId, displayId: o.displayId || o.externalOrderId.slice(0, 8), brandName: o.brandName ?? null, locationCode: o.locationCode ?? null, storeId,
       date: o.createdAt, fulfillment: o.fulfillment, orderStatus: o.status, total: o.total, expected: exp, actual, diff, status, lines: ls.length,
-      payoutDate: ls.map((l) => l.payoutDate).filter(Boolean).sort().pop() ?? null, refunds, errorCharges, adjustments, planConfirmed: fees.confirmed[o.channel],
+      payoutDate: ls.map((l) => l.payoutDate).filter(Boolean).sort().pop() ?? null, refunds, errorCharges, adjustments, promotions, planConfirmed: fees.confirmed[o.channel],
       caseStatus: caseStatus.get(`${o.channel}:${o.externalOrderId}`) ?? null,
     });
   }
 
   // statement lines that belong to no order in range: known order outside range → ignore; unknown → flag
-  const wideKeys = new Set(wide.flatMap((o) => [refKey(o.externalOrderId), refKey(o.displayId)].filter(Boolean).map((k) => `${o.channel}|${k}`)));
+  // (a short display code only counts as known on the same day ±1, like the matching above)
+  const wideExt = new Set(wide.map((o) => `${o.channel}|${refKey(o.externalOrderId)}`));
+  const wideDisp = new Map<string, string[]>();
+  for (const o of wide) { const k = refKey(o.displayId); if (k) { const key = `${o.channel}|${k}`; wideDisp.set(key, [...(wideDisp.get(key) ?? []), orderDay(o)]); } }
+  const known = (l: PayoutLine, keys: string[]) => {
+    if (keys.some((k) => wideExt.has(k))) return true;
+    const d = l.orderDate?.slice(0, 10);
+    return !!d && keys.some((k) => (wideDisp.get(k) ?? []).some((od) => Math.abs(dayDiff(d, od)) <= 1));
+  };
   const fromD = localDate(fromMs); const toD = localDate(toMs - 1);
   const inRange = (l: PayoutLine) => { const d = (l.orderDate ?? l.payoutDate)?.slice(0, 10); return !d || (d >= fromD && d <= toD); };
   const unmatched: UnmatchedLine[] = []; const other: UnmatchedLine[] = [];
@@ -254,14 +310,14 @@ export async function reconcile(q: { from: string; to: string; channels?: Channe
     const keys = [refKey(l.orderRef), refKey(l.orderRef2)].filter(Boolean).map((k) => `${l.channel}|${k}`);
     const view = { id: l.id, channel: l.channel, ref: l.orderRef ?? l.orderRef2, kind: l.kind, description: l.description, orderDate: l.orderDate, payoutDate: l.payoutDate, net: l.net };
     if (!keys.length) other.push(view);
-    else if (!keys.some((k) => wideKeys.has(k)) && (l.kind === 'order' || l.kind === 'refund' || l.kind === 'adjustment' || l.kind === 'error_charge')) unmatched.push(view);
+    else if (!known(l, keys) && (l.kind === 'order' || l.kind === 'refund' || l.kind === 'adjustment' || l.kind === 'error_charge')) unmatched.push(view);
   }
 
   const channels: ChannelSummary[] = (Object.keys(CHANNEL_LABELS) as ChannelKey[]).filter(inScope).map((ch) => {
     const rs = rows.filter((r) => r.channel === ch);
     const counts = Object.fromEntries((Object.keys(STATUS_LABEL) as ReconStatus[]).map((s) => [s, rs.filter((r) => r.status === s).length])) as Record<ReconStatus, number>;
     const paid = r2(rs.reduce((s, r) => s + (r.actual ?? 0), 0));
-    const expected = r2(rs.filter((r) => r.actual !== null).reduce((s, r) => s + r.expected.net, 0));
+    const expected = r2(rs.filter((r) => r.actual !== null).reduce((s, r) => s + r.expected.net + r.promotions, 0));
     return {
       channel: ch, label: CHANNEL_LABELS[ch], orders: rs.length, sales: r2(rs.reduce((s, r) => s + r.total, 0)), expected, paid, diff: r2(paid - expected),
       // Money still to chase: problems the owner has not already recovered, written off or ignored.
@@ -348,18 +404,29 @@ export async function syncCases(result: ReconResult, actor: Actor = { username: 
     if (!cur) {
       opened++;
       writes.push({ id, key: w.channel, at: now, data: { ...w, status: 'open', notes: [{ at: now, by: actor.name, text: `Opened automatically: ${CASE_LABEL[w.type]} (${w.amount.toFixed(2)} $)` }], openedAt: now, updatedAt: now } });
+    } else if (cur.status === 'resolved' && cur.autoClosed) {
+      // Closed by itself earlier and the problem is back (a corrected statement, a removed import re-imported…): reopen it, never a second case.
+      opened++;
+      writes.push({ id, key: w.channel, at: cur.openedAt, data: { ...cur, ...w, status: 'open', autoClosed: false, updatedAt: now, notes: [...cur.notes, { at: now, by: actor.name, text: `Reopened: detected again (${CASE_LABEL[w.type]}, ${w.amount.toFixed(2)} $)` }] } });
     } else if ((cur.status === 'open' || cur.status === 'disputed') && (cur.amount !== w.amount || cur.type !== w.type)) {
       writes.push({ id, key: w.channel, at: cur.openedAt, data: { ...cur, ...w, status: cur.status, updatedAt: now, notes: [...cur.notes, { at: now, by: actor.name, text: `Amount now ${w.amount.toFixed(2)} $ (${CASE_LABEL[w.type]})` }] } });
     }
   }
-  // Problems that disappeared (a later statement paid the order) → resolved automatically.
+  // Problems that disappeared because a later statement pays the order → resolved automatically. Never because the order
+  // lost its statement (import removed → "no statement" / "not due yet"): the case stays open until a payout really fixes it.
   const rangeFrom = localDate(Date.parse(result.range.from)); const rangeTo = localDate(Date.parse(result.range.to) - 1);
+  const orderRows = new Map(result.orders.map((r) => [`${r.channel}:${r.ref}`, r]));
+  const paidNow = (cur: ReconCase) => {
+    if (cur.type === 'unknown_order') return result.orders.some((r) => r.lines > 0 && (refKey(r.ref) === refKey(cur.ref) || refKey(r.displayId) === refKey(cur.ref)));
+    const r = orderRows.get(cur.id);
+    return !!r && (r.status === 'cancelled' || r.actual !== null);
+  };
   for (const [id, cur] of existing) {
     if (want.has(id) || !(cur.status === 'open' || cur.status === 'disputed') || cur.type === 'deposit_gap') continue;
     if (!cur.orderDate || cur.orderDate < rangeFrom || cur.orderDate > rangeTo) continue;
-    if (result.channels.every((c) => c.channel !== cur.channel)) continue;
+    if (result.channels.every((c) => c.channel !== cur.channel) || !paidNow(cur)) continue;
     closed++;
-    writes.push({ id, key: cur.channel, at: cur.openedAt, data: { ...cur, status: 'resolved', autoClosed: true, updatedAt: now, notes: [...cur.notes, { at: now, by: actor.name, text: 'Closed automatically: the latest statements now match.' }] } });
+    writes.push({ id, key: cur.channel, at: cur.openedAt, data: { ...cur, status: 'resolved', autoClosed: true, updatedAt: now, notes: [...cur.notes, { at: now, by: actor.name, text: 'Closed automatically: the latest statements now pay this order.' }] } });
   }
   if (writes.length) await repo.putDocs(COL.cases, writes);
   if (opened || closed) {
@@ -464,6 +531,31 @@ export async function recordDeposit(key: string, deposit: { amount: number; date
   await getRepo().putDocs(COL.deposits, [{ id: key, at: `${deposit.date}T12:00:00.000Z`, data: { key, amount, date: deposit.date, note: deposit.note?.slice(0, 200), by: actor.name } }]);
   const [channel] = key.split('|') as [ChannelKey];
   await logActivity({ actor: actor.name, source: actor.source, kind: 'settings', action: 'deposit_recorded', status: 'success', channel, summary: `Bank deposit recorded for ${CHANNEL_LABELS[channel] ?? channel} payout ${key.split('|')[1]}: ${amount.toFixed(2)} $ on ${deposit.date}` });
+  await syncDepositCase(key, amount, actor);
+}
+
+/** A bank deposit that differs from the statement by MIN_CASE or more is a case to check (closed by itself once it matches). */
+async function syncDepositCase(key: string, amount: number, actor: Actor) {
+  const repo = getRepo();
+  const batch = (await payoutBatches({ from: new Date(0).toISOString(), to: new Date(Date.now() + 400 * DAY).toISOString() })).find((b) => b.key === key);
+  if (!batch) return;
+  const gap = r2(amount - batch.net);
+  const [channel, ref] = key.split('|') as [ChannelKey, string];
+  const id = `${channel}:deposit:${ref}`;
+  const cur = (await repo.getDoc<ReconCase>(COL.cases, id))?.data;
+  const now = nowIso();
+  const active = !!cur && (cur.status === 'open' || cur.status === 'disputed');
+  if (Math.abs(gap) >= MIN_CASE) {
+    if (cur && OWNER_CLOSED.includes(cur.status)) return; // the owner's decision stands
+    const text = `bank deposit ${amount.toFixed(2)} $ vs statement ${batch.net.toFixed(2)} $ (${gap > 0 ? '+' : ''}${gap.toFixed(2)} $)`;
+    const base = { type: 'deposit_gap' as const, channel, ref, orderId: null, brandName: null, locationCode: null, orderDate: batch.payoutDate, amount: r2(Math.abs(gap)) };
+    const next: ReconCase = cur
+      ? { ...cur, ...base, status: active ? cur.status : 'open', autoClosed: false, updatedAt: now, notes: [...cur.notes, { at: now, by: actor.name, text: active ? `Deposit updated: ${text}` : `Reopened: ${text}` }] }
+      : { id, ...base, status: 'open', notes: [{ at: now, by: actor.name, text: `Opened automatically: ${CASE_LABEL.deposit_gap} — ${text}` }], openedAt: now, updatedAt: now };
+    await repo.putDocs(COL.cases, [{ id, key: channel, at: next.openedAt, data: next }]);
+  } else if (cur && active) {
+    await repo.putDocs(COL.cases, [{ id, key: channel, at: cur.openedAt, data: { ...cur, status: 'resolved', autoClosed: true, updatedAt: now, notes: [...cur.notes, { at: now, by: actor.name, text: 'Closed automatically: the deposit now matches the statement.' }] } }]);
+  }
 }
 
 // ---------------------------------------------------------------- internal ledger
@@ -478,10 +570,18 @@ export interface JournalEntry {
   debit: number;
   credit: number;
   balanced: boolean;
-  status: 'draft' | 'approved';
+  /** approved_stale: the figures changed after the owner approved them (a later import touched this payout) — approve again. */
+  status: 'draft' | 'approved' | 'approved_stale';
   approvedBy?: string;
   approvedAt?: string;
   warnings: string[];
+}
+
+/** What the owner approved: the figures at that moment, so a later change to the entry is visible. */
+export interface LedgerApproval { by: string; at: string; debit?: number; credit?: number; lines?: number; hash?: string }
+
+export function entryHash(lines: JournalLine[]): string {
+  return crypto.createHash('sha1').update(lines.map((l) => `${l.account}|${l.debit.toFixed(2)}|${l.credit.toFixed(2)}`).join('\n')).digest('hex').slice(0, 16);
 }
 
 export const ACCOUNTS = {
@@ -504,7 +604,7 @@ export const ACCOUNTS = {
  *   Dr Bank (net) · Dr Commissions · Dr GST ITC / QST ITR (tax on fees) · Dr Promotions/Adjustments · Dr Refunds · Dr Other charges
  *   Cr Delivery sales · Cr GST payable · Cr QST payable
  */
-export function journalFor(b: PayoutBatch, approval?: { by: string; at: string } | null): JournalEntry {
+export function journalFor(b: PayoutBatch, approval?: LedgerApproval | null): JournalEntry {
   const L: JournalLine[] = [];
   const add = (account: string, amount: number, memo?: string) => {
     if (Math.abs(amount) < 0.005) return;
@@ -537,21 +637,28 @@ export function journalFor(b: PayoutBatch, approval?: { by: string; at: string }
   }
   if (b.gap !== null && Math.abs(b.gap) >= 0.01) warnings.push(`Bank deposit differs from the statement by ${b.gap.toFixed(2)} $.`);
   const debit = r2(L.reduce((s, l) => s + l.debit, 0)); const credit = r2(L.reduce((s, l) => s + l.credit, 0));
+  // An approval is the owner's review of specific figures: when a later import changes them, the entry needs a new review.
+  const stale = !!approval?.hash && approval.hash !== entryHash(L);
+  if (stale) warnings.push(`Changed since approval by ${approval!.by} on ${approval!.at.slice(0, 10)} (approved: ${(approval!.debit ?? 0).toFixed(2)} $ debit, ${approval!.lines ?? '?'} line(s)) — check and approve again.`);
   return {
     key: b.key, date: b.payoutDate, channel: b.channel, memo: `${CHANNEL_LABELS[b.channel]} payout ${b.payoutRef ?? b.payoutDate ?? ''} — ${b.lines} line(s)`.trim(),
-    lines: L, debit, credit, balanced: Math.abs(debit - credit) < 0.01, status: approval ? 'approved' : 'draft', approvedBy: approval?.by, approvedAt: approval?.at, warnings,
+    lines: L, debit, credit, balanced: Math.abs(debit - credit) < 0.01, status: approval ? (stale ? 'approved_stale' : 'approved') : 'draft', approvedBy: approval?.by, approvedAt: approval?.at, warnings,
   };
 }
 function split(total: number) { const gst = r2((total * 5) / 14.975); return { gst, qst: r2(total - gst) }; }
 
 export async function ledger(q: { from: string; to: string; channels?: ChannelKey[] }): Promise<JournalEntry[]> {
   const batches = await payoutBatches(q);
-  const approvals = new Map((await getRepo().listDocs<{ by: string; at: string }>(COL.approvals, {})).map((d) => [d.id, d.data]));
+  const approvals = new Map((await getRepo().listDocs<LedgerApproval>(COL.approvals, {})).map((d) => [d.id, d.data]));
   return batches.map((b) => journalFor(b, approvals.get(b.key)));
 }
 
-export async function approveEntry(key: string, actor: Actor): Promise<void> {
-  await getRepo().putDocs(COL.approvals, [{ id: key, at: nowIso(), data: { by: actor.name, at: nowIso() } }]);
+/** Records the owner's approval with a snapshot of the figures approved (nothing is posted anywhere). */
+export async function approveEntry(entry: Pick<JournalEntry, 'key' | 'lines' | 'debit' | 'credit'>, actor: Actor): Promise<void> {
+  const key = entry.key;
+  const at = nowIso();
+  const data: LedgerApproval = { by: actor.name, at, debit: entry.debit, credit: entry.credit, lines: entry.lines.length, hash: entryHash(entry.lines) };
+  await getRepo().putDocs(COL.approvals, [{ id: key, at, data }]);
   const [channel] = key.split('|') as [ChannelKey];
   await logActivity({ actor: actor.name, source: actor.source, kind: 'settings', action: 'ledger_approved', status: 'success', channel, summary: `Ledger entry approved: ${CHANNEL_LABELS[channel] ?? channel} payout ${key.split('|')[1]}` });
 }

@@ -71,6 +71,8 @@ export async function saveLocation(def: LocationDef): Promise<Catalog> {
 export async function saveBrand(def: BrandDef): Promise<Catalog> {
   const name = def.name?.trim();
   if (!name) throw new Error('Brand name is required.');
+  // Brand lists travel as comma-separated query strings (?brands=a,b) — a comma would split the brand in two.
+  if (name.includes(',')) throw new Error('Brand name cannot contain a comma (,).');
   if (NOT_BRANDS.has(name)) throw new Error(`${name} is a sales channel, not a brand.`);
   const stored = (await getRepo().getKv<Partial<Catalog>>(KEY)) ?? {};
   const list = (stored.brands ?? []).filter((b) => b.name !== name);

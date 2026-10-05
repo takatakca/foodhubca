@@ -22,6 +22,8 @@ Everything from RC9 stays: Clover injection and bookkeeping, menus to every plat
 hours and holidays, reports, analytics, payouts reconciliation, disputes, internal ledger, TGTG bag log.
 
 **Full guide: [docs/FOODHUB.md](docs/FOODHUB.md)**
+All documents: [docs/README.md](docs/README.md) · what changed in this release: [docs/RELEASE_NOTES.md](docs/RELEASE_NOTES.md) ·
+security policy: [SECURITY.md](SECURITY.md).
 
 ## Quick start
 
@@ -45,11 +47,14 @@ Keys only through `npm run setup` or the hosting environment variables — never
 ## Proof
 
 ```bash
-npm run check                              # typecheck + lint + 71 unit tests
-npm run build && npm run verify:foodhub    # 331 end-to-end checks against simulated Uber Eats, DoorDash,
+npm run check                              # typecheck + lint + 173 unit tests
+npm run build && npm run verify:foodhub    # 374 end-to-end checks against simulated Uber Eats, DoorDash,
                                            # Skip (JET Connect), Clover, Resend, Twilio and a team chat
 npm run demo:foodhub                       # same, then keeps running with a simulated order every 40 s
+npm run audit:prod                         # production dependencies carry no high/critical advisory
 ```
+
+CI runs every one of these on each push and pull request (`.github/workflows/ci.yml`).
 
 ## Screens
 

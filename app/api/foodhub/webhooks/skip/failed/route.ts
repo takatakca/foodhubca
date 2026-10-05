@@ -5,6 +5,7 @@ import { getRepo } from '@/lib/foodhub/repo';
 import { background, keepUnparsed, parseJson, unauthorized } from '@/lib/foodhub/webhook-utils';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 // JET Connect "Failed Order For Backup Flow": the order failed JET's validation (e.g. an unknown item
 // reference) and went straight to the Skip tablet. Food Hub records it so it is never invisible:
@@ -30,6 +31,6 @@ export async function POST(req: NextRequest) {
       await logActivity({ actor: 'SkipTheDishes', source: 'platform', kind: 'order', action: 'skip_backup_flow', status: 'failed', channel: 'skip', brandName: store?.brandName, locationCode: store?.locationCode, orderId: order.id,
         summary: `Skip #${n.displayId || n.externalOrderId.slice(0, 8)} failed validation and went to the Skip tablet — ${failure}` });
     }
-  });
+  }, { channel: 'skip', body, reference: parsed.externalOrderId, kind: 'order' });
   return NextResponse.json({ ok: true });
 }

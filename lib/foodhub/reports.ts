@@ -38,7 +38,12 @@ export interface ReportTable {
   columns: string[];
   rows: Array<Array<string | number | null>>;
   filename: string;
+  /** True when the source list hit ROW_CAP, so the newest rows only are included — narrow the range. */
+  truncated?: boolean;
 }
+
+/** Most rows one report reads from the store (orders or activity entries). */
+export const ROW_CAP = 50_000;
 
 const tz = () => foodhubTimeZone();
 function local(iso?: string | null): string {
@@ -50,11 +55,12 @@ function local(iso?: string | null): string {
 const mins = (a?: string | null, b?: string | null) => (a && b ? Math.round((new Date(b).getTime() - new Date(a).getTime()) / 6000) / 10 : null);
 const money = (n: number | undefined | null) => Math.round((Number(n) || 0) * 100) / 100;
 
-async function ordersFor(f: ReportFilter): Promise<StoredOrder[]> {
-  let orders = await getRepo().listOrders({ since: f.from, until: f.to, limit: 50_000, locationCodes: f.locationCodes?.length ? f.locationCodes : undefined, statuses: f.statuses });
+async function ordersFor(f: ReportFilter): Promise<{ orders: StoredOrder[]; truncated: boolean }> {
+  let orders = await getRepo().listOrders({ since: f.from, until: f.to, limit: ROW_CAP, locationCodes: f.locationCodes?.length ? f.locationCodes : undefined, statuses: f.statuses });
+  const truncated = orders.length >= ROW_CAP;
   if (f.channels?.length) orders = orders.filter((o) => f.channels!.includes(o.channel));
   if (f.brands?.length) orders = orders.filter((o) => o.brandName && f.brands!.includes(o.brandName));
-  return orders.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return { orders: orders.sort((a, b) => a.createdAt.localeCompare(b.createdAt)), truncated };
 }
 
 export async function buildReport(key: ReportKey, f: ReportFilter): Promise<ReportTable> {
@@ -64,10 +70,13 @@ export async function buildReport(key: ReportKey, f: ReportFilter): Promise<Repo
   const day = local(f.from).slice(0, 10);
   const last = local(new Date(new Date(f.to).getTime() - 1).toISOString()).slice(0, 10);
   const filename = `takatak-${key.replace(/_/g, '-')}-${day}${last !== day ? `_to_${last}` : ''}`;
-  const out = (columns: string[], rows: ReportTable['rows']): ReportTable => ({ key, title: REPORTS[key].title, columns, rows, filename });
+  let truncated = false;
+  const out = (columns: string[], rows: ReportTable['rows']): ReportTable => ({ key, title: REPORTS[key].title, columns, rows, filename, truncated });
 
   if (key === 'store_actions') {
-    const entries = (await getRepo().listActivity({ since: f.from, until: f.to, limit: 50_000, locationCodes: f.locationCodes?.length ? f.locationCodes : undefined }))
+    const raw = await getRepo().listActivity({ since: f.from, until: f.to, limit: ROW_CAP, locationCodes: f.locationCodes?.length ? f.locationCodes : undefined });
+    truncated = raw.length >= ROW_CAP;
+    const entries = raw
       .filter((e) => e.kind !== 'login' && (!f.channels?.length || !e.channel || f.channels.includes(e.channel)) && (!f.brands?.length || !e.brandName || f.brands.includes(e.brandName)))
       .sort((a, b) => a.at.localeCompare(b.at));
     return out(['Time', 'User', 'Source', 'Area', 'Action', 'Platform', 'Brand', 'Location', 'Store id', 'Status', 'Details'],
@@ -91,7 +100,8 @@ export async function buildReport(key: ReportKey, f: ReportFilter): Promise<Repo
     return out(['Brand', 'Store', 'Platform', 'Platform store id', 'Category', 'Item id', 'Item', 'In stock', 'Base price', 'Platform price', 'Clover item id'], rows);
   }
 
-  const orders = await ordersFor(f);
+  const { orders, truncated: cut } = await ordersFor(f);
+  truncated = cut;
 
   if (key === 'order_transactions') {
     return out(
@@ -144,10 +154,13 @@ export async function buildReport(key: ReportKey, f: ReportFilter): Promise<Repo
 
 // ---------- file formats ----------
 
+const NUMERIC = /^-?\d+(\.\d+)?$/;
 function cell(v: string | number | null): string {
   if (v === null || v === undefined) return '';
   const s = String(v);
-  return /[",\n\r]/.test(s) || /^[=+\-@]/.test(s) ? `"${(/^[=+\-@]/.test(s) && typeof v === 'string' ? `'${s}` : s).replace(/"/g, '""')}"` : s;
+  // Numeric-looking strings ("-3.40" from toFixed) must stay numbers for the accountant's column sums.
+  const formula = /^[=+\-@]/.test(s) && !NUMERIC.test(s);
+  return /[",\n\r]/.test(s) || formula ? `"${(formula && typeof v === 'string' ? `'${s}` : s).replace(/"/g, '""')}"` : s;
 }
 
 /** UTF-8 CSV with BOM so Excel opens accents correctly. Formula-looking text is neutralised. */
@@ -205,7 +218,14 @@ export async function emailReport(t: ReportTable, to: string[], format: 'csv' | 
         attachments: [{ filename: file.filename, content }],
       }),
     });
-    if (!res.ok) return { ok: false, message: `Email provider returned HTTP ${res.status}` };
+    if (!res.ok) {
+      // Resend answers { name, message } ("The gmail.com domain is not verified", "Invalid `to` field"): that is what the operator needs to see.
+      const body = await res.text().catch(() => '');
+      let detail = body;
+      try { const j = JSON.parse(body); detail = typeof j?.message === 'string' ? j.message : body; } catch { /* not JSON */ }
+      detail = detail.replace(/\s+/g, ' ').trim().slice(0, 300);
+      return { ok: false, message: `Email provider returned HTTP ${res.status}${detail ? `: ${detail}` : ''}` };
+    }
     return { ok: true, message: `Sent to ${to.join(', ')}` };
   } catch (error) {
     return { ok: false, message: `Email failed: ${error instanceof Error ? error.message : String(error)}` };
@@ -221,35 +241,62 @@ export interface ReportSchedule {
   emails: string[];
   format: 'csv' | 'xlsx';
   filter: { locationCodes?: string[]; channels?: ChannelKey[]; brands?: string[] };
+  /** Display name of the creator. */
   createdBy: string;
+  /** Username of the creator (ownership checks); absent on schedules saved before 1.4.0. */
+  createdByUsername?: string;
   createdAt: string;
+  /** Last period that was SENT (claimed only after a successful send). */
   lastPeriod?: string;
   lastSentAt?: string;
+  lastAttemptAt?: string;
   lastError?: string | null;
 }
 
 const SCHED_KEY = 'report_schedules';
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const isEmail = (s: string) => EMAIL.test(s);
+export const isReportKey = (k: unknown): k is ReportKey => typeof k === 'string' && Object.hasOwn(REPORTS, k);
 
+/** Lenient read for display: a store hiccup shows an empty list rather than an error page. */
 export async function listReportSchedules(): Promise<ReportSchedule[]> {
   return (await getRepo().getKv<ReportSchedule[]>(SCHED_KEY).catch(() => null)) ?? [];
 }
 
-export async function saveReportSchedule(input: Omit<ReportSchedule, 'id' | 'createdAt' | 'createdBy'> & { id?: string }, actor: Actor): Promise<ReportSchedule> {
-  if (!(input.report in REPORTS)) throw new Error('Unknown report.');
+/** Strict read for every read-modify-write: a failed read must throw, never be mistaken for "no schedules" and wipe the list. */
+async function readSchedules(): Promise<ReportSchedule[]> {
+  return (await getRepo().getKv<ReportSchedule[]>(SCHED_KEY)) ?? [];
+}
+
+/** Re-reads the list and patches one schedule, so edits made by users during a long run are never clobbered. */
+async function patchSchedule(id: string, patch: Partial<ReportSchedule>): Promise<void> {
+  const fresh = await readSchedules();
+  const i = fresh.findIndex((s) => s.id === id);
+  if (i < 0) return; // removed while the run was in progress
+  fresh[i] = { ...fresh[i], ...patch };
+  await getRepo().setKv(SCHED_KEY, fresh);
+}
+
+/** Creator check for edit/delete: by username when recorded, by display name for older schedules. */
+export function ownsSchedule(s: ReportSchedule, actor: Actor): boolean {
+  return s.createdByUsername ? s.createdByUsername === actor.username : s.createdBy === actor.name;
+}
+
+export async function saveReportSchedule(input: Omit<ReportSchedule, 'id' | 'createdAt' | 'createdBy' | 'createdByUsername'> & { id?: string }, actor: Actor): Promise<ReportSchedule> {
+  if (!isReportKey(input.report)) throw new Error('Unknown report.');
   if (!['daily', 'weekly', 'monthly'].includes(input.frequency)) throw new Error('frequency must be daily, weekly or monthly.');
   const emails = input.emails.map((e) => e.trim()).filter(Boolean);
   if (!emails.length || emails.some((e) => !EMAIL.test(e))) throw new Error('Enter valid email address(es).');
-  const all = await listReportSchedules();
+  const all = await readSchedules();
   const existing = input.id ? all.find((s) => s.id === input.id) : undefined;
-  const entry: ReportSchedule = { ...existing, ...input, emails, format: input.format === 'xlsx' ? 'xlsx' : 'csv', id: existing?.id ?? crypto.randomUUID(), createdAt: existing?.createdAt ?? new Date().toISOString(), createdBy: existing?.createdBy ?? actor.name };
+  const entry: ReportSchedule = { ...existing, ...input, emails, format: input.format === 'xlsx' ? 'xlsx' : 'csv', id: existing?.id ?? crypto.randomUUID(), createdAt: existing?.createdAt ?? new Date().toISOString(), createdBy: existing?.createdBy ?? actor.name, createdByUsername: existing?.createdByUsername ?? actor.username };
   await getRepo().setKv(SCHED_KEY, [...all.filter((s) => s.id !== entry.id), entry]);
   await logActivity({ actor: actor.name, source: actor.source, kind: 'settings', action: 'report_schedule', status: 'success', summary: `${REPORTS[entry.report].title} scheduled ${entry.frequency} to ${emails.join(', ')}` });
   return entry;
 }
 
 export async function deleteReportSchedule(id: string, actor: Actor): Promise<boolean> {
-  const all = await listReportSchedules();
+  const all = await readSchedules();
   const e = all.find((s) => s.id === id);
   if (!e) return false;
   await getRepo().setKv(SCHED_KEY, all.filter((s) => s.id !== id));
@@ -257,7 +304,11 @@ export async function deleteReportSchedule(id: string, actor: Actor): Promise<bo
   return true;
 }
 
-/** The period a schedule covers when it is due today (null = not due today). Reports go out after 8:00 local. */
+/**
+ * The most recent COMPLETED period for a frequency (null before 8:00 local so nothing goes out at night).
+ * Catch-up based: it does not matter which weekday / day of the month the run happens on — whenever a
+ * schedule's lastPeriod differs from this key, that period is sent, so a late or missed cron never skips a report.
+ */
 export function duePeriod(freq: ReportSchedule['frequency'], now = Date.now()): { key: string; from: string; to: string; label: string } | null {
   const zone = tz();
   const p = localParts(now, zone);
@@ -267,37 +318,44 @@ export function duePeriod(freq: ReportSchedule['frequency'], now = Date.now()): 
   const iso = (ms: number) => new Date(ms).toISOString();
   const dateOf = (ms: number) => { const q = localParts(ms + 12 * 3600_000, zone); return `${q.year}-${String(q.month).padStart(2, '0')}-${String(q.day).padStart(2, '0')}`; };
   if (freq === 'daily') { const from = dayBefore(today); return { key: `d:${dateOf(from)}`, from: iso(from), to: iso(today), label: dateOf(from) }; }
-  const dow = new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay();
   if (freq === 'weekly') {
-    if (dow !== 1) return null; // Mondays: previous Monday → Sunday
-    let from = today; for (let i = 0; i < 7; i++) from = dayBefore(from);
-    return { key: `w:${dateOf(from)}`, from: iso(from), to: iso(today), label: `week of ${dateOf(from)}` };
+    // Last complete Monday → Sunday: back to this week's Monday, then one more week.
+    const dow = new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay();
+    let to = today; for (let i = (dow + 6) % 7; i > 0; i--) to = dayBefore(to);
+    let from = to; for (let i = 0; i < 7; i++) from = dayBefore(from);
+    return { key: `w:${dateOf(from)}`, from: iso(from), to: iso(to), label: `week of ${dateOf(from)}` };
   }
-  if (p.day !== 1) return null; // 1st of the month: previous month
-  let from = dayBefore(today);
+  // Monthly: the previous calendar month (1st of this month back to the 1st of last month).
+  let to = today;
+  while (localParts(to + 12 * 3600_000, zone).day !== 1) to = dayBefore(to);
+  let from = dayBefore(to);
   while (localParts(from + 12 * 3600_000, zone).day !== 1) from = dayBefore(from);
-  return { key: `m:${dateOf(from).slice(0, 7)}`, from: iso(from), to: iso(today), label: dateOf(from).slice(0, 7) };
+  return { key: `m:${dateOf(from).slice(0, 7)}`, from: iso(from), to: iso(to), label: dateOf(from).slice(0, 7) };
 }
+
+/** A failed send is retried on later runs, but not more often than this (the Command Center auto-sync runs every 2 minutes). */
+const RETRY_AFTER_MS = 60 * 60_000;
 
 /** Sends every schedule that is due and not yet sent for its period. Called by sync + cron. */
 export async function sendDueReports(now = Date.now()): Promise<number> {
-  const all = await listReportSchedules();
-  if (!all.length) return 0;
+  const all = await readSchedules();
   let sent = 0;
-  let changed = false;
   for (const s of all) {
     const period = duePeriod(s.frequency, now);
     if (!period || s.lastPeriod === period.key) continue;
-    // Claim the period first so a parallel run cannot send twice.
-    s.lastPeriod = period.key; changed = true;
-    await getRepo().setKv(SCHED_KEY, all);
-    const table = await buildReport(s.report, { from: period.from, to: period.to, ...s.filter });
-    const r = await emailReport(table, s.emails, s.format, period.label);
-    s.lastSentAt = new Date().toISOString();
-    s.lastError = r.ok ? null : r.message;
+    if (s.lastError && s.lastAttemptAt && now - Date.parse(s.lastAttemptAt) < RETRY_AFTER_MS) continue;
+    const at = new Date(now).toISOString();
+    let r: { ok: boolean; message: string };
+    try {
+      const table = await buildReport(s.report, { from: period.from, to: period.to, ...s.filter });
+      r = await emailReport(table, s.emails, s.format, period.label);
+    } catch (error) {
+      r = { ok: false, message: `Report failed: ${error instanceof Error ? error.message : String(error)}` };
+    }
+    // The period is claimed only after a successful send; a failure keeps it due so the next run retries it.
+    await patchSchedule(s.id, r.ok ? { lastPeriod: period.key, lastSentAt: at, lastAttemptAt: at, lastError: null } : { lastAttemptAt: at, lastError: r.message });
     if (r.ok) sent++;
     await logActivity({ actor: 'Scheduled task', source: 'schedule', kind: 'settings', action: 'report_email', status: r.ok ? 'success' : 'failed', summary: `${REPORTS[s.report].title} (${period.label}) → ${s.emails.join(', ')}: ${r.message}` });
   }
-  if (changed) await getRepo().setKv(SCHED_KEY, all);
   return sent;
 }

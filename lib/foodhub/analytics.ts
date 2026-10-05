@@ -6,6 +6,7 @@ import { getCatalog } from './catalog';
 import { CHANNEL_LABELS } from './config';
 import { effectiveHours, getHours, holidaysFor, localDate, openIntervals } from './hours';
 import { getRepo } from './repo';
+import { ROW_CAP } from './reports';
 import { foodhubTimeZone, localParts, startOfLocalDayMs } from './time';
 import type { ActivityEntry, ChannelKey, ChannelStore, StoredOrder } from './types';
 
@@ -91,20 +92,38 @@ export function offlineIntervals(entries: ActivityEntry[], storeId: string, from
   return out;
 }
 
+/**
+ * State to assume at `from` when the loaded history has no status change at or before it: inferred from the first
+ * change inside the range (a "pause" means it was online before), otherwise from the store record itself — a store
+ * deactivated months ago with no events since must not read as 100 % uptime.
+ */
+export function seedState(entries: ActivityEntry[], store: Pick<ChannelStore, 'id' | 'online'>, from: number): 'online' | 'offline' {
+  const changes = entries.filter((e) => e.storeId === store.id && e.kind === 'store_status' && OFF_ACTIONS[e.action] && e.status !== 'failed')
+    .map((e) => ({ t: new Date(e.at).getTime(), state: OFF_ACTIONS[e.action] })).sort((x, y) => x.t - y.t);
+  if (changes.some((c) => c.t <= from)) return 'online'; // the history decides
+  if (changes.length) return changes[0].state === 'online' ? 'offline' : 'online';
+  return store.online === false ? 'offline' : 'online';
+}
+
 export async function buildAnalytics(q: AnalyticsQuery, now = Date.now()) {
   const tz = foodhubTimeZone();
   const from = Date.parse(q.from); const to = Math.min(Date.parse(q.to), Math.max(now, Date.parse(q.from) + 1));
   const span = Date.parse(q.to) - from;
-  const prevFrom = from - span; const prevTo = from;
   const days = Math.max(1, Math.round(span / 86400_000));
+  // Previous period = the same number of local calendar days before `from`, stepped day by day so a DST change
+  // inside either period never shifts it by an hour (which put every previous-day value one tick off).
+  const dayBefore = (ms: number) => startOfLocalDayMs(ms - 12 * 3600_000, tz);
+  let prevFrom = from - span;
+  if (startOfLocalDayMs(from, tz) === from) { prevFrom = from; for (let i = 0; i < days; i++) prevFrom = dayBefore(prevFrom); }
+  const prevTo = from;
   const repo = getRepo();
   const [catalog, hours, curRaw, prevRaw, stores, history] = await Promise.all([
     getCatalog(),
     getHours(),
-    repo.listOrders({ since: new Date(from).toISOString(), until: q.to, limit: 50_000, locationCodes: q.locationCodes }),
-    repo.listOrders({ since: new Date(prevFrom).toISOString(), until: new Date(prevTo).toISOString(), limit: 50_000, locationCodes: q.locationCodes }),
+    repo.listOrders({ since: new Date(from).toISOString(), until: q.to, limit: ROW_CAP, locationCodes: q.locationCodes }),
+    repo.listOrders({ since: new Date(prevFrom).toISOString(), until: new Date(prevTo).toISOString(), limit: ROW_CAP, locationCodes: q.locationCodes }),
     repo.listStores(),
-    repo.listOrders({ since: new Date(from - 90 * 86400_000).toISOString(), until: new Date(from).toISOString(), limit: 50_000, locationCodes: q.locationCodes }),
+    repo.listOrders({ since: new Date(from - 90 * 86400_000).toISOString(), until: new Date(from).toISOString(), limit: ROW_CAP, locationCodes: q.locationCodes }),
   ]);
   const cur = filterOrders(curRaw, q);
   const prev = filterOrders(prevRaw, q);
@@ -171,12 +190,12 @@ export async function buildAnalytics(q: AnalyticsQuery, now = Date.now()) {
 
   // Store uptime during opening hours (from the activity log of status changes)
   const scopedStores = stores.filter((s: ChannelStore) => (!q.locationCodes?.length || q.locationCodes.includes(s.locationCode)) && (!q.channels?.length || q.channels.includes(s.channel)) && (!q.brands?.length || q.brands.includes(s.brandName)));
-  const activity = await repo.listActivity({ since: new Date(from - 30 * 86400_000).toISOString(), until: new Date(to).toISOString(), kinds: ['store_status'], limit: 50_000 });
+  const activity = await repo.listActivity({ since: new Date(from - 30 * 86400_000).toISOString(), until: new Date(to).toISOString(), kinds: ['store_status'], limit: ROW_CAP });
   const uptime = scopedStores.map((s) => {
     const week = effectiveHours(hours, s.brandName, s.locationCode);
     const open: Interval[] = week ? openIntervals(week, holidaysFor(hours, s.locationCode, localDate(from, tz), days + 1), from, to, tz) : [[from, to]];
     const openMs = open.reduce((a, [x, y]) => a + (y - x), 0);
-    const off = offlineIntervals(activity, s.id, from, to, 'online', Boolean(week));
+    const off = offlineIntervals(activity, s.id, from, to, seedState(activity, s, from), Boolean(week));
     const offMs = intersectIntervals(off, open);
     return { storeId: s.id, channel: s.channel, label: CHANNEL_LABELS[s.channel], brandName: s.brandName, locationCode: s.locationCode, location: locName(s.locationCode), hoursSet: Boolean(week),
       openMinutes: Math.round(openMs / 60000), offlineMinutes: Math.round(offMs / 60000), uptimePct: openMs ? r2(100 - (offMs / openMs) * 100) : 100 };
@@ -191,8 +210,11 @@ export async function buildAnalytics(q: AnalyticsQuery, now = Date.now()) {
   const uniq = Object.keys(perCustomer);
   const repeat = uniq.filter((c) => seenBefore.has(c) || perCustomer[c] > 1).length;
 
+  // Lists are capped at ROW_CAP newest rows: tell the UI so the KPIs are not taken as complete.
+  const truncated = [curRaw, prevRaw, history, activity].some((l) => l.length >= ROW_CAP);
+
   return {
-    range: { from: new Date(from).toISOString(), to: q.to, days, previousFrom: new Date(prevFrom).toISOString(), previousTo: new Date(prevTo).toISOString(), timezone: tz },
+    range: { from: new Date(from).toISOString(), to: q.to, days, previousFrom: new Date(prevFrom).toISOString(), previousTo: new Date(prevTo).toISOString(), timezone: tz, truncated },
     kpis,
     daily,
     byChannel,

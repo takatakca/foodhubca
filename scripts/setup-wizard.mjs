@@ -44,6 +44,7 @@ const sections = [
     ['FOODHUB_OWNER_EMAIL', 'YOUR email — the first owner account can only be created with it (or with the recovery password)'],
     ['FOODHUB_OWNER_PHONE', 'Optional: YOUR cell, e.g. 514 555 0123 (same purpose, by SMS)'],
     ['DASHBOARD_PASSWORD', 'Recovery password — only for emergencies ("Sign in with the recovery password"). Type it yourself, never in chat'],
+    ['FOODHUB_TRUST_PROXY', 'true when a reverse proxy (Caddy, Traefik, nginx, Cloudflare) sits in front of the app — sign-in throttling then keys on the real client address (automatic on Vercel; leave empty otherwise)'],
   ]],
   ['EMAIL (resend.com → API Keys; the From addresses must be on a domain verified in Resend)', [
     ['RESEND_API_KEY', 'Resend API key (re_...) — sends sign-in codes, invitations, alerts and reports'],
@@ -70,6 +71,7 @@ const sections = [
     ['CLOVER_ACCESS_TOKEN', 'API token'],
     ['CLOVER_MERCHANT_TOKENS', 'Other locations, optional JSON {"MERCHANT_ID":"token",...}'],
     ['CLOVER_PRINT_DEVICE_ID', 'Optional: Clover device id that prints kitchen tickets (empty = merchant default printer)'],
+    ['CLOVER_PRINT_DEVICES', 'Optional, several Clover merchants: {"MERCHANT_ID":"deviceId"} — one printer per merchant'],
     ['CLOVER_WEBHOOK_AUTH', 'Optional: Clover app webhook auth code (X-Clover-Auth, shown in the Clover developer dashboard after the webhook URL is verified) — makes 86 from Clover instant and removes a merchant when it uninstalls the app'],
   ]],
   ['PUBLIC PAGES (privacy policy, terms, support — the URLs you give the Clover App Market)', [
@@ -137,10 +139,10 @@ values['LIVE_CONNECTORS_GLOBAL_ENABLED'] = enable === 'yes' || enable === 'y' ? 
 const order = [
   'NEXT_PUBLIC_SUPABASE_URL','NEXT_PUBLIC_SUPABASE_ANON_KEY','SUPABASE_SERVICE_ROLE_KEY',
   'LIVE_CONNECTORS_GLOBAL_ENABLED','AI_INGESTION_ENABLED','CONNECTOR_NETWORK_TIMEOUT_MS',
-  'FOODHUB_PUBLIC_URL','FOODHUB_OWNER_EMAIL','FOODHUB_OWNER_PHONE','DASHBOARD_PASSWORD','SESSION_SECRET','CRON_SECRET',
+  'FOODHUB_PUBLIC_URL','FOODHUB_OWNER_EMAIL','FOODHUB_OWNER_PHONE','DASHBOARD_PASSWORD','SESSION_SECRET','FOODHUB_TRUST_PROXY','CRON_SECRET',
   'RESEND_API_KEY','AUTH_EMAIL_FROM','REPORT_EMAIL_FROM','TWILIO_ACCOUNT_SID','TWILIO_AUTH_TOKEN','TWILIO_FROM','TWILIO_MESSAGING_SERVICE_SID',
   'ALERT_WEBHOOK_URL','ANTHROPIC_API_KEY','ANTHROPIC_MODEL','FOODHUB_WATCH_INTERVAL_S',
-  'CLOVER_BASE_URL','CLOVER_CLIENT_ID','CLOVER_CLIENT_SECRET','CLOVER_WEB_URL','CLOVER_ALLOWED_MERCHANTS','FOODHUB_VIA_CLOVER','FOODHUB_CLOVER_PLATFORM_ORDERS','CLOVER_MERCHANT_ID','CLOVER_ACCESS_TOKEN','CLOVER_MERCHANT_TOKENS','CLOVER_PRINT_DEVICE_ID','FOODHUB_CLOVER_AUTOPRINT','CLOVER_WEBHOOK_AUTH','FOODHUB_CLOVER_RECORD_PAYMENT','FOODHUB_CLOVER_DELETE_CANCELLED','FOODHUB_CLOVER_ORDER_TYPES','FOODHUB_CLOVER_INVENTORY_SYNC',
+  'CLOVER_BASE_URL','CLOVER_CLIENT_ID','CLOVER_CLIENT_SECRET','CLOVER_WEB_URL','CLOVER_ALLOWED_MERCHANTS','FOODHUB_VIA_CLOVER','FOODHUB_CLOVER_PLATFORM_ORDERS','CLOVER_MERCHANT_ID','CLOVER_ACCESS_TOKEN','CLOVER_MERCHANT_TOKENS','CLOVER_PRINT_DEVICE_ID','CLOVER_PRINT_DEVICES','FOODHUB_CLOVER_AUTOPRINT','CLOVER_WEBHOOK_AUTH','FOODHUB_CLOVER_RECORD_PAYMENT','FOODHUB_CLOVER_DELETE_CANCELLED','FOODHUB_CLOVER_ORDER_TYPES','FOODHUB_CLOVER_INVENTORY_SYNC',
   'DOORDASH_BASE_URL','DOORDASH_DEVELOPER_ID','DOORDASH_KEY_ID','DOORDASH_SIGNING_SECRET','DOORDASH_PROVIDER_TYPE','DOORDASH_WEBHOOK_SECRET',
   'UBER_BASE_URL','UBER_CLIENT_ID','UBER_CLIENT_SECRET','UBER_WEBHOOK_SIGNING_KEY','UBER_WEBHOOK_SIGNING_KEY_2','UBER_ACCESS_TOKEN','UBER_REPORT_SCOPE',
   'SKIP_JET_API_KEY','SKIP_JET_BASE_URL','SKIP_WEBHOOK_HMAC_SECRET','SKIP_WEBHOOK_API_KEY','FOODHUB_TIMEZONE',

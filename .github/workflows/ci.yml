@@ -1,0 +1,43 @@
+name: Food Hub CI
+
+on:
+  push:
+    branches: [main, "develop/**", "claude/**"]
+  pull_request:
+    branches: [main, "develop/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: foodhub-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Production dependency audit (high+)
+        run: npm audit --omit=dev --audit-level=high
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Unit tests
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Food Hub verification
+        run: npm run verify:foodhub
+        env:
+          LIVE_CONNECTORS_GLOBAL_ENABLED: "false"

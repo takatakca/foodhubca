@@ -7,6 +7,7 @@ import type { PlatformStatus } from '@/lib/foodhub/types';
 import { background, parseJson, unauthorized } from '@/lib/foodhub/webhook-utils';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 // JET Connect "Restaurant Temporarily Offline Notification":
 // { restaurantId, lastChangedTimeStampUtc, delivery: { isOffline }, collection: { isOffline } }
@@ -35,6 +36,6 @@ export async function POST(req: NextRequest) {
         channel: 'skip', brandName: store.brandName, locationCode: store.locationCode, storeId: store.id,
         summary: `${store.brandName} · ${store.locationCode} on SkipTheDishes ${offline ? 'taken offline by Skip' : 'back online'}` });
     }
-  });
+  }, { channel: 'skip', body, reference: String(body.restaurantId), kind: 'store_status' });
   return new NextResponse(null, { status: 200 });
 }

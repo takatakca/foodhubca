@@ -183,7 +183,7 @@ Finance covers every location's money, so it is only for logins that see all loc
 | Store Hours | Opening hours, brand exceptions, holidays → published to every platform. |
 | Stores | Map store ids, connect Uber stores, pause/resume a whole location, prep time and busy mode. |
 | Analytics | Sales, orders, average order, cancellations (who / when / why), items, busiest hours, accept & prep times, store uptime — vs the previous period. |
-| Reports | 7 reports in CSV or Excel; *Email* sends one now, *Schedule* sends it daily / weekly / monthly (needs `RESEND_API_KEY` + `REPORT_EMAIL_FROM`). |
+| Reports | 7 reports in CSV or Excel; *Email* sends one now, *Schedule* sends it daily / weekly / monthly (needs `RESEND_API_KEY` + `REPORT_EMAIL_FROM`; owner/manager only). The `vercel.json` reports cron runs at 13:05 UTC (08:05 EST / 09:05 EDT) and catches up: a late or missed run still sends the latest completed period. |
 | Activity Log | Who paused, 86'd, published, changed hours or users, signed in — and whether the platform accepted it. |
 | Settings | Profile + PIN, Team, Tablets, Manager PIN rules, Alerts, Platforms & Clover, Business, Go-live. |
 | TGTG Bags | 10 seconds at closing: bags offered, sold, price per location. |
@@ -209,9 +209,9 @@ desktop notifications for that device (kitchen tablet and office PC can differ).
 
 ## Proof
 ```bash
-npm run check                              # typecheck + lint + 71 unit tests (incl. sessions, PINs, approvals,
+npm run check                              # typecheck + lint + 173 unit tests (incl. sessions, PINs, approvals,
                                            # sign-in codes, Watchtower detection and escalation)
-npm run build && npm run verify:foodhub    # 331 end-to-end checks against simulated Uber Eats (incl. Reporting API),
+npm run build && npm run verify:foodhub    # 374 end-to-end checks against simulated Uber Eats (incl. Reporting API),
                                            # DoorDash, Skip (JET Connect), Clover, Resend, Twilio and a team chat
 npm run demo:foodhub                       # same, then keeps running with a new order every 40 s
 ```

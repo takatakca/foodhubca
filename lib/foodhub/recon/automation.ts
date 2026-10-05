@@ -43,6 +43,35 @@ export async function requestUberPaymentReport(from: string, to: string, actor: 
 }
 
 /** Uber "eats.report.success" webhook: download every CSV it links to and import it. */
+/** Report files come from Uber or its S3 bucket over https only — the webhook is verified, but the link inside it is still data. */
+const REPORT_HOSTS = /(^|\.)(uber\.com|amazonaws\.com)$/i;
+const MAX_REPORT_BYTES = 15 * 1024 * 1024;
+export function allowedReportUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    // UBER_REPORT_ALLOWED_HOSTS: extra hosts (comma-separated) for a corporate proxy or the e2e mock; any scheme.
+    const extra = (process.env.UBER_REPORT_ALLOWED_HOSTS || '').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean);
+    if (extra.includes(u.hostname.toLowerCase())) return true;
+    return u.protocol === 'https:' && REPORT_HOSTS.test(u.hostname);
+  } catch { return false; }
+}
+/** Reads at most `max` bytes within `deadlineMs` (the fetch timeout only covers the headers). */
+async function readCapped(res: Response, max: number, deadlineMs: number): Promise<Uint8Array> {
+  const declared = Number(res.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > max) throw new Error(`report too large (${Math.round(declared / 1024 / 1024)} MB, max ${max / 1024 / 1024} MB)`);
+  const reader = res.body?.getReader();
+  if (!reader) return new Uint8Array(await res.arrayBuffer());
+  const chunks: Uint8Array[] = []; let total = 0; const deadline = Date.now() + deadlineMs;
+  for (;;) {
+    const { done, value } = await Promise.race([reader.read(), new Promise<never>((_, rej) => setTimeout(() => rej(new Error('report download timed out')), Math.max(1, deadline - Date.now())))]);
+    if (done) break;
+    total += value.length; if (total > max) { await reader.cancel().catch(() => undefined); throw new Error(`report too large (max ${max / 1024 / 1024} MB)`); }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total); let off = 0; for (const c of chunks) { out.set(c, off); off += c.length; }
+  return out;
+}
+
 export async function handleUberReportWebhook(body: any): Promise<{ imported: number; errors: string[] }> {
   const repo = getRepo();
   const links = reportDownloadLinks(body);
@@ -50,9 +79,11 @@ export async function handleUberReportWebhook(body: any): Promise<{ imported: nu
   let imported = 0;
   for (const url of links) {
     try {
-      const res = await timedFetch(url, {});
+      if (!allowedReportUrl(url)) throw new Error(`download refused: ${url.slice(0, 80)} is not an https uber.com / amazonaws.com link`);
+      const res = await timedFetch(url, { redirect: 'manual' }); // a redirect could leave the allow-listed host
+      if (res.status >= 300 && res.status < 400) throw new Error(`download refused: ${url.slice(0, 80)} redirects elsewhere`);
       if (!res.ok) throw new Error(`download HTTP ${res.status}`);
-      const bytes = new Uint8Array(await res.arrayBuffer());
+      const bytes = await readCapped(res, MAX_REPORT_BYTES, 60_000);
       const name = decodeURIComponent(new URL(url).pathname.split('/').pop() || '') || `uber-report-${localDate(Date.now())}.csv`;
       const out = await importStatement({ fileName: name, bytes, channel: 'uber_eats', actor: PLATFORM, source: 'uber_reporting_api' });
       if (out.ok) imported++;

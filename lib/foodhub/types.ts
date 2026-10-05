@@ -26,6 +26,9 @@ export interface OrderTimeline {
   /** Target ready time given to the platform / kitchen (prep time). */
   readyTarget?: string;
   printedAt?: string;
+  /** Last kitchen-ticket print failure (cleared by a successful print/reprint) and how many fire-time attempts were made. */
+  printError?: string;
+  printAttempts?: number;
   /** Scheduled (advance) order: when the customer wants it, and when the kitchen should start. */
   scheduledFor?: string;
   fireAt?: string;
@@ -113,13 +116,6 @@ export interface NormalizedOrder {
    * Food Hub only follows it: no accept / reject / cancel, never re-sent to Clover, no Clover payment recorded.
    */
   viaPos?: 'clover';
-  /**
-   * 'urbanpiper' = received through the owner's UrbanPiper hub (Skip / DoorDash without a direct platform API).
-   * Runs the normal pipeline (Clover ticket, kitchen); accept / ready / reject go back through UrbanPiper's status API.
-   */
-  viaHub?: 'urbanpiper';
-  /** The hub's own order id (UrbanPiper), used for status updates. */
-  hubOrderId?: string;
 }
 
 export interface StoredOrder extends NormalizedOrder {
@@ -207,6 +203,8 @@ export interface MenuItem {
   allergens?: string[];
   calories?: number;
   price: number;
+  /** Operator note (never sent to the platforms), e.g. why an imported item is unavailable. */
+  note?: string;
   imageUrl?: string;
   categoryRef: string;
   available: boolean;
@@ -238,6 +236,8 @@ export interface MasterMenu {
   unavailableByLocation?: Record<string, string[]>;
   /** When a timed 86 ends: "locationCode|ref" -> epoch ms. */
   unavailableUntil?: Record<string, number>;
+  /** Clover merchant the master menu was imported from (posItemRef ids belong to that merchant). */
+  posMerchantId?: string;
   /**
    * Percentage added to every item and modifier price on a platform (e.g. { doordash: 20 } = +20%).
    * The base price stays the in-store (Clover) price; a per-item channelPrices override always wins.

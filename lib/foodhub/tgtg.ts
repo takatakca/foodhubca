@@ -52,7 +52,9 @@ export async function saveBagDay(input: { date: string; locationCode: string; ba
   const id = `${input.locationCode}|${input.date}`;
   const prev = await repo.getDoc<BagDay>(BAGS, id);
   const dayStart = startOfLocalDayMs(Date.parse(`${input.date}T12:00:00Z`));
-  const dayOrders = (await repo.listOrders({ since: new Date(dayStart).toISOString(), until: new Date(dayStart + 86400_000).toISOString(), limit: 2000, locationCodes: [input.locationCode] }))
+  // The local day ends at the next local midnight (25 h on the fall-back day), not at dayStart + 24 h.
+  const dayEnd = startOfLocalDayMs(dayStart + 36 * 3600_000);
+  const dayOrders = (await repo.listOrders({ since: new Date(dayStart).toISOString(), until: new Date(dayEnd).toISOString(), limit: 2000, locationCodes: [input.locationCode] }))
     .filter((o) => o.channel === 'tgtg');
   const feed = dayOrders.filter((o) => !isLogOrder(o));
   const stores = await repo.listStores('tgtg');

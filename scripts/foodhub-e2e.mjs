@@ -122,7 +122,7 @@ const mock = http.createServer(async (req, res) => {
     if (order) return send(200, UBER_ORDER(order[1], order[1].includes('stl') ? 'uber-store-stl' : 'uber-store-uuid-1', order[1].includes('sched') ? 60.4 : 15));
     if (p === '/uber/v1/eats/report' && req.method === 'POST') return send(200, { workflow_id: 'wf-report-1' });
     if (p === '/uber/v1/eats/stores') return send(200, { stores: [{ store_id: 'uber-store-uuid-1', name: 'Po Poulet NDG' }] });
-    const st = p.match(/^\/uber\/v1\/eats\/store\/([^/]+)\/status$/);
+    const st = p.match(/^\/uber\/v1\/eats\/stores\/([^/]+)\/status$/);
     if (st && req.method === 'GET') {
       if (!uberStatus.has(st[1]) && !knownUberStores.has(st[1])) return send(404, { message: 'store not found' });
       return send(200, uberStatus.get(st[1]) ?? { status: 'ONLINE' });
@@ -289,6 +289,8 @@ const env = {
   FOODHUB_PUBLIC_URL: 'https://takatak.example',
   FOODHUB_TIMEZONE: 'America/Toronto',
   LIVE_CONNECTORS_GLOBAL_ENABLED: 'true',
+  UBER_REPORT_ALLOWED_HOSTS: '127.0.0.1',
+  FOODHUB_TRUST_PROXY: 'true', // the harness plays several clients through x-forwarded-for // report downloads are otherwise limited to https uber.com / amazonaws.com
   DASHBOARD_PASSWORD: PASSWORD,
   CRON_SECRET: 'cron-e2e',
   UBER_BASE_URL: `${MOCK}/uber`, UBER_AUTH_URL: `${MOCK}/uber/oauth/v2/token`, UBER_CLIENT_ID: 'uber-id', UBER_CLIENT_SECRET: UBER_SECRET, UBER_WEBHOOK_SIGNING_KEY: 'uber-signing-key-e2e',
@@ -480,7 +482,7 @@ try {
   const ndg = [ids.uber.id, ids.dd.id, ids.skip.id];
   const pause = await call('POST', '/api/foodhub/stores/status', { body: { storeIds: ndg, online: false, minutes: 30, reason: 'Kitchen overloaded' } });
   check('pause sent to all 3 platforms', (pause.json?.results || []).every((r) => r.result.ok) && pause.json.results.length === 3);
-  check('Uber store PAUSED with paused_until', sent('POST', /\/v1\/eats\/store\/uber-store-uuid-1\/status$/).pop()?.body?.paused_until);
+  check('Uber store PAUSED with paused_until', sent('POST', /\/v1\/eats\/stores\/uber-store-uuid-1\/status$/).pop()?.body?.paused_until);
   const ddPause = sent('PUT', /\/stores\/dd-popoulet-ndg\/status$/).pop()?.body;
   check('DoorDash deactivated with end_time', ddPause?.is_active === false && !!ddPause.end_time);
   check('Skip offline with local onlineAt (YYYY-MM-DD HH:MM:SS)', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(sent('PUT', /^\/skip\/restaurants\/NDG-POPOULET\/offline$/).pop()?.body?.onlineAt || ''));
@@ -493,12 +495,13 @@ try {
   const ev7 = (await call('GET', `/api/foodhub/orders/${o7?.id}`)).json?.events || [];
   check('TGTG bag order received, in Clover; accept logged as "nothing sent" (no fake API call)', o7?.locationCode === 'NDG_MAIN' && o7.status === 'accepted' && ev7.some((e) => e.type === 'accepted' && e.detail?.response?.status === 'skipped'));
   await call('POST', '/api/foodhub/webhooks/tgtg', { auth: false, headers: { authorization: 'tgtg-hook-e2e' }, body: { weird: true } });
-  check('unknown payload kept, not lost', !!(await waitFor(async () => (await call('GET', '/api/foodhub/channels')).json?.unparsed?.length === 1)));
+  const unparsedTgtg = await waitFor(async () => ((await call('GET', '/api/foodhub/channels')).json?.unparsed || []).find((j) => j.channel === 'tgtg'));
+  check('unknown payload kept, not lost', !!unparsedTgtg && JSON.stringify(unparsedTgtg.request).includes('weird'), JSON.stringify(unparsedTgtg)?.slice(0, 160));
 
   console.log('\n14. Automatic sync: platform status + Clover in-store sales');
   uberStatus.set('uber-store-uuid-1', { status: 'OFFLINE', offlineReason: 'OUT_OF_MENU_HOURS' });
   knownUberStores.delete('uber-store-stl');
-  ddDetails.set('dd-popoulet-ndg', { merchant_supplied_id: 'dd-popoulet-ndg', current_deactivations: [{ reason: 'Merchant operational issues', notes: 'store deactivated' }] });
+  ddDetails.set('dd-popoulet-ndg', { merchant_supplied_id: 'dd-popoulet-ndg', current_deactivations: [{ reason: 'out_of_business', notes: 'Deactivated by DoorDash' }] });
   check('Skip "restaurant offline" notification accepted', (await skipWebhook('offline', { restaurantId: 'NDG-POPOULET', delivery: { isOffline: true }, collection: { isOffline: true } }, { hmac: false })).status === 200);
   await sleep(500);
   const sy = await call('POST', '/api/foodhub/sync', { body: { force: true } });
@@ -507,7 +510,7 @@ try {
   check('sync ran and polled every Uber + DoorDash store', sy.json?.ran === true && rep.stores.filter((s) => s.polled).length === rep.stores.filter((s) => s.channel === 'uber_eats' || s.channel === 'doordash').length && rep.stores.filter((s) => s.polled).length >= 5, JSON.stringify(rep?.stores?.map((s) => [s.channelStoreId, s.state, s.polled])));
   check('Uber OUT_OF_MENU_HOURS → closed (Z rule)', stState('uber-store-uuid-1')?.state === 'closed');
   check('DoorDash current_deactivations → deactivated', stState('dd-popoulet-ndg')?.state === 'deactivated');
-  check('Uber store missing on Uber (404) → deactivated', stState('uber-store-stl')?.state === 'deactivated');
+  check('Uber store missing on Uber (404) → unknown with the error, not deactivated', stState('uber-store-stl')?.state !== 'deactivated' && /404/.test(stState('uber-store-stl')?.error || ''), JSON.stringify(stState('uber-store-stl')));
   check('Skip state comes from its offline notification', stState('NDG-POPOULET')?.state === 'paused' && stState('NDG-POPOULET')?.polled === false);
   const main = rep?.clover?.find((c) => c.merchantId === 'MAINMERCHANT');
   check('Clover in-store = payments − refunds, delivery orders excluded ($35.00)', main?.ok && main.net === 35 && main.payments === 2 && main.tips === 3, JSON.stringify(main));
@@ -598,10 +601,10 @@ try {
   const sa = uberMenu17?.menus?.[0]?.service_availability || [];
   check('Uber menu hours: Mon 11:00–22:00, Sunday closed', sa.find((d) => d.day_of_week === 'monday')?.time_periods?.[0]?.start_time === '11:00' && sa.find((d) => d.day_of_week === 'monday').time_periods[0].end_time === '22:00' && !sa.some((d) => d.day_of_week === 'sunday'), JSON.stringify(sa.slice(0, 2)));
   const uberHol = after17.find((e) => e.method === 'POST' && /\/uber\/v1\/eats\/stores\/uber-store-uuid-1\/holiday-hours$/.test(e.path))?.body?.holiday_hours;
-  check('Uber holiday-hours: closed day 00:00–00:00 + short day 12:00–16:00 (NDG only)', uberHol?.[localDay(10)]?.open_time_periods?.[0]?.end_time === '00:00' && uberHol[localDay(12)]?.open_time_periods?.[0]?.start_time === '12:00' && !uberHol[today], JSON.stringify(uberHol));
+  check('Uber holiday-hours: closed day = empty open_time_periods + short day 12:00–16:00 (NDG only)', Array.isArray(uberHol?.[localDay(10)]?.open_time_periods) && uberHol[localDay(10)].open_time_periods.length === 0 && uberHol[localDay(12)]?.open_time_periods?.[0]?.start_time === '12:00' && !uberHol[today], JSON.stringify(uberHol));
   const ddMenu17 = after17.find((e) => /\/dd\/api\/v1\/menus/.test(e.path) && e.body?.store?.merchant_supplied_id === 'dd-popoulet-ndg')?.body;
-  check('DoorDash open_hours in HH:MM:SS, Sunday closed as 00:00:00', ddMenu17?.open_hours?.some((h) => h.day_index === 'MON' && h.start_time === '11:00:00' && h.end_time === '22:00:00') && ddMenu17.open_hours.some((h) => h.day_index === 'SUN' && h.start_time === '00:00:00' && h.end_time === '00:00:00'), JSON.stringify(ddMenu17?.open_hours?.slice(0, 3)));
-  check('DoorDash special_hours: closed day + special hours', ddMenu17?.special_hours?.some((h) => h.date === localDay(10) && h.closed === true) && ddMenu17.special_hours.some((h) => h.date === localDay(12) && h.closed === false && h.start_time === '12:00:00'), JSON.stringify(ddMenu17?.special_hours));
+  check('DoorDash open_hours in HH:MM:SS, Sunday (closed) omitted', ddMenu17?.open_hours?.some((h) => h.day_index === 'MON' && h.start_time === '11:00:00' && h.end_time === '22:00:00') && !ddMenu17.open_hours.some((h) => h.day_index === 'SUN') && !ddMenu17.open_hours.some((h) => h.start_time === h.end_time), JSON.stringify(ddMenu17?.open_hours?.slice(0, 3)));
+  check('DoorDash special_hours: closed day (no times) + special hours', ddMenu17?.special_hours?.some((h) => h.date === localDay(10) && h.closed === true && h.start_time === undefined && h.end_time === undefined) && ddMenu17.special_hours.some((h) => h.date === localDay(12) && h.closed === false && h.start_time === '12:00:00'), JSON.stringify(ddMenu17?.special_hours));
   check('DoorDash menu update uses the menu id it was given (PATCH)', after17.some((e) => e.method === 'PATCH' && /\/dd\/api\/v1\/menus\/dd-menu-77$/.test(e.path)));
   const skipMenu17 = after17.find((e) => e.path === '/skip/menus' && e.body?.restaurants?.includes('NDG-POPOULET'))?.body;
   check('Skip menu availability per day ("11:00 - 22:00")', skipMenu17?.menus?.[0]?.availability?.monday?.[0] === '11:00 - 22:00' && (skipMenu17.menus[0].availability.sunday ?? []).length === 0, JSON.stringify(skipMenu17?.menus?.[0]?.availability));
@@ -625,7 +628,7 @@ try {
   const sched = uber18?.menus?.find((m) => m.id !== 'takatak-main');
   check('Uber: lunch category in its own menu, 11:00–14:00 (inside store hours)', uber18?.menus?.length === 2 && sched?.service_availability?.find((d) => d.day_of_week === 'monday')?.time_periods?.[0]?.start_time === '11:00' && sched.service_availability.find((d) => d.day_of_week === 'monday').time_periods[0].end_time === '14:00', JSON.stringify(uber18?.menus?.map((m) => [m.id, m.service_availability?.[0]])));
   const uberItem18 = uber18?.items?.find((i) => i.id === m18.items[0].ref);
-  check('Uber item: description with tags + allergens, calories', /Spicy/.test(uberItem18?.description?.translations?.en || '') && /moutarde/i.test(uberItem18.description.translations.en) && uberItem18.nutritional_info?.calories?.lower_range === 780, JSON.stringify(uberItem18?.description));
+  check('Uber item: description with tags + allergens, calories', /Spicy/.test(uberItem18?.description?.translations?.en_ca || '') && /moutarde/i.test(uberItem18.description.translations.en_ca) && uberItem18.nutritional_info?.calories?.lower_range === 780, JSON.stringify(uberItem18?.description));
   const dd18 = after18.find((e) => /\/dd\/api\/v1\/menus/.test(e.path) && e.body?.store?.merchant_supplied_id === 'dd-popoulet-ndg')?.body;
   const ddItem18 = dd18?.menu?.categories?.flatMap((c) => c.items).find((i) => i.merchant_supplied_id === m18.items[0].ref);
   check('DoorDash: scheduled items carry item_special_hours (lunch ∩ store hours = 11:00–14:00)', ddItem18?.item_special_hours?.some((h) => h.day_index === 'MON' && h.start_time === '11:00:00' && h.end_time === '14:00:00'), JSON.stringify(ddItem18?.item_special_hours?.[0]));
@@ -762,6 +765,9 @@ try {
   const kinds = new Set(acts.map((e) => e.kind));
   check('records orders, pauses, 86, menus, hours, users and sign-ins', ['order', 'store_status', 'item_availability', 'menu_publish', 'hours', 'users', 'login'].every((k) => kinds.has(k)), [...kinds].join(','));
   check('platform-side changes are logged too (store went offline on DoorDash)', acts.some((e) => e.kind === 'store_status' && e.source === 'platform'));
+  const bogusPage = await call('GET', '/orders', { auth: false, redirect: 'manual', headers: { authorization: 'Basic eDp4' } });
+  check('a page with a bogus Basic header is sent to sign-in (never passes the gate unverified)', bogusPage.status >= 300 && bogusPage.status < 400 && String(bogusPage.location).includes('/login'), `${bogusPage.status} ${bogusPage.location}`);
+  check('/api/foodhub/* with a bogus Basic header → 401', (await call('GET', '/api/foodhub/activity?limit=1', { auth: false, headers: { authorization: 'Basic eDp4' } })).status === 401);
   check('failed sign-in is logged', acts.some((e) => e.kind === 'login' && e.status === 'failed'));
   check('activity filter by type', ((await call('GET', '/api/foodhub/activity?kinds=hours')).json?.entries || []).every((e) => e.kind === 'hours'));
 
@@ -782,7 +788,9 @@ try {
   const payPosts = () => sent('POST', /\/v3\/merchants\/MAINMERCHANT\/orders\/[^/]+\/payments$/);
   const tenderId = (l) => cloverTenders.find((t) => t.label === l)?.id;
   const o8pay = payPosts().find((e) => e.path.endsWith(`/orders/${o8?.posOrderId}/payments`))?.body;
-  check('picked-up DoorDash order recorded as paid in Clover with the "DoorDash" tender', o8pay?.tender?.id === tenderId('DoorDash') && o8pay.result === 'SUCCESS' && o8pay.amount === cloverOrderTotals.get(o8?.posOrderId) && /^dd:/.test(o8pay.externalPaymentId) && o8pay.externalPaymentId.length <= 32, JSON.stringify(o8pay));
+  // The payment carries what the customer really paid for the food (subtotal − discount + tax, in cents), not Clover's own total.
+  const o8expected = Math.round(((o8?.subtotal ?? 0) - (o8?.discount ?? 0) + (o8?.tax ?? 0)) * 100);
+  check('picked-up DoorDash order recorded as paid in Clover with the "DoorDash" tender', o8pay?.tender?.id === tenderId('DoorDash') && o8pay.result === 'SUCCESS' && o8pay.amount === o8expected && o8pay.taxAmount === Math.round((o8?.tax ?? 0) * 100) && /^dd:/.test(o8pay.externalPaymentId) && o8pay.externalPaymentId.length <= 32, JSON.stringify(o8pay));
   check('Food Hub keeps the Clover payment id on the order', !!(await findOrder('dd-order-2'))?.timeline?.posPaymentId);
   check('orders still in the kitchen are not paid yet (they can still be cancelled)', !payPosts().some((e) => e.path.includes(`/orders/${o2?.posOrderId}/`) || e.path.includes(`/orders/${o1?.posOrderId}/`)));
   check('Uber order cancelled after accepting → removed from the Clover register', sent('DELETE', new RegExp(`/orders/${o9?.posOrderId}$`)).length === 1 && !!(await findOrder('uber-order-2'))?.timeline?.posClosedAt && !payPosts().some((e) => e.path.includes(`/orders/${o9?.posOrderId}/`)));
@@ -962,7 +970,7 @@ try {
   await call('POST', '/api/foodhub/menu/publish', { body: { brand: 'Po Poulet' } });
   const a33 = log.slice(b33);
   const u33 = a33.find((e) => e.method === 'PUT' && /uber-store-uuid-1\/menus$/.test(e.path))?.body?.items?.find((i) => i.id === 'clv-item-1');
-  check('Uber Eats gets English and French in the same menu', u33?.title?.translations?.en === enName && u33.title.translations.fr === 'Poulet grillé', JSON.stringify(u33?.title));
+  check('Uber Eats gets English and French in the same menu (locale keys en_ca / fr_ca)', u33?.title?.translations?.en_ca === enName && u33.title.translations.fr_ca === 'Poulet grillé' && Object.keys(u33.title.translations).every((k) => /^[a-z]{2}_[a-z]{2}$/.test(k)), JSON.stringify(u33?.title));
   const d33 = a33.find((e) => /\/dd\/api\/v1\/menus/.test(e.path) && e.body?.store?.merchant_supplied_id === 'dd-popoulet-ndg')?.body;
   check('DoorDash gets the French names', !!d33?.menu?.categories?.some((c) => c.name === 'Plats principaux' && c.items.some((i) => i.name === 'Poulet grillé')), JSON.stringify(d33?.menu?.categories?.map((c) => c.name)));
   const s33 = JSON.stringify(a33.find((e) => e.path === '/skip/menus' && e.body?.restaurants?.includes('NDG-POPOULET'))?.body || {});

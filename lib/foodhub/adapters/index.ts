@@ -23,5 +23,6 @@ export function getAdapter(key: string): ChannelAdapter {
 }
 
 export function isChannelKey(key: string): key is ChannelKey {
-  return key in ADAPTERS;
+  // Own keys only: `in` also accepts 'constructor' / 'toString' from Object.prototype.
+  return Object.prototype.hasOwnProperty.call(ADAPTERS, key);
 }

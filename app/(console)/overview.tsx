@@ -27,11 +27,13 @@ export function Overview() {
   const sig = pulse ? `${pulse.orders.today}|${pulse.orders.cancelled}|${pulse.stores.online}` : '';
   useEffect(() => { if (sig) load(); }, [sig, load]);
 
-  const hour = new Date().getHours();
-  const hello = hour < 12 ? t('Bonjour', 'Good morning') : hour < 18 ? t('Bon après-midi', 'Good afternoon') : t('Bonsoir', 'Good evening');
+  // The local hour is only known in the browser: rendered after mount so the server HTML and the first client render match.
+  const [hour, setHour] = useState<number | null>(null);
+  useEffect(() => { const tick = () => setHour(new Date().getHours()); tick(); const i = setInterval(tick, 60_000); return () => clearInterval(i); }, []);
+  const hello = hour === null ? t('Bonjour', 'Hello') : hour < 12 ? t('Bonjour', 'Good morning') : hour < 18 ? t('Bon après-midi', 'Good afternoon') : t('Bonsoir', 'Good evening');
   const k = cc?.kpis;
   const vs = k && k.yesterdaySameTime ? Math.round(((k.deliverySales - k.yesterdaySameTime) / k.yesterdaySameTime) * 1000) / 10 : null;
-  const nowH = new Date().getHours();
+  const nowH = hour ?? 23;
   const hours = (cc?.byHour ?? []).filter((h) => h.hour >= 6 || h.sales || h.yesterday).map((h) => ({ label: `${String(h.hour).padStart(2, '0')}h`, cur: h.hour <= nowH ? h.sales : 0, prev: h.yesterday }));
 
   return (

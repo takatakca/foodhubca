@@ -58,14 +58,13 @@ describe('menu translators with hours, holidays and schedules', () => {
     expect(u.menus).toHaveLength(2);
     expect(u.menus[0].service_availability[0]).toEqual({ day_of_week: 'monday', time_periods: [{ start_time: '10:00', end_time: '22:00' }] });
     expect(u.menus[1].category_ids).toEqual(['c2']);
-    expect(toUberHolidayHours(ctx.holidays)).toEqual({ holiday_hours: { '2026-12-25': { open_time_periods: [{ start_time: '00:00', end_time: '00:00' }] } } });
-    expect((u.items.find((i: any) => i.id === 'i1') as any).description.translations.en).toContain('Spicy');
+    expect(toUberHolidayHours(ctx.holidays)).toEqual({ holiday_hours: { '2026-12-25': { open_time_periods: [] } } });
+    expect((u.items.find((i: any) => i.id === 'i1') as any).description.translations.en_ca).toContain('Spicy');
   });
-  it('DoorDash: open_hours with seconds, closed days as 00:00, special_hours, item hours for scheduled categories', () => {
+  it('DoorDash: open_hours with seconds, closed days omitted, special_hours, item hours for scheduled categories', () => {
     const d = toDoorDashMenu(menu, 'msid', 'prov', 'ref', { ...ctx, hours: week('10:00', '22:00', ['monday']) });
-    expect(d.open_hours.find((h: any) => h.day_index === 'MON')).toEqual({ day_index: 'MON', start_time: '10:00:00', end_time: '22:00:00' });
-    expect(d.open_hours.find((h: any) => h.day_index === 'TUE')).toEqual({ day_index: 'TUE', start_time: '00:00:00', end_time: '00:00:00' });
-    expect(d.special_hours).toEqual([{ date: '2026-12-25', closed: true, start_time: '00:00:00', end_time: '00:00:00' }]);
+    expect(d.open_hours).toEqual([{ day_index: 'MON', start_time: '10:00:00', end_time: '22:00:00' }]);
+    expect(d.special_hours).toEqual([{ date: '2026-12-25', closed: true }]);
     const breakfast = d.menu.categories.find((c: any) => c.merchant_supplied_id === 'c2')!.items[0] as any;
     expect(breakfast.item_special_hours[0]).toMatchObject({ day_index: 'MON', start_time: '10:00:00', end_time: '11:00:00', start_date: '2026-10-01' });
   });
@@ -146,11 +145,11 @@ describe('reports', () => {
     expect(sheet).toContain('<v>12.5</v>');
     expect(sheet).toContain('Café, &quot;Le&quot;');
   });
-  it('schedules: daily after 8:00, weekly on Mondays, monthly on the 1st', () => {
+  it('schedules: daily after 8:00, weekly = last complete Mon–Sun, monthly = last month (catch-up)', () => {
     process.env.FOODHUB_TIMEZONE = 'America/Toronto';
     expect(duePeriod('daily', Date.parse('2026-10-02T11:00:00Z'))).toBeNull(); // 07:00 local
     expect(duePeriod('daily', Date.parse('2026-10-02T13:00:00Z'))?.key).toBe('d:2026-10-01');
-    expect(duePeriod('weekly', Date.parse('2026-10-02T13:00:00Z'))).toBeNull(); // Friday
+    expect(duePeriod('weekly', Date.parse('2026-10-02T13:00:00Z'))?.key).toBe('w:2026-09-21'); // Friday: last complete week
     expect(duePeriod('weekly', Date.parse('2026-10-05T13:00:00Z'))?.key).toBe('w:2026-09-28');
     expect(duePeriod('monthly', Date.parse('2026-10-01T13:00:00Z'))?.key).toBe('m:2026-09');
   });

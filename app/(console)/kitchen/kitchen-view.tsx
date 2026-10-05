@@ -49,7 +49,7 @@ export function KitchenView() {
           <div className="text-xs font-bold tracking-[0.14em] text-brand uppercase">{t('Cuisine', 'Kitchen')}</div>
           <h1 className="text-2xl font-extrabold">{here ? shortLoc(locName(here)) : t('Toutes les succursales', 'All locations')}</h1>
         </div>
-        <div className="num ml-2 text-3xl font-extrabold text-ink-2">{new Date(now).toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' })}</div>
+        <div className="num ml-2 text-3xl font-extrabold text-ink-2" suppressHydrationWarning>{new Date(now).toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' })}</div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {here && can('stores:toggle') && (
             <Button variant={kitchen?.busy ? 'danger' : 'outline'} size="lg" loading={busy} onClick={toggleBusy} icon={kitchen?.busy ? <Flame className="size-5" /> : <Snowflake className="size-5" />}>

@@ -87,6 +87,7 @@ export async function saveHours(cfg: HoursConfig): Promise<HoursConfig> {
     ...Object.entries(cfg.locations).flatMap(([loc, w]) => weekErrors(w).map((e) => `${loc} ${e}`)),
     ...Object.entries(cfg.brands).flatMap(([b, w]) => weekErrors(w).map((e) => `${b} ${e}`)),
     ...cfg.holidays.flatMap((h) => (/^\d{4}-\d{2}-\d{2}$/.test(h.date) ? [] : [`Holiday "${h.name}": date must be YYYY-MM-DD`])),
+    ...cfg.holidays.flatMap((h) => holidaySlotErrors(h).map((e) => `Holiday "${h.name}": ${e}`)),
   ];
   if (errors.length) throw new Error(errors.slice(0, 5).join('; '));
   const clean: HoursConfig = {
@@ -102,6 +103,26 @@ export async function saveHours(cfg: HoursConfig): Promise<HoursConfig> {
 
 function normalizeSlots(slots: Slot[]): Slot[] {
   return normalizeWeek({ monday: slots } as Partial<WeeklyHours>).monday;
+}
+
+/** Holiday special hours are one local day: a slot that crosses midnight (18:00–02:00) would silently lose its after-midnight part. */
+export function holidaySlotErrors(h: Pick<Holiday, 'closed' | 'slots'>): string[] {
+  if (h.closed) return [];
+  const errors: string[] = [];
+  for (const s of h.slots ?? []) {
+    if (!TIME.test(s.open) || !TIME.test(s.close)) errors.push(`times must be HH:MM (got ${s.open}–${s.close})`);
+    else if (toMin(s.close) <= toMin(s.open)) errors.push(`${s.open}–${s.close} must end after it starts (holiday hours cannot cross midnight — use a closing time up to 23:59)`);
+  }
+  return errors;
+}
+
+/** Epoch ms of local wall-clock `date` + `minutes` in the hub zone (same two-pass offset trick as startOfLocalDayMs, so DST days stay right). */
+function localMs(date: string, minutes: number, tz: string): number {
+  const [y, m, d] = date.split('-').map(Number);
+  const guess = Date.UTC(y, m - 1, d, 0, minutes);
+  const offsetAt = (ms: number) => { const p = localParts(ms, tz); return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(ms / 1000) * 1000; };
+  const first = guess - offsetAt(guess);
+  return guess - offsetAt(first);
 }
 
 /** Brand override wins; otherwise the location's hours; null = never set. */
@@ -141,8 +162,9 @@ export function openIntervals(week: WeeklyHours, holidays: Holiday[], fromMs: nu
     const holiday = holidays.find((h) => h.date === date);
     const slots = holiday ? (holiday.closed ? [] : holiday.slots ?? []) : week[dayKeyOf(date)] ?? [];
     for (const s of slots) {
-      const a = Math.max(fromMs, dayStart + toMin(s.open) * 60_000);
-      const b = Math.min(toMs, dayStart + toMin(s.close) * 60_000 + 60_000);
+      // Build the slot instants through the zone, not dayStart + minutes: DST days are 23 h / 25 h long.
+      const a = Math.max(fromMs, localMs(date, toMin(s.open), tz));
+      const b = Math.min(toMs, localMs(date, toMin(s.close), tz) + 60_000);
       if (b > a) out.push([a, b]);
     }
   }

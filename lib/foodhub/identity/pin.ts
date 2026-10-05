@@ -3,6 +3,7 @@
 // PINs are short, so the real protection is the lockout: 5 wrong PINs → 5 minutes locked, per device/IP.
 import crypto from 'node:crypto';
 import { getRepo } from '../repo';
+import { clientIp } from '../session';
 import type { FoodHubUser, Role } from '../types';
 
 const N = 4096; // PINs are low-entropy anyway; a lighter scrypt keeps "find the approver" fast.
@@ -48,10 +49,13 @@ export function noteFailure(who: string) {
 }
 export function noteSuccess(who: string) { strikes().delete(who); }
 
-export function clientKey(req: Request, deviceId?: string | null): string {
+/**
+ * Lockout bucket: the tablet for a PIN session, else the client IP (only trusted behind a proxy — see clientIp)
+ * plus the signed-in username, so one person's wrong PINs never lock approvals for everyone else.
+ */
+export function clientKey(req: Request, deviceId?: string | null, username?: string | null): string {
   if (deviceId) return `dev:${deviceId}`;
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || req.headers.get('x-real-ip') || 'local';
-  return `ip:${ip}`;
+  return `ip:${clientIp(req.headers)}${username ? `|${username.toLowerCase()}` : ''}`;
 }
 
 /** The active person whose PIN this is, among the given roles and (when given) people allowed at that location. */

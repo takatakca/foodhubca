@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/foodhub/cron/reports",
-      "schedule": "5 12 * * *"
+      "schedule": "5 13 * * *"
     }
   ]
 }

@@ -95,6 +95,7 @@ ENV_FILE="$APP_DIR/.env.local"
 if [ ! -f "$ENV_FILE" ]; then
   cat > "$ENV_FILE" <<ENV
 FOODHUB_PUBLIC_URL=https://$DOMAIN
+FOODHUB_TRUST_PROXY=true
 NEXT_PUBLIC_SUPABASE_URL=https://pcjfahhlozsseqqevimi.supabase.co
 FOODHUB_TIMEZONE=America/Toronto
 FOODHUB_WATCH_INTERVAL_S=30
@@ -103,6 +104,7 @@ ENV
   chown "$APP_USER:$APP_USER" "$ENV_FILE"; chmod 600 "$ENV_FILE"
 fi
 sed -i "s#^FOODHUB_PUBLIC_URL=.*#FOODHUB_PUBLIC_URL=https://$DOMAIN#" "$ENV_FILE"
+grep -q "^FOODHUB_TRUST_PROXY=" "$ENV_FILE" || echo "FOODHUB_TRUST_PROXY=true" >> "$ENV_FILE"
 echo "Supabase → Project Settings → API : copiez la clé « service_role » quand on vous la demande (la URL est déjà remplie)."
 sudo -u "$APP_USER" -H npm run setup </dev/tty
 chmod 600 "$ENV_FILE"

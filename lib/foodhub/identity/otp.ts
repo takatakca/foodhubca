@@ -49,9 +49,10 @@ export async function findUserByContact(raw: string): Promise<FoodHubUser | null
 }
 
 /** Only allow redirects to a path on this site. */
+/** Only a same-origin path may follow a sign-in. Browsers parse "/\\evil.com" like "//evil.com", so a backslash disqualifies it too. */
 export function safeNext(next: unknown): string {
   const s = typeof next === 'string' ? next : '';
-  return s.startsWith('/') && !s.startsWith('//') && !s.startsWith('/api/') && !s.startsWith('/login') ? s.slice(0, 300) : '/';
+  return /^\/(?![/\\])/.test(s) && !s.includes('\\') && !s.startsWith('/api/') && !s.startsWith('/login') ? s.slice(0, 300) : '/';
 }
 
 export type StartResult =

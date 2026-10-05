@@ -4,7 +4,7 @@ Atlas is UrbanPiper's restaurant dashboard (Ordermark is part of UrbanPiper). Th
 TAKATAK Food Hub does for each Atlas module, where to find it, and what is **not** built.
 TAKATAK talks to the platforms **directly** — there is no aggregator and no monthly fee.
 
-Legend: **Done** = built and covered by the end-to-end test (`npm run verify:foodhub`, 330 checks) ·
+Legend: **Done** = built and covered by the end-to-end test (`npm run verify:foodhub`, 374 checks) ·
 **Platform limit** = the platform's API does not allow it · **Not built** = missing today.
 
 ## Orders

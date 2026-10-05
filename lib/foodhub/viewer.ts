@@ -3,7 +3,7 @@ import { cookies, headers } from 'next/headers';
 import { getCatalog } from './catalog';
 import { getDevice } from './identity/devices';
 import { getRepo } from './repo';
-import { basicOwner, readCookie, ROLE_PERMISSIONS, SESSION_COOKIE, verifySession, type Permission } from './session';
+import { basicOwner, ownerSessionVersion, readCookie, ROLE_PERMISSIONS, SESSION_COOKIE, userSessionVersion, verifySession, type Permission } from './session';
 import type { Role } from './types';
 
 export interface Viewer {
@@ -26,10 +26,10 @@ export async function getViewer(): Promise<Viewer | null> {
   const owner = (name = 'Owner'): Viewer => ({ username: 'owner', name, role: 'owner', locations: [], permissions: ROLE_PERMISSIONS.owner, builtin: true, hasPin: false, email: null, phone: null, device: null, lang: null });
   if (basicOwner(h.get('authorization'))) return owner();
   const session = await verifySession(jar.get(SESSION_COOKIE)?.value ?? readCookie(h.get('cookie')));
-  if (!session) return null;
-  if (session.b) return owner(session.n || 'Owner');
+  if (!session?.v) return null; // same rules as getActor(): a cookie is only valid while its session version matches
+  if (session.b) return session.v === ownerSessionVersion() ? owner(session.n || 'Owner') : null;
   const user = await getRepo().getUser(session.u).catch(() => null);
-  if (!user?.active) return null;
+  if (!user?.active || session.v !== userSessionVersion(user)) return null;
   const device = session.d ? await getDevice(session.d).catch(() => null) : null;
   if (session.d && (!device || device.revoked)) return null;
   return {

@@ -34,6 +34,25 @@ function matches(menu: MasterMenu, cloverId: string) {
   return menu.items.filter((i) => (i.posItemRef || i.ref) === cloverId);
 }
 
+/**
+ * Forget that Clover switched these items off. Called when a person (not Clover) 86s or re-enables an item:
+ * from then on the last word on that item is staff's, so a later Clover restock must not switch it back on.
+ * No locationCode = every location of the brand.
+ */
+export async function clearCloverOrigin(brandName: string, refs: string[], locationCode?: string): Promise<number> {
+  const repo = getRepo();
+  const origin = (await repo.getKv<Record<string, boolean>>(ORIGIN_KEY).catch(() => null)) ?? {};
+  const wanted = new Set(refs);
+  let cleared = 0;
+  for (const key of Object.keys(origin)) {
+    const [brand, loc, ...rest] = key.split('|');
+    if (brand !== brandName || !wanted.has(rest.join('|')) || (locationCode && loc !== locationCode)) continue;
+    delete origin[key]; cleared++;
+  }
+  if (cleared) await repo.setKv(ORIGIN_KEY, origin);
+  return cleared;
+}
+
 export interface CloverItemOutcome { matched: number; turnedOff: number; turnedOn: number; priceChanges: number }
 
 /** Applies one Clover item (as returned by GET /items/{id}) to every brand menu that uses it. */

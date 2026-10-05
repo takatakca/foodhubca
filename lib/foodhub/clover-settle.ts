@@ -12,8 +12,7 @@ import { getRepo } from './repo';
 import type { OrderTimeline, StoredOrder } from './types';
 
 async function patch(order: StoredOrder, t: OrderTimeline): Promise<StoredOrder> {
-  const timeline = { ...(order.timeline ?? {}), ...t };
-  return (await getRepo().updateOrder(order.id, { timeline })) ?? { ...order, timeline };
+  return (await getRepo().patchOrder(order.id, t)) ?? { ...order, timeline: { ...(order.timeline ?? {}), ...t } };
 }
 
 export async function settleInClover(order: StoredOrder | null): Promise<StoredOrder | null> {
@@ -34,7 +33,8 @@ export async function settleInClover(order: StoredOrder | null): Promise<StoredO
       await repo.addEvent(order.id, 'pos_payment_failed', { error: r.error });
       return patch(order, { posPaymentError: r.error });
     }
-    if (order.status === 'cancelled' && !order.timeline?.posClosedAt) {
+    // 'failed' = handed to the Skip tablet: the kitchen makes it from the tablet, so the Clover copy must go too.
+    if ((order.status === 'cancelled' || order.status === 'failed') && !order.timeline?.posClosedAt) {
       if (order.timeline?.posPaymentId) {
         await repo.addEvent(order.id, 'pos_paid_then_cancelled', { message: 'Cancelled after it was recorded as paid in Clover — refund it in the Clover app if the platform did not pay you.' });
         await logActivity({ actor: 'Food Hub', source: 'automation', kind: 'order', action: 'clover_paid_cancelled', status: 'failed', channel: order.channel, brandName: order.brandName, locationCode: order.locationCode, orderId: order.id,
@@ -44,9 +44,9 @@ export async function settleInClover(order: StoredOrder | null): Promise<StoredO
       const store = await repo.findStore(order.channel, order.channelStoreId);
       const r = await closeCancelledCloverOrder(order, store?.cloverMerchantId);
       if (r.skipped) return order;
-      await repo.addEvent(order.id, r.ok ? 'pos_cancelled' : 'pos_cancel_failed', { message: r.message });
+      await repo.addEvent(order.id, r.ok ? 'pos_cancelled' : 'pos_cancel_failed', { message: order.status === 'failed' ? `${r.message} (order handed to the Skip tablet)` : r.message });
       if (!r.ok) {
-        await logActivity({ actor: 'Food Hub', source: 'automation', kind: 'order', action: 'clover_cancel_failed', status: 'failed', channel: order.channel, brandName: order.brandName, locationCode: order.locationCode, orderId: order.id, summary: `${tag} cancelled, but Clover still has the order: ${r.message}` });
+        await logActivity({ actor: 'Food Hub', source: 'automation', kind: 'order', action: 'clover_cancel_failed', status: 'failed', channel: order.channel, brandName: order.brandName, locationCode: order.locationCode, orderId: order.id, summary: `${tag} ${order.status === 'failed' ? 'moved to the Skip tablet' : 'cancelled'}, but Clover still has the order: ${r.message}` });
       }
       return r.ok ? patch(order, { posClosedAt: nowIso() }) : order;
     }

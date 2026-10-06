@@ -1,4 +1,4 @@
-import { getActor } from '@/lib/foodhub/auth';
+import { errorResponse, getActor } from '@/lib/foodhub/auth';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { getDevice } from '@/lib/foodhub/identity/devices';
 import { normalizeEmail, normalizePhone } from '@/lib/foodhub/notify';
@@ -23,6 +23,14 @@ export async function GET(req: Request) {
 
 // Update your own profile: { name?, email?, phone?, prefs? }
 export async function PATCH(req: Request) {
+  try {
+    return await patchMe(req);
+  } catch (e) {
+    return errorResponse(e, 'PATCH /api/foodhub/auth/me');
+  }
+}
+
+async function patchMe(req: Request) {
   const actor = await getActor(req);
   if (!actor) return fail('Please sign in.', 401);
   if (actor.builtin) return fail('The recovery login has no profile — create your own owner account.', 409);

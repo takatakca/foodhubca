@@ -405,6 +405,9 @@ try {
   const ddMenu = sent('POST', /^\/dd\/api\/v1\/menus$/)[0]?.body;
   check('DoorDash menu JWT-signed, with store + provider type', ddMenu?.store?.merchant_supplied_id === 'dd-popoulet-ndg' && ddMenu.store.provider_type === 'takatak_e2e' && ddMenu.menu.categories.length === 2);
   check('DoorDash Menu Status webhook accepted', (await call('POST', '/api/foodhub/webhooks/doordash', { auth: false, headers: { authorization: 'dd-hook-e2e' }, body: { event: { type: 'MENU_STATUS' }, reference: ddMenu?.reference, menu: { id: 'dd-menu-77' }, status: 'success' } })).status === 200);
+  const pull = await call('GET', '/api/foodhub/webhooks/doordash/dd-popoulet-ndg', { auth: false, headers: { authorization: 'dd-hook-e2e' } });
+  check('DoorDash Menu Request (menu pull) answers { store, menus: [menu + open_hours + special_hours] }', pull.status === 200 && pull.json?.store?.merchant_supplied_id === 'dd-popoulet-ndg' && Array.isArray(pull.json?.menus) && pull.json.menus.length === 1 && Array.isArray(pull.json.menus[0].open_hours) && Array.isArray(pull.json.menus[0].special_hours) && !!pull.json.menus[0].menu, JSON.stringify(pull.json)?.slice(0, 200));
+  check('DoorDash menu pull refuses a wrong token and an unmapped location', (await call('GET', '/api/foodhub/webhooks/doordash/dd-popoulet-ndg', { auth: false, headers: { authorization: 'nope' } })).status === 401 && (await call('GET', '/api/foodhub/webhooks/doordash/not-mapped', { auth: false, headers: { authorization: 'dd-hook-e2e' } })).status === 404);
   const ddJob = await waitFor(async () => (await call('GET', '/api/foodhub/channels')).json.jobs.find((j) => j.channel === 'doordash' && j.kind === 'menu_push' && j.status === 'done'));
   check('DoorDash menu job closed + menu id kept for next update', !!ddJob && (await call('GET', '/api/foodhub/stores')).json.stores.find((x) => x.channelStoreId === 'dd-popoulet-ndg')?.meta?.doordashMenuId === 'dd-menu-77');
   const skipMenuCall = sent('POST', /^\/skip\/menus$/).find((e) => e.body?.restaurants?.includes('NDG-POPOULET'));
@@ -429,7 +432,7 @@ try {
   console.log('\n7. DoorDash order (JWT)');
   const ddOrder = { id: 'dd-order-1', store: { merchant_supplied_id: 'dd-popoulet-ndg' }, consumer: { first_name: 'Luc', last_name: 'Roy' }, subtotal: 1499, tax: 225, delivery_short_code: 'XY9',
     categories: [{ name: 'Plats', items: [{ name: 'Poulet Grillé', quantity: 1, price: 1499, merchant_supplied_id: 'clv-item-1', extras: [] }] }] };
-  check('DoorDash webhook accepted', (await call('POST', '/api/foodhub/webhooks/doordash', { auth: false, headers: { authorization: 'dd-hook-e2e' }, body: ddOrder })).status === 200);
+  check('DoorDash order webhook answered 202 (confirmed later, only once Clover has it)', (await call('POST', '/api/foodhub/webhooks/doordash', { auth: false, headers: { authorization: 'dd-hook-e2e' }, body: ddOrder })).status === 202);
   const o2 = await waitFor(async () => { const o = await findOrder('dd-order-1'); return o?.status === 'accepted' ? o : null; });
   check('DoorDash order confirmed (order_status success)', !!o2 && sent('PATCH', /^\/dd\/api\/v1\/orders\/dd-order-1$/)[0]?.body?.order_status === 'success');
   const ready = await call('POST', `/api/foodhub/orders/${o2?.id}`, { body: { action: 'ready' } });
@@ -846,6 +849,13 @@ try {
   await ddHook({ event: { type: 'dasher_arriving_at_store' }, order: { id: 'dd-order-1' } });
   const q29 = await waitFor(async () => ((await call('GET', '/api/foodhub/command')).json?.queue || []).find((q) => q.id === o2?.id && q.courier?.status === 'arriving'));
   check('Command Center shows "courier arriving" on the order card', !!q29 && q29.courier.name === 'Ana B.');
+  // DoorDash's documented payloads: dasher_status + external_order_id, cancellation with client_order_id only.
+  await ddHook({ ...ddOrder, id: 'dd-order-3' });
+  const o29d = await waitFor(async () => { const o = await findOrder('dd-order-3'); return o?.status === 'accepted' && o.posOrderId ? o : null; });
+  await ddHook({ dasher_status: 'arrived_at_store', external_order_id: 'dd-order-3', client_order_id: o29d?.posOrderId, Phone_number: '+15145550199' });
+  check('DoorDash Dasher Status (documented shape: dasher_status arrived_at_store) → courier at the store', !!(await waitFor(async () => (await findOrder('dd-order-3'))?.timeline?.courier?.status === 'at_store')));
+  await ddHook({ client_order_id: o29d?.posOrderId, cancel_reason: 'CUSTOMER_REQUEST' });
+  check('DoorDash cancellation found by client_order_id (our merchant_supplied_id) → cancelled and removed from Clover', !!(await waitFor(async () => (await findOrder('dd-order-3'))?.status === 'cancelled')) && !!(await waitFor(async () => sent('DELETE', new RegExp(`/orders/${o29d?.posOrderId}$`)).length === 1)));
   const fo = await skipWebhook('failed', { validationError: 'unknownReference', unknownReference: 'zzz-99', menuId: 'm1', order: { orderId: 'skip-failed-1', friendlyOrderReference: '7788', totalPrice: 1299, restaurant: { id: 'NDG-POPOULET' }, fulfilment: { type: 'delivery' }, items: [{ name: 'Mystery Bowl', plu: 'zzz-99', price: 1299, quantity: 1 }] } }, { hmac: false });
   const of29 = await waitFor(async () => { const o = await findOrder('skip-failed-1'); return o?.status === 'failed' ? o : null; });
   check('Skip "failed order for backup flow" recorded: on the Skip tablet, NDG, $12.99', fo.status === 200 && of29?.locationCode === 'NDG_MAIN' && of29.total === 12.99 && /tablet/i.test(of29.channelError || ''), JSON.stringify(of29 && { t: of29.total, e: of29.channelError }));

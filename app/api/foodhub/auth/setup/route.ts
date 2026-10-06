@@ -1,3 +1,4 @@
+import { errorResponse } from '@/lib/foodhub/auth';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { createFirstOwner, firstRunNeeded, startChallenge } from '@/lib/foodhub/identity/otp';
 
@@ -22,6 +23,6 @@ export async function POST(req: Request) {
     if (!s.ok) return fail(s.error, s.status);
     return ok({ challengeId: s.challengeId, channel: s.channel, sentTo: s.sentTo, ...(s.devCode ? { devCode: s.devCode, devLink: s.devLink } : {}) });
   } catch (e) {
-    return fail(e instanceof Error ? e.message : String(e), 500);
+    return errorResponse(e, 'auth'); // never echo database errors to someone who is not signed in
   }
 }

@@ -57,16 +57,27 @@ export function cloverReadiness() {
 /** `skipped` = Clover is deliberately not in the picture (injection off, or no merchant configured anywhere); every other miss is a failure. */
 export type InjectResult = { ok: true; posOrderId: string } | { ok: false; skipped?: boolean; error: string };
 
-/** True when this deployment expects orders to reach Clover (injection on and at least one merchant configured). */
+/**
+ * True when this deployment expects orders to reach Clover: injection on and either a merchant in the environment
+ * or the Clover app configured (merchants then connect with one click — an order must still never be accepted
+ * without Clover just because the merchant came through the app instead of an env token).
+ */
 export function cloverExpected(): boolean {
-  return cloverInjectionEnabled() && knownCloverMerchants().length > 0;
+  return cloverInjectionEnabled() && (knownCloverMerchants().length > 0 || cloverAppConfigured());
+}
+
+/** The merchant to use when a store has none: CLOVER_MERCHANT_ID, else the only merchant connected through the app. */
+export async function defaultCloverMerchant(): Promise<string | null> {
+  if (process.env.CLOVER_MERCHANT_ID) return process.env.CLOVER_MERCHANT_ID;
+  const connected = await connectedCloverMerchantIds().catch(() => [] as string[]);
+  return connected.length === 1 ? connected[0] : null;
 }
 
 export async function injectOrder(order: StoredOrder, merchantId?: string | null, opts: { orderTypeId?: string | null } = {}): Promise<InjectResult> {
   if (!cloverInjectionEnabled()) return { ok: false, skipped: true, error: 'POS injection is turned off (FOODHUB_POS_INJECTION=off).' };
-  const mid = merchantId || process.env.CLOVER_MERCHANT_ID;
+  const mid = merchantId || (await defaultCloverMerchant());
   // No merchant for this store: harmless only when Clover is not configured at all; otherwise the store mapping is incomplete.
-  if (!mid) return { ok: false, skipped: knownCloverMerchants().length === 0, error: 'No Clover merchant configured for this store.' };
+  if (!mid) return { ok: false, skipped: !cloverExpected(), error: 'No Clover merchant configured for this store — set it under Stores → Mapping.' };
   const token = await cloverToken(mid);
   // A mapped merchant without a token is a configuration fault, never a reason to accept without Clover.
   if (!token) return { ok: false, skipped: false, error: `No Clover API token for merchant ${mid} (install the Clover app for it, or add it to CLOVER_MERCHANT_TOKENS).` };

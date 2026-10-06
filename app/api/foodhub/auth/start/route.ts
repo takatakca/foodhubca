@@ -1,3 +1,4 @@
+import { errorResponse } from '@/lib/foodhub/auth';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { startChallenge } from '@/lib/foodhub/identity/otp';
 
@@ -11,6 +12,6 @@ export async function POST(req: Request) {
     if (!r.ok) return fail(r.error, r.status);
     return ok({ challengeId: r.challengeId, channel: r.channel, sentTo: r.sentTo, ...(r.devCode ? { devCode: r.devCode, devLink: r.devLink } : {}) });
   } catch (e) {
-    return fail(e instanceof Error ? e.message : String(e), 500);
+    return errorResponse(e, 'auth'); // never echo database errors to someone who is not signed in
   }
 }

@@ -38,10 +38,11 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
       id: existing?.id, channel: 'uber_eats', channelStoreId: storeId, brandName: p.brandName, locationCode: p.locationCode,
       cloverMerchantId: p.cloverMerchantId || existing?.cloverMerchantId || null, autoAccept: existing?.autoAccept ?? true,
       online: existing?.online ?? true, pausedUntil: existing?.pausedUntil ?? null, lastStatusSource: existing?.lastStatusSource ?? null,
-      meta: { ...(existing?.meta ?? {}), provisionedAt: new Date().toISOString() },
+      // Uber confirms the activation with its store.provisioned webhook; until then the store is "waiting for Uber".
+      meta: { ...(existing?.meta ?? {}), provisionedAt: new Date().toISOString(), ...(existing?.meta?.provisioned === true ? {} : { awaitingProvision: true }) },
     });
   }
   await logActivity({ actor: actor.name, source: actor.source, kind: 'settings', action: 'uber_activate', status: results.every((r) => r.result.ok) ? 'success' : 'failed', channel: 'uber_eats',
     summary: `Uber Eats store activation: ${results.filter((r) => r.result.ok).length}/${results.length} activated (${picks.map((p) => `${p.brandName} · ${p.locationCode}`).join(', ')})` });
-  return ok({ results: results.map(({ storeId, result }) => ({ storeId, ok: result.ok, message: result.ok ? 'Activated and mapped' : result.message })) });
+  return ok({ results: results.map(({ storeId, result }) => ({ storeId, ok: result.ok, message: result.ok ? 'Sent to Uber and mapped — waiting for Uber to confirm the activation (Activity Log: "Uber Eats connected store")' : result.message })) });
 });

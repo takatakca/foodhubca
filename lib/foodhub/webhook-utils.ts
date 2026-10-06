@@ -2,6 +2,7 @@ import { after, NextResponse } from 'next/server';
 import { logActivity } from './activity';
 import { CHANNEL_LABELS } from './config';
 import { getRepo } from './repo';
+import { uberCourierState } from './courier';
 import { processIncomingOrder } from './pipeline';
 import type { ActivityKind, ChannelKey, CourierStatus, NormalizedOrder } from './types';
 
@@ -53,14 +54,7 @@ export function queueOrder(order: NormalizedOrder) {
 
 /** Uber delivery.state_changed (body.meta.status) → courier status; null when the state is not one we map with confidence. */
 export function uberDeliveryStatus(state: unknown): CourierStatus | null {
-  const s = String(state ?? '').toLowerCase().replace(/[^a-z]+/g, '_');
-  if (!s) return null;
-  if (/complete|delivered|dropoff_complete/.test(s)) return 'delivered';
-  if (/en_route_to_drop|picked_up|pickup_complete|left_pickup/.test(s)) return 'picked_up';
-  if (/arrived_at_pick|at_pickup|at_store|at_restaurant/.test(s)) return 'at_store';
-  if (/en_route_to_pick|assigned|accepted/.test(s)) return 'assigned';
-  if (/unassign/.test(s)) return 'unassigned';
-  return null;
+  return uberCourierState(state);
 }
 
 /** Keep payloads we could not parse so nothing is silently lost. */

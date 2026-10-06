@@ -22,7 +22,7 @@ TGTG ──────┘
 | **Recovery** | *Owner recovery sign-in* (user `owner` + `DASHBOARD_PASSWORD`) if email / SMS are down. Type it yourself — never in chat. |
 | **Kitchen tablets** | Settings → Tablets → *Enrol this screen* (on the tablet). It keeps a signed device cookie for a year and shows the **PIN screen** (`/kitchen/lock`) instead of the email sign-in. Staff tap their name + PIN → 14-hour session on that tablet. *Lock* returns to the PIN screen. Lost tablet → *Remove*: it is signed out at once. |
 | **Tablet health** | Every 30 s the tablet reports: on, sound unlocked, screen visible, battery. Off for 90 s during opening hours → *Tablet off* incident; muted / hidden → *Tablet muted*. |
-| **New order pop-up** | Full screen, beep loop until someone looks: brand, location, items, allergies, total, countdown to the platform deadline (Uber 11.5 min, Skip 5 min). *Accept* with the prep time (10–45 min; DoorDash receives it), *Reject* with a reason, *Later (1 min)*, *Next*. Auto-accepted orders still pop up until someone taps *Seen*. Keyboard: Enter / Esc / →. |
+| **New order pop-up** | Full screen, beep loop until someone looks: brand, location, items, allergies, total, countdown to the platform deadline (Uber 11.5 min, Skip 5 min, DoorDash 3–8 min — the countdown shows 3). *Accept* with the prep time (10–45 min; DoorDash receives it), *Reject* with a reason, *Later (1 min)*, *Next*. Auto-accepted orders still pop up until someone taps *Seen*. Keyboard: Enter / Esc / →. |
 | **Cancellation alarm** | Customer or platform cancels → every screen of that kitchen turns red and beeps until someone taps *Got it — stopping* (once clears it everywhere; logged). The locked PIN screen shows it too. |
 | **Manager PIN** | Settings → Manager PIN: per action *Open* / *Manager PIN* / *Always PIN*. Defaults: reject, cancel, missing-item refund, text a customer, pause a store and change a price need a manager. The screen asks for the PIN, the approver's name goes on the order and in the activity log. 5 wrong PINs → 5-minute lock. PINs are 4–6 digits, unique, never trivial, stored hashed (scrypt). Staff never see Money at all. |
 | **Watchtower** | Checks every 20 s while a screen is open, every 30 s on a long-running server, and every minute from your scheduler (below): orders waiting / not seen / late, couriers waiting, Clover failures, stores offline or deactivated, tablets off or muted, cancellation spikes, sync stale, unreadable messages, refused actions, money to recover. Escalation: screen + chat → after 2 min **the kitchen phone rings** (Settings → Business) and **the managers on duty are texted** → 5 min (urgent) they are **called** → 10 min the **owner** and the **support line** are texted and called. *I'm on it* stops it; it closes by itself when fixed. Quiet hours: only urgent alerts escalate. |
@@ -44,7 +44,7 @@ The tablet being **off** is exactly when nobody has a screen open. Pick one:
 | Automatic | What happens |
 |---|---|
 | New order | Arrives by signed webhook → saved → created in Clover → accepted on the platform, in seconds. Duplicate deliveries are ignored. |
-| Clover is down | The order is **never** accepted blind. Uber Eats / DoorDash: it waits on the Command Center with a countdown (Uber gives 11.5 min). Skip: it is handed to the Skip tablet right away (JET backup flow). |
+| Clover is down | The order is **never** accepted blind. Uber Eats / DoorDash: it waits on the Command Center with a countdown (Uber gives 11.5 min, DoorDash 3–8 min). Skip: it is handed to the Skip tablet right away (JET backup flow). |
 | Store status | Every 2 minutes while the Command Center is open (or by schedule): Uber Eats and DoorDash store status is read; Skip pushes its offline/cancel notices. Closed (Z), paused and deactivated (I / grey) are shown per brand × location × app. |
 | In-store sales | Clover payments since local midnight, minus refunds, **excluding** delivery orders Food Hub put in Clover (no double counting). |
 | Alerts | Waiting orders, Clover failures, deactivated or platform-paused stores, missing required services (DoorDash + Uber Eats + Skip for every brand/location), unreadable webhooks, failed menu/item/store actions. |
@@ -103,8 +103,11 @@ Everything you must give a platform (URLs and secrets) is on **Settings → Plat
 1. developer.doordash.com → request Marketplace API access → Developer ID, Key ID, Signing Secret.
    DoorDash gives you a `provider_type` when they approve the integration.
 2. `npm run setup` → those 4 values.
-3. Give DoorDash: webhook URL `https://YOUR-DOMAIN/api/foodhub/webhooks/doordash` and the
-   Authorization header value (Channels → Show secrets), for Order, Menu Status **and Dasher Status** events.
+3. Developer Portal → Webhook subscriptions, all with URL `https://YOUR-DOMAIN/api/foodhub/webhooks/doordash`
+   (no trailing slash) and the Authorization header value (Channels → Show secrets): **Order** (Food Hub answers
+   202 and confirms only once Clover has the order), **Order Cancel**, **Menu Status**, **Dasher Status**, and
+   **Menu Request** (menu pull — DoorDash appends `/{location_id}` and gets the same menu, hours and holidays a
+   Publish sends; DoorDash uses it to onboard each store).
 4. For each store, agree a `merchant_supplied_id` with DoorDash (e.g. `NDG_MAIN-POPOULET`) and
    enter the same id on Stores.
 

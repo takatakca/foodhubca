@@ -60,6 +60,11 @@ describe('platform orders received through Clover', () => {
     expect(detectPlatform({ orderType: { id: 'OT-DD' } }, types, tenders)).toBe('doordash');
     expect(detectPlatform({ payments: { elements: [{ tender: { id: 'T-UBER' } }] } }, types, tenders)).toBe('uber_eats');
     expect(detectPlatform({ title: 'Table 4' }, types, tenders)).toBeNull();
+    // free text at the register only counts with the full platform name (go-live audit)
+    expect(detectPlatform({ title: 'Table 4', note: 'skip the pickles' }, types, tenders)).toBeNull();
+    expect(detectPlatform({ title: 'Uber' }, types, tenders)).toBeNull();
+    expect(detectPlatform({ title: 'SkipTheDishes #4471' }, types, tenders)).toBe('skip');
+    expect(detectPlatform({ note: 'Uber Eats order 9F3K2' }, types, tenders)).toBe('uber_eats');
   });
 
   it('adds the DoorDash order read-only (via Clover), skips in-store and Food Hub orders, never twice', async () => {

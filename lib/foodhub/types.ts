@@ -116,6 +116,13 @@ export interface NormalizedOrder {
    * Food Hub only follows it: no accept / reject / cancel, never re-sent to Clover, no Clover payment recorded.
    */
   viaPos?: 'clover';
+  /**
+   * 'relay' = received on the Food Hub Order Relay (a partner pushes the order: TGTG feed, website…).
+   * Runs the normal pipeline (Clover ticket, kitchen); accept / ready / reject go back to the relay callback.
+   */
+  viaHub?: 'relay';
+  /** The sender's own order id, used for status callbacks. */
+  hubOrderId?: string;
 }
 
 export interface StoredOrder extends NormalizedOrder {

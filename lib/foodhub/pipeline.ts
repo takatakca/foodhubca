@@ -7,13 +7,14 @@ import { CHANNEL_LABELS, nowIso } from './config';
 import { cloverAutoPrintEnabled, cloverExpected, injectOrder, printCloverOrder } from './pos/clover';
 import { cloverOrderTypeFor } from './pos/clover-books';
 import { settleInClover } from './clover-settle';
+import { relayActions } from './adapters/relay';
 import { reportSkipMissingItems } from './adapters/skip';
 import { applyCourierUpdate, pendingKey, readPending } from './courier';
 import { prepFor } from './prep';
 import { isWaitingScheduled, scheduledInfo } from './scheduling';
 import { getRepo } from './repo';
 import { localTimeLabel } from './time';
-import { CANCEL_REASON_LABELS, type CancelReason, type ChannelKey, type ChannelResult, type NormalizedOrder, type OrderStatus, type OrderTimeline, type StoredOrder } from './types';
+import { CANCEL_REASON_LABELS, type CancelReason, type ChannelAdapter, type ChannelKey, type ChannelResult, type NormalizedOrder, type OrderStatus, type OrderTimeline, type StoredOrder } from './types';
 
 export interface PipelineOutcome {
   order: StoredOrder;
@@ -39,6 +40,11 @@ async function autoPrint(order: StoredOrder, merchantId?: string | null): Promis
   await getRepo().addEvent(order.id, p.ok ? 'printed' : 'print_failed', { message: p.message, printEventId: p.printEventId });
   // printError is what the board/alerts key on ("Ticket not printed" + Reprint); a successful print clears it.
   return patchTimeline(order, p.ok ? { printedAt: nowIso(), printError: undefined } : { printError: p.message });
+}
+
+/** Where an order's platform actions go: the platform's own API, or the relay callback for orders that came through it. */
+function actionsFor(order: { channel: ChannelKey; viaHub?: 'relay' }): Pick<ChannelAdapter, 'acceptOrder' | 'denyOrder' | 'markReady' | 'cancelOrder'> {
+  return order.viaHub === 'relay' ? relayActions : getAdapter(order.channel);
 }
 
 export async function processIncomingOrder(n: NormalizedOrder): Promise<PipelineOutcome> {
@@ -119,7 +125,7 @@ export async function processIncomingOrder(n: NormalizedOrder): Promise<Pipeline
     await repo.addEvent(order.id, 'accept_skipped', { reason: 'Cancelled by the platform while it was being put in Clover — nothing sent to the platform; the Clover copy is removed.' });
     current = (await settleInClover((await repo.getOrder(order.id)) ?? current)) ?? current;
   } else if (wantsAuto && !posBlocksAccept) {
-    accept = await getAdapter(n.channel).acceptOrder(current, pos.ok ? pos.posOrderId : undefined);
+    accept = await actionsFor(current).acceptOrder(current, pos.ok ? pos.posOrderId : undefined);
     if (accept.ok && (await cancelledMeanwhile())) {
       // Cancelled during the accept call itself: keep the cancellation, never write 'accepted' over it.
       await repo.addEvent(order.id, 'needs_attention', { reason: 'Accepted on the platform, but the platform cancelled the order meanwhile — check the platform; the Clover copy is removed.' });
@@ -132,7 +138,7 @@ export async function processIncomingOrder(n: NormalizedOrder): Promise<Pipeline
       await repo.addEvent(order.id, 'accept_failed', { auto: true, status: accept.status, message: accept.message });
     }
   } else if (posBlocksAccept) {
-    if (n.channel === 'skip') {
+    if (n.channel === 'skip' && !n.viaHub) {
       // Skip/JET Connect: tell JET right away so the order falls back to the Skip tablet
       // instead of waiting out the 5-minute timeout. 'failed' = handed back to the platform (still a sale).
       const fallback = await getAdapter('skip').denyOrder(current, 'Clover did not receive the order');
@@ -292,7 +298,7 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
   }
 
   const reasonText = opts.reasonCode ? `${CANCEL_REASON_LABELS[opts.reasonCode]}${opts.reason?.trim() ? ` — ${opts.reason.trim()}` : ''}` : opts.reason || 'Rejected by restaurant';
-  const adapter = getAdapter(order.channel);
+  const adapter = actionsFor(order);
   let res: ChannelResult | { ok: boolean; message: string };
   let working = order;
   if ((action === 'accept' || action === 'accept_no_pos') && opts.prepMinutes && opts.prepMinutes >= 5 && opts.prepMinutes <= 120) {
@@ -307,7 +313,7 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
   else res = { ok: true, message: action === 'dispatch' ? 'Handed to the courier.' : 'Marked completed in Food Hub.' };
 
   // On Skip, "reject" hands the order to the Skip tablet (JET backup flow) — it is not cancelled for the customer.
-  const nextStatus: OrderStatus = action === 'deny' && order.channel === 'skip' ? 'failed' : NEXT_STATUS[action]!;
+  const nextStatus: OrderStatus = action === 'deny' && order.channel === 'skip' && !order.viaHub ? 'failed' : NEXT_STATUS[action]!;
   const now = nowIso();
   const t: OrderTimeline = {};
   if (res.ok) {

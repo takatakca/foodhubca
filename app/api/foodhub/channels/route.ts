@@ -8,6 +8,7 @@ import { cloverReadiness } from '@/lib/foodhub/pos/clover';
 import { cloverAppReadiness, listCloverConnections } from '@/lib/foodhub/pos/clover-oauth';
 import { cloverOrderTypesEnabled, cloverRecordPaymentEnabled } from '@/lib/foodhub/pos/clover-books';
 import { getRepo } from '@/lib/foodhub/repo';
+import { relayReadiness } from '@/lib/foodhub/adapters/relay';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,6 +50,12 @@ export const GET = withPerm('stores:map', async (req, _ctx, actor) => {
       app: { ...cloverAppReadiness(), connectUrl: `${base}/api/foodhub/clover-connect/start`, merchants: await listCloverConnections().catch(() => []) },
     },
     channels,
+    // Food Hub Order Relay: partners that push orders (TGTG feed, website…) post to this address.
+    relay: {
+      ...relayReadiness(),
+      webhookUrl: `${base}/api/foodhub/webhooks/relay?token=${reveal ? process.env.FOODHUB_RELAY_SECRET || '' : '••••••••'}`,
+      revealed: reveal,
+    },
     jobs: jobs.filter((j) => j.kind !== 'webhook_unparsed'),
     unparsed: jobs.filter((j) => j.kind === 'webhook_unparsed'),
   });

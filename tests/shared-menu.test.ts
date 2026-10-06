@@ -81,13 +81,70 @@ describe('publish and 86 across brands that share a menu', () => {
     expect(await getRepo().getMenu('Pi Pita')).toBeNull();
   });
 
-  it('timed 86s left on a follower’s own (inactive) menu never touch the shared menu', async () => {
-    await getRepo().saveMenu(menu('Po Poulet'));
+  it('timed 86s left on a follower’s own (inactive) menu finish on its own stores only — never on the shared menu', async () => {
     await getRepo().saveMenu({ ...menu('Pi Pita'), unavailableByLocation: { NDG: ['i1'] }, unavailableUntil: { 'NDG|i1': 1 } });
     await getRepo().saveMenu({ ...menu('Po Poulet'), unavailableByLocation: { NDG: ['i1'] } });
     await saveMenuSharing({ 'Pi Pita': 'Po Poulet' });
-    expect(await reenableExpiredItems(Date.now())).toBe(0);
+    await store('Po Poulet', 'doordash', 'dd-poulet');
+    await store('Pi Pita', 'doordash', 'dd-pita');
+    const dd = vi.spyOn(doorDashAdapter, 'setItemAvailability').mockResolvedValue({ channel: 'doordash', ok: true, status: 'done', message: 'OK' });
+    expect(await reenableExpiredItems(Date.now())).toBe(1);
+    expect(dd.mock.calls.map((c) => [c[0].channelStoreId, c[2]])).toEqual([['dd-pita', true]]);
     expect((await getRepo().getMenu('Po Poulet'))!.unavailableByLocation?.NDG).toEqual(['i1']);
+    expect((await getRepo().getMenu('Pi Pita'))!.unavailableUntil).toEqual({});
+  });
+
+  it('a read error on the sharing map fails closed (never treated as "no sharing")', async () => {
+    await getRepo().saveMenu(menu('Po Poulet'));
+    const repo = getRepo();
+    vi.spyOn(repo, 'getKv').mockRejectedValueOnce(new Error('Supabase: timeout'));
+    await expect(getBrandMenu('Pi Pita')).rejects.toThrow(/timeout/);
+  });
+});
+
+describe('changing who shares a menu', () => {
+  it('a brand that stops sharing gets its own menu with the live 86s (a copy when it had none)', async () => {
+    const { applySharingChange } = await import('../lib/foodhub/menu/sharing-change');
+    await getRepo().saveMenu({ ...menu('Po Poulet'), unavailableByLocation: { NDG: ['i1'] }, unavailableUntil: { 'NDG|i1': 9e12 } });
+    await getRepo().saveMenu({ ...menu('OOeuf', 'Omelette'), unavailableByLocation: { NDG: ['x9'] } });
+    const out = await applySharingChange({ 'Pi Pita': 'Po Poulet', OOeuf: 'Po Poulet' }, {});
+    expect(out).toMatchObject({ copiedMenu: ['Pi Pita'], gotOwnMenu: ['OOeuf'] });
+    const pita = (await getRepo().getMenu('Pi Pita'))!;
+    expect(pita).toMatchObject({ brandName: 'Pi Pita', unavailableByLocation: { NDG: ['i1'] }, unavailableUntil: { 'NDG|i1': 9e12 } });
+    expect(pita.items[0].name).toBe('Poutine');
+    const oeuf = (await getRepo().getMenu('OOeuf'))!;
+    expect(oeuf.items[0].name).toBe('Omelette');
+    expect(oeuf.unavailableByLocation?.NDG?.sort()).toEqual(['i1', 'x9']);
+  });
+
+  it('a brand that starts sharing drops the Clover price flags of its own menu', async () => {
+    const { applySharingChange } = await import('../lib/foodhub/menu/sharing-change');
+    const { listCloverPriceChanges } = await import('../lib/foodhub/clover-sync');
+    await getRepo().setKv('clover_price_changes', { 'Pi Pita|i1': { brandName: 'Pi Pita', ref: 'i1', name: 'Pita', foodhubPrice: 9, cloverPrice: 10, merchantId: 'M1', at: 'x' } });
+    await saveMenuSharing({ 'Pi Pita': 'Po Poulet' });
+    expect(await listCloverPriceChanges()).toEqual([]);
+    await applySharingChange({}, { 'Pi Pita': 'Po Poulet' });
+    expect(await getRepo().getKv('clover_price_changes')).toEqual({});
+  });
+
+  it('an "all brands" scheduled publish is listed and cancelled as one group', async () => {
+    const { schedulePublish, cancelScheduled, listScheduled } = await import('../lib/foodhub/menu/schedule');
+    const actor = { username: 't', name: 'Test', source: 'dashboard' as const };
+    const at = new Date(Date.now() + 3600_000).toISOString();
+    const a = await schedulePublish({ brand: 'Po Poulet', at, groupId: 'g1' }, actor);
+    await schedulePublish({ brand: 'Pi Pita', at, groupId: 'g1' }, actor);
+    await schedulePublish({ brand: 'OOeuf', at }, actor);
+    expect(await cancelScheduled(a.id, actor)).toBe(true);
+    expect((await listScheduled()).map((x) => [x.brand, x.status]).sort()).toEqual([['OOeuf', 'scheduled'], ['Pi Pita', 'cancelled'], ['Po Poulet', 'cancelled']]);
+  });
+
+  it('the menu snapshot report shows a follower brand’s stores with the shared menu', async () => {
+    const { buildReport } = await import('../lib/foodhub/reports');
+    await getRepo().saveMenu(menu('Po Poulet'));
+    await saveMenuSharing({ 'Pi Pita': 'Po Poulet' });
+    await store('Pi Pita', 'doordash', 'dd-pita');
+    const r = await buildReport('menu_snapshot', { from: new Date(Date.now() - 86400_000).toISOString(), to: new Date().toISOString() } as never);
+    expect(r.rows.map((x) => [x[0], x[6]])).toEqual([['Pi Pita', 'Poutine']]);
   });
 });
 

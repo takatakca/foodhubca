@@ -53,7 +53,7 @@ export const GET = withPerm('stores:map', async (req, _ctx, actor) => {
     // Food Hub Order Relay: partners that push orders (TGTG feed, website…) post to this address.
     relay: {
       ...relayReadiness(),
-      webhookUrl: `${base}/api/foodhub/webhooks/relay?token=${reveal ? process.env.FOODHUB_RELAY_SECRET || '' : '••••••••'}`,
+      webhookUrl: `${base}/api/foodhub/webhooks/relay?token=${reveal ? encodeURIComponent(process.env.FOODHUB_RELAY_SECRET || '') : '••••••••'}`,
       revealed: reveal,
     },
     jobs: jobs.filter((j) => j.kind !== 'webhook_unparsed'),

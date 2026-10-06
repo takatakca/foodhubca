@@ -21,8 +21,12 @@ export function cleanSharing(raw: unknown): MenuSharing {
   return Object.fromEntries(entries.filter(([, v]) => !followers.has(v)));
 }
 
+/**
+ * The sharing map. A read error is NOT turned into "no sharing" (fail closed): treating followers as independent for
+ * one run would publish their old menus or let a stale timer on an unused menu undo a live 86 on the shared one.
+ */
 export async function getMenuSharing(): Promise<MenuSharing> {
-  return cleanSharing(await getRepo().getKv<MenuSharing>(KEY).catch(() => null));
+  return cleanSharing(await getRepo().getKv<MenuSharing>(KEY));
 }
 
 /**

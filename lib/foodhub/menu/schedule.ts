@@ -17,6 +17,8 @@ export interface ScheduledPublish {
   status: 'scheduled' | 'running' | 'done' | 'failed' | 'cancelled';
   /** When the publish was claimed by a sync/cron run. */
   startedAt?: string;
+  /** Same id on every entry created by one "publish every brand sharing this menu" request: they are cancelled together. */
+  groupId?: string;
   result?: string;
 }
 
@@ -34,23 +36,27 @@ async function saveAll(list: ScheduledPublish[]) {
   await getRepo().setKv(KEY, list.slice(-200));
 }
 
-export async function schedulePublish(input: { brand: string; storeIds?: string[]; channels?: ChannelKey[]; at: string }, actor: Actor): Promise<ScheduledPublish> {
+export async function schedulePublish(input: { brand: string; storeIds?: string[]; channels?: ChannelKey[]; at: string; groupId?: string }, actor: Actor): Promise<ScheduledPublish> {
   const when = Date.parse(input.at);
   if (!Number.isFinite(when) || when < Date.now() + 60_000) throw new Error('Pick a date and time at least one minute in the future.');
-  const entry: ScheduledPublish = { id: crypto.randomUUID(), brand: input.brand, storeIds: input.storeIds, channels: input.channels, at: new Date(when).toISOString(), createdBy: actor.name, createdAt: new Date().toISOString(), status: 'scheduled' };
+  const entry: ScheduledPublish = { id: crypto.randomUUID(), brand: input.brand, storeIds: input.storeIds, channels: input.channels, at: new Date(when).toISOString(), createdBy: actor.name, createdAt: new Date().toISOString(), status: 'scheduled', ...(input.groupId ? { groupId: input.groupId } : {}) };
   const all = (await getRepo().getKv<ScheduledPublish[]>(KEY)) ?? [];
   await saveAll([...all, entry]);
   await logActivity({ actor: actor.name, source: actor.source, kind: 'menu_publish', action: 'schedule_publish', status: 'queued', brandName: input.brand, summary: `Menu publish for ${input.brand} scheduled at ${new Date(when).toLocaleString('fr-CA')}` });
   return entry;
 }
 
+/** Cancels a scheduled publish — and every other brand's entry from the same "all brands" request. */
 export async function cancelScheduled(id: string, actor: Actor): Promise<boolean> {
   const all = (await getRepo().getKv<ScheduledPublish[]>(KEY)) ?? [];
   const e = all.find((x) => x.id === id && x.status === 'scheduled');
   if (!e) return false;
-  e.status = 'cancelled';
+  const hit = all.filter((x) => x.status === 'scheduled' && (x.id === id || (e.groupId && x.groupId === e.groupId)));
+  for (const x of hit) x.status = 'cancelled';
   await saveAll(all);
-  await logActivity({ actor: actor.name, source: actor.source, kind: 'menu_publish', action: 'cancel_scheduled_publish', status: 'info', brandName: e.brand, summary: `Scheduled menu publish for ${e.brand} cancelled` });
+  for (const x of hit) {
+    await logActivity({ actor: actor.name, source: actor.source, kind: 'menu_publish', action: 'cancel_scheduled_publish', status: 'info', brandName: x.brand, summary: `Scheduled menu publish for ${x.brand} cancelled` });
+  }
   return true;
 }
 

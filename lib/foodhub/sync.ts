@@ -10,6 +10,7 @@
 //   4. Saves one report the Command Center reads.
 // Read-only status checks never change anything on a platform.
 import { fetchDoorDashStoreStatus } from './adapters/doordash';
+import { isRelayStore } from './adapters/relay';
 import { fetchUberStoreStatus } from './adapters/uber-eats';
 import { nowIso } from './config';
 import { logActivity } from './activity';
@@ -118,7 +119,8 @@ async function pollStore(store: ChannelStore, opts: { skipReason?: string; timed
   const base = { storeId: store.id, channel: store.channel, brandName: store.brandName, locationCode: store.locationCode, channelStoreId: store.channelStoreId };
   const previous = (store.meta?.platformStatus ?? null) as PlatformStatus | null;
   let fetched: Fetched | null = null;
-  const polled = store.channel === 'uber_eats' || store.channel === 'doordash';
+  // Relay-mapped stores ("relay:<id>") are not platform API stores: their status is never read from the platform.
+  const polled = (store.channel === 'uber_eats' || store.channel === 'doordash') && !isRelayStore(store);
   if (polled && opts.skipReason) {
     return { ...base, polled: true, ok: false, state: previous?.state ?? 'unknown', detail: previous?.detail, error: opts.skipReason, changed: false };
   }

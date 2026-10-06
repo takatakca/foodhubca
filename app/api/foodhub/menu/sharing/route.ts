@@ -3,6 +3,7 @@ import { withPerm } from '@/lib/foodhub/auth';
 import { getCatalog } from '@/lib/foodhub/catalog';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { getMenuSharing, saveMenuSharing, type MenuSharing } from '@/lib/foodhub/menu/shared';
+import { applySharingChange } from '@/lib/foodhub/menu/sharing-change';
 import { getRepo } from '@/lib/foodhub/repo';
 
 export const dynamic = 'force-dynamic';
@@ -30,9 +31,12 @@ export const PUT = withPerm('menu:edit', async (req, _ctx, actor) => {
   let saved: MenuSharing;
   try { saved = await saveMenuSharing(next); } catch (e) { return fail(e instanceof Error ? e.message : String(e), 422); }
   const changed = [...new Set([...Object.keys(before), ...Object.keys(saved)])].filter((k) => before[k] !== saved[k]);
+  const outcome = await applySharingChange(before, saved);
   if (changed.length) {
     await logActivity({ actor: actor.name, source: actor.source, kind: 'menu_publish', action: 'menu_sharing', status: 'success',
-      summary: `Shared menus changed: ${changed.map((k) => (saved[k] ? `${k} uses the ${saved[k]} menu` : `${k} uses its own menu`)).join(', ')} — publish to send it to the platforms`, detail: { before, after: saved } });
+      summary: `Shared menus changed: ${changed.map((k) => (saved[k] ? `${k} uses the ${saved[k]} menu` : `${k} uses its own menu`)).join(', ')} — publish ${changed.join(', ')} to send it to the platforms`,
+      detail: { before, after: saved, ...outcome } });
   }
-  return ok({ sharing: saved });
+  // publish = brands whose platforms still show their previous menu until they are published.
+  return ok({ sharing: saved, publish: changed, ...outcome });
 });

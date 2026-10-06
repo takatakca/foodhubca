@@ -7,7 +7,7 @@ import { logActivity, type Actor } from './activity';
 import { fromCents, nowIso } from './config';
 import { setItemAvailability } from './ops';
 import { cloverItemSellable, cloverItemsModifiedSince, getCloverItem } from './pos/clover-books';
-import { activeMenus, menuSourceFor } from './menu/shared';
+import { activeMenus, getMenuSharing, isFollower, menuSourceFor } from './menu/shared';
 import { allCloverMerchants } from './pos/clover';
 import { getRepo } from './repo';
 import type { MasterMenu } from './types';
@@ -153,9 +153,27 @@ export async function pollCloverInventory(now = Date.now()): Promise<CloverItemO
 }
 
 export async function listCloverPriceChanges(brandName?: string): Promise<CloverPriceChange[]> {
+  const sharing = await getMenuSharing();
   if (brandName) brandName = await menuSourceFor(brandName);
   const all = Object.values((await getRepo().getKv<Record<string, CloverPriceChange>>(PRICE_KEY)) ?? {});
-  return all.filter((c) => !brandName || c.brandName === brandName).sort((a, b) => b.at.localeCompare(a.at));
+  // Flags left on a brand's own menu from before it shared another one can no longer be acted on: never shown.
+  return all.filter((c) => (!brandName || c.brandName === brandName) && !isFollower(sharing, c.brandName)).sort((a, b) => b.at.localeCompare(a.at));
+}
+
+/**
+ * A brand starts using another brand's menu: forget the Clover price flags and "Clover switched it off" marks kept for
+ * its own menu (that menu is no longer synced with Clover, so they could never be cleared).
+ */
+export async function forgetCloverStateFor(brandName: string): Promise<void> {
+  const repo = getRepo();
+  const prices = (await repo.getKv<Record<string, CloverPriceChange>>(PRICE_KEY)) ?? {};
+  const origin = (await repo.getKv<Record<string, boolean>>(ORIGIN_KEY)) ?? {};
+  const priceKeys = Object.keys(prices).filter((k) => prices[k]?.brandName === brandName);
+  const originKeys = Object.keys(origin).filter((k) => k.split('|')[0] === brandName);
+  for (const k of priceKeys) delete prices[k];
+  for (const k of originKeys) delete origin[k];
+  if (priceKeys.length) await repo.setKv(PRICE_KEY, prices);
+  if (originKeys.length) await repo.setKv(ORIGIN_KEY, origin);
 }
 
 /** "Use Clover price" (or dismiss): updates the master menu base price, clears the flag. */

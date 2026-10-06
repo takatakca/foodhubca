@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { isChannelKey } from '@/lib/foodhub/adapters';
 import { approvalGate, withPerm } from '@/lib/foodhub/auth';
 import { getHours } from '@/lib/foodhub/hours';
@@ -34,7 +35,10 @@ export const GET = withPerm('menu:edit', async (req) => {
     return { storeId: s.id, channel: s.channel, locationCode: s.locationCode, channelStoreId: s.channelStoreId, status: st, at: act?.at ?? null, message: res?.message ?? null };
   });
   // group = every brand publishing this same menu (the dialog offers to publish them all at once).
-  return ok({ check: menu ? verifyMenu(menu, { stores, hours, languages: await getMenuLanguages() }) : null, stores: status, scheduled: await listScheduled(brand), group: groupOf(sharing, brand) });
+  // Scheduled publishes of every brand sharing this menu (an "all brands" schedule shows — and cancels — as one group).
+  const group = groupOf(sharing, brand);
+  const scheduled = (await listScheduled()).filter((s) => group.includes(s.brand));
+  return ok({ check: menu ? verifyMenu(menu, { stores, hours, languages: await getMenuLanguages() }) : null, stores: status, scheduled, group });
 });
 
 // Publish now, or schedule (body.at = ISO date-time). Verification errors block the publish.
@@ -72,9 +76,10 @@ export const POST = withPerm('menu:edit', async (req, _ctx, actor) => {
   if (b.at) {
     try {
       const scheduled: ScheduledPublish[] = [];
+      const groupId = targets.length > 1 ? crypto.randomUUID() : undefined;
       for (const name of targets) {
         const ids = storeIds?.filter((id) => stores.some((s) => s.id === id && s.brandName === name));
-        scheduled.push(await schedulePublish({ brand: name, storeIds: ids, channels: channels.length ? channels : undefined, at: String(b.at) }, actor));
+        scheduled.push(await schedulePublish({ brand: name, storeIds: ids, channels: channels.length ? channels : undefined, at: String(b.at), groupId }, actor));
       }
       return ok({ scheduled: scheduled[0], scheduledAll: scheduled, check });
     } catch (e) {

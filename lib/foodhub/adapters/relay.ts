@@ -1,20 +1,30 @@
 // Food Hub Order Relay — Food Hub's own order intake for partners that send orders instead of Food Hub fetching them
-// (a Too Good To Go partner feed, an ordering website, a delivery partner…). It replaces the UrbanPiper hub: the
+// (a Too Good To Go partner feed, a delivery partner…). It replaces the UrbanPiper hub: the
 // partner POSTs each order to Food Hub, which runs the normal pipeline (Clover ticket, kitchen screen, alerts, money
 // checks), and Accept / Ready / Reject go back to the partner's callback URL — never shown as sent when they were not.
+// Stores reached through the relay are mapped with the id "relay:<partner store id>": they receive orders only —
+// menu publishes, 86s, pauses and status reads never go to the platform's own API for them.
 //
 // Payload: the UrbanPiper-compatible "Order Relay" shape ({ order: { details, items, store }, customer }) and its
 // "order status change" shape ({ order_id, new_state, additional_info.external_channel }), so a partner that already
 // speaks that format plugs in unchanged.
-//   FOODHUB_RELAY_CHANNELS      platforms accepted through the relay (default "skip,tgtg"). Add a platform only when
-//                               it is NOT also connected directly, or every order arrives twice.
+//   FOODHUB_RELAY_CHANNELS      platforms accepted through the relay (default "tgtg"). Add a platform only when it is
+//                               NOT also connected directly, or every order arrives twice. A platform linked through
+//                               Clover (FOODHUB_VIA_CLOVER) is always refused: Clover already has its orders.
 //   FOODHUB_RELAY_SECRET        token in the relay address (?token=) or an Authorization / X-Api-Key header — generated
 //   FOODHUB_RELAY_CALLBACK_URL  where status changes are POSTed (optional; without it nothing is sent back)
 //   FOODHUB_RELAY_CALLBACK_TOKEN  sent as "Authorization: Bearer <token>" on each callback (optional)
 import { liveConnectorsGloballyEnabled, timedFetch, result, safeEqual } from '../config';
-import type { ChannelAdapter, ChannelKey, ChannelResult, Fulfillment, Marketplace, NormalizedOrder, OrderLine, StoredOrder } from '../types';
+import type { ChannelAdapter, ChannelKey, ChannelResult, ChannelStore, Fulfillment, Marketplace, NormalizedOrder, OrderLine, OrderStatus, StoredOrder } from '../types';
+import { isViaClover } from './via-clover';
 
 export const RELAY_ID_PREFIX = 'relay-';
+/** Store ids of relay-mapped stores: "relay:<partner store id>" (orders only, never a platform API store). */
+export const RELAY_STORE_PREFIX = 'relay:';
+
+export function isRelayStore(store: Pick<ChannelStore, 'channelStoreId'>): boolean {
+  return String(store.channelStoreId ?? '').startsWith(RELAY_STORE_PREFIX);
+}
 
 /** Platform name as the partner writes it (channel, ext_platforms[].name, external_channel.name) → Food Hub channel. */
 export function relayChannel(name: unknown): ChannelKey | null {
@@ -28,8 +38,11 @@ export function relayChannel(name: unknown): ChannelKey | null {
 }
 
 export function relayChannels(): ChannelKey[] {
-  const raw = process.env.FOODHUB_RELAY_CHANNELS ?? 'skip,tgtg';
-  return [...new Set(raw.split(',').map((x) => relayChannel(x)).filter((x): x is ChannelKey => Boolean(x)))];
+  // An empty value (as copied from .env.example) means the default, not "nothing".
+  const raw = (process.env.FOODHUB_RELAY_CHANNELS || '').trim() || 'tgtg';
+  const list = raw.split(',').map((x) => relayChannel(x)).filter((x): x is ChannelKey => Boolean(x));
+  // Linked through Clover: Clover already creates those orders — taking them here too would make two.
+  return [...new Set(list)].filter((ch) => !isViaClover(ch));
 }
 
 export function verifyRelayWebhook(headers: Headers, url: URL): boolean {
@@ -41,22 +54,38 @@ export function verifyRelayWebhook(headers: Headers, url: URL): boolean {
 
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : Number.parseFloat(String(v ?? '')) || 0);
 const r2 = (n: number) => Math.round(n * 100) / 100;
+const isObj = (v: unknown): v is Record<string, any> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+
+/** A partner timestamp as epoch ms: ISO text, epoch seconds or epoch ms. Undefined when missing or invalid. */
+export function relayTimeMs(v: unknown): number | undefined {
+  if (v === null || v === undefined || v === '') return undefined;
+  const n = typeof v === 'number' ? v : /^\s*\d+(\.\d+)?\s*$/.test(String(v)) ? Number(v) : Date.parse(String(v));
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  const ms = n < 1e12 ? n * 1000 : n;
+  // Keep only dates a Date can hold and that make sense for an order (2000 … 2100).
+  return ms >= 946684800000 && ms <= 4102444800000 ? ms : undefined;
+}
 
 /** Relayed order → normalized order, or why it is ignored. */
-export function parseRelayOrder(body: any): { order: NormalizedOrder; hubOrderId: string } | { ignored: string } {
+export function parseRelayOrder(body: any): { order: NormalizedOrder; hubOrderId: string } | { ignored: string; channel?: ChannelKey } {
   const d = body?.order?.details;
-  if (!d || d.id === undefined) return { ignored: 'Not an Order Relay payload.' };
-  const ext = Array.isArray(d.ext_platforms) ? d.ext_platforms[0] : undefined;
+  if (!isObj(d) || d.id === undefined || d.id === null || String(d.id).trim() === '') return { ignored: 'Not an Order Relay payload (order.details.id is missing).' };
+  const ext = Array.isArray(d.ext_platforms) && isObj(d.ext_platforms[0]) ? d.ext_platforms[0] : undefined;
   const channel = relayChannel(d.channel) ?? relayChannel(ext?.name);
   if (!channel) return { ignored: `Platform "${d.channel ?? ext?.name ?? '?'}" is not handled by Food Hub.` };
-  if (!relayChannels().includes(channel)) return { ignored: `${channel} orders are not taken from the relay (FOODHUB_RELAY_CHANNELS).` };
+  if (!relayChannels().includes(channel)) {
+    return { channel, ignored: isViaClover(channel)
+      ? `${channel} is linked through Clover (FOODHUB_VIA_CLOVER) — its orders already reach Clover, so the relay does not take them.`
+      : `${channel} orders are not taken from the relay (FOODHUB_RELAY_CHANNELS).` };
+  }
   const hubOrderId = String(d.id);
-  const store = body.order.store ?? {};
-  const items: any[] = Array.isArray(body.order.items) ? body.order.items : [];
+  const store = isObj(body.order.store) ? body.order.store : {};
+  const storeRef = store.merchant_ref_id ?? store.id;
+  const items: any[] = (Array.isArray(body.order.items) ? body.order.items : []).filter(isObj);
   const lines: OrderLine[] = items.map((it) => {
     const quantity = Math.max(1, Math.round(num(it.quantity) || 1));
     const total = r2(num(it.total) || num(it.price) * quantity);
-    const removed = (Array.isArray(it.options_to_remove) ? it.options_to_remove : []).map((o: any) => `Sans ${o.title}`);
+    const removed = (Array.isArray(it.options_to_remove) ? it.options_to_remove : []).filter(isObj).map((o: any) => `Sans ${o.title}`);
     const notes = [it.instructions, ...removed].filter(Boolean).join(' · ') || undefined;
     return {
       externalId: it.merchant_id ? String(it.merchant_id) : it.id !== undefined ? String(it.id) : undefined,
@@ -65,7 +94,7 @@ export function parseRelayOrder(body: any): { order: NormalizedOrder; hubOrderId
       unitPrice: r2(total / quantity),
       total,
       notes,
-      modifiers: (Array.isArray(it.options_to_add) ? it.options_to_add : []).map((o: any) => ({
+      modifiers: (Array.isArray(it.options_to_add) ? it.options_to_add : []).filter(isObj).map((o: any) => ({
         externalId: o.merchant_id ? String(o.merchant_id) : undefined,
         name: String(o.title ?? ''),
         quantity: Math.max(1, Math.round(num(o.quantity) || 1)),
@@ -75,16 +104,17 @@ export function parseRelayOrder(body: any): { order: NormalizedOrder; hubOrderId
   });
   const type = String(d.order_type ?? '').toLowerCase();
   const fulfillment: Fulfillment = type.includes('pick') || type.includes('takeaway') ? 'pickup' : type.includes('dine') ? 'dine_in' : 'delivery';
-  const customer = body.customer ?? {};
-  const placed = num(d.created) ? new Date(num(d.created)).toISOString() : new Date().toISOString();
-  const readyMs = num(d.expected_pickup_time) || num(d.delivery_datetime);
+  const customer = isObj(body.customer) ? body.customer : {};
+  const createdMs = relayTimeMs(d.created);
+  const placed = createdMs ? new Date(createdMs).toISOString() : new Date().toISOString();
+  const readyMs = relayTimeMs(d.expected_pickup_time) ?? relayTimeMs(d.delivery_datetime);
   const discount = num(d.discount) + num(d.total_external_discount);
   const order: NormalizedOrder = {
     channel,
     marketplace: channel as Marketplace,
     externalOrderId: `${RELAY_ID_PREFIX}${hubOrderId}`,
     displayId: ext?.id ? (String(ext.id).length <= 12 ? String(ext.id) : String(ext.id).slice(-8)) : hubOrderId,
-    channelStoreId: String(store.merchant_ref_id ?? store.id ?? ''),
+    channelStoreId: storeRef !== undefined && storeRef !== null && String(storeRef).trim() ? `${RELAY_STORE_PREFIX}${String(storeRef).trim()}` : '',
     brandName: d.brand?.name ? String(d.brand.name) : undefined,
     customerName: customer.name ? String(customer.name) : undefined,
     fulfillment,
@@ -114,6 +144,32 @@ export function parseRelayStatus(body: any): { channel: ChannelKey; externalOrde
   return { channel, externalOrderId: `${RELAY_ID_PREFIX}${body.order_id}`, state: String(body.new_state), message: body.message ? String(body.message) : undefined };
 }
 
+const RANK: Partial<Record<OrderStatus, number>> = { new: 0, accepted: 1, ready: 2, dispatched: 3, completed: 4 };
+
+/** The Food Hub status a relayed partner state means (same words as applyExternalStatus), or null. */
+export function relayTargetStatus(state: string): OrderStatus | null {
+  const s = state.toLowerCase();
+  return s.includes('cancel') || s.includes('fail') || s.includes('reject') ? 'cancelled'
+    : s.includes('complete') || s.includes('deliver') ? 'completed'
+      : s.includes('pick') || s.includes('dispatch') ? 'dispatched'
+        : s.includes('ready') ? 'ready'
+          : s.includes('ack') || s.includes('accept') ? 'accepted'
+            : null;
+}
+
+/**
+ * Whether a relayed status may change the order: statuses only move forward (deliveries can arrive late or out of
+ * order), a closed order (cancelled / completed / failed) never reopens, and the partner can never accept for us an
+ * order that Clover did not receive.
+ */
+export function relayStatusApplies(order: Pick<StoredOrder, 'status'>, state: string, opts: { needsClover?: boolean } = {}): boolean {
+  const target = relayTargetStatus(state);
+  if (!target || ['cancelled', 'completed', 'failed'].includes(order.status)) return false;
+  if (target === 'cancelled') return true;
+  if (target === 'accepted' && order.status === 'new' && opts.needsClover) return false;
+  return (RANK[target] ?? -1) > (RANK[order.status] ?? 99);
+}
+
 function callbackUrl() {
   return (process.env.FOODHUB_RELAY_CALLBACK_URL || '').trim();
 }
@@ -123,6 +179,11 @@ async function pushStatus(order: StoredOrder, newStatus: string, message: string
   const hubId = order.hubOrderId || order.externalOrderId.replace(RELAY_ID_PREFIX, '');
   const url = callbackUrl();
   if (!url) {
+    // Reject / cancel must reach the partner, or the customer's paid order stays live while the kitchen drops it:
+    // refuse (never shown as done). Accept / ready are informational: Food Hub moves on and says nothing was sent.
+    if (newStatus === 'Cancelled') {
+      return result(order.channel, 'blocked', `Not cancelled: this order came through the Food Hub relay and no callback address is set (FOODHUB_RELAY_CALLBACK_URL) — cancel it on the ${label} side; the cancellation then comes back here.`);
+    }
     return result(order.channel, 'skipped', `Not sent to ${label}: this order came through the Food Hub relay and no callback address is set (FOODHUB_RELAY_CALLBACK_URL) — confirm it on the ${label} side.`);
   }
   if (!liveConnectorsGloballyEnabled()) {

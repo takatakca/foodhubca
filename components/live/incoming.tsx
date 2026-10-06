@@ -115,6 +115,8 @@ export function IncomingOrders() {
 
   const p = platformOf(order.channel);
   const isNew = order.status === 'new';
+  // Skip's JET backup hand-off exists only for Skip's own orders — a relayed Skip order is rejected normally (with a reason).
+  const skipTablet = order.channel === 'skip' && !order.viaHub;
   const allergy = [order.notes, ...order.lines.map((l) => l.notes)].some((n) => n && ALLERGY.test(n));
   const items = order.lines.reduce((s, l) => s + l.quantity, 0);
   const minutes = prep ?? kitchenMin;
@@ -186,8 +188,8 @@ export function IncomingOrders() {
               {isNew ? <span>{t('Accepter', 'Accept')} <span className="font-semibold opacity-90">· {minutes} min</span></span> : t('Vu — en préparation', 'Seen — cooking it')}
             </Button>
             {isNew && order.actions.includes('deny') && (
-              <Button variant="outline" size="xl" className="text-stop sm:w-44" onClick={() => order.channel === 'skip' ? run(order.id, 'deny', { reason: 'Handled on Skip tablet' }).then((r) => r && close(order.id)) : setRejecting(true)} icon={<X className="size-6" />}>
-                {order.channel === 'skip' ? t('Tablette Skip', 'Skip tablet') : t('Refuser', 'Reject')}
+              <Button variant="outline" size="xl" className="text-stop sm:w-44" onClick={() => skipTablet ? run(order.id, 'deny', { reason: 'Handled on Skip tablet' }).then((r) => r && close(order.id)) : setRejecting(true)} icon={<X className="size-6" />}>
+                {skipTablet ? t('Tablette Skip', 'Skip tablet') : t('Refuser', 'Reject')}
               </Button>
             )}
           </div>

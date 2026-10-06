@@ -250,8 +250,8 @@ export default function ChannelsSettingsPage() {
 
       {data.relay && (
         <Section icon={<PlugZap className="size-5" />} title={t('Relais de commandes Food Hub', 'Food Hub Order Relay')}
-          subtitle={t('Pour un partenaire qui envoie ses commandes (flux Too Good To Go, site de commande…) : il les envoie à cette adresse et Food Hub les traite comme les autres (ticket Clover, écran cuisine, alertes). Format compatible UrbanPiper « Order Relay ».',
-            'For a partner that pushes its orders (Too Good To Go feed, ordering website…): it posts them to this address and Food Hub handles them like any other (Clover ticket, kitchen screen, alerts). UrbanPiper "Order Relay" compatible format.')}>
+          subtitle={t('Pour un partenaire qui envoie ses commandes (ex. flux Too Good To Go) : il les envoie à cette adresse et Food Hub les traite comme les autres (ticket Clover, écran cuisine, alertes). Format compatible UrbanPiper « Order Relay ». Magasins à relier sous l’identifiant relay:<id>.',
+            'For a partner that pushes its orders (e.g. a Too Good To Go feed): it posts them to this address and Food Hub handles them like any other (Clover ticket, kitchen screen, alerts). UrbanPiper "Order Relay" compatible format. Map its stores as relay:<id>.')}>
           <Card className="space-y-3 p-4">
             <UrlRow label={t('Adresse du relais (avec le jeton)', 'Relay address (with token)')} value={data.relay.webhookUrl} />
             {!data.relay.revealed && <p className="text-xs text-ink-3">{t('Cliquez « Afficher les secrets » pour voir le jeton complet.', 'Click “Show secrets” to see the full token.')}</p>}
@@ -260,7 +260,7 @@ export default function ChannelsSettingsPage() {
               {' · '}
               {data.relay.callbackReady
                 ? t('Accepter / Prête / Refuser sont renvoyés à l’adresse de retour du partenaire.', 'Accept / Ready / Reject are sent back to the partner’s callback address.')
-                : t('Accepter / Prête restent dans Food Hub (aucune adresse de retour : FOODHUB_RELAY_CALLBACK_URL).', 'Accept / Ready stay in Food Hub (no callback address: FOODHUB_RELAY_CALLBACK_URL).')}
+                : t('Accepter / Prête restent dans Food Hub et Refuser est bloqué — annulez chez le partenaire (aucune adresse de retour : FOODHUB_RELAY_CALLBACK_URL).', 'Accept / Ready stay in Food Hub and Reject is blocked — cancel on the partner side (no callback address: FOODHUB_RELAY_CALLBACK_URL).')}
             </p>
           </Card>
         </Section>

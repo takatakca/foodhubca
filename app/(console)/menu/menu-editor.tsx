@@ -20,7 +20,7 @@ import { cn } from '@/lib/ui/cn';
 type Issue = { level: 'error' | 'warning' | 'tip'; code: string; message: string; ref?: string };
 type Check = { ok: boolean; errors: Issue[]; warnings: Issue[]; tips: Issue[] };
 type StoreStatus = { storeId: string; channel: string; locationCode: string; channelStoreId: string; status: string; at: string | null; message: string | null };
-type Scheduled = { id: string; at: string; status: string; createdBy: string; storeIds?: string[]; result?: string };
+type Scheduled = { id: string; brand: string; at: string; status: string; createdBy: string; storeIds?: string[]; result?: string; groupId?: string };
 type PriceChange = { brandName: string; ref: string; name: string; foodhubPrice: number; cloverPrice: number };
 type Langs = { uber_eats: string; doordash: string; skip: string };
 
@@ -283,7 +283,7 @@ export function MenuEditor() {
               <div className="mb-2 text-sm font-bold">{t('Publications programmées', 'Scheduled publishes')}</div>
               {scheduled.map((s) => (
                 <div key={s.id} className="flex flex-wrap items-center gap-3 py-1.5 text-sm">
-                  <span className="font-semibold">{timeOf(s.at, loc, true)}</span><span className="text-ink-3">{s.storeIds?.length ? `${s.storeIds.length} ${t('magasins', 'stores')}` : t('tous', 'all')} · {s.createdBy}</span>
+                  <span className="font-semibold">{timeOf(s.at, loc, true)}</span>{group.length > 1 && <span className="font-semibold">{s.brand}</span>}<span className="text-ink-3">{s.storeIds?.length ? `${s.storeIds.length} ${t('magasins', 'stores')}` : t('tous', 'all')} · {s.createdBy}</span>
                   <Badge tone={s.status === 'done' ? 'go' : s.status === 'failed' ? 'stop' : s.status === 'cancelled' ? 'neutral' : 'wait'}>{s.status}</Badge>
                   {s.status === 'scheduled' && <Button size="xs" variant="ghost" onClick={async () => { await api(`/api/foodhub/menu/publish?id=${s.id}`, { method: 'DELETE' }).catch(fail); loadStatus(brand); }}>{t('Annuler', 'Cancel')}</Button>}
                 </div>
@@ -295,7 +295,7 @@ export function MenuEditor() {
 
       {item && menu && <ItemDialog item={item} markup={menu.channelMarkupPct} groups={menu.modifierGroups} categories={cats} onChange={(p) => updateItem(item.ref, p)} onRemove={() => { update((m) => ({ ...m, items: m.items.filter((x) => x.ref !== item.ref) })); setEditItem(null); }} onClose={() => setEditItem(null)} />}
       {hoursCat && <CategoryHours category={hoursCat} onSave={(h) => { update((m) => ({ ...m, categories: m.categories.map((c) => (c.ref === hoursCat.ref ? { ...c, hours: h as MenuCategory['hours'] } : c)) })); setEditHours(null); }} onClose={() => setEditHours(null)} />}
-      {dialog === 'share' && <ShareDialog brand={sharedFrom ?? brand} brands={allBrands} sharing={sharing} onClose={() => setDialog(null)} onSaved={(next) => { setSharing(next); setDialog(null); load(brand).catch(fail); loadBrands(); toast.success(t('Menus partagés enregistrés — publiez pour les envoyer.', 'Shared menus saved — publish to send them.')); }} />}
+      {dialog === 'share' && <ShareDialog brand={sharedFrom ?? brand} brands={allBrands} sharing={sharing} onClose={() => setDialog(null)} onSaved={(next, publish) => { setSharing(next); setDialog(null); load(brand).catch(fail); loadBrands(); toast.success(t('Menus partagés enregistrés', 'Shared menus saved'), publish.length ? t(`Publiez ${publish.join(', ')} : leurs plateformes montrent encore l’ancien menu.`, `Publish ${publish.join(', ')}: their platforms still show the previous menu.`) : undefined); }} />}
       {dialog === 'publish' && menu && <PublishDialog brand={brand} group={group} stores={stores} check={check} onClose={() => setDialog(null)} onDone={() => { setDialog(null); loadStatus(brand); setView('publish'); }} />}
       {dialog === 'langs' && langs && <LangDialog value={langs} onClose={() => setDialog(null)} onSaved={(l) => { setLangs(l); setDialog(null); toast.success(t('Langues enregistrées — publiez pour les appliquer.', 'Languages saved — publish to apply them.')); }} />}
       {dialog === 'newcat' && <NewCategory onClose={() => setDialog(null)} onAdd={(name, nameFr) => { const ref = uid('cat'); update((m) => ({ ...m, categories: [...m.categories, { ref, name, nameFr: nameFr || undefined, sortOrder: m.categories.length }] })); setCat(ref); setDialog(null); }} copyFrom={allBrands.filter((b) => b !== brand)} onCopy={async (src) => {
@@ -453,7 +453,7 @@ function PublishDialog({ brand, group, stores, check, onClose, onDone }: { brand
 }
 
 /** One menu for several brands: pick the brand whose menu is edited, then the brands that use it. */
-function ShareDialog({ brand, brands, sharing, onSaved, onClose }: { brand: string; brands: string[]; sharing: Record<string, string>; onSaved: (s: Record<string, string>) => void; onClose: () => void }) {
+function ShareDialog({ brand, brands, sharing, onSaved, onClose }: { brand: string; brands: string[]; sharing: Record<string, string>; onSaved: (s: Record<string, string>, publish: string[]) => void; onClose: () => void }) {
   const { t } = useI18n();
   const toast = useToast();
   const [source, setSource] = useState(sharing[brand] ?? brand);
@@ -466,7 +466,7 @@ function ShareDialog({ brand, brands, sharing, onSaved, onClose }: { brand: stri
     const next: Record<string, string> = Object.fromEntries(Object.entries(sharing).filter(([k, v]) => v !== source && k !== source && !users.includes(k)));
     for (const b of users) next[b] = source;
     setBusy(true);
-    try { const d = await api<{ sharing: Record<string, string> }>('/api/foodhub/menu/sharing', { method: 'PUT', json: { sharing: next } }); onSaved(d.sharing); }
+    try { const d = await api<{ sharing: Record<string, string>; publish?: string[] }>('/api/foodhub/menu/sharing', { method: 'PUT', json: { sharing: next } }); onSaved(d.sharing, d.publish ?? []); }
     catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
   return (
@@ -495,7 +495,7 @@ function ShareDialog({ brand, brands, sharing, onSaved, onClose }: { brand: stri
             })}
             {others.length === 0 && <div className="p-4 text-sm text-ink-3">{t('Aucune autre marque.', 'No other brand.')}</div>}
           </div>
-          <p className="mt-2 text-xs text-ink-3">{t('Le menu propre d’une marque n’est pas effacé : il revient si elle cesse de partager. Publiez ensuite pour envoyer le menu aux plateformes.', 'A brand’s own menu is not deleted: it comes back if the brand stops sharing. Publish afterwards to send the menu to the platforms.')}</p>
+          <p className="mt-2 text-xs text-ink-3">{t('Le menu propre d’une marque n’est pas effacé : il revient (avec les ruptures en cours) si elle cesse de partager ; sans menu propre, elle reçoit une copie du menu partagé. Publiez ensuite les marques changées pour envoyer leur menu aux plateformes.', 'A brand’s own menu is not deleted: it comes back (with the current 86s) if the brand stops sharing; a brand without one gets a copy of the shared menu. Publish the changed brands afterwards to send their menu to the platforms.')}</p>
         </div>
       </div>
     </Modal>

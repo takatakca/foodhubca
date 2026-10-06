@@ -5,6 +5,7 @@ Start here:
 | Document | What it is for |
 |---|---|
 | [FOODHUB.md](FOODHUB.md) | **The guide.** What runs by itself, what to request from each platform, where to paste it, daily use, payouts & money |
+| [GO_LIVE_CHECKLIST.md](GO_LIVE_CHECKLIST.md) | **What only the owner can do**: approvals, credentials, server, one test order per platform, decisions |
 | [GO_LIVE_NOW.md](GO_LIVE_NOW.md) | The shortest go-live path (8 steps) |
 | [GO_LIVE_STEPS.md](GO_LIVE_STEPS.md) | Same steps, kept for the release readiness check |
 | [FINAL_PRODUCT_READINESS.md](FINAL_PRODUCT_READINESS.md) | Locked architecture, release gates, live-data rule, what "operational" means |

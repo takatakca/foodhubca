@@ -116,13 +116,6 @@ export interface NormalizedOrder {
    * Food Hub only follows it: no accept / reject / cancel, never re-sent to Clover, no Clover payment recorded.
    */
   viaPos?: 'clover';
-  /**
-   * 'urbanpiper' = received through the owner's UrbanPiper hub (Skip / DoorDash without a direct platform API).
-   * Runs the normal pipeline (Clover ticket, kitchen); accept / ready / reject go back through UrbanPiper's status API.
-   */
-  viaHub?: 'urbanpiper';
-  /** The hub's own order id (UrbanPiper), used for status updates. */
-  hubOrderId?: string;
 }
 
 export interface StoredOrder extends NormalizedOrder {

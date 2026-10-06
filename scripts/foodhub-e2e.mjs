@@ -250,6 +250,13 @@ async function waitFor(fn, ms = 8000) {
   return null;
 }
 const sent = (method, pathRe) => log.filter((e) => e.method === method && pathRe.test(e.path));
+/** Same rule as lib/foodhub/deadline.ts: the platform's clock starts at placedAt when it is plausible. */
+function expectedDeadlineMs(o, minutes) {
+  const created = new Date(o.createdAt).getTime();
+  const placed = o.placedAt ? Date.parse(o.placedAt) : NaN;
+  const start = Number.isFinite(placed) && placed <= created && created - placed <= 30 * 60_000 ? placed : created;
+  return start + minutes * 60_000;
+}
 async function findOrder(externalId) {
   const r = await call('GET', '/api/foodhub/orders?limit=500');
   return (r.json?.orders || []).find((o) => o.externalOrderId === externalId);
@@ -463,7 +470,7 @@ try {
   check('auto-accept OFF: order waits in New (already in Clover)', o4?.status === 'new');
   const cc0 = await call('GET', '/api/foodhub/command');
   const q4 = cc0.json?.queue?.find((q) => q.id === o4?.id);
-  check('Command Center queue shows it with the 5-minute Skip deadline', q4 && Math.abs(new Date(q4.deadlineAt).getTime() - new Date(q4.createdAt).getTime() - 5 * 60_000) < 1000);
+  check('Command Center queue shows it with the 5-minute Skip deadline (from when it was placed)', q4 && Math.abs(new Date(q4.deadlineAt).getTime() - expectedDeadlineMs(o4, 5)) < 1000 && new Date(q4.deadlineAt).getTime() <= new Date(q4.createdAt).getTime() + 5 * 60_000 + 1000);
   const acc = await call('POST', `/api/foodhub/orders/${o4?.id}`, { body: { action: 'accept' } });
   check('manual Accept → sent-to-pos-success', acc.json?.order?.status === 'accepted' && sent('POST', /^\/skip\/order\/skip-order-0002\/sent-to-pos-success$/).length === 1);
   check('Skip cancel notification accepted', (await skipWebhook('cancel', { orderID: 'skip-order-0002', reason: { code: 'customer_cancelled' }, happenedAt: new Date().toISOString() }, { hmac: false })).status === 200);
@@ -554,7 +561,7 @@ try {
   check('critical alerts listed first', cc.alerts[0].severity === 'critical');
   check('a store missing on Uber gives one clear alert (not two)', titles.filter((t) => /SAINT-LÉONARD on Uber Eats/.test(t)).length === 1);
   const q6 = cc.queue.find((q) => q.id === o6?.id);
-  check('Uber order with Clover failure is in the queue with its 11.5-min deadline', q6 && q6.posError && Math.abs(new Date(q6.deadlineAt).getTime() - new Date(q6.createdAt).getTime() - 690_000) < 1000);
+  check('Uber order with Clover failure is in the queue with its 11.5-min deadline', q6 && q6.posError && Math.abs(new Date(q6.deadlineAt).getTime() - expectedDeadlineMs(o6, 11.5)) < 1000 && new Date(q6.deadlineAt).getTime() <= new Date(q6.createdAt).getTime() + 690_000 + 1000);
   const retry = await call('POST', `/api/foodhub/orders/${o6?.id}`, { body: { action: 'retry_pos' } });
   check('"Send to Clover" retries honestly (still down → not ok)', retry.json?.result?.ok === false);
   const deny = await call('POST', `/api/foodhub/orders/${o6?.id}`, { body: { action: 'deny', reason: 'Item out of stock' } });

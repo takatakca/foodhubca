@@ -37,7 +37,11 @@ describe('help content', () => {
     expect(pageHelpFor('/stores/hours').match).toBe('/stores/hours');
     expect(pageHelpFor('/stores').match).toBe('/stores');
     expect(pageHelpFor('/orders/abc-123').match).toBe('/orders');
-    expect(pageHelpFor('/settings/team').match).toBe('/settings');
+    expect(pageHelpFor('/settings/team').match).toBe('/settings/team');
+    expect(pageHelpFor('/settings/channels').match).toBe('/settings');
+    expect(pageHelpFor('/money/fees').match).toBe('/money/fees');
+    expect(pageHelpFor('/money/statements').match).toBe('/money');
+    expect(pageHelpFor('/insights/reports').match).toBe('/insights/reports');
     expect(pageHelpFor('/').match).toBe('/');
     expect(pageHelpFor('/unknown-page').match).toBe('/');
     expect(hintFor('constructor')).toBeNull();

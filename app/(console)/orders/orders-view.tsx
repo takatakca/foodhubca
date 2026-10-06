@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Download, Inbox, Search } from 'lucide-react';
+import { Hint } from '@/components/help/hint';
 import { Badge, PlatformTag } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, EmptyState, PageHeader } from '@/components/ui/card';
@@ -35,7 +36,7 @@ export function OrdersView() {
   return (
     <div>
       <PageHeader title={t('Commandes', 'Orders')} subtitle={t('Toutes les plateformes, en direct. Touchez une commande pour tout voir.', 'Every platform, live. Tap an order to see everything.')}
-        right={<Segmented value={view} onChange={setView} options={[{ key: 'live', label: t('En direct', 'Live') }, { key: 'history', label: t('Historique', 'History') }]} />} />
+        right={<Hint id="orders.view"><Segmented value={view} onChange={setView} options={[{ key: 'live', label: t('En direct', 'Live') }, { key: 'history', label: t('Historique', 'History') }]} /></Hint>} />
       {view === 'live' ? <LiveBoard onOpen={setOpen} /> : <History onOpen={setOpen} />}
       {open && <OrderDrawer orderId={open} onClose={() => setOpen(null)} />}
     </div>
@@ -80,7 +81,7 @@ function LiveBoard({ onOpen }: { onOpen: (id: string) => void }) {
       {scheduled.length > 0 && (
         <div className="mb-5">
           <div className="mb-2 flex items-center gap-2 text-sm font-bold text-ink"><span className="size-2 rounded-full bg-violet" />{t('Planifiées', 'Scheduled')} <span className="num text-ink-3">{scheduled.length}</span></div>
-          <div className="no-scrollbar flex gap-3 overflow-x-auto pb-1">{scheduled.map((o) => <div key={o.id} className="w-72 shrink-0"><OrderCard o={o} onOpen={() => onOpen(o.id)} /></div>)}</div>
+          <div className="no-scrollbar flex gap-3 overflow-x-auto pb-1">{scheduled.map((o) => <div key={o.id} className="w-72 shrink-0"><Hint id="orders.card"><OrderCard o={o} onOpen={() => onOpen(o.id)} /></Hint></div>)}</div>
         </div>
       )}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -90,7 +91,7 @@ function LiveBoard({ onOpen }: { onOpen: (id: string) => void }) {
             <section key={l.key} className="flex min-h-48 flex-col rounded-xl bg-sunken/60 p-2.5">
               <div className="mb-2.5 flex items-center gap-2 px-1.5 pt-1 text-sm font-bold text-ink"><span className={cn('size-2 rounded-full', l.dot)} />{t(l.fr, l.en)}<span className="num ml-auto rounded-full bg-surface px-2 text-xs text-ink-2">{list.length}</span></div>
               <div className="flex flex-col gap-2.5">
-                {list.map((o) => <OrderCard key={o.id} o={o} onOpen={() => onOpen(o.id)} />)}
+                {list.map((o) => <Hint id="orders.card" key={o.id}><OrderCard o={o} onOpen={() => onOpen(o.id)} /></Hint>)}
                 {list.length === 0 && <div className="px-2 py-8 text-center text-[13px] text-ink-4">{l.key === 'new' ? t('Rien en attente 👌', 'Nothing waiting 👌') : '—'}</div>}
               </div>
             </section>
@@ -135,7 +136,7 @@ function History({ onOpen }: { onOpen: (id: string) => void }) {
   }
   return (
     <div>
-      <FilterBar filters={filters} set={set} locations={locations} brands={brands}
+      <Hint id="orders.filters"><FilterBar filters={filters} set={set} locations={locations} brands={brands}
         extra={<>
           <select value={status} onChange={(e) => setStatus(e.target.value)} className="h-9 rounded-md border border-line-2 bg-surface px-3 text-[13px] font-semibold" aria-label={t('Statut', 'Status')}>
             <option value="">{t('Tous les statuts', 'All statuses')}</option>
@@ -143,7 +144,7 @@ function History({ onOpen }: { onOpen: (id: string) => void }) {
           </select>
           <div className="relative"><Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-ink-3" /><Input inputSize="sm" className="h-9 w-56 pl-8" placeholder={t('No, client, Clover…', '#, customer, Clover…')} value={q} onChange={(e) => setQ(e.target.value)} /></div>
           <Button variant="outline" size="sm" className="h-9" onClick={csv} disabled={!shown.length} icon={<Download className="size-4" />}>CSV</Button>
-        </>} />
+        </>} /></Hint>
       <div className="mb-3 flex flex-wrap gap-4 text-sm"><span><strong className="num">{counted.length}</strong> <span className="text-ink-3">{t('commandes', 'orders')}</span></span><span><strong className="num">{money(sales, loc)}</strong> <span className="text-ink-3">{t('ventes', 'sales')}</span></span><span className="text-ink-3">{shown.length - counted.length} {t('annulées', 'cancelled')}</span></div>
       <Card>
         {rows === null ? <div className="space-y-2 p-4">{[0, 1, 2, 3, 4].map((i) => <div key={i} className="h-10 animate-pulse rounded bg-sunken" />)}</div>

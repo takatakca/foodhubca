@@ -1,5 +1,56 @@
 # Release notes
 
+## 1.5.9 — nothing typed is lost, help on every screen, promotions in Clover (2026-10-06)
+
+### Every settings screen saves by itself
+- **Alert rules, manager PIN rules, commission plans and each kitchen's prep time** now save by themselves like store
+  hours and your profile: no Save button, the chip says *Saved · 14:02* or what to fix, ⌘Z / ↶ ↷ undo, and an
+  unsaved change survives a closed tab or a dead battery. Numbers out of range are outlined in red and block only
+  the save, never the typing.
+- **Alert rules**: support numbers are a list (add, × to remove with 6 s *Undo*); turning the watchtower off can be
+  taken back for 6 s.
+- **Manager PIN rules**: *Strict preset* changes only what differs and can be undone; when saving these rules
+  needs a PIN, changes are grouped so one PIN covers several taps; a warning appears if the owner has no PIN yet.
+- **Prep time**: typed minutes save by themselves; *Busy mode* sends the typed minutes first.
+
+### Pop-up forms keep what you typed
+- Adding a person, a location, a store link, a deposit, a dispute, a tablet, a report email, or a day of Too Good To
+  Go bags: closing by X, Cancel, Esc or by mistake keeps what was typed (*Kept — reopen to finish*). Reopening shows
+  *Picked up where you left off — nothing was sent yet* with *Start over*. Nothing is sent until the form's own
+  button. PINs, passwords and one-time codes are never kept.
+
+### TakTak explains every main screen
+- Guided tours and first-tap explanations on Orders, Kitchen, Stores, Store connections, Out of stock (86), Alerts,
+  Money, Commission plans, Deposits, Disputes, Too Good To Go, Insights, Reports, Team, Business, Tablets, Security
+  and Alert rules. Nothing used during service (accept, ready, 86, pause) ever waits for an explanation.
+
+### Clover
+- **Platform promotions reach Clover as a discount line** (*DoorDash promotion −$3.50*), capped at the order's
+  lines, so a promoted order closes as paid instead of showing a balance due.
+
+### Money checks
+- **A promotion is counted once in reconciliation**: when the order already carries a restaurant-funded promotion
+  and the platform statement lists the same promotion, a correctly paid order no longer shows as *over paid* by the
+  promotion (only what the statement shows beyond the order's own discount explains a difference).
+
+### Fixes
+- The *PIN cancelled — Save* chip no longer stays on screen after undoing back to the saved values.
+- A guided tour skips steps whose button this person cannot see (no permission), instead of describing it.
+- A first-tap explanation never covers a pop-up or the manager PIN pad that the tap opened.
+- Report email and schedule buttons are disabled for the accountant/analyst role (the server always refused them).
+- Removing a store link in Store connections can be undone for 6 seconds (the platform is told after that).
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck`, `npm run lint` | pass (0 errors) |
+| `npm test` | 206 tests pass |
+| `npm run build` | pass |
+| `npm run verify:foodhub` | 383 end-to-end checks pass (new: the Clover promotion line) |
+| Browser (Chromium) | 36 new scenarios (pop-up drafts survive Esc and reload, *Start over*, autosave with refused values, two-step undo saved, strict preset undo, prep time, a guided tour on 18 screens) + the 25 scenarios of 1.5.8, 33 console screens without errors, 29/29 security and role probes |
+| Review | each screen group built by one agent and attacked by an independent reviewer; findings fixed |
+
 ## 1.5.8 — go-live fixes and the fluent console (2026-10-06)
 
 ### A console that never loses work and explains itself

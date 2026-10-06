@@ -8,17 +8,23 @@ import { Banner, Card, CardHeader, PageHeader } from '@/components/ui/card';
 import { FilterBar, MultiPick, CHANNEL_OPTIONS } from '@/components/ui/filter-bar';
 import { Field, Input, Select } from '@/components/ui/form';
 import { Modal } from '@/components/ui/overlay';
+import { FormDraftNote } from '@/components/ui/save-chip';
 import { useToast } from '@/components/ui/toast';
+import { Hint } from '@/components/help/hint';
 import { usePulse } from '@/components/live/pulse';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { InsightsTabs } from '../insights-tabs';
 import { api, timeOf } from '@/lib/ui/api';
 import { useFilters } from '@/lib/ui/range';
+import { formDraftId, useFormDraft } from '@/lib/ui/use-form-draft';
 import { useI18n } from '@/lib/i18n/client';
 
 type Report = { key: string; title: string; description: string };
 type Schedule = { id: string; report: string; frequency: 'daily' | 'weekly' | 'monthly'; emails: string[]; format: 'csv' | 'xlsx'; filter: { locationCodes?: string[]; channels?: string[]; brands?: string[] }; lastSentAt?: string; lastError?: string | null };
 type Preview = { title: string; columns: string[]; rows: Array<Array<string | number>>; total: number };
+/** What the "Email" and "Schedule" pop-ups keep on this device when closed by mistake (addresses and choices — nothing secret). */
+type MailForm = { emails: string; format: 'xlsx' | 'csv' };
+type ScheduleForm = MailForm & { frequency: Schedule['frequency']; locationCodes: string[]; channels: string[]; brands: string[] };
 const FR: Record<string, [string, string]> = {
   order_transactions: ['Transactions par commande', 'Une ligne par commande : montants, taxes, statut, plateforme, Clover.'],
   order_status_transitions: ['Étapes des commandes', 'Heures de réception, acceptation, prête, ramassée, annulée — et qui l’a fait.'],
@@ -31,7 +37,9 @@ const FR: Record<string, [string, string]> = {
 
 export default function ReportsPage() {
   const { t, lang, loc } = useI18n();
-  const { locations, brands, locName } = useViewer();
+  const { can, locations, brands, locName } = useViewer();
+  // Emailing and scheduling a report need finance:edit on the server (owner, manager); an accountant / analyst downloads.
+  const canSend = can('finance:edit');
   const { scope } = usePulse();
   const toast = useToast();
   const { filters, set, query } = useFilters('yesterday', scope);
@@ -54,19 +62,20 @@ export default function ReportsPage() {
     <div>
       <PageHeader title={t('Analyses', 'Insights')} subtitle={t('Téléchargez n’importe quel rapport pour la période choisie, envoyez-le maintenant ou chaque jour, semaine ou mois.', 'Download any report for the chosen period, email it now, or every day, week or month.')} />
       <InsightsTabs />
+      {emailOn && !canSend && <Banner tone="info" className="mb-4">{t('Envoyer ou programmer un rapport : réservé au propriétaire et aux gérants. Les téléchargements marchent pour tous.', 'Emailing or scheduling a report: owner and managers only. Downloads work for everyone.')}</Banner>}
       {!emailOn && <Banner tone="warn" className="mb-4">{t('Courriel pas branché : les téléchargements marchent, mais « Envoyer » et les envois programmés demandent RESEND_API_KEY et REPORT_EMAIL_FROM.', 'Email not set up: downloads work, but “Email” and schedules need RESEND_API_KEY and REPORT_EMAIL_FROM.')}</Banner>}
-      <FilterBar filters={filters} set={set} locations={locations} brands={brands} />
+      <Hint id="reports.period"><FilterBar filters={filters} set={set} locations={locations} brands={brands} /></Hint>
       <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {reports.map((r) => (
           <Card key={r.key} className="flex flex-col p-5">
             <h2 className="text-[15px] font-bold">{title(r)}</h2>
             <p className="mt-1 flex-1 text-[13px] text-ink-3">{desc(r)}</p>
             <div className="mt-4 flex flex-wrap gap-1.5">
-              <a className={buttonClass('primary', 'sm')} href={`/api/foodhub/reports/${r.key}?format=xlsx&${query}`}><Download className="size-4" />Excel</a>
-              <a className={buttonClass('outline', 'sm')} href={`/api/foodhub/reports/${r.key}?format=csv&${query}`}>CSV</a>
-              <Button size="sm" variant="ghost" onClick={() => show(r.key)} icon={<Eye className="size-4" />}>{t('Aperçu', 'Preview')}</Button>
-              <Button size="sm" variant="ghost" disabled={!emailOn} onClick={() => setMailFor(r)} icon={<Mail className="size-4" />}>{t('Envoyer', 'Email')}</Button>
-              <Button size="sm" variant="ghost" disabled={!emailOn} onClick={() => setSchedFor(r)} icon={<CalendarClock className="size-4" />}>{t('Programmer', 'Schedule')}</Button>
+              <Hint id="reports.download"><a className={buttonClass('primary', 'md')} href={`/api/foodhub/reports/${r.key}?format=xlsx&${query}`}><Download className="size-4" />Excel</a></Hint>
+              <a className={buttonClass('outline', 'md')} href={`/api/foodhub/reports/${r.key}?format=csv&${query}`}>CSV</a>
+              <Button variant="ghost" onClick={() => show(r.key)} icon={<Eye className="size-4" />}>{t('Aperçu', 'Preview')}</Button>
+              <Hint id="reports.email"><Button variant="ghost" disabled={!emailOn || !canSend} onClick={() => setMailFor(r)} icon={<Mail className="size-4" />}>{t('Envoyer', 'Email')}</Button></Hint>
+              <Hint id="reports.schedule"><Button variant="ghost" disabled={!emailOn || !canSend} onClick={() => setSchedFor(r)} icon={<CalendarClock className="size-4" />}>{t('Programmer', 'Schedule')}</Button></Hint>
             </div>
           </Card>
         ))}
@@ -81,13 +90,13 @@ export default function ReportsPage() {
               <span className="min-w-0 flex-1 truncate text-ink-3">{s.emails.join(', ')} {s.filter.locationCodes?.length ? `· ${s.filter.locationCodes.map((c) => shortLoc(locName(c))).join(', ')}` : ''}</span>
               <span className="text-xs text-ink-3">{s.lastSentAt ? timeOf(s.lastSentAt, loc, true) : t('pas encore', 'not yet')}</span>
               {s.lastError && <Badge tone="stop" title={s.lastError}>{t('échec', 'failed')}</Badge>}
-              <button type="button" className="rounded p-1.5 text-ink-3 hover:text-stop" onClick={() => {
+              {canSend && <Hint id="reports.stop"><button type="button" className="flex size-10 items-center justify-center rounded-md text-ink-3 hover:bg-sunken hover:text-stop" onClick={() => {
                 // Hidden at once; really stopped after 6 s unless "Undo" is tapped.
                 setSchedules((list) => list.filter((x) => x.id !== s.id));
                 toast.undo(t('Envoi arrêté', 'Email stopped'), () => load(), {
                   onCommit: () => { api(`/api/foodhub/reports/schedules?id=${s.id}`, { method: 'DELETE' }).catch((e) => { toast.error(e instanceof Error ? e.message : String(e)); load(); }); },
                 });
-              }} aria-label={t('Arrêter', 'Stop')}><Trash2 className="size-4" /></button>
+              }} aria-label={t('Arrêter', 'Stop')} title={t('Arrêter cet envoi', 'Stop this email')}><Trash2 className="size-5" /></button></Hint>}
             </div>
           ))}
           {schedules.length === 0 && <div className="px-5 py-6 text-sm text-ink-3">{t('Aucun envoi programmé.', 'No scheduled email.')}</div>}
@@ -111,20 +120,27 @@ export default function ReportsPage() {
 
 function MailDialog({ report, title, query, onClose }: { report: Report; title: string; query: string; onClose: () => void }) {
   const { t } = useI18n();
+  const { viewer } = useViewer();
   const toast = useToast();
-  const [emails, setEmails] = useState('');
-  const [format, setFormat] = useState<'xlsx' | 'csv'>('xlsx');
+  // One kept draft per report: closing by mistake keeps the addresses until "Send" succeeds.
+  const f = useFormDraft<MailForm>(formDraftId('report-email', report.key), viewer.username, { emails: '', format: 'xlsx' });
+  const { emails, format } = f.value;
   const [busy, setBusy] = useState(false);
+  function close() {
+    if (f.dirty) toast.info(t('Gardé — rouvrez pour terminer', 'Kept — reopen to finish'));
+    onClose();
+  }
   async function send() {
     setBusy(true);
-    try { const r = await api<{ message: string; rows: number }>('/api/foodhub/reports/email', { method: 'POST', json: { report: report.key, emails, format, query: Object.fromEntries(new URLSearchParams(query)) } }); toast.success(t('Rapport envoyé', 'Report sent'), `${r.rows} ${t('lignes', 'rows')}`); onClose(); }
+    try { const r = await api<{ message: string; rows: number }>('/api/foodhub/reports/email', { method: 'POST', json: { report: report.key, emails, format, query: Object.fromEntries(new URLSearchParams(query)) } }); f.clear(); toast.success(t('Rapport envoyé', 'Report sent'), `${r.rows} ${t('lignes', 'rows')}`); onClose(); }
     catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
   return (
-    <Modal title={`${t('Envoyer', 'Email')} « ${title} »`} onClose={onClose} footer={<><Button variant="ghost" onClick={onClose}>{t('Annuler', 'Cancel')}</Button><Button loading={busy} disabled={!emails.trim()} onClick={send}>{t('Envoyer', 'Send')}</Button></>}>
+    <Modal title={`${t('Envoyer', 'Email')} « ${title} »`} onClose={close} footer={<><Button variant="ghost" size="lg" onClick={close}>{t('Annuler', 'Cancel')}</Button><Button size="lg" loading={busy} disabled={!emails.trim()} onClick={send}>{t('Envoyer', 'Send')}</Button></>}>
+      <FormDraftNote restored={f.restored} onDiscard={f.discard} />
       <div className="space-y-4">
-        <Field label={t('À (séparés par des virgules)', 'To (comma-separated)')}><Input value={emails} onChange={(e) => setEmails(e.target.value)} placeholder="comptable@exemple.ca" /></Field>
-        <Field label={t('Format', 'Format')}><Select value={format} onChange={(e) => setFormat(e.target.value as 'xlsx')}><option value="xlsx">Excel</option><option value="csv">CSV</option></Select></Field>
+        <Field label={t('À (séparés par des virgules)', 'To (comma-separated)')}><Input value={emails} onChange={(e) => f.set((v) => ({ ...v, emails: e.target.value }))} placeholder="comptable@exemple.ca" /></Field>
+        <Field label={t('Format', 'Format')}><Select value={format} onChange={(e) => f.set((v) => ({ ...v, format: e.target.value as MailForm['format'] }))}><option value="xlsx">Excel</option><option value="csv">CSV</option></Select></Field>
         <p className="text-xs text-ink-3">{t('Avec la période et les filtres de la page.', 'With the page’s period and filters.')}</p>
       </div>
     </Modal>
@@ -133,32 +149,38 @@ function MailDialog({ report, title, query, onClose }: { report: Report; title: 
 
 function ScheduleDialog({ report, title, freq, onClose, onDone }: { report: Report; title: string; freq: Record<string, string>; onClose: () => void; onDone: () => void }) {
   const { t } = useI18n();
-  const { locations, brands } = useViewer();
+  const { viewer, locations, brands } = useViewer();
   const toast = useToast();
-  const [emails, setEmails] = useState('');
-  const [frequency, setFrequency] = useState<'daily' | 'weekly' | 'monthly'>('daily');
-  const [format, setFormat] = useState<'xlsx' | 'csv'>('xlsx');
-  const [locs, setLocs] = useState<string[]>([]);
-  const [chs, setChs] = useState<string[]>([]);
-  const [brs, setBrs] = useState<string[]>([]);
+  // One kept draft per report: closing by mistake keeps the addresses and choices until "Save" succeeds.
+  const f = useFormDraft<ScheduleForm>(formDraftId('report-schedule', report.key), viewer.username, { emails: '', frequency: 'daily', format: 'xlsx', locationCodes: [], channels: [], brands: [] });
+  const { emails, frequency, format, channels: chs } = f.value;
+  // A kept location or brand that is no longer one of yours (draft from another day) is neither shown nor sent.
+  const locs = f.value.locationCodes.filter((c) => locations.some((l) => l.code === c));
+  const brs = f.value.brands.filter((b) => brands.includes(b));
+  const put = (p: Partial<ScheduleForm>) => f.set((v) => ({ ...v, ...p }));
   const [busy, setBusy] = useState(false);
+  function close() {
+    if (f.dirty) toast.info(t('Gardé — rouvrez pour terminer', 'Kept — reopen to finish'));
+    onClose();
+  }
   async function save() {
     setBusy(true);
-    try { await api('/api/foodhub/reports/schedules', { method: 'POST', json: { report: report.key, emails, frequency, format, locationCodes: locs, channels: chs, brands: brs } }); toast.success(t('Envoi programmé', 'Email scheduled')); onDone(); }
+    try { await api('/api/foodhub/reports/schedules', { method: 'POST', json: { report: report.key, emails, frequency, format, locationCodes: locs, channels: chs, brands: brs } }); f.clear(); toast.success(t('Envoi programmé', 'Email scheduled')); onDone(); }
     catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
   return (
-    <Modal title={`${t('Programmer', 'Schedule')} « ${title} »`} onClose={onClose} footer={<><Button variant="ghost" onClick={onClose}>{t('Annuler', 'Cancel')}</Button><Button loading={busy} disabled={!emails.trim()} onClick={save}>{t('Enregistrer', 'Save')}</Button></>}>
+    <Modal title={`${t('Programmer', 'Schedule')} « ${title} »`} onClose={close} footer={<><Button variant="ghost" size="lg" onClick={close}>{t('Annuler', 'Cancel')}</Button><Button size="lg" loading={busy} disabled={!emails.trim()} onClick={save}>{t('Enregistrer', 'Save')}</Button></>}>
+      <FormDraftNote restored={f.restored} onDiscard={f.discard} />
       <div className="space-y-4">
-        <Field label={t('À', 'To')}><Input value={emails} onChange={(e) => setEmails(e.target.value)} placeholder="vous@takatak.ca" /></Field>
+        <Field label={t('À', 'To')}><Input value={emails} onChange={(e) => put({ emails: e.target.value })} placeholder="vous@takatak.ca" /></Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label={t('Fréquence', 'How often')}><Select value={frequency} onChange={(e) => setFrequency(e.target.value as 'daily')}>{Object.entries(freq).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select></Field>
-          <Field label={t('Format', 'Format')}><Select value={format} onChange={(e) => setFormat(e.target.value as 'xlsx')}><option value="xlsx">Excel</option><option value="csv">CSV</option></Select></Field>
+          <Field label={t('Fréquence', 'How often')}><Select value={frequency} onChange={(e) => put({ frequency: e.target.value as ScheduleForm['frequency'] })}>{Object.entries(freq).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select></Field>
+          <Field label={t('Format', 'Format')}><Select value={format} onChange={(e) => put({ format: e.target.value as ScheduleForm['format'] })}><option value="xlsx">Excel</option><option value="csv">CSV</option></Select></Field>
         </div>
         <div className="flex flex-wrap gap-2">
-          <MultiPick label={t('Succursales', 'Locations')} options={locations.map((l) => [l.code, shortLoc(l.name)])} value={locs} onChange={setLocs} />
-          <MultiPick label={t('Plateformes', 'Platforms')} options={CHANNEL_OPTIONS.map(([k, l]) => [k, l])} value={chs} onChange={setChs} />
-          <MultiPick label={t('Marques', 'Brands')} options={brands.map((b) => [b, b])} value={brs} onChange={setBrs} />
+          <MultiPick label={t('Succursales', 'Locations')} options={locations.map((l) => [l.code, shortLoc(l.name)])} value={locs} onChange={(v) => put({ locationCodes: v })} />
+          <MultiPick label={t('Plateformes', 'Platforms')} options={CHANNEL_OPTIONS.map(([k, l]) => [k, l])} value={chs} onChange={(v) => put({ channels: v })} />
+          <MultiPick label={t('Marques', 'Brands')} options={brands.map((b) => [b, b])} value={brs} onChange={(v) => put({ brands: v })} />
         </div>
       </div>
     </Modal>

@@ -60,6 +60,8 @@ order is paid with the platform tender. Then test a cancellation and a rejection
 Confirm with the platforms during these tests (assumed from their public documentation):
 - Uber Eats: whether activation needs a menu first or an extra "integration enabled" step; locale keys `en_ca`/`fr_ca`.
 - DoorDash: tax remitted by DoorDash or not; per-unit item prices; menu pull accepted by their onboarding tool.
+- Promotions (all platforms): the promotion in the order is the one **you** fund (Uber's order payload does not say
+  who funds it — compare one promoted Uber order with its statement).
 - Skip / JET: header names, `transmission_id`, timestamps, menu-status callback shape.
 - Clover: a custom price on an item-linked line, the payment fields, `print_event`, deleting a cancelled order.
 
@@ -77,9 +79,10 @@ Confirm with the platforms during these tests (assumed from their public documen
 - **Clover in safe mode**: Food Hub creates orders, prints and records payments in Clover even while
   `LIVE_CONNECTORS_GLOBAL_ENABLED=false` (the switch only gates the delivery platforms). Test with a sandbox merchant
   or expect real Clover orders during tests.
-- **Promotions in Clover**: a platform discount is not yet sent to Clover as a discount line, so a promoted order can
-  show a balance due in Clover. Confirm with Clover sandbox, then we add the discount line.
+- **Promotions in Clover** (1.5.9): a restaurant-funded platform promotion is sent to Clover as an order discount
+  (*DoorDash promotion −$3.50*), so the order closes as paid. Confirm on one sandbox order that Clover's total is
+  lines − discount + tax and that the hand-off payment closes it.
 - **Skip manual accept**: if a Skip store is set to manual accept and nobody answers within 5 minutes, JET hands the
   order to the tablet but Food Hub keeps it open. Keep Skip on auto-accept.
 - **Order Relay and shared menus** (branch `claude/practical-wright-pnhgtl`, from another session): ready to review
-  and merge after 1.5.8; its menu-editor changes then get the same autosave treatment.
+  and merge after 1.5.9; its menu-editor and channels-page changes then get the same autosave and help treatment.

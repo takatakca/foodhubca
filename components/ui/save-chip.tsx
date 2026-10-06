@@ -62,3 +62,18 @@ export function DraftRestoredBanner({ onDiscard, className }: { onDiscard: () =>
     </div>
   );
 }
+
+/**
+ * Shown at the top of a pop-up form (useFormDraft) when what was typed last time was kept: nothing was sent yet,
+ * the person finishes and presses the form's button, or starts over.
+ */
+export function FormDraftNote({ restored, onDiscard, className }: { restored: boolean; onDiscard: () => void; className?: string }) {
+  const { t } = useI18n();
+  if (!restored) return null;
+  return (
+    <div className={cn('mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-info/30 bg-info-soft px-3 py-2 text-sm text-info-2', className)} role="status" data-testid="form-draft-note">
+      <span className="flex-1 font-semibold">{t('Repris là où vous étiez — rien n’a encore été envoyé.', 'Picked up where you left off — nothing was sent yet.')}</span>
+      <button type="button" onClick={onDiscard} className="min-h-10 rounded-md px-3 font-bold hover:bg-info/10">{t('Recommencer', 'Start over')}</button>
+    </div>
+  );
+}

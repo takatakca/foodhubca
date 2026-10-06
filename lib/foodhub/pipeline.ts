@@ -10,6 +10,7 @@ import { settleInClover } from './clover-settle';
 import { relayActions } from './adapters/relay';
 import { reportSkipMissingItems } from './adapters/skip';
 import { applyCourierUpdate, pendingKey, readPending } from './courier';
+import { getBrandMenu } from './menu/shared';
 import { prepFor } from './prep';
 import { isWaitingScheduled, scheduledInfo } from './scheduling';
 import { getRepo } from './repo';
@@ -52,9 +53,9 @@ export async function processIncomingOrder(n: NormalizedOrder): Promise<Pipeline
   const store = n.channelStoreId ? await repo.findStore(n.channel, n.channelStoreId) : null;
   const brandName = store?.brandName || n.brandName;
 
-  // Map platform item refs back to Clover inventory ids using the brand's master menu.
+  // Map platform item refs back to Clover inventory ids using the brand's master menu (or the menu it shares).
   if (brandName) {
-    const menu = await repo.getMenu(brandName);
+    const menu = await getBrandMenu(brandName);
     if (menu) {
       // Clover item ids belong to one merchant: when the menu was imported from another merchant than this
       // store's, inject custom line items (name + price) instead of foreign ids Clover would reject.

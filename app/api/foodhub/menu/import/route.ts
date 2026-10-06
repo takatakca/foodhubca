@@ -4,6 +4,7 @@ import { locationsForMerchant } from '@/lib/foodhub/clover-sync';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { importMenuFromClover, knownCloverMerchants } from '@/lib/foodhub/pos/clover';
 import { getRepo } from '@/lib/foodhub/repo';
+import { menuSourceFor } from '@/lib/foodhub/menu/shared';
 import type { MasterMenu, MenuItem } from '@/lib/foodhub/types';
 
 export const dynamic = 'force-dynamic';
@@ -27,6 +28,8 @@ export const GET = withPerm('menu:edit', async () => {
 export const POST = withPerm('menu:edit', async (req, _ctx, actor) => {
   const b = await readJson(req);
   if (!b.brand) return fail('brand is required');
+  const source = await menuSourceFor(String(b.brand));
+  if (source !== String(b.brand)) return fail(`${b.brand} uses the ${source} menu — import from Clover on ${source}; it applies to every brand that shares it.`, 409);
   const merchantId = b.merchantId ? String(b.merchantId) : process.env.CLOVER_MERCHANT_ID;
   if (!merchantId) return fail('No Clover merchant id. Set CLOVER_MERCHANT_ID or pass a merchant id.');
   if (!importableMerchants().includes(merchantId)) return fail(`Unknown Clover merchant ${merchantId}. Use CLOVER_MERCHANT_ID or one of CLOVER_MERCHANT_TOKENS.`);

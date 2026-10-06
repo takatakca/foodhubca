@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, CalendarClock, CircleAlert, CircleCheck, Copy, Download, ImageOff, ImageUp, Info, Languages, Plus, Search, Send, Trash2, TriangleAlert } from 'lucide-react';
+import { ArrowDown, ArrowUp, CalendarClock, CircleAlert, CircleCheck, Copy, Download, ImageOff, ImageUp, Info, Languages, Link2, Plus, Search, Send, Trash2, TriangleAlert } from 'lucide-react';
 import { Badge, PlatformMark, PlatformTag } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Banner, Card, CardHeader, EmptyState, PageHeader } from '@/components/ui/card';
@@ -49,24 +49,33 @@ export function MenuEditor() {
   const [view, setView] = useState<'items' | 'options' | 'publish'>('items');
   const [editItem, setEditItem] = useState<string | null>(null);
   const [editHours, setEditHours] = useState<string | null>(null);
-  const [dialog, setDialog] = useState<'publish' | 'copy' | 'langs' | 'newcat' | null>(null);
+  const [dialog, setDialog] = useState<'publish' | 'copy' | 'langs' | 'newcat' | 'share' | null>(null);
+  // One menu for several brands: follower → source. sharedFrom = the brand whose menu this one uses.
+  const [sharing, setSharing] = useState<Record<string, string>>({});
+  const [sharedFrom, setSharedFrom] = useState<string | null>(null);
+  const [group, setGroup] = useState<string[]>([]);
 
-  useEffect(() => { api<{ brands: string[] }>('/api/foodhub/menu').then((d) => { setBrands(d.brands); setBrand((b) => b || d.brands[0] || ''); }).catch((e) => toast.error(e.message)); }, [toast]);
+  const loadBrands = useCallback(() => api<{ brands: string[]; sharing?: Record<string, string> }>('/api/foodhub/menu').then((d) => { setBrands(d.brands); setSharing(d.sharing ?? {}); setBrand((b) => b || d.brands[0] || ''); }).catch((e) => toast.error(e.message)), [toast]);
+  useEffect(() => { loadBrands(); }, [loadBrands]);
   useEffect(() => { api<{ languages: Langs }>('/api/foodhub/menu/languages').then((d) => setLangs(d.languages)).catch(() => undefined); }, []);
   const loadStatus = useCallback(async (b: string) => {
-    const d = await api<{ check: Check | null; stores: StoreStatus[]; scheduled: Scheduled[] }>(`/api/foodhub/menu/publish?brand=${encodeURIComponent(b)}`).catch(() => null);
-    if (d) { setCheck(d.check); setStores(d.stores); setScheduled(d.scheduled); }
+    const d = await api<{ check: Check | null; stores: StoreStatus[]; scheduled: Scheduled[]; group?: string[] }>(`/api/foodhub/menu/publish?brand=${encodeURIComponent(b)}`).catch(() => null);
+    if (d) { setCheck(d.check); setStores(d.stores); setScheduled(d.scheduled); setGroup(d.group ?? [b]); }
   }, []);
   const load = useCallback(async (b: string) => {
     if (!b) return;
-    const d = await api<{ menu: MasterMenu }>(`/api/foodhub/menu?brand=${encodeURIComponent(b)}`);
-    setMenu(d.menu); setDirty(false); setCat('*');
+    const d = await api<{ menu: MasterMenu; sharedFrom?: string | null }>(`/api/foodhub/menu?brand=${encodeURIComponent(b)}`);
+    setMenu(d.menu); setSharedFrom(d.sharedFrom ?? null); setDirty(false); setCat('*');
     loadStatus(b);
     api<{ changes: PriceChange[] }>(`/api/foodhub/menu/clover-prices?brand=${encodeURIComponent(b)}`).then((x) => setPrices(x.changes)).catch(() => setPrices([]));
   }, [loadStatus]);
   useEffect(() => { load(brand).catch((e) => toast.error(e.message)); }, [brand, load, toast]);
 
-  const update = (fn: (m: MasterMenu) => MasterMenu) => { setMenu((m) => (m ? fn(m) : m)); setDirty(true); };
+  const update = (fn: (m: MasterMenu) => MasterMenu) => {
+    // A brand that shares another brand's menu is read-only here: it is edited on that brand.
+    if (sharedFrom) { toast.warn(t(`${brand} utilise le menu ${sharedFrom}`, `${brand} uses the ${sharedFrom} menu`), t(`Modifiez ${sharedFrom} : le changement s’applique à toutes les marques qui le partagent.`, `Edit ${sharedFrom}: the change applies to every brand that shares it.`)); return; }
+    setMenu((m) => (m ? fn(m) : m)); setDirty(true);
+  };
   const updateItem = (ref: string, p: Partial<MenuItem>) => update((m) => ({ ...m, items: m.items.map((i) => (i.ref === ref ? { ...i, ...p } : i)) }));
   const updateGroup = (ref: string, p: Partial<MenuModifierGroup>) => update((m) => ({ ...m, modifierGroups: m.modifierGroups.map((g) => (g.ref === ref ? { ...g, ...p } : g)) }));
   const fail = (e: unknown) => { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); };
@@ -98,14 +107,27 @@ export function MenuEditor() {
 
   return (
     <div>
-      <PageHeader title={t('Menus', 'Menus')} subtitle={t('Un menu maître par marque → vérifié → publié sur Uber Eats, DoorDash et Skip avec les heures, fériés et horaires de catégorie.', 'One master menu per brand → checked → published to Uber Eats, DoorDash and Skip with hours, holidays and category schedules.')}
+      <PageHeader title={t('Menus', 'Menus')} subtitle={t('Un menu maître par marque, ou un seul menu partagé entre vos marques → vérifié → publié sur Uber Eats, DoorDash et Skip avec les heures, fériés et horaires de catégorie.', 'One master menu per brand, or one menu shared by your brands → checked → published to Uber Eats, DoorDash and Skip with hours, holidays and category schedules.')}
         right={<>
-          <Select className="w-56" value={brand} onChange={(e) => { if (dirty && !window.confirm(t('Abandonner les changements ?', 'Discard changes?'))) return; setBrand(e.target.value); }} aria-label={t('Marque', 'Brand')}>{allBrands.map((b) => <option key={b}>{b}</option>)}</Select>
-          <Button variant="outline" loading={busy === 'import'} onClick={importClover} icon={<Download className="size-4" />}>{t('Importer de Clover', 'Import from Clover')}</Button>
-          <Button variant="primary" disabled={!dirty} loading={busy === 'save'} onClick={save}>{dirty ? t('Enregistrer', 'Save') : t('Enregistré', 'Saved')}</Button>
+          <Select className="w-56" value={brand} onChange={(e) => { if (dirty && !window.confirm(t('Abandonner les changements ?', 'Discard changes?'))) return; setBrand(e.target.value); }} aria-label={t('Marque', 'Brand')}>{allBrands.map((b) => <option key={b} value={b}>{sharing[b] ? `${b} → ${sharing[b]}` : b}</option>)}</Select>
+          <Button variant="outline" onClick={() => (dirty ? toast.warn(t('Enregistrez d’abord.', 'Save first.')) : setDialog('share'))} icon={<Link2 className="size-4" />}>{t('Menu partagé', 'Shared menu')}</Button>
+          <Button variant="outline" disabled={Boolean(sharedFrom)} loading={busy === 'import'} onClick={importClover} icon={<Download className="size-4" />}>{t('Importer de Clover', 'Import from Clover')}</Button>
+          <Button variant="primary" disabled={!dirty || Boolean(sharedFrom)} loading={busy === 'save'} onClick={save}>{dirty ? t('Enregistrer', 'Save') : t('Enregistré', 'Saved')}</Button>
           <Button variant="brand" onClick={() => (dirty ? toast.warn(t('Enregistrez avant de publier.', 'Save before publishing.')) : setDialog('publish'))} icon={<Send className="size-4" />}>{t('Publier', 'Publish')}</Button>
         </>} />
       <MenuTabs />
+
+      {sharedFrom ? (
+        <Banner tone="info" className="mb-4" action={<Button size="xs" variant="outline" onClick={() => setBrand(sharedFrom)}>{t(`Modifier ${sharedFrom}`, `Edit ${sharedFrom}`)}</Button>}>
+          {t(`${brand} utilise le menu ${sharedFrom} (articles, prix, options, ruptures). Il est publié sous le nom, les heures et les magasins de ${brand}. Modifiez-le sur ${sharedFrom}.`,
+            `${brand} uses the ${sharedFrom} menu (items, prices, options, 86s). It is published under ${brand}’s own name, hours and stores. Edit it on ${sharedFrom}.`)}
+        </Banner>
+      ) : group.length > 1 && (
+        <Banner tone="info" className="mb-4">
+          {t(`Ce menu est aussi utilisé par : ${group.slice(1).join(', ')}. Chaque changement et chaque rupture s’appliquent à toutes ces marques.`,
+            `This menu is also used by: ${group.slice(1).join(', ')}. Every change and every 86 applies to all of these brands.`)}
+        </Banner>
+      )}
 
       {prices.length > 0 && (
         <Banner tone="warn" className="mb-4">
@@ -273,7 +295,8 @@ export function MenuEditor() {
 
       {item && menu && <ItemDialog item={item} markup={menu.channelMarkupPct} groups={menu.modifierGroups} categories={cats} onChange={(p) => updateItem(item.ref, p)} onRemove={() => { update((m) => ({ ...m, items: m.items.filter((x) => x.ref !== item.ref) })); setEditItem(null); }} onClose={() => setEditItem(null)} />}
       {hoursCat && <CategoryHours category={hoursCat} onSave={(h) => { update((m) => ({ ...m, categories: m.categories.map((c) => (c.ref === hoursCat.ref ? { ...c, hours: h as MenuCategory['hours'] } : c)) })); setEditHours(null); }} onClose={() => setEditHours(null)} />}
-      {dialog === 'publish' && menu && <PublishDialog brand={brand} stores={stores} check={check} onClose={() => setDialog(null)} onDone={() => { setDialog(null); loadStatus(brand); setView('publish'); }} />}
+      {dialog === 'share' && <ShareDialog brand={sharedFrom ?? brand} brands={allBrands} sharing={sharing} onClose={() => setDialog(null)} onSaved={(next) => { setSharing(next); setDialog(null); load(brand).catch(fail); loadBrands(); toast.success(t('Menus partagés enregistrés — publiez pour les envoyer.', 'Shared menus saved — publish to send them.')); }} />}
+      {dialog === 'publish' && menu && <PublishDialog brand={brand} group={group} stores={stores} check={check} onClose={() => setDialog(null)} onDone={() => { setDialog(null); loadStatus(brand); setView('publish'); }} />}
       {dialog === 'langs' && langs && <LangDialog value={langs} onClose={() => setDialog(null)} onSaved={(l) => { setLangs(l); setDialog(null); toast.success(t('Langues enregistrées — publiez pour les appliquer.', 'Languages saved — publish to apply them.')); }} />}
       {dialog === 'newcat' && <NewCategory onClose={() => setDialog(null)} onAdd={(name, nameFr) => { const ref = uid('cat'); update((m) => ({ ...m, categories: [...m.categories, { ref, name, nameFr: nameFr || undefined, sortOrder: m.categories.length }] })); setCat(ref); setDialog(null); }} copyFrom={allBrands.filter((b) => b !== brand)} onCopy={async (src) => {
         const d = await api<{ menu: MasterMenu }>(`/api/foodhub/menu?brand=${encodeURIComponent(src)}`);
@@ -383,11 +406,13 @@ function CategoryHours({ category, onSave, onClose }: { category: MenuCategory; 
   );
 }
 
-function PublishDialog({ brand, stores, check, onClose, onDone }: { brand: string; stores: StoreStatus[]; check: Check | null; onClose: () => void; onDone: () => void }) {
+function PublishDialog({ brand, group, stores, check, onClose, onDone }: { brand: string; group: string[]; stores: StoreStatus[]; check: Check | null; onClose: () => void; onDone: () => void }) {
   const { t, loc } = useI18n();
   const { locName } = useViewer();
   const toast = useToast();
   const [sel, setSel] = useState<string[]>(stores.map((s) => s.storeId));
+  // Brands sharing this menu: publish them all at once (default) or only this brand's selected stores.
+  const [allBrands, setAllBrands] = useState(group.length > 1);
   const [when, setWhen] = useState<'now' | 'later'>('now');
   const [at, setAt] = useState('');
   const [busy, setBusy] = useState(false);
@@ -395,7 +420,7 @@ function PublishDialog({ brand, stores, check, onClose, onDone }: { brand: strin
   async function go() {
     setBusy(true);
     try {
-      const body: Record<string, unknown> = { brand, storeIds: sel.length === stores.length ? undefined : sel };
+      const body: Record<string, unknown> = allBrands ? { brand, allBrands: true } : { brand, storeIds: sel.length === stores.length ? undefined : sel };
       if (when === 'later') body.at = new Date(at).toISOString();
       const d = await api<{ results?: Array<{ channel: string; result: { ok: boolean; status: string; message: string } }>; scheduled?: { at: string } }>('/api/foodhub/menu/publish', { method: 'POST', json: body });
       if (d.scheduled) toast.success(t('Publication programmée', 'Publish scheduled'), timeOf(d.scheduled.at, loc, true));
@@ -405,16 +430,73 @@ function PublishDialog({ brand, stores, check, onClose, onDone }: { brand: strin
   }
   return (
     <Modal title={t(`Publier ${brand}`, `Publish ${brand}`)} size="lg" onClose={onClose}
-      footer={<><Button variant="ghost" onClick={onClose}>{t('Annuler', 'Cancel')}</Button><Button variant="brand" loading={busy} disabled={blocked || !sel.length || (when === 'later' && !at)} onClick={go} icon={<Send className="size-4" />}>{when === 'now' ? t(`Publier sur ${sel.length} magasin(s)`, `Publish to ${sel.length} store(s)`) : t('Programmer', 'Schedule')}</Button></>}>
+      footer={<><Button variant="ghost" onClick={onClose}>{t('Annuler', 'Cancel')}</Button><Button variant="brand" loading={busy} disabled={blocked || (!allBrands && !sel.length) || (when === 'later' && !at)} onClick={go} icon={<Send className="size-4" />}>{when === 'later' ? t('Programmer', 'Schedule') : allBrands ? t(`Publier ${group.length} marques`, `Publish ${group.length} brands`) : t(`Publier sur ${sel.length} magasin(s)`, `Publish to ${sel.length} store(s)`)}</Button></>}>
       {blocked && <Banner tone="stop" className="mb-3">{t(`Corrigez les ${check!.errors.length} erreur(s) d’abord.`, `Fix the ${check!.errors.length} error(s) first.`)}</Banner>}
+      {group.length > 1 && (
+        <div className="mb-3 rounded-lg border border-line bg-raised p-3">
+          <Checkbox checked={allBrands} onChange={setAllBrands} label={<span>{t(`Publier pour toutes les marques qui partagent ce menu (${group.length}) : `, `Publish for every brand that shares this menu (${group.length}): `)}<strong>{group.join(', ')}</strong></span>} />
+        </div>
+      )}
+      {!allBrands && <>
       <div className="mb-2 flex gap-2 text-xs"><button type="button" className="font-semibold underline" onClick={() => setSel(stores.map((s) => s.storeId))}>{t('Tous', 'All')}</button><button type="button" className="font-semibold underline" onClick={() => setSel([])}>{t('Aucun', 'None')}</button><span className="text-ink-3">{sel.length}/{stores.length}</span></div>
       <div className="scrollbar-thin max-h-72 divide-y divide-line overflow-y-auto rounded-lg border border-line">
         {stores.map((s) => <label key={s.storeId} className="flex cursor-pointer items-center gap-3 px-3 py-2"><input type="checkbox" className="size-4" checked={sel.includes(s.storeId)} onChange={(e) => setSel(e.target.checked ? [...sel, s.storeId] : sel.filter((x) => x !== s.storeId))} /><PlatformTag channel={s.channel} className="w-40" /><span className="text-sm text-ink-2">{shortLoc(locName(s.locationCode))}</span></label>)}
         {stores.length === 0 && <div className="p-4 text-sm text-ink-3">{t('Aucun magasin branché.', 'No store connected.')}</div>}
       </div>
+      </>}
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <Segmented value={when} onChange={setWhen} options={[{ key: 'now', label: t('Maintenant', 'Now') }, { key: 'later', label: t('Plus tard', 'Later') }]} />
         {when === 'later' && <Input type="datetime-local" className="w-auto" value={at} onChange={(e) => setAt(e.target.value)} />}
+      </div>
+    </Modal>
+  );
+}
+
+/** One menu for several brands: pick the brand whose menu is edited, then the brands that use it. */
+function ShareDialog({ brand, brands, sharing, onSaved, onClose }: { brand: string; brands: string[]; sharing: Record<string, string>; onSaved: (s: Record<string, string>) => void; onClose: () => void }) {
+  const { t } = useI18n();
+  const toast = useToast();
+  const [source, setSource] = useState(sharing[brand] ?? brand);
+  const followersOf = (src: string) => brands.filter((b) => b !== src && sharing[b] === src);
+  const [users, setUsers] = useState<string[]>(followersOf(sharing[brand] ?? brand));
+  const [busy, setBusy] = useState(false);
+  const others = brands.filter((b) => b !== source);
+  async function save() {
+    // Every link to this source is rewritten; links to other sources stay as they are.
+    const next: Record<string, string> = Object.fromEntries(Object.entries(sharing).filter(([k, v]) => v !== source && k !== source && !users.includes(k)));
+    for (const b of users) next[b] = source;
+    setBusy(true);
+    try { const d = await api<{ sharing: Record<string, string> }>('/api/foodhub/menu/sharing', { method: 'PUT', json: { sharing: next } }); onSaved(d.sharing); }
+    catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+  }
+  return (
+    <Modal title={t('Menu partagé entre marques', 'Menu shared across brands')} size="lg" onClose={onClose}
+      footer={<><Button variant="ghost" onClick={onClose}>{t('Annuler', 'Cancel')}</Button><Button loading={busy} onClick={save}>{t('Enregistrer', 'Save')}</Button></>}>
+      <div className="space-y-4">
+        <p className="text-sm text-ink-2">{t('Un seul menu pour plusieurs marques, comme l’agrégateur de menus d’UrbanPiper : il se modifie, s’importe de Clover et se met en rupture sur une marque, puis chaque marque le publie sous son propre nom, avec ses heures et ses magasins.',
+          'One menu for several brands, like UrbanPiper’s Menu Aggregator: it is edited, imported from Clover and 86’d on one brand, and every brand publishes it under its own name, hours and stores.')}</p>
+        <Field label={t('Menu à utiliser (la marque où il se modifie)', 'Menu to use (the brand where it is edited)')}>
+          <Select value={source} onChange={(e) => { setSource(e.target.value); setUsers(followersOf(e.target.value)); }}>{brands.filter((b) => !sharing[b]).map((b) => <option key={b} value={b}>{b}</option>)}</Select>
+        </Field>
+        <div>
+          <div className="mb-2 flex items-center gap-3 text-[13px] font-semibold">{t('Marques qui utilisent ce menu', 'Brands that use this menu')}
+            <button type="button" className="text-xs font-semibold underline" onClick={() => setUsers(others)}>{t('Toutes', 'All')}</button>
+            <button type="button" className="text-xs font-semibold underline" onClick={() => setUsers([])}>{t('Aucune', 'None')}</button>
+          </div>
+          <div className="scrollbar-thin max-h-72 divide-y divide-line overflow-y-auto rounded-lg border border-line">
+            {others.map((b) => {
+              const leads = followersOf(b).length > 0;
+              return (
+                <div key={b} className="px-3 py-2">
+                  <Checkbox checked={users.includes(b)} disabled={leads} onChange={(v) => setUsers(v ? [...users, b] : users.filter((x) => x !== b))}
+                    label={<span>{b}{sharing[b] && sharing[b] !== source ? <span className="text-ink-3"> · {t(`utilise ${sharing[b]}`, `uses ${sharing[b]}`)}</span> : null}{leads ? <span className="text-ink-3"> · {t('d’autres marques utilisent son menu', 'other brands use its menu')}</span> : null}</span>} />
+                </div>
+              );
+            })}
+            {others.length === 0 && <div className="p-4 text-sm text-ink-3">{t('Aucune autre marque.', 'No other brand.')}</div>}
+          </div>
+          <p className="mt-2 text-xs text-ink-3">{t('Le menu propre d’une marque n’est pas effacé : il revient si elle cesse de partager. Publiez ensuite pour envoyer le menu aux plateformes.', 'A brand’s own menu is not deleted: it comes back if the brand stops sharing. Publish afterwards to send the menu to the platforms.')}</p>
+        </div>
       </div>
     </Modal>
   );

@@ -5,6 +5,7 @@ import { getAdapter } from './adapters';
 import { CHANNEL_LABELS, nowIso, result } from './config';
 import { getHours, holidaysFor, localDate, publishContext } from './hours';
 import { getMenuLanguages } from './menu/language';
+import { activeMenus, getBrandMenu, getMenuSharing, groupOf, sourceOf } from './menu/shared';
 import { getRepo } from './repo';
 import { foodhubTimeZone, startOfLocalDayMs } from './time';
 import type { ChannelKey, ChannelResult, ChannelStore, FoodHubJob, MasterMenu, PlatformStatus } from './types';
@@ -52,10 +53,11 @@ function logStore(actor: Actor, kind: 'store_status' | 'item_availability' | 'me
   });
 }
 
-export async function storesFor(filter: { brandName?: string; locationCode?: string; storeIds?: string[]; channels?: ChannelKey[]; locationCodes?: string[] }) {
+export async function storesFor(filter: { brandName?: string; brandNames?: string[]; locationCode?: string; storeIds?: string[]; channels?: ChannelKey[]; locationCodes?: string[] }) {
   const all = await getRepo().listStores();
   return all.filter((s) =>
     (!filter.brandName || s.brandName === filter.brandName) &&
+    (!filter.brandNames || filter.brandNames.includes(s.brandName)) &&
     (!filter.locationCode || s.locationCode === filter.locationCode) &&
     (!filter.locationCodes?.length || filter.locationCodes.includes(s.locationCode)) &&
     (!filter.storeIds?.length || filter.storeIds.includes(s.id)) &&
@@ -79,10 +81,13 @@ export function menuForLocation(menu: MasterMenu, locationCode: string, now = Da
   };
 }
 
-/** Push the brand's master menu (with store hours, holidays, category schedules) to the mapped stores. */
+/**
+ * Push the brand's master menu (with store hours, holidays, category schedules) to the mapped stores.
+ * A brand that shares another brand's menu publishes that menu under its own name, hours and stores.
+ */
 export async function publishMenu(brandName: string, opts: { storeIds?: string[]; channels?: ChannelKey[]; locationCodes?: string[]; actor?: Actor } = {}): Promise<FanOut> {
   const actor = opts.actor ?? SYSTEM_ACTOR;
-  const menu = await getRepo().getMenu(brandName);
+  const menu = await getBrandMenu(brandName);
   if (!menu) throw new Error(`No master menu saved for ${brandName}. Import from Clover or create items first.`);
   const stores = await storesFor({ brandName, storeIds: opts.storeIds, channels: opts.channels, locationCodes: opts.locationCodes });
   const hours = await getHours();
@@ -101,11 +106,15 @@ export async function publishMenu(brandName: string, opts: { storeIds?: string[]
 /**
  * 86 / un-86 items AND modifiers at a location (all channels), or everywhere when no location is given.
  * untilMs = automatic re-enable (Uber/Skip natively; DoorDash and the menu by Food Hub's sync).
+ * Brands that share one menu share its 86 state too (same kitchen, same items): the 86 is saved on the shared menu
+ * and sent to the stores of every brand that uses it.
  */
 export async function setItemAvailability(brandName: string, refs: string[], available: boolean, opts: { locationCode?: string; untilMs?: number; actor?: Actor } = {}): Promise<FanOut> {
   const actor = opts.actor ?? SYSTEM_ACTOR;
   const repo = getRepo();
-  const menu = await repo.getMenu(brandName);
+  const sharing = await getMenuSharing();
+  const brands = groupOf(sharing, brandName);
+  const menu = await repo.getMenu(sourceOf(sharing, brandName));
   const modifierRefs = new Set((menu?.modifierGroups ?? []).flatMap((g) => g.modifiers.map((m) => m.ref)));
   const itemRefs = refs.filter((r) => !modifierRefs.has(r));
   const modRefs = refs.filter((r) => modifierRefs.has(r));
@@ -114,7 +123,7 @@ export async function setItemAvailability(brandName: string, refs: string[], ava
   if (menu) {
     const byLoc = { ...(menu.unavailableByLocation ?? {}) };
     const until = { ...(menu.unavailableUntil ?? {}) };
-    const locations = opts.locationCode ? [opts.locationCode] : [...new Set([...(await storesFor({ brandName })).map((s) => s.locationCode), ...Object.keys(byLoc)])];
+    const locations = opts.locationCode ? [opts.locationCode] : [...new Set([...(await storesFor({ brandNames: brands })).map((s) => s.locationCode), ...Object.keys(byLoc)])];
     for (const loc of locations) {
       const set = new Set(byLoc[loc] ?? []);
       for (const ref of refs) {
@@ -127,7 +136,7 @@ export async function setItemAvailability(brandName: string, refs: string[], ava
     }
     await repo.saveMenu({ ...menu, unavailableByLocation: byLoc, unavailableUntil: until });
   }
-  const stores = await storesFor({ brandName, locationCode: opts.locationCode });
+  const stores = await storesFor({ brandNames: brands, locationCode: opts.locationCode });
   const rows: FanOutRow[] = [];
   for (const store of stores) {
     const adapter = getAdapter(store.channel);
@@ -137,7 +146,7 @@ export async function setItemAvailability(brandName: string, refs: string[], ava
       const m = await adapter.setItemAvailability(store, modRefs, available, opts.untilMs, 'modifier');
       res = itemRefs.length && m.ok ? { ...res, message: `${res.message}; modifiers: ${m.message}` } : m;
     }
-    await record('item_toggle', store, res, { brandName, itemRefs, modifierRefs: modRefs, available, untilMs: opts.untilMs ?? null });
+    await record('item_toggle', store, res, { brandName: store.brandName, itemRefs, modifierRefs: modRefs, available, untilMs: opts.untilMs ?? null });
     await logStore(actor, 'item_availability', available ? 'item_on' : 'item_off', store, res,
       `${available ? 'Back in stock' : "86'd"}: ${label}${!available && opts.untilMs ? ` until ${hhmm(opts.untilMs)}` : ''}`, { refs });
     rows.push(row(store, res));
@@ -214,7 +223,7 @@ export async function reopenExpiredPauses(now = Date.now()): Promise<FanOut> {
 /** Timed 86s that ended: switch the items back on everywhere (DoorDash has no native timer). */
 export async function reenableExpiredItems(now = Date.now()): Promise<number> {
   let count = 0;
-  for (const menu of await getRepo().listMenus()) {
+  for (const menu of await activeMenus()) {
     const expired = Object.entries(menu.unavailableUntil ?? {}).filter(([, t]) => t <= now);
     const byLoc = new Map<string, string[]>();
     for (const [key] of expired) { const [loc, ref] = key.split('|'); byLoc.set(loc, [...(byLoc.get(loc) ?? []), ref]); }

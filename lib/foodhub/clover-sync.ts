@@ -7,6 +7,7 @@ import { logActivity, type Actor } from './activity';
 import { fromCents, nowIso } from './config';
 import { setItemAvailability } from './ops';
 import { cloverItemSellable, cloverItemsModifiedSince, getCloverItem } from './pos/clover-books';
+import { activeMenus, menuSourceFor } from './menu/shared';
 import { allCloverMerchants } from './pos/clover';
 import { getRepo } from './repo';
 import type { MasterMenu } from './types';
@@ -41,6 +42,8 @@ function matches(menu: MasterMenu, cloverId: string) {
  */
 export async function clearCloverOrigin(brandName: string, refs: string[], locationCode?: string): Promise<number> {
   const repo = getRepo();
+  // Clover-origin keys use the brand whose menu is in use (a brand sharing another brand's menu resolves to it).
+  brandName = await menuSourceFor(brandName);
   const origin = (await repo.getKv<Record<string, boolean>>(ORIGIN_KEY).catch(() => null)) ?? {};
   const wanted = new Set(refs);
   let cleared = 0;
@@ -61,7 +64,7 @@ export async function applyCloverItem(mid: string, item: any, opts: { deleted?: 
   const id = String(item?.id ?? '');
   if (!id) return out;
   const repo = getRepo();
-  const menus = (await repo.listMenus()).filter((m) => matches(m, id).length);
+  const menus = (await activeMenus()).filter((m) => matches(m, id).length);
   if (!menus.length) return out;
   const sellable = !opts.deleted && cloverItemSellable(item);
   const locations = await locationsForMerchant(mid);
@@ -129,7 +132,7 @@ export async function pollCloverInventory(now = Date.now()): Promise<CloverItemO
   const total = { matched: 0, turnedOff: 0, turnedOn: 0, priceChanges: 0, merchants: 0, errors: [] as string[] };
   if (!cloverInventorySyncEnabled()) return total;
   const repo = getRepo();
-  if (!(await repo.listMenus()).some((m) => m.items.some((i) => i.posItemRef))) return total;
+  if (!(await activeMenus()).some((m) => m.items.some((i) => i.posItemRef))) return total;
   const since = (await repo.getKv<Record<string, number>>(SINCE_KEY)) ?? {};
   const stores = await repo.listStores();
   for (const mid of await allCloverMerchants(stores.map((s) => s.cloverMerchantId))) {
@@ -150,6 +153,7 @@ export async function pollCloverInventory(now = Date.now()): Promise<CloverItemO
 }
 
 export async function listCloverPriceChanges(brandName?: string): Promise<CloverPriceChange[]> {
+  if (brandName) brandName = await menuSourceFor(brandName);
   const all = Object.values((await getRepo().getKv<Record<string, CloverPriceChange>>(PRICE_KEY)) ?? {});
   return all.filter((c) => !brandName || c.brandName === brandName).sort((a, b) => b.at.localeCompare(a.at));
 }
@@ -157,6 +161,7 @@ export async function listCloverPriceChanges(brandName?: string): Promise<Clover
 /** "Use Clover price" (or dismiss): updates the master menu base price, clears the flag. */
 export async function resolveCloverPriceChange(brandName: string, ref: string, accept: boolean, actor: Actor): Promise<boolean> {
   const repo = getRepo();
+  brandName = await menuSourceFor(brandName);
   const prices = (await repo.getKv<Record<string, CloverPriceChange>>(PRICE_KEY)) ?? {};
   const change = prices[`${brandName}|${ref}`];
   if (!change) return false;

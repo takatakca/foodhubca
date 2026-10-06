@@ -4,6 +4,7 @@ import { getDevice } from '@/lib/foodhub/identity/devices';
 import { normalizeEmail, normalizePhone } from '@/lib/foodhub/notify';
 import { getRepo } from '@/lib/foodhub/repo';
 import { ROLE_PERMISSIONS } from '@/lib/foodhub/session';
+import type { UserPrefs } from '@/lib/foodhub/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,7 +46,20 @@ async function patchMe(req: Request) {
   const others = (await getRepo().listUsers()).filter((u) => u.username !== user.username);
   if (email && others.some((u) => u.email?.toLowerCase() === email)) return fail('Ce courriel est déjà utilisé. / Email already used.');
   if (phone && others.some((u) => u.phone === phone)) return fail('Ce numéro est déjà utilisé. / Phone already used.');
-  const prefs = b.prefs && typeof b.prefs === 'object' ? { ...(user.prefs ?? {}), ...b.prefs } : user.prefs;
+  const prefs = b.prefs && typeof b.prefs === 'object' ? { ...(user.prefs ?? {}), ...cleanPrefs(b.prefs as Record<string, unknown>) } : user.prefs;
   const saved = await getRepo().saveUser({ ...user, name: b.name ? String(b.name).trim().slice(0, 60) : user.name, email, phone, prefs });
   return ok({ user: { name: saved.name, email: saved.email, phone: saved.phone, prefs: saved.prefs } });
+}
+
+/** Only the known preference fields, with the right types (the profile screen autosaves them). */
+function cleanPrefs(p: Record<string, unknown>): UserPrefs {
+  const out: UserPrefs = {};
+  if (p.lang === 'fr' || p.lang === 'en') out.lang = p.lang;
+  for (const k of ['alertSms', 'alertCall', 'alertEmail', 'onDuty'] as const) if (typeof p[k] === 'boolean') out[k] = p[k] as boolean;
+  for (const k of ['quietFrom', 'quietTo'] as const) {
+    const v = p[k];
+    if (v === '' || v === null) out[k] = undefined;
+    else if (typeof v === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(v)) out[k] = v;
+  }
+  return out;
 }

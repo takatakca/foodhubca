@@ -31,6 +31,17 @@ TGTG ──────┘
 | **Team chat** | `ALERT_WEBHOOK_URL` (Slack, Teams, Google Chat, Discord): warnings and urgent alerts are posted there. |
 | **Message log** | Alerts → *Messages sent*: every email / SMS / call / chat with masked numbers. Sign-in codes are never stored. |
 
+### A console that never loses work (1.5.8)
+- **Autosave**: store hours and your profile have no Save button — the chip at the top says *Saved*, *Offline — kept
+  here*, *Fix…* or *Not saved — Retry*. Closing a window by mistake loses nothing: reopen the screen and the change
+  comes back. ⌘S saves now, ⌘Z / ⇧⌘Z undo and redo (↶ ↷ on touch screens).
+- **Undo instead of "are you sure?"**: removing a holiday or a brand's own hours, or stopping a report email, shows
+  *Removed — Undo* for 6 seconds.
+- **TakTak** (bottom right, or `?` on a keyboard): help for the current screen, guided tour, text size (A / A+ / A++),
+  connection status and "send a report". Buttons that reach a platform explain what will be sent the first time.
+- **Screen supervisor**: crashes and failing calls are reported to the Activity Log; a crashed screen can be reloaded
+  without touching orders.
+
 ### Keep the Watchtower running when no screen is open
 The tablet being **off** is exactly when nobody has a screen open. Pick one:
 - **Long-running server** (`next start` on a VM, Render, Railway, Fly): nothing to do — it runs every
@@ -212,9 +223,9 @@ desktop notifications for that device (kitchen tablet and office PC can differ).
 
 ## Proof
 ```bash
-npm run check                              # typecheck + lint + 173 unit tests (incl. sessions, PINs, approvals,
+npm run check                              # typecheck + lint + 190 unit tests (incl. sessions, PINs, approvals,
                                            # sign-in codes, Watchtower detection and escalation)
-npm run build && npm run verify:foodhub    # 374 end-to-end checks against simulated Uber Eats (incl. Reporting API),
+npm run build && npm run verify:foodhub    # 382 end-to-end checks against simulated Uber Eats (incl. Reporting API),
                                            # DoorDash, Skip (JET Connect), Clover, Resend, Twilio and a team chat
 npm run demo:foodhub                       # same, then keeps running with a new order every 40 s
 ```

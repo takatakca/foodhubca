@@ -81,7 +81,13 @@ export default function ReportsPage() {
               <span className="min-w-0 flex-1 truncate text-ink-3">{s.emails.join(', ')} {s.filter.locationCodes?.length ? `· ${s.filter.locationCodes.map((c) => shortLoc(locName(c))).join(', ')}` : ''}</span>
               <span className="text-xs text-ink-3">{s.lastSentAt ? timeOf(s.lastSentAt, loc, true) : t('pas encore', 'not yet')}</span>
               {s.lastError && <Badge tone="stop" title={s.lastError}>{t('échec', 'failed')}</Badge>}
-              <button type="button" className="rounded p-1.5 text-ink-3 hover:text-stop" onClick={async () => { if (window.confirm(t('Arrêter cet envoi ?', 'Stop this email?'))) { await api(`/api/foodhub/reports/schedules?id=${s.id}`, { method: 'DELETE' }); load(); } }} aria-label={t('Arrêter', 'Stop')}><Trash2 className="size-4" /></button>
+              <button type="button" className="rounded p-1.5 text-ink-3 hover:text-stop" onClick={() => {
+                // Hidden at once; really stopped after 6 s unless "Undo" is tapped.
+                setSchedules((list) => list.filter((x) => x.id !== s.id));
+                toast.undo(t('Envoi arrêté', 'Email stopped'), () => load(), {
+                  onCommit: () => { api(`/api/foodhub/reports/schedules?id=${s.id}`, { method: 'DELETE' }).catch((e) => { toast.error(e instanceof Error ? e.message : String(e)); load(); }); },
+                });
+              }} aria-label={t('Arrêter', 'Stop')}><Trash2 className="size-4" /></button>
             </div>
           ))}
           {schedules.length === 0 && <div className="px-5 py-6 text-sm text-ink-3">{t('Aucun envoi programmé.', 'No scheduled email.')}</div>}

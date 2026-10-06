@@ -335,6 +335,12 @@ try {
   check('TGTG webhook rejects a wrong token', (await call('POST', '/api/foodhub/webhooks/tgtg', { auth: false, headers: { authorization: 'nope' }, body: {} })).status === 401);
   check('scheduled sync rejects a missing CRON_SECRET', (await call('GET', '/api/foodhub/cron/sync', { auth: false })).status === 401);
 
+  const rep1 = await call('POST', '/api/foodhub/client-report', { body: { screen: '/stores/hours', issues: [{ kind: 'api_fail', message: 'PUT /api/foodhub/hours → 500', path: '/api/foodhub/hours', count: 1 }] } });
+  check('screen supervisor: a problem on a screen is reported and stored, never silent', rep1.status === 200 && rep1.json?.stored === 1);
+  check('screen supervisor refuses unknown report kinds', (await call('POST', '/api/foodhub/client-report', { body: { issues: [{ kind: 'hack', message: 'x' }] } })).status === 400);
+  check('screen supervisor needs a signed-in person', (await call('POST', '/api/foodhub/client-report', { auth: false, body: { issues: [] } })).status === 401);
+  check('the owner sees recent screen problems', ((await call('GET', '/api/foodhub/client-report')).json?.reports || []).some((r) => r.screen === '/stores/hours' && r.issues?.[0]?.kind === 'api_fail'));
+
   console.log('\n2. Channels (all direct — no aggregator)');
   const ch = await call('GET', '/api/foodhub/channels');
   const live = Object.fromEntries((ch.json.channels || []).map((c) => [c.channel, c.canSend]));

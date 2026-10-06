@@ -4,7 +4,7 @@
 import { logActivity, type Actor } from './activity';
 import { getAdapter } from './adapters';
 import { CHANNEL_LABELS, nowIso } from './config';
-import { cloverAutoPrintEnabled, cloverExpected, injectOrder, printCloverOrder } from './pos/clover';
+import { allCloverMerchants, cloverAutoPrintEnabled, cloverExpected, injectOrder, printCloverOrder } from './pos/clover';
 import { cloverOrderTypeFor } from './pos/clover-books';
 import { settleInClover } from './clover-settle';
 import { reportSkipMissingItems } from './adapters/skip';
@@ -20,10 +20,6 @@ export interface PipelineOutcome {
   duplicate: boolean;
   pos?: { ok: boolean; posOrderId?: string; error?: string; skipped?: boolean };
   accept?: ChannelResult;
-}
-
-function autoAcceptDefault() {
-  return process.env.FOODHUB_AUTO_ACCEPT_DEFAULT !== 'false';
 }
 
 async function patchTimeline(order: StoredOrder, patch: OrderTimeline, extra: Partial<StoredOrder> = {}): Promise<StoredOrder> {
@@ -100,8 +96,13 @@ export async function processIncomingOrder(n: NormalizedOrder): Promise<Pipeline
   const cancelledMeanwhile = async () => (await repo.getOrder(order.id))?.status === 'cancelled';
   if (await cancelledMeanwhile()) return { order: (await repo.getOrder(order.id)) ?? current, duplicate: false, pos: { ok: false, skipped: true, error: 'Cancelled by the platform before processing.' } };
 
-  // 1) POS injection (+ order type, payment record, kitchen ticket)
-  const pos = await injectOrder(current, store?.cloverMerchantId, { orderTypeId: await cloverOrderTypeFor(store?.cloverMerchantId || process.env.CLOVER_MERCHANT_ID, n.channel) });
+  // 1) POS injection (+ order type, payment record, kitchen ticket).
+  // An order from a store nobody mapped is never dropped into a guessed register when several Clover merchants
+  // exist: it waits on the Command Center until the store is mapped (then "Send to Clover").
+  const severalRegisters = !store && (await allCloverMerchants()).length > 1;
+  const pos: Awaited<ReturnType<typeof injectOrder>> = severalRegisters
+    ? { ok: false, skipped: false, error: `Store ${n.channelStoreId || '(no id)'} is not mapped in Food Hub and there are several Clover registers — map it under Stores → Mapping, then use "Send to Clover".` }
+    : await injectOrder(current, store?.cloverMerchantId, { orderTypeId: await cloverOrderTypeFor(store?.cloverMerchantId || process.env.CLOVER_MERCHANT_ID, n.channel) });
   if (pos.ok) {
     current = (await repo.updateOrder(order.id, { posOrderId: pos.posOrderId })) ?? current;
     await repo.addEvent(order.id, 'pos_injected', { posOrderId: pos.posOrderId });
@@ -111,8 +112,10 @@ export async function processIncomingOrder(n: NormalizedOrder): Promise<Pipeline
     await repo.addEvent(order.id, pos.skipped ? 'pos_skipped' : 'pos_failed', { error: pos.error });
   }
 
-  // 3) Auto-accept — never accept an order the kitchen did not receive.
-  const wantsAuto = store ? store.autoAccept : autoAcceptDefault();
+  // 3) Auto-accept — never accept an order the kitchen did not receive, nor one from a store nobody mapped
+  // (wrong brand, wrong location or wrong kitchen are all possible): a person decides.
+  const wantsAuto = store ? store.autoAccept : false;
+  if (!store) await repo.addEvent(order.id, 'needs_attention', { reason: `Not accepted automatically: store ${n.channelStoreId || '(no id)'} is not mapped in Food Hub. Check the brand and kitchen, then accept or reject.` });
   const posBlocksAccept = !pos.ok && !pos.skipped;
   let accept: ChannelResult | undefined;
   if (wantsAuto && !posBlocksAccept && (await cancelledMeanwhile())) {

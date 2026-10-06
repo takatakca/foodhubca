@@ -9,6 +9,12 @@ export class ApiError extends Error {
 }
 
 export type ApprovalRequest = { action: string; label?: string; labelFr?: string; error?: string; wrongPin?: boolean };
+
+/** Every call, for the client supervisor (lib/ui/supervisor.ts): path without the query, status (0 = network), duration. */
+export type ApiEvent = { path: string; method: string; status: number; ok: boolean; ms: number; error?: string };
+let apiObserver: ((e: ApiEvent) => void) | null = null;
+export function setApiObserver(o: ((e: ApiEvent) => void) | null) { apiObserver = o; }
+function observe(e: ApiEvent) { try { apiObserver?.(e); } catch { /* never let the observer break a call */ } }
 type ApprovalHandler = (req: ApprovalRequest) => Promise<string | null>;
 let approvalHandler: ApprovalHandler | null = null;
 export function setApprovalHandler(h: ApprovalHandler | null) { approvalHandler = h; }
@@ -16,14 +22,25 @@ export function setApprovalHandler(h: ApprovalHandler | null) { approvalHandler 
 export async function api<T = Record<string, unknown>>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
   const { json, headers, ...rest } = init;
   let pin: string | null = null;
+  const method = String(rest.method || 'GET').toUpperCase();
+  const route = path.split('?')[0];
   for (let attempt = 0; attempt < 6; attempt++) {
-    const res = await fetch(path, {
-      ...rest,
-      headers: { 'Content-Type': 'application/json', ...(headers as Record<string, string> | undefined), ...(pin ? { 'x-approval-pin': pin } : {}) },
-      body: json !== undefined ? JSON.stringify(json) : rest.body,
-      cache: 'no-store',
-    });
+    const started = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const elapsed = () => Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - started);
+    let res: Response;
+    try {
+      res = await fetch(path, {
+        ...rest,
+        headers: { 'Content-Type': 'application/json', ...(headers as Record<string, string> | undefined), ...(pin ? { 'x-approval-pin': pin } : {}) },
+        body: json !== undefined ? JSON.stringify(json) : rest.body,
+        cache: 'no-store',
+      });
+    } catch (e) {
+      observe({ path: route, method, status: 0, ok: false, ms: elapsed(), error: e instanceof Error ? e.message : String(e) });
+      throw e;
+    }
     const body = (await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }))) as Record<string, unknown>;
+    observe({ path: route, method, status: res.status, ok: res.ok && body.ok !== false, ms: elapsed(), error: res.ok ? undefined : String(body.error ?? '') });
     if (res.status === 401 && typeof window !== 'undefined' && !path.startsWith('/api/foodhub/auth/')) {
       window.location.reload();
       throw new ApiError('Session expirée / Session expired', 401, body);

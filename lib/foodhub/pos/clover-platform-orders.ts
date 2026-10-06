@@ -29,18 +29,26 @@ export function cloverPlatformOrdersEnabled() {
   return process.env.FOODHUB_CLOVER_PLATFORM_ORDERS !== 'off';
 }
 
+// Order types and tenders are labels the merchant set up for a platform: short forms ("Uber", "Skip") are safe there.
 const PLATFORM_PATTERNS: Array<[ChannelKey, RegExp]> = [
   ['doordash', /door\s*dash/i],
   ['uber_eats', /uber\s*eats|\buber\b/i],
   ['skip', /skip\s*the\s*dishes|\bskip\b/i],
   ['tgtg', /too\s*good\s*to\s*go|\btgtg\b/i],
 ];
+// Titles and notes are free text typed at the register ("skip the pickles", a customer named Uber): full names only.
+const FREE_TEXT_PATTERNS: Array<[ChannelKey, RegExp]> = [
+  ['doordash', /door\s*dash/i],
+  ['uber_eats', /uber\s*eats/i],
+  ['skip', /skip\s*the\s*dishes/i],
+  ['tgtg', /too\s*good\s*to\s*go/i],
+];
 
-/** Which platform a label names, if any ("DoorDash", "UBER EATS", "SkipTheDishes"…). */
-export function platformFromLabel(label: unknown): ChannelKey | null {
+/** Which platform a label names, if any ("DoorDash", "UBER EATS", "SkipTheDishes"…). `freeText` = an order title or note. */
+export function platformFromLabel(label: unknown, freeText = false): ChannelKey | null {
   const s = String(label ?? '').trim();
   if (!s) return null;
-  for (const [ch, re] of PLATFORM_PATTERNS) if (re.test(s)) return ch;
+  for (const [ch, re] of freeText ? FREE_TEXT_PATTERNS : PLATFORM_PATTERNS) if (re.test(s)) return ch;
   return null;
 }
 
@@ -70,8 +78,12 @@ export function detectPlatform(order: any, orderTypes: Map<string, string>, tend
   const typeLabel = order?.orderType?.label ?? orderTypes.get(String(order?.orderType?.id ?? ''));
   const payments: any[] = order?.payments?.elements ?? [];
   const tenderLabels = payments.map((p) => p?.tender?.label ?? tenders.get(String(p?.tender?.id ?? '')));
-  for (const label of [typeLabel, ...tenderLabels, order?.title, order?.note]) {
+  for (const label of [typeLabel, ...tenderLabels]) {
     const ch = platformFromLabel(label);
+    if (ch) return ch;
+  }
+  for (const text of [order?.title, order?.note]) {
+    const ch = platformFromLabel(text, true);
     if (ch) return ch;
   }
   return null;

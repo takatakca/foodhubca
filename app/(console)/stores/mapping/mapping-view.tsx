@@ -10,6 +10,7 @@ import { Field, Input, Select, Switch } from '@/components/ui/form';
 import { Modal } from '@/components/ui/overlay';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
+import { useConfirm } from '@/components/ui/confirm';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { StoresTabs } from '../stores-tabs';
 import { stateOf, stateText } from '../stores-view';
@@ -26,6 +27,7 @@ export function MappingView() {
   const { locations, brands, locName } = useViewer();
   const params = useSearchParams();
   const toast = useToast();
+  const confirm = useConfirm();
   const [stores, setStores] = useState<ChannelStore[] | null>(null);
   const [form, setForm] = useState<Form | null>(null);
   const [busy, setBusy] = useState('');
@@ -60,7 +62,12 @@ export function MappingView() {
     catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
   }
   async function remove(s: ChannelStore) {
-    if (!window.confirm(t(`Débrancher ${s.brandName} (${s.channel}) ? Ses commandes arriveront « non reliées ».`, `Disconnect ${s.brandName} (${s.channel})? Its orders will arrive unmapped.`))) return;
+    const yes = await confirm({
+      title: t(`Débrancher ${s.brandName} · ${s.channel} ?`, `Disconnect ${s.brandName} · ${s.channel}?`),
+      body: t('Ses commandes arriveront « non reliées » : elles ne seront plus acceptées automatiquement ni envoyées dans la bonne caisse Clover tant que le magasin n’est pas rebranché.', 'Its orders will arrive unmapped: they will no longer be accepted automatically or sent to the right Clover register until the store is connected again.'),
+      confirmLabel: t('Débrancher', 'Disconnect'), tone: 'danger',
+    });
+    if (!yes) return;
     try { await api(`/api/foodhub/stores?id=${s.id}`, { method: 'DELETE' }); load(); } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
   }
   async function discover() {

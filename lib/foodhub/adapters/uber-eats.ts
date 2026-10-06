@@ -31,7 +31,14 @@ async function fetchClientToken(kind: 'orders' | 'report'): Promise<string> {
         scope: kind === 'report' ? process.env.UBER_REPORT_SCOPE || 'eats.report' : process.env.UBER_OAUTH_SCOPE || 'eats.order eats.store eats.store.status.write',
       }).toString(),
     });
-    if (!res.ok) throw new Error(kind === 'report' ? `Uber Reporting token refused (HTTP ${res.status}) — ask Uber to add the eats.report scope to your app.` : `Uber OAuth token request failed: HTTP ${res.status}`);
+    if (!res.ok) {
+      // Uber answers { error, error_description } (invalid_scope, invalid_client…): that is what the owner needs to see.
+      const detail = await res.json().then((j: any) => [j?.error, j?.error_description].filter(Boolean).join(' — ')).catch(() => '');
+      const why = detail ? ` (${String(detail).slice(0, 200)})` : '';
+      throw new Error(kind === 'report'
+        ? `Uber Reporting token refused: HTTP ${res.status}${why} — ask Uber to add the eats.report scope to your app.`
+        : `Uber OAuth token refused: HTTP ${res.status}${why}${/scope/i.test(detail) ? ` — UBER_OAUTH_SCOPE must list only scopes Uber granted to your app (now: ${process.env.UBER_OAUTH_SCOPE || 'eats.order eats.store eats.store.status.write'}).` : ''}`);
+    }
     const json = await res.json();
     if (!json.access_token) throw new Error('Uber OAuth response had no access_token.');
     slot.cached = { value: json.access_token, expiresAt: Date.now() + (Number(json.expires_in) || 2592000) * 1000 };

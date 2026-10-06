@@ -122,3 +122,23 @@ describe('deferred webhook work never fails silently', () => {
     expect(activity.some((a) => a.action === 'webhook_failed' && a.status === 'failed')).toBe(true);
   });
 });
+
+describe('orders from a store nobody mapped (go-live audit)', () => {
+  beforeEach(() => { process.env.FOODHUB_FORCE_MEMORY = 'true'; (globalThis as any).__foodhubMem = undefined; delete process.env.CLOVER_MERCHANT_ID; delete process.env.CLOVER_ACCESS_TOKEN; delete process.env.CLOVER_MERCHANT_TOKENS; });
+  it('is never accepted automatically: it waits for a person, with the reason on the order', async () => {
+    const out = await processIncomingOrder(incoming('dd-unmapped-1'));
+    expect(out.accept).toBeUndefined();
+    expect(out.order.status).toBe('new');
+    const events = (await getRepo().listEvents(out.order.id)).map((e) => e.type);
+    expect(events).toContain('unmapped_store');
+    expect(events).toContain('needs_attention');
+  });
+  it('is not dropped into a guessed Clover register when several merchants exist', async () => {
+    process.env.CLOVER_MERCHANT_ID = 'M1'; process.env.CLOVER_ACCESS_TOKEN = 't1'; process.env.CLOVER_MERCHANT_TOKENS = JSON.stringify({ M2: 't2' });
+    const out = await processIncomingOrder(incoming('dd-unmapped-2'));
+    expect(out.pos?.ok).toBe(false);
+    expect(out.pos?.skipped).toBe(false);
+    expect(String(out.pos?.error)).toMatch(/not mapped/);
+    expect(acceptNeedsClover(out.order)).toBe(true);
+  });
+});

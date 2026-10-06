@@ -1,5 +1,59 @@
 # Release notes
 
+## 1.5.8 — go-live fixes and the fluent console (2026-10-06)
+
+### A console that never loses work and explains itself
+- **No Save buttons on store hours and your profile**: changes save by themselves 1.2 s after you stop, and the
+  chip says exactly where things are — *Editing… kept on this screen*, *Saved · 14:02*, *Offline — kept here, sent
+  when the network is back*, *Fix: Monday 11:00*, or *Not saved — Retry*. ⌘S saves at once.
+- **Close by mistake, nothing is lost**: every change is kept on the device the moment it is made (per person, per
+  screen; cleared at sign-out). Reopen the screen and the unsaved change comes back and is saved, with a one-tap
+  *Go back to the saved version*.
+- **Undo everywhere it makes sense**: ⌘Z / ⇧⌘Z (or the ↶ ↷ buttons on touch screens) on hours and profile; removing a
+  holiday, a brand's own hours, or stopping a report email shows *Removed — Undo* for 6 seconds instead of an
+  "are you sure?" question. Platform actions (86, pause, publish, orders) are never "undone" silently.
+- **TakTak, the help robot**: always at the bottom right. First sign-in: TakTak spins in, says hello, lets you pick
+  the language and text size, and offers a 1-minute guided tour. Each important button explains itself the first
+  time you tap it; buttons that reach a platform explain **before** anything is sent ("Got it, continue" / "Not now").
+  The help panel has this screen's guide and tour, display settings, connection status and a "send a report" button.
+- **Text size and spacing per screen**: A / A+ / A++ in the top bar scales the whole console, buttons included;
+  touch screens start bigger with 44 px touch targets. Kitchen tablets keep their setting whoever signs in.
+- **Screen supervisor**: page crashes, failing or slow server calls and connection gaps are reported to the server
+  (Activity Log, and `GET /api/foodhub/client-report` for the owner); a crashed screen shows TakTak with "Reload the
+  screen" while orders, the new-order pop-up and the cancel alarm keep working; a "data not refreshing" banner
+  appears after 45 s without live data. Help never covers the new-order pop-up or the cancellation alarm.
+- Browser `confirm()` pop-ups replaced by a clear confirm sheet (store disconnect).
+
+### Go-live fixes (verified against the code and the platforms' documentation)
+- **DoorDash**: a new order is answered 202 and confirmed only once Clover has it (DoorDash counts a 200 as
+  "confirmed"); cancellations and Dasher updates read DoorDash's documented fields (`external_order_id`,
+  `client_order_id`, `dasher_status` with its 5 values); Menu Status closes the queued push; new **Menu Request**
+  (menu pull) endpoint `GET /api/foodhub/webhooks/doordash/{location_id}`, required to onboard stores; DoorDash's
+  3–8 minute answer window shows on the countdown.
+- **Orders from a store nobody mapped** are never accepted automatically and never dropped into a guessed Clover
+  register when several exist (they wait for a person, with the reason on the order).
+- **Clover**: a merchant connected through the Clover app counts as "Clover expected" (no accepting without Clover
+  because there is no env token); the only connected merchant is the default; in-store orders with "skip the
+  pickles" in a note are no longer imported as SkipTheDishes orders.
+- **Skip**: order timestamps in seconds, milliseconds or ISO-8601; an unreadable order is kept and refused so JET
+  uses the tablet at once (never a 500).
+- **Uber Eats**: token refusals show Uber's reason (e.g. `invalid_scope`); courier details from v2 `deliveries[]`;
+  "unassigned" is no longer read as "assigned"; the countdown starts when the order was placed; a store activation
+  is shown as *waiting for Uber* until Uber's `store.provisioned` webhook (warning after 15 minutes).
+- **Sign-in**: codes are never shown on screen while live connectors are on; a correct code is burned only when the
+  sign-in succeeds; public sign-in routes never echo database errors; profile preferences accept known fields only.
+- `FOODHUB_AUTO_ACCEPT_DEFAULT` is gone (it only applied to unmapped stores, which are now never auto-accepted).
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck`, `npm run lint` | pass (0 errors) |
+| `npm test` | 190 tests pass |
+| `npm run build` | pass |
+| `npm run verify:foodhub` | 382 end-to-end checks pass |
+| Browser (Chromium) | 25 fluent-console scenarios (welcome, help drawer, text size, tour, autosave, offline draft recovery, undo, 6 s Undo, explain-before-publish), 33 console screens, security and role probes |
+
 ## 1.5.7 — production release of the RC10 console (2026-10-05)
 
 Production release of **TAKATAK Food Hub + Finance Control Tower**: the RC10 kitchen-first console

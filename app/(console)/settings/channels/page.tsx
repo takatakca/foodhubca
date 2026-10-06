@@ -24,6 +24,7 @@ type Data = {
   mode: string; publicUrl: string; liveEnabled: boolean; dashboardProtected: boolean;
   clover: { configured: boolean; injectionEnabled: boolean; missing: string[]; note: string; noteFr?: string; webhookUrl: string; webhookAuthSet: boolean; verification: { code: string; at: string } | null; recordPayments: boolean; orderTypes: boolean; inventorySync: boolean; app?: CloverApp };
   channels: Channel[]; jobs: Job[]; unparsed: Job[];
+  urbanpiper?: { webhookReady: boolean; statusApiReady: boolean; channels: string[]; webhookUrl: string; revealed: boolean };
 };
 
 function CopyBtn({ text }: { text: string }) {
@@ -246,6 +247,23 @@ export default function ChannelsSettingsPage() {
         })}
       </div>
 
+      {data.urbanpiper && (
+        <Section icon={<PlugZap className="size-5" />} title={t('Skip et DoorDash par UrbanPiper', 'Skip and DoorDash through UrbanPiper')}
+          subtitle={t('Sans API des plateformes : UrbanPiper envoie chaque commande à Food Hub (ticket Clover, écran cuisine, alertes). Dans UrbanPiper Atlas → Webhooks, ajoutez cette adresse pour « Order Placed » et « Order Status Change ».',
+            'No platform API needed: UrbanPiper sends each order to Food Hub (Clover ticket, kitchen screen, alerts). In UrbanPiper Atlas → Webhooks, add this address for "Order Placed" and "Order Status Change".')}>
+          <Card className="space-y-3 p-4">
+            <UrlRow label={t('Adresse du webhook (avec le jeton)', 'Webhook address (with token)')} value={data.urbanpiper.webhookUrl} />
+            {!data.urbanpiper.revealed && <p className="text-xs text-ink-3">{t('Cliquez « Afficher les secrets » pour voir le jeton complet.', 'Click “Show secrets” to see the full token.')}</p>}
+            <p className="text-sm text-ink-2">
+              {t('Plateformes prises d’UrbanPiper : ', 'Platforms taken from UrbanPiper: ')}<strong>{data.urbanpiper.channels.join(', ') || '—'}</strong>
+              {' · '}
+              {data.urbanpiper.statusApiReady
+                ? t('Accepter / Prête / Refuser sont renvoyés par UrbanPiper.', 'Accept / Ready / Reject are sent back through UrbanPiper.')
+                : t('Accepter / Prête restent dans Food Hub (clé API POS UrbanPiper non entrée — demandez-la à pos.support@urbanpiper.com).', 'Accept / Ready stay in Food Hub (no UrbanPiper POS API key yet — ask pos.support@urbanpiper.com).')}
+            </p>
+          </Card>
+        </Section>
+      )}
 
       <Section icon={<PlugZap className="size-5" />} title={t('Derniers envois aux plateformes', 'Recent platform jobs')} subtitle={t('Menus, ruptures, pauses, acceptations : chaque action envoyée et sa réponse. Rien n’est affiché comme fait si la plateforme ne l’a pas reçu.', 'Menus, 86s, pauses, accepts: every action sent and its answer. Nothing is shown as done if the platform did not get it.')}>
         {data.jobs.length === 0 ? <p className="text-sm text-ink-3">{t('Aucune action pour l’instant.', 'No action yet.')}</p> : (

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { BellOff, Bot, Check, CheckCheck, ChevronDown, Hand, Mail, MessageSquare, MessageSquareText, Phone, RefreshCw, Settings2, ShieldCheck, Sparkles, Smartphone } from 'lucide-react';
+import { Hint } from '@/components/help/hint';
 import { Badge } from '@/components/ui/badge';
 import { Button, ButtonLink } from '@/components/ui/button';
 import { Card, EmptyState, PageHeader } from '@/components/ui/card';
@@ -56,7 +57,7 @@ export function AlertsView() {
   return (
     <div>
       <PageHeader title={t('Alertes', 'Alerts')} subtitle={t('Le Watchtower surveille commandes, tablettes, magasins, Clover et paiements jour et nuit — et vous prévient : à l’écran, par texto, par appel, puis le propriétaire.', 'The Watchtower watches orders, tablets, stores, Clover and payouts day and night — and alerts you: on screen, by text, by call, then the owner.')}
-        right={<><Button variant="outline" loading={busy} onClick={checkNow} icon={<RefreshCw className="size-4" />}>{t('Vérifier maintenant', 'Check now')}</Button><ButtonLink href="/settings/alerts" variant="primary" icon={<Settings2 className="size-4" />}>{t('Règles', 'Rules')}</ButtonLink></>} />
+        right={<><Hint id="incident.check"><Button variant="outline" loading={busy} onClick={checkNow} icon={<RefreshCw className="size-4" />}>{t('Vérifier maintenant', 'Check now')}</Button></Hint><ButtonLink href="/settings/alerts" variant="primary" icon={<Settings2 className="size-4" />}>{t('Règles', 'Rules')}</ButtonLink></>} />
 
       {channels && (
         <div className="mb-5 flex flex-wrap gap-2">
@@ -117,7 +118,7 @@ function IncidentCard({ i, focus, onChanged }: { i: Incident; focus: boolean; on
       <div className="flex">
         <div className={cn('w-1.5 shrink-0', SEV[i.severity])} />
         <div className="min-w-0 flex-1">
-          <button type="button" onClick={() => setOpen(!open)} className="flex w-full flex-wrap items-start gap-3 px-5 py-4 text-left">
+          <Hint id="incident.card"><button type="button" onClick={() => setOpen(!open)} className="flex w-full flex-wrap items-start gap-3 px-5 py-4 text-left">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-bold">{lang === 'fr' ? i.title : i.titleEn}</span>
@@ -131,7 +132,7 @@ function IncidentCard({ i, focus, onChanged }: { i: Incident; focus: boolean; on
               {levels.map((l, k) => <span key={l} className={cn('rounded-full px-2 py-0.5 text-[11px] font-bold', k <= i.level && i.status !== 'resolved' ? (k === 0 ? 'bg-ink text-canvas' : 'bg-stop text-white') : 'bg-sunken text-ink-4')}>{l}</span>)}
             </div>
             <ChevronDown className={cn('size-5 text-ink-3 transition-transform', open && 'rotate-180')} />
-          </button>
+          </button></Hint>
           {open && (
             <div className="border-t border-line px-5 py-4">
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_280px]">
@@ -144,9 +145,9 @@ function IncidentCard({ i, focus, onChanged }: { i: Incident; focus: boolean; on
                       {i.storeId && <ButtonLink href="/stores" variant="primary" size="sm">{t('Voir le magasin', 'See the store')}</ButtonLink>}
                       {i.deviceId && <ButtonLink href="/settings/devices" variant="primary" size="sm">{t('Voir la tablette', 'See the tablet')}</ButtonLink>}
                       {i.kind === 'payout_gap' && <ButtonLink href="/money/disputes" variant="primary" size="sm">{t('Voir les litiges', 'See disputes')}</ButtonLink>}
-                      {i.status !== 'acknowledged' && <Button size="sm" variant="outline" loading={busy === 'ack'} onClick={() => act('ack')} icon={<Hand className="size-4" />}>{t('Je m’en occupe', 'I’m on it')}</Button>}
+                      {i.status !== 'acknowledged' && <Hint id="incident.ack"><Button size="sm" variant="outline" loading={busy === 'ack'} onClick={() => act('ack')} icon={<Hand className="size-4" />}>{t('Je m’en occupe', 'I’m on it')}</Button></Hint>}
                       <Button size="sm" variant="go" loading={busy === 'resolve'} onClick={() => act('resolve')} icon={<Check className="size-4" />}>{t('Réglé', 'Fixed')}</Button>
-                      <Button size="sm" variant="ghost" loading={busy === 'snooze'} onClick={() => act('snooze', { minutes: 30 })} icon={<BellOff className="size-4" />}>{t('Sourdine 30 min', 'Snooze 30 min')}</Button>
+                      <Hint id="incident.snooze"><Button size="sm" variant="ghost" loading={busy === 'snooze'} onClick={() => act('snooze', { minutes: 30 })} icon={<BellOff className="size-4" />}>{t('Sourdine 30 min', 'Snooze 30 min')}</Button></Hint>
                       {i.kind === 'order_late' && i.customer?.phone && <Button size="sm" variant="outline" onClick={() => setTexting(true)} icon={<MessageSquareText className="size-4" />}>{t('Texter le client', 'Text the customer')}</Button>}
                     </div>
                   )}

@@ -13,6 +13,8 @@ import { Button } from '@/components/ui/button';
 import { TakTak } from './taktak';
 import { useHelp, useOptionalHelp } from './help-provider';
 
+const openModals = () => (typeof document === 'undefined' ? 0 : document.querySelectorAll('[aria-modal="true"]').length);
+
 export function Hint({ id, children }: { id: string; children: ReactNode }) {
   const help = useOptionalHelp();
   const ref = useRef<HTMLSpanElement>(null);
@@ -32,7 +34,10 @@ export function Hint({ id, children }: { id: string; children: ReactNode }) {
     }
     if (help.tips === 'full') {
       const el = target();
-      setTimeout(() => help.showMark(id, el), 120);
+      // A tap that opens a pop-up (a form, the manager PIN pad) is explained by the pop-up itself: the card would
+      // only cover it. It stays unseen and is explained another time (or from the help panel).
+      const before = openModals();
+      setTimeout(() => { if (openModals() <= before) help.showMark(id, el); }, 120);
     }
   }
 
@@ -64,6 +69,15 @@ export function CoachMark() {
     window.addEventListener('scroll', place, true);
     return () => { mark.anchor?.classList.remove('help-target-pulse'); window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true); };
   }, [mark]);
+
+  // A pop-up that opens while a normal tip is showing (the manager PIN pad after a slow answer) closes the tip.
+  useEffect(() => {
+    if (!mark || entry?.blocking) return;
+    const start = openModals();
+    const obs = new MutationObserver(() => { if (openModals() > start) help.closeMark(false); });
+    obs.observe(document.body, { childList: true, subtree: true });
+    return () => obs.disconnect();
+  }, [mark, entry?.blocking, help]);
 
   // Normal tips close by themselves after 9 s; blocking ones wait for an answer.
   useEffect(() => {

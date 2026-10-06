@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FileUp, RefreshCw } from 'lucide-react';
+import { Hint } from '@/components/help/hint';
 import { PlatformTag } from '@/components/ui/badge';
 import { Button, ButtonLink } from '@/components/ui/button';
 import { Banner, Card, CardHeader } from '@/components/ui/card';
@@ -47,17 +48,17 @@ export default function MoneyOverview() {
       <MoneyHead title={t('Où est mon argent ?', 'Where is my money?')} intro={t('Chaque commande est comparée à votre plan de commission et à ce que les relevés ont vraiment payé. Commandes absentes, paiements en moins, frais d’erreur et remboursements deviennent des litiges automatiquement. Rien n’est approuvé ni publié à votre place.', 'Every order is checked against your commission plan and against what the statements really paid. Missing orders, short payments, error charges and refunds become dispute cases automatically. Nothing is approved or posted for you.')}
         right={<><ButtonLink href="/money/statements" variant="outline" icon={<FileUp className="size-4" />}>{t('Importer un relevé', 'Import a statement')}</ButtonLink>{can('finance:edit') && <Button loading={busy} onClick={recheck} icon={<RefreshCw className="size-4" />}>{t('Revérifier', 'Re-check')}</Button>}</>} />
       {err && <Banner tone="stop" className="mb-4">{err}</Banner>}
-      <FilterBar filters={filters} set={set} locations={locations} showBrands={false} presets={['yesterday', '7d', '30d', 'month', 'last_month', 'custom']} />
+      <Hint id="money.period"><FilterBar filters={filters} set={set} locations={locations} showBrands={false} presets={['yesterday', '7d', '30d', 'month', 'last_month', 'custom']} /></Hint>
       {data && data.imports === 0 && <Banner tone="info" className="mb-4">{t('Aucun relevé importé : les montants attendus sont calculés, mais rien ne peut être marqué absent ou payé en moins avant un import.', 'No statement imported: expected payouts are calculated, but nothing can be marked missing or short-paid until you import one.')} <Link href="/money/statements" className="font-bold underline">{t('Importer', 'Import')}</Link></Banner>}
       {unconfirmed.length > 0 && <Banner tone="warn" className="mb-4">{t('Plan de commission non confirmé pour', 'Commission plan not confirmed for')} {unconfirmed.map((c) => c.label).join(', ')}. <Link href="/money/fees" className="font-bold underline">{t('Vérifier', 'Check')}</Link></Banner>}
       {data && (
         <>
           <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatTile hero label={t('Argent à récupérer', 'Money to recover')} value={cad(data.totals.missingMoney, loc)} note={`${problems.filter((o) => toRecover(o) > 0).length} ${t('commande(s)', 'order(s)')} · ${cases?.count ?? 0} ${t('litige(s) ouvert(s)', 'open case(s)')}`} />
+            <Hint id="money.recover"><StatTile hero label={t('Argent à récupérer', 'Money to recover')} value={cad(data.totals.missingMoney, loc)} note={`${problems.filter((o) => toRecover(o) > 0).length} ${t('commande(s)', 'order(s)')} · ${cases?.count ?? 0} ${t('litige(s) ouvert(s)', 'open case(s)')}`} /></Hint>
             <StatTile label={t('Payé par les plateformes', 'Paid by the platforms')} value={cad(data.totals.paid, loc)} />
             <StatTile label={t('Attendu pour ces commandes', 'Expected for those orders')} value={cad(data.totals.expected, loc)} />
-            <StatTile label={t('Écart', 'Difference')} value={signed(data.totals.diff, loc)} note={t('payé − attendu', 'paid − expected')} />
-            <StatTile label={t('Payées mais inconnues', 'Paid but unknown')} value={fmtInt(data.totals.unknownOrders)} note={t('webhook manqué ou magasin non branché', 'missed webhook or unmapped store')} />
+            <Hint id="money.diff"><StatTile label={t('Écart', 'Difference')} value={signed(data.totals.diff, loc)} note={t('payé − attendu', 'paid − expected')} /></Hint>
+            <Hint id="money.unknown"><StatTile label={t('Payées mais inconnues', 'Paid but unknown')} value={fmtInt(data.totals.unknownOrders)} note={t('webhook manqué ou magasin non branché', 'missed webhook or unmapped store')} /></Hint>
             <StatTile label={t('Autres frais et crédits', 'Other charges & credits')} value={signed(data.totals.otherCharges, loc)} note={t('pubs, tablettes, ajustements', 'ads, tablets, adjustments')} />
           </div>
           <Card className="mb-5">

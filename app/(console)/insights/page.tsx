@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Download, Link2 } from 'lucide-react';
+import { Hint } from '@/components/help/hint';
 import { Button, buttonClass } from '@/components/ui/button';
 import { Banner, PageHeader } from '@/components/ui/card';
 import { FilterBar } from '@/components/ui/filter-bar';
@@ -44,14 +45,14 @@ export default function InsightsPage() {
   return (
     <div>
       <PageHeader title={t('Analyses', 'Insights')} subtitle={t('Chaque chiffre est comparé à la période précédente de même durée. Les commandes annulées sont des ventes perdues.', 'Every number is compared with the previous period of the same length. Cancelled orders count as lost sales.')}
-        right={<><Button variant="outline" onClick={() => navigator.clipboard?.writeText(window.location.href)} icon={<Link2 className="size-4" />}>{t('Copier le lien', 'Copy link')}</Button><a className={buttonClass('outline', 'md')} href={`/api/foodhub/reports/order_transactions?format=xlsx&${query}`}><Download className="size-4" />Excel</a></>} />
+        right={<><Button variant="outline" onClick={() => navigator.clipboard?.writeText(window.location.href)} icon={<Link2 className="size-4" />}>{t('Copier le lien', 'Copy link')}</Button><Hint id="insights.export"><a className={buttonClass('outline', 'md')} href={`/api/foodhub/reports/order_transactions?format=xlsx&${query}`}><Download className="size-4" />Excel</a></Hint></>} />
       <InsightsTabs />
-      <FilterBar filters={filters} set={set} locations={locations} brands={brands} />
+      <Hint id="insights.period"><FilterBar filters={filters} set={set} locations={locations} brands={brands} /></Hint>
       {error && <Banner tone="stop" className="mb-4">{error}</Banner>}
       {!data && !error && <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">{[0, 1, 2, 3].map((i) => <div key={i} className="h-28 animate-pulse rounded-lg bg-sunken" />)}</div>}
       {data && k && (
         <div className={loading ? 'opacity-60 transition-opacity' : ''}>
-          <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <Hint id="insights.kpis"><div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
             <StatTile hero label={t('Ventes', 'Sales')} value={fmtMoney(k.sales.value)} change={k.sales.change} previous={fmtMoney(k.sales.previous)} />
             <StatTile label={t('Commandes', 'Orders')} value={fmtInt(k.orders.value)} change={k.orders.change} previous={fmtInt(k.orders.previous)} />
             <StatTile label={t('Panier moyen', 'Average order')} value={fmtMoney(k.aov.value)} change={k.aov.change} previous={fmtMoney(k.aov.previous)} />
@@ -60,9 +61,9 @@ export default function InsightsPage() {
             <StatTile label={t('Temps de préparation', 'Prep time')} value={k.avgPrepMin.value ? mins(k.avgPrepMin.value) : '—'} change={k.avgPrepMin.value ? k.avgPrepMin.change : undefined} previous={mins(k.avgPrepMin.previous)} upIsGood={false} note={t('acceptée → prête', 'accepted → ready')} />
             <StatTile label={t('Magasins ouverts (heures)', 'Store uptime (open hours)')} value={`${data.uptime.overallPct}%`} note={`${mins(data.uptime.offlineMinutes)} ${t('hors ligne', 'offline')}`} />
             <StatTile label={t('Reçues dans Clover', 'Reached Clover')} value={`${k.cloverRate.value}%`} change={k.cloverRate.change} previous={`${k.cloverRate.previous}%`} />
-          </div>
+          </div></Hint>
           <ChartCard className="mb-5" title={metric === 'sales' ? t('Ventes par jour', 'Sales per day') : t('Commandes par jour', 'Orders per day')} subtitle={`${fmtDay(data.range.from)} – ${fmtDay(new Date(Date.parse(data.range.to) - 1).toISOString())}`}
-            legend={<><LineLegend items={[{ label: t('Cette période', 'This period'), color: VIZ.series }, { label: t('Période précédente', 'Previous period'), color: VIZ.compare, dash: true }]} /><Segmented size="sm" value={metric} onChange={setMetric} options={[{ key: 'sales', label: t('Ventes', 'Sales') }, { key: 'orders', label: t('Commandes', 'Orders') }]} /></>}
+            legend={<><LineLegend items={[{ label: t('Cette période', 'This period'), color: VIZ.series }, { label: t('Période précédente', 'Previous period'), color: VIZ.compare, dash: true }]} /><Hint id="insights.metric"><Segmented size="sm" value={metric} onChange={setMetric} options={[{ key: 'sales', label: t('Ventes', 'Sales') }, { key: 'orders', label: t('Commandes', 'Orders') }]} /></Hint></>}
             table={{ columns: ['Date', t('Ventes', 'Sales'), t('Commandes', 'Orders'), t('Ventes préc.', 'Prev sales'), t('Cmd préc.', 'Prev orders')], rows: data.daily.map((d) => [d.date, fmtMoney(d.sales), d.orders, fmtMoney(d.prevSales), d.prevOrders]), filename: 'takatak-daily' }}>
             {data.daily.length < 2 ? <div className="py-10 text-center text-sm text-ink-3">{t('Choisissez 2 jours ou plus pour voir la tendance.', 'Pick 2 days or more to see the trend.')}</div>
               : <CompareLine points={points} curLabel={t('Cette période', 'This period')} prevLabel={t('Période précédente', 'Previous period')} format={metric === 'sales' ? fmtMoney : (n) => `${fmtInt(n)}`} axisFormat={metric === 'sales' ? compactMoney : fmtInt} />}

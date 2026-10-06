@@ -82,7 +82,8 @@ export function useAutosave<T>(opts: AutosaveOptions<T>): Autosave<T> {
 
   const run = useCallback(async (): Promise<boolean> => {
     if (inflight.current) { await inflight.current; return runRef.current(); }
-    if (!isDirty()) { setStatus((s) => (s === 'saving' || s === 'dirty' ? 'saved' : s)); return true; }
+    // Nothing left to send: any leftover state (a cancelled PIN, an error, offline) is no longer true.
+    if (!isDirty()) { holdRetry.current = false; setStatus((s) => (s === 'saving' || s === 'dirty' || s === 'cancelled' || s === 'error' || s === 'offline' || s === 'invalid' ? 'saved' : s)); return true; }
     const sending = latest.current as T;
     const found = optsRef.current.validate?.(sending) ?? [];
     setProblems(found);
@@ -147,7 +148,8 @@ export function useAutosave<T>(opts: AutosaveOptions<T>): Autosave<T> {
       clearDraft(store(), user, formKey);
       if (timer.current) { clearTimeout(timer.current); timer.current = null; }
       setProblems([]);
-      setStatus((s) => (s === 'dirty' || s === 'invalid' || s === 'error' || s === 'offline' ? 'saved' : s));
+      holdRetry.current = false; // back to the saved values (undo, discard): a cancelled PIN no longer holds anything
+      setStatus((s) => (s === 'dirty' || s === 'invalid' || s === 'error' || s === 'offline' || s === 'cancelled' ? 'saved' : s));
       return;
     }
     writeDraft(store(), user, formKey, value);

@@ -9,13 +9,16 @@ import { Button } from '@/components/ui/button';
 import { Banner, Card } from '@/components/ui/card';
 import { Field, Input, Select, Textarea } from '@/components/ui/form';
 import { Modal } from '@/components/ui/overlay';
+import { FormDraftNote } from '@/components/ui/save-chip';
 import { Tabs } from '@/components/ui/tabs';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { StatTile, fmtInt } from '@/components/charts/charts';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
+import { Hint } from '@/components/help/hint';
 import { CH_NAME, CaseBadge, MoneyHead, RECOVERABLE, cad, caseLabel, type CaseStatus } from '../money-ui';
 import { api, ApiError, dayOf, downloadCsv } from '@/lib/ui/api';
+import { formDraftId, useFormDraft } from '@/lib/ui/use-form-draft';
 import { useI18n } from '@/lib/i18n/client';
 import type { T } from '@/lib/i18n';
 
@@ -74,12 +77,12 @@ export default function DisputesPage() {
         <StatTile label={t('Payées mais absentes de Food Hub', 'Paid orders not in Food Hub')} value={fmtInt(unknownOpen)} note={t('pas de l’argent perdu — webhook manqué ou magasin non jumelé', 'not money lost — missed webhook or unmapped store')} />
       </div>
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-        <Tabs value={tab} onChange={setTab} className="flex-1" tabs={[
+        <Hint id="disputes.tabs"><Tabs value={tab} onChange={setTab} className="flex-1" tabs={[
           { key: 'active', label: t('À faire', 'To do'), count: loaded ? countOf('active') : null },
           { key: 'recovered', label: t('Récupérés', 'Recovered'), count: loaded ? countOf('recovered') : null },
           { key: 'closed', label: t('Fermés', 'Closed'), count: loaded ? countOf('closed') : null },
           { key: 'all', label: t('Tous', 'All'), count: loaded ? countOf('all') : null },
-        ]} />
+        ]} /></Hint>
         <div className="flex items-center gap-2">
           <Select selectSize="sm" value={channel} onChange={(e) => setChannel(e.target.value)} aria-label={t('Plateforme', 'Platform')} className="w-44">
             <option value="">{t('Toutes les plateformes', 'All platforms')}</option>
@@ -103,7 +106,9 @@ export default function DisputesPage() {
                 <Td align="right"><span className="font-bold">{cad(c.amount, loc)}</span>{c.recoveredAmount !== undefined ? <div className="text-xs font-semibold text-go-2">✓ {cad(c.recoveredAmount, loc)} {t('revenus', 'back')}</div> : null}</Td>
                 <Td><CaseBadge status={c.status} /></Td>
                 <Td className="text-ink-3">{c.platformCaseId ?? '—'}</Td>
-                <Td align="right"><Button size="sm" variant={can('finance:edit') && c.status === 'open' ? 'primary' : 'outline'} onClick={() => setEdit(c)}>{can('finance:edit') ? t('Mettre à jour', 'Update') : t('Historique', 'History')}</Button></Td>
+                <Td align="right">{can('finance:edit')
+                  ? <Hint id="disputes.update"><Button size="md" variant={c.status === 'open' ? 'primary' : 'outline'} onClick={() => setEdit(c)}>{t('Mettre à jour', 'Update')}</Button></Hint>
+                  : <Button size="md" variant="outline" onClick={() => setEdit(c)}>{t('Historique', 'History')}</Button>}</Td>
               </Tr>
             ))}
             {rows.length === 0 && <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-ink-3">{!loaded ? t('Chargement…', 'Loading…') : tab === 'active' ? t('Rien à contester. Les nouveaux problèmes apparaissent ici après chaque import de relevé et chaque jour.', 'Nothing to dispute right now. New problems appear here after each statement import and every day.') : t('Aucun dossier ici.', 'No case here.')}</td></tr>}
@@ -111,47 +116,70 @@ export default function DisputesPage() {
         </Table>
       </Card>
 
-      <Card className="p-5">
+      <Hint id="disputes.how"><Card className="p-5">
         <h2 className="mb-3 text-base font-extrabold">{t('Comment contester', 'How to dispute')}</h2>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
           {how.map(([ch, d]) => <div key={ch} className="rounded-lg border border-line bg-raised p-3.5"><PlatformTag channel={ch} /><p className="mt-2 text-[13px] leading-relaxed text-ink-2">{d}</p></div>)}
         </div>
         <p className="mt-3 text-xs text-ink-3">{t('Contestez vite — les plateformes n’acceptent les litiges que pour un temps limité après la commande. Inscrivez le no de dossier de la plateforme ici pour que tout le monde puisse suivre.', 'Dispute quickly — platforms only accept disputes for a limited time after the order. Write the platform case number here so anyone can follow up.')}</p>
-      </Card>
+      </Card></Hint>
 
-      {edit && <CaseDialog c={edit} canEdit={can('finance:edit')} onClose={() => setEdit(null)} onSaved={() => { toast.success(t(`Dossier #${edit.ref} enregistré`, `Case #${edit.ref} saved`)); setEdit(null); load(); }} />}
+      {edit && <CaseDialog key={edit.id} c={edit} canEdit={can('finance:edit')} onClose={() => setEdit(null)} onSaved={() => { toast.success(t(`Dossier #${edit.ref} enregistré`, `Case #${edit.ref} saved`)); setEdit(null); load(); }} />}
     </div>
   );
 }
 
+type CaseFields = { status: CaseStatus; platformCaseId: string; recovered: string; note: string };
+/**
+ * What the person changed in the form (null = untouched). Only changes are kept in the draft, so a field nobody touched
+ * follows the case: a case that closed by itself since the draft was typed is never reopened by an old status.
+ */
+type CaseChanges = { [K in keyof CaseFields]: CaseFields[K] | null };
+const NO_CASE_CHANGE: CaseChanges = { status: null, platformCaseId: null, recovered: null, note: null };
+const CASE_KEYS = Object.keys(NO_CASE_CHANGE) as Array<keyof CaseFields>;
+
 function CaseDialog({ c, canEdit, onClose, onSaved }: { c: Case; canEdit: boolean; onClose: () => void; onSaved: () => void }) {
   const { t, loc } = useI18n();
-  const [status, setStatus] = useState<CaseStatus>(c.status);
-  const [platformCaseId, setPlatformCaseId] = useState(c.platformCaseId ?? '');
-  const [recovered, setRecovered] = useState(c.recoveredAmount !== undefined ? String(c.recoveredAmount) : '');
-  const [note, setNote] = useState('');
+  const { viewer } = useViewer();
+  const toast = useToast();
+  // What is typed is kept on this device (one draft per case) until "Save" succeeds: closing by mistake, a reload or
+  // the PIN being cancelled loses nothing. Read-only viewers have no draft.
+  const f = useFormDraft<CaseChanges>(formDraftId('dispute', c.id), viewer.username, NO_CASE_CHANGE, { enabled: canEdit });
+  const cur: CaseFields = { status: c.status, platformCaseId: c.platformCaseId ?? '', recovered: c.recoveredAmount !== undefined ? String(c.recoveredAmount) : '', note: '' };
+  const v: CaseFields = { status: f.value.status ?? cur.status, platformCaseId: f.value.platformCaseId ?? cur.platformCaseId, recovered: f.value.recovered ?? cur.recovered, note: f.value.note ?? cur.note };
+  // The recovered amount only counts while the status is "Recovered" (hidden and not sent otherwise).
+  const dirty = canEdit && CASE_KEYS.some((k) => (k !== 'recovered' || v.status === 'recovered') && v[k] !== cur[k]);
+  const put = <K extends keyof CaseFields>(k: K, x: CaseFields[K]) => f.set((p) => ({ ...p, [k]: x === cur[k] ? null : x }));
+  const { status, platformCaseId, recovered, note } = v;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  /** X, backdrop, Esc or Cancel: nothing is sent; what was typed waits for the next opening. */
+  function close() {
+    if (dirty) toast.info(t('Gardé — rouvrez pour terminer', 'Kept — reopen to finish'));
+    onClose();
+  }
   async function save() {
     setBusy(true); setErr('');
     try {
       await api('/api/foodhub/recon/cases', { method: 'POST', json: { id: c.id, status: status !== c.status ? status : undefined, note: note || undefined, platformCaseId: platformCaseId && platformCaseId !== c.platformCaseId ? platformCaseId : undefined, recoveredAmount: status === 'recovered' && recovered !== '' ? Number(recovered) : undefined } });
+      f.clear();
       onSaved();
     } catch (e) { if (!(e instanceof ApiError && e.status === 499)) setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
   const options: CaseStatus[] = (['open', 'disputed', 'recovered', 'written_off', 'resolved', 'ignored'] as CaseStatus[]).filter((s) => s !== 'resolved' || c.status === 'resolved');
   return (
-    <Modal title={`${typeLabel(t, c.type)} — ${CH_NAME[c.channel] ?? c.channel} #${c.ref}`} subtitle={`${cad(c.amount, loc)} · ${t('ouvert le', 'opened')} ${dayOf(c.openedAt, loc)}${c.orderDate ? ` · ${t('commande du', 'order of')} ${dayOf(c.orderDate, loc)}` : ''}`} onClose={onClose}
-      footer={canEdit ? <><Button variant="ghost" onClick={onClose}>{t('Annuler', 'Cancel')}</Button><Button loading={busy} onClick={save}>{t('Enregistrer', 'Save')}</Button></> : undefined}>
+    <Modal title={`${typeLabel(t, c.type)} — ${CH_NAME[c.channel] ?? c.channel} #${c.ref}`} subtitle={`${cad(c.amount, loc)} · ${t('ouvert le', 'opened')} ${dayOf(c.openedAt, loc)}${c.orderDate ? ` · ${t('commande du', 'order of')} ${dayOf(c.orderDate, loc)}` : ''}`} onClose={close}
+      footer={canEdit ? <><Button variant="ghost" size="lg" onClick={close}>{t('Annuler', 'Cancel')}</Button><Hint id="disputes.save"><Button size="lg" loading={busy} onClick={save}>{t('Enregistrer', 'Save')}</Button></Hint></> : undefined}>
+      {canEdit && <FormDraftNote restored={f.restored && dirty} onDiscard={f.discard} />}
       {c.type === 'unknown_order' && <Banner tone="info" className="mb-4">{t('Pas de l’argent perdu : la plateforme a payé une commande que Food Hub n’a jamais reçue — un webhook manqué ou un magasin non jumelé. Vérifiez Magasins → Jumelage, puis mettez ce dossier à « Ignoré ».', 'Not money lost: the platform paid an order Food Hub never received — a missed webhook or an unmapped store. Check Stores → Mapping, then set this case to “Ignored”.')}</Banner>}
       {canEdit && (
         <div className="mb-5 grid gap-3">
           <Field label={t('Statut', 'Status')}>
-            <Select value={status} onChange={(e) => setStatus(e.target.value as CaseStatus)}>{options.map((s) => <option key={s} value={s}>{caseLabel(t, s)}</option>)}</Select>
+            <Select value={status} onChange={(e) => put('status', e.target.value as CaseStatus)}>{options.map((s) => <option key={s} value={s}>{caseLabel(t, s)}</option>)}</Select>
           </Field>
-          <Field label={t('No de dossier / billet de la plateforme', 'Platform case / ticket number')}><Input value={platformCaseId} onChange={(e) => setPlatformCaseId(e.target.value)} maxLength={80} /></Field>
-          {status === 'recovered' && <Field label={t('Montant récupéré ($)', 'Amount recovered ($)')}><Input type="number" step="0.01" min="0" inputMode="decimal" value={recovered} onChange={(e) => setRecovered(e.target.value)} placeholder={c.amount.toFixed(2)} /></Field>}
-          <Field label={t('Note', 'Note')}><Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} placeholder={t('Ce que vous avez envoyé, à qui vous avez parlé…', 'What you sent, who you spoke to…')} /></Field>
+          <Hint id="disputes.casenumber"><Field label={t('No de dossier / billet de la plateforme', 'Platform case / ticket number')}><Input value={platformCaseId} onChange={(e) => put('platformCaseId', e.target.value)} maxLength={80} /></Field></Hint>
+          {status === 'recovered' && <Field label={t('Montant récupéré ($)', 'Amount recovered ($)')}><Input type="number" step="0.01" min="0" inputMode="decimal" value={recovered} onChange={(e) => put('recovered', e.target.value)} placeholder={c.amount.toFixed(2)} /></Field>}
+          <Field label={t('Note', 'Note')}><Textarea rows={2} value={note} onChange={(e) => put('note', e.target.value)} maxLength={500} placeholder={t('Ce que vous avez envoyé, à qui vous avez parlé…', 'What you sent, who you spoke to…')} /></Field>
           {err && <Banner tone="stop">{err}</Banner>}
         </div>
       )}

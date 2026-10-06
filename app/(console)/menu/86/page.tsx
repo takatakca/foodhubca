@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Ban, CheckCircle2, Search } from 'lucide-react';
+import { Hint } from '@/components/help/hint';
 import { Badge } from '@/components/ui/badge';
 import { PageHeader } from '@/components/ui/card';
 import { Chips, Input, Select } from '@/components/ui/form';
@@ -69,12 +70,12 @@ export default function EightySix() {
       <MenuTabs />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Select className="w-56" value={brand} onChange={(e) => setBrand(e.target.value)} aria-label={t('Marque', 'Brand')}>{brands.map((b) => <option key={b}>{b}</option>)}</Select>
-        {viewer.device ? <Badge tone="dark" className="h-9 px-3 text-sm">{shortLoc(locations.find((l) => l.code === location)?.name ?? location)}</Badge>
-          : <Select className="w-52" value={location} onChange={(e) => setLocation(e.target.value)} aria-label={t('Succursale', 'Location')}>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select>}
-        <div className="flex items-center gap-2"><span className="text-[13px] font-semibold text-ink-3">{t('Retour', 'Back')} :</span><Chips size="sm" value={duration} onChange={setDuration} options={[{ value: 0, label: t('quand je le remets', 'when I turn it on') }, { value: 30, label: '30 min' }, { value: 60, label: '1 h' }, { value: 120, label: '2 h' }, { value: -1, label: t('fin de journée', 'end of day') }]} /></div>
+        <Hint id="menu86.location">{viewer.device ? <Badge tone="dark" className="h-9 px-3 text-sm">{shortLoc(locations.find((l) => l.code === location)?.name ?? location)}</Badge>
+          : <Select className="w-52" value={location} onChange={(e) => setLocation(e.target.value)} aria-label={t('Succursale', 'Location')}>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select>}</Hint>
+        <Hint id="menu86.return"><div className="flex items-center gap-2"><span className="text-[13px] font-semibold text-ink-3">{t('Retour', 'Back')} :</span><Chips size="sm" value={duration} onChange={setDuration} options={[{ value: 0, label: t('quand je le remets', 'when I turn it on') }, { value: 30, label: '30 min' }, { value: 60, label: '1 h' }, { value: 120, label: '2 h' }, { value: -1, label: t('fin de journée', 'end of day') }]} /></div></Hint>
       </div>
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <Tabs className="flex-1" value={tab} onChange={setTab} tabs={[{ key: 'items', label: t('Articles', 'Items'), count: menu?.items.length ?? 0 }, { key: 'options', label: t('Options', 'Options'), count: menu?.modifierGroups.reduce((s, g) => s + g.modifiers.length, 0) ?? 0 }, { key: 'off', label: t('En rupture', '86’d now'), count: offCount }]} />
+        <Hint id="menu86.tabs"><Tabs className="flex-1" value={tab} onChange={setTab} tabs={[{ key: 'items', label: t('Articles', 'Items'), count: menu?.items.length ?? 0 }, { key: 'options', label: t('Options', 'Options'), count: menu?.modifierGroups.reduce((s, g) => s + g.modifiers.length, 0) ?? 0 }, { key: 'off', label: t('En rupture', '86’d now'), count: offCount }]} /></Hint>
         <div className="relative w-full sm:w-64"><Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-3" /><Input className="pl-9" placeholder={t('Chercher', 'Search')} value={q} onChange={(e) => setQ(e.target.value)} /></div>
       </div>
       {!menu ? <div className="h-64 animate-pulse rounded-lg bg-sunken" /> : rows.length === 0 ? (
@@ -85,12 +86,12 @@ export default function EightySix() {
             const off = offAt(r.ref);
             const until = untilOf(r.ref);
             return (
-              <button key={r.ref} type="button" disabled={busy === r.ref} onClick={() => toggle(r.ref, r.name)}
+              <Hint id="menu86.toggle" key={r.ref}><button type="button" disabled={busy === r.ref} onClick={() => toggle(r.ref, r.name)}
                 className={cn('flex min-h-24 flex-col items-start rounded-xl border-2 p-3.5 text-left transition-all active:scale-[0.98] disabled:opacity-60', off ? 'border-stop bg-stop-soft' : 'border-line bg-surface hover:border-ink-4')}>
                 <span className="flex w-full items-start justify-between gap-2"><span className={cn('text-[15px] leading-snug font-bold', off && 'text-stop-2 line-through decoration-2')}>{r.name}</span>{off ? <Ban className="size-5 shrink-0 text-stop" /> : <CheckCircle2 className="size-5 shrink-0 text-go/60" />}</span>
                 <span className="mt-auto pt-2 text-xs text-ink-3">{r.group}</span>
                 {off && <span className="mt-1 text-xs font-bold text-stop-2">{until ? t(`de retour à ${timeOf(new Date(until).toISOString(), loc)}`, `back at ${timeOf(new Date(until).toISOString(), loc)}`) : t('en rupture', '86’d')}</span>}
-              </button>
+              </button></Hint>
             );
           })}
         </div>

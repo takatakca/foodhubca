@@ -2,7 +2,7 @@
 
 // Guided tour of the current screen: dims the page, lights up one control at a time, TakTak explains in two lines.
 // Big Back / Next buttons (no swiping), Esc or "Skip" ends it. A step whose control is not on screen is shown in the
-// middle of the screen instead of failing.
+// middle of the screen instead of failing; a step whose control this person never sees is skipped.
 import { useEffect, useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { pick } from '@/lib/help/content';
@@ -16,7 +16,16 @@ export function Tour() {
   const { lang, t } = useI18n();
   const tour = help.tour;
   const [rect, setRect] = useState<DOMRect | null>(null);
-  const steps = tour ? (tour.page.steps.length ? tour.page.steps : [{ title: tour.page.title, body: tour.page.intro }]) : [];
+  // Steps whose control is not on this screen for this person (no permission, empty list) are left out, so the tour
+  // never describes a button someone cannot see. Measured once when the tour starts, before the first paint.
+  const [present, setPresent] = useState<Set<string> | null>(null);
+  const page = tour?.page;
+  useLayoutEffect(() => {
+    if (!page) { setPresent(null); return; }
+    setPresent(new Set(page.steps.map((s) => s.target).filter((x): x is string => !!x && !!document.querySelector(`[data-help="${x}"]`))));
+  }, [page]);
+  const shown = tour ? tour.page.steps.filter((s) => !s.target || !present || present.has(s.target)) : [];
+  const steps = tour ? (shown.length ? shown : [{ title: tour.page.title, body: tour.page.intro }]) : [];
   const step = tour ? steps[Math.min(tour.step, steps.length - 1)] : null;
   const target = step && 'target' in step ? step.target : undefined;
 

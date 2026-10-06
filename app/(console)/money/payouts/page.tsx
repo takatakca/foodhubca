@@ -9,13 +9,17 @@ import { Banner, Card } from '@/components/ui/card';
 import { FilterBar } from '@/components/ui/filter-bar';
 import { Field, Input } from '@/components/ui/form';
 import { Modal } from '@/components/ui/overlay';
+import { FormDraftNote } from '@/components/ui/save-chip';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { StatTile, fmtInt } from '@/components/charts/charts';
 import { useViewer } from '@/components/shell/viewer';
+import { Hint } from '@/components/help/hint';
+import { useOptionalHelp } from '@/components/help/help-provider';
 import { CH_NAME, MoneyHead, cad, signed } from '../money-ui';
-import { api, ApiError, dayOf, downloadCsv } from '@/lib/ui/api';
+import { api, ApiError, dayOf, downloadCsv, ymd } from '@/lib/ui/api';
 import { useFilters } from '@/lib/ui/range';
+import { formDraftId, useFormDraft } from '@/lib/ui/use-form-draft';
 import { useI18n } from '@/lib/i18n/client';
 
 type Batch = {
@@ -55,11 +59,11 @@ export default function PayoutsPage() {
     <div>
       <MoneyHead title={t('Paiements et dépôts', 'Payouts & deposits')} intro={t('Chaque paiement tel que le relevé de la plateforme le décrit — ventes, commission, taxes sur frais, promotions, remboursements — et le montant arrivé dans votre compte de banque. Entrez le dépôt de votre relevé bancaire pour boucler la boucle.', 'Each payout as the platform statement describes it — sales, commission, tax on fees, promotions, refunds — and the amount that actually reached your bank account. Enter the deposit from your bank statement to close the loop.')} />
       {err && <Banner tone="stop" className="mb-4">{err}</Banner>}
-      <FilterBar filters={filters} set={set} locations={locations} showLocations={false} showBrands={false} presets={['7d', '30d', 'month', 'last_month', 'custom']} extra={<Button size="sm" variant="outline" onClick={exportCsv} disabled={!rows.length} icon={<Download className="size-4" />}>CSV</Button>} />
+      <FilterBar filters={filters} set={set} locations={locations} showLocations={false} showBrands={false} presets={['7d', '30d', 'month', 'last_month', 'custom']} extra={<Hint id="payouts.csv"><Button size="sm" variant="outline" onClick={exportCsv} disabled={!rows.length} icon={<Download className="size-4" />}>CSV</Button></Hint>} />
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatTile hero label={t('Payé (relevés)', 'Paid out (statements)')} value={cad(tot.net, loc)} note={`${fmtInt(rows.length)} ${t('paiement(s)', 'payout(s)')}`} />
         <StatTile label={t('Arrivé à la banque', 'Reached the bank')} value={cad(tot.deposited, loc)} note={`${tot.waiting} ${t('paiement(s) sans dépôt entré', 'payout(s) without a deposit entered')}`} />
-        <StatTile label={t('Dépôts différents', 'Deposits that differ')} value={fmtInt(tot.gaps.length)} note={tot.gaps.length ? signed(tot.gaps.reduce((s, b) => s + (b.gap ?? 0), 0), loc) : t('aucun', 'none')} />
+        <Hint id="payouts.gaps"><StatTile label={t('Dépôts différents', 'Deposits that differ')} value={fmtInt(tot.gaps.length)} note={tot.gaps.length ? signed(tot.gaps.reduce((s, b) => s + (b.gap ?? 0), 0), loc) : t('aucun', 'none')} /></Hint>
         <StatTile label={t('Commission + taxes sur frais', 'Commission + tax on fees')} value={cad(tot.fees, loc)} note={t('les taxes sur frais sont récupérables (CTI / RTI)', 'tax on fees is recoverable (ITC / ITR)')} />
       </div>
 
@@ -90,7 +94,7 @@ export default function PayoutsPage() {
                         {gapBad ? <span className="inline-flex items-center gap-1 text-[11px] font-bold text-stop"><XCircle className="size-3" />{signed(b.gap, loc)}</span> : <span className="inline-flex items-center gap-1 text-[11px] font-bold text-go-2"><CheckCircle2 className="size-3" />{t('concorde', 'matches')}</span>}
                       </div>
                     ) : !can('finance:edit') && <span className="text-xs text-ink-3">{t('non entré', 'not entered')}</span>}
-                    {can('finance:edit') && <Button size="xs" variant={b.deposit ? 'ghost' : 'outline'} className="mt-1" onClick={() => setDep(b)}>{b.deposit ? t('Modifier', 'Edit') : t('Entrer le dépôt', 'Enter deposit')}</Button>}
+                    {can('finance:edit') && <Hint id="payouts.deposit"><Button size="md" variant={b.deposit ? 'ghost' : 'outline'} className="mt-1" onClick={() => setDep(b)}>{b.deposit ? t('Modifier', 'Edit') : t('Entrer le dépôt', 'Enter deposit')}</Button></Hint>}
                   </Td>
                 </Tr>
               );
@@ -101,33 +105,55 @@ export default function PayoutsPage() {
         <p className="border-t border-line px-4 py-3 text-xs leading-relaxed text-ink-3">{t('Ventes + taxes − commission et ses taxes + tout le reste = net payé. « Tout le reste » = promotions, ajustements, remboursements, frais d’erreur, pubs et autres frais (le CSV les détaille). « Net seulement » veut dire que le relevé n’avait pas de détail — importez le rapport détaillé pour le répartir.', 'Food sales + tax − commission and its tax + everything else = net paid. “Everything else” is promotions, adjustments, refunds, error charges, ads and other fees (the CSV has each one). “Net only” means the statement had no breakdown — import the detailed report to split it.')}</p>
       </Card>
 
-      {dep && <DepositDialog b={dep} onClose={() => setDep(null)} onSaved={() => { toast.success(t('Dépôt enregistré', 'Deposit saved')); setDep(null); load(); }} />}
+      {dep && <DepositDialog key={dep.key} b={dep} onClose={() => setDep(null)} onSaved={() => { toast.success(t('Dépôt enregistré', 'Deposit saved')); setDep(null); load(); }} />}
     </div>
   );
 }
 
+type DepFields = { amount: string; date: string; note: string };
+/** What the person changed in the form (null = untouched: it follows the payout, even if it changed since). */
+type DepChanges = { [K in keyof DepFields]: string | null };
+const NO_DEP_CHANGE: DepChanges = { amount: null, date: null, note: null };
+const DEP_KEYS = Object.keys(NO_DEP_CHANGE) as Array<keyof DepFields>;
+
 function DepositDialog({ b, onClose, onSaved }: { b: Batch; onClose: () => void; onSaved: () => void }) {
   const { t, loc } = useI18n();
-  const [amount, setAmount] = useState(b.deposit ? String(b.deposit.amount) : b.net.toFixed(2));
-  const [date, setDate] = useState(b.deposit?.date ?? b.payoutDate ?? new Date().toISOString().slice(0, 10));
-  const [note, setNote] = useState(b.deposit?.note ?? '');
+  const { viewer } = useViewer();
+  const toast = useToast();
+  const help = useOptionalHelp();
+  // What is typed is kept on this device (one draft per payout) until "Save deposit" succeeds: closing by mistake, a
+  // reload or the PIN being cancelled loses nothing. Only the changed fields are kept, so the rest follows the payout.
+  const f = useFormDraft<DepChanges>(formDraftId('deposit', b.key), viewer.username, NO_DEP_CHANGE);
+  const cur: DepFields = { amount: b.deposit ? String(b.deposit.amount) : b.net.toFixed(2), date: b.deposit?.date ?? b.payoutDate ?? ymd(new Date()), note: b.deposit?.note ?? '' };
+  const v: DepFields = { amount: f.value.amount ?? cur.amount, date: f.value.date ?? cur.date, note: f.value.note ?? cur.note };
+  const dirty = DEP_KEYS.some((k) => v[k] !== cur[k]);
+  const put = (k: keyof DepFields, x: string) => f.set((p) => ({ ...p, [k]: x === cur[k] ? null : x }));
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
-  const gap = Number(amount) - b.net;
+  const gap = Number(v.amount) - b.net;
+  const ready = v.amount.trim() !== '' && Number.isFinite(Number(v.amount)) && /^\d{4}-\d{2}-\d{2}$/.test(v.date);
+  /** X, backdrop, Esc or Cancel: nothing is sent; what was typed waits for the next opening. */
+  function close() {
+    // Esc while TakTak explains "Save deposit" (blocking card, it covers everything else): close the card, keep the pop-up.
+    if (help?.mark?.onContinue) return;
+    if (dirty) toast.info(t('Gardé — rouvrez pour terminer', 'Kept — reopen to finish'));
+    onClose();
+  }
   async function save() {
     setBusy(true); setErr('');
-    try { await api('/api/foodhub/recon/payouts', { method: 'POST', json: { key: b.key, amount: Number(amount), date, note } }); onSaved(); }
+    try { await api('/api/foodhub/recon/payouts', { method: 'POST', json: { key: b.key, amount: Number(v.amount), date: v.date, note: v.note } }); f.clear(); onSaved(); }
     catch (e) { if (!(e instanceof ApiError && e.status === 499)) setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
   return (
-    <Modal size="sm" title={t('Dépôt bancaire', 'Bank deposit')} subtitle={`${CH_NAME[b.channel] ?? b.channel} · ${b.payoutRef ?? (b.payoutDate ? dayOf(b.payoutDate, loc) : '')}`} onClose={onClose}
-      footer={<><Button variant="ghost" onClick={onClose}>{t('Annuler', 'Cancel')}</Button><Button loading={busy} onClick={save}>{t('Enregistrer le dépôt', 'Save deposit')}</Button></>}>
+    <Modal size="sm" title={t('Dépôt bancaire', 'Bank deposit')} subtitle={`${CH_NAME[b.channel] ?? b.channel} · ${b.payoutRef ?? (b.payoutDate ? dayOf(b.payoutDate, loc) : '')}`} onClose={close}
+      footer={<><Button variant="ghost" size="lg" onClick={close}>{t('Annuler', 'Cancel')}</Button><Hint id="payouts.save"><Button size="lg" loading={busy} disabled={!ready} onClick={save}>{t('Enregistrer le dépôt', 'Save deposit')}</Button></Hint></>}>
+      <FormDraftNote restored={f.restored && dirty} onDiscard={f.discard} />
       <p className="mb-4 text-sm text-ink-2">{t('Le relevé dit', 'The statement says')} <strong className="text-ink">{cad(b.net, loc)}</strong>. {t('Entrez ce que votre relevé bancaire montre pour ce paiement.', 'Enter what your bank statement shows for this payout.')}</p>
       <div className="grid gap-3">
-        <Field label={t('Montant reçu ($)', 'Amount received ($)')}><Input type="number" step="0.01" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
-        <Field label={t('Date du dépôt', 'Deposit date')}><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-        <Field label={t('Note', 'Note')}><Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={200} placeholder={t('Référence bancaire…', 'Bank reference…')} /></Field>
-        {Number.isFinite(gap) && Math.abs(gap) >= 0.01 && <Banner tone="warn">{t('Diffère du relevé de', 'Differs from the statement by')} {signed(gap, loc)} — {t('l’écriture du grand livre affichera un avertissement.', 'the ledger entry will show a warning.')}</Banner>}
+        <Hint id="payouts.amount"><Field label={t('Montant reçu ($)', 'Amount received ($)')}><Input type="number" step="0.01" inputMode="decimal" value={v.amount} onChange={(e) => put('amount', e.target.value)} /></Field></Hint>
+        <Field label={t('Date du dépôt', 'Deposit date')}><Input type="date" value={v.date} onChange={(e) => put('date', e.target.value)} /></Field>
+        <Field label={t('Note', 'Note')}><Input value={v.note} onChange={(e) => put('note', e.target.value)} maxLength={200} placeholder={t('Référence bancaire…', 'Bank reference…')} /></Field>
+        {v.amount.trim() !== '' && Number.isFinite(gap) && Math.abs(gap) >= 0.01 && <Banner tone="warn">{t('Diffère du relevé de', 'Differs from the statement by')} {signed(gap, loc)} — {t('l’écriture du grand livre affichera un avertissement.', 'the ledger entry will show a warning.')}</Banner>}
         {err && <Banner tone="stop">{err}</Banner>}
       </div>
     </Modal>

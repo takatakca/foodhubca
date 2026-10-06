@@ -31,14 +31,19 @@ TGTG ──────┘
 | **Team chat** | `ALERT_WEBHOOK_URL` (Slack, Teams, Google Chat, Discord): warnings and urgent alerts are posted there. |
 | **Message log** | Alerts → *Messages sent*: every email / SMS / call / chat with masked numbers. Sign-in codes are never stored. |
 
-### A console that never loses work (1.5.8)
-- **Autosave**: store hours and your profile have no Save button — the chip at the top says *Saved*, *Offline — kept
-  here*, *Fix…* or *Not saved — Retry*. Closing a window by mistake loses nothing: reopen the screen and the change
-  comes back. ⌘S saves now, ⌘Z / ⇧⌘Z undo and redo (↶ ↷ on touch screens).
+### A console that never loses work (1.5.8, extended in 1.5.9)
+- **Autosave**: store hours, your profile, alert rules, manager PIN rules, commission plans and each kitchen's prep
+  time have no Save button — the chip at the top says *Saved*, *Offline — kept here*, *Fix…* or *Not saved — Retry*.
+  Closing a window by mistake loses nothing: reopen the screen and the change comes back. ⌘S saves now, ⌘Z / ⇧⌘Z
+  undo and redo (↶ ↷ on touch screens).
+- **Pop-up forms keep what you typed** (a person, a location, a store link, a deposit, a dispute, a tablet, a report
+  email, a day of Too Good To Go bags): close by mistake and reopen — *Picked up where you left off*, with *Start
+  over*. Nothing is sent until the form's button; PINs, passwords and codes are never kept.
 - **Undo instead of "are you sure?"**: removing a holiday or a brand's own hours, or stopping a report email, shows
   *Removed — Undo* for 6 seconds.
-- **TakTak** (bottom right, or `?` on a keyboard): help for the current screen, guided tour, text size (A / A+ / A++),
-  connection status and "send a report". Buttons that reach a platform explain what will be sent the first time.
+- **TakTak** (bottom right, or `?` on a keyboard): help for the current screen, guided tour of every main screen, text
+  size (A / A+ / A++), connection status and "send a report". Buttons that reach a platform explain what will be sent
+  the first time; nothing used during service (accept, ready, 86, pause) waits for an explanation.
 - **Screen supervisor**: crashes and failing calls are reported to the Activity Log; a crashed screen can be reloaded
   without touching orders.
 

@@ -210,7 +210,8 @@ export function allowedActions(order: StoredOrder): OrderAction[] {
   if (!order.posOrderId && ['new', 'accepted', 'ready', 'dispatched'].includes(order.status)) a.push('retry_pos');
   if (order.posOrderId) a.push('print');
   // SkipTheDishes (JET Connect) lets the store report an out-of-stock item after accepting; Skip adjusts the customer's bill.
-  if (order.channel === 'skip' && ['accepted', 'ready'].includes(order.status)) a.push('report_missing');
+  // (Not for Skip orders that came through the relay: Skip's API does not know them.)
+  if (order.channel === 'skip' && !order.viaHub && ['accepted', 'ready'].includes(order.status)) a.push('report_missing');
   return a;
 }
 

@@ -110,6 +110,13 @@ describe('orders through the Food Hub Order Relay', () => {
     expect(calls).toEqual([]);
   });
 
+  it('never offers Skip "report missing items" on a relayed Skip order (Skip’s API does not know it)', async () => {
+    const { allowedActions } = await import('../lib/foodhub/pipeline');
+    const out = await processIncomingOrder((parseRelayOrder(sample()) as any).order);
+    expect(allowedActions({ ...out.order, status: 'accepted' })).not.toContain('report_missing');
+    expect(allowedActions({ ...out.order, status: 'accepted', viaHub: undefined })).toContain('report_missing');
+  });
+
   it('reads relayed status changes (customer cancelled)', async () => {
     const s = parseRelayStatus({ order_id: 3444567, new_state: 'customer_cancelled', additional_info: { external_channel: { name: 'SkipTheDishes', order_id: 'SKIP-998877' } }, message: 'Wrong address' });
     expect(s).toEqual({ channel: 'skip', externalOrderId: 'relay-3444567', state: 'customer_cancelled', message: 'Wrong address' });

@@ -171,7 +171,8 @@ const mock = http.createServer(async (req, res) => {
     if (req.headers.authorization !== `Bearer ${CLOVER_TOKEN}`) return send(401, {});
     if (p.endsWith('/atomic_order/orders')) {
       cloverSeq += 1;
-      cloverOrderTotals.set(`CLV${cloverSeq}`, (body?.orderCart?.lineItems || []).reduce((s, l) => s + (l.price || 0), 0));
+      // Clover's total: line items plus order-level discounts (Clover discount amounts are negative cents).
+      cloverOrderTotals.set(`CLV${cloverSeq}`, (body?.orderCart?.lineItems || []).reduce((s, l) => s + (l.price || 0), 0) + (body?.orderCart?.discounts || []).reduce((s, d) => s + (d.amount || 0), 0));
       return send(200, { id: `CLV${cloverSeq}` });
     }
     if (/\/(tenders|order_types)$/.test(p)) {
@@ -863,8 +864,14 @@ try {
   const q29 = await waitFor(async () => ((await call('GET', '/api/foodhub/command')).json?.queue || []).find((q) => q.id === o2?.id && q.courier?.status === 'arriving'));
   check('Command Center shows "courier arriving" on the order card', !!q29 && q29.courier.name === 'Ana B.');
   // DoorDash's documented payloads: dasher_status + external_order_id, cancellation with client_order_id only.
-  await ddHook({ ...ddOrder, id: 'dd-order-3' });
+  // dd-order-3 carries a merchant-funded promotion ($3.50; DoorDash sends cents). It is cancelled below, so no payment,
+  // payout or sales check ever sees it — only the Clover discount check that follows.
+  const b29 = log.length;
+  await ddHook({ ...ddOrder, id: 'dd-order-3', merchant_funded_discount: 350 });
   const o29d = await waitFor(async () => { const o = await findOrder('dd-order-3'); return o?.status === 'accepted' && o.posOrderId ? o : null; });
+  const isAtomic = (e) => e.method === 'POST' && /\/atomic_order\/orders$/.test(e.path);
+  const disc29 = log.slice(b29).filter(isAtomic).map((e) => e.body?.orderCart?.discounts).find(Boolean);
+  check('DoorDash promotion sent to Clover as an order discount (−350 cents, Clover total = lines − promotion); orders without one carry none', o29d?.discount === 3.5 && disc29?.length === 1 && disc29[0].name === 'DoorDash promotion' && disc29[0].amount === -350 && cloverOrderTotals.get(o29d.posOrderId) === 1499 - 350 && !log.slice(0, b29).some((e) => isAtomic(e) && e.body?.orderCart && 'discounts' in e.body.orderCart), JSON.stringify({ d: o29d?.discount, disc29 }));
   await ddHook({ dasher_status: 'arrived_at_store', external_order_id: 'dd-order-3', client_order_id: o29d?.posOrderId, Phone_number: '+15145550199' });
   check('DoorDash Dasher Status (documented shape: dasher_status arrived_at_store) → courier at the store', !!(await waitFor(async () => (await findOrder('dd-order-3'))?.timeline?.courier?.status === 'at_store')));
   await ddHook({ client_order_id: o29d?.posOrderId, cancel_reason: 'CUSTOMER_REQUEST' });

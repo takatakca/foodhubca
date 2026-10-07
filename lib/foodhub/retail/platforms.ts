@@ -31,7 +31,7 @@ export const RETAIL_PLATFORMS: Record<RetailPlatform, RetailPlatformReadiness> =
     note: 'Needs DoorDash approval for "Marketplace for Retail" (Developer Portal → Add integrations), then a technical account manager. Alcohol needs a signed contract addendum.',
     noteFr: 'Demande l’approbation DoorDash pour « Marketplace for Retail » (Portail développeur → Add integrations), puis un gestionnaire technique. L’alcool exige un avenant signé au contrat.',
     steps: [
-      { fr: 'Demander « Marketplace for Retail » dans le portail développeur DoorDash (org FoodHub By Takatak).', en: 'Request "Marketplace for Retail" in the DoorDash Developer Portal (org FoodHub By Takatak).' },
+      { fr: 'Demander « Marketplace for Retail » dans le portail développeur DoorDash (votre organisation Marketplace).', en: 'Request "Marketplace for Retail" in the DoorDash Developer Portal (your Marketplace org).' },
       { fr: 'Obtenir le business_id et les store_location_id de chaque épicerie.', en: 'Get the business_id and each grocery store_location_id.' },
       { fr: 'Photos : au moins 1400×800 (16:9) pour chaque produit.', en: 'Photos: at least 1400×800 (16:9) for every product.' },
       { fr: 'Alcool : signer l’avenant alcool — et un permis d’épicerie l’interdit de toute façon (livraison par un tiers).', en: 'Alcohol: sign the alcohol addendum — and a grocery permit forbids it anyway (third-party delivery).' },

@@ -6,7 +6,7 @@
 //   GET  /drive/v2/deliveries/{external_delivery_id}
 //   PUT  /drive/v2/deliveries/{external_delivery_id}/cancel
 // Auth: the same DD-JWT-V1 token as the Marketplace API, but with the Drive org's own access key
-// (DOORDASH_DRIVE_DEVELOPER_ID / _KEY_ID / _SIGNING_SECRET — "ON2GO FOOD HUB" has Drive build access in sandbox).
+// (DOORDASH_DRIVE_DEVELOPER_ID / _KEY_ID / _SIGNING_SECRET — the owner's Drive org has build access in sandbox).
 // Sandbox vs production is the credential, not the URL: DOORDASH_DRIVE_ENV says which one this is. Sandbox sends no
 // real Dasher, so it runs without the live switch (to complete DoorDash's required test deliveries); production needs
 // LIVE_CONNECTORS_GLOBAL_ENABLED=true like every other platform call that changes something.

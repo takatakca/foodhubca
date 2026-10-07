@@ -93,7 +93,7 @@ const sections = [
     ['SKIP_JET_API_KEY', 'JET Connect API key (sent as X-Flyt-Api-Key)'],
     ['SKIP_JET_BASE_URL', 'JET Connect base URL [https://api.flytplatform.com]', 'https://api.flytplatform.com'],
   ]],
-  ['OWN-ORDER DELIVERY (optional) — DoorDash Drive: developer.doordash.com → org "ON2GO FOOD HUB" → Drive → Credentials. Uber Direct: direct.uber.com → Developer', [
+  ['OWN-ORDER DELIVERY (optional) — DoorDash Drive: developer.doordash.com → the org that has Drive access → Drive → Credentials. Uber Direct: direct.uber.com → Developer', [
     ['DOORDASH_DRIVE_DEVELOPER_ID', 'Drive Developer ID'],
     ['DOORDASH_DRIVE_KEY_ID', 'Drive Key ID (start with the sandbox key)'],
     ['DOORDASH_DRIVE_SIGNING_SECRET', 'Drive Signing secret'],

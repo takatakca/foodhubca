@@ -72,6 +72,11 @@ async function fetchClientToken(kind: TokenKind): Promise<string> {
 }
 
 /** Drops the cached token (Uber answered 401: secret rotated or token revoked) so the next call fetches a fresh one. */
+/** Forgets the in-memory tokens only (what a cold start or another server instance sees); the stored ones stay. */
+export function forgetUberTokenMemory() {
+  for (const k of Object.keys(tokens) as TokenKind[]) tokens[k].cached = null;
+}
+
 export async function invalidateUberToken(kind: TokenKind = 'orders'): Promise<void> {
   tokens[kind].cached = null;
   await getRepo().setKv(TOKEN_KV(kind), null).catch(() => undefined);

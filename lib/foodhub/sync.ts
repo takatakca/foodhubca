@@ -12,7 +12,7 @@
 import { fetchDoorDashStoreStatus } from './adapters/doordash';
 import { isRelayStore } from './adapters/relay';
 import { fetchUberStoreStatus } from './adapters/uber-eats';
-import { runUberWebhook } from './adapters/uber-events';
+import { recoverMissedUberOrders, runUberWebhook } from './adapters/uber-events';
 import { replayPendingUberWebhooks } from './adapters/uber-inbox';
 import { nowIso } from './config';
 import { logActivity } from './activity';
@@ -53,6 +53,8 @@ export interface SyncReport {
   reopened: number;
   /** Uber webhooks replayed from the inbox (still pending after the first try) and how many failed again. */
   uberWebhooks?: { replayed: number; failed: number };
+  /** Uber orders found waiting on Uber (created-orders) that no webhook brought, then processed. */
+  uberMissed?: { recovered: number; error?: string };
   /** Orders accepted/ready/dispatched for longer than FOODHUB_AUTO_COMPLETE_MIN (default 90) and closed automatically. */
   autoCompleted: number;
   /** Timed 86s that ended and were switched back on. */
@@ -224,6 +226,8 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
     // Orders first: Uber webhooks still pending in the inbox (crash after the 200, failed order fetch) are replayed
     // while the 11.5-minute accept window is still open.
     const uberWebhooks = await replayPendingUberWebhooks(runUberWebhook).catch(() => ({ replayed: 0, failed: 0 }));
+    // …and orders still waiting on Uber that no webhook ever announced (stores where Food Hub is the order manager).
+    const uberMissed = await recoverMissedUberOrders().catch((e) => ({ recovered: 0, error: e instanceof Error ? e.message : String(e) }));
     const reopened = await reopenExpiredPauses().catch(() => []);
     const autoCompleted = await autoCompleteOldOrders().catch(() => 0);
     const itemsReenabled = await reenableExpiredItems().catch(() => 0);
@@ -286,6 +290,7 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
       businessDayStart: new Date(dayStart).toISOString(),
       reopened: reopened.length,
       uberWebhooks,
+      uberMissed,
       autoCompleted,
       itemsReenabled,
       holidayClosures,

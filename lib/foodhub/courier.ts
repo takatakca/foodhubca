@@ -74,8 +74,10 @@ export function uberCourierState(state: unknown): CourierStatus | null {
   const s = String(state ?? '').toLowerCase().replace(/[^a-z]+/g, '_');
   if (!s) return null;
   if (/unassign/.test(s)) return 'unassigned'; // before "assigned": "unassigned" contains it
+  // delivery.state_changed documents SCHEDULED (no courier yet) … ARRIVED_AT_DROPOFF, COMPLETED, FAILED (handled apart).
+  if (s === 'scheduled') return 'unassigned';
   if (/complete|delivered|dropoff_complete/.test(s)) return 'delivered';
-  if (/en_route_to_drop|picked_up|pickup_complete|left_pickup/.test(s)) return 'picked_up';
+  if (/en_route_to_drop|arrived_at_drop|picked_up|pickup_complete|left_pickup/.test(s)) return 'picked_up';
   if (/arrived_at_pick|at_pickup|at_store|at_restaurant/.test(s)) return 'at_store';
   if (/en_route_to_pick|assigned|accepted/.test(s)) return 'assigned';
   return null;

@@ -10,24 +10,41 @@ import { blockedResult, buildReadiness } from './common';
 
 const KEY = 'uber_eats' as const;
 
-function base() { return stripSlash(process.env.UBER_BASE_URL || 'https://api.uber.com'); }
+// Hosts. Production apps use auth.uber.com + api.uber.com; a "Testing" (sandbox) app must use sandbox-login.uber.com
+// + test-api.uber.com ("Mixing domains will cause authentication failures"): UBER_ENV=sandbox switches all three.
+// UBER_AUTH_URL / UBER_LOGIN_URL / UBER_BASE_URL still override each one.
+const sandbox = () => process.env.UBER_ENV === 'sandbox';
+export function uberApiBase() { return stripSlash(process.env.UBER_BASE_URL || (sandbox() ? 'https://test-api.uber.com' : 'https://api.uber.com')); }
+export function uberTokenUrl() { return process.env.UBER_AUTH_URL || (sandbox() ? 'https://sandbox-login.uber.com/oauth/v2/token' : 'https://auth.uber.com/oauth/v2/token'); }
+export function uberAuthorizeUrl() { return process.env.UBER_LOGIN_URL || (sandbox() ? 'https://sandbox-login.uber.com/oauth/v2/authorize' : 'https://auth.uber.com/oauth/v2/authorize'); }
+const base = uberApiBase;
 
-// Client-credentials tokens, one per scope set. A cache entry holds the token and, while a request is
-// pending, the shared promise so concurrent callers (sync pool, webhook bursts) make ONE token call.
-type TokenCache = { value: string; expiresAt: number } | null;
-const tokens: Record<'orders' | 'report', { cached: TokenCache; inflight: Promise<string> | null }> = { orders: { cached: null, inflight: null }, report: { cached: null, inflight: null } };
+// Client-credentials tokens, one per scope set: 'orders' (eats.order eats.store eats.store.status.write), 'report'
+// (eats.report) and 'poll' (eats.store.orders.read, for the missed-order check). Uber allows 100 token requests per
+// hour per app and invalidates the oldest token past 100, and a token lives 30 days — so a token is kept in memory AND
+// in the database (fh_kv, server-only), shared by every instance and restart, instead of one new token per cold start.
+// While a request is pending its promise is shared, so concurrent callers make ONE token call.
+type TokenKind = 'orders' | 'report' | 'poll';
+type TokenCache = { value: string; expiresAt: number; fp: string } | null;
+const tokens: Record<TokenKind, { cached: TokenCache; inflight: Promise<string> | null }> = { orders: { cached: null, inflight: null }, report: { cached: null, inflight: null }, poll: { cached: null, inflight: null } };
+const TOKEN_KV = (kind: TokenKind) => `uber:token:${kind}`;
+/** Which app + host a stored token belongs to: a new client id/secret or a sandbox switch never reuses an old token. */
+const tokenFp = (kind: TokenKind) => crypto.createHash('sha256').update(`${kind}|${process.env.UBER_CLIENT_ID}|${process.env.UBER_CLIENT_SECRET}|${uberTokenUrl()}`).digest('hex').slice(0, 24);
+const fresh = (c: TokenCache, kind: TokenKind): c is NonNullable<TokenCache> => Boolean(c && c.fp === tokenFp(kind) && c.expiresAt > Date.now() + 60_000);
 
-async function fetchClientToken(kind: 'orders' | 'report'): Promise<string> {
+async function fetchClientToken(kind: TokenKind): Promise<string> {
   const slot = tokens[kind];
-  if (slot.cached && slot.cached.expiresAt > Date.now() + 60_000) return slot.cached.value;
+  if (fresh(slot.cached, kind)) return slot.cached.value;
   if (slot.inflight) return slot.inflight;
   slot.inflight = (async () => {
-    const request = (scope: string) => timedFetch(process.env.UBER_AUTH_URL || 'https://auth.uber.com/oauth/v2/token', {
+    const stored = await getRepo().getKv<NonNullable<TokenCache>>(TOKEN_KV(kind)).catch(() => null);
+    if (fresh(stored, kind)) { slot.cached = stored; return stored.value; }
+    const request = (scope: string) => timedFetch(uberTokenUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ client_id: process.env.UBER_CLIENT_ID || '', client_secret: process.env.UBER_CLIENT_SECRET || '', grant_type: 'client_credentials', scope }).toString(),
     });
-    const wanted = kind === 'report' ? process.env.UBER_REPORT_SCOPE || 'eats.report' : process.env.UBER_OAUTH_SCOPE || 'eats.order eats.store eats.store.status.write';
+    const wanted = kind === 'report' ? process.env.UBER_REPORT_SCOPE || 'eats.report' : kind === 'poll' ? 'eats.store.orders.read' : process.env.UBER_OAUTH_SCOPE || 'eats.order eats.store eats.store.status.write';
     let res = await request(wanted);
     // eats.store.status.write is approved separately by Uber: without it the combined request is refused (invalid_scope)
     // and NOTHING would work. Fall back to orders + menus so orders keep flowing (pause/resume then fails on its own).
@@ -41,18 +58,24 @@ async function fetchClientToken(kind: 'orders' | 'report'): Promise<string> {
       const why = detail ? ` (${String(detail).slice(0, 200)})` : '';
       throw new Error(kind === 'report'
         ? `Uber Reporting token refused: HTTP ${res.status}${why} — ask Uber to add the eats.report scope to your app.`
-        : `Uber OAuth token refused: HTTP ${res.status}${why}${/scope/i.test(detail) ? ` — UBER_OAUTH_SCOPE must list only scopes Uber granted to your app (now: ${process.env.UBER_OAUTH_SCOPE || 'eats.order eats.store eats.store.status.write'}).` : ''}`);
+        : kind === 'poll'
+          ? `Uber order-list token refused: HTTP ${res.status}${why} — ask Uber to add the eats.store.orders.read scope (used to catch orders whose webhook never arrived).`
+          : `Uber OAuth token refused: HTTP ${res.status}${why}${res.status === 429 ? ' — Uber allows 100 token requests per hour; Food Hub keeps one token for 30 days, so this clears by itself.' : ''}${/scope/i.test(detail) ? ` — UBER_OAUTH_SCOPE must list only scopes Uber granted to your app (now: ${process.env.UBER_OAUTH_SCOPE || 'eats.order eats.store eats.store.status.write'}).` : ''}`);
     }
     const json = await res.json();
     if (!json.access_token) throw new Error('Uber OAuth response had no access_token.');
-    slot.cached = { value: json.access_token, expiresAt: Date.now() + (Number(json.expires_in) || 2592000) * 1000 };
+    slot.cached = { value: json.access_token, expiresAt: Date.now() + (Number(json.expires_in) || 2592000) * 1000, fp: tokenFp(kind) };
+    await getRepo().setKv(TOKEN_KV(kind), slot.cached).catch(() => undefined);
     return slot.cached.value;
   })().finally(() => { slot.inflight = null; });
   return slot.inflight;
 }
 
 /** Drops the cached token (Uber answered 401: secret rotated or token revoked) so the next call fetches a fresh one. */
-export function invalidateUberToken(kind: 'orders' | 'report' = 'orders') { tokens[kind].cached = null; }
+export async function invalidateUberToken(kind: TokenKind = 'orders'): Promise<void> {
+  tokens[kind].cached = null;
+  await getRepo().setKv(TOKEN_KV(kind), null).catch(() => undefined);
+}
 
 export async function uberAccessToken(): Promise<string> {
   if (process.env.UBER_ACCESS_TOKEN) return process.env.UBER_ACCESS_TOKEN;
@@ -63,12 +86,12 @@ export async function uberAccessToken(): Promise<string> {
 const uberReportToken = () => fetchClientToken('report');
 
 /** fetch with the Uber token; on 401 the cached token is invalidated and the call retried once with a fresh one. */
-async function uberFetch(url: string, init: RequestInit = {}, kind: 'orders' | 'report' = 'orders'): Promise<Response> {
-  const token = kind === 'report' ? uberReportToken : uberAccessToken;
+async function uberFetch(url: string, init: RequestInit = {}, kind: TokenKind = 'orders'): Promise<Response> {
+  const token = kind === 'report' ? uberReportToken : kind === 'poll' ? () => fetchClientToken('poll') : uberAccessToken;
   const run = async () => timedFetch(url, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), Authorization: `Bearer ${await token()}` } });
   const res = await run();
   if (res.status !== 401 || (kind === 'orders' && process.env.UBER_ACCESS_TOKEN)) return res;
-  invalidateUberToken(kind);
+  await invalidateUberToken(kind);
   return run();
 }
 
@@ -114,8 +137,8 @@ export function reportDownloadLinks(body: unknown): string[] {
 function readiness() {
   return buildReadiness(KEY, ['UBER_CLIENT_ID', 'UBER_CLIENT_SECRET'], {
     // A static UBER_ACCESS_TOKEN cannot be refreshed (client-credentials tokens expire after 30 days).
-    note: `${process.env.UBER_ACCESS_TOKEN ? 'UBER_ACCESS_TOKEN override in use — it expires after 30 days and is never refreshed; remove it to use client credentials. ' : ''}Direct mode. Requires Uber to approve your app for eats.order + eats.store + eats.pos_provisioning. Uber developer dashboard → Webhooks → Primary Webhook, Basic HMAC, Signing Key = the value below. Then: Stores → Store connections → “Connect Uber Eats”.`,
-    noteFr: `${process.env.UBER_ACCESS_TOKEN ? 'UBER_ACCESS_TOKEN est utilisé — il expire après 30 jours et n’est jamais renouvelé ; retirez-le pour utiliser les identifiants client. ' : ''}Mode direct. Uber doit approuver votre app pour eats.order + eats.store + eats.pos_provisioning. Tableau de bord développeur Uber → Webhooks → Primary Webhook, Basic HMAC, Signing Key = la valeur ci-dessous. Ensuite : Magasins → Branchement des magasins → « Brancher Uber Eats ».`,
+    note: `${process.env.UBER_ACCESS_TOKEN ? 'UBER_ACCESS_TOKEN override in use — it expires after 30 days and is never refreshed; remove it to use client credentials. ' : ''}${sandbox() ? 'SANDBOX (UBER_ENV=sandbox: sandbox-login.uber.com + test-api.uber.com). ' : ''}Direct mode. Requires Uber production access with eats.order, eats.store, eats.store.status.write, eats.pos_provisioning (+ eats.store.orders.read, eats.report, eats.store.status.notification). Uber developer dashboard → Webhooks → Primary Webhook, Basic HMAC, Signing Key = the value below. Then: Stores → “Connect Uber Eats”.`,
+    noteFr: `${process.env.UBER_ACCESS_TOKEN ? 'UBER_ACCESS_TOKEN est utilisé — il expire après 30 jours et n’est jamais renouvelé ; retirez-le pour utiliser les identifiants client. ' : ''}${sandbox() ? 'BAC À SABLE (UBER_ENV=sandbox : sandbox-login.uber.com + test-api.uber.com). ' : ''}Mode direct. Uber doit accorder l’accès production avec eats.order, eats.store, eats.store.status.write, eats.pos_provisioning (+ eats.store.orders.read, eats.report, eats.store.status.notification). Tableau de bord développeur Uber → Webhooks → Primary Webhook, Basic HMAC, Signing Key = la valeur ci-dessous. Ensuite : Magasins → « Brancher Uber Eats ».`,
     extraWebhooks: [{ label: 'OAuth redirect URI (Uber developer dashboard → your app → Redirect URIs)', path: '/api/foodhub/uber-connect/callback' }],
     handoff: [{ label: 'Webhook Signing Key (Basic HMAC)', envKey: 'UBER_WEBHOOK_SIGNING_KEY' }],
   });
@@ -133,7 +156,7 @@ async function send(method: string, path: string, body?: unknown, okStatus: 'don
     const first = await callApi(KEY, `${base()}${path}`, { ...init, headers: await headers() }, okStatus);
     // 401 = the cached token died (secret rotated / revoked): refresh once and retry.
     if (first.httpStatus !== 401 || process.env.UBER_ACCESS_TOKEN) return first;
-    invalidateUberToken();
+    await invalidateUberToken();
     return await callApi(KEY, `${base()}${path}`, { ...init, headers: await headers() }, okStatus);
   } catch (error) {
     return result(KEY, 'error', error instanceof Error ? error.message : String(error));
@@ -276,13 +299,83 @@ export async function fetchUberStoreDetails(storeId: string): Promise<{ ok: bool
   }
 }
 
+/**
+ * Every page of GET /v1/eats/stores ({stores[], next_key}; limit / start_key), with a merchant token (provisioning)
+ * or the app token (discovery). Stops after 40 pages (2,000 stores) so a looping next_key cannot hang a request.
+ */
+export async function listUberStorePages(get: (url: string) => Promise<Response>): Promise<any[]> {
+  const out: any[] = [];
+  let key = '';
+  for (let page = 0; page < 40; page++) {
+    const res = await get(`${base()}/v1/eats/stores?limit=50${key ? `&start_key=${encodeURIComponent(key)}` : ''}`);
+    if (!res.ok) {
+      const why = await res.json().then((j: any) => String(j?.message ?? j?.error_description ?? j?.error ?? '')).catch(() => '');
+      throw new Error(`Uber store list failed (HTTP ${res.status}${why ? `: ${why.slice(0, 160)}` : ''}).`);
+    }
+    const json = await res.json();
+    out.push(...(Array.isArray(json?.stores) ? json.stores : Array.isArray(json?.data) ? json.data : []));
+    const next = json?.next_key ? String(json.next_key) : '';
+    if (!next || next === key) break;
+    key = next;
+  }
+  return out;
+}
+
 /** Lists stores provisioned to this app — used for one-click store discovery. */
 export async function discoverUberStores(): Promise<Array<{ id: string; name: string; address?: string }>> {
-  const res = await uberFetch(`${base()}/v1/eats/stores`);
-  if (!res.ok) throw new Error(`Uber store discovery failed: HTTP ${res.status}`);
-  const json = await res.json();
-  const rows: any[] = Array.isArray(json?.stores) ? json.stores : Array.isArray(json?.data) ? json.data : [];
+  const rows = await listUberStorePages((url) => uberFetch(url));
   return rows.map((s) => ({ id: String(s.store_id ?? s.id), name: String(s.name ?? ''), address: s.location?.address ?? undefined }));
+}
+
+/** Who takes this store's orders, from its pos_data: Food Hub, Food Hub once Uber finishes switching, or another app. */
+export type UberOrderManager = 'foodhub' | 'pending' | 'other' | 'unknown';
+
+/**
+ * GET /v1/eats/stores/{id}/pos_data answers for THIS app: is_order_manager is what Food Hub asked for, while
+ * order_manager_client_id is the app that really receives the orders (UrbanPiper until it lets go).
+ */
+export function uberOrderManager(pos: any, clientId = process.env.UBER_CLIENT_ID || ''): UberOrderManager {
+  if (!pos || typeof pos !== 'object') return 'unknown';
+  const manager = pos.order_manager_client_id ? String(pos.order_manager_client_id) : '';
+  if (manager) return manager !== clientId ? 'other' : pos.is_order_manager_pending ? 'pending' : 'foodhub';
+  // Without order_manager_client_id nothing proves Food Hub gets the orders: never guess 'foodhub' (the missed-order
+  // check only runs for confirmed stores, so a wrong guess could put UrbanPiper's orders in Clover twice).
+  return pos.is_order_manager_pending ? 'pending' : 'unknown';
+}
+
+export interface UberPosState { orderManager: UberOrderManager; integrationEnabled: boolean | null; orderManagerClientId: string | null; checkedAt: string }
+
+/** Read-only: this app's pos_data for one store (scope eats.store). Runs whenever credentials exist (LOCKED_DECISIONS). */
+export async function fetchUberPosData(storeId: string): Promise<{ ok: boolean; state?: UberPosState; raw?: unknown; error?: string; httpStatus?: number }> {
+  if (!readiness().configured) return { ok: false, error: 'Uber Eats credentials missing' };
+  try {
+    const res = await uberFetch(`${base()}/v1/eats/stores/${encodeURIComponent(storeId)}/pos_data`);
+    if (!res.ok) return { ok: false, httpStatus: res.status, error: `Uber pos_data HTTP ${res.status}` };
+    const raw = await res.json();
+    const enabled = raw?.integration_enabled ?? raw?.pos_integration_enabled;
+    return { ok: true, raw, state: { orderManager: uberOrderManager(raw), integrationEnabled: typeof enabled === 'boolean' ? enabled : null, orderManagerClientId: raw?.order_manager_client_id ? String(raw.order_manager_client_id) : null, checkedAt: new Date().toISOString() } };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/**
+ * PATCH /v1/eats/stores/{id}/pos_data {integration_enabled: true} — "toggles on order fulfillment webhooks including
+ * orders.notification" (Uber Going Live guide). A write: needs the live switch like every other change on Uber.
+ */
+export function enableUberIntegration(storeId: string) {
+  return send('PATCH', `/v1/eats/stores/${encodeURIComponent(storeId)}/pos_data`, { integration_enabled: true });
+}
+
+/**
+ * Orders still waiting for an accept on Uber (GET /v1/eats/stores/{id}/created-orders, scope eats.store.orders.read).
+ * Read-only; used to catch an order whose webhook never reached Food Hub.
+ */
+export async function listUberCreatedOrders(storeId: string): Promise<Array<{ id: string; placedAt: string | null }>> {
+  const res = await uberFetch(`${base()}/v1/eats/stores/${encodeURIComponent(storeId)}/created-orders?limit=50`, {}, 'poll');
+  if (!res.ok) throw new Error(`Uber created-orders HTTP ${res.status}`);
+  const json = await res.json();
+  return (Array.isArray(json?.orders) ? json.orders : []).filter((o: any) => o?.id).map((o: any) => ({ id: String(o.id), placedAt: o.placed_at ? String(o.placed_at) : null }));
 }
 
 const money = (m: any) => (m && typeof m === 'object' ? (typeof m.amount_e5 === 'number' ? m.amount_e5 / 100000 : fromCents(m.amount)) : 0);

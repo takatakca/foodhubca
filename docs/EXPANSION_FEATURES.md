@@ -65,7 +65,9 @@ alcohol allowed for third-party delivery right now (permit, written agreement, l
 
 **Auto-dispatch** (per kitchen): at *ready time − N minutes*. Above the kitchen's price limit, a person decides. Retried
 every 2 minutes, 3 tries, then *Auto-dispatch stopped* on the order. A courier that cancels is never re-booked
-automatically.
+automatically. Auto-dispatch (and reading Clover "Delivery" orders) runs right after each Watchtower check — every
+20–30 s while a screen is open, from the server timer, or from the 1-minute cron — so keep the Watchtower running 24/7
+(docs/FOODHUB.md → *Keep the Watchtower running when no screen is open*).
 
 **Quotes**: the primary fleet (DoorDash Drive), and Uber Direct when *compare quotes* is on and Uber Direct is configured;
 the cheapest working quote is booked; if that fleet refuses, the next one is tried. Both prices are kept on the delivery.

@@ -5,10 +5,17 @@
 import crypto from 'node:crypto';
 import { callApi, checkSharedSecret, fromCents, missingEnv, result, stripSlash, timedFetch } from '../config';
 import { toDoorDashMenu } from '../menu/translate';
-import type { ChannelAdapter, NormalizedOrder, OrderLine, PlatformState } from '../types';
+import type { CancelReason, ChannelAdapter, NormalizedOrder, OrderLine, PlatformState } from '../types';
 import { blockedResult, buildReadiness, chunk } from './common';
 
 const KEY = 'doordash' as const;
+
+/** Merchant-initiated cancellation is allowlisted per integration by DoorDash: on only when the owner says so. */
+export function doorDashMerchantCancelEnabled() {
+  return process.env.DOORDASH_MERCHANT_CANCEL === 'true';
+}
+
+const DD_CANCEL: Partial<Record<CancelReason, string>> = { out_of_stock: 'ITEM_OUT_OF_STOCK', store_closed: 'STORE_CLOSED', too_busy: 'KITCHEN_BUSY' };
 
 function base() { return stripSlash(process.env.DOORDASH_BASE_URL || 'https://openapi.doordash.com/marketplace'); }
 
@@ -65,8 +72,25 @@ export const doorDashAdapter: ChannelAdapter = {
   markReady: (order, posRef) => send('PATCH', `/api/v1/orders/${encodeURIComponent(order.externalOrderId)}/events/order_ready_for_pickup`, {
     merchant_supplied_id: posRef || order.posOrderId || order.id,
   }),
-  async cancelOrder() {
-    return result(KEY, 'blocked', 'DoorDash has no API to cancel an order after it is confirmed — cancel it on the DoorDash tablet / Order Manager or with DoorDash support.');
+  // Merchant order cancellation: PATCH /api/v1/orders/{id}/cancellation — only for integrations DoorDash allowlisted
+  // (ask your DoorDash technical account manager), so it is offered only with DOORDASH_MERCHANT_CANCEL=true.
+  // DoorDash then deactivates the store for STORE_CLOSED (12 h) or KITCHEN_BUSY (15 min).
+  async cancelOrder(order, reason, details) {
+    if (!doorDashMerchantCancelEnabled()) {
+      return result(KEY, 'blocked', 'DoorDash cancellations after accepting need DoorDash’s approval (allowlist) — cancel it on the DoorDash tablet / Order Manager, or ask your DoorDash account manager and set DOORDASH_MERCHANT_CANCEL=true.');
+    }
+    const code = DD_CANCEL[reason] ?? 'OTHER';
+    const res = await send('PATCH', `/api/v1/orders/${encodeURIComponent(order.externalOrderId)}/cancellation`, {
+      cancel_reason: code,
+      ...(details?.trim() ? { cancel_details: details.trim().slice(0, 200) } : {}),
+    });
+    if (!res.ok && (res.httpStatus === 401 || res.httpStatus === 403)) {
+      return result(KEY, 'blocked', 'DoorDash refused the cancellation: this integration is not allowlisted for merchant cancellations yet — cancel it on the DoorDash tablet, and ask your DoorDash technical account manager.', { httpStatus: res.httpStatus });
+    }
+    if (res.ok && (code === 'STORE_CLOSED' || code === 'KITCHEN_BUSY')) {
+      return { ...res, message: `Cancelled on DoorDash — DoorDash pauses the store for ${code === 'STORE_CLOSED' ? '12 hours' : '15 minutes'} (${code}).` };
+    }
+    return res;
   },
   async publishMenu(store, menu, ctx) {
     const menuId = typeof store.meta?.doordashMenuId === 'string' ? store.meta.doordashMenuId : null;

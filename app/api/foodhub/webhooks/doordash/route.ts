@@ -9,7 +9,8 @@ import { background, keepUnparsed, parseJson, queueOrder, unauthorized } from '@
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-// DoorDash webhook subscriptions (Developer Portal): Order Create, Order Cancel, Menu Status, Dasher Status.
+// DoorDash webhook subscriptions (Developer Portal): Order Create, Menu Status, Dasher Status — and ask DoorDash to point the
+// Order Cancellation webhook here too. Menu Request (menu pull) is GET /api/foodhub/webhooks/doordash/<location id>.
 // Point all of them at this URL with Authorization header = DOORDASH_WEBHOOK_SECRET.
 //
 // Order Create is answered 202 (asynchronous confirmation): DoorDash treats a 200 as "order confirmed", which must
@@ -33,19 +34,29 @@ export async function POST(req: NextRequest) {
   const clientOrderId = String(body.client_order_id || body.order?.client_order_id || '');
 
   // Menu Status webhook → remember the DoorDash menu id so later pushes PATCH instead of POST.
+  // Documented shape: { event: { type: MenuCreate|MenuUpdate, status: SUCCESS|FAILURE, reference, details }, menu: { id }, store? }.
   const menuReference = String(body.event?.reference || body.reference || '');
   if (eventType.includes('menu') || (menuReference && (body.menu?.id || body.menu_id))) {
     background('doordash menu status', async () => {
-      const msid = menuReference.startsWith('takatak-') ? menuReference.slice('takatak-'.length).replace(/-\d+$/, '') : String(body.store?.merchant_supplied_id || '');
-      const menuId = body.menu?.id || body.menu_id;
       const repo = getRepo();
-      const store = msid ? await repo.findStore('doordash', msid) : null;
-      if (store && menuId) await repo.updateStore(store.id, { meta: { ...store.meta, doordashMenuId: String(menuId), lastMenuStatus: body } });
-      // Close the queued "menu push" job only on an explicit success/failure; otherwise it stays queued and the callback is kept.
       const job = menuReference ? await repo.findJobByReference(menuReference) : null;
-      if (job && job.status === 'queued') {
+      // Store: from our own reference (takatak-<msid>-<ts>), the payload, or the job that pushed the menu.
+      const msid = menuReference.startsWith('takatak-') ? menuReference.slice('takatak-'.length).replace(/-\d+$/, '')
+        : String(body.store?.merchant_supplied_id || job?.request?.channelStoreId || '');
+      const menuId = body.menu?.id || body.menu_id;
+      const store = msid ? await repo.findStore('doordash', msid) : null;
+      // DoorDash can return the menu id even on FAILURE: keep it so the next push updates that menu.
+      if (store && menuId) await repo.updateStore(store.id, { meta: { ...store.meta, doordashMenuId: String(menuId), lastMenuStatus: body } });
+      if (!job) {
+        await keepUnparsed('doordash', body, menuReference ? 'DoorDash menu status for a menu push Food Hub does not know' : 'DoorDash menu status without a reference', menuReference || null);
+        return;
+      }
+      // Close the queued "menu push" job only on an explicit success/failure; otherwise it stays queued and the callback is kept.
+      if (job.status === 'queued') {
         const outcome = menuCallbackOutcome(body);
-        await repo.updateJob(job.id, { ...(outcome ? { status: outcome === 'success' ? 'done' : 'error' } : {}), result: { ...(job.result ?? {}), callback: body } });
+        const details = String(body.event?.details ?? body.details ?? '').trim();
+        const message = outcome === 'failed' ? `DoorDash refused the menu${details ? `: ${details.slice(0, 300)}` : ''}` : outcome === 'success' ? 'Menu published on DoorDash' : undefined;
+        await repo.updateJob(job.id, { ...(outcome ? { status: outcome === 'success' ? 'done' : 'error' } : {}), result: { ...(job.result ?? {}), ...(message ? { message } : {}), callback: body } });
         if (!outcome) await keepUnparsed('doordash', body, 'Menu-status callback without an explicit success/failure indicator — menu push left queued', menuReference);
       }
     }, { channel: 'doordash', body, reference: menuReference || null, kind: 'menu_publish' });
@@ -63,7 +74,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  if (eventType.includes('cancel') || body.cancel_reason || body.cancellation_reason) {
+  // Order Cancellation webhook (DoorDash configures it on request) is documented as { external_order_id, client_order_id,
+  // store, is_asap }: no event object and no reason. Consumer / Dasher / support cancellations must stop the kitchen.
+  const isCancelPayload = !body.event && !body.order && Boolean(body.external_order_id) && !Array.isArray(body.categories) && !body.dasher_status;
+  if (eventType.includes('cancel') || body.cancel_reason || body.cancellation_reason || isCancelPayload) {
     background(`doordash cancel ${doordashId || clientOrderId}`, async () => {
       const id = doordashId || (await idFromClientOrderId(clientOrderId));
       if (!id) return keepUnparsed('doordash', body, 'DoorDash cancellation without an order id Food Hub knows — check the order on the DoorDash tablet', clientOrderId || null);

@@ -2,6 +2,7 @@ import { logActivity } from '@/lib/foodhub/activity';
 import { approvalGate, withPerm } from '@/lib/foodhub/auth';
 import { getCatalog } from '@/lib/foodhub/catalog';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
+import { getBrandMenu, getMenuSharing, groupOf, isFollower, sourceOf } from '@/lib/foodhub/menu/shared';
 import { getRepo } from '@/lib/foodhub/repo';
 import type { MasterMenu } from '@/lib/foodhub/types';
 import { z } from 'zod';
@@ -40,14 +41,25 @@ function firstIssue(e: z.ZodError): string {
   return i ? `${i.path.length ? `${i.path.join('.')}: ` : ''}${i.message}` : 'Invalid menu';
 }
 
+// ?brand=X → the menu X uses (its own, or the one it shares, under X's name) + sharedFrom / sharedWith.
+// No brand → brand list, per-brand summary (a brand that shares a menu shows that menu's counts) and the sharing map.
 export const GET = withPerm('view', async (req) => {
   const repo = getRepo();
+  const sharing = await getMenuSharing();
   const brand = new URL(req.url).searchParams.get('brand');
-  if (brand) return ok({ menu: (await repo.getMenu(brand)) ?? emptyMenu(brand) });
+  if (brand) {
+    const source = sourceOf(sharing, brand);
+    return ok({ menu: (await getBrandMenu(brand, sharing)) ?? emptyMenu(brand), sharedFrom: source !== brand ? source : null, sharedWith: groupOf(sharing, brand).filter((b) => b !== brand) });
+  }
   const menus = await repo.listMenus();
   const catalog = await getCatalog();
-  const brands = [...new Set([...catalog.brands.filter((b) => b.active).map((b) => b.name), ...menus.map((m) => m.brandName)])];
-  return ok({ brands, summary: menus.map((m) => ({ brandName: m.brandName, items: m.items.length, updatedAt: m.updatedAt })) });
+  const brands = [...new Set([...catalog.brands.filter((b) => b.active).map((b) => b.name), ...menus.map((m) => m.brandName), ...Object.keys(sharing)])];
+  const byBrand = new Map(menus.map((m) => [m.brandName, m]));
+  const summary = brands.flatMap((b) => {
+    const m = byBrand.get(sourceOf(sharing, b));
+    return m ? [{ brandName: b, items: m.items.length, updatedAt: m.updatedAt, ...(isFollower(sharing, b) ? { sharedFrom: sourceOf(sharing, b) } : {}) }] : [];
+  });
+  return ok({ brands, summary, sharing });
 });
 
 // Save the full master menu for a brand.
@@ -57,6 +69,9 @@ export const PUT = withPerm('menu:edit', async (req, _ctx, actor) => {
   const parsed = menuSchema.safeParse(b.menu);
   if (!parsed.success) return fail(`Invalid menu — ${firstIssue(parsed.error)}`);
   const menu = parsed.data;
+  // A brand that shares another brand's menu is edited through that brand (one menu, one place to change it).
+  const sharing = await getMenuSharing();
+  if (isFollower(sharing, menu.brandName)) return fail(`${menu.brandName} uses the ${sourceOf(sharing, menu.brandName)} menu — edit ${sourceOf(sharing, menu.brandName)}; changes apply to every brand that shares it.`, 409);
   // A brand must exist in Brands & locations (or already have a menu) — no menus for unknown brands.
   const current = await getRepo().getMenu(menu.brandName);
   if (!current && !(await getCatalog()).brands.some((x) => x.name === menu.brandName)) return fail(`Unknown brand "${menu.brandName}". Add it in Brands & locations first.`, 422);

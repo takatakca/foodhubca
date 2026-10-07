@@ -30,6 +30,7 @@ export function liveOrder(o: StoredOrder, now = Date.now()) {
     seenAt: o.timeline?.seenAt ?? null, scheduledFor: o.timeline?.scheduledFor ?? null, fireAt: o.timeline?.fireAt ?? null, waitingScheduled: isWaitingScheduled(o, now),
     delayedMinutes: o.timeline?.delayedMinutes ?? 0, courier: o.timeline?.courier ?? null,
     posOrderId: o.posOrderId ?? null, posError: o.posError ?? null, channelError: o.channelError ?? null, printedAt: o.timeline?.printedAt ?? null,
+    viaHub: o.viaHub ?? null,
     actions: allowedActions(o),
   };
 }

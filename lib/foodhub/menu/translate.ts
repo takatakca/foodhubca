@@ -202,11 +202,11 @@ export function toUberMenu(menu: MasterMenu, ctx?: PublishContext, offRefs: Set<
   };
 }
 
-/** Uber holiday hours body: POST /v1/eats/stores/{id}/holiday-hours (closed day = empty open_time_periods). */
+/** Uber holiday hours body: POST /v1/eats/stores/{id}/holiday-hours (closed all day = one 00:00–00:00 period, per Uber). */
 export function toUberHolidayHours(holidays: Holiday[]) {
   return {
     holiday_hours: Object.fromEntries(holidays.map((h) => [h.date, {
-      open_time_periods: h.closed || !(h.slots?.length) ? [] : h.slots!.map((s) => ({ start_time: s.open, end_time: s.close })),
+      open_time_periods: h.closed || !(h.slots?.length) ? [{ start_time: '00:00', end_time: '00:00' }] : h.slots!.map((s) => ({ start_time: s.open, end_time: s.close })),
     }])),
   };
 }
@@ -214,6 +214,35 @@ export function toUberHolidayHours(holidays: Holiday[]) {
 // ---------------- DoorDash ----------------
 const DD_DAY: Record<DayKey, string> = { monday: 'MON', tuesday: 'TUE', wednesday: 'WED', thursday: 'THU', friday: 'FRI', saturday: 'SAT', sunday: 'SUN' };
 const sec = (t: string) => `${t}:00`;
+
+/**
+ * DoorDash open intervals from a normalized week. normalizeWeek splits an overnight slot at midnight (18:00–23:59 +
+ * next day 00:00–02:00), but DoorDash deducts 20 minutes from every end_time — split that way, a late-night store
+ * would stop taking orders at 23:39. DoorDash reads end_time < start_time as "into the next day", so the two halves
+ * are joined again (MON 18:00:00 → 02:00:00), and a slot that really ends at midnight is sent as 23:59:59.
+ */
+export function doorDashIntervals(week: WeeklyHours): Array<{ day: DayKey; start_time: string; end_time: string }> {
+  const joined = new Set<DayKey>(); // days whose 00:00 slot was joined to the previous day's late slot
+  const joinsNext = new Set<DayKey>();
+  DAYS.forEach((d, i) => {
+    const slots = week[d] ?? [];
+    const last = slots[slots.length - 1];
+    const next = DAYS[(i + 1) % 7];
+    const first = week[next]?.[0];
+    if (last && last.close === '23:59' && last.open !== '00:00' && first && first.open === '00:00' && first.close !== '23:59') { joinsNext.add(d); joined.add(next); }
+  });
+  const out: Array<{ day: DayKey; start_time: string; end_time: string }> = [];
+  DAYS.forEach((d, i) => {
+    const slots = week[d] ?? [];
+    slots.forEach((p, j) => {
+      if (j === 0 && joined.has(d)) return;
+      const isLast = j === slots.length - 1;
+      const end = isLast && joinsNext.has(d) ? sec(week[DAYS[(i + 1) % 7]][0].close) : p.close === '23:59' ? '23:59:59' : sec(p.close);
+      out.push({ day: d, start_time: sec(p.open), end_time: end });
+    });
+  });
+  return out;
+}
 
 export function toDoorDashMenu(menu: MasterMenu, merchantSuppliedId: string, providerType: string, reference: string, ctx?: PublishContext, offRefs: Set<string> = new Set()) {
   const items = liveItems(menu);
@@ -230,10 +259,10 @@ export function toDoorDashMenu(menu: MasterMenu, merchantSuppliedId: string, pro
     reference,
     store: { merchant_supplied_id: merchantSuppliedId, provider_type: providerType },
     // DoorDash: open_hours lists open intervals only — a closed day is simply omitted.
-    open_hours: DAYS.flatMap((d) => (store[d] ?? []).map((p) => ({ day_index: DD_DAY[d], start_time: sec(p.open), end_time: sec(p.close) }))),
-    // A closed special day carries no times ({ date, closed: true }).
+    open_hours: doorDashIntervals(store).map((p) => ({ day_index: DD_DAY[p.day], start_time: p.start_time, end_time: p.end_time })),
+    // A closed special day is a full-day closure: closed with 00:00:00–23:59:59 (DoorDash store hours reference).
     special_hours: (ctx?.holidays ?? []).flatMap((h) => (h.closed || !(h.slots?.length)
-      ? [{ date: h.date, closed: true }]
+      ? [{ date: h.date, closed: true, start_time: '00:00:00', end_time: '23:59:59' }]
       : h.slots!.map((s) => ({ date: h.date, closed: false, start_time: sec(s.open), end_time: sec(s.close) })))),
     menu: {
       name: menu.brandName,
@@ -257,7 +286,7 @@ export function toDoorDashMenu(menu: MasterMenu, merchantSuppliedId: string, pro
             sort_id: ii,
             ...((i.tags ?? []).includes('alcohol') ? { is_alcohol: true } : {}),
             ...(i.imageUrl ? { original_image_url: i.imageUrl } : {}),
-            ...(ch ? { item_special_hours: DAYS.flatMap((d) => (ch[d] ?? []).map((p) => ({ day_index: DD_DAY[d], start_time: sec(p.open), end_time: sec(p.close), start_date: today, end_date: inAYear }))) } : {}),
+            ...(ch ? { item_special_hours: doorDashIntervals(ch).map((p) => ({ day_index: DD_DAY[p.day], start_time: p.start_time, end_time: p.end_time, start_date: today, end_date: inAYear })) } : {}),
             extras: i.modifierGroupRefs.map((ref) => groups.get(ref)).filter(Boolean).map((g, gi) => ({
               name: label(g!.name, g!.nameFr, lang),
               merchant_supplied_id: g!.ref,

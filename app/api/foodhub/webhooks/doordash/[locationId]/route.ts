@@ -1,7 +1,9 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { doorDashAdapter } from '@/lib/foodhub/adapters/doordash';
+import { isRelayStore } from '@/lib/foodhub/adapters/relay';
 import { getHours, publishContext } from '@/lib/foodhub/hours';
 import { getMenuLanguages } from '@/lib/foodhub/menu/language';
+import { getBrandMenu } from '@/lib/foodhub/menu/shared';
 import { toDoorDashMenu } from '@/lib/foodhub/menu/translate';
 import { menuForLocation } from '@/lib/foodhub/ops';
 import { getRepo } from '@/lib/foodhub/repo';
@@ -20,8 +22,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ locationId:
   const { locationId } = await ctx.params;
   const repo = getRepo();
   const store = await repo.findStore('doordash', decodeURIComponent(locationId));
-  if (!store) return NextResponse.json({ error: `Unknown location_id ${locationId} — map it under Food Hub → Stores → Mapping.` }, { status: 404 });
-  const menu = await repo.getMenu(store.brandName);
+  // A relay store ("relay:<id>") is not a DoorDash API store: it never receives a menu.
+  if (!store || isRelayStore(store)) return NextResponse.json({ error: `Unknown location_id ${locationId} — map it under Food Hub → Stores → Mapping.` }, { status: 404 });
+  // The menu this brand uses: its own, or the one it shares with other brands (under this brand's name).
+  const menu = await getBrandMenu(store.brandName);
   if (!menu || !menu.items.length) return NextResponse.json({ error: `No menu saved for ${store.brandName} yet.` }, { status: 404 });
   const languages = await getMenuLanguages();
   const publish = { ...(await publishContext(store.brandName, store.locationCode, await getHours())), language: languages.doordash };

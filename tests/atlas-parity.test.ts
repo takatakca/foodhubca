@@ -58,13 +58,13 @@ describe('menu translators with hours, holidays and schedules', () => {
     expect(u.menus).toHaveLength(2);
     expect(u.menus[0].service_availability[0]).toEqual({ day_of_week: 'monday', time_periods: [{ start_time: '10:00', end_time: '22:00' }] });
     expect(u.menus[1].category_ids).toEqual(['c2']);
-    expect(toUberHolidayHours(ctx.holidays)).toEqual({ holiday_hours: { '2026-12-25': { open_time_periods: [] } } });
+    expect(toUberHolidayHours(ctx.holidays)).toEqual({ holiday_hours: { '2026-12-25': { open_time_periods: [{ start_time: '00:00', end_time: '00:00' }] } } });
     expect((u.items.find((i: any) => i.id === 'i1') as any).description.translations.en_ca).toContain('Spicy');
   });
   it('DoorDash: open_hours with seconds, closed days omitted, special_hours, item hours for scheduled categories', () => {
     const d = toDoorDashMenu(menu, 'msid', 'prov', 'ref', { ...ctx, hours: week('10:00', '22:00', ['monday']) });
     expect(d.open_hours).toEqual([{ day_index: 'MON', start_time: '10:00:00', end_time: '22:00:00' }]);
-    expect(d.special_hours).toEqual([{ date: '2026-12-25', closed: true }]);
+    expect(d.special_hours).toEqual([{ date: '2026-12-25', closed: true, start_time: '00:00:00', end_time: '23:59:59' }]);
     const breakfast = d.menu.categories.find((c: any) => c.merchant_supplied_id === 'c2')!.items[0] as any;
     expect(breakfast.item_special_hours[0]).toMatchObject({ day_index: 'MON', start_time: '10:00:00', end_time: '11:00:00', start_date: '2026-10-01' });
   });

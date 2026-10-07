@@ -69,7 +69,13 @@ export async function callApi(channel: ChannelKey, url: string, init: RequestIni
     let body: unknown = text;
     try { body = text ? JSON.parse(text) : null; } catch { /* keep text */ }
     if (!res.ok) {
-      return result(channel, 'error', `${init.method || 'GET'} ${new URL(url).pathname} returned HTTP ${res.status}`, { httpStatus: res.status, response: body });
+      // Say WHY the platform refused (field errors, message) — "HTTP 400" alone tells the owner nothing.
+      const b = body as Record<string, any> | string | null;
+      const why = typeof b === 'object' && b
+        ? String(b.message ?? b.error_description ?? b.error?.message ?? b.error ?? b.field_errors?.[0]?.error ?? b.errors?.[0]?.message ?? JSON.stringify(b))
+        : String(b ?? '');
+      const reason = why.replace(/\s+/g, ' ').trim().slice(0, 300);
+      return result(channel, 'error', `${init.method || 'GET'} ${new URL(url).pathname} returned HTTP ${res.status}${reason ? `: ${reason}` : ''}`, { httpStatus: res.status, response: body });
     }
     const reference = typeof body === 'object' && body && ('reference_id' in body || 'reference' in body)
       ? String((body as Record<string, unknown>).reference_id ?? (body as Record<string, unknown>).reference)

@@ -11,7 +11,9 @@ export const ORDER_DEADLINE_MIN: Partial<Record<ChannelKey, number>> = { uber_ea
  * The platform's clock starts when the order was placed. placedAt is used when it is plausible (up to 30 minutes
  * before Food Hub received the order), so a slow webhook never makes the countdown look longer than it is.
  */
-export function deadlineFor(o: Pick<StoredOrder, 'channel' | 'createdAt'> & { placedAt?: string | null }): string | null {
+export function deadlineFor(o: Pick<StoredOrder, 'channel' | 'createdAt'> & { placedAt?: string | null; viaHub?: StoredOrder['viaHub'] }): string | null {
+  // Orders that came through the relay follow the partner's timing, not the platform's own answer deadline.
+  if (o.viaHub) return null;
   const min = ORDER_DEADLINE_MIN[o.channel];
   if (!min) return null;
   const created = new Date(o.createdAt).getTime();

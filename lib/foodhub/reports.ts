@@ -7,6 +7,7 @@ import { getCatalog } from './catalog';
 import { CHANNEL_LABELS, CHANNEL_MARKETPLACE } from './config';
 import { priceFor } from './menu/translate';
 import { offRefsAt } from './ops';
+import { getBrandMenu, getMenuSharing } from './menu/shared';
 import { getRepo } from './repo';
 import { foodhubTimeZone, localParts, startOfLocalDayMs } from './time';
 import type { ChannelKey, OrderStatus, StoredOrder } from './types';
@@ -85,10 +86,14 @@ export async function buildReport(key: ReportKey, f: ReportFilter): Promise<Repo
 
   if (key === 'menu_snapshot') {
     const repo = getRepo();
-    const [menus, stores] = await Promise.all([repo.listMenus(), repo.listStores()]);
+    const [sharing, stores] = await Promise.all([getMenuSharing(), repo.listStores()]);
     const rows: ReportTable['rows'] = [];
-    for (const menu of menus) {
-      if (f.brands?.length && !f.brands.includes(menu.brandName)) continue;
+    // Per brand that has stores: the menu it really uses (its own, or the one it shares, with that menu's 86 state).
+    const brands = [...new Set(stores.map((s) => s.brandName))].sort((a, b) => a.localeCompare(b, 'fr'));
+    for (const brand of brands) {
+      if (f.brands?.length && !f.brands.includes(brand)) continue;
+      const menu = await getBrandMenu(brand, sharing);
+      if (!menu) continue;
       const cats = new Map(menu.categories.map((c) => [c.ref, c.name]));
       for (const s of stores.filter((x) => x.brandName === menu.brandName && (!f.locationCodes?.length || f.locationCodes.includes(x.locationCode)) && (!f.channels?.length || f.channels.includes(x.channel)))) {
         const off = offRefsAt(menu, s.locationCode);

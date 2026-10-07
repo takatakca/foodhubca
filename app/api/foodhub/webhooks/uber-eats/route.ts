@@ -5,6 +5,7 @@ import { logActivity } from '@/lib/foodhub/activity';
 import { nowIso } from '@/lib/foodhub/config';
 import { applyCourierUpdate, readPending } from '@/lib/foodhub/courier';
 import { handleUberReportWebhook } from '@/lib/foodhub/recon/automation';
+import { publishMenu } from '@/lib/foodhub/ops';
 import { getRepo } from '@/lib/foodhub/repo';
 import type { PlatformStatus } from '@/lib/foodhub/types';
 import { background, keepUnparsed, parseJson, uberDeliveryStatus, unauthorized } from '@/lib/foodhub/webhook-utils';
@@ -25,7 +26,7 @@ export async function POST(req: NextRequest) {
   const event = String(body.event_type || '');
   const orderId = String(body.meta?.resource_id || '');
 
-  const ctx = (kind: 'order' | 'settings' | 'store_status', reference: string | null = orderId || null) => ({ channel: 'uber_eats' as const, body, reference, kind });
+  const ctx = (kind: 'order' | 'settings' | 'store_status' | 'menu_publish', reference: string | null = orderId || null) => ({ channel: 'uber_eats' as const, body, reference, kind });
 
   if (event === 'orders.notification' || event === 'orders.scheduled.notification') {
     background(`uber order ${orderId}`, async () => {
@@ -76,7 +77,14 @@ export async function POST(req: NextRequest) {
           channel: 'uber_eats', brandName: store.brandName, locationCode: store.locationCode, storeId: store.id, summary: `${store.brandName} · ${store.locationCode} on Uber Eats is now ${online ? 'online' : 'paused'}` });
       }
     }, ctx('store_status'));
-  } else if (/^orders\.release$|^orders\.fulfillment_issues|menu_refresh_request/.test(event)) {
+  } else if (event === 'store.menu_refresh_request') {
+    // Uber asks for the menu again (store re-activated, menu reset…): Food Hub is the menu's source, so publish it now.
+    background('uber menu refresh', async () => {
+      const store = await getRepo().findStore('uber_eats', String(body.store_id || body.meta?.resource_id || ''));
+      if (!store) return keepUnparsed('uber_eats', body, 'Uber menu refresh request for a store that is not mapped', String(body.store_id || '') || null);
+      await publishMenu(store.brandName, { storeIds: [store.id], channels: ['uber_eats'], actor: { username: 'uber', name: 'Uber Eats (menu refresh)', source: 'platform' } });
+    }, ctx('menu_publish'));
+  } else if (/^orders\.release$|^orders\.fulfillment_issues/.test(event)) {
     // Routine Uber events with nothing to do here (release of a scheduled order, menu refresh request): noted, not an alert.
     background(`uber ${event}`, () => logActivity({ actor: 'Uber Eats', source: 'platform', kind: 'order', action: 'uber_event', status: 'info', channel: 'uber_eats', orderId: null, summary: `Uber Eats event ${event} noted${orderId ? ` for order ${orderId}` : ''} — no action needed` }));
   } else {

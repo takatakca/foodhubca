@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { callApi, fromCents, result, safeEqual, stripSlash, timedFetch } from '../config';
 import { uberCourierDetails } from '../courier';
 import { toUberHolidayHours, toUberMenu } from '../menu/translate';
+import { getRepo } from '../repo';
 import type { CancelReason, PlatformState, ChannelAdapter, ChannelStore, NormalizedOrder, OrderLine, StoredOrder } from '../types';
 import { blockedResult, buildReadiness } from './common';
 
@@ -21,16 +22,19 @@ async function fetchClientToken(kind: 'orders' | 'report'): Promise<string> {
   if (slot.cached && slot.cached.expiresAt > Date.now() + 60_000) return slot.cached.value;
   if (slot.inflight) return slot.inflight;
   slot.inflight = (async () => {
-    const res = await timedFetch(process.env.UBER_AUTH_URL || 'https://auth.uber.com/oauth/v2/token', {
+    const request = (scope: string) => timedFetch(process.env.UBER_AUTH_URL || 'https://auth.uber.com/oauth/v2/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: process.env.UBER_CLIENT_ID || '',
-        client_secret: process.env.UBER_CLIENT_SECRET || '',
-        grant_type: 'client_credentials',
-        scope: kind === 'report' ? process.env.UBER_REPORT_SCOPE || 'eats.report' : process.env.UBER_OAUTH_SCOPE || 'eats.order eats.store eats.store.status.write',
-      }).toString(),
+      body: new URLSearchParams({ client_id: process.env.UBER_CLIENT_ID || '', client_secret: process.env.UBER_CLIENT_SECRET || '', grant_type: 'client_credentials', scope }).toString(),
     });
+    const wanted = kind === 'report' ? process.env.UBER_REPORT_SCOPE || 'eats.report' : process.env.UBER_OAUTH_SCOPE || 'eats.order eats.store eats.store.status.write';
+    let res = await request(wanted);
+    // eats.store.status.write is approved separately by Uber: without it the combined request is refused (invalid_scope)
+    // and NOTHING would work. Fall back to orders + menus so orders keep flowing (pause/resume then fails on its own).
+    if (!res.ok && kind === 'orders' && !process.env.UBER_OAUTH_SCOPE && res.status === 400) {
+      const body = await res.clone().text().catch(() => '');
+      if (/invalid_scope|scope/i.test(body)) res = await request('eats.order eats.store');
+    }
     if (!res.ok) {
       // Uber answers { error, error_description } (invalid_scope, invalid_client…): that is what the owner needs to see.
       const detail = await res.json().then((j: any) => [j?.error, j?.error_description].filter(Boolean).join(' — ')).catch(() => '');
@@ -164,16 +168,22 @@ export const uberEatsAdapter: ChannelAdapter = {
     const keys = [process.env.UBER_WEBHOOK_SIGNING_KEY, process.env.UBER_WEBHOOK_SIGNING_KEY_2, process.env.UBER_CLIENT_SECRET].filter((k): k is string => Boolean(k));
     return keys.some((key) => safeEqual(crypto.createHmac('sha256', key).update(rawBody, 'utf8').digest('hex'), sig.toLowerCase()));
   },
-  acceptOrder: (order, posRef) => send('POST', `/v1/eats/orders/${encodeURIComponent(order.externalOrderId)}/accept_pos_order`, {
-    reason: 'Accepted by TAKATAK Food Hub',
-    ...(posRef ? { external_reference_id: posRef } : {}),
-  }),
+  acceptOrder: (order, posRef) => {
+    // pickup_time (Unix seconds) = when the food will be ready, from the location's normal/busy prep time or the cook's
+    // estimate — Uber dispatches the courier on it instead of its own default.
+    const ready = Date.parse(order.timeline?.readyTarget ?? '');
+    return send('POST', `/v1/eats/orders/${encodeURIComponent(order.externalOrderId)}/accept_pos_order`, {
+      reason: 'Accepted by TAKATAK Food Hub',
+      ...(posRef ? { external_reference_id: posRef } : {}),
+      ...(Number.isFinite(ready) && ready > Date.now() ? { pickup_time: Math.floor(ready / 1000) } : {}),
+    });
+  },
   denyOrder: (order, reason) => send('POST', `/v1/eats/orders/${encodeURIComponent(order.externalOrderId)}/deny_pos_order`, {
     reason: { explanation: reason || 'Rejected by restaurant', code: DENY_CODES.find(([re]) => re.test(reason))?.[1] ?? 'OTHER' },
   }),
   async markReady() {
     // Uber's order integration guide: there is no endpoint to mark an order ready after acceptance.
-    return result(KEY, 'skipped', 'Uber Eats has no "order ready" API; courier dispatch uses the prep time given at acceptance.');
+    return result(KEY, 'skipped', 'Uber Eats has no "order ready" API; courier dispatch uses the pickup time sent at acceptance.');
   },
   // POST /v1/eats/orders/{id}/cancel — reasons: OUT_OF_ITEMS, KITCHEN_CLOSED, CUSTOMER_CALLED_TO_CANCEL, RESTAURANT_TOO_BUSY, CANNOT_COMPLETE_CUSTOMER_NOTE, OTHER
   cancelOrder: (order, reason, details) => send('POST', `/v1/eats/orders/${encodeURIComponent(order.externalOrderId)}/cancel`, {
@@ -182,28 +192,38 @@ export const uberEatsAdapter: ChannelAdapter = {
   }),
   async publishMenu(store: ChannelStore, menu, ctx) {
     const res = await send('PUT', `/v2/eats/stores/${encodeURIComponent(store.channelStoreId)}/menus`, toUberMenu(menu, ctx));
-    if (!res.ok || !ctx?.holidays.length) return res;
-    // Holiday closures / special hours: POST /v1/eats/stores/{id}/holiday-hours
-    const h = await send('POST', `/v1/eats/stores/${encodeURIComponent(store.channelStoreId)}/holiday-hours`, toUberHolidayHours(ctx.holidays));
-    return h.ok ? { ...res, message: `Menu updated + ${ctx.holidays.length} holiday date(s) sent` } : { ...h, message: `Menu updated, but holiday hours failed: ${h.message}` };
+    const holidays = ctx?.holidays ?? [];
+    const sentBefore = Array.isArray(store.meta?.uberHolidayDates) ? (store.meta.uberHolidayDates as string[]) : [];
+    // POST holiday-hours REPLACES all of Uber's holiday dates: send them whenever there are some, and also when every
+    // date was removed since the last publish (an empty map), so a deleted closure does not stay on Uber.
+    if (!res.ok || (!holidays.length && !sentBefore.length)) return res;
+    const h = await send('POST', `/v1/eats/stores/${encodeURIComponent(store.channelStoreId)}/holiday-hours`, toUberHolidayHours(holidays));
+    if (h.ok) await getRepo().updateStore(store.id, { meta: { ...store.meta, uberHolidayDates: holidays.map((x) => x.date) } }).catch(() => undefined);
+    return h.ok ? { ...res, message: holidays.length ? `Menu updated + ${holidays.length} holiday date(s) sent` : 'Menu updated + old holiday dates cleared' } : { ...h, message: `Menu updated, but holiday hours failed: ${h.message}` };
   },
   async setItemAvailability(store, refs, available, untilMs, kind = 'item') {
     const r = readiness();
     if (!r.canSend) return blockedResult(KEY, r);
     const suspendUntil = available ? 0 : Math.floor((untilMs ?? 8640000000 * 1000) / 1000);
+    if (!refs.length) return result(KEY, 'skipped', 'No items to update.');
+    // Modifiers are menu items too on Uber (id "mod:<ref>" in our menus). One refused item (e.g. not on Uber's menu yet)
+    // must not leave the others on sale: every item is sent, failures are reported together.
+    const failed: Array<{ ref: string; res: ReturnType<typeof result> }> = [];
     let last = result(KEY, 'skipped', 'No items to update.');
-    // Modifiers are menu items too on Uber (id "mod:<ref>" in our menus).
     for (const ref of refs.map((x) => (kind === 'modifier' ? `mod:${x}` : x))) {
       last = await send('POST', `/v2/eats/stores/${encodeURIComponent(store.channelStoreId)}/menus/items/${encodeURIComponent(ref)}`, {
         suspension_info: { suspension: { suspend_until: suspendUntil, reason: available ? '' : 'Sold out' } },
       });
-      if (!last.ok) return last;
+      if (!last.ok) failed.push({ ref, res: last });
     }
-    return last;
+    if (!failed.length) return last;
+    if (failed.length === refs.length) return failed[0].res;
+    return result(KEY, 'error', `${failed.length}/${refs.length} item(s) refused by Uber Eats (${failed.map((f) => f.ref).join(', ')}): ${failed[0].res.message}`, { httpStatus: failed[0].res.httpStatus });
   },
-  setStoreOnline: (store, online, untilMs, reason) => send('POST', `/v1/eats/stores/${encodeURIComponent(store.channelStoreId)}/status`, online
+  // Set Restaurant Status: POST /v1/eats/store/{store_id}/status (singular "store" — unlike menus, holiday hours, pos_data).
+  setStoreOnline: (store, online, untilMs, reason) => send('POST', `/v1/eats/store/${encodeURIComponent(store.channelStoreId)}/status`, online
     ? { status: 'ONLINE' }
-    : { status: 'PAUSED', reason: reason || 'Paused from TAKATAK Food Hub', ...(untilMs ? { paused_until: new Date(untilMs).toISOString() } : {}) }),
+    : { status: 'PAUSED', reason: reason || 'Paused from TAKATAK Food Hub', ...(untilMs ? { paused_until: new Date(untilMs).toISOString().replace(/\.\d{3}Z$/, 'Z') } : {}) }),
 };
 
 /** GET order details from the resource_href in the orders.notification webhook. */
@@ -216,7 +236,7 @@ export async function fetchUberOrder(resourceHrefOrId: string): Promise<any> {
   return res.json();
 }
 
-/** Normalizes GET /v1/eats/stores/{store_id}/status → { status: ONLINE|OFFLINE|PAUSED, offlineReason }. */
+/** Normalizes GET /v1/eats/store/{store_id}/status → { status: ONLINE|OFFLINE|PAUSED, offlineReason }. */
 export function normalizeUberStatus(body: any): { state: PlatformState; detail?: string; until?: string | null } {
   const status = String(body?.status ?? '').toUpperCase();
   const reason = String(body?.offlineReason ?? body?.offline_reason ?? '').toUpperCase();
@@ -229,11 +249,11 @@ export function normalizeUberStatus(body: any): { state: PlatformState; detail?:
   return { state: 'unknown', detail: status || 'No status in Uber response' };
 }
 
-/** Read-only status check (GET /v1/eats/stores/{store_id}/status). Runs whenever credentials exist — see LOCKED_DECISIONS (it changes nothing on Uber). */
+/** Read-only status check (GET /v1/eats/store/{store_id}/status). Runs whenever credentials exist — see LOCKED_DECISIONS (it changes nothing on Uber). */
 export async function fetchUberStoreStatus(storeId: string): Promise<{ ok: boolean; state: PlatformState; detail?: string; until?: string | null; error?: string }> {
   if (!readiness().configured) return { ok: false, state: 'unknown', error: 'Uber Eats credentials missing' };
   try {
-    const res = await uberFetch(`${base()}/v1/eats/stores/${encodeURIComponent(storeId)}/status`);
+    const res = await uberFetch(`${base()}/v1/eats/store/${encodeURIComponent(storeId)}/status`);
     // Any HTTP error (incl. 404) is 'unknown': the last good state is kept. Deactivation only comes from an explicit offlineReason.
     if (!res.ok) return { ok: false, state: 'unknown', error: `Uber status HTTP ${res.status}` };
     return { ok: true, ...normalizeUberStatus(await res.json()) };

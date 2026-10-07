@@ -242,7 +242,7 @@ export async function buildCommandCenter(opts: { now?: number; locationCodes?: s
       id: `new:${o.id}`,
       severity: left !== null && left < 180 ? 'critical' : 'warning',
       title: left !== null && left <= 0 ? `${CHANNEL_LABELS[o.channel]} #${shortId(o)} passed its answer deadline` : `${CHANNEL_LABELS[o.channel]} #${shortId(o)} is waiting to be accepted`,
-      detail: `${o.brandName ?? 'Unmapped store'} · ${locName(o.locationCode)}${o.channel === 'skip' ? ' · Skip sends it to the tablet after 5 min' : ''}`,
+      detail: `${o.brandName ?? 'Unmapped store'} · ${locName(o.locationCode)}${o.channel === 'skip' && !o.viaHub ? ' · Skip sends it to the tablet after 5 min' : ''}`,
       at: o.createdAt, orderId: o.id,
     });
   }

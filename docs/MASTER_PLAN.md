@@ -118,6 +118,7 @@ Phase 3 adds a **Connections strip on the Overview** so you see all of this at a
 | AI | Yes | `ANTHROPIC_API_KEY` (optional `ANTHROPIC_MODEL`) | Settings → Alerts & watchtower |
 | Security | Yes | `DASHBOARD_PASSWORD`, `SESSION_SECRET`, `FOODHUB_TRUST_PROXY=true` behind Caddy/Traefik | Go-live |
 | Background jobs | Yes | VPS: the cron jobs from `install-vps.sh`. Coolify: `FOODHUB_INTERNAL_SYNC_MIN=5` | Go-live; the stale-sync alert |
+| Uptime monitor | Yes (`/api/health`) | A free UptimeRobot or Better Stack monitor on `https://<domain>/api/health`, alerting the owner by SMS and email | `docs/BACK_ONLINE_TODAY.md`, Part B step 10 |
 
 ---
 
@@ -148,7 +149,7 @@ Each phase ends with **acceptance checks**. A phase is done only when all of the
 ### Phase 1: Never lose an order or miss an alarm (1–2 weeks)
 
 1. **Save the raw webhook body before answering 200** (`lib/foodhub/webhook-utils.ts`), then process it. Add a **Replay** button for unparsed or failed payloads in Settings → Platforms.
-2. Add **`/api/health`** (database, last sync, last order per platform, and whether the watchtower timer is alive). Add an outside uptime monitor that texts the owner.
+2. **Done: `/api/health`.** `GET /api/health` is public (exact path) and shows no keys, names, orders or counts: version, database mode, seconds since the last sync and the last Watchtower run, and the live switch. It answers `503` when the database does not answer, the app runs in memory mode in production, the scheduled sync stopped for 20+ minutes, or the console is locked. The last order per platform stays out of this public page (commercial data); the silence alarm (item 4) watches it inside the console. **Left for the owner:** add the outside uptime monitor that texts the owner (`docs/BACK_ONLINE_TODAY.md`, Part B step 10).
 3. Send texts by default for `menu_failed` and `sync_stale` (`lib/foodhub/watch/types.ts`).
 4. Add a **silence alarm**: no orders from one platform for N hours while its stores are open (`lastOrderAt` already exists in `command.ts`).
 5. **Unmapped store:** hold auto-accept when there are several kitchens, raise an escalating alarm, and suggest the mapping (relay orders carry the brand name).

@@ -170,6 +170,15 @@ Store statuses sync every 2 minutes while any screen is open. For sync even when
 - Or use any free pinger (e.g. cron-job.org): `GET https://YOUR-DOMAIN/api/foodhub/cron/sync`
   with header `Authorization: Bearer <CRON_SECRET>` every 5 minutes.
 
+### 6. Uptime monitor
+The Watchtower runs inside the server, so it cannot report the server's own death. Point a free outside monitor
+(UptimeRobot, Better Stack) at `GET https://YOUR-DOMAIN/api/health` every 1–5 minutes, alerting the owner by SMS and
+email. It needs no sign-in and shows no keys, names, orders or counts. `200` = healthy; `503` = the database does not
+answer, memory mode in production, the scheduled sync stopped for 20+ minutes, or the console is locked (the reason is
+in `problems`). The sync age is checked wherever a background sync is expected (`FOODHUB_INTERNAL_SYNC_MIN`, or any
+production server except Vercel); `FOODHUB_HEALTH_SYNC_MAX_MIN` overrides it (`0` = never check). Steps:
+`docs/BACK_ONLINE_TODAY.md`, Part B step 10.
+
 ## Payouts & money — where is my money
 
 1. **Statements** — import each payout statement (CSV or Excel). Uber Eats *Payment details* and

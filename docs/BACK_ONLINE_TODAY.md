@@ -51,6 +51,20 @@ Check that each store is **open/online** on each platform (not paused or deactiv
 9. **Check:**
    - Settings → Go-live: every required step green.
    - Settings → Platforms & Clover: Clover connected.
+10. **Uptime monitor (10 minutes, free).** The Watchtower lives inside the same server, so it cannot report its own death: if the server, Coolify or the database goes down, nobody is texted. Something outside must watch it.
+    - Create a free account at **UptimeRobot** or **Better Stack** and add an HTTP(S) monitor on `https://<domain>/api/health`, checked every 1–5 minutes (whatever the free plan allows).
+    - Alerts: SMS (or the monitor's phone app) and email to the owner. Add a second person if you can.
+    - Test it: `curl -i https://<domain>/api/health` answers `200` and `{"ok":true,…}`. No sign-in is needed: the page shows no keys, names, orders or totals, only up/down, the version and how many seconds ago the sync and the Watchtower last ran.
+    - The monitor sees **down** when the server does not answer, or answers `503` with a reason in `problems`:
+
+      | `problems` | Meaning | Fix |
+      |---|---|---|
+      | `database_unreachable` | Supabase did not answer in 4 s | Supabase status page; the keys of step 3 |
+      | `memory_mode_in_production` | No database: "Demo mode", everything is lost at the next restart | Step 3's Supabase keys |
+      | `sync_stale` | The background sync has not run for 20+ minutes (timed re-opens and scheduled orders wait) | Coolify: `FOODHUB_INTERNAL_SYNC_MIN=5`, then Restart. VPS: the cron jobs from `install-vps.sh` |
+      | `console_locked` | Every screen shows "Locked" | Set `DASHBOARD_PASSWORD` (required when live is on) and `SESSION_SECRET` |
+
+    - On Vercel (no background timer), set `FOODHUB_HEALTH_SYNC_MAX_MIN=20` once a pinger calls `/api/foodhub/cron/sync` every 5 minutes; otherwise the sync age is shown but not checked there.
 
 ## Part C: Direct platform connections, as each approval arrives
 

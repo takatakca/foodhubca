@@ -8,6 +8,7 @@ import { ButtonLink } from '@/components/ui/button';
 import { Card, CardHeader, Skeleton } from '@/components/ui/card';
 import { CompareLine, HBars, LineLegend, VIZ } from '@/components/charts/charts';
 import { usePulse, useRefreshOn } from '@/components/live/pulse';
+import { ExpansionTiles } from '@/components/expansion/overview-tiles';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import type { CommandCenter } from '@/lib/foodhub/command';
 import { api, money } from '@/lib/ui/api';
@@ -61,6 +62,9 @@ export function Overview() {
         <Kpi icon={<Store className="size-4" />} label={t('Magasins en ligne', 'Stores online')} value={pulse ? `${pulse.stores.online}/${pulse.stores.total}` : '—'} note={pulse && (pulse.stores.paused || pulse.stores.deactivated) ? <span className="font-bold text-wait-2">{pulse.stores.paused} {t('pause', 'paused')} · {pulse.stores.deactivated} {t('désactivé', 'deactivated')}</span> : t('tout est ouvert', 'all open')} href="/stores" />
         <Kpi icon={<BellRing className="size-4" />} label={t('Alertes', 'Alerts')} value={pulse ? String(pulse.incidents.open) : '—'} note={pulse?.incidents.critical ? <span className="font-bold text-stop">{pulse.incidents.critical} {t('critique(s)', 'critical')}</span> : t('aucune critique', 'none critical')} href="/alerts" tone={pulse?.incidents.critical ? 'stop' : undefined} />
       </div>
+
+      {/* Expansion: own delivery, AI phone, grocery, alcohol — only the features that are on. */}
+      <ExpansionTiles />
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.4fr_1fr]">
         {/* attention */}

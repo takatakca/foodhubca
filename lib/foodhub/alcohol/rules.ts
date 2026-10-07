@@ -121,7 +121,7 @@ export async function saveLocationAlcohol(locationCode: string, patch: Partial<L
   const prev = cur.locations[locationCode] ?? { ...DEFAULT_LOCATION_ALCOHOL };
   const next = cleanLocationAlcohol({ ...prev, ...patch, channels: { ...prev.channels, ...(patch.channels ?? {}) } });
   // Changing the permit itself invalidates the previous check.
-  if (patch.permitNumber !== undefined && patch.permitNumber !== prev.permitNumber) { next.verifiedBy = undefined; next.verifiedAt = undefined; }
+  if (patch.permitNumber !== undefined && (patch.permitNumber.trim() || undefined) !== prev.permitNumber) { next.verifiedBy = undefined; next.verifiedAt = undefined; }
   if (patch.permitType !== undefined && patch.permitType !== prev.permitType) { next.verifiedBy = undefined; next.verifiedAt = undefined; }
   if (patch.verify) { next.verifiedBy = actor.name; next.verifiedAt = new Date().toISOString(); }
   let warning: string | undefined;

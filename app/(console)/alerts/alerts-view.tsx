@@ -145,6 +145,8 @@ function IncidentCard({ i, focus, onChanged }: { i: Incident; focus: boolean; on
                       {i.storeId && <ButtonLink href="/stores" variant="primary" size="sm">{t('Voir le magasin', 'See the store')}</ButtonLink>}
                       {i.deviceId && <ButtonLink href="/settings/devices" variant="primary" size="sm">{t('Voir la tablette', 'See the tablet')}</ButtonLink>}
                       {i.kind === 'payout_gap' && <ButtonLink href="/money/disputes" variant="primary" size="sm">{t('Voir les litiges', 'See disputes')}</ButtonLink>}
+                      {i.kind === 'store_unmapped' && <ButtonLink href="/stores/mapping" variant="primary" size="sm">{t('Relier le magasin', 'Link the store')}</ButtonLink>}
+                      {i.kind === 'platform_silent' && <ButtonLink href="/settings/channels" variant="primary" size="sm">{t('Voir les canaux', 'See channels')}</ButtonLink>}
                       {i.status !== 'acknowledged' && <Hint id="incident.ack"><Button size="sm" variant="outline" loading={busy === 'ack'} onClick={() => act('ack')} icon={<Hand className="size-4" />}>{t('Je m’en occupe', 'I’m on it')}</Button></Hint>}
                       <Button size="sm" variant="go" loading={busy === 'resolve'} onClick={() => act('resolve')} icon={<Check className="size-4" />}>{t('Réglé', 'Fixed')}</Button>
                       <Hint id="incident.snooze"><Button size="sm" variant="ghost" loading={busy === 'snooze'} onClick={() => act('snooze', { minutes: 30 })} icon={<BellOff className="size-4" />}>{t('Sourdine 30 min', 'Snooze 30 min')}</Button></Hint>

@@ -58,6 +58,12 @@ export const PLAYBOOK: Record<IncidentKind, { fr: string; en: string; doFr: stri
     doFr: ['Appuyer sur « Renvoyer à Clover »', 'Si Clover est en panne : préparer depuis l’écran TAKATAK'],
     doEn: ['Tap “Send to Clover” again', 'If Clover is down: cook from the TAKATAK screen'],
   },
+  store_unmapped: {
+    fr: 'Une commande vient d’un magasin de plateforme que personne n’a relié à une marque et une succursale. TAKATAK ne l’accepte pas tout seul (mauvaise marque ou mauvaise cuisine possibles) et elle n’est peut-être pas dans la bonne caisse Clover. Sans réponse avant l’échéance, la plateforme l’annule.',
+    en: 'An order came from a platform store nobody linked to a brand and a location. TAKATAK does not accept it by itself (wrong brand or wrong kitchen are possible) and it may not be in the right Clover register. Without an answer before the deadline, the platform cancels it.',
+    doFr: ['Relier ce magasin dans Magasins → Branchement des magasins', 'Puis ouvrir la commande : Envoyer à Clover, puis Accepter ou Refuser'],
+    doEn: ['Link this store in Stores → Store connections', 'Then open the order: Send to Clover, then Accept or Reject'],
+  },
   store_offline: {
     fr: 'La plateforme a mis le magasin en pause pendant les heures d’ouverture — aucune commande n’entre.',
     en: 'The platform paused the store during opening hours — no orders are coming in.',
@@ -69,6 +75,12 @@ export const PLAYBOOK: Record<IncidentKind, { fr: string; en: string; doFr: stri
     en: 'The platform deactivated this store. Usually: too many rejected/cancelled orders, tablet offline, or an account issue.',
     doFr: ['Appeler le soutien marchand de la plateforme', 'Vérifier les courriels de la plateforme'],
     doEn: ['Call the platform merchant support', 'Check the platform’s emails'],
+  },
+  platform_silent: {
+    fr: 'Aucune commande de cette plateforme depuis longtemps alors que ses magasins sont ouverts. Souvent : le lien (webhook) entre la plateforme et TAKATAK est brisé, le magasin est en pause sur la tablette de la plateforme, ou le menu n’est plus visible dans l’application.',
+    en: 'No order from this platform for a long time while its stores are open. Usually: the link (webhook) between the platform and TAKATAK is broken, the store is paused on the platform’s tablet, or the menu is no longer visible in the app.',
+    doFr: ['Regarder dans le portail de la plateforme si des commandes sont arrivées', 'Si oui : vérifier Réglages → Canaux (messages reçus, lien webhook)', 'Sinon : vérifier que le magasin est ouvert et le menu visible dans l’application'],
+    doEn: ['Check the platform’s portal for orders that came in', 'If there are some: check Settings → Channels (messages received, webhook link)', 'If not: check the store is open and the menu visible in the app'],
   },
   device_offline: {
     fr: 'La tablette de cuisine ne répond plus (éteinte, batterie vide ou pas de Wi-Fi). Les nouvelles commandes ne sonnent pas en cuisine.',

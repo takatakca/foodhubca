@@ -24,20 +24,21 @@ import { cn } from '@/lib/ui/cn';
 
 type RuleSetting = { enabled: boolean; escalate: boolean };
 type Watch = {
-  enabled: boolean; smsAfterMin: number; callAfterMin: number; ownerAfterMin: number; unacceptedAfterSec: number; unseenAfterSec: number; lateAfterMin: number; courierWaitMin: number;
+  enabled: boolean; smsAfterMin: number; callAfterMin: number; ownerAfterMin: number; unacceptedAfterSec: number; unseenAfterSec: number; lateAfterMin: number; courierWaitMin: number; silenceAfterMin: number;
   quietFrom: string; quietTo: string; postToChat: boolean; aiExplain: boolean; autoTextLateCustomers: boolean; supportPhones: string[]; rules: Record<string, RuleSetting>; updatedAt?: string; updatedBy?: string;
 };
 /** The document this screen edits (it saves by itself): the rules, without who changed them and when. */
 type Rules = Omit<Watch, 'updatedAt' | 'updatedBy'>;
 type Channels = { email: boolean; sms: boolean; call: boolean; chat: boolean; ai: boolean };
 type Kind = { kind: string; fr: string; en: string };
-type NumKey = 'smsAfterMin' | 'callAfterMin' | 'ownerAfterMin' | 'unacceptedAfterSec' | 'unseenAfterSec' | 'lateAfterMin' | 'courierWaitMin';
+type NumKey = 'smsAfterMin' | 'callAfterMin' | 'ownerAfterMin' | 'unacceptedAfterSec' | 'unseenAfterSec' | 'lateAfterMin' | 'courierWaitMin' | 'silenceAfterMin';
 type Range = [min: number, max: number, unit: string];
 
 /** What each number may be (the limits this screen always had): inside them the server keeps the value exactly as typed. */
 const RANGE: Record<NumKey, Range> = {
   smsAfterMin: [1, 120, 'min'], callAfterMin: [1, 120, 'min'], ownerAfterMin: [1, 120, 'min'],
   unacceptedAfterSec: [20, 600, 's'], unseenAfterSec: [30, 900, 's'], lateAfterMin: [1, 60, 'min'], courierWaitMin: [1, 30, 'min'],
+  silenceAfterMin: [30, 720, 'min'],
 };
 const MAX_PHONES = 5;
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -69,7 +70,7 @@ export default function AlertSettingsPage() {
   const [phoneErr, setPhoneErr] = useState('');
 
   const validate = useCallback((r: Rules) => {
-    const names: Record<NumKey, [string, string]> = { smsAfterMin: ['Texto', 'Text'], callAfterMin: ['Appel', 'Call'], ownerAfterMin: ['Propriétaire', 'Owner'], unacceptedAfterSec: ['Non acceptée', 'Not accepted'], unseenAfterSec: ['Pas vue', 'Not seen'], lateAfterMin: ['En retard', 'Late'], courierWaitMin: ['Livreur', 'Courier'] };
+    const names: Record<NumKey, [string, string]> = { smsAfterMin: ['Texto', 'Text'], callAfterMin: ['Appel', 'Call'], ownerAfterMin: ['Propriétaire', 'Owner'], unacceptedAfterSec: ['Non acceptée', 'Not accepted'], unseenAfterSec: ['Pas vue', 'Not seen'], lateAfterMin: ['En retard', 'Late'], courierWaitMin: ['Livreur', 'Courier'], silenceAfterMin: ['Plateforme silencieuse', 'Platform quiet'] };
     const out: string[] = [];
     for (const k of Object.keys(RANGE) as NumKey[]) {
       const [min, max, unit] = RANGE[k];
@@ -148,7 +149,7 @@ export default function AlertSettingsPage() {
 
   return (
     <div className="pb-20">
-      <SettingsHead title={t('Alertes et surveillance', 'Alerts & watchtower')} intro={t('La surveillance tourne en arrière-plan toutes les 20 secondes : commandes qui attendent, tablettes éteintes, magasins hors ligne, Clover qui n’a rien reçu, retards, annulations, argent manquant. Elle sonne à l’écran, puis texte, puis appelle — jusqu’à ce que quelqu’un réponde.', 'The watchtower runs in the background every 20 seconds: waiting orders, tablets off, stores offline, Clover not receiving, late orders, cancellations, missing money. It rings on screen, then texts, then calls — until someone answers.')}
+      <SettingsHead title={t('Alertes et surveillance', 'Alerts & watchtower')} intro={t('La surveillance tourne en arrière-plan toutes les 20 secondes : commandes qui attendent, magasins non reliés, tablettes éteintes, magasins hors ligne, plateformes silencieuses, Clover qui n’a rien reçu, retards, annulations, argent manquant. Elle sonne à l’écran, puis texte, puis appelle — jusqu’à ce que quelqu’un réponde.', 'The watchtower runs in the background every 20 seconds: waiting orders, unmapped stores, tablets off, stores offline, platforms gone quiet, Clover not receiving, late orders, cancellations, missing money. It rings on screen, then texts, then calls — until someone answers.')}
         right={edit && w ? <SaveChip autosave={autosave} undo={undo} /> : undefined} />
       <div className="max-w-5xl">
       {err && <Banner tone="stop" className="mb-4">{err}</Banner>}
@@ -222,11 +223,12 @@ export default function AlertSettingsPage() {
           </Section>
 
           <Section icon={<BellRing className="size-5" />} title={t('Seuils des commandes', 'Order thresholds')}>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <Field label={t('Commande non acceptée après (s)', 'Order not accepted after (s)')} hint={t('Uber annule à 11 min 30, Skip à 5 min.', 'Uber cancels at 11:30, Skip at 5 min.')}><NumField range={RANGE.unacceptedAfterSec} value={w.unacceptedAfterSec} disabled={!edit} onChange={(v) => setNum('unacceptedAfterSec', v)} /></Field>
               <Field label={t('Pas vue en cuisine après (s)', 'Not seen in the kitchen after (s)')}><NumField range={RANGE.unseenAfterSec} value={w.unseenAfterSec} disabled={!edit} onChange={(v) => setNum('unseenAfterSec', v)} /></Field>
               <Field label={t('En retard après (min)', 'Late after (min)')} hint={t('Après l’heure promise.', 'Past the promised time.')}><NumField range={RANGE.lateAfterMin} value={w.lateAfterMin} disabled={!edit} onChange={(v) => setNum('lateAfterMin', v)} /></Field>
               <Field label={t('Livreur qui attend (min)', 'Courier waiting (min)')}><NumField range={RANGE.courierWaitMin} value={w.courierWaitMin} disabled={!edit} onChange={(v) => setNum('courierWaitMin', v)} /></Field>
+              <Field label={t('Plateforme silencieuse après (min)', 'Platform quiet after (min)')} hint={t('Aucune commande d’Uber Eats, DoorDash ou Skip pendant ce temps d’ouverture : le lien est peut-être brisé. 180 = 3 h.', 'No Uber Eats, DoorDash or Skip order for this much opening time: the link may be broken. 180 = 3 h.')}><NumField range={RANGE.silenceAfterMin} value={w.silenceAfterMin} disabled={!edit} onChange={(v) => setNum('silenceAfterMin', v)} /></Field>
             </div>
           </Section>
 

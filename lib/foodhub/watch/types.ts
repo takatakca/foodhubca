@@ -9,8 +9,10 @@ export type IncidentKind =
   | 'order_late'         // past its ready-by time and not ready
   | 'courier_waiting'    // the courier is at the counter, the food is not ready
   | 'pos_failed'         // Clover did not receive the order
+  | 'store_unmapped'     // an order came from a platform store nobody mapped (held: not auto-accepted)
   | 'store_offline'      // paused / closed by the platform during opening hours
   | 'store_deactivated'  // deactivated by the platform
+  | 'platform_silent'    // no order from one platform for a long time while its stores are open
   | 'device_offline'     // kitchen tablet off / no Wi-Fi during opening hours
   | 'device_muted'       // kitchen tablet sound off or screen hidden
   | 'cancel_spike'       // several cancellations in the last hour at one location
@@ -88,6 +90,8 @@ export interface WatchSettings {
   unseenAfterSec: number;
   lateAfterMin: number;
   courierWaitMin: number;
+  /** Silence alarm: opening minutes without any order from one platform (its stores online and open). */
+  silenceAfterMin: number;
   /** Quiet hours: only critical incidents escalate (screens still beep). */
   quietFrom: string;
   quietTo: string;
@@ -105,8 +109,8 @@ export interface WatchSettings {
 }
 
 export const INCIDENT_KINDS: IncidentKind[] = [
-  'order_unaccepted', 'order_unseen', 'order_late', 'courier_waiting', 'pos_failed', 'store_offline', 'store_deactivated',
-  'device_offline', 'device_muted', 'cancel_spike', 'sync_stale', 'webhook_unreadable', 'menu_failed', 'payout_gap', 'customer_issue',
+  'order_unaccepted', 'order_unseen', 'order_late', 'courier_waiting', 'pos_failed', 'store_unmapped', 'store_offline', 'store_deactivated',
+  'platform_silent', 'device_offline', 'device_muted', 'cancel_spike', 'sync_stale', 'webhook_unreadable', 'menu_failed', 'payout_gap', 'customer_issue',
 ];
 
 export const KIND_LABEL: Record<IncidentKind, { fr: string; en: string }> = {
@@ -115,8 +119,10 @@ export const KIND_LABEL: Record<IncidentKind, { fr: string; en: string }> = {
   order_late: { fr: 'Commande en retard', en: 'Late order' },
   courier_waiting: { fr: 'Livreur qui attend', en: 'Courier waiting' },
   pos_failed: { fr: 'Clover n’a pas reçu la commande', en: 'Clover did not get the order' },
+  store_unmapped: { fr: 'Commande d’un magasin non relié', en: 'Order from an unmapped store' },
   store_offline: { fr: 'Magasin hors ligne', en: 'Store offline' },
   store_deactivated: { fr: 'Magasin désactivé', en: 'Store deactivated' },
+  platform_silent: { fr: 'Plateforme silencieuse (aucune commande)', en: 'Platform gone quiet (no orders)' },
   device_offline: { fr: 'Tablette éteinte', en: 'Tablet off' },
   device_muted: { fr: 'Tablette sans son', en: 'Tablet muted' },
   cancel_spike: { fr: 'Annulations en hausse', en: 'Cancellation spike' },
@@ -129,10 +135,13 @@ export const KIND_LABEL: Record<IncidentKind, { fr: string; en: string }> = {
 
 const on = (escalate = true): RuleSetting => ({ enabled: true, escalate });
 
+// Defaults only: a rule the owner saved (Settings → Alerts) keeps the owner's choice (see getWatchSettings).
+// Stale statuses, refused menu / 86 / pause actions and a silent platform text the managers like the other problems
+// that need a person (warnings: a text, never a call, and not during quiet hours).
 export const DEFAULT_RULES: Record<IncidentKind, RuleSetting> = {
-  order_unaccepted: on(), order_unseen: on(), order_late: on(), courier_waiting: on(), pos_failed: on(),
-  store_offline: on(), store_deactivated: on(), device_offline: on(), device_muted: on(),
-  cancel_spike: on(false), sync_stale: on(false), webhook_unreadable: on(false), menu_failed: on(false), payout_gap: on(false), customer_issue: on(false),
+  order_unaccepted: on(), order_unseen: on(), order_late: on(), courier_waiting: on(), pos_failed: on(), store_unmapped: on(),
+  store_offline: on(), store_deactivated: on(), platform_silent: on(), device_offline: on(), device_muted: on(), sync_stale: on(), menu_failed: on(),
+  cancel_spike: on(false), webhook_unreadable: on(false), payout_gap: on(false), customer_issue: on(false),
 };
 
 export const DEFAULT_WATCH: WatchSettings = {
@@ -144,6 +153,7 @@ export const DEFAULT_WATCH: WatchSettings = {
   unseenAfterSec: 120,
   lateAfterMin: 5,
   courierWaitMin: 3,
+  silenceAfterMin: 180,
   quietFrom: '23:30',
   quietTo: '07:00',
   postToChat: true,

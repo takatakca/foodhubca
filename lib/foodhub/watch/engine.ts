@@ -3,17 +3,18 @@
 // screen polls — so it keeps watching as long as one screen is open or the cron runs.
 import crypto from 'node:crypto';
 import { logActivity, type Actor } from '../activity';
+import { isRelayStore } from '../adapters/relay';
 import { CHANNEL_LABELS, publicBaseUrl } from '../config';
 import { getCatalog } from '../catalog';
 import { deadlineFor } from '../deadline';
-import { effectiveHours, getHours, holidaysFor, isOpenAt, localDate } from '../hours';
+import { DAYS, effectiveHours, getHours, holidaysFor, isOpenAt, localDate, openIntervals } from '../hours';
 import { DEVICE_OFFLINE_AFTER_MS, listDevices } from '../identity/devices';
 import { aiConfigured, maskContact, normalizePhone, placeCall, postToChat, sendSms } from '../notify';
 import { listCases, RECOVERABLE } from '../recon/engine';
 import { getRepo } from '../repo';
 import { isWaitingScheduled } from '../scheduling';
-import { foodhubTimeZone, localParts } from '../time';
-import type { FoodHubUser, HoursConfig, PlatformStatus, StoredOrder } from '../types';
+import { foodhubTimeZone, localParts, localTimeLabel } from '../time';
+import type { ChannelKey, ChannelStore, FoodHubUser, HoursConfig, PlatformStatus, StoredOrder, WeeklyHours } from '../types';
 import { explainIncident, PLAYBOOK } from './ai';
 import { customerContact, lateMessage } from './customer';
 import { DEFAULT_RULES, DEFAULT_WATCH, INCIDENT_KINDS, KIND_LABEL, type Incident, type IncidentKind, type IncidentStatus, type Severity, type WatchSettings } from './types';
@@ -21,6 +22,8 @@ import { DEFAULT_RULES, DEFAULT_WATCH, INCIDENT_KINDS, KIND_LABEL, type Incident
 export const INCIDENTS = 'incidents';
 const SETTINGS_KEY = 'watch:settings';
 const LAST_KEY = 'watch:last';
+/** Newest order seen per platform (orders are read for 24 h; this remembers further back). */
+const LAST_ORDER_KEY = 'watch:last-order';
 const SEV: Record<Severity, number> = { info: 0, warning: 1, critical: 2 };
 const OPEN_ORDER: StoredOrder['status'][] = ['new', 'accepted', 'ready', 'dispatched'];
 
@@ -53,6 +56,7 @@ export async function saveWatchSettings(patch: Partial<WatchSettings>, actor: Ac
     unseenAfterSec: clampN(patch.unseenAfterSec, 30, 1800, cur.unseenAfterSec),
     lateAfterMin: clampN(patch.lateAfterMin, 1, 60, cur.lateAfterMin),
     courierWaitMin: clampN(patch.courierWaitMin, 1, 30, cur.courierWaitMin),
+    silenceAfterMin: clampN(patch.silenceAfterMin, 30, 720, cur.silenceAfterMin),
     quietFrom: hhmm(patch.quietFrom, cur.quietFrom),
     quietTo: hhmm(patch.quietTo, cur.quietTo),
     postToChat: patch.postToChat ?? cur.postToChat,
@@ -118,6 +122,30 @@ function inQuietHours(s: WatchSettings, now: number, tz: string): boolean {
   return from === to ? false : from < to ? m >= from && m < to : m >= from || m < to;
 }
 
+/** Platforms whose silence means something. Too Good To Go sells a few surplus bags at set times: quiet hours are normal there. */
+const SILENCE_CHANNELS: ChannelKey[] = ['uber_eats', 'doordash', 'skip'];
+/** No hours set → 10:00–23:00 every day (same fallback as the tablet rules). */
+const FALLBACK_WEEK = Object.fromEntries(DAYS.map((d) => [d, [{ open: '10:00', close: '22:59' }]])) as unknown as WeeklyHours;
+
+/** Taking orders on its platform as far as we know: not paused here, not paused / closed / deactivated by the platform. */
+function takingOrders(st: ChannelStore): boolean {
+  const ps = st.meta?.platformStatus as PlatformStatus | undefined;
+  return st.online !== false && (st.meta as Record<string, unknown>)?.provisioned !== false && !(ps && ['paused', 'closed', 'deactivated'].includes(ps.state));
+}
+
+/** Minutes covered by a set of [from, to] spans (overlaps between stores counted once). */
+function coveredMinutes(spans: Array<[number, number]>): number {
+  let total = 0; let end = -Infinity;
+  for (const [a, b] of [...spans].sort((x, y) => x[0] - y[0])) {
+    if (b <= end) continue;
+    total += b - Math.max(a, end); end = b;
+  }
+  return total / 60000;
+}
+
+const hm = (min: number) => { const m = Math.max(0, Math.floor(min)); return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`; };
+const ago = (min: number, lang: 'fr' | 'en') => (min >= 2880 ? `${Math.floor(min / 1440)} ${lang === 'fr' ? 'jours' : 'days'}` : hm(min));
+
 async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
   const repo = getRepo();
   const tz = foodhubTimeZone();
@@ -129,12 +157,15 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
   const brandsAt = (code: string) => [...new Set(stores.filter((x) => x.locationCode === code).map((x) => x.brandName))];
   const out: Detection[] = [];
   const on = (k: IncidentKind) => s.rules[k]?.enabled !== false;
+  const mappedStores = new Set(stores.map((x) => `${x.channel}|${x.channelStoreId}`));
+  /** Held for a person because nobody mapped its platform store (store_unmapped below covers it, deadline included). */
+  const heldUnmapped = (o: StoredOrder) => on('store_unmapped') && o.status === 'new' && !o.viaPos && !o.locationCode && !mappedStores.has(`${o.channel}|${o.channelStoreId}`);
 
   for (const o of orders) {
     const age = (now - Date.parse(o.createdAt)) / 1000;
     const where = `${o.brandName ?? 'Marque ?'} · ${loc(o.locationCode)}`;
     const base = { locationCode: o.locationCode ?? null, brandName: o.brandName ?? null, channel: o.channel, orderId: o.id };
-    if (on('order_unaccepted') && o.status === 'new' && !isWaitingScheduled(o, now) && age >= s.unacceptedAfterSec) {
+    if (on('order_unaccepted') && o.status === 'new' && !heldUnmapped(o) && !isWaitingScheduled(o, now) && age >= s.unacceptedAfterSec) {
       const deadline = deadlineFor(o);
       const left = deadline ? (Date.parse(deadline) - now) / 1000 : null;
       const critical = (left !== null && left < 150) || age > 180;
@@ -181,6 +212,39 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
     for (const [code, n] of byLoc) if (n >= 3) out.push({ key: `cancel_spike:${code}`, kind: 'cancel_spike', severity: 'warning', locationCode: code, title: `${n} annulations en 1 h à ${loc(code)}`, titleEn: `${n} cancellations in 1 h at ${loc(code)}` });
   }
 
+  // Orders from a platform store nobody mapped: the pipeline does not accept them by itself (wrong brand or kitchen
+  // possible) and may have kept them out of Clover. One incident per platform store, naming its id; it closes when
+  // every such order is accepted / rejected / cancelled, or when the store gets mapped. Orders that came through
+  // Clover's own integration are only followed (never "new"), so they never count.
+  if (on('store_unmapped')) {
+    const held = new Map<string, StoredOrder[]>();
+    for (const o of orders) {
+      if (!heldUnmapped(o)) continue;
+      const k = `${o.channel}:${o.channelStoreId ?? ''}`;
+      held.set(k, [...(held.get(k) ?? []), o]);
+    }
+    for (const [k, list] of held) {
+      list.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      const first = list[0];
+      const label = CHANNEL_LABELS[first.channel];
+      const sid = first.channelStoreId || '';
+      // Suggested mapping: the brand the order names (relay orders carry it) and, when that brand runs from one
+      // kitchen only, that kitchen. A suggestion for a person to confirm — nothing is mapped automatically.
+      const named = list.map((o) => o.brandName?.trim()).find(Boolean);
+      const brand = named ? catalog.brands.find((b) => b.name.toLowerCase() === named.toLowerCase())?.name ?? named : null;
+      const kitchens = brand ? [...new Set(stores.filter((x) => x.brandName === brand).map((x) => x.locationCode))] : [];
+      const hint = kitchens.length === 1 ? kitchens[0] : null;
+      const ids = list.slice(0, 3).map((o) => `#${o.displayId || o.externalOrderId.slice(0, 8)}`).join(', ') + (list.length > 3 ? '…' : '');
+      const deadline = deadlineFor(first);
+      const left = deadline ? Math.ceil((Date.parse(deadline) - now) / 60000) : null;
+      const due = left === null ? ['', ''] : left > 0 ? [` · ${left} min avant l’échéance`, ` · ${left} min to the deadline`] : [' · échéance dépassée', ' · deadline passed'];
+      out.push({ key: `store_unmapped:${k}`, kind: 'store_unmapped', severity: 'critical', channel: first.channel, orderId: first.id, brandName: brand, locationCode: null,
+        title: `Commande d’un magasin ${label} non relié : ${sid || '(sans identifiant)'}`, titleEn: `Order from an unmapped ${label} store: ${sid || '(no id)'}`,
+        detail: `${list.length} commande(s) en attente (${ids}), non acceptée(s) automatiquement${due[0]}${brand ? ` · marque indiquée : ${brand}` : ''}${hint ? ` · à relier à ${brand} · ${loc(hint)} ?` : ''}`,
+        detailEn: `${list.length} order(s) waiting (${ids}), not accepted automatically${due[1]}${brand ? ` · brand on the order: ${brand}` : ''}${hint ? ` · link it to ${brand} · ${loc(hint)}?` : ''}` });
+    }
+  }
+
   for (const st of stores) {
     const ps = st.meta?.platformStatus as PlatformStatus | undefined;
     const name = `${st.brandName} · ${loc(st.locationCode)} · ${CHANNEL_LABELS[st.channel]}`;
@@ -193,6 +257,44 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
       const week = effectiveHours(hours, st.brandName, st.locationCode);
       const shouldBeOpen = week ? isOpenAt(week, holidaysFor(hours, st.locationCode, localDate(now, tz), 1), now, tz) : ps.state === 'paused';
       if (shouldBeOpen) out.push({ ...base, key: `store_offline:${st.id}`, kind: 'store_offline', severity: 'warning', title: `${name} hors ligne (plateforme)`, titleEn: `${name} offline (platform)`, detail: ps.detail ?? undefined, detailEn: ps.detail ?? undefined });
+    }
+  }
+
+  // Silence alarm: a platform that used to send orders and stopped while its stores are open (broken webhook, store
+  // hidden in the app…). Counted in opening minutes since that platform's last order — a closed night never counts —
+  // over the stores mapped to it that are taking orders (relay-only stores "relay:<id>" are not the platform's own
+  // link). An order from any path (direct, through Clover, through the relay) shows the platform still reaches Food Hub,
+  // so the incident closes by itself with the next order. A platform that never sent one is not "silent": it is not
+  // connected yet (Go-live covers that). Only while one of those stores is open right now.
+  const lastOrder = (await repo.getKv<Partial<Record<ChannelKey, string>>>(LAST_ORDER_KEY).catch(() => null)) ?? {};
+  let newer = false;
+  for (const o of orders) {
+    const at = Date.parse(o.createdAt);
+    if (Number.isFinite(at) && at <= now && !(Date.parse(lastOrder[o.channel] ?? '') >= at)) { lastOrder[o.channel] = new Date(at).toISOString(); newer = true; }
+  }
+  if (newer) await repo.setKv(LAST_ORDER_KEY, lastOrder).catch(() => undefined);
+  if (on('platform_silent')) {
+    for (const ch of SILENCE_CHANNELS) {
+      const lastMs = Date.parse(lastOrder[ch] ?? '');
+      if (!Number.isFinite(lastMs)) continue;
+      const live = stores.filter((x) => x.channel === ch && !isRelayStore(x) && takingOrders(x));
+      if (!live.length) continue;
+      const since = Math.max(lastMs, now - 7 * 86400_000); // a week of opening hours is plenty to count
+      const weekOf = (x: ChannelStore) => effectiveHours(hours, x.brandName, x.locationCode) ?? FALLBACK_WEEK;
+      const daysOff = (x: ChannelStore) => holidaysFor(hours, x.locationCode, localDate(since, tz), 8);
+      const openNow = live.filter((x) => isOpenAt(weekOf(x), daysOff(x), now, tz));
+      if (!openNow.length) continue;
+      // A store mapped after the last order only counts from its mapping.
+      const openMin = coveredMinutes(live.flatMap((x) => openIntervals(weekOf(x), daysOff(x), Math.max(since, Date.parse(x.createdAt ?? '') || since), now, tz)));
+      if (openMin < s.silenceAfterMin) continue;
+      const label = CHANNEL_LABELS[ch];
+      const kitchens = [...new Set(live.map((x) => x.locationCode))];
+      const quiet = (now - lastMs) / 60000;
+      const lastAt = localTimeLabel(lastMs, { date: localDate(lastMs, tz) !== localDate(now, tz) }, tz);
+      out.push({ key: `platform_silent:${ch}`, kind: 'platform_silent', severity: 'warning', channel: ch, locationCode: kitchens.length === 1 ? kitchens[0] : null,
+        title: `Aucune commande ${label} depuis ${ago(quiet, 'fr')}`, titleEn: `No ${label} order for ${ago(quiet, 'en')}`,
+        detail: `${hm(openMin)} d’ouverture sans commande · ${openNow.length} magasin(s) ${label} ouvert(s) en ce moment · dernière commande : ${lastAt}`,
+        detailEn: `${hm(openMin)} of opening hours without an order · ${openNow.length} ${label} store(s) open now · last order: ${lastAt}` });
     }
   }
 
@@ -348,7 +450,7 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
         const up = SEV[d.severity] > SEV[cur.severity];
         const reopened = cur.status === 'resolved';
         const unsnoozed = cur.status === 'snoozed' && cur.snoozedUntil && Date.parse(cur.snoozedUntil) <= now;
-        Object.assign(cur, { title: d.title, titleEn: d.titleEn, detail: d.detail ?? cur.detail, detailEn: d.detailEn ?? cur.detailEn, lastSeenAt: iso, updatedAt: iso, customer: d.customer ?? cur.customer });
+        Object.assign(cur, { title: d.title, titleEn: d.titleEn, detail: d.detail ?? cur.detail, detailEn: d.detailEn ?? cur.detailEn, orderId: d.orderId ?? cur.orderId, lastSeenAt: iso, updatedAt: iso, customer: d.customer ?? cur.customer });
         if (up) { cur.severity = d.severity; cur.count += 1; if (cur.status === 'acknowledged') { cur.status = 'open'; cur.steps.push({ at: iso, kind: 'reopened', message: 'Plus grave — réouvert / Got worse — reopened' }); } }
         if (reopened) { cur.status = 'open'; cur.resolvedAt = null; cur.resolvedBy = null; cur.steps.push({ at: iso, kind: 'reopened', message: 'Le problème est revenu / Problem came back' }); }
         if (unsnoozed) { cur.status = 'open'; cur.snoozedUntil = null; cur.steps.push({ at: iso, kind: 'reopened', message: 'Fin de la sourdine / Snooze ended' }); }

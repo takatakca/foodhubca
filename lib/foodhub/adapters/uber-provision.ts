@@ -26,13 +26,18 @@ export async function startUberConnect(): Promise<string> {
   const state = crypto.randomBytes(18).toString('hex');
   await getRepo().setKv(key(state), { createdAt: Date.now() } satisfies Session);
   const qs = new URLSearchParams({ response_type: 'code', client_id: process.env.UBER_CLIENT_ID || '', scope: 'eats.pos_provisioning', redirect_uri: redirectUri(), state });
-  return `${process.env.UBER_LOGIN_URL || 'https://login.uber.com/oauth/v2/authorize'}?${qs}`;
+  return `${process.env.UBER_LOGIN_URL || 'https://auth.uber.com/oauth/v2/authorize'}?${qs}`;
 }
 
 async function getSession(id: string): Promise<Session | null> {
   if (!/^[a-f0-9]{36}$/.test(id)) return null;
   const s = await getRepo().getKv<Session>(key(id));
-  if (!s || Date.now() - s.createdAt > SESSION_TTL_MS) return null;
+  if (!s) return null;
+  if (Date.now() - s.createdAt > SESSION_TTL_MS) {
+    // Expired: never keep the merchant's provisioning token around.
+    if (s.token) await getRepo().setKv(key(id), { createdAt: s.createdAt, token: null }).catch(() => undefined);
+    return null;
+  }
   return s;
 }
 
@@ -113,6 +118,7 @@ export async function activateUberStores(id: string, picks: Array<{ storeId: str
     });
     out.push({ storeId: p.storeId, result });
   }
-  await getRepo().setKv(key(id), { ...s, token: null });
+  // Keep the token (until the session expires) only while some store still failed, so it can be retried.
+  if (out.every((r) => r.result.ok)) await getRepo().setKv(key(id), { ...s, token: null });
   return out;
 }

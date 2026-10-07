@@ -41,10 +41,12 @@ export function skipCourierStatus(code: unknown): CourierStatus | null {
 /** DoorDash dasher events (names vary by integration type, so match on meaning). */
 export function doorDashCourierStatus(eventType: string): CourierStatus | null {
   const e = eventType.toLowerCase();
-  if (!/dasher|arriving|courier|driver|picked|dropped/.test(e)) return null;
+  // 'dasher_status_update' only names the event: the status itself is in dasher_status (caller passes that first).
+  if (!e || e === 'dasher_status_update') return null;
+  if (!/dasher|arriv|courier|driver|picked|pick_up|pickup_complete|drop|out_for_delivery|at_store/.test(e)) return null;
   if (/unassign/.test(e)) return 'unassigned';
   if (/dropped|delivered|drop_off|dropoff/.test(e)) return 'delivered';
-  if (/picked|pick_up|pickup_complete/.test(e)) return 'picked_up';
+  if (/picked|pick_up|pickup_complete|out_for_delivery/.test(e)) return 'picked_up';
   if (/arriving/.test(e)) return 'arriving';
   if (/arrived|at_store|at_merchant|at_restaurant/.test(e)) return 'at_store';
   if (/assign|confirm/.test(e)) return 'assigned';

@@ -122,7 +122,7 @@ const mock = http.createServer(async (req, res) => {
     if (order) return send(200, UBER_ORDER(order[1], order[1].includes('stl') ? 'uber-store-stl' : 'uber-store-uuid-1', order[1].includes('sched') ? 60.4 : 15));
     if (p === '/uber/v1/eats/report' && req.method === 'POST') return send(200, { workflow_id: 'wf-report-1' });
     if (p === '/uber/v1/eats/stores') return send(200, { stores: [{ store_id: 'uber-store-uuid-1', name: 'Po Poulet NDG' }] });
-    const st = p.match(/^\/uber\/v1\/eats\/stores\/([^/]+)\/status$/);
+    const st = p.match(/^\/uber\/v1\/eats\/store\/([^/]+)\/status$/);
     if (st && req.method === 'GET') {
       if (!uberStatus.has(st[1]) && !knownUberStores.has(st[1])) return send(404, { message: 'store not found' });
       return send(200, uberStatus.get(st[1]) ?? { status: 'ONLINE' });
@@ -371,7 +371,7 @@ try {
   const start = await call('GET', '/api/foodhub/uber-connect/start', { redirect: 'manual' });
   const authUrl = start.location ? new URL(start.location) : null;
   const state = authUrl?.searchParams.get('state');
-  check('"Connect Uber Eats stores" sends the owner to Uber login', [302, 307].includes(start.status) && authUrl?.origin === 'https://login.uber.com' && authUrl.searchParams.get('scope') === 'eats.pos_provisioning' && authUrl.searchParams.get('redirect_uri') === 'https://takatak.example/api/foodhub/uber-connect/callback' && !!state, `${start.status} ${start.location}`);
+  check('"Connect Uber Eats stores" sends the owner to Uber login', [302, 307].includes(start.status) && authUrl?.origin === 'https://auth.uber.com' && authUrl.searchParams.get('scope') === 'eats.pos_provisioning' && authUrl.searchParams.get('redirect_uri') === 'https://takatak.example/api/foodhub/uber-connect/callback' && !!state, `${start.status} ${start.location}`);
   const forged = await call('GET', `/api/foodhub/uber-connect/callback?code=good-code&state=${'0'.repeat(36)}`, { auth: false, redirect: 'manual' });
   check('callback with a forged state is refused', /uber_error=/.test(forged.location || ''));
   const cb = await call('GET', `/api/foodhub/uber-connect/callback?code=good-code&state=${state}`, { auth: false, redirect: 'manual' });
@@ -404,7 +404,7 @@ try {
   check('Uber menu uses the Uber price in cents + modifier items', uberMenu?.items?.find((i) => i.id === 'clv-item-1')?.price_info?.price === 1649 && uberMenu.items.some((i) => i.id === 'mod:mod-1'));
   const ddMenu = sent('POST', /^\/dd\/api\/v1\/menus$/)[0]?.body;
   check('DoorDash menu JWT-signed, with store + provider type', ddMenu?.store?.merchant_supplied_id === 'dd-popoulet-ndg' && ddMenu.store.provider_type === 'takatak_e2e' && ddMenu.menu.categories.length === 2);
-  check('DoorDash Menu Status webhook accepted', (await call('POST', '/api/foodhub/webhooks/doordash', { auth: false, headers: { authorization: 'dd-hook-e2e' }, body: { event: { type: 'MENU_STATUS' }, reference: ddMenu?.reference, menu: { id: 'dd-menu-77' }, status: 'success' } })).status === 200);
+  check('DoorDash Menu Status webhook accepted', (await call('POST', '/api/foodhub/webhooks/doordash', { auth: false, headers: { authorization: 'dd-hook-e2e' }, body: { event: { type: 'MenuCreate', status: 'SUCCESS', reference: ddMenu?.reference, details: '' }, menu: { id: 'dd-menu-77' } } })).status === 200);
   const ddJob = await waitFor(async () => (await call('GET', '/api/foodhub/channels')).json.jobs.find((j) => j.channel === 'doordash' && j.kind === 'menu_push' && j.status === 'done'));
   check('DoorDash menu job closed + menu id kept for next update', !!ddJob && (await call('GET', '/api/foodhub/stores')).json.stores.find((x) => x.channelStoreId === 'dd-popoulet-ndg')?.meta?.doordashMenuId === 'dd-menu-77');
   const skipMenuCall = sent('POST', /^\/skip\/menus$/).find((e) => e.body?.restaurants?.includes('NDG-POPOULET'));
@@ -482,7 +482,7 @@ try {
   const ndg = [ids.uber.id, ids.dd.id, ids.skip.id];
   const pause = await call('POST', '/api/foodhub/stores/status', { body: { storeIds: ndg, online: false, minutes: 30, reason: 'Kitchen overloaded' } });
   check('pause sent to all 3 platforms', (pause.json?.results || []).every((r) => r.result.ok) && pause.json.results.length === 3);
-  check('Uber store PAUSED with paused_until', sent('POST', /\/v1\/eats\/stores\/uber-store-uuid-1\/status$/).pop()?.body?.paused_until);
+  check('Uber store PAUSED with paused_until (no milliseconds) on /v1/eats/store/{id}/status', /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(sent('POST', /\/v1\/eats\/store\/uber-store-uuid-1\/status$/).pop()?.body?.paused_until ?? ''));
   const ddPause = sent('PUT', /\/stores\/dd-popoulet-ndg\/status$/).pop()?.body;
   check('DoorDash deactivated with end_time', ddPause?.is_active === false && !!ddPause.end_time);
   check('Skip offline with local onlineAt (YYYY-MM-DD HH:MM:SS)', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(sent('PUT', /^\/skip\/restaurants\/NDG-POPOULET\/offline$/).pop()?.body?.onlineAt || ''));
@@ -601,10 +601,10 @@ try {
   const sa = uberMenu17?.menus?.[0]?.service_availability || [];
   check('Uber menu hours: Mon 11:00–22:00, Sunday closed', sa.find((d) => d.day_of_week === 'monday')?.time_periods?.[0]?.start_time === '11:00' && sa.find((d) => d.day_of_week === 'monday').time_periods[0].end_time === '22:00' && !sa.some((d) => d.day_of_week === 'sunday'), JSON.stringify(sa.slice(0, 2)));
   const uberHol = after17.find((e) => e.method === 'POST' && /\/uber\/v1\/eats\/stores\/uber-store-uuid-1\/holiday-hours$/.test(e.path))?.body?.holiday_hours;
-  check('Uber holiday-hours: closed day = empty open_time_periods + short day 12:00–16:00 (NDG only)', Array.isArray(uberHol?.[localDay(10)]?.open_time_periods) && uberHol[localDay(10)].open_time_periods.length === 0 && uberHol[localDay(12)]?.open_time_periods?.[0]?.start_time === '12:00' && !uberHol[today], JSON.stringify(uberHol));
+  check('Uber holiday-hours: closed day = 00:00–00:00 + short day 12:00–16:00 (NDG only)', uberHol?.[localDay(10)]?.open_time_periods?.length === 1 && uberHol[localDay(10)].open_time_periods[0].start_time === '00:00' && uberHol[localDay(10)].open_time_periods[0].end_time === '00:00' && uberHol[localDay(12)]?.open_time_periods?.[0]?.start_time === '12:00' && !uberHol[today], JSON.stringify(uberHol));
   const ddMenu17 = after17.find((e) => /\/dd\/api\/v1\/menus/.test(e.path) && e.body?.store?.merchant_supplied_id === 'dd-popoulet-ndg')?.body;
   check('DoorDash open_hours in HH:MM:SS, Sunday (closed) omitted', ddMenu17?.open_hours?.some((h) => h.day_index === 'MON' && h.start_time === '11:00:00' && h.end_time === '22:00:00') && !ddMenu17.open_hours.some((h) => h.day_index === 'SUN') && !ddMenu17.open_hours.some((h) => h.start_time === h.end_time), JSON.stringify(ddMenu17?.open_hours?.slice(0, 3)));
-  check('DoorDash special_hours: closed day (no times) + special hours', ddMenu17?.special_hours?.some((h) => h.date === localDay(10) && h.closed === true && h.start_time === undefined && h.end_time === undefined) && ddMenu17.special_hours.some((h) => h.date === localDay(12) && h.closed === false && h.start_time === '12:00:00'), JSON.stringify(ddMenu17?.special_hours));
+  check('DoorDash special_hours: closed day (full-day 00:00:00–23:59:59) + special hours', ddMenu17?.special_hours?.some((h) => h.date === localDay(10) && h.closed === true && h.start_time === '00:00:00' && h.end_time === '23:59:59') && ddMenu17.special_hours.some((h) => h.date === localDay(12) && h.closed === false && h.start_time === '12:00:00'), JSON.stringify(ddMenu17?.special_hours));
   check('DoorDash menu update uses the menu id it was given (PATCH)', after17.some((e) => e.method === 'PATCH' && /\/dd\/api\/v1\/menus\/dd-menu-77$/.test(e.path)));
   const skipMenu17 = after17.find((e) => e.path === '/skip/menus' && e.body?.restaurants?.includes('NDG-POPOULET'))?.body;
   check('Skip menu availability per day ("11:00 - 22:00")', skipMenu17?.menus?.[0]?.availability?.monday?.[0] === '11:00 - 22:00' && (skipMenu17.menus[0].availability.sunday ?? []).length === 0, JSON.stringify(skipMenu17?.menus?.[0]?.availability));
@@ -840,10 +840,10 @@ try {
   const o3p = await waitFor(async () => { const o = await findOrder('skip-order-0001'); return o?.status === 'dispatched' && o.timeline?.posPaymentId ? o : null; });
   check('driver on its way → "Picked up" and paid in Clover with the "SkipTheDishes" tender', !!o3p && payPosts().some((e) => e.path.endsWith(`/orders/${o3p.posOrderId}/payments`) && e.body?.tender?.id === tenderId('SkipTheDishes')));
   const ddHook = (body) => call('POST', '/api/foodhub/webhooks/doordash', { auth: false, headers: { authorization: 'dd-hook-e2e' }, body });
-  await ddHook({ event: { type: 'dasher_confirmed' }, order: { id: 'dd-order-1' }, dasher: { first_name: 'Ana', last_name: 'Bell', phone_number: '+15145550101', vehicle: { make: 'Toyota', model: 'Corolla', color: 'Blue' } } });
+  await ddHook({ event: { type: 'dasher_status_update' }, dasher_status: 'dasher_confirmed', external_order_id: 'dd-order-1', dasher: { first_name: 'Ana', last_name: 'Bell', phone_number: '+15145550101', vehicle: { make: 'Toyota', model: 'Corolla', color: 'Blue' } } });
   const c29 = await waitFor(async () => (await findOrder('dd-order-1'))?.timeline?.courier);
   check('DoorDash dasher assigned: name, phone and car on the order', c29?.status === 'assigned' && c29.name === 'Ana B.' && c29.phone === '+15145550101' && c29.vehicle === 'Blue Toyota Corolla', JSON.stringify(c29));
-  await ddHook({ event: { type: 'dasher_arriving_at_store' }, order: { id: 'dd-order-1' } });
+  await ddHook({ event: { type: 'dasher_status_update' }, dasher_status: 'arriving_at_store', external_order_id: 'dd-order-1' });
   const q29 = await waitFor(async () => ((await call('GET', '/api/foodhub/command')).json?.queue || []).find((q) => q.id === o2?.id && q.courier?.status === 'arriving'));
   check('Command Center shows "courier arriving" on the order card', !!q29 && q29.courier.name === 'Ana B.');
   const fo = await skipWebhook('failed', { validationError: 'unknownReference', unknownReference: 'zzz-99', menuId: 'm1', order: { orderId: 'skip-failed-1', friendlyOrderReference: '7788', totalPrice: 1299, restaurant: { id: 'NDG-POPOULET' }, fulfilment: { type: 'delivery' }, items: [{ name: 'Mystery Bowl', plu: 'zzz-99', price: 1299, quantity: 1 }] } }, { hmac: false });

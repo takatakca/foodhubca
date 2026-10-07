@@ -62,6 +62,8 @@ Each one replaces the platform's tablet with Food Hub (orders into Clover, print
 - **DoorDash direct:**
   - Enter `DOORDASH_DEVELOPER_ID`, `DOORDASH_KEY_ID`, `DOORDASH_SIGNING_SECRET` and `DOORDASH_PROVIDER_TYPE` (DoorDash issues this after approval).
   - Remove `doordash` from `FOODHUB_VIA_CLOVER`.
+  - In the DoorDash Developer Portal, subscribe Order, Menu Status and Dasher Status to `https://<domain>/api/foodhub/webhooks/doordash`, with the Authorization header from Settings → Platforms.
+  - **Ask DoorDash to send the Order Cancellation webhook to the same address.** They configure it on request; without it, a customer cancellation does not reach the kitchen.
   - Map the stores, then publish.
 - **Skip:**
   - Enter `SKIP_JET_API_KEY` (from the Skip partner manager).

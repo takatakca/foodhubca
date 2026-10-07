@@ -37,8 +37,14 @@ async function record(kind: FoodHubJob['kind'], store: ChannelStore, res: Channe
     reference: res.reference ?? null,
     status: res.status === 'queued' ? 'queued' : res.ok ? 'done' : 'error',
     request: { ...request, storeId: store.id, channelStoreId: store.channelStoreId },
-    result: { status: res.status, message: res.message, httpStatus: res.httpStatus ?? null },
+    // The platform's answer (truncated) is kept so Platforms → recent jobs can show exactly what was refused.
+    result: { status: res.status, message: res.message, httpStatus: res.httpStatus ?? null, ...(res.ok || res.response === undefined ? {} : { response: truncateJson(res.response) }) },
   });
+}
+
+function truncateJson(v: unknown): unknown {
+  const text = typeof v === 'string' ? v : JSON.stringify(v);
+  return text && text.length > 4000 ? `${text.slice(0, 4000)}…` : v;
 }
 
 function row(store: ChannelStore, res: ChannelResult): FanOutRow {

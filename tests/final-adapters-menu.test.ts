@@ -58,13 +58,13 @@ describe('Uber Eats adapter — OAuth token cache and store status', () => {
     expect(calls).toHaveLength(1);
   });
 
-  it('polls the plural Marketplace path and retries once with a fresh token after a 401', async () => {
-    mockFetch([tokenRoute(), [/\/v1\/eats\/stores\/uuid-1\/status$/, (c) => (c.auth === 'Bearer tok-1' ? { status: 401, body: { message: 'expired' } } : { status: 200, body: { status: 'ONLINE' } })]]);
+  it('polls the documented Uber status path (/v1/eats/store/{id}/status) and retries once with a fresh token after a 401', async () => {
+    mockFetch([tokenRoute(), [/\/v1\/eats\/store\/uuid-1\/status$/, (c) => (c.auth === 'Bearer tok-1' ? { status: 401, body: { message: 'expired' } } : { status: 200, body: { status: 'ONLINE' } })]]);
     const r = await fetchUberStoreStatus('uuid-1');
     expect(r).toMatchObject({ ok: true, state: 'online' });
     const status = calls.filter((c) => /\/status$/.test(c.url));
     expect(status).toHaveLength(2);
-    expect(status[0].url).toBe('https://api.uber.com/v1/eats/stores/uuid-1/status');
+    expect(status[0].url).toBe('https://api.uber.com/v1/eats/store/uuid-1/status');
     expect(status.map((c) => c.auth)).toEqual(['Bearer tok-1', 'Bearer tok-2']);
     expect(calls.filter((c) => /oauth\/v2\/token/.test(c.url))).toHaveLength(2);
   });
@@ -74,13 +74,13 @@ describe('Uber Eats adapter — OAuth token cache and store status', () => {
     expect(await fetchUberStoreStatus('gone')).toEqual({ ok: false, state: 'unknown', error: 'Uber status HTTP 404' });
   });
 
-  it('pause/resume posts to /v1/eats/stores/{id}/status and retries once on 401', async () => {
-    mockFetch([tokenRoute(), [/\/v1\/eats\/stores\/uuid-1\/status$/, (c) => (c.auth === 'Bearer tok-1' ? { status: 401 } : { status: 204 })]]);
+  it('pause/resume posts to /v1/eats/store/{id}/status and retries once on 401', async () => {
+    mockFetch([tokenRoute(), [/\/v1\/eats\/store\/uuid-1\/status$/, (c) => (c.auth === 'Bearer tok-1' ? { status: 401 } : { status: 204 })]]);
     const res = await uberEatsAdapter.setStoreOnline(uberStore, false, undefined, 'Lunch rush');
     expect(res.ok).toBe(true);
     const posts = calls.filter((c) => c.method === 'POST' && /\/status$/.test(c.url));
     expect(posts).toHaveLength(2);
-    expect(posts[1].url).toBe('https://api.uber.com/v1/eats/stores/uuid-1/status');
+    expect(posts[1].url).toBe('https://api.uber.com/v1/eats/store/uuid-1/status');
     expect(JSON.parse(posts[1].body!)).toMatchObject({ status: 'PAUSED', reason: 'Lunch rush' });
   });
 
@@ -225,14 +225,14 @@ describe('menu translation: locale keys, closed days, category order', () => {
     expect((u.items.find((i: any) => i.id === 'i2') as any).title.translations).toEqual({ en_ca: 'Tart' }); // no French → no fr_ca key
   });
 
-  it('Uber holiday hours: closed day = empty open_time_periods', () => {
+  it('Uber holiday hours: closed all day = one 00:00–00:00 period (as Uber documents)', () => {
     expect(toUberHolidayHours(ctx.holidays)).toEqual({ holiday_hours: {
-      '2026-12-25': { open_time_periods: [] },
+      '2026-12-25': { open_time_periods: [{ start_time: '00:00', end_time: '00:00' }] },
       '2026-12-31': { open_time_periods: [{ start_time: '12:00', end_time: '16:00' }] },
     } });
   });
 
-  it('DoorDash: closed days omitted from open_hours, closed special day without times', () => {
+  it('DoorDash: closed days omitted from open_hours, closed special day as a full-day closure', () => {
     const d = toDoorDashMenu(menu, 'msid', 'prov', 'ref', ctx);
     expect(d.open_hours).toEqual([
       { day_index: 'MON', start_time: '11:00:00', end_time: '22:00:00' },
@@ -240,7 +240,7 @@ describe('menu translation: locale keys, closed days, category order', () => {
     ]);
     expect(d.open_hours.some((h: any) => h.start_time === h.end_time)).toBe(false);
     expect(d.special_hours).toEqual([
-      { date: '2026-12-25', closed: true },
+      { date: '2026-12-25', closed: true, start_time: '00:00:00', end_time: '23:59:59' },
       { date: '2026-12-31', closed: false, start_time: '12:00:00', end_time: '16:00:00' },
     ]);
     // explicitly closed every day → no open_hours at all

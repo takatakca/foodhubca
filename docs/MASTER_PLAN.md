@@ -147,6 +147,11 @@ Each phase ends with **acceptance checks**. A phase is done only when all of the
 
 ### Phase 1: Never lose an order or miss an alarm (1–2 weeks)
 
+> **Status (branch `clover-backend-final`):** items 1 (webhook inbox + Replay), 2 (`/api/health`), 3 (texts by default
+> for `menu_failed` / `sync_stale`), 4 (silence alarm), 6 (Clover auto-retry 30 s / 2 min, no second ticket) and the
+> Clover side of 7 are built and tested — see [CLOVER_BACKEND_FINAL.md](CLOVER_BACKEND_FINAL.md). Still open: 5 (a
+> mapping suggestion for unmapped stores; auto-accept is already held for them and the waiting order escalates).
+
 1. **Save the raw webhook body before answering 200** (`lib/foodhub/webhook-utils.ts`), then process it. Add a **Replay** button for unparsed or failed payloads in Settings → Platforms.
 2. Add **`/api/health`** (database, last sync, last order per platform, and whether the watchtower timer is alive). Add an outside uptime monitor that texts the owner.
 3. Send texts by default for `menu_failed` and `sync_stale` (`lib/foodhub/watch/types.ts`).

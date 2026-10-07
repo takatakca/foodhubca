@@ -6,11 +6,11 @@ import type { MasterMenu, OrderLine, StoredOrder } from '../lib/foodhub/types';
 
 const menu: MasterMenu = {
   brandName: 'Po Poulet',
-  posMerchantId: 'YJ4W50YPJQSQ1',
+  posMerchantId: 'TESTMERCH0001',
   categories: [{ ref: 'CAT-POULET', name: 'Poulet', sortOrder: 0 }],
   items: [
-    { ref: 'PQTJ2AABECNZG', posItemRef: 'PQTJ2AABECNZG', name: '6 MCX + Frites + Sauce + Pepsi (CROQ. OU AIL)', nameFr: undefined, price: 13.99, categoryRef: 'CAT-POULET', available: true, modifierGroupRefs: ['GRP-BOISSON', 'GRP-SAUCE'] },
-    { ref: 'YR956YC5NHQQG', posItemRef: 'YR956YC5NHQQG', name: 'SALADE DE CHOU', nameFr: 'Salade de chou', price: 2.71, categoryRef: 'CAT-POULET', available: true, modifierGroupRefs: [] },
+    { ref: 'CLV-6MCX', posItemRef: 'CLV-6MCX', name: '6 MCX + Frites + Sauce + Pepsi (CROQ. OU AIL)', nameFr: undefined, price: 13.99, categoryRef: 'CAT-POULET', available: true, modifierGroupRefs: ['GRP-BOISSON', 'GRP-SAUCE'] },
+    { ref: 'CLV-CHOU', posItemRef: 'CLV-CHOU', name: 'SALADE DE CHOU', nameFr: 'Salade de chou', price: 2.71, categoryRef: 'CAT-POULET', available: true, modifierGroupRefs: [] },
     { ref: 'poutine-moyenne', posItemRef: 'CLV-POUTINE', name: 'Poutine Moyenne', price: 9.99, categoryRef: 'CAT-POULET', available: true, modifierGroupRefs: [] },
     { ref: 'fh-only', name: 'Combo Food Hub', price: 20, categoryRef: 'CAT-POULET', available: true, modifierGroupRefs: [] },
   ],
@@ -44,10 +44,10 @@ describe('names', () => {
 describe('linking order lines to the Clover inventory', () => {
   it('by id (the ref Food Hub published, or the Clover id itself), with the options by id and by name', () => {
     const r = mapOrderLines([
-      line({ externalId: 'PQTJ2AABECNZG', name: '6 MCX', modifiers: [{ externalId: 'mod:MOD-PEPSI', name: 'Pepsi', quantity: 1, unitPrice: 0 }, { name: 'SAUCE bbq', quantity: 2, unitPrice: 0.6 }] }),
+      line({ externalId: 'CLV-6MCX', name: '6 MCX', modifiers: [{ externalId: 'mod:MOD-PEPSI', name: 'Pepsi', quantity: 1, unitPrice: 0 }, { name: 'SAUCE bbq', quantity: 2, unitPrice: 0.6 }] }),
       line({ externalId: 'CLV-POUTINE', name: 'Poutine' }),
     ], menu);
-    expect(r.lines[0]).toMatchObject({ posItemRef: 'PQTJ2AABECNZG', mapping: 'id' });
+    expect(r.lines[0]).toMatchObject({ posItemRef: 'CLV-6MCX', mapping: 'id' });
     expect(r.lines[0].modifiers.map((m) => m.posModifierRef)).toEqual(['MOD-PEPSI', 'MOD-BBQ']);
     expect(r.lines[1]).toMatchObject({ posItemRef: 'CLV-POUTINE', mapping: 'id' });
     expect(r.warnings).toEqual([]);
@@ -60,7 +60,7 @@ describe('linking order lines to the Clover inventory', () => {
       line({ name: 'Poutine moyennes' }),
       line({ name: 'Salade de chou / Coleslaw' }),
     ], menu);
-    expect(r.lines.map((l) => [l.posItemRef, l.mapping])).toEqual([['YR956YC5NHQQG', 'name'], ['CLV-POUTINE', 'name'], ['YR956YC5NHQQG', 'name']]);
+    expect(r.lines.map((l) => [l.posItemRef, l.mapping])).toEqual([['CLV-CHOU', 'name'], ['CLV-POUTINE', 'name'], ['CLV-CHOU', 'name']]);
   });
 
   it('nothing matches → free-text line with a warning; an item Clover does not know → free text too; a line is never dropped', () => {
@@ -76,13 +76,13 @@ describe('linking order lines to the Clover inventory', () => {
   });
 
   it('an option Clover does not know is flagged, the item stays linked', () => {
-    const r = mapOrderLines([line({ externalId: 'PQTJ2AABECNZG', name: '6 MCX', modifiers: [{ name: 'Sauce maison (Food Hub)', quantity: 1, unitPrice: 1 }, { name: 'Ketchup', quantity: 1, unitPrice: 0 }] })], menu);
-    expect(r.lines[0].posItemRef).toBe('PQTJ2AABECNZG');
+    const r = mapOrderLines([line({ externalId: 'CLV-6MCX', name: '6 MCX', modifiers: [{ name: 'Sauce maison (Food Hub)', quantity: 1, unitPrice: 1 }, { name: 'Ketchup', quantity: 1, unitPrice: 0 }] })], menu);
+    expect(r.lines[0].posItemRef).toBe('CLV-6MCX');
     expect(r.warnings.map((w) => [w.kind, w.name, w.reason])).toEqual([['modifier', 'Sauce maison (Food Hub)', 'no_clover_link'], ['modifier', 'Ketchup', 'no_match']]);
   });
 
   it('a menu imported from another Clover merchant → everything as free text (foreign ids would be refused), one warning', () => {
-    const r = mapOrderLines([line({ externalId: 'PQTJ2AABECNZG', name: '6 MCX' }), line({ name: 'Poutine Moyenne' })], menu, { foreign: true });
+    const r = mapOrderLines([line({ externalId: 'CLV-6MCX', name: '6 MCX' }), line({ name: 'Poutine Moyenne' })], menu, { foreign: true });
     expect(r.lines.every((l) => !l.posItemRef)).toBe(true);
     expect(r.warnings).toEqual([{ line: -1, kind: 'item', name: '*', reason: 'foreign_menu' }]);
   });
@@ -96,15 +96,15 @@ describe('linking order lines to the Clover inventory', () => {
 describe('the Clover order body', () => {
   it('inventory items with real modifications (amounts = platform prices), one line per unit; unknown options folded into the price', () => {
     const lines = mapOrderLines([
-      line({ externalId: 'PQTJ2AABECNZG', name: '6 MCX + Frites', quantity: 2, unitPrice: 16.79, total: 34.78, modifiers: [{ externalId: 'MOD-7UP', name: '7UP', quantity: 1, unitPrice: 0 }, { externalId: 'MOD-BBQ', name: 'Sauce BBQ', quantity: 2, unitPrice: 0.6 }, { name: 'Ketchup', quantity: 1, unitPrice: 0 }] }),
+      line({ externalId: 'CLV-6MCX', name: '6 MCX + Frites', quantity: 2, unitPrice: 16.79, total: 34.78, modifiers: [{ externalId: 'MOD-7UP', name: '7UP', quantity: 1, unitPrice: 0 }, { externalId: 'MOD-BBQ', name: 'Sauce BBQ', quantity: 2, unitPrice: 0.6 }, { name: 'Ketchup', quantity: 1, unitPrice: 0 }] }),
       line({ name: 'Mystery special', unitPrice: 5, total: 5.5, modifiers: [{ name: 'Extra', quantity: 1, unitPrice: 0.5 }], notes: 'sans oignon' }),
     ], menu).lines;
     // Platform subtotal: 2 × (16.79 + 2 × 0.60) + (5.00 + 0.50) = 41.48
-    const cart = buildCloverOrderCart(order({ lines, subtotal: 41.48 }), { orderTypeId: 'FVF802PYR1WQJ' });
+    const cart = buildCloverOrderCart(order({ lines, subtotal: 41.48 }), { orderTypeId: 'OT-ONLINE-DELIV' });
     const items = cart.body.orderCart.lineItems as any[];
     expect(items).toHaveLength(3);
     expect(items[0]).toEqual({
-      name: '6 MCX + Frites', price: 1679, item: { id: 'PQTJ2AABECNZG' },
+      name: '6 MCX + Frites', price: 1679, item: { id: 'CLV-6MCX' },
       modifications: [{ modifier: { id: 'MOD-7UP' }, name: '7UP', amount: 0 }, { modifier: { id: 'MOD-BBQ' }, name: 'Sauce BBQ', amount: 60 }, { modifier: { id: 'MOD-BBQ' }, name: 'Sauce BBQ', amount: 60 }],
       note: 'Ketchup',
     });
@@ -115,7 +115,7 @@ describe('the Clover order body', () => {
     expect(sum).toBe(4148);
     expect(cart.linesCents).toBe(4148);
     expect(cart.freeLines).toBe(1);
-    expect(cart.body.orderCart.orderType).toEqual({ id: 'FVF802PYR1WQJ' });
+    expect(cart.body.orderCart.orderType).toEqual({ id: 'OT-ONLINE-DELIV' });
     expect(cart.body.orderCart.title).toBe('Uber Eats #A1B2C');
     expect(String(cart.body.orderCart.note)).toMatch(/⚠ 1 article\(s\) hors inventaire Clover/);
   });
@@ -129,12 +129,12 @@ describe('the Clover order body', () => {
 
 describe('order types, tips and totals', () => {
   const rows = [
-    { id: 'FVF802PYR1WQJ', label: 'Online Order Delivery' }, { id: '8KTC13TB0T688', label: 'Online Order Pick Up' },
-    { id: 'HCH0HPJBTEMPC', label: 'Dine In' }, { id: 'TTXPHSYPRYGKJ', label: 'Delivery', hidden: true }, { id: '33AG57TYHZ69A', label: 'In-store Pickup', hidden: true },
+    { id: 'OT-ONLINE-DELIV', label: 'Online Order Delivery' }, { id: 'OT-ONLINE-PICKUP', label: 'Online Order Pick Up' },
+    { id: 'OT-DINE-IN', label: 'Dine In' }, { id: 'OT-DELIV-HIDDEN', label: 'Delivery', hidden: true }, { id: 'OT-PICKUP-HIDDEN', label: 'In-store Pickup', hidden: true },
   ];
   it('uses the merchant’s own "Online Order Delivery" / "Online Order Pick Up" types', () => {
-    expect(pickFulfillmentType(rows, 'delivery')).toBe('FVF802PYR1WQJ');
-    expect(pickFulfillmentType(rows, 'pickup')).toBe('8KTC13TB0T688');
+    expect(pickFulfillmentType(rows, 'delivery')).toBe('OT-ONLINE-DELIV');
+    expect(pickFulfillmentType(rows, 'pickup')).toBe('OT-ONLINE-PICKUP');
     expect(pickFulfillmentType([{ id: 'D', label: 'Delivery', hidden: true }, { id: 'L', label: 'Livraison' }], 'delivery')).toBe('L');
     expect(pickFulfillmentType([{ id: 'X', label: 'Dine In' }], 'delivery')).toBeNull();
   });
@@ -159,13 +159,13 @@ describe('order types, tips and totals', () => {
 describe('kitchen printer per location', () => {
   afterEach(() => { delete process.env.CLOVER_PRINT_DEVICES; });
   it('one Clover for several kitchens: the location’s printer when set, otherwise the merchant default (null here)', () => {
-    process.env.CLOVER_PRINT_DEVICES = JSON.stringify({ 'YJ4W50YPJQSQ1|NDG_6284': 'DUO-NDG', 'YJ4W50YPJQSQ1|HOCHELAGA': 'FLEX-HOCH', YJ4W50YPJQSQ1: 'DEFAULT' });
-    expect(cloverPrintDeviceForLocation('YJ4W50YPJQSQ1', 'NDG_6284')).toBe('DUO-NDG');
-    expect(cloverPrintDeviceForLocation('YJ4W50YPJQSQ1', 'HOCHELAGA')).toBe('FLEX-HOCH');
-    expect(cloverPrintDeviceForLocation('YJ4W50YPJQSQ1', 'SAINT_LEONARD')).toBeNull();
-    expect(cloverPrintDeviceForLocation('YJ4W50YPJQSQ1', undefined)).toBeNull();
+    process.env.CLOVER_PRINT_DEVICES = JSON.stringify({ 'TESTMERCH0001|NDG_6284': 'DUO-NDG', 'TESTMERCH0001|HOCHELAGA': 'FLEX-HOCH', TESTMERCH0001: 'DEFAULT' });
+    expect(cloverPrintDeviceForLocation('TESTMERCH0001', 'NDG_6284')).toBe('DUO-NDG');
+    expect(cloverPrintDeviceForLocation('TESTMERCH0001', 'HOCHELAGA')).toBe('FLEX-HOCH');
+    expect(cloverPrintDeviceForLocation('TESTMERCH0001', 'SAINT_LEONARD')).toBeNull();
+    expect(cloverPrintDeviceForLocation('TESTMERCH0001', undefined)).toBeNull();
     process.env.CLOVER_PRINT_DEVICES = 'not json';
-    expect(cloverPrintDeviceForLocation('YJ4W50YPJQSQ1', 'NDG_6284')).toBeNull();
+    expect(cloverPrintDeviceForLocation('TESTMERCH0001', 'NDG_6284')).toBeNull();
   });
 });
 

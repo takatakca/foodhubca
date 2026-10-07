@@ -52,7 +52,7 @@ describe('Clover → master menu', () => {
       { item: { id: 'I-PITA' }, price: 1919 }, // the Uber/DoorDash typo: $19.19 instead of $10.19
       { item: { id: 'I-NOT-IN-INVENTORY' }, price: 100 },
     ].map(parseCloverMenuItem).filter((x) => x !== null);
-    const { menu, report } = buildMenuFromClover('Po Poulet', rawItems, rawGroups, { menuItems, menuInfo: { id: 'REF461Z39QP2P', name: 'DoorDash (Po Poulet +20%)' }, platformPrices: ['doordash', 'uber_eats'] });
+    const { menu, report } = buildMenuFromClover('Po Poulet', rawItems, rawGroups, { menuItems, menuInfo: { id: 'MENU-DOORDASH', name: 'DoorDash (Po Poulet +20%)' }, platformPrices: ['doordash', 'uber_eats'] });
     expect(menu.items.map((i) => i.ref).sort()).toEqual(['I-CHOU', 'I-PITA', 'I-POUTINE', 'I-WINGS']);
     expect(report.skipped.notInMenu).toBe(2); // TRIO and the variable-price item
     expect(report.menu).toMatchObject({ name: 'DoorDash (Po Poulet +20%)', items: 5, missingFromInventory: 1 });
@@ -87,7 +87,7 @@ describe.skipIf(!fixtureDir)('the real On2GO Clover menu (private fixture)', () 
     }));
     const groups = mods.modifierGroups.map((g: any) => ({ id: g.id, name: g.name, minRequired: g.minRequired, maxAllowed: g.maxAllowed, modifiers: { elements: g.modifiers.map((m: any, i: number) => ({ id: `${g.id}-${i}`, name: m.name, price: Math.round(Number(m.price) * 100) })) } }));
     const ddMenu = items.items.filter((it: any) => it.menus?.doordashMenu).map((it: any) => ({ itemId: it.id, priceCents: Math.round(Number(it.menus.doordashMenuPrice) * 100) }));
-    const { menu, report } = buildMenuFromClover('Po Poulet', raw, groups, { menuItems: ddMenu, menuInfo: { id: 'REF461Z39QP2P', name: 'DoorDash (Po Poulet +20%)' }, platformPrices: ['doordash'] });
+    const { menu, report } = buildMenuFromClover('Po Poulet', raw, groups, { menuItems: ddMenu, menuInfo: { id: 'MENU-DOORDASH', name: 'DoorDash (Po Poulet +20%)' }, platformPrices: ['doordash'] });
     expect(menu.items.length).toBe(175);
     expect(menu.channelMarkupPct?.doordash).toBe(20);
     expect(report.platformPrices?.doordash?.overrides).toBeLessThan(10);

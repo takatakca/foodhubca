@@ -10,7 +10,7 @@ import { runCloverRetries } from '../lib/foodhub/recovery';
 import { getRepo } from '../lib/foodhub/repo';
 import type { MasterMenu, NormalizedOrder } from '../lib/foodhub/types';
 
-const MID = 'YJ4W50YPJQSQ1';
+const MID = 'TESTMERCH0001';
 const realFetch = globalThis.fetch;
 type Call = { method: string; path: string; body: any };
 let calls: Call[] = [];
@@ -38,7 +38,7 @@ function mockPlatforms() {
       return new Response(null, { status: 204 });
     }
     if (url.hostname === 'api.clover.test') {
-      if (p.endsWith('/order_types')) return json({ elements: [{ id: 'FVF802PYR1WQJ', label: 'Online Order Delivery' }, { id: '8KTC13TB0T688', label: 'Online Order Pick Up' }, { id: 'TTXPHSYPRYGKJ', label: 'Delivery', hidden: true }] });
+      if (p.endsWith('/order_types')) return json({ elements: [{ id: 'OT-ONLINE-DELIV', label: 'Online Order Delivery' }, { id: 'OT-ONLINE-PICKUP', label: 'Online Order Pick Up' }, { id: 'OT-DELIV-HIDDEN', label: 'Delivery', hidden: true }] });
       if (p.endsWith('/atomic_order/orders')) {
         if (cloverMode === 'down') return json({ message: 'Service Unavailable' }, 503);
         const id = `CLV${++seq}`;
@@ -60,7 +60,7 @@ function mockPlatforms() {
 function uberOrderDetails(id: string) {
   return {
     id, display_id: id.slice(-5).toUpperCase(), store: { id: 'ue-popoulet-ndg' }, eater: { first_name: 'Marie', phone: '+15145550123', phone_code: '12345' }, type: id.includes('pickup') ? 'PICK_UP' : 'DELIVERY_BY_UBER',
-    cart: { items: [{ id: 'PQTJ2AABECNZG', external_data: 'PQTJ2AABECNZG', title: '6 MCX + Frites', quantity: 1, price: { base_unit_price: { amount: 1679 }, unit_price: { amount: 1679 }, total_price: { amount: 1739 } },
+    cart: { items: [{ id: 'CLV-6MCX', external_data: 'CLV-6MCX', title: '6 MCX + Frites', quantity: 1, price: { base_unit_price: { amount: 1679 }, unit_price: { amount: 1679 }, total_price: { amount: 1739 } },
       selected_modifier_groups: [{ id: 'GRP-BOISSON', selected_items: [{ id: 'mod:MOD-7UP', external_data: 'MOD-7UP', title: '7UP', quantity: 1, price: { unit_price: { amount: 0 } } }] }, { id: 'GRP-SAUCE', selected_items: [{ id: 'mod:MOD-BBQ', title: 'Sauce BBQ', quantity: 1, price: { unit_price: { amount: 60 } } }] }] }] },
     payment: { charges: { sub_total: { amount: 1739 }, tax: { amount: 260 }, total: { amount: 1999 }, tip: { amount: 300 } } },
     placed_at: new Date().toISOString(),
@@ -70,7 +70,7 @@ function uberOrderDetails(id: string) {
 const menu: MasterMenu = {
   brandName: 'Po Poulet', posMerchantId: MID,
   categories: [{ ref: 'CAT', name: 'Poulet', sortOrder: 0 }],
-  items: [{ ref: 'PQTJ2AABECNZG', posItemRef: 'PQTJ2AABECNZG', name: '6 MCX + Frites + Sauce + Pepsi', price: 13.99, categoryRef: 'CAT', available: true, modifierGroupRefs: ['GRP-BOISSON', 'GRP-SAUCE'] }],
+  items: [{ ref: 'CLV-6MCX', posItemRef: 'CLV-6MCX', name: '6 MCX + Frites + Sauce + Pepsi', price: 13.99, categoryRef: 'CAT', available: true, modifierGroupRefs: ['GRP-BOISSON', 'GRP-SAUCE'] }],
   modifierGroups: [
     { ref: 'GRP-BOISSON', name: 'Boisson', min: 1, max: 1, modifiers: [{ ref: 'MOD-7UP', posModifierRef: 'MOD-7UP', name: '7UP', price: 0, available: true }] },
     { ref: 'GRP-SAUCE', name: 'Sauce', min: 0, max: 2, modifiers: [{ ref: 'MOD-BBQ', posModifierRef: 'MOD-BBQ', name: 'Sauce BBQ', price: 0.5, available: true }] },
@@ -112,8 +112,8 @@ describe('Uber order → Clover → accept', () => {
     const atomic = sent('POST', /\/atomic_order\/orders$/);
     expect(atomic).toHaveLength(1);
     const cart = atomic[0].body.orderCart;
-    expect(cart.orderType).toEqual({ id: 'FVF802PYR1WQJ' });
-    expect(cart.lineItems).toEqual([{ name: '6 MCX + Frites', price: 1679, item: { id: 'PQTJ2AABECNZG' }, modifications: [{ modifier: { id: 'MOD-7UP' }, name: '7UP', amount: 0 }, { modifier: { id: 'MOD-BBQ' }, name: 'Sauce BBQ', amount: 60 }] }]);
+    expect(cart.orderType).toEqual({ id: 'OT-ONLINE-DELIV' });
+    expect(cart.lineItems).toEqual([{ name: '6 MCX + Frites', price: 1679, item: { id: 'CLV-6MCX' }, modifications: [{ modifier: { id: 'MOD-7UP' }, name: '7UP', amount: 0 }, { modifier: { id: 'MOD-BBQ' }, name: 'Sauce BBQ', amount: 60 }] }]);
     expect(cart.note).toMatch(/LIVRAISON \/ DELIVERY \| Client: Marie \| Tél: \+15145550123 code 12345/);
     // Order of events: Clover first, the kitchen ticket, then the platform accept carrying the Clover id.
     const order = calls.findIndex((c) => /atomic_order/.test(c.path));
@@ -127,7 +127,7 @@ describe('Uber order → Clover → accept', () => {
 
   it('pickup uses "Online Order Pick Up"; the pickup tip goes on the Clover payment when it leaves the kitchen', async () => {
     const out = await processIncomingOrder(await uberOrder('uber-pickup-2'));
-    expect(sent('POST', /\/atomic_order\/orders$/)[0].body.orderCart.orderType).toEqual({ id: '8KTC13TB0T688' });
+    expect(sent('POST', /\/atomic_order\/orders$/)[0].body.orderCart.orderType).toEqual({ id: 'OT-ONLINE-PICKUP' });
     await runOrderAction(out.order.id, 'ready');
     await runOrderAction(out.order.id, 'complete');
     const pay = sent('POST', /\/orders\/[^/]+\/payments$/)[0]?.body;

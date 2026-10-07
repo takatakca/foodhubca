@@ -171,9 +171,10 @@ function Connections() {
     const i = setInterval(load, 30_000);
     return () => clearInterval(i);
   }, []);
+  // Ages are measured against the report's own time (refreshed every 30 s), so rendering stays pure.
   const ago = (iso: string | null | undefined) => {
     if (!iso) return t('jamais', 'never');
-    const m = Math.round((Date.now() - Date.parse(iso)) / 60_000);
+    const m = Math.round((Date.parse(h?.at ?? iso) - Date.parse(iso)) / 60_000);
     return m < 1 ? t('à l’instant', 'just now') : m < 60 ? t(`il y a ${m} min`, `${m} min ago`) : m < 48 * 60 ? t(`il y a ${Math.round(m / 60)} h`, `${Math.round(m / 60)} h ago`) : new Date(iso).toLocaleDateString(loc, { day: 'numeric', month: 'short' });
   };
   const NAMES: Record<string, [string, string]> = { database: ['Base de données', 'Database'], sync: ['Synchro', 'Sync'], watchtower: ['Watchtower', 'Watchtower'], recovery: ['Reprise des commandes', 'Order recovery'], inbox: ['Webhooks', 'Webhooks'], clover: ['Clover', 'Clover'] };

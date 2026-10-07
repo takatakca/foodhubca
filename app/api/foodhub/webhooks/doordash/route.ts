@@ -4,7 +4,7 @@ import { applyCourierUpdate, doorDashCourierDetails, doorDashCourierStatus } fro
 import { menuCallbackOutcome } from '@/lib/foodhub/ops';
 import { applyExternalStatus } from '@/lib/foodhub/pipeline';
 import { getRepo } from '@/lib/foodhub/repo';
-import { background, keepUnparsed, parseJson, queueOrder, unauthorized } from '@/lib/foodhub/webhook-utils';
+import { background, intakeUnavailable, keepUnparsed, parseJson, queueOrder, unauthorized } from '@/lib/foodhub/webhook-utils';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -93,7 +93,8 @@ export async function POST(req: NextRequest) {
     background('keep unparsed doordash', () => keepUnparsed('doordash', body, looksLikeOrder ? 'DoorDash order Food Hub could not read — not confirmed; DoorDash will fail it unless it is confirmed on the tablet' : 'Unrecognized DoorDash payload'));
     return NextResponse.json({ ok: true, stored: 'unparsed' }, { status: looksLikeOrder ? 202 : 200 });
   }
-  queueOrder(order);
+  // Saved in the order inbox before the 202 (a server restart loses nothing); not saved → 503, never a 2xx.
+  if (!(await queueOrder(order))) return intakeUnavailable();
   return NextResponse.json({ ok: true }, { status: 202 });
 }
 

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { parseGenericOrder, tgtgAdapter } from '@/lib/foodhub/adapters/partner';
-import { background, keepUnparsed, parseJson, queueOrder, unauthorized } from '@/lib/foodhub/webhook-utils';
+import { background, intakeUnavailable, keepUnparsed, parseJson, queueOrder, unauthorized } from '@/lib/foodhub/webhook-utils';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -17,6 +17,6 @@ export async function POST(req: NextRequest) {
     background('keep unparsed tgtg', () => keepUnparsed('tgtg', body, 'Payload shape not recognized yet'));
     return NextResponse.json({ ok: true, stored: 'unparsed' });
   }
-  queueOrder(order);
+  if (!(await queueOrder(order))) return intakeUnavailable();
   return NextResponse.json({ ok: true });
 }

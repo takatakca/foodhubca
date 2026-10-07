@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { parseSkipOrder, skipAdapter } from '@/lib/foodhub/adapters/skip';
-import { background, keepUnparsed, parseJson, queueOrder, unauthorized } from '@/lib/foodhub/webhook-utils';
+import { background, intakeUnavailable, keepUnparsed, parseJson, queueOrder, unauthorized } from '@/lib/foodhub/webhook-utils';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -26,6 +26,7 @@ export async function POST(req: NextRequest) {
     background('keep unparsed skip order', () => keepUnparsed('skip', body, 'JET Connect order missing id/items'));
     return NextResponse.json({ error: 'Unrecognized order payload' }, { status: 400 });
   }
-  queueOrder(order);
+  // Saved before the 202 (a server restart loses nothing); not saved → non-2xx and JET sends it to the Skip tablet.
+  if (!(await queueOrder(order))) return intakeUnavailable();
   return new NextResponse(null, { status: 202 });
 }

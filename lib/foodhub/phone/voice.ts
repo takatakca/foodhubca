@@ -101,9 +101,9 @@ async function turnWithBudget(call: PhoneCall, text: string, settings: PhoneSett
   inflight().set(call.id, job);
   const reply = await Promise.race([job, new Promise<null>((r) => setTimeout(() => r(null), TURN_BUDGET_MS))]);
   if (!reply) return twiml(`${sayXml(WAIT[call.lang], settings, call.lang)}<Redirect method="POST">${VOICE_PATH}/wait?n=1</Redirect>`);
-  const fresh = (await getCall(call.id)) ?? call;
-  await saveCall({ ...fresh, pending: undefined });
-  return render(fresh, reply, line, settings);
+  // The reply is consumed here: the record saved (and used below) no longer carries it.
+  const done = await saveCall({ ...((await getCall(call.id)) ?? call), pending: undefined });
+  return render(done, reply, line, settings);
 }
 
 /** Twilio <Gather> action: the caller said something (or pressed a key, or nothing). */
@@ -141,9 +141,8 @@ export async function waitTurn(params: URLSearchParams, n: number): Promise<Resp
   const job = inflight().get(call.id);
   const reply = job ? await Promise.race([job, new Promise<null>((r) => setTimeout(() => r(null), TURN_BUDGET_MS))]) : (await getCall(call.id))?.pending?.reply ?? null;
   if (reply) {
-    const fresh = (await getCall(call.id)) ?? call;
-    await saveCall({ ...fresh, pending: undefined });
-    return render(fresh, reply, ls.line, settings);
+    const done = await saveCall({ ...((await getCall(call.id)) ?? call), pending: undefined });
+    return render(done, reply, ls.line, settings);
   }
   if (n < 3 && job) return twiml(`<Pause length="1"/><Redirect method="POST">${VOICE_PATH}/wait?n=${n + 1}</Redirect>`);
   return render(call, { say: NO_AGENT[call.lang].replace(/^\S+\.\s*/, ''), next: 'handoff', lang: call.lang }, ls.line, settings);

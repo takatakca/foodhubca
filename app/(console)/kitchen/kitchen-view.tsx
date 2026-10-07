@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Flame, Maximize, Minimize, MonitorSmartphone, Snowflake } from 'lucide-react';
+import { Hint } from '@/components/help/hint';
 import { Button, ButtonLink } from '@/components/ui/button';
 import { useNow } from '@/components/ui/timer';
 import { useToast } from '@/components/ui/toast';
@@ -52,11 +53,11 @@ export function KitchenView() {
         <div className="num ml-2 text-3xl font-extrabold text-ink-2" suppressHydrationWarning>{new Date(now).toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' })}</div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {here && can('stores:toggle') && (
-            <Button variant={kitchen?.busy ? 'danger' : 'outline'} size="lg" loading={busy} onClick={toggleBusy} icon={kitchen?.busy ? <Flame className="size-5" /> : <Snowflake className="size-5" />}>
+            <Hint id="kitchen.busy"><Button variant={kitchen?.busy ? 'danger' : 'outline'} size="lg" loading={busy} onClick={toggleBusy} icon={kitchen?.busy ? <Flame className="size-5" /> : <Snowflake className="size-5" />}>
               {kitchen?.busy ? t(`Occupé · ${kitchen.minutes} min`, `Busy · ${kitchen.minutes} min`) : t(`Normal · ${kitchen?.minutes ?? 15} min`, `Normal · ${kitchen?.minutes ?? 15} min`)}
-            </Button>
+            </Button></Hint>
           )}
-          <Button variant="outline" size="lg" onClick={() => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => undefined)} icon={full ? <Minimize className="size-5" /> : <Maximize className="size-5" />}>{full ? t('Quitter', 'Exit') : t('Plein écran', 'Full screen')}</Button>
+          <Hint id="kitchen.fullscreen"><Button variant="outline" size="lg" onClick={() => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => undefined)} icon={full ? <Minimize className="size-5" /> : <Maximize className="size-5" />}>{full ? t('Quitter', 'Exit') : t('Plein écran', 'Full screen')}</Button></Hint>
         </div>
       </div>
 
@@ -70,14 +71,15 @@ export function KitchenView() {
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_340px]">
         <section>
-          <div className="mb-3 flex items-baseline gap-2 text-lg font-extrabold">{t('À préparer', 'To cook')}<span className="num text-ink-3">{cooking.length}</span></div>
+          {/* The tip sits on the column title, not on each ticket: no card pops over the next ticket during a rush, and the tour finds it even with no orders. */}
+          <Hint id="kitchen.ticket"><div className="mb-3 flex items-baseline gap-2 text-lg font-extrabold">{t('À préparer', 'To cook')}<span className="num text-ink-3">{cooking.length}</span></div></Hint>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-3">
             {cooking.map((o) => <OrderCard key={o.id} o={o} big onOpen={() => setOpen(o.id)} />)}
           </div>
           {orders && cooking.length === 0 && <div className="rounded-xl border border-dashed border-line-2 px-6 py-16 text-center text-lg text-ink-3">{t('Aucune commande à préparer. 🍳', 'Nothing to cook. 🍳')}</div>}
         </section>
         <section>
-          <div className="mb-3 flex items-baseline gap-2 text-lg font-extrabold">{t('Prêtes — attendent le livreur', 'Ready — waiting for courier')}<span className="num text-ink-3">{ready.length}</span></div>
+          <Hint id="kitchen.pickup"><div className="mb-3 flex items-baseline gap-2 text-lg font-extrabold">{t('Prêtes — attendent le livreur', 'Ready — waiting for courier')}<span className="num text-ink-3">{ready.length}</span></div></Hint>
           <div className="flex flex-col gap-3">{ready.map((o) => <OrderCard key={o.id} o={o} onOpen={() => setOpen(o.id)} />)}</div>
           {orders && ready.length === 0 && <div className="rounded-xl border border-dashed border-line-2 px-4 py-10 text-center text-ink-3">—</div>}
           {!viewer.device && <p className={cn('mt-6 text-xs text-ink-4')}><Link href="/orders" className="underline">{t('Vue tableau des commandes', 'Orders board view')}</Link></p>}

@@ -104,6 +104,11 @@ describe('passwordless sign-in (memory store, dev codes)', () => {
     if (!s.ok) return;
     expect(s.sentTo).not.toContain('sara@');
     expect(s.devCode).toMatch(/^\d{6}$/); // no email provider in tests → shown on screen in dev only
+    // never on screen once live connectors are on, even with the insecure flag (go-live audit)
+    process.env.LIVE_CONNECTORS_GLOBAL_ENABLED = 'true'; process.env.FOODHUB_INSECURE_SHOW_CODES = 'true';
+    const live = await startChallenge('sara@example.com');
+    expect(live.ok && live.devCode).toBeFalsy();
+    delete process.env.LIVE_CONNECTORS_GLOBAL_ENABLED; delete process.env.FOODHUB_INSECURE_SHOW_CODES;
     const wrongCode = s.devCode === '000000' ? '111111' : '000000';
     expect((await verifyCode(s.challengeId, wrongCode)).ok).toBe(false);
     const ok = await verifyCode(s.challengeId, s.devCode!);
@@ -130,7 +135,12 @@ describe('contacts, deadlines and customer messages', () => {
     const at = '2026-10-04T18:00:00.000Z';
     expect(deadlineFor({ channel: 'uber_eats', createdAt: at })).toBe('2026-10-04T18:11:30.000Z');
     expect(deadlineFor({ channel: 'skip', createdAt: at })).toBe('2026-10-04T18:05:00.000Z');
-    expect(deadlineFor({ channel: 'doordash', createdAt: at })).toBeNull();
+    expect(deadlineFor({ channel: 'doordash', createdAt: at })).toBe('2026-10-04T18:03:00.000Z');
+    expect(deadlineFor({ channel: 'tgtg', createdAt: at })).toBeNull();
+    // the platform's clock starts at placement: a webhook that arrived 40 s late shortens the countdown
+    expect(deadlineFor({ channel: 'uber_eats', createdAt: at, placedAt: '2026-10-04T17:59:20.000Z' })).toBe('2026-10-04T18:10:50.000Z');
+    // an implausible placedAt (future, or hours earlier) is ignored
+    expect(deadlineFor({ channel: 'uber_eats', createdAt: at, placedAt: '2026-10-04T12:00:00.000Z' })).toBe('2026-10-04T18:11:30.000Z');
   });
   it('relay numbers can be called (with the access code) but not texted', () => {
     const uber = customerContact({ channel: 'uber_eats', customerName: 'Ana B', raw: { eater: { phone: '+1 514 555 0199', phone_code: '123 45' } } } as any);

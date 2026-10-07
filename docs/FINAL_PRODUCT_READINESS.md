@@ -28,7 +28,7 @@ The rules every change must respect are in [LOCKED_DECISIONS.md](LOCKED_DECISION
 | Unit tests | `npm test` | 173 tests across sign-in, sessions, PINs, approvals, orders, Clover, menus, reconciliation, Watchtower |
 | Production build | `npm run build` | every page and API route builds |
 | Go-live checklist | Settings → Go-live (`/settings/go-live`) | what is configured / missing, computed from the real configuration (never prints secrets) |
-| Food Hub verification | `npm run verify:foodhub` | 374 end-to-end checks against simulated Uber Eats, DoorDash, Skip (JET Connect), Clover, Resend, Twilio and a team chat |
+| Food Hub verification | `npm run verify:foodhub` | 382 end-to-end checks against simulated Uber Eats, DoorDash, Skip (JET Connect), Clover, Resend, Twilio and a team chat |
 
 ## Live-data rule
 

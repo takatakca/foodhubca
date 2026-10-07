@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
       const storeId = String(body.meta?.resource_id || body.store_id || body.meta?.store_id || '');
       const store = storeId ? await repo.findStore('uber_eats', storeId) : null;
       const off = event === 'store.deprovisioned';
-      if (store) await repo.updateStore(store.id, { meta: { ...store.meta, provisioned: !off, provisionChangedAt: nowIso() } });
+      if (store) await repo.updateStore(store.id, { meta: { ...store.meta, provisioned: !off, awaitingProvision: false, provisionChangedAt: nowIso() } });
       await logActivity({ actor: 'Uber Eats', source: 'platform', kind: 'store_status', action: off ? 'platform_deprovisioned' : 'platform_provisioned', status: off ? 'failed' : 'success', channel: 'uber_eats',
         brandName: store?.brandName, locationCode: store?.locationCode, storeId: store?.id,
         summary: off ? `Uber Eats disconnected store ${store ? `${store.brandName} · ${store.locationCode}` : storeId} from Food Hub — orders will no longer arrive here. Reconnect it under Stores.` : `Uber Eats connected store ${store ? `${store.brandName} · ${store.locationCode}` : storeId} to Food Hub` });

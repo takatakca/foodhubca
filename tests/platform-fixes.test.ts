@@ -96,20 +96,20 @@ describe('DoorDash menu pull and merchant cancellation', () => {
     delete process.env.DOORDASH_MERCHANT_CANCEL;
   });
 
-  it('Menu Request returns the store’s (shared) menu as an array with DoorDash’s menu id', async () => {
-    const { GET } = await import('../app/api/foodhub/webhooks/doordash/menu/[locationId]/route');
+  it('Menu Request returns the store’s (shared) menu with DoorDash’s menu id', async () => {
+    const { GET } = await import('../app/api/foodhub/webhooks/doordash/[locationId]/route');
     const { saveMenuSharing } = await import('../lib/foodhub/menu/shared');
     await getRepo().saveMenu({ brandName: 'Po Poulet', categories: [{ ref: 'c1', name: 'Plats', sortOrder: 0 }], items: [{ ref: 'i1', name: 'Poutine', price: 9.5, categoryRef: 'c1', available: true, modifierGroupRefs: [] }], modifierGroups: [], updatedAt: 'x' });
     await saveMenuSharing({ 'Pi Pita': 'Po Poulet' });
     await getRepo().upsertStore({ channel: 'doordash', channelStoreId: 'dd-pita', brandName: 'Pi Pita', locationCode: 'NDG', autoAccept: true, online: true, meta: { doordashMenuId: 'menu-7' } });
-    const get = (id: string, auth = 'dd-secret') => GET(new Request(`http://hub.local/api/foodhub/webhooks/doordash/menu/${id}`, { headers: { authorization: auth } }) as any, { params: Promise.resolve({ locationId: id }) });
+    const get = (id: string, auth = 'dd-secret') => GET(new Request(`http://hub.local/api/foodhub/webhooks/doordash/${id}`, { headers: { authorization: auth } }) as any, { params: Promise.resolve({ locationId: id }) });
     expect((await get('dd-pita', 'wrong')).status).toBe(401);
     expect((await get('nope')).status).toBe(404);
     const res = await get('dd-pita');
     const body = await res.json();
-    expect(Array.isArray(body)).toBe(true);
-    expect(body[0]).toMatchObject({ id: 'menu-7', store: { merchant_supplied_id: 'dd-pita', provider_type: 'takatak' }, menu: { name: 'Pi Pita' } });
-    expect(body[0].menu.categories[0].items[0].name).toBe('Poutine');
+    expect(body.store).toMatchObject({ merchant_supplied_id: 'dd-pita', provider_type: 'takatak' });
+    expect(body.menus[0]).toMatchObject({ id: 'menu-7', menu: { name: 'Pi Pita' } });
+    expect(body.menus[0].menu.categories[0].items[0].name).toBe('Poutine');
   });
 
   it('cancel is refused unless DoorDash allowlisted it; then PATCHes /cancellation with the mapped reason', async () => {

@@ -1,6 +1,7 @@
 // Clover POS layer for TAKATAK Food Hub.
 //  - injectOrder: creates the delivery order in Clover (atomic order API) so the
-//    kitchen sees it on the Clover devices, with the marketplace price.
+//    kitchen sees it on the Clover devices, with the marketplace price and the platform
+//    promotion as an order-level discount (so the payment recorded at hand-off closes it).
 //  - importMenu: builds a Food Hub master menu from Clover inventory, so menus are
 //    managed once and pushed to every channel.
 import { fromCents, missingEnv, stripSlash, timedFetch, toCents, MARKETPLACE_LABELS } from '../config';
@@ -57,16 +58,41 @@ export function cloverReadiness() {
 /** `skipped` = Clover is deliberately not in the picture (injection off, or no merchant configured anywhere); every other miss is a failure. */
 export type InjectResult = { ok: true; posOrderId: string } | { ok: false; skipped?: boolean; error: string };
 
-/** True when this deployment expects orders to reach Clover (injection on and at least one merchant configured). */
+/**
+ * True when this deployment expects orders to reach Clover: injection on and either a merchant in the environment
+ * or the Clover app configured (merchants then connect with one click — an order must still never be accepted
+ * without Clover just because the merchant came through the app instead of an env token).
+ */
 export function cloverExpected(): boolean {
-  return cloverInjectionEnabled() && knownCloverMerchants().length > 0;
+  return cloverInjectionEnabled() && (knownCloverMerchants().length > 0 || cloverAppConfigured());
+}
+
+/** The merchant to use when a store has none: CLOVER_MERCHANT_ID, else the only merchant connected through the app. */
+export async function defaultCloverMerchant(): Promise<string | null> {
+  if (process.env.CLOVER_MERCHANT_ID) return process.env.CLOVER_MERCHANT_ID;
+  const connected = await connectedCloverMerchantIds().catch(() => [] as string[]);
+  return connected.length === 1 ? connected[0] : null;
+}
+
+/**
+ * Order-level Clover discount for the platform promotion on the order (NormalizedOrder.discount: restaurant-funded,
+ * pre-tax, in dollars). It is the same discount the hand-off payment subtracts (cloverPaymentAmounts: subtotal −
+ * discount + tax), so Clover's own total matches the payment and the order closes as paid instead of showing a
+ * balance due. Clover Discount objects take a NEGATIVE amount in cents and a name of at most 64 characters.
+ * Capped at the line items so a Clover total never goes negative; null below one cent (same toCents rounding).
+ */
+export function cloverOrderDiscount(order: Pick<StoredOrder, 'marketplace' | 'discount'>, lineItemsTotalCents: number): { name: string; amount: number } | null {
+  const cents = Math.min(Math.max(0, toCents(order.discount)), Math.max(0, Math.round(Number(lineItemsTotalCents) || 0)));
+  if (cents < 1) return null;
+  const label = MARKETPLACE_LABELS[order.marketplace] || order.marketplace;
+  return { name: `${label} promotion`.slice(0, 64), amount: -cents };
 }
 
 export async function injectOrder(order: StoredOrder, merchantId?: string | null, opts: { orderTypeId?: string | null } = {}): Promise<InjectResult> {
   if (!cloverInjectionEnabled()) return { ok: false, skipped: true, error: 'POS injection is turned off (FOODHUB_POS_INJECTION=off).' };
-  const mid = merchantId || process.env.CLOVER_MERCHANT_ID;
+  const mid = merchantId || (await defaultCloverMerchant());
   // No merchant for this store: harmless only when Clover is not configured at all; otherwise the store mapping is incomplete.
-  if (!mid) return { ok: false, skipped: knownCloverMerchants().length === 0, error: 'No Clover merchant configured for this store.' };
+  if (!mid) return { ok: false, skipped: !cloverExpected(), error: 'No Clover merchant configured for this store — set it under Stores → Mapping.' };
   const token = await cloverToken(mid);
   // A mapped merchant without a token is a configuration fault, never a reason to accept without Clover.
   if (!token) return { ok: false, skipped: false, error: `No Clover API token for merchant ${mid} (install the Clover app for it, or add it to CLOVER_MERCHANT_TOKENS).` };
@@ -86,6 +112,7 @@ export async function injectOrder(order: StoredOrder, merchantId?: string | null
     for (let i = 0; i < qty; i += 1) lineItems.push({ ...base });
   }
   if (lineItems.length === 0) return { ok: false, error: 'Order has no line items to inject.' };
+  const discount = cloverOrderDiscount(order, lineItems.reduce((sum, l) => sum + (Number(l.price) || 0), 0));
 
   const label = MARKETPLACE_LABELS[order.marketplace] || order.marketplace;
   const scheduled = order.timeline?.scheduledFor
@@ -96,6 +123,8 @@ export async function injectOrder(order: StoredOrder, merchantId?: string | null
       title: `${scheduled ? '⏰ ' : ''}${label} #${order.displayId || order.externalOrderId.slice(0, 8)}`.slice(0, 127),
       note: [scheduled, order.customerName ? `Customer: ${order.customerName}` : '', order.fulfillment.toUpperCase(), order.notes || ''].filter(Boolean).join(' | ').slice(0, 255),
       lineItems,
+      // Platform promotion as an order-level discount (negative cents) — absent when there is none.
+      ...(discount ? { discounts: [discount] } : {}),
       ...(opts.orderTypeId ? { orderType: { id: opts.orderTypeId } } : {}),
     },
   };

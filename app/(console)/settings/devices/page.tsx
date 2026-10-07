@@ -8,15 +8,20 @@ import { Button } from '@/components/ui/button';
 import { Banner, Card, EmptyState } from '@/components/ui/card';
 import { Field, Input, Select } from '@/components/ui/form';
 import { Modal } from '@/components/ui/overlay';
+import { FormDraftNote } from '@/components/ui/save-chip';
 import { useToast } from '@/components/ui/toast';
+import { Hint } from '@/components/help/hint';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { SettingsHead } from '../settings-ui';
 import { ago, api, ApiError } from '@/lib/ui/api';
+import { formDraftId, useFormDraft } from '@/lib/ui/use-form-draft';
 import { playSound, unlockAudio } from '@/lib/ui/sound';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
 
 type Device = { id: string; name: string; locationCode: string; enrolledBy: string; enrolledAt: string; lastSeenAt?: string | null; soundOn?: boolean | null; visible?: boolean | null; battery?: number | null; charging?: boolean | null; signedIn?: string | null; status: 'online' | 'offline' | 'never' | 'revoked' };
+/** What the enrol / edit pop-ups keep on this device when closed by mistake (a name and a location — nothing secret). */
+type TabletForm = { name: string; locationCode: string };
 
 export default function DevicesPage() {
   const { t, lang } = useI18n();
@@ -50,10 +55,10 @@ export default function DevicesPage() {
   return (
     <div>
       <SettingsHead title={t('Tablettes de cuisine', 'Kitchen tablets')} intro={t('Une tablette enregistrée reste connectée un an et montre l’écran NIP au lieu de la connexion par courriel. Elle envoie un signe de vie toutes les 30 secondes : si elle s’éteint, perd le son ou le réseau pendant le service, la surveillance avertit les gérants — comme Uber quand votre tablette est hors ligne.', 'An enrolled tablet stays connected for a year and shows the PIN screen instead of the email sign-in. It checks in every 30 seconds: if it turns off, loses sound or network during service, the watchtower warns the managers — like Uber when your tablet is offline.')}
-        right={manage && !here ? <Button onClick={() => setEnrol(true)} icon={<Plus className="size-4" />}>{t('Enregistrer cet écran', 'Enrol this screen')}</Button> : undefined} />
+        right={manage && !here ? <Hint id="devices.enrol"><Button onClick={() => setEnrol(true)} icon={<Plus className="size-4" />}>{t('Enregistrer cet écran', 'Enrol this screen')}</Button></Hint> : undefined} />
       {err && <Banner tone="stop" className="mb-4">{err}</Banner>}
       {here && (
-        <Banner tone="info" className="mb-4" action={<div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => { unlockAudio(); playSound('order'); }} icon={<Volume2 className="size-4" />}>{t('Tester le son', 'Test sound')}</Button><Button size="sm" onClick={lockNow} icon={<Lock className="size-4" />}>{t('Verrouiller (écran NIP)', 'Lock (PIN screen)')}</Button></div>}>
+        <Banner tone="info" className="mb-4" action={<div className="flex flex-wrap gap-2"><Hint id="devices.sound"><Button variant="outline" onClick={() => { unlockAudio(); playSound('order'); }} icon={<Volume2 className="size-4" />}>{t('Tester le son', 'Test sound')}</Button></Hint><Button onClick={lockNow} icon={<Lock className="size-4" />}>{t('Verrouiller (écran NIP)', 'Lock (PIN screen)')}</Button></div>}>
           {t('Cet écran est une tablette de cuisine :', 'This screen is a kitchen tablet:')} <strong>{devices.find((d) => d.id === here)?.name ?? '…'}</strong>
         </Banner>
       )}
@@ -76,10 +81,10 @@ export default function DevicesPage() {
       </div>
 
       {enrol && <EnrolDialog locations={locations} onClose={() => setEnrol(false)} onDone={async (name) => { setEnrol(false); toast.success(t('Tablette enregistrée', 'Tablet enrolled'), name); await load(); router.refresh(); }} />}
-      {rename && <RenameDialog d={rename} locations={locations} onClose={() => setRename(null)} onDone={async () => { setRename(null); await load(); }} />}
+      {rename && <EditDialog d={rename} locations={locations} onClose={() => setRename(null)} onDone={async (name) => { setRename(null); toast.success(t('Tablette modifiée', 'Tablet updated'), name); await load(); }} />}
       {remove && (
         <Modal size="sm" title={t('Retirer cette tablette ?', 'Remove this tablet?')} onClose={() => setRemove(null)}
-          footer={<><Button variant="ghost" onClick={() => setRemove(null)}>{t('Annuler', 'Cancel')}</Button><Button variant="danger" onClick={() => doRemove(remove)}>{t('Retirer', 'Remove')}</Button></>}>
+          footer={<><Button variant="ghost" size="lg" onClick={() => setRemove(null)}>{t('Annuler', 'Cancel')}</Button><Button variant="danger" size="lg" onClick={() => doRemove(remove)}>{t('Retirer', 'Remove')}</Button></>}>
           <p className="text-sm text-ink-2"><strong className="text-ink">{remove.name}</strong> · {shortLoc(locName(remove.locationCode))}. {t('Elle est déconnectée tout de suite et devra être enregistrée de nouveau. Utilisez ceci si une tablette est perdue ou volée.', 'It is signed out at once and must be enrolled again. Use this if a tablet is lost or stolen.')}</p>
         </Modal>
       )}
@@ -109,9 +114,9 @@ function DeviceCard({ d, here, manage, lang, onRename, onRemove }: { d: Device; 
         {typeof d.battery === 'number' && <Badge tone={d.battery < 0.2 && !d.charging ? 'stop' : 'neutral'} icon={<Battery className="size-3" />}>{Math.round(d.battery * 100)} %</Badge>}
         {d.signedIn && <Badge tone="dark">{d.signedIn}</Badge>}
       </div>
-      <div className="mt-3 flex items-center justify-between border-t border-line pt-3 text-[11px] text-ink-3">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-t border-line pt-3 text-[11px] text-ink-3">
         <span>{t('Par', 'By')} {d.enrolledBy} · {new Date(d.enrolledAt).toLocaleDateString(lang === 'fr' ? 'fr-CA' : 'en-CA')}</span>
-        {manage && <span className="flex gap-1"><Button size="xs" variant="ghost" onClick={onRename} icon={<Pencil className="size-3" />}>{t('Renommer', 'Rename')}</Button><Button size="xs" variant="ghost" onClick={onRemove} icon={<Trash2 className="size-3" />}>{t('Retirer', 'Remove')}</Button></span>}
+        {manage && <span className="flex gap-1"><Hint id="devices.edit"><Button variant="ghost" onClick={onRename} icon={<Pencil className="size-4" />}>{t('Modifier', 'Edit')}</Button></Hint><Hint id="devices.remove"><Button variant="ghost" onClick={onRemove} icon={<Trash2 className="size-4" />}>{t('Retirer', 'Remove')}</Button></Hint></span>}
       </div>
     </Card>
   );
@@ -119,21 +124,31 @@ function DeviceCard({ d, here, manage, lang, onRename, onRemove }: { d: Device; 
 
 function EnrolDialog({ locations, onClose, onDone }: { locations: Array<{ code: string; name: string }>; onClose: () => void; onDone: (name: string) => void }) {
   const { t } = useI18n();
-  const [name, setName] = useState('');
-  const [code, setCode] = useState(locations[0]?.code ?? '');
+  const { viewer } = useViewer();
+  const toast = useToast();
+  // The name and location typed are kept on this device until "Enrol" succeeds (there is no code or secret in this form).
+  const f = useFormDraft<TabletForm>(formDraftId('device-enrol'), viewer.username, { name: '', locationCode: locations[0]?.code ?? '' });
+  // A kept location that is no longer one of yours falls back to the first one (what the list shows).
+  const code = locations.some((l) => l.code === f.value.locationCode) ? f.value.locationCode : (locations[0]?.code ?? '');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  /** X, backdrop, Esc or Cancel: nothing is sent; what was typed waits for the next opening. */
+  function close() {
+    if (f.dirty) toast.info(t('Gardé — rouvrez pour terminer', 'Kept — reopen to finish'));
+    onClose();
+  }
   async function go() {
     setBusy(true); setErr('');
-    try { unlockAudio(); const r = await api<{ device: Device }>('/api/foodhub/devices', { method: 'POST', json: { name, locationCode: code } }); onDone(r.device.name); }
+    try { unlockAudio(); const r = await api<{ device: Device }>('/api/foodhub/devices', { method: 'POST', json: { name: f.value.name, locationCode: code } }); f.clear(); onDone(r.device.name); }
     catch (e) { if (!(e instanceof ApiError && e.status === 499)) setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
   return (
-    <Modal size="sm" title={t('Enregistrer cet écran', 'Enrol this screen')} subtitle={t('Faites-le sur la tablette elle-même.', 'Do this on the tablet itself.')} onClose={onClose}
-      footer={<><Button variant="ghost" onClick={onClose}>{t('Annuler', 'Cancel')}</Button><Button loading={busy} disabled={!code} onClick={go}>{t('Enregistrer', 'Enrol')}</Button></>}>
+    <Modal size="sm" title={t('Enregistrer cet écran', 'Enrol this screen')} subtitle={t('Faites-le sur la tablette elle-même.', 'Do this on the tablet itself.')} onClose={close}
+      footer={<><Button variant="ghost" size="lg" onClick={close}>{t('Annuler', 'Cancel')}</Button><Button size="lg" loading={busy} disabled={!code} onClick={go}>{t('Enregistrer', 'Enrol')}</Button></>}>
+      <FormDraftNote restored={f.restored} onDiscard={f.discard} />
       <div className="grid gap-3">
-        <Field label={t('Nom de la tablette', 'Tablet name')}><Input autoFocus value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder={t('Tablette passe — NDG', 'Pass tablet — NDG')} /></Field>
-        <Field label={t('Succursale', 'Location')}><Select value={code} onChange={(e) => setCode(e.target.value)}>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select></Field>
+        <Field label={t('Nom de la tablette', 'Tablet name')}><Input autoFocus value={f.value.name} onChange={(e) => f.set((v) => ({ ...v, name: e.target.value }))} maxLength={60} placeholder={t('Tablette passe — NDG', 'Pass tablet — NDG')} /></Field>
+        <Field label={t('Succursale', 'Location')}><Select value={code} onChange={(e) => f.set((v) => ({ ...v, locationCode: e.target.value }))}>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select></Field>
         <p className="text-xs leading-relaxed text-ink-3">{t('Ensuite, les employés de cette succursale déverrouillent l’écran avec leur NIP. Gardez la tablette branchée, le son au maximum et le navigateur ouvert sur Food Hub.', 'Then staff at this location unlock the screen with their PIN. Keep the tablet plugged in, the volume up and the browser open on Food Hub.')}</p>
         {err && <Banner tone="stop">{err}</Banner>}
       </div>
@@ -141,22 +156,30 @@ function EnrolDialog({ locations, onClose, onDone }: { locations: Array<{ code: 
   );
 }
 
-function RenameDialog({ d, locations, onClose, onDone }: { d: Device; locations: Array<{ code: string; name: string }>; onClose: () => void; onDone: () => void }) {
+function EditDialog({ d, locations, onClose, onDone }: { d: Device; locations: Array<{ code: string; name: string }>; onClose: () => void; onDone: (name: string) => void }) {
   const { t } = useI18n();
-  const [name, setName] = useState(d.name);
-  const [code, setCode] = useState(d.locationCode);
+  const { viewer } = useViewer();
+  const toast = useToast();
+  // One kept draft per tablet: closing by mistake keeps the new name / location until "Save" succeeds.
+  const f = useFormDraft<TabletForm>(formDraftId('device', d.id), viewer.username, { name: d.name, locationCode: d.locationCode });
+  const code = locations.some((l) => l.code === f.value.locationCode) ? f.value.locationCode : d.locationCode;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  function close() {
+    if (f.dirty) toast.info(t('Gardé — rouvrez pour terminer', 'Kept — reopen to finish'));
+    onClose();
+  }
   async function go() {
     setBusy(true); setErr('');
-    try { await api(`/api/foodhub/devices/${d.id}`, { method: 'PATCH', json: { name, locationCode: code } }); onDone(); }
+    try { const r = await api<{ device: Device | null }>(`/api/foodhub/devices/${d.id}`, { method: 'PATCH', json: { name: f.value.name, locationCode: code } }); f.clear(); onDone(r.device?.name ?? f.value.name); }
     catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
   return (
-    <Modal size="sm" title={t('Modifier la tablette', 'Edit tablet')} onClose={onClose} footer={<><Button variant="ghost" onClick={onClose}>{t('Annuler', 'Cancel')}</Button><Button loading={busy} onClick={go}>{t('Enregistrer', 'Save')}</Button></>}>
+    <Modal size="sm" title={t('Modifier la tablette', 'Edit tablet')} onClose={close} footer={<><Button variant="ghost" size="lg" onClick={close}>{t('Annuler', 'Cancel')}</Button><Button size="lg" loading={busy} onClick={go}>{t('Enregistrer', 'Save')}</Button></>}>
+      <FormDraftNote restored={f.restored} onDiscard={f.discard} />
       <div className="grid gap-3">
-        <Field label={t('Nom', 'Name')}><Input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} /></Field>
-        <Field label={t('Succursale', 'Location')}><Select value={code} onChange={(e) => setCode(e.target.value)}>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select></Field>
+        <Field label={t('Nom', 'Name')}><Input value={f.value.name} onChange={(e) => f.set((v) => ({ ...v, name: e.target.value }))} maxLength={60} /></Field>
+        <Field label={t('Succursale', 'Location')}><Select value={code} onChange={(e) => f.set((v) => ({ ...v, locationCode: e.target.value }))}>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select></Field>
         {err && <Banner tone="stop">{err}</Banner>}
       </div>
     </Modal>

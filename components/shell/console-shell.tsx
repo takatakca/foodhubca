@@ -2,8 +2,19 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { ChevronDown, ChevronsLeft, ChevronsRight, Globe, Lock, LogOut, MapPin, Menu as MenuIcon, Search, Sparkles, UserRound, Volume2, VolumeX, WifiOff, X } from 'lucide-react';
+import { ConfirmProvider } from '@/components/ui/confirm';
+import { CoachMark, Hint } from '@/components/help/hint';
+import { HelpDrawer } from '@/components/help/help-drawer';
+import { HelpProvider } from '@/components/help/help-provider';
+import { TakTakButton } from '@/components/help/taktak-button';
+import { Tour } from '@/components/help/tour';
+import { Welcome } from '@/components/help/welcome';
+import { ErrorBoundary } from '@/components/supervisor/error-boundary';
+import { clearAllDrafts } from '@/lib/ui/autosave-core';
+import { nextTextSize, useDisplay } from '@/lib/ui/display';
+import { health, installSupervisor, setScreen, subscribe as subscribeHealth } from '@/lib/ui/supervisor';
 import { Kbd, StatusDot } from '@/components/ui/badge';
 import { ToastProvider } from '@/components/ui/toast';
 import { ApprovalProvider } from '@/components/live/approval';
@@ -24,15 +35,24 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
   const { viewer } = useViewer();
   return (
     <ToastProvider>
-      <ApprovalProvider>
-        <PulseProvider fixedScope={viewer.device ? [viewer.device.locationCode] : undefined}>
-          <Frame>{children}</Frame>
-          <IncomingOrders />
-          <CancelAlarm />
-          <CommandPalette />
-          {viewer.device && <DeviceHeartbeat />}
-        </PulseProvider>
-      </ApprovalProvider>
+      <ConfirmProvider>
+        <HelpProvider user={viewer.username}>
+          <ApprovalProvider>
+            <PulseProvider fixedScope={viewer.device ? [viewer.device.locationCode] : undefined}>
+              <Frame>{children}</Frame>
+              <IncomingOrders />
+              <CancelAlarm />
+              <CommandPalette />
+              {viewer.device && <DeviceHeartbeat />}
+              <TakTakButton />
+              <HelpDrawer />
+              <CoachMark />
+              <Tour />
+              <Welcome name={viewer.name} />
+            </PulseProvider>
+          </ApprovalProvider>
+        </HelpProvider>
+      </ConfirmProvider>
     </ToastProvider>
   );
 }
@@ -46,7 +66,8 @@ function Frame({ children }: { children: ReactNode }) {
   const [more, setMore] = useState(false);
   useEffect(() => { try { setCollapsed(localStorage.getItem('takatak.rail') === '1'); } catch { /* ignore */ } }, []);
   useEffect(() => { const o = () => setCopilot(true); window.addEventListener('takatak:copilot', o); return () => window.removeEventListener('takatak:copilot', o); }, []);
-  useEffect(() => { setMore(false); }, [pathname]);
+  useEffect(() => { setMore(false); setScreen(pathname); }, [pathname]);
+  useEffect(() => { installSupervisor(); }, []);
   useEffect(() => {
     if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('/sw.js').catch(() => undefined);
     const first = () => unlockAudio();
@@ -80,7 +101,9 @@ function Frame({ children }: { children: ReactNode }) {
       <div className={cn('flex min-h-dvh flex-col transition-[padding] duration-200', collapsed ? 'lg:pl-[72px]' : 'lg:pl-60')}>
         <Topbar onCopilot={() => setCopilot(true)} />
         <StatusBanners />
-        <main className={cn('mx-auto w-full flex-1 px-4 pt-5 pb-28 sm:px-6 lg:pb-10', kitchen ? 'max-w-none' : 'max-w-[1400px]')}>{children}</main>
+        <main className={cn('mx-auto w-full flex-1 px-4 pt-5 pb-28 sm:px-6 lg:pb-24', kitchen ? 'max-w-none' : 'max-w-[1400px]')}>
+          <ErrorBoundary resetKey={pathname} name={pathname}>{children}</ErrorBoundary>
+        </main>
       </div>
 
       {/* mobile bottom bar */}
@@ -158,11 +181,13 @@ function Topbar({ onCopilot }: { onCopilot: () => void }) {
     <header className="sticky top-0 z-30 border-b border-line bg-canvas/85 backdrop-blur-md">
       <div className="flex h-16 items-center gap-2 px-4 sm:px-6">
         <Link href="/" className="mr-1 flex items-center gap-2 lg:hidden"><span className="flex size-8 items-center justify-center rounded-md bg-brand text-sm font-black text-white">T</span></Link>
-        <ScopePicker label={scopeLabel} locked={Boolean(viewer.device) || locations.length <= 1} scope={scope} setScope={setScope} />
-        <button type="button" onClick={() => window.dispatchEvent(new Event('takatak:palette'))}
-          className="hidden h-10 min-w-0 flex-1 items-center gap-2 rounded-md border border-line bg-surface px-3 text-sm text-ink-3 hover:border-line-2 md:flex md:max-w-sm">
-          <Search className="size-4" /><span className="truncate">{t('Chercher une commande, une page…', 'Search an order, a page…')}</span><span className="ml-auto flex gap-1"><Kbd>⌘</Kbd><Kbd>K</Kbd></span>
-        </button>
+        <Hint id="shell.scope"><ScopePicker label={scopeLabel} locked={Boolean(viewer.device) || locations.length <= 1} scope={scope} setScope={setScope} /></Hint>
+        <Hint id="shell.search">
+          <button type="button" onClick={() => window.dispatchEvent(new Event('takatak:palette'))}
+            className="hidden h-10 min-w-0 flex-1 items-center gap-2 rounded-md border border-line bg-surface px-3 text-sm text-ink-3 hover:border-line-2 md:flex md:max-w-sm">
+            <Search className="size-4" /><span className="truncate">{t('Chercher une commande, une page…', 'Search an order, a page…')}</span><span className="ml-auto flex gap-1"><Kbd>⌘</Kbd><Kbd>K</Kbd></span>
+          </button>
+        </Hint>
         <div className="ml-auto flex items-center gap-1 sm:gap-1.5">
           {pulse && (
             <div className="hidden items-center gap-2 rounded-full border border-line bg-surface px-3 py-1.5 text-[13px] font-semibold sm:flex" title={t('Ventes du jour (livraison)', 'Today’s delivery sales')}>
@@ -170,11 +195,14 @@ function Topbar({ onCopilot }: { onCopilot: () => void }) {
               <span className="num">{money(pulse.orders.sales, loc)}</span><span className="text-ink-3">· {pulse.orders.today} {t('cmd', 'orders')}</span>
             </div>
           )}
+          <Hint id="shell.sound">
           <button type="button" onClick={() => { unlockAudio(); playSound('soft'); setSound(true); }} className={cn('flex size-10 items-center justify-center rounded-md hover:bg-sunken', sound ? 'text-ink-3' : 'text-wait-2')} aria-label={t('Son', 'Sound')} title={sound ? t('Son actif', 'Sound on') : t('Touchez pour activer le son', 'Tap to turn sound on')}>
             {sound ? <Volume2 className="size-5" /> : <VolumeX className="size-5" />}
           </button>
+          </Hint>
           <button type="button" onClick={() => window.dispatchEvent(new Event('takatak:palette'))} className="flex size-10 items-center justify-center rounded-md text-ink-3 hover:bg-sunken md:hidden" aria-label={t('Chercher', 'Search')}><Search className="size-5" /></button>
-          <button type="button" onClick={onCopilot} className="hidden size-10 items-center justify-center rounded-md text-brand hover:bg-brand-soft sm:flex" aria-label={t('Copilote', 'Co-pilot')}><Sparkles className="size-5" /></button>
+          <Hint id="shell.copilot"><button type="button" onClick={onCopilot} className="hidden size-10 items-center justify-center rounded-md text-brand hover:bg-brand-soft sm:flex" aria-label={t('Copilote', 'Co-pilot')}><Sparkles className="size-5" /></button></Hint>
+          <TextSizeButton />
           <button type="button" onClick={() => setLang(lang === 'fr' ? 'en' : 'fr')} className="hidden h-10 items-center gap-1 rounded-md px-2 sm:flex text-[13px] font-bold text-ink-3 hover:bg-sunken hover:text-ink" aria-label="Langue / Language"><Globe className="size-4" />{lang === 'fr' ? 'EN' : 'FR'}</button>
           <UserMenu />
         </div>
@@ -220,9 +248,11 @@ function UserMenu() {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => { const c = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); }; document.addEventListener('mousedown', c); return () => document.removeEventListener('mousedown', c); }, []);
   const signOut = useCallback(async () => {
+    // Drafts belong to the person: never left behind on a shared tablet.
+    try { clearAllDrafts(window.localStorage, viewer.username); } catch { /* ignore */ }
     const r = await api<{ next: string }>('/api/foodhub/auth/logout', { method: 'POST' }).catch(() => ({ next: '/login' }));
     window.location.href = r.next;
-  }, []);
+  }, [viewer.username]);
   const initials = viewer.name.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
   return (
     <div className="relative" ref={ref}>
@@ -246,11 +276,13 @@ function UserMenu() {
 
 function StatusBanners() {
   const { pulse, online } = usePulse();
+  const healthNow = useSyncExternalStore(subscribeHealth, () => health(), () => 'good' as const);
   const { can } = useViewer();
   const { t } = useI18n();
   const [netOk, setNetOk] = useState(true);
   useEffect(() => { const u = () => setNetOk(navigator.onLine); u(); window.addEventListener('online', u); window.addEventListener('offline', u); return () => { window.removeEventListener('online', u); window.removeEventListener('offline', u); }; }, []);
   const bars: ReactNode[] = [];
+  if (netOk && online && healthNow === 'stale') bars.push(<Bar key="stale" tone="wait" icon={<WifiOff className="size-4" />}>{t('Les données ne se rafraîchissent plus — reconnexion… Les commandes continuent sur les tablettes des plateformes et dans Clover.', 'Data is not refreshing — reconnecting… Orders keep arriving on the platform tablets and in Clover.')}</Bar>);
   if (!netOk || !online) bars.push(<Bar key="off" tone="stop" icon={<WifiOff className="size-4" />}>{t('Pas de connexion — les commandes continuent sur les tablettes des plateformes et dans Clover. Reconnexion automatique…', 'No connection — orders keep coming on the platform tablets and in Clover. Reconnecting…')}</Bar>);
   if (pulse?.devices.offline) bars.push(<Bar key="dev" tone="wait" href="/alerts">{t(`${pulse.devices.offline} tablette(s) de cuisine hors ligne`, `${pulse.devices.offline} kitchen tablet(s) offline`)}</Bar>);
   if (pulse && !pulse.live && can('admin')) bars.push(<Bar key="live" tone="wait" href="/settings/channels">{t('Mode sécurité : rien n’est envoyé aux plateformes (LIVE_CONNECTORS_GLOBAL_ENABLED=false).', 'Safe mode: nothing is sent to the platforms (LIVE_CONNECTORS_GLOBAL_ENABLED=false).')}</Bar>);
@@ -264,3 +296,15 @@ function Bar({ tone, children, href, icon }: { tone: 'stop' | 'wait' | 'info'; c
   return href ? <Link href={href} className={cls}>{icon}{children} →</Link> : <div className={cls}>{icon}{children}</div>;
 }
 
+/** A → A+ → A++ for this screen (kitchen tablets start at A+). */
+function TextSizeButton() {
+  const { t } = useI18n();
+  const [display, setDisplay] = useDisplay();
+  const label = display.text === 'md' ? 'A' : display.text === 'lg' ? 'A+' : 'A++';
+  return (
+    <Hint id="shell.textsize">
+      <button type="button" onClick={() => setDisplay({ text: nextTextSize(display.text) })} className="flex h-10 min-w-10 items-center justify-center rounded-md px-2 text-[15px] font-extrabold text-ink-3 hover:bg-sunken hover:text-ink"
+        aria-label={t(`Taille du texte : ${label}`, `Text size: ${label}`)} title={t('Taille du texte', 'Text size')}>{label}</button>
+    </Hint>
+  );
+}

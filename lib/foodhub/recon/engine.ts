@@ -274,7 +274,7 @@ export async function reconcile(q: { from: string; to: string; channels?: Channe
     // Promotions the restaurant funded ("Promotions on items", "discounts funded by you") are already taken out of the statement
     // net and were agreed to: the platform owes expected + promotions, so a difference they explain is not money to recover.
     const promotions = r2(ls.reduce((s, l) => s + Math.min(0, l.promotions), 0));
-    const diff = actual === null ? null : r2(actual - (exp.net + promotions));
+    const diff = actual === null ? null : r2(actual - (exp.net + promotionsBeyondOrder(promotions, o.discount)));
     let status: ReconStatus;
     if (actual === null) {
       if (o.status === 'cancelled') status = 'cancelled';
@@ -339,6 +339,18 @@ export async function reconcile(q: { from: string; to: string; channels?: Channe
 }
 
 /** Money the restaurant should chase for one order (always ≥ 0). */
+/**
+ * The part of a statement's promotions (≤ 0) that the order does not already carry. expectedPayout already takes the
+ * order's own restaurant-funded discount off the sales, so the same promotion listed again on the statement must not
+ * be counted twice (a correct payout would look "over paid" by the promotion). Only what the statement shows beyond
+ * the order's discount is added back.
+ */
+export function promotionsBeyondOrder(statementPromotions: number, orderDiscount: number | null | undefined): number {
+  const promo = Math.min(0, Number(statementPromotions) || 0);
+  const own = Math.max(0, Number(orderDiscount) || 0);
+  return r2(Math.min(0, promo + own));
+}
+
 export function missingAmount(r: Pick<OrderRecon, 'status' | 'diff' | 'expected'>): number {
   if (r.status === 'missing') return r2(r.expected.net);
   if (['short_paid', 'error_charge', 'refunded'].includes(r.status) && r.diff !== null && r.diff < 0) return r2(-r.diff);

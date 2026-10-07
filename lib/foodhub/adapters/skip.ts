@@ -199,7 +199,13 @@ export function parseSkipOrder(o: any): NormalizedOrder | null {
   const pay = o.payment ?? {};
   const cart = pay.items_in_cart ?? {};
   const final = pay.final ?? cart;
-  const unix = (v: unknown) => (v ? new Date(Number(v) * (String(v).length > 11 ? 1 : 1000)).toISOString() : undefined);
+  // JET sends unix seconds (legacy Flyt samples), unix ms, or ISO-8601 text; anything unreadable is left out, never thrown.
+  const unix = (v: unknown) => {
+    if (v == null || v === '') return undefined;
+    const n = Number(v);
+    const ms = Number.isFinite(n) ? n * (String(v).length > 11 ? 1 : 1000) : Date.parse(String(v));
+    return Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : undefined;
+  };
   return {
     channel: KEY,
     marketplace: 'skip',

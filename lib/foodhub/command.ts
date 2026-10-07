@@ -310,6 +310,10 @@ export async function buildCommandCenter(opts: { now?: number; locationCodes?: s
   if (priceChanges.length) alerts.push({ id: 'clover-prices', severity: 'info', title: `${priceChanges.length} price(s) changed in Clover`, detail: priceChanges.slice(0, 3).map((c) => `${c.name} (${c.brandName}): ${c.foodhubPrice.toFixed(2)} → ${c.cloverPrice.toFixed(2)} $`).join(' · '), href: '/menu' });
   const verification = await repo.getKv<{ code: string; at: string }>(VERIFY_KEY).catch(() => null);
   if (verification && !process.env.CLOVER_WEBHOOK_AUTH) alerts.push({ id: 'clover-verify', severity: 'info', title: 'Finish connecting Clover webhooks', detail: 'Clover sent a verification code — see Channels & Setup.', href: '/settings/channels', at: verification.at });
+  // Activation sent to Uber but not confirmed by its store.provisioned webhook after 15 minutes.
+  for (const s of stores.filter((x) => x.meta?.awaitingProvision === true && Date.now() - Date.parse(String(x.meta?.provisionedAt ?? '')) > 15 * 60_000)) {
+    alerts.push({ id: `prov-wait:${s.id}`, severity: 'warning', title: `${s.brandName} · ${locName(s.locationCode)}: Uber has not confirmed the activation yet`, detail: 'Orders may still go to the Uber tablet. Check the store in Uber Eats Manager, or ask Uber support to enable the integration for this store.', href: '/stores/mapping' });
+  }
   for (const s of stores.filter((x) => x.meta?.provisioned === false)) {
     alerts.push({ id: `deprov:${s.id}`, severity: 'critical', title: `${s.brandName} · ${locName(s.locationCode)} was disconnected by ${CHANNEL_LABELS[s.channel]}`, detail: 'Orders from this store no longer reach Food Hub or Clover. Reconnect it under Stores.', href: '/stores' });
   }

@@ -258,3 +258,30 @@ describe('menu translation: locale keys, closed days, category order', () => {
     expect(s.menus[0].categories.map((c: any) => c.name)).toEqual(['Desserts', 'Plats principaux / Plats', 'Other']);
   });
 });
+
+describe('Skip order timestamps (go-live audit)', () => {
+  it('reads unix seconds, unix ms and ISO-8601 alike, and never throws on an unreadable value', async () => {
+    const { parseSkipOrder } = await import('../lib/foodhub/adapters/skip');
+    const base = { id: 'skip-ts', posLocationId: 'NDG-POPOULET', type: 'delivery', items: [{ name: 'Wrap', quantity: 1, price: 1000 }], payment: { items_in_cart: { inc_tax: 1150, tax: 150 } } };
+    expect(parseSkipOrder({ ...base, created_at: '1606780145' })?.placedAt).toBe('2020-11-30T23:49:05.000Z');
+    expect(parseSkipOrder({ ...base, created_at: 1606780145000 })?.placedAt).toBe('2020-11-30T23:49:05.000Z');
+    expect(parseSkipOrder({ ...base, created_at: '2023-01-11T09:47:18Z', collect_at: '2023-01-11T10:15:00Z' })?.readyBy).toBe('2023-01-11T10:15:00.000Z');
+    expect(() => parseSkipOrder({ ...base, created_at: 'not a date', collect_at: 'later' })).not.toThrow();
+    expect(parseSkipOrder({ ...base, collect_at: 'later' })?.readyBy).toBeUndefined();
+  });
+});
+
+describe('Uber courier states (go-live audit)', () => {
+  it('maps every documented state, and "unassigned" is never read as "assigned"', async () => {
+    const { uberCourierState, uberCourierDetails } = await import('../lib/foodhub/courier');
+    expect(uberCourierState('UNASSIGNED')).toBe('unassigned');
+    expect(uberCourierState('EN_ROUTE_TO_PICKUP')).toBe('assigned');
+    expect(uberCourierState('ARRIVED_AT_PICKUP')).toBe('at_store');
+    expect(uberCourierState('EN_ROUTE_TO_DROPOFF')).toBe('picked_up');
+    expect(uberCourierState('COMPLETED')).toBe('delivered');
+    expect(uberCourierState('something new')).toBeNull();
+    // Uber v2 order: courier fields directly on deliveries[0]
+    const d = uberCourierDetails({ deliveries: [{ first_name: 'Marc', phone: '+15145550123', vehicle: { make: 'Honda', model: 'Civic', color: 'Grey' }, current_state: 'ARRIVED_AT_PICKUP' }] });
+    expect(d).toMatchObject({ status: 'at_store', name: 'Marc', phone: '+15145550123', vehicle: 'Grey Honda Civic' });
+  });
+});

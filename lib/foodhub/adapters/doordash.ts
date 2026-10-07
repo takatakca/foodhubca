@@ -40,7 +40,6 @@ function readiness() {
     note: 'Direct mode. DOORDASH_PROVIDER_TYPE is issued by DoorDash when your Marketplace integration is approved.',
     noteFr: 'Mode direct. DoorDash fournit DOORDASH_PROVIDER_TYPE quand votre intégration Marketplace est approuvée.',
     handoff: [{ label: 'Webhook Authorization header value', envKey: 'DOORDASH_WEBHOOK_SECRET' }],
-    extraWebhooks: [{ label: 'Menu Request (menu pull) endpoint — DoorDash adds /<location id>', path: '/api/foodhub/webhooks/doordash/menu' }],
   });
 }
 

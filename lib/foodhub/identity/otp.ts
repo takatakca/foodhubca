@@ -29,8 +29,13 @@ interface Challenge {
 const sha = (s: string) => crypto.createHash('sha256').update(s).digest('hex');
 const contactKey = (c: string) => sha(`contact|${c}`).slice(0, 32);
 
-/** Insecure helper for local development and automated tests only: show the code on screen when it could not be sent. */
+/**
+ * Insecure helper for local development and automated tests only: show the code on screen when it could not be sent.
+ * Never once live connectors are on: a forgotten FOODHUB_INSECURE_SHOW_CODES would otherwise hand the owner's
+ * sign-in code to anyone who types the owner's email the day email delivery breaks.
+ */
 export function showCodesOnScreen(): boolean {
+  if (process.env.LIVE_CONNECTORS_GLOBAL_ENABLED === 'true') return false;
   return process.env.NODE_ENV !== 'production' || process.env.FOODHUB_INSECURE_SHOW_CODES === 'true';
 }
 
@@ -115,10 +120,12 @@ type VerifyResult = { ok: true; user: FoodHubUser; next: string } | { ok: false;
 
 async function finish(ch: Challenge, how: 'otp' | 'link'): Promise<VerifyResult> {
   const repo = getRepo();
-  await repo.putDocs(CHALLENGES, [{ id: ch.id, key: ch.ck, at: ch.createdAt, data: { ...ch, used: true } }]);
   const user = await repo.getUser(ch.username);
   if (!user?.active) return { ok: false, status: 403, error: 'Accès désactivé. / Access removed.' };
-  await repo.saveUser({ ...user, lastLoginAt: new Date().toISOString() });
+  // Burn the code only now, right before the sign-in succeeds: a database hiccup earlier must not cost the person their code.
+  await repo.putDocs(CHALLENGES, [{ id: ch.id, key: ch.ck, at: ch.createdAt, data: { ...ch, used: true } }]);
+  // The last-sign-in date is bookkeeping: failing to write it never blocks the sign-in.
+  await repo.saveUser({ ...user, lastLoginAt: new Date().toISOString() }).catch((e) => console.error('[foodhub] lastLoginAt not saved', e instanceof Error ? e.message : e));
   await logActivity({ actor: user.name, source: 'dashboard', kind: 'login', action: how === 'link' ? 'sign_in_link' : 'sign_in_code', status: 'success', summary: `${user.name} signed in with a ${how === 'link' ? 'one-tap link' : 'code'} (${ch.to})` });
   return { ok: true, user, next: ch.next };
 }

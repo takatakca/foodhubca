@@ -171,7 +171,8 @@ const mock = http.createServer(async (req, res) => {
     if (req.headers.authorization !== `Bearer ${CLOVER_TOKEN}`) return send(401, {});
     if (p.endsWith('/atomic_order/orders')) {
       cloverSeq += 1;
-      cloverOrderTotals.set(`CLV${cloverSeq}`, (body?.orderCart?.lineItems || []).reduce((s, l) => s + (l.price || 0), 0));
+      // Clover's total: line items plus order-level discounts (Clover discount amounts are negative cents).
+      cloverOrderTotals.set(`CLV${cloverSeq}`, (body?.orderCart?.lineItems || []).reduce((s, l) => s + (l.price || 0), 0) + (body?.orderCart?.discounts || []).reduce((s, d) => s + (d.amount || 0), 0));
       return send(200, { id: `CLV${cloverSeq}` });
     }
     if (/\/(tenders|order_types)$/.test(p)) {
@@ -250,6 +251,13 @@ async function waitFor(fn, ms = 8000) {
   return null;
 }
 const sent = (method, pathRe) => log.filter((e) => e.method === method && pathRe.test(e.path));
+/** Same rule as lib/foodhub/deadline.ts: the platform's clock starts at placedAt when it is plausible. */
+function expectedDeadlineMs(o, minutes) {
+  const created = new Date(o.createdAt).getTime();
+  const placed = o.placedAt ? Date.parse(o.placedAt) : NaN;
+  const start = Number.isFinite(placed) && placed <= created && created - placed <= 30 * 60_000 ? placed : created;
+  return start + minutes * 60_000;
+}
 async function findOrder(externalId) {
   const r = await call('GET', '/api/foodhub/orders?limit=500');
   return (r.json?.orders || []).find((o) => o.externalOrderId === externalId);
@@ -335,6 +343,12 @@ try {
   check('TGTG webhook rejects a wrong token', (await call('POST', '/api/foodhub/webhooks/tgtg', { auth: false, headers: { authorization: 'nope' }, body: {} })).status === 401);
   check('scheduled sync rejects a missing CRON_SECRET', (await call('GET', '/api/foodhub/cron/sync', { auth: false })).status === 401);
 
+  const rep1 = await call('POST', '/api/foodhub/client-report', { body: { screen: '/stores/hours', issues: [{ kind: 'api_fail', message: 'PUT /api/foodhub/hours → 500', path: '/api/foodhub/hours', count: 1 }] } });
+  check('screen supervisor: a problem on a screen is reported and stored, never silent', rep1.status === 200 && rep1.json?.stored === 1);
+  check('screen supervisor refuses unknown report kinds', (await call('POST', '/api/foodhub/client-report', { body: { issues: [{ kind: 'hack', message: 'x' }] } })).status === 400);
+  check('screen supervisor needs a signed-in person', (await call('POST', '/api/foodhub/client-report', { auth: false, body: { issues: [] } })).status === 401);
+  check('the owner sees recent screen problems', ((await call('GET', '/api/foodhub/client-report')).json?.reports || []).some((r) => r.screen === '/stores/hours' && r.issues?.[0]?.kind === 'api_fail'));
+
   console.log('\n2. Channels (all direct — no aggregator)');
   const ch = await call('GET', '/api/foodhub/channels');
   const live = Object.fromEntries((ch.json.channels || []).map((c) => [c.channel, c.canSend]));
@@ -405,6 +419,9 @@ try {
   const ddMenu = sent('POST', /^\/dd\/api\/v1\/menus$/)[0]?.body;
   check('DoorDash menu JWT-signed, with store + provider type', ddMenu?.store?.merchant_supplied_id === 'dd-popoulet-ndg' && ddMenu.store.provider_type === 'takatak_e2e' && ddMenu.menu.categories.length === 2);
   check('DoorDash Menu Status webhook accepted', (await call('POST', '/api/foodhub/webhooks/doordash', { auth: false, headers: { authorization: 'dd-hook-e2e' }, body: { event: { type: 'MenuCreate', status: 'SUCCESS', reference: ddMenu?.reference, details: '' }, menu: { id: 'dd-menu-77' } } })).status === 200);
+  const pull = await call('GET', '/api/foodhub/webhooks/doordash/dd-popoulet-ndg', { auth: false, headers: { authorization: 'dd-hook-e2e' } });
+  check('DoorDash Menu Request (menu pull) answers { store, menus: [menu + open_hours + special_hours] }', pull.status === 200 && pull.json?.store?.merchant_supplied_id === 'dd-popoulet-ndg' && Array.isArray(pull.json?.menus) && pull.json.menus.length === 1 && Array.isArray(pull.json.menus[0].open_hours) && Array.isArray(pull.json.menus[0].special_hours) && !!pull.json.menus[0].menu, JSON.stringify(pull.json)?.slice(0, 200));
+  check('DoorDash menu pull refuses a wrong token and an unmapped location', (await call('GET', '/api/foodhub/webhooks/doordash/dd-popoulet-ndg', { auth: false, headers: { authorization: 'nope' } })).status === 401 && (await call('GET', '/api/foodhub/webhooks/doordash/not-mapped', { auth: false, headers: { authorization: 'dd-hook-e2e' } })).status === 404);
   const ddJob = await waitFor(async () => (await call('GET', '/api/foodhub/channels')).json.jobs.find((j) => j.channel === 'doordash' && j.kind === 'menu_push' && j.status === 'done'));
   check('DoorDash menu job closed + menu id kept for next update', !!ddJob && (await call('GET', '/api/foodhub/stores')).json.stores.find((x) => x.channelStoreId === 'dd-popoulet-ndg')?.meta?.doordashMenuId === 'dd-menu-77');
   const skipMenuCall = sent('POST', /^\/skip\/menus$/).find((e) => e.body?.restaurants?.includes('NDG-POPOULET'));
@@ -429,7 +446,7 @@ try {
   console.log('\n7. DoorDash order (JWT)');
   const ddOrder = { id: 'dd-order-1', store: { merchant_supplied_id: 'dd-popoulet-ndg' }, consumer: { first_name: 'Luc', last_name: 'Roy' }, subtotal: 1499, tax: 225, delivery_short_code: 'XY9',
     categories: [{ name: 'Plats', items: [{ name: 'Poulet Grillé', quantity: 1, price: 1499, merchant_supplied_id: 'clv-item-1', extras: [] }] }] };
-  check('DoorDash webhook accepted', (await call('POST', '/api/foodhub/webhooks/doordash', { auth: false, headers: { authorization: 'dd-hook-e2e' }, body: ddOrder })).status === 200);
+  check('DoorDash order webhook answered 202 (confirmed later, only once Clover has it)', (await call('POST', '/api/foodhub/webhooks/doordash', { auth: false, headers: { authorization: 'dd-hook-e2e' }, body: ddOrder })).status === 202);
   const o2 = await waitFor(async () => { const o = await findOrder('dd-order-1'); return o?.status === 'accepted' ? o : null; });
   check('DoorDash order confirmed (order_status success)', !!o2 && sent('PATCH', /^\/dd\/api\/v1\/orders\/dd-order-1$/)[0]?.body?.order_status === 'success');
   const ready = await call('POST', `/api/foodhub/orders/${o2?.id}`, { body: { action: 'ready' } });
@@ -454,7 +471,7 @@ try {
   check('auto-accept OFF: order waits in New (already in Clover)', o4?.status === 'new');
   const cc0 = await call('GET', '/api/foodhub/command');
   const q4 = cc0.json?.queue?.find((q) => q.id === o4?.id);
-  check('Command Center queue shows it with the 5-minute Skip deadline', q4 && Math.abs(new Date(q4.deadlineAt).getTime() - new Date(q4.createdAt).getTime() - 5 * 60_000) < 1000);
+  check('Command Center queue shows it with the 5-minute Skip deadline (from when it was placed)', q4 && Math.abs(new Date(q4.deadlineAt).getTime() - expectedDeadlineMs(o4, 5)) < 1000 && new Date(q4.deadlineAt).getTime() <= new Date(q4.createdAt).getTime() + 5 * 60_000 + 1000);
   const acc = await call('POST', `/api/foodhub/orders/${o4?.id}`, { body: { action: 'accept' } });
   check('manual Accept → sent-to-pos-success', acc.json?.order?.status === 'accepted' && sent('POST', /^\/skip\/order\/skip-order-0002\/sent-to-pos-success$/).length === 1);
   check('Skip cancel notification accepted', (await skipWebhook('cancel', { orderID: 'skip-order-0002', reason: { code: 'customer_cancelled' }, happenedAt: new Date().toISOString() }, { hmac: false })).status === 200);
@@ -545,7 +562,7 @@ try {
   check('critical alerts listed first', cc.alerts[0].severity === 'critical');
   check('a store missing on Uber gives one clear alert (not two)', titles.filter((t) => /SAINT-LÉONARD on Uber Eats/.test(t)).length === 1);
   const q6 = cc.queue.find((q) => q.id === o6?.id);
-  check('Uber order with Clover failure is in the queue with its 11.5-min deadline', q6 && q6.posError && Math.abs(new Date(q6.deadlineAt).getTime() - new Date(q6.createdAt).getTime() - 690_000) < 1000);
+  check('Uber order with Clover failure is in the queue with its 11.5-min deadline', q6 && q6.posError && Math.abs(new Date(q6.deadlineAt).getTime() - expectedDeadlineMs(o6, 11.5)) < 1000 && new Date(q6.deadlineAt).getTime() <= new Date(q6.createdAt).getTime() + 690_000 + 1000);
   const retry = await call('POST', `/api/foodhub/orders/${o6?.id}`, { body: { action: 'retry_pos' } });
   check('"Send to Clover" retries honestly (still down → not ok)', retry.json?.result?.ok === false);
   const deny = await call('POST', `/api/foodhub/orders/${o6?.id}`, { body: { action: 'deny', reason: 'Item out of stock' } });
@@ -846,6 +863,19 @@ try {
   await ddHook({ event: { type: 'dasher_status_update' }, dasher_status: 'arriving_at_store', external_order_id: 'dd-order-1' });
   const q29 = await waitFor(async () => ((await call('GET', '/api/foodhub/command')).json?.queue || []).find((q) => q.id === o2?.id && q.courier?.status === 'arriving'));
   check('Command Center shows "courier arriving" on the order card', !!q29 && q29.courier.name === 'Ana B.');
+  // DoorDash's documented payloads: dasher_status + external_order_id, cancellation with client_order_id only.
+  // dd-order-3 carries a merchant-funded promotion ($3.50; DoorDash sends cents). It is cancelled below, so no payment,
+  // payout or sales check ever sees it — only the Clover discount check that follows.
+  const b29 = log.length;
+  await ddHook({ ...ddOrder, id: 'dd-order-3', merchant_funded_discount: 350 });
+  const o29d = await waitFor(async () => { const o = await findOrder('dd-order-3'); return o?.status === 'accepted' && o.posOrderId ? o : null; });
+  const isAtomic = (e) => e.method === 'POST' && /\/atomic_order\/orders$/.test(e.path);
+  const disc29 = log.slice(b29).filter(isAtomic).map((e) => e.body?.orderCart?.discounts).find(Boolean);
+  check('DoorDash promotion sent to Clover as an order discount (−350 cents, Clover total = lines − promotion); orders without one carry none', o29d?.discount === 3.5 && disc29?.length === 1 && disc29[0].name === 'DoorDash promotion' && disc29[0].amount === -350 && cloverOrderTotals.get(o29d.posOrderId) === 1499 - 350 && !log.slice(0, b29).some((e) => isAtomic(e) && e.body?.orderCart && 'discounts' in e.body.orderCart), JSON.stringify({ d: o29d?.discount, disc29 }));
+  await ddHook({ dasher_status: 'arrived_at_store', external_order_id: 'dd-order-3', client_order_id: o29d?.posOrderId, Phone_number: '+15145550199' });
+  check('DoorDash Dasher Status (documented shape: dasher_status arrived_at_store) → courier at the store', !!(await waitFor(async () => (await findOrder('dd-order-3'))?.timeline?.courier?.status === 'at_store')));
+  await ddHook({ client_order_id: o29d?.posOrderId, cancel_reason: 'CUSTOMER_REQUEST' });
+  check('DoorDash cancellation found by client_order_id (our merchant_supplied_id) → cancelled and removed from Clover', !!(await waitFor(async () => (await findOrder('dd-order-3'))?.status === 'cancelled')) && !!(await waitFor(async () => sent('DELETE', new RegExp(`/orders/${o29d?.posOrderId}$`)).length === 1)));
   const fo = await skipWebhook('failed', { validationError: 'unknownReference', unknownReference: 'zzz-99', menuId: 'm1', order: { orderId: 'skip-failed-1', friendlyOrderReference: '7788', totalPrice: 1299, restaurant: { id: 'NDG-POPOULET' }, fulfilment: { type: 'delivery' }, items: [{ name: 'Mystery Bowl', plu: 'zzz-99', price: 1299, quantity: 1 }] } }, { hmac: false });
   const of29 = await waitFor(async () => { const o = await findOrder('skip-failed-1'); return o?.status === 'failed' ? o : null; });
   check('Skip "failed order for backup flow" recorded: on the Skip tablet, NDG, $12.99', fo.status === 200 && of29?.locationCode === 'NDG_MAIN' && of29.total === 12.99 && /tablet/i.test(of29.channelError || ''), JSON.stringify(of29 && { t: of29.total, e: of29.channelError }));

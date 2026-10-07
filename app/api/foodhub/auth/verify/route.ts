@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { sessionCookieFor } from '@/lib/foodhub/auth';
+import { errorResponse, sessionCookieFor } from '@/lib/foodhub/auth';
 import { fail, readJson } from '@/lib/foodhub/http';
 import { verifyCode } from '@/lib/foodhub/identity/otp';
 
@@ -15,6 +15,6 @@ export async function POST(req: Request) {
     res.headers.append('Set-Cookie', await sessionCookieFor(r.user, 'otp'));
     return res;
   } catch (e) {
-    return fail(e instanceof Error ? e.message : String(e), 500);
+    return errorResponse(e, 'auth'); // never echo database errors to someone who is not signed in
   }
 }

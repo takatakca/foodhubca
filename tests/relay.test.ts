@@ -85,7 +85,14 @@ describe('orders through the Food Hub Order Relay', () => {
     expect('ignored' in parseRelayOrder(sample('zomato'))).toBe(true);
   });
 
+  // Food Hub never auto-accepts an order from a store nobody mapped: map the partner store (relay:<id>) first.
+  const mapRelayStore = async (channel: 'skip' | 'tgtg') => {
+    const { getRepo } = await import('../lib/foodhub/repo');
+    await getRepo().upsertStore({ channel, channelStoreId: 'relay:182304', brandName: 'Po Poulet', locationCode: 'NDG', autoAccept: true, online: true, meta: {} });
+  };
+
   it('without a callback address, accept is not sent and says so', async () => {
+    await mapRelayStore('skip');
     const r = parseRelayOrder(sample()) as any;
     const out = await processIncomingOrder(r.order);
     expect(out.accept?.status).toBe('skipped');
@@ -119,6 +126,7 @@ describe('orders through the Food Hub Order Relay', () => {
     expect('ignored' in parseRelayOrder(sample('tgtg'))).toBe(false);
     expect('ignored' in parseRelayOrder(sample('doordash'))).toBe(true);
     process.env.FOODHUB_RELAY_CALLBACK_URL = 'https://partner.example/foodhub/status';
+    await mapRelayStore('tgtg');
     const out = await processIncomingOrder((parseRelayOrder(sample('tgtg', 777)) as any).order);
     expect(out.accept?.status).toBe('blocked');
     expect(calls).toEqual([]);

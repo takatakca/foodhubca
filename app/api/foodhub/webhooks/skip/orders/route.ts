@@ -13,7 +13,15 @@ export async function POST(req: NextRequest) {
   if (!skipAdapter.verifyWebhook(req.headers, raw)) return unauthorized('skip');
   const body = parseJson(raw);
   if (body === undefined) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
-  const order = parseSkipOrder(body);
+  let order: ReturnType<typeof parseSkipOrder> = null;
+  try {
+    order = parseSkipOrder(body);
+  } catch (e) {
+    // A payload shape we cannot read must never be lost to a 500: keep it, and let JET fail the injection
+    // (non-2xx) so the order goes to the Skip tablet straight away instead of waiting for the 5-minute timeout.
+    background('keep unparsed skip order', () => keepUnparsed('skip', body, `JET Connect order could not be read: ${e instanceof Error ? e.message : String(e)}`));
+    return NextResponse.json({ error: 'Unreadable order payload' }, { status: 400 });
+  }
   if (!order) {
     background('keep unparsed skip order', () => keepUnparsed('skip', body, 'JET Connect order missing id/items'));
     return NextResponse.json({ error: 'Unrecognized order payload' }, { status: 400 });

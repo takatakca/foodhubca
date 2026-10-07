@@ -46,6 +46,7 @@ export function doorDashCourierStatus(eventType: string): CourierStatus | null {
   if (!/dasher|arriv|courier|driver|picked|pick_up|pickup_complete|drop|out_for_delivery|at_store/.test(e)) return null;
   if (/unassign/.test(e)) return 'unassigned';
   if (/dropped|delivered|drop_off|dropoff/.test(e)) return 'delivered';
+  // DoorDash's dasher_out_for_delivery = the Dasher left the store with the food.
   if (/picked|pick_up|pickup_complete|out_for_delivery/.test(e)) return 'picked_up';
   if (/arriving/.test(e)) return 'arriving';
   if (/arrived|at_store|at_merchant|at_restaurant/.test(e)) return 'at_store';
@@ -62,24 +63,39 @@ export function doorDashCourierDetails(body: any): Partial<CourierInfo> {
   const v = d.vehicle ?? body?.dasher_vehicle ?? {};
   return {
     name: str(d.first_name && `${d.first_name}${d.last_name ? ` ${String(d.last_name).slice(0, 1)}.` : ''}`, d.name, body?.dasher_name),
-    phone: str(d.phone_number, d.phone, body?.dasher_phone_number),
+    phone: str(d.phone_number, d.phone, body?.dasher_phone_number, body?.Phone_number, body?.phone_number),
     vehicle: str([v.color, v.make, v.model].filter(Boolean).join(' '), typeof v === 'string' ? v : undefined),
     etaAt: iso(body?.estimated_pickup_time ?? body?.dasher_estimated_arrival_time ?? d.estimated_arrival_time ?? body?.pickup_time_estimated),
   };
 }
 
-/** Courier details inside an Uber Eats order payload, when Uber shares them. */
+/** Uber courier state (delivery.state_changed meta.status, or an order's deliveries[].current_state) → courier status. */
+export function uberCourierState(state: unknown): CourierStatus | null {
+  const s = String(state ?? '').toLowerCase().replace(/[^a-z]+/g, '_');
+  if (!s) return null;
+  if (/unassign/.test(s)) return 'unassigned'; // before "assigned": "unassigned" contains it
+  if (/complete|delivered|dropoff_complete/.test(s)) return 'delivered';
+  if (/en_route_to_drop|picked_up|pickup_complete|left_pickup/.test(s)) return 'picked_up';
+  if (/arrived_at_pick|at_pickup|at_store|at_restaurant/.test(s)) return 'at_store';
+  if (/en_route_to_pick|assigned|accepted/.test(s)) return 'assigned';
+  return null;
+}
+
+/**
+ * Courier details inside an Uber Eats order payload, when Uber shares them. Uber's v2 order puts the courier
+ * directly on deliveries[] (first_name, phone, vehicle, current_state); older shapes nest it under delivery_partner.
+ */
 export function uberCourierDetails(o: any): Partial<CourierInfo> | undefined {
   const del = Array.isArray(o?.deliveries) ? o.deliveries[0] : o?.delivery;
-  const p = del?.delivery_partner ?? del?.courier ?? o?.courier;
+  const p = del?.delivery_partner ?? del?.courier ?? o?.courier ?? (del?.first_name || del?.name ? del : undefined);
   if (!p && !del) return undefined;
-  const status = String(del?.status ?? del?.current_status ?? '').toLowerCase();
-  const mapped: CourierStatus | undefined = /deliver|complete/.test(status) ? 'delivered' : /pick/.test(status) ? 'picked_up' : /arriv/.test(status) ? 'at_store' : /en_route|assign|accept/.test(status) ? 'assigned' : undefined;
+  const mapped = uberCourierState(del?.current_state ?? del?.status ?? del?.current_status) ?? undefined;
+  const v = p?.vehicle;
   return {
     ...(mapped ? { status: mapped } : {}),
     name: str(p?.name, p?.first_name),
-    phone: str(p?.phone_number, p?.phone),
-    vehicle: str(p?.vehicle?.type && [p.vehicle.color, p.vehicle.make, p.vehicle.model, p.vehicle.type].filter(Boolean).join(' '), typeof p?.vehicle === 'string' ? p.vehicle : undefined),
+    phone: str(p?.phone_number, p?.phone, p?.phone_code && p?.phone ? `${p.phone} (${p.phone_code})` : undefined),
+    vehicle: str(v && typeof v === 'object' ? [v.color, v.make, v.model, v.type].filter(Boolean).join(' ') : undefined, typeof v === 'string' ? v : undefined),
     etaAt: iso(del?.estimated_pick_up_time ?? del?.estimated_pickup_time ?? o?.estimated_courier_arrival),
   };
 }

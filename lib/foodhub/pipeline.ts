@@ -7,6 +7,7 @@ import { CHANNEL_LABELS, nowIso } from './config';
 import { cloverAutoPrintEnabled, cloverExpected, injectOrder, printCloverOrder } from './pos/clover';
 import { cloverOrderTypeFor } from './pos/clover-books';
 import { settleInClover } from './clover-settle';
+import { doorDashMerchantCancelEnabled } from './adapters/doordash';
 import { relayActions } from './adapters/relay';
 import { reportSkipMissingItems } from './adapters/skip';
 import { applyCourierUpdate, pendingKey, readPending } from './courier';
@@ -200,9 +201,10 @@ export function allowedActions(order: StoredOrder): OrderAction[] {
     return a;
   }
   if (order.status === 'new') a.push(acceptNeedsClover(order) ? 'accept_no_pos' : 'accept', 'deny');
-  // Only Uber Eats lets a store cancel an accepted order by API; DoorDash/Skip cancellations are done
-  // in their merchant portal / tablet and arrive back here through their webhooks.
-  const canCancel = order.channel === 'uber_eats';
+  // Uber Eats lets a store cancel an accepted order by API; DoorDash too once it allowlisted the integration. Skip (and
+  // DoorDash otherwise) cancellations are done in their merchant portal / tablet and arrive back here through webhooks.
+  // DoorDash only when DoorDash allowlisted merchant cancellations for this integration (DOORDASH_MERCHANT_CANCEL=true).
+  const canCancel = order.channel === 'uber_eats' || (order.channel === 'doordash' && !order.viaHub && doorDashMerchantCancelEnabled());
   if (order.status === 'accepted') a.push('ready', ...(canCancel ? (['cancel'] as const) : []));
   if (order.status === 'ready') a.push('dispatch', 'complete', ...(canCancel ? (['cancel'] as const) : []));
   if (order.status === 'dispatched') a.push('complete');

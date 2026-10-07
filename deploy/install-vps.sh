@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # TAKATAK Food Hub — one-command install on your own Linux server (Contabo VPS, Ubuntu 22.04 / 24.04 or Debian 12).
 #
-#   unzip takatak-foodhub-rc10.zip
-#   sudo bash takatak-accounting-control-tower-final/deploy/install-vps.sh                 # free address <ip>.sslip.io
-#   sudo bash takatak-accounting-control-tower-final/deploy/install-vps.sh foodhub.takatak.ca   # your own sub-domain
+#   unzip foodhubca-main.zip                      # GitHub → takatakca/foodhubca → Code → Download ZIP (branch main)
+#   sudo bash foodhubca-main/deploy/install-vps.sh                      # free address <ip>.sslip.io
+#   sudo bash foodhubca-main/deploy/install-vps.sh foodhub.takatak.ca   # your own sub-domain
+# On Coolify (Docker) use the Dockerfile instead: docs/BACK_ONLINE_TODAY.md, Part B.
 #
 # What it does: Node 22 + Caddy (automatic HTTPS), copies the app to /opt/takatak-foodhub, asks YOU for the keys
 # (npm run setup — typed on the server, never in a chat), builds, starts it as a service that restarts by itself,

@@ -342,6 +342,26 @@ export async function allCloverMerchants(storeMerchantIds: Array<string | null |
   return [...set];
 }
 
+/**
+ * Merchants that really have a token in the environment: CLOVER_MERCHANT_ID with CLOVER_ACCESS_TOKEN, and each
+ * CLOVER_MERCHANT_TOKENS entry with a token (a token without CLOVER_MERCHANT_ID names no merchant). `tokenMapInvalid`:
+ * CLOVER_MERCHANT_TOKENS is set but is not a JSON object, so cloverTokenFor ignores all of it. Ids only, never tokens.
+ */
+export function envCloverMerchants(): { merchants: string[]; tokenMapInvalid: boolean } {
+  const set = new Set<string>();
+  if (process.env.CLOVER_MERCHANT_ID && process.env.CLOVER_ACCESS_TOKEN) set.add(process.env.CLOVER_MERCHANT_ID);
+  const raw = (process.env.CLOVER_MERCHANT_TOKENS || '').trim();
+  let tokenMapInvalid = false;
+  if (raw) {
+    try {
+      const map: unknown = JSON.parse(raw);
+      if (!map || typeof map !== 'object' || Array.isArray(map)) tokenMapInvalid = true;
+      else for (const [mid, token] of Object.entries(map)) if (mid.trim() && typeof token === 'string' && token.trim()) set.add(mid);
+    } catch { tokenMapInvalid = true; }
+  }
+  return { merchants: [...set], tokenMapInvalid };
+}
+
 /** Every Clover merchant Food Hub knows about: the default one, the token map, and store mappings. */
 export function knownCloverMerchants(storeMerchantIds: Array<string | null | undefined> = []): string[] {
   const set = new Set<string>();

@@ -1,6 +1,6 @@
 # TAKATAK Food Hub — Master Plan
 
-_Updated 2026-10-06 · branch `claude/practical-wright-pnhgtl` · based on the code (the live server was not visible)._
+_Updated 2026-10-07 · `main` (pull request #5 merged) + the Phase 1 work · based on the code (the live server was not visible)._
 
 This file has two jobs:
 1. **For the owner:** what is done, why logins and connections may not be showing, and what is left.
@@ -33,8 +33,8 @@ Check these in order. Each line gives the cause and the fix.
 
 | # | Cause | How to check | Fix |
 |---|---|---|---|
-| 1 | **The live server runs older code.** This session's work (Order Relay, shared menu, fixes) is only on branch `claude/practical-wright-pnhgtl`. `main` is release 1.5.7. | Settings → Platforms & Clover has no "Food Hub Order Relay" card, and the Menus page has no "Shared menu" button. | Merge the branch into `main` (open a pull request), then redeploy. On the VPS, updates come from a zip (`deploy/update-vps.sh`); on Coolify, redeploy from `main`. |
-| 2 | **No database: memory mode.** Without the Supabase URL and service key, Food Hub silently runs in memory. Users, connected Clover merchants and generated secrets disappear at every restart. | A "Demo mode" banner at the top. Go-live shows the database step as not done. | Set `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`, and run `supabase/INSTALL_ALL.sql` once. On Docker/Coolify, `NEXT_PUBLIC_*` values are read when the image is **built**, so set them as build-time variables too. |
+| 1 | **The live server runs older code.** The Order Relay, shared menus and fixes are on `main` since pull request #5; a server that was not redeployed since still runs 1.5.7. | Settings → Platforms & Clover has no "Food Hub Order Relay" card, and the Menus page has no "Shared menu" button. | Redeploy from `main`. On Coolify: Redeploy (`docs/BACK_ONLINE_TODAY.md`). On the VPS: the new `foodhubca-main.zip` with `deploy/update-vps.sh` (`docs/INSTALLER_SERVEUR.md`, step 7). |
+| 2 | **No database: memory mode.** Without the Supabase URL and service key, Food Hub silently runs in memory. Users, connected Clover merchants and generated secrets disappear at every restart. | A "Demo mode" banner at the top. Go-live shows the database step as not done. | Set `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`, and run `supabase/INSTALL_ALL.sql` once. Only server code reads them, at runtime (the `Dockerfile` passes no build-time value), so a runtime variable in Coolify is enough; redeploy after changing them. |
 | 3 | **Not signed in as owner.** Platforms & Clover, Go-live, "Show secrets" and the warning banners are owner (admin) only. | Settings → Team shows your role. | Sign in with the owner account. The recovery sign-in is username `owner` with `DASHBOARD_PASSWORD`. |
 | 4 | **Secrets stay hidden.** They show as `••••` until "Show secrets" is clicked, and that only works when `DASHBOARD_PASSWORD` is set. | Click Show secrets; nothing changes. | Set `DASHBOARD_PASSWORD` and `SESSION_SECRET` on the server. |
 | 5 | **Keys were never entered.** Coolify has no setup wizard, so every connection shows "Needs setup" or "Missing: …". | Settings → Platforms & Clover, each card. | Add the keys as environment variables (list in section 4). |
@@ -42,7 +42,7 @@ Check these in order. Each line gives the cause and the fix.
 | 7 | **The Clover app is not in the App Market yet.** It has not been submitted, and its Site URL is still `31-220-96-134.sslip.io`. | `docs/CLOVER_APP_LISTING.md` (not submitted). | Phase 2: a real domain, legal pages approved, then submit the listing. |
 | 8 | **Safe mode is on.** Nothing is sent to any platform until live mode is turned on. | Orange "safe mode" banner. | Set `LIVE_CONNECTORS_GLOBAL_ENABLED=true` once Go-live is all green. |
 | 9 | **Sign-in codes never arrive.** No email (Resend) or SMS (Twilio) is set up. An unknown email still says "code sent" on purpose, so outsiders cannot guess who has access. | The code never arrives. | Set `RESEND_API_KEY` + `AUTH_EMAIL_FROM` (on a verified domain) and/or `TWILIO_*`. Until then, use the owner recovery sign-in. |
-| 10 | **Nothing runs in the background on Coolify/Docker.** The platform sync only runs while a screen is open. | Store status, payouts and Clover orders go stale overnight. | Set `FOODHUB_INTERNAL_SYNC_MIN=5`, or add an outside cron that calls `/api/foodhub/cron/sync` every 5 minutes. |
+| 10 | **Nothing runs in the background on Coolify/Docker** (images built before pull request #5). The platform sync only runs while a screen is open. | Store status, payouts and Clover orders go stale overnight. | Redeploy: the image now sets `FOODHUB_INTERNAL_SYNC_MIN=5`. Elsewhere, set it, or add an outside cron that calls `/api/foodhub/cron/sync` every 5 minutes. |
 
 **Where connections live in the console:**
 - **Settings → Platforms & Clover:** every platform, its webhook address, Clover, the Clover app and the Order Relay.
@@ -68,7 +68,7 @@ Phase 3 adds a **Connections strip on the Overview** so you see all of this at a
 | **AI** | A Copilot drawer that answers questions about today, and incident explanations. It only explains; it never acts. |
 | **Clover App Market app** | Per-merchant OAuth, token refresh, approval of unknown merchants, `/welcome/clover`, legal pages (drafts). |
 
-**This session (branch `claude/practical-wright-pnhgtl`):**
+**Merged in pull request #5 (`a8705ec`, on `main`):**
 - `aa1888d` Order Relay, converted from the UrbanPiper code.
 - `11ecf86` One menu for all brands.
 - `f213a76` and `bb4cbe3` Hardening from an adversarial review:
@@ -92,6 +92,13 @@ Phase 3 adds a **Connections strip on the Overview** so you see all of this at a
     - Orders keep working while Uber has not approved the status scope.
   - **Every platform:** errors now say *why* the platform refused.
 - Tests: 211 unit tests and 374 end-to-end checks pass. Typecheck is clean and lint has 0 errors.
+
+**Phase 1 work (merged into this branch, not released yet — `docs/RELEASE_NOTES.md`, Unreleased):**
+- Orders saved before the platform gets its answer, recovered after a crash, and a **Replay** button (`lib/foodhub/inbox.ts`).
+- `GET /api/health` for an outside uptime monitor.
+- Watchtower: `sync_stale` / `menu_failed` text by default; `platform_silent` and `store_unmapped` alarms.
+- Clover retried by itself (30 s, 2 min, 5 min) before a person is woken.
+- Go-live checklist: Clover needs a merchant that works, Skip counts through the Relay, `SESSION_SECRET` required and stable, uptime monitor row.
 
 **Still to confirm with Uber, in their sandbox (not changed yet):**
 - Whether menu titles may carry two translations (`en_ca` + `fr_ca`). One source says "only one translation"; changing it could drop French, so verify first.
@@ -128,17 +135,18 @@ Each phase ends with **acceptance checks**. A phase is done only when all of the
 
 ### Phase 0: Ship what is built (days)
 
-1. Merge `claude/practical-wright-pnhgtl` into `main` through a pull request. Deploy from `main`.
-2. Fix the deploy traps:
-   - The `Dockerfile` hides a failed build with `npm run build … || true`. Remove `|| true`.
-   - Add build-time `ARG` for `NEXT_PUBLIC_SUPABASE_URL`.
-   - Document `FOODHUB_INTERNAL_SYNC_MIN` in `.env.example` and set it to 5 on Coolify.
-   - Make `SESSION_SECRET` generated like the other internal secrets, or required.
-   - Mount `/app/data/media` as a persistent volume.
-3. Fix the Go-live checklist:
-   - The Clover line turns green with only the app keys; it should need a connected merchant.
-   - Skip should count as done when it comes through the Relay.
-4. Update `docs/ATLAS_PARITY.md`, `docs/RELEASE_NOTES.md` and `docs/INSTALLER_SERVEUR.md` (old zip and folder names) for the Relay and shared menus.
+1. **Done:** merged into `main` through pull request #5 (`a8705ec`). **Left for the owner:** deploy from `main`.
+2. **Done: the deploy traps.**
+   - The `Dockerfile` no longer hides a failed build (`|| true` removed).
+   - No build-time `ARG` is needed for `NEXT_PUBLIC_SUPABASE_URL`: only server code reads it (`lib/supabase/server.ts`), and the build bakes in a `NEXT_PUBLIC_*` value only when it is present at build time, which this `Dockerfile` never does. A runtime variable is enough.
+   - `FOODHUB_INTERNAL_SYNC_MIN` is documented in `.env.example`, and the image sets it to 5.
+   - `SESSION_SECRET` is **required**, not generated: `proxy.ts` checks every request's session before instrumentation can load anything from the database. Go-live shows it as its own step (set, 32+ characters, stable).
+   - `/app/data/media` as a persistent volume: documented (`Dockerfile`, `docs/BACK_ONLINE_TODAY.md` step 3). **Left for the owner:** add the volume in Coolify.
+3. **Done: the Go-live checklist** (`lib/ui/go-live-core.ts`, tests in `tests/go-live.test.ts`).
+   - Clover is green only with a merchant that can receive orders: `CLOVER_MERCHANT_ID` + `CLOVER_ACCESS_TOKEN`, a `CLOVER_MERCHANT_TOKENS` entry, or an approved, unexpired Clover app merchant. The app keys alone no longer count.
+   - Uber Eats / DoorDash / Skip count when they come through the Relay (`FOODHUB_RELAY_CHANNELS` + a `relay:<id>` store), labelled as such; direct and relay at once is flagged.
+   - `SESSION_SECRET` is a required step; an "Uptime monitor on /api/health" information row links to `docs/BACK_ONLINE_TODAY.md`.
+4. **Done:** `docs/ATLAS_PARITY.md`, `docs/RELEASE_NOTES.md` and `docs/INSTALLER_SERVEUR.md` (no more rc10 zip or old folder names; Coolify users are sent to `docs/BACK_ONLINE_TODAY.md`) cover the Relay and shared menus.
 
 **Acceptance:**
 - The live console shows the Relay card and the Shared menu button.
@@ -148,12 +156,12 @@ Each phase ends with **acceptance checks**. A phase is done only when all of the
 
 ### Phase 1: Never lose an order or miss an alarm (1–2 weeks)
 
-1. **Save the raw webhook body before answering 200** (`lib/foodhub/webhook-utils.ts`), then process it. Add a **Replay** button for unparsed or failed payloads in Settings → Platforms.
+1. **Done: orders are saved before the platform is answered** (`lib/foodhub/inbox.ts`). Every order route saves the order before its 2xx (`503` when it cannot); the sync recovers anything left waiting after 2 minutes (5 tries, never past the platform's answer window); Settings → Platforms & Clover has a **Replay** button (owner) for failed or stuck orders. Replays never make two orders.
 2. **Done: `/api/health`.** `GET /api/health` is public (exact path) and shows no keys, names, orders or counts: version, database mode, seconds since the last sync and the last Watchtower run, and the live switch. It answers `503` when the database does not answer, the app runs in memory mode in production, the scheduled sync stopped for 20+ minutes, or the console is locked. The last order per platform stays out of this public page (commercial data); the silence alarm (item 4) watches it inside the console. **Left for the owner:** add the outside uptime monitor that texts the owner (`docs/BACK_ONLINE_TODAY.md`, Part B step 10).
-3. Send texts by default for `menu_failed` and `sync_stale` (`lib/foodhub/watch/types.ts`).
-4. Add a **silence alarm**: no orders from one platform for N hours while its stores are open (`lastOrderAt` already exists in `command.ts`).
-5. **Unmapped store:** hold auto-accept when there are several kitchens, raise an escalating alarm, and suggest the mapping (relay orders carry the brand name).
-6. **Retry Clover injection automatically** (30 s, then 2 min) before waking a manager.
+3. **Done:** `menu_failed` and `sync_stale` text the managers on duty by default (rules an owner already saved keep the owner's choice).
+4. **Done: silence alarm** `platform_silent`: no order from Uber Eats, DoorDash or Skip for N opening minutes (Settings → Alerts, default 180) while one of its stores is open.
+5. **Done: unmapped store** `store_unmapped` (critical, escalates): orders held because their store is not mapped, with the waiting orders, the platform deadline and a suggested mapping. Orders from an unmapped store are never auto-accepted.
+6. **Done: Clover retried by itself** (30 s, 2 min, 5 min) before a person is asked; never for an order that is cancelled, on the Skip tablet, followed through Clover, or already accepted by a person.
 7. Add the Relay and shared menus to the end-to-end script `scripts/foodhub-e2e.mjs`.
 
 **Acceptance:**
@@ -278,25 +286,10 @@ Food Hub already runs a lot by itself: the sync, timed re-opens, 86 re-enables, 
 
 Paste one at a time into Claude Code at the repository root. Each prompt is self-contained.
 
-**Phase 0**
-> Read docs/MASTER_PLAN.md (sections 2, 4 and 5 / Phase 0). Get branch `claude/practical-wright-pnhgtl` ready to merge into `main`:
-> - Dockerfile: no `|| true` on the build; a build-time ARG for `NEXT_PUBLIC_SUPABASE_URL`.
-> - Document `FOODHUB_INTERNAL_SYNC_MIN` in `.env.example`.
-> - Generate `SESSION_SECRET` like the other internal secrets (`lib/foodhub/runtime-secrets.ts`).
-> - Go-live: the Clover line needs a connected merchant; Skip counts as done through the Relay.
-> - Update ATLAS_PARITY, RELEASE_NOTES and INSTALLER_SERVEUR for the Relay and shared menus.
->
-> Run typecheck, lint and the tests, then open a pull request.
+**Phase 0** — done in code (section 5). What is left is the owner's: deploy from `main`, add the media volume, and check the acceptance list on the live console.
 
 **Phase 1**
-> Read docs/MASTER_PLAN.md Phase 1 and do items 1–7 with tests:
-> - Persist the raw webhook before the 200, and add a Replay button.
-> - Add `/api/health`.
-> - Text by default for `menu_failed` and `sync_stale`.
-> - Add a silence alarm per platform during opening hours.
-> - Hold auto-accept for unmapped stores when there are several kitchens, with an escalating alarm.
-> - Retry Clover injection automatically.
-> - Add the Relay and shared menus to `scripts/foodhub-e2e.mjs`.
+> Read docs/MASTER_PLAN.md Phase 1. Items 1–6 are done. If item 7 is not done yet, add the Relay and shared menus to `scripts/foodhub-e2e.mjs`. Then run the Phase 1 acceptance checks against a running server and fix what fails, with tests.
 >
 > Keep every locked rule in section 6.
 

@@ -6,6 +6,8 @@ import { basicOwner, clientIp, DEVICE_COOKIE, ownerSessionVersion, readCookie, s
 //    the Uber OAuth callback uses its single-use state; the Clover app callback needs the app secret to be of any use.
 //  - Sign-in endpoints are public (they check codes, links and PINs themselves, throttled per client). The kitchen
 //    tablet heartbeat is public too: its signed device cookie is the credential.
+//  - /api/health is public for an outside uptime monitor (exact path only; it reveals no secret, store or order),
+//    and answers even while the console below is locked — that is exactly when the monitor must say "down".
 //  - Everyone else needs a signed session cookie, or "Authorization: Basic" for scripts (owner password, or — on
 //    /api/foodhub/* only — a team member's own password, re-verified by each route via getActor/withPerm).
 //  - When live connectors are ON, a DASHBOARD_PASSWORD is mandatory: a live console can accept orders and pause
@@ -16,10 +18,12 @@ const PUBLIC_PREFIXES = [
   '/api/foodhub/auth/', '/api/foodhub/devices/heartbeat',
   '/login', '/kitchen/lock', '/manifest.webmanifest', '/sw.js', '/icons/', '/legal/', '/welcome/', '/media/',
 ];
+/** Matched exactly, never as a prefix ("/api/healthz" or "/api/health/x" still need a sign-in). */
+const PUBLIC_PATHS = new Set(['/api/health']);
 
 export async function proxy(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
-  if (PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) return NextResponse.next();
+  if (PUBLIC_PATHS.has(pathname) || PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) return NextResponse.next();
 
   // The live lock depends on the password alone: SESSION_SECRET by itself gives nobody a way to sign in as owner.
   if (process.env.LIVE_CONNECTORS_GLOBAL_ENABLED === 'true' && !process.env.DASHBOARD_PASSWORD) {

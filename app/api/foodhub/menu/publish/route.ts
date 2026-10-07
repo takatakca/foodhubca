@@ -7,6 +7,7 @@ import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { cancelScheduled, listScheduled, schedulePublish, type ScheduledPublish } from '@/lib/foodhub/menu/schedule';
 import { getMenuLanguages } from '@/lib/foodhub/menu/language';
 import { getBrandMenu, getMenuSharing, groupOf } from '@/lib/foodhub/menu/shared';
+import { previewPublish } from '@/lib/foodhub/menu/preview';
 import { verifyMenu } from '@/lib/foodhub/menu/verify';
 import { publishMenu, type FanOutRow } from '@/lib/foodhub/ops';
 import { getRepo } from '@/lib/foodhub/repo';
@@ -61,7 +62,8 @@ export const POST = withPerm('menu:edit', async (req, _ctx, actor) => {
     if (!menu) return fail(`No master menu saved for ${name}. Import from Clover or create items first.`, 409);
     const c = verifyMenu(menu, { stores, hours });
     if (name === brand) check = c;
-    if (!c.ok) return fail(`Fix ${c.errors.length} error(s) before publishing${brands.length > 1 ? ` ${name}` : ''}: ${c.errors.slice(0, 3).map((e) => e.message).join(' ')}`, 422, { check: c });
+    // A dry run still answers (with the check): it shows what blocks the publish next to what it would send.
+    if (!c.ok && b.dryRun !== true) return fail(`Fix ${c.errors.length} error(s) before publishing${brands.length > 1 ? ` ${name}` : ''}: ${c.errors.slice(0, 3).map((e) => e.message).join(' ')}`, 422, { check: c });
   }
   const channels = (Array.isArray(b.channels) ? b.channels : []).filter((c: string) => isChannelKey(c)) as ChannelKey[];
   let storeIds: string[] | undefined = brands.length === 1 && Array.isArray(b.storeIds) && b.storeIds.length ? b.storeIds.map(String) : undefined;
@@ -72,6 +74,13 @@ export const POST = withPerm('menu:edit', async (req, _ctx, actor) => {
     if (!storeIds.length) return fail(`No ${label} stores at your locations.`, 403);
   }
   if (!stores.some((s) => brands.includes(s.brandName) && (!storeIds || storeIds.includes(s.id)))) return fail(`No stores are mapped for ${label}. Map them in Food Hub → Stores first.`, 409);
+  // Dry run: what each store would receive and what changes — nothing is sent, so no approval is needed.
+  if (b.dryRun === true) {
+    const targets = brands.filter((name) => stores.some((s) => s.brandName === name && (!storeIds || storeIds.includes(s.id))));
+    const ids = (name: string) => storeIds?.filter((id) => stores.some((s) => s.id === id && s.brandName === name));
+    const preview = (await Promise.all(targets.map((name) => previewPublish([name], { storeIds: ids(name), channels: channels.length ? channels : undefined })))).flat();
+    return ok({ dryRun: true, preview, check });
+  }
   const gate = await approvalGate(req, actor, 'menu.publish', null, label);
   if (gate) return gate;
   // Brands without a mapped store (in scope) are skipped rather than failing the whole publish.

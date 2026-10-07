@@ -5,9 +5,10 @@
 //  - importMenu: builds a Food Hub master menu from Clover inventory, so menus are
 //    managed once and pushed to every channel.
 import { fromCents, missingEnv, stripSlash, timedFetch, toCents, MARKETPLACE_LABELS } from '../config';
-import type { MasterMenu, MenuCategory, MenuItem, MenuModifierGroup, StoredOrder } from '../types';
+import type { Marketplace, MasterMenu, StoredOrder } from '../types';
 import { cloverAppConfigured, cloverOAuthToken, connectedCloverMerchantIds } from './clover-oauth';
 import { buildCloverOrderCart } from './clover-order';
+import { buildMenuFromClover, cloverMenuItems, listCloverMenus, type CloverImportReport, type CloverMenuItem } from '../menu/clover-import';
 
 export function cloverBaseUrl() {
   return stripSlash(process.env.CLOVER_BASE_URL || 'https://api.clover.com');
@@ -145,8 +146,13 @@ async function cloverGetAll(mid: string, token: string, path: string, expand: st
   return out;
 }
 
-/** Build a master menu from Clover inventory. Clover stays the source of truth for item ids and base prices. */
-export async function importMenuFromClover(brandName: string, merchantId?: string | null): Promise<MasterMenu> {
+/**
+ * Build a master menu from Clover. Clover stays the source of truth for item ids, names, base prices and option
+ * groups (menu/clover-import.ts). opts.cloverMenuId = one of the merchant's Clover menus (e.g. the DoorDash +20 %
+ * menu): only its items, with its photos and descriptions, and its prices as platform prices (opts.platformPrices).
+ * The import report rides along as `importReport` (the caller keeps it out of the saved menu).
+ */
+export async function importMenuFromClover(brandName: string, merchantId?: string | null, opts: { cloverMenuId?: string | null; platformPrices?: Marketplace[]; includeArchived?: boolean } = {}): Promise<MasterMenu & { importReport?: CloverImportReport }> {
   const mid = merchantId || process.env.CLOVER_MERCHANT_ID;
   if (!mid) throw new Error('No Clover merchant id. Set CLOVER_MERCHANT_ID or pass a merchant id.');
   const token = await cloverToken(mid);
@@ -156,56 +162,18 @@ export async function importMenuFromClover(brandName: string, merchantId?: strin
     cloverGetAll(mid, token, 'items', 'categories,modifierGroups'),
     cloverGetAll(mid, token, 'modifier_groups', 'modifiers'),
   ]);
-
-  const categories = new Map<string, MenuCategory>();
-  const uncategorized: MenuCategory = { ref: 'uncategorized', name: 'Other', sortOrder: 999 };
-
-  const menuItems: MenuItem[] = items
-    .filter((it) => !it.hidden && it.name)
-    .map((it) => {
-      const cat = it.categories?.elements?.[0];
-      if (cat?.id && !categories.has(cat.id)) categories.set(cat.id, { ref: cat.id, name: cat.name || 'Category', sortOrder: Number(cat.sortOrder ?? categories.size) });
-      // VARIABLE / PER_UNIT items have no fixed price in Clover: never publish them as $0 — import them unavailable with a note.
-      const fixedPrice = !it.priceType || String(it.priceType).toUpperCase() === 'FIXED';
-      return {
-        ref: String(it.id),
-        posItemRef: String(it.id),
-        name: String(it.name),
-        description: it.alternateName || undefined,
-        price: fixedPrice ? fromCents(it.price) : 0,
-        ...(fixedPrice ? {} : { note: `Clover price type ${String(it.priceType).toUpperCase()} (no fixed price) — set a price in Food Hub before making it available.` }),
-        categoryRef: cat?.id ? String(cat.id) : uncategorized.ref,
-        available: fixedPrice && it.available !== false,
-        modifierGroupRefs: (it.modifierGroups?.elements ?? []).map((g: any) => String(g.id)),
-      } satisfies MenuItem;
-    });
-
-  if (menuItems.some((i) => i.categoryRef === uncategorized.ref)) categories.set(uncategorized.ref, uncategorized);
-
-  const usedGroups = new Set(menuItems.flatMap((i) => i.modifierGroupRefs));
-  const modifierGroups: MenuModifierGroup[] = groups
-    .filter((g) => usedGroups.has(String(g.id)))
-    .map((g) => ({
-      ref: String(g.id),
-      name: String(g.name || 'Options'),
-      min: Number(g.minRequired ?? 0),
-      max: Number(g.maxAllowed ?? (g.modifiers?.elements?.length || 1)),
-      modifiers: (g.modifiers?.elements ?? []).map((m: any) => ({
-        ref: String(m.id),
-        posModifierRef: String(m.id),
-        name: String(m.name),
-        price: fromCents(m.price),
-        available: m.available !== false,
-      })),
-    }));
-
-  return {
-    brandName,
-    categories: [...categories.values()].sort((a, b) => a.sortOrder - b.sortOrder),
-    items: menuItems,
-    modifierGroups,
-    updatedAt: new Date().toISOString(),
-  };
+  let menuItems: CloverMenuItem[] | undefined;
+  let menuInfo: { id: string; name: string } | undefined;
+  if (opts.cloverMenuId) {
+    const menus = await listCloverMenus(cloverBaseUrl(), mid, token);
+    if (!menus.ok) throw new Error(`Clover menus could not be read for merchant ${mid} (${menus.error}) — import the inventory instead (no Clover menu chosen).`);
+    const chosen = menus.menus.find((m) => m.id === opts.cloverMenuId);
+    if (!chosen) throw new Error(`Clover menu ${opts.cloverMenuId} not found on merchant ${mid}.`);
+    menuItems = await cloverMenuItems(cloverBaseUrl(), mid, token, chosen.id);
+    menuInfo = { id: chosen.id, name: chosen.name };
+  }
+  const { menu, report } = buildMenuFromClover(brandName, items, groups, { menuItems, menuInfo, platformPrices: opts.platformPrices, includeArchived: opts.includeArchived });
+  return { ...menu, importReport: report };
 }
 
 /**

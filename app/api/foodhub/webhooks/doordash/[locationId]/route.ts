@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { logActivity } from '@/lib/foodhub/activity';
+import { menuWithAlcoholRules } from '@/lib/foodhub/alcohol/rules';
 import { doorDashAdapter } from '@/lib/foodhub/adapters/doordash';
 import { isRelayStore } from '@/lib/foodhub/adapters/relay';
 import { isMenuLocked, menuLockOf } from '@/lib/foodhub/menu/lock';
@@ -37,7 +38,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ locationId:
   if (!menu || !menu.items.length) return NextResponse.json({ error: `No menu saved for ${store.brandName} yet.` }, { status: 404 });
   const languages = await getMenuLanguages();
   const publish = { ...(await publishContext(store.brandName, store.locationCode, await getHours())), language: languages.doordash };
-  const { reference: _reference, store: storeRef, ...menuBody } = toDoorDashMenu(menuForLocation(menu, store.locationCode), store.channelStoreId, process.env.DOORDASH_PROVIDER_TYPE || '', `takatak-${store.channelStoreId}-pull`, publish);
+  // The same menu publishMenu sends: alcohol only where the permit and the alcohol rules allow DoorDash.
+  const local = await menuWithAlcoholRules(menuForLocation(menu, store.locationCode), store.locationCode, 'doordash');
+  const { reference: _reference, store: storeRef, ...menuBody } = toDoorDashMenu(local, store.channelStoreId, process.env.DOORDASH_PROVIDER_TYPE || '', `takatak-${store.channelStoreId}-pull`, publish);
   const menuId = typeof store.meta?.doordashMenuId === 'string' ? store.meta.doordashMenuId : undefined;
   return NextResponse.json({ store: storeRef, menus: [{ ...(menuId ? { id: menuId } : {}), ...menuBody }] });
 }

@@ -457,7 +457,7 @@ function PublishDialog({ brand, group, stores, check, onClose, onDone }: { brand
 
 type UberPlanRow = {
   storeId: string; channelStoreId: string; brandName: string; locationCode: string; menuFrom: string | null; action: 'publish' | 'skip'; skip?: 'do_not_touch' | 'no_menu' | 'menu_errors';
-  provisioning: 'confirmed' | 'waiting' | 'disconnected' | 'unknown'; counts: { menus: number; categories: number; items: number; suspended: number; modifierGroups: number; modifierOptions: number } | null;
+  provisioning: 'confirmed' | 'waiting' | 'elsewhere' | 'disconnected' | 'unknown'; counts: { menus: number; categories: number; items: number; suspended: number; modifierGroups: number; modifierOptions: number } | null;
   markupPct: number; samples: Array<{ name: string; base: number; uber: number }>; hoursSet: boolean; holidays: number; issues: Issue[];
 };
 type UberPlan = { canSend: boolean; note: string; rows: UberPlanRow[]; summary: { stores: number; publish: number; doNotTouch: number; blocked: number } };
@@ -495,7 +495,7 @@ function UberPublishDialog({ onClose, onDone }: { onClose: () => void; onDone: (
     } catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
   }
   const PROV: Record<UberPlanRow['provisioning'], [string, string, 'go' | 'wait' | 'stop' | 'neutral']> = {
-    confirmed: ['activé chez Uber', 'active at Uber', 'go'], waiting: ['en attente d’Uber', 'waiting for Uber', 'wait'], disconnected: ['débranché par Uber', 'disconnected by Uber', 'stop'], unknown: ['relié à la main', 'linked by hand', 'neutral'],
+    confirmed: ['activé chez Uber', 'active at Uber', 'go'], waiting: ['en attente d’Uber', 'waiting for Uber', 'wait'], elsewhere: ['encore chez UrbanPiper', 'still on UrbanPiper', 'stop'], disconnected: ['débranché par Uber', 'disconnected by Uber', 'stop'], unknown: ['relié à la main', 'linked by hand', 'neutral'],
   };
   const resultBadge = (r: UberResult['result']) => r.status === 'done' || r.status === 'queued' ? <Badge tone="go">{t('reçu par Uber', 'received by Uber')}</Badge> : r.status === 'skipped' ? <Badge tone="neutral">{t('pas touché', 'left untouched')}</Badge> : r.status === 'blocked' ? <Badge tone="wait" title={r.message}>{t('non envoyé', 'not sent')}</Badge> : <Badge tone="stop" title={r.message}>{t('refusé', 'refused')}</Badge>;
   const rows = plan?.rows ?? [];
@@ -524,11 +524,13 @@ function UberPublishDialog({ onClose, onDone }: { onClose: () => void; onDone: (
                   <div className="min-w-40 flex-1"><div className="font-semibold">{r.brandName}</div><div className="text-xs text-ink-3">{shortLoc(locName(r.locationCode))}{r.menuFrom && r.menuFrom !== r.brandName ? ` · ${t('menu de', 'menu from')} ${r.menuFrom}` : ''}</div></div>
                   <Badge tone={tone}>{t(fr, en)}</Badge>
                   {r.counts && <span className="text-xs text-ink-2">{r.counts.items} {t('articles', 'items')} · {r.counts.modifierGroups} {t('groupes', 'groups')} · {r.counts.modifierOptions} options{r.counts.suspended ? ` · ${r.counts.suspended} ${t('en rupture', '86’d')}` : ''}</span>}
-                  {r.counts && <span className="text-xs text-ink-2">{r.markupPct ? `+${r.markupPct}%` : t('prix Clover', 'Clover prices')}{r.samples[0] ? ` (${r.samples[0].name}: ${money(r.samples[0].base, loc)} → ${money(r.samples[0].uber, loc)})` : ''}</span>}
+                  {r.counts && <span className="text-xs text-ink-2">{r.markupPct ? `+${r.markupPct}%` : t('sans majoration', 'no markup')}{r.samples[0] ? ` (${r.samples[0].name}: ${money(r.samples[0].base, loc)} → ${money(r.samples[0].uber, loc)})` : ''}</span>}
                   {res ? resultBadge(res) : r.skip === 'do_not_touch' ? <Badge tone="neutral">{t('ne pas toucher', 'do not touch')}</Badge> : errors.length ? <Badge tone="stop">{errors.length} {t('erreur(s)', 'error(s)')}</Badge> : warnings.length ? <Badge tone="wait">{warnings.length} {t('avertissement(s)', 'warning(s)')}</Badge> : <Badge tone="go">{t('prêt', 'ready')}</Badge>}
-                  {!results && <Switch size="sm" checked={r.skip === 'do_not_touch'} disabled={busy === `touch-${r.storeId}`} onChange={(v) => toggleTouch(r, v)} label={<span className="text-xs">{t('Ne pas toucher', 'Do not touch')}</span>} />}
-                  {r.counts && <a className="text-xs font-semibold underline" href={`/api/foodhub/menu/uber?storeId=${encodeURIComponent(r.storeId)}`} target="_blank" rel="noreferrer">JSON</a>}
-                  {r.issues.length > 0 && <button type="button" className="text-xs font-semibold underline" onClick={() => setOpen(open === r.storeId ? null : r.storeId)}>{open === r.storeId ? t('Masquer', 'Hide') : t('Détails', 'Details')}</button>}
+                  <span className="ml-auto flex items-center gap-3 whitespace-nowrap">
+                    {!results && <Switch size="sm" checked={r.skip === 'do_not_touch'} disabled={busy === `touch-${r.storeId}`} onChange={(v) => toggleTouch(r, v)} label={<span className="text-xs">{t('Ne pas toucher', 'Do not touch')}</span>} />}
+                    {r.counts && <a className="text-xs font-semibold underline" href={`/api/foodhub/menu/uber?storeId=${encodeURIComponent(r.storeId)}`} target="_blank" rel="noreferrer">JSON</a>}
+                    {r.issues.length > 0 && <button type="button" className="text-xs font-semibold underline" onClick={() => setOpen(open === r.storeId ? null : r.storeId)}>{open === r.storeId ? t('Masquer', 'Hide') : t('Détails', 'Details')}</button>}
+                  </span>
                 </div>
                 {res && !res.ok && <div className="mt-1 text-xs text-stop-2">{res.message}</div>}
                 {open === r.storeId && (

@@ -26,8 +26,11 @@ export interface UberPlanRow {
   menuFrom: string | null;
   action: 'publish' | 'skip';
   skip?: UberPlanSkip;
-  /** Uber confirmed the activation (store.provisioned), Food Hub is waiting for it, or it was mapped by hand. */
-  provisioning: 'confirmed' | 'waiting' | 'disconnected' | 'unknown';
+  /**
+   * Uber confirmed the activation (store.provisioned or pos_data), Food Hub is waiting for it, another integration
+   * (UrbanPiper) still receives the store's orders, Uber disconnected it, or it was mapped by hand.
+   */
+  provisioning: 'confirmed' | 'waiting' | 'elsewhere' | 'disconnected' | 'unknown';
   counts: { menus: number; categories: number; items: number; suspended: number; modifierGroups: number; modifierOptions: number } | null;
   markupPct: number;
   /** A few items: base (Clover) price → price on Uber. */
@@ -44,9 +47,12 @@ export interface UberPlan {
   summary: { stores: number; publish: number; doNotTouch: number; blocked: number };
 }
 
+/** Activation state: Uber's store.provisioned webhook, or what "Check with Uber" read from pos_data (meta.uberPos). */
 function provisioning(store: ChannelStore): UberPlanRow['provisioning'] {
-  if (store.meta?.provisioned === true) return 'confirmed';
+  const manager = (store.meta?.uberPos as { orderManager?: string } | undefined)?.orderManager;
   if (store.meta?.provisioned === false) return 'disconnected';
+  if (manager === 'other') return 'elsewhere';
+  if (store.meta?.provisioned === true || manager === 'foodhub' || manager === 'pending') return 'confirmed';
   return store.meta?.awaitingProvision === true ? 'waiting' : 'unknown';
 }
 
@@ -73,6 +79,7 @@ function planRow(store: ChannelStore, menu: MasterMenu | null, menuFrom: string 
   const check = verifyMenu(menu, { stores, hours });
   const issues: UberMenuIssue[] = [...check.errors, ...checkUberMenu(body)];
   if (provisioning(store) === 'waiting') issues.push({ level: 'warning', code: 'awaiting_provision', message: 'Uber has not confirmed this store’s activation yet (store.provisioned) — Uber refuses the menu until it does.' });
+  if (provisioning(store) === 'elsewhere') issues.push({ level: 'warning', code: 'other_integration', message: 'Another integration (e.g. UrbanPiper) still receives this store’s orders and may overwrite this menu — consider “Do not touch” until it lets go (Stores → Check with Uber).' });
   if (provisioning(store) === 'disconnected') issues.push({ level: 'warning', code: 'deprovisioned', message: 'Uber disconnected this store from Food Hub (store.deprovisioned) — reconnect it under Stores before publishing.' });
   if (!built.ctx.hours) issues.push({ level: 'warning', code: 'no_hours', message: 'No store hours set — Uber would show the store open 24/7. Set them in Stores → Hours.' });
   const pct = markupPct(menu, 'uber_eats');

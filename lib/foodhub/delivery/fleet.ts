@@ -1,12 +1,15 @@
 // The on-demand courier fleets behind "Call a courier": one contract, two implementations (DoorDash Drive, Uber Direct).
-import type { CourierPosition, DeliveryQuote, DeliveryStatus, FleetKey } from './types';
+import type { CourierPosition, DeliveryQuote, DeliveryStatus, DropoffAddress, FleetKey } from './types';
+
+/** Address parts for fleets that want them structured (Uber Direct). */
+export type AddressParts = Pick<DropoffAddress, 'street' | 'unit' | 'city' | 'province' | 'postalCode' | 'country'>;
 
 /** Everything a fleet needs to price and send a courier. Money in dollars here; each fleet converts to cents. */
 export interface DeliveryRequest {
   /** Our delivery id (external_delivery_id / external_id). */
   id: string;
-  pickup: { businessName: string; address: string; phone: string; instructions?: string; locationCode: string };
-  dropoff: { name: string; givenName?: string; familyName?: string; address: string; phone: string; instructions?: string; lat?: number; lng?: number; businessName?: string };
+  pickup: { businessName: string; address: string; parts?: AddressParts; phone: string; instructions?: string; locationCode: string };
+  dropoff: { name: string; givenName?: string; familyName?: string; address: string; parts?: AddressParts; phone: string; instructions?: string; lat?: number; lng?: number; businessName?: string };
   orderValue: number;
   tip: number;
   currency: string;

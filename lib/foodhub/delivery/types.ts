@@ -47,7 +47,7 @@ export interface DirectOrder {
   sourceRef?: string;
   brandName: string;
   locationCode: string;
-  customer: { name?: string; phone?: string; email?: string };
+  customer: { name?: string; phone?: string; email?: string; lang?: 'fr' | 'en' };
   fulfillment: 'pickup' | 'delivery';
   dropoff?: DropoffAddress;
   lines: DirectLine[];
@@ -74,6 +74,8 @@ export interface DirectOrder {
   deliveryId?: string;
   /** Set when a person must look (address missing, alcohol blocked, quote too expensive…). Cleared when fixed. */
   attention?: string;
+  /** Auto-dispatch attempts (retried every 2 minutes, at most 3 times, then a person decides). */
+  autoDispatch?: { attempts: number; lastAt?: string; stoppedReason?: string };
   events: DirectEvent[];
   createdAt: string;
   updatedAt: string;

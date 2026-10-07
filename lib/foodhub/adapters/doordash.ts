@@ -21,12 +21,15 @@ function base() { return stripSlash(process.env.DOORDASH_BASE_URL || 'https://op
 
 const b64url = (input: Buffer | string) => Buffer.from(input).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
 
-/** DoorDash JWT: HS256, header dd-ver DD-JWT-V1, aud "doordash", signed with the base64-decoded signing secret. */
-export function doorDashJwt(nowSec = Math.floor(Date.now() / 1000)): string {
+/**
+ * DoorDash JWT: HS256, header dd-ver DD-JWT-V1, aud "doordash", signed with the base64-decoded signing secret.
+ * Marketplace credentials by default; DoorDash Drive passes its own (another developer org / access key).
+ */
+export function doorDashJwt(nowSec = Math.floor(Date.now() / 1000), creds = { developerId: process.env.DOORDASH_DEVELOPER_ID, keyId: process.env.DOORDASH_KEY_ID, signingSecret: process.env.DOORDASH_SIGNING_SECRET }): string {
   const header = { alg: 'HS256', typ: 'JWT', 'dd-ver': 'DD-JWT-V1' };
-  const payload = { aud: 'doordash', iss: process.env.DOORDASH_DEVELOPER_ID, kid: process.env.DOORDASH_KEY_ID, exp: nowSec + 300, iat: nowSec };
+  const payload = { aud: 'doordash', iss: creds.developerId, kid: creds.keyId, exp: nowSec + 300, iat: nowSec };
   const unsigned = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(payload))}`;
-  const secret = Buffer.from((process.env.DOORDASH_SIGNING_SECRET || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+  const secret = Buffer.from((creds.signingSecret || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
   const sig = crypto.createHmac('sha256', secret).update(unsigned).digest();
   return `${unsigned}.${b64url(sig)}`;
 }

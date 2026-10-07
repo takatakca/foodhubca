@@ -17,6 +17,7 @@ import { nowIso } from './config';
 import { logActivity } from './activity';
 import { CHANNEL_LABELS } from './config';
 import { pollCloverInventory } from './clover-sync';
+import { retryFailedInjections } from './pipeline';
 import { settleInClover } from './clover-settle';
 import { dailyReconciliation } from './recon/automation';
 import { runDuePublishes } from './menu/schedule';
@@ -230,6 +231,7 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
     const scheduledPublishes = await runDuePublishes().catch(() => 0);
     const reportsSent = await sendDueReports().catch(() => 0);
     const scheduledFired = await fireDueScheduled().catch(() => 0);
+    await retryFailedInjections().catch(() => 0); // Clover retries are also run every watchtower tick (30 s)
     const inv = await pollCloverInventory().catch((e) => ({ turnedOff: 0, turnedOn: 0, priceChanges: 0, errors: [String(e?.message ?? e)] }));
     const recon = await dailyReconciliation().catch(() => null);
     const stores = await repo.listStores();

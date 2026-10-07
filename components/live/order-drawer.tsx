@@ -33,6 +33,7 @@ export const ALLERGY = /allerg|arachid|peanut|noix|\bnuts?\b|gluten|c(œ|oe)liaq
 const EVENT: Record<string, [string, string]> = {
   received: ['Reçue de la plateforme', 'Received from the platform'], duplicate_delivery: ['Doublon ignoré', 'Duplicate ignored'], unmapped_store: ['Magasin non relié', 'Store not mapped'],
   pos_injected: ['Envoyée à Clover', 'Sent to Clover'], pos_failed: ['Clover a refusé', 'Clover refused it'], pos_skipped: ['Clover non connecté', 'Clover not connected'],
+  pos_duplicate: ['Copie Clover en double retirée', 'Extra Clover copy removed'],
   accepted: ['Acceptée', 'Accepted'], accept: ['Acceptée', 'Accepted'], accept_failed: ['Acceptation échouée', 'Accept failed'], deny: ['Refusée', 'Rejected'], deny_failed: ['Refus échoué', 'Reject failed'],
   ready: ['Prête', 'Ready'], ready_failed: ['« Prête » non envoyé', 'Ready not sent'], dispatch: ['Remise au livreur', 'Picked up'], complete: ['Terminée', 'Completed'],
   cancel: ['Annulée', 'Cancelled'], cancel_failed: ['Annulation échouée', 'Cancel failed'], printed: ['Imprimée en cuisine', 'Printed in the kitchen'], print_failed: ['Impression échouée', 'Print failed'],

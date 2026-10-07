@@ -41,7 +41,7 @@ Legend: **Done** = built and covered by the end-to-end test (`npm run verify:foo
 | Timing groups (breakfast, lunch) | Category schedules, intersected with store hours | Categories → Schedule | Done |
 | Copy a menu to another brand | Copies categories, items, options | Copy from brand… | Done |
 | Item / option availability (86) | Per location or all locations, timed (comes back by itself), bulk select | 86 Board | Done |
-| Menu in French + English | French names for items, categories, options; Uber Eats gets both languages, DoorDash / Skip English or French (your choice) | Menu Manager → Languages | Done |
+| Menu in French + English | French names for items, categories, options; Uber Eats gets “Français / English” in one text (Uber shows one translation), DoorDash / Skip English or French (your choice) | Menu Manager → Languages | Done |
 | Inventory sync from POS | Out of stock in Clover → 86 everywhere, back by itself; Clover price changes flagged with one-click update | Menu Manager, 86 Board | Done |
 | Combos / nested options | One level of options | — | Not built |
 | Taxes & charges per platform | Each platform applies its own tax settings | — | Platform side |

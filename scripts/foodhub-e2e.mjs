@@ -645,7 +645,8 @@ try {
   const sched = uber18?.menus?.find((m) => m.id !== 'takatak-main');
   check('Uber: lunch category in its own menu, 11:00–14:00 (inside store hours)', uber18?.menus?.length === 2 && sched?.service_availability?.find((d) => d.day_of_week === 'monday')?.time_periods?.[0]?.start_time === '11:00' && sched.service_availability.find((d) => d.day_of_week === 'monday').time_periods[0].end_time === '14:00', JSON.stringify(uber18?.menus?.map((m) => [m.id, m.service_availability?.[0]])));
   const uberItem18 = uber18?.items?.find((i) => i.id === m18.items[0].ref);
-  check('Uber item: description with tags + allergens, calories', /Spicy/.test(uberItem18?.description?.translations?.en_ca || '') && /moutarde/i.test(uberItem18.description.translations.en_ca) && uberItem18.nutritional_info?.calories?.lower_range === 780, JSON.stringify(uberItem18?.description));
+  const uberDesc18 = Object.values(uberItem18?.description?.translations || {})[0] || '';
+  check('Uber item: description with tags + allergens, calories as energy_interval (E5)', /Spicy/.test(uberDesc18) && /moutarde/i.test(uberDesc18) && uberItem18.nutritional_info?.calories?.energy_interval?.lower === 78000000 && !('lower_range' in (uberItem18.nutritional_info?.calories || {})), JSON.stringify(uberItem18?.nutritional_info));
   const dd18 = after18.find((e) => /\/dd\/api\/v1\/menus/.test(e.path) && e.body?.store?.merchant_supplied_id === 'dd-popoulet-ndg')?.body;
   const ddItem18 = dd18?.menu?.categories?.flatMap((c) => c.items).find((i) => i.merchant_supplied_id === m18.items[0].ref);
   check('DoorDash: scheduled items carry item_special_hours (lunch ∩ store hours = 11:00–14:00)', ddItem18?.item_special_hours?.some((h) => h.day_index === 'MON' && h.start_time === '11:00:00' && h.end_time === '14:00:00'), JSON.stringify(ddItem18?.item_special_hours?.[0]));
@@ -995,12 +996,12 @@ try {
   m33.items = m33.items.map((i) => (i.ref === 'clv-item-1' ? { ...i, nameFr: 'Poulet grillé', descriptionFr: 'Demi-poulet grillé au charbon' } : i));
   m33.categories = m33.categories.map((c) => (c.name === 'Plats' ? { ...c, nameFr: 'Plats principaux' } : c));
   check('French names saved on the master menu', (await call('PUT', '/api/foodhub/menu', { body: { menu: m33 } })).json?.ok === true);
-  check('DoorDash menu language set to French (Uber stays bilingual)', (await call('PUT', '/api/foodhub/menu/languages', { body: { languages: { doordash: 'fr' } } })).json?.languages?.doordash === 'fr');
+  check('DoorDash menu language set to French (Uber stays French / English)', (await call('PUT', '/api/foodhub/menu/languages', { body: { languages: { doordash: 'fr' } } })).json?.languages?.doordash === 'fr');
   const b33 = log.length;
   await call('POST', '/api/foodhub/menu/publish', { body: { brand: 'Po Poulet' } });
   const a33 = log.slice(b33);
   const u33 = a33.find((e) => e.method === 'PUT' && /uber-store-uuid-1\/menus$/.test(e.path))?.body?.items?.find((i) => i.id === 'clv-item-1');
-  check('Uber Eats gets English and French in the same menu (locale keys en_ca / fr_ca)', u33?.title?.translations?.en_ca === enName && u33.title.translations.fr_ca === 'Poulet grillé' && Object.keys(u33.title.translations).every((k) => /^[a-z]{2}_[a-z]{2}$/.test(k)), JSON.stringify(u33?.title));
+  check('Uber Eats gets French and English in ONE translation (Uber shows only one)', JSON.stringify(u33?.title?.translations) === JSON.stringify({ fr_ca: `Poulet grillé / ${enName}` }), JSON.stringify(u33?.title));
   const d33 = a33.find((e) => /\/dd\/api\/v1\/menus/.test(e.path) && e.body?.store?.merchant_supplied_id === 'dd-popoulet-ndg')?.body;
   check('DoorDash gets the French names', !!d33?.menu?.categories?.some((c) => c.name === 'Plats principaux' && c.items.some((i) => i.name === 'Poulet grillé')), JSON.stringify(d33?.menu?.categories?.map((c) => c.name)));
   const s33 = JSON.stringify(a33.find((e) => e.path === '/skip/menus' && e.body?.restaurants?.includes('NDG-POPOULET'))?.body || {});

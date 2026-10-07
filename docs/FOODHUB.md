@@ -156,7 +156,8 @@ Clover too, and the day log is not counted twice.
 4. **Settings → Team** → managers (email or cell + PIN), staff (PIN); limit them to their location.
    **Settings → Tablets** → enrol each kitchen tablet. **Settings → Business** → each kitchen's phone.
 5. **Menu Manager → Languages** → French names (item, category, option) and which language each
-   app gets: Uber Eats bilingual by default, DoorDash / Skip English or French.
+   app gets: Uber Eats “Français / English” by default (one text per name — Uber shows a single
+   translation), DoorDash / Skip English or French.
 6. **Payouts & Money → Commission Plans** → check your plan per app (Uber Eats and DoorDash
    rate cards are pre-filled; Skip and TGTG from your contract) and tick *Matches my contract*.
 7. **Settings → Go-live** (`/settings/go-live`) shows what is left, computed from your real configuration.

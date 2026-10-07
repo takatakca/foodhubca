@@ -63,7 +63,7 @@ export function uberPosDataBody(p: { brandName: string; locationCode: string }) 
 export function explainActivationError(res: ChannelResult): string {
   const why = res.message;
   if (/already|integrat|order.?manager|conflict|another|existing/i.test(why) || res.httpStatus === 409) {
-    return `Uber says this store is still linked to another integration (UrbanPiper) — it must let go first (UrbanPiper case 00131025; Uber: merchants@uber.com, case #ef4fe). Uber: ${why}`;
+    return `Uber says this store is still linked to another integration (e.g. UrbanPiper) — that integration must disconnect it first, or ask Uber (merchants@uber.com) to move it. Uber: ${why}`;
   }
   if (res.httpStatus === 403 || res.httpStatus === 401) return `Your Uber login cannot manage this store — sign in with the Uber Eats Manager owner account, then “Connect Uber Eats” again. Uber: ${why}`;
   if (res.httpStatus === 404) return `Uber does not show this store to this app (production access not granted yet, or the store belongs to another account). Uber: ${why}`;
@@ -187,7 +187,7 @@ export function activationMessage(a: Pick<UberActivation, 'result' | 'enabled' |
   switch (a.pos?.orderManager) {
     case 'foodhub': return `Activated — Food Hub now receives this store’s orders.${notOn}`;
     case 'pending': return `Activated — Uber is moving this store’s orders to Food Hub (pending). Keep the tablet on until “Check with Uber” says Food Hub.${notOn}`;
-    case 'other': return `Activated, but another integration (UrbanPiper) still receives this store’s orders — they keep going there until it lets go (UrbanPiper case 00131025; Uber: merchants@uber.com, case #ef4fe).${notOn}`;
+    case 'other': return `Activated, but another integration (e.g. UrbanPiper) still receives this store’s orders — they keep going there until it disconnects the store (or Uber moves it: merchants@uber.com).${notOn}`;
     default: return `Sent to Uber — waiting for Uber to confirm (store.provisioned). Use “Check with Uber” to see who receives the orders.${notOn}`;
   }
 }

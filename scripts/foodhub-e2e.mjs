@@ -416,7 +416,7 @@ try {
   check('order webhooks switched on after activation (PATCH pos_data integration_enabled with the app token)', sent('PATCH', /\/v1\/eats\/stores\/uber-new-\d\/pos_data$/).filter((e) => e.headers.authorization === 'Bearer uber-token-1' && e.body?.integration_enabled === true).length === 2);
   const r1 = actv.json?.results?.find((r) => r.storeId === 'uber-new-1');
   const r2 = actv.json?.results?.find((r) => r.storeId === 'uber-new-2');
-  check('activation reads back who gets the orders: Food Hub for one, still UrbanPiper for the other (said plainly)', r1?.orderManager === 'foodhub' && /Food Hub now receives/.test(r1.message) && r2?.orderManager === 'other' && /UrbanPiper/.test(r2.message) && /00131025/.test(r2.message), JSON.stringify(actv.json?.results));
+  check('activation reads back who gets the orders: Food Hub for one, still UrbanPiper for the other (said plainly)', r1?.orderManager === 'foodhub' && /Food Hub now receives/.test(r1.message) && r2?.orderManager === 'other' && /UrbanPiper/.test(r2.message) && /merchants@uber\.com/.test(r2.message), JSON.stringify(actv.json?.results));
   const mapped = (await call('GET', '/api/foodhub/stores')).json.stores.filter((x) => x.channelStoreId.startsWith('uber-new-'));
   check('activated store keeps its Clover register and the order-manager state', mapped.find((x) => x.channelStoreId === 'uber-new-1')?.cloverMerchantId === 'MAINMERCHANT' && mapped.find((x) => x.channelStoreId === 'uber-new-1')?.meta?.uberPos?.orderManager === 'foodhub' && mapped.find((x) => x.channelStoreId === 'uber-new-2')?.meta?.uberPos?.orderManager === 'other');
   uberPosData.set('uber-new-2', { ...uberPosData.get('uber-new-2'), order_manager_client_id: 'uber-id' }); // UrbanPiper lets go

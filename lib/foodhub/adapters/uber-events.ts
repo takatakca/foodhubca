@@ -10,7 +10,7 @@ import { getRepo } from '../repo';
 import type { PlatformStatus } from '../types';
 import type { UberPosState } from './uber-eats';
 import { keepUnparsed, recordBackgroundFailure, uberDeliveryStatus } from '../webhook-utils';
-import { fetchUberOrder, fetchUberPosData, listUberCreatedOrders, parseUberOrder, uberApiBase, uberEatsAdapter } from './uber-eats';
+import { enableUberIntegration, fetchUberOrder, fetchUberPosData, listUberCreatedOrders, parseUberOrder, uberApiBase, uberEatsAdapter } from './uber-eats';
 import { markUberWebhook } from './uber-inbox';
 
 /** Routine Uber events with nothing to do in Food Hub: noted in the activity log, never an alert. */
@@ -93,7 +93,13 @@ export async function handleUberEvent(body: any): Promise<void> {
     const off = event === 'store.deprovisioned';
     // Provisioned "might promote this app to become the store's order manager": read back who takes the orders now
     // (read-only). perform_refresh_menu = Uber wants a menu; it is flagged for the owner, not pushed blindly.
-    const pos = !off && storeId ? await fetchUberPosData(storeId).catch(() => null) : null;
+    let pos = !off && storeId ? await fetchUberPosData(storeId).catch(() => null) : null;
+    // Activated from Food Hub but the order webhooks are still off (the PATCH right after activation came too early):
+    // finish the activation the owner asked for. A write on Uber, so only with the live switch.
+    if (store?.meta?.provisionedAt && pos?.ok && pos.state?.integrationEnabled === false && uberEatsAdapter.readiness().canSend) {
+      const on = await enableUberIntegration(storeId);
+      if (on.ok) pos = await fetchUberPosData(storeId).catch(() => pos);
+    }
     if (store) {
       const { uberPos: _old, ...rest } = store.meta as Record<string, unknown>;
       await repo.updateStore(store.id, { meta: { ...rest, provisioned: !off, awaitingProvision: false, provisionChangedAt: nowIso(), ...(pos?.ok && pos.state ? { uberPos: pos.state } : {}), ...(body.perform_refresh_menu === true ? { menuRefreshRequested: nowIso() } : {}) } });

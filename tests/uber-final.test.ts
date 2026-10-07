@@ -127,7 +127,7 @@ describe('activation (integration activation flow)', () => {
     expect('webhooks_version' in b.webhooks_config).toBe(false);
   });
   it('a refused activation says why in owner words (UrbanPiper, wrong login, store not visible)', () => {
-    expect(explainActivationError(result('uber_eats', 'error', 'POST … returned HTTP 400: store already has an active integration', { httpStatus: 400 }))).toMatch(/UrbanPiper.*00131025.*merchants@uber\.com/);
+    expect(explainActivationError(result('uber_eats', 'error', 'POST … returned HTTP 400: store already has an active integration', { httpStatus: 400 }))).toMatch(/UrbanPiper.*merchants@uber\.com/);
     expect(explainActivationError(result('uber_eats', 'error', 'nope', { httpStatus: 403 }))).toMatch(/Uber Eats Manager owner account/);
     expect(explainActivationError(result('uber_eats', 'error', 'nope', { httpStatus: 404 }))).toMatch(/production access/);
     expect(activationMessage({ result: result('uber_eats', 'done', 'OK'), enabled: result('uber_eats', 'done', 'OK'), pos: { orderManager: 'other', integrationEnabled: true, orderManagerClientId: 'up', checkedAt: '' } })).toMatch(/UrbanPiper/);
@@ -239,6 +239,18 @@ describe('documented event payloads', () => {
     expect((await repo.getOrder(order.id))?.timeline?.courier?.status).toBe('at_store');
     await handleUberEvent({ event_type: 'delivery.state_changed', meta: { order_id: 'o-courier', status: 'FAILED' } });
     expect((await repo.listEvents(order.id)).some((e) => e.type === 'courier_failed')).toBe(true);
+  });
+  it('store.provisioned: reads who gets the orders, finishes switching the order webhooks on, flags a menu request', async () => {
+    const repo = getRepo();
+    await repo.upsertStore(store({ meta: { provisionedAt: new Date().toISOString(), awaitingProvision: true } }));
+    let enabled = false;
+    mockFetch((c) => appToken(c) ?? (c.method === 'PATCH' ? ((enabled = true), { status: 204 }) : c.url.endsWith('/pos_data') ? { status: 200, body: { order_manager_client_id: 'uber-id', integration_enabled: enabled } } : { status: 204 }));
+    await handleUberEvent({ event_type: 'store.provisioned', store_id: 'uber-ndg', perform_refresh_menu: true });
+    const s = await repo.findStore('uber_eats', 'uber-ndg');
+    expect(s?.meta).toMatchObject({ provisioned: true, awaitingProvision: false, uberPos: { orderManager: 'foodhub', integrationEnabled: true } });
+    expect(s?.meta.menuRefreshRequested).toBeTruthy();
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
+    expect(calls.some((c) => c.method === 'PUT')).toBe(false); // the menu is never pushed blindly
   });
   it('an order already CANCELED when Food Hub reads it is recorded cancelled and never accepted', async () => {
     await getRepo().upsertStore(store());

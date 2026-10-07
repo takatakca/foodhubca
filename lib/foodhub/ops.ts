@@ -77,6 +77,16 @@ export async function storesFor(filter: { brandName?: string; brandNames?: strin
     (!filter.channels?.length || filter.channels.includes(s.channel)));
 }
 
+/**
+ * "Do not touch" (store.meta.doNotTouch): Food Hub never sends this store a menu, holiday hours or an 86 — its menu is
+ * managed elsewhere (still on UrbanPiper, a special menu…). Orders, store status and pause / resume keep working.
+ */
+export function isDoNotTouch(store: Pick<ChannelStore, 'meta'>): boolean {
+  return store.meta?.doNotTouch === true;
+}
+
+const DO_NOT_TOUCH_MESSAGE = 'Not sent: this store is marked “Do not touch” (Stores → edit the store to change it).';
+
 /** Refs 86'd at a location right now (timed 86s that already ended are ignored). */
 export function offRefsAt(menu: MasterMenu, locationCode: string, now = Date.now()): Set<string> {
   const until = menu.unavailableUntil ?? {};
@@ -115,6 +125,8 @@ export async function publishMenu(brandName: string, opts: { storeIds?: string[]
       rows.push(row(store, res));
       continue;
     }
+    // Never sent, never recorded as a publish: the store's last real publish stays what the Menus page shows.
+    if (isDoNotTouch(store)) { rows.push(row(store, result(store.channel, 'skipped', DO_NOT_TOUCH_MESSAGE))); continue; }
     const ctx = { ...(await publishContext(brandName, store.locationCode, hours)), language: store.channel === 'tgtg' ? 'en' as const : languages[store.channel] };
     const sent = menuForLocation(menu, store.locationCode);
     const res = await getAdapter(store.channel).publishMenu(store, sent, ctx);
@@ -176,6 +188,7 @@ export async function setItemAvailability(brandName: string, refs: string[], ava
       rows.push(row(store, res));
       continue;
     }
+    if (isDoNotTouch(store)) { rows.push(row(store, result(store.channel, 'skipped', DO_NOT_TOUCH_MESSAGE))); continue; }
     const adapter = getAdapter(store.channel);
     let res: ChannelResult = result(store.channel, 'skipped', 'Nothing to update.');
     if (itemRefs.length) res = await adapter.setItemAvailability(store, itemRefs, available, opts.untilMs, 'item');

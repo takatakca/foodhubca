@@ -104,16 +104,22 @@ Everything you must give a platform (URLs and secrets) is on **Settings → Plat
    Food Hub shows on Channels — paste it back in Clover; put the auth code Clover then shows in
    `CLOVER_WEBHOOK_AUTH`. Without it, the same sync runs every few minutes.
 
-**Uber Eats** (direct Marketplace API)
+**Uber Eats** (direct Marketplace API) — full owner checklist in [UBER_EATS_FINAL.md](UBER_EATS_FINAL.md)
 1. developer.uber.com → create an app → request Uber Eats Marketplace access
-   (scopes `eats.order`, `eats.store`, `eats.store.status.write`, `eats.pos_provisioning`, and
-   `eats.report` for automatic payment reports).
+   (scopes `eats.order`, `eats.store`, `eats.store.status.write`, `eats.pos_provisioning`, plus
+   `eats.store.orders.read` for the missed-order check, `eats.report` for payment reports and
+   `eats.store.status.notification` for store-status webhooks).
    Uber approves the app — this is on Uber's side.
 2. `npm run setup` → Client ID + Client Secret.
 3. In the Uber app settings: webhook URL `https://YOUR-DOMAIN/api/foodhub/webhooks/uber-eats`
-   and redirect URI `https://YOUR-DOMAIN/api/foodhub/uber-connect/callback` (both shown on Channels).
-4. Food Hub → **Stores → Connect Uber Eats stores** → sign in with the Uber Eats Manager owner
-   account → brand and location are pre-filled from each store's name/address → **Activate & map**.
+   (Basic HMAC, Signing Key = `UBER_WEBHOOK_SIGNING_KEY` from Channels → Show secrets) and redirect URI
+   `https://YOUR-DOMAIN/api/foodhub/uber-connect/callback` (both shown on Channels).
+4. Food Hub → **Stores → Connect Uber Eats** → sign in with the Uber Eats Manager owner
+   account → brand, location and Clover register are pre-filled → **Activate & link**. Food Hub then switches
+   the order webhooks on and shows who receives each store's orders (Food Hub, moving, or still UrbanPiper);
+   **Check with Uber** refreshes it.
+5. **Menus → All Uber stores** → dry run (what each store will get), then publish. Stores marked
+   *Do not touch* never receive a menu or an 86.
 
 **DoorDash** (Marketplace API — DoorDash grants access per partner)
 1. developer.doordash.com → request Marketplace API access → Developer ID, Key ID, Signing Secret.
@@ -156,7 +162,8 @@ Clover too, and the day log is not counted twice.
 4. **Settings → Team** → managers (email or cell + PIN), staff (PIN); limit them to their location.
    **Settings → Tablets** → enrol each kitchen tablet. **Settings → Business** → each kitchen's phone.
 5. **Menu Manager → Languages** → French names (item, category, option) and which language each
-   app gets: Uber Eats bilingual by default, DoorDash / Skip English or French.
+   app gets: Uber Eats “Français / English” by default (one text per name — Uber shows a single
+   translation), DoorDash / Skip English or French.
 6. **Payouts & Money → Commission Plans** → check your plan per app (Uber Eats and DoorDash
    rate cards are pre-filled; Skip and TGTG from your contract) and tick *Matches my contract*.
 7. **Settings → Go-live** (`/settings/go-live`) shows what is left, computed from your real configuration.

@@ -68,9 +68,10 @@ export async function getInboxEntry(id: string): Promise<InboxEntry | null> {
 }
 
 /** Saves a webhook before the platform gets its answer. Throws when it cannot be saved (the route answers 503). */
-export async function receiveWebhook(input: { channel: ChannelKey; kind: InboxKind; body: unknown; reference?: string | null }): Promise<InboxEntry> {
+export async function receiveWebhook(input: { channel: ChannelKey; kind: InboxKind; body: unknown; reference?: string | null; id?: string }): Promise<InboxEntry> {
   const at = nowIso();
-  const entry: InboxEntry = { id: crypto.randomUUID(), channel: input.channel, kind: input.kind, reference: input.reference ? String(input.reference).slice(0, 200) : null, status: 'received', receivedAt: at, updatedAt: at, attempts: 0, body: input.body };
+  // `id`: the platform's own event id when it has one (Uber event_id — adapters/uber-inbox.ts), so a re-delivery is recognised.
+  const entry: InboxEntry = { id: input.id || crypto.randomUUID(), channel: input.channel, kind: input.kind, reference: input.reference ? String(input.reference).slice(0, 200) : null, status: 'received', receivedAt: at, updatedAt: at, attempts: 0, body: input.body };
   await save(entry);
   return entry;
 }

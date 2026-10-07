@@ -43,6 +43,8 @@ let twilioSeq = 0;
 const uberStatus = new Map();   // store id → { status, offlineReason }
 const ddDetails = new Map();    // msid → store_details body
 const knownUberStores = new Set(['uber-store-uuid-1', 'uber-store-stl']);
+const uberPosData = new Map();  // store id → this app's pos_data (after POST /pos_data)
+const uberCreated = new Map();  // store id → orders waiting for an accept (GET created-orders)
 const cloverPayments = [
   { id: 'p1', amount: 2500, tipAmount: 300, taxAmount: 326, result: 'SUCCESS', order: { id: 'INSTORE-1' } },
   { id: 'p2', amount: 1200, tipAmount: 0, taxAmount: 156, result: 'SUCCESS', order: { id: 'INSTORE-2' } },
@@ -120,11 +122,20 @@ const mock = http.createServer(async (req, res) => {
     const merchant = req.headers.authorization === 'Bearer merchant-token-1';
     if (merchant && p === '/uber/v1/eats/stores') return send(200, { stores: [
       { store_id: 'uber-new-1', name: 'Pi Pita (Hochelaga)', location: { address: '3583 Rue Sainte-Catherine E', city: 'Montréal' } },
-      { store_id: 'uber-new-2', name: 'OOEUF Express NDG', location: { address: '6284 Av Somerled', city: 'Montréal' } },
+      { store_id: 'uber-new-2', name: 'OOEUF Express NDG', location: { address: '6284 Av Somerled', city: 'Montréal' }, pos_data: { order_manager_client_id: 'urbanpiper-client', integration_enabled: true } },
     ] });
     const prov = p.match(/^\/uber\/v1\/eats\/stores\/([^/]+)\/pos_data$/);
-    if (merchant && prov && req.method === 'POST') { knownUberStores.add(prov[1]); return send(204); }
+    if (merchant && prov && req.method === 'POST') {
+      knownUberStores.add(prov[1]);
+      // Uber promotes Food Hub as order manager — except the store UrbanPiper has not let go yet.
+      uberPosData.set(prov[1], { ...body, store_id: prov[1], integration_enabled: false, order_manager_client_id: prov[1] === 'uber-new-2' ? 'urbanpiper-client' : 'uber-id', is_order_manager_pending: false });
+      return send(204);
+    }
     if (req.headers.authorization !== 'Bearer uber-token-1') return send(401, {});
+    if (prov && req.method === 'PATCH') { const cur = uberPosData.get(prov[1]); if (!cur) return send(404, { message: 'store not provisioned for this app' }); uberPosData.set(prov[1], { ...cur, ...body }); return send(204); }
+    if (prov && req.method === 'GET') return uberPosData.has(prov[1]) ? send(200, uberPosData.get(prov[1])) : send(404, { message: 'store not provisioned for this app' });
+    const created = p.match(/^\/uber\/v1\/eats\/stores\/([^/]+)\/created-orders$/);
+    if (created) return send(200, { orders: uberCreated.get(created[1]) ?? [] });
     const order = p.match(/^\/uber\/v2\/eats\/order\/(.+)$/);
     // "uber-flaky-…" orders: Uber refuses the fetch while uberFetchFails > 0 (webhook inbox retry checks).
     if (order && order[1].startsWith('uber-flaky') && uberFetchFails > 0) { uberFetchFails -= 1; return send(503, { message: 'temporarily unavailable' }); }
@@ -419,9 +430,22 @@ try {
   const sugg = Object.fromEntries((sess?.stores || []).map((x) => [x.id, `${x.suggestedBrand}|${x.suggestedLocation}`]));
   check('brand + location suggested from Uber name/address', sugg['uber-new-1'] === 'Pi Pita|HOCHELAGA' && sugg['uber-new-2'] === 'OOeuf|NDG_6284', JSON.stringify(sugg));
   check('merchant token never sent to the browser', !JSON.stringify(sess).includes('merchant-token-1'));
-  const actv = await call('POST', '/api/foodhub/uber-connect/activate', { body: { id: state, stores: [{ storeId: 'uber-new-1', brandName: 'Pi Pita', locationCode: 'HOCHELAGA' }, { storeId: 'uber-new-2', brandName: 'OOeuf', locationCode: 'NDG_6284' }] } });
+  check('the store still on UrbanPiper is shown before activating (pos_data.order_manager_client_id)', sess?.stores?.find((x) => x.id === 'uber-new-2')?.orderManager === 'other' && sess.stores.find((x) => x.id === 'uber-new-1')?.orderManager === 'unknown', JSON.stringify(sess?.stores?.map((x) => [x.id, x.orderManager])));
+  check('Clover merchants offered for each store (ids only, no token)', Array.isArray(sess?.cloverMerchants) && sess.cloverMerchants.some((m) => m.id === 'MAINMERCHANT' && m.isDefault) && !JSON.stringify(sess.cloverMerchants).includes(CLOVER_TOKEN), JSON.stringify(sess?.cloverMerchants));
+  const actv = await call('POST', '/api/foodhub/uber-connect/activate', { body: { id: state, stores: [{ storeId: 'uber-new-1', brandName: 'Pi Pita', locationCode: 'HOCHELAGA', cloverMerchantId: 'MAINMERCHANT' }, { storeId: 'uber-new-2', brandName: 'OOeuf', locationCode: 'NDG_6284' }] } });
   check('both stores activated (POST pos_data with the merchant token)', actv.json?.results?.every((r) => r.ok) && sent('POST', /\/v1\/eats\/stores\/uber-new-\d\/pos_data$/).filter((e) => e.headers.authorization === 'Bearer merchant-token-1' && e.body?.is_order_manager === true).length === 2, JSON.stringify(actv.json));
+  const posBody = sent('POST', /\/v1\/eats\/stores\/uber-new-1\/pos_data$/)[0]?.body;
+  check('pos_data body: integrator ids, no manual acceptance, courier webhooks on, webhooks_version unset (v2 order payload)', posBody?.integrator_store_id === 'HOCHELAGA:Pi Pita' && posBody.integrator_brand_id === 'Pi Pita' && posBody.require_manual_acceptance === false && posBody.webhooks_config?.delivery_status_webhooks?.is_enabled === true && !('webhooks_version' in (posBody.webhooks_config || {})), JSON.stringify(posBody));
+  check('order webhooks switched on after activation (PATCH pos_data integration_enabled with the app token)', sent('PATCH', /\/v1\/eats\/stores\/uber-new-\d\/pos_data$/).filter((e) => e.headers.authorization === 'Bearer uber-token-1' && e.body?.integration_enabled === true).length === 2);
+  const r1 = actv.json?.results?.find((r) => r.storeId === 'uber-new-1');
+  const r2 = actv.json?.results?.find((r) => r.storeId === 'uber-new-2');
+  check('activation reads back who gets the orders: Food Hub for one, still UrbanPiper for the other (said plainly)', r1?.orderManager === 'foodhub' && /Food Hub now receives/.test(r1.message) && r2?.orderManager === 'other' && /UrbanPiper/.test(r2.message) && /merchants@uber\.com/.test(r2.message), JSON.stringify(actv.json?.results));
   const mapped = (await call('GET', '/api/foodhub/stores')).json.stores.filter((x) => x.channelStoreId.startsWith('uber-new-'));
+  check('activated store keeps its Clover register and the order-manager state', mapped.find((x) => x.channelStoreId === 'uber-new-1')?.cloverMerchantId === 'MAINMERCHANT' && mapped.find((x) => x.channelStoreId === 'uber-new-1')?.meta?.uberPos?.orderManager === 'foodhub' && mapped.find((x) => x.channelStoreId === 'uber-new-2')?.meta?.uberPos?.orderManager === 'other');
+  uberPosData.set('uber-new-2', { ...uberPosData.get('uber-new-2'), order_manager_client_id: 'uber-id' }); // UrbanPiper lets go
+  const chk3 = await call('POST', '/api/foodhub/uber-connect/check', { body: {} });
+  check('"Check with Uber" sees the store move to Food Hub once UrbanPiper lets go', chk3.json?.rows?.find((r) => r.storeId === mapped.find((x) => x.channelStoreId === 'uber-new-2')?.id)?.orderManager === 'foodhub', JSON.stringify(chk3.json?.rows));
+  check('"Check with Uber" reports stores Uber does not know for this app (no guess)', chk3.json?.rows?.find((r) => r.storeId === ids.uberFail.id)?.ok === false);
   check('activated stores mapped automatically', mapped.length === 2 && mapped.some((x) => x.brandName === 'Pi Pita' && x.locationCode === 'HOCHELAGA'));
   check('merchant token discarded after activation', (await call('POST', '/api/foodhub/uber-connect/activate', { body: { id: state, stores: [{ storeId: 'uber-new-1', brandName: 'Pi Pita', locationCode: 'HOCHELAGA' }] } })).json?.ok === false);
 
@@ -455,6 +479,25 @@ try {
   const skipJob = await waitFor(async () => (await call('GET', '/api/foodhub/channels')).json.jobs.find((j) => j.channel === 'skip' && j.kind === 'menu_push' && j.request.channelStoreId === 'NDG-POPOULET' && j.status === 'done'));
   check('Skip menu job marked done by the callback', !!skipJob);
 
+  console.log('\n5b. Menu: publish to all Uber Eats stores (dry run, Do not touch)');
+  check('mark the Saint-Léonard Uber store "Do not touch"', (await call('POST', '/api/foodhub/stores', { body: { id: ids.uberFail.id, channel: 'uber_eats', channelStoreId: 'uber-store-stl', brandName: 'Po Poulet', locationCode: 'SAINT_LEONARD', doNotTouch: true } })).json?.store?.meta?.doNotTouch === true);
+  const beforePlan = log.length;
+  const plan = (await call('GET', '/api/foodhub/menu/uber')).json?.plan;
+  const prow = (cid) => plan?.rows?.find((r) => r.channelStoreId === cid);
+  check('dry run lists every Uber store and calls nothing on Uber', plan?.rows?.length === 4 && log.slice(beforePlan).every((e) => !e.path.startsWith('/uber/')), JSON.stringify(plan?.rows?.map((r) => [r.channelStoreId, r.action, r.skip])));
+  check('dry run: NDG ready with counts, Saint-Léonard "do not touch", brands without a menu blocked', prow('uber-store-uuid-1')?.action === 'publish' && prow('uber-store-uuid-1').counts?.items === 2 && prow('uber-store-uuid-1').counts.modifierOptions >= 1 && prow('uber-store-stl')?.skip === 'do_not_touch' && prow('uber-new-1')?.skip === 'no_menu', JSON.stringify(plan?.rows?.map((r) => [r.channelStoreId, r.skip, r.counts])));
+  check('dry run shows the Uber price next to the Clover price', prow('uber-store-uuid-1')?.samples?.[0]?.base === 14.99 && prow('uber-store-uuid-1').samples[0].uber === 16.49, JSON.stringify(prow('uber-store-uuid-1')?.samples));
+  const preview = (await call('GET', `/api/foodhub/menu/uber?storeId=${ids.uber.id}`)).json;
+  check('"View JSON" returns the exact Uber body (one translation per text, tax_info on items)', preview?.path === '/v2/eats/stores/uber-store-uuid-1/menus' && preview.body?.items?.every((i) => Object.keys(i.title.translations).length === 1 && i.tax_info) && Array.isArray(preview.body.modifier_groups));
+  const beforeAll = log.length;
+  const all = await call('POST', '/api/foodhub/menu/uber', { body: {} });
+  const allPuts = log.slice(beforeAll).filter((e) => e.method === 'PUT' && /\/uber\/v2\/eats\/stores\/[^/]+\/menus$/.test(e.path)).map((e) => e.path);
+  check('publish to all Uber stores: only the ready store is sent, never the "do not touch" one', allPuts.length === 1 && allPuts[0].includes('uber-store-uuid-1') && all.json?.sent === 1 && all.json.untouched === 1 && all.json.blocked === 2, JSON.stringify({ allPuts, sent: all.json?.sent, untouched: all.json?.untouched, blocked: all.json?.blocked }));
+  const beforeDnt = log.length;
+  await call('POST', '/api/foodhub/menu/publish', { body: { brand: 'Po Poulet' } });
+  check('a normal brand publish leaves the "do not touch" store alone too', !log.slice(beforeDnt).some((e) => e.path.includes('uber-store-stl/menus')) && log.slice(beforeDnt).some((e) => e.path.includes('uber-store-uuid-1/menus')));
+  await call('POST', '/api/foodhub/stores', { body: { id: ids.uberFail.id, channel: 'uber_eats', channelStoreId: 'uber-store-stl', brandName: 'Po Poulet', locationCode: 'SAINT_LEONARD', doNotTouch: false } });
+
   console.log('\n6. Uber Eats order (signed webhook → Clover → accept)');
   check('signed Uber webhook accepted', (await uberWebhook('uber-order-1')).status === 200);
   const o1 = await waitFor(async () => { const o = await findOrder('uber-order-1'); return o?.status === 'accepted' ? o : null; });
@@ -467,6 +510,13 @@ try {
   await uberWebhook('uber-order-1');
   await sleep(800);
   check('duplicate webhook does not create a second Clover order', sent('POST', /\/atomic_order\/orders$/).length === cloverBefore);
+  const fetchesBefore = sent('GET', /\/uber\/v2\/eats\/order\/uber-order-1$/).length;
+  await uberWebhook('uber-order-1');
+  await sleep(500);
+  check('a re-delivered event (same event_id) is not even fetched again (webhook inbox)', sent('GET', /\/uber\/v2\/eats\/order\/uber-order-1$/).length === fetchesBefore);
+  const courierRaw = JSON.stringify({ event_type: 'delivery.state_changed', event_id: 'evt-courier-1', meta: { courier_trip_id: 'trip-1', store_id: 'uber-store-uuid-1', order_id: 'uber-order-1', status: 'ARRIVED_AT_PICKUP' } });
+  check('delivery.state_changed (order id in meta.order_id, as documented) accepted', (await uberSigned(courierRaw)).status === 200);
+  check('courier "at the store" reaches the order', !!(await waitFor(async () => (await findOrder('uber-order-1'))?.timeline?.courier?.status === 'at_store')));
 
   console.log('\n7. DoorDash order (JWT)');
   const ddOrder = { id: 'dd-order-1', store: { merchant_supplied_id: 'dd-popoulet-ndg' }, consumer: { first_name: 'Luc', last_name: 'Roy' }, subtotal: 1499, tax: 225, delivery_short_code: 'XY9',
@@ -670,7 +720,8 @@ try {
   const sched = uber18?.menus?.find((m) => m.id !== 'takatak-main');
   check('Uber: lunch category in its own menu, 11:00–14:00 (inside store hours)', uber18?.menus?.length === 2 && sched?.service_availability?.find((d) => d.day_of_week === 'monday')?.time_periods?.[0]?.start_time === '11:00' && sched.service_availability.find((d) => d.day_of_week === 'monday').time_periods[0].end_time === '14:00', JSON.stringify(uber18?.menus?.map((m) => [m.id, m.service_availability?.[0]])));
   const uberItem18 = uber18?.items?.find((i) => i.id === m18.items[0].ref);
-  check('Uber item: description with tags + allergens, calories', /Spicy/.test(uberItem18?.description?.translations?.en_ca || '') && /moutarde/i.test(uberItem18.description.translations.en_ca) && uberItem18.nutritional_info?.calories?.lower_range === 780, JSON.stringify(uberItem18?.description));
+  const uberDesc18 = Object.values(uberItem18?.description?.translations || {})[0] || '';
+  check('Uber item: description with tags + allergens, calories as energy_interval (E5)', /Spicy/.test(uberDesc18) && /moutarde/i.test(uberDesc18) && uberItem18.nutritional_info?.calories?.energy_interval?.lower === 78000000 && !('lower_range' in (uberItem18.nutritional_info?.calories || {})), JSON.stringify(uberItem18?.nutritional_info));
   const dd18 = after18.find((e) => /\/dd\/api\/v1\/menus/.test(e.path) && e.body?.store?.merchant_supplied_id === 'dd-popoulet-ndg')?.body;
   const ddItem18 = dd18?.menu?.categories?.flatMap((c) => c.items).find((i) => i.merchant_supplied_id === m18.items[0].ref);
   check('DoorDash: scheduled items carry item_special_hours (lunch ∩ store hours = 11:00–14:00)', ddItem18?.item_special_hours?.some((h) => h.day_index === 'MON' && h.start_time === '11:00:00' && h.end_time === '14:00:00'), JSON.stringify(ddItem18?.item_special_hours?.[0]));
@@ -1020,12 +1071,12 @@ try {
   m33.items = m33.items.map((i) => (i.ref === 'clv-item-1' ? { ...i, nameFr: 'Poulet grillé', descriptionFr: 'Demi-poulet grillé au charbon' } : i));
   m33.categories = m33.categories.map((c) => (c.name === 'Plats' ? { ...c, nameFr: 'Plats principaux' } : c));
   check('French names saved on the master menu', (await call('PUT', '/api/foodhub/menu', { body: { menu: m33 } })).json?.ok === true);
-  check('DoorDash menu language set to French (Uber stays bilingual)', (await call('PUT', '/api/foodhub/menu/languages', { body: { languages: { doordash: 'fr' } } })).json?.languages?.doordash === 'fr');
+  check('DoorDash menu language set to French (Uber stays French / English)', (await call('PUT', '/api/foodhub/menu/languages', { body: { languages: { doordash: 'fr' } } })).json?.languages?.doordash === 'fr');
   const b33 = log.length;
   await call('POST', '/api/foodhub/menu/publish', { body: { brand: 'Po Poulet' } });
   const a33 = log.slice(b33);
   const u33 = a33.find((e) => e.method === 'PUT' && /uber-store-uuid-1\/menus$/.test(e.path))?.body?.items?.find((i) => i.id === 'clv-item-1');
-  check('Uber Eats gets English and French in the same menu (locale keys en_ca / fr_ca)', u33?.title?.translations?.en_ca === enName && u33.title.translations.fr_ca === 'Poulet grillé' && Object.keys(u33.title.translations).every((k) => /^[a-z]{2}_[a-z]{2}$/.test(k)), JSON.stringify(u33?.title));
+  check('Uber Eats gets French and English in ONE translation (Uber shows only one)', JSON.stringify(u33?.title?.translations) === JSON.stringify({ fr_ca: `Poulet grillé / ${enName}` }), JSON.stringify(u33?.title));
   const d33 = a33.find((e) => /\/dd\/api\/v1\/menus/.test(e.path) && e.body?.store?.merchant_supplied_id === 'dd-popoulet-ndg')?.body;
   check('DoorDash gets the French names', !!d33?.menu?.categories?.some((c) => c.name === 'Plats principaux' && c.items.some((i) => i.name === 'Poulet grillé')), JSON.stringify(d33?.menu?.categories?.map((c) => c.name)));
   const s33 = JSON.stringify(a33.find((e) => e.path === '/skip/menus' && e.body?.restaurants?.includes('NDG-POPOULET'))?.body || {});
@@ -1380,6 +1431,15 @@ try {
   const hd = (await call('GET', '/api/health', { auth: false, headers: { authorization: 'Bearer cron-e2e' } })).json;
   check('with the cron secret: each platform and its last order, the Watchtower alive', hd?.platforms?.length === 4 && !!hd.platforms.find((p) => p.channel === 'doordash')?.lastOrderAt && hd.checks?.watchtower?.status === 'ok', JSON.stringify(hd && { p: hd.platforms, w: hd.checks?.watchtower }));
   check('the Overview reads the same health (session)', (await call('GET', '/api/health')).json?.platforms?.length === 4);
+
+  console.log('\n42. Uber Eats: orders whose webhook never arrived (missed-order check)');
+  const ago = (min) => new Date(Date.now() - min * 60_000).toISOString();
+  // uber-new-1: Uber confirmed Food Hub as order manager. uber-store-uuid-1: never confirmed — must not be polled.
+  uberCreated.set('uber-new-1', [{ id: 'uber-missed-1', current_state: 'CREATED', placed_at: ago(2) }, { id: 'uber-too-old-1', current_state: 'CREATED', placed_at: ago(20) }, { id: 'uber-too-new-1', current_state: 'CREATED', placed_at: ago(0.2) }]);
+  uberCreated.set('uber-store-uuid-1', [{ id: 'uber-not-mine-1', current_state: 'CREATED', placed_at: ago(2) }]);
+  const sy41 = await call('POST', '/api/foodhub/sync', { body: { force: true } });
+  check('sync finds the order no webhook announced and processes it (Clover first, then accept)', sy41.json?.report?.uberMissed?.recovered === 1 && !!(await waitFor(async () => { const o = await findOrder('uber-missed-1'); return o?.posOrderId && o.status === 'accepted' ? o : null; })), JSON.stringify(sy41.json?.report?.uberMissed));
+  check('missed-order check skips stores not confirmed as Food Hub’s, orders past the 11.5-min window and orders the webhook may still bring', !(await findOrder('uber-not-mine-1')) && !(await findOrder('uber-too-old-1')) && !(await findOrder('uber-too-new-1')) && !sent('GET', /\/v1\/eats\/stores\/uber-store-uuid-1\/created-orders$/).length);
 
   await sleep(300);
   // A webhook "kept in the inbox" (section 41: Uber refusing the order fetch on purpose) is handled, not a crash.

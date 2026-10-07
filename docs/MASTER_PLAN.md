@@ -93,12 +93,16 @@ Phase 3 adds a **Connections strip on the Overview** so you see all of this at a
   - **Every platform:** errors now say *why* the platform refused.
 - Tests: 211 unit tests and 374 end-to-end checks pass. Typecheck is clean and lint has 0 errors.
 
-**Still to confirm with Uber, in their sandbox (not changed yet):**
-- Whether menu titles may carry two translations (`en_ca` + `fr_ca`). One source says "only one translation"; changing it could drop French, so verify first.
-- Whether `delivery.state_changed` (courier tracking) needs `webhooks_config` / `webhooks_version: "1.0.0"` at store activation.
-- Whether items need `tax_info` for Québec stores.
-- The calorie field (`energy_interval` replaces the deprecated `lower_range` / `upper_range`).
-- Keeping the Uber token in the database instead of memory (only matters on serverless hosts).
+**Formerly "still to confirm with Uber": resolved on 2026-10-07 from Uber's docs (branch `uber-eats-final`, details and evidence in [UBER_EATS_FINAL.md](UBER_EATS_FINAL.md) section 3):**
+- Two translations: **not supported** (one translation, shown to everyone). French and English now go in one text, French first.
+- `webhooks_config`: sent at activation (courier webhooks on, `webhooks_version` left unset so orders stay on `GET /v2/eats/order`). The order webhooks are switched on with `PATCH pos_data integration_enabled`, and who receives the orders is read back.
+- `tax_info`: a required field with optional members. It is sent empty (Uber applies the store's tax setup). `UBER_TAX_RATE_PCT` exists if Uber asks for an item rate. **Still to ask Uber.**
+- Calories: `energy_interval` (E5) is sent; `lower_range` / `upper_range` are deprecated.
+- Token: kept in the database too (Uber allows 100 token requests per hour).
+- Still to ask Uber:
+  - whether `delivery.state_changed` arrives without `webhooks_version "1.0.0"`;
+  - whether the previous-version Order API is fine for certification;
+  - whether "update store prep time" (newer Store API) is required.
 
 ---
 
@@ -174,7 +178,13 @@ Each phase ends with **acceptance checks**. A phase is done only when all of the
    - **Ask DoorDash to configure the Order Cancellation webhook** to the same address.
    - Give DoorDash the Menu Request URL.
    - Until approval, `FOODHUB_VIA_CLOVER=doordash` is the working fallback.
-2. **Uber Eats:** get the scopes approved; connect each brand's stores through OAuth; check the menu PUT and the 86 calls on one store, then roll out.
+2. **Uber Eats:** code finished on branch `uber-eats-final`; the owner's steps are in [UBER_EATS_FINAL.md](UBER_EATS_FINAL.md):
+   - paste the signing key;
+   - get production access (merchants@uber.com, case #ef4fe);
+   - UrbanPiper lets go of the stores (case 00131025);
+   - Stores → Connect Uber Eats;
+   - Menus → All Uber stores (dry run, then publish);
+   - one test order per kitchen, then retire the tablets.
 3. **Skip:** get the JET Connect key, or agree a partner feed through the Relay.
 4. **Too Good To Go:** when the rep delivers the spec, write a real `tgtgAdapter`: read their orders (replacing the best-guess reader), send bag quantities and pickup windows, and cancel. Remove the permanent "blocked" results.
 5. **Clover App Market** — code ready (branch `clover-marketplace-launch`); the full list is in `docs/CLOVER_MARKETPLACE_LAUNCH.md`:

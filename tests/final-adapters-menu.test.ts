@@ -211,18 +211,21 @@ describe('menu translation: locale keys, closed days, category order', () => {
     { id: 'h2', date: '2026-12-31', name: 'Short', locationCodes: [], closed: false, slots: [{ open: '12:00', close: '16:00' }] },
   ], timezone: 'America/Toronto', today: '2026-10-01', language: 'both' };
 
-  it('Uber MultiLanguageText uses en_ca / fr_ca locale keys only', () => {
+  it('Uber MultiLanguageText carries ONE translation (Uber shows only one): French + English together, French first', () => {
     expect(UBER_LOCALES).toEqual({ en: 'en_ca', fr: 'fr_ca' });
     const u = toUberMenu(menu, ctx);
     const item = u.items.find((i: any) => i.id === 'i1') as any;
-    expect(item.title.translations).toEqual({ en_ca: 'Grilled chicken', fr_ca: 'Poulet grillé' });
+    expect(item.title.translations).toEqual({ fr_ca: 'Poulet grillé / Grilled chicken' });
     expect(item.description.translations.fr_ca).toContain('moutarde');
     const cat = u.categories.find((c: any) => c.id === 'mains') as any;
-    expect(cat.title.translations).toEqual({ en_ca: 'Plats', fr_ca: 'Plats principaux' });
-    const keys = new Set<string>();
-    JSON.stringify(u, (k, v) => { if (k === 'translations' && v && typeof v === 'object') Object.keys(v).forEach((x) => keys.add(x)); return v; });
-    expect([...keys].every((k) => /^[a-z]{2}_[a-z]{2}$/.test(k))).toBe(true);
-    expect((u.items.find((i: any) => i.id === 'i2') as any).title.translations).toEqual({ en_ca: 'Tart' }); // no French → no fr_ca key
+    expect(cat.title.translations).toEqual({ fr_ca: 'Plats principaux / Plats' });
+    const keys: string[][] = [];
+    JSON.stringify(u, (k, v) => { if (k === 'translations' && v && typeof v === 'object') keys.push(Object.keys(v)); return v; });
+    expect(keys.every((k) => k.length === 1 && /^[a-z]{2}_[a-z]{2}$/.test(k[0]))).toBe(true);
+    expect((u.items.find((i: any) => i.id === 'i2') as any).title.translations).toEqual({ fr_ca: 'Tart' }); // no French name → the name as is
+    // English-only and French-only menus use their own locale key.
+    expect((toUberMenu(menu, { ...ctx, language: 'en' }).items.find((i: any) => i.id === 'i1') as any).title.translations).toEqual({ en_ca: 'Grilled chicken' });
+    expect((toUberMenu(menu, { ...ctx, language: 'fr' }).items.find((i: any) => i.id === 'i1') as any).title.translations).toEqual({ fr_ca: 'Poulet grillé' });
   });
 
   it('Uber holiday hours: closed all day = one 00:00–00:00 period (as Uber documents)', () => {

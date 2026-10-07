@@ -49,7 +49,7 @@ export function MenuEditor() {
   const [view, setView] = useState<'items' | 'options' | 'publish'>('items');
   const [editItem, setEditItem] = useState<string | null>(null);
   const [editHours, setEditHours] = useState<string | null>(null);
-  const [dialog, setDialog] = useState<'publish' | 'copy' | 'langs' | 'newcat' | 'share' | 'import' | null>(null);
+  const [dialog, setDialog] = useState<'publish' | 'uber' | 'copy' | 'langs' | 'newcat' | 'share' | 'import' | null>(null);
   // One menu for several brands: follower → source. sharedFrom = the brand whose menu this one uses.
   const [sharing, setSharing] = useState<Record<string, string>>({});
   const [sharedFrom, setSharedFrom] = useState<string | null>(null);
@@ -111,6 +111,7 @@ export function MenuEditor() {
           <Button variant="outline" onClick={() => (dirty ? toast.warn(t('Enregistrez d’abord.', 'Save first.')) : setDialog('share'))} icon={<Link2 className="size-4" />}>{t('Menu partagé', 'Shared menu')}</Button>
           <Button variant="outline" disabled={Boolean(sharedFrom)} loading={busy === 'import'} onClick={importClover} icon={<Download className="size-4" />}>{t('Importer de Clover', 'Import from Clover')}</Button>
           <Button variant="primary" disabled={!dirty || Boolean(sharedFrom)} loading={busy === 'save'} onClick={save}>{dirty ? t('Enregistrer', 'Save') : t('Enregistré', 'Saved')}</Button>
+          <Button variant="outline" onClick={() => (dirty ? toast.warn(t('Enregistrez avant de publier.', 'Save before publishing.')) : setDialog('uber'))} icon={<PlatformMark channel="uber_eats" size="xs" />}>{t('Tous les magasins Uber', 'All Uber stores')}</Button>
           <Button variant="brand" onClick={() => (dirty ? toast.warn(t('Enregistrez avant de publier.', 'Save before publishing.')) : setDialog('publish'))} icon={<Send className="size-4" />}>{t('Publier', 'Publish')}</Button>
         </>} />
       <MenuTabs />
@@ -296,6 +297,7 @@ export function MenuEditor() {
       {dialog === 'share' && <ShareDialog brand={sharedFrom ?? brand} brands={allBrands} sharing={sharing} onClose={() => setDialog(null)} onSaved={(next, publish) => { setSharing(next); setDialog(null); load(brand).catch(fail); loadBrands(); toast.success(t('Menus partagés enregistrés', 'Shared menus saved'), publish.length ? t(`Publiez ${publish.join(', ')} : leurs plateformes montrent encore l’ancien menu.`, `Publish ${publish.join(', ')}: their platforms still show the previous menu.`) : undefined); }} />}
       {dialog === 'import' && <ImportDialog brand={brand} hasItems={Boolean(menu?.items.length)} onClose={() => setDialog(null)} onDone={(m) => { setMenu(m); setDirty(false); setDialog(null); loadStatus(brand); }} />}
       {dialog === 'publish' && menu && <PublishDialog brand={brand} group={group} stores={stores} check={check} onClose={() => setDialog(null)} onDone={() => { setDialog(null); loadStatus(brand); setView('publish'); }} />}
+      {dialog === 'uber' && <UberPublishDialog onClose={() => setDialog(null)} onDone={() => { setDialog(null); loadStatus(brand); setView('publish'); }} />}
       {dialog === 'langs' && langs && <LangDialog value={langs} onClose={() => setDialog(null)} onSaved={(l) => { setLangs(l); setDialog(null); toast.success(t('Langues enregistrées — publiez pour les appliquer.', 'Languages saved — publish to apply them.')); }} />}
       {dialog === 'newcat' && <NewCategory onClose={() => setDialog(null)} onAdd={(name, nameFr) => { const ref = uid('cat'); update((m) => ({ ...m, categories: [...m.categories, { ref, name, nameFr: nameFr || undefined, sortOrder: m.categories.length }] })); setCat(ref); setDialog(null); }} copyFrom={allBrands.filter((b) => b !== brand)} onCopy={async (src) => {
         const d = await api<{ menu: MasterMenu }>(`/api/foodhub/menu?brand=${encodeURIComponent(src)}`);
@@ -531,6 +533,97 @@ function ImportDialog({ brand, hasItems, onClose, onDone }: { brand: string; has
   );
 }
 
+type UberPlanRow = {
+  storeId: string; channelStoreId: string; brandName: string; locationCode: string; menuFrom: string | null; action: 'publish' | 'skip'; skip?: 'do_not_touch' | 'no_menu' | 'menu_errors';
+  provisioning: 'confirmed' | 'waiting' | 'elsewhere' | 'disconnected' | 'unknown'; counts: { menus: number; categories: number; items: number; suspended: number; modifierGroups: number; modifierOptions: number } | null;
+  markupPct: number; samples: Array<{ name: string; base: number; uber: number }>; hoursSet: boolean; holidays: number; issues: Issue[];
+};
+type UberPlan = { canSend: boolean; note: string; rows: UberPlanRow[]; summary: { stores: number; publish: number; doNotTouch: number; blocked: number } };
+type UberResult = { storeId: string; result: { ok: boolean; status: string; message: string } };
+
+/**
+ * "Publish to all Uber stores": a dry run first (exactly what each store would receive, what blocks it), then one click.
+ * Stores marked "Do not touch" are listed but never sent; the switch is right here.
+ */
+function UberPublishDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const { t, loc } = useI18n();
+  const { locName } = useViewer();
+  const toast = useToast();
+  const [plan, setPlan] = useState<UberPlan | null>(null);
+  const [sel, setSel] = useState<string[]>([]);
+  const [open, setOpen] = useState<string | null>(null);
+  const [busy, setBusy] = useState('');
+  const [results, setResults] = useState<Record<string, UberResult['result']> | null>(null);
+  const load = useCallback(() => api<{ plan: UberPlan }>('/api/foodhub/menu/uber').then((d) => { setPlan(d.plan); setSel(d.plan.rows.filter((r) => r.action === 'publish').map((r) => r.storeId)); }).catch((e) => toast.error(e instanceof Error ? e.message : String(e))), [toast]);
+  useEffect(() => { load(); }, [load]);
+
+  async function toggleTouch(r: UberPlanRow, doNotTouch: boolean) {
+    setBusy(`touch-${r.storeId}`);
+    try { await api('/api/foodhub/stores', { method: 'POST', json: { id: r.storeId, channel: 'uber_eats', channelStoreId: r.channelStoreId, brandName: r.brandName, locationCode: r.locationCode, doNotTouch } }); await load(); }
+    catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
+  }
+  async function publish() {
+    setBusy('publish');
+    try {
+      const d = await api<{ results: UberResult[]; sent: number; failed: number; blocked: number; untouched: number }>('/api/foodhub/menu/uber', { method: 'POST', json: { storeIds: sel } });
+      setResults(Object.fromEntries(d.results.map((r) => [r.storeId, r.result])));
+      // "Sent" only for what Uber answered OK; blocked (safe mode, menu errors) and refused are said as such.
+      if (d.sent && !d.failed && !d.blocked) toast.success(t(`Menu reçu par ${d.sent} magasin(s) Uber`, `Menu received by ${d.sent} Uber store(s)`));
+      else toast.warn(t(`${d.sent} reçu(s) · ${d.failed} refusé(s) · ${d.blocked} non envoyé(s)`, `${d.sent} received · ${d.failed} refused · ${d.blocked} not sent`), t('Le détail est dans la liste.', 'Details are in the list.'));
+    } catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
+  }
+  const PROV: Record<UberPlanRow['provisioning'], [string, string, 'go' | 'wait' | 'stop' | 'neutral']> = {
+    confirmed: ['activé chez Uber', 'active at Uber', 'go'], waiting: ['en attente d’Uber', 'waiting for Uber', 'wait'], elsewhere: ['encore chez UrbanPiper', 'still on UrbanPiper', 'stop'], disconnected: ['débranché par Uber', 'disconnected by Uber', 'stop'], unknown: ['relié à la main', 'linked by hand', 'neutral'],
+  };
+  const resultBadge = (r: UberResult['result']) => r.status === 'done' || r.status === 'queued' ? <Badge tone="go">{t('reçu par Uber', 'received by Uber')}</Badge> : r.status === 'skipped' ? <Badge tone="neutral">{t('pas touché', 'left untouched')}</Badge> : r.status === 'blocked' ? <Badge tone="wait" title={r.message}>{t('non envoyé', 'not sent')}</Badge> : <Badge tone="stop" title={r.message}>{t('refusé', 'refused')}</Badge>;
+  const rows = plan?.rows ?? [];
+  return (
+    <Modal title={t('Publier sur tous les magasins Uber Eats', 'Publish to all Uber Eats stores')} subtitle={t('Aperçu : rien n’est envoyé avant le bouton « Publier ».', 'Preview: nothing is sent until you press “Publish”.')} size="xl" onClose={results ? onDone : onClose}
+      footer={results ? <Button onClick={onDone}>{t('Fermer', 'Close')}</Button> : <><Button variant="ghost" onClick={onClose}>{t('Annuler', 'Cancel')}</Button><Button variant="brand" loading={busy === 'publish'} disabled={!sel.length || !plan} onClick={publish} icon={<Send className="size-4" />}>{t(`Publier sur ${sel.length} magasin(s) Uber`, `Publish to ${sel.length} Uber store(s)`)}</Button></>}>
+      {!plan ? <div className="py-8 text-center text-sm text-ink-3">{t('Préparation de l’aperçu…', 'Building the preview…')}</div> : <>
+        {!plan.canSend && <Banner tone="warn" className="mb-3">{t('Uber Eats n’est pas encore en direct : la publication sera refusée (« non envoyé ») tant que ceci n’est pas réglé — ', 'Uber Eats is not live yet: publishing is refused (“not sent”) until this is fixed — ')}{plan.note}</Banner>}
+        <div className="mb-3 flex flex-wrap gap-2 text-sm">
+          <Badge tone="info">{plan.summary.stores} {t('magasins Uber', 'Uber stores')}</Badge>
+          <Badge tone="go">{plan.summary.publish} {t('prêts', 'ready')}</Badge>
+          {plan.summary.doNotTouch > 0 && <Badge tone="neutral">{plan.summary.doNotTouch} {t('« ne pas toucher »', '“do not touch”')}</Badge>}
+          {plan.summary.blocked > 0 && <Badge tone="stop">{plan.summary.blocked} {t('bloqués', 'blocked')}</Badge>}
+        </div>
+        {rows.length === 0 && <EmptyState title={t('Aucun magasin Uber branché', 'No Uber store connected')} body={t('Branchez-les dans Magasins → Brancher Uber Eats.', 'Connect them in Stores → Connect Uber Eats.')} />}
+        <div className="scrollbar-thin max-h-[55vh] divide-y divide-line overflow-y-auto rounded-lg border border-line">
+          {rows.map((r) => {
+            const [fr, en, tone] = PROV[r.provisioning];
+            const errors = r.issues.filter((i) => i.level === 'error');
+            const warnings = r.issues.filter((i) => i.level !== 'error');
+            const res = results?.[r.storeId];
+            return (
+              <div key={r.storeId} className="px-3 py-2.5">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                  <input type="checkbox" className="size-4" aria-label={r.brandName} disabled={r.action !== 'publish' || Boolean(results)} checked={sel.includes(r.storeId)} onChange={(e) => setSel(e.target.checked ? [...sel, r.storeId] : sel.filter((x) => x !== r.storeId))} />
+                  <div className="min-w-40 flex-1"><div className="font-semibold">{r.brandName}</div><div className="text-xs text-ink-3">{shortLoc(locName(r.locationCode))}{r.menuFrom && r.menuFrom !== r.brandName ? ` · ${t('menu de', 'menu from')} ${r.menuFrom}` : ''}</div></div>
+                  <Badge tone={tone}>{t(fr, en)}</Badge>
+                  {r.counts && <span className="text-xs text-ink-2">{r.counts.items} {t('articles', 'items')} · {r.counts.modifierGroups} {t('groupes', 'groups')} · {r.counts.modifierOptions} options{r.counts.suspended ? ` · ${r.counts.suspended} ${t('en rupture', '86’d')}` : ''}</span>}
+                  {r.counts && <span className="text-xs text-ink-2">{r.markupPct ? `+${r.markupPct}%` : t('sans majoration', 'no markup')}{r.samples[0] ? ` (${r.samples[0].name}: ${money(r.samples[0].base, loc)} → ${money(r.samples[0].uber, loc)})` : ''}</span>}
+                  {res ? resultBadge(res) : r.skip === 'do_not_touch' ? <Badge tone="neutral">{t('ne pas toucher', 'do not touch')}</Badge> : errors.length ? <Badge tone="stop">{errors.length} {t('erreur(s)', 'error(s)')}</Badge> : warnings.length ? <Badge tone="wait">{warnings.length} {t('avertissement(s)', 'warning(s)')}</Badge> : <Badge tone="go">{t('prêt', 'ready')}</Badge>}
+                  <span className="ml-auto flex items-center gap-3 whitespace-nowrap">
+                    {!results && <Switch size="sm" checked={r.skip === 'do_not_touch'} disabled={busy === `touch-${r.storeId}`} onChange={(v) => toggleTouch(r, v)} label={<span className="text-xs">{t('Ne pas toucher', 'Do not touch')}</span>} />}
+                    {r.counts && <a className="text-xs font-semibold underline" href={`/api/foodhub/menu/uber?storeId=${encodeURIComponent(r.storeId)}`} target="_blank" rel="noreferrer">JSON</a>}
+                    {r.issues.length > 0 && <button type="button" className="text-xs font-semibold underline" onClick={() => setOpen(open === r.storeId ? null : r.storeId)}>{open === r.storeId ? t('Masquer', 'Hide') : t('Détails', 'Details')}</button>}
+                  </span>
+                </div>
+                {res && !res.ok && <div className="mt-1 text-xs text-stop-2">{res.message}</div>}
+                {open === r.storeId && (
+                  <ul className="mt-2 space-y-1">{r.issues.map((x, i) => <li key={i} className={cn('rounded-md px-2.5 py-1 text-xs', x.level === 'error' ? 'bg-stop-soft' : x.level === 'warning' ? 'bg-wait-soft' : 'bg-sunken')}>{x.message}</li>)}</ul>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-3 text-xs text-ink-3">{t('Chaque magasin reçoit le menu de sa marque (le menu partagé si elle le suit), ses heures et ses fériés, en français et en anglais. « Ne pas toucher » : Food Hub n’envoie jamais de menu ni de rupture à ce magasin ; les commandes et la pause continuent.', 'Each store gets its brand’s menu (the shared menu when the brand follows it), its hours and holidays, in French and English. “Do not touch”: Food Hub never sends this store a menu or an 86; orders and pause keep working.')}</p>
+      </>}
+    </Modal>
+  );
+}
+
 type Diff = { added: Array<{ name: string; price: number }>; removed: Array<{ name: string }>; repriced: Array<{ name: string; from: number; to: number }>; turnedOff: Array<{ name: string }>; turnedOn: Array<{ name: string }>; renamed: Array<{ from: string; to: string }>; same: boolean };
 type PreviewRow = {
   storeId: string; brandName: string; channel: string; locationCode: string; channelStoreId: string; send: 'yes' | 'locked' | 'not_live' | 'via_clover'; reason?: string; reasonFr?: string;
@@ -649,7 +742,7 @@ function LangDialog({ value, onSaved, onClose }: { value: Langs; onSaved: (l: La
   return (
     <Modal title={t('Langue du menu par plateforme', 'Menu language per platform')} onClose={onClose} footer={<><Button variant="ghost" onClick={onClose}>{t('Annuler', 'Cancel')}</Button><Button loading={busy} onClick={save}>{t('Enregistrer', 'Save')}</Button></>}>
       <div className="space-y-4">
-        {([['uber_eats', t('Uber montre à chaque client sa langue quand les noms français sont remplis.', 'Uber shows each customer their language when French names are filled in.')], ['doordash', t('Une langue par menu.', 'One language per menu.')], ['skip', t('Une langue par menu.', 'One language per menu.')]] as const).map(([k, note]) => (
+        {([['uber_eats', t('Un seul texte par nom chez Uber (toutes les langues ensemble) — « Français / English » est conseillé au Québec.', 'Uber takes one text per name (all languages together) — “Français / English” is best in Québec.')], ['doordash', t('Une langue par menu.', 'One language per menu.')], ['skip', t('Une langue par menu.', 'One language per menu.')]] as const).map(([k, note]) => (
           <Field key={k} label={<span className="flex items-center gap-2"><PlatformMark channel={k} size="xs" />{k === 'uber_eats' ? 'Uber Eats' : k === 'doordash' ? 'DoorDash' : 'SkipTheDishes'}</span>} hint={note}>
             <Select value={v[k]} onChange={(e) => setV({ ...v, [k]: e.target.value })}>{opts.map(([a, b]) => <option key={a} value={a}>{b}</option>)}</Select>
           </Field>

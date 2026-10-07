@@ -53,7 +53,7 @@ export default function HoursPage() {
     const withMenu = d.summary.filter((s) => s.items > 0).map((s) => s.brandName);
     let ok = 0; const errs: string[] = [];
     for (const b of withMenu) {
-      try { const r = await api<{ results: Array<{ result: { ok: boolean } }> }>('/api/foodhub/menu/publish', { method: 'POST', json: { brand: b } }); if (r.results.every((x) => x.result.ok)) ok++; else errs.push(b); }
+      try { const r = await api<{ results: Array<{ result: { ok: boolean } }> }>('/api/foodhub/menu/publish', { method: 'POST', json: { brand: b } }); if (r.results.length && r.results.every((x) => x.result.ok)) ok++; else errs.push(b); }
       catch (e) { if (e instanceof ApiError && e.status === 499) break; errs.push(`${b}: ${e instanceof Error ? e.message : e}`); }
     }
     setBusy('');

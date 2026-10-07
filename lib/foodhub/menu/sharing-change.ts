@@ -33,6 +33,25 @@ export async function applySharingChange(before: MenuSharing, after: MenuSharing
       out.copiedMenu.push(brand);
     }
   }
+  // Moved from one shared menu to another: the old menu's timed 86s are still live on this brand's platforms (DoorDash has
+  // no native timer). Keep them on the brand's own menu so they finish on its stores (never re-enabling what the new
+  // menu has off — see ops.reenableExpiredItems).
+  for (const [brand, oldSource] of Object.entries(before)) {
+    const newSource = after[brand];
+    if (!newSource || newSource === oldSource) continue;
+    const shared = await repo.getMenu(oldSource);
+    if (!shared) continue;
+    const until = { ...(shared.unavailableUntil ?? {}) };
+    const byLoc: Record<string, string[]> = {};
+    for (const key of Object.keys(until)) {
+      const [loc, ref] = key.split('|');
+      if ((shared.unavailableByLocation?.[loc] ?? []).includes(ref)) byLoc[loc] = [...(byLoc[loc] ?? []), ref];
+      else delete until[key];
+    }
+    if (!Object.keys(until).length) continue;
+    const own = (await repo.getMenu(brand)) ?? { ...shared, brandName: brand, unavailableByLocation: {}, unavailableUntil: {} };
+    await repo.saveMenu({ ...own, ...mergeOff(own, { ...shared, unavailableByLocation: byLoc, unavailableUntil: until }) });
+  }
   for (const [brand, source] of Object.entries(after)) {
     if (before[brand] === source) continue;
     await forgetCloverStateFor(brand);

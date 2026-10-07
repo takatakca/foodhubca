@@ -83,15 +83,41 @@ describe('publish and 86 across brands that share a menu', () => {
 
   it('timed 86s left on a follower’s own (inactive) menu finish on its own stores only — never on the shared menu', async () => {
     await getRepo().saveMenu({ ...menu('Pi Pita'), unavailableByLocation: { NDG: ['i1'] }, unavailableUntil: { 'NDG|i1': 1 } });
-    await getRepo().saveMenu({ ...menu('Po Poulet'), unavailableByLocation: { NDG: ['i1'] } });
+    // The shared menu has another item off; i1 is on there, so Pi Pita's old timer must switch i1 back on (Pi Pita only).
+    await getRepo().saveMenu({ ...menu('Po Poulet'), unavailableByLocation: { NDG: ['i9'] } });
     await saveMenuSharing({ 'Pi Pita': 'Po Poulet' });
     await store('Po Poulet', 'doordash', 'dd-poulet');
     await store('Pi Pita', 'doordash', 'dd-pita');
     const dd = vi.spyOn(doorDashAdapter, 'setItemAvailability').mockResolvedValue({ channel: 'doordash', ok: true, status: 'done', message: 'OK' });
     expect(await reenableExpiredItems(Date.now())).toBe(1);
     expect(dd.mock.calls.map((c) => [c[0].channelStoreId, c[2]])).toEqual([['dd-pita', true]]);
-    expect((await getRepo().getMenu('Po Poulet'))!.unavailableByLocation?.NDG).toEqual(['i1']);
+    expect((await getRepo().getMenu('Po Poulet'))!.unavailableByLocation?.NDG).toEqual(['i9']);
     expect((await getRepo().getMenu('Pi Pita'))!.unavailableUntil).toEqual({});
+  });
+
+  it('an old timer on a follower’s own menu never switches on an item the shared menu still has 86’d', async () => {
+    await getRepo().saveMenu({ ...menu('Pi Pita'), unavailableByLocation: { NDG: ['i1'] }, unavailableUntil: { 'NDG|i1': 1 } });
+    await getRepo().saveMenu({ ...menu('Po Poulet'), unavailableByLocation: { NDG: ['i1'] } });
+    await saveMenuSharing({ 'Pi Pita': 'Po Poulet' });
+    await store('Pi Pita', 'doordash', 'dd-pita');
+    const dd = vi.spyOn(doorDashAdapter, 'setItemAvailability').mockResolvedValue({ channel: 'doordash', ok: true, status: 'done', message: 'OK' });
+    expect(await reenableExpiredItems(Date.now())).toBe(0);
+    expect(dd).not.toHaveBeenCalled();
+    expect((await getRepo().getMenu('Pi Pita'))!.unavailableUntil).toEqual({});
+    expect((await getRepo().getMenu('Po Poulet'))!.unavailableByLocation?.NDG).toEqual(['i1']);
+  });
+
+  it('a brand moved to another shared menu still gets the old menu’s timed 86 switched back on', async () => {
+    const { applySharingChange } = await import('../lib/foodhub/menu/sharing-change');
+    await getRepo().saveMenu({ ...menu('Po Poulet'), unavailableByLocation: { NDG: ['i1'] }, unavailableUntil: { 'NDG|i1': 1 } });
+    await getRepo().saveMenu(menu('OOeuf', 'Omelette'));
+    await saveMenuSharing({ 'Pi Pita': 'OOeuf' });
+    await applySharingChange({ 'Pi Pita': 'Po Poulet' }, { 'Pi Pita': 'OOeuf' });
+    expect((await getRepo().getMenu('Pi Pita'))!.unavailableUntil).toEqual({ 'NDG|i1': 1 });
+    await store('Pi Pita', 'doordash', 'dd-pita');
+    const dd = vi.spyOn(doorDashAdapter, 'setItemAvailability').mockResolvedValue({ channel: 'doordash', ok: true, status: 'done', message: 'OK' });
+    await reenableExpiredItems(Date.now());
+    expect(dd.mock.calls.some((c) => c[0].channelStoreId === 'dd-pita' && c[2] === true)).toBe(true);
   });
 
   it('a read error on the sharing map fails closed (never treated as "no sharing")', async () => {
@@ -161,6 +187,10 @@ describe('menu API with shared menus', () => {
     expect(list.summary.find((s: { brandName: string }) => s.brandName === 'Pi Pita')).toMatchObject({ items: 1, sharedFrom: 'Po Poulet' });
     const put = await PUT(call('PUT', '/api/foodhub/menu', { menu: { ...menu('Pi Pita'), updatedAt: undefined } }), ctx);
     expect(put.status).toBe(409);
+    const { POST: publish } = await import('../app/api/foodhub/menu/publish/route');
+    await getRepo().upsertStore({ channel: 'skip', channelStoreId: 'relay:42', brandName: 'Po Poulet', locationCode: 'NDG', autoAccept: true, online: true, meta: {} });
+    // A brand reached only through the relay has no store that can receive a menu.
+    expect((await publish(call('POST', '/api/foodhub/menu/publish', { brand: 'Po Poulet' }), ctx)).status).toBe(409);
     const { POST: importMenu } = await import('../app/api/foodhub/menu/import/route');
     expect((await importMenu(call('POST', '/api/foodhub/menu/import', { brand: 'Pi Pita' }), ctx)).status).toBe(409);
   });

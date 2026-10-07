@@ -240,9 +240,22 @@ export async function reenableExpiredItems(now = Date.now()): Promise<number> {
     const expired = Object.entries(menu.unavailableUntil ?? {}).filter(([, t]) => t <= now);
     const byLoc = new Map<string, string[]>();
     for (const [key] of expired) { const [loc, ref] = key.split('|'); byLoc.set(loc, [...(byLoc.get(loc) ?? []), ref]); }
+    const own = !active.has(menu.brandName);
+    // The menu this brand uses now: an item it still has 86'd stays off — the old timer is only cleared, never sent.
+    const current = own ? await getRepo().getMenu(sourceOf(sharing, menu.brandName)) : null;
     for (const [loc, refs] of byLoc) {
-      await setItemAvailability(menu.brandName, refs, true, { locationCode: loc, actor: SYSTEM_ACTOR, ownMenu: !active.has(menu.brandName) });
-      count += refs.length;
+      const stillOff = current ? offRefsAt(current, loc, now) : new Set<string>();
+      const send = refs.filter((r) => !stillOff.has(r));
+      const keep = refs.filter((r) => stillOff.has(r));
+      if (keep.length) {
+        // Re-read: an earlier location's re-enable in this loop already saved this menu.
+        const fresh = (await getRepo().getMenu(menu.brandName)) ?? menu;
+        const until = { ...(fresh.unavailableUntil ?? {}) };
+        for (const r of keep) delete until[`${loc}|${r}`];
+        await getRepo().saveMenu({ ...fresh, unavailableByLocation: { ...(fresh.unavailableByLocation ?? {}), [loc]: (fresh.unavailableByLocation?.[loc] ?? []).filter((r) => !keep.includes(r)) }, unavailableUntil: until });
+      }
+      if (send.length) await setItemAvailability(menu.brandName, send, true, { locationCode: loc, actor: SYSTEM_ACTOR, ownMenu: own });
+      count += send.length;
     }
   }
   return count;

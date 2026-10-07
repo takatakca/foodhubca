@@ -424,6 +424,7 @@ function PublishDialog({ brand, group, stores, check, onClose, onDone }: { brand
       if (when === 'later') body.at = new Date(at).toISOString();
       const d = await api<{ results?: Array<{ channel: string; result: { ok: boolean; status: string; message: string } }>; scheduled?: { at: string } }>('/api/foodhub/menu/publish', { method: 'POST', json: body });
       if (d.scheduled) toast.success(t('Publication programmée', 'Publish scheduled'), timeOf(d.scheduled.at, loc, true));
+      else if (!(d.results ?? []).length) toast.warn(t('Rien n’a été envoyé', 'Nothing was sent'), t('Aucun magasin de cette marque ne peut recevoir un menu.', 'No store of this brand can receive a menu.'));
       else { const bad = (d.results ?? []).filter((r) => !r.result.ok); if (bad.length) toast.error(t(`${bad.length} plateforme(s) ont refusé`, `${bad.length} platform(s) refused`), bad.map((b) => `${b.channel}: ${b.result.message}`).join('\n')); else toast.success(t('Menu envoyé', 'Menu sent'), t('Skip et DoorDash confirment en arrière-plan.', 'Skip and DoorDash confirm in the background.')); }
       onDone();
     } catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }

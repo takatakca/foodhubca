@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { isChannelKey } from '@/lib/foodhub/adapters';
+import { isRelayStore } from '@/lib/foodhub/adapters/relay';
 import { approvalGate, withPerm } from '@/lib/foodhub/auth';
 import { getHours } from '@/lib/foodhub/hours';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
@@ -19,7 +20,9 @@ export const GET = withPerm('menu:edit', async (req) => {
   if (!brand) return fail('brand is required');
   const repo = getRepo();
   const sharing = await getMenuSharing();
-  const [menu, stores, jobs, hours] = await Promise.all([getBrandMenu(brand, sharing), repo.listStores(), repo.listJobs(500), getHours()]);
+  // Relay stores ("relay:<id>") receive orders only — a menu is never sent to them, so they are not listed here.
+  const [menu, allStores, jobs, hours] = await Promise.all([getBrandMenu(brand, sharing), repo.listStores(), repo.listJobs(500), getHours()]);
+  const stores = allStores.filter((s) => !isRelayStore(s));
   const mine = stores.filter((s) => s.brandName === brand);
   // Jobs fill up fast with 86 toggles; when a store's last publish is older than the job window, fall back to
   // the activity log (publishes are rare there) so a live, published menu never shows as "never".
@@ -50,7 +53,7 @@ export const POST = withPerm('menu:edit', async (req, _ctx, actor) => {
   const repo = getRepo();
   const sharing = await getMenuSharing();
   const brands = b.allBrands === true ? groupOf(sharing, brand) : [brand];
-  const stores = await repo.listStores();
+  const stores = (await repo.listStores()).filter((s) => !isRelayStore(s));
   const hours = await getHours();
   let check: ReturnType<typeof verifyMenu> | undefined;
   for (const name of brands) {

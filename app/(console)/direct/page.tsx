@@ -19,7 +19,7 @@ import { cn } from '@/lib/ui/cn';
 import { DirectTabs } from './direct-tabs';
 
 type Fleet = { fleet: string; label: string; configured: boolean; canSend: boolean; environment: 'sandbox' | 'production'; note: string; noteFr: string };
-type Board = { orders: DirectRow[]; fleets: Fleet[] };
+type Board = { orders: DirectRow[]; fleets: Fleet[]; settings: { customerFee: number } };
 type Filter = 'todo' | 'road' | 'done' | 'all';
 
 const OPEN = ['new', 'in_kitchen', 'ready'];
@@ -118,7 +118,7 @@ export default function DirectPage() {
       {data && <p className="mt-4 text-xs text-ink-4">{t('Les commandes des plateformes (Uber Eats, DoorDash, Skip) restent dans', 'Platform orders (Uber Eats, DoorDash, Skip) stay in')} <Link href="/orders" className="underline">{t('Commandes', 'Orders')}</Link> — {t('leurs livreurs sont envoyés par la plateforme.', 'their couriers come from the platform.')}</p>}
 
       {open && <DirectOrderDrawer id={open} onClose={() => setOpen(null)} onChanged={load} />}
-      {creating && <NewDirectOrder onClose={() => setCreating(false)} onCreated={(id) => { setCreating(false); load(); setOpen(id); }} />}
+      {creating && <NewDirectOrder customerFee={data?.settings.customerFee ?? 0} onClose={() => setCreating(false)} onCreated={(id) => { setCreating(false); load(); setOpen(id); }} />}
     </div>
   );
 }

@@ -87,8 +87,8 @@ function CallDrawer({ id, onClose }: { id: string; onClose: () => void }) {
   useEffect(() => { api<{ call: Call }>(`/api/foodhub/phone/calls?id=${encodeURIComponent(id)}`).then((d) => setCall(d.call)).catch(() => undefined); }, [id]);
   return (
     <Drawer width="lg" onClose={onClose} title={call ? call.lineName : t('Appel', 'Call')} subtitle={call ? `${timeOf(call.startedAt, loc, true)} · ${call.from}` : undefined}>
-      {!call ? <Skeleton className="h-60" /> : (
-        <div className="space-y-4">
+      {!call ? <div className="p-5"><Skeleton className="h-60" /></div> : (
+        <div className="space-y-4 p-5">
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone={CALL_TONE[call.status] ?? 'neutral'}>{callStatusLabel(t, call.status)}</Badge>
             {call.orderNumber && <Badge tone="go">{t('Commande', 'Order')} {call.orderNumber}</Badge>}

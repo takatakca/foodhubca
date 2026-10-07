@@ -40,27 +40,28 @@ export async function activeDelivery(order: DirectOrder): Promise<Delivery | nul
   return d && !TERMINAL.includes(d.status) ? d : null;
 }
 
-/** Why a courier cannot be sent for this order right now (empty = it can). */
-export async function dispatchProblems(order: DirectOrder, settings?: DeliverySettings, now = Date.now()): Promise<string[]> {
+/** Why a courier cannot be sent for this order right now (empty = it can) — in English (logs, flags) or French (screens). */
+export async function dispatchProblems(order: DirectOrder, settings?: DeliverySettings, now = Date.now(), lang: 'en' | 'fr' = 'en'): Promise<string[]> {
+  const t = (en: string, fr: string) => (lang === 'fr' ? fr : en);
   const s = settings ?? (await getDeliverySettings());
   const out: string[] = [];
-  if (!(await featureOn('delivery'))) out.push('Own delivery is turned off (Settings → Expansion).');
-  if (order.fulfillment !== 'delivery') out.push('This is a pickup order.');
-  if (order.status === 'cancelled' || order.status === 'completed') out.push(`The order is ${order.status}.`);
+  if (!(await featureOn('delivery'))) out.push(t('Own delivery is turned off (Settings → Expansion).', 'La livraison par nos coursiers est désactivée (Réglages → Expansion).'));
+  if (order.fulfillment !== 'delivery') out.push(t('This is a pickup order.', 'C’est une commande pour emporter.'));
+  if (order.status === 'cancelled' || order.status === 'completed') out.push(t(`The order is ${order.status}.`, order.status === 'cancelled' ? 'La commande est annulée.' : 'La commande est terminée.'));
   const rule = ruleFor(s, order.locationCode);
-  if (!rule.enabled) out.push(`Own delivery is not turned on for ${order.locationCode} (Settings → Expansion → Delivery).`);
-  out.push(...addressProblems(order.dropoff));
-  if (order.dropoff) { const area = serviceAreaProblem(rule, order.dropoff); if (area) out.push(area); }
-  if (!normalizePhone(order.customer.phone)) out.push('The customer’s phone number is missing (the courier needs it).');
-  if (order.payment !== 'paid' && !s.allowUnpaidDispatch) out.push('Not paid yet — couriers do not collect money. Take the payment, then tap "Payment taken".');
+  if (!rule.enabled) out.push(t(`Own delivery is not turned on for ${order.locationCode} (Settings → Expansion → Delivery).`, `La livraison n’est pas activée pour ${order.locationCode} (Réglages → Expansion → Livraison).`));
+  out.push(...addressProblems(order.dropoff, lang));
+  if (order.dropoff) { const area = serviceAreaProblem(rule, order.dropoff, lang); if (area) out.push(area); }
+  if (!normalizePhone(order.customer.phone)) out.push(t('The customer’s phone number is missing (the courier needs it).', 'Le téléphone du client manque (le livreur en a besoin).'));
+  if (order.payment !== 'paid' && !s.allowUnpaidDispatch) out.push(t('Not paid yet — couriers do not collect money. Take the payment, then tap "Payment taken".', 'Pas encore payée — les livreurs n’encaissent jamais. Prenez le paiement, puis touchez « Paiement encaissé ».'));
   if (order.containsAlcohol) {
     const d = await decideAlcohol(order.locationCode, 'own_delivery', { now });
-    if (!d.allowed) out.push(`Alcohol: ${d.reason}`);
-    else if (d.requireFood && order.lines.every((l) => l.alcohol)) out.push('Alcohol: this permit allows alcohol only with food prepared by the kitchen.');
+    if (!d.allowed) out.push(t(`Alcohol: ${d.reason}`, `Alcool : ${d.reasonFr}`));
+    else if (d.requireFood && order.lines.every((l) => l.alcohol)) out.push(t('Alcohol: this permit allows alcohol only with food prepared by the kitchen.', 'Alcool : ce permis exige des aliments préparés par la cuisine avec l’alcool.'));
   }
   const loc = (await getCatalog()).locations.find((l) => l.code === order.locationCode);
-  if (!loc?.address) out.push(`The kitchen address for ${order.locationCode} is missing (Settings → Business).`);
-  if (!normalizePhone(loc?.phone)) out.push(`The kitchen phone for ${order.locationCode} is missing (Settings → Business) — the courier calls it.`);
+  if (!loc?.address) out.push(t(`The kitchen address for ${order.locationCode} is missing (Settings → Business).`, `L’adresse de la cuisine ${order.locationCode} manque (Réglages → Entreprise).`));
+  if (!normalizePhone(loc?.phone)) out.push(t(`The kitchen phone for ${order.locationCode} is missing (Settings → Business) — the courier calls it.`, `Le téléphone de la cuisine ${order.locationCode} manque (Réglages → Entreprise) — le livreur l’appelle.`));
   return out;
 }
 

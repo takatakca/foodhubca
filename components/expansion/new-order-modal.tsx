@@ -16,8 +16,8 @@ type Item = { name: string; quantity: string; price: string; alcohol: boolean };
 const QC_TAX = 0.14975;
 
 /** An order taken by a person (counter, phone): Clover ticket + courier rules, like every direct order. */
-export function NewDirectOrder({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
-  const { t, loc } = useI18n();
+export function NewDirectOrder({ onClose, onCreated, customerFee = 0 }: { onClose: () => void; onCreated: (id: string) => void; customerFee?: number }) {
+  const { t, loc, lang } = useI18n();
   const { locations, brands } = useViewer();
   const toast = useToast();
   const [f, setF] = useState({
@@ -31,11 +31,15 @@ export function NewDirectOrder({ onClose, onCreated }: { onClose: () => void; on
   const setItem = (i: number, p: Partial<Item>) => setItems((list) => list.map((it, idx) => (idx === i ? { ...it, ...p } : it)));
   const subtotal = items.reduce((s, i) => s + (Number(i.quantity) || 0) * (Number(i.price.replace(',', '.')) || 0), 0);
   const delivery = f.fulfillment === 'delivery';
+  const fee = delivery ? customerFee : 0;
+  const tip = delivery ? Number(f.tip.replace(',', '.')) || 0 : 0;
+  // Same arithmetic as the server: taxes (GST + QST) on the items and the delivery fee, then the tip.
+  const estimate = (subtotal + fee) * (1 + QC_TAX) + tip;
 
   async function save() {
     setBusy(true); setErr('');
     try {
-      const r = await api<{ order: { id: string; number: string }; problems: string[] }>('/api/foodhub/delivery', {
+      const r = await api<{ order: { id: string; number: string }; problems: string[]; problemsFr: string[] }>('/api/foodhub/delivery', {
         method: 'POST',
         json: {
           source: 'phone', locationCode: f.locationCode, brandName: f.brandName, customer: { name: f.name, phone: f.phone }, fulfillment: f.fulfillment,
@@ -44,7 +48,7 @@ export function NewDirectOrder({ onClose, onCreated }: { onClose: () => void; on
           tip: delivery ? Number(f.tip.replace(',', '.')) || 0 : 0, payment: f.paid ? 'paid' : undefined, confirmBySms: f.sms, notes: f.notes,
         },
       });
-      toast.success(t(`Commande ${r.order.number} créée`, `Order ${r.order.number} created`), r.problems[0]);
+      toast.success(t(`Commande ${r.order.number} créée`, `Order ${r.order.number} created`), (lang === 'fr' ? r.problemsFr : r.problems)[0]);
       onCreated(r.order.id);
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
@@ -52,7 +56,7 @@ export function NewDirectOrder({ onClose, onCreated }: { onClose: () => void; on
   const ready = f.locationCode && f.brandName && items.some((i) => i.name.trim() && Number(i.price.replace(',', '.')) >= 0) && (!delivery || (f.street && f.postalCode && f.phone));
   return (
     <Modal size="lg" title={t('Nouvelle commande', 'New order')} subtitle={t('Prise au comptoir ou au téléphone : envoyée à Clover, avec un livreur si c’est une livraison.', 'Taken at the counter or on the phone: sent to Clover, with a courier for a delivery.')} onClose={onClose}
-      footer={<><span className="mr-auto num text-sm text-ink-3">{t('Total estimé', 'Estimated total')} <strong className="text-ink">{money(subtotal * (1 + QC_TAX) + (delivery ? Number(f.tip.replace(',', '.')) || 0 : 0), loc)}</strong></span><Button variant="ghost" onClick={onClose}>{t('Annuler', 'Cancel')}</Button><Button loading={busy} disabled={!ready} onClick={save}>{t('Créer la commande', 'Create order')}</Button></>}>
+      footer={<><span className="mr-auto num text-sm text-ink-3">{t('Total estimé', 'Estimated total')} <strong className="text-ink">{money(estimate, loc)}</strong>{fee > 0 && <span className="ml-1 text-xs">({t('livraison', 'delivery')} {money(fee, loc)} {t('incluse', 'included')})</span>}</span><Button variant="ghost" onClick={onClose}>{t('Annuler', 'Cancel')}</Button><Button loading={busy} disabled={!ready} onClick={save}>{t('Créer la commande', 'Create order')}</Button></>}>
       <div className="grid gap-4">
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label={t('Cuisine', 'Kitchen')}><Select value={f.locationCode} onChange={(e) => set({ locationCode: e.target.value })}>{locations.map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}</Select></Field>

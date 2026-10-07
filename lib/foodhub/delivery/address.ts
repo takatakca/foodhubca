@@ -50,12 +50,13 @@ export function formatAddress(a: Pick<DropoffAddress, 'street' | 'unit' | 'city'
 }
 
 /** What is missing for a courier to find the door. Empty = ready. */
-export function addressProblems(a: DropoffAddress | null | undefined): string[] {
-  if (!a) return ['No delivery address.'];
+export function addressProblems(a: DropoffAddress | null | undefined, lang: 'en' | 'fr' = 'en'): string[] {
+  const t = (en: string, fr: string) => (lang === 'fr' ? fr : en);
+  if (!a) return [t('No delivery address.', 'Aucune adresse de livraison.')];
   const out: string[] = [];
-  if (!a.street?.trim()) out.push('Street address is missing.');
-  if (!a.city?.trim()) out.push('City is missing.');
-  if (!normalizePostal(a.postalCode)) out.push('Postal code is missing or not a Canadian postal code.');
+  if (!a.street?.trim()) out.push(t('Street address is missing.', 'L’adresse (rue) manque.'));
+  if (!a.city?.trim()) out.push(t('City is missing.', 'La ville manque.'));
+  if (!normalizePostal(a.postalCode)) out.push(t('Postal code is missing or not a Canadian postal code.', 'Le code postal manque ou n’est pas un code postal canadien.'));
   return out;
 }
 
@@ -74,14 +75,14 @@ export function distanceKm(a: { lat: number; lng: number }, b: { lat: number; ln
  * distance only when both the kitchen and the address have coordinates (Food Hub does not geocode — the fleet's own
  * quote still refuses addresses it cannot reach).
  */
-export function serviceAreaProblem(rule: LocationDeliveryRule, a: DropoffAddress): string | null {
+export function serviceAreaProblem(rule: LocationDeliveryRule, a: DropoffAddress, lang: 'en' | 'fr' = 'en'): string | null {
   if (rule.postalPrefixes.length) {
     const pc = (normalizePostal(a.postalCode) ?? '').replace(' ', '');
-    if (!pc || !rule.postalPrefixes.some((p) => pc.startsWith(p))) return `Postal code ${a.postalCode || '(none)'} is outside this kitchen's delivery area (${rule.postalPrefixes.join(', ')}).`;
+    if (!pc || !rule.postalPrefixes.some((p) => pc.startsWith(p))) return lang === 'fr' ? `Le code postal ${a.postalCode || '(aucun)'} est hors de la zone de livraison de cette cuisine (${rule.postalPrefixes.join(', ')}).` : `Postal code ${a.postalCode || '(none)'} is outside this kitchen's delivery area (${rule.postalPrefixes.join(', ')}).`;
   }
   if (rule.maxDistanceKm > 0 && rule.lat !== undefined && rule.lng !== undefined && a.lat !== undefined && a.lng !== undefined) {
     const km = distanceKm({ lat: rule.lat, lng: rule.lng }, { lat: a.lat, lng: a.lng });
-    if (km > rule.maxDistanceKm) return `${km.toFixed(1)} km from the kitchen — more than the ${rule.maxDistanceKm} km limit.`;
+    if (km > rule.maxDistanceKm) return lang === 'fr' ? `À ${km.toFixed(1)} km de la cuisine — plus que la limite de ${rule.maxDistanceKm} km.` : `${km.toFixed(1)} km from the kitchen — more than the ${rule.maxDistanceKm} km limit.`;
   }
   return null;
 }

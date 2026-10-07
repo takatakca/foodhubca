@@ -16,10 +16,10 @@ import { cn } from '@/lib/ui/cn';
 import { DELIVERY_TONE, DIRECT_TONE, FLEET_NAME, PAYMENT_TONE, deliveryStatusLabel, directStatusLabel, eventLabel, paymentLabel, sourceLabel } from './labels';
 
 export type DirectRow = DirectOrder & { delivery: Delivery | null };
-type Detail = { order: DirectOrder; deliveries: Delivery[]; problems: string[]; running: Delivery | null };
+type Detail = { order: DirectOrder; deliveries: Delivery[]; problems: string[]; problemsFr: string[]; running: Delivery | null };
 
 export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void; onChanged: () => void }) {
-  const { t, loc } = useI18n();
+  const { t, loc, lang } = useI18n();
   const { can, locName } = useViewer();
   const toast = useToast();
   const [d, setD] = useState<Detail | null>(null);
@@ -39,8 +39,11 @@ export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onCl
       onChanged();
     } catch (e) {
       if (e instanceof ApiError && e.status === 499) return;
-      const problems = e instanceof ApiError && Array.isArray(e.body.problems) ? (e.body.problems as string[]) : [];
-      toast.error(e instanceof Error ? e.message : String(e), problems.slice(1).join(' · ') || undefined);
+      const list = e instanceof ApiError ? (lang === 'fr' ? e.body.problemsFr : e.body.problems) : null;
+      const problems = Array.isArray(list) ? (list as string[]) : [];
+      // The French reasons when the screen is in French; the server's own message otherwise.
+      if (problems.length) toast.error(problems[0], problems.slice(1).join(' · ') || undefined);
+      else toast.error(e instanceof Error ? e.message : String(e));
       load();
     } finally { setBusy(null); }
   }
@@ -50,6 +53,7 @@ export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onCl
   const running = d?.running ?? null;
   const last = d?.deliveries.at(-1) ?? null;
   const act_ = can('orders:act');
+  const problems = d ? (lang === 'fr' ? d.problemsFr : d.problems) ?? [] : [];
 
   return (
     <Drawer width="lg" onClose={onClose}
@@ -63,9 +67,9 @@ export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onCl
           <Button variant="ghost" className="ml-auto text-stop" icon={<X className="size-4" />} onClick={() => setCancelling('order')}>{t('Annuler la commande', 'Cancel order')}</Button>
         </div>
       ) : undefined}>
-      {!o && <div className="space-y-3"><div className="h-24 animate-pulse rounded-md bg-sunken" /><div className="h-40 animate-pulse rounded-md bg-sunken" /></div>}
+      {!o && <div className="space-y-3 p-5"><div className="h-24 animate-pulse rounded-md bg-sunken" /><div className="h-40 animate-pulse rounded-md bg-sunken" /></div>}
       {o && (
-        <div className="space-y-5">
+        <div className="space-y-5 p-5">
           {o.attention && !closed && (
             <Banner tone="warn" action={act_ ? <Button size="xs" variant="ghost" loading={busy === 'clear_attention'} onClick={() => act('clear_attention', {}, t('Marquée vérifiée', 'Marked as checked'))}>{t('C’est réglé', 'Done')}</Button> : undefined}>{o.attention}</Banner>
           )}
@@ -123,12 +127,12 @@ export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onCl
                     )}
                   </div>
                 ) : <div className="text-sm text-ink-3">{t('Aucun livreur demandé pour l’instant.', 'No courier requested yet.')}</div>}
-                {!closed && !running && d!.problems.length > 0 && (
-                  <div className="rounded-md bg-wait-soft px-3 py-2 text-[13px] text-wait-2"><div className="mb-1 flex items-center gap-1.5 font-bold"><TriangleAlert className="size-4" />{t('Avant d’appeler un livreur', 'Before calling a courier')}</div><ul className="list-disc space-y-0.5 pl-5">{d!.problems.map((p) => <li key={p}>{p}</li>)}</ul></div>
+                {!closed && !running && problems.length > 0 && (
+                  <div className="rounded-md bg-wait-soft px-3 py-2 text-[13px] text-wait-2"><div className="mb-1 flex items-center gap-1.5 font-bold"><TriangleAlert className="size-4" />{t('Avant d’appeler un livreur', 'Before calling a courier')}</div><ul className="list-disc space-y-0.5 pl-5">{problems.map((p) => <li key={p}>{p}</li>)}</ul></div>
                 )}
                 {act_ && !closed && (
                   <div className="flex flex-wrap gap-2">
-                    {!running && <Button icon={<Truck className="size-4" />} loading={busy === 'dispatch'} disabled={d!.problems.length > 0} onClick={() => act('dispatch')}>{t('Appeler un livreur', 'Call a courier')}</Button>}
+                    {!running && <Button icon={<Truck className="size-4" />} loading={busy === 'dispatch'} disabled={problems.length > 0} onClick={() => act('dispatch')}>{t('Appeler un livreur', 'Call a courier')}</Button>}
                     {running && <Button variant="outline" className="text-stop" icon={<X className="size-4" />} onClick={() => setCancelling('courier')}>{t('Annuler le livreur', 'Cancel the courier')}</Button>}
                   </div>
                 )}

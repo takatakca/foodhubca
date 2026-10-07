@@ -19,11 +19,11 @@ export function ExpansionTiles() {
   if (!features.length || !d) return null;
   const x = d.today;
   const tiles = [
-    features.includes('delivery') && { key: 'delivery', href: '/direct', icon: Truck, title: t('Nos livraisons', 'Own delivery'), value: String(x.orders), unit: t('commandes', 'orders'),
+    features.includes('delivery') && { key: 'delivery', href: '/direct', icon: Truck, title: t('Nos livraisons', 'Own delivery'), value: String(x.orders), unit: x.orders === 1 ? t('commande', 'order') : t('commandes', 'orders'),
       lines: [`${money(x.sales, loc)} · ${x.deliveriesActive} ${t('sur la route', 'on the road')}`, `${t('Livreurs', 'Couriers')} ${money(x.courierCost, loc)} / ${t('frais', 'fees')} ${money(x.feesCharged, loc)}`], alert: x.attention ? t(`${x.attention} à vérifier`, `${x.attention} need a person`) : null },
-    features.includes('phone') && { key: 'phone', href: '/direct/calls', icon: PhoneCall, title: t('Téléphone IA', 'AI phone'), value: String(x.calls), unit: t('appels', 'calls'),
+    features.includes('phone') && { key: 'phone', href: '/direct/calls', icon: PhoneCall, title: t('Téléphone IA', 'AI phone'), value: String(x.calls), unit: x.calls === 1 ? t('appel', 'call') : t('appels', 'calls'),
       lines: [`${x.callsOrdered} ${t('commandes passées', 'orders placed')}`, x.calls ? `${Math.round((x.callsOrdered / x.calls) * 100)} % ${t('de conversion', 'conversion')}` : t('aucun appel aujourd’hui', 'no calls today')], alert: x.callsMissed ? t(`${x.callsMissed} à rappeler`, `${x.callsMissed} to call back`) : null },
-    features.includes('retail') && { key: 'retail', href: '/menu/retail', icon: ShoppingBasket, title: t('Épicerie', 'Grocery'), value: String(x.products), unit: t('produits', 'products'),
+    features.includes('retail') && { key: 'retail', href: '/menu/retail', icon: ShoppingBasket, title: t('Épicerie', 'Grocery'), value: String(x.products), unit: x.products === 1 ? t('produit', 'product') : t('produits', 'products'),
       lines: [t('DoorDash / Uber : approbation requise', 'DoorDash / Uber: approval needed')], alert: x.lowStock ? t(`${x.lowStock} en stock bas`, `${x.lowStock} low on stock`) : null },
     features.includes('alcohol') && { key: 'alcohol', href: '/settings/expansion/alcohol', icon: Wine, title: t('Alcool', 'Alcohol'), value: String(x.alcoholLocations), unit: t('succursale(s) avec permis', 'location(s) with a permit'),
       lines: [t('Bloqué partout ailleurs', 'Blocked everywhere else')], alert: null },

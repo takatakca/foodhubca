@@ -16,7 +16,11 @@ async function detail(id: string) {
   const order = await getDirectOrder(id);
   if (!order) return null;
   const deliveries = (await deliveriesForOrder(id)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  return { order, deliveries, problems: order.fulfillment === 'delivery' ? await dispatchProblems(order) : [], running: await activeDelivery(order) };
+  const delivery = order.fulfillment === 'delivery';
+  return {
+    order, deliveries, running: await activeDelivery(order),
+    problems: delivery ? await dispatchProblems(order) : [], problemsFr: delivery ? await dispatchProblems(order, undefined, undefined, 'fr') : [],
+  };
 }
 
 export const GET = withPerm<Ctx>('view', async (_req, ctx, actor) => {
@@ -39,7 +43,7 @@ export const POST = withPerm<Ctx>('orders:act', async (req, ctx, actor) => {
     if (gate) return gate;
     const fleet = b.fleet === 'uber_direct' || b.fleet === 'doordash_drive' ? (b.fleet as FleetKey) : undefined;
     const r = await dispatchOrder(id, actor, { fleet });
-    if (!r.ok) return fail(r.message, 409, { problems: r.problems ?? [], quotes: r.quotes ?? [] });
+    if (!r.ok) return fail(r.message, 409, { problems: r.problems ?? [], problemsFr: r.problems ? await dispatchProblems(r.order, undefined, undefined, 'fr') : [], quotes: r.quotes ?? [] });
     message = r.message;
   } else if (action === 'cancel_courier') {
     const gate = await approvalGate(req, actor, 'delivery.cancel', order.locationCode, `courier of ${order.number}`);

@@ -55,5 +55,6 @@ export const POST = withPerm('orders:act', async (req, _ctx, actor) => {
     deliveryFee: fulfillment === 'delivery' ? (b.deliveryFee !== undefined && b.deliveryFee !== '' ? Number(b.deliveryFee) || 0 : settings.customerFee) : 0,
     confirmBySms: b.confirmBySms === true,
   }, actor);
-  return ok({ order, problems: fulfillment === 'delivery' ? await dispatchProblems(order) : [] });
+  const delivery = fulfillment === 'delivery';
+  return ok({ order, problems: delivery ? await dispatchProblems(order) : [], problemsFr: delivery ? await dispatchProblems(order, undefined, undefined, 'fr') : [] });
 });

@@ -343,6 +343,8 @@ export default function ChannelsSettingsPage() {
         </Section>
       )}
 
+      <WebhookInbox unparsed={data.unparsed} onChanged={() => load(revealed)} />
+
       <Section icon={<PlugZap className="size-5" />} title={t('Derniers envois aux plateformes', 'Recent platform jobs')} subtitle={t('Menus, ruptures, pauses, acceptations : chaque action envoyée et sa réponse. Rien n’est affiché comme fait si la plateforme ne l’a pas reçu.', 'Menus, 86s, pauses, accepts: every action sent and its answer. Nothing is shown as done if the platform did not get it.')}>
         {data.jobs.length === 0 ? <p className="text-sm text-ink-3">{t('Aucune action pour l’instant.', 'No action yet.')}</p> : (
           <div className="-mx-5 -my-4">
@@ -362,7 +364,6 @@ export default function ChannelsSettingsPage() {
         )}
       </Section>
 
-      <WebhookInbox unparsed={data.unparsed} onChanged={() => load(revealed)} />
       <p className="text-xs text-ink-3">{t('Adresse publique :', 'Public URL:')} <code className="font-mono">{data.publicUrl}</code></p>
     </div>
   );

@@ -22,7 +22,7 @@ import type { ChannelStore } from '@/lib/foodhub/types';
 
 type Form = { id?: string; channel: string; channelStoreId: string; brandName: string; locationCode: string; cloverMerchantId: string; autoAccept: boolean; platformStoreId?: string; menuLocked?: boolean; menuLockedReason?: string };
 /** Whether Food Hub may change this store's menu (menu/lock.ts): built-in and environment locks cannot be lifted here. */
-type MenuLock = { locked: boolean; source?: 'built_in' | 'env' | 'store'; reason?: string };
+type MenuLock = { locked: boolean; source?: 'built_in' | 'env' | 'store'; reason?: string; reasonFr?: string };
 type StoreRow = ChannelStore & { menuLock?: MenuLock };
 /** The link form being shown: its draft id (one per store, per discovered Uber store, or 'new') and starting values. */
 type OpenForm = { draftId: string; initial: Form; lock?: MenuLock };
@@ -185,7 +185,7 @@ export function MappingView() {
                     <Td className="max-w-48 font-mono text-xs" title={s.channelStoreId}>
                       <div className="truncate">{s.channelStoreId}</div>
                       {s.meta?.platformStoreId ? <div className="truncate text-[11px] text-ink-3">#{String(s.meta.platformStoreId)}</div> : null}
-                      {s.menuLock?.locked && <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-wait/15 px-2 py-0.5 font-sans text-[11px] font-bold text-wait-2" title={s.menuLock.reason}><Lock className="size-3" />{t('Menu verrouillé', 'Menu locked')}</span>}
+                      {s.menuLock?.locked && <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-wait/15 px-2 py-0.5 font-sans text-[11px] font-bold text-wait-2" title={t(s.menuLock.reasonFr ?? s.menuLock.reason ?? '', s.menuLock.reason ?? '')}><Lock className="size-3" />{t('Menu verrouillé', 'Menu locked')}</span>}
                     </Td>
                     <Td className="font-mono text-xs text-ink-3">{s.cloverMerchantId || t('par défaut', 'default')}</Td>
                     <Td>{s.autoAccept ? '✓' : '—'}</Td>
@@ -255,7 +255,7 @@ function StoreLinkForm({ draftId, initial, lock, onClose, onSaved }: { draftId: 
         <Hint id="mapping.autoaccept"><Switch checked={form.autoAccept} onChange={(v) => setForm({ ...form, autoAccept: v })} label={t('Accepter automatiquement', 'Accept automatically')} description={t('Seulement si Clover a bien reçu la commande. La cuisine doit quand même appuyer sur « Vu ».', 'Only when Clover received the order. The kitchen still taps “Seen”.')} /></Hint>
         <Field label={t('Numéro du magasin chez la plateforme (optionnel)', 'Platform store number (optional)')} hint={t('Ex. le numéro de magasin DoorDash (différent du merchant_supplied_id). Sert à reconnaître le magasin, p. ex. pour le verrou du menu.', 'E.g. the DoorDash store number (not the merchant_supplied_id). Used to recognise the store, e.g. for the menu lock.')}><Input value={form.platformStoreId ?? ''} onChange={(e) => setForm({ ...form, platformStoreId: e.target.value })} className="font-mono" inputMode="numeric" /></Field>
         {fixedLock
-          ? <Banner tone="warn"><strong className="inline-flex items-center gap-1"><Lock className="size-4" />{t('Menu verrouillé en permanence', 'Menu locked for good')}</strong> — {t('Food Hub ne change jamais le menu de ce magasin (publication, rupture, retour en stock). Les commandes et les pauses fonctionnent normalement.', 'Food Hub never changes this store’s menu (publish, 86, back in stock). Orders and pauses work as usual.')} <span className="text-ink-3">{lock?.reason}</span></Banner>
+          ? <Banner tone="warn"><strong className="inline-flex items-center gap-1"><Lock className="size-4" />{t('Menu verrouillé en permanence', 'Menu locked for good')}</strong> — {t('Food Hub ne change jamais le menu de ce magasin (publication, rupture, retour en stock). Les commandes et les pauses fonctionnent normalement.', 'Food Hub never changes this store’s menu (publish, 86, back in stock). Orders and pauses work as usual.')} <span className="text-ink-3">{t(lock?.reasonFr ?? lock?.reason ?? '', lock?.reason ?? '')}</span></Banner>
           : <>
             <Switch checked={Boolean(form.menuLocked)} onChange={(v) => setForm({ ...form, menuLocked: v })} label={t('Ne jamais changer le menu de ce magasin', 'Never change this store’s menu')} description={t('Aucune publication, aucune rupture (86) et aucun retour en stock n’est envoyé — ni par l’équipe, ni par Clover, ni par une minuterie. Les commandes et les pauses fonctionnent normalement.', 'No publish, no 86 and no back-in-stock is ever sent — not by staff, Clover or a timer. Orders and pauses work as usual.')} />
             {form.menuLocked && <Field label={t('Pourquoi (optionnel)', 'Why (optional)')}><Input value={form.menuLockedReason ?? ''} onChange={(e) => setForm({ ...form, menuLockedReason: e.target.value })} maxLength={200} /></Field>}

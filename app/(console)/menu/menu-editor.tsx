@@ -499,6 +499,8 @@ function ImportDialog({ brand, hasItems, onClose, onDone }: { brand: string; has
     } catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
   const PL: Array<[string, string]> = [['doordash', 'DoorDash'], ['uber_eats', 'Uber Eats'], ['skip', 'Skip']];
+  // Clover's menu kinds in words: the POS menu (what the register shows) and the online / delivery menus.
+  const menuType = (type?: string) => (!type ? '' : /DEFAULT_POS/i.test(type) ? t('Menu de la caisse', 'Register menu') : /OLO/i.test(type) ? t('Menu en ligne', 'Online menu') : type);
   return (
     <Modal title={t(`Importer ${brand} de Clover`, `Import ${brand} from Clover`)} size="lg" onClose={onClose}
       footer={<><Button variant="ghost" onClick={onClose}>{t('Annuler', 'Cancel')}</Button><Button variant="brand" loading={busy} disabled={!info} onClick={go} icon={<Download className="size-4" />}>{t('Importer', 'Import')}</Button></>}>
@@ -512,7 +514,7 @@ function ImportDialog({ brand, hasItems, onClose, onDone }: { brand: string; has
             {info.cloverMenus.menus.map((m) => (
               <label key={m.id} className="flex cursor-pointer items-start gap-3 px-3 py-2.5"><input type="radio" className="mt-1" checked={source === m.id} onChange={() => setSource(m.id)} />
                 <span className="min-w-0"><span className="font-semibold">{m.name}</span>{m.platform && <PlatformMark channel={m.platform} size="xs" className="ml-1.5 inline-flex align-middle" />}
-                  <span className="block text-xs text-ink-3">{[m.type, m.channel, m.status, m.items !== undefined ? t(`${m.items} articles`, `${m.items} items`) : ''].filter(Boolean).join(' · ')}</span></span></label>
+                  <span className="block text-xs text-ink-3">{[menuType(m.type), m.channel, m.status === 'published' ? t('publié', 'published') : m.status === 'draft' ? t('brouillon', 'draft') : m.status, m.items !== undefined ? t(`${m.items} articles`, `${m.items} items`) : ''].filter(Boolean).join(' · ')}</span></span></label>
             ))}
           </div>
           {!info.cloverMenus.ok && <p className="mt-1.5 text-xs text-ink-3">{t('Les menus Clover ne sont pas lisibles avec ce jeton — import de l’inventaire seulement.', 'Clover menus cannot be read with this token — inventory import only.')} <span className="font-mono">{info.cloverMenus.error}</span></p>}
@@ -531,10 +533,12 @@ function ImportDialog({ brand, hasItems, onClose, onDone }: { brand: string; has
 
 type Diff = { added: Array<{ name: string; price: number }>; removed: Array<{ name: string }>; repriced: Array<{ name: string; from: number; to: number }>; turnedOff: Array<{ name: string }>; turnedOn: Array<{ name: string }>; renamed: Array<{ from: string; to: string }>; same: boolean };
 type PreviewRow = {
-  storeId: string; brandName: string; channel: string; locationCode: string; channelStoreId: string; send: 'yes' | 'locked' | 'not_live' | 'via_clover'; reason?: string;
+  storeId: string; brandName: string; channel: string; locationCode: string; channelStoreId: string; send: 'yes' | 'locked' | 'not_live' | 'via_clover'; reason?: string; reasonFr?: string;
   counts: { categories: number; items: number; available: number; unavailable: number; options: number }; hoursSet: boolean; holidays: number; language: string;
   diff: Diff | null; lastPublishedAt: string | null; sample: Array<{ name: string; price: number }>;
 };
+
+const LANG_LABEL: Record<string, string> = { en: 'EN', fr: 'FR', both: 'FR / EN' };
 
 /** Dry-run result, one card per store: will it be sent, and what changes on the platform. */
 function PublishPreview({ rows }: { rows: PreviewRow[] }) {
@@ -558,13 +562,13 @@ function PublishPreview({ rows }: { rows: PreviewRow[] }) {
                 <PlatformMark channel={r.channel} size="xs" /><span className="font-bold">{r.brandName}</span><span className="text-ink-3">· {shortLoc(locName(r.locationCode))}</span>
                 <Badge tone={tone} className="ml-auto">{t(fr, en)}</Badge>
               </div>
-              {r.reason && r.send !== 'yes' && <div className="mt-1 text-xs text-ink-3">{r.reason}</div>}
-              <div className="mt-1.5 text-xs text-ink-2">
+              {r.reason && r.send !== 'yes' && <div className="mt-1 text-xs text-ink-3">{t(r.reasonFr ?? r.reason, r.reason)}</div>}
+              {r.send !== 'locked' && <div className="mt-1.5 text-xs text-ink-2">
                 {t(`${r.counts.categories} catégories · ${r.counts.available} articles en vente${r.counts.unavailable ? ` (${r.counts.unavailable} en rupture)` : ''} · ${r.counts.options} options`, `${r.counts.categories} categories · ${r.counts.available} items on sale${r.counts.unavailable ? ` (${r.counts.unavailable} 86'd)` : ''} · ${r.counts.options} options`)}
-                {' · '}{r.hoursSet ? t('heures du magasin', 'store hours') : t('aucune heure (24/7)', 'no hours (24/7)')}{r.holidays ? ` · ${t(`${r.holidays} férié(s)`, `${r.holidays} holiday(s)`)}` : ''} · {r.language.toUpperCase()}
-              </div>
-              {r.sample.length > 0 && <div className="mt-1 text-xs text-ink-3">{r.sample.map((s) => `${s.name} ${money(s.price, loc)}`).join(' · ')}</div>}
-              <div className="mt-1.5 text-xs">
+                {' · '}{r.hoursSet ? t('heures du magasin', 'store hours') : t('aucune heure (24/7)', 'no hours (24/7)')}{r.holidays ? ` · ${t(`${r.holidays} férié(s)`, `${r.holidays} holiday(s)`)}` : ''} · {LANG_LABEL[r.language] ?? r.language}
+              </div>}
+              {r.send !== 'locked' && r.sample.length > 0 && <div className="mt-1 text-xs text-ink-3">{r.sample.map((s) => `${s.name} ${money(s.price, loc)}`).join(' · ')}</div>}
+              {r.send === 'yes' && <div className="mt-1.5 text-xs">
                 {!d ? <span className="text-ink-3">{t('Jamais publié depuis Food Hub : tout le menu sera envoyé.', 'Never published from Food Hub: the whole menu is sent.')}</span>
                   : d.same ? <span className="text-go-2">{t('Aucun changement depuis la dernière publication.', 'No change since the last publish.')}</span>
                     : <ul className="space-y-0.5">
@@ -576,7 +580,7 @@ function PublishPreview({ rows }: { rows: PreviewRow[] }) {
                       {d.renamed.length > 0 && <li><strong>{d.renamed.length}</strong> {t('renommé(s)', 'renamed')}: {d.renamed.slice(0, 3).map((x) => `${x.from} → ${x.to}`).join(', ')}</li>}
                     </ul>}
                 {r.lastPublishedAt && <div className="mt-0.5 text-[11px] text-ink-4">{t('Dernière publication :', 'Last publish:')} {new Date(r.lastPublishedAt).toLocaleString(loc, { dateStyle: 'medium', timeStyle: 'short' })}</div>}
-              </div>
+              </div>}
             </div>
           );
         })}

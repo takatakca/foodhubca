@@ -186,8 +186,9 @@ function Connections() {
       <CardHeader title={t('Connexions et synchro', 'Connections & sync')} icon={<Activity className="size-5" />}
         subtitle={t('Plateformes, Clover, réception des commandes et surveillance — mis à jour toutes les 30 s.', 'Platforms, Clover, order intake and supervision — refreshed every 30 s.')}
         right={<span className="flex items-center gap-2 text-sm font-semibold"><StatusDot tone={overall[1]} pulse={overall[1] === 'stop'} />{overall[0]}</span>} />
-      <div className="grid grid-cols-1 gap-0 border-t border-line md:grid-cols-[1.2fr_1fr]">
-        <div className="grid grid-cols-2 gap-px bg-line sm:grid-cols-4 md:border-r md:border-line">
+      {/* min-w-0: the long check texts truncate instead of widening their column and squeezing the platform tiles. */}
+      <div className="grid grid-cols-1 gap-0 border-t border-line lg:grid-cols-[1.25fr_1fr]">
+        <div className="grid min-w-0 auto-rows-fr grid-cols-2 gap-px bg-line sm:grid-cols-4 lg:border-r lg:border-line">
           {(h?.platforms ?? []).map((p) => {
             const [m, tone] = mode(p);
             return (
@@ -200,7 +201,7 @@ function Connections() {
           })}
           {!h && <div className="col-span-full bg-surface p-4"><Skeleton className="h-14" /></div>}
         </div>
-        <ul className="divide-y divide-line">
+        <ul className="min-w-0 divide-y divide-line border-t border-line lg:border-t-0">
           {Object.entries(h?.checks ?? {}).map(([k, c]) => (
             <li key={k} className="flex items-start gap-2.5 px-4 py-2" title={lang === 'fr' ? c.detailFr : c.detail}>
               <StatusDot tone={TONE[c.status]} pulse={c.status === 'down'} className="mt-1" />

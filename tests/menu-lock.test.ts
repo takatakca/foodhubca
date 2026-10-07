@@ -49,7 +49,7 @@ describe('which stores are locked', () => {
     expect(menuLockOf({ channel: 'uber_eats', channelStoreId: 'ue-123', meta: {} })).toMatchObject({ locked: true, source: 'env' });
     expect(isMenuLocked({ channel: 'doordash', channelStoreId: 'x', meta: { platformStoreId: '555' } })).toBe(true);
     expect(isMenuLocked({ channel: 'doordash', channelStoreId: 'ue-123', meta: {} })).toBe(false);
-    expect(menuLockOf({ channel: 'skip', channelStoreId: 'NDG', meta: { menuLocked: true, menuLockedReason: 'Menu managed on the tablet' } })).toEqual({ locked: true, source: 'store', reason: 'Menu managed on the tablet' });
+    expect(menuLockOf({ channel: 'skip', channelStoreId: 'NDG', meta: { menuLocked: true, menuLockedReason: 'Menu managed on the tablet' } })).toEqual({ locked: true, source: 'store', reason: 'Menu managed on the tablet', reasonFr: 'Menu managed on the tablet' });
   });
 });
 
@@ -111,7 +111,7 @@ describe('a locked store never receives a menu change', () => {
     const { GET, POST } = await import('../app/api/foodhub/stores/route');
     const lockIt = await POST(call('POST', '/api/foodhub/stores', { id: open.id, channel: 'uber_eats', channelStoreId: 'ue-popoulet', brandName: 'Po Poulet', locationCode: 'NDG_6284', menuLocked: true, menuLockedReason: 'Promo menu managed by Uber' }), ctx);
     expect(lockIt.status).toBe(200);
-    expect((await lockIt.json()).store.menuLock).toEqual({ locked: true, source: 'store', reason: 'Promo menu managed by Uber' });
+    expect((await lockIt.json()).store.menuLock).toEqual({ locked: true, source: 'store', reason: 'Promo menu managed by Uber', reasonFr: 'Promo menu managed by Uber' });
     const unlock = await POST(call('POST', '/api/foodhub/stores', { id: open.id, channel: 'uber_eats', channelStoreId: 'ue-popoulet', brandName: 'Po Poulet', locationCode: 'NDG_6284', menuLocked: false }), ctx);
     expect((await unlock.json()).store.menuLock.locked).toBe(false);
     const refuse = await POST(call('POST', '/api/foodhub/stores', { id: locked.id, channel: 'doordash', channelStoreId: 'NDG_6284-POPOULET', brandName: 'Po Poulet', locationCode: 'NDG_6284', menuLocked: false }), ctx);

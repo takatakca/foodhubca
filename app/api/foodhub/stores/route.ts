@@ -55,8 +55,11 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
     const before = menuLockOf({ channel, channelStoreId: String(b.channelStoreId).trim(), meta });
     // A store locked by the owner's standing instruction (built in) or by the hosting setup cannot be unlocked here.
     if (!want && before.locked && before.source !== 'store') return fail(`This store's menu stays locked: ${before.reason}`, 409);
-    if (want) { meta.menuLocked = true; meta.menuLockedReason = String(b.menuLockedReason ?? '').trim().slice(0, 200) || `Locked by ${actor.name}`; meta.menuLockedAt = new Date().toISOString(); }
-    else { delete meta.menuLocked; delete meta.menuLockedReason; delete meta.menuLockedAt; }
+    if (want) {
+      const why = String(b.menuLockedReason ?? '').trim().slice(0, 200);
+      meta.menuLocked = true; meta.menuLockedBy = actor.name; meta.menuLockedAt = new Date().toISOString();
+      if (why) meta.menuLockedReason = why; else delete meta.menuLockedReason;
+    } else { delete meta.menuLocked; delete meta.menuLockedReason; delete meta.menuLockedAt; delete meta.menuLockedBy; }
   }
   const store = await repo.upsertStore({
     id: existing?.id,

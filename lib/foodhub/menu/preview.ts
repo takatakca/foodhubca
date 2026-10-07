@@ -22,8 +22,9 @@ export interface PreviewRow {
   locationCode: string;
   channelStoreId: string;
   send: PreviewSend;
-  /** Why it would not be sent (lock reason, platform readiness note). */
+  /** Why it would not be sent (lock reason, platform readiness note), in English and French. */
   reason?: string;
+  reasonFr?: string;
   counts: { categories: number; items: number; available: number; unavailable: number; options: number };
   hoursSet: boolean;
   holidays: number;
@@ -56,7 +57,7 @@ export async function previewPublish(brands: string[], opts: { storeIds?: string
       rows.push({
         storeId: store.id, brandName, channel: store.channel, locationCode: store.locationCode, channelStoreId: store.channelStoreId,
         send,
-        ...(send === 'locked' ? { reason: lock.reason } : send !== 'yes' ? { reason: readiness.note } : {}),
+        ...(send === 'locked' ? { reason: lock.reason, reasonFr: lock.reasonFr } : send !== 'yes' ? { reason: readiness.note, reasonFr: readiness.noteFr ?? readiness.note } : {}),
         counts: { categories: snap.categories, items: items.length, available: items.filter((i) => i.a).length, unavailable: items.filter((i) => !i.a).length, options: Object.keys(snap.mods).length },
         hoursSet: Boolean(ctx.hours),
         holidays: ctx.holidays.length,

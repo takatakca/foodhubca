@@ -18,7 +18,7 @@ export const BUILT_IN_MENU_LOCKS: ReadonlyArray<{ channel: ChannelStore['channel
 ];
 
 export type MenuLockSource = 'built_in' | 'env' | 'store';
-export interface MenuLock { locked: boolean; source?: MenuLockSource; reason?: string }
+export interface MenuLock { locked: boolean; source?: MenuLockSource; reason?: string; reasonFr?: string }
 
 function envLocks(): Array<{ channel: string | null; id: string }> {
   return String(process.env.FOODHUB_MENU_LOCKED_STORES || '')
@@ -38,13 +38,13 @@ function idsOf(store: Pick<ChannelStore, 'channelStoreId' | 'meta'>): string[] {
 export function menuLockOf(store: Pick<ChannelStore, 'channel' | 'channelStoreId' | 'meta'>): MenuLock {
   const ids = idsOf(store);
   const builtIn = BUILT_IN_MENU_LOCKS.find((l) => l.channel === store.channel && ids.includes(l.id));
-  if (builtIn) return { locked: true, source: 'built_in', reason: `${builtIn.label}: the owner asked that its menu is never changed by Food Hub.` };
+  if (builtIn) return { locked: true, source: 'built_in', reason: `${builtIn.label}: the owner asked that its menu is never changed by Food Hub.`, reasonFr: `${builtIn.label} : le propriétaire a demandé que Food Hub ne change jamais son menu.` };
   if (envLocks().some((l) => (!l.channel || l.channel === store.channel) && ids.includes(l.id))) {
-    return { locked: true, source: 'env', reason: 'Listed in FOODHUB_MENU_LOCKED_STORES.' };
+    return { locked: true, source: 'env', reason: 'Listed in FOODHUB_MENU_LOCKED_STORES.', reasonFr: 'Inscrit dans FOODHUB_MENU_LOCKED_STORES.' };
   }
   if (store.meta?.menuLocked === true) {
-    const why = typeof store.meta.menuLockedReason === 'string' && store.meta.menuLockedReason.trim() ? store.meta.menuLockedReason.trim() : 'Locked under Stores → Mapping.';
-    return { locked: true, source: 'store', reason: why };
+    const own = typeof store.meta.menuLockedReason === 'string' && store.meta.menuLockedReason.trim() ? store.meta.menuLockedReason.trim() : null;
+    return { locked: true, source: 'store', reason: own ?? 'Locked under Stores → Mapping.', reasonFr: own ?? 'Verrouillé sous Magasins → Branchements.' };
   }
   return { locked: false };
 }

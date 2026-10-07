@@ -41,6 +41,9 @@ const EVENT: Record<string, [string, string]> = {
   scheduled: ['Commande planifiée', 'Scheduled order'], fired: ['Lancée en cuisine', 'Sent to the kitchen'], courier: ['Livreur', 'Courier'], seen: ['Vue en cuisine', 'Seen in the kitchen'],
   delayed: ['Temps ajouté', 'Time added'], report_missing: ['Article manquant signalé', 'Missing item reported'], report_missing_failed: ['Article manquant non envoyé', 'Missing item not sent'],
   customer_sms: ['Texto au client', 'Text to the customer'], customer_sms_failed: ['Texto au client échoué', 'Text to the customer failed'], auto_completed: ['Fermée automatiquement', 'Closed automatically'],
+  mapping_warning: ['Ligne en texte libre dans Clover', 'Free-text line in Clover'], pos_retry_scheduled: ['Nouvel essai Clover prévu', 'Clover retry scheduled'],
+  pos_retry_gave_up: ['Essais Clover épuisés — gérant alerté', 'Clover retries used up — manager alerted'], pos_adopted: ['Déjà dans Clover — reliée', 'Already in Clover — linked'],
+  pos_total_mismatch: ['Total Clover ≠ plateforme', 'Clover total ≠ platform'], accept_skipped: ['Pas acceptée (annulée)', 'Not accepted (cancelled)'], via_clover: ['Reçue par Clover', 'Received through Clover'],
 };
 
 /** Runs an order action with the right dialogs (reason, manager PIN via ApprovalProvider) and toasts. */
@@ -250,7 +253,7 @@ export function OrderDetail({ order, events, onChange, compact }: { order: FullO
               <li key={i} className="relative">
                 <span className={cn('absolute top-1.5 -left-[21px] size-2.5 rounded-full border-2 border-surface', bad ? 'bg-stop' : 'bg-ink-4')} />
                 <div className="flex flex-wrap items-baseline gap-x-2 text-[13px]"><span className="num text-xs text-ink-3">{new Date(e.at).toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span><span className="font-semibold text-ink">{label}</span>
-                  <span className="text-ink-3">{d?.message || d?.error || d?.reason || d?.posOrderId || d?.state || ''}{d?.by ? ` · ${d.by}` : d?.auto ? ` · ${t('auto', 'auto')}` : ''}{d?.approvedBy ? ` · ✓ ${d.approvedBy}` : ''}</span></div>
+                  <span className="text-ink-3">{(lang === 'fr' && d?.messageFr) || d?.message || d?.error || d?.reason || d?.posOrderId || d?.state || ''}{d?.by ? ` · ${d.by}` : d?.auto ? ` · ${t('auto', 'auto')}` : ''}{d?.approvedBy ? ` · ✓ ${d.approvedBy}` : ''}</span></div>
                 {showRaw && <pre className="mt-1 overflow-x-auto rounded-sm bg-sunken p-2 text-[11px]">{JSON.stringify(e.detail, null, 2)}</pre>}
               </li>
             );

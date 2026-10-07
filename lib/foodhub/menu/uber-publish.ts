@@ -5,6 +5,7 @@
 import { type Actor } from '../activity';
 import { uberEatsAdapter } from '../adapters/uber-eats';
 import { isRelayStore } from '../adapters/relay';
+import { menuWithAlcoholRules } from '../alcohol/rules';
 import { result } from '../config';
 import { getHours, publishContext } from '../hours';
 import { isDoNotTouch, menuForLocation, publishMenu, type FanOutRow } from '../ops';
@@ -69,7 +70,8 @@ export async function uberPayloadFor(store: ChannelStore, ctx: { sharing?: MenuS
   if (!menu) return null;
   const languages = await getMenuLanguages();
   const pctx = { ...(await publishContext(store.brandName, store.locationCode, ctx.hours ?? await getHours())), language: languages.uber_eats };
-  return { menu, ctx: pctx, body: toUberMenu(menuForLocation(menu, store.locationCode), pctx) };
+  // The same menu publishMenu sends: alcohol only where the permit and the alcohol rules allow Uber Eats.
+  return { menu, ctx: pctx, body: toUberMenu(await menuWithAlcoholRules(menuForLocation(menu, store.locationCode), store.locationCode, 'uber_eats'), pctx) };
 }
 
 function planRow(store: ChannelStore, menu: MasterMenu | null, menuFrom: string | null, built: Awaited<ReturnType<typeof uberPayloadFor>>, stores: ChannelStore[], hours: HoursConfig): UberPlanRow {

@@ -4,14 +4,15 @@ import { createContext, useCallback, useContext, useMemo, type ReactNode } from 
 import type { Viewer } from '@/lib/foodhub/viewer';
 
 export type CatalogLite = { locations: Array<{ code: string; name: string; address?: string }>; brands: string[] };
-type Ctx = { viewer: Viewer; can: (perm: string) => boolean; allLocations: boolean; locations: CatalogLite['locations']; brands: string[]; locName: (code?: string | null) => string };
+type Ctx = { viewer: Viewer; can: (perm: string) => boolean; allLocations: boolean; locations: CatalogLite['locations']; brands: string[]; locName: (code?: string | null) => string; features: string[] };
 
 const ViewerCtx = createContext<Ctx | null>(null);
 
-export function ViewerProvider({ viewer, catalog, children }: { viewer: Viewer; catalog: CatalogLite; children: ReactNode }) {
+/** `features`: expansion features the owner turned on (delivery, retail, alcohol, phone). */
+export function ViewerProvider({ viewer, catalog, features = [], children }: { viewer: Viewer; catalog: CatalogLite; features?: string[]; children: ReactNode }) {
   const can = useCallback((perm: string) => viewer.permissions.includes(perm as never), [viewer]);
   const locName = useCallback((code?: string | null) => (code ? catalog.locations.find((l) => l.code === code)?.name ?? code : '—'), [catalog]);
-  const value = useMemo(() => ({ viewer, can, allLocations: viewer.locations.length === 0, locations: catalog.locations, brands: catalog.brands, locName }), [viewer, can, catalog, locName]);
+  const value = useMemo(() => ({ viewer, can, allLocations: viewer.locations.length === 0, locations: catalog.locations, brands: catalog.brands, locName, features }), [viewer, can, catalog, locName, features]);
   return <ViewerCtx.Provider value={value}>{children}</ViewerCtx.Provider>;
 }
 

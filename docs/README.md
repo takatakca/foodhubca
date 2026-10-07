@@ -11,6 +11,7 @@ Start here:
 | [GO_LIVE_STEPS.md](GO_LIVE_STEPS.md) | Same steps, kept for the release readiness check |
 | [FINAL_PRODUCT_READINESS.md](FINAL_PRODUCT_READINESS.md) | Locked architecture, release gates, live-data rule, what "operational" means |
 | [LOCKED_DECISIONS.md](LOCKED_DECISIONS.md) | The rules every change must respect |
+| [EXPANSION_FEATURES.md](EXPANSION_FEATURES.md) | **Expansion**: own-order delivery (DoorDash Drive, Uber Direct), grocery / retail, alcohol (RACJ), AI phone ordering — owner steps and what each platform must approve |
 | [ATLAS_PARITY.md](ATLAS_PARITY.md) | Feature reference only: Atlas (UrbanPiper) module → TAKATAK equivalent → status. UrbanPiper is not used. |
 | [CLOVER_MARKETPLACE_LAUNCH.md](CLOVER_MARKETPLACE_LAUNCH.md) | **Clover App Market submission**: every requirement, its status, the owner-only steps, the video script |
 | [CLOVER_APP.md](CLOVER_APP.md), [CLOVER_APP_LISTING.md](CLOVER_APP_LISTING.md) | The Clover App Market app: how it works (OAuth, launch, welcome wizard, test order) and the listing texts; assets in [clover-listing/](clover-listing/) |

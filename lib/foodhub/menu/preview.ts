@@ -3,6 +3,7 @@
 // live, linked through Clover), how many categories / items / options, which items are new, gone, repriced, 86'd or
 // back, a few sample prices, and the hours and holidays that go with it.
 import { getAdapter } from '../adapters';
+import { menuWithAlcoholRules } from '../alcohol/rules';
 import { CHANNEL_MARKETPLACE } from '../config';
 import { getHours, publishContext } from '../hours';
 import { menuForLocation, storesFor } from '../ops';
@@ -46,7 +47,8 @@ export async function previewPublish(brands: string[], opts: { storeIds?: string
     for (const store of stores) {
       const ctx = await publishContext(brandName, store.locationCode, hours);
       const language = store.channel === 'tgtg' ? 'en' : languages[store.channel];
-      const local = menuForLocation(menu, store.locationCode);
+      // The same menu publishMenu sends: alcohol only where the permit and the alcohol rules allow this platform.
+      const local = await menuWithAlcoholRules(menuForLocation(menu, store.locationCode), store.locationCode, store.channel);
       const snap = menuSnapshot(local, store.channel, language);
       const prev = (store.meta?.lastPublished ?? null) as MenuSnapshot | null;
       const lock = menuLockOf(store);

@@ -4,6 +4,7 @@ import { fail, guard, ok } from '@/lib/foodhub/http';
 import { reopenExpiredPauses } from '@/lib/foodhub/ops';
 import { runOrderRecovery } from '@/lib/foodhub/recovery';
 import { runWatch } from '@/lib/foodhub/watch/engine';
+import { tickExpansion } from '@/lib/foodhub/expansion/tick';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -21,5 +22,7 @@ export const GET = guard(async (req: NextRequest) => {
   // Clover retries + the webhook inbox (an interrupted or failed webhook is processed again), then the Watchtower.
   const recovery = await runOrderRecovery({ trigger: 'cron', force: true }).catch(() => null);
   const report = await runWatch({ trigger: 'cron' });
-  return ok({ report, reopened: reopened.length, recovery });
+  // Expansion features (courier auto-dispatch, Clover delivery orders, stale calls) — only those switched on.
+  const expansion = await tickExpansion();
+  return ok({ report, reopened: reopened.length, recovery, expansion });
 });

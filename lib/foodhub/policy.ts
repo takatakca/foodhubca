@@ -15,6 +15,8 @@ export const ACTIONS = {
   'order.delay': { fr: 'Ajouter du temps à une commande', en: 'Add time to an order', def: 'off' },
   'order.reprint': { fr: 'Réimprimer un billet', en: 'Reprint a ticket', def: 'off' },
   'customer.contact': { fr: 'Texter / appeler un client', en: 'Text / call a customer', def: 'manager' },
+  'delivery.dispatch': { fr: 'Appeler un livreur (nos commandes)', en: 'Call a courier (own orders)', def: 'off' },
+  'delivery.cancel': { fr: 'Annuler un livreur déjà réservé', en: 'Cancel a booked courier', def: 'manager' },
   'store.pause': { fr: 'Fermer / mettre en pause un magasin', en: 'Pause / close a store', def: 'manager' },
   'store.busy': { fr: 'Mode occupé (temps de préparation)', en: 'Busy mode (prep time)', def: 'off' },
   'item.86': { fr: 'Mettre un article en rupture (86)', en: '86 an item', def: 'off' },

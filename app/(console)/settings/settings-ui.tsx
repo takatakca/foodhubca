@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { BellRing, Building2, MonitorSmartphone, PlugZap, Rocket, ShieldCheck, Store, UserRound, Users } from 'lucide-react';
+import { BellRing, Blocks, Building2, MonitorSmartphone, PlugZap, Rocket, ShieldCheck, Store, UserRound, Users } from 'lucide-react';
 import { PageHeader } from '@/components/ui/card';
 import { LinkTabs } from '@/components/ui/tabs';
 import { useViewer } from '@/components/shell/viewer';
@@ -32,6 +32,7 @@ export const SETTINGS_PAGES = [
   { href: '/settings/channels', icon: PlugZap, perm: 'stores:map', fr: 'Plateformes et Clover', en: 'Platforms & Clover', dfr: 'Adresses webhook, secrets à donner aux plateformes, état des branchements.', den: 'Webhook URLs, secrets to give the platforms, connection status.' },
   { href: '/settings/business', icon: Building2, perm: 'view', fr: 'Entreprise', en: 'Business', dfr: 'Succursales et marques.', den: 'Locations and brands.' },
   { href: '/settings/clover-app', icon: Store, perm: 'admin', fr: 'App Clover', en: 'Clover app', dfr: 'Fiche App Market : textes, adresses à copier, soumission, marchands en attente.', den: 'App Market listing: texts, addresses to copy, submission, merchants waiting.' },
+  { href: '/settings/expansion', icon: Blocks, perm: 'view', fr: 'Expansion', en: 'Expansion', dfr: 'Livraison par nos coursiers, épicerie, alcool, commandes par téléphone (IA) : interrupteurs et règles.', den: 'Own-order delivery, grocery, alcohol, AI phone ordering: switches and rules.' },
   { href: '/settings/go-live', icon: Rocket, perm: 'admin', fr: 'Mise en service', en: 'Go-live', dfr: 'La liste de ce qui reste avant d’ouvrir les vannes.', den: 'What is left before switching everything on.' },
 ] as const;
 

@@ -8,6 +8,7 @@ import { ButtonLink } from '@/components/ui/button';
 import { Card, CardHeader, Skeleton } from '@/components/ui/card';
 import { CompareLine, HBars, LineLegend, VIZ } from '@/components/charts/charts';
 import { usePulse, useRefreshOn } from '@/components/live/pulse';
+import { ExpansionTiles } from '@/components/expansion/overview-tiles';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import type { CommandCenter } from '@/lib/foodhub/command';
 import { api, money } from '@/lib/ui/api';
@@ -63,6 +64,8 @@ export function Overview() {
       </div>
 
       <Connections />
+      {/* Expansion: own delivery, AI phone, grocery, alcohol — only the features that are on. */}
+      <ExpansionTiles />
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.4fr_1fr]">
         {/* attention */}

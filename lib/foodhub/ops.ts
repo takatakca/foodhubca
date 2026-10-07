@@ -10,6 +10,7 @@ import { isMenuLocked, menuLockedResult } from './menu/lock';
 import { activeMenus, getBrandMenu, getMenuSharing, groupOf, sourceOf } from './menu/shared';
 import { menuSnapshot } from './menu/snapshot';
 import { getRepo } from './repo';
+import { menuWithAlcoholRules } from './alcohol/rules';
 import { foodhubTimeZone, startOfLocalDayMs } from './time';
 import type { ChannelKey, ChannelResult, ChannelStore, FoodHubJob, MasterMenu, PlatformStatus } from './types';
 
@@ -128,7 +129,8 @@ export async function publishMenu(brandName: string, opts: { storeIds?: string[]
     // Never sent, never recorded as a publish: the store's last real publish stays what the Menus page shows.
     if (isDoNotTouch(store)) { rows.push(row(store, result(store.channel, 'skipped', DO_NOT_TOUCH_MESSAGE))); continue; }
     const ctx = { ...(await publishContext(brandName, store.locationCode, hours)), language: store.channel === 'tgtg' ? 'en' as const : languages[store.channel] };
-    const sent = menuForLocation(menu, store.locationCode);
+    // Alcohol items only where the location's permit and the alcohol rules allow this platform (unchanged while the switch is off).
+    const sent = await menuWithAlcoholRules(menuForLocation(menu, store.locationCode), store.locationCode, store.channel);
     const res = await getAdapter(store.channel).publishMenu(store, sent, ctx);
     await record('menu_push', store, res, { brandName, hoursSet: Boolean(ctx.hours), holidays: ctx.holidays.length });
     await logStore(actor, 'menu_publish', 'publish', store, res, `Menu published (${menu.items.length} items${ctx.hours ? '' : ', no store hours set'})`);

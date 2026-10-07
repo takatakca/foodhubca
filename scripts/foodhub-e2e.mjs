@@ -28,6 +28,7 @@ const MOCK = `http://127.0.0.1:${MOCK_PORT}`;
 const PASSWORD = 'e2e-dashboard-pass';
 const UBER_SECRET = 'uber-client-secret-e2e';
 const DD_SECRET_B64 = Buffer.from('doordash-signing-secret-e2e-32bytes!').toString('base64');
+const DRIVE_SECRET_B64 = Buffer.from('doordash-drive-secret-e2e-32bytes!!').toString('base64');
 const JET_API_KEY = 'jet-api-key-e2e';
 const SKIP_HMAC = 'skip-hmac-secret-e2e';
 const SKIP_NOTIFY_KEY = 'skip-notify-key-e2e';
@@ -81,6 +82,15 @@ function verifyDoorDashJwt(auth) {
   const payload = JSON.parse(b64urlDecode(p).toString());
   const expected = crypto.createHmac('sha256', Buffer.from(DD_SECRET_B64, 'base64')).update(`${h}.${p}`).digest();
   return header['dd-ver'] === 'DD-JWT-V1' && payload.aud === 'doordash' && payload.iss === 'dd-dev-e2e' && payload.kid === 'dd-key-e2e' && crypto.timingSafeEqual(expected, b64urlDecode(s));
+}
+
+/** DoorDash Drive uses the same DD-JWT-V1 token, signed with the Drive org's own key. */
+function verifyDriveJwt(auth) {
+  const [h, p, sig] = (auth || '').replace(/^Bearer\s+/i, '').split('.');
+  if (!h || !p || !sig) return false;
+  const payload = JSON.parse(b64urlDecode(p).toString());
+  const expected = crypto.createHmac('sha256', Buffer.from(DRIVE_SECRET_B64, 'base64')).update(`${h}.${p}`).digest();
+  return payload.iss === 'drive-dev-e2e' && payload.kid === 'drive-key-e2e' && crypto.timingSafeEqual(expected, b64urlDecode(sig));
 }
 
 const UBER_ORDER = (id, storeId, readyInMin = 15) => ({
@@ -242,6 +252,20 @@ const mock = http.createServer(async (req, res) => {
     if (p.endsWith('/refunds')) return send(200, { elements: Number(url.searchParams.get('offset') || 0) ? [] : cloverRefunds });
     return send(404, {});
   }
+  // ---- DoorDash Drive (own-order couriers) ----
+  if (p.startsWith('/drive/drive/v2/')) {
+    if (!verifyDriveJwt(req.headers.authorization)) return send(401, { code: 'authentication_error', message: 'bad token' });
+    if (p === '/drive/drive/v2/quotes') {
+      return body?.dropoff_phone_number && body?.pickup_business_name && Number.isInteger(body?.order_value)
+        ? send(200, { external_delivery_id: body.external_delivery_id, delivery_status: 'quote', fee: 899, currency: 'CAD', dropoff_time_estimated: new Date(Date.now() + 40 * 60_000).toISOString() })
+        : send(400, { code: 'validation_error', message: 'Validation Failed', field_errors: [{ field: 'dropoff_phone_number', error: 'required' }] });
+    }
+    const acc = p.match(/^\/drive\/drive\/v2\/quotes\/([^/]+)\/accept$/);
+    if (acc) return send(200, { external_delivery_id: acc[1], delivery_status: 'created', fee: 899, tracking_url: `https://track.example/${acc[1]}`, support_reference: '777' });
+    const cnl = p.match(/^\/drive\/drive\/v2\/deliveries\/([^/]+)\/cancel$/);
+    if (cnl && req.method === 'PUT') return send(200, { external_delivery_id: cnl[1], delivery_status: 'cancelled' });
+    return send(404, {});
+  }
   // ---- Resend (report + sign-in emails) ----
   if (p === '/resend/emails') return req.headers.authorization === 'Bearer re_e2e' ? send(200, { id: 'email-1' }) : send(401, {});
   // ---- Twilio (SMS + voice) ----
@@ -348,8 +372,10 @@ const env = {
   FOODHUB_WATCH_INTERVAL_S: '0', // the e2e drives the Watchtower itself (cron/watch), so runs are deterministic
   // Seconds instead of 30 s / 2 min, so the automatic Clover and webhook retries can be watched end to end.
   FOODHUB_CLOVER_RETRY_S: '2,4', FOODHUB_INBOX_RETRY_S: '2,4', FOODHUB_CLOVER_ORDER_TYPES_TTL_S: '0',
+  DOORDASH_DRIVE_BASE_URL: `${MOCK}/drive`, DOORDASH_DRIVE_DEVELOPER_ID: 'drive-dev-e2e', DOORDASH_DRIVE_KEY_ID: 'drive-key-e2e', DOORDASH_DRIVE_SIGNING_SECRET: DRIVE_SECRET_B64,
+  DOORDASH_DRIVE_ENV: 'sandbox', DOORDASH_DRIVE_WEBHOOK_SECRET: 'drive-hook-e2e', FOODHUB_WEBSITE_ORDER_SECRET: 'web-order-e2e',
 };
-for (const k of ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'UBER_ACCESS_TOKEN', 'TGTG_SPEC_CONFIRMED', 'SESSION_SECRET', 'FOODHUB_CLOVER_AUTOPRINT', 'CLOVER_PRINT_DEVICE_ID', 'FOODHUB_SYNC_MIN_INTERVAL_S', 'FOODHUB_CLOVER_RECORD_PAYMENT', 'FOODHUB_CLOVER_ORDER_TYPES', 'FOODHUB_CLOVER_INVENTORY_SYNC', 'FOODHUB_CLOVER_DELETE_CANCELLED', 'FOODHUB_SCHEDULED_AFTER_MIN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'FOODHUB_INSECURE_SHOW_CODES', 'TWILIO_MESSAGING_SERVICE_SID', 'FOODHUB_OWNER_EMAIL', 'FOODHUB_OWNER_PHONE']) delete env[k];
+for (const k of ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'UBER_ACCESS_TOKEN', 'TGTG_SPEC_CONFIRMED', 'SESSION_SECRET', 'FOODHUB_CLOVER_AUTOPRINT', 'CLOVER_PRINT_DEVICE_ID', 'FOODHUB_SYNC_MIN_INTERVAL_S', 'FOODHUB_CLOVER_RECORD_PAYMENT', 'FOODHUB_CLOVER_ORDER_TYPES', 'FOODHUB_CLOVER_INVENTORY_SYNC', 'FOODHUB_CLOVER_DELETE_CANCELLED', 'FOODHUB_SCHEDULED_AFTER_MIN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'FOODHUB_INSECURE_SHOW_CODES', 'TWILIO_MESSAGING_SERVICE_SID', 'FOODHUB_OWNER_EMAIL', 'FOODHUB_OWNER_PHONE', 'FOODHUB_FEATURE_DELIVERY', 'FOODHUB_FEATURE_RETAIL', 'FOODHUB_FEATURE_ALCOHOL', 'FOODHUB_FEATURE_PHONE', 'UBER_DIRECT_CUSTOMER_ID', 'UBER_DIRECT_CLIENT_ID', 'UBER_DIRECT_CLIENT_SECRET']) delete env[k];
 const app = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '-p', String(APP_PORT)], { env, stdio: ['ignore', 'pipe', 'pipe'] });
 let appLog = '';
 app.stdout.on('data', (d) => { appLog += d; });
@@ -1440,6 +1466,69 @@ try {
   const sy41 = await call('POST', '/api/foodhub/sync', { body: { force: true } });
   check('sync finds the order no webhook announced and processes it (Clover first, then accept)', sy41.json?.report?.uberMissed?.recovered === 1 && !!(await waitFor(async () => { const o = await findOrder('uber-missed-1'); return o?.posOrderId && o.status === 'accepted' ? o : null; })), JSON.stringify(sy41.json?.report?.uberMissed));
   check('missed-order check skips stores not confirmed as Food Hub’s, orders past the 11.5-min window and orders the webhook may still bring', !(await findOrder('uber-not-mine-1')) && !(await findOrder('uber-too-old-1')) && !(await findOrder('uber-too-new-1')) && !sent('GET', /\/v1\/eats\/stores\/uber-store-uuid-1\/created-orders$/).length);
+
+  console.log('\n43. Expansion: own-order delivery (DoorDash Drive), website orders, AI phone line, grocery, alcohol');
+  const exp0 = (await call('GET', '/api/foodhub/expansion')).json;
+  check('every expansion feature starts OFF', exp0?.features?.length === 4 && exp0.features.every((f) => f.on === false), JSON.stringify(exp0?.features?.map((f) => [f.key, f.on])));
+  check('Own orders hidden from the side menu while off', !(await call('GET', '/')).text.includes('href="/direct"'));
+  check('website orders refused while own delivery is off', (await call('POST', '/api/foodhub/webhooks/website-order', { auth: false, headers: { authorization: 'Bearer web-order-e2e' }, body: { id: 'W-0' } })).status === 503);
+  check('owner turns own delivery on', (await call('PUT', '/api/foodhub/expansion', { body: { key: 'delivery', on: true } })).json?.features?.find((f) => f.key === 'delivery')?.on === true);
+  check('Own orders now in the side menu', (await call('GET', '/')).text.includes('href="/direct"'));
+  const ndgLoc = (await call('GET', '/api/foodhub/catalog')).json?.locations?.find((l) => l.code === 'NDG_MAIN');
+  await call('POST', '/api/foodhub/catalog', { body: { location: { ...ndgLoc, phone: '514 555-0100' } } });
+  const rules = await call('PUT', '/api/foodhub/delivery/settings', { body: { settings: { compareQuotes: false, smsTracking: true, locations: { NDG_MAIN: { enabled: true, autoDispatch: false, leadMinutes: 10, maxDistanceKm: 8, postalPrefixes: [], maxAutoFee: 15 } } } } });
+  check('delivery rule saved for NDG', rules.json?.settings?.locations?.NDG_MAIN?.enabled === true, JSON.stringify(rules.json).slice(0, 200));
+  const webOrder = { id: 'WEB-1001', brand: 'Po Poulet', location: 'NDG_MAIN', customer: { name: 'Ana Bel', phone: '514-555-1234' }, fulfillment: 'delivery', address: { street: '5555 Av Monkland', unit: '3', city: 'Montréal', postalCode: 'H4A 1E1', instructions: 'Code 1234' }, items: [{ name: 'Poulet Grillé', quantity: 2, price: 14.99 }], tip: 3, paid: true };
+  check('website order refused with a wrong token', (await call('POST', '/api/foodhub/webhooks/website-order', { auth: false, headers: { authorization: 'Bearer nope' }, body: webOrder })).status === 401);
+  const w1 = await call('POST', '/api/foodhub/webhooks/website-order', { auth: false, headers: { authorization: 'Bearer web-order-e2e' }, body: webOrder });
+  check('website order received', w1.status === 200 && /^W-\d+$/.test(w1.json?.number || ''), JSON.stringify(w1.json));
+  check('same website order again → no duplicate', (await call('POST', '/api/foodhub/webhooks/website-order', { auth: false, headers: { authorization: 'Bearer web-order-e2e' }, body: webOrder })).json?.duplicate === true);
+  const webTicket = sent('POST', /\/atomic_order\/orders$/).find((e) => String(e.body?.orderCart?.title || '').includes(w1.json?.number));
+  check('kitchen ticket in Clover with our number and the delivery address', Boolean(webTicket) && /LIVRAISON: 5555 Av Monkland/.test(webTicket.body.orderCart.note) && webTicket.body.orderCart.lineItems.length === 2, JSON.stringify(webTicket?.body?.orderCart).slice(0, 300));
+  check('customer texted the confirmation', sent('POST', /\/Messages\.json$/).some((e) => /W-\d+ reçue/.test(((e) => new URLSearchParams(String(e.body)).get('Body') || '')(e))));
+  const disp = await call('POST', `/api/foodhub/delivery/${w1.json?.id}`, { body: { action: 'dispatch' } });
+  check('Call a courier → DoorDash Drive booked (sandbox)', disp.status === 200 && disp.json?.running?.fleet === 'doordash_drive' && disp.json.running.status === 'created' && disp.json.running.environment === 'sandbox', JSON.stringify(disp.json).slice(0, 300));
+  const dq = sent('POST', /\/drive\/v2\/quotes$/)[0]?.body;
+  check('Drive quote carries every required field (address, value, business name, tip, items, instructions)', dq?.pickup_business_name === 'Po Poulet' && dq.dropoff_phone_number === '+15145551234' && dq.pickup_phone_number === '+15145550100' && Number.isInteger(dq.order_value) && dq.order_value > 0 && dq.tip === 300 && dq.items?.[0]?.name === 'Poulet Grillé' && /5555 Av Monkland, #3, Montréal, QC H4A 1E1/.test(dq.dropoff_address) && /Code 1234/.test(dq.dropoff_instructions), JSON.stringify(dq));
+  check('quote accepted by our delivery id', sent('POST', /\/drive\/v2\/quotes\/[^/]+\/accept$/).length === 1);
+  const dId = disp.json?.running?.id;
+  check('Drive webhook with a wrong token → 401', (await call('POST', '/api/foodhub/webhooks/doordash-drive', { auth: false, headers: { authorization: 'Basic nope' }, body: { event_name: 'DASHER_CONFIRMED', external_delivery_id: dId } })).status === 401);
+  const smsBefore = sent('POST', /\/Messages\.json$/).length;
+  check('Dasher assigned (webhook)', (await call('POST', '/api/foodhub/webhooks/doordash-drive', { auth: false, headers: { authorization: 'Basic drive-hook-e2e' }, body: { event_name: 'DASHER_CONFIRMED', external_delivery_id: dId, dasher_name: 'Léa' } })).status === 200);
+  check('order shows the courier, and the tracking link is texted once', Boolean(await waitFor(async () => (await call('GET', `/api/foodhub/delivery/${w1.json?.id}`)).json?.running?.courier?.name === 'Léa')) && Boolean(await waitFor(async () => sent('POST', /\/Messages\.json$/).length === smsBefore + 1)));
+  check('kitchen strip lists it', (await call('GET', '/api/foodhub/delivery/active?location=NDG_MAIN')).json?.items?.some((i) => i.number === w1.json?.number && i.delivery?.status === 'assigned'));
+  await call('POST', '/api/foodhub/webhooks/doordash-drive', { auth: false, headers: { authorization: 'Basic drive-hook-e2e' }, body: { event_name: 'DASHER_DROPPED_OFF', external_delivery_id: dId } });
+  check('delivered → order completed', Boolean(await waitFor(async () => (await call('GET', `/api/foodhub/delivery/${w1.json?.id}`)).json?.order?.status === 'completed')));
+  const unpaid = await call('POST', '/api/foodhub/delivery', { body: { locationCode: 'NDG_MAIN', brandName: 'Po Poulet', customer: { name: 'Bo', phone: '5145559999' }, fulfillment: 'delivery', dropoff: { street: '1 Rue Test', city: 'Montréal', postalCode: 'H4A 1A1' }, items: [{ name: 'Frites', quantity: 1, price: 4.99 }] } });
+  check('an unpaid delivery waits: couriers never collect money', unpaid.status === 200 && unpaid.json?.problems?.some((x) => /Not paid yet/.test(x)) && (await call('POST', `/api/foodhub/delivery/${unpaid.json?.order?.id}`, { body: { action: 'dispatch' } })).status === 409, JSON.stringify(unpaid.json?.problems));
+  check('Payment taken → courier booked', (await call('POST', `/api/foodhub/delivery/${unpaid.json?.order?.id}`, { body: { action: 'mark_paid' } })).status === 200 && (await call('POST', `/api/foodhub/delivery/${unpaid.json?.order?.id}`, { body: { action: 'dispatch' } })).status === 200);
+  check('cancelling the order cancels the courier first', (await call('POST', `/api/foodhub/delivery/${unpaid.json?.order?.id}`, { body: { action: 'cancel', reason: 'customer called' } })).json?.order?.status === 'cancelled' && sent('PUT', /\/drive\/v2\/deliveries\/[^/]+\/cancel$/).length === 1);
+
+  // AI phone line — no ANTHROPIC_API_KEY in this run: the call must go straight to the kitchen phone (never lost).
+  await call('PUT', '/api/foodhub/expansion', { body: { key: 'phone', on: true } });
+  const pline = await call('PUT', '/api/foodhub/phone', { body: { settings: { lines: [{ number: '+15145550199', name: 'Po Poulet NDG', locationCode: 'NDG_MAIN', brands: ['Po Poulet'], enabled: true, delivery: true }] } } });
+  check('phone line saved', pline.json?.settings?.lines?.length === 1, JSON.stringify(pline.json).slice(0, 200));
+  const voiceForm = new URLSearchParams({ CallSid: 'CA-e2e-1', From: '+15145551234', To: '+15145550199', CallStatus: 'ringing' });
+  const twSig = (u, f) => crypto.createHmac('sha1', 'tw-e2e').update(u + [...f.keys()].sort().map((k) => k + f.get(k)).join('')).digest('base64');
+  const formHeaders = (sig) => ({ 'content-type': 'application/x-www-form-urlencoded', 'x-twilio-signature': sig });
+  check('voice webhook refuses an unsigned call', (await call('POST', '/api/foodhub/webhooks/voice', { auth: false, raw: voiceForm.toString(), headers: formHeaders('bad') })).status === 403);
+  const callRes = await call('POST', '/api/foodhub/webhooks/voice', { auth: false, raw: voiceForm.toString(), headers: formHeaders(twSig('https://takatak.example/api/foodhub/webhooks/voice', voiceForm)) });
+  check('without an AI key the call is handed to the kitchen phone (TwiML Dial)', callRes.status === 200 && /<Dial callerId="\+15145550199"[^>]*>\+15145550100<\/Dial>/.test(callRes.text), callRes.text.slice(0, 300));
+  check('call logged with its reason', (await call('GET', '/api/foodhub/phone/calls?id=CA-e2e-1')).json?.call?.handoffReason === 'ANTHROPIC_API_KEY not set');
+
+  await call('PUT', '/api/foodhub/expansion', { body: { key: 'retail', on: true } });
+  const prod = await call('POST', '/api/foodhub/retail', { body: { action: 'save', product: { name: 'Lait 2 %', sku: 'MILK-2L', barcodes: ['036000291452'], price: 5.49, stock: { NDG_MAIN: 12 }, category: 'Laitiers' } } });
+  check('grocery product saved (barcode check digit verified)', prod.status === 200 && prod.json?.product?.barcodes?.[0] === '036000291452', JSON.stringify(prod.json).slice(0, 200));
+  check('a wrong barcode is refused', (await call('POST', '/api/foodhub/retail', { body: { action: 'save', product: { name: 'X', sku: 'X1', barcodes: ['036000291453'], price: 1 } } })).status === 400);
+  check('scanner lookup by barcode', (await call('GET', '/api/foodhub/retail?barcode=036000291452')).json?.product?.sku === 'MILK-2L');
+  const rprev = (await call('GET', '/api/foodhub/retail?preview=NDG_MAIN')).json?.preview;
+  check('DoorDash / Uber grocery payloads built, marked "needs platform approval", nothing sent', rprev?.doordash_retail?.readiness?.status === 'needs_platform_approval' && rprev?.uber_eats_grocery?.items?.[0]?.product_info?.gtin === '00036000291452' && !log.some((e) => JSON.stringify(e.body ?? '').includes('MILK-2L')), JSON.stringify(rprev?.uber_eats_grocery?.items?.[0]?.product_info));
+
+  await call('PUT', '/api/foodhub/expansion', { body: { key: 'alcohol', on: true } });
+  const alc = (await call('GET', '/api/foodhub/alcohol')).json;
+  check('alcohol closed on every channel until a permit is checked', alc?.now?.length > 0 && alc.now.every((l) => Object.values(l.channels).every((c) => c.allowed === false)));
+  check('opening a channel without a checked permit is refused', String((await call('PUT', '/api/foodhub/alcohol', { body: { locationCode: 'NDG_MAIN', patch: { permitType: 'restaurant', channels: { phone: true } } } })).json?.warning || '').includes('stay closed'));
+  for (const k of ['delivery', 'phone', 'retail', 'alcohol']) await call('PUT', '/api/foodhub/expansion', { body: { key: k, on: false } });
 
   await sleep(300);
   // A webhook "kept in the inbox" (section 41: Uber refusing the order fetch on purpose) is handled, not a crash.

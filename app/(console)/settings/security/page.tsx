@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
-import { Banknote, ChefHat, KeyRound, MessageSquareText, Store, UtensilsCrossed, Users } from 'lucide-react';
+import { Banknote, ChefHat, KeyRound, MessageSquareText, Store, Truck, UtensilsCrossed, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Banner, Card } from '@/components/ui/card';
 import { Segmented } from '@/components/ui/tabs';
@@ -22,6 +22,7 @@ type Actions = Record<string, { fr: string; en: string; def: Rule }>;
 const GROUPS: Array<{ fr: string; en: string; icon: typeof ChefHat; keys: string[] }> = [
   { fr: 'Commandes', en: 'Orders', icon: ChefHat, keys: ['order.reject', 'order.cancel', 'order.adjust', 'order.delay', 'order.reprint'] },
   { fr: 'Clients', en: 'Customers', icon: MessageSquareText, keys: ['customer.contact'] },
+  { fr: 'Nos livraisons', en: 'Own delivery', icon: Truck, keys: ['delivery.dispatch', 'delivery.cancel'] },
   { fr: 'Magasins', en: 'Stores', icon: Store, keys: ['store.pause', 'store.busy'] },
   { fr: 'Menus', en: 'Menus', icon: UtensilsCrossed, keys: ['item.86', 'menu.price', 'menu.publish'] },
   { fr: 'Argent et équipe', en: 'Money & team', icon: Banknote, keys: ['money.edit', 'team.manage'] },
@@ -29,7 +30,7 @@ const GROUPS: Array<{ fr: string; en: string; icon: typeof ChefHat; keys: string
 const RULES: Rule[] = ['off', 'manager', 'always'];
 /** Strict preset: staff need a manager for anything that costs money; money and team always need a PIN. */
 const STRICT: Policy = {
-  'order.reject': 'manager', 'order.cancel': 'manager', 'order.adjust': 'manager', 'customer.contact': 'manager', 'store.pause': 'manager', 'menu.price': 'manager',
+  'order.reject': 'manager', 'order.cancel': 'manager', 'order.adjust': 'manager', 'customer.contact': 'manager', 'delivery.cancel': 'manager', 'store.pause': 'manager', 'menu.price': 'manager',
   'money.edit': 'always', 'team.manage': 'always',
 };
 

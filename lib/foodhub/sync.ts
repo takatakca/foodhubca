@@ -12,6 +12,8 @@
 import { fetchDoorDashStoreStatus } from './adapters/doordash';
 import { isRelayStore } from './adapters/relay';
 import { fetchUberStoreStatus } from './adapters/uber-eats';
+import { runUberWebhook } from './adapters/uber-events';
+import { replayPendingUberWebhooks } from './adapters/uber-inbox';
 import { nowIso } from './config';
 import { logActivity } from './activity';
 import { CHANNEL_LABELS } from './config';
@@ -49,6 +51,8 @@ export interface SyncReport {
   trigger: string;
   businessDayStart: string;
   reopened: number;
+  /** Uber webhooks replayed from the inbox (still pending after the first try) and how many failed again. */
+  uberWebhooks?: { replayed: number; failed: number };
   /** Orders accepted/ready/dispatched for longer than FOODHUB_AUTO_COMPLETE_MIN (default 90) and closed automatically. */
   autoCompleted: number;
   /** Timed 86s that ended and were switched back on. */
@@ -217,6 +221,9 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
   const started = Date.now();
   const platformErrors: NonNullable<SyncReport['platformErrors']> = {};
   try {
+    // Orders first: Uber webhooks still pending in the inbox (crash after the 200, failed order fetch) are replayed
+    // while the 11.5-minute accept window is still open.
+    const uberWebhooks = await replayPendingUberWebhooks(runUberWebhook).catch(() => ({ replayed: 0, failed: 0 }));
     const reopened = await reopenExpiredPauses().catch(() => []);
     const autoCompleted = await autoCompleteOldOrders().catch(() => 0);
     const itemsReenabled = await reenableExpiredItems().catch(() => 0);
@@ -278,6 +285,7 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
       trigger: opts.trigger || 'manual',
       businessDayStart: new Date(dayStart).toISOString(),
       reopened: reopened.length,
+      uberWebhooks,
       autoCompleted,
       itemsReenabled,
       holidayClosures,

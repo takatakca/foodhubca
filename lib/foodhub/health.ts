@@ -2,8 +2,9 @@
 // The Watchtower runs inside this same server, so it cannot text anyone about its own death — something outside
 // has to watch the server. The route is public (proxy.ts, exact path), so the answer carries only what a monitor
 // needs: up or down, why (fixed codes), and ages in seconds. Never a secret, an error message (it could name the
-// database host), a store, brand or order, or any count. Cheap and time-bounded: two small key/value reads in
-// parallel, no platform call, at most HEALTH_DB_TIMEOUT_MS.
+// database host), a store, brand or order, or any count. Cheap and time-bounded: two tiny key/value reads in
+// parallel, no platform call, at most HEALTH_DB_TIMEOUT_MS — and, since anyone can call it, one database check at a
+// time, reused for HEALTH_CACHE_MS on Supabase, so a burst of requests never becomes a burst of reads.
 import pkg from '../../package.json';
 import { liveConnectorsGloballyEnabled } from './env-utils';
 import { getRepo } from './repo';
@@ -32,7 +33,10 @@ export interface HealthReport {
 }
 
 const HEALTH_DB_TIMEOUT_MS = 4_000;
+const HEALTH_CACHE_MS = 10_000;
 const DEFAULT_SYNC_MAX_MIN = 20;
+/** Written by runSync next to sync:last (the whole report, store rows and Clover sales included): just its time. */
+export const SYNC_AT_KEY = 'sync:at';
 
 /**
  * Minutes after which a silent sync means the scheduler died, or 0 when nothing promises a regular sync.
@@ -61,18 +65,38 @@ function within<T>(p: Promise<T>, ms: number): Promise<T> {
   return Promise.race([p, late]).finally(() => clearTimeout(timer));
 }
 
+type At = { at?: unknown } | null;
+type Snapshot = { mode: 'supabase' | 'memory'; sync: At; watch: At };
+let shared: { at: number; p: Promise<Snapshot> } | null = null;
+
+/**
+ * The two times, read once for every caller in flight and reused for HEALTH_CACHE_MS on Supabase. Memory mode reads
+ * nothing remote, so it is read fresh each time; a failed read is never reused (the next caller tries again).
+ * sync:at is tiny; sync:last (the whole report) is only read until the first sync after an upgrade writes sync:at.
+ */
+function snapshot(): Promise<Snapshot> {
+  if (shared && Date.now() - shared.at < HEALTH_CACHE_MS) return shared.p;
+  const repo = getRepo(); // a malformed Supabase URL throws here
+  const syncAt = async (): Promise<At> => (await repo.getKv<{ at?: unknown }>(SYNC_AT_KEY)) ?? repo.getKv<{ at?: unknown }>('sync:last');
+  const p = within(Promise.all([syncAt(), repo.getKv<{ at?: unknown }>('watch:last')]), HEALTH_DB_TIMEOUT_MS)
+    .then(([sync, watch]): Snapshot => ({ mode: repo.mode, sync, watch }));
+  const mine = { at: Date.now(), p };
+  shared = mine;
+  const drop = () => { if (shared === mine) shared = null; };
+  p.then(() => { if (repo.mode === 'memory') drop(); }, drop);
+  return p;
+}
+
 /** Never throws: a broken database is an answer ("database_unreachable"), not a crash. */
 export async function checkHealth(opts: { now?: number; uptimeSec?: number } = {}): Promise<HealthReport> {
   const now = opts.now ?? Date.now();
   const problems: HealthProblem[] = [];
   let mode: 'supabase' | 'memory' | null = null;
-  let sync: { at?: unknown } | null = null;
-  let watch: { at?: unknown } | null = null;
+  let sync: At = null;
+  let watch: At = null;
   try {
-    const repo = getRepo(); // a malformed Supabase URL throws here
-    mode = repo.mode;
-    // sync:last is written by runSync, watch:last by runWatch (lib/foodhub/sync.ts, watch/engine.ts). Only `at` is read.
-    [sync, watch] = await within(Promise.all([repo.getKv<{ at?: unknown }>('sync:last'), repo.getKv<{ at?: unknown }>('watch:last')]), HEALTH_DB_TIMEOUT_MS);
+    // sync:at / sync:last are written by runSync, watch:last by runWatch (lib/foodhub/sync.ts, watch/engine.ts). Only `at` is read.
+    ({ mode, sync, watch } = await snapshot());
   } catch (e) {
     mode = null;
     problems.push('database_unreachable');

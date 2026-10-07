@@ -15,6 +15,8 @@ export type StepState = 'done' | 'todo' | 'warn' | 'info';
 export type Step = { key: string; state: StepState; title: string; body: string; href: string; cta: string; group: string; external?: boolean };
 
 type Readiness = { channel: string; label: string; configured: boolean; canSend: boolean; missing: string[]; viaClover?: boolean };
+/** A mapped store whose orders cannot get into Clover (lib/foodhub/go-live.ts cloverUnreachableStores). */
+export type CloverStoreProblem = { channel: string; brandName: string; locationCode: string; merchantId: string | null; reason: 'no_merchant' | 'no_token' | 'reconnect' };
 type CloverAppInfo = { configured: boolean; merchants: Array<{ merchantId?: string; status?: string; needsReconnect?: boolean }>; legalStatus?: { supportEmailSet: boolean; approved: boolean } };
 type SessionSecretInfo = { source: 'env' | 'password' | 'dev' | null; set: boolean; strong: boolean; since: string | null; changedAt: string | null };
 export type ChannelsData = {
@@ -22,7 +24,7 @@ export type ChannelsData = {
   clover: { configured: boolean; missing: string[]; webhookAuthSet?: boolean; verification?: { code: string } | null; app?: CloverAppInfo };
   channels: Readiness[];
   relay?: { webhookReady: boolean; callbackReady: boolean; channels: string[] };
-  goLive?: { clover: { envMerchantIds: string[]; tokenMapInvalid: boolean; injectionEnabled: boolean }; sessionSecret: SessionSecretInfo };
+  goLive?: { clover: { envMerchantIds: string[]; tokenMapInvalid: boolean; injectionEnabled: boolean; unreachableStores?: CloverStoreProblem[] }; sessionSecret: SessionSecretInfo };
 };
 export type Notify = { email: boolean; sms: boolean; call: boolean; chat: boolean; ai: boolean };
 export type User = { username: string; name: string; role: string; locations: string[]; email: string | null; phone: string | null; active: boolean; hasPin: boolean };
@@ -83,7 +85,18 @@ function cloverAppSteps(ch: ChannelsData, t: T): Step[] {
   ];
 }
 
-/** Clover: done only when at least one merchant can really receive orders (an env token, or an app merchant that works). */
+/** "Po Poulet NDG (Uber Eats): no token for MERCH_B; …", at most 4 named. */
+function storeProblems(xs: CloverStoreProblem[], ch: ChannelsData, t: T): string {
+  const why = (x: CloverStoreProblem) => x.reason === 'no_merchant'
+    ? t('aucun marchand Clover jumelé (ni CLOVER_MERCHANT_ID)', 'no Clover merchant mapped (nor CLOVER_MERCHANT_ID)')
+    : x.reason === 'reconnect' ? t(`accès de l’app Clover expiré pour ${x.merchantId} — rebranchez-le`, `Clover app access expired for ${x.merchantId} — reconnect it`)
+      : t(`aucun jeton pour le marchand ${x.merchantId} (app Clover ou CLOVER_MERCHANT_TOKENS)`, `no token for merchant ${x.merchantId} (Clover app or CLOVER_MERCHANT_TOKENS)`);
+  const label = (k: string) => ch.channels.find((c) => c.channel === k)?.label ?? k;
+  const named = xs.slice(0, 4).map((x) => `${x.brandName} ${x.locationCode} (${label(x.channel)})${t(' : ', ': ')}${why(x)}`);
+  return `${named.join(' ; ')}${xs.length > 4 ? t(` … et ${xs.length - 4} autre(s).`, ` … and ${xs.length - 4} more.`) : '.'}`;
+}
+
+/** Clover: done only when every mapped store can really reach its register and at least one merchant works (an env token, or an app merchant that works). */
 export function cloverStep(ch: ChannelsData, t: T): Step {
   const base = { group: t('Plateformes', 'Platforms'), key: 'clover', title: 'Clover', href: '/settings/channels' };
   const facts = ch.goLive?.clover ?? { envMerchantIds: [], tokenMapInvalid: false, injectionEnabled: true };
@@ -101,6 +114,10 @@ export function cloverStep(ch: ChannelsData, t: T): Step {
   const usable = env.size + viaApp;
   const from = [env.size && t(`${env.size} par les variables du serveur`, `${env.size} from the server settings`), viaApp && t(`${viaApp} par l’app Clover`, `${viaApp} through the Clover app`)].filter(Boolean).join(', ');
   const reconnect = t(`${expired} marchand(s) de l’app Clover à rebrancher (accès expiré) : leurs commandes ne peuvent pas entrer dans Clover.`, `${expired} Clover app merchant(s) to reconnect (access expired): their orders cannot get into Clover.`);
+  const stuck = facts.unreachableStores ?? [];
+  if (stuck.length) {
+    return { ...base, state: 'todo', cta: t('Jumeler', 'Map'), href: '/stores/mapping', body: `${t('Ces magasins ne peuvent pas envoyer leurs commandes dans Clover :', 'These stores cannot get their orders into Clover:')} ${storeProblems(stuck, ch, t)}` };
+  }
   if (usable && !expired) return { ...base, state: 'done', cta: t('Voir', 'See'), body: t(`Les commandes vont dans la caisse : ${usable} marchand(s) prêt(s) (${from}).`, `Orders go into the register: ${usable} merchant(s) ready (${from}).`) };
   if (usable) return { ...base, state: 'todo', cta: t('Rebrancher', 'Reconnect'), body: `${reconnect} ${t(`Prêt(s) : ${usable} (${from}).`, `Ready: ${usable} (${from}).`)}` };
   const why = [
@@ -133,6 +150,8 @@ export function platformStep(k: string, ch: ChannelsData, stores: Store[], t: T)
       body: t(`Branché en direct ET accepté par le relais de commandes (FOODHUB_RELAY_CHANNELS) : chaque commande peut arriver deux fois. Gardez un seul chemin : retirez ${k} de FOODHUB_RELAY_CHANNELS, ou les clés directes.`, `Connected directly AND accepted through the Order Relay (FOODHUB_RELAY_CHANNELS): each order can come in twice. Keep one path: remove ${k} from FOODHUB_RELAY_CHANNELS, or the direct keys.`) };
   }
   if (r?.configured) {
+    const stuck = (ch.goLive?.clover.unreachableStores ?? []).filter((x) => x.channel === k);
+    if (directN && stuck.length) return { group, key: k, state: 'todo', title: label, href: '/stores/mapping', cta: t('Jumeler', 'Map'), body: `${t(`${directN} magasin(s) jumelé(s), mais leurs commandes ne peuvent pas entrer dans Clover :`, `${directN} store(s) mapped, but their orders cannot get into Clover:`)} ${storeProblems(stuck, ch, t)}` };
     return { group, key: k, state: directN ? 'done' : 'todo', title: label, body: directN ? t(`${directN} magasin(s) jumelé(s).`, `${directN} store(s) mapped.`) : t('Branché, mais aucun magasin jumelé.', 'Connected, but no store mapped.'), href: '/stores/mapping', cta: t('Jumeler', 'Map') };
   }
   if (viaRelay) {

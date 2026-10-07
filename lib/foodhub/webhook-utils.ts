@@ -1,9 +1,9 @@
 import { after, NextResponse } from 'next/server';
 import { logActivity } from './activity';
-import { CHANNEL_LABELS } from './config';
+import { CHANNEL_LABELS, nowIso } from './config';
 import { getRepo } from './repo';
 import { uberCourierState } from './courier';
-import { runInbox, saveToInbox } from './inbox';
+import { runInbox, refuseInbox, saveToInbox } from './inbox';
 import type { ActivityKind, ChannelKey, CourierStatus, NormalizedOrder } from './types';
 
 /** What to keep when deferred webhook work fails: the platform already got its 2xx and will not retry. */
@@ -66,8 +66,11 @@ export async function queueUberOrder(orderId: string, href: string, storeId: str
 
 async function queueInbox(input: Parameters<typeof saveToInbox>[0], label: string, body: unknown): Promise<boolean> {
   let saved: Awaited<ReturnType<typeof saveToInbox>>;
-  try { saved = await saveToInbox(input); } catch (error) {
+  const receivedAt = nowIso();
+  try { saved = await saveToInbox(input, receivedAt); } catch (error) {
     console.error(`[foodhub] ${label}: could not save to the order inbox — answering 503 so the platform retries:`, error);
+    // The write may have gone through with only its answer lost: never process an order the platform kept.
+    await refuseInbox(input, receivedAt, error instanceof Error ? error.message : String(error));
     return false;
   }
   // Processing failures are recorded on the inbox record by runInbox; this context only catches a failure to record them.

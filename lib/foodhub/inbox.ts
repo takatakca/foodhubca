@@ -5,10 +5,13 @@
 //   queued → done    processed (or already in Food Hub: nothing is ingested twice)
 //   queued → error   processing failed: kept with the reason, flagged (Channels → Unparsed payloads, activity log,
 //                    Command Center / Watchtower) and replayable from Settings → Platforms & Clover.
+//   → refused        Food Hub answered 503 although the write may have gone through (the response was lost): the
+//                    platform keeps the order (it retries, or its tablet takes it), so the sweep never runs it.
 // A record still queued after INBOX_STALE_MS means the server stopped between the 2xx and the pipeline: the sync
 // (runSync → sweepOrderInbox) runs it again, at most MAX_RECOVERY_ATTEMPTS times, then flags it for a person.
 // Past the platform's answer window (deadline.ts: DoorDash 3 min, Skip 5, Uber 11.5) the platform has cancelled the
 // order or sent it to its tablet: it is flagged for a person instead (a late Clover ticket could cook it twice).
+// Orders without a platform deadline (relay, Too Good To Go) get NO_DEADLINE_MAX_MS the same way.
 // Records live in fh_docs (not fh_jobs) so one row per order never crowds the platform jobs the screens list.
 import crypto from 'node:crypto';
 import { logActivity } from './activity';
@@ -26,11 +29,16 @@ export const INBOX_STALE_MS = 2 * 60_000;
 export const MAX_RECOVERY_ATTEMPTS = 5;
 /** Processed records are only needed for a few days: the order itself is in fh_orders. */
 const DONE_KEEP_MS = 7 * 86400_000;
+/** Orders without a platform deadline (relay, TGTG) are not recovered after this long (FOODHUB_INBOX_MAX_AGE_MIN, default 30). */
+export function noDeadlineMaxMs() {
+  const min = Number(process.env.FOODHUB_INBOX_MAX_AGE_MIN);
+  return (Number.isFinite(min) && min > 0 ? min : 30) * 60_000;
+}
 /** The sweep runs inside the sync (60 s budget): a few orders per run, oldest first. */
 const SWEEP_BATCH = 5;
 const SWEEP_BUDGET_MS = 20_000;
 
-export type InboxStatus = 'queued' | 'done' | 'error';
+export type InboxStatus = 'queued' | 'done' | 'error' | 'refused';
 export type InboxRun = 'webhook' | 'recovery' | 'replay';
 
 export interface InboxRecord {
@@ -59,6 +67,8 @@ export interface InboxRunResult { ok: boolean; status: InboxStatus; orderId?: st
 /** What Settings → Platforms & Clover shows (no customer details). */
 export interface InboxView {
   id: string; channel: ChannelKey; externalOrderId: string; displayId: string | null; brandName: string | null; total: number | null; items: number | null;
+  /** From the store mapping (null: store not mapped — shown to people without a location limit only). */
+  locationCode: string | null;
   status: InboxStatus; stuck: boolean; receivedAt: string; attempts: number; error: string | null; lastReplay: { at: string; by: string } | null;
   /** When the platform stops waiting for an answer (null: no platform deadline, e.g. relay or TGTG), and whether it has passed. */
   deadline: string | null;
@@ -80,12 +90,31 @@ async function save(id: string, rec: InboxRecord) {
  * Saves an incoming order before the platform is answered. A re-delivery of the same order overwrites the record
  * (back to queued): processing again is harmless, insertOrderIfNew dedupes. Throws when it cannot be saved.
  */
-export async function saveToInbox(input: { channel: ChannelKey; externalOrderId: string; order?: NormalizedOrder; uber?: InboxRecord['uber'] }): Promise<{ id: string; record: InboxRecord }> {
+export async function saveToInbox(input: { channel: ChannelKey; externalOrderId: string; order?: NormalizedOrder; uber?: InboxRecord['uber'] }, receivedAt = nowIso()): Promise<{ id: string; record: InboxRecord }> {
   const ref = input.externalOrderId || `unknown-${crypto.randomUUID()}`;
-  const record: InboxRecord = { channel: input.channel, externalOrderId: ref, ...(input.order ? { order: input.order } : {}), ...(input.uber ? { uber: input.uber } : {}), status: 'queued', receivedAt: nowIso(), attempts: 0 };
+  const record: InboxRecord = { channel: input.channel, externalOrderId: ref, ...(input.order ? { order: input.order } : {}), ...(input.uber ? { uber: input.uber } : {}), status: 'queued', receivedAt, attempts: 0 };
   const id = inboxId(input.channel, ref);
   await save(id, record);
   return { id, record };
+}
+
+/**
+ * Food Hub is about to answer 503 because saveToInbox threw — but the write may have reached the database with only
+ * its answer lost. The platform now keeps the order (it retries, or its tablet takes it: Skip), so a record that did
+ * get in is marked refused (never processed by the sweep), or removed when even that fails. A re-delivery saves it
+ * again as queued. Best effort, never throws.
+ */
+export async function refuseInbox(input: { channel: ChannelKey; externalOrderId: string }, receivedAt: string, why: string): Promise<void> {
+  if (!input.externalOrderId) return; // saved under a random id: nothing to find
+  const id = inboxId(input.channel, input.externalOrderId);
+  try {
+    const doc = await getRepo().getDoc<InboxRecord>(INBOX, id);
+    // Only the very record this delivery tried to write: another delivery of the same order that was saved and answered 2xx is left alone.
+    if (!doc || doc.data.status !== 'queued' || doc.data.receivedAt !== receivedAt) return;
+    await save(id, { ...doc.data, status: 'refused', error: `Food Hub answered 503 (${why}) — the platform kept this order (retry or its tablet); not processed here.` });
+  } catch {
+    await getRepo().deleteDocs(INBOX, [id]).catch((e) => console.error(`[foodhub] inbox ${id}: answered 503 but could not mark or remove a record that may have been saved —`, e));
+  }
 }
 
 /** The order to run: a copy of the saved one (the pipeline rewrites lines), or Uber's details fetched again. */
@@ -174,12 +203,13 @@ export async function sweepOrderInbox(opts: { now?: number } = {}): Promise<{ re
     if (Date.now() - started > SWEEP_BUDGET_MS) break;
     const rec = d.data;
     const deadline = inboxDeadline(rec);
-    const late = Boolean(deadline && Date.parse(deadline) <= now);
+    const late = deadline ? Date.parse(deadline) <= now : now - Date.parse(rec.receivedAt) > noDeadlineMaxMs();
     if (late || (rec.attempts ?? 0) >= MAX_RECOVERY_ATTEMPTS) {
       const label = CHANNEL_LABELS[rec.channel];
       // Never a late Clover ticket / accept for an order the platform has given up on: a person checks the platform first.
-      const reason = late ? `not processed within ${label}'s ${ORDER_DEADLINE_MIN[rec.channel]}-minute answer window — ${label} may have cancelled it or sent it to its tablet; check there before replaying`
-        : `still not processed after ${rec.attempts} recovery attempts (the server stopped each time)`;
+      const reason = !late ? `still not processed after ${rec.attempts} recovery attempts (the server stopped each time)`
+        : deadline ? `not processed within ${label}'s ${ORDER_DEADLINE_MIN[rec.channel]}-minute answer window — ${label} may have cancelled it or sent it to its tablet; check there before replaying`
+          : `not processed within ${Math.round(noDeadlineMaxMs() / 60_000)} minutes — check with the sender (${label}) that the order still stands before replaying`;
       await save(d.id, { ...rec, status: 'error', error: reason });
       await flag(d.id, rec, reason, 'recovery');
       failed++;
@@ -191,7 +221,7 @@ export async function sweepOrderInbox(opts: { now?: number } = {}): Promise<{ re
     const r = await runInbox(d.id, attempt, 'recovery');
     if (r.ok) recovered++; else failed++;
   }
-  const old = await repo.listDocs<InboxRecord>(INBOX, { keys: ['done'], until: new Date(now - DONE_KEEP_MS).toISOString(), limit: 500 });
+  const old = await repo.listDocs<InboxRecord>(INBOX, { keys: ['done', 'refused'], until: new Date(now - DONE_KEEP_MS).toISOString(), limit: 500 });
   if (old.length) await repo.deleteDocs(INBOX, old.map((d) => d.id));
   return { recovered, failed, pruned: old.length };
 }
@@ -205,18 +235,26 @@ export async function replayInbox(id: string, by: string): Promise<InboxRunResul
   return runInbox(id, { ...rec, lastReplay: { at: nowIso(), by } }, 'replay', by);
 }
 
-/** Records a person may need to act on: failed, or queued past the recovery delay. */
-export async function listInboxAttention(limit = 20, now = Date.now()): Promise<InboxView[]> {
+/**
+ * Records a person may need to act on: failed, or queued past the recovery delay. `locations` (the viewer's location
+ * limit, empty = all) applies the same rule as the orders list: a record is shown when its store's location is one of
+ * them; a record whose store is not mapped only to people without a limit.
+ */
+export async function listInboxAttention(limit = 20, now = Date.now(), locations: string[] = []): Promise<InboxView[]> {
   const repo = getRepo();
   const staleBefore = new Date(now - INBOX_STALE_MS).toISOString();
-  const docs = await repo.listDocs<InboxRecord>(INBOX, { keys: ['error', 'queued'], limit: 500 });
+  const [docs, stores] = await Promise.all([repo.listDocs<InboxRecord>(INBOX, { keys: ['error', 'queued'], limit: 500 }), repo.listStores()]);
+  const where = new Map(stores.map((s) => [`${s.channel}:${s.channelStoreId}`, s.locationCode]));
+  const locationOf = (r: InboxRecord) => where.get(`${r.channel}:${r.order?.channelStoreId ?? r.uber?.storeId ?? ''}`) ?? null;
   return docs
     .filter((d) => d.data.status === 'error' || (d.data.receivedAt < staleBefore && (!d.data.lastAttemptAt || d.data.lastAttemptAt < staleBefore)))
+    .map((d) => ({ d, loc: locationOf(d.data) }))
+    .filter(({ loc }) => !locations.length || (loc !== null && locations.includes(loc)))
     .slice(0, limit)
-    .map(({ id, data: r }) => {
+    .map(({ d: { id, data: r }, loc }) => {
       const deadline = inboxDeadline(r);
       return {
-        id, channel: r.channel, externalOrderId: r.externalOrderId, displayId: r.order?.displayId ?? null, brandName: r.order?.brandName ?? null,
+        id, channel: r.channel, externalOrderId: r.externalOrderId, displayId: r.order?.displayId ?? null, brandName: r.order?.brandName ?? null, locationCode: loc,
         total: typeof r.order?.total === 'number' ? r.order.total : null, items: r.order ? r.order.lines?.length ?? 0 : null,
         status: r.status, stuck: r.status === 'queued', receivedAt: r.receivedAt, attempts: r.attempts ?? 0, error: r.error ?? null, lastReplay: r.lastReplay ?? null,
         deadline, pastDeadline: Boolean(deadline && Date.parse(deadline) <= now),

@@ -7,7 +7,8 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 // Order inbox (lib/foodhub/inbox.ts): orders saved on arrival that failed, or never finished, processing.
-export const GET = withPerm('stores:map', async () => ok({ inbox: await listInboxAttention(50) }));
+// Location-limited managers see only their locations' records (same rule as the orders list).
+export const GET = withPerm('stores:map', async (_req, _ctx, actor) => ok({ inbox: await listInboxAttention(50, Date.now(), actor.locations) }));
 
 // Owner's Replay button: { id } runs the saved order through the pipeline again. Idempotent — an order already in
 // Food Hub is never created twice (insertOrderIfNew); the result and who asked go to the activity log.

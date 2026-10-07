@@ -27,6 +27,7 @@ import { sendDueReports } from './reports';
 import { cloverReadiness, cloverSalesSince, allCloverMerchants, type CloverSales } from './pos/clover';
 import { importCloverPlatformOrders } from './pos/clover-platform-orders';
 import { getRepo } from './repo';
+import { SYNC_AT_KEY } from './health';
 import { sweepOrderInbox } from './inbox';
 import { startOfLocalDayMs } from './time';
 import { runWatch, type WatchReport } from './watch/engine';
@@ -301,6 +302,7 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
       ...(Object.keys(platformErrors).length ? { platformErrors } : {}),
     };
     await repo.setKv(LAST_KEY, report);
+    await repo.setKv(SYNC_AT_KEY, { at: report.at }).catch(() => undefined); // /api/health reads only this
     // The Watchtower looks at the fresh statuses right away (tablets, late orders, stores…).
     report.watch = await runWatch({ trigger: `sync:${report.trigger}`, force: true }).catch(() => null);
     return { ran: true, report };

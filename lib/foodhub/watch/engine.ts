@@ -322,7 +322,8 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
   const hourAgo = new Date(now - 3600_000).toISOString();
   const unparsed = jobs.filter((j) => j.kind === 'webhook_unparsed' && j.createdAt >= hourAgo).length;
   if (on('webhook_unreadable') && unparsed) out.push({ key: 'webhook_unreadable', kind: 'webhook_unreadable', severity: 'warning', title: `${unparsed} message(s) de plateforme illisible(s)`, titleEn: `${unparsed} unreadable platform message(s)` });
-  const failed = jobs.filter((j) => j.status === 'error' && j.kind !== 'webhook_unparsed' && j.createdAt >= new Date(now - 2 * 3600_000).toISOString());
+  // 'blocked' = never sent (no API for that platform, live switch off…): honest, but no platform refused anything.
+  const failed = jobs.filter((j) => j.status === 'error' && j.kind !== 'webhook_unparsed' && (j.result as { status?: string } | null)?.status !== 'blocked' && j.createdAt >= new Date(now - 2 * 3600_000).toISOString());
   if (on('menu_failed') && failed.length) {
     const what = [...new Set(failed.map((j) => `${CHANNEL_LABELS[j.channel as keyof typeof CHANNEL_LABELS] ?? j.channel} ${j.kind.replace(/_/g, ' ')}`))].join(', ');
     out.push({ key: 'menu_failed', kind: 'menu_failed', severity: 'warning', title: `${failed.length} action(s) refusée(s) par une plateforme`, titleEn: `${failed.length} action(s) refused by a platform`, detail: what, detailEn: what });

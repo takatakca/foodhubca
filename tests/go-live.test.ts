@@ -258,7 +258,7 @@ describe('GET /api/foodhub/channels carries the go-live facts, never a secret', 
     const raw = await res.text();
     const body = JSON.parse(raw);
     expect(body.goLive).toEqual(await goLiveFacts());
-    expect(body.goLive.clover).toEqual({ envMerchantIds: ['MIDA', 'MIDB'], tokenMapInvalid: false, injectionEnabled: true });
+    expect(body.goLive.clover).toEqual({ envMerchantIds: ['MIDA', 'MIDB'], tokenMapInvalid: false, injectionEnabled: true, unreachableStores: [] });
     expect(body.goLive.sessionSecret).toMatchObject({ source: 'env', set: true, strong: true, changedAt: null });
     expect(raw).not.toContain('clover-token-');
     expect(raw).not.toContain(STRONG);

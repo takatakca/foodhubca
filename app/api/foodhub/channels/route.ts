@@ -33,7 +33,7 @@ export const GET = withPerm('stores:map', async (req, _ctx, actor) => {
       handoff: (r.handoff ?? []).map((h) => ({ label: h.label, envKey: h.envKey, set: Boolean(process.env[h.envKey]), value: reveal ? process.env[h.envKey] || '' : undefined })),
     };
   });
-  const [jobs, inbox, goLive] = await Promise.all([repo.listJobs(40), listInboxAttention(20).catch(() => []), goLiveFacts()]);
+  const [jobs, inbox, goLive] = await Promise.all([repo.listJobs(40), listInboxAttention(20, Date.now(), actor.locations).catch(() => []), goLiveFacts()]);
   return ok({
     mode: repo.mode,
     publicUrl: base,

@@ -29,6 +29,9 @@ export interface OrderTimeline {
   /** Last kitchen-ticket print failure (cleared by a successful print/reprint) and how many fire-time attempts were made. */
   printError?: string;
   printAttempts?: number;
+  /** Automatic "Send to Clover" after a failed injection (pipeline retryFailedInjections): tries made, and when the next one is due (unset = none planned). */
+  posRetries?: number;
+  posRetryAt?: string;
   /** Scheduled (advance) order: when the customer wants it, and when the kitchen should start. */
   scheduledFor?: string;
   fireAt?: string;

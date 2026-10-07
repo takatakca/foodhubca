@@ -4,8 +4,8 @@
 import { logActivity, type Actor } from './activity';
 import { getAdapter } from './adapters';
 import { CHANNEL_LABELS, nowIso } from './config';
-import { allCloverMerchants, cloverAutoPrintEnabled, cloverExpected, injectOrder, printCloverOrder } from './pos/clover';
-import { cloverOrderTypeFor } from './pos/clover-books';
+import { allCloverMerchants, cloverAutoPrintEnabled, cloverExpected, cloverInjectionEnabled, injectOrder, printCloverOrder, type InjectResult } from './pos/clover';
+import { closeCancelledCloverOrder, cloverOrderTypeFor } from './pos/clover-books';
 import { settleInClover } from './clover-settle';
 import { doorDashMerchantCancelEnabled } from './adapters/doordash';
 import { relayActions } from './adapters/relay';
@@ -16,7 +16,7 @@ import { prepFor } from './prep';
 import { isWaitingScheduled, scheduledInfo } from './scheduling';
 import { getRepo } from './repo';
 import { localTimeLabel } from './time';
-import { CANCEL_REASON_LABELS, type CancelReason, type ChannelAdapter, type ChannelKey, type ChannelResult, type NormalizedOrder, type OrderStatus, type OrderTimeline, type StoredOrder } from './types';
+import { CANCEL_REASON_LABELS, type CancelReason, type ChannelAdapter, type ChannelKey, type ChannelResult, type ChannelStore, type NormalizedOrder, type OrderStatus, type OrderTimeline, type StoredOrder } from './types';
 
 export interface PipelineOutcome {
   order: StoredOrder;
@@ -24,6 +24,15 @@ export interface PipelineOutcome {
   pos?: { ok: boolean; posOrderId?: string; error?: string; skipped?: boolean };
   accept?: ChannelResult;
 }
+
+/**
+ * Automatic "Send to Clover" when Clover did not take a new order: 30 s after the failure, then 2 min after that try,
+ * then 5 min after that one — 3 tries, within 30 min of arrival. After that a person decides (Send to Clover / Accept without Clover).
+ */
+export const POS_RETRY_DELAYS_MS = [30_000, 120_000, 300_000];
+export const MAX_POS_RETRIES = POS_RETRY_DELAYS_MS.length;
+const POS_RETRY_WINDOW_MS = 30 * 60_000;
+const delayLabel = (ms: number) => (ms < 60_000 ? `${Math.round(ms / 1000)} s` : `${Math.round(ms / 60_000)} min`);
 
 async function patchTimeline(order: StoredOrder, patch: OrderTimeline, extra: Partial<StoredOrder> = {}): Promise<StoredOrder> {
   // Merged against the order as stored now (concurrency-safe), never against our possibly stale copy.
@@ -43,6 +52,45 @@ async function autoPrint(order: StoredOrder, merchantId?: string | null): Promis
 /** Where an order's platform actions go: the platform's own API, or the relay callback for orders that came through it. */
 function actionsFor(order: { channel: ChannelKey; viaHub?: 'relay' }): Pick<ChannelAdapter, 'acceptOrder' | 'denyOrder' | 'markReady' | 'cancelOrder'> {
   return order.viaHub === 'relay' ? relayActions : getAdapter(order.channel);
+}
+
+/**
+ * Creates the order in Clover (with the platform's order type). An order from a store nobody mapped is never dropped
+ * into a guessed register when several Clover merchants exist: it waits until the store is mapped.
+ */
+async function injectIntoClover(order: StoredOrder, store: ChannelStore | null): Promise<InjectResult> {
+  if (!store && (await allCloverMerchants()).length > 1) {
+    return { ok: false, skipped: false, error: `Store ${order.channelStoreId || '(no id)'} is not mapped in Food Hub and there are several Clover registers — map it under Stores → Mapping, then use "Send to Clover".` };
+  }
+  return injectOrder(order, store?.cloverMerchantId, { orderTypeId: await cloverOrderTypeFor(store?.cloverMerchantId || process.env.CLOVER_MERCHANT_ID, order.channel) });
+}
+
+/**
+ * Auto-accept on the platform once the kitchen has the order (or Clover is not part of this deployment). A platform
+ * cancel can land before or during the accept call: nothing is ever written over it, and the Clover copy is removed.
+ */
+async function autoAccept(order: StoredOrder, posOrderId?: string): Promise<{ order: StoredOrder; accept?: ChannelResult }> {
+  const repo = getRepo();
+  const cancelledMeanwhile = async () => (await repo.getOrder(order.id))?.status === 'cancelled';
+  const settle = async () => (await settleInClover((await repo.getOrder(order.id)) ?? order)) ?? order;
+  if (await cancelledMeanwhile()) {
+    await repo.addEvent(order.id, 'accept_skipped', { reason: 'Cancelled by the platform while it was being put in Clover — nothing sent to the platform; the Clover copy is removed.' });
+    return { order: await settle() };
+  }
+  const accept = await actionsFor(order).acceptOrder(order, posOrderId);
+  if (accept.ok && (await cancelledMeanwhile())) {
+    // Cancelled during the accept call itself: keep the cancellation, never write 'accepted' over it.
+    await repo.addEvent(order.id, 'needs_attention', { reason: 'Accepted on the platform, but the platform cancelled the order meanwhile — check the platform; the Clover copy is removed.' });
+    return { order: await settle(), accept };
+  }
+  if (accept.ok) {
+    const accepted = await patchTimeline(order, { acceptedAt: nowIso(), acceptedBy: 'auto' }, { status: 'accepted', channelError: undefined });
+    await repo.addEvent(order.id, 'accepted', { auto: true, response: summarize(accept) });
+    return { order: accepted, accept };
+  }
+  const refused = (await repo.updateOrder(order.id, { channelError: accept.message })) ?? order;
+  await repo.addEvent(order.id, 'accept_failed', { auto: true, status: accept.status, message: accept.message });
+  return { order: refused, accept };
 }
 
 export async function processIncomingOrder(n: NormalizedOrder): Promise<PipelineOutcome> {
@@ -104,19 +152,18 @@ export async function processIncomingOrder(n: NormalizedOrder): Promise<Pipeline
   const cancelledMeanwhile = async () => (await repo.getOrder(order.id))?.status === 'cancelled';
   if (await cancelledMeanwhile()) return { order: (await repo.getOrder(order.id)) ?? current, duplicate: false, pos: { ok: false, skipped: true, error: 'Cancelled by the platform before processing.' } };
 
-  // 1) POS injection (+ order type, payment record, kitchen ticket).
-  // An order from a store nobody mapped is never dropped into a guessed register when several Clover merchants
-  // exist: it waits on the Command Center until the store is mapped (then "Send to Clover").
-  const severalRegisters = !store && (await allCloverMerchants()).length > 1;
-  const pos: Awaited<ReturnType<typeof injectOrder>> = severalRegisters
-    ? { ok: false, skipped: false, error: `Store ${n.channelStoreId || '(no id)'} is not mapped in Food Hub and there are several Clover registers — map it under Stores → Mapping, then use "Send to Clover".` }
-    : await injectOrder(current, store?.cloverMerchantId, { orderTypeId: await cloverOrderTypeFor(store?.cloverMerchantId || process.env.CLOVER_MERCHANT_ID, n.channel) });
+  // 1) POS injection (+ order type, payment record, kitchen ticket). An unmapped store with several Clover registers
+  // waits on the Command Center until the store is mapped (then "Send to Clover").
+  const pos = await injectIntoClover(current, store);
   if (pos.ok) {
     current = (await repo.updateOrder(order.id, { posOrderId: pos.posOrderId })) ?? current;
     await repo.addEvent(order.id, 'pos_injected', { posOrderId: pos.posOrderId });
     current = await autoPrint(current, store?.cloverMerchantId);
   } else {
-    current = (await repo.updateOrder(order.id, { posError: pos.error })) ?? current;
+    // A real failure (not "Clover is not part of this deployment"): Food Hub retries by itself (retryFailedInjections).
+    current = pos.skipped
+      ? (await repo.updateOrder(order.id, { posError: pos.error })) ?? current
+      : await patchTimeline(current, { posRetryAt: new Date(Date.now() + POS_RETRY_DELAYS_MS[0]).toISOString() }, { posError: pos.error });
     await repo.addEvent(order.id, pos.skipped ? 'pos_skipped' : 'pos_failed', { error: pos.error });
   }
 
@@ -126,22 +173,8 @@ export async function processIncomingOrder(n: NormalizedOrder): Promise<Pipeline
   if (!store) await repo.addEvent(order.id, 'needs_attention', { reason: `Not accepted automatically: store ${n.channelStoreId || '(no id)'} is not mapped in Food Hub. Check the brand and kitchen, then accept or reject.` });
   const posBlocksAccept = !pos.ok && !pos.skipped;
   let accept: ChannelResult | undefined;
-  if (wantsAuto && !posBlocksAccept && (await cancelledMeanwhile())) {
-    await repo.addEvent(order.id, 'accept_skipped', { reason: 'Cancelled by the platform while it was being put in Clover — nothing sent to the platform; the Clover copy is removed.' });
-    current = (await settleInClover((await repo.getOrder(order.id)) ?? current)) ?? current;
-  } else if (wantsAuto && !posBlocksAccept) {
-    accept = await actionsFor(current).acceptOrder(current, pos.ok ? pos.posOrderId : undefined);
-    if (accept.ok && (await cancelledMeanwhile())) {
-      // Cancelled during the accept call itself: keep the cancellation, never write 'accepted' over it.
-      await repo.addEvent(order.id, 'needs_attention', { reason: 'Accepted on the platform, but the platform cancelled the order meanwhile — check the platform; the Clover copy is removed.' });
-      current = (await settleInClover((await repo.getOrder(order.id)) ?? current)) ?? current;
-    } else if (accept.ok) {
-      current = await patchTimeline(current, { acceptedAt: nowIso(), acceptedBy: 'auto' }, { status: 'accepted', channelError: undefined });
-      await repo.addEvent(order.id, 'accepted', { auto: true, response: summarize(accept) });
-    } else {
-      current = (await repo.updateOrder(order.id, { channelError: accept.message })) ?? current;
-      await repo.addEvent(order.id, 'accept_failed', { auto: true, status: accept.status, message: accept.message });
-    }
+  if (wantsAuto && !posBlocksAccept) {
+    ({ order: current, accept } = await autoAccept(current, pos.ok ? pos.posOrderId : undefined));
   } else if (posBlocksAccept) {
     if (n.channel === 'skip' && !n.viaHub) {
       // Skip/JET Connect: tell JET right away so the order falls back to the Skip tablet
@@ -162,7 +195,7 @@ export async function processIncomingOrder(n: NormalizedOrder): Promise<Pipeline
           summary: `${tag}: Clover did not receive it and the Skip tablet hand-off was NOT sent (${fallback.message}) — retry "Send to Skip tablet" or send it to Clover` });
       }
     } else {
-      await repo.addEvent(order.id, 'needs_attention', { reason: 'Clover injection failed — use "Send to Clover" (or "Accept without Clover" after entering it by hand).' });
+      await repo.addEvent(order.id, 'needs_attention', { reason: `Clover injection failed — Food Hub tries again by itself (after ${POS_RETRY_DELAYS_MS.map(delayLabel).join(', ')}); or use "Send to Clover" (or "Accept without Clover" after entering it by hand).` });
     }
   }
 
@@ -172,6 +205,98 @@ export async function processIncomingOrder(n: NormalizedOrder): Promise<Pipeline
   if (pending) current = (await repo.getOrder(order.id)) ?? current;
 
   return { order: current, duplicate: false, pos: pos.ok ? { ok: true, posOrderId: pos.posOrderId } : { ok: false, error: pos.error, skipped: pos.skipped }, accept };
+}
+
+/**
+ * Is an automatic Clover retry due for this order now? Only orders the pipeline planned one for (a real injection
+ * failure, never "Clover is not part of this deployment") that are still ours to make: never a cancelled order, one on
+ * the Skip tablet, one followed through Clover's own integration, nor one a person accepted here ("Accept without
+ * Clover" means it was entered in Clover by hand — a retry would ring it up twice). Accepted on the platform's side is fine.
+ */
+export function posRetryDue(o: StoredOrder, now = Date.now()): boolean {
+  const t = o.timeline ?? {};
+  return Boolean(o.posError && !o.posOrderId && !o.viaPos && t.posRetryAt && !t.acceptedBy)
+    && (o.status === 'new' || o.status === 'accepted')
+    && (t.posRetries ?? 0) < MAX_POS_RETRIES
+    && Date.parse(t.posRetryAt!) <= now
+    && now - Date.parse(o.createdAt) < POS_RETRY_WINDOW_MS;
+}
+
+/**
+ * Housekeeping (watchtower tick, every sync): "Send to Clover" by itself for each order whose retry is due. On success the
+ * order goes on as on arrival — kitchen ticket, then auto-accept through the same adapter path when the store wants it and
+ * the order is still new. Every try is on the order's history and in the activity log. Returns how many reached Clover.
+ */
+export async function retryFailedInjections(now = Date.now()): Promise<number> {
+  if (!cloverInjectionEnabled()) return 0;
+  const repo = getRepo();
+  // One try per order at a time in this server: the sync and the watchtower both call this.
+  const g = globalThis as unknown as { __foodhubPosRetrying?: Set<string> };
+  const busy = (g.__foodhubPosRetrying ??= new Set<string>());
+  const open = await repo.listOrders({ statuses: ['new', 'accepted'], since: new Date(now - POS_RETRY_WINDOW_MS).toISOString(), limit: 1000 });
+  let reached = 0;
+  for (const o of open.filter((x) => posRetryDue(x, now) && !busy.has(x.id))) {
+    busy.add(o.id);
+    try {
+      if (await retryInjection(o.id, now)) reached++;
+    } catch (e) {
+      console.error('[foodhub] Clover retry failed', o.id, e instanceof Error ? e.message : e);
+    } finally {
+      busy.delete(o.id);
+    }
+  }
+  return reached;
+}
+
+async function retryInjection(orderId: string, now: number): Promise<boolean> {
+  const repo = getRepo();
+  // Read again: a person may have sent it or accepted it by hand meanwhile, or the platform cancelled it.
+  const o = await repo.getOrder(orderId);
+  if (!o || !posRetryDue(o, now)) return false;
+  const attempt = (o.timeline?.posRetries ?? 0) + 1;
+  const nextDelay = POS_RETRY_DELAYS_MS[attempt]; // undefined after the last try
+  // Claimed before calling Clover: another run sees the next due time and leaves it alone; a crash leaves the next try planned.
+  let current = await patchTimeline(o, { posRetries: attempt, posRetryAt: nextDelay ? new Date(now + nextDelay).toISOString() : undefined });
+  const store = await repo.findStore(o.channel, o.channelStoreId);
+  const tag = `${CHANNEL_LABELS[o.channel]} #${o.displayId || o.externalOrderId.slice(0, 8)}`;
+  const log = (status: 'success' | 'failed' | 'info', what: string) => logActivity({ actor: 'TAKATAK automation', source: 'automation', kind: 'order', action: 'pos_retry', status,
+    channel: o.channel, brandName: o.brandName, locationCode: o.locationCode, orderId: o.id, summary: `Clover retry ${attempt}/${MAX_POS_RETRIES}: ${tag} ${what}` });
+
+  const pos = await injectIntoClover(current, store);
+  if (!pos.ok) {
+    await repo.updateOrder(o.id, { posError: pos.error });
+    await repo.addEvent(o.id, 'pos_failed', { error: pos.error, auto: true, attempt, of: MAX_POS_RETRIES, ...(nextDelay ? { nextTryIn: delayLabel(nextDelay) } : {}) });
+    if (!nextDelay) await repo.addEvent(o.id, 'needs_attention', { reason: `Clover still did not receive it after ${MAX_POS_RETRIES} automatic tries — use "Send to Clover" (or "Accept without Clover" after entering it by hand).` });
+    await log('failed', `still not in Clover (${pos.error}) — ${nextDelay ? `next try in ${delayLabel(nextDelay)}` : 'no more automatic tries: use "Send to Clover"'}`);
+    return false;
+  }
+  const latest = await repo.getOrder(o.id);
+  if (latest?.posOrderId) {
+    // A person pressed "Send to Clover" during this try: keep theirs and remove this copy, so Clover never has it twice.
+    const r = await closeCancelledCloverOrder({ ...latest, posOrderId: pos.posOrderId }, store?.cloverMerchantId);
+    await repo.addEvent(o.id, 'pos_duplicate', { posOrderId: pos.posOrderId, message: r.message, auto: true });
+    await log(r.ok ? 'info' : 'failed', `reached Clover (${pos.posOrderId}) just after a person sent it (${latest.posOrderId}) — ${r.ok ? 'the extra copy was removed' : `remove the extra copy in Clover: ${r.message}`}`);
+    return false;
+  }
+  current = (await repo.updateOrder(o.id, { posOrderId: pos.posOrderId, posError: undefined })) ?? current;
+  await repo.addEvent(o.id, 'pos_injected', { posOrderId: pos.posOrderId, auto: true, attempt, of: MAX_POS_RETRIES });
+  if (current.status === 'cancelled') {
+    // The platform cancelled it while Clover was being called: no kitchen ticket, no accept — the Clover copy is removed.
+    await settleInClover(current);
+    await log('info', `reached Clover (${pos.posOrderId}), but the platform had cancelled it meanwhile — removed from Clover`);
+    return true;
+  }
+  current = await autoPrint(current, store?.cloverMerchantId);
+  // Then auto-accept as on arrival. An order that arrived from a store nobody had mapped (no location) keeps waiting
+  // for a person, even if the store was mapped since.
+  let accept: ChannelResult | undefined;
+  if (store?.autoAccept && o.locationCode && current.status === 'new') ({ order: current, accept } = await autoAccept(current, pos.posOrderId));
+  const then = current.status === 'cancelled' ? ' — but the platform cancelled it meanwhile (removed from Clover)'
+    : !accept ? ''
+      : !accept.ok ? ` — not accepted on the platform: ${accept.message}`
+        : accept.status === 'done' ? ' and accepted on the platform' : ` and accepted in Food Hub (${accept.message})`;
+  await log('success', `is now in Clover (${pos.posOrderId})${then}`);
+  return true;
 }
 
 function summarize(r: ChannelResult) {

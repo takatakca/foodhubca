@@ -9,6 +9,7 @@ import { deadlineFor } from '../deadline';
 import { effectiveHours, getHours, holidaysFor, isOpenAt, localDate } from '../hours';
 import { DEVICE_OFFLINE_AFTER_MS, listDevices } from '../identity/devices';
 import { aiConfigured, maskContact, normalizePhone, placeCall, postToChat, sendSms } from '../notify';
+import { retryFailedInjections } from '../pipeline';
 import { listCases, RECOVERABLE } from '../recon/engine';
 import { getRepo } from '../repo';
 import { isWaitingScheduled } from '../scheduling';
@@ -331,6 +332,7 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
   try {
     await repo.setKv(LAST_KEY, { at: new Date(now).toISOString() });
     const report = empty(true);
+    await retryFailedInjections(now).catch(() => 0); // Clover retries first: an order that reaches Clover now clears its "Clover did not get it" alarm
     const detections = await detect(s, now);
     report.detections = detections.length;
     const all = (await repo.listDocs<Incident>(INCIDENTS, { since: new Date(now - 3 * 86400_000).toISOString(), limit: 2000 })).map((d) => d.data);

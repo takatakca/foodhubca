@@ -3,7 +3,10 @@
 // screen polls — so it keeps watching as long as one screen is open or the cron runs.
 import crypto from 'node:crypto';
 import { logActivity, type Actor } from '../activity';
+import { getAdapter } from '../adapters';
+import { isRelayStore } from '../adapters/relay';
 import { CHANNEL_LABELS, publicBaseUrl } from '../config';
+import { lastOrderTimes } from '../order-retry';
 import { getCatalog } from '../catalog';
 import { deadlineFor } from '../deadline';
 import { effectiveHours, getHours, holidaysFor, isOpenAt, localDate } from '../hours';
@@ -53,6 +56,7 @@ export async function saveWatchSettings(patch: Partial<WatchSettings>, actor: Ac
     unseenAfterSec: clampN(patch.unseenAfterSec, 30, 1800, cur.unseenAfterSec),
     lateAfterMin: clampN(patch.lateAfterMin, 1, 60, cur.lateAfterMin),
     courierWaitMin: clampN(patch.courierWaitMin, 1, 30, cur.courierWaitMin),
+    silenceAfterMin: clampN(patch.silenceAfterMin, 30, 1440, cur.silenceAfterMin),
     quietFrom: hhmm(patch.quietFrom, cur.quietFrom),
     quietTo: hhmm(patch.quietTo, cur.quietTo),
     postToChat: patch.postToChat ?? cur.postToChat,
@@ -215,6 +219,31 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
     } else if (on('device_muted') && seenAgo <= DEVICE_OFFLINE_AFTER_MS && (d.soundOn === false || d.visible === false)) {
       out.push({ ...base, key: `device_muted:${d.id}`, kind: 'device_muted', severity: 'warning',
         title: `Tablette « ${d.name} » ${d.soundOn === false ? 'sans son' : 'écran caché'} — ${loc(d.locationCode)}`, titleEn: `Tablet “${d.name}” ${d.soundOn === false ? 'muted' : 'screen hidden'} — ${loc(d.locationCode)}` });
+    }
+  }
+
+  // Silence alarm: a platform that used to send orders has sent none for `silenceAfterMin` while some of its stores
+  // were open the whole time (and are not paused / deactivated on the platform) — a webhook or a key is probably broken.
+  if (on('platform_silent')) {
+    const last = await lastOrderTimes();
+    for (const ch of ['uber_eats', 'doordash', 'skip', 'tgtg'] as const) {
+      const lastAt = last[ch];
+      if (!lastAt || now - Date.parse(lastAt) < s.silenceAfterMin * 60_000) continue;
+      const adapter = getAdapter(ch).readiness();
+      if (!adapter.configured && !adapter.viaClover) continue;
+      const openAt = (st: (typeof stores)[number], t: number) => {
+        const week = effectiveHours(hours, st.brandName, st.locationCode);
+        return Boolean(week) && isOpenAt(week!, holidaysFor(hours, st.locationCode, localDate(t, tz), 1), t, tz);
+      };
+      const taking = stores.filter((st) => st.channel === ch && !isRelayStore(st) && !['paused', 'deactivated'].includes(String((st.meta?.platformStatus as PlatformStatus | undefined)?.state ?? '')) && st.online !== false);
+      const openAllAlong = taking.filter((st) => openAt(st, now) && openAt(st, now - s.silenceAfterMin * 60_000));
+      if (!openAllAlong.length) continue;
+      const hoursQuiet = Math.floor((now - Date.parse(lastAt)) / 3600_000);
+      const label = CHANNEL_LABELS[ch];
+      out.push({ key: `platform_silent:${ch}`, kind: 'platform_silent', severity: 'warning', channel: ch,
+        title: `Aucune commande ${label} depuis ${hoursQuiet || 1} h — ${openAllAlong.length} magasin(s) ouvert(s)`, titleEn: `No ${label} order for ${hoursQuiet || 1} h — ${openAllAlong.length} store(s) open`,
+        detail: `Dernière commande : ${localDate(Date.parse(lastAt), tz)} ${new Date(lastAt).toLocaleTimeString('fr-CA', { timeZone: tz, hour: '2-digit', minute: '2-digit' })}. Vérifiez la tablette ${label} et la boîte de réception des webhooks.`,
+        detailEn: `Last order: ${new Date(lastAt).toLocaleString('en-CA', { timeZone: tz, dateStyle: 'medium', timeStyle: 'short' })}. Check the ${label} tablet and the webhook inbox.` });
     }
   }
 

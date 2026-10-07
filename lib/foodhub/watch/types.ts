@@ -18,7 +18,8 @@ export type IncidentKind =
   | 'webhook_unreadable' // a platform sent something Food Hub could not read
   | 'menu_failed'        // a menu / 86 / pause did not reach a platform
   | 'payout_gap'         // money to recover from the platforms
-  | 'customer_issue';    // cancelled by the customer, missing item reported…
+  | 'customer_issue'     // cancelled by the customer, missing item reported…
+  | 'platform_silent';   // no order from a platform for hours while its stores are open (webhook broken?)
 
 export type Severity = 'critical' | 'warning' | 'info';
 export type IncidentStatus = 'open' | 'acknowledged' | 'snoozed' | 'resolved';
@@ -88,6 +89,8 @@ export interface WatchSettings {
   unseenAfterSec: number;
   lateAfterMin: number;
   courierWaitMin: number;
+  /** Silence alarm: no order from a platform for this many minutes while its stores are open. */
+  silenceAfterMin: number;
   /** Quiet hours: only critical incidents escalate (screens still beep). */
   quietFrom: string;
   quietTo: string;
@@ -106,7 +109,7 @@ export interface WatchSettings {
 
 export const INCIDENT_KINDS: IncidentKind[] = [
   'order_unaccepted', 'order_unseen', 'order_late', 'courier_waiting', 'pos_failed', 'store_offline', 'store_deactivated',
-  'device_offline', 'device_muted', 'cancel_spike', 'sync_stale', 'webhook_unreadable', 'menu_failed', 'payout_gap', 'customer_issue',
+  'device_offline', 'device_muted', 'cancel_spike', 'sync_stale', 'webhook_unreadable', 'menu_failed', 'payout_gap', 'customer_issue', 'platform_silent',
 ];
 
 export const KIND_LABEL: Record<IncidentKind, { fr: string; en: string }> = {
@@ -125,6 +128,7 @@ export const KIND_LABEL: Record<IncidentKind, { fr: string; en: string }> = {
   menu_failed: { fr: 'Action non reçue par une plateforme', en: 'Action not received by a platform' },
   payout_gap: { fr: 'Argent à récupérer', en: 'Money to recover' },
   customer_issue: { fr: 'Problème client', en: 'Customer issue' },
+  platform_silent: { fr: 'Plateforme silencieuse', en: 'Platform gone quiet' },
 };
 
 const on = (escalate = true): RuleSetting => ({ enabled: true, escalate });
@@ -132,7 +136,7 @@ const on = (escalate = true): RuleSetting => ({ enabled: true, escalate });
 export const DEFAULT_RULES: Record<IncidentKind, RuleSetting> = {
   order_unaccepted: on(), order_unseen: on(), order_late: on(), courier_waiting: on(), pos_failed: on(),
   store_offline: on(), store_deactivated: on(), device_offline: on(), device_muted: on(),
-  cancel_spike: on(false), sync_stale: on(false), webhook_unreadable: on(false), menu_failed: on(false), payout_gap: on(false), customer_issue: on(false),
+  cancel_spike: on(false), sync_stale: on(false), webhook_unreadable: on(false), menu_failed: on(false), payout_gap: on(false), customer_issue: on(false), platform_silent: on(),
 };
 
 export const DEFAULT_WATCH: WatchSettings = {
@@ -144,6 +148,7 @@ export const DEFAULT_WATCH: WatchSettings = {
   unseenAfterSec: 120,
   lateAfterMin: 5,
   courierWaitMin: 3,
+  silenceAfterMin: 180,
   quietFrom: '23:30',
   quietTo: '07:00',
   postToChat: true,

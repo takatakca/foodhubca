@@ -39,7 +39,7 @@ Check these in order. Each line gives the cause and the fix.
 | 4 | **Secrets stay hidden.** They show as `••••` until "Show secrets" is clicked, and that only works when `DASHBOARD_PASSWORD` is set. | Click Show secrets; nothing changes. | Set `DASHBOARD_PASSWORD` and `SESSION_SECRET` on the server. |
 | 5 | **Keys were never entered.** Coolify has no setup wizard, so every connection shows "Needs setup" or "Missing: …". | Settings → Platforms & Clover, each card. | Add the keys as environment variables (list in section 4). |
 | 6 | **The platforms have not approved access yet.** | Card says blocked / not approved. | Uber must approve the scopes. DoorDash issues `DOORDASH_PROVIDER_TYPE` only after it approves the integration. Skip issues `SKIP_JET_API_KEY` through a partner manager. |
-| 7 | **The Clover app is not in the App Market yet.** It has not been submitted, and its Site URL is still `31-220-96-134.sslip.io`. | `docs/CLOVER_APP_LISTING.md` (not submitted). | Phase 2: a real domain, legal pages approved, then submit the listing. |
+| 7 | **The Clover app is not in the App Market yet.** It has not been submitted, and its Site URL is still `31-220-96-134.sslip.io`. | Settings → Clover app (checklist) · `docs/CLOVER_MARKETPLACE_LAUNCH.md`. | The code is ready (branch `clover-marketplace-launch`). Owner steps: domain, support details, legal review, video, dashboard, submit (launch doc §4). |
 | 8 | **Safe mode is on.** Nothing is sent to any platform until live mode is turned on. | Orange "safe mode" banner. | Set `LIVE_CONNECTORS_GLOBAL_ENABLED=true` once Go-live is all green. |
 | 9 | **Sign-in codes never arrive.** No email (Resend) or SMS (Twilio) is set up. An unknown email still says "code sent" on purpose, so outsiders cannot guess who has access. | The code never arrives. | Set `RESEND_API_KEY` + `AUTH_EMAIL_FROM` (on a verified domain) and/or `TWILIO_*`. Until then, use the owner recovery sign-in. |
 | 10 | **Nothing runs in the background on Coolify/Docker.** The platform sync only runs while a screen is open. | Store status, payouts and Clover orders go stale overnight. | Set `FOODHUB_INTERNAL_SYNC_MIN=5`, or add an outside cron that calls `/api/foodhub/cron/sync` every 5 minutes. |
@@ -128,15 +128,15 @@ Each phase ends with **acceptance checks**. A phase is done only when all of the
 ### Phase 0: Ship what is built (days)
 
 1. Merge `claude/practical-wright-pnhgtl` into `main` through a pull request. Deploy from `main`.
-2. Fix the deploy traps:
-   - The `Dockerfile` hides a failed build with `npm run build … || true`. Remove `|| true`.
-   - Add build-time `ARG` for `NEXT_PUBLIC_SUPABASE_URL`.
-   - Document `FOODHUB_INTERNAL_SYNC_MIN` in `.env.example` and set it to 5 on Coolify.
-   - Make `SESSION_SECRET` generated like the other internal secrets, or required.
-   - Mount `/app/data/media` as a persistent volume.
-3. Fix the Go-live checklist:
-   - The Clover line turns green with only the app keys; it should need a connected merchant.
-   - Skip should count as done when it comes through the Relay.
+2. Fix the deploy traps — **done** (branch `clover-marketplace-launch`):
+   - ✅ The `Dockerfile` no longer hides a failed build.
+   - ✅ Instead of a build-time `ARG` (an empty one would inline an empty string), the Supabase URL is now read at run time (`lib/supabase/server.ts`); `SUPABASE_URL` is accepted too.
+   - ✅ `FOODHUB_INTERNAL_SYNC_MIN` is documented in `.env.example` (the image sets 5).
+   - ✅ `SESSION_SECRET` is generated once in production, like the other internal secrets.
+   - ✅ `VOLUME /app/data/media` in the image; on Coolify also add a Persistent Storage mount.
+3. Fix the Go-live checklist — **done**:
+   - ✅ The Clover line needs a merchant token or a connected merchant.
+   - ✅ A platform arriving on the Relay counts as done.
 4. Update `docs/ATLAS_PARITY.md`, `docs/RELEASE_NOTES.md` and `docs/INSTALLER_SERVEUR.md` (old zip and folder names) for the Relay and shared menus.
 
 **Acceptance:**
@@ -172,11 +172,11 @@ Each phase ends with **acceptance checks**. A phase is done only when all of the
 2. **Uber Eats:** get the scopes approved; connect each brand's stores through OAuth; check the menu PUT and the 86 calls on one store, then roll out.
 3. **Skip:** get the JET Connect key, or agree a partner feed through the Relay.
 4. **Too Good To Go:** when the rep delivers the spec, write a real `tgtgAdapter`: read their orders (replacing the best-guess reader), send bag quantities and pickup windows, and cancel. Remove the permanent "blocked" results.
-5. **Clover App Market:**
-   - Get a real domain with HTTPS.
-   - Approve the legal pages (`FOODHUB_LEGAL_APPROVED=true`).
-   - Fill in support details, categories and screenshots (`docs/CLOVER_APP_LISTING.md`).
-   - Submit the listing.
+5. **Clover App Market** — code ready (branch `clover-marketplace-launch`); the full list is in `docs/CLOVER_MARKETPLACE_LAUNCH.md`:
+   - ✅ Launch flow, pre-filled welcome wizard, test order, billing_info, 429 back-off, support page with FAQ, listing texts, screenshots.
+   - 👤 Get a real domain with HTTPS (`foodhub.takatak.ca`).
+   - 👤 Approve the legal pages (`FOODHUB_LEGAL_APPROVED=true`), support email and phone.
+   - 👤 Record the functional video, fill in the dashboard, ask Clover about SRM (Québec), submit.
 
 **Acceptance:**
 - One real order per platform goes all the way to Clover, prints, and has its accept and ready confirmed on the platform.
@@ -244,7 +244,7 @@ Food Hub already runs a lot by itself: the sync, timed re-opens, 86 re-enables, 
 
 ### Phase 5: A product other merchants want
 
-- A Clover App Market onboarding that feels effortless: install → `/welcome/clover` with a guided 3-step wizard (connect platforms, import the menu, tablet and PIN) and a celebration at the end.
+- ✅ A Clover App Market onboarding that feels effortless: install → `/welcome/clover` with a guided 3-step wizard (connect platforms, import the menu, tablet and PIN) and a celebration at the end (branch `clover-marketplace-launch`).
 - Brand kits (colour, logo, photos) used across the console and menus.
 - From Atlas "not built": combo and nested options, ratings and reviews, own-courier dispatch (DoorDash Drive / Uber Direct) for phone orders, Google / Microsoft sign-in.
 

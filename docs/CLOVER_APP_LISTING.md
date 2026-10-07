@@ -176,16 +176,24 @@ Ready-made files, generated from the built-in demo (simulated platforms, sample 
 | `cover-1080x216.png` | Optional cover image. It cannot be deleted once uploaded, only replaced. |
 | `fr/*.png`, `en/*.png` | Screenshots, 1920 × 1080, one set per language |
 
-The screenshot list (same in both languages):
-1. the Clover welcome page with its 3 steps;
-2. a new order popping up;
-3. the Command Center;
-4. the orders board;
-5. the kitchen screen;
-6. the menu editor;
-7. stores;
-8. "Where is my money?";
-9. Settings → Clover app.
+The screenshot files, the same in both languages:
+
+| File | What it shows |
+|------|---------------|
+| `01-welcome-connected.png` | The welcome page after opening the app from Clover: connected, register check, 3 set-up steps |
+| `01b-welcome-pending.png` | The same page for a new merchant waiting for approval |
+| `01c-welcome-test-order.png` | "Send a test order": created, printed, paid in Clover |
+| `02-new-order.png` | A new order popping up |
+| `03-command-center.png` | Today: sales, orders, stores online, alerts, totals per platform |
+| `04-orders.png` | Orders board |
+| `05-kitchen.png` | Kitchen screen |
+| `06-menu.png` | Menu editor |
+| `07-stores.png` | Store status and pauses on every platform |
+| `08-money.png` | "Where is my money?" — payouts vs orders |
+| `09-clover-app-settings.png` | Settings → Clover app (submission checklist) |
+
+Clover shows the screenshots in the order you upload them. Suggested order: 01, 02, 03, 05, 01c, 06, 07, 08, 04.
+The pending page and the settings page are useful for the reviewer, less for merchants.
 
 ## Pricing and distribution
 

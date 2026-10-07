@@ -52,10 +52,12 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
     online: existing?.online ?? true,
     pausedUntil: existing?.pausedUntil ?? null,
     lastStatusSource: existing?.lastStatusSource ?? null,
-    meta: existing?.meta ?? {},
+    // "Do not touch": Food Hub never sends this store a menu or an 86 (lib/foodhub/ops.ts isDoNotTouch).
+    meta: typeof b.doNotTouch === 'boolean' ? { ...(existing?.meta ?? {}), doNotTouch: b.doNotTouch } : existing?.meta ?? {},
   });
+  const touchChanged = typeof b.doNotTouch === 'boolean' && b.doNotTouch !== (existing?.meta?.doNotTouch === true);
   await logActivity({ actor: actor.name, source: actor.source, kind: 'settings', action: existing ? 'store_mapping_updated' : 'store_mapped', status: 'success', channel: store.channel, brandName: store.brandName, locationCode: store.locationCode, storeId: store.id,
-    summary: `${existing ? 'Updated' : 'Mapped'} ${store.channel} store ${store.channelStoreId} → ${store.brandName} · ${store.locationCode}` });
+    summary: `${existing ? 'Updated' : 'Mapped'} ${store.channel} store ${store.channelStoreId} → ${store.brandName} · ${store.locationCode}${touchChanged ? (b.doNotTouch ? ' — marked “Do not touch” (no menu or 86 sent)' : ' — “Do not touch” removed') : ''}` });
   return ok({ store });
 });
 

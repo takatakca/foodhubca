@@ -39,6 +39,11 @@ The plan itself is `docs/MASTER_PLAN.md`; this file says where we are in it.
     - `loading.tsx` / `error.tsx`.
     - New-order landing animation.
 
+- **Own-courier dispatch, started 2026-10-07 10:30 UTC on `claude/practical-wright-pnhgtl`, backend first.** Food Hub requests and tracks a courier for the restaurant's own orders:
+  - **DoorDash Drive API v2 first.** Research of the API and the code map are under way.
+  - **Uber Direct later, behind the same provider interface.** Skip only if they offer a courier-only API.
+  - MASTER_PLAN lists this as "own-courier dispatch (DoorDash Drive / Uber Direct)". Do not start it on another branch.
+
 **Coordination**
 - Branch `claude/brave-sagan-lmgsnp` (one commit, 07:43 UTC) starts a "durable webhook inbox" and a "Clover auto-retry". Both are already fully built in PR #6, so build on PR #6 instead of starting them again.
 

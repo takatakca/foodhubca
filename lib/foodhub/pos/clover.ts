@@ -4,7 +4,8 @@
 //    promotion as an order-level discount (so the payment recorded at hand-off closes it).
 //  - importMenu: builds a Food Hub master menu from Clover inventory, so menus are
 //    managed once and pushed to every channel.
-import { fromCents, missingEnv, stripSlash, timedFetch, toCents, MARKETPLACE_LABELS } from '../config';
+import { fromCents, missingEnv, stripSlash, toCents, MARKETPLACE_LABELS } from '../config';
+import { cloverFetch } from './clover-http';
 import type { MasterMenu, MenuCategory, MenuItem, MenuModifierGroup, StoredOrder } from '../types';
 import { cloverAppConfigured, cloverOAuthToken, connectedCloverMerchantIds } from './clover-oauth';
 
@@ -130,7 +131,7 @@ export async function injectOrder(order: StoredOrder, merchantId?: string | null
   };
 
   try {
-    const res = await timedFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}/atomic_order/orders`, {
+    const res = await cloverFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}/atomic_order/orders`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify(body),
@@ -150,7 +151,7 @@ async function cloverGetAll(mid: string, token: string, path: string, expand: st
   const limit = 1000;
   for (let offset = 0; offset < 20000; offset += limit) {
     const url = `${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}/${path}?limit=${limit}&offset=${offset}${expand ? `&expand=${expand}` : ''}`;
-    const res = await timedFetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+    const res = await cloverFetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
     if (!res.ok) throw new Error(`Clover ${path} returned HTTP ${res.status}`);
     const json = await res.json();
     const rows = Array.isArray(json?.elements) ? json.elements : [];
@@ -252,7 +253,7 @@ export async function printCloverOrder(posOrderId: string, merchantId?: string |
   if (!token) return { ok: false, message: `No Clover API token for merchant ${mid}.` };
   const device = cloverPrintDeviceFor(mid);
   try {
-    const res = await timedFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}/print_event`, {
+    const res = await cloverFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}/print_event`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ orderRef: { id: posOrderId }, ...(device ? { deviceRef: { id: device } } : {}) }),
@@ -290,7 +291,7 @@ async function cloverPaged(merchantId: string, token: string, resource: 'payment
   for (let page = 0; page < 20; page++) {
     // Refunds carry a bare orderRef { id }; the payment is expanded for the fallback order/tender lookup.
     const qs = new URLSearchParams({ filter: `createdTime>=${sinceMs}`, limit: String(limit), offset: String(page * limit), expand: resource === 'payments' ? 'tender' : 'payment' });
-    const res = await timedFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(merchantId)}/${resource}?${qs}`, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await cloverFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(merchantId)}/${resource}?${qs}`, { headers: { Authorization: `Bearer ${token}` } });
     if (!res.ok) throw new Error(`Clover ${resource} HTTP ${res.status}`);
     const json = await res.json();
     const rows: any[] = Array.isArray(json?.elements) ? json.elements : [];

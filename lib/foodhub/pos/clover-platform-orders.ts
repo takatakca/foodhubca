@@ -14,7 +14,8 @@
 // ids) are always skipped, and an order is read only once it is 2 minutes old so Food Hub's own new orders have
 // time to be saved first. Turn it off with FOODHUB_CLOVER_PLATFORM_ORDERS=off.
 import { logActivity } from '../activity';
-import { CHANNEL_LABELS, CHANNEL_MARKETPLACE, fromCents, nowIso, timedFetch } from '../config';
+import { CHANNEL_LABELS, CHANNEL_MARKETPLACE, fromCents, nowIso } from '../config';
+import { cloverFetch } from './clover-http';
 import { getRepo } from '../repo';
 import type { ChannelKey, NormalizedOrder, OrderLine } from '../types';
 import { cloverBaseUrl, cloverToken } from './clover';
@@ -59,7 +60,7 @@ export function isPlatformTender(label: unknown): boolean {
 
 async function cloverGet(mid: string, token: string, path: string, qs: Record<string, string> = {}): Promise<any> {
   const q = new URLSearchParams(qs);
-  const res = await timedFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}/${path}${q.toString() ? `?${q}` : ''}`, {
+  const res = await cloverFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}/${path}${q.toString() ? `?${q}` : ''}`, {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
   });
   if (!res.ok) throw new Error(`Clover ${path} HTTP ${res.status}`);

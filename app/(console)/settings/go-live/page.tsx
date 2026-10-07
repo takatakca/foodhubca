@@ -10,10 +10,19 @@ import { SettingsHead } from '../settings-ui';
 import { api } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
+import { PUBLIC_URL_PROBLEM_TEXT, type PublicUrlProblem } from '@/lib/foodhub/public-url';
 
 type Readiness = { channel: string; label: string; configured: boolean; canSend: boolean; missing: string[]; viaClover?: boolean };
-type CloverAppInfo = { configured: boolean; merchants: Array<{ status?: string }>; legalStatus?: { supportEmailSet: boolean; approved: boolean } };
-type ChannelsData = { mode: string; liveEnabled: boolean; dashboardProtected: boolean; clover: { configured: boolean; missing: string[]; webhookAuthSet?: boolean; verification?: { code: string } | null; app?: CloverAppInfo }; channels: Readiness[] };
+type CloverAppInfo = {
+  configured: boolean; merchants: Array<{ status?: string }>;
+  legalStatus?: { supportEmailSet: boolean; supportPhoneSet?: boolean; approved: boolean };
+  domain?: { url: string; ready: boolean; problems: PublicUrlProblem[] };
+};
+type ChannelsData = {
+  mode: string; liveEnabled: boolean; dashboardProtected: boolean;
+  clover: { configured: boolean; appConfigured?: boolean; missing: string[]; webhookAuthSet?: boolean; verification?: { code: string } | null; app?: CloverAppInfo };
+  channels: Readiness[]; relay?: { channels: string[] };
+};
 type Notify = { email: boolean; sms: boolean; call: boolean; chat: boolean; ai: boolean };
 type User = { username: string; name: string; role: string; locations: string[]; email: string | null; phone: string | null; active: boolean; hasPin: boolean };
 type Device = { id: string; locationCode: string; status: string };
@@ -39,19 +48,41 @@ function cloverCheckSteps(ck: CloverCheck, t: (fr: string, en: string) => string
   return out;
 }
 
-/** Clover App Market app: keys, webhook, public legal pages, merchants waiting for approval (optional group). */
+/** Clover line: orders reach Clover only with a merchant token in the environment or a merchant connected through the app. */
+function cloverStep(ch: ChannelsData, t: (fr: string, en: string) => string): Step {
+  const envToken = ch.clover.missing.length === 0;
+  const active = (ch.clover.app?.merchants ?? []).filter((m) => m.status !== 'pending').length;
+  const appKeys = Boolean(ch.clover.app?.configured ?? ch.clover.appConfigured);
+  const done = envToken || active > 0;
+  return {
+    group: t('Plateformes', 'Platforms'), key: 'clover', state: done ? 'done' : 'todo', title: 'Clover',
+    body: done
+      ? (active ? t(`Les commandes vont dans la caisse (${active} marchand(s) branché(s) par l’app).`, `Orders go into the register (${active} merchant(s) connected through the app).`) : t('Les commandes vont dans la caisse.', 'Orders go into the register.'))
+      : appKeys
+        ? t('Les clés de l’app sont en place, mais aucun marchand Clover n’est branché : « Brancher un marchand Clover », ou ouvrez l’app depuis Clover.', 'The app keys are in, but no Clover merchant is connected: “Connect a Clover merchant”, or open the app from Clover.')
+        : `${t('Manque :', 'Missing:')} ${ch.clover.missing.join(', ')}`,
+    href: '/settings/channels', cta: t('Brancher', 'Connect'),
+  };
+}
+
+/** Clover App Market app: domain, keys, webhook, public legal pages, merchants waiting for approval (optional group). */
 function cloverAppSteps(ch: ChannelsData, t: (fr: string, en: string) => string): Step[] {
   const app = ch.clover.app;
   if (!app) return [];
   const g = t('Application Clover (App Market)', 'Clover app (App Market)');
   const pending = app.merchants.filter((m) => m.status === 'pending').length;
-  const legal = app.legalStatus ?? { supportEmailSet: false, approved: false };
+  const legal = app.legalStatus ?? { supportEmailSet: false, supportPhoneSet: false, approved: false };
   const hook = Boolean(ch.clover.webhookAuthSet && ch.clover.verification);
-  const legalMissing = [!legal.supportEmailSet && 'FOODHUB_SUPPORT_EMAIL', !legal.approved && 'FOODHUB_LEGAL_APPROVED=true'].filter(Boolean).join(', ');
+  const legalMissing = [!legal.supportEmailSet && 'FOODHUB_SUPPORT_EMAIL', !legal.supportPhoneSet && 'FOODHUB_SUPPORT_PHONE', !legal.approved && 'FOODHUB_LEGAL_APPROVED=true'].filter(Boolean).join(', ');
+  const domain = app.domain;
   return [
-    { group: g, key: 'clover-app', state: app.configured ? 'done' : 'warn', title: t('Clés de l’app Clover', 'Clover app keys'), body: app.configured ? t('Chaque marchand Clover se branche en un clic.', 'Each Clover merchant connects in one click.') : t('Optionnel : CLOVER_CLIENT_ID (App ID 629HFYHNVMZYR) et CLOVER_CLIENT_SECRET avec npm run setup.', 'Optional: CLOVER_CLIENT_ID (App ID 629HFYHNVMZYR) and CLOVER_CLIENT_SECRET with npm run setup.'), href: '/settings/channels', cta: t('Voir', 'See') },
+    ...(domain ? [{ group: g, key: 'clover-domain', state: domain.ready ? 'done' as const : 'warn' as const, title: t('Votre propre domaine en HTTPS', 'Your own domain over HTTPS'),
+      body: domain.ready ? t(`Site URL Clover : ${domain.url}`, `Clover Site URL: ${domain.url}`) : domain.problems.map((p) => t(PUBLIC_URL_PROBLEM_TEXT[p].fr, PUBLIC_URL_PROBLEM_TEXT[p].en)).join(' '),
+      href: '/settings/clover-app', cta: t('Voir', 'See') }] : []),
+    { group: g, key: 'clover-app', state: app.configured ? 'done' : 'warn', title: t('Clés de l’app Clover', 'Clover app keys'), body: app.configured ? t('Chaque marchand Clover se branche en un clic.', 'Each Clover merchant connects in one click.') : t('Optionnel : CLOVER_CLIENT_ID (l’App ID) et CLOVER_CLIENT_SECRET avec npm run setup.', 'Optional: CLOVER_CLIENT_ID (the App ID) and CLOVER_CLIENT_SECRET with npm run setup.'), href: '/settings/clover-app', cta: t('Voir', 'See') },
     { group: g, key: 'clover-hook', state: hook ? 'done' : 'warn', title: t('Webhook Clover vérifié', 'Clover webhook verified'), body: hook ? t('Ruptures instantanées et désinstallations reçues.', 'Instant sold-outs and uninstalls received.') : t('Développeur Clover → Webhooks : l’adresse de Réglages → Plateformes, événements Inventaire et App ; recollez le code de vérification, puis CLOVER_WEBHOOK_AUTH.', 'Clover developer → Webhooks: the URL from Settings → Platforms, events Inventory and App; paste back the verification code, then CLOVER_WEBHOOK_AUTH.'), href: '/settings/channels', cta: t('Voir', 'See') },
     { group: g, key: 'legal', state: legalMissing ? 'warn' : 'done', title: t('Pages confidentialité, conditions, soutien', 'Privacy, terms and support pages'), body: legalMissing ? `${t('Brouillons publics à faire relire. Manque :', 'Public drafts to review. Missing:')} ${legalMissing}` : t('Prêtes pour la fiche Clover.', 'Ready for the Clover listing.'), href: '/legal/privacy', cta: t('Relire', 'Review') },
+    { group: g, key: 'clover-listing', state: 'warn', title: t('Fiche App Market et soumission', 'App Market listing and submission'), body: t('Textes FR/EN, adresses à copier, vidéo fonctionnelle et ce qui reste à faire dans le tableau de bord Clover.', 'FR/EN texts, addresses to copy, functional video and what is left to do in the Clover dashboard.'), href: '/settings/clover-app', cta: t('Ouvrir', 'Open') },
     ...(pending ? [{ group: g, key: 'clover-pending', state: 'todo' as const, title: t('Marchands Clover en attente', 'Clover merchants waiting'), body: t(`${pending} marchand(s) ont ouvert l’app depuis Clover et attendent votre approbation.`, `${pending} merchant(s) opened the app from Clover and are waiting for your approval.`), href: '/settings/channels', cta: t('Approuver', 'Approve') }] : []),
   ];
 }
@@ -100,11 +131,13 @@ export default function GoLivePage() {
         { group: t('Équipe', 'Team'), key: 'pins', state: staffNoPin ? 'warn' : 'done', title: t('NIP des employés', 'Staff PINs'), body: staffNoPin ? t(`${staffNoPin} employé(s) sans NIP — ils ne peuvent pas déverrouiller une tablette.`, `${staffNoPin} staff without a PIN — they cannot unlock a tablet.`) : t('Tous les employés ont un NIP.', 'All staff have a PIN.'), href: '/settings/team', cta: t('Équipe', 'Team') },
         { group: t('Cuisine', 'Kitchen'), key: 'tablets', state: locNoTablet.length ? 'todo' : tabletsOff ? 'warn' : 'done', title: t('Une tablette par cuisine', 'A tablet per kitchen'), body: locNoTablet.length ? `${t('Sans tablette :', 'No tablet:')} ${list(locNoTablet)}` : tabletsOff ? t(`${tabletsOff} tablette(s) hors ligne en ce moment.`, `${tabletsOff} tablet(s) offline right now.`) : t('Toutes en ligne.', 'All online.'), href: '/settings/devices', cta: t('Tablettes', 'Tablets') },
         { group: t('Cuisine', 'Kitchen'), key: 'kphone', state: noPhone.length ? 'warn' : 'done', title: t('Téléphone de chaque cuisine', 'Each kitchen’s phone'), body: noPhone.length ? `${t('La surveillance ne peut pas appeler :', 'The watchtower cannot call:')} ${list(noPhone)}` : t('La surveillance appelle la cuisine en premier, comme Uber.', 'The watchtower calls the kitchen first, like Uber.'), href: '/settings/business', cta: t('Ajouter', 'Add') },
-        { group: t('Plateformes', 'Platforms'), key: 'clover', state: ch.clover.configured ? 'done' : 'todo', title: 'Clover', body: ch.clover.configured ? t('Les commandes vont dans la caisse.', 'Orders go into the register.') : `${t('Manque :', 'Missing:')} ${ch.clover.missing.join(', ')}`, href: '/settings/channels', cta: t('Brancher', 'Connect') },
+        cloverStep(ch, t),
         ...(['uber_eats', 'doordash', 'skip'] as const).map((k): Step => {
           const r = ready(k);
           const n = byCh(k);
           if (r?.viaClover) return { group: t('Plateformes', 'Platforms'), key: k, state: 'done', title: r.label, body: t('Relié par Clover : les commandes arrivent dans Clover et Food Hub les lit (lecture seule).', 'Linked through Clover: orders arrive in Clover and Food Hub reads them (read-only).'), href: '/settings/channels', cta: t('Voir', 'See') };
+          // A partner pushing this platform's orders to the Food Hub Order Relay (FOODHUB_RELAY_CHANNELS) is a working path too.
+          if (ch.relay?.channels.includes(k) && !(r?.configured && n)) return { group: t('Plateformes', 'Platforms'), key: k, state: 'done', title: r?.label ?? k, body: t('Par le relais de commandes Food Hub : un partenaire envoie ces commandes.', 'Through the Food Hub Order Relay: a partner sends these orders.'), href: '/settings/channels', cta: t('Voir', 'See') };
           return { group: t('Plateformes', 'Platforms'), key: k, state: r?.configured && n ? 'done' : 'todo', title: r?.label ?? k, body: !r?.configured ? `${t('Manque :', 'Missing:')} ${r?.missing.join(', ') || '—'}` : n ? t(`${n} magasin(s) jumelé(s).`, `${n} store(s) mapped.`) : t('Branché, mais aucun magasin jumelé.', 'Connected, but no store mapped.'), href: r?.configured ? '/stores/mapping' : '/settings/channels', cta: r?.configured ? t('Jumeler', 'Map') : t('Brancher', 'Connect') };
         }),
         ...cloverCheckSteps(ck, t),

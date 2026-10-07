@@ -2,6 +2,7 @@
 // (/legal/privacy, /legal/terms, /legal/support) — also the URLs given to the Clover App Market.
 // Everything comes from environment variables so the owner can change it without code.
 // The pages show a "draft" banner until FOODHUB_LEGAL_APPROVED=true (owner / lawyer review done).
+import { SUPPORT_HOURS_DEFAULT } from './clover-listing';
 import { publicBaseUrl } from './config';
 
 export interface LegalInfo {
@@ -9,6 +10,8 @@ export interface LegalInfo {
   address: string;
   supportEmail: string | null;
   supportPhone: string | null;
+  /** Shown as is in both languages when FOODHUB_SUPPORT_HOURS is set, otherwise the default per language. */
+  supportHours: { fr: string; en: string };
   privacyOfficer: string;
   updated: string;
   approved: boolean;
@@ -17,13 +20,15 @@ export interface LegalInfo {
 }
 
 export function legalInfo(): LegalInfo {
+  const hours = (process.env.FOODHUB_SUPPORT_HOURS || '').trim();
   return {
     company: process.env.FOODHUB_LEGAL_COMPANY || 'Quadro Holdings LTEE',
     address: process.env.FOODHUB_LEGAL_ADDRESS || '6280, av. Somerled, Montréal (Québec) H3X 2B6, Canada',
     supportEmail: process.env.FOODHUB_SUPPORT_EMAIL || null,
     supportPhone: process.env.FOODHUB_SUPPORT_PHONE || null,
+    supportHours: hours ? { fr: hours, en: hours } : SUPPORT_HOURS_DEFAULT,
     privacyOfficer: process.env.FOODHUB_PRIVACY_OFFICER || '',
-    updated: process.env.FOODHUB_LEGAL_UPDATED || '2026-10-05',
+    updated: process.env.FOODHUB_LEGAL_UPDATED || '2026-10-07',
     approved: process.env.FOODHUB_LEGAL_APPROVED === 'true',
     appName: 'TAKATAK Food Hub',
     baseUrl: publicBaseUrl(),

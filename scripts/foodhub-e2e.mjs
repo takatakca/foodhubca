@@ -166,9 +166,15 @@ const mock = http.createServer(async (req, res) => {
     if (p === '/clover/v3/merchants/APPMERCHANT' && req.method === 'GET') {
       return req.headers.authorization === `Bearer ${CLOVER_APP_TOKEN}` ? send(200, { id: 'APPMERCHANT', name: 'On2GO.CA (app)' }) : send(401, {});
     }
+    if (p === '/clover/v3/apps/CLVAPPE2E/merchants/APPMERCHANT/billing_info') {
+      return req.headers.authorization === `Bearer ${CLOVER_APP_TOKEN}` ? send(200, { status: 'ACTIVE', isInTrial: false, appSubscription: { name: 'Free' } }) : send(401, {});
+    }
     const mid = p.split('/')[4];
     if (mid === 'FAILMERCHANT') return send(500, { message: 'Clover is down' });
-    if (req.headers.authorization !== `Bearer ${CLOVER_TOKEN}`) return send(401, {});
+    const appMerchant = mid === 'APPMERCHANT' && req.headers.authorization === `Bearer ${CLOVER_APP_TOKEN}`;
+    if (!appMerchant && req.headers.authorization !== `Bearer ${CLOVER_TOKEN}`) return send(401, {});
+    if (p.endsWith('/categories') && req.method === 'GET') return send(200, { elements: [{ id: 'CAT-1', name: 'Poulet' }] });
+    if (p.endsWith('/devices') && req.method === 'GET') return send(200, { elements: [{ id: 'DEV-1', model: 'Clover_C503' }] });
     if (p.endsWith('/atomic_order/orders')) {
       cloverSeq += 1;
       // Clover's total: line items plus order-level discounts (Clover discount amounts are negative cents).
@@ -1168,7 +1174,7 @@ try {
   await call('POST', '/api/foodhub/users', { body: { username: 'nadia.gerante', active: false } });
   check('removing a person signs them out everywhere', (await call('GET', '/api/foodhub/auth/me', { cookie: ncookie })).status === 401);
 
-  console.log('\n37. Clover App Market app — connect a merchant, keep tokens server-side, uninstall');
+  console.log('\n37. Clover App Market app — launch, connect a merchant, welcome wizard, test order, keep tokens server-side, uninstall');
   const cst = await call('GET', '/api/foodhub/clover-connect/start', { redirect: 'manual' });
   const cAuth = cst.location ? new URL(cst.location) : null;
   check('"Connect a Clover merchant" sends the owner to Clover with the Food Hub callback', [302, 307].includes(cst.status) && cAuth?.origin === 'https://www.clover.com' && cAuth.pathname === '/oauth/v2/authorize' && cAuth.searchParams.get('client_id') === 'CLVAPPE2E' && cAuth.searchParams.get('redirect_uri') === 'https://takatak.example/api/foodhub/clover-connect/callback', `${cst.status} ${cst.location}`);
@@ -1177,14 +1183,34 @@ try {
   check('a refused Clover code shows an error, no connection', /\/welcome\/clover\?status=error/.test(cBad.location || ''), cBad.location);
   const cOther = await call('GET', '/api/foodhub/clover-connect/callback?code=clv-good-code&merchant_id=APPMERCHANT&client_id=SOMEOTHERAPP', { auth: false, redirect: 'manual' });
   check('a code for another Clover app is refused', /status=error/.test(cOther.location || ''), cOther.location);
-  const cOk = await call('GET', '/api/foodhub/clover-connect/callback?code=clv-good-code&merchant_id=APPMERCHANT&client_id=CLVAPPE2E', { auth: false, redirect: 'manual' });
-  check('unknown merchant opening the app from Clover waits for the owner (public welcome page)', /\/welcome\/clover\?status=pending&mid=APPMERCHANT/.test(cOk.location || ''), cOk.location);
-  const welcome = await call('GET', new URL(cOk.location || 'http://x/').pathname + new URL(cOk.location || 'http://x/').search, { auth: false });
-  check('welcome page opens without sign-in and says it is waiting for approval', welcome.status === 200 && welcome.text.includes('Demande reçue') && welcome.text.includes('On2GO.CA (app)'), String(welcome.status));
+  // Opened from the Clover dashboard / App Market without a code: Food Hub asks Clover for one (Clover's launch flow).
+  const cLaunch = await call('GET', '/api/foodhub/clover-connect/callback?merchant_id=APPMERCHANT&client_id=CLVAPPE2E&employee_id=EMP1', { auth: false, redirect: 'manual' });
+  const lUrl = cLaunch.location ? new URL(cLaunch.location) : null;
+  const lState = lUrl?.searchParams.get('state') || '';
+  check('opened from Clover without a code → sent to Clover’s authorize page with a signed launch state', [302, 307].includes(cLaunch.status) && lUrl?.origin === 'https://www.clover.com' && lUrl.pathname === '/oauth/v2/authorize' && /^L[a-f0-9]{36}$/.test(lState), cLaunch.location);
+  const cNoCode = await call('GET', `/api/foodhub/clover-connect/callback?state=${lState}&merchant_id=APPMERCHANT`, { auth: false, redirect: 'manual' });
+  check('back from Clover still without a code → an error page, never a loop', /\/welcome\/clover\?status=error&err=no_code/.test(cNoCode.location || ''), cNoCode.location);
+  const cOk = await call('GET', `/api/foodhub/clover-connect/callback?code=clv-good-code&merchant_id=APPMERCHANT&client_id=CLVAPPE2E&state=${lState}`, { auth: false, redirect: 'manual' });
+  check('unknown merchant opening the app from Clover waits for the owner (signed welcome link)', /\/welcome\/clover\?t=/.test(cOk.location || ''), cOk.location);
+  const wPath = new URL(cOk.location || 'http://x/').pathname + new URL(cOk.location || 'http://x/').search;
+  const welcome = await call('GET', wPath, { auth: false });
+  check('welcome page opens without sign-in, says it is waiting for approval, pre-filled from the merchant’s Clover', welcome.status === 200 && welcome.text.includes('Demande reçue') && welcome.text.includes('On2GO.CA (app)') && welcome.text.includes('APPMERCHANT') && welcome.text.includes('Abonnement actif'), String(welcome.status));
+  const wForged = await call('GET', '/welcome/clover?t=eyJtIjoiQVBQTUVSQ0hBTlQiLCJleHAiOjk5OTk5OTk5OTl9.forged', { auth: false });
+  check('welcome page with a forged ticket shows no merchant data', wForged.status === 200 && !wForged.text.includes('On2GO.CA (app)') && !wForged.text.includes('APPMERCHANT'));
+  const ticket = new URL(cOk.location || 'http://x/').searchParams.get('t') || '';
+  check('a pending merchant cannot send a test order to its register', (await call('POST', '/api/foodhub/clover-connect/test-order', { auth: false, body: { t: ticket } })).status === 403);
   const chPending = (await call('GET', '/api/foodhub/channels')).json?.clover?.app;
   check('Channels shows it as pending; it is not used for orders or sync yet', chPending?.merchants?.find((m) => m.merchantId === 'APPMERCHANT')?.status === 'pending');
   check('only the owner can approve a Clover merchant', (await call('POST', '/api/foodhub/clover-connect/merchants', { auth: false, body: { merchantId: 'APPMERCHANT' } })).status === 401);
   check('owner approves it', (await call('POST', '/api/foodhub/clover-connect/merchants', { body: { merchantId: 'APPMERCHANT' } })).json?.approved === 'APPMERCHANT');
+  const wApproved = await call('GET', wPath, { auth: false });
+  check('the same welcome link now says connected and offers the 3 set-up steps and the test order', wApproved.text.includes('Votre caisse Clover est branchée') && wApproved.text.includes('Importez votre menu Clover') && wApproved.text.includes('Envoyer une commande test'));
+  const ordersBefore = (await call('GET', '/api/foodhub/orders?limit=500')).json.orders.length;
+  const tOrder = await call('POST', '/api/foodhub/clover-connect/test-order', { auth: false, body: { t: ticket } });
+  check('test order: created in the merchant’s Clover, printed, paid — each step confirmed by Clover', tOrder.status === 200 && tOrder.json?.steps?.length === 3 && tOrder.json.steps.every((x) => x.ok), tOrder.text.slice(0, 300));
+  check('the test order never enters Food Hub (no kitchen, no analytics)', (await call('GET', '/api/foodhub/orders?limit=500')).json.orders.length === ordersBefore);
+  check('test order needs a valid ticket and a JSON body', (await call('POST', '/api/foodhub/clover-connect/test-order', { auth: false, body: {} })).status === 401
+    && (await call('POST', '/api/foodhub/clover-connect/test-order', { auth: false, raw: `t=${ticket}`, headers: { 'content-type': 'application/x-www-form-urlencoded' } })).status === 415);
   const chApp = (await call('GET', '/api/foodhub/channels?reveal=1')).json?.clover?.app;
   check('Channels lists the approved merchant with its Clover name', chApp?.merchants?.some((m) => m.merchantId === 'APPMERCHANT' && m.name === 'On2GO.CA (app)' && m.status === 'active') && chApp.siteUrl === 'https://takatak.example' && chApp.launchPath === '/api/foodhub/clover-connect/callback');
   check('Channels gives the privacy, terms and support URLs for the Clover listing', chApp?.legal?.privacy === 'https://takatak.example/legal/privacy' && chApp.legal.terms === 'https://takatak.example/legal/terms' && chApp.legal.support === 'https://takatak.example/legal/support' && chApp.legalStatus?.approved === false && chApp.legalStatus.supportEmailSet === false);

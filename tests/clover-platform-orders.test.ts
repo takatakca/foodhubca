@@ -5,7 +5,7 @@ import { allowedActions } from '../lib/foodhub/pipeline';
 import { settleInClover } from '../lib/foodhub/clover-settle';
 import { getRepo } from '../lib/foodhub/repo';
 
-const MID = 'YJ4W50YPJQSQ1';
+const MID = 'TESTMERCH0002'; // made-up merchant ID (public repository)
 const realFetch = globalThis.fetch;
 let cloverOrders: any[] = [];
 let calls: string[] = [];

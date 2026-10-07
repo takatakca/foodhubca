@@ -1,6 +1,7 @@
 // TAKATAK Food Hub — automatic sync engine.
 //
 // Every run (dashboard auto-trigger every 2 min, Vercel cron, or "Sync now"):
+//   0. Processes orders left in the order inbox (the server stopped between the platform's 2xx and the pipeline).
 //   1. Re-opens stores whose timed pause has ended.
 //   2. Reads the LIVE status of every mapped store from its platform
 //      (Uber Eats store status, DoorDash store_details). Skip and Too Good To Go
@@ -25,6 +26,7 @@ import { sendDueReports } from './reports';
 import { cloverReadiness, cloverSalesSince, allCloverMerchants, type CloverSales } from './pos/clover';
 import { importCloverPlatformOrders } from './pos/clover-platform-orders';
 import { getRepo } from './repo';
+import { sweepOrderInbox } from './inbox';
 import { startOfLocalDayMs } from './time';
 import { runWatch, type WatchReport } from './watch/engine';
 import type { ChannelKey, ChannelStore, PlatformState, PlatformStatus, StoredOrder } from './types';
@@ -48,6 +50,8 @@ export interface SyncReport {
   durationMs: number;
   trigger: string;
   businessDayStart: string;
+  /** Order inbox crash recovery: orders processed again, handed to a person, processed records cleared. */
+  orderInbox?: { recovered: number; failed: number; pruned: number; error?: string };
   reopened: number;
   /** Orders accepted/ready/dispatched for longer than FOODHUB_AUTO_COMPLETE_MIN (default 90) and closed automatically. */
   autoCompleted: number;
@@ -217,6 +221,8 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
   const started = Date.now();
   const platformErrors: NonNullable<SyncReport['platformErrors']> = {};
   try {
+    // Orders first: anything saved by a webhook but never processed (server restart) goes through the pipeline now.
+    const orderInbox = await sweepOrderInbox().catch((e) => ({ recovered: 0, failed: 0, pruned: 0, error: String(e?.message ?? e) }));
     const reopened = await reopenExpiredPauses().catch(() => []);
     const autoCompleted = await autoCompleteOldOrders().catch(() => 0);
     const itemsReenabled = await reenableExpiredItems().catch(() => 0);
@@ -277,6 +283,7 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
       durationMs: Date.now() - started,
       trigger: opts.trigger || 'manual',
       businessDayStart: new Date(dayStart).toISOString(),
+      orderInbox,
       reopened: reopened.length,
       autoCompleted,
       itemsReenabled,

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Check, Copy, Eye, EyeOff, PlugZap, Printer, RefreshCw } from 'lucide-react';
+import { Check, Copy, Eye, EyeOff, Inbox, PlugZap, Printer, RefreshCw, RotateCcw } from 'lucide-react';
 import { Badge, PlatformMark, type Tone } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Banner, Card } from '@/components/ui/card';
@@ -9,7 +9,7 @@ import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { Select } from '@/components/ui/form';
 import { useViewer } from '@/components/shell/viewer';
 import { Section, SettingsHead } from '../settings-ui';
-import { api } from '@/lib/ui/api';
+import { api, money } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 
 type Channel = {
@@ -20,10 +20,13 @@ type Channel = {
 type CloverMerchant = { merchantId: string; name: string | null; connectedAt: string; refreshedAt: string | null; accessExpiresAt: string | null; refreshExpiresAt: string | null; needsReconnect: boolean; status: 'active' | 'pending' };
 type CloverApp = { configured: boolean; appId: string | null; missing: string[]; siteUrl: string; launchPath: string; redirectUri: string; connectUrl: string; merchants: CloverMerchant[]; legal?: { privacy: string; terms: string; support: string } };
 type Job = { id: string; kind: string; channel: string; status: string; createdAt: string; reference?: string | null; result?: { message?: string } | null; request?: { body?: unknown } | null };
+/** Order inbox record that failed, or never finished, processing (lib/foodhub/inbox.ts InboxView). */
+type InboxItem = { id: string; channel: string; externalOrderId: string; displayId: string | null; brandName: string | null; total: number | null; items: number | null; status: string; stuck: boolean; receivedAt: string; attempts: number; error: string | null; lastReplay: { at: string; by: string } | null; deadline: string | null; pastDeadline: boolean };
+type ReplayResult = { ok: boolean; status: string; orderId?: string | null; duplicate?: boolean; error?: string | null; already?: boolean };
 type Data = {
   mode: string; publicUrl: string; liveEnabled: boolean; dashboardProtected: boolean;
   clover: { configured: boolean; injectionEnabled: boolean; missing: string[]; note: string; noteFr?: string; webhookUrl: string; webhookAuthSet: boolean; verification: { code: string; at: string } | null; recordPayments: boolean; orderTypes: boolean; inventorySync: boolean; app?: CloverApp };
-  channels: Channel[]; jobs: Job[]; unparsed: Job[];
+  channels: Channel[]; jobs: Job[]; unparsed: Job[]; inbox?: InboxItem[];
   relay?: { webhookReady: boolean; callbackReady: boolean; channels: string[]; webhookUrl: string; revealed: boolean };
 };
 
@@ -141,6 +144,23 @@ export default function ChannelsSettingsPage() {
     try { await api('/api/foodhub/clover-connect/merchants', { method: 'POST', body: JSON.stringify({ merchantId: mid }) }); await load(revealed); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
+  // Order inbox: the owner re-runs a saved order that failed. The server never creates the same order twice.
+  const [replaying, setReplaying] = useState('');
+  const [replayMsg, setReplayMsg] = useState<{ tone: 'go' | 'stop'; text: string } | null>(null);
+  const replay = async (item: InboxItem) => {
+    // Past the platform's answer window the platform may have cancelled it or sent it to its tablet: a Clover ticket now could cook it twice.
+    if (item.pastDeadline && !window.confirm(t('Le délai de réponse de la plateforme est dépassé : elle a pu annuler cette commande ou l’envoyer à sa tablette. Rejouer seulement si la plateforme l’attend encore. Continuer ?', 'The platform’s answer window has passed: it may have cancelled this order or sent it to its tablet. Replay only if the platform still shows it waiting. Continue?'))) return;
+    setReplaying(item.id); setReplayMsg(null);
+    try {
+      const { result } = await api<{ result: ReplayResult }>('/api/foodhub/channels/inbox', { method: 'POST', body: JSON.stringify({ id: item.id }) });
+      const ref = `#${item.displayId || item.externalOrderId}`;
+      setReplayMsg(!result.ok ? { tone: 'stop', text: `${t('Échec du rejeu de', 'Replay failed for')} ${ref} : ${result.error ?? ''}` }
+        : result.already || result.duplicate ? { tone: 'go', text: `${ref} ${t('était déjà dans Food Hub — rien n’a été traité deux fois.', 'was already in Food Hub — nothing was processed twice.')}` }
+        : { tone: 'go', text: `${ref} ${t('rejouée : elle suit maintenant le circuit normal (Clover, cuisine, plateforme).', 'replayed: it now follows the normal flow (Clover, kitchen, platform).')}` });
+      await load(revealed);
+    } catch (e) { setReplayMsg({ tone: 'stop', text: e instanceof Error ? e.message : String(e) }); }
+    finally { setReplaying(''); }
+  };
   const load = useCallback((reveal = false) => { setBusy(true); return api<Data>(`/api/foodhub/channels${reveal ? '?reveal=1' : ''}`).then((d) => { setData(d); setRevealed(reveal); setError(''); }).catch((e) => setError(e instanceof Error ? e.message : String(e))).finally(() => setBusy(false)); }, []);
   useEffect(() => { if (can('stores:map')) load(); }, [load, can]);
 
@@ -161,6 +181,38 @@ export default function ChannelsSettingsPage() {
       {data.mode === 'memory' && <Banner tone="warn" className="mb-4">{t('Mode démo (mémoire) : rien n’est gardé au redémarrage. Branchez Supabase pour la production.', 'Demo mode (memory): nothing is kept across restarts. Connect Supabase for production.')}</Banner>}
       {!data.liveEnabled && <Banner tone="warn" className="mb-4">{t('Mode sécurité (LIVE_CONNECTORS_GLOBAL_ENABLED=false) : les commandes arrivent, mais rien n’est envoyé aux plateformes tant que ce n’est pas activé.', 'Safe mode (LIVE_CONNECTORS_GLOBAL_ENABLED=false): orders still arrive, but nothing is sent to the platforms until you switch it on.')}</Banner>}
       {!data.dashboardProtected && <Banner tone="warn" className="mb-4">{t('Aucun DASHBOARD_PASSWORD : définissez-en un avant la mise en service (compte de secours et signature des sessions).', 'No DASHBOARD_PASSWORD: set one before going live (recovery login and session signing).')}</Banner>}
+
+      {((data.inbox?.length ?? 0) > 0 || replayMsg) && (
+        <Section icon={<Inbox className="size-5" />} title={`${t('Commandes à rejouer', 'Orders to replay')} (${data.inbox?.length ?? 0})`}
+          subtitle={t('Gardées dès leur arrivée, mais pas traitées (une erreur, ou le serveur s’est arrêté avant). Rien n’est perdu : celles restées en attente sont reprises à chaque synchro (5 essais, tant que la plateforme attend encore la réponse), et « Rejouer » relance une commande tout de suite. Une commande déjà dans Food Hub n’est jamais créée deux fois.',
+            'Saved the moment they arrived, but not processed (an error, or the server stopped first). Nothing is lost: the ones left waiting are retried at each sync (5 tries, while the platform still waits for an answer), and “Replay” runs an order again right away. An order already in Food Hub is never created twice.')}>
+          {replayMsg && <Banner tone={replayMsg.tone} className="mb-3">{replayMsg.text}</Banner>}
+          {(data.inbox?.length ?? 0) === 0 ? <p className="text-sm text-ink-3">{t('Plus rien à rejouer.', 'Nothing left to replay.')}</p> : (
+            <Table>
+              <thead><tr><Th>{t('Reçue', 'Received')}</Th><Th>{t('Commande', 'Order')}</Th><Th>{t('Statut', 'Status')}</Th><Th>{t('Détail', 'Detail')}</Th><Th /></tr></thead>
+              <tbody>{data.inbox!.map((i) => (
+                <Tr key={i.id}>
+                  <Td className="whitespace-nowrap text-ink-3">{new Date(i.receivedAt).toLocaleString(loc, { dateStyle: 'short', timeStyle: 'short' })}</Td>
+                  <Td>
+                    <div className="flex items-center gap-2"><PlatformMark channel={i.channel} size="xs" /><span className="font-semibold text-ink">#{i.displayId || i.externalOrderId}</span></div>
+                    <div className="text-xs text-ink-3">{[i.brandName, i.total !== null ? money(i.total, loc) : null, i.items !== null ? `${i.items} ${t('article(s)', 'item(s)')}` : null].filter(Boolean).join(' · ')}</div>
+                  </Td>
+                  <Td>{i.stuck ? <Badge tone="wait">{t('Pas traitée', 'Not processed')}</Badge> : <Badge tone="stop">{t('Échec', 'Failed')}</Badge>}</Td>
+                  <Td className="max-w-md text-xs text-ink-2">
+                    {i.error || (i.stuck ? t('Le serveur s’est arrêté avant le traitement — reprise à la prochaine synchro.', 'The server stopped before processing — retried at the next sync.') : '')}
+                    {i.pastDeadline && <div className="font-semibold text-ink">{t('Délai de la plateforme dépassé : vérifiez sa tablette ou son portail avant de rejouer.', 'Past the platform’s answer window: check its tablet or portal before replaying.')}</div>}
+                    {i.attempts > 0 && <div className="text-ink-3">{i.attempts} {t('reprise(s) automatique(s)', 'automatic retry(ies)')}</div>}
+                    {i.lastReplay && <div className="text-ink-3">{t('Dernier rejeu :', 'Last replay:')} {i.lastReplay.by}, {new Date(i.lastReplay.at).toLocaleString(loc, { dateStyle: 'short', timeStyle: 'short' })}</div>}
+                  </Td>
+                  <Td><div className="flex justify-end">{can('admin')
+                    ? <Button variant="outline" size="sm" loading={replaying === i.id} disabled={Boolean(replaying)} onClick={() => replay(i)} icon={<RotateCcw className="size-4" />}>{t('Rejouer', 'Replay')}</Button>
+                    : <span className="text-xs text-ink-3">{t('Propriétaire seulement', 'Owner only')}</span>}</div></Td>
+                </Tr>
+              ))}</tbody>
+            </Table>
+          )}
+        </Section>
+      )}
 
       <Section icon={<PlatformMark channel="clover" size="sm" />} title={t('Clover (caisse)', 'Clover POS')} subtitle={t(data.clover.noteFr ?? data.clover.note, data.clover.note) + (!data.clover.injectionEnabled ? ` ${t('Injection désactivée (FOODHUB_POS_INJECTION=off).', 'Injection is OFF (FOODHUB_POS_INJECTION=off).')}` : '')}
         right={data.clover.configured ? <Badge tone="go">{t('Branché', 'Connected')}</Badge> : <Badge tone="wait">{t('Pas configuré', 'Not configured')}</Badge>}>

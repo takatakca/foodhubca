@@ -16,6 +16,7 @@ export const GET = guard(async (req: NextRequest) => {
   const r = res.report;
   return ok({
     ran: res.ran, reason: res.reason ?? null, stores: r?.stores.length ?? 0, errors: r ? r.stores.filter((s) => !s.ok).length : 0,
+    orderInbox: r?.orderInbox ?? null,
     reopened: r?.reopened ?? 0, autoCompleted: r?.autoCompleted ?? 0, itemsReenabled: r?.itemsReenabled ?? 0, holidayClosures: r?.holidayClosures ?? 0,
     scheduledPublishes: r?.scheduledPublishes ?? 0, reportsSent: r?.reportsSent ?? 0, scheduledFired: r?.scheduledFired ?? 0,
     cloverInventory: r?.cloverInventory ?? null,

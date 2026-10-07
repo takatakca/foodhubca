@@ -9,6 +9,7 @@ import { cloverAppReadiness, listCloverConnections } from '@/lib/foodhub/pos/clo
 import { cloverOrderTypesEnabled, cloverRecordPaymentEnabled } from '@/lib/foodhub/pos/clover-books';
 import { getRepo } from '@/lib/foodhub/repo';
 import { relayReadiness } from '@/lib/foodhub/adapters/relay';
+import { listInboxAttention } from '@/lib/foodhub/inbox';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,7 +32,7 @@ export const GET = withPerm('stores:map', async (req, _ctx, actor) => {
       handoff: (r.handoff ?? []).map((h) => ({ label: h.label, envKey: h.envKey, set: Boolean(process.env[h.envKey]), value: reveal ? process.env[h.envKey] || '' : undefined })),
     };
   });
-  const jobs = await repo.listJobs(40);
+  const [jobs, inbox] = await Promise.all([repo.listJobs(40), listInboxAttention(20).catch(() => [])]);
   return ok({
     mode: repo.mode,
     publicUrl: base,
@@ -58,5 +59,7 @@ export const GET = withPerm('stores:map', async (req, _ctx, actor) => {
     },
     jobs: jobs.filter((j) => j.kind !== 'webhook_unparsed'),
     unparsed: jobs.filter((j) => j.kind === 'webhook_unparsed'),
+    // Orders saved on arrival that failed (or never finished) processing: Replay (owner) runs them again.
+    inbox,
   });
 });

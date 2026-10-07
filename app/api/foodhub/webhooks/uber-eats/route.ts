@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { fetchUberOrder, parseUberOrder, uberEatsAdapter } from '@/lib/foodhub/adapters/uber-eats';
-import { applyExternalStatus, processIncomingOrder } from '@/lib/foodhub/pipeline';
+import { uberEatsAdapter } from '@/lib/foodhub/adapters/uber-eats';
+import { applyExternalStatus } from '@/lib/foodhub/pipeline';
 import { logActivity } from '@/lib/foodhub/activity';
 import { nowIso } from '@/lib/foodhub/config';
 import { applyCourierUpdate, readPending } from '@/lib/foodhub/courier';
@@ -8,7 +8,7 @@ import { handleUberReportWebhook } from '@/lib/foodhub/recon/automation';
 import { publishMenu } from '@/lib/foodhub/ops';
 import { getRepo } from '@/lib/foodhub/repo';
 import type { PlatformStatus } from '@/lib/foodhub/types';
-import { background, keepUnparsed, parseJson, uberDeliveryStatus, unauthorized } from '@/lib/foodhub/webhook-utils';
+import { background, intakeUnavailable, keepUnparsed, parseJson, queueUberOrder, uberDeliveryStatus, unauthorized } from '@/lib/foodhub/webhook-utils';
 
 export const dynamic = 'force-dynamic';
 // The deferred pipeline (Uber fetch + Clover + accept) runs in after(): give it the same budget as the cron routes.
@@ -29,14 +29,9 @@ export async function POST(req: NextRequest) {
   const ctx = (kind: 'order' | 'settings' | 'store_status' | 'menu_publish', reference: string | null = orderId || null) => ({ channel: 'uber_eats' as const, body, reference, kind });
 
   if (event === 'orders.notification' || event === 'orders.scheduled.notification') {
-    background(`uber order ${orderId}`, async () => {
-      const href = body.resource_href || orderId;
-      // One retry: Uber does not resend the notification, so a slow/failed fetch must not lose the order.
-      const details = await fetchUberOrder(href).catch(() => fetchUberOrder(href));
-      const order = parseUberOrder(details, body.meta?.user_id);
-      if (!order) return keepUnparsed('uber_eats', details, 'Uber order details could not be parsed', orderId || null);
-      await processIncomingOrder(order);
-    }, ctx('order'));
+    // Uber does not resend the notification: it is saved in the order inbox before the 200 (fetch + pipeline run
+    // after it, and again after a server restart). Not saved → 503 so Uber retries.
+    if (!(await queueUberOrder(orderId, String(body.resource_href || orderId), body.meta?.user_id, body))) return intakeUnavailable();
   } else if (event === 'orders.cancel' || event === 'orders.failure') {
     background(`uber cancel ${orderId}`, () => applyExternalStatus('uber_eats', orderId, 'cancelled', { event }), ctx('order'));
   } else if (event === 'delivery.state_changed') {

@@ -3,7 +3,7 @@ import { logActivity } from './activity';
 import { CHANNEL_LABELS } from './config';
 import { getRepo } from './repo';
 import { uberCourierState } from './courier';
-import { processIncomingOrder } from './pipeline';
+import { runInbox, saveToInbox } from './inbox';
 import type { ActivityKind, ChannelKey, CourierStatus, NormalizedOrder } from './types';
 
 /** What to keep when deferred webhook work fails: the platform already got its 2xx and will not retry. */
@@ -48,8 +48,36 @@ export function parseJson(raw: string): any | undefined {
   try { return raw ? JSON.parse(raw) : {}; } catch { return undefined; }
 }
 
-export function queueOrder(order: NormalizedOrder) {
-  background(`order ${order.channel}:${order.externalOrderId}`, () => processIncomingOrder(order), { channel: order.channel, body: order, reference: order.externalOrderId, kind: 'order' });
+/**
+ * Durable intake: the order is saved in the inbox (lib/foodhub/inbox.ts) BEFORE the platform gets its 2xx, then
+ * processed after the response; a server that stops in between loses nothing (the sync replays it, or flags it for
+ * a person once the platform's answer window has passed).
+ * false = it could not be saved: answer intakeUnavailable() so the platform retries (Skip/DoorDash: their tablet takes
+ * it) — never a 2xx for an order Food Hub does not have.
+ */
+export async function queueOrder(order: NormalizedOrder): Promise<boolean> {
+  return queueInbox({ channel: order.channel, externalOrderId: order.externalOrderId, order }, `order ${order.channel}:${order.externalOrderId}`, order);
+}
+
+/** Uber only notifies (the order is fetched after the 200): the notification is what the inbox keeps. */
+export async function queueUberOrder(orderId: string, href: string, storeId: string | null | undefined, body: unknown): Promise<boolean> {
+  return queueInbox({ channel: 'uber_eats', externalOrderId: orderId, uber: { href, storeId: storeId ?? null } }, `uber order ${orderId}`, body);
+}
+
+async function queueInbox(input: Parameters<typeof saveToInbox>[0], label: string, body: unknown): Promise<boolean> {
+  let saved: Awaited<ReturnType<typeof saveToInbox>>;
+  try { saved = await saveToInbox(input); } catch (error) {
+    console.error(`[foodhub] ${label}: could not save to the order inbox — answering 503 so the platform retries:`, error);
+    return false;
+  }
+  // Processing failures are recorded on the inbox record by runInbox; this context only catches a failure to record them.
+  background(label, () => runInbox(saved.id, saved.record, 'webhook'), { channel: input.channel, body, reference: saved.record.externalOrderId, kind: 'order' });
+  return true;
+}
+
+/** Non-2xx for an order Food Hub could not save: the sender retries (or the platform tablet takes it). */
+export function intakeUnavailable() {
+  return NextResponse.json({ ok: false, error: 'Order intake temporarily unavailable — please retry.' }, { status: 503, headers: { 'Retry-After': '30' } });
 }
 
 /** Uber delivery.state_changed (body.meta.status) → courier status; null when the state is not one we map with confidence. */

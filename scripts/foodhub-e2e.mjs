@@ -22,8 +22,8 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 
-const MOCK_PORT = 4799;
-const APP_PORT = 4800;
+const MOCK_PORT = Number(process.env.E2E_MOCK_PORT) || 4799; // overridable so several runs (e.g. parallel agents) can work side by side
+const APP_PORT = Number(process.env.E2E_APP_PORT) || 4800;
 const APP = `http://127.0.0.1:${APP_PORT}`;
 const MOCK = `http://127.0.0.1:${MOCK_PORT}`;
 const PASSWORD = 'e2e-dashboard-pass';

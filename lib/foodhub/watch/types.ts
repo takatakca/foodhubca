@@ -136,7 +136,7 @@ const on = (escalate = true): RuleSetting => ({ enabled: true, escalate });
 export const DEFAULT_RULES: Record<IncidentKind, RuleSetting> = {
   order_unaccepted: on(), order_unseen: on(), order_late: on(), courier_waiting: on(), pos_failed: on(),
   store_offline: on(), store_deactivated: on(), device_offline: on(), device_muted: on(),
-  cancel_spike: on(false), sync_stale: on(false), webhook_unreadable: on(false), menu_failed: on(false), payout_gap: on(false), customer_issue: on(false), platform_silent: on(),
+  cancel_spike: on(false), sync_stale: on(), webhook_unreadable: on(false), menu_failed: on(), payout_gap: on(false), customer_issue: on(false), platform_silent: on(),
 };
 
 export const DEFAULT_WATCH: WatchSettings = {

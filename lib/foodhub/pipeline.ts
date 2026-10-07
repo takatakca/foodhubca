@@ -4,8 +4,8 @@
 import { logActivity, type Actor } from './activity';
 import { getAdapter } from './adapters';
 import { CHANNEL_LABELS, nowIso } from './config';
-import { allCloverMerchants, cloverAutoPrintEnabled, cloverBaseUrl, cloverExpected, cloverToken, defaultCloverMerchant, injectOrder, printCloverOrder, type InjectResult } from './pos/clover';
-import { cloverOrderTypeForOrder, cloverTotalGap, describeMappingWarnings, findCloverOrderByTitle, mapOrderLines, platformFoodCents } from './pos/clover-order';
+import { allCloverMerchants, cloverAutoPrintEnabled, cloverBaseUrl, cloverExpected, cloverToken, defaultCloverMerchant, injectOrder, type InjectResult } from './pos/clover';
+import { cloverOrderTypeForOrder, cloverTotalGap, describeMappingWarnings, findCloverOrderByTitle, mapOrderLines, platformFoodCents, printKitchenTicket } from './pos/clover-order';
 import { cloverRetryDelaysS, noteLastOrder, scheduleCloverRetry } from './order-retry';
 import { settleInClover } from './clover-settle';
 import { doorDashMerchantCancelEnabled } from './adapters/doordash';
@@ -35,7 +35,7 @@ async function autoPrint(order: StoredOrder, merchantId?: string | null): Promis
   if (!order.posOrderId || !cloverAutoPrintEnabled()) return order;
   // Scheduled orders print at their fire time (see scheduling.ts), not when they arrive.
   if (isWaitingScheduled(order)) return order;
-  const p = await printCloverOrder(order.posOrderId, merchantId);
+  const p = await printKitchenTicket(order.posOrderId, merchantId, order.locationCode);
   await getRepo().addEvent(order.id, p.ok ? 'printed' : 'print_failed', { message: p.message, printEventId: p.printEventId });
   // printError is what the board/alerts key on ("Ticket not printed" + Reprint); a successful print clears it.
   return patchTimeline(order, p.ok ? { printedAt: nowIso(), printError: undefined } : { printError: p.message });
@@ -381,7 +381,7 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
   if (action === 'retry_pos' || action === 'print') {
     const store = await repo.findStore(order.channel, order.channelStoreId);
     if (action === 'print') {
-      const p = await printCloverOrder(order.posOrderId!, store?.cloverMerchantId);
+      const p = await printKitchenTicket(order.posOrderId!, store?.cloverMerchantId, order.locationCode);
       await repo.addEvent(order.id, p.ok ? 'printed' : 'print_failed', { message: p.message, manual: true, by: actor.name });
       const updated = await patchTimeline(order, p.ok ? { printedAt: nowIso(), printError: undefined } : { printError: p.message });
       await log(p.ok ? 'success' : 'failed', p.message);

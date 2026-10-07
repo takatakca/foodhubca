@@ -1,7 +1,7 @@
 // Platform order → Clover order: lines and options linked to the Clover inventory (id, then name, else free text with
 // a warning), real Clover modifications, order types (delivery / pickup), kitchen note, tips and the total check.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildCloverOrderCart, cloverOrderNote, cloverTipCents, cloverTotalGap, describeMappingWarnings, FREE_TEXT_NOTE, mapOrderLines, normName, pickFulfillmentType } from '../lib/foodhub/pos/clover-order';
+import { buildCloverOrderCart, cloverOrderNote, cloverPrintDeviceForLocation, cloverTipCents, cloverTotalGap, describeMappingWarnings, FREE_TEXT_NOTE, mapOrderLines, normName, pickFulfillmentType } from '../lib/foodhub/pos/clover-order';
 import type { MasterMenu, OrderLine, StoredOrder } from '../lib/foodhub/types';
 
 const menu: MasterMenu = {
@@ -153,6 +153,19 @@ describe('order types, tips and totals', () => {
     expect(cloverTotalGap(o, 4599, 3)).toEqual({ gapCents: 0, flagged: false });
     expect(cloverTotalGap(o, 4601, 3).flagged).toBe(false);
     expect(cloverTotalGap(o, 4605, 3)).toEqual({ gapCents: 6, flagged: true });
+  });
+});
+
+describe('kitchen printer per location', () => {
+  afterEach(() => { delete process.env.CLOVER_PRINT_DEVICES; });
+  it('one Clover for several kitchens: the location’s printer when set, otherwise the merchant default (null here)', () => {
+    process.env.CLOVER_PRINT_DEVICES = JSON.stringify({ 'YJ4W50YPJQSQ1|NDG_6284': 'DUO-NDG', 'YJ4W50YPJQSQ1|HOCHELAGA': 'FLEX-HOCH', YJ4W50YPJQSQ1: 'DEFAULT' });
+    expect(cloverPrintDeviceForLocation('YJ4W50YPJQSQ1', 'NDG_6284')).toBe('DUO-NDG');
+    expect(cloverPrintDeviceForLocation('YJ4W50YPJQSQ1', 'HOCHELAGA')).toBe('FLEX-HOCH');
+    expect(cloverPrintDeviceForLocation('YJ4W50YPJQSQ1', 'SAINT_LEONARD')).toBeNull();
+    expect(cloverPrintDeviceForLocation('YJ4W50YPJQSQ1', undefined)).toBeNull();
+    process.env.CLOVER_PRINT_DEVICES = 'not json';
+    expect(cloverPrintDeviceForLocation('YJ4W50YPJQSQ1', 'NDG_6284')).toBeNull();
   });
 });
 

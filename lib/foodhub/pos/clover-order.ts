@@ -270,6 +270,48 @@ export async function findCloverOrderByTitle(mid: string, token: string, base: s
   return { id: String(hit.id), ...(Number.isFinite(total) ? { totalCents: total } : {}) };
 }
 
+// ---------------------------------------------------------------- kitchen printer per location
+
+/**
+ * One Clover merchant can serve several kitchens: the ticket goes to that kitchen's printer.
+ * CLOVER_PRINT_DEVICES={"MERCHANT_ID|LOCATION_CODE":"deviceId", "MERCHANT_ID":"deviceId"} — the location key wins.
+ * Null = no device for this location specifically (the merchant default applies: printCloverOrder).
+ */
+export function cloverPrintDeviceForLocation(merchantId: string, locationCode?: string | null): string | null {
+  if (!locationCode) return null;
+  try {
+    const map = JSON.parse(process.env.CLOVER_PRINT_DEVICES || '{}') as Record<string, string>;
+    const hit = map[`${merchantId}|${locationCode}`];
+    return hit ? String(hit) : null;
+  } catch { return null; }
+}
+
+/** print_event on one device (POST /v3/merchants/{mId}/print_event { orderRef, deviceRef }). */
+export async function printCloverOrderOn(posOrderId: string, merchantId: string, deviceId: string, auth: { token: string | null; base: string }): Promise<{ ok: boolean; message: string; printEventId?: string }> {
+  if (!auth.token) return { ok: false, message: `No Clover API token for merchant ${merchantId}.` };
+  try {
+    const res = await timedFetch(`${auth.base}/v3/merchants/${encodeURIComponent(merchantId)}/print_event`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderRef: { id: posOrderId }, deviceRef: { id: deviceId } }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, message: `Clover print HTTP ${res.status}` };
+    return { ok: json?.state !== 'FAILED', message: json?.state === 'FAILED' ? 'Clover reported the print failed' : `Sent to the kitchen printer (${deviceId})`, printEventId: json?.id };
+  } catch (error) {
+    return { ok: false, message: `Clover print error: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+
+/** The kitchen ticket for an order: that kitchen's printer when one is set for its location, else the merchant's. */
+export async function printKitchenTicket(posOrderId: string, merchantId: string | null | undefined, locationCode?: string | null): Promise<{ ok: boolean; message: string; printEventId?: string }> {
+  const { cloverBaseUrl, cloverToken, printCloverOrder } = await import('./clover');
+  const mid = merchantId || process.env.CLOVER_MERCHANT_ID;
+  const device = mid ? cloverPrintDeviceForLocation(mid, locationCode) : null;
+  if (mid && device) return printCloverOrderOn(posOrderId, mid, device, { token: await cloverToken(mid), base: cloverBaseUrl() });
+  return printCloverOrder(posOrderId, merchantId);
+}
+
 // ---------------------------------------------------------------- order types
 
 type OrderTypeRow = { id: string; label: string; hidden?: boolean };

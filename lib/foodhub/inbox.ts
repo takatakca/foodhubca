@@ -97,7 +97,8 @@ export async function runInboxEntry(id: string, opts: { now?: number; replayBy?:
     const nextS = retryDelaysS()[started.attempts - 1];
     const failed: InboxEntry = { ...started, status: 'failed', lastError: reason.slice(0, 500), nextAt: nextS !== undefined && !opts.replayBy ? new Date(Date.now() + nextS * 1000).toISOString() : null, updatedAt: nowIso() };
     await save(failed).catch((e) => console.error('[foodhub] could not save the failed inbox entry', e));
-    console.error(`[foodhub] ${entry.channel} webhook ${entry.reference ?? entry.id} failed:`, reason);
+    // Handled, not a crash: the webhook stays in the inbox (retried by itself, or Replay).
+    console.warn(`[foodhub] ${entry.channel} webhook ${entry.reference ?? entry.id} kept in the inbox (try ${failed.attempts}${failed.nextAt ? `, next at ${failed.nextAt}` : ', waits for Replay'}): ${reason}`);
     // Logged once per entry when it stops retrying by itself (or on a failed Replay): the Watchtower picks it up.
     if (!failed.nextAt) {
       await logActivity({ actor: opts.replayBy ?? CHANNEL_LABELS[entry.channel], source: opts.replayBy ? 'dashboard' : 'platform', kind: entry.kind === 'order' || entry.kind === 'uber' ? 'order' : 'settings', action: 'webhook_failed', status: 'failed', channel: entry.channel,

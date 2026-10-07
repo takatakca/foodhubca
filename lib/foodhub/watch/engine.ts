@@ -167,7 +167,13 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
       }
     }
     if (on('pos_failed') && o.posError && !o.posOrderId && OPEN_ORDER.includes(o.status)) {
-      out.push({ ...base, key: `pos_failed:${o.id}`, kind: 'pos_failed', severity: 'critical', title: `Clover n’a pas reçu ${ord(o)}`, titleEn: `Clover did not get ${ord(o)}`, detail: `${where} · ${o.posError}`, detailEn: `${where} · ${o.posError}` });
+      // While Food Hub is still retrying Clover by itself (30 s, 2 min) the incident shows on screen only (info never
+      // escalates); once the retries are used up it turns critical and the escalation starts at once.
+      const retrying = Boolean(o.timeline?.posRetry?.nextAt) && !o.timeline?.posRetry?.gaveUpAt;
+      out.push({ ...base, key: `pos_failed:${o.id}`, kind: 'pos_failed', severity: retrying ? 'info' : 'critical',
+        title: retrying ? `Clover n’a pas encore reçu ${ord(o)} — nouvel essai automatique` : `Clover n’a pas reçu ${ord(o)}`,
+        titleEn: retrying ? `Clover has not got ${ord(o)} yet — retrying automatically` : `Clover did not get ${ord(o)}`,
+        detail: `${where} · ${o.posError}`, detailEn: `${where} · ${o.posError}` });
     }
     if (on('customer_issue') && age < 2 * 3600 && o.status === 'cancelled' && o.timeline?.cancelledBy && o.timeline.cancelledBy !== 'store') {
       const who = o.timeline.cancelledBy === 'customer' ? ['le client', 'the customer'] : ['la plateforme', 'the platform'];

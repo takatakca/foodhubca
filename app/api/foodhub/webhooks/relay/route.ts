@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { parseRelayOrder, parseRelayStatus, relayStatusApplies, verifyRelayWebhook } from '@/lib/foodhub/adapters/relay';
 import { acceptNeedsClover, applyExternalStatus } from '@/lib/foodhub/pipeline';
 import { getRepo } from '@/lib/foodhub/repo';
-import { background, keepUnparsed, parseJson, queueOrder } from '@/lib/foodhub/webhook-utils';
+import { background, keepUnparsed, parseJson, queueOrder, retryLater } from '@/lib/foodhub/webhook-utils';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
       background('keep ignored relay order', () => keepUnparsed(parsed.channel ?? 'tgtg', body, `Relay: ${reason}`, ref !== undefined && ref !== null ? String(ref) : null));
       return NextResponse.json({ ok: true, ignored: reason, stored: 'unparsed' });
     }
-    queueOrder(parsed.order);
+    if (!(await queueOrder(parsed.order))) return retryLater(parsed.order.channel);
     return NextResponse.json({ ok: true, order_ref_id: parsed.order.externalOrderId });
   }
 

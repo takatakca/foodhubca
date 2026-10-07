@@ -52,6 +52,17 @@ export interface OrderTimeline {
   /** The kitchen confirmed it saw that the platform / customer cancelled this order (stop cooking). */
   cancelSeenAt?: string;
   cancelSeenBy?: string;
+  /** Automatic Clover retries after a failed injection (order-retry.ts). */
+  posRetry?: {
+    attempts: number;
+    nextAt: string | null;
+    lastError?: string;
+    uncertain?: boolean;
+    gaveUpAt?: string;
+    doneAt?: string;
+    claim?: string;
+    claimedAt?: string;
+  };
 }
 
 export type CourierStatus = 'assigned' | 'arriving' | 'at_store' | 'picked_up' | 'delivered' | 'unassigned';
@@ -71,6 +82,8 @@ export type Fulfillment = 'delivery' | 'pickup' | 'dine_in';
 
 export interface OrderModifier {
   externalId?: string;
+  /** Clover modifier id, when the option is linked to the Clover inventory (sent as a real Clover modification). */
+  posModifierRef?: string;
   name: string;
   quantity: number;
   unitPrice: number;
@@ -80,6 +93,8 @@ export interface OrderLine {
   externalId?: string;
   /** Clover inventory item id, when the item is mapped in the master menu. */
   posItemRef?: string;
+  /** How the line was linked to Clover: by id, by name, or not at all (free-text line, with a warning). */
+  mapping?: 'id' | 'name' | 'free';
   name: string;
   quantity: number;
   unitPrice: number;
@@ -87,6 +102,9 @@ export interface OrderLine {
   notes?: string;
   modifiers: OrderModifier[];
 }
+
+/** A line or option that could not be linked to the Clover inventory (shown on the order and the kitchen card). */
+export interface OrderMappingWarning { line: number; kind: 'item' | 'modifier'; name: string; reason: 'no_match' | 'no_clover_link' | 'foreign_menu' | 'no_menu' }
 
 export interface NormalizedOrder {
   channel: ChannelKey;
@@ -123,6 +141,8 @@ export interface NormalizedOrder {
   viaHub?: 'relay';
   /** The sender's own order id, used for status callbacks. */
   hubOrderId?: string;
+  /** Lines / options that reached Clover as free text (not linked to the Clover inventory). */
+  mappingWarnings?: OrderMappingWarning[];
 }
 
 export interface StoredOrder extends NormalizedOrder {

@@ -7,6 +7,7 @@
 import { fromCents, missingEnv, stripSlash, timedFetch, toCents, MARKETPLACE_LABELS } from '../config';
 import type { MasterMenu, MenuCategory, MenuItem, MenuModifierGroup, StoredOrder } from '../types';
 import { cloverAppConfigured, cloverOAuthToken, connectedCloverMerchantIds } from './clover-oauth';
+import { buildCloverOrderCart } from './clover-order';
 
 export function cloverBaseUrl() {
   return stripSlash(process.env.CLOVER_BASE_URL || 'https://api.clover.com');
@@ -55,8 +56,14 @@ export function cloverReadiness() {
   };
 }
 
-/** `skipped` = Clover is deliberately not in the picture (injection off, or no merchant configured anywhere); every other miss is a failure. */
-export type InjectResult = { ok: true; posOrderId: string } | { ok: false; skipped?: boolean; error: string };
+/**
+ * `skipped` = Clover is deliberately not in the picture (injection off, or no merchant configured anywhere); every other
+ * miss is a failure. `uncertain` = the answer was lost (time-out, 5xx): Clover may have created the order anyway.
+ * totalCents = Clover's own total for the new order, when Clover returns it (taxes computed by Clover).
+ */
+export type InjectResult =
+  | { ok: true; posOrderId: string; totalCents?: number; lineItems?: number; freeLines?: number; adopted?: boolean }
+  | { ok: false; skipped?: boolean; error: string; httpStatus?: number; uncertain?: boolean };
 
 /**
  * True when this deployment expects orders to reach Clover: injection on and either a merchant in the environment
@@ -97,37 +104,12 @@ export async function injectOrder(order: StoredOrder, merchantId?: string | null
   // A mapped merchant without a token is a configuration fault, never a reason to accept without Clover.
   if (!token) return { ok: false, skipped: false, error: `No Clover API token for merchant ${mid} (install the Clover app for it, or add it to CLOVER_MERCHANT_TOKENS).` };
 
-  const lineItems: Record<string, unknown>[] = [];
-  for (const line of order.lines) {
-    const modifierTotal = line.modifiers.reduce((sum, m) => sum + m.unitPrice * (m.quantity || 1), 0);
-    const unit = line.unitPrice + modifierTotal;
-    const noteParts = [
-      ...line.modifiers.map((m) => `${(m.quantity || 1) > 1 ? `${m.quantity}x ` : ''}${m.name}`),
-      line.notes ? `Note: ${line.notes}` : '',
-    ].filter(Boolean);
-    const base: Record<string, unknown> = { price: toCents(unit), name: line.name };
-    if (line.posItemRef) base.item = { id: line.posItemRef };
-    if (noteParts.length) base.note = noteParts.join(', ').slice(0, 255);
-    const qty = Math.max(1, Math.min(Math.round(line.quantity || 1), 99));
-    for (let i = 0; i < qty; i += 1) lineItems.push({ ...base });
-  }
-  if (lineItems.length === 0) return { ok: false, error: 'Order has no line items to inject.' };
-  const discount = cloverOrderDiscount(order, lineItems.reduce((sum, l) => sum + (Number(l.price) || 0), 0));
-
-  const label = MARKETPLACE_LABELS[order.marketplace] || order.marketplace;
-  const scheduled = order.timeline?.scheduledFor
-    ? `SCHEDULED ${new Date(order.timeline.scheduledFor).toLocaleString('fr-CA', { timeZone: process.env.FOODHUB_TIMEZONE || 'America/Toronto', weekday: 'short', hour: '2-digit', minute: '2-digit' })}`
-    : '';
-  const body = {
-    orderCart: {
-      title: `${scheduled ? '⏰ ' : ''}${label} #${order.displayId || order.externalOrderId.slice(0, 8)}`.slice(0, 127),
-      note: [scheduled, order.customerName ? `Customer: ${order.customerName}` : '', order.fulfillment.toUpperCase(), order.notes || ''].filter(Boolean).join(' | ').slice(0, 255),
-      lineItems,
-      // Platform promotion as an order-level discount (negative cents) — absent when there is none.
-      ...(discount ? { discounts: [discount] } : {}),
-      ...(opts.orderTypeId ? { orderType: { id: opts.orderTypeId } } : {}),
-    },
-  };
+  // Lines linked to Clover inventory items with their real modifications, free-text lines flagged (pos/clover-order.ts);
+  // the platform promotion as an order-level discount (negative cents) — absent when there is none.
+  const draft = buildCloverOrderCart(order, { orderTypeId: opts.orderTypeId });
+  if (draft.lineItems === 0) return { ok: false, error: 'Order has no line items to inject.' };
+  const discount = cloverOrderDiscount(order, draft.linesCents);
+  const body = (discount ? buildCloverOrderCart(order, { orderTypeId: opts.orderTypeId, discount }) : draft).body;
 
   try {
     const res = await timedFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}/atomic_order/orders`, {
@@ -136,12 +118,15 @@ export async function injectOrder(order: StoredOrder, merchantId?: string | null
       body: JSON.stringify(body),
     });
     const text = await res.text();
-    if (!res.ok) return { ok: false, error: `Clover returned HTTP ${res.status}: ${text.slice(0, 300)}` };
+    // 4xx: Clover refused it (nothing created). 5xx: a gateway may have answered after Clover created it — uncertain.
+    if (!res.ok) return { ok: false, error: `Clover returned HTTP ${res.status}: ${text.slice(0, 300)}`, httpStatus: res.status, uncertain: res.status >= 500 };
     const json = text ? JSON.parse(text) : {};
-    if (!json.id) return { ok: false, error: 'Clover response did not include an order id.' };
-    return { ok: true, posOrderId: String(json.id) };
+    if (!json.id) return { ok: false, error: 'Clover response did not include an order id.', uncertain: true };
+    const total = Number(json.total);
+    return { ok: true, posOrderId: String(json.id), lineItems: draft.lineItems, freeLines: draft.freeLines, ...(Number.isFinite(total) ? { totalCents: total } : {}) };
   } catch (error) {
-    return { ok: false, error: `Clover network error: ${error instanceof Error ? error.message : String(error)}` };
+    // A time-out or a dropped connection: Clover may or may not have the order — the retry looks before sending again.
+    return { ok: false, error: `Clover network error: ${error instanceof Error ? error.message : String(error)}`, uncertain: true };
   }
 }
 

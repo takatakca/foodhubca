@@ -91,7 +91,7 @@ function Rail({ t }: { t: T }) {
     { name: 'Too Good To Go', dot: 'bg-tgtg' },
   ];
   return (
-    <aside className="relative hidden overflow-hidden bg-rail p-10 text-white lg:flex lg:flex-col xl:p-12">
+    <aside className="relative hidden overflow-hidden bg-rail p-10 text-white lg:sticky lg:top-0 lg:flex lg:h-dvh lg:flex-col xl:p-12">
       <div className="flex items-center gap-3">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/icons/icon-192.png" alt="" className="size-10 rounded-xl" />
@@ -101,8 +101,8 @@ function Rail({ t }: { t: T }) {
         </div>
       </div>
 
-      <div className="my-auto py-10">
-        <h1 className="max-w-md text-[40px] leading-[1.05] font-extrabold tracking-tight">
+      <div className="my-auto py-8">
+        <h1 className="max-w-lg text-[38px] leading-[1.05] font-extrabold tracking-tight xl:text-[42px]">
           {t('Toutes vos plateformes.', 'Every platform.')}<br /><span className="text-brand">{t('Une seule caisse.', 'One register.')}</span>
         </h1>
         <p className="mt-4 max-w-md text-white/60">{t('Les commandes de livraison arrivent dans Clover, s’impriment à la cuisine et se ferment payées — sans agrégateur.', 'Delivery orders land in Clover, print in the kitchen and close as paid — no aggregator.')}</p>
@@ -246,7 +246,7 @@ function RegisterCard({ data, t, lang }: { data: WelcomeData; t: T; lang: 'fr' |
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
             {tiles.map((x) => (
               <div key={x.label} className="rounded-xl bg-raised px-3 py-2.5">
-                <div className="flex items-center gap-1.5 text-[12px] font-medium text-ink-3">{x.icon}<span className="truncate">{x.label}</span></div>
+                <div className="flex min-h-8 items-start gap-1.5 text-[12px] leading-tight font-medium text-ink-3"><span className="mt-px shrink-0">{x.icon}</span><span>{x.label}</span></div>
                 <div className="num mt-0.5 text-xl font-extrabold">{x.value == null ? '—' : x.value >= 1000 ? '1000+' : x.value}</div>
               </div>
             ))}
@@ -361,7 +361,7 @@ function Celebration({ t }: { t: T }) {
 
 /* ---------------------------------------------------------------- test order */
 
-type TestStep = { key: 'created' | 'printed' | 'paid'; ok: boolean; detail: string };
+type TestStep = { key: 'created' | 'printed' | 'paid'; ok: boolean; detail: FrEn };
 type TestResult = { ok: boolean; reason?: string; error?: string; steps?: TestStep[] };
 
 function TestOrder({ ticket, t }: { ticket: string; t: T }) {
@@ -386,7 +386,7 @@ function TestOrder({ ticket, t }: { ticket: string; t: T }) {
     ? res.reason === 'not_approved' ? t('Votre caisse n’est pas encore approuvée.', 'Your register is not approved yet.')
       : res.reason === 'limited' ? t('Trois commandes test par heure au maximum. Réessayez plus tard.', 'Three test orders per hour at most. Try again later.')
         : res.reason === 'ticket' ? t('Lien expiré : rouvrez l’application depuis Clover.', 'Link expired: open the app again from Clover.')
-          : res.error || t('Clover a refusé la commande.', 'Clover refused the order.')
+          : t('Clover a refusé la commande test (détail ci-dessus).', 'Clover refused the test order (details above).')
     : null;
   return (
     <section className="motion-safe:animate-rise rounded-2xl border border-line bg-surface p-5 shadow-card sm:p-6">
@@ -407,7 +407,7 @@ function TestOrder({ ticket, t }: { ticket: string; t: T }) {
               <span className={cn('mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full', s.ok ? 'bg-go text-white' : 'bg-stop text-white')}>{s.ok ? <Check className="size-3.5" strokeWidth={3} /> : <X className="size-3.5" strokeWidth={3} />}</span>
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5 text-[14px] font-bold"><span className="text-ink-3">{icon[s.key]}</span>{label[s.key]}</div>
-                <div className="num truncate text-[12px] text-ink-3">{s.detail}</div>
+                <div className="num text-[12px] break-words text-ink-3">{t(s.detail.fr, s.detail.en)}</div>
               </div>
             </li>
           ))}

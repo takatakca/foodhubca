@@ -6,7 +6,7 @@ _Status on 2026-10-07 · branch `uber-eats-final` · checked against Uber's offi
 
 - **The code is ready.** Food Hub connects your Uber stores, publishes the shared menu (+20%) to all of them, and takes every Uber order straight into Clover. It accepts the order on Uber only after Clover has it.
 - **Uber has not granted production access yet.** Until it does, nothing can reach your real stores.
-- **UrbanPiper still holds the stores.** Its offboarding case 00131025 is disconnecting all of them. Food Hub shows each store's state ("still UrbanPiper", "moving", "Food Hub ✓") so you can see when orders really move.
+- **UrbanPiper still holds the stores.** Its offboarding (an open case with UrbanPiper) is disconnecting all of them. Food Hub shows each store's state ("still UrbanPiper", "moving", "Food Hub ✓") so you can see when orders really move.
 - **What you do**, in order:
   1. Paste the signing key.
   2. Wait for production access.
@@ -24,7 +24,7 @@ _Status on 2026-10-07 · branch `uber-eats-final` · checked against Uber's offi
 ### Step 1: Paste the webhook signing key (5 minutes, today)
 1. Food Hub → **Settings → Platforms & Clover → Uber Eats** → **Show secrets** → copy `UBER_WEBHOOK_SIGNING_KEY`.
 2. Uber developer dashboard → app **FOOD HUB** → **Webhooks → Primary Webhook**:
-   - URL: `https://31-220-96-134.sslip.io/api/foodhub/webhooks/uber-eats`
+   - URL: `https://YOUR-DOMAIN/api/foodhub/webhooks/uber-eats`
    - Authentication: **Basic HMAC**
    - Signing Key: the value you copied
    - **Save**
@@ -39,7 +39,7 @@ _Status on 2026-10-07 · branch `uber-eats-final` · checked against Uber's offi
   - `UBER_TAX_RATE_PCT`: see section 4.
 - `LIVE_CONNECTORS_GLOBAL_ENABLED=true` only when Settings → Go-live is green. Until then, every change on Uber shows as "blocked" (honestly) and nothing is sent.
 - Redirect URI and privacy URL are already set on Uber's side:
-  - `https://31-220-96-134.sslip.io/api/foodhub/uber-connect/callback`
+  - `https://YOUR-DOMAIN/api/foodhub/uber-connect/callback`
   - `/legal/privacy`
 
 ### Step 3: Wait for Uber production access
@@ -55,7 +55,7 @@ _Status on 2026-10-07 · branch `uber-eats-final` · checked against Uber's offi
   | `eats.store.status.notification` | Store-status webhooks |
   | `eats.report` | Payment reports for reconciliation |
 
-- Follow up by email at **merchants@uber.com**, case **#ef4fe**. Uber's chat agent said multi-store POS integration requests go there.
+- Follow up by email at **merchants@uber.com**, on the open case (its number is kept outside this public repository). Uber's chat agent said multi-store POS integration requests go there.
 - Uber's go-live guide also mentions an *integration verification* with Uber's integration tech support. It is a joint end-to-end test, and a pilot store must run 3 days at ≥98% order-injection success. If Uber asks for it, start with one store (Step 6 is exactly that test).
 
 ### Step 4: Connect the stores (about 15 minutes, once access is granted)
@@ -68,7 +68,7 @@ _Status on 2026-10-07 · branch `uber-eats-final` · checked against Uber's offi
 3. Check each row → **Activate & link**. Each store gets one line saying what happened:
    - **Food Hub now receives this store's orders**: done.
    - **Moving to Food Hub (pending)**: Uber is switching it. Keep the tablet on.
-   - **Another integration (UrbanPiper) still receives the orders**: wait for UrbanPiper's offboarding (case 00131025), then press **Check with Uber**.
+   - **Another integration (UrbanPiper) still receives the orders**: wait for UrbanPiper's offboarding, then press **Check with Uber**.
 4. **Check with Uber** (Stores → Connected stores) can be pressed any time. It changes nothing on Uber. If it shows order webhooks still off, **Switch Uber orders on** fixes it.
 
 ### Step 5: Publish the menu (10 minutes)
@@ -146,8 +146,8 @@ _Status on 2026-10-07 · branch `uber-eats-final` · checked against Uber's offi
 ## 4. What Uber must still grant, confirm or decide
 
 1. **Production access** with the scopes in Step 3. This blocks everything.
-2. **UrbanPiper letting go** of each store (case 00131025). Until then, a store's orders keep going to UrbanPiper even if Food Hub activated it. "Check with Uber" shows the moment it changes.
-3. **Questions to send Uber** (merchants@uber.com, case #ef4fe):
+2. **UrbanPiper letting go** of each store (its offboarding case). Until then, a store's orders keep going to UrbanPiper even if Food Hub activated it. "Check with Uber" shows the moment it changes.
+3. **Questions to send Uber** (merchants@uber.com, on the open case):
    - *Tax:* should items carry a `tax_rate` for our Québec stores, or does Uber apply each store's GST/QST setup? (Food Hub sends none today.)
    - *Courier webhooks:* does `delivery.state_changed` arrive with `webhooks_version` unset? (The docs show it only with the newer API.)
    - *API version:* is the previous-version Order API (`/v2/eats/order` + `accept_pos_order`) fine for a new integration, or must we move to `/v1/delivery/order` (`webhooks_version "1.0.0"`)?

@@ -1426,6 +1426,8 @@ try {
   const locked41 = (await call('POST', '/api/foodhub/stores', { body: { channel: 'doordash', channelStoreId: 'NDG_6284-POPOULET', brandName: 'Po Poulet', locationCode: 'NDG_6284', platformStoreId: '27982486' } })).json?.store;
   check('Po Poulet NDG on DoorDash (store 27982486) is menu-locked for good', locked41?.menuLock?.locked === true && locked41.menuLock.source === 'built_in');
   check('the lock cannot be lifted from the console', (await call('POST', '/api/foodhub/stores', { body: { id: locked41?.id, channel: 'doordash', channelStoreId: 'NDG_6284-POPOULET', brandName: 'Po Poulet', locationCode: 'NDG_6284', menuLocked: false } })).status === 409);
+  check('…nor by clearing its DoorDash store number or removing the mapping', (await call('POST', '/api/foodhub/stores', { body: { id: locked41?.id, channel: 'doordash', channelStoreId: 'NDG_6284-POPOULET', brandName: 'Po Poulet', locationCode: 'NDG_6284', platformStoreId: '' } })).status === 409
+    && (await call('DELETE', `/api/foodhub/stores?id=${locked41?.id}`)).status === 409);
 
   // e) Import from the Clover DoorDash menu (+20 %): only its items, its photos, the markup kept.
   cloverItems.push({ id: 'clv-item-4', name: 'Salade de chou', price: 271, available: true, categories: { elements: [{ id: 'clv-cat-2', name: 'Accompagnements', sortOrder: 2 }] }, modifierGroups: { elements: [] } });

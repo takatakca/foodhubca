@@ -39,7 +39,7 @@ Check these in order. Each line gives the cause and the fix.
 | 4 | **Secrets stay hidden.** They show as `••••` until "Show secrets" is clicked, and that only works when `DASHBOARD_PASSWORD` is set. | Click Show secrets; nothing changes. | Set `DASHBOARD_PASSWORD` and `SESSION_SECRET` on the server. |
 | 5 | **Keys were never entered.** Coolify has no setup wizard, so every connection shows "Needs setup" or "Missing: …". | Settings → Platforms & Clover, each card. | Add the keys as environment variables (list in section 4). |
 | 6 | **The platforms have not approved access yet.** | Card says blocked / not approved. | Uber must approve the scopes. DoorDash issues `DOORDASH_PROVIDER_TYPE` only after it approves the integration. Skip issues `SKIP_JET_API_KEY` through a partner manager. |
-| 7 | **The Clover app is not in the App Market yet.** It has not been submitted, and its Site URL is still `31-220-96-134.sslip.io`. | Settings → Clover app (checklist) · `docs/CLOVER_MARKETPLACE_LAUNCH.md`. | The code is ready (branch `clover-marketplace-launch`). Owner steps: domain, support details, legal review, video, dashboard, submit (launch doc §4). |
+| 7 | **The Clover app is not in the App Market yet.** It has not been submitted, and its Site URL is still the temporary sslip.io address. | Settings → Clover app (checklist) · `docs/CLOVER_MARKETPLACE_LAUNCH.md`. | The code is ready (branch `clover-marketplace-launch`). Owner steps: domain, support details, legal review, video, dashboard, submit (launch doc §4). |
 | 8 | **Safe mode is on.** Nothing is sent to any platform until live mode is turned on. | Orange "safe mode" banner. | Set `LIVE_CONNECTORS_GLOBAL_ENABLED=true` once Go-live is all green. |
 | 9 | **Sign-in codes never arrive.** No email (Resend) or SMS (Twilio) is set up. An unknown email still says "code sent" on purpose, so outsiders cannot guess who has access. | The code never arrives. | Set `RESEND_API_KEY` + `AUTH_EMAIL_FROM` (on a verified domain) and/or `TWILIO_*`. Until then, use the owner recovery sign-in. |
 | 10 | **Nothing runs in the background on Coolify/Docker.** The platform sync only runs while a screen is open. | Store status, payouts and Clover orders go stale overnight. | Set `FOODHUB_INTERNAL_SYNC_MIN=5`, or add an outside cron that calls `/api/foodhub/cron/sync` every 5 minutes. |
@@ -180,8 +180,8 @@ Each phase ends with **acceptance checks**. A phase is done only when all of the
    - Until approval, `FOODHUB_VIA_CLOVER=doordash` is the working fallback.
 2. **Uber Eats:** code finished on branch `uber-eats-final`; the owner's steps are in [UBER_EATS_FINAL.md](UBER_EATS_FINAL.md):
    - paste the signing key;
-   - get production access (merchants@uber.com, case #ef4fe);
-   - UrbanPiper lets go of the stores (case 00131025);
+   - get production access (merchants@uber.com, on the open case);
+   - UrbanPiper lets go of the stores (its offboarding case);
    - Stores → Connect Uber Eats;
    - Menus → All Uber stores (dry run, then publish);
    - one test order per kitchen, then retire the tablets.

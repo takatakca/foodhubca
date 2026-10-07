@@ -63,6 +63,13 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
   }
   // "Do not touch": Food Hub never sends this store a menu or an 86 (lib/foodhub/ops.ts isDoNotTouch).
   if (typeof b.doNotTouch === 'boolean') meta.doNotTouch = b.doNotTouch;
+  // The owner's standing lock (built in) or the hosting setup's cannot be dodged from here either: no edit — clearing or
+  // changing the platform store number, moving the mapping to another id or platform — may leave the store without it.
+  const standing = existing ? menuLockOf(existing) : null;
+  if (standing?.locked && standing.source !== 'store') {
+    const next = menuLockOf({ channel, channelStoreId: String(b.channelStoreId).trim(), meta });
+    if (!next.locked || next.source === 'store') return fail(`This store's menu stays locked: ${standing.reason}`, 409);
+  }
   const store = await repo.upsertStore({
     id: existing?.id,
     channel,
@@ -87,6 +94,9 @@ export const DELETE = withPerm('stores:map', async (req, _ctx, actor) => {
   if (!id) return fail('id is required');
   const store = await getRepo().getStore(id);
   if (store && !inScope(actor, store.locationCode)) return fail(scopeError(actor, store.locationCode)!, 403);
+  // Removing the mapping and adding it again without its store number would lift the owner's standing lock.
+  const lock = store ? menuLockOf(store) : null;
+  if (lock?.locked && lock.source !== 'store') return fail(`This store's menu stays locked, so its mapping cannot be removed here: ${lock.reason}`, 409);
   await getRepo().deleteStore(id);
   if (store) await logActivity({ actor: actor.name, source: actor.source, kind: 'settings', action: 'store_unmapped', status: 'success', channel: store.channel, brandName: store.brandName, locationCode: store.locationCode, summary: `Removed ${store.channel} store ${store.channelStoreId} (${store.brandName} · ${store.locationCode})` });
   return ok();

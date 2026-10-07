@@ -119,4 +119,18 @@ describe('a locked store never receives a menu change', () => {
     const list = await (await GET(call('GET', '/api/foodhub/stores'), ctx)).json();
     expect(list.stores.find((s: { id: string }) => s.id === locked.id).menuLock).toMatchObject({ locked: true, source: 'built_in' });
   });
+
+  it('the owner’s standing lock cannot be dodged: clearing or changing the DoorDash store number, or deleting the mapping', async () => {
+    const { locked } = await stores();
+    const { POST, DELETE } = await import('../app/api/foodhub/stores/route');
+    const edit = (patch: Record<string, unknown>) => POST(call('POST', '/api/foodhub/stores', { id: locked.id, channel: 'doordash', channelStoreId: 'NDG_6284-POPOULET', brandName: 'Po Poulet', locationCode: 'NDG_6284', ...patch }), ctx);
+    expect((await edit({ platformStoreId: '' })).status).toBe(409);
+    expect((await edit({ platformStoreId: '11111111' })).status).toBe(409);
+    expect((await DELETE(call('DELETE', `/api/foodhub/stores?id=${locked.id}`), ctx)).status).toBe(409);
+    // Everything else about the store can still be changed; it stays locked.
+    expect((await edit({ autoAccept: false })).status).toBe(200);
+    const after = await getRepo().getStore(locked.id);
+    expect(after?.autoAccept).toBe(false);
+    expect(after && menuLockOf(after)).toMatchObject({ locked: true, source: 'built_in' });
+  });
 });

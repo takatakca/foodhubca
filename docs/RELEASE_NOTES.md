@@ -57,7 +57,7 @@
 | `npm run typecheck`, `npm run lint` | pass (0 errors) |
 | `npm test` | 302 tests pass (new: `order-inbox`, `health`, `watch-alarms`, `clover-retry`, `go-live`) |
 | `npm run build` | pass |
-| `npm run verify:foodhub` | 383 end-to-end checks pass (Relay and shared menus join it with Phase 1 item 7) |
+| `npm run verify:foodhub` | 414 end-to-end checks pass (new: Order Relay, shared menus, `/api/health`) |
 
 ## Go live — Order Relay, one menu for all brands, platform API fixes (pull request #5, 2026-10-06)
 

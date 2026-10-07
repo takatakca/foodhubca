@@ -162,7 +162,7 @@ Each phase ends with **acceptance checks**. A phase is done only when all of the
 4. **Done: silence alarm** `platform_silent`: no order from Uber Eats, DoorDash or Skip for N opening minutes (Settings → Alerts, default 180) while one of its stores is open.
 5. **Done: unmapped store** `store_unmapped` (critical, escalates): orders held because their store is not mapped, with the waiting orders, the platform deadline and a suggested mapping. Orders from an unmapped store are never auto-accepted.
 6. **Done: Clover retried by itself** (30 s, 2 min, 5 min) before a person is asked; never for an order that is cancelled, on the Skip tablet, followed through Clover, or already accepted by a person.
-7. Add the Relay and shared menus to the end-to-end script `scripts/foodhub-e2e.mjs`.
+7. **Done:** the end-to-end script (`scripts/foodhub-e2e.mjs`, 414 checks) covers the Order Relay (token, a TGTG order to Clover and the kitchen, the partner callback, unparsed payloads, cancellation, no reopening), shared menus (sharing, editing refused on a follower, publish under the follower name, an 86 reaching both brands) and `/api/health`.
 
 **Acceptance:**
 - Killing the server between receiving an order and processing it loses nothing; the order is replayed.
@@ -289,7 +289,7 @@ Paste one at a time into Claude Code at the repository root. Each prompt is self
 **Phase 0** — done in code (section 5). What is left is the owner's: deploy from `main`, add the media volume, and check the acceptance list on the live console.
 
 **Phase 1**
-> Read docs/MASTER_PLAN.md Phase 1. Items 1–6 are done. If item 7 is not done yet, add the Relay and shared menus to `scripts/foodhub-e2e.mjs`. Then run the Phase 1 acceptance checks against a running server and fix what fails, with tests.
+> Read docs/MASTER_PLAN.md Phase 1. Items 1–7 are done. Run the Phase 1 acceptance checks against a running server (kill it between an order arriving and being processed; stop the scheduler; break a platform webhook) and fix what fails, with tests.
 >
 > Keep every locked rule in section 6.
 

@@ -74,7 +74,31 @@ Phase 3 adds a **Connections strip on the Overview** so you see all of this at a
 - `f213a76` and `bb4cbe3` Hardening from an adversarial review:
   - Relay: relayed Skip orders no longer use the Skip tablet shortcut; reject is never faked; statuses only move forward; payloads are kept, never dropped; no duplicate orders.
   - Shared menu: a brand that stops sharing keeps its 86s; a sharing-map read error stops the action instead of guessing; "publish every brand" schedules are listed and cancelled together.
-- Tests: 197 unit tests pass, typecheck clean, lint has 0 errors.
+- **Platform audit fixes** (checked against DoorDash's and Uber's documented API shapes):
+  - **DoorDash:**
+    - Cancellations from the Order Cancellation webhook now reach the kitchen and Clover.
+    - Menu Status reads `event.reference` and `event.status`, and shows DoorDash's refusal reason.
+    - Dasher Status reads `dasher_status`.
+    - Overnight hours go out as one interval, so stores no longer stop taking orders at 23:39.
+    - Closed special days carry full-day times.
+    - New **Menu Request** (menu pull) endpoint.
+    - Merchant cancellation, available once DoorDash allowlists it (`DOORDASH_MERCHANT_CANCEL=true`).
+  - **Uber Eats:**
+    - Store status on `/v1/eats/store/{id}/status`, so pause and resume work.
+    - Closed holiday = `00:00–00:00`, and removed holidays are cleared on Uber.
+    - `pickup_time` sent on accept, so prep and busy mode reach Uber.
+    - Menu refresh requests re-publish the menu.
+    - An 86 batch keeps going past a refused item.
+    - Orders keep working while Uber has not approved the status scope.
+  - **Every platform:** errors now say *why* the platform refused.
+- Tests: 211 unit tests and 374 end-to-end checks pass. Typecheck is clean and lint has 0 errors.
+
+**Still to confirm with Uber, in their sandbox (not changed yet):**
+- Whether menu titles may carry two translations (`en_ca` + `fr_ca`). One source says "only one translation"; changing it could drop French, so verify first.
+- Whether `delivery.state_changed` (courier tracking) needs `webhooks_config` / `webhooks_version: "1.0.0"` at store activation.
+- Whether items need `tax_info` for Québec stores.
+- The calorie field (`energy_interval` replaces the deprecated `lower_range` / `upper_range`).
+- Keeping the Uber token in the database instead of memory (only matters on serverless hosts).
 
 ---
 
@@ -139,9 +163,12 @@ Each phase ends with **acceptance checks**. A phase is done only when all of the
 ### Phase 2: Connections and approvals (depends on the platforms)
 
 1. **DoorDash:**
-   - Finish the audit of the direct menu push against DoorDash's Marketplace API docs: menu JSON fields, the PATCH-vs-POST menu id, hours, item status endpoints, the store-status 404 read as "deactivated", and unique ids across several brand stores.
+   - The audit is done and its fixes are in.
    - Get `DOORDASH_PROVIDER_TYPE`.
-   - Until then, `FOODHUB_VIA_CLOVER=doordash` is the working fallback.
+   - Subscribe the Order, Menu Status and Dasher Status webhooks.
+   - **Ask DoorDash to configure the Order Cancellation webhook** to the same address.
+   - Give DoorDash the Menu Request URL.
+   - Until approval, `FOODHUB_VIA_CLOVER=doordash` is the working fallback.
 2. **Uber Eats:** get the scopes approved; connect each brand's stores through OAuth; check the menu PUT and the 86 calls on one store, then roll out.
 3. **Skip:** get the JET Connect key, or agree a partner feed through the Relay.
 4. **Too Good To Go:** when the rep delivers the spec, write a real `tgtgAdapter`: read their orders (replacing the best-guess reader), send bag quantities and pickup windows, and cancel. Remove the permanent "blocked" results.

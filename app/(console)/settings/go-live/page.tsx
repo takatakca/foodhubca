@@ -20,7 +20,7 @@ type CloverAppInfo = {
 };
 type ChannelsData = {
   mode: string; liveEnabled: boolean; dashboardProtected: boolean;
-  clover: { configured: boolean; appConfigured?: boolean; missing: string[]; webhookAuthSet?: boolean; verification?: { code: string } | null; app?: CloverAppInfo };
+  clover: { configured: boolean; appConfigured?: boolean; tokenMerchants?: number; missing: string[]; webhookAuthSet?: boolean; verification?: { code: string } | null; app?: CloverAppInfo };
   channels: Readiness[]; relay?: { channels: string[] };
 };
 type Notify = { email: boolean; sms: boolean; call: boolean; chat: boolean; ai: boolean };
@@ -50,7 +50,7 @@ function cloverCheckSteps(ck: CloverCheck, t: (fr: string, en: string) => string
 
 /** Clover line: orders reach Clover only with a merchant token in the environment or a merchant connected through the app. */
 function cloverStep(ch: ChannelsData, t: (fr: string, en: string) => string): Step {
-  const envToken = ch.clover.missing.length === 0;
+  const envToken = ch.clover.missing.length === 0 || (ch.clover.tokenMerchants ?? 0) > 0;
   const active = (ch.clover.app?.merchants ?? []).filter((m) => m.status !== 'pending').length;
   const appKeys = Boolean(ch.clover.app?.configured ?? ch.clover.appConfigured);
   const done = envToken || active > 0;

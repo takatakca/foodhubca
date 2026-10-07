@@ -15,7 +15,8 @@
 // Clover docs: POST /v3/merchants/{mId}/atomic_order/orders — lineItems[].item.id, lineItems[].modifications[]
 // { modifier: { id }, name, amount } ("If you pass both name and amount values, these override default modifiers set
 // in the merchant's inventory"). Tax rates come from each inventory item and cannot be overridden on an atomic order.
-import { MARKETPLACE_LABELS, timedFetch, toCents } from '../config';
+import { MARKETPLACE_LABELS, toCents } from '../config';
+import { cloverFetch } from './clover-http';
 import type { ChannelKey, MasterMenu, MenuItem, MenuModifier, OrderLine, OrderMappingWarning, OrderModifier, StoredOrder } from '../types';
 import { customerContact } from '../watch/customer';
 import { cloverOrderTypeFor, cloverOrderTypesEnabled } from './clover-books';
@@ -261,7 +262,7 @@ export function cloverTipCents(order: Pick<StoredOrder, 'tip' | 'fulfillment' | 
 export async function findCloverOrderByTitle(mid: string, token: string, base: string, order: Pick<StoredOrder, 'marketplace' | 'displayId' | 'externalOrderId'>, sinceMs: number): Promise<{ id: string; totalCents?: number } | null> {
   const want = cloverOrderTitle(order).toLowerCase();
   const qs = new URLSearchParams({ filter: `createdTime>=${Math.floor(sinceMs)}`, limit: '100' });
-  const res = await timedFetch(`${base}/v3/merchants/${encodeURIComponent(mid)}/orders?${qs}`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+  const res = await cloverFetch(`${base}/v3/merchants/${encodeURIComponent(mid)}/orders?${qs}`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
   if (!res.ok) throw new Error(`Clover orders HTTP ${res.status}`);
   const rows: any[] = (await res.json())?.elements ?? [];
   const hit = rows.find((o) => String(o?.title ?? '').replace(/^⏰\s*/, '').trim().toLowerCase() === want && !/^cancel/i.test(String(o?.title ?? '')));
@@ -290,7 +291,7 @@ export function cloverPrintDeviceForLocation(merchantId: string, locationCode?: 
 export async function printCloverOrderOn(posOrderId: string, merchantId: string, deviceId: string, auth: { token: string | null; base: string }): Promise<{ ok: boolean; message: string; printEventId?: string }> {
   if (!auth.token) return { ok: false, message: `No Clover API token for merchant ${merchantId}.` };
   try {
-    const res = await timedFetch(`${auth.base}/v3/merchants/${encodeURIComponent(merchantId)}/print_event`, {
+    const res = await cloverFetch(`${auth.base}/v3/merchants/${encodeURIComponent(merchantId)}/print_event`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ orderRef: { id: posOrderId }, deviceRef: { id: deviceId } }),
@@ -322,7 +323,7 @@ async function listOrderTypes(mid: string, token: string, base: string): Promise
   // Order types change rarely: read once every 10 minutes per merchant (FOODHUB_CLOVER_ORDER_TYPES_TTL_S).
   const ttl = Number(process.env.FOODHUB_CLOVER_ORDER_TYPES_TTL_S ?? 600) * 1000;
   if (hit && Date.now() - hit.at < ttl) return hit.rows;
-  const res = await timedFetch(`${base}/v3/merchants/${encodeURIComponent(mid)}/order_types?limit=200`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+  const res = await cloverFetch(`${base}/v3/merchants/${encodeURIComponent(mid)}/order_types?limit=200`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
   if (!res.ok) throw new Error(`Clover order_types HTTP ${res.status}`);
   const rows = ((await res.json())?.elements ?? []).filter((e: any) => e?.id).map((e: any) => ({ id: String(e.id), label: String(e.label ?? e.labelKey ?? ''), hidden: e.hidden === true }));
   typeCache.set(mid, { at: Date.now(), rows });

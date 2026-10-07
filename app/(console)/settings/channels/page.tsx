@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { Check, Copy, Eye, EyeOff, PlugZap, Printer, RefreshCw } from 'lucide-react';
 import { Badge, PlatformMark, type Tone } from '@/components/ui/badge';
@@ -210,7 +211,7 @@ export default function ChannelsSettingsPage() {
     else if (err) setFlash({ tone: 'stop', text: err });
   }, []);
   const disconnect = async (mid: string) => {
-    if (!window.confirm(`Disconnect Clover merchant ${mid}?`)) return;
+    if (!window.confirm(t(`Débrancher le marchand Clover ${mid} ? Ses jetons sont supprimés et rien ne lui est plus envoyé.`, `Disconnect Clover merchant ${mid}? Its tokens are deleted and nothing is sent to it any more.`))) return;
     try { await api('/api/foodhub/clover-connect/merchants', { method: 'DELETE', body: JSON.stringify({ merchantId: mid }) }); await load(revealed); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
@@ -269,7 +270,10 @@ export default function ChannelsSettingsPage() {
               <UrlRow label={t('Site URL (développeur Clover → REST Configuration)', 'Site URL (Clover developer → REST Configuration)')} value={data.clover.app.siteUrl} />
               <UrlRow label={t('Alternate Launch Path', 'Alternate Launch Path')} value={data.clover.app.launchPath} />
             </div>
-            {data.clover.app.appId && <div className="mt-2 text-[13px] text-ink-3">App ID : <code className="rounded bg-sunken px-1 font-mono">{data.clover.app.appId}</code></div>}
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-ink-3">
+              {data.clover.app.appId && <span>App ID : <code className="rounded bg-sunken px-1 font-mono">{data.clover.app.appId}</code></span>}
+              {can('admin') && <Link href="/settings/clover-app" className="font-semibold text-ink-2 underline-offset-4 hover:underline">{t('Fiche App Market et soumission →', 'App Market listing and submission →')}</Link>}
+            </div>
             {data.clover.app.legal && (
               <div className="mt-2 grid grid-cols-1 gap-x-5 lg:grid-cols-3">
                 <UrlRow label={t('Politique de confidentialité', 'Privacy policy')} value={data.clover.app.legal.privacy} />

@@ -1,5 +1,17 @@
 # Release notes
 
+## Clover App Market launch (branch clover-marketplace-launch, 2026-10-07)
+
+- **Opening the app from Clover always works**: without a code, Food Hub asks Clover for one (`/oauth/v2/authorize`,
+  signed launch state) instead of showing an error. The welcome page is a French/English wizard pre-filled from the
+  merchant's own Clover (read-only), with the 3 set-up steps and **Send a test order** (created, printed and paid in
+  Clover, never stored in Food Hub). You are alerted when a merchant waits for approval.
+- **Settings → Clover app**: the submission checklist, every address and text with a Copy button. Go-live: Clover
+  needs a connected merchant, the Order Relay counts for a platform, your own HTTPS domain is checked.
+- Support page with hours, phone and FAQ; privacy adds cookies and US merchants; terms: fees only through Clover.
+- Clover 429s are retried; `billing_info` is read; the Supabase URL is read at run time; `SESSION_SECRET` is
+  generated in production; media volume in the Docker image. Details: [CLOVER_MARKETPLACE_LAUNCH.md](CLOVER_MARKETPLACE_LAUNCH.md).
+
 ## 1.5.9 — nothing typed is lost, help on every screen, promotions in Clover (2026-10-06)
 
 ### Every settings screen saves by itself

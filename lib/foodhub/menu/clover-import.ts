@@ -10,7 +10,8 @@
 //  - Platform prices: the chosen menu's prices become the platform prices. When most of them are the in-store price
 //    plus one percentage (DoorDash menu = Clover × 1.20), Food Hub keeps the in-store price and a +20 % markup, with a
 //    per-item price only where the menu differs — so a Clover price change flows to the platforms by itself.
-import { fromCents, timedFetch } from '../config';
+import { fromCents } from '../config';
+import { cloverFetch } from '../pos/clover-http';
 import type { Marketplace, MasterMenu, MenuCategory, MenuItem, MenuModifierGroup } from '../types';
 import { withMarkup } from './translate';
 
@@ -22,7 +23,7 @@ const CLOVER_STATIC = 'https://cloverstatic.com/menu-assets/items/';
 
 async function get(base: string, mid: string, token: string, path: string, qs: Record<string, string> = {}): Promise<any> {
   const q = new URLSearchParams(qs);
-  const res = await timedFetch(`${base}/v3/merchants/${encodeURIComponent(mid)}/${path}${q.toString() ? `?${q}` : ''}`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+  const res = await cloverFetch(`${base}/v3/merchants/${encodeURIComponent(mid)}/${path}${q.toString() ? `?${q}` : ''}`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
   if (!res.ok) throw Object.assign(new Error(`Clover ${path.split('?')[0]} HTTP ${res.status}`), { status: res.status });
   return res.json();
 }

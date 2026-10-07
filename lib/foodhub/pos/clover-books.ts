@@ -9,7 +9,8 @@
 //   POST     /v3/merchants/{mId}/orders/{orderId}/payments
 //            { amount, taxAmount, tipAmount, tender: { id }, externalPaymentId, result: "SUCCESS" }
 //            ("references external tenders and logs them for bookkeeping purposes")
-import { CHANNEL_LABELS, timedFetch, toCents } from '../config';
+import { CHANNEL_LABELS, toCents } from '../config';
+import { cloverFetch } from './clover-http';
 import { getRepo } from '../repo';
 import type { ChannelKey, StoredOrder } from '../types';
 import { cloverBaseUrl, cloverToken } from './clover';
@@ -36,7 +37,7 @@ export function platformLabel(channel: ChannelKey) {
 async function cloverJson(mid: string, path: string, init: RequestInit = {}): Promise<{ ok: boolean; status: number; json: any }> {
   const token = await cloverToken(mid);
   if (!token) return { ok: false, status: 0, json: { message: `No Clover API token for merchant ${mid}` } };
-  const res = await timedFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}${path}`, {
+  const res = await cloverFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}${path}`, {
     ...init,
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json', ...(init.headers || {}) },
   });
@@ -77,6 +78,27 @@ async function ensureLabeled(mid: string, kind: 'tenders' | 'orderTypes', label:
 export async function cloverOrderTypeFor(mid: string | null | undefined, channel: ChannelKey): Promise<string | null> {
   if (!mid || !cloverOrderTypesEnabled()) return null;
   try { return await ensureLabeled(mid, 'orderTypes', platformLabel(channel)); } catch { return null; }
+}
+
+/** The platform's tender in this merchant's Clover (found by label, or created once). */
+export async function cloverTenderFor(mid: string, channel: ChannelKey): Promise<string | null> {
+  try { return await ensureLabeled(mid, 'tenders', platformLabel(channel)); } catch { return null; }
+}
+
+/** Clover's own total for an order, in cents (null when Clover does not say). */
+export async function cloverOrderTotalCents(mid: string, posOrderId: string): Promise<number | null> {
+  const total = Number((await cloverJson(mid, `/orders/${encodeURIComponent(posOrderId)}`)).json?.total);
+  return Number.isFinite(total) && total > 0 ? total : null;
+}
+
+/** Records a payment (custom tender) on a Clover order: amounts in cents. */
+export async function postCloverPayment(mid: string, posOrderId: string, p: { amount: number; taxAmount: number; tenderId: string; externalPaymentId: string }): Promise<BookResult> {
+  const res = await cloverJson(mid, `/orders/${encodeURIComponent(posOrderId)}/payments`, {
+    method: 'POST',
+    body: JSON.stringify({ amount: p.amount, taxAmount: p.taxAmount, tipAmount: 0, tender: { id: p.tenderId }, externalPaymentId: p.externalPaymentId, result: 'SUCCESS' }),
+  });
+  if (!res.ok || !res.json?.id) return { ok: false, error: `Clover payment HTTP ${res.status}: ${JSON.stringify(res.json).slice(0, 200)}` };
+  return { ok: true, paymentId: String(res.json.id), amount: p.amount / 100 };
 }
 
 export type BookResult = { ok: true; paymentId: string; amount: number } | { ok: false; skipped?: boolean; error: string };

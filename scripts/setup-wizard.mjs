@@ -40,7 +40,7 @@ const sections = [
     ['SUPABASE_SERVICE_ROLE_KEY', 'service_role key (keep secret)'],
   ]],
   ['SIGN-IN (everyone signs in with a 6-digit code by email or SMS — no passwords to remember)', [
-    ['FOODHUB_PUBLIC_URL', 'Public URL of your deployment, e.g. https://takatak-foodhub.vercel.app (sign-in links + webhook URLs)'],
+    ['FOODHUB_PUBLIC_URL', 'Public https URL of your deployment, your own domain, e.g. https://foodhub.takatak.ca (sign-in links, webhook URLs, Clover Site URL)'],
     ['FOODHUB_OWNER_EMAIL', 'YOUR email — the first owner account can only be created with it (or with the recovery password)'],
     ['FOODHUB_OWNER_PHONE', 'Optional: YOUR cell, e.g. 514 555 0123 (same purpose, by SMS)'],
     ['DASHBOARD_PASSWORD', 'Recovery password — only for emergencies ("Sign in with the recovery password"). Type it yourself, never in chat'],
@@ -76,7 +76,8 @@ const sections = [
   ]],
   ['PUBLIC PAGES (privacy policy, terms, support — the URLs you give the Clover App Market)', [
     ['FOODHUB_SUPPORT_EMAIL', 'Support email shown on /legal/support, /legal/privacy and /legal/terms'],
-    ['FOODHUB_SUPPORT_PHONE', 'Optional: support phone number'],
+    ['FOODHUB_SUPPORT_PHONE', 'Support phone number (the Clover App Market listing requires one)'],
+    ['FOODHUB_SUPPORT_HOURS', 'Optional: support hours (default: Lun–ven 9 h – 17 h (HE) / Mon–Fri 9 am – 5 pm ET)'],
     ['FOODHUB_PRIVACY_OFFICER', 'Optional: name and title of the person responsible for personal information (Québec Law 25) — default: the highest authority of the company'],
   ]],
   ['UBER EATS DIRECT (developer.uber.com → your app → needs eats.order + eats.store scopes approved)', [
@@ -147,7 +148,7 @@ const order = [
   'UBER_BASE_URL','UBER_CLIENT_ID','UBER_CLIENT_SECRET','UBER_WEBHOOK_SIGNING_KEY','UBER_WEBHOOK_SIGNING_KEY_2','UBER_ACCESS_TOKEN','UBER_REPORT_SCOPE',
   'SKIP_JET_API_KEY','SKIP_JET_BASE_URL','SKIP_WEBHOOK_HMAC_SECRET','SKIP_WEBHOOK_API_KEY','FOODHUB_TIMEZONE',
   'TGTG_WEBHOOK_SECRET','FOODHUB_AUTO_COMPLETE_MIN','FOODHUB_SCHEDULED_AFTER_MIN',
-  'FOODHUB_SUPPORT_EMAIL','FOODHUB_SUPPORT_PHONE','FOODHUB_PRIVACY_OFFICER','FOODHUB_LEGAL_COMPANY','FOODHUB_LEGAL_ADDRESS','FOODHUB_LEGAL_UPDATED','FOODHUB_LEGAL_APPROVED',
+  'FOODHUB_SUPPORT_EMAIL','FOODHUB_SUPPORT_PHONE','FOODHUB_SUPPORT_HOURS','FOODHUB_PRIVACY_OFFICER','FOODHUB_LEGAL_COMPANY','FOODHUB_LEGAL_ADDRESS','FOODHUB_LEGAL_UPDATED','FOODHUB_LEGAL_APPROVED',
 ];
 const keys = [...new Set([...order, ...Object.keys(values)])];
 const out = keys.filter(k => values[k] !== undefined).map(k => `${k}=${values[k]}`).join('\n') + '\n';

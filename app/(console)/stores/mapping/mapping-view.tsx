@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Link2, Pencil, Plus, Radar, Trash2 } from 'lucide-react';
+import { Link2, Lock, Pencil, Plus, Radar, Trash2 } from 'lucide-react';
 import { Badge, PlatformMark, PlatformTag, platformOf } from '@/components/ui/badge';
 import { Button, buttonClass } from '@/components/ui/button';
 import { Banner, Card, CardHeader, EmptyState, PageHeader } from '@/components/ui/card';
@@ -20,9 +20,12 @@ import { formDraftId, useFormDraft } from '@/lib/ui/use-form-draft';
 import { useI18n } from '@/lib/i18n/client';
 import type { ChannelStore } from '@/lib/foodhub/types';
 
-type Form = { id?: string; channel: string; channelStoreId: string; brandName: string; locationCode: string; cloverMerchantId: string; autoAccept: boolean };
+type Form = { id?: string; channel: string; channelStoreId: string; brandName: string; locationCode: string; cloverMerchantId: string; autoAccept: boolean; platformStoreId?: string; menuLocked?: boolean; menuLockedReason?: string };
+/** Whether Food Hub may change this store's menu (menu/lock.ts): built-in and environment locks cannot be lifted here. */
+type MenuLock = { locked: boolean; source?: 'built_in' | 'env' | 'store'; reason?: string };
+type StoreRow = ChannelStore & { menuLock?: MenuLock };
 /** The link form being shown: its draft id (one per store, per discovered Uber store, or 'new') and starting values. */
-type OpenForm = { draftId: string; initial: Form };
+type OpenForm = { draftId: string; initial: Form; lock?: MenuLock };
 type Pick = { storeId: string; name: string; address?: string; brandName: string; locationCode: string; include: boolean };
 type Known = { channel: string; storeId: string; name: string; address: string | null; suggestedBrand: string | null; suggestedLocation: string | null; confirmedByPlatform: boolean; mapped: { id: string; brandName: string; locationCode: string } | null };
 
@@ -31,7 +34,7 @@ export function MappingView() {
   const { locations, brands, locName } = useViewer();
   const params = useSearchParams();
   const toast = useToast();
-  const [stores, setStores] = useState<ChannelStore[] | null>(null);
+  const [stores, setStores] = useState<StoreRow[] | null>(null);
   const [form, setForm] = useState<OpenForm | null>(null);
   /** Stores disconnected less than 6 s ago: hidden, and only removed on the server once "Undo" is no longer offered. */
   const [leaving, setLeaving] = useState<string[]>([]);
@@ -44,7 +47,7 @@ export function MappingView() {
 
   const load = useCallback(() => {
     api<{ stores: Known[] }>('/api/foodhub/stores/known').then((d) => setKnown(d.stores.map((k) => ({ ...k, brandName: k.suggestedBrand ?? '', locationCode: k.suggestedLocation ?? '' })))).catch(() => undefined);
-    return api<{ stores: ChannelStore[] }>('/api/foodhub/stores').then((d) => setStores(d.stores)).catch((e) => toast.error(e.message));
+    return api<{ stores: StoreRow[] }>('/api/foodhub/stores').then((d) => setStores(d.stores)).catch((e) => toast.error(e.message));
   }, [toast]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
@@ -64,7 +67,7 @@ export function MappingView() {
    * Disconnect without an "are you sure?": the row goes away at once with 6 s to take it back, and the store is only
    * removed on the server when that window closes (until then its orders keep flowing as before).
    */
-  function remove(s: ChannelStore) {
+  function remove(s: StoreRow) {
     const name = `${s.brandName} · ${platformOf(s.channel).label}`;
     const back = () => setLeaving((l) => l.filter((x) => x !== s.id));
     setLeaving((l) => [...l, s.id]);
@@ -179,12 +182,16 @@ export function MappingView() {
                     <Td className="font-semibold">{s.brandName}</Td>
                     <Td><PlatformTag channel={s.channel} /></Td>
                     <Td className="text-ink-2">{shortLoc(locName(s.locationCode))}</Td>
-                    <Td className="max-w-48 truncate font-mono text-xs" title={s.channelStoreId}>{s.channelStoreId}</Td>
+                    <Td className="max-w-48 font-mono text-xs" title={s.channelStoreId}>
+                      <div className="truncate">{s.channelStoreId}</div>
+                      {s.meta?.platformStoreId ? <div className="truncate text-[11px] text-ink-3">#{String(s.meta.platformStoreId)}</div> : null}
+                      {s.menuLock?.locked && <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-wait/15 px-2 py-0.5 font-sans text-[11px] font-bold text-wait-2" title={s.menuLock.reason}><Lock className="size-3" />{t('Menu verrouillé', 'Menu locked')}</span>}
+                    </Td>
                     <Td className="font-mono text-xs text-ink-3">{s.cloverMerchantId || t('par défaut', 'default')}</Td>
                     <Td>{s.autoAccept ? '✓' : '—'}</Td>
                     <Td><Badge tone={st.tone}>{stateText(t, st.state)}</Badge></Td>
                     <Td className="whitespace-nowrap text-right">
-                      <button type="button" className="inline-flex size-11 items-center justify-center rounded-md text-ink-3 hover:bg-sunken hover:text-ink" onClick={() => setForm({ draftId: formDraftId('store-link', s.id), initial: { id: s.id, channel: s.channel, channelStoreId: s.channelStoreId, brandName: s.brandName, locationCode: s.locationCode, cloverMerchantId: s.cloverMerchantId ?? '', autoAccept: s.autoAccept } })} aria-label={t('Modifier', 'Edit')}><Pencil className="size-4" /></button>
+                      <button type="button" className="inline-flex size-11 items-center justify-center rounded-md text-ink-3 hover:bg-sunken hover:text-ink" onClick={() => setForm({ draftId: formDraftId('store-link', s.id), initial: { id: s.id, channel: s.channel, channelStoreId: s.channelStoreId, brandName: s.brandName, locationCode: s.locationCode, cloverMerchantId: s.cloverMerchantId ?? '', autoAccept: s.autoAccept, platformStoreId: typeof s.meta?.platformStoreId === 'string' ? s.meta.platformStoreId : '', menuLocked: Boolean(s.menuLock?.locked), menuLockedReason: typeof s.meta?.menuLockedReason === 'string' ? s.meta.menuLockedReason : '' }, lock: s.menuLock })} aria-label={t('Modifier', 'Edit')}><Pencil className="size-4" /></button>
                       <Hint id="mapping.disconnect"><button type="button" className="inline-flex size-11 items-center justify-center rounded-md text-ink-3 hover:bg-sunken hover:text-stop" onClick={() => remove(s)} aria-label={t('Débrancher', 'Disconnect')}><Trash2 className="size-4" /></button></Hint>
                     </Td>
                   </Tr>
@@ -195,7 +202,7 @@ export function MappingView() {
         )}
       </Card>
 
-      {form && <StoreLinkForm key={form.draftId} draftId={form.draftId} initial={form.initial} onClose={() => setForm(null)} onSaved={() => { setForm(null); load(); }} />}
+      {form && <StoreLinkForm key={form.draftId} draftId={form.draftId} initial={form.initial} lock={form.lock} onClose={() => setForm(null)} onSaved={() => { setForm(null); load(); }} />}
     </div>
   );
 }
@@ -204,7 +211,7 @@ export function MappingView() {
  * Connect a store / edit a connection. What is typed is kept on this tablet (closing by mistake, a reload or a crash
  * loses nothing) and only sent by the form's own button; a successful save forgets the draft.
  */
-function StoreLinkForm({ draftId, initial, onClose, onSaved }: { draftId: string; initial: Form; onClose: () => void; onSaved: () => void }) {
+function StoreLinkForm({ draftId, initial, lock, onClose, onSaved }: { draftId: string; initial: Form; lock?: MenuLock; onClose: () => void; onSaved: () => void }) {
   const { t } = useI18n();
   const { viewer, locations, brands } = useViewer();
   const toast = useToast();
@@ -212,6 +219,8 @@ function StoreLinkForm({ draftId, initial, onClose, onSaved }: { draftId: string
   const form = draft.value;
   const setForm = draft.set;
   const [saving, setSaving] = useState(false);
+  // Built-in / environment locks are shown, never offered as a switch (the server refuses to lift them anyway).
+  const fixedLock = Boolean(lock?.locked && lock.source !== 'store');
 
   const ID_HINT: Record<string, string> = {
     uber_eats: t('UUID du magasin Uber (utilisez « Découvrir »)', 'Uber store UUID (use “Discover”)'),
@@ -227,7 +236,7 @@ function StoreLinkForm({ draftId, initial, onClose, onSaved }: { draftId: string
   }
   async function save() {
     setSaving(true);
-    try { await api('/api/foodhub/stores', { method: 'POST', json: form }); draft.clear(); toast.success(t('Magasin branché', 'Store connected')); onSaved(); }
+    try { await api('/api/foodhub/stores', { method: 'POST', json: fixedLock ? { ...form, menuLocked: undefined } : form }); draft.clear(); toast.success(t('Magasin branché', 'Store connected')); onSaved(); }
     catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setSaving(false); }
   }
 
@@ -244,6 +253,13 @@ function StoreLinkForm({ draftId, initial, onClose, onSaved }: { draftId: string
         </div>
         <Field label={t('Marchand Clover (optionnel)', 'Clover merchant (optional)')} hint={t('Vide = marchand par défaut (CLOVER_MERCHANT_ID).', 'Empty = default merchant (CLOVER_MERCHANT_ID).')}><Input value={form.cloverMerchantId} onChange={(e) => setForm({ ...form, cloverMerchantId: e.target.value })} className="font-mono" /></Field>
         <Hint id="mapping.autoaccept"><Switch checked={form.autoAccept} onChange={(v) => setForm({ ...form, autoAccept: v })} label={t('Accepter automatiquement', 'Accept automatically')} description={t('Seulement si Clover a bien reçu la commande. La cuisine doit quand même appuyer sur « Vu ».', 'Only when Clover received the order. The kitchen still taps “Seen”.')} /></Hint>
+        <Field label={t('Numéro du magasin chez la plateforme (optionnel)', 'Platform store number (optional)')} hint={t('Ex. le numéro de magasin DoorDash (différent du merchant_supplied_id). Sert à reconnaître le magasin, p. ex. pour le verrou du menu.', 'E.g. the DoorDash store number (not the merchant_supplied_id). Used to recognise the store, e.g. for the menu lock.')}><Input value={form.platformStoreId ?? ''} onChange={(e) => setForm({ ...form, platformStoreId: e.target.value })} className="font-mono" inputMode="numeric" /></Field>
+        {fixedLock
+          ? <Banner tone="warn"><strong className="inline-flex items-center gap-1"><Lock className="size-4" />{t('Menu verrouillé en permanence', 'Menu locked for good')}</strong> — {t('Food Hub ne change jamais le menu de ce magasin (publication, rupture, retour en stock). Les commandes et les pauses fonctionnent normalement.', 'Food Hub never changes this store’s menu (publish, 86, back in stock). Orders and pauses work as usual.')} <span className="text-ink-3">{lock?.reason}</span></Banner>
+          : <>
+            <Switch checked={Boolean(form.menuLocked)} onChange={(v) => setForm({ ...form, menuLocked: v })} label={t('Ne jamais changer le menu de ce magasin', 'Never change this store’s menu')} description={t('Aucune publication, aucune rupture (86) et aucun retour en stock n’est envoyé — ni par l’équipe, ni par Clover, ni par une minuterie. Les commandes et les pauses fonctionnent normalement.', 'No publish, no 86 and no back-in-stock is ever sent — not by staff, Clover or a timer. Orders and pauses work as usual.')} />
+            {form.menuLocked && <Field label={t('Pourquoi (optionnel)', 'Why (optional)')}><Input value={form.menuLockedReason ?? ''} onChange={(e) => setForm({ ...form, menuLockedReason: e.target.value })} maxLength={200} /></Field>}
+          </>}
         {form.channel === 'tgtg' && <Banner tone="info">{t('Too Good To Go n’a pas d’API publique : TAKATAK reçoit seulement ce que TGTG envoie.', 'Too Good To Go has no public API: TAKATAK only receives what TGTG sends.')}</Banner>}
       </div>
     </Modal>

@@ -6,7 +6,6 @@
 // A switch only makes the feature visible and usable inside Food Hub. Anything that reaches a platform still needs that
 // platform's own credentials and, in production, LIVE_CONNECTORS_GLOBAL_ENABLED=true (see each feature's readiness).
 import { logActivity, type Actor } from '../activity';
-import { UserError } from '../auth';
 import { getRepo } from '../repo';
 
 export const FEATURE_KEYS = ['delivery', 'retail', 'alcohol', 'phone'] as const;
@@ -85,7 +84,7 @@ export async function setFeature(key: FeatureKey, on: boolean, actor: Actor): Pr
   return getFeatures();
 }
 
-/** For route handlers: a clear refusal when the feature is off. */
+/** For route handlers: a clear refusal when the feature is off (a plain Error's message is shown to the person). */
 export async function requireFeature(key: FeatureKey): Promise<void> {
-  if (!(await featureOn(key))) throw new UserError(`${FEATURE_LABELS[key].en} is turned off — the owner turns it on in Settings → Expansion.`);
+  if (!(await featureOn(key))) throw new Error(`${FEATURE_LABELS[key].en} is turned off — the owner turns it on in Settings → Expansion.`);
 }

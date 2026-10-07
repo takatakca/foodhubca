@@ -12,7 +12,9 @@
 // orders, payouts & reconciliation (Uber Reporting API, DoorDash/Skip statements, disputes, deposits,
 // internal ledger), Too Good To Go bag log, French menus and the installable kitchen app — and RC10: sign-in by
 // code or one-tap link (email via Resend, SMS via Twilio), kitchen tablets with staff PINs, manager approvals,
-// the cancellation alarm and the Watchtower (incidents, kitchen-phone call, SMS / call / chat tests, copilot).
+// the cancellation alarm and the Watchtower (incidents, kitchen-phone call, SMS / call / chat tests, copilot) — and the
+// go-live layer: the Food Hub Order Relay (partner feed → Clover → kitchen, statuses back to the partner's callback),
+// one menu shared by several brands, and the public health check for an outside uptime monitor.
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -32,6 +34,8 @@ const SKIP_HMAC = 'skip-hmac-secret-e2e';
 const SKIP_NOTIFY_KEY = 'skip-notify-key-e2e';
 const CLOVER_TOKEN = 'clover-token-e2e';
 const CLOVER_APP_TOKEN = 'clover-app-token-e2e';
+const RELAY_SECRET = 'relay-secret-e2e-0123456789abcdef';
+const RELAY_CB_TOKEN = 'relay-callback-token-e2e';
 const DEMO = process.argv.includes('--demo');
 
 const log = [];
@@ -220,6 +224,8 @@ const mock = http.createServer(async (req, res) => {
   }
   // ---- team chat incoming webhook (Slack / Teams / Google Chat) ----
   if (p === '/chat') return send(200, { ok: true });
+  // ---- Food Hub Order Relay partner: status callback (Acknowledged / Food Ready / Cancelled), bearer token ----
+  if (p === '/relay/callback') return req.headers.authorization === `Bearer ${RELAY_CB_TOKEN}` ? send(200, { status: 'success' }) : send(401, { message: 'bad token' });
   send(404, {});
 });
 
@@ -286,6 +292,18 @@ async function uberWebhook(orderId) {
   const raw = JSON.stringify({ event_type: 'orders.notification', event_id: `evt-${orderId}`, meta: { resource_id: orderId, status: 'pos', user_id: 'uber-store-uuid-1' }, resource_href: `${MOCK}/uber/v2/eats/order/${orderId}` });
   return call('POST', '/api/foodhub/webhooks/uber-eats', { auth: false, raw, headers: { 'x-uber-signature': crypto.createHmac('sha256', UBER_SECRET).update(raw).digest('hex') } });
 }
+// Food Hub Order Relay: the partner posts to ?token=<FOODHUB_RELAY_SECRET> (UrbanPiper-compatible "Order Relay" shapes).
+const relayHook = (body, token = RELAY_SECRET) => call('POST', `/api/foodhub/webhooks/relay${token ? `?token=${encodeURIComponent(token)}` : ''}`, { auth: false, body });
+const relayOrder = (id, channel = 'Too Good To Go', storeRef = 'tgtg-partner-77') => ({
+  customer: { name: 'Julie T.', phone: '5145550123' },
+  order: {
+    details: { id, channel, created: Date.now() - 30_000, order_type: 'pickup', order_subtotal: 11.98, total_taxes: 0, total_charges: 0, discount: 0, order_total: 11.98,
+      instructions: 'Sac réutilisable', brand: { name: 'Po Poulet' }, ext_platforms: [{ id: `TGTG-${id}`, kind: 'food_aggregator', name: channel }] },
+    items: [{ id: 1, title: 'Panier surprise', price: 5.99, quantity: 2, total: 11.98 }],
+    store: { id: 77, merchant_ref_id: storeRef, name: 'TGTG NDG' },
+  },
+});
+const relayStatus = (id, state, message) => ({ order_id: id, new_state: state, ...(message ? { message } : {}), additional_info: { external_channel: { name: 'Too Good To Go', order_id: `TGTG-${id}` } } });
 
 // ---------------- run ----------------
 await new Promise((r) => mock.listen(MOCK_PORT, '127.0.0.1', r));
@@ -305,6 +323,8 @@ const env = {
   DOORDASH_BASE_URL: `${MOCK}/dd`, DOORDASH_DEVELOPER_ID: 'dd-dev-e2e', DOORDASH_KEY_ID: 'dd-key-e2e', DOORDASH_SIGNING_SECRET: DD_SECRET_B64, DOORDASH_PROVIDER_TYPE: 'takatak_e2e', DOORDASH_WEBHOOK_SECRET: 'dd-hook-e2e',
   SKIP_JET_BASE_URL: `${MOCK}/skip`, SKIP_JET_API_KEY: JET_API_KEY, SKIP_WEBHOOK_HMAC_SECRET: SKIP_HMAC, SKIP_WEBHOOK_API_KEY: SKIP_NOTIFY_KEY,
   TGTG_WEBHOOK_SECRET: 'tgtg-hook-e2e',
+  // Order Relay: TGTG only (Skip, DoorDash and Uber come in directly — taking them here too would make two orders).
+  FOODHUB_RELAY_SECRET: RELAY_SECRET, FOODHUB_RELAY_CHANNELS: 'tgtg', FOODHUB_RELAY_CALLBACK_URL: `${MOCK}/relay/callback`, FOODHUB_RELAY_CALLBACK_TOKEN: RELAY_CB_TOKEN,
   CLOVER_BASE_URL: `${MOCK}/clover`, CLOVER_MERCHANT_ID: 'MAINMERCHANT', CLOVER_ACCESS_TOKEN: CLOVER_TOKEN,
   CLOVER_MERCHANT_TOKENS: JSON.stringify({ FAILMERCHANT: 'x' }), CLOVER_WEBHOOK_AUTH: 'clover-auth-e2e',
   CLOVER_CLIENT_ID: 'CLVAPPE2E', CLOVER_CLIENT_SECRET: 'clover-app-secret-e2e', CLOVER_WEB_URL: 'https://www.clover.com',
@@ -1250,6 +1270,95 @@ try {
   check('re-check: every item now prints in the kitchen', (await call('GET', '/api/foodhub/clover-labels?merchantId=MAINMERCHANT')).json?.report?.unprintedCount === 0);
   check('unknown merchant refused', (await call('GET', '/api/foodhub/clover-labels?merchantId=NOPE')).status === 404);
   check('Clover tax check flags "Sales Tax" 0.14975 % (should be 14.975 %), read-only', lab?.taxes?.ok === true && /14\.975%/.test(lab.taxes.problems?.[0] || '') && !log.some((e) => /tax_rates/.test(e.path) && e.method !== 'GET'), JSON.stringify(lab?.taxes));
+
+  console.log('\n41. Food Hub Order Relay (partner feed → Clover → kitchen; statuses back to the partner)');
+  const relayCallbacks = (hubId) => sent('POST', /^\/relay\/callback$/).filter((e) => e.body?.order_id === hubId);
+  const ndgKitchen = async () => (await call('GET', '/api/foodhub/orders?status=new,accepted,ready,dispatched&locations=NDG_MAIN&limit=400')).json?.orders || [];
+  check('relay refuses a wrong or a missing token (401)', (await relayHook(relayOrder('880000'), 'wrong-token')).status === 401 && (await relayHook(relayOrder('880000'), '')).status === 401);
+  const relCh = (await call('GET', '/api/foodhub/channels')).json?.relay;
+  const relRev = (await call('GET', '/api/foodhub/channels?reveal=1')).json?.relay;
+  check('Channels shows the relay address with its token hidden ("Show secrets" reveals it), callback set, TGTG only', relCh?.webhookReady === true && relCh.callbackReady === true && JSON.stringify(relCh.channels) === '["tgtg"]' && relCh.webhookUrl === 'https://takatak.example/api/foodhub/webhooks/relay?token=••••••••' && relRev?.webhookUrl === `https://takatak.example/api/foodhub/webhooks/relay?token=${RELAY_SECRET}`, JSON.stringify(relCh));
+  ids.relay = await mk({ channel: 'tgtg', channelStoreId: 'relay:tgtg-partner-77', brandName: 'Po Poulet', locationCode: 'NDG_MAIN' });
+  check('partner store mapped as "relay:<partner store id>" through the stores API', ids.relay?.channelStoreId === 'relay:tgtg-partner-77');
+  const b41 = log.length;
+  const r41 = await relayHook(relayOrder('880001'));
+  check('TGTG order pushed to the relay → saved before the 200, Food Hub reference returned', r41.status === 200 && r41.json?.order_ref_id === 'relay-880001', JSON.stringify(r41.json));
+  const o41 = await waitFor(async () => { const o = await findOrder('relay-880001'); return o?.status === 'accepted' && o.posOrderId ? o : null; });
+  check('relay order read as Too Good To Go, routed by its "relay:" mapping to Po Poulet · NDG, auto-accepted', o41?.channel === 'tgtg' && o41.viaHub === 'relay' && o41.brandName === 'Po Poulet' && o41.locationCode === 'NDG_MAIN' && o41.total === 11.98 && o41.displayId === 'TGTG-880001', JSON.stringify(o41 && { ch: o41.channel, via: o41.viaHub, b: o41.brandName, l: o41.locationCode, t: o41.total, d: o41.displayId }));
+  const atomic41 = log.slice(b41).filter((e) => isAtomic(e) && /TGTG-880001/.test(e.body?.orderCart?.title || ''));
+  const cart41 = atomic41[0]?.body?.orderCart;
+  check('in Clover: one order, 2 × Panier surprise at 5.99 $, with the "Too Good To Go" order type', atomic41.length === 1 && cloverOrderTotals.has(o41?.posOrderId) && cart41?.lineItems?.length === 2 && cart41.lineItems.every((l) => l.name === 'Panier surprise' && l.price === 599) && cart41.orderType?.id === cloverOrderTypes.find((t) => t.label === 'Too Good To Go')?.id, JSON.stringify(cart41));
+  check('kitchen ticket printed on Clover and the order is on the NDG kitchen screen', !!(await waitFor(async () => (await findOrder('relay-880001'))?.timeline?.printedAt)) && prints().some((e) => e.body?.orderRef?.id === o41?.posOrderId) && (await ndgKitchen()).some((o) => o.id === o41?.id));
+  const ack41 = relayCallbacks('880001');
+  check('accept posted to the partner callback ({ new_status: "Acknowledged" }, bearer token) — only after Clover had the order', ack41.length === 1 && ack41[0].body.new_status === 'Acknowledged' && ack41[0].body.channel === 'tgtg' && ack41[0].headers.authorization === `Bearer ${RELAY_CB_TOKEN}` && log.indexOf(ack41[0]) > log.indexOf(atomic41[0]), JSON.stringify(ack41.map((e) => e.body)));
+  check('order history says the accept really reached the partner (done)', ((await call('GET', `/api/foodhub/orders/${o41?.id}`)).json?.events || []).some((e) => e.type === 'accepted' && e.detail?.response?.status === 'done'));
+  await relayHook(relayOrder('880001'));
+  await sleep(800);
+  check('the same relay order delivered twice → one order, one Clover order, one "Acknowledged"', log.slice(b41).filter((e) => isAtomic(e) && /TGTG-880001/.test(e.body?.orderCart?.title || '')).length === 1 && relayCallbacks('880001').length === 1 && ((await call('GET', '/api/foodhub/orders?limit=500')).json?.orders || []).filter((o) => o.externalOrderId === 'relay-880001').length === 1);
+  const ig41 = await relayHook({ partner: 'ping', note: 'relay-e2e-unknown-shape' });
+  const sk41 = await relayHook(relayOrder('880002', 'SkipTheDishes'));
+  const unp41 = await waitFor(async () => {
+    const u = (await call('GET', '/api/foodhub/channels')).json?.unparsed || [];
+    const shape = u.find((j) => JSON.stringify(j.request).includes('relay-e2e-unknown-shape'));
+    const skip = u.find((j) => j.channel === 'skip' && j.reference === '880002');
+    return shape && skip ? { shape, skip } : null;
+  });
+  check('unknown relay payload answered 200 and kept under Unparsed payloads (never dropped)', ig41.status === 200 && ig41.json?.stored === 'unparsed' && !!unp41?.shape, JSON.stringify(ig41.json));
+  check('a Skip order through the relay (Skip comes in directly) is not taken a second time: kept as unparsed, no order', sk41.status === 200 && /FOODHUB_RELAY_CHANNELS/.test(sk41.json?.ignored || '') && !!unp41?.skip && !(await findOrder('relay-880002')), JSON.stringify(sk41.json));
+  const c41 = await relayHook(relayStatus('880001', 'Cancelled', 'Customer cancelled in the partner app'));
+  const oc41 = await waitFor(async () => { const o = await findOrder('relay-880001'); return o?.status === 'cancelled' ? o : null; });
+  check('partner status "Cancelled" → order cancelled (by the customer), removed from Clover, off the kitchen screen', c41.status === 200 && oc41?.timeline?.cancelledBy === 'customer' && !!(await waitFor(async () => sent('DELETE', new RegExp(`/orders/${o41?.posOrderId}$`)).length === 1)) && !(await ndgKitchen()).some((o) => o.id === o41?.id), JSON.stringify(oc41?.timeline));
+  check('nothing is posted back to the partner for its own cancellation', !relayCallbacks('880001').some((e) => e.body.new_status === 'Cancelled'));
+  const late41 = await relayHook(relayStatus('880001', 'Acknowledged'));
+  const ign41 = await waitFor(async () => ((await call('GET', `/api/foodhub/orders/${o41?.id}`)).json?.events || []).find((e) => e.type === 'platform_status_ignored' && e.detail?.state === 'Acknowledged'));
+  check('a late "Acknowledged" after the cancel does not reopen the order (kept on its history as not applied)', late41.status === 200 && !!ign41 && (await findOrder('relay-880001'))?.status === 'cancelled' && !(await ndgKitchen()).some((o) => o.id === o41?.id) && relayCallbacks('880001').length === 1);
+
+  console.log('\n42. One menu for several brands (Poulet Poulet follows Po Poulet)');
+  knownUberStores.add('uber-poulet-ndg');
+  ids.ppUber = await mk({ channel: 'uber_eats', channelStoreId: 'uber-poulet-ndg', brandName: 'Poulet Poulet', locationCode: 'NDG_MAIN' });
+  ids.ppDd = await mk({ channel: 'doordash', channelStoreId: 'dd-poulet-ndg', brandName: 'Poulet Poulet', locationCode: 'NDG_MAIN' });
+  check('Poulet Poulet mapped on Uber Eats and DoorDash at NDG', !!ids.ppUber?.id && !!ids.ppDd?.id);
+  check('a brand cannot follow a brand that has no menu yet (409)', (await call('PUT', '/api/foodhub/menu/sharing', { body: { sharing: { 'Poulet Poulet': 'Pi Pita' } } })).status === 409);
+  const sh42 = await call('PUT', '/api/foodhub/menu/sharing', { body: { sharing: { 'Poulet Poulet': 'Po Poulet' } } });
+  check('sharing saved: Poulet Poulet uses the Po Poulet menu, and is listed to publish', sh42.json?.sharing?.['Poulet Poulet'] === 'Po Poulet' && JSON.stringify(sh42.json.publish) === '["Poulet Poulet"]' && (await call('GET', '/api/foodhub/menu/sharing')).json?.sharing?.['Poulet Poulet'] === 'Po Poulet', JSON.stringify(sh42.json));
+  const src42 = (await call('GET', '/api/foodhub/menu?brand=Po%20Poulet')).json;
+  const fol42 = (await call('GET', '/api/foodhub/menu?brand=Poulet%20Poulet')).json;
+  const refs42 = src42?.menu?.items?.map((i) => i.ref) || [];
+  check('GET menu?brand=Poulet Poulet → sharedFrom Po Poulet, the same items under its own name; Po Poulet lists who shares it', fol42?.sharedFrom === 'Po Poulet' && fol42.menu?.brandName === 'Poulet Poulet' && refs42.length >= 2 && JSON.stringify(fol42.menu.items.map((i) => i.ref)) === JSON.stringify(refs42) && JSON.stringify(src42.sharedWith) === '["Poulet Poulet"]', JSON.stringify({ from: fol42?.sharedFrom, with: src42?.sharedWith }));
+  const put42 = await call('PUT', '/api/foodhub/menu', { body: { menu: fol42?.menu } });
+  check('saving a menu for the follower is refused (409): the shared menu is edited on Po Poulet', put42.status === 409 && /Po Poulet/.test(put42.json?.error || ''), `${put42.status} ${put42.text.slice(0, 160)}`);
+  const b42 = log.length;
+  const pub42 = await call('POST', '/api/foodhub/menu/publish', { body: { brand: 'Poulet Poulet' } });
+  const st42 = Object.fromEntries((pub42.json?.results || []).map((r) => [r.channelStoreId, r.result.status]));
+  const pushes42 = log.slice(b42).filter((e) => (e.method === 'PUT' && /^\/uber\/v2\/eats\/stores\/[^/]+\/menus$/.test(e.path)) || /^\/dd\/api\/v1\/menus/.test(e.path) || e.path === '/skip/menus');
+  check('publishing the follower goes to its own stores only (Uber done, DoorDash queued)', st42['uber-poulet-ndg'] === 'done' && st42['dd-poulet-ndg'] === 'queued' && Object.keys(st42).length === 2 && pushes42.length === 2 && pushes42.every((e) => e.path.includes('uber-poulet-ndg') || e.body?.store?.merchant_supplied_id === 'dd-poulet-ndg'), JSON.stringify({ st42, pushes: pushes42.map((e) => e.path) }));
+  const uber42 = pushes42.find((e) => e.path.includes('uber-poulet-ndg'))?.body;
+  check('Uber Eats gets every shared item under the Poulet Poulet name', uber42?.menus?.[0]?.title?.translations?.en_ca === 'Poulet Poulet' && refs42.every((r) => uber42.items.some((i) => i.id === r)), JSON.stringify(uber42?.menus?.map((m) => m.title)));
+  const dd42 = pushes42.find((e) => e.body?.store?.merchant_supplied_id === 'dd-poulet-ndg')?.body;
+  check('DoorDash gets every shared item under the Poulet Poulet name', dd42?.menu?.name === 'Poulet Poulet' && refs42.every((r) => dd42.menu.categories.some((c) => c.items.some((i) => i.merchant_supplied_id === r))), JSON.stringify(dd42?.menu?.name));
+  const b42b = log.length;
+  const av42 = await call('POST', '/api/foodhub/availability', { body: { brand: 'Poulet Poulet', locationCode: 'NDG_MAIN', itemRefs: ['clv-item-1'], available: false, minutes: 30 } });
+  const rows42 = (av42.json?.results || []).filter((r) => r.channel !== 'tgtg');
+  const a42 = log.slice(b42b);
+  check('86 on the follower goes to the NDG stores of both brands', rows42.every((r) => r.result.ok) && ['uber-store-uuid-1', 'dd-popoulet-ndg', 'NDG-POPOULET', 'uber-poulet-ndg', 'dd-poulet-ndg'].every((sid) => rows42.some((r) => r.channelStoreId === sid)), JSON.stringify(rows42.map((r) => [r.brandName, r.channelStoreId, r.result.status])));
+  check('…and reaches them: item suspended on both Uber stores, switched off on both DoorDash stores', ['uber-store-uuid-1', 'uber-poulet-ndg'].every((sid) => a42.some((e) => e.method === 'POST' && e.path === `/uber/v2/eats/stores/${sid}/menus/items/clv-item-1` && e.body?.suspension_info?.suspension?.suspend_until > 0)) && ['dd-popoulet-ndg', 'dd-poulet-ndg'].every((sid) => a42.some((e) => e.method === 'PUT' && e.path === `/dd/api/v1/stores/${sid}/items/status` && e.body?.[0]?.merchant_supplied_id === 'clv-item-1' && e.body[0].is_active === false)));
+  const offFor = async (brand) => ((await call('GET', `/api/foodhub/menu?brand=${encodeURIComponent(brand)}`)).json?.menu?.unavailableByLocation?.NDG_MAIN || []).includes('clv-item-1');
+  check('the 86 is saved once, on the shared menu (both brands show it)', (await offFor('Po Poulet')) && (await offFor('Poulet Poulet')));
+  const b42c = log.length;
+  await call('POST', '/api/foodhub/availability', { body: { brand: 'Po Poulet', locationCode: 'NDG_MAIN', itemRefs: ['clv-item-1'], available: true } });
+  check('back on from Po Poulet → back on for both brands', ['dd-popoulet-ndg', 'dd-poulet-ndg'].every((sid) => log.slice(b42c).some((e) => e.path === `/dd/api/v1/stores/${sid}/items/status` && e.body?.[0]?.is_active === true)) && !(await offFor('Poulet Poulet')) && !(await offFor('Po Poulet')));
+
+  console.log('\n43. Health check for an outside uptime monitor (GET /api/health)');
+  const hzRes = await fetch(`${APP}/api/health`, { redirect: 'manual' });
+  const hzText = await hzRes.text();
+  let hz = null; try { hz = JSON.parse(hzText); } catch { /* checked below */ }
+  check('/api/health answers without sign-in, never cached, with only the documented fields', [200, 503].includes(hzRes.status) && /no-store/.test(hzRes.headers.get('cache-control') || '') && Object.keys(hz || {}).sort().join(',') === 'db,dbOk,lastSyncAgeSec,liveConnectors,ok,problems,version,watchAgeSec', `${hzRes.status} ${hzText.slice(0, 200)}`);
+  // This run is a production build on the in-memory store: the honest answer is 503 with that one reason (a real
+  // server on Supabase answers 200). Everything else must read healthy: database answers, sync fresh, live on.
+  const pkgVersion = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+  check('says why, and only why: in-memory store under a production build (503) — database answers, sync fresh, live on, version', hzRes.status === 503 && hz?.ok === false && JSON.stringify(hz.problems) === '["memory_mode_in_production"]' && hz.db === 'memory' && hz.dbOk === true && hz.liveConnectors === true && hz.version === pkgVersion && typeof hz.lastSyncAgeSec === 'number' && hz.lastSyncAgeSec < 1200, hzText);
+  check('no secret, store, brand, merchant or address in the public answer', ![PASSWORD, UBER_SECRET, DD_SECRET_B64, JET_API_KEY, SKIP_HMAC, SKIP_NOTIFY_KEY, CLOVER_TOKEN, RELAY_SECRET, RELAY_CB_TOKEN, 'cron-e2e', 'tw-e2e', 're_e2e', 'Po Poulet', 'NDG', 'MAINMERCHANT', 'takatak.example', MOCK].some((x) => hzText.includes(x)), hzText);
+  check('only the exact path is public (/api/health/x and /api/healthz need sign-in)', (await call('GET', '/api/health/x', { auth: false })).status === 401 && (await call('GET', '/api/healthz', { auth: false })).status === 401);
 
   await sleep(300);
   const crashes = appLog.split('\n').filter((l) => /\[foodhub\] .* failed|Unhandled|TypeError|ReferenceError/.test(l));

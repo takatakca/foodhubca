@@ -108,8 +108,10 @@ Report — **Done** (`/insights/reports`; email through Resend).
 
 ## Not built yet
 
-Combos / nested options · ratings & reviews · own-courier dispatch for phone orders (DoorDash Drive /
-Uber Direct) · single sign-on (Google / Microsoft).
+Combos / nested options · ratings & reviews · single sign-on (Google / Microsoft).
+
+Own-courier dispatch for our own orders (DoorDash Drive / Uber Direct), AI phone ordering, a grocery catalogue and
+alcohol rules are built behind switches (sandbox) — see [EXPANSION_FEATURES.md](EXPANSION_FEATURES.md).
 
 ## Not in scope (Atlas add-ons)
 

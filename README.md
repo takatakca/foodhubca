@@ -70,7 +70,8 @@ CI runs every one of these on each push and pull request (`.github/workflows/ci.
 | `/alerts` | Watchtower incidents (escalation steps, explanation, I'm on it / fixed / snooze, text the customer) and the message log |
 | `/insights` · `/insights/reports` · `/insights/activity` | Analytics · 7 reports (download, email, schedule) · who did what |
 | `/money` | Where is my money · `/reconciliation` · `/disputes` · `/payouts` · `/ledger` · `/statements` · `/fees` · `/tgtg` |
-| `/settings` | Profile and PIN · Team · Tablets · Manager PIN rules · Alerts · Platforms and Clover · Business · Go-live |
+| `/settings` | Profile and PIN · Team · Tablets · Manager PIN rules · Alerts · Platforms and Clover · Business · Expansion · Go-live |
+| `/direct` · `/direct/calls` · `/menu/retail` | **Expansion** (each behind its switch): own orders + DoorDash Drive couriers · AI phone calls · grocery catalogue — [docs/EXPANSION_FEATURES.md](docs/EXPANSION_FEATURES.md) |
 | `/ticket/{id}` | 80 mm kitchen ticket |
 
 Old RC2–RC9 addresses (`/foodhub/...`, `/finance/...`, `/go-live`, `/imports`, `/ledger`…) redirect to the new pages.

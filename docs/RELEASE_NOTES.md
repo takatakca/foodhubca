@@ -1,5 +1,117 @@
 # Release notes
 
+## Unreleased — never lose an order or miss an alarm (MASTER_PLAN Phase 1)
+
+### Orders are saved before the platform gets its answer
+- Every order route (Uber Eats, DoorDash, Skip, Too Good To Go, Order Relay) saves the order in an **inbox** before
+  answering the platform. If it cannot be saved, the platform gets a `503` (it retries; Skip and DoorDash fall back to
+  their tablet), never a "received".
+- **Crash recovery:** the sync picks up any order still waiting after 2 minutes (oldest first) and runs it again.
+  After 5 tries, or once the platform's answer window has passed (DoorDash 3 min, Skip 5, Uber 11.5 — a late Clover
+  ticket could cook it twice), the order is handed to a person instead.
+- **Replay:** Settings → Platforms & Clover lists orders that failed or got stuck, with a *Rejouer / Replay* button
+  (owner only), a warning when the platform's window has passed, and the result in the activity log. Replaying twice
+  never makes two orders.
+
+### `GET /api/health` for an outside uptime monitor
+- Public, exact path only. It shows the version, the database mode, the seconds since the last sync and the last
+  Watchtower run, and the live switch — never a key, a name, an order or a count.
+- Answers `503` when the database does not answer, the app runs in memory mode in production, the scheduled sync
+  stopped for 20+ minutes, or the console is locked. Set up the monitor with `docs/BACK_ONLINE_TODAY.md`, Part B
+  step 10.
+
+### Watchtower
+- **`sync_stale` and `menu_failed` now text** the managers on duty by default (warnings never call and stay quiet
+  during quiet hours; rules an owner already saved keep the owner's choice).
+- **`platform_silent`:** no order from Uber Eats, DoorDash or Skip for N opening minutes (Settings → Alerts, default
+  180) while one of its stores is open. Closed hours never count; relay-only, paused and closed stores are ignored;
+  it closes by itself with the next order.
+- **`store_unmapped`** (critical): orders held because their platform store is not mapped, one alarm per store,
+  with the waiting orders, the platform deadline and a suggested mapping.
+
+### Clover is retried by itself
+- When Clover did not take a new order, Food Hub tries again 30 s, 2 min and 5 min later, then asks a person. On
+  success the order goes on as on arrival (kitchen ticket, auto-accept when the store wants it).
+- Never retried: a cancelled order, one on the Skip tablet, one followed through Clover's own integration, or one a
+  person already accepted. Every try is on the order history and in the activity log.
+
+### Go-live checklist tells the truth
+- **Clover** is green only when at least one merchant can really receive orders (`CLOVER_MERCHANT_ID` +
+  `CLOVER_ACCESS_TOKEN`, a `CLOVER_MERCHANT_TOKENS` entry, or an approved Clover app merchant whose access has not
+  expired) — no longer with the Clover app keys alone. A merchant to reconnect, one waiting for approval and an
+  unreadable token map are named; `FOODHUB_POS_INJECTION=off` is shown as such.
+- **Uber Eats / DoorDash / Skip** count when reached through the **Food Hub Order Relay** (in
+  `FOODHUB_RELAY_CHANNELS`, with a store mapped as `relay:<id>`), labelled *Food Hub Order Relay*. A relay store no
+  longer makes a direct connection look done, and direct keys plus the relay for the same platform are flagged (each
+  order would come in twice).
+- **`SESSION_SECRET`** is its own required row: set, at least 32 characters, and stable — a change in the last 7 days
+  is pointed out (a host that makes a new one at each deploy signs everyone out, tablets included). It is never
+  generated at runtime: `proxy.ts` checks every request before anything is loaded from the database.
+- **Uptime monitor on `/api/health`**: an information row with the address to watch and the guide; it cannot be
+  checked from inside the server, so it is left out of the progress count.
+
+### Verification (so far)
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck`, `npm run lint` | pass (0 errors) |
+| `npm test` | 302 tests pass (new: `order-inbox`, `health`, `watch-alarms`, `clover-retry`, `go-live`) |
+| `npm run build` | pass |
+| `npm run verify:foodhub` | 383 end-to-end checks pass (Relay and shared menus join it with Phase 1 item 7) |
+
+## Go live — Order Relay, one menu for all brands, platform API fixes (pull request #5, 2026-10-06)
+
+UrbanPiper is cancelled: Food Hub now does its job itself.
+
+### Food Hub Order Relay
+- `POST /api/foodhub/webhooks/relay` (token `FOODHUB_RELAY_SECRET`, generated): Food Hub's own intake for partners
+  that push orders (a Too Good To Go feed, an ordering website…), in UrbanPiper's "Order Relay" format so a partner
+  that already speaks it plugs in unchanged. Relayed orders run the normal pipeline (Clover ticket, kitchen, alerts).
+- Accept / Ready / Reject / Cancel are sent to `FOODHUB_RELAY_CALLBACK_URL` only when live connectors are on, and say
+  *Not sent* otherwise; Reject / Cancel without a callback are refused, never shown as done.
+- Partner statuses only move an order forward; a closed order never reopens; the partner cannot accept an order Clover
+  did not receive. Unreadable payloads are kept, never dropped.
+- `FOODHUB_RELAY_CHANNELS` defaults to `tgtg`; a platform linked through Clover is always refused (no double orders).
+  Relay stores are mapped as `relay:<id>`: orders only, no menu, 86, pause or status call to the platform's API.
+  Relayed Skip orders never use the Skip tablet shortcut or Skip's "missing items" call.
+- Settings → Platforms & Clover card with the relay address; `docs/ORDER_RELAY.md`.
+
+### One menu for all brands
+- A brand can use another brand's master menu (UrbanPiper's Menu Aggregator). The shared menu is the only one edited,
+  imported from Clover, price-checked and 86'd; each brand publishes it under its own name, hours and stores, one by
+  one or all at once (scheduled "all brands" publishes are listed and cancelled together).
+- An 86 on any brand of the group reaches every brand's stores; timed re-enables and Clover stock / price sync work on
+  the shared menu. A brand that stops sharing gets its own menu back with its 86s still on.
+- Menus → *Shared menu* dialog; brands that share show a banner and are read-only.
+
+### DoorDash and Uber Eats checked against their documented APIs
+- **DoorDash:** the Order Cancellation webhook reaches the kitchen and Clover; Menu Status reads `event.reference` /
+  `event.status` and shows DoorDash's refusal reason; Dasher Status reads `dasher_status`; overnight hours go out as
+  one interval (stores no longer stop at 23:39); closed special days carry full-day times; Menu Request uses the
+  shared menu and refuses relay stores; merchant cancellation once DoorDash allowlists it (`DOORDASH_MERCHANT_CANCEL=true`).
+- **Uber Eats:** store status on `/v1/eats/store/{id}/status` (pause and resume work); a closed holiday is
+  `00:00–00:00` and removed holidays are cleared; `pickup_time` on accept (prep and busy mode reach Uber);
+  `store.menu_refresh_request` re-publishes the menu; an 86 batch keeps going past a refused item; orders keep
+  working while the status scope is not approved.
+- **Every platform:** a refused call says why, and the platform's answer is kept on the job.
+
+### Deploy
+- `Dockerfile`: a failed `npm run build` now fails the image (the old `|| true` hid it); only the dev-dependency
+  prune may be skipped.
+- The image sets `FOODHUB_INTERNAL_SYNC_MIN=5`: Coolify / Docker hosts keep syncing store status, Clover orders,
+  timed re-opens and 86s, and scheduled publishes with no screen open.
+- `docs/BACK_ONLINE_TODAY.md` (reopen orders on the tablets now, then Food Hub live on Coolify) and
+  `docs/MASTER_PLAN.md`.
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck`, `npm run lint` | pass (0 errors) |
+| `npm test` | 244 tests pass |
+| `npm run verify:foodhub` | 383 end-to-end checks pass |
+| `npm run audit:prod` | clean (high and above) |
+
 ## 1.5.9 — nothing typed is lost, help on every screen, promotions in Clover (2026-10-06)
 
 ### Every settings screen saves by itself

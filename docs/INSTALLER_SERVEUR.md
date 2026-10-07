@@ -3,6 +3,10 @@
 Résultat : Food Hub tourne 24 h/24 sur ton serveur, en HTTPS, et redémarre tout seul. La surveillance
 (« ta tablette est éteinte », commandes qui attendent) tourne même quand aucun écran n'est ouvert.
 
+> **Tu es sur Coolify (Docker) ?** Ce guide n'est pas pour toi : il installe Food Hub sur un serveur à toi (VPS).
+> Sur Coolify, suis [BACK_ONLINE_TODAY.md](BACK_ONLINE_TODAY.md), partie B (déployer depuis `main`, les variables,
+> le volume `/app/data/media`, la surveillance externe sur `/api/health`).
+
 ## 0. Sécurité d'abord
 - Change les mots de passe Contabo et RealVNC. Prends-en deux différents, et active la double authentification si possible.
 - Tes mots de passe et tes clés se tapent sur le serveur ou dans les portails, jamais dans un clavardage ni dans un courriel.
@@ -26,21 +30,26 @@ connaît pas. `prisma migrate deploy` ne pose aucun problème.
 L'adresse sert pour Uber, DoorDash, Clover et Skip. Si tu la changes plus tard, il faut la changer aussi dans chaque portail.
 
 ## 3. L'installation (une commande)
-1. Mets le fichier `takatak-foodhub-rc10.zip` sur le serveur. Deux façons :
+1. Prends la dernière version, la branche `main` du dépôt GitHub `takatakca/foodhubca` :
+   **Code → Download ZIP** donne le fichier `foodhubca-main.zip`. Mets-le sur le serveur, dans `/root`. Deux façons :
    - avec WinSCP ou FileZilla : glisse-le dans `/root` ;
-   - ou depuis ton ordinateur : `scp takatak-foodhub-rc10.zip root@IP-DU-SERVEUR:/root/`
+   - ou depuis ton ordinateur : `scp foodhubca-main.zip root@IP-DU-SERVEUR:/root/`
 2. Dans le terminal du serveur (SSH, ou la console Contabo / VNC) :
    ```bash
    cd /root
-   unzip -o takatak-foodhub-rc10.zip
-   sudo bash takatak-accounting-control-tower-final/deploy/install-vps.sh foodhub.takatak.ca
+   unzip -o foodhubca-main.zip
+   sudo bash foodhubca-main/deploy/install-vps.sh foodhub.takatak.ca
    ```
    Si tu n'as pas fait l'étape 2, enlève `foodhub.takatak.ca` : l'adresse sslip.io sera utilisée.
+   (Avec un `git clone` à la place du zip, le dossier s'appelle `foodhubca` : `sudo bash foodhubca/deploy/install-vps.sh …`.)
 3. L'installateur pose les questions de `npm run setup` (Entrée = passer). Le minimum :
    - la clé Supabase `service_role` ;
    - **ton courriel de propriétaire** ;
    - un **mot de passe de secours**, que tu choisis et tapes toi-même ;
    - **Resend**, pour recevoir le code de connexion par courriel.
+
+   L'installateur crée aussi `SESSION_SECRET` (la clé qui signe les connexions). Ne le change pas : chaque
+   changement déconnecte tout le monde, tablettes comprises. Réglages → Mise en service le vérifie.
 
    Twilio (textos et appels), Clover, Uber, DoorDash et Skip peuvent être ajoutés plus tard : relance simplement
    `sudo bash /opt/takatak-foodhub/deploy/install-vps.sh foodhub.takatak.ca`. Les valeurs déjà enregistrées sont gardées.
@@ -60,10 +69,24 @@ L'écran **Réglages → Plateformes et Clover** affiche chaque adresse et chaqu
   - developer.doordash.com → accès Marketplace → Developer ID, Key ID et Signing Secret.
   - DoorDash te donne aussi le « provider type » quand l'intégration est approuvée.
   - Donne-leur l'URL du webhook et le secret.
+  - En attendant l'approbation : si DoorDash est branché à Clover directement, mets `FOODHUB_VIA_CLOVER=doordash`
+    (Food Hub lit ces commandes dans Clover ; menu et ruptures DoorDash se font dans Clover).
 - **SkipTheDishes** :
   - Demande à ton responsable Skip l'intégration **JET Connect** pour ton propre système de caisse.
   - Ils te donnent la clé API. Toi, tu leur donnes les 6 URL et les 2 secrets de l'écran Plateformes.
+  - Si Skip dit non, un partenaire peut t'envoyer les commandes Skip par le **relais de commandes Food Hub**
+    (`FOODHUB_RELAY_CHANNELS=skip,tgtg`, magasins reliés sous `relay:<id>`) — voir [ORDER_RELAY.md](ORDER_RELAY.md).
+    Jamais les deux à la fois : chaque commande arriverait deux fois.
 - **Too Good To Go** : pas d'API publique. Les sacs du jour s'entrent dans Argent → Too Good To Go (10 secondes à la fermeture).
+  Quand ton représentant fournit un flux de commandes, il passe par le relais de commandes Food Hub (carte « Food Hub
+  Order Relay » dans Réglages → Plateformes et Clover).
+
+UrbanPiper n'est plus utilisé : Food Hub parle directement aux plateformes, et son propre relais de commandes remplace
+celui d'UrbanPiper pour les partenaires qui envoient leurs commandes.
+
+**Un seul menu pour toutes les marques :** Menus → une marque → **Importer depuis Clover**, puis **Menu partagé** :
+choisis cette marque, puis les marques qui l'utilisent. Une rupture (86) faite une fois part vers les magasins de
+toutes ces marques.
 
 Tant que `LIVE_CONNECTORS_GLOBAL_ENABLED=false`, les commandes arrivent et s'affichent, mais rien n'est renvoyé aux plateformes.
 Active-le en dernier, quand Réglages → Mise en service est tout vert.
@@ -105,7 +128,13 @@ Garde la tablette branchée, le volume au maximum et Food Hub ouvert. Touche l'�
 journée pour autoriser le son, c'est une règle des navigateurs.
 
 ## 7. Mises à jour
+Prends le nouveau `foodhubca-main.zip` (étape 3), mets-le dans `/root`, puis :
 ```bash
-sudo bash /opt/takatak-foodhub/deploy/update-vps.sh /root/takatak-foodhub-rc11.zip
+sudo bash /opt/takatak-foodhub/deploy/update-vps.sh /root/foodhubca-main.zip
 ```
 Tes clés et tes données sont gardées. Journal en direct : `journalctl -u takatak-foodhub -f`.
+
+## 8. Une surveillance de l'extérieur (10 minutes, gratuit)
+La surveillance de Food Hub tourne dans le même serveur : s'il tombe, personne n'est prévenu. Ajoute un moniteur
+gratuit (UptimeRobot ou Better Stack) sur `https://foodhub.takatak.ca/api/health`, qui te texte et t'écrit quand il
+ne répond plus. Détails : [BACK_ONLINE_TODAY.md](BACK_ONLINE_TODAY.md), partie B, étape 10.

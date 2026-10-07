@@ -10,6 +10,7 @@ import { cloverOrderTypesEnabled, cloverRecordPaymentEnabled } from '@/lib/foodh
 import { getRepo } from '@/lib/foodhub/repo';
 import { relayReadiness } from '@/lib/foodhub/adapters/relay';
 import { listInboxAttention } from '@/lib/foodhub/inbox';
+import { goLiveFacts } from '@/lib/foodhub/go-live';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,7 +33,7 @@ export const GET = withPerm('stores:map', async (req, _ctx, actor) => {
       handoff: (r.handoff ?? []).map((h) => ({ label: h.label, envKey: h.envKey, set: Boolean(process.env[h.envKey]), value: reveal ? process.env[h.envKey] || '' : undefined })),
     };
   });
-  const [jobs, inbox] = await Promise.all([repo.listJobs(40), listInboxAttention(20).catch(() => [])]);
+  const [jobs, inbox, goLive] = await Promise.all([repo.listJobs(40), listInboxAttention(20).catch(() => []), goLiveFacts()]);
   return ok({
     mode: repo.mode,
     publicUrl: base,
@@ -61,5 +62,7 @@ export const GET = withPerm('stores:map', async (req, _ctx, actor) => {
     unparsed: jobs.filter((j) => j.kind === 'webhook_unparsed'),
     // Orders saved on arrival that failed (or never finished) processing: Replay (owner) runs them again.
     inbox,
+    // Settings → Go-live: Clover merchants with an env token, SESSION_SECRET set / long / stable (no secret values).
+    goLive,
   });
 });

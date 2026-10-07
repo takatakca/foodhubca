@@ -2,9 +2,11 @@
 
 Atlas is UrbanPiper's restaurant dashboard (Ordermark is part of UrbanPiper). This is what
 TAKATAK Food Hub does for each Atlas module, where to find it, and what is **not** built.
-TAKATAK talks to the platforms **directly** — there is no aggregator and no monthly fee.
+TAKATAK talks to the platforms **directly** — there is no aggregator and no monthly fee. **UrbanPiper is no longer
+used** (cancelled): its two pieces Food Hub relied on now live in Food Hub itself — the **Order Relay** for partners
+that push orders, and **one menu shared by several brands** (UrbanPiper's Menu Aggregator).
 
-Legend: **Done** = built and covered by the end-to-end test (`npm run verify:foodhub`, 382 checks) ·
+Legend: **Done** = built and tested (`npm test`, and the end-to-end test `npm run verify:foodhub`, 383 checks) ·
 **Platform limit** = the platform's API does not allow it · **Not built** = missing today.
 
 ## Orders
@@ -12,6 +14,7 @@ Legend: **Done** = built and covered by the end-to-end test (`npm run verify:foo
 | Atlas | TAKATAK | Where | Status |
 |---|---|---|---|
 | One order feed for every app | Uber Eats, DoorDash, SkipTheDishes, Too Good To Go in one list | Command Center, Order Board | Done |
+| Order Relay (partners that push orders to the hub) | **Food Hub Order Relay** (`POST /api/foodhub/webhooks/relay`, UrbanPiper "Order Relay" compatible): relayed orders run the normal pipeline (Clover, kitchen, alerts); Accept / Ready / Reject / Cancel go back to the partner's callback, never shown as sent when they were not; partner statuses only move an order forward; unreadable payloads kept; stores mapped as `relay:<id>` receive orders only. `FOODHUB_RELAY_CHANNELS` (default `tgtg`; `skip` when Skip comes through a partner) — [ORDER_RELAY.md](ORDER_RELAY.md) | Settings → Platforms & Clover → Food Hub Order Relay | Done |
 | Auto-accept / manual accept | Per store; never accepts an order Clover did not receive | Stores → Auto-accept | Done |
 | Reject with a reason | Standard reasons mapped to each platform's own codes | Reject button → reason dialog | Done |
 | Order states (placed → acknowledged → food ready → dispatched → completed / cancelled) | New → Preparing → Ready → Picked up → Completed / Cancelled | Order Board (5 columns) | Done |
@@ -40,7 +43,8 @@ Legend: **Done** = built and covered by the end-to-end test (`npm run verify:foo
 | Publish status per store | Last publish time and result per platform/location | Publish status | Done |
 | Timing groups (breakfast, lunch) | Category schedules, intersected with store hours | Categories → Schedule | Done |
 | Copy a menu to another brand | Copies categories, items, options | Copy from brand… | Done |
-| Item / option availability (86) | Per location or all locations, timed (comes back by itself), bulk select | 86 Board | Done |
+| Menu Aggregator (one menu for several brands) | **Shared menu**: brands use another brand's master menu. It is edited, imported from Clover, price-checked and 86'd once; each sharing brand publishes it under its own name, hours and stores, one by one or all at once (also scheduled). A brand that stops sharing gets its own menu back (a copy if it had none) with its 86s still on | Menus → Shared menu; Publish… → every brand | Done |
+| Item / option availability (86) | Per location or all locations, timed (comes back by itself), bulk select; with a shared menu, one 86 reaches the stores of every sharing brand | 86 Board | Done |
 | Menu in French + English | French names for items, categories, options; Uber Eats gets both languages, DoorDash / Skip English or French (your choice) | Menu Manager → Languages | Done |
 | Inventory sync from POS | Out of stock in Clover → 86 everywhere, back by itself; Clover price changes flagged with one-click update | Menu Manager, 86 Board | Done |
 | Combos / nested options | One level of options | — | Not built |
@@ -102,6 +106,9 @@ Report — **Done** (`/insights/reports`; email through Resend).
 | What | Status |
 |---|---|
 | Background supervisor: waiting / unseen / late orders, couriers waiting, Clover failures, stores offline or deactivated, tablets, cancellation spikes, sync, unreadable messages, refused actions, money to recover | Done |
+| A platform gone silent (no order for N opening minutes) and orders held because their store is not mapped (with a suggested mapping) | Done (unreleased) |
+| Orders saved before the platform gets its answer, recovered after a crash, **Replay** for the owner; Clover retried by itself (30 s, 2 min, 5 min) before a person is woken | Done (unreleased) |
+| `GET /api/health` for an outside uptime monitor (UptimeRobot, Better Stack) that texts the owner when the server stops | Done (unreleased) |
 | Escalation: screen → team chat → kitchen phone → SMS → call → owner + support line; quiet hours; *I'm on it* | Done |
 | AI explanations + copilot (Claude, optional; rules without a key) — AI never approves or posts anything | Done |
 | Text / call the customer from the order (when the platform shares a number) | Done |

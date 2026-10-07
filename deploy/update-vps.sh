@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Update TAKATAK Food Hub on the server with a new release zip. Keys (.env.local) and data are kept.
-#   sudo bash /opt/takatak-foodhub/deploy/update-vps.sh takatak-foodhub-rc11.zip
+#   sudo bash /opt/takatak-foodhub/deploy/update-vps.sh /root/foodhubca-main.zip   (GitHub → Code → Download ZIP, branch main)
 set -euo pipefail
 APP_DIR=/opt/takatak-foodhub
 APP_USER=takatak

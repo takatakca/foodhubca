@@ -237,7 +237,7 @@ describe('POST /api/foodhub/menu/import — re-import keeps what the owner creat
     const r = await POST(call('POST', '/api/foodhub/menu/import', { brand: 'Po Poulet' }), ctx);
     const body = await r.json();
     expect(r.status).toBe(200);
-    expect(importMock).toHaveBeenCalledWith('Po Poulet', 'M1');
+    expect(importMock).toHaveBeenCalledWith('Po Poulet', 'M1', expect.objectContaining({ cloverMenuId: null }));
     expect(body.imported).toEqual({ categories: 1, items: 1, modifierGroups: 1 });
     expect(body.kept).toEqual({ categories: 1, items: 1, modifierGroups: 1 });
     const m = (await getRepo().getMenu('Po Poulet'))! as MasterMenu & { posMerchantId?: string };
@@ -265,7 +265,7 @@ describe('POST /api/foodhub/menu/import — re-import keeps what the owner creat
     expect((await POST(call('POST', '/api/foodhub/menu/import', { brand: 'Po Poulet', merchantId: 'M9' }), ctx)).status).toBe(400);
     const r = await POST(call('POST', '/api/foodhub/menu/import', { brand: 'Po Poulet', merchantId: 'M2' }), ctx);
     expect((await r.json()).merchantId).toBe('M2');
-    expect(importMock).toHaveBeenLastCalledWith('Po Poulet', 'M2');
+    expect(importMock).toHaveBeenLastCalledWith('Po Poulet', 'M2', expect.objectContaining({ cloverMenuId: null }));
     expect(((await getRepo().getMenu('Po Poulet')) as any).posMerchantId).toBe('M2');
   });
 });

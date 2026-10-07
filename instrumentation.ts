@@ -23,9 +23,13 @@ export async function register() {
   const seconds = Number(process.env.FOODHUB_WATCH_INTERVAL_S ?? 30);
   if (Number.isFinite(seconds) && seconds > 0 && !g.__takatakWatchTimer) {
     const { runWatch } = await import('./lib/foodhub/watch/engine');
-    g.__takatakWatchTimer = setInterval(() => {
-      runWatch({ trigger: 'timer' }).catch((e) => console.error('[foodhub] watch timer failed', e instanceof Error ? e.message : e));
-    }, Math.max(15, seconds) * 1000);
+    const { runOrderRecovery } = await import('./lib/foodhub/recovery');
+    // Order recovery first (Clover retries, interrupted or failed webhooks — also right after a restart), then the Watchtower.
+    const tick = async () => {
+      await runOrderRecovery({ trigger: 'timer' }).catch((e) => console.error('[foodhub] recovery timer failed', e instanceof Error ? e.message : e));
+      await runWatch({ trigger: 'timer' }).catch((e) => console.error('[foodhub] watch timer failed', e instanceof Error ? e.message : e));
+    };
+    g.__takatakWatchTimer = setInterval(() => { void tick(); }, Math.max(15, seconds) * 1000);
     g.__takatakWatchTimer.unref?.();
   }
 

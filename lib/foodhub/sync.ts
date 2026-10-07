@@ -24,6 +24,7 @@ import { applyHolidayClosures, reenableExpiredItems, reopenExpiredPauses } from 
 import { sendDueReports } from './reports';
 import { cloverReadiness, cloverSalesSince, allCloverMerchants, type CloverSales } from './pos/clover';
 import { importCloverPlatformOrders } from './pos/clover-platform-orders';
+import { runOrderRecovery } from './recovery';
 import { getRepo } from './repo';
 import { startOfLocalDayMs } from './time';
 import { runWatch, type WatchReport } from './watch/engine';
@@ -217,6 +218,8 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
   const started = Date.now();
   const platformErrors: NonNullable<SyncReport['platformErrors']> = {};
   try {
+    // Orders first: due Clover retries and webhooks that were saved but not processed (recovery.ts).
+    await runOrderRecovery({ trigger: `sync:${opts.trigger || 'manual'}` }).catch(() => null);
     const reopened = await reopenExpiredPauses().catch(() => []);
     const autoCompleted = await autoCompleteOldOrders().catch(() => 0);
     const itemsReenabled = await reenableExpiredItems().catch(() => 0);

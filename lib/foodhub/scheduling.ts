@@ -3,7 +3,8 @@
 // prints at "fire time" = customer time − prep time, and they wait in a "Scheduled" lane until then.
 import { logActivity } from './activity';
 import { CHANNEL_LABELS, nowIso } from './config';
-import { cloverAutoPrintEnabled, printCloverOrder } from './pos/clover';
+import { cloverAutoPrintEnabled } from './pos/clover';
+import { printKitchenTicket } from './pos/clover-order';
 import { getRepo } from './repo';
 import { localTimeLabel } from './time';
 import type { NormalizedOrder, StoredOrder } from './types';
@@ -45,7 +46,7 @@ export async function fireDueScheduled(now = Date.now()): Promise<number> {
     let printError: string | undefined;
     const attempts = (o.timeline?.printAttempts ?? 0) + 1;
     if (o.posOrderId && cloverAutoPrintEnabled()) {
-      const p = await printCloverOrder(o.posOrderId, store?.cloverMerchantId);
+      const p = await printKitchenTicket(o.posOrderId, store?.cloverMerchantId, o.locationCode);
       await repo.addEvent(o.id, p.ok ? 'printed' : 'print_failed', { message: `${p.message} (scheduled order — fire time, attempt ${attempts})` });
       if (p.ok) printedAt = nowIso(); else printError = p.message;
     } else if (!o.posOrderId) {

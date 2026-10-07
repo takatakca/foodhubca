@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowRight, BellRing, ChefHat, CircleCheck, Flame, MonitorSmartphone, Receipt, ShoppingBag, Store, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
+import { Activity, ArrowRight, BellRing, ChefHat, CircleCheck, Flame, MonitorSmartphone, Receipt, ShoppingBag, Store, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
 import { Badge, PlatformMark, StatusDot } from '@/components/ui/badge';
 import { ButtonLink } from '@/components/ui/button';
 import { Card, CardHeader, Skeleton } from '@/components/ui/card';
@@ -61,6 +61,8 @@ export function Overview() {
         <Kpi icon={<Store className="size-4" />} label={t('Magasins en ligne', 'Stores online')} value={pulse ? `${pulse.stores.online}/${pulse.stores.total}` : '—'} note={pulse && (pulse.stores.paused || pulse.stores.deactivated) ? <span className="font-bold text-wait-2">{pulse.stores.paused} {t('pause', 'paused')} · {pulse.stores.deactivated} {t('désactivé', 'deactivated')}</span> : t('tout est ouvert', 'all open')} href="/stores" />
         <Kpi icon={<BellRing className="size-4" />} label={t('Alertes', 'Alerts')} value={pulse ? String(pulse.incidents.open) : '—'} note={pulse?.incidents.critical ? <span className="font-bold text-stop">{pulse.incidents.critical} {t('critique(s)', 'critical')}</span> : t('aucune critique', 'none critical')} href="/alerts" tone={pulse?.incidents.critical ? 'stop' : undefined} />
       </div>
+
+      <Connections />
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.4fr_1fr]">
         {/* attention */}
@@ -149,6 +151,69 @@ function Kpi({ icon, label, value, note, href, tone }: { icon: React.ReactNode; 
     </div>
   );
   return href ? <Link href={href}>{body}</Link> : body;
+}
+
+type CheckStatus = 'ok' | 'warn' | 'down';
+type Health = {
+  status: 'ok' | 'degraded' | 'down'; at: string;
+  checks: Record<string, { status: CheckStatus; detail: string; detailFr: string; at?: string | null }>;
+  platforms: Array<{ channel: string; label: string; mode: 'direct' | 'via_clover' | 'inbound' | 'not_connected'; live: boolean; stores: number; lastOrderAt: string | null }>;
+};
+const TONE: Record<CheckStatus, 'go' | 'wait' | 'stop'> = { ok: 'go', warn: 'wait', down: 'stop' };
+
+/** "Is everything connected right now?" — the same answer an outside monitor gets from /api/health, with details. */
+function Connections() {
+  const { t, lang, loc } = useI18n();
+  const [h, setH] = useState<Health | null>(null);
+  useEffect(() => {
+    const load = () => fetch('/api/health', { cache: 'no-store' }).then((r) => r.json()).then((d: Health) => { if (d?.checks) setH(d); }).catch(() => undefined);
+    void load();
+    const i = setInterval(load, 30_000);
+    return () => clearInterval(i);
+  }, []);
+  // Ages are measured against the report's own time (refreshed every 30 s), so rendering stays pure.
+  const ago = (iso: string | null | undefined) => {
+    if (!iso) return t('jamais', 'never');
+    const m = Math.round((Date.parse(h?.at ?? iso) - Date.parse(iso)) / 60_000);
+    return m < 1 ? t('à l’instant', 'just now') : m < 60 ? t(`il y a ${m} min`, `${m} min ago`) : m < 48 * 60 ? t(`il y a ${Math.round(m / 60)} h`, `${Math.round(m / 60)} h ago`) : new Date(iso).toLocaleDateString(loc, { day: 'numeric', month: 'short' });
+  };
+  const NAMES: Record<string, [string, string]> = { database: ['Base de données', 'Database'], sync: ['Synchro', 'Sync'], watchtower: ['Watchtower', 'Watchtower'], recovery: ['Reprise des commandes', 'Order recovery'], inbox: ['Webhooks', 'Webhooks'], clover: ['Clover', 'Clover'] };
+  const mode = (p: Health['platforms'][number]): [string, 'go' | 'wait' | 'stop' | 'info'] => p.mode === 'via_clover' ? [t('par Clover', 'via Clover'), 'info']
+    : p.mode === 'not_connected' ? [t('à brancher', 'to connect'), 'stop'] : p.mode === 'inbound' ? [t('réception', 'inbound'), 'info'] : p.live ? [t('en direct', 'live'), 'go'] : [t('prêt, pas en direct', 'ready, not live'), 'wait'];
+  const overall: [string, 'go' | 'wait' | 'stop'] = !h ? [t('Vérification…', 'Checking…'), 'wait'] : h.status === 'ok' ? [t('Tout est branché', 'Everything connected'), 'go'] : h.status === 'degraded' ? [t('À surveiller', 'Needs a look'), 'wait'] : [t('Problème — des commandes peuvent être manquées', 'Problem — orders could be missed'), 'stop'];
+  return (
+    <Card>
+      <CardHeader title={t('Connexions et synchro', 'Connections & sync')} icon={<Activity className="size-5" />}
+        subtitle={t('Plateformes, Clover, réception des commandes et surveillance — mis à jour toutes les 30 s.', 'Platforms, Clover, order intake and supervision — refreshed every 30 s.')}
+        right={<span className="flex items-center gap-2 text-sm font-semibold"><StatusDot tone={overall[1]} pulse={overall[1] === 'stop'} />{overall[0]}</span>} />
+      {/* min-w-0: the long check texts truncate instead of widening their column and squeezing the platform tiles. */}
+      <div className="grid grid-cols-1 gap-0 border-t border-line lg:grid-cols-[1.25fr_1fr]">
+        <div className="grid min-w-0 auto-rows-fr grid-cols-2 gap-px bg-line sm:grid-cols-4 lg:border-r lg:border-line">
+          {(h?.platforms ?? []).map((p) => {
+            const [m, tone] = mode(p);
+            return (
+              <div key={p.channel} className="bg-surface px-4 py-3">
+                <div className="flex items-center gap-2"><PlatformMark channel={p.channel} size="sm" /><span className="truncate text-sm font-bold">{p.label}</span></div>
+                <div className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold"><StatusDot tone={tone === 'info' ? 'info' : tone} />{m}</div>
+                <div className="mt-0.5 text-[11px] text-ink-3">{p.stores} {t('magasin(s)', 'store(s)')} · {t('dernière cmd', 'last order')} {ago(p.lastOrderAt)}</div>
+              </div>
+            );
+          })}
+          {!h && <div className="col-span-full bg-surface p-4"><Skeleton className="h-14" /></div>}
+        </div>
+        <ul className="min-w-0 divide-y divide-line border-t border-line lg:border-t-0">
+          {Object.entries(h?.checks ?? {}).map(([k, c]) => (
+            <li key={k} className="flex items-start gap-2.5 px-4 py-2" title={lang === 'fr' ? c.detailFr : c.detail}>
+              <StatusDot tone={TONE[c.status]} pulse={c.status === 'down'} className="mt-1" />
+              <span className="w-36 shrink-0 text-[13px] font-semibold">{t(...(NAMES[k] ?? [k, k]))}</span>
+              <span className="min-w-0 flex-1 truncate text-xs text-ink-3">{lang === 'fr' ? c.detailFr : c.detail}</span>
+            </li>
+          ))}
+          {!h && <li className="p-4"><Skeleton className="h-24" /></li>}
+        </ul>
+      </div>
+    </Card>
+  );
 }
 
 const CH = ['uber_eats', 'doordash', 'skip', 'tgtg'] as const;

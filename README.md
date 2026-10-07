@@ -21,7 +21,9 @@ no UrbanPiper, no aggregator, no monthly integration fee — with a kitchen-firs
 Everything from RC9 stays: Clover injection and bookkeeping, menus to every platform, 86 and pauses,
 hours and holidays, reports, analytics, payouts reconciliation, disputes, internal ledger, TGTG bag log.
 
-**Full guide: [docs/FOODHUB.md](docs/FOODHUB.md)**
+**Full guide: [docs/FOODHUB.md](docs/FOODHUB.md)** · Uber Eats + DoorDash → Food Hub → Clover (never lose an order, menus
+from Clover, the Po Poulet NDG menu lock, health, switching each platform from its tablet):
+[docs/CLOVER_BACKEND_FINAL.md](docs/CLOVER_BACKEND_FINAL.md)
 All documents: [docs/README.md](docs/README.md) · what changed in this release: [docs/RELEASE_NOTES.md](docs/RELEASE_NOTES.md) ·
 security policy: [SECURITY.md](SECURITY.md).
 
@@ -47,8 +49,8 @@ Keys only through `npm run setup` or the hosting environment variables — never
 ## Proof
 
 ```bash
-npm run check                              # typecheck + lint + 190 unit tests
-npm run build && npm run verify:foodhub    # 382 end-to-end checks against simulated Uber Eats, DoorDash,
+npm run check                              # typecheck + lint + 285 unit tests
+npm run build && npm run verify:foodhub    # 409 end-to-end checks against simulated Uber Eats, DoorDash,
                                            # Skip (JET Connect), Clover, Resend, Twilio and a team chat
 npm run demo:foodhub                       # same, then keeps running with a simulated order every 40 s
 npm run audit:prod                         # production dependencies carry no high/critical advisory

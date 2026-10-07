@@ -20,8 +20,9 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 
-const MOCK_PORT = 4799;
-const APP_PORT = 4800;
+// Ports can be moved (FOODHUB_E2E_MOCK_PORT / FOODHUB_E2E_APP_PORT) so two checkouts can verify at the same time.
+const MOCK_PORT = Number(process.env.FOODHUB_E2E_MOCK_PORT) || 4799;
+const APP_PORT = Number(process.env.FOODHUB_E2E_APP_PORT) || 4800;
 const APP = `http://127.0.0.1:${APP_PORT}`;
 const MOCK = `http://127.0.0.1:${MOCK_PORT}`;
 const PASSWORD = 'e2e-dashboard-pass';
@@ -52,6 +53,12 @@ const cloverRefunds = [{ id: 'r1', amount: 200, payment: { order: { id: 'INSTORE
 const cloverTenders = [{ id: 'T-CASH', label: 'Cash' }];
 const cloverOrderTypes = [{ id: 'OT-DINE', label: 'Dine In' }];
 const cloverOrderTotals = new Map(); // Clover order id → total (cents)
+const cloverAtomicTitles = new Map(); // Clover order id → title Food Hub gave it
+let cloverAtomicMode = 'ok'; // 'down' = Clover answers 503 to new orders (automatic retry checks)
+let uberFetchFails = 0; // Uber order fetches to refuse for "uber-flaky-…" orders
+// The merchant's Clover menus (Clover → Items → Menus): the DoorDash menu holds the items sold on DoorDash, at Clover × 1.20.
+const cloverMenus = [{ id: 'MENU-POS', name: 'Default POS Menu', type: 'DEFAULT_POS_MENU' }, { id: 'MENU-DD', name: 'DoorDash (Po Poulet +20%)', type: 'OLO_MENU', channel: 'DoorDash' }];
+const cloverMenuRows = { 'MENU-DD': [{ item: { id: 'clv-item-1' }, price: 1919 }, { item: { id: 'clv-item-2' }, price: 599 }, { item: { id: 'clv-item-4' }, price: 325, image_filename: 'clv-item-4.jpeg' }] };
 let cloverObjSeq = 0;
 const cloverNativeOrders = []; // orders created in Clover by Clover's own DoorDash integration
 const cloverTags = [{ id: 'TAG-K', name: 'Cuisine', printers: { elements: [{ id: 'PR-1' }] } }, { id: 'TAG-B', name: 'Bar', printers: { elements: [] } }];
@@ -119,6 +126,8 @@ const mock = http.createServer(async (req, res) => {
     if (merchant && prov && req.method === 'POST') { knownUberStores.add(prov[1]); return send(204); }
     if (req.headers.authorization !== 'Bearer uber-token-1') return send(401, {});
     const order = p.match(/^\/uber\/v2\/eats\/order\/(.+)$/);
+    // "uber-flaky-…" orders: Uber refuses the fetch while uberFetchFails > 0 (webhook inbox retry checks).
+    if (order && order[1].startsWith('uber-flaky') && uberFetchFails > 0) { uberFetchFails -= 1; return send(503, { message: 'temporarily unavailable' }); }
     if (order) return send(200, UBER_ORDER(order[1], order[1].includes('stl') ? 'uber-store-stl' : 'uber-store-uuid-1', order[1].includes('sched') ? 60.4 : 15));
     if (p === '/uber/v1/eats/report' && req.method === 'POST') return send(200, { workflow_id: 'wf-report-1' });
     if (p === '/uber/v1/eats/stores') return send(200, { stores: [{ store_id: 'uber-store-uuid-1', name: 'Po Poulet NDG' }] });
@@ -171,8 +180,11 @@ const mock = http.createServer(async (req, res) => {
     if (req.headers.authorization !== `Bearer ${CLOVER_TOKEN}`) return send(401, {});
     if (p.endsWith('/atomic_order/orders')) {
       cloverSeq += 1;
-      // Clover's total: line items plus order-level discounts (Clover discount amounts are negative cents).
-      cloverOrderTotals.set(`CLV${cloverSeq}`, (body?.orderCart?.lineItems || []).reduce((s, l) => s + (l.price || 0), 0) + (body?.orderCart?.discounts || []).reduce((s, d) => s + (d.amount || 0), 0));
+      // Clover's total: line items with their modifications, plus order-level discounts (negative cents). Tax left out here.
+      const total = (body?.orderCart?.lineItems || []).reduce((s, l) => s + (l.price || 0) + (l.modifications || []).reduce((m, x) => m + (x.amount || 0), 0), 0) + (body?.orderCart?.discounts || []).reduce((s, d) => s + (d.amount || 0), 0);
+      cloverOrderTotals.set(`CLV${cloverSeq}`, total);
+      cloverAtomicTitles.set(`CLV${cloverSeq}`, body?.orderCart?.title);
+      if (cloverAtomicMode === 'down') { cloverOrderTotals.delete(`CLV${cloverSeq}`); return send(503, { message: 'Service Unavailable' }); }
       return send(200, { id: `CLV${cloverSeq}` });
     }
     if (/\/(tenders|order_types)$/.test(p)) {
@@ -198,6 +210,9 @@ const mock = http.createServer(async (req, res) => {
       if (req.method === 'GET') return cloverOrderTotals.has(ord[1]) ? send(200, { id: ord[1], total: cloverOrderTotals.get(ord[1]) }) : send(404, {});
       return send(200, { id: ord[1] });
     }
+    if (/\/v3\/merchants\/[^/]+\/menus$/.test(p) && req.method === 'GET') return send(200, { elements: Number(url.searchParams.get('offset') || 0) ? [] : cloverMenus });
+    const menuRows = p.match(/\/v3\/merchants\/[^/]+\/menus\/([^/]+)\/items$/);
+    if (menuRows) return cloverMenuRows[menuRows[1]] ? send(200, { elements: Number(url.searchParams.get('offset') || 0) ? [] : cloverMenuRows[menuRows[1]] }) : send(404, {});
     const itm = p.match(/\/items\/([^/]+)$/);
     if (itm) { const it = cloverItems.find((i) => i.id === itm[1]); return it ? send(200, it) : send(404, {}); }
     if (p.endsWith('/print_event')) return body?.orderRef?.id ? send(200, { id: `PE-${body.orderRef.id}`, state: 'CREATED' }) : send(400, { message: 'orderRef.id required' });
@@ -314,6 +329,8 @@ const env = {
   TWILIO_ACCOUNT_SID: 'AC_e2e', TWILIO_AUTH_TOKEN: 'tw-e2e', TWILIO_FROM: '+15140000000', TWILIO_BASE_URL: `${MOCK}/twilio`,
   ALERT_WEBHOOK_URL: `${MOCK}/chat`,
   FOODHUB_WATCH_INTERVAL_S: '0', // the e2e drives the Watchtower itself (cron/watch), so runs are deterministic
+  // Seconds instead of 30 s / 2 min, so the automatic Clover and webhook retries can be watched end to end.
+  FOODHUB_CLOVER_RETRY_S: '2,4', FOODHUB_INBOX_RETRY_S: '2,4', FOODHUB_CLOVER_ORDER_TYPES_TTL_S: '0',
 };
 for (const k of ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'UBER_ACCESS_TOKEN', 'TGTG_SPEC_CONFIRMED', 'SESSION_SECRET', 'FOODHUB_CLOVER_AUTOPRINT', 'CLOVER_PRINT_DEVICE_ID', 'FOODHUB_SYNC_MIN_INTERVAL_S', 'FOODHUB_CLOVER_RECORD_PAYMENT', 'FOODHUB_CLOVER_ORDER_TYPES', 'FOODHUB_CLOVER_INVENTORY_SYNC', 'FOODHUB_CLOVER_DELETE_CANCELLED', 'FOODHUB_SCHEDULED_AFTER_MIN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'FOODHUB_INSECURE_SHOW_CODES', 'TWILIO_MESSAGING_SERVICE_SID', 'FOODHUB_OWNER_EMAIL', 'FOODHUB_OWNER_PHONE']) delete env[k];
 const app = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '-p', String(APP_PORT)], { env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -436,7 +453,9 @@ try {
   check('signed Uber webhook accepted', (await uberWebhook('uber-order-1')).status === 200);
   const o1 = await waitFor(async () => { const o = await findOrder('uber-order-1'); return o?.status === 'accepted' ? o : null; });
   check('Uber order fetched, parsed, accepted', o1?.total === 39.07 && o1.lines[0].quantity === 2, JSON.stringify(o1 && { total: o1.total, s: o1.status }));
-  check('order created in Clover with inventory id + price incl. modifier', o1?.posOrderId?.startsWith('CLV') && sent('POST', /\/atomic_order\/orders$/)[0]?.body?.orderCart?.lineItems?.[0]?.item?.id === 'clv-item-1' && sent('POST', /\/atomic_order\/orders$/)[0].body.orderCart.lineItems[0].price === 1599);
+  const li1 = sent('POST', /\/atomic_order\/orders$/)[0]?.body?.orderCart?.lineItems?.[0];
+  check('order created in Clover with the inventory item and its real Clover modification (Piri-piri +1.00)', o1?.posOrderId?.startsWith('CLV') && li1?.item?.id === 'clv-item-1' && li1.price === 1499
+    && JSON.stringify(li1.modifications) === JSON.stringify([{ modifier: { id: 'mod-1' }, name: 'Piri-piri', amount: 100 }]), JSON.stringify(li1));
   check('Uber accept carries the Clover order id', sent('POST', /^\/uber\/v1\/eats\/orders\/uber-order-1\/accept_pos_order$/)[0]?.body?.external_reference_id === o1?.posOrderId);
   const cloverBefore = sent('POST', /\/atomic_order\/orders$/).length;
   await uberWebhook('uber-order-1');
@@ -458,7 +477,7 @@ try {
   const o3 = await waitFor(async () => { const o = await findOrder('skip-order-0001'); return o?.status === 'accepted' ? o : null; });
   check('Skip order parsed (cents → $), mapped, accepted', o3?.total === 26.47 && o3.brandName === 'Po Poulet' && o3.locationCode === 'NDG_MAIN' && o3.notes === 'Allergie arachides', JSON.stringify(o3 && { t: o3.total, s: o3.status }));
   const skipClover = log.filter((e) => e.method === 'POST' && /\/atomic_order\/orders$/.test(e.path)).find((e) => /Skip/i.test(JSON.stringify(e.body)) || e.body?.orderCart?.lineItems?.length === 3)?.body;
-  check('Skip order in Clover: 3 lines (2× Frites), Skip price + modifier', skipClover?.orderCart?.lineItems?.length === 3 && skipClover.orderCart.lineItems[0].price === 1649 && skipClover.orderCart.lineItems[0].item?.id === 'clv-item-1');
+  check('Skip order in Clover: 3 lines (2× Frites), Skip price + the modifier as a Clover modification', skipClover?.orderCart?.lineItems?.length === 3 && skipClover.orderCart.lineItems[0].price === 1549 && skipClover.orderCart.lineItems[0].modifications?.[0]?.amount === 100 && skipClover.orderCart.lineItems[0].item?.id === 'clv-item-1', JSON.stringify(skipClover?.orderCart?.lineItems?.[0]));
   check('JET told sent-to-pos-success with the transmissionId', sent('POST', /^\/skip\/order\/skip-order-0001\/sent-to-pos-success$/)[0]?.body?.transmissionId === 'tx-0001');
   const skBefore = sent('POST', /\/atomic_order\/orders$/).length;
   await skipWebhook('orders', skipOrder('skip-order-0001', 'NDG-POPOULET', 'tx-0001'));
@@ -1251,8 +1270,94 @@ try {
   check('unknown merchant refused', (await call('GET', '/api/foodhub/clover-labels?merchantId=NOPE')).status === 404);
   check('Clover tax check flags "Sales Tax" 0.14975 % (should be 14.975 %), read-only', lab?.taxes?.ok === true && /14\.975%/.test(lab.taxes.problems?.[0] || '') && !log.some((e) => /tax_rates/.test(e.path) && e.method !== 'GET'), JSON.stringify(lab?.taxes));
 
+  console.log('\n41. Clover backend — delivery / pickup types, free-text lines, automatic retries, webhook inbox, menu lock, Clover menus, dry run, health');
+  const cronWatch = () => call('GET', '/api/foodhub/cron/watch', { auth: false, headers: { authorization: 'Bearer cron-e2e' } });
+  const ddPost = (body) => call('POST', '/api/foodhub/webhooks/doordash', { auth: false, headers: { authorization: 'dd-hook-e2e' }, body });
+  const atomicFor = (title) => sent('POST', /\/atomic_order\/orders$/).filter((e) => e.body?.orderCart?.title === title);
+  // a) The merchant's own "Online Order Delivery" / "Online Order Pick Up" order types; a line Clover does not know.
+  cloverOrderTypes.push({ id: 'OT-OLD', label: 'Online Order Delivery' }, { id: 'OT-OLP', label: 'Online Order Pick Up' });
+  await ddPost({ id: 'dd-pickup-41', delivery_short_code: 'P41', store: { merchant_supplied_id: 'dd-popoulet-ndg' }, is_pickup: true, consumer: { first_name: 'Zoé', last_name: 'Tremblay' }, subtotal: 1849, tax: 277, tip_amount: 200,
+    categories: [{ name: 'Plats', items: [{ name: 'Poulet Grillé', quantity: 1, price: 1499, merchant_supplied_id: 'clv-item-1', extras: [] }, { name: 'Dessert du chef', quantity: 1, price: 350, merchant_supplied_id: 'dessert-du-chef', extras: [] }] }] });
+  const p41 = await waitFor(async () => { const o = await findOrder('dd-pickup-41'); return o?.status === 'accepted' ? o : null; });
+  const p41Cart = atomicFor('DoorDash #P41')[0]?.body?.orderCart;
+  check('pickup → the merchant’s "Online Order Pick Up" order type; the kitchen note says who and how', p41Cart?.orderType?.id === 'OT-OLP' && /CUEILLETTE \/ PICKUP \| Client: Zoé T\./.test(p41Cart.note || ''), JSON.stringify(p41Cart && { t: p41Cart.orderType, n: p41Cart.note }));
+  check('a line Clover does not know goes as a flagged free-text line, never dropped', p41Cart?.lineItems?.length === 2 && !p41Cart.lineItems[1].item && /Hors inventaire Clover/.test(p41Cart.lineItems[1].note || '') && p41?.mappingWarnings?.[0]?.name === 'Dessert du chef' && p41.lines[1].mapping === 'free', JSON.stringify(p41?.mappingWarnings));
+  await call('POST', `/api/foodhub/orders/${p41?.id}`, { body: { action: 'ready' } });
+  await call('POST', `/api/foodhub/orders/${p41?.id}`, { body: { action: 'complete' } });
+  const p41pay = sent('POST', /\/v3\/merchants\/MAINMERCHANT\/orders\/[^/]+\/payments$/).find((e) => e.path.includes(`/orders/${p41?.posOrderId}/`))?.body;
+  check('the pickup tip is the restaurant’s: recorded on the Clover payment', p41pay?.tipAmount === 200 && p41pay.amount === 1849 + 277, JSON.stringify(p41pay));
+  await ddPost({ id: 'dd-deliv-41', delivery_short_code: 'D41', store: { merchant_supplied_id: 'dd-popoulet-ndg' }, consumer: { first_name: 'Luc' }, subtotal: 1499, tax: 225, tip_amount: 300, categories: [{ name: 'Plats', items: [{ name: 'Poulet Grillé', quantity: 1, price: 1499, merchant_supplied_id: 'clv-item-1', extras: [] }] }] });
+  await waitFor(async () => (await findOrder('dd-deliv-41'))?.status === 'accepted');
+  check('delivery → the merchant’s "Online Order Delivery" order type', atomicFor('DoorDash #D41')[0]?.body?.orderCart?.orderType?.id === 'OT-OLD');
+
+  // b) Clover down → not confirmed on DoorDash; Clover back → Food Hub retries by itself, then confirms once.
+  cloverAtomicMode = 'down';
+  await ddPost({ id: 'dd-retry-41', delivery_short_code: 'R41', store: { merchant_supplied_id: 'dd-popoulet-ndg' }, consumer: { first_name: 'Ana' }, subtotal: 1499, tax: 225, categories: [{ name: 'Plats', items: [{ name: 'Poulet Grillé', quantity: 1, price: 1499, merchant_supplied_id: 'clv-item-1', extras: [] }] }] });
+  const r41 = await waitFor(async () => { const o = await findOrder('dd-retry-41'); return o?.timeline?.posRetry ? o : null; });
+  check('Clover down: the order waits (never confirmed on DoorDash) and a retry is scheduled', r41?.status === 'new' && r41.posError && sent('PATCH', /^\/dd\/api\/v1\/orders\/dd-retry-41$/).length === 0, JSON.stringify(r41 && { s: r41.status, r: r41.timeline?.posRetry }));
+  cloverAtomicMode = 'ok';
+  // The server timer runs the retry when it is due; the cron (as on a server without the timer) would too.
+  const r41b = await waitFor(async () => { await cronWatch(); const o = await findOrder('dd-retry-41'); return o?.status === 'accepted' ? o : null; }, 15000);
+  const r41Live = [...cloverAtomicTitles.entries()].filter(([id, title]) => title === 'DoorDash #R41' && cloverOrderTotals.has(id));
+  check('Clover back: the automatic retry puts it in Clover once, prints it, then DoorDash is confirmed once', !!r41b?.posOrderId && r41Live.length === 1 && sent('PATCH', /^\/dd\/api\/v1\/orders\/dd-retry-41$/).filter((e) => e.body?.order_status === 'success').length === 1 && sent('POST', /\/print_event$/).some((e) => e.body?.orderRef?.id === r41b.posOrderId), JSON.stringify(r41b && { p: r41b.posOrderId, live: r41Live.length }));
+  check('the order page says it was retried and recovered', ((await call('GET', `/api/foodhub/orders/${r41b?.id}`)).json?.events || []).some((e) => e.type === 'pos_injected' && e.detail?.attempt === 1));
+
+  // c) Webhook inbox: Uber refuses the order fetch → kept and retried by itself; refused for good → Replay.
+  uberFetchFails = 2;
+  check('Uber webhook still answered 200 while Uber refuses the order fetch (saved first)', (await uberWebhook('uber-flaky-41')).status === 200);
+  const inb1 = await waitFor(async () => ((await call('GET', '/api/foodhub/inbox')).json?.inbox?.entries || []).find((e) => e.reference === 'uber-flaky-41' && e.status === 'failed'));
+  check('the failed webhook is in the inbox with its error and the next automatic try', !!inb1?.nextAt && /HTTP 503/.test(inb1.lastError || ''), JSON.stringify(inb1));
+  const fl41 = await waitFor(async () => { await cronWatch(); const o = await findOrder('uber-flaky-41'); return o?.status === 'accepted' ? o : null; }, 15000);
+  check('…and the next try gets the order: in Clover and accepted on Uber', !!fl41?.posOrderId && sent('POST', /\/v1\/eats\/orders\/uber-flaky-41\/accept_pos_order$/).length === 1);
+  uberFetchFails = 99;
+  await uberWebhook('uber-flaky-dead-41');
+  await waitFor(async () => ((await call('GET', '/api/foodhub/inbox')).json?.inbox?.entries || []).some((e) => e.reference === 'uber-flaky-dead-41' && e.status === 'failed'));
+  const dead = await waitFor(async () => { await cronWatch(); return ((await call('GET', '/api/foodhub/inbox')).json?.inbox?.entries || []).find((e) => e.reference === 'uber-flaky-dead-41' && e.status === 'failed' && !e.nextAt && e.attempts === 3); }, 20000);
+  check('after the automatic tries it waits for a person ("Needs replay"), counted on /api/health', !!dead && (await call('GET', '/api/health', { auth: false, headers: { authorization: 'Bearer cron-e2e' } })).json?.checks?.inbox?.status === 'warn', JSON.stringify(dead));
+  uberFetchFails = 0;
+  const replay41 = await call('POST', '/api/foodhub/inbox', { body: { id: dead?.id } });
+  check('Replay processes it: the order arrives, in Clover and accepted', replay41.json?.entry?.status === 'done' && (await waitFor(async () => (await findOrder('uber-flaky-dead-41'))?.status === 'accepted')), JSON.stringify(replay41.json));
+  check('replaying again never creates a second order', (await call('POST', '/api/foodhub/inbox', { body: { id: dead?.id } })).json?.entry?.result === 'duplicate (already received)' && (await call('GET', '/api/foodhub/orders?limit=500')).json.orders.filter((o) => o.externalOrderId === 'uber-flaky-dead-41').length === 1);
+
+  // d) "Do not touch this store's menu": Po Poulet NDG on DoorDash (store 27982486).
+  const locked41 = (await call('POST', '/api/foodhub/stores', { body: { channel: 'doordash', channelStoreId: 'NDG_6284-POPOULET', brandName: 'Po Poulet', locationCode: 'NDG_6284', platformStoreId: '27982486' } })).json?.store;
+  check('Po Poulet NDG on DoorDash (store 27982486) is menu-locked for good', locked41?.menuLock?.locked === true && locked41.menuLock.source === 'built_in');
+  check('the lock cannot be lifted from the console', (await call('POST', '/api/foodhub/stores', { body: { id: locked41?.id, channel: 'doordash', channelStoreId: 'NDG_6284-POPOULET', brandName: 'Po Poulet', locationCode: 'NDG_6284', menuLocked: false } })).status === 409);
+
+  // e) Import from the Clover DoorDash menu (+20 %): only its items, its photos, the markup kept.
+  cloverItems.push({ id: 'clv-item-4', name: 'Salade de chou', price: 271, available: true, categories: { elements: [{ id: 'clv-cat-2', name: 'Accompagnements', sortOrder: 2 }] }, modifierGroups: { elements: [] } });
+  cloverItems.push({ id: 'clv-item-5', name: 'Old wings', price: 999, available: true, categories: { elements: [{ id: 'clv-cat-arch', name: 'ARCHIVE · Ailes', sortOrder: 9 }] }, modifierGroups: { elements: [] } });
+  const menus41 = (await call('GET', '/api/foodhub/menu/import')).json?.cloverMenus;
+  check('the Menu editor lists the merchant’s Clover menus; the DoorDash one is recognised', menus41?.ok === true && menus41.menus.find((m) => m.id === 'MENU-DD')?.platform === 'doordash', JSON.stringify(menus41));
+  const imp41 = await call('POST', '/api/foodhub/menu/import', { body: { brand: 'Po Poulet', cloverMenuId: 'MENU-DD', platformPrices: ['doordash'] } });
+  const rep41 = imp41.json?.report;
+  check('import from the DoorDash menu: its 3 items, +20 % detected (no per-item price needed), photo kept', rep41?.items === 3 && rep41.platformPrices?.doordash?.markupPct === 20 && rep41.platformPrices.doordash.overrides === 0 && imp41.json.menu.channelMarkupPct?.doordash === 20
+    && imp41.json.menu.items.find((i) => i.ref === 'clv-item-4')?.imageUrl === 'https://cloverstatic.com/menu-assets/items/clv-item-4.jpeg' && !imp41.json.menu.items.some((i) => i.ref === 'clv-item-5'), JSON.stringify(rep41));
+  check('other platforms keep their own prices (Uber 16.49 on the grilled chicken)', imp41.json?.menu?.items?.find((i) => i.ref === 'clv-item-1')?.channelPrices?.uber_eats === 16.49);
+
+  // f) Dry run: what each store would receive — nothing sent; the locked store is never in it.
+  const menuPutsBefore = sent('PUT', /\/v2\/eats\/stores\/[^/]+\/menus$/).length + sent('POST', /^\/dd\/api\/v1\/menus$/).length;
+  const dry = await call('POST', '/api/foodhub/menu/publish', { body: { brand: 'Po Poulet', dryRun: true } });
+  const rowOf = (id) => (dry.json?.preview || []).find((r) => r.channelStoreId === id);
+  check('dry run: the locked store would get nothing; the Uber store gets the new salad', rowOf('NDG_6284-POPOULET')?.send === 'locked' && rowOf('uber-store-uuid-1')?.send === 'yes' && rowOf('uber-store-uuid-1').diff?.added?.some((a) => a.ref === 'clv-item-4'), JSON.stringify(dry.json?.preview?.map((r) => [r.channelStoreId, r.send])));
+  check('dry run sends nothing to any platform', sent('PUT', /\/v2\/eats\/stores\/[^/]+\/menus$/).length + sent('POST', /^\/dd\/api\/v1\/menus$/).length === menuPutsBefore);
+  const pub41 = await call('POST', '/api/foodhub/menu/publish', { body: { brand: 'Po Poulet' } });
+  const lockedRow = (pub41.json?.results || []).find((r) => r.channelStoreId === 'NDG_6284-POPOULET');
+  check('real publish: every other store gets the menu, the locked store is reported "not sent"', lockedRow?.result?.status === 'skipped' && /locked/.test(lockedRow.result.message) && !sent('POST', /^\/dd\/api\/v1\/menus$/).some((e) => e.body?.store?.merchant_supplied_id === 'NDG_6284-POPOULET'));
+  const av41 = await call('POST', '/api/foodhub/availability', { body: { brand: 'Po Poulet', locationCode: 'NDG_6284', itemRefs: ['clv-item-4'], available: false } });
+  check('an 86 at that kitchen never reaches the locked store', (av41.json?.results || []).find((r) => r.channelStoreId === 'NDG_6284-POPOULET')?.result?.status === 'skipped' && sent('PUT', /\/dd\/api\/v1\/stores\/NDG_6284-POPOULET\/items\/status$/).length === 0);
+  check('DoorDash Menu Request for the locked store is refused (DoorDash keeps its menu)', (await call('GET', '/api/foodhub/webhooks/doordash/NDG_6284-POPOULET', { auth: false, headers: { authorization: 'dd-hook-e2e' } })).status === 409);
+
+  // g) Health for an outside uptime monitor.
+  const hp = await call('GET', '/api/health', { auth: false });
+  check('/api/health is public and only says each check’s status', [200, 503].includes(hp.status) && JSON.stringify(Object.keys(hp.json || {}).sort()) === JSON.stringify(['at', 'checks', 'ok', 'status']) && (hp.status === 503) === (hp.json?.status === 'down'), JSON.stringify(hp.json));
+  const hd = (await call('GET', '/api/health', { auth: false, headers: { authorization: 'Bearer cron-e2e' } })).json;
+  check('with the cron secret: each platform and its last order, the Watchtower alive', hd?.platforms?.length === 4 && !!hd.platforms.find((p) => p.channel === 'doordash')?.lastOrderAt && hd.checks?.watchtower?.status === 'ok', JSON.stringify(hd && { p: hd.platforms, w: hd.checks?.watchtower }));
+  check('the Overview reads the same health (session)', (await call('GET', '/api/health')).json?.platforms?.length === 4);
+
   await sleep(300);
-  const crashes = appLog.split('\n').filter((l) => /\[foodhub\] .* failed|Unhandled|TypeError|ReferenceError/.test(l));
+  // A webhook "kept in the inbox" (section 41: Uber refusing the order fetch on purpose) is handled, not a crash.
+  const crashes = appLog.split('\n').filter((l) => /\[foodhub\] .* failed|Unhandled|TypeError|ReferenceError/.test(l) && !/kept in the inbox/.test(l));
   check('no background job crashed during the whole run', crashes.length === 0, crashes.slice(0, 3).join(' | '));
 } finally {
   if (!DEMO || failed) {

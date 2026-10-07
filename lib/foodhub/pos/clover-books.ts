@@ -13,6 +13,7 @@ import { CHANNEL_LABELS, timedFetch, toCents } from '../config';
 import { getRepo } from '../repo';
 import type { ChannelKey, StoredOrder } from '../types';
 import { cloverBaseUrl, cloverToken } from './clover';
+import { cloverTipCents } from './clover-order';
 
 const KV = 'clover_refs';
 type Refs = Record<string, { tenders?: Record<string, string>; orderTypes?: Record<string, string> }>;
@@ -107,7 +108,8 @@ export async function recordCloverPayment(order: StoredOrder, mid: string | null
       body: JSON.stringify({
         amount,
         taxAmount,
-        tipAmount: 0,
+        // Pickup / own-delivery tips are the restaurant's (tip-outs); a delivery tip is the courier's and stays out.
+        tipAmount: cloverTipCents(order),
         tender: { id: tenderId },
         externalPaymentId: externalPaymentId(order),
         result: 'SUCCESS',

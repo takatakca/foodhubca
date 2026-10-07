@@ -49,7 +49,7 @@ export function MenuEditor() {
   const [view, setView] = useState<'items' | 'options' | 'publish'>('items');
   const [editItem, setEditItem] = useState<string | null>(null);
   const [editHours, setEditHours] = useState<string | null>(null);
-  const [dialog, setDialog] = useState<'publish' | 'copy' | 'langs' | 'newcat' | 'share' | null>(null);
+  const [dialog, setDialog] = useState<'publish' | 'copy' | 'langs' | 'newcat' | 'share' | 'import' | null>(null);
   // One menu for several brands: follower → source. sharedFrom = the brand whose menu this one uses.
   const [sharing, setSharing] = useState<Record<string, string>>({});
   const [sharedFrom, setSharedFrom] = useState<string | null>(null);
@@ -85,11 +85,9 @@ export function MenuEditor() {
     try { const d = await api<{ menu: MasterMenu }>('/api/foodhub/menu', { method: 'PUT', json: { menu } }); setMenu(d.menu); setDirty(false); toast.success(t('Menu enregistré', 'Menu saved'), t('Vérification à jour.', 'Checks updated.')); loadStatus(brand); }
     catch (e) { fail(e); } finally { setBusy(''); }
   }
-  async function importClover() {
-    if (menu?.items.length && !window.confirm(t('Réimporter depuis Clover ? Noms, prix et options viennent de Clover ; vos prix par plateforme, descriptions, photos, étiquettes et horaires sont gardés.', 'Re-import from Clover? Names, prices and options come from Clover; your platform prices, descriptions, photos, tags and schedules are kept.'))) return;
-    setBusy('import');
-    try { const d = await api<{ menu: MasterMenu; imported: { items: number; categories: number; modifierGroups: number } }>('/api/foodhub/menu/import', { method: 'POST', json: { brand } }); setMenu(d.menu); setDirty(false); toast.success(t('Importé de Clover', 'Imported from Clover'), `${d.imported.items} ${t('articles', 'items')} · ${d.imported.categories} ${t('catégories', 'categories')} · ${d.imported.modifierGroups} ${t('groupes d’options', 'option groups')}`); loadStatus(brand); }
-    catch (e) { fail(e); } finally { setBusy(''); }
+  function importClover() {
+    if (dirty) { toast.warn(t('Enregistrez d’abord.', 'Save first.')); return; }
+    setDialog('import');
   }
   async function resolvePrice(c: PriceChange, accept: boolean) {
     if (dirty && !window.confirm(t('Vos changements non enregistrés seront rechargés. Continuer ?', 'Unsaved changes will be reloaded. Continue?'))) return;
@@ -296,6 +294,7 @@ export function MenuEditor() {
       {item && menu && <ItemDialog item={item} markup={menu.channelMarkupPct} groups={menu.modifierGroups} categories={cats} onChange={(p) => updateItem(item.ref, p)} onRemove={() => { update((m) => ({ ...m, items: m.items.filter((x) => x.ref !== item.ref) })); setEditItem(null); }} onClose={() => setEditItem(null)} />}
       {hoursCat && <CategoryHours category={hoursCat} onSave={(h) => { update((m) => ({ ...m, categories: m.categories.map((c) => (c.ref === hoursCat.ref ? { ...c, hours: h as MenuCategory['hours'] } : c)) })); setEditHours(null); }} onClose={() => setEditHours(null)} />}
       {dialog === 'share' && <ShareDialog brand={sharedFrom ?? brand} brands={allBrands} sharing={sharing} onClose={() => setDialog(null)} onSaved={(next, publish) => { setSharing(next); setDialog(null); load(brand).catch(fail); loadBrands(); toast.success(t('Menus partagés enregistrés', 'Shared menus saved'), publish.length ? t(`Publiez ${publish.join(', ')} : leurs plateformes montrent encore l’ancien menu.`, `Publish ${publish.join(', ')}: their platforms still show the previous menu.`) : undefined); }} />}
+      {dialog === 'import' && <ImportDialog brand={brand} hasItems={Boolean(menu?.items.length)} onClose={() => setDialog(null)} onDone={(m) => { setMenu(m); setDirty(false); setDialog(null); loadStatus(brand); }} />}
       {dialog === 'publish' && menu && <PublishDialog brand={brand} group={group} stores={stores} check={check} onClose={() => setDialog(null)} onDone={() => { setDialog(null); loadStatus(brand); setView('publish'); }} />}
       {dialog === 'langs' && langs && <LangDialog value={langs} onClose={() => setDialog(null)} onSaved={(l) => { setLangs(l); setDialog(null); toast.success(t('Langues enregistrées — publiez pour les appliquer.', 'Languages saved — publish to apply them.')); }} />}
       {dialog === 'newcat' && <NewCategory onClose={() => setDialog(null)} onAdd={(name, nameFr) => { const ref = uid('cat'); update((m) => ({ ...m, categories: [...m.categories, { ref, name, nameFr: nameFr || undefined, sortOrder: m.categories.length }] })); setCat(ref); setDialog(null); }} copyFrom={allBrands.filter((b) => b !== brand)} onCopy={async (src) => {
@@ -416,11 +415,20 @@ function PublishDialog({ brand, group, stores, check, onClose, onDone }: { brand
   const [when, setWhen] = useState<'now' | 'later'>('now');
   const [at, setAt] = useState('');
   const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState<PreviewRow[] | null>(null);
+  const [previewing, setPreviewing] = useState(false);
   const blocked = Boolean(check && !check.ok);
+  const scope = () => (allBrands ? { brand, allBrands: true } : { brand, storeIds: sel.length === stores.length ? undefined : sel });
+  /** Dry run: what each store would receive and what it changes — nothing is sent. */
+  async function dryRun() {
+    setPreviewing(true);
+    try { const d = await api<{ preview: PreviewRow[] }>('/api/foodhub/menu/publish', { method: 'POST', json: { ...scope(), dryRun: true } }); setPreview(d.preview); }
+    catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setPreviewing(false); }
+  }
   async function go() {
     setBusy(true);
     try {
-      const body: Record<string, unknown> = allBrands ? { brand, allBrands: true } : { brand, storeIds: sel.length === stores.length ? undefined : sel };
+      const body: Record<string, unknown> = scope();
       if (when === 'later') body.at = new Date(at).toISOString();
       const d = await api<{ results?: Array<{ channel: string; result: { ok: boolean; status: string; message: string } }>; scheduled?: { at: string } }>('/api/foodhub/menu/publish', { method: 'POST', json: body });
       if (d.scheduled) toast.success(t('Publication programmée', 'Publish scheduled'), timeOf(d.scheduled.at, loc, true));
@@ -431,7 +439,7 @@ function PublishDialog({ brand, group, stores, check, onClose, onDone }: { brand
   }
   return (
     <Modal title={t(`Publier ${brand}`, `Publish ${brand}`)} size="lg" onClose={onClose}
-      footer={<><Button variant="ghost" onClick={onClose}>{t('Annuler', 'Cancel')}</Button><Button variant="brand" loading={busy} disabled={blocked || (!allBrands && !sel.length) || (when === 'later' && !at)} onClick={go} icon={<Send className="size-4" />}>{when === 'later' ? t('Programmer', 'Schedule') : allBrands ? t(`Publier ${group.length} marques`, `Publish ${group.length} brands`) : t(`Publier sur ${sel.length} magasin(s)`, `Publish to ${sel.length} store(s)`)}</Button></>}>
+      footer={<><Button variant="ghost" onClick={onClose}>{t('Annuler', 'Cancel')}</Button><Button variant="outline" loading={previewing} disabled={!allBrands && !sel.length} onClick={dryRun} icon={<Search className="size-4" />}>{t('Aperçu (rien n’est envoyé)', 'Preview (nothing sent)')}</Button><Button variant="brand" loading={busy} disabled={blocked || (!allBrands && !sel.length) || (when === 'later' && !at)} onClick={go} icon={<Send className="size-4" />}>{when === 'later' ? t('Programmer', 'Schedule') : allBrands ? t(`Publier ${group.length} marques`, `Publish ${group.length} brands`) : t(`Publier sur ${sel.length} magasin(s)`, `Publish to ${sel.length} store(s)`)}</Button></>}>
       {blocked && <Banner tone="stop" className="mb-3">{t(`Corrigez les ${check!.errors.length} erreur(s) d’abord.`, `Fix the ${check!.errors.length} error(s) first.`)}</Banner>}
       {group.length > 1 && (
         <div className="mb-3 rounded-lg border border-line bg-raised p-3">
@@ -449,7 +457,136 @@ function PublishDialog({ brand, group, stores, check, onClose, onDone }: { brand
         <Segmented value={when} onChange={setWhen} options={[{ key: 'now', label: t('Maintenant', 'Now') }, { key: 'later', label: t('Plus tard', 'Later') }]} />
         {when === 'later' && <Input type="datetime-local" className="w-auto" value={at} onChange={(e) => setAt(e.target.value)} />}
       </div>
+      {preview && <PublishPreview rows={preview} />}
     </Modal>
+  );
+}
+
+type CloverMenu = { id: string; name: string; type?: string; channel?: string; status?: string; items?: number; platform: 'uber_eats' | 'doordash' | 'skip' | null };
+type ImportInfo = { merchants: Array<{ id: string; isDefault: boolean; locations: string[] }>; defaultMerchantId: string | null; cloverMenus: { merchantId: string | null; ok: boolean; menus: CloverMenu[]; error?: string } };
+type ImportReport = { items: number; categories: number; modifierGroups: number; requiredGroups: number; skipped: { hidden: number; archived: number; notInMenu: number; variablePrice: number }; menu?: { name: string; items: number; missingFromInventory: number }; platformPrices?: Record<string, { markupPct: number | null; overrides: number; items: number }> };
+
+/**
+ * Import from Clover: the whole visible inventory, or one of the merchant's Clover menus (e.g. the DoorDash +20 % menu
+ * — only its items, its photos, and its prices on the chosen platforms). Archived items are left out.
+ */
+function ImportDialog({ brand, hasItems, onClose, onDone }: { brand: string; hasItems: boolean; onClose: () => void; onDone: (m: MasterMenu) => void }) {
+  const { t } = useI18n();
+  const toast = useToast();
+  const [info, setInfo] = useState<ImportInfo | null>(null);
+  const [mid, setMid] = useState('');
+  const [source, setSource] = useState('inventory');
+  const [platforms, setPlatforms] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback((m?: string) => api<ImportInfo>(`/api/foodhub/menu/import${m ? `?merchantId=${encodeURIComponent(m)}` : ''}`).then((d) => { setInfo(d); setMid(d.cloverMenus.merchantId ?? ''); }).catch((e) => toast.error(e instanceof Error ? e.message : String(e))), [toast]);
+  useEffect(() => { void load(); }, [load]);
+  const chosen = info?.cloverMenus.menus.find((m) => m.id === source);
+  useEffect(() => { setPlatforms(chosen?.platform ? [chosen.platform] : []); }, [chosen?.id, chosen?.platform]);
+  async function go() {
+    if (hasItems && !window.confirm(t('Réimporter depuis Clover ? Noms, prix et options viennent de Clover ; vos descriptions, photos, étiquettes, traductions et horaires sont gardés.', 'Re-import from Clover? Names, prices and options come from Clover; your descriptions, photos, tags, translations and schedules are kept.'))) return;
+    setBusy(true);
+    try {
+      const d = await api<{ menu: MasterMenu; report: ImportReport | null }>('/api/foodhub/menu/import', { method: 'POST', json: { brand, merchantId: mid || undefined, ...(chosen ? { cloverMenuId: chosen.id, platformPrices: platforms } : {}) } });
+      const r = d.report;
+      const lines = r ? [
+        t(`${r.items} articles · ${r.categories} catégories · ${r.modifierGroups} groupes d’options (${r.requiredGroups} obligatoires)`, `${r.items} items · ${r.categories} categories · ${r.modifierGroups} option groups (${r.requiredGroups} required)`),
+        r.skipped.archived || r.skipped.hidden || r.skipped.notInMenu ? t(`Laissés de côté : ${r.skipped.archived} archivés, ${r.skipped.hidden} cachés${r.menu ? `, ${r.skipped.notInMenu} hors du menu « ${r.menu.name} »` : ''}`, `Left out: ${r.skipped.archived} archived, ${r.skipped.hidden} hidden${r.menu ? `, ${r.skipped.notInMenu} not in the "${r.menu.name}" menu` : ''}`) : '',
+        ...Object.entries(r.platformPrices ?? {}).map(([p, x]) => `${p}: ${x.markupPct !== null ? `+${x.markupPct} %` : t('prix par article', 'item prices')}${x.overrides ? t(` (${x.overrides} prix propres)`, ` (${x.overrides} own prices)`) : ''}`),
+        r.skipped.variablePrice ? t(`${r.skipped.variablePrice} article(s) à prix variable importés indisponibles`, `${r.skipped.variablePrice} variable-price item(s) imported unavailable`) : '',
+      ].filter(Boolean).join('\n') : `${d.menu.items.length} ${t('articles', 'items')}`;
+      toast.success(t('Importé de Clover — publiez pour l’envoyer', 'Imported from Clover — publish to send it'), lines);
+      onDone(d.menu);
+    } catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+  }
+  const PL: Array<[string, string]> = [['doordash', 'DoorDash'], ['uber_eats', 'Uber Eats'], ['skip', 'Skip']];
+  // Clover's menu kinds in words: the POS menu (what the register shows) and the online / delivery menus.
+  const menuType = (type?: string) => (!type ? '' : /DEFAULT_POS/i.test(type) ? t('Menu de la caisse', 'Register menu') : /OLO/i.test(type) ? t('Menu en ligne', 'Online menu') : type);
+  return (
+    <Modal title={t(`Importer ${brand} de Clover`, `Import ${brand} from Clover`)} size="lg" onClose={onClose}
+      footer={<><Button variant="ghost" onClick={onClose}>{t('Annuler', 'Cancel')}</Button><Button variant="brand" loading={busy} disabled={!info} onClick={go} icon={<Download className="size-4" />}>{t('Importer', 'Import')}</Button></>}>
+      {!info ? <div className="h-40 animate-pulse rounded-lg bg-sunken" /> : <div className="space-y-4">
+        {info.merchants.length > 1 && <Field label={t('Marchand Clover', 'Clover merchant')}><Select value={mid} onChange={(e) => { setMid(e.target.value); setSource('inventory'); void load(e.target.value); }}>{info.merchants.map((m) => <option key={m.id} value={m.id}>{m.id}{m.isDefault ? ` (${t('par défaut', 'default')})` : ''}{m.locations.length ? ` — ${m.locations.join(', ')}` : ''}</option>)}</Select></Field>}
+        <div>
+          <div className="mb-1.5 text-sm font-semibold">{t('Que faut-il importer ?', 'What to import?')}</div>
+          <div className="divide-y divide-line rounded-lg border border-line">
+            <label className="flex cursor-pointer items-start gap-3 px-3 py-2.5"><input type="radio" className="mt-1" checked={source === 'inventory'} onChange={() => setSource('inventory')} />
+              <span><span className="font-semibold">{t('Tout l’inventaire visible', 'All visible inventory')}</span><span className="block text-xs text-ink-3">{t('Articles non cachés, hors catégories « ARCHIVE ». Prix en magasin ; majorations par plateforme gardées.', 'Items not hidden, outside “ARCHIVE” categories. In-store prices; platform markups kept.')}</span></span></label>
+            {info.cloverMenus.menus.map((m) => (
+              <label key={m.id} className="flex cursor-pointer items-start gap-3 px-3 py-2.5"><input type="radio" className="mt-1" checked={source === m.id} onChange={() => setSource(m.id)} />
+                <span className="min-w-0"><span className="font-semibold">{m.name}</span>{m.platform && <PlatformMark channel={m.platform} size="xs" className="ml-1.5 inline-flex align-middle" />}
+                  <span className="block text-xs text-ink-3">{[menuType(m.type), m.channel, m.status === 'published' ? t('publié', 'published') : m.status === 'draft' ? t('brouillon', 'draft') : m.status, m.items !== undefined ? t(`${m.items} articles`, `${m.items} items`) : ''].filter(Boolean).join(' · ')}</span></span></label>
+            ))}
+          </div>
+          {!info.cloverMenus.ok && <p className="mt-1.5 text-xs text-ink-3">{t('Les menus Clover ne sont pas lisibles avec ce jeton — import de l’inventaire seulement.', 'Clover menus cannot be read with this token — inventory import only.')} <span className="font-mono">{info.cloverMenus.error}</span></p>}
+        </div>
+        {chosen && (
+          <div>
+            <div className="mb-1.5 text-sm font-semibold">{t('Les prix de ce menu deviennent les prix sur :', 'This menu’s prices become the prices on:')}</div>
+            <div className="flex flex-wrap gap-4">{PL.map(([k, l]) => <Checkbox key={k} checked={platforms.includes(k)} onChange={(v) => setPlatforms(v ? [...platforms, k] : platforms.filter((x) => x !== k))} label={l} />)}</div>
+            <p className="mt-1.5 text-xs text-ink-3">{t('Seuls les articles de ce menu sont importés. Si ses prix sont le prix Clover + un même pourcentage (ex. +20 %), Food Hub garde ce pourcentage : un prix changé dans Clover suit tout seul.', 'Only this menu’s items are imported. When its prices are the Clover price + one percentage (e.g. +20%), Food Hub keeps that percentage: a price changed in Clover follows by itself.')}</p>
+          </div>
+        )}
+      </div>}
+    </Modal>
+  );
+}
+
+type Diff = { added: Array<{ name: string; price: number }>; removed: Array<{ name: string }>; repriced: Array<{ name: string; from: number; to: number }>; turnedOff: Array<{ name: string }>; turnedOn: Array<{ name: string }>; renamed: Array<{ from: string; to: string }>; same: boolean };
+type PreviewRow = {
+  storeId: string; brandName: string; channel: string; locationCode: string; channelStoreId: string; send: 'yes' | 'locked' | 'not_live' | 'via_clover'; reason?: string; reasonFr?: string;
+  counts: { categories: number; items: number; available: number; unavailable: number; options: number }; hoursSet: boolean; holidays: number; language: string;
+  diff: Diff | null; lastPublishedAt: string | null; sample: Array<{ name: string; price: number }>;
+};
+
+const LANG_LABEL: Record<string, string> = { en: 'EN', fr: 'FR', both: 'FR / EN' };
+
+/** Dry-run result, one card per store: will it be sent, and what changes on the platform. */
+function PublishPreview({ rows }: { rows: PreviewRow[] }) {
+  const { t, loc } = useI18n();
+  const { locName } = useViewer();
+  const sendLabel: Record<PreviewRow['send'], [string, string, 'go' | 'stop' | 'wait' | 'info']> = {
+    yes: ['Sera envoyé', 'Will be sent', 'go'], locked: ['Menu verrouillé — rien n’est envoyé', 'Menu locked — nothing sent', 'stop'],
+    not_live: ['Pas en direct — rien n’est envoyé', 'Not live — nothing sent', 'wait'], via_clover: ['Relié par Clover — géré dans Clover', 'Linked through Clover — managed in Clover', 'info'],
+  };
+  const list = (items: Array<{ name: string }>, n = 6) => `${items.slice(0, n).map((i) => i.name).join(', ')}${items.length > n ? '…' : ''}`;
+  return (
+    <div className="mt-5 border-t border-line pt-4">
+      <div className="mb-2 text-sm font-bold">{t(`Aperçu — ${rows.length} magasin(s), rien n’a été envoyé`, `Preview — ${rows.length} store(s), nothing was sent`)}</div>
+      <div className="scrollbar-thin max-h-96 space-y-2 overflow-y-auto">
+        {rows.map((r) => {
+          const [fr, en, tone] = sendLabel[r.send];
+          const d = r.diff;
+          return (
+            <div key={r.storeId} className="rounded-lg border border-line p-3 text-[13px]">
+              <div className="flex flex-wrap items-center gap-2">
+                <PlatformMark channel={r.channel} size="xs" /><span className="font-bold">{r.brandName}</span><span className="text-ink-3">· {shortLoc(locName(r.locationCode))}</span>
+                <Badge tone={tone} className="ml-auto">{t(fr, en)}</Badge>
+              </div>
+              {r.reason && r.send !== 'yes' && <div className="mt-1 text-xs text-ink-3">{t(r.reasonFr ?? r.reason, r.reason)}</div>}
+              {r.send !== 'locked' && <div className="mt-1.5 text-xs text-ink-2">
+                {t(`${r.counts.categories} catégories · ${r.counts.available} articles en vente${r.counts.unavailable ? ` (${r.counts.unavailable} en rupture)` : ''} · ${r.counts.options} options`, `${r.counts.categories} categories · ${r.counts.available} items on sale${r.counts.unavailable ? ` (${r.counts.unavailable} 86'd)` : ''} · ${r.counts.options} options`)}
+                {' · '}{r.hoursSet ? t('heures du magasin', 'store hours') : t('aucune heure (24/7)', 'no hours (24/7)')}{r.holidays ? ` · ${t(`${r.holidays} férié(s)`, `${r.holidays} holiday(s)`)}` : ''} · {LANG_LABEL[r.language] ?? r.language}
+              </div>}
+              {r.send !== 'locked' && r.sample.length > 0 && <div className="mt-1 text-xs text-ink-3">{r.sample.map((s) => `${s.name} ${money(s.price, loc)}`).join(' · ')}</div>}
+              {r.send === 'yes' && <div className="mt-1.5 text-xs">
+                {!d ? <span className="text-ink-3">{t('Jamais publié depuis Food Hub : tout le menu sera envoyé.', 'Never published from Food Hub: the whole menu is sent.')}</span>
+                  : d.same ? <span className="text-go-2">{t('Aucun changement depuis la dernière publication.', 'No change since the last publish.')}</span>
+                    : <ul className="space-y-0.5">
+                      {d.added.length > 0 && <li><strong className="text-go-2">+{d.added.length}</strong> {t('nouveau(x) :', 'new:')} {list(d.added)}</li>}
+                      {d.removed.length > 0 && <li><strong className="text-stop">−{d.removed.length}</strong> {t('retiré(s) :', 'removed:')} {list(d.removed)}</li>}
+                      {d.repriced.length > 0 && <li><strong>{d.repriced.length}</strong> {t('prix changé(s) :', 'price change(s):')} {d.repriced.slice(0, 5).map((x) => `${x.name} ${money(x.from, loc)} → ${money(x.to, loc)}`).join(', ')}{d.repriced.length > 5 ? '…' : ''}</li>}
+                      {d.turnedOff.length > 0 && <li><strong className="text-wait-2">{d.turnedOff.length}</strong> {t('en rupture :', '86\'d:')} {list(d.turnedOff)}</li>}
+                      {d.turnedOn.length > 0 && <li><strong className="text-go-2">{d.turnedOn.length}</strong> {t('de retour :', 'back on:')} {list(d.turnedOn)}</li>}
+                      {d.renamed.length > 0 && <li><strong>{d.renamed.length}</strong> {t('renommé(s)', 'renamed')}: {d.renamed.slice(0, 3).map((x) => `${x.from} → ${x.to}`).join(', ')}</li>}
+                    </ul>}
+                {r.lastPublishedAt && <div className="mt-0.5 text-[11px] text-ink-4">{t('Dernière publication :', 'Last publish:')} {new Date(r.lastPublishedAt).toLocaleString(loc, { dateStyle: 'medium', timeStyle: 'short' })}</div>}
+              </div>}
+            </div>
+          );
+        })}
+        {rows.length === 0 && <div className="text-sm text-ink-3">{t('Aucun magasin ne recevrait ce menu.', 'No store would receive this menu.')}</div>}
+      </div>
+    </div>
   );
 }
 

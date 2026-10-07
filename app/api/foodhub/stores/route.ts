@@ -3,6 +3,7 @@ import { logActivity } from '@/lib/foodhub/activity';
 import { inScope, withPerm, type AuthUser } from '@/lib/foodhub/auth';
 import { getCatalog } from '@/lib/foodhub/catalog';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
+import { menuLockOf } from '@/lib/foodhub/menu/lock';
 import { getRepo } from '@/lib/foodhub/repo';
 
 /** A manager limited to some locations may only map stores at those locations. */
@@ -22,7 +23,9 @@ export const dynamic = 'force-dynamic';
 
 export const GET = withPerm('view', async (_req, _ctx, actor) => {
   const repo = getRepo();
-  return ok({ mode: repo.mode, stores: (await repo.listStores()).filter((s) => inScope(actor, s.locationCode)) });
+  // menuLock: whether Food Hub may change this store's menu, and why not (built in / environment / set here).
+  const stores = (await repo.listStores()).filter((s) => inScope(actor, s.locationCode)).map((s) => ({ ...s, menuLock: menuLockOf(s) }));
+  return ok({ mode: repo.mode, stores });
 });
 
 // Create or update a store mapping (channel store id → brand + location + Clover merchant).
@@ -41,6 +44,23 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
   const existing = b.id ? await repo.getStore(String(b.id)) : await repo.findStore(channel, String(b.channelStoreId).trim());
   // Re-mapping a store that belongs to another location is out of scope too.
   if (existing && !inScope(actor, existing.locationCode)) return fail(scopeError(actor, existing.locationCode)!, 403);
+  // "Never change this store's menu" + the platform's own store number (DoorDash store number ≠ merchant_supplied_id).
+  const meta: Record<string, unknown> = { ...(existing?.meta ?? {}) };
+  if (b.platformStoreId !== undefined) {
+    const n = String(b.platformStoreId ?? '').trim().slice(0, 80);
+    if (n) meta.platformStoreId = n; else delete meta.platformStoreId;
+  }
+  if (b.menuLocked !== undefined) {
+    const want = Boolean(b.menuLocked);
+    const before = menuLockOf({ channel, channelStoreId: String(b.channelStoreId).trim(), meta });
+    // A store locked by the owner's standing instruction (built in) or by the hosting setup cannot be unlocked here.
+    if (!want && before.locked && before.source !== 'store') return fail(`This store's menu stays locked: ${before.reason}`, 409);
+    if (want) {
+      const why = String(b.menuLockedReason ?? '').trim().slice(0, 200);
+      meta.menuLocked = true; meta.menuLockedBy = actor.name; meta.menuLockedAt = new Date().toISOString();
+      if (why) meta.menuLockedReason = why; else delete meta.menuLockedReason;
+    } else { delete meta.menuLocked; delete meta.menuLockedReason; delete meta.menuLockedAt; delete meta.menuLockedBy; }
+  }
   const store = await repo.upsertStore({
     id: existing?.id,
     channel,
@@ -52,11 +72,11 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
     online: existing?.online ?? true,
     pausedUntil: existing?.pausedUntil ?? null,
     lastStatusSource: existing?.lastStatusSource ?? null,
-    meta: existing?.meta ?? {},
+    meta,
   });
   await logActivity({ actor: actor.name, source: actor.source, kind: 'settings', action: existing ? 'store_mapping_updated' : 'store_mapped', status: 'success', channel: store.channel, brandName: store.brandName, locationCode: store.locationCode, storeId: store.id,
-    summary: `${existing ? 'Updated' : 'Mapped'} ${store.channel} store ${store.channelStoreId} → ${store.brandName} · ${store.locationCode}` });
-  return ok({ store });
+    summary: `${existing ? 'Updated' : 'Mapped'} ${store.channel} store ${store.channelStoreId} → ${store.brandName} · ${store.locationCode}${menuLockOf(store).locked ? ' (menu locked — never changed by Food Hub)' : ''}` });
+  return ok({ store: { ...store, menuLock: menuLockOf(store) } });
 });
 
 export const DELETE = withPerm('stores:map', async (req, _ctx, actor) => {

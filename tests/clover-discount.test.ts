@@ -30,7 +30,7 @@ function order(over: Partial<StoredOrder> = {}): StoredOrder {
 
 async function inject(o: StoredOrder) {
   const res = await injectOrder(o, MID);
-  expect(res).toEqual({ ok: true, posOrderId: 'CLV-DISC-1' });
+  expect(res).toMatchObject({ ok: true, posOrderId: 'CLV-DISC-1' });
   expect(posted).toHaveLength(1);
   expect(posted[0].url).toBe(`https://api.clover.test/v3/merchants/${MID}/atomic_order/orders`);
   return posted[0].body.orderCart as { lineItems: Array<{ price: number }>; discounts?: Array<{ name: string; amount: number }> };

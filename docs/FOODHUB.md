@@ -228,9 +228,9 @@ desktop notifications for that device (kitchen tablet and office PC can differ).
 
 ## Proof
 ```bash
-npm run check                              # typecheck + lint + 190 unit tests (incl. sessions, PINs, approvals,
+npm run check                              # typecheck + lint + 285 unit tests (incl. sessions, PINs, approvals,
                                            # sign-in codes, Watchtower detection and escalation)
-npm run build && npm run verify:foodhub    # 382 end-to-end checks against simulated Uber Eats (incl. Reporting API),
+npm run build && npm run verify:foodhub    # 409 end-to-end checks against simulated Uber Eats (incl. Reporting API),
                                            # DoorDash, Skip (JET Connect), Clover, Resend, Twilio and a team chat
 npm run demo:foodhub                       # same, then keeps running with a new order every 40 s
 ```

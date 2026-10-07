@@ -100,6 +100,12 @@ export const PLAYBOOK: Record<IncidentKind, { fr: string; en: string; doFr: stri
     doFr: ['Envoyer le message conservé à votre développeur (Réglages → Canaux)'],
     doEn: ['Send the kept message to your developer (Settings → Channels)'],
   },
+  platform_silent: {
+    fr: 'Aucune commande de cette plateforme depuis des heures alors que ses magasins sont ouverts : le branchement (webhook, clés, magasin désactivé) est peut-être cassé.',
+    en: 'No order from this platform for hours while its stores are open: the connection (webhook, keys, deactivated store) may be broken.',
+    doFr: ['Vérifier la tablette de la plateforme : des commandes y arrivent-elles ?', 'Voir Réglages → Plateformes et Clover → Boîte de réception des webhooks', 'Vérifier que les magasins sont actifs chez la plateforme'],
+    doEn: ['Check the platform tablet: are orders arriving there?', 'See Settings → Platforms & Clover → Webhook inbox', 'Check the stores are active on the platform'],
+  },
   menu_failed: {
     fr: 'Une publication de menu, un 86 ou une pause n’a pas été acceptée par une plateforme.',
     en: 'A menu publish, an 86 or a pause was not accepted by a platform.',

@@ -4,7 +4,7 @@ import { withPerm } from '@/lib/foodhub/auth';
 import { ok } from '@/lib/foodhub/http';
 import { can } from '@/lib/foodhub/session';
 import { VERIFY_KEY, cloverInventorySyncEnabled } from '@/lib/foodhub/clover-sync';
-import { cloverReadiness } from '@/lib/foodhub/pos/clover';
+import { cloverReadiness, cloverTokenFor, knownCloverMerchants } from '@/lib/foodhub/pos/clover';
 import { cloverAppReadiness, listCloverConnections } from '@/lib/foodhub/pos/clover-oauth';
 import { cloverOrderTypesEnabled, cloverRecordPaymentEnabled } from '@/lib/foodhub/pos/clover-books';
 import { getRepo } from '@/lib/foodhub/repo';
@@ -39,6 +39,8 @@ export const GET = withPerm('stores:map', async (req, _ctx, actor) => {
     dashboardProtected: Boolean(process.env.DASHBOARD_PASSWORD),
     clover: {
       ...cloverReadiness(),
+      // Merchants with an API token in the environment (CLOVER_ACCESS_TOKEN / CLOVER_MERCHANT_TOKENS): orders reach them too.
+      tokenMerchants: knownCloverMerchants().filter((m) => cloverTokenFor(m)).length,
       webhookUrl: `${base}/api/foodhub/webhooks/clover`,
       webhookAuthSet: Boolean(process.env.CLOVER_WEBHOOK_AUTH),
       // The verification code is not a secret (Clover shows it to you too); only shown to owners.

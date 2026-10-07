@@ -1,4 +1,5 @@
-// Menu language per platform (Quebec: French is expected; Uber Eats takes both languages natively).
+// Menu language per platform (Quebec: French is expected). Uber Eats keeps ONE text per name, so "both" there means
+// "Poulet grillé / Grilled chicken" in that one text, as on DoorDash and Skip.
 import { getRepo } from '../repo';
 import type { ChannelKey, MenuLanguage } from '../types';
 

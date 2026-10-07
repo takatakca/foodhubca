@@ -40,7 +40,7 @@ const sections = [
     ['SUPABASE_SERVICE_ROLE_KEY', 'service_role key (keep secret)'],
   ]],
   ['SIGN-IN (everyone signs in with a 6-digit code by email or SMS — no passwords to remember)', [
-    ['FOODHUB_PUBLIC_URL', 'Public URL of your deployment, e.g. https://takatak-foodhub.vercel.app (sign-in links + webhook URLs)'],
+    ['FOODHUB_PUBLIC_URL', 'Public https URL of your deployment, your own domain, e.g. https://foodhub.takatak.ca (sign-in links, webhook URLs, Clover Site URL)'],
     ['FOODHUB_OWNER_EMAIL', 'YOUR email — the first owner account can only be created with it (or with the recovery password)'],
     ['FOODHUB_OWNER_PHONE', 'Optional: YOUR cell, e.g. 514 555 0123 (same purpose, by SMS)'],
     ['DASHBOARD_PASSWORD', 'Recovery password — only for emergencies ("Sign in with the recovery password"). Type it yourself, never in chat'],
@@ -76,7 +76,8 @@ const sections = [
   ]],
   ['PUBLIC PAGES (privacy policy, terms, support — the URLs you give the Clover App Market)', [
     ['FOODHUB_SUPPORT_EMAIL', 'Support email shown on /legal/support, /legal/privacy and /legal/terms'],
-    ['FOODHUB_SUPPORT_PHONE', 'Optional: support phone number'],
+    ['FOODHUB_SUPPORT_PHONE', 'Support phone number (the Clover App Market listing requires one)'],
+    ['FOODHUB_SUPPORT_HOURS', 'Optional: support hours (default: Lun–ven 9 h – 17 h (HE) / Mon–Fri 9 am – 5 pm ET)'],
     ['FOODHUB_PRIVACY_OFFICER', 'Optional: name and title of the person responsible for personal information (Québec Law 25) — default: the highest authority of the company'],
   ]],
   ['UBER EATS DIRECT (developer.uber.com → your app → needs eats.order + eats.store scopes approved)', [
@@ -92,6 +93,20 @@ const sections = [
   ['SKIPTHEDISHES DIRECT (JET Connect — Skip/Just Eat Takeaway integrations team gives you an API key)', [
     ['SKIP_JET_API_KEY', 'JET Connect API key (sent as X-Flyt-Api-Key)'],
     ['SKIP_JET_BASE_URL', 'JET Connect base URL [https://api.flytplatform.com]', 'https://api.flytplatform.com'],
+  ]],
+  ['OWN-ORDER DELIVERY (optional) — DoorDash Drive: developer.doordash.com → the org that has Drive access → Drive → Credentials. Uber Direct: direct.uber.com → Developer', [
+    ['DOORDASH_DRIVE_DEVELOPER_ID', 'Drive Developer ID'],
+    ['DOORDASH_DRIVE_KEY_ID', 'Drive Key ID (start with the sandbox key)'],
+    ['DOORDASH_DRIVE_SIGNING_SECRET', 'Drive Signing secret'],
+    ['DOORDASH_DRIVE_ENV', 'Which key is it: sandbox or production [sandbox] — production also needs LIVE_CONNECTORS_GLOBAL_ENABLED=true', 'sandbox'],
+    ['UBER_DIRECT_CUSTOMER_ID', 'Optional: Uber Direct customer ID (comparison quotes / fallback)'],
+    ['UBER_DIRECT_CLIENT_ID', 'Optional: Uber Direct client ID'],
+    ['UBER_DIRECT_CLIENT_SECRET', 'Optional: Uber Direct client secret'],
+    ['UBER_DIRECT_WEBHOOK_SECRET', 'Optional: Uber Direct webhook signing key'],
+    ['UBER_DIRECT_ENV', 'Uber Direct account: sandbox or production [sandbox]', 'sandbox'],
+  ]],
+  ['AI PHONE ORDERING (optional — uses ANTHROPIC_API_KEY and the TWILIO_* keys above; lines are set in Settings → Expansion → Phone)', [
+    ['FOODHUB_PHONE_MODEL', 'Claude model for the phone agent [claude-opus-5-5]', 'claude-opus-5-5'],
   ]],
 ];
 
@@ -110,7 +125,7 @@ for (const [title, fields] of sections) {
 
 // Webhook secrets are generated automatically — you paste them into each platform's portal.
 const { randomBytes } = await import('node:crypto');
-for (const key of ['UBER_WEBHOOK_SIGNING_KEY', 'DOORDASH_WEBHOOK_SECRET', 'SKIP_WEBHOOK_HMAC_SECRET', 'SKIP_WEBHOOK_API_KEY', 'TGTG_WEBHOOK_SECRET', 'CRON_SECRET']) {
+for (const key of ['UBER_WEBHOOK_SIGNING_KEY', 'DOORDASH_WEBHOOK_SECRET', 'SKIP_WEBHOOK_HMAC_SECRET', 'SKIP_WEBHOOK_API_KEY', 'TGTG_WEBHOOK_SECRET', 'DOORDASH_DRIVE_WEBHOOK_SECRET', 'FOODHUB_WEBSITE_ORDER_SECRET', 'CRON_SECRET']) {
   if (!values[key]) values[key] = randomBytes(24).toString('hex');
 }
 // Signs every session and tablet cookie. Changing it signs everyone out (tablets must be enrolled again).
@@ -144,10 +159,12 @@ const order = [
   'ALERT_WEBHOOK_URL','ANTHROPIC_API_KEY','ANTHROPIC_MODEL','FOODHUB_WATCH_INTERVAL_S',
   'CLOVER_BASE_URL','CLOVER_CLIENT_ID','CLOVER_CLIENT_SECRET','CLOVER_WEB_URL','CLOVER_ALLOWED_MERCHANTS','FOODHUB_VIA_CLOVER','FOODHUB_CLOVER_PLATFORM_ORDERS','CLOVER_MERCHANT_ID','CLOVER_ACCESS_TOKEN','CLOVER_MERCHANT_TOKENS','CLOVER_PRINT_DEVICE_ID','CLOVER_PRINT_DEVICES','FOODHUB_CLOVER_AUTOPRINT','CLOVER_WEBHOOK_AUTH','FOODHUB_CLOVER_RECORD_PAYMENT','FOODHUB_CLOVER_DELETE_CANCELLED','FOODHUB_CLOVER_ORDER_TYPES','FOODHUB_CLOVER_INVENTORY_SYNC',
   'DOORDASH_BASE_URL','DOORDASH_DEVELOPER_ID','DOORDASH_KEY_ID','DOORDASH_SIGNING_SECRET','DOORDASH_PROVIDER_TYPE','DOORDASH_WEBHOOK_SECRET',
-  'UBER_BASE_URL','UBER_CLIENT_ID','UBER_CLIENT_SECRET','UBER_WEBHOOK_SIGNING_KEY','UBER_WEBHOOK_SIGNING_KEY_2','UBER_ACCESS_TOKEN','UBER_REPORT_SCOPE',
+  'UBER_ENV','UBER_BASE_URL','UBER_CLIENT_ID','UBER_CLIENT_SECRET','UBER_WEBHOOK_SIGNING_KEY','UBER_WEBHOOK_SIGNING_KEY_2','UBER_ACCESS_TOKEN','UBER_REPORT_SCOPE','UBER_TAX_RATE_PCT',
   'SKIP_JET_API_KEY','SKIP_JET_BASE_URL','SKIP_WEBHOOK_HMAC_SECRET','SKIP_WEBHOOK_API_KEY','FOODHUB_TIMEZONE',
   'TGTG_WEBHOOK_SECRET','FOODHUB_AUTO_COMPLETE_MIN','FOODHUB_SCHEDULED_AFTER_MIN',
-  'FOODHUB_SUPPORT_EMAIL','FOODHUB_SUPPORT_PHONE','FOODHUB_PRIVACY_OFFICER','FOODHUB_LEGAL_COMPANY','FOODHUB_LEGAL_ADDRESS','FOODHUB_LEGAL_UPDATED','FOODHUB_LEGAL_APPROVED',
+  'DOORDASH_DRIVE_DEVELOPER_ID','DOORDASH_DRIVE_KEY_ID','DOORDASH_DRIVE_SIGNING_SECRET','DOORDASH_DRIVE_ENV','DOORDASH_DRIVE_WEBHOOK_SECRET',
+  'UBER_DIRECT_CUSTOMER_ID','UBER_DIRECT_CLIENT_ID','UBER_DIRECT_CLIENT_SECRET','UBER_DIRECT_WEBHOOK_SECRET','UBER_DIRECT_ENV','FOODHUB_WEBSITE_ORDER_SECRET','FOODHUB_PHONE_MODEL',
+  'FOODHUB_SUPPORT_EMAIL','FOODHUB_SUPPORT_PHONE','FOODHUB_SUPPORT_HOURS','FOODHUB_PRIVACY_OFFICER','FOODHUB_LEGAL_COMPANY','FOODHUB_LEGAL_ADDRESS','FOODHUB_LEGAL_UPDATED','FOODHUB_LEGAL_APPROVED',
 ];
 const keys = [...new Set([...order, ...Object.keys(values)])];
 const out = keys.filter(k => values[k] !== undefined).map(k => `${k}=${values[k]}`).join('\n') + '\n';

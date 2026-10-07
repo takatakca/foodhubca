@@ -43,7 +43,8 @@ export function playSound(tone: Tone = 'order') {
     osc.type = tone === 'alert' ? 'square' : 'triangle';
     osc.frequency.value = f;
     gain.gain.setValueAtTime(0.0001, t0 + start);
-    gain.gain.exponentialRampToValueAtTime(0.32 * volume, t0 + start + 0.015);
+    // An exponential ramp to exactly 0 throws (RangeError) and would take the whole console down: floor it.
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, 0.32 * volume), t0 + start + 0.015);
     gain.gain.exponentialRampToValueAtTime(0.0001, t0 + start + len);
     osc.connect(gain).connect(a.destination);
     osc.start(t0 + start);

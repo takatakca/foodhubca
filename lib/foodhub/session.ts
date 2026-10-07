@@ -146,6 +146,18 @@ export const verifySession = (t: string | null | undefined) => verify<SessionPay
 export const signDevice = (p: DevicePayload) => sign('d', p);
 export const verifyDevice = (t: string | null | undefined) => verify<DevicePayload>('d', t);
 
+/**
+ * Welcome ticket: put in the /welcome/clover link after a merchant opens the app from Clover, so that public page
+ * may show that merchant's own connection (name, approval, register check). Without a valid ticket the page shows
+ * nothing about any merchant — a merchant ID typed in the address bar reveals nothing.
+ */
+export interface WelcomePayload { m: string; exp: number }
+export const WELCOME_TICKET_TTL_S = 7 * 24 * 3600;
+export async function signWelcome(merchantId: string, ttlS = WELCOME_TICKET_TTL_S): Promise<string | null> {
+  try { return await sign('w', { m: merchantId, exp: Math.floor(Date.now() / 1000) + ttlS }); } catch { return null; }
+}
+export const verifyWelcome = (t: string | null | undefined) => verify<WelcomePayload>('w', t);
+
 export function readCookie(header: string | null, name = SESSION_COOKIE): string | null {
   if (!header) return null;
   for (const part of header.split(';')) {

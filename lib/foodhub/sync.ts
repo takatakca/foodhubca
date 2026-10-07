@@ -12,6 +12,7 @@
 import { fetchDoorDashStoreStatus } from './adapters/doordash';
 import { isRelayStore } from './adapters/relay';
 import { fetchUberStoreStatus } from './adapters/uber-eats';
+import { recoverMissedUberOrders } from './adapters/uber-events';
 import { nowIso } from './config';
 import { logActivity } from './activity';
 import { CHANNEL_LABELS } from './config';
@@ -24,6 +25,7 @@ import { applyHolidayClosures, reenableExpiredItems, reopenExpiredPauses } from 
 import { sendDueReports } from './reports';
 import { cloverReadiness, cloverSalesSince, allCloverMerchants, type CloverSales } from './pos/clover';
 import { importCloverPlatformOrders } from './pos/clover-platform-orders';
+import { runOrderRecovery } from './recovery';
 import { getRepo } from './repo';
 import { startOfLocalDayMs } from './time';
 import { runWatch, type WatchReport } from './watch/engine';
@@ -49,6 +51,8 @@ export interface SyncReport {
   trigger: string;
   businessDayStart: string;
   reopened: number;
+  /** Uber orders found waiting on Uber (created-orders) that no webhook brought, then processed. */
+  uberMissed?: { recovered: number; error?: string };
   /** Orders accepted/ready/dispatched for longer than FOODHUB_AUTO_COMPLETE_MIN (default 90) and closed automatically. */
   autoCompleted: number;
   /** Timed 86s that ended and were switched back on. */
@@ -217,6 +221,11 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
   const started = Date.now();
   const platformErrors: NonNullable<SyncReport['platformErrors']> = {};
   try {
+    // Orders first: due Clover retries and webhooks that were saved but not processed or failed — Uber's included, while
+    // the 11.5-minute accept window is still open (recovery.ts → inbox.ts).
+    await runOrderRecovery({ trigger: `sync:${opts.trigger || 'manual'}` }).catch(() => null);
+    // …and orders still waiting on Uber that no webhook ever announced (stores where Food Hub is the order manager).
+    const uberMissed = await recoverMissedUberOrders().catch((e) => ({ recovered: 0, error: e instanceof Error ? e.message : String(e) }));
     const reopened = await reopenExpiredPauses().catch(() => []);
     const autoCompleted = await autoCompleteOldOrders().catch(() => 0);
     const itemsReenabled = await reenableExpiredItems().catch(() => 0);
@@ -278,6 +287,7 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
       trigger: opts.trigger || 'manual',
       businessDayStart: new Date(dayStart).toISOString(),
       reopened: reopened.length,
+      uberMissed,
       autoCompleted,
       itemsReenabled,
       holidayClosures,

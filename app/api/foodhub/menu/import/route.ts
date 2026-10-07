@@ -2,10 +2,11 @@ import { logActivity } from '@/lib/foodhub/activity';
 import { withPerm } from '@/lib/foodhub/auth';
 import { locationsForMerchant } from '@/lib/foodhub/clover-sync';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
-import { importMenuFromClover, knownCloverMerchants } from '@/lib/foodhub/pos/clover';
+import { cloverBaseUrl, cloverToken, importMenuFromClover, knownCloverMerchants } from '@/lib/foodhub/pos/clover';
 import { getRepo } from '@/lib/foodhub/repo';
+import { listCloverMenus, platformOfCloverMenu } from '@/lib/foodhub/menu/clover-import';
 import { menuSourceFor } from '@/lib/foodhub/menu/shared';
-import type { MasterMenu, MenuItem } from '@/lib/foodhub/types';
+import type { Marketplace, MasterMenu, MenuItem } from '@/lib/foodhub/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,12 +18,19 @@ function importableMerchants(): string[] {
   return knownCloverMerchants([]);
 }
 
-// Merchant picker for the Menu Manager: { merchants: [{ id, isDefault, locations }], defaultMerchantId }.
-export const GET = withPerm('menu:edit', async () => {
+// Merchant picker for the Menu Manager: { merchants: [{ id, isDefault, locations }], defaultMerchantId } and, for the
+// chosen merchant (?merchantId, default CLOVER_MERCHANT_ID), its Clover menus (Default POS Menu, Online menu, DoorDash…)
+// with the platform each one is for.
+export const GET = withPerm('menu:edit', async (req) => {
   const def = process.env.CLOVER_MERCHANT_ID || null;
   const merchants = await Promise.all(importableMerchants().map(async (id) => ({ id, isDefault: id === def, locations: await locationsForMerchant(id) })));
-  return ok({ merchants, defaultMerchantId: def });
+  const mid = new URL(req.url).searchParams.get('merchantId') || def;
+  const token = mid && importableMerchants().includes(mid) ? await cloverToken(mid) : null;
+  const menus = mid && token ? await listCloverMenus(cloverBaseUrl(), mid, token) : { ok: false, menus: [], error: mid ? `No Clover API token for merchant ${mid}.` : 'No Clover merchant.' };
+  return ok({ merchants, defaultMerchantId: def, cloverMenus: { merchantId: mid, ...menus, menus: menus.menus.map((m) => ({ ...m, platform: platformOfCloverMenu(m) })) } });
 });
+
+const PLATFORMS: Marketplace[] = ['uber_eats', 'doordash', 'skip'];
 
 // Pull the brand's menu from Clover inventory (keeps Clover item ids for order injection).
 export const POST = withPerm('menu:edit', async (req, _ctx, actor) => {
@@ -34,7 +42,12 @@ export const POST = withPerm('menu:edit', async (req, _ctx, actor) => {
   if (!merchantId) return fail('No Clover merchant id. Set CLOVER_MERCHANT_ID or pass a merchant id.');
   if (!importableMerchants().includes(merchantId)) return fail(`Unknown Clover merchant ${merchantId}. Use CLOVER_MERCHANT_ID or one of CLOVER_MERCHANT_TOKENS.`);
   const repo = getRepo();
-  const imported = await importMenuFromClover(String(b.brand), merchantId);
+  // Optional: one of the merchant's Clover menus (e.g. "DoorDash (Po Poulet +20%)") → only its items, its photos and
+  // descriptions, and its prices on the chosen platforms (default: the platform the menu is named for).
+  const cloverMenuId = b.cloverMenuId ? String(b.cloverMenuId) : null;
+  const platformPrices = (Array.isArray(b.platformPrices) ? b.platformPrices : []).filter((p: unknown): p is Marketplace => PLATFORMS.includes(p as Marketplace));
+  const { importReport, ...imported } = await importMenuFromClover(String(b.brand), merchantId, { cloverMenuId, platformPrices, includeArchived: b.includeArchived === true });
+  const pricedPlatforms = importReport?.platformPrices ? (Object.keys(importReport.platformPrices) as Marketplace[]) : [];
   const existing = (await repo.getMenu(String(b.brand))) as MenuWithMerchant | null;
   // Keep what the owner set in Food Hub (platform prices, descriptions, photos, tags, allergens, category
   // schedules, 86 state) AND everything created in Food Hub that does not come from Clover (items without a
@@ -59,8 +72,9 @@ export const POST = withPerm('menu:edit', async (req, _ctx, actor) => {
     hours: existing?.hours,
     unavailableByLocation: existing?.unavailableByLocation,
     unavailableUntil: existing?.unavailableUntil,
-    // Platform markups (e.g. DoorDash +20%) survive a re-import: Clover holds in-store prices.
-    channelMarkupPct: existing?.channelMarkupPct,
+    // Platform markups (e.g. DoorDash +20%) survive a re-import: Clover holds in-store prices. A platform priced from
+    // the chosen Clover menu takes that menu's markup (or none, when its prices are item by item).
+    channelMarkupPct: mergeMarkup(existing?.channelMarkupPct, imported.channelMarkupPct, pricedPlatforms),
     categories: [
       ...imported.categories.map((c) => {
         const prevCat = (existing?.categories ?? []).find((x) => x.ref === c.ref);
@@ -75,7 +89,7 @@ export const POST = withPerm('menu:edit', async (req, _ctx, actor) => {
         // Owner-entered description wins (Clover's alternateName is usually the French/kitchen name);
         // custom option groups attached in Food Hub stay on the Clover item.
         const modifierGroupRefs = [...new Set([...i.modifierGroupRefs, ...prev.modifierGroupRefs.filter((r) => customGroupRefs.has(r))])];
-        return { ...i, modifierGroupRefs, channelPrices: prev.channelPrices, description: prev.description || i.description, imageUrl: i.imageUrl || prev.imageUrl, tags: prev.tags, allergens: prev.allergens, calories: prev.calories, nameFr: prev.nameFr, descriptionFr: prev.descriptionFr };
+        return { ...i, modifierGroupRefs, channelPrices: mergePrices(prev.channelPrices, i.channelPrices, pricedPlatforms), description: prev.description || i.description, imageUrl: i.imageUrl || prev.imageUrl, tags: prev.tags, allergens: prev.allergens, calories: prev.calories, nameFr: prev.nameFr, descriptionFr: prev.descriptionFr };
       }),
       // Kept items may only point at groups that still exist.
       ...keptItems.map((i) => ({ ...i, modifierGroupRefs: i.modifierGroupRefs.filter((r) => groupRefs.has(r)) })),
@@ -92,6 +106,22 @@ export const POST = withPerm('menu:edit', async (req, _ctx, actor) => {
   };
   const saved = await repo.saveMenu(merged);
   const kept = keptItems.length + keptCats.length + keptGroups.length;
-  await logActivity({ actor: actor.name, source: actor.source, kind: 'menu_publish', action: 'menu_import', status: 'success', brandName: String(b.brand), summary: `Menu imported from Clover (${merchantId}) for ${b.brand}: ${saved.items.length} items${kept ? ` — ${keptItems.length} Food Hub item(s), ${keptCats.length} categor${keptCats.length === 1 ? 'y' : 'ies'}, ${keptGroups.length} option group(s) kept` : ''}` });
-  return ok({ menu: saved, merchantId, imported: { categories: imported.categories.length, items: imported.items.length, modifierGroups: imported.modifierGroups.length }, kept: { categories: keptCats.length, items: keptItems.length, modifierGroups: keptGroups.length } });
+  const fromMenu = importReport?.menu ? ` from the Clover menu "${importReport.menu.name}"` : '';
+  const priced = pricedPlatforms.map((p) => { const r = importReport!.platformPrices![p]!; return `${p} ${r.markupPct !== null ? `+${r.markupPct}%` : 'item prices'}${r.overrides ? ` (${r.overrides} own price${r.overrides > 1 ? 's' : ''})` : ''}`; }).join(', ');
+  await logActivity({ actor: actor.name, source: actor.source, kind: 'menu_publish', action: 'menu_import', status: 'success', brandName: String(b.brand),
+    summary: `Menu imported from Clover (${merchantId})${fromMenu} for ${b.brand}: ${saved.items.length} items${priced ? ` — platform prices: ${priced}` : ''}${kept ? ` — ${keptItems.length} Food Hub item(s), ${keptCats.length} categor${keptCats.length === 1 ? 'y' : 'ies'}, ${keptGroups.length} option group(s) kept` : ''}` });
+  return ok({ menu: saved, merchantId, imported: { categories: imported.categories.length, items: imported.items.length, modifierGroups: imported.modifierGroups.length }, kept: { categories: keptCats.length, items: keptItems.length, modifierGroups: keptGroups.length }, report: importReport ?? null });
 });
+
+/** Platform prices after a re-import: platforms priced from the chosen Clover menu take its prices; others keep theirs. */
+function mergePrices(prev: MenuItem['channelPrices'], next: MenuItem['channelPrices'], priced: Marketplace[]): MenuItem['channelPrices'] {
+  const out: Partial<Record<Marketplace, number>> = { ...(prev ?? {}) };
+  for (const p of priced) { if (next?.[p] !== undefined) out[p] = next[p]; else delete out[p]; }
+  return Object.keys(out).length ? out : undefined;
+}
+
+function mergeMarkup(prev: MasterMenu['channelMarkupPct'], next: MasterMenu['channelMarkupPct'], priced: Marketplace[]): MasterMenu['channelMarkupPct'] {
+  const out: Partial<Record<Marketplace, number>> = { ...(prev ?? {}) };
+  for (const p of priced) { if (next?.[p] !== undefined) out[p] = next[p]; else delete out[p]; }
+  return Object.keys(out).length ? out : undefined;
+}

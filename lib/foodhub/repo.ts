@@ -241,7 +241,7 @@ function orderToRow(o: Partial<StoredOrder>): Row {
 }
 export { orderToRow as orderToSupabaseRow };
 
-const DATA_FIELDS = ['lines', 'subtotal', 'tax', 'total', 'discount', 'deliveryFee', 'tip', 'notes', 'customerName', 'courier', 'readyBy', 'fulfillment'] as const;
+const DATA_FIELDS = ['lines', 'subtotal', 'tax', 'total', 'discount', 'deliveryFee', 'tip', 'notes', 'customerName', 'courier', 'readyBy', 'fulfillment', 'mappingWarnings'] as const;
 
 function rowToOrder(r: Row): StoredOrder {
   return {

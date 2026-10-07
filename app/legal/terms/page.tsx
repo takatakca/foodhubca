@@ -39,7 +39,7 @@ export default function TermsPage() {
         <P>Nous faisons des efforts raisonnables pour que le service soit disponible et fiable, mais il dépend aussi de Clover, des plateformes, d’Internet et de nos fournisseurs. Gardez une solution de rechange (par exemple les tablettes des plateformes) pour les pannes.</P>
 
         <H2>6. Frais</H2>
-        <P>Les frais éventuels sont ceux indiqués dans la fiche de l’application sur le Clover App Market ou dans une entente écrite. Sauf indication contraire, le service est offert sans frais aux restaurants approuvés.</P>
+        <P>L’application Clover est offerte sans frais aux restaurants approuvés. Si des frais s’appliquaient un jour à l’application Clover, ils seraient indiqués dans sa fiche du Clover App Market et facturés uniquement par la facturation de Clover, jamais en dehors.</P>
 
         <H2>7. Propriété intellectuelle et licence</H2>
         <P>Nous vous accordons une licence non exclusive, non transférable et révocable d’utiliser le service pour votre restaurant pendant la durée de votre branchement. Vos données restent les vôtres ; vous nous permettez de les traiter pour fournir le service, comme le décrit notre <Link href={LEGAL_PATHS.privacy} className="underline">politique de confidentialité</Link>.</P>
@@ -53,7 +53,10 @@ export default function TermsPage() {
         <H2>10. Droit applicable et langue</H2>
         <P>Les présentes conditions sont régies par les lois du Québec et les lois fédérales du Canada qui s’y appliquent. Les tribunaux du district judiciaire de Montréal sont compétents. La version française prévaut ; la version anglaise est fournie pour information.</P>
 
-        <H2>11. Nous joindre</H2>
+        <H2>11. Marques de commerce</H2>
+        <P>Clover est une marque de Fiserv, Inc. ; Uber Eats, DoorDash, SkipTheDishes et Too Good To Go appartiennent à leurs propriétaires respectifs. {i.appName} est un logiciel indépendant : il n’est ni conçu, ni commandité, ni approuvé par ces entreprises.</P>
+
+        <H2>12. Nous joindre</H2>
         <P>{contactFr}{i.supportPhone ? ` · ${i.supportPhone}` : ''} · {i.company}, {i.address}</P>
       </LangBlock>
 
@@ -80,7 +83,7 @@ export default function TermsPage() {
         <P>We make reasonable efforts to keep the service available and reliable, but it also depends on Clover, the platforms, the Internet and our providers. Keep a fallback (for example the platforms’ tablets) for outages.</P>
 
         <H2>6. Fees</H2>
-        <P>Any fees are those shown on the app’s Clover App Market listing or in a written agreement. Unless stated otherwise, the service is free for approved restaurants.</P>
+        <P>The Clover app is free for approved restaurants. If a fee ever applied to the Clover app, it would be shown on its Clover App Market listing and billed only through Clover’s billing, never outside it.</P>
 
         <H2>7. Intellectual property and licence</H2>
         <P>We grant you a non-exclusive, non-transferable, revocable licence to use the service for your restaurant while it is connected. Your data stays yours; you allow us to process it to provide the service, as described in our <Link href={LEGAL_PATHS.privacy} className="underline">privacy policy</Link>.</P>
@@ -94,7 +97,10 @@ export default function TermsPage() {
         <H2>10. Governing law and language</H2>
         <P>These terms are governed by the laws of Québec and the federal laws of Canada that apply there. The courts of the judicial district of Montréal have jurisdiction. The French version prevails.</P>
 
-        <H2>11. Contact us</H2>
+        <H2>11. Trademarks</H2>
+        <P>Clover is a trademark of Fiserv, Inc.; Uber Eats, DoorDash, SkipTheDishes and Too Good To Go belong to their respective owners. {i.appName} is independent software: it is not made, sponsored or endorsed by those companies.</P>
+
+        <H2>12. Contact us</H2>
         <P>{contactEn}{i.supportPhone ? ` · ${i.supportPhone}` : ''} · {i.company}, {i.address}</P>
       </LangBlock>
     </article>

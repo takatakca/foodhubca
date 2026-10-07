@@ -6,8 +6,11 @@ import { isRelayStore } from './adapters/relay';
 import { CHANNEL_LABELS, nowIso, result } from './config';
 import { getHours, holidaysFor, localDate, publishContext } from './hours';
 import { getMenuLanguages } from './menu/language';
+import { isMenuLocked, menuLockedResult } from './menu/lock';
 import { activeMenus, getBrandMenu, getMenuSharing, groupOf, sourceOf } from './menu/shared';
+import { menuSnapshot } from './menu/snapshot';
 import { getRepo } from './repo';
+import { menuWithAlcoholRules } from './alcohol/rules';
 import { foodhubTimeZone, startOfLocalDayMs } from './time';
 import type { ChannelKey, ChannelResult, ChannelStore, FoodHubJob, MasterMenu, PlatformStatus } from './types';
 
@@ -75,6 +78,16 @@ export async function storesFor(filter: { brandName?: string; brandNames?: strin
     (!filter.channels?.length || filter.channels.includes(s.channel)));
 }
 
+/**
+ * "Do not touch" (store.meta.doNotTouch): Food Hub never sends this store a menu, holiday hours or an 86 — its menu is
+ * managed elsewhere (still on UrbanPiper, a special menu…). Orders, store status and pause / resume keep working.
+ */
+export function isDoNotTouch(store: Pick<ChannelStore, 'meta'>): boolean {
+  return store.meta?.doNotTouch === true;
+}
+
+const DO_NOT_TOUCH_MESSAGE = 'Not sent: this store is marked “Do not touch” (Stores → edit the store to change it).';
+
 /** Refs 86'd at a location right now (timed 86s that already ended are ignored). */
 export function offRefsAt(menu: MasterMenu, locationCode: string, now = Date.now()): Set<string> {
   const until = menu.unavailableUntil ?? {};
@@ -105,10 +118,27 @@ export async function publishMenu(brandName: string, opts: { storeIds?: string[]
   const languages = await getMenuLanguages();
   const rows: FanOutRow[] = [];
   for (const store of stores) {
+    // A store whose menu must never be changed (menu/lock.ts) is reported, never sent — whatever asked for the publish.
+    if (isMenuLocked(store)) {
+      const res = menuLockedResult(store, 'menu publish');
+      await record('menu_push', store, res, { brandName, locked: true });
+      await logStore(actor, 'menu_publish', 'publish', store, res, 'Menu NOT published (menu locked)');
+      rows.push(row(store, res));
+      continue;
+    }
+    // Never sent, never recorded as a publish: the store's last real publish stays what the Menus page shows.
+    if (isDoNotTouch(store)) { rows.push(row(store, result(store.channel, 'skipped', DO_NOT_TOUCH_MESSAGE))); continue; }
     const ctx = { ...(await publishContext(brandName, store.locationCode, hours)), language: store.channel === 'tgtg' ? 'en' as const : languages[store.channel] };
-    const res = await getAdapter(store.channel).publishMenu(store, menuForLocation(menu, store.locationCode), ctx);
+    // Alcohol items only where the location's permit and the alcohol rules allow this platform (unchanged while the switch is off).
+    const sent = await menuWithAlcoholRules(menuForLocation(menu, store.locationCode), store.locationCode, store.channel);
+    const res = await getAdapter(store.channel).publishMenu(store, sent, ctx);
     await record('menu_push', store, res, { brandName, hoursSet: Boolean(ctx.hours), holidays: ctx.holidays.length });
     await logStore(actor, 'menu_publish', 'publish', store, res, `Menu published (${menu.items.length} items${ctx.hours ? '' : ', no store hours set'})`);
+    // What the platform now has (or will have once it confirms): the baseline the next dry run compares against.
+    if (res.ok && res.status !== 'skipped') {
+      const fresh = await getRepo().getStore(store.id).catch(() => null);
+      await getRepo().updateStore(store.id, { meta: { ...(fresh ?? store).meta, lastPublished: menuSnapshot(sent, store.channel, ctx.language), lastPublishedAt: nowIso() } }).catch(() => undefined);
+    }
     rows.push(row(store, res));
   }
   return withSummary(rows);
@@ -152,6 +182,15 @@ export async function setItemAvailability(brandName: string, refs: string[], ava
   const stores = await storesFor({ brandNames: brands, locationCode: opts.locationCode });
   const rows: FanOutRow[] = [];
   for (const store of stores) {
+    if (isMenuLocked(store)) {
+      // 86 / back in stock is a menu change: never sent to a locked store, from staff, Clover or a timer alike.
+      const res = menuLockedResult(store, available ? 'back in stock' : '86');
+      await record('item_toggle', store, res, { brandName: store.brandName, itemRefs, modifierRefs: modRefs, available, locked: true });
+      await logStore(actor, 'item_availability', available ? 'item_on' : 'item_off', store, res, `${available ? 'Back in stock' : "86'd"} NOT sent (menu locked): ${label}`, { refs });
+      rows.push(row(store, res));
+      continue;
+    }
+    if (isDoNotTouch(store)) { rows.push(row(store, result(store.channel, 'skipped', DO_NOT_TOUCH_MESSAGE))); continue; }
     const adapter = getAdapter(store.channel);
     let res: ChannelResult = result(store.channel, 'skipped', 'Nothing to update.');
     if (itemRefs.length) res = await adapter.setItemAvailability(store, itemRefs, available, opts.untilMs, 'item');

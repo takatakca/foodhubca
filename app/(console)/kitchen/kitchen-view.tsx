@@ -9,6 +9,7 @@ import { useNow } from '@/components/ui/timer';
 import { useToast } from '@/components/ui/toast';
 import { OrderCard } from '@/components/live/order-card';
 import { OrderDrawer } from '@/components/live/order-drawer';
+import { CourierStrip } from '@/components/expansion/courier-strip';
 import { refreshEverything, usePulse } from '@/components/live/pulse';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { useBoardOrders } from '../orders/orders-view';
@@ -68,6 +69,9 @@ export function KitchenView() {
           <ButtonLink href="/settings/devices" variant="brand" size="sm">{t('Enregistrer cette tablette', 'Enrol this tablet')}</ButtonLink>
         </div>
       )}
+
+      {/* Our own delivery orders and their courier (only when own delivery is on and something is on the road). */}
+      <CourierStrip locationCode={here ?? undefined} />
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_340px]">
         <section>

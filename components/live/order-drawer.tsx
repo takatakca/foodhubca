@@ -133,7 +133,21 @@ export function OrderDetail({ order, events, onChange, compact }: { order: FullO
       </div>
 
       {allergy && <Banner tone="stop"><strong>{t('ALLERGIE / note importante', 'ALLERGY / important note')}</strong> — {t('lisez les notes avant de préparer.', 'read the notes before cooking.')}</Banner>}
-      {order.posError && !order.posOrderId && <Banner tone="stop" action={act && actions.includes('retry_pos') ? <Button size="sm" variant="outline" loading={busy === 'retry_pos'} onClick={() => run(order.id, 'retry_pos')} icon={<RotateCcw className="size-4" />}>{t('Renvoyer', 'Retry')}</Button> : null}><strong>{t('Clover n’a pas reçu la commande.', 'Clover did not get the order.')}</strong> {order.posError}</Banner>}
+      {order.posError && !order.posOrderId && <Banner tone={tl.posRetry?.nextAt && !tl.posRetry.gaveUpAt ? 'warn' : 'stop'} action={act && actions.includes('retry_pos') ? <Button size="sm" variant="outline" loading={busy === 'retry_pos'} onClick={() => run(order.id, 'retry_pos')} icon={<RotateCcw className="size-4" />}>{t('Renvoyer', 'Retry')}</Button> : null}>
+        <strong>{t('Clover n’a pas reçu la commande.', 'Clover did not get the order.')}</strong> {order.posError}
+        {tl.posRetry?.nextAt && !tl.posRetry.gaveUpAt && <> {t(`Food Hub réessaie tout seul à ${timeOf(tl.posRetry.nextAt, loc)} — rien n’est accepté sur la plateforme avant que Clover l’ait.`, `Food Hub tries again by itself at ${timeOf(tl.posRetry.nextAt, loc)} — nothing is accepted on the platform until Clover has it.`)}</>}
+        {tl.posRetry?.gaveUpAt && <> {t(`${tl.posRetry.attempts} essais automatiques sans succès : renvoyez-la, ou entrez-la à la main puis « Accepter sans Clover ».`, `${tl.posRetry.attempts} automatic tries failed: retry it, or enter it by hand then “Accept without Clover”.`)}</>}
+      </Banner>}
+      {(order.mappingWarnings?.length ?? 0) > 0 && (
+        <Banner tone="warn">
+          <strong>{t('À vérifier sur le billet Clover :', 'Check on the Clover ticket:')}</strong>{' '}
+          {order.mappingWarnings!.map((w, i) => {
+            const fr = w.reason === 'foreign_menu' ? 'le menu vient d’un autre marchand Clover : tout est en texte libre.' : w.reason === 'no_menu' ? 'aucun menu pour cette marque : tout est en texte libre.' : `${w.kind === 'item' ? 'article' : 'option'} « ${w.name} » ${w.reason === 'no_clover_link' ? 'pas relié à Clover' : 'introuvable dans le menu'} (texte libre).`;
+            const en = w.reason === 'foreign_menu' ? 'the menu comes from another Clover merchant: everything is free text.' : w.reason === 'no_menu' ? 'no menu for this brand: everything is free text.' : `${w.kind} “${w.name}” ${w.reason === 'no_clover_link' ? 'not linked to Clover' : 'not found in the menu'} (free text).`;
+            return <span key={i}>{i ? ' · ' : ''}{lang === 'fr' ? fr : en}</span>;
+          })}
+        </Banner>
+      )}
       {order.channelError && <Banner tone="warn"><strong>{t('Plateforme non mise à jour :', 'Platform not updated:')}</strong> {order.channelError}</Banner>}
       {order.viaPos && <Banner tone="info"><strong>{t('Reçue par l’intégration Clover de la plateforme.', 'Received through the platform’s own Clover integration.')}</strong> {t('Clover l’a déjà acceptée, imprimée et encaissée. Food Hub la suit seulement : accepter, refuser ou annuler se fait dans l’app de la plateforme ou dans Clover.', 'Clover already accepted, printed and recorded it. Food Hub only follows it: accept, reject or cancel in the platform’s app or in Clover.')}</Banner>}
       {tl.scheduledFor && <Banner tone="info">{t('Commande planifiée pour', 'Scheduled for')} <strong>{timeOf(tl.scheduledFor, loc, true)}</strong>{tl.fireAt ? ` · ${t('billet cuisine à', 'kitchen ticket at')} ${timeOf(tl.fireAt, loc)}` : ''}</Banner>}

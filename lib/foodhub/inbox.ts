@@ -38,8 +38,11 @@ export interface InboxEntry {
   body: unknown;
 }
 
-/** Seconds before each automatic re-try of a failed entry. */
-const RETRY_S = [30, 120];
+/** Seconds before each automatic re-try of a failed entry (FOODHUB_INBOX_RETRY_S, default "30,120"). */
+function retryDelaysS(): number[] {
+  const list = String(process.env.FOODHUB_INBOX_RETRY_S ?? '30,120').split(/[\s,;]+/).map(Number).filter((n) => Number.isFinite(n) && n > 0);
+  return list.length ? list.slice(0, 5) : [30, 120];
+}
 /** An entry still "received" / "processing" after this long was interrupted (server stopped): process it again. */
 const STUCK_MS = 2 * 60_000;
 const KEEP_DONE_DAYS = 14;
@@ -91,7 +94,7 @@ export async function runInboxEntry(id: string, opts: { now?: number; replayBy?:
     return done;
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    const nextS = RETRY_S[started.attempts - 1];
+    const nextS = retryDelaysS()[started.attempts - 1];
     const failed: InboxEntry = { ...started, status: 'failed', lastError: reason.slice(0, 500), nextAt: nextS !== undefined && !opts.replayBy ? new Date(Date.now() + nextS * 1000).toISOString() : null, updatedAt: nowIso() };
     await save(failed).catch((e) => console.error('[foodhub] could not save the failed inbox entry', e));
     console.error(`[foodhub] ${entry.channel} webhook ${entry.reference ?? entry.id} failed:`, reason);

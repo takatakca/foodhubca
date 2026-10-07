@@ -277,7 +277,9 @@ const typeCache = new Map<string, { at: number; rows: OrderTypeRow[] }>();
 
 async function listOrderTypes(mid: string, token: string, base: string): Promise<OrderTypeRow[]> {
   const hit = typeCache.get(mid);
-  if (hit && Date.now() - hit.at < 10 * 60_000) return hit.rows;
+  // Order types change rarely: read once every 10 minutes per merchant (FOODHUB_CLOVER_ORDER_TYPES_TTL_S).
+  const ttl = Number(process.env.FOODHUB_CLOVER_ORDER_TYPES_TTL_S ?? 600) * 1000;
+  if (hit && Date.now() - hit.at < ttl) return hit.rows;
   const res = await timedFetch(`${base}/v3/merchants/${encodeURIComponent(mid)}/order_types?limit=200`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
   if (!res.ok) throw new Error(`Clover order_types HTTP ${res.status}`);
   const rows = ((await res.json())?.elements ?? []).filter((e: any) => e?.id).map((e: any) => ({ id: String(e.id), label: String(e.label ?? e.labelKey ?? ''), hidden: e.hidden === true }));

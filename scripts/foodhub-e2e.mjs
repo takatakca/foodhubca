@@ -20,8 +20,9 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 
-const MOCK_PORT = 4799;
-const APP_PORT = 4800;
+// Ports can be moved (FOODHUB_E2E_MOCK_PORT / FOODHUB_E2E_APP_PORT) so two checkouts can verify at the same time.
+const MOCK_PORT = Number(process.env.FOODHUB_E2E_MOCK_PORT) || 4799;
+const APP_PORT = Number(process.env.FOODHUB_E2E_APP_PORT) || 4800;
 const APP = `http://127.0.0.1:${APP_PORT}`;
 const MOCK = `http://127.0.0.1:${MOCK_PORT}`;
 const PASSWORD = 'e2e-dashboard-pass';
@@ -52,6 +53,8 @@ const cloverRefunds = [{ id: 'r1', amount: 200, payment: { order: { id: 'INSTORE
 const cloverTenders = [{ id: 'T-CASH', label: 'Cash' }];
 const cloverOrderTypes = [{ id: 'OT-DINE', label: 'Dine In' }];
 const cloverOrderTotals = new Map(); // Clover order id → total (cents)
+const cloverAtomicTitles = new Map(); // Clover order id → title Food Hub gave it
+let cloverAtomicMode = 'ok'; // 'down' = Clover answers 503 to new orders (automatic retry checks)
 let cloverObjSeq = 0;
 const cloverNativeOrders = []; // orders created in Clover by Clover's own DoorDash integration
 const cloverTags = [{ id: 'TAG-K', name: 'Cuisine', printers: { elements: [{ id: 'PR-1' }] } }, { id: 'TAG-B', name: 'Bar', printers: { elements: [] } }];
@@ -171,8 +174,11 @@ const mock = http.createServer(async (req, res) => {
     if (req.headers.authorization !== `Bearer ${CLOVER_TOKEN}`) return send(401, {});
     if (p.endsWith('/atomic_order/orders')) {
       cloverSeq += 1;
-      // Clover's total: line items plus order-level discounts (Clover discount amounts are negative cents).
-      cloverOrderTotals.set(`CLV${cloverSeq}`, (body?.orderCart?.lineItems || []).reduce((s, l) => s + (l.price || 0), 0) + (body?.orderCart?.discounts || []).reduce((s, d) => s + (d.amount || 0), 0));
+      // Clover's total: line items with their modifications, plus order-level discounts (negative cents). Tax left out here.
+      const total = (body?.orderCart?.lineItems || []).reduce((s, l) => s + (l.price || 0) + (l.modifications || []).reduce((m, x) => m + (x.amount || 0), 0), 0) + (body?.orderCart?.discounts || []).reduce((s, d) => s + (d.amount || 0), 0);
+      cloverOrderTotals.set(`CLV${cloverSeq}`, total);
+      cloverAtomicTitles.set(`CLV${cloverSeq}`, body?.orderCart?.title);
+      if (cloverAtomicMode === 'down') { cloverOrderTotals.delete(`CLV${cloverSeq}`); return send(503, { message: 'Service Unavailable' }); }
       return send(200, { id: `CLV${cloverSeq}` });
     }
     if (/\/(tenders|order_types)$/.test(p)) {
@@ -436,7 +442,9 @@ try {
   check('signed Uber webhook accepted', (await uberWebhook('uber-order-1')).status === 200);
   const o1 = await waitFor(async () => { const o = await findOrder('uber-order-1'); return o?.status === 'accepted' ? o : null; });
   check('Uber order fetched, parsed, accepted', o1?.total === 39.07 && o1.lines[0].quantity === 2, JSON.stringify(o1 && { total: o1.total, s: o1.status }));
-  check('order created in Clover with inventory id + price incl. modifier', o1?.posOrderId?.startsWith('CLV') && sent('POST', /\/atomic_order\/orders$/)[0]?.body?.orderCart?.lineItems?.[0]?.item?.id === 'clv-item-1' && sent('POST', /\/atomic_order\/orders$/)[0].body.orderCart.lineItems[0].price === 1599);
+  const li1 = sent('POST', /\/atomic_order\/orders$/)[0]?.body?.orderCart?.lineItems?.[0];
+  check('order created in Clover with the inventory item and its real Clover modification (Piri-piri +1.00)', o1?.posOrderId?.startsWith('CLV') && li1?.item?.id === 'clv-item-1' && li1.price === 1499
+    && JSON.stringify(li1.modifications) === JSON.stringify([{ modifier: { id: 'mod-1' }, name: 'Piri-piri', amount: 100 }]), JSON.stringify(li1));
   check('Uber accept carries the Clover order id', sent('POST', /^\/uber\/v1\/eats\/orders\/uber-order-1\/accept_pos_order$/)[0]?.body?.external_reference_id === o1?.posOrderId);
   const cloverBefore = sent('POST', /\/atomic_order\/orders$/).length;
   await uberWebhook('uber-order-1');
@@ -458,7 +466,7 @@ try {
   const o3 = await waitFor(async () => { const o = await findOrder('skip-order-0001'); return o?.status === 'accepted' ? o : null; });
   check('Skip order parsed (cents → $), mapped, accepted', o3?.total === 26.47 && o3.brandName === 'Po Poulet' && o3.locationCode === 'NDG_MAIN' && o3.notes === 'Allergie arachides', JSON.stringify(o3 && { t: o3.total, s: o3.status }));
   const skipClover = log.filter((e) => e.method === 'POST' && /\/atomic_order\/orders$/.test(e.path)).find((e) => /Skip/i.test(JSON.stringify(e.body)) || e.body?.orderCart?.lineItems?.length === 3)?.body;
-  check('Skip order in Clover: 3 lines (2× Frites), Skip price + modifier', skipClover?.orderCart?.lineItems?.length === 3 && skipClover.orderCart.lineItems[0].price === 1649 && skipClover.orderCart.lineItems[0].item?.id === 'clv-item-1');
+  check('Skip order in Clover: 3 lines (2× Frites), Skip price + the modifier as a Clover modification', skipClover?.orderCart?.lineItems?.length === 3 && skipClover.orderCart.lineItems[0].price === 1549 && skipClover.orderCart.lineItems[0].modifications?.[0]?.amount === 100 && skipClover.orderCart.lineItems[0].item?.id === 'clv-item-1', JSON.stringify(skipClover?.orderCart?.lineItems?.[0]));
   check('JET told sent-to-pos-success with the transmissionId', sent('POST', /^\/skip\/order\/skip-order-0001\/sent-to-pos-success$/)[0]?.body?.transmissionId === 'tx-0001');
   const skBefore = sent('POST', /\/atomic_order\/orders$/).length;
   await skipWebhook('orders', skipOrder('skip-order-0001', 'NDG-POPOULET', 'tx-0001'));

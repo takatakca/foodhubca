@@ -118,6 +118,83 @@ function CloverPrinting() {
   );
 }
 
+type InboxEntry = { id: string; channel: string; kind: string; reference: string | null; status: 'received' | 'processing' | 'done' | 'failed'; receivedAt: string; updatedAt: string; attempts: number; nextAt?: string | null; lastError?: string | null; result?: string | null; orderId?: string | null };
+type InboxData = { received: number; stuck: number; failed: number; waiting: number; lastAt: string | null; entries: InboxEntry[] };
+
+/**
+ * Webhook inbox: every platform message is saved before Food Hub answers; what still needs a look is listed here with
+ * Replay (an order is never duplicated — same platform + order id = same order).
+ */
+function WebhookInbox({ unparsed, onChanged }: { unparsed: Job[]; onChanged: () => void }) {
+  const { t, loc } = useI18n();
+  const [data, setData] = useState<InboxData | null>(null);
+  const [busy, setBusy] = useState('');
+  const [msg, setMsg] = useState<{ tone: 'go' | 'stop'; text: string } | null>(null);
+  const load = useCallback(() => api<{ inbox: InboxData }>('/api/foodhub/inbox').then((d) => setData(d.inbox)).catch(() => undefined), []);
+  useEffect(() => { void load(); }, [load]);
+  const replay = async (json: { id?: string; jobId?: string }) => {
+    setBusy(json.id ?? json.jobId ?? ''); setMsg(null);
+    try {
+      const r = await api<{ entry: InboxEntry | null }>('/api/foodhub/inbox', { method: 'POST', json });
+      const okDone = r.entry?.status === 'done';
+      setMsg({ tone: okDone ? 'go' : 'stop', text: okDone ? t(`Traité : ${r.entry?.result ?? ''}`, `Processed: ${r.entry?.result ?? ''}`) : t(`Toujours en échec : ${r.entry?.lastError ?? ''}`, `Still failing: ${r.entry?.lastError ?? ''}`) });
+      await load(); onChanged();
+    } catch (e) { setMsg({ tone: 'stop', text: e instanceof Error ? e.message : String(e) }); } finally { setBusy(''); }
+  };
+  const when = (iso: string) => new Date(iso).toLocaleString(loc, { dateStyle: 'short', timeStyle: 'short' });
+  const status = (e: InboxEntry): [Tone, string] => e.status === 'failed'
+    ? (e.nextAt ? ['wait', t('Nouvel essai auto', 'Auto retry')] : ['stop', t('À rejouer', 'Needs replay')])
+    : e.status === 'done' ? ['go', t('Traité', 'Processed')] : ['info', t('En cours', 'In progress')];
+  const open = data?.entries ?? [];
+  return (
+    <Section icon={<RefreshCw className="size-5" />} title={t('Boîte de réception des webhooks', 'Webhook inbox')}
+      subtitle={t('Chaque message d’Uber Eats, DoorDash, Skip, TGTG et du relais est enregistré avant que Food Hub réponde, puis traité. Un message interrompu ou en échec est repris tout seul (30 s, 2 min) ; sinon, « Rejouer ». Une commande n’est jamais créée deux fois.',
+        'Every Uber Eats, DoorDash, Skip, TGTG and relay message is saved before Food Hub answers, then processed. An interrupted or failed one is taken again by itself (30 s, 2 min); otherwise, “Replay”. An order is never created twice.')}
+      right={<div className="flex flex-wrap gap-1.5">
+        <Badge tone={data && (data.failed || data.stuck) ? 'stop' : 'go'}>{data ? (data.failed + data.stuck ? t(`${data.failed + data.stuck} à voir`, `${data.failed + data.stuck} to check`) : t('Rien en attente', 'Nothing pending')) : '…'}</Badge>
+        {data && data.waiting > 0 && <Badge tone="wait">{t(`${data.waiting} nouvel(s) essai(s) prévu(s)`, `${data.waiting} retry(ies) scheduled`)}</Badge>}
+      </div>}>
+      {msg && <Banner tone={msg.tone} className="mb-3">{msg.text}</Banner>}
+      {data?.lastAt && <p className="mb-3 text-xs text-ink-3">{t('Dernier message reçu :', 'Last message received:')} {when(data.lastAt)}</p>}
+      {open.length === 0 ? <p className="text-sm text-ink-3">{t('Aucun message en attente ni en échec.', 'No message waiting or failing.')}</p> : (
+        <div className="-mx-5 -my-4">
+          <Table>
+            <thead><tr><Th>{t('Reçu', 'Received')}</Th><Th>{t('Plateforme', 'Platform')}</Th><Th>{t('Référence', 'Reference')}</Th><Th>{t('Statut', 'Status')}</Th><Th>{t('Détail', 'Detail')}</Th><Th /></tr></thead>
+            <tbody>{open.map((e) => {
+              const [tone, label] = status(e);
+              return (
+                <Tr key={e.id}>
+                  <Td className="whitespace-nowrap text-ink-3">{when(e.receivedAt)}</Td>
+                  <Td><PlatformMark channel={e.channel} size="xs" /></Td>
+                  <Td className="max-w-40 truncate font-mono text-xs" title={e.reference ?? ''}>{e.reference ?? '—'}</Td>
+                  <Td><Badge tone={tone}>{label}</Badge><div className="mt-0.5 text-[11px] text-ink-3">{t(`${e.attempts} essai(s)`, `${e.attempts} attempt(s)`)}{e.nextAt ? ` · ${t('prochain', 'next')} ${new Date(e.nextAt).toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}</div></Td>
+                  <Td className="max-w-md text-xs text-ink-2">{e.lastError ?? e.result ?? ''}</Td>
+                  <Td align="right"><Button size="sm" variant="outline" loading={busy === e.id} onClick={() => replay({ id: e.id })} icon={<RefreshCw className="size-4" />}>{t('Rejouer', 'Replay')}</Button></Td>
+                </Tr>
+              );
+            })}</tbody>
+          </Table>
+        </div>
+      )}
+      {unparsed.length > 0 && (
+        <div className="mt-5 border-t border-line pt-4">
+          <div className="font-bold text-ink">{t(`Messages illisibles gardés (${unparsed.length})`, `Kept unreadable payloads (${unparsed.length})`)}</div>
+          <p className="mb-2 text-[13px] text-ink-3">{t('Arrivés mais pas reconnus. Rien n’est perdu : après une mise à jour du lecteur ou un magasin relié, « Rejouer » les relit.', 'They arrived but were not recognised. Nothing is lost: after a reader update or a store mapping, “Replay” reads them again.')}</p>
+          <div className="space-y-2">{unparsed.slice(0, 5).map((j) => (
+            <div key={j.id} className="rounded-md border border-line">
+              <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs">
+                <span className="flex items-center gap-2"><PlatformMark channel={j.channel} size="xs" /><span className="text-ink-3">{when(j.createdAt)}</span><span className="text-ink-2">{(j.result as { reason?: string } | null | undefined)?.reason ?? ''}</span></span>
+                {j.status !== 'done' ? <Button size="xs" variant="outline" loading={busy === j.id} onClick={() => replay({ jobId: j.id })}>{t('Rejouer', 'Replay')}</Button> : <Badge tone="go">{t('Rejoué', 'Replayed')}</Badge>}
+              </div>
+              <pre className="scrollbar-thin max-h-40 overflow-auto rounded-b-md bg-ink p-3 font-mono text-[11px] text-canvas">{JSON.stringify(j.request?.body, null, 2)}</pre>
+            </div>
+          ))}</div>
+        </div>
+      )}
+    </Section>
+  );
+}
+
 export default function ChannelsSettingsPage() {
   const { t, loc } = useI18n();
   const { can } = useViewer();
@@ -285,11 +362,7 @@ export default function ChannelsSettingsPage() {
         )}
       </Section>
 
-      {data.unparsed.length > 0 && (
-        <Section title={`${t('Messages illisibles', 'Unparsed webhook payloads')} (${data.unparsed.length})`} subtitle={t('Arrivés mais pas reconnus comme commande. Rien n’est perdu — envoyez-en un à votre développeur pour finaliser le lecteur.', 'These arrived but did not match a known order shape. Nothing was lost — send one to your developer to finalize the parser.')}>
-          <div className="space-y-2">{data.unparsed.slice(0, 5).map((j) => <pre key={j.id} className="scrollbar-thin max-h-52 overflow-auto rounded-md bg-ink p-3 font-mono text-[11px] text-canvas">{JSON.stringify(j.request?.body, null, 2)}</pre>)}</div>
-        </Section>
-      )}
+      <WebhookInbox unparsed={data.unparsed} onChanged={() => load(revealed)} />
       <p className="text-xs text-ink-3">{t('Adresse publique :', 'Public URL:')} <code className="font-mono">{data.publicUrl}</code></p>
     </div>
   );

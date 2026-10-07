@@ -35,6 +35,11 @@ export interface OrderTimeline {
   firedAt?: string;
   /** Courier / driver as reported by the platform. */
   courier?: CourierInfo;
+  /**
+   * Clover injection retried automatically before waking a manager: attempts made after the first failure, when the
+   * next one is due (null = no more automatic retries), and the last error.
+   */
+  posRetry?: { attempts: number; nextAt: string | null; lastError?: string };
   /** Clover: payment recorded with the platform tender (when the order leaves the kitchen). */
   posPaymentId?: string;
   posPaymentError?: string;
@@ -407,7 +412,11 @@ export interface FoodHubUser {
 
 export interface FoodHubJob {
   id: string;
-  kind: 'menu_push' | 'menu_publish' | 'item_toggle' | 'store_toggle' | 'webhook_unparsed';
+  /**
+   * webhook_inbox: a platform message saved BEFORE Food Hub answers the platform (request.type says what it is), then
+   * processed; still 'queued' after a crash = replayed by the sweeper. webhook_unparsed: kept because it could not be read.
+   */
+  kind: 'menu_push' | 'menu_publish' | 'item_toggle' | 'store_toggle' | 'webhook_unparsed' | 'webhook_inbox';
   channel: ChannelKey;
   reference?: string | null;
   status: 'queued' | 'done' | 'error';

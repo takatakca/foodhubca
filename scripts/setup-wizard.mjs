@@ -93,6 +93,20 @@ const sections = [
     ['SKIP_JET_API_KEY', 'JET Connect API key (sent as X-Flyt-Api-Key)'],
     ['SKIP_JET_BASE_URL', 'JET Connect base URL [https://api.flytplatform.com]', 'https://api.flytplatform.com'],
   ]],
+  ['OWN-ORDER DELIVERY (optional) — DoorDash Drive: developer.doordash.com → org "ON2GO FOOD HUB" → Drive → Credentials. Uber Direct: direct.uber.com → Developer', [
+    ['DOORDASH_DRIVE_DEVELOPER_ID', 'Drive Developer ID'],
+    ['DOORDASH_DRIVE_KEY_ID', 'Drive Key ID (start with the sandbox key)'],
+    ['DOORDASH_DRIVE_SIGNING_SECRET', 'Drive Signing secret'],
+    ['DOORDASH_DRIVE_ENV', 'Which key is it: sandbox or production [sandbox] — production also needs LIVE_CONNECTORS_GLOBAL_ENABLED=true', 'sandbox'],
+    ['UBER_DIRECT_CUSTOMER_ID', 'Optional: Uber Direct customer ID (comparison quotes / fallback)'],
+    ['UBER_DIRECT_CLIENT_ID', 'Optional: Uber Direct client ID'],
+    ['UBER_DIRECT_CLIENT_SECRET', 'Optional: Uber Direct client secret'],
+    ['UBER_DIRECT_WEBHOOK_SECRET', 'Optional: Uber Direct webhook signing key'],
+    ['UBER_DIRECT_ENV', 'Uber Direct account: sandbox or production [sandbox]', 'sandbox'],
+  ]],
+  ['AI PHONE ORDERING (optional — uses ANTHROPIC_API_KEY and the TWILIO_* keys above; lines are set in Settings → Expansion → Phone)', [
+    ['FOODHUB_PHONE_MODEL', 'Claude model for the phone agent [claude-opus-5-5]', 'claude-opus-5-5'],
+  ]],
 ];
 
 
@@ -110,7 +124,7 @@ for (const [title, fields] of sections) {
 
 // Webhook secrets are generated automatically — you paste them into each platform's portal.
 const { randomBytes } = await import('node:crypto');
-for (const key of ['UBER_WEBHOOK_SIGNING_KEY', 'DOORDASH_WEBHOOK_SECRET', 'SKIP_WEBHOOK_HMAC_SECRET', 'SKIP_WEBHOOK_API_KEY', 'TGTG_WEBHOOK_SECRET', 'CRON_SECRET']) {
+for (const key of ['UBER_WEBHOOK_SIGNING_KEY', 'DOORDASH_WEBHOOK_SECRET', 'SKIP_WEBHOOK_HMAC_SECRET', 'SKIP_WEBHOOK_API_KEY', 'TGTG_WEBHOOK_SECRET', 'DOORDASH_DRIVE_WEBHOOK_SECRET', 'FOODHUB_WEBSITE_ORDER_SECRET', 'CRON_SECRET']) {
   if (!values[key]) values[key] = randomBytes(24).toString('hex');
 }
 // Signs every session and tablet cookie. Changing it signs everyone out (tablets must be enrolled again).
@@ -147,6 +161,8 @@ const order = [
   'UBER_BASE_URL','UBER_CLIENT_ID','UBER_CLIENT_SECRET','UBER_WEBHOOK_SIGNING_KEY','UBER_WEBHOOK_SIGNING_KEY_2','UBER_ACCESS_TOKEN','UBER_REPORT_SCOPE',
   'SKIP_JET_API_KEY','SKIP_JET_BASE_URL','SKIP_WEBHOOK_HMAC_SECRET','SKIP_WEBHOOK_API_KEY','FOODHUB_TIMEZONE',
   'TGTG_WEBHOOK_SECRET','FOODHUB_AUTO_COMPLETE_MIN','FOODHUB_SCHEDULED_AFTER_MIN',
+  'DOORDASH_DRIVE_DEVELOPER_ID','DOORDASH_DRIVE_KEY_ID','DOORDASH_DRIVE_SIGNING_SECRET','DOORDASH_DRIVE_ENV','DOORDASH_DRIVE_WEBHOOK_SECRET',
+  'UBER_DIRECT_CUSTOMER_ID','UBER_DIRECT_CLIENT_ID','UBER_DIRECT_CLIENT_SECRET','UBER_DIRECT_WEBHOOK_SECRET','UBER_DIRECT_ENV','FOODHUB_WEBSITE_ORDER_SECRET','FOODHUB_PHONE_MODEL',
   'FOODHUB_SUPPORT_EMAIL','FOODHUB_SUPPORT_PHONE','FOODHUB_PRIVACY_OFFICER','FOODHUB_LEGAL_COMPANY','FOODHUB_LEGAL_ADDRESS','FOODHUB_LEGAL_UPDATED','FOODHUB_LEGAL_APPROVED',
 ];
 const keys = [...new Set([...order, ...Object.keys(values)])];

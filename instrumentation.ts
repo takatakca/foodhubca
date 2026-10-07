@@ -23,8 +23,11 @@ export async function register() {
   const seconds = Number(process.env.FOODHUB_WATCH_INTERVAL_S ?? 30);
   if (Number.isFinite(seconds) && seconds > 0 && !g.__takatakWatchTimer) {
     const { runWatch } = await import('./lib/foodhub/watch/engine');
+    const { tickExpansion } = await import('./lib/foodhub/expansion/tick');
     g.__takatakWatchTimer = setInterval(() => {
-      runWatch({ trigger: 'timer' }).catch((e) => console.error('[foodhub] watch timer failed', e instanceof Error ? e.message : e));
+      runWatch({ trigger: 'timer' }).catch((e) => console.error('[foodhub] watch timer failed', e instanceof Error ? e.message : e))
+        // Expansion features (courier auto-dispatch…) after the Watchtower run, never during it.
+        .then(() => tickExpansion());
     }, Math.max(15, seconds) * 1000);
     g.__takatakWatchTimer.unref?.();
   }

@@ -321,9 +321,6 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
   const now = opts.now ?? Date.now();
   const repo = getRepo();
   const empty = (ran: boolean): WatchReport => ({ at: new Date(now).toISOString(), trigger: opts.trigger ?? 'manual', ran, detections: 0, opened: 0, updated: 0, resolved: 0, escalated: 0, open: 0 });
-  // Expansion features ride the same heartbeat (courier auto-dispatch, Clover delivery orders, stale calls) — each one
-  // only while its switch is on, throttled on its own, and whether or not the Watchtower itself is enabled.
-  await import('../expansion/tick').then((m) => m.tickExpansion(now)).catch(() => null);
   const s = await getWatchSettings();
   if (!s.enabled) return empty(false);
   const last = await repo.getKv<{ at: string }>(LAST_KEY).catch(() => null);

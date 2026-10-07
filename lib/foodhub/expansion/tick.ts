@@ -1,5 +1,5 @@
-// Background work for the expansion features, run from the Watchtower tick (every 20–30 s while a screen is open, from
-// the server timer, or from the 1-minute cron) — throttled here so it never runs more than every 15 s:
+// Background work for the expansion features, run right AFTER each Watchtower run (live pulse while a screen is open,
+// the server timer, or the 1-minute cron) — never inside it — and throttled here to at most every 15 s:
 //   - own delivery: auto-dispatch couriers that are due; read new Clover "Delivery" orders every 2 minutes
 //   - phone: close calls that never sent a "completed" status (lost callbacks)
 // Every part is skipped while its feature switch is off. Never throws.

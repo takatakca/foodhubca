@@ -391,4 +391,25 @@ export function toDoorDashMenu(menu: MasterMenu, merchantSuppliedId: string, pro
   };
 }
 
+/** One row of DoorDash's "Automatic Item Availability Polling" answer (only 86'd items and options are listed). */
+export interface DoorDashPolledItem { merchant_supplied_id: string; is_active: false; type: 'item' | 'item_option' }
+
+/**
+ * DoorDash Item Polling answer for one location (developer.doordash.com, item status guide, "Automatic Item
+ * Availability Polling"): an array of the items and options that are OFF, `{ merchant_supplied_id, is_active: false,
+ * type: "item" | "item_option" }`. An empty array means everything is in stock. `menu` is the location's menu
+ * (menuForLocation + alcohol rules), so it lists exactly what the menu push sends as active: false.
+ */
+export function toDoorDashItemPolling(menu: MasterMenu): DoorDashPolledItem[] {
+  const items = liveItems(menu);
+  const used = new Set(items.flatMap((i) => i.modifierGroupRefs));
+  const out = new Map<string, DoorDashPolledItem>();
+  for (const i of items) if (!i.available) out.set(`item:${i.ref}`, { merchant_supplied_id: i.ref, is_active: false, type: 'item' });
+  for (const g of menu.modifierGroups) {
+    if (!used.has(g.ref)) continue;
+    for (const m of g.modifiers) if (!m.available) out.set(`option:${m.ref}`, { merchant_supplied_id: m.ref, is_active: false, type: 'item_option' });
+  }
+  return [...out.values()];
+}
+
 export { dayKeyOf };

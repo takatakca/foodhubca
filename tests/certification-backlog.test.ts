@@ -202,3 +202,48 @@ describe('PUT /api/foodhub/menu keeps the DoorDash pickup price setting', () => 
     }
   });
 });
+
+describe('DoorDash Automatic Item Availability Polling (GET …/item-polling/{location_id})', () => {
+  const brandMenu = () => ({
+    brandName: 'Pi Pita', updatedAt: 'x',
+    categories: [{ ref: 'c1', name: 'Plats', sortOrder: 0 }],
+    items: [
+      { ref: 'i1', name: 'Poutine', price: 10, categoryRef: 'c1', available: true, modifierGroupRefs: ['g1'] },
+      { ref: 'i2', name: 'Shawarma', price: 12, categoryRef: 'c1', available: false, modifierGroupRefs: [] },
+      { ref: 'i3', name: 'Orphan', price: 1, categoryRef: 'gone', available: false, modifierGroupRefs: [] },
+    ],
+    modifierGroups: [
+      { ref: 'g1', name: 'Extras', min: 0, max: 2, modifiers: [{ ref: 'm1', name: 'Cheese', price: 2, available: true }, { ref: 'm2', name: 'Bacon', price: 2, available: true }] },
+      { ref: 'g9', name: 'Unused', min: 0, max: 1, modifiers: [{ ref: 'm9', name: 'Nope', price: 0, available: false }] },
+    ],
+    unavailableByLocation: { NDG: ['m2'] },
+  });
+
+  it('lists only the 86’d items and options of the menu, typed item / item_option', async () => {
+    const { toDoorDashItemPolling } = await import('../lib/foodhub/menu/translate');
+    const { menuForLocation } = await import('../lib/foodhub/ops');
+    expect(toDoorDashItemPolling(menuForLocation(brandMenu() as any, 'NDG'))).toEqual([
+      { merchant_supplied_id: 'i2', is_active: false, type: 'item' },
+      { merchant_supplied_id: 'm2', is_active: false, type: 'item_option' },
+    ]);
+    expect(toDoorDashItemPolling(menuForLocation(brandMenu() as any, 'LAVAL'))).toEqual([{ merchant_supplied_id: 'i2', is_active: false, type: 'item' }]);
+  });
+
+  it('answers DoorDash with the location’s 86 list; [] when all in stock; 401 / 404 / 409 (locked store)', async () => {
+    doorDashEnv();
+    const { getRepo } = await import('../lib/foodhub/repo');
+    const { GET } = await import('../app/api/foodhub/webhooks/doordash/item-polling/[locationId]/route');
+    await getRepo().saveMenu(brandMenu() as any);
+    await getRepo().upsertStore({ channel: 'doordash', channelStoreId: 'dd-pita', brandName: 'Pi Pita', locationCode: 'NDG', autoAccept: true, online: true, meta: {} });
+    await getRepo().upsertStore({ channel: 'doordash', channelStoreId: '27982486', brandName: 'Pi Pita', locationCode: 'NDG', autoAccept: true, online: true, meta: {} });
+    const get = (id: string, auth = 'dd-secret') => GET(new Request(`http://hub.local/api/foodhub/webhooks/doordash/item-polling/${id}`, { headers: { authorization: auth } }) as any, { params: Promise.resolve({ locationId: id }) });
+    expect((await get('dd-pita', 'wrong')).status).toBe(401);
+    expect((await get('nope')).status).toBe(404);
+    expect((await get('27982486')).status).toBe(409); // locked store: never answered
+    const res = await get('dd-pita');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([{ merchant_supplied_id: 'i2', is_active: false, type: 'item' }, { merchant_supplied_id: 'm2', is_active: false, type: 'item_option' }]);
+    await getRepo().saveMenu({ ...brandMenu(), items: brandMenu().items.map((i) => ({ ...i, available: true })), unavailableByLocation: {} } as any);
+    expect(await (await get('dd-pita')).json()).toEqual([]);
+  });
+});

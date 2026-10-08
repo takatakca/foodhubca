@@ -1,5 +1,5 @@
 // Clover App Market launch: listing texts within Clover's limits and in step with the docs, the public-domain check,
-// Clover 429 back-off, SESSION_SECRET generated in production, and the welcome wizard's three set-up steps.
+// Clover 429 back-off, SESSION_SECRET never generated at runtime, and the welcome wizard's three set-up steps.
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -61,35 +61,43 @@ describe('Clover rate limits (429)', () => {
   });
 });
 
-describe('SESSION_SECRET generated like the other internal secrets', () => {
+describe('SESSION_SECRET is never generated at runtime (stable sign-in)', () => {
   const env = { ...process.env };
   beforeEach(() => {
     process.env.FOODHUB_FORCE_MEMORY = 'true';
     (globalThis as any).__foodhubMem = undefined;
-    for (const k of [...GENERATED_SECRET_KEYS, 'SESSION_SECRET']) delete process.env[k];
+    for (const k of [...GENERATED_SECRET_KEYS, 'SESSION_SECRET', 'DASHBOARD_PASSWORD']) delete process.env[k];
   });
   afterEach(() => { process.env = { ...env }; });
 
-  it('in production: created once, kept, and reloaded after a restart', async () => {
-    (process.env as Record<string, string>).NODE_ENV = 'production';
-    const first = await ensureGeneratedSecrets();
-    expect(first.created).toContain('SESSION_SECRET');
-    const secret = process.env.SESSION_SECRET;
-    expect(secret).toMatch(/^[a-f0-9]{64}$/);
-    delete process.env.SESSION_SECRET;
-    const second = await ensureGeneratedSecrets();
-    expect(second.loaded).toContain('SESSION_SECRET');
-    expect(process.env.SESSION_SECRET).toBe(secret);
+  it('is not created, in production or development, and an old stored one is not loaded', async () => {
+    const { getRepo } = await import('../lib/foodhub/repo');
+    await getRepo().setKv('generated_secrets_v1', { SESSION_SECRET: 'f'.repeat(64) }); // left by an earlier build
+    for (const mode of ['production', 'development']) {
+      (process.env as Record<string, string>).NODE_ENV = mode;
+      const r = await ensureGeneratedSecrets();
+      expect([...r.created, ...r.loaded]).not.toContain('SESSION_SECRET');
+      expect(process.env.SESSION_SECRET).toBeUndefined();
+    }
   });
 
-  it('never in development (open dev mode stays), and never over a value the host set', async () => {
-    (process.env as Record<string, string>).NODE_ENV = 'development';
-    expect((await ensureGeneratedSecrets()).created).not.toContain('SESSION_SECRET');
-    expect(process.env.SESSION_SECRET).toBeUndefined();
+  it('stays the same across restarts and instances without a database: derived from DASHBOARD_PASSWORD', async () => {
     (process.env as Record<string, string>).NODE_ENV = 'production';
-    process.env.SESSION_SECRET = 'set-by-the-host';
+    process.env.DASHBOARD_PASSWORD = 'owner-recovery-pass-123';
+    const { sessionSecretSource, signSession, verifySession } = await import('../lib/foodhub/session');
     await ensureGeneratedSecrets();
-    expect(process.env.SESSION_SECRET).toBe('set-by-the-host');
+    expect(sessionSecretSource()).toBe('password');
+    const cookie = await signSession({ u: 'owner', n: 'Owner', r: 'owner', l: [], exp: Math.floor(Date.now() / 1000) + 600 });
+    (globalThis as any).__foodhubMem = undefined; // restart in memory mode (or a second instance): nothing kept
+    await ensureGeneratedSecrets();
+    expect((await verifySession(cookie))?.u).toBe('owner');
+  });
+
+  it('production with neither SESSION_SECRET nor DASHBOARD_PASSWORD has no key (the proxy answers 503)', async () => {
+    (process.env as Record<string, string>).NODE_ENV = 'production';
+    await ensureGeneratedSecrets();
+    const { sessionSecretSource } = await import('../lib/foodhub/session');
+    expect(sessionSecretSource()).toBeNull();
   });
 });
 

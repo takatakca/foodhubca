@@ -50,7 +50,14 @@ twice, even three times, because sessions did not see each other. These rules st
 - Platform support happens **inside each platform's portal, store by store**, from the account's own email only.
 - Never type passwords, SMS/2FA codes, bank or card numbers. The owner does that.
 
-## 5. End of every work chunk, and before you stop for any reason
+## 5. Handoff notes (owner's standing order): write them as you go, not only at the end
+- Connections drop and usage limits hit without warning. Every ~20 minutes, and before any long step, update your note:
+  status, the **exact next step**, and the 2–3 files to read. Code: your Task board row. Operations: your
+  `private/CLAIMS.md` row + one dated line in `private/OPS_LOG.md`.
+- A new agent must be able to resume from your note alone, without re-reading the history. Don't write essays.
+- Verify before you report "done": re-check the result (page reloaded, test re-run, message visible in the thread).
+
+## 6. End of every work chunk, and before you stop for any reason
 - Push your branch, even as WIP.
 - Update your **Task board** row in `docs/PROGRESS.md`: status, PR link and an exact **Next step** another session
   can start from without asking.

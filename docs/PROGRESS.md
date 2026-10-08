@@ -17,6 +17,7 @@ piece of work. The plan itself is `docs/MASTER_PLAN.md`. Operations (support, em
 | 7 | Brand websites without WordPress | separate repo `brand-sites` (local, no GitHub repo yet) | main session | READY, needs a GitHub repo | Owner creates private repo `takatakca/brand-sites` → push → Coolify resource (Dockerfile, port 80, `/healthz`). |
 | 8 | SEO + consent kit on 12 website repos | branch `seo-legal-kit` in each `takatakca/*` site repo | main session | DONE, pushed | Owner reviews and merges each pull request. |
 | 9 | SESSION_SECRET never generated (revert of runtime generation) + webpack client build fix | `fix/session-secret-stable` | Clover Marketplace session | DONE, PR to open (owner). Checks: 358/358 tests, webpack build OK, verify 470/0 | Owner opens the PR from https://github.com/takatakca/foodhubca/compare/main...fix/session-secret-stable?expand=1, CI, merge, deploy from Coolify. Set SESSION_SECRET in Coolify once (with task 1), never change it. |
+| 10 | Website orders through Clover (pppmtl.com first) shown on the Food Hub kitchen tablet, Clover keeps control; new Clover restaurant features (loyalty…) | `clover-website-orders` (from `main`) | Clover integration agent (main session) | IN PROGRESS (claimed 2026-10-08 ~01:00 UTC) | Research Clover's current docs and announcements → design note → build on top of the via-Clover reader (Clover is the source of truth, Food Hub mirrors status) → one PR. |
 
 ## 2026-10-07 22:45 UTC (main session)
 

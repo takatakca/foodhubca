@@ -243,6 +243,16 @@ function doorDashDiscount(o: any): number {
   return Math.round(list.filter((d) => d && (d.merchant_funded === true || /merchant/i.test(String(d.funded_by ?? d.funding_source ?? 'merchant')))).reduce((s, d) => s + Math.abs(cents(d.amount ?? d.discount_amount ?? d.value)), 0) * 100) / 100;
 }
 
+/**
+ * Tips the restaurant keeps, in dollars (Order Model, amounts in cents): merchant_tip_amount = "tip amount for
+ * merchant staff" (pickup orders included) + tip_amount = "Delivery tip amount. This is only sent for Self Delivery
+ * orders". A Dasher's tip is never in either. `tip` (undocumented) is read only when neither field is present.
+ */
+export function doorDashTip(o: any): number {
+  if (o?.merchant_tip_amount == null && o?.tip_amount == null) return cents(o?.tip);
+  return Math.round((cents(o.merchant_tip_amount) + cents(o.tip_amount)) * 100) / 100;
+}
+
 export function parseDoorDashOrder(body: any): NormalizedOrder | null {
   const o = body?.order ?? body;
   if (!o?.id) return null;
@@ -284,7 +294,7 @@ export function parseDoorDashOrder(body: any): NormalizedOrder | null {
     subtotal: cents(o.subtotal),
     tax: cents(o.tax),
     deliveryFee: 0,
-    tip: cents(o.tip_amount ?? o.tip),
+    tip: doorDashTip(o),
     discount: doorDashDiscount(o),
     total: cents(o.subtotal) + cents(o.tax),
     notes: o.order_special_instructions || undefined,

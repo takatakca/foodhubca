@@ -127,3 +127,18 @@ describe('DoorDash order source (experience: DoorDash / Caviar / Storefront)', (
     expect(cloverOrderNote({ ...o, orderSource: undefined })).not.toContain('Source:');
   });
 });
+
+describe('DoorDash merchant_tip_amount', () => {
+  it('counts the staff tip (cents) on pickup orders, plus the self-delivery tip', async () => {
+    const { doorDashTip, parseDoorDashOrder } = await import('../lib/foodhub/adapters/doordash');
+    expect(doorDashTip({ merchant_tip_amount: 250 })).toBe(2.5);
+    expect(doorDashTip({ merchant_tip_amount: 250, tip_amount: 300 })).toBe(5.5);
+    expect(doorDashTip({ tip_amount: 300 })).toBe(3);
+    expect(doorDashTip({ tip: 100 })).toBe(1); // legacy fallback only
+    expect(doorDashTip({ merchant_tip_amount: 0, tip: 100 })).toBe(0);
+    expect(doorDashTip({})).toBe(0);
+    const o = parseDoorDashOrder({ id: 'dd-tip', is_pickup: true, fulfillment_type: 'pickup', merchant_tip_amount: 175, subtotal: 1000, tax: 150, store: { merchant_supplied_id: 's' }, categories: [] });
+    expect(o?.tip).toBe(1.75);
+    expect(o?.total).toBe(11.5); // tip is not added to the order total
+  });
+});

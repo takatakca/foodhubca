@@ -34,8 +34,21 @@ export function doorDashJwt(nowSec = Math.floor(Date.now() / 1000), creds = { de
   return `${unsigned}.${b64url(sig)}`;
 }
 
-function headers() {
-  return { Authorization: `Bearer ${doorDashJwt()}`, 'auth-version': 'v2', 'Content-Type': 'application/json' };
+/**
+ * DoorDash's User-Agent: the provider_type in CamelCase + "/1.0" (documented example: merchant_sandbox →
+ * MerchantSandbox/1.0). https://developer.doordash.com/en-US/docs/marketplace/how_to/JWTs and the Marketplace FAQ.
+ * DOORDASH_USER_AGENT overrides it when DoorDash gives an exact spelling (their FAQ writes doordash_pizza as
+ * DoorDashPizza/1.0). Null while no provider type exists yet (the header is then left out).
+ */
+export function doorDashUserAgent(providerType = process.env.DOORDASH_PROVIDER_TYPE || '', override = process.env.DOORDASH_USER_AGENT || ''): string | null {
+  if (override.trim()) return override.trim();
+  const camel = providerType.trim().split(/[_\s-]+/).filter(Boolean).map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join('');
+  return camel ? `${camel}/1.0` : null;
+}
+
+function headers(): Record<string, string> {
+  const userAgent = doorDashUserAgent();
+  return { Authorization: `Bearer ${doorDashJwt()}`, 'auth-version': 'v2', 'Content-Type': 'application/json', ...(userAgent ? { 'User-Agent': userAgent } : {}) };
 }
 
 function readiness() {

@@ -75,6 +75,8 @@ export const POST = withPerm('menu:edit', async (req, _ctx, actor) => {
     // Platform markups (e.g. DoorDash +20%) survive a re-import: Clover holds in-store prices. A platform priced from
     // the chosen Clover menu takes that menu's markup (or none, when its prices are item by item).
     channelMarkupPct: mergeMarkup(existing?.channelMarkupPct, imported.channelMarkupPct, pricedPlatforms),
+    // The DoorDash pickup price (dual pricing) is a Food Hub setting: kept as is.
+    ...(existing?.pickupMarkupPct ? { pickupMarkupPct: existing.pickupMarkupPct } : {}),
     categories: [
       ...imported.categories.map((c) => {
         const prevCat = (existing?.categories ?? []).find((x) => x.ref === c.ref);

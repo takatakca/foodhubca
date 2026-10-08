@@ -152,6 +152,13 @@ export function MenuEditor() {
                   onChange={(e) => update((m) => { const next = { ...(m.channelMarkupPct || {}) } as Record<string, number>; if (e.target.value === '' || Number(e.target.value) === 0) delete next[k]; else next[k] = Number(e.target.value); return { ...m, channelMarkupPct: next }; })} />%
               </label>
             ))}
+            {/* DoorDash dual pricing: base_price = pickup price. Empty = same as delivery; 0 = in-store price. */}
+            <label className="flex items-center gap-1 text-xs" title={t('Prix pour emporter sur DoorDash : % ajouté au prix en magasin. Vide = même prix que la livraison. 0 = prix en magasin.', 'DoorDash pickup price: % added to the in-store price. Empty = same as delivery. 0 = in-store price.')}>
+              <PlatformMark channel="doordash" size="xs" /><span>{t('emporter', 'pickup')}</span>
+              <Input inputSize="sm" type="number" step="1" min="-50" max="200" placeholder="—" className="num w-16" aria-label={t('DoorDash emporter %', 'DoorDash pickup %')}
+                value={menu.pickupMarkupPct?.doordash ?? ''}
+                onChange={(e) => update((m) => { const next = { ...(m.pickupMarkupPct || {}) }; if (e.target.value === '') delete next.doordash; else next.doordash = Number(e.target.value); return { ...m, pickupMarkupPct: next }; })} />%
+            </label>
           </div>
         )}
         {langs && <button type="button" onClick={() => setDialog('langs')} className="ml-auto flex items-center gap-1.5 text-[13px] text-ink-3 hover:text-ink"><Languages className="size-4" />Uber {LANG[langs.uber_eats]} · DoorDash {LANG[langs.doordash]} · Skip {LANG[langs.skip]}</button>}

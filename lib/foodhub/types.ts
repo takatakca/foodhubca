@@ -287,6 +287,12 @@ export interface MasterMenu {
    * The base price stays the in-store (Clover) price; a per-item channelPrices override always wins.
    */
   channelMarkupPct?: Partial<Record<Marketplace, number>>;
+  /**
+   * Separate PICKUP price on a platform with dual pricing (DoorDash `base_price`; `price` stays the delivery price):
+   * percentage added to the in-store price for pickup orders. { doordash: 0 } = pickup at the in-store price.
+   * Unset = no separate pickup price (the delivery price applies to pickup too).
+   */
+  pickupMarkupPct?: Partial<Record<Marketplace, number>>;
   updatedAt: string;
 }
 

@@ -154,3 +154,51 @@ describe('DoorDash fulfillment_type', () => {
     expect(p({})).toBe('delivery');
   });
 });
+
+describe('DoorDash dual pricing (price = delivery, base_price = pickup)', () => {
+  const menu = (extra: Record<string, unknown> = {}) => ({
+    brandName: 'Pi Pita', updatedAt: 'x',
+    categories: [{ ref: 'c1', name: 'Plats', sortOrder: 0 }],
+    items: [{ ref: 'i1', name: 'Poutine', price: 10, categoryRef: 'c1', available: true, modifierGroupRefs: ['g1'] }],
+    modifierGroups: [{ ref: 'g1', name: 'Extras', min: 0, max: 1, modifiers: [{ ref: 'm1', name: 'Cheese', price: 2, available: true }] }],
+    channelMarkupPct: { doordash: 20 },
+    ...extra,
+  });
+
+  it('sends base_price on items and options when a DoorDash pickup price is set (0 = in-store price)', async () => {
+    const { toDoorDashMenu, pickupPriceFor } = await import('../lib/foodhub/menu/translate');
+    const body = toDoorDashMenu(menu({ pickupMarkupPct: { doordash: 0 } }) as any, 'dd-pita', 'takatak', 'ref-1');
+    const item = body.menu.categories[0].items[0] as any;
+    expect(item.price).toBe(1200); // delivery: +20%
+    expect(item.base_price).toBe(1000); // pickup: in-store
+    expect(item.extras[0].options[0]).toMatchObject({ price: 240, base_price: 200 });
+    expect(pickupPriceFor({ price: 10 }, 'doordash', { pickupMarkupPct: { doordash: 5 } })).toBe(10.5);
+    expect(pickupPriceFor({ price: 10 }, 'doordash', {})).toBeNull();
+  });
+
+  it('sends no base_price when the menu has no pickup price (delivery price applies to pickup, as before)', async () => {
+    const { toDoorDashMenu } = await import('../lib/foodhub/menu/translate');
+    const item = toDoorDashMenu(menu() as any, 'dd-pita', 'takatak', 'ref-1').menu.categories[0].items[0] as any;
+    expect(item.price).toBe(1200);
+    expect('base_price' in item).toBe(false);
+    expect('base_price' in item.extras[0].options[0]).toBe(false);
+  });
+});
+
+describe('PUT /api/foodhub/menu keeps the DoorDash pickup price setting', () => {
+  it('stores pickupMarkupPct (0 is a value) and refuses other platforms', async () => {
+    const prev = process.env.DASHBOARD_PASSWORD;
+    process.env.DASHBOARD_PASSWORD = 'Owner-pass-123';
+    try {
+      const { PUT } = await import('../app/api/foodhub/menu/route');
+      const { getRepo } = await import('../lib/foodhub/repo');
+      const put = (menu: unknown) => PUT(new Request('http://hub.local/api/foodhub/menu', { method: 'PUT', headers: { authorization: `Basic ${Buffer.from('owner:Owner-pass-123').toString('base64')}`, 'content-type': 'application/json' }, body: JSON.stringify({ menu }) }) as any, {} as never);
+      const base = { brandName: 'Po Poulet', categories: [{ ref: 'c1', name: 'Plats', sortOrder: 0 }], items: [{ ref: 'i1', name: 'Poutine', price: 9.5, categoryRef: 'c1', available: true, modifierGroupRefs: [] }], modifierGroups: [] };
+      expect((await put({ ...base, pickupMarkupPct: { uber_eats: 0 } })).status).toBe(400);
+      expect((await put({ ...base, channelMarkupPct: { doordash: 20 }, pickupMarkupPct: { doordash: 0 } })).status).toBe(200);
+      expect((await getRepo().getMenu('Po Poulet'))?.pickupMarkupPct).toEqual({ doordash: 0 });
+    } finally {
+      if (prev === undefined) delete process.env.DASHBOARD_PASSWORD; else process.env.DASHBOARD_PASSWORD = prev;
+    }
+  });
+});

@@ -39,6 +39,16 @@ export function modifierPriceFor(mod: { price: number }, marketplace: Marketplac
   return withMarkup(mod.price, markupPct(menu, marketplace));
 }
 
+/**
+ * Pickup price on a platform with dual pricing (DoorDash base_price): in-store price + the pickup markup, or null
+ * when the menu has no separate pickup price for that platform.
+ */
+export function pickupPriceFor(base: { price: number }, marketplace: Marketplace, menu?: Pick<MasterMenu, 'pickupMarkupPct'> | null): number | null {
+  const v = menu?.pickupMarkupPct?.[marketplace];
+  if (typeof v !== 'number' || !Number.isFinite(v)) return null;
+  return withMarkup(base.price, Math.min(Math.max(v, -50), 200));
+}
+
 /** Items that are in a valid category, in category order. */
 function liveItems(menu: MasterMenu) {
   const cats = new Set(menu.categories.map((c) => c.ref));
@@ -321,6 +331,9 @@ export function toDoorDashMenu(menu: MasterMenu, merchantSuppliedId: string, pro
   const categoryHours = new Map<string, WeeklyHours>();
   for (const g of scheduleGroups(menu, store)) if (g.key !== 'store') for (const c of g.categories) categoryHours.set(c.ref, g.hours);
   const visibleCats = new Set(scheduleGroups(menu, store).flatMap((g) => g.categories.map((c) => c.ref)));
+  // Dual pricing (DoorDash guide "Build Dual Pricing"): price = Marketplace delivery, base_price = Marketplace pickup
+  // and Storefront, on items and options; sent only when the menu sets a DoorDash pickup price.
+  const pickupPrice = (x: { price: number }) => { const v = pickupPriceFor(x, 'doordash', menu); return v === null ? {} : { base_price: toCents(v) }; };
   return {
     reference,
     store: { merchant_supplied_id: merchantSuppliedId, provider_type: providerType },
@@ -349,6 +362,7 @@ export function toDoorDashMenu(menu: MasterMenu, merchantSuppliedId: string, pro
             merchant_supplied_id: i.ref,
             active: i.available && !offRefs.has(i.ref),
             price: toCents(priceFor(i, 'doordash', menu)),
+            ...pickupPrice(i),
             sort_id: ii,
             ...((i.tags ?? []).includes('alcohol') ? { is_alcohol: true } : {}),
             ...(i.imageUrl ? { original_image_url: i.imageUrl } : {}),
@@ -366,6 +380,7 @@ export function toDoorDashMenu(menu: MasterMenu, merchantSuppliedId: string, pro
                 merchant_supplied_id: m.ref,
                 active: m.available && !offRefs.has(m.ref),
                 price: toCents(modifierPriceFor(m, 'doordash', menu)),
+                ...pickupPrice(m),
                 sort_id: mi,
               })),
             })),

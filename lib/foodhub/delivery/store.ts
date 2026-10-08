@@ -11,7 +11,7 @@ export const DELIVERIES = 'deliveries';
 const SETTINGS_KEY = 'delivery_settings_v1';
 const SEQ_KEY = 'direct_order_seq';
 
-const PREFIX: Record<DirectSource, string> = { phone: 'T', phone_ai: 'IA', clover: 'C', website: 'W', manual: 'M' };
+const PREFIX: Record<DirectSource, string> = { phone: 'T', phone_ai: 'IA', clover: 'C', website: 'W', manual: 'M', clover_online: 'WEB' };
 
 /** Short number said on the phone and printed on the ticket: T-1042, IA-1043, C-1044… */
 export async function nextOrderNumber(source: DirectSource): Promise<string> {

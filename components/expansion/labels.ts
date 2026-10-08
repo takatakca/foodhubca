@@ -22,7 +22,7 @@ export const DELIVERY_TONE: Record<string, Tone> = {
 };
 
 export function sourceLabel(t: T, s: string) {
-  return ({ phone: t('Téléphone', 'Phone'), phone_ai: t('Téléphone IA', 'AI phone'), clover: 'Clover', website: t('Site web', 'Website'), manual: t('Saisie', 'Typed in') } as Record<string, string>)[s] ?? s;
+  return ({ phone: t('Téléphone', 'Phone'), phone_ai: t('Téléphone IA', 'AI phone'), clover: 'Clover', website: t('Site web', 'Website'), manual: t('Saisie', 'Typed in'), clover_online: t('Site web / Clover en ligne', 'Website / Clover Online') } as Record<string, string>)[s] ?? s;
 }
 
 export function paymentLabel(t: T, s: string) {

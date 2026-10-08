@@ -65,7 +65,7 @@ let uberFetchFails = 0; // Uber order fetches to refuse for "uber-flaky-…" ord
 const cloverMenus = [{ id: 'MENU-POS', name: 'Default POS Menu', type: 'DEFAULT_POS_MENU' }, { id: 'MENU-DD', name: 'DoorDash (Po Poulet +20%)', type: 'OLO_MENU', channel: 'DoorDash' }];
 const cloverMenuRows = { 'MENU-DD': [{ item: { id: 'clv-item-1' }, price: 1919 }, { item: { id: 'clv-item-2' }, price: 599 }, { item: { id: 'clv-item-4' }, price: 325, image_filename: 'clv-item-4.jpeg' }] };
 let cloverObjSeq = 0;
-const cloverNativeOrders = []; // orders created in Clover by Clover's own DoorDash integration
+const cloverNativeOrders = []; // orders created in Clover by Clover itself (its DoorDash integration, Clover Online Ordering)
 const cloverTags = [{ id: 'TAG-K', name: 'Cuisine', printers: { elements: [{ id: 'PR-1' }] } }, { id: 'TAG-B', name: 'Bar', printers: { elements: [] } }];
 const cloverTagLinks = []; // { item, tag }
 const cloverItems = [
@@ -235,6 +235,9 @@ const mock = http.createServer(async (req, res) => {
     }
     const ord = p.match(/\/v3\/merchants\/[^/]+\/orders\/([^/]+)$/);
     if (ord) {
+      // Orders Clover made by itself (its DoorDash integration, Clover Online Ordering) are read back whole.
+      const native = cloverNativeOrders.find((o) => o.mid === mid && o.id === ord[1]);
+      if (native && req.method === 'GET') return send(200, native);
       if (req.method === 'DELETE') return cloverOrderTotals.delete(ord[1]) ? send(200, {}) : send(404, {});
       if (req.method === 'GET') return cloverOrderTotals.has(ord[1]) ? send(200, { id: ord[1], total: cloverOrderTotals.get(ord[1]) }) : send(404, {});
       return send(200, { id: ord[1] });
@@ -391,8 +394,10 @@ const env = {
   FOODHUB_CLOVER_RETRY_S: '2,4', FOODHUB_INBOX_RETRY_S: '2,4', FOODHUB_CLOVER_ORDER_TYPES_TTL_S: '0',
   DOORDASH_DRIVE_BASE_URL: `${MOCK}/drive`, DOORDASH_DRIVE_DEVELOPER_ID: 'drive-dev-e2e', DOORDASH_DRIVE_KEY_ID: 'drive-key-e2e', DOORDASH_DRIVE_SIGNING_SECRET: DRIVE_SECRET_B64,
   DOORDASH_DRIVE_ENV: 'sandbox', DOORDASH_DRIVE_WEBHOOK_SECRET: 'drive-hook-e2e', FOODHUB_WEBSITE_ORDER_SECRET: 'web-order-e2e',
+  // Website orders taken by Clover Online Ordering go to this kitchen, under this brand (several kitchens share the merchant).
+  FOODHUB_CLOVER_WEBSITE_LOCATION: JSON.stringify({ MAINMERCHANT: 'NDG_6284' }), FOODHUB_CLOVER_WEBSITE_BRAND: 'PPP Pizzeria',
 };
-for (const k of ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'UBER_ACCESS_TOKEN', 'TGTG_SPEC_CONFIRMED', 'SESSION_SECRET', 'FOODHUB_CLOVER_AUTOPRINT', 'CLOVER_PRINT_DEVICE_ID', 'FOODHUB_SYNC_MIN_INTERVAL_S', 'FOODHUB_CLOVER_RECORD_PAYMENT', 'FOODHUB_CLOVER_ORDER_TYPES', 'FOODHUB_CLOVER_INVENTORY_SYNC', 'FOODHUB_CLOVER_DELETE_CANCELLED', 'FOODHUB_SCHEDULED_AFTER_MIN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'FOODHUB_INSECURE_SHOW_CODES', 'TWILIO_MESSAGING_SERVICE_SID', 'FOODHUB_OWNER_EMAIL', 'FOODHUB_OWNER_PHONE', 'FOODHUB_FEATURE_DELIVERY', 'FOODHUB_FEATURE_RETAIL', 'FOODHUB_FEATURE_ALCOHOL', 'FOODHUB_FEATURE_PHONE', 'UBER_DIRECT_CUSTOMER_ID', 'UBER_DIRECT_CLIENT_ID', 'UBER_DIRECT_CLIENT_SECRET']) delete env[k];
+for (const k of ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'UBER_ACCESS_TOKEN', 'TGTG_SPEC_CONFIRMED', 'SESSION_SECRET', 'FOODHUB_CLOVER_AUTOPRINT', 'CLOVER_PRINT_DEVICE_ID', 'FOODHUB_SYNC_MIN_INTERVAL_S', 'FOODHUB_CLOVER_RECORD_PAYMENT', 'FOODHUB_CLOVER_ORDER_TYPES', 'FOODHUB_CLOVER_INVENTORY_SYNC', 'FOODHUB_CLOVER_DELETE_CANCELLED', 'FOODHUB_SCHEDULED_AFTER_MIN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'FOODHUB_INSECURE_SHOW_CODES', 'TWILIO_MESSAGING_SERVICE_SID', 'FOODHUB_OWNER_EMAIL', 'FOODHUB_OWNER_PHONE', 'FOODHUB_FEATURE_DELIVERY', 'FOODHUB_FEATURE_RETAIL', 'FOODHUB_FEATURE_ALCOHOL', 'FOODHUB_FEATURE_PHONE', 'UBER_DIRECT_CUSTOMER_ID', 'UBER_DIRECT_CLIENT_ID', 'UBER_DIRECT_CLIENT_SECRET', 'FOODHUB_CLOVER_WEBSITE_ORDERS', 'FOODHUB_CLOVER_WEBSITE_ORDER_TYPES', 'FOODHUB_CLOVER_WEBSITE_POLL_S', 'FOODHUB_CLOVER_WEBSITE_CLOSE_MIN']) delete env[k];
 const app = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '-p', String(APP_PORT)], { env, stdio: ['ignore', 'pipe', 'pipe'] });
 let appLog = '';
 app.stdout.on('data', (d) => { appLog += d; });
@@ -1616,6 +1621,51 @@ try {
   check('alcohol closed on every channel until a permit is checked', alc?.now?.length > 0 && alc.now.every((l) => Object.values(l.channels).every((c) => c.allowed === false)));
   check('opening a channel without a checked permit is refused', String((await call('PUT', '/api/foodhub/alcohol', { body: { locationCode: 'NDG_MAIN', patch: { permitType: 'restaurant', channels: { phone: true } } } })).json?.warning || '').includes('stay closed'));
   for (const k of ['delivery', 'phone', 'retail', 'alcohol']) await call('PUT', '/api/foodhub/expansion', { body: { key: k, on: false } });
+
+  console.log('\n44. Website orders through Clover Online Ordering — Clover keeps control, the kitchen screen mirrors them');
+  // The customer orders on the restaurant's Clover online-ordering page (its website's "Order online" button): Clover
+  // creates, charges and prints the order by itself, with its "Online Order Pick Up" type. Own delivery stays OFF here.
+  const olp = cloverOrderTypes.find((t) => t.label === 'Online Order Pick Up');
+  const webNative = (id, extra = {}) => ({
+    mid: 'MAINMERCHANT', id, createdTime: Date.now() - 30_000, title: '', total: 2299, currency: 'CAD', state: 'locked', paymentState: 'PAID', orderType: { id: olp?.id },
+    lineItems: { elements: [{ id: `${id}-L1`, name: 'Pizza Pepperoni', price: 1599, item: { id: 'clv-item-1' }, printed: true, modifications: { elements: [{ name: 'Extra fromage', amount: 200 }] } }, { id: `${id}-L2`, name: 'Coke', price: 300, printed: true }] },
+    payments: { elements: [{ id: `${id}-P`, amount: 2299, taxAmount: 300, tipAmount: 0, result: 'SUCCESS', tender: { id: 'T-CARD-OLO', label: 'Credit Card' } }] },
+    customers: { elements: [{ firstName: 'Léa', lastName: 'Tremblay' }] },
+    ...extra,
+  });
+  cloverNativeOrders.push(webNative('OLO-WEB-1'), webNative('OLO-DINE-1', { orderType: { id: 'OT-DINE' } }));
+  const injects44 = sent('POST', /\/atomic_order\/orders$/).length;
+  const prints44 = sent('POST', /\/print_event$/).length;
+  const sy44 = await call('POST', '/api/foodhub/sync', { body: { force: true } });
+  const main44 = sy44.json?.report?.clover?.find((c) => c.merchantId === 'MAINMERCHANT');
+  check('sync reads the website order Clover Online Ordering took (and only that one)', main44?.websiteOrders === 1 && !main44.websiteOrdersError, JSON.stringify(main44));
+  const webList = async () => (await call('GET', '/api/foodhub/website-orders?locations=NDG_6284')).json?.orders ?? [];
+  const w44 = (await webList()).find((o) => o.posOrderId === 'OLO-WEB-1');
+  check('kitchen screen: "Website / Clover Online", accepted in Clover, printed by Clover, in the pinned kitchen', w44?.source === 'clover_online' && w44.status === 'in_kitchen' && !!w44.posPrintedAt && w44.locationCode === 'NDG_6284' && w44.brandName === 'PPP Pizzeria' && w44.customer?.name === 'Léa T.' && w44.total === 22.99 && /^WEB-\d+$/.test(w44.number), JSON.stringify(w44));
+  check('no second ticket: Food Hub created nothing in Clover and printed nothing', sent('POST', /\/atomic_order\/orders$/).length === injects44 && sent('POST', /\/print_event$/).length === prints44);
+  check('an in-store order of the same Clover is not a website order', !(await webList()).some((o) => o.posOrderId === 'OLO-DINE-1'));
+  check('not a platform order (order board and payout checks untouched)', !(await call('GET', '/api/foodhub/orders?limit=500')).json.orders.some((o) => o.posOrderId === 'OLO-WEB-1'));
+  const blocked44 = await call('POST', `/api/foodhub/website-orders/${w44?.id}`, { body: { action: 'cancel' } });
+  check('cancel from Food Hub refused: "do it in Clover"', blocked44.status === 409 && /Clover/.test(blocked44.json?.error || ''), JSON.stringify(blocked44.json));
+  check('the own-orders API refuses it too (no resend, no courier, no refund)', (await call('POST', `/api/foodhub/delivery/${w44?.id}`, { body: { action: 'retry_clover' } })).status === 409 && (await call('POST', `/api/foodhub/delivery/${w44?.id}`, { body: { action: 'dispatch' } })).status === 409);
+
+  // Clover Orders webhook (O:<orderId>): the next website order is on the screen at once, without waiting for a sync.
+  const orderHook = (id, type, auth = 'clover-auth-e2e') => call('POST', '/api/foodhub/webhooks/clover', { auth: false, headers: auth ? { 'x-clover-auth': auth } : {}, body: { appId: 'APP', merchants: { MAINMERCHANT: [{ objectId: `O:${id}`, type, ts: Date.now() }] } } });
+  cloverNativeOrders.push(webNative('OLO-WEB-2', { createdTime: Date.now() - 2000 }));
+  check('Clover Orders event refused without X-Clover-Auth', (await orderHook('OLO-WEB-2', 'CREATE', null)).status === 401);
+  check('Clover Orders event (CREATE) accepted', (await orderHook('OLO-WEB-2', 'CREATE')).status === 200);
+  const w44b = await waitFor(async () => (await webList()).find((o) => o.posOrderId === 'OLO-WEB-2'));
+  check('…and the website order is on the kitchen screen right away', w44b?.status === 'in_kitchen', JSON.stringify(w44b));
+  const r44 = await call('POST', `/api/foodhub/website-orders/${w44b?.id}`, { body: { action: 'ready' } });
+  check('"Ready" on the kitchen screen is local: nothing written to Clover', r44.json?.order?.status === 'ready' && !log.some((e) => e.method !== 'GET' && /OLO-/.test(e.path)), JSON.stringify(r44.json));
+
+  // Refunded in Clover → cancelled here too, at the next Orders event.
+  cloverNativeOrders.find((o) => o.id === 'OLO-WEB-1').paymentState = 'REFUNDED';
+  check('Clover Orders event (UPDATE) accepted', (await orderHook('OLO-WEB-1', 'UPDATE')).status === 200);
+  const gone44 = await waitFor(async () => !(await webList()).some((o) => o.posOrderId === 'OLO-WEB-1'));
+  check('refunded in Clover → cancelled on the kitchen screen (Clover is the source of truth)', !!gone44 && (await call('GET', `/api/foodhub/website-orders/${w44?.id}`)).json?.order?.status === 'cancelled');
+  const sy44b = await call('POST', '/api/foodhub/sync', { body: { force: true } });
+  check('the poller meets the webhook\'s orders: never shown twice', sy44b.json?.report?.clover?.find((c) => c.merchantId === 'MAINMERCHANT')?.websiteOrders === 0 && (await webList()).filter((o) => o.posOrderId === 'OLO-WEB-2').length === 1);
 
   await sleep(300);
   // A webhook "kept in the inbox" (section 41: Uber refusing the order fetch on purpose) is handled, not a crash.

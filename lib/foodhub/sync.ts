@@ -25,6 +25,7 @@ import { applyHolidayClosures, reenableExpiredItems, reopenExpiredPauses } from 
 import { sendDueReports } from './reports';
 import { cloverReadiness, cloverSalesSince, allCloverMerchants, type CloverSales } from './pos/clover';
 import { importCloverPlatformOrders } from './pos/clover-platform-orders';
+import { importCloverWebsiteOrders } from './pos/clover-website-orders';
 import { runOrderRecovery } from './recovery';
 import { getRepo } from './repo';
 import { startOfLocalDayMs } from './time';
@@ -70,7 +71,7 @@ export interface SyncReport {
   /** Once a day: reconciliation cases opened / closed. */
   recon: { opened: number; closed: number } | null;
   stores: StoreSyncRow[];
-  clover: Array<CloverSales & { locationCodes: string[]; platformOrders?: number; platformOrdersError?: string }>;
+  clover: Array<CloverSales & { locationCodes: string[]; platformOrders?: number; platformOrdersError?: string; websiteOrders?: number; websiteOrdersError?: string }>;
   cloverConfigured: boolean;
   /** Per-platform problems of this run (a platform that stopped answering, Clover sales failures…). Partial reports are still saved. */
   platformErrors?: Partial<Record<ChannelKey | 'clover', string>>;
@@ -276,10 +277,13 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
       // Delivery orders that reached Clover through Clover's own platform integration: added to Food Hub
       // (read-only) and kept out of the in-store sales.
       const viaClover = await importCloverPlatformOrders(mid).catch((e) => ({ imported: 0, posOrderIds: [] as string[], error: String(e?.message ?? e) }));
+      // Website orders taken by Clover Online Ordering: mirrored on the kitchen screen (Clover keeps control). They are
+      // the restaurant's own Clover sales, so they stay in the in-store total.
+      const website = await importCloverWebsiteOrders(mid).catch((e) => ({ imported: 0, error: String(e?.message ?? e) }));
       const excluded = new Set([...injected, ...viaClover.posOrderIds]);
       const sales = await cloverSalesSince(mid, dayStart, excluded);
       const locationCodes = [...new Set(stores.filter((s) => (s.cloverMerchantId || process.env.CLOVER_MERCHANT_ID) === mid).map((s) => s.locationCode))];
-      return { ...sales, locationCodes, platformOrders: viaClover.imported, ...(viaClover.error ? { platformOrdersError: viaClover.error } : {}) };
+      return { ...sales, locationCodes, platformOrders: viaClover.imported, ...(viaClover.error ? { platformOrdersError: viaClover.error } : {}), websiteOrders: website.imported, ...(website.error ? { websiteOrdersError: website.error } : {}) };
     });
     const settled = await Promise.allSettled([...groups.map(([, p]) => p), cloverRun]);
     const storeRows: StoreSyncRow[] = [];

@@ -8,6 +8,7 @@ import { nowIso, round2 } from '../config';
 import { sendSms } from '../notify';
 import { prepFor } from '../prep';
 import { localTimeLabel } from '../time';
+import { cloverOnlineBlockedReason } from '../pos/clover-website-orders';
 import { createDirectOrderInClover } from './clover-direct';
 import { addDirectEvent, getDirectOrder, newId, nextOrderNumber, saveDirectOrder } from './store';
 import type { DirectLine, DirectOrder, DirectSource, DropoffAddress, PaymentState } from './types';
@@ -110,7 +111,7 @@ export async function createDirectOrder(input: NewDirectOrder, actor: Actor): Pr
   return order;
 }
 
-export const SOURCE_LABEL: Record<DirectSource, string> = { phone: 'Phone', phone_ai: 'AI phone', clover: 'Clover', website: 'Website', manual: 'Manual' };
+export const SOURCE_LABEL: Record<DirectSource, string> = { phone: 'Phone', phone_ai: 'AI phone', clover: 'Clover', website: 'Website', manual: 'Manual', clover_online: 'Website / Clover Online' };
 
 const money = (n: number, lang: 'fr' | 'en') => (lang === 'fr' ? `${n.toFixed(2).replace('.', ',')} $` : `$${n.toFixed(2)}`);
 
@@ -134,6 +135,9 @@ export type DirectAction = 'ready' | 'picked_up' | 'complete' | 'cancel' | 'mark
 export async function runDirectAction(orderId: string, action: DirectAction, actor: Actor, opts: { reason?: string } = {}): Promise<DirectOrder> {
   const order = await getDirectOrder(orderId);
   if (!order) throw new Error('Order not found.');
+  // Clover online orders: Clover is the source of truth. Only the kitchen screen's own steps are allowed here.
+  const blocked = cloverOnlineBlockedReason(order, action);
+  if (blocked) throw new Error(blocked);
   const closed = order.status === 'completed' || order.status === 'cancelled';
   if (closed && action !== 'clear_attention') throw new Error(`Order ${order.number} is already ${order.status}.`);
   let next: DirectOrder;

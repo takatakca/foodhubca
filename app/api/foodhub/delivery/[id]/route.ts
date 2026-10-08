@@ -6,6 +6,7 @@ import { deliveriesForOrder, getDirectOrder } from '@/lib/foodhub/delivery/store
 import type { FleetKey } from '@/lib/foodhub/delivery/types';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { normalizePhone } from '@/lib/foodhub/notify';
+import { cloverOnlineBlockedReason } from '@/lib/foodhub/pos/clover-website-orders';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -37,6 +38,9 @@ export const POST = withPerm<Ctx>('orders:act', async (req, ctx, actor) => {
   if (!order || !inScope(actor, order.locationCode)) return fail('Order not found.', 404);
   const b = await readJson(req);
   const action = String(b.action ?? '');
+  // A website order Clover Online Ordering took: Clover is the source of truth (refunds, cancels… are done in Clover).
+  const blocked = cloverOnlineBlockedReason(order, action);
+  if (blocked) return fail(blocked, 409);
   let message = 'Done.';
   if (action === 'dispatch') {
     const gate = await approvalGate(req, actor, 'delivery.dispatch', order.locationCode, `courier for ${order.number}`);

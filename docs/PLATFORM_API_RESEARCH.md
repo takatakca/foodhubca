@@ -6,7 +6,7 @@ logins, no forms, no messages. This repository is public: no ids, case numbers, 
 
 ## Status / next step (handoff note)
 - **Status (2026-10-08):** research done and written (sections 1–7). Docs only, no code changed.
-- **Next step:** final proofread for public-repo hygiene (no ids, emails, phone numbers), then the owner opens the
+- **Next step:** proofread done, hygiene scan clean. The owner opens the
   pull request from `api-research`. The developer backlog is section 6, which can become its own task.
 - **Files to read:** this document; `lib/foodhub/adapters/doordash.ts`, `uber-eats.ts`, `skip.ts` for the tables.
 
@@ -206,8 +206,7 @@ missing), **missing** (to build), **owner** (not code: a signature, an applicati
   hours**. Exclusion codes to watch: **`VIRTUAL_BRAND_DETECTED`**, `SELF_DELIVERY_DETECTED`, `DUPLICATE_LOCATION_ID`,
   `STORE_HOURS_NOT_POPULATED_FAILURE`.
 - **Test orders:** placed from the portal; validate in *Event Logs* (`ORDER_CREATE`, `ORDER_STATUS`,
-  `ORDER_CANCELLED`, 2xx, zero retries); unconfirmed orders auto-cancel around 90 min
-  ([validate test order](https://developer.doordash.com/en-US/docs/marketplace/overview/getting_started/validate_test_order)).
+  `ORDER_CANCELLED`, 2xx, zero retries) ([validate test order](https://developer.doordash.com/en-US/docs/marketplace/overview/getting_started/validate_test_order)).
 
 ### 1.4 Quality bar after go-live
 - Order failure rate **< 1%** and merchant cancel rate **< 1%**, 28-day rolling; above 1% you have 6 weeks to recover,
@@ -439,7 +438,7 @@ self-service, but a store already live with another integrator cannot be switche
 | Platform | Integrator model | Moving a store from UrbanPiper to Food Hub |
 |---|---|---|
 | DoorDash | Certified middleware; must offer SSIO (OAuth by the store's Business Admin, warning that activation **breaks existing integrations**) | The store gets our `provider_type` through SOW, the EPM, or a POS integration request in the Merchant Portal; one POS provider per store at a time |
-| Uber Eats | An app with `eats.pos_provisioning` that POSTs `pos_data` with `is_order_manager: true` (or Uber pre-integrates it) | Our "Connect Uber Eats" makes Food Hub the order manager; Uber **demotes** the previous one. No need to wait for UrbanPiper, but stop it first to avoid confusion on the tablet |
+| Uber Eats | An app with `eats.pos_provisioning` that POSTs `pos_data` with `is_order_manager: true` (or Uber pre-integrates it) | Our "Connect Uber Eats" makes Food Hub the order manager; Uber **demotes** the previous one. No need to wait for UrbanPiper's offboarding; give UrbanPiper the switch date so nobody waits for those orders there |
 | Skip (JET) | Integrator API key; JET maps each restaurant to a `posLocationId`; now also the Partner Onboarding API | Self-onboarding returns **409** while the store is live with another integrator: UrbanPiper must release it, then Skip/JET re-points it to our key |
 
 ---
@@ -482,6 +481,17 @@ self-service, but a store already live with another integrator cannot be switche
 | 12 | Skip | Partner Onboarding API + signed notification route (once JET confirms Canada) | New JET onboarding |
 
 None of these touch the locked store: its menu lock stays in force for every path (publish, 86, menu pull).
+
+### Corrections for our other docs (found while comparing)
+- `docs/MASTER_PLAN.md` section 7 says "only Uber Eats has an API" to cancel after accepting. DoorDash has one too
+  (allowlisted, built behind `DOORDASH_MERCHANT_CANCEL`); only Skip/JET has none.
+- `docs/GO_LIVE_CHECKLIST.md` asks whether Uber cancels need `eats.store.orders.cancel`: Uber's scope list has no such
+  scope; `eats.order` covers accept, deny and cancel.
+- `docs/GO_LIVE_CHECKLIST.md` lists Order Cancel among the DoorDash portal subscriptions: the portal shows "Order
+  Canceled", but DoorDash's cancellation guide says DoorDash configures it on request (`docs/MASTER_PLAN.md` Phase 2
+  already says to ask).
+- `docs/UBER_EATS_FINAL.md` (scopes, 3-day ≥ 98% pilot, UrbanPiper demotion) and `docs/ORDER_RELAY.md` (relay as the
+  fallback when a platform refuses a direct key) agree with the official sources.
 
 ---
 

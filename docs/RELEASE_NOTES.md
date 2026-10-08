@@ -9,8 +9,8 @@
 - **Settings → Clover app**: the submission checklist, every address and text with a Copy button. Go-live: Clover
   needs a connected merchant, the Order Relay counts for a platform, your own HTTPS domain is checked.
 - Support page with hours, phone and FAQ; privacy adds cookies and US merchants; terms: fees only through Clover.
-- Clover 429s are retried; `billing_info` is read; the Supabase URL is read at run time; `SESSION_SECRET` is
-  generated in production; media volume in the Docker image. Details: [CLOVER_MARKETPLACE_LAUNCH.md](CLOVER_MARKETPLACE_LAUNCH.md).
+- Clover 429s are retried; `billing_info` is read; the Supabase URL is read at run time; media volume in
+  the Docker image. (`SESSION_SECRET` was briefly generated at run time; that was reverted: it is never generated.) Details: [CLOVER_MARKETPLACE_LAUNCH.md](CLOVER_MARKETPLACE_LAUNCH.md).
 
 ## 1.5.9 — nothing typed is lost, help on every screen, promotions in Clover (2026-10-06)
 

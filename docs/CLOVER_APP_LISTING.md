@@ -155,7 +155,7 @@ Plus the **functional video URL** (YouTube or Vimeo, unlisted). The shot list is
 ## Legal and support URLs
 
 Shown with a Copy button in Food Hub → **Settings → Clover app**. Every URL is built from `FOODHUB_PUBLIC_URL`; replace
-`https://YOUR-DOMAIN` with your own domain (planned: `https://foodhub.takatak.ca`).
+`https://YOUR-DOMAIN` with your own domain (live: `https://foodhub.on2go.ca`).
 
 | Field | URL |
 |-------|-----|

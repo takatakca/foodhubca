@@ -63,3 +63,5 @@ twice, even three times, because sessions did not see each other. These rules st
   can start from without asking.
 - Add a short dated entry at the top of `docs/PROGRESS.md` (what was done, with commit/PR).
 - Post the same short status on your pull request.
+
+@AGENTS.md

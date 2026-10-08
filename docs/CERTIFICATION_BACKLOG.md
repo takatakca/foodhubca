@@ -4,18 +4,18 @@ Source: `docs/PLATFORM_API_RESEARCH.md` §6 (branch `api-research`). One commit 
 Every field below was re-checked on developer.doordash.com / developer.uber.com before it was coded.
 
 ## Status / next step (handoff note)
-- **Status (2026-10-08):** branch created from `main` (89ed540). Nothing coded yet.
-- **Next step:** item 1, DoorDash `User-Agent` header in `headers()` of `lib/foodhub/adapters/doordash.ts`.
-- **Read first:** this file, `lib/foodhub/adapters/doordash.ts`, `tests/platform-fixes.test.ts` (test style).
+- **Status (2026-10-08 ~00:05 UTC):** DoorDash items 1-4 done and pushed (+ fulfillment_type). Tests in tests/certification-backlog.test.ts.
+- **Next step:** item 5, DoorDash dual pricing: `base_price` (pickup) next to `price` (delivery) on items and options in `toDoorDashMenu` (lib/foodhub/menu/translate.ts); pickup markup setting per platform in the menu editor + /api/foodhub/menu schema.
+- **Read first:** this file, `lib/foodhub/menu/translate.ts` (toDoorDashMenu, priceFor), `app/api/foodhub/menu/route.ts`.
 
 ## Items
 
 | # | Platform | Item | Status | Commit |
 |---|---|---|---|---|
-| 1 | DoorDash | `User-Agent: <ProviderType>/1.0` | todo | |
-| 2 | DoorDash | Failure codes + item-level `errors[]` on reject | todo | |
-| 3 | DoorDash | Order source (`experience`: DoorDash / Caviar / Storefront) | todo | |
-| 4 | DoorDash | `merchant_tip_amount` | todo | |
+| 1 | DoorDash | `User-Agent: <ProviderType>/1.0` | done | b42d776 |
+| 2 | DoorDash | Failure codes + item-level `errors[]` on reject | done | 63b7ede |
+| 3 | DoorDash | Order source (`experience`: DoorDash / Caviar / Storefront) | done (card, drawer, ticket, Clover note) | f277ead |
+| 4 | DoorDash | `merchant_tip_amount` (+ `fulfillment_type`) | done | 6434f6a, fa71c75 |
 | 5 | DoorDash | Separate pickup prices (dual pricing) | todo | |
 | 6 | DoorDash | Item-availability polling (if documented) | todo | |
 | 7 | DoorDash | Store Onboarding Webhook (SOW) | skip unless trivial (EPM) | |
@@ -30,4 +30,7 @@ Every field below was re-checked on developer.doordash.com / developer.uber.com 
 (filled in as items are done)
 
 ## Shared files touched (for easy merges)
-(filled in as items are done)
+- `lib/foodhub/types.ts`: new optional `NormalizedOrder.orderSource` + `orderSourceLabel()` (append-only).
+- `lib/foodhub/pos/clover-order.ts`: one line in `cloverOrderNote` ("Source: Caviar").
+- `components/live/order-card.tsx`, `order-drawer.tsx`, `app/ticket/[id]/page.tsx`: one badge / line each.
+- No task 2 file touched (pipeline, inbox, webhook-utils, recovery, order-retry, health, sync, go-live, uber-inbox, watch/*).

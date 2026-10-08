@@ -9,6 +9,7 @@ import { cloverAppReadiness, listCloverConnections } from '@/lib/foodhub/pos/clo
 import { cloverOrderTypesEnabled, cloverRecordPaymentEnabled } from '@/lib/foodhub/pos/clover-books';
 import { getRepo } from '@/lib/foodhub/repo';
 import { relayReadiness } from '@/lib/foodhub/adapters/relay';
+import { goLiveFacts } from '@/lib/foodhub/go-live';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,5 +61,7 @@ export const GET = withPerm('stores:map', async (req, _ctx, actor) => {
     },
     jobs: jobs.filter((j) => j.kind !== 'webhook_unparsed'),
     unparsed: jobs.filter((j) => j.kind === 'webhook_unparsed'),
+    // Settings → Go-live: stores that cannot reach their Clover register, SESSION_SECRET set / long / stable (no secret values).
+    goLive: await goLiveFacts(),
   });
 });

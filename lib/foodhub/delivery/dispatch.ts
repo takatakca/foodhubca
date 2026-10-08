@@ -46,6 +46,7 @@ export async function dispatchProblems(order: DirectOrder, settings?: DeliverySe
   const s = settings ?? (await getDeliverySettings());
   const out: string[] = [];
   if (!(await featureOn('delivery'))) out.push(t('Own delivery is turned off (Settings → Expansion).', 'La livraison par nos coursiers est désactivée (Réglages → Expansion).'));
+  if (order.source === 'clover_online') out.push(t('Clover online order: Clover handles it (Food Hub never sends a courier for it).', 'Commande Clover en ligne : Clover s’en occupe (Food Hub n’envoie jamais de livreur pour elle).'));
   if (order.fulfillment !== 'delivery') out.push(t('This is a pickup order.', 'C’est une commande pour emporter.'));
   if (order.status === 'cancelled' || order.status === 'completed') out.push(t(`The order is ${order.status}.`, order.status === 'cancelled' ? 'La commande est annulée.' : 'La commande est terminée.'));
   const rule = ruleFor(s, order.locationCode);
@@ -237,7 +238,7 @@ export async function applyFleetEvent(ev: FleetEvent): Promise<{ applied: boolea
 export async function tickDispatch(now = Date.now()): Promise<{ checked: number; booked: number }> {
   const s = await getDeliverySettings();
   const since = new Date(now - 2 * 86400_000).toISOString();
-  const orders = (await listDirectOrders({ since, limit: 1000 })).filter((o) => o.fulfillment === 'delivery' && ['new', 'in_kitchen', 'ready'].includes(o.status));
+  const orders = (await listDirectOrders({ since, limit: 1000 })).filter((o) => o.fulfillment === 'delivery' && o.source !== 'clover_online' && ['new', 'in_kitchen', 'ready'].includes(o.status));
   let booked = 0;
   for (const o of orders) {
     const rule = ruleFor(s, o.locationCode);

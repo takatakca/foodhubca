@@ -353,3 +353,54 @@ describe('DoorDash Drive dropoff_address_components', () => {
     expect('dropoff_address_components' in driveBody(req({ street: '1 Rue X', city: 'Laval', province: 'QC', postalCode: 'H7A 1A1', country: 'CA' }) as any)).toBe(false);
   });
 });
+
+describe('DoorDash Drive: one Drive store per kitchen (pickup_external_business_id + pickup_external_store_id)', () => {
+  const KEYS = ['DOORDASH_DRIVE_DEVELOPER_ID', 'DOORDASH_DRIVE_KEY_ID', 'DOORDASH_DRIVE_SIGNING_SECRET', 'DOORDASH_DRIVE_ENV', 'DOORDASH_DRIVE_BUSINESS_ID'];
+  const prev: Record<string, string | undefined> = {};
+  beforeEach(() => {
+    for (const k of KEYS) prev[k] = process.env[k];
+    process.env.DOORDASH_DRIVE_DEVELOPER_ID = 'dev'; process.env.DOORDASH_DRIVE_KEY_ID = 'kid'; process.env.DOORDASH_DRIVE_SIGNING_SECRET = 'c2VjcmV0';
+    process.env.DOORDASH_DRIVE_ENV = 'sandbox'; delete process.env.DOORDASH_DRIVE_BUSINESS_ID;
+  });
+  afterEach(() => { for (const k of KEYS) { if (prev[k] === undefined) delete process.env[k]; else process.env[k] = prev[k]; } });
+  const kitchens = [
+    { code: 'NDG_MAIN', name: 'NDG', address: '6280 Av Somerled', city: 'Montréal', postalCode: 'H3X 2B6', phone: '5145550100' },
+    { code: 'LAVAL', name: 'Laval', address: '' },
+  ];
+
+  it('ids follow DoorDash’s pattern', async () => {
+    const { driveBusinessId, driveStoreId } = await import('../lib/foodhub/delivery/doordash-drive');
+    expect(driveBusinessId()).toBe('takatak-foodhub');
+    process.env.DOORDASH_DRIVE_BUSINESS_ID = 'default'; // reserved by DoorDash
+    expect(driveBusinessId()).toBe('takatak-foodhub');
+    expect(driveStoreId('NDG_MAIN')).toBe('NDG_MAIN');
+    expect(driveStoreId('QC')).toBe('loc-QC');
+    expect(driveStoreId('Saint Léonard')).toBe('Saint-L-onard');
+  });
+
+  it('creates the business when missing, creates or updates each kitchen store, then quotes send the ids', async () => {
+    const { registerDriveStores, doorDashDrive } = await import('../lib/foodhub/delivery/doordash-drive');
+    mockFetch((c) => (c.method === 'GET' ? { status: 404, body: { code: 'not_found' } } : { status: 200, body: {} }));
+    const res = await registerDriveStores(kitchens);
+    expect(res.rows).toEqual([
+      { locationCode: 'NDG_MAIN', ok: true, message: 'Created on DoorDash Drive.' },
+      { locationCode: 'LAVAL', ok: false, message: 'Kitchen address missing (Settings → Business).' },
+    ]);
+    const post = calls.filter((c) => c.method === 'POST');
+    expect(post[0]).toMatchObject({ url: 'https://openapi.doordash.com/developer/v1/businesses', body: { external_business_id: 'takatak-foodhub', name: 'TAKATAK' } });
+    expect(post[1].url).toBe('https://openapi.doordash.com/developer/v1/businesses/takatak-foodhub/stores');
+    expect(post[1].body).toMatchObject({ external_store_id: 'NDG_MAIN', name: 'NDG', address: '6280 Av Somerled, Montréal, QC H3X 2B6, Canada' });
+    // Again: the store exists → PATCH, no second business
+    mockFetch(() => ({ status: 200, body: {} }));
+    const again = await registerDriveStores(kitchens.slice(0, 1));
+    expect(again.ok).toBe(true);
+    expect(calls.map((c) => c.method)).toEqual(['GET', 'GET', 'PATCH']);
+    // A quote for that kitchen carries the ids; another kitchen does not.
+    mockFetch(() => ({ status: 200, body: { fee: 975, currency: 'CAD' } }));
+    const req = (loc: string) => ({ id: 'd1', reference: 'M-1', pickup: { businessName: 'Pi Pita', address: 'a', phone: '+15145550100', locationCode: loc }, dropoff: { name: 'n', address: 'd', phone: '+15145551234' }, orderValue: 10, tip: 1, currency: 'CAD', items: [], containsAlcohol: false, undeliverable: 'dispose' as const, fleetSms: true });
+    await doorDashDrive.quote(req('NDG_MAIN') as any);
+    expect(calls[0].body).toMatchObject({ pickup_external_business_id: 'takatak-foodhub', pickup_external_store_id: 'NDG_MAIN', pickup_address: 'a' });
+    await doorDashDrive.quote(req('LAVAL') as any);
+    expect('pickup_external_store_id' in calls[1].body).toBe(false);
+  });
+});

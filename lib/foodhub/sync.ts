@@ -103,6 +103,18 @@ export async function lastSyncReport(): Promise<SyncReport | null> {
   return getRepo().getKv<SyncReport>(LAST_KEY);
 }
 
+/** When the last sync ran and how many Clover merchants did not answer it — all /api/health needs. */
+export const SYNC_AT_KEY = 'sync:at';
+export interface SyncAt { at: string; cloverDown: number }
+
+export async function lastSyncAt(): Promise<SyncAt | null> {
+  const tiny = await getRepo().getKv<SyncAt>(SYNC_AT_KEY);
+  if (tiny?.at) return tiny;
+  // Until the first sync after an upgrade writes sync:at.
+  const full = await lastSyncReport();
+  return full ? { at: full.at, cloverDown: (full.clover ?? []).filter((c) => !c.ok).length } : null;
+}
+
 async function pool<T, R>(items: T[], size: number, fn: (t: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
   let next = 0;
@@ -302,6 +314,8 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
       ...(Object.keys(platformErrors).length ? { platformErrors } : {}),
     };
     await repo.setKv(LAST_KEY, report);
+    // /api/health reads only this tiny key (the full report holds every store row and Clover's sales).
+    await repo.setKv(SYNC_AT_KEY, { at: report.at, cloverDown: clover.filter((c) => !c.ok).length } satisfies SyncAt).catch(() => undefined);
     // The Watchtower looks at the fresh statuses right away (tablets, late orders, stores…).
     report.watch = await runWatch({ trigger: `sync:${report.trigger}`, force: true }).catch(() => null);
     return { ran: true, report };

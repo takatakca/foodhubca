@@ -22,6 +22,42 @@ piece of work. The plan itself is `docs/MASTER_PLAN.md`. Operations (support, em
 | 12 | pppmtl.com (repo takatakca/pppmtl, Lovable / TanStack Start) wired DIRECTLY to Clover: real images, categories, nested modifiers, Clover Hosted Checkout | pppmtl `clover-direct` (+ small foodhubca change for tablet source detection) | Clover website menu agent (main session) | IN PROGRESS (owner direction 2026-10-08: Clover direct, Hosted Checkout) | pppmtl providers/clover (menu from Clover inventory, Hosted Checkout, status) as active provider; UrbanPiper off; hosting note (server runtime needed). Never push pppmtl main. |
 | 13 | Certification backlog from docs/PLATFORM_API_RESEARCH.md §6 (DoorDash first: User-Agent, failure codes + item errors[], order source flag, merchant_tip_amount, pickup prices, availability; Uber: prep time ask, tax categories, disconnect; Drive: dropoff_address_components, per-kitchen ids, restricted items) | `certification-backlog` (from `main`) | Certification agent (main session) | IN PROGRESS (claimed 2026-10-08 ~04:00 UTC) | Small PR per platform; avoid task 2 files where possible; rebase after tasks 9/2 merge. |
 
+## 2026-10-08 05:30 UTC (Food Hub ↔ Clover backend session, task 2: `reconcile-pr6`)
+
+**Done:** PR #6's fixes ported onto `main`'s webhook inbox and Clover retry. No inbox swap.
+- **Inbox:**
+  - An automatic run never cooks a late order. Past the platform's answer window (or 30 min for relay and Too Good To Go), the order waits for a person.
+  - An entry interrupted 5 times goes to a person.
+  - A copy saved although Food Hub answered 503 is marked "refused" and never processed.
+  - Managers limited to some locations only see and replay theirs.
+  - A relay cancel waits for its order.
+  - An order stored before a server stop is **finished** by the next delivery or Replay (Clover is checked first) instead of answering "duplicate".
+- **Clover retry:**
+  - Never sends into a guessed register.
+  - Re-reads the order after each send: someone else's copy wins; a cancelled order gets no ticket.
+  - One send per order at a time.
+  - Stops at the platform deadline or after 30 min.
+  - Still retries an order the platform accepted on its side.
+- **/api/health:**
+  - Computed once per 10 s for the public answer, with a 4 s database limit, using a tiny `sync:at` key.
+  - Memory mode in production and a locked console count as "down".
+  - Public on the exact path only.
+- **Watchtower:**
+  - "Order from an unmapped store" incident.
+  - Silence alarm counted in opening minutes, Too Good To Go left out.
+  - `menu_failed` ignores blocked actions.
+  - A webhook waiting for a person now opens an on-screen incident.
+- **Go-live:**
+  - SESSION_SECRET row: set, 32+ characters, stable. The generation itself stays task 9's.
+  - The Clover row stays to-do while a mapped store cannot reach its register.
+- e2e section 42b covers the relay, shared menus and a late DoorDash order. 28 new unit tests.
+- Task 4: `7e99455` is superseded; branch `claude/brave-sagan-lmgsnp` can be deleted.
+
+**Checks:** typecheck OK, lint 0 errors, 385/385 unit tests, webpack build OK, `verify:foodhub` 492/0.
+- The webpack build needs task 9's `public-url.ts` fix: main's own build fails without it. That fix was applied locally for the run, not committed here.
+
+**Next:** merge task 9, then this PR (rerun the webpack build after task 9). PR #6 can then be closed without merging: its fixes are here, and its inbox swap is not wanted.
+
 ## 2026-10-07 22:45 UTC (main session)
 
 **Done**

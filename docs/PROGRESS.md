@@ -22,6 +22,17 @@ piece of work. The plan itself is `docs/MASTER_PLAN.md`. Operations (support, em
 | 12 | pppmtl.com wired to Clover (real items/photos/options, Clover Hosted Checkout) + tablet mirror | pppmtl `clover-direct` (d7b4366) + foodhubca `clover-website-menu` (0d7c76a, on top of task 10) | Clover website menu agent | DONE, pushed. pppmtl 79/79, build OK; foodhubca 372/372, verify 486/0 | Owner: pppmtl docs/integrations/clover.md §4–5 (host on Lovable or Coolify, Clover Hosted Checkout token + webhook secret + REST token); merge foodhubca 10 → 12; open pppmtl PR (syncs to Lovable); one real test order + refund. |
 | 13 | Certification backlog (PLATFORM_API_RESEARCH §6) | `certification-backlog` (1a5fe62, main merged in) | Certification agent | DONE, pushed. 11 items coded, SOW skipped, Uber prep time TODO. Checks: 426/426 tests, webpack OK, verify 506/0 | Owner opens the PR (https://github.com/takatakca/foodhubca/compare/main...certification-backlog?expand=1), merges after task 12, deploys; then the owner actions and platform questions in docs/CERTIFICATION_BACKLOG.md |
 | 14 | Move Supabase project "TAKATAK User Official Dashboard V1" from eu-west-1 (Ireland) to ca-central-1 (Montréal) | none | main session | CANCELLED 2026-10-08 by the owner: the project stays in Europe as long as it works. Nothing was changed. | None. Do not restart this task unless the owner asks. |
+| 18 | Brand phone lines: one Twilio number per brand rings one main number (whisper "Appel pour <marque>", voicemail and texts by email); numbers also serve Google Business Profile verification | `feature/brand-phone-lines` | Brand phone agent | DONE, pushed. Checks: typecheck OK, lint 0 errors, 420/420 tests, webpack OK | Owner merges and deploys; then creates the Twilio account (upgrade), buys the numbers, pastes the two webhook URLs on each number and adds the env names listed in `.env.example` (`FOODHUB_MAIN_PHONE`, `FOODHUB_BRAND_PHONES`, `FOODHUB_VOICEMAIL_EMAIL`, `TWILIO_*`). The owner guide is outside git. |
+
+## 2026-10-08 06:20 UTC (brand phone agent, task 18: `feature/brand-phone-lines`)
+
+**Done:** a Twilio voice webhook for one phone number per brand. Nothing was bought or created in Twilio.
+- `POST /api/foodhub/voice/incoming` rings `FOODHUB_MAIN_PHONE`; the person who answers hears "Appel pour <marque>" (whisper); no answer after 20 s: bilingual greeting and voicemail, emailed (existing notify email) with a signed 30-day listen link. A text sent to a brand number is emailed too (`/voice/sms`).
+- The number to brand map is `FOODHUB_BRAND_PHONES` (JSON, env only, no numbers in git). A line for Po Poulet NDG is refused. Every Twilio request is checked with `TWILIO_AUTH_TOKEN`; `/api/foodhub/voice/` is public in `proxy.ts` for that reason.
+- Separate from the AI order-taking agent (`/api/foodhub/webhooks/voice`): a number points at one or the other.
+- Checks: typecheck OK, lint 0 errors, 420/420 unit tests (20 new), webpack build OK.
+
+**Next:** owner merges, deploys, then the Twilio steps in the owner guide.
 
 ## 2026-10-08 05:30 UTC (Food Hub ↔ Clover backend session, task 2: `reconcile-pr6`)
 

@@ -4,9 +4,9 @@ Source: `docs/PLATFORM_API_RESEARCH.md` §6 (branch `api-research`). One commit 
 Every field below was re-checked on developer.doordash.com / developer.uber.com before it was coded.
 
 ## Status / next step (handoff note)
-- **Status (2026-10-08 ~00:25 UTC):** DoorDash 1-6 done (SOW skipped), Uber 8-10 done (10 = TODO + question). Tests: tests/certification-backlog.test.ts.
-- **Next step:** Drive item 11, `dropoff_address_components` in `driveBody` (lib/foodhub/delivery/doordash-drive.ts) from the parsed address (lib/foodhub/delivery/address.ts); then 12 (per-kitchen ids) and 13 (restricted items, reuse lib/foodhub/alcohol/rules.ts).
-- **Read first:** this file, `lib/foodhub/delivery/doordash-drive.ts`, `lib/foodhub/delivery/address.ts`.
+- **Status (2026-10-08 ~00:35 UTC):** DoorDash 1-6, Uber 8-10, Drive 11-12 done and pushed. SOW (7) skipped.
+- **Next step:** Drive item 13, block restricted items (tobacco, cannabis/drugs, weapons, explosives) in `doorDashDrive.quote/create`, helper next to `isAlcoholItem` in lib/foodhub/alcohol/rules.ts (+ alcohol decision re-checked at the fleet). Then the full checks (typecheck, lint, test, webpack build, verify:foodhub on ports 4999/5000).
+- **Read first:** this file, `lib/foodhub/delivery/doordash-drive.ts`, `lib/foodhub/alcohol/rules.ts`.
 
 ## Items
 
@@ -22,18 +22,20 @@ Every field below was re-checked on developer.doordash.com / developer.uber.com 
 | 8 | Uber Eats | Item tax categories: `tax_label_info` from documented TaxLabels rows, brand default + per-item class | done | d822594 |
 | 9 | Uber Eats | "Disconnect from Uber" (`DELETE pos_data`, merchant token) on Stores → Mapping | done | cf307cf |
 | 10 | Uber Eats | Store prep-time call | TODO in `uber-eats.ts` (endpoint not public) + question below | (this commit) |
-| 11 | Drive | `dropoff_address_components` | todo | |
-| 12 | Drive | Per-kitchen business / store ids | todo | |
+| 11 | Drive | `dropoff_address_components` (sample keys; `DOORDASH_DRIVE_ADDRESS_COMPONENTS=off` escape) | done | 42897b7 |
+| 12 | Drive | Per-kitchen business / store ids (Business + Store APIs, "Register / update kitchens" button) | done | 5fdceb4 |
 | 13 | Drive | Block restricted items | todo | |
 
 ## Owner actions (portal, after merge)
 - DoorDash Developer Portal → Webhook subscriptions → add **Item Polling**: URL `https://foodhub.on2go.ca/api/foodhub/webhooks/doordash/item-polling`, Authorization = the same value as `DOORDASH_WEBHOOK_SECRET` (if the event type is not offered, ask DoorDash support / the TAM to add it).
+- Settings → Expansion → Delivery → DoorDash Drive → **Register / update kitchens** once the Drive keys are in (sandbox first).
 - Menus → "DoorDash pickup %": set it (0 = in-store price) so DoorDash shows two prices (certification checks `price` and `base_price`), then Publish.
 
 ## Questions for the platforms
 - DoorDash: the FAQ writes provider_type `doordash_pizza` as `DoorDashPizza/1.0` (not plain CamelCase). Confirm the exact User-Agent for our provider type; `DOORDASH_USER_AGENT` sets it without code.
 - Uber: "Update Store Prep Time" is listed as required in the quality standards, but its endpoint is not in the public API reference. Please send the official path, body and scope. (Today the prep time reaches Uber per order as `pickup_time` on accept.)
 - Uber: which `tax_label_info` labels should a Québec restaurant send for a hot main dish? The TaxLabels table has `CAT_PREPARED_FOOD` only with `TEMP_UNHEATED`. And where is the store tax area id set? It is not in the public V2 menu reference.
+- DoorDash Drive: the API reference shows `dropoff_address_components` only for the US sample (street_address, sub_premise, city, state, zip_code, country). Which keys does the Canada object use? Food Hub sends the sample keys with Canadian values.
 - DoorDash: Item Polling `start_time` / `end_time` (optional) meaning is not explained; Food Hub sends neither (timed 86s are still pushed in real time).
 
 ## Shared files touched (for easy merges)

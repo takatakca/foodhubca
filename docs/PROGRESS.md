@@ -23,6 +23,16 @@ piece of work. The plan itself is `docs/MASTER_PLAN.md`. Operations (support, em
 | 13 | Certification backlog (PLATFORM_API_RESEARCH §6) | `certification-backlog` (1a5fe62, main merged in) | Certification agent | DONE, pushed. 11 items coded, SOW skipped, Uber prep time TODO. Checks: 426/426 tests, webpack OK, verify 506/0 | Owner opens the PR (https://github.com/takatakca/foodhubca/compare/main...certification-backlog?expand=1), merges after task 12, deploys; then the owner actions and platform questions in docs/CERTIFICATION_BACKLOG.md |
 | 14 | Move Supabase project "TAKATAK User Official Dashboard V1" from eu-west-1 (Ireland) to ca-central-1 (Montréal) | none | main session | CANCELLED 2026-10-08 by the owner: the project stays in Europe as long as it works. Nothing was changed. | None. Do not restart this task unless the owner asks. |
 
+## 2026-10-08 06:00 UTC (infra architect agent, task 16: `ci/prebuilt-image`)
+
+- New workflow `.github/workflows/image.yml` ("Food Hub image"): GitHub builds the existing Dockerfile, starts the image
+  and checks `/api/health`, then stores it as `ghcr.io/takatakca/foodhubca` (tags `main`, `sha-<short>`, `v*`).
+  Pull requests and `ci/**` branches build and test only. No new secret (built-in GITHUB_TOKEN). Dockerfile unchanged:
+  Coolify keeps building as today until the owner creates a "Docker Image" resource on `ghcr.io/takatakca/foodhubca:main`.
+- First run on the branch: build + smoke test green in 3 min (cold cache), nothing published.
+- Checks: typecheck OK, lint 0 errors, 400/400 tests, workflow YAML parsed.
+- Owner steps (merge, package visibility, Coolify switch) are in the private hosting plan.
+
 ## 2026-10-08 05:30 UTC (Food Hub ↔ Clover backend session, task 2: `reconcile-pr6`)
 
 **Done:** PR #6's fixes ported onto `main`'s webhook inbox and Clover retry. No inbox swap.

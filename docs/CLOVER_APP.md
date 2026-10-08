@@ -13,7 +13,7 @@ Developer account details (login, developer ID) are kept in the owner's private 
 | App Secret | developer dashboard → App Settings (eye icon) → `CLOVER_CLIENT_SECRET`. Server only, never in chat. |
 | App type | REST Clients → Web · App Market: yes · POS integration: no · Canada + United States |
 | Permissions | Read + Write: Merchant, Inventory, Orders, Payments. Reasons are in `CLOVER_APP_LISTING.md`. |
-| Site URL | `https://YOUR-DOMAIN`, the value of `FOODHUB_PUBLIC_URL`. Planned: `https://foodhub.takatak.ca`. The temporary sslip.io address must be replaced **before** submitting, because a Site URL change after approval goes back to Clover's review. |
+| Site URL | `https://YOUR-DOMAIN`, the value of `FOODHUB_PUBLIC_URL`. Live: `https://foodhub.on2go.ca` (switch tracked in task 5 of `docs/PROGRESS.md`). The temporary sslip.io address must be replaced **before** submitting, because a Site URL change after approval goes back to Clover's review. |
 | Alternate Launch Path | `/api/foodhub/clover-connect/callback` |
 | Default OAuth response | `CODE` |
 | Webhook URL | `https://YOUR-DOMAIN/api/foodhub/webhooks/clover`. Clover sends a verification code; Food Hub shows it in Settings → Platforms & Clover. |

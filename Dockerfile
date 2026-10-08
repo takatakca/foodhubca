@@ -1,8 +1,9 @@
 # TAKATAK Food Hub — container image for Coolify / any Docker host.
 # Keys are given as environment variables by the host (never baked into the image). No build argument is needed:
 # the Supabase URL (NEXT_PUBLIC_SUPABASE_URL or SUPABASE_URL) is read when the server runs, not when the image is
-# built (lib/supabase/server.ts), and SESSION_SECRET / webhook secrets are generated once and kept in the database
-# when the host does not set them (lib/foodhub/runtime-secrets.ts).
+# built (lib/supabase/server.ts), and webhook secrets are generated once and kept in the database when the host does
+# not set them (lib/foodhub/runtime-secrets.ts). SESSION_SECRET is never generated: set it once in the host's
+# environment (without it the sign-in key is derived from DASHBOARD_PASSWORD).
 FROM node:22-bookworm-slim
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1

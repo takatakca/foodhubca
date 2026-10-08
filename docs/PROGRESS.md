@@ -16,7 +16,7 @@ piece of work. The plan itself is `docs/MASTER_PLAN.md`. Operations (support, em
 | 6 | Phase 3 look and feel | local `wf/look`, `wf/kitchen` (PR #6 session) | the PR #6 session | PAUSED | Finish after task 2. |
 | 7 | Brand websites without WordPress | separate repo `brand-sites` (local, no GitHub repo yet) | main session | READY, needs a GitHub repo | Owner creates private repo `takatakca/brand-sites` → push → Coolify resource (Dockerfile, port 80, `/healthz`). |
 | 8 | SEO + consent kit on 12 website repos | branch `seo-legal-kit` in each `takatakca/*` site repo | main session | DONE, pushed | Owner reviews and merges each pull request. |
-| 9 | SESSION_SECRET never generated (revert of runtime generation) | `fix/session-secret-stable` (from `main` 7b0c93b) | Clover Marketplace session | IN PROGRESS (claimed 2026-10-07 ~23:10 UTC) | Back to env SESSION_SECRET, else derived from DASHBOARD_PASSWORD, else 503 in production; tests, .env.example, Dockerfile comment, docs (incl. foodhub.takatak.ca → foodhub.on2go.ca in CLOVER_MARKETPLACE_LAUNCH.md). Owner opens the PR from the compare link. |
+| 9 | SESSION_SECRET never generated (revert of runtime generation) + webpack client build fix | `fix/session-secret-stable` | Clover Marketplace session | DONE, PR to open (owner). Checks: 358/358 tests, webpack build OK, verify 470/0 | Owner opens the PR from https://github.com/takatakca/foodhubca/compare/main...fix/session-secret-stable?expand=1, CI, merge, deploy from Coolify. Set SESSION_SECRET in Coolify once (with task 1), never change it. |
 
 ## 2026-10-07 22:45 UTC (main session)
 

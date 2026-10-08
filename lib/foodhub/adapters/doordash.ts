@@ -287,7 +287,8 @@ export function parseDoorDashOrder(body: any): NormalizedOrder | null {
     displayId: o.delivery_short_code ? String(o.delivery_short_code) : undefined,
     channelStoreId: String(o.store?.merchant_supplied_id ?? ''),
     customerName: `${first} ${last}`.trim() || undefined,
-    fulfillment: o.is_pickup ? 'pickup' : 'delivery',
+    // Order Model fulfillment_type: dx_delivery (Dasher), pickup, mx_fleet_delivery (merchant delivery); is_pickup as fallback.
+    fulfillment: o.fulfillment_type ? (String(o.fulfillment_type).toLowerCase() === 'pickup' ? 'pickup' : 'delivery') : o.is_pickup ? 'pickup' : 'delivery',
     placedAt: o.created_at || new Date().toISOString(),
     readyBy: o.estimated_pickup_time || undefined,
     currency: process.env.FOODHUB_CURRENCY || 'CAD',

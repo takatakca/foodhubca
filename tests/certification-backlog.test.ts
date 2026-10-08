@@ -142,3 +142,15 @@ describe('DoorDash merchant_tip_amount', () => {
     expect(o?.total).toBe(11.5); // tip is not added to the order total
   });
 });
+
+describe('DoorDash fulfillment_type', () => {
+  it('reads fulfillment_type first, is_pickup as fallback', async () => {
+    const { parseDoorDashOrder } = await import('../lib/foodhub/adapters/doordash');
+    const p = (extra: Record<string, unknown>) => parseDoorDashOrder({ id: 'dd-f', store: { merchant_supplied_id: 's' }, categories: [], ...extra })?.fulfillment;
+    expect(p({ fulfillment_type: 'pickup' })).toBe('pickup');
+    expect(p({ fulfillment_type: 'dx_delivery', is_pickup: true })).toBe('delivery');
+    expect(p({ fulfillment_type: 'mx_fleet_delivery' })).toBe('delivery');
+    expect(p({ is_pickup: true })).toBe('pickup');
+    expect(p({})).toBe('delivery');
+  });
+});

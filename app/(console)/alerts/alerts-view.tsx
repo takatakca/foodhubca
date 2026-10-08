@@ -144,6 +144,8 @@ function IncidentCard({ i, focus, onChanged }: { i: Incident; focus: boolean; on
                       {i.orderId && <ButtonLink href={`/orders?open=${i.orderId}`} variant="primary" size="sm">{t('Ouvrir la commande', 'Open the order')}</ButtonLink>}
                       {i.storeId && <ButtonLink href="/stores" variant="primary" size="sm">{t('Voir le magasin', 'See the store')}</ButtonLink>}
                       {i.deviceId && <ButtonLink href="/settings/devices" variant="primary" size="sm">{t('Voir la tablette', 'See the tablet')}</ButtonLink>}
+                      {i.kind === 'webhook_unreadable' && <ButtonLink href="/settings/channels" variant="primary" size="sm">{t('Ouvrir la boîte de réception', 'Open the webhook inbox')}</ButtonLink>}
+                      {i.kind === 'store_unmapped' && <ButtonLink href="/stores/mapping" variant="primary" size="sm">{t('Relier le magasin', 'Link the store')}</ButtonLink>}
                       {i.kind === 'payout_gap' && <ButtonLink href="/money/disputes" variant="primary" size="sm">{t('Voir les litiges', 'See disputes')}</ButtonLink>}
                       {i.status !== 'acknowledged' && <Hint id="incident.ack"><Button size="sm" variant="outline" loading={busy === 'ack'} onClick={() => act('ack')} icon={<Hand className="size-4" />}>{t('Je m’en occupe', 'I’m on it')}</Button></Hint>}
                       <Button size="sm" variant="go" loading={busy === 'resolve'} onClick={() => act('resolve')} icon={<Check className="size-4" />}>{t('Réglé', 'Fixed')}</Button>

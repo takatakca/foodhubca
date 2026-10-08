@@ -35,7 +35,7 @@ Legend:
   - an alert to you when a merchant waits for approval;
   - a **Send a test order** button that creates, prints and pays a TEST order in the reviewer's Clover.
 - **What only you can do** (§4):
-  1. Point **foodhub.takatak.ca** at the server.
+  1. Switch Food Hub and Clover to **foodhub.on2go.ca** (the domain is live; task 5 in `docs/PROGRESS.md`).
   2. Set the support email and phone.
   3. Have the legal pages reviewed.
   4. Record the functional video.
@@ -173,7 +173,7 @@ answering is a listed rejection reason.
 
 | Requirement | Status | Detail |
 |---|---|---|
-| HTTPS (TLS 1.2+) on your own domain | 🟡 | The server still answers on its temporary sslip.io address. A Site URL change after approval goes back to review, so **move to `foodhub.takatak.ca` before submitting**. Settings → Clover app and Go-live flag sslip.io, IP addresses, localhost and "clover" in the host. |
+| HTTPS (TLS 1.2+) on your own domain | 🟡 | The server still answers on its temporary sslip.io address. A Site URL change after approval goes back to review, so **move to `foodhub.on2go.ca` before submitting** (task 5). Settings → Clover app and Go-live flag sslip.io, IP addresses, localhost and "clover" in the host. |
 | Rate limits (50/s per app, 16/s per token; 5 concurrent per token); back off on 429 | ✅ **new** | Every Clover call goes through `cloverFetch`: on a 429 it waits for Retry-After (5 s at most), else 1 s then 2 s. The onboarding read uses at most 5 concurrent calls. |
 | Tokens never in URLs or the browser | ✅ | Tokens stay in `fh_kv` (Supabase, service role, RLS on). APIs never return them; the e2e checks this. The welcome page uses a signed ticket, not the merchant ID, and sends no Referer. |
 | No other payment processor, no surcharge, no data selling | ✅ | Food Hub takes no payment; the privacy policy says it sells no data. |
@@ -209,12 +209,13 @@ answering is a listed rejection reason.
 Nobody else should do these: they touch your accounts, your DNS and your legal commitments. Keys are typed on the
 server with `npm run setup`, never in a chat.
 
-1. **DNS.** At the DNS host of `takatak.ca`, create an `A` record `foodhub` → the VPS address. The address is in
-   `private/OPS_LOG.md` (the server in the sslip.io name).
-2. **Deploy this branch** after you merge the pull request: `deploy/update-vps.sh` on the VPS, or re-run
-   `deploy/install-vps.sh foodhub.takatak.ca` so Caddy/Traefik gets the HTTPS certificate for the new name.
-3. **`npm run setup` on the server:**
-   - `FOODHUB_PUBLIC_URL=https://foodhub.takatak.ca`
+1. **Domain** — done 2026-10-07: `https://foodhub.on2go.ca` answers over HTTPS (DNS A record → the server, Coolify
+   domain).
+2. **Deploy** — done: `main` (with this work, PR #7) is deployed from Coolify.
+3. **Environment** (Coolify environment variables, or `npm run setup` on a VPS). Wait for the database key first
+   (task 1 in `docs/PROGRESS.md`):
+   - `FOODHUB_PUBLIC_URL=https://foodhub.on2go.ca` (task 5)
+   - `SESSION_SECRET`: a long random value, set once and never changed
    - `FOODHUB_SUPPORT_EMAIL`: a support address on your domain, not on a "clover" domain
    - `FOODHUB_SUPPORT_PHONE`
    - optional: `FOODHUB_SUPPORT_HOURS`
@@ -225,10 +226,10 @@ server with `npm run setup`, never in a chat.
 4. **Legal review.** Read `/legal/privacy`, `/legal/terms` and `/legal/support` with your adviser. Then set
    `FOODHUB_LEGAL_APPROVED=true` and `FOODHUB_LEGAL_UPDATED` to the date of the reviewed version.
 5. **Clover developer dashboard → app 629HFYHNVMZYR → App Settings.** Copy every address from Settings → Clover app.
-   - Site URL: `https://foodhub.takatak.ca`
+   - Site URL: `https://foodhub.on2go.ca`
    - Alternate Launch Path: `/api/foodhub/clover-connect/callback`
    - Default OAuth Response: `CODE`
-   - Webhook URL: `https://foodhub.takatak.ca/api/foodhub/webhooks/clover`, with events **Inventory** and **App**
+   - Webhook URL: `https://foodhub.on2go.ca/api/foodhub/webhooks/clover`, with events **Inventory** and **App**
    - Then **Send Verification Code**, paste back the code shown in Food Hub, and put Clover's auth code in
      `CLOVER_WEBHOOK_AUTH` (`npm run setup`).
 6. **Permissions:** paste the four reasons.
@@ -237,7 +238,7 @@ server with `npm run setup`, never in a chat.
    - Replace the screenshots with `clover-listing/fr` and `en`.
    - EULA and privacy URLs on the new domain.
    - Categories (after §5).
-   - Developer Support: email, phone, website `https://foodhub.takatak.ca/legal/support`, hours.
+   - Developer Support: email, phone, website `https://foodhub.on2go.ca/legal/support`, hours.
    - Optional: the cover image.
 8. **Pricing:** a free plan for Canada and the United States.
 9. **Functional video** (§6): upload it to YouTube or Vimeo as **unlisted**.
@@ -344,7 +345,7 @@ merchant with the demo platforms. Show the Clover device or Clover web dashboard
 | Domain check, no hard-coded host | `lib/foodhub/public-url.ts` (every URL comes from `FOODHUB_PUBLIC_URL`) |
 | Go-live | Clover needs a connected merchant; a platform on the Order Relay counts as done; domain and listing steps (`app/(console)/settings/go-live/page.tsx`) |
 | Legal and support | `app/legal/support/page.tsx` (hours, phone, FAQ), `app/legal/privacy/page.tsx`, `app/legal/terms/page.tsx`, `lib/foodhub/legal.ts` |
-| Phase 0 deploy traps | Supabase URL read at run time (`lib/supabase/server.ts`), `SESSION_SECRET` generated in production (`lib/foodhub/runtime-secrets.ts`), media `VOLUME` (`Dockerfile`), `.env.example`, setup wizard |
+| Phase 0 deploy traps | Supabase URL read at run time (`lib/supabase/server.ts`), `SESSION_SECRET` no longer generated at run time (task 9: env value, else derived from `DASHBOARD_PASSWORD`), media `VOLUME` (`Dockerfile`), `.env.example`, setup wizard |
 | Fixes found on the way | A zero alert volume crashed the console (`lib/ui/sound.ts`); English-only disconnect confirmation; contrast token |
 | Tests | `tests/clover-app.test.ts`, `tests/clover-marketplace.test.ts`, e2e step 37 |
 | Assets | `docs/clover-listing/` (icon, cover, 11 + 11 screenshots) |

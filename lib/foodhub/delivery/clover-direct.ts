@@ -7,7 +7,7 @@ import { cloverAutoPrintEnabled, cloverBaseUrl, cloverInjectionEnabled, cloverTo
 import { getRepo } from '../repo';
 import type { DirectOrder } from './types';
 
-const ICON: Record<DirectOrder['source'], string> = { phone: '📞', phone_ai: '📞', clover: '🧾', website: '🌐', manual: '✍️' };
+const ICON: Record<DirectOrder['source'], string> = { phone: '📞', phone_ai: '📞', clover: '🧾', website: '🌐', manual: '✍️', clover_online: '🌐' };
 
 /** The Clover merchant for a brand at a location: a mapped store of that brand there, else any store there, else the default. */
 export async function merchantFor(brandName: string, locationCode: string): Promise<string | null> {
@@ -32,6 +32,8 @@ async function orderTypeId(mid: string, token: string, fulfillment: DirectOrder[
 export type CloverDirectResult = { ok: true; posOrderId: string; merchantId: string; printed?: string } | { ok: false; skipped?: boolean; error: string };
 
 export async function createDirectOrderInClover(order: DirectOrder, opts: { print?: boolean } = {}): Promise<CloverDirectResult> {
+  // A Clover online order is already in Clover (Clover printed it and sent it to its KDS): never sent a second time.
+  if (order.source === 'clover_online') return { ok: false, skipped: true, error: 'Clover online order: it is already in Clover — never sent again.' };
   if (!cloverInjectionEnabled()) return { ok: false, skipped: true, error: 'Clover injection is turned off (FOODHUB_POS_INJECTION=off).' };
   const mid = await merchantFor(order.brandName, order.locationCode);
   if (!mid) return { ok: false, skipped: true, error: 'No Clover merchant for this location — the order stays in Food Hub only.' };

@@ -16,12 +16,15 @@ const PUBLIC_PREFIXES = [
   '/api/foodhub/clover-connect/test-order', // welcome-ticket credential (signed, one merchant, its own register)
   '/api/foodhub/auth/', '/api/foodhub/devices/heartbeat',
   '/login', '/kitchen/lock', '/manifest.webmanifest', '/sw.js', '/icons/', '/legal/', '/welcome/', '/media/',
-  '/api/health', // uptime monitors: status only without CRON_SECRET or a session (app/api/health/route.ts)
 ];
+/** Matched exactly, never as a prefix ("/api/healthz" or "/api/health/x" still need a sign-in). */
+const PUBLIC_PATHS = new Set([
+  '/api/health', // uptime monitors: status only without CRON_SECRET or a session (app/api/health/route.ts)
+]);
 
 export async function proxy(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
-  if (PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) return NextResponse.next();
+  if (PUBLIC_PATHS.has(pathname) || PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) return NextResponse.next();
 
   // The live lock depends on the password alone: SESSION_SECRET by itself gives nobody a way to sign in as owner.
   if (process.env.LIVE_CONNECTORS_GLOBAL_ENABLED === 'true' && !process.env.DASHBOARD_PASSWORD) {

@@ -8,6 +8,7 @@ import { locationsForMerchant } from '../clover-sync';
 import { getCatalog } from '../catalog';
 import { cloverBaseUrl, cloverToken } from '../pos/clover';
 import { platformFromLabel } from '../pos/clover-platform-orders';
+import { isCloverOnlineOrderType } from '../pos/clover-website-orders';
 import { getRepo } from '../repo';
 import { normalizePhone } from '../notify';
 import { addressProblems, normalizePostal, parseAddressText } from './address';
@@ -25,6 +26,8 @@ const actor = { username: 'clover', name: 'Clover', source: 'platform' as const 
 export function isOwnDeliveryOrder(co: any, orderTypes: Map<string, string>): boolean {
   const label = String(co?.orderType?.label ?? orderTypes.get(String(co?.orderType?.id ?? '')) ?? '');
   if (!DELIVERY_TYPE.test(label) || platformFromLabel(label)) return false;
+  // Clover online ordering ("Online Order Delivery"): Clover's own order, mirrored by pos/clover-website-orders.ts.
+  if (isCloverOnlineOrderType(co, orderTypes)) return false;
   const tenders: any[] = co?.payments?.elements ?? [];
   if (tenders.some((p) => platformFromLabel(p?.tender?.label))) return false;
   // Food Hub's own tickets: platform orders ("DoorDash #…") and direct orders ("📞 IA-1043 · …").

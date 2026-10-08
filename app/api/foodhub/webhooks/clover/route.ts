@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { logActivity } from '@/lib/foodhub/activity';
 import { handleCloverWebhook, VERIFY_KEY } from '@/lib/foodhub/clover-sync';
 import { handleCloverAppEvents } from '@/lib/foodhub/pos/clover-oauth';
+import { handleCloverOrderEvents } from '@/lib/foodhub/pos/clover-website-orders';
 import { nowIso, safeEqual } from '@/lib/foodhub/config';
 import { getRepo } from '@/lib/foodhub/repo';
 import { background, parseJson } from '@/lib/foodhub/webhook-utils';
@@ -18,6 +19,8 @@ const VERIFY_MIN_INTERVAL_MS = 60_000;
 //  2. Every event carries the header X-Clover-Auth = the auth code Clover shows → CLOVER_WEBHOOK_AUTH.
 //  3. Subscribe to "Inventory" events: an item changed in Clover → availability/price sync to every platform.
 //  4. Subscribe to "App" events: a merchant uninstalls the app → its tokens are removed (A:<appId> DELETE).
+//  5. Subscribe to "Orders" events: a website order taken by Clover Online Ordering shows on the kitchen screen at once,
+//     and a refund or deletion in Clover follows (O:<orderId>). See docs/CLOVER_WEBSITE_ORDERS.md.
 export async function POST(req: NextRequest) {
   const raw = await req.text();
   const body = parseJson(raw);
@@ -41,5 +44,6 @@ export async function POST(req: NextRequest) {
   }
   background('clover app events', () => handleCloverAppEvents(body));
   background('clover inventory webhook', () => handleCloverWebhook(body));
+  background('clover order events', () => handleCloverOrderEvents(body));
   return NextResponse.json({ ok: true });
 }

@@ -58,6 +58,12 @@ export const PLAYBOOK: Record<IncidentKind, { fr: string; en: string; doFr: stri
     doFr: ['Appuyer sur « Renvoyer à Clover »', 'Si Clover est en panne : préparer depuis l’écran TAKATAK'],
     doEn: ['Tap “Send to Clover” again', 'If Clover is down: cook from the TAKATAK screen'],
   },
+  store_unmapped: {
+    fr: 'Une commande vient d’un magasin de plateforme que personne n’a relié à une marque et une succursale. TAKATAK ne l’accepte pas tout seul (mauvaise marque ou mauvaise cuisine possibles) et elle n’est peut-être pas dans la bonne caisse Clover. Sans réponse avant l’échéance, la plateforme l’annule.',
+    en: 'An order came from a platform store nobody linked to a brand and a location. TAKATAK does not accept it by itself (wrong brand or wrong kitchen are possible) and it may not be in the right Clover register. Without an answer before the deadline, the platform cancels it.',
+    doFr: ['Relier ce magasin dans Magasins → Branchement des magasins', 'Puis ouvrir la commande : Envoyer à Clover, puis Accepter ou Refuser'],
+    doEn: ['Link this store in Stores → Store connections', 'Then open the order: Send to Clover, then Accept or Reject'],
+  },
   store_offline: {
     fr: 'La plateforme a mis le magasin en pause pendant les heures d’ouverture — aucune commande n’entre.',
     en: 'The platform paused the store during opening hours — no orders are coming in.',

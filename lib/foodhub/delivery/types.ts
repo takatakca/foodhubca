@@ -8,7 +8,12 @@
 // a comparison quote / fallback). Money is kept in cents on the fleet side and in dollars here, like the rest of Food Hub.
 import type { OrderLine } from '../types';
 
-export type DirectSource = 'phone' | 'phone_ai' | 'clover' | 'website' | 'manual';
+/**
+ * 'clover_online' = an order the customer placed on the restaurant's Clover Online Ordering page (the "Order online"
+ * button of its website, the Clover app, a QR code). Clover took it, printed it and fired it to its KDS by itself:
+ * Food Hub only mirrors it on the kitchen screen (pos/clover-website-orders.ts). Clover is the source of truth.
+ */
+export type DirectSource = 'phone' | 'phone_ai' | 'clover' | 'website' | 'manual' | 'clover_online';
 export type DirectStatus = 'new' | 'in_kitchen' | 'ready' | 'out_for_delivery' | 'completed' | 'cancelled';
 /** How the customer pays. Couriers never collect money: a delivery waits until the order is paid (or the owner allows unpaid dispatch). */
 export type PaymentState = 'paid' | 'pay_at_pickup' | 'unpaid';
@@ -70,6 +75,13 @@ export interface DirectOrder {
   wantedAt?: string;
   posOrderId?: string;
   posError?: string;
+  /** Clover online orders: the Clover merchant that holds the order (its status is re-read from there). */
+  posMerchantId?: string;
+  /** Clover online orders: when Clover marked the order printed (its printer / KDS got it). Food Hub never prints these. */
+  posPrintedAt?: string;
+  /** Clover online orders: someone tapped "Seen" on the Food Hub kitchen screen. */
+  seenAt?: string;
+  seenBy?: string;
   /** The current delivery (one at a time; earlier cancelled ones stay in the deliveries collection). */
   deliveryId?: string;
   /** Set when a person must look (address missing, alcohol blocked, quote too expensive…). Cleared when fixed. */

@@ -40,7 +40,7 @@ const sections = [
     ['SUPABASE_SERVICE_ROLE_KEY', 'service_role key (keep secret)'],
   ]],
   ['SIGN-IN (everyone signs in with a 6-digit code by email or SMS — no passwords to remember)', [
-    ['FOODHUB_PUBLIC_URL', 'Public https URL of your deployment, your own domain, e.g. https://foodhub.takatak.ca (sign-in links, webhook URLs, Clover Site URL)'],
+    ['FOODHUB_PUBLIC_URL', 'Public https URL of your deployment, your own domain, e.g. https://foodhub.on2go.ca (sign-in links, webhook URLs, Clover Site URL)'],
     ['FOODHUB_OWNER_EMAIL', 'YOUR email — the first owner account can only be created with it (or with the recovery password)'],
     ['FOODHUB_OWNER_PHONE', 'Optional: YOUR cell, e.g. 514 555 0123 (same purpose, by SMS)'],
     ['DASHBOARD_PASSWORD', 'Recovery password — only for emergencies ("Sign in with the recovery password"). Type it yourself, never in chat'],

@@ -18,11 +18,17 @@ type CloverAppInfo = {
   legalStatus?: { supportEmailSet: boolean; supportPhoneSet?: boolean; approved: boolean };
   domain?: { url: string; ready: boolean; problems: PublicUrlProblem[] };
 };
+/** A mapped store whose orders cannot get into Clover (lib/foodhub/go-live.ts, sent by /api/foodhub/channels). */
+type CloverStoreProblem = { channel: string; brandName: string; locationCode: string; merchantId: string | null; reason: 'no_merchant' | 'no_token' | 'reconnect' };
+type SessionSecretInfo = { source: 'env' | 'password' | 'dev' | null; set: boolean; strong: boolean; since: string | null; changedAt: string | null };
 type ChannelsData = {
   mode: string; liveEnabled: boolean; dashboardProtected: boolean;
   clover: { configured: boolean; appConfigured?: boolean; tokenMerchants?: number; missing: string[]; webhookAuthSet?: boolean; verification?: { code: string } | null; app?: CloverAppInfo };
   channels: Readiness[]; relay?: { channels: string[] };
+  goLive?: { clover: { injectionEnabled: boolean; unreachableStores: CloverStoreProblem[] }; sessionSecret: SessionSecretInfo };
 };
+/** A SESSION_SECRET that changed less than this long ago is pointed out (everyone, tablets included, had to sign in again). */
+const SECRET_CHANGE_WARN_MS = 7 * 86400_000;
 type Notify = { email: boolean; sms: boolean; call: boolean; chat: boolean; ai: boolean };
 type User = { username: string; name: string; role: string; locations: string[]; email: string | null; phone: string | null; active: boolean; hasPin: boolean };
 type Device = { id: string; locationCode: string; status: string };
@@ -48,12 +54,24 @@ function cloverCheckSteps(ck: CloverCheck, t: (fr: string, en: string) => string
   return out;
 }
 
-/** Clover line: orders reach Clover only with a merchant token in the environment or a merchant connected through the app. */
-function cloverStep(ch: ChannelsData, t: (fr: string, en: string) => string): Step {
+/**
+ * Clover line: orders reach Clover only with a merchant token in the environment or a merchant connected through the
+ * app — and it stays to-do while a mapped store cannot reach its own register (no merchant, no token, app access expired).
+ */
+function cloverStep(ch: ChannelsData, t: (fr: string, en: string) => string, locName: (code: string) => string): Step {
   const envToken = ch.clover.missing.length === 0 || (ch.clover.tokenMerchants ?? 0) > 0;
   const active = (ch.clover.app?.merchants ?? []).filter((m) => m.status !== 'pending').length;
   const appKeys = Boolean(ch.clover.app?.configured ?? ch.clover.appConfigured);
   const done = envToken || active > 0;
+  const stuck = ch.goLive?.clover.unreachableStores ?? [];
+  if (done && stuck.length) {
+    const why = (p: CloverStoreProblem) => p.reason === 'no_merchant' ? t('aucun marchand Clover', 'no Clover merchant')
+      : p.reason === 'reconnect' ? t('accès de l’app Clover expiré : à rebrancher', 'Clover app access expired: reconnect') : t('marchand sans jeton', 'merchant without a token');
+    const label = (k: string) => ch.channels.find((x) => x.channel === k)?.label ?? k;
+    const list = stuck.slice(0, 4).map((p) => `${p.brandName} · ${shortLoc(locName(p.locationCode))} · ${label(p.channel)} (${why(p)})`).join(' ; ') + (stuck.length > 4 ? ` … (+${stuck.length - 4})` : '');
+    return { group: t('Plateformes', 'Platforms'), key: 'clover', state: 'todo', title: 'Clover', href: '/stores/mapping', cta: t('Corriger', 'Fix'),
+      body: `${t('Ces magasins ne peuvent pas envoyer leurs commandes dans Clover :', 'These stores cannot get their orders into Clover:')} ${list}` };
+  }
   return {
     group: t('Plateformes', 'Platforms'), key: 'clover', state: done ? 'done' : 'todo', title: 'Clover',
     body: done
@@ -87,9 +105,30 @@ function cloverAppSteps(ch: ChannelsData, t: (fr: string, en: string) => string)
   ];
 }
 
+/** SESSION_SECRET: required (set, long), and stable — a recent change is pointed out. */
+function sessionSecretStep(ch: ChannelsData, t: (fr: string, en: string) => string, loc: string, now: number): Step {
+  const base = { group: t('Fondations', 'Foundations'), key: 'session-secret', title: t('Secret de session (SESSION_SECRET)', 'Session secret (SESSION_SECRET)'), href: '/settings/channels', cta: t('Voir', 'See') };
+  const s = ch.goLive?.sessionSecret;
+  const day = (iso: string) => new Date(iso).toLocaleDateString(loc, { day: 'numeric', month: 'long', year: 'numeric' });
+  const add = t('Ajoutez-le dans l’hébergeur (npm run setup) et gardez-le fixe — tapé par vous, jamais dans le clavardage.', 'Add it in the hosting settings (npm run setup) and keep it fixed — typed by you, never in chat.');
+  if (!s?.set) {
+    const why = s?.source === 'password'
+      ? t('Manque : les sessions sont signées avec une clé tirée de DASHBOARD_PASSWORD, donc changer ce mot de passe déconnecte tout le monde, tablettes de cuisine comprises.', 'Missing: sessions are signed with a key derived from DASHBOARD_PASSWORD, so changing that password signs everyone out, kitchen tablets included.')
+      : t('Manque : sans lui ni DASHBOARD_PASSWORD, chaque écran affiche « Locked » en production.', 'Missing: without it or DASHBOARD_PASSWORD, every screen says “Locked” in production.');
+    return { ...base, state: 'todo', body: `${why} ${add}` };
+  }
+  if (!s.strong) return { ...base, state: 'todo', body: `${t('Trop court (moins de 32 caractères).', 'Too short (under 32 characters).')} ${add}` };
+  if (s.changedAt && now - Date.parse(s.changedAt) < SECRET_CHANGE_WARN_MS) {
+    return { ...base, state: 'warn', body: t(`A changé le ${day(s.changedAt)} : tout le monde a dû se reconnecter, tablettes comprises. Si ce n’est pas vous, l’hébergeur en crée un nouveau à chaque déploiement : mettez une valeur fixe.`, `Changed on ${day(s.changedAt)}: everyone had to sign in again, tablets included. If that was not you, the host makes a new one at each deploy: set a fixed value.`) };
+  }
+  return { ...base, state: 'done', body: s.since
+    ? t(`Défini, sans changement depuis le ${day(s.since)}. Gardez-le fixe : le changer déconnecte tout le monde.`, `Set, unchanged since ${day(s.since)}. Keep it fixed: changing it signs everyone out.`)
+    : t('Défini. Gardez-le fixe : le changer déconnecte tout le monde.', 'Set. Keep it fixed: changing it signs everyone out.') };
+}
+
 export default function GoLivePage() {
-  const { t } = useI18n();
-  const { locations, can } = useViewer();
+  const { t, loc } = useI18n();
+  const { locations, can, locName } = useViewer();
   const [steps, setSteps] = useState<Step[] | null>(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -121,7 +160,8 @@ export default function GoLivePage() {
 
       const out: Step[] = [
         { group: t('Fondations', 'Foundations'), key: 'db', state: ch.mode === 'memory' ? 'todo' : 'done', title: t('Base de données Supabase', 'Supabase database'), body: ch.mode === 'memory' ? t('Mode démo : rien n’est gardé au redémarrage. Lancez npm run setup avec l’URL et la clé Supabase, puis exécutez INSTALL_ALL.sql.', 'Demo mode: nothing is kept across restarts. Run npm run setup with the Supabase URL and key, then run INSTALL_ALL.sql.') : t('Branchée.', 'Connected.'), href: '/settings/channels', cta: t('Voir', 'See') },
-        { group: t('Fondations', 'Foundations'), key: 'secret', state: ch.dashboardProtected ? 'done' : 'todo', title: t('Mot de passe de secours et secret de session', 'Recovery password and session secret'), body: ch.dashboardProtected ? t('DASHBOARD_PASSWORD est défini.', 'DASHBOARD_PASSWORD is set.') : t('Définissez DASHBOARD_PASSWORD et SESSION_SECRET (npm run setup). Vous les tapez vous-même — jamais dans le clavardage.', 'Set DASHBOARD_PASSWORD and SESSION_SECRET (npm run setup). You type them yourself — never in chat.'), href: '/settings/channels', cta: t('Voir', 'See') },
+        { group: t('Fondations', 'Foundations'), key: 'secret', state: ch.dashboardProtected ? 'done' : 'todo', title: t('Mot de passe de secours (DASHBOARD_PASSWORD)', 'Recovery password (DASHBOARD_PASSWORD)'), body: ch.dashboardProtected ? t('Défini : connexion de secours « owner ».', 'Set: recovery sign-in as “owner”.') : t('Définissez DASHBOARD_PASSWORD (npm run setup ou l’hébergeur) : la connexion de secours « owner ». Obligatoire avant le mode direct, sinon la console se verrouille. Vous le tapez vous-même — jamais dans le clavardage.', 'Set DASHBOARD_PASSWORD (npm run setup or the hosting settings): the recovery sign-in as “owner”. Required before live mode, or the console locks itself. You type it yourself — never in chat.'), href: '/settings/channels', cta: t('Voir', 'See') },
+        sessionSecretStep(ch, t, loc, Date.now()),
         { group: t('Connexion et alertes', 'Sign-in & alerts'), key: 'email', state: w.channels.email ? 'done' : 'todo', title: t('Courriels de connexion (Resend)', 'Sign-in emails (Resend)'), body: w.channels.email ? t('Les codes partent par courriel.', 'Codes are sent by email.') : t('RESEND_API_KEY + AUTH_EMAIL_FROM, avec un domaine vérifié chez Resend.', 'RESEND_API_KEY + AUTH_EMAIL_FROM, with a domain verified at Resend.'), href: '/settings/alerts', cta: t('Tester', 'Test') },
         { group: t('Connexion et alertes', 'Sign-in & alerts'), key: 'sms', state: w.channels.sms && w.channels.call ? 'done' : 'todo', title: t('Textos et appels (Twilio)', 'Texts and calls (Twilio)'), body: w.channels.sms ? (w.channels.call ? t('Textos et appels d’alerte prêts.', 'Alert texts and calls ready.') : t('Textos prêts ; ajoutez TWILIO_FROM pour les appels.', 'Texts ready; add TWILIO_FROM for calls.')) : t('TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN et TWILIO_FROM (un numéro canadien).', 'TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_FROM (a Canadian number).'), href: '/settings/alerts', cta: t('Tester', 'Test') },
         { group: t('Connexion et alertes', 'Sign-in & alerts'), key: 'chat', state: w.channels.chat ? 'done' : 'warn', title: t('Clavardage de l’équipe', 'Team chat'), body: w.channels.chat ? t('Les alertes sont publiées.', 'Alerts are posted.') : t('Optionnel : ALERT_WEBHOOK_URL (Slack, Teams, Google Chat).', 'Optional: ALERT_WEBHOOK_URL (Slack, Teams, Google Chat).'), href: '/settings/alerts', cta: t('Voir', 'See') },
@@ -131,7 +171,7 @@ export default function GoLivePage() {
         { group: t('Équipe', 'Team'), key: 'pins', state: staffNoPin ? 'warn' : 'done', title: t('NIP des employés', 'Staff PINs'), body: staffNoPin ? t(`${staffNoPin} employé(s) sans NIP — ils ne peuvent pas déverrouiller une tablette.`, `${staffNoPin} staff without a PIN — they cannot unlock a tablet.`) : t('Tous les employés ont un NIP.', 'All staff have a PIN.'), href: '/settings/team', cta: t('Équipe', 'Team') },
         { group: t('Cuisine', 'Kitchen'), key: 'tablets', state: locNoTablet.length ? 'todo' : tabletsOff ? 'warn' : 'done', title: t('Une tablette par cuisine', 'A tablet per kitchen'), body: locNoTablet.length ? `${t('Sans tablette :', 'No tablet:')} ${list(locNoTablet)}` : tabletsOff ? t(`${tabletsOff} tablette(s) hors ligne en ce moment.`, `${tabletsOff} tablet(s) offline right now.`) : t('Toutes en ligne.', 'All online.'), href: '/settings/devices', cta: t('Tablettes', 'Tablets') },
         { group: t('Cuisine', 'Kitchen'), key: 'kphone', state: noPhone.length ? 'warn' : 'done', title: t('Téléphone de chaque cuisine', 'Each kitchen’s phone'), body: noPhone.length ? `${t('La surveillance ne peut pas appeler :', 'The watchtower cannot call:')} ${list(noPhone)}` : t('La surveillance appelle la cuisine en premier, comme Uber.', 'The watchtower calls the kitchen first, like Uber.'), href: '/settings/business', cta: t('Ajouter', 'Add') },
-        cloverStep(ch, t),
+        cloverStep(ch, t, locName),
         ...(['uber_eats', 'doordash', 'skip'] as const).map((k): Step => {
           const r = ready(k);
           const n = byCh(k);
@@ -147,7 +187,7 @@ export default function GoLivePage() {
       ];
       setSteps(out); setErr('');
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
-  }, [locations, t]);
+  }, [locations, locName, loc, t]);
   useEffect(() => { if (can('admin')) load(); }, [load, can]);
 
   if (!can('admin')) return <div><SettingsHead title={t('Mise en service', 'Go-live')} /><Banner tone="info">{t('Réservé au propriétaire.', 'Owner only.')}</Banner></div>;

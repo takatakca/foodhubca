@@ -180,7 +180,7 @@ function Connections() {
     const m = Math.round((Date.parse(h?.at ?? iso) - Date.parse(iso)) / 60_000);
     return m < 1 ? t('à l’instant', 'just now') : m < 60 ? t(`il y a ${m} min`, `${m} min ago`) : m < 48 * 60 ? t(`il y a ${Math.round(m / 60)} h`, `${Math.round(m / 60)} h ago`) : new Date(iso).toLocaleDateString(loc, { day: 'numeric', month: 'short' });
   };
-  const NAMES: Record<string, [string, string]> = { database: ['Base de données', 'Database'], sync: ['Synchro', 'Sync'], watchtower: ['Watchtower', 'Watchtower'], recovery: ['Reprise des commandes', 'Order recovery'], inbox: ['Webhooks', 'Webhooks'], clover: ['Clover', 'Clover'] };
+  const NAMES: Record<string, [string, string]> = { database: ['Base de données', 'Database'], sync: ['Synchro', 'Sync'], watchtower: ['Watchtower', 'Watchtower'], recovery: ['Reprise des commandes', 'Order recovery'], inbox: ['Webhooks', 'Webhooks'], clover: ['Clover', 'Clover'], console: ['Écrans et connexion', 'Screens & sign-in'] };
   const mode = (p: Health['platforms'][number]): [string, 'go' | 'wait' | 'stop' | 'info'] => p.mode === 'via_clover' ? [t('par Clover', 'via Clover'), 'info']
     : p.mode === 'not_connected' ? [t('à brancher', 'to connect'), 'stop'] : p.mode === 'inbound' ? [t('réception', 'inbound'), 'info'] : p.live ? [t('en direct', 'live'), 'go'] : [t('prêt, pas en direct', 'ready, not live'), 'wait'];
   const overall: [string, 'go' | 'wait' | 'stop'] = !h ? [t('Vérification…', 'Checking…'), 'wait'] : h.status === 'ok' ? [t('Tout est branché', 'Everything connected'), 'go'] : h.status === 'degraded' ? [t('À surveiller', 'Needs a look'), 'wait'] : [t('Problème — des commandes peuvent être manquées', 'Problem — orders could be missed'), 'stop'];

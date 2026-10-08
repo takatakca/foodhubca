@@ -136,7 +136,7 @@ Each phase ends with **acceptance checks**. A phase is done only when all of the
    - ✅ The `Dockerfile` no longer hides a failed build.
    - ✅ Instead of a build-time `ARG` (an empty one would inline an empty string), the Supabase URL is now read at run time (`lib/supabase/server.ts`); `SUPABASE_URL` is accepted too.
    - ✅ `FOODHUB_INTERNAL_SYNC_MIN` is documented in `.env.example` (the image sets 5).
-   - ✅ `SESSION_SECRET` is generated once in production, like the other internal secrets.
+   - ✅ `SESSION_SECRET` is **required and stable, never generated at run time** (task 9). A generated key broke sign-in when the database was down at boot, with two instances, and in memory mode. Without it, the key is derived from `DASHBOARD_PASSWORD`.
    - ✅ `VOLUME /app/data/media` in the image; on Coolify also add a Persistent Storage mount.
 3. Fix the Go-live checklist — **done**:
    - ✅ The Clover line needs a merchant token or a connected merchant.
@@ -153,8 +153,11 @@ Each phase ends with **acceptance checks**. A phase is done only when all of the
 
 > **Status (branch `clover-backend-final`):** items 1 (webhook inbox + Replay), 2 (`/api/health`), 3 (texts by default
 > for `menu_failed` / `sync_stale`), 4 (silence alarm), 6 (Clover auto-retry 30 s / 2 min, no second ticket) and the
-> Clover side of 7 are built and tested — see [CLOVER_BACKEND_FINAL.md](CLOVER_BACKEND_FINAL.md). Still open: 5 (a
-> mapping suggestion for unmapped stores; auto-accept is already held for them and the waiting order escalates).
+> Clover side of 7 are built and tested — see [CLOVER_BACKEND_FINAL.md](CLOVER_BACKEND_FINAL.md). Branch
+> `reconcile-pr6` (task 2) adds PR #6's fixes on top: 5 (the "Order from an unmapped store" incident with a mapping
+> hint), the rest of 7 (Order Relay and shared menus in the end-to-end script), no late ticket from an automatic
+> run, the order stored before a server stop finished instead of "duplicate", Clover retry guards, and a cheaper,
+> stricter `/api/health`.
 
 1. **Save the raw webhook body before answering 200** (`lib/foodhub/webhook-utils.ts`), then process it. Add a **Replay** button for unparsed or failed payloads in Settings → Platforms.
 2. Add **`/api/health`** (database, last sync, last order per platform, and whether the watchtower timer is alive). Add an outside uptime monitor that texts the owner.
@@ -189,7 +192,7 @@ Each phase ends with **acceptance checks**. A phase is done only when all of the
 4. **Too Good To Go:** when the rep delivers the spec, write a real `tgtgAdapter`: read their orders (replacing the best-guess reader), send bag quantities and pickup windows, and cancel. Remove the permanent "blocked" results.
 5. **Clover App Market** — code ready (branch `clover-marketplace-launch`); the full list is in `docs/CLOVER_MARKETPLACE_LAUNCH.md`:
    - ✅ Launch flow, pre-filled welcome wizard, test order, billing_info, 429 back-off, support page with FAQ, listing texts, screenshots.
-   - 👤 Get a real domain with HTTPS (`foodhub.takatak.ca`).
+   - ✅ Domain with HTTPS: `foodhub.on2go.ca`. 👤 Switch `FOODHUB_PUBLIC_URL` and the Clover Site URL to it (task 5).
    - 👤 Approve the legal pages (`FOODHUB_LEGAL_APPROVED=true`), support email and phone.
    - 👤 Record the functional video, fill in the dashboard, ask Clover about SRM (Québec), submit.
 
@@ -296,7 +299,7 @@ Paste one at a time into Claude Code at the repository root. Each prompt is self
 > Read docs/MASTER_PLAN.md (sections 2, 4 and 5 / Phase 0). Get branch `claude/practical-wright-pnhgtl` ready to merge into `main`:
 > - Dockerfile: no `|| true` on the build; a build-time ARG for `NEXT_PUBLIC_SUPABASE_URL`.
 > - Document `FOODHUB_INTERNAL_SYNC_MIN` in `.env.example`.
-> - Generate `SESSION_SECRET` like the other internal secrets (`lib/foodhub/runtime-secrets.ts`).
+> - `SESSION_SECRET`: required and stable, never generated at run time (done, task 9).
 > - Go-live: the Clover line needs a connected merchant; Skip counts as done through the Relay.
 > - Update ATLAS_PARITY, RELEASE_NOTES and INSTALLER_SERVEUR for the Relay and shared menus.
 >

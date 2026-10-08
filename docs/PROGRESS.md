@@ -9,18 +9,54 @@ piece of work. The plan itself is `docs/MASTER_PLAN.md`. Operations (support, em
 | # | Task | Branch / place | Owner (session) | Status | Next step |
 |---|---|---|---|---|---|
 | 1 | Production database key | Coolify env `SUPABASE_SERVICE_ROLE_KEY` | **owner** | BLOCKED: Supabase answers "Invalid API key" | Owner pastes the service-role (secret) key of the project in `NEXT_PUBLIC_SUPABASE_URL`, then Restart. Then check `/api/health` and run `supabase/INSTALL_ALL.sql` if tables are missing. |
-| 2 | Reconcile PR #6 with `main` | `reconcile-pr6` (a2c1381, 8dff3df) | Food Hub ↔ Clover backend session | IN PROGRESS (2026-10-08 ~03:45 UTC): code pushed; typecheck OK, lint 0, 384/384 tests; verify:foodhub running (new section 42b) | Commit the e2e script, docs in the PR (PROGRESS, MASTER_PLAN Phase 1, CLOVER_BACKEND_FINAL, .env.example), merge origin/main, push, give the compare link. Needs task 9 merged first (webpack). |
+| 2 | Reconcile PR #6 with `main` | `reconcile-pr6` | Food Hub ↔ Clover backend session | MERGED (PR #9, 1fb58d6). Re-verified after task 9: 386/386 tests, webpack OK, verify 492/0 | Owner closes PR #6 without merging; deletes branch claude/brave-sagan-lmgsnp. |
 | 3 | "Extra loud" kitchen alarm | `uber-eats-final` (`46e5046`, not in `main`) | the Uber session | TODO | Open a small PR of `46e5046` onto `main`. |
 | 4 | Stray commit `7e99455` | `claude/brave-sagan-lmgsnp` | Food Hub ↔ Clover backend session | DONE: superseded (main has a superset posRetry type; job kind unused) | Owner may delete the branch `claude/brave-sagan-lmgsnp`. |
 | 5 | Point platforms at `https://foodhub.on2go.ca` + end-to-end connections (Clover, Uber, DoorDash, sign-in codes) | Coolify env + Uber / DoorDash / Clover developer settings + branch `connections-golive` if code is needed | Connections agent (main session) | IN PROGRESS (claimed 2026-10-08 ~02:45 UTC) | Production DB key first (task 1, owner). Then FOODHUB_PUBLIC_URL, platform URLs, Clover connect, SMS/email codes (Twilio/Resend), test order through each path. |
 | 6 | Phase 3 look and feel | local `wf/look`, `wf/kitchen` (PR #6 session) | the PR #6 session | PAUSED | Finish after task 2. |
 | 7 | Brand websites without WordPress | separate repo `brand-sites` (local, no GitHub repo yet) | main session | READY, needs a GitHub repo | Owner creates private repo `takatakca/brand-sites` → push → Coolify resource (Dockerfile, port 80, `/healthz`). |
 | 8 | SEO + consent kit on 12 website repos | branch `seo-legal-kit` in each `takatakca/*` site repo | main session | DONE, pushed | Owner reviews and merges each pull request. |
-| 9 | SESSION_SECRET never generated (revert of runtime generation) + webpack client build fix | `fix/session-secret-stable` | Clover Marketplace session | DONE, PR to open (owner). Checks: 358/358 tests, webpack build OK, verify 470/0 | Owner opens the PR from https://github.com/takatakca/foodhubca/compare/main...fix/session-secret-stable?expand=1, CI, merge, deploy from Coolify. Set SESSION_SECRET in Coolify once (with task 1), never change it. |
+| 9 | SESSION_SECRET never generated + webpack client build fix | `fix/session-secret-stable` | Clover Marketplace session | MERGED (PR #8, 3a949e6) | Owner sets SESSION_SECRET in Coolify once (never change it). |
 | 10 | Website orders through Clover (pppmtl.com first) shown on the Food Hub kitchen tablet, Clover keeps control | `clover-website-orders` (b8a818b) | Clover integration agent (main session) | DONE, pushed, PR to open AFTER task 9 merges. Checks: 371/371 tests, verify 484/0 (webpack build waits on task 9 fix) | Owner opens https://github.com/takatakca/foodhubca/compare/main...clover-website-orders?expand=1 after task 9 is merged; rerun the webpack build; merge, deploy; then follow docs/CLOVER_WEBSITE_ORDERS.md §4 (Clover online ordering on, pppmtl.com button, Orders webhook, FOODHUB_CLOVER_WEBSITE_BRAND) and place one test order + one refund. |
 | 11 | Platform API research for Marketplace approval | `api-research` (277588f, docs only) | API research agent (main session) | DONE, pushed | Owner merges https://github.com/takatakca/foodhubca/compare/main...api-research?expand=1 ; owner starts the DoorDash application + asks for an Enterprise Partner Manager. Developer backlog (section 6) = task 13. |
 | 12 | pppmtl.com (repo takatakca/pppmtl, Lovable / TanStack Start) wired DIRECTLY to Clover: real images, categories, nested modifiers, Clover Hosted Checkout | pppmtl `clover-direct` (+ small foodhubca change for tablet source detection) | Clover website menu agent (main session) | IN PROGRESS (owner direction 2026-10-08: Clover direct, Hosted Checkout) | pppmtl providers/clover (menu from Clover inventory, Hosted Checkout, status) as active provider; UrbanPiper off; hosting note (server runtime needed). Never push pppmtl main. |
 | 13 | Certification backlog from docs/PLATFORM_API_RESEARCH.md §6 (DoorDash first: User-Agent, failure codes + item errors[], order source flag, merchant_tip_amount, pickup prices, availability; Uber: prep time ask, tax categories, disconnect; Drive: dropoff_address_components, per-kitchen ids, restricted items) | `certification-backlog` (from `main`) | Certification agent (main session) | IN PROGRESS (claimed 2026-10-08 ~04:00 UTC) | Small PR per platform; avoid task 2 files where possible; rebase after tasks 9/2 merge. |
+
+## 2026-10-08 05:30 UTC (Food Hub ↔ Clover backend session, task 2: `reconcile-pr6`)
+
+**Done:** PR #6's fixes ported onto `main`'s webhook inbox and Clover retry. No inbox swap.
+- **Inbox:**
+  - An automatic run never cooks a late order. Past the platform's answer window (or 30 min for relay and Too Good To Go), the order waits for a person.
+  - An entry interrupted 5 times goes to a person.
+  - A copy saved although Food Hub answered 503 is marked "refused" and never processed.
+  - Managers limited to some locations only see and replay theirs.
+  - A relay cancel waits for its order.
+  - An order stored before a server stop is **finished** by the next delivery or Replay (Clover is checked first) instead of answering "duplicate".
+- **Clover retry:**
+  - Never sends into a guessed register.
+  - Re-reads the order after each send: someone else's copy wins; a cancelled order gets no ticket.
+  - One send per order at a time.
+  - Stops at the platform deadline or after 30 min.
+  - Still retries an order the platform accepted on its side.
+- **/api/health:**
+  - Computed once per 10 s for the public answer, with a 4 s database limit, using a tiny `sync:at` key.
+  - Memory mode in production and a locked console count as "down".
+  - Public on the exact path only.
+- **Watchtower:**
+  - "Order from an unmapped store" incident.
+  - Silence alarm counted in opening minutes, Too Good To Go left out.
+  - `menu_failed` ignores blocked actions.
+  - A webhook waiting for a person now opens an on-screen incident.
+- **Go-live:**
+  - SESSION_SECRET row: set, 32+ characters, stable. The generation itself stays task 9's.
+  - The Clover row stays to-do while a mapped store cannot reach its register.
+- e2e section 42b covers the relay, shared menus and a late DoorDash order. 28 new unit tests.
+- Task 4: `7e99455` is superseded; branch `claude/brave-sagan-lmgsnp` can be deleted.
+
+**Checks:** typecheck OK, lint 0 errors, 385/385 unit tests, webpack build OK, `verify:foodhub` 492/0.
+- The webpack build needs task 9's `public-url.ts` fix: main's own build fails without it. That fix was applied locally for the run, not committed here.
+
+**Next:** merge task 9, then this PR (rerun the webpack build after task 9). PR #6 can then be closed without merging: its fixes are here, and its inbox swap is not wanted.
 
 ## 2026-10-07 22:45 UTC (main session)
 

@@ -5,6 +5,7 @@ import { reopenExpiredPauses } from '@/lib/foodhub/ops';
 import { runOrderRecovery } from '@/lib/foodhub/recovery';
 import { runWatch } from '@/lib/foodhub/watch/engine';
 import { tickExpansion } from '@/lib/foodhub/expansion/tick';
+import { tickCloverWebsiteOrders } from '@/lib/foodhub/pos/clover-website-orders';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -24,5 +25,7 @@ export const GET = guard(async (req: NextRequest) => {
   const report = await runWatch({ trigger: 'cron' });
   // Expansion features (courier auto-dispatch, Clover delivery orders, stale calls) — only those switched on.
   const expansion = await tickExpansion();
-  return ok({ report, reopened: reopened.length, recovery, expansion });
+  // Website orders taken by Clover Online Ordering → kitchen screen (Clover stays the source of truth).
+  const websiteOrders = await tickCloverWebsiteOrders();
+  return ok({ report, reopened: reopened.length, recovery, expansion, websiteOrders });
 });

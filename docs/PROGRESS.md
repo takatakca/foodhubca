@@ -6,6 +6,8 @@ piece of work. The plan itself is `docs/MASTER_PLAN.md`. Operations (support, em
 
 ## Task board (one task = one branch = one owner; edit only your own row)
 
+> Since 2026-10-08 the **live board is `private/TASKS.md`** (local, git-ignored, main checkout). This copy is a snapshot, updated by pull requests only, never by a commit on `main`.
+
 | # | Task | Branch / place | Owner (session) | Status | Next step |
 |---|---|---|---|---|---|
 | 1 | Production database | Coolify env | owner + main session | FIXED 2026-10-08: NEXT_PUBLIC_SUPABASE_URL pointed to the wrong project (TAKATAK Dashboard V1, eu-west-1); now takatak-foodhub (ca-central-1, Montréal), which already has all fh_* tables. Key pasted by owner | Restart after the running deploy if /api/health database is not ok. |

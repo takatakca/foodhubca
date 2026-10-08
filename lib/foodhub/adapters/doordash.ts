@@ -4,8 +4,11 @@
 // only exists once DoorDash provisions your integration, so it is required before sending.
 import crypto from 'node:crypto';
 import { callApi, checkSharedSecret, fromCents, missingEnv, result, stripSlash, timedFetch } from '../config';
+import { getBrandMenu } from '../menu/shared';
 import { toDoorDashMenu } from '../menu/translate';
-import type { CancelReason, ChannelAdapter, NormalizedOrder, OrderLine, PlatformState } from '../types';
+import { localTimeLabel } from '../time';
+import { CANCEL_REASON_LABELS } from '../types';
+import type { CancelReason, ChannelAdapter, NormalizedOrder, OrderLine, PlatformState, StoredOrder } from '../types';
 import { blockedResult, buildReadiness, chunk } from './common';
 
 const KEY = 'doordash' as const;
@@ -16,6 +19,64 @@ export function doorDashMerchantCancelEnabled() {
 }
 
 const DD_CANCEL: Partial<Record<CancelReason, string>> = { out_of_stock: 'ITEM_OUT_OF_STOCK', store_closed: 'STORE_CLOSED', too_busy: 'KITCHEN_BUSY' };
+
+/** Error codes DoorDash accepts in errors[].code (order integration guide, "Supported error codes"). */
+export const DOORDASH_ERROR_CODES = ['INVALID_ORDER', 'ITEM_OUT_OF_STOCK', 'STORE_HOURS_ISSUE', 'INTERNAL_ERROR', 'OTHER', 'CONNECTIVITY_ISSUE', 'TIME_OUT',
+  'STORE_CLOSED', 'STORE_CLOSED_EARLY', 'POS_OFFLINE', 'CAPACITY_THROTTLING', 'STALE_PICKUP_TIME', 'ORDER_ONLINE_DISABLED', 'INVALID_ADDRESS',
+  'STORE_RENOVATION', 'STORE_TEMP_CLOSED', 'WEATHER_ISSUES'] as const;
+export type DoorDashErrorCode = (typeof DOORDASH_ERROR_CODES)[number];
+export interface DoorDashItemError { code: DoorDashErrorCode; merchant_supplied_id: string; message: string }
+
+/**
+ * The Food Hub reject reason behind a reject text. The reject pop-up sends "<CANCEL_REASON_LABELS[code]> — details";
+ * other callers send free text, read like the Order Relay does.
+ */
+export function rejectReasonOf(text: string): { reason: CancelReason; details: string } {
+  const t = (text || '').trim();
+  for (const [code, label] of Object.entries(CANCEL_REASON_LABELS) as Array<[CancelReason, string]>) {
+    if (t === label || t.startsWith(`${label} — `)) return { reason: code, details: t.slice(label.length).replace(/^ — /, '').trim() };
+  }
+  const reason: CancelReason = /stock|rupture|86|unavailable|indisponible/i.test(t) ? 'out_of_stock'
+    : /busy|occup|volume|rush/i.test(t) ? 'too_busy'
+      : /closed|ferm/i.test(t) ? 'store_closed'
+        : /clover|\bpos\b|offline|hors ligne|connect/i.test(t) ? 'pos_issue' : 'other';
+  return { reason, details: t };
+}
+
+/**
+ * failure_reason + errors[] for a DoorDash reject, using the strings of DoorDash's detailed error spec:
+ * - out of stock: "Item Unavailable - [Item Name] - [Item ID] - Out of stock" + one ITEM_OUT_OF_STOCK error per item.
+ *   The items are the order lines/options named in the details, or 86'd at the location, or the only line;
+ * - store closed, kitchen busy (capacity), POS problem: the documented store-level string (no errors[]: each error
+ *   needs an item or option id);
+ * - anything else: the staff's own words (never an empty or generic reason).
+ */
+export function doorDashFailure(order: Pick<StoredOrder, 'lines' | 'brandName' | 'placedAt'>, reasonText: string, unavailable: Set<string> = new Set()): { failure_reason: string; errors?: DoorDashItemError[] } {
+  const { reason, details } = rejectReasonOf(reasonText);
+  if (reason === 'out_of_stock') {
+    const said = details.toLowerCase();
+    const candidates = order.lines.flatMap((l) => [{ id: l.externalId, name: l.name }, ...l.modifiers.map((m) => ({ id: m.externalId, name: m.name }))])
+      .filter((c): c is { id: string; name: string } => Boolean(c.id));
+    let hit = candidates.filter((c) => (c.name.trim() && said.includes(c.name.trim().toLowerCase())) || unavailable.has(c.id));
+    if (!hit.length && order.lines.length === 1 && order.lines[0].externalId) hit = [{ id: order.lines[0].externalId, name: order.lines[0].name }];
+    const unique = [...new Map(hit.map((c) => [c.id, c])).values()];
+    if (unique.length) {
+      return {
+        failure_reason: unique.map((c) => `Item Unavailable - ${c.name} - ${c.id} - Out of stock`).join('; ').slice(0, 1000),
+        errors: unique.map((c) => ({ code: 'ITEM_OUT_OF_STOCK', merchant_supplied_id: c.id, message: `Item Unavailable - ${c.name} - Out of stock` })),
+      };
+    }
+    return { failure_reason: `Item Unavailable - Out of stock${details ? ` - ${details}` : ''}`.slice(0, 1000) };
+  }
+  if (reason === 'store_closed') return { failure_reason: 'Store is either currently closed or your order cannot be prepared prior to close.' };
+  if (reason === 'too_busy') {
+    return { failure_reason: `${order.brandName || 'The store'} is experiencing high order volume and cannot prepare your order for ${localTimeLabel(order.placedAt)}` };
+  }
+  if (reason === 'pos_issue') return { failure_reason: 'POS Exception - Store is offline' };
+  const words = details && !/^(other|autre|rejected by (the )?restaurant)$/i.test(details) ? details : '';
+  const head = reason === 'customer_request' ? 'Customer asked to cancel' : 'Rejected by the restaurant';
+  return { failure_reason: (words ? `${head}: ${words}` : reason === 'customer_request' ? head : `${head} (reason not given)`).slice(0, 1000) };
+}
 
 function base() { return stripSlash(process.env.DOORDASH_BASE_URL || 'https://openapi.doordash.com/marketplace'); }
 
@@ -80,11 +141,20 @@ export const doorDashAdapter: ChannelAdapter = {
     order_status: 'success',
     ...(order.timeline?.readyTarget ? { prep_time: new Date(order.timeline.readyTarget).toISOString() } : {}),
   }),
-  denyOrder: (order, reason) => send('PATCH', `/api/v1/orders/${encodeURIComponent(order.externalOrderId)}`, {
-    merchant_supplied_id: order.posOrderId || order.id,
-    order_status: 'fail',
-    failure_reason: reason || 'Store unable to fulfill',
-  }),
+  // Reject: DoorDash's documented failure_reason strings + item-level errors[] (codes from the order integration
+  // guide), so fewer than 15% of failures land in DoorDash's "Other / vague" bucket (detailed error spec).
+  async denyOrder(order, reason) {
+    let unavailable = new Set<string>();
+    try {
+      const menu = order.brandName ? await getBrandMenu(order.brandName) : null;
+      unavailable = new Set(order.locationCode ? menu?.unavailableByLocation?.[order.locationCode] ?? [] : []);
+    } catch { /* no menu: items are matched by name only */ }
+    return send('PATCH', `/api/v1/orders/${encodeURIComponent(order.externalOrderId)}`, {
+      merchant_supplied_id: order.posOrderId || order.id,
+      order_status: 'fail',
+      ...doorDashFailure(order, reason, unavailable),
+    });
+  },
   markReady: (order, posRef) => send('PATCH', `/api/v1/orders/${encodeURIComponent(order.externalOrderId)}/events/order_ready_for_pickup`, {
     merchant_supplied_id: posRef || order.posOrderId || order.id,
   }),

@@ -2,10 +2,11 @@
 // e.g. on Coolify, Render or Railway, where there is no `npm run setup`. They are made once, kept in the database
 // (key/value store) so they survive redeploys, and loaded into process.env when the server starts. A value set in the
 // environment always wins. Keys the owner must bring (Supabase, Clover, Uber…) are never generated here.
-// SESSION_SECRET (signs sign-in and kitchen-tablet cookies) is generated the same way, in production only: without it
-// a Coolify/Docker install signed sessions with a key derived from DASHBOARD_PASSWORD, or refused every request (503)
-// when there was no password. Local development keeps its open dev mode. Changing it signs everyone out, so it is
-// made once and kept.
+// SESSION_SECRET (signs sign-in and kitchen-tablet cookies) is NEVER generated here. A key made at boot is not stable:
+// with the database down at boot the process falls back to another key and the next healthy boot signs everyone out;
+// two instances booting together each keep their own random key and refuse each other's cookies; in memory mode every
+// restart signs everyone out. It comes from the host (npm run setup writes one), else lib/foodhub/session.ts derives
+// it from DASHBOARD_PASSWORD, else production refuses to serve the console (503) — see Settings → Go-live.
 import crypto from 'node:crypto';
 import { getRepo } from './repo';
 
@@ -21,15 +22,11 @@ export const GENERATED_SECRET_KEYS = [
   'CRON_SECRET',
 ] as const;
 
-/** Generated only when NODE_ENV=production (development stays open without a secret). */
-export const PRODUCTION_SECRET_KEYS = ['SESSION_SECRET'] as const;
-
 const KV_KEY = 'generated_secrets_v1';
 
 /** Fills the missing generated secrets. Returns the names that came from the store or were created. */
 export async function ensureGeneratedSecrets(): Promise<{ loaded: string[]; created: string[] }> {
-  const keys: string[] = [...GENERATED_SECRET_KEYS, ...(process.env.NODE_ENV === 'production' ? PRODUCTION_SECRET_KEYS : [])];
-  const missing = keys.filter((k) => !process.env[k]);
+  const missing = GENERATED_SECRET_KEYS.filter((k) => !process.env[k]);
   if (!missing.length) return { loaded: [], created: [] };
   const repo = getRepo();
   const stored = (await repo.getKv<Record<string, string>>(KV_KEY)) ?? {};
@@ -40,7 +37,7 @@ export async function ensureGeneratedSecrets(): Promise<{ loaded: string[]; crea
       process.env[k] = stored[k];
       loaded.push(k);
     } else {
-      stored[k] = crypto.randomBytes(k === 'SESSION_SECRET' ? 32 : 24).toString('hex');
+      stored[k] = crypto.randomBytes(24).toString('hex');
       process.env[k] = stored[k];
       created.push(k);
     }

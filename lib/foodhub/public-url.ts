@@ -1,9 +1,11 @@
 // Is FOODHUB_PUBLIC_URL fit for the Clover App Market (and the delivery platforms)?
 // Clover needs an HTTPS Site URL; its redirect and webhook URLs live under it, and a change of Site URL after
 // approval goes back to Clover's review. A free "<ip>.sslip.io" address works for a first install, but the listing
-// should go out on the company's own domain (e.g. https://foodhub.takatak.ca). Nothing here is hard-coded: every
+// should go out on the company's own domain (e.g. https://foodhub.on2go.ca). Nothing here is hard-coded: every
 // URL Food Hub shows is built from FOODHUB_PUBLIC_URL.
-import { stripSlash } from './config';
+// No server import here: client pages (Settings → Clover app, Go-live) import this file, and config.ts pulls in
+// node:crypto, which the webpack client build cannot bundle.
+const stripSlash = (u: string) => u.replace(/\/+$/, '');
 
 export type PublicUrlProblem = 'unset' | 'not_https' | 'ip_address' | 'wildcard_dns' | 'local' | 'example' | 'clover_in_name' | 'path';
 
@@ -46,7 +48,7 @@ export const PUBLIC_URL_PROBLEM_TEXT: Record<PublicUrlProblem, { fr: string; en:
   unset: { fr: 'FOODHUB_PUBLIC_URL n’est pas défini (npm run setup).', en: 'FOODHUB_PUBLIC_URL is not set (npm run setup).' },
   not_https: { fr: 'L’adresse doit commencer par https://.', en: 'The address must start with https://.' },
   ip_address: { fr: 'Une adresse IP ne convient pas : utilisez un nom de domaine.', en: 'An IP address will not do: use a domain name.' },
-  wildcard_dns: { fr: 'Adresse temporaire (sslip.io / nip.io) : pointez votre propre domaine, p. ex. foodhub.takatak.ca, vers le serveur.', en: 'Temporary address (sslip.io / nip.io): point your own domain, e.g. foodhub.takatak.ca, at the server.' },
+  wildcard_dns: { fr: 'Adresse temporaire (sslip.io / nip.io) : pointez votre propre domaine, p. ex. foodhub.on2go.ca, vers le serveur.', en: 'Temporary address (sslip.io / nip.io): point your own domain, e.g. foodhub.on2go.ca, at the server.' },
   local: { fr: 'Adresse locale : Clover ne peut pas la joindre.', en: 'Local address: Clover cannot reach it.' },
   example: { fr: 'Adresse d’exemple : remplacez-la par votre domaine.', en: 'Example address: replace it with your domain.' },
   clover_in_name: { fr: 'Clover interdit le mot « Clover » dans le nom du site.', en: 'Clover does not allow the word “Clover” in the website name.' },

@@ -391,6 +391,19 @@ describe('Watchtower', () => {
     expect(open.some((i) => i.kind === 'order_unaccepted' && i.orderId === order.id)).toBe(false);
   });
 
+  it('a webhook waiting for a person (here a late order) shows as an incident, not only in the log', async () => {
+    const n = await uberOrder('uber-late-watch', 20);
+    const e = await receiveWebhook({ channel: 'uber_eats', kind: 'order', body: n, reference: n.externalOrderId });
+    await runInboxEntry(e.id);
+    await runWatch({ force: true });
+    const inc = (await listIncidents({ status: ['open'] })).find((i) => i.key === 'inbox_failed');
+    expect(inc).toMatchObject({ kind: 'webhook_unreadable', severity: 'warning' });
+    expect(inc?.titleEn).toMatch(/1 platform message\(s\) waiting for a person/);
+    await replayInboxEntry(e.id, OWNER);
+    await runWatch({ force: true });
+    expect((await listIncidents({ status: ['open'] })).some((i) => i.key === 'inbox_failed')).toBe(false);
+  });
+
   it('"action refused by a platform" never counts actions Food Hub did not send (blocked)', async () => {
     await getRepo().addJob({ kind: 'menu_publish', channel: 'doordash', reference: null, status: 'error', request: {}, result: { status: 'blocked' } });
     await runWatch({ force: true });

@@ -9,6 +9,7 @@ import { CHANNEL_LABELS, publicBaseUrl } from '../config';
 import { lastOrderTimes } from '../order-retry';
 import { getCatalog } from '../catalog';
 import { deadlineFor } from '../deadline';
+import { inboxSummary } from '../inbox';
 import { effectiveHours, getHours, holidaysFor, isOpenAt, localDate, openIntervals } from '../hours';
 import { DEVICE_OFFLINE_AFTER_MS, listDevices } from '../identity/devices';
 import { aiConfigured, maskContact, normalizePhone, placeCall, postToChat, sendSms } from '../notify';
@@ -314,6 +315,15 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
   const hourAgo = new Date(now - 3600_000).toISOString();
   const unparsed = jobs.filter((j) => j.kind === 'webhook_unparsed' && j.createdAt >= hourAgo).length;
   if (on('webhook_unreadable') && unparsed) out.push({ key: 'webhook_unreadable', kind: 'webhook_unreadable', severity: 'warning', title: `${unparsed} message(s) de plateforme illisible(s)`, titleEn: `${unparsed} unreadable platform message(s)` });
+  // Webhooks that stopped retrying by themselves (a late order kept from the kitchen, a payload that keeps failing, an
+  // entry interrupted again and again) wait for a person in the webhook inbox: say so on screen, not only in the log.
+  const inbox = on('webhook_unreadable') ? await inboxSummary({ now }).catch(() => null) : null;
+  const waitingInbox = inbox ? inbox.failed + inbox.stuck : 0;
+  if (waitingInbox) {
+    out.push({ key: 'inbox_failed', kind: 'webhook_unreadable', severity: 'warning',
+      title: `${waitingInbox} message(s) de plateforme en attente d’une personne`, titleEn: `${waitingInbox} platform message(s) waiting for a person`,
+      detail: 'Réglages → Plateformes → Boîte de réception : vérifiez sur la plateforme, puis Rejouer.', detailEn: 'Settings → Platforms → Webhook inbox: check on the platform, then Replay.' });
+  }
   // 'blocked' = never sent (no API for that platform, live switch off, a locked store…): honest, but nothing was refused.
   const failed = jobs.filter((j) => j.status === 'error' && j.kind !== 'webhook_unparsed' && (j.result as { status?: string } | null)?.status !== 'blocked' && j.createdAt >= new Date(now - 2 * 3600_000).toISOString());
   if (on('menu_failed') && failed.length) {

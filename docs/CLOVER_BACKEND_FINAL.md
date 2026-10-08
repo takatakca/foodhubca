@@ -136,7 +136,7 @@ private notes)._
 | Overview → Connections & sync | Everyone with the console: each platform (live / via Clover / to connect, last order) and each check. |
 | "Platform gone quiet" | Watchtower: screen + chat, then SMS to the manager on duty. Threshold in Settings → Alerts (default 3 h). |
 | Clover did not get an order | On screen while Food Hub retries; critical (SMS → call → owner) once the retries are used up. |
-| Webhook inbox | Settings → Platforms & Clover: entries waiting, failing or needing Replay; kept unreadable payloads with Replay. |
+| Webhook inbox | Settings → Platforms & Clover: entries waiting, failing or needing Replay; kept unreadable payloads with Replay. An entry waiting for a person (a late order, a payload that keeps failing) also opens an on-screen Watchtower incident. |
 
 ## 6. Settings added by this work
 

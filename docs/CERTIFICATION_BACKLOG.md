@@ -4,8 +4,8 @@ Source: `docs/PLATFORM_API_RESEARCH.md` §6 (branch `api-research`). One commit 
 Every field below was re-checked on developer.doordash.com / developer.uber.com before it was coded.
 
 ## Status / next step (handoff note)
-- **Status (2026-10-08 ~00:40 UTC):** all 13 items handled: 11 coded (+ DoorDash fulfillment_type), SOW skipped, Uber prep time = TODO + question. typecheck OK, lint 0 errors, 383/383 tests; webpack build + verify:foodhub running.
-- **Next step:** owner opens the PR from https://github.com/takatakca/foodhubca/compare/main...certification-backlog?expand=1 (after tasks 9 and 2 merge: rebase, rerun the checks), then does the owner actions below and asks the questions below in each portal.
+- **Status (2026-10-08 ~00:50 UTC): DONE, pushed.** 11 items coded (+ DoorDash fulfillment_type), SOW skipped (EPM), Uber prep time = TODO + question. Branch merged with main after PRs #8/#9/#10 (no conflicts). Checks: typecheck OK, lint 0 errors (1 old warning), 426/426 tests, clean webpack build OK, verify:foodhub 506 passed / 0 failed (ports 4999/5000).
+- **Next step:** owner opens the PR https://github.com/takatakca/foodhubca/compare/main...certification-backlog?expand=1, merges, deploys; then the owner actions and the platform questions below.
 - **Read first:** this file, then tests/certification-backlog.test.ts (one describe per item).
 
 ## Items

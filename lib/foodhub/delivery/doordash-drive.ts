@@ -16,7 +16,7 @@
 import { doorDashJwt } from '../adapters/doordash';
 import { checkSharedSecret, fromCents, liveConnectorsGloballyEnabled, missingEnv, nowIso, stripSlash, timedFetch, toCents } from '../config';
 import { normalizePhone } from '../notify';
-import { blocked, type CourierFleet, type DeliveryRequest, type FleetEvent, type FleetResult } from './fleet';
+import { blocked, type AddressParts, type CourierFleet, type DeliveryRequest, type FleetEvent, type FleetResult } from './fleet';
 import type { CourierPosition, DeliveryQuote, DeliveryStatus } from './types';
 
 const REQUIRED = ['DOORDASH_DRIVE_DEVELOPER_ID', 'DOORDASH_DRIVE_KEY_ID', 'DOORDASH_DRIVE_SIGNING_SECRET'];
@@ -82,9 +82,28 @@ function courierOf(b: any): CourierPosition | undefined {
   };
 }
 
+/**
+ * dropoff_address_components: required by Drive's integration requirements, sent WITH the one-line address "for better
+ * address resolution". Keys as in the Drive API reference request sample (street_address, sub_premise, city, state,
+ * zip_code, country). The reference does not show the Canada object's own keys: if the sandbox refuses these,
+ * DOORDASH_DRIVE_ADDRESS_COMPONENTS=off leaves them out until DoorDash confirms (docs/CERTIFICATION_BACKLOG.md).
+ */
+export function driveAddressComponents(p: AddressParts | undefined): { street_address: string; sub_premise?: string; city: string; state: string; zip_code: string; country: string } | null {
+  if (!p?.street?.trim() || !p.city?.trim() || /^(off|false|0)$/i.test(process.env.DOORDASH_DRIVE_ADDRESS_COMPONENTS ?? '')) return null;
+  return {
+    street_address: p.street.trim(),
+    ...(p.unit?.trim() ? { sub_premise: p.unit.trim() } : {}),
+    city: p.city.trim(),
+    state: (p.province || 'QC').trim(),
+    zip_code: (p.postalCode ?? '').trim(),
+    country: (p.country || 'CA').trim(),
+  };
+}
+
 /** The Drive request body (quote and delivery share it). */
 export function driveBody(req: DeliveryRequest) {
   const alcohol = req.containsAlcohol;
+  const components = driveAddressComponents(req.dropoff.parts);
   return {
     external_delivery_id: req.id,
     locale: 'fr-CA',
@@ -94,6 +113,7 @@ export function driveBody(req: DeliveryRequest) {
     ...(req.pickup.instructions ? { pickup_instructions: req.pickup.instructions.slice(0, 280) } : {}),
     pickup_reference_tag: req.reference,
     dropoff_address: req.dropoff.address,
+    ...(components ? { dropoff_address_components: components } : {}),
     ...(req.dropoff.businessName ? { dropoff_business_name: req.dropoff.businessName } : {}),
     dropoff_phone_number: normalizePhone(req.dropoff.phone) ?? req.dropoff.phone,
     ...(req.dropoff.instructions ? { dropoff_instructions: req.dropoff.instructions.slice(0, 280) } : {}),

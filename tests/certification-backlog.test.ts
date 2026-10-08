@@ -333,3 +333,23 @@ describe('Uber Eats item tax categories (Item.tax_label_info)', () => {
     expect('tax_label_info' in byId(bogus, 'i1')).toBe(false);
   });
 });
+
+describe('DoorDash Drive dropoff_address_components', () => {
+  const req = (parts?: Record<string, string>) => ({ id: 'x', reference: 'M-1', pickup: { businessName: 'B', address: 'a', phone: '+15145550100', locationCode: 'NDG' }, dropoff: { name: 'Zoé T', address: '1234 Rue Sherbrooke O, #5, Montréal, QC H4A 1B2, Canada', phone: '+15145551234', ...(parts ? { parts } : {}) }, orderValue: 10, tip: 1, currency: 'CAD', items: [], containsAlcohol: false, undeliverable: 'dispose' as const, fleetSms: true });
+  const prev = process.env.DOORDASH_DRIVE_ADDRESS_COMPONENTS;
+  afterEach(() => { if (prev === undefined) delete process.env.DOORDASH_DRIVE_ADDRESS_COMPONENTS; else process.env.DOORDASH_DRIVE_ADDRESS_COMPONENTS = prev; });
+
+  it('sends the parsed address as components next to the one-line address', async () => {
+    const { driveBody } = await import('../lib/foodhub/delivery/doordash-drive');
+    const body = driveBody(req({ street: '1234 Rue Sherbrooke O', unit: '5', city: 'Montréal', province: 'QC', postalCode: 'H4A 1B2', country: 'CA' }) as any);
+    expect(body.dropoff_address).toBe('1234 Rue Sherbrooke O, #5, Montréal, QC H4A 1B2, Canada');
+    expect(body.dropoff_address_components).toEqual({ street_address: '1234 Rue Sherbrooke O', sub_premise: '5', city: 'Montréal', state: 'QC', zip_code: 'H4A 1B2', country: 'CA' });
+  });
+
+  it('left out when there are no parts or the owner switched it off', async () => {
+    const { driveBody } = await import('../lib/foodhub/delivery/doordash-drive');
+    expect('dropoff_address_components' in driveBody(req() as any)).toBe(false);
+    process.env.DOORDASH_DRIVE_ADDRESS_COMPONENTS = 'off';
+    expect('dropoff_address_components' in driveBody(req({ street: '1 Rue X', city: 'Laval', province: 'QC', postalCode: 'H7A 1A1', country: 'CA' }) as any)).toBe(false);
+  });
+});

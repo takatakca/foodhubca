@@ -1,6 +1,7 @@
 // The order pipeline: every channel's webhook ends here.
 //   receive → dedupe → map to store/brand → inject into Clover → print in kitchen → auto-accept → log
 // Every step is timestamped on the order (timeline) for the status-transitions report and analytics.
+import crypto from 'node:crypto';
 import { logActivity, type Actor } from './activity';
 import { getAdapter } from './adapters';
 import { CHANNEL_LABELS, nowIso } from './config';
@@ -8,6 +9,7 @@ import { allCloverMerchants, cloverAutoPrintEnabled, cloverBaseUrl, cloverExpect
 import { cloverOrderTypeForOrder, cloverTotalGap, describeMappingWarnings, findCloverOrderByTitle, mapOrderLines, platformFoodCents, printKitchenTicket } from './pos/clover-order';
 import { cloverRetryDelaysS, noteLastOrder, scheduleCloverRetry } from './order-retry';
 import { settleInClover } from './clover-settle';
+import { closeCancelledCloverOrder } from './pos/clover-books';
 import { doorDashMerchantCancelEnabled } from './adapters/doordash';
 import { relayActions } from './adapters/relay';
 import { reportSkipMissingItems } from './adapters/skip';
@@ -22,8 +24,17 @@ import { CANCEL_REASON_LABELS, type CancelReason, type ChannelAdapter, type Chan
 export interface PipelineOutcome {
   order: StoredOrder;
   duplicate: boolean;
+  /** Already stored, but its processing had stopped before Clover got it: finished by this delivery. */
+  resumed?: boolean;
   pos?: { ok: boolean; posOrderId?: string; error?: string; skipped?: boolean };
   accept?: ChannelResult;
+}
+
+/** One line for the webhook inbox: what became of an incoming order. */
+export function pipelineOutcomeText(out: PipelineOutcome): string {
+  if (out.duplicate) return 'duplicate (already received)';
+  const clover = out.pos?.ok ? ', in Clover' : out.pos?.error ? `, Clover: ${out.pos.error}` : '';
+  return `${out.resumed ? 'order resumed (its processing had stopped before Clover)' : 'order received'}${clover}`;
 }
 
 async function patchTimeline(order: StoredOrder, patch: OrderTimeline, extra: Partial<StoredOrder> = {}): Promise<StoredOrder> {
@@ -66,6 +77,9 @@ export async function processIncomingOrder(n: NormalizedOrder): Promise<Pipeline
 
   const { order, isNew } = await repo.insertOrderIfNew({ ...n, brandName, locationCode: store?.locationCode });
   if (!isNew) {
+    // Stored, but the server stopped before Clover was even tried: this later delivery (inbox recovery, a platform
+    // re-delivery, a Replay) finishes the job instead of answering "duplicate" and leaving the kitchen without it.
+    if (neverSentToClover(order)) return resumeUnsentOrder(order);
     await repo.addEvent(order.id, 'duplicate_delivery', { note: 'Webhook delivered again; ignored.' });
     return { order, duplicate: true };
   }
@@ -164,6 +178,55 @@ export async function processIncomingOrder(n: NormalizedOrder): Promise<Pipeline
   return { order: current, duplicate: false, pos: pos.ok ? { ok: true, posOrderId: pos.posOrderId } : { ok: false, error: pos.error, skipped: pos.skipped }, accept };
 }
 
+/** A first processing still under way is given this long before a later delivery takes the order over. */
+export const RESUME_AFTER_MS = 90_000;
+
+/**
+ * Stored but never sent to Clover, and not being sent: still new, no Clover id, no Clover error, no retry planned or
+ * claimed, Clover expected, and old enough that its first processing has stopped (RESUME_AFTER_MS).
+ */
+export function neverSentToClover(o: StoredOrder, now = Date.now()): boolean {
+  return o.status === 'new' && !o.posOrderId && !o.posError && !o.timeline?.posRetry && !o.viaPos && cloverExpected()
+    && now - Date.parse(o.createdAt) >= RESUME_AFTER_MS;
+}
+
+/**
+ * Finishes an order whose processing stopped after it was stored: Clover is checked first (the stop may have come
+ * after Clover created it — never two tickets), then sent, printed and auto-accepted as on arrival. Claimed on the
+ * order first, so two deliveries arriving together resume it once.
+ */
+async function resumeUnsentOrder(order: StoredOrder): Promise<PipelineOutcome> {
+  const repo = getRepo();
+  const claim = crypto.randomUUID();
+  await repo.patchOrder(order.id, { posRetry: { attempts: 0, nextAt: null, uncertain: true, claim, claimedAt: nowIso() } });
+  let current = await repo.getOrder(order.id);
+  if (!current || current.timeline?.posRetry?.claim !== claim || current.status !== 'new' || current.posOrderId) {
+    await repo.addEvent(order.id, 'duplicate_delivery', { note: 'Webhook delivered again while the order was being finished; ignored.' });
+    return { order: current ?? order, duplicate: true };
+  }
+  await repo.addEvent(order.id, 'resumed', { message: 'Stored earlier, but processing stopped before Clover got it (server restart) — finished now; Clover is checked first so it is never sent twice.' });
+  if (!current.timeline?.readyTarget) {
+    const prep = await prepFor(current.locationCode);
+    const scheduled = scheduledInfo(current, prep.minutes);
+    current = await patchTimeline(current, { readyTarget: scheduled?.scheduledFor ?? new Date(Date.now() + prep.minutes * 60_000).toISOString(), ...(scheduled ?? {}) });
+  }
+  const sent = await resendToClover(current, { by: 'Food Hub (resumed)' });
+  current = sent.order;
+  let accept: ChannelResult | undefined;
+  if (sent.pos.ok) {
+    // As on arrival; an order that arrived from a store nobody had mapped keeps waiting for a person.
+    if (sent.store?.autoAccept && order.locationCode && current.status === 'new') ({ order: current, accept } = await autoAcceptAfterClover(current, sent.pos.posOrderId));
+  } else if (!sent.pos.skipped && (await scheduleCloverRetry(current, sent.pos))) {
+    await repo.addEvent(order.id, 'needs_attention', { reason: `Clover injection failed — Food Hub tries again by itself (${cloverRetryDelaysS().map((s) => `${s} s`).join(', then ')}) before waking a manager. Nothing is accepted on the platform until Clover has the order.` });
+  } else if (!sent.pos.skipped) {
+    await repo.addEvent(order.id, 'needs_attention', { reason: 'Clover injection failed — use "Send to Clover" (or "Accept without Clover" after entering it by hand).' });
+  }
+  const tag = `${CHANNEL_LABELS[order.channel]} #${order.displayId || order.externalOrderId.slice(0, 8)}`;
+  await logActivity({ actor: 'Food Hub', source: 'automation', kind: 'order', action: 'order_resumed', status: sent.pos.ok ? 'success' : 'failed', channel: order.channel, brandName: order.brandName, locationCode: order.locationCode, orderId: order.id,
+    summary: `${tag}: processing had stopped before Clover got it — ${sent.pos.ok ? `now in Clover (${sent.pos.posOrderId})${sent.pos.adopted ? ', Clover already had it' : ''}` : `Clover: ${sent.pos.error}`}` });
+  return { order: (await repo.getOrder(order.id)) ?? current, duplicate: false, resumed: true, pos: sent.pos.ok ? { ok: true, posOrderId: sent.pos.posOrderId } : { ok: false, error: sent.pos.error, skipped: sent.pos.skipped }, accept };
+}
+
 /** Puts an order into Clover (the store's merchant, the right order type); its lines are already linked to the inventory. */
 export async function sendToClover(order: StoredOrder, store: ChannelStore | null): Promise<InjectResult> {
   const mid = store?.cloverMerchantId || (await defaultCloverMerchant());
@@ -234,9 +297,33 @@ function maybeInClover(order: StoredOrder): boolean {
  * Sends an order Clover does not have yet — "Send to Clover" and the automatic retries:
  *  1. re-links its lines and brand (the store may have been mapped since it arrived);
  *  2. when the last answer was lost, looks in Clover first and links the order Clover already has (no second ticket);
- *  3. injects, records and prints. Accepting on the platform is the caller's decision.
+ *  3. injects, then reads the order again: a copy someone else put in Clover meanwhile wins (ours is removed), and an
+ *     order the platform cancelled meanwhile gets no kitchen ticket (removed from Clover); otherwise records and prints.
+ * Never into a guessed register: a store nobody mapped waits when there are several Clover merchants. One send per
+ * order at a time on this server (the button, the timer and the cron can meet). Accepting is the caller's decision.
  */
 export async function resendToClover(order: StoredOrder, opts: { manual?: boolean; by?: string; attempt?: number } = {}): Promise<{ order: StoredOrder; pos: InjectResult; store: ChannelStore | null }> {
+  const busy = cloverSending();
+  if (busy.has(order.id)) return { order, pos: { ok: false, skipped: true, error: 'Food Hub is already sending this order to Clover — check again in a few seconds.' }, store: null };
+  busy.add(order.id);
+  try {
+    return await resendNow(order, opts);
+  } finally {
+    busy.delete(order.id);
+  }
+}
+
+function cloverSending(): Set<string> {
+  const g = globalThis as unknown as { __foodhubCloverSending?: Set<string> };
+  return (g.__foodhubCloverSending ??= new Set<string>());
+}
+
+/** True while this server is sending that order to Clover (the retry runner leaves it alone). */
+export function isSendingToClover(orderId: string): boolean {
+  return cloverSending().has(orderId);
+}
+
+async function resendNow(order: StoredOrder, opts: { manual?: boolean; by?: string; attempt?: number }): Promise<{ order: StoredOrder; pos: InjectResult; store: ChannelStore | null }> {
   const repo = getRepo();
   const store = await repo.findStore(order.channel, order.channelStoreId);
   let current = order;
@@ -253,14 +340,39 @@ export async function resendToClover(order: StoredOrder, opts: { manual?: boolea
   const tag = { ...(opts.manual ? { manual: true } : {}), ...(opts.by ? { by: opts.by } : {}), ...(opts.attempt ? { attempt: opts.attempt } : {}) };
 
   let pos: InjectResult | null = null;
-  if (maybeInClover(current)) {
+  if (!store && (await allCloverMerchants()).length > 1) {
+    pos = { ok: false, skipped: false, error: `Store ${order.channelStoreId || '(no id)'} is not mapped in Food Hub and there are several Clover registers — map it under Stores → Mapping, then use "Send to Clover".` };
+  } else if (maybeInClover(current)) {
     const mid = store?.cloverMerchantId || (await defaultCloverMerchant());
     const token = mid ? await cloverToken(mid).catch(() => null) : null;
     const hit = mid && token ? await findCloverOrderByTitle(mid, token, cloverBaseUrl(), current, Date.parse(current.createdAt) - 5 * 60_000).catch(() => null) : null;
     if (hit) pos = { ok: true, posOrderId: hit.id, adopted: true, ...(hit.totalCents !== undefined ? { totalCents: hit.totalCents } : {}) };
   }
   pos ??= await sendToClover(current, store);
-  if (pos.ok) return { order: await recordCloverSuccess(current, store, pos, tag), pos, store };
+  if (pos.ok) {
+    // Read again: another server or a person may have put it in Clover meanwhile, or the platform cancelled it.
+    const latest = (await repo.getOrder(order.id)) ?? current;
+    if (latest.posOrderId) {
+      if (latest.posOrderId !== pos.posOrderId && !pos.adopted) {
+        // Theirs is kept; this second copy is removed so Clover never has the order twice.
+        const r = await closeCancelledCloverOrder({ ...latest, posOrderId: pos.posOrderId }, store?.cloverMerchantId);
+        await repo.addEvent(order.id, 'pos_duplicate', { posOrderId: pos.posOrderId, kept: latest.posOrderId, ...tag,
+          message: r.ok ? `Reached Clover just after another send (${latest.posOrderId}) — this extra copy was removed.` : `Reached Clover just after another send (${latest.posOrderId}) — remove the extra copy ${pos.posOrderId} in Clover: ${r.message}` });
+        if (!r.ok) {
+          await logActivity({ actor: 'Food Hub', source: 'automation', kind: 'order', action: 'clover_duplicate', status: 'failed', channel: latest.channel, brandName: latest.brandName, locationCode: latest.locationCode, orderId: latest.id,
+            summary: `${CHANNEL_LABELS[latest.channel]} #${latest.displayId || latest.externalOrderId.slice(0, 8)} is in Clover twice (${latest.posOrderId}, ${pos.posOrderId}) — delete ${pos.posOrderId} in the Clover Orders app: ${r.message}` });
+        }
+      }
+      return { order: latest, pos: { ok: true, posOrderId: latest.posOrderId, adopted: true }, store };
+    }
+    if (latest.status === 'cancelled') {
+      // No kitchen ticket for a cancelled order: keep the Clover id for the record, then remove it from Clover.
+      const kept = (await repo.updateOrder(order.id, { posOrderId: pos.posOrderId, posError: undefined })) ?? { ...latest, posOrderId: pos.posOrderId };
+      await repo.addEvent(order.id, pos.adopted ? 'pos_adopted' : 'pos_injected', { posOrderId: pos.posOrderId, ...tag, note: 'The platform cancelled the order meanwhile — no kitchen ticket; removed from Clover.' });
+      return { order: (await settleInClover(kept)) ?? kept, pos, store };
+    }
+    return { order: await recordCloverSuccess(latest, store, pos, tag), pos, store };
+  }
   current = (await repo.updateOrder(order.id, { posError: pos.error })) ?? current;
   await repo.addEvent(order.id, 'pos_failed', { error: pos.error, ...tag, ...(pos.uncertain ? { uncertain: true } : {}) });
   return { order: current, pos, store };

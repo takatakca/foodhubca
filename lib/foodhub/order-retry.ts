@@ -30,14 +30,26 @@ export interface PosRetryState {
   claimedAt?: string;
 }
 
+/** Automatic Clover tries stop this long after the order arrived (a manager is alerted; "Send to Clover" still works). */
+export const CLOVER_RETRY_WINDOW_MS = 30 * 60_000;
+
 /**
- * Arms the automatic Clover retry for an order Clover did not take. Only while the order is still waiting ("new"):
- * an order someone already accepted (e.g. "Accept without Clover — entered by hand") is never sent again by itself.
- * Returns false when automatic retries are off.
+ * Is this order still one Food Hub may send to Clover by itself? Waiting ("new"), or accepted on the platform's side
+ * (the kitchen still needs it) — never one a person accepted here ("Accept without Clover" = entered in Clover by hand:
+ * a retry would ring it up twice), nor one followed through Clover's own integration, cancelled or closed.
+ */
+export function cloverRetryOpen(o: Pick<StoredOrder, 'status' | 'posOrderId' | 'viaPos' | 'timeline'>): boolean {
+  if (o.posOrderId || o.viaPos) return false;
+  return o.status === 'new' || (o.status === 'accepted' && !o.timeline?.acceptedBy);
+}
+
+/**
+ * Arms the automatic Clover retry for an order Clover did not take (cloverRetryOpen). Returns false when automatic
+ * retries are off or the order is no longer one to send by itself.
  */
 export async function scheduleCloverRetry(order: StoredOrder, pos: { error: string; uncertain?: boolean }): Promise<boolean> {
   const delays = cloverRetryDelaysS();
-  if (!delays.length || order.status !== 'new') return false;
+  if (!delays.length || !cloverRetryOpen(order)) return false;
   const nextAt = new Date(Date.now() + delays[0] * 1000).toISOString();
   const posRetry: PosRetryState = { attempts: 0, nextAt, lastError: pos.error, ...(pos.uncertain ? { uncertain: true } : {}) };
   await getRepo().patchOrder(order.id, { posRetry });

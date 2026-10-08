@@ -10,7 +10,7 @@
 // What is Uber-specific lives here: the entry id is Uber's event_id (the same on a re-delivery), so an event Uber
 // delivers again is recognised and not processed a second time.
 import crypto from 'node:crypto';
-import { getInboxEntry, INBOX, receiveWebhook, type InboxEntry } from '../inbox';
+import { getInboxEntry, INBOX, receiveWebhook, refuseInboxEntry, type InboxEntry } from '../inbox';
 
 export const UBER_INBOX = INBOX;
 export type UberInboxEntry = InboxEntry;
@@ -33,12 +33,21 @@ function uberReference(body: any): string | null {
  * Saves the webhook. `duplicate` = Uber delivered the same event again while the first copy is done or still being
  * processed (under REPLAY_AFTER_MS): nothing more to do. An older unfinished copy is processed again (not duplicate).
  * A save error is thrown — the route then answers 503 so Uber retries, instead of a 200 for a webhook Food Hub could
- * not keep.
+ * not keep. A copy that landed anyway is marked refused, and Uber's re-delivery (same event_id) saves it again as new.
  */
 export async function saveUberWebhook(body: any, raw: string, now = Date.now()): Promise<{ id: string; duplicate: boolean }> {
   const id = uberInboxId(body, raw);
   const prev = await getInboxEntry(id);
-  if (prev && (prev.status === 'done' || now - Date.parse(prev.updatedAt) < REPLAY_AFTER_MS)) return { id, duplicate: true };
-  if (!prev) await receiveWebhook({ id, channel: 'uber_eats', kind: 'uber', body, reference: uberReference(body) });
+  const refused = prev?.status === 'refused';
+  if (prev && !refused && (prev.status === 'done' || now - Date.parse(prev.updatedAt) < REPLAY_AFTER_MS)) return { id, duplicate: true };
+  if (!prev || refused) {
+    const receivedAt = new Date(now).toISOString();
+    try {
+      await receiveWebhook({ id, receivedAt, channel: 'uber_eats', kind: 'uber', body, reference: uberReference(body) });
+    } catch (error) {
+      await refuseInboxEntry(id, receivedAt, error instanceof Error ? error.message : String(error));
+      throw error;
+    }
+  }
   return { id, duplicate: false };
 }

@@ -5,7 +5,7 @@ import { logActivity } from '../activity';
 import { nowIso } from '../config';
 import { applyCourierUpdate, readPending } from '../courier';
 import { publishMenu } from '../ops';
-import { applyExternalStatus, processIncomingOrder } from '../pipeline';
+import { applyExternalStatus, pipelineOutcomeText, processIncomingOrder } from '../pipeline';
 import { handleUberReportWebhook } from '../recon/automation';
 import { getRepo } from '../repo';
 import type { PlatformStatus } from '../types';
@@ -50,7 +50,7 @@ export async function handleUberEvent(body: any): Promise<HandlerOutcome> {
     // to Clover, never accepted (the pipeline applies a cancel that arrived first).
     if (ENDED.test(String(details?.current_state ?? ''))) await applyExternalStatus('uber_eats', order.externalOrderId, 'cancelled', { event: `current_state ${details.current_state}`, reason: `Already ${String(details.current_state).toLowerCase()} on Uber when Food Hub read it` });
     const out = await processIncomingOrder(order);
-    return { result: out.duplicate ? 'duplicate (already received)' : `order received${out.pos?.ok ? ', in Clover' : out.pos?.error ? `, Clover: ${out.pos.error}` : ''}`, orderId: out.order.id };
+    return { result: pipelineOutcomeText(out), orderId: out.order.id };
   }
   if (event === 'orders.cancel' || event === 'orders.failure') {
     if (!orderId) return kept(body, `Uber ${event} without an order id`);

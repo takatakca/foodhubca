@@ -8,7 +8,7 @@
 import { parseDoorDashOrder } from '../adapters/doordash';
 import { applyCourierUpdate, doorDashCourierDetails, doorDashCourierStatus } from '../courier';
 import { menuCallbackOutcome } from '../ops';
-import { applyExternalStatus, processIncomingOrder } from '../pipeline';
+import { applyExternalStatus, pipelineOutcomeText, processIncomingOrder } from '../pipeline';
 import { getRepo } from '../repo';
 import type { CourierStatus, NormalizedOrder } from '../types';
 import { keepUnparsed } from '../webhook-utils';
@@ -104,7 +104,7 @@ export async function handleDoorDashWebhook(body: any): Promise<HandlerOutcome> 
   }
   if (c.kind === 'order') {
     const out = await processIncomingOrder(c.order!);
-    return { result: out.duplicate ? 'duplicate (already received)' : `order received${out.pos?.ok ? ', in Clover' : out.pos?.error ? `, Clover: ${out.pos.error}` : ''}`, orderId: out.order.id };
+    return { result: pipelineOutcomeText(out), orderId: out.order.id };
   }
   const looksLikeOrder = c.httpStatus === 202;
   await keepUnparsed('doordash', body, looksLikeOrder ? 'DoorDash order Food Hub could not read — not confirmed; DoorDash will fail it unless it is confirmed on the tablet' : 'Unrecognized DoorDash payload', c.reference);

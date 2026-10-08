@@ -14,6 +14,7 @@
 // "Basic", header "Authorization", token = DOORDASH_DRIVE_WEBHOOK_SECRET (or paste the token DoorDash generates there).
 // Alcohol: order_contains.alcohol=true, return_to_pickup, no contactless drop-off — the Dasher scans the customer's ID.
 import { doorDashJwt } from '../adapters/doordash';
+import { courierRestriction, decideAlcohol } from '../alcohol/rules';
 import { checkSharedSecret, fromCents, liveConnectorsGloballyEnabled, missingEnv, nowIso, stripSlash, timedFetch, toCents } from '../config';
 import { normalizePhone } from '../notify';
 import { getRepo } from '../repo';
@@ -172,6 +173,24 @@ export async function registerDriveStores(kitchens: DriveKitchen[], businessName
   return { ok: rows.length > 0 && okN === rows.length, message: `${okN}/${rows.length} kitchen(s) registered with DoorDash Drive (business ${businessId}).`, rows };
 }
 
+/**
+ * Guardrails before anything reaches Drive (integration requirements: the integrator must prevent pickup or delivery
+ * of restricted items): tobacco, cannabis / drugs, weapons, explosives never (lib/foodhub/alcohol/rules.ts); alcohol
+ * only where the alcohol rules allow third-party delivery right now. Null = OK to send.
+ */
+export async function driveGuard(req: DeliveryRequest): Promise<string | null> {
+  const bad = req.items.map((i) => ({ name: i.name, why: courierRestriction(i) })).filter((x) => x.why);
+  if (bad.length) {
+    const kinds = [...new Set(bad.map((x) => x.why!.en))].join(', ');
+    return `DoorDash Drive does not carry restricted items (${kinds}): ${bad.map((x) => x.name).join(', ')}. Remove them or deliver another way.`;
+  }
+  if (req.containsAlcohol) {
+    const d = await decideAlcohol(req.pickup.locationCode, 'own_delivery');
+    if (!d.allowed) return `Alcohol cannot go by DoorDash Drive right now: ${d.reason}`;
+  }
+  return null;
+}
+
 /** The Drive request body (quote and delivery share it). */
 export function driveBody(req: DeliveryRequest, ids?: { businessId: string; storeId: string } | null) {
   const alcohol = req.containsAlcohol;
@@ -252,6 +271,8 @@ export const doorDashDrive: CourierFleet = {
     const at = nowIso();
     const r = readiness();
     if (!r.canSend) return { fleet: 'doordash_drive', ok: false, blocked: true, error: r.note, at };
+    const stop = await driveGuard(req);
+    if (stop) return { fleet: 'doordash_drive', ok: false, blocked: true, error: stop, at };
     const res = await call('POST', '/drive/v2/quotes', driveBody(req, await driveIdsFor(req.pickup.locationCode)));
     if (!res.ok) return { fleet: 'doordash_drive', ok: false, error: res.why, at };
     const b = res.json ?? {};
@@ -265,6 +286,8 @@ export const doorDashDrive: CourierFleet = {
   async create(req, quote) {
     const r = readiness();
     if (!r.canSend) return blocked(r.note);
+    const stop = await driveGuard(req);
+    if (stop) return blocked(stop);
     // A fresh DoorDash quote is accepted by our delivery id (the tip can be set at acceptance); otherwise book directly.
     if (quote?.ok && quote.fleet === 'doordash_drive' && quote.expiresAt && Date.parse(quote.expiresAt) > Date.now() + 10_000) {
       const accepted = await call('POST', `/drive/v2/quotes/${encodeURIComponent(req.id)}/accept`, { tip: toCents(req.tip) });

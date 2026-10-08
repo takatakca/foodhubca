@@ -404,3 +404,42 @@ describe('DoorDash Drive: one Drive store per kitchen (pickup_external_business_
     expect('pickup_external_store_id' in calls[1].body).toBe(false);
   });
 });
+
+describe('DoorDash Drive: restricted items are never sent (alcohol follows the alcohol rules)', () => {
+  const KEYS = ['DOORDASH_DRIVE_DEVELOPER_ID', 'DOORDASH_DRIVE_KEY_ID', 'DOORDASH_DRIVE_SIGNING_SECRET', 'DOORDASH_DRIVE_ENV', 'FOODHUB_FEATURE_ALCOHOL'];
+  const prev: Record<string, string | undefined> = {};
+  beforeEach(() => {
+    for (const k of KEYS) prev[k] = process.env[k];
+    process.env.DOORDASH_DRIVE_DEVELOPER_ID = 'dev'; process.env.DOORDASH_DRIVE_KEY_ID = 'kid'; process.env.DOORDASH_DRIVE_SIGNING_SECRET = 'c2VjcmV0';
+    process.env.DOORDASH_DRIVE_ENV = 'sandbox';
+  });
+  afterEach(() => { for (const k of KEYS) { if (prev[k] === undefined) delete process.env[k]; else process.env[k] = prev[k]; } });
+  const req = (items: Array<{ name: string; description?: string }>, containsAlcohol = false) => ({ id: 'd1', reference: 'M-1', pickup: { businessName: 'Pi Pita', address: 'a', phone: '+15145550100', locationCode: 'NDG_MAIN' }, dropoff: { name: 'n', address: 'd', phone: '+15145551234' }, orderValue: 10, tip: 1, currency: 'CAD', items: items.map((i) => ({ quantity: 1, ...i })), containsAlcohol, undeliverable: 'dispose' as const, fleetSms: true });
+
+  it('recognizes tobacco, cannabis, weapons, explosives by tag or plain words, not ordinary food', async () => {
+    const { courierRestriction } = await import('../lib/foodhub/alcohol/rules');
+    expect(courierRestriction({ name: 'Cigarettes Player’s' })?.key).toBe('tobacco');
+    expect(courierRestriction({ name: 'Vapoteuse jetable' })?.key).toBe('tobacco');
+    expect(courierRestriction({ name: 'Boisson CBD' })?.key).toBe('cannabis');
+    expect(courierRestriction({ name: 'Feux d’artifice' })?.key).toBe('explosive');
+    expect(courierRestriction({ name: 'Briquet', tags: ['tobacco'] })?.key).toBe('tobacco');
+    for (const food of ['Poutine', 'Fusilli', 'Gunpowder green tea', 'Seaweed salad', 'Pistache', 'Bière blonde']) expect(courierRestriction({ name: food })).toBeNull();
+  });
+
+  it('quote and create are refused before any call; alcohol needs the alcohol rules', async () => {
+    const { doorDashDrive } = await import('../lib/foodhub/delivery/doordash-drive');
+    mockFetch(() => ({ status: 200, body: { fee: 975 } }));
+    const q = await doorDashDrive.quote(req([{ name: 'Poutine' }, { name: 'Cigarillos' }]) as any);
+    expect(q).toMatchObject({ ok: false, blocked: true });
+    expect(q.error).toMatch(/restricted items \(tobacco \/ vaping\): Cigarillos/);
+    const c = await doorDashDrive.create(req([{ name: 'Fireworks pack' }]) as any);
+    expect(c).toMatchObject({ ok: false, status: 'blocked' });
+    process.env.FOODHUB_FEATURE_ALCOHOL = 'false';
+    const a = await doorDashDrive.create(req([{ name: 'Bière blonde' }], true) as any);
+    expect(a.status).toBe('blocked');
+    expect(a.message).toMatch(/^Alcohol cannot go by DoorDash Drive right now/);
+    expect(calls).toHaveLength(0);
+    expect((await doorDashDrive.quote(req([{ name: 'Poutine' }]) as any)).ok).toBe(true);
+    expect(calls).toHaveLength(1);
+  });
+});

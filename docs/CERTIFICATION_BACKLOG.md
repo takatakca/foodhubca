@@ -4,9 +4,9 @@ Source: `docs/PLATFORM_API_RESEARCH.md` §6 (branch `api-research`). One commit 
 Every field below was re-checked on developer.doordash.com / developer.uber.com before it was coded.
 
 ## Status / next step (handoff note)
-- **Status (2026-10-08 ~00:35 UTC):** DoorDash 1-6, Uber 8-10, Drive 11-12 done and pushed. SOW (7) skipped.
-- **Next step:** Drive item 13, block restricted items (tobacco, cannabis/drugs, weapons, explosives) in `doorDashDrive.quote/create`, helper next to `isAlcoholItem` in lib/foodhub/alcohol/rules.ts (+ alcohol decision re-checked at the fleet). Then the full checks (typecheck, lint, test, webpack build, verify:foodhub on ports 4999/5000).
-- **Read first:** this file, `lib/foodhub/delivery/doordash-drive.ts`, `lib/foodhub/alcohol/rules.ts`.
+- **Status (2026-10-08 ~00:40 UTC):** all 13 items handled: 11 coded (+ DoorDash fulfillment_type), SOW skipped, Uber prep time = TODO + question. typecheck OK, lint 0 errors, 383/383 tests; webpack build + verify:foodhub running.
+- **Next step:** owner opens the PR from https://github.com/takatakca/foodhubca/compare/main...certification-backlog?expand=1 (after tasks 9 and 2 merge: rebase, rerun the checks), then does the owner actions below and asks the questions below in each portal.
+- **Read first:** this file, then tests/certification-backlog.test.ts (one describe per item).
 
 ## Items
 
@@ -24,7 +24,7 @@ Every field below was re-checked on developer.doordash.com / developer.uber.com 
 | 10 | Uber Eats | Store prep-time call | TODO in `uber-eats.ts` (endpoint not public) + question below | (this commit) |
 | 11 | Drive | `dropoff_address_components` (sample keys; `DOORDASH_DRIVE_ADDRESS_COMPONENTS=off` escape) | done | 42897b7 |
 | 12 | Drive | Per-kitchen business / store ids (Business + Store APIs, "Register / update kitchens" button) | done | 5fdceb4 |
-| 13 | Drive | Block restricted items | todo | |
+| 13 | Drive | Block restricted items (tobacco, cannabis/drugs, weapons, explosives) + alcohol re-checked with the alcohol rules | done | be6dd42 |
 
 ## Owner actions (portal, after merge)
 - DoorDash Developer Portal → Webhook subscriptions → add **Item Polling**: URL `https://foodhub.on2go.ca/api/foodhub/webhooks/doordash/item-polling`, Authorization = the same value as `DOORDASH_WEBHOOK_SECRET` (if the event type is not offered, ask DoorDash support / the TAM to add it).
@@ -39,7 +39,17 @@ Every field below was re-checked on developer.doordash.com / developer.uber.com 
 - DoorDash: Item Polling `start_time` / `end_time` (optional) meaning is not explained; Food Hub sends neither (timed 86s are still pushed in real time).
 
 ## Shared files touched (for easy merges)
-- `lib/foodhub/types.ts`: new optional `NormalizedOrder.orderSource` + `orderSourceLabel()` (append-only).
+Small, append-only changes; no task 2 file is edited (pipeline, inbox, webhook-utils, recovery, order-retry, health,
+sync, go-live, uber-inbox, watch/*). `webhook-utils` is only imported.
+- `lib/foodhub/types.ts`: optional `NormalizedOrder.orderSource` + `orderSourceLabel()`, `MasterMenu.pickupMarkupPct`,
+  `MasterMenu.uberTaxClass`, `MenuItem.uberTaxClass`.
+- `lib/foodhub/menu/translate.ts`: `base_price` in `toDoorDashMenu`, `tax_label_info` in `toUberMenu`, new `toDoorDashItemPolling`.
 - `lib/foodhub/pos/clover-order.ts`: one line in `cloverOrderNote` ("Source: Caviar").
-- `components/live/order-card.tsx`, `order-drawer.tsx`, `app/ticket/[id]/page.tsx`: one badge / line each.
-- No task 2 file touched (pipeline, inbox, webhook-utils, recovery, order-retry, health, sync, go-live, uber-inbox, watch/*).
+- `lib/foodhub/alcohol/rules.ts`: new `courierRestriction()` after `isAlcoholItem`.
+- `lib/foodhub/delivery/doordash-drive.ts` (task 10 edits other delivery files, not this one).
+- `app/api/foodhub/menu/route.ts` + `menu/import/route.ts`: schema + keep the new menu settings.
+- UI: `components/live/order-card.tsx`, `order-drawer.tsx`, `app/ticket/[id]/page.tsx`, `app/(console)/menu/menu-editor.tsx`,
+  `app/(console)/stores/mapping/mapping-view.tsx`, `app/(console)/settings/expansion/delivery/page.tsx`.
+- New: `app/api/foodhub/webhooks/doordash/item-polling/[locationId]`, `app/api/foodhub/uber-connect/disconnect`,
+  `app/api/foodhub/delivery/drive-stores`, `lib/foodhub/menu/uber-tax.ts`, `tests/certification-backlog.test.ts`.
+- `.env.example`: `DOORDASH_USER_AGENT`, `DOORDASH_DRIVE_ADDRESS_COMPONENTS`, `DOORDASH_DRIVE_BUSINESS_ID` (all optional).

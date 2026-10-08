@@ -153,8 +153,11 @@ Each phase ends with **acceptance checks**. A phase is done only when all of the
 
 > **Status (branch `clover-backend-final`):** items 1 (webhook inbox + Replay), 2 (`/api/health`), 3 (texts by default
 > for `menu_failed` / `sync_stale`), 4 (silence alarm), 6 (Clover auto-retry 30 s / 2 min, no second ticket) and the
-> Clover side of 7 are built and tested — see [CLOVER_BACKEND_FINAL.md](CLOVER_BACKEND_FINAL.md). Still open: 5 (a
-> mapping suggestion for unmapped stores; auto-accept is already held for them and the waiting order escalates).
+> Clover side of 7 are built and tested — see [CLOVER_BACKEND_FINAL.md](CLOVER_BACKEND_FINAL.md). Branch
+> `reconcile-pr6` (task 2) adds PR #6's fixes on top: 5 (the "Order from an unmapped store" incident with a mapping
+> hint), the rest of 7 (Order Relay and shared menus in the end-to-end script), no late ticket from an automatic
+> run, the order stored before a server stop finished instead of "duplicate", Clover retry guards, and a cheaper,
+> stricter `/api/health`.
 
 1. **Save the raw webhook body before answering 200** (`lib/foodhub/webhook-utils.ts`), then process it. Add a **Replay** button for unparsed or failed payloads in Settings → Platforms.
 2. Add **`/api/health`** (database, last sync, last order per platform, and whether the watchtower timer is alive). Add an outside uptime monitor that texts the owner.

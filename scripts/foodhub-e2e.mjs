@@ -34,6 +34,8 @@ const SKIP_HMAC = 'skip-hmac-secret-e2e';
 const SKIP_NOTIFY_KEY = 'skip-notify-key-e2e';
 const CLOVER_TOKEN = 'clover-token-e2e';
 const CLOVER_APP_TOKEN = 'clover-app-token-e2e';
+const RELAY_SECRET = 'relay-secret-e2e-0123456789abcdef';
+const RELAY_CB_TOKEN = 'relay-callback-token-e2e';
 const DEMO = process.argv.includes('--demo');
 
 const log = [];
@@ -276,6 +278,8 @@ const mock = http.createServer(async (req, res) => {
   }
   // ---- team chat incoming webhook (Slack / Teams / Google Chat) ----
   if (p === '/chat') return send(200, { ok: true });
+  // ---- Food Hub Order Relay partner: status callback (Acknowledged / Food Ready / Cancelled), bearer token ----
+  if (p === '/relay/callback') return req.headers.authorization === `Bearer ${RELAY_CB_TOKEN}` ? send(200, { status: 'success' }) : send(401, { message: 'bad token' });
   send(404, {});
 });
 
@@ -342,6 +346,18 @@ async function uberWebhook(orderId) {
   const raw = JSON.stringify({ event_type: 'orders.notification', event_id: `evt-${orderId}`, meta: { resource_id: orderId, status: 'pos', user_id: 'uber-store-uuid-1' }, resource_href: `${MOCK}/uber/v2/eats/order/${orderId}` });
   return call('POST', '/api/foodhub/webhooks/uber-eats', { auth: false, raw, headers: { 'x-uber-signature': crypto.createHmac('sha256', UBER_SECRET).update(raw).digest('hex') } });
 }
+// Food Hub Order Relay: the partner posts to ?token=<FOODHUB_RELAY_SECRET> (UrbanPiper-compatible "Order Relay" shapes).
+const relayHook = (body, token = RELAY_SECRET) => call('POST', `/api/foodhub/webhooks/relay${token ? `?token=${encodeURIComponent(token)}` : ''}`, { auth: false, body });
+const relayOrder = (id, channel = 'Too Good To Go', storeRef = 'tgtg-partner-77') => ({
+  customer: { name: 'Julie T.', phone: '5145550123' },
+  order: {
+    details: { id, channel, created: Date.now() - 30_000, order_type: 'pickup', order_subtotal: 11.98, total_taxes: 0, total_charges: 0, discount: 0, order_total: 11.98,
+      instructions: 'Sac réutilisable', brand: { name: 'Po Poulet' }, ext_platforms: [{ id: `TGTG-${id}`, kind: 'food_aggregator', name: channel }] },
+    items: [{ id: 1, title: 'Panier surprise', price: 5.99, quantity: 2, total: 11.98 }],
+    store: { id: 77, merchant_ref_id: storeRef, name: 'TGTG NDG' },
+  },
+});
+const relayStatus = (id, state, message) => ({ order_id: id, new_state: state, ...(message ? { message } : {}), additional_info: { external_channel: { name: 'Too Good To Go', order_id: `TGTG-${id}` } } });
 
 // ---------------- run ----------------
 await new Promise((r) => mock.listen(MOCK_PORT, '127.0.0.1', r));
@@ -361,6 +377,7 @@ const env = {
   DOORDASH_BASE_URL: `${MOCK}/dd`, DOORDASH_DEVELOPER_ID: 'dd-dev-e2e', DOORDASH_KEY_ID: 'dd-key-e2e', DOORDASH_SIGNING_SECRET: DD_SECRET_B64, DOORDASH_PROVIDER_TYPE: 'takatak_e2e', DOORDASH_WEBHOOK_SECRET: 'dd-hook-e2e',
   SKIP_JET_BASE_URL: `${MOCK}/skip`, SKIP_JET_API_KEY: JET_API_KEY, SKIP_WEBHOOK_HMAC_SECRET: SKIP_HMAC, SKIP_WEBHOOK_API_KEY: SKIP_NOTIFY_KEY,
   TGTG_WEBHOOK_SECRET: 'tgtg-hook-e2e',
+  FOODHUB_RELAY_SECRET: RELAY_SECRET, FOODHUB_RELAY_CHANNELS: 'tgtg', FOODHUB_RELAY_CALLBACK_URL: `${MOCK}/relay/callback`, FOODHUB_RELAY_CALLBACK_TOKEN: RELAY_CB_TOKEN,
   CLOVER_BASE_URL: `${MOCK}/clover`, CLOVER_MERCHANT_ID: 'MAINMERCHANT', CLOVER_ACCESS_TOKEN: CLOVER_TOKEN,
   CLOVER_MERCHANT_TOKENS: JSON.stringify({ FAILMERCHANT: 'x' }), CLOVER_WEBHOOK_AUTH: 'clover-auth-e2e',
   CLOVER_CLIENT_ID: 'CLVAPPE2E', CLOVER_CLIENT_SECRET: 'clover-app-secret-e2e', CLOVER_WEB_URL: 'https://www.clover.com',
@@ -1459,6 +1476,9 @@ try {
   const hd = (await call('GET', '/api/health', { auth: false, headers: { authorization: 'Bearer cron-e2e' } })).json;
   check('with the cron secret: each platform and its last order, the Watchtower alive', hd?.platforms?.length === 4 && !!hd.platforms.find((p) => p.channel === 'doordash')?.lastOrderAt && hd.checks?.watchtower?.status === 'ok', JSON.stringify(hd && { p: hd.platforms, w: hd.checks?.watchtower }));
   check('the Overview reads the same health (session)', (await call('GET', '/api/health')).json?.platforms?.length === 4);
+  check('a production build on the in-memory store says so: database "down" (503); the screens open', hp.status === 503 && hd?.checks?.database?.status === 'down' && hd.checks.console?.status === 'ok', JSON.stringify(hd?.checks && { db: hd.checks.database, c: hd.checks.console }));
+  check('no secret, store, brand, merchant or address in the public answer', ![PASSWORD, UBER_SECRET, DD_SECRET_B64, JET_API_KEY, SKIP_HMAC, SKIP_NOTIFY_KEY, CLOVER_TOKEN, RELAY_SECRET, RELAY_CB_TOKEN, 'cron-e2e', 'tw-e2e', 're_e2e', 'Po Poulet', 'NDG', 'MAINMERCHANT', 'takatak.example', MOCK].some((x) => JSON.stringify(hp.json).includes(x)), JSON.stringify(hp.json));
+  check('only the exact path is public (/api/health/x and /api/healthz need sign-in)', (await call('GET', '/api/health/x', { auth: false })).status === 401 && (await call('GET', '/api/healthz', { auth: false })).status === 401);
 
   console.log('\n42. Uber Eats: orders whose webhook never arrived (missed-order check)');
   const ago = (min) => new Date(Date.now() - min * 60_000).toISOString();
@@ -1468,6 +1488,71 @@ try {
   const sy41 = await call('POST', '/api/foodhub/sync', { body: { force: true } });
   check('sync finds the order no webhook announced and processes it (Clover first, then accept)', sy41.json?.report?.uberMissed?.recovered === 1 && !!(await waitFor(async () => { const o = await findOrder('uber-missed-1'); return o?.posOrderId && o.status === 'accepted' ? o : null; })), JSON.stringify(sy41.json?.report?.uberMissed));
   check('missed-order check skips stores not confirmed as Food Hub’s, orders past the 11.5-min window and orders the webhook may still bring', !(await findOrder('uber-not-mine-1')) && !(await findOrder('uber-too-old-1')) && !(await findOrder('uber-too-new-1')) && !sent('GET', /\/v1\/eats\/stores\/uber-store-uuid-1\/created-orders$/).length);
+
+  console.log('\n42b. Order Relay (partner feed → Clover → kitchen), one menu for two brands, late orders never cooked by themselves');
+  // a) Food Hub Order Relay: a Too Good To Go feed pushed by a partner.
+  const relayCallbacks = (hubId) => sent('POST', /^\/relay\/callback$/).filter((e) => e.body?.order_id === hubId);
+  check('relay refuses a wrong or a missing token (401)', (await relayHook(relayOrder('880000'), 'wrong-token')).status === 401 && (await relayHook(relayOrder('880000'), '')).status === 401);
+  const relCh = (await call('GET', '/api/foodhub/channels')).json?.relay;
+  check('Channels shows the relay address with its token hidden, callback set, TGTG only', relCh?.webhookReady === true && relCh.callbackReady === true && JSON.stringify(relCh.channels) === '["tgtg"]' && /token=••••••••$/.test(relCh.webhookUrl || ''), JSON.stringify(relCh));
+  ids.relay = await mk({ channel: 'tgtg', channelStoreId: 'relay:tgtg-partner-77', brandName: 'Po Poulet', locationCode: 'NDG_MAIN' });
+  check('partner store mapped as "relay:<partner store id>"', ids.relay?.channelStoreId === 'relay:tgtg-partner-77');
+  const b42r = log.length;
+  const r42 = await relayHook(relayOrder('880001'));
+  check('TGTG order pushed to the relay → saved before the 200, Food Hub reference returned', r42.status === 200 && r42.json?.order_ref_id === 'relay-880001', JSON.stringify(r42.json));
+  const o42 = await waitFor(async () => { const o = await findOrder('relay-880001'); return o?.status === 'accepted' && o.posOrderId ? o : null; });
+  const atomic42 = log.slice(b42r).filter((e) => isAtomic(e) && /880001/.test(e.body?.orderCart?.title || ''));
+  check('read as Too Good To Go, routed by its "relay:" mapping to Po Poulet · NDG, one Clover order (2 × 5.99 $), accepted', o42?.channel === 'tgtg' && o42.viaHub === 'relay' && o42.brandName === 'Po Poulet' && o42.locationCode === 'NDG_MAIN' && atomic42.length === 1 && atomic42[0].body.orderCart.lineItems?.length === 2 && atomic42[0].body.orderCart.lineItems.every((l) => l.price === 599), JSON.stringify(o42 && { ch: o42.channel, via: o42.viaHub, l: o42.locationCode, n: atomic42.length }));
+  const ack42 = relayCallbacks('880001');
+  check('accept posted to the partner callback ("Acknowledged", bearer token) — only after Clover had the order', ack42.length === 1 && ack42[0].body.new_status === 'Acknowledged' && ack42[0].headers.authorization === `Bearer ${RELAY_CB_TOKEN}` && log.indexOf(ack42[0]) > log.indexOf(atomic42[0]), JSON.stringify(ack42.map((e) => e.body)));
+  await relayHook(relayOrder('880001'));
+  await sleep(800);
+  check('the same relay order delivered twice → one order, one Clover order, one "Acknowledged"', log.slice(b42r).filter((e) => isAtomic(e) && /880001/.test(e.body?.orderCart?.title || '')).length === 1 && relayCallbacks('880001').length === 1);
+  const c42 = await relayHook(relayStatus('880001', 'Cancelled', 'Customer cancelled in the partner app'));
+  const oc42 = await waitFor(async () => { const o = await findOrder('relay-880001'); return o?.status === 'cancelled' ? o : null; });
+  check('partner status "Cancelled" → order cancelled, removed from Clover, nothing posted back for it', c42.status === 200 && !!oc42 && !!(await waitFor(async () => sent('DELETE', new RegExp(`/orders/${o42?.posOrderId}$`)).length === 1)) && !relayCallbacks('880001').some((e) => e.body.new_status === 'Cancelled'));
+  // A cancel that beats its order (the order was still in the inbox when the server stopped): no ticket on arrival.
+  const b42c = log.length;
+  await relayHook(relayStatus('880003', 'Cancelled', 'Customer cancelled'));
+  await sleep(300);
+  await relayHook(relayOrder('880003'));
+  const oc42b = await waitFor(async () => { const o = await findOrder('relay-880003'); return o?.status === 'cancelled' ? o : null; });
+  check('a relay cancel that arrives before its order waits for it: the order arrives cancelled, nothing goes to Clover or the partner', !!oc42b && !log.slice(b42c).some((e) => isAtomic(e) && /880003/.test(e.body?.orderCart?.title || '')) && relayCallbacks('880003').length === 0 && !((await call('GET', '/api/foodhub/channels')).json?.unparsed || []).some((j) => j.reference === 'relay-880003'));
+
+  // b) One menu for two brands: Poulet Poulet follows Po Poulet.
+  knownUberStores.add('uber-poulet-ndg');
+  ids.ppUber = await mk({ channel: 'uber_eats', channelStoreId: 'uber-poulet-ndg', brandName: 'Poulet Poulet', locationCode: 'NDG_MAIN' });
+  ids.ppDd = await mk({ channel: 'doordash', channelStoreId: 'dd-poulet-ndg', brandName: 'Poulet Poulet', locationCode: 'NDG_MAIN' });
+  check('Poulet Poulet mapped on Uber Eats and DoorDash at NDG', !!ids.ppUber?.id && !!ids.ppDd?.id);
+  const sh42 = await call('PUT', '/api/foodhub/menu/sharing', { body: { sharing: { 'Poulet Poulet': 'Po Poulet' } } });
+  check('sharing saved: Poulet Poulet uses the Po Poulet menu', sh42.json?.sharing?.['Poulet Poulet'] === 'Po Poulet' && (await call('GET', '/api/foodhub/menu/sharing')).json?.sharing?.['Poulet Poulet'] === 'Po Poulet', JSON.stringify(sh42.json));
+  const src42 = (await call('GET', '/api/foodhub/menu?brand=Po%20Poulet')).json;
+  const fol42 = (await call('GET', '/api/foodhub/menu?brand=Poulet%20Poulet')).json;
+  const refs42 = src42?.menu?.items?.map((i) => i.ref) || [];
+  check('GET menu?brand=Poulet Poulet → sharedFrom Po Poulet, the same items under its own name', fol42?.sharedFrom === 'Po Poulet' && fol42.menu?.brandName === 'Poulet Poulet' && refs42.length >= 2 && JSON.stringify(fol42.menu.items.map((i) => i.ref)) === JSON.stringify(refs42), JSON.stringify({ from: fol42?.sharedFrom }));
+  const put42 = await call('PUT', '/api/foodhub/menu', { body: { menu: fol42?.menu } });
+  check('saving a menu for the follower is refused (409): the shared menu is edited on Po Poulet', put42.status === 409, `${put42.status} ${put42.text.slice(0, 160)}`);
+  const b42m = log.length;
+  const pub42 = await call('POST', '/api/foodhub/menu/publish', { body: { brand: 'Poulet Poulet' } });
+  const st42 = Object.fromEntries((pub42.json?.results || []).map((r) => [r.channelStoreId, r.result.status]));
+  const pushes42 = log.slice(b42m).filter((e) => (e.method === 'PUT' && /^\/uber\/v2\/eats\/stores\/[^/]+\/menus$/.test(e.path)) || /^\/dd\/api\/v1\/menus/.test(e.path) || e.path === '/skip/menus');
+  check('publishing the follower goes to its own stores only, under its own name', Object.keys(st42).sort().join(',') === 'dd-poulet-ndg,uber-poulet-ndg' && pushes42.length === 2 && pushes42.every((e) => e.path.includes('uber-poulet-ndg') || e.body?.store?.merchant_supplied_id === 'dd-poulet-ndg') && Object.values(pushes42.find((e) => e.path.includes('uber-poulet-ndg'))?.body?.menus?.[0]?.title?.translations || {}).some((t) => String(t).startsWith('Poulet Poulet')), JSON.stringify({ st42, pushes: pushes42.map((e) => e.path) }));
+  const b42a = log.length;
+  const av42 = await call('POST', '/api/foodhub/availability', { body: { brand: 'Poulet Poulet', locationCode: 'NDG_MAIN', itemRefs: ['clv-item-1'], available: false, minutes: 30 } });
+  const rows42 = (av42.json?.results || []).filter((r) => r.channel !== 'tgtg');
+  check('an 86 on the follower reaches the NDG stores of both brands', rows42.every((r) => r.result.ok) && ['uber-poulet-ndg', 'dd-poulet-ndg'].every((sid) => rows42.some((r) => r.channelStoreId === sid)) && rows42.some((r) => r.brandName === 'Po Poulet') && log.slice(b42a).some((e) => e.method === 'PUT' && e.path === '/dd/api/v1/stores/dd-poulet-ndg/items/status' && e.body?.[0]?.is_active === false), JSON.stringify(rows42.map((r) => [r.brandName, r.channelStoreId, r.result.status])));
+  const offFor = async (brand) => ((await call('GET', `/api/foodhub/menu?brand=${encodeURIComponent(brand)}`)).json?.menu?.unavailableByLocation?.NDG_MAIN || []).includes('clv-item-1');
+  check('the 86 is saved once, on the shared menu (both brands show it)', (await offFor('Po Poulet')) && (await offFor('Poulet Poulet')));
+  await call('POST', '/api/foodhub/availability', { body: { brand: 'Po Poulet', locationCode: 'NDG_MAIN', itemRefs: ['clv-item-1'], available: true } });
+  check('back on from Po Poulet → back on for both brands', !(await offFor('Poulet Poulet')) && !(await offFor('Po Poulet')));
+
+  // c) Never a late kitchen ticket from an automatic run: past DoorDash's answer window the order waits for a person.
+  const b42l = log.length;
+  const late42 = await call('POST', '/api/foodhub/webhooks/doordash', { auth: false, headers: { authorization: 'dd-hook-e2e' }, body: { ...ddOrder, id: 'dd-late-42', created_at: new Date(Date.now() - 10 * 60_000).toISOString() } });
+  const inbLate = await waitFor(async () => ((await call('GET', '/api/foodhub/inbox')).json?.inbox?.entries || []).find((e) => e.reference === 'dd-late-42' && e.status === 'failed'));
+  check('a DoorDash order received past its answer window is kept for a person: no order, nothing in Clover', late42.status === 202 && !inbLate?.nextAt && /answer window/.test(inbLate?.lastError || '') && !(await findOrder('dd-late-42')) && !log.slice(b42l).some(isAtomic), JSON.stringify(inbLate));
+  const rpLate = await call('POST', '/api/foodhub/inbox', { body: { id: inbLate?.id } });
+  check('…and a person can still replay it', rpLate.json?.entry?.status === 'done' && !!(await findOrder('dd-late-42')), JSON.stringify(rpLate.json?.entry));
 
   console.log('\n43. Expansion: own-order delivery (DoorDash Drive), website orders, AI phone line, grocery, alcohol');
   const exp0 = (await call('GET', '/api/foodhub/expansion')).json;

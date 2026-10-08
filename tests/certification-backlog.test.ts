@@ -247,3 +247,47 @@ describe('DoorDash Automatic Item Availability Polling (GET …/item-polling/{lo
     expect(await (await get('dd-pita')).json()).toEqual([]);
   });
 });
+
+describe('Uber Eats "Disconnect from Uber" (DELETE pos_data with the merchant token)', () => {
+  const UBER_KEYS = ['UBER_CLIENT_ID', 'UBER_CLIENT_SECRET', 'UBER_ENV', 'UBER_ACCESS_TOKEN', 'DASHBOARD_PASSWORD'];
+  const prev: Record<string, string | undefined> = {};
+  beforeEach(() => {
+    for (const k of UBER_KEYS) prev[k] = process.env[k];
+    process.env.UBER_CLIENT_ID = 'id'; process.env.UBER_CLIENT_SECRET = 'secret'; delete process.env.UBER_ENV; delete process.env.UBER_ACCESS_TOKEN;
+    process.env.LIVE_CONNECTORS_GLOBAL_ENABLED = 'true'; process.env.DASHBOARD_PASSWORD = 'Owner-pass-123';
+  });
+  afterEach(() => { for (const k of UBER_KEYS) { if (prev[k] === undefined) delete process.env[k]; else process.env[k] = prev[k]; } });
+  const sessionId = 'b'.repeat(36);
+
+  it('sends DELETE /v1/eats/stores/{id}/pos_data with the merchant token; refuses a store not on that account', async () => {
+    const { getRepo } = await import('../lib/foodhub/repo');
+    const { disconnectUberStore } = await import('../lib/foodhub/adapters/uber-provision');
+    await getRepo().setKv(`uber-connect:${sessionId}`, { createdAt: Date.now(), token: 'merchant-token', stores: [{ id: 'uber-stl', name: 'Pi Pita' }] });
+    mockFetch(() => ({ status: 204 }));
+    const res = await disconnectUberStore(sessionId, 'uber-stl');
+    expect(res.ok).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ method: 'DELETE', url: 'https://api.uber.com/v1/eats/stores/uber-stl/pos_data' });
+    expect(calls[0].headers.Authorization).toBe('Bearer merchant-token');
+    await expect(disconnectUberStore(sessionId, 'someone-else')).rejects.toThrow(/not on the Uber Eats account/);
+    await expect(disconnectUberStore('c'.repeat(36), 'uber-stl')).rejects.toThrow(/expired/);
+  });
+
+  it('route: marks the Food Hub mapping disconnected and logs it', async () => {
+    const { getRepo } = await import('../lib/foodhub/repo');
+    const { POST } = await import('../app/api/foodhub/uber-connect/disconnect/route');
+    await getRepo().setKv(`uber-connect:${sessionId}`, { createdAt: Date.now(), token: 'merchant-token', stores: [{ id: 'uber-stl', name: 'Pi Pita' }] });
+    const store = await getRepo().upsertStore({ channel: 'uber_eats', channelStoreId: 'uber-stl', brandName: 'Pi Pita', locationCode: 'SAINT_LEONARD', autoAccept: true, online: true, meta: { provisioned: true, uberPos: { orderManager: 'foodhub' } } });
+    mockFetch(() => ({ status: 204 }));
+    const post = (body: unknown) => POST(new Request('http://hub.local/api/foodhub/uber-connect/disconnect', { method: 'POST', headers: { authorization: `Basic ${Buffer.from('owner:Owner-pass-123').toString('base64')}`, 'content-type': 'application/json' }, body: JSON.stringify(body) }) as any, {} as never);
+    expect((await post({ id: sessionId })).status).toBe(400);
+    const res = await post({ id: sessionId, storeId: 'uber-stl' });
+    expect(res.status).toBe(200);
+    const meta = (await getRepo().getStore(store.id))!.meta;
+    expect(meta.provisioned).toBe(false);
+    expect(typeof meta.uberDisconnectedAt).toBe('string');
+    expect(meta.uberPos).toBeUndefined();
+    mockFetch(() => ({ status: 403, body: { message: 'forbidden' } }));
+    expect((await post({ id: sessionId, storeId: 'uber-stl' })).status).toBe(409);
+  });
+});

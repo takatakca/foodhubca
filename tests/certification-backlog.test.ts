@@ -291,3 +291,45 @@ describe('Uber Eats "Disconnect from Uber" (DELETE pos_data with the merchant to
     expect((await post({ id: sessionId, storeId: 'uber-stl' })).status).toBe(409);
   });
 });
+
+describe('Uber Eats item tax categories (Item.tax_label_info)', () => {
+  const menu = (extra: Record<string, unknown> = {}, itemExtra: Record<string, unknown> = {}) => ({
+    brandName: 'Pi Pita', updatedAt: 'x',
+    categories: [{ ref: 'c1', name: 'Plats', sortOrder: 0 }],
+    items: [
+      { ref: 'i1', name: 'Poutine', price: 10, categoryRef: 'c1', available: true, modifierGroupRefs: ['g1'], ...itemExtra },
+      { ref: 'i2', name: 'Beer', price: 7, categoryRef: 'c1', available: true, modifierGroupRefs: [], tags: ['alcohol'] },
+    ],
+    modifierGroups: [{ ref: 'g1', name: 'Extras', min: 0, max: 1, modifiers: [{ ref: 'm1', name: 'Cheese', price: 2, available: true }] }],
+    ...extra,
+  });
+  const byId = (body: any, id: string) => body.items.find((x: any) => x.id === id);
+
+  it('only documented TaxLabels rows: each has a category label (and a temperature unless beer / wine / liquor)', async () => {
+    const { UBER_TAX_CLASSES } = await import('../lib/foodhub/menu/uber-tax');
+    for (const [k, c] of Object.entries(UBER_TAX_CLASSES)) {
+      expect(c.labels.some((l) => l.startsWith('CAT_'))).toBe(true);
+      if (!['wine', 'liquor'].includes(k)) expect(c.labels.some((l) => l.startsWith('TEMP_'))).toBe(true);
+    }
+    expect(UBER_TAX_CLASSES.prepared_unheated.labels).toEqual(['CAT_PREPARED_FOOD', 'TEMP_UNHEATED']);
+  });
+
+  it('nothing chosen → no tax_label_info (unchanged body)', async () => {
+    const { toUberMenu } = await import('../lib/foodhub/menu/translate');
+    const body = toUberMenu(menu() as any);
+    for (const it of body.items) expect('tax_label_info' in it).toBe(false);
+  });
+
+  it('menu default on items and options; alcohol-tagged items get Alcohol; an item class wins', async () => {
+    const { toUberMenu } = await import('../lib/foodhub/menu/translate');
+    const body = toUberMenu(menu({ uberTaxClass: 'side_hot' }) as any);
+    expect(byId(body, 'i1').tax_label_info).toEqual({ default_value: { labels: ['CAT_PREPARED_FOOD_PREPARED_SIDE_DISHES', 'TEMP_HEATED'], source: 'MANUAL' } });
+    expect(byId(body, 'mod:m1').tax_label_info.default_value.labels).toEqual(['CAT_PREPARED_FOOD_PREPARED_SIDE_DISHES', 'TEMP_HEATED']);
+    expect(byId(body, 'i2').tax_label_info.default_value.labels).toEqual(['CAT_ALCOHOL', 'TEMP_COLD']);
+    expect(byId(body, 'i1').tax_info).toEqual({}); // tax_info (required) still sent
+    const own = toUberMenu(menu({ uberTaxClass: 'side_hot' }, { uberTaxClass: 'salad' }) as any);
+    expect(byId(own, 'i1').tax_label_info.default_value.labels).toEqual(['CAT_PREPARED_FOOD_PREPARED_SALADS', 'TEMP_COLD']);
+    const bogus = toUberMenu(menu({ uberTaxClass: 'made_up' }) as any);
+    expect('tax_label_info' in byId(bogus, 'i1')).toBe(false);
+  });
+});

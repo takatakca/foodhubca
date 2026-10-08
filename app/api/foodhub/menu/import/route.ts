@@ -77,6 +77,7 @@ export const POST = withPerm('menu:edit', async (req, _ctx, actor) => {
     channelMarkupPct: mergeMarkup(existing?.channelMarkupPct, imported.channelMarkupPct, pricedPlatforms),
     // The DoorDash pickup price (dual pricing) is a Food Hub setting: kept as is.
     ...(existing?.pickupMarkupPct ? { pickupMarkupPct: existing.pickupMarkupPct } : {}),
+    ...(existing?.uberTaxClass ? { uberTaxClass: existing.uberTaxClass } : {}),
     categories: [
       ...imported.categories.map((c) => {
         const prevCat = (existing?.categories ?? []).find((x) => x.ref === c.ref);
@@ -91,7 +92,7 @@ export const POST = withPerm('menu:edit', async (req, _ctx, actor) => {
         // Owner-entered description wins (Clover's alternateName is usually the French/kitchen name);
         // custom option groups attached in Food Hub stay on the Clover item.
         const modifierGroupRefs = [...new Set([...i.modifierGroupRefs, ...prev.modifierGroupRefs.filter((r) => customGroupRefs.has(r))])];
-        return { ...i, modifierGroupRefs, channelPrices: mergePrices(prev.channelPrices, i.channelPrices, pricedPlatforms), description: prev.description || i.description, imageUrl: i.imageUrl || prev.imageUrl, tags: prev.tags, allergens: prev.allergens, calories: prev.calories, nameFr: prev.nameFr, descriptionFr: prev.descriptionFr };
+        return { ...i, modifierGroupRefs, channelPrices: mergePrices(prev.channelPrices, i.channelPrices, pricedPlatforms), description: prev.description || i.description, imageUrl: i.imageUrl || prev.imageUrl, tags: prev.tags, allergens: prev.allergens, calories: prev.calories, nameFr: prev.nameFr, descriptionFr: prev.descriptionFr, ...(prev.uberTaxClass ? { uberTaxClass: prev.uberTaxClass } : {}) };
       }),
       // Kept items may only point at groups that still exist.
       ...keptItems.map((i) => ({ ...i, modifierGroupRefs: i.modifierGroupRefs.filter((r) => groupRefs.has(r)) })),

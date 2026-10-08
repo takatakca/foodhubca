@@ -8,6 +8,7 @@ import { toCents } from '../config';
 import { allDayWeek, dayKeyOf, DAYS, intersectWeeks, normalizeWeek, weekIsEmpty } from '../hours';
 import type { DayKey, Holiday, Marketplace, MasterMenu, MenuCategory, MenuItem, MenuLanguage, PublishContext, WeeklyHours } from '../types';
 import { label } from './language';
+import { uberTaxClassOf, uberTaxLabelInfo } from './uber-tax';
 import type { MenuIssue } from './verify';
 
 /** 24/7 — only used when no store hours were ever set (the menu verifier warns about it). */
@@ -184,7 +185,7 @@ export function toUberMenu(menu: MasterMenu, ctx?: PublishContext, offRefs: Set<
   const locale = uberLocale(lang);
   const text = (en: string, fr?: string) => ({ translations: { [locale]: label(en, fr, lang) } });
   // An option used by two groups is ONE Uber item (Uber refuses duplicate ids): the first definition wins.
-  const modifierItems = new Map<string, { id: string; external_data: string; title: { translations: Record<string, string> }; price_info: { price: number }; quantity_info: Record<string, never>; tax_info: { tax_rate?: number } }>();
+  const modifierItems = new Map<string, { id: string; external_data: string; title: { translations: Record<string, string> }; price_info: { price: number }; quantity_info: Record<string, never>; tax_info: { tax_rate?: number } } & ReturnType<typeof uberTaxLabelInfo>>();
   for (const m of menu.modifierGroups.flatMap((g) => g.modifiers)) {
     if (modifierItems.has(`mod:${m.ref}`)) continue;
     modifierItems.set(`mod:${m.ref}`, {
@@ -194,6 +195,8 @@ export function toUberMenu(menu: MasterMenu, ctx?: PublishContext, offRefs: Set<
       price_info: { price: toCents(modifierPriceFor(m, 'uber_eats', menu)) },
       quantity_info: {},
       tax_info: uberTaxInfo(false),
+      // Item tax category (tax_label_info): options take the menu default class.
+      ...uberTaxLabelInfo(uberTaxClassOf(null, menu.uberTaxClass)),
       ...(m.available && !offRefs.has(m.ref) ? {} : SUSPEND_FOREVER),
     });
   }
@@ -225,6 +228,7 @@ export function toUberMenu(menu: MasterMenu, ctx?: PublishContext, offRefs: Set<
         ...(i.imageUrl ? { image_url: i.imageUrl } : {}),
         price_info: { price: toCents(priceFor(i, 'uber_eats', menu)) },
         tax_info: uberTaxInfo(true),
+        ...uberTaxLabelInfo(uberTaxClassOf(i, menu.uberTaxClass)),
         modifier_group_ids: { ids: i.modifierGroupRefs },
         // energy_interval replaces the deprecated lower_range / upper_range; values are E5 (780 cal = 78000000).
         ...(typeof i.calories === 'number' && i.calories > 0 ? { nutritional_info: { calories: { energy_interval: { lower: Math.round(i.calories) * 100000, upper: Math.round(i.calories) * 100000 } } } } : {}),

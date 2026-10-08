@@ -4,6 +4,7 @@ import { getCatalog } from '@/lib/foodhub/catalog';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { getBrandMenu, getMenuSharing, groupOf, isFollower, sourceOf } from '@/lib/foodhub/menu/shared';
 import { getRepo } from '@/lib/foodhub/repo';
+import { UBER_TAX_CLASS_KEYS } from '@/lib/foodhub/menu/uber-tax';
 import type { MasterMenu } from '@/lib/foodhub/types';
 import { z } from 'zod';
 
@@ -30,13 +31,13 @@ const itemSchema = z.object({
   ref, name, description: text(2000), nameFr: text(200), descriptionFr: text(2000),
   tags: z.array(z.string().max(40)).max(20).optional(), allergens: z.array(z.string().max(60)).max(40).optional(), calories: z.number().min(0).max(100_000).optional(),
   price, imageUrl: text(2000), categoryRef: ref, available: z.boolean().default(true), posItemRef: text(120), note: text(500),
-  channelPrices: z.partialRecord(marketplace, price).optional(), modifierGroupRefs: z.array(z.string().max(120)).max(50).default([]),
+  channelPrices: z.partialRecord(marketplace, price).optional(), uberTaxClass: z.enum(UBER_TAX_CLASS_KEYS).optional(), modifierGroupRefs: z.array(z.string().max(120)).max(50).default([]),
 });
 // Platform markups: percentage added to every price on that platform (-50 … 200). Clover holds the in-store price.
 const markupSchema = z.partialRecord(z.enum(['uber_eats', 'doordash', 'skip']), z.number().finite().min(-50).max(200)).optional();
 // Separate pickup price where the platform has dual pricing (DoorDash base_price): % on the in-store price; 0 is a value.
 const pickupMarkupSchema = z.partialRecord(z.enum(['doordash']), z.number().finite().min(-50).max(200)).optional();
-const menuSchema = z.object({ brandName: z.string().trim().min(1).max(80), categories: z.array(categorySchema).max(200), items: z.array(itemSchema).max(2000), modifierGroups: z.array(groupSchema).max(500).default([]), channelMarkupPct: markupSchema, pickupMarkupPct: pickupMarkupSchema });
+const menuSchema = z.object({ brandName: z.string().trim().min(1).max(80), categories: z.array(categorySchema).max(200), items: z.array(itemSchema).max(2000), modifierGroups: z.array(groupSchema).max(500).default([]), channelMarkupPct: markupSchema, pickupMarkupPct: pickupMarkupSchema, uberTaxClass: z.enum(UBER_TAX_CLASS_KEYS).optional() });
 
 function firstIssue(e: z.ZodError): string {
   const i = e.issues[0];
@@ -105,6 +106,7 @@ export const PUT = withPerm('menu:edit', async (req, _ctx, actor) => {
     brandName: menu.brandName, categories: menu.categories, items: menu.items, modifierGroups: menu.modifierGroups,
     ...(menu.channelMarkupPct && Object.keys(menu.channelMarkupPct).length ? { channelMarkupPct: menu.channelMarkupPct } : {}),
     ...(menu.pickupMarkupPct && Object.keys(menu.pickupMarkupPct).length ? { pickupMarkupPct: menu.pickupMarkupPct } : {}),
+    ...(menu.uberTaxClass ? { uberTaxClass: menu.uberTaxClass } : {}),
     hours: kept?.hours, unavailableByLocation: kept?.unavailableByLocation, unavailableUntil: kept?.unavailableUntil,
     ...(kept?.posMerchantId ? { posMerchantId: kept.posMerchantId } : {}),
     updatedAt: new Date().toISOString(),

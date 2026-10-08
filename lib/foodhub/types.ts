@@ -255,6 +255,8 @@ export interface MenuItem {
   posItemRef?: string;
   /** Per-marketplace price override (e.g. delivery mark-up). */
   channelPrices?: Partial<Record<Marketplace, number>>;
+  /** Uber Eats tax class for this item (key of UBER_TAX_CLASSES, lib/foodhub/menu/uber-tax.ts); overrides the menu default. */
+  uberTaxClass?: string;
   modifierGroupRefs: string[];
 }
 
@@ -293,6 +295,8 @@ export interface MasterMenu {
    * Unset = no separate pickup price (the delivery price applies to pickup too).
    */
   pickupMarkupPct?: Partial<Record<Marketplace, number>>;
+  /** Default Uber Eats tax class of the brand's items and options (Item.tax_label_info); unset = none sent. */
+  uberTaxClass?: string;
   updatedAt: string;
 }
 

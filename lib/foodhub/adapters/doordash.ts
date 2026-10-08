@@ -288,6 +288,8 @@ export function parseDoorDashOrder(body: any): NormalizedOrder | null {
     discount: doorDashDiscount(o),
     total: cents(o.subtotal) + cents(o.tax),
     notes: o.order_special_instructions || undefined,
+    // Order Model `experience`: DOORDASH, CAVIAR, STOREFRONT, … (shown to the staff on the card, ticket and Clover note).
+    ...(o.experience ? { orderSource: String(o.experience).toUpperCase() } : {}),
     lines,
     raw: body,
   };

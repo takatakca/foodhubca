@@ -143,6 +143,23 @@ export interface NormalizedOrder {
   hubOrderId?: string;
   /** Lines / options that reached Clover as free text (not linked to the Clover inventory). */
   mappingWarnings?: OrderMappingWarning[];
+  /**
+   * Where the customer ordered inside the platform, as the platform sends it (DoorDash `experience`: DOORDASH,
+   * CAVIAR, STOREFRONT, …). Shown to the staff (orderSourceLabel).
+   */
+  orderSource?: string;
+}
+
+/** DoorDash Marketplace order `experience` values (API reference, Order model). */
+export const ORDER_SOURCE_LABELS: Record<string, string> = {
+  DOORDASH: 'DoorDash', CAVIAR: 'Caviar', STOREFRONT: 'Storefront', WHITE_LABELED: 'White label', DOORDASH_CHECKOUT: 'DoorDash Checkout', ANY_EXPERIENCE: 'DoorDash',
+};
+
+/** Staff-facing label of an order source ("Caviar", "Storefront"…); null when the platform sent none. */
+export function orderSourceLabel(source?: string | null): string | null {
+  const s = String(source ?? '').trim();
+  if (!s) return null;
+  return ORDER_SOURCE_LABELS[s.toUpperCase()] ?? s.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export interface StoredOrder extends NormalizedOrder {

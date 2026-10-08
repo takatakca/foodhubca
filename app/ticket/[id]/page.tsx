@@ -2,7 +2,7 @@
 
 import { use, useEffect, useRef, useState } from 'react';
 import { api, money } from '@/lib/ui/api';
-import type { StoredOrder } from '@/lib/foodhub/types';
+import { orderSourceLabel, type StoredOrder } from '@/lib/foodhub/types';
 
 const LABEL: Record<string, string> = { uber_eats: 'UBER EATS', doordash: 'DOORDASH', skip: 'SKIPTHEDISHES', tgtg: 'TOO GOOD TO GO' };
 
@@ -29,6 +29,7 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
       </div>
       <div className="ticket">
         <div className="t-center t-big">{LABEL[order.channel] ?? order.channel}</div>
+        {orderSourceLabel(order.orderSource) && <div className="t-center">{orderSourceLabel(order.orderSource)!.toUpperCase()}</div>}
         <div className="t-center t-huge">#{order.displayId || order.externalOrderId.slice(0, 8)}</div>
         <div className="t-center">{order.brandName ?? ''}</div>
         <div className="t-rule" />

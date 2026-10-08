@@ -8,7 +8,7 @@ import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { ALLERGY, courierLabel, primaryAction, useOrderActions } from './order-drawer';
 import { money, timeOf } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
-import type { StoredOrder } from '@/lib/foodhub/types';
+import { orderSourceLabel, type StoredOrder } from '@/lib/foodhub/types';
 import { cn } from '@/lib/ui/cn';
 
 export type BoardOrder = StoredOrder & { actions: string[] };
@@ -51,6 +51,7 @@ export function OrderCard({ o, onOpen, big }: { o: BoardOrder; onOpen: () => voi
         )}
         <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
           {o.status === 'accepted' && tl.readyTarget && <Badge tone={late ? 'stop' : 'neutral'} icon={<AlarmClock className="size-3" />}>{timeOf(tl.readyTarget, loc)} · <Countdown to={tl.readyTarget} className="text-inherit" /></Badge>}
+          {orderSourceLabel(o.orderSource) && <Badge tone="neutral" title={t('Où le client a commandé', 'Where the customer ordered')}>{orderSourceLabel(o.orderSource)}</Badge>}
           {o.viaPos && <Badge tone="info" title={t('Reçue par l’intégration Clover de la plateforme — Food Hub suit seulement.', 'Received through the platform’s Clover integration — Food Hub only follows it.')}>{t('via Clover', 'via Clover')}</Badge>}
           {scheduled && <Badge tone="violet" icon={<CalendarClock className="size-3" />}>{t('planifiée', 'scheduled')} {timeOf(tl.scheduledFor ?? tl.fireAt, loc)}</Badge>}
           {tl.courier && <Badge tone={tl.courier.status === 'at_store' ? 'wait' : 'info'} icon={<Bike className="size-3" />}>{courierLabel(t, tl.courier.status)}</Badge>}

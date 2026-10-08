@@ -102,3 +102,28 @@ describe('DoorDash reject: documented failure_reason strings + item-level errors
     expect(calls[0].body).toEqual({ merchant_supplied_id: 'o1', order_status: 'fail', failure_reason: 'Item Unavailable - Shawarma - i2 - Out of stock', errors: [{ code: 'ITEM_OUT_OF_STOCK', merchant_supplied_id: 'i2', message: 'Item Unavailable - Shawarma - Out of stock' }] });
   });
 });
+
+describe('DoorDash order source (experience: DoorDash / Caviar / Storefront)', () => {
+  const ddOrder = (extra: Record<string, unknown> = {}) => ({ id: 'dd-src', store: { merchant_supplied_id: 'dd-pita' }, subtotal: 1000, tax: 150, categories: [{ items: [{ merchant_supplied_id: 'i1', name: 'Poutine', price: 1000, quantity: 1 }] }], ...extra });
+
+  it('is parsed from the order and labelled for the staff', async () => {
+    const { parseDoorDashOrder } = await import('../lib/foodhub/adapters/doordash');
+    expect(parseDoorDashOrder(ddOrder({ experience: 'CAVIAR' }))?.orderSource).toBe('CAVIAR');
+    expect(parseDoorDashOrder(ddOrder({ experience: 'storefront' }))?.orderSource).toBe('STOREFRONT');
+    expect(parseDoorDashOrder(ddOrder())?.orderSource).toBeUndefined();
+    const { orderSourceLabel } = await import('../lib/foodhub/types');
+    expect(orderSourceLabel('DOORDASH')).toBe('DoorDash');
+    expect(orderSourceLabel('CAVIAR')).toBe('Caviar');
+    expect(orderSourceLabel('STOREFRONT')).toBe('Storefront');
+    expect(orderSourceLabel('NEW_THING')).toBe('New Thing');
+    expect(orderSourceLabel(undefined)).toBeNull();
+  });
+
+  it('is printed on the Clover kitchen note', async () => {
+    const { parseDoorDashOrder } = await import('../lib/foodhub/adapters/doordash');
+    const { cloverOrderNote } = await import('../lib/foodhub/pos/clover-order');
+    const o = { ...parseDoorDashOrder(ddOrder({ experience: 'CAVIAR' }))!, id: 'o1', status: 'new', createdAt: '', updatedAt: '' } as StoredOrder;
+    expect(cloverOrderNote(o)).toContain('Source: Caviar');
+    expect(cloverOrderNote({ ...o, orderSource: undefined })).not.toContain('Source:');
+  });
+});

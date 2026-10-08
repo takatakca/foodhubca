@@ -4,9 +4,9 @@ Source: `docs/PLATFORM_API_RESEARCH.md` §6 (branch `api-research`). One commit 
 Every field below was re-checked on developer.doordash.com / developer.uber.com before it was coded.
 
 ## Status / next step (handoff note)
-- **Status (2026-10-08 ~00:15 UTC):** DoorDash items 1-6 done and pushed; SOW (7) skipped. Tests: tests/certification-backlog.test.ts.
-- **Next step:** item 9, Uber "Disconnect from Uber" (DELETE pos_data) in `lib/foodhub/adapters/uber-provision.ts`; then 8 (tax categories) and 10 (prep-time TODO + question).
-- **Read first:** this file, `lib/foodhub/adapters/uber-provision.ts`, `lib/foodhub/adapters/uber-eats.ts`.
+- **Status (2026-10-08 ~00:25 UTC):** DoorDash 1-6 done (SOW skipped), Uber 8-10 done (10 = TODO + question). Tests: tests/certification-backlog.test.ts.
+- **Next step:** Drive item 11, `dropoff_address_components` in `driveBody` (lib/foodhub/delivery/doordash-drive.ts) from the parsed address (lib/foodhub/delivery/address.ts); then 12 (per-kitchen ids) and 13 (restricted items, reuse lib/foodhub/alcohol/rules.ts).
+- **Read first:** this file, `lib/foodhub/delivery/doordash-drive.ts`, `lib/foodhub/delivery/address.ts`.
 
 ## Items
 
@@ -19,9 +19,9 @@ Every field below was re-checked on developer.doordash.com / developer.uber.com 
 | 5 | DoorDash | Separate pickup prices (dual pricing): `base_price` on items + options; menu setting "DoorDash pickup %" | done | b6f7c35 |
 | 6 | DoorDash | Automatic Item Availability Polling: DoorDash calls `GET /api/foodhub/webhooks/doordash/item-polling/{location_id}` | done | 5cb280e |
 | 7 | DoorDash | Store Onboarding Webhook (SOW) | skipped: not trivial (sender + status webhook + screen); not needed if DoorDash assigns an EPM | |
-| 8 | Uber Eats | Item tax categories | todo | |
-| 9 | Uber Eats | "Disconnect from Uber" (`DELETE pos_data`) | todo | |
-| 10 | Uber Eats | Store prep-time call | TODO + question for Uber | |
+| 8 | Uber Eats | Item tax categories: `tax_label_info` from documented TaxLabels rows, brand default + per-item class | done | d822594 |
+| 9 | Uber Eats | "Disconnect from Uber" (`DELETE pos_data`, merchant token) on Stores → Mapping | done | cf307cf |
+| 10 | Uber Eats | Store prep-time call | TODO in `uber-eats.ts` (endpoint not public) + question below | (this commit) |
 | 11 | Drive | `dropoff_address_components` | todo | |
 | 12 | Drive | Per-kitchen business / store ids | todo | |
 | 13 | Drive | Block restricted items | todo | |
@@ -32,6 +32,8 @@ Every field below was re-checked on developer.doordash.com / developer.uber.com 
 
 ## Questions for the platforms
 - DoorDash: the FAQ writes provider_type `doordash_pizza` as `DoorDashPizza/1.0` (not plain CamelCase). Confirm the exact User-Agent for our provider type; `DOORDASH_USER_AGENT` sets it without code.
+- Uber: "Update Store Prep Time" is listed as required in the quality standards, but its endpoint is not in the public API reference. Please send the official path, body and scope. (Today the prep time reaches Uber per order as `pickup_time` on accept.)
+- Uber: which `tax_label_info` labels should a Québec restaurant send for a hot main dish? The TaxLabels table has `CAT_PREPARED_FOOD` only with `TEMP_UNHEATED`. And where is the store tax area id set? It is not in the public V2 menu reference.
 - DoorDash: Item Polling `start_time` / `end_time` (optional) meaning is not explained; Food Hub sends neither (timed 86s are still pushed in real time).
 
 ## Shared files touched (for easy merges)

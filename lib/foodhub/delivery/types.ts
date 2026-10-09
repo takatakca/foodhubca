@@ -93,7 +93,7 @@ export interface DirectOrder {
   updatedAt: string;
 }
 
-export type FleetKey = 'doordash_drive' | 'uber_direct';
+export type FleetKey = 'doordash_drive' | 'uber_direct' | 'skip_daas';
 
 /** Normalised courier status, the same for every fleet. Moves forward only (except to a terminal state). */
 export type DeliveryStatus =

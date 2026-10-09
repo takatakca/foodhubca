@@ -45,7 +45,7 @@ export const POST = withPerm<Ctx>('orders:act', async (req, ctx, actor) => {
   if (action === 'dispatch') {
     const gate = await approvalGate(req, actor, 'delivery.dispatch', order.locationCode, `courier for ${order.number}`);
     if (gate) return gate;
-    const fleet = b.fleet === 'uber_direct' || b.fleet === 'doordash_drive' ? (b.fleet as FleetKey) : undefined;
+    const fleet = b.fleet === 'uber_direct' || b.fleet === 'doordash_drive' || b.fleet === 'skip_daas' ? (b.fleet as FleetKey) : undefined;
     const r = await dispatchOrder(id, actor, { fleet });
     if (!r.ok) return fail(r.message, 409, { problems: r.problems ?? [], problemsFr: r.problems ? await dispatchProblems(r.order, undefined, undefined, 'fr') : [], quotes: r.quotes ?? [] });
     message = r.message;

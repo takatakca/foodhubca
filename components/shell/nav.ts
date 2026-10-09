@@ -2,7 +2,8 @@ import { BellRing, ChartNoAxesCombined, ChefHat, LayoutDashboard, ReceiptText, S
 import type { T } from '@/lib/i18n';
 
 /**
- * The console's menu, DoorDash Merchant style: a few groups, their pages underneath.
+ * The console's menu, DoorDash Merchant style: a few groups. A group lists sections underneath only when they are
+ * separate pages without tabs between them (Orders → own orders, Reports → money); other sub-pages are tabs on the page.
  * `features`: shown only when one of these expansion features is on. `match`: other paths that light up the group.
  */
 export type NavChild = { href: string; label: (t: T) => string; perm: string; allLocations?: boolean; features?: string[]; exact?: boolean };
@@ -21,22 +22,9 @@ export const NAV: NavItem[] = [
     ],
   },
   { href: '/kitchen', icon: ChefHat, label: (t) => t('Écran cuisine', 'Kitchen screen'), perm: 'view' },
-  {
-    href: '/menu', icon: UtensilsCrossed, label: (t) => t('Menus', 'Menus'), perm: 'items:toggle',
-    children: [
-      { href: '/menu', label: (t) => t('Menus', 'Menus'), perm: 'items:toggle', exact: true },
-      { href: '/menu/86', label: (t) => t('Ruptures (86)', '86 board'), perm: 'items:toggle' },
-      { href: '/menu/retail', label: (t) => t('Épicerie', 'Grocery'), perm: 'items:toggle', features: ['retail'] },
-    ],
-  },
-  {
-    href: '/stores', icon: Store, label: (t) => t('Restaurants', 'Restaurants'), perm: 'view', badge: 'stores',
-    children: [
-      { href: '/stores', label: (t) => t('Statut et pauses', 'Status & pauses'), perm: 'view', exact: true },
-      { href: '/stores/hours', label: (t) => t('Heures d’ouverture', 'Opening hours'), perm: 'menu:edit' },
-      { href: '/stores/mapping', label: (t) => t('Liens plateformes', 'Platform links'), perm: 'stores:map' },
-    ],
-  },
+  // Menus and Restaurants keep their sub-pages as tabs on the page (86 board, hours, platform links).
+  { href: '/menu', icon: UtensilsCrossed, label: (t) => t('Menus', 'Menus'), perm: 'items:toggle' },
+  { href: '/stores', icon: Store, label: (t) => t('Restaurants', 'Restaurants'), perm: 'view', badge: 'stores' },
   {
     href: '/insights', icon: ChartNoAxesCombined, label: (t) => t('Rapports', 'Reports'), perm: 'analytics:view', match: ['/money'],
     children: [

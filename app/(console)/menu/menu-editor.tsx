@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Banner, Card, CardHeader, EmptyState, PageHeader } from '@/components/ui/card';
 import { Checkbox, Field, Input, Select, Switch, Textarea } from '@/components/ui/form';
 import { Modal } from '@/components/ui/overlay';
+import { usePulse } from '@/components/live/pulse';
 import { Segmented } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/toast';
 import { fullWeek, WeekEditor, weekProblems, type Week } from '@/components/ui/week-editor';
@@ -32,7 +33,10 @@ const uid = (p: string) => `${p}-${Date.now().toString(36)}${Math.random().toStr
 
 export function MenuEditor() {
   const { t, lang, loc } = useI18n();
-  const { brands: catalogBrands, locName } = useViewer();
+  const { brands: catalogBrands, brandsByKitchen, locName } = useViewer();
+  // The console's scope opens its brand (or the picked kitchen's first brand).
+  const { site } = usePulse();
+  const scopeBrand = site.brand ?? (site.kitchen ? brandsByKitchen[site.kitchen]?.[0] ?? null : null);
   const toast = useToast();
   const [brands, setBrands] = useState<string[]>([]);
   const [brand, setBrand] = useState('');
@@ -55,8 +59,10 @@ export function MenuEditor() {
   const [sharedFrom, setSharedFrom] = useState<string | null>(null);
   const [group, setGroup] = useState<string[]>([]);
 
-  const loadBrands = useCallback(() => api<{ brands: string[]; sharing?: Record<string, string> }>('/api/foodhub/menu').then((d) => { setBrands(d.brands); setSharing(d.sharing ?? {}); setBrand((b) => b || d.brands[0] || ''); }).catch((e) => toast.error(e.message)), [toast]);
+  const loadBrands = useCallback(() => api<{ brands: string[]; sharing?: Record<string, string> }>('/api/foodhub/menu').then((d) => { setBrands(d.brands); setSharing(d.sharing ?? {}); setBrand((b) => b || (scopeBrand && d.brands.includes(scopeBrand) ? scopeBrand : '') || d.brands[0] || ''); }).catch((e) => toast.error(e.message)), [toast, scopeBrand]);
   useEffect(() => { loadBrands(); }, [loadBrands]);
+  // A brand picked in the header opens here (unless unsaved changes are on screen).
+  useEffect(() => { if (site.brand && !dirty) setBrand((b) => (brands.includes(site.brand!) ? site.brand! : b)); }, [site.brand, brands, dirty]);
   useEffect(() => { api<{ languages: Langs }>('/api/foodhub/menu/languages').then((d) => setLangs(d.languages)).catch(() => undefined); }, []);
   const loadStatus = useCallback(async (b: string) => {
     const d = await api<{ check: Check | null; stores: StoreStatus[]; scheduled: Scheduled[]; group?: string[] }>(`/api/foodhub/menu/publish?brand=${encodeURIComponent(b)}`).catch(() => null);

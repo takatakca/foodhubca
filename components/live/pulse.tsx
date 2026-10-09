@@ -120,6 +120,12 @@ export function usePulse(): Ctx {
   return c;
 }
 
+/** The console's scope when inside the console (null elsewhere, e.g. a page without the console shell). */
+export function useConsoleScope(): Pick<Ctx, 'site' | 'scope' | 'brands'> | null {
+  const c = useContext(PulseCtx);
+  return c ? { site: c.site, scope: c.scope, brands: c.brands } : null;
+}
+
 /** Internal links that keep the console's scope (?kitchen=…&brand=…). Outside the console they stay as they are. */
 export function useScopeHref(): (href: string) => string {
   const site = useContext(PulseCtx)?.site;

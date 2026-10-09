@@ -18,7 +18,7 @@ export const HINTS: Record<string, HintEntry> = {
   },
   'shell.scope': {
     title: ['Quel restaurant ?', 'Which restaurant?'],
-    body: ['Tous les restaurants, une cuisine, ou une marque seule (la flèche ouvre les marques d’une cuisine). Toute la console suit ce choix, et il reste dans le lien. Les alarmes de commande sonnent quand même pour toutes les marques de la cuisine. Une tablette de cuisine reste sur sa cuisine.', 'Every restaurant, one kitchen, or one brand alone (the arrow opens a kitchen’s brands). The whole console follows, and the choice stays in the link. Order alarms still ring for every brand of the kitchen. A kitchen tablet stays on its own kitchen.'],
+    body: ['Tous les restaurants, une cuisine, ou une marque seule (la flèche ouvre ses marques). Toute la console suit, et le choix reste dans le lien. Les alarmes sonnent quand même pour toutes les marques de la cuisine. Une tablette reste sur sa cuisine.', 'Every restaurant, one kitchen, or one brand alone (the arrow opens its brands). The whole console follows, and the choice stays in the link. Alarms still ring for every brand of the kitchen. A tablet stays on its own kitchen.'],
   },
   'shell.search': {
     title: ['Tout trouver', 'Find anything'],

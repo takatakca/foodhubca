@@ -159,6 +159,7 @@ export function readRemembered(raw: string | null | undefined): Scope | null {
 
 export type CellState = 'online' | 'closed' | 'paused' | 'deactivated' | 'unknown' | 'not_synced' | 'missing';
 export type BrandOpenState = 'open' | 'paused' | 'closed' | 'deactivated' | 'not_connected';
+const OPEN_RANK: Record<BrandOpenState, number> = { open: 0, paused: 1, closed: 2, deactivated: 3, not_connected: 4 };
 
 /**
  * One word for a brand in a kitchen, from its platform cells: open if any platform takes orders, else paused if one
@@ -173,18 +174,25 @@ export function brandOpenState(cells: ReadonlyArray<{ state: CellState | string 
   return 'not_connected';
 }
 
-/** A stable colour index (0–7) for a brand's monogram, so a brand keeps its colour everywhere. */
+export const BRAND_HUES = 10;
+/** A stable colour index (0–9) for a brand's monogram, so a brand keeps its colour everywhere. */
 export function brandHue(name: string): number {
   let h = 0;
   for (const ch of name) h = (h * 31 + ch.codePointAt(0)!) >>> 0;
-  return h % 8;
+  return h % BRAND_HUES;
 }
 
-/** "Bin molle & Bin Dure" → "BB", "OOeuf" → "OO", "Po Poulet" → "PP". */
+/**
+ * A brand's monogram, told apart from its neighbours: a short first word stays as written ("Po Poulet" → "Po",
+ * "Pi Pita" → "Pi", "PPP Pizzeria" → "PPP"); otherwise first and last initials ("Cafe Bolon" → "CB",
+ * "Crèmerie Bin Molle Bin Dure" → "CD"); one word → its first two letters ("OOeuf" → "OO").
+ */
 export function brandInitials(name: string): string {
   const words = name.replace(/[&+]/g, ' ').split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w));
-  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
-  return (words[0] ?? name).slice(0, 2).toUpperCase();
+  if (!words.length) return name.slice(0, 2).toUpperCase();
+  if (words.length >= 2 && words[0].length <= 3) return words[0];
+  if (words.length >= 2) return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+  return words[0].slice(0, 2).toUpperCase();
 }
 
 /** One line of a brand list: a brand in a kitchen, its platforms and today's numbers. */
@@ -201,7 +209,8 @@ export interface BrandRow {
 
 /**
  * The brand list of a scope: every brand × kitchen line of the store grid inside the scope, with today's orders and
- * sales. Kitchens keep the given order, brands are alphabetical inside a kitchen.
+ * sales. Kitchens keep the given order; inside a kitchen the brands taking orders come first, then paused, closed,
+ * deactivated and not connected, alphabetical within each.
  */
 export function brandRows(
   matrix: ReadonlyArray<{ brandName: string; locationCode: string; cells: Record<string, { state: CellState | string }> }>,
@@ -218,5 +227,5 @@ export function brandRows(
       const cells = Object.fromEntries(Object.entries(r.cells).map(([ch, c]) => [ch, c.state as CellState]));
       return { brandName: r.brandName, locationCode: r.locationCode, state: brandOpenState(Object.values(r.cells)), cells, orders: s?.orders ?? 0, sales: s?.sales ?? 0, open: s?.open ?? 0 };
     })
-    .sort((a, b) => rank(a.locationCode) - rank(b.locationCode) || byName(a.brandName, b.brandName));
+    .sort((a, b) => rank(a.locationCode) - rank(b.locationCode) || OPEN_RANK[a.state] - OPEN_RANK[b.state] || byName(a.brandName, b.brandName));
 }

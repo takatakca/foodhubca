@@ -80,7 +80,7 @@ export function Overview() {
           note={k ? (k.deliveryOrders ? t(`panier moyen ${money(k.avgTicket, loc)}`, `average ${money(k.avgTicket, loc)}`) : t('aucune pour l’instant', 'none yet')) : null} />
         <Kpi icon={<Wallet className="size-4" />} label={cc?.brandScoped ? t('Ventes (livraison)', 'Sales (delivery)') : t('Ventes', 'Sales')} value={sales === null ? null : money(sales, loc)}
           note={vs !== null ? <span className={cn('inline-flex items-center gap-1 font-semibold', vs >= 0 ? 'text-go-2' : 'text-stop-2')}>{vs >= 0 ? <TrendingUp className="size-3.5" /> : <TrendingDown className="size-3.5" />}{vs > 0 ? '+' : ''}{vs}% {t('vs hier', 'vs yesterday')}</span> : k ? t('rien hier à la même heure', 'nothing yesterday at this time') : null} />
-        <Kpi icon={<Timer className="size-4" />} label={t('Préparation moyenne', 'Average prep')} value={k ? (k.avgPrepMin === null ? '—' : `${k.avgPrepMin} min`) : null}
+        <Kpi icon={<Timer className="size-4" />} label={t('Préparation moyenne', 'Average prep')} value={k ? (k.avgPrepMin === null ? '—' : k.avgPrepMin < 1 ? '< 1 min' : `${k.avgPrepMin} min`) : null}
           note={k ? (target ? t(`objectif ${target.minutes} min${target.isBusy ? ' (occupé)' : ''}`, `target ${target.minutes} min${target.isBusy ? ' (busy)' : ''}`) : t('acceptée → prête', 'accepted → ready')) : null}
           tone={k && target && k.avgPrepMin !== null && k.avgPrepMin > target.minutes ? 'wait' : undefined} />
         <Kpi icon={<BellRing className="size-4" />} label={t('À traiter', 'To handle')} value={pulse ? String(pulse.incidents.open) : null} href={href('/alerts')}

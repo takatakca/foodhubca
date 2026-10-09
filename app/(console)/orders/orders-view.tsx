@@ -50,16 +50,19 @@ const LANES = [
   { key: 'dispatched', fr: 'Parties', en: 'Picked up', dot: 'bg-info' },
 ] as const;
 
-export function useBoardOrders() {
-  const { pulse, scope } = usePulse();
+/** `allBrands`: the kitchen screen shows every brand of its kitchen, whatever brand the console is looking at. */
+export function useBoardOrders({ allBrands = false }: { allBrands?: boolean } = {}) {
+  const { pulse, scope, brands } = usePulse();
+  const brandKey = allBrands ? '' : brands.join(',');
   const [orders, setOrders] = useState<BoardOrder[] | null>(null);
   const sig = pulse ? JSON.stringify([pulse.orders, pulse.incoming.map((o) => o.id + o.status)]) : '';
   const load = useCallback(async () => {
     const q = new URLSearchParams({ status: 'new,accepted,ready,dispatched', since: new Date(Date.now() - 48 * 3600_000).toISOString(), limit: '400' });
     if (scope.length) q.set('locations', scope.join(','));
+    if (brandKey) q.set('brands', brandKey);
     const d = await api<{ orders: BoardOrder[] }>(`/api/foodhub/orders?${q}`).catch(() => null);
     if (d) setOrders(d.orders);
-  }, [scope]);
+  }, [scope, brandKey]);
   useEffect(() => { load(); }, [load, sig]);
   useEffect(() => { const i = setInterval(load, 15_000); return () => clearInterval(i); }, [load]);
   useRefreshOn(load);
@@ -107,8 +110,8 @@ type Row = BoardOrder & { actions: string[] };
 function History({ onOpen }: { onOpen: (id: string) => void }) {
   const { t, loc } = useI18n();
   const { locations, brands, locName } = useViewer();
-  const { scope } = usePulse();
-  const { filters, set, query } = useFilters('today', scope);
+  const { scope, brands: brandScope } = usePulse();
+  const { filters, set, query } = useFilters('today', scope, brandScope);
   const [status, setStatus] = useState('');
   const [q, setQ] = useState('');
   const [rows, setRows] = useState<Row[] | null>(null);

@@ -141,19 +141,25 @@ describe('brand list', () => {
   it('rows of the scope with today’s numbers, kitchens in order, brands alphabetical', () => {
     const stats = [{ brandName: 'Po Poulet', locationCode: 'NDG_MAIN', orders: 3, sales: 61.5, open: 1 }];
     const all = brandRows(matrix, stats, ALL_RESTAURANTS, ['SAINT_LEONARD', 'NDG_MAIN']);
-    expect(all.map((r) => `${r.locationCode}:${r.brandName}:${r.state}`)).toEqual(['SAINT_LEONARD:Po Poulet:closed', 'NDG_MAIN:Pi Pita:paused', 'NDG_MAIN:Po Poulet:open']);
+    // Kitchens in the given order; inside a kitchen, open brands first.
+    expect(all.map((r) => `${r.locationCode}:${r.brandName}:${r.state}`)).toEqual(['SAINT_LEONARD:Po Poulet:closed', 'NDG_MAIN:Po Poulet:open', 'NDG_MAIN:Pi Pita:paused']);
     const ndg = brandRows(matrix, stats, { kitchen: 'NDG_MAIN', brand: null });
     expect(ndg.find((r) => r.brandName === 'Po Poulet')).toMatchObject({ orders: 3, sales: 61.5, open: 1, cells: { uber_eats: 'online', doordash: 'deactivated' } });
     expect(ndg.find((r) => r.brandName === 'Pi Pita')).toMatchObject({ orders: 0, sales: 0 });
     expect(brandRows(matrix, stats, { kitchen: 'NDG_MAIN', brand: 'Po Poulet' })).toHaveLength(1);
   });
   it('a brand keeps its mark everywhere', () => {
-    expect(brandInitials('Po Poulet')).toBe('PP');
-    expect(brandInitials('Bin molle & Bin Dure')).toBe('BM');
+    expect(brandInitials('Po Poulet')).toBe('Po');
+    expect(brandInitials('Pi Pita')).toBe('Pi');
+    expect(brandInitials('PPP Pizzeria')).toBe('PPP');
+    expect(brandInitials('Poulet Poulet')).toBe('PP');
+    expect(brandInitials('Cafe Bolon')).toBe('CB');
+    expect(brandInitials('Crèmerie Bin Molle Bin Dure')).toBe('CD');
+    expect(brandInitials('Mythos 2 Go')).toBe('MG');
     expect(brandInitials('OOeuf')).toBe('OO');
     expect(brandHue('Po Poulet')).toBe(brandHue('Po Poulet'));
     expect(brandHue('Po Poulet')).toBeGreaterThanOrEqual(0);
-    expect(brandHue('Po Poulet')).toBeLessThan(8);
+    expect(brandHue('Po Poulet')).toBeLessThan(10);
   });
 });
 

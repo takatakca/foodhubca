@@ -125,6 +125,69 @@ function toResult(r: { ok: boolean; status: number; json: any; why: string }, ok
   };
 }
 
+// ---------- The rest of the Direct API (developer.uber.com/docs/deliveries/api-reference/daas) ----------
+
+/**
+ * Update Delivery (POST /deliveries/{id}): notes for the courier, the customer's tip, a later pickup time. Uber takes
+ * changes only until the courier reaches that step (its FAQ lists the timings). A write: live switch in production.
+ */
+export async function updateUberDirectDelivery(fleetDeliveryId: string, patch: { dropoffNotes?: string; pickupNotes?: string; tipByCustomer?: number; pickupReadyAt?: string }): Promise<FleetResult> {
+  const r = readiness();
+  if (!r.canSend) return blocked(r.note);
+  if (!fleetDeliveryId) return { ok: false, status: 'error', message: 'No Uber Direct delivery id yet.' };
+  const body = {
+    ...(patch.dropoffNotes !== undefined ? { dropoff_notes: patch.dropoffNotes.slice(0, 280) } : {}),
+    ...(patch.pickupNotes !== undefined ? { pickup_notes: patch.pickupNotes.slice(0, 280) } : {}),
+    ...(patch.tipByCustomer !== undefined ? { tip_by_customer: toCents(patch.tipByCustomer) } : {}),
+    ...(patch.pickupReadyAt ? { pickup_ready_dt: new Date(patch.pickupReadyAt).toISOString() } : {}),
+  };
+  if (!Object.keys(body).length) return { ok: false, status: 'error', message: 'Nothing to change.' };
+  return toResult(await call('POST', `/deliveries/${encodeURIComponent(fleetDeliveryId)}`, body), 'Updated on Uber Direct.');
+}
+
+/** List Deliveries (GET /deliveries): this account's deliveries, newest first, for one kitchen (external_store_id) or all. */
+export async function listUberDirectDeliveries(q: { filter?: 'pending' | 'pickup' | 'pickup_complete' | 'dropoff' | 'delivered' | 'canceled' | 'returned' | 'ongoing'; externalStoreId?: string; limit?: number; offset?: number } = {}): Promise<{ ok: boolean; deliveries: Array<{ id: string; status: DeliveryStatus | null; fee?: number; externalId?: string; created?: string; trackingUrl?: string }>; error?: string }> {
+  const r = readiness();
+  if (!r.configured) return { ok: false, deliveries: [], error: r.note };
+  const qs = new URLSearchParams();
+  if (q.filter) qs.set('filter', q.filter);
+  if (q.externalStoreId) qs.set('external_store_id', q.externalStoreId);
+  qs.set('limit', String(Math.max(1, Math.min(100, q.limit ?? 50))));
+  if (q.offset) qs.set('offset', String(q.offset));
+  const res = await call('GET', `/deliveries?${qs}`);
+  if (!res.ok) return { ok: false, deliveries: [], error: res.why };
+  const rows: any[] = Array.isArray(res.json?.data) ? res.json.data : [];
+  return { ok: true, deliveries: rows.map((d) => ({ id: String(d.id ?? ''), status: uberStatus(d.status), fee: typeof d.fee === 'number' ? fromCents(d.fee) : undefined, externalId: d.external_id || undefined, created: d.created || undefined, trackingUrl: d.tracking_url || undefined })) };
+}
+
+/** Proof of Delivery (POST /deliveries/{id}/proof-of-delivery): the photo / signature / PIN proof as a base64 PNG. */
+export async function uberDirectProofOfDelivery(fleetDeliveryId: string, waypoint: 'pickup' | 'dropoff' | 'return' = 'dropoff', type: 'picture' | 'signature' | 'pincode' = 'picture'): Promise<{ ok: boolean; document?: string; error?: string }> {
+  const r = readiness();
+  if (!r.configured) return { ok: false, error: r.note };
+  if (!fleetDeliveryId) return { ok: false, error: 'No Uber Direct delivery id yet.' };
+  const res = await call('POST', `/deliveries/${encodeURIComponent(fleetDeliveryId)}/proof-of-delivery`, { waypoint, type });
+  if (!res.ok) return { ok: false, error: res.why };
+  const doc = typeof res.json?.document === 'string' ? res.json.document : '';
+  return doc ? { ok: true, document: doc } : { ok: false, error: 'Uber Direct has no proof for this delivery yet.' };
+}
+
+export const UBER_DIRECT_REFUND_KIND = 'event.refund_request';
+
+export interface UberDirectRefund { fleetDeliveryId: string; ref: string | null; refundId: string | null; currency: string; partnerRefund: number; uberRefund: number; reasons: string[]; at: string }
+
+/** event.refund_request → what the owner needs: who pays what (Uber adjusts its invoice; the partner refunds the customer). */
+export function uberDirectRefund(body: any): UberDirectRefund | null {
+  if (String(body?.kind ?? '') !== UBER_DIRECT_REFUND_KIND || !body?.delivery_id) return null;
+  const d = body.data ?? {};
+  const items: any[] = Array.isArray(d.refund_order_items) ? d.refund_order_items : [];
+  return {
+    fleetDeliveryId: String(body.delivery_id), ref: body.external_id ? String(body.external_id) : null, refundId: d.id ? String(d.id) : null,
+    currency: String(d.currency_code ?? 'CAD').toUpperCase(), partnerRefund: fromCents(Number(d.total_partner_refund) || 0), uberRefund: fromCents(Number(d.total_uber_refund) || 0),
+    reasons: items.map((i) => [i?.reason, i?.party_at_fault ? `(${i.party_at_fault})` : ''].filter(Boolean).join(' ')).filter(Boolean),
+    at: body.created || nowIso(),
+  };
+}
+
 export const uberDirect: CourierFleet = {
   key: 'uber_direct',
   label: 'Uber Direct',
@@ -172,6 +235,8 @@ export const uberDirect: CourierFleet = {
     return safeEqual(got, want);
   },
   parseWebhook(body: any): FleetEvent | null {
+    // A refund request is not a courier status (its data is the refund): handled by uberDirectRefund instead.
+    if (String(body?.kind ?? '') === UBER_DIRECT_REFUND_KIND) return null;
     const d = body?.data ?? body;
     const fleetId = body?.delivery_id ?? d?.id;
     if (!fleetId) return null;

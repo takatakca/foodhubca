@@ -52,6 +52,16 @@ looks moved to Saint-Léonard; Saint-Léonard is written 5837 in older Food Hub 
 
 ## Findings from web search (this session cannot open listing sites; only web search works)
 
+- 2026-10-09 | Déjeuner Montréal | **Not on any platform and no public listing** (no Uber Eats, no DoorDash; website is a
+  sub-address of OOEUF, `dejeuner.ooeuf.ca`). **Name vs menu:** in Québec French "déjeuner" means breakfast, but the menu
+  (brand config) is a casse-croûte: burgers, steamed and Michigan hot dogs, poutines, no breakfast items. Customers who
+  search "déjeuner" expect eggs and toast and will leave bad reviews; and OOEUF is already the group's breakfast brand
+  under the same domain, so the two would be confused. **Competitors:** for casse-croûte near NDG, Gibeau Orange Julep
+  (open since 1930, Michigan hot dog, burgers, poutine); elsewhere, Paulo et Suzanne and Patati Patata are the reference
+  names in guides. Owner decides: rename to a casse-croûte name (category "Snack bar" / "Hamburger restaurant"), or fold
+  the casse-croûte menu into an existing brand. Sources: https://tastet.ca/listes/les-meilleurs-casse-croutes-du-quebec/ ,
+  https://www.restomontreal.ca/article/meilleurs-casse-croute-de-montreal/2341/fr/
+
 - 2026-10-09 | Place Afrique | **Not on any platform and no public listing** (no Uber Eats, no DoorDash, nothing in web
   search; website is a sub-address of Café Bolon, `placeafrique.bolon.ca`). **Name vs menu:** the menu (brand config) is
   samosas, Jamaican patties, empanadas, souvlaki and chicken or pork skewers: none of it is African, so the proposed Google

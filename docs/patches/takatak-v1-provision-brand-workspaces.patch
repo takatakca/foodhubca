@@ -1,0 +1,4134 @@
+From 312ae5e3463b2d97c2d50463328c6245bdd51d99 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 9 Oct 2026 11:00:20 +0000
+Subject: [PATCH 1/2] WORKLOG: claim workspace provisioning script
+
+Claude-Session: https://claude.ai/code/session_01Gn1TTeAosE4tP6ZsHSXmgz
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ WORKLOG.md | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/WORKLOG.md b/WORKLOG.md
+index a1ab8c7..21e23f0 100644
+--- a/WORKLOG.md
++++ b/WORKLOG.md
+@@ -27,6 +27,7 @@ Each item is something only a person can do: a secret, an approval, a merge, an
+ - **Developers: work from `docs/DEV-TODO.md`** (everything left, in order).
+ 
+ ## Open work
++- 2026-10-09 | claude (session 01Gn1TTe) | claude/provision-brand-workspaces → no PR yet | active, not pushed (no push access in this session) | Script that provisions one workspace per brand for a restaurant group from a private JSON file (workspace, brand, locations, owner invitations), dry-run by default | finish script, tests, doc
+ - 2026-10-09 | claude (session 01W1ntbf) | claude/festive-newton-5i9rv7 → #117 | merging into main (owner request) | Growth Suite (reputation, analytics, chat, AI agents, Google, plans). Merged main (incl. #151–#154); 9 Growth migrations renamed to 20261009010000–20261009090000 so they sort after the billing migrations (never applied anywhere); rollback script still exact; homepage and Social untouched | owner approved the 9 Growth migrations for staging (2026-10-09): back up staging, run the staging reconciler apply, deploy; production DB approval later; close or merge #135/#136/#137 (overlaps)
+ - 2026-10-09 | claude (session 01W1ntbf) | fix/phone-first-master-auth → #148 | done (merged d4b0bfa) | Took over at the owner's request: merged main (#147–#154), kept the staging reconciler's history-name map on top of main's migrationHistorySlug; no migration applied, nothing deployed | staging apply (resolve only) and a real SMS test on staging
+ - 2026-10-08 | cursor | fix/phone-first-master-auth → #148 | PR open | CI run 37788446918 is green on ea8a9bc. Registration profile sync restored. Isolated preview host, Prisma history record, and real SMS are still blocked. | Owner: preview URL plus app root, Supabase Auth provider login, and one Canadian test number. Do not merge or deploy production.
+-- 
+2.43.0
+
+
+From a39e9a1b48340a5ba8339fe43a6ad036d620919f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 9 Oct 2026 11:18:37 +0000
+Subject: [PATCH 2/2] Add dry-run-first script to provision one workspace per
+ brand
+
+npm run provision:workspaces -- --data <private file outside the repo>
+
+- src/lib/provisioning/workspace-provisioning-policy.ts (pure): parses the
+  version-1 data file through the app validators (client, brand, location,
+  invitation), matches addresses, and turns a read-only snapshot into a plan
+  (CREATE, SKIP, BLOCKED, DEFERRED, CONFLICT, UNSUPPORTED, PLANNED, SEND).
+  Plan gates use the app's own pure policy (subscription lifecycle, brand
+  allowance, evaluateWorkspaceWriteAccess, evaluateTeamInvite).
+- src/lib/provisioning/workspace-provisioning-runner.ts: snapshot queries;
+  apply only through createClient, createBrand and createLocation (their
+  audit rows included); owner invitations mirror POST /api/team/invitations
+  (gate, member check, 7-day token, upsert, Supabase invite or magic link,
+  revoke + audit on failure, audit on success), sent by a Platform admin.
+- scripts/provision-workspaces.ts: dry-run by default; --apply needs
+  --actor-email and --confirm-db; --send-invites needs a public https
+  NEXT_PUBLIC_APP_URL; the data file must live outside the repository;
+  emails masked; tokens, links and connection strings never printed.
+- Opening hours are validated and reported UNSUPPORTED: no schema field.
+- Fake example data (example.com), pure tests, a loopback-only DB test,
+  CI steps, docs/WORKSPACE_PROVISIONING.md and the WORKLOG line.
+
+Claude-Session: https://claude.ai/code/session_01Gn1TTeAosE4tP6ZsHSXmgz
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .github/workflows/ci.yml                      |    8 +
+ WORKLOG.md                                    |    2 +-
+ docs/WORKSPACE_PROVISIONING.md                |   85 +
+ package.json                                  |    3 +
+ .../provision-workspaces.example.json         |   65 +
+ scripts/provision-workspaces-db-tests.ts      |  409 +++++
+ scripts/provision-workspaces-tests.ts         |  543 ++++++
+ scripts/provision-workspaces.ts               |  593 +++++++
+ .../workspace-provisioning-policy.ts          | 1505 +++++++++++++++++
+ .../workspace-provisioning-runner.ts          |  760 +++++++++
+ 10 files changed, 3972 insertions(+), 1 deletion(-)
+ create mode 100644 docs/WORKSPACE_PROVISIONING.md
+ create mode 100644 scripts/examples/provision-workspaces.example.json
+ create mode 100644 scripts/provision-workspaces-db-tests.ts
+ create mode 100644 scripts/provision-workspaces-tests.ts
+ create mode 100644 scripts/provision-workspaces.ts
+ create mode 100644 src/lib/provisioning/workspace-provisioning-policy.ts
+ create mode 100644 src/lib/provisioning/workspace-provisioning-runner.ts
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index e2d3a24..31b97d6 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -130,6 +130,9 @@ jobs:
+       - name: Client invoice center safeguards
+         run: npm run qa:client-invoices
+ 
++      - name: Workspace provisioning script (pure plan, no DB)
++        run: npm run qa:provision-workspaces
++
+       - name: Secret scan
+         run: npm run qa:secrets
+ 
+@@ -361,6 +364,11 @@ jobs:
+           NODE_ENV: development
+         run: npm run qa:lead-order-billing-db
+ 
++      - name: Workspace provisioning script against the ephemeral database
++        env:
++          NODE_ENV: development
++        run: npm run qa:provision-workspaces-db
++
+       - name: Build (webpack)
+         env:
+           NEXT_PUBLIC_APP_URL: https://takatak.ca
+diff --git a/WORKLOG.md b/WORKLOG.md
+index 21e23f0..7ad46a4 100644
+--- a/WORKLOG.md
++++ b/WORKLOG.md
+@@ -27,7 +27,7 @@ Each item is something only a person can do: a secret, an approval, a merge, an
+ - **Developers: work from `docs/DEV-TODO.md`** (everything left, in order).
+ 
+ ## Open work
+-- 2026-10-09 | claude (session 01Gn1TTe) | claude/provision-brand-workspaces → no PR yet | active, not pushed (no push access in this session) | Script that provisions one workspace per brand for a restaurant group from a private JSON file (workspace, brand, locations, owner invitations), dry-run by default | finish script, tests, doc
++- 2026-10-09 | claude (session 01Gn1TTe) | claude/provision-brand-workspaces → no PR yet | active, not pushed (no push access in this session) | `npm run provision:workspaces`: one workspace per brand for a restaurant group, from a private JSON file kept outside the repo (workspace, brand, locations, owner invitations). Dry-run by default; writes only through createClient/createBrand/createLocation; plan gates reported, never bypassed; hours not stored (no schema field). Guide: docs/WORKSPACE_PROVISIONING.md | push the branch and open a PR (CI runs qa:provision-workspaces + the DB test); owner: approve invitations sent by a Platform admin, choose plans per workspace (Essential holds a brand, Advanced allows invitations), group admin signs in once, then dry-run on staging with the private file
+ - 2026-10-09 | claude (session 01W1ntbf) | claude/festive-newton-5i9rv7 → #117 | merging into main (owner request) | Growth Suite (reputation, analytics, chat, AI agents, Google, plans). Merged main (incl. #151–#154); 9 Growth migrations renamed to 20261009010000–20261009090000 so they sort after the billing migrations (never applied anywhere); rollback script still exact; homepage and Social untouched | owner approved the 9 Growth migrations for staging (2026-10-09): back up staging, run the staging reconciler apply, deploy; production DB approval later; close or merge #135/#136/#137 (overlaps)
+ - 2026-10-09 | claude (session 01W1ntbf) | fix/phone-first-master-auth → #148 | done (merged d4b0bfa) | Took over at the owner's request: merged main (#147–#154), kept the staging reconciler's history-name map on top of main's migrationHistorySlug; no migration applied, nothing deployed | staging apply (resolve only) and a real SMS test on staging
+ - 2026-10-08 | cursor | fix/phone-first-master-auth → #148 | PR open | CI run 37788446918 is green on ea8a9bc. Registration profile sync restored. Isolated preview host, Prisma history record, and real SMS are still blocked. | Owner: preview URL plus app root, Supabase Auth provider login, and one Canadian test number. Do not merge or deploy production.
+diff --git a/docs/WORKSPACE_PROVISIONING.md b/docs/WORKSPACE_PROVISIONING.md
+new file mode 100644
+index 0000000..ca57bb0
+--- /dev/null
++++ b/docs/WORKSPACE_PROVISIONING.md
+@@ -0,0 +1,85 @@
++# Provision one workspace per brand (restaurant groups)
++
++`scripts/provision-workspaces.ts` sets up a group of brands from a private JSON file. Each brand gets its own workspace (`Client`), with one `BusinessBrand` and its `BusinessLocation`s. The group admin owns every workspace, so one login manages all the brands. Each brand's own owner gets an owner invitation.
++
++Membership is per workspace. Brand-level access does not exist, so a separate workspace per brand is the only way to keep each brand owner out of the other brands.
++
++## Rules
++
++- **Dry-run by default.** It prints what it would create or skip, and why anything is blocked. It writes nothing.
++- **The data file stays outside this repository.** The repository is public. The script refuses a data file inside it. The only exception is the fake example (`scripts/examples/provision-workspaces.example.json`), and only in dry-run. `--apply` also refuses `example.com` / `.test` addresses, except against a local database.
++- **Writes go through the app's services:** `createClient`, `createBrand` and `createLocation`. They keep their own checks and audit rows: `workspace_created`, `business_brand_created` and `business_location_created`.
++- **Plan gates are never bypassed.** The script never writes `ClientSubscription`, `planName` or `developmentBypass`.
++- **Nobody gets a password.** Invited people set their own password through the invitation link.
++- **Output is safe to share.** Emails are masked unless you pass `--show-emails`. Tokens, token hashes, links, keys and the connection string are never printed.
++
++## Run it
++
++```bash
++# 1. Validate the file only (no database needed)
++npm run provision:workspaces -- --data ~/private/group.json
++
++# 2. Dry-run against a database (env from a private file, never committed)
++npx tsx --env-file=$HOME/private/staging.env --require ./scripts/register-server-only.cjs \
++  scripts/provision-workspaces.ts --data ~/private/group.json --actor-email <your platform admin email>
++
++# 3. Write. --confirm-db must equal the DATABASE_URL hostname.
++npx tsx --env-file=... --require ./scripts/register-server-only.cjs scripts/provision-workspaces.ts \
++  --data ~/private/group.json --actor-email <you> --apply --confirm-db <db hostname>
++```
++
++The other options are `--only key1,key2`, `--initial-owner admin|actor`, `--send-invites` (also accepted as `--send-emails`), `--invite-delay-seconds` (default 65), `--max-invites` (default 10), `--reinvite-expired`, `--json` and `--show-emails`. Run with `--help` for details.
++
++Exit codes:
++
++- `0`: no errors. BLOCKED, DEFERRED and UNSUPPORTED items do not count as errors.
++- `1`: a validation, precondition, conflict or write error.
++- `2`: bad usage.
++
++## Data file (version 1)
++
++Start from the example. The main parts are:
++
++- `group`: `companyName`, `adminEmail` and an optional `assignedPlatformAdminEmail`.
++- `defaults`: timezone, country, region, city, statuses and category.
++- `addresses`: named addresses that locations can share.
++- `hours`: named weekly schedules. Each day takes `[["16:00","03:00"]]`, and a closing time earlier than the opening time means past midnight.
++- `brands[]`: each brand has `key`, `brand.name` and `locations`. It can also have `workspaceName` (default: the brand name), `ownerEmail`, `workspaceEmail` (default: null) and `hours`.
++
++Unknown fields are rejected. A location without a name is called `<brand> - <address line 1>`. The brand takes the address of its primary location.
++
++## What each status means
++
++| Status | Meaning |
++| --- | --- |
++| CREATE / SKIP | Will be created / already exists. Nothing is created twice. Workspaces are matched by name, case-insensitive, and must be owned by the admin or the actor. Brands are matched by name inside the workspace. Locations are matched by address or by name. Invitations are matched by workspace and email. |
++| BLOCKED | Waits for something. The line says what unblocks it: a sign-in, a plan, or `--reinvite-expired`. |
++| CONFLICT | Needs a human. Examples: a workspace with the same name that belongs to someone else, a workspace email already in use, or a location name at another address. |
++| DEFERRED | Only one live invitation per email at a time, or the `--max-invites` cap was reached. Run the script again later. |
++| UNSUPPORTED | Opening hours. The schema has no field for them, so they are validated but not stored. Storing them needs its own schema pull request. |
++| PLANNED / SEND | Owner invitation is ready / will be sent with `--apply --send-invites`. |
++
++## Plans: what a fresh workspace can do
++
++A new workspace has no Social subscription, so:
++
++- **Brands:** the brand allowance is 0. A first `--apply` creates the workspace and its owner, then reports the brand and its locations as BLOCKED. **Social Essential** or higher in that workspace's Plans & billing page unblocks the brand.
++- **Team invitations:** these need **Advanced 15/25/50** or a Custom contract (`assertClientCanInviteTeam`). Essential and Starter do not include team management.
++
++At the end, the script prints a "Blocked by the Social plan" table with the cheapest plan that unblocks each workspace. Run it again after buying the plans: it only adds what is missing.
++
++## Owners and invitations
++
++- **Default (`--initial-owner admin`).** The group admin becomes the owner through `createClient`, with no email, so the admin must already have an active account (signed in once). Until then, new workspaces are BLOCKED.
++- **`--initial-owner actor`.** The Platform admin running the script becomes the initial owner, and the group admin is queued for an owner invitation instead.
++- **Delivery.** Invitations follow the same steps as `POST /api/team/invitations`, through the same Supabase calls: a 7-day expiry, a Supabase invite or, for an existing account, a magic link, then a revoke plus audit on failure. The difference is that the inviter is the Platform Owner/Admin running the script, where the app requires a workspace owner.
++- **One email at a time.** Each new invite or magic link to the same email replaces the previous link. The script therefore keeps one live invitation per email, pauses between sends, and never replaces a pending invitation.
++- **Requirements for `--send-invites`:**
++  - `NEXT_PUBLIC_APP_URL` set to a public https origin;
++  - the Supabase admin settings;
++  - the redirect allow-list and the email template that the app's own invitations already use.
++
++## Checks
++
++- `npm run qa:provision-workspaces`: pure tests (data file, address matching, masking, statuses, plan gates).
++- `npm run qa:provision-workspaces-db`: runs against a loopback database only (CI's ephemeral Supabase, or a local Postgres after `prisma db push`). It covers dry-run, apply, idempotent re-runs, plan unlocks, the mirrored invitation with a fake Supabase client, and the command-line guards.
+diff --git a/package.json b/package.json
+index d01b285..32c90f3 100644
+--- a/package.json
++++ b/package.json
+@@ -103,6 +103,9 @@
+     "ops:supabase-phone-auth": "node scripts/ops/supabase-phone-auth.mjs",
+     "ops:stripe-growth-webhooks": "node scripts/ops/stripe-growth-webhooks.mjs",
+     "ops:twilio-check": "node scripts/ops/twilio-check.mjs",
++    "provision:workspaces": "tsx --require ./scripts/register-server-only.cjs scripts/provision-workspaces.ts",
++    "qa:provision-workspaces": "tsx scripts/provision-workspaces-tests.ts",
++    "qa:provision-workspaces-db": "tsx --require ./scripts/register-server-only.cjs scripts/provision-workspaces-db-tests.ts",
+     "qa:billing": "tsx scripts/verify-takatak-billing.ts && tsx scripts/verify-billing-feed.ts && tsx scripts/verify-lead-order-billing.ts",
+     "qa:billing-feed-db": "tsx --require ./scripts/register-server-only.cjs scripts/billing-feed-db-tests.ts",
+     "qa:lead-order-billing-db": "tsx --require ./scripts/register-server-only.cjs scripts/lead-order-billing-db-tests.ts",
+diff --git a/scripts/examples/provision-workspaces.example.json b/scripts/examples/provision-workspaces.example.json
+new file mode 100644
+index 0000000..0a119c7
+--- /dev/null
++++ b/scripts/examples/provision-workspaces.example.json
+@@ -0,0 +1,65 @@
++{
++  "$comment": "FAKE example for scripts/provision-workspaces.ts. Copy it OUTSIDE this public repository before you put real names, emails or addresses in it. --apply refuses example.com addresses.",
++  "version": 1,
++  "group": {
++    "companyName": "Example Holding",
++    "adminEmail": "admin@example.com",
++    "assignedPlatformAdminEmail": null
++  },
++  "defaults": {
++    "timezone": "America/Toronto",
++    "country": "Canada",
++    "region": "QC",
++    "city": "Montreal",
++    "brandStatus": "active",
++    "locationStatus": "active",
++    "category": "Restaurant"
++  },
++  "addresses": {
++    "site-a": { "addressLine1": "100 Example Avenue", "postalCode": "H0H 0H0" },
++    "site-b": { "addressLine1": "200 Example Street East", "postalCode": "H0H 0H0" },
++    "site-c": { "addressLine1": "300 Example Road", "addressLine2": "Unit 2", "postalCode": "H0H 0H0" }
++  },
++  "hours": {
++    "late-night": {
++      "mon": [["16:00", "03:00"]],
++      "tue": [["16:00", "03:00"]],
++      "wed": [["16:00", "03:00"]],
++      "thu": [["16:00", "03:00"]],
++      "fri": [["16:00", "03:00"]],
++      "sat": [["16:00", "03:00"]],
++      "sun": [["16:00", "03:00"]]
++    }
++  },
++  "brands": [
++    {
++      "key": "example-chicken",
++      "brand": { "name": "Example Chicken" },
++      "ownerEmail": "chicken-owner@example.com",
++      "locations": [
++        { "address": "site-a", "isPrimary": true },
++        { "address": "site-b" }
++      ],
++      "hours": "late-night"
++    },
++    {
++      "key": "example-pizza",
++      "workspaceName": "Example Pizza",
++      "brand": {
++        "name": "Example Pizza",
++        "category": "Pizzeria",
++        "website": "https://pizza.example.com"
++      },
++      "ownerEmail": "pizza-owner@example.com",
++      "locations": [{ "address": "site-b" }],
++      "hours": "late-night"
++    },
++    {
++      "key": "example-pita",
++      "brand": { "name": "Example Pita" },
++      "ownerEmail": null,
++      "locations": [{ "address": "site-c", "name": "Example Pita - Unit 2" }],
++      "hours": null
++    }
++  ]
++}
+diff --git a/scripts/provision-workspaces-db-tests.ts b/scripts/provision-workspaces-db-tests.ts
+new file mode 100644
+index 0000000..6414502
+--- /dev/null
++++ b/scripts/provision-workspaces-db-tests.ts
+@@ -0,0 +1,409 @@
++// Workspace provisioning against a real database (ephemeral CI Postgres or a
++// local throwaway one). Synthetic example.test data only; refuses any
++// non-loopback DATABASE_URL. No Supabase call: invitations go through a fake
++// auth client that records what the route would have sent.
++// Run: npm run qa:provision-workspaces-db
++import assert from "node:assert/strict";
++import { spawnSync } from "node:child_process";
++import { randomUUID } from "node:crypto";
++import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
++import os from "node:os";
++import path from "node:path";
++import { fileURLToPath } from "node:url";
++
++import { disconnectPrisma, getPrisma } from "@/lib/db/prisma";
++import {
++  buildProvisioningPlan,
++  parseProvisioningData,
++  type PlanOptions,
++  type ProvisioningData,
++} from "@/lib/provisioning/workspace-provisioning-policy";
++import {
++  applyProvisioningPlan,
++  loadProvisioningSnapshot,
++  type InvitationAuthClient,
++  type InvitationSender,
++} from "@/lib/provisioning/workspace-provisioning-runner";
++import { hashInvitationToken } from "@/lib/team/invitation-token";
++
++const REPO_ROOT = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
++const host = new URL(process.env.DATABASE_URL ?? "postgresql://invalid").hostname;
++if (host !== "127.0.0.1" && host !== "localhost") {
++  throw new Error("Refusing to run: DATABASE_URL must be loopback.");
++}
++const prisma = getPrisma();
++if (!prisma) {
++  throw new Error("DATABASE_URL is required.");
++}
++const db = prisma;
++
++const run = randomUUID().slice(0, 8);
++const email = (name: string) => `${name}-${run}@example.test`;
++const ORIGIN = "https://app.example.test";
++
++const OPTIONS: PlanOptions = { initialOwner: "admin", sendInvites: false, maxInvites: 10, reinviteExpired: false };
++
++type SentCall = { kind: "invite" | "magiclink"; email: string; redirectTo: string; data?: Record<string, unknown> };
++
++function fakeSender(behaviour: {
++  invite?: (address: string) => { message: string; code?: string } | null;
++  magiclink?: (address: string) => { message: string } | null;
++}): InvitationSender & { calls: SentCall[] } {
++  const calls: SentCall[] = [];
++  const auth: InvitationAuthClient = {
++    admin: {
++      async inviteUserByEmail(address, options) {
++        calls.push({ kind: "invite", email: address, redirectTo: options.redirectTo, data: options.data });
++        return { error: behaviour.invite?.(address) ?? null };
++      },
++    },
++    async signInWithOtp(credentials) {
++      calls.push({ kind: "magiclink", email: credentials.email, redirectTo: credentials.options.emailRedirectTo });
++      return { error: behaviour.magiclink?.(credentials.email) ?? null };
++    },
++  };
++  return { origin: ORIGIN, auth, calls };
++}
++
++async function profile(address: string, role: "user" | "admin" | "owner" = "user") {
++  return db.profile.create({
++    data: { authUserId: randomUUID(), email: address, role, status: "active", displayName: address.split("@")[0] },
++  });
++}
++
++async function counts(clientIds: string[]) {
++  const [clients, brands, locations, invitations, audits, memberships, subscriptions] = await Promise.all([
++    db.client.count({ where: { name: { contains: run } } }),
++    db.businessBrand.count({ where: { clientId: { in: clientIds } } }),
++    db.businessLocation.count({ where: { clientId: { in: clientIds } } }),
++    db.userInvitation.count({ where: { clientId: { in: clientIds } } }),
++    db.auditLog.count({ where: { clientId: { in: clientIds } } }),
++    db.clientMembership.count({ where: { clientId: { in: clientIds } } }),
++    db.clientSubscription.count({ where: { clientId: { in: clientIds } } }),
++  ]);
++  return { clients, brands, locations, invitations, audits, memberships, subscriptions };
++}
++
++function dataFor(adminEmail: string): ProvisioningData {
++  const parsed = parseProvisioningData({
++    version: 1,
++    group: { companyName: `Example Holding ${run}`, adminEmail, assignedPlatformAdminEmail: null },
++    defaults: { city: "Montreal", region: "QC", country: "Canada" },
++    addresses: {
++      one: { addressLine1: "100 Example Avenue", postalCode: "H0H 0H0" },
++      two: { addressLine1: "200 Example Street East", postalCode: "H0H 0H0" },
++    },
++    hours: { late: { mon: [["16:00", "03:00"]], sun: [["16:00", "03:00"]] } },
++    brands: [
++      {
++        key: "alpha",
++        workspaceName: `Alpha ${run}`,
++        brand: { name: `Alpha ${run}` },
++        ownerEmail: email("owner-a"),
++        locations: [{ address: "one" }, { address: "two", isPrimary: true }],
++        hours: "late",
++      },
++      {
++        key: "beta",
++        workspaceName: `Beta ${run}`,
++        brand: { name: `Beta ${run}` },
++        ownerEmail: email("owner-b"),
++        locations: [{ address: "one" }],
++      },
++      {
++        key: "taken",
++        workspaceName: `Taken ${run}`,
++        brand: { name: `Taken ${run}` },
++        ownerEmail: null,
++        locations: [{ address: "one" }],
++      },
++    ],
++  });
++  if (!parsed.ok) throw new Error(parsed.errors.join("\n"));
++  return parsed.data;
++}
++
++function runCli(args: string[], env: Record<string, string | undefined> = {}) {
++  const childEnv: Record<string, string> = {};
++  for (const [key, value] of Object.entries({ ...process.env, ...env })) {
++    if (value !== undefined) childEnv[key] = value;
++  }
++  const result = spawnSync(
++    path.join(REPO_ROOT, "node_modules", ".bin", "tsx"),
++    ["--require", "./scripts/register-server-only.cjs", "scripts/provision-workspaces.ts", ...args],
++    { cwd: REPO_ROOT, env: childEnv as NodeJS.ProcessEnv, encoding: "utf8", timeout: 120_000 },
++  );
++  return { code: result.status, out: `${result.stdout}${result.stderr}` };
++}
++
++async function main() {
++  const actor = await profile(email("ops"), "admin");
++  const admin = await profile(email("group-admin"));
++  await profile(email("owner-b")); // has an account: delivery falls back to a magic link
++  const stranger = await profile(email("stranger"));
++  const strangerClient = await db.client.create({ data: { name: `TAKEN ${run}`, status: "active" } });
++  await db.clientMembership.create({
++    data: { clientId: strangerClient.id, profileId: stranger.id, role: "owner", status: "active" },
++  });
++  const data = dataFor(email("group-admin"));
++  const actorRef = { profileId: actor.id, email: actor.email as string };
++
++  // 1. Dry-run plan writes nothing.
++  const before = await counts([]);
++  const firstPlan = buildProvisioningPlan(data, await loadProvisioningSnapshot(data, actorRef), OPTIONS);
++  assert.deepEqual(
++    firstPlan.workspaces.map((w) => [w.key, w.workspace.status, w.brand.status]),
++    [
++      ["alpha", "CREATE", "BLOCKED"],
++      ["beta", "CREATE", "BLOCKED"],
++      ["taken", "CONFLICT", "BLOCKED"],
++    ],
++  );
++  assert.equal(firstPlan.workspaces[0].invitations[0].gate, "team");
++  assert.deepEqual(await counts([]), before);
++  console.log("PASS dry-run: new workspaces CREATE, brands BLOCKED by plan, foreign same-name workspace CONFLICT");
++
++  // 2. Apply: workspaces only (brands are gated), admin is the initial owner.
++  const firstApply = await applyProvisioningPlan(firstPlan, {
++    actorProfileId: actor.id,
++    sender: null,
++    inviteDelayMs: 0,
++  });
++  const alphaId = firstApply[0].clientId as string;
++  const betaId = firstApply[1].clientId as string;
++  assert.ok(alphaId && betaId);
++  assert.equal(firstApply[2].clientId, strangerClient.id, "the conflict keeps its id for reporting");
++  assert.equal(firstApply[2].items.length, 0, "the foreign workspace is never touched");
++  assert.ok(firstApply[0].verified && firstApply[1].verified);
++  assert.deepEqual(firstApply.flatMap((r) => r.errors), []);
++  const alpha = await db.client.findUniqueOrThrow({ where: { id: alphaId } });
++  assert.equal(alpha.status, "active");
++  assert.equal(alpha.companyName, `Example Holding ${run}`);
++  assert.equal(alpha.planName, null);
++  assert.equal(alpha.email, null);
++  const ownership = await db.clientMembership.findUniqueOrThrow({
++    where: { profileId_clientId: { profileId: admin.id, clientId: alphaId } },
++  });
++  assert.equal(ownership.role, "owner");
++  assert.equal(ownership.status, "active");
++  const created = await db.auditLog.findFirstOrThrow({ where: { clientId: alphaId, action: "workspace_created" } });
++  assert.equal(created.profileId, actor.id, "the audit row names the actor");
++  const afterFirst = await counts([alphaId, betaId]);
++  assert.equal(afterFirst.brands, 0);
++  assert.equal(afterFirst.subscriptions, 0, "the script never creates a subscription");
++  assert.equal(await db.clientMembership.count({ where: { clientId: strangerClient.id } }), 1);
++  console.log("PASS apply: createClient made the workspaces, the admin owns them, audit rows written, no billing rows");
++
++  // 3. Same data again creates nothing.
++  const secondPlan = buildProvisioningPlan(data, await loadProvisioningSnapshot(data, actorRef), OPTIONS);
++  assert.deepEqual(secondPlan.workspaces.map((w) => w.workspace.status), ["SKIP", "SKIP", "CONFLICT"]);
++  await applyProvisioningPlan(secondPlan, { actorProfileId: actor.id, sender: null, inviteDelayMs: 0 });
++  assert.deepEqual(await counts([alphaId, betaId]), afterFirst);
++  console.log("PASS re-run: nothing new");
++
++  // 4. Plans unlock: Alpha on Advanced 15 (brand + invitations), Beta on Essential (brand only).
++  const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
++  await db.clientSubscription.create({
++    data: { clientId: alphaId, status: "active", planCode: "social_advanced_15", currentPeriodEnd: periodEnd },
++  });
++  await db.clientSubscription.create({
++    data: { clientId: betaId, status: "active", planCode: "social_essential_1", currentPeriodEnd: periodEnd },
++  });
++  const sender = fakeSender({});
++  const sleeps: number[] = [];
++  const paidPlan = buildProvisioningPlan(data, await loadProvisioningSnapshot(data, actorRef), {
++    ...OPTIONS,
++    sendInvites: true,
++  });
++  assert.deepEqual(
++    paidPlan.workspaces.slice(0, 2).map((w) => [w.brand.status, w.invitations.map((i) => i.status)]),
++    [
++      ["CREATE", ["SEND"]],
++      ["CREATE", ["BLOCKED"]],
++    ],
++  );
++  const paidApply = await applyProvisioningPlan(paidPlan, {
++    actorProfileId: actor.id,
++    sender,
++    inviteDelayMs: 65_000,
++    sleep: async (ms) => {
++      sleeps.push(ms);
++    },
++  });
++  assert.deepEqual(paidApply.flatMap((r) => r.errors), []);
++  assert.deepEqual(sleeps, [], "no pause before the first invitation");
++  const alphaBrand = await db.businessBrand.findFirstOrThrow({ where: { clientId: alphaId } });
++  assert.equal(alphaBrand.addressLine1, "200 Example Street East", "brand address = flagged primary location");
++  const alphaLocations = await db.businessLocation.findMany({
++    where: { clientId: alphaId },
++    orderBy: { createdAt: "asc" },
++  });
++  assert.deepEqual(
++    alphaLocations.map((l) => [l.addressLine1, l.isPrimary]),
++    [
++      ["200 Example Street East", true],
++      ["100 Example Avenue", false],
++    ],
++  );
++  assert.equal(await db.auditLog.count({ where: { clientId: alphaId, action: "business_brand_created" } }), 1);
++  assert.equal(await db.auditLog.count({ where: { clientId: alphaId, action: "business_location_created" } }), 2);
++  assert.equal(await db.businessLocation.count({ where: { clientId: betaId } }), 1);
++
++  assert.equal(sender.calls.length, 1);
++  const call = sender.calls[0];
++  assert.equal(call.kind, "invite");
++  assert.equal(call.email, email("owner-a"));
++  assert.deepEqual(call.data, { invited_workspace_name: `Alpha ${run}` });
++  const match = /^https:\/\/app\.example\.test\/auth\/callback\/invite\/([a-f0-9]{64})\?flow=invite$/.exec(call.redirectTo);
++  assert.ok(match, "same callback URL shape as the invitation route");
++  const invitation = await db.userInvitation.findUniqueOrThrow({
++    where: { clientId_email: { clientId: alphaId, email: email("owner-a") } },
++  });
++  assert.equal(invitation.tokenHash, hashInvitationToken(match[1]), "only the hash is stored");
++  assert.equal(invitation.status, "pending");
++  assert.equal(invitation.role, "owner");
++  assert.equal(invitation.invitedByProfileId, actor.id);
++  const days = (invitation.expiresAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000);
++  assert.ok(days > 6.9 && days <= 7, "7-day expiry like the route");
++  const sentAudit = await db.auditLog.findFirstOrThrow({ where: { clientId: alphaId, action: "user_invitation_sent" } });
++  assert.equal((sentAudit.metadata as { source?: string }).source, "scripts/provision-workspaces.ts");
++  console.log("PASS paid plans: brand, locations (primary first) and one owner invitation, mirrored from the route");
++
++  // 5. Re-run with --send-invites: the live invitation is never rotated.
++  const afterPaid = await counts([alphaId, betaId]);
++  const rerunPlan = buildProvisioningPlan(data, await loadProvisioningSnapshot(data, actorRef), {
++    ...OPTIONS,
++    sendInvites: true,
++  });
++  assert.equal(rerunPlan.counts.CREATE, 0);
++  assert.equal(rerunPlan.counts.SEND, 0);
++  await applyProvisioningPlan(rerunPlan, { actorProfileId: actor.id, sender, inviteDelayMs: 0 });
++  assert.equal(sender.calls.length, 1);
++  assert.deepEqual(await counts([alphaId, betaId]), afterPaid);
++  console.log("PASS re-run with --send-invites: nothing created, nothing re-sent");
++
++  // 6. Beta upgrades; the owner already has an account → magic link; delivery fails → revoked + audit.
++  await db.clientSubscription.update({ where: { clientId: betaId }, data: { planCode: "social_advanced_25" } });
++  const failing = fakeSender({
++    invite: () => ({ message: "A user with this email address has already been registered", code: "email_exists" }),
++    magiclink: () => ({ message: "Email rate limit exceeded" }),
++  });
++  const failPlan = buildProvisioningPlan(data, await loadProvisioningSnapshot(data, actorRef), {
++    ...OPTIONS,
++    sendInvites: true,
++  });
++  const failApply = await applyProvisioningPlan(failPlan, { actorProfileId: actor.id, sender: failing, inviteDelayMs: 0 });
++  assert.deepEqual(failing.calls.map((c) => c.kind), ["invite", "magiclink"]);
++  assert.equal(failApply[1].items.find((i) => i.kind === "invitation")?.outcome, "failed");
++  assert.equal(failApply[1].errors.length, 1);
++  const revoked = await db.userInvitation.findUniqueOrThrow({
++    where: { clientId_email: { clientId: betaId, email: email("owner-b") } },
++  });
++  assert.equal(revoked.status, "revoked");
++  const failedAudit = await db.auditLog.findFirstOrThrow({ where: { clientId: betaId, action: "user_invitation_failed" } });
++  assert.equal((failedAudit.metadata as { deliveryMethod?: string }).deliveryMethod, "magiclink");
++  console.log("PASS magic-link fallback for an existing account; a failed delivery is revoked and audited");
++
++  // 7. Revoked needs --reinvite-expired; then it is sent again with a new token.
++  const blockedAgain = buildProvisioningPlan(data, await loadProvisioningSnapshot(data, actorRef), {
++    ...OPTIONS,
++    sendInvites: true,
++  });
++  assert.equal(blockedAgain.workspaces[1].invitations[0].status, "BLOCKED");
++  const retry = fakeSender({ invite: () => ({ message: "x", code: "user_already_exists" }) });
++  const retryPlan = buildProvisioningPlan(data, await loadProvisioningSnapshot(data, actorRef), {
++    ...OPTIONS,
++    sendInvites: true,
++    reinviteExpired: true,
++  });
++  assert.equal(retryPlan.workspaces[1].invitations[0].status, "SEND");
++  await applyProvisioningPlan(retryPlan, { actorProfileId: actor.id, sender: retry, inviteDelayMs: 0 });
++  const resent = await db.userInvitation.findUniqueOrThrow({
++    where: { clientId_email: { clientId: betaId, email: email("owner-b") } },
++  });
++  assert.equal(resent.status, "pending");
++  assert.notEqual(resent.tokenHash, revoked.tokenHash);
++  assert.equal(resent.revokedAt, null);
++  console.log("PASS --reinvite-expired replaces a revoked invitation with a new token");
++
++  // 8. The command line: dry-run writes nothing, guards refuse unsafe runs, output stays masked.
++  const tempDir = mkdtempSync(path.join(os.tmpdir(), "provision-workspaces-"));
++  try {
++    const dataFile = path.join(tempDir, "group.json");
++    writeFileSync(
++      dataFile,
++      JSON.stringify({
++        version: 1,
++        group: { companyName: `Example Holding ${run}`, adminEmail: email("group-admin") },
++        defaults: { city: "Montreal" },
++        brands: [
++          {
++            key: "alpha",
++            workspaceName: `Alpha ${run}`,
++            brand: { name: `Alpha ${run}` },
++            ownerEmail: email("owner-a"),
++            locations: [
++              { addressLine1: "100 Example Av.", postalCode: "h0h0h0" },
++              { addressLine1: "200 Example St E", postalCode: "H0H 0H0", isPrimary: true },
++            ],
++          },
++        ],
++      }),
++    );
++    const snapshotBefore = await counts([alphaId, betaId]);
++    const dry = runCli(["--data", dataFile, "--actor-email", actor.email as string]);
++    assert.equal(dry.code, 0, dry.out);
++    assert.match(dry.out, /DRY RUN/);
++    assert.match(dry.out, /location +SKIP/);
++    assert.ok(!dry.out.includes(email("owner-a")) && !dry.out.includes(email("group-admin")), "emails masked");
++    assert.ok(!/auth\/callback|[a-f0-9]{64}|postgres(ql)?:\/\//.test(dry.out), "no link, token or connection string");
++    const json = runCli(["--data", dataFile, "--json", "--show-emails"]);
++    assert.equal(json.code, 0, json.out);
++    const parsedJson = JSON.parse(json.out) as { mode: string; plan: { counts: Record<string, number> } };
++    assert.equal(parsedJson.mode, "dry-run");
++    assert.equal(parsedJson.plan.counts.CREATE, 0);
++
++    assert.equal(runCli(["--data", dataFile, "--apply", "--actor-email", actor.email as string]).code, 2);
++    assert.equal(runCli(["--data", dataFile, "--send-invites"]).code, 2);
++    assert.equal(runCli(["--data", dataFile, "--bogus"]).code, 2);
++    const wrongDb = runCli(["--data", dataFile, "--apply", "--actor-email", actor.email as string, "--confirm-db", "db.example.test"]);
++    assert.equal(wrongDb.code, 1);
++    assert.match(wrongDb.out, /Nothing was changed/);
++    const notAdmin = runCli(["--data", dataFile, "--apply", "--actor-email", email("group-admin"), "--confirm-db", host]);
++    assert.equal(notAdmin.code, 1);
++    assert.match(notAdmin.out, /Platform Owner or Platform Admin/);
++    const inRepo = runCli(["--data", path.join(REPO_ROOT, "package.json")]);
++    assert.equal(inRepo.code, 1);
++    assert.match(inRepo.out, /OUTSIDE this repository/);
++    const noOrigin = runCli(
++      ["--data", dataFile, "--apply", "--send-invites", "--actor-email", actor.email as string, "--confirm-db", host],
++      { NEXT_PUBLIC_APP_URL: undefined },
++    );
++    assert.equal(noOrigin.code, 1);
++    assert.match(noOrigin.out, /NEXT_PUBLIC_APP_URL/);
++    const localOrigin = runCli(
++      ["--data", dataFile, "--apply", "--send-invites", "--actor-email", actor.email as string, "--confirm-db", host],
++      { NEXT_PUBLIC_APP_URL: "http://localhost:3000", NODE_ENV: "development" },
++    );
++    assert.equal(localOrigin.code, 1);
++    assert.match(localOrigin.out, /public https origin/);
++    assert.deepEqual(await counts([alphaId, betaId]), snapshotBefore, "refused runs wrote nothing");
++
++    const apply = runCli(["--data", dataFile, "--apply", "--actor-email", actor.email as string, "--confirm-db", host]);
++    assert.equal(apply.code, 0, apply.out);
++    assert.match(apply.out, /a second run would create 0 item/);
++    assert.deepEqual(await counts([alphaId, betaId]), snapshotBefore, "applying the same data again creates nothing");
++    console.log("PASS command line: dry-run writes nothing, unsafe runs are refused, emails masked, re-apply is a no-op");
++  } finally {
++    rmSync(tempDir, { recursive: true, force: true });
++  }
++
++  console.log("\nAll provisioning database tests passed.");
++}
++
++main()
++  .catch((error: unknown) => {
++    console.error(error);
++    process.exitCode = 1;
++  })
++  .finally(() => disconnectPrisma());
+diff --git a/scripts/provision-workspaces-tests.ts b/scripts/provision-workspaces-tests.ts
+new file mode 100644
+index 0000000..eea7911
+--- /dev/null
++++ b/scripts/provision-workspaces-tests.ts
+@@ -0,0 +1,543 @@
++// Pure tests for src/lib/provisioning/workspace-provisioning-policy.ts
++// (data file parsing, address matching, masking, plan statuses and the Social
++// plan gates). No database, no network. Run: npm run qa:provision-workspaces
++import assert from "node:assert/strict";
++import { readFileSync } from "node:fs";
++
++import {
++  buildProvisioningPlan,
++  collectDataEmails,
++  isReservedExampleEmail,
++  isSameAddress,
++  maskEmail,
++  normalizeAddressPart,
++  parseProvisioningData,
++  sanitizeMessage,
++  selectBrands,
++  type ExistingClientSnapshot,
++  type PlanOptions,
++  type ProvisioningData,
++  type ProvisioningSnapshot,
++  type SubscriptionSnapshot,
++} from "@/lib/provisioning/workspace-provisioning-policy";
++
++const NOW = new Date("2026-10-09T12:00:00Z");
++const example = JSON.parse(
++  readFileSync(new URL("./examples/provision-workspaces.example.json", import.meta.url), "utf8"),
++) as Record<string, unknown>;
++
++function clone<T>(value: T): T {
++  return JSON.parse(JSON.stringify(value)) as T;
++}
++
++function parseOk(raw: unknown): ProvisioningData {
++  const result = parseProvisioningData(raw);
++  if (!result.ok) {
++    assert.fail(`expected valid data, got:\n${result.errors.join("\n")}`);
++  }
++  return result.data;
++}
++
++function parseErrors(raw: unknown): string[] {
++  const result = parseProvisioningData(raw);
++  assert.equal(result.ok, false, "expected the data to be rejected");
++  return result.ok ? [] : result.errors;
++}
++
++const OPTIONS: PlanOptions = {
++  initialOwner: "admin",
++  sendInvites: false,
++  maxInvites: 10,
++  reinviteExpired: false,
++};
++
++const ADMIN = { profileId: "11111111-1111-4111-8111-111111111111", email: "admin@example.com" };
++const ACTOR = { profileId: "22222222-2222-4222-8222-222222222222", email: "ops@example.com" };
++
++function snapshot(overrides: Partial<ProvisioningSnapshot> = {}): ProvisioningSnapshot {
++  return {
++    now: NOW,
++    actor: ACTOR,
++    admin: ADMIN,
++    assignedAdminFound: null,
++    clientsByKey: {},
++    workspaceEmailTakenByKey: {},
++    livePendingInvitations: [],
++    ...overrides,
++  };
++}
++
++function subscription(planCode: string, status = "active", extra: Partial<SubscriptionSnapshot> = {}): SubscriptionSnapshot {
++  return {
++    status,
++    planCode,
++    cancelAtPeriodEnd: false,
++    currentPeriodEnd: "2026-11-09T00:00:00Z",
++    xAccountAllowance: 0,
++    advancedAnalytics: false,
++    ...extra,
++  };
++}
++
++function existingClient(overrides: Partial<ExistingClientSnapshot> = {}): ExistingClientSnapshot {
++  return {
++    id: "33333333-3333-4333-8333-333333333333",
++    name: "Example Chicken",
++    status: "active",
++    ownedByAdmin: true,
++    ownedByActor: false,
++    subscription: null,
++    brands: [],
++    locationsByBrandId: {},
++    membersByEmail: { "admin@example.com": { role: "owner", status: "active" } },
++    invitationsByEmail: {},
++    ...overrides,
++  };
++}
++
++const data = parseOk(example);
++const chickenOnly = selectBrands(data, ["example-chicken"]).data;
++
++// ── Data file ────────────────────────────────────────────────
++
++{
++  assert.equal(data.brands.length, 3);
++  const chicken = data.brands[0];
++  assert.equal(chicken.workspaceName, "Example Chicken", "workspace name defaults to the brand name");
++  assert.equal(chicken.client.companyName, "Example Holding");
++  assert.equal(chicken.client.status, "active");
++  assert.equal(chicken.client.planName, null, "planName stays null: it never grants a plan");
++  assert.equal(chicken.client.email, null, "workspaceEmail defaults to null");
++  assert.deepEqual(
++    chicken.locations.map((location) => [location.name, location.isPrimary, location.input.isPrimary]),
++    [
++      ["Example Chicken - 100 Example Avenue", true, true],
++      ["Example Chicken - 200 Example Street East", false, false],
++    ],
++  );
++  assert.equal(chicken.locations[0].input.city, "Montreal", "city comes from defaults");
++  assert.equal(chicken.locations[0].input.region, "QC");
++  assert.equal(chicken.brand.addressLine1, "100 Example Avenue", "brand address = primary location");
++  assert.equal(chicken.brand.category, "Restaurant");
++  assert.equal(chicken.hours?.summary, "every day 16:00-03:00");
++  const pizza = data.brands[1];
++  assert.equal(pizza.locations[0].isPrimary, true, "the only location is the primary");
++  assert.equal(pizza.locations[0].input.isPrimary, false, "but it is not flagged, so createLocation decides");
++  assert.equal(pizza.brand.website, "https://pizza.example.com");
++  assert.equal(data.brands[2].ownerEmail, null);
++  assert.equal(data.brands[2].hours, null);
++  console.log("PASS the fake example file parses through the app validators");
++}
++
++{
++  const raw = clone(example) as {
++    group: Record<string, unknown>;
++    brands: Array<Record<string, unknown>>;
++  };
++  raw.group.adminEmail = "  Admin@Example.COM ";
++  raw.brands[0].ownerEmail = "Chicken-Owner@Example.com";
++  const parsed = parseOk(raw);
++  assert.equal(parsed.group.adminEmail, "admin@example.com");
++  assert.equal(parsed.brands[0].ownerEmail, "chicken-owner@example.com");
++  console.log("PASS emails are normalized like the invitation validator (trim, NFKC, lowercase)");
++}
++
++{
++  const raw = clone(example) as Record<string, unknown> & {
++    brands: Array<Record<string, unknown>>;
++  };
++  raw.version = 2;
++  raw.extra = true;
++  raw.brands[0].ownerEmial = "typo@example.com";
++  raw.brands[1].key = "Example Pizza";
++  raw.brands[2].key = "example-chicken";
++  raw.brands[2].workspaceName = "EXAMPLE CHICKEN";
++  (raw.brands[0].locations as Array<Record<string, unknown>>)[1].isPrimary = true;
++  (raw.brands[1].locations as Array<Record<string, unknown>>)[0].address = "nowhere";
++  raw.brands[2].hours = { mon: [["16:00", "16:00"]], someday: [] };
++  raw.brands[2].ownerEmail = "not-an-email";
++  const errors = parseErrors(raw);
++  const expectError = (pattern: RegExp) =>
++    assert.ok(errors.some((line) => pattern.test(line)), `missing error ${pattern}:\n${errors.join("\n")}`);
++  expectError(/^version: must be 1/);
++  expectError(/^data: unknown field "extra"/);
++  expectError(/unknown field "ownerEmial"/);
++  expectError(/brands\[1\].*\.key: required; use a-z/);
++  expectError(/brands\[2\].*\.key: duplicate key/);
++  expectError(/workspaceName: two entries use the same workspace name/);
++  expectError(/at most one location can have isPrimary true/);
++  expectError(/address: "nowhere" is not in "addresses"/);
++  expectError(/hours\.mon\[0\]: must be/);
++  expectError(/hours: unknown field "someday"/);
++  expectError(/ownerEmail: Enter a valid email address/);
++  assert.ok(!errors.some((line) => line.includes("typo@example.com")), "errors never echo values");
++  console.log("PASS invalid data reports every problem at once, without echoing values");
++}
++
++{
++  const raw = clone(example) as { brands: Array<Record<string, unknown>> };
++  raw.brands[0].locations = [
++    { addressLine1: "100 Example Av.", city: "Montréal" },
++    { addressLine1: "100 example avenue", city: "Montreal" },
++  ];
++  assert.ok(parseErrors(raw).some((line) => line.includes("same name or address")));
++  raw.brands[0].locations = [];
++  assert.ok(parseErrors(raw).some((line) => line.includes("at least one location")));
++  raw.brands[0].locations = [{ address: "site-a", addressLine1: "1 Other Street" }];
++  assert.ok(parseErrors(raw).some((line) => line.includes('either "address" or inline')));
++  raw.brands[0].locations = [{ addressLine1: "1 Other Street", city: "Montreal", latitude: 45.5 }];
++  assert.ok(parseErrors(raw).some((line) => /latitude/.test(line)), "the app validator's lat/long rule applies");
++  console.log("PASS duplicate, missing and half-filled locations are refused");
++}
++
++// ── Addresses, emails, masking ───────────────────────────────
++
++{
++  assert.equal(normalizeAddressPart("300 Rue Sainte-Exemple E."), "300 rue ste exemple e");
++  assert.equal(normalizeAddressPart("300 rue Sainte‑Exemple Est"), "300 rue ste exemple e");
++  assert.equal(normalizeAddressPart("100 Avenue Example"), normalizeAddressPart("100 Av Example"));
++  assert.equal(normalizeAddressPart("Montréal"), normalizeAddressPart("MONTREAL"));
++  const base = { addressLine1: "100 Av Example", addressLine2: null, city: "Montréal", postalCode: "H0H 0H0" };
++  assert.ok(isSameAddress(base, { ...base, addressLine1: "100 Avenue Example", city: "Montreal", postalCode: "h0h0h0" }));
++  assert.ok(isSameAddress(base, { ...base, postalCode: null }), "a missing postal code does not block a match");
++  assert.ok(!isSameAddress(base, { ...base, addressLine1: "104 Av Example" }));
++  assert.ok(!isSameAddress(base, { ...base, postalCode: "H1H 1H1" }));
++  assert.ok(!isSameAddress(base, { ...base, addressLine2: "Unit 2" }));
++  console.log("PASS addresses match across accents, case, punctuation and street abbreviations");
++}
++
++{
++  assert.equal(maskEmail("person@takatak.ca"), "p***@takatak.ca");
++  const token = "a".repeat(64);
++  const message = sanitizeMessage(
++    `Failed for Person@Takatak.ca via https://takatak.ca/auth/callback/invite/${token}?flow=invite hash ${"f0".repeat(32)} key eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijklmnop`,
++  );
++  assert.ok(message.includes("P***@Takatak.ca"));
++  assert.ok(!message.includes(token) && !message.includes("f0f0f0f0") && !message.includes("eyJ"));
++  assert.ok(!message.includes("https://"));
++  assert.ok(sanitizeMessage("x person@takatak.ca", true).includes("person@takatak.ca"));
++  assert.ok(isReservedExampleEmail("a@example.com"));
++  assert.ok(isReservedExampleEmail("a@pizza.example.org"));
++  assert.ok(isReservedExampleEmail("a@site.test"));
++  assert.ok(!isReservedExampleEmail("a@takatak.ca"));
++  assert.ok(!isReservedExampleEmail("a@myexample.com"));
++  assert.deepEqual(collectDataEmails(data).sort(), [
++    "admin@example.com",
++    "chicken-owner@example.com",
++    "pizza-owner@example.com",
++  ]);
++  console.log("PASS output masks emails and drops links, tokens, hashes and keys");
++}
++
++{
++  const selected = selectBrands(data, ["example-pita", "nope"]);
++  assert.deepEqual(selected.unknownKeys, ["nope"]);
++  assert.deepEqual(selected.data.brands.map((entry) => entry.key), ["example-pita"]);
++  console.log("PASS --only keeps data order and reports unknown keys");
++}
++
++// ── Plans ────────────────────────────────────────────────────
++
++{
++  const plan = buildProvisioningPlan(data, null, OPTIONS);
++  assert.equal(plan.mode, "offline");
++  assert.equal(plan.counts.UNCHECKED, 12);
++  assert.equal(plan.counts.UNSUPPORTED, 2, "hours are reported as unsupported even offline");
++  console.log("PASS no database: everything UNCHECKED, hours UNSUPPORTED");
++}
++
++{
++  const plan = buildProvisioningPlan(data, snapshot(), OPTIONS);
++  const chicken = plan.workspaces[0];
++  assert.equal(chicken.workspace.status, "CREATE");
++  assert.equal(chicken.workspace.input?.ownerEmail, "admin@example.com", "the admin is the initial owner");
++  assert.equal(chicken.gates.access, "blocked", "a new workspace has no Social subscription");
++  assert.equal(chicken.gates.brandAllowance, 0);
++  assert.equal(chicken.brand.status, "BLOCKED");
++  assert.equal(chicken.brand.gate, "brand");
++  assert.match(chicken.brand.reason, /brand allowance is 0/);
++  assert.match(chicken.brand.unblock ?? "", /Social Essential/);
++  assert.deepEqual(chicken.locations.map((item) => item.status), ["BLOCKED", "BLOCKED"]);
++  assert.equal(chicken.hours?.status, "UNSUPPORTED");
++  assert.deepEqual(
++    chicken.invitations.map((item) => [item.email, item.status, item.gate]),
++    [["chicken-owner@example.com", "BLOCKED", "team"]],
++    "only the brand owner needs an invitation; the admin owns it through createClient",
++  );
++  assert.match(chicken.invitations[0].reason, /Social features are not available/);
++  assert.equal(plan.blockedByPlan.length, 3);
++  assert.equal(plan.blockedByPlan[0].needs, "brand_and_team");
++  assert.match(plan.blockedByPlan[0].cheapestPlan, /Advanced 15 \(113\.24 CAD/);
++  assert.equal(plan.blockedByPlan[2].needs, "brand", "no owner email: Essential is enough");
++  assert.match(plan.blockedByPlan[2].cheapestPlan, /Social Essential \(20\.00 CAD/);
++  assert.equal(plan.conflicts, 0);
++  console.log("PASS new workspaces: CREATE, then brand and invitations BLOCKED by the plan gates");
++}
++
++{
++  const plan = buildProvisioningPlan(chickenOnly, snapshot({ admin: null }), OPTIONS);
++  assert.equal(plan.workspaces[0].workspace.status, "BLOCKED");
++  assert.match(plan.workspaces[0].workspace.unblock ?? "", /signs in once/);
++  assert.equal(plan.workspaces[0].brand.status, "BLOCKED");
++  assert.equal(plan.workspaces[0].brand.gate, "brand", "the plan gate that follows is reported too");
++  assert.match(plan.workspaces[0].brand.reason, /^Waits for the workspace \(blocked\)\. After that: Social access is locked/);
++  assert.equal(plan.workspaces[0].invitations[0].status, "BLOCKED");
++  assert.equal(plan.workspaces[0].invitations[0].gate, "team");
++  assert.equal(plan.blockedByPlan[0].needs, "brand_and_team");
++  const assigned = buildProvisioningPlan(chickenOnly, snapshot({ assignedAdminFound: false }), OPTIONS);
++  assert.equal(assigned.workspaces[0].workspace.status, "BLOCKED");
++  console.log("PASS no active admin account (or a bad assigned admin): new workspaces are BLOCKED");
++}
++
++{
++  const notOurs = buildProvisioningPlan(
++    chickenOnly,
++    snapshot({ clientsByKey: { "example-chicken": [existingClient({ ownedByAdmin: false })] } }),
++    OPTIONS,
++  );
++  assert.equal(notOurs.workspaces[0].workspace.status, "CONFLICT");
++  assert.equal(notOurs.workspaces[0].brand.status, "BLOCKED");
++  assert.equal(notOurs.conflicts, 1);
++  const actorOwns = buildProvisioningPlan(
++    chickenOnly,
++    snapshot({ clientsByKey: { "example-chicken": [existingClient({ ownedByAdmin: false, ownedByActor: true })] } }),
++    OPTIONS,
++  );
++  assert.equal(actorOwns.workspaces[0].workspace.status, "SKIP");
++  const twice = buildProvisioningPlan(
++    chickenOnly,
++    snapshot({ clientsByKey: { "example-chicken": [existingClient(), existingClient({ id: "4" })] } }),
++    OPTIONS,
++  );
++  assert.equal(twice.workspaces[0].workspace.status, "CONFLICT");
++  const emailTaken = buildProvisioningPlan(
++    { ...chickenOnly, brands: [{ ...chickenOnly.brands[0], workspaceEmail: "chicken@example.com" }] },
++    snapshot({ workspaceEmailTakenByKey: { "example-chicken": true } }),
++    OPTIONS,
++  );
++  assert.equal(emailTaken.workspaces[0].workspace.status, "CONFLICT");
++  console.log("PASS a same-name workspace we do not own, duplicates, or a taken email are CONFLICTs");
++}
++
++{
++  const plan = buildProvisioningPlan(
++    chickenOnly,
++    snapshot({
++      clientsByKey: {
++        "example-chicken": [existingClient({ subscription: subscription("social_essential_1") })],
++      },
++    }),
++    OPTIONS,
++  );
++  const chicken = plan.workspaces[0];
++  assert.equal(chicken.workspace.status, "SKIP");
++  assert.equal(chicken.gates.access, "paid");
++  assert.equal(chicken.gates.brandAllowance, 1);
++  assert.equal(chicken.brand.status, "CREATE");
++  assert.deepEqual(chicken.locations.map((item) => item.status), ["CREATE", "CREATE"]);
++  assert.equal(chicken.locations[0].isPrimary, true, "the primary location is created first");
++  assert.equal(chicken.invitations[0].status, "BLOCKED");
++  assert.match(chicken.invitations[0].reason, /Team management is included on Advanced plans/);
++  assert.equal(plan.blockedByPlan[0].needs, "team");
++  console.log("PASS Essential: brand and locations CREATE, invitations BLOCKED (Advanced needed)");
++}
++
++{
++  const full = existingClient({
++    subscription: subscription("social_essential_1"),
++    brands: [{ id: "b1", name: "Other Brand", status: "active" }],
++  });
++  const plan = buildProvisioningPlan(chickenOnly, snapshot({ clientsByKey: { "example-chicken": [full] } }), OPTIONS);
++  assert.equal(plan.workspaces[0].brand.status, "BLOCKED");
++  assert.match(plan.workspaces[0].brand.reason, /allows 1 brand\(s\) and the workspace already has 1/);
++  const canceledOpen = buildProvisioningPlan(
++    chickenOnly,
++    snapshot({
++      clientsByKey: {
++        "example-chicken": [existingClient({ subscription: subscription("social_advanced_15", "canceled") })],
++      },
++    }),
++    OPTIONS,
++  );
++  assert.equal(canceledOpen.workspaces[0].gates.access, "paid", "canceled with an open period still has access");
++  const incomplete = buildProvisioningPlan(
++    chickenOnly,
++    snapshot({
++      clientsByKey: {
++        "example-chicken": [existingClient({ subscription: subscription("social_unsubscribed", "incomplete") })],
++      },
++    }),
++    OPTIONS,
++  );
++  assert.equal(incomplete.workspaces[0].brand.status, "BLOCKED", "the default blocked row grants nothing");
++  console.log("PASS brand allowance and subscription lifecycle come from the app's own policy");
++}
++
++function advancedChicken(overrides: Partial<ExistingClientSnapshot> = {}): ExistingClientSnapshot {
++  return existingClient({
++    subscription: subscription("social_advanced_15"),
++    brands: [{ id: "brand-1", name: "EXAMPLE CHICKEN", status: "active" }],
++    locationsByBrandId: {
++      "brand-1": [
++        {
++          id: "loc-1",
++          name: "Chicken Main",
++          status: "active",
++          isPrimary: true,
++          addressLine1: "100 Example Av.",
++          addressLine2: null,
++          city: "Montréal",
++          postalCode: "h0h0h0",
++        },
++      ],
++    },
++    ...overrides,
++  });
++}
++
++{
++  const plan = buildProvisioningPlan(
++    chickenOnly,
++    snapshot({ clientsByKey: { "example-chicken": [advancedChicken()] } }),
++    OPTIONS,
++  );
++  const chicken = plan.workspaces[0];
++  assert.equal(chicken.brand.status, "SKIP", "brand matched by name, case-insensitive");
++  assert.equal(chicken.brand.existingId, "brand-1");
++  assert.deepEqual(chicken.locations.map((item) => item.status), ["SKIP", "CREATE"]);
++  assert.match(chicken.locations[0].reason, /as "Chicken Main"/);
++  assert.deepEqual(chicken.invitations.map((item) => item.status), ["PLANNED"]);
++  const send = buildProvisioningPlan(
++    chickenOnly,
++    snapshot({ clientsByKey: { "example-chicken": [advancedChicken()] } }),
++    { ...OPTIONS, sendInvites: true },
++  );
++  assert.equal(send.workspaces[0].invitations[0].status, "SEND");
++  console.log("PASS Advanced: existing brand/location SKIP by name/address, invitation PLANNED (SEND with --send-invites)");
++}
++
++{
++  const renamed = advancedChicken();
++  renamed.locationsByBrandId["brand-1"][0] = {
++    ...renamed.locationsByBrandId["brand-1"][0],
++    name: "Example Chicken - 100 Example Avenue",
++    addressLine1: "999 Elsewhere Street",
++  };
++  const plan = buildProvisioningPlan(chickenOnly, snapshot({ clientsByKey: { "example-chicken": [renamed] } }), OPTIONS);
++  assert.equal(plan.workspaces[0].locations[0].status, "CONFLICT");
++  const frozen = buildProvisioningPlan(
++    chickenOnly,
++    snapshot({
++      clientsByKey: {
++        "example-chicken": [advancedChicken({ brands: [{ id: "brand-1", name: "Example Chicken", status: "frozen" }] })],
++      },
++    }),
++    OPTIONS,
++  );
++  assert.deepEqual(frozen.workspaces[0].locations.map((item) => item.status), ["SKIP", "BLOCKED"]);
++  const paused = buildProvisioningPlan(
++    chickenOnly,
++    snapshot({ clientsByKey: { "example-chicken": [advancedChicken({ status: "paused", brands: [] })] } }),
++    OPTIONS,
++  );
++  assert.equal(paused.workspaces[0].workspace.status, "SKIP");
++  assert.equal(paused.workspaces[0].brand.status, "BLOCKED");
++  assert.match(paused.workspaces[0].brand.reason, /paused/);
++  console.log("PASS same name at another address is a CONFLICT; frozen brand or paused workspace BLOCKED");
++}
++
++{
++  const pending = (status: string, expiresAt: string) =>
++    advancedChicken({
++      invitationsByEmail: {
++        "chicken-owner@example.com": { id: "inv-1", status, role: "owner", expiresAt },
++      },
++    });
++  const statusFor = (client: ExistingClientSnapshot, options: PlanOptions = OPTIONS) =>
++    buildProvisioningPlan(chickenOnly, snapshot({ clientsByKey: { "example-chicken": [client] } }), options)
++      .workspaces[0].invitations[0].status;
++  assert.equal(statusFor(pending("pending", "2026-10-12T00:00:00Z")), "SKIP", "live pending is never rotated");
++  assert.equal(statusFor(pending("accepted", "2026-10-01T00:00:00Z")), "SKIP");
++  assert.equal(statusFor(pending("pending", "2026-10-01T00:00:00Z")), "BLOCKED", "expired pending");
++  assert.equal(statusFor(pending("revoked", "2026-10-12T00:00:00Z")), "BLOCKED");
++  assert.equal(statusFor(pending("expired", "2026-10-01T00:00:00Z"), { ...OPTIONS, reinviteExpired: true }), "PLANNED");
++  assert.equal(
++    statusFor(advancedChicken({ membersByEmail: { "chicken-owner@example.com": { role: "viewer", status: "suspended" } } })),
++    "SKIP",
++    "any membership, even suspended, means already a member (same as the route)",
++  );
++  console.log("PASS invitation idempotency: pending/accepted SKIP, expired/revoked need --reinvite-expired");
++}
++
++{
++  // Same owner email on two Advanced workspaces: one live invitation per email.
++  const shared = parseOk(
++    Object.assign(clone(example), {
++      brands: [
++        { key: "a", brand: { name: "Brand A" }, ownerEmail: "same@example.com", locations: [{ address: "site-a" }] },
++        { key: "b", brand: { name: "Brand B" }, ownerEmail: "same@example.com", locations: [{ address: "site-b" }] },
++        { key: "c", brand: { name: "Brand C" }, ownerEmail: "other@example.com", locations: [{ address: "site-c" }] },
++      ],
++    }),
++  );
++  const client = (key: string, name: string) =>
++    existingClient({ id: `client-${key}`, name, subscription: subscription("social_advanced_25") });
++  const base = snapshot({
++    clientsByKey: { a: [client("a", "Brand A")], b: [client("b", "Brand B")], c: [client("c", "Brand C")] },
++  });
++  const plan = buildProvisioningPlan(shared, base, OPTIONS);
++  assert.deepEqual(plan.workspaces.map((w) => w.invitations[0].status), ["PLANNED", "DEFERRED", "PLANNED"]);
++  const elsewhere = buildProvisioningPlan(
++    shared,
++    { ...base, livePendingInvitations: [{ clientId: "client-x", email: "other@example.com" }] },
++    OPTIONS,
++  );
++  assert.equal(elsewhere.workspaces[2].invitations[0].status, "DEFERRED");
++  const capped = buildProvisioningPlan(shared, base, { ...OPTIONS, maxInvites: 1 });
++  assert.deepEqual(capped.workspaces.map((w) => w.invitations[0].status), ["PLANNED", "DEFERRED", "DEFERRED"]);
++  assert.match(capped.workspaces[2].invitations[0].reason, /--max-invites/);
++  console.log("PASS one live invitation per email, and --max-invites caps a run");
++}
++
++{
++  const plan = buildProvisioningPlan(
++    chickenOnly,
++    snapshot({ admin: null }),
++    { ...OPTIONS, initialOwner: "actor" },
++  );
++  const chicken = plan.workspaces[0];
++  assert.equal(chicken.workspace.status, "CREATE", "the actor can create while the admin has no account");
++  assert.equal(chicken.workspace.input?.ownerEmail, ACTOR.email);
++  assert.deepEqual(
++    chicken.invitations.map((item) => [item.email, item.purpose, item.status]),
++    [
++      ["chicken-owner@example.com", "brand_owner", "BLOCKED"],
++      ["admin@example.com", "group_admin", "BLOCKED"],
++    ],
++  );
++  const noActor = buildProvisioningPlan(chickenOnly, snapshot({ actor: null }), { ...OPTIONS, initialOwner: "actor" });
++  assert.equal(noActor.workspaces[0].workspace.status, "BLOCKED");
++  const selfInvite = buildProvisioningPlan(
++    { ...chickenOnly, brands: [{ ...chickenOnly.brands[0], ownerEmail: ACTOR.email }] },
++    snapshot({ clientsByKey: { "example-chicken": [advancedChicken()] } }),
++    OPTIONS,
++  );
++  assert.equal(selfInvite.workspaces[0].invitations[0].status, "SKIP");
++  assert.match(selfInvite.workspaces[0].invitations[0].reason, /self-invitations/);
++  const adminMissing = buildProvisioningPlan(
++    chickenOnly,
++    snapshot({ clientsByKey: { "example-chicken": [advancedChicken({ ownedByAdmin: false, ownedByActor: true, membersByEmail: {} })] } }),
++    OPTIONS,
++  );
++  assert.deepEqual(
++    adminMissing.workspaces[0].invitations.map((item) => [item.purpose, item.status]),
++    [
++      ["brand_owner", "PLANNED"],
++      ["group_admin", "PLANNED"],
++    ],
++    "an existing workspace without the admin queues an owner invitation for the admin",
++  );
++  console.log("PASS --initial-owner actor queues the admin's invitation; self-invitations are skipped");
++}
++
++console.log("\nAll provisioning policy tests passed.");
+diff --git a/scripts/provision-workspaces.ts b/scripts/provision-workspaces.ts
+new file mode 100644
+index 0000000..13ef40a
+--- /dev/null
++++ b/scripts/provision-workspaces.ts
+@@ -0,0 +1,593 @@
++/**
++ * Provision one TAKATAK workspace per brand from a PRIVATE JSON data file.
++ *
++ *   npm run provision:workspaces -- --data /outside/the/repo/group.json
++ *
++ * Dry-run by default: prints what it would create, skip or why it is
++ * blocked, and writes nothing. --apply writes through the app's own services
++ * (createClient, createBrand, createLocation) and never bypasses a plan gate.
++ * Invitations are only created and sent with --apply --send-invites.
++ *
++ * Never prints tokens, token hashes, links, keys or the connection string.
++ * Full guide: docs/WORKSPACE_PROVISIONING.md. Example data (fake):
++ * scripts/examples/provision-workspaces.example.json
++ */
++import { existsSync, readFileSync, realpathSync } from "node:fs";
++import path from "node:path";
++import { fileURLToPath } from "node:url";
++
++import { getSupabaseAdminClient } from "@/lib/auth/supabase-admin";
++import { getApplicationOrigin } from "@/lib/config/app-origin";
++import { disconnectPrisma, getPrisma } from "@/lib/db/prisma";
++import {
++  buildProvisioningPlan,
++  collectDataEmails,
++  isReservedExampleEmail,
++  maskEmail,
++  parseProvisioningData,
++  PLAN_STATUSES,
++  sanitizeMessage,
++  selectBrands,
++  type PlanOptions,
++  type ProvisioningData,
++  type ProvisioningPlan,
++  type WorkspacePlan,
++} from "@/lib/provisioning/workspace-provisioning-policy";
++import {
++  applyProvisioningPlan,
++  loadProvisioningSnapshot,
++  resolveActor,
++  type InvitationAuthClient,
++  type WorkspaceApplyResult,
++} from "@/lib/provisioning/workspace-provisioning-runner";
++
++const REPO_ROOT = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
++const EXAMPLE_FILE = path.join(REPO_ROOT, "scripts", "examples", "provision-workspaces.example.json");
++
++const EXIT_OK = 0;
++const EXIT_ERROR = 1;
++const EXIT_USAGE = 2;
++
++const USAGE = `Usage: npm run provision:workspaces -- --data <file> [options]
++
++  --data <file>              Private JSON data file, kept OUTSIDE this repository (required).
++  --actor-email <email>      Active Platform Owner/Admin who performs the writes (required with --apply).
++  --only <key,key>           Only these brand keys from the data file.
++  --initial-owner admin|actor
++                             Initial owner of new workspaces (default: admin = group.adminEmail).
++  --apply                    Write. Without it the run is a dry-run and writes nothing.
++  --confirm-db <hostname>    Required with --apply: must equal the DATABASE_URL hostname.
++  --send-invites             With --apply: create and send owner invitations (alias: --send-emails).
++  --invite-delay-seconds <n> Pause between two invitations (default 65).
++  --max-invites <n>          Invitations sent per run at most (default 10).
++  --reinvite-expired         Replace expired or revoked invitations.
++  --json                     Machine-readable output.
++  --show-emails              Print emails in full (masked by default).
++  --help
++
++Environment: DATABASE_URL (no database = offline validation only). For
++--send-invites also NEXT_PUBLIC_APP_URL (public https origin),
++SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL, and SUPABASE_SECRET_KEY or
++SUPABASE_SERVICE_ROLE_KEY. Load them with: npx tsx --env-file=<private file> ...
++
++Exit codes: 0 no errors (BLOCKED, DEFERRED and UNSUPPORTED are not errors),
++1 validation, precondition, conflict or write errors, 2 bad usage.`;
++
++type CliOptions = {
++  data: string;
++  actorEmail: string | null;
++  only: string[] | null;
++  initialOwner: "admin" | "actor";
++  apply: boolean;
++  confirmDb: string | null;
++  sendInvites: boolean;
++  inviteDelaySeconds: number;
++  maxInvites: number;
++  reinviteExpired: boolean;
++  json: boolean;
++  showEmails: boolean;
++};
++
++class UsageError extends Error {}
++class PreconditionError extends Error {}
++
++const VALUE_FLAGS = new Set([
++  "--data",
++  "--actor-email",
++  "--only",
++  "--initial-owner",
++  "--confirm-db",
++  "--invite-delay-seconds",
++  "--max-invites",
++]);
++const BOOLEAN_FLAGS = new Set([
++  "--apply",
++  "--send-invites",
++  "--send-emails",
++  "--reinvite-expired",
++  "--json",
++  "--show-emails",
++  "--help",
++]);
++
++function readInteger(flag: string, value: string, min: number, max: number): number {
++  if (!/^\d+$/.test(value) || Number(value) < min || Number(value) > max) {
++    throw new UsageError(`${flag} must be a whole number from ${min} to ${max}.`);
++  }
++  return Number(value);
++}
++
++function parseCliArguments(argv: string[]): CliOptions | "help" {
++  const values = new Map<string, string>();
++  const flags = new Set<string>();
++
++  for (let index = 0; index < argv.length; index += 1) {
++    const argument = argv[index];
++    const [flag, inline] = argument.includes("=")
++      ? [argument.slice(0, argument.indexOf("=")), argument.slice(argument.indexOf("=") + 1)]
++      : [argument, undefined];
++    if (VALUE_FLAGS.has(flag)) {
++      const value = inline ?? argv[index + 1];
++      if (inline === undefined) index += 1;
++      if (value === undefined || value.startsWith("--")) {
++        throw new UsageError(`${flag} needs a value.`);
++      }
++      values.set(flag, value);
++    } else if (BOOLEAN_FLAGS.has(flag) && inline === undefined) {
++      flags.add(flag);
++    } else {
++      throw new UsageError(`Unknown argument: ${flag}`);
++    }
++  }
++
++  if (flags.has("--help")) return "help";
++
++  const data = values.get("--data");
++  if (!data) throw new UsageError("--data <file> is required.");
++
++  const initialOwner = values.get("--initial-owner") ?? "admin";
++  if (initialOwner !== "admin" && initialOwner !== "actor") {
++    throw new UsageError("--initial-owner must be admin or actor.");
++  }
++
++  const options: CliOptions = {
++    data,
++    actorEmail: values.get("--actor-email")?.trim().toLowerCase() || null,
++    only: values.has("--only")
++      ? (values.get("--only") as string).split(",").map((key) => key.trim()).filter(Boolean)
++      : null,
++    initialOwner,
++    apply: flags.has("--apply"),
++    confirmDb: values.get("--confirm-db")?.trim() || null,
++    sendInvites: flags.has("--send-invites") || flags.has("--send-emails"),
++    inviteDelaySeconds: values.has("--invite-delay-seconds")
++      ? readInteger("--invite-delay-seconds", values.get("--invite-delay-seconds") as string, 0, 3600)
++      : 65,
++    maxInvites: values.has("--max-invites")
++      ? readInteger("--max-invites", values.get("--max-invites") as string, 0, 100)
++      : 10,
++    reinviteExpired: flags.has("--reinvite-expired"),
++    json: flags.has("--json"),
++    showEmails: flags.has("--show-emails"),
++  };
++
++  if (options.sendInvites && !options.apply) {
++    throw new UsageError("--send-invites only works together with --apply.");
++  }
++  if (options.apply && !options.actorEmail) {
++    throw new UsageError("--apply needs --actor-email (an active Platform Owner or Admin).");
++  }
++  if (options.apply && !options.confirmDb) {
++    throw new UsageError("--apply needs --confirm-db <hostname of DATABASE_URL>.");
++  }
++  return options;
++}
++
++// ── Data file ────────────────────────────────────────────────
++
++function isInside(child: string, parent: string): boolean {
++  const relative = path.relative(parent, child);
++  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
++}
++
++function loadData(options: CliOptions): { data: ProvisioningData; fileName: string; total: number } {
++  const resolved = path.resolve(process.cwd(), options.data);
++  if (!existsSync(resolved)) {
++    throw new PreconditionError("The --data file does not exist.");
++  }
++  const real = realpathSync(resolved);
++  const repoRoot = realpathSync(REPO_ROOT);
++  if (isInside(real, repoRoot)) {
++    const isExample = existsSync(EXAMPLE_FILE) && real === realpathSync(EXAMPLE_FILE);
++    if (!isExample || options.apply) {
++      throw new PreconditionError(
++        "Keep the data file OUTSIDE this repository: the repository is public. Only the fake example file may be read from inside it, and only in dry-run.",
++      );
++    }
++  }
++
++  let raw: unknown;
++  try {
++    raw = JSON.parse(readFileSync(real, "utf8"));
++  } catch {
++    throw new PreconditionError("The data file is not valid JSON.");
++  }
++
++  const parsed = parseProvisioningData(raw);
++  if (!parsed.ok) {
++    throw new PreconditionError(
++      `The data file has ${parsed.errors.length} problem(s):\n${parsed.errors
++        .map((line) => `  - ${sanitizeMessage(line, options.showEmails)}`)
++        .join("\n")}`,
++    );
++  }
++
++  const selected = selectBrands(parsed.data, options.only);
++  if (selected.unknownKeys.length > 0) {
++    throw new UsageError(`--only names unknown keys: ${selected.unknownKeys.join(", ")}`);
++  }
++  return {
++    data: selected.data,
++    fileName: path.basename(real),
++    total: parsed.data.brands.length,
++  };
++}
++
++// ── Environment ──────────────────────────────────────────────
++
++function isLoopbackHost(hostname: string): boolean {
++  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
++  return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "0.0.0.0";
++}
++
++function describeDatabase(): { host: string; name: string } | null {
++  const url = process.env.DATABASE_URL?.trim();
++  if (!url) return null;
++  try {
++    const parsed = new URL(url);
++    return { host: parsed.hostname, name: decodeURIComponent(parsed.pathname.replace(/^\//, "")) || "(default)" };
++  } catch {
++    throw new PreconditionError("DATABASE_URL is not a valid URL.");
++  }
++}
++
++function resolveSender(): { origin: string; auth: InvitationAuthClient } {
++  if (!process.env.NEXT_PUBLIC_APP_URL?.trim()) {
++    throw new PreconditionError(
++      "--send-invites needs NEXT_PUBLIC_APP_URL (the public https origin of the app); otherwise links would point to localhost.",
++    );
++  }
++  const origin = getApplicationOrigin();
++  const parsed = new URL(origin);
++  if (parsed.protocol !== "https:" || isLoopbackHost(parsed.hostname)) {
++    throw new PreconditionError("--send-invites needs NEXT_PUBLIC_APP_URL to be a public https origin.");
++  }
++  const supabase = getSupabaseAdminClient();
++  if (!supabase) {
++    throw new PreconditionError(
++      "--send-invites needs the Supabase admin settings (SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL, and SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY).",
++    );
++  }
++  return { origin, auth: supabase.auth };
++}
++
++// ── Output ───────────────────────────────────────────────────
++
++type Printer = {
++  showEmails: boolean;
++  email(value: string | null | undefined): string;
++  text(value: string): string;
++};
++
++function makePrinter(showEmails: boolean): Printer {
++  return {
++    showEmails,
++    email: (value) => (value ? (showEmails ? value : maskEmail(value)) : "(none)"),
++    text: (value) => sanitizeMessage(value, showEmails),
++  };
++}
++
++const PURPOSE_LABEL = {
++  brand_owner: "brand owner",
++  group_admin: "group admin",
++  brand_owner_and_group_admin: "brand owner and group admin",
++} as const;
++
++function printableWorkspace(plan: WorkspacePlan, printer: Printer) {
++  const item = (value: { status: string; reason: string; unblock?: string; existingId?: string; gate?: string }) => ({
++    status: value.status,
++    reason: printer.text(value.reason),
++    ...(value.unblock ? { unblock: printer.text(value.unblock) } : {}),
++    ...(value.existingId ? { existingId: value.existingId } : {}),
++    ...(value.gate ? { gate: value.gate } : {}),
++  });
++  return {
++    key: plan.key,
++    gates: plan.gates,
++    workspace: { name: plan.workspace.name, initialOwner: plan.workspace.initialOwner, ...item(plan.workspace) },
++    brand: { name: plan.brand.name, ...item(plan.brand) },
++    locations: plan.locations.map((location) => ({
++      name: location.name,
++      primary: location.isPrimary,
++      address: location.address,
++      ...item(location),
++    })),
++    hours: plan.hours ? { summary: plan.hours.summary, ...item(plan.hours) } : null,
++    invitations: plan.invitations.map((invitation) => ({
++      email: printer.email(invitation.email),
++      role: invitation.role,
++      purpose: invitation.purpose,
++      ...item(invitation),
++    })),
++  };
++}
++
++function gateLine(plan: WorkspacePlan): string {
++  const gates = plan.gates;
++  if (!gates.checked) return "Social plan: not checked (no database)";
++  const subject = gates.newWorkspace ? "new workspace, no Social subscription" : gates.statusLabel;
++  return `Social plan: ${subject}${gates.planCode && !gates.newWorkspace ? ` (${gates.planCode})` : ""} · brand allowance ${gates.brandAllowance} (${gates.billableBrands} in use) · team invitations: ${gates.canInviteTeam ? "allowed" : "no"}`;
++}
++
++function printPlanText(plan: ProvisioningPlan, printer: Printer): void {
++  const width = 12;
++  const line = (kind: string, status: string, subject: string, reason: string, unblock?: string) => {
++    console.log(`  ${kind.padEnd(10)} ${status.padEnd(width)} ${subject}`);
++    console.log(`  ${"".padEnd(10)} ${"".padEnd(width)} ${printer.text(reason)}`);
++    if (unblock) console.log(`  ${"".padEnd(10)} ${"".padEnd(width)} → ${printer.text(unblock)}`);
++  };
++
++  plan.workspaces.forEach((workspace, index) => {
++    console.log("");
++    console.log(`[${index + 1}/${plan.workspaces.length}] ${workspace.workspace.name}  (${workspace.key})`);
++    console.log(`  ${gateLine(workspace)}`);
++    line("workspace", workspace.workspace.status, workspace.workspace.name, workspace.workspace.reason, workspace.workspace.unblock);
++    line("brand", workspace.brand.status, workspace.brand.name, workspace.brand.reason, workspace.brand.unblock);
++    for (const location of workspace.locations) {
++      line(
++        "location",
++        location.status,
++        `${location.name}${location.isPrimary ? " (primary)" : ""} · ${location.address}`,
++        location.reason,
++        location.unblock,
++      );
++    }
++    if (workspace.hours) {
++      line("hours", workspace.hours.status, workspace.hours.summary, workspace.hours.reason, workspace.hours.unblock);
++    }
++    if (workspace.invitations.length === 0) {
++      console.log(`  ${"invite".padEnd(10)} ${"-".padEnd(width)} no invitation needed`);
++    }
++    for (const invitation of workspace.invitations) {
++      line(
++        "invite",
++        invitation.status,
++        `${printer.email(invitation.email)} (owner, ${PURPOSE_LABEL[invitation.purpose]})`,
++        invitation.reason,
++        invitation.unblock,
++      );
++    }
++  });
++
++  console.log("");
++  console.log("Summary");
++  console.log(
++    `  ${PLAN_STATUSES.filter((status) => plan.counts[status] > 0)
++      .map((status) => `${status} ${plan.counts[status]}`)
++      .join(" · ") || "nothing"}`,
++  );
++
++  if (plan.blockedByPlan.length > 0) {
++    console.log("");
++    console.log("Blocked by the Social plan (the script never bypasses these gates)");
++    for (const row of plan.blockedByPlan) {
++      const needs =
++        row.needs === "brand_and_team"
++          ? "brand + invitations"
++          : row.needs === "brand"
++            ? "brand"
++            : "invitations";
++      console.log(`  ${row.workspaceName.padEnd(28)} now: ${row.current}; blocked: ${needs}; cheapest fix: ${row.cheapestPlan}`);
++    }
++    console.log(
++      "  Plans are bought per workspace in its Plans & billing page (Stripe Checkout). Essential holds 1 brand; team invitations need Advanced 15/25/50 or a Custom contract.",
++    );
++  }
++}
++
++function printResultsText(results: WorkspaceApplyResult[], printer: Printer): void {
++  console.log("");
++  console.log("Applied");
++  for (const result of results) {
++    if (result.items.length === 0 && result.errors.length === 0) continue;
++    console.log(`  ${result.workspaceName}${result.clientId ? `  [${result.clientId}]` : ""}`);
++    for (const item of result.items) {
++      const subject = item.kind === "invitation" ? printer.email(item.name) : item.name;
++      console.log(
++        `    ${item.outcome.padEnd(8)} ${item.kind.padEnd(10)} ${subject}${item.id ? `  [${item.id}]` : ""}${item.message ? ` · ${printer.text(item.message)}` : ""}`,
++      );
++    }
++    for (const error of result.errors) {
++      console.log(`    ERROR    ${printer.text(error)}`);
++    }
++    if (result.clientId) {
++      console.log(`    read-back ${result.verified ? "ok" : "FAILED"}`);
++    }
++  }
++}
++
++// ── Main ─────────────────────────────────────────────────────
++
++async function main(argv: string[]): Promise<number> {
++  let options: CliOptions;
++  try {
++    const parsed = parseCliArguments(argv);
++    if (parsed === "help") {
++      console.log(USAGE);
++      return EXIT_OK;
++    }
++    options = parsed;
++  } catch (error) {
++    if (error instanceof UsageError) {
++      console.error(`${error.message}\n\n${USAGE}`);
++      return EXIT_USAGE;
++    }
++    throw error;
++  }
++
++  const printer = makePrinter(options.showEmails);
++  const { data, fileName, total } = loadData(options);
++  const database = describeDatabase();
++
++  if (options.apply) {
++    if (!database) {
++      throw new PreconditionError("--apply needs DATABASE_URL.");
++    }
++    if (options.confirmDb !== database.host) {
++      throw new PreconditionError(
++        `--confirm-db does not match the DATABASE_URL hostname (${database.host}). Nothing was changed.`,
++      );
++    }
++    const reserved = collectDataEmails(data).filter(isReservedExampleEmail);
++    if (reserved.length > 0 && !isLoopbackHost(database.host)) {
++      throw new PreconditionError(
++        `The data uses ${reserved.length} example/test email address(es) (example.com, .test, ...). --apply refuses them outside a local database.`,
++      );
++    }
++  }
++
++  const planOptions: PlanOptions = {
++    initialOwner: options.initialOwner,
++    sendInvites: options.sendInvites,
++    maxInvites: options.maxInvites,
++    reinviteExpired: options.reinviteExpired,
++  };
++
++  const header = {
++    mode: !database ? "offline" : options.apply ? "apply" : "dry-run",
++    dataFile: fileName,
++    brandEntries: total,
++    selected: data.brands.length,
++    database,
++  };
++
++  if (!database) {
++    const plan = buildProvisioningPlan(data, null, planOptions);
++    if (options.json) {
++      console.log(JSON.stringify({ ...header, plan: { ...plan, workspaces: plan.workspaces.map((w) => printableWorkspace(w, printer)) } }, null, 2));
++    } else {
++      console.log("TAKATAK workspace provisioning: OFFLINE (no DATABASE_URL; data validated only, nothing written)");
++      console.log(`Data file: ${fileName} · ${total} brand entr${total === 1 ? "y" : "ies"}${options.only ? ` (${data.brands.length} selected)` : ""}`);
++      console.log(`Group admin: ${printer.email(data.group.adminEmail)}`);
++      printPlanText(plan, printer);
++      console.log("\nThe data file is valid. Set DATABASE_URL to check the database and the plan gates.");
++    }
++    return EXIT_OK;
++  }
++
++  const sender = options.sendInvites ? resolveSender() : null;
++
++  if (!getPrisma()) {
++    throw new PreconditionError("The database client could not start.");
++  }
++
++  let actor: { profileId: string; email: string } | null = null;
++  let actorRole: string | null = null;
++  if (options.actorEmail) {
++    const check = await resolveActor(options.actorEmail);
++    if (!check.ok) {
++      throw new PreconditionError(`${check.message} Nothing was changed.`);
++    }
++    actor = { profileId: check.profileId, email: check.email };
++    actorRole = check.role;
++  }
++
++  const snapshot = await loadProvisioningSnapshot(data, actor);
++  const plan = buildProvisioningPlan(data, snapshot, planOptions);
++
++  if (!options.json) {
++    console.log(
++      options.apply
++        ? "TAKATAK workspace provisioning: APPLY (writes through the app services)"
++        : "TAKATAK workspace provisioning: DRY RUN (nothing is written)",
++    );
++    console.log(`Data file: ${fileName} · ${total} brand entr${total === 1 ? "y" : "ies"}${options.only ? ` (${data.brands.length} selected)` : ""}`);
++    console.log(`Database: ${database.host} / ${database.name}`);
++    console.log(`Actor: ${actor ? `${printer.email(actor.email)} (Platform ${actorRole})` : "not given (dry-run only; ownership by the actor is not checked)"}`);
++    console.log(`Group admin: ${printer.email(data.group.adminEmail)} · active TAKATAK account: ${snapshot.admin ? "yes" : "no"}`);
++    console.log(
++      `Initial owner of new workspaces: ${options.initialOwner === "admin" ? "the group admin (owner through createClient, no invitation)" : "the actor (the group admin gets an owner invitation)"}`,
++    );
++    console.log(
++      `Invitations: ${options.sendInvites ? `sent with --send-invites, at most ${options.maxInvites}, ${options.inviteDelaySeconds}s apart` : "not created or sent in this run (needs --apply --send-invites)"}`,
++    );
++    printPlanText(plan, printer);
++  }
++
++  if (!options.apply) {
++    if (options.json) {
++      console.log(JSON.stringify({ ...header, plan: { ...plan, workspaces: plan.workspaces.map((w) => printableWorkspace(w, printer)) } }, null, 2));
++    } else {
++      console.log("\nDry-run: nothing was written. Add --apply --actor-email <you> --confirm-db <host> to write.");
++    }
++    return plan.conflicts > 0 ? EXIT_ERROR : EXIT_OK;
++  }
++
++  const results = await applyProvisioningPlan(plan, {
++    actorProfileId: (actor as { profileId: string }).profileId,
++    sender,
++    inviteDelayMs: options.inviteDelaySeconds * 1000,
++    onProgress: options.json ? undefined : (message) => console.log(`… ${printer.text(message)}`),
++  });
++
++  // Idempotency re-check: plan again from a fresh snapshot.
++  const recheck = buildProvisioningPlan(
++    data,
++    await loadProvisioningSnapshot(data, actor),
++    { ...planOptions, sendInvites: false },
++  );
++  const errors = results.reduce((sum, result) => sum + result.errors.length, 0);
++
++  if (options.json) {
++    console.log(
++      JSON.stringify(
++        {
++          ...header,
++          plan: { ...plan, workspaces: plan.workspaces.map((w) => printableWorkspace(w, printer)) },
++          results: results.map((result) => ({
++            ...result,
++            items: result.items.map((item) => ({
++              ...item,
++              name: item.kind === "invitation" ? printer.email(item.name) : item.name,
++              message: item.message ? printer.text(item.message) : undefined,
++            })),
++            errors: result.errors.map((error) => printer.text(error)),
++          })),
++          recheck: { counts: recheck.counts },
++        },
++        null,
++        2,
++      ),
++    );
++  } else {
++    printResultsText(results, printer);
++    console.log("");
++    console.log(
++      `Re-check: a second run would create ${recheck.counts.CREATE} item(s); ${recheck.counts.PLANNED} invitation(s) still planned; ${recheck.counts.BLOCKED} blocked.`,
++    );
++    console.log(errors > 0 ? `${errors} error(s).` : "No errors.");
++  }
++
++  return errors > 0 || plan.conflicts > 0 ? EXIT_ERROR : EXIT_OK;
++}
++
++main(process.argv.slice(2))
++  .then((code) => {
++    process.exitCode = code;
++  })
++  .catch((error: unknown) => {
++    const message = error instanceof Error ? error.message : "Provisioning failed.";
++    console.error(sanitizeMessage(message, process.argv.includes("--show-emails")));
++    process.exitCode = error instanceof UsageError ? EXIT_USAGE : EXIT_ERROR;
++  })
++  .finally(() => disconnectPrisma());
+diff --git a/src/lib/provisioning/workspace-provisioning-policy.ts b/src/lib/provisioning/workspace-provisioning-policy.ts
+new file mode 100644
+index 0000000..f0d79bd
+--- /dev/null
++++ b/src/lib/provisioning/workspace-provisioning-policy.ts
+@@ -0,0 +1,1505 @@
++/**
++ * Pure planning for `scripts/provision-workspaces.ts`.
++ *
++ * No database, no network, no secrets. This module:
++ * - parses and validates the private data file (one workspace per brand),
++ *   running every entity through the app's own validators;
++ * - turns a read-only database snapshot into a plan where every item is
++ *   CREATE, SKIP, BLOCKED, DEFERRED, CONFLICT, UNSUPPORTED, PLANNED or SEND;
++ * - evaluates the Social plan gates with the app's own pure policy functions
++ *   (the same ones `assertClientCanAddBrand` and `assertClientCanInviteTeam`
++ *   use), so a dry-run reports exactly what the services would refuse.
++ *
++ * Nothing here writes. The script performs writes through the app services.
++ */
++
++import { normalizeEmail } from "@/lib/auth/registration-validation";
++import { effectiveBrandAllowance } from "@/lib/billing/social/brand-allowance-policy";
++import {
++  evaluateTeamInvite,
++  evaluateWorkspaceWriteAccess,
++} from "@/lib/billing/social/entitlement-gates-policy";
++import { SOCIAL_PLAN_CATALOG } from "@/lib/billing/social/plan-catalog";
++import { resolveEffectiveSocialEntitlements } from "@/lib/billing/social/subscription-lifecycle";
++import {
++  validateBrandInput,
++  type BrandInput,
++} from "@/lib/brands/brand-validation";
++import {
++  validateClientCreate,
++  type ClientCreateInput,
++} from "@/lib/clients/client-validation";
++import {
++  validateLocationInput,
++  type LocationInput,
++} from "@/lib/locations/location-validation";
++import { validateInvitationInput } from "@/lib/team/invitation-validation";
++
++export const PROVISIONING_DATA_VERSION = 1;
++
++/** Valid UUID used only to run validateLocationInput before the brand exists. */
++export const PLACEHOLDER_BRAND_ID = "00000000-0000-4000-8000-000000000000";
++
++export const LOCATION_NAME_MAX = 140;
++
++/** Statuses of the app's billable brands (brand-allowance.ts). */
++const BILLABLE_BRAND_STATUSES = ["active", "draft", "paused"];
++
++const KEY_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
++const TIME_PATTERN = /^([01][0-9]|2[0-3]):([0-5][0-9])$/;
++
++export const HOURS_DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
++export type HoursDay = (typeof HOURS_DAYS)[number];
++export type WeeklyHours = Record<HoursDay, Array<[string, string]>>;
++
++/** RFC 2606 / 6761 names. A real --apply must never use them. */
++const RESERVED_EMAIL_DOMAINS = ["example.com", "example.net", "example.org"];
++const RESERVED_EMAIL_TLDS = ["example", "test", "invalid", "localhost"];
++
++// ── Data file ────────────────────────────────────────────────
++
++export type ProvisioningLocation = {
++  name: string;
++  /** Resolved: the flagged location, or the first one when none is flagged. */
++  isPrimary: boolean;
++  /**
++   * Validated with PLACEHOLDER_BRAND_ID; the real brand id is set at apply
++   * time. input.isPrimary is true only when the data flags it, so a new
++   * location never takes "primary" from an existing one by accident
++   * (createLocation already makes the first location of a brand primary).
++   */
++  input: Omit<LocationInput, "businessBrandId">;
++};
++
++export type ProvisioningHours = {
++  label: string;
++  weekly: WeeklyHours;
++  summary: string;
++};
++
++export type ProvisioningBrandEntry = {
++  key: string;
++  workspaceName: string;
++  workspaceEmail: string | null;
++  ownerEmail: string | null;
++  /** validateClientCreate output without the owner (chosen at plan time). */
++  client: Omit<ClientCreateInput, "ownerEmail">;
++  brand: BrandInput;
++  locations: ProvisioningLocation[];
++  hours: ProvisioningHours | null;
++};
++
++export type ProvisioningData = {
++  version: typeof PROVISIONING_DATA_VERSION;
++  group: {
++    companyName: string | null;
++    adminEmail: string;
++    assignedPlatformAdminEmail: string | null;
++  };
++  brands: ProvisioningBrandEntry[];
++};
++
++export type DataParseResult =
++  | { ok: true; data: ProvisioningData }
++  | { ok: false; errors: string[] };
++
++type JsonRecord = Record<string, unknown>;
++
++function isRecord(value: unknown): value is JsonRecord {
++  return typeof value === "object" && value !== null && !Array.isArray(value);
++}
++
++function checkKeys(
++  value: JsonRecord,
++  allowed: readonly string[],
++  path: string,
++  errors: string[],
++): void {
++  for (const key of Object.keys(value)) {
++    if (!allowed.includes(key)) {
++      errors.push(`${path}: unknown field "${key}".`);
++    }
++  }
++}
++
++function optionalString(
++  value: JsonRecord,
++  key: string,
++  path: string,
++  errors: string[],
++): string | null {
++  const raw = value[key];
++  if (raw === undefined || raw === null) {
++    return null;
++  }
++  if (typeof raw !== "string") {
++    errors.push(`${path}.${key}: must be a string or null.`);
++    return null;
++  }
++  const trimmed = raw.trim();
++  return trimmed ? trimmed : null;
++}
++
++function optionalNumber(
++  value: JsonRecord,
++  key: string,
++  path: string,
++  errors: string[],
++): number | null {
++  const raw = value[key];
++  if (raw === undefined || raw === null) {
++    return null;
++  }
++  if (typeof raw !== "number" || !Number.isFinite(raw)) {
++    errors.push(`${path}.${key}: must be a number or null.`);
++    return null;
++  }
++  return raw;
++}
++
++function optionalEmail(
++  value: JsonRecord,
++  key: string,
++  path: string,
++  errors: string[],
++): string | null {
++  const raw = optionalString(value, key, path, errors);
++  if (!raw) {
++    return null;
++  }
++  const result = validateInvitationInput({ email: raw, role: "owner" });
++  if (!result.success) {
++    errors.push(`${path}.${key}: ${result.error}`);
++    return null;
++  }
++  return result.data.email;
++}
++
++function fieldErrorLines(
++  path: string,
++  message: string,
++  fieldErrors: Record<string, string> | undefined,
++): string[] {
++  const entries = Object.entries(fieldErrors ?? {});
++  if (entries.length === 0) {
++    return [`${path}: ${message}`];
++  }
++  return entries.map(([field, text]) => `${path}.${field}: ${text}`);
++}
++
++function failureLines(
++  path: string,
++  failure: { message: string; fieldErrors: Record<string, string> },
++): string[] {
++  return fieldErrorLines(path, failure.message, failure.fieldErrors);
++}
++
++export function parseHours(
++  raw: unknown,
++  path: string,
++  errors: string[],
++): WeeklyHours | null {
++  if (!isRecord(raw)) {
++    errors.push(`${path}: must be an object with days mon..sun.`);
++    return null;
++  }
++  checkKeys(raw, HOURS_DAYS, path, errors);
++  const weekly = {} as WeeklyHours;
++  let valid = true;
++  for (const day of HOURS_DAYS) {
++    const intervals = raw[day];
++    weekly[day] = [];
++    if (intervals === undefined || intervals === null) {
++      continue;
++    }
++    if (!Array.isArray(intervals)) {
++      errors.push(`${path}.${day}: must be a list of ["HH:MM","HH:MM"] pairs.`);
++      valid = false;
++      continue;
++    }
++    intervals.forEach((pair: unknown, index) => {
++      if (
++        !Array.isArray(pair) ||
++        pair.length !== 2 ||
++        typeof pair[0] !== "string" ||
++        typeof pair[1] !== "string" ||
++        !TIME_PATTERN.test(pair[0]) ||
++        !TIME_PATTERN.test(pair[1]) ||
++        pair[0] === pair[1]
++      ) {
++        errors.push(
++          `${path}.${day}[${index}]: must be ["HH:MM","HH:MM"] with two different 24-hour times (a close before the open means past midnight).`,
++        );
++        valid = false;
++        return;
++      }
++      weekly[day].push([pair[0], pair[1]]);
++    });
++  }
++  return valid ? weekly : null;
++}
++
++function dayText(intervals: Array<[string, string]>): string {
++  return intervals.length === 0
++    ? "closed"
++    : intervals.map(([open, close]) => `${open}-${close}`).join(", ");
++}
++
++export function summarizeHours(weekly: WeeklyHours): string {
++  const texts = HOURS_DAYS.map((day) => dayText(weekly[day]));
++  if (texts.every((text) => text === texts[0])) {
++    return `every day ${texts[0]}`;
++  }
++  return HOURS_DAYS.map((day, index) => `${day} ${texts[index]}`).join("; ");
++}
++
++// ── Address matching ─────────────────────────────────────────
++
++const ADDRESS_TOKEN_ALIASES: Record<string, string> = {
++  avenue: "av",
++  ave: "av",
++  boulevard: "boul",
++  blvd: "boul",
++  bd: "boul",
++  street: "st",
++  saint: "st",
++  sainte: "ste",
++  est: "e",
++  east: "e",
++  ouest: "w",
++  west: "w",
++  o: "w",
++};
++
++/**
++ * Lowercase, strip accents and punctuation, collapse spaces, and fold common
++ * street words ("Avenue"/"Ave"/"Av", "Est"/"E"). Used only to recognise an
++ * existing location at the same address.
++ */
++export function normalizeAddressPart(value: string | null | undefined): string {
++  if (!value) {
++    return "";
++  }
++  return value
++    .normalize("NFKD")
++    .replace(/[̀-ͯ]/g, "")
++    .toLowerCase()
++    .replace(/[^a-z0-9]+/g, " ")
++    .trim()
++    .split(" ")
++    .filter(Boolean)
++    .map((token) => ADDRESS_TOKEN_ALIASES[token] ?? token)
++    .join(" ");
++}
++
++export function normalizePostalCode(value: string | null | undefined): string {
++  return (value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
++}
++
++export type AddressLike = {
++  addressLine1: string | null;
++  addressLine2: string | null;
++  city: string | null;
++  postalCode: string | null;
++};
++
++/** Same street line(s) and city; postal codes must match when both are set. */
++export function isSameAddress(a: AddressLike, b: AddressLike): boolean {
++  if (normalizeAddressPart(a.addressLine1) !== normalizeAddressPart(b.addressLine1)) {
++    return false;
++  }
++  if (normalizeAddressPart(a.addressLine2) !== normalizeAddressPart(b.addressLine2)) {
++    return false;
++  }
++  if (normalizeAddressPart(a.city) !== normalizeAddressPart(b.city)) {
++    return false;
++  }
++  const postalA = normalizePostalCode(a.postalCode);
++  const postalB = normalizePostalCode(b.postalCode);
++  return !postalA || !postalB || postalA === postalB;
++}
++
++export function formatAddress(address: AddressLike): string {
++  return [address.addressLine1, address.addressLine2, address.city, address.postalCode]
++    .filter((part) => Boolean(part && part.trim()))
++    .join(", ");
++}
++
++export function defaultLocationName(brandName: string, addressLine1: string): string {
++  return `${brandName} - ${addressLine1}`.slice(0, LOCATION_NAME_MAX).trim();
++}
++
++// ── Emails ───────────────────────────────────────────────────
++
++export function isReservedExampleEmail(email: string): boolean {
++  const domain = email.slice(email.lastIndexOf("@") + 1).toLowerCase();
++  if (
++    RESERVED_EMAIL_DOMAINS.some(
++      (reserved) => domain === reserved || domain.endsWith(`.${reserved}`),
++    )
++  ) {
++    return true;
++  }
++  const tld = domain.slice(domain.lastIndexOf(".") + 1);
++  return RESERVED_EMAIL_TLDS.includes(tld);
++}
++
++export function collectDataEmails(data: ProvisioningData): string[] {
++  const emails = new Set<string>([data.group.adminEmail]);
++  if (data.group.assignedPlatformAdminEmail) {
++    emails.add(data.group.assignedPlatformAdminEmail);
++  }
++  for (const entry of data.brands) {
++    if (entry.ownerEmail) emails.add(entry.ownerEmail);
++    if (entry.workspaceEmail) emails.add(entry.workspaceEmail);
++  }
++  return [...emails];
++}
++
++/** "person@domain.com" → "p***@domain.com". */
++export function maskEmail(email: string): string {
++  const at = email.lastIndexOf("@");
++  if (at <= 0) {
++    return "***";
++  }
++  return `${email[0]}***${email.slice(at)}`;
++}
++
++/**
++ * Makes a message safe to print: masks emails (unless showEmails), and drops
++ * URLs, connection strings, JWT-like strings and long hex/base64 runs, so a
++ * token, token hash or link can never reach the terminal.
++ */
++export function sanitizeMessage(message: string, showEmails = false): string {
++  return message
++    .replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, "[url]")
++    .replace(/eyJ[A-Za-z0-9_-]{10,}(?:\.[A-Za-z0-9_-]+)*/g, "[redacted]")
++    .replace(/\b[a-f0-9]{24,}\b/gi, "[redacted]")
++    .replace(/[A-Za-z0-9+/_-]{40,}={0,2}/g, "[redacted]")
++    .replace(/[^\s@<>()"',;:]+@[^\s@<>()"',;:]+\.[a-z]{2,}/gi, (email) =>
++      showEmails ? email : maskEmail(email),
++    );
++}
++
++// ── Parse ────────────────────────────────────────────────────
++
++const TOP_KEYS = ["version", "group", "defaults", "addresses", "hours", "brands", "$comment"] as const;
++const GROUP_KEYS = ["companyName", "adminEmail", "assignedPlatformAdminEmail"] as const;
++const DEFAULT_KEYS = [
++  "timezone",
++  "country",
++  "region",
++  "city",
++  "brandStatus",
++  "locationStatus",
++  "category",
++] as const;
++const ADDRESS_KEYS = [
++  "addressLine1",
++  "addressLine2",
++  "city",
++  "region",
++  "postalCode",
++  "country",
++  "latitude",
++  "longitude",
++] as const;
++const BRAND_ENTRY_KEYS = [
++  "key",
++  "workspaceName",
++  "workspaceEmail",
++  "ownerEmail",
++  "brand",
++  "locations",
++  "hours",
++  "timezone",
++  "$comment",
++] as const;
++const BRAND_KEYS = ["name", "legalName", "category", "website", "phone"] as const;
++const LOCATION_KEYS = [
++  "address",
++  ...ADDRESS_KEYS,
++  "name",
++  "isPrimary",
++  "phone",
++  "website",
++] as const;
++
++const CREATABLE_STATUSES = ["active", "draft"] as const;
++
++type Defaults = {
++  timezone: string;
++  country: string;
++  region: string | null;
++  city: string | null;
++  brandStatus: string;
++  locationStatus: string;
++  category: string | null;
++};
++
++type RawAddress = {
++  addressLine1: string | null;
++  addressLine2: string | null;
++  city: string | null;
++  region: string | null;
++  postalCode: string | null;
++  country: string | null;
++  latitude: number | null;
++  longitude: number | null;
++};
++
++function readAddress(value: JsonRecord, path: string, errors: string[]): RawAddress {
++  return {
++    addressLine1: optionalString(value, "addressLine1", path, errors),
++    addressLine2: optionalString(value, "addressLine2", path, errors),
++    city: optionalString(value, "city", path, errors),
++    region: optionalString(value, "region", path, errors),
++    postalCode: optionalString(value, "postalCode", path, errors),
++    country: optionalString(value, "country", path, errors),
++    latitude: optionalNumber(value, "latitude", path, errors),
++    longitude: optionalNumber(value, "longitude", path, errors),
++  };
++}
++
++function readDefaults(raw: unknown, errors: string[]): Defaults {
++  const defaults: Defaults = {
++    timezone: "America/Toronto",
++    country: "Canada",
++    region: null,
++    city: null,
++    brandStatus: "active",
++    locationStatus: "active",
++    category: null,
++  };
++  if (raw === undefined || raw === null) {
++    return defaults;
++  }
++  if (!isRecord(raw)) {
++    errors.push("defaults: must be an object.");
++    return defaults;
++  }
++  checkKeys(raw, DEFAULT_KEYS, "defaults", errors);
++  defaults.timezone = optionalString(raw, "timezone", "defaults", errors) ?? defaults.timezone;
++  defaults.country = optionalString(raw, "country", "defaults", errors) ?? defaults.country;
++  defaults.region = optionalString(raw, "region", "defaults", errors);
++  defaults.city = optionalString(raw, "city", "defaults", errors);
++  defaults.category = optionalString(raw, "category", "defaults", errors);
++  for (const key of ["brandStatus", "locationStatus"] as const) {
++    const status = optionalString(raw, key, "defaults", errors);
++    if (status === null) continue;
++    if (!(CREATABLE_STATUSES as readonly string[]).includes(status)) {
++      errors.push(`defaults.${key}: must be "active" or "draft".`);
++      continue;
++    }
++    defaults[key] = status;
++  }
++  return defaults;
++}
++
++/**
++ * Parses the version-1 data file. Every workspace, brand, location and email
++ * goes through the app's own validators. Returns every problem at once.
++ */
++export function parseProvisioningData(raw: unknown): DataParseResult {
++  const errors: string[] = [];
++
++  if (!isRecord(raw)) {
++    return { ok: false, errors: ["The data file must contain a JSON object."] };
++  }
++  checkKeys(raw, TOP_KEYS, "data", errors);
++
++  if (raw.version !== PROVISIONING_DATA_VERSION) {
++    errors.push(`version: must be ${PROVISIONING_DATA_VERSION}.`);
++  }
++
++  // Group
++  let adminEmail = "";
++  let companyName: string | null = null;
++  let assignedPlatformAdminEmail: string | null = null;
++  if (!isRecord(raw.group)) {
++    errors.push("group: required object with companyName and adminEmail.");
++  } else {
++    checkKeys(raw.group, GROUP_KEYS, "group", errors);
++    companyName = optionalString(raw.group, "companyName", "group", errors);
++    if (companyName && companyName.length > 160) {
++      errors.push("group.companyName: at most 160 characters.");
++    }
++    adminEmail = optionalEmail(raw.group, "adminEmail", "group", errors) ?? "";
++    if (!adminEmail && !errors.some((line) => line.startsWith("group.adminEmail"))) {
++      errors.push("group.adminEmail: required.");
++    }
++    assignedPlatformAdminEmail = optionalEmail(
++      raw.group,
++      "assignedPlatformAdminEmail",
++      "group",
++      errors,
++    );
++  }
++
++  const defaults = readDefaults(raw.defaults, errors);
++
++  // Shared addresses
++  const addresses = new Map<string, RawAddress>();
++  if (raw.addresses !== undefined && raw.addresses !== null) {
++    if (!isRecord(raw.addresses)) {
++      errors.push("addresses: must be an object of named addresses.");
++    } else {
++      for (const [name, value] of Object.entries(raw.addresses)) {
++        const path = `addresses.${name}`;
++        if (!KEY_PATTERN.test(name)) {
++          errors.push(`${path}: names use a-z, 0-9 and "-".`);
++        }
++        if (!isRecord(value)) {
++          errors.push(`${path}: must be an object.`);
++          continue;
++        }
++        checkKeys(value, ADDRESS_KEYS, path, errors);
++        addresses.set(name, readAddress(value, path, errors));
++      }
++    }
++  }
++
++  // Shared hours
++  const sharedHours = new Map<string, WeeklyHours>();
++  if (raw.hours !== undefined && raw.hours !== null) {
++    if (!isRecord(raw.hours)) {
++      errors.push("hours: must be an object of named weekly schedules.");
++    } else {
++      for (const [name, value] of Object.entries(raw.hours)) {
++        const weekly = parseHours(value, `hours.${name}`, errors);
++        if (weekly) sharedHours.set(name, weekly);
++      }
++    }
++  }
++
++  // Brands
++  const brands: ProvisioningBrandEntry[] = [];
++  if (!Array.isArray(raw.brands) || raw.brands.length === 0) {
++    errors.push("brands: must be a non-empty list.");
++  } else {
++    const seenKeys = new Set<string>();
++    const seenWorkspaceNames = new Set<string>();
++
++    raw.brands.forEach((value: unknown, index) => {
++      const label =
++        isRecord(value) && typeof value.key === "string" ? ` (${value.key})` : "";
++      const path = `brands[${index}]${label}`;
++      if (!isRecord(value)) {
++        errors.push(`${path}: must be an object.`);
++        return;
++      }
++      checkKeys(value, BRAND_ENTRY_KEYS, path, errors);
++
++      const key = typeof value.key === "string" ? value.key : "";
++      if (!KEY_PATTERN.test(key)) {
++        errors.push(`${path}.key: required; use a-z, 0-9 and "-".`);
++      } else if (seenKeys.has(key)) {
++        errors.push(`${path}.key: duplicate key.`);
++      }
++      seenKeys.add(key);
++
++      if (!isRecord(value.brand)) {
++        errors.push(`${path}.brand: required object with at least a name.`);
++        return;
++      }
++      checkKeys(value.brand, BRAND_KEYS, `${path}.brand`, errors);
++      const brandName = optionalString(value.brand, "name", `${path}.brand`, errors) ?? "";
++      const workspaceName =
++        optionalString(value, "workspaceName", path, errors) ?? brandName;
++      const workspaceKey = workspaceName.toLowerCase();
++      if (workspaceName && seenWorkspaceNames.has(workspaceKey)) {
++        errors.push(`${path}.workspaceName: two entries use the same workspace name.`);
++      }
++      seenWorkspaceNames.add(workspaceKey);
++
++      const workspaceEmail = optionalEmail(value, "workspaceEmail", path, errors);
++      const ownerEmail = optionalEmail(value, "ownerEmail", path, errors);
++      const timezone = optionalString(value, "timezone", path, errors) ?? defaults.timezone;
++
++      // Workspace (Client) through the app validator. The initial owner is
++      // decided at plan time; the admin email stands in for validation.
++      const clientResult = validateClientCreate({
++        name: workspaceName,
++        companyName,
++        email: workspaceEmail,
++        phone: null,
++        planName: null,
++        timezone,
++        status: "active",
++        ownerEmail: adminEmail || "owner@placeholder.invalid",
++        assignedAdminEmail: assignedPlatformAdminEmail,
++      });
++      if (!clientResult.success) {
++        errors.push(...failureLines(`${path} workspace`, clientResult));
++      }
++
++      // Locations
++      const rawLocations = Array.isArray(value.locations) ? value.locations : null;
++      if (!rawLocations || rawLocations.length === 0) {
++        errors.push(`${path}.locations: at least one location is required.`);
++      }
++      const locations: ProvisioningLocation[] = [];
++      const primaryCount = (rawLocations ?? []).filter(
++        (location: unknown) => isRecord(location) && location.isPrimary === true,
++      ).length;
++      if (primaryCount > 1) {
++        errors.push(`${path}.locations: at most one location can have isPrimary true.`);
++      }
++
++      (rawLocations ?? []).forEach((rawLocation: unknown, locationIndex) => {
++        const locationPath = `${path}.locations[${locationIndex}]`;
++        if (!isRecord(rawLocation)) {
++          errors.push(`${locationPath}: must be an object.`);
++          return;
++        }
++        checkKeys(rawLocation, LOCATION_KEYS, locationPath, errors);
++
++        const reference = optionalString(rawLocation, "address", locationPath, errors);
++        const inline = readAddress(rawLocation, locationPath, errors);
++        let address: RawAddress;
++        if (reference) {
++          if (inline.addressLine1) {
++            errors.push(`${locationPath}: use either "address" or inline address fields, not both.`);
++          }
++          const shared = addresses.get(reference);
++          if (!shared) {
++            errors.push(`${locationPath}.address: "${reference}" is not in "addresses".`);
++            return;
++          }
++          address = shared;
++        } else {
++          address = inline;
++        }
++
++        const isPrimary =
++          rawLocation.isPrimary === true || (primaryCount === 0 && locationIndex === 0);
++        if (rawLocation.isPrimary !== undefined && typeof rawLocation.isPrimary !== "boolean") {
++          errors.push(`${locationPath}.isPrimary: must be true or false.`);
++        }
++        const name =
++          optionalString(rawLocation, "name", locationPath, errors) ??
++          defaultLocationName(brandName, address.addressLine1 ?? "");
++
++        const locationResult = validateLocationInput({
++          businessBrandId: PLACEHOLDER_BRAND_ID,
++          name,
++          phone: optionalString(rawLocation, "phone", locationPath, errors),
++          website: optionalString(rawLocation, "website", locationPath, errors),
++          addressLine1: address.addressLine1,
++          addressLine2: address.addressLine2,
++          city: address.city ?? defaults.city,
++          region: address.region ?? defaults.region,
++          postalCode: address.postalCode,
++          country: address.country ?? defaults.country,
++          timezone,
++          latitude: address.latitude,
++          longitude: address.longitude,
++          isPrimary: rawLocation.isPrimary === true,
++          status: defaults.locationStatus,
++        });
++        if (!locationResult.success) {
++          errors.push(...failureLines(locationPath, locationResult));
++          return;
++        }
++        const { businessBrandId: _placeholder, ...input } = locationResult.data;
++
++        const duplicate = locations.find(
++          (other) =>
++            other.name.toLowerCase() === input.name.toLowerCase() ||
++            isSameAddress(other.input, input),
++        );
++        if (duplicate) {
++          errors.push(`${locationPath}: same name or address as another location of this brand.`);
++          return;
++        }
++        locations.push({ name: input.name, isPrimary, input });
++      });
++
++      // Brand through the app validator. Its address is the primary location's.
++      const primary = locations.find((location) => location.isPrimary) ?? locations[0];
++      const brandResult = validateBrandInput({
++        name: brandName,
++        legalName: optionalString(value.brand, "legalName", `${path}.brand`, errors),
++        category:
++          optionalString(value.brand, "category", `${path}.brand`, errors) ?? defaults.category,
++        website: optionalString(value.brand, "website", `${path}.brand`, errors),
++        phone: optionalString(value.brand, "phone", `${path}.brand`, errors),
++        addressLine1: primary?.input.addressLine1 ?? null,
++        addressLine2: primary?.input.addressLine2 ?? null,
++        city: primary?.input.city ?? defaults.city,
++        region: primary?.input.region ?? defaults.region,
++        postalCode: primary?.input.postalCode ?? null,
++        country: primary?.input.country ?? defaults.country,
++        timezone,
++        status: defaults.brandStatus,
++      });
++      if (!brandResult.success) {
++        errors.push(...failureLines(`${path}.brand`, brandResult));
++      }
++
++      // Hours: validated and reported; the schema has no place to store them.
++      let hours: ProvisioningHours | null = null;
++      if (typeof value.hours === "string") {
++        const weekly = sharedHours.get(value.hours);
++        if (!weekly) {
++          errors.push(`${path}.hours: "${value.hours}" is not in "hours".`);
++        } else {
++          hours = { label: value.hours, weekly, summary: summarizeHours(weekly) };
++        }
++      } else if (value.hours !== undefined && value.hours !== null) {
++        const weekly = parseHours(value.hours, `${path}.hours`, errors);
++        if (weekly) {
++          hours = { label: "inline", weekly, summary: summarizeHours(weekly) };
++        }
++      }
++
++      if (clientResult.success && brandResult.success) {
++        const { ownerEmail: _owner, ...client } = clientResult.data;
++        brands.push({
++          key,
++          workspaceName: clientResult.data.name,
++          workspaceEmail: clientResult.data.email,
++          ownerEmail,
++          client,
++          brand: brandResult.data,
++          locations,
++          hours,
++        });
++      }
++    });
++  }
++
++  if (errors.length > 0) {
++    return { ok: false, errors };
++  }
++
++  return {
++    ok: true,
++    data: {
++      version: PROVISIONING_DATA_VERSION,
++      group: { companyName, adminEmail, assignedPlatformAdminEmail },
++      brands,
++    },
++  };
++}
++
++// ── Snapshot (read-only facts loaded by the script) ──────────
++
++export type SubscriptionSnapshot = {
++  status: string | null;
++  planCode: string | null;
++  cancelAtPeriodEnd: boolean;
++  currentPeriodEnd: Date | string | null;
++  xAccountAllowance: number;
++  advancedAnalytics: boolean;
++};
++
++export type ExistingLocationSnapshot = AddressLike & {
++  id: string;
++  name: string;
++  status: string;
++  isPrimary: boolean;
++};
++
++export type ExistingClientSnapshot = {
++  id: string;
++  name: string;
++  status: string;
++  ownedByAdmin: boolean;
++  ownedByActor: boolean;
++  subscription: SubscriptionSnapshot | null;
++  brands: Array<{ id: string; name: string; status: string }>;
++  /** Locations of the brands whose name matches the data (by brand id). */
++  locationsByBrandId: Record<string, ExistingLocationSnapshot[]>;
++  /** Memberships (any status) of the data's emails, keyed by normalized email. */
++  membersByEmail: Record<string, { role: string; status: string }>;
++  /** UserInvitation rows of the data's emails, keyed by normalized email. */
++  invitationsByEmail: Record<
++    string,
++    { id: string; status: string; role: string; expiresAt: Date | string }
++  >;
++};
++
++export type ProvisioningSnapshot = {
++  now: Date;
++  actor: { profileId: string; email: string } | null;
++  /** Active Profile for group.adminEmail, or null when the admin has no active account. */
++  admin: { profileId: string; email: string } | null;
++  /** null when group.assignedPlatformAdminEmail is not set. */
++  assignedAdminFound: boolean | null;
++  /** Workspaces whose name matches each entry (case-insensitive), by entry key. */
++  clientsByKey: Record<string, ExistingClientSnapshot[]>;
++  /** True when entry.workspaceEmail is already used by another workspace. */
++  workspaceEmailTakenByKey: Record<string, boolean>;
++  /** Pending, unexpired invitations of the data's emails, in any workspace. */
++  livePendingInvitations: Array<{ clientId: string; email: string }>;
++};
++
++// ── Plan ─────────────────────────────────────────────────────
++
++export type PlanStatus =
++  | "CREATE"
++  | "SKIP"
++  | "BLOCKED"
++  | "DEFERRED"
++  | "CONFLICT"
++  | "UNSUPPORTED"
++  | "PLANNED"
++  | "SEND"
++  | "UNCHECKED";
++
++export const PLAN_STATUSES: readonly PlanStatus[] = [
++  "CREATE",
++  "SKIP",
++  "BLOCKED",
++  "DEFERRED",
++  "CONFLICT",
++  "UNSUPPORTED",
++  "PLANNED",
++  "SEND",
++  "UNCHECKED",
++];
++
++type BasePlanItem = {
++  status: PlanStatus;
++  reason: string;
++  unblock?: string;
++  existingId?: string;
++  /** Set when a Social plan gate is the cause of BLOCKED. */
++  gate?: "brand" | "team";
++};
++
++export type WorkspacePlanItem = BasePlanItem & {
++  kind: "workspace";
++  name: string;
++  initialOwner: "admin" | "actor";
++  input: ClientCreateInput | null;
++};
++
++export type BrandPlanItem = BasePlanItem & {
++  kind: "brand";
++  name: string;
++  input: BrandInput;
++};
++
++export type LocationPlanItem = BasePlanItem & {
++  kind: "location";
++  name: string;
++  isPrimary: boolean;
++  address: string;
++  input: Omit<LocationInput, "businessBrandId">;
++};
++
++export type HoursPlanItem = BasePlanItem & {
++  kind: "hours";
++  summary: string;
++};
++
++export type InvitationPlanItem = BasePlanItem & {
++  kind: "invitation";
++  email: string;
++  role: "owner";
++  purpose: "brand_owner" | "group_admin" | "brand_owner_and_group_admin";
++};
++
++export type GateSummary = {
++  checked: boolean;
++  newWorkspace: boolean;
++  access: "paid" | "blocked" | "unknown";
++  statusLabel: string;
++  planCode: string | null;
++  brandAllowance: number | null;
++  billableBrands: number | null;
++  canAddBrand: boolean | null;
++  canInviteTeam: boolean | null;
++  inviteMessage: string | null;
++};
++
++export type WorkspacePlan = {
++  key: string;
++  workspace: WorkspacePlanItem;
++  brand: BrandPlanItem;
++  locations: LocationPlanItem[];
++  hours: HoursPlanItem | null;
++  invitations: InvitationPlanItem[];
++  gates: GateSummary;
++};
++
++export type BlockedByPlanRow = {
++  key: string;
++  workspaceName: string;
++  current: string;
++  needs: "brand" | "brand_and_team" | "team";
++  cheapestPlan: string;
++};
++
++export type ProvisioningPlan = {
++  mode: "offline" | "database";
++  workspaces: WorkspacePlan[];
++  counts: Record<PlanStatus, number>;
++  blockedByPlan: BlockedByPlanRow[];
++  conflicts: number;
++};
++
++export type PlanOptions = {
++  initialOwner: "admin" | "actor";
++  sendInvites: boolean;
++  maxInvites: number;
++  reinviteExpired: boolean;
++};
++
++export const BRAND_UNBLOCK_HINT =
++  "Subscribe this workspace to Social Essential (1 brand) or higher in its Plans & billing page, then re-run.";
++export const TEAM_UNBLOCK_HINT =
++  "Team invitations need Advanced 15, 25 or 50 (or a Custom contract) on this workspace, then re-run. Until then the group admin, who already owns the workspace, can run it alone.";
++
++function cadMonthly(planCode: keyof typeof SOCIAL_PLAN_CATALOG): string {
++  const entry = SOCIAL_PLAN_CATALOG[planCode];
++  return `${entry.planName} (${entry.displayMonthlyCad.toFixed(2)} CAD/month before tax)`;
++}
++
++function sameEmail(a: string | null | undefined, b: string | null | undefined): boolean {
++  return Boolean(a && b && normalizeEmail(a) === normalizeEmail(b));
++}
++
++export function evaluateGates(
++  subscription: SubscriptionSnapshot | null,
++  billableBrands: number,
++  now: Date,
++  newWorkspace: boolean,
++): GateSummary {
++  const { lifecycle, entitlements, effectivePlanCode } = resolveEffectiveSocialEntitlements({
++    status: subscription?.status,
++    planCode: subscription?.planCode,
++    cancelAtPeriodEnd: subscription?.cancelAtPeriodEnd,
++    currentPeriodEnd: subscription?.currentPeriodEnd,
++    addOns: {
++      xAccountAllowance: subscription?.xAccountAllowance ?? 0,
++      advancedAnalytics: subscription?.advancedAnalytics ?? false,
++    },
++    now,
++  });
++  const allowance = effectiveBrandAllowance(
++    lifecycle.access,
++    entitlements.brandAllowance,
++    lifecycle.displayKey,
++  );
++  const write = evaluateWorkspaceWriteAccess(lifecycle.access);
++  const invite = write.allowed ? evaluateTeamInvite(entitlements) : write;
++
++  return {
++    checked: true,
++    newWorkspace,
++    access: lifecycle.access,
++    statusLabel: lifecycle.label,
++    planCode: lifecycle.access === "paid" ? effectivePlanCode : subscription?.planCode ?? null,
++    brandAllowance: allowance,
++    billableBrands,
++    canAddBrand: billableBrands < allowance,
++    canInviteTeam: invite.allowed,
++    inviteMessage: invite.allowed ? null : invite.message,
++  };
++}
++
++function uncheckedGates(): GateSummary {
++  return {
++    checked: false,
++    newWorkspace: false,
++    access: "unknown",
++    statusLabel: "not checked (no database)",
++    planCode: null,
++    brandAllowance: null,
++    billableBrands: null,
++    canAddBrand: null,
++    canInviteTeam: null,
++    inviteMessage: null,
++  };
++}
++
++function brandGateReason(gates: GateSummary): string {
++  if (gates.brandAllowance === 0) {
++    return `Social access is locked (${gates.statusLabel}), so the workspace's brand allowance is 0. The app's createBrand would refuse.`;
++  }
++  return `The plan allows ${gates.brandAllowance} brand(s) and the workspace already has ${gates.billableBrands}.`;
++}
++
++type Invitee = {
++  email: string;
++  purpose: InvitationPlanItem["purpose"];
++};
++
++function inviteesFor(
++  entry: ProvisioningBrandEntry,
++  data: ProvisioningData,
++  inviteAdmin: boolean,
++): Invitee[] {
++  const invitees: Invitee[] = [];
++  if (entry.ownerEmail) {
++    invitees.push({ email: entry.ownerEmail, purpose: "brand_owner" });
++  }
++  if (inviteAdmin) {
++    const existing = invitees.find((invitee) => sameEmail(invitee.email, data.group.adminEmail));
++    if (existing) {
++      existing.purpose = "brand_owner_and_group_admin";
++    } else {
++      invitees.push({ email: data.group.adminEmail, purpose: "group_admin" });
++    }
++  }
++  return invitees;
++}
++
++function offlineWorkspacePlan(
++  entry: ProvisioningBrandEntry,
++  data: ProvisioningData,
++  options: PlanOptions,
++): WorkspacePlan {
++  const reason = "Not checked (no database).";
++  return {
++    key: entry.key,
++    workspace: {
++      kind: "workspace",
++      name: entry.workspaceName,
++      initialOwner: options.initialOwner,
++      input: null,
++      status: "UNCHECKED",
++      reason,
++    },
++    brand: { kind: "brand", name: entry.brand.name, input: entry.brand, status: "UNCHECKED", reason },
++    locations: entry.locations.map((location) => ({
++      kind: "location",
++      name: location.name,
++      isPrimary: location.isPrimary,
++      address: formatAddress(location.input),
++      input: location.input,
++      status: "UNCHECKED",
++      reason,
++    })),
++    hours: hoursItem(entry),
++    invitations: inviteesFor(entry, data, options.initialOwner === "actor").map((invitee) => ({
++      kind: "invitation",
++      email: invitee.email,
++      role: "owner",
++      purpose: invitee.purpose,
++      status: "UNCHECKED",
++      reason,
++    })),
++    gates: uncheckedGates(),
++  };
++}
++
++function hoursItem(entry: ProvisioningBrandEntry): HoursPlanItem | null {
++  if (!entry.hours) {
++    return null;
++  }
++  return {
++    kind: "hours",
++    summary: entry.hours.summary,
++    status: "UNSUPPORTED",
++    reason:
++      "The database has no opening-hours field (BusinessBrand and BusinessLocation have none), so the hours are validated but not stored.",
++    unblock: "Storing hours needs a schema change in its own pull request (owner decision).",
++  };
++}
++
++type RunState = {
++  plannedEmails: Set<string>;
++  plannedCount: number;
++};
++
++function planWorkspace(
++  entry: ProvisioningBrandEntry,
++  data: ProvisioningData,
++  snapshot: ProvisioningSnapshot,
++  options: PlanOptions,
++  run: RunState,
++): WorkspacePlan {
++  const now = snapshot.now;
++  const matches = snapshot.clientsByKey[entry.key] ?? [];
++  const existing = matches.length === 1 ? matches[0] : null;
++
++  const ownerEmail =
++    options.initialOwner === "admin" ? data.group.adminEmail : snapshot.actor?.email ?? null;
++  const workspaceInput: ClientCreateInput | null = ownerEmail
++    ? { ...entry.client, ownerEmail }
++    : null;
++
++  // ── Workspace
++  const workspace: WorkspacePlanItem = {
++    kind: "workspace",
++    name: entry.workspaceName,
++    initialOwner: options.initialOwner,
++    input: workspaceInput,
++    status: "CREATE",
++    reason: `New workspace; initial owner: ${options.initialOwner === "admin" ? "the group admin" : "the actor"} (app createClient).`,
++  };
++  let workspaceUsable = false;
++  let workspaceBlockedReason = "";
++
++  if (matches.length > 1) {
++    workspace.status = "CONFLICT";
++    workspace.reason = `${matches.length} workspaces already use this name (case-insensitive).`;
++    workspace.unblock = "Use another workspaceName in the data file, or clean up the duplicates in Clients.";
++  } else if (existing) {
++    workspace.existingId = existing.id;
++    if (!existing.ownedByAdmin && !existing.ownedByActor) {
++      workspace.status = "CONFLICT";
++      workspace.reason = snapshot.actor
++        ? "A workspace with this name exists, but neither the group admin nor the actor is an active owner of it."
++        : "A workspace with this name exists, but the group admin is not an active owner of it (pass --actor-email to also check the actor).";
++      workspace.unblock = "Another tenant may own it: use another workspaceName. Never adopt it.";
++    } else if (existing.status === "paused" || existing.status === "archived") {
++      workspace.status = "SKIP";
++      workspace.reason = `Already exists, but its status is ${existing.status}.`;
++      workspaceBlockedReason = `The workspace is ${existing.status}; the app refuses new brands there.`;
++    } else {
++      workspace.status = "SKIP";
++      workspace.reason = "Already exists and is owned by the group admin or the actor.";
++      workspaceUsable = true;
++    }
++  } else if (entry.workspaceEmail && snapshot.workspaceEmailTakenByKey[entry.key]) {
++    workspace.status = "CONFLICT";
++    workspace.reason = "The workspaceEmail is already used by another workspace (often someone's personal workspace).";
++    workspace.unblock = "Set workspaceEmail to null or to an unused address.";
++  } else if (snapshot.assignedAdminFound === false) {
++    workspace.status = "BLOCKED";
++    workspace.reason = "group.assignedPlatformAdminEmail is not an active Platform Owner or Platform Admin.";
++    workspace.unblock = "Fix assignedPlatformAdminEmail or set it to null.";
++  } else if (options.initialOwner === "admin" && !snapshot.admin) {
++    workspace.status = "BLOCKED";
++    workspace.reason = "The group admin has no active TAKATAK account yet, and the app's createClient needs one for the initial owner.";
++    workspace.unblock = "The group admin signs in once (or accepts one invitation), then re-run.";
++  } else if (options.initialOwner === "actor" && !snapshot.actor) {
++    workspace.status = "BLOCKED";
++    workspace.reason = "--initial-owner actor needs --actor-email.";
++    workspace.unblock = "Pass --actor-email.";
++  } else {
++    workspaceUsable = true;
++  }
++
++  const newWorkspace = workspace.status === "CREATE";
++  const gates =
++    existing && workspace.status !== "CONFLICT"
++      ? evaluateGates(
++          existing.subscription,
++          existing.brands.filter((brand) => BILLABLE_BRAND_STATUSES.includes(brand.status)).length,
++          now,
++          false,
++        )
++      : evaluateGates(null, 0, now, true);
++
++  const waitsForWorkspace =
++    workspace.status === "CONFLICT"
++      ? "Waits for the workspace (conflict)."
++      : workspace.status === "BLOCKED"
++        ? "Waits for the workspace (blocked)."
++        : workspaceBlockedReason;
++  // A new workspace that cannot be created yet will still meet the plan
++  // gates once it exists: report both, so the cost overview is complete.
++  const blockedNewWorkspace = workspace.status === "BLOCKED" && !existing;
++
++  // ── Brand
++  const brand: BrandPlanItem = {
++    kind: "brand",
++    name: entry.brand.name,
++    input: entry.brand,
++    status: "CREATE",
++    reason: "New brand (app createBrand).",
++  };
++  let existingBrand: ExistingClientSnapshot["brands"][number] | null = null;
++
++  if (!workspaceUsable) {
++    brand.status = "BLOCKED";
++    brand.reason = waitsForWorkspace;
++    if (workspaceBlockedReason) brand.unblock = "Set the workspace back to active in Clients.";
++    if (blockedNewWorkspace && !gates.canAddBrand) {
++      brand.gate = "brand";
++      brand.reason = `${waitsForWorkspace} After that: ${brandGateReason(gates)}`;
++      brand.unblock = BRAND_UNBLOCK_HINT;
++    }
++  } else {
++    const brandMatches = existing
++      ? existing.brands.filter((row) => row.name.toLowerCase() === entry.brand.name.toLowerCase())
++      : [];
++    if (brandMatches.length > 1) {
++      brand.status = "CONFLICT";
++      brand.reason = `${brandMatches.length} brands in this workspace already use this name.`;
++      brand.unblock = "Clean up the duplicate brands in the workspace.";
++    } else if (brandMatches.length === 1) {
++      existingBrand = brandMatches[0];
++      brand.status = "SKIP";
++      brand.existingId = existingBrand.id;
++      brand.reason = `Already exists (status ${existingBrand.status}).`;
++    } else if (!gates.canAddBrand) {
++      brand.status = "BLOCKED";
++      brand.gate = "brand";
++      brand.reason = brandGateReason(gates);
++      brand.unblock =
++        gates.brandAllowance === 0
++          ? BRAND_UNBLOCK_HINT
++          : "Upgrade this workspace to a plan with more brands, or freeze a brand.";
++    }
++  }
++
++  // ── Locations
++  const brandFrozen =
++    existingBrand && (existingBrand.status === "frozen" || existingBrand.status === "archived");
++  const existingLocations =
++    existing && existingBrand ? existing.locationsByBrandId[existingBrand.id] ?? [] : [];
++
++  const locations: LocationPlanItem[] = [...entry.locations]
++    .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary))
++    .map((location) => {
++      const item: LocationPlanItem = {
++        kind: "location",
++        name: location.name,
++        isPrimary: location.isPrimary,
++        address: formatAddress(location.input),
++        input: location.input,
++        status: "CREATE",
++        reason: "New location (app createLocation).",
++      };
++      if (brand.status === "BLOCKED" || brand.status === "CONFLICT") {
++        item.status = "BLOCKED";
++        item.reason = `Waits for the brand (${brand.status.toLowerCase()}).`;
++        if (brand.gate) {
++          item.gate = brand.gate;
++          item.unblock = brand.unblock;
++        }
++        return item;
++      }
++      if (brand.status === "CREATE") {
++        return item;
++      }
++      const byAddress = existingLocations.find((row) => isSameAddress(row, location.input));
++      if (byAddress) {
++        item.status = "SKIP";
++        item.existingId = byAddress.id;
++        item.reason =
++          byAddress.name.toLowerCase() === location.name.toLowerCase()
++            ? `Already exists (status ${byAddress.status}).`
++            : `Already exists at this address as "${byAddress.name}" (status ${byAddress.status}).`;
++        return item;
++      }
++      const byName = existingLocations.find(
++        (row) => row.name.toLowerCase() === location.name.toLowerCase(),
++      );
++      if (byName) {
++        item.status = "CONFLICT";
++        item.existingId = byName.id;
++        item.reason = "A location with this name exists at a different address.";
++        item.unblock = "Give the location another name in the data file, or fix the address in the app.";
++        return item;
++      }
++      if (brandFrozen) {
++        item.status = "BLOCKED";
++        item.reason = `The brand is ${existingBrand?.status}; the app's createLocation refuses it.`;
++        item.unblock = "Restore the brand (plan allowance) first.";
++      }
++      return item;
++    });
++
++  // ── Invitations
++  // The admin needs an invitation when it will not be a member otherwise:
++  // --initial-owner actor on a new workspace, or an existing workspace where
++  // the admin is not a member yet.
++  const adminIsMember = existing
++    ? Boolean(existing.membersByEmail[normalizeEmail(data.group.adminEmail)])
++    : options.initialOwner === "admin";
++  const inviteAdmin = !adminIsMember;
++
++  const livePendingElsewhere = (email: string, clientId: string | null) =>
++    snapshot.livePendingInvitations.some(
++      (row) => sameEmail(row.email, email) && row.clientId !== clientId,
++    );
++
++  const invitations: InvitationPlanItem[] = inviteesFor(entry, data, inviteAdmin).map(
++    (invitee) => {
++      const email = invitee.email;
++      const item: InvitationPlanItem = {
++        kind: "invitation",
++        email,
++        role: "owner",
++        purpose: invitee.purpose,
++        status: options.sendInvites ? "SEND" : "PLANNED",
++        reason: options.sendInvites
++          ? "Owner invitation will be sent (Supabase invite or magic link)."
++          : "Owner invitation is ready; nothing is created or sent without --apply --send-invites.",
++      };
++
++      if (!workspaceUsable) {
++        item.status = "BLOCKED";
++        item.reason = waitsForWorkspace;
++        if (blockedNewWorkspace && !gates.canInviteTeam) {
++          item.gate = "team";
++          item.reason = `${waitsForWorkspace} After that: ${gates.inviteMessage ?? "team invitations are not allowed."}`;
++          item.unblock = TEAM_UNBLOCK_HINT;
++        }
++        return item;
++      }
++      if (sameEmail(email, snapshot.actor?.email)) {
++        item.status = "SKIP";
++        item.reason = "This is the actor's own email; the app refuses self-invitations.";
++        return item;
++      }
++      const initialOwnerEmail = workspaceInput?.ownerEmail ?? null;
++      if (newWorkspace && sameEmail(email, initialOwnerEmail)) {
++        item.status = "SKIP";
++        item.reason = "Becomes the initial owner when the workspace is created.";
++        return item;
++      }
++      const member = existing?.membersByEmail[normalizeEmail(email)];
++      if (member) {
++        item.status = "SKIP";
++        item.reason = `Already a member (role ${member.role}, ${member.status}).`;
++        if (member.role !== "owner" || member.status !== "active") {
++          item.unblock = "The script never changes roles: make this member an active owner on the workspace's Team page if needed.";
++        }
++        return item;
++      }
++      const previous = existing?.invitationsByEmail[normalizeEmail(email)];
++      if (previous) {
++        const expiresAt = new Date(previous.expiresAt);
++        const live = previous.status === "pending" && expiresAt.getTime() > now.getTime();
++        if (previous.status === "accepted") {
++          item.status = "SKIP";
++          item.existingId = previous.id;
++          item.reason = "An earlier invitation was accepted (the membership may have been removed since).";
++          return item;
++        }
++        if (live) {
++          item.status = "SKIP";
++          item.existingId = previous.id;
++          item.reason = `A pending invitation already exists (expires ${expiresAt.toISOString().slice(0, 10)}).`;
++          return item;
++        }
++        if (!options.reinviteExpired) {
++          item.status = "BLOCKED";
++          item.existingId = previous.id;
++          item.reason = `The earlier invitation is ${previous.status === "pending" ? "expired" : previous.status}.`;
++          item.unblock = "Re-run with --reinvite-expired to send a new one.";
++          return item;
++        }
++      }
++      if (!gates.canInviteTeam) {
++        item.status = "BLOCKED";
++        item.gate = "team";
++        item.reason = `${gates.inviteMessage ?? "Team invitations are not allowed."} (assertClientCanInviteTeam)`;
++        item.unblock = TEAM_UNBLOCK_HINT;
++        return item;
++      }
++      const normalized = normalizeEmail(email);
++      if (run.plannedEmails.has(normalized) || livePendingElsewhere(email, existing?.id ?? null)) {
++        item.status = "DEFERRED";
++        item.reason =
++          "One live invitation per email: this person already has a pending invitation in another workspace (or one earlier in this run). A new invite or magic link replaces the previous email link.";
++        item.unblock = "Re-run after that invitation is accepted or expires.";
++        return item;
++      }
++      if (run.plannedCount >= options.maxInvites) {
++        item.status = "DEFERRED";
++        item.reason = `--max-invites (${options.maxInvites}) reached for this run.`;
++        item.unblock = "Re-run later (Supabase email rate limits).";
++        return item;
++      }
++      run.plannedEmails.add(normalized);
++      run.plannedCount += 1;
++      return item;
++    },
++  );
++
++  return {
++    key: entry.key,
++    workspace,
++    brand,
++    locations,
++    hours: hoursItem(entry),
++    invitations,
++    gates,
++  };
++}
++
++function itemsOf(plan: WorkspacePlan): BasePlanItem[] {
++  return [
++    plan.workspace,
++    plan.brand,
++    ...plan.locations,
++    ...(plan.hours ? [plan.hours] : []),
++    ...plan.invitations,
++  ];
++}
++
++export function countStatuses(workspaces: WorkspacePlan[]): Record<PlanStatus, number> {
++  const counts = Object.fromEntries(PLAN_STATUSES.map((status) => [status, 0])) as Record<
++    PlanStatus,
++    number
++  >;
++  for (const workspace of workspaces) {
++    for (const item of itemsOf(workspace)) {
++      counts[item.status] += 1;
++    }
++  }
++  return counts;
++}
++
++function blockedByPlanRows(workspaces: WorkspacePlan[]): BlockedByPlanRow[] {
++  const rows: BlockedByPlanRow[] = [];
++  for (const plan of workspaces) {
++    const brandBlocked = plan.brand.gate === "brand";
++    const teamBlocked = plan.invitations.some((item) => item.gate === "team");
++    if (!brandBlocked && !teamBlocked) continue;
++    const needs: BlockedByPlanRow["needs"] =
++      brandBlocked && teamBlocked ? "brand_and_team" : brandBlocked ? "brand" : "team";
++    rows.push({
++      key: plan.key,
++      workspaceName: plan.workspace.name,
++      current: plan.gates.newWorkspace
++        ? "new workspace, no Social subscription"
++        : `${plan.gates.statusLabel}${plan.gates.planCode ? `, ${plan.gates.planCode}` : ""}`,
++      needs,
++      cheapestPlan: teamBlocked ? cadMonthly("social_advanced_15") : cadMonthly("social_essential_1"),
++    });
++  }
++  return rows;
++}
++
++/**
++ * Builds the plan. With snapshot === null (no database) every database-backed
++ * item is UNCHECKED. Workspaces are planned in data order, which also decides
++ * which workspace gets the single live invitation of a shared email.
++ */
++export function buildProvisioningPlan(
++  data: ProvisioningData,
++  snapshot: ProvisioningSnapshot | null,
++  options: PlanOptions,
++): ProvisioningPlan {
++  const run: RunState = { plannedEmails: new Set(), plannedCount: 0 };
++  const workspaces = data.brands.map((entry) =>
++    snapshot
++      ? planWorkspace(entry, data, snapshot, options, run)
++      : offlineWorkspacePlan(entry, data, options),
++  );
++  const counts = countStatuses(workspaces);
++  return {
++    mode: snapshot ? "database" : "offline",
++    workspaces,
++    counts,
++    blockedByPlan: blockedByPlanRows(workspaces),
++    conflicts: counts.CONFLICT,
++  };
++}
++
++/** Restricts the data to the given keys (in data order). Unknown keys are returned. */
++export function selectBrands(
++  data: ProvisioningData,
++  keys: string[] | null,
++): { data: ProvisioningData; unknownKeys: string[] } {
++  if (!keys || keys.length === 0) {
++    return { data, unknownKeys: [] };
++  }
++  const known = new Set(data.brands.map((entry) => entry.key));
++  const wanted = new Set(keys);
++  return {
++    data: { ...data, brands: data.brands.filter((entry) => wanted.has(entry.key)) },
++    unknownKeys: keys.filter((key) => !known.has(key)),
++  };
++}
+diff --git a/src/lib/provisioning/workspace-provisioning-runner.ts b/src/lib/provisioning/workspace-provisioning-runner.ts
+new file mode 100644
+index 0000000..99cc9bf
+--- /dev/null
++++ b/src/lib/provisioning/workspace-provisioning-runner.ts
+@@ -0,0 +1,760 @@
++/**
++ * Database side of `scripts/provision-workspaces.ts`.
++ *
++ * - loadProvisioningSnapshot: read-only queries that feed the pure plan.
++ * - applyProvisioningPlan: writes ONLY through the app's own services
++ *   (createClient, createBrand, createLocation), which keep their own
++ *   validation, duplicate checks, plan gates and AuditLog rows.
++ * - sendWorkspaceInvitation: the invitation route
++ *   (src/app/api/team/invitations/route.ts) cannot run outside a Next.js
++ *   request (cookies(), NextRequest). This mirrors its steps after the
++ *   authorization check: plan gate, member check, token, 7-day expiry,
++ *   upsert, Supabase invite or magic link, revoke + audit on failure,
++ *   audit on success. The caller is a Platform Owner/Admin instead of a
++ *   workspace owner (documented substitution).
++ *
++ * Nothing here prints. Tokens, token hashes and links never leave this file.
++ */
++
++import "server-only";
++
++import { assertClientCanInviteTeam } from "@/lib/billing/social/entitlement-gates";
++import { createBrand } from "@/lib/brands/brand-service";
++import { createClient } from "@/lib/clients/client-service";
++import { getPrisma } from "@/lib/db/prisma";
++import { createLocation } from "@/lib/locations/location-service";
++import { isServiceError, ServiceError } from "@/lib/services/service-error";
++import { generateInvitationToken } from "@/lib/team/invitation-token";
++import { normalizeEmail } from "@/lib/auth/registration-validation";
++import type {
++  ExistingClientSnapshot,
++  ProvisioningData,
++  ProvisioningPlan,
++  ProvisioningSnapshot,
++  WorkspacePlan,
++} from "@/lib/provisioning/workspace-provisioning-policy";
++
++/** Same value as the invitation route. */
++export const INVITATION_LIFETIME_DAYS = 7;
++
++export const PROVISIONING_SOURCE = "scripts/provision-workspaces.ts";
++
++type Prisma = NonNullable<ReturnType<typeof getPrisma>>;
++
++function requirePrisma(): Prisma {
++  const prisma = getPrisma();
++  if (!prisma) {
++    throw new ServiceError("unavailable", "DATABASE_URL is not configured.");
++  }
++  return prisma;
++}
++
++function insensitive(email: string) {
++  return { equals: email, mode: "insensitive" as const };
++}
++
++// ── Profiles ─────────────────────────────────────────────────
++
++export type ActorCheck =
++  | { ok: true; profileId: string; email: string; role: "owner" | "admin" }
++  | { ok: false; message: string };
++
++/** Mirrors requirePlatformAdminApiAccess: an active Platform Owner or Admin. */
++export async function resolveActor(email: string): Promise<ActorCheck> {
++  const prisma = requirePrisma();
++  const profile = await prisma.profile.findFirst({
++    where: { email: insensitive(email) },
++    select: { id: true, email: true, role: true, status: true },
++  });
++  if (!profile || !profile.email) {
++    return { ok: false, message: "No TAKATAK profile has the --actor-email address." };
++  }
++  if (profile.status !== "active") {
++    return { ok: false, message: `The actor's profile is ${profile.status}, not active.` };
++  }
++  if (profile.role !== "owner" && profile.role !== "admin") {
++    return { ok: false, message: "The actor must be a Platform Owner or Platform Admin." };
++  }
++  return { ok: true, profileId: profile.id, email: normalizeEmail(profile.email), role: profile.role };
++}
++
++// ── Snapshot ─────────────────────────────────────────────────
++
++export async function loadProvisioningSnapshot(
++  data: ProvisioningData,
++  actor: { profileId: string; email: string } | null,
++  now = new Date(),
++): Promise<ProvisioningSnapshot> {
++  const prisma = requirePrisma();
++  const adminEmail = data.group.adminEmail;
++
++  const adminProfile = await prisma.profile.findFirst({
++    where: { email: insensitive(adminEmail), status: "active" },
++    select: { id: true, email: true },
++  });
++  const admin = adminProfile
++    ? { profileId: adminProfile.id, email: normalizeEmail(adminProfile.email ?? adminEmail) }
++    : null;
++
++  let assignedAdminFound: boolean | null = null;
++  if (data.group.assignedPlatformAdminEmail) {
++    const assigned = await prisma.profile.findFirst({
++      where: {
++        email: insensitive(data.group.assignedPlatformAdminEmail),
++        status: "active",
++        role: { in: ["owner", "admin"] },
++      },
++      select: { id: true },
++    });
++    assignedAdminFound = Boolean(assigned);
++  }
++
++  const inviteeEmails = [
++    ...new Set(
++      [adminEmail, ...data.brands.map((entry) => entry.ownerEmail)]
++        .filter((email): email is string => Boolean(email))
++        .map(normalizeEmail),
++    ),
++  ];
++
++  const livePending = await prisma.userInvitation.findMany({
++    where: {
++      OR: inviteeEmails.map((email) => ({ email: insensitive(email) })),
++      status: "pending",
++      expiresAt: { gt: now },
++    },
++    select: { clientId: true, email: true },
++  });
++
++  const ownerProfileIds = [admin?.profileId, actor?.profileId].filter(
++    (id): id is string => Boolean(id),
++  );
++
++  const clientsByKey: ProvisioningSnapshot["clientsByKey"] = {};
++  const workspaceEmailTakenByKey: ProvisioningSnapshot["workspaceEmailTakenByKey"] = {};
++
++  for (const entry of data.brands) {
++    const matches = await prisma.client.findMany({
++      where: { name: { equals: entry.workspaceName, mode: "insensitive" } },
++      select: { id: true, name: true, status: true },
++      orderBy: { createdAt: "asc" },
++      take: 10,
++    });
++
++    const snapshots: ExistingClientSnapshot[] = [];
++    for (const match of matches) {
++      const owners = ownerProfileIds.length
++        ? await prisma.clientMembership.findMany({
++            where: {
++              clientId: match.id,
++              profileId: { in: ownerProfileIds },
++              role: "owner",
++              status: "active",
++            },
++            select: { profileId: true },
++          })
++        : [];
++      const client: ExistingClientSnapshot = {
++        id: match.id,
++        name: match.name,
++        status: match.status,
++        ownedByAdmin: owners.some((row) => row.profileId === admin?.profileId),
++        ownedByActor: owners.some((row) => row.profileId === actor?.profileId),
++        subscription: null,
++        brands: [],
++        locationsByBrandId: {},
++        membersByEmail: {},
++        invitationsByEmail: {},
++      };
++
++      if (matches.length === 1) {
++        await loadClientDetails(prisma, client, entry.brand.name, [
++          adminEmail,
++          ...(entry.ownerEmail ? [entry.ownerEmail] : []),
++        ]);
++      }
++      snapshots.push(client);
++    }
++    clientsByKey[entry.key] = snapshots;
++
++    if (entry.workspaceEmail) {
++      const taken = await prisma.client.findFirst({
++        where: {
++          email: insensitive(entry.workspaceEmail),
++          id: { notIn: matches.map((match) => match.id) },
++        },
++        select: { id: true },
++      });
++      workspaceEmailTakenByKey[entry.key] = Boolean(taken);
++    }
++  }
++
++  return {
++    now,
++    actor,
++    admin,
++    assignedAdminFound,
++    clientsByKey,
++    workspaceEmailTakenByKey,
++    livePendingInvitations: livePending.map((row) => ({
++      clientId: row.clientId,
++      email: normalizeEmail(row.email),
++    })),
++  };
++}
++
++async function loadClientDetails(
++  prisma: Prisma,
++  client: ExistingClientSnapshot,
++  brandName: string,
++  emails: string[],
++): Promise<void> {
++  const [subscription, brands] = await Promise.all([
++    prisma.clientSubscription.findUnique({
++      where: { clientId: client.id },
++      select: {
++        status: true,
++        planCode: true,
++        cancelAtPeriodEnd: true,
++        currentPeriodEnd: true,
++        xAccountAllowance: true,
++        advancedAnalytics: true,
++      },
++    }),
++    prisma.businessBrand.findMany({
++      where: { clientId: client.id },
++      select: { id: true, name: true, status: true },
++      orderBy: { createdAt: "asc" },
++    }),
++  ]);
++  client.subscription = subscription;
++  client.brands = brands;
++
++  const matchingBrandIds = brands
++    .filter((brand) => brand.name.toLowerCase() === brandName.toLowerCase())
++    .map((brand) => brand.id);
++  if (matchingBrandIds.length > 0) {
++    const locations = await prisma.businessLocation.findMany({
++      where: { clientId: client.id, businessBrandId: { in: matchingBrandIds } },
++      select: {
++        id: true,
++        businessBrandId: true,
++        name: true,
++        status: true,
++        isPrimary: true,
++        addressLine1: true,
++        addressLine2: true,
++        city: true,
++        postalCode: true,
++      },
++      orderBy: { createdAt: "asc" },
++    });
++    for (const { businessBrandId, ...location } of locations) {
++      (client.locationsByBrandId[businessBrandId] ??= []).push(location);
++    }
++  }
++
++  for (const email of [...new Set(emails.map(normalizeEmail))]) {
++    // Same lookup as the invitation route: any membership status counts.
++    const membership = await prisma.clientMembership.findFirst({
++      where: { clientId: client.id, profile: { email: insensitive(email) } },
++      select: { role: true, status: true },
++    });
++    if (membership) {
++      client.membersByEmail[email] = membership;
++    }
++    const invitation = await prisma.userInvitation.findUnique({
++      where: { clientId_email: { clientId: client.id, email } },
++      select: { id: true, status: true, role: true, expiresAt: true },
++    });
++    if (invitation) {
++      client.invitationsByEmail[email] = invitation;
++    }
++  }
++}
++
++// ── Invitations (mirror of the route) ────────────────────────
++
++type AuthErrorLike = { message: string; code?: unknown } | null;
++
++/** The two Supabase Auth calls the route uses. `supabase.auth` satisfies it. */
++export type InvitationAuthClient = {
++  admin: {
++    inviteUserByEmail(
++      email: string,
++      options: { redirectTo: string; data: Record<string, unknown> },
++    ): Promise<{ error: AuthErrorLike }>;
++  };
++  signInWithOtp(credentials: {
++    email: string;
++    options: { shouldCreateUser: boolean; emailRedirectTo: string };
++  }): Promise<{ error: AuthErrorLike }>;
++};
++
++export type InvitationSender = {
++  /** Public https origin of the app (NEXT_PUBLIC_APP_URL). */
++  origin: string;
++  auth: InvitationAuthClient;
++};
++
++export type InvitationOutcome =
++  | { outcome: "sent"; invitationId: string; deliveryMethod: "invite" | "magiclink" }
++  | {
++      outcome: "failed";
++      invitationId: string;
++      deliveryMethod: "invite" | "magiclink";
++      message: string;
++    }
++  | { outcome: "skipped"; message: string };
++
++function errorCodeOf(error: NonNullable<AuthErrorLike>): string | null {
++  return typeof error === "object" &&
++    error !== null &&
++    "code" in error &&
++    typeof error.code === "string"
++    ? error.code
++    : null;
++}
++
++export async function sendWorkspaceInvitation(input: {
++  clientId: string;
++  email: string;
++  role: "owner";
++  actorProfileId: string;
++  sender: InvitationSender;
++  now?: Date;
++}): Promise<InvitationOutcome> {
++  const prisma = requirePrisma();
++  const email = normalizeEmail(input.email);
++  const now = input.now ?? new Date();
++
++  // Route line ~100: the plan gate, checked again right before writing.
++  await assertClientCanInviteTeam(input.clientId);
++
++  const [workspace, inviter] = await Promise.all([
++    prisma.client.findUnique({
++      where: { id: input.clientId },
++      select: { id: true, name: true },
++    }),
++    prisma.profile.findUnique({
++      where: { id: input.actorProfileId },
++      select: { id: true, email: true },
++    }),
++  ]);
++  if (!workspace || !inviter) {
++    throw new ServiceError("not_found", "The workspace or inviting user could not be found.");
++  }
++  if (inviter.email?.toLowerCase() === email) {
++    return { outcome: "skipped", message: "Self-invitation refused (same rule as the app)." };
++  }
++
++  const existingMembership = await prisma.clientMembership.findFirst({
++    where: { clientId: input.clientId, profile: { email: insensitive(email) } },
++    select: { id: true },
++  });
++  if (existingMembership) {
++    return { outcome: "skipped", message: "Already a workspace member." };
++  }
++
++  // Idempotency guard (stricter than the route, which always rotates the
++  // token): never replace a live pending or an accepted invitation.
++  const previous = await prisma.userInvitation.findUnique({
++    where: { clientId_email: { clientId: input.clientId, email } },
++    select: { status: true, expiresAt: true },
++  });
++  if (
++    previous &&
++    (previous.status === "accepted" ||
++      (previous.status === "pending" && previous.expiresAt.getTime() > now.getTime()))
++  ) {
++    return { outcome: "skipped", message: `An invitation is already ${previous.status}.` };
++  }
++
++  const { token, tokenHash } = generateInvitationToken();
++  const expiresAt = new Date(now.getTime() + INVITATION_LIFETIME_DAYS * 24 * 60 * 60 * 1000);
++
++  const invitation = await prisma.userInvitation.upsert({
++    where: { clientId_email: { clientId: input.clientId, email } },
++    create: {
++      clientId: input.clientId,
++      email,
++      role: input.role,
++      status: "pending",
++      tokenHash,
++      customPermissions: [],
++      deniedPermissions: [],
++      invitedByProfileId: input.actorProfileId,
++      expiresAt,
++    },
++    update: {
++      role: input.role,
++      status: "pending",
++      tokenHash,
++      customPermissions: [],
++      deniedPermissions: [],
++      invitedByProfileId: input.actorProfileId,
++      expiresAt,
++      acceptedAt: null,
++      revokedAt: null,
++    },
++    select: { id: true },
++  });
++
++  const callbackUrl = new URL(
++    `/auth/callback/invite/${encodeURIComponent(token)}`,
++    input.sender.origin,
++  );
++  callbackUrl.searchParams.set("flow", "invite");
++
++  let deliveryMethod: "invite" | "magiclink" = "invite";
++  let deliveryError: AuthErrorLike = null;
++
++  const { error: invitationError } = await input.sender.auth.admin.inviteUserByEmail(email, {
++    redirectTo: callbackUrl.toString(),
++    data: { invited_workspace_name: workspace.name },
++  });
++
++  if (invitationError) {
++    const errorCode = errorCodeOf(invitationError);
++    const emailAlreadyExists =
++      errorCode === "email_exists" ||
++      errorCode === "user_already_exists" ||
++      invitationError.message.toLowerCase().includes("already been registered");
++
++    if (emailAlreadyExists) {
++      deliveryMethod = "magiclink";
++      const { error: magicLinkError } = await input.sender.auth.signInWithOtp({
++        email,
++        options: { shouldCreateUser: false, emailRedirectTo: callbackUrl.toString() },
++      });
++      deliveryError = magicLinkError;
++    } else {
++      deliveryError = invitationError;
++    }
++  }
++
++  if (deliveryError) {
++    await prisma.userInvitation.update({
++      where: { id: invitation.id },
++      data: { status: "revoked", revokedAt: new Date() },
++    });
++    await prisma.auditLog.create({
++      data: {
++        profileId: input.actorProfileId,
++        clientId: input.clientId,
++        action: "user_invitation_failed",
++        entityType: "UserInvitation",
++        entityId: invitation.id,
++        metadata: {
++          note: `Invitation delivery failed for ${email}.`,
++          deliveryMethod,
++          source: PROVISIONING_SOURCE,
++        },
++      },
++    });
++    return {
++      outcome: "failed",
++      invitationId: invitation.id,
++      deliveryMethod,
++      message: deliveryError.message,
++    };
++  }
++
++  await prisma.auditLog.create({
++    data: {
++      profileId: input.actorProfileId,
++      clientId: input.clientId,
++      action: "user_invitation_sent",
++      entityType: "UserInvitation",
++      entityId: invitation.id,
++      metadata: {
++        note: `${email} was invited to ${workspace.name} as ${input.role}.`,
++        deliveryMethod,
++        source: PROVISIONING_SOURCE,
++      },
++    },
++  });
++
++  return { outcome: "sent", invitationId: invitation.id, deliveryMethod };
++}
++
++// ── Apply ────────────────────────────────────────────────────
++
++export type AppliedItem = {
++  kind: "workspace" | "brand" | "location" | "invitation";
++  name: string;
++  id: string | null;
++  outcome: "created" | "sent" | "skipped" | "blocked" | "failed";
++  message?: string;
++};
++
++export type WorkspaceApplyResult = {
++  key: string;
++  workspaceName: string;
++  clientId: string | null;
++  brandId: string | null;
++  items: AppliedItem[];
++  errors: string[];
++  verified: boolean;
++};
++
++export type ApplyOptions = {
++  actorProfileId: string;
++  /** Required when the plan contains SEND items. */
++  sender: InvitationSender | null;
++  inviteDelayMs: number;
++  sleep?: (milliseconds: number) => Promise<void>;
++  onProgress?: (message: string) => void;
++};
++
++const defaultSleep = (milliseconds: number) =>
++  new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
++
++function describeError(error: unknown): string {
++  if (isServiceError(error)) {
++    const fields = Object.values(error.fieldErrors ?? {});
++    return `${error.code}: ${error.message}${fields.length ? ` (${fields.join(" ")})` : ""}`;
++  }
++  return `unexpected: ${error instanceof Error ? error.message : "unknown error"}`;
++}
++
++function isConcurrentLocationConflict(error: unknown): boolean {
++  return (
++    isServiceError(error) &&
++    error.code === "conflict" &&
++    error.message.startsWith("Another location change happened at the same time")
++  );
++}
++
++async function createLocationWithRetry(
++  clientId: string,
++  actorProfileId: string,
++  input: Parameters<typeof createLocation>[2],
++) {
++  try {
++    return await createLocation(clientId, actorProfileId, input);
++  } catch (error) {
++    if (!isConcurrentLocationConflict(error)) throw error;
++    return createLocation(clientId, actorProfileId, input);
++  }
++}
++
++/**
++ * Applies the plan one workspace at a time, in data order. A failure stops
++ * only that workspace's remaining steps. Each workspace is read back after.
++ */
++export async function applyProvisioningPlan(
++  plan: ProvisioningPlan,
++  options: ApplyOptions,
++): Promise<WorkspaceApplyResult[]> {
++  const prisma = requirePrisma();
++  const sleep = options.sleep ?? defaultSleep;
++  const results: WorkspaceApplyResult[] = [];
++  let sentInThisRun = 0;
++
++  const hasSends = plan.workspaces.some((workspace) =>
++    workspace.invitations.some((item) => item.status === "SEND"),
++  );
++  if (hasSends && !options.sender) {
++    throw new ServiceError("invalid_input", "The plan sends invitations but no sender is configured.");
++  }
++
++  for (const workspacePlan of plan.workspaces) {
++    const result: WorkspaceApplyResult = {
++      key: workspacePlan.key,
++      workspaceName: workspacePlan.workspace.name,
++      clientId: workspacePlan.workspace.existingId ?? null,
++      brandId: workspacePlan.brand.existingId ?? null,
++      items: [],
++      errors: [],
++      verified: false,
++    };
++    results.push(result);
++
++    const workspaceStatus = workspacePlan.workspace.status;
++    if (workspaceStatus !== "CREATE" && workspaceStatus !== "SKIP") {
++      continue;
++    }
++    options.onProgress?.(`${workspacePlan.workspace.name}: applying`);
++
++    try {
++      // Workspace
++      if (workspaceStatus === "CREATE") {
++        if (!workspacePlan.workspace.input) {
++          throw new ServiceError("invalid_input", "The workspace has no initial owner.");
++        }
++        const client = await createClient(workspacePlan.workspace.input, options.actorProfileId);
++        result.clientId = client.id;
++        result.items.push({ kind: "workspace", name: client.name, id: client.id, outcome: "created" });
++      }
++      const clientId = result.clientId;
++      if (!clientId) {
++        throw new ServiceError("not_found", "The workspace id is missing.");
++      }
++
++      // Brand
++      if (workspacePlan.brand.status === "CREATE") {
++        const brand = await createBrand(clientId, options.actorProfileId, workspacePlan.brand.input);
++        result.brandId = brand.id;
++        result.items.push({ kind: "brand", name: brand.name, id: brand.id, outcome: "created" });
++      }
++
++      // Locations (primary first; the plan is already sorted)
++      if (result.brandId) {
++        for (const location of workspacePlan.locations) {
++          if (location.status !== "CREATE") continue;
++          const created = await createLocationWithRetry(clientId, options.actorProfileId, {
++            ...location.input,
++            businessBrandId: result.brandId,
++          });
++          result.items.push({
++            kind: "location",
++            name: created.name,
++            id: created.id,
++            outcome: "created",
++          });
++        }
++      }
++
++      // Invitations (only SEND items exist with --send-invites)
++      for (const invitation of workspacePlan.invitations) {
++        if (invitation.status !== "SEND" || !options.sender) continue;
++        if (sentInThisRun > 0 && options.inviteDelayMs > 0) {
++          options.onProgress?.(
++            `waiting ${Math.round(options.inviteDelayMs / 1000)}s before the next invitation`,
++          );
++          await sleep(options.inviteDelayMs);
++        }
++        try {
++          const outcome = await sendWorkspaceInvitation({
++            clientId,
++            email: invitation.email,
++            role: invitation.role,
++            actorProfileId: options.actorProfileId,
++            sender: options.sender,
++          });
++          if (outcome.outcome !== "skipped") sentInThisRun += 1;
++          if (outcome.outcome === "sent") {
++            result.items.push({
++              kind: "invitation",
++              name: invitation.email,
++              id: outcome.invitationId,
++              outcome: "sent",
++              message: `delivered as ${outcome.deliveryMethod}`,
++            });
++          } else if (outcome.outcome === "failed") {
++            result.items.push({
++              kind: "invitation",
++              name: invitation.email,
++              id: outcome.invitationId,
++              outcome: "failed",
++              message: `${outcome.deliveryMethod} delivery failed: ${outcome.message}`,
++            });
++            result.errors.push("An invitation could not be delivered (revoked and audited).");
++          } else {
++            result.items.push({
++              kind: "invitation",
++              name: invitation.email,
++              id: null,
++              outcome: "skipped",
++              message: outcome.message,
++            });
++          }
++        } catch (error) {
++          if (isServiceError(error) && error.code === "forbidden") {
++            // The plan gate changed since planning: report, never bypass.
++            result.items.push({
++              kind: "invitation",
++              name: invitation.email,
++              id: null,
++              outcome: "blocked",
++              message: error.message,
++            });
++            continue;
++          }
++          throw error;
++        }
++      }
++    } catch (error) {
++      result.errors.push(describeError(error));
++    }
++
++    if (result.clientId) {
++      await verifyWorkspace(prisma, workspacePlan, result);
++    }
++  }
++
++  return results;
++}
++
++async function verifyWorkspace(
++  prisma: Prisma,
++  workspacePlan: WorkspacePlan,
++  result: WorkspaceApplyResult,
++): Promise<void> {
++  const problems: string[] = [];
++  const clientId = result.clientId as string;
++
++  const client = await prisma.client.findUnique({
++    where: { id: clientId },
++    select: { name: true, status: true },
++  });
++  if (!client) {
++    problems.push("workspace row not found");
++  } else if (client.name.toLowerCase() !== workspacePlan.workspace.name.toLowerCase()) {
++    problems.push("workspace name differs");
++  }
++
++  if (result.items.some((item) => item.kind === "workspace" && item.outcome === "created")) {
++    const ownerEmail = workspacePlan.workspace.input?.ownerEmail ?? "";
++    const [owner, audit] = await Promise.all([
++      prisma.clientMembership.findFirst({
++        where: {
++          clientId,
++          role: "owner",
++          status: "active",
++          profile: { email: insensitive(ownerEmail) },
++        },
++        select: { id: true },
++      }),
++      prisma.auditLog.findFirst({
++        where: { clientId, action: "workspace_created", entityId: clientId },
++        select: { id: true },
++      }),
++    ]);
++    if (!owner) problems.push("initial owner membership not found");
++    if (!audit) problems.push("workspace_created audit row not found");
++  }
++
++  if (result.brandId) {
++    const brand = await prisma.businessBrand.findFirst({
++      where: { id: result.brandId, clientId },
++      select: { id: true },
++    });
++    if (!brand) problems.push("brand row not found");
++  }
++
++  for (const item of result.items) {
++    if (item.kind === "location" && item.outcome === "created" && item.id) {
++      const location = await prisma.businessLocation.findFirst({
++        where: { id: item.id, clientId, businessBrandId: result.brandId ?? undefined },
++        select: { id: true },
++      });
++      if (!location) problems.push(`location ${item.name} not found`);
++    }
++    if (item.kind === "invitation" && item.outcome === "sent" && item.id) {
++      const invitation = await prisma.userInvitation.findUnique({
++        where: { id: item.id },
++        select: { status: true, expiresAt: true },
++      });
++      if (!invitation || invitation.status !== "pending" || invitation.expiresAt <= new Date()) {
++        problems.push("a sent invitation is not pending");
++      }
++    }
++  }
++
++  result.verified = problems.length === 0;
++  for (const problem of problems) {
++    result.errors.push(`read-back: ${problem}`);
++  }
++}
+-- 
+2.43.0
+

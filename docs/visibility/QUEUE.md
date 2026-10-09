@@ -49,7 +49,7 @@ Status: `todo` / `doing` / `done` / `blocked: reason`. Newest work at the top of
 
 ## P4d Handoff (added 2026-10-09)
 - [x] W1 done 2026-10-09 (PROGRESS.md entry + task rows 20/27 on this branch; "Start here" index in PLAN.md) | Dated entry in `docs/PROGRESS.md` on this branch for today's visibility work (files, commits, what waits for the owner) + a "start here" index at the top of `PLAN.md`
-- [ ] W2 todo | Owner decision list as a new Drive addendum next to "04 QUESTIONS FOR THE OWNER" (Drive cannot edit files: new file), French first, from `PLAN.md` §7 and the overlaps in `KEYWORDS.md`
+- [x] W2 done 2026-10-09 (Drive file "04 QUESTIONS FOR THE OWNER - addendum 2026-10-09 17:15 UTC (décisions Google)": 23 questions in 7 groups, French first; Po Poulet NDG excluded from every question) | Owner decision list as a new Drive addendum next to "04 QUESTIONS FOR THE OWNER" (Drive cannot edit files: new file), French first, from `PLAN.md` §7 and the overlaps in `KEYWORDS.md`
 
 ## P5 Recurring
 - [ ] R1 | last check 2026-10-09 16:46 UTC (no new DoorDash mail since 15:45; still no answer from DoorDash support to the 2026-10-09 01:45 follow-up; the 13:48 POS-integration notice for one store is already flagged in Drive) | Every ~1 h: check the owner's Gmail for new DoorDash email (thread ref in Drive OPS_LOG); record in Drive, never reply without the owner.

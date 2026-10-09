@@ -40,7 +40,9 @@ L'adresse sert pour Uber, DoorDash, Clover et Skip. Si tu la changes plus tard, 
    - la clé Supabase `service_role` ;
    - **ton courriel de propriétaire** ;
    - un **mot de passe de secours**, que tu choisis et tapes toi-même ;
-   - **Resend**, pour recevoir le code de connexion par courriel.
+   - **le courriel d'envoi**, pour recevoir le code de connexion : soit une boîte courriel de ton domaine (SMTP :
+     `SMTP_HOST` comme `mail.ton-domaine.ca`, `SMTP_USER` = l'adresse complète de la boîte, `SMTP_PASS`, port 465 ou 587),
+     soit **Resend** (`RESEND_API_KEY`) ; dans les deux cas `AUTH_EMAIL_FROM`.
 
    Twilio (textos et appels), Clover, Uber, DoorDash et Skip peuvent être ajoutés plus tard : relance simplement
    `sudo bash /opt/takatak-foodhub/deploy/install-vps.sh foodhub.takatak.ca`. Les valeurs déjà enregistrées sont gardées.

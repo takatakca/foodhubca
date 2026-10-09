@@ -165,7 +165,7 @@ export default function AlertSettingsPage() {
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:grid-cols-5">
               {chip(channels?.sms, t('Textos', 'Texts'), <MessageSquareText className="size-5" />, 'TWILIO_*')}
               {chip(channels?.call, t('Appels', 'Calls'), <PhoneCall className="size-5" />, 'TWILIO_*')}
-              {chip(channels?.email, t('Courriels', 'Email'), <Mail className="size-5" />, 'RESEND_API_KEY')}
+              {chip(channels?.email, t('Courriels', 'Email'), <Mail className="size-5" />, 'SMTP_* / RESEND_API_KEY')}
               {chip(channels?.chat, t('Clavardage équipe', 'Team chat'), <BellRing className="size-5" />, 'ALERT_WEBHOOK_URL')}
               {chip(channels?.ai, 'Claude (IA)', <Bot className="size-5" />, 'ANTHROPIC_API_KEY')}
             </div>

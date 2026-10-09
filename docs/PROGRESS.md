@@ -23,6 +23,15 @@ piece of work. The plan itself is `docs/MASTER_PLAN.md`. Operations (support, em
 | 13 | Certification backlog (PLATFORM_API_RESEARCH §6) | `certification-backlog` (1a5fe62, main merged in) | Certification agent | DONE, pushed. 11 items coded, SOW skipped, Uber prep time TODO. Checks: 426/426 tests, webpack OK, verify 506/0 | Owner opens the PR (https://github.com/takatakca/foodhubca/compare/main...certification-backlog?expand=1), merges after task 12, deploys; then the owner actions and platform questions in docs/CERTIFICATION_BACKLOG.md |
 | 14 | Move Supabase project "TAKATAK User Official Dashboard V1" from eu-west-1 (Ireland) to ca-central-1 (Montréal) | none | main session | CANCELLED 2026-10-08 by the owner: the project stays in Europe as long as it works. Nothing was changed. | None. Do not restart this task unless the owner asks. |
 
+## 2026-10-08 05:35 UTC (SMTP agent, task 16: `feature/smtp-email`)
+
+**Done:** email can go out by SMTP (the owner's own mailboxes, e.g. MochaHost) as well as Resend. Not merged: the owner reviews and merges.
+- One sender, `lib/foodhub/notify/email.ts` (nodemailer). SMTP is used when `SMTP_HOST` + `SMTP_USER` + `SMTP_PASS` are all set (`SMTP_PORT` default 465 = TLS, 587 = STARTTLS; optional `SMTP_SECURE`, `SMTP_TLS_SERVERNAME`); otherwise Resend, as before. 10 s timeout, the password is never logged or returned.
+- Sign-in codes, invitations, alerts (`notify`) and reports (`reports.ts`) both go through it. Reports now fall back to `AUTH_EMAIL_FROM` when `REPORT_EMAIL_FROM` is empty.
+- `SMTP_*` added next to `RESEND_API_KEY` in `.env.example`, `npm run setup`, Go-live, Alerts, Profile, Reports banner, docs and the privacy page.
+- Tests: `tests/email-smtp.test.ts` (SMTP vs Resend vs none, transport mocked, no network). Checks: typecheck, lint 0 errors, 422/422 tests, webpack build OK, verify:foodhub 506/0.
+- Owner on Coolify: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER` (full mailbox address), `SMTP_PASS`, `AUTH_EMAIL_FROM`; then Settings → Alerts → "Email me" to test.
+
 ## 2026-10-08 05:30 UTC (Food Hub ↔ Clover backend session, task 2: `reconcile-pr6`)
 
 **Done:** PR #6's fixes ported onto `main`'s webhook inbox and Clover retry. No inbox swap.

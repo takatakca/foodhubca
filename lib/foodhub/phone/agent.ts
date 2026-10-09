@@ -18,7 +18,7 @@ import { getCatalog } from '../catalog';
 import { prepFor } from '../prep';
 import { localTimeLabel } from '../time';
 import { addToCart, buildPhoneMenu, cartSummary, removeFromCart, type CartLine, type PhoneMenu } from './cart';
-import { say, type PhoneCall, type TurnReply } from './calls';
+import { say, type PhoneCall, type PhoneLang, type TurnReply } from './calls';
 import { openNow, phoneDeliveryAvailable, placePhoneOrder, setOrderDetails } from './order';
 import { isMultiKitchen, kitchenView, lineKitchens, type PhoneLine, type PhoneSettings } from './settings';
 
@@ -31,6 +31,8 @@ export function phoneAgentConfigured(): boolean {
 }
 
 const str = (description: string) => ({ type: 'string', description });
+
+const LANG_NAME: Record<PhoneLang, string> = { fr: 'French', en: 'English', es: 'Spanish' };
 
 export const TOOLS: Anthropic.Beta.BetaTool[] = [
   {
@@ -73,8 +75,8 @@ export const TOOLS: Anthropic.Beta.BetaTool[] = [
     input_schema: { type: 'object', additionalProperties: false, required: ['caller_confirmed'], properties: { caller_confirmed: { type: 'boolean', description: 'true only when the caller clearly confirmed the total.' } } },
   },
   {
-    name: 'set_language', strict: true, description: 'Switch the call to French or English (speech recognition and voice).',
-    input_schema: { type: 'object', additionalProperties: false, required: ['language'], properties: { language: { type: 'string', enum: ['fr', 'en'] } } },
+    name: 'set_language', strict: true, description: 'Switch the call to French, English or Spanish (speech recognition and voice).',
+    input_schema: { type: 'object', additionalProperties: false, required: ['language'], properties: { language: { type: 'string', enum: ['fr', 'en', 'es'] } } },
   },
   {
     name: 'transfer_to_human', strict: true, description: 'Hand the call to a team member: refunds, complaints, cancelling or changing an earlier order, payment questions, allergies you cannot answer from the menu, large orders, or the caller asks for a person.',
@@ -90,8 +92,8 @@ export const RULES = `You are the phone ordering assistant of a restaurant group
 
 How to talk
 - Friendly, efficient restaurant employee. Short sentences, one question at a time. Never lists, markdown, emojis or links.
-- Speak the caller's language: Québec French by default, English if the caller speaks English (then call set_language).
-- Prices: "24,99 $" in French, "$24.99" in English. Never say item_ref / option_ref codes — they are for the tools.
+- Speak the caller's language: Québec French by default, English if the caller speaks English, Spanish if the caller speaks Spanish (then call set_language).
+- Prices: "24,99 $" in French, "$24.99" in English, "24,99 dólares" in Spanish. Never say item_ref / option_ref codes — they are for the tools.
 
 Taking the order
 - If your instructions list several KITCHENS, first find out which restaurant the caller wants (ask, or deduce it when the brand they name is sold in only one kitchen) and call choose_kitchen. The MENU of that kitchen then appears.
@@ -175,11 +177,11 @@ async function kitchenBlock(ctx: AgentContext): Promise<string> {
 async function openingContext(call: PhoneCall, ctx: AgentContext): Promise<string> {
   const now = ctx.now ?? Date.now();
   if (needsKitchen(ctx, call)) {
-    return `[Call started ${localTimeLabel(now)} (Montréal time). This number serves ${lineKitchens(ctx.configured ?? ctx.line).length} kitchens: find out which one, then choose_kitchen. Caller ID: ${call.from && call.from !== 'anonymous' ? 'known (use it for the order)' : 'hidden (ask for a number)'}. Language: ${call.lang === 'fr' ? 'French' : 'English'}.]`;
+    return `[Call started ${localTimeLabel(now)} (Montréal time). This number serves ${lineKitchens(ctx.configured ?? ctx.line).length} kitchens: find out which one, then choose_kitchen. Caller ID: ${call.from && call.from !== 'anonymous' ? 'known (use it for the order)' : 'hidden (ask for a number)'}. Language: ${LANG_NAME[call.lang]}.]`;
   }
   const prep = await prepFor(ctx.line.locationCode);
   const open = await openNow(ctx.line, now);
-  return `[Call started ${localTimeLabel(now)} (Montréal time). Kitchen open now: ${open ? 'yes' : 'NO — take only orders for a later time today when it is open, or apologise'}. Prep time about ${prep.minutes} min. Caller ID: ${call.from && call.from !== 'anonymous' ? 'known (use it for the order)' : 'hidden (ask for a number)'}. Language: ${call.lang === 'fr' ? 'French' : 'English'}.]`;
+  return `[Call started ${localTimeLabel(now)} (Montréal time). Kitchen open now: ${open ? 'yes' : 'NO — take only orders for a later time today when it is open, or apologise'}. Prep time about ${prep.minutes} min. Caller ID: ${call.from && call.from !== 'anonymous' ? 'known (use it for the order)' : 'hidden (ask for a number)'}. Language: ${LANG_NAME[call.lang]}.]`;
 }
 
 function client(): Anthropic {
@@ -270,9 +272,9 @@ async function runTool(name: string, input: any, state: TurnState, ctx: AgentCon
       return { content: r.message, isError: !r.ok };
     }
     case 'set_language': {
-      const lang = input.language === 'en' ? 'en' : 'fr';
+      const lang: PhoneLang = input.language === 'en' || input.language === 'es' ? input.language : 'fr';
       state.call = { ...call, lang };
-      return { content: `Language set to ${lang === 'en' ? 'English' : 'French'}. Continue in that language.` };
+      return { content: `Language set to ${LANG_NAME[lang]}. Continue in that language.` };
     }
     case 'transfer_to_human': {
       state.call = { ...call, handoffReason: String(input.reason ?? '').slice(0, 200) };
@@ -285,9 +287,10 @@ async function runTool(name: string, input: any, state: TurnState, ctx: AgentCon
   }
 }
 
-const FALLBACK: Record<'fr' | 'en', { handoff: string; again: string }> = {
+const FALLBACK: Record<PhoneLang, { handoff: string; again: string }> = {
   fr: { handoff: 'Un instant, je vous transfère à un membre de l’équipe.', again: 'Pardon, pouvez-vous répéter ?' },
   en: { handoff: 'One moment, I am transferring you to a team member.', again: 'Sorry, could you say that again?' },
+  es: { handoff: 'Un momento, le transfiero a un miembro del equipo.', again: 'Perdón, ¿puede repetirlo?' },
 };
 
 /**

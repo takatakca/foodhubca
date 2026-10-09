@@ -10,13 +10,16 @@ import type { CartLine } from './cart';
 
 export const PHONE_CALLS = 'phone_calls';
 
+/** Language of a call: Québec French (default), English, or Spanish (ON2GO menu callers who chose español). */
+export type PhoneLang = 'fr' | 'en' | 'es';
+
 export type CallStatus = 'active' | 'ordered' | 'handoff' | 'handoff_missed' | 'ended' | 'abandoned' | 'error';
 
 export interface TurnReply {
   say: string;
   /** What happens after saying it. */
   next: 'listen' | 'handoff' | 'hangup';
-  lang: 'fr' | 'en';
+  lang: PhoneLang;
 }
 
 export interface PhoneCall {
@@ -27,7 +30,7 @@ export interface PhoneCall {
   brands: string[];
   from: string;
   to: string;
-  lang: 'fr' | 'en';
+  lang: PhoneLang;
   status: CallStatus;
   startedAt: string;
   endedAt?: string;

@@ -39,6 +39,8 @@ export interface PhoneSettings {
   lines: PhoneLine[];
   voiceFr: string;
   voiceEn: string;
+  /** Spanish voice (es-US), for callers who chose español on the ON2GO menu. */
+  voiceEs: string;
   /** Twilio speech model (fr-CA is supported by phone_call and googlev2_telephony; English uses en-US). */
   speechModel: string;
   /** Seconds of silence that end the caller's sentence (Twilio needs a whole number with a speech model). */
@@ -53,7 +55,7 @@ export interface PhoneSettings {
 const KEY = 'phone_settings_v1';
 
 export const DEFAULT_PHONE: PhoneSettings = {
-  lines: [], voiceFr: 'Polly.Gabrielle-Neural', voiceEn: 'Polly.Joanna-Neural', speechModel: 'googlev2_telephony', speechTimeout: 2, smsConfirmation: true, maxTurns: 40,
+  lines: [], voiceFr: 'Polly.Gabrielle-Neural', voiceEn: 'Polly.Joanna-Neural', voiceEs: 'Polly.Lupe-Neural', speechModel: 'googlev2_telephony', speechTimeout: 2, smsConfirmation: true, maxTurns: 40,
 };
 
 const VOICE = /^(Polly|Google)\.[A-Za-z0-9-]{3,60}$/;
@@ -126,6 +128,7 @@ export async function getPhoneSettings(): Promise<PhoneSettings> {
     lines: Array.isArray(s.lines) ? s.lines : [],
     voiceFr: VOICE.test(String(s.voiceFr)) ? s.voiceFr : DEFAULT_PHONE.voiceFr,
     voiceEn: VOICE.test(String(s.voiceEn)) ? s.voiceEn : DEFAULT_PHONE.voiceEn,
+    voiceEs: VOICE.test(String(s.voiceEs)) ? s.voiceEs : DEFAULT_PHONE.voiceEs,
     speechModel: /^[a-z0-9_.-]{3,40}$/i.test(String(s.speechModel)) ? s.speechModel : DEFAULT_PHONE.speechModel,
     speechTimeout: Math.min(5, Math.max(1, Math.round(Number(s.speechTimeout) || DEFAULT_PHONE.speechTimeout))),
     smsConfirmation: s.smsConfirmation !== false,

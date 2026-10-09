@@ -16,6 +16,8 @@ import { getPhoneSettings, isMultiKitchen, kitchenView, lineForNumber, type Phon
 import { dialXml, gatherXml, GREETING, NO_AGENT, NOBODY, sayXml, twiml, VOICE_PATH, WAIT } from './twilio';
 
 const TURN_BUDGET_MS = 9_000;
+const SILENT_BYE = { fr: 'Je n’entends rien. Au revoir.', en: 'I can’t hear you. Goodbye.', es: 'No le escucho. Adiós.' };
+const STILL_HERE = { fr: 'Je suis là. Que puis-je vous préparer ?', en: 'I’m here. What can I get for you?', es: 'Aquí estoy. ¿Qué le preparamos?' };
 const inflight = (): Map<string, Promise<TurnReply>> => {
   const g = globalThis as unknown as { __fhPhoneTurns?: Map<string, Promise<TurnReply>> };
   g.__fhPhoneTurns ??= new Map();
@@ -46,7 +48,7 @@ async function lineOf(call: PhoneCall): Promise<{ line: PhoneLine; work: PhoneLi
 }
 
 function hints(line: PhoneLine): string {
-  return ['English', 'anglais', ...line.brands].join(', ');
+  return ['English', 'anglais', 'español', ...line.brands].join(', ');
 }
 
 /** What Twilio must do with the agent's reply. */
@@ -141,8 +143,8 @@ export async function callerTurn(params: URLSearchParams): Promise<Response> {
   if (!speech && !digits) {
     const silent = call.transcript.slice(-2).every((t) => t.who === 'caller' && t.text === '(silence)');
     const updated = await saveCall(say(call, 'caller', '(silence)'));
-    if (silent) return render(updated, { say: call.lang === 'fr' ? 'Je n’entends rien. Au revoir.' : 'I can’t hear you. Goodbye.', next: 'hangup', lang: call.lang }, ls.work, settings);
-    return twiml(gatherXml(call.lang === 'fr' ? 'Je suis là. Que puis-je vous préparer ?' : 'I’m here. What can I get for you?', settings, call.lang, `${VOICE_PATH}/turn`, hints(ls.line)));
+    if (silent) return render(updated, { say: SILENT_BYE[call.lang], next: 'hangup', lang: call.lang }, ls.work, settings);
+    return twiml(gatherXml(STILL_HERE[call.lang], settings, call.lang, `${VOICE_PATH}/turn`, hints(ls.line)));
   }
   return turnWithBudget(call, speech || `(pressed ${digits})`, settings, ls.work);
 }

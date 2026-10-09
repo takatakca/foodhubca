@@ -308,17 +308,22 @@ accueil en français, « For English, press 2 » → chaque phrase → Claude (o
 4. Twilio → Phone Numbers → le numéro principal → Voice Configuration :
    - **A call comes in** : Webhook, `https://foodhub.on2go.ca/api/foodhub/webhooks/voice`, **HTTP POST** ;
    - **Call status changes** : `https://foodhub.on2go.ca/api/foodhub/webhooks/voice/status`, **HTTP POST** ;
-   - **Primary handler fails** (secours) : le renvoi des numéros de marque `https://foodhub.on2go.ca/api/foodhub/voice/incoming`
-     (fusionné, PR #18).
+   - **Primary handler fails** (secours si le serveur ne répond pas) : un **TwiML Bin** qui fait sonner une personne
+     (`<Dial>` le téléphone du gérant). Pas une adresse d'ON2GO Hub : si le serveur est en panne, toutes ses adresses le
+     sont aussi. Le modèle est dans les notes privées du téléphone (`private/phone/`).
+   - **TWILIO_FROM** : le numéro principal lui-même (s'il reçoit les textos), **jamais** le numéro des textos de
+     vérification TAKATAK.
 5. Console → Réglages → Expansion → allumer « Commandes par téléphone (IA) » → Téléphone IA → Ajouter une ligne :
    numéro Twilio complet (+1…), nom dit au téléphone (ex. « les restaurants TAKATAK »), **Cuisine 1 = NDG** avec ses
    marques, « Ajouter une cuisine sur ce numéro » → **Cuisine 2 = Saint-Léonard** avec ses marques, transfert = le
-   téléphone du gérant (vide = téléphone de la cuisine), livraison non au début.
+   téléphone du gérant (vide = téléphone de la cuisine), livraison non au début. **Po Poulet seulement sous
+   Saint-Léonard** : les lignes de marque refusent déjà Po Poulet à NDG (règle du propriétaire) ; à confirmer pour l'IA.
 6. Commandes directes → Appels → **Essayer l'agent** jusqu'à ce que ce soit bon ; puis appeler le numéro soi-même.
 7. **Numéros des marques** : chaque numéro de marque peut aller à l'IA — même webhook `/api/foodhub/webhooks/voice`,
    et une ligne par numéro dans la console (sa marque, sa cuisine). Le renvoi vers un numéro principal
-   (`/api/foodhub/voice/incoming`, fusionné PR #18) reste le **secours** (« Primary handler fails »)
-   et le choix pour les numéros qu'on ne veut pas confier à l'IA.
+   (`/api/foodhub/voice/incoming`, fusionné PR #18 : chuchotement, message vocal par courriel) reste le **secours** :
+   pour les numéros qu'on ne confie pas à l'IA, ou si on éteint l'IA. Sans clé IA ou interrupteur éteint, la ligne IA
+   transfère d'elle-même au numéro de transfert : aucun appel perdu.
 
 ---
 

@@ -9,7 +9,7 @@ Kitchens in the brand config:
 - **NDG**: 6280 Av Somerled, Montréal QC H3X 2B6 (config hours 16:30-03:15, NOT owner-approved)
 - **Saint-Léonard**: 5839 Rue Jean-Talon E, Montréal QC H1S 1M4 (config hours 09:00-23:00, NOT owner-approved)
 
-Known conflicts to settle (see Drive 04 QUESTIONS): owner says 16:00-03:00; DoorDash's list shows some second-kitchen
+Known conflicts to settle (see Drive 04 QUESTIONS): a former Montréal-Nord kitchen (6241 Boul. Léger, H1G 6K8) still has listings; owner says 16:00-03:00; DoorDash's list shows some second-kitchen
 stores at "5839 Rue Jean-Talon" while older data says 3583 Rue Sainte-Catherine E (Hochelaga), so the Hochelaga kitchen
 looks moved to Saint-Léonard; Saint-Léonard is written 5837 in older Food Hub data.
 
@@ -51,6 +51,14 @@ looks moved to Saint-Léonard; Saint-Léonard is written 5837 in older Food Hub 
 | Place Afrique | placeafrique.bolon.ca | Saint-Léonard | not recorded | - | - | none recorded | none recorded | ? | ? | ? | ? |
 
 ## Findings from web search (this session cannot open listing sites; only web search works)
+
+- 2026-10-09 | Bin Molle & Bin Dure | **Old Uber Eats store "Bin Molle Bin Dure" at 6241 Boulevard Léger, Montréal
+  (Montréal-Nord), H1G 6K8**, closed on Uber Eats since 2023-04-13, with a mixed menu (crèmerie, pizza, rotisserie,
+  breakfast, crêpes, pastries, Lebanese pitas). This looks like a **former Montréal-Nord kitchen** and explains the stale
+  "PPP Pizzeria 24/7 Montréal Nord" listing and DoorDash's business name "Po-Poulet Montréal-Nord". **Action:** owner
+  confirms the Montréal-Nord kitchen is closed; then every listing still at 6241 Boul. Léger (Google, Uber Eats, DoorDash
+  names, Yelp, 411, Pages Jaunes, Wanderlog copies) is marked "permanently closed" or moved to the current kitchen, one
+  platform at a time, logged in Drive. Source: https://www.ubereats.com/store/bin-molle-bin-dure/w8MCBYV6Wd2d3L-tFwc-wA
 
 - 2026-10-09 | Nutrition Shake | Web search finds **no public listing** (a Google profile exists for Saint-Léonard, cid
   17679975320192778617, but it does not surface in general search: few reviews/links pointing to it). **Name vs menu:**

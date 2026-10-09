@@ -32,6 +32,7 @@ What this means for us (owner decides per brand and kitchen):
 |---|---|---|---|
 | NDG | 6280, avenue Somerled, Montréal (Québec) H3X 2B6 | 6280 Somerled Ave, Montreal, QC H3X 2B6 | Some DoorDash stores use **6284** Somerled: one address or two units? Use one everywhere unless 6284 is a real separate door with its own sign. |
 | Saint-Léonard | 5839, rue Jean-Talon Est, Montréal (Québec) H1S 1M4 | 5839 Jean-Talon St E, Montreal, QC H1S 1M4 | Older data says **5837**. Pick one. |
+| Montréal-Nord (old) | 6241, boulevard Léger, Montréal (Québec) H1G 6K8 | 6241 Léger Blvd, Montreal, QC H1G 6K8 | Found 2026-10-09 on an old Uber Eats store (closed since 2023). Source of the "Montréal-Nord" names. If closed: mark every listing there "permanently closed". |
 | Hochelaga (old) | 3583, rue Sainte-Catherine Est, Montréal (Québec) H1W 2E6 | 3583 Sainte-Catherine St E, Montreal, QC H1W 2E6 | Looks **moved** to Saint-Léonard (Uber Eats slugs still say "hochelaga" on Saint-Léonard stores). If closed: mark old Google/Yelp/411 listings "permanently closed" or move them, never leave them open. |
 
 Postal code and city stay exactly as above on every platform (Montréal with the accent in French, Montreal in English).

@@ -24,7 +24,7 @@ Status: `todo` / `doing` / `done` / `blocked: reason`. Newest work at the top of
 
 ## P2 Food ordering platforms and aggregators (Montréal / Canada)
 - [x] F1 done 2026-10-09 (marketplaces, own ordering, order buttons, delivery fleets, consolidation, Québec commission context; 'verify' items need the platform's own page) | List every platform that can take or route food orders (delivery apps, pickup apps, surplus food, Google/Apple/Meta order buttons, storefronts, own-delivery fleets) with how to join or connect, fees model if public, and whether Food Hub/Clover can integrate -> `PLATFORMS.md`
-- [ ] F2 doing (done: PPP Pizzeria, OOEUF, Pi Pita, Pita Libanais, Mythos & Go, Nutrition Shake; next: Bin Molle & Bin Dure, then brand config order) | Per brand: which of those platforms it is on today (public URL) -> `PRESENCE.md`
+- [ ] F2 doing (done: PPP Pizzeria, OOEUF, Pi Pita, Pita Libanais, Mythos & Go, Nutrition Shake, Bin Molle & Bin Dure; next: OCRÊPE, then brand config order) | Per brand: which of those platforms it is on today (public URL) -> `PRESENCE.md`
 
 ## P3 Directories and citations (SEO)
 - [x] D1 done 2026-10-09 (tiers, who feeds whom, Yellow Pages network, Apple/Foursquare/Yelp/TripAdvisor chain; 'verify' items) | List of directories and data aggregators that matter in Montréal/Canada (Apple Business Connect, Bing Places, Yelp, TripAdvisor, 411.ca, Canada411, Pages Jaunes/YellowPages.ca, Foursquare, Facebook, Instagram, TikTok, Restaurant Guru, Restaurantji, Waze...), how to claim each, and which feed others -> `PLATFORMS.md`

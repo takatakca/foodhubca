@@ -52,6 +52,16 @@ looks moved to Saint-Léonard; Saint-Léonard is written 5837 in older Food Hub 
 
 ## Findings from web search (this session cannot open listing sites; only web search works)
 
+- 2026-10-09 | Pizza Algérie | **No public listing surfaces** in web search. Platforms: one Uber Eats store (NDG, on),
+  no DoorDash. Website is a sub-address of another brand (`pizzaalgerie.pppmtl.com`), which gives it no local-search
+  strength of its own. **Overlap:** this is the **third pizza brand out of the NDG kitchen** (with PPP Pizzeria and Pizza
+  Inntime); see the Pizza Inntime note. **Opportunity:** a June 2026 roundup of Algerian restaurants in Montréal places the
+  community mainly in Parc-Extension, Villeray–Saint-Michel, **Saint-Léonard** and Chomedey (Laval), not NDG; the
+  Saint-Léonard kitchen fits this brand better, and it has no store there yet. Free targets once a profile exists: that
+  roundup (zoomalgerie.com, ask to be listed) and, only if the menu is certified halal, the Zabihah halal directory.
+  Sources: https://zoomalgerie.com/meilleurs-restaurants-algeriens-montreal/ ,
+  https://www.ubereats.com/ca/store/pizza-algerie-montreal/baa21fb9-e843-4667-895e-1fe7d3dbb0ce
+
 - 2026-10-09 | Pizza Inntime | **No public listing surfaces** in web search ("Pizza Inntime" and `inntime.ca` return
   nothing; the closest name is L'in-time, an unrelated Verdun restaurant). Platforms: one Uber Eats and one DoorDash store,
   NDG only, both off; **Saint-Léonard has no store anywhere**. **Close competitors on Somerled itself:** B&M Somerled

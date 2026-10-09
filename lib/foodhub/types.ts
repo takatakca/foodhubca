@@ -418,6 +418,8 @@ export interface ChannelAdapter {
   publishMenu(store: ChannelStore, menu: MasterMenu, ctx?: PublishContext): Promise<ChannelResult>;
   setItemAvailability(store: ChannelStore, refs: string[], available: boolean, untilMs?: number, kind?: 'item' | 'modifier'): Promise<ChannelResult>;
   setStoreOnline(store: ChannelStore, online: boolean, untilMs?: number, reason?: string): Promise<ChannelResult>;
+  /** Tell the platform the order will be ready later ("+5 min" in the kitchen). Only where the platform has an API. */
+  updateReadyTime?(order: StoredOrder, readyAtIso: string): Promise<ChannelResult>;
 }
 
 /** Standard reasons (Atlas-style) mapped to each platform's own codes. */

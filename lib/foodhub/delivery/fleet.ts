@@ -1,5 +1,5 @@
 // The on-demand courier fleets behind "Call a courier": one contract, two implementations (DoorDash Drive, Uber Direct).
-import type { CourierPosition, DeliveryProof, DeliveryQuote, DeliveryStatus, DropoffAddress, FleetKey } from './types';
+import type { CourierPosition, DeliveryProof, DeliveryQuote, DeliveryStatus, DropoffAddress, FleetKey, UberDirectOptions } from './types';
 
 /** Address parts for fleets that want them structured (Uber Direct). */
 export type AddressParts = Pick<DropoffAddress, 'street' | 'unit' | 'city' | 'province' | 'postalCode' | 'country'>;
@@ -25,6 +25,8 @@ export interface DeliveryRequest {
   reference: string;
   /** Let the fleet text the customer its own status messages too. */
   fleetSms: boolean;
+  /** Uber Direct options (Settings → Delivery); absent = Uber's defaults. */
+  uber?: UberDirectOptions;
 }
 
 export interface FleetResult {
@@ -42,6 +44,7 @@ export interface FleetResult {
   dropoffEta?: string;
   courier?: CourierPosition;
   proof?: DeliveryProof;
+  dropoffPin?: string;
   raw?: unknown;
 }
 
@@ -77,6 +80,7 @@ export interface FleetEvent {
   proof?: DeliveryProof;
   /** An informational event (batched, shopping complete, parcel scan…) shown on the delivery timeline. */
   note?: string;
+  dropoffPin?: string;
 }
 
 export interface CourierFleet {

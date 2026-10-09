@@ -2,11 +2,13 @@
 // A payload that cannot be read or matched is kept ("delivery_webhooks"), never dropped.
 import { NextResponse } from 'next/server';
 import crypto from 'node:crypto';
+import { logActivity } from '../activity';
 import { nowIso } from '../config';
 import { getRepo } from '../repo';
 import { background, parseJson } from '../webhook-utils';
 import { applyFleetEvent, FLEETS } from './dispatch';
 import type { FleetKey } from './types';
+import { uberDirectRefund } from './uber-direct';
 
 export const DELIVERY_WEBHOOKS = 'delivery_webhooks';
 
@@ -21,6 +23,16 @@ export async function handleFleetWebhook(fleet: FleetKey, req: Request): Promise
   if (!adapter.verifyWebhook(req.headers, raw)) return NextResponse.json({ ok: false, error: `${adapter.label} webhook check failed.` }, { status: 401 });
   const body = parseJson(raw);
   if (body === undefined) return NextResponse.json({ ok: false }, { status: 400 });
+  // Uber Direct refund request (event.refund_request): kept with the money split, and said in the activity log.
+  const refund = fleet === 'uber_direct' ? uberDirectRefund(body) : null;
+  if (refund) {
+    background(`uber_direct refund ${refund.fleetDeliveryId}`, async () => {
+      await keep(fleet, body, 'Uber Direct refund request');
+      await logActivity({ actor: 'Uber Direct', source: 'platform', kind: 'order', action: 'courier_refund_request', status: 'info',
+        summary: `Uber Direct refund for delivery ${refund.ref ?? refund.fleetDeliveryId}: Uber adjusts ${refund.uberRefund.toFixed(2)} ${refund.currency} on its invoice; the restaurant refunds ${refund.partnerRefund.toFixed(2)} ${refund.currency} to the customer${refund.reasons.length ? ` — ${refund.reasons.join('; ')}` : ''}` });
+    });
+    return NextResponse.json({ ok: true });
+  }
   const ev = adapter.parseWebhook(body);
   if (!ev) {
     background(`keep ${fleet} webhook`, () => keep(fleet, body, 'Not a delivery event'));

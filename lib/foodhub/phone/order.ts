@@ -32,7 +32,7 @@ export async function phoneDeliveryAvailable(line: PhoneLine): Promise<{ availab
 export interface OrderDetailsInput { customer_name: string; fulfillment: 'pickup' | 'delivery'; address: string; address_details: string; callback_phone: string; wanted_time: string }
 
 /** Checks and stores the caller's details on the call. Returns what to tell the caller (or what is wrong). */
-export async function setOrderDetails(call: PhoneCall, line: PhoneLine, input: OrderDetailsInput): Promise<{ ok: boolean; call: PhoneCall; message: string }> {
+export async function setOrderDetails(call: PhoneCall, line: PhoneLine, input: OrderDetailsInput, otherKitchens: string[] = []): Promise<{ ok: boolean; call: PhoneCall; message: string }> {
   const customer: PhoneCall['customer'] = { ...call.customer };
   if (input.customer_name.trim()) customer.name = input.customer_name.trim().slice(0, 80);
   const phone = normalizePhone(input.callback_phone) ?? normalizePhone(call.from);
@@ -54,8 +54,13 @@ export async function setOrderDetails(call: PhoneCall, line: PhoneLine, input: O
     const problems = addressProblems(dropoff);
     if (!dropoff || problems.length) return { ok: false, call: { ...call, customer }, message: `Address not usable: ${problems.join(' ') || 'say the street number, street, city and postal code.'} Ask the caller again (postal code letter by letter if needed).` };
     if (input.address_details.trim()) dropoff.instructions = input.address_details.trim().slice(0, 200);
-    const area = serviceAreaProblem(ruleFor(await getDeliverySettings(), line.locationCode), dropoff);
-    if (area) return { ok: false, call: { ...call, customer }, message: `${area} Offer pickup instead.` };
+    const ds = await getDeliverySettings();
+    const area = serviceAreaProblem(ruleFor(ds, line.locationCode), dropoff);
+    if (area) {
+      // A line with several kitchens: another kitchen of the line may deliver there.
+      const other = otherKitchens.find((code) => ruleFor(ds, code).enabled && !serviceAreaProblem(ruleFor(ds, code), dropoff));
+      return { ok: false, call: { ...call, customer }, message: `${area} ${other ? `That address is in the delivery area of kitchen location_code=${other}: offer to order from that kitchen instead (choose_kitchen), or pickup.` : 'Offer pickup instead.'}` };
+    }
     if (!customer.phone) return { ok: false, call: { ...call, customer }, message: 'The caller ID is hidden: ask for a phone number for the courier (callback_phone).' };
     customer.dropoff = dropoff;
     return { ok: true, call: { ...call, customer }, message: `Delivery to ${dropoff.street}${dropoff.unit ? ` #${dropoff.unit}` : ''}, ${dropoff.postalCode}. Delivery fee ${avail.fee.toFixed(2)} $.` };

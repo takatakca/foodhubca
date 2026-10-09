@@ -68,7 +68,10 @@ A Clover order is a **website order** when all three are true (Clover publishes 
    `CANCELLED — Uber Eats #…`, `🌐 W-1043 · …`). Food Hub's own tickets use the same "Online Order Pick Up" type.
 2. No delivery platform is named in its order type, tender, title or note (those stay platform orders "via Clover").
 3. Its order type is one of the merchant's online-ordering types: a label containing "online", "en ligne" or "web"
-   ("Online Order Pick Up"…), or exactly the ids / labels in `FOODHUB_CLOVER_WEBSITE_ORDER_TYPES`.
+   ("Online Order Pick Up"…), or exactly the ids / labels in `FOODHUB_CLOVER_WEBSITE_ORDER_TYPES`;
+   **or** the brand's own website marked it: its title or note starts with "Site web" / "Website" (task 12:
+   pppmtl.com pays with Clover Hosted Checkout, then titles the paid order `🌐 Site web · PPP-AB12C · Marie` and prints
+   it once itself; see `docs/CLOVER_WEBSITE_MENU.md`).
 
 It reaches Food Hub two ways, both writing **the same document** (its id comes from the Clover order id):
 - **Webhook** `O:<orderId>` (instant) on the existing `/api/foodhub/webhooks/clover`, checked with `X-Clover-Auth`.

@@ -18,7 +18,7 @@ import { api } from '@/lib/ui/api';
 import { useAutosave } from '@/lib/ui/use-autosave';
 import { useUndo } from '@/lib/ui/use-undo';
 import { formDraftId, useFormDraft } from '@/lib/ui/use-form-draft';
-import { playSound, setVolume, unlockAudio } from '@/lib/ui/sound';
+import { playSound, setLoud, setVolume, unlockAudio } from '@/lib/ui/sound';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
 
@@ -165,7 +165,7 @@ export default function AlertSettingsPage() {
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:grid-cols-5">
               {chip(channels?.sms, t('Textos', 'Texts'), <MessageSquareText className="size-5" />, 'TWILIO_*')}
               {chip(channels?.call, t('Appels', 'Calls'), <PhoneCall className="size-5" />, 'TWILIO_*')}
-              {chip(channels?.email, t('Courriels', 'Email'), <Mail className="size-5" />, 'RESEND_API_KEY')}
+              {chip(channels?.email, t('Courriels', 'Email'), <Mail className="size-5" />, 'SMTP_* / RESEND_API_KEY')}
               {chip(channels?.chat, t('Clavardage équipe', 'Team chat'), <BellRing className="size-5" />, 'ALERT_WEBHOOK_URL')}
               {chip(channels?.ai, 'Claude (IA)', <Bot className="size-5" />, 'ANTHROPIC_API_KEY')}
             </div>
@@ -307,9 +307,11 @@ function ThisScreen() {
   }
   return (
     <Section icon={<Monitor className="size-5" />} title={t('Cet écran', 'This screen')} subtitle={t('Réglages gardés dans ce navigateur seulement — chaque tablette ou ordinateur a les siens.', 'Saved in this browser only — each tablet or computer has its own.')}
-      right={<Button size="sm" variant="outline" onClick={() => { unlockAudio(); setVolume(s.volume); playSound('order'); }} icon={<Volume2 className="size-4" />}>{t('Tester le bip', 'Test the beep')}</Button>}>
+      right={<Button size="sm" variant="outline" onClick={() => { unlockAudio(); setVolume(s.volume); setLoud(s.loud); playSound('order'); }} icon={<Volume2 className="size-4" />}>{t('Tester le bip', 'Test the beep')}</Button>}>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Switch checked={s.sound} onChange={(v) => update({ sound: v })} label={t('Bip pour les nouvelles commandes', 'Beep for new orders')} />
+        <Switch checked={s.loud} onChange={(v) => { update({ loud: v }); setLoud(v); }} label={t('Extra fort (cuisine bruyante)', 'Extra loud (noisy kitchen)')}
+          description={t('Bip perçant, joué deux fois, presque au maximum. Montez aussi le volume de la tablette au maximum et coupez « Ne pas déranger ».', 'Piercing beep, played twice, near full volume. Also turn the tablet’s own volume all the way up and switch off “Do not disturb”.')} />
         <Switch checked={s.popup} onChange={(v) => update({ popup: v })} label={t('Plein écran pour les nouvelles commandes', 'Full-screen pop-up for new orders')} description={t('Accepter / refuser en un geste.', 'Accept / reject in one tap.')} />
         <Field label={t('Répéter le bip toutes les', 'Repeat the beep every')}>
           <Select value={String(s.repeatSec)} onChange={(e) => update({ repeatSec: Number(e.target.value) })}>

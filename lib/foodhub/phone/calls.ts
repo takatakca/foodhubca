@@ -36,6 +36,8 @@ export interface PhoneCall {
   transcript: Array<{ at: string; who: 'caller' | 'agent' | 'system'; text: string }>;
   /** Claude message history while the call runs (dropped when it ends). */
   messages: unknown[];
+  /** The line part of the system prompt, frozen at the first AI turn (the prefix must not change during a call). Dropped when it ends. */
+  prompt?: string;
   cart: CartLine[];
   customer: { name?: string; phone?: string; fulfillment?: 'pickup' | 'delivery'; dropoff?: DropoffAddress; wantedAt?: string };
   orderId?: string;
@@ -73,7 +75,7 @@ export async function endCall(id: string, status?: CallStatus, durationSec?: num
   if (!call) return null;
   const final: CallStatus = status ?? (call.status === 'active' ? (call.orderId ? 'ordered' : call.cart.length ? 'abandoned' : 'ended') : call.status);
   const endedAt = call.endedAt ?? nowIso();
-  return saveCall({ ...call, status: final, endedAt, durationSec: durationSec ?? call.durationSec ?? Math.round((Date.parse(endedAt) - Date.parse(call.startedAt)) / 1000), messages: [], pending: undefined });
+  return saveCall({ ...call, status: final, endedAt, durationSec: durationSec ?? call.durationSec ?? Math.round((Date.parse(endedAt) - Date.parse(call.startedAt)) / 1000), messages: [], prompt: undefined, pending: undefined });
 }
 
 /** Calls still "active" 30 minutes later lost their final callback: close them. */

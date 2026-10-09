@@ -1,9 +1,18 @@
 // AI phone ordering — the phone lines and how the agent behaves.
-// One Twilio number = one line = one kitchen (location) and the brands it sells on that number. Stored in fh_kv.
+// One Twilio number = one line. A line sells brands from one kitchen (location), or from several kitchens
+// ("brand@kitchen" groups: Po Poulet at NDG and at Saint-Léonard on the same number). On a line with several kitchens the
+// agent first asks which restaurant the caller wants (tool choose_kitchen); everything after that — menu, hours, delivery
+// area, hand-off phone, the Clover ticket — is that kitchen's. Stored in fh_kv.
 import crypto from 'node:crypto';
 import { logActivity, type Actor } from '../activity';
 import { normalizePhone } from '../notify';
 import { getRepo } from '../repo';
+
+/** One kitchen served by a line, with the brands sold from it on that number. */
+export interface PhoneLineKitchen {
+  locationCode: string;
+  brands: string[];
+}
 
 export interface PhoneLine {
   id: string;
@@ -19,6 +28,11 @@ export interface PhoneLine {
   delivery: boolean;
   /** Who takes over when the caller asks for a person (default: the kitchen phone from Settings → Business). */
   handoffNumber?: string;
+  /**
+   * Several kitchens on this number (two or more brand@kitchen groups). When set, `locationCode` is the first kitchen and
+   * `brands` every brand of the line; the agent asks which kitchen before taking items. Absent = one kitchen.
+   */
+  kitchens?: PhoneLineKitchen[];
 }
 
 export interface PhoneSettings {
@@ -44,23 +58,64 @@ export const DEFAULT_PHONE: PhoneSettings = {
 
 const VOICE = /^(Polly|Google)\.[A-Za-z0-9-]{3,60}$/;
 
+const CODE = /^[A-Z0-9_]{2,30}$/;
+const MAX_BRANDS = 30;
+const brandList = (raw: unknown): string[] => [...new Set((Array.isArray(raw) ? raw : []).map((b) => String(b).trim()).filter(Boolean))].slice(0, MAX_BRANDS);
+
+/** Every kitchen a line serves, with its brands. A one-kitchen line gives one entry: its location and brands. */
+export function lineKitchens(line: Pick<PhoneLine, 'locationCode' | 'brands' | 'kitchens'>): PhoneLineKitchen[] {
+  return line.kitchens && line.kitchens.length ? line.kitchens : [{ locationCode: line.locationCode, brands: line.brands }];
+}
+
+/** True when the agent must ask the caller which kitchen (restaurant) before taking items. */
+export function isMultiKitchen(line: Pick<PhoneLine, 'locationCode' | 'brands' | 'kitchens'>): boolean {
+  return lineKitchens(line).length > 1;
+}
+
+/**
+ * The line as seen from one of its kitchens: that kitchen's location and brands, no other kitchen. This is what the menu,
+ * the opening hours, the delivery area, the hand-off phone and the order use. Null when the line does not serve it.
+ */
+export function kitchenView(line: PhoneLine, locationCode: string): PhoneLine | null {
+  const k = lineKitchens(line).find((x) => x.locationCode === locationCode);
+  if (!k) return null;
+  const view: PhoneLine = { ...line, locationCode: k.locationCode, brands: k.brands };
+  delete view.kitchens;
+  return view;
+}
+
 export function cleanLine(raw: Partial<PhoneLine>): PhoneLine {
   const number = normalizePhone(raw.number);
   if (!number) throw new Error('Phone number: use the Twilio number in full, e.g. +15145550123.');
-  if (!raw.locationCode || !/^[A-Z0-9_]{2,30}$/.test(raw.locationCode)) throw new Error('Choose the kitchen (location) for this line.');
-  const brands = [...new Set((raw.brands ?? []).map((b) => String(b).trim()).filter(Boolean))].slice(0, 12);
-  if (!brands.length) throw new Error('Choose at least one brand sold on this line.');
   const handoff = raw.handoffNumber ? normalizePhone(raw.handoffNumber) : null;
   if (raw.handoffNumber && !handoff) throw new Error('Hand-off number: not a phone number.');
+  // Kitchens: brand@kitchen groups. No group = the classic one-kitchen line (locationCode + brands).
+  const groups: PhoneLineKitchen[] = [];
+  for (const k of Array.isArray(raw.kitchens) ? raw.kitchens : []) {
+    const code = String(k?.locationCode ?? '');
+    if (!CODE.test(code)) throw new Error('Choose the kitchen (location) for each kitchen of this line.');
+    if (groups.some((g) => g.locationCode === code)) throw new Error(`Kitchen ${code} is listed twice on this line.`);
+    const brands = brandList(k?.brands);
+    if (!brands.length) throw new Error(`Choose at least one brand sold from ${code} on this line.`);
+    groups.push({ locationCode: code, brands });
+  }
+  if (!groups.length) {
+    if (!raw.locationCode || !CODE.test(raw.locationCode)) throw new Error('Choose the kitchen (location) for this line.');
+    const brands = brandList(raw.brands);
+    if (!brands.length) throw new Error('Choose at least one brand sold on this line.');
+    groups.push({ locationCode: raw.locationCode, brands });
+  }
+  const all = [...new Set(groups.flatMap((g) => g.brands))];
   return {
     id: raw.id || `line_${crypto.randomBytes(4).toString('hex')}`,
     number,
-    name: String(raw.name || brands[0]).trim().slice(0, 80),
-    locationCode: raw.locationCode,
-    brands,
+    name: String(raw.name || all[0]).trim().slice(0, 80),
+    locationCode: groups[0].locationCode,
+    brands: groups.length > 1 ? all : groups[0].brands,
     enabled: raw.enabled !== false,
     delivery: Boolean(raw.delivery),
     ...(handoff ? { handoffNumber: handoff } : {}),
+    ...(groups.length > 1 ? { kitchens: groups } : {}),
   };
 }
 
@@ -87,7 +142,7 @@ export async function savePhoneSettings(patch: Partial<PhoneSettings>, actor: Ac
   const next: PhoneSettings = { ...cur, ...patch, lines, updatedAt: new Date().toISOString() };
   await getRepo().setKv(KEY, next);
   await logActivity({ actor: actor.name, source: actor.source, kind: 'settings', action: 'phone_settings', status: 'success',
-    summary: `Phone ordering: ${lines.length} line(s) — ${lines.filter((l) => l.enabled).map((l) => `${l.name} (${l.locationCode})`).join(', ') || 'none on'}` });
+    summary: `Phone ordering: ${lines.length} line(s) — ${lines.filter((l) => l.enabled).map((l) => `${l.name} (${lineKitchens(l).map((k) => k.locationCode).join(' + ')})`).join(', ') || 'none on'}` });
   return getPhoneSettings();
 }
 

@@ -44,7 +44,7 @@ export default function PrivacyPage() {
         <H2>4. Avec qui nous les partageons</H2>
         <UL>
           <li>Les plateformes que le restaurant a branchées (Uber Eats, DoorDash, SkipTheDishes / Just Eat Takeaway, Too Good To Go) et Clover, uniquement pour traiter les commandes et les menus.</li>
-          <li>Nos fournisseurs techniques, liés par des obligations de confidentialité : hébergement du serveur (Contabo), base de données (Supabase), envoi des courriels de connexion (Resend), envoi des textos de connexion si activé (Twilio) et, si le propriétaire l’active, l’assistant d’analyse Claude (Anthropic), qui reçoit un résumé des données de l’entreprise et ne prend aucune décision.</li>
+          <li>Nos fournisseurs techniques, liés par des obligations de confidentialité : hébergement du serveur (Contabo), base de données (Supabase), envoi des courriels de connexion (Resend ou le serveur de courriel de l’entreprise), envoi des textos de connexion si activé (Twilio) et, si le propriétaire l’active, l’assistant d’analyse Claude (Anthropic), qui reçoit un résumé des données de l’entreprise et ne prend aucune décision.</li>
           <li>Les autorités, lorsque la loi l’exige.</li>
         </UL>
 
@@ -99,7 +99,7 @@ export default function PrivacyPage() {
         <H2>4. Who we share it with</H2>
         <UL>
           <li>The platforms the restaurant connected (Uber Eats, DoorDash, SkipTheDishes / Just Eat Takeaway, Too Good To Go) and Clover, only to process orders and menus.</li>
-          <li>Our technical providers, bound by confidentiality: server hosting (Contabo), database (Supabase), sign-in emails (Resend), sign-in text messages when enabled (Twilio) and, if the owner turns it on, the Claude analysis assistant (Anthropic), which receives a summary of business data and makes no decisions.</li>
+          <li>Our technical providers, bound by confidentiality: server hosting (Contabo), database (Supabase), sign-in emails (Resend or the company’s own mail server), sign-in text messages when enabled (Twilio) and, if the owner turns it on, the Claude analysis assistant (Anthropic), which receives a summary of business data and makes no decisions.</li>
           <li>Authorities, when the law requires it.</li>
         </UL>
 

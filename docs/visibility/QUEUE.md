@@ -24,11 +24,11 @@ Status: `todo` / `doing` / `done` / `blocked: reason`. Newest work at the top of
 
 ## P2 Food ordering platforms and aggregators (Montréal / Canada)
 - [x] F1 done 2026-10-09 (marketplaces, own ordering, order buttons, delivery fleets, consolidation, Québec commission context; 'verify' items need the platform's own page) | List every platform that can take or route food orders (delivery apps, pickup apps, surplus food, Google/Apple/Meta order buttons, storefronts, own-delivery fleets) with how to join or connect, fees model if public, and whether Food Hub/Clover can integrate -> `PLATFORMS.md`
-- [ ] F2 todo | Per brand: which of those platforms it is on today (public URL) -> `PRESENCE.md`
+- [ ] F2 doing (done: PPP Pizzeria, OOEUF; next: Pi Pita, then brand config order) | Per brand: which of those platforms it is on today (public URL) -> `PRESENCE.md`
 
 ## P3 Directories and citations (SEO)
 - [x] D1 done 2026-10-09 (tiers, who feeds whom, Yellow Pages network, Apple/Foursquare/Yelp/TripAdvisor chain; 'verify' items) | List of directories and data aggregators that matter in Montréal/Canada (Apple Business Connect, Bing Places, Yelp, TripAdvisor, 411.ca, Canada411, Pages Jaunes/YellowPages.ca, Foursquare, Facebook, Instagram, TikTok, Restaurant Guru, Restaurantji, Waze...), how to claim each, and which feed others -> `PLATFORMS.md`
-- [ ] D2 todo | Per brand: listings found on those directories (public URL), NAP mismatches -> `PRESENCE.md`
+- [ ] D2 doing (same brand order as F2) | Per brand: listings found on those directories (public URL), NAP mismatches -> `PRESENCE.md`
 
 ## P4 The plan
 - [x] M1 done 2026-10-09 (phased plan, principles, back-end coverage, KPIs) | `PLAN.md`: the group's restaurant marketing and visibility plan (channels by priority, NAP standard, one order hub per brand, review strategy, schema/SEO, photo plan, ads only after stores are back online, measurement, what TAKATAK V1 modules cover each part, owner decisions)

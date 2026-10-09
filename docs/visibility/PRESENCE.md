@@ -52,6 +52,16 @@ looks moved to Saint-Léonard; Saint-Léonard is written 5837 in older Food Hub 
 
 ## Findings from web search (this session cannot open listing sites; only web search works)
 
+- 2026-10-09 | OOEUF | Search finds **no Yelp, TripAdvisor or Restaurant Guru listing** under OOEUF or O'Oeufs: low
+  visibility, all to create. An Uber Eats store **"O'OEUFS Déjeuner (St-Léonard)"** exists at **5837** Rue Jean-Talon E
+  (shown unavailable), store id 2e747d04-74b0-45bc-87dc-224a73bd696d, which is **not** in the brand config (config has
+  c5585882 for OOEUF Saint-Léonard and no link for Déjeuner Montréal): a third name variant and the 5837/5839 conflict
+  again. Competitor with a confusingly close name 3 blocks away: **L'Oeufrier (NDG), 6544 Av Somerled** (breakfast).
+  Recommendation: one spelling everywhere (owner decides OOEUF vs O'Oeufs), add "casse-croûte / burgers" words in
+  descriptions so search does not mix it up with breakfast places. Sources:
+  https://www.ubereats.com/ca/store/ooeufs-dejeuner-st-leonard/sV7cecZGVamX4viFGuef-A/974f6d2e-f65a-4823-b6e4-f8431b423c10/2e747d04-74b0-45bc-87dc-224a73bd696d ,
+  https://atly.com/best/gluten-free/kid-friendly-canada-quebec-montreal-notre-dame-de-grace
+
 - 2026-10-09 | PPP Pizzeria | A stale public listing "PPP Pizzeria 24/7 Montréal Nord" exists on Wanderlog (says open 24 hours,
   Montréal-Nord). Our rule is never "24/7" and the kitchens are NDG / Saint-Léonard: this listing should be corrected or
   closed at its source (most likely an old Google Business Profile: check in the Google account). Source:

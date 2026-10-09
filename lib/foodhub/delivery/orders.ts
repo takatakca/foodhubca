@@ -129,7 +129,7 @@ export async function confirmToCustomer(order: DirectOrder): Promise<void> {
   await addDirectEvent(order, r.ok ? 'sms_confirmation' : 'sms_failed', r.ok ? 'Confirmation texted to the customer' : `Confirmation not texted: ${r.message}`);
 }
 
-export type DirectAction = 'ready' | 'picked_up' | 'complete' | 'cancel' | 'mark_paid' | 'retry_clover' | 'clear_attention';
+export type DirectAction = 'seen' | 'ready' | 'picked_up' | 'complete' | 'cancel' | 'mark_paid' | 'retry_clover' | 'clear_attention';
 
 /** Moves a direct order along. Courier side effects (cancel the courier) are in dispatch.ts. */
 export async function runDirectAction(orderId: string, action: DirectAction, actor: Actor, opts: { reason?: string } = {}): Promise<DirectOrder> {
@@ -138,6 +138,8 @@ export async function runDirectAction(orderId: string, action: DirectAction, act
   // Clover online orders: Clover is the source of truth. Only the kitchen screen's own steps are allowed here.
   const blocked = cloverOnlineBlockedReason(order, action);
   if (blocked) throw new Error(blocked);
+  // "Seen" on the kitchen screen: once, and harmless on a closed order.
+  if (action === 'seen') return order.seenAt ? order : addDirectEvent(order, 'seen', 'Seen on the kitchen screen', actor.name, { seenAt: new Date().toISOString(), seenBy: actor.name });
   const closed = order.status === 'completed' || order.status === 'cancelled';
   if (closed && action !== 'clear_attention') throw new Error(`Order ${order.number} is already ${order.status}.`);
   let next: DirectOrder;

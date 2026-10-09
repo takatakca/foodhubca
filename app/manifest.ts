@@ -1,10 +1,15 @@
 import type { MetadataRoute } from 'next';
+import { productInfo } from '@/lib/foodhub/product';
+
+// The product name (FOODHUB_PRODUCT_NAME) is read at request time, not frozen in the build.
+export const dynamic = 'force-dynamic';
 
 // Installable app (Add to Home Screen on iPad / Android): opens straight on the kitchen screen.
 export default function manifest(): MetadataRoute.Manifest {
+  const p = productInfo();
   return {
-    name: 'TAKATAK',
-    short_name: 'TAKATAK',
+    name: p.shortName,
+    short_name: p.shortName,
     description: 'Commandes Uber Eats, DoorDash, SkipTheDishes, Too Good To Go et Clover sur un seul écran.',
     start_url: '/',
     scope: '/',

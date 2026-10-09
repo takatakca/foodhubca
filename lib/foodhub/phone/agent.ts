@@ -8,14 +8,19 @@
 //
 // Model: FOODHUB_PHONE_MODEL (default claude-opus-5-5) at low effort — a phone call needs quick answers. The rules and the
 // line's menu are a cached prompt prefix; the conversation is append-only (thinking blocks are passed back unchanged).
+// The top-level system prompt is FROZEN for the whole call (stored on the call at the first turn): Claude Opus 5.5 binds
+// each thinking block to the exact prefix that produced it (system, tools, earlier messages), and accounts created since
+// 2026-08-31 get a 400 when it changes. So a menu that changes during the call (an 86) is enforced by the tools, not by
+// rewriting the prompt, and the kitchen a caller chooses on a multi-kitchen line arrives as an appended
+// mid-conversation system message carrying that kitchen's menu.
 import Anthropic from '@anthropic-ai/sdk';
 import { getCatalog } from '../catalog';
 import { prepFor } from '../prep';
 import { localTimeLabel } from '../time';
-import { addToCart, cartSummary, removeFromCart, type PhoneMenu } from './cart';
+import { addToCart, buildPhoneMenu, cartSummary, removeFromCart, type CartLine, type PhoneMenu } from './cart';
 import { say, type PhoneCall, type TurnReply } from './calls';
 import { openNow, phoneDeliveryAvailable, placePhoneOrder, setOrderDetails } from './order';
-import type { PhoneLine, PhoneSettings } from './settings';
+import { isMultiKitchen, kitchenView, lineKitchens, type PhoneLine, type PhoneSettings } from './settings';
 
 export function phoneModel(): string {
   return process.env.FOODHUB_PHONE_MODEL || 'claude-opus-5-5';
@@ -28,6 +33,11 @@ export function phoneAgentConfigured(): boolean {
 const str = (description: string) => ({ type: 'string', description });
 
 export const TOOLS: Anthropic.Beta.BetaTool[] = [
+  {
+    name: 'choose_kitchen', strict: true,
+    description: 'Lines that serve several kitchens (a KITCHENS list in your instructions): record which kitchen (restaurant) the caller orders from. Needed before add_item. Switching later re-checks the cart against that kitchen\'s menu.',
+    input_schema: { type: 'object', additionalProperties: false, required: ['location_code'], properties: { location_code: str('location_code from the KITCHENS list.') } },
+  },
   {
     name: 'add_item', strict: true,
     description: 'Add one menu item to the cart with the options the caller chose. Fails (and says why) when a required choice is missing, an option does not fit, or the item is not available.',
@@ -84,6 +94,7 @@ How to talk
 - Prices: "24,99 $" in French, "$24.99" in English. Never say item_ref / option_ref codes — they are for the tools.
 
 Taking the order
+- If your instructions list several KITCHENS, first find out which restaurant the caller wants (ask, or deduce it when the brand they name is sold in only one kitchen) and call choose_kitchen. The MENU of that kitchen then appears.
 - Sell only what is in the MENU of this line. Never invent items, prices, options, specials, discounts or promotions. If something is not there, say so and suggest something close.
 - Call add_item as soon as the caller decides on an item. When a tool says a required choice is missing, ask exactly that question.
 - Then get the name, pickup or delivery (for delivery: street number, street, apartment, door code, postal code) and call set_order_details.
@@ -98,20 +109,59 @@ Absolute rules
 - If asked, say honestly that you are an automated AI assistant.`;
 
 export interface AgentContext {
+  /** The line as the agent works it now: one kitchen (its menu, hours, delivery) — or, before a choice, the whole multi-kitchen line. */
   line: PhoneLine;
+  /** The line as configured (all its kitchens). Defaults to `line`. */
+  configured?: PhoneLine;
   menu: PhoneMenu;
   settings: PhoneSettings;
   simulate: boolean;
   now?: number;
 }
 
-async function lineBlock(ctx: AgentContext): Promise<string> {
+/** A line with several kitchens and none chosen yet for this call. */
+export function needsKitchen(ctx: Pick<AgentContext, 'line' | 'configured'>, call: Pick<PhoneCall, 'locationCode'>): boolean {
+  return isMultiKitchen(ctx.configured ?? ctx.line) && !call.locationCode;
+}
+
+async function kitchenLines(configured: PhoneLine, now: number): Promise<string[]> {
+  const locations = (await getCatalog()).locations;
+  const out: string[] = [];
+  for (const k of lineKitchens(configured)) {
+    const loc = locations.find((l) => l.code === k.locationCode);
+    const open = await openNow(k, now);
+    out.push(`- location_code=${k.locationCode} | ${loc?.name ?? k.locationCode}${loc?.address ? `, ${loc.address}, ${loc.city ?? 'Montréal'}` : ''} | open now: ${open ? 'yes' : 'no'} | brands: ${k.brands.join(', ')}`);
+  }
+  return out;
+}
+
+/** The system prompt's line part, computed once at the first turn of a call and then frozen (see the header). */
+async function lineBlock(ctx: AgentContext, call: PhoneCall): Promise<string> {
+  const configured = ctx.configured ?? ctx.line;
+  const now = ctx.now ?? Date.now();
+  if (needsKitchen(ctx, call)) {
+    return [
+      `THIS LINE: ${configured.name}`,
+      'This phone number serves several kitchens. Before adding items, find out which restaurant the caller wants: ask (name the neighbourhoods), or deduce it when the brand they name is sold in only one kitchen. Then call choose_kitchen. For a delivery, prefer the kitchen closest to the caller.',
+      'Taxes: GST + QST (14.975 %) are added to menu prices. Prices in CAD.',
+      '',
+      'KITCHENS',
+      ...(await kitchenLines(configured, now)),
+    ].join('\n');
+  }
+  return kitchenBlock(ctx);
+}
+
+/** One kitchen of the line: brands, address, pickup / delivery, alcohol, and its live MENU. */
+async function kitchenBlock(ctx: AgentContext): Promise<string> {
+  const configured = ctx.configured ?? ctx.line;
   const loc = (await getCatalog()).locations.find((l) => l.code === ctx.line.locationCode);
   const delivery = await phoneDeliveryAvailable(ctx.line);
+  const others = isMultiKitchen(configured) ? lineKitchens(configured).filter((k) => k.locationCode !== ctx.line.locationCode) : [];
   return [
     `THIS LINE: ${ctx.line.name}`,
     `Brands sold on this line: ${ctx.line.brands.join(', ')}`,
-    `Kitchen: ${loc?.name ?? ctx.line.locationCode}${loc?.address ? `, ${loc.address}, ${loc.city ?? 'Montréal'}` : ''}`,
+    `Kitchen: ${loc?.name ?? ctx.line.locationCode}${loc?.address ? `, ${loc.address}, ${loc.city ?? 'Montréal'}` : ''}${others.length ? ` (chosen by the caller; other kitchens on this number: ${others.map((k) => `location_code=${k.locationCode} (${k.brands.join(', ')})`).join('; ')} — choose_kitchen switches)` : ''}`,
     `Pickup: yes. Delivery: ${delivery.available ? `yes, fee ${delivery.fee.toFixed(2)} $ (delivery area checked by set_order_details)` : `no (${delivery.reason})`}.`,
     `Alcohol by phone right now: ${ctx.menu.alcohol.allowed ? `yes, 18+ with photo ID${ctx.menu.alcohol.requireFood ? ', only with food' : ''}` : 'no'}.`,
     'Taxes: GST + QST (14.975 %) are added to menu prices. Prices in CAD.',
@@ -124,6 +174,9 @@ async function lineBlock(ctx: AgentContext): Promise<string> {
 /** The first message of a call: the moment, the kitchen state, and the caller's first words. */
 async function openingContext(call: PhoneCall, ctx: AgentContext): Promise<string> {
   const now = ctx.now ?? Date.now();
+  if (needsKitchen(ctx, call)) {
+    return `[Call started ${localTimeLabel(now)} (Montréal time). This number serves ${lineKitchens(ctx.configured ?? ctx.line).length} kitchens: find out which one, then choose_kitchen. Caller ID: ${call.from && call.from !== 'anonymous' ? 'known (use it for the order)' : 'hidden (ask for a number)'}. Language: ${call.lang === 'fr' ? 'French' : 'English'}.]`;
+  }
   const prep = await prepFor(ctx.line.locationCode);
   const open = await openNow(ctx.line, now);
   return `[Call started ${localTimeLabel(now)} (Montréal time). Kitchen open now: ${open ? 'yes' : 'NO — take only orders for a later time today when it is open, or apologise'}. Prep time about ${prep.minutes} min. Caller ID: ${call.from && call.from !== 'anonymous' ? 'known (use it for the order)' : 'hidden (ask for a number)'}. Language: ${call.lang === 'fr' ? 'French' : 'English'}.]`;
@@ -144,9 +197,50 @@ const clean = (s: string) => s.replace(/[*_#`>]+/g, '').replace(/^\s*[-•]\s*/g
 
 type ToolOutcome = { content: string; isError?: boolean; next?: TurnReply['next'] };
 
-async function runTool(name: string, input: any, state: { call: PhoneCall }, ctx: AgentContext): Promise<ToolOutcome> {
+const KITCHEN_FIRST = new Set(['add_item', 'set_order_details', 'place_order']);
+
+interface TurnState { call: PhoneCall; kitchenChanged?: boolean }
+
+/** choose_kitchen: the caller's kitchen on a multi-kitchen line. The cart (if any) must exist on that kitchen's menu. */
+async function chooseKitchen(code: string, state: TurnState, ctx: AgentContext): Promise<ToolOutcome> {
   const call = state.call;
+  const configured = ctx.configured ?? ctx.line;
+  const kitchens = lineKitchens(configured);
+  const view = kitchenView(configured, code);
+  if (!view) return { content: `Unknown kitchen "${code}". Kitchens on this line: ${kitchens.map((k) => k.locationCode).join(', ')}.`, isError: true };
+  if (call.locationCode === view.locationCode) return { content: `The kitchen is already ${view.locationCode}.` };
+  const now = ctx.now ?? Date.now();
+  const menu = await buildPhoneMenu(view, now);
+  // An item may be sold out (86) or not sold at the other kitchen: the switch is refused rather than dropping it silently.
+  let cart: CartLine[] = [];
+  for (const l of call.cart) {
+    const r = addToCart(menu, cart, { brand: l.brand, item_ref: l.itemRef, quantity: l.quantity, option_refs: l.modifiers.map((m) => m.ref), notes: l.notes ?? '' });
+    if (!r.ok) return { content: `Cannot switch to ${view.locationCode}: "${l.name}" — ${r.error} Stay with the current kitchen, or remove that item first.`, isError: true };
+    cart = r.cart;
+  }
+  const switched = Boolean(call.locationCode);
+  // Pickup / delivery details were checked against the previous kitchen (area, hours): asked again after a switch.
+  const customer = switched ? { name: call.customer.name, phone: call.customer.phone } : call.customer;
+  state.call = { ...call, locationCode: view.locationCode, brands: view.brands, cart, customer };
+  ctx.line = view;
+  ctx.menu = menu;
+  state.kitchenChanged = true;
+  const loc = (await getCatalog()).locations.find((l) => l.code === view.locationCode);
+  const open = await openNow(view, now);
+  const prep = await prepFor(view.locationCode);
+  return {
+    content: `Kitchen set: ${loc?.name ?? view.locationCode}. Brands: ${view.brands.join(', ')}. Open now: ${open ? 'yes' : 'NO — only orders for later today when it is open'}. Prep about ${prep.minutes} min. Its MENU is now in your instructions.${switched ? ' The cart was re-checked; ask pickup or delivery again (set_order_details).' : ''}`,
+  };
+}
+
+async function runTool(name: string, input: any, state: TurnState, ctx: AgentContext): Promise<ToolOutcome> {
+  const call = state.call;
+  if (KITCHEN_FIRST.has(name) && needsKitchen(ctx, call)) {
+    return { content: 'No kitchen chosen yet: ask which restaurant (KITCHENS in your instructions), then call choose_kitchen.', isError: true };
+  }
   switch (name) {
+    case 'choose_kitchen':
+      return chooseKitchen(String(input.location_code ?? '').trim().toUpperCase(), state, ctx);
     case 'add_item': {
       const r = addToCart(ctx.menu, call.cart, input);
       if (!r.ok) return { content: r.error, isError: true };
@@ -164,7 +258,8 @@ async function runTool(name: string, input: any, state: { call: PhoneCall }, ctx
       return { content: cartSummary(call.cart, delivery) };
     }
     case 'set_order_details': {
-      const r = await setOrderDetails(call, ctx.line, input);
+      const others = lineKitchens(ctx.configured ?? ctx.line).map((k) => k.locationCode).filter((c) => c !== ctx.line.locationCode);
+      const r = await setOrderDetails(call, ctx.line, input, others);
       state.call = r.call;
       return { content: r.message, isError: !r.ok };
     }
@@ -200,7 +295,7 @@ const FALLBACK: Record<'fr' | 'en', { handoff: string; again: string }> = {
  * Never throws: any failure hands the call to a person.
  */
 export async function runAgentTurn(call: PhoneCall, callerText: string, ctx: AgentContext): Promise<{ call: PhoneCall; reply: TurnReply }> {
-  const state = { call: say({ ...call, turns: call.turns + 1 }, 'caller', callerText || '(silence)') };
+  const state: TurnState = { call: say({ ...call, turns: call.turns + 1 }, 'caller', callerText || '(silence)') };
   const handoff = (why: string): { call: PhoneCall; reply: TurnReply } => {
     state.call = say({ ...state.call, handoffReason: state.call.handoffReason ?? why, error: why }, 'agent', FALLBACK[state.call.lang].handoff);
     return { call: state.call, reply: { say: FALLBACK[state.call.lang].handoff, next: 'handoff', lang: state.call.lang } };
@@ -211,9 +306,12 @@ export async function runAgentTurn(call: PhoneCall, callerText: string, ctx: Age
   const first = (call.messages ?? []).length === 0;
   const messages = [...(call.messages as Anthropic.Beta.BetaMessageParam[] ?? [])];
   messages.push({ role: 'user', content: first ? `${await openingContext(call, ctx)}\n${callerText || '(silence)'}` : callerText || '(the caller said nothing)' });
+  // Frozen for the whole call (see the header): computed at the first turn, then reused byte for byte.
+  const prompt = state.call.prompt ?? (await lineBlock(ctx, state.call));
+  state.call = { ...state.call, prompt };
   const system: Anthropic.Beta.BetaTextBlockParam[] = [
     { type: 'text', text: RULES },
-    { type: 'text', text: await lineBlock(ctx), cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: prompt, cache_control: { type: 'ephemeral' } },
   ];
   let next: TurnReply['next'] = 'listen';
   const usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, requests: 0, ...(call.usage ?? {}) };
@@ -246,6 +344,12 @@ export async function runAgentTurn(call: PhoneCall, callerText: string, ctx: Age
           results.push({ type: 'tool_result', tool_use_id: u.id, content: out.content, ...(out.isError ? { is_error: true } : {}) });
         }
         messages.push({ role: 'user', content: results });
+        // The caller chose (or switched) the kitchen: its menu arrives as an appended system message, after the tool
+        // results — never by rewriting the system prompt.
+        if (state.kitchenChanged) {
+          state.kitchenChanged = false;
+          messages.push({ role: 'system', content: `KITCHEN CHOSEN. From now on sell only from this kitchen and this MENU (it replaces any kitchen chosen earlier in the call).\n${await kitchenBlock(ctx)}` });
+        }
         continue;
       }
       const text = clean(res.content.filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text').map((b) => b.text).join(' '));

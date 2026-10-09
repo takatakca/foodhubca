@@ -10,6 +10,7 @@ export function StoresTabs() {
   return <LinkTabs tabs={[
     { href: '/stores', label: t('Statut et pauses', 'Status & pauses'), exact: true },
     ...(can('menu:edit') ? [{ href: '/stores/hours', label: t('Heures d’ouverture', 'Opening hours') }] : []),
-    ...(can('stores:map') ? [{ href: '/stores/mapping', label: t('Liens plateformes', 'Platform links') }] : []),
+    ...(can('stores:map') ? [{ href: '/stores/mapping', label: t('Branchement des magasins', 'Store connections') }] : []),
+    ...(can('stores:map') ? [{ href: '/stores/uber', label: 'Uber Eats' }] : []),
   ]} />;
 }

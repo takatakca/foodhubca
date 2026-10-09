@@ -115,6 +115,27 @@ jobs:
             echo "- \`$tag\`" >> "$GITHUB_STEP_SUMMARY"
           done <<< "$TAGS"
 
+      # The image contains no keys. The source repository is already public, so Coolify can pull
+      # ghcr.io/takatakca/foodhubca:main with no registry password once this package is public.
+      - name: Let Coolify pull the image
+        if: env.PUBLISH == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o /tmp/pkg-visibility.json -w '%{http_code}' -X PUT \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/user/packages/container/foodhubca/visibility" \
+            -d '{"visibility":"public"}')
+          echo "Package visibility HTTP ${code}"
+          if [ "$code" = "200" ] || [ "$code" = "204" ]; then
+            echo "Coolify can pull \`${IMAGE}:main\` with no registry password." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::The image was pushed, but it is not public yet (HTTP ${code}). GitHub → Packages → foodhubca → Package settings → Change visibility → Public. Do not paste a token in chat."
+          fi
+
       - name: Summary
         if: always()
         shell: bash

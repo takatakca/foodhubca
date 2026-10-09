@@ -8,7 +8,7 @@ import { Banner, Skeleton } from '@/components/ui/card';
 import { Field, Input, Select, Switch } from '@/components/ui/form';
 import { useToast } from '@/components/ui/toast';
 import { useViewer } from '@/components/shell/viewer';
-import type { DeliverySettings, LocationDeliveryRule } from '@/lib/foodhub/delivery/types';
+import { DEFAULT_UBER_DIRECT_OPTIONS, type DeliverySettings, type LocationDeliveryRule, type UberDirectOptions as UberOpts } from '@/lib/foodhub/delivery/types';
 import { api, ApiError } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { Section } from '../../settings-ui';
@@ -16,6 +16,7 @@ import { CopyValue, ExpansionHead } from '../expansion-ui';
 
 type Fleet = { fleet: string; label: string; configured: boolean; canSend: boolean; environment: 'sandbox' | 'production'; missing: string[]; note: string; noteFr: string; webhookPath: string };
 type Resp = { settings: DeliverySettings; fleets: Fleet[]; baseUrl: string; secrets: { driveWebhook: string; websiteOrder: string } | null };
+const uberOpts = (s: DeliverySettings): UberOpts => ({ ...DEFAULT_UBER_DIRECT_OPTIONS, ...(s.uberDirect ?? {}) });
 const DEFAULT_RULE: LocationDeliveryRule = { enabled: false, autoDispatch: false, leadMinutes: 10, maxDistanceKm: 8, postalPrefixes: [], maxAutoFee: 15 };
 
 export default function DeliverySettingsPage() {
@@ -105,6 +106,14 @@ export default function DeliverySettingsPage() {
               <Switch checked={s.smsTracking} onChange={(v) => setS({ ...s, smsTracking: v })} label={t('Texter le lien de suivi au client', 'Text the tracking link to the customer')} />
               <Switch checked={s.readCloverDeliveryOrders} onChange={(v) => setS({ ...s, readCloverDeliveryOrders: v })} label={t('Lire les commandes Clover de type « Livraison »', 'Read Clover orders of type "Delivery"')} />
               <Switch checked={s.allowUnpaidDispatch} onChange={(v) => setS({ ...s, allowUnpaidDispatch: v })} label={t('Envoyer un livreur même si la commande n’est pas payée', 'Send a courier even if the order is not paid')} description={t('Déconseillé : les livreurs n’encaissent jamais.', 'Not recommended: couriers never collect money.')} />
+            </fieldset>
+          </Section>
+
+          <Section title={t('Uber Direct : remise et preuve', 'Uber Direct: hand-off and proof')} subtitle={t('Alcool : toujours en main propre avec pièce d’identité. « Laisser à la porte » exige une photo ; un code NIP est texté au client avec le lien de suivi.', 'Alcohol: always handed over with an ID check. "Leave at the door" requires a photo; a PIN is texted to the customer with the tracking link.')}>
+            <fieldset disabled={!edit} className="grid gap-4 md:grid-cols-2">
+              <Field label={t('Remise au client', 'Hand-off')}><Select value={s.uberDirect?.deliverableAction ?? 'meet_at_door'} onChange={(e) => setS({ ...s, uberDirect: { ...uberOpts(s), deliverableAction: e.target.value as UberOpts['deliverableAction'] } })}><option value="meet_at_door">{t('En main propre', 'Meet at the door')}</option><option value="leave_at_door">{t('Laisser à la porte (photo)', 'Leave at the door (photo)')}</option></Select></Field>
+              <Field label={t('Preuve de livraison', 'Proof of delivery')}><Select value={s.uberDirect?.proof ?? 'picture'} onChange={(e) => setS({ ...s, uberDirect: { ...uberOpts(s), proof: e.target.value as UberOpts['proof'] } })}><option value="picture">{t('Photo', 'Photo')}</option><option value="signature">{t('Signature', 'Signature')}</option><option value="pincode">{t('Code NIP du client', 'Customer PIN')}</option><option value="none">{t('Aucune', 'None')}</option></Select></Field>
+              <Switch checked={Boolean(s.uberDirect?.pickPackPay)} onChange={(v) => setS({ ...s, uberDirect: { ...uberOpts(s), pickPackPay: v } })} label={t('Le livreur fait les courses (Courier Pick & Pack)', 'The courier shops the order (Courier Pick & Pack)')} description={t('Épicerie seulement ; exige une entente avec Uber Direct.', 'Grocery only; needs an agreement with Uber Direct.')} />
             </fieldset>
           </Section>
 

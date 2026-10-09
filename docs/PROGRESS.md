@@ -25,6 +25,8 @@ piece of work. The plan itself is `docs/MASTER_PLAN.md`. Operations (support, em
 | 13 | Certification backlog (PLATFORM_API_RESEARCH §6) | `certification-backlog` (1a5fe62, main merged in) | Certification agent | DONE, pushed. 11 items coded, SOW skipped, Uber prep time TODO. Checks: 426/426 tests, webpack OK, verify 506/0 | Owner opens the PR (https://github.com/takatakca/foodhubca/compare/main...certification-backlog?expand=1), merges after task 12, deploys; then the owner actions and platform questions in docs/CERTIFICATION_BACKLOG.md |
 | 14 | Move Supabase project "TAKATAK User Official Dashboard V1" from eu-west-1 (Ireland) to ca-central-1 (Montréal) | none | main session | CANCELLED 2026-10-08 by the owner: the project stays in Europe as long as it works. Nothing was changed. | None. Do not restart this task unless the owner asks. |
 | 18 | Brand phone lines: one Twilio number per brand rings one main number (whisper "Appel pour <marque>", voicemail and texts by email); numbers also serve Google Business Profile verification | `feature/brand-phone-lines` | Brand phone agent | DONE, pushed. Checks: typecheck OK, lint 0 errors, 420/420 tests, webpack OK | Owner merges and deploys; then creates the Twilio account (upgrade), buys the numbers, pastes the two webhook URLs on each number and adds the env names listed in `.env.example` (`FOODHUB_MAIN_PHONE`, `FOODHUB_BRAND_PHONES`, `FOODHUB_VOICEMAIL_EMAIL`, `TWILIO_*`). The owner guide is outside git. |
+| 20 | takatak.ca brand section connected to Food Hub's multi-brand data (feed `GET /api/public/directory`, task 19) + one TAKATAK V1 workspace per restaurant brand (Quadro Holding admin owns all; brand logins by invitation) | foodhubca `claude/google-doordash-id-extraction-wg2f5l` (decision note `docs/TAKATAK_BRANDS_BRIDGE.md`, being written there); takatak-v1 local branch `claude/provision-brand-workspaces` (not pushed: no write access in that session) | DoorDash/Google session (claude, 2026-10-09) | IN PROGRESS (claimed 2026-10-09) | Read the note on that branch. A new session needs takatak.ca allowed in Network access, the takatak-v1 DB secrets and write access to takatak-v1; then push the setup script, run it dry-run, show the owner, `--apply` only after the owner says yes. |
+| 27 | DoorDash: every store back to tablet after UrbanPiper; store list and IDs; Google listings / Ads prep (operations, outside git) | owner's private Google Drive folder "TAKATAK OPS (private)" (README, CLAIMS, APPROVED_VALUES, OPS_LOG) | DoorDash/Google session (claude, 2026-10-09) | IN PROGRESS | Read the Drive folder README first. Never redo, undo or re-send anything its OPS_LOG records without the owner. One agent at a time in the DoorDash portal and each Gmail inbox. |
 
 ## 2026-10-08 06:20 UTC (brand phone agent, task 18: `feature/brand-phone-lines`)
 
@@ -54,6 +56,12 @@ piece of work. The plan itself is `docs/MASTER_PLAN.md`. Operations (support, em
 - Checks: typecheck OK, lint 0 errors, 400/400 tests, workflow YAML parsed.
 - Owner steps (merge, package visibility, Coolify switch) are in the private hosting plan.
 
+## 2026-10-09 09:45 UTC (Uber API coverage agent, task 22: `feature/uber-api-coverage` → PR #21)
+- Every official Uber Eats Marketplace endpoint and webhook and all of Uber Direct are in Food Hub: 61/61 endpoints (was 21), 17/17 webhooks (was 14). Table, scopes and the 176 github.com/uber repos: `docs/UBER_API_COVERAGE.md`.
+- Kitchen: Ready / +5 min / prep time go to Uber; Uber missing item and price change in the order drawer; new Stores → Uber Eats tab; Uber Direct proof / PIN options in Settings → Delivery.
+- Checks: typecheck OK, lint 0 errors, 475/475 tests, clean webpack build OK, verify:foodhub 508/0 (ports 5499/5500).
+- Next: owner merges PR #21 and deploys; owner asks Uber for the optional scopes (doc, Owner steps).
+
 ## 2026-10-08 05:35 UTC (SMTP agent, task 16: `feature/smtp-email`)
 
 **Done:** email can go out by SMTP (the owner's own mailboxes, e.g. MochaHost) as well as Resend. Not merged: the owner reviews and merges.
@@ -62,6 +70,16 @@ piece of work. The plan itself is `docs/MASTER_PLAN.md`. Operations (support, em
 - `SMTP_*` added next to `RESEND_API_KEY` in `.env.example`, `npm run setup`, Go-live, Alerts, Profile, Reports banner, docs and the privacy page.
 - Tests: `tests/email-smtp.test.ts` (SMTP vs Resend vs none, transport mocked, no network). Checks: typecheck, lint 0 errors, 422/422 tests, webpack build OK, verify:foodhub 506/0.
 - Owner on Coolify: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER` (full mailbox address), `SMTP_PASS`, `AUTH_EMAIL_FROM`; then Settings → Alerts → "Email me" to test.
+
+## 2026-10-09 (IVR agent, task 26: `feature/on2go-phone-ivr`, based on `feature/ai-phone-kitchens`)
+
+- ON2GO phone menu on the main line: greeting (owner's text, editable; safer wording offered), then the AI talks and
+  routes with `route_to`; keypad fallback (0 = person, star = repeat, 2 misses → keypad menu); FR / EN / ES.
+- Branches: own online order (lookup, ticket, ordering agent), platform order (order number → reference saved → official
+  DoorDash line / Uber Eats and Skip help link by text), billing, merchant, courier, customer service, person, voicemail
+  (live transcription, ticket, email). Spanish added to the AI ordering agent.
+- Screens: Settings → Expansion → AI phone → Menu téléphonique; Own orders → ON2GO line. Docs: EXPANSION_FEATURES §4b.
+- Next: owner merges after `feature/ai-phone-kitchens`, sets the two Twilio webhooks and `FOODHUB_IVR_NUMBER`.
 
 ## 2026-10-08 05:30 UTC (Food Hub ↔ Clover backend session, task 2: `reconcile-pr6`)
 

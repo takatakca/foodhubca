@@ -92,6 +92,7 @@ export async function buildRequest(order: DirectOrder, deliveryId: string, s: De
     minAge: alcohol?.minAge ?? 18,
     undeliverable: s.undeliverable,
     fleetSms: s.smsTracking,
+    uber: s.uberDirect,
   };
 }
 
@@ -147,7 +148,7 @@ export async function dispatchOrder(orderId: string, actor: Actor, opts: { fleet
     let delivery: Delivery = {
       id, orderId: order.id, fleet: q.fleet, environment: fleet.environment, fleetDeliveryId: res.fleetDeliveryId, status: res.deliveryStatus && res.deliveryStatus !== 'quoted' ? res.deliveryStatus : 'created',
       quote: q, comparedQuotes: quotes, fee: res.fee ?? q.fee, tip: req.tip, orderValue: req.orderValue, containsAlcohol: req.containsAlcohol,
-      trackingUrl: res.trackingUrl, supportReference: res.supportReference, courier: res.courier, pickupEta: res.pickupEta ?? q.pickupEta, dropoffEta: res.dropoffEta ?? q.dropoffEta,
+      trackingUrl: res.trackingUrl, supportReference: res.supportReference, dropoffPin: res.dropoffPin, courier: res.courier, pickupEta: res.pickupEta ?? q.pickupEta, dropoffEta: res.dropoffEta ?? q.dropoffEta,
       requestedBy: actor.name, timeline: [{ at, status: 'created', message: `${res.message}${fleet.environment === 'sandbox' ? ' (sandbox — no real courier)' : ''}` }], createdAt: at, updatedAt: at,
     };
     delivery = await saveDelivery(delivery);
@@ -187,8 +188,8 @@ async function textTracking(order: DirectOrder, d: Delivery): Promise<Delivery> 
   if (!s.smsTracking || d.trackingSmsAt || !d.trackingUrl || !normalizePhone(order.customer.phone)) return d;
   const fr = (order.customer.lang ?? 'fr') === 'fr';
   const body = fr
-    ? `${order.brandName} : votre commande ${order.number} est prise en charge par un livreur. Suivi : ${d.trackingUrl}${d.containsAlcohol ? ' — Alcool : pièce d’identité avec photo exigée.' : ''}`
-    : `${order.brandName}: a courier has your order ${order.number}. Track it: ${d.trackingUrl}${d.containsAlcohol ? ' — Alcohol: photo ID required.' : ''}`;
+    ? `${order.brandName} : votre commande ${order.number} est prise en charge par un livreur. Suivi : ${d.trackingUrl}${d.dropoffPin ? ` — Code à donner au livreur : ${d.dropoffPin}` : ''}${d.containsAlcohol ? ' — Alcool : pièce d’identité avec photo exigée.' : ''}`
+    : `${order.brandName}: a courier has your order ${order.number}. Track it: ${d.trackingUrl}${d.dropoffPin ? ` — Code for the courier: ${d.dropoffPin}` : ''}${d.containsAlcohol ? ' — Alcohol: photo ID required.' : ''}`;
   const r = await sendSms({ to: order.customer.phone!, body }, { purpose: 'delivery_tracking', by: 'Food Hub' });
   await addDirectEvent(order, r.ok ? 'sms_tracking' : 'sms_failed', r.ok ? 'Tracking link texted to the customer' : `Tracking link not texted: ${r.message}`);
   return r.ok ? saveDelivery({ ...d, trackingSmsAt: nowIso() }) : d;
@@ -205,10 +206,12 @@ export async function applyFleetEvent(ev: FleetEvent): Promise<{ applied: boolea
   if (!found || found.fleet !== ev.fleet) return { applied: false, reason: 'Unknown delivery' };
   let d: Delivery = {
     ...found,
-    fee: ev.fee ?? found.fee, trackingUrl: ev.trackingUrl ?? found.trackingUrl, supportReference: ev.supportReference ?? found.supportReference,
+    fee: ev.fee ?? found.fee, trackingUrl: ev.trackingUrl ?? found.trackingUrl, supportReference: ev.supportReference ?? found.supportReference, dropoffPin: ev.dropoffPin ?? found.dropoffPin,
     pickupEta: ev.pickupEta ?? found.pickupEta, dropoffEta: ev.dropoffEta ?? found.dropoffEta,
     courier: ev.courier ? { ...(found.courier ?? {}), ...Object.fromEntries(Object.entries(ev.courier).filter(([, v]) => v !== undefined)), updatedAt: ev.courier.updatedAt } : found.courier,
     fleetDeliveryId: found.fleetDeliveryId ?? ev.fleetDeliveryId,
+    ...(ev.proof ? { proof: { ...(found.proof ?? {}), ...ev.proof } } : {}),
+    ...(ev.note ? { timeline: [...found.timeline, { at: ev.at, status: 'note' as const, message: ev.note }] } : {}),
   };
   const moves = ev.status && !TERMINAL.includes(found.status) && ev.status !== found.status && (TERMINAL.includes(ev.status) || DELIVERY_RANK[ev.status] > DELIVERY_RANK[found.status]);
   if (moves) {
@@ -272,7 +275,7 @@ export async function refreshDelivery(deliveryId: string): Promise<Delivery | nu
   if (!res.ok) return d;
   await applyFleetEvent({
     fleet: d.fleet, ref: d.id, fleetDeliveryId: res.fleetDeliveryId ?? d.fleetDeliveryId, status: res.deliveryStatus ?? null, event: 'refresh', at: nowIso(),
-    fee: res.fee, trackingUrl: res.trackingUrl, supportReference: res.supportReference, pickupEta: res.pickupEta, dropoffEta: res.dropoffEta, courier: res.courier,
+    fee: res.fee, trackingUrl: res.trackingUrl, supportReference: res.supportReference, dropoffPin: res.dropoffPin ?? undefined, pickupEta: res.pickupEta, dropoffEta: res.dropoffEta, courier: res.courier,
   });
   return getDelivery(deliveryId);
 }

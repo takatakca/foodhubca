@@ -40,8 +40,12 @@ export interface OrderTimeline {
   posPaymentError?: string;
   /** Clover: the cancelled order was removed from (or marked cancelled in) Clover. */
   posClosedAt?: string;
-  /** Items reported missing to the platform after accepting (Skip modification). */
+  /** Items reported missing to the platform after accepting (Skip modification, DoorDash order adjustment). */
   missingItems?: Array<{ name: string; ref?: string; quantity: number; at: string }>;
+  /** DoorDash: the Auto Order Release event arrived (a Dasher is near the store: start preparing now). */
+  releasedAt?: string;
+  /** DoorDash: adjustments DoorDash confirmed on the order (OrderAdjustment webhook). */
+  adjustments?: Array<{ at: string; source: string; summary: string }>;
   /** A person saw the new-order pop-up (auto-accepted orders still need eyes in the kitchen). */
   seenAt?: string;
   seenBy?: string;
@@ -84,6 +88,8 @@ export interface OrderModifier {
   externalId?: string;
   /** Clover modifier id, when the option is linked to the Clover inventory (sent as a real Clover modification). */
   posModifierRef?: string;
+  /** DoorDash line_option_id: the id the order adjustment endpoint needs to change or remove this option. */
+  lineOptionId?: string;
   name: string;
   quantity: number;
   unitPrice: number;
@@ -91,6 +97,8 @@ export interface OrderModifier {
 
 export interface OrderLine {
   externalId?: string;
+  /** DoorDash line_item_id: the id the order adjustment endpoint needs to change, remove or substitute this line. */
+  lineItemId?: string;
   /** Clover inventory item id, when the item is mapped in the master menu. */
   posItemRef?: string;
   /** How the line was linked to Clover: by id, by name, or not at all (free-text line, with a warning). */
@@ -148,11 +156,40 @@ export interface NormalizedOrder {
    * CAVIAR, STOREFRONT, …). Shown to the staff (orderSourceLabel).
    */
   orderSource?: string;
+  /** DoorDash order details that have no common field (tax remitted by DoorDash, promotions, scheduled / catering, plasticware…). */
+  doorDash?: DoorDashOrderDetails;
+}
+
+/** What a DoorDash order carries beyond the common fields (Order model + integrated promotions guide). Amounts in dollars. */
+export interface DoorDashOrderDetails {
+  /** DoorDash collects and remits the sales tax (marketplace facilitator): that tax is not paid out to the restaurant. */
+  taxRemittedByDoorDash?: boolean;
+  taxRemittedAmount?: number;
+  /** regular | dashpass: the commission tier of this order. */
+  commissionType?: string;
+  /** Scheduled (advance) order; experience marketplace_catering / online_ordering_catering / meal_manager = catering. */
+  scheduled?: boolean;
+  catering?: boolean;
+  /** The customer asked for plastic cutlery (true) or not (false); undefined = DoorDash did not say. */
+  plasticware?: boolean;
+  /** Customer phone: a masked number when DoorDash enabled masking (call it from the store phone). */
+  customerPhone?: string;
+  /** Promotions on the order, with who pays. */
+  promotions?: Array<{ id?: string; code?: string; campaignId?: string; total: number; merchantFunded: number; doordashFunded: number; itemId?: string }>;
+  merchantFundedDiscount?: number;
+  doordashFundedDiscount?: number;
+  /** Self-delivery (mx_fleet_delivery) orders: where to bring it. */
+  deliveryAddress?: string;
+  addressInstructions?: string;
+  /** DoorDash's own order id and cart id, handy for support. */
+  storeOrderCartId?: string;
 }
 
 /** DoorDash Marketplace order `experience` values (API reference, Order model). */
 export const ORDER_SOURCE_LABELS: Record<string, string> = {
   DOORDASH: 'DoorDash', CAVIAR: 'Caviar', STOREFRONT: 'Storefront', WHITE_LABELED: 'White label', DOORDASH_CHECKOUT: 'DoorDash Checkout', ANY_EXPERIENCE: 'DoorDash',
+  // Catering programmes (catering orders guide): scheduled orders, shown as their own order type.
+  MARKETPLACE_CATERING: 'DoorDash Catering', ONLINE_ORDERING_CATERING: 'Storefront Catering', MEAL_MANAGER: 'Meal Manager',
 };
 
 /** Staff-facing label of an order source ("Caviar", "Storefront"…); null when the platform sent none. */
@@ -327,6 +364,8 @@ export interface PublishContext {
   hours: WeeklyHours | null;
   holidays: Holiday[];
   timezone: string;
+  /** DoorDash: send the menu as inactive (false) to hide it on the marketplace; omitted = active. */
+  menuActive?: boolean;
   /** Menu language for this platform: English, French, or both ("Poulet / Chicken"). */
   language?: MenuLanguage;
   /** Today's local date, YYYY-MM-DD. */
@@ -362,6 +401,8 @@ export interface ChannelResult {
   reference?: string;
   httpStatus?: number;
   response?: unknown;
+  /** Set when the platform asked us to slow down (HTTP 429): wait this long before trying again. */
+  retryAfterMs?: number;
 }
 
 export interface ChannelAdapter {
@@ -379,6 +420,8 @@ export interface ChannelAdapter {
   publishMenu(store: ChannelStore, menu: MasterMenu, ctx?: PublishContext): Promise<ChannelResult>;
   setItemAvailability(store: ChannelStore, refs: string[], available: boolean, untilMs?: number, kind?: 'item' | 'modifier'): Promise<ChannelResult>;
   setStoreOnline(store: ChannelStore, online: boolean, untilMs?: number, reason?: string): Promise<ChannelResult>;
+  /** Tell the platform the order will be ready later ("+5 min" in the kitchen). Only where the platform has an API. */
+  updateReadyTime?(order: StoredOrder, readyAtIso: string): Promise<ChannelResult>;
 }
 
 /** Standard reasons (Atlas-style) mapped to each platform's own codes. */

@@ -13,6 +13,8 @@ import { closeCancelledCloverOrder } from './pos/clover-books';
 import { doorDashMerchantCancelEnabled } from './adapters/doordash';
 import { relayActions } from './adapters/relay';
 import { reportSkipMissingItems } from './adapters/skip';
+import { adjustDoorDashOrder, adjustmentFromMissing, doorDashAdjustEnabled } from './doordash/orders';
+import { adjustUberOrderPrice, isUberMerchantDelivery, reportUberOutOfItems, setUberRestaurantDeliveryStatus, type UberAdjustReason } from './adapters/uber-api';
 import { applyCourierUpdate, pendingKey, readPending } from './courier';
 import { getBrandMenu } from './menu/shared';
 import { prepFor } from './prep';
@@ -383,8 +385,8 @@ function summarize(r: ChannelResult) {
 }
 
 /** 'accept_no_pos' = explicit "Accept without Clover (entered by hand)" override when Clover did not receive the order. */
-export type OrderAction = 'accept' | 'accept_no_pos' | 'deny' | 'ready' | 'dispatch' | 'complete' | 'cancel' | 'retry_pos' | 'print' | 'report_missing' | 'ack' | 'delay';
-export const ORDER_ACTIONS: OrderAction[] = ['accept', 'accept_no_pos', 'deny', 'ready', 'dispatch', 'complete', 'cancel', 'retry_pos', 'print', 'report_missing', 'ack', 'delay'];
+export type OrderAction = 'accept' | 'accept_no_pos' | 'deny' | 'ready' | 'dispatch' | 'complete' | 'cancel' | 'retry_pos' | 'print' | 'report_missing' | 'adjust_price' | 'ack' | 'delay';
+export const ORDER_ACTIONS: OrderAction[] = ['accept', 'accept_no_pos', 'deny', 'ready', 'dispatch', 'complete', 'cancel', 'retry_pos', 'print', 'report_missing', 'adjust_price', 'ack', 'delay'];
 /** Not buttons of their own: "seen" on the new-order pop-up, and "+5 min" on an order in the kitchen. */
 const META_ACTIONS: OrderAction[] = ['ack', 'delay'];
 
@@ -421,15 +423,20 @@ export function allowedActions(order: StoredOrder): OrderAction[] {
   // SkipTheDishes (JET Connect) lets the store report an out-of-stock item after accepting; Skip adjusts the customer's bill.
   // (Not for Skip orders that came through the relay: Skip's API does not know them.)
   if (order.channel === 'skip' && !order.viaHub && ['accepted', 'ready'].includes(order.status)) a.push('report_missing');
+  // DoorDash: the order adjustment endpoint (remove / reduce an item after confirming), once DoorDash allowlisted it.
+  if (order.channel === 'doordash' && !order.viaHub && doorDashAdjustEnabled() && ['accepted', 'ready'].includes(order.status)) a.push('report_missing');
+  // Uber Eats (direct): an item out of stock after accepting goes to the customer (Resolve Fulfillment Issues), and a
+  // price change (an add-on the customer asked for, a removed item) is confirmed by the customer (Adjust Order Price).
+  if (order.channel === 'uber_eats' && !order.viaHub && order.status === 'accepted') a.push('report_missing', 'adjust_price');
   return a;
 }
 
 const ACTION_LABEL: Record<OrderAction, string> = {
   accept: 'Accepted', accept_no_pos: 'Accepted without Clover (entered by hand)', deny: 'Rejected', ready: 'Marked ready', dispatch: 'Handed to courier', complete: 'Completed', cancel: 'Cancelled', retry_pos: 'Sent to Clover', print: 'Printed in kitchen',
-  report_missing: 'Reported missing items', ack: 'Seen', delay: 'More time',
+  report_missing: 'Reported missing items', adjust_price: 'Price change sent', ack: 'Seen', delay: 'More time',
 };
 
-export async function runOrderAction(orderId: string, action: OrderAction, opts: { reason?: string; reasonCode?: CancelReason; actor?: Actor; missing?: Array<{ line: number; quantity: number }>; prepMinutes?: number; delayMinutes?: number; approvedBy?: string } = {}): Promise<{ order: StoredOrder | null; result: ChannelResult | { ok: boolean; message: string } }> {
+export async function runOrderAction(orderId: string, action: OrderAction, opts: { reason?: string; reasonCode?: CancelReason; actor?: Actor; missing?: Array<{ line: number; quantity: number }>; prepMinutes?: number; delayMinutes?: number; approvedBy?: string; adjust?: { amount: number; reason: UberAdjustReason; customReason?: string } } = {}): Promise<{ order: StoredOrder | null; result: ChannelResult | { ok: boolean; message: string } }> {
   const repo = getRepo();
   const order = await repo.getOrder(orderId);
   if (!order) return { order: null, result: { ok: false, message: 'Order not found.' } };
@@ -462,10 +469,15 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
     const minutes = Math.round(Number(opts.delayMinutes) || 0);
     if (!['accepted', 'ready'].includes(order.status) || minutes < 1 || minutes > 60) return { order, result: { ok: false, message: 'Add 1–60 minutes to an order in the kitchen.' } };
     const base = Math.max(Date.now(), Date.parse(order.timeline?.readyTarget ?? '') || Date.now());
-    const updated = await patchTimeline(order, { readyTarget: new Date(base + minutes * 60_000).toISOString(), delayedMinutes: (order.timeline?.delayedMinutes ?? 0) + minutes });
-    await repo.addEvent(order.id, 'delayed', { minutes, by: actor.name, message: `+${minutes} min on the kitchen timer (the platform keeps its own estimate)` });
-    await logActivity({ actor: actor.name, source: actor.source, kind: 'order', action, status: 'success', channel: order.channel, brandName: order.brandName, locationCode: order.locationCode, orderId: order.id, summary: `+${minutes} min: ${tag}` });
-    return { order: updated, result: { ok: true, message: `+${minutes} min on the kitchen timer. ${order.channel === 'uber_eats' || order.channel === 'doordash' ? 'The courier follows the platform estimate — call support if it is a long delay.' : ''}`.trim() } };
+    const readyAt = new Date(base + minutes * 60_000).toISOString();
+    const updated = await patchTimeline(order, { readyTarget: readyAt, delayedMinutes: (order.timeline?.delayedMinutes ?? 0) + minutes });
+    // Where the platform takes a new ready time by API (Uber Eats), it is sent too; a refusal never undoes the timer.
+    const push = !order.viaPos && !order.viaHub && order.status === 'accepted' ? getAdapter(order.channel).updateReadyTime : undefined;
+    const sent = push ? await push(order, readyAt).catch((e) => ({ ok: false, status: 'error' as const, message: e instanceof Error ? e.message : String(e) })) : null;
+    const told = sent?.ok ? ` ${CHANNEL_LABELS[order.channel]} has the new ready time.` : '';
+    await repo.addEvent(order.id, 'delayed', { minutes, by: actor.name, message: `+${minutes} min on the kitchen timer${sent ? (sent.ok ? ` — sent to ${CHANNEL_LABELS[order.channel]}` : ` — ${CHANNEL_LABELS[order.channel]} not updated: ${sent.message}`) : ' (the platform keeps its own estimate)'}` });
+    await logActivity({ actor: actor.name, source: actor.source, kind: 'order', action, status: 'success', channel: order.channel, brandName: order.brandName, locationCode: order.locationCode, orderId: order.id, summary: `+${minutes} min: ${tag}${sent?.ok ? ` (sent to ${CHANNEL_LABELS[order.channel]})` : ''}` });
+    return { order: updated, result: { ok: true, message: `+${minutes} min on the kitchen timer.${told || ((order.channel === 'uber_eats' || order.channel === 'doordash') ? ' The courier follows the platform estimate — call support if it is a long delay.' : '')}`.trim() } };
   }
 
   if (!allowedActions(order).includes(action) && !META_ACTIONS.includes(action)) {
@@ -476,6 +488,33 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
     const picks = (opts.missing ?? []).map((m) => ({ line: order.lines[m.line], quantity: Math.max(1, Math.round(m.quantity)) }))
       .filter((m) => m.line && m.quantity <= m.line.quantity);
     if (!picks.length) return { order, result: { ok: false, message: 'Choose the missing item(s) and quantity.' } };
+    if (order.channel === 'doordash') {
+      // DoorDash: ITEM_REMOVE / ITEM_UPDATE on the order adjustment endpoint (needs the line ids kept from the order).
+      const adj = adjustmentFromMissing(order, picks.map((m) => ({ line: order.lines.indexOf(m.line), quantity: m.quantity })));
+      if (!adj.items) return { order, result: { ok: false, message: adj.error ?? 'Nothing to adjust.' } };
+      const sent = await adjustDoorDashOrder(order, adj.items);
+      const at = nowIso();
+      const done = sent.ok
+        ? await patchTimeline(order, { missingItems: [...(order.timeline?.missingItems ?? []), ...picks.map((m) => ({ name: m.line.name, ref: m.line.externalId, quantity: m.quantity, at }))] })
+        : await repo.updateOrder(order.id, { channelError: sent.message });
+      const what = picks.map((m) => `${m.quantity}× ${m.line.name}`).join(', ');
+      await repo.addEvent(order.id, sent.ok ? 'report_missing' : 'report_missing_failed', { message: `${what}: ${sent.message}`, by: actor.name });
+      await logActivity({ actor: actor.name, source: actor.source, kind: 'order', action, status: sent.ok ? 'success' : 'failed', channel: order.channel, brandName: order.brandName, locationCode: order.locationCode, orderId: order.id,
+        summary: `Order adjusted on DoorDash for ${tag}: ${what}${sent.ok ? '' : ` (failed: ${sent.message})`}` });
+      return { order: done, result: sent };
+    }
+    if (order.channel === 'uber_eats') {
+      // Uber asks the customer (remove the item or cancel); the answer arrives as orders.fulfillment_issues.resolved.
+      const res = await reportUberOutOfItems(order, picks.map((m) => m.line), { note: opts.reason });
+      const label = picks.map((m) => m.line.name).join(', ');
+      const updated = res.ok
+        ? await patchTimeline(order, { missingItems: [...(order.timeline?.missingItems ?? []), ...picks.map((m) => ({ name: m.line.name, ref: m.line.externalId, quantity: m.line.quantity, at: nowIso() }))] })
+        : await repo.updateOrder(order.id, { channelError: res.message });
+      await repo.addEvent(order.id, res.ok ? 'report_missing' : 'report_missing_failed', { message: `${label}: ${res.message}`, by: actor.name });
+      await logActivity({ actor: actor.name, source: actor.source, kind: 'order', action, status: res.ok ? 'success' : 'failed', channel: order.channel, brandName: order.brandName, locationCode: order.locationCode, orderId: order.id,
+        summary: `Out of stock sent to Uber Eats for ${tag}: ${label}${res.ok ? '' : ` (failed: ${res.message})`}` });
+      return { order: updated, result: res };
+    }
     const noPlu = picks.find((m) => !m.line.externalId);
     if (noPlu) return { order, result: { ok: false, message: `"${noPlu.line.name}" has no Skip item reference (PLU), so it cannot be reported by API — use the Skip tablet.` } };
     const res = await reportSkipMissingItems(order, picks.map((m) => ({ plu: m.line.externalId!, missingQuantity: m.quantity })));
@@ -488,6 +527,16 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
     await logActivity({ actor: actor.name, source: actor.source, kind: 'order', action, status: res.ok ? 'success' : 'failed', channel: order.channel, brandName: order.brandName, locationCode: order.locationCode, orderId: order.id,
       summary: `Missing items reported to SkipTheDishes for ${tag}: ${label}${res.ok ? '' : ` (failed: ${res.message})`}` });
     return { order: updated, result: res };
+  }
+
+  if (action === 'adjust_price') {
+    if (!opts.adjust) return { order, result: { ok: false, message: 'Enter the amount and the reason.' } };
+    const res = await adjustUberOrderPrice(order, opts.adjust);
+    if (!res.ok) await repo.updateOrder(order.id, { channelError: res.message });
+    await repo.addEvent(order.id, res.ok ? 'adjust_price' : 'adjust_price_failed', { message: res.message, amount: opts.adjust.amount, reason: opts.adjust.reason, by: actor.name });
+    await logActivity({ actor: actor.name, source: actor.source, kind: 'order', action, status: res.ok ? 'success' : 'failed', channel: order.channel, brandName: order.brandName, locationCode: order.locationCode, orderId: order.id,
+      summary: `Price change ${opts.adjust.amount > 0 ? '+' : ''}${opts.adjust.amount} $ (${opts.adjust.reason}) for ${tag}${res.ok ? '' : ` (failed: ${res.message})`}` });
+    return { order: (await repo.getOrder(order.id)) ?? order, result: res };
   }
 
   if (action === 'retry_pos' || action === 'print') {
@@ -526,6 +575,11 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
     res = { ok: true, message: told.status === 'done' ? `Marked completed in Food Hub. ${told.message}` : told.ok || told.status === 'skipped' ? 'Marked completed in Food Hub.' : `Marked completed in Food Hub (not reported to the platform: ${told.message}).` };
   }
   else res = { ok: true, message: action === 'dispatch' ? 'Handed to the courier.' : 'Marked completed in Food Hub.' };
+  // An Uber Eats order our own driver delivers: Uber shows the customer "on the way" / "delivered" (never blocks the kitchen).
+  if (!order.viaPos && !order.viaHub && (action === 'dispatch' || action === 'complete') && isUberMerchantDelivery(order)) {
+    const told = await setUberRestaurantDeliveryStatus(order.externalOrderId, action === 'dispatch' ? 'started' : 'delivered').catch((e) => ({ ok: false, message: String(e) }));
+    res = { ok: true, message: `${res.message} ${told.ok ? 'Uber Eats shows it to the customer.' : `Uber Eats not updated (${told.message}).`}` };
+  }
 
   // On Skip, "reject" hands the order to the Skip tablet (JET backup flow) — it is not cancelled for the customer.
   const nextStatus: OrderStatus = action === 'deny' && order.channel === 'skip' && !order.viaHub ? 'failed' : NEXT_STATUS[action]!;

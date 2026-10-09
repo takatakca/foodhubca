@@ -37,6 +37,14 @@ export interface CartLine {
 export const itemKey = (brand: string, ref: string) => `${brand}|${ref}`;
 const price = (n: number) => n.toFixed(2);
 
+/** A line with several kitchens, before the caller chose one: nothing can be added yet. */
+export function noKitchenMenu(): PhoneMenu {
+  return {
+    locationCode: '', brands: [], items: new Map(), text: '(No kitchen chosen yet: ask which restaurant, then call choose_kitchen.)',
+    alcohol: { allowed: false, reason: 'No kitchen chosen yet.', requireFood: false, minAge: 18 },
+  };
+}
+
 export async function buildPhoneMenu(line: Pick<PhoneLine, 'brands' | 'locationCode'>, now = Date.now()): Promise<PhoneMenu> {
   const d = await decideAlcohol(line.locationCode, 'phone', { now });
   const items = new Map<string, PhoneMenuItem>();

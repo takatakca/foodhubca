@@ -10,5 +10,6 @@ export function DirectTabs() {
   return <LinkTabs tabs={[
     ...(features.includes('delivery') ? [{ href: '/direct', label: t('Commandes et livreurs', 'Orders & couriers'), exact: true }] : []),
     ...(features.includes('phone') && can('orders:act') ? [{ href: '/direct/calls', label: t('Appels (IA)', 'Calls (AI)') }] : []),
+    ...(can('orders:act') ? [{ href: '/direct/ivr', label: t('Ligne ON2GO', 'ON2GO line') }] : []),
   ]} />;
 }

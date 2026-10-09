@@ -8,13 +8,16 @@ import { publishMenu } from '../ops';
 import { applyExternalStatus, pipelineOutcomeText, processIncomingOrder } from '../pipeline';
 import { handleUberReportWebhook } from '../recon/automation';
 import { getRepo } from '../repo';
-import type { PlatformStatus } from '../types';
+import type { ChannelStore, PlatformStatus } from '../types';
 import type { UberPosState } from './uber-eats';
+import { listUberCanceledOrders } from './uber-api';
 import { keepUnparsed, uberDeliveryStatus } from '../webhook-utils';
 import { enableUberIntegration, fetchUberOrder, fetchUberPosData, listUberCreatedOrders, parseUberOrder, uberApiBase, uberEatsAdapter } from './uber-eats';
 
 /** Routine Uber events with nothing to do in Food Hub: noted in the activity log, never an alert. */
-const NOTED = /^orders\.release$|^orders?\.fulfillment_issues|^orders\.scheduled\.reminder/;
+const NOTED = /^orders\.release$|^orders\.scheduled\.reminder/;
+/** The customer answered an out-of-stock question (Resolve Fulfillment Issues); Uber spells it both ways in its docs. */
+const ISSUE_RESOLVED = /^orders?\.fulfillment_issues\.resolved$/;
 
 /** The order / store id an event is about (Uber puts it in meta.resource_id; older payloads use store_id). */
 export function uberEventResource(body: any): string {
@@ -70,6 +73,24 @@ export async function handleUberEvent(body: any): Promise<HandlerOutcome> {
     await logActivity({ actor: 'Uber Eats', source: 'platform', kind: 'order', action: 'customer_order_edit', status: 'failed', channel: 'uber_eats', brandName: stored.brandName, locationCode: stored.locationCode, orderId: stored.id,
       summary: `The customer changed Uber Eats order #${stored.displayId || orderId.slice(0, 8)} — check the new items; the Clover ticket was not changed` });
     return { result: 'customer edit flagged for the kitchen', orderId: stored.id };
+  }
+  if (ISSUE_RESOLVED.test(event)) {
+    // After "Out of stock" from the kitchen: the customer removed the item, took a change, or cancelled. Food Hub reads
+    // the order again; a cancellation is applied, otherwise the new items are kept and the kitchen is told to check.
+    const repo = getRepo();
+    const stored = orderId ? await repo.findOrder('uber_eats', orderId) : null;
+    if (!stored) return kept(body, 'Uber fulfillment issue answer for an order Food Hub does not have', orderId || null);
+    const details = await fetchUberOrder(body.resource_href || orderId);
+    if (ENDED.test(String(details?.current_state ?? ''))) {
+      await applyExternalStatus('uber_eats', orderId, 'cancelled', { event, reason: 'The customer cancelled after the out-of-stock question' });
+      return { result: 'customer cancelled after the out-of-stock question', orderId: stored.id };
+    }
+    const edited = parseUberOrder(details, stored.channelStoreId);
+    await repo.addEvent(stored.id, 'fulfillment_issue_resolved', { lines: (edited?.lines ?? []).map((l) => `${l.quantity}× ${l.name}`), total: edited?.total ?? null, note: 'The customer answered the out-of-stock question on Uber Eats. The Clover ticket was NOT changed — check the items.' });
+    await repo.updateOrder(stored.id, { channelError: 'The customer answered the out-of-stock question on Uber Eats — check the items (the Clover ticket was not changed).' });
+    await logActivity({ actor: 'Uber Eats', source: 'platform', kind: 'order', action: 'fulfillment_issue_resolved', status: 'info', channel: 'uber_eats', brandName: stored.brandName, locationCode: stored.locationCode, orderId: stored.id,
+      summary: `The customer answered the out-of-stock question for Uber Eats order #${stored.displayId || orderId.slice(0, 8)} — check the items` });
+    return { result: 'customer answer flagged for the kitchen', orderId: stored.id };
   }
   if (event === 'delivery.state_changed') {
     // Courier state from the webhook itself (body.meta.status); anything we cannot map with confidence is kept, not guessed.
@@ -170,7 +191,7 @@ export async function runUberWebhook(id: string): Promise<boolean> {
  * is live — an order UrbanPiper still handles is never put in Clover a second time. The webhook gets a 60-second head
  * start, and orders past Uber's 11.5-minute window are left alone (Uber cancels them).
  */
-export async function recoverMissedUberOrders(now = Date.now()): Promise<{ recovered: number; error?: string }> {
+export async function recoverMissedUberOrders(now = Date.now()): Promise<{ recovered: number; cancelled?: number; error?: string }> {
   if (!uberEatsAdapter.readiness().canSend) return { recovered: 0 };
   const repo = getRepo();
   const stores = (await repo.listStores('uber_eats')).filter((s) => (s.meta?.uberPos as UberPosState | undefined)?.orderManager === 'foodhub');
@@ -193,5 +214,31 @@ export async function recoverMissedUberOrders(now = Date.now()): Promise<{ recov
         summary: `Uber Eats order ${o.id.slice(0, 8)} for ${s.brandName} · ${s.locationCode} never arrived by webhook — found on Uber and processed` });
     }
   }
-  return { recovered, ...(error ? { error } : {}) };
+  const cancelled = await recoverMissedUberCancellations(now, stores).catch(() => 0);
+  return { recovered, ...(cancelled ? { cancelled } : {}), ...(error ? { error } : {}) };
+}
+
+/**
+ * Same idea for cancellations: an Uber order still open in the kitchen (last 3 hours) that Uber lists under
+ * canceled-orders lost its orders.cancel webhook — it is cancelled here too, so nobody cooks it. One read per store,
+ * only for stores with an open Uber order.
+ */
+export async function recoverMissedUberCancellations(now = Date.now(), managed?: ChannelStore[]): Promise<number> {
+  if (!uberEatsAdapter.readiness().canSend) return 0;
+  const repo = getRepo();
+  const stores = managed ?? (await repo.listStores('uber_eats')).filter((s) => (s.meta?.uberPos as UberPosState | undefined)?.orderManager === 'foodhub');
+  const open = (await repo.listOrders({ statuses: ['new', 'accepted', 'ready'], since: new Date(now - 3 * 3600_000).toISOString(), limit: 500 }))
+    .filter((o) => o.channel === 'uber_eats' && !o.viaHub && !o.viaPos);
+  let cancelled = 0;
+  for (const s of stores) {
+    const mine = open.filter((o) => o.channelStoreId === s.channelStoreId);
+    if (!mine.length) continue;
+    const list = await listUberCanceledOrders(s.channelStoreId);
+    if (!list.ok) continue;
+    for (const o of mine.filter((x) => list.ids.includes(x.externalOrderId))) {
+      await applyExternalStatus('uber_eats', o.externalOrderId, 'cancelled', { event: 'canceled-orders', reason: 'Cancelled on Uber (found by the cancellation check; the webhook never arrived)' });
+      cancelled++;
+    }
+  }
+  return cancelled;
 }

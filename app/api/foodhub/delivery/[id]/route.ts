@@ -4,6 +4,7 @@ import { activeDelivery, cancelCourier, dispatchOrder, dispatchProblems, refresh
 import { runDirectAction, updateDirectOrder, type DirectAction } from '@/lib/foodhub/delivery/orders';
 import { deliveriesForOrder, getDirectOrder } from '@/lib/foodhub/delivery/store';
 import type { FleetKey } from '@/lib/foodhub/delivery/types';
+import { updateUberDirectDelivery, uberDirectProofOfDelivery } from '@/lib/foodhub/delivery/uber-direct';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { normalizePhone } from '@/lib/foodhub/notify';
 import { cloverOnlineBlockedReason } from '@/lib/foodhub/pos/clover-website-orders';
@@ -30,7 +31,7 @@ export const GET = withPerm<Ctx>('view', async (_req, ctx, actor) => {
   return ok(d);
 });
 
-const DIRECT: DirectAction[] = ['ready', 'picked_up', 'complete', 'cancel', 'mark_paid', 'retry_clover', 'clear_attention'];
+const DIRECT: DirectAction[] = ['seen', 'ready', 'picked_up', 'complete', 'cancel', 'mark_paid', 'retry_clover', 'clear_attention'];
 
 export const POST = withPerm<Ctx>('orders:act', async (req, ctx, actor) => {
   const id = (await ctx.params).id;
@@ -57,6 +58,17 @@ export const POST = withPerm<Ctx>('orders:act', async (req, ctx, actor) => {
     message = r.message;
   } else if (action === 'refresh') {
     if (order.deliveryId) await refreshDelivery(order.deliveryId);
+  } else if (action === 'proof' || action === 'courier_note') {
+    // Uber Direct only: the delivery photo / signature (Proof of Delivery), or a new note for the courier (Update Delivery).
+    const uber = (await deliveriesForOrder(id)).filter((d) => d.fleet === 'uber_direct' && d.fleetDeliveryId).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+    if (!uber) return fail('No Uber Direct delivery for this order.', 404);
+    if (action === 'proof') {
+      const p = await uberDirectProofOfDelivery(uber.fleetDeliveryId!, b.waypoint === 'pickup' ? 'pickup' : 'dropoff', b.type === 'signature' || b.type === 'pincode' ? b.type : 'picture');
+      return p.ok ? ok({ document: p.document }) : fail(p.error ?? 'No proof yet.', 409);
+    }
+    const r = await updateUberDirectDelivery(uber.fleetDeliveryId!, { dropoffNotes: String(b.note ?? '').trim() });
+    if (!r.ok) return fail(r.message, 409);
+    message = r.message;
   } else if (action === 'update') {
     const a = b.dropoff;
     await updateDirectOrder(id, {

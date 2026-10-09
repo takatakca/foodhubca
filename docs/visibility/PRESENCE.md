@@ -52,6 +52,13 @@ looks moved to Saint-Léonard; Saint-Léonard is written 5837 in older Food Hub 
 
 ## Findings from web search (this session cannot open listing sites; only web search works)
 
+- 2026-10-09 | Nutrition Shake | Web search finds **no public listing** (a Google profile exists for Saint-Léonard, cid
+  17679975320192778617, but it does not surface in general search: few reviews/links pointing to it). **Name vs menu:**
+  the name promises shakes, but the menu (brand config) is protein salads, a vegetarian sub, black-bean tacos and cold
+  drinks, no shakes. People searching "shake" will bounce. Recommendation: either add shakes/smoothies to the menu or
+  lead every listing with "salades protéinées / protein salads". Nearby salad/sandwich reference in Saint-Léonard: Les
+  Marchés Tau (6880 Jean-Talon E).
+
 - 2026-10-09 | Mythos & Go | **No public listing found** for "Mythos & Go" or "Mythos 2 Go". **Name risk:** "Mythos"
   (Mythos Estiatorio, 5318 av du Parc) is a decades-old, well-known Greek restaurant in Montréal, featured in
   Tourisme Montréal's and Cult MTL's best-Greek lists. A Greek brand named "Mythos & Go" will be confused with it in

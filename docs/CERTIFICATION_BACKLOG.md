@@ -21,7 +21,7 @@ Every field below was re-checked on developer.doordash.com / developer.uber.com 
 | 7 | DoorDash | Store Onboarding Webhook (SOW) | skipped: not trivial (sender + status webhook + screen); not needed if DoorDash assigns an EPM | |
 | 8 | Uber Eats | Item tax categories: `tax_label_info` from documented TaxLabels rows, brand default + per-item class | done | d822594 |
 | 9 | Uber Eats | "Disconnect from Uber" (`DELETE pos_data`, merchant token) on Stores → Mapping | done | cf307cf |
-| 10 | Uber Eats | Store prep-time call | TODO in `uber-eats.ts` (endpoint not public) + question below | (this commit) |
+| 10 | Uber Eats | Store prep-time call | done in task 22: Store API "Update Prep Time" is now public (`POST /v1/delivery/store/{id}/update-store-prep-time`), sent on every prep change (`feature/uber-api-coverage`) | task 22 |
 | 11 | Drive | `dropoff_address_components` (sample keys; `DOORDASH_DRIVE_ADDRESS_COMPONENTS=off` escape) | done | 42897b7 |
 | 12 | Drive | Per-kitchen business / store ids (Business + Store APIs, "Register / update kitchens" button) | done | 5fdceb4 |
 | 13 | Drive | Block restricted items (tobacco, cannabis/drugs, weapons, explosives) + alcohol re-checked with the alcohol rules | done | be6dd42 |
@@ -33,7 +33,7 @@ Every field below was re-checked on developer.doordash.com / developer.uber.com 
 
 ## Questions for the platforms
 - DoorDash: the FAQ writes provider_type `doordash_pizza` as `DoorDashPizza/1.0` (not plain CamelCase). Confirm the exact User-Agent for our provider type; `DOORDASH_USER_AGENT` sets it without code.
-- Uber: "Update Store Prep Time" is listed as required in the quality standards, but its endpoint is not in the public API reference. Please send the official path, body and scope. (Today the prep time reaches Uber per order as `pickup_time` on accept.)
+- Uber: (answered 2026-10-09) "Update Store Prep Time" is now in the public Store API suite; Food Hub uses it (task 22).
 - Uber: which `tax_label_info` labels should a Québec restaurant send for a hot main dish? The TaxLabels table has `CAT_PREPARED_FOOD` only with `TEMP_UNHEATED`. And where is the store tax area id set? It is not in the public V2 menu reference.
 - DoorDash Drive: the API reference shows `dropoff_address_components` only for the US sample (street_address, sub_premise, city, state, zip_code, country). Which keys does the Canada object use? Food Hub sends the sample keys with Canadian values.
 - DoorDash: Item Polling `start_time` / `end_time` (optional) meaning is not explained; Food Hub sends neither (timed 86s are still pushed in real time).

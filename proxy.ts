@@ -13,8 +13,10 @@ import { basicOwner, clientIp, DEVICE_COOKIE, ownerSessionVersion, readCookie, s
 //  - A kitchen tablet without a session goes to its PIN screen; any other browser to /login.
 const PUBLIC_PREFIXES = [
   '/api/foodhub/webhooks/', '/api/foodhub/cron/', '/api/foodhub/uber-connect/callback', '/api/foodhub/clover-connect/callback',
+  '/api/foodhub/voice/', // brand phone lines: Twilio-signed webhooks + the signed voicemail listen link (brand-lines.ts)
   '/api/foodhub/clover-connect/test-order', // welcome-ticket credential (signed, one merchant, its own register)
   '/api/foodhub/auth/', '/api/foodhub/devices/heartbeat',
+  '/api/public/', // read-only public feeds (directory for ON2GO / QMAPS): public facts only, see lib/foodhub/public-directory.ts
   '/login', '/kitchen/lock', '/manifest.webmanifest', '/sw.js', '/icons/', '/legal/', '/welcome/', '/media/',
 ];
 /** Matched exactly, never as a prefix ("/api/healthz" or "/api/health/x" still need a sign-in). */

@@ -1,6 +1,6 @@
 // Kitchen prep time per location — Atlas "Normal" vs "Busy" prep time.
 // Used as the ready-by target on every order, sent to DoorDash as prep_time on confirmation,
-// and shown on the board. (Uber Eats and Skip have no API to receive a prep time.)
+// and shown on the board. Uber Eats gets the prep time in force through its Store API (adapters/uber-api.ts pushPrepTimeToUber); Skip has no API for it.
 import { logActivity, type Actor } from './activity';
 import { getRepo } from './repo';
 

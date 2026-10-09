@@ -3,6 +3,7 @@
 Newest first, one line per piece of work. Rule: `AGENTS.md` › Work log rule.
 Format: `YYYY-MM-DD | agent | branch → PR | status | what | next step`
 
+- 2026-10-09 | ChatGPT (release audit) | ops/ghcr-anonymous-pull-check → PR pending | active | Fix misleading green GHCR visibility step after image publish returned HTTP 404; add explicit Coolify production handoff | verify anonymous pull, document safe cutover and rollback, open PR
 - 2026-10-09 | claude (IVR agent, task 26) | feature/on2go-phone-ivr → PR #30 | done (brought up to date with main) | ON2GO phone menu: greeting FR/EN/ES, AI routes (route_to), keypad fallback, platform order ref + transfer, voicemail, Calls log | wait for CI, then merge; owner sets the Twilio IVR webhooks and FOODHUB_IVR_NUMBER
 - 2026-10-09 | claude (console UX, task 21) | feature/console-store-switcher → PR #29 | merged | Food Hub console DoorDash-level: scope switcher (all / kitchen / brand) in the URL, kitchen brand list, one-dashboard home, grouped nav, BRAND.md colours | deploy foodhubca
 - 2026-10-09 | claude (DoorDash API coverage, task 23) | feature/doordash-api-coverage → PR #28 | merged | Every official DoorDash Marketplace + Drive API in Food Hub; docs/DOORDASH_API_COVERAGE.md | owner asks DoorDash for Marketplace and Drive production access, then pastes the keys in Coolify

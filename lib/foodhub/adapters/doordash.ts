@@ -4,11 +4,12 @@
 // only exists once DoorDash provisions your integration, so it is required before sending.
 import crypto from 'node:crypto';
 import { callApi, checkSharedSecret, fromCents, missingEnv, result, stripSlash, timedFetch } from '../config';
+import { withDoorDashRetry } from '../doordash/retry';
 import { getBrandMenu } from '../menu/shared';
 import { toDoorDashMenu } from '../menu/translate';
 import { localTimeLabel } from '../time';
 import { CANCEL_REASON_LABELS } from '../types';
-import type { CancelReason, ChannelAdapter, NormalizedOrder, OrderLine, PlatformState, StoredOrder } from '../types';
+import type { CancelReason, ChannelAdapter, DoorDashOrderDetails, NormalizedOrder, OrderLine, PlatformState, StoredOrder } from '../types';
 import { blockedResult, buildReadiness, chunk } from './common';
 
 const KEY = 'doordash' as const;
@@ -123,8 +124,15 @@ function readiness() {
 function send(method: string, path: string, body?: unknown, okStatus: 'done' | 'queued' = 'done') {
   const r = readiness();
   if (!r.canSend) return Promise.resolve(blockedResult(KEY, r));
-  return callApi(KEY, `${base()}${path}`, { method, headers: headers(), body: body === undefined ? undefined : JSON.stringify(body) }, okStatus);
+  // DoorDash's documented retry rules (doordash/retry.ts): 400 never, 429 reported with "try again in 1 minute",
+  // 5xx backed off (twice) except POST, which is never repeated blindly (a second menu POST is a duplicate menu).
+  return withDoorDashRetry(() => callApi(KEY, `${base()}${path}`, { method, headers: headers(), body: body === undefined ? undefined : JSON.stringify(body) }, okStatus), { method });
 }
+
+/** Marketplace base URL, JWT headers and readiness, shared with the other DoorDash modules (lib/foodhub/doordash/). */
+export const doorDashBase = () => base();
+export const doorDashHeaders = () => headers();
+export const doorDashReadiness = () => readiness();
 
 export const doorDashAdapter: ChannelAdapter = {
   key: KEY,
@@ -235,8 +243,39 @@ export async function fetchDoorDashStoreStatus(msid: string): Promise<{ ok: bool
 }
 
 const cents = (n: unknown) => fromCents(Number(n) || 0);
-/** Merchant-funded discount on the order (DoorDash sends it in cents under a few names); 0 when absent. */
-function doorDashDiscount(o: any): number {
+
+/** A promotion entry of the order: applied_discounts_details[] (order) or applied_item_discount_details[] (item). All amounts in cents. */
+function doorDashPromo(d: any, itemId?: string): NonNullable<DoorDashOrderDetails['promotions']>[number] {
+  const merchant = cents(d?.merchant_funded_discount_amount);
+  const dd = cents(d?.doordash_funded_discount_amount);
+  const total = d?.total_discount_amount != null ? cents(d.total_discount_amount) : Math.round((merchant + dd) * 100) / 100;
+  return {
+    ...(d?.promo_id ? { id: String(d.promo_id) } : {}),
+    ...(d?.promo_code ? { code: String(d.promo_code) } : {}),
+    ...(d?.external_campaign_id ? { campaignId: String(d.external_campaign_id) } : {}),
+    total, merchantFunded: merchant, doordashFunded: dd,
+    ...(itemId ? { itemId } : {}),
+  };
+}
+
+/**
+ * Promotions on the order (integrated promotions guide). Funding is explicit: merchant_funded_discount_amount +
+ * doordash_funded_discount_amount = total_discount_amount, per entry; stacked promos are several entries; promos funded
+ * entirely by DoorDash are not sent at all. The older discount_amount / applied_discount fields are deprecated since
+ * 2026-04-30 and are read only when the new ones are absent.
+ */
+export function doorDashPromotions(o: any, items: any[] = []): NonNullable<DoorDashOrderDetails['promotions']> {
+  const orderLevel: any[] = Array.isArray(o?.applied_discounts_details) ? o.applied_discounts_details : [];
+  const itemLevel = items.flatMap((it) => (Array.isArray(it?.applied_item_discount_details) ? it.applied_item_discount_details.map((d: any) => doorDashPromo(d, it.merchant_supplied_id ? String(it.merchant_supplied_id) : undefined)) : []));
+  return [...orderLevel.map((d) => doorDashPromo(d)), ...itemLevel];
+}
+
+/** Merchant-funded discount on the order, in dollars; 0 when absent. */
+function doorDashDiscount(o: any, promos: ReturnType<typeof doorDashPromotions>): number {
+  // The documented order-level total of what the restaurant pays for promotions (stacked promos already summed).
+  if (o?.total_merchant_funded_discount_amount != null) return Math.abs(cents(o.total_merchant_funded_discount_amount));
+  if (promos.length) return Math.round(promos.reduce((s, p) => s + Math.abs(p.merchantFunded), 0) * 100) / 100;
+  // Deprecated names, still accepted from older payloads.
   const direct = cents(o?.merchant_funded_discount ?? o?.merchant_discount ?? o?.merchant_funded_discount_amount ?? o?.discount_amount ?? o?.discount);
   if (direct) return Math.abs(direct);
   const list: any[] = Array.isArray(o?.discounts) ? o.discounts : Array.isArray(o?.promotions) ? o.promotions : [];
@@ -253,6 +292,40 @@ export function doorDashTip(o: any): number {
   return Math.round((cents(o.merchant_tip_amount) + cents(o.tip_amount)) * 100) / 100;
 }
 
+const CATERING_EXPERIENCES = /^(marketplace_catering|online_ordering_catering|meal_manager)$/i;
+
+/** A self-delivery address as text, whatever shape DoorDash sends (string, or an object with street / city / zip parts). */
+export function doorDashAddressText(a: any): string | undefined {
+  if (!a) return undefined;
+  if (typeof a === 'string') return a.trim() || undefined;
+  const direct = a.formatted_address ?? a.full_address ?? a.printable_address ?? a.address;
+  if (typeof direct === 'string' && direct.trim()) return direct.trim();
+  const parts = [a.street ?? a.street_address ?? a.address_line_1 ?? a.line_1, a.unit ?? a.subpremise ?? a.address_line_2 ?? a.line_2, a.city, a.state, a.zip_code ?? a.zip ?? a.postal_code]
+    .filter((x) => typeof x === 'string' && x.trim());
+  return parts.length ? parts.join(', ') : undefined;
+}
+
+/** DoorDash-only facts of an order, kept next to the common fields (shown to staff, used by reconciliation). */
+export function doorDashOrderDetails(o: any, promos: ReturnType<typeof doorDashPromotions>): DoorDashOrderDetails | undefined {
+  const exp = String(o?.experience ?? '');
+  const address = doorDashAddressText(o?.delivery_address);
+  const details: DoorDashOrderDetails = {
+    ...(typeof o?.is_tax_remitted_by_doordash === 'boolean' ? { taxRemittedByDoorDash: o.is_tax_remitted_by_doordash } : {}),
+    ...(o?.tax_amount_remitted_by_doordash != null ? { taxRemittedAmount: cents(o.tax_amount_remitted_by_doordash) } : {}),
+    ...(o?.commission_type ? { commissionType: String(o.commission_type).toLowerCase() } : {}),
+    ...(o?.is_scheduled === true ? { scheduled: true } : {}),
+    ...(CATERING_EXPERIENCES.test(exp) ? { catering: true } : {}),
+    ...(typeof o?.is_plastic_ware_option_selected === 'boolean' ? { plasticware: o.is_plastic_ware_option_selected } : {}),
+    ...(o?.consumer?.phone ? { customerPhone: String(o.consumer.phone) } : {}),
+    ...(promos.length ? { promotions: promos } : {}),
+    ...(promos.length ? { merchantFundedDiscount: Math.round(promos.reduce((s, p) => s + p.merchantFunded, 0) * 100) / 100, doordashFundedDiscount: Math.round(promos.reduce((s, p) => s + p.doordashFunded, 0) * 100) / 100 } : {}),
+    ...(address ? { deliveryAddress: address } : {}),
+    ...(o?.address_instructions ? { addressInstructions: String(o.address_instructions) } : {}),
+    ...(o?.store_order_cart_id ? { storeOrderCartId: String(o.store_order_cart_id) } : {}),
+  };
+  return Object.keys(details).length ? details : undefined;
+}
+
 export function parseDoorDashOrder(body: any): NormalizedOrder | null {
   const o = body?.order ?? body;
   if (!o?.id) return null;
@@ -263,6 +336,7 @@ export function parseDoorDashOrder(body: any): NormalizedOrder | null {
       .flatMap((e: any) => (Array.isArray(e.options) ? e.options : []))
       .map((op: any) => ({
         externalId: op.merchant_supplied_id ? String(op.merchant_supplied_id) : undefined,
+        ...(op.line_option_id ? { lineOptionId: String(op.line_option_id) } : {}),
         name: String(op.name ?? ''),
         quantity: Number(op.quantity || 1),
         unitPrice: cents(op.price),
@@ -270,6 +344,7 @@ export function parseDoorDashOrder(body: any): NormalizedOrder | null {
     const unit = cents(it.price);
     return {
       externalId: it.merchant_supplied_id ? String(it.merchant_supplied_id) : undefined,
+      ...(it.line_item_id ? { lineItemId: String(it.line_item_id) } : {}),
       name: String(it.name ?? 'Item'),
       quantity: qty,
       unitPrice: unit,
@@ -280,6 +355,8 @@ export function parseDoorDashOrder(body: any): NormalizedOrder | null {
   });
   const first = o.consumer?.first_name || '';
   const last = o.consumer?.last_name ? `${String(o.consumer.last_name).charAt(0)}.` : '';
+  const promos = doorDashPromotions(o, items);
+  const details = doorDashOrderDetails(o, promos);
   return {
     channel: KEY,
     marketplace: 'doordash',
@@ -294,13 +371,15 @@ export function parseDoorDashOrder(body: any): NormalizedOrder | null {
     currency: process.env.FOODHUB_CURRENCY || 'CAD',
     subtotal: cents(o.subtotal),
     tax: cents(o.tax),
-    deliveryFee: 0,
+    // delivery_fee is sent for self-delivery orders (Order Model); a Dasher delivery's fee is DoorDash's, not ours.
+    deliveryFee: o.delivery_fee != null ? cents(o.delivery_fee) : 0,
     tip: doorDashTip(o),
-    discount: doorDashDiscount(o),
+    discount: doorDashDiscount(o, promos),
     total: cents(o.subtotal) + cents(o.tax),
     notes: o.order_special_instructions || undefined,
     // Order Model `experience`: DOORDASH, CAVIAR, STOREFRONT, … (shown to the staff on the card, ticket and Clover note).
     ...(o.experience ? { orderSource: String(o.experience).toUpperCase() } : {}),
+    ...(details ? { doorDash: details } : {}),
     lines,
     raw: body,
   };

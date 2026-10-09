@@ -115,6 +115,27 @@ jobs:
             echo "- \`$tag\`" >> "$GITHUB_STEP_SUMMARY"
           done <<< "$TAGS"
 
+      # Publishing to GHCR does not make the package public. The old attempt to PUT
+      # /user/packages/container/foodhubca/visibility returned HTTP 404, but the
+      # workflow still succeeded. Verify that a clean, unauthenticated Docker client
+      # can inspect the published tag, exactly as a public-registry Coolify app would.
+      - name: Verify anonymous registry access for Coolify
+        if: env.PUBLISH == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          for attempt in 1 2 3 4 5; do
+            if docker manifest inspect "${IMAGE}:main" >/dev/null 2>&1; then
+              echo "Anonymous GHCR access verified for ${IMAGE}:main." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "Anonymous pull unavailable (attempt ${attempt}/5)."
+            sleep 4
+          done
+          echo "::error::Image published, but GHCR is not anonymously readable. Owner: GitHub → Packages → foodhubca → Package settings → Danger Zone → Change visibility → Public (irreversible), OR keep private and configure GHCR registry credentials in Coolify. See docs/RELEASE_GHCR_COOLIFY.md."
+          exit 1
+
       - name: Summary
         if: always()
         shell: bash

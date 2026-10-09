@@ -13,6 +13,7 @@ import { useToast } from '@/components/ui/toast';
 import { fullWeek, WeekEditor, weekProblems, weekSummary, type Slot, type Week } from '@/components/ui/week-editor';
 import { MultiPick } from '@/components/ui/filter-bar';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
+import { usePulse } from '@/components/live/pulse';
 import { StoresTabs } from '../stores-tabs';
 import { api, ApiError } from '@/lib/ui/api';
 import { useAutosave } from '@/lib/ui/use-autosave';
@@ -30,9 +31,13 @@ export default function HoursPage() {
   const toast = useToast();
   const editable = can('menu:edit');
   const [hours, setHours] = useState<Hours | null>(null);
-  const [tab, setTab] = useState<'locations' | 'brands' | 'holidays'>('locations');
-  const [loc, setLoc] = useState(locations[0]?.code ?? '');
-  const [brand, setBrand] = useState(brands[0] ?? '');
+  // The console's scope picks the kitchen or the brand shown first.
+  const { site } = usePulse();
+  const [tab, setTab] = useState<'locations' | 'brands' | 'holidays'>(site.brand ? 'brands' : 'locations');
+  const [loc, setLoc] = useState(site.kitchen ?? locations[0]?.code ?? '');
+  const [brand, setBrand] = useState(site.brand ?? brands[0] ?? '');
+  useEffect(() => { if (site.kitchen) setLoc(site.kitchen); }, [site.kitchen]);
+  useEffect(() => { if (site.brand) { setBrand(site.brand); setTab('brands'); } }, [site.brand]);
   const [busy, setBusy] = useState('');
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
 

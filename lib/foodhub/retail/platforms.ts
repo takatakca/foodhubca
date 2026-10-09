@@ -52,11 +52,30 @@ export const RETAIL_PLATFORMS: Record<RetailPlatform, RetailPlatformReadiness> =
 const DD_UNIT: Record<string, string> = { kg: 'kg', g: 'gm', lb: 'lb', oz: 'oz', each: 'ea' };
 const UBER_WEIGHT: Record<string, string> = { kg: 'WEIGHT_UNIT_TYPE_METRIC_KILOGRAM', g: 'WEIGHT_UNIT_TYPE_METRIC_GRAM', lb: 'WEIGHT_UNIT_TYPE_IMPERIAL_POUND', oz: 'WEIGHT_UNIT_TYPE_IMPERIAL_OUNCE' };
 
+/**
+ * other_identifiers: the DoorDash reference lists two identifier types, UPC and PLU. A UPC-A goes as it is, an EAN / GTIN as
+ * its 14-digit GTIN under the UPC type (a UPC is a GTIN-12), a produce code as PLU.
+ */
 function identifiers(p: RetailProduct) {
   return p.barcodes.map((b) => {
     const kind = barcodeKind(b);
-    return { identifier_type: kind === 'PLU' ? 'PLU' : kind === 'UPC-A' ? 'UPC' : 'GTIN', identifier_value: kind === 'PLU' ? b : (kind === 'UPC-A' ? b : toGtin14(b) ?? b) };
+    return { identifier_type: kind === 'PLU' ? 'PLU' : 'UPC', identifier_value: kind === 'PLU' || kind === 'UPC-A' ? b : toGtin14(b) ?? b };
   });
+}
+
+/**
+ * DoorDash catalogue image rules (Catalog Management reference): https, publicly reachable, ends in .jpg / .jpeg / .png with no
+ * query string, at least 1400 x 800 (16:9), at most 2 MB. Only the URL can be checked here; the size is DoorDash's to verify.
+ */
+export function retailImageProblem(url: string | undefined): string | null {
+  if (!url) return 'DoorDash needs at least one image for every product.';
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:') return 'The image must be an https URL.';
+    if (u.search) return 'The image URL must not have a query string.';
+    if (!/\.(jpe?g|png)$/i.test(u.pathname)) return 'The image must end in .jpg, .jpeg or .png.';
+    return null;
+  } catch { return 'The image URL is not valid.'; }
 }
 
 /** Products a platform may receive: active, and no alcohol unless the alcohol rules opened it for that channel. */
@@ -72,7 +91,7 @@ export function toDoorDashRetailItems(products: RetailProduct[]) {
     ...(p.description ? { description: p.description } : {}),
     ...(p.brand ? { brand_info: { name: p.brand } } : {}),
     ...(p.barcodes.length ? { other_identifiers: identifiers(p) } : {}),
-    item_categorizations: [{ category_name: p.category }],
+    item_categorizations: [{ category: { name: p.category } }],
     ...(p.imageUrl ? { images: [{ url: p.imageUrl, sort_id: 0 }] } : {}),
     ...(p.alcohol || p.soldBy === 'weight' ? { product_traits: [...(p.alcohol ? ['ALCOHOL'] : []), ...(p.soldBy === 'weight' ? ['WEIGHTED'] : [])] } : {}),
     ...(p.soldBy === 'weight' ? { weighted_item_info: { average_weight_per_each: 1, average_weight_measurement_unit: DD_UNIT[p.unit] ?? 'kg', shop_by_measurement_unit: DD_UNIT[p.unit] ?? 'kg', price_by_measurement_unit: DD_UNIT[p.unit] ?? 'kg' } } : {}),
@@ -111,6 +130,15 @@ export function toUberEatsGroceryItems(products: RetailProduct[], locationCode: 
       ...(sellableAt(p, locationCode) ? {} : { suspension_info: { suspension: { suspend_until: 0, reason: 'Out of stock' } } }),
     };
   });
+}
+
+/** POST/PATCH /api/v2/items body: DoorDash wants the business in `scope` (exactly one business id). Products without a usable image are left out and listed. */
+export function toDoorDashRetailItemsRequest(products: RetailProduct[], businessId: string) {
+  const usable = products.filter((p) => !retailImageProblem(p.imageUrl));
+  return {
+    request: { scope: { business_ids: [businessId] }, items: toDoorDashRetailItems(usable) },
+    leftOut: products.filter((p) => retailImageProblem(p.imageUrl)).map((p) => ({ sku: p.sku, name: p.name, problem: retailImageProblem(p.imageUrl)! })),
+  };
 }
 
 /** What would be sent, for the preview screen — never sent. */

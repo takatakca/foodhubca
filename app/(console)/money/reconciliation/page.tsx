@@ -13,6 +13,7 @@ import { Tabs } from '@/components/ui/tabs';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { statusLabel } from '@/components/live/order-drawer';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
+import { usePulse } from '@/components/live/pulse';
 import { CH_NAME, CaseBadge, MoneyHead, PROBLEM, ReconBadge, cad, reconLabel, signed, toRecover, type OrderRecon, type Recon, type ReconStatus, type Unmatched } from '../money-ui';
 import { api, dayOf, downloadCsv } from '@/lib/ui/api';
 import { useFilters } from '@/lib/ui/range';
@@ -27,7 +28,8 @@ const PAGE = 300;
 export default function ReconciliationPage() {
   const { t, loc } = useI18n();
   const { locations, locName } = useViewer();
-  const { filters, set, query } = useFilters('30d');
+  const { scope } = usePulse();
+  const { filters, set, query } = useFilters('30d', scope);
   const [view, setView] = useState<View>('problems');
   const [search, setSearch] = useState('');
   const [data, setData] = useState<Recon | null>(null);

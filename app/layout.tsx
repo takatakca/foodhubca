@@ -7,7 +7,7 @@ import { getLang } from '@/lib/i18n/server';
 import { productInfo } from '@/lib/foodhub/product';
 import { DISPLAY_BOOT_SCRIPT } from '@/lib/ui/display';
 
-export const viewport: Viewport = { themeColor: '#121211', width: 'device-width', initialScale: 1, viewportFit: 'cover' };
+export const viewport: Viewport = { themeColor: '#060D1F', width: 'device-width', initialScale: 1, viewportFit: 'cover' };
 
 // Read at request time: the product name (FOODHUB_PRODUCT_NAME) can change without a rebuild.
 export function generateMetadata(): Metadata {

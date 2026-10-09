@@ -12,6 +12,7 @@ import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { ChartCard, HBars, StatTile, fmtInt } from '@/components/charts/charts';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
+import { usePulse } from '@/components/live/pulse';
 import { CaseBadge, MoneyHead, PROBLEM, RECOVERABLE, ReconBadge, cad, reconLabel, signed, toRecover, type Recon, type ReconStatus } from './money-ui';
 import { api, ApiError, dayOf } from '@/lib/ui/api';
 import { useFilters } from '@/lib/ui/range';
@@ -21,7 +22,8 @@ export default function MoneyOverview() {
   const { t, loc } = useI18n();
   const { locations, locName, can } = useViewer();
   const toast = useToast();
-  const { filters, set, query } = useFilters('30d');
+  const { scope } = usePulse();
+  const { filters, set, query } = useFilters('30d', scope);
   const [data, setData] = useState<Recon | null>(null);
   const [cases, setCases] = useState<{ count: number; amount: number } | null>(null);
   const [err, setErr] = useState('');

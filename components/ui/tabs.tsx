@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/ui/cn';
+import { useScopeHref } from '@/components/live/pulse';
 
 export function Tabs<K extends string>({ tabs, value, onChange, className }: { tabs: Array<{ key: K; label: ReactNode; count?: number | null }>; value: K; onChange: (k: K) => void; className?: string }) {
   return (
@@ -22,12 +23,13 @@ export function Tabs<K extends string>({ tabs, value, onChange, className }: { t
 
 export function LinkTabs({ tabs, className }: { tabs: Array<{ href: string; label: ReactNode; exact?: boolean }>; className?: string }) {
   const path = usePathname();
+  const href = useScopeHref();
   return (
     <nav className={cn('no-scrollbar mb-5 flex gap-1 overflow-x-auto border-b border-line', className)}>
       {tabs.map((t) => {
         const on = t.exact ? path === t.href : path === t.href || path.startsWith(`${t.href}/`);
         return (
-          <Link key={t.href} href={t.href} aria-current={on ? 'page' : undefined}
+          <Link key={t.href} href={href(t.href)} aria-current={on ? 'page' : undefined}
             className={cn('-mb-px flex h-10 items-center border-b-2 px-3 text-sm font-semibold whitespace-nowrap transition-colors', on ? 'border-ink text-ink' : 'border-transparent text-ink-3 hover:text-ink')}>
             {t.label}
           </Link>

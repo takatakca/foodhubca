@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { doorDashAdapter } from '@/lib/foodhub/adapters/doordash';
-import { classifyDoorDash } from '@/lib/foodhub/webhooks/doordash';
+import { cartValidationResponse } from '@/lib/foodhub/doordash/ocv';
+import { classifyDoorDash, isCartValidation } from '@/lib/foodhub/webhooks/doordash';
 import { background, keepUnparsed, parseJson, retryLater, saveThenProcess, unauthorized } from '@/lib/foodhub/webhook-utils';
 
 export const dynamic = 'force-dynamic';
@@ -24,6 +25,8 @@ export async function POST(req: NextRequest) {
     background('keep unparsed doordash', () => keepUnparsed('doordash', { raw: raw.slice(0, 20_000) }, 'Invalid JSON'));
     return NextResponse.json({ ok: false }, { status: 400 });
   }
+  // Order Cart Validation is a question DoorDash waits on: answered here, never stored.
+  if (isCartValidation(body)) return cartValidationResponse(body);
   const c = classifyDoorDash(body);
   if (!(await saveThenProcess({ channel: 'doordash', kind: 'doordash', body, reference: c.reference }))) return retryLater('doordash');
   return NextResponse.json({ ok: true, ...(c.kind === 'unparsed' ? { stored: 'unparsed' } : {}) }, { status: c.httpStatus });

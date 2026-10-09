@@ -20,7 +20,7 @@ import { normalizePhone } from '../notify';
 import { getRepo } from '../repo';
 import { formatAddress } from './address';
 import { blocked, type AddressParts, type CourierFleet, type DeliveryRequest, type FleetEvent, type FleetResult } from './fleet';
-import type { CourierPosition, DeliveryQuote, DeliveryStatus } from './types';
+import type { CourierPosition, DeliveryProof, DeliveryQuote, DeliveryStatus } from './types';
 
 const REQUIRED = ['DOORDASH_DRIVE_DEVELOPER_ID', 'DOORDASH_DRIVE_KEY_ID', 'DOORDASH_DRIVE_SIGNING_SECRET'];
 export const DRIVE_WEBHOOK_PATH = '/api/foodhub/webhooks/doordash-drive';
@@ -246,6 +246,36 @@ async function call(method: string, path: string, body?: unknown): Promise<{ ok:
   }
 }
 
+/** The raw Drive call (JWT, base URL, error text) for the other Drive endpoints (delivery/drive-api.ts). */
+export { call as driveCall, readiness as driveReadiness };
+
+/** Photos of pickup / drop-off and the signature, from a Drive webhook or delivery. */
+export function driveProof(b: any): DeliveryProof | undefined {
+  const proof: DeliveryProof = {
+    ...(b?.pickup_verification_image_url ? { pickupImageUrl: String(b.pickup_verification_image_url) } : {}),
+    ...(b?.dropoff_verification_image_url ? { dropoffImageUrl: String(b.dropoff_verification_image_url) } : {}),
+    ...(b?.dropoff_signature_image_url ? { signatureImageUrl: String(b.dropoff_signature_image_url) } : {}),
+  };
+  return Object.keys(proof).length ? proof : undefined;
+}
+
+/**
+ * Events that do not move a delivery's status but are worth a line on its timeline: batching, shopping (Dasher Shop & Deliver:
+ * DASHER_COMPLETED_SHOPPING, ITEM_SHOPPING_UPDATE, DASHER_COMPLETED_STAGING) and parcel scans / exceptions.
+ * https://developer.doordash.com/en-US/docs/drive/reference/webhooks/ ,
+ * …/drive/how_to/Drive_DSX/how_to_shopping_complete_webhook , …/drive/reference/webhooks_parcel/
+ */
+export function driveEventNote(event: string, b: any): string | undefined {
+  const e = event.toUpperCase();
+  const n = (list: unknown) => (Array.isArray(list) ? list.length : 0);
+  if (e === 'DELIVERY_BATCHED') return `Batched with other deliveries${b?.force_batch_id ? ` (${String(b.force_batch_id).slice(0, 8)})` : ''}`;
+  if (e === 'DASHER_COMPLETED_SHOPPING') return `Shopping complete: ${n(b?.shopped_items)} item(s) picked, ${n(b?.unfulfilled_items)} not found`;
+  if (e === 'ITEM_SHOPPING_UPDATE') return `Shopping update: ${n(b?.shopped_items)} picked, ${n(b?.unfulfilled_items)} not found so far`;
+  if (e === 'DASHER_COMPLETED_STAGING') return `Order staged (${n(b?.staged_containers)} container(s))`;
+  if (e.startsWith('PARCEL_') || e === 'DASHER_ATTEMPTED_DELIVERY') return String(b?.description || e.replace(/_/g, ' ').toLowerCase());
+  return undefined;
+}
+
 function toResult(r: { ok: boolean; status: number; json: any; why: string }, okMessage: string): FleetResult {
   const b = r.json ?? {};
   if (!r.ok) return { ok: false, status: 'error', message: r.why, httpStatus: r.status, raw: b };
@@ -259,6 +289,7 @@ function toResult(r: { ok: boolean; status: number; json: any; why: string }, ok
     pickupEta: b.pickup_time_estimated || undefined,
     dropoffEta: b.dropoff_time_estimated || undefined,
     courier: courierOf(b),
+    proof: driveProof(b),
     raw: b,
   };
 }
@@ -322,6 +353,8 @@ export const doorDashDrive: CourierFleet = {
       dropoffEta: body.dropoff_time_estimated || undefined,
       courier: courierOf(body),
       cancelReason: body.cancellation_reason_message || body.cancellation_reason || undefined,
+      proof: driveProof(body),
+      note: driveEventNote(String(body.event_name), body),
     };
   },
 };

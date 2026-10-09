@@ -23,7 +23,7 @@ Status: `todo` / `doing` / `done` / `blocked: reason`. Newest work at the top of
 - [x] G4 done 2026-10-09 (4 posts per brand from the owner's copy; post 4 waits for hours; review-reply templates FR/EN with policy rules) | Google posts plan (first 4 posts per brand) and review-reply templates FR/EN -> `GBP_CHANGES.md`
 
 ## P2 Food ordering platforms and aggregators (Montréal / Canada)
-- [ ] F1 todo | List every platform that can take or route food orders (delivery apps, pickup apps, surplus food, Google/Apple/Meta order buttons, storefronts, own-delivery fleets) with how to join or connect, fees model if public, and whether Food Hub/Clover can integrate -> `PLATFORMS.md`
+- [x] F1 done 2026-10-09 (marketplaces, own ordering, order buttons, delivery fleets, consolidation, Québec commission context; 'verify' items need the platform's own page) | List every platform that can take or route food orders (delivery apps, pickup apps, surplus food, Google/Apple/Meta order buttons, storefronts, own-delivery fleets) with how to join or connect, fees model if public, and whether Food Hub/Clover can integrate -> `PLATFORMS.md`
 - [ ] F2 todo | Per brand: which of those platforms it is on today (public URL) -> `PRESENCE.md`
 
 ## P3 Directories and citations (SEO)

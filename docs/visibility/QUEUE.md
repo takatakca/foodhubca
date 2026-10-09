@@ -48,7 +48,7 @@ Status: `todo` / `doing` / `done` / `blocked: reason`. Newest work at the top of
 - [x] AD1 done 2026-10-09 (NOT launched: 5 gates, structure per kitchen, RSA text FR/EN for 8 first-wave brands, lengths checked, measuring) | Google Ads draft per brand (not to launch: owner waits until stores are back online): campaign type, radius per kitchen, schedule placeholder, budget placeholder, ad text FR/EN, conversion = order click -> `ADS_PLAN.md`
 
 ## P4d Handoff (added 2026-10-09)
-- [ ] W1 todo | Dated entry in `docs/PROGRESS.md` on this branch for today's visibility work (files, commits, what waits for the owner) + a "start here" index at the top of `PLAN.md`
+- [x] W1 done 2026-10-09 (PROGRESS.md entry + task rows 20/27 on this branch; "Start here" index in PLAN.md) | Dated entry in `docs/PROGRESS.md` on this branch for today's visibility work (files, commits, what waits for the owner) + a "start here" index at the top of `PLAN.md`
 - [ ] W2 todo | Owner decision list as a new Drive addendum next to "04 QUESTIONS FOR THE OWNER" (Drive cannot edit files: new file), French first, from `PLAN.md` §7 and the overlaps in `KEYWORDS.md`
 
 ## P5 Recurring

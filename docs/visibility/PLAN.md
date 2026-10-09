@@ -10,6 +10,20 @@ Public facts only; private steps live in Drive "TAKATAK OPS (private)".
 > comptoir, puis les applications), Skip et Too Good To Go, les annuaires canadiens, les avis et les photos. La publicité
 > Google seulement quand les magasins sont en ligne et que les commandes se mesurent.
 
+## 0. Start here (files in this folder)
+
+| Need | File |
+|---|---|
+| What to work on next, status of every item | `QUEUE.md` |
+| Where each brand is found today, per kitchen; findings per brand | `PRESENCE.md` |
+| Fixes ranked, owner decisions | this file, §7 |
+| Name, address, phone, hours rules; Google's multi-brand rules | `NAP.md` |
+| Google profile values, posts, review replies | `GBP_CHANGES.md` |
+| Applying to Google, page after page | `GBP_APPLY.md` |
+| Ordering platforms and directories | `PLATFORMS.md` |
+| Page titles / meta, social bios, structured data, search terms | `SEO_TITLES.md`, `SOCIAL_BIOS.md`, `SCHEMA.md`, `KEYWORDS.md` |
+| Order hub page, review kit, photos, Google Ads draft | `ORDER_HUB.md`, `REVIEWS.md`, `PHOTOS.md`, `ADS_PLAN.md` |
+
 ## 1. Where we are (2026-10-09)
 
 - 17 brands, 2 kitchens in the brand config: NDG (6280 Somerled) and Saint-Léonard (5839 Jean-Talon E). Two older

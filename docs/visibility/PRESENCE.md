@@ -52,6 +52,19 @@ looks moved to Saint-Léonard; Saint-Léonard is written 5837 in older Food Hub 
 
 ## Findings from web search (this session cannot open listing sites; only web search works)
 
+- 2026-10-09 | Café Bolon | **Stale directory listing in Montréal-Nord:** RestoMontreal lists 'Bolon Cafe "24/7"
+  Équatorien' in **Montréal-Nord** (the old kitchen, see NAP.md), Ecuadorian soups and brunch, hours 4 p.m. to 1 a.m.,
+  **Google rating 2.3 from 4+ ratings** (RestoMontreal copies Google). So one Google profile for this brand still carries
+  the old place, a round-the-clock name and a weak rating: the owner checks whether cid 13512885180808196559 or
+  9510640660342127576 (table above) is that one, then fixes its name, address and hours in Google (RestoMontreal
+  follows). **Menu vs listing:** the brand config sells Latin American empanadas and nachos (proposed category "Latin
+  American restaurant"); the old listing says Ecuadorian soups. A bolón is an Ecuadorian dish: if the menu keeps
+  Ecuadorian items, add "Ecuadorian restaurant" as a category (few in Montréal: less competition). **Uber Eats:** the
+  Saint-Léonard row's link has the slug `bolon-cafe-hochelaga` (old Hochelaga kitchen): check its address. No
+  `bolon.ca` page surfaces. Empanada competitors: Che Churros & Empanadas (4.8 on 1,500+ Uber ratings), Juanitos
+  (Saint-Henri), La Picada (Lachine). Sources: https://www.restomontreal.ca/resto/bolon-cafe-24-7-equatorien-montreal/22023/en/ ,
+  https://www.ubereats.com/ca-fr/store/che-churros-%26-empanadas/j4Z282pqSvaJLta6b8fC0A
+
 - 2026-10-09 | Poulet Poulet | **No public listing surfaces** in web search under "Poulet Poulet" or its DoorDash name
   "Poulet Express". **Name problems:** three names for one brand (Poulet Poulet in the brand config, "Poulet Express" on
   DoorDash 32501399, and a website under the Po Poulet domain, `pouletpoulet.popoulet.ca`). Pick one name; the DoorDash

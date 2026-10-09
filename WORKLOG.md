@@ -3,4 +3,5 @@
 Newest first, one line per piece of work. Rule: `AGENTS.md` › Work log rule.
 Format: `YYYY-MM-DD | agent | branch → PR | status | what | next step`
 
+- 2026-10-09 | claude (Finance A–Z, task 30) | feature/finance-a-to-z → PR (opening) | active | Finance A–Z report: importers, analysis, workbook, docs/FINANCE_REPORT.md; checks green | owner merges; exports → private/finance/inbox
 - 2026-10-08 | claude (owner setup) | default branch | done | Added the work log rule, this log and the stop reminder | every agent follows AGENTS.md › Work log rule

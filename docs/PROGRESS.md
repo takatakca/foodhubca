@@ -25,6 +25,24 @@ piece of work. The plan itself is `docs/MASTER_PLAN.md`. Operations (support, em
 | 13 | Certification backlog (PLATFORM_API_RESEARCH §6) | `certification-backlog` (1a5fe62, main merged in) | Certification agent | DONE, pushed. 11 items coded, SOW skipped, Uber prep time TODO. Checks: 426/426 tests, webpack OK, verify 506/0 | Owner opens the PR (https://github.com/takatakca/foodhubca/compare/main...certification-backlog?expand=1), merges after task 12, deploys; then the owner actions and platform questions in docs/CERTIFICATION_BACKLOG.md |
 | 14 | Move Supabase project "TAKATAK User Official Dashboard V1" from eu-west-1 (Ireland) to ca-central-1 (Montréal) | none | main session | CANCELLED 2026-10-08 by the owner: the project stays in Europe as long as it works. Nothing was changed. | None. Do not restart this task unless the owner asks. |
 
+## 2026-10-09 10:15 UTC (Finance A–Z session, task 30: `claude/nostalgic-dhawan-8f5bae`)
+
+**Done**
+- **Finance A–Z report** (`scripts/finance-report.ts`, `lib/foodhub/finance/*`; how to use: `docs/FINANCE_REPORT.md`).
+  - It reads the owner's exports and the portal scans from git-ignored `private/` only.
+  - It builds a workbook with live formulas: P&L per platform / brand / location / month, platform comparison by year,
+    GST/QST summary, dispute register, payouts vs bank, money held, to-do.
+- **Pure helpers extracted for reuse** (old exports unchanged):
+  - `lib/foodhub/brand-match.ts`, now holding main's newer matcher with the 5839 alias and the street fallback;
+  - `lib/foodhub/pos/platform-labels.ts`.
+- **Checks** (origin/main `ac9848a` merged in):
+  - typecheck OK, lint 0 errors, **466/466 tests**, `next build --webpack` OK;
+  - Excel recalculation of the workbook: 8,398 formulas, 0 errors, 0 differences.
+
+**Next**
+- Owner reviews and merges the PR. No env var, no migration, nothing deployed.
+- The per-order exports are being downloaded into `private/finance/inbox/`; the live status is in `private/TASKS.md` row 30.
+
 ## 2026-10-08 05:35 UTC (SMTP agent, task 16: `feature/smtp-email`)
 
 **Done:** email can go out by SMTP (the owner's own mailboxes, e.g. MochaHost) as well as Resend. Not merged: the owner reviews and merges.

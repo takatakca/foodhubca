@@ -41,6 +41,8 @@ describe('seed', () => {
     const raw = fs.readFileSync(path.resolve(__dirname, '../data/public/directory-seed.json'), 'utf8');
     for (const id of FORBIDDEN_STORE_IDS) expect(raw).not.toContain(id);
     expect(raw).not.toMatch(/ghost|virtual kitchen|cuisine fant[oô]me|cuisine virtuelle|delivery-only/i);
+    // Open late until about 3 AM, never "24 h" (owner's rule).
+    expect(raw).not.toMatch(/24\s*\/\s*7|\b24\s*h\b|24 heures|24 hours/i);
     const popoulet = DIRECTORY_SEED.brands.find((b) => b.id === 'po-poulet')!;
     expect(popoulet.kitchens.map((k) => k.kitchen)).toEqual(['saint-leonard']);
   });

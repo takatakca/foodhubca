@@ -92,7 +92,8 @@ const brands = BRANDS.map((b) => {
   return {
     id: SLUG[b.id],
     name: b.id === 'viennoise' ? 'Gâteaux Montréal' : b.name,
-    alternateNames: b.id === 'viennoise' ? ['Gâteau Montréal', 'La Viennoise'] : (b.alternateNames ?? []),
+    // Owner's rule: the restaurants are open late (until about 3 AM), never "24 h": old names like "Poulet 24/7" are left out.
+    alternateNames: b.id === 'viennoise' ? ['Gâteau Montréal', 'La Viennoise'] : (b.alternateNames ?? []).filter((n: string) => !/24\s*\/\s*7|24\s*h/i.test(n)),
     categories: CATEGORIES[b.id],
     cuisine: b.cuisine,
     description: b.id === 'viennoise'

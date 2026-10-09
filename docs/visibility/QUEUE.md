@@ -31,7 +31,7 @@ Status: `todo` / `doing` / `done` / `blocked: reason`. Newest work at the top of
 - [ ] D2 todo | Per brand: listings found on those directories (public URL), NAP mismatches -> `PRESENCE.md`
 
 ## P4 The plan
-- [ ] M1 todo | `PLAN.md`: the group's restaurant marketing and visibility plan (channels by priority, NAP standard, one order hub per brand, review strategy, schema/SEO, photo plan, ads only after stores are back online, measurement, what TAKATAK V1 modules cover each part, owner decisions)
+- [x] M1 done 2026-10-09 (phased plan, principles, back-end coverage, KPIs) | `PLAN.md`: the group's restaurant marketing and visibility plan (channels by priority, NAP standard, one order hub per brand, review strategy, schema/SEO, photo plan, ads only after stores are back online, measurement, what TAKATAK V1 modules cover each part, owner decisions)
 
 ## P5 Recurring
 - [ ] R1 | last check 2026-10-09 11:35 UTC (no reply from support yet; 2 automatic notices logged in Drive) | Every ~1 h: check the owner's Gmail for new DoorDash email (thread ref in Drive OPS_LOG); record in Drive, never reply without the owner.

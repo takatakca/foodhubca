@@ -1,0 +1,3086 @@
+{
+  "_about": "Public directory seed for ON2GO.ca and partners (QMAPS). Public facts only: brand names, descriptions, kitchen addresses, platform store ids that appear in public store URLs, highlight dishes (Clover item ids) with counter prices. Generated 2026-10-09 from the pppmtl brand config and the Clover menu export of 2026-10-07; Food Hub replaces hours, prices and photos with live values when its database has them. Po Poulet NDG is never added (FORBIDDEN_STORE_IDS in lib/foodhub/public-directory.ts).",
+  "version": 1,
+  "updatedAt": "2026-10-09",
+  "timezone": "America/Toronto",
+  "kitchens": [
+    {
+      "id": "ndg",
+      "name": {
+        "fr": "Cuisine NDG",
+        "en": "NDG kitchen"
+      },
+      "area": "Notre-Dame-de-Grâce",
+      "address": {
+        "street": "6280 Av Somerled",
+        "city": "Montréal",
+        "region": "QC",
+        "postalCode": "H3X 2B6",
+        "country": "CA"
+      },
+      "geo": {
+        "lat": 45.4705921,
+        "lng": -73.6353129
+      },
+      "foodhubLocationCodes": [
+        "NDG_MAIN",
+        "NDG_6284"
+      ],
+      "defaultHours": {
+        "monday": [
+          {
+            "open": "16:30",
+            "close": "03:15"
+          }
+        ],
+        "tuesday": [
+          {
+            "open": "16:30",
+            "close": "03:15"
+          }
+        ],
+        "wednesday": [
+          {
+            "open": "16:30",
+            "close": "03:15"
+          }
+        ],
+        "thursday": [
+          {
+            "open": "16:30",
+            "close": "03:15"
+          }
+        ],
+        "friday": [
+          {
+            "open": "16:30",
+            "close": "03:15"
+          }
+        ],
+        "saturday": [
+          {
+            "open": "16:30",
+            "close": "03:15"
+          }
+        ],
+        "sunday": [
+          {
+            "open": "16:30",
+            "close": "03:15"
+          }
+        ]
+      },
+      "hoursSource": "Uber Eats Manager 2026-10-07 (store hours)"
+    },
+    {
+      "id": "saint-leonard",
+      "name": {
+        "fr": "Cuisine Saint-Léonard",
+        "en": "Saint-Léonard kitchen"
+      },
+      "area": "Saint-Léonard",
+      "address": {
+        "street": "5839 Rue Jean-Talon E",
+        "city": "Montréal",
+        "region": "QC",
+        "postalCode": "H1S 1M4",
+        "country": "CA"
+      },
+      "geo": null,
+      "foodhubLocationCodes": [
+        "SAINT_LEONARD"
+      ],
+      "defaultHours": {
+        "monday": [
+          {
+            "open": "09:00",
+            "close": "23:00"
+          }
+        ],
+        "tuesday": [
+          {
+            "open": "09:00",
+            "close": "23:00"
+          }
+        ],
+        "wednesday": [
+          {
+            "open": "09:00",
+            "close": "23:00"
+          }
+        ],
+        "thursday": [
+          {
+            "open": "09:00",
+            "close": "23:00"
+          }
+        ],
+        "friday": [
+          {
+            "open": "09:00",
+            "close": "23:00"
+          }
+        ],
+        "saturday": [
+          {
+            "open": "09:00",
+            "close": "23:00"
+          }
+        ],
+        "sunday": [
+          {
+            "open": "09:00",
+            "close": "23:00"
+          }
+        ]
+      },
+      "hoursSource": "Uber Eats Manager 2026-10-07 (store hours)"
+    }
+  ],
+  "brands": [
+    {
+      "id": "ppp-pizzeria",
+      "name": "PPP Pizzeria",
+      "alternateNames": [],
+      "categories": [
+        "pizza",
+        "poulet",
+        "poutine"
+      ],
+      "cuisine": {
+        "en": [
+          "Pizza",
+          "Rotisserie chicken",
+          "Poutine"
+        ],
+        "fr": [
+          "Pizza",
+          "Poulet",
+          "Poutine"
+        ]
+      },
+      "description": {
+        "en": "Chicken, pizza and poutine from our NDG kitchen, pickup or delivery.",
+        "fr": "Poulet, pizza et poutine de notre cuisine NDG, cueillette ou livraison."
+      },
+      "about": {
+        "en": [],
+        "fr": []
+      },
+      "website": {
+        "url": "https://pppmtl.com/",
+        "live": true,
+        "planned": false
+      },
+      "color": "#b3261e",
+      "icon": "pizza",
+      "featured": true,
+      "foodhubBrandNames": [
+        "PPP Pizzeria"
+      ],
+      "kitchens": [
+        {
+          "kitchen": "ndg",
+          "orderLinks": [
+            {
+              "platform": "ubereats",
+              "storeId": "dc493fba-120f-529c-a508-caef6a926de9",
+              "slug": "ppp-pizzeria-ndg",
+              "live": true
+            },
+            {
+              "platform": "doordash",
+              "storeId": "28040070",
+              "live": false
+            }
+          ]
+        },
+        {
+          "kitchen": "saint-leonard",
+          "orderLinks": [
+            {
+              "platform": "ubereats",
+              "storeId": "627d09f0-8fb4-57f2-8ec1-6a71984ad267",
+              "slug": "ppp-pizzeria-hochelaga",
+              "live": true
+            },
+            {
+              "platform": "doordash",
+              "storeId": "33598081",
+              "live": false
+            }
+          ]
+        }
+      ],
+      "dishes": [
+        "FYJ5QXV8R7VT2",
+        "PV7K48EG1460E",
+        "4CPFQG1YBKJZC",
+        "KEZWKV1KF0YBW",
+        "3KEZ2GZT59MC2",
+        "YDFQHHE9JCVEJ",
+        "WYEF3AJ5BY34P",
+        "T7RZ6YCXJ1R2A",
+        "9M2JQR3HE1VD4",
+        "1NM1MXQ5QY48P",
+        "81JCAM9M1V9QJ",
+        "BEJCK56NNWTQW"
+      ]
+    },
+    {
+      "id": "ooeuf",
+      "name": "OOEUF",
+      "alternateNames": [],
+      "categories": [
+        "burgers",
+        "poutine"
+      ],
+      "cuisine": {
+        "en": [
+          "Snack bar",
+          "Burgers",
+          "Hot dogs",
+          "Poutine"
+        ],
+        "fr": [
+          "Casse-croûte",
+          "Burgers",
+          "Hot-dogs",
+          "Poutine"
+        ]
+      },
+      "description": {
+        "fr": "OOEUF, c’est le casse-croûte de quartier : burgers, hot-dogs Michigan, poutines et rondelles d’oignon, préparés dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal.",
+        "en": "OOEUF is the neighbourhood snack bar: burgers, Michigan hot dogs, poutines and onion rings, made in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal."
+      },
+      "about": {
+        "fr": [
+          "Le Big Matt, notre burger double, le cheeseburger, le Philly Burger et le Sloppy Joe sont servis avec garnitures et sauces au choix. Ajoutez un trio frites et breuvage, ou une poutine classique.",
+          "La poutine classique ou bacon se commande du format mini au grand format. Hot-dogs Michigan, suprêmes ou toastés et rondelles d’oignon complètent le casse-croûte."
+        ],
+        "en": [
+          "The Big Matt, our double burger, the cheeseburger, the Philly Burger and the Sloppy Joe come with the toppings and sauces you choose. Add fries and a drink, or a classic poutine.",
+          "Classic or bacon poutine comes in mini to large. Michigan, supreme or toasted hot dogs and onion rings round out the menu."
+        ]
+      },
+      "website": {
+        "url": "https://ooeuf.ca/",
+        "live": false,
+        "planned": false
+      },
+      "color": "#a3400c",
+      "icon": "egg",
+      "featured": true,
+      "foodhubBrandNames": [
+        "OOeuf"
+      ],
+      "kitchens": [
+        {
+          "kitchen": "ndg",
+          "orderLinks": [
+            {
+              "platform": "ubereats",
+              "storeId": "6cbb374c-c3a2-5951-b88c-11142bd5121a",
+              "slug": "ooeufs-express-ndg",
+              "live": true
+            },
+            {
+              "platform": "doordash",
+              "storeId": "34525477",
+              "live": true
+            }
+          ]
+        },
+        {
+          "kitchen": "saint-leonard",
+          "orderLinks": [
+            {
+              "platform": "ubereats",
+              "storeId": "c5585882-ab06-5a2f-bbc2-66fe5ec9179c",
+              "slug": "ooeufs-express",
+              "live": false
+            },
+            {
+              "platform": "doordash",
+              "storeId": "33597929",
+              "live": false
+            }
+          ]
+        }
+      ],
+      "dishes": [
+        "GEXZQ53GK93C0",
+        "HM49MB9XYVMWT",
+        "TNHW4S2PJPDET",
+        "8RRW243269DSP",
+        "DRWRTRPHWEBSG",
+        "QXSABG94QS1F0",
+        "BCFQM8RZZ9GMP",
+        "43472J9YW6ZA0",
+        "H22MA0YY0R4TW",
+        "7BF0CQ2WDEY2R",
+        "0JWAY1VMJ2M2J",
+        "RT6HGTMYT1F6E"
+      ]
+    },
+    {
+      "id": "dejeuner-montreal",
+      "name": "Déjeuner Montréal",
+      "alternateNames": [],
+      "categories": [
+        "burgers",
+        "poutine"
+      ],
+      "cuisine": {
+        "en": [
+          "Snack bar",
+          "Combos",
+          "Poutine"
+        ],
+        "fr": [
+          "Casse-croûte",
+          "Trios",
+          "Poutine"
+        ]
+      },
+      "description": {
+        "fr": "Déjeuner Montréal sert les trios du casse-croûte : hamburgers, cheeseburgers, hot-dogs vapeur ou Michigan, frites et poutines garnies, préparés dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal.",
+        "en": "Déjeuner Montréal serves snack-bar combos: hamburgers, cheeseburgers, steamed or Michigan hot dogs, fries and loaded poutines, made in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal."
+      },
+      "about": {
+        "fr": [
+          "Chaque trio vient avec frites et breuvage : deux hamburgers, un cheeseburger double avec rondelles d’oignon, deux hot-dogs vapeur, Michigan ou suprêmes.",
+          "Côté poutines : hot-dog, italienne, steak ou toute garnie. Les frites se prennent nature, sauce ou Michigan."
+        ],
+        "en": [
+          "Every combo comes with fries and a drink: two hamburgers, a double cheeseburger with onion rings, two steamed, Michigan or supreme hot dogs.",
+          "For poutine: hot dog, Italian, steak or all-dressed. Fries come plain, with gravy or Michigan style."
+        ]
+      },
+      "website": {
+        "url": "https://dejeuner.ooeuf.ca/",
+        "live": false,
+        "planned": true
+      },
+      "color": "#8a5a00",
+      "icon": "burger",
+      "featured": false,
+      "foodhubBrandNames": [
+        "Dejeuner & Dinner"
+      ],
+      "kitchens": [
+        {
+          "kitchen": "ndg",
+          "orderLinks": []
+        },
+        {
+          "kitchen": "saint-leonard",
+          "orderLinks": []
+        }
+      ],
+      "dishes": [
+        "ZR4DKS7XCBB06",
+        "V04ZTAZFAJHER",
+        "HAB6C0ZVQCY2E",
+        "E98EWT00ES3FP",
+        "XYC8N674P8Q2M",
+        "N27C2RAXVV4Y8",
+        "48BQ2M1BCYXWP",
+        "A5D88EY1G2B1P",
+        "GHMMXTN9XTCEW",
+        "V8SW1SPAEYF5P",
+        "AA5T55NBBQSCM",
+        "JJRB835A5C4V2"
+      ]
+    },
+    {
+      "id": "pi-pita",
+      "name": "Pi Pita",
+      "alternateNames": [],
+      "categories": [
+        "libanais"
+      ],
+      "cuisine": {
+        "en": [
+          "Lebanese",
+          "Shawarma",
+          "Shish taouk"
+        ],
+        "fr": [
+          "Libanais",
+          "Shawarma",
+          "Shish taouk"
+        ]
+      },
+      "description": {
+        "fr": "Pi Pita sert la cuisine de rue libanaise : pitas et wraps shawarma, shish taouk et mixte, assiettes libanaises avec salade au choix, salades shish taouk et shawarma, et des options végétariennes, dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal.",
+        "en": "Pi Pita serves Lebanese street food: shawarma, shish taouk and mixed pitas and wraps, Lebanese plates with your choice of salad, shish taouk and shawarma salads, and vegetarian options, in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal."
+      },
+      "about": {
+        "fr": [
+          "Chaque pita ou wrap vient avec garnitures et sauces au choix. Ajoutez un trio frites et breuvage, ou une poutine classique.",
+          "Les assiettes shish taouk, shawarma, mixte ou végétarienne se servent seules, avec un pita ou en duo, avec une salade maison, grecque ou César. Le shish taouk et le shawarma existent aussi en salade."
+        ],
+        "en": [
+          "Every pita or wrap comes with the toppings and sauces you choose. Add fries and a drink, or a classic poutine.",
+          "Shish taouk, shawarma, mixed or vegetarian plates come on their own, with one pita or two, with a house, Greek or Caesar salad. Shish taouk and shawarma also come as a salad."
+        ]
+      },
+      "website": {
+        "url": "https://pipita.ca/",
+        "live": false,
+        "planned": false
+      },
+      "color": "#17633a",
+      "icon": "pita",
+      "featured": true,
+      "foodhubBrandNames": [
+        "Pi Pita"
+      ],
+      "kitchens": [
+        {
+          "kitchen": "ndg",
+          "orderLinks": [
+            {
+              "platform": "ubereats",
+              "storeId": "c8390129-1c18-5c51-800e-d9be32a865a3",
+              "slug": "pi-pita-ndg",
+              "live": true
+            },
+            {
+              "platform": "doordash",
+              "storeId": "27986352",
+              "live": false
+            }
+          ]
+        },
+        {
+          "kitchen": "saint-leonard",
+          "orderLinks": [
+            {
+              "platform": "ubereats",
+              "storeId": "b6b36ca0-bc57-50d0-a184-1d28bf74771f",
+              "slug": "pi-pita-hochelaga",
+              "live": false
+            },
+            {
+              "platform": "doordash",
+              "storeId": "33598679",
+              "live": false
+            }
+          ]
+        }
+      ],
+      "dishes": [
+        "597X8A3860936",
+        "WVP2PV58R83VT",
+        "MKHYNCFYDQXQY",
+        "2XP0YDZVBPT94",
+        "4MY54W143VJKA",
+        "KAHRY3GB43ZR8",
+        "727Z9F3YVT1HW",
+        "TZJTHVQVKRHBR",
+        "9WJ119FVZ9CZG",
+        "4BZ1WR4YF7QDT"
+      ]
+    },
+    {
+      "id": "pita-libanais",
+      "name": "Pita Libanais",
+      "alternateNames": [],
+      "categories": [
+        "libanais"
+      ],
+      "cuisine": {
+        "en": [
+          "Lebanese",
+          "Family meals",
+          "Shish taouk"
+        ],
+        "fr": [
+          "Libanais",
+          "Repas familiaux",
+          "Shish taouk"
+        ]
+      },
+      "description": {
+        "fr": "Pita Libanais, ce sont les repas libanais à partager : quatre assiettes ou quatre pitas pour la famille, trios pour deux, et le shish taouk et le shawarma en sous-marin, en poutine ou sur pizza, dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal.",
+        "en": "Pita Libanais is Lebanese food to share: four plates or four pitas for the family, combos for two, and shish taouk and shawarma as a sub, a poutine or a pizza, in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal."
+      },
+      "about": {
+        "fr": [
+          "Pour la famille : quatre assiettes libanaises ou quatre pitas au choix, avec frites et boissons. Pour deux : deux pitas avec deux mini poutines, ou deux assiettes avec deux breuvages.",
+          "Le shish taouk et le shawarma se prennent aussi en sous-marin, en poutine ou sur une pizza."
+        ],
+        "en": [
+          "For the family: four Lebanese plates or four pitas of your choice, with fries and drinks. For two: two pitas with two mini poutines, or two plates with two drinks.",
+          "Shish taouk and shawarma also come as a sub, a poutine or a pizza."
+        ]
+      },
+      "website": {
+        "url": "https://pitalibanais.pppmtl.com/",
+        "live": false,
+        "planned": true
+      },
+      "color": "#b3261e",
+      "icon": "pita",
+      "featured": false,
+      "foodhubBrandNames": [
+        "Pita Libanais"
+      ],
+      "kitchens": [
+        {
+          "kitchen": "ndg",
+          "orderLinks": [
+            {
+              "platform": "doordash",
+              "storeId": "28719391",
+              "live": false
+            },
+            {
+              "platform": "ubereats",
+              "storeId": "ad89eb6f-9244-53fc-b6a7-cd0086e70b43",
+              "slug": "pita-libanais-montreal",
+              "live": false
+            }
+          ]
+        },
+        {
+          "kitchen": "saint-leonard",
+          "orderLinks": [
+            {
+              "platform": "ubereats",
+              "storeId": "c6b9e38d-15da-4771-9bcc-7cfa9f9abea9",
+              "slug": "pita-libanais-hochelaga",
+              "live": false
+            }
+          ]
+        }
+      ],
+      "dishes": [
+        "G52E2A8PG9WZC",
+        "PJE3BX3HBY6XM",
+        "4ZTKJ0YEVXXYP",
+        "A9J45QQ10ZFD8",
+        "8QY1VZ96HGJKR",
+        "DMXXWSMB26250",
+        "TFF125JTRPYZ6",
+        "VNDJXW31BYDV8",
+        "GQD4RH1JXB79R",
+        "3KEZ2GZT59MC2"
+      ]
+    },
+    {
+      "id": "mythos-and-go",
+      "name": "Mythos & Go",
+      "alternateNames": [],
+      "categories": [
+        "grec"
+      ],
+      "cuisine": {
+        "en": [
+          "Greek",
+          "Gyros",
+          "Souvlaki"
+        ],
+        "fr": [
+          "Grec",
+          "Gyros",
+          "Souvlaki"
+        ]
+      },
+      "description": {
+        "fr": "Mythos & Go sert la cuisine de rue grecque : pitas et assiettes gyros et souvlaki, brochettes, salade grecque, poutine, sous-marin et pizza gyros, dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal.",
+        "en": "Mythos & Go serves Greek street food: gyros and souvlaki pitas and plates, skewers, Greek salad, gyros poutine, sub and pizza, in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal."
+      },
+      "about": {
+        "fr": [
+          "Les assiettes gyros, souvlaki porc ou souvlaki poulet viennent avec une salade maison, grecque ou César, seules ou avec pita. Pour deux : deux assiettes de deux brochettes, poulet ou porc.",
+          "Le gyros se prend aussi en pita, en sous-marin, en poutine ou sur une pizza. Ajoutez de la feta."
+        ],
+        "en": [
+          "Gyros, pork souvlaki or chicken souvlaki plates come with a house, Greek or Caesar salad, on their own or with pita. For two: two plates of two skewers, chicken or pork.",
+          "Gyros also comes in a pita, a sub, a poutine or on a pizza. Add feta."
+        ]
+      },
+      "website": {
+        "url": "https://mythos.pppmtl.com/",
+        "live": false,
+        "planned": true
+      },
+      "color": "#1f4e9c",
+      "icon": "skewer",
+      "featured": true,
+      "foodhubBrandNames": [
+        "Mythos 2 Go"
+      ],
+      "kitchens": [
+        {
+          "kitchen": "ndg",
+          "orderLinks": [
+            {
+              "platform": "doordash",
+              "storeId": "32501513",
+              "live": false
+            },
+            {
+              "platform": "ubereats",
+              "storeId": "f54cdb63-78cb-5ea3-b967-1b58d18c83cf",
+              "slug": "mythos-and-go-montreal",
+              "live": false
+            }
+          ]
+        },
+        {
+          "kitchen": "saint-leonard",
+          "orderLinks": [
+            {
+              "platform": "ubereats",
+              "storeId": "203c8294-81e6-4fde-ad04-e7158a66f4b4",
+              "slug": "mythos-and-go-montreal",
+              "live": true
+            }
+          ]
+        }
+      ],
+      "dishes": [
+        "1JBFM5YK1MSGT",
+        "93A61ZY15KTWY",
+        "D74FME072WNFE",
+        "H5QAG8XDM7KC0",
+        "R06FJ1J754K70",
+        "DJY7QBZW0SCCG",
+        "143A5SF8PBW3G",
+        "3X7W15NDS9YK4",
+        "H9Q6YDCSNF218",
+        "YVZKRHA5SZWCP",
+        "GDW759EPRDWHW",
+        "SH6288Z189A7W"
+      ]
+    },
+    {
+      "id": "nutrition-shake",
+      "name": "Nutrition Shake",
+      "alternateNames": [
+        "Nutri Shake"
+      ],
+      "categories": [
+        "sante"
+      ],
+      "cuisine": {
+        "en": [
+          "Healthy",
+          "Protein salads",
+          "Vegetarian"
+        ],
+        "fr": [
+          "Santé",
+          "Salades protéinées",
+          "Végétarien"
+        ]
+      },
+      "description": {
+        "fr": "Nutrition Shake prépare des repas légers et protéinés : salades au poulet, au steak, au gyros, César et maison, le duo de salades protéinées, un sous-marin végétarien, des tacos aux haricots noirs, de l’eau et des boissons froides, dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal.",
+        "en": "Nutrition Shake makes light, protein-rich meals: chicken, steak, gyros, Caesar and house salads, the two protein salads deal, a vegetarian sub, black bean tacos, water and cold drinks, in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal."
+      },
+      "about": {
+        "fr": [
+          "Salade au poulet, au steak, au gyros, César ou maison : de quoi manger frais, au dîner comme au souper. Le duo de salades protéinées se partage à deux.",
+          "Côté végétarien : le sous-marin végétarien et les tacos aux haricots noirs. Pour boire : de l’eau ou une boisson froide."
+        ],
+        "en": [
+          "Chicken, steak, gyros, Caesar or house salad: fresh food for lunch or dinner. The two protein salads deal is made to share.",
+          "Vegetarian: the vegetarian sub and black bean tacos. To drink: water or a cold drink."
+        ]
+      },
+      "website": {
+        "url": "https://nutrishake.ca/",
+        "live": false,
+        "planned": false
+      },
+      "color": "#0c6355",
+      "icon": "shake",
+      "featured": true,
+      "foodhubBrandNames": [
+        "Nutrition Shake"
+      ],
+      "kitchens": [
+        {
+          "kitchen": "ndg",
+          "orderLinks": [
+            {
+              "platform": "ubereats",
+              "storeId": "58f2a0dd-a9da-5a27-a130-d858a52e18f9",
+              "slug": "nutri-shake-ndg",
+              "live": true
+            },
+            {
+              "platform": "doordash",
+              "storeId": "27510307",
+              "live": true
+            }
+          ]
+        },
+        {
+          "kitchen": "saint-leonard",
+          "orderLinks": [
+            {
+              "platform": "ubereats",
+              "storeId": "8c0a69ee-1667-5aa7-a8e6-7fdb707095da",
+              "slug": "nutri-shake-hochelaga",
+              "live": true
+            },
+            {
+              "platform": "doordash",
+              "storeId": "33596565",
+              "live": false
+            }
+          ]
+        }
+      ],
+      "dishes": [
+        "Q0RJH1DDQEEVY",
+        "QE2Q885XFFT0A",
+        "NTAAMAH1JP1YR",
+        "QHACT24KE119P",
+        "WRYSANG402512",
+        "KHQHQGJ4A8RH8",
+        "Z2T5680QW33EA",
+        "9VT50FXQ4RFA6",
+        "5187NBRCYT454",
+        "NPJQXA39K0QNA"
+      ]
+    },
+    {
+      "id": "bin-molle-bin-dure",
+      "name": "Bin Molle & Bin Dure",
+      "alternateNames": [
+        "Crèmerie Bin Molle Bin Dure"
+      ],
+      "categories": [
+        "creme-glacee",
+        "desserts"
+      ],
+      "cuisine": {
+        "en": [
+          "Ice cream shop",
+          "Desserts"
+        ],
+        "fr": [
+          "Crèmerie",
+          "Desserts"
+        ]
+      },
+      "description": {
+        "fr": "Bin Molle & Bin Dure, c’est le comptoir à desserts glacés du quartier : slush, gaufres, crêpes, cheesecakes Oreo et aux brisures de chocolat, et boissons gazeuses bien froides, préparés dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal.",
+        "en": "Bin Molle & Bin Dure is the neighbourhood icy dessert counter: slush, waffles, crêpes, Oreo and chocolate chip cheesecakes, and ice-cold soft drinks, made in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal."
+      },
+      "about": {
+        "fr": [
+          "Une slush bleue ou rouge, du petit au grand format, une gaufre ou une crêpe avec le coulis de votre choix : le dessert parfait après le souper.",
+          "Pour fêter : cheesecake Oreo ou aux brisures de chocolat, à la pointe ou en gâteau complet. Et un root beer, un cream soda ou une boisson gazeuse bien froide."
+        ],
+        "en": [
+          "A blue or red slush, small to large, a waffle or a crêpe with the sauce you choose: the perfect dessert after dinner.",
+          "To celebrate: Oreo or chocolate chip cheesecake, by the slice or whole. And an ice-cold root beer, cream soda or soft drink."
+        ]
+      },
+      "website": {
+        "url": "https://bmbd.ca/",
+        "live": false,
+        "planned": false
+      },
+      "color": "#3550a8",
+      "icon": "cone",
+      "featured": true,
+      "foodhubBrandNames": [
+        "Bin molle & Bin Dure",
+        "Crèmerie Bin Molle Bin Dure"
+      ],
+      "kitchens": [
+        {
+          "kitchen": "ndg",
+          "orderLinks": [
+            {
+              "platform": "ubereats",
+              "storeId": "3ca49ac1-fb4c-562d-b066-0389875f24eb",
+              "slug": "bin-molle-%26-bin-dure-ndg",
+              "live": true
+            },
+            {
+              "platform": "doordash",
+              "storeId": "28108457",
+              "live": false
+            }
+          ]
+        },
+        {
+          "kitchen": "saint-leonard",
+          "orderLinks": [
+            {
+              "platform": "ubereats",
+              "storeId": "7656b055-48d1-5f46-a6a7-2a0d23668c0b",
+              "slug": "bin-molle-%26-bin-dure-hochelaga",
+              "live": true
+            },
+            {
+              "platform": "doordash",
+              "storeId": "33598151",
+              "live": false
+            }
+          ]
+        }
+      ],
+      "dishes": [
+        "XBC44J0XGW846",
+        "4RZHQEWZ5EZ8W",
+        "FM3GRQBRXJT5M",
+        "9BH4C37D32D98",
+        "XKXMJ1EQ0XT9T",
+        "BMVW3SX774K7G",
+        "E2D6NW8BY4ZNR",
+        "SVDF5RFFFHAPY",
+        "96JJ7KK0059J6",
+        "6CE1CW5KW31MT"
+      ]
+    },
+    {
+      "id": "ocrepe",
+      "name": "OCRÊPE",
+      "alternateNames": [
+        "O'Crêpe"
+      ],
+      "categories": [
+        "crepes",
+        "desserts"
+      ],
+      "cuisine": {
+        "en": [
+          "Crêpes",
+          "Waffles",
+          "Desserts"
+        ],
+        "fr": [
+          "Crêpes",
+          "Gaufres",
+          "Desserts"
+        ]
+      },
+      "description": {
+        "fr": "OCRÊPE prépare des crêpes et des gaufres avec le coulis de votre choix, des gâteaux Nutella, Ferrero Rocher et Oréo, dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal.",
+        "en": "OCRÊPE makes crêpes and waffles with the sauce you choose, plus Nutella, Ferrero Rocher and Oreo cakes, in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal."
+      },
+      "about": {
+        "fr": [
+          "Chaque crêpe et chaque gaufre vient avec un choix de coulis. Ajoutez des garnitures sucrées pour une collation ou un dessert à partager.",
+          "Pour finir le repas : gâteau Nutella, Ferrero Rocher ou Oréo, cheesecake Oreo, une slush bien glacée ou une boisson gazeuse."
+        ],
+        "en": [
+          "Every crêpe and every waffle comes with a choice of sauce. Add sweet toppings for a snack or a dessert to share.",
+          "To finish the meal: Nutella, Ferrero Rocher or Oreo cake, Oreo cheesecake, an icy slush or a soft drink."
+        ]
+      },
+      "website": {
+        "url": "https://ocrepe.ca/",
+        "live": false,
+        "planned": false
+      },
+      "color": "#7a2f86",
+      "icon": "crepe",
+      "featured": false,
+      "foodhubBrandNames": [
+        "OCRÊPE"
+      ],
+      "kitchens": [
+        {
+          "kitchen": "ndg",
+          "orderLinks": [
+            {
+              "platform": "doordash",
+              "storeId": "27986646",
+              "live": false
+            },
+            {
+              "platform": "ubereats",
+              "storeId": "f9c5fa6b-8353-53f9-ac13-68596b3a21ae",
+              "slug": "ocrepe-montreal",
+              "live": false
+            }
+          ]
+        },
+        {
+          "kitchen": "saint-leonard",
+          "orderLinks": [
+            {
+              "platform": "doordash",
+              "storeId": "33596721",
+              "live": false
+            }
+          ]
+        }
+      ],
+      "dishes": [
+        "FM3GRQBRXJT5M",
+        "4RZHQEWZ5EZ8W",
+        "PKW78B88KZHPY",
+        "E7T25Y1XPHN3A",
+        "9PZ89C9Y5VJA0",
+        "9BH4C37D32D98",
+        "XBC44J0XGW846",
+        "6CE1CW5KW31MT",
+        "JX7E4HAPBSHAA",
+        "SVDF5RFFFHAPY"
+      ]
+    },
+    {
+      "id": "gateaux-montreal",
+      "name": "Gâteaux Montréal",
+      "alternateNames": [
+        "Gâteau Montréal",
+        "La Viennoise"
+      ],
+      "categories": [
+        "desserts"
+      ],
+      "cuisine": {
+        "en": [
+          "Pastry",
+          "Cakes",
+          "Cheesecakes"
+        ],
+        "fr": [
+          "Pâtisserie",
+          "Gâteaux",
+          "Cheesecakes"
+        ]
+      },
+      "description": {
+        "fr": "Gâteau Montréal (La Viennoise), c’est la pâtisserie du quartier : gâteaux Ferrero Rocher, red velvet, carotte, citron, Skor et cheesecakes, à la pointe ou entiers, préparés dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal.",
+        "en": "Gâteau Montréal (La Viennoise) is the neighbourhood pastry shop: Ferrero Rocher, red velvet, carrot, lemon and Skor cakes and cheesecakes, by the slice or whole, made in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal."
+      },
+      "about": {
+        "fr": [
+          "Chaque gâteau se commande à la pointe ou entier, pour un anniversaire, un souper en famille ou une petite gâterie. Ajoutez un coulis ou des garnitures.",
+          "Nos favoris : le Ferrero Rocher, le red velvet et le gâteau aux carottes. Côté cheesecake : pistache et amaretto."
+        ],
+        "en": [
+          "Every cake comes by the slice or whole, for a birthday, a family dinner or a small treat. Add a sauce or toppings.",
+          "Our favourites: Ferrero Rocher, red velvet and carrot cake. For cheesecake: pistachio and amaretto."
+        ]
+      },
+      "website": {
+        "url": "https://viennoise.ca/",
+        "live": false,
+        "planned": false
+      },
+      "color": "#7a3e1d",
+      "icon": "cake",
+      "featured": true,
+      "foodhubBrandNames": [
+        "Gateau Montreal"
+      ],
+      "kitchens": [
+        {
+          "kitchen": "ndg",
+          "orderLinks": [
+            {
+              "platform": "ubereats",
+              "storeId": "c20d55f1-661a-56d6-b1db-bd792423b777",
+              "slug": "gateaux-montreal-ndg",
+              "live": true
+            },
+            {
+              "platform": "doordash",
+              "storeId": "28114454",
+              "live": false
+            }
+          ]
+        },
+        {
+          "kitchen": "saint-leonard",
+          "orderLinks": [
+            {
+              "platform": "ubereats",
+              "storeId": "d4e00c50-971f-5eb4-afa2-d48231f98a48",
+              "slug": "gateaux-montreal-hochelaga",
+              "live": true
+            },
+            {
+              "platform": "doordash",
+              "storeId": "33521453",
+              "live": false
+            }
+          ]
+        }
+      ],
+      "dishes": [
+        "E7T25Y1XPHN3A",
+        "Z68DXWMMA7B6W",
+        "T12CC1Z7W38ZM",
+        "QBQDDD7V8TG68",
+        "9VT6C1M23DNAR",
+        "PKW78B88KZHPY",
+        "XG8BV51VSMRG4",
+        "9PZ89C9Y5VJA0",
+        "6JV0JDXBMS79A",
+        "CN917JJCM514Y"
+      ]
+    },
+    {
+      "id": "taco-mexican",
+      "name": "Taco Mexican",
+      "alternateNames": [],
+      "categories": [
+        "mexicain"
+      ],
+      "cuisine": {
+        "en": [
+          "Mexican",
+          "Tacos",
+          "Burritos",
+          "Nachos"
+        ],
+        "fr": [
+          "Mexicain",
+          "Tacos",
+          "Burritos",
+          "Nachos"
+        ]
+      },
+      "description": {
+        "fr": "Taco Mexican prépare tacos, burritos, quesadillas et nachos au poulet, au steak, au bœuf ou aux haricots noirs, dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal.",
+        "en": "Taco Mexican makes tacos, burritos, quesadillas and nachos with chicken, steak, beef or black beans, in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal."
+      },
+      "about": {
+        "fr": [
+          "Les tacos se commandent à l’unité ou en trio familial. Les burritos et les quesadillas viennent avec les garnitures de votre choix.",
+          "Pour partager : nachos au bœuf, au poulet ou au fromage en sauce. Une version végétarienne aux haricots noirs est offerte."
+        ],
+        "en": [
+          "Tacos come one at a time or as a family trio. Burritos and quesadillas come with the toppings you choose.",
+          "To share: beef, chicken or cheese sauce nachos. A vegetarian black bean version is available."
+        ]
+      },
+      "website": {
+        "url": "https://tacomontreal.ca/",
+        "live": false,
+        "planned": false
+      },
+      "color": "#b0251c",
+      "icon": "taco",
+      "featured": false,
+      "foodhubBrandNames": [
+        "Taco Mexican"
+      ],
+      "kitchens": [
+        {
+          "kitchen": "ndg",
+          "orderLinks": [
+            {
+              "platform": "doordash",
+              "storeId": "30831008",
+              "live": false
+            },
+            {
+              "platform": "ubereats",
+              "storeId": "d2288211-7239-5e8e-97f1-df156c9ff71a",
+              "slug": "taco-mexican-montreal",
+              "live": false
+            }
+          ]
+        },
+        {
+          "kitchen": "saint-leonard",
+          "orderLinks": [
+            {
+              "platform": "doordash",
+              "storeId": "33597179",
+              "live": false
+            }
+          ]
+        }
+      ],
+      "dishes": [
+        "JDE3K8K9ETDB2",
+        "CC2JG7EYN9QTG",
+        "9VT50FXQ4RFA6",
+        "TJFWSWFXW2XDP",
+        "D7D8QVXBP0HSJ",
+        "Q8T19M23HZB8P",
+        "G9ZZ2BG8P5J7P",
+        "7EF6BC6506X2A",
+        "DAZQFAT9RX7DY",
+        "43W3XWAZ78VKA",
+        "HY7370H42A8PJ",
+        "MT73HS8BAH52C"
+      ]
+    },
+    {
+      "id": "pizza-inntime",
+      "name": "Pizza Inntime",
+      "alternateNames": [],
+      "categories": [
+        "pizza"
+      ],
+      "cuisine": {
+        "en": [
+          "Pizzeria",
+          "Pizza"
+        ],
+        "fr": [
+          "Pizzeria",
+          "Pizza"
+        ]
+      },
+      "description": {
+        "fr": "Pizza Inntime sort du four des pizzas toute garnie, pepperonata, napolitaine, végétarienne, au poulet ou au bacon, et des combos pizza-poutine, dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal.",
+        "en": "Pizza Inntime bakes all-dressed, pepperonata, Neapolitan, vegetarian, chicken and bacon pizzas, plus pizza-and-poutine deals, in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal."
+      },
+      "about": {
+        "fr": [
+          "Nos classiques : toute garnie, pepperonata, napolitaine et végétarienne, au poulet ou au bacon. Le pain magique au fromage accompagne tout.",
+          "Pour les soirées en groupe : deux pizzas moyennes ou deux larges, ou une pizza avec sa poutine, de la petite à la grande."
+        ],
+        "en": [
+          "Our classics: all-dressed, pepperonata, Neapolitan and vegetarian, chicken or bacon. Cheesy magic bread goes with everything.",
+          "For a night with friends: two medium or two large pizzas, or a pizza with its poutine, small to large."
+        ]
+      },
+      "website": {
+        "url": "https://inntime.ca/",
+        "live": true,
+        "planned": false
+      },
+      "color": "#9a1f17",
+      "icon": "pizza",
+      "featured": false,
+      "foodhubBrandNames": [
+        "Pizza Inntime"
+      ],
+      "kitchens": [
+        {
+          "kitchen": "ndg",
+          "orderLinks": [
+            {
+              "platform": "doordash",
+              "storeId": "28519423",
+              "live": false
+            },
+            {
+              "platform": "ubereats",
+              "storeId": "5d836bb5-7e95-5c65-a28f-d0066818349e",
+              "slug": "pizza-inntime-montreal",
+              "live": false
+            }
+          ]
+        },
+        {
+          "kitchen": "saint-leonard",
+          "orderLinks": []
+        }
+      ],
+      "dishes": [
+        "FYJ5QXV8R7VT2",
+        "CZKGWVHP85VFT",
+        "9Y4WYNJW8FG3P",
+        "PV7K48EG1460E",
+        "4CPFQG1YBKJZC",
+        "KEZWKV1KF0YBW",
+        "YDFQHHE9JCVEJ",
+        "EMNACV94ZBWBM",
+        "WYEF3AJ5BY34P",
+        "YC4VER80RB8HW",
+        "R7VQ76BQP03Q6",
+        "BEJCK56NNWTQW"
+      ]
+    },
+    {
+      "id": "pizza-algerie",
+      "name": "Pizza Algérie",
+      "alternateNames": [],
+      "categories": [
+        "pizza"
+      ],
+      "cuisine": {
+        "en": [
+          "Pizza",
+          "Pizza combos"
+        ],
+        "fr": [
+          "Pizza",
+          "Combos pizza"
+        ]
+      },
+      "description": {
+        "fr": "Pizza Algérie, ce sont des combos pizza avec pilons frits, ailes ou sous-marin, la pizza Philly steak et le pain magique, préparés dans notre cuisine de Notre-Dame-de-Grâce (NDG), au 6280 avenue Somerled, à Montréal.",
+        "en": "Pizza Algérie makes pizza combos with fried drumsticks, wings or a sub, the Philly steak pizza and magic bread, in our kitchen in Notre-Dame-de-Grâce (NDG), 6280 Somerled Avenue, Montréal."
+      },
+      "about": {
+        "fr": [
+          "Les combos : une pizza avec des pilons frits, des ailes ou un sous-marin, frites, salade, sauce et Pepsi, de la bambino à la large. Ou deux pizzas Deluxe moyennes.",
+          "À la carte : la pizza Philly steak et le pain magique."
+        ],
+        "en": [
+          "The combos: a pizza with fried drumsticks, wings or a sub, fries, salad, sauce and Pepsi, from bambino to large. Or two medium Deluxe pizzas.",
+          "À la carte: the Philly steak pizza and magic bread."
+        ]
+      },
+      "website": {
+        "url": "https://pizzaalgerie.pppmtl.com/",
+        "live": false,
+        "planned": true
+      },
+      "color": "#166534",
+      "icon": "pizza",
+      "featured": false,
+      "foodhubBrandNames": [],
+      "kitchens": [
+        {
+          "kitchen": "ndg",
+          "orderLinks": [
+            {
+              "platform": "ubereats",
+              "storeId": "baa21fb9-e843-4667-895e-1fe7d3dbb0ce",
+              "slug": "pizza-algerie-montreal",
+              "live": true
+            }
+          ]
+        }
+      ],
+      "dishes": [
+        "5DJ702E4C6GGE",
+        "26YJMPP5AB5D0",
+        "K594K709BHENC",
+        "WSB1KXAEQKEBT",
+        "9RRZNJ8HDF1QT",
+        "T7RZ6YCXJ1R2A",
+        "F2GA9J2HCS7K6",
+        "6P1030ABY1X7C",
+        "BX2FTMCSA82ZE",
+        "1VVFQB0HF3PFG"
+      ]
+    },
+    {
+      "id": "po-poulet",
+      "name": "Po Poulet",
+      "alternateNames": [],
+      "categories": [
+        "poulet"
+      ],
+      "cuisine": {
+        "en": [
+          "Fried chicken",
+          "Wings",
+          "Chicken burgers"
+        ],
+        "fr": [
+          "Poulet frit",
+          "Ailes",
+          "Burgers poulet"
+        ]
+      },
+      "description": {
+        "fr": "Po Poulet, c’est le poulet frit croustillant à Saint-Léonard : poulet frit en 3, 4, 9 ou 15 morceaux avec frites, salade de chou et sauce, ailes et croquettes, et burgers au poulet, au 5839 rue Jean-Talon Est, à Montréal.",
+        "en": "Po Poulet is crispy fried chicken in Saint-Léonard: 3, 4, 9 or 15 pieces with fries, coleslaw and gravy, wings and nuggets, and chicken burgers, at 5839 Jean-Talon Street East, Montréal."
+      },
+      "about": {
+        "fr": [
+          "Du repas solo de 3 morceaux au festin de 15 morceaux avec frites, sauces, salades de chou et Pepsi. Ailes ou croquettes : 6 ou 10 morceaux avec frites, sauce et Pepsi.",
+          "Aussi : le burger poulet et les trios burgers poulet avec frites ou rondelles d’oignon."
+        ],
+        "en": [
+          "From a 3-piece meal for one to a 15-piece feast with fries, gravy, coleslaw and Pepsi. Wings or nuggets: 6 or 10 pieces with fries, sauce and Pepsi.",
+          "Also: the chicken burger and chicken burger combos with fries or onion rings."
+        ]
+      },
+      "website": {
+        "url": "https://popoulet.ca/",
+        "live": false,
+        "planned": false
+      },
+      "color": "#a3260f",
+      "icon": "drumstick",
+      "featured": false,
+      "foodhubBrandNames": [
+        "Po Poulet"
+      ],
+      "kitchens": [
+        {
+          "kitchen": "saint-leonard",
+          "orderLinks": [
+            {
+              "platform": "doordash",
+              "storeId": "34494017",
+              "live": false
+            }
+          ]
+        }
+      ],
+      "dishes": [
+        "1Z3Q6Z3XD36J8",
+        "5632F0AR37HG4",
+        "JE8906EWHC53T",
+        "J7ANNVEQHJDKE",
+        "PQTJ2AABECNZG",
+        "9M2JQR3HE1VD4",
+        "HT19ENNG0E2QA",
+        "ZMJFXFG7DZZJ4",
+        "1FWV6D7D22ZA8",
+        "YR956YC5NHQQG"
+      ]
+    },
+    {
+      "id": "poulet-poulet",
+      "name": "Poulet Poulet",
+      "alternateNames": [
+        "Poulet Express"
+      ],
+      "categories": [
+        "poulet"
+      ],
+      "cuisine": {
+        "en": [
+          "Chicken wings",
+          "Nuggets"
+        ],
+        "fr": [
+          "Ailes de poulet",
+          "Croquettes"
+        ]
+      },
+      "description": {
+        "fr": "Poulet Poulet, ce sont les ailes de poulet et les croquettes avec frites, sauce et Pepsi, de 6 à 25 morceaux, et les trios burger ou cheeseburger avec ailes, dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal.",
+        "en": "Poulet Poulet is chicken wings and nuggets with fries, sauce and Pepsi, from 6 to 25 pieces, plus burger or cheeseburger combos with wings, in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal."
+      },
+      "about": {
+        "fr": [
+          "Ailes ou croquettes, au choix : 6, 10, 15 ou 25 morceaux, avec frites, sauces et Pepsi. Une aile de plus ? Elle se commande à l’unité.",
+          "Les trios : cheeseburger ou burger poulet avec 6 ailes et une boisson gazeuse. À côté : frites maison, poutine classique et salade de chou."
+        ],
+        "en": [
+          "Wings or nuggets, your choice: 6, 10, 15 or 25 pieces, with fries, sauces and Pepsi. One more wing? Order it by the piece.",
+          "The combos: cheeseburger or chicken burger with 6 wings and a soft drink. On the side: house fries, classic poutine and coleslaw."
+        ]
+      },
+      "website": {
+        "url": "https://pouletpoulet.popoulet.ca/",
+        "live": false,
+        "planned": true
+      },
+      "color": "#b45309",
+      "icon": "drumstick",
+      "featured": false,
+      "foodhubBrandNames": [
+        "Poulet Poulet"
+      ],
+      "kitchens": [
+        {
+          "kitchen": "ndg",
+          "orderLinks": [
+            {
+              "platform": "doordash",
+              "storeId": "32501399",
+              "live": true
+            },
+            {
+              "platform": "doordash",
+              "storeId": "28719392",
+              "live": false
+            }
+          ]
+        },
+        {
+          "kitchen": "saint-leonard",
+          "orderLinks": [
+            {
+              "platform": "doordash",
+              "storeId": "33597093",
+              "live": false
+            }
+          ]
+        }
+      ],
+      "dishes": [
+        "PQTJ2AABECNZG",
+        "9M2JQR3HE1VD4",
+        "EF46DMNY50B54",
+        "GSD85QSS9EY66",
+        "9YX4SG4B5KGPC",
+        "TXR37X7C4MFQ2",
+        "K3GJ1FFGXMXH0",
+        "N27C2RAXVV4Y8",
+        "7BF0CQ2WDEY2R",
+        "YR956YC5NHQQG"
+      ]
+    },
+    {
+      "id": "cafe-bolon",
+      "name": "Café Bolon",
+      "alternateNames": [
+        "Bolon Café",
+        "Cafe Bolon"
+      ],
+      "categories": [
+        "latino"
+      ],
+      "cuisine": {
+        "en": [
+          "Latin American",
+          "Empanadas",
+          "Nachos"
+        ],
+        "fr": [
+          "Latino-américain",
+          "Empanadas",
+          "Nachos"
+        ]
+      },
+      "description": {
+        "fr": "Café Bolon propose des bouchées d’inspiration latino-américaine : empanadas, quesadillas, nachos, burritos et tacos au bœuf, au steak ou aux haricots noirs, pita et poutine tacos, dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal.",
+        "en": "Café Bolon offers Latin American-inspired bites: empanadas, quesadillas, nachos, burritos and tacos with beef, steak or black beans, taco pita and taco poutine, in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal."
+      },
+      "about": {
+        "fr": [
+          "Pour grignoter : empanadas, nachos au steak ou aux haricots noirs, quesadillas au bœuf ou aux haricots noirs, tacos au steak.",
+          "Pour un repas : burrito aux haricots noirs, assiette ou pita de viande à tacos, sous-marin ou poutine tacos."
+        ],
+        "en": [
+          "To snack: empanadas, steak or black bean nachos, beef or black bean quesadillas, steak tacos.",
+          "For a meal: black bean burrito, taco meat plate or pita, taco sub or taco poutine."
+        ]
+      },
+      "website": {
+        "url": "https://bolon.ca/",
+        "live": false,
+        "planned": false
+      },
+      "color": "#6b4226",
+      "icon": "cup",
+      "featured": true,
+      "foodhubBrandNames": [
+        "Cafe Bolon"
+      ],
+      "kitchens": [
+        {
+          "kitchen": "ndg",
+          "orderLinks": [
+            {
+              "platform": "ubereats",
+              "storeId": "8d911a03-247c-53a2-92da-593808f33592",
+              "slug": "bolon-cafe-ndg",
+              "live": true
+            },
+            {
+              "platform": "doordash",
+              "storeId": "30831269",
+              "live": false
+            }
+          ]
+        },
+        {
+          "kitchen": "saint-leonard",
+          "orderLinks": [
+            {
+              "platform": "ubereats",
+              "storeId": "8179598e-a40f-509e-8b03-59ce49d57d77",
+              "slug": "bolon-cafe-hochelaga",
+              "live": false
+            }
+          ]
+        }
+      ],
+      "dishes": [
+        "GRY1026TH1T6M",
+        "NRZZ3XN458F8E",
+        "PSV66A91RNA7E",
+        "XN2YG06BHX63W",
+        "TQ3WPBPYVFH20",
+        "CC2JG7EYN9QTG",
+        "CSH40D9HQ784J",
+        "XTQBFGSREN6WP",
+        "NN9J8JNZM6F6P",
+        "9CJ0N85E1WPNY",
+        "BGMKG4QVXZXV2"
+      ]
+    },
+    {
+      "id": "place-afrique",
+      "name": "Place Afrique",
+      "alternateNames": [
+        "Place d'Afrique"
+      ],
+      "categories": [
+        "grillades"
+      ],
+      "cuisine": {
+        "en": [
+          "Grill",
+          "Snacks"
+        ],
+        "fr": [
+          "Grillades",
+          "Bouchées"
+        ]
+      },
+      "description": {
+        "fr": "Place Afrique propose samoussas, pâtés jamaïcains, empanadas et assiettes de brochettes et de souvlaki grillés, préparés dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal.",
+        "en": "Place Afrique offers samosas, Jamaican patties, empanadas and grilled skewer and souvlaki plates, made in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal."
+      },
+      "about": {
+        "fr": [
+          "Pour grignoter : samoussas, pâté jamaïcain et empanadas. Pour un vrai repas : deux assiettes de deux brochettes, poulet ou porc, avec breuvages.",
+          "À côté : pilon de poulet, salade de chou, frites maison et un ginger ale bien froid."
+        ],
+        "en": [
+          "To snack: samosas, Jamaican patty and empanadas. For a real meal: two plates of two skewers, chicken or pork, with drinks.",
+          "On the side: chicken drumstick, coleslaw, house fries and an ice-cold ginger ale."
+        ]
+      },
+      "website": {
+        "url": "https://placeafrique.bolon.ca/",
+        "live": false,
+        "planned": true
+      },
+      "color": "#9a3412",
+      "icon": "flame",
+      "featured": false,
+      "foodhubBrandNames": [
+        "Place Afrique"
+      ],
+      "kitchens": [
+        {
+          "kitchen": "ndg",
+          "orderLinks": []
+        },
+        {
+          "kitchen": "saint-leonard",
+          "orderLinks": []
+        }
+      ],
+      "dishes": [
+        "RGHG7YHPHPY1A",
+        "0WJWVRF0E30HY",
+        "GRY1026TH1T6M",
+        "H5QAG8XDM7KC0",
+        "D74FME072WNFE",
+        "93A61ZY15KTWY",
+        "DMC178ED7GTPC",
+        "YR956YC5NHQQG",
+        "N27C2RAXVV4Y8",
+        "Z98BT09DS5GRT"
+      ]
+    }
+  ],
+  "dishes": {
+    "0JWAY1VMJ2M2J": {
+      "name": {
+        "fr": "Poutine Bacon",
+        "en": "Poutine Bacon"
+      },
+      "price": 9,
+      "category": "FRITES/POUTINES",
+      "deal": false,
+      "photo": true
+    },
+    "0WJWVRF0E30HY": {
+      "name": {
+        "fr": "Pâté jamaïcain",
+        "en": "Jamaican patty"
+      },
+      "price": 3.5,
+      "category": "Casse-Croûte",
+      "deal": false,
+      "photo": true
+    },
+    "143A5SF8PBW3G": {
+      "name": {
+        "fr": "Pita / Wrap Souvlaki Poulet",
+        "en": "Pita / Wrap Souvlaki Chicken"
+      },
+      "price": 8.99,
+      "category": "Pita / Wrap / Assiette",
+      "deal": false,
+      "photo": true
+    },
+    "1FWV6D7D22ZA8": {
+      "name": {
+        "fr": "Trio #6 — Burger double poulet mozza + rondelles d'oignon + boisson gazeuse",
+        "en": "Trio #6 — Burger double chicken mozza + onion rings + soft drink"
+      },
+      "price": 20.99,
+      "category": "Trios #1 à #18",
+      "deal": false,
+      "photo": true
+    },
+    "1JBFM5YK1MSGT": {
+      "name": {
+        "fr": "Assiette Gyros",
+        "en": "Plate Gyros"
+      },
+      "price": 15.99,
+      "category": "Pita / Wrap / Assiette",
+      "deal": false,
+      "photo": true
+    },
+    "1NM1MXQ5QY48P": {
+      "name": {
+        "fr": "Spaghetti gratinée",
+        "en": "Spaghetti baked"
+      },
+      "price": 15.99,
+      "category": "Spaghetti / Lasagne",
+      "deal": false,
+      "photo": true
+    },
+    "1VVFQB0HF3PFG": {
+      "name": {
+        "fr": "Pain Magique",
+        "en": "Magic bread"
+      },
+      "price": 11.99,
+      "category": "Pizza",
+      "deal": false,
+      "photo": true
+    },
+    "1Z3Q6Z3XD36J8": {
+      "name": {
+        "fr": "3 MCX + frites + sauce + salade de chou + Pepsi",
+        "en": "3 Pcs + fries + sauce + coleslaw + Pepsi"
+      },
+      "price": 14.99,
+      "category": "Poulet frit",
+      "deal": false,
+      "photo": true
+    },
+    "26YJMPP5AB5D0": {
+      "name": {
+        "fr": "Combo #2 — Pizza Petite + 3 Pilons Frit + salade et sauce + frite + 2 Pepsi",
+        "en": "Combo #2 — Pizza Small + 3 Drumsticks Fried + salad and sauce + fries + 2 Pepsi"
+      },
+      "price": 29.75,
+      "category": "Promo Pizza",
+      "deal": true,
+      "photo": true
+    },
+    "2XP0YDZVBPT94": {
+      "name": {
+        "fr": "Pita / Wrap Végétarien",
+        "en": "Pita / Wrap Vegetarian"
+      },
+      "price": 8,
+      "category": "Pita / Wrap / Assiette",
+      "deal": false,
+      "photo": true
+    },
+    "3KEZ2GZT59MC2": {
+      "name": {
+        "fr": "Pizza Shawarma",
+        "en": "Pizza Shawarma"
+      },
+      "price": 11.99,
+      "category": "Pizza",
+      "deal": false,
+      "photo": true
+    },
+    "3X7W15NDS9YK4": {
+      "name": {
+        "fr": "Salade Grecque",
+        "en": "Greek salad"
+      },
+      "price": 12.49,
+      "category": "Salades",
+      "deal": false,
+      "photo": true
+    },
+    "43472J9YW6ZA0": {
+      "name": {
+        "fr": "Hot-dog Suprême",
+        "en": "Hot dog Supreme"
+      },
+      "price": 5.25,
+      "category": "Casse-Croûte",
+      "deal": false,
+      "photo": true
+    },
+    "43W3XWAZ78VKA": {
+      "name": {
+        "fr": "Nachos Bœuf",
+        "en": "Nachos Bœuf"
+      },
+      "price": 14.99,
+      "category": "Mexicain",
+      "deal": false,
+      "photo": true
+    },
+    "48BQ2M1BCYXWP": {
+      "name": {
+        "fr": "Frites Sauce",
+        "en": "Fries with Gravy"
+      },
+      "price": 6.74,
+      "category": "FRITES/POUTINES",
+      "deal": false,
+      "photo": true
+    },
+    "4BZ1WR4YF7QDT": {
+      "name": {
+        "fr": "Salade Shawarma",
+        "en": "Salad Shawarma"
+      },
+      "price": 12,
+      "category": "Salades",
+      "deal": false,
+      "photo": true
+    },
+    "4CPFQG1YBKJZC": {
+      "name": {
+        "fr": "Pizza Poulet",
+        "en": "Pizza Chicken"
+      },
+      "price": 11.5,
+      "category": "Pizza",
+      "deal": false,
+      "photo": true
+    },
+    "4MY54W143VJKA": {
+      "name": {
+        "fr": "Assiette Shish Taouk",
+        "en": "Plate Shish Taouk"
+      },
+      "price": 15.99,
+      "category": "Pita / Wrap / Assiette",
+      "deal": false,
+      "photo": true
+    },
+    "4RZHQEWZ5EZ8W": {
+      "name": {
+        "fr": "Gaufre",
+        "en": "Waffle"
+      },
+      "price": 9.63,
+      "category": "Desserts",
+      "deal": false,
+      "photo": true
+    },
+    "4ZTKJ0YEVXXYP": {
+      "name": {
+        "fr": "Trio #10 — 2 pitas Shish Taouk, Shawarma ou Gyros + 2 mini poutines + 2 breuvages",
+        "en": "Trio #10 — 2 pitas Shish Taouk, Shawarma or Gyros + 2 mini poutines + 2 drinks"
+      },
+      "price": 26.99,
+      "category": "Trios #1 à #18",
+      "deal": false,
+      "photo": true
+    },
+    "5187NBRCYT454": {
+      "name": {
+        "fr": "Bouteille d'eau",
+        "en": "Bouteille d'eau"
+      },
+      "price": 3,
+      "category": "Breuvages",
+      "deal": false,
+      "photo": true
+    },
+    "5632F0AR37HG4": {
+      "name": {
+        "fr": "4 MCX + frites + sauce + salade de chou + Pepsi",
+        "en": "4 Pcs + fries + sauce + coleslaw + Pepsi"
+      },
+      "price": 17.99,
+      "category": "Poulet frit",
+      "deal": false,
+      "photo": true
+    },
+    "597X8A3860936": {
+      "name": {
+        "fr": "Pita / Wrap Shish Taouk",
+        "en": "Pita / Wrap Shish Taouk"
+      },
+      "price": 7.49,
+      "category": "Pita / Wrap / Assiette",
+      "deal": false,
+      "photo": true
+    },
+    "5DJ702E4C6GGE": {
+      "name": {
+        "fr": "Combo #1 — Pizza Bambino + 2 Pilons Frit + salade et sauce + frite + Pepsi",
+        "en": "Combo #1 — Pizza Bambino + 2 Drumsticks Fried + salad and sauce + fries + Pepsi"
+      },
+      "price": 27.25,
+      "category": "Promo Pizza",
+      "deal": true,
+      "photo": true
+    },
+    "6CE1CW5KW31MT": {
+      "name": {
+        "fr": "Coca-Cola / Coke",
+        "en": "Coca-Cola / Coke"
+      },
+      "price": 3,
+      "category": "Breuvages",
+      "deal": false,
+      "photo": true
+    },
+    "6JV0JDXBMS79A": {
+      "name": {
+        "fr": "Cheesecake Pistache",
+        "en": "Cheesecake Pistachio"
+      },
+      "price": 8.25,
+      "category": "Desserts",
+      "deal": false,
+      "photo": true
+    },
+    "6P1030ABY1X7C": {
+      "name": {
+        "fr": "2 Pizzas COMBO DELUXE— 2x Moyenne",
+        "en": "2 Pizzas COMBO DELUXE— 2x Medium"
+      },
+      "price": 40.45,
+      "category": "Promo Pizza",
+      "deal": true,
+      "photo": true
+    },
+    "727Z9F3YVT1HW": {
+      "name": {
+        "fr": "Assiette Mixte — Shish Taouk & Shawarma",
+        "en": "Plate Mixed — Shish Taouk & Shawarma"
+      },
+      "price": 15.99,
+      "category": "Pita / Wrap / Assiette",
+      "deal": false,
+      "photo": true
+    },
+    "7BF0CQ2WDEY2R": {
+      "name": {
+        "fr": "Poutine classique",
+        "en": "Classic Poutine"
+      },
+      "price": 6.99,
+      "category": "FRITES/POUTINES",
+      "deal": false,
+      "photo": true
+    },
+    "7EF6BC6506X2A": {
+      "name": {
+        "fr": "Quesadillas Steak",
+        "en": "Quesadillas Steak"
+      },
+      "price": 12.99,
+      "category": "Mexicain",
+      "deal": false,
+      "photo": true
+    },
+    "81JCAM9M1V9QJ": {
+      "name": {
+        "fr": "Sous-marin Steak",
+        "en": "Sub Steak"
+      },
+      "price": 10,
+      "category": "Sous-Marins",
+      "deal": false,
+      "photo": true
+    },
+    "8QY1VZ96HGJKR": {
+      "name": {
+        "fr": "Sous-marin Shish Taouk",
+        "en": "Sub Shish Taouk"
+      },
+      "price": 10.58,
+      "category": "Sous-Marins",
+      "deal": false,
+      "photo": true
+    },
+    "8RRW243269DSP": {
+      "name": {
+        "fr": "Philly Burger",
+        "en": "Philly Burger"
+      },
+      "price": 9,
+      "category": "Casse-Croûte",
+      "deal": false,
+      "photo": true
+    },
+    "93A61ZY15KTWY": {
+      "name": {
+        "fr": "Assiette Souvlaki Porc",
+        "en": "Plate Souvlaki Pork"
+      },
+      "price": 15.99,
+      "category": "Pita / Wrap / Assiette",
+      "deal": false,
+      "photo": true
+    },
+    "96JJ7KK0059J6": {
+      "name": {
+        "fr": "7UP",
+        "en": "7UP"
+      },
+      "price": 3,
+      "category": "Breuvages",
+      "deal": false,
+      "photo": true
+    },
+    "9BH4C37D32D98": {
+      "name": {
+        "fr": "Cheesecake Oreo",
+        "en": "Cheesecake Oreo"
+      },
+      "price": 8.25,
+      "category": "Desserts",
+      "deal": false,
+      "photo": true
+    },
+    "9CJ0N85E1WPNY": {
+      "name": {
+        "fr": "Sous-marin Tacos",
+        "en": "Sub Tacos"
+      },
+      "price": 10,
+      "category": "Sous-Marins",
+      "deal": false,
+      "photo": true
+    },
+    "9M2JQR3HE1VD4": {
+      "name": {
+        "fr": "10 MCX + Frites + Sauce + Pepsi",
+        "en": "10 Pcs + Fries + Sauce + Pepsi"
+      },
+      "price": 16.99,
+      "category": "Ailes de Poulet ou Croquettes",
+      "deal": false,
+      "photo": true
+    },
+    "9PZ89C9Y5VJA0": {
+      "name": {
+        "fr": "Gâteau Oréo",
+        "en": "Cake Oréo"
+      },
+      "price": 8,
+      "category": "Desserts",
+      "deal": false,
+      "photo": true
+    },
+    "9RRZNJ8HDF1QT": {
+      "name": {
+        "fr": "Combo #6 — Pizza Petite + 12 ailes ou 15 croquettes + 2 Pepsi",
+        "en": "Combo #6 — Pizza Small + 12 wings or 15 nuggets + 2 Pepsi"
+      },
+      "price": 30.1,
+      "category": "Promo Pizza",
+      "deal": true,
+      "photo": true
+    },
+    "9VT50FXQ4RFA6": {
+      "name": {
+        "fr": "Tacos Haricots Noirs",
+        "en": "Black Bean Taco"
+      },
+      "price": 3.89,
+      "category": "Mexicain",
+      "deal": false,
+      "photo": true
+    },
+    "9VT6C1M23DNAR": {
+      "name": {
+        "fr": "Gâteau Skor",
+        "en": "Cake Skor"
+      },
+      "price": 7.99,
+      "category": "Desserts",
+      "deal": false,
+      "photo": true
+    },
+    "9WJ119FVZ9CZG": {
+      "name": {
+        "fr": "Salade Shish Taouk",
+        "en": "Salad Shish Taouk"
+      },
+      "price": 12,
+      "category": "Salades",
+      "deal": false,
+      "photo": true
+    },
+    "9Y4WYNJW8FG3P": {
+      "name": {
+        "fr": "Pizza Napolitaine",
+        "en": "Pizza Neapolitan"
+      },
+      "price": 10,
+      "category": "Pizza",
+      "deal": false,
+      "photo": true
+    },
+    "9YX4SG4B5KGPC": {
+      "name": {
+        "fr": "(1) AILE DE POULET",
+        "en": "(1) Chicken Wing"
+      },
+      "price": 1.67,
+      "category": "EXTRA",
+      "deal": false,
+      "photo": true
+    },
+    "A5D88EY1G2B1P": {
+      "name": {
+        "fr": "Frites Michigan",
+        "en": "Michigan Fries"
+      },
+      "price": 8.99,
+      "category": "FRITES/POUTINES",
+      "deal": false,
+      "photo": true
+    },
+    "A9J45QQ10ZFD8": {
+      "name": {
+        "fr": "Trio #11 — 2 assiettes Shish Taouk, Shawarma ou Gyros + 2 breuvages",
+        "en": "Trio #11 — 2 plates Shish Taouk, Shawarma or Gyros + 2 drinks"
+      },
+      "price": 28.99,
+      "category": "Trios #1 à #18",
+      "deal": false,
+      "photo": true
+    },
+    "AA5T55NBBQSCM": {
+      "name": {
+        "fr": "Poutine Steak",
+        "en": "Poutine Steak"
+      },
+      "price": 9,
+      "category": "FRITES/POUTINES",
+      "deal": false,
+      "photo": true
+    },
+    "BCFQM8RZZ9GMP": {
+      "name": {
+        "fr": "Hot-dog Michigan",
+        "en": "Hot dog Michigan"
+      },
+      "price": 4.79,
+      "category": "Casse-Croûte",
+      "deal": false,
+      "photo": true
+    },
+    "BEJCK56NNWTQW": {
+      "name": {
+        "fr": "Combo C — Pizza Large 14\" + grande poutine",
+        "en": "Combo C — Pizza Large 14\" + grande poutine"
+      },
+      "price": 34.99,
+      "category": "Promo Pizza",
+      "deal": true,
+      "photo": true
+    },
+    "BGMKG4QVXZXV2": {
+      "name": {
+        "fr": "Poutine Tacos",
+        "en": "Poutine Tacos"
+      },
+      "price": 9,
+      "category": "FRITES/POUTINES",
+      "deal": false,
+      "photo": true
+    },
+    "BMVW3SX774K7G": {
+      "name": {
+        "fr": "Root Beer",
+        "en": "Root Beer"
+      },
+      "price": 3,
+      "category": "Breuvages",
+      "deal": false,
+      "photo": true
+    },
+    "BX2FTMCSA82ZE": {
+      "name": {
+        "fr": "Pizza Philly Steak",
+        "en": "Pizza Philly Steak"
+      },
+      "price": 11.99,
+      "category": "Pizza",
+      "deal": false,
+      "photo": true
+    },
+    "CC2JG7EYN9QTG": {
+      "name": {
+        "fr": "Tacos Steak",
+        "en": "Tacos Steak"
+      },
+      "price": 4.79,
+      "category": "Mexicain",
+      "deal": false,
+      "photo": true
+    },
+    "CN917JJCM514Y": {
+      "name": {
+        "fr": "Cheesecake Amaretto",
+        "en": "Cheesecake Amaretto"
+      },
+      "price": 8.25,
+      "category": "Desserts",
+      "deal": false,
+      "photo": true
+    },
+    "CSH40D9HQ784J": {
+      "name": {
+        "fr": "Burritos Haricots Noirs",
+        "en": "Burritos Black beans"
+      },
+      "price": 8.49,
+      "category": "Mexicain",
+      "deal": false,
+      "photo": true
+    },
+    "CZKGWVHP85VFT": {
+      "name": {
+        "fr": "Pizza Pepperonata",
+        "en": "Pizza Pepperonata"
+      },
+      "price": 11,
+      "category": "Pizza",
+      "deal": false,
+      "photo": true
+    },
+    "D74FME072WNFE": {
+      "name": {
+        "fr": "Assiette Souvlaki Poulet",
+        "en": "Plate Souvlaki Chicken"
+      },
+      "price": 15.99,
+      "category": "Pita / Wrap / Assiette",
+      "deal": false,
+      "photo": true
+    },
+    "D7D8QVXBP0HSJ": {
+      "name": {
+        "fr": "Burritos Bœuf",
+        "en": "Burritos Bœuf"
+      },
+      "price": 9.49,
+      "category": "Mexicain",
+      "deal": false,
+      "photo": true
+    },
+    "DAZQFAT9RX7DY": {
+      "name": {
+        "fr": "Nachos Poulet",
+        "en": "Nachos Chicken"
+      },
+      "price": 15.99,
+      "category": "Mexicain",
+      "deal": false,
+      "photo": true
+    },
+    "DJY7QBZW0SCCG": {
+      "name": {
+        "fr": "Pita / Wrap Souvlaki Porc",
+        "en": "Pita / Wrap Souvlaki Pork"
+      },
+      "price": 8.99,
+      "category": "Pita / Wrap / Assiette",
+      "deal": false,
+      "photo": true
+    },
+    "DMC178ED7GTPC": {
+      "name": {
+        "fr": "(1) PILON DE POULET",
+        "en": "(1) Drumstick Of Chicken"
+      },
+      "price": 3.33,
+      "category": "EXTRA",
+      "deal": false,
+      "photo": true
+    },
+    "DMXXWSMB26250": {
+      "name": {
+        "fr": "Sous-marin Shawarma",
+        "en": "Sub Shawarma"
+      },
+      "price": 10.58,
+      "category": "Sous-Marins",
+      "deal": false,
+      "photo": true
+    },
+    "DRWRTRPHWEBSG": {
+      "name": {
+        "fr": "Sloppy Joe",
+        "en": "Sloppy Joe"
+      },
+      "price": 9,
+      "category": "Casse-Croûte",
+      "deal": false,
+      "photo": true
+    },
+    "E2D6NW8BY4ZNR": {
+      "name": {
+        "fr": "Cream Soda",
+        "en": "Cream Soda"
+      },
+      "price": 3,
+      "category": "Breuvages",
+      "deal": false,
+      "photo": true
+    },
+    "E7T25Y1XPHN3A": {
+      "name": {
+        "fr": "Gâteau Ferrero Rocher",
+        "en": "Cake Ferrero Rocher"
+      },
+      "price": 7.99,
+      "category": "Desserts",
+      "deal": false,
+      "photo": true
+    },
+    "E98EWT00ES3FP": {
+      "name": {
+        "fr": "Trio #8 — 2 hot-dogs Michigan + frites + breuvage",
+        "en": "Trio #8 — 2 hot dogs Michigan + fries + drink"
+      },
+      "price": 13.99,
+      "category": "Trios #1 à #18",
+      "deal": false,
+      "photo": true
+    },
+    "EF46DMNY50B54": {
+      "name": {
+        "fr": "15 MCX + Frites + 2 Sauces + Pepsi",
+        "en": "15 Pcs + Fries + 2 Sauces + Pepsi"
+      },
+      "price": 23.99,
+      "category": "Ailes de Poulet ou Croquettes",
+      "deal": false,
+      "photo": true
+    },
+    "EMNACV94ZBWBM": {
+      "name": {
+        "fr": "2x Pizza Moyenne 12\"",
+        "en": "2x Pizza Moyenne 12\""
+      },
+      "price": 33.99,
+      "category": "Double 2x Pizza",
+      "deal": true,
+      "photo": true
+    },
+    "F2GA9J2HCS7K6": {
+      "name": {
+        "fr": "Combo #9 — Pizza Bambino + sous-marin + Pepsi",
+        "en": "Combo #9 — Pizza Bambino + sub + Pepsi"
+      },
+      "price": 28.1,
+      "category": "Promo Pizza",
+      "deal": true,
+      "photo": true
+    },
+    "FM3GRQBRXJT5M": {
+      "name": {
+        "fr": "Crêpe",
+        "en": "Crepe"
+      },
+      "price": 10,
+      "category": "Desserts",
+      "deal": false,
+      "photo": true
+    },
+    "FYJ5QXV8R7VT2": {
+      "name": {
+        "fr": "Pizza Toute Garnie",
+        "en": "Pizza All-dressed"
+      },
+      "price": 11,
+      "category": "Pizza",
+      "deal": false,
+      "photo": true
+    },
+    "G52E2A8PG9WZC": {
+      "name": {
+        "fr": "4 Assiettes Libanais au Choix",
+        "en": "4 Plates Lebanese of your choice"
+      },
+      "price": 63.99,
+      "category": "Family Combos",
+      "deal": true,
+      "photo": true
+    },
+    "G9ZZ2BG8P5J7P": {
+      "name": {
+        "fr": "Quesadillas Poulet",
+        "en": "Quesadillas Chicken"
+      },
+      "price": 12.99,
+      "category": "Mexicain",
+      "deal": false,
+      "photo": true
+    },
+    "GDW759EPRDWHW": {
+      "name": {
+        "fr": "Pizza Gyros",
+        "en": "Pizza Gyros"
+      },
+      "price": 11.99,
+      "category": "Pizza",
+      "deal": false,
+      "photo": true
+    },
+    "GEXZQ53GK93C0": {
+      "name": {
+        "fr": "Big Matt",
+        "en": "Big Matt"
+      },
+      "price": 10,
+      "category": "Casse-Croûte",
+      "deal": false,
+      "photo": true
+    },
+    "GHMMXTN9XTCEW": {
+      "name": {
+        "fr": "Poutine Hot-dog",
+        "en": "Poutine Hot dog"
+      },
+      "price": 9,
+      "category": "FRITES/POUTINES",
+      "deal": false,
+      "photo": true
+    },
+    "GQD4RH1JXB79R": {
+      "name": {
+        "fr": "Pizza Shish Taouk",
+        "en": "Pizza Shish Taouk"
+      },
+      "price": 11.99,
+      "category": "Pizza",
+      "deal": false,
+      "photo": true
+    },
+    "GRY1026TH1T6M": {
+      "name": {
+        "fr": "Empanadas",
+        "en": "Empanadas"
+      },
+      "price": 4.5,
+      "category": "Casse-Croûte",
+      "deal": false,
+      "photo": true
+    },
+    "GSD85QSS9EY66": {
+      "name": {
+        "fr": "25 MCX + Frites + 3 Sauces + 2 Pepsi",
+        "en": "25 Pcs + Fries + 3 Sauces + 2 Pepsi"
+      },
+      "price": 29.99,
+      "category": "Ailes de Poulet ou Croquettes",
+      "deal": false,
+      "photo": true
+    },
+    "H22MA0YY0R4TW": {
+      "name": {
+        "fr": "Hot-dog Toasté",
+        "en": "Hot dog Toasted"
+      },
+      "price": 2.99,
+      "category": "Casse-Croûte",
+      "deal": false,
+      "photo": true
+    },
+    "H5QAG8XDM7KC0": {
+      "name": {
+        "fr": "Trio #12 — 2 assiettes deux brochettes poulet ou porc + 2 breuvages",
+        "en": "Trio #12 — 2 plates two skewers chicken or pork + 2 drinks"
+      },
+      "price": 39.99,
+      "category": "Trios #1 à #18",
+      "deal": false,
+      "photo": true
+    },
+    "H9Q6YDCSNF218": {
+      "name": {
+        "fr": "Poutine Gyros",
+        "en": "Poutine Gyros"
+      },
+      "price": 9,
+      "category": "FRITES/POUTINES",
+      "deal": false,
+      "photo": true
+    },
+    "HAB6C0ZVQCY2E": {
+      "name": {
+        "fr": "Trio #7 — 2 hot-dogs Vapeur + frite + breuvage",
+        "en": "Trio #7 — 2 hot dogs Steamed + fries + drink"
+      },
+      "price": 9.5,
+      "category": "Trios #1 à #18",
+      "deal": false,
+      "photo": true
+    },
+    "HM49MB9XYVMWT": {
+      "name": {
+        "fr": "Cheeseburger",
+        "en": "Cheeseburger"
+      },
+      "price": 8.3,
+      "category": "Casse-Croûte",
+      "deal": false,
+      "photo": true
+    },
+    "HT19ENNG0E2QA": {
+      "name": {
+        "fr": "Burger Poulet",
+        "en": "Burger Chicken"
+      },
+      "price": 9,
+      "category": "Casse-Croûte",
+      "deal": false,
+      "photo": true
+    },
+    "HY7370H42A8PJ": {
+      "name": {
+        "fr": "Nachos Fromage en Sauce",
+        "en": "Nachos Cheese in Sauce"
+      },
+      "price": 9.99,
+      "category": "Mexicain",
+      "deal": false,
+      "photo": true
+    },
+    "J7ANNVEQHJDKE": {
+      "name": {
+        "fr": "15 MCX + 2 frites + 3 sauces + 2 salades de chou + 4 Pepsi",
+        "en": "15 Pcs + 2 fries + 3 sauces + 2 coleslaw + 4 Pepsi"
+      },
+      "price": 47.99,
+      "category": "Poulet frit",
+      "deal": false,
+      "photo": true
+    },
+    "JDE3K8K9ETDB2": {
+      "name": {
+        "fr": "Tacos Poulet",
+        "en": "Tacos Chicken"
+      },
+      "price": 4.79,
+      "category": "Mexicain",
+      "deal": false,
+      "photo": true
+    },
+    "JE8906EWHC53T": {
+      "name": {
+        "fr": "9 MCX + frites + 2 sauces + 2 salades de chou + 3 Pepsi",
+        "en": "9 Pcs + fries + 2 sauces + 2 coleslaw + 3 Pepsi"
+      },
+      "price": 39.99,
+      "category": "Poulet frit",
+      "deal": false,
+      "photo": true
+    },
+    "JJRB835A5C4V2": {
+      "name": {
+        "fr": "Poutine Toute Garnie",
+        "en": "All-Dressed Poutine"
+      },
+      "price": 9,
+      "category": "FRITES/POUTINES",
+      "deal": false,
+      "photo": true
+    },
+    "JX7E4HAPBSHAA": {
+      "name": {
+        "fr": "Pepsi",
+        "en": "Pepsi"
+      },
+      "price": 3,
+      "category": "Breuvages",
+      "deal": false,
+      "photo": true
+    },
+    "K3GJ1FFGXMXH0": {
+      "name": {
+        "fr": "Trio #5 — Burger poulet + 6 ailes de poulet + boisson gazeuse",
+        "en": "Trio #5 — Burger chicken + 6 chicken wings + soft drink"
+      },
+      "price": 16.99,
+      "category": "Trios #1 à #18",
+      "deal": false,
+      "photo": true
+    },
+    "K594K709BHENC": {
+      "name": {
+        "fr": "Combo #3 — Pizza Moyenne + 4 Pilons Frit + salade et sauce + frite + 4 canettes de Pepsi",
+        "en": "Combo #3 — Pizza Medium + 4 Drumsticks Fried + salad and sauce + fries + 4 cans of Pepsi"
+      },
+      "price": 35.5,
+      "category": "Promo Pizza",
+      "deal": true,
+      "photo": true
+    },
+    "KAHRY3GB43ZR8": {
+      "name": {
+        "fr": "Assiette Shawarma",
+        "en": "Plate Shawarma"
+      },
+      "price": 14.99,
+      "category": "Pita / Wrap / Assiette",
+      "deal": false,
+      "photo": true
+    },
+    "KEZWKV1KF0YBW": {
+      "name": {
+        "fr": "Pizza Bacon",
+        "en": "Pizza Bacon"
+      },
+      "price": 11.5,
+      "category": "Pizza",
+      "deal": false,
+      "photo": true
+    },
+    "KHQHQGJ4A8RH8": {
+      "name": {
+        "fr": "Trio #18 — Deux salades protéinées + 2 breuvages",
+        "en": "Trio #18 — Two protein salads + 2 drinks"
+      },
+      "price": 23.99,
+      "category": "Trios #1 à #18",
+      "deal": false,
+      "photo": true
+    },
+    "MKHYNCFYDQXQY": {
+      "name": {
+        "fr": "Pita / Wrap Mixte — Shish Taouk & Shawarma",
+        "en": "Pita / Wrap Mixed — Shish Taouk & Shawarma"
+      },
+      "price": 8.49,
+      "category": "Pita / Wrap / Assiette",
+      "deal": false,
+      "photo": true
+    },
+    "MT73HS8BAH52C": {
+      "name": {
+        "fr": "Tacos Trio Familiale",
+        "en": "Tacos Trio Family"
+      },
+      "price": 35.99,
+      "category": "Family Combos",
+      "deal": true,
+      "photo": true
+    },
+    "N27C2RAXVV4Y8": {
+      "name": {
+        "fr": "Frites Maison",
+        "en": "House fries"
+      },
+      "price": 4.49,
+      "category": "FRITES/POUTINES",
+      "deal": false,
+      "photo": true
+    },
+    "NN9J8JNZM6F6P": {
+      "name": {
+        "fr": "Pita / Wrap Viande Tacos",
+        "en": "Pita / Wrap Taco meat"
+      },
+      "price": 9.49,
+      "category": "Pita / Wrap / Assiette",
+      "deal": false,
+      "photo": true
+    },
+    "NPJQXA39K0QNA": {
+      "name": {
+        "fr": "Diet Pepsi",
+        "en": "Diet Pepsi"
+      },
+      "price": 3,
+      "category": "Breuvages",
+      "deal": false,
+      "photo": true
+    },
+    "NRZZ3XN458F8E": {
+      "name": {
+        "fr": "Nachos Steak",
+        "en": "Nachos Steak"
+      },
+      "price": 15.99,
+      "category": "Mexicain",
+      "deal": false,
+      "photo": true
+    },
+    "NTAAMAH1JP1YR": {
+      "name": {
+        "fr": "Salade Gyros",
+        "en": "Salad Gyros"
+      },
+      "price": 12,
+      "category": "Salades",
+      "deal": false,
+      "photo": true
+    },
+    "PJE3BX3HBY6XM": {
+      "name": {
+        "fr": "4 Pita Libanais Trio au Choix",
+        "en": "4 Pita Lebanese Trio of your choice"
+      },
+      "price": 45.99,
+      "category": "Family Combos",
+      "deal": true,
+      "photo": true
+    },
+    "PKW78B88KZHPY": {
+      "name": {
+        "fr": "Gâteau Nutella",
+        "en": "Cake Nutella"
+      },
+      "price": 7.99,
+      "category": "Desserts",
+      "deal": false,
+      "photo": true
+    },
+    "PQTJ2AABECNZG": {
+      "name": {
+        "fr": "6 MCX + Frites + Sauce + Pepsi",
+        "en": "6 Pcs + Fries + Sauce + Pepsi"
+      },
+      "price": 13.99,
+      "category": "Ailes de Poulet ou Croquettes",
+      "deal": false,
+      "photo": true
+    },
+    "PSV66A91RNA7E": {
+      "name": {
+        "fr": "Nachos Haricots Noirs",
+        "en": "Nachos Black beans"
+      },
+      "price": 11.49,
+      "category": "Mexicain",
+      "deal": false,
+      "photo": true
+    },
+    "PV7K48EG1460E": {
+      "name": {
+        "fr": "Pizza Végétarienne",
+        "en": "Pizza Vegetarian"
+      },
+      "price": 11,
+      "category": "Pizza",
+      "deal": false,
+      "photo": true
+    },
+    "Q0RJH1DDQEEVY": {
+      "name": {
+        "fr": "Salade Poulet",
+        "en": "Salad Chicken"
+      },
+      "price": 12,
+      "category": "Salades",
+      "deal": false,
+      "photo": true
+    },
+    "Q8T19M23HZB8P": {
+      "name": {
+        "fr": "Burritos Steak",
+        "en": "Burritos Steak"
+      },
+      "price": 9.99,
+      "category": "Mexicain",
+      "deal": false,
+      "photo": true
+    },
+    "QBQDDD7V8TG68": {
+      "name": {
+        "fr": "Gâteau Citron",
+        "en": "Cake Lemon"
+      },
+      "price": 7.99,
+      "category": "Desserts",
+      "deal": false,
+      "photo": true
+    },
+    "QE2Q885XFFT0A": {
+      "name": {
+        "fr": "Salade Steak",
+        "en": "Salad Steak"
+      },
+      "price": 12,
+      "category": "Salades",
+      "deal": false,
+      "photo": true
+    },
+    "QHACT24KE119P": {
+      "name": {
+        "fr": "Salade César",
+        "en": "Caesar salad"
+      },
+      "price": 10.5,
+      "category": "Salades",
+      "deal": false,
+      "photo": true
+    },
+    "QXSABG94QS1F0": {
+      "name": {
+        "fr": "Burger Poisson",
+        "en": "Burger Fish"
+      },
+      "price": 9,
+      "category": "Casse-Croûte",
+      "deal": false,
+      "photo": true
+    },
+    "R06FJ1J754K70": {
+      "name": {
+        "fr": "Pita / Wrap Gyros",
+        "en": "Pita / Wrap Gyros"
+      },
+      "price": 8.49,
+      "category": "Pita / Wrap / Assiette",
+      "deal": false,
+      "photo": true
+    },
+    "R7VQ76BQP03Q6": {
+      "name": {
+        "fr": "Combo B — Pizza Moyenne 12\" + moyenne poutine",
+        "en": "Combo B — Pizza Moyenne 12\" + moyenne poutine"
+      },
+      "price": 28.99,
+      "category": "Promo Pizza",
+      "deal": true,
+      "photo": true
+    },
+    "RGHG7YHPHPY1A": {
+      "name": {
+        "fr": "Samoussa 2(MCX)",
+        "en": "Samoussa 2(Pcs)"
+      },
+      "price": 5,
+      "category": "Casse-Croûte",
+      "deal": false,
+      "photo": true
+    },
+    "RT6HGTMYT1F6E": {
+      "name": {
+        "fr": "Rondelles d'oignon",
+        "en": "Onion rings"
+      },
+      "price": 5.99,
+      "category": "Casse-Croûte",
+      "deal": false,
+      "photo": true
+    },
+    "SH6288Z189A7W": {
+      "name": {
+        "fr": "(2) FROMAGE FETA",
+        "en": "(2) Feta cheese"
+      },
+      "price": 3.33,
+      "category": "EXTRA",
+      "deal": false,
+      "photo": true
+    },
+    "SVDF5RFFFHAPY": {
+      "name": {
+        "fr": "Orange Crush",
+        "en": "Orange Crush"
+      },
+      "price": 3,
+      "category": "Breuvages",
+      "deal": false,
+      "photo": true
+    },
+    "T12CC1Z7W38ZM": {
+      "name": {
+        "fr": "Gâteau Carotte",
+        "en": "Cake Carrot"
+      },
+      "price": 7.99,
+      "category": "Desserts",
+      "deal": false,
+      "photo": true
+    },
+    "T7RZ6YCXJ1R2A": {
+      "name": {
+        "fr": "Combo #8 — Pizza Large + 20 ailes ou 25 croquettes + 4 canettes de Pepsi",
+        "en": "Combo #8 — Pizza Large + 20 wings or 25 nuggets + 4 cans of Pepsi"
+      },
+      "price": 42.9,
+      "category": "Promo Pizza",
+      "deal": true,
+      "photo": true
+    },
+    "TFF125JTRPYZ6": {
+      "name": {
+        "fr": "Poutine Shish Taouk",
+        "en": "Poutine Shish Taouk"
+      },
+      "price": 9.25,
+      "category": "FRITES/POUTINES",
+      "deal": false,
+      "photo": true
+    },
+    "TJFWSWFXW2XDP": {
+      "name": {
+        "fr": "Burritos Poulet",
+        "en": "Burritos Chicken"
+      },
+      "price": 9.99,
+      "category": "Mexicain",
+      "deal": false,
+      "photo": true
+    },
+    "TNHW4S2PJPDET": {
+      "name": {
+        "fr": "Hamburger",
+        "en": "Hamburger"
+      },
+      "price": 7,
+      "category": "Casse-Croûte",
+      "deal": false,
+      "photo": true
+    },
+    "TQ3WPBPYVFH20": {
+      "name": {
+        "fr": "Quesadillas Haricots Noirs",
+        "en": "Quesadillas Black beans"
+      },
+      "price": 12.33,
+      "category": "Mexicain",
+      "deal": false,
+      "photo": true
+    },
+    "TXR37X7C4MFQ2": {
+      "name": {
+        "fr": "Trio #2 — Cheeseburger + 6 ailes de poulet + boisson gazeuse",
+        "en": "Trio #2 — Cheeseburger + 6 chicken wings + soft drink"
+      },
+      "price": 16.99,
+      "category": "Trios #1 à #18",
+      "deal": false,
+      "photo": true
+    },
+    "TZJTHVQVKRHBR": {
+      "name": {
+        "fr": "Assiette Végétarien",
+        "en": "Plate Vegetarian"
+      },
+      "price": 15.99,
+      "category": "Pita / Wrap / Assiette",
+      "deal": false,
+      "photo": true
+    },
+    "V04ZTAZFAJHER": {
+      "name": {
+        "fr": "Trio #3 — Cheeseburger double + rondelles d'oignon + boisson gazeuse",
+        "en": "Trio #3 — Cheeseburger double + onion rings + soft drink"
+      },
+      "price": 16.99,
+      "category": "Trios #1 à #18",
+      "deal": false,
+      "photo": true
+    },
+    "V8SW1SPAEYF5P": {
+      "name": {
+        "fr": "Poutine Italienne",
+        "en": "Poutine Italian"
+      },
+      "price": 9,
+      "category": "FRITES/POUTINES",
+      "deal": false,
+      "photo": true
+    },
+    "VNDJXW31BYDV8": {
+      "name": {
+        "fr": "Poutine Shawarma",
+        "en": "Poutine Shawarma"
+      },
+      "price": 9.25,
+      "category": "FRITES/POUTINES",
+      "deal": false,
+      "photo": true
+    },
+    "WRYSANG402512": {
+      "name": {
+        "fr": "Salade Maison",
+        "en": "House salad"
+      },
+      "price": 9.5,
+      "category": "Salades",
+      "deal": false,
+      "photo": true
+    },
+    "WSB1KXAEQKEBT": {
+      "name": {
+        "fr": "Combo #4 — Pizza Large + 5 Pilons Frit + salade et sauce + frite + 4 canettes de Pepsi",
+        "en": "Combo #4 — Pizza Large + 5 Drumsticks Fried + salad and sauce + fries + 4 cans of Pepsi"
+      },
+      "price": 40.99,
+      "category": "Promo Pizza",
+      "deal": true,
+      "photo": true
+    },
+    "WVP2PV58R83VT": {
+      "name": {
+        "fr": "Pita / Wrap Shawarma",
+        "en": "Pita / Wrap Shawarma"
+      },
+      "price": 7.49,
+      "category": "Pita / Wrap / Assiette",
+      "deal": false,
+      "photo": true
+    },
+    "WYEF3AJ5BY34P": {
+      "name": {
+        "fr": "2x Pizza Large 14\"",
+        "en": "2x Pizza Large 14\""
+      },
+      "price": 44.99,
+      "category": "Double 2x Pizza",
+      "deal": true,
+      "photo": true
+    },
+    "XBC44J0XGW846": {
+      "name": {
+        "fr": "Slush",
+        "en": "Slush"
+      },
+      "price": 3.42,
+      "category": "Breuvages",
+      "deal": false,
+      "photo": true
+    },
+    "XG8BV51VSMRG4": {
+      "name": {
+        "fr": "Gâteau Amaretto",
+        "en": "Cake Amaretto"
+      },
+      "price": 7.99,
+      "category": "Desserts",
+      "deal": false,
+      "photo": true
+    },
+    "XKXMJ1EQ0XT9T": {
+      "name": {
+        "fr": "Cheesecake CHOCOLAT CHIPS",
+        "en": "Cheesecake Chocolate CHIPS"
+      },
+      "price": 8.25,
+      "category": "Desserts",
+      "deal": false,
+      "photo": true
+    },
+    "XN2YG06BHX63W": {
+      "name": {
+        "fr": "Quesadillas Bœuf",
+        "en": "Quesadillas Bœuf"
+      },
+      "price": 13.33,
+      "category": "Mexicain",
+      "deal": false,
+      "photo": true
+    },
+    "XTQBFGSREN6WP": {
+      "name": {
+        "fr": "Assiette Viande Tacos",
+        "en": "Plate Taco meat"
+      },
+      "price": 15.99,
+      "category": "Pita / Wrap / Assiette",
+      "deal": false,
+      "photo": true
+    },
+    "XYC8N674P8Q2M": {
+      "name": {
+        "fr": "Trio #9 — 2 hot-dogs suprêmes fromage & bacon + frites + breuvage",
+        "en": "Trio #9 — 2 hot dogs supreme cheese & bacon + fries + drink"
+      },
+      "price": 14.99,
+      "category": "Trios #1 à #18",
+      "deal": false,
+      "photo": true
+    },
+    "YC4VER80RB8HW": {
+      "name": {
+        "fr": "Combo A — Pizza Petite 10\" + petite poutine",
+        "en": "Combo A — Pizza Petite 10\" + petite poutine"
+      },
+      "price": 24.99,
+      "category": "Promo Pizza",
+      "deal": true,
+      "photo": true
+    },
+    "YDFQHHE9JCVEJ": {
+      "name": {
+        "fr": "Pain Magique Fromage",
+        "en": "Magic bread Cheese"
+      },
+      "price": 13.99,
+      "category": "Pizza",
+      "deal": false,
+      "photo": true
+    },
+    "YR956YC5NHQQG": {
+      "name": {
+        "fr": "SALADE DE CHOU",
+        "en": "Coleslaw"
+      },
+      "price": 2.71,
+      "category": "EXTRA",
+      "deal": false,
+      "photo": true
+    },
+    "YVZKRHA5SZWCP": {
+      "name": {
+        "fr": "Sous-marin Gyros",
+        "en": "Sub Gyros"
+      },
+      "price": 10,
+      "category": "Sous-Marins",
+      "deal": false,
+      "photo": true
+    },
+    "Z2T5680QW33EA": {
+      "name": {
+        "fr": "Sous-marin Végétarienne",
+        "en": "Sub Vegetarian"
+      },
+      "price": 9.75,
+      "category": "Sous-Marins",
+      "deal": false,
+      "photo": true
+    },
+    "Z68DXWMMA7B6W": {
+      "name": {
+        "fr": "Gâteau Red Velvet",
+        "en": "Cake Red Velvet"
+      },
+      "price": 7.99,
+      "category": "Desserts",
+      "deal": false,
+      "photo": true
+    },
+    "Z98BT09DS5GRT": {
+      "name": {
+        "fr": "Ginger Ale",
+        "en": "Ginger Ale"
+      },
+      "price": 3,
+      "category": "Breuvages",
+      "deal": false,
+      "photo": true
+    },
+    "ZMJFXFG7DZZJ4": {
+      "name": {
+        "fr": "Trio #4 — 2 burgers poulet + frite + boisson gazeuse",
+        "en": "Trio #4 — 2 burgers chicken + fries + soft drink"
+      },
+      "price": 20.99,
+      "category": "Trios #1 à #18",
+      "deal": false,
+      "photo": true
+    },
+    "ZR4DKS7XCBB06": {
+      "name": {
+        "fr": "Trio #1 — 2 hamburgers + frite + boisson gazeuse",
+        "en": "Trio #1 — 2 hamburgers + fries + soft drink"
+      },
+      "price": 15.99,
+      "category": "Trios #1 à #18",
+      "deal": false,
+      "photo": true
+    }
+  }
+}

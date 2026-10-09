@@ -213,6 +213,8 @@ export async function applyFleetEvent(ev: FleetEvent): Promise<{ applied: boolea
     pickupEta: ev.pickupEta ?? found.pickupEta, dropoffEta: ev.dropoffEta ?? found.dropoffEta,
     courier: ev.courier ? { ...(found.courier ?? {}), ...Object.fromEntries(Object.entries(ev.courier).filter(([, v]) => v !== undefined)), updatedAt: ev.courier.updatedAt } : found.courier,
     fleetDeliveryId: found.fleetDeliveryId ?? ev.fleetDeliveryId,
+    ...(ev.proof ? { proof: { ...(found.proof ?? {}), ...ev.proof } } : {}),
+    ...(ev.note ? { timeline: [...found.timeline, { at: ev.at, status: 'note' as const, message: ev.note }] } : {}),
   };
   const moves = ev.status && !TERMINAL.includes(found.status) && ev.status !== found.status && (TERMINAL.includes(ev.status) || DELIVERY_RANK[ev.status] > DELIVERY_RANK[found.status]);
   if (moves) {

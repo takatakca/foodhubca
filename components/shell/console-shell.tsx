@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { ChevronDown, ChevronsLeft, ChevronsRight, Globe, Lock, LogOut, MapPin, Menu as MenuIcon, Search, Sparkles, UserRound, Volume2, VolumeX, WifiOff, X } from 'lucide-react';
+import { BellRing, ChevronsLeft, ChevronsRight, Globe, Lock, LogOut, Menu as MenuIcon, Search, Sparkles, UserRound, Volume2, VolumeX, WifiOff, X } from 'lucide-react';
 import { ConfirmProvider } from '@/components/ui/confirm';
 import { CoachMark, Hint } from '@/components/help/hint';
 import { HelpDrawer } from '@/components/help/help-drawer';
@@ -15,19 +15,20 @@ import { ErrorBoundary } from '@/components/supervisor/error-boundary';
 import { clearAllDrafts } from '@/lib/ui/autosave-core';
 import { nextTextSize, useDisplay } from '@/lib/ui/display';
 import { health, installSupervisor, setScreen, subscribe as subscribeHealth } from '@/lib/ui/supervisor';
-import { Kbd, StatusDot } from '@/components/ui/badge';
+import { Kbd } from '@/components/ui/badge';
 import { ToastProvider } from '@/components/ui/toast';
 import { ApprovalProvider } from '@/components/live/approval';
 import { IncomingOrders } from '@/components/live/incoming';
 import { CancelAlarm } from '@/components/live/cancel-alarm';
-import { PulseProvider, usePulse } from '@/components/live/pulse';
+import { PulseProvider, usePulse, useScopeHref } from '@/components/live/pulse';
 import { DeviceHeartbeat } from '@/components/live/device-heartbeat';
 import { CommandPalette } from './command-palette';
-import { NAV, navVisible, type NavItem } from './nav';
+import { ALERTS, childActive, NAV, navActive, navVisible, type NavItem } from './nav';
 import { CopilotDrawer } from './copilot';
-import { shortLoc, useViewer } from './viewer';
+import { ScopeSwitcher } from './scope-switcher';
+import { useViewer } from './viewer';
 import { audioReady, playSound, unlockAudio } from '@/lib/ui/sound';
-import { api, money } from '@/lib/ui/api';
+import { api } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
 
@@ -57,10 +58,26 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
   );
 }
 
+/** GROUPE TAKATAK mark (BRAND.md): a white T in a glowing electric-blue circle, on navy. */
+function Logo({ compact }: { compact?: boolean }) {
+  return (
+    <span className="flex items-center gap-2.5">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-electric text-[15px] font-black text-white shadow-[0_0_18px_rgb(31_139_255/0.55)]">T</span>
+      {!compact && (
+        <span className="leading-none">
+          <span className="block text-[15px] font-extrabold tracking-[0.16em] text-[#f5f8fc]">TAKATAK</span>
+          <span className="mt-1 block text-[10px] font-bold tracking-[0.28em] text-cyan">FOOD HUB</span>
+        </span>
+      )}
+    </span>
+  );
+}
+
 function Frame({ children }: { children: ReactNode }) {
   const { can, allLocations, features } = useViewer();
   const { t } = useI18n();
   const pathname = usePathname();
+  const href = useScopeHref();
   const [collapsed, setCollapsed] = useState(false);
   const [copilot, setCopilot] = useState(false);
   const [more, setMore] = useState(false);
@@ -74,53 +91,62 @@ function Frame({ children }: { children: ReactNode }) {
     window.addEventListener('pointerdown', first, { once: true });
     return () => window.removeEventListener('pointerdown', first);
   }, []);
-  const items = NAV.filter((n) => navVisible(n, can, allLocations, features));
+  const visible = (n: Pick<NavItem, 'perm' | 'allLocations' | 'features'>) => navVisible(n, can, allLocations, features);
+  const items = NAV.filter(visible);
   const toggle = () => { setCollapsed((c) => { try { localStorage.setItem('takatak.rail', c ? '0' : '1'); } catch { /* ignore */ } return !c; }); };
   const kitchen = pathname.startsWith('/kitchen');
+  const mobile = [NAV[0], NAV[1], NAV[2], ALERTS].filter(visible);
 
   return (
     <div className={cn('min-h-dvh', kitchen && 'theme-kitchen bg-canvas text-ink')}>
-      <aside className={cn('fixed inset-y-0 left-0 z-40 hidden flex-col bg-rail text-white transition-[width] duration-200 lg:flex', collapsed ? 'w-[72px]' : 'w-60')}>
-        <div className={cn('flex h-16 items-center gap-2 px-5', collapsed && 'justify-center px-0')}>
-          <span className="flex size-8 items-center justify-center rounded-md bg-brand text-sm font-black">T</span>
-          {!collapsed && <span className="text-[15px] font-extrabold tracking-[0.14em]">TAKATAK</span>}
-        </div>
-        <nav className="scrollbar-thin flex-1 space-y-0.5 overflow-y-auto px-3 py-2">
-          {items.map((n) => <NavLink key={n.href} item={n} collapsed={collapsed} />)}
+      <aside className={cn('fixed inset-y-0 left-0 z-40 hidden flex-col bg-rail text-white transition-[width] duration-200 lg:flex', collapsed ? 'w-[76px]' : 'w-64')}>
+        <Link href={href('/')} className={cn('flex h-16 items-center px-5', collapsed && 'justify-center px-0')} aria-label="TAKATAK Food Hub"><Logo compact={collapsed} /></Link>
+        <nav className="scrollbar-thin flex-1 space-y-1 overflow-y-auto px-3 py-3" aria-label={t('Menu principal', 'Main menu')}>
+          {items.map((n) => <NavGroup key={n.href} item={n} collapsed={collapsed} visible={visible} />)}
         </nav>
         <div className="space-y-1 border-t border-white/10 p-3">
-          <button type="button" onClick={() => setCopilot(true)} className={cn('flex h-10 w-full items-center gap-3 rounded-md px-3 text-sm font-semibold text-white/80 hover:bg-white/10 hover:text-white', collapsed && 'justify-center px-0')}>
-            <Sparkles className="size-[18px] text-brand" />{!collapsed && t('Copilote', 'Co-pilot')}
+          <button type="button" onClick={() => setCopilot(true)} className={cn('flex h-11 w-full items-center gap-3 rounded-lg px-3 text-sm font-semibold text-white/75 hover:bg-white/[0.08] hover:text-white', collapsed && 'justify-center px-0')}>
+            <Sparkles className="size-[18px] text-electric" />{!collapsed && t('Copilote', 'Co-pilot')}
           </button>
-          <button type="button" onClick={toggle} className={cn('flex h-9 w-full items-center gap-3 rounded-md px-3 text-[13px] text-white/50 hover:bg-white/10 hover:text-white', collapsed && 'justify-center px-0')} aria-label={collapsed ? t('Agrandir le menu', 'Expand menu') : t('Réduire le menu', 'Collapse menu')}>
+          <button type="button" onClick={toggle} className={cn('flex h-10 w-full items-center gap-3 rounded-lg px-3 text-[13px] text-white/50 hover:bg-white/[0.08] hover:text-white', collapsed && 'justify-center px-0')} aria-label={collapsed ? t('Agrandir le menu', 'Expand menu') : t('Réduire le menu', 'Collapse menu')}>
             {collapsed ? <ChevronsRight className="size-4" /> : <><ChevronsLeft className="size-4" />{t('Réduire', 'Collapse')}</>}
           </button>
         </div>
       </aside>
 
-      <div className={cn('flex min-h-dvh flex-col transition-[padding] duration-200', collapsed ? 'lg:pl-[72px]' : 'lg:pl-60')}>
-        <Topbar onCopilot={() => setCopilot(true)} />
+      <div className={cn('flex min-h-dvh flex-col transition-[padding] duration-200', collapsed ? 'lg:pl-[76px]' : 'lg:pl-64')}>
+        <Topbar />
         <StatusBanners />
-        <main className={cn('mx-auto w-full flex-1 px-4 pt-5 pb-28 sm:px-6 lg:pb-24', kitchen ? 'max-w-none' : 'max-w-[1400px]')}>
+        <main className={cn('mx-auto w-full flex-1 px-4 pt-6 pb-28 sm:px-6 lg:px-8 lg:pb-24', kitchen ? 'max-w-none' : 'max-w-[1320px]')}>
           <ErrorBoundary resetKey={pathname} name={pathname}>{children}</ErrorBoundary>
         </main>
       </div>
 
       {/* mobile bottom bar */}
-      <nav className="safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 backdrop-blur lg:hidden">
+      <nav className="safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 backdrop-blur lg:hidden" aria-label={t('Menu', 'Menu')}>
         <div className="grid grid-cols-5">
-          {items.filter((n) => ['/', '/orders', '/kitchen', '/alerts'].includes(n.href)).map((n) => <MobileLink key={n.href} item={n} />)}
+          {mobile.map((n) => <MobileLink key={n.href} item={n} />)}
           <button type="button" onClick={() => setMore(true)} className="flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-semibold text-ink-3"><MenuIcon className="size-5" />{t('Plus', 'More')}</button>
         </div>
       </nav>
       {more && (
-        <div className="fixed inset-0 z-50 bg-ink/40 lg:hidden" onClick={() => setMore(false)}>
-          <div className="safe-bottom absolute inset-x-0 bottom-0 rounded-t-2xl bg-surface p-4 animate-rise" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-3 flex items-center justify-between"><span className="font-extrabold">TAKATAK</span><button type="button" onClick={() => setMore(false)} aria-label="Close"><X className="size-5" /></button></div>
+        <div className="fixed inset-0 z-50 bg-rail/50 lg:hidden" onClick={() => setMore(false)}>
+          <div className="safe-bottom absolute inset-x-0 bottom-0 max-h-[80dvh] overflow-y-auto rounded-t-2xl bg-surface p-4 animate-rise" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between"><span className="font-extrabold tracking-[0.14em]">TAKATAK</span><button type="button" onClick={() => setMore(false)} className="flex size-11 items-center justify-center" aria-label={t('Fermer', 'Close')}><X className="size-5" /></button></div>
             <div className="grid grid-cols-3 gap-2">
-              {items.map((n) => <Link key={n.href} href={n.href} className="flex flex-col items-center gap-1.5 rounded-lg bg-sunken p-3 text-xs font-semibold"><n.icon className="size-5" />{n.label(t)}</Link>)}
-              <button type="button" onClick={() => { setMore(false); setCopilot(true); }} className="flex flex-col items-center gap-1.5 rounded-lg bg-brand-soft p-3 text-xs font-semibold text-brand-2"><Sparkles className="size-5" />{t('Copilote', 'Co-pilot')}</button>
+              {items.map((n) => <Link key={n.href} href={href(n.href)} className="flex min-h-20 flex-col items-center justify-center gap-1.5 rounded-xl bg-sunken p-3 text-center text-xs font-semibold"><n.icon className="size-5" />{n.label(t)}</Link>)}
+              <button type="button" onClick={() => { setMore(false); setCopilot(true); }} className="flex min-h-20 flex-col items-center justify-center gap-1.5 rounded-xl bg-brand-soft p-3 text-xs font-semibold text-brand-2"><Sparkles className="size-5" />{t('Copilote', 'Co-pilot')}</button>
             </div>
+            {items.some((n) => (n.children ?? []).filter(visible).length > 1) && (
+              <div className="mt-4 space-y-3">
+                {items.filter((n) => (n.children ?? []).filter(visible).length > 1).map((n) => (
+                  <div key={n.href}>
+                    <div className="mb-1.5 text-[11px] font-bold tracking-[0.12em] text-ink-3 uppercase">{n.label(t)}</div>
+                    <div className="flex flex-wrap gap-2">{(n.children ?? []).filter(visible).map((c) => <Link key={c.href} href={href(c.href)} className="flex h-11 items-center rounded-lg border border-line px-3 text-sm font-semibold">{c.label(t)}</Link>)}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -138,105 +164,99 @@ function useBadge(kind?: NavItem['badge']): { n: number; tone: 'brand' | 'stop' 
   return null;
 }
 
-function NavLink({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
+const BADGE_BG = { stop: 'bg-stop', wait: 'bg-wait', brand: 'bg-electric' } as const;
+
+/** One group of the rail: its page, and its sub-pages underneath while it is open. */
+function NavGroup({ item, collapsed, visible }: { item: NavItem; collapsed: boolean; visible: (n: Pick<NavItem, 'perm' | 'allLocations' | 'features'>) => boolean }) {
   const { t } = useI18n();
   const path = usePathname();
-  const on = item.href === '/' ? path === '/' : path === item.href || path.startsWith(`${item.href}/`);
+  const href = useScopeHref();
+  const on = navActive(item, path);
   const b = useBadge(item.badge);
+  const kids = (item.children ?? []).filter(visible);
   return (
-    <Link href={item.href} title={collapsed ? item.label(t) : undefined}
-      className={cn('relative flex h-10 items-center gap-3 rounded-md px-3 text-sm font-semibold transition-colors', on ? 'bg-white text-[#151514]' : 'text-white/70 hover:bg-white/10 hover:text-white', collapsed && 'justify-center px-0')}>
-      <item.icon className={cn('size-[18px] shrink-0', on && 'text-brand')} />
-      {!collapsed && <span className="flex-1 truncate">{item.label(t)}</span>}
-      {b && (collapsed
-        ? <span className={cn('absolute top-1.5 right-2 size-2.5 rounded-full', b.tone === 'stop' ? 'bg-stop' : b.tone === 'wait' ? 'bg-wait' : 'bg-brand')} />
-        : <span className={cn('num min-w-6 rounded-full px-1.5 text-center text-[11px] leading-5 font-bold text-white', b.tone === 'stop' ? 'bg-stop' : b.tone === 'wait' ? 'bg-wait' : 'bg-brand', b.tone !== 'wait' && 'animate-pulse-soft')}>{b.n}</span>)}
-    </Link>
+    <div>
+      <Link href={href(item.href)} title={collapsed ? item.label(t) : undefined} aria-current={on && path === item.href ? 'page' : undefined}
+        className={cn('relative flex h-11 items-center gap-3 rounded-lg px-3 text-[14px] font-semibold transition-colors', on ? 'bg-white/[0.09] text-white' : 'text-white/65 hover:bg-white/[0.06] hover:text-white', collapsed && 'justify-center px-0')}>
+        {on && <span className="absolute top-2 bottom-2 left-0 w-[3px] rounded-r-full bg-electric" aria-hidden />}
+        <item.icon className={cn('size-[19px] shrink-0', on ? 'text-electric' : 'text-white/55')} />
+        {!collapsed && <span className="flex-1 truncate">{item.label(t)}</span>}
+        {b && (collapsed
+          ? <span className={cn('absolute top-2 right-3 size-2.5 rounded-full', BADGE_BG[b.tone])} />
+          : <span className={cn('num min-w-6 rounded-full px-1.5 text-center text-[11px] leading-5 font-bold text-white', BADGE_BG[b.tone])}>{b.n}</span>)}
+      </Link>
+      {on && !collapsed && kids.length > 1 && (
+        <div className="mt-0.5 mb-1.5 ml-[22px] space-y-0.5 border-l border-white/10 pl-3">
+          {kids.map((c) => {
+            const here = childActive(c, path);
+            return <Link key={c.href} href={href(c.href)} aria-current={here ? 'page' : undefined} className={cn('flex h-9 items-center rounded-md px-2.5 text-[13px] font-medium', here ? 'text-white' : 'text-white/55 hover:text-white')}>{c.label(t)}</Link>;
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
 function MobileLink({ item }: { item: NavItem }) {
   const { t } = useI18n();
   const path = usePathname();
-  const on = item.href === '/' ? path === '/' : path.startsWith(item.href);
+  const href = useScopeHref();
+  const on = navActive(item, path);
   const b = useBadge(item.badge);
+  const label = item.href === '/kitchen' ? t('Cuisine', 'Kitchen') : item.label(t);
   return (
-    <Link href={item.href} className={cn('relative flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-semibold', on ? 'text-ink' : 'text-ink-3')}>
-      <item.icon className={cn('size-5', on && 'text-brand')} />{item.label(t)}
-      {b && <span className={cn('num absolute top-2 right-[calc(50%-20px)] min-w-4 rounded-full px-1 text-[10px] leading-4 font-bold text-white', b.tone === 'stop' ? 'bg-stop' : 'bg-brand')}>{b.n}</span>}
+    <Link href={href(item.href)} className={cn('relative flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-semibold', on ? 'text-ink' : 'text-ink-3')}>
+      <item.icon className={cn('size-5', on && 'text-brand')} />{label}
+      {b && <span className={cn('num absolute top-2 right-[calc(50%-20px)] min-w-4 rounded-full px-1 text-[10px] leading-4 font-bold text-white', b.tone === 'stop' ? 'bg-stop' : b.tone === 'wait' ? 'bg-wait' : 'bg-brand')}>{b.n}</span>}
     </Link>
   );
 }
 
-function Topbar({ onCopilot }: { onCopilot: () => void }) {
-  const { viewer, locations, allLocations } = useViewer();
-  const { pulse, scope, setScope, online } = usePulse();
-  const { t, lang, setLang, loc } = useI18n();
+/** Alerts: a bell with the number of open alerts (red when one is critical). */
+function AlertsBell() {
+  const { t } = useI18n();
+  const href = useScopeHref();
+  const path = usePathname();
+  const b = useBadge('alerts');
+  return (
+    <Link href={href('/alerts')} aria-label={b ? t(`Alertes : ${b.n} ouverte(s)`, `Alerts: ${b.n} open`) : t('Alertes', 'Alerts')}
+      className={cn('relative flex size-11 items-center justify-center rounded-lg hover:bg-sunken', path.startsWith('/alerts') ? 'text-brand' : 'text-ink-2')}>
+      <BellRing className="size-5" />
+      {b && <span className={cn('num absolute top-1.5 right-1 min-w-[18px] rounded-full px-1 text-center text-[10px] leading-[18px] font-bold text-white', b.tone === 'stop' ? 'bg-stop' : 'bg-wait')}>{b.n > 99 ? '99+' : b.n}</span>}
+    </Link>
+  );
+}
+
+function Topbar() {
+  const { t, lang, setLang } = useI18n();
+  const href = useScopeHref();
   const [sound, setSound] = useState(false);
   useEffect(() => { const i = setInterval(() => setSound(audioReady()), 1000); return () => clearInterval(i); }, []);
-  const scopeLabel = viewer.device ? shortLoc(locations.find((l) => l.code === viewer.device!.locationCode)?.name ?? viewer.device.locationCode)
-    : scope.length === 0 ? (allLocations ? t('Toutes les succursales', 'All locations') : t('Mes succursales', 'My locations'))
-      : scope.length === 1 ? shortLoc(locations.find((l) => l.code === scope[0])?.name ?? scope[0]) : `${scope.length} ${t('succursales', 'locations')}`;
   return (
-    <header className="sticky top-0 z-30 border-b border-line bg-canvas/85 backdrop-blur-md">
-      <div className="flex h-16 items-center gap-2 px-4 sm:px-6">
-        <Link href="/" className="mr-1 flex items-center gap-2 lg:hidden"><span className="flex size-8 items-center justify-center rounded-md bg-brand text-sm font-black text-white">T</span></Link>
-        <Hint id="shell.scope"><ScopePicker label={scopeLabel} locked={Boolean(viewer.device) || locations.length <= 1} scope={scope} setScope={setScope} /></Hint>
+    <header className="sticky top-0 z-30 border-b border-line bg-canvas/90 backdrop-blur-md">
+      <div className="flex h-16 items-center gap-2 px-3 sm:px-6 lg:px-8">
+        <Link href={href('/')} className="mr-0.5 hidden sm:block lg:hidden" aria-label="TAKATAK Food Hub"><span className="flex size-9 items-center justify-center rounded-full bg-rail text-[15px] font-black text-white"><span className="flex size-7 items-center justify-center rounded-full bg-electric">T</span></span></Link>
+        <Hint id="shell.scope"><ScopeSwitcher /></Hint>
         <Hint id="shell.search">
           <button type="button" onClick={() => window.dispatchEvent(new Event('takatak:palette'))}
-            className="hidden h-10 min-w-0 flex-1 items-center gap-2 rounded-md border border-line bg-surface px-3 text-sm text-ink-3 hover:border-line-2 md:flex md:max-w-sm">
+            className="ml-2 hidden h-10 min-w-0 flex-1 items-center gap-2 rounded-lg border border-line bg-surface px-3 text-sm text-ink-3 hover:border-line-2 md:flex md:max-w-xs">
             <Search className="size-4" /><span className="truncate">{t('Chercher une commande, une page…', 'Search an order, a page…')}</span><span className="ml-auto flex gap-1"><Kbd>⌘</Kbd><Kbd>K</Kbd></span>
           </button>
         </Hint>
-        <div className="ml-auto flex items-center gap-1 sm:gap-1.5">
-          {pulse && (
-            <div className="hidden items-center gap-2 rounded-full border border-line bg-surface px-3 py-1.5 text-[13px] font-semibold sm:flex" title={t('Ventes du jour (livraison)', 'Today’s delivery sales')}>
-              <StatusDot tone={!online ? 'stop' : pulse.live ? 'go' : 'wait'} pulse={online && pulse.live} />
-              <span className="num">{money(pulse.orders.sales, loc)}</span><span className="text-ink-3">· {pulse.orders.today} {t('cmd', 'orders')}</span>
-            </div>
-          )}
+        <div className="ml-auto flex items-center gap-0.5 sm:gap-1">
+          <button type="button" onClick={() => window.dispatchEvent(new Event('takatak:palette'))} className="flex size-11 items-center justify-center rounded-lg text-ink-2 hover:bg-sunken md:hidden" aria-label={t('Chercher', 'Search')}><Search className="size-5" /></button>
+          <AlertsBell />
           <Hint id="shell.sound">
-          <button type="button" onClick={() => { unlockAudio(); playSound('soft'); setSound(true); }} className={cn('flex size-10 items-center justify-center rounded-md hover:bg-sunken', sound ? 'text-ink-3' : 'text-wait-2')} aria-label={t('Son', 'Sound')} title={sound ? t('Son actif', 'Sound on') : t('Touchez pour activer le son', 'Tap to turn sound on')}>
+          <button type="button" onClick={() => { unlockAudio(); playSound('soft'); setSound(true); }} className={cn('flex size-11 items-center justify-center rounded-lg hover:bg-sunken', sound ? 'text-ink-2' : 'text-wait-2')} aria-label={t('Son', 'Sound')} title={sound ? t('Son actif', 'Sound on') : t('Touchez pour activer le son', 'Tap to turn sound on')}>
             {sound ? <Volume2 className="size-5" /> : <VolumeX className="size-5" />}
           </button>
           </Hint>
-          <button type="button" onClick={() => window.dispatchEvent(new Event('takatak:palette'))} className="flex size-10 items-center justify-center rounded-md text-ink-3 hover:bg-sunken md:hidden" aria-label={t('Chercher', 'Search')}><Search className="size-5" /></button>
-          <Hint id="shell.copilot"><button type="button" onClick={onCopilot} className="hidden size-10 items-center justify-center rounded-md text-brand hover:bg-brand-soft sm:flex" aria-label={t('Copilote', 'Co-pilot')}><Sparkles className="size-5" /></button></Hint>
           <TextSizeButton />
-          <button type="button" onClick={() => setLang(lang === 'fr' ? 'en' : 'fr')} className="hidden h-10 items-center gap-1 rounded-md px-2 sm:flex text-[13px] font-bold text-ink-3 hover:bg-sunken hover:text-ink" aria-label="Langue / Language"><Globe className="size-4" />{lang === 'fr' ? 'EN' : 'FR'}</button>
+          <button type="button" onClick={() => setLang(lang === 'fr' ? 'en' : 'fr')} className="hidden h-11 items-center gap-1 rounded-lg px-2 text-[13px] font-bold text-ink-2 hover:bg-sunken hover:text-ink sm:flex" aria-label="Langue / Language"><Globe className="size-4" />{lang === 'fr' ? 'EN' : 'FR'}</button>
           <UserMenu />
         </div>
       </div>
     </header>
-  );
-}
-
-function ScopePicker({ label, locked, scope, setScope }: { label: string; locked: boolean; scope: string[]; setScope: (s: string[]) => void }) {
-  const { locations } = useViewer();
-  const { t } = useI18n();
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => { const c = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); }; document.addEventListener('mousedown', c); return () => document.removeEventListener('mousedown', c); }, []);
-  if (locked) return <div className="flex h-10 items-center gap-2 rounded-md px-2 text-sm font-bold text-ink"><MapPin className="size-4 text-brand" />{label}</div>;
-  return (
-    <div className="relative" ref={ref}>
-      <button type="button" onClick={() => setOpen(!open)} className="flex h-10 items-center gap-2 rounded-md px-2 text-sm font-bold text-ink hover:bg-sunken">
-        <MapPin className="size-4 text-brand" /><span className="max-w-[24vw] truncate sm:max-w-[40vw]">{label}</span><ChevronDown className="size-4 text-ink-3" />
-      </button>
-      {open && (
-        <div className="absolute top-12 left-0 z-50 w-72 rounded-lg border border-line bg-surface p-1.5 shadow-pop animate-rise">
-          <button type="button" onClick={() => { setScope([]); setOpen(false); }} className={cn('flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm font-semibold hover:bg-sunken', !scope.length && 'bg-sunken')}>{t('Toutes', 'All')}{!scope.length && <span className="text-brand">✓</span>}</button>
-          {locations.map((l) => {
-            const on = scope.includes(l.code);
-            return (
-              <button key={l.code} type="button" onClick={() => setScope(on ? scope.filter((c) => c !== l.code) : [...scope, l.code])} className={cn('flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-sunken', on && 'bg-sunken')}>
-                <span><span className="font-semibold">{shortLoc(l.name)}</span><span className="block text-xs text-ink-3">{l.address}</span></span>{on && <span className="text-brand">✓</span>}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -303,7 +323,7 @@ function TextSizeButton() {
   const label = display.text === 'md' ? 'A' : display.text === 'lg' ? 'A+' : 'A++';
   return (
     <Hint id="shell.textsize">
-      <button type="button" onClick={() => setDisplay({ text: nextTextSize(display.text) })} className="flex h-10 min-w-10 items-center justify-center rounded-md px-2 text-[15px] font-extrabold text-ink-3 hover:bg-sunken hover:text-ink"
+      <button type="button" onClick={() => setDisplay({ text: nextTextSize(display.text) })} className="hidden h-10 min-w-10 items-center sm:flex justify-center rounded-md px-2 text-[15px] font-extrabold text-ink-3 hover:bg-sunken hover:text-ink"
         aria-label={t(`Taille du texte : ${label}`, `Text size: ${label}`)} title={t('Taille du texte', 'Text size')}>{label}</button>
     </Hint>
   );

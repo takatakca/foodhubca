@@ -10,13 +10,16 @@ import type { CartLine } from './cart';
 
 export const PHONE_CALLS = 'phone_calls';
 
+/** Language of a call: Québec French (default), English, or Spanish (ON2GO menu callers who chose español). */
+export type PhoneLang = 'fr' | 'en' | 'es';
+
 export type CallStatus = 'active' | 'ordered' | 'handoff' | 'handoff_missed' | 'ended' | 'abandoned' | 'error';
 
 export interface TurnReply {
   say: string;
   /** What happens after saying it. */
   next: 'listen' | 'handoff' | 'hangup';
-  lang: 'fr' | 'en';
+  lang: PhoneLang;
 }
 
 export interface PhoneCall {
@@ -27,7 +30,7 @@ export interface PhoneCall {
   brands: string[];
   from: string;
   to: string;
-  lang: 'fr' | 'en';
+  lang: PhoneLang;
   status: CallStatus;
   startedAt: string;
   endedAt?: string;
@@ -36,6 +39,8 @@ export interface PhoneCall {
   transcript: Array<{ at: string; who: 'caller' | 'agent' | 'system'; text: string }>;
   /** Claude message history while the call runs (dropped when it ends). */
   messages: unknown[];
+  /** The line part of the system prompt, frozen at the first AI turn (the prefix must not change during a call). Dropped when it ends. */
+  prompt?: string;
   cart: CartLine[];
   customer: { name?: string; phone?: string; fulfillment?: 'pickup' | 'delivery'; dropoff?: DropoffAddress; wantedAt?: string };
   orderId?: string;
@@ -73,7 +78,7 @@ export async function endCall(id: string, status?: CallStatus, durationSec?: num
   if (!call) return null;
   const final: CallStatus = status ?? (call.status === 'active' ? (call.orderId ? 'ordered' : call.cart.length ? 'abandoned' : 'ended') : call.status);
   const endedAt = call.endedAt ?? nowIso();
-  return saveCall({ ...call, status: final, endedAt, durationSec: durationSec ?? call.durationSec ?? Math.round((Date.parse(endedAt) - Date.parse(call.startedAt)) / 1000), messages: [], pending: undefined });
+  return saveCall({ ...call, status: final, endedAt, durationSec: durationSec ?? call.durationSec ?? Math.round((Date.parse(endedAt) - Date.parse(call.startedAt)) / 1000), messages: [], prompt: undefined, pending: undefined });
 }
 
 /** Calls still "active" 30 minutes later lost their final callback: close them. */

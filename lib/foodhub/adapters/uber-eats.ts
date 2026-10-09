@@ -196,6 +196,10 @@ export const uberEatsAdapter: ChannelAdapter = {
     const keys = [process.env.UBER_WEBHOOK_SIGNING_KEY, process.env.UBER_WEBHOOK_SIGNING_KEY_2, process.env.UBER_CLIENT_SECRET].filter((k): k is string => Boolean(k));
     return keys.some((key) => safeEqual(crypto.createHmac('sha256', key).update(rawBody, 'utf8').digest('hex'), sig.toLowerCase()));
   },
+  // TODO(uber-prep-time): Uber's quality standards list "Update Store Prep Time" as required, but its endpoint is NOT
+  // in Uber's public reference (only third-party pages show one; never used here). Until Uber's integration support
+  // gives the official path, body and scope, the prep time reaches Uber per order as pickup_time below. Question for
+  // Uber: docs/CERTIFICATION_BACKLOG.md "Questions for the platforms". Do not guess the endpoint.
   acceptOrder: (order, posRef) => {
     // pickup_time (Unix seconds) = when the food will be ready, from the location's normal/busy prep time or the cook's
     // estimate — Uber dispatches the courier on it instead of its own default.

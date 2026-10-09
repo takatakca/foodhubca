@@ -1659,6 +1659,17 @@ try {
   const r44 = await call('POST', `/api/foodhub/website-orders/${w44b?.id}`, { body: { action: 'ready' } });
   check('"Ready" on the kitchen screen is local: nothing written to Clover', r44.json?.order?.status === 'ready' && !log.some((e) => e.method !== 'GET' && /OLO-/.test(e.path)), JSON.stringify(r44.json));
 
+  // The brand's own website (pppmtl.com) takes the payment with Clover Hosted Checkout: that order has no online
+  // order type; once paid, the site titles it "🌐 Site web · …" in Clover and prints it once itself.
+  const prints44c = sent('POST', /\/print_event$/).length;
+  cloverNativeOrders.push(webNative('HCO-WEB-1', {
+    createdTime: Date.now() - 2000, orderType: undefined, customers: undefined,
+    title: '🌐 Site web · PPP-AB12C · Marie', note: 'SITE WEB pppmtl.com | POUR EMPORTER / PICKUP | PAYÉ EN LIGNE / PAID ONLINE (Clover)',
+  }));
+  check('Clover Orders event for a website order paid with Clover Hosted Checkout accepted', (await orderHook('HCO-WEB-1', 'UPDATE')).status === 200);
+  const w44c = await waitFor(async () => (await webList()).find((o) => o.posOrderId === 'HCO-WEB-1'));
+  check('…recognised by its "Site web" title: on the kitchen screen, paid, named, and Food Hub prints nothing', w44c?.source === 'clover_online' && w44c.status === 'in_kitchen' && w44c.payment === 'paid' && w44c.customer?.name === 'Marie' && sent('POST', /\/print_event$/).length === prints44c, JSON.stringify(w44c));
+
   // Refunded in Clover → cancelled here too, at the next Orders event.
   cloverNativeOrders.find((o) => o.id === 'OLO-WEB-1').paymentState = 'REFUNDED';
   check('Clover Orders event (UPDATE) accepted', (await orderHook('OLO-WEB-1', 'UPDATE')).status === 200);

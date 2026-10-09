@@ -46,10 +46,15 @@ const sections = [
     ['DASHBOARD_PASSWORD', 'Recovery password — only for emergencies ("Sign in with the recovery password"). Type it yourself, never in chat'],
     ['FOODHUB_TRUST_PROXY', 'true when a reverse proxy (Caddy, Traefik, nginx, Cloudflare) sits in front of the app — sign-in throttling then keys on the real client address (automatic on Vercel; leave empty otherwise)'],
   ]],
-  ['EMAIL (resend.com → API Keys; the From addresses must be on a domain verified in Resend)', [
-    ['RESEND_API_KEY', 'Resend API key (re_...) — sends sign-in codes, invitations, alerts and reports'],
-    ['AUTH_EMAIL_FROM', 'Sign-in From address, e.g. TAKATAK <connexion@yourdomain.com>'],
-    ['REPORT_EMAIL_FROM', 'Reports From address, e.g. TAKATAK Rapports <rapports@yourdomain.com>'],
+  ['EMAIL — sign-in codes, invitations, alerts and reports. Choose ONE way to send: (A) SMTP, a mailbox on your own domain (MochaHost etc.), or (B) Resend (resend.com → API Keys; the From addresses must be on a domain verified in Resend). If SMTP_HOST, SMTP_USER and SMTP_PASS are all set, SMTP is used', [
+    ['SMTP_HOST', '(A) SMTP server, e.g. mail.yourdomain.com — leave empty to use Resend'],
+    ['SMTP_PORT', '(A) SMTP port [465 = TLS, 587 = STARTTLS]', '465'],
+    ['SMTP_USER', '(A) SMTP user = the full mailbox address, e.g. connexion@yourdomain.com'],
+    ['SMTP_PASS', '(A) SMTP password of that mailbox (stays on this machine)'],
+    ['SMTP_SECURE', '(A) Optional: true = TLS from the start, false = STARTTLS (default: true on port 465, false otherwise)'],
+    ['RESEND_API_KEY', '(B) Resend API key (re_...) — used when SMTP is not set'],
+    ['AUTH_EMAIL_FROM', 'Sign-in From address, e.g. TAKATAK <connexion@yourdomain.com> (with SMTP: an address of the mailbox)'],
+    ['REPORT_EMAIL_FROM', 'Reports From address, e.g. TAKATAK Rapports <rapports@yourdomain.com> (empty = the sign-in address)'],
   ]],
   ['SMS + PHONE CALLS (twilio.com → Console: Account SID, Auth Token, and a Canadian phone number that can send SMS and make calls)', [
     ['TWILIO_ACCOUNT_SID', 'Account SID (AC...)'],
@@ -155,7 +160,7 @@ const order = [
   'NEXT_PUBLIC_SUPABASE_URL','NEXT_PUBLIC_SUPABASE_ANON_KEY','SUPABASE_SERVICE_ROLE_KEY',
   'LIVE_CONNECTORS_GLOBAL_ENABLED','AI_INGESTION_ENABLED','CONNECTOR_NETWORK_TIMEOUT_MS',
   'FOODHUB_PUBLIC_URL','FOODHUB_OWNER_EMAIL','FOODHUB_OWNER_PHONE','DASHBOARD_PASSWORD','SESSION_SECRET','FOODHUB_TRUST_PROXY','CRON_SECRET',
-  'RESEND_API_KEY','AUTH_EMAIL_FROM','REPORT_EMAIL_FROM','TWILIO_ACCOUNT_SID','TWILIO_AUTH_TOKEN','TWILIO_FROM','TWILIO_MESSAGING_SERVICE_SID',
+  'SMTP_HOST','SMTP_PORT','SMTP_USER','SMTP_PASS','SMTP_SECURE','RESEND_API_KEY','AUTH_EMAIL_FROM','REPORT_EMAIL_FROM','TWILIO_ACCOUNT_SID','TWILIO_AUTH_TOKEN','TWILIO_FROM','TWILIO_MESSAGING_SERVICE_SID',
   'ALERT_WEBHOOK_URL','ANTHROPIC_API_KEY','ANTHROPIC_MODEL','FOODHUB_WATCH_INTERVAL_S',
   'CLOVER_BASE_URL','CLOVER_CLIENT_ID','CLOVER_CLIENT_SECRET','CLOVER_WEB_URL','CLOVER_ALLOWED_MERCHANTS','FOODHUB_VIA_CLOVER','FOODHUB_CLOVER_PLATFORM_ORDERS','CLOVER_MERCHANT_ID','CLOVER_ACCESS_TOKEN','CLOVER_MERCHANT_TOKENS','CLOVER_PRINT_DEVICE_ID','CLOVER_PRINT_DEVICES','FOODHUB_CLOVER_AUTOPRINT','CLOVER_WEBHOOK_AUTH','FOODHUB_CLOVER_RECORD_PAYMENT','FOODHUB_CLOVER_DELETE_CANCELLED','FOODHUB_CLOVER_ORDER_TYPES','FOODHUB_CLOVER_INVENTORY_SYNC',
   'DOORDASH_BASE_URL','DOORDASH_DEVELOPER_ID','DOORDASH_KEY_ID','DOORDASH_SIGNING_SECRET','DOORDASH_PROVIDER_TYPE','DOORDASH_WEBHOOK_SECRET',

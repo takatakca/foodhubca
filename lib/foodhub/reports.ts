@@ -6,6 +6,7 @@ import { logActivity, type Actor } from './activity';
 import { getCatalog } from './catalog';
 import { CHANNEL_LABELS, CHANNEL_MARKETPLACE } from './config';
 import { priceFor } from './menu/translate';
+import { emailConfigured as mailConfigured, emailSetupMessage, sendMail } from './notify/email';
 import { offRefsAt } from './ops';
 import { getBrandMenu, getMenuSharing } from './menu/shared';
 import { getRepo } from './repo';
@@ -201,40 +202,28 @@ export function renderReport(t: ReportTable, format: 'csv' | 'xlsx'): { body: Ui
     : { body: toCsv(t), contentType: 'text/csv; charset=utf-8', filename: `${t.filename}.csv` };
 }
 
-// ---------- email (Resend) ----------
+// ---------- email (SMTP or Resend, see notify/email.ts) ----------
 
+/** True when a mail provider (SMTP_HOST + SMTP_USER + SMTP_PASS, or RESEND_API_KEY) and a From address (REPORT_EMAIL_FROM, else AUTH_EMAIL_FROM) are set. */
 export function emailConfigured(): boolean {
-  return Boolean(process.env.RESEND_API_KEY && process.env.REPORT_EMAIL_FROM);
+  return mailConfigured('report');
 }
 
 export async function emailReport(t: ReportTable, to: string[], format: 'csv' | 'xlsx', note = ''): Promise<{ ok: boolean; message: string }> {
-  if (!emailConfigured()) return { ok: false, message: 'Email is not set up: add RESEND_API_KEY and REPORT_EMAIL_FROM (npm run setup).' };
+  if (!mailConfigured('report')) return { ok: false, message: emailSetupMessage('report') };
   const file = renderReport(t, format);
-  const content = Buffer.from(typeof file.body === 'string' ? file.body : file.body).toString('base64');
-  try {
-    const res = await fetch(`${(process.env.RESEND_BASE_URL || 'https://api.resend.com').replace(/\/+$/, '')}/emails`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: process.env.REPORT_EMAIL_FROM,
-        to,
-        subject: `TAKATAK — ${t.title}${note ? ` (${note})` : ''}`,
-        text: `${t.title}${note ? ` — ${note}` : ''}\n${t.rows.length} row(s). The file is attached.\n\n${REPORTS[t.key].description}`,
-        attachments: [{ filename: file.filename, content }],
-      }),
-    });
-    if (!res.ok) {
-      // Resend answers { name, message } ("The gmail.com domain is not verified", "Invalid `to` field"): that is what the operator needs to see.
-      const body = await res.text().catch(() => '');
-      let detail = body;
-      try { const j = JSON.parse(body); detail = typeof j?.message === 'string' ? j.message : body; } catch { /* not JSON */ }
-      detail = detail.replace(/\s+/g, ' ').trim().slice(0, 300);
-      return { ok: false, message: `Email provider returned HTTP ${res.status}${detail ? `: ${detail}` : ''}` };
-    }
-    return { ok: true, message: `Sent to ${to.join(', ')}` };
-  } catch (error) {
-    return { ok: false, message: `Email failed: ${error instanceof Error ? error.message : String(error)}` };
-  }
+  const r = await sendMail({
+    to,
+    subject: `TAKATAK — ${t.title}${note ? ` (${note})` : ''}`,
+    text: `${t.title}${note ? ` — ${note}` : ''}\n${t.rows.length} row(s). The file is attached.\n\n${REPORTS[t.key].description}`,
+    attachments: [{ filename: file.filename, content: typeof file.body === 'string' ? Buffer.from(file.body) : file.body }],
+  }, 'report');
+  if (r.ok) return { ok: true, message: `Sent to ${to.join(', ')}` };
+  const f = r.failure;
+  if (f.kind === 'http') return { ok: false, message: `Email provider returned HTTP ${f.status}${f.detail ? `: ${f.detail}` : ''}` };
+  if (f.kind === 'smtp') return { ok: false, message: `Email failed (SMTP): ${f.detail}` };
+  if (f.kind === 'config') return { ok: false, message: f.detail };
+  return { ok: false, message: `Email failed: ${f.detail}` };
 }
 
 // ---------- schedules ----------

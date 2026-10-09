@@ -10,6 +10,7 @@ import { prepFor } from '../prep';
 import { localTimeLabel } from '../time';
 import { cloverOnlineBlockedReason } from '../pos/clover-website-orders';
 import { createDirectOrderInClover } from './clover-direct';
+import { tellDriveOrderReady } from './drive-api';
 import { addDirectEvent, getDirectOrder, newId, nextOrderNumber, saveDirectOrder } from './store';
 import type { DirectLine, DirectOrder, DirectSource, DropoffAddress, PaymentState } from './types';
 
@@ -146,6 +147,8 @@ export async function runDirectAction(orderId: string, action: DirectAction, act
   switch (action) {
     case 'ready':
       next = await addDirectEvent(order, 'ready', 'Ready', actor.name, { status: order.status === 'out_for_delivery' ? order.status : 'ready' });
+      // DoorDash Drive: order_ready_time on the booked delivery, so the Dasher is sent / hurried. Never blocks the kitchen.
+      if (order.fulfillment === 'delivery') await tellDriveOrderReady(order.id).catch(() => undefined);
       break;
     case 'picked_up':
       if (order.fulfillment !== 'pickup') throw new Error('A delivery order is picked up by the courier.');

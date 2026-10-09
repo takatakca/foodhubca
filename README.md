@@ -96,7 +96,7 @@ app/login, app/kitchen/lock, app/ticket
 app/api/foodhub/        API: auth (code, link, PIN, setup), devices, orders, stores, menu, recon, watch, incidents,
                         pulse, copilot, webhooks (Uber, DoorDash, Skip, TGTG, Clover), cron (sync, watch, reports, reopen)
 components/             ui kit, live (pop-up, cancel alarm, order drawer, pulse), shell, charts
-lib/foodhub/            adapters, Clover, pipeline, sync, identity (otp, pin, devices), policy, notify (Resend, Twilio,
+lib/foodhub/            adapters, Clover, pipeline, sync, identity (otp, pin, devices), policy, notify (SMTP or Resend, Twilio,
                         chat), watch (Watchtower engine, AI explanations, customer contact), recon, reports
 lib/i18n/               French / English
 supabase/INSTALL_ALL.sql  one-paste database install (foodhub.sql + rc10.sql)

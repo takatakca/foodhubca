@@ -32,7 +32,7 @@ Check that each store is **open/online** on each platform (not paused or deactiv
    CLOVER_ACCESS_TOKEN=...
    LIVE_CONNECTORS_GLOBAL_ENABLED=false    # true only when Go-live is green
    ```
-   - Optional, for sign-in codes and alerts: `RESEND_API_KEY` + `AUTH_EMAIL_FROM`, `TWILIO_*`, and `ANTHROPIC_API_KEY` for AI.
+   - Optional, for sign-in codes and alerts: email (`SMTP_HOST` + `SMTP_PORT` + `SMTP_USER` + `SMTP_PASS`, or `RESEND_API_KEY`; plus `AUTH_EMAIL_FROM`), `TWILIO_*`, and `ANTHROPIC_API_KEY` for AI.
    - Add a persistent volume on `/app/data/media`.
    - The image already runs the background sync every 5 minutes (`FOODHUB_INTERNAL_SYNC_MIN=5`).
 4. **Sign in:** `https://<domain>/login` → owner recovery sign-in (`owner` + `DASHBOARD_PASSWORD`). There must be **no "Demo mode" banner**; if there is one, step 3's Supabase keys are wrong.

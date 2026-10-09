@@ -15,7 +15,11 @@
 //   1. Food Hub did not create it — known Clover ids, "<Platform> #…" and "🌐 W-1043 · …" titles;
 //   2. no delivery platform's name in its order type, tender, title or note (those are platform orders);
 //   3. its order type is one of the merchant's online-ordering types: a label with "online" / "en ligne" / "web"
-//      ("Online Order Pick Up"…), or the ids / labels pinned in FOODHUB_CLOVER_WEBSITE_ORDER_TYPES.
+//      ("Online Order Pick Up"…), or the ids / labels pinned in FOODHUB_CLOVER_WEBSITE_ORDER_TYPES;
+//      OR the brand's own website marked it: a site such as pppmtl.com that takes the payment with Clover Hosted
+//      Checkout titles the paid Clover order "🌐 Site web · PPP-AB12C · Marie" (note "SITE WEB pppmtl.com | …").
+//      Hosted Checkout orders carry no online-ordering type, so that title is their mark. The site prints the order
+//      once itself (Clover print_event); Food Hub still never prints it.
 // Sources: the Clover webhook (O:<id> CREATE / UPDATE / DELETE — instant, needs the "Orders" event subscription) and a
 // poller (every FOODHUB_CLOVER_WEBSITE_POLL_S, default 30 s, while a screen is open or the cron runs, and at each sync).
 // Both write the same document (id derived from the Clover order id), so an order is never shown twice.
@@ -113,6 +117,15 @@ export function isFoodHubTitle(title: unknown): boolean {
   return OWN_PLATFORM_TITLE.test(s) || OWN_DIRECT_TITLE.test(s);
 }
 
+// The brand website's own mark on a Clover order it was paid for (Clover Hosted Checkout): "🌐 Site web · …" title or
+// a "SITE WEB …" note. Never one of Food Hub's titles ("🌐 W-1043 · …" stays Food Hub's).
+const SITE_WEB_MARK = /^[^\p{L}\p{N}]*(site\s*web|website)\b/iu;
+
+/** True when the brand's website marked this Clover order as its own (Clover Hosted Checkout payment). */
+export function isSiteWebMarked(co: any): boolean {
+  return SITE_WEB_MARK.test(String(co?.title ?? '').trim()) || SITE_WEB_MARK.test(String(co?.note ?? '').trim());
+}
+
 export type CloverOrderKind = 'website' | 'platform' | 'foodhub' | 'other';
 
 /** Which kind of Clover order this is. `known` = Clover ids of the orders Food Hub created itself. */
@@ -121,6 +134,7 @@ export function classifyCloverOrder(co: any, ctx: { orderTypes: Map<string, stri
   if (id && ctx.known?.has(id)) return 'foodhub';
   if (isFoodHubTitle(co?.title)) return 'foodhub';
   if (detectPlatform(co, ctx.orderTypes, ctx.tenders)) return 'platform';
+  if (cloverWebsiteOrdersEnabled() && isSiteWebMarked(co)) return 'website';
   if (isCloverOnlineOrderType(co, ctx.orderTypes)) return 'website';
   return 'other';
 }
@@ -256,7 +270,8 @@ async function placeFor(mid: string, co: any): Promise<{ locationCode: string; b
 
 function customerName(co: any): string | undefined {
   const c = co?.customers?.elements?.[0];
-  if (!c) return undefined;
+  // A website-paid order names the customer in its title: "🌐 Site web · PPP-AB12C · Marie".
+  if (!c) return isSiteWebMarked(co) ? String(co?.title ?? '').split('·').map((s) => s.trim()).filter(Boolean)[2]?.slice(0, 40) : undefined;
   const first = String(c.firstName ?? '').trim();
   const last = String(c.lastName ?? '').trim();
   return [first, last ? `${last[0].toUpperCase()}.` : ''].filter(Boolean).join(' ') || undefined;
@@ -321,7 +336,9 @@ export async function upsertCloverOnlineOrder(mid: string, co: any, opts: { now?
   const fulfillment: DirectOrder['fulfillment'] = /livraison|deliver/i.test(typeLabel) ? 'delivery' : 'pickup';
   const payment: PaymentState = state.paid ? 'paid' : fulfillment === 'pickup' ? 'pay_at_pickup' : 'unpaid';
   const at = nowIso();
-  const events: DirectEvent[] = [ev('received', `Website / Clover Online — accepted in Clover${typeLabel ? ` (${typeLabel})` : ''}. Clover prints it and sends it to its KDS; Food Hub only shows it (nothing is sent to Clover).`)];
+  const events: DirectEvent[] = [ev('received', isSiteWebMarked(co)
+    ? 'Website — paid on the brand\'s site with Clover Hosted Checkout; the site printed it in Clover. Food Hub only shows it (nothing is sent to Clover).'
+    : `Website / Clover Online — accepted in Clover${typeLabel ? ` (${typeLabel})` : ''}. Clover prints it and sends it to its KDS; Food Hub only shows it (nothing is sent to Clover).`)];
   if (state.printed) events.push(ev('clover_printed', 'Printed by Clover (its order printer / KDS). Food Hub prints nothing for this order.'));
   if (old) events.push(ev('auto_completed', 'Placed more than the kitchen window ago — kept as history only.', 'Food Hub'));
   const order: DirectOrder = {

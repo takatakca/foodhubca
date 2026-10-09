@@ -8,7 +8,7 @@ import { Banner, Skeleton } from '@/components/ui/card';
 import { Field, Input, Select, Switch } from '@/components/ui/form';
 import { useToast } from '@/components/ui/toast';
 import { useViewer } from '@/components/shell/viewer';
-import type { DeliverySettings, LocationDeliveryRule } from '@/lib/foodhub/delivery/types';
+import { DEFAULT_UBER_DIRECT_OPTIONS, type DeliverySettings, type LocationDeliveryRule, type UberDirectOptions as UberOpts } from '@/lib/foodhub/delivery/types';
 import { api, ApiError } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { Section } from '../../settings-ui';
@@ -16,6 +16,7 @@ import { CopyValue, ExpansionHead } from '../expansion-ui';
 
 type Fleet = { fleet: string; label: string; configured: boolean; canSend: boolean; environment: 'sandbox' | 'production'; missing: string[]; note: string; noteFr: string; webhookPath: string };
 type Resp = { settings: DeliverySettings; fleets: Fleet[]; baseUrl: string; secrets: { driveWebhook: string; websiteOrder: string } | null };
+const uberOpts = (s: DeliverySettings): UberOpts => ({ ...DEFAULT_UBER_DIRECT_OPTIONS, ...(s.uberDirect ?? {}) });
 const DEFAULT_RULE: LocationDeliveryRule = { enabled: false, autoDispatch: false, leadMinutes: 10, maxDistanceKm: 8, postalPrefixes: [], maxAutoFee: 15 };
 
 export default function DeliverySettingsPage() {
@@ -48,6 +49,19 @@ export default function DeliverySettingsPage() {
     } catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
 
+  const [driveStores, setDriveStores] = useState<{ businessId: string; stores: Record<string, { storeId: string }> } | null>(null);
+  useEffect(() => { api<{ registry: { businessId: string; stores: Record<string, { storeId: string }> } | null }>('/api/foodhub/delivery/drive-stores').then((d) => setDriveStores(d.registry)).catch(() => undefined); }, []);
+  async function registerKitchens() {
+    setBusy(true);
+    try {
+      const r = await api<{ ok: boolean; message: string; rows: Array<{ locationCode: string; ok: boolean; message: string }>; registry: typeof driveStores }>('/api/foodhub/delivery/drive-stores', { method: 'POST' });
+      setDriveStores(r.registry);
+      const failed = r.rows.filter((x) => !x.ok);
+      if (failed.length) toast.warn(r.message, failed.map((x) => `${x.locationCode}: ${x.message}`).join(' · '));
+      else toast.success(r.message);
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+  }
+
   const drive = data?.fleets.find((f) => f.fleet === 'doordash_drive');
   return (
     <div>
@@ -67,6 +81,11 @@ export default function DeliverySettingsPage() {
                     {f.fleet === 'doordash_drive' && <>
                       <div className="grid grid-cols-2 gap-2"><CopyValue label={t('Type d’authentification', 'Authentication type')} value="Basic" mono={false} /><CopyValue label={t('Nom de l’en-tête', 'Header name')} value="Authorization" mono={false} /></div>
                       {data.secrets ? <CopyValue label={t('Jeton (Authorization)', 'Token (Authorization)')} value={data.secrets.driveWebhook || t('(non généré)', '(not generated)')} /> : can('admin') && <Button size="xs" variant="ghost" icon={<Eye className="size-3.5" />} onClick={() => load(true)}>{t('Afficher le jeton', 'Show the token')}</Button>}
+                      {/* Several kitchens: each one is a Drive store (pickup_external_business_id + pickup_external_store_id). */}
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-ink-3">
+                        <span>{t(`Cuisines inscrites chez DoorDash Drive : ${driveStores ? Object.keys(driveStores.stores).length : 0}`, `Kitchens registered with DoorDash Drive: ${driveStores ? Object.keys(driveStores.stores).length : 0}`)}</span>
+                        {edit && f.canSend && <Button size="xs" variant="outline" loading={busy} onClick={registerKitchens}>{t('Inscrire / mettre à jour les cuisines', 'Register / update kitchens')}</Button>}
+                      </div>
                     </>}
                     {f.fleet === 'uber_direct' && <p className="text-xs text-ink-3">{t('Clé de signature : UBER_DIRECT_WEBHOOK_SECRET (copiée depuis Uber Direct → Webhooks).', 'Signing key: UBER_DIRECT_WEBHOOK_SECRET (copied from Uber Direct → Webhooks).')}</p>}
                   </div>
@@ -86,6 +105,14 @@ export default function DeliverySettingsPage() {
               <Switch checked={s.smsTracking} onChange={(v) => setS({ ...s, smsTracking: v })} label={t('Texter le lien de suivi au client', 'Text the tracking link to the customer')} />
               <Switch checked={s.readCloverDeliveryOrders} onChange={(v) => setS({ ...s, readCloverDeliveryOrders: v })} label={t('Lire les commandes Clover de type « Livraison »', 'Read Clover orders of type "Delivery"')} />
               <Switch checked={s.allowUnpaidDispatch} onChange={(v) => setS({ ...s, allowUnpaidDispatch: v })} label={t('Envoyer un livreur même si la commande n’est pas payée', 'Send a courier even if the order is not paid')} description={t('Déconseillé : les livreurs n’encaissent jamais.', 'Not recommended: couriers never collect money.')} />
+            </fieldset>
+          </Section>
+
+          <Section title={t('Uber Direct : remise et preuve', 'Uber Direct: hand-off and proof')} subtitle={t('Alcool : toujours en main propre avec pièce d’identité. « Laisser à la porte » exige une photo ; un code NIP est texté au client avec le lien de suivi.', 'Alcohol: always handed over with an ID check. "Leave at the door" requires a photo; a PIN is texted to the customer with the tracking link.')}>
+            <fieldset disabled={!edit} className="grid gap-4 md:grid-cols-2">
+              <Field label={t('Remise au client', 'Hand-off')}><Select value={s.uberDirect?.deliverableAction ?? 'meet_at_door'} onChange={(e) => setS({ ...s, uberDirect: { ...uberOpts(s), deliverableAction: e.target.value as UberOpts['deliverableAction'] } })}><option value="meet_at_door">{t('En main propre', 'Meet at the door')}</option><option value="leave_at_door">{t('Laisser à la porte (photo)', 'Leave at the door (photo)')}</option></Select></Field>
+              <Field label={t('Preuve de livraison', 'Proof of delivery')}><Select value={s.uberDirect?.proof ?? 'picture'} onChange={(e) => setS({ ...s, uberDirect: { ...uberOpts(s), proof: e.target.value as UberOpts['proof'] } })}><option value="picture">{t('Photo', 'Photo')}</option><option value="signature">{t('Signature', 'Signature')}</option><option value="pincode">{t('Code NIP du client', 'Customer PIN')}</option><option value="none">{t('Aucune', 'None')}</option></Select></Field>
+              <Switch checked={Boolean(s.uberDirect?.pickPackPay)} onChange={(v) => setS({ ...s, uberDirect: { ...uberOpts(s), pickPackPay: v } })} label={t('Le livreur fait les courses (Courier Pick & Pack)', 'The courier shops the order (Courier Pick & Pack)')} description={t('Épicerie seulement ; exige une entente avec Uber Direct.', 'Grocery only; needs an agreement with Uber Direct.')} />
             </fieldset>
           </Section>
 

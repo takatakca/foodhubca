@@ -1,7 +1,7 @@
 From 312ae5e3463b2d97c2d50463328c6245bdd51d99 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Fri, 9 Oct 2026 11:00:20 +0000
-Subject: [PATCH 1/4] WORKLOG: claim workspace provisioning script
+Subject: [PATCH 1/5] WORKLOG: claim workspace provisioning script
 
 Claude-Session: https://claude.ai/code/session_01Gn1TTeAosE4tP6ZsHSXmgz
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -28,7 +28,7 @@ index a1ab8c7..21e23f0 100644
 From a39e9a1b48340a5ba8339fe43a6ad036d620919f Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Fri, 9 Oct 2026 11:18:37 +0000
-Subject: [PATCH 2/4] Add dry-run-first script to provision one workspace per
+Subject: [PATCH 2/5] Add dry-run-first script to provision one workspace per
  brand
 
 npm run provision:workspaces -- --data <private file outside the repo>
@@ -4136,7 +4136,7 @@ index 0000000..99cc9bf
 From fb21c822fef01f2112bfc4a7e4fe62343b909952 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Fri, 9 Oct 2026 16:28:23 +0000
-Subject: [PATCH 3/4] provision-workspaces: --confirm-db names the project on a
+Subject: [PATCH 3/5] provision-workspaces: --confirm-db names the project on a
  shared Supabase pooler
 
 The pooler hostname is shared by every Supabase project in a region, so a
@@ -4347,7 +4347,7 @@ index f0d79bd..6373a64 100644
 From 0c0bfd766faf0dca4d8f33ed51bca8a6fdbf8d37 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Fri, 9 Oct 2026 16:32:41 +0000
-Subject: [PATCH 4/4] docs(provision-workspaces): run one copy at a time; the
+Subject: [PATCH 4/5] docs(provision-workspaces): run one copy at a time; the
  group admin's invitations come one per run
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -4373,6 +4373,133 @@ index e3431f7..5e55ba6 100644
  - **Requirements for `--send-invites`:**
    - `NEXT_PUBLIC_APP_URL` set to a public https origin;
    - the Supabase admin settings;
+-- 
+2.43.0
+
+
+From d2f3b4b964f52954bbc9431bff4087e25eccaa1a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 9 Oct 2026 16:37:28 +0000
+Subject: [PATCH 5/5] provision-workspaces: --env-file option; document
+ starting it only through the npm script
+
+Outside Next the app's server modules need the server-only shim, which the npm
+script already loads; the docs now use that one command for every step.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Gn1TTeAosE4tP6ZsHSXmgz
+---
+ docs/WORKSPACE_PROVISIONING.md  | 14 +++++++++-----
+ scripts/provision-workspaces.ts | 21 ++++++++++++++++++++-
+ 2 files changed, 29 insertions(+), 6 deletions(-)
+
+diff --git a/docs/WORKSPACE_PROVISIONING.md b/docs/WORKSPACE_PROVISIONING.md
+index 5e55ba6..450dcb2 100644
+--- a/docs/WORKSPACE_PROVISIONING.md
++++ b/docs/WORKSPACE_PROVISIONING.md
+@@ -19,14 +19,14 @@ Membership is per workspace. Brand-level access does not exist, so a separate wo
+ # 1. Validate the file only (no database needed)
+ npm run provision:workspaces -- --data ~/private/group.json
+ 
+-# 2. Dry-run against a database (env from a private file, never committed)
+-npx tsx --env-file=$HOME/private/staging.env --require ./scripts/register-server-only.cjs \
+-  scripts/provision-workspaces.ts --data ~/private/group.json --actor-email <your platform admin email>
++# 2. Dry-run against a database (settings from a private env file, never committed)
++npm run provision:workspaces -- --env-file ~/private/staging.env --data ~/private/group.json \
++  --actor-email <your platform admin email>
+ 
+ # 3. Write. --confirm-db must equal the "Database:" value the dry-run prints (the hostname, or
+ #    <hostname>/<project-ref> on a shared Supabase pooler, where many projects share one host).
+-npx tsx --env-file=... --require ./scripts/register-server-only.cjs scripts/provision-workspaces.ts \
+-  --data ~/private/group.json --actor-email <you> --apply --confirm-db <database>
++npm run provision:workspaces -- --env-file ~/private/staging.env --data ~/private/group.json \
++  --actor-email <you> --apply --confirm-db <database>
+ ```
+ 
+ The other options are `--only key1,key2`, `--initial-owner admin|actor`, `--send-invites` (also accepted as `--send-emails`), `--invite-delay-seconds` (default 65), `--max-invites` (default 10), `--reinvite-expired`, `--json` and `--show-emails`. Run with `--help` for details.
+@@ -69,6 +69,10 @@ A new workspace has no Social subscription, so:
+ 
+ At the end, the script prints a "Blocked by the Social plan" table with the cheapest plan that unblocks each workspace. Run it again after buying the plans: it only adds what is missing.
+ 
++Always start it through `npm run provision:workspaces` (or with `--require ./scripts/register-server-only.cjs`):
++the app's server modules refuse to load otherwise, with a "Client Component" error that has nothing to do with the
++data.
++
+ ## Owners and invitations
+ 
+ - **Default (`--initial-owner admin`).** The group admin becomes the owner through `createClient`, with no email, so the admin must already have an active account (signed in once). Until then, new workspaces are BLOCKED.
+diff --git a/scripts/provision-workspaces.ts b/scripts/provision-workspaces.ts
+index 8fd4164..f76f6d8 100644
+--- a/scripts/provision-workspaces.ts
++++ b/scripts/provision-workspaces.ts
+@@ -53,6 +53,8 @@ const EXIT_USAGE = 2;
+ const USAGE = `Usage: npm run provision:workspaces -- --data <file> [options]
+ 
+   --data <file>              Private JSON data file, kept OUTSIDE this repository (required).
++  --env-file <file>          Load DATABASE_URL and the other settings from a private env file
++                             (variables already set in the shell win).
+   --actor-email <email>      Active Platform Owner/Admin who performs the writes (required with --apply).
+   --only <key,key>           Only these brand keys from the data file.
+   --initial-owner admin|actor
+@@ -72,12 +74,13 @@ const USAGE = `Usage: npm run provision:workspaces -- --data <file> [options]
+ Environment: DATABASE_URL (no database = offline validation only). For
+ --send-invites also NEXT_PUBLIC_APP_URL (public https origin),
+ SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL, and SUPABASE_SECRET_KEY or
+-SUPABASE_SERVICE_ROLE_KEY. Load them with: npx tsx --env-file=<private file> ...
++SUPABASE_SERVICE_ROLE_KEY. Load them with --env-file <private file>.
+ 
+ Exit codes: 0 no errors (BLOCKED, DEFERRED and UNSUPPORTED are not errors),
+ 1 validation, precondition, conflict or write errors, 2 bad usage.`;
+ 
+ type CliOptions = {
++  envFile: string | null;
+   data: string;
+   actorEmail: string | null;
+   only: string[] | null;
+@@ -97,6 +100,7 @@ class PreconditionError extends Error {}
+ 
+ const VALUE_FLAGS = new Set([
+   "--data",
++  "--env-file",
+   "--actor-email",
+   "--only",
+   "--initial-owner",
+@@ -155,6 +159,7 @@ function parseCliArguments(argv: string[]): CliOptions | "help" {
+   }
+ 
+   const options: CliOptions = {
++    envFile: values.get("--env-file")?.trim() || null,
+     data,
+     actorEmail: values.get("--actor-email")?.trim().toLowerCase() || null,
+     only: values.has("--only")
+@@ -239,6 +244,19 @@ function loadData(options: CliOptions): { data: ProvisioningData; fileName: stri
+ 
+ // ── Environment ──────────────────────────────────────────────
+ 
++/** Same rule as node --env-file: a variable already set in the shell wins. */
++function loadEnvironment(file: string): void {
++  const resolved = path.resolve(process.cwd(), file);
++  if (!existsSync(resolved)) {
++    throw new PreconditionError("The --env-file file does not exist.");
++  }
++  try {
++    process.loadEnvFile(resolved);
++  } catch {
++    throw new PreconditionError("The --env-file file could not be read.");
++  }
++}
++
+ function isLoopbackHost(hostname: string): boolean {
+   const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+   return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "0.0.0.0";
+@@ -438,6 +456,7 @@ async function main(argv: string[]): Promise<number> {
+     throw error;
+   }
+ 
++  if (options.envFile) loadEnvironment(options.envFile);
+   const printer = makePrinter(options.showEmails);
+   const { data, fileName, total } = loadData(options);
+   const database = describeDatabase();
 -- 
 2.43.0
 

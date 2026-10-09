@@ -52,6 +52,14 @@ looks moved to Saint-Léonard; Saint-Léonard is written 5837 in older Food Hub 
 
 ## Findings from web search (this session cannot open listing sites; only web search works)
 
+- 2026-10-09 | Mythos & Go | **No public listing found** for "Mythos & Go" or "Mythos 2 Go". **Name risk:** "Mythos"
+  (Mythos Estiatorio, 5318 av du Parc) is a decades-old, well-known Greek restaurant in Montréal, featured in
+  Tourisme Montréal's and Cult MTL's best-Greek lists. A Greek brand named "Mythos & Go" will be confused with it in
+  search, and could raise a trademark complaint. Recommendation: owner checks the Canadian trademarks database (CIPO)
+  and considers a distinct name before building Google/Yelp listings. Sources:
+  https://www.mtl.org/en/experience/great-greek-restaurants ,
+  https://cultmtl.com/2025/02/best-greek-restaurants-food-in-montreal-of-mtl-estiatorio-milos-marathon-souvlaki-marvens-christinas-cuisine-mythos
+
 - 2026-10-09 | Pita Libanais | **No public listing found.** The name is generic ("Lebanese pita"): search engines treat it
   as a description, so it will be hard to rank and Google may question it as a keyword-style name. Recommendation:
   consider a distinctive name before building listings (owner decides), or list it only on the delivery apps and the

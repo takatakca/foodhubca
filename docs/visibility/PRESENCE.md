@@ -52,6 +52,18 @@ looks moved to Saint-Léonard; Saint-Léonard is written 5837 in older Food Hub 
 
 ## Findings from web search (this session cannot open listing sites; only web search works)
 
+- 2026-10-09 | Gâteau Montréal | **No public listing surfaces** in web search under "Gâteau Montréal" or "Gâteaux
+  Montréal" (Uber Eats pages exist but are not indexed). **NAP problems:** (1) Uber Eats uses the plural "Gâteaux
+  Montréal" vs "Gâteau Montréal" in the brand config: pick one; (2) the Uber link in the Saint-Léonard row has the slug
+  `gateaux-montreal-hochelaga`, so it was created for the **old Hochelaga kitchen** (3583 Ste-Catherine E, see NAP.md),
+  not Saint-Léonard: check its address before anything links to it; (3) the website `viennoise.ca` does not match the
+  brand name and does not surface in search, while an unrelated West Island bakery, **Pâtisserie Suisse Viennoise**,
+  does: customers searching "viennoise" find the other shop. **Name risk:** "Gâteau Montréal" is a generic phrase
+  ("cake Montreal"); it competes with every cake search and with real cake shops (Mlles Gâteaux, Géraldine Gâteau, Gâteau
+  Brisé, Bayard Gâteaux). Owner decides: keep the name with a matching domain, or a more distinctive name before the
+  Google profile is verified. Sources: https://www.ubereats.com/ca/store/gateaux-montreal-ndg/c20d55f1-661a-56d6-b1db-bd792423b777 ,
+  https://www.circulaire-en-ligne.ca/patisserie-suisse-viennoise
+
 - 2026-10-09 | OCRÊPE | **The one Uber Eats store is in Saint-Léonard, not NDG.** Uber Eats "O'Crêpe (Montréal)",
   store f9c5fa6b (the link in the NDG row above), shows **5837 Rue Jean-Talon E**, 3.5 stars (30 ratings), categories
   crêpe, pastry, breakfast, halal, waffles, and **round-the-clock hours every day** (wrong: hours are not final, see

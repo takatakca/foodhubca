@@ -115,26 +115,26 @@ jobs:
             echo "- \`$tag\`" >> "$GITHUB_STEP_SUMMARY"
           done <<< "$TAGS"
 
-      # The image contains no keys. The source repository is already public, so Coolify can pull
-      # ghcr.io/takatakca/foodhubca:main with no registry password once this package is public.
-      - name: Let Coolify pull the image
+      # Publishing to GHCR does not make the package public. The old attempt to PUT
+      # /user/packages/container/foodhubca/visibility returned HTTP 404, but the
+      # workflow still succeeded. Verify that a clean, unauthenticated Docker client
+      # can inspect the published tag, exactly as a public-registry Coolify app would.
+      - name: Verify anonymous registry access for Coolify
         if: env.PUBLISH == 'true'
         shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          code=$(curl -sS -o /tmp/pkg-visibility.json -w '%{http_code}' -X PUT \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            "https://api.github.com/user/packages/container/foodhubca/visibility" \
-            -d '{"visibility":"public"}')
-          echo "Package visibility HTTP ${code}"
-          if [ "$code" = "200" ] || [ "$code" = "204" ]; then
-            echo "Coolify can pull \`${IMAGE}:main\` with no registry password." >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "::warning::The image was pushed, but it is not public yet (HTTP ${code}). GitHub → Packages → foodhubca → Package settings → Change visibility → Public. Do not paste a token in chat."
-          fi
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          for attempt in 1 2 3 4 5; do
+            if docker manifest inspect "${IMAGE}:main" >/dev/null 2>&1; then
+              echo "Anonymous GHCR access verified for ${IMAGE}:main." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "Anonymous pull unavailable (attempt ${attempt}/5)."
+            sleep 4
+          done
+          echo "::error::Image published, but GHCR is not anonymously readable. Owner: GitHub → Packages → foodhubca → Package settings → Danger Zone → Change visibility → Public (irreversible), OR keep private and configure GHCR registry credentials in Coolify. See docs/RELEASE_GHCR_COOLIFY.md."
+          exit 1
 
       - name: Summary
         if: always()

@@ -25,6 +25,14 @@ piece of work. The plan itself is `docs/MASTER_PLAN.md`. Operations (support, em
 | 13 | Certification backlog (PLATFORM_API_RESEARCH §6) | `certification-backlog` (1a5fe62, main merged in) | Certification agent | DONE, pushed. 11 items coded, SOW skipped, Uber prep time TODO. Checks: 426/426 tests, webpack OK, verify 506/0 | Owner opens the PR (https://github.com/takatakca/foodhubca/compare/main...certification-backlog?expand=1), merges after task 12, deploys; then the owner actions and platform questions in docs/CERTIFICATION_BACKLOG.md |
 | 14 | Move Supabase project "TAKATAK User Official Dashboard V1" from eu-west-1 (Ireland) to ca-central-1 (Montréal) | none | main session | CANCELLED 2026-10-08 by the owner: the project stays in Europe as long as it works. Nothing was changed. | None. Do not restart this task unless the owner asks. |
 
+## 2026-10-09 02:50 UTC (ON2GO agent, task 19: `feature/public-directory-api`)
+
+**Done:** public read-only directory feed `GET /api/public/directory` for ON2GO.ca and QMAPS (docs/PUBLIC_DIRECTORY_API.md).
+- 17 brands, NDG + Saint-Léonard kitchens, hours (Settings → Hours win), open now / open late, 10–12 dishes (Clover id, price, photo), order links (Clover first when `FOODHUB_PUBLIC_CLOVER_ORDER_URL` is set), 7-day trending rank.
+- Public facts only; Po Poulet NDG never linked; never "24 h" (open late until about 3 AM). Cached 5 min, CORS on2go.ca / qmaps.ca / localhost.
+- Checks: typecheck OK, lint 0 errors, 413/413 tests (+ snapshot export), webpack build OK, verify 506/0.
+- **Next (owner):** merge, deploy, set `FOODHUB_PUBLIC_CLOVER_ORDER_URL` in Coolify. ON2GO site: repo takatakca/on2goca, branch `feature/on2go-directory`.
+
 ## 2026-10-08 05:35 UTC (SMTP agent, task 16: `feature/smtp-email`)
 
 **Done:** email can go out by SMTP (the owner's own mailboxes, e.g. MochaHost) as well as Resend. Not merged: the owner reviews and merges.

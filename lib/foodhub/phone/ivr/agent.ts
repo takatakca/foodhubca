@@ -170,7 +170,7 @@ export async function textLink(call: IvrCall, s: IvrSettings, link: LinkKey): Pr
 }
 
 type Outcome = { content: string; isError?: boolean; stop?: IvrReply };
-interface State { call: IvrCall }
+interface State { call: IvrCall; missed?: boolean }
 
 const LEAVES = new Set(['order', 'platform', 'handoff', 'voicemail']);
 
@@ -226,6 +226,7 @@ async function runTool(name: string, input: any, state: State, s: IvrSettings): 
     case 'not_understood': {
       const misses = call.misses + 1;
       state.call = { ...call, misses };
+      state.missed = true;
       if (misses >= 2) return { content: 'The keypad menu takes over.', stop: { say: '', next: 'menu' } };
       return { content: 'Ask again in other words, very briefly (one short question).' };
     }
@@ -322,7 +323,8 @@ export async function runIvrTurn(call: IvrCall, callerText: string, s: IvrSettin
       }
       const text = spoken || ({ fr: 'Pardon, pouvez-vous répéter ?', en: 'Sorry, could you say that again?', es: 'Perdón, ¿puede repetirlo?' } as const)[state.call.lang];
       state.call = note({ ...state.call, messages }, 'agent', text);
-      if (!hangup && state.call.misses && !uses.some((u) => u.name === 'not_understood')) state.call = { ...state.call, misses: 0 };
+      // Understood this time: the count of misunderstandings in a row starts again.
+      if (!state.missed && state.call.misses) state.call = { ...state.call, misses: 0 };
       return { call: state.call, reply: { say: text, next: hangup ? 'hangup' : 'listen' } };
     }
     state.call = { ...state.call, messages };

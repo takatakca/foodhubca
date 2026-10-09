@@ -38,7 +38,14 @@ Status: `todo` / `doing` / `done` / `blocked: reason`. Newest work at the top of
 - [x] T1 done 2026-10-09 (17 brands FR/EN + order-page pattern; lengths checked; names waiting for the owner are flagged) | SEO title (<= 60 chars) and meta description (<= 155 chars) FR/EN per brand site and order page, from the brand config and the F2/D2 findings (cuisine + neighbourhood words, no "24/7") -> `SEO_TITLES.md`
 - [x] C1 done 2026-10-09 (17 brands x 5 profiles FR/EN, lengths checked; brands whose name waits for the owner are flagged: no accounts for them yet) | Short bios per brand FR/EN sized for each profile: Instagram 150, X 160, TikTok 80, Facebook intro 101, Yelp/Apple short text; one order link each -> `SOCIAL_BIOS.md`
 - [x] S1 done 2026-10-09 (17 JSON-LD blocks, valid JSON; brand + one node per kitchen; hours, order URL and address numbers wait for the owner, as listed at the top of the file) | schema.org JSON-LD per brand (Restaurant/FoodEstablishment, address per kitchen, servesCuisine, menu, hasMap, sameAs, potentialAction OrderAction; hours left as a placeholder) -> `SCHEMA.md`
-- [ ] K1 todo | Local search terms per brand x neighbourhood FR/EN (what people type, from the competitor findings) for posts, titles and later Google Ads -> `KEYWORDS.md`
+- [x] K1 done 2026-10-09 (dish terms FR/EN per brand, area lists per kitchen, negatives, 5 overlaps to settle; no volumes: Keyword Planner needs the Ads account) | Local search terms per brand x neighbourhood FR/EN (what people type, from the competitor findings) for posts, titles and later Google Ads -> `KEYWORDS.md`
+
+## P4c Apply kits (added 2026-10-09; for the owner or a logged-in desktop session, one account at a time)
+- [ ] A1 todo | Google Business Profile apply checklist, page after page: order of brands, each field with its source file, what to check after saving, what to log in Drive -> `GBP_APPLY.md`
+- [ ] H1 todo | Order hub page copy per brand FR/EN (pickup at the counter price first, then the apps that carry the brand, then Too Good To Go), never Po Poulet NDG's DoorDash store -> `ORDER_HUB.md`
+- [ ] Q1 todo | Review kit: bag card / QR text FR/EN, how to get each profile's review link, rules (ask everyone, no reward, no gating) -> `REVIEWS.md`
+- [ ] P2 todo | Photo shot list per brand (cover, logo, 5 dishes, kitchen, packaging), sizes per platform, file naming; OneDrive photos once the Microsoft connector is on -> `PHOTOS.md`
+- [ ] AD1 todo | Google Ads draft per brand (not to launch: owner waits until stores are back online): campaign type, radius per kitchen, schedule placeholder, budget placeholder, ad text FR/EN, conversion = order click -> `ADS_PLAN.md`
 
 ## P5 Recurring
 - [ ] R1 | last check 2026-10-09 16:46 UTC (no new DoorDash mail since 15:45; still no answer from DoorDash support to the 2026-10-09 01:45 follow-up; the 13:48 POS-integration notice for one store is already flagged in Drive) | Every ~1 h: check the owner's Gmail for new DoorDash email (thread ref in Drive OPS_LOG); record in Drive, never reply without the owner.

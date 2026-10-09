@@ -52,6 +52,17 @@ looks moved to Saint-Léonard; Saint-Léonard is written 5837 in older Food Hub 
 
 ## Findings from web search (this session cannot open listing sites; only web search works)
 
+- 2026-10-09 | Place Afrique | **Not on any platform and no public listing** (no Uber Eats, no DoorDash, nothing in web
+  search; website is a sub-address of Café Bolon, `placeafrique.bolon.ca`). **Name vs menu:** the menu (brand config) is
+  samosas, Jamaican patties, empanadas, souvlaki and chicken or pork skewers: none of it is African, so the proposed Google
+  category "African restaurant" would mislead customers and draw bad reviews. **Strong competitors next door:** Algrillades,
+  an Algerian halal grill at **5872 Jean-Talon E, across the street from the Saint-Léonard kitchen**, Google 4.4 from 700+
+  reviews; Belle Afrique (Saint-Léonard / Montréal-Nord, Togolese, went viral on TikTok in 2024); Afrique Weliah
+  (Parc-Extension). **Recommendation:** lowest Google priority. Owner decides: (a) a real African menu before any Google
+  profile, (b) a name that matches the current menu (category "Grill"), or (c) keep it off Google and off the apps for now.
+  Sources: https://www.restomontreal.ca/resto/algrillades-montreal/13162/en/ ,
+  https://www.themain.com/fr/montreal/restaurant/belle-afrique
+
 - 2026-10-09 | Café Bolon | **Stale directory listing in Montréal-Nord:** RestoMontreal lists 'Bolon Cafe "24/7"
   Équatorien' in **Montréal-Nord** (the old kitchen, see NAP.md), Ecuadorian soups and brunch, hours 4 p.m. to 1 a.m.,
   **Google rating 2.3 from 4+ ratings** (RestoMontreal copies Google). So one Google profile for this brand still carries

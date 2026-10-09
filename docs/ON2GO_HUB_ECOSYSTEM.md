@@ -303,11 +303,16 @@ accueil en français, « For English, press 2 » → chaque phrase → Claude (o
 1. Déployer `main` (Coolify) : le multi-cuisines (PR #17) et le menu vocal (PR #30) y sont.
 2. Coolify → variables : `ANTHROPIC_API_KEY`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` (le numéro qui
    envoie les textos de confirmation), `FOODHUB_PUBLIC_URL=https://foodhub.on2go.ca` (la signature Twilio est vérifiée
-   avec cette adresse). Facultatif : `FOODHUB_FEATURE_PHONE=on` (sinon l'interrupteur de la console).
+   avec cette adresse), `FOODHUB_IVR_NUMBER` (le numéro principal, pour le menu vocal), `FOODHUB_IVR_HANDOFF_NUMBER`
+   (le téléphone du gérant), `FOODHUB_VOICEMAIL_EMAIL`. Facultatif : `FOODHUB_FEATURE_PHONE=on` (sinon l'interrupteur
+   de la console).
 3. Clover branché (jeton du marchand ou marchand connecté) : sinon la commande reste dans ON2GO Hub seulement.
 4. Twilio → Phone Numbers → le numéro principal → Voice Configuration :
-   - **A call comes in** : Webhook, `https://foodhub.on2go.ca/api/foodhub/webhooks/voice`, **HTTP POST** ;
-   - **Call status changes** : `https://foodhub.on2go.ca/api/foodhub/webhooks/voice/status`, **HTTP POST** ;
+   - **A call comes in** : Webhook, `https://foodhub.on2go.ca/api/foodhub/webhooks/ivr`, **HTTP POST** (le menu vocal
+     répond, l'IA d'abord ; « passer une commande » donne l'appel à l'agent de commande, même appel) ;
+   - **Call status changes** : `https://foodhub.on2go.ca/api/foodhub/webhooks/ivr/status`, **HTTP POST** ;
+   - un numéro qui doit aller **directement** à l'agent de commande (sans menu) : `…/api/foodhub/webhooks/voice` et
+     `…/api/foodhub/webhooks/voice/status` ;
    - **Primary handler fails** (secours si le serveur ne répond pas) : un **TwiML Bin** qui fait sonner une personne
      (`<Dial>` le téléphone du gérant). Pas une adresse d'ON2GO Hub : si le serveur est en panne, toutes ses adresses le
      sont aussi. Le modèle est dans les notes privées du téléphone (`private/phone/`).
@@ -318,6 +323,7 @@ accueil en français, « For English, press 2 » → chaque phrase → Claude (o
    marques, « Ajouter une cuisine sur ce numéro » → **Cuisine 2 = Saint-Léonard** avec ses marques, transfert = le
    téléphone du gérant (vide = téléphone de la cuisine), livraison non au début. **Po Poulet seulement sous
    Saint-Léonard** : les lignes de marque refusent déjà Po Poulet à NDG (règle du propriétaire) ; à confirmer pour l'IA.
+   Puis **Menu téléphonique** : allumé, ligne de commande = cette ligne, vérifier l'accueil et les liens.
 6. Commandes directes → Appels → **Essayer l'agent** jusqu'à ce que ce soit bon ; puis appeler le numéro soi-même.
 7. **Numéros des marques** : chaque numéro de marque peut aller à l'IA — même webhook `/api/foodhub/webhooks/voice`,
    et une ligne par numéro dans la console (sa marque, sa cuisine). Le renvoi vers un numéro principal

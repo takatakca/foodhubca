@@ -52,6 +52,18 @@ looks moved to Saint-Léonard; Saint-Léonard is written 5837 in older Food Hub 
 
 ## Findings from web search (this session cannot open listing sites; only web search works)
 
+- 2026-10-09 | OCRÊPE | **The one Uber Eats store is in Saint-Léonard, not NDG.** Uber Eats "O'Crêpe (Montréal)",
+  store f9c5fa6b (the link in the NDG row above), shows **5837 Rue Jean-Talon E**, 3.5 stars (30 ratings), categories
+  crêpe, pastry, breakfast, halal, waffles, and **round-the-clock hours every day** (wrong: hours are not final, see
+  NAP.md). **NAP problems:** (1) name spelled "O'Crêpe" on Uber vs "OCRÊPE" in the brand config: pick one spelling and use
+  it everywhere; (2) street number 5837 vs 5839 (same open question as OOEUF); (3) the table row may be wrong: move this
+  Uber link to the Saint-Léonard row once the owner confirms, and check whether NDG ever had its own Uber store.
+  **No** Yelp, TripAdvisor or DoorDash web page and no ocrepe.ca page surface in web search (the domain may not be live
+  yet). Several real crêperies nearby compete for "crêpes Jean-Talon" / "crêpes Saint-Léonard" (Crêpinos, Croustino in
+  Anjou-Saint-Léonard; Crêpes MTL, Crêperie du Marché near Marché Jean-Talon): the Google profile needs the category
+  "Creperie", photos and reviews to rank. Source:
+  https://www.ubereats.com/ca/store/ocrepe-montreal/-cX6a4NTU_msE2hZazohrg
+
 - 2026-10-09 | Bin Molle & Bin Dure | **Old Uber Eats store "Bin Molle Bin Dure" at 6241 Boulevard Léger, Montréal
   (Montréal-Nord), H1G 6K8**, closed on Uber Eats since 2023-04-13, with a mixed menu (crèmerie, pizza, rotisserie,
   breakfast, crêpes, pastries, Lebanese pitas). This looks like a **former Montréal-Nord kitchen** and explains the stale

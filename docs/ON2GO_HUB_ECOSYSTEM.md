@@ -14,6 +14,9 @@ déjà, ce qui est sur une branche, ce qui manque, et dans quel ordre on le cons
 - **Food Hub devient ON2GO Hub.** C'est la même plateforme : vous l'utilisez pour vos ~18 marques dans 2 cuisines
   (NDG, 6280 av. Somerled · Saint-Léonard, 5839 rue Jean-Talon E.), et on l'offre ensuite à d'autres restaurants, puis à
   des **commerces de détail**.
+  - **Adresses publiques** (partout où un client les voit : téléphone IA, sites, ON2GO, Google) : NDG = 6280 av. Somerled ;
+    Saint-Léonard = **5839** rue Jean-Talon E. Le 5837 est l'unité voisine de la même cuisine : il reste tel quel dans les
+    fiches des plateformes, et ON2GO Hub le reconnaît encore pour jumeler ces magasins (code de lieu `SAINT_LEONARD`).
 - **Tout ce que DoorDash, Uber Eats et Skip donnent aux marchands, ON2GO Hub le donne aussi** — et en plus : un seul écran
   pour toutes les plateformes, Clover au centre, le téléphone IA, nos propres livreurs, notre propre appli client.
 - **Nos canaux directs passent en premier** : lien de commande Clover partout, site de chaque marque, appli client ON2GO,

@@ -27,7 +27,7 @@ Status: `todo` / `doing` / `done` / `blocked: reason`. Newest work at the top of
 - [ ] F2 todo | Per brand: which of those platforms it is on today (public URL) -> `PRESENCE.md`
 
 ## P3 Directories and citations (SEO)
-- [ ] D1 todo | List of directories and data aggregators that matter in Montréal/Canada (Apple Business Connect, Bing Places, Yelp, TripAdvisor, 411.ca, Canada411, Pages Jaunes/YellowPages.ca, Foursquare, Facebook, Instagram, TikTok, Restaurant Guru, Restaurantji, Waze...), how to claim each, and which feed others -> `PLATFORMS.md`
+- [x] D1 done 2026-10-09 (tiers, who feeds whom, Yellow Pages network, Apple/Foursquare/Yelp/TripAdvisor chain; 'verify' items) | List of directories and data aggregators that matter in Montréal/Canada (Apple Business Connect, Bing Places, Yelp, TripAdvisor, 411.ca, Canada411, Pages Jaunes/YellowPages.ca, Foursquare, Facebook, Instagram, TikTok, Restaurant Guru, Restaurantji, Waze...), how to claim each, and which feed others -> `PLATFORMS.md`
 - [ ] D2 todo | Per brand: listings found on those directories (public URL), NAP mismatches -> `PRESENCE.md`
 
 ## P4 The plan

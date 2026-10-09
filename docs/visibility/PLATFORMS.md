@@ -73,3 +73,55 @@ Sources: [MobileSyrup (DoorDash Montréal launch)](https://mobilesyrup.com/?p=65
 [Cult MTL (Too Good To Go in Montréal)](https://cultmtl.com/2021/11/anti-food-waste-app-too-good-to-go-launches-in-montreal/) ·
 [Google: manage online ordering](https://support.google.com/business/answer/10842217) ·
 [DoorDash: storefront on your website](https://help.doordash.com/en-ca/merchants/article/activate-storefront-on-your-website)
+
+## D1. Directories and citation sources (search visibility)
+
+Same NAP everywhere (`NAP.md`). Fix the **sources that feed others first**, then the copies. One account at a time; each
+claim or edit logged in Drive "TAKATAK OPS (private)" > 03 OPS_LOG. Most of these are free to claim.
+
+### Who feeds whom (why the order matters)
+
+```
+Google Business Profile ─► Google Search/Maps, Waze-type map apps, sites that copy Google data (e.g. Wanderlog)
+Yellow Pages Ltd network (YellowPages.ca, PagesJaunes.ca, Canada411.ca, Canpages.ca; one company, "NetSync" syndication)
+                         ─► many Canadian directories (historically even shown on Google listings)
+Foursquare, Yelp, TripAdvisor, Data Axle ─► Apple Maps (Apple also has its own Apple Business Connect)
+Bing Places ─► Bing, Microsoft maps, Copilot answers (can import from Google)
+```
+
+### Tier 1: claim first (biggest reach for restaurants)
+
+| Site | Why | How |
+|---|---|---|
+| Google Business Profile | Search + Maps, "Order online" button | See `GBP_CHANGES.md` |
+| Apple Business Connect | Apple Maps, Siri; free | Claim per location; add Order/Menu/Website links |
+| Bing Places for Business | Bing + Microsoft; free | Import from Google after Google is clean |
+| Yelp (yelp.ca) | Reviews; feeds Apple Maps reviews | Claim each location (business.yelp.com) |
+| TripAdvisor | Restaurants + tourists; feeds Apple | Claim each location (Tripadvisor for Business) |
+| Facebook + Instagram | Social discovery, order button | One Page per brand; link to the brand order page |
+
+### Tier 2: Canadian directory network
+
+| Site | Notes |
+|---|---|
+| YellowPages.ca / PagesJaunes.ca / Canada411.ca / Canpages.ca | One company (Yellow Pages Ltd). Fix once through their business portal; it syndicates (NetSync). **verify** free claim |
+| 411.ca | Separate company; free business listing (**verify**) |
+| Foursquare (Places) | Feeds Apple Maps and many apps |
+| Data Axle | Data aggregator used by Apple and others (**verify** Canada coverage) |
+
+### Tier 3: restaurant and local sites (claim or correct as found)
+
+Restaurant Guru, Restaurantji, Wanderlog (copies Google data: fix at Google), TikTok business profile, BBB, WorldWeb,
+Hotfrog, Cylex, Tourisme Montréal (mtl.org restaurant listings, **verify** eligibility), our own ON2GO.ca and QMAPS.
+
+### Known bad listings to correct (from `PRESENCE.md`)
+- "PPP Pizzeria 24/7 Montréal Nord" (Wanderlog, copied from Google): fix or close at the Google source.
+
+Sources: [Whitespark: top citation sites in Canada](https://whitespark.ca/top-local-citation-sources-by-country/canada/) ·
+[David Mihm: Canadian citations](https://www.davidmihm.com/blog/local-seo/canadian-citations) ·
+[Smartt: Canadian citation guide](https://www.smartt.com/insights/canadian-guide-google-local-business-citations) ·
+[TechCrunch: Apple Business Connect](https://techcrunch.com/2023/01/11/apple-maps-business-listings-are-about-to-get-more-detailed-with-launch-of-apple-business-connect) ·
+[MacTrast: Apple Maps uses Foursquare](https://www.mactrast.com/?p=129429) ·
+[NiceJob: Apple Business Connect guide](https://blog.nicejob.co/resources/apple-business-connect) ·
+[Globe and Mail: Yellow Pages Ltd properties](https://www.theglobeandmail.com/investing/markets/stocks/YLWDF/profile) ·
+[MarketBeat: Yellow Pages / Canada411 / 411.ca](https://www.marketbeat.com/stocks/OTCMKTS/YLWDF/)

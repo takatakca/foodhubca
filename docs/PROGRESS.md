@@ -54,6 +54,12 @@ piece of work. The plan itself is `docs/MASTER_PLAN.md`. Operations (support, em
 - Checks: typecheck OK, lint 0 errors, 400/400 tests, workflow YAML parsed.
 - Owner steps (merge, package visibility, Coolify switch) are in the private hosting plan.
 
+## 2026-10-09 09:45 UTC (Uber API coverage agent, task 22: `feature/uber-api-coverage` → PR #21)
+- Every official Uber Eats Marketplace endpoint and webhook and all of Uber Direct are in Food Hub: 61/61 endpoints (was 21), 17/17 webhooks (was 14). Table, scopes and the 176 github.com/uber repos: `docs/UBER_API_COVERAGE.md`.
+- Kitchen: Ready / +5 min / prep time go to Uber; Uber missing item and price change in the order drawer; new Stores → Uber Eats tab; Uber Direct proof / PIN options in Settings → Delivery.
+- Checks: typecheck OK, lint 0 errors, 475/475 tests, clean webpack build OK, verify:foodhub 508/0 (ports 5499/5500).
+- Next: owner merges PR #21 and deploys; owner asks Uber for the optional scopes (doc, Owner steps).
+
 ## 2026-10-08 05:35 UTC (SMTP agent, task 16: `feature/smtp-email`)
 
 **Done:** email can go out by SMTP (the owner's own mailboxes, e.g. MochaHost) as well as Resend. Not merged: the owner reviews and merges.

@@ -1,3 +1,4 @@
+import { UBER_ADJUST_REASONS, type UberAdjustReason } from '@/lib/foodhub/adapters/uber-api';
 import { approvalGate, inScope, withPerm } from '@/lib/foodhub/auth';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { allowedActions, ORDER_ACTIONS, runOrderAction, type OrderAction } from '@/lib/foodhub/pipeline';
@@ -10,7 +11,7 @@ export const dynamic = 'force-dynamic';
 type Ctx = { params: Promise<{ id: string }> };
 
 /** Actions that move money or lose a sale need a manager PIN for staff (Settings → Security). */
-const GATED: Partial<Record<OrderAction, PolicyAction>> = { deny: 'order.reject', cancel: 'order.cancel', report_missing: 'order.adjust', delay: 'order.delay', print: 'order.reprint' };
+const GATED: Partial<Record<OrderAction, PolicyAction>> = { deny: 'order.reject', cancel: 'order.cancel', report_missing: 'order.adjust', adjust_price: 'order.adjust', delay: 'order.delay', print: 'order.reprint' };
 
 export const GET = withPerm<Ctx>('view', async (_req, context, actor) => {
   const { id } = await context.params;
@@ -35,8 +36,11 @@ export const POST = withPerm<Ctx>('orders:act', async (req, context, actor) => {
   }
   const reasonCode = body.reasonCode && body.reasonCode in CANCEL_REASON_LABELS ? (body.reasonCode as CancelReason) : undefined;
   const missing = Array.isArray(body.missing) ? body.missing.map((m: any) => ({ line: Number(m.line), quantity: Number(m.quantity) })).filter((m: any) => Number.isInteger(m.line) && m.quantity > 0) : undefined;
+  // Uber Eats price change: { adjust: { amount (dollars, negative to lower), reason, customReason? } }
+  const adjust = body.adjust && typeof body.adjust === 'object' && (UBER_ADJUST_REASONS as readonly string[]).includes(String(body.adjust.reason))
+    ? { amount: Number(body.adjust.amount), reason: String(body.adjust.reason) as UberAdjustReason, customReason: body.adjust.customReason ? String(body.adjust.customReason) : undefined } : undefined;
   const { order, result } = await runOrderAction(id, action, {
-    reason: body.reason ? String(body.reason) : undefined, reasonCode, actor, missing, approvedBy: actor.approvedBy,
+    reason: body.reason ? String(body.reason) : undefined, reasonCode, actor, missing, approvedBy: actor.approvedBy, adjust,
     prepMinutes: body.prepMinutes !== undefined ? Number(body.prepMinutes) : undefined, delayMinutes: body.delayMinutes !== undefined ? Number(body.delayMinutes) : undefined,
   });
   if (!order) return fail(result.message, 404);

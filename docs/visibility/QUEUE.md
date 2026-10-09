@@ -1,0 +1,38 @@
+# Visibility work queue (one agent at a time, nonstop loop)
+
+Owner's goal (2026-10-09): maximum search visibility for every Quadro Holding restaurant brand. Google first, then every
+food-ordering platform / aggregator and every directory (411, Yelp, TripAdvisor, Pages Jaunes...), all linked together,
+written up as the group's restaurant marketing plan for the TAKATAK V1 back end.
+
+Rules for the agent working this queue
+- **One agent at a time** (owner's order: parallel agents used up the account's limits). No workflows, no fan-out.
+- Public facts only in this folder (public repo): no emails, people's phone numbers, logins, case numbers, merchant ids.
+  Private notes go to the owner's Drive folder "TAKATAK OPS (private)".
+- Never log in, never type a password, never change a live listing from here. Research and prepare; the owner (or a
+  desktop session with Claude in Chrome) applies changes, one account at a time, logged in the Drive OPS_LOG.
+- Po Poulet NDG on DoorDash (store 27982486) is never linked anywhere.
+- Never write "24/7". Hours are not final (see Drive 02 APPROVED_VALUES).
+- Blocked on an item? Write why in its line, move to the next item. Push after every item.
+
+Status: `todo` / `doing` / `done` / `blocked: reason`. Newest work at the top of each file it touches.
+
+## P1 Google (prepare everything so it can be applied page after page)
+- [ ] G1 todo | Google Maps inventory per brand x kitchen: listing found? name, address, category, website, order link, rating, review count, open/closed flag -> `PRESENCE.md`
+- [ ] G2 todo | Standard NAP (name, address) per kitchen and naming rule per brand -> `NAP.md`
+- [ ] G3 todo | Google Business Profile target values per brand (title, primary + extra categories, FR/EN description <= 750 chars, website, menu link, order link candidates, attributes: takeout, delivery, late night) -> `GBP_CHANGES.md`
+- [ ] G4 todo | Google posts plan (first 4 posts per brand) and review-reply templates FR/EN -> `GBP_CHANGES.md`
+
+## P2 Food ordering platforms and aggregators (Montréal / Canada)
+- [ ] F1 todo | List every platform that can take or route food orders (delivery apps, pickup apps, surplus food, Google/Apple/Meta order buttons, storefronts, own-delivery fleets) with how to join or connect, fees model if public, and whether Food Hub/Clover can integrate -> `PLATFORMS.md`
+- [ ] F2 todo | Per brand: which of those platforms it is on today (public URL) -> `PRESENCE.md`
+
+## P3 Directories and citations (SEO)
+- [ ] D1 todo | List of directories and data aggregators that matter in Montréal/Canada (Apple Business Connect, Bing Places, Yelp, TripAdvisor, 411.ca, Canada411, Pages Jaunes/YellowPages.ca, Foursquare, Facebook, Instagram, TikTok, Restaurant Guru, Restaurantji, Waze...), how to claim each, and which feed others -> `PLATFORMS.md`
+- [ ] D2 todo | Per brand: listings found on those directories (public URL), NAP mismatches -> `PRESENCE.md`
+
+## P4 The plan
+- [ ] M1 todo | `PLAN.md`: the group's restaurant marketing and visibility plan (channels by priority, NAP standard, one order hub per brand, review strategy, schema/SEO, photo plan, ads only after stores are back online, measurement, what TAKATAK V1 modules cover each part, owner decisions)
+
+## P5 Recurring
+- [ ] R1 | Every ~1 h: check the owner's Gmail for new DoorDash email (thread ref in Drive OPS_LOG); record in Drive, never reply without the owner.
+- [ ] R2 | Background code jobs: TAKATAK V1 setup script (one reviewer at a time), brand-section note `docs/TAKATAK_BRANDS_BRIDGE.md`.

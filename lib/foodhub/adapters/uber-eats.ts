@@ -169,8 +169,8 @@ export function reportDownloadLinks(body: unknown): string[] {
 function readiness() {
   return buildReadiness(KEY, ['UBER_CLIENT_ID', 'UBER_CLIENT_SECRET'], {
     // A static UBER_ACCESS_TOKEN cannot be refreshed (client-credentials tokens expire after 30 days).
-    note: `${process.env.UBER_ACCESS_TOKEN ? 'UBER_ACCESS_TOKEN override in use — it expires after 30 days and is never refreshed; remove it to use client credentials. ' : ''}${sandbox() ? 'SANDBOX (UBER_ENV=sandbox: sandbox-login.uber.com + test-api.uber.com). ' : ''}Direct mode. Requires Uber production access with eats.order, eats.store, eats.store.status.write, eats.pos_provisioning (+ eats.store.orders.read, eats.report, eats.store.status.notification). Uber developer dashboard → Webhooks → Primary Webhook, Basic HMAC, Signing Key = the value below. Then: Stores → “Connect Uber Eats”.`,
-    noteFr: `${process.env.UBER_ACCESS_TOKEN ? 'UBER_ACCESS_TOKEN est utilisé — il expire après 30 jours et n’est jamais renouvelé ; retirez-le pour utiliser les identifiants client. ' : ''}${sandbox() ? 'BAC À SABLE (UBER_ENV=sandbox : sandbox-login.uber.com + test-api.uber.com). ' : ''}Mode direct. Uber doit accorder l’accès production avec eats.order, eats.store, eats.store.status.write, eats.pos_provisioning (+ eats.store.orders.read, eats.report, eats.store.status.notification). Tableau de bord développeur Uber → Webhooks → Primary Webhook, Basic HMAC, Signing Key = la valeur ci-dessous. Ensuite : Magasins → « Brancher Uber Eats ».`,
+    note: `${process.env.UBER_ACCESS_TOKEN ? 'UBER_ACCESS_TOKEN override in use — it expires after 30 days and is never refreshed; remove it to use client credentials. ' : ''}${sandbox() ? 'SANDBOX (UBER_ENV=sandbox: sandbox-login.uber.com + test-api.uber.com). ' : ''}Direct mode. Requires Uber production access with eats.order, eats.store, eats.store.status.write, eats.pos_provisioning (+ eats.store.orders.read, eats.report, eats.store.status.notification; optional: eats.store.orders.restaurantdelivery.status, delivery.multiple.courier, eats.byoc.fulfillment.config). Uber developer dashboard → Webhooks → Primary Webhook, Basic HMAC, Signing Key = the value below. Then: Stores → “Connect Uber Eats”.`,
+    noteFr: `${process.env.UBER_ACCESS_TOKEN ? 'UBER_ACCESS_TOKEN est utilisé — il expire après 30 jours et n’est jamais renouvelé ; retirez-le pour utiliser les identifiants client. ' : ''}${sandbox() ? 'BAC À SABLE (UBER_ENV=sandbox : sandbox-login.uber.com + test-api.uber.com). ' : ''}Mode direct. Uber doit accorder l’accès production avec eats.order, eats.store, eats.store.status.write, eats.pos_provisioning (+ eats.store.orders.read, eats.report, eats.store.status.notification ; facultatif : eats.store.orders.restaurantdelivery.status, delivery.multiple.courier, eats.byoc.fulfillment.config). Tableau de bord développeur Uber → Webhooks → Primary Webhook, Basic HMAC, Signing Key = la valeur ci-dessous. Ensuite : Magasins → « Brancher Uber Eats ».`,
     extraWebhooks: [{ label: 'OAuth redirect URI (Uber developer dashboard → your app → Redirect URIs)', path: '/api/foodhub/uber-connect/callback' }],
     handoff: [{ label: 'Webhook Signing Key (Basic HMAC)', envKey: 'UBER_WEBHOOK_SIGNING_KEY' }],
   });
@@ -232,6 +232,19 @@ const DENY_CODES: Array<[RegExp, string]> = [
   [/pos|offline|connect/i, 'POS_OFFLINE'],
 ];
 
+/**
+ * UBER_ORDER_API=current: accept / deny / cancel through the Order Fulfillment API suite (/v1/delivery/order/…).
+ * Default: the previous-version endpoints (Food Hub reads orders with GET /v2/eats/order, see uberPosDataBody).
+ */
+const currentOrderApi = () => process.env.UBER_ORDER_API === 'current';
+/** Deny / cancel reason types of the current suite (deny_reason.type, cancellation_reason.type). */
+const CURRENT_REASON: Array<[RegExp, string]> = [
+  [/stock|86|unavailable|item/i, 'ITEM_ISSUE'], [/closed/i, 'STORE_CLOSED'], [/busy|capacity/i, 'CAPACITY'], [/pos|offline|connect/i, 'POS_OFFLINE'], [/address/i, 'ADDRESS'], [/instruction|note/i, 'SPECIAL_INSTRUCTIONS'], [/price|pricing/i, 'PRICING'],
+];
+const CURRENT_CANCEL: Record<CancelReason, string> = {
+  out_of_stock: 'ITEM_ISSUE', store_closed: 'KITCHEN_CLOSED', too_busy: 'RESTAURANT_TOO_BUSY', customer_request: 'CUSTOMER_CALLED_TO_CANCEL', pos_issue: 'POS_OFFLINE', other: 'OTHER',
+};
+
 export const uberEatsAdapter: ChannelAdapter = {
   key: KEY,
   label: 'Uber Eats (direct)',
@@ -251,15 +264,24 @@ export const uberEatsAdapter: ChannelAdapter = {
     // pickup_time (Unix seconds) = when the food will be ready, from the location's normal/busy prep time or the cook's
     // estimate — Uber dispatches the courier on it instead of its own default.
     const ready = Date.parse(order.timeline?.readyTarget ?? '');
+    const future = Number.isFinite(ready) && ready > Date.now();
+    if (currentOrderApi()) {
+      // Order Fulfillment suite: POST /v1/delivery/order/{id}/accept (ready_for_pickup_time RFC 3339).
+      return send('POST', `/v1/delivery/order/${encodeURIComponent(order.externalOrderId)}/accept`, {
+        accepted_by: 'TAKATAK Food Hub', ...(posRef ? { external_reference_id: posRef } : {}), ...(future ? { ready_for_pickup_time: new Date(ready).toISOString() } : {}),
+      });
+    }
     return send('POST', `/v1/eats/orders/${encodeURIComponent(order.externalOrderId)}/accept_pos_order`, {
       reason: 'Accepted by TAKATAK Food Hub',
       ...(posRef ? { external_reference_id: posRef } : {}),
-      ...(Number.isFinite(ready) && ready > Date.now() ? { pickup_time: Math.floor(ready / 1000) } : {}),
+      ...(future ? { pickup_time: Math.floor(ready / 1000) } : {}),
     });
   },
-  denyOrder: (order, reason) => send('POST', `/v1/eats/orders/${encodeURIComponent(order.externalOrderId)}/deny_pos_order`, {
-    reason: { explanation: reason || 'Rejected by restaurant', code: DENY_CODES.find(([re]) => re.test(reason))?.[1] ?? 'OTHER' },
-  }),
+  denyOrder: (order, reason) => currentOrderApi()
+    ? send('POST', `/v1/delivery/order/${encodeURIComponent(order.externalOrderId)}/deny`, { deny_reason: { info: (reason || 'Rejected by restaurant').slice(0, 200), type: CURRENT_REASON.find(([re]) => re.test(reason))?.[1] ?? 'OTHER' } })
+    : send('POST', `/v1/eats/orders/${encodeURIComponent(order.externalOrderId)}/deny_pos_order`, {
+      reason: { explanation: reason || 'Rejected by restaurant', code: DENY_CODES.find(([re]) => re.test(reason))?.[1] ?? 'OTHER' },
+    }),
   async markReady(order) {
     // Order Fulfillment API suite: POST /v1/delivery/order/{id}/ready ("Mark an order as ready for pickup"; helps Uber
     // time the courier). The kitchen's "Ready" never waits on Uber: without the live switch, or when Uber refuses the
@@ -273,10 +295,12 @@ export const uberEatsAdapter: ChannelAdapter = {
   // courier and the customer see the new time. Uber refuses it once the order is ready or the courier is on the way.
   updateReadyTime: (order, readyAtIso) => send('POST', `/v1/delivery/order/${encodeURIComponent(order.externalOrderId)}/update-ready-time`, { ready_for_pickup_time: new Date(readyAtIso).toISOString() }),
   // POST /v1/eats/orders/{id}/cancel — reasons: OUT_OF_ITEMS, KITCHEN_CLOSED, CUSTOMER_CALLED_TO_CANCEL, RESTAURANT_TOO_BUSY, CANNOT_COMPLETE_CUSTOMER_NOTE, OTHER
-  cancelOrder: (order, reason, details) => send('POST', `/v1/eats/orders/${encodeURIComponent(order.externalOrderId)}/cancel`, {
-    reason: UBER_CANCEL[reason] ?? 'OTHER',
-    ...(UBER_CANCEL[reason] === 'OTHER' || details ? { details: (details || 'Cancelled by restaurant').slice(0, 200) } : {}),
-  }),
+  cancelOrder: (order, reason, details) => currentOrderApi()
+    ? send('POST', `/v1/delivery/order/${encodeURIComponent(order.externalOrderId)}/cancel`, { cancellation_reason: { info: (details || 'Cancelled by restaurant').slice(0, 200), type: CURRENT_CANCEL[reason] ?? 'OTHER' } })
+    : send('POST', `/v1/eats/orders/${encodeURIComponent(order.externalOrderId)}/cancel`, {
+      reason: UBER_CANCEL[reason] ?? 'OTHER',
+      ...(UBER_CANCEL[reason] === 'OTHER' || details ? { details: (details || 'Cancelled by restaurant').slice(0, 200) } : {}),
+    }),
   async publishMenu(store: ChannelStore, menu, ctx) {
     const res = await send('PUT', `/v2/eats/stores/${encodeURIComponent(store.channelStoreId)}/menus`, toUberMenu(menu, ctx));
     const holidays = ctx?.holidays ?? [];

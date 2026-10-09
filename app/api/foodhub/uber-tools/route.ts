@@ -1,4 +1,4 @@
-import { createUberPromotion, fetchUberHolidayDates, fetchUberMenuSummary, fetchUberStoreInfo, listUberPromotions, revokeUberPromotion, setUberPickupInstructions, uberFlatOffPromotion } from '@/lib/foodhub/adapters/uber-api';
+import { createUberPromotion, fetchUberHolidayDates, fetchUberMenuSummary, fetchUberStoreInfo, listUberPromotions, revokeUberPromotion, setUberByocFulfillment, setUberIntegrationEnabled, setUberItemPrice, setUberPickupInstructions, uberFlatOffPromotion } from '@/lib/foodhub/adapters/uber-api';
 import { isRelayStore } from '@/lib/foodhub/adapters/relay';
 import { uberEatsAdapter } from '@/lib/foodhub/adapters/uber-eats';
 import { logActivity } from '@/lib/foodhub/activity';
@@ -47,11 +47,26 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
     const minSpend = b.minSpend !== undefined && b.minSpend !== '' ? Number(b.minSpend) : undefined;
     if (!(discount > 0 && discount <= 100)) return fail('Discount: 0.01 to 100 $.');
     if (minSpend !== undefined && !(minSpend >= discount)) return fail('The minimum order must be at least the discount.');
-    res = await createUberPromotion(s, uberFlatOffPromotion({ startTime: new Date(String(b.start)).toISOString(), endTime: new Date(String(b.end)).toISOString(), discount, minSpend, firstTimeOnly: b.firstTimeOnly === true, externalId: `takatak-${Date.now()}` }));
+    const start = Date.parse(String(b.start ?? ''));
+    const end = Date.parse(String(b.end ?? ''));
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return fail('Choose a start and an end (end after start).');
+    res = await createUberPromotion(s, uberFlatOffPromotion({ startTime: new Date(start).toISOString(), endTime: new Date(end).toISOString(), discount, minSpend, firstTimeOnly: b.firstTimeOnly === true, externalId: `takatak-${Date.now()}` }));
   } else if (action === 'promo_revoke') {
     res = await revokeUberPromotion(String(b.promotionId || ''));
+  } else if (action === 'integration') {
+    // Order webhooks on / off for this store (Update Integration Config) — off = Uber stops sending its orders here.
+    const gate = await approvalGate(req, actor, 'store.pause', s.locationCode, `Uber Eats orders ${b.enabled === true ? 'on' : 'off'} for ${tag}`);
+    if (gate) return gate;
+    res = await setUberIntegrationEnabled(s.channelStoreId, b.enabled === true);
+  } else if (action === 'item_price') {
+    const gate = await approvalGate(req, actor, 'menu.price', s.locationCode, `Uber Eats price ${tag}`);
+    if (gate) return gate;
+    res = await setUberItemPrice(s, String(b.itemId ?? ''), Number(b.price));
+  } else if (action === 'byoc_eta') {
+    res = await setUberByocFulfillment(s.channelStoreId, { custom_min_etd_minutes: Math.max(1, Math.min(180, Math.round(Number(b.minutes) || 0))) });
   } else return fail('Unknown action.');
+  const what: Record<string, string> = { pickup: 'pickup instructions', promo_create: 'promotion created', promo_revoke: 'promotion revoked', integration: `orders ${b.enabled === true ? 'on' : 'off'}`, item_price: `price of ${String(b.itemId ?? '')}`, byoc_eta: 'own-courier minimum delivery time' };
   await logActivity({ actor: actor.name, source: actor.source, kind: 'settings', action: `uber_${action}`, status: res.ok ? 'success' : 'failed', channel: 'uber_eats', brandName: s.brandName, locationCode: s.locationCode, storeId: s.id,
-    summary: `Uber Eats ${action === 'pickup' ? 'pickup instructions' : action === 'promo_create' ? 'promotion created' : 'promotion revoked'} for ${tag}: ${res.message}` });
+    summary: `Uber Eats ${what[action]} for ${tag}: ${res.message}` });
   return res.ok ? ok({ result: res }) : fail(res.message, res.status === 'blocked' ? 409 : 400, { result: res });
 });

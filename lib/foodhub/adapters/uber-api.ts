@@ -205,6 +205,128 @@ export async function adjustUberOrderPrice(order: StoredOrder, p: Parameters<typ
   return r.ok ? { ...r, message: `Price change of ${(Number(p.amount) > 0 ? '+' : '')}${Number(p.amount).toFixed(2)} $ sent — the customer confirms it in the Uber Eats app.` } : r;
 }
 
+/** Get Order Details, current suite (GET /v1/delivery/order/{id}?expand=carts,deliveries,payment). Read-only, raw. */
+export async function fetchUberOrderCurrent(orderId: string, expand: Array<'carts' | 'deliveries' | 'payment'> = ['carts', 'deliveries', 'payment']): Promise<{ ok: boolean; order?: any; error?: string }> {
+  const r = await readOrders(`/v1/delivery/order/${enc(orderId)}${expand.length ? `?expand=${expand.join(',')}` : ''}`);
+  return r.ok ? { ok: true, order: r.json?.order ?? r.json } : { ok: false, error: r.error };
+}
+
+/**
+ * Update Restaurant Delivery Status (POST /v1/eats/orders/{id}/restaurantdelivery/status, scope
+ * eats.store.orders.restaurantdelivery.status): for Uber Eats orders the restaurant delivers itself (own drivers).
+ */
+export function setUberRestaurantDeliveryStatus(orderId: string, status: 'started' | 'arriving' | 'delivered'): Promise<ChannelResult> {
+  return uberSend('POST', `/v1/eats/orders/${enc(orderId)}/restaurantdelivery/status`, { status });
+}
+
+/** An Uber Eats order the restaurant delivers itself (DELIVERY_BY_RESTAURANT / DELIVERY_BY_MERCHANT). */
+export function isUberMerchantDelivery(order: Pick<StoredOrder, 'channel' | 'raw'>): boolean {
+  const raw = (order.raw ?? {}) as Record<string, any>;
+  return order.channel === 'uber_eats' && /DELIVERY_BY_(RESTAURANT|MERCHANT)/i.test(String(raw.type ?? raw.fulfillment_type ?? ''));
+}
+
+/** Dispatch Multiple Courier (POST /v1/delivery/order/{id}/update-delivery-partner-count, scope delivery.multiple.courier): 1–5 couriers for a big order. */
+export function setUberCourierCount(orderId: string, count: number): Promise<ChannelResult> {
+  const n = Math.round(Number(count));
+  if (!(n >= 1 && n <= 5)) return Promise.resolve(result(KEY, 'error', 'Uber allows 1 to 5 couriers per order.'));
+  return uberSend('POST', `/v1/delivery/order/${enc(orderId)}/update-delivery-partner-count`, { delivery_partner_count: n });
+}
+
+// ---------- Retail / grocery (Order Fulfillment suite "For Retailers", previous-version Patch Cart) ----------
+
+export type UberRetailIssue = {
+  issueType: 'OUT_OF_ITEM' | 'PARTIAL_AVAILABILITY' | 'FOUND_ITEM';
+  actionType?: 'SUBSTITUTE_ME' | 'REPLACE_FOR_ME' | 'REMOVE_ITEM' | 'ALTERNATIVE_ITEM';
+  cartItemId: string;
+  scannedBarcode?: string;
+  /** Uber's item_availability / item_substitute objects, passed as documented for the store's catalogue. */
+  itemAvailability?: Record<string, unknown>;
+  itemSubstitute?: Record<string, unknown>;
+};
+
+function retailIssue(i: UberRetailIssue) {
+  return {
+    issue_type: i.issueType, ...(i.issueType === 'OUT_OF_ITEM' && i.actionType ? { action_type: i.actionType } : {}),
+    item: { cart_item_id: i.cartItemId, ...(i.scannedBarcode ? { scanned_barcode: { value: i.scannedBarcode } } : {}) },
+    ...(i.itemAvailability ? { item_availability: i.itemAvailability } : {}),
+    ...(i.itemSubstitute ? { item_substitute: i.itemSubstitute } : {}),
+  };
+}
+
+/** Resolve Fulfillment Issues, retail body (remove, substitute, replace, partial / found quantities). */
+export function resolveUberRetailIssues(orderId: string, issues: UberRetailIssue[]): Promise<ChannelResult> {
+  if (!issues.length) return Promise.resolve(result(KEY, 'error', 'No item to resolve.'));
+  if (issues.some((i) => i.issueType === 'OUT_OF_ITEM' && !i.actionType)) return Promise.resolve(result(KEY, 'error', 'An out-of-stock item needs an action (remove, replace, substitute).'));
+  return uberSend('POST', `/v1/delivery/order/${enc(orderId)}/resolve-fulfillment-issues`, { fulfillment_issues: issues.map(retailIssue) });
+}
+
+/** Validate Item Fulfillment (POST …/validate-item-fulfillment): dry run of one retail issue, barcode checks (ERROR / WARN / INFO). */
+export async function validateUberItemFulfillment(orderId: string, issue: UberRetailIssue): Promise<{ ok: boolean; results: Array<{ level: string; [k: string]: unknown }>; blocking: boolean; error?: string }> {
+  const r = await uberSend('POST', `/v1/delivery/order/${enc(orderId)}/validate-item-fulfillment`, retailIssue(issue));
+  if (!r.ok) return { ok: false, results: [], blocking: true, error: r.message };
+  const results = Array.isArray((r.response as any)?.results) ? (r.response as any).results : [];
+  return { ok: true, results, blocking: results.some((x: any) => String(x?.level).toUpperCase() === 'ERROR') };
+}
+
+/** Get Replacement Recommendations (POST /v1/delivery/get-replacement-recommendations): up to 7 replacements for a retail item. */
+export async function getUberReplacementRecommendations(orderId: string, storeId: string, itemId: string): Promise<{ ok: boolean; recommendations: any[]; error?: string }> {
+  const r = await uberSend('POST', '/v1/delivery/get-replacement-recommendations', { id: itemId, order_id: orderId, store_id: storeId });
+  return r.ok ? { ok: true, recommendations: Array.isArray((r.response as any)?.replacement_recommendations) ? (r.response as any).replacement_recommendations : [] } : { ok: false, recommendations: [], error: r.message };
+}
+
+/**
+ * Patch Cart (PATCH /v2/eats/orders/{id}/cart, grocery stores only, scope eats.order): previous-version way to say an
+ * item was removed (REMOVE_ITEM), replaced (REPLACE_FOR_ME + item_substitute) or found in another quantity (ADJUST_ITEM).
+ */
+export function patchUberGroceryCart(orderId: string, issues: Array<{ type: 'OUT_OF_ITEM' | 'PARTIAL_AVAILABILITY' | 'FOUND_ITEM'; action?: 'REMOVE_ITEM' | 'REPLACE_FOR_ME' | 'ADJUST_ITEM'; instanceId: string; substitute?: { id: string; quantity: number }; adjustment?: Record<string, unknown> }>): Promise<ChannelResult> {
+  if (!issues.length) return Promise.resolve(result(KEY, 'error', 'No item to change.'));
+  return uberSend('PATCH', `/v2/eats/orders/${enc(orderId)}/cart`, {
+    fulfillment_issues: issues.map((i) => ({
+      fulfillment_issue_type: i.type, ...(i.action ? { fulfillment_action_type: i.action } : {}), root_item: { instance_id: i.instanceId },
+      ...(i.substitute ? { item_substitute: { id: i.substitute.id, quantity: Math.max(1, Math.round(i.substitute.quantity)) } } : {}),
+      ...(i.adjustment ? { item_adjustment: i.adjustment } : {}),
+    })),
+  });
+}
+
+// ---------- Store suite (current version) and BYOC ----------
+
+/** Get Stores, current suite (GET /v1/delivery/stores, 50 a page). */
+export async function listUberStoresCurrent(pageToken?: string): Promise<{ ok: boolean; stores: any[]; nextPageToken?: string; error?: string }> {
+  const r = await uberGetJson(`/v1/delivery/stores?page_size=50${pageToken ? `&next_page_token=${enc(pageToken)}` : ''}`);
+  return r.ok ? { ok: true, stores: Array.isArray(r.json?.stores) ? r.json.stores : [], nextPageToken: r.json?.pagination_data?.next_page_token || undefined } : { ok: false, stores: [], error: r.error };
+}
+
+/** Retrieve Store Status, current suite (GET /v1/delivery/store/{id}/status). */
+export async function fetchUberStoreStatusCurrent(storeId: string): Promise<{ ok: boolean; status?: string; offlineUntil?: string; reason?: string; error?: string }> {
+  const r = await uberGetJson(`/v1/delivery/store/${enc(storeId)}/status`);
+  return r.ok ? { ok: true, status: r.json?.status, offlineUntil: r.json?.is_offline_until || undefined, reason: r.json?.offline_reason || undefined } : { ok: false, error: r.error };
+}
+
+/** Set Store Status, current suite (POST /v1/delivery/store/{id}/update-store-status { status ONLINE|OFFLINE, is_offline_until, reason }). */
+export function setUberStoreStatusCurrent(storeId: string, online: boolean, untilMs?: number, reason?: string): Promise<ChannelResult> {
+  return uberSend('POST', `/v1/delivery/store/${enc(storeId)}/update-store-status`, online ? { status: 'ONLINE' }
+    : { status: 'OFFLINE', ...(untilMs ? { is_offline_until: new Date(untilMs).toISOString() } : {}), reason: (reason || 'Paused from TAKATAK Food Hub').slice(0, 200) });
+}
+
+/** Update Fulfillment Configuration (BYOC stores; scope eats.byoc.fulfillment.config): e.g. the minimum delivery time. */
+export function setUberByocFulfillment(storeId: string, overrideConfig: { custom_min_etd_minutes?: number } & Record<string, unknown>): Promise<ChannelResult> {
+  return uberSend('POST', `/v1/delivery/store/${enc(storeId)}/update-fulfillment-configuration`, { override_config: overrideConfig });
+}
+
+/** Ingest Courier Live Location (BYOC: our own driver delivers an Uber Eats order; POST /v1/eats/byoc/restaurants/orders/event/location). */
+export function sendUberByocCourierLocation(p: { orderWorkflowId: string; restaurantId: string; batched?: boolean; events: Array<Record<string, unknown>> }): Promise<ChannelResult> {
+  if (!p.events.length) return Promise.resolve(result(KEY, 'error', 'No location to send.'));
+  return uberSend('POST', '/v1/eats/byoc/restaurants/orders/event/location', { location_request: { order_workflow_uuid: p.orderWorkflowId, restaurant_uuid: p.restaurantId, is_batched_order: p.batched === true, location_events: p.events } });
+}
+
+/** Update Menu Item price (POST /v2/eats/stores/{id}/menus/items/{item_id} { price_info }), never on a locked store. */
+export function setUberItemPrice(store: ChannelStore, itemId: string, price: number): Promise<ChannelResult> {
+  if (store.meta?.doNotTouch === true || isMenuLocked(store)) return Promise.resolve(result(KEY, 'skipped', 'Not sent — this store’s menu is locked / "Do not touch".'));
+  if (!(price >= 0)) return Promise.resolve(result(KEY, 'error', 'Enter a price.'));
+  return uberSend('POST', `/v2/eats/stores/${enc(store.channelStoreId)}/menus/items/${enc(itemId)}`, { price_info: { price: toCents(price) } });
+}
+
 // ---------- Promotions API suite ----------
 
 export const UBER_PROMO_STATES = ['active', 'pending', 'completed', 'revoked', 'expired', 'deleted'] as const;

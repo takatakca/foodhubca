@@ -13,7 +13,7 @@ import { closeCancelledCloverOrder } from './pos/clover-books';
 import { doorDashMerchantCancelEnabled } from './adapters/doordash';
 import { relayActions } from './adapters/relay';
 import { reportSkipMissingItems } from './adapters/skip';
-import { adjustUberOrderPrice, reportUberOutOfItems, type UberAdjustReason } from './adapters/uber-api';
+import { adjustUberOrderPrice, isUberMerchantDelivery, reportUberOutOfItems, setUberRestaurantDeliveryStatus, type UberAdjustReason } from './adapters/uber-api';
 import { applyCourierUpdate, pendingKey, readPending } from './courier';
 import { getBrandMenu } from './menu/shared';
 import { prepFor } from './prep';
@@ -552,6 +552,11 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
   else if (action === 'cancel') res = await adapter.cancelOrder(order, opts.reasonCode ?? 'other', opts.reason);
   else if (action === 'ready') res = await adapter.markReady(order, order.posOrderId);
   else res = { ok: true, message: action === 'dispatch' ? 'Handed to the courier.' : 'Marked completed in Food Hub.' };
+  // An Uber Eats order our own driver delivers: Uber shows the customer "on the way" / "delivered" (never blocks the kitchen).
+  if (!order.viaPos && !order.viaHub && (action === 'dispatch' || action === 'complete') && isUberMerchantDelivery(order)) {
+    const told = await setUberRestaurantDeliveryStatus(order.externalOrderId, action === 'dispatch' ? 'started' : 'delivered').catch((e) => ({ ok: false, message: String(e) }));
+    res = { ok: true, message: `${res.message} ${told.ok ? 'Uber Eats shows it to the customer.' : `Uber Eats not updated (${told.message}).`}` };
+  }
 
   // On Skip, "reject" hands the order to the Skip tablet (JET backup flow) — it is not cancelled for the customer.
   const nextStatus: OrderStatus = action === 'deny' && order.channel === 'skip' && !order.viaHub ? 'failed' : NEXT_STATUS[action]!;

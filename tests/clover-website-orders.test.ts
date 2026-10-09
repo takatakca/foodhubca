@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   applyCloverState, classifyCloverOrder, cloverOnlineBlockedReason, handleCloverOrderEvents, importCloverWebsiteOrders, isCloverOnlineOrderType,
-  isFoodHubTitle, listOpenWebsiteOrders, readCloverOrderState, runWebsiteOrderAction, upsertCloverOnlineOrder, websiteOrderDocId,
+  isFoodHubTitle, isSiteWebMarked, listOpenWebsiteOrders, readCloverOrderState, runWebsiteOrderAction, upsertCloverOnlineOrder, websiteOrderDocId,
 } from '../lib/foodhub/pos/clover-website-orders';
 import { getDirectOrder, listDirectOrders } from '../lib/foodhub/delivery/store';
 import { runDirectAction } from '../lib/foodhub/delivery/orders';
@@ -85,6 +85,19 @@ describe('recognising a website order in Clover', () => {
     // A delivery platform paid through Clover with an online type is still that platform's order.
     expect(kind({ id: 'A', orderType: { id: 'OT-OLP' }, payments: { elements: [{ tender: { id: 'T-DD' } }] } })).toBe('platform');
     expect(isFoodHubTitle('Léa T.')).toBe(false);
+  });
+
+  it('a brand website paying with Clover Hosted Checkout marks its order "Site web" (no online order type needed)', () => {
+    expect(kind({ id: 'A', title: '🌐 Site web · PPP-AB12C · Marie' })).toBe('website');
+    expect(kind({ id: 'A', title: '', note: 'SITE WEB pppmtl.com | POUR EMPORTER / PICKUP | PAYÉ EN LIGNE / PAID ONLINE (Clover)' })).toBe('website');
+    expect(kind({ id: 'A', title: 'Website order', orderType: { id: 'OT-DINE' } })).toBe('website');
+    expect(isSiteWebMarked({ title: 'Table 4 — site visit' })).toBe(false);
+    // Food Hub's own website tickets and platform orders keep their kind.
+    expect(kind({ id: 'A', title: '🌐 W-1043 · PPP Pizzeria' })).toBe('foodhub');
+    expect(kind({ id: 'A', title: '🌐 Site web · PPP-AB12C', payments: { elements: [{ tender: { id: 'T-DD' } }] } })).toBe('platform');
+    expect(kind({ id: 'FH1', title: '🌐 Site web · PPP-AB12C' }, new Set(['FH1']))).toBe('foodhub');
+    process.env.FOODHUB_CLOVER_WEBSITE_ORDERS = 'off';
+    expect(kind({ id: 'A', title: '🌐 Site web · PPP-AB12C · Marie' })).toBe('other');
   });
 
   it('FOODHUB_CLOVER_WEBSITE_ORDER_TYPES pins the types; =off turns the whole thing off', () => {

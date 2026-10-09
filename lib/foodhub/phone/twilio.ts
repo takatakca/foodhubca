@@ -40,7 +40,7 @@ export function twilioSignature(url: string, params: URLSearchParams, token: str
 }
 
 const xml = (s: string) => s.replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[c]!));
-const attr = (s: string) => xml(s);
+export const attr = (s: string) => xml(s);
 
 type Voices = Pick<PhoneSettings, 'voiceFr' | 'voiceEn'> & Partial<Pick<PhoneSettings, 'voiceEs'>>;
 

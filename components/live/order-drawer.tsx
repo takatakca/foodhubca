@@ -2,11 +2,11 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { AlarmClockPlus, Bike, Check, ExternalLink, MessageSquareText, PackageCheck, Phone, Printer, RotateCcw, Send, ShoppingBag, TriangleAlert, Undo2, X } from 'lucide-react';
+import { AlarmClockPlus, Bike, Check, CircleDollarSign, ExternalLink, MessageSquareText, PackageCheck, Phone, Printer, RotateCcw, Send, ShoppingBag, TriangleAlert, Undo2, X } from 'lucide-react';
 import { Badge, PlatformMark, platformOf, type Tone } from '@/components/ui/badge';
 import { Banner } from '@/components/ui/card';
 import { Button, buttonClass } from '@/components/ui/button';
-import { Chips, Textarea } from '@/components/ui/form';
+import { Chips, Field, Input, Select, Textarea } from '@/components/ui/form';
 import { Drawer, Modal } from '@/components/ui/overlay';
 import { ReasonDialog } from '@/components/ui/reason-dialog';
 import { Countdown, Elapsed } from '@/components/ui/timer';
@@ -16,7 +16,7 @@ import { refreshEverything } from '@/components/live/pulse';
 import { api, ApiError, money, timeOf } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import type { T } from '@/lib/i18n';
-import type { OrderEvent, StoredOrder } from '@/lib/foodhub/types';
+import { orderSourceLabel, type OrderEvent, type StoredOrder } from '@/lib/foodhub/types';
 import { cn } from '@/lib/ui/cn';
 
 export type FullOrder = StoredOrder & { actions?: string[] };
@@ -40,6 +40,7 @@ const EVENT: Record<string, [string, string]> = {
   pos_paid: ['Payée dans Clover', 'Paid in Clover'], pos_payment_failed: ['Paiement Clover non noté', 'Clover payment not recorded'], pos_cancelled: ['Retirée de Clover', 'Removed from Clover'],
   scheduled: ['Commande planifiée', 'Scheduled order'], fired: ['Lancée en cuisine', 'Sent to the kitchen'], courier: ['Livreur', 'Courier'], seen: ['Vue en cuisine', 'Seen in the kitchen'],
   delayed: ['Temps ajouté', 'Time added'], report_missing: ['Article manquant signalé', 'Missing item reported'], report_missing_failed: ['Article manquant non envoyé', 'Missing item not sent'],
+  adjust_price: ['Changement de prix envoyé', 'Price change sent'], adjust_price_failed: ['Changement de prix refusé', 'Price change refused'], fulfillment_issue_resolved: ['Réponse du client (rupture)', 'Customer answered (out of stock)'],
   customer_sms: ['Texto au client', 'Text to the customer'], customer_sms_failed: ['Texto au client échoué', 'Text to the customer failed'], auto_completed: ['Fermée automatiquement', 'Closed automatically'],
   mapping_warning: ['Ligne en texte libre dans Clover', 'Free-text line in Clover'], pos_retry_scheduled: ['Nouvel essai Clover prévu', 'Clover retry scheduled'],
   pos_retry_gave_up: ['Essais Clover épuisés — gérant alerté', 'Clover retries used up — manager alerted'], pos_adopted: ['Déjà dans Clover — reliée', 'Already in Clover — linked'],
@@ -72,7 +73,7 @@ export function useOrderActions(onDone?: (o: FullOrder | null) => void) {
 }
 
 function actionDone(t: T, a: string) {
-  return ({ accept: t('Acceptée ✓', 'Accepted ✓'), deny: t('Refusée', 'Rejected'), ready: t('Prête ✓', 'Ready ✓'), dispatch: t('Remise au livreur', 'Picked up'), complete: t('Terminée', 'Completed'), cancel: t('Annulée', 'Cancelled'), retry_pos: t('Envoyée à Clover', 'Sent to Clover'), print: t('Imprimée', 'Printed'), report_missing: t('Signalé à Skip', 'Reported to Skip'), delay: t('Temps ajouté', 'Time added') } as Record<string, string>)[a] ?? a;
+  return ({ accept: t('Acceptée ✓', 'Accepted ✓'), deny: t('Refusée', 'Rejected'), ready: t('Prête ✓', 'Ready ✓'), dispatch: t('Remise au livreur', 'Picked up'), complete: t('Terminée', 'Completed'), cancel: t('Annulée', 'Cancelled'), retry_pos: t('Envoyée à Clover', 'Sent to Clover'), print: t('Imprimée', 'Printed'), report_missing: t('Signalé à la plateforme', 'Reported to the platform'), adjust_price: t('Prix envoyé au client', 'Price sent to the customer'), delay: t('Temps ajouté', 'Time added') } as Record<string, string>)[a] ?? a;
 }
 
 /** The primary next step for an order in the kitchen. */
@@ -100,7 +101,7 @@ export function OrderDrawer({ orderId, onClose }: { orderId: string; onClose: ()
   const p = order ? platformOf(order.channel) : null;
   return (
     <Drawer onClose={onClose} width="lg"
-      title={order ? <span className="flex items-center gap-2.5"><PlatformMark channel={order.channel} size="md" />#{order.displayId || order.externalOrderId.slice(0, 8)}<Badge tone={STATUS_TONE[order.status]}>{statusLabel(t, order.status)}</Badge></span> : t('Commande', 'Order')}
+      title={order ? <span className="flex items-center gap-2.5"><PlatformMark channel={order.channel} size="md" />#{order.displayId || order.externalOrderId.slice(0, 8)}<Badge tone={STATUS_TONE[order.status]}>{statusLabel(t, order.status)}</Badge>{orderSourceLabel(order.orderSource) && <Badge tone="neutral">{orderSourceLabel(order.orderSource)}</Badge>}</span> : t('Commande', 'Order')}
       subtitle={order ? `${p?.label} · ${order.brandName ?? t('Marque ?', 'Brand ?')}` : undefined}
       headerRight={order ? <Link href={`/orders/${order.id}`} className="rounded-md p-1.5 text-ink-3 hover:bg-sunken hover:text-ink" aria-label={t('Ouvrir en plein écran', 'Open full page')}><ExternalLink className="size-5" /></Link> : null}>
       {error && <div className="p-5"><Banner tone="stop">{error}</Banner></div>}
@@ -116,6 +117,7 @@ export function OrderDetail({ order, events, onChange, compact }: { order: FullO
   const { run, busy } = useOrderActions(onChange);
   const [reasonFor, setReasonFor] = useState<'deny' | 'cancel' | null>(null);
   const [missingOpen, setMissingOpen] = useState(false);
+  const [priceOpen, setPriceOpen] = useState(false);
   const [textOpen, setTextOpen] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
   const tl = order.timeline ?? {};
@@ -171,6 +173,7 @@ export function OrderDetail({ order, events, onChange, compact }: { order: FullO
             {actions.includes('print') && <Button size="sm" variant="soft" loading={busy === 'print'} onClick={() => run(order.id, 'print')} icon={<Printer className="size-4" />}>{t('Réimprimer (Clover)', 'Reprint (Clover)')}</Button>}
             <a className={buttonClass('soft', 'sm')} href={`/ticket/${order.id}`} target="_blank" rel="noreferrer"><Printer className="size-4" />{t('Billet 80 mm', '80 mm ticket')}</a>
             {actions.includes('report_missing') && <Button size="sm" variant="soft" onClick={() => setMissingOpen(true)} icon={<ShoppingBag className="size-4" />}>{t('Article manquant', 'Missing item')}</Button>}
+            {actions.includes('adjust_price') && <Button size="sm" variant="soft" onClick={() => setPriceOpen(true)} icon={<CircleDollarSign className="size-4" />}>{t('Changer le prix', 'Change the price')}</Button>}
             {actions.includes('retry_pos') && !order.posError && <Button size="sm" variant="soft" loading={busy === 'retry_pos'} onClick={() => run(order.id, 'retry_pos')} icon={<Send className="size-4" />}>{t('Envoyer à Clover', 'Send to Clover')}</Button>}
             {actions.includes('cancel') && <Button size="sm" variant="soft" className="text-stop" onClick={() => setReasonFor('cancel')} icon={<Undo2 className="size-4" />}>{t('Annuler la commande', 'Cancel order')}</Button>}
           </div>
@@ -269,6 +272,7 @@ export function OrderDetail({ order, events, onChange, compact }: { order: FullO
           onClose={() => setReasonFor(null)} onPick={async (code, details) => { const a = reasonFor; const r = await run(order.id, a, { reasonCode: code, reason: details }); if (r) setReasonFor(null); }} />
       )}
       {missingOpen && <MissingDialog order={order} onClose={() => setMissingOpen(false)} onSend={async (missing) => { const r = await run(order.id, 'report_missing', { missing }); if (r) setMissingOpen(false); }} />}
+      {priceOpen && <PriceDialog onClose={() => setPriceOpen(false)} onSend={async (adjust) => { const r = await run(order.id, 'adjust_price', { adjust }); if (r?.result.ok) setPriceOpen(false); }} />}
       {textOpen && <TextCustomer order={order} onClose={() => setTextOpen(false)} />}
     </div>
   );
@@ -298,16 +302,43 @@ function MissingDialog({ order, onSend, onClose }: { order: FullOrder; onSend: (
   const { t } = useI18n();
   const [qty, setQty] = useState<Record<number, number>>({});
   const picked = Object.entries(qty).filter(([, q]) => q > 0).map(([line, quantity]) => ({ line: Number(line), quantity }));
+  const uber = order.channel === 'uber_eats';
   return (
-    <Modal title={t('Article manquant — SkipTheDishes', 'Missing item — SkipTheDishes')} subtitle={t('Skip retire l’article et ajuste le prix payé par le client.', 'Skip removes the item and adjusts what the customer pays.')} onClose={onClose}
-      footer={<><Button variant="ghost" onClick={onClose}>{t('Retour', 'Back')}</Button><Button variant="danger" disabled={!picked.length} onClick={() => onSend(picked)}>{t('Envoyer à Skip', 'Send to Skip')}</Button></>}>
+    <Modal title={uber ? t('Article manquant — Uber Eats', 'Missing item — Uber Eats') : t('Article manquant — SkipTheDishes', 'Missing item — SkipTheDishes')}
+      subtitle={uber ? t('Uber demande au client : retirer l’article ou annuler. Sa réponse revient ici.', 'Uber asks the customer: remove the item or cancel. The answer comes back here.') : t('Skip retire l’article et ajuste le prix payé par le client.', 'Skip removes the item and adjusts what the customer pays.')} onClose={onClose}
+      footer={<><Button variant="ghost" onClick={onClose}>{t('Retour', 'Back')}</Button><Button variant="danger" disabled={!picked.length} onClick={() => onSend(picked)}>{uber ? t('Envoyer à Uber Eats', 'Send to Uber Eats') : t('Envoyer à Skip', 'Send to Skip')}</Button></>}>
       <div className="space-y-2">
         {order.lines.map((l, i) => (
           <div key={i} className="flex items-center justify-between gap-3 rounded-md border border-line p-3">
-            <div><div className="font-semibold">{l.quantity}× {l.name}</div>{!l.externalId && <div className="text-xs text-ink-3">{t('pas d’identifiant Skip — utilisez la tablette', 'no Skip item id — use the tablet')}</div>}</div>
+            <div><div className="font-semibold">{l.quantity}× {l.name}</div>{!uber && !l.externalId && <div className="text-xs text-ink-3">{t('pas d’identifiant Skip — utilisez la tablette', 'no Skip item id — use the tablet')}</div>}</div>
             <Chips size="sm" value={qty[i] ?? 0} onChange={(v) => setQty({ ...qty, [i]: v })} options={Array.from({ length: Math.round(l.quantity) + 1 }, (_, n) => ({ value: n, label: n === 0 ? t('aucun', 'none') : `−${n}` }))} />
           </div>
         ))}
+      </div>
+    </Modal>
+  );
+}
+
+const PRICE_REASONS: Array<[string, string, string]> = [
+  ['REQUESTED_ADD_ONS', 'Extra demandé par le client', 'Add-on the customer asked for'], ['BIGGER_SIZE', 'Plus grand format', 'Bigger size'], ['NEW_ITEM_ADDED', 'Article ajouté', 'Item added'],
+  ['ITEM_SOLD_OUT', 'Article en rupture', 'Item sold out'], ['REMOVED_ITEM', 'Article retiré', 'Item removed'], ['ADD_ON_UNAVAILABLE', 'Extra non disponible', 'Add-on unavailable'], ['OTHER', 'Autre', 'Other'],
+];
+
+/** Uber Eats price change (Adjust Order Price): the customer confirms it in the Uber Eats app. 50 $ at most, up or down. */
+function PriceDialog({ onSend, onClose }: { onSend: (a: { amount: number; reason: string; customReason?: string }) => void; onClose: () => void }) {
+  const { t, lang } = useI18n();
+  const [amount, setAmount] = useState('');
+  const [reason, setReason] = useState('REQUESTED_ADD_ONS');
+  const [custom, setCustom] = useState('');
+  const n = Number(amount.replace(',', '.'));
+  const valid = Number.isFinite(n) && n !== 0 && Math.abs(n) <= 50 && (reason !== 'OTHER' || custom.trim().length > 0);
+  return (
+    <Modal title={t('Changer le prix — Uber Eats', 'Change the price — Uber Eats')} subtitle={t('Montant négatif pour baisser le prix. Le client confirme dans l’app Uber Eats (50 $ au plus).', 'Negative amount to lower the price. The customer confirms in the Uber Eats app (50 $ at most).')} onClose={onClose}
+      footer={<><Button variant="ghost" onClick={onClose}>{t('Retour', 'Back')}</Button><Button variant="primary" disabled={!valid} onClick={() => onSend({ amount: n, reason, ...(reason === 'OTHER' ? { customReason: custom.trim() } : {}) })}>{t('Envoyer au client', 'Send to the customer')}</Button></>}>
+      <div className="grid gap-3">
+        <Field label={t('Montant ($)', 'Amount ($)')}><Input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="2.50" /></Field>
+        <Field label={t('Raison', 'Reason')}><Select value={reason} onChange={(e) => setReason(e.target.value)}>{PRICE_REASONS.map(([v, fr, en]) => <option key={v} value={v}>{lang === 'fr' ? fr : en}</option>)}</Select></Field>
+        {reason === 'OTHER' && <Field label={t('Expliquez', 'Explain')}><Input value={custom} onChange={(e) => setCustom(e.target.value)} maxLength={200} /></Field>}
       </div>
     </Modal>
   );

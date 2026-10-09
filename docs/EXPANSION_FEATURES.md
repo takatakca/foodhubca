@@ -2,6 +2,16 @@
 
 _Branch `expansion-features` · October 2026 · sandbox only — nothing here is live until the owner says so._
 
+> **Status 2026-10-09:** merged into `main` (through PR #12) and deployed on https://foodhub.on2go.ca — Settings →
+> Expansion is live, every switch is **off**. CI on `main`: `verify:foodhub` 508/0.
+> **Before own-order delivery can run (owner):** (1) `DOORDASH_DRIVE_DEVELOPER_ID`, `DOORDASH_DRIVE_KEY_ID`,
+> `DOORDASH_DRIVE_SIGNING_SECRET`, `DOORDASH_DRIVE_ENV=sandbox` in Coolify + redeploy; (2) a kitchen phone on each of
+> the 4 locations (Settings → Business — none set today); (3) the Drive sandbox webhook in the DoorDash portal with the
+> token from Settings → Expansion → Delivery → *Show the token*. Then an agent turns the switch on, sets the kitchen
+> rules and runs the sandbox test deliveries. Owner guide in French: OneDrive *00 MAT IMPORTANT / 7 Soutien et suivi /
+> LIVRAISON_NOS_COURSIERS.md*. The AI phone line is being taken live by the AI-phone-kitchens and IVR work (PR #17 and
+> the IVR branch), which build on §4.
+
 Four new lines of business, built on top of Food Hub, each behind **its own switch**:
 
 | Feature | What it does | Where in the console | Needs from you | Needs from a platform |

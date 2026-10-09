@@ -1,9 +1,13 @@
-// Outbound messages: email (Resend), SMS + voice calls (Twilio), team chat (Slack / Teams / Discord /
+// Outbound messages: email (SMTP or Resend, see email.ts), SMS + voice calls (Twilio), team chat (Slack / Teams / Discord /
 // Google Chat incoming webhook). Every attempt is written to the "messages" outbox (recipient masked),
 // so the owner can see what was sent, to whom and whether it worked. Nothing here ever throws.
 import crypto from 'node:crypto';
 import { getRepo } from '../repo';
 import { timedFetch } from '../env-utils';
+import { emailConfigured, emailFrom, emailProvider, emailSetupMessage, sendMail } from './email';
+
+// The shared email helpers live in ./email; re-exported so existing imports from '../notify' keep working.
+export { emailConfigured, emailFrom };
 
 export type MessageChannel = 'email' | 'sms' | 'call' | 'chat';
 export interface SendResult { ok: boolean; channel: MessageChannel; message: string; ref?: string; skipped?: boolean }
@@ -15,15 +19,13 @@ export interface OutboxEntry {
 export const OUTBOX = 'messages';
 const strip = (u: string) => u.replace(/\/+$/, '');
 
-export function emailFrom(): string | undefined { return process.env.AUTH_EMAIL_FROM || process.env.REPORT_EMAIL_FROM || undefined; }
-export function emailConfigured(): boolean { return Boolean(process.env.RESEND_API_KEY && emailFrom()); }
 export function smsConfigured(): boolean { return Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && (process.env.TWILIO_FROM || process.env.TWILIO_MESSAGING_SERVICE_SID)); }
 export function callConfigured(): boolean { return Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM); }
 export function chatConfigured(): boolean { return Boolean(process.env.ALERT_WEBHOOK_URL); }
 export function aiConfigured(): boolean { return Boolean(process.env.ANTHROPIC_API_KEY); }
 
 export function channelsStatus() {
-  return { email: emailConfigured(), sms: smsConfigured(), call: callConfigured(), chat: chatConfigured(), ai: aiConfigured() };
+  return { email: emailConfigured(), emailProvider: emailProvider(), sms: smsConfigured(), call: callConfigured(), chat: chatConfigured(), ai: aiConfigured() };
 }
 
 /** North-American numbers to E.164 (+15145550123). Returns null when it does not look like a phone number. */
@@ -65,18 +67,13 @@ export async function sendEmail(input: { to: string; subject: string; text: stri
   const to = normalizeEmail(input.to);
   let r: SendResult;
   if (!to) r = { ok: false, channel: 'email', message: 'Invalid email address.' };
-  else if (!emailConfigured()) r = { ok: false, skipped: true, channel: 'email', message: 'Email is not set up (RESEND_API_KEY + AUTH_EMAIL_FROM).' };
+  else if (!emailConfigured()) r = { ok: false, skipped: true, channel: 'email', message: emailSetupMessage('auth') };
   else {
-    try {
-      const res = await timedFetch(`${strip(process.env.RESEND_BASE_URL || 'https://api.resend.com')}/emails`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: emailFrom(), to: [to], subject: input.subject, text: input.text, ...(input.html ? { html: input.html } : {}) }),
-      });
-      const body = await res.json().catch(() => ({}));
-      r = res.ok ? { ok: true, channel: 'email', message: 'Sent', ref: body?.id } : { ok: false, channel: 'email', message: `Resend HTTP ${res.status}: ${body?.message ?? ''}`.trim() };
-    } catch (e) {
-      r = { ok: false, channel: 'email', message: `Network error: ${e instanceof Error ? e.message : String(e)}` };
+    const m = await sendMail({ to: [to], subject: input.subject, text: input.text, ...(input.html ? { html: input.html } : {}) }, 'auth');
+    if (m.ok) r = { ok: true, channel: 'email', message: 'Sent', ref: m.ref };
+    else {
+      const f = m.failure;
+      r = { ok: false, channel: 'email', message: f.kind === 'http' ? `Resend HTTP ${f.status}: ${f.detail}`.trim() : f.kind === 'smtp' ? `SMTP error: ${f.detail}` : f.kind === 'network' ? `Network error: ${f.detail}` : f.detail };
     }
   }
   await record({ channel: 'email', to: to ? maskEmail(to) : String(input.to).slice(0, 3), purpose: meta.purpose, ok: r.ok, skipped: r.skipped, message: r.message, ref: r.ref, incidentId: meta.incidentId, orderId: meta.orderId, by: meta.by, preview: meta.secret ? undefined : input.subject });

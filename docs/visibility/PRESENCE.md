@@ -52,6 +52,16 @@ looks moved to Saint-Léonard; Saint-Léonard is written 5837 in older Food Hub 
 
 ## Findings from web search (this session cannot open listing sites; only web search works)
 
+- 2026-10-09 | Pizza Inntime | **No public listing surfaces** in web search ("Pizza Inntime" and `inntime.ca` return
+  nothing; the closest name is L'in-time, an unrelated Verdun restaurant). Platforms: one Uber Eats and one DoorDash store,
+  NDG only, both off; **Saint-Léonard has no store anywhere**. **Close competitors on Somerled itself:** B&M Somerled
+  (6200 av. Somerled, Greek/Italian with pizza, a block from the kitchen), Monkland Grille (6447 Somerled) and Welat Pizza
+  (6509 Somerled). **Overlap risk:** PPP Pizzeria is a second pizza brand out of the same NDG kitchen; two pizza profiles
+  at one address compete with each other and look like duplicates to Google. Owner decides: one pizza brand per kitchen on
+  Google (the other stays on delivery apps only), or a clearly different menu and sign for each. Sources:
+  https://www.ubereats.com/ca/store/b%26m-somerled/kldUd7JbR9WcMIddgzv9Ng ,
+  https://www.restomontreal.ca/resto/welat-pizza-montreal/793/en/
+
 - 2026-10-09 | Taco Mexican | **No public listing surfaces** in web search (Uber Eats and DoorDash pages exist but are not
   indexed; `tacomontreal.ca` is not indexed either). **Name risk:** "Taco Mexican" is generic and English word order in a
   French-first market; Google ranks it against every "tacos" search. **Close competitors:** in NDG, Chelas & Tacos

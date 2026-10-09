@@ -1,6 +1,6 @@
 // ON2GO phone menu — the deterministic part of listening: language words, keypad menu sentences, the keyword router
 // (used when the AI is off, fails, or after two misunderstandings), spoken order numbers, and the card-number guard.
-import { findNode, levelOf, nodeFor, PLATFORM_NAME, type IvrLang, type IvrNode, type PlatformId, type Texts } from './config';
+import { findNode, levelOf, nodeFor, PLATFORM_NAME, type IvrLang, type IvrNode, type PlatformId, type Texts } from './tree';
 
 /** Lowercase, no accents, no punctuation except spaces and apostrophes. */
 export function fold(s: string): string {

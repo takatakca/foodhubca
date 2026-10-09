@@ -32,7 +32,7 @@ Status: `todo` / `doing` / `done` / `blocked: reason`. Newest work at the top of
 
 ## P4 The plan
 - [x] M1 done 2026-10-09 (phased plan, principles, back-end coverage, KPIs) | `PLAN.md`: the group's restaurant marketing and visibility plan (channels by priority, NAP standard, one order hub per brand, review strategy, schema/SEO, photo plan, ads only after stores are back online, measurement, what TAKATAK V1 modules cover each part, owner decisions)
-- [ ] M2 todo | Ranked cross-brand fix list from the F2/D2 findings (stale listings from old kitchens, name and address conflicts, duplicate store numbers, name-vs-menu problems, owner decisions), so the owner or a desktop session can apply fixes one account at a time -> `PLAN.md`
+- [x] M2 done 2026-10-09 (`PLAN.md` §7: 17 ranked fixes in 5 groups) | Ranked cross-brand fix list from the F2/D2 findings (stale listings from old kitchens, name and address conflicts, duplicate store numbers, name-vs-menu problems, owner decisions), so the owner or a desktop session can apply fixes one account at a time -> `PLAN.md`
 
 ## P5 Recurring
 - [ ] R1 | last check 2026-10-09 15:45 UTC (new DoorDash POS-integration case for one store, opened outside this session: flagged to the owner in Drive) | Every ~1 h: check the owner's Gmail for new DoorDash email (thread ref in Drive OPS_LOG); record in Drive, never reply without the owner.

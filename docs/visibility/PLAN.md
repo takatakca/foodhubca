@@ -12,8 +12,8 @@ Public facts only; private steps live in Drive "TAKATAK OPS (private)".
 
 ## 1. Where we are (2026-10-09)
 
-- 17 brands, 2 kitchens in the brand config: NDG (6280 Somerled) and Saint-Léonard (5839 Jean-Talon E). The old Hochelaga
-  kitchen looks moved.
+- 17 brands, 2 kitchens in the brand config: NDG (6280 Somerled) and Saint-Léonard (5839 Jean-Talon E). Two older
+  kitchens still show up on the web: Hochelaga (3583 Ste-Catherine E) and Montréal-Nord (6241 Boul. Léger).
 - DoorDash: every store switched to tablet on 2026-10-08. Most stores are inactive. 5 "not eligible" notices on
   2026-10-08. Poulet Express (Poulet Poulet, NDG) is still on the old POS.
 - Google: 7 known profiles (cid) for 17 brands x 2 kitchens. A stale "PPP Pizzeria 24/7 Montréal Nord" listing is still
@@ -91,3 +91,51 @@ count, average, reply rate · Listings: share with correct NAP · Ads: cost per 
 
 ## 6. Owner decisions (all in one place)
 Drive "TAKATAK OPS (private)" > 04 QUESTIONS FOR THE OWNER, plus `docs/TAKATAK_BRANDS_BRIDGE.md` §6.
+
+## 7. Fix list from the presence search (ranked, 2026-10-09)
+
+Built from the per-brand findings in `PRESENCE.md` (web search only). Order = harm today first, then what blocks the next
+step. The owner or a logged-in desktop session applies each line, **one account at a time**, logged before → after in
+Drive 03 OPS_LOG. Po Poulet NDG (DoorDash 27982486) is out of scope everywhere.
+
+### A. Stale listings that hurt today (old kitchens, wrong hours, weak ratings)
+1. **Montréal-Nord (6241 Boul. Léger) is still on the web.** Owner confirms it is closed. Then close or move: the Google
+   profile behind "PPP Pizzeria ... Montréal Nord" (copied by Wanderlog), the Café Bolon profile that RestoMontreal shows
+   in Montréal-Nord with a **2.3 Google rating**, the closed Uber Eats store "Bin Molle Bin Dure", and DoorDash's business
+   name that still says Montréal-Nord (through DoorDash support).
+2. **Seven Uber Eats stores were created for Hochelaga** (slug ends in `-hochelaga`): PPP Pizzeria, Pi Pita, Pita
+   Libanais, Nutrition Shake, Bin Molle & Bin Dure, Gâteaux Montréal, Bolon Café. The slug never changes, so the address
+   may already be Saint-Léonard: check each store's address in Uber Eats Manager; fix or close.
+3. **Round-the-clock hours shown live** (Uber Eats O'Crêpe; the PPP and Bolon listings). Set real hours everywhere as
+   soon as the owner approves them (Food Hub Settings → Hours is the source).
+4. **Check the 7 known Google profiles first** (PPP NDG, OOEUF NDG, Pi Pita NDG, Bin Molle NDG, Café Bolon NDG and
+   Saint-Léonard, Nutrition Shake Saint-Léonard): which address, name, hours and rating each shows today. Any one sitting
+   on an old kitchen is fixed or closed before new profiles are made.
+
+### B. One address per kitchen (blocks every listing)
+5. Saint-Léonard **5837 or 5839** Jean-Talon E: Uber Eats shows 5837 (O'Crêpe, O'OEUFS), the config says 5839.
+6. NDG **6280 or 6284** Somerled. Then copy the chosen address to every platform and directory.
+
+### C. Duplicate or unknown store numbers (DoorDash, Uber Eats)
+7. Po Poulet Saint-Léonard: DoorDash 34494017 or 41950447, plus the "not eligible" notice (owner calls DoorDash).
+8. Poulet Poulet NDG: DoorDash 32501399 ("Poulet Express", still on the old POS) or 28719392.
+9. OOEUF Saint-Léonard: Uber Eats store 2e747d04 is not in the config (config has c5585882).
+10. OCRÊPE: the Uber Eats store filed under NDG shows the Saint-Léonard address; move it in the config.
+11. The other "not eligible" notices (Pi Pita, OOEUF, OOEUF Express NDG): owner calls DoorDash.
+
+### D. Names to settle before any new Google profile (a rename after verification means verifying again)
+12. **Spellings:** OOEUF vs O'Oeufs; OCRÊPE vs O'Crêpe; Gâteau vs Gâteaux Montréal; Poulet Poulet vs Poulet Express.
+13. **Names that don't match the menu:** Déjeuner Montréal ("breakfast", menu is casse-croûte); Nutrition Shake (no
+    shakes); Place Afrique (no African dishes).
+14. **Names at risk:** Mythos & Go (well-known Mythos restaurant: check trademarks); generic names that cannot rank
+    (Pita Libanais, Taco Mexican, Gâteau Montréal; its site `viennoise.ca` points customers to another bakery).
+15. **Overlaps in one kitchen:** three pizza brands in NDG (PPP Pizzeria, Pizza Inntime, Pizza Algérie): one on Google
+    per kitchen, the others on the apps only; Pizza Algérie fits Saint-Léonard better. Poulet Poulet stays fully
+    separate from Po Poulet NDG.
+
+### E. Build order for Google profiles (after A to D)
+16. Existing profiles fixed first (item 4), then new ones in this order: OOEUF Saint-Léonard, OCRÊPE, Po Poulet
+    Saint-Léonard (once DoorDash clears), Pi Pita Saint-Léonard, then the brands whose names are settled in D.
+    Place Afrique last (or never).
+17. Each profile: category from `GBP_CHANGES.md`, real photos, the brand's own order page first, first post, review
+    replies within 48 h; then Apple, Bing, Yelp, TripAdvisor, Facebook with the same name, address and hours.

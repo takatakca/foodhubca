@@ -26,7 +26,7 @@ export default function PrivacyPage() {
 
         <H2>2. Renseignements que nous traitons</H2>
         <UL>
-          <li><b>Marchands Clover qui branchent l’application :</b> identifiant et nom du marchand, inventaire (articles, catégories, modificateurs, prix, stock), commandes et paiements que Food Hub crée dans Clover, ventes du jour pour le rapprochement, et les jetons d’accès Clover (conservés uniquement sur notre serveur, jamais affichés ni transmis à des tiers).</li>
+          <li><b>Marchands Clover qui branchent l’application :</b> identifiant, nom et ville du marchand, inventaire (articles, catégories, modificateurs, prix, stock), commandes et paiements que Food Hub crée dans Clover, ventes du jour pour le rapprochement, et les jetons d’accès Clover (conservés uniquement sur notre serveur, jamais affichés ni transmis à des tiers). À l’ouverture de l’application, Food Hub fait aussi un relevé en lecture seule de la caisse (nombre d’articles, de catégories, de types de commande, de modes de paiement et d’appareils) et lit l’état de l’abonnement à l’application dans le Clover App Market, pour préremplir la page d’accueil.</li>
           <li><b>Commandes des plateformes de livraison :</b> prénom ou nom du client, numéro de téléphone fourni par la plateforme (souvent un numéro relais), adresse de livraison si la plateforme la transmet, contenu de la commande, instructions spéciales, montants, état de la commande et renseignements sur le livreur.</li>
           <li><b>Équipe du restaurant :</b> nom, courriel ou numéro de cellulaire (pour les codes de connexion), rôle, NIP de gérant (conservé sous forme hachée, jamais en clair), journal des actions et des tentatives de connexion, et l’état des tablettes de cuisine.</li>
           <li><b>Nous ne recevons aucun numéro de carte de paiement.</b> Les paiements sont traités par Clover et par les plateformes ; Food Hub n’enregistre dans Clover que le mode de paiement et le montant.</li>
@@ -44,7 +44,7 @@ export default function PrivacyPage() {
         <H2>4. Avec qui nous les partageons</H2>
         <UL>
           <li>Les plateformes que le restaurant a branchées (Uber Eats, DoorDash, SkipTheDishes / Just Eat Takeaway, Too Good To Go) et Clover, uniquement pour traiter les commandes et les menus.</li>
-          <li>Nos fournisseurs techniques, liés par des obligations de confidentialité : hébergement du serveur (Contabo), base de données (Supabase), envoi des courriels de connexion (Resend), envoi des textos de connexion si activé (Twilio) et, si le propriétaire l’active, l’assistant d’analyse Claude (Anthropic), qui reçoit un résumé des données de l’entreprise et ne prend aucune décision.</li>
+          <li>Nos fournisseurs techniques, liés par des obligations de confidentialité : hébergement du serveur (Contabo), base de données (Supabase), envoi des courriels de connexion (Resend ou le serveur de courriel de l’entreprise), envoi des textos de connexion si activé (Twilio) et, si le propriétaire l’active, l’assistant d’analyse Claude (Anthropic), qui reçoit un résumé des données de l’entreprise et ne prend aucune décision.</li>
           <li>Les autorités, lorsque la loi l’exige.</li>
         </UL>
 
@@ -60,10 +60,16 @@ export default function PrivacyPage() {
         <H2>8. Vos droits</H2>
         <P>Vous pouvez demander l’accès à vos renseignements, leur rectification, leur portabilité, retirer votre consentement ou demander la fin de leur diffusion, en écrivant à notre responsable de la protection des renseignements personnels. Si vous n’êtes pas satisfait de notre réponse, vous pouvez vous adresser à la Commission d’accès à l’information du Québec ou au Commissariat à la protection de la vie privée du Canada.</P>
 
-        <H2>9. Responsable et coordonnées</H2>
+        <H2>9. Témoins (cookies)</H2>
+        <P>Food Hub n’utilise que des témoins nécessaires à son fonctionnement : un témoin de session signé (connexion), un témoin de tablette de cuisine et un témoin de langue. Aucun témoin publicitaire ni outil de mesure d’audience de tiers n’est utilisé.</P>
+
+        <H2>10. Marchands et utilisateurs aux États-Unis</H2>
+        <P>Pour un marchand situé aux États-Unis, nous agissons comme fournisseur de services de ce marchand : nous traitons les renseignements de ses clients uniquement pour fournir le service, nous ne les vendons pas et ne les partageons pas à des fins de publicité ciblée. Les droits que vous accordent les lois de votre État (accès, correction, suppression) s’exercent en nous écrivant à l’adresse ci-dessous ; nous répondons dans les délais que ces lois prévoient.</P>
+
+        <H2>11. Responsable et coordonnées</H2>
         <P>Responsable de la protection des renseignements personnels : {officerFr}. Courriel : {contactFr}{i.supportPhone ? ` · Téléphone : ${i.supportPhone}` : ''}. Adresse : {i.company}, {i.address}.</P>
 
-        <H2>10. Modifications</H2>
+        <H2>12. Modifications</H2>
         <P>Nous publierons toute modification sur cette page, avec sa date de mise à jour.</P>
       </LangBlock>
 
@@ -75,7 +81,7 @@ export default function PrivacyPage() {
 
         <H2>2. Information we process</H2>
         <UL>
-          <li><b>Clover merchants who connect the app:</b> merchant ID and name, inventory (items, categories, modifiers, prices, stock), the orders and payments Food Hub creates in Clover, daily sales for reconciliation, and Clover access tokens (kept only on our server, never displayed or shared with third parties).</li>
+          <li><b>Clover merchants who connect the app:</b> merchant ID, name and city, inventory (items, categories, modifiers, prices, stock), the orders and payments Food Hub creates in Clover, daily sales for reconciliation, and Clover access tokens (kept only on our server, never displayed or shared with third parties). When the app is opened, Food Hub also takes a read-only snapshot of the register (number of items, categories, order types, tenders and devices) and reads the app’s Clover App Market subscription status, to pre-fill the welcome page.</li>
           <li><b>Delivery platform orders:</b> customer first name or name, the phone number provided by the platform (often a relay number), delivery address when the platform sends it, order contents, special instructions, amounts, order status and courier details.</li>
           <li><b>Restaurant team:</b> name, email or mobile number (for sign-in codes), role, manager PIN (stored hashed), activity and sign-in log, and kitchen tablet status.</li>
           <li><b>We never receive payment card numbers.</b> Payments are processed by Clover and the platforms; Food Hub only records the tender type and amount in Clover.</li>
@@ -93,7 +99,7 @@ export default function PrivacyPage() {
         <H2>4. Who we share it with</H2>
         <UL>
           <li>The platforms the restaurant connected (Uber Eats, DoorDash, SkipTheDishes / Just Eat Takeaway, Too Good To Go) and Clover, only to process orders and menus.</li>
-          <li>Our technical providers, bound by confidentiality: server hosting (Contabo), database (Supabase), sign-in emails (Resend), sign-in text messages when enabled (Twilio) and, if the owner turns it on, the Claude analysis assistant (Anthropic), which receives a summary of business data and makes no decisions.</li>
+          <li>Our technical providers, bound by confidentiality: server hosting (Contabo), database (Supabase), sign-in emails (Resend or the company’s own mail server), sign-in text messages when enabled (Twilio) and, if the owner turns it on, the Claude analysis assistant (Anthropic), which receives a summary of business data and makes no decisions.</li>
           <li>Authorities, when the law requires it.</li>
         </UL>
 
@@ -109,10 +115,16 @@ export default function PrivacyPage() {
         <H2>8. Your rights</H2>
         <P>You may ask to access, correct or port your information, withdraw consent or ask us to stop disseminating it by writing to our privacy officer. If you are not satisfied with our answer, you may contact the Commission d’accès à l’information du Québec or the Office of the Privacy Commissioner of Canada.</P>
 
-        <H2>9. Privacy officer and contact</H2>
+        <H2>9. Cookies</H2>
+        <P>Food Hub only uses cookies it needs to work: a signed session cookie (sign-in), a kitchen-tablet cookie and a language cookie. No advertising cookies and no third-party analytics are used.</P>
+
+        <H2>10. Merchants and users in the United States</H2>
+        <P>For a merchant located in the United States, we act as that merchant’s service provider: we process its customers’ information only to provide the service, we do not sell it and we do not share it for targeted advertising. You may exercise the rights your state’s laws give you (access, correction, deletion) by writing to us at the address below; we answer within the time those laws allow.</P>
+
+        <H2>11. Privacy officer and contact</H2>
         <P>Person in charge of the protection of personal information: {officerEn}. Email: {contactEn}{i.supportPhone ? ` · Phone: ${i.supportPhone}` : ''}. Address: {i.company}, {i.address}.</P>
 
-        <H2>10. Changes</H2>
+        <H2>12. Changes</H2>
         <P>We will post any change on this page with its update date.</P>
       </LangBlock>
     </article>

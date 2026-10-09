@@ -12,6 +12,7 @@
 import { fetchDoorDashStoreStatus } from './adapters/doordash';
 import { isRelayStore } from './adapters/relay';
 import { fetchUberStoreStatus } from './adapters/uber-eats';
+import { recoverMissedUberOrders } from './adapters/uber-events';
 import { nowIso } from './config';
 import { logActivity } from './activity';
 import { CHANNEL_LABELS } from './config';
@@ -24,6 +25,8 @@ import { applyHolidayClosures, reenableExpiredItems, reopenExpiredPauses } from 
 import { sendDueReports } from './reports';
 import { cloverReadiness, cloverSalesSince, allCloverMerchants, type CloverSales } from './pos/clover';
 import { importCloverPlatformOrders } from './pos/clover-platform-orders';
+import { importCloverWebsiteOrders } from './pos/clover-website-orders';
+import { runOrderRecovery } from './recovery';
 import { getRepo } from './repo';
 import { startOfLocalDayMs } from './time';
 import { runWatch, type WatchReport } from './watch/engine';
@@ -49,6 +52,8 @@ export interface SyncReport {
   trigger: string;
   businessDayStart: string;
   reopened: number;
+  /** Uber orders found waiting on Uber (created-orders) that no webhook brought, then processed. */
+  uberMissed?: { recovered: number; error?: string };
   /** Orders accepted/ready/dispatched for longer than FOODHUB_AUTO_COMPLETE_MIN (default 90) and closed automatically. */
   autoCompleted: number;
   /** Timed 86s that ended and were switched back on. */
@@ -66,7 +71,7 @@ export interface SyncReport {
   /** Once a day: reconciliation cases opened / closed. */
   recon: { opened: number; closed: number } | null;
   stores: StoreSyncRow[];
-  clover: Array<CloverSales & { locationCodes: string[]; platformOrders?: number; platformOrdersError?: string }>;
+  clover: Array<CloverSales & { locationCodes: string[]; platformOrders?: number; platformOrdersError?: string; websiteOrders?: number; websiteOrdersError?: string }>;
   cloverConfigured: boolean;
   /** Per-platform problems of this run (a platform that stopped answering, Clover sales failures…). Partial reports are still saved. */
   platformErrors?: Partial<Record<ChannelKey | 'clover', string>>;
@@ -97,6 +102,18 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
 
 export async function lastSyncReport(): Promise<SyncReport | null> {
   return getRepo().getKv<SyncReport>(LAST_KEY);
+}
+
+/** When the last sync ran and how many Clover merchants did not answer it — all /api/health needs. */
+export const SYNC_AT_KEY = 'sync:at';
+export interface SyncAt { at: string; cloverDown: number }
+
+export async function lastSyncAt(): Promise<SyncAt | null> {
+  const tiny = await getRepo().getKv<SyncAt>(SYNC_AT_KEY);
+  if (tiny?.at) return tiny;
+  // Until the first sync after an upgrade writes sync:at.
+  const full = await lastSyncReport();
+  return full ? { at: full.at, cloverDown: (full.clover ?? []).filter((c) => !c.ok).length } : null;
 }
 
 async function pool<T, R>(items: T[], size: number, fn: (t: T) => Promise<R>): Promise<R[]> {
@@ -217,6 +234,11 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
   const started = Date.now();
   const platformErrors: NonNullable<SyncReport['platformErrors']> = {};
   try {
+    // Orders first: due Clover retries and webhooks that were saved but not processed or failed — Uber's included, while
+    // the 11.5-minute accept window is still open (recovery.ts → inbox.ts).
+    await runOrderRecovery({ trigger: `sync:${opts.trigger || 'manual'}` }).catch(() => null);
+    // …and orders still waiting on Uber that no webhook ever announced (stores where Food Hub is the order manager).
+    const uberMissed = await recoverMissedUberOrders().catch((e) => ({ recovered: 0, error: e instanceof Error ? e.message : String(e) }));
     const reopened = await reopenExpiredPauses().catch(() => []);
     const autoCompleted = await autoCompleteOldOrders().catch(() => 0);
     const itemsReenabled = await reenableExpiredItems().catch(() => 0);
@@ -255,10 +277,13 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
       // Delivery orders that reached Clover through Clover's own platform integration: added to Food Hub
       // (read-only) and kept out of the in-store sales.
       const viaClover = await importCloverPlatformOrders(mid).catch((e) => ({ imported: 0, posOrderIds: [] as string[], error: String(e?.message ?? e) }));
+      // Website orders taken by Clover Online Ordering: mirrored on the kitchen screen (Clover keeps control). They are
+      // the restaurant's own Clover sales, so they stay in the in-store total.
+      const website = await importCloverWebsiteOrders(mid).catch((e) => ({ imported: 0, error: String(e?.message ?? e) }));
       const excluded = new Set([...injected, ...viaClover.posOrderIds]);
       const sales = await cloverSalesSince(mid, dayStart, excluded);
       const locationCodes = [...new Set(stores.filter((s) => (s.cloverMerchantId || process.env.CLOVER_MERCHANT_ID) === mid).map((s) => s.locationCode))];
-      return { ...sales, locationCodes, platformOrders: viaClover.imported, ...(viaClover.error ? { platformOrdersError: viaClover.error } : {}) };
+      return { ...sales, locationCodes, platformOrders: viaClover.imported, ...(viaClover.error ? { platformOrdersError: viaClover.error } : {}), websiteOrders: website.imported, ...(website.error ? { websiteOrdersError: website.error } : {}) };
     });
     const settled = await Promise.allSettled([...groups.map(([, p]) => p), cloverRun]);
     const storeRows: StoreSyncRow[] = [];
@@ -278,6 +303,7 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
       trigger: opts.trigger || 'manual',
       businessDayStart: new Date(dayStart).toISOString(),
       reopened: reopened.length,
+      uberMissed,
       autoCompleted,
       itemsReenabled,
       holidayClosures,
@@ -292,6 +318,8 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
       ...(Object.keys(platformErrors).length ? { platformErrors } : {}),
     };
     await repo.setKv(LAST_KEY, report);
+    // /api/health reads only this tiny key (the full report holds every store row and Clover's sales).
+    await repo.setKv(SYNC_AT_KEY, { at: report.at, cloverDown: clover.filter((c) => !c.ok).length } satisfies SyncAt).catch(() => undefined);
     // The Watchtower looks at the fresh statuses right away (tablets, late orders, stores…).
     report.watch = await runWatch({ trigger: `sync:${report.trigger}`, force: true }).catch(() => null);
     return { ran: true, report };

@@ -8,6 +8,8 @@ import { toCents } from '../config';
 import { allDayWeek, dayKeyOf, DAYS, intersectWeeks, normalizeWeek, weekIsEmpty } from '../hours';
 import type { DayKey, Holiday, Marketplace, MasterMenu, MenuCategory, MenuItem, MenuLanguage, PublishContext, WeeklyHours } from '../types';
 import { label } from './language';
+import { uberTaxClassOf, uberTaxLabelInfo } from './uber-tax';
+import type { MenuIssue } from './verify';
 
 /** 24/7 — only used when no store hours were ever set (the menu verifier warns about it). */
 export function defaultHours(): WeeklyHours {
@@ -36,6 +38,16 @@ export function priceFor(item: MenuItem, marketplace: Marketplace, menu?: Pick<M
 /** Modifier price on a platform (same markup as the items). */
 export function modifierPriceFor(mod: { price: number }, marketplace: Marketplace, menu?: Pick<MasterMenu, 'channelMarkupPct'> | null): number {
   return withMarkup(mod.price, markupPct(menu, marketplace));
+}
+
+/**
+ * Pickup price on a platform with dual pricing (DoorDash base_price): in-store price + the pickup markup, or null
+ * when the menu has no separate pickup price for that platform.
+ */
+export function pickupPriceFor(base: { price: number }, marketplace: Marketplace, menu?: Pick<MasterMenu, 'pickupMarkupPct'> | null): number | null {
+  const v = menu?.pickupMarkupPct?.[marketplace];
+  if (typeof v !== 'number' || !Number.isFinite(v)) return null;
+  return withMarkup(base.price, Math.min(Math.max(v, -50), 200));
 }
 
 /** Items that are in a valid category, in category order. */
@@ -146,34 +158,63 @@ export function toSkipMenu(menu: MasterMenu, restaurantRefs: string[], callbackU
 }
 
 // ---------------- Uber Eats ----------------
-/** Uber MultiLanguageText is keyed by locale (<lang>_<country>): en_ca + fr_ca for Québec stores. */
+// PUT /v2/eats/stores/{store_id}/menus (developer.uber.com/docs/eats/references/api/v2/put-eats-stores-storeid-menu).
+/**
+ * Uber MultiLanguageText holds ONE translation ("Only one translation should be provided and will be displayed to all
+ * users"), keyed <lang>_<country>. French and English together therefore go in one text, French first (the menu
+ * language setting): "Poulet grillé / Grilled chicken".
+ */
 export const UBER_LOCALES = { en: 'en_ca', fr: 'fr_ca' } as const;
-const text = (value: string, fr?: string) => ({ translations: { [UBER_LOCALES.en]: value, ...(fr?.trim() && fr.trim() !== value ? { [UBER_LOCALES.fr]: fr.trim() } : {}) } });
+export const uberLocale = (lang: MenuLanguage = 'both') => (lang === 'en' ? UBER_LOCALES.en : UBER_LOCALES.fr);
 const SUSPEND_FOREVER = { suspension_info: { suspension: { suspend_until: 8640000000, reason: 'Unavailable' } } };
+
+/**
+ * tax_info is a required item field whose two members are optional. Uber computes Canadian sales tax from the store's
+ * own tax setup, so Food Hub sends it empty; UBER_TAX_RATE_PCT (e.g. 14.975) adds tax_rate "charged on top of the
+ * price" on first-level items — only if Uber's integration support asks for it, otherwise tax could be counted twice.
+ */
+export function uberTaxInfo(firstLevel: boolean): { tax_rate?: number } {
+  const pct = Number(process.env.UBER_TAX_RATE_PCT);
+  return firstLevel && process.env.UBER_TAX_RATE_PCT && Number.isFinite(pct) && pct >= 0 && pct <= 100 ? { tax_rate: pct } : {};
+}
 
 export function toUberMenu(menu: MasterMenu, ctx?: PublishContext, offRefs: Set<string> = new Set()) {
   const items = liveItems(menu);
   const store = storeWeek(menu, ctx);
-  const modifierItems = menu.modifierGroups.flatMap((g) => g.modifiers.map((m) => ({
-    id: `mod:${m.ref}`,
-    external_data: m.ref,
-    title: text(m.name, m.nameFr),
-    price_info: { price: toCents(modifierPriceFor(m, 'uber_eats', menu)) },
-    quantity_info: {},
-    ...(m.available && !offRefs.has(m.ref) ? {} : SUSPEND_FOREVER),
-  })));
+  const lang = ctx?.language ?? 'both';
+  const locale = uberLocale(lang);
+  const text = (en: string, fr?: string) => ({ translations: { [locale]: label(en, fr, lang) } });
+  // An option used by two groups is ONE Uber item (Uber refuses duplicate ids): the first definition wins.
+  const modifierItems = new Map<string, { id: string; external_data: string; title: { translations: Record<string, string> }; price_info: { price: number }; quantity_info: Record<string, never>; tax_info: { tax_rate?: number } } & ReturnType<typeof uberTaxLabelInfo>>();
+  for (const m of menu.modifierGroups.flatMap((g) => g.modifiers)) {
+    if (modifierItems.has(`mod:${m.ref}`)) continue;
+    modifierItems.set(`mod:${m.ref}`, {
+      id: `mod:${m.ref}`,
+      external_data: m.ref,
+      title: text(m.name, m.nameFr),
+      price_info: { price: toCents(modifierPriceFor(m, 'uber_eats', menu)) },
+      quantity_info: {},
+      tax_info: uberTaxInfo(false),
+      // Item tax category (tax_label_info): options take the menu default class.
+      ...uberTaxLabelInfo(uberTaxClassOf(null, menu.uberTaxClass)),
+      ...(m.available && !offRefs.has(m.ref) ? {} : SUSPEND_FOREVER),
+    });
+  }
   const availability = (week: WeeklyHours) => DAYS.map((day) => ({
     day_of_week: day,
     time_periods: (week[day] ?? []).map((p) => ({ start_time: p.open, end_time: p.close })),
   })).filter((d) => d.time_periods.length > 0);
+  // A category without items shows nothing on Uber: it is left out (and so is a scheduled menu left without categories).
+  const filled = new Set(items.map((i) => i.categoryRef));
+  const groups = scheduleGroups(menu, store).map((g) => ({ ...g, categories: g.categories.filter((c) => filled.has(c.ref)) })).filter((g, i) => i === 0 || g.categories.length);
   return {
-    menus: scheduleGroups(menu, store).map((g, i) => ({
+    menus: groups.map((g, i) => ({
       id: i === 0 && g.key === 'store' ? 'takatak-main' : `takatak-schedule-${i}`,
-      title: text(i === 0 && g.key === 'store' ? menu.brandName : `${menu.brandName} — ${g.categories.map((c) => c.name).join(', ')}`),
+      title: text(i === 0 && g.key === 'store' ? menu.brandName : `${menu.brandName} — ${g.categories.map((c) => label(c.name, c.nameFr, lang)).join(', ')}`),
       service_availability: availability(g.hours),
       category_ids: g.categories.map((c) => c.ref),
     })),
-    categories: sortedCategories(menu).map((c) => ({
+    categories: sortedCategories(menu).filter((c) => filled.has(c.ref)).map((c) => ({
       id: c.ref,
       title: text(c.name, c.nameFr),
       entities: items.filter((i) => i.categoryRef === c.ref).map((i) => ({ id: i.ref, type: 'ITEM' })),
@@ -183,23 +224,62 @@ export function toUberMenu(menu: MasterMenu, ctx?: PublishContext, offRefs: Set<
         id: i.ref,
         external_data: i.ref,
         title: text(i.name, i.nameFr),
-        description: (() => { const en = platformDescription(i, 'en'); const fr = platformDescription(i, 'fr'); return text(en, i.descriptionFr || i.nameFr ? fr : undefined); })(),
+        description: { translations: { [locale]: describe(i, lang) } },
         ...(i.imageUrl ? { image_url: i.imageUrl } : {}),
         price_info: { price: toCents(priceFor(i, 'uber_eats', menu)) },
+        tax_info: uberTaxInfo(true),
+        ...uberTaxLabelInfo(uberTaxClassOf(i, menu.uberTaxClass)),
         modifier_group_ids: { ids: i.modifierGroupRefs },
-        ...(typeof i.calories === 'number' && i.calories > 0 ? { nutritional_info: { calories: { lower_range: Math.round(i.calories), upper_range: Math.round(i.calories) } } } : {}),
+        // energy_interval replaces the deprecated lower_range / upper_range; values are E5 (780 cal = 78000000).
+        ...(typeof i.calories === 'number' && i.calories > 0 ? { nutritional_info: { calories: { energy_interval: { lower: Math.round(i.calories) * 100000, upper: Math.round(i.calories) * 100000 } } } } : {}),
         ...(i.available && !offRefs.has(i.ref) ? {} : SUSPEND_FOREVER),
       })),
-      ...modifierItems,
+      ...modifierItems.values(),
     ],
     modifier_groups: menu.modifierGroups.map((g) => ({
       id: g.ref,
       title: text(g.name, g.nameFr),
       quantity_info: { quantity: { min_permitted: g.min, max_permitted: g.max <= 0 ? g.modifiers.length : g.max } },
-      modifier_options: g.modifiers.map((m) => ({ id: `mod:${m.ref}`, type: 'ITEM' })),
+      modifier_options: [...new Set(g.modifiers.map((m) => `mod:${m.ref}`))].map((id) => ({ id, type: 'ITEM' })),
     })),
     display_options: { disable_item_instructions: false },
   };
+}
+
+/** The one text Uber shows for a MultiLanguageText (whatever its locale key). */
+export const uberText = (t: { translations: Record<string, string> } | undefined) => Object.values(t?.translations ?? {})[0] ?? '';
+
+export type UberMenuIssue = MenuIssue;
+
+/**
+ * Structural checks on the Uber menu body before it is sent (Uber refuses the whole PUT for one dangling id): unique
+ * ids, every reference resolvable, quantity rules, prices, titles, photo URLs. Errors block that store's publish.
+ */
+export function checkUberMenu(body: ReturnType<typeof toUberMenu>): UberMenuIssue[] {
+  const out: UberMenuIssue[] = [];
+  const add = (level: UberMenuIssue['level'], code: string, message: string, ref?: string) => out.push({ level, code, message, ref });
+  const items = new Map<string, (typeof body.items)[number]>();
+  for (const i of body.items) {
+    if (items.has(i.id)) add('error', 'uber_duplicate_id', `Two Uber items share the id ${i.id}.`, i.id.replace(/^mod:/, ''));
+    items.set(i.id, i);
+    const title = uberText(i.title).trim() || undefined;
+    if (!title) add('error', 'uber_no_title', `An Uber item (${i.id}) has no title.`, i.id.replace(/^mod:/, ''));
+    if (!(i.price_info.price >= 0)) add('error', 'uber_price', `"${title ?? i.id}" has an invalid price.`, i.id.replace(/^mod:/, ''));
+    if ('image_url' in i && i.image_url && !/^https:\/\//i.test(i.image_url)) add('warning', 'uber_image_url', `"${title ?? i.id}": Uber only downloads photos from https:// links.`, i.id);
+  }
+  const groups = new Set(body.modifier_groups.map((g) => g.id));
+  const categories = new Set(body.categories.map((c) => c.id));
+  for (const g of body.modifier_groups) {
+    const q = g.quantity_info.quantity;
+    if (q.min_permitted > q.max_permitted) add('error', 'uber_group_min_max', `Option group "${uberText(g.title)}": at least ${q.min_permitted} but at most ${q.max_permitted}.`, g.id);
+    if (q.min_permitted > g.modifier_options.length) add('error', 'uber_group_min_options', `Option group "${uberText(g.title)}" requires ${q.min_permitted} choice(s) but has ${g.modifier_options.length} option(s).`, g.id);
+    for (const o of g.modifier_options) if (!items.has(o.id)) add('error', 'uber_missing_option', `Option group ${g.id} points to ${o.id}, which is not in the menu.`, g.id);
+  }
+  for (const i of body.items) for (const gid of ('modifier_group_ids' in i ? i.modifier_group_ids.ids : [])) if (!groups.has(gid)) add('error', 'uber_missing_group', `Item ${i.id} uses option group ${gid}, which is not in the menu.`, i.id);
+  for (const c of body.categories) for (const e of c.entities) if (!items.has(e.id)) add('error', 'uber_missing_item', `Category ${c.id} lists ${e.id}, which is not in the menu.`, c.id);
+  if (!body.menus.length || !body.menus.some((m) => m.category_ids.length)) add('error', 'uber_empty_menu', 'The Uber menu has no category to show.');
+  for (const m of body.menus) for (const cid of m.category_ids) if (!categories.has(cid)) add('error', 'uber_missing_category', `Menu ${m.id} lists category ${cid}, which is not in the menu.`);
+  return out;
 }
 
 /** Uber holiday hours body: POST /v1/eats/stores/{id}/holiday-hours (closed all day = one 00:00–00:00 period, per Uber). */
@@ -255,6 +335,9 @@ export function toDoorDashMenu(menu: MasterMenu, merchantSuppliedId: string, pro
   const categoryHours = new Map<string, WeeklyHours>();
   for (const g of scheduleGroups(menu, store)) if (g.key !== 'store') for (const c of g.categories) categoryHours.set(c.ref, g.hours);
   const visibleCats = new Set(scheduleGroups(menu, store).flatMap((g) => g.categories.map((c) => c.ref)));
+  // Dual pricing (DoorDash guide "Build Dual Pricing"): price = Marketplace delivery, base_price = Marketplace pickup
+  // and Storefront, on items and options; sent only when the menu sets a DoorDash pickup price.
+  const pickupPrice = (x: { price: number }) => { const v = pickupPriceFor(x, 'doordash', menu); return v === null ? {} : { base_price: toCents(v) }; };
   return {
     reference,
     store: { merchant_supplied_id: merchantSuppliedId, provider_type: providerType },
@@ -283,6 +366,7 @@ export function toDoorDashMenu(menu: MasterMenu, merchantSuppliedId: string, pro
             merchant_supplied_id: i.ref,
             active: i.available && !offRefs.has(i.ref),
             price: toCents(priceFor(i, 'doordash', menu)),
+            ...pickupPrice(i),
             sort_id: ii,
             ...((i.tags ?? []).includes('alcohol') ? { is_alcohol: true } : {}),
             ...(i.imageUrl ? { original_image_url: i.imageUrl } : {}),
@@ -300,6 +384,7 @@ export function toDoorDashMenu(menu: MasterMenu, merchantSuppliedId: string, pro
                 merchant_supplied_id: m.ref,
                 active: m.available && !offRefs.has(m.ref),
                 price: toCents(modifierPriceFor(m, 'doordash', menu)),
+                ...pickupPrice(m),
                 sort_id: mi,
               })),
             })),
@@ -308,6 +393,27 @@ export function toDoorDashMenu(menu: MasterMenu, merchantSuppliedId: string, pro
       })),
     },
   };
+}
+
+/** One row of DoorDash's "Automatic Item Availability Polling" answer (only 86'd items and options are listed). */
+export interface DoorDashPolledItem { merchant_supplied_id: string; is_active: false; type: 'item' | 'item_option' }
+
+/**
+ * DoorDash Item Polling answer for one location (developer.doordash.com, item status guide, "Automatic Item
+ * Availability Polling"): an array of the items and options that are OFF, `{ merchant_supplied_id, is_active: false,
+ * type: "item" | "item_option" }`. An empty array means everything is in stock. `menu` is the location's menu
+ * (menuForLocation + alcohol rules), so it lists exactly what the menu push sends as active: false.
+ */
+export function toDoorDashItemPolling(menu: MasterMenu): DoorDashPolledItem[] {
+  const items = liveItems(menu);
+  const used = new Set(items.flatMap((i) => i.modifierGroupRefs));
+  const out = new Map<string, DoorDashPolledItem>();
+  for (const i of items) if (!i.available) out.set(`item:${i.ref}`, { merchant_supplied_id: i.ref, is_active: false, type: 'item' });
+  for (const g of menu.modifierGroups) {
+    if (!used.has(g.ref)) continue;
+    for (const m of g.modifiers) if (!m.available) out.set(`option:${m.ref}`, { merchant_supplied_id: m.ref, is_active: false, type: 'item_option' });
+  }
+  return [...out.values()];
 }
 
 export { dayKeyOf };

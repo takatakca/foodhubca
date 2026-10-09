@@ -3,7 +3,7 @@ import { unzipSync, strFromU8 } from 'fflate';
 import { offlineIntervals, customerKey } from '../lib/foodhub/analytics';
 import { hashPassword, verifyPassword, scopeFilter, inScope } from '../lib/foodhub/auth';
 import { allDayWeek, emptyWeek, intersectWeeks, normalizeWeek, openIntervals, dayKeyOf } from '../lib/foodhub/hours';
-import { scheduleGroups, toDoorDashMenu, toSkipMenu, toUberHolidayHours, toUberMenu, platformDescription } from '../lib/foodhub/menu/translate';
+import { scheduleGroups, toDoorDashMenu, toSkipMenu, toUberHolidayHours, toUberMenu, platformDescription, uberText } from '../lib/foodhub/menu/translate';
 import { verifyMenu } from '../lib/foodhub/menu/verify';
 import { menuForLocation, offRefsAt } from '../lib/foodhub/ops';
 import { duePeriod, toCsv, toXlsx } from '../lib/foodhub/reports';
@@ -59,7 +59,7 @@ describe('menu translators with hours, holidays and schedules', () => {
     expect(u.menus[0].service_availability[0]).toEqual({ day_of_week: 'monday', time_periods: [{ start_time: '10:00', end_time: '22:00' }] });
     expect(u.menus[1].category_ids).toEqual(['c2']);
     expect(toUberHolidayHours(ctx.holidays)).toEqual({ holiday_hours: { '2026-12-25': { open_time_periods: [{ start_time: '00:00', end_time: '00:00' }] } } });
-    expect((u.items.find((i: any) => i.id === 'i1') as any).description.translations.en_ca).toContain('Spicy');
+    expect(uberText((u.items.find((i: any) => i.id === 'i1') as any).description)).toContain('Spicy');
   });
   it('DoorDash: open_hours with seconds, closed days omitted, special_hours, item hours for scheduled categories', () => {
     const d = toDoorDashMenu(menu, 'msid', 'prov', 'ref', { ...ctx, hours: week('10:00', '22:00', ['monday']) });

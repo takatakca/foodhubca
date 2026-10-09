@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CornerDownLeft, Search } from 'lucide-react';
 import { PlatformMark } from '@/components/ui/badge';
-import { NAV } from './nav';
+import { NAV, navVisible } from './nav';
 import { useViewer } from './viewer';
 import { api, money } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
@@ -15,7 +15,7 @@ type Hit = { key: string; label: string; sub?: string; href: string; channel?: s
 /** ⌘K / Ctrl+K: jump to any page or find an order by number, customer or Clover id. */
 export function CommandPalette() {
   const { t, loc } = useI18n();
-  const { can, allLocations } = useViewer();
+  const { can, allLocations, features } = useViewer();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
@@ -53,10 +53,10 @@ export function CommandPalette() {
       { href: '/insights/reports', label: t('Rapports', 'Reports'), perm: 'analytics:view' },
       { href: '/money/disputes', label: t('Litiges', 'Disputes'), perm: 'analytics:view' },
     ];
-    const all = [...NAV.filter((n) => can(n.perm) && (!n.allLocations || allLocations)).map((n) => ({ href: n.href, label: n.label(t) })), ...extra.filter((e) => can(e.perm))];
+    const all = [...NAV.filter((n) => navVisible(n, can, allLocations, features)).map((n) => ({ href: n.href, label: n.label(t) })), ...extra.filter((e) => can(e.perm))];
     const s = q.trim().toLowerCase();
     return all.filter((p) => !s || p.label.toLowerCase().includes(s)).map((p) => ({ key: p.href, label: p.label, href: p.href, sub: p.href }));
-  }, [q, t, can, allLocations]);
+  }, [q, t, can, allLocations, features]);
   const hits = [...orders, ...pages];
   const go = (h?: Hit) => { if (!h) return; setOpen(false); router.push(h.href); };
 

@@ -1,9 +1,10 @@
+import crypto from 'node:crypto';
 import { after, NextResponse } from 'next/server';
 import { logActivity } from './activity';
-import { CHANNEL_LABELS } from './config';
+import { CHANNEL_LABELS, nowIso } from './config';
 import { getRepo } from './repo';
 import { uberCourierState } from './courier';
-import { processIncomingOrder } from './pipeline';
+import { receiveWebhook, refuseInboxEntry, runInboxEntry, type InboxKind } from './inbox';
 import type { ActivityKind, ChannelKey, CourierStatus, NormalizedOrder } from './types';
 
 /** What to keep when deferred webhook work fails: the platform already got its 2xx and will not retry. */
@@ -48,8 +49,35 @@ export function parseJson(raw: string): any | undefined {
   try { return raw ? JSON.parse(raw) : {}; } catch { return undefined; }
 }
 
-export function queueOrder(order: NormalizedOrder) {
-  background(`order ${order.channel}:${order.externalOrderId}`, () => processIncomingOrder(order), { channel: order.channel, body: order, reference: order.externalOrderId, kind: 'order' });
+/**
+ * Saves a webhook in the inbox BEFORE the platform gets its answer, then processes it once the answer is sent
+ * (inbox.ts: interrupted or failed entries are processed again by the recovery runner, and can be replayed).
+ * Returns false when it could not be saved — the route then answers 503 so the platform sends it again (and a copy
+ * that did land, with only the database's answer lost, is marked refused: the platform keeps that one).
+ */
+export async function saveThenProcess(input: { channel: ChannelKey; kind: InboxKind; body: unknown; reference?: string | null }): Promise<boolean> {
+  const id = crypto.randomUUID();
+  const receivedAt = nowIso();
+  let entry: Awaited<ReturnType<typeof receiveWebhook>>;
+  try {
+    entry = await receiveWebhook({ ...input, id, receivedAt });
+  } catch (error) {
+    console.error(`[foodhub] could not save the ${input.channel} webhook before answering:`, error);
+    await refuseInboxEntry(id, receivedAt, error instanceof Error ? error.message : String(error));
+    return false;
+  }
+  after(async () => { await runInboxEntry(entry.id); });
+  return true;
+}
+
+/** A parsed order (Skip, TGTG, relay, DoorDash): saved first, processed after the answer. False = answer 503. */
+export function queueOrder(order: NormalizedOrder): Promise<boolean> {
+  return saveThenProcess({ channel: order.channel, kind: 'order', body: order, reference: order.externalOrderId });
+}
+
+/** The platform must send this webhook again: Food Hub could not save it (database unreachable). */
+export function retryLater(channel: ChannelKey) {
+  return NextResponse.json({ ok: false, error: `Food Hub could not save this ${CHANNEL_LABELS[channel]} webhook — please send it again.` }, { status: 503, headers: { 'Retry-After': '30' } });
 }
 
 /** Uber delivery.state_changed (body.meta.status) → courier status; null when the state is not one we map with confidence. */

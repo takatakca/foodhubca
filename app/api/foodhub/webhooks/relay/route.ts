@@ -1,8 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { parseRelayOrder, parseRelayStatus, relayStatusApplies, verifyRelayWebhook } from '@/lib/foodhub/adapters/relay';
+import { parseRelayOrder, parseRelayStatus, relayStatusApplies, relayTargetStatus, verifyRelayWebhook } from '@/lib/foodhub/adapters/relay';
 import { acceptNeedsClover, applyExternalStatus } from '@/lib/foodhub/pipeline';
 import { getRepo } from '@/lib/foodhub/repo';
-import { background, keepUnparsed, parseJson, queueOrder } from '@/lib/foodhub/webhook-utils';
+import { background, keepUnparsed, parseJson, queueOrder, retryLater } from '@/lib/foodhub/webhook-utils';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
       background('keep ignored relay order', () => keepUnparsed(parsed.channel ?? 'tgtg', body, `Relay: ${reason}`, ref !== undefined && ref !== null ? String(ref) : null));
       return NextResponse.json({ ok: true, ignored: reason, stored: 'unparsed' });
     }
-    queueOrder(parsed.order);
+    if (!(await queueOrder(parsed.order))) return retryLater(parsed.order.channel);
     return NextResponse.json({ ok: true, order_ref_id: parsed.order.externalOrderId });
   }
 
@@ -38,7 +38,15 @@ export async function POST(req: NextRequest) {
   if (status) {
     background(`relay status ${status.externalOrderId}`, async () => {
       const order = await getRepo().findOrder(status.channel, status.externalOrderId);
-      if (!order) return keepUnparsed(status.channel, body, 'Relay status for an order Food Hub does not have (yet)', status.externalOrderId);
+      if (!order) {
+        // The order may still be in the webhook inbox (server stopped before processing it): a cancel waits for it and
+        // stops its Clover ticket on arrival, like a platform cancel that beats the order. Anything else is kept.
+        if (relayTargetStatus(status.state) === 'cancelled') {
+          const state = /cancel|fail/i.test(status.state) ? status.state : 'cancelled';
+          return void (await applyExternalStatus(status.channel, status.externalOrderId, state, { reason: status.message, source: 'relay', partnerState: status.state }));
+        }
+        return keepUnparsed(status.channel, body, 'Relay status for an order Food Hub does not have (yet)', status.externalOrderId);
+      }
       // Forward-only: a late or repeated delivery never moves an order back or reopens a closed one.
       if (!relayStatusApplies(order, status.state, { needsClover: acceptNeedsClover(order) })) {
         await getRepo().addEvent(order.id, 'platform_status_ignored', { state: status.state, reason: status.message, source: 'relay', note: `Not applied: the order is already ${order.status}.` });

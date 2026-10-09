@@ -3,17 +3,21 @@
 // screen polls — so it keeps watching as long as one screen is open or the cron runs.
 import crypto from 'node:crypto';
 import { logActivity, type Actor } from '../activity';
+import { getAdapter } from '../adapters';
+import { isRelayStore } from '../adapters/relay';
 import { CHANNEL_LABELS, publicBaseUrl } from '../config';
+import { lastOrderTimes } from '../order-retry';
 import { getCatalog } from '../catalog';
 import { deadlineFor } from '../deadline';
-import { effectiveHours, getHours, holidaysFor, isOpenAt, localDate } from '../hours';
+import { inboxSummary } from '../inbox';
+import { effectiveHours, getHours, holidaysFor, isOpenAt, localDate, openIntervals } from '../hours';
 import { DEVICE_OFFLINE_AFTER_MS, listDevices } from '../identity/devices';
 import { aiConfigured, maskContact, normalizePhone, placeCall, postToChat, sendSms } from '../notify';
 import { listCases, RECOVERABLE } from '../recon/engine';
 import { getRepo } from '../repo';
 import { isWaitingScheduled } from '../scheduling';
 import { foodhubTimeZone, localParts } from '../time';
-import type { FoodHubUser, HoursConfig, PlatformStatus, StoredOrder } from '../types';
+import type { ChannelKey, ChannelStore, FoodHubUser, HoursConfig, PlatformStatus, StoredOrder } from '../types';
 import { explainIncident, PLAYBOOK } from './ai';
 import { customerContact, lateMessage } from './customer';
 import { DEFAULT_RULES, DEFAULT_WATCH, INCIDENT_KINDS, KIND_LABEL, type Incident, type IncidentKind, type IncidentStatus, type Severity, type WatchSettings } from './types';
@@ -53,6 +57,7 @@ export async function saveWatchSettings(patch: Partial<WatchSettings>, actor: Ac
     unseenAfterSec: clampN(patch.unseenAfterSec, 30, 1800, cur.unseenAfterSec),
     lateAfterMin: clampN(patch.lateAfterMin, 1, 60, cur.lateAfterMin),
     courierWaitMin: clampN(patch.courierWaitMin, 1, 30, cur.courierWaitMin),
+    silenceAfterMin: clampN(patch.silenceAfterMin, 30, 1440, cur.silenceAfterMin),
     quietFrom: hhmm(patch.quietFrom, cur.quietFrom),
     quietTo: hhmm(patch.quietTo, cur.quietTo),
     postToChat: patch.postToChat ?? cur.postToChat,
@@ -118,6 +123,25 @@ function inQuietHours(s: WatchSettings, now: number, tz: string): boolean {
   return from === to ? false : from < to ? m >= from && m < to : m >= from || m < to;
 }
 
+/** Platforms whose silence means something. Too Good To Go sells a few surplus bags at set times: quiet hours are normal there. */
+const SILENCE_CHANNELS: ChannelKey[] = ['uber_eats', 'doordash', 'skip'];
+
+/** Taking orders on its platform as far as we know: not paused here, not paused / closed / deactivated / unprovisioned there. */
+function takingOrders(st: ChannelStore): boolean {
+  const ps = st.meta?.platformStatus as PlatformStatus | undefined;
+  return st.online !== false && (st.meta as Record<string, unknown>)?.provisioned !== false && !(ps && ['paused', 'closed', 'deactivated'].includes(ps.state));
+}
+
+/** Minutes covered by a set of [from, to] spans (overlaps between stores counted once). */
+function coveredMinutes(spans: Array<[number, number]>): number {
+  let total = 0; let end = -Infinity;
+  for (const [a, b] of [...spans].sort((x, y) => x[0] - y[0])) {
+    if (b <= end) continue;
+    total += b - Math.max(a, end); end = b;
+  }
+  return total / 60000;
+}
+
 async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
   const repo = getRepo();
   const tz = foodhubTimeZone();
@@ -129,12 +153,15 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
   const brandsAt = (code: string) => [...new Set(stores.filter((x) => x.locationCode === code).map((x) => x.brandName))];
   const out: Detection[] = [];
   const on = (k: IncidentKind) => s.rules[k]?.enabled !== false;
+  const mappedStores = new Set(stores.map((x) => `${x.channel}|${x.channelStoreId}`));
+  /** Held for a person because nobody mapped its platform store (store_unmapped below covers it, deadline included). */
+  const heldUnmapped = (o: StoredOrder) => on('store_unmapped') && o.status === 'new' && !o.viaPos && !o.locationCode && !mappedStores.has(`${o.channel}|${o.channelStoreId}`);
 
   for (const o of orders) {
     const age = (now - Date.parse(o.createdAt)) / 1000;
     const where = `${o.brandName ?? 'Marque ?'} · ${loc(o.locationCode)}`;
     const base = { locationCode: o.locationCode ?? null, brandName: o.brandName ?? null, channel: o.channel, orderId: o.id };
-    if (on('order_unaccepted') && o.status === 'new' && !isWaitingScheduled(o, now) && age >= s.unacceptedAfterSec) {
+    if (on('order_unaccepted') && o.status === 'new' && !heldUnmapped(o) && !isWaitingScheduled(o, now) && age >= s.unacceptedAfterSec) {
       const deadline = deadlineFor(o);
       const left = deadline ? (Date.parse(deadline) - now) / 1000 : null;
       const critical = (left !== null && left < 150) || age > 180;
@@ -167,7 +194,13 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
       }
     }
     if (on('pos_failed') && o.posError && !o.posOrderId && OPEN_ORDER.includes(o.status)) {
-      out.push({ ...base, key: `pos_failed:${o.id}`, kind: 'pos_failed', severity: 'critical', title: `Clover n’a pas reçu ${ord(o)}`, titleEn: `Clover did not get ${ord(o)}`, detail: `${where} · ${o.posError}`, detailEn: `${where} · ${o.posError}` });
+      // While Food Hub is still retrying Clover by itself (30 s, 2 min) the incident shows on screen only (info never
+      // escalates); once the retries are used up it turns critical and the escalation starts at once.
+      const retrying = Boolean(o.timeline?.posRetry?.nextAt) && !o.timeline?.posRetry?.gaveUpAt;
+      out.push({ ...base, key: `pos_failed:${o.id}`, kind: 'pos_failed', severity: retrying ? 'info' : 'critical',
+        title: retrying ? `Clover n’a pas encore reçu ${ord(o)} — nouvel essai automatique` : `Clover n’a pas reçu ${ord(o)}`,
+        titleEn: retrying ? `Clover has not got ${ord(o)} yet — retrying automatically` : `Clover did not get ${ord(o)}`,
+        detail: `${where} · ${o.posError}`, detailEn: `${where} · ${o.posError}` });
     }
     if (on('customer_issue') && age < 2 * 3600 && o.status === 'cancelled' && o.timeline?.cancelledBy && o.timeline.cancelledBy !== 'store') {
       const who = o.timeline.cancelledBy === 'customer' ? ['le client', 'the customer'] : ['la plateforme', 'the platform'];
@@ -179,6 +212,39 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
     const byLoc = new Map<string, number>();
     for (const o of orders) if (o.status === 'cancelled' && o.locationCode && now - Date.parse(o.timeline?.cancelledAt ?? o.updatedAt) < 3600_000) byLoc.set(o.locationCode, (byLoc.get(o.locationCode) ?? 0) + 1);
     for (const [code, n] of byLoc) if (n >= 3) out.push({ key: `cancel_spike:${code}`, kind: 'cancel_spike', severity: 'warning', locationCode: code, title: `${n} annulations en 1 h à ${loc(code)}`, titleEn: `${n} cancellations in 1 h at ${loc(code)}` });
+  }
+
+  // Orders from a platform store nobody mapped: the pipeline does not accept them by itself (wrong brand or kitchen
+  // possible) and may have kept them out of Clover. One incident per platform store, naming its id; it closes when
+  // every such order is accepted / rejected / cancelled, or when the store gets mapped. Orders that came through
+  // Clover's own integration are only followed (never "new"), so they never count.
+  if (on('store_unmapped')) {
+    const held = new Map<string, StoredOrder[]>();
+    for (const o of orders) {
+      if (!heldUnmapped(o)) continue;
+      const k = `${o.channel}:${o.channelStoreId ?? ''}`;
+      held.set(k, [...(held.get(k) ?? []), o]);
+    }
+    for (const [k, list] of held) {
+      list.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      const first = list[0];
+      const label = CHANNEL_LABELS[first.channel];
+      const sid = first.channelStoreId || '';
+      // Suggested mapping: the brand the order names and, when that brand runs from one kitchen only, that kitchen.
+      // A suggestion for a person to confirm — nothing is mapped automatically.
+      const named = list.map((o) => o.brandName?.trim()).find(Boolean);
+      const brand = named ? catalog.brands.find((b) => b.name.toLowerCase() === named.toLowerCase())?.name ?? named : null;
+      const kitchens = brand ? [...new Set(stores.filter((x) => x.brandName === brand).map((x) => x.locationCode))] : [];
+      const hint = kitchens.length === 1 ? kitchens[0] : null;
+      const ids = list.slice(0, 3).map((o) => `#${o.displayId || o.externalOrderId.slice(0, 8)}`).join(', ') + (list.length > 3 ? '…' : '');
+      const deadline = deadlineFor(first);
+      const left = deadline ? Math.ceil((Date.parse(deadline) - now) / 60000) : null;
+      const due = left === null ? ['', ''] : left > 0 ? [` · ${left} min avant l’échéance`, ` · ${left} min to the deadline`] : [' · échéance dépassée', ' · deadline passed'];
+      out.push({ key: `store_unmapped:${k}`, kind: 'store_unmapped', severity: 'critical', channel: first.channel, orderId: first.id, brandName: brand, locationCode: null,
+        title: `Commande d’un magasin ${label} non relié : ${sid || '(sans identifiant)'}`, titleEn: `Order from an unmapped ${label} store: ${sid || '(no id)'}`,
+        detail: `${list.length} commande(s) en attente (${ids}), non acceptée(s) automatiquement${due[0]}${brand ? ` · marque indiquée : ${brand}` : ''}${hint ? ` · à relier à ${brand} · ${loc(hint)} ?` : ''}`,
+        detailEn: `${list.length} order(s) waiting (${ids}), not accepted automatically${due[1]}${brand ? ` · brand on the order: ${brand}` : ''}${hint ? ` · link it to ${brand} · ${loc(hint)}?` : ''}` });
+    }
   }
 
   for (const st of stores) {
@@ -212,6 +278,36 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
     }
   }
 
+  // Silence alarm: a platform that used to send orders has sent none for `silenceAfterMin` of OPENING time — a closed
+  // night never counts — over its stores that are taking orders (relay-only stores are not the platform's own link),
+  // while one of them is open right now: a webhook or a key is probably broken. Stores without known hours never count.
+  // Too Good To Go is left out: a few surplus bags at set times make quiet hours normal there.
+  if (on('platform_silent')) {
+    const last = await lastOrderTimes();
+    for (const ch of SILENCE_CHANNELS) {
+      const lastMs = Date.parse(last[ch] ?? '');
+      if (!Number.isFinite(lastMs) || now - lastMs < s.silenceAfterMin * 60_000) continue;
+      const adapter = getAdapter(ch).readiness();
+      if (!adapter.configured && !adapter.viaClover) continue;
+      const since = Math.max(lastMs, now - 7 * 86400_000); // a week of opening hours is plenty to count
+      const live = stores.flatMap((st) => {
+        const week = st.channel === ch && !isRelayStore(st) && takingOrders(st) ? effectiveHours(hours, st.brandName, st.locationCode) : null;
+        return week ? [{ week, off: holidaysFor(hours, st.locationCode, localDate(since, tz), 8) }] : [];
+      });
+      const openNow = live.filter((x) => isOpenAt(x.week, x.off, now, tz));
+      if (!openNow.length) continue;
+      const openMin = coveredMinutes(live.flatMap((x) => openIntervals(x.week, x.off, since, now, tz)));
+      if (openMin < s.silenceAfterMin) continue;
+      const hoursQuiet = Math.floor((now - lastMs) / 3600_000);
+      const openHm = `${Math.floor(openMin / 60)} h ${String(Math.floor(openMin % 60)).padStart(2, '0')}`;
+      const label = CHANNEL_LABELS[ch];
+      out.push({ key: `platform_silent:${ch}`, kind: 'platform_silent', severity: 'warning', channel: ch,
+        title: `Aucune commande ${label} depuis ${hoursQuiet || 1} h — ${openNow.length} magasin(s) ouvert(s)`, titleEn: `No ${label} order for ${hoursQuiet || 1} h — ${openNow.length} store(s) open`,
+        detail: `${openHm} d’ouverture sans commande. Dernière commande : ${localDate(lastMs, tz)} ${new Date(lastMs).toLocaleTimeString('fr-CA', { timeZone: tz, hour: '2-digit', minute: '2-digit' })}. Vérifiez la tablette ${label} et la boîte de réception des webhooks.`,
+        detailEn: `${openHm} of opening hours without an order. Last order: ${new Date(lastMs).toLocaleString('en-CA', { timeZone: tz, dateStyle: 'medium', timeStyle: 'short' })}. Check the ${label} tablet and the webhook inbox.` });
+    }
+  }
+
   const polled = stores.filter((x) => x.channel === 'uber_eats' || x.channel === 'doordash').length;
   if (on('sync_stale') && polled && (!sync || now - Date.parse(sync.at) > 15 * 60_000)) {
     out.push({ key: 'sync_stale', kind: 'sync_stale', severity: 'warning', title: 'Statuts des magasins pas à jour depuis 15+ min', titleEn: 'Store statuses not refreshed for 15+ min' });
@@ -219,7 +315,17 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
   const hourAgo = new Date(now - 3600_000).toISOString();
   const unparsed = jobs.filter((j) => j.kind === 'webhook_unparsed' && j.createdAt >= hourAgo).length;
   if (on('webhook_unreadable') && unparsed) out.push({ key: 'webhook_unreadable', kind: 'webhook_unreadable', severity: 'warning', title: `${unparsed} message(s) de plateforme illisible(s)`, titleEn: `${unparsed} unreadable platform message(s)` });
-  const failed = jobs.filter((j) => j.status === 'error' && j.kind !== 'webhook_unparsed' && j.createdAt >= new Date(now - 2 * 3600_000).toISOString());
+  // Webhooks that stopped retrying by themselves (a late order kept from the kitchen, a payload that keeps failing, an
+  // entry interrupted again and again) wait for a person in the webhook inbox: say so on screen, not only in the log.
+  const inbox = on('webhook_unreadable') ? await inboxSummary({ now }).catch(() => null) : null;
+  const waitingInbox = inbox ? inbox.failed + inbox.stuck : 0;
+  if (waitingInbox) {
+    out.push({ key: 'inbox_failed', kind: 'webhook_unreadable', severity: 'warning',
+      title: `${waitingInbox} message(s) de plateforme en attente d’une personne`, titleEn: `${waitingInbox} platform message(s) waiting for a person`,
+      detail: 'Réglages → Plateformes → Boîte de réception : vérifiez sur la plateforme, puis Rejouer.', detailEn: 'Settings → Platforms → Webhook inbox: check on the platform, then Replay.' });
+  }
+  // 'blocked' = never sent (no API for that platform, live switch off, a locked store…): honest, but nothing was refused.
+  const failed = jobs.filter((j) => j.status === 'error' && j.kind !== 'webhook_unparsed' && (j.result as { status?: string } | null)?.status !== 'blocked' && j.createdAt >= new Date(now - 2 * 3600_000).toISOString());
   if (on('menu_failed') && failed.length) {
     const what = [...new Set(failed.map((j) => `${CHANNEL_LABELS[j.channel as keyof typeof CHANNEL_LABELS] ?? j.channel} ${j.kind.replace(/_/g, ' ')}`))].join(', ');
     out.push({ key: 'menu_failed', kind: 'menu_failed', severity: 'warning', title: `${failed.length} action(s) refusée(s) par une plateforme`, titleEn: `${failed.length} action(s) refused by a platform`, detail: what, detailEn: what });
@@ -348,7 +454,8 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
         const up = SEV[d.severity] > SEV[cur.severity];
         const reopened = cur.status === 'resolved';
         const unsnoozed = cur.status === 'snoozed' && cur.snoozedUntil && Date.parse(cur.snoozedUntil) <= now;
-        Object.assign(cur, { title: d.title, titleEn: d.titleEn, detail: d.detail ?? cur.detail, detailEn: d.detailEn ?? cur.detailEn, lastSeenAt: iso, updatedAt: iso, customer: d.customer ?? cur.customer });
+        // orderId follows the detection: store_unmapped points at its oldest waiting order, which changes as they are handled.
+        Object.assign(cur, { title: d.title, titleEn: d.titleEn, detail: d.detail ?? cur.detail, detailEn: d.detailEn ?? cur.detailEn, orderId: d.orderId ?? cur.orderId, lastSeenAt: iso, updatedAt: iso, customer: d.customer ?? cur.customer });
         if (up) { cur.severity = d.severity; cur.count += 1; if (cur.status === 'acknowledged') { cur.status = 'open'; cur.steps.push({ at: iso, kind: 'reopened', message: 'Plus grave — réouvert / Got worse — reopened' }); } }
         if (reopened) { cur.status = 'open'; cur.resolvedAt = null; cur.resolvedBy = null; cur.steps.push({ at: iso, kind: 'reopened', message: 'Le problème est revenu / Problem came back' }); }
         if (unsnoozed) { cur.status = 'open'; cur.snoozedUntil = null; cur.steps.push({ at: iso, kind: 'reopened', message: 'Fin de la sourdine / Snooze ended' }); }

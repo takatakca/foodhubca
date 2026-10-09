@@ -52,6 +52,17 @@ export interface OrderTimeline {
   /** The kitchen confirmed it saw that the platform / customer cancelled this order (stop cooking). */
   cancelSeenAt?: string;
   cancelSeenBy?: string;
+  /** Automatic Clover retries after a failed injection (order-retry.ts). */
+  posRetry?: {
+    attempts: number;
+    nextAt: string | null;
+    lastError?: string;
+    uncertain?: boolean;
+    gaveUpAt?: string;
+    doneAt?: string;
+    claim?: string;
+    claimedAt?: string;
+  };
 }
 
 export type CourierStatus = 'assigned' | 'arriving' | 'at_store' | 'picked_up' | 'delivered' | 'unassigned';
@@ -71,6 +82,8 @@ export type Fulfillment = 'delivery' | 'pickup' | 'dine_in';
 
 export interface OrderModifier {
   externalId?: string;
+  /** Clover modifier id, when the option is linked to the Clover inventory (sent as a real Clover modification). */
+  posModifierRef?: string;
   name: string;
   quantity: number;
   unitPrice: number;
@@ -80,6 +93,8 @@ export interface OrderLine {
   externalId?: string;
   /** Clover inventory item id, when the item is mapped in the master menu. */
   posItemRef?: string;
+  /** How the line was linked to Clover: by id, by name, or not at all (free-text line, with a warning). */
+  mapping?: 'id' | 'name' | 'free';
   name: string;
   quantity: number;
   unitPrice: number;
@@ -87,6 +102,9 @@ export interface OrderLine {
   notes?: string;
   modifiers: OrderModifier[];
 }
+
+/** A line or option that could not be linked to the Clover inventory (shown on the order and the kitchen card). */
+export interface OrderMappingWarning { line: number; kind: 'item' | 'modifier'; name: string; reason: 'no_match' | 'no_clover_link' | 'foreign_menu' | 'no_menu' }
 
 export interface NormalizedOrder {
   channel: ChannelKey;
@@ -123,6 +141,25 @@ export interface NormalizedOrder {
   viaHub?: 'relay';
   /** The sender's own order id, used for status callbacks. */
   hubOrderId?: string;
+  /** Lines / options that reached Clover as free text (not linked to the Clover inventory). */
+  mappingWarnings?: OrderMappingWarning[];
+  /**
+   * Where the customer ordered inside the platform, as the platform sends it (DoorDash `experience`: DOORDASH,
+   * CAVIAR, STOREFRONT, …). Shown to the staff (orderSourceLabel).
+   */
+  orderSource?: string;
+}
+
+/** DoorDash Marketplace order `experience` values (API reference, Order model). */
+export const ORDER_SOURCE_LABELS: Record<string, string> = {
+  DOORDASH: 'DoorDash', CAVIAR: 'Caviar', STOREFRONT: 'Storefront', WHITE_LABELED: 'White label', DOORDASH_CHECKOUT: 'DoorDash Checkout', ANY_EXPERIENCE: 'DoorDash',
+};
+
+/** Staff-facing label of an order source ("Caviar", "Storefront"…); null when the platform sent none. */
+export function orderSourceLabel(source?: string | null): string | null {
+  const s = String(source ?? '').trim();
+  if (!s) return null;
+  return ORDER_SOURCE_LABELS[s.toUpperCase()] ?? s.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export interface StoredOrder extends NormalizedOrder {
@@ -218,6 +255,8 @@ export interface MenuItem {
   posItemRef?: string;
   /** Per-marketplace price override (e.g. delivery mark-up). */
   channelPrices?: Partial<Record<Marketplace, number>>;
+  /** Uber Eats tax class for this item (key of UBER_TAX_CLASSES, lib/foodhub/menu/uber-tax.ts); overrides the menu default. */
+  uberTaxClass?: string;
   modifierGroupRefs: string[];
 }
 
@@ -250,6 +289,14 @@ export interface MasterMenu {
    * The base price stays the in-store (Clover) price; a per-item channelPrices override always wins.
    */
   channelMarkupPct?: Partial<Record<Marketplace, number>>;
+  /**
+   * Separate PICKUP price on a platform with dual pricing (DoorDash `base_price`; `price` stays the delivery price):
+   * percentage added to the in-store price for pickup orders. { doordash: 0 } = pickup at the in-store price.
+   * Unset = no separate pickup price (the delivery price applies to pickup too).
+   */
+  pickupMarkupPct?: Partial<Record<Marketplace, number>>;
+  /** Default Uber Eats tax class of the brand's items and options (Item.tax_label_info); unset = none sent. */
+  uberTaxClass?: string;
   updatedAt: string;
 }
 

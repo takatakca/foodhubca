@@ -17,3 +17,11 @@
   (orders, menus, 86, pause/resume, the Uber report request). Explicit exception, by design: read-only
   store-status polls (Uber/DoorDash `GET` status) and the owner-initiated "Connect Uber Eats stores" OAuth
   exchange run as soon as credentials exist, so the dashboard reflects the platforms before go-live.
+- Expansion features (own-order delivery, grocery / retail, alcohol, AI phone ordering) are each OFF until the owner turns
+  them on (Settings → Expansion). Proposed exception, to be confirmed by the owner: DoorDash Drive / Uber Direct
+  **sandbox** calls run without `LIVE_CONNECTORS_GLOBAL_ENABLED` (no real courier is sent; DoorDash requires test
+  deliveries before production). Production courier calls need the live switch.
+- Alcohol is never enabled automatically: a channel opens only after the owner enters and checks the RACJ permit for
+  that location; a grocery permit never allows third-party delivery.
+- The AI phone agent takes orders the caller confirmed and can hand off to a person; it has no way to refund, cancel,
+  discount or take a payment.

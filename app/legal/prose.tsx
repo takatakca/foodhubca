@@ -10,3 +10,14 @@ export function LangSwitch() {
   return <p className="mt-1 text-sm text-ink-3"><a href="#fr" className="underline">Français</a> · <a href="#en" className="underline">English</a></p>;
 }
 export function Divider() { return <hr className="my-10 border-line" />; }
+/** One FAQ entry: a native <details> (works without JavaScript, keyboard and screen-reader friendly). */
+export function Faq({ q, children }: { q: string; children: ReactNode }) {
+  return (
+    <details className="group mt-2 rounded-lg border border-line bg-surface px-4 py-3 open:shadow-card">
+      <summary className="cursor-pointer list-none font-semibold text-ink marker:hidden [&::-webkit-details-marker]:hidden">
+        <span className="mr-2 inline-block text-ink-3 transition-transform group-open:rotate-90">›</span>{q}
+      </summary>
+      <p className="mt-2 text-[15px] leading-relaxed text-ink-2">{children}</p>
+    </details>
+  );
+}

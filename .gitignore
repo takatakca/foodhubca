@@ -8,5 +8,5 @@ node_modules/
 .vercel/
 data/media/
 
-# Local support records (device serials, activation codes, account IDs, financial exports). Never commit: this repo is public.
+# Local support records (device serials, activation codes, account IDs). Never commit: this repo is public.
 private/

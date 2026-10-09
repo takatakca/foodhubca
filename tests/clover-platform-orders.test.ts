@@ -5,7 +5,7 @@ import { allowedActions } from '../lib/foodhub/pipeline';
 import { settleInClover } from '../lib/foodhub/clover-settle';
 import { getRepo } from '../lib/foodhub/repo';
 
-const MID = 'YJ4W50YPJQSQ1';
+const MID = 'TESTMERCH0002'; // made-up merchant ID (public repository)
 const realFetch = globalThis.fetch;
 let cloverOrders: any[] = [];
 let calls: string[] = [];
@@ -124,6 +124,23 @@ describe('platform orders received through Clover', () => {
     delete process.env.FOODHUB_CLOVER_PLATFORM_ORDERS;
     await importCloverPlatformOrders(MID, { now });
     expect((await getRepo().findOrder('doordash', 'clover-OLD1'))?.status).toBe('completed');
+  });
+
+  it('many brands on one Clover: the brand comes from the order when it names one, otherwise it stays unknown (never guessed)', async () => {
+    const now = Date.now();
+    const repo = getRepo();
+    for (const [brand, loc, id] of [['Po Poulet', 'NDG_6284', 'dd-pp'], ['Pi Pita', 'NDG_6284', 'dd-pita'], ['OOeuf', 'HOCHELAGA', 'dd-oeuf']] as const) {
+      await repo.upsertStore({ channel: 'doordash', channelStoreId: id, brandName: brand, locationCode: loc, cloverMerchantId: MID, autoAccept: true, online: true, meta: {} });
+    }
+    cloverOrders = [
+      cloverOrder('NAMED1', now - 5 * min, { orderType: { id: 'OT-DD' }, note: 'DoorDash — Pi Pita (NDG)' }),
+      cloverOrder('ANON1', now - 5 * min, { orderType: { id: 'OT-DD' } }),
+    ];
+    await importCloverPlatformOrders(MID, { now });
+    expect(await repo.findOrder('doordash', 'clover-NAMED1')).toMatchObject({ brandName: 'Pi Pita', locationCode: 'NDG_6284' });
+    const anon = await repo.findOrder('doordash', 'clover-ANON1');
+    expect(anon?.brandName).toBeUndefined();
+    expect(anon?.locationCode).toBeUndefined();
   });
 });
 

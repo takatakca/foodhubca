@@ -1,3 +1,4 @@
+import { isMenuLocked, menuLockedResult } from '../menu/lock';
 import type { ChannelAdapter, ChannelKey } from '../types';
 import { doorDashAdapter } from './doordash';
 import { tgtgAdapter } from './partner';
@@ -19,7 +20,16 @@ export function getAdapter(key: string): ChannelAdapter {
   const adapter = ADAPTERS[normalized];
   if (!adapter) throw new Error(`Unknown channel: ${key}`);
   // Linked to Clover directly (FOODHUB_VIA_CLOVER): Food Hub only reads its orders from Clover.
-  return isViaClover(normalized) ? viaCloverAdapter(adapter) : adapter;
+  return withMenuLock(isViaClover(normalized) ? viaCloverAdapter(adapter) : adapter);
+}
+
+/** Last line of defence for "do not touch this store's menu" (menu/lock.ts): whoever calls, a locked store gets nothing. */
+function withMenuLock(a: ChannelAdapter): ChannelAdapter {
+  return {
+    ...a,
+    publishMenu: (store, menu, ctx) => (isMenuLocked(store) ? Promise.resolve(menuLockedResult(store, 'menu publish')) : a.publishMenu(store, menu, ctx)),
+    setItemAvailability: (store, refs, available, untilMs, kind) => (isMenuLocked(store) ? Promise.resolve(menuLockedResult(store, available ? 'back in stock' : '86')) : a.setItemAvailability(store, refs, available, untilMs, kind)),
+  };
 }
 
 export function isChannelKey(key: string): key is ChannelKey {

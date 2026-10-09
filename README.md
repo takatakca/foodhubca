@@ -21,7 +21,9 @@ no UrbanPiper, no aggregator, no monthly integration fee — with a kitchen-firs
 Everything from RC9 stays: Clover injection and bookkeeping, menus to every platform, 86 and pauses,
 hours and holidays, reports, analytics, payouts reconciliation, disputes, internal ledger, TGTG bag log.
 
-**Full guide: [docs/FOODHUB.md](docs/FOODHUB.md)**
+**Full guide: [docs/FOODHUB.md](docs/FOODHUB.md)** · Uber Eats + DoorDash → Food Hub → Clover (never lose an order, menus
+from Clover, the Po Poulet NDG menu lock, health, switching each platform from its tablet):
+[docs/CLOVER_BACKEND_FINAL.md](docs/CLOVER_BACKEND_FINAL.md)
 All documents: [docs/README.md](docs/README.md) · what changed in this release: [docs/RELEASE_NOTES.md](docs/RELEASE_NOTES.md) ·
 security policy: [SECURITY.md](SECURITY.md).
 
@@ -47,8 +49,8 @@ Keys only through `npm run setup` or the hosting environment variables — never
 ## Proof
 
 ```bash
-npm run check                              # typecheck + lint + 190 unit tests
-npm run build && npm run verify:foodhub    # 382 end-to-end checks against simulated Uber Eats, DoorDash,
+npm run check                              # typecheck + lint + 285 unit tests
+npm run build && npm run verify:foodhub    # 409 end-to-end checks against simulated Uber Eats, DoorDash,
                                            # Skip (JET Connect), Clover, Resend, Twilio and a team chat
 npm run demo:foodhub                       # same, then keeps running with a simulated order every 40 s
 npm run audit:prod                         # production dependencies carry no high/critical advisory
@@ -70,7 +72,8 @@ CI runs every one of these on each push and pull request (`.github/workflows/ci.
 | `/alerts` | Watchtower incidents (escalation steps, explanation, I'm on it / fixed / snooze, text the customer) and the message log |
 | `/insights` · `/insights/reports` · `/insights/activity` | Analytics · 7 reports (download, email, schedule) · who did what |
 | `/money` | Where is my money · `/reconciliation` · `/disputes` · `/payouts` · `/ledger` · `/statements` · `/fees` · `/tgtg` |
-| `/settings` | Profile and PIN · Team · Tablets · Manager PIN rules · Alerts · Platforms and Clover · Business · Go-live |
+| `/settings` | Profile and PIN · Team · Tablets · Manager PIN rules · Alerts · Platforms and Clover · Business · Expansion · Go-live |
+| `/direct` · `/direct/calls` · `/menu/retail` | **Expansion** (each behind its switch): own orders + DoorDash Drive couriers · AI phone calls · grocery catalogue — [docs/EXPANSION_FEATURES.md](docs/EXPANSION_FEATURES.md) |
 | `/ticket/{id}` | 80 mm kitchen ticket |
 
 Old RC2–RC9 addresses (`/foodhub/...`, `/finance/...`, `/go-live`, `/imports`, `/ledger`…) redirect to the new pages.
@@ -93,7 +96,7 @@ app/login, app/kitchen/lock, app/ticket
 app/api/foodhub/        API: auth (code, link, PIN, setup), devices, orders, stores, menu, recon, watch, incidents,
                         pulse, copilot, webhooks (Uber, DoorDash, Skip, TGTG, Clover), cron (sync, watch, reports, reopen)
 components/             ui kit, live (pop-up, cancel alarm, order drawer, pulse), shell, charts
-lib/foodhub/            adapters, Clover, pipeline, sync, identity (otp, pin, devices), policy, notify (Resend, Twilio,
+lib/foodhub/            adapters, Clover, pipeline, sync, identity (otp, pin, devices), policy, notify (SMTP or Resend, Twilio,
                         chat), watch (Watchtower engine, AI explanations, customer contact), recon, reports
 lib/i18n/               French / English
 supabase/INSTALL_ALL.sql  one-paste database install (foodhub.sql + rc10.sql)

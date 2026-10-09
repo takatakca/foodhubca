@@ -15,7 +15,8 @@
   --color-sunken: #efeee9;
   --color-ink: #151514;
   --color-ink-2: #4a4843;
-  --color-ink-3: #85827a;
+  /* ink-3 ≥ 4.5:1 on canvas, surface and sunken (WCAG AA; Clover's app design requirements). */
+  --color-ink-3: #6b6860;
   --color-ink-4: #b7b4ab;
   --color-line: #e7e5de;
   --color-line-2: #d8d5cb;
@@ -64,12 +65,19 @@
   --animate-rise: rise 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
   --animate-fade: fade 0.18s ease-out;
   --animate-pulse-soft: pulse-soft 2s ease-in-out infinite;
+  /* Welcome wizard (Clover): status medallion, celebration, order-flow dot. Used with motion-safe: only. */
+  --animate-pop: pop 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.25) both;
+  --animate-confetti: confetti 1.9s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  --animate-flow: flow 1.8s ease-in-out infinite;
 
   @keyframes ring { 0% { box-shadow: 0 0 0 0 rgb(255 91 20 / 0.55); } 70% { box-shadow: 0 0 0 22px rgb(255 91 20 / 0); } 100% { box-shadow: 0 0 0 0 rgb(255 91 20 / 0); } }
   @keyframes slide-in { from { transform: translateX(24px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
   @keyframes rise { from { transform: translateY(10px) scale(0.985); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
   @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
   @keyframes pulse-soft { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+  @keyframes pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  @keyframes confetti { 0% { transform: translate3d(0, -12px, 0) rotate(0deg); opacity: 0; } 12% { opacity: 1; } 100% { transform: translate3d(var(--x, 0px), 180px, 0) rotate(var(--r, 180deg)); opacity: 0; } }
+  @keyframes flow { 0% { transform: translateY(0); opacity: 0; } 20% { opacity: 1; } 80% { opacity: 1; } 100% { transform: translateY(21px); opacity: 0; } }
 }
 
 /* Kitchen screen: dark, high contrast, readable from 2 m. */

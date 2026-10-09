@@ -16,7 +16,7 @@ import { refreshEverything } from '@/components/live/pulse';
 import { api, ApiError, money, timeOf } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import type { T } from '@/lib/i18n';
-import type { OrderEvent, StoredOrder } from '@/lib/foodhub/types';
+import { orderSourceLabel, type OrderEvent, type StoredOrder } from '@/lib/foodhub/types';
 import { cn } from '@/lib/ui/cn';
 
 export type FullOrder = StoredOrder & { actions?: string[] };
@@ -41,6 +41,9 @@ const EVENT: Record<string, [string, string]> = {
   scheduled: ['Commande planifiée', 'Scheduled order'], fired: ['Lancée en cuisine', 'Sent to the kitchen'], courier: ['Livreur', 'Courier'], seen: ['Vue en cuisine', 'Seen in the kitchen'],
   delayed: ['Temps ajouté', 'Time added'], report_missing: ['Article manquant signalé', 'Missing item reported'], report_missing_failed: ['Article manquant non envoyé', 'Missing item not sent'],
   customer_sms: ['Texto au client', 'Text to the customer'], customer_sms_failed: ['Texto au client échoué', 'Text to the customer failed'], auto_completed: ['Fermée automatiquement', 'Closed automatically'],
+  mapping_warning: ['Ligne en texte libre dans Clover', 'Free-text line in Clover'], pos_retry_scheduled: ['Nouvel essai Clover prévu', 'Clover retry scheduled'],
+  pos_retry_gave_up: ['Essais Clover épuisés — gérant alerté', 'Clover retries used up — manager alerted'], pos_adopted: ['Déjà dans Clover — reliée', 'Already in Clover — linked'],
+  pos_total_mismatch: ['Total Clover ≠ plateforme', 'Clover total ≠ platform'], accept_skipped: ['Pas acceptée (annulée)', 'Not accepted (cancelled)'], via_clover: ['Reçue par Clover', 'Received through Clover'],
 };
 
 /** Runs an order action with the right dialogs (reason, manager PIN via ApprovalProvider) and toasts. */
@@ -97,7 +100,7 @@ export function OrderDrawer({ orderId, onClose }: { orderId: string; onClose: ()
   const p = order ? platformOf(order.channel) : null;
   return (
     <Drawer onClose={onClose} width="lg"
-      title={order ? <span className="flex items-center gap-2.5"><PlatformMark channel={order.channel} size="md" />#{order.displayId || order.externalOrderId.slice(0, 8)}<Badge tone={STATUS_TONE[order.status]}>{statusLabel(t, order.status)}</Badge></span> : t('Commande', 'Order')}
+      title={order ? <span className="flex items-center gap-2.5"><PlatformMark channel={order.channel} size="md" />#{order.displayId || order.externalOrderId.slice(0, 8)}<Badge tone={STATUS_TONE[order.status]}>{statusLabel(t, order.status)}</Badge>{orderSourceLabel(order.orderSource) && <Badge tone="neutral">{orderSourceLabel(order.orderSource)}</Badge>}</span> : t('Commande', 'Order')}
       subtitle={order ? `${p?.label} · ${order.brandName ?? t('Marque ?', 'Brand ?')}` : undefined}
       headerRight={order ? <Link href={`/orders/${order.id}`} className="rounded-md p-1.5 text-ink-3 hover:bg-sunken hover:text-ink" aria-label={t('Ouvrir en plein écran', 'Open full page')}><ExternalLink className="size-5" /></Link> : null}>
       {error && <div className="p-5"><Banner tone="stop">{error}</Banner></div>}
@@ -133,7 +136,21 @@ export function OrderDetail({ order, events, onChange, compact }: { order: FullO
       </div>
 
       {allergy && <Banner tone="stop"><strong>{t('ALLERGIE / note importante', 'ALLERGY / important note')}</strong> — {t('lisez les notes avant de préparer.', 'read the notes before cooking.')}</Banner>}
-      {order.posError && !order.posOrderId && <Banner tone="stop" action={act && actions.includes('retry_pos') ? <Button size="sm" variant="outline" loading={busy === 'retry_pos'} onClick={() => run(order.id, 'retry_pos')} icon={<RotateCcw className="size-4" />}>{t('Renvoyer', 'Retry')}</Button> : null}><strong>{t('Clover n’a pas reçu la commande.', 'Clover did not get the order.')}</strong> {order.posError}</Banner>}
+      {order.posError && !order.posOrderId && <Banner tone={tl.posRetry?.nextAt && !tl.posRetry.gaveUpAt ? 'warn' : 'stop'} action={act && actions.includes('retry_pos') ? <Button size="sm" variant="outline" loading={busy === 'retry_pos'} onClick={() => run(order.id, 'retry_pos')} icon={<RotateCcw className="size-4" />}>{t('Renvoyer', 'Retry')}</Button> : null}>
+        <strong>{t('Clover n’a pas reçu la commande.', 'Clover did not get the order.')}</strong> {order.posError}
+        {tl.posRetry?.nextAt && !tl.posRetry.gaveUpAt && <> {t(`Food Hub réessaie tout seul à ${timeOf(tl.posRetry.nextAt, loc)} — rien n’est accepté sur la plateforme avant que Clover l’ait.`, `Food Hub tries again by itself at ${timeOf(tl.posRetry.nextAt, loc)} — nothing is accepted on the platform until Clover has it.`)}</>}
+        {tl.posRetry?.gaveUpAt && <> {t(`${tl.posRetry.attempts} essais automatiques sans succès : renvoyez-la, ou entrez-la à la main puis « Accepter sans Clover ».`, `${tl.posRetry.attempts} automatic tries failed: retry it, or enter it by hand then “Accept without Clover”.`)}</>}
+      </Banner>}
+      {(order.mappingWarnings?.length ?? 0) > 0 && (
+        <Banner tone="warn">
+          <strong>{t('À vérifier sur le billet Clover :', 'Check on the Clover ticket:')}</strong>{' '}
+          {order.mappingWarnings!.map((w, i) => {
+            const fr = w.reason === 'foreign_menu' ? 'le menu vient d’un autre marchand Clover : tout est en texte libre.' : w.reason === 'no_menu' ? 'aucun menu pour cette marque : tout est en texte libre.' : `${w.kind === 'item' ? 'article' : 'option'} « ${w.name} » ${w.reason === 'no_clover_link' ? 'pas relié à Clover' : 'introuvable dans le menu'} (texte libre).`;
+            const en = w.reason === 'foreign_menu' ? 'the menu comes from another Clover merchant: everything is free text.' : w.reason === 'no_menu' ? 'no menu for this brand: everything is free text.' : `${w.kind} “${w.name}” ${w.reason === 'no_clover_link' ? 'not linked to Clover' : 'not found in the menu'} (free text).`;
+            return <span key={i}>{i ? ' · ' : ''}{lang === 'fr' ? fr : en}</span>;
+          })}
+        </Banner>
+      )}
       {order.channelError && <Banner tone="warn"><strong>{t('Plateforme non mise à jour :', 'Platform not updated:')}</strong> {order.channelError}</Banner>}
       {order.viaPos && <Banner tone="info"><strong>{t('Reçue par l’intégration Clover de la plateforme.', 'Received through the platform’s own Clover integration.')}</strong> {t('Clover l’a déjà acceptée, imprimée et encaissée. Food Hub la suit seulement : accepter, refuser ou annuler se fait dans l’app de la plateforme ou dans Clover.', 'Clover already accepted, printed and recorded it. Food Hub only follows it: accept, reject or cancel in the platform’s app or in Clover.')}</Banner>}
       {tl.scheduledFor && <Banner tone="info">{t('Commande planifiée pour', 'Scheduled for')} <strong>{timeOf(tl.scheduledFor, loc, true)}</strong>{tl.fireAt ? ` · ${t('billet cuisine à', 'kitchen ticket at')} ${timeOf(tl.fireAt, loc)}` : ''}</Banner>}
@@ -236,7 +253,7 @@ export function OrderDetail({ order, events, onChange, compact }: { order: FullO
               <li key={i} className="relative">
                 <span className={cn('absolute top-1.5 -left-[21px] size-2.5 rounded-full border-2 border-surface', bad ? 'bg-stop' : 'bg-ink-4')} />
                 <div className="flex flex-wrap items-baseline gap-x-2 text-[13px]"><span className="num text-xs text-ink-3">{new Date(e.at).toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span><span className="font-semibold text-ink">{label}</span>
-                  <span className="text-ink-3">{d?.message || d?.error || d?.reason || d?.posOrderId || d?.state || ''}{d?.by ? ` · ${d.by}` : d?.auto ? ` · ${t('auto', 'auto')}` : ''}{d?.approvedBy ? ` · ✓ ${d.approvedBy}` : ''}</span></div>
+                  <span className="text-ink-3">{(lang === 'fr' && d?.messageFr) || d?.message || d?.error || d?.reason || d?.posOrderId || d?.state || ''}{d?.by ? ` · ${d.by}` : d?.auto ? ` · ${t('auto', 'auto')}` : ''}{d?.approvedBy ? ` · ✓ ${d.approvedBy}` : ''}</span></div>
                 {showRaw && <pre className="mt-1 overflow-x-auto rounded-sm bg-sunken p-2 text-[11px]">{JSON.stringify(e.detail, null, 2)}</pre>}
               </li>
             );

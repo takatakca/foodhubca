@@ -14,11 +14,14 @@
 // ids) are always skipped, and an order is read only once it is 2 minutes old so Food Hub's own new orders have
 // time to be saved first. Turn it off with FOODHUB_CLOVER_PLATFORM_ORDERS=off.
 import { logActivity } from '../activity';
-import { CHANNEL_LABELS, CHANNEL_MARKETPLACE, fromCents, nowIso, timedFetch } from '../config';
+import { CHANNEL_LABELS, CHANNEL_MARKETPLACE, fromCents, nowIso } from '../config';
+import { cloverFetch } from './clover-http';
 import { getRepo } from '../repo';
 import type { ChannelKey, NormalizedOrder, OrderLine } from '../types';
 import { cloverBaseUrl, cloverToken } from './clover';
 import { isPlatformTender, platformFromLabel } from './platform-labels';
+import { normName } from './clover-order';
+import { noteLastOrder } from '../order-retry';
 
 const SINCE_KEY = (mid: string) => `clover_platform_orders_since:${mid}`;
 const MIN_AGE_MS = 2 * 60_000;
@@ -34,7 +37,7 @@ export { isPlatformTender, platformFromLabel };
 
 async function cloverGet(mid: string, token: string, path: string, qs: Record<string, string> = {}): Promise<any> {
   const q = new URLSearchParams(qs);
-  const res = await timedFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}/${path}${q.toString() ? `?${q}` : ''}`, {
+  const res = await cloverFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}/${path}${q.toString() ? `?${q}` : ''}`, {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
   });
   if (!res.ok) throw new Error(`Clover ${path} HTTP ${res.status}`);
@@ -114,7 +117,9 @@ export async function importCloverPlatformOrders(mid: string, opts: { now?: numb
     const stores = await repo.listStores();
     const def = process.env.CLOVER_MERCHANT_ID;
     const storesHere = stores.filter((s) => (s.cloverMerchantId || def) === mid);
-    const fallbackLocation = storesHere[0]?.locationCode;
+    // One Clover merchant can serve several kitchens and many brands: a location is only assumed when it is the only one.
+    const onlyLocation = (list: typeof storesHere) => { const locs = [...new Set(list.map((s) => s.locationCode))]; return locs.length === 1 ? locs[0] : undefined; };
+    const fallbackLocation = onlyLocation(storesHere);
 
     for (let page = 0; page < MAX_PAGES; page++) {
       const qs = (expand: string) => ({ filter: `createdTime>=${since}`, expand, limit: String(PAGE), offset: String(page * PAGE) });
@@ -130,7 +135,13 @@ export async function importCloverPlatformOrders(mid: string, opts: { now?: numb
         if (!channel) continue; // an in-store order
         const titleId = String(co?.title ?? '').replace(/^[^#]*#\s*/, '').trim().toLowerCase();
         if (titleId && ownTitles.has(`${channel}|${titleId}`)) continue; // created by Food Hub itself
-        const store = storesHere.find((s) => s.channel === channel);
+        // The brand: the only store of that platform on this merchant, or the brand named in the Clover title / note.
+        // Several candidates and no name → brand left unknown rather than guessed (never filed under the wrong brand).
+        const candidates = storesHere.filter((s) => s.channel === channel);
+        const text = normName(`${co?.title ?? ''} ${co?.note ?? ''}`);
+        const named = candidates.filter((s) => normName(s.brandName) && text.includes(normName(s.brandName)));
+        const store = candidates.length === 1 ? candidates[0] : named.length === 1 ? named[0] : undefined;
+        const location = store?.locationCode ?? onlyLocation(named.length ? named : candidates) ?? fallbackLocation;
         const payments: any[] = co?.payments?.elements ?? [];
         const sum = (f: string) => fromCents(payments.reduce((s, p) => s + (Number(p?.[f]) || 0), 0));
         const lines = linesOf(co);
@@ -158,7 +169,7 @@ export async function importCloverPlatformOrders(mid: string, opts: { now?: numb
           lines,
           raw: { cloverOrderId: id, title: co?.title ?? null, orderType: label || null, state: co?.state ?? null },
           viaPos: 'clover',
-          locationCode: store?.locationCode ?? fallbackLocation,
+          locationCode: location,
           createdAt: new Date(created || now).toISOString(),
         };
         const { order, isNew } = await repo.insertOrderIfNew(n);
@@ -171,7 +182,8 @@ export async function importCloverPlatformOrders(mid: string, opts: { now?: numb
           posOrderId: id,
           timeline: { ...(order.timeline ?? {}), acceptedAt: placed, acceptedBy: 'clover', seenAt: nowIso(), seenBy: 'Clover', ...(fresh ? {} : { completedAt: nowIso() }) },
         });
-        await repo.addEvent(order.id, 'via_clover', { message: `Received in Clover through Clover's own ${CHANNEL_LABELS[channel]} integration — Food Hub only follows it (nothing is sent to ${CHANNEL_LABELS[channel]} or Clover).`, cloverOrderId: id });
+        await repo.addEvent(order.id, 'via_clover', { message: `Received in Clover through Clover's own ${CHANNEL_LABELS[channel]} integration — Food Hub only follows it (nothing is sent to ${CHANNEL_LABELS[channel]} or Clover).${store ? '' : ` Brand not known: ${candidates.length} ${CHANNEL_LABELS[channel]} stores use this Clover and the order does not name one.`}`, cloverOrderId: id });
+        await noteLastOrder(channel, n.placedAt);
         out.imported++;
         out.posOrderIds.push(id);
       }

@@ -17,7 +17,7 @@ TGTG ──────┘
 
 | What | How it works |
 |---|---|
-| **Sign-in without passwords** | `/login`: email or cell → a 6-digit code (Resend email or Twilio SMS, valid 10 min, 5 tries, 5 requests per 15 min) or the one-tap link in the same message. Unknown contacts get the same answer (nobody can probe who has access). Phones auto-fill the code (WebOTP). Sessions last 14 days. |
+| **Sign-in without passwords** | `/login`: email or cell → a 6-digit code (email by SMTP or Resend, or Twilio SMS, valid 10 min, 5 tries, 5 requests per 15 min) or the one-tap link in the same message. Unknown contacts get the same answer (nobody can probe who has access). Phones auto-fill the code (WebOTP). Sessions last 14 days. |
 | **First run** | No account yet → *Create the owner account* (name + your email or cell). In production it only works with `FOODHUB_OWNER_EMAIL` / `FOODHUB_OWNER_PHONE`, or with `DASHBOARD_PASSWORD` typed as the setup key. |
 | **Recovery** | *Owner recovery sign-in* (user `owner` + `DASHBOARD_PASSWORD`) if email / SMS are down. Type it yourself — never in chat. |
 | **Kitchen tablets** | Settings → Tablets → *Enrol this screen* (on the tablet). It keeps a signed device cookie for a year and shows the **PIN screen** (`/kitchen/lock`) instead of the email sign-in. Staff tap their name + PIN → 14-hour session on that tablet. *Lock* returns to the PIN screen. Lost tablet → *Remove*: it is signed out at once. |
@@ -104,16 +104,22 @@ Everything you must give a platform (URLs and secrets) is on **Settings → Plat
    Food Hub shows on Channels — paste it back in Clover; put the auth code Clover then shows in
    `CLOVER_WEBHOOK_AUTH`. Without it, the same sync runs every few minutes.
 
-**Uber Eats** (direct Marketplace API)
+**Uber Eats** (direct Marketplace API) — full owner checklist in [UBER_EATS_FINAL.md](UBER_EATS_FINAL.md)
 1. developer.uber.com → create an app → request Uber Eats Marketplace access
-   (scopes `eats.order`, `eats.store`, `eats.store.status.write`, `eats.pos_provisioning`, and
-   `eats.report` for automatic payment reports).
+   (scopes `eats.order`, `eats.store`, `eats.store.status.write`, `eats.pos_provisioning`, plus
+   `eats.store.orders.read` for the missed-order check, `eats.report` for payment reports and
+   `eats.store.status.notification` for store-status webhooks).
    Uber approves the app — this is on Uber's side.
 2. `npm run setup` → Client ID + Client Secret.
 3. In the Uber app settings: webhook URL `https://YOUR-DOMAIN/api/foodhub/webhooks/uber-eats`
-   and redirect URI `https://YOUR-DOMAIN/api/foodhub/uber-connect/callback` (both shown on Channels).
-4. Food Hub → **Stores → Connect Uber Eats stores** → sign in with the Uber Eats Manager owner
-   account → brand and location are pre-filled from each store's name/address → **Activate & map**.
+   (Basic HMAC, Signing Key = `UBER_WEBHOOK_SIGNING_KEY` from Channels → Show secrets) and redirect URI
+   `https://YOUR-DOMAIN/api/foodhub/uber-connect/callback` (both shown on Channels).
+4. Food Hub → **Stores → Connect Uber Eats** → sign in with the Uber Eats Manager owner
+   account → brand, location and Clover register are pre-filled → **Activate & link**. Food Hub then switches
+   the order webhooks on and shows who receives each store's orders (Food Hub, moving, or still UrbanPiper);
+   **Check with Uber** refreshes it.
+5. **Menus → All Uber stores** → dry run (what each store will get), then publish. Stores marked
+   *Do not touch* never receive a menu or an 86.
 
 **DoorDash** (Marketplace API — DoorDash grants access per partner)
 1. developer.doordash.com → request Marketplace API access → Developer ID, Key ID, Signing Secret.
@@ -156,7 +162,8 @@ Clover too, and the day log is not counted twice.
 4. **Settings → Team** → managers (email or cell + PIN), staff (PIN); limit them to their location.
    **Settings → Tablets** → enrol each kitchen tablet. **Settings → Business** → each kitchen's phone.
 5. **Menu Manager → Languages** → French names (item, category, option) and which language each
-   app gets: Uber Eats bilingual by default, DoorDash / Skip English or French.
+   app gets: Uber Eats “Français / English” by default (one text per name — Uber shows a single
+   translation), DoorDash / Skip English or French.
 6. **Payouts & Money → Commission Plans** → check your plan per app (Uber Eats and DoorDash
    rate cards are pre-filled; Skip and TGTG from your contract) and tick *Matches my contract*.
 7. **Settings → Go-live** (`/settings/go-live`) shows what is left, computed from your real configuration.
@@ -202,7 +209,7 @@ Finance covers every location's money, so it is only for logins that see all loc
 | Store Hours | Opening hours, brand exceptions, holidays → published to every platform. |
 | Stores | Map store ids, connect Uber stores, pause/resume a whole location, prep time and busy mode. |
 | Analytics | Sales, orders, average order, cancellations (who / when / why), items, busiest hours, accept & prep times, store uptime — vs the previous period. |
-| Reports | 7 reports in CSV or Excel; *Email* sends one now, *Schedule* sends it daily / weekly / monthly (needs `RESEND_API_KEY` + `REPORT_EMAIL_FROM`; owner/manager only). The `vercel.json` reports cron runs at 13:05 UTC (08:05 EST / 09:05 EDT) and catches up: a late or missed run still sends the latest completed period. |
+| Reports | 7 reports in CSV or Excel; *Email* sends one now, *Schedule* sends it daily / weekly / monthly (needs email set up: `SMTP_HOST` + `SMTP_USER` + `SMTP_PASS`, or `RESEND_API_KEY`, plus `REPORT_EMAIL_FROM` or `AUTH_EMAIL_FROM`; owner/manager only). The `vercel.json` reports cron runs at 13:05 UTC (08:05 EST / 09:05 EDT) and catches up: a late or missed run still sends the latest completed period. |
 | Activity Log | Who paused, 86'd, published, changed hours or users, signed in — and whether the platform accepted it. |
 | Settings | Profile + PIN, Team, Tablets, Manager PIN rules, Alerts, Platforms & Clover, Business, Go-live. |
 | TGTG Bags | 10 seconds at closing: bags offered, sold, price per location. |
@@ -228,9 +235,9 @@ desktop notifications for that device (kitchen tablet and office PC can differ).
 
 ## Proof
 ```bash
-npm run check                              # typecheck + lint + 190 unit tests (incl. sessions, PINs, approvals,
+npm run check                              # typecheck + lint + 285 unit tests (incl. sessions, PINs, approvals,
                                            # sign-in codes, Watchtower detection and escalation)
-npm run build && npm run verify:foodhub    # 382 end-to-end checks against simulated Uber Eats (incl. Reporting API),
+npm run build && npm run verify:foodhub    # 409 end-to-end checks against simulated Uber Eats (incl. Reporting API),
                                            # DoorDash, Skip (JET Connect), Clover, Resend, Twilio and a team chat
 npm run demo:foodhub                       # same, then keeps running with a new order every 40 s
 ```
@@ -250,8 +257,10 @@ npm run demo:foodhub                       # same, then keeps running with a new
 - Too Good To Go has no public store API: bags are logged, not synced.
 - Texting a customer only works when the platform shares a real mobile number; Uber Eats and DoorDash
   usually give a relay number with an access code, which can be called but not texted.
-- SMS, calls and emails need your own Twilio and Resend accounts (pay-per-use on their side). Without
-  them, sign-in uses the owner recovery password and alerts stay on screen and in the team chat.
+- SMS and calls need your own Twilio account (pay-per-use on their side). Email needs either a mailbox on your own
+  domain (SMTP: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER` = the full mailbox address, `SMTP_PASS`, plus `AUTH_EMAIL_FROM`; port 465
+  = TLS, 587 = STARTTLS; no extra account) or a Resend account (`RESEND_API_KEY`). SMTP is used whenever its three values
+  are set. Without email and SMS, sign-in uses the owner recovery password and alerts stay on screen and in the team chat.
 - The Watchtower needs a screen open, a long-running server, or the 1-minute cron call to watch
   24/7 (see *Keep the Watchtower running*).
 - What Atlas has that is not built yet (combos, ratings and reviews, own-courier dispatch for phone

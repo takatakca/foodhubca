@@ -39,9 +39,9 @@ Check these in order. Each line gives the cause and the fix.
 | 4 | **Secrets stay hidden.** They show as `••••` until "Show secrets" is clicked, and that only works when `DASHBOARD_PASSWORD` is set. | Click Show secrets; nothing changes. | Set `DASHBOARD_PASSWORD` and `SESSION_SECRET` on the server. |
 | 5 | **Keys were never entered.** Coolify has no setup wizard, so every connection shows "Needs setup" or "Missing: …". | Settings → Platforms & Clover, each card. | Add the keys as environment variables (list in section 4). |
 | 6 | **The platforms have not approved access yet.** | Card says blocked / not approved. | Uber must approve the scopes. DoorDash issues `DOORDASH_PROVIDER_TYPE` only after it approves the integration. Skip issues `SKIP_JET_API_KEY` through a partner manager. |
-| 7 | **The Clover app is not in the App Market yet.** It has not been submitted, and its Site URL is still `31-220-96-134.sslip.io`. | `docs/CLOVER_APP_LISTING.md` (not submitted). | Phase 2: a real domain, legal pages approved, then submit the listing. |
+| 7 | **The Clover app is not in the App Market yet.** It has not been submitted, and its Site URL is still the temporary sslip.io address. | Settings → Clover app (checklist) · `docs/CLOVER_MARKETPLACE_LAUNCH.md`. | The code is ready (branch `clover-marketplace-launch`). Owner steps: domain, support details, legal review, video, dashboard, submit (launch doc §4). |
 | 8 | **Safe mode is on.** Nothing is sent to any platform until live mode is turned on. | Orange "safe mode" banner. | Set `LIVE_CONNECTORS_GLOBAL_ENABLED=true` once Go-live is all green. |
-| 9 | **Sign-in codes never arrive.** No email (Resend) or SMS (Twilio) is set up. An unknown email still says "code sent" on purpose, so outsiders cannot guess who has access. | The code never arrives. | Set `RESEND_API_KEY` + `AUTH_EMAIL_FROM` (on a verified domain) and/or `TWILIO_*`. Until then, use the owner recovery sign-in. |
+| 9 | **Sign-in codes never arrive.** No email (SMTP or Resend) or SMS (Twilio) is set up. An unknown email still says "code sent" on purpose, so outsiders cannot guess who has access. | The code never arrives. | Set `SMTP_HOST` + `SMTP_USER` + `SMTP_PASS` (a mailbox on your own domain) or `RESEND_API_KEY` (verified domain), plus `AUTH_EMAIL_FROM`, and/or `TWILIO_*`. Until then, use the owner recovery sign-in. |
 | 10 | **Nothing runs in the background on Coolify/Docker.** The platform sync only runs while a screen is open. | Store status, payouts and Clover orders go stale overnight. | Set `FOODHUB_INTERNAL_SYNC_MIN=5`, or add an outside cron that calls `/api/foodhub/cron/sync` every 5 minutes. |
 
 **Where connections live in the console:**
@@ -93,12 +93,16 @@ Phase 3 adds a **Connections strip on the Overview** so you see all of this at a
   - **Every platform:** errors now say *why* the platform refused.
 - Tests: 211 unit tests and 374 end-to-end checks pass. Typecheck is clean and lint has 0 errors.
 
-**Still to confirm with Uber, in their sandbox (not changed yet):**
-- Whether menu titles may carry two translations (`en_ca` + `fr_ca`). One source says "only one translation"; changing it could drop French, so verify first.
-- Whether `delivery.state_changed` (courier tracking) needs `webhooks_config` / `webhooks_version: "1.0.0"` at store activation.
-- Whether items need `tax_info` for Québec stores.
-- The calorie field (`energy_interval` replaces the deprecated `lower_range` / `upper_range`).
-- Keeping the Uber token in the database instead of memory (only matters on serverless hosts).
+**Formerly "still to confirm with Uber": resolved on 2026-10-07 from Uber's docs (branch `uber-eats-final`, details and evidence in [UBER_EATS_FINAL.md](UBER_EATS_FINAL.md) section 3):**
+- Two translations: **not supported** (one translation, shown to everyone). French and English now go in one text, French first.
+- `webhooks_config`: sent at activation (courier webhooks on, `webhooks_version` left unset so orders stay on `GET /v2/eats/order`). The order webhooks are switched on with `PATCH pos_data integration_enabled`, and who receives the orders is read back.
+- `tax_info`: a required field with optional members. It is sent empty (Uber applies the store's tax setup). `UBER_TAX_RATE_PCT` exists if Uber asks for an item rate. **Still to ask Uber.**
+- Calories: `energy_interval` (E5) is sent; `lower_range` / `upper_range` are deprecated.
+- Token: kept in the database too (Uber allows 100 token requests per hour).
+- Still to ask Uber:
+  - whether `delivery.state_changed` arrives without `webhooks_version "1.0.0"`;
+  - whether the previous-version Order API is fine for certification;
+  - whether "update store prep time" (newer Store API) is required.
 
 ---
 
@@ -114,7 +118,7 @@ Phase 3 adds a **Connections strip on the Overview** so you see all of this at a
 | Too Good To Go | Inbound only | Your rep's access and **their API spec**. Outbound actions (menu, bags, cancel) still have to be built once the spec arrives | Platforms; Money → TGTG |
 | Order Relay | Yes (new) | Nothing required (the secret is generated). Optional: `FOODHUB_RELAY_CALLBACK_URL` / `_TOKEN` from the partner | Platforms → Food Hub Order Relay |
 | Database | Yes | `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, then run `INSTALL_ALL.sql` | Go-live |
-| Email / SMS / calls | Yes | `RESEND_API_KEY`, `AUTH_EMAIL_FROM`, `TWILIO_*`, `ALERT_WEBHOOK_URL` (team chat) | Settings → Alerts & watchtower |
+| Email / SMS / calls | Yes | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` or `RESEND_API_KEY`, `AUTH_EMAIL_FROM`, `TWILIO_*`, `ALERT_WEBHOOK_URL` (team chat) | Settings → Alerts & watchtower |
 | AI | Yes | `ANTHROPIC_API_KEY` (optional `ANTHROPIC_MODEL`) | Settings → Alerts & watchtower |
 | Security | Yes | `DASHBOARD_PASSWORD`, `SESSION_SECRET`, `FOODHUB_TRUST_PROXY=true` behind Caddy/Traefik | Go-live |
 | Background jobs | Yes | VPS: the cron jobs from `install-vps.sh`. Coolify: `FOODHUB_INTERNAL_SYNC_MIN=5` | Go-live; the stale-sync alert |
@@ -128,15 +132,15 @@ Each phase ends with **acceptance checks**. A phase is done only when all of the
 ### Phase 0: Ship what is built (days)
 
 1. Merge `claude/practical-wright-pnhgtl` into `main` through a pull request. Deploy from `main`.
-2. Fix the deploy traps:
-   - The `Dockerfile` hides a failed build with `npm run build … || true`. Remove `|| true`.
-   - Add build-time `ARG` for `NEXT_PUBLIC_SUPABASE_URL`.
-   - Document `FOODHUB_INTERNAL_SYNC_MIN` in `.env.example` and set it to 5 on Coolify.
-   - Make `SESSION_SECRET` generated like the other internal secrets, or required.
-   - Mount `/app/data/media` as a persistent volume.
-3. Fix the Go-live checklist:
-   - The Clover line turns green with only the app keys; it should need a connected merchant.
-   - Skip should count as done when it comes through the Relay.
+2. Fix the deploy traps — **done** (branch `clover-marketplace-launch`):
+   - ✅ The `Dockerfile` no longer hides a failed build.
+   - ✅ Instead of a build-time `ARG` (an empty one would inline an empty string), the Supabase URL is now read at run time (`lib/supabase/server.ts`); `SUPABASE_URL` is accepted too.
+   - ✅ `FOODHUB_INTERNAL_SYNC_MIN` is documented in `.env.example` (the image sets 5).
+   - ✅ `SESSION_SECRET` is **required and stable, never generated at run time** (task 9). A generated key broke sign-in when the database was down at boot, with two instances, and in memory mode. Without it, the key is derived from `DASHBOARD_PASSWORD`.
+   - ✅ `VOLUME /app/data/media` in the image; on Coolify also add a Persistent Storage mount.
+3. Fix the Go-live checklist — **done**:
+   - ✅ The Clover line needs a merchant token or a connected merchant.
+   - ✅ A platform arriving on the Relay counts as done.
 4. Update `docs/ATLAS_PARITY.md`, `docs/RELEASE_NOTES.md` and `docs/INSTALLER_SERVEUR.md` (old zip and folder names) for the Relay and shared menus.
 
 **Acceptance:**
@@ -146,6 +150,14 @@ Each phase ends with **acceptance checks**. A phase is done only when all of the
 - The sync timestamp updates with no screen open.
 
 ### Phase 1: Never lose an order or miss an alarm (1–2 weeks)
+
+> **Status (branch `clover-backend-final`):** items 1 (webhook inbox + Replay), 2 (`/api/health`), 3 (texts by default
+> for `menu_failed` / `sync_stale`), 4 (silence alarm), 6 (Clover auto-retry 30 s / 2 min, no second ticket) and the
+> Clover side of 7 are built and tested — see [CLOVER_BACKEND_FINAL.md](CLOVER_BACKEND_FINAL.md). Branch
+> `reconcile-pr6` (task 2) adds PR #6's fixes on top: 5 (the "Order from an unmapped store" incident with a mapping
+> hint), the rest of 7 (Order Relay and shared menus in the end-to-end script), no late ticket from an automatic
+> run, the order stored before a server stop finished instead of "duplicate", Clover retry guards, and a cheaper,
+> stricter `/api/health`.
 
 1. **Save the raw webhook body before answering 200** (`lib/foodhub/webhook-utils.ts`), then process it. Add a **Replay** button for unparsed or failed payloads in Settings → Platforms.
 2. Add **`/api/health`** (database, last sync, last order per platform, and whether the watchtower timer is alive). Add an outside uptime monitor that texts the owner.
@@ -169,14 +181,20 @@ Each phase ends with **acceptance checks**. A phase is done only when all of the
    - **Ask DoorDash to configure the Order Cancellation webhook** to the same address.
    - Give DoorDash the Menu Request URL.
    - Until approval, `FOODHUB_VIA_CLOVER=doordash` is the working fallback.
-2. **Uber Eats:** get the scopes approved; connect each brand's stores through OAuth; check the menu PUT and the 86 calls on one store, then roll out.
+2. **Uber Eats:** code finished on branch `uber-eats-final`; the owner's steps are in [UBER_EATS_FINAL.md](UBER_EATS_FINAL.md):
+   - paste the signing key;
+   - get production access (merchants@uber.com, on the open case);
+   - UrbanPiper lets go of the stores (its offboarding case);
+   - Stores → Connect Uber Eats;
+   - Menus → All Uber stores (dry run, then publish);
+   - one test order per kitchen, then retire the tablets.
 3. **Skip:** get the JET Connect key, or agree a partner feed through the Relay.
 4. **Too Good To Go:** when the rep delivers the spec, write a real `tgtgAdapter`: read their orders (replacing the best-guess reader), send bag quantities and pickup windows, and cancel. Remove the permanent "blocked" results.
-5. **Clover App Market:**
-   - Get a real domain with HTTPS.
-   - Approve the legal pages (`FOODHUB_LEGAL_APPROVED=true`).
-   - Fill in support details, categories and screenshots (`docs/CLOVER_APP_LISTING.md`).
-   - Submit the listing.
+5. **Clover App Market** — code ready (branch `clover-marketplace-launch`); the full list is in `docs/CLOVER_MARKETPLACE_LAUNCH.md`:
+   - ✅ Launch flow, pre-filled welcome wizard, test order, billing_info, 429 back-off, support page with FAQ, listing texts, screenshots.
+   - ✅ Domain with HTTPS: `foodhub.on2go.ca`. 👤 Switch `FOODHUB_PUBLIC_URL` and the Clover Site URL to it (task 5).
+   - 👤 Approve the legal pages (`FOODHUB_LEGAL_APPROVED=true`), support email and phone.
+   - 👤 Record the functional video, fill in the dashboard, ask Clover about SRM (Québec), submit.
 
 **Acceptance:**
 - One real order per platform goes all the way to Clover, prints, and has its accept and ready confirmed on the platform.
@@ -244,7 +262,7 @@ Food Hub already runs a lot by itself: the sync, timed re-opens, 86 re-enables, 
 
 ### Phase 5: A product other merchants want
 
-- A Clover App Market onboarding that feels effortless: install → `/welcome/clover` with a guided 3-step wizard (connect platforms, import the menu, tablet and PIN) and a celebration at the end.
+- ✅ A Clover App Market onboarding that feels effortless: install → `/welcome/clover` with a guided 3-step wizard (connect platforms, import the menu, tablet and PIN) and a celebration at the end (branch `clover-marketplace-launch`).
 - Brand kits (colour, logo, photos) used across the console and menus.
 - From Atlas "not built": combo and nested options, ratings and reviews, own-courier dispatch (DoorDash Drive / Uber Direct) for phone orders, Google / Microsoft sign-in.
 
@@ -281,7 +299,7 @@ Paste one at a time into Claude Code at the repository root. Each prompt is self
 > Read docs/MASTER_PLAN.md (sections 2, 4 and 5 / Phase 0). Get branch `claude/practical-wright-pnhgtl` ready to merge into `main`:
 > - Dockerfile: no `|| true` on the build; a build-time ARG for `NEXT_PUBLIC_SUPABASE_URL`.
 > - Document `FOODHUB_INTERNAL_SYNC_MIN` in `.env.example`.
-> - Generate `SESSION_SECRET` like the other internal secrets (`lib/foodhub/runtime-secrets.ts`).
+> - `SESSION_SECRET`: required and stable, never generated at run time (done, task 9).
 > - Go-live: the Clover line needs a connected merchant; Skip counts as done through the Relay.
 > - Update ATLAS_PARITY, RELEASE_NOTES and INSTALLER_SERVEUR for the Relay and shared menus.
 >

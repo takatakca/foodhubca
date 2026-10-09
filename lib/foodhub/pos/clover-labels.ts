@@ -7,7 +7,7 @@
 //   GET  /v3/merchants/{mId}/items?expand=tags                items and their labels (paged)
 //   POST /v3/merchants/{mId}/tag_items  { elements: [{ item: { id }, tag: { id } }] }   add item ↔ label links
 import { logActivity } from '../activity';
-import { timedFetch } from '../config';
+import { cloverFetch } from './clover-http';
 import { cloverBaseUrl, cloverToken } from './clover';
 
 export interface CloverLabel { id: string; name: string; printers: number }
@@ -24,7 +24,7 @@ export interface CloverLabelReport {
 }
 
 async function cloverGet(mid: string, token: string, path: string, qs: Record<string, string>): Promise<any> {
-  const res = await timedFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}/${path}?${new URLSearchParams(qs)}`, {
+  const res = await cloverFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}/${path}?${new URLSearchParams(qs)}`, {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
   });
   if (!res.ok) throw new Error(`Clover ${path} HTTP ${res.status}`);
@@ -66,7 +66,7 @@ export async function assignCloverLabel(mid: string, tagId: string, itemIds: str
   let added = 0;
   for (let i = 0; i < ids.length; i += 100) {
     const chunk = ids.slice(i, i + 100);
-    const res = await timedFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}/tag_items`, {
+    const res = await cloverFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}/tag_items`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ elements: chunk.map((id) => ({ item: { id }, tag: { id: tagId } })) }),

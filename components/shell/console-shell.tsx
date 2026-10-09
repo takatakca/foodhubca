@@ -23,7 +23,7 @@ import { CancelAlarm } from '@/components/live/cancel-alarm';
 import { PulseProvider, usePulse } from '@/components/live/pulse';
 import { DeviceHeartbeat } from '@/components/live/device-heartbeat';
 import { CommandPalette } from './command-palette';
-import { NAV, type NavItem } from './nav';
+import { NAV, navVisible, type NavItem } from './nav';
 import { CopilotDrawer } from './copilot';
 import { shortLoc, useViewer } from './viewer';
 import { audioReady, playSound, unlockAudio } from '@/lib/ui/sound';
@@ -58,7 +58,7 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
 }
 
 function Frame({ children }: { children: ReactNode }) {
-  const { can, allLocations } = useViewer();
+  const { can, allLocations, features } = useViewer();
   const { t } = useI18n();
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
@@ -74,7 +74,7 @@ function Frame({ children }: { children: ReactNode }) {
     window.addEventListener('pointerdown', first, { once: true });
     return () => window.removeEventListener('pointerdown', first);
   }, []);
-  const items = NAV.filter((n) => can(n.perm) && (!n.allLocations || allLocations));
+  const items = NAV.filter((n) => navVisible(n, can, allLocations, features));
   const toggle = () => { setCollapsed((c) => { try { localStorage.setItem('takatak.rail', c ? '0' : '1'); } catch { /* ignore */ } return !c; }); };
   const kitchen = pathname.startsWith('/kitchen');
 

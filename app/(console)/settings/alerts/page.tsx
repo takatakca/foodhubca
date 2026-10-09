@@ -24,20 +24,20 @@ import { cn } from '@/lib/ui/cn';
 
 type RuleSetting = { enabled: boolean; escalate: boolean };
 type Watch = {
-  enabled: boolean; smsAfterMin: number; callAfterMin: number; ownerAfterMin: number; unacceptedAfterSec: number; unseenAfterSec: number; lateAfterMin: number; courierWaitMin: number;
+  enabled: boolean; smsAfterMin: number; callAfterMin: number; ownerAfterMin: number; unacceptedAfterSec: number; unseenAfterSec: number; lateAfterMin: number; courierWaitMin: number; silenceAfterMin: number;
   quietFrom: string; quietTo: string; postToChat: boolean; aiExplain: boolean; autoTextLateCustomers: boolean; supportPhones: string[]; rules: Record<string, RuleSetting>; updatedAt?: string; updatedBy?: string;
 };
 /** The document this screen edits (it saves by itself): the rules, without who changed them and when. */
 type Rules = Omit<Watch, 'updatedAt' | 'updatedBy'>;
 type Channels = { email: boolean; sms: boolean; call: boolean; chat: boolean; ai: boolean };
 type Kind = { kind: string; fr: string; en: string };
-type NumKey = 'smsAfterMin' | 'callAfterMin' | 'ownerAfterMin' | 'unacceptedAfterSec' | 'unseenAfterSec' | 'lateAfterMin' | 'courierWaitMin';
+type NumKey = 'smsAfterMin' | 'callAfterMin' | 'ownerAfterMin' | 'unacceptedAfterSec' | 'unseenAfterSec' | 'lateAfterMin' | 'courierWaitMin' | 'silenceAfterMin';
 type Range = [min: number, max: number, unit: string];
 
 /** What each number may be (the limits this screen always had): inside them the server keeps the value exactly as typed. */
 const RANGE: Record<NumKey, Range> = {
   smsAfterMin: [1, 120, 'min'], callAfterMin: [1, 120, 'min'], ownerAfterMin: [1, 120, 'min'],
-  unacceptedAfterSec: [20, 600, 's'], unseenAfterSec: [30, 900, 's'], lateAfterMin: [1, 60, 'min'], courierWaitMin: [1, 30, 'min'],
+  unacceptedAfterSec: [20, 600, 's'], unseenAfterSec: [30, 900, 's'], lateAfterMin: [1, 60, 'min'], courierWaitMin: [1, 30, 'min'], silenceAfterMin: [30, 1440, 'min'],
 };
 const MAX_PHONES = 5;
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -69,7 +69,7 @@ export default function AlertSettingsPage() {
   const [phoneErr, setPhoneErr] = useState('');
 
   const validate = useCallback((r: Rules) => {
-    const names: Record<NumKey, [string, string]> = { smsAfterMin: ['Texto', 'Text'], callAfterMin: ['Appel', 'Call'], ownerAfterMin: ['Propriétaire', 'Owner'], unacceptedAfterSec: ['Non acceptée', 'Not accepted'], unseenAfterSec: ['Pas vue', 'Not seen'], lateAfterMin: ['En retard', 'Late'], courierWaitMin: ['Livreur', 'Courier'] };
+    const names: Record<NumKey, [string, string]> = { smsAfterMin: ['Texto', 'Text'], callAfterMin: ['Appel', 'Call'], ownerAfterMin: ['Propriétaire', 'Owner'], unacceptedAfterSec: ['Non acceptée', 'Not accepted'], unseenAfterSec: ['Pas vue', 'Not seen'], lateAfterMin: ['En retard', 'Late'], courierWaitMin: ['Livreur', 'Courier'], silenceAfterMin: ['Plateforme silencieuse', 'Platform quiet'] };
     const out: string[] = [];
     for (const k of Object.keys(RANGE) as NumKey[]) {
       const [min, max, unit] = RANGE[k];
@@ -165,7 +165,7 @@ export default function AlertSettingsPage() {
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:grid-cols-5">
               {chip(channels?.sms, t('Textos', 'Texts'), <MessageSquareText className="size-5" />, 'TWILIO_*')}
               {chip(channels?.call, t('Appels', 'Calls'), <PhoneCall className="size-5" />, 'TWILIO_*')}
-              {chip(channels?.email, t('Courriels', 'Email'), <Mail className="size-5" />, 'RESEND_API_KEY')}
+              {chip(channels?.email, t('Courriels', 'Email'), <Mail className="size-5" />, 'SMTP_* / RESEND_API_KEY')}
               {chip(channels?.chat, t('Clavardage équipe', 'Team chat'), <BellRing className="size-5" />, 'ALERT_WEBHOOK_URL')}
               {chip(channels?.ai, 'Claude (IA)', <Bot className="size-5" />, 'ANTHROPIC_API_KEY')}
             </div>
@@ -227,6 +227,7 @@ export default function AlertSettingsPage() {
               <Field label={t('Pas vue en cuisine après (s)', 'Not seen in the kitchen after (s)')}><NumField range={RANGE.unseenAfterSec} value={w.unseenAfterSec} disabled={!edit} onChange={(v) => setNum('unseenAfterSec', v)} /></Field>
               <Field label={t('En retard après (min)', 'Late after (min)')} hint={t('Après l’heure promise.', 'Past the promised time.')}><NumField range={RANGE.lateAfterMin} value={w.lateAfterMin} disabled={!edit} onChange={(v) => setNum('lateAfterMin', v)} /></Field>
               <Field label={t('Livreur qui attend (min)', 'Courier waiting (min)')}><NumField range={RANGE.courierWaitMin} value={w.courierWaitMin} disabled={!edit} onChange={(v) => setNum('courierWaitMin', v)} /></Field>
+              <Field label={t('Aucune commande d’une plateforme depuis (min)', 'No order from a platform for (min)')} hint={t('Pendant que ses magasins sont ouverts : un branchement est peut-être cassé.', 'While its stores are open: a connection may be broken.')}><NumField range={RANGE.silenceAfterMin} value={w.silenceAfterMin ?? 180} disabled={!edit} onChange={(v) => setNum('silenceAfterMin', v)} /></Field>
             </div>
           </Section>
 

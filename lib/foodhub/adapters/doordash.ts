@@ -4,8 +4,11 @@
 // only exists once DoorDash provisions your integration, so it is required before sending.
 import crypto from 'node:crypto';
 import { callApi, checkSharedSecret, fromCents, missingEnv, result, stripSlash, timedFetch } from '../config';
+import { getBrandMenu } from '../menu/shared';
 import { toDoorDashMenu } from '../menu/translate';
-import type { CancelReason, ChannelAdapter, NormalizedOrder, OrderLine, PlatformState } from '../types';
+import { localTimeLabel } from '../time';
+import { CANCEL_REASON_LABELS } from '../types';
+import type { CancelReason, ChannelAdapter, NormalizedOrder, OrderLine, PlatformState, StoredOrder } from '../types';
 import { blockedResult, buildReadiness, chunk } from './common';
 
 const KEY = 'doordash' as const;
@@ -17,22 +20,96 @@ export function doorDashMerchantCancelEnabled() {
 
 const DD_CANCEL: Partial<Record<CancelReason, string>> = { out_of_stock: 'ITEM_OUT_OF_STOCK', store_closed: 'STORE_CLOSED', too_busy: 'KITCHEN_BUSY' };
 
+/** Error codes DoorDash accepts in errors[].code (order integration guide, "Supported error codes"). */
+export const DOORDASH_ERROR_CODES = ['INVALID_ORDER', 'ITEM_OUT_OF_STOCK', 'STORE_HOURS_ISSUE', 'INTERNAL_ERROR', 'OTHER', 'CONNECTIVITY_ISSUE', 'TIME_OUT',
+  'STORE_CLOSED', 'STORE_CLOSED_EARLY', 'POS_OFFLINE', 'CAPACITY_THROTTLING', 'STALE_PICKUP_TIME', 'ORDER_ONLINE_DISABLED', 'INVALID_ADDRESS',
+  'STORE_RENOVATION', 'STORE_TEMP_CLOSED', 'WEATHER_ISSUES'] as const;
+export type DoorDashErrorCode = (typeof DOORDASH_ERROR_CODES)[number];
+export interface DoorDashItemError { code: DoorDashErrorCode; merchant_supplied_id: string; message: string }
+
+/**
+ * The Food Hub reject reason behind a reject text. The reject pop-up sends "<CANCEL_REASON_LABELS[code]> — details";
+ * other callers send free text, read like the Order Relay does.
+ */
+export function rejectReasonOf(text: string): { reason: CancelReason; details: string } {
+  const t = (text || '').trim();
+  for (const [code, label] of Object.entries(CANCEL_REASON_LABELS) as Array<[CancelReason, string]>) {
+    if (t === label || t.startsWith(`${label} — `)) return { reason: code, details: t.slice(label.length).replace(/^ — /, '').trim() };
+  }
+  const reason: CancelReason = /stock|rupture|86|unavailable|indisponible/i.test(t) ? 'out_of_stock'
+    : /busy|occup|volume|rush/i.test(t) ? 'too_busy'
+      : /closed|ferm/i.test(t) ? 'store_closed'
+        : /clover|\bpos\b|offline|hors ligne|connect/i.test(t) ? 'pos_issue' : 'other';
+  return { reason, details: t };
+}
+
+/**
+ * failure_reason + errors[] for a DoorDash reject, using the strings of DoorDash's detailed error spec:
+ * - out of stock: "Item Unavailable - [Item Name] - [Item ID] - Out of stock" + one ITEM_OUT_OF_STOCK error per item.
+ *   The items are the order lines/options named in the details, or 86'd at the location, or the only line;
+ * - store closed, kitchen busy (capacity), POS problem: the documented store-level string (no errors[]: each error
+ *   needs an item or option id);
+ * - anything else: the staff's own words (never an empty or generic reason).
+ */
+export function doorDashFailure(order: Pick<StoredOrder, 'lines' | 'brandName' | 'placedAt'>, reasonText: string, unavailable: Set<string> = new Set()): { failure_reason: string; errors?: DoorDashItemError[] } {
+  const { reason, details } = rejectReasonOf(reasonText);
+  if (reason === 'out_of_stock') {
+    const said = details.toLowerCase();
+    const candidates = order.lines.flatMap((l) => [{ id: l.externalId, name: l.name }, ...l.modifiers.map((m) => ({ id: m.externalId, name: m.name }))])
+      .filter((c): c is { id: string; name: string } => Boolean(c.id));
+    let hit = candidates.filter((c) => (c.name.trim() && said.includes(c.name.trim().toLowerCase())) || unavailable.has(c.id));
+    if (!hit.length && order.lines.length === 1 && order.lines[0].externalId) hit = [{ id: order.lines[0].externalId, name: order.lines[0].name }];
+    const unique = [...new Map(hit.map((c) => [c.id, c])).values()];
+    if (unique.length) {
+      return {
+        failure_reason: unique.map((c) => `Item Unavailable - ${c.name} - ${c.id} - Out of stock`).join('; ').slice(0, 1000),
+        errors: unique.map((c) => ({ code: 'ITEM_OUT_OF_STOCK', merchant_supplied_id: c.id, message: `Item Unavailable - ${c.name} - Out of stock` })),
+      };
+    }
+    return { failure_reason: `Item Unavailable - Out of stock${details ? ` - ${details}` : ''}`.slice(0, 1000) };
+  }
+  if (reason === 'store_closed') return { failure_reason: 'Store is either currently closed or your order cannot be prepared prior to close.' };
+  if (reason === 'too_busy') {
+    return { failure_reason: `${order.brandName || 'The store'} is experiencing high order volume and cannot prepare your order for ${localTimeLabel(order.placedAt)}` };
+  }
+  if (reason === 'pos_issue') return { failure_reason: 'POS Exception - Store is offline' };
+  const words = details && !/^(other|autre|rejected by (the )?restaurant)$/i.test(details) ? details : '';
+  const head = reason === 'customer_request' ? 'Customer asked to cancel' : 'Rejected by the restaurant';
+  return { failure_reason: (words ? `${head}: ${words}` : reason === 'customer_request' ? head : `${head} (reason not given)`).slice(0, 1000) };
+}
+
 function base() { return stripSlash(process.env.DOORDASH_BASE_URL || 'https://openapi.doordash.com/marketplace'); }
 
 const b64url = (input: Buffer | string) => Buffer.from(input).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
 
-/** DoorDash JWT: HS256, header dd-ver DD-JWT-V1, aud "doordash", signed with the base64-decoded signing secret. */
-export function doorDashJwt(nowSec = Math.floor(Date.now() / 1000)): string {
+/**
+ * DoorDash JWT: HS256, header dd-ver DD-JWT-V1, aud "doordash", signed with the base64-decoded signing secret.
+ * Marketplace credentials by default; DoorDash Drive passes its own (another developer org / access key).
+ */
+export function doorDashJwt(nowSec = Math.floor(Date.now() / 1000), creds = { developerId: process.env.DOORDASH_DEVELOPER_ID, keyId: process.env.DOORDASH_KEY_ID, signingSecret: process.env.DOORDASH_SIGNING_SECRET }): string {
   const header = { alg: 'HS256', typ: 'JWT', 'dd-ver': 'DD-JWT-V1' };
-  const payload = { aud: 'doordash', iss: process.env.DOORDASH_DEVELOPER_ID, kid: process.env.DOORDASH_KEY_ID, exp: nowSec + 300, iat: nowSec };
+  const payload = { aud: 'doordash', iss: creds.developerId, kid: creds.keyId, exp: nowSec + 300, iat: nowSec };
   const unsigned = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(payload))}`;
-  const secret = Buffer.from((process.env.DOORDASH_SIGNING_SECRET || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+  const secret = Buffer.from((creds.signingSecret || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
   const sig = crypto.createHmac('sha256', secret).update(unsigned).digest();
   return `${unsigned}.${b64url(sig)}`;
 }
 
-function headers() {
-  return { Authorization: `Bearer ${doorDashJwt()}`, 'auth-version': 'v2', 'Content-Type': 'application/json' };
+/**
+ * DoorDash's User-Agent: the provider_type in CamelCase + "/1.0" (documented example: merchant_sandbox →
+ * MerchantSandbox/1.0). https://developer.doordash.com/en-US/docs/marketplace/how_to/JWTs and the Marketplace FAQ.
+ * DOORDASH_USER_AGENT overrides it when DoorDash gives an exact spelling (their FAQ writes doordash_pizza as
+ * DoorDashPizza/1.0). Null while no provider type exists yet (the header is then left out).
+ */
+export function doorDashUserAgent(providerType = process.env.DOORDASH_PROVIDER_TYPE || '', override = process.env.DOORDASH_USER_AGENT || ''): string | null {
+  if (override.trim()) return override.trim();
+  const camel = providerType.trim().split(/[_\s-]+/).filter(Boolean).map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join('');
+  return camel ? `${camel}/1.0` : null;
+}
+
+function headers(): Record<string, string> {
+  const userAgent = doorDashUserAgent();
+  return { Authorization: `Bearer ${doorDashJwt()}`, 'auth-version': 'v2', 'Content-Type': 'application/json', ...(userAgent ? { 'User-Agent': userAgent } : {}) };
 }
 
 function readiness() {
@@ -64,11 +141,20 @@ export const doorDashAdapter: ChannelAdapter = {
     order_status: 'success',
     ...(order.timeline?.readyTarget ? { prep_time: new Date(order.timeline.readyTarget).toISOString() } : {}),
   }),
-  denyOrder: (order, reason) => send('PATCH', `/api/v1/orders/${encodeURIComponent(order.externalOrderId)}`, {
-    merchant_supplied_id: order.posOrderId || order.id,
-    order_status: 'fail',
-    failure_reason: reason || 'Store unable to fulfill',
-  }),
+  // Reject: DoorDash's documented failure_reason strings + item-level errors[] (codes from the order integration
+  // guide), so fewer than 15% of failures land in DoorDash's "Other / vague" bucket (detailed error spec).
+  async denyOrder(order, reason) {
+    let unavailable = new Set<string>();
+    try {
+      const menu = order.brandName ? await getBrandMenu(order.brandName) : null;
+      unavailable = new Set(order.locationCode ? menu?.unavailableByLocation?.[order.locationCode] ?? [] : []);
+    } catch { /* no menu: items are matched by name only */ }
+    return send('PATCH', `/api/v1/orders/${encodeURIComponent(order.externalOrderId)}`, {
+      merchant_supplied_id: order.posOrderId || order.id,
+      order_status: 'fail',
+      ...doorDashFailure(order, reason, unavailable),
+    });
+  },
   markReady: (order, posRef) => send('PATCH', `/api/v1/orders/${encodeURIComponent(order.externalOrderId)}/events/order_ready_for_pickup`, {
     merchant_supplied_id: posRef || order.posOrderId || order.id,
   }),
@@ -157,6 +243,16 @@ function doorDashDiscount(o: any): number {
   return Math.round(list.filter((d) => d && (d.merchant_funded === true || /merchant/i.test(String(d.funded_by ?? d.funding_source ?? 'merchant')))).reduce((s, d) => s + Math.abs(cents(d.amount ?? d.discount_amount ?? d.value)), 0) * 100) / 100;
 }
 
+/**
+ * Tips the restaurant keeps, in dollars (Order Model, amounts in cents): merchant_tip_amount = "tip amount for
+ * merchant staff" (pickup orders included) + tip_amount = "Delivery tip amount. This is only sent for Self Delivery
+ * orders". A Dasher's tip is never in either. `tip` (undocumented) is read only when neither field is present.
+ */
+export function doorDashTip(o: any): number {
+  if (o?.merchant_tip_amount == null && o?.tip_amount == null) return cents(o?.tip);
+  return Math.round((cents(o.merchant_tip_amount) + cents(o.tip_amount)) * 100) / 100;
+}
+
 export function parseDoorDashOrder(body: any): NormalizedOrder | null {
   const o = body?.order ?? body;
   if (!o?.id) return null;
@@ -191,17 +287,20 @@ export function parseDoorDashOrder(body: any): NormalizedOrder | null {
     displayId: o.delivery_short_code ? String(o.delivery_short_code) : undefined,
     channelStoreId: String(o.store?.merchant_supplied_id ?? ''),
     customerName: `${first} ${last}`.trim() || undefined,
-    fulfillment: o.is_pickup ? 'pickup' : 'delivery',
+    // Order Model fulfillment_type: dx_delivery (Dasher), pickup, mx_fleet_delivery (merchant delivery); is_pickup as fallback.
+    fulfillment: o.fulfillment_type ? (String(o.fulfillment_type).toLowerCase() === 'pickup' ? 'pickup' : 'delivery') : o.is_pickup ? 'pickup' : 'delivery',
     placedAt: o.created_at || new Date().toISOString(),
     readyBy: o.estimated_pickup_time || undefined,
     currency: process.env.FOODHUB_CURRENCY || 'CAD',
     subtotal: cents(o.subtotal),
     tax: cents(o.tax),
     deliveryFee: 0,
-    tip: cents(o.tip_amount ?? o.tip),
+    tip: doorDashTip(o),
     discount: doorDashDiscount(o),
     total: cents(o.subtotal) + cents(o.tax),
     notes: o.order_special_instructions || undefined,
+    // Order Model `experience`: DOORDASH, CAVIAR, STOREFRONT, … (shown to the staff on the card, ticket and Clover note).
+    ...(o.experience ? { orderSource: String(o.experience).toUpperCase() } : {}),
     lines,
     raw: body,
   };

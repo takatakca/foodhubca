@@ -1600,7 +1600,9 @@ try {
 
   // AI phone line — no ANTHROPIC_API_KEY in this run: the call must go straight to the kitchen phone (never lost).
   await call('PUT', '/api/foodhub/expansion', { body: { key: 'phone', on: true } });
-  const pline = await call('PUT', '/api/foodhub/phone', { body: { settings: { lines: [{ number: '+15145550199', name: 'Po Poulet NDG', locationCode: 'NDG_MAIN', brands: ['Po Poulet'], enabled: true, delivery: true }] } } });
+  // Owner's lock: Po Poulet is never sold by phone from NDG (only from Saint-Léonard).
+  check('a Po Poulet phone line at NDG is refused (owner lock)', (await call('PUT', '/api/foodhub/phone', { body: { settings: { lines: [{ number: '+15145550199', name: 'Po Poulet NDG', locationCode: 'NDG_MAIN', brands: ['Po Poulet'], enabled: true, delivery: true }] } } })).status >= 400);
+  const pline = await call('PUT', '/api/foodhub/phone', { body: { settings: { lines: [{ number: '+15145550199', name: 'Pi Pita NDG', locationCode: 'NDG_MAIN', brands: ['Pi Pita'], enabled: true, delivery: true }] } } });
   check('phone line saved', pline.json?.settings?.lines?.length === 1, JSON.stringify(pline.json).slice(0, 200));
   const voiceForm = new URLSearchParams({ CallSid: 'CA-e2e-1', From: '+15145551234', To: '+15145550199', CallStatus: 'ringing' });
   const twSig = (u, f) => crypto.createHmac('sha1', 'tw-e2e').update(u + [...f.keys()].sort().map((k) => k + f.get(k)).join('')).digest('base64');

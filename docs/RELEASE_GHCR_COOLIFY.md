@@ -27,7 +27,7 @@
 
 1. In Coolify → project FOOD HUB → `foodhubca`, record the existing deployment ID, image/source revision, domains, env *names*, health checks, networks, restart policy, and persistent volume mount. Keep the rollback revision; do not display secret values.
 2. **Do not delete or overwrite the running resource.** A Git/Dockerfile-sourced Coolify app may require a separate Docker Image resource rather than an in-place change of build type.
-3. Configure a **new** Docker Image resource using `ghcr.io/takatakca/foodhubca` with tag `sha-df9adb4` (preferred pinned release; `main` is a mutable tag) and exposed port **3000**.
+3. Configure a **new** Docker Image resource with `ghcr.io/takatakca/foodhubca:sha-df9adb4` and exposed port **3000** for the first **pinned preview/test**. Do not enable automatic production deployments while the resource tag is pinned to that specific version.
 4. Start with a protected preview domain; set `FOODHUB_PUBLIC_URL` to its intended origin for that environment, `FOODHUB_TRUST_PROXY=true`, `FOODHUB_INTERNAL_SYNC_MIN=0`, and `LIVE_CONNECTORS_GLOBAL_ENABLED=false` during isolated smoke tests. Use appropriate staging credentials and never point public test traffic at live payment/order endpoints.
 5. Configure `SESSION_SECRET`, database and other necessary runtime variables securely in Coolify. **Do not overwrite the original value of `SESSION_SECRET`** for the existing production app.
 6. Bind a persistent storage mount for `/app/data/media`. Back up current uploaded files, configuration, and database before any cutover. A newly created empty volume does not contain the old images.
@@ -40,6 +40,7 @@
 
 - Build and publish from GitHub is already automated. The workflow does **not** deploy to Coolify.
 - An opt-in deployment workflow is included: `.github/workflows/coolify-deploy.yml`. It runs after the Food Hub image workflow completes successfully on a `main` push.
+- **Required for unattended upgrades:** the final production Docker Image resource must reference the mutable `ghcr.io/takatakca/foodhubca:main` tag, because the deployment webhook only requests redeployment; it does not change image tags. Switch to `main` only after the pinned-image preview succeeds and a rollback tag/digest is saved. Otherwise every webhook redeploys the same pinned version forever. Alternatively, implement an explicit version-update step before each deploy and retain immutable production references (not implemented in this PR).
 - **Only after** the Coolify Docker Image production cutover is verified: Coolify → Settings → Advanced → Enable API access (if off); Keys & Tokens → API Tokens → create a short-lived token with **Deploy** permission only; Food Hub app → Webhooks → copy its **resource Deploy Webhook**.
 - Store the exact URL only in GitHub Actions repository secret `COOLIFY_DEPLOY_WEBHOOK` and the deploy-only token in secret `COOLIFY_DEPLOY_TOKEN` (`foodhubca` → Settings → Secrets and variables → Actions). The workflow skips deployment with a notice until both are present.
 - A successful Coolify API response means **queued**, not live; verify its deployment UUID/log, running image and production `/api/health` separately. Revoke/rotate tokens if compromised.

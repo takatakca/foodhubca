@@ -35,7 +35,7 @@ Status: `todo` / `doing` / `done` / `blocked: reason`. Newest work at the top of
 - [x] M2 done 2026-10-09 (`PLAN.md` §7: 17 ranked fixes in 5 groups) | Ranked cross-brand fix list from the F2/D2 findings (stale listings from old kitchens, name and address conflicts, duplicate store numbers, name-vs-menu problems, owner decisions), so the owner or a desktop session can apply fixes one account at a time -> `PLAN.md`
 
 ## P4b Ready-to-paste content (added 2026-10-09 after F2/D2; web search and brand config only)
-- [ ] T1 todo | SEO title (<= 60 chars) and meta description (<= 155 chars) FR/EN per brand site and order page, from the brand config and the F2/D2 findings (cuisine + neighbourhood words, no "24/7") -> `SEO_TITLES.md`
+- [x] T1 done 2026-10-09 (17 brands FR/EN + order-page pattern; lengths checked; names waiting for the owner are flagged) | SEO title (<= 60 chars) and meta description (<= 155 chars) FR/EN per brand site and order page, from the brand config and the F2/D2 findings (cuisine + neighbourhood words, no "24/7") -> `SEO_TITLES.md`
 - [ ] C1 todo | Short bios per brand FR/EN sized for each profile: Instagram 150, X 160, TikTok 80, Facebook intro 101, Yelp/Apple short text; one order link each -> `SOCIAL_BIOS.md`
 - [ ] S1 todo | schema.org JSON-LD per brand (Restaurant/FoodEstablishment, address per kitchen, servesCuisine, menu, hasMap, sameAs, potentialAction OrderAction; hours left as a placeholder) -> `SCHEMA.md`
 - [ ] K1 todo | Local search terms per brand x neighbourhood FR/EN (what people type, from the competitor findings) for posts, titles and later Google Ads -> `KEYWORDS.md`

@@ -55,8 +55,9 @@ looks moved to Saint-Léonard; Saint-Léonard is written 5837 in older Food Hub 
 - 2026-10-09 | Déjeuner Montréal | **Not on any platform and no public listing** (no Uber Eats, no DoorDash; website is a
   sub-address of OOEUF, `dejeuner.ooeuf.ca`). **Name vs menu:** in Québec French "déjeuner" means breakfast, but the menu
   (brand config) is a casse-croûte: burgers, steamed and Michigan hot dogs, poutines, no breakfast items. Customers who
-  search "déjeuner" expect eggs and toast and will leave bad reviews; and OOEUF is already the group's breakfast brand
-  under the same domain, so the two would be confused. **Competitors:** for casse-croûte near NDG, Gibeau Orange Julep
+  search "déjeuner" expect eggs and toast and will leave bad reviews. And OOEUF, under the same domain, is also a
+  casse-croûte (burgers, Michigan hot dogs, poutine) whose Uber Eats store is named "O'OEUFS Déjeuner": two snack-bar
+  brands with breakfast-sounding names would be confused (corrected 2026-10-09: OOEUF is not a breakfast menu). **Competitors:** for casse-croûte near NDG, Gibeau Orange Julep
   (open since 1930, Michigan hot dog, burgers, poutine); elsewhere, Paulo et Suzanne and Patati Patata are the reference
   names in guides. Owner decides: rename to a casse-croûte name (category "Snack bar" / "Hamburger restaurant"), or fold
   the casse-croûte menu into an existing brand. Sources: https://tastet.ca/listes/les-meilleurs-casse-croutes-du-quebec/ ,
@@ -143,8 +144,8 @@ looks moved to Saint-Léonard; Saint-Léonard is written 5837 in older Food Hub 
   Montréal" (Uber Eats pages exist but are not indexed). **NAP problems:** (1) Uber Eats uses the plural "Gâteaux
   Montréal" vs "Gâteau Montréal" in the brand config: pick one; (2) the Uber link in the Saint-Léonard row has the slug
   `gateaux-montreal-hochelaga`, so it was created for the **old Hochelaga kitchen** (3583 Ste-Catherine E, see NAP.md),
-  not Saint-Léonard: check its address before anything links to it; (3) the website `viennoise.ca` does not match the
-  brand name and does not surface in search, while an unrelated West Island bakery, **Pâtisserie Suisse Viennoise**,
+  not Saint-Léonard: check its address before anything links to it; (3) the website `viennoise.ca` follows the config's second
+  name "La Viennoise", not "Gâteau Montréal", and does not surface in search, while an unrelated West Island bakery, **Pâtisserie Suisse Viennoise**,
   does: customers searching "viennoise" find the other shop. **Name risk:** "Gâteau Montréal" is a generic phrase
   ("cake Montreal"); it competes with every cake search and with real cake shops (Mlles Gâteaux, Géraldine Gâteau, Gâteau
   Brisé, Bayard Gâteaux). Owner decides: keep the name with a matching domain, or a more distinctive name before the

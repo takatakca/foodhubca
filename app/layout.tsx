@@ -6,7 +6,7 @@ import { I18nProvider } from '@/lib/i18n/client';
 import { getLang } from '@/lib/i18n/server';
 import { DISPLAY_BOOT_SCRIPT } from '@/lib/ui/display';
 
-export const viewport: Viewport = { themeColor: '#121211', width: 'device-width', initialScale: 1, viewportFit: 'cover' };
+export const viewport: Viewport = { themeColor: '#060D1F', width: 'device-width', initialScale: 1, viewportFit: 'cover' };
 
 export const metadata: Metadata = {
   title: 'TAKATAK',

@@ -111,9 +111,24 @@ function sum(list: StoredOrder[]) { return round2(list.reduce((s, o) => s + (Num
 function shortId(o: StoredOrder) { return o.displayId || o.externalOrderId.slice(0, 8); }
 
 
-export async function buildCommandCenter(opts: { now?: number; locationCodes?: string[] } = {}) {
+/** Average minutes from "accepted" to "ready" over orders that have both (null when none). */
+export function averagePrepMinutes(orders: StoredOrder[]): number | null {
+  const mins = orders
+    .map((o) => (o.timeline?.acceptedAt && o.timeline?.readyAt ? (Date.parse(o.timeline.readyAt) - Date.parse(o.timeline.acceptedAt)) / 60_000 : NaN))
+    .filter((m) => Number.isFinite(m) && m >= 0 && m < 240);
+  return mins.length ? Math.round(mins.reduce((a, m) => a + m, 0) / mins.length) : null;
+}
+
+/**
+ * `locationCodes`: the kitchens shown (empty = all). `brandNames`: the console's brand scope (empty = every brand):
+ * orders, stores and the store matrix are narrowed to those brands; Clover in-store sales (per kitchen, not per brand)
+ * are then left out and `brandScoped` says so.
+ */
+export async function buildCommandCenter(opts: { now?: number; locationCodes?: string[]; brandNames?: string[] } = {}) {
   const now = opts.now ?? Date.now();
   const scope = opts.locationCodes?.length ? opts.locationCodes : undefined;
+  const brandScope = opts.brandNames?.length ? new Set(opts.brandNames) : null;
+  const brandOk = (name?: string | null) => !brandScope || (!!name && brandScope.has(name));
   const repo = getRepo();
   const catalog = await getCatalog();
   const LOCATIONS = catalog.locations.filter((l) => l.active && (!scope || scope.includes(l.code))).map((l) => ({ code: l.code, name: l.name, address_line_1: l.address }));
@@ -124,15 +139,16 @@ export async function buildCommandCenter(opts: { now?: number; locationCodes?: s
   const yStart = startOfLocalDayMs(dayStart - 3600_000);
   const sinceYesterday = new Date(yStart).toISOString();
 
-  const [allOrders, stores, jobs, sync] = await Promise.all([
+  const [allOrdersRaw, stores, jobs, sync] = await Promise.all([
     repo.listOrders({ since: sinceYesterday, limit: 5000, locationCodes: scope }),
-    repo.listStores().then((list) => list.filter((s) => !scope || scope.includes(s.locationCode))),
+    repo.listStores().then((list) => list.filter((s) => (!scope || scope.includes(s.locationCode)) && brandOk(s.brandName))),
     repo.listJobs(200),
     lastSyncReport(),
   ]);
+  const allOrders = allOrdersRaw.filter((o) => brandOk(o.brandName));
   const today = allOrders.filter((o) => new Date(o.createdAt).getTime() >= dayStart);
   // Open orders stay on the queue and in the alerts whatever day they arrived (an advance order can be days old).
-  const openEver = await repo.listOrders({ statuses: OPEN, limit: 500, locationCodes: scope });
+  const openEver = (await repo.listOrders({ statuses: OPEN, limit: 500, locationCodes: scope })).filter((o) => brandOk(o.brandName));
   const todayIds = new Set(today.map((o) => o.id));
   const active = [...today, ...openEver.filter((o) => !todayIds.has(o.id))];
   const yesterday = allOrders.filter((o) => { const t = new Date(o.createdAt).getTime(); return t >= yStart && t < dayStart; });
@@ -141,7 +157,8 @@ export async function buildCommandCenter(opts: { now?: number; locationCodes?: s
   const live = liveConnectorsGloballyEnabled();
 
   // ---------- Clover in-store (from the last sync, only if it is from today's business day) ----------
-  const cloverFresh: SyncReport['clover'] = sync && new Date(sync.businessDayStart).getTime() === dayStart ? sync.clover : [];
+  // A brand scope leaves Clover out: its in-store sales are per kitchen (merchant), not per brand.
+  const cloverFresh: SyncReport['clover'] = !brandScope && sync && new Date(sync.businessDayStart).getTime() === dayStart ? sync.clover : [];
   const inStore = round2(cloverFresh.filter((c) => c.ok).reduce((s, c) => s + c.net, 0));
   const cloverInfo = cloverReadiness();
 
@@ -162,6 +179,7 @@ export async function buildCommandCenter(opts: { now?: number; locationCodes?: s
     storesOnline: stores.filter((s) => storeState(s).state === 'online').length,
     storesPaused: stores.filter((s) => storeState(s).state === 'paused').length,
     storesDeactivated: stores.filter((s) => storeState(s).state === 'deactivated').length,
+    avgPrepMin: averagePrepMinutes(today),
   };
 
   // ---------- Channels ----------
@@ -194,6 +212,17 @@ export async function buildCommandCenter(opts: { now?: number; locationCodes?: s
     brandMap.set(k, b);
   }
   const byBrand = [...brandMap.values()].sort((a, b) => b.sales - a.sales);
+  // One line of the console's brand list = a brand in a kitchen: today's orders, sales and what is still open.
+  const brandLocMap = new Map<string, { brandName: string; locationCode: string; orders: number; sales: number; open: number }>();
+  for (const o of today) {
+    if (!o.brandName || !o.locationCode) continue;
+    const k = `${o.brandName}|${o.locationCode}`;
+    const b = brandLocMap.get(k) ?? { brandName: o.brandName, locationCode: o.locationCode, orders: 0, sales: 0, open: 0 };
+    if (COUNTED(o)) { b.orders++; b.sales = round2(b.sales + Number(o.total || 0)); }
+    if (OPEN.includes(o.status)) b.open++;
+    brandLocMap.set(k, b);
+  }
+  const byBrandLocation = [...brandLocMap.values()];
 
   const byLocation = LOCATIONS.map((l) => {
     const list = counted.filter((o) => o.locationCode === l.code);
@@ -229,7 +258,7 @@ export async function buildCommandCenter(opts: { now?: number; locationCodes?: s
     }));
 
   // ---------- Matrix ----------
-  const matrix = buildMatrix(stores, LOCATIONS.map((l) => l.code), scope);
+  const matrix = buildMatrix(stores, LOCATIONS.map((l) => l.code), scope).filter((r) => brandOk(r.brandName));
 
   // ---------- Alerts ----------
   const alerts: Alert[] = [];
@@ -317,7 +346,7 @@ export async function buildCommandCenter(opts: { now?: number; locationCodes?: s
   for (const s of stores.filter((x) => x.meta?.provisioned === false)) {
     alerts.push({ id: `deprov:${s.id}`, severity: 'critical', title: `${s.brandName} · ${locName(s.locationCode)} was disconnected by ${CHANNEL_LABELS[s.channel]}`, detail: 'Orders from this store no longer reach Food Hub or Clover. Reconnect it under Stores.', href: '/stores' });
   }
-  if (!scope) {
+  if (!scope && !brandScope) {
     const all = await listCases({ status: ['open', 'disputed'] }).catch(() => []);
     const cases = all.filter((c) => RECOVERABLE.includes(c.type));
     const unknown = all.filter((c) => c.type === 'unknown_order').length;
@@ -337,6 +366,7 @@ export async function buildCommandCenter(opts: { now?: number; locationCodes?: s
   return {
     kitchen,
     scoped: Boolean(scope),
+    brandScoped: Boolean(brandScope),
     generatedAt: new Date(now).toISOString(),
     businessDay: localDateLabel(now, tz),
     timezone: tz,
@@ -347,6 +377,7 @@ export async function buildCommandCenter(opts: { now?: number; locationCodes?: s
     channels,
     clover: { configured: cloverInfo.configured, merchants: cloverFresh.map((c) => ({ merchantId: c.merchantId, ok: c.ok, net: c.net, payments: c.payments, error: c.error ?? null, locationCodes: c.locationCodes })) },
     byBrand,
+    byBrandLocation,
     byLocation,
     byHour,
     queue,

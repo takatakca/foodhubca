@@ -17,8 +17,8 @@ export const HINTS: Record<string, HintEntry> = {
     body: ['Touchez-moi n’importe quand : aide de cet écran, visite guidée, taille du texte, état de la connexion, ou une question au copilote.', 'Tap me any time: help for this screen, a guided tour, text size, connection status, or a question for the co-pilot.'],
   },
   'shell.scope': {
-    title: ['Quelle succursale ?', 'Which location?'],
-    body: ['Choisissez les succursales affichées. Tout l’écran (commandes, ventes, alertes) suit ce choix. Une tablette de cuisine reste sur sa succursale.', 'Pick which locations you see. The whole screen (orders, sales, alerts) follows. A kitchen tablet stays on its own location.'],
+    title: ['Quel restaurant ?', 'Which restaurant?'],
+    body: ['Tous les restaurants, une cuisine, ou une marque seule (la flèche ouvre les marques d’une cuisine). Toute la console suit ce choix, et il reste dans le lien. Les alarmes de commande sonnent quand même pour toutes les marques de la cuisine. Une tablette de cuisine reste sur sa cuisine.', 'Every restaurant, one kitchen, or one brand alone (the arrow opens a kitchen’s brands). The whole console follows, and the choice stays in the link. Order alarms still ring for every brand of the kitchen. A kitchen tablet stays on its own kitchen.'],
   },
   'shell.search': {
     title: ['Tout trouver', 'Find anything'],
@@ -617,7 +617,7 @@ export const PAGES: PageHelp[] = [
     title: ['Aperçu', 'Overview'],
     intro: ['Les ventes du jour, ce qui attend, et l’état de chaque plateforme. Les nouvelles commandes sonnent et s’ouvrent en plein écran.', 'Today’s sales, what is waiting, and every platform’s status. New orders ring and open full screen.'],
     steps: [
-      { target: 'shell.scope', title: ['Vos succursales', 'Your locations'], body: ['Choisissez ce que vous voulez voir. Tout l’écran suit.', 'Pick what you want to see. The whole screen follows.'] },
+      { target: 'shell.scope', title: ['Vos restaurants', 'Your restaurants'], body: ['Tous, une cuisine ou une marque : toute la console suit.', 'All, one kitchen or one brand: the whole console follows.'] },
       { target: 'shell.search', title: ['Chercher', 'Search'], body: ['Une commande, un client ou une page, d’un mot.', 'An order, a customer or a page, in one word.'] },
       { target: 'shell.sound', title: ['Le son', 'Sound'], body: ['Touchez une fois pour que les commandes sonnent sur cette tablette.', 'Tap once so orders ring on this tablet.'] },
       { target: 'shell.taktak', title: ['Toujours là', 'Always here'], body: ['Besoin d’aide sur n’importe quel écran ? Touchez-moi.', 'Need help on any screen? Tap me.'] },

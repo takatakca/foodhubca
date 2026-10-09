@@ -1,20 +1,29 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/ui/api';
 import type { Pulse } from '@/lib/foodhub/pulse';
+import { alarmLocations, ALL_RESTAURANTS, BRAND_PARAM, KITCHEN_PARAM, readRemembered, resolveScope, sameScope, scopeBrands, scopeHref, scopeLocations, validScope, withScopeQuery, type Scope } from '@/lib/foodhub/scope';
 import { useViewer } from '@/components/shell/viewer';
 
 type Ctx = {
   pulse: Pulse | null;
   refresh: () => void;
-  /** Location filter for this screen ([] = every location the person can see). */
+  /** The console's scope: every restaurant → one kitchen → one brand. Kept in the address (?kitchen=…&brand=…). */
+  site: Scope;
+  /** Pick a scope (the header picker, a brand row): written to the address and remembered on this device. */
+  setSite: (s: Scope) => void;
+  /** Kitchen filter for this screen ([] = every kitchen the person can see). */
   scope: string[];
-  setScope: (s: string[]) => void;
+  /** Brand filter for this screen ([] = every brand). Never applied to the live alarms or the kitchen screen. */
+  brands: string[];
   online: boolean;
 };
 const PulseCtx = createContext<Ctx | null>(null);
-const SCOPE_KEY = 'takatak.scope.v1';
+const SCOPE_KEY = 'takatak.scope.v2';
+/** The previous screen kept a list of location codes here: read once, so nobody loses their kitchen. */
+const OLD_SCOPE_KEY = 'takatak.scope.v1';
 export const REFRESH_EVENT = 'takatak:refresh';
 
 /** Ask every live view on this screen to reload now (after an action). */
@@ -22,29 +31,58 @@ export function refreshEverything() {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event(REFRESH_EVENT));
 }
 
+function remember(s: Scope) {
+  try { localStorage.setItem(SCOPE_KEY, JSON.stringify(s)); } catch { /* private mode */ }
+}
+
+/** `fixedScope`: a kitchen tablet's own kitchen (it never leaves it). */
 export function PulseProvider({ children, fixedScope }: { children: ReactNode; fixedScope?: string[] }) {
-  const { viewer } = useViewer();
+  const { locations, brands: allBrands, brandsByKitchen } = useViewer();
+  const params = useSearchParams();
+  const pathname = usePathname();
+  const deviceKitchen = fixedScope?.[0] ?? null;
+  const catalog = useMemo(() => ({ kitchens: locations.map((l) => l.code), brands: allBrands, brandsByKitchen }), [locations, allBrands, brandsByKitchen]);
   const [pulse, setPulse] = useState<Pulse | null>(null);
   const [online, setOnline] = useState(true);
-  const [scope, setScopeState] = useState<string[]>(fixedScope ?? []);
+  const [site, setSiteState] = useState<Scope>(() => (deviceKitchen ? { kitchen: deviceKitchen, brand: null } : ALL_RESTAURANTS));
+  const siteRef = useRef(site);
+  const started = useRef(false);
   const inflight = useRef(false);
   const lastSync = useRef(0);
 
-  useEffect(() => {
-    if (fixedScope) return;
-    try { const s = JSON.parse(localStorage.getItem(SCOPE_KEY) || '[]'); if (Array.isArray(s)) setScopeState(s.filter((c) => !viewer.locations.length || viewer.locations.includes(c))); } catch { /* private mode */ }
-  }, [fixedScope, viewer.locations]);
+  const apply = useCallback((s: Scope) => { if (!sameScope(s, siteRef.current)) { siteRef.current = s; setSiteState(s); } }, []);
 
-  const setScope = useCallback((s: string[]) => {
-    setScopeState(s);
-    try { localStorage.setItem(SCOPE_KEY, JSON.stringify(s)); } catch { /* ignore */ }
-  }, []);
+  // Address ↔ scope. A link carrying a scope wins; a page opened without one gets the scope back in its address.
+  const urlKitchen = params?.get(KITCHEN_PARAM) ?? '';
+  const urlBrand = params?.get(BRAND_PARAM) ?? '';
+  useEffect(() => {
+    const first = !started.current;
+    started.current = true;
+    let remembered: Scope | null = null;
+    if (first) { try { remembered = readRemembered(localStorage.getItem(SCOPE_KEY)) ?? readRemembered(localStorage.getItem(OLD_SCOPE_KEY)); } catch { /* private mode */ } }
+    const { scope, writeUrl } = resolveScope({ url: { kitchen: urlKitchen || null, brand: urlBrand || null }, current: first ? null : siteRef.current, remembered, deviceKitchen, catalog });
+    apply(scope);
+    remember(scope);
+    if (writeUrl) window.history.replaceState(null, '', `${window.location.pathname}${withScopeQuery(window.location.search, scope)}${window.location.hash}`);
+  }, [urlKitchen, urlBrand, pathname, deviceKitchen, catalog, apply]);
+
+  const setSite = useCallback((next: Scope) => {
+    const s = validScope(deviceKitchen ? { kitchen: deviceKitchen, brand: next.kitchen === deviceKitchen ? next.brand : null } : next, catalog);
+    apply(s);
+    remember(s);
+    window.history.pushState(null, '', `${window.location.pathname}${withScopeQuery(window.location.search, s)}${window.location.hash}`);
+  }, [apply, catalog, deviceKitchen]);
+
+  const scope = useMemo(() => scopeLocations(site), [site]);
+  const brands = useMemo(() => scopeBrands(site), [site]);
+  // The live pulse (new-order pop-up, cancellation alarm) follows the kitchen only, never a brand.
+  const listen = useMemo(() => alarmLocations(site, deviceKitchen), [site, deviceKitchen]);
 
   const load = useCallback(async () => {
     if (inflight.current) return;
     inflight.current = true;
     try {
-      const q = scope.length ? `?locations=${scope.join(',')}` : '';
+      const q = listen.length ? `?locations=${listen.join(',')}` : '';
       const p = await api<Pulse & { ok: boolean }>(`/api/foodhub/pulse${q}`);
       setPulse(p);
       setOnline(true);
@@ -58,7 +96,7 @@ export function PulseProvider({ children, fixedScope }: { children: ReactNode; f
     } finally {
       inflight.current = false;
     }
-  }, [scope]);
+  }, [listen]);
 
   useEffect(() => {
     load();
@@ -72,7 +110,7 @@ export function PulseProvider({ children, fixedScope }: { children: ReactNode; f
     return () => { clearTimeout(t); window.removeEventListener(REFRESH_EVENT, now); window.removeEventListener('online', now); document.removeEventListener('visibilitychange', now); };
   }, [load]);
 
-  const value = useMemo(() => ({ pulse, refresh: load, scope, setScope, online }), [pulse, load, scope, setScope, online]);
+  const value = useMemo(() => ({ pulse, refresh: load, site, setSite, scope, brands, online }), [pulse, load, site, setSite, scope, brands, online]);
   return <PulseCtx.Provider value={value}>{children}</PulseCtx.Provider>;
 }
 
@@ -80,6 +118,12 @@ export function usePulse(): Ctx {
   const c = useContext(PulseCtx);
   if (!c) throw new Error('usePulse outside PulseProvider');
   return c;
+}
+
+/** Internal links that keep the console's scope (?kitchen=…&brand=…). Outside the console they stay as they are. */
+export function useScopeHref(): (href: string) => string {
+  const site = useContext(PulseCtx)?.site;
+  return useCallback((href: string) => (site ? scopeHref(href, site) : href), [site]);
 }
 
 /** Re-run `fn` whenever an action anywhere on this screen asks for a refresh. */

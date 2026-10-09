@@ -18,7 +18,7 @@ Status: `todo` / `doing` / `done` / `blocked: reason`. Newest work at the top of
 
 ## P1 Google (prepare everything so it can be applied page after page)
 - [ ] G1 doing (table from code done 2026-10-09; live checks blocked: this cloud session's network reaches no listing site, only web search; owner can allow more domains in Network access or a desktop session can check) | Google Maps inventory per brand x kitchen: listing found? name, address, category, website, order link, rating, review count, open/closed flag -> `PRESENCE.md`
-- [ ] G2 todo | Standard NAP (name, address) per kitchen and naming rule per brand -> `NAP.md`
+- [x] G2 done 2026-10-09 (draft, waits for owner decisions on 6280/6284, 5837/5839, Hochelaga, names, hours; includes Google's multi-brand eligibility rules) | Standard NAP (name, address) per kitchen and naming rule per brand -> `NAP.md`
 - [ ] G3 todo | Google Business Profile target values per brand (title, primary + extra categories, FR/EN description <= 750 chars, website, menu link, order link candidates, attributes: takeout, delivery, late night) -> `GBP_CHANGES.md`
 - [ ] G4 todo | Google posts plan (first 4 posts per brand) and review-reply templates FR/EN -> `GBP_CHANGES.md`
 

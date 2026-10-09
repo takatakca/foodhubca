@@ -4,6 +4,7 @@ import { logActivity } from '@/lib/foodhub/activity';
 import { inScope, withPerm } from '@/lib/foodhub/auth';
 import { getCatalog } from '@/lib/foodhub/catalog';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
+import { cloverMerchantIdProblem } from '@/lib/foodhub/pos/clover';
 import { getRepo } from '@/lib/foodhub/repo';
 
 export const dynamic = 'force-dynamic';
@@ -24,6 +25,8 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
   if (badBrand) return fail(`Unknown brand "${badBrand.brandName}". Add it in Brands & Locations first.`);
   const badLocation = picks.find((p) => !catalog.locations.some((l) => l.code === p.locationCode));
   if (badLocation) return fail(`Unknown location "${badLocation.locationCode}". Add it in Brands & Locations first.`);
+  const badMerchant = picks.map((p) => cloverMerchantIdProblem(p.cloverMerchantId)).find(Boolean);
+  if (badMerchant) return fail(badMerchant.en);
   const repo = getRepo();
   for (const p of picks) {
     const existing = await repo.findStore('uber_eats', p.storeId);

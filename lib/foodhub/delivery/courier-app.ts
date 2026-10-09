@@ -27,6 +27,7 @@ export interface CourierStop {
 }
 
 export interface CourierBoard {
+  /** locations = kitchen names (as people say them), not codes. */
   courier: { name: string; onShift: boolean; locations: string[] };
   stops: CourierStop[];
 }
@@ -54,7 +55,7 @@ export async function courierBoard(courier: OwnCourier): Promise<CourierBoard> {
       readyAt: o.readyAt, notes: o.notes,
     });
   }
-  return { courier: { name: courier.name, onShift: courier.onShift, locations: courier.locations }, stops };
+  return { courier: { name: courier.name, onShift: courier.onShift, locations: courier.locations.map((c) => locations.find((l) => l.code === c)?.name ?? c) }, stops };
 }
 
 export type CourierAction = 'at_pickup' | 'picked_up' | 'at_dropoff' | 'delivered' | 'decline' | 'problem';

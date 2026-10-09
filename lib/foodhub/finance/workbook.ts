@@ -95,6 +95,9 @@ const LINE_COLS: LineCol[] = [
 const LC: Record<string, string> = Object.fromEntries(LINE_COLS.map((c, i) => [c.key, colName(i)]));
 const LCOL = (k: string) => { const c = LC[k]; if (!c) throw new Error(`Unknown Lines column ${k}`); return `Lines!$${c}:$${c}`; };
 
+/** A value read back from the previous workbook counts as the owner's only when it is not one of the defaults the report writes itself. */
+const owned = (v: string | undefined, defaults: string[]) => (v && !defaults.includes(v) ? v : '');
+
 /** Unrounded like Excel (rounding cached values to the cent would differ from the recalculated sum by half a cent). */
 const raw = (n: number) => Math.round(n * 1e9) / 1e9;
 
@@ -379,7 +382,7 @@ export function buildFinanceWorkbook(input: WorkbookInput): { bytes: Uint8Array;
         { f: winRange, v: d.windowDays, s: 'int' },
         { f: `IF(OR(F${rn}="",K${rn}=0),"",F${rn}+K${rn})`, v: od !== null && d.windowDays ? od + d.windowDays : '', s: 'date' },
         { f: `IF(L${rn}="","",L${rn}-TODAY())`, v: d.daysLeft ?? '', s: 'int' },
-        { v: e['Status'] || (d.defaultStatus && d.defaultStatus !== 'To review' ? d.defaultStatus : d.daysLeft !== null && d.daysLeft < 0 ? 'Window passed' : 'To review'), s: 'fill' }, { v: e['Platform case #'] ?? '', s: 'fill' },
+        { v: owned(e['Status'], ['To review', 'Window passed']) || (d.defaultStatus && d.defaultStatus !== 'To review' ? d.defaultStatus : d.daysLeft !== null && d.daysLeft < 0 ? 'Window passed' : 'To review'), s: 'fill' }, { v: e['Platform case #'] ?? '', s: 'fill' },
         { v: e['Recovered $'] ? Number(e['Recovered $']) || e['Recovered $'] : null, s: 'fillMoney' }, { v: e['Notes'] ?? '', s: 'fill' }, d.source]);
     }
     if (input.disputes.length) {
@@ -441,7 +444,7 @@ export function buildFinanceWorkbook(input: WorkbookInput): { bytes: Uint8Array;
     const rows: Row[] = [[T('To do — disputes, holds, tax, data')], [T('P1 = money at risk or a deadline; P2 = recover / fix soon; P3 = housekeeping. Status and notes are kept when the workbook is rebuilt.', 'caption')], [], hdr(head)];
     for (const t of input.todos) {
       const e = ED?.get(t.id) ?? {};
-      rows.push([t.id, { v: t.priority, s: t.priority === 'P1' ? 'bad' : t.priority === 'P2' ? 'warn' : 'text' }, t.area, { v: t.task, s: 'wrap' }, t.platform, { v: t.amount, s: 'money' }, { v: excelDate(t.due), s: 'date' }, { v: e['Who'] || t.who, s: 'fill' }, { v: e['Status'] || t.status, s: 'fill' }, { v: e['Notes'] || t.notes, s: 'fill' }]);
+      rows.push([t.id, { v: t.priority, s: t.priority === 'P1' ? 'bad' : t.priority === 'P2' ? 'warn' : 'text' }, t.area, { v: t.task, s: 'wrap' }, t.platform, { v: t.amount, s: 'money' }, { v: excelDate(t.due), s: 'date' }, { v: e['Who'] || t.who, s: 'fill' }, { v: owned(e['Status'], ['Open']) || t.status, s: 'fill' }, { v: e['Notes'] || t.notes, s: 'fill' }]);
     }
     sheets.push({ name: 'To_Do', rows, widths: [14, 8, 12, 70, 12, 11, 11, 10, 12, 34], freeze: { row: 4, col: 0 }, filterRow: 4, tabColor: 'C00000', validations: input.todos.length ? [{ range: `I5:I${4 + input.todos.length}`, list: ['Open', 'In progress', 'Waiting on platform', 'Done', 'Not needed'] }] : undefined });
   }

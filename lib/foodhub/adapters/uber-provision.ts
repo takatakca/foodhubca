@@ -8,6 +8,7 @@
 import crypto from 'node:crypto';
 import rawBrands from '../../../data/actual/brands.json';
 import rawLocations from '../../../data/actual/locations.json';
+import { matchBrandLocation, type LocationRef } from '../brand-match';
 import { callApi, publicBaseUrl, stripSlash, timedFetch } from '../config';
 import { getRepo } from '../repo';
 import type { ChannelResult } from '../types';
@@ -41,30 +42,11 @@ async function getSession(id: string): Promise<Session | null> {
   return s;
 }
 
-const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
-
-/** Other names the platforms use for your brands (Uber Eats store names differ from DoorDash ones). */
-export const BRAND_ALIASES: Record<string, string[]> = {
-  'Gateau Montreal': ['Gateaux Montreal', 'Gateaux Montréal', 'Gâteau Montréal'],
-  'Nutrition Shake': ['Nutri Shake', 'Nutrishake'],
-  'Cafe Bolon': ['Bolon Cafe', 'Bolon Café', 'Café Bolon'],
-  OOeuf: ["O'Oeufs", 'O Oeufs', 'OOeufs', 'Ooeuf'],
-  'Bin molle & Bin Dure': ['Bin Molle Bin Dure', 'Binmolle Bindure'],
-  'Dejeuner & Dinner': ['Dejeuner et Dinner', 'Déjeuner & Dîner'],
-};
+export { BRAND_ALIASES } from '../brand-match';
 
 /** Suggests the brand (longest brand name or alias found in the store name) and location (street number in the address). */
 export function suggestMapping(name: string, address = ''): { suggestedBrand?: string; suggestedLocation?: string } {
-  const n = norm(name);
-  const names = (rawBrands as string[]).filter((b) => b !== 'Too Good To Go').flatMap((b) => [b, ...(BRAND_ALIASES[b] ?? [])].map((alias) => ({ brand: b, alias: norm(alias) })));
-  // "Crèmerie Bin Molle Bin Dure" must win over "Bin molle & Bin Dure" when both match: longest match first.
-  const brand = names.filter((x) => x.alias && n.includes(x.alias)).sort((a, b) => b.alias.length - a.alias.length)[0]?.brand;
-  const text = `${address} ${name}`;
-  const loc = (rawLocations as Array<{ code: string; address_line_1: string }>).find((l) => new RegExp(`\\b${l.address_line_1.split(' ')[0]}\\b`).test(text));
-  let suggestedLocation = loc?.code;
-  if (!suggestedLocation && /hochelaga/i.test(text)) suggestedLocation = 'HOCHELAGA';
-  if (!suggestedLocation && /l[eé]onard/i.test(text)) suggestedLocation = 'SAINT_LEONARD';
-  return { suggestedBrand: brand, suggestedLocation };
+  return matchBrandLocation(name, address, rawBrands as string[], rawLocations as LocationRef[]);
 }
 
 /** Callback: validates state, exchanges the code, lists the owner's stores. Returns the session id to show in the UI. */

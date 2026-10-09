@@ -18,6 +18,7 @@ import { CHANNEL_LABELS, CHANNEL_MARKETPLACE, fromCents, nowIso, timedFetch } fr
 import { getRepo } from '../repo';
 import type { ChannelKey, NormalizedOrder, OrderLine } from '../types';
 import { cloverBaseUrl, cloverToken } from './clover';
+import { isPlatformTender, platformFromLabel } from './platform-labels';
 
 const SINCE_KEY = (mid: string) => `clover_platform_orders_since:${mid}`;
 const MIN_AGE_MS = 2 * 60_000;
@@ -29,33 +30,7 @@ export function cloverPlatformOrdersEnabled() {
   return process.env.FOODHUB_CLOVER_PLATFORM_ORDERS !== 'off';
 }
 
-// Order types and tenders are labels the merchant set up for a platform: short forms ("Uber", "Skip") are safe there.
-const PLATFORM_PATTERNS: Array<[ChannelKey, RegExp]> = [
-  ['doordash', /door\s*dash/i],
-  ['uber_eats', /uber\s*eats|\buber\b/i],
-  ['skip', /skip\s*the\s*dishes|\bskip\b/i],
-  ['tgtg', /too\s*good\s*to\s*go|\btgtg\b/i],
-];
-// Titles and notes are free text typed at the register ("skip the pickles", a customer named Uber): full names only.
-const FREE_TEXT_PATTERNS: Array<[ChannelKey, RegExp]> = [
-  ['doordash', /door\s*dash/i],
-  ['uber_eats', /uber\s*eats/i],
-  ['skip', /skip\s*the\s*dishes/i],
-  ['tgtg', /too\s*good\s*to\s*go/i],
-];
-
-/** Which platform a label names, if any ("DoorDash", "UBER EATS", "SkipTheDishes"…). `freeText` = an order title or note. */
-export function platformFromLabel(label: unknown, freeText = false): ChannelKey | null {
-  const s = String(label ?? '').trim();
-  if (!s) return null;
-  for (const [ch, re] of freeText ? FREE_TEXT_PATTERNS : PLATFORM_PATTERNS) if (re.test(s)) return ch;
-  return null;
-}
-
-/** True when a tender label is a delivery platform (those payments are never in-store sales). */
-export function isPlatformTender(label: unknown): boolean {
-  return platformFromLabel(label) !== null;
-}
+export { isPlatformTender, platformFromLabel };
 
 async function cloverGet(mid: string, token: string, path: string, qs: Record<string, string> = {}): Promise<any> {
   const q = new URLSearchParams(qs);

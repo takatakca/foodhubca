@@ -1,0 +1,44 @@
+name: Deploy Food Hub to Coolify
+
+# Opt-in release automation. No deployment will be requested until BOTH repository secrets exist,
+# and Coolify has already been cut over to a Docker Image resource for ghcr.io/takatakca/foodhubca:main.
+# The upstream image workflow must succeed (including its anonymous pull verification).
+on:
+  workflow_run:
+    workflows: ["Food Hub image"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: foodhub-coolify-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == 'takatakca/foodhubca' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Request Coolify deployment
+        shell: bash
+        env:
+          COOLIFY_DEPLOY_WEBHOOK: ${{ secrets.COOLIFY_DEPLOY_WEBHOOK }}
+          COOLIFY_DEPLOY_TOKEN: ${{ secrets.COOLIFY_DEPLOY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$COOLIFY_DEPLOY_WEBHOOK" ] || [ -z "$COOLIFY_DEPLOY_TOKEN" ]; then
+            echo "::notice::Coolify auto-deploy is not enabled. Add COOLIFY_DEPLOY_WEBHOOK and COOLIFY_DEPLOY_TOKEN to Actions secrets after the Docker Image cutover. No server deployment attempted."
+            exit 0
+          fi
+          # Never echo the webhook URL or bearer token.
+          code=$(curl --silent --show-error --max-time 30 --retry 2 --output /tmp/coolify-response.json --write-out '%{http_code}' \
+            --request POST "$COOLIFY_DEPLOY_WEBHOOK" \
+            --header "Authorization: Bearer $COOLIFY_DEPLOY_TOKEN")
+          if [ "$code" != "200" ] && [ "$code" != "201" ] && [ "$code" != "202" ]; then
+            echo "::error::Coolify deployment request failed (HTTP $code). Verify API access, deploy-only token and resource webhook in Coolify."
+            exit 1
+          fi
+          echo "Coolify accepted the deployment request for Food Hub. This is QUEUED, not proof of a healthy production release." >> "$GITHUB_STEP_SUMMARY"
+          echo "Review Coolify deployment logs, the running image tag and /api/health before marking the production deploy complete." >> "$GITHUB_STEP_SUMMARY"

@@ -40,9 +40,9 @@ export default function ReportsPage() {
   const { can, locations, brands, locName } = useViewer();
   // Emailing and scheduling a report need finance:edit on the server (owner, manager); an accountant / analyst downloads.
   const canSend = can('finance:edit');
-  const { scope } = usePulse();
+  const { scope, brands: brandScope } = usePulse();
   const toast = useToast();
-  const { filters, set, query } = useFilters('yesterday', scope);
+  const { filters, set, query } = useFilters('yesterday', scope, brandScope);
   const [reports, setReports] = useState<Report[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [emailOn, setEmailOn] = useState(false);

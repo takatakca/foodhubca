@@ -52,6 +52,11 @@ looks moved to Saint-Léonard; Saint-Léonard is written 5837 in older Food Hub 
 
 ## Findings from web search (this session cannot open listing sites; only web search works)
 
+- 2026-10-09 | Pita Libanais | **No public listing found.** The name is generic ("Lebanese pita"): search engines treat it
+  as a description, so it will be hard to rank and Google may question it as a keyword-style name. Recommendation:
+  consider a distinctive name before building listings (owner decides), or list it only on the delivery apps and the
+  ON2GO directory. Nearby Lebanese/Syrian reference competitor on Jean-Talon: Le Petit Alep (191 Jean-Talon E).
+
 - 2026-10-09 | Pi Pita | Web search finds **no public listing** (Google, Yelp, TripAdvisor, directories) under "Pi Pita"
   in Montréal; it is invisible outside the delivery apps (and DoorDash sent it a "not eligible" notice on 2026-10-08).
   Name collision: **Pizza Pita** (pizzapita.com, 5345 Vézina, Côte-des-Neiges) is a nearby, better-known shawarma/pizza

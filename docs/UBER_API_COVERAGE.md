@@ -1,13 +1,13 @@
 # Uber API coverage (task 22)
 
-_Branch `feature/uber-api-coverage`, stacked on `certification-backlog` (PR #12). Sources: developer.uber.com API reference
+_Branch `feature/uber-api-coverage` (main merged in after PR #12). Sources: developer.uber.com API reference
 pages (Eats `*_suite` pages, Direct `api-reference/*`), read 2026-10-09. Public repository: no ids or secrets here._
 
 ## Status / next step (handoff note)
 - **Status:** every Uber Eats Marketplace endpoint and webhook, and all of Uber Direct, is in the code with tests
   (`tests/uber-api-coverage.test.ts`, `tests/uber-api-full.test.ts`, mocked HTTP).
 - **Coverage:** endpoints **61/61** (before: 21/61); webhooks **17/17** (before: 14, one only noted).
-- **Next step:** owner merges PR #12, then this branch; Uber grants the scopes below (nothing works live before).
+- **Next step:** owner merges this branch's pull request and deploys; Uber grants the scopes below (nothing works live before).
 - **Read first:** `lib/foodhub/adapters/uber-api.ts`, `lib/foodhub/adapters/uber-eats.ts`, `lib/foodhub/delivery/uber-direct.ts`.
 
 Status: **done** = coded + tested; **new** = added by this branch. Reads work as soon as the keys exist; every write

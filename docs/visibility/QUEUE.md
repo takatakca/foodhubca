@@ -37,7 +37,7 @@ Status: `todo` / `doing` / `done` / `blocked: reason`. Newest work at the top of
 ## P4b Ready-to-paste content (added 2026-10-09 after F2/D2; web search and brand config only)
 - [x] T1 done 2026-10-09 (17 brands FR/EN + order-page pattern; lengths checked; names waiting for the owner are flagged) | SEO title (<= 60 chars) and meta description (<= 155 chars) FR/EN per brand site and order page, from the brand config and the F2/D2 findings (cuisine + neighbourhood words, no "24/7") -> `SEO_TITLES.md`
 - [x] C1 done 2026-10-09 (17 brands x 5 profiles FR/EN, lengths checked; brands whose name waits for the owner are flagged: no accounts for them yet) | Short bios per brand FR/EN sized for each profile: Instagram 150, X 160, TikTok 80, Facebook intro 101, Yelp/Apple short text; one order link each -> `SOCIAL_BIOS.md`
-- [ ] S1 todo | schema.org JSON-LD per brand (Restaurant/FoodEstablishment, address per kitchen, servesCuisine, menu, hasMap, sameAs, potentialAction OrderAction; hours left as a placeholder) -> `SCHEMA.md`
+- [x] S1 done 2026-10-09 (17 JSON-LD blocks, valid JSON; brand + one node per kitchen; hours, order URL and address numbers wait for the owner, as listed at the top of the file) | schema.org JSON-LD per brand (Restaurant/FoodEstablishment, address per kitchen, servesCuisine, menu, hasMap, sameAs, potentialAction OrderAction; hours left as a placeholder) -> `SCHEMA.md`
 - [ ] K1 todo | Local search terms per brand x neighbourhood FR/EN (what people type, from the competitor findings) for posts, titles and later Google Ads -> `KEYWORDS.md`
 
 ## P5 Recurring

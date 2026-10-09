@@ -3,7 +3,8 @@
 Newest first, one line per piece of work. Rule: `AGENTS.md` › Work log rule.
 Format: `YYYY-MM-DD | agent | branch → PR | status | what | next step`
 
-- 2026-10-09 | claude (DoorDash API coverage, task 23) | feature/doordash-api-coverage → PR #28 | done (brought up to date with main; Uber missing-item path kept) | Every official DoorDash Marketplace + Drive API in Food Hub; docs/DOORDASH_API_COVERAGE.md | wait for CI, then merge
+- 2026-10-09 | claude (console UX, task 21) | feature/console-store-switcher → PR #29 | done (brought up to date with main; Uber Eats tab kept) | Food Hub console DoorDash-level: scope switcher (all / kitchen / brand) in the URL, kitchen brand list, one-dashboard home, grouped nav, BRAND.md colours | wait for CI, then merge
+- 2026-10-09 | claude (DoorDash API coverage, task 23) | feature/doordash-api-coverage → PR #28 | merged | Every official DoorDash Marketplace + Drive API in Food Hub; docs/DOORDASH_API_COVERAGE.md | owner asks DoorDash for Marketplace and Drive production access, then pastes the keys in Coolify
 - 2026-10-09 | cursor | ci/ghcr-readable → PR #27 | merged | Food Hub image workflow asks GitHub to make ghcr.io/takatakca/foodhubca public after each main publish, so Coolify can pull it | Coolify → foodhubca → Docker Image ghcr.io/takatakca/foodhubca:main; if the visibility step warns, set the package Public by hand
 - 2026-10-09 | claude (Food Hub ↔ Clover backend) | fix/clover-merchant-id-check → PR #26 | merged | Refuse an all-digits card-processor number as a Clover merchant ID so a bad mapping cannot spread to every store | owner still verifies the Clover webhook and connects the merchant
 - 2026-10-09 | claude (expansion agent) | docs/expansion-golive → PR #22 | merged | Own-order delivery docs: deployed status and the owner's 3 go-live steps (DoorDash Drive + Uber Direct). Live switches stay off. | owner adds Drive keys, kitchen phones and the Drive webhook token in Coolify

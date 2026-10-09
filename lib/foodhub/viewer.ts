@@ -1,8 +1,10 @@
 // Who is looking at a page (server components). Same rules as getActor() for API routes.
 import { cookies, headers } from 'next/headers';
+import rawDoorDashStores from '../../data/actual/platform-stores-doordash.json';
 import { getCatalog } from './catalog';
 import { getDevice } from './identity/devices';
 import { getRepo } from './repo';
+import { buildScopeCatalog } from './scope';
 import { basicOwner, ownerSessionVersion, readCookie, ROLE_PERMISSIONS, SESSION_COOKIE, userSessionVersion, verifySession, type Permission } from './session';
 import type { Role } from './types';
 
@@ -39,10 +41,21 @@ export async function getViewer(): Promise<Viewer | null> {
   };
 }
 
+const SEED_DD = rawDoorDashStores as Array<{ brand_name: string; location_code: string }>;
+
+/**
+ * What the console may show this person: their kitchens, the active brands, and which brands each kitchen sells
+ * (platform stores mapped in Food Hub + the DoorDash store list), for the scope picker and the brand lists.
+ */
 export async function viewerCatalog(v: Viewer) {
   const c = await getCatalog();
-  return {
-    locations: c.locations.filter((l) => l.active && (!v.locations.length || v.locations.includes(l.code))).map((l) => ({ code: l.code, name: l.name, address: l.address })),
-    brands: c.brands.filter((b) => b.active).map((b) => b.name),
-  };
+  const locations = c.locations.filter((l) => l.active && (!v.locations.length || v.locations.includes(l.code))).map((l) => ({ code: l.code, name: l.name, address: l.address }));
+  const brands = c.brands.filter((b) => b.active).map((b) => b.name);
+  const stores = await getRepo().listStores().catch(() => []);
+  const pairs = [
+    ...stores.filter((s) => s.channel !== 'tgtg').map((s) => ({ brandName: s.brandName, locationCode: s.locationCode })),
+    ...SEED_DD.map((s) => ({ brandName: s.brand_name, locationCode: s.location_code })),
+  ];
+  const { brandsByKitchen } = buildScopeCatalog(locations.map((l) => l.code), pairs, brands);
+  return { locations, brands, brandsByKitchen };
 }

@@ -25,7 +25,7 @@ export function KitchenView() {
   const { viewer, can, locations, locName } = useViewer();
   const { pulse, scope } = usePulse();
   const toast = useToast();
-  const orders = useBoardOrders();
+  const orders = useBoardOrders({ allBrands: true });
   const now = useNow(1000);
   const [open, setOpen] = useState<string | null>(null);
   const [full, setFull] = useState(false);
@@ -59,7 +59,7 @@ export function KitchenView() {
       <div className="mb-5 flex flex-wrap items-center gap-3">
         <div>
           <div className="text-xs font-bold tracking-[0.14em] text-brand uppercase">{t('Cuisine', 'Kitchen')}</div>
-          <h1 className="text-2xl font-extrabold">{here ? shortLoc(locName(here)) : t('Toutes les succursales', 'All locations')}</h1>
+          <h1 className="text-2xl font-extrabold">{here ? shortLoc(locName(here)) : t('Toutes les cuisines', 'All kitchens')}</h1>
         </div>
         <div className="num ml-2 text-3xl font-extrabold text-ink-2" suppressHydrationWarning>{new Date(now).toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' })}</div>
         <div className="ml-auto flex flex-wrap items-center gap-2">

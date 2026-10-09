@@ -1,4 +1,5 @@
-// The on-demand courier fleets behind "Call a courier": one contract, two implementations (DoorDash Drive, Uber Direct).
+// The courier fleets behind "Call a courier": one contract, three implementations (DoorDash Drive, Uber Direct, and our own
+// couriers — delivery/own-fleet.ts).
 import type { CourierPosition, DeliveryQuote, DeliveryStatus, DropoffAddress, FleetKey } from './types';
 
 /** Address parts for fleets that want them structured (Uber Direct). */
@@ -41,6 +42,8 @@ export interface FleetResult {
   pickupEta?: string;
   dropoffEta?: string;
   courier?: CourierPosition;
+  /** Our own fleet: the courier the delivery was assigned to. */
+  assignedCourierId?: string;
   raw?: unknown;
 }
 
@@ -87,6 +90,6 @@ export interface CourierFleet {
   parseWebhook(body: unknown): FleetEvent | null;
 }
 
-export const FLEET_LABELS: Record<FleetKey, string> = { doordash_drive: 'DoorDash Drive', uber_direct: 'Uber Direct' };
+export const FLEET_LABELS: Record<FleetKey, string> = { doordash_drive: 'DoorDash Drive', uber_direct: 'Uber Direct', own_fleet: 'Our couriers' };
 
 export const blocked = (message: string): FleetResult => ({ ok: false, status: 'blocked', message });

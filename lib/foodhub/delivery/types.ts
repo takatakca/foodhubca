@@ -93,7 +93,8 @@ export interface DirectOrder {
   updatedAt: string;
 }
 
-export type FleetKey = 'doordash_drive' | 'uber_direct';
+/** On-demand fleets (DoorDash Drive, Uber Direct) and our own couriers (delivery/own-fleet.ts). */
+export type FleetKey = 'doordash_drive' | 'uber_direct' | 'own_fleet';
 
 /** Normalised courier status, the same for every fleet. Moves forward only (except to a terminal state). */
 export type DeliveryStatus =
@@ -133,6 +134,8 @@ export interface Delivery {
   environment: 'sandbox' | 'production';
   /** The fleet's own id when it differs from ours (Uber Direct). */
   fleetDeliveryId?: string;
+  /** Our own courier the delivery is assigned to (fleet own_fleet). */
+  ownCourierId?: string;
   status: DeliveryStatus;
   quote?: DeliveryQuote;
   /** Competing quotes collected when this delivery was booked (Drive vs Uber Direct). */

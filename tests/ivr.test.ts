@@ -318,6 +318,24 @@ describe('AI routing (route_to) with the keypad as fallback', () => {
     expect((await getIvrCall('CA1'))!.state).toBe('menu');
   });
 
+  it('an AI error falls back to the keyword router once (no loop back into the AI): link by text, then a message', async () => {
+    await start();
+    globalThis.fetch = vi.fn(async (url: any, init: RequestInit = {}) => {
+      const u = String(url);
+      if (u.includes('/v1/messages')) { claudeRequests.push({ body: JSON.parse(String(init.body)) }); return new Response('{"type":"error","error":{"type":"api_error","message":"down"}}', { status: 500, headers: { 'content-type': 'application/json' } }); }
+      if (u.includes('/Messages.json')) { sms.push(Object.fromEntries(new URLSearchParams(String(init.body)))); return new Response('{"sid":"SM1"}', { status: 201 }); }
+      return new Response('{}', { status: 200 });
+    }) as any;
+    const r = await turn({ SpeechResult: 'Je voudrais devenir livreur' });
+    expect(r).toMatch(/<Record /);
+    expect(r).toMatch(/Je vous ai envoyé le lien officiel par texto/);
+    expect(sms[0].Body).toContain('https://on2go.ca/livreurs');
+    expect(claudeRequests.length).toBeLessThanOrEqual(2); // one call (+ one SDK retry), never again in the same request
+    const call = await getIvrCall('CA1');
+    expect(call!.path.map((p) => p.node)).toContain('courier');
+    expect(call!.transcript.some((t) => t.text.startsWith('AI fallback'))).toBe(true);
+  });
+
   it('without an AI key, words go to the keyword router, then the keypad', async () => {
     delete process.env.ANTHROPIC_API_KEY;
     const g = await start();

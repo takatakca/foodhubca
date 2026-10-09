@@ -307,7 +307,7 @@ async function consume(callId: string, s: IvrSettings, reply: IvrReply, text = '
     case 'menu': {
       // The AI failed or did not understand twice: the keyword router on the last words, then the keypad menu.
       const kw = text ? keywordIntent(text, s.tree) : null;
-      if (kw) return runNode(c, s, kw.node, 'speech', { platform: kw.platform });
+      if (kw) return runNode(c, s, kw.node, 'speech', { platform: kw.platform, noAi: true });
       return keypadMenu({ ...c, misses: 0 }, s, '', SAY.notUnderstood[c.lang]);
     }
     case 'route': {
@@ -333,7 +333,8 @@ export async function ivrWait(params: URLSearchParams, n: number): Promise<Respo
 // ---------------------------------------------------------------------------------------------------------------
 // Branches
 
-interface NodeExtra { platform?: PlatformId; orderId?: string; preface?: string }
+/** noAi: the AI just failed or gave up on this call — do not hand the caller straight back to it. */
+interface NodeExtra { platform?: PlatformId; orderId?: string; preface?: string; noAi?: boolean }
 
 export async function runNode(call0: IvrCall, s: IvrSettings, node: IvrNode, via: IvrCall['path'][number]['via'], extra: NodeExtra = {}): Promise<Response> {
   let call = visit({ ...call0, misses: 0, silences: 0, tries: 0 }, node.id, via);
@@ -346,7 +347,7 @@ export async function runNode(call0: IvrCall, s: IvrSettings, node: IvrNode, via
       return keypadMenu(call, s, node.id, extra.preface ?? '');
     }
     case 'ai': {
-      if (ivrAiAvailable(s)) {
+      if (ivrAiAvailable(s) && !extra.noAi) {
         // Keypad (or keyword) choice of a flow the AI handles: the AI takes it from there.
         return understand({ ...call, state: 'ai' }, s, `(The caller chose "${node.label.en}" (${node.id}) ${via === 'keypad' ? 'on the keypad' : 'by voice'}. Route to ${node.id} and follow that flow.)`);
       }

@@ -214,3 +214,13 @@ describe('website orders', () => {
     expect(beer).toMatchObject({ ok: false, status: 422 });
   });
 });
+
+describe('Settings → Expansion readiness', () => {
+  it('asks for a phone only at the kitchens that deliver their own orders', async () => {
+    const { expansionSummary } = await import('../lib/foodhub/expansion/summary');
+    const phoneCheck = async () => (await expansionSummary()).features.find((f) => f.key === 'delivery')!.checks.find((c) => c.href === '/settings/business')!;
+    expect(await phoneCheck()).toMatchObject({ ok: true }); // NDG delivers and has a phone; the seeded kitchens without one do not deliver
+    await saveLocation({ code: 'NDG', name: 'NDG — 6280 Somerled', address: '6280 Somerled Ave', active: true });
+    expect(await phoneCheck()).toMatchObject({ ok: false, en: expect.stringContaining('NDG — 6280 Somerled') });
+  });
+});

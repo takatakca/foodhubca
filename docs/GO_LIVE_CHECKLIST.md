@@ -16,7 +16,7 @@ Rules that hold the whole way: keys are typed on your server with `npm run setup
 | SkipTheDishes | A **JET Connect POS integration for TAKATAK's own POS** (not through an aggregator): the `X-Flyt-Api-Key` for sandbox and production, the base URL, and the `posLocationId` JET will send for each restaurant | your Skip partner manager → JET Connect integrations team |
 | Clover | For the first orders: a merchant **API token** (merchant dashboard → Account & Setup → API Tokens, with Orders, Inventory, Payments). Later: submit the App Market listing so other merchants connect with one click | clover.com (merchant login); Clover developer dashboard |
 | Too Good To Go | Ask your TGTG account manager whether a **direct order feed** exists for your account. Today TGTG's POS integration is offered through Deliverect (one-way: orders to the POS; no editing or cancelling from the POS). Without a feed, use the daily bag log (below) — nothing else is needed for go-live | your TGTG account manager |
-| Resend (email) | Verify your sending domain (DKIM + SPF + DMARC records), create an API key | resend.com → Domains, API Keys |
+| Email (SMTP or Resend) | SMTP: a mailbox on your own domain (host `mail.your-domain`, user = the full address, port 465 or 587; no extra account). Or Resend: verify your sending domain (DKIM + SPF + DMARC records), create an API key | your mail host (e.g. MochaHost cPanel → Email Accounts); resend.com → Domains, API Keys |
 | Twilio (SMS + calls) | Upgrade from trial, buy a **Canadian** number with Voice + SMS, allow Canada in Messaging and Voice geographic permissions | console.twilio.com |
 
 ## 2. Your server
@@ -25,7 +25,7 @@ Rules that hold the whole way: keys are typed on your server with `npm run setup
    systemd, cron pingers, `FOODHUB_TRUST_PROXY=true`). Updates later: `deploy/update-vps.sh`.
 2. Supabase: run `supabase/INSTALL_ALL.sql` once in the SQL Editor (safe to run again after an upgrade).
 3. `npm run setup` on the server: `FOODHUB_PUBLIC_URL` (exact https domain, no trailing slash),
-   `FOODHUB_OWNER_EMAIL`, a long random `DASHBOARD_PASSWORD`, `SESSION_SECRET`, Supabase keys, Resend, Twilio,
+   `FOODHUB_OWNER_EMAIL`, a long random `DASHBOARD_PASSWORD`, `SESSION_SECRET`, Supabase keys, email (SMTP or Resend), Twilio,
    Clover, and each platform's keys as they arrive. Leave `FOODHUB_INSECURE_SHOW_CODES` unset.
 4. First visit: *Create the owner account* with your email, then Settings → Profile: your cell, *On duty*, *Text*,
    *Call for urgent alerts*.

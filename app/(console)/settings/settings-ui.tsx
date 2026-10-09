@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { BellRing, Blocks, Building2, MonitorSmartphone, PlugZap, Rocket, ShieldCheck, Store, UserRound, Users } from 'lucide-react';
+import { BellRing, Blocks, Building2, MonitorSmartphone, PlugZap, Rocket, ShieldCheck, Store, Truck, UserRound, Users } from 'lucide-react';
 import { PageHeader } from '@/components/ui/card';
 import { LinkTabs } from '@/components/ui/tabs';
 import { useViewer } from '@/components/shell/viewer';
@@ -30,6 +30,7 @@ export const SETTINGS_PAGES = [
   { href: '/settings/security', icon: ShieldCheck, perm: 'view', fr: 'NIP gérant', en: 'Manager PIN', dfr: 'Quelles actions demandent le NIP d’un gérant : refuser, annuler, rembourser, fermer…', den: 'Which actions need a manager PIN: reject, cancel, refund, pause…' },
   { href: '/settings/alerts', icon: BellRing, perm: 'view', fr: 'Alertes et surveillance', en: 'Alerts & watchtower', dfr: 'Quand texter, appeler, réveiller le propriétaire. Heures calmes, IA, clavardage.', den: 'When to text, call, wake the owner. Quiet hours, AI, chat.' },
   { href: '/settings/channels', icon: PlugZap, perm: 'stores:map', fr: 'Plateformes et Clover', en: 'Platforms & Clover', dfr: 'Adresses webhook, secrets à donner aux plateformes, état des branchements.', den: 'Webhook URLs, secrets to give the platforms, connection status.' },
+  { href: '/settings/doordash', icon: Truck, perm: 'stores:map', fr: 'DoorDash (API)', en: 'DoorDash (API)', dfr: 'Toutes les API DoorDash : lectures en direct, ruptures, heures, rapports, épicerie, Drive, publicité.', den: 'Every DoorDash API: live reads, 86s, hours, reports, retail, Drive, ads.' },
   { href: '/settings/business', icon: Building2, perm: 'view', fr: 'Entreprise', en: 'Business', dfr: 'Succursales et marques.', den: 'Locations and brands.' },
   { href: '/settings/clover-app', icon: Store, perm: 'admin', fr: 'App Clover', en: 'Clover app', dfr: 'Fiche App Market : textes, adresses à copier, soumission, marchands en attente.', den: 'App Market listing: texts, addresses to copy, submission, merchants waiting.' },
   { href: '/settings/expansion', icon: Blocks, perm: 'view', fr: 'Expansion', en: 'Expansion', dfr: 'Livraison par nos coursiers, épicerie, alcool, commandes par téléphone (IA) : interrupteurs et règles.', den: 'Own-order delivery, grocery, alcohol, AI phone ordering: switches and rules.' },

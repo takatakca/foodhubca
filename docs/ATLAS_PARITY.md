@@ -77,7 +77,7 @@ Every chart has a table view and CSV download; filters live in the link (Copy li
 
 Order Transactions · Order Status Transitions · Item-wise Order Transactions · Option-wise Order
 Transactions · Items Summary Across All Locations · Menu Snapshot Across All Locations · Store Action
-Report — **Done** (`/insights/reports`; email through Resend).
+Report — **Done** (`/insights/reports`; email through SMTP or Resend).
 
 ## Users & control
 

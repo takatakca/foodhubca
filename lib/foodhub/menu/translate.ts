@@ -8,6 +8,7 @@ import { toCents } from '../config';
 import { allDayWeek, dayKeyOf, DAYS, intersectWeeks, normalizeWeek, weekIsEmpty } from '../hours';
 import type { DayKey, Holiday, Marketplace, MasterMenu, MenuCategory, MenuItem, MenuLanguage, PublishContext, WeeklyHours } from '../types';
 import { label } from './language';
+import { uberTaxClassOf, uberTaxLabelInfo } from './uber-tax';
 import type { MenuIssue } from './verify';
 
 /** 24/7 — only used when no store hours were ever set (the menu verifier warns about it). */
@@ -37,6 +38,16 @@ export function priceFor(item: MenuItem, marketplace: Marketplace, menu?: Pick<M
 /** Modifier price on a platform (same markup as the items). */
 export function modifierPriceFor(mod: { price: number }, marketplace: Marketplace, menu?: Pick<MasterMenu, 'channelMarkupPct'> | null): number {
   return withMarkup(mod.price, markupPct(menu, marketplace));
+}
+
+/**
+ * Pickup price on a platform with dual pricing (DoorDash base_price): in-store price + the pickup markup, or null
+ * when the menu has no separate pickup price for that platform.
+ */
+export function pickupPriceFor(base: { price: number }, marketplace: Marketplace, menu?: Pick<MasterMenu, 'pickupMarkupPct'> | null): number | null {
+  const v = menu?.pickupMarkupPct?.[marketplace];
+  if (typeof v !== 'number' || !Number.isFinite(v)) return null;
+  return withMarkup(base.price, Math.min(Math.max(v, -50), 200));
 }
 
 /** Items that are in a valid category, in category order. */
@@ -174,7 +185,7 @@ export function toUberMenu(menu: MasterMenu, ctx?: PublishContext, offRefs: Set<
   const locale = uberLocale(lang);
   const text = (en: string, fr?: string) => ({ translations: { [locale]: label(en, fr, lang) } });
   // An option used by two groups is ONE Uber item (Uber refuses duplicate ids): the first definition wins.
-  const modifierItems = new Map<string, { id: string; external_data: string; title: { translations: Record<string, string> }; price_info: { price: number }; quantity_info: Record<string, never>; tax_info: { tax_rate?: number } }>();
+  const modifierItems = new Map<string, { id: string; external_data: string; title: { translations: Record<string, string> }; price_info: { price: number }; quantity_info: Record<string, never>; tax_info: { tax_rate?: number } } & ReturnType<typeof uberTaxLabelInfo>>();
   for (const m of menu.modifierGroups.flatMap((g) => g.modifiers)) {
     if (modifierItems.has(`mod:${m.ref}`)) continue;
     modifierItems.set(`mod:${m.ref}`, {
@@ -184,6 +195,8 @@ export function toUberMenu(menu: MasterMenu, ctx?: PublishContext, offRefs: Set<
       price_info: { price: toCents(modifierPriceFor(m, 'uber_eats', menu)) },
       quantity_info: {},
       tax_info: uberTaxInfo(false),
+      // Item tax category (tax_label_info): options take the menu default class.
+      ...uberTaxLabelInfo(uberTaxClassOf(null, menu.uberTaxClass)),
       ...(m.available && !offRefs.has(m.ref) ? {} : SUSPEND_FOREVER),
     });
   }
@@ -215,6 +228,7 @@ export function toUberMenu(menu: MasterMenu, ctx?: PublishContext, offRefs: Set<
         ...(i.imageUrl ? { image_url: i.imageUrl } : {}),
         price_info: { price: toCents(priceFor(i, 'uber_eats', menu)) },
         tax_info: uberTaxInfo(true),
+        ...uberTaxLabelInfo(uberTaxClassOf(i, menu.uberTaxClass)),
         modifier_group_ids: { ids: i.modifierGroupRefs },
         // energy_interval replaces the deprecated lower_range / upper_range; values are E5 (780 cal = 78000000).
         ...(typeof i.calories === 'number' && i.calories > 0 ? { nutritional_info: { calories: { energy_interval: { lower: Math.round(i.calories) * 100000, upper: Math.round(i.calories) * 100000 } } } } : {}),
@@ -321,6 +335,9 @@ export function toDoorDashMenu(menu: MasterMenu, merchantSuppliedId: string, pro
   const categoryHours = new Map<string, WeeklyHours>();
   for (const g of scheduleGroups(menu, store)) if (g.key !== 'store') for (const c of g.categories) categoryHours.set(c.ref, g.hours);
   const visibleCats = new Set(scheduleGroups(menu, store).flatMap((g) => g.categories.map((c) => c.ref)));
+  // Dual pricing (DoorDash guide "Build Dual Pricing"): price = Marketplace delivery, base_price = Marketplace pickup
+  // and Storefront, on items and options; sent only when the menu sets a DoorDash pickup price.
+  const pickupPrice = (x: { price: number }) => { const v = pickupPriceFor(x, 'doordash', menu); return v === null ? {} : { base_price: toCents(v) }; };
   return {
     reference,
     store: { merchant_supplied_id: merchantSuppliedId, provider_type: providerType },
@@ -349,6 +366,7 @@ export function toDoorDashMenu(menu: MasterMenu, merchantSuppliedId: string, pro
             merchant_supplied_id: i.ref,
             active: i.available && !offRefs.has(i.ref),
             price: toCents(priceFor(i, 'doordash', menu)),
+            ...pickupPrice(i),
             sort_id: ii,
             ...((i.tags ?? []).includes('alcohol') ? { is_alcohol: true } : {}),
             ...(i.imageUrl ? { original_image_url: i.imageUrl } : {}),
@@ -366,6 +384,7 @@ export function toDoorDashMenu(menu: MasterMenu, merchantSuppliedId: string, pro
                 merchant_supplied_id: m.ref,
                 active: m.available && !offRefs.has(m.ref),
                 price: toCents(modifierPriceFor(m, 'doordash', menu)),
+                ...pickupPrice(m),
                 sort_id: mi,
               })),
             })),
@@ -374,6 +393,27 @@ export function toDoorDashMenu(menu: MasterMenu, merchantSuppliedId: string, pro
       })),
     },
   };
+}
+
+/** One row of DoorDash's "Automatic Item Availability Polling" answer (only 86'd items and options are listed). */
+export interface DoorDashPolledItem { merchant_supplied_id: string; is_active: false; type: 'item' | 'item_option' }
+
+/**
+ * DoorDash Item Polling answer for one location (developer.doordash.com, item status guide, "Automatic Item
+ * Availability Polling"): an array of the items and options that are OFF, `{ merchant_supplied_id, is_active: false,
+ * type: "item" | "item_option" }`. An empty array means everything is in stock. `menu` is the location's menu
+ * (menuForLocation + alcohol rules), so it lists exactly what the menu push sends as active: false.
+ */
+export function toDoorDashItemPolling(menu: MasterMenu): DoorDashPolledItem[] {
+  const items = liveItems(menu);
+  const used = new Set(items.flatMap((i) => i.modifierGroupRefs));
+  const out = new Map<string, DoorDashPolledItem>();
+  for (const i of items) if (!i.available) out.set(`item:${i.ref}`, { merchant_supplied_id: i.ref, is_active: false, type: 'item' });
+  for (const g of menu.modifierGroups) {
+    if (!used.has(g.ref)) continue;
+    for (const m of g.modifiers) if (!m.available) out.set(`option:${m.ref}`, { merchant_supplied_id: m.ref, is_active: false, type: 'item_option' });
+  }
+  return [...out.values()];
 }
 
 export { dayKeyOf };

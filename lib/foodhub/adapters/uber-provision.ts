@@ -215,3 +215,20 @@ export async function activateUberStores(id: string, picks: Array<{ storeId: str
   if (out.every((r) => r.result.ok)) await getRepo().setKv(key(id), { ...s, token: null });
   return out;
 }
+
+/**
+ * "Disconnect from Uber" (store offboarding): DELETE /v1/eats/stores/{id}/pos_data, "delete a store's app
+ * integration" (https://developer.uber.com/docs/eats/references/api/v1/delete-eats-stores-storeid-posdata). Uber's
+ * POS provisioning guide: de-provisioning uses the MERCHANT token (authorization_code, eats.pos_provisioning), so it
+ * runs inside a "Connect Uber Eats" session. Permanent: linking the store again means a new activation.
+ * (A temporary stop is PATCH pos_data integration_enabled: false, not this.)
+ */
+export async function disconnectUberStore(id: string, storeId: string): Promise<ChannelResult> {
+  const s = await getSession(id);
+  if (!s?.token) throw new Error('Uber connection expired. Click “Connect Uber Eats” again, then Disconnect.');
+  if (!(s.stores ?? []).some((x) => x.id === storeId)) throw new Error('This store is not on the Uber Eats account you signed in with.');
+  return callApi('uber_eats', `${uberApiBase()}/v1/eats/stores/${encodeURIComponent(storeId)}/pos_data`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${s.token}` },
+  });
+}

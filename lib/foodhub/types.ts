@@ -143,6 +143,23 @@ export interface NormalizedOrder {
   hubOrderId?: string;
   /** Lines / options that reached Clover as free text (not linked to the Clover inventory). */
   mappingWarnings?: OrderMappingWarning[];
+  /**
+   * Where the customer ordered inside the platform, as the platform sends it (DoorDash `experience`: DOORDASH,
+   * CAVIAR, STOREFRONT, …). Shown to the staff (orderSourceLabel).
+   */
+  orderSource?: string;
+}
+
+/** DoorDash Marketplace order `experience` values (API reference, Order model). */
+export const ORDER_SOURCE_LABELS: Record<string, string> = {
+  DOORDASH: 'DoorDash', CAVIAR: 'Caviar', STOREFRONT: 'Storefront', WHITE_LABELED: 'White label', DOORDASH_CHECKOUT: 'DoorDash Checkout', ANY_EXPERIENCE: 'DoorDash',
+};
+
+/** Staff-facing label of an order source ("Caviar", "Storefront"…); null when the platform sent none. */
+export function orderSourceLabel(source?: string | null): string | null {
+  const s = String(source ?? '').trim();
+  if (!s) return null;
+  return ORDER_SOURCE_LABELS[s.toUpperCase()] ?? s.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export interface StoredOrder extends NormalizedOrder {
@@ -238,6 +255,8 @@ export interface MenuItem {
   posItemRef?: string;
   /** Per-marketplace price override (e.g. delivery mark-up). */
   channelPrices?: Partial<Record<Marketplace, number>>;
+  /** Uber Eats tax class for this item (key of UBER_TAX_CLASSES, lib/foodhub/menu/uber-tax.ts); overrides the menu default. */
+  uberTaxClass?: string;
   modifierGroupRefs: string[];
 }
 
@@ -270,6 +289,14 @@ export interface MasterMenu {
    * The base price stays the in-store (Clover) price; a per-item channelPrices override always wins.
    */
   channelMarkupPct?: Partial<Record<Marketplace, number>>;
+  /**
+   * Separate PICKUP price on a platform with dual pricing (DoorDash `base_price`; `price` stays the delivery price):
+   * percentage added to the in-store price for pickup orders. { doordash: 0 } = pickup at the in-store price.
+   * Unset = no separate pickup price (the delivery price applies to pickup too).
+   */
+  pickupMarkupPct?: Partial<Record<Marketplace, number>>;
+  /** Default Uber Eats tax class of the brand's items and options (Item.tax_label_info); unset = none sent. */
+  uberTaxClass?: string;
   updatedAt: string;
 }
 
@@ -350,6 +377,8 @@ export interface ChannelAdapter {
   publishMenu(store: ChannelStore, menu: MasterMenu, ctx?: PublishContext): Promise<ChannelResult>;
   setItemAvailability(store: ChannelStore, refs: string[], available: boolean, untilMs?: number, kind?: 'item' | 'modifier'): Promise<ChannelResult>;
   setStoreOnline(store: ChannelStore, online: boolean, untilMs?: number, reason?: string): Promise<ChannelResult>;
+  /** Tell the platform the order will be ready later ("+5 min" in the kitchen). Only where the platform has an API. */
+  updateReadyTime?(order: StoredOrder, readyAtIso: string): Promise<ChannelResult>;
 }
 
 /** Standard reasons (Atlas-style) mapped to each platform's own codes. */

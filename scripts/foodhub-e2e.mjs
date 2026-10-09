@@ -1257,9 +1257,23 @@ try {
   await skipWebhook('orders', skipOrder('skip-order-0037', 'HOCH-POPOULET', 'tx-0037'));
   const o37 = await waitFor(async () => { const o = await findOrder('skip-order-0037'); return o?.posOrderId ? o : null; });
   await sleep(21_000);
-  const wr = await call('GET', '/api/foodhub/cron/watch', { auth: false, headers: { authorization: 'Bearer cron-e2e' } });
+  // The cron skips its run (ran:false) when another Watchtower run started less than 20 s ago or is still going: a pulse
+  // run (after()) or the forced run at the end of a sync can land in the wait. Ask again, once a second, until it really
+  // runs (the throttle frees up within 20 s); the product throttle is unchanged. A skip is printed with the last run's
+  // age: under 20 s = throttled by a run that landed in the wait, 20 s or more = a run still going.
+  const waitRun = { tries: 0, skipped: [] };
+  let wr;
+  for (const until = Date.now() + 25_000; ;) {
+    wr = await call('GET', '/api/foodhub/cron/watch', { auth: false, headers: { authorization: 'Bearer cron-e2e' } });
+    waitRun.tries += 1;
+    if (wr.json?.report?.ran === true || Date.now() >= until) break;
+    const lastRun = (await call('GET', '/api/health', { auth: false, headers: { authorization: 'Bearer cron-e2e' } })).json?.checks?.watchtower;
+    waitRun.skipped.push({ at: wr.json?.report?.at, lastRunAt: lastRun?.at ?? null, lastRunAgeS: lastRun?.ageS ?? null });
+    await sleep(1000);
+  }
+  if (waitRun.skipped.length) console.log(`  NOTE  Watchtower cron skipped ${waitRun.skipped.length}× before running (another run landed in the wait): ${JSON.stringify(waitRun.skipped[0])}`);
   const inc37 = ((await call('GET', '/api/foodhub/incidents?status=open')).json?.incidents || []).find((i) => i.orderId === o37?.id);
-  check('order waiting 20 s → Watchtower incident with a plain explanation (rules, no AI key)', wr.json?.report?.ran === true && inc37?.kind === 'order_unaccepted' && (inc37.explanation || '').length > 20, JSON.stringify(wr.json?.report));
+  check('order waiting 20 s → Watchtower incident with a plain explanation (rules, no AI key)', wr.json?.report?.ran === true && inc37?.kind === 'order_unaccepted' && (inc37.explanation || '').length > 20, JSON.stringify({ report: wr.json?.report, ...waitRun }));
   check('incident posted to the team chat', log.some((e) => e.path === '/chat' && /skip-order-0037|SK0037|attend/.test(JSON.stringify(e.body))));
   check('incident shows on every screen of that kitchen (pulse)', ((await call('GET', '/api/foodhub/pulse', { cookie: lcookie })).json?.incidents?.top || []).some((i) => i.id === inc37?.id));
   const ack37 = await call('POST', '/api/foodhub/incidents', { cookie: ncookie, body: { id: inc37?.id, action: 'ack' } });

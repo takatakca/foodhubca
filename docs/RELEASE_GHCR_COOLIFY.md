@@ -39,7 +39,11 @@
 ## Automation follow-up
 
 - Build and publish from GitHub is already automated. The workflow does **not** deploy to Coolify.
-- After the initial cutover, configure Coolify's deploy webhook/API behind a GitHub Actions encrypted secret, with read-only verification of the deployed release. Trigger deployment only on successful `main` image publication plus appropriate registry pull verification.
+- An opt-in deployment workflow is included: `.github/workflows/coolify-deploy.yml`. It runs after the Food Hub image workflow completes successfully on a `main` push.
+- **Only after** the Coolify Docker Image production cutover is verified: Coolify → Settings → Advanced → Enable API access (if off); Keys & Tokens → API Tokens → create a short-lived token with **Deploy** permission only; Food Hub app → Webhooks → copy its **resource Deploy Webhook**.
+- Store the exact URL only in GitHub Actions repository secret `COOLIFY_DEPLOY_WEBHOOK` and the deploy-only token in secret `COOLIFY_DEPLOY_TOKEN` (`foodhubca` → Settings → Secrets and variables → Actions). The workflow skips deployment with a notice until both are present.
+- A successful Coolify API response means **queued**, not live; verify its deployment UUID/log, running image and production `/api/health` separately. Revoke/rotate tokens if compromised.
+- Do **not** set the two secrets before the resource uses the intended image and the owner has approved automatic deployments.
 - Do not put a Coolify token or webhook URL containing a token in source control, PR text, or agent chat.
 - Owner actions left: grant GitHub package visibility or Coolify registry auth, connect Coolify access, approve production cutover, supply account approvals/keys only through secure destination UIs.
 

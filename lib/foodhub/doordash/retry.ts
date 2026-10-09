@@ -30,6 +30,8 @@ export interface RetryOptions {
   method?: string;
   /** Background jobs may wait the full minute after a 429; a request a person waits for must not. */
   waitOn429?: boolean;
+  /** A POST that is safe to repeat (DoorDash says so for the Checkout API session: retry 5xx up to 3 times). */
+  retryPost?: boolean;
   sleep?: Sleep;
 }
 
@@ -41,7 +43,7 @@ export async function withDoorDashRetry(run: () => Promise<ChannelResult>, opts:
   let backoffs = 0;
   let waited429 = 0;
   while (!res.ok) {
-    const cls = retryClass(res.httpStatus, method);
+    const cls = retryClass(res.httpStatus, opts.retryPost && method.toUpperCase() === 'POST' ? 'PUT' : method);
     if (cls === 'never') return res;
     if (cls === 'rate_limit') {
       if (!opts.waitOn429 || waited429 >= 1) return { ...res, retryAfterMs: RATE_LIMIT_WAIT_MS, message: `${res.message} — DoorDash is rate limiting this app: try again in about 1 minute.` };

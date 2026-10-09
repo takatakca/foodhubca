@@ -52,3 +52,39 @@ export function withoutProtectedIds<T extends string | number>(ids: T[]): { kept
   for (const id of ids) (isProtectedDoorDashId(id) ? dropped : kept).push(id);
   return { kept, dropped };
 }
+
+const STORE_KEYS = new Set(['location_id', 'store_location_id', 'partner_store_id', 'merchant_supplied_id', 'doordash_store_id', 'store_id', 'location', 'return_location_id', 'external_store_id', 'pickup_external_store_id', 'merchant_supplied_store_id']);
+
+/**
+ * A protected DoorDash store id anywhere in a request body (store keys only, any depth), or null. For the calls that take
+ * the store inside the body (onboarding, retail inventory, returns, Drive pickup ids) instead of in the URL.
+ */
+export function protectedIdInBody(body: unknown, depth = 0): string | null {
+  if (!body || typeof body !== 'object' || depth > 6) return null;
+  if (Array.isArray(body)) {
+    for (const v of body) { const hit = protectedIdInBody(v, depth + 1); if (hit) return hit; }
+    return null;
+  }
+  for (const [k, v] of Object.entries(body as Record<string, unknown>)) {
+    if (STORE_KEYS.has(k) && (typeof v === 'string' || typeof v === 'number') && isProtectedDoorDashId(v)) return String(v);
+    if (v && typeof v === 'object') { const hit = protectedIdInBody(v, depth + 1); if (hit) return hit; }
+  }
+  return null;
+}
+
+/** The refusal text for a body that names a protected store, or null. */
+export function bodyRefusal(body: unknown): string | null {
+  const id = protectedIdInBody(body);
+  return id ? `Not sent: DoorDash store ${id} is protected. Food Hub never touches it.` : null;
+}
+
+/** A protected store id used as a path segment of a DoorDash URL (e.g. /stores/27982486/items), or null. */
+export function pathRefusal(urlOrPath: string): string | null {
+  const path = urlOrPath.replace(/^https?:\/\/[^/]+/i, '').split('?')[0];
+  for (const seg of path.split('/')) {
+    let v = seg;
+    try { v = decodeURIComponent(seg); } catch { /* keep raw */ }
+    if (v && isProtectedDoorDashId(v)) return `Not sent: DoorDash store ${v} is protected. Food Hub never touches it.`;
+  }
+  return null;
+}

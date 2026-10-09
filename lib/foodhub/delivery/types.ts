@@ -106,6 +106,9 @@ export const DELIVERY_RANK: Record<DeliveryStatus, number> = {
 export const TERMINAL: DeliveryStatus[] = ['delivered', 'returned', 'cancelled', 'failed'];
 export const ACTIVE: DeliveryStatus[] = ['created', 'assigned', 'at_pickup', 'picked_up', 'at_dropoff', 'returning'];
 
+/** Photos the fleet took (pickup, drop-off) and the customer's signature: proof the order was handed over. */
+export interface DeliveryProof { pickupImageUrl?: string; dropoffImageUrl?: string; signatureImageUrl?: string }
+
 export interface CourierPosition { name?: string; phone?: string; vehicle?: string; lat?: number; lng?: number; updatedAt: string }
 
 export interface DeliveryQuote {
@@ -144,6 +147,8 @@ export interface Delivery {
   trackingUrl?: string;
   supportReference?: string;
   courier?: CourierPosition;
+  /** Proof of pickup / delivery (DoorDash Drive webhooks: verification images, signature). */
+  proof?: DeliveryProof;
   pickupEta?: string;
   dropoffEta?: string;
   cancelReason?: string;

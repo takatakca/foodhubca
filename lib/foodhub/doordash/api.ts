@@ -12,7 +12,7 @@ import { doorDashBase, doorDashHeaders, doorDashReadiness, normalizeDoorDashDeta
 import { blockedResult } from '../adapters/common';
 import { callApi, missingEnv, result } from '../config';
 import type { ChannelResult, PlatformState } from '../types';
-import { guardDoorDashStore, type DoorDashCallKind } from './guard';
+import { bodyRefusal, guardDoorDashStore, pathRefusal, type DoorDashCallKind } from './guard';
 import { withDoorDashRetry } from './retry';
 
 const KEY = 'doordash' as const;
@@ -44,6 +44,9 @@ export async function ddRequest<T = any>(req: DdRequest): Promise<DdResult<T>> {
     const refused = await guardDoorDashStore(req.storeId, kind);
     if (refused) return result(KEY, 'blocked', refused);
   }
+  // Whatever the caller says, a protected store named in the URL or the body stops the call.
+  const named = pathRefusal(req.url ?? req.path ?? '') ?? bodyRefusal(req.body);
+  if (named) return result(KEY, 'blocked', named);
   if (kind === 'read') {
     const missing = missingEnv(DOORDASH_CREDENTIALS);
     if (missing.length) return result(KEY, 'blocked', `DoorDash credentials missing: ${missing.join(', ')}.`);

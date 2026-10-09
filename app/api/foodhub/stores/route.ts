@@ -4,6 +4,7 @@ import { inScope, withPerm, type AuthUser } from '@/lib/foodhub/auth';
 import { getCatalog } from '@/lib/foodhub/catalog';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { menuLockOf } from '@/lib/foodhub/menu/lock';
+import { cloverMerchantIdProblem } from '@/lib/foodhub/pos/clover';
 import { getRepo } from '@/lib/foodhub/repo';
 
 /** A manager limited to some locations may only map stores at those locations. */
@@ -40,6 +41,8 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
   if (scoped) return fail(scoped, 403);
   const unknown = await catalogError(brandName, locationCode);
   if (unknown) return fail(unknown);
+  const badMerchant = cloverMerchantIdProblem(b.cloverMerchantId);
+  if (badMerchant) return fail(badMerchant.en);
   const repo = getRepo();
   const existing = b.id ? await repo.getStore(String(b.id)) : await repo.findStore(channel, String(b.channelStoreId).trim());
   // Re-mapping a store that belongs to another location is out of scope too.

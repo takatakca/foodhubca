@@ -324,6 +324,20 @@ export function doorDashIntervals(week: WeeklyHours): Array<{ day: DayKey; start
   return out;
 }
 
+/**
+ * DoorDash regular + special hours of a store, the same way a menu push sends them: open intervals only (a closed day is
+ * omitted), a closed holiday is a full-day closure. Used by the retail Store Hours Pull answer and the retail store PATCH.
+ */
+export function toDoorDashStoreHours(week: WeeklyHours | null, holidays: Holiday[]) {
+  const normalized = week ? normalizeWeek(week) : defaultHours();
+  return {
+    open_hours: doorDashIntervals(normalized).map((p) => ({ day_index: DD_DAY[p.day], start_time: p.start_time, end_time: p.end_time })),
+    special_hours: holidays.flatMap((h) => (h.closed || !(h.slots?.length)
+      ? [{ date: h.date, closed: true, start_time: '00:00:00', end_time: '23:59:59' }]
+      : h.slots!.map((s) => ({ date: h.date, closed: false, start_time: sec(s.open), end_time: sec(s.close) })))),
+  };
+}
+
 export function toDoorDashMenu(menu: MasterMenu, merchantSuppliedId: string, providerType: string, reference: string, ctx?: PublishContext, offRefs: Set<string> = new Set()) {
   const items = liveItems(menu);
   const store = storeWeek(menu, ctx);
@@ -351,7 +365,8 @@ export function toDoorDashMenu(menu: MasterMenu, merchantSuppliedId: string, pro
       name: menu.brandName,
       subtitle: '',
       merchant_supplied_id: `menu-${merchantSuppliedId}`,
-      active: true,
+      // `active: false` hides the whole menu on DoorDash (stores.ts setDoorDashMenuActive); a normal publish keeps it on.
+      active: ctx?.menuActive !== false,
       categories: sortedCategories(menu).filter((c) => visibleCats.has(c.ref)).map((c, ci) => ({
         name: label(c.name, c.nameFr, lang),
         subtitle: '',

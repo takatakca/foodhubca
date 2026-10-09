@@ -13,6 +13,7 @@ import { closeCancelledCloverOrder } from './pos/clover-books';
 import { doorDashMerchantCancelEnabled } from './adapters/doordash';
 import { relayActions } from './adapters/relay';
 import { reportSkipMissingItems } from './adapters/skip';
+import { adjustDoorDashOrder, adjustmentFromMissing, doorDashAdjustEnabled } from './doordash/orders';
 import { adjustUberOrderPrice, isUberMerchantDelivery, reportUberOutOfItems, setUberRestaurantDeliveryStatus, type UberAdjustReason } from './adapters/uber-api';
 import { applyCourierUpdate, pendingKey, readPending } from './courier';
 import { getBrandMenu } from './menu/shared';
@@ -422,6 +423,8 @@ export function allowedActions(order: StoredOrder): OrderAction[] {
   // SkipTheDishes (JET Connect) lets the store report an out-of-stock item after accepting; Skip adjusts the customer's bill.
   // (Not for Skip orders that came through the relay: Skip's API does not know them.)
   if (order.channel === 'skip' && !order.viaHub && ['accepted', 'ready'].includes(order.status)) a.push('report_missing');
+  // DoorDash: the order adjustment endpoint (remove / reduce an item after confirming), once DoorDash allowlisted it.
+  if (order.channel === 'doordash' && !order.viaHub && doorDashAdjustEnabled() && ['accepted', 'ready'].includes(order.status)) a.push('report_missing');
   // Uber Eats (direct): an item out of stock after accepting goes to the customer (Resolve Fulfillment Issues), and a
   // price change (an add-on the customer asked for, a removed item) is confirmed by the customer (Adjust Order Price).
   if (order.channel === 'uber_eats' && !order.viaHub && order.status === 'accepted') a.push('report_missing', 'adjust_price');
@@ -485,6 +488,21 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
     const picks = (opts.missing ?? []).map((m) => ({ line: order.lines[m.line], quantity: Math.max(1, Math.round(m.quantity)) }))
       .filter((m) => m.line && m.quantity <= m.line.quantity);
     if (!picks.length) return { order, result: { ok: false, message: 'Choose the missing item(s) and quantity.' } };
+    if (order.channel === 'doordash') {
+      // DoorDash: ITEM_REMOVE / ITEM_UPDATE on the order adjustment endpoint (needs the line ids kept from the order).
+      const adj = adjustmentFromMissing(order, picks.map((m) => ({ line: order.lines.indexOf(m.line), quantity: m.quantity })));
+      if (!adj.items) return { order, result: { ok: false, message: adj.error ?? 'Nothing to adjust.' } };
+      const sent = await adjustDoorDashOrder(order, adj.items);
+      const at = nowIso();
+      const done = sent.ok
+        ? await patchTimeline(order, { missingItems: [...(order.timeline?.missingItems ?? []), ...picks.map((m) => ({ name: m.line.name, ref: m.line.externalId, quantity: m.quantity, at }))] })
+        : await repo.updateOrder(order.id, { channelError: sent.message });
+      const what = picks.map((m) => `${m.quantity}× ${m.line.name}`).join(', ');
+      await repo.addEvent(order.id, sent.ok ? 'report_missing' : 'report_missing_failed', { message: `${what}: ${sent.message}`, by: actor.name });
+      await logActivity({ actor: actor.name, source: actor.source, kind: 'order', action, status: sent.ok ? 'success' : 'failed', channel: order.channel, brandName: order.brandName, locationCode: order.locationCode, orderId: order.id,
+        summary: `Order adjusted on DoorDash for ${tag}: ${what}${sent.ok ? '' : ` (failed: ${sent.message})`}` });
+      return { order: done, result: sent };
+    }
     if (order.channel === 'uber_eats') {
       // Uber asks the customer (remove the item or cancel); the answer arrives as orders.fulfillment_issues.resolved.
       const res = await reportUberOutOfItems(order, picks.map((m) => m.line), { note: opts.reason });

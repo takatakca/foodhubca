@@ -68,13 +68,13 @@ déjà, ce qui est sur une branche, ce qui manque, et dans quel ordre on le cons
 
 | Produit | Rôle | Dépôt / branche | État |
 |---|---|---|---|
-| **ON2GO Hub — console marchand** | Un écran pour toutes les plateformes et toutes les marques : commandes, menus partagés, 86 partout, heures, pauses, argent (rapprochement, versements, litiges), Watchtower, rapports, Copilot. | `foodhubca` (main) ; sélecteur de portée tout / cuisine / marque : `feature/console-store-switcher` | En production (une seule entreprise). |
-| **Écran cuisine (tablette)** | Billets à préparer, alarmes (dont « Extra fort »), mode occupé, bandeau livreurs, commandes Clover en ligne, **nos commandes directes (téléphone IA, site, saisie)**. | `foodhubca` (alarme « Extra fort » fusionnée, PR #14) ; commandes directes : `feature/ai-phone-kitchens` (PR #17) | En production ; commandes directes sur branche. |
+| **ON2GO Hub — console marchand** | Un écran pour toutes les plateformes et toutes les marques : commandes, menus partagés, 86 partout, heures, pauses, argent (rapprochement, versements, litiges), Watchtower, rapports, Copilot. | `foodhubca` (main) ; sélecteur de portée tout / cuisine / marque fusionné (PR #29) | En production (une seule entreprise). |
+| **Écran cuisine (tablette)** | Billets à préparer, alarmes (dont « Extra fort »), mode occupé, bandeau livreurs, commandes Clover en ligne, **nos commandes directes (téléphone IA, site, saisie)**. | `foodhubca` (alarme « Extra fort » fusionnée, PR #14) ; commandes directes sur la tablette fusionnées (PR #17) | En production. |
 | **Clover (POS)** | Caisse et imprimante de chaque cuisine ; source de vérité des commandes Clover en ligne ; app Clover App Market multi-marchands (OAuth par marchand). | `foodhubca` `lib/foodhub/pos/*` (commandes du site par Clover : PR #10, #11 fusionnées) | En production ; fiche App Market à soumettre. |
 | **Plateformes** | Uber Eats, DoorDash, Skip (JET Connect), Too Good To Go (flux entrant). Menus, 86, heures, commandes, annulations, rapports. | `foodhubca` ; couverture complète : Uber fusionnée (PR #21), certification fusionnée (PR #12) ; `feature/doordash-api-coverage`, `feature/skip-tgtg-api-coverage` en cours | En production (approbations en cours). |
 | **Flottes de livraison** | Pour **nos** commandes : DoorDash Drive (1ʳᵉ), Uber Direct (comparaison), Skip DaaS (prévu), **nos livreurs** (3ᵉ flotte). | `foodhubca` `lib/foodhub/delivery/*` ; nos livreurs : `feature/own-fleet` | Drive / Uber Direct en bac à sable ; nos livreurs sur branche. |
 | **Appli livreur + répartition** | Page mobile du livreur (lien personnel, sans mot de passe) : course assignée, ramassage, livraison, appel du client. Tableau de répartition dans la console. | `foodhubca` `feature/own-fleet` (squelette) | Squelette. |
-| **Téléphone IA + menu vocal** | Un agent IA prend la commande au téléphone (menu en direct, total confirmé, billet Clover, texto). Une ligne peut servir les marques de **plusieurs cuisines** ; un menu vocal (IVR) oriente les autres appels. | `foodhubca` `lib/foodhub/phone/*` ; multi-cuisines : `feature/ai-phone-kitchens` (PR #17) ; renvoi des numéros de marque (secours) fusionné (PR #18) ; menu vocal : `feature/on2go-phone-ivr` (autre agent) | Code prêt ; à allumer (§ 8). |
+| **Téléphone IA + menu vocal** | Un agent IA prend la commande au téléphone (menu en direct, total confirmé, billet Clover, texto). Une ligne peut servir les marques de **plusieurs cuisines** ; un menu vocal (IVR) oriente les autres appels. | `foodhubca` `lib/foodhub/phone/*` ; multi-cuisines (PR #17), renvoi des numéros de marque (PR #18) et menu vocal (PR #30) fusionnés | Code prêt ; à allumer (§ 8). |
 | **Sites des marques** | Un seul code pour 17 marques (domaine → marque), panier partagé, **lien Clover en premier**, llms.txt, schema. | `pppmtl` `feature/multi-brand` | Branche poussée. |
 | **Appli client ON2GO** | PWA d'abord (sur la base pppmtl multi-marques), puis applis natives. Compte client TAKATAK, suivi de commande, fidélité. | `pppmtl` (à venir) | Plan (§ 6). |
 | **ON2GO.ca (annuaire)** | Découverte locale (ouvert tard, en vedette, tendances, offres), FR/EN, liens de commande Clover d'abord. | `on2goca` `feature/on2go-directory` ; flux : `foodhubca` `GET /api/public/directory` (fusionné, PR #16) | Branches poussées. |
@@ -113,13 +113,13 @@ on ne promet aucune fonction d'une plateforme qu'on n'a pas vérifiée dans sa d
 |---|---|---|---|
 | **Vitrine en ligne sans commission** | Site de commande direct offert par certaines plateformes (ex. DoorDash Storefront) | **A** Clover en ligne (pppmtl.com) · **B** 17 sites, un seul code | `pppmtl` `clover-direct`, `feature/multi-brand` |
 | Annuaire / découverte | La place de marché elle-même | **A** flux public · **B** site ON2GO.ca | `on2goca` `feature/on2go-directory`, main |
-| **Tablette de commandes** | Tablette ou appli de commandes de chaque plateforme | **A** écran cuisine unique, toutes plateformes, alarme extra-forte · **B** commandes directes (téléphone IA, site, saisie) sur la tablette | main, `feature/ai-phone-kitchens` |
+| **Tablette de commandes** | Tablette ou appli de commandes de chaque plateforme | **A** écran cuisine unique, toutes plateformes, alarme extra-forte, commandes directes (téléphone IA, site, saisie) | main |
 | Intégrations POS | Intégrations caisse (Clover, Square, Toast…) | **A** Clover (injection, impression, 86, ventes) · **M** Square, Lightspeed, Toast | main |
 | **Outils de menu** | Gestion du menu, photos, options, horaires de catégories | **A** un menu partagé par toutes les marques, majoration par plateforme, horaires, publication planifiée · **M** combos et options imbriquées, studio photo | main |
 | Rupture de stock (86) | Désactiver un article | **A** un 86 part sur toutes les plateformes, retour automatique, 86 Clover | main |
 | Heures, fêtes, pauses | Heures spéciales, pause du magasin | **A** partout d'un coup, réouverture automatique | main |
 | Temps de préparation / mode occupé | Réglage du temps de prép. | **A** (dont la synchro Uber du temps de prép.) | main |
-| Multi-magasins / multi-marques | Gestion d'entreprise multi-établissements | **A** marques × cuisines · **B** sélecteur tout / cuisine / marque | `feature/console-store-switcher` |
+| Multi-magasins / multi-marques | Gestion d'entreprise multi-établissements | **A** marques × cuisines, sélecteur tout / cuisine / marque | main |
 | **Promotions** | Rabais, livraison gratuite, 1 acheté = 1 offert | **A** promotions Uber (créer, lister, révoquer) · **M** nos promos (site, appli, téléphone), promos DoorDash / Skip | main |
 | **Publicité** | Annonces commanditées dans l'appli | **M** places « en vedette » sur ON2GO.ca vendues aux marchands ; TAKATAK Ads (`qmaps_targeting`) ; plan Google/Meta 1 $/jour par marque (privé) | takatak-v1, `on2goca` |
 | **Fidélité / abonnement client** | Programmes de fidélité, abonnements livraison | **M** compte client TAKATAK + points ; plus tard abonnement ON2GO | pppmtl (dépôt client prévu « TAKATAK »), takatak-v1 |
@@ -133,7 +133,7 @@ on ne promet aucune fonction d'une plateforme qu'on n'a pas vérifiée dans sa d
 | Commandes de groupe / traiteur | Commandes de groupe, traiteur | **M** | — |
 | **Épicerie / commerce de détail** | Catalogues épicerie, dépanneur, codes-barres, vente au poids | **B** catalogue, codes-barres, poids, stock par lieu, charges utiles DoorDash Retail / Uber épicerie prêtes (non envoyées) | main (`lib/foodhub/retail`) |
 | Alcool | Avenant alcool, vérification d'âge | **A** moteur de règles RACJ (permis, heures, 18+) · approbations plateformes à demander | main |
-| **Commande par téléphone** | (peu offert par les plateformes) | **A** agent IA · **B** une ligne pour plusieurs cuisines, menu vocal | main, `feature/ai-phone-kitchens`, `feature/on2go-phone-ivr` |
+| **Commande par téléphone** | (peu offert par les plateformes) | **A** agent IA, une ligne pour plusieurs cuisines, menu vocal | main |
 | Appli client marque blanche | (rare) | **M** PWA ON2GO puis natif (§ 6) | pppmtl |
 | Codes QR en salle / sur place | QR de commande | **B** QR QMAPS → lien Clover avec UTM | `qmaps`, `on2goca` |
 | **Inscription marchand libre-service** | Inscription en ligne, import du menu | **A** assistant Clover App Market (3 étapes) · **M** inscription ON2GO Hub hors Clover (phase H4) | main |
@@ -225,7 +225,7 @@ Chaque phase se termine par des **vérifications d'acceptation** ; une phase est
 ### H0 — Fondations (maintenant)
 
 1. Téléphone IA : une ligne pour les marques de plusieurs cuisines, invite figée, commandes directes sur la tablette
-   (`feature/ai-phone-kitchens`).
+   — **fusionné** (PR #17).
 2. Nom du produit configurable — **fusionné** (PR #20).
 3. Livreurs maison : 3ᵉ flotte + page livreur (`feature/own-fleet`).
 4. Identifiant de marchand de l'instance (`feature/tenant-context`).
@@ -290,7 +290,7 @@ accueil en français, « For English, press 2 » → chaque phrase → Claude (o
 86, choix obligatoires, heures, zone de livraison, alcool, total confirmé) → `place_order` → commande directe →
 **billet Clover** (commande atomique, imprimée) → texto de confirmation → **tablette de la cuisine**.
 
-**Corrigé sur `feature/ai-phone-kitchens`** :
+**Corrigé et fusionné (PR #17)** :
 - Une commande téléphonique pour emporter n'apparaissait pas sur la tablette Food Hub (seulement à l'imprimante
   Clover) : elle y apparaît maintenant, avec Vu / Prête / Remise au client et un bip.
 - L'invite système de l'agent changeait pendant l'appel quand le menu changeait ; avec Claude Opus 5.5, un compte
@@ -300,7 +300,7 @@ accueil en français, « For English, press 2 » → chaque phrase → Claude (o
   dans le menu de cette cuisine ; le billet Clover et le transfert vont à cette cuisine.
 
 **Pour allumer** (le propriétaire, dans l'ordre) :
-1. Fusionner `feature/ai-phone-kitchens`, déployer (Coolify).
+1. Déployer `main` (Coolify) : le multi-cuisines (PR #17) et le menu vocal (PR #30) y sont.
 2. Coolify → variables : `ANTHROPIC_API_KEY`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` (le numéro qui
    envoie les textos de confirmation), `FOODHUB_PUBLIC_URL=https://foodhub.on2go.ca` (la signature Twilio est vérifiée
    avec cette adresse). Facultatif : `FOODHUB_FEATURE_PHONE=on` (sinon l'interrupteur de la console).
@@ -344,8 +344,7 @@ accueil en français, « For English, press 2 » → chaque phrase → Claude (o
 ## 10. Où lire ensuite
 
 - `docs/MASTER_PLAN.md` (règles verrouillées § 6), `docs/EXPANSION_FEATURES.md` (livraison, retail, alcool, téléphone).
-- `docs/PUBLIC_DIRECTORY_API.md`, `docs/UX_CONSOLE.md` (branche
-  `feature/console-store-switcher`).
+- `docs/PUBLIC_DIRECTORY_API.md`, `docs/UX_CONSOLE.md`.
 - takatak-v1 : `docs/TAKATAK_V1_TENANT_ISOLATION_AUDIT.md`, `docs/TAKATAK_ADS_FOUNDATION.md`.
 - knowledgeAI : `projects/ON2GO-HUB.md`, `ON2GO.md`, `FOODHUB.md`, `TAKATAK-CORE.md`, `QMAPS.md`, `RESTAURANT-NETWORK.md`,
   `HASTE-MART.md`.

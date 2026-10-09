@@ -52,6 +52,17 @@ looks moved to Saint-Léonard; Saint-Léonard is written 5837 in older Food Hub 
 
 ## Findings from web search (this session cannot open listing sites; only web search works)
 
+- 2026-10-09 | Poulet Poulet | **No public listing surfaces** in web search under "Poulet Poulet" or its DoorDash name
+  "Poulet Express". **Name problems:** three names for one brand (Poulet Poulet in the brand config, "Poulet Express" on
+  DoorDash 32501399, and a website under the Po Poulet domain, `pouletpoulet.popoulet.ca`). Pick one name; the DoorDash
+  display name is fixed through DoorDash support later. **Three DoorDash stores** (NDG 32501399 on but paused for POS
+  cancellations, NDG 28719392 off, Saint-Léonard 33597093 off): the owner says which NDG store stays; the other is closed.
+  **Keep apart from Po Poulet NDG:** both are chicken brands at the NDG kitchen; nothing for Poulet Poulet may link to,
+  copy from, or be merged with the Po Poulet NDG store (DoorDash 27982486). **Close competitors in NDG:** Freakin Poulet
+  (6530 av. Somerled, on the same street), Chalet Bar-B-Q (NDG's well-known rotisserie, on all apps) and Poulet Rouge.
+  Sources: https://www.ubereats.com/ca/store/freakin-poulet/SMOet6lAXkiNHXBZX1X0fQ ,
+  https://tastet.ca/en/lists/restaurants-livraison-montreal/
+
 - 2026-10-09 | Po Poulet (Saint-Léonard only; NDG store 27982486 is never touched) | **No public listing surfaces** in
   web search, and `popoulet.ca` is not indexed. **Two DoorDash store numbers** for Saint-Léonard: 34494017 (row above,
   off) and 41950447 (seen in DoorDash mail on 2026-10-08, not in DoorDash's own store list): the owner confirms which one

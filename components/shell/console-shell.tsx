@@ -235,7 +235,7 @@ function Topbar() {
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-canvas/90 backdrop-blur-md">
       <div className="flex h-16 items-center gap-2 px-3 sm:px-6 lg:px-8">
-        <Link href={href('/')} className="mr-0.5 lg:hidden" aria-label="TAKATAK Food Hub"><span className="flex size-9 items-center justify-center rounded-full bg-rail text-[15px] font-black text-white"><span className="flex size-7 items-center justify-center rounded-full bg-electric">T</span></span></Link>
+        <Link href={href('/')} className="mr-0.5 hidden sm:block lg:hidden" aria-label="TAKATAK Food Hub"><span className="flex size-9 items-center justify-center rounded-full bg-rail text-[15px] font-black text-white"><span className="flex size-7 items-center justify-center rounded-full bg-electric">T</span></span></Link>
         <Hint id="shell.scope"><ScopeSwitcher /></Hint>
         <Hint id="shell.search">
           <button type="button" onClick={() => window.dispatchEvent(new Event('takatak:palette'))}
@@ -323,7 +323,7 @@ function TextSizeButton() {
   const label = display.text === 'md' ? 'A' : display.text === 'lg' ? 'A+' : 'A++';
   return (
     <Hint id="shell.textsize">
-      <button type="button" onClick={() => setDisplay({ text: nextTextSize(display.text) })} className="flex h-10 min-w-10 items-center justify-center rounded-md px-2 text-[15px] font-extrabold text-ink-3 hover:bg-sunken hover:text-ink"
+      <button type="button" onClick={() => setDisplay({ text: nextTextSize(display.text) })} className="hidden h-10 min-w-10 items-center sm:flex justify-center rounded-md px-2 text-[15px] font-extrabold text-ink-3 hover:bg-sunken hover:text-ink"
         aria-label={t(`Taille du texte : ${label}`, `Text size: ${label}`)} title={t('Taille du texte', 'Text size')}>{label}</button>
     </Hint>
   );

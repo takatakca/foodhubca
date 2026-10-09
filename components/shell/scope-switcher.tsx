@@ -75,10 +75,10 @@ export function ScopeSwitcher() {
 
   const button = (
     <span className="flex min-w-0 items-center gap-2.5">
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand">{site.brand ? <BrandMark name={site.brand} size="sm" className="size-9" /> : <Store className="size-[18px]" />}</span>
+      <span className="hidden size-9 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand sm:flex">{site.brand ? <BrandMark name={site.brand} size="sm" className="size-9" /> : <Store className="size-[18px]" />}</span>
       <span className="min-w-0 text-left leading-tight">
-        <span className="block max-w-[38vw] truncate text-[14px] font-extrabold text-ink sm:max-w-[16rem]">{label.title}</span>
-        <span className="block max-w-[38vw] truncate text-[12px] font-medium text-ink-3 sm:max-w-[16rem]">{label.sub}</span>
+        <span className="block max-w-[34vw] truncate text-[14px] font-extrabold text-ink sm:max-w-[16rem]">{label.title}</span>
+        <span className="block max-w-[34vw] truncate text-[12px] font-medium text-ink-3 sm:max-w-[16rem]">{label.sub}</span>
       </span>
     </span>
   );
@@ -92,7 +92,7 @@ export function ScopeSwitcher() {
         {button}<ChevronDown className={cn('size-4 shrink-0 text-ink-3 transition-transform', open && 'rotate-180')} />
       </button>
       {open && (
-        <div role="dialog" aria-label={t('Choisir un restaurant', 'Choose a restaurant')}
+        <div role="dialog" aria-modal="true" aria-label={t('Choisir un restaurant', 'Choose a restaurant')}
           className="absolute top-14 left-0 z-50 flex max-h-[min(70vh,560px)] w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop animate-rise">
           <div className="border-b border-line p-2">
             <label className="flex h-10 items-center gap-2 rounded-lg bg-sunken px-3 text-sm">

@@ -71,6 +71,16 @@ piece of work. The plan itself is `docs/MASTER_PLAN.md`. Operations (support, em
 - Tests: `tests/email-smtp.test.ts` (SMTP vs Resend vs none, transport mocked, no network). Checks: typecheck, lint 0 errors, 422/422 tests, webpack build OK, verify:foodhub 506/0.
 - Owner on Coolify: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER` (full mailbox address), `SMTP_PASS`, `AUTH_EMAIL_FROM`; then Settings → Alerts → "Email me" to test.
 
+## 2026-10-09 (IVR agent, task 26: `feature/on2go-phone-ivr`, based on `feature/ai-phone-kitchens`)
+
+- ON2GO phone menu on the main line: greeting (owner's text, editable; safer wording offered), then the AI talks and
+  routes with `route_to`; keypad fallback (0 = person, star = repeat, 2 misses → keypad menu); FR / EN / ES.
+- Branches: own online order (lookup, ticket, ordering agent), platform order (order number → reference saved → official
+  DoorDash line / Uber Eats and Skip help link by text), billing, merchant, courier, customer service, person, voicemail
+  (live transcription, ticket, email). Spanish added to the AI ordering agent.
+- Screens: Settings → Expansion → AI phone → Menu téléphonique; Own orders → ON2GO line. Docs: EXPANSION_FEATURES §4b.
+- Next: owner merges after `feature/ai-phone-kitchens`, sets the two Twilio webhooks and `FOODHUB_IVR_NUMBER`.
+
 ## 2026-10-08 05:30 UTC (Food Hub ↔ Clover backend session, task 2: `reconcile-pr6`)
 
 **Done:** PR #6's fixes ported onto `main`'s webhook inbox and Clover retry. No inbox swap.

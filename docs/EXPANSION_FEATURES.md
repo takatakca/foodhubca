@@ -240,6 +240,62 @@ total → Clover ticket + confirmation text → goodbye.
 
 **Cost** (pay-per-use): Twilio voice minutes + speech recognition, and Claude tokens (shown per call in the log).
 
+## 4b. ON2GO phone menu (IVR): the main line, AI first
+
+The ON2GO main line (`FOODHUB_IVR_NUMBER`, a Twilio number) answers every caller, like DoorDash's support line but
+local. Code: `lib/foodhub/phone/ivr/*`, webhooks `/api/foodhub/webhooks/ivr/*` (every one checks the Twilio signature).
+
+**A call**
+1. **Greeting** (recorded MP3 if set, else neural voice): *"Bienvenue au service ON2GO, votre service de livraison numéro
+   un au Canada."* + a short marketing line + *"Comment puis-je vous aider ?"* + *"For English, say English or press 2.
+   Para español, diga español o marque 3."* (each in its own voice: Polly Gabrielle fr-CA, Joanna en-US, Lupe es-US).
+   The greeting text is editable; Settings shows the safer *"votre service de livraison local au Québec"* because
+   "numéro un au Canada" is a claim that must be provable under the Competition Act.
+2. **The AI talks with the caller** (Claude, same model and frozen-prompt rule as the ordering agent) and routes with a
+   tool, `route_to(branch)`. It switches language itself (`set_language`).
+3. **Keypad = silent fallback**: digits work at any time (1 online order, 2 platform order, 3 billing, 4 merchant,
+   5 courier, 6 customer service, 7 message, **0 = a person**, **star = repeat**). Two misunderstandings
+   (`not_understood`), silence twice, no AI key or mode "keypad only" → the short keypad menu. Without the AI, a keyword
+   router (French, English, Spanish) still understands most requests.
+
+**Branches** (the tree is a typed config, edited in Settings → Expansion → AI phone → *Menu téléphonique*)
+
+| Branch | What happens |
+|---|---|
+| Online order (ON2GO / Clover / brand sites): problem · place an order · card charge | AI looks up **our** orders (by order number or the caller's number), explains the status, opens a ticket for a person; *place an order* hands the same call to the AI ordering agent (section 4) in the caller's language |
+| Uber Eats · DoorDash · SkipTheDishes order | Which platform → order number by voice or keypad (then #) → read back → **reference record saved first** (caller, platform, order number, time, call link, brand if known) → `<Dial>` the platform's official support line with the caller's own number as caller ID; no public line → its official help link by text + the in-app steps. Unanswered transfer → help link by text |
+| Billing · merchant sign-up · courier sign-up · customer service | AI asks a few questions, texts the ON2GO link (from the ON2GO number), opens a lead / ticket, then ends or hands off |
+| A person | `<Dial>` the hand-off number; nobody → voicemail |
+| Voicemail | `<Record>` (3 min) + live transcription (`<Transcription>`, fr-CA / en-US / es-US) → ticket + email to `FOODHUB_VOICEMAIL_EMAIL` with the transcript and a console link to listen |
+
+**Official platform support** (checked 2026-10-09 on each platform's own pages; editable in Settings)
+- DoorDash: help.doordash.com/consumers/s/contactsupport, French (Canada) **855-643-8439**, English **855-431-0459**,
+  Spanish **855-834-8733**; chat and phone 24/7.
+- Uber Eats: help.uber.com/ubereats says Uber does not offer a customer phone number for Uber Eats → text the help link;
+  in the app: Orders → the order → Help.
+- SkipTheDishes: skipthedishes.com/faq, *Need Help?* in the app or website, live chat; no customer phone line published.
+
+**Locked rules**: the AI never refunds, cancels, discounts or promises money; it never asks for card numbers, and
+card-like numbers (13–19 digits passing the Luhn check) are refused by voice and keypad and removed before anything is
+saved or sent to the AI. Each platform hears only about itself: the transfer passes the caller's number, nothing else,
+and the texted link is that platform's own page.
+
+**Records**: Own orders → **ON2GO line**: every call (path, language, order numbers, platform, outcome, duration),
+search by phone number (4+ digits) or order number, open tickets (mark done), platform orders reported, voicemail player
+(the MP3 is fetched from api.twilio.com by the server, never exposed) and transcript.
+
+**Audio**: the prompts use Twilio `<Say>` neural voices (no new vendor). Recorded MP3s (greeting, voicemail prompt) can
+be set per language in Settings (any https URL). They could not be generated on the build PC without a new account or
+download (only English Windows voices, no MP3 encoder).
+
+**Owner steps**
+1. Twilio: the ON2GO number → **A call comes in**: Webhook `https://<domain>/api/foodhub/webhooks/ivr`, POST;
+   **Call status changes**: `https://<domain>/api/foodhub/webhooks/ivr/status` (both with a copy button in Settings).
+2. Coolify env: `FOODHUB_IVR_NUMBER` (that number), optional `FOODHUB_IVR_HANDOFF_NUMBER`, `FOODHUB_VOICEMAIL_EMAIL`.
+   Twilio + `ANTHROPIC_API_KEY` + email as in section 4.
+3. Settings → Expansion → AI phone → *Menu téléphonique*: check the greeting, the ON2GO links (placeholders until the
+   pages are live) and the ordering line; turn on *AI phone ordering* for the *place an order* branch.
+
 ---
 
 ## 5. Screens
@@ -248,9 +304,10 @@ total → Clover ticket + confirmation text → goodbye.
 |---|---|
 | `/direct` | Own orders: KPIs, cards with courier status, order drawer (courier, quotes, timeline, actions), *New order* |
 | `/direct/calls` | AI phone: call log with transcripts, *Try the agent* |
+| `/direct/ivr` | ON2GO line: menu calls, search by phone / order number, tickets, platform orders reported, voicemails |
 | `/menu/retail` | Grocery catalogue: scan / search, stock, product drawer, CSV, Clover import, platform preview |
 | `/settings/expansion` | Switches + what each feature still needs |
-| `/settings/expansion/delivery` · `/alcohol` · `/phone` | Rules per feature |
+| `/settings/expansion/delivery` · `/alcohol` · `/phone` · `/phone/ivr` | Rules per feature (`/phone/ivr` = the ON2GO phone menu) |
 | `/kitchen` | Courier strip above the tickets (own delivery only) |
 | `/` | One tile per feature that is on |
 
@@ -267,7 +324,10 @@ Manager PIN rules (Settings → Manager PIN → *Own delivery*): *Call a courier
 | `DOORDASH_DRIVE_WEBHOOK_SECRET` | Generated by Food Hub; the token DoorDash sends in `Authorization` |
 | `UBER_DIRECT_CUSTOMER_ID`, `UBER_DIRECT_CLIENT_ID`, `UBER_DIRECT_CLIENT_SECRET`, `UBER_DIRECT_WEBHOOK_SECRET`, `UBER_DIRECT_ENV` | Optional second fleet |
 | `FOODHUB_WEBSITE_ORDER_SECRET` | Generated by Food Hub; bearer token for website orders |
-| `FOODHUB_PHONE_MODEL` | Claude model for the phone agent (default `claude-opus-5-5`) |
+| `FOODHUB_PHONE_MODEL` | Claude model for the phone agent and the ON2GO menu AI (default `claude-opus-5-5`) |
+| `FOODHUB_IVR_NUMBER` | The ON2GO main line (Twilio number, E.164) answered by the phone menu |
+| `FOODHUB_IVR_HANDOFF_NUMBER` | Optional: "talk to someone" on the menu rings it (else `FOODHUB_MAIN_PHONE`; none = voicemail) |
+| `FOODHUB_VOICEMAIL_EMAIL` | Where menu voicemails and tickets are emailed (else `FOODHUB_OWNER_EMAIL`) |
 
 ## 7. What each platform must approve
 

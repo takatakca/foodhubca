@@ -93,7 +93,7 @@ export async function placePhoneOrder(call: PhoneCall, line: PhoneLine, menu: Ph
   const brand = call.cart[0].brand;
   const order = await createDirectOrder({
     source: 'phone_ai', sourceRef: call.id, brandName: brand, locationCode: line.locationCode,
-    customer: { name: c.name, phone: c.phone, lang: call.lang }, fulfillment: c.fulfillment, dropoff: c.dropoff, lines,
+    customer: { name: c.name, phone: c.phone, lang: call.lang === 'es' ? 'en' : call.lang /* texts exist in fr / en */ }, fulfillment: c.fulfillment, dropoff: c.dropoff, lines,
     payment: c.fulfillment === 'pickup' ? 'pay_at_pickup' : 'unpaid', deliveryFee: delivery.fee, wantedAt: c.wantedAt,
     notes: `Phone order (AI) — call ${call.id.slice(-6)}`, confirmBySms: opts.smsConfirmation,
     // Couriers never collect money: a person calls back for the payment before the courier is sent.

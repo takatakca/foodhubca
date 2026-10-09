@@ -393,3 +393,232 @@ Description EN (381 characters):
 | NDG (6280 Somerled) | none recorded: search Google before creating one | A or B: owner | todo |
 | Saint-Léonard (5839 Jean-Talon E) | none recorded: search Google before creating one | A or B: owner | todo |
 
+
+
+---
+
+# Google posts: the first 4 per brand (G4)
+
+Post one per week per brand profile, in French (add the English text as a second post only if the profile gets many
+English reviews). Button: **Commander en ligne / Order online** to the order link the owner chooses. Photo: one dish photo
+from the brand's set (pppmtl dish photos). Rules: no prices in the text (they change), no "24/7", no other brand or
+platform named, no health claims. Post 4 waits for the owner's confirmed hours.
+
+## PPP Pizzeria
+
+1. **Bienvenue / Welcome** — FR: Poulet, pizza et poutine de notre cuisine NDG, cueillette ou livraison. Commandez en ligne pour la cueillette ou la livraison.
+   EN: Chicken, pizza and poutine from our NDG kitchen, pickup or delivery. Order online for pickup or delivery.
+2. **Nos favoris / Our favourites** — FR: Poulet, pizza et poutine de notre cuisine NDG, cueillette ou livraison.
+   EN: Chicken, pizza and poutine from our NDG kitchen, pickup or delivery.
+3. **À partager / To share** — FR: Poulet, pizza et poutine de notre cuisine NDG, cueillette ou livraison.
+   EN: Chicken, pizza and poutine from our NDG kitchen, pickup or delivery.
+4. **Ce soir / Tonight** (after the owner confirms hours) — FR: Envie de pizza, poulet, poutine ce soir ? PPP Pizzeria est ouvert jusqu'à [heure confirmée]. Cueillette ou livraison.
+   EN: Craving pizza, rotisserie chicken, poutine tonight? PPP Pizzeria is open until [confirmed time]. Pickup or delivery.
+
+## OOEUF
+
+1. **Bienvenue / Welcome** — FR: OOEUF, c’est le casse-croûte de quartier : burgers, hot-dogs Michigan, poutines et rondelles d’oignon, préparés dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal. Commandez en ligne pour la cueillette ou la livraison.
+   EN: OOEUF is the neighbourhood snack bar: burgers, Michigan hot dogs, poutines and onion rings, made in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal. Order online for pickup or delivery.
+2. **Nos favoris / Our favourites** — FR: Le Big Matt, notre burger double, le cheeseburger, le Philly Burger et le Sloppy Joe sont servis avec garnitures et sauces au choix. Ajoutez un trio frites et breuvage, ou une poutine classique.
+   EN: The Big Matt, our double burger, the cheeseburger, the Philly Burger and the Sloppy Joe come with the toppings and sauces you choose. Add fries and a drink, or a classic poutine.
+3. **À partager / To share** — FR: La poutine classique ou bacon se commande du format mini au grand format. Hot-dogs Michigan, suprêmes ou toastés et rondelles d’oignon complètent le casse-croûte.
+   EN: Classic or bacon poutine comes in mini to large. Michigan, supreme or toasted hot dogs and onion rings round out the menu.
+4. **Ce soir / Tonight** (after the owner confirms hours) — FR: Envie de casse-croûte, burgers, hot-dogs, poutine ce soir ? OOEUF est ouvert jusqu'à [heure confirmée]. Cueillette ou livraison.
+   EN: Craving snack bar, burgers, hot dogs, poutine tonight? OOEUF is open until [confirmed time]. Pickup or delivery.
+
+## Déjeuner Montréal
+
+1. **Bienvenue / Welcome** — FR: Déjeuner Montréal sert les trios du casse-croûte : hamburgers, cheeseburgers, hot-dogs vapeur ou Michigan, frites et poutines garnies, préparés dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal. Commandez en ligne pour la cueillette ou la livraison.
+   EN: Déjeuner Montréal serves snack-bar combos: hamburgers, cheeseburgers, steamed or Michigan hot dogs, fries and loaded poutines, made in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal. Order online for pickup or delivery.
+2. **Nos favoris / Our favourites** — FR: Chaque trio vient avec frites et breuvage : deux hamburgers, un cheeseburger double avec rondelles d’oignon, deux hot-dogs vapeur, Michigan ou suprêmes.
+   EN: Every combo comes with fries and a drink: two hamburgers, a double cheeseburger with onion rings, two steamed, Michigan or supreme hot dogs.
+3. **À partager / To share** — FR: Côté poutines : hot-dog, italienne, steak ou toute garnie. Les frites se prennent nature, sauce ou Michigan.
+   EN: For poutine: hot dog, Italian, steak or all-dressed. Fries come plain, with gravy or Michigan style.
+4. **Ce soir / Tonight** (after the owner confirms hours) — FR: Envie de casse-croûte, trios, poutine ce soir ? Déjeuner Montréal est ouvert jusqu'à [heure confirmée]. Cueillette ou livraison.
+   EN: Craving snack bar, combos, poutine tonight? Déjeuner Montréal is open until [confirmed time]. Pickup or delivery.
+
+## Pi Pita
+
+1. **Bienvenue / Welcome** — FR: Pi Pita sert la cuisine de rue libanaise : pitas et wraps shawarma, shish taouk et mixte, assiettes libanaises avec salade au choix, salades shish taouk et shawarma, et des options végétariennes, dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal. Commandez en ligne pour la cueillette ou la livraison.
+   EN: Pi Pita serves Lebanese street food: shawarma, shish taouk and mixed pitas and wraps, Lebanese plates with your choice of salad, shish taouk and shawarma salads, and vegetarian options, in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal. Order online for pickup or delivery.
+2. **Nos favoris / Our favourites** — FR: Chaque pita ou wrap vient avec garnitures et sauces au choix. Ajoutez un trio frites et breuvage, ou une poutine classique.
+   EN: Every pita or wrap comes with the toppings and sauces you choose. Add fries and a drink, or a classic poutine.
+3. **À partager / To share** — FR: Les assiettes shish taouk, shawarma, mixte ou végétarienne se servent seules, avec un pita ou en duo, avec une salade maison, grecque ou César. Le shish taouk et le shawarma existent aussi en salade.
+   EN: Shish taouk, shawarma, mixed or vegetarian plates come on their own, with one pita or two, with a house, Greek or Caesar salad. Shish taouk and shawarma also come as a salad.
+4. **Ce soir / Tonight** (after the owner confirms hours) — FR: Envie de libanais, shawarma, shish taouk ce soir ? Pi Pita est ouvert jusqu'à [heure confirmée]. Cueillette ou livraison.
+   EN: Craving lebanese, shawarma, shish taouk tonight? Pi Pita is open until [confirmed time]. Pickup or delivery.
+
+## Pita Libanais
+
+1. **Bienvenue / Welcome** — FR: Pita Libanais, ce sont les repas libanais à partager : quatre assiettes ou quatre pitas pour la famille, trios pour deux, et le shish taouk et le shawarma en sous-marin, en poutine ou sur pizza, dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal. Commandez en ligne pour la cueillette ou la livraison.
+   EN: Pita Libanais is Lebanese food to share: four plates or four pitas for the family, combos for two, and shish taouk and shawarma as a sub, a poutine or a pizza, in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal. Order online for pickup or delivery.
+2. **Nos favoris / Our favourites** — FR: Pour la famille : quatre assiettes libanaises ou quatre pitas au choix, avec frites et boissons. Pour deux : deux pitas avec deux mini poutines, ou deux assiettes avec deux breuvages.
+   EN: For the family: four Lebanese plates or four pitas of your choice, with fries and drinks. For two: two pitas with two mini poutines, or two plates with two drinks.
+3. **À partager / To share** — FR: Le shish taouk et le shawarma se prennent aussi en sous-marin, en poutine ou sur une pizza.
+   EN: Shish taouk and shawarma also come as a sub, a poutine or a pizza.
+4. **Ce soir / Tonight** (after the owner confirms hours) — FR: Envie de libanais, repas familiaux, shish taouk ce soir ? Pita Libanais est ouvert jusqu'à [heure confirmée]. Cueillette ou livraison.
+   EN: Craving lebanese, family meals, shish taouk tonight? Pita Libanais is open until [confirmed time]. Pickup or delivery.
+
+## Mythos & Go
+
+1. **Bienvenue / Welcome** — FR: Mythos & Go sert la cuisine de rue grecque : pitas et assiettes gyros et souvlaki, brochettes, salade grecque, poutine, sous-marin et pizza gyros, dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal. Commandez en ligne pour la cueillette ou la livraison.
+   EN: Mythos & Go serves Greek street food: gyros and souvlaki pitas and plates, skewers, Greek salad, gyros poutine, sub and pizza, in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal. Order online for pickup or delivery.
+2. **Nos favoris / Our favourites** — FR: Les assiettes gyros, souvlaki porc ou souvlaki poulet viennent avec une salade maison, grecque ou César, seules ou avec pita. Pour deux : deux assiettes de deux brochettes, poulet ou porc.
+   EN: Gyros, pork souvlaki or chicken souvlaki plates come with a house, Greek or Caesar salad, on their own or with pita. For two: two plates of two skewers, chicken or pork.
+3. **À partager / To share** — FR: Le gyros se prend aussi en pita, en sous-marin, en poutine ou sur une pizza. Ajoutez de la feta.
+   EN: Gyros also comes in a pita, a sub, a poutine or on a pizza. Add feta.
+4. **Ce soir / Tonight** (after the owner confirms hours) — FR: Envie de grec, gyros, souvlaki ce soir ? Mythos & Go est ouvert jusqu'à [heure confirmée]. Cueillette ou livraison.
+   EN: Craving greek, gyros, souvlaki tonight? Mythos & Go is open until [confirmed time]. Pickup or delivery.
+
+## Nutrition Shake
+
+1. **Bienvenue / Welcome** — FR: Nutrition Shake prépare des repas légers et protéinés : salades au poulet, au steak, au gyros, César et maison, le duo de salades protéinées, un sous-marin végétarien, des tacos aux haricots noirs, de l’eau et des boissons froides, dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal. Commandez en ligne pour la cueillette ou la livraison.
+   EN: Nutrition Shake makes light, protein-rich meals: chicken, steak, gyros, Caesar and house salads, the two protein salads deal, a vegetarian sub, black bean tacos, water and cold drinks, in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal. Order online for pickup or delivery.
+2. **Nos favoris / Our favourites** — FR: Salade au poulet, au steak, au gyros, César ou maison : de quoi manger frais, au dîner comme au souper. Le duo de salades protéinées se partage à deux.
+   EN: Chicken, steak, gyros, Caesar or house salad: fresh food for lunch or dinner. The two protein salads deal is made to share.
+3. **À partager / To share** — FR: Côté végétarien : le sous-marin végétarien et les tacos aux haricots noirs. Pour boire : de l’eau ou une boisson froide.
+   EN: Vegetarian: the vegetarian sub and black bean tacos. To drink: water or a cold drink.
+4. **Ce soir / Tonight** (after the owner confirms hours) — FR: Envie de santé, salades protéinées, végétarien ce soir ? Nutrition Shake est ouvert jusqu'à [heure confirmée]. Cueillette ou livraison.
+   EN: Craving healthy, protein salads, vegetarian tonight? Nutrition Shake is open until [confirmed time]. Pickup or delivery.
+
+## Bin Molle & Bin Dure
+
+1. **Bienvenue / Welcome** — FR: Bin Molle & Bin Dure, c’est le comptoir à desserts glacés du quartier : slush, gaufres, crêpes, cheesecakes Oreo et aux brisures de chocolat, et boissons gazeuses bien froides, préparés dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal. Commandez en ligne pour la cueillette ou la livraison.
+   EN: Bin Molle & Bin Dure is the neighbourhood icy dessert counter: slush, waffles, crêpes, Oreo and chocolate chip cheesecakes, and ice-cold soft drinks, made in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal. Order online for pickup or delivery.
+2. **Nos favoris / Our favourites** — FR: Une slush bleue ou rouge, du petit au grand format, une gaufre ou une crêpe avec le coulis de votre choix : le dessert parfait après le souper.
+   EN: A blue or red slush, small to large, a waffle or a crêpe with the sauce you choose: the perfect dessert after dinner.
+3. **À partager / To share** — FR: Pour fêter : cheesecake Oreo ou aux brisures de chocolat, à la pointe ou en gâteau complet. Et un root beer, un cream soda ou une boisson gazeuse bien froide.
+   EN: To celebrate: Oreo or chocolate chip cheesecake, by the slice or whole. And an ice-cold root beer, cream soda or soft drink.
+4. **Ce soir / Tonight** (after the owner confirms hours) — FR: Envie de crèmerie, desserts ce soir ? Bin Molle & Bin Dure est ouvert jusqu'à [heure confirmée]. Cueillette ou livraison.
+   EN: Craving ice cream shop, desserts tonight? Bin Molle & Bin Dure is open until [confirmed time]. Pickup or delivery.
+
+## OCRÊPE
+
+1. **Bienvenue / Welcome** — FR: OCRÊPE prépare des crêpes et des gaufres avec le coulis de votre choix, des gâteaux Nutella, Ferrero Rocher et Oréo, dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal. Commandez en ligne pour la cueillette ou la livraison.
+   EN: OCRÊPE makes crêpes and waffles with the sauce you choose, plus Nutella, Ferrero Rocher and Oreo cakes, in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal. Order online for pickup or delivery.
+2. **Nos favoris / Our favourites** — FR: Chaque crêpe et chaque gaufre vient avec un choix de coulis. Ajoutez des garnitures sucrées pour une collation ou un dessert à partager.
+   EN: Every crêpe and every waffle comes with a choice of sauce. Add sweet toppings for a snack or a dessert to share.
+3. **À partager / To share** — FR: Pour finir le repas : gâteau Nutella, Ferrero Rocher ou Oréo, cheesecake Oreo, une slush bien glacée ou une boisson gazeuse.
+   EN: To finish the meal: Nutella, Ferrero Rocher or Oreo cake, Oreo cheesecake, an icy slush or a soft drink.
+4. **Ce soir / Tonight** (after the owner confirms hours) — FR: Envie de crêpes, gaufres, desserts ce soir ? OCRÊPE est ouvert jusqu'à [heure confirmée]. Cueillette ou livraison.
+   EN: Craving crêpes, waffles, desserts tonight? OCRÊPE is open until [confirmed time]. Pickup or delivery.
+
+## Gâteau Montréal
+
+1. **Bienvenue / Welcome** — FR: Gâteau Montréal (La Viennoise), c’est la pâtisserie du quartier : gâteaux Ferrero Rocher, red velvet, carotte, citron, Skor et cheesecakes, à la pointe ou entiers, préparés dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal. Commandez en ligne pour la cueillette ou la livraison.
+   EN: Gâteau Montréal (La Viennoise) is the neighbourhood pastry shop: Ferrero Rocher, red velvet, carrot, lemon and Skor cakes and cheesecakes, by the slice or whole, made in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal. Order online for pickup or delivery.
+2. **Nos favoris / Our favourites** — FR: Chaque gâteau se commande à la pointe ou entier, pour un anniversaire, un souper en famille ou une petite gâterie. Ajoutez un coulis ou des garnitures.
+   EN: Every cake comes by the slice or whole, for a birthday, a family dinner or a small treat. Add a sauce or toppings.
+3. **À partager / To share** — FR: Nos favoris : le Ferrero Rocher, le red velvet et le gâteau aux carottes. Côté cheesecake : pistache et amaretto.
+   EN: Our favourites: Ferrero Rocher, red velvet and carrot cake. For cheesecake: pistachio and amaretto.
+4. **Ce soir / Tonight** (after the owner confirms hours) — FR: Envie de pâtisserie, gâteaux, cheesecakes ce soir ? Gâteau Montréal est ouvert jusqu'à [heure confirmée]. Cueillette ou livraison.
+   EN: Craving pastry, cakes, cheesecakes tonight? Gâteau Montréal is open until [confirmed time]. Pickup or delivery.
+
+## Taco Mexican
+
+1. **Bienvenue / Welcome** — FR: Taco Mexican prépare tacos, burritos, quesadillas et nachos au poulet, au steak, au bœuf ou aux haricots noirs, dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal. Commandez en ligne pour la cueillette ou la livraison.
+   EN: Taco Mexican makes tacos, burritos, quesadillas and nachos with chicken, steak, beef or black beans, in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal. Order online for pickup or delivery.
+2. **Nos favoris / Our favourites** — FR: Les tacos se commandent à l’unité ou en trio familial. Les burritos et les quesadillas viennent avec les garnitures de votre choix.
+   EN: Tacos come one at a time or as a family trio. Burritos and quesadillas come with the toppings you choose.
+3. **À partager / To share** — FR: Pour partager : nachos au bœuf, au poulet ou au fromage en sauce. Une version végétarienne aux haricots noirs est offerte.
+   EN: To share: beef, chicken or cheese sauce nachos. A vegetarian black bean version is available.
+4. **Ce soir / Tonight** (after the owner confirms hours) — FR: Envie de mexicain, tacos, burritos, nachos ce soir ? Taco Mexican est ouvert jusqu'à [heure confirmée]. Cueillette ou livraison.
+   EN: Craving mexican, tacos, burritos, nachos tonight? Taco Mexican is open until [confirmed time]. Pickup or delivery.
+
+## Pizza Inntime
+
+1. **Bienvenue / Welcome** — FR: Pizza Inntime sort du four des pizzas toute garnie, pepperonata, napolitaine, végétarienne, au poulet ou au bacon, et des combos pizza-poutine, dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal. Commandez en ligne pour la cueillette ou la livraison.
+   EN: Pizza Inntime bakes all-dressed, pepperonata, Neapolitan, vegetarian, chicken and bacon pizzas, plus pizza-and-poutine deals, in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal. Order online for pickup or delivery.
+2. **Nos favoris / Our favourites** — FR: Nos classiques : toute garnie, pepperonata, napolitaine et végétarienne, au poulet ou au bacon. Le pain magique au fromage accompagne tout.
+   EN: Our classics: all-dressed, pepperonata, Neapolitan and vegetarian, chicken or bacon. Cheesy magic bread goes with everything.
+3. **À partager / To share** — FR: Pour les soirées en groupe : deux pizzas moyennes ou deux larges, ou une pizza avec sa poutine, de la petite à la grande.
+   EN: For a night with friends: two medium or two large pizzas, or a pizza with its poutine, small to large.
+4. **Ce soir / Tonight** (after the owner confirms hours) — FR: Envie de pizzeria, pizza ce soir ? Pizza Inntime est ouvert jusqu'à [heure confirmée]. Cueillette ou livraison.
+   EN: Craving pizzeria, pizza tonight? Pizza Inntime is open until [confirmed time]. Pickup or delivery.
+
+## Pizza Algérie
+
+1. **Bienvenue / Welcome** — FR: Pizza Algérie, ce sont des combos pizza avec pilons frits, ailes ou sous-marin, la pizza Philly steak et le pain magique, préparés dans notre cuisine de Notre-Dame-de-Grâce (NDG), au 6280 avenue Somerled, à Montréal. Commandez en ligne pour la cueillette ou la livraison.
+   EN: Pizza Algérie makes pizza combos with fried drumsticks, wings or a sub, the Philly steak pizza and magic bread, in our kitchen in Notre-Dame-de-Grâce (NDG), 6280 Somerled Avenue, Montréal. Order online for pickup or delivery.
+2. **Nos favoris / Our favourites** — FR: Les combos : une pizza avec des pilons frits, des ailes ou un sous-marin, frites, salade, sauce et Pepsi, de la bambino à la large. Ou deux pizzas Deluxe moyennes.
+   EN: The combos: a pizza with fried drumsticks, wings or a sub, fries, salad, sauce and Pepsi, from bambino to large. Or two medium Deluxe pizzas.
+3. **À partager / To share** — FR: À la carte : la pizza Philly steak et le pain magique.
+   EN: À la carte: the Philly steak pizza and magic bread.
+4. **Ce soir / Tonight** (after the owner confirms hours) — FR: Envie de pizza, combos pizza ce soir ? Pizza Algérie est ouvert jusqu'à [heure confirmée]. Cueillette ou livraison.
+   EN: Craving pizza, pizza combos tonight? Pizza Algérie is open until [confirmed time]. Pickup or delivery.
+
+## Po Poulet
+
+1. **Bienvenue / Welcome** — FR: Po Poulet, c’est le poulet frit croustillant à Saint-Léonard : poulet frit en 3, 4, 9 ou 15 morceaux avec frites, salade de chou et sauce, ailes et croquettes, et burgers au poulet, au 5839 rue Jean-Talon Est, à Montréal. Commandez en ligne pour la cueillette ou la livraison.
+   EN: Po Poulet is crispy fried chicken in Saint-Léonard: 3, 4, 9 or 15 pieces with fries, coleslaw and gravy, wings and nuggets, and chicken burgers, at 5839 Jean-Talon Street East, Montréal. Order online for pickup or delivery.
+2. **Nos favoris / Our favourites** — FR: Du repas solo de 3 morceaux au festin de 15 morceaux avec frites, sauces, salades de chou et Pepsi. Ailes ou croquettes : 6 ou 10 morceaux avec frites, sauce et Pepsi.
+   EN: From a 3-piece meal for one to a 15-piece feast with fries, gravy, coleslaw and Pepsi. Wings or nuggets: 6 or 10 pieces with fries, sauce and Pepsi.
+3. **À partager / To share** — FR: Aussi : le burger poulet et les trios burgers poulet avec frites ou rondelles d’oignon.
+   EN: Also: the chicken burger and chicken burger combos with fries or onion rings.
+4. **Ce soir / Tonight** (after the owner confirms hours) — FR: Envie de poulet frit, ailes, burgers poulet ce soir ? Po Poulet est ouvert jusqu'à [heure confirmée]. Cueillette ou livraison.
+   EN: Craving fried chicken, wings, chicken burgers tonight? Po Poulet is open until [confirmed time]. Pickup or delivery.
+
+## Poulet Poulet
+
+1. **Bienvenue / Welcome** — FR: Poulet Poulet, ce sont les ailes de poulet et les croquettes avec frites, sauce et Pepsi, de 6 à 25 morceaux, et les trios burger ou cheeseburger avec ailes, dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal. Commandez en ligne pour la cueillette ou la livraison.
+   EN: Poulet Poulet is chicken wings and nuggets with fries, sauce and Pepsi, from 6 to 25 pieces, plus burger or cheeseburger combos with wings, in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal. Order online for pickup or delivery.
+2. **Nos favoris / Our favourites** — FR: Ailes ou croquettes, au choix : 6, 10, 15 ou 25 morceaux, avec frites, sauces et Pepsi. Une aile de plus ? Elle se commande à l’unité.
+   EN: Wings or nuggets, your choice: 6, 10, 15 or 25 pieces, with fries, sauces and Pepsi. One more wing? Order it by the piece.
+3. **À partager / To share** — FR: Les trios : cheeseburger ou burger poulet avec 6 ailes et une boisson gazeuse. À côté : frites maison, poutine classique et salade de chou.
+   EN: The combos: cheeseburger or chicken burger with 6 wings and a soft drink. On the side: house fries, classic poutine and coleslaw.
+4. **Ce soir / Tonight** (after the owner confirms hours) — FR: Envie de ailes de poulet, croquettes ce soir ? Poulet Poulet est ouvert jusqu'à [heure confirmée]. Cueillette ou livraison.
+   EN: Craving chicken wings, nuggets tonight? Poulet Poulet is open until [confirmed time]. Pickup or delivery.
+
+## Café Bolon
+
+1. **Bienvenue / Welcome** — FR: Café Bolon propose des bouchées d’inspiration latino-américaine : empanadas, quesadillas, nachos, burritos et tacos au bœuf, au steak ou aux haricots noirs, pita et poutine tacos, dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal. Commandez en ligne pour la cueillette ou la livraison.
+   EN: Café Bolon offers Latin American-inspired bites: empanadas, quesadillas, nachos, burritos and tacos with beef, steak or black beans, taco pita and taco poutine, in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal. Order online for pickup or delivery.
+2. **Nos favoris / Our favourites** — FR: Pour grignoter : empanadas, nachos au steak ou aux haricots noirs, quesadillas au bœuf ou aux haricots noirs, tacos au steak.
+   EN: To snack: empanadas, steak or black bean nachos, beef or black bean quesadillas, steak tacos.
+3. **À partager / To share** — FR: Pour un repas : burrito aux haricots noirs, assiette ou pita de viande à tacos, sous-marin ou poutine tacos.
+   EN: For a meal: black bean burrito, taco meat plate or pita, taco sub or taco poutine.
+4. **Ce soir / Tonight** (after the owner confirms hours) — FR: Envie de latino-américain, empanadas, nachos ce soir ? Café Bolon est ouvert jusqu'à [heure confirmée]. Cueillette ou livraison.
+   EN: Craving latin american, empanadas, nachos tonight? Café Bolon is open until [confirmed time]. Pickup or delivery.
+
+## Place Afrique
+
+1. **Bienvenue / Welcome** — FR: Place Afrique propose samoussas, pâtés jamaïcains, empanadas et assiettes de brochettes et de souvlaki grillés, préparés dans nos cuisines de Notre-Dame-de-Grâce (NDG) et de Saint-Léonard, à Montréal. Commandez en ligne pour la cueillette ou la livraison.
+   EN: Place Afrique offers samosas, Jamaican patties, empanadas and grilled skewer and souvlaki plates, made in our kitchens in Notre-Dame-de-Grâce (NDG) and Saint-Léonard, Montréal. Order online for pickup or delivery.
+2. **Nos favoris / Our favourites** — FR: Pour grignoter : samoussas, pâté jamaïcain et empanadas. Pour un vrai repas : deux assiettes de deux brochettes, poulet ou porc, avec breuvages.
+   EN: To snack: samosas, Jamaican patty and empanadas. For a real meal: two plates of two skewers, chicken or pork, with drinks.
+3. **À partager / To share** — FR: À côté : pilon de poulet, salade de chou, frites maison et un ginger ale bien froid.
+   EN: On the side: chicken drumstick, coleslaw, house fries and an ice-cold ginger ale.
+4. **Ce soir / Tonight** (after the owner confirms hours) — FR: Envie de grillades, bouchées ce soir ? Place Afrique est ouvert jusqu'à [heure confirmée]. Cueillette ou livraison.
+   EN: Craving grill, snacks tonight? Place Afrique is open until [confirmed time]. Pickup or delivery.
+
+
+# Review replies (FR / EN templates)
+
+Rules (Google policy and good practice):
+- Reply to every review within 48 hours, signed with the brand name ("— L'équipe {marque}"), never a person's name or phone.
+- Never offer anything in exchange for a review, never ask only happy customers, never post reviews for ourselves, never
+  argue in public. Move problems to a private channel (the brand website contact form).
+- Never confirm private details (order number, address, what the customer ordered) in a public reply.
+- Fake or abusive review: flag it in Google, reply once politely, log it in the Drive OPS_LOG.
+
+**5 stars** — FR: Merci beaucoup ! Toute l'équipe {marque} est ravie que vous ayez aimé. À très bientôt ! — L'équipe {marque}
+EN: Thank you so much! The whole {brand} team is happy you enjoyed it. See you soon! — The {brand} team
+
+**4 stars** — FR: Merci pour votre avis ! Si quelque chose aurait pu être encore mieux, écrivez-nous par le formulaire de
+notre site : on lit tout. — L'équipe {marque}
+EN: Thanks for the review! If anything could have been even better, tell us through the form on our website: we read
+everything. — The {brand} team
+
+**1–3 stars, food or service** — FR: Désolés que votre expérience n'ait pas été à la hauteur. Ce n'est pas ce qu'on veut
+pour nos clients. Écrivez-nous par le formulaire de notre site avec la date de la commande, et on règle ça avec vous. —
+L'équipe {marque}
+EN: We're sorry your experience fell short. That's not what we want for our customers. Please write to us through the
+form on our website with the date of your order and we'll make it right. — The {brand} team
+
+**Late or missing delivery** — FR: Désolés pour l'attente. Les livraisons sont faites par l'application de livraison :
+signalez le problème dans l'application pour un remboursement rapide, et écrivez-nous aussi par notre site pour qu'on
+fasse le suivi. — L'équipe {marque}
+EN: Sorry about the wait. Deliveries are made by the delivery app: please report the problem in the app for a quick
+refund, and also write to us through our website so we can follow up. — The {brand} team
+
+**Review without text** — FR: Merci pour votre note ! — L'équipe {marque} / EN: Thank you for the rating! — The {brand} team

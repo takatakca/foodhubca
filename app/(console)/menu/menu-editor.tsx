@@ -17,6 +17,7 @@ import { api, ApiError, money, timeOf } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import type { MasterMenu, MenuCategory, MenuItem, MenuModifierGroup } from '@/lib/foodhub/types';
 import { cn } from '@/lib/ui/cn';
+import { UBER_TAX_CLASSES, type UberTaxClass } from '@/lib/foodhub/menu/uber-tax';
 
 type Issue = { level: 'error' | 'warning' | 'tip'; code: string; message: string; ref?: string };
 type Check = { ok: boolean; errors: Issue[]; warnings: Issue[]; tips: Issue[] };
@@ -158,6 +159,20 @@ export function MenuEditor() {
                   onChange={(e) => update((m) => { const next = { ...(m.channelMarkupPct || {}) } as Record<string, number>; if (e.target.value === '' || Number(e.target.value) === 0) delete next[k]; else next[k] = Number(e.target.value); return { ...m, channelMarkupPct: next }; })} />%
               </label>
             ))}
+            {/* Uber item tax category (tax_label_info): brand default; an item can override it in its dialog. */}
+            <label className="flex items-center gap-1 text-xs" title={t('Catégorie de taxe Uber Eats par défaut des articles et options. Vide = rien envoyé (la configuration de taxes du magasin Uber s’applique).', 'Default Uber Eats tax category of the items and options. Empty = nothing sent (the Uber store tax setup applies).')}>
+              <PlatformMark channel="uber_eats" size="xs" /><span>{t('taxe', 'tax')}</span>
+              <Select selectSize="sm" aria-label={t('Catégorie de taxe Uber', 'Uber tax category')} value={menu.uberTaxClass ?? ''} onChange={(e) => update((m) => ({ ...m, uberTaxClass: e.target.value || undefined }))}>
+                <option value="">—</option>{(Object.keys(UBER_TAX_CLASSES) as UberTaxClass[]).map((k) => <option key={k} value={k}>{lang === 'fr' ? UBER_TAX_CLASSES[k].fr : UBER_TAX_CLASSES[k].en}</option>)}
+              </Select>
+            </label>
+            {/* DoorDash dual pricing: base_price = pickup price. Empty = same as delivery; 0 = in-store price. */}
+            <label className="flex items-center gap-1 text-xs" title={t('Prix pour emporter sur DoorDash : % ajouté au prix en magasin. Vide = même prix que la livraison. 0 = prix en magasin.', 'DoorDash pickup price: % added to the in-store price. Empty = same as delivery. 0 = in-store price.')}>
+              <PlatformMark channel="doordash" size="xs" /><span>{t('emporter', 'pickup')}</span>
+              <Input inputSize="sm" type="number" step="1" min="-50" max="200" placeholder="—" className="num w-16" aria-label={t('DoorDash emporter %', 'DoorDash pickup %')}
+                value={menu.pickupMarkupPct?.doordash ?? ''}
+                onChange={(e) => update((m) => { const next = { ...(m.pickupMarkupPct || {}) }; if (e.target.value === '') delete next.doordash; else next.doordash = Number(e.target.value); return { ...m, pickupMarkupPct: next }; })} />%
+            </label>
           </div>
         )}
         {langs && <button type="button" onClick={() => setDialog('langs')} className="ml-auto flex items-center gap-1.5 text-[13px] text-ink-3 hover:text-ink"><Languages className="size-4" />Uber {LANG[langs.uber_eats]} · DoorDash {LANG[langs.doordash]} · Skip {LANG[langs.skip]}</button>}
@@ -391,6 +406,7 @@ function ItemDialog({ item, markup, groups, categories, onChange, onRemove, onCl
           {item.imageUrl && <img /* eslint-disable-line @next/next/no-img-element -- menu photos come from platform CDNs */ src={item.imageUrl} alt={item.name} className="max-h-44 w-full rounded-lg object-cover" />}
           <div><div className="mb-1.5 text-[13px] font-semibold text-ink-2">{t('Étiquettes', 'Dietary tags')}</div><div className="flex flex-wrap gap-x-4 gap-y-2">{TAGS.map(([k, fr, en]) => <Checkbox key={k} checked={(item.tags ?? []).includes(k)} onChange={(c) => onChange({ tags: c ? [...(item.tags ?? []), k] : (item.tags ?? []).filter((x) => x !== k) })} label={lang === 'fr' ? fr : en} />)}</div></div>
           <Field label={t('Allergènes (séparés par des virgules)', 'Allergens (comma-separated)')}><Input value={allergens} onChange={(e) => setAllergens(e.target.value)} placeholder="arachides, lait, blé" /></Field>
+          <Field label={t('Catégorie de taxe Uber Eats', 'Uber Eats tax category')}><Select value={item.uberTaxClass ?? ''} onChange={(e) => onChange({ uberTaxClass: e.target.value || undefined })}><option value="">{t('celle de la marque', 'brand default')}</option>{(Object.keys(UBER_TAX_CLASSES) as UberTaxClass[]).map((k) => <option key={k} value={k}>{lang === 'fr' ? UBER_TAX_CLASSES[k].fr : UBER_TAX_CLASSES[k].en}</option>)}</Select></Field>
           <Field label="Calories"><Input type="number" min={0} className="w-32" value={item.calories ?? ''} onChange={(e) => onChange({ calories: e.target.value === '' ? undefined : Number(e.target.value) })} /></Field>
           <div><div className="mb-1.5 text-[13px] font-semibold text-ink-2">{t('Groupes d’options', 'Option groups')}</div><div className="space-y-1.5">{groups.map((g) => <Checkbox key={g.ref} checked={item.modifierGroupRefs.includes(g.ref)} onChange={(c) => onChange({ modifierGroupRefs: c ? [...item.modifierGroupRefs, g.ref] : item.modifierGroupRefs.filter((r) => r !== g.ref) })} label={`${lang === 'fr' && g.nameFr ? g.nameFr : g.name} (${g.modifiers.length}${g.min ? `, ${t('obligatoire', 'required')}` : ''})`} />)}{groups.length === 0 && <span className="text-xs text-ink-3">—</span>}</div></div>
           <div className="text-xs text-ink-3">Clover : <span className="font-mono">{item.posItemRef || t('non lié — arrive comme ligne libre', 'not linked — arrives as a custom line')}</span></div>

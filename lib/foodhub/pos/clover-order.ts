@@ -18,6 +18,7 @@
 import { MARKETPLACE_LABELS, toCents } from '../config';
 import { cloverFetch } from './clover-http';
 import type { ChannelKey, MasterMenu, MenuItem, MenuModifier, OrderLine, OrderMappingWarning, OrderModifier, StoredOrder } from '../types';
+import { orderSourceLabel } from '../types';
 import { customerContact } from '../watch/customer';
 import { cloverOrderTypeFor, cloverOrderTypesEnabled } from './clover-books';
 
@@ -158,6 +159,7 @@ export function cloverOrderNote(order: StoredOrder, freeLines = 0): string {
   const parts = [
     order.timeline?.scheduledFor ? scheduledLabel(order.timeline.scheduledFor) : '',
     FULFILLMENT_NOTE[order.fulfillment] ?? order.fulfillment.toUpperCase(),
+    orderSourceLabel(order.orderSource) ? `Source: ${orderSourceLabel(order.orderSource)}` : '',
     order.customerName ? `Client: ${order.customerName}` : '',
     c.phone ? `Tél: ${c.phone}${c.code ? ` code ${c.code}` : ''}` : '',
     courier,

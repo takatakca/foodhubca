@@ -10,6 +10,7 @@ import { Field, Input, Select, Switch } from '@/components/ui/form';
 import { Modal } from '@/components/ui/overlay';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
+import { useConfirm } from '@/components/ui/confirm';
 import { FormDraftNote } from '@/components/ui/save-chip';
 import { Hint } from '@/components/help/hint';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
@@ -37,6 +38,7 @@ export function MappingView() {
   const { locations, brands, locName } = useViewer();
   const params = useSearchParams();
   const toast = useToast();
+  const confirm = useConfirm();
   const [stores, setStores] = useState<StoreRow[] | null>(null);
   const [form, setForm] = useState<OpenForm | null>(null);
   /** Stores disconnected less than 6 s ago: hidden, and only removed on the server once "Undo" is no longer offered. */
@@ -112,6 +114,23 @@ export function MappingView() {
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
   }
 
+  /** "Disconnect from Uber": DELETE pos_data for one store (offboarding), with the merchant login of this session. */
+  async function disconnect(p: Pick) {
+    const yes = await confirm({
+      title: t(`Débrancher ${p.name} d’Uber ?`, `Disconnect ${p.name} from Uber?`), tone: 'danger', confirmLabel: t('Débrancher', 'Disconnect'),
+      body: t('Uber cessera d’envoyer les commandes et les appels de menu de ce magasin à Food Hub. Pour le rebrancher, il faudra une nouvelle activation.', 'Uber stops sending this store’s orders and menu calls to Food Hub. Linking it again needs a new activation.'),
+    });
+    if (!yes) return;
+    setBusy(`disconnect:${p.storeId}`);
+    try {
+      const d = await api<{ message: string }>('/api/foodhub/uber-connect/disconnect', { method: 'POST', json: { id: connectId, storeId: p.storeId } });
+      setResults((all) => ({ ...all, [p.storeId]: { ok: true, message: d.message, orderManager: null } }));
+      setPicks((all) => all.map((x) => (x.storeId === p.storeId ? { ...x, orderManager: 'unknown', include: false } : x)));
+      toast.success(t('Débranché d’Uber', 'Disconnected from Uber'), p.name);
+      load();
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
+  }
+
   /** "Check with Uber": who receives each store's orders now; enable = also switch the order webhooks on where off. */
   async function checkUber(enable = false) {
     setBusy(enable ? 'enable' : 'check');
@@ -156,7 +175,10 @@ export function MappingView() {
                   <Td><Select selectSize="sm" value={p.locationCode} onChange={(e) => upd({ locationCode: e.target.value })}><option value="">—</option>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select></Td>
                   <Td><Select selectSize="sm" value={p.cloverMerchantId} onChange={(e) => upd({ cloverMerchantId: e.target.value })} aria-label="Clover"><option value="">{t('par défaut', 'default')}</option>{cloverMerchants.map((m) => <option key={m.id} value={m.id}>{m.name ? `${m.name} · ${m.id}` : m.id}{m.isDefault ? t(' (défaut)', ' (default)') : ''}</option>)}</Select></Td>
                   <Td><ManagerBadge value={r?.orderManager ?? p.orderManager} /></Td>
-                  <Td>{r && <Badge tone={r.ok ? (r.orderManager === 'other' ? 'wait' : 'go') : 'stop'} title={r.message}>{r.ok ? t('activé', 'activated') : t('échec', 'failed')}</Badge>}</Td>
+                  <Td>{r && <Badge tone={r.ok ? (r.orderManager === 'other' ? 'wait' : 'go') : 'stop'} title={r.message}>{r.ok ? t('activé', 'activated') : t('échec', 'failed')}</Badge>}
+                    {((r?.orderManager ?? p.orderManager) === 'foodhub' || (r?.orderManager ?? p.orderManager) === 'pending') && (
+                      <Button variant="ghost" size="sm" className="text-stop" loading={busy === `disconnect:${p.storeId}`} onClick={() => disconnect(p)}>{t('Débrancher d’Uber', 'Disconnect from Uber')}</Button>
+                    )}</Td>
                 </Tr>
                 {r && <tr><td colSpan={7} className={`px-4 pb-3 text-xs ${r.ok ? 'text-ink-2' : 'text-stop-2'}`}>{r.message}</td></tr>}
               </Fragment>);

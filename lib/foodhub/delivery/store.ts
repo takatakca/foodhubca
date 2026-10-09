@@ -3,7 +3,8 @@ import crypto from 'node:crypto';
 import { nowIso, round2 } from '../config';
 import { getRepo } from '../repo';
 import {
-  DEFAULT_DELIVERY_SETTINGS, DEFAULT_RULE, type Delivery, type DeliverySettings, type DirectEvent, type DirectOrder, type DirectSource, type LocationDeliveryRule,
+  DEFAULT_DELIVERY_SETTINGS, DEFAULT_RULE, DEFAULT_UBER_DIRECT_OPTIONS, type Delivery, type DeliverySettings, type DirectEvent, type DirectOrder, type DirectSource, type LocationDeliveryRule,
+  type UberDirectOptions,
 } from './types';
 
 export const DIRECT_ORDERS = 'direct_orders';
@@ -124,9 +125,18 @@ export function cleanSettings(raw: Partial<DeliverySettings> | null | undefined)
     allowUnpaidDispatch: Boolean(s.allowUnpaidDispatch),
     undeliverable: s.undeliverable === 'dispose' ? 'dispose' : 'return_to_pickup',
     readCloverDeliveryOrders: Boolean(s.readCloverDeliveryOrders),
+    uberDirect: cleanUberDirect(s.uberDirect),
     locations,
     updatedAt: s.updatedAt,
   };
+}
+
+function cleanUberDirect(raw: Partial<UberDirectOptions> | undefined): UberDirectOptions {
+  const o = { ...DEFAULT_UBER_DIRECT_OPTIONS, ...(raw ?? {}) };
+  const proof = (['none', 'picture', 'signature', 'pincode'] as const).includes(o.proof) ? o.proof : DEFAULT_UBER_DIRECT_OPTIONS.proof;
+  // Uber: "leave at door" cannot go with a signature or a PIN (only with a photo, which it then requires).
+  const leave = o.deliverableAction === 'leave_at_door' && (proof === 'none' || proof === 'picture');
+  return { deliverableAction: leave ? 'leave_at_door' : 'meet_at_door', proof: leave ? 'picture' : proof, pickPackPay: o.pickPackPay === true };
 }
 
 export async function getDeliverySettings(): Promise<DeliverySettings> {

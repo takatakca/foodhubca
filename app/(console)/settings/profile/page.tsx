@@ -141,7 +141,7 @@ export default function ProfilePage() {
             </div>
           </div>
           {channels && (!channels.sms || !channels.call || !channels.email) && (
-            <p className="mt-3 text-xs text-ink-3">{t('Pas encore branché :', 'Not connected yet:')} {[!channels.sms && t('textos (Twilio)', 'texts (Twilio)'), !channels.call && t('appels (Twilio)', 'calls (Twilio)'), !channels.email && t('courriels (Resend)', 'email (Resend)')].filter(Boolean).join(', ')}. {t('Les messages sont gardés dans le journal en attendant.', 'Messages are kept in the log until then.')}</p>
+            <p className="mt-3 text-xs text-ink-3">{t('Pas encore branché :', 'Not connected yet:')} {[!channels.sms && t('textos (Twilio)', 'texts (Twilio)'), !channels.call && t('appels (Twilio)', 'calls (Twilio)'), !channels.email && t('courriels (SMTP ou Resend)', 'email (SMTP or Resend)')].filter(Boolean).join(', ')}. {t('Les messages sont gardés dans le journal en attendant.', 'Messages are kept in the log until then.')}</p>
           )}
         </Section></div></Hint>
       )}

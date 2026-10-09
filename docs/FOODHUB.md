@@ -17,7 +17,7 @@ TGTG ──────┘
 
 | What | How it works |
 |---|---|
-| **Sign-in without passwords** | `/login`: email or cell → a 6-digit code (Resend email or Twilio SMS, valid 10 min, 5 tries, 5 requests per 15 min) or the one-tap link in the same message. Unknown contacts get the same answer (nobody can probe who has access). Phones auto-fill the code (WebOTP). Sessions last 14 days. |
+| **Sign-in without passwords** | `/login`: email or cell → a 6-digit code (email by SMTP or Resend, or Twilio SMS, valid 10 min, 5 tries, 5 requests per 15 min) or the one-tap link in the same message. Unknown contacts get the same answer (nobody can probe who has access). Phones auto-fill the code (WebOTP). Sessions last 14 days. |
 | **First run** | No account yet → *Create the owner account* (name + your email or cell). In production it only works with `FOODHUB_OWNER_EMAIL` / `FOODHUB_OWNER_PHONE`, or with `DASHBOARD_PASSWORD` typed as the setup key. |
 | **Recovery** | *Owner recovery sign-in* (user `owner` + `DASHBOARD_PASSWORD`) if email / SMS are down. Type it yourself — never in chat. |
 | **Kitchen tablets** | Settings → Tablets → *Enrol this screen* (on the tablet). It keeps a signed device cookie for a year and shows the **PIN screen** (`/kitchen/lock`) instead of the email sign-in. Staff tap their name + PIN → 14-hour session on that tablet. *Lock* returns to the PIN screen. Lost tablet → *Remove*: it is signed out at once. |
@@ -209,7 +209,7 @@ Finance covers every location's money, so it is only for logins that see all loc
 | Store Hours | Opening hours, brand exceptions, holidays → published to every platform. |
 | Stores | Map store ids, connect Uber stores, pause/resume a whole location, prep time and busy mode. |
 | Analytics | Sales, orders, average order, cancellations (who / when / why), items, busiest hours, accept & prep times, store uptime — vs the previous period. |
-| Reports | 7 reports in CSV or Excel; *Email* sends one now, *Schedule* sends it daily / weekly / monthly (needs `RESEND_API_KEY` + `REPORT_EMAIL_FROM`; owner/manager only). The `vercel.json` reports cron runs at 13:05 UTC (08:05 EST / 09:05 EDT) and catches up: a late or missed run still sends the latest completed period. |
+| Reports | 7 reports in CSV or Excel; *Email* sends one now, *Schedule* sends it daily / weekly / monthly (needs email set up: `SMTP_HOST` + `SMTP_USER` + `SMTP_PASS`, or `RESEND_API_KEY`, plus `REPORT_EMAIL_FROM` or `AUTH_EMAIL_FROM`; owner/manager only). The `vercel.json` reports cron runs at 13:05 UTC (08:05 EST / 09:05 EDT) and catches up: a late or missed run still sends the latest completed period. |
 | Activity Log | Who paused, 86'd, published, changed hours or users, signed in — and whether the platform accepted it. |
 | Settings | Profile + PIN, Team, Tablets, Manager PIN rules, Alerts, Platforms & Clover, Business, Go-live. |
 | TGTG Bags | 10 seconds at closing: bags offered, sold, price per location. |
@@ -257,8 +257,10 @@ npm run demo:foodhub                       # same, then keeps running with a new
 - Too Good To Go has no public store API: bags are logged, not synced.
 - Texting a customer only works when the platform shares a real mobile number; Uber Eats and DoorDash
   usually give a relay number with an access code, which can be called but not texted.
-- SMS, calls and emails need your own Twilio and Resend accounts (pay-per-use on their side). Without
-  them, sign-in uses the owner recovery password and alerts stay on screen and in the team chat.
+- SMS and calls need your own Twilio account (pay-per-use on their side). Email needs either a mailbox on your own
+  domain (SMTP: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER` = the full mailbox address, `SMTP_PASS`, plus `AUTH_EMAIL_FROM`; port 465
+  = TLS, 587 = STARTTLS; no extra account) or a Resend account (`RESEND_API_KEY`). SMTP is used whenever its three values
+  are set. Without email and SMS, sign-in uses the owner recovery password and alerts stay on screen and in the team chat.
 - The Watchtower needs a screen open, a long-running server, or the 1-minute cron call to watch
   24/7 (see *Keep the Watchtower running*).
 - What Atlas has that is not built yet (combos, ratings and reviews, own-courier dispatch for phone

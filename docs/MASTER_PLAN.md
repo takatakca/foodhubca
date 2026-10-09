@@ -41,7 +41,7 @@ Check these in order. Each line gives the cause and the fix.
 | 6 | **The platforms have not approved access yet.** | Card says blocked / not approved. | Uber must approve the scopes. DoorDash issues `DOORDASH_PROVIDER_TYPE` only after it approves the integration. Skip issues `SKIP_JET_API_KEY` through a partner manager. |
 | 7 | **The Clover app is not in the App Market yet.** It has not been submitted, and its Site URL is still the temporary sslip.io address. | Settings → Clover app (checklist) · `docs/CLOVER_MARKETPLACE_LAUNCH.md`. | The code is ready (branch `clover-marketplace-launch`). Owner steps: domain, support details, legal review, video, dashboard, submit (launch doc §4). |
 | 8 | **Safe mode is on.** Nothing is sent to any platform until live mode is turned on. | Orange "safe mode" banner. | Set `LIVE_CONNECTORS_GLOBAL_ENABLED=true` once Go-live is all green. |
-| 9 | **Sign-in codes never arrive.** No email (Resend) or SMS (Twilio) is set up. An unknown email still says "code sent" on purpose, so outsiders cannot guess who has access. | The code never arrives. | Set `RESEND_API_KEY` + `AUTH_EMAIL_FROM` (on a verified domain) and/or `TWILIO_*`. Until then, use the owner recovery sign-in. |
+| 9 | **Sign-in codes never arrive.** No email (SMTP or Resend) or SMS (Twilio) is set up. An unknown email still says "code sent" on purpose, so outsiders cannot guess who has access. | The code never arrives. | Set `SMTP_HOST` + `SMTP_USER` + `SMTP_PASS` (a mailbox on your own domain) or `RESEND_API_KEY` (verified domain), plus `AUTH_EMAIL_FROM`, and/or `TWILIO_*`. Until then, use the owner recovery sign-in. |
 | 10 | **Nothing runs in the background on Coolify/Docker.** The platform sync only runs while a screen is open. | Store status, payouts and Clover orders go stale overnight. | Set `FOODHUB_INTERNAL_SYNC_MIN=5`, or add an outside cron that calls `/api/foodhub/cron/sync` every 5 minutes. |
 
 **Where connections live in the console:**
@@ -118,7 +118,7 @@ Phase 3 adds a **Connections strip on the Overview** so you see all of this at a
 | Too Good To Go | Inbound only | Your rep's access and **their API spec**. Outbound actions (menu, bags, cancel) still have to be built once the spec arrives | Platforms; Money → TGTG |
 | Order Relay | Yes (new) | Nothing required (the secret is generated). Optional: `FOODHUB_RELAY_CALLBACK_URL` / `_TOKEN` from the partner | Platforms → Food Hub Order Relay |
 | Database | Yes | `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, then run `INSTALL_ALL.sql` | Go-live |
-| Email / SMS / calls | Yes | `RESEND_API_KEY`, `AUTH_EMAIL_FROM`, `TWILIO_*`, `ALERT_WEBHOOK_URL` (team chat) | Settings → Alerts & watchtower |
+| Email / SMS / calls | Yes | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` or `RESEND_API_KEY`, `AUTH_EMAIL_FROM`, `TWILIO_*`, `ALERT_WEBHOOK_URL` (team chat) | Settings → Alerts & watchtower |
 | AI | Yes | `ANTHROPIC_API_KEY` (optional `ANTHROPIC_MODEL`) | Settings → Alerts & watchtower |
 | Security | Yes | `DASHBOARD_PASSWORD`, `SESSION_SECRET`, `FOODHUB_TRUST_PROXY=true` behind Caddy/Traefik | Go-live |
 | Background jobs | Yes | VPS: the cron jobs from `install-vps.sh`. Coolify: `FOODHUB_INTERNAL_SYNC_MIN=5` | Go-live; the stale-sync alert |

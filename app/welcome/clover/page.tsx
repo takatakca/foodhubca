@@ -4,6 +4,7 @@ import { onboardingSteps } from '@/lib/foodhub/onboarding';
 import { CLOVER_CONNECT_ERRORS, cloverWebUrl, cloverWelcome, type CloverConnectError } from '@/lib/foodhub/pos/clover-oauth';
 import { can } from '@/lib/foodhub/session';
 import { getViewer } from '@/lib/foodhub/viewer';
+import { KeepProductNames } from '@/lib/i18n/client';
 import { WelcomeView, type WelcomeData } from './welcome-view';
 
 export const dynamic = 'force-dynamic';
@@ -46,5 +47,6 @@ export default async function CloverWelcomePage({ searchParams }: { searchParams
     cloverUrl: cloverWebUrl(),
     support: { email: info.supportEmail, phone: info.supportPhone, hours: info.supportHours },
   };
-  return <WelcomeView data={data} />;
+  // The Clover landing matches the Clover listing ("TAKATAK Food Hub"), whatever the console is called.
+  return <KeepProductNames><WelcomeView data={data} /></KeepProductNames>;
 }

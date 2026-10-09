@@ -52,7 +52,7 @@ Status: `todo` / `doing` / `done` / `blocked: reason`. Newest work at the top of
 - [x] W2 done 2026-10-09 (Drive file "04 QUESTIONS FOR THE OWNER - addendum 2026-10-09 17:15 UTC (décisions Google)": 23 questions in 7 groups, French first; Po Poulet NDG excluded from every question) | Owner decision list as a new Drive addendum next to "04 QUESTIONS FOR THE OWNER" (Drive cannot edit files: new file), French first, from `PLAN.md` §7 and the overlaps in `KEYWORDS.md`
 
 ## P4e Content calendar (added 2026-10-09)
-- [ ] G5 todo | Google posts 5 to 12 per brand (8 weekly posts after the first 4), FR/EN, from the brand's own menu copy; no hours, no prices, no "24/7" -> `GBP_POSTS.md`
+- [x] G5 done 2026-10-09 (8 weekly posts x 17 brands, FR/EN, from the brand copy; one kitchen per profile; brands waiting for the owner flagged) | Google posts 5 to 12 per brand (8 weekly posts after the first 4), FR/EN, from the brand's own menu copy; no hours, no prices, no "24/7" -> `GBP_POSTS.md`
 
 ## P5 Recurring
 - [ ] R1 | last check 2026-10-09 18:05 UTC (NEW 17:22 UTC: DoorDash answered the Taco Mexican POS-integration request, reading it as a POS integration for all locations and asking the POS company to start it; flagged to the owner in Drive 03 OPS_LOG addendum 18:05, no reply sent; still no answer on the tablet-switch thread) | Every ~1 h: check the owner's Gmail for new DoorDash email (thread ref in Drive OPS_LOG); record in Drive, never reply without the owner.

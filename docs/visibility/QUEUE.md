@@ -34,5 +34,5 @@ Status: `todo` / `doing` / `done` / `blocked: reason`. Newest work at the top of
 - [ ] M1 todo | `PLAN.md`: the group's restaurant marketing and visibility plan (channels by priority, NAP standard, one order hub per brand, review strategy, schema/SEO, photo plan, ads only after stores are back online, measurement, what TAKATAK V1 modules cover each part, owner decisions)
 
 ## P5 Recurring
-- [ ] R1 | Every ~1 h: check the owner's Gmail for new DoorDash email (thread ref in Drive OPS_LOG); record in Drive, never reply without the owner.
+- [ ] R1 | last check 2026-10-09 11:35 UTC (no reply from support yet; 2 automatic notices logged in Drive) | Every ~1 h: check the owner's Gmail for new DoorDash email (thread ref in Drive OPS_LOG); record in Drive, never reply without the owner.
 - [ ] R2 | TAKATAK V1 setup script: written and checked (typecheck clean, lint 0 errors, 18/18 + 8/8 tests, secrets clean) on takatak-v1 local branch `claude/provision-brand-workspaces` (a39e9a1, not pushed: no write access). Backup: `docs/patches/takatak-v1-provision-brand-workspaces.patch` (`git am` it on takatak-v1 origin/main b3282f3). Still to do, one reviewer at a time, when the Google items are done: security, correctness, runs-outside-Next reviews + fixes (resume the workflow script `takatak-provision-script`). Brand-section note: done (`docs/TAKATAK_BRANDS_BRIDGE.md`).

@@ -119,21 +119,21 @@ board and the Overview tile show *couriers vs fees charged* for the day. Nothing
 
 ### Our own couriers (3rd fleet)
 
-Next to DoorDash Drive and Uber Direct: **our own couriers** (, ), off by default.
+Next to DoorDash Drive and Uber Direct: **our own couriers** (`lib/foodhub/delivery/own-fleet.ts`, `courier-app.ts`), off by default.
 
-- **Settings → Expansion → Our couriers** (): turn the fleet on, set what one delivery costs us
+- **Settings → Expansion → Our couriers** (`/settings/expansion/couriers`): turn the fleet on, set what one delivery costs us
   (pay per delivery, gas…), add couriers (name, phone, kitchens served). **New link** gives one courier his personal link
-  (, no password, valid 180 days); a new link cancels every older one; *Active* off locks him out.
+  (`https://<domain>/courier#t=…`, no password, valid 180 days); a new link cancels every older one; *Active* off locks him out.
 - **Dispatch**: when the fleet is on, our cost is compared with Drive (and Uber Direct when comparing) and the cheapest
   working price is booked. Our quote works only when a courier is **on shift** for that kitchen; the delivery goes to
   the one with the fewest running deliveries. Same checks as every fleet (paid, address, area, alcohol rules).
-- **The courier's page** (, phone-first): his running deliveries with pickup and drop-off (map link, call
+- **The courier's page** (`/courier`, phone-first): his running deliveries with pickup and drop-off (map link, call
   buttons), tip, alcohol/ID flag, *not paid → collect nothing*; taps *At the kitchen → Picked up → At the customer →
   Delivered*, *Decline* (before pickup) and *Problem* (flags the order, posts to the team chat). Each tap goes through the
   same path as the Drive / Uber Direct webhooks (forward only; picked up = on the road; delivered = completed).
 - **Privacy**: a courier only sees his own running deliveries; the customer's address and phone leave his page when the
   delivery is over. The token stays in the link's fragment and the phone's storage (never in a server log or Referer).
-- Next (roadmap H2 in ): shifts and pay per delivery, proof of delivery photo, live position, zones, native app.
+- Next (roadmap H2 in `docs/ON2GO_HUB_ECOSYSTEM.md`): shifts and pay per delivery, proof of delivery photo, live position, zones, native app.
 
 ### Website orders
 

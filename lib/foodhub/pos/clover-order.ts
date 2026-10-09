@@ -160,6 +160,8 @@ export function cloverOrderNote(order: StoredOrder, freeLines = 0): string {
     order.timeline?.scheduledFor ? scheduledLabel(order.timeline.scheduledFor) : '',
     FULFILLMENT_NOTE[order.fulfillment] ?? order.fulfillment.toUpperCase(),
     orderSourceLabel(order.orderSource) ? `Source: ${orderSourceLabel(order.orderSource)}` : '',
+    // DoorDash: the customer's plastic cutlery choice (plasticware toggle) goes on the kitchen ticket.
+    order.doorDash?.plasticware === true ? 'Ustensiles / Cutlery: OUI/YES' : order.doorDash?.plasticware === false ? 'Ustensiles / Cutlery: NON/NO' : '',
     order.customerName ? `Client: ${order.customerName}` : '',
     c.phone ? `Tél: ${c.phone}${c.code ? ` code ${c.code}` : ''}` : '',
     courier,

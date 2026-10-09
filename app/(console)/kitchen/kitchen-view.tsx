@@ -10,6 +10,7 @@ import { useToast } from '@/components/ui/toast';
 import { OrderCard } from '@/components/live/order-card';
 import { OrderDrawer } from '@/components/live/order-drawer';
 import { useWebsiteOrders, WebsiteOrderCard } from '@/components/live/website-orders';
+import { OwnOrderCard, useOwnOrders } from '@/components/live/own-orders';
 import { CourierStrip } from '@/components/expansion/courier-strip';
 import { refreshEverything, usePulse } from '@/components/live/pulse';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
@@ -40,6 +41,10 @@ export function KitchenView() {
   const web = useWebsiteOrders(here);
   const webCooking = web.orders.filter((o) => o.status === 'new' || o.status === 'in_kitchen');
   const webReady = web.orders.filter((o) => o.status === 'ready');
+  // Our own orders (AI phone, phone, website, typed in): Food Hub sent them to Clover; the kitchen cooks them from here too.
+  const own = useOwnOrders(here);
+  const ownCooking = own.orders.filter((o) => o.status === 'new' || o.status === 'in_kitchen');
+  const ownReady = own.orders.filter((o) => o.status === 'ready');
 
   async function toggleBusy() {
     if (!here) return;
@@ -81,20 +86,22 @@ export function KitchenView() {
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_340px]">
         <section>
           {/* The tip sits on the column title, not on each ticket: no card pops over the next ticket during a rush, and the tour finds it even with no orders. */}
-          <Hint id="kitchen.ticket"><div className="mb-3 flex items-baseline gap-2 text-lg font-extrabold">{t('À préparer', 'To cook')}<span className="num text-ink-3">{cooking.length + webCooking.length}</span></div></Hint>
+          <Hint id="kitchen.ticket"><div className="mb-3 flex items-baseline gap-2 text-lg font-extrabold">{t('À préparer', 'To cook')}<span className="num text-ink-3">{cooking.length + webCooking.length + ownCooking.length}</span></div></Hint>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-3">
             {cooking.map((o) => <OrderCard key={o.id} o={o} big onOpen={() => setOpen(o.id)} />)}
             {webCooking.map((o) => <WebsiteOrderCard key={o.id} o={o} big onChanged={web.reload} />)}
+            {ownCooking.map((o) => <OwnOrderCard key={o.id} o={o} big onChanged={own.reload} />)}
           </div>
-          {orders && cooking.length === 0 && webCooking.length === 0 && <div className="rounded-xl border border-dashed border-line-2 px-6 py-16 text-center text-lg text-ink-3">{t('Aucune commande à préparer. 🍳', 'Nothing to cook. 🍳')}</div>}
+          {orders && cooking.length === 0 && webCooking.length === 0 && ownCooking.length === 0 && <div className="rounded-xl border border-dashed border-line-2 px-6 py-16 text-center text-lg text-ink-3">{t('Aucune commande à préparer. 🍳', 'Nothing to cook. 🍳')}</div>}
         </section>
         <section>
-          <Hint id="kitchen.pickup"><div className="mb-3 flex items-baseline gap-2 text-lg font-extrabold">{t('Prêtes — attendent le livreur', 'Ready — waiting for courier')}<span className="num text-ink-3">{ready.length + webReady.length}</span></div></Hint>
+          <Hint id="kitchen.pickup"><div className="mb-3 flex items-baseline gap-2 text-lg font-extrabold">{t('Prêtes — attendent le livreur', 'Ready — waiting for courier')}<span className="num text-ink-3">{ready.length + webReady.length + ownReady.length}</span></div></Hint>
           <div className="flex flex-col gap-3">
             {ready.map((o) => <OrderCard key={o.id} o={o} onOpen={() => setOpen(o.id)} />)}
             {webReady.map((o) => <WebsiteOrderCard key={o.id} o={o} onChanged={web.reload} />)}
+            {ownReady.map((o) => <OwnOrderCard key={o.id} o={o} onChanged={own.reload} />)}
           </div>
-          {orders && ready.length === 0 && webReady.length === 0 && <div className="rounded-xl border border-dashed border-line-2 px-4 py-10 text-center text-ink-3">—</div>}
+          {orders && ready.length === 0 && webReady.length === 0 && ownReady.length === 0 && <div className="rounded-xl border border-dashed border-line-2 px-4 py-10 text-center text-ink-3">—</div>}
           {!viewer.device && <p className={cn('mt-6 text-xs text-ink-4')}><Link href="/orders" className="underline">{t('Vue tableau des commandes', 'Orders board view')}</Link></p>}
         </section>
       </div>

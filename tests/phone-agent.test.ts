@@ -181,7 +181,7 @@ describe('the agent', () => {
   });
 
   it('has no tool that can refund, cancel, discount or take a payment', () => {
-    expect(TOOLS.map((t) => t.name).sort()).toEqual(['add_item', 'end_call', 'place_order', 'remove_item', 'set_language', 'set_order_details', 'transfer_to_human', 'view_cart']);
+    expect(TOOLS.map((t) => t.name).sort()).toEqual(['add_item', 'choose_kitchen', 'end_call', 'place_order', 'remove_item', 'set_language', 'set_order_details', 'transfer_to_human', 'view_cart']);
   });
 
   it('the console simulator never sends an order anywhere', async () => {

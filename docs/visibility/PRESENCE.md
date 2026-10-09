@@ -52,6 +52,13 @@ looks moved to Saint-Léonard; Saint-Léonard is written 5837 in older Food Hub 
 
 ## Findings from web search (this session cannot open listing sites; only web search works)
 
+- 2026-10-09 | Pi Pita | Web search finds **no public listing** (Google, Yelp, TripAdvisor, directories) under "Pi Pita"
+  in Montréal; it is invisible outside the delivery apps (and DoorDash sent it a "not eligible" notice on 2026-10-08).
+  Name collision: **Pizza Pita** (pizzapita.com, 5345 Vézina, Côte-des-Neiges) is a nearby, better-known shawarma/pizza
+  brand. Recommendation: keep "Pi Pita" but always pair it with "shawarma / libanais" words in titles and posts; build
+  the Google + Apple + Yelp listings first so the name gets its own results. Source:
+  https://mikecohen.ca/2020/10/pizza-pita-has-landed-now-located-on-vezina-at-decarie-square/?amp=1
+
 - 2026-10-09 | OOEUF | Search finds **no Yelp, TripAdvisor or Restaurant Guru listing** under OOEUF or O'Oeufs: low
   visibility, all to create. An Uber Eats store **"O'OEUFS Déjeuner (St-Léonard)"** exists at **5837** Rue Jean-Talon E
   (shown unavailable), store id 2e747d04-74b0-45bc-87dc-224a73bd696d, which is **not** in the brand config (config has

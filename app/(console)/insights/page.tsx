@@ -21,8 +21,8 @@ type Group = Omit<Analytics['byChannel'][number], 'key'> & { key: string };
 export default function InsightsPage() {
   const { t, loc } = useI18n();
   const { locations, brands } = useViewer();
-  const { scope } = usePulse();
-  const { filters, set, query } = useFilters('7d', scope);
+  const { scope, brands: brandScope } = usePulse();
+  const { filters, set, query } = useFilters('7d', scope, brandScope);
   const [data, setData] = useState<Analytics | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');

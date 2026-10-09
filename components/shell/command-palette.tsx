@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CornerDownLeft, Search } from 'lucide-react';
 import { PlatformMark } from '@/components/ui/badge';
-import { NAV, navVisible } from './nav';
+import { ALERTS, NAV, navVisible } from './nav';
 import { useViewer } from './viewer';
 import { api, money } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
@@ -53,7 +53,10 @@ export function CommandPalette() {
       { href: '/insights/reports', label: t('Rapports', 'Reports'), perm: 'analytics:view' },
       { href: '/money/disputes', label: t('Litiges', 'Disputes'), perm: 'analytics:view' },
     ];
-    const all = [...NAV.filter((n) => navVisible(n, can, allLocations, features)).map((n) => ({ href: n.href, label: n.label(t) })), ...extra.filter((e) => can(e.perm))];
+    const groups = [...NAV, ALERTS].filter((n) => navVisible(n, can, allLocations, features));
+    const kids = groups.flatMap((n) => (n.children ?? []).filter((c) => c.href !== n.href && navVisible(c, can, allLocations, features)).map((c) => ({ href: c.href, label: c.label(t) })));
+    const seen = new Set<string>();
+    const all = [...groups.map((n) => ({ href: n.href, label: n.label(t) })), ...kids, ...extra.filter((e) => can(e.perm))].filter((p) => !seen.has(p.href) && seen.add(p.href));
     const s = q.trim().toLowerCase();
     return all.filter((p) => !s || p.label.toLowerCase().includes(s)).map((p) => ({ key: p.href, label: p.label, href: p.href, sub: p.href }));
   }, [q, t, can, allLocations, features]);

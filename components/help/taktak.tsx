@@ -23,9 +23,9 @@ export function TakTak({ size = 48, mood = 'happy', spinKey, wave = false, class
       <title>{title}</title>
       {/* antenna */}
       <line x1="32" y1="6" x2="32" y2="14" stroke="#151514" strokeWidth="2.5" strokeLinecap="round" />
-      <circle cx="32" cy="6" r="3.6" fill="#ff5b14" className="taktak-antenna" />
+      <circle cx="32" cy="6" r="3.6" fill="#1f8bff" className="taktak-antenna" />
       {/* head */}
-      <rect x="10" y="13" width="44" height="32" rx="12" fill="#ff5b14" />
+      <rect x="10" y="13" width="44" height="32" rx="12" fill="#1f8bff" />
       <rect x="15" y="18" width="34" height="21" rx="8" fill="#151514" />
       {/* eyes + mouth on the face screen */}
       {mood === 'think' ? (
@@ -48,11 +48,11 @@ export function TakTak({ size = 48, mood = 'happy', spinKey, wave = false, class
         </>
       )}
       {/* ears */}
-      <rect x="6" y="24" width="5" height="10" rx="2.5" fill="#e14b07" />
-      <rect x="53" y="24" width="5" height="10" rx="2.5" fill="#e14b07" />
+      <rect x="6" y="24" width="5" height="10" rx="2.5" fill="#1565d8" />
+      <rect x="53" y="24" width="5" height="10" rx="2.5" fill="#1565d8" />
       {/* body */}
       <rect x="20" y="46" width="24" height="13" rx="6" fill="#151514" />
-      <circle cx="32" cy="52.5" r="3" fill="#ff5b14" />
+      <circle cx="32" cy="52.5" r="3" fill="#1f8bff" />
       {/* arms: the right one waves */}
       <path d="M20 50 Q13 50 12 56" stroke="#151514" strokeWidth="3.4" strokeLinecap="round" fill="none" />
       <path d="M44 50 Q51 48 53 41" stroke="#151514" strokeWidth="3.4" strokeLinecap="round" fill="none" className={wave ? 'taktak-wave' : undefined} />

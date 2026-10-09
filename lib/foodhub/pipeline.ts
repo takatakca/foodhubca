@@ -520,6 +520,11 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
   else if (action === 'deny') res = await adapter.denyOrder(order, reasonText);
   else if (action === 'cancel') res = await adapter.cancelOrder(order, opts.reasonCode ?? 'other', opts.reason);
   else if (action === 'ready') res = await adapter.markReady(order, order.posOrderId);
+  else if (action === 'complete' && !order.viaHub && getAdapter(order.channel).completeOrder) {
+    // Picked up: platforms that want to hear it (Too Good To Go through Deliverect) are told, but a refusal never blocks the kitchen.
+    const told = await getAdapter(order.channel).completeOrder!(order).catch((e: unknown) => ({ ok: false, status: 'error' as const, message: e instanceof Error ? e.message : String(e), channel: order.channel }));
+    res = { ok: true, message: told.status === 'done' ? `Marked completed in Food Hub. ${told.message}` : told.ok || told.status === 'skipped' ? 'Marked completed in Food Hub.' : `Marked completed in Food Hub (not reported to the platform: ${told.message}).` };
+  }
   else res = { ok: true, message: action === 'dispatch' ? 'Handed to the courier.' : 'Marked completed in Food Hub.' };
 
   // On Skip, "reject" hands the order to the Skip tablet (JET backup flow) — it is not cancelled for the customer.

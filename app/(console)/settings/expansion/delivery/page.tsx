@@ -48,6 +48,19 @@ export default function DeliverySettingsPage() {
     } catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
 
+  const [driveStores, setDriveStores] = useState<{ businessId: string; stores: Record<string, { storeId: string }> } | null>(null);
+  useEffect(() => { api<{ registry: { businessId: string; stores: Record<string, { storeId: string }> } | null }>('/api/foodhub/delivery/drive-stores').then((d) => setDriveStores(d.registry)).catch(() => undefined); }, []);
+  async function registerKitchens() {
+    setBusy(true);
+    try {
+      const r = await api<{ ok: boolean; message: string; rows: Array<{ locationCode: string; ok: boolean; message: string }>; registry: typeof driveStores }>('/api/foodhub/delivery/drive-stores', { method: 'POST' });
+      setDriveStores(r.registry);
+      const failed = r.rows.filter((x) => !x.ok);
+      if (failed.length) toast.warn(r.message, failed.map((x) => `${x.locationCode}: ${x.message}`).join(' · '));
+      else toast.success(r.message);
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+  }
+
   const drive = data?.fleets.find((f) => f.fleet === 'doordash_drive');
   return (
     <div>
@@ -67,6 +80,11 @@ export default function DeliverySettingsPage() {
                     {f.fleet === 'doordash_drive' && <>
                       <div className="grid grid-cols-2 gap-2"><CopyValue label={t('Type d’authentification', 'Authentication type')} value="Basic" mono={false} /><CopyValue label={t('Nom de l’en-tête', 'Header name')} value="Authorization" mono={false} /></div>
                       {data.secrets ? <CopyValue label={t('Jeton (Authorization)', 'Token (Authorization)')} value={data.secrets.driveWebhook || t('(non généré)', '(not generated)')} /> : can('admin') && <Button size="xs" variant="ghost" icon={<Eye className="size-3.5" />} onClick={() => load(true)}>{t('Afficher le jeton', 'Show the token')}</Button>}
+                      {/* Several kitchens: each one is a Drive store (pickup_external_business_id + pickup_external_store_id). */}
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-ink-3">
+                        <span>{t(`Cuisines inscrites chez DoorDash Drive : ${driveStores ? Object.keys(driveStores.stores).length : 0}`, `Kitchens registered with DoorDash Drive: ${driveStores ? Object.keys(driveStores.stores).length : 0}`)}</span>
+                        {edit && f.canSend && <Button size="xs" variant="outline" loading={busy} onClick={registerKitchens}>{t('Inscrire / mettre à jour les cuisines', 'Register / update kitchens')}</Button>}
+                      </div>
                     </>}
                     {f.fleet === 'uber_direct' && <p className="text-xs text-ink-3">{t('Clé de signature : UBER_DIRECT_WEBHOOK_SECRET (copiée depuis Uber Direct → Webhooks).', 'Signing key: UBER_DIRECT_WEBHOOK_SECRET (copied from Uber Direct → Webhooks).')}</p>}
                     {f.fleet === 'skip_daas' && <p className="text-xs text-ink-3">{t('Skip renvoie le secret SKIP_DAAS_WEBHOOK_SECRET dans l’en-tête x-api-key. Les points de collecte se règlent avec SKIP_DAAS_COLLECT_POINTS.', 'Skip sends back SKIP_DAAS_WEBHOOK_SECRET in the x-api-key header. Collect points are set with SKIP_DAAS_COLLECT_POINTS.')}</p>}

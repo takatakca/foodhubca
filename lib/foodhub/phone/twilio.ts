@@ -39,7 +39,7 @@ export function twilioSignature(url: string, params: URLSearchParams, token: str
 }
 
 const xml = (s: string) => s.replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[c]!));
-const attr = (s: string) => xml(s);
+export const attr = (s: string) => xml(s);
 
 export function voiceAttrs(s: Pick<PhoneSettings, 'voiceFr' | 'voiceEn'>, lang: 'fr' | 'en') {
   return lang === 'fr' ? { voice: s.voiceFr, language: 'fr-CA' } : { voice: s.voiceEn, language: 'en-US' };

@@ -14,9 +14,12 @@
 // "Basic", header "Authorization", token = DOORDASH_DRIVE_WEBHOOK_SECRET (or paste the token DoorDash generates there).
 // Alcohol: order_contains.alcohol=true, return_to_pickup, no contactless drop-off — the Dasher scans the customer's ID.
 import { doorDashJwt } from '../adapters/doordash';
+import { courierRestriction, decideAlcohol } from '../alcohol/rules';
 import { checkSharedSecret, fromCents, liveConnectorsGloballyEnabled, missingEnv, nowIso, stripSlash, timedFetch, toCents } from '../config';
 import { normalizePhone } from '../notify';
-import { blocked, type CourierFleet, type DeliveryRequest, type FleetEvent, type FleetResult } from './fleet';
+import { getRepo } from '../repo';
+import { formatAddress } from './address';
+import { blocked, type AddressParts, type CourierFleet, type DeliveryRequest, type FleetEvent, type FleetResult } from './fleet';
 import type { CourierPosition, DeliveryQuote, DeliveryStatus } from './types';
 
 const REQUIRED = ['DOORDASH_DRIVE_DEVELOPER_ID', 'DOORDASH_DRIVE_KEY_ID', 'DOORDASH_DRIVE_SIGNING_SECRET'];
@@ -82,18 +85,128 @@ function courierOf(b: any): CourierPosition | undefined {
   };
 }
 
+/**
+ * dropoff_address_components: required by Drive's integration requirements, sent WITH the one-line address "for better
+ * address resolution". Keys as in the Drive API reference request sample (street_address, sub_premise, city, state,
+ * zip_code, country). The reference does not show the Canada object's own keys: if the sandbox refuses these,
+ * DOORDASH_DRIVE_ADDRESS_COMPONENTS=off leaves them out until DoorDash confirms (docs/CERTIFICATION_BACKLOG.md).
+ */
+export function driveAddressComponents(p: AddressParts | undefined): { street_address: string; sub_premise?: string; city: string; state: string; zip_code: string; country: string } | null {
+  if (!p?.street?.trim() || !p.city?.trim() || /^(off|false|0)$/i.test(process.env.DOORDASH_DRIVE_ADDRESS_COMPONENTS ?? '')) return null;
+  return {
+    street_address: p.street.trim(),
+    ...(p.unit?.trim() ? { sub_premise: p.unit.trim() } : {}),
+    city: p.city.trim(),
+    state: (p.province || 'QC').trim(),
+    zip_code: (p.postalCode ?? '').trim(),
+    country: (p.country || 'CA').trim(),
+  };
+}
+
+// ---------- Business + Store per kitchen ----------
+// Drive integration requirements: an organization with more than one location sends pickup_external_business_id +
+// pickup_external_store_id ("previously created via the Business + Store APIs"); the store's address then overrides
+// pickup_address. Business + Store APIs (Drive API reference): POST /developer/v1/businesses, GET
+// /developer/v1/businesses/{external_business_id}, POST …/{external_business_id}/stores, GET/PATCH …/stores/{store_id}.
+// Ids match ^[A-Za-z0-9_-]{3,64}$ ("default" is reserved). Registered kitchens are kept per environment (sandbox and
+// production are different DoorDash orgs).
+
+export interface DriveStoreRegistry { businessId: string; stores: Record<string, { storeId: string; syncedAt: string }> }
+export interface DriveKitchen { code: string; name: string; address: string; city?: string; postalCode?: string; phone?: string | null }
+const ID_RE = /^[A-Za-z0-9_-]{3,64}$/;
+const registryKey = () => `doordash_drive_stores:${driveEnvironment()}`;
+
+/** external_business_id of Food Hub's kitchens: DOORDASH_DRIVE_BUSINESS_ID, default "takatak-foodhub". */
+export function driveBusinessId(): string {
+  const v = (process.env.DOORDASH_DRIVE_BUSINESS_ID || '').trim();
+  return ID_RE.test(v) && v !== 'default' ? v : 'takatak-foodhub';
+}
+
+/** external_store_id of a kitchen: its location code, made to fit DoorDash's id pattern. */
+export function driveStoreId(locationCode: string): string {
+  const v = locationCode.trim().replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 64);
+  return v.length >= 3 ? v : `loc-${v}`;
+}
+
+export async function getDriveStores(): Promise<DriveStoreRegistry | null> {
+  return getRepo().getKv<DriveStoreRegistry>(registryKey());
+}
+
+/** The pickup ids of a kitchen once it is registered with Drive (under the current business id); null = not registered. */
+export async function driveIdsFor(locationCode: string): Promise<{ businessId: string; storeId: string } | null> {
+  const reg = await getDriveStores().catch(() => null);
+  const store = reg?.stores?.[locationCode];
+  return reg && store && reg.businessId === driveBusinessId() ? { businessId: reg.businessId, storeId: store.storeId } : null;
+}
+
+/**
+ * Creates (or updates) the Drive business and one Drive store per kitchen, then remembers the ids so every quote and
+ * delivery sends pickup_external_business_id + pickup_external_store_id. Safe to run again (GET first, PATCH if found).
+ */
+export async function registerDriveStores(kitchens: DriveKitchen[], businessName = 'TAKATAK'): Promise<{ ok: boolean; message: string; rows: Array<{ locationCode: string; ok: boolean; message: string }> }> {
+  const r = readiness();
+  if (!r.canSend) return { ok: false, message: r.note, rows: [] };
+  const businessId = driveBusinessId();
+  const biz = await call('GET', `/developer/v1/businesses/${encodeURIComponent(businessId)}`);
+  if (!biz.ok) {
+    if (biz.status !== 404) return { ok: false, message: biz.why, rows: [] };
+    const made = await call('POST', '/developer/v1/businesses', { external_business_id: businessId, name: businessName });
+    if (!made.ok) return { ok: false, message: made.why, rows: [] };
+  }
+  const prev = await getDriveStores();
+  const reg: DriveStoreRegistry = { businessId, stores: prev?.businessId === businessId ? { ...prev.stores } : {} };
+  const rows: Array<{ locationCode: string; ok: boolean; message: string }> = [];
+  const storesPath = `/developer/v1/businesses/${encodeURIComponent(businessId)}/stores`;
+  for (const k of kitchens) {
+    if (!k.address?.trim()) { rows.push({ locationCode: k.code, ok: false, message: 'Kitchen address missing (Settings → Business).' }); continue; }
+    const storeId = driveStoreId(k.code);
+    const phone = normalizePhone(k.phone ?? '') ?? undefined;
+    const fields = { name: k.name, address: formatAddress({ street: k.address, city: k.city || 'Montréal', province: 'QC', postalCode: k.postalCode || '', country: 'CA' }), ...(phone ? { phone_number: phone } : {}) };
+    const found = await call('GET', `${storesPath}/${encodeURIComponent(storeId)}`);
+    const res = found.ok ? await call('PATCH', `${storesPath}/${encodeURIComponent(storeId)}`, fields)
+      : found.status === 404 ? await call('POST', storesPath, { external_store_id: storeId, ...fields }) : found;
+    if (res.ok) reg.stores[k.code] = { storeId, syncedAt: nowIso() };
+    rows.push({ locationCode: k.code, ok: res.ok, message: res.ok ? (found.ok ? 'Updated on DoorDash Drive.' : 'Created on DoorDash Drive.') : res.why });
+  }
+  await getRepo().setKv(registryKey(), reg);
+  const okN = rows.filter((x) => x.ok).length;
+  return { ok: rows.length > 0 && okN === rows.length, message: `${okN}/${rows.length} kitchen(s) registered with DoorDash Drive (business ${businessId}).`, rows };
+}
+
+/**
+ * Guardrails before anything reaches Drive (integration requirements: the integrator must prevent pickup or delivery
+ * of restricted items): tobacco, cannabis / drugs, weapons, explosives never (lib/foodhub/alcohol/rules.ts); alcohol
+ * only where the alcohol rules allow third-party delivery right now. Null = OK to send.
+ */
+export async function driveGuard(req: DeliveryRequest): Promise<string | null> {
+  const bad = req.items.map((i) => ({ name: i.name, why: courierRestriction(i) })).filter((x) => x.why);
+  if (bad.length) {
+    const kinds = [...new Set(bad.map((x) => x.why!.en))].join(', ');
+    return `DoorDash Drive does not carry restricted items (${kinds}): ${bad.map((x) => x.name).join(', ')}. Remove them or deliver another way.`;
+  }
+  if (req.containsAlcohol) {
+    const d = await decideAlcohol(req.pickup.locationCode, 'own_delivery');
+    if (!d.allowed) return `Alcohol cannot go by DoorDash Drive right now: ${d.reason}`;
+  }
+  return null;
+}
+
 /** The Drive request body (quote and delivery share it). */
-export function driveBody(req: DeliveryRequest) {
+export function driveBody(req: DeliveryRequest, ids?: { businessId: string; storeId: string } | null) {
   const alcohol = req.containsAlcohol;
+  const components = driveAddressComponents(req.dropoff.parts);
   return {
     external_delivery_id: req.id,
     locale: 'fr-CA',
+    // Registered kitchen (more than one location): DoorDash uses the store's address; pickup_address stays as a fallback.
+    ...(ids ? { pickup_external_business_id: ids.businessId, pickup_external_store_id: ids.storeId } : {}),
     pickup_address: req.pickup.address,
     pickup_business_name: req.pickup.businessName,
     pickup_phone_number: normalizePhone(req.pickup.phone) ?? req.pickup.phone,
     ...(req.pickup.instructions ? { pickup_instructions: req.pickup.instructions.slice(0, 280) } : {}),
     pickup_reference_tag: req.reference,
     dropoff_address: req.dropoff.address,
+    ...(components ? { dropoff_address_components: components } : {}),
     ...(req.dropoff.businessName ? { dropoff_business_name: req.dropoff.businessName } : {}),
     dropoff_phone_number: normalizePhone(req.dropoff.phone) ?? req.dropoff.phone,
     ...(req.dropoff.instructions ? { dropoff_instructions: req.dropoff.instructions.slice(0, 280) } : {}),
@@ -158,7 +271,9 @@ export const doorDashDrive: CourierFleet = {
     const at = nowIso();
     const r = readiness();
     if (!r.canSend) return { fleet: 'doordash_drive', ok: false, blocked: true, error: r.note, at };
-    const res = await call('POST', '/drive/v2/quotes', driveBody(req));
+    const stop = await driveGuard(req);
+    if (stop) return { fleet: 'doordash_drive', ok: false, blocked: true, error: stop, at };
+    const res = await call('POST', '/drive/v2/quotes', driveBody(req, await driveIdsFor(req.pickup.locationCode)));
     if (!res.ok) return { fleet: 'doordash_drive', ok: false, error: res.why, at };
     const b = res.json ?? {};
     return {
@@ -171,13 +286,15 @@ export const doorDashDrive: CourierFleet = {
   async create(req, quote) {
     const r = readiness();
     if (!r.canSend) return blocked(r.note);
+    const stop = await driveGuard(req);
+    if (stop) return blocked(stop);
     // A fresh DoorDash quote is accepted by our delivery id (the tip can be set at acceptance); otherwise book directly.
     if (quote?.ok && quote.fleet === 'doordash_drive' && quote.expiresAt && Date.parse(quote.expiresAt) > Date.now() + 10_000) {
       const accepted = await call('POST', `/drive/v2/quotes/${encodeURIComponent(req.id)}/accept`, { tip: toCents(req.tip) });
       if (accepted.ok) return toResult(accepted, 'DoorDash accepted the quote — a Dasher is being assigned.');
       // Expired or unknown quote: fall through to a direct booking.
     }
-    return toResult(await call('POST', '/drive/v2/deliveries', driveBody(req)), 'Booked on DoorDash Drive — a Dasher is being assigned.');
+    return toResult(await call('POST', '/drive/v2/deliveries', driveBody(req, await driveIdsFor(req.pickup.locationCode))), 'Booked on DoorDash Drive — a Dasher is being assigned.');
   },
   async get(id) {
     const r = readiness();

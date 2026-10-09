@@ -185,6 +185,27 @@ export async function decideAlcohol(locationCode: string | null | undefined, cha
 export const isAlcoholItem = (i: { tags?: string[] }) => (i.tags ?? []).includes('alcohol');
 
 /**
+ * Items a courier fleet never carries. DoorDash Drive integration requirements: "tobacco, cannabis or other illicit
+ * drugs, weapons and explosives" (full list on DoorDash's help page), and the integrator must have "sufficient
+ * guardrails in place to prevent pickup or delivery of restricted items". Alcohol is NOT restricted here: it follows the
+ * alcohol rules above (permit, third-party agreement, hours, ID check). Found by a menu tag or by plain words in the
+ * item name / description (English and French), kept narrow to avoid blocking food by mistake.
+ */
+export const COURIER_RESTRICTED: Array<{ key: 'tobacco' | 'cannabis' | 'weapon' | 'explosive'; en: string; fr: string; words: RegExp }> = [
+  { key: 'tobacco', en: 'tobacco / vaping', fr: 'tabac / vapotage', words: /\b(tobacco|tabac|cigarettes?|cigars?|cigares?|cigarillos?|vapes?|vapoteuses?|e-?cigarettes?|nicotine|snus|hookah|shisha)\b/i },
+  { key: 'cannabis', en: 'cannabis / drugs', fr: 'cannabis / drogues', words: /\b(cannabis|marijuana|marihuana|thc|cbd)\b/i },
+  { key: 'weapon', en: 'weapons', fr: 'armes', words: /\b(firearms?|guns?|rifles?|fusils?|ammunition|munitions?|armes? à feu)\b/i },
+  { key: 'explosive', en: 'explosives / fireworks', fr: 'explosifs / feux d’artifice', words: /\b(explosives?|explosifs?|fireworks?|firecrackers?|feux d['’]artifice|pétards?)\b/i },
+];
+
+/** Why a courier may not carry this item (null = fine). Tags: tobacco, cannabis, weapon, explosive. */
+export function courierRestriction(i: { name?: string; description?: string; tags?: string[] }): { key: string; en: string; fr: string } | null {
+  const text = `${i.name ?? ''} ${i.description ?? ''}`;
+  const hit = COURIER_RESTRICTED.find((r) => (i.tags ?? []).includes(r.key) || r.words.test(text));
+  return hit ? { key: hit.key, en: hit.en, fr: hit.fr } : null;
+}
+
+/**
  * The menu a platform store may receive. With the alcohol feature off this is the menu unchanged (today's behaviour);
  * with it on, alcohol items are left out wherever the location / channel is not allowed.
  * Listing does not depend on the hour: platforms apply their own alcohol hours once approved.

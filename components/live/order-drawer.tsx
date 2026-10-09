@@ -16,7 +16,7 @@ import { refreshEverything } from '@/components/live/pulse';
 import { api, ApiError, money, timeOf } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import type { T } from '@/lib/i18n';
-import type { OrderEvent, StoredOrder } from '@/lib/foodhub/types';
+import { orderSourceLabel, type OrderEvent, type StoredOrder } from '@/lib/foodhub/types';
 import { cn } from '@/lib/ui/cn';
 
 export type FullOrder = StoredOrder & { actions?: string[] };
@@ -100,7 +100,7 @@ export function OrderDrawer({ orderId, onClose }: { orderId: string; onClose: ()
   const p = order ? platformOf(order.channel) : null;
   return (
     <Drawer onClose={onClose} width="lg"
-      title={order ? <span className="flex items-center gap-2.5"><PlatformMark channel={order.channel} size="md" />#{order.displayId || order.externalOrderId.slice(0, 8)}<Badge tone={STATUS_TONE[order.status]}>{statusLabel(t, order.status)}</Badge></span> : t('Commande', 'Order')}
+      title={order ? <span className="flex items-center gap-2.5"><PlatformMark channel={order.channel} size="md" />#{order.displayId || order.externalOrderId.slice(0, 8)}<Badge tone={STATUS_TONE[order.status]}>{statusLabel(t, order.status)}</Badge>{orderSourceLabel(order.orderSource) && <Badge tone="neutral">{orderSourceLabel(order.orderSource)}</Badge>}</span> : t('Commande', 'Order')}
       subtitle={order ? `${p?.label} · ${order.brandName ?? t('Marque ?', 'Brand ?')}` : undefined}
       headerRight={order ? <Link href={`/orders/${order.id}`} className="rounded-md p-1.5 text-ink-3 hover:bg-sunken hover:text-ink" aria-label={t('Ouvrir en plein écran', 'Open full page')}><ExternalLink className="size-5" /></Link> : null}>
       {error && <div className="p-5"><Banner tone="stop">{error}</Banner></div>}

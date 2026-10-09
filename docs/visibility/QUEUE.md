@@ -41,7 +41,7 @@ Status: `todo` / `doing` / `done` / `blocked: reason`. Newest work at the top of
 - [x] K1 done 2026-10-09 (dish terms FR/EN per brand, area lists per kitchen, negatives, 5 overlaps to settle; no volumes: Keyword Planner needs the Ads account) | Local search terms per brand x neighbourhood FR/EN (what people type, from the competitor findings) for posts, titles and later Google Ads -> `KEYWORDS.md`
 
 ## P4c Apply kits (added 2026-10-09; for the owner or a logged-in desktop session, one account at a time)
-- [ ] A1 todo | Google Business Profile apply checklist, page after page: order of brands, each field with its source file, what to check after saving, what to log in Drive -> `GBP_APPLY.md`
+- [x] A1 done 2026-10-09 (prerequisites, order of work, 13 steps per profile with source file and check, logging, then Apple/Bing/Yelp/TripAdvisor) | Google Business Profile apply checklist, page after page: order of brands, each field with its source file, what to check after saving, what to log in Drive -> `GBP_APPLY.md`
 - [ ] H1 todo | Order hub page copy per brand FR/EN (pickup at the counter price first, then the apps that carry the brand, then Too Good To Go), never Po Poulet NDG's DoorDash store -> `ORDER_HUB.md`
 - [ ] Q1 todo | Review kit: bag card / QR text FR/EN, how to get each profile's review link, rules (ask everyone, no reward, no gating) -> `REVIEWS.md`
 - [ ] P2 todo | Photo shot list per brand (cover, logo, 5 dishes, kitchen, packaging), sizes per platform, file naming; OneDrive photos once the Microsoft connector is on -> `PHOTOS.md`

@@ -52,6 +52,17 @@ looks moved to Saint-Léonard; Saint-Léonard is written 5837 in older Food Hub 
 
 ## Findings from web search (this session cannot open listing sites; only web search works)
 
+- 2026-10-09 | Taco Mexican | **No public listing surfaces** in web search (Uber Eats and DoorDash pages exist but are not
+  indexed; `tacomontreal.ca` is not indexed either). **Name risk:** "Taco Mexican" is generic and English word order in a
+  French-first market; Google ranks it against every "tacos" search. **Close competitors:** in NDG, Chelas & Tacos
+  (5966 av. de Monkland, a few blocks from the kitchen) and The French Tacos; on Jean-Talon, El Rey del Taco (232 Jean-Talon
+  E, since 2009) and Mexico Restaurant (2474 Jean-Talon E). To rank, the Google profile needs a precise category
+  ("Mexican restaurant" or "Taco restaurant"), real photos, the tacomontreal.ca site live with the menu, and reviews.
+  **Ops note:** on 2026-10-09 a POS-integration request was opened with DoorDash for the Saint-Léonard Taco Mexican store
+  by someone other than this session; the owner must confirm it (details in Drive "TAKATAK OPS (private)", 03 OPS_LOG
+  addendum). Sources: https://www.ubereats.com/ca/store/chelas-%26-tacos/NI_9VDcjRAK5lc_X1y4MnQ ,
+  https://tastet.ca/en/lists/the-best-tacos-in-montreal-our-suggestions/
+
 - 2026-10-09 | Gâteau Montréal | **No public listing surfaces** in web search under "Gâteau Montréal" or "Gâteaux
   Montréal" (Uber Eats pages exist but are not indexed). **NAP problems:** (1) Uber Eats uses the plural "Gâteaux
   Montréal" vs "Gâteau Montréal" in the brand config: pick one; (2) the Uber link in the Saint-Léonard row has the slug

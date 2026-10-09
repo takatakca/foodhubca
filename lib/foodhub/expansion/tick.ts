@@ -1,7 +1,7 @@
 // Background work for the expansion features, run right AFTER each Watchtower run (live pulse while a screen is open,
 // the server timer, or the 1-minute cron) — never inside it — and throttled here to at most every 15 s:
 //   - own delivery: auto-dispatch couriers that are due; read new Clover "Delivery" orders every 2 minutes
-//   - phone: close calls that never sent a "completed" status (lost callbacks)
+//   - phone: close calls that never sent a "completed" status (lost callbacks); ON2GO menu voicemails still to email
 // Every part is skipped while its feature switch is off. Never throws.
 import { getRepo } from '../repo';
 import { getFeatures } from './features';
@@ -33,6 +33,9 @@ export async function tickExpansion(now = Date.now()): Promise<{ ran: boolean; b
     if (features.phone.on) {
       const { closeStaleCalls } = await import('../phone/calls');
       out.callsClosed = await closeStaleCalls(now);
+      // ON2GO phone menu: calls that lost their last callback, voicemails not emailed yet.
+      const { tickIvr } = await import('../phone/ivr/engine');
+      out.callsClosed += (await tickIvr(now)).closed;
     }
     return out;
   } catch (e) {

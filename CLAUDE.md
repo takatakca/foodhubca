@@ -25,10 +25,14 @@ twice, even three times, because sessions did not see each other. These rules st
   edit your own row.
 - If a row for the same task exists and was updated less than 24 h ago, it is taken. Pick another task or ask the
   owner.
-- **Operations work** (support tickets, emails, platform portals, hosting panels, Coolify clicks) is **not** in git.
-  Claim it in `private/CLAIMS.md` in the main checkout (`C:\Users\fansh\Documents\GitHub\foodhubca\private\`) and log it
-  in `private/OPS_LOG.md`. Only **one** agent at a time per account: DoorDash portal, Uber Manager, each Gmail inbox,
-  MochaHost, Coolify, Clover.
+- **Operations work** (support tickets, emails, platform portals, hosting panels, Coolify clicks, Google Business
+  Profile, Google Ads, social accounts, TAKATAK V1 accounts) is **not** in git. It is claimed and logged in the owner's
+  private Google Drive folder **"TAKATAK OPS (private)"** (cloud agents: Google Drive connector; read its README first):
+  `01 CLAIMS` before you touch an account, one line per change (before → after) in `03 OPS_LOG`, and never revert a value
+  in `02 APPROVED_VALUES` without the owner. Older notes may still be in `private/CLAIMS.md` / `private/OPS_LOG.md` /
+  `private/google/` on the owner's PC (`C:\Users\fansh\Documents\GitHub\foodhubca\private\`). Only **one** agent at a
+  time per account: DoorDash portal, Uber Manager, each Gmail inbox, MochaHost, Coolify, Clover, each Google Business
+  Profile / Google Ads account, each social account.
 
 ## 3. While working
 - Follow `docs/MASTER_PLAN.md` (phases, acceptance checks, locked rules in section 6: never break those).
@@ -53,7 +57,7 @@ twice, even three times, because sessions did not see each other. These rules st
 ## 5. Handoff notes (owner's standing order): write them as you go, not only at the end
 - Connections drop and usage limits hit without warning. Every ~20 minutes, and before any long step, update your note:
   status, the **exact next step**, and the 2–3 files to read. Code: your Task board row. Operations: your
-  `private/CLAIMS.md` row + one dated line in `private/OPS_LOG.md`.
+  `01 CLAIMS` row + one dated line in `03 OPS_LOG` (Drive folder "TAKATAK OPS (private)").
 - A new agent must be able to resume from your note alone, without re-reading the history. Don't write essays.
 - Verify before you report "done": re-check the result (page reloaded, test re-run, message visible in the thread).
 

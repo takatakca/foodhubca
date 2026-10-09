@@ -1,8 +1,8 @@
 # Food Hub: progress log and task board
 
 Newest first. Every session reads this before starting (see `CLAUDE.md`) and updates its own row at the end of each
-piece of work. The plan itself is `docs/MASTER_PLAN.md`. Operations (support, emails, portals) are tracked privately in
-`private/CLAIMS.md` and `private/OPS_LOG.md` in the main checkout, never in git.
+piece of work. The plan itself is `docs/MASTER_PLAN.md`. Operations (support, emails, portals, Google, social) are tracked privately in
+the owner's Google Drive folder "TAKATAK OPS (private)" (CLAIMS, APPROVED_VALUES, OPS_LOG), never in git.
 
 ## Task board (one task = one branch = one owner; edit only your own row)
 

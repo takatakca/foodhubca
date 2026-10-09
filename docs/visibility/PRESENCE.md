@@ -52,6 +52,17 @@ looks moved to Saint-Léonard; Saint-Léonard is written 5837 in older Food Hub 
 
 ## Findings from web search (this session cannot open listing sites; only web search works)
 
+- 2026-10-09 | Po Poulet (Saint-Léonard only; NDG store 27982486 is never touched) | **No public listing surfaces** in
+  web search, and `popoulet.ca` is not indexed. **Two DoorDash store numbers** for Saint-Léonard: 34494017 (row above,
+  off) and 41950447 (seen in DoorDash mail on 2026-10-08, not in DoorDash's own store list): the owner confirms which one
+  is real before any link is published; the other is closed. DoorDash also sent a merchant-verification "not eligible"
+  notice for "Po Poulet (ST LEONARD)" on 2026-10-08: the owner calls DoorDash; until then no order link to DoorDash for
+  this brand. No Uber Eats store. **Local fried-chicken competitors** (Anjou–Saint-Léonard): BPF Poulet Frit
+  (halal-certified, weak ratings: an opening for a well-reviewed rival), Rotisseries Au Coq, Poulet Rouge, La Poule en Feu.
+  To win "poulet frit Saint-Léonard": category "Chicken restaurant" + "Fried chicken takeaway", real photos of the 3- to
+  15-piece meals, and steady reviews. Sources: https://www.restomontreal.ca/resto/bpf-poulet-frit-montreal/18104/en/ ,
+  https://www.restomontreal.ca/resto/rotisseries-au-coq-montreal/16822/en/
+
 - 2026-10-09 | Pizza Algérie | **No public listing surfaces** in web search. Platforms: one Uber Eats store (NDG, on),
   no DoorDash. Website is a sub-address of another brand (`pizzaalgerie.pppmtl.com`), which gives it no local-search
   strength of its own. **Overlap:** this is the **third pizza brand out of the NDG kitchen** (with PPP Pizzeria and Pizza

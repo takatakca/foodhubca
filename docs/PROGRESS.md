@@ -44,6 +44,16 @@ piece of work. The plan itself is `docs/MASTER_PLAN.md`. Operations (support, em
 - Checks: typecheck OK, lint 0 errors, 413/413 tests (+ snapshot export), webpack build OK, verify 506/0.
 - **Next (owner):** merge, deploy, set `FOODHUB_PUBLIC_CLOVER_ORDER_URL` in Coolify. ON2GO site: repo takatakca/on2goca, branch `feature/on2go-directory`.
 
+## 2026-10-08 06:00 UTC (infra architect agent, task 16: `ci/prebuilt-image`)
+
+- New workflow `.github/workflows/image.yml` ("Food Hub image"): GitHub builds the existing Dockerfile, starts the image
+  and checks `/api/health`, then stores it as `ghcr.io/takatakca/foodhubca` (tags `main`, `sha-<short>`, `v*`).
+  Pull requests and `ci/**` branches build and test only. No new secret (built-in GITHUB_TOKEN). Dockerfile unchanged:
+  Coolify keeps building as today until the owner creates a "Docker Image" resource on `ghcr.io/takatakca/foodhubca:main`.
+- First run on the branch: build + smoke test green in 3 min (cold cache), nothing published.
+- Checks: typecheck OK, lint 0 errors, 400/400 tests, workflow YAML parsed.
+- Owner steps (merge, package visibility, Coolify switch) are in the private hosting plan.
+
 ## 2026-10-08 05:35 UTC (SMTP agent, task 16: `feature/smtp-email`)
 
 **Done:** email can go out by SMTP (the owner's own mailboxes, e.g. MochaHost) as well as Resend. Not merged: the owner reviews and merges.

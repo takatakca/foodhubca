@@ -88,6 +88,7 @@ export default function DeliverySettingsPage() {
                       </div>
                     </>}
                     {f.fleet === 'uber_direct' && <p className="text-xs text-ink-3">{t('Clé de signature : UBER_DIRECT_WEBHOOK_SECRET (copiée depuis Uber Direct → Webhooks).', 'Signing key: UBER_DIRECT_WEBHOOK_SECRET (copied from Uber Direct → Webhooks).')}</p>}
+                    {f.fleet === 'skip_daas' && <p className="text-xs text-ink-3">{t('Skip renvoie le secret SKIP_DAAS_WEBHOOK_SECRET dans l’en-tête x-api-key. Les points de collecte se règlent avec SKIP_DAAS_COLLECT_POINTS.', 'Skip sends back SKIP_DAAS_WEBHOOK_SECRET in the x-api-key header. Collect points are set with SKIP_DAAS_COLLECT_POINTS.')}</p>}
                   </div>
                 </div>
               ))}
@@ -97,11 +98,11 @@ export default function DeliverySettingsPage() {
 
           <Section title={t('Règles générales', 'General rules')}>
             <fieldset disabled={!edit} className="grid gap-4 md:grid-cols-2">
-              <Field label={t('Service principal', 'Primary service')}><Select value={s.primaryFleet} onChange={(e) => setS({ ...s, primaryFleet: e.target.value as DeliverySettings['primaryFleet'] })}><option value="doordash_drive">DoorDash Drive</option><option value="uber_direct">Uber Direct</option></Select></Field>
+              <Field label={t('Service principal', 'Primary service')}><Select value={s.primaryFleet} onChange={(e) => setS({ ...s, primaryFleet: e.target.value as DeliverySettings['primaryFleet'] })}><option value="doordash_drive">DoorDash Drive</option><option value="uber_direct">Uber Direct</option><option value="skip_daas">Skip Delivery</option></Select></Field>
               <Field label={t('Si non livrable', 'If undeliverable')}><Select value={s.undeliverable} onChange={(e) => setS({ ...s, undeliverable: e.target.value as DeliverySettings['undeliverable'] })}><option value="return_to_pickup">{t('Retour à la cuisine', 'Back to the kitchen')}</option><option value="dispose">{t('Laisser / jeter', 'Leave / dispose')}</option></Select></Field>
               <Field label={t('Frais de livraison facturés au client ($)', 'Delivery fee charged to the customer ($)')}><Input inputMode="decimal" value={s.customerFee} onChange={(e) => setS({ ...s, customerFee: e.target.value as unknown as number })} /></Field>
               <Field label={t('Pourboire par défaut au livreur ($)', 'Default courier tip ($)')} hint={t('DoorDash compte les livraisons avec pourboire.', 'DoorDash counts deliveries with a tip.')}><Input inputMode="decimal" value={s.defaultTip} onChange={(e) => setS({ ...s, defaultTip: e.target.value as unknown as number })} /></Field>
-              <Switch checked={s.compareQuotes} onChange={(v) => setS({ ...s, compareQuotes: v })} label={t('Comparer les prix (DoorDash vs Uber) et prendre le moins cher', 'Compare prices (DoorDash vs Uber) and take the cheaper')} />
+              <Switch checked={s.compareQuotes} onChange={(v) => setS({ ...s, compareQuotes: v })} label={t('Comparer les prix (DoorDash, Uber, Skip) et prendre le moins cher', 'Compare prices (DoorDash, Uber, Skip) and take the cheaper')} />
               <Switch checked={s.smsTracking} onChange={(v) => setS({ ...s, smsTracking: v })} label={t('Texter le lien de suivi au client', 'Text the tracking link to the customer')} />
               <Switch checked={s.readCloverDeliveryOrders} onChange={(v) => setS({ ...s, readCloverDeliveryOrders: v })} label={t('Lire les commandes Clover de type « Livraison »', 'Read Clover orders of type "Delivery"')} />
               <Switch checked={s.allowUnpaidDispatch} onChange={(v) => setS({ ...s, allowUnpaidDispatch: v })} label={t('Envoyer un livreur même si la commande n’est pas payée', 'Send a courier even if the order is not paid')} description={t('Déconseillé : les livreurs n’encaissent jamais.', 'Not recommended: couriers never collect money.')} />

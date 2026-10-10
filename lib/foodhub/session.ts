@@ -158,6 +158,15 @@ export async function signWelcome(merchantId: string, ttlS = WELCOME_TICKET_TTL_
 }
 export const verifyWelcome = (t: string | null | undefined) => verify<WelcomePayload>('w', t);
 
+/**
+ * Courier link: one of our own couriers opens his page (/courier) with it — no password. `v` is the courier's link
+ * version: "New link" in the console bumps it, and every older link stops working.
+ */
+export interface CourierPayload { c: string; v: number; exp: number }
+export const COURIER_LINK_TTL_S = 180 * 24 * 3600;
+export const signCourier = (courierId: string, version: number, ttlS = COURIER_LINK_TTL_S) => sign('c', { c: courierId, v: version, exp: Math.floor(Date.now() / 1000) + ttlS });
+export const verifyCourier = (t: string | null | undefined) => verify<CourierPayload>('c', t);
+
 export function readCookie(header: string | null, name = SESSION_COOKIE): string | null {
   if (!header) return null;
   for (const part of header.split(';')) {

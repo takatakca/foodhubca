@@ -13,6 +13,7 @@
 import crypto from 'node:crypto';
 import rawBrands from '../../../data/actual/brands.json';
 import rawLocations from '../../../data/actual/locations.json';
+import { matchBrandLocation, type LocationRef } from '../brand-match';
 import { callApi, publicBaseUrl, result, timedFetch } from '../config';
 import { getRepo } from '../repo';
 import type { ChannelResult } from '../types';
@@ -82,6 +83,7 @@ async function getSession(id: string): Promise<Session | null> {
   return s;
 }
 
+export { BRAND_ALIASES, LOCATION_NUMBER_ALIASES } from '../brand-match';
 const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
 
 /** Other names the platforms use for your brands (Uber Eats store names differ from DoorDash ones). */
@@ -95,10 +97,10 @@ export const BRAND_ALIASES: Record<string, string[]> = {
 };
 
 /**
- * Other civic numbers the platforms use for a location's building: Uber lists the Saint-Léonard kitchen at
- * 5839 Rue Jean-Talon E, Food Hub's record says 5837.
+ * Other civic numbers the platforms use for a location's building. Saint-Léonard's public address is 5839 Rue
+ * Jean-Talon E (owner, 2026-10-09); 5837 is the next unit of the same kitchen, still on some platform store records.
  */
-export const LOCATION_NUMBER_ALIASES: Record<string, string[]> = { SAINT_LEONARD: ['5839'] };
+export const LOCATION_NUMBER_ALIASES: Record<string, string[]> = { SAINT_LEONARD: ['5837'] };
 
 /** "6280 Av Somerled" → "somerled": the street name without the number or the street type, for a fallback match. */
 const streetOf = (line: string) => norm(line.replace(/^\s*\d+[a-z]?\s+/i, '').replace(/\b(av|ave|avenue|rue|boul|boulevard|ch|chemin|e|o|est|ouest)\b\.?/gi, ' '));
@@ -108,23 +110,7 @@ const streetOf = (line: string) => norm(line.replace(/^\s*\d+[a-z]?\s+/i, '').re
  * then a street that only one location is on, then the neighbourhood name). The owner always confirms.
  */
 export function suggestMapping(name: string, address = ''): { suggestedBrand?: string; suggestedLocation?: string } {
-  const n = norm(name);
-  const names = (rawBrands as string[]).filter((b) => b !== 'Too Good To Go').flatMap((b) => [b, ...(BRAND_ALIASES[b] ?? [])].map((alias) => ({ brand: b, alias: norm(alias) })));
-  // "Crèmerie Bin Molle Bin Dure" must win over "Bin molle & Bin Dure" when both match: longest match first.
-  const brand = names.filter((x) => x.alias && n.includes(x.alias)).sort((a, b) => b.alias.length - a.alias.length)[0]?.brand;
-  const text = `${address} ${name}`;
-  const locations = rawLocations as Array<{ code: string; address_line_1: string }>;
-  const numbers = (l: { code: string; address_line_1: string }) => [l.address_line_1.split(' ')[0], ...(LOCATION_NUMBER_ALIASES[l.code] ?? [])];
-  let suggestedLocation = locations.find((l) => numbers(l).some((num) => new RegExp(`\\b${num}\\b`).test(text)))?.code;
-  if (!suggestedLocation && address) {
-    // Same street, unknown number: only when a single location is on that street (two kitchens share Somerled).
-    const a = norm(address);
-    const onStreet = locations.filter((l) => streetOf(l.address_line_1) && a.includes(streetOf(l.address_line_1)));
-    if (onStreet.length === 1) suggestedLocation = onStreet[0].code;
-  }
-  if (!suggestedLocation && /hochelaga/i.test(text)) suggestedLocation = 'HOCHELAGA';
-  if (!suggestedLocation && /l[eé]onard/i.test(text)) suggestedLocation = 'SAINT_LEONARD';
-  return { suggestedBrand: brand, suggestedLocation };
+  return matchBrandLocation(name, address, rawBrands as string[], rawLocations as LocationRef[]);
 }
 
 /** Callback: validates state, exchanges the code, lists the owner's stores. Returns the session id to show in the UI. */

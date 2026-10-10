@@ -15,6 +15,7 @@ Start here:
 | [ATLAS_PARITY.md](ATLAS_PARITY.md) | Feature reference only: Atlas (UrbanPiper) module → TAKATAK equivalent → status. UrbanPiper is not used. |
 | [CLOVER_MARKETPLACE_LAUNCH.md](CLOVER_MARKETPLACE_LAUNCH.md) | **Clover App Market submission**: every requirement, its status, the owner-only steps, the video script |
 | [CLOVER_APP.md](CLOVER_APP.md), [CLOVER_APP_LISTING.md](CLOVER_APP_LISTING.md) | The Clover App Market app: how it works (OAuth, launch, welcome wizard, test order) and the listing texts; assets in [clover-listing/](clover-listing/) |
+| [SKIP_API_COVERAGE.md](SKIP_API_COVERAGE.md), [TGTG_API_COVERAGE.md](TGTG_API_COVERAGE.md) | **Every official SkipTheDishes (Just Eat Takeaway JET Connect + Delivery-as-a-Service) operation and every Too Good To Go route (no public API: Deliverect POS / Store / KDS / Retail + the feed)**: table per operation with its code and tests, owner steps, environment |
 | [INSTALLER_SERVEUR.md](INSTALLER_SERVEUR.md) | VPS install (Caddy or Traefik, systemd, cron pingers) — `deploy/` |
 | [RELEASE_NOTES.md](RELEASE_NOTES.md) | What changed in 1.5.7 (and 1.4.0) and how it was verified |
 

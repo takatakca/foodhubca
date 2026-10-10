@@ -198,3 +198,20 @@ describe('finance — portal scans', () => {
     expect(d.find((x) => x.orderRef === '4095A506')!.daysLeft).toBe(-2);
   });
 });
+
+describe('finance — Uber Manager download with two header rows', () => {
+  it('uses the column-name row, not the description row', () => {
+    const csv = [
+      'Store name as per Uber Eats manager,Store UUID,Order ID as per Uber Eats manager,Unique ID to identify the order ,"Local date the order was placed, or refund date",Total item sales excl tax ,Tax on total item sales in the order,GST on item Sales,QST on item Sales,The fee Uber charges,Total Tax on Uber Service Fee,Total payout associated with this order,Date payout initiated by Uber,Payout status,The reference ID for the payout',
+      'Store Name,Store UUID,Order ID,Workflow ID,Order Date,Sales (excl. tax),Tax on Sales,GST/HST on Sales,QST on Sales,Marketplace Fee,Tax on Marketplace Fee,Total payout,Payout Date,Payout Status,Payout Reference ID',
+      'Pi pita (NDG),u1,A9,wf-9,2026-05-03,40.00,5.99,2.00,3.99,-12.00,-1.80,32.19,2026-05-11,Paid,P-9',
+    ].join('\n');
+    const f = parseFinanceFile('uber_2026-05.csv', bytes(csv));
+    expect(f.format).toBe('uber_payment_details');
+    expect(f.lines).toHaveLength(1);
+    expect(f.lines[0].itemSales).toBe(40);
+    expect(f.lines[0].qst).toBeCloseTo(3.99);
+    expect(f.lines[0].commission).toBe(-12);
+    expect(f.lines[0].payoutStatus).toBe('Paid');
+  });
+});

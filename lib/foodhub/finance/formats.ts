@@ -327,7 +327,9 @@ type Comp = Record<(typeof COMPONENT_KEYS)[number], number>;
 
 export function parseFinanceFile(fileName: string, bytes: Uint8Array, opts: { platform?: Platform | null; account?: string } = {}): ParsedFile {
   const table = readTable(fileName, bytes);
-  const { headers, rows } = splitHeader(table);
+  // Uber Eats Manager downloads print two header rows: long descriptions, then the column names. Use the names.
+  const named = table.findIndex((r, i) => i < 3 && r.some((c) => /^workflow id$/i.test(c.trim())) && r.some((c) => /^(total payout|order id)$/i.test(c.trim())));
+  const { headers, rows } = splitHeader(named > 0 ? table.slice(named) : table);
   const det = detectFinanceFormat(headers, fileName);
   const platform = opts.platform ?? det.platform;
   const isClover = det.format === 'clover_payments' || det.format === 'clover_orders' || det.format === 'clover_deposits';

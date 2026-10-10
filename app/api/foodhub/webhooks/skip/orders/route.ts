@@ -20,12 +20,13 @@ export async function POST(req: NextRequest) {
     // A payload shape we cannot read must never be lost to a 500: keep it, and let JET fail the injection
     // (non-2xx) so the order goes to the Skip tablet straight away instead of waiting for the 5-minute timeout.
     background('keep unparsed skip order', () => keepUnparsed('skip', body, `JET Connect order could not be read: ${e instanceof Error ? e.message : String(e)}`));
-    return NextResponse.json({ error: 'Unreadable order payload' }, { status: 400 });
+    return NextResponse.json({ errorMessage: 'Unreadable order payload', error: 'Unreadable order payload' }, { status: 400 });
   }
   if (!order) {
     background('keep unparsed skip order', () => keepUnparsed('skip', body, 'JET Connect order missing id/items'));
-    return NextResponse.json({ error: 'Unrecognized order payload' }, { status: 400 });
+    return NextResponse.json({ errorMessage: 'Unrecognized order payload', error: 'Unrecognized order payload' }, { status: 400 });
   }
   if (!(await queueOrder(order))) return retryLater('skip');
-  return new NextResponse(null, { status: 202 });
+  // JET: a 202 carries { OrderId }; sent-to-pos-success / -failed then settles the order within 5 minutes.
+  return NextResponse.json({ OrderId: order.externalOrderId }, { status: 202 });
 }

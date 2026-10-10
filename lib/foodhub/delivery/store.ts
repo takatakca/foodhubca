@@ -117,7 +117,7 @@ export function cleanSettings(raw: Partial<DeliverySettings> | null | undefined)
   const locations: Record<string, LocationDeliveryRule> = {};
   for (const [code, rule] of Object.entries(s.locations ?? {})) if (/^[A-Z0-9_]{2,30}$/.test(code)) locations[code] = cleanRule(rule);
   return {
-    primaryFleet: s.primaryFleet === 'uber_direct' ? 'uber_direct' : 'doordash_drive',
+    primaryFleet: s.primaryFleet === 'uber_direct' || s.primaryFleet === 'skip_daas' ? s.primaryFleet : 'doordash_drive',
     compareQuotes: Boolean(s.compareQuotes),
     defaultTip: round2(num(s.defaultTip, DEFAULT_DELIVERY_SETTINGS.defaultTip, 0, 100)),
     customerFee: round2(num(s.customerFee, DEFAULT_DELIVERY_SETTINGS.customerFee, 0, 100)),

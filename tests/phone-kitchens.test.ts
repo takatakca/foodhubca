@@ -10,7 +10,8 @@ import { listDirectOrders, saveDeliverySettings } from '../lib/foodhub/delivery/
 import { setFeature } from '../lib/foodhub/expansion/features';
 import { getCall } from '../lib/foodhub/phone/calls';
 import { setOrderDetails } from '../lib/foodhub/phone/order';
-import { cleanLine, getPhoneSettings, isMultiKitchen, kitchenView, lineKitchens, savePhoneSettings } from '../lib/foodhub/phone/settings';
+import { buildPhoneMenu } from '../lib/foodhub/phone/cart';
+import { brandLockedAt, cleanLine, getPhoneSettings, isMultiKitchen, kitchenView, lineKitchens, savePhoneSettings } from '../lib/foodhub/phone/settings';
 import { twilioSignature } from '../lib/foodhub/phone/twilio';
 import { callerTurn, simulateTurn, startCall } from '../lib/foodhub/phone/voice';
 import { getRepo } from '../lib/foodhub/repo';
@@ -35,7 +36,8 @@ const MENU = (brandName: string): MasterMenu => ({
 
 const MULTI = {
   number: '+15145550177', name: 'TAKATAK', enabled: true, delivery: false,
-  kitchens: [{ locationCode: 'NDG', brands: ['Po Poulet', 'Pi Pita'] }, { locationCode: 'JT', brands: ['Po Poulet', 'Taco Montréal'] }],
+  // Po Poulet only from Saint-Léonard (owner's lock: never from NDG); Taco Montréal from both kitchens.
+  kitchens: [{ locationCode: 'NDG', brands: ['Pi Pita', 'Taco Montréal'] }, { locationCode: 'JT', brands: ['Po Poulet', 'Taco Montréal'] }],
 };
 const URL_BASE = 'https://hub.test';
 
@@ -80,7 +82,7 @@ afterEach(() => { globalThis.fetch = realFetch; });
 describe('line settings: brand@kitchen groups', () => {
   it('keeps several kitchens, folds one back into a classic line, and refuses bad groups', () => {
     const multi = cleanLine(MULTI);
-    expect(multi).toMatchObject({ locationCode: 'NDG', brands: ['Po Poulet', 'Pi Pita', 'Taco Montréal'], kitchens: MULTI.kitchens });
+    expect(multi).toMatchObject({ locationCode: 'NDG', brands: ['Pi Pita', 'Taco Montréal', 'Po Poulet'], kitchens: MULTI.kitchens });
     expect(isMultiKitchen(multi)).toBe(true);
     expect(kitchenView(multi, 'JT')).toMatchObject({ locationCode: 'JT', brands: ['Po Poulet', 'Taco Montréal'] });
     expect(kitchenView(multi, 'JT')!.kitchens).toBeUndefined();
@@ -91,7 +93,7 @@ describe('line settings: brand@kitchen groups', () => {
     expect(one.kitchens).toBeUndefined();
     expect(lineKitchens(one)).toEqual([{ locationCode: 'JT', brands: ['Po Poulet'] }]);
     // A classic line (no kitchens) is unchanged.
-    expect(cleanLine({ number: '+15145550199', locationCode: 'NDG', brands: ['Po Poulet'] })).toMatchObject({ locationCode: 'NDG', brands: ['Po Poulet'] });
+    expect(cleanLine({ number: '+15145550199', locationCode: 'NDG', brands: ['Pi Pita'] })).toMatchObject({ locationCode: 'NDG', brands: ['Pi Pita'] });
 
     expect(() => cleanLine({ ...MULTI, kitchens: [MULTI.kitchens[0], MULTI.kitchens[0]] })).toThrow(/listed twice/);
     expect(() => cleanLine({ ...MULTI, kitchens: [MULTI.kitchens[0], { locationCode: 'JT', brands: [] }] })).toThrow(/at least one brand sold from JT/);
@@ -101,6 +103,23 @@ describe('line settings: brand@kitchen groups', () => {
     const line = (await getPhoneSettings()).lines[0];
     expect(line.kitchens).toHaveLength(2);
     expect(line.number).toBe('+15145550177');
+  });
+});
+
+describe('owner lock: Po Poulet never by phone from NDG', () => {
+  it('refuses a line that sells Po Poulet from NDG, accepts it from Saint-Léonard', async () => {
+    await expect(savePhoneSettings({ lines: [{ ...MULTI, kitchens: [{ locationCode: 'NDG', brands: ['Pi Pita', 'Po Poulet'] }, MULTI.kitchens[1]] } as any] }, actor)).rejects.toThrow(/Po Poulet is never sold by phone from Notre-Dame-de-Grâce/);
+    await expect(savePhoneSettings({ lines: [{ number: '+15145550199', name: 'Po Poulet', locationCode: 'NDG', brands: ['Po-Poulet'], enabled: true, delivery: false } as any] }, actor)).rejects.toThrow(/owner's lock/);
+    const ok = await savePhoneSettings({ lines: [{ number: '+15145550199', name: 'Po Poulet', locationCode: 'JT', brands: ['Po Poulet'], enabled: true, delivery: false } as any] }, actor);
+    expect(ok.lines[0]).toMatchObject({ locationCode: 'JT', brands: ['Po Poulet'] });
+    expect(brandLockedAt('Poulet Poulet', undefined, 'NDG')).toBe(false);
+  });
+
+  it('a line saved before the lock still never offers Po Poulet at NDG', async () => {
+    const menu = await buildPhoneMenu({ locationCode: 'NDG', brands: ['Po Poulet', 'Pi Pita'] });
+    expect(menu.text).not.toContain('BRAND: Po Poulet');
+    expect(menu.text).toContain('BRAND: Pi Pita');
+    expect((await buildPhoneMenu({ locationCode: 'JT', brands: ['Po Poulet'] })).text).toContain('BRAND: Po Poulet');
   });
 });
 
@@ -193,7 +212,7 @@ describe('a call on a line with two kitchens', () => {
     expect((await getCall(first.call.id))!.locationCode).toBe('JT');
 
     claude = [
-      claudeResponse([toolUse('remove_item', { line_number: 1 }), toolUse('add_item', { brand: 'Po Poulet', item_ref: 'i1', quantity: 1, option_refs: [], notes: '' }), toolUse('choose_kitchen', { location_code: 'NDG' })], 'tool_use'),
+      claudeResponse([toolUse('remove_item', { line_number: 1 }), toolUse('add_item', { brand: 'Taco Montréal', item_ref: 'i1', quantity: 1, option_refs: [], notes: '' }), toolUse('choose_kitchen', { location_code: 'NDG' })], 'tool_use'),
       claudeResponse([text('C’est noté, à NDG.')]),
     ];
     await simulateTurn(first.call.lineId, first.call.id, 'Alors un poulet entier à NDG');
@@ -233,7 +252,7 @@ describe('our own orders on the kitchen screen', () => {
   it('lists AI phone / website / typed-in orders to cook, Seen once, then Ready and Picked up', async () => {
     const base = { brandName: 'Po Poulet', customer: { name: 'Ana', phone: '+15145551234' }, fulfillment: 'pickup' as const, payment: 'pay_at_pickup' as const, lines: [{ externalId: 'i1', name: 'Poulet entier', quantity: 1, unitPrice: 24.99, total: 24.99, modifiers: [] }] };
     const phone = await createDirectOrder({ ...base, source: 'phone_ai', locationCode: 'JT' }, actor);
-    await createDirectOrder({ ...base, source: 'website', locationCode: 'NDG' }, actor);
+    await createDirectOrder({ ...base, brandName: 'Pi Pita', source: 'website', locationCode: 'NDG' }, actor);
     await createDirectOrder({ ...base, source: 'clover_online', locationCode: 'JT', posOrderId: 'CLV9' }, actor);
 
     expect((await listKitchenOwnOrders()).map((o) => o.source).sort()).toEqual(['phone_ai', 'website']);

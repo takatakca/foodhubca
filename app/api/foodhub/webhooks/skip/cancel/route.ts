@@ -7,11 +7,12 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 // JET Connect "Cancel Order Notification": { orderID, reason: { code }, happenedAt }
+// JET expects 200 and the same payload back as the acknowledgement (a non-2xx is retried up to 5 times).
 export async function POST(req: NextRequest) {
   const raw = await req.text();
   if (!skipAdapter.verifyWebhook(req.headers, raw)) return unauthorized('skip');
   const body = parseJson(raw);
   if (!body?.orderID) return NextResponse.json({ error: 'orderID missing' }, { status: 400 });
   background(`skip cancel ${body.orderID}`, () => applyExternalStatus('skip', String(body.orderID), 'cancelled', { reason: body.reason?.code, happenedAt: body.happenedAt }), { channel: 'skip', body, reference: String(body.orderID), kind: 'order' });
-  return new NextResponse(null, { status: 200 });
+  return NextResponse.json(body, { status: 200 });
 }

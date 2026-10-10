@@ -380,6 +380,7 @@ const env = {
   DOORDASH_BASE_URL: `${MOCK}/dd`, DOORDASH_DEVELOPER_ID: 'dd-dev-e2e', DOORDASH_KEY_ID: 'dd-key-e2e', DOORDASH_SIGNING_SECRET: DD_SECRET_B64, DOORDASH_PROVIDER_TYPE: 'takatak_e2e', DOORDASH_WEBHOOK_SECRET: 'dd-hook-e2e',
   SKIP_JET_BASE_URL: `${MOCK}/skip`, SKIP_JET_API_KEY: JET_API_KEY, SKIP_WEBHOOK_HMAC_SECRET: SKIP_HMAC, SKIP_WEBHOOK_API_KEY: SKIP_NOTIFY_KEY,
   TGTG_WEBHOOK_SECRET: 'tgtg-hook-e2e',
+  SKIP_ONBOARDING_HMAC_SECRET: 'skip-onboard-e2e', DELIVERECT_WEBHOOK_SECRET: 'dlv-hook-e2e', DELIVERECT_TGTG_CHANNEL_IDS: '777',
   FOODHUB_RELAY_SECRET: RELAY_SECRET, FOODHUB_RELAY_CHANNELS: 'tgtg', FOODHUB_RELAY_CALLBACK_URL: `${MOCK}/relay/callback`, FOODHUB_RELAY_CALLBACK_TOKEN: RELAY_CB_TOKEN,
   CLOVER_BASE_URL: `${MOCK}/clover`, CLOVER_MERCHANT_ID: 'MAINMERCHANT', CLOVER_ACCESS_TOKEN: CLOVER_TOKEN,
   CLOVER_MERCHANT_TOKENS: JSON.stringify({ FAILMERCHANT: 'x' }), CLOVER_WEBHOOK_AUTH: 'clover-auth-e2e',
@@ -440,7 +441,7 @@ try {
   check('no UrbanPiper channel anywhere', !JSON.stringify(ch.json).toLowerCase().includes('urbanpiper'));
   check('Clover reported connected', ch.json.clover?.configured === true);
   const skipCh = ch.json.channels.find((c) => c.channel === 'skip');
-  check('Skip shows its 6 webhook URLs on your public domain (incl. driver status + backup flow)', skipCh.webhookUrl === 'https://takatak.example/api/foodhub/webhooks/skip/orders' && skipCh.extraWebhooks.length === 5 && skipCh.extraWebhooks.some((w) => w.url?.endsWith('/skip/driver') || w.path?.endsWith('/skip/driver')));
+  check('Skip shows its 10 webhook URLs on your public domain (incl. driver status, backup flow, final order, modification, order time, onboarding)', skipCh.webhookUrl === 'https://takatak.example/api/foodhub/webhooks/skip/orders' && skipCh.extraWebhooks.length === 9 && skipCh.extraWebhooks.some((w) => w.url?.endsWith('/skip/driver') || w.path?.endsWith('/skip/driver')));
   check('Clover webhook URL shown, auth code set', ch.json.clover?.webhookUrl === 'https://takatak.example/api/foodhub/webhooks/clover' && ch.json.clover.webhookAuthSet === true && ch.json.clover.recordPayments === true);
   check('webhook secrets hidden by default', skipCh.handoff.every((h) => h.set && h.value === undefined));
   const rev = await call('GET', '/api/foodhub/channels?reveal=1');
@@ -1614,7 +1615,9 @@ try {
 
   // AI phone line — no ANTHROPIC_API_KEY in this run: the call must go straight to the kitchen phone (never lost).
   await call('PUT', '/api/foodhub/expansion', { body: { key: 'phone', on: true } });
-  const pline = await call('PUT', '/api/foodhub/phone', { body: { settings: { lines: [{ number: '+15145550199', name: 'Po Poulet NDG', locationCode: 'NDG_MAIN', brands: ['Po Poulet'], enabled: true, delivery: true }] } } });
+  // Owner's lock: Po Poulet is never sold by phone from NDG (only from Saint-Léonard).
+  check('a Po Poulet phone line at NDG is refused (owner lock)', (await call('PUT', '/api/foodhub/phone', { body: { settings: { lines: [{ number: '+15145550199', name: 'Po Poulet NDG', locationCode: 'NDG_MAIN', brands: ['Po Poulet'], enabled: true, delivery: true }] } } })).status >= 400);
+  const pline = await call('PUT', '/api/foodhub/phone', { body: { settings: { lines: [{ number: '+15145550199', name: 'Pi Pita NDG', locationCode: 'NDG_MAIN', brands: ['Pi Pita'], enabled: true, delivery: true }] } } });
   check('phone line saved', pline.json?.settings?.lines?.length === 1, JSON.stringify(pline.json).slice(0, 200));
   const voiceForm = new URLSearchParams({ CallSid: 'CA-e2e-1', From: '+15145551234', To: '+15145550199', CallStatus: 'ringing' });
   const twSig = (u, f) => crypto.createHmac('sha1', 'tw-e2e').update(u + [...f.keys()].sort().map((k) => k + f.get(k)).join('')).digest('base64');
@@ -1694,6 +1697,76 @@ try {
   const sy44b = await call('POST', '/api/foodhub/sync', { body: { force: true } });
   check('the poller meets the webhook\'s orders: never shown twice', sy44b.json?.report?.clover?.find((c) => c.merchantId === 'MAINMERCHANT')?.websiteOrders === 0 && (await webList()).filter((o) => o.posOrderId === 'OLO-WEB-2').length === 1);
 
+  console.log('\n45. Skip (all JET Connect notifications) and Too Good To Go (Deliverect + feed): API coverage');
+  {
+  const skn = (p, payload, opts) => skipWebhook(p, payload, { hmac: false, ...opts });
+  // JET wants 200 and the same payload back as the acknowledgement.
+  check('Skip cancel notification is answered with the same payload', (await skn('cancel', { orderID: 'no-such-order', reason: { code: 'custCancelledOther' }, happenedAt: '2026-10-09T01:00:00Z' })).json?.orderID === 'no-such-order');
+  check('Skip temporarily-offline notification is answered with the same payload', (await skn('offline', { restaurantId: 'NDG-POPOULET', delivery: { isOffline: false }, collection: { isOffline: false } })).json?.restaurantId === 'NDG-POPOULET');
+  const fin0 = skipOrder('final-0001', 'NDG-POPOULET', 'tx-final-1');
+  const finRes = await skipWebhook('orders', fin0);
+  check('Skip order answered 202 with { OrderId }', finRes.status === 202 && finRes.json?.OrderId === 'final-0001', JSON.stringify(finRes.json));
+  const finOrder = await waitFor(async () => { const o = await findOrder('final-0001'); return o?.posOrderId ? o : null; });
+  check('and the first total is the customer total (26.47)', finOrder?.total === 26.47, String(finOrder?.total));
+  const finalPayload = { ...fin0, items: [fin0.items[0]], payment: { items_in_cart: { inc_tax: 1649, tax: 215 }, final: { inc_tax: 1649, tax: 215 } }, total: 1649 };
+  check('Final Picked Order refused without a signature', (await call('POST', '/api/foodhub/webhooks/skip/final', { auth: false, raw: JSON.stringify(finalPayload), headers: { authorization: 'nope' } })).status === 401);
+  check('Final Picked Order accepted ({ OrderId })', (await skn('final', finalPayload)).json?.OrderId === 'final-0001');
+  const finAfter = await waitFor(async () => { const o = await findOrder('final-0001'); return o?.total === 16.49 ? o : null; });
+  check('Final Picked Order: the order now holds the real total, the lines stay as cooked', finAfter?.total === 16.49 && finAfter.lines.length === 2, String(finAfter?.total));
+  check('Skip modification callback (failure) accepted and echoed', (await skn('modification', { orderId: 'final-0001', type: 'failure', errors: [{ errorCode: 'removedItemNotFound' }] })).json?.type === 'failure');
+  const finEvents = await waitFor(async () => { const ev = (await call('GET', `/api/foodhub/orders/${finOrder?.id}`)).json?.events || []; return ev.some((e) => e.type === 'skip_modification_failed') ? ev : null; });
+  check('the failure is on the order history', !!finEvents);
+  check('Skip order-time notification accepted', (await skn('order-time', { restaurantId: 'NDG-POPOULET', serviceType: 'Delivery', dayOfWeek: 'Monday', lowerBoundMinutes: 25, upperBoundMinutes: 35 })).status === 200);
+  const obBody = JSON.stringify({ eventType: 'onboardingActionRequired', sessionId: '3fa85f64-5717-4562-b3fc-2c963f66afa6', stage: 'awaitingConfiguration', timestamp: new Date().toISOString(), referenceId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' });
+  const obTs = new Date().toISOString();
+  const obSig = 'sha256=' + crypto.createHmac('sha256', 'skip-onboard-e2e').update(obTs + '\n' + obBody).digest('hex');
+  check('onboarding notification refused with a wrong signature', (await call('POST', '/api/foodhub/webhooks/skip/onboarding', { auth: false, raw: obBody, headers: { 'x-webhook-timestamp': obTs, 'x-webhook-signature': 'sha256=00' } })).status === 401);
+  check('onboarding notification accepted when signed', (await call('POST', '/api/foodhub/webhooks/skip/onboarding', { auth: false, raw: obBody, headers: { 'x-webhook-timestamp': obTs, 'x-webhook-signature': obSig } })).status === 200);
+  const obList = await waitFor(async () => { const r = await call('GET', '/api/foodhub/skip/onboarding'); return r.json?.sessions?.length ? r.json : null; });
+  check('onboarding session kept with the next step in words', obList?.sessions?.[0]?.stage === 'awaitingConfiguration' && /configuration/.test(obList.sessions[0].nextStep || ''), JSON.stringify(obList?.sessions?.[0]));
+  const svc = await call('GET', '/api/foodhub/skip/service-times');
+  check('service times preview lists the mapped Skip stores (nothing is sent)', svc.status === 200 && Array.isArray(svc.json?.stores) && svc.json.stores.length >= 1);
+  const dry = await call('POST', '/api/foodhub/skip/logistics', { body: { operation: 'deliveryPoolsDeliveryPoolIdChangeRiskPost', path: { deliveryPoolId: 'p1' }, body: { riskLevel: 4 }, dryRun: true } });
+  check('delivery-pool operations can be previewed (the dry run builds the request)', dry.status === 200 && dry.json?.request?.method === 'POST' && /\/delivery\/pools\/p1\/change-risk$/.test(dry.json.request.url), JSON.stringify(dry.json));
+  const cat = await call('POST', '/api/foodhub/skip/catalogue', { body: { dryRun: true, payload: { restaurants: ['R1'], menus: [] } } });
+  check('catalogue check refuses an empty menu list', cat.status === 200 && cat.json?.valid === false);
+
+  // Deliverect: Too Good To Go's official POS route.
+  const dlvUrl = (p, q = '?token=dlv-hook-e2e') => `/api/foodhub/webhooks/deliverect/${p}${q}`;
+  ids.dlv = await mk({ channel: 'tgtg', channelStoreId: 'dlv:E2E-LOC', brandName: 'Po Poulet', locationCode: 'NDG_MAIN' });
+  check('Deliverect webhook refused without the token', (await call('POST', dlvUrl('orders', ''), { auth: false, body: {} })).status === 401);
+  const reg = await call('POST', dlvUrl('register'), { auth: false, body: { accountId: 'acc-e2e', locationId: 'loc-e2e', externalLocationId: 'E2E-LOC', locationName: 'NDG' } });
+  check('Deliverect register: every webhook address on the public domain', reg.status === 200 && reg.json?.ordersWebhookURL === 'https://takatak.example/api/foodhub/webhooks/deliverect/orders?token=dlv-hook-e2e' && reg.json.operationsWebhookURL === '', JSON.stringify(reg.json));
+  const dlvBag = (id, extra = {}) => ({ _created: new Date().toISOString(), _id: id, account: 'acc-e2e', channelOrderId: 'TGTG-' + id, channelOrderDisplayId: id.slice(-6), posLocationId: 'E2E-LOC', location: 'loc-e2e', channelLink: 'cl-e2e', status: 1, orderType: 1, channel: 777, customer: { name: 'Ana Bel' }, payment: { amount: 599, type: 0 }, decimalDigits: 2, taxTotal: 0, items: [{ plu: 'BAG', name: 'Surprise Bag', price: 599, quantity: 1, productType: 1, subItems: [] }], ...extra });
+  const dRes = await call('POST', dlvUrl('orders'), { auth: false, body: dlvBag('65e2e0000000000000000001') });
+  check('Deliverect Too Good To Go order acknowledged with 200', dRes.status === 200);
+  const dOrder = await waitFor(async () => { const o = await findOrder('dlv-65e2e0000000000000000001'); return o?.posOrderId ? o : null; });
+  const dEvents = (await call('GET', `/api/foodhub/orders/${dOrder?.id}`)).json?.events || [];
+  check('in Clover for the kitchen; accept says "nothing sent to Deliverect" (no keys) instead of faking it', dOrder?.channel === 'tgtg' && dOrder.total === 5.99 && dEvents.some((e) => e.type === 'accepted' && e.detail?.response?.status === 'skipped'), JSON.stringify(dEvents.map((e) => e.type)));
+  const otherCh = await call('POST', dlvUrl('orders'), { auth: false, body: dlvBag('65e2e0000000000000000002', { channel: 5 }) });
+  check('an order of another Deliverect channel is kept, not taken', otherCh.status === 200 && /not Too Good To Go/.test(otherCh.json?.ignored || '') && !(await findOrder('dlv-65e2e0000000000000000002')));
+  await call('POST', dlvUrl('orders'), { auth: false, body: dlvBag('65e2e0000000000000000001', { status: 100 }) });
+  const dCancelled = await waitFor(async () => { const o = await findOrder('dlv-65e2e0000000000000000001'); return o?.status === 'cancelled' ? o : null; });
+  check('a channel CANCEL (status 100) cancels the order', !!dCancelled);
+  check('Deliverect sync-floors and sync-tables answered', (await call('GET', dlvUrl('sync-floors'), { auth: false })).json?.floors?.length === 0 && (await call('GET', dlvUrl('sync-tables'), { auth: false })).json?.tables?.[0]?.id === 'DLVY');
+  const dAdmin = await call('GET', '/api/foodhub/deliverect');
+  check('Deliverect console endpoint lists the registered location and the 29 operations', dAdmin.status === 200 && dAdmin.json?.locations?.length >= 1 && dAdmin.json?.operations?.length === 29 && dAdmin.json.configured === false, JSON.stringify(dAdmin.json)?.slice(0, 200));
+
+  // Too Good To Go feed: pickup confirmed, no-show, end-of-day bag counts.
+  const feed = (body) => call('POST', '/api/foodhub/webhooks/tgtg', { auth: false, headers: { authorization: 'tgtg-hook-e2e' }, body });
+  await feed({ id: 'tgtg-feed-1', storeId: 'tgtg-ndg', items: [{ name: 'Surprise Bag', quantity: 1, price: 5.99 }], total: 5.99 });
+  await feed({ id: 'tgtg-feed-2', storeId: 'tgtg-ndg', items: [{ name: 'Surprise Bag', quantity: 1, price: 5.99 }], total: 5.99 });
+  await waitFor(async () => (await findOrder('tgtg-feed-2'))?.posOrderId);
+  await feed({ event: 'order.collected', order_id: 'tgtg-feed-1' });
+  await feed({ event: 'order.no_show', order_id: 'tgtg-feed-2' });
+  const f1 = await waitFor(async () => { const o = await findOrder('tgtg-feed-1'); return o?.status === 'completed' ? o : null; });
+  const f2 = await waitFor(async () => { const o = await findOrder('tgtg-feed-2'); return o?.status === 'completed' ? o : null; });
+  check('TGTG "collected" confirms the pickup (completed); "no-show" completes and is flagged', !!f1 && !!f2);
+  check('bag-count cron refuses a missing secret', (await call('GET', '/api/foodhub/cron/tgtg-bags', { auth: false })).status === 401);
+  const bagCron = await call('GET', '/api/foodhub/cron/tgtg-bags', { auth: false, headers: { authorization: 'Bearer cron-e2e' } });
+  check('end of day: the feed counts reach the bag log', bagCron.status === 200 && bagCron.json?.days?.some((d) => d.locationCode === 'NDG_MAIN' && d.synced), JSON.stringify(bagCron.json));
+
+  }
   await sleep(300);
   // A webhook "kept in the inbox" (section 41: Uber refusing the order fetch on purpose) is handled, not a crash.
   const crashes = appLog.split('\n').filter((l) => /\[foodhub\] .* failed|Unhandled|TypeError|ReferenceError/.test(l) && !/kept in the inbox/.test(l));

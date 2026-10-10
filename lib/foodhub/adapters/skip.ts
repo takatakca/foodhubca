@@ -6,9 +6,17 @@
 //    Cancellations     POST /api/foodhub/webhooks/skip/cancel
 //    Temp offline      POST /api/foodhub/webhooks/skip/offline
 //    Menu status       POST /api/foodhub/webhooks/skip/menu-status (callback_url on menu pushes)
+//    Driver / failed   POST /api/foodhub/webhooks/skip/driver · …/skip/failed
+//    Final picked      POST /api/foodhub/webhooks/skip/final         (order after out-of-stock changes)
+//    Modification      POST /api/foodhub/webhooks/skip/modification  (success / failure of a modification)
+//    Order times       POST /api/foodhub/webhooks/skip/order-time
+//    Onboarding        POST /api/foodhub/webhooks/skip/onboarding    (signed: X-Webhook-Signature)
 //  Outbound (Food Hub → JET), header X-Flyt-Api-Key:
 //    POST /order/{id}/sent-to-pos-success | sent-to-pos-failed   (within 5 min of a 202)
 //    POST /menus · POST /item-availability · PUT /restaurants/{ref}/online|offline
+//    Everything else (modification GET / validation, service times, partner onboarding): skip-api.ts.
+//  Delivery-as-a-Service (Skip couriers for our own orders): delivery/skip-daas.ts.
+//  Coverage of the whole published specification: docs/SKIP_API_COVERAGE.md.
 import crypto from 'node:crypto';
 import { callApi, publicBaseUrl, result, safeEqual, stripSlash } from '../config';
 import { toSkipMenu } from '../menu/translate';
@@ -21,8 +29,11 @@ const KEY = 'skip' as const;
 function base() { return stripSlash(process.env.SKIP_JET_BASE_URL || 'https://api.flytplatform.com'); }
 
 function headers() {
-  return { 'X-Flyt-Api-Key': process.env.SKIP_JET_API_KEY || '', 'Content-Type': 'application/json' };
+  // x-jet-application is the optional "descriptor of client or internal application" every JET Connect operation accepts.
+  return { 'X-Flyt-Api-Key': process.env.SKIP_JET_API_KEY || '', 'Content-Type': 'application/json', 'x-jet-application': 'takatak-foodhub' };
 }
+
+export function skipReadiness() { return readiness(); }
 
 function readiness() {
   return buildReadiness(KEY, ['SKIP_JET_API_KEY', 'SKIP_WEBHOOK_HMAC_SECRET'], {
@@ -34,19 +45,26 @@ function readiness() {
       { label: 'Menu status callback (automatic)', path: '/api/foodhub/webhooks/skip/menu-status' },
       { label: 'Driver status notification', path: '/api/foodhub/webhooks/skip/driver' },
       { label: 'Failed order for backup flow', path: '/api/foodhub/webhooks/skip/failed' },
+      { label: 'Final picked order (only if your brand manager enables it)', path: '/api/foodhub/webhooks/skip/final' },
+      { label: 'Order modification result callback', path: '/api/foodhub/webhooks/skip/modification' },
+      { label: 'Order time updated notification', path: '/api/foodhub/webhooks/skip/order-time' },
+      { label: 'Partner onboarding notification', path: '/api/foodhub/webhooks/skip/onboarding' },
     ],
     handoff: [
       { label: 'Webhook HMAC secret (X-JET-Connect-Hash)', envKey: 'SKIP_WEBHOOK_HMAC_SECRET' },
       { label: 'API key for notifications (Authorization header)', envKey: 'SKIP_WEBHOOK_API_KEY' },
+      { label: 'Onboarding notification HMAC secret (X-Webhook-Signature)', envKey: 'SKIP_ONBOARDING_HMAC_SECRET' },
     ],
   });
 }
 
+/** One authenticated JET Connect call. Never throws; blocked (not faked) while the key or the live switch is missing. */
 function send(method: string, path: string, body?: unknown, okStatus: 'done' | 'queued' = 'done') {
   const r = readiness();
   if (!r.canSend) return Promise.resolve(blockedResult(KEY, r));
   return callApi(KEY, `${base()}${path}`, { method, headers: headers(), body: body === undefined ? undefined : JSON.stringify(body) }, okStatus);
 }
+export { send as skipSend };
 
 /** X-JET-Connect-Hash: "HMAC-SHA256 t=<ms>,signature=<base64 HMAC-SHA256(secret, raw body)>". */
 export function verifyJetHash(header: string | null, rawBody: string, secret: string | undefined): boolean {
@@ -63,6 +81,24 @@ function verify(h: Headers, rawBody: string): boolean {
   const key = process.env.SKIP_WEBHOOK_API_KEY;
   const auth = (h.get('authorization') || '').replace(/^(Bearer|Basic|Token)\s+/i, '').trim();
   return Boolean(key) && safeEqual(auth, key);
+}
+
+/**
+ * JET "sent-to-pos-failed" needs { errorCode, errorMessage } (happenedAt, transmissionId optional). The code is one of
+ * UNKNOWN INACTIVE INCORRECT_SETUP IN_USE TIMEOUT NOT_SUPPORTED MENU_ERROR MALFORMED_REQUEST AUTH_FAILED STORE_CLOSED TENDER_ERROR.
+ */
+export function skipFailureCode(reason: string): string {
+  const r = reason.toLowerCase();
+  if (/stock|rupture|menu|plu|item|86/.test(r)) return 'MENU_ERROR';
+  if (/clos|ferm/.test(r)) return 'STORE_CLOSED';
+  if (/time.?out|timed out|too slow|délai/.test(r)) return 'TIMEOUT';
+  if (/busy|occup|in use/.test(r)) return 'IN_USE';
+  if (/clover|\bpos\b|register|caisse|offline|inactive|did not receive/.test(r)) return 'INACTIVE';
+  return 'UNKNOWN';
+}
+
+export function skipFailureBody(order: StoredOrder, reason: string, at = new Date()): Record<string, string> {
+  return { happenedAt: at.toISOString(), errorCode: skipFailureCode(reason), errorMessage: (reason || 'Rejected by the restaurant').slice(0, 200), ...transmission(order) };
 }
 
 function transmission(order: StoredOrder): Record<string, string> {
@@ -136,7 +172,7 @@ export const skipAdapter: ChannelAdapter = {
   // in which case Skip's backup flow sends it to the Skip tablet.
   acceptOrder: (order) => send('POST', `/order/${encodeURIComponent(order.externalOrderId)}/sent-to-pos-success`, transmission(order)),
   async denyOrder(order, reason) {
-    const res = await send('POST', `/order/${encodeURIComponent(order.externalOrderId)}/sent-to-pos-failed`, transmission(order));
+    const res = await send('POST', `/order/${encodeURIComponent(order.externalOrderId)}/sent-to-pos-failed`, skipFailureBody(order, reason));
     return res.ok ? { ...res, message: `Not taken by Food Hub (${reason || 'rejected'}) — Skip routes it to the Skip tablet (backup flow).` } : res;
   },
   async markReady() {
@@ -172,6 +208,13 @@ function skipDiscount(o: any, pay: any): number {
   return Math.round(list.reduce((s, d) => s + Math.abs(one(d)), 0) * 100) / 100;
 }
 
+/** One `payment.adjustments[]` entry by its documented name (deliveryFee, serviceCharge, bagfee, smallOrderFee, driverTip, discount, other), in dollars (tax included). */
+export function skipAdjustment(pay: any, name: string): number {
+  const list: any[] = Array.isArray(pay?.adjustments) ? pay.adjustments : [];
+  const cent = list.filter((a) => String(a?.name ?? '').toLowerCase() === name.toLowerCase()).reduce((sum, a) => sum + (Number(a?.price?.inc_tax) || 0), 0);
+  return Math.round(Math.abs(cent)) / 100;
+}
+
 export function parseSkipOrder(o: any): NormalizedOrder | null {
   if (!o?.id || !Array.isArray(o.items)) return null;
   const lines: OrderLine[] = o.items.map((it: any) => {
@@ -185,13 +228,18 @@ export function parseSkipOrder(o: any): NormalizedOrder | null {
     }));
     const unit = cents(it.price ?? (typeof it.unitPrice === 'number' ? it.unitPrice * 100 : 0));
     const modsTotal = modifiers.reduce((s, m) => s + m.unitPrice * m.quantity, 0);
+    // Grocery / retail fields of the order item: the customer's substitution choice and the picked weight of a weighed item.
+    const extra = [
+      it.substitution?.preference === 'bestmatch' ? 'Substitute with the best match if unavailable' : '',
+      Number.isFinite(Number(it.netQuantity)) && Number(it.netQuantity) > 0 ? `Weight ${Number(it.netQuantity)} g` : '',
+    ].filter(Boolean);
     return {
       externalId: it.plu || it.reference || undefined,
       name: String(it.name ?? 'Item'),
       quantity: qty,
       unitPrice: unit,
       total: Math.round((unit + modsTotal) * qty * 100) / 100,
-      notes: it.notes || undefined,
+      notes: [it.notes, ...extra].filter(Boolean).join(' · ') || undefined,
       modifiers,
     };
   });
@@ -215,15 +263,18 @@ export function parseSkipOrder(o: any): NormalizedOrder | null {
     customerName: masked(o.delivery?.first_name) || masked(o.collector?.first_name),
     fulfillment: /collection|pickup/i.test(type) ? 'pickup' : /dine/i.test(type) ? 'dine_in' : 'delivery',
     placedAt: unix(o.created_at) || new Date().toISOString(),
-    readyBy: unix(o.collect_at),
+    // collect_at = collection / driver pick-up; deliver_at = when a restaurant-delivered order is due.
+    readyBy: unix(o.collect_at) || unix(o.deliver_at),
     currency: process.env.FOODHUB_CURRENCY || 'CAD',
     subtotal: cents((cart.inc_tax ?? 0) - (cart.tax ?? 0)),
     tax: cents(final.tax ?? 0),
-    deliveryFee: 0,
-    tip: 0,
-    discount: skipDiscount(o, pay),
-    total: cents(o.total ?? final.inc_tax ?? 0),
-    notes: [o.kitchen_notes, o.delivery_notes, o.collection_notes].filter(Boolean).join(' · ') || undefined,
+    // The documented `payment.adjustments` carry the customer's fees, tip and discount. `total` on the order is only the
+    // "pre-adjustment subtotal of the items", so the amount the customer paid is `payment.final.inc_tax`.
+    deliveryFee: skipAdjustment(pay, 'deliveryFee'),
+    tip: skipAdjustment(pay, 'driverTip'),
+    discount: skipDiscount(o, pay) || skipAdjustment(pay, 'discount'),
+    total: cents(final.inc_tax ?? o.total ?? 0),
+    notes: [o.kitchen_notes, o.delivery_notes, o.collection_notes, /merchant/i.test(type) ? 'Delivery by the restaurant' : ''].filter(Boolean).join(' · ') || undefined,
     lines,
     raw: o,
   };

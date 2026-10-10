@@ -3,6 +3,7 @@
 Newest first, one line per piece of work. Rule: `AGENTS.md` › Work log rule.
 Format: `YYYY-MM-DD | agent | branch → PR | status | what | next step`
 
+- 2026-10-10 | claude (main session, coordinator) | docs/worklog-main-session → PR | active | Owner merged #23 #24 #25 #34 #35 #36 #38 + pppmtl #3; production still runs the old build (IVR 404, /api/public/directory 401); open: #32 #33 #37 | owner signs in to Coolify and clicks Deploy; then add the 2 GitHub secrets for auto-deploy
 - 2026-10-09 | claude (main session, coordinator) | docs/worklog-main-session → PR #24 | active | Deploy check 23:00 UTC: production still old (IVR route 404, /api/public/directory 401); the GitHub "Deploy Food Hub to Coolify" runs were all skipped (secrets COOLIFY_DEPLOY_WEBHOOK / COOLIFY_DEPLOY_TOKEN not set); PRs #23 #24 #25 #34 #35 #36 #38 still open | owner merges the PRs, signs in to Coolify and clicks Deploy; then adds the 2 Coolify secrets in GitHub for auto-deploy
 - 2026-10-09 | claude (chief architect, task 25) | docs/on2go-hub-ecosystem → PR (see gh) | done | ON2GO Hub blueprint (docs/ON2GO_HUB_ECOSYSTEM.md, FR): products + contracts C1–C11, merchant parity matrix, tenant model (silo then pooled, takatak-v1 contracts), naming/domains, roadmap H0–H6, AI phone switch-on list | owner reads and merges; foundation: feature/ai-phone-kitchens (PR #17), product name (PR #20 merged), feature/own-fleet, feature/tenant-context
 - 2026-10-10 | copilot | feature/own-fleet → PR #34 | done, PR #34 | Merged current main and resolved courier fleet conflicts | owner: review and merge

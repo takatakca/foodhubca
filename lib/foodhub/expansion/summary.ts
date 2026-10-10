@@ -32,6 +32,10 @@ export async function expansionSummary(scope?: string[]) {
   const todayDeliveries = deliveries.filter((d) => orderIds.has(d.orderId));
   const fleets = fleetReadiness();
   const activeLocations = catalog.locations.filter((l) => l.active && inScope(l.code));
+  // The courier calls the kitchen it picks up from: only kitchens that deliver their own orders need a phone here
+  // (every active kitchen while none does yet).
+  const delivering = activeLocations.filter((l) => dSettings.locations[l.code]?.enabled);
+  const noPhone = (delivering.length ? delivering : activeLocations).filter((l) => !l.phone).map((l) => l.name);
 
   const checks: Record<FeatureKey, FeatureCheck[]> = {
     delivery: [
@@ -39,7 +43,7 @@ export async function expansionSummary(scope?: string[]) {
       { ok: fleets[1].configured, fr: `Uber Direct (comparaison) : ${fleets[1].configured ? 'branché' : 'optionnel — non branché'}`, en: `Uber Direct (comparison): ${fleets[1].configured ? 'connected' : 'optional — not connected'}`, href: '/settings/expansion/delivery' },
       { ok: own.enabled && own.couriers.some((c) => c.active), fr: `Nos livreurs (optionnel) : ${own.enabled ? `${own.couriers.filter((c) => c.active).length} livreur(s), ${onShift} en service` : 'désactivé'}`, en: `Our couriers (optional): ${own.enabled ? `${own.couriers.filter((c) => c.active).length} courier(s), ${onShift} on shift` : 'off'}`, href: '/settings/expansion/couriers' },
       { ok: Object.values(dSettings.locations).some((r) => r.enabled), fr: 'Au moins une cuisine livre elle-même', en: 'At least one kitchen delivers its own orders', href: '/settings/expansion/delivery' },
-      { ok: activeLocations.every((l) => Boolean(l.phone)), fr: 'Téléphone de chaque cuisine (le livreur l’appelle)', en: 'Every kitchen has a phone (the courier calls it)', href: '/settings/business' },
+      { ok: !noPhone.length, fr: noPhone.length ? `Téléphone de la cuisine manquant : ${noPhone.join(', ')} (le livreur l’appelle)` : 'Chaque cuisine qui livre a un téléphone (le livreur l’appelle)', en: noPhone.length ? `Kitchen phone missing: ${noPhone.join(', ')} (the courier calls it)` : 'Every delivering kitchen has a phone (the courier calls it)', href: '/settings/business' },
       { ok: smsConfigured(), fr: 'Textos (lien de suivi au client)', en: 'Texts (tracking link to the customer)', href: '/settings/alerts' },
     ],
     retail: [

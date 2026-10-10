@@ -1,4 +1,4 @@
-// The on-demand courier fleets behind "Call a courier": one contract, two implementations (DoorDash Drive, Uber Direct).
+// The courier fleets behind "Call a courier": DoorDash Drive, Uber Direct, Skip Delivery, and our own couriers.
 import type { CourierPosition, DeliveryProof, DeliveryQuote, DeliveryStatus, DropoffAddress, FleetKey, UberDirectOptions } from './types';
 
 /** Address parts for fleets that want them structured (Uber Direct). */
@@ -9,7 +9,7 @@ export interface DeliveryRequest {
   /** Our delivery id (external_delivery_id / external_id). */
   id: string;
   pickup: { businessName: string; address: string; parts?: AddressParts; phone: string; instructions?: string; locationCode: string };
-  dropoff: { name: string; givenName?: string; familyName?: string; address: string; parts?: AddressParts; phone: string; instructions?: string; lat?: number; lng?: number; businessName?: string };
+  dropoff: { name: string; givenName?: string; familyName?: string; address: string; parts?: AddressParts; phone: string; email?: string; instructions?: string; lat?: number; lng?: number; businessName?: string };
   orderValue: number;
   tip: number;
   currency: string;
@@ -45,6 +45,8 @@ export interface FleetResult {
   courier?: CourierPosition;
   proof?: DeliveryProof;
   dropoffPin?: string;
+  /** Our own fleet: the courier the delivery was assigned to. */
+  assignedCourierId?: string;
   raw?: unknown;
 }
 
@@ -96,6 +98,6 @@ export interface CourierFleet {
   parseWebhook(body: unknown): FleetEvent | null;
 }
 
-export const FLEET_LABELS: Record<FleetKey, string> = { doordash_drive: 'DoorDash Drive', uber_direct: 'Uber Direct' };
+export const FLEET_LABELS: Record<FleetKey, string> = { doordash_drive: 'DoorDash Drive', uber_direct: 'Uber Direct', skip_daas: 'Skip Delivery', own_fleet: 'Our couriers' };
 
 export const blocked = (message: string): FleetResult => ({ ok: false, status: 'blocked', message });

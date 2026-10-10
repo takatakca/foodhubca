@@ -30,7 +30,7 @@ export function paymentLabel(t: T, s: string) {
 }
 export const PAYMENT_TONE: Record<string, Tone> = { paid: 'go', pay_at_pickup: 'neutral', unpaid: 'wait' };
 
-export const FLEET_NAME: Record<string, string> = { doordash_drive: 'DoorDash Drive', uber_direct: 'Uber Direct' };
+export const FLEET_NAME: Record<string, string> = { doordash_drive: 'DoorDash Drive', uber_direct: 'Uber Direct', skip_daas: 'Skip Delivery', own_fleet: 'Nos livreurs' };
 
 export function callStatusLabel(t: T, s: string) {
   return ({

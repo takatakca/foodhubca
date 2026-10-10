@@ -54,7 +54,7 @@ export const POST = withPerm<Ctx>('orders:act', async (req, ctx, actor) => {
     const gate = await approvalGate(req, actor, 'delivery.cancel', order.locationCode, `courier of ${order.number}`);
     if (gate) return gate;
     const r = await cancelCourier(id, actor, String(b.reason ?? '').slice(0, 200));
-    if (!r.ok) return fail(r.message, 409);
+    if (!r.ok) return fail(r.message, 409, { problems: [r.message], problemsFr: [r.messageFr ?? r.message] });
     message = r.message;
   } else if (action === 'refresh') {
     if (order.deliveryId) await refreshDelivery(order.deliveryId);
@@ -82,7 +82,10 @@ export const POST = withPerm<Ctx>('orders:act', async (req, ctx, actor) => {
       // A booked courier is cancelled first: never leave a courier driving to a cancelled order.
       if (await activeDelivery(order)) {
         const r = await cancelCourier(id, actor, `Order cancelled${b.reason ? ` — ${b.reason}` : ''}`);
-        if (!r.ok) return fail(`The courier could not be cancelled (${r.message}) — the order stays open.`, 409);
+        if (!r.ok) {
+          const en = `The courier could not be cancelled (${r.message}) — the order stays open.`;
+          return fail(en, 409, { problems: [en], problemsFr: [`Le livreur n’a pas pu être annulé (${r.messageFr ?? r.message}) — la commande reste ouverte.`] });
+        }
       }
     }
     await runDirectAction(id, action as DirectAction, actor, { reason: b.reason ? String(b.reason).slice(0, 200) : undefined });

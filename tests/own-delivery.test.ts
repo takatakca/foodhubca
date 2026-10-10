@@ -73,7 +73,7 @@ describe('booking a DoorDash Drive courier', () => {
     expect(quote.body).toMatchObject({
       pickup_business_name: 'Po Poulet', pickup_phone_number: '+15145550100', pickup_address: '6280 Somerled Ave, Montréal, QC H4V 1R9, Canada',
       dropoff_address: '5555 Monkland Ave, #3, Montréal, QC H4A 1E1, Canada', dropoff_phone_number: '+15145551234', dropoff_contact_given_name: 'Ana', dropoff_contact_family_name: 'Bel',
-      order_value: Math.round((24.99 + o.tax) * 100), tip: 400, currency: 'CAD', pickup_reference_tag: o.number, contactless_dropoff: false, action_if_undeliverable: 'return_to_pickup',
+      order_value: 2499, // the food only: DoorDash wants the subtotal without taxes, tip or fees tip: 400, currency: 'CAD', pickup_reference_tag: o.number, contactless_dropoff: false, action_if_undeliverable: 'return_to_pickup',
       items: [{ name: 'Poulet entier', quantity: 1, price: 2499, description: 'Piri-piri' }],
     });
     expect(quote.body.dropoff_instructions).toContain('Code 1234');
@@ -186,6 +186,20 @@ describe('auto-dispatch and cancel', () => {
     expect((await getDelivery(r.delivery!.id))!.status).toBe('cancelled');
     const cancelled = await runDirectAction(o.id, 'cancel', actor, { reason: 'Customer called' });
     expect(cancelled.events.at(-1)!.message).toMatch(/already paid: refund it in Clover/);
+  });
+
+  it('once a Dasher is assigned, cancel is not sent to DoorDash: staff are told to call DoorDash Support', async () => {
+    const o = await order();
+    const booked = await dispatchOrder(o.id, actor);
+    await driveHook({ event_name: 'DASHER_CONFIRMED', external_delivery_id: booked.delivery!.id, dasher_name: 'Sam' });
+    await settle();
+    calls = [];
+    const r = await cancelCourier(o.id, actor, 'Customer cancelled');
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/DoorDash Support/);
+    expect(r.messageFr).toMatch(/soutien DoorDash/);
+    expect(calls.some((c) => c.url.endsWith('/cancel'))).toBe(false);
+    expect((await getDelivery(booked.delivery!.id))!.status).toBe('assigned');
   });
 });
 

@@ -84,7 +84,8 @@ export async function buildRequest(order: DirectOrder, deliveryId: string, s: De
       name: order.customer.name || 'Client', givenName: given, familyName: rest.join(' ') || undefined, address: formatAddress(d), parts: d,
       phone: order.customer.phone || '', email: order.customer.email, instructions: [d.unit ? `Unit / app. ${d.unit}` : '', d.instructions ?? ''].filter(Boolean).join(' — ') || undefined, lat: d.lat, lng: d.lng,
     },
-    orderValue: round2(order.subtotal + order.tax),
+    // Value of the food only — subtotal without taxes, tip or fees (Drive order_value, Uber manifest_total_value, Skip orderValue).
+    orderValue: round2(order.subtotal),
     tip,
     currency: order.currency,
     items: order.lines.map((l) => ({ name: l.name, quantity: l.quantity, price: l.unitPrice, externalId: l.externalId ?? l.posItemRef, description: l.modifiers.map((m) => m.name).join(', ') || undefined })),
@@ -107,7 +108,7 @@ export async function quoteFleets(req: DeliveryRequest, s: DeliverySettings, onl
   return quotes.sort((a, b) => (a.ok === b.ok ? (a.fee ?? 999) - (b.fee ?? 999) || (a.fleet === s.primaryFleet ? -1 : b.fleet === s.primaryFleet ? 1 : 0) : a.ok ? -1 : 1));
 }
 
-export interface DispatchOutcome { ok: boolean; message: string; order: DirectOrder; delivery?: Delivery; quotes?: DeliveryQuote[]; problems?: string[] }
+export interface DispatchOutcome { ok: boolean; message: string; messageFr?: string; order: DirectOrder; delivery?: Delivery; quotes?: DeliveryQuote[]; problems?: string[] }
 
 /** Books a courier for the order. `auto` = the location's auto-dispatch rule (fee limit applies). */
 export async function dispatchOrder(orderId: string, actor: Actor, opts: { fleet?: FleetKey; auto?: boolean; now?: number } = {}): Promise<DispatchOutcome> {
@@ -170,6 +171,17 @@ export async function cancelCourier(orderId: string, actor: Actor, reason: strin
   if (!order) throw new Error('Order not found.');
   const d = await activeDelivery(order);
   if (!d) return { ok: false, message: 'No courier is booked for this order.', order };
+  // Drive's cancel API only works before a Dasher is assigned; after that only DoorDash Support can cancel.
+  if (d.fleet === 'doordash_drive' && DELIVERY_RANK[d.status] >= DELIVERY_RANK.assigned) {
+    const ref = d.supportReference ? ` (support reference ${d.supportReference})` : '';
+    const refFr = d.supportReference ? ` (référence ${d.supportReference})` : '';
+    order = await addDirectEvent(order, 'courier_cancel_failed', `A Dasher is already assigned: only DoorDash Support can cancel now${ref}.`, actor.name);
+    return {
+      ok: false, order, delivery: d,
+      message: `A Dasher is already assigned: DoorDash only cancels through DoorDash Support now — call them with our order ${order.number}${ref}.`,
+      messageFr: `Un livreur est déjà assigné : seul le soutien DoorDash peut annuler maintenant — appelez-les avec la commande ${order.number}${refFr}.`,
+    };
+  }
   const res = await FLEETS[d.fleet].cancel(d.id, d.fleetDeliveryId);
   if (!res.ok) {
     order = await addDirectEvent(order, 'courier_cancel_failed', `${FLEET_LABELS[d.fleet]} did not cancel: ${res.message}`, actor.name);

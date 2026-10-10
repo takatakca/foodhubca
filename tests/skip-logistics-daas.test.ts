@@ -179,7 +179,7 @@ describe('Skip Delivery (Delivery as a Service): the third courier fleet', () =>
     expect(skipDaas.readiness()).toMatchObject({ environment: 'production', canSend: false });
     delete process.env.SKIP_DAAS_CLIENT_ID;
     expect(skipDaas.readiness()).toMatchObject({ configured: false, missing: ['SKIP_DAAS_CLIENT_ID'] });
-    expect(fleetReadiness().map((f) => f.fleet)).toEqual(['doordash_drive', 'uber_direct', 'skip_daas']);
+    expect(fleetReadiness().map((f) => f.fleet)).toEqual(['doordash_drive', 'uber_direct', 'skip_daas', 'own_fleet']);
   });
 
   it('token (Basic client credentials, User-Agent), collect point match, estimate then booking with the requestId', async () => {

@@ -1,6 +1,17 @@
 # Clover App Market launch — TAKATAK Food Hub
 
-_Updated 2026-10-07 · branch `clover-marketplace-launch`._
+_Updated 2026-10-10 (listing refresh). First written 2026-10-07 on branch `clover-marketplace-launch` (merged, PR #7)._
+
+> **Where it stands on 2026-10-10**
+> - **Done:**
+>   - the code is live on `https://foodhub.on2go.ca`;
+>   - the Clover developer dashboard has the Site URL, launch path, OAuth `CODE` and the webhook (verified; events
+>     App, Inventory and Orders), set by the Clover backend session (task 27);
+>   - the listing screenshots and cover were redone on the new console and the TAKATAK blue brand.
+> - **Waiting on the owner** (task 27):
+>   - sign in to the console and connect / approve your Clover merchant;
+>   - put `CLOVER_WEBHOOK_AUTH` in Coolify and restart;
+>   - then the steps in §4 from 3 (environment, legal review, listing tabs, video, submit).
 
 Requirements come from Clover's Global Developer Platform pages on docs.clover.com (pages dated March to September
 2026, read on 2026-10-07; links in §10). Anything Clover does not state on an official page is marked **to confirm**.
@@ -133,8 +144,9 @@ answering is a listed rejection reason.
 | Verification code flow | ✅ | The code is stored and shown in Settings → Platforms & Clover; paste it back in Clover. |
 | `X-Clover-Auth` checked on every event | ✅ | Constant-time compare with `CLOVER_WEBHOOK_AUTH`; anything else gets a 401. |
 | App events: install, uninstall, subscription change | ✅ **new** | CREATE is logged, DELETE removes the tokens, UPDATE re-reads `billing_info`. |
+| Orders events | ✅ | Subscribed too (2026-10-09): orders taken by Clover Online Ordering on the brand websites are mirrored on the kitchen screen (`docs/CLOVER_WEBSITE_ORDERS.md`). Covered by the Orders permission. |
 | Inventory events | ✅ | Item out of stock → 86 on every platform, and back when it returns. |
-| Set the URL, events (Inventory, App), verify | 👤 | Clover dashboard, once the domain is live (§4 step 5). |
+| Set the URL, events (Inventory, App, Orders), verify | ✅ | Done 2026-10-09/10 on `https://foodhub.on2go.ca` (task 27). Left: `CLOVER_WEBHOOK_AUTH` in Coolify. |
 
 ### 2.5 Billing and pricing
 
@@ -151,9 +163,9 @@ answering is a listed rejection reason.
 |---|---|---|
 | Tagline ≤ 255, 3–5 benefits ≤ 100 each, description stating requirements | ✅ | `lib/foodhub/clover-listing.ts` and `CLOVER_APP_LISTING.md`. A test checks the limits and that both files say the same thing. |
 | French (Canada) + English (Canada) + English (US) tabs | 🟡 | FR-CA and EN-US were saved on 2026-10-05. Add **EN-CA**, and update all three with the new texts (the description now has a requirements paragraph). |
-| Icon: square PNG, no Clover/Fiserv marks, cannot be deleted | ✅ | `clover-listing/icon-512.png` (already uploaded). |
-| Cover image 1080 × 216 (optional, cannot be deleted) | ✅ | `clover-listing/cover-1080x216.png`. It carries no Clover mark. Upload it only if you like it: it is permanent. |
-| Screenshots ≤ 1920 × 1080, ≥ 320 px | ✅ | `clover-listing/fr/` and `en/`: 11 each at 1920 × 1080, from the demo (simulated data). Replace the 8 already uploaded. |
+| Icon: square PNG, no Clover/Fiserv marks, cannot be deleted | 🟡 👤 | The uploaded icon is the old orange mark. The brand is now TAKATAK blue (`BRAND.md`), but the official logo files are not uploaded yet (`knowledgeAI/brand/`), and `BRAND.md` forbids a redrawn copy. Once they are, make a 512 × 512 PNG from `logo-circle.png` and **replace** the icon in Clover (it can be replaced, not deleted). |
+| Cover image 1080 × 216 (optional, cannot be deleted) | ✅ | `clover-listing/cover-1080x216.png`, redone 2026-10-10 in the TAKATAK palette (navy, electric blue, cyan). It carries no Clover mark. Upload it only if you like it: it is permanent. |
+| Screenshots ≤ 1920 × 1080, ≥ 320 px | ✅ | `clover-listing/fr/` and `en/`: 11 each at 1920 × 1080, **recaptured 2026-10-10** on the new console (scope switcher, "Today" home, blue brand), from the demo (simulated data). Replace the 8 already uploaded. |
 | Listing video (optional) | 👤 | Can reuse the functional video. |
 | Categories: ≥ 1 functional (≤ 3) and ≥ 1 vertical | 👤 ❓ | Orders & Delivery, Items & Inventory, Kitchen Operations / Quick Service and Full Service Restaurant. **For Canada, wait for the SRM answer (§5).** |
 | Functional description | ✅ / 👤 | In Settings → Clover app, with your support email filled in. Paste it on the Overview page. |
@@ -225,17 +237,19 @@ server with `npm run setup`, never in a chat.
    Restart. **Settings → Clover app** should show the domain as ✅.
 4. **Legal review.** Read `/legal/privacy`, `/legal/terms` and `/legal/support` with your adviser. Then set
    `FOODHUB_LEGAL_APPROVED=true` and `FOODHUB_LEGAL_UPDATED` to the date of the reviewed version.
-5. **Clover developer dashboard → app 629HFYHNVMZYR → App Settings.** Copy every address from Settings → Clover app.
-   - Site URL: `https://foodhub.on2go.ca`
-   - Alternate Launch Path: `/api/foodhub/clover-connect/callback`
-   - Default OAuth Response: `CODE`
-   - Webhook URL: `https://foodhub.on2go.ca/api/foodhub/webhooks/clover`, with events **Inventory** and **App**
-   - Then **Send Verification Code**, paste back the code shown in Food Hub, and put Clover's auth code in
-     `CLOVER_WEBHOOK_AUTH` (`npm run setup`).
+5. **Clover developer dashboard → app 629HFYHNVMZYR → App Settings** — done 2026-10-09/10 (task 27):
+   - Site URL `https://foodhub.on2go.ca`, Alternate Launch Path `/api/foodhub/clover-connect/callback`, Default OAuth
+     Response `CODE`;
+   - webhook `https://foodhub.on2go.ca/api/foodhub/webhooks/clover`, verified, with events **App**, **Inventory**,
+     **Orders**.
+   - **Left for you:** put Clover's auth code in `CLOVER_WEBHOOK_AUTH` in Coolify, then Restart.
+   - **Then connect your own merchant:** console → Settings → Platforms & Clover → **Connect a Clover merchant** →
+     Approve. Settings → Clover app should then show "Tested end to end" once you send a test order.
 6. **Permissions:** paste the four reasons.
 7. **App Market Listing:**
    - Tabs FR-CA, EN-CA and EN-US: tagline, benefits, description.
-   - Replace the screenshots with `clover-listing/fr` and `en`.
+   - Replace the screenshots with `clover-listing/fr` and `en` (recaptured 2026-10-10 on the new console).
+   - Icon: replace it with the official TAKATAK logo once the files exist (see §2.6).
    - EULA and privacy URLs on the new domain.
    - Categories (after §5).
    - Developer Support: email, phone, website `https://foodhub.on2go.ca/legal/support`, hours.
@@ -348,7 +362,8 @@ merchant with the demo platforms. Show the Clover device or Clover web dashboard
 | Phase 0 deploy traps | Supabase URL read at run time (`lib/supabase/server.ts`), `SESSION_SECRET` no longer generated at run time (task 9: env value, else derived from `DASHBOARD_PASSWORD`), media `VOLUME` (`Dockerfile`), `.env.example`, setup wizard |
 | Fixes found on the way | A zero alert volume crashed the console (`lib/ui/sound.ts`); English-only disconnect confirmation; contrast token |
 | Tests | `tests/clover-app.test.ts`, `tests/clover-marketplace.test.ts`, e2e step 37 |
-| Assets | `docs/clover-listing/` (icon, cover, 11 + 11 screenshots) |
+| Assets | `docs/clover-listing/` (icon, cover, 11 + 11 screenshots; screenshots and cover redone 2026-10-10, branch `docs/clover-listing-refresh`) |
+| Brand mark on public pages | `components/brand/takatak-mark.tsx`: the welcome and legal pages show the console's blue TAKATAK mark instead of the old orange icon (2026-10-10) |
 
 ---
 

@@ -3,9 +3,12 @@
 // in Settings → Clover app; docs/CLOVER_APP_LISTING.md carries the same text (tests keep the two in step and check
 // Clover's limits: tagline ≤ 255 characters, 3 to 5 benefits of ≤ 100 characters, no "Clover" in the app name).
 
+import { CLOVER_APP_NAME } from './product';
+
 export type Bilingual = { fr: string; en: string };
 
-export const LISTING_APP_NAME = 'TAKATAK Food Hub';
+/** The listing name is protected: it never follows FOODHUB_PRODUCT_NAME (renaming it needs a new Clover review). */
+export const LISTING_APP_NAME = CLOVER_APP_NAME;
 
 export const LISTING_TAGLINE: Bilingual = {
   fr: 'Uber Eats, DoorDash, SkipTheDishes et Too Good To Go directement dans votre caisse Clover : un seul écran, des menus et des ruptures synchronisés, des paiements vérifiés.',

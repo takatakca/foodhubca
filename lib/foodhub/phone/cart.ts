@@ -9,7 +9,8 @@ import type { DirectLine } from '../delivery/types';
 import { getBrandMenu } from '../menu/shared';
 import { menuForLocation } from '../ops';
 import type { MenuItem, MenuModifierGroup } from '../types';
-import type { PhoneLine } from './settings';
+import { getCatalog } from '../catalog';
+import { brandLockedAt, type PhoneLine } from './settings';
 
 export interface PhoneMenuItem { brand: string; item: MenuItem; groups: MenuModifierGroup[]; alcohol: boolean }
 
@@ -49,7 +50,10 @@ export async function buildPhoneMenu(line: Pick<PhoneLine, 'brands' | 'locationC
   const d = await decideAlcohol(line.locationCode, 'phone', { now });
   const items = new Map<string, PhoneMenuItem>();
   const out: string[] = [];
+  const loc = (await getCatalog()).locations.find((l) => l.code === line.locationCode);
   for (const brand of line.brands) {
+    // Owner's lock (settings.ts brandLockedAt): never offered here, even on a line saved before the lock existed.
+    if (brandLockedAt(brand, loc, line.locationCode)) continue;
     const master = await getBrandMenu(brand);
     if (!master) continue;
     const menu = menuForLocation(master, line.locationCode, now);

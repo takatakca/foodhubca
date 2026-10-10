@@ -93,8 +93,8 @@ export interface DirectOrder {
   updatedAt: string;
 }
 
-/** On-demand fleets (DoorDash Drive, Uber Direct) and our own couriers (delivery/own-fleet.ts). */
-export type FleetKey = 'doordash_drive' | 'uber_direct' | 'own_fleet';
+/** Delivery services: DoorDash Drive, Uber Direct, Skip Delivery, and our own couriers. */
+export type FleetKey = 'doordash_drive' | 'uber_direct' | 'skip_daas' | 'own_fleet';
 
 /** Normalised courier status, the same for every fleet. Moves forward only (except to a terminal state). */
 export type DeliveryStatus =

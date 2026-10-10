@@ -5,6 +5,7 @@
 // area, hand-off phone, the Clover ticket — is that kitchen's. Stored in fh_kv.
 import crypto from 'node:crypto';
 import { logActivity, type Actor } from '../activity';
+import { getCatalog } from '../catalog';
 import { normalizePhone } from '../notify';
 import { getRepo } from '../repo';
 
@@ -137,9 +138,37 @@ export async function getPhoneSettings(): Promise<PhoneSettings> {
   };
 }
 
+/**
+ * Locked by the owner, the same rule as the brand phone lines (brand-lines.ts): Po Poulet is never sold by phone from the
+ * NDG kitchen — only from a kitchen whose location names another place (Saint-Léonard / Jean-Talon, Hochelaga).
+ * "Po Poulet NDG is never touched" (CLAUDE.md § 4).
+ */
+const PO_POULET = /\bpo[\s-]*poulet\b/i;
+const PO_POULET_OTHER_KITCHEN = /jean|talon|l[eé]onard|hochelaga/i;
+
+/** True when this brand may not be sold by phone from this location (code, name, address, city). */
+export function brandLockedAt(brand: string, location: { code: string; name?: string; address?: string; city?: string } | undefined, code: string): boolean {
+  if (!PO_POULET.test(brand)) return false;
+  return !PO_POULET_OTHER_KITCHEN.test([code, location?.name, location?.address, location?.city].filter(Boolean).join(' '));
+}
+
+async function lockProblem(lines: PhoneLine[]): Promise<string | null> {
+  const locations = (await getCatalog()).locations;
+  for (const line of lines) {
+    for (const k of lineKitchens(line)) {
+      const loc = locations.find((l) => l.code === k.locationCode);
+      const locked = k.brands.find((b) => brandLockedAt(b, loc, k.locationCode));
+      if (locked) return `${locked} is never sold by phone from ${loc?.name ?? k.locationCode} (owner's lock: Po Poulet NDG is never touched). Put ${locked} under the Saint-Léonard kitchen only.`;
+    }
+  }
+  return null;
+}
+
 export async function savePhoneSettings(patch: Partial<PhoneSettings>, actor: Actor): Promise<PhoneSettings> {
   const cur = await getPhoneSettings();
   const lines = patch.lines ? patch.lines.map(cleanLine) : cur.lines;
+  const locked = patch.lines ? await lockProblem(lines) : null;
+  if (locked) throw new Error(locked);
   const dup = lines.find((l, i) => lines.findIndex((x) => x.number === l.number) !== i);
   if (dup) throw new Error(`${dup.number} is used by two lines.`);
   const next: PhoneSettings = { ...cur, ...patch, lines, updatedAt: new Date().toISOString() };

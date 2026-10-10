@@ -1,21 +1,41 @@
 // Too Good To Go adapter.
-// TGTG has no public merchant API: Surprise Bags are created and sized in TGTG MyStore.
-// TGTG offers order feeds only through certified partners. Food Hub therefore:
-//   - accepts inbound bag orders on a token-protected webhook (for when a feed is set up),
-//   - keeps every outbound action blocked with a clear reason (never fakes success);
-//     accept/ready are 'skipped' (nothing to send — TGTG confirms reservations itself).
+// TGTG has no public merchant API (its developer portal is sign-in only): Surprise Bags are created and sized in TGTG
+// MyStore. Its one official order feed to a point of sale is Deliverect (one-way: orders go to the POS; editing or
+// cancelling stays in MyStore) — see adapters/deliverect*.ts and docs/TGTG_API_COVERAGE.md. Food Hub therefore:
+//   - receives bag orders from Deliverect (webhooks/deliverect/…), or on a token-protected feed (webhooks/tgtg, relay),
+//   - tells Deliverect what the kitchen did (accepted, ready, picked up) for Deliverect orders,
+//   - keeps every other outbound action blocked with a clear reason (never fakes success);
+//     for a feed order accept/ready are 'skipped' (nothing to send — TGTG confirms reservations itself).
 import { checkSharedSecret, fromCents, result } from '../config';
 import type { ChannelAdapter, ChannelKey, Marketplace, NormalizedOrder, OrderLine } from '../types';
 import { buildReadiness } from './common';
+import { deliverectActions, deliverectRef } from './deliverect';
+import { deliverectReadiness } from './deliverect-api';
 
 export const tgtgAdapter: ChannelAdapter = (() => {
   const key = 'tgtg' as const;
-  const readiness = () => buildReadiness(key, ['TGTG_WEBHOOK_SECRET'], {
-    specConfirmed: process.env.TGTG_SPEC_CONFIRMED === 'true',
-    note: 'Bag orders are received on the webhook when TGTG enables a partner feed. Bag quantities stay in TGTG MyStore.',
-    noteFr: 'Les paniers arrivent par le webhook quand TGTG active un flux partenaire. Les quantités de paniers restent dans TGTG MyStore.',
-    handoff: [{ label: 'Webhook token (Authorization or X-Api-Key header)', envKey: 'TGTG_WEBHOOK_SECRET' }],
-  });
+  const readiness = () => {
+    // Deliverect credentials make the channel usable on their own: the feed token is then optional.
+    const viaDeliverect = deliverectReadiness().configured;
+    return buildReadiness(key, viaDeliverect ? [] : ['TGTG_WEBHOOK_SECRET'], {
+      specConfirmed: process.env.TGTG_SPEC_CONFIRMED === 'true' || viaDeliverect,
+      note: viaDeliverect
+        ? 'Bag orders arrive from Deliverect (Too Good To Go’s POS partner); accepted / ready / picked up go back to Deliverect. Bag quantities stay in TGTG MyStore.'
+        : 'Bag orders are received on the webhook when TGTG enables a partner feed or Deliverect. Bag quantities stay in TGTG MyStore.',
+      noteFr: viaDeliverect
+        ? 'Les paniers arrivent de Deliverect (partenaire caisse de Too Good To Go) ; accepté / prêt / ramassé repartent vers Deliverect. Les quantités de paniers restent dans TGTG MyStore.'
+        : 'Les paniers arrivent par le webhook quand TGTG active un flux partenaire ou Deliverect. Les quantités de paniers restent dans TGTG MyStore.',
+      extraWebhooks: [
+        { label: 'Deliverect — Register POS URL', path: '/api/foodhub/webhooks/deliverect/register' },
+        { label: 'Deliverect — orders (given back at registration)', path: '/api/foodhub/webhooks/deliverect/orders' },
+      ],
+      handoff: [
+        { label: 'Webhook token (Authorization or X-Api-Key header)', envKey: 'TGTG_WEBHOOK_SECRET' },
+        { label: 'Deliverect HMAC secret (x-server-authorization-hmac-sha256)', envKey: 'DELIVERECT_HMAC_SECRET' },
+        { label: 'Deliverect URL token (?token=)', envKey: 'DELIVERECT_WEBHOOK_SECRET' },
+      ],
+    });
+  };
   const blocked = async () => result(key, 'blocked', 'Too Good To Go has no public merchant API — manage bags in TGTG MyStore.');
   return {
     key,
@@ -24,10 +44,11 @@ export const tgtgAdapter: ChannelAdapter = (() => {
     verifyWebhook: (h) => checkSharedSecret(h, 'TGTG_WEBHOOK_SECRET', ['authorization', 'x-takatak-token', 'x-api-key']),
     // Nothing to send: a TGTG reservation is already confirmed in the TGTG app. 'skipped' (not 'done')
     // so the log shows nothing was sent to TGTG; the order moves on in the kitchen flow.
-    acceptOrder: async () => result(key, 'skipped', 'Nothing sent — TGTG reservations are confirmed in the TGTG app.'),
-    denyOrder: blocked,
-    cancelOrder: blocked,
-    markReady: async () => result(key, 'skipped', 'Nothing sent — the customer shows the TGTG app at pickup.'),
+    acceptOrder: async (order) => (deliverectRef(order) ? deliverectActions.accept(order) : result(key, 'skipped', 'Nothing sent — TGTG reservations are confirmed in the TGTG app.')),
+    denyOrder: async (order, reason) => (deliverectRef(order) ? deliverectActions.deny(order, reason) : blocked()),
+    cancelOrder: async (order) => (deliverectRef(order) ? deliverectActions.deny(order, '') : blocked()),
+    markReady: async (order) => (deliverectRef(order) ? deliverectActions.ready(order) : result(key, 'skipped', 'Nothing sent — the customer shows the TGTG app at pickup.')),
+    completeOrder: async (order) => (deliverectRef(order) ? deliverectActions.complete(order) : result(key, 'skipped', 'Nothing sent — the customer swipes the reservation in the TGTG app at pickup.')),
     publishMenu: blocked,
     setItemAvailability: blocked,
     setStoreOnline: blocked,

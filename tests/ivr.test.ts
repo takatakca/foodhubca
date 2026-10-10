@@ -459,7 +459,8 @@ describe('ordering agent, person, voicemail', () => {
   it('"place an order" hands the same call to the AI ordering agent (voice/turn), in the caller’s language', async () => {
     await saveLocation({ code: 'NDG', name: 'Notre-Dame-de-Grâce', address: '6280 Somerled Ave', city: 'Montréal', postalCode: 'H4V 1R9', phone: '514 555-0100', active: true });
     await getRepo().saveMenu(MENU);
-    await savePhoneSettings({ lines: [{ number: '+15145550177', name: 'Po Poulet', locationCode: 'NDG', brands: ['Po Poulet'], enabled: true, delivery: false } as any] }, actor);
+    await getRepo().saveMenu({ ...MENU, brandName: 'Pi Pita' });
+    await savePhoneSettings({ lines: [{ number: '+15145550177', name: 'Pi Pita', locationCode: 'NDG', brands: ['Pi Pita'], enabled: true, delivery: false } as any] }, actor);
     await setFeature('phone', true, actor);
     await start();
     await turn({ Digits: '2' });
@@ -469,7 +470,7 @@ describe('ordering agent, person, voicemail', () => {
     expect(r).toMatch(/language="en-US"/);
     expect(r).toMatch(/I’ll take your order/);
     const pc = await getCall('CA1');
-    expect(pc).toMatchObject({ id: 'CA1', lineName: 'Po Poulet', lang: 'en', from: CALLER, status: 'active' });
+    expect(pc).toMatchObject({ id: 'CA1', lineName: 'Pi Pita', lang: 'en', from: CALLER, status: 'active' });
     expect((await getIvrCall('CA1'))!.outcome).toBe('order_agent');
   });
 

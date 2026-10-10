@@ -58,5 +58,6 @@ marine) ; vert, rouge et ambre seulement pour les statuts ; cibles tactiles de 4
   (Phase 5 du `MASTER_PLAN.md`, « brand kits »).
 - **NDG 6284** est une succursale à part dans les données (6284 Av Somerled). Si c'est la même cuisine que NDG (6280),
   la désactiver dans Réglages → Entreprise.
-- **Saint-Léonard** : les données disent 5837 Rue Jean-Talon E (le propriétaire dit 5839). Rien changé ici ; corriger
-  dans Réglages → Entreprise si 5839 est la bonne adresse.
+- **Saint-Léonard** : adresse publique **5839 Rue Jean-Talon E** (décision du 2026-10-09) ; 5837 est l'unité voisine de
+  la même cuisine, gardée telle quelle dans les fiches des plateformes. Si Réglages → Entreprise affiche encore 5837
+  (donnée enregistrée en base), la remplacer par 5839.

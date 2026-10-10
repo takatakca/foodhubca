@@ -32,5 +32,6 @@ export async function POST(req: NextRequest) {
         summary: `Skip #${n.displayId || n.externalOrderId.slice(0, 8)} failed validation and went to the Skip tablet — ${failure}` });
     }
   }, { channel: 'skip', body, reference: parsed.externalOrderId, kind: 'order' });
-  return NextResponse.json({ ok: true });
+  // JET expects 200 and the same payload back as the acknowledgement.
+  return NextResponse.json(body, { status: 200 });
 }

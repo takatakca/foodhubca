@@ -91,7 +91,8 @@ looks moved to Saint-Léonard; Saint-Léonard is written 5837 in older Food Hub 
   "Poulet Express". **Name problems:** three names for one brand (Poulet Poulet in the brand config, "Poulet Express" on
   DoorDash 32501399, and a website under the Po Poulet domain, `pouletpoulet.popoulet.ca`). Pick one name; the DoorDash
   display name is fixed through DoorDash support later. **Three DoorDash stores** (NDG 32501399 on but paused for POS
-  cancellations, NDG 28719392 off, Saint-Léonard 33597093 off): the owner says which NDG store stays; the other is closed.
+  cancellations, NDG 28719392 off, Saint-Léonard 33597093 off): all kept, several stores per brand are intentional
+  (day and night stores, owner 2026-10-10); never raised with DoorDash.
   **Keep apart from Po Poulet NDG:** both are chicken brands at the NDG kitchen; nothing for Poulet Poulet may link to,
   copy from, or be merged with the Po Poulet NDG store (DoorDash 27982486). **Close competitors in NDG:** Freakin Poulet
   (6530 av. Somerled, on the same street), Chalet Bar-B-Q (NDG's well-known rotisserie, on all apps) and Poulet Rouge.
@@ -100,8 +101,8 @@ looks moved to Saint-Léonard; Saint-Léonard is written 5837 in older Food Hub 
 
 - 2026-10-09 | Po Poulet (Saint-Léonard only; NDG store 27982486 is never touched) | **No public listing surfaces** in
   web search, and `popoulet.ca` is not indexed. **Two DoorDash store numbers** for Saint-Léonard: 34494017 (row above,
-  off) and 41950447 (seen in DoorDash mail on 2026-10-08, not in DoorDash's own store list): the owner confirms which one
-  is real before any link is published; the other is closed. DoorDash also sent a merchant-verification "not eligible"
+  off) and 41950447 (seen in DoorDash mail on 2026-10-08, not in DoorDash's own store list): both kept, several
+  stores per brand are intentional (day and night, owner 2026-10-10); the owner says which one each link uses. DoorDash also sent a merchant-verification "not eligible"
   notice for "Po Poulet (ST LEONARD)" on 2026-10-08: the owner calls DoorDash; until then no order link to DoorDash for
   this brand. No Uber Eats store. **Local fried-chicken competitors** (Anjou–Saint-Léonard): BPF Poulet Frit
   (halal-certified, weak ratings: an opening for a well-reviewed rival), Rotisseries Au Coq, Poulet Rouge, La Poule en Feu.

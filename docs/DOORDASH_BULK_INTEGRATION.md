@@ -16,7 +16,8 @@ never included, in this file or in any list sent to DoorDash.
 >    marque garde son menu, les commandes arrivent dans la caisse Clover de la cuisine. DoorDash l'active **en lot**
 >    avec une liste de numéros de magasin (la liste est prête). Il faut d'abord que DoorDash approuve le hub (demande
 >    envoyée à leur équipe d'ingénierie).
-> En attendant : tablettes partout. Avant de relier Nutrition Shake à Clover, vérifier que le compte Clover choisi
+> Plusieurs magasins d'une même marque (jour / nuit) sont voulus : on ne les signale jamais à DoorDash ; deux demandes
+> séparées. En attendant : tablettes partout. Avant de relier Nutrition Shake à Clover, vérifier que le compte Clover choisi
 > n'a **que** le menu Nutrition Shake.
 
 ## 1. What DoorDash offers (verified from DoorDash and Clover help pages, 2026-10-10)
@@ -67,58 +68,75 @@ owner already left UrbanPiper. Only if Route B is refused.
    sells other brands, stop: DoorDash would replace Nutrition Shake's DoorDash menu with the shared menu.
 3. **All other brands:** do not link them one by one to the shared kitchen Clover. Wait for the hub approval (Route B),
    then ask DoorDash's account manager for the bulk CSV onboarding with the list below.
-4. **Before any list goes to DoorDash:** the owner settles the duplicates (one store per brand per kitchen) and the old
-   Hochelaga stores (`docs/visibility/PLAN.md` §7).
+4. **Several stores for one brand at one kitchen are intentional** (owner, 2026-10-10): day stores and night stores.
+   Never ask DoorDash to merge, close or explain them. They go to DoorDash as **two separate requests**: one for the
+   day stores, one for the night stores. The 6280 / "n-" stores can be activated by the owner, choosing Clover POS or
+   DoorDash's tablet.
+5. Old Hochelaga (3583 Ste-Catherine E) stores wait for the owner's decision (`docs/visibility/PLAN.md` §7).
 
-## 3. The store list (one store per brand per kitchen; owner confirms the lines marked ?)
+## 3. The store list: two requests (owner labels day / night)
 
-Pattern taken from the owner's own request for Nutrition Shake: at NDG keep the older store and set its address to
-6280 avenue Somerled; the newer 6280 store merges into it. The same pattern is proposed for every brand below.
-Hochelaga (3583 Ste-Catherine E) stores wait for the owner's decision.
+Every store is its own line; no store is merged into another. Grouped by address as DoorDash lists them; the owner
+marks which group is day and which is night before sending.
 
-| Brand | Kitchen | Keep (send to DoorDash) | Merge into it / close | Note |
-|---|---|---|---|---|
-| Nutrition Shake | NDG | 27510307 | 38993800 (owner's request) | Route A pilot in progress |
-| Nutrition Shake | Saint-Léonard | 33596565 | 34432851 (5837) ? | |
-| OOEUF | NDG | 27870472 ? | 34525477 "Express", 41946357 (6280) ? | DoorDash lists 27870472 as "SUPREME" with no address |
-| OOEUF | Hochelaga | - | 33597929 ? | Hochelaga decision |
-| Pi Pita | NDG | 27986352 | 41893249 (6280) | |
-| Pi Pita | Saint-Léonard | 33598679 | - | |
-| Pizza Inntime | NDG | 28519423 | - | |
-| Pizza Inntime | Hochelaga | - | 33596799 ? | Hochelaga decision |
-| Bin Molle & Bin Dure | NDG | 28108457 | - | |
-| Bin Molle & Bin Dure | Hochelaga | - | 33598151 ? | Hochelaga decision |
-| Gâteau Montréal | NDG | 28114454 | 41889687 (6280) | |
-| Gâteau Montréal | Saint-Léonard | 33521453 | - | |
-| Taco Mexican | NDG | 30831008 | 41946481 (6280) | |
-| Taco Mexican | Saint-Léonard | 33597179 | - | A POS request for this store is open on DoorDash's side |
-| Mythos & Go | NDG | 32501513 | 41946413 (6280) | Name check first (`PLAN.md` §7, item 14) |
-| Mythos & Go | Hochelaga | - | 33600697 ? | Hochelaga decision |
-| Café Bolon | NDG | 30831269 | 41946457 (6280) | |
-| Café Bolon | Hochelaga | - | 33598853 ? | Hochelaga decision |
-| Place Afrique | NDG | 32504033 | 41946401 (6280) | Lowest priority |
-| Place Afrique | Hochelaga | - | 33597315 ? | Hochelaga decision |
-| Poulet Poulet | NDG | 32501399 ("Poulet Express") ? | 28719392 ? | Still on the old POS, paused by DoorDash |
-| Poulet Poulet | Saint-Léonard | 33598759 or 33597093 ? | - | DoorDash lists 33598759 under the Po-Poulet business at 5839 |
-| Po Poulet | Saint-Léonard | 41950447 ? | - | Not in DoorDash's list; "not eligible" notice first |
-| PPP Pizzeria | NDG | 28040070 ? | - | Not in DoorDash's list |
-| OCRÊPE | NDG / Saint-Léonard | 27986646 / 33596721 ? | - | Not in DoorDash's list |
-| Les Pâtissières de ruelle | 17 rue Perreault | 27956368 ? | - | Not in our brand list: is it ours? |
+### Request 1: stores at 6284 avenue Somerled (NDG) and 5839 rue Jean-Talon Est (Saint-Léonard)
 
-**Not on any list:** 27982486 (Po Poulet NDG, locked). **Check before sending:** 34494017 sits under the Po-Poulet
-business at 6280 avenue Somerled in DoorDash's list; it may be a second Po Poulet NDG store, so it stays out until the
-owner says what it is.
+| Brand | Store | Address in DoorDash | Note |
+|---|---|---|---|
+| Nutrition Shake | 27510307 | 6284 Somerled | Route A (Clover) in progress |
+| Nutrition Shake | 33596565 | 5839 Jean-Talon | |
+| Nutrition Shake | 34432851 | 5837 Jean-Talon | |
+| Pi Pita | 27986352 | 6284 Somerled | "not eligible" notice: owner calls DoorDash |
+| Pi Pita | 33598679 | 5839 Jean-Talon | |
+| Pizza Inntime | 28519423 | 6284 Somerled | |
+| Bin Molle & Bin Dure | 28108457 | 6284 Somerled | |
+| Gâteau Montréal | 28114454 | 6284 Somerled | |
+| Gâteau Montréal | 33521453 | 5839 Jean-Talon | |
+| Taco Mexican | 30831008 | 6284 Somerled | |
+| Taco Mexican | 33597179 | 5839 Jean-Talon | A POS request for this store is open on DoorDash's side |
+| Mythos & Go | 32501513 | 6284 Somerled | Name check first (`PLAN.md` §7, item 14) |
+| Café Bolon | 30831269 | 6284 Somerled | |
+| Place Afrique | 32504033 | 6284 Somerled | Lowest priority |
+| Poulet Poulet | 33598759 | 5839 Jean-Talon | Listed under the Po-Poulet business |
+
+### Request 2: stores at 6280 avenue Somerled (NDG; the owner can activate these with Clover POS or the tablet)
+
+| Brand | Store | Note |
+|---|---|---|
+| Nutrition Shake | 38993800 | |
+| OOEUF | 41946357 | |
+| Pi Pita | 41893249 | |
+| Gâteau Montréal | 41889687 | |
+| Taco Mexican | 41946481 | |
+| Mythos & Go | 41946413 | Name check first |
+| Café Bolon | 41946457 | |
+| Place Afrique | 41946401 | Lowest priority |
+
+### Stores to place in a request once the owner says which (not in DoorDash's 2026-10-08 list, or no address)
+
+| Brand | Store | Note |
+|---|---|---|
+| OOEUF | 27870472 ("SUPREME"), 34525477 ("EXPRESS") | DoorDash shows no address |
+| Poulet Poulet | 32501399 ("Poulet Express"), 28719392, 33597093 | 32501399 still on the old POS, paused by DoorDash |
+| Po Poulet (Saint-Léonard) | 41950447 | "not eligible" notice first |
+| PPP Pizzeria | 28040070 | |
+| OCRÊPE | 27986646, 33596721 | |
+| Les Pâtissières de ruelle | 27956368 (17 rue Perreault) | Not in our brand list: is it ours? |
+| Hochelaga stores | 33597929, 33596799, 33598151, 33597315, 33600697, 33598853 | Hochelaga decision |
+
+**Never in any request:** 27982486 (Po Poulet NDG, locked). **Ask the owner first:** 34494017, listed under the
+Po-Poulet business at 6280 avenue Somerled.
 
 ## 4. CSV format for DoorDash's bulk tool
 
-One line per store to integrate, only "Keep" stores the owner has confirmed:
+One file per request (day / night), one line per store the owner has confirmed:
 
 ```csv
 doordash_store_id,merchant_supplied_id,store_name,brand,kitchen,street,city,province,postal_code
-27510307,NDG-NUTRISHAKE,Nutrition Shake (NDG),Nutrition Shake,NDG,6280 avenue Somerled,Montréal,QC,H3X 2B6
+27510307,NDG-NUTRISHAKE-1,Nutrition Shake,Nutrition Shake,NDG,6284 avenue Somerled,Montréal,QC,H3X 2B6
 ```
 
-`merchant_supplied_id` is the hub's own store code (kitchen + brand). The filled-in list, with DoorDash's business IDs,
+`merchant_supplied_id` is the hub's own store code (kitchen + brand + store number, so day and night stores stay apart). The filled-in list, with DoorDash's business IDs,
 is in the Drive sheet; send it only when DoorDash asks, from the account's own email or portal.
 
 Sources: DoorDash, "Integrate DoorDash with Clover POS" (help.doordash.com/en-ca/merchants/article/integrate-doordash-with-your-clover-pos);

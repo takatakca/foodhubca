@@ -130,10 +130,12 @@ Drive 03 OPS_LOG. Po Poulet NDG (DoorDash 27982486) is out of scope everywhere.
 5. Saint-Léonard **5837 or 5839** Jean-Talon E: Uber Eats shows 5837 (O'Crêpe, O'OEUFS), the config says 5839.
 6. NDG **6280 or 6284** Somerled. Then copy the chosen address to every platform and directory.
 
-### C. Duplicate or unknown store numbers (DoorDash, Uber Eats)
-7. Po Poulet Saint-Léonard: DoorDash 34494017 or 41950447, plus the "not eligible" notice (owner calls DoorDash).
-8. Poulet Poulet NDG: DoorDash 32501399 ("Poulet Express", still on the old POS) or 28719392.
-9. OOEUF Saint-Léonard: Uber Eats store 2e747d04 is not in the config (config has c5585882).
+### C. Store numbers (DoorDash, Uber Eats)
+Several stores for one brand at one kitchen are intentional (owner, 2026-10-10: day and night stores). Never ask a
+platform to merge, close or explain them.
+7. Po Poulet Saint-Léonard (41950447): the "not eligible" notice first (owner calls DoorDash).
+8. Poulet Poulet NDG: 32501399 ("Poulet Express") is still on the old POS and paused by DoorDash.
+9. OOEUF Saint-Léonard: Uber Eats store 2e747d04 is not in the config (config has c5585882): add it to the config.
 10. OCRÊPE: the Uber Eats store filed under NDG shows the Saint-Léonard address; move it in the config.
 11. The other "not eligible" notices (Pi Pita, OOEUF, OOEUF Express NDG): owner calls DoorDash.
 

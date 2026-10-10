@@ -532,6 +532,12 @@ export function parseFinanceFile(fileName: string, bytes: Uint8Array, opts: { pl
       description = [statusText, gross ? `gross ${gross.toFixed(2)}` : '', fees ? `fees ${fees.toFixed(2)}` : ''].filter(Boolean).join(' · ');
     } else {
       net = map.net?.length ? amt(row, map.net) : r2(Object.values(c).reduce((s, v) => s + v, 0));
+      // Uber Eats, rare rows: "Other payments" is blank while "Total payout" carries the fee (tax included) — the
+      // description still says what it is.
+      if (platform === 'uber_eats' && net !== 0 && !Object.values(c).some(Boolean) && description) {
+        const bucket = classifyOtherPayment(description);
+        if (bucket === 'fees' || bucket === 'marketing') { const base = r2(net / (1 + GST_RATE + QST_RATE)); c[bucket] = base; c.commissionTax = r2(net - base); } else c[bucket] = net;
+      }
       // DoorDash before April 2025: the current columns are 0 and the "(for historical reference only)" ones are real.
       if (det.format === 'doordash_transactions') {
         const histNet = amt(row, map.histNet);

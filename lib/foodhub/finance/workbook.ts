@@ -302,7 +302,7 @@ export function buildFinanceWorkbook(input: WorkbookInput): { bytes: Uint8Array;
         const num = (k: string) => Number(cells[cols.findIndex((c) => c.key === k)].v) || 0;
         const sales = num('sales'); const orders = num('orders');
         rows.push([PLATFORM_LABEL[g.p], /^\d{4}$/.test(g.second) ? Number(g.second) : g.second, ...cells,
-          { f: `IF(${at('orders')}=0,0,${at('sales')}/${at('orders')})`, v: orders ? r2(sales / orders) : 0, s: 'money' },
+          { f: `IF(${at('orders')}=0,0,${at('sales')}/${at('orders')})`, v: orders ? raw(sales / orders) : 0, s: 'money' },
           { f: `IF(${at('orders')}=0,0,${at('cancelled')}/${at('orders')})`, v: orders ? Math.round((num('cancelled') / orders) * 1e6) / 1e6 : 0, s: 'pct' },
           { f: `IF(${at('sales')}=0,0,-${at('mkt')}/${at('sales')})`, v: sales ? Math.round((-num('mkt') / sales) * 1e6) / 1e6 : 0, s: 'pct' },
           { f: `IF(${at('sales')}=0,0,-(${at('err')}+${at('ref')})/${at('sales')})`, v: sales ? Math.round((-(num('err') + num('ref')) / sales) * 1e6) / 1e6 : 0, s: 'pct' },

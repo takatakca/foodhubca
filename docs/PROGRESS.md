@@ -28,6 +28,26 @@ piece of work. The plan itself is `docs/MASTER_PLAN.md`. Operations (support, em
 | 20 | takatak.ca brand section connected to Food Hub's multi-brand data (feed `GET /api/public/directory`, task 19) + one TAKATAK V1 workspace per restaurant brand (Quadro Holding admin owns all; brand logins by invitation) | foodhubca `claude/google-doordash-id-extraction-wg2f5l` (decision note `docs/TAKATAK_BRANDS_BRIDGE.md`, being written there); takatak-v1 local branch `claude/provision-brand-workspaces` (not pushed: no write access in that session) | DoorDash/Google session (claude, 2026-10-09) | IN PROGRESS (claimed 2026-10-09) | Read the note on that branch. A new session needs takatak.ca allowed in Network access, the takatak-v1 DB secrets and write access to takatak-v1; then push the setup script, run it dry-run, show the owner, `--apply` only after the owner says yes. |
 | 27 | DoorDash: every store back to tablet after UrbanPiper; store list and IDs; Google listings / Ads prep (operations, outside git) | owner's private Google Drive folder "TAKATAK OPS (private)" (README, CLAIMS, APPROVED_VALUES, OPS_LOG) | DoorDash/Google session (claude, 2026-10-09) | IN PROGRESS | Read the Drive folder README first. Never redo, undo or re-send anything its OPS_LOG records without the owner. One agent at a time in the DoorDash portal and each Gmail inbox. |
 
+## 2026-10-10 09:20 UTC (Finance A–Z session, task 30: `fix/finance-tax-split-doordash-hist`)
+
+**Done**
+- Importer fixes after the real exports arrived (DoorDash transactions Oct 2024 → Oct 2026, Uber Payment Details + Payout
+  Summary Jan 2025 → Oct 2026, Clover May → Oct 2026): every statement line now adds up to the platform's net total.
+  - DoorDash pre-April-2025 layout: historical marketing / ad-fee / credit columns; "Tablet fee tax" counted as recoverable tax.
+  - Uber Eats Manager prints the whole tax in "GST/HST on Sales": split by the rate actually charged (QST only, GST only,
+    both), GST-holiday aware; offers / refunds follow the sale's ratio. A rare Uber row with a blank "Other payments" is
+    classified from its description.
+  - New Lines / Tax_Summary columns + auto to-do: sales the platform taxed **QST only** outside the holiday and the GST still
+    owed on them.
+  - Clover orders / refunds / Sales Overview exports are reference files (the payments export carries the amounts).
+- Checks: lint 0 errors, 22/22 finance tests, Excel recalculation of the workbook (21,937 formulas, 0 errors). `typecheck`
+  fails only on `lib/foodhub/adapters/uber-provision.ts` from `main` (main red since #34, fix in #40).
+- Private outputs (never committed): report + workbook rebuilt in `private/finance/`, copied to OneDrive.
+
+**Next**
+- Owner reviews and merges the PR. No env var, no migration, nothing deployed.
+- Owner actions are listed in `private/finance/HANDOFF.md` (Skip and bank exports, Uber tax number / bank, disputes).
+
 ## 2026-10-08 06:20 UTC (brand phone agent, task 18: `feature/brand-phone-lines`)
 
 **Done:** a Twilio voice webhook for one phone number per brand. Nothing was bought or created in Twilio.

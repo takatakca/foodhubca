@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { TakatakMark } from '@/components/brand/takatak-mark';
 import { legalInfo, LEGAL_PATHS } from '@/lib/foodhub/legal';
 
 export const dynamic = 'force-dynamic';
@@ -13,8 +14,7 @@ export default function LegalLayout({ children }: { children: ReactNode }) {
       <header className="border-b border-line bg-surface">
         <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-3 px-4 py-3">
           <Link href={LEGAL_PATHS.support} className="flex items-center gap-2 font-extrabold tracking-tight">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/icons/icon-192.png" alt="" className="size-8 rounded-lg" />
+            <TakatakMark size="sm" />
             {info.appName}
           </Link>
           <nav className="flex flex-wrap gap-4 text-sm font-semibold text-ink-2">

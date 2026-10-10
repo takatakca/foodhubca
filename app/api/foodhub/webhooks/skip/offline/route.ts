@@ -12,6 +12,7 @@ export const maxDuration = 60;
 // JET Connect "Restaurant Temporarily Offline Notification":
 // { restaurantId, lastChangedTimeStampUtc, delivery: { isOffline }, collection: { isOffline } }
 // Skip can take a store offline on its side (e.g. too many missed orders) — this keeps Food Hub in sync.
+// JET expects 200 and the same payload back as the acknowledgement.
 export async function POST(req: NextRequest) {
   const raw = await req.text();
   if (!skipAdapter.verifyWebhook(req.headers, raw)) return unauthorized('skip');
@@ -37,5 +38,5 @@ export async function POST(req: NextRequest) {
         summary: `${store.brandName} · ${store.locationCode} on SkipTheDishes ${offline ? 'taken offline by Skip' : 'back online'}` });
     }
   }, { channel: 'skip', body, reference: String(body.restaurantId), kind: 'store_status' });
-  return new NextResponse(null, { status: 200 });
+  return NextResponse.json(body, { status: 200 });
 }

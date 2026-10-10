@@ -7,6 +7,10 @@
     {
       "path": "/api/foodhub/cron/reports",
       "schedule": "5 13 * * *"
+    },
+    {
+      "path": "/api/foodhub/cron/tgtg-bags",
+      "schedule": "30 6 * * *"
     }
   ]
 }

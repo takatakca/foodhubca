@@ -62,7 +62,7 @@ _Status on 2026-10-07 · branch `uber-eats-final` · checked against Uber's offi
 1. Food Hub → **Stores → Connect Uber Eats**, then sign in with the **Uber Eats Manager owner account**.
 2. Food Hub lists every store on that account (17), with brand, location and Clover register pre-filled:
    - The 9 stores at **6280 Av. Somerled** → **NDG MAIN**.
-   - The 8 stores at **5839 Rue Jean-Talon E** → **SAINT-LÉONARD**. Food Hub's record says 5837; both numbers are now recognised.
+   - The 8 stores at **5839 Rue Jean-Talon E** → **SAINT-LÉONARD**. Food Hub's record says 5839 (the public address since 2026-10-09); 5837, the next unit of the same kitchen, is recognised too.
    - **Pizza Algerie** is not a Food Hub brand. Add it in Brands & Locations, or leave it unticked.
    - The **Orders go to** column shows who takes each store's orders today. Expect "other integration (UrbanPiper)" until UrbanPiper lets go.
 3. Check each row → **Activate & link**. Each store gets one line saying what happened:

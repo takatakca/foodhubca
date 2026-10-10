@@ -95,10 +95,10 @@ export const BRAND_ALIASES: Record<string, string[]> = {
 };
 
 /**
- * Other civic numbers the platforms use for a location's building: Uber lists the Saint-Léonard kitchen at
- * 5839 Rue Jean-Talon E, Food Hub's record says 5837.
+ * Other civic numbers the platforms use for a location's building. Saint-Léonard's public address is 5839 Rue
+ * Jean-Talon E (owner, 2026-10-09); 5837 is the next unit of the same kitchen, still on some platform store records.
  */
-export const LOCATION_NUMBER_ALIASES: Record<string, string[]> = { SAINT_LEONARD: ['5839'] };
+export const LOCATION_NUMBER_ALIASES: Record<string, string[]> = { SAINT_LEONARD: ['5837'] };
 
 /** "6280 Av Somerled" → "somerled": the street name without the number or the street type, for a fallback match. */
 const streetOf = (line: string) => norm(line.replace(/^\s*\d+[a-z]?\s+/i, '').replace(/\b(av|ave|avenue|rue|boul|boulevard|ch|chemin|e|o|est|ouest)\b\.?/gi, ' '));

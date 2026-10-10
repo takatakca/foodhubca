@@ -415,6 +415,8 @@ export interface ChannelAdapter {
   markReady(order: StoredOrder, posRef?: string): Promise<ChannelResult>;
   /** Cancel an order that was already accepted (only where the platform allows it). */
   cancelOrder(order: StoredOrder, reason: CancelReason, details?: string): Promise<ChannelResult>;
+  /** The order was picked up / handed over: tell the platform where it can (Too Good To Go through Deliverect: FINALIZED). Never blocks the kitchen. */
+  completeOrder?(order: StoredOrder): Promise<ChannelResult>;
   publishMenu(store: ChannelStore, menu: MasterMenu, ctx?: PublishContext): Promise<ChannelResult>;
   setItemAvailability(store: ChannelStore, refs: string[], available: boolean, untilMs?: number, kind?: 'item' | 'modifier'): Promise<ChannelResult>;
   setStoreOnline(store: ChannelStore, online: boolean, untilMs?: number, reason?: string): Promise<ChannelResult>;

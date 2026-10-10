@@ -69,7 +69,7 @@ export function Tour() {
   return createPortal(
     <div className="fixed inset-0 z-[86]" role="dialog" aria-label={pick(step.title, lang)}>
       {rect
-        ? <div className="pointer-events-none absolute rounded-xl transition-all duration-300" style={{ top: rect.top - pad, left: rect.left - pad, width: rect.width + pad * 2, height: rect.height + pad * 2, boxShadow: '0 0 0 9999px rgb(18 18 17 / 0.62), 0 0 0 3px #ff5b14' }} />
+        ? <div className="pointer-events-none absolute rounded-xl transition-all duration-300" style={{ top: rect.top - pad, left: rect.left - pad, width: rect.width + pad * 2, height: rect.height + pad * 2, boxShadow: '0 0 0 9999px rgb(18 18 17 / 0.62), 0 0 0 3px #1f8bff' }} />
         : <div className="absolute inset-0 bg-ink/60" />}
       <div className="absolute rounded-2xl border border-line bg-surface p-5 shadow-pop animate-rise" style={{ ...cardStyle, width: cardW }}>
         <div className="flex items-start gap-3">

@@ -7,6 +7,7 @@
 //   - Twilio waits at most 15 s for each answer: a slow AI turn says "one moment" and continues on a <Redirect>.
 import crypto from 'node:crypto';
 import { publicBaseUrl, safeEqual } from '../config';
+import type { PhoneLang } from './calls';
 import type { PhoneSettings } from './settings';
 
 export const VOICE_PATH = '/api/foodhub/webhooks/voice';
@@ -39,19 +40,23 @@ export function twilioSignature(url: string, params: URLSearchParams, token: str
 }
 
 const xml = (s: string) => s.replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[c]!));
-const attr = (s: string) => xml(s);
+export const attr = (s: string) => xml(s);
 
-export function voiceAttrs(s: Pick<PhoneSettings, 'voiceFr' | 'voiceEn'>, lang: 'fr' | 'en') {
+type Voices = Pick<PhoneSettings, 'voiceFr' | 'voiceEn'> & Partial<Pick<PhoneSettings, 'voiceEs'>>;
+
+/** Voice and speech-recognition language of a call (Spanish: es-US). */
+export function voiceAttrs(s: Voices, lang: PhoneLang) {
+  if (lang === 'es') return { voice: s.voiceEs || 'Polly.Lupe-Neural', language: 'es-US' };
   return lang === 'fr' ? { voice: s.voiceFr, language: 'fr-CA' } : { voice: s.voiceEn, language: 'en-US' };
 }
 
-export function sayXml(text: string, s: Pick<PhoneSettings, 'voiceFr' | 'voiceEn'>, lang: 'fr' | 'en'): string {
+export function sayXml(text: string, s: Voices, lang: PhoneLang): string {
   const v = voiceAttrs(s, lang);
   return `<Say voice="${attr(v.voice)}" language="${v.language}">${xml(text)}</Say>`;
 }
 
 /** Say something, then listen for the caller's next sentence (speech, or a key press). */
-export function gatherXml(text: string, s: Pick<PhoneSettings, 'voiceFr' | 'voiceEn' | 'speechModel' | 'speechTimeout'>, lang: 'fr' | 'en', action: string, hints?: string): string {
+export function gatherXml(text: string, s: Voices & Pick<PhoneSettings, 'speechModel' | 'speechTimeout'>, lang: PhoneLang, action: string, hints?: string): string {
   const v = voiceAttrs(s, lang);
   return `<Gather input="speech dtmf" numDigits="1" action="${attr(action)}" method="POST" language="${v.language}" speechModel="${attr(s.speechModel)}" speechTimeout="${s.speechTimeout}" timeout="7" actionOnEmptyResult="true"${hints ? ` hints="${attr(hints.slice(0, 2000))}"` : ''}>${sayXml(text, s, lang)}</Gather>`;
 }
@@ -73,15 +78,18 @@ export async function readForm(req: Request): Promise<URLSearchParams> {
 export const GREETING = {
   fr: (name: string) => `Bonjour, merci d’avoir appelé ${name}. Je suis l’assistant virtuel et je prends votre commande. For English, press 2 or say English. Que puis-je vous préparer ?`,
   en: (name: string) => `Hello, thank you for calling ${name}. I'm the virtual assistant and I'll take your order. What can I get for you?`,
+  es: (name: string) => `Hola, gracias por llamar a ${name}. Soy el asistente virtual y tomo su pedido. ¿Qué le preparamos?`,
 };
-export const WAIT = { fr: 'Un instant, je vérifie.', en: 'One moment, let me check.' };
+export const WAIT = { fr: 'Un instant, je vérifie.', en: 'One moment, let me check.', es: 'Un momento, lo verifico.' };
 export const NO_AGENT = {
   fr: 'Bonjour. Je vous transfère à un membre de l’équipe.',
   en: 'Hello. I am transferring you to a team member.',
+  es: 'Hola. Le transfiero a un miembro del equipo.',
 };
 export const NOBODY = {
   fr: 'Désolé, personne n’est disponible pour le moment. Nous vous rappelons dès que possible. Au revoir.',
   en: 'Sorry, nobody is available right now. We will call you back as soon as possible. Goodbye.',
+  es: 'Lo sentimos, no hay nadie disponible en este momento. Le devolveremos la llamada lo antes posible. Adiós.',
 };
 
 /** Route wrapper: reads Twilio's form, refuses anything not signed with TWILIO_AUTH_TOKEN, never answers with an error page. */

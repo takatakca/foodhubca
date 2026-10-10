@@ -8,7 +8,7 @@ import { Banner, Skeleton } from '@/components/ui/card';
 import { Field, Input, Select, Switch } from '@/components/ui/form';
 import { useToast } from '@/components/ui/toast';
 import { useViewer } from '@/components/shell/viewer';
-import type { DeliverySettings, LocationDeliveryRule } from '@/lib/foodhub/delivery/types';
+import { DEFAULT_UBER_DIRECT_OPTIONS, type DeliverySettings, type LocationDeliveryRule, type UberDirectOptions as UberOpts } from '@/lib/foodhub/delivery/types';
 import { api, ApiError } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { Section } from '../../settings-ui';
@@ -16,6 +16,7 @@ import { CopyValue, ExpansionHead } from '../expansion-ui';
 
 type Fleet = { fleet: string; label: string; configured: boolean; canSend: boolean; environment: 'sandbox' | 'production'; missing: string[]; note: string; noteFr: string; webhookPath: string };
 type Resp = { settings: DeliverySettings; fleets: Fleet[]; baseUrl: string; secrets: { driveWebhook: string; websiteOrder: string } | null };
+const uberOpts = (s: DeliverySettings): UberOpts => ({ ...DEFAULT_UBER_DIRECT_OPTIONS, ...(s.uberDirect ?? {}) });
 const DEFAULT_RULE: LocationDeliveryRule = { enabled: false, autoDispatch: false, leadMinutes: 10, maxDistanceKm: 8, postalPrefixes: [], maxAutoFee: 15 };
 
 export default function DeliverySettingsPage() {
@@ -87,6 +88,7 @@ export default function DeliverySettingsPage() {
                       </div>
                     </>}
                     {f.fleet === 'uber_direct' && <p className="text-xs text-ink-3">{t('Clé de signature : UBER_DIRECT_WEBHOOK_SECRET (copiée depuis Uber Direct → Webhooks).', 'Signing key: UBER_DIRECT_WEBHOOK_SECRET (copied from Uber Direct → Webhooks).')}</p>}
+                    {f.fleet === 'skip_daas' && <p className="text-xs text-ink-3">{t('Skip renvoie le secret SKIP_DAAS_WEBHOOK_SECRET dans l’en-tête x-api-key. Les points de collecte se règlent avec SKIP_DAAS_COLLECT_POINTS.', 'Skip sends back SKIP_DAAS_WEBHOOK_SECRET in the x-api-key header. Collect points are set with SKIP_DAAS_COLLECT_POINTS.')}</p>}
                   </div>
                 </div>
               ))}
@@ -96,14 +98,22 @@ export default function DeliverySettingsPage() {
 
           <Section title={t('Règles générales', 'General rules')}>
             <fieldset disabled={!edit} className="grid gap-4 md:grid-cols-2">
-              <Field label={t('Service principal', 'Primary service')}><Select value={s.primaryFleet} onChange={(e) => setS({ ...s, primaryFleet: e.target.value as DeliverySettings['primaryFleet'] })}><option value="doordash_drive">DoorDash Drive</option><option value="uber_direct">Uber Direct</option></Select></Field>
+              <Field label={t('Service principal', 'Primary service')}><Select value={s.primaryFleet} onChange={(e) => setS({ ...s, primaryFleet: e.target.value as DeliverySettings['primaryFleet'] })}><option value="doordash_drive">DoorDash Drive</option><option value="uber_direct">Uber Direct</option><option value="skip_daas">Skip Delivery</option></Select></Field>
               <Field label={t('Si non livrable', 'If undeliverable')}><Select value={s.undeliverable} onChange={(e) => setS({ ...s, undeliverable: e.target.value as DeliverySettings['undeliverable'] })}><option value="return_to_pickup">{t('Retour à la cuisine', 'Back to the kitchen')}</option><option value="dispose">{t('Laisser / jeter', 'Leave / dispose')}</option></Select></Field>
               <Field label={t('Frais de livraison facturés au client ($)', 'Delivery fee charged to the customer ($)')}><Input inputMode="decimal" value={s.customerFee} onChange={(e) => setS({ ...s, customerFee: e.target.value as unknown as number })} /></Field>
               <Field label={t('Pourboire par défaut au livreur ($)', 'Default courier tip ($)')} hint={t('DoorDash compte les livraisons avec pourboire.', 'DoorDash counts deliveries with a tip.')}><Input inputMode="decimal" value={s.defaultTip} onChange={(e) => setS({ ...s, defaultTip: e.target.value as unknown as number })} /></Field>
-              <Switch checked={s.compareQuotes} onChange={(v) => setS({ ...s, compareQuotes: v })} label={t('Comparer les prix (DoorDash vs Uber) et prendre le moins cher', 'Compare prices (DoorDash vs Uber) and take the cheaper')} />
+              <Switch checked={s.compareQuotes} onChange={(v) => setS({ ...s, compareQuotes: v })} label={t('Comparer les prix (DoorDash, Uber, Skip) et prendre le moins cher', 'Compare prices (DoorDash, Uber, Skip) and take the cheaper')} />
               <Switch checked={s.smsTracking} onChange={(v) => setS({ ...s, smsTracking: v })} label={t('Texter le lien de suivi au client', 'Text the tracking link to the customer')} />
               <Switch checked={s.readCloverDeliveryOrders} onChange={(v) => setS({ ...s, readCloverDeliveryOrders: v })} label={t('Lire les commandes Clover de type « Livraison »', 'Read Clover orders of type "Delivery"')} />
               <Switch checked={s.allowUnpaidDispatch} onChange={(v) => setS({ ...s, allowUnpaidDispatch: v })} label={t('Envoyer un livreur même si la commande n’est pas payée', 'Send a courier even if the order is not paid')} description={t('Déconseillé : les livreurs n’encaissent jamais.', 'Not recommended: couriers never collect money.')} />
+            </fieldset>
+          </Section>
+
+          <Section title={t('Uber Direct : remise et preuve', 'Uber Direct: hand-off and proof')} subtitle={t('Alcool : toujours en main propre avec pièce d’identité. « Laisser à la porte » exige une photo ; un code NIP est texté au client avec le lien de suivi.', 'Alcohol: always handed over with an ID check. "Leave at the door" requires a photo; a PIN is texted to the customer with the tracking link.')}>
+            <fieldset disabled={!edit} className="grid gap-4 md:grid-cols-2">
+              <Field label={t('Remise au client', 'Hand-off')}><Select value={s.uberDirect?.deliverableAction ?? 'meet_at_door'} onChange={(e) => setS({ ...s, uberDirect: { ...uberOpts(s), deliverableAction: e.target.value as UberOpts['deliverableAction'] } })}><option value="meet_at_door">{t('En main propre', 'Meet at the door')}</option><option value="leave_at_door">{t('Laisser à la porte (photo)', 'Leave at the door (photo)')}</option></Select></Field>
+              <Field label={t('Preuve de livraison', 'Proof of delivery')}><Select value={s.uberDirect?.proof ?? 'picture'} onChange={(e) => setS({ ...s, uberDirect: { ...uberOpts(s), proof: e.target.value as UberOpts['proof'] } })}><option value="picture">{t('Photo', 'Photo')}</option><option value="signature">{t('Signature', 'Signature')}</option><option value="pincode">{t('Code NIP du client', 'Customer PIN')}</option><option value="none">{t('Aucune', 'None')}</option></Select></Field>
+              <Switch checked={Boolean(s.uberDirect?.pickPackPay)} onChange={(v) => setS({ ...s, uberDirect: { ...uberOpts(s), pickPackPay: v } })} label={t('Le livreur fait les courses (Courier Pick & Pack)', 'The courier shops the order (Courier Pick & Pack)')} description={t('Épicerie seulement ; exige une entente avec Uber Direct.', 'Grocery only; needs an agreement with Uber Direct.')} />
             </fieldset>
           </Section>
 

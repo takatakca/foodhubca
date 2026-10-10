@@ -10,16 +10,17 @@ import { CountdownRing, Elapsed, fmtDuration, useNow } from '@/components/ui/tim
 import { usePulse } from '@/components/live/pulse';
 import { ALLERGY, courierLabel, useOrderActions } from '@/components/live/order-drawer';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
-import { audioReady, loopSound, playSound, setVolume, unlockAudio } from '@/lib/ui/sound';
+import { audioReady, loopSound, playSound, setLoud, setVolume, unlockAudio } from '@/lib/ui/sound';
 import { money } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import type { LiveOrder } from '@/lib/foodhub/pulse';
 import { cn } from '@/lib/ui/cn';
 
 // ---------- per-screen alert settings (kitchen tablet vs office PC) ----------
-export type AlertSettings = { sound: boolean; popup: boolean; repeatSec: number; desktop: boolean; volume: number };
+/** loud = "Extra loud" (lib/ui/sound.ts), on by default: a kitchen tablet must be heard over the hood fan. */
+export type AlertSettings = { sound: boolean; popup: boolean; repeatSec: number; desktop: boolean; volume: number; loud: boolean };
 const KEY = 'takatak.alerts.v1';
-const DEFAULTS: AlertSettings = { sound: true, popup: true, repeatSec: 3, desktop: false, volume: 0.9 };
+const DEFAULTS: AlertSettings = { sound: true, popup: true, repeatSec: 3, desktop: false, volume: 1, loud: true };
 export function readAlertSettings(): AlertSettings {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; } catch { return DEFAULTS; }
 }
@@ -29,7 +30,7 @@ export function writeAlertSettings(s: AlertSettings) {
 }
 function useAlertSettings() {
   const [s, setS] = useState<AlertSettings>(DEFAULTS);
-  useEffect(() => { const r = () => { const n = readAlertSettings(); setVolume(n.volume); setS(n); }; r(); window.addEventListener('takatak:alerts', r); return () => window.removeEventListener('takatak:alerts', r); }, []);
+  useEffect(() => { const r = () => { const n = readAlertSettings(); setVolume(n.volume); setLoud(n.loud); setS(n); }; r(); window.addEventListener('takatak:alerts', r); return () => window.removeEventListener('takatak:alerts', r); }, []);
   return s;
 }
 

@@ -296,11 +296,38 @@ export async function allCloverMerchants(storeMerchantIds: Array<string | null |
   return [...set];
 }
 
-/** Every Clover merchant Food Hub knows about: the default one, the token map, and store mappings. */
+/**
+ * Why this cannot be a Clover merchant id (null = it can; empty = the default merchant). Clover's id is the code of
+ * letters and digits in the dashboard address (clover.com/home/m/<id>, 13 characters). The all-digits "merchant
+ * number" on card statements and the terminal belongs to the payment processor: Clover's API does not know it, so an
+ * order sent there never reaches the register.
+ */
+export function cloverMerchantIdProblem(id: string | null | undefined): { en: string; fr: string } | null {
+  const v = String(id ?? '').trim();
+  if (!v) return null;
+  if (/^\d+$/.test(v)) {
+    return {
+      en: `"${v}" is the payment processor's merchant number, not the Clover merchant ID. Use the code of letters and digits in the Clover dashboard address (clover.com/home/m/<ID>), or leave it empty for the default merchant.`,
+      fr: `« ${v} » est le numéro de marchand du processeur de paiement, pas l’identifiant du marchand Clover. Utilisez le code de lettres et de chiffres dans l’adresse du tableau de bord Clover (clover.com/home/m/<ID>), ou laissez vide pour le marchand par défaut.`,
+    };
+  }
+  if (!/^[A-Za-z0-9]{1,32}$/.test(v)) {
+    return {
+      en: `"${v}" is not a Clover merchant ID: letters and digits only, as in the Clover dashboard address (clover.com/home/m/<ID>).`,
+      fr: `« ${v} » n’est pas un identifiant de marchand Clover : lettres et chiffres seulement, comme dans l’adresse du tableau de bord Clover (clover.com/home/m/<ID>).`,
+    };
+  }
+  return null;
+}
+
+/**
+ * Every Clover merchant Food Hub knows about: the default one, the token map, and store mappings. An id that cannot be a
+ * Clover merchant (cloverMerchantIdProblem) is left out, so a wrong one typed once is not offered again for other stores.
+ */
 export function knownCloverMerchants(storeMerchantIds: Array<string | null | undefined> = []): string[] {
   const set = new Set<string>();
   if (process.env.CLOVER_MERCHANT_ID) set.add(process.env.CLOVER_MERCHANT_ID);
   try { for (const k of Object.keys(JSON.parse(process.env.CLOVER_MERCHANT_TOKENS || '{}'))) set.add(k); } catch { /* ignore */ }
-  for (const m of storeMerchantIds) if (m) set.add(m);
+  for (const m of storeMerchantIds) if (m && !cloverMerchantIdProblem(m)) set.add(m);
   return [...set];
 }

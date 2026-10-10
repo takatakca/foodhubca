@@ -93,7 +93,7 @@ export interface DirectOrder {
   updatedAt: string;
 }
 
-export type FleetKey = 'doordash_drive' | 'uber_direct';
+export type FleetKey = 'doordash_drive' | 'uber_direct' | 'skip_daas';
 
 /** Normalised courier status, the same for every fleet. Moves forward only (except to a terminal state). */
 export type DeliveryStatus =
@@ -105,6 +105,9 @@ export const DELIVERY_RANK: Record<DeliveryStatus, number> = {
 };
 export const TERMINAL: DeliveryStatus[] = ['delivered', 'returned', 'cancelled', 'failed'];
 export const ACTIVE: DeliveryStatus[] = ['created', 'assigned', 'at_pickup', 'picked_up', 'at_dropoff', 'returning'];
+
+/** Photos the fleet took (pickup, drop-off) and the customer's signature: proof the order was handed over. */
+export interface DeliveryProof { pickupImageUrl?: string; dropoffImageUrl?: string; signatureImageUrl?: string }
 
 export interface CourierPosition { name?: string; phone?: string; vehicle?: string; lat?: number; lng?: number; updatedAt: string }
 
@@ -143,7 +146,11 @@ export interface Delivery {
   containsAlcohol: boolean;
   trackingUrl?: string;
   supportReference?: string;
+  /** Uber Direct dropoff PIN (proof "PIN code"): the customer gives it to the courier; texted with the tracking link. */
+  dropoffPin?: string;
   courier?: CourierPosition;
+  /** Proof of pickup / delivery (DoorDash Drive webhooks: verification images, signature). */
+  proof?: DeliveryProof;
   pickupEta?: string;
   dropoffEta?: string;
   cancelReason?: string;
@@ -194,9 +201,24 @@ export interface DeliverySettings {
   undeliverable: 'return_to_pickup' | 'dispose';
   /** Read Clover orders whose order type says "Delivery" / "Livraison" (not a platform) as direct orders. */
   readCloverDeliveryOrders: boolean;
+  /** Uber Direct options (Create Delivery fields). */
+  uberDirect: UberDirectOptions;
   locations: Record<string, LocationDeliveryRule>;
   updatedAt?: string;
 }
+
+/**
+ * Uber Direct Create Delivery options (developer.uber.com/docs/deliveries/api-reference/daas):
+ * deliverable_action, dropoff_verification (picture / signature / pincode), and Courier Pick & Pack (pickup_action
+ * "pick_pack_pay", needs a separate Uber agreement). Alcohol always means meet at the door + ID check.
+ */
+export interface UberDirectOptions {
+  deliverableAction: 'meet_at_door' | 'leave_at_door';
+  proof: 'none' | 'picture' | 'signature' | 'pincode';
+  pickPackPay: boolean;
+}
+
+export const DEFAULT_UBER_DIRECT_OPTIONS: UberDirectOptions = { deliverableAction: 'meet_at_door', proof: 'picture', pickPackPay: false };
 
 export const DEFAULT_RULE: LocationDeliveryRule = {
   enabled: false, autoDispatch: false, leadMinutes: 10, maxDistanceKm: 8, postalPrefixes: [], maxAutoFee: 15,
@@ -204,5 +226,5 @@ export const DEFAULT_RULE: LocationDeliveryRule = {
 
 export const DEFAULT_DELIVERY_SETTINGS: DeliverySettings = {
   primaryFleet: 'doordash_drive', compareQuotes: true, defaultTip: 3, customerFee: 4.99, smsTracking: true,
-  allowUnpaidDispatch: false, undeliverable: 'return_to_pickup', readCloverDeliveryOrders: true, locations: {},
+  allowUnpaidDispatch: false, undeliverable: 'return_to_pickup', readCloverDeliveryOrders: true, uberDirect: DEFAULT_UBER_DIRECT_OPTIONS, locations: {},
 };

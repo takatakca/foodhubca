@@ -15,7 +15,8 @@ export function ExpansionHead({ title, intro, right }: { title: string; intro?: 
         { href: '/settings/expansion', label: t('Interrupteurs', 'Switches'), exact: true },
         { href: '/settings/expansion/delivery', label: t('Livraison', 'Delivery') },
         { href: '/settings/expansion/alcohol', label: t('Alcool', 'Alcohol') },
-        { href: '/settings/expansion/phone', label: t('Téléphone IA', 'AI phone') },
+        { href: '/settings/expansion/phone', label: t('Téléphone IA', 'AI phone'), exact: true },
+        { href: '/settings/expansion/phone/ivr', label: t('Menu téléphonique', 'Phone menu') },
       ]} />
     </>
   );

@@ -40,5 +40,7 @@ export function viaCloverAdapter(base: ChannelAdapter): ChannelAdapter {
     publishMenu: refuse('the menu comes from Clover — edit it', 'le menu vient de Clover — modifiez-le'),
     setItemAvailability: refuse('mark items out of stock', 'mettez les articles en rupture'),
     setStoreOnline: refuse('pause or reopen the store', 'mettez en pause ou rouvrez le magasin'),
+    // Picked-up notices to the platform belong to Food Hub's own connection: linked through Clover, nothing is sent.
+    ...(base.completeOrder ? { completeOrder: async () => result(base.key, 'skipped', `${label} is linked through Clover: nothing sent to the platform.`) } : {}),
   };
 }

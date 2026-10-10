@@ -1,0 +1,148 @@
+name: Food Hub image
+
+# Builds the production Docker image on GitHub's machines (same Dockerfile Coolify uses today), starts it once to
+# prove it boots, then stores it in GitHub Container Registry as ghcr.io/takatakca/foodhubca.
+#   - tag "main"        = the latest main (what Coolify should pull)
+#   - tag "sha-<short>" = one per commit, for an exact rollback
+#   - tag "v…"          = a release tag, when one is pushed
+# Nothing here deploys. Coolify keeps building from the Dockerfile until the owner points a "Docker Image" resource
+# at ghcr.io/takatakca/foodhubca:main; after that a deploy is a pull (under a minute) and the VPS does no build.
+# Pull requests and ci/** branches build and test the image but never publish it.
+# No secret is needed: the image holds no keys (they come from the host's environment at run time, see Dockerfile),
+# and the built-in GITHUB_TOKEN is the only credential used, for the push to GHCR.
+
+on:
+  push:
+    branches: [main, "ci/**"]
+    tags: ["v*"]
+    paths-ignore: ["docs/**", "**/*.md"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: foodhub-image-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/takatakca/foodhubca
+  # Publish only from this repository, on main, a v* tag or a manual run on main. Never from a pull request.
+  PUBLISH: ${{ github.repository == 'takatakca/foodhubca' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Image tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,format=short,prefix=sha-
+            type=ref,event=tag
+
+      # One build for the amd64 VPS. The layer cache lives in GitHub Actions, so an unchanged package-lock.json skips
+      # npm ci. load: true keeps the image on the runner so the exact image tested below is the one pushed.
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: foodhub:ci
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # The server must start and answer /api/health with its JSON (200, or 503 when no database is configured,
+      # which is the case here). Background sync off and live connectors off: the runner talks to nobody.
+      - name: Smoke test (the image starts and answers)
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name foodhub-smoke -p 3000:3000 \
+            -e FOODHUB_INTERNAL_SYNC_MIN=0 -e LIVE_CONNECTORS_GLOBAL_ENABLED=false foodhub:ci
+          code=000
+          for i in $(seq 1 45); do
+            code=$(curl -s -o /tmp/health.json -w '%{http_code}' http://127.0.0.1:3000/api/health || true)
+            if { [ "$code" = 200 ] || [ "$code" = 503 ]; } && grep -q '"status"' /tmp/health.json; then
+              echo "Health answered $code after ${i}s: $(head -c 300 /tmp/health.json)"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::The image did not answer /api/health (last HTTP code: $code)"
+          docker logs --tail 80 foodhub-smoke || true
+          exit 1
+
+      - name: Stop the smoke-test container
+        if: always()
+        run: docker rm -f foodhub-smoke >/dev/null 2>&1 || true
+
+      - name: Log in to GitHub Container Registry
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push the tested image
+        if: env.PUBLISH == 'true'
+        shell: bash
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            docker tag foodhub:ci "$tag"
+            docker push "$tag"
+            echo "- \`$tag\`" >> "$GITHUB_STEP_SUMMARY"
+          done <<< "$TAGS"
+
+      # Publishing to GHCR does not make the package public. The old attempt to PUT
+      # /user/packages/container/foodhubca/visibility returned HTTP 404, but the
+      # workflow still succeeded. Verify that a clean, unauthenticated Docker client
+      # can inspect the published tag, exactly as a public-registry Coolify app would.
+      - name: Verify anonymous registry access for Coolify
+        if: env.PUBLISH == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          for attempt in 1 2 3 4 5; do
+            if docker manifest inspect "${IMAGE}:main" >/dev/null 2>&1; then
+              echo "Anonymous GHCR access verified for ${IMAGE}:main." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "Anonymous pull unavailable (attempt ${attempt}/5)."
+            sleep 4
+          done
+          echo "::error::Image published, but GHCR is not anonymously readable. Owner: GitHub → Packages → foodhubca → Package settings → Danger Zone → Change visibility → Public (irreversible), OR keep private and configure GHCR registry credentials in Coolify. See docs/RELEASE_GHCR_COOLIFY.md."
+          exit 1
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### Food Hub image"
+            echo "Commit: \`${GITHUB_SHA::7}\` · published: ${PUBLISH}"
+            echo "Size: $(docker image inspect foodhub:ci --format '{{.Size}}' 2>/dev/null | awk '{printf "%.0f MB", $1/1048576}')"
+            echo "Coolify (Docker Image resource): \`${IMAGE}:main\`, or \`${IMAGE}:sha-${GITHUB_SHA::7}\` to roll back."
+          } >> "$GITHUB_STEP_SUMMARY"

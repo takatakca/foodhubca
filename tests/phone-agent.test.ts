@@ -21,7 +21,7 @@ let claudeRequests: Array<{ body: any; headers: Record<string, string> }> = [];
 let sms: string[] = [];
 
 const MENU: MasterMenu = {
-  brandName: 'Po Poulet', updatedAt: '', posMerchantId: 'MID1',
+  brandName: 'Pi Pita', updatedAt: '', posMerchantId: 'MID1',
   categories: [{ ref: 'c1', name: 'Chickens', nameFr: 'Poulets', sortOrder: 1 }, { ref: 'c2', name: 'Drinks', nameFr: 'Boissons', sortOrder: 2 }],
   items: [
     { ref: 'i1', name: 'Whole chicken', nameFr: 'Poulet entier', price: 24.99, categoryRef: 'c1', available: true, posItemRef: 'CLV1', modifierGroupRefs: ['g1', 'g2'] },
@@ -35,7 +35,7 @@ const MENU: MasterMenu = {
   unavailableByLocation: { NDG: ['i3'] },
 };
 
-const LINE = { number: '+15145550199', name: 'Po Poulet NDG', locationCode: 'NDG', brands: ['Po Poulet'], enabled: true, delivery: false };
+const LINE = { number: '+15145550199', name: 'Pi Pita NDG', locationCode: 'NDG', brands: ['Pi Pita'], enabled: true, delivery: false };
 const URL_BASE = 'https://hub.test';
 
 function signed(path: string, fields: Record<string, string>) {
@@ -83,13 +83,13 @@ describe('menu and cart', () => {
     expect(menu.text).toContain('choose exactly 1 (REQUIRED)');
     expect(menu.text).not.toContain('i3');
     expect(menu.text).not.toContain('Bière');
-    const missing = addToCart(menu, [], { brand: 'Po Poulet', item_ref: 'i1', quantity: 1, option_refs: [], notes: '' });
+    const missing = addToCart(menu, [], { brand: 'Pi Pita', item_ref: 'i1', quantity: 1, option_refs: [], notes: '' });
     expect(missing.ok).toBe(false);
     if (!missing.ok) expect(missing.error).toMatch(/"Spice" needs exactly 1.*Doux \(m1/);
-    const ok = addToCart(menu, [], { brand: 'Po Poulet', item_ref: 'i1', quantity: 2, option_refs: ['m2', 'm3'], notes: 'bien cuit' });
+    const ok = addToCart(menu, [], { brand: 'Pi Pita', item_ref: 'i1', quantity: 2, option_refs: ['m2', 'm3'], notes: 'bien cuit' });
     expect(ok.ok).toBe(true);
     expect(cartSummary(ok.cart)).toContain('2 × Poulet entier (Piri-piri, Sauce brune) — note: bien cuit = 52.98 $');
-    expect(addToCart(menu, [], { brand: 'Po Poulet', item_ref: 'i2', quantity: 1, option_refs: [], notes: '' }).ok).toBe(false);
+    expect(addToCart(menu, [], { brand: 'Pi Pita', item_ref: 'i2', quantity: 1, option_refs: [], notes: '' }).ok).toBe(false);
   });
 });
 
@@ -126,7 +126,7 @@ describe('the agent', () => {
   it('takes a whole order: tools checked by Food Hub, total confirmed, Clover order + SMS, goodbye', async () => {
     await startCall(await form(signed('/api/foodhub/webhooks/voice', { CallSid: 'CA1', From: '+15145551234', To: '+15145550199' })));
     claude = [
-      claudeResponse([toolUse('add_item', { brand: 'Po Poulet', item_ref: 'i1', quantity: 1, option_refs: [], notes: '' })], 'tool_use'),
+      claudeResponse([toolUse('add_item', { brand: 'Pi Pita', item_ref: 'i1', quantity: 1, option_refs: [], notes: '' })], 'tool_use'),
       claudeResponse([text('Doux ou piri-piri ?')]),
     ];
     const t1 = await (await callerTurn(await form(signed('/api/foodhub/webhooks/voice/turn', { CallSid: 'CA1', SpeechResult: 'Un poulet entier svp' })))).text();
@@ -142,7 +142,7 @@ describe('the agent', () => {
     expect(req.body.messages[0].content).toMatch(/^\[Call started .*Caller ID: known/);
 
     claude = [
-      claudeResponse([toolUse('add_item', { brand: 'Po Poulet', item_ref: 'i1', quantity: 1, option_refs: ['m2'], notes: '' }), toolUse('set_order_details', { customer_name: 'Ana', fulfillment: 'pickup', address: '', address_details: '', callback_phone: '', wanted_time: '' }, 'tu_2')], 'tool_use'),
+      claudeResponse([toolUse('add_item', { brand: 'Pi Pita', item_ref: 'i1', quantity: 1, option_refs: ['m2'], notes: '' }), toolUse('set_order_details', { customer_name: 'Ana', fulfillment: 'pickup', address: '', address_details: '', callback_phone: '', wanted_time: '' }, 'tu_2')], 'tool_use'),
       claudeResponse([toolUse('view_cart', {})], 'tool_use'),
       claudeResponse([text('Un poulet entier piri-piri, total 28,73 $. Je confirme ?')]),
     ];
@@ -170,7 +170,7 @@ describe('the agent', () => {
   it('never places an unconfirmed order, and hands off on request', async () => {
     await startCall(await form(signed('/api/foodhub/webhooks/voice', { CallSid: 'CA2', From: '+15145551234', To: '+15145550199' })));
     claude = [
-      claudeResponse([toolUse('add_item', { brand: 'Po Poulet', item_ref: 'i1', quantity: 1, option_refs: ['m1'], notes: '' }), toolUse('place_order', { caller_confirmed: false }, 'tu_p')], 'tool_use'),
+      claudeResponse([toolUse('add_item', { brand: 'Pi Pita', item_ref: 'i1', quantity: 1, option_refs: ['m1'], notes: '' }), toolUse('place_order', { caller_confirmed: false }, 'tu_p')], 'tool_use'),
       claudeResponse([toolUse('transfer_to_human', { reason: 'wants a refund for yesterday' })], 'tool_use'),
       claudeResponse([text('Je vous transfère à un membre de l’équipe.')]),
     ];
@@ -181,14 +181,14 @@ describe('the agent', () => {
   });
 
   it('has no tool that can refund, cancel, discount or take a payment', () => {
-    expect(TOOLS.map((t) => t.name).sort()).toEqual(['add_item', 'end_call', 'place_order', 'remove_item', 'set_language', 'set_order_details', 'transfer_to_human', 'view_cart']);
+    expect(TOOLS.map((t) => t.name).sort()).toEqual(['add_item', 'choose_kitchen', 'end_call', 'place_order', 'remove_item', 'set_language', 'set_order_details', 'transfer_to_human', 'view_cart']);
   });
 
   it('the console simulator never sends an order anywhere', async () => {
     const first = await simulateTurn((await getPhoneSettings()).lines[0].id, null, '');
     expect(first.reply.say).toMatch(/^Bonjour/);
     claude = [
-      claudeResponse([toolUse('add_item', { brand: 'Po Poulet', item_ref: 'i1', quantity: 1, option_refs: ['m1'], notes: '' }), toolUse('set_order_details', { customer_name: 'Test', fulfillment: 'pickup', address: '', address_details: '', callback_phone: '5145551111', wanted_time: '' }, 'tu_d'), toolUse('place_order', { caller_confirmed: true }, 'tu_p')], 'tool_use'),
+      claudeResponse([toolUse('add_item', { brand: 'Pi Pita', item_ref: 'i1', quantity: 1, option_refs: ['m1'], notes: '' }), toolUse('set_order_details', { customer_name: 'Test', fulfillment: 'pickup', address: '', address_details: '', callback_phone: '5145551111', wanted_time: '' }, 'tu_d'), toolUse('place_order', { caller_confirmed: true }, 'tu_p')], 'tool_use'),
       claudeResponse([text('Commande test confirmée.')]),
     ];
     const r = await simulateTurn(first.call.lineId, first.call.id, 'Un poulet doux pour Test, je confirme');

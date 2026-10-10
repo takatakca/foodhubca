@@ -100,18 +100,45 @@ async function uberFetch(url: string, init: RequestInit = {}, kind: TokenKind = 
   return run();
 }
 
-export const UBER_REPORT_TYPES = ['PAYMENT_DETAILS_REPORT', 'FINANCE_SUMMARY_REPORT', 'ORDER_HISTORY_REPORT', 'ORDERS_AND_ITEMS_REPORT', 'DOWNTIME_REPORT', 'ORDER_ERRORS_TRANSACTION_REPORT'] as const;
+/** The 9 report types of the Reporting API suite (https://developer.uber.com/docs/eats/references/api/reporting_suite). */
+export const UBER_REPORT_TYPES = ['PAYMENT_DETAILS_REPORT', 'FINANCE_SUMMARY_REPORT', 'ORDER_HISTORY_REPORT', 'ORDERS_AND_ITEMS_REPORT', 'DOWNTIME_REPORT', 'ORDER_ERRORS_TRANSACTION_REPORT',
+  'ORDER_ERRORS_MENU_ITEM_REPORT', 'CUSTOMER_AND_DELIVERY_FEEDBACK_REPORT', 'MENU_ITEM_FEEDBACK_REPORT'] as const;
+export type UberReportType = (typeof UBER_REPORT_TYPES)[number];
+
+/**
+ * Uber's request constraints (Reporting API suite, "Time Range Constraints"): a maximum range in days for the money
+ * reports, a lookback window [T - from, T - to] in days for the others (T = today). Null = the request is fine.
+ */
+const REPORT_RANGE_DAYS: Partial<Record<UberReportType, number>> = { PAYMENT_DETAILS_REPORT: 30, ORDERS_AND_ITEMS_REPORT: 15, FINANCE_SUMMARY_REPORT: 30 };
+const REPORT_LOOKBACK: Partial<Record<UberReportType, [number, number]>> = {
+  ORDER_ERRORS_MENU_ITEM_REPORT: [188, 2], ORDER_ERRORS_TRANSACTION_REPORT: [190, 4], ORDER_HISTORY_REPORT: [188, 2], DOWNTIME_REPORT: [188, 2],
+  CUSTOMER_AND_DELIVERY_FEEDBACK_REPORT: [188, 2], MENU_ITEM_FEEDBACK_REPORT: [188, 2],
+};
+export function uberReportRangeError(reportType: UberReportType, startDate: string, endDate: string, today = new Date().toISOString().slice(0, 10)): string | null {
+  const day = (s: string) => Date.parse(`${s.slice(0, 10)}T00:00:00Z`) / 86400_000;
+  const [s, e, t] = [day(startDate), day(endDate), day(today)];
+  if (![s, e, t].every(Number.isFinite)) return 'Dates must be YYYY-MM-DD.';
+  if (s > e) return 'The start date is after the end date.';
+  const max = REPORT_RANGE_DAYS[reportType];
+  if (max && e - s + 1 > max) return `Uber builds this report for ${max} days at most per request (asked: ${e - s + 1}). Ask for a shorter period.`;
+  const back = REPORT_LOOKBACK[reportType];
+  if (back && (s < t - back[0] || e > t - back[1])) return `Uber only builds this report between ${back[0]} and ${back[1]} days ago.`;
+  return null;
+}
 
 /**
  * Uber Eats Reporting API: POST /v1/eats/report { report_type, store_uuids, start_date, end_date } → { workflow_id }.
  * The report is built asynchronously; Uber calls the webhook (eats.report.success) with the download link.
  * It creates a workflow on Uber's side, so it is gated by LIVE_CONNECTORS_GLOBAL_ENABLED like every other write.
  */
-export async function requestUberReport(storeUuids: string[], startDate: string, endDate: string, reportType: (typeof UBER_REPORT_TYPES)[number] = 'PAYMENT_DETAILS_REPORT'): Promise<{ ok: boolean; status?: 'blocked' | 'error'; workflowId?: string; message: string }> {
+export async function requestUberReport(storeUuids: string[], startDate: string, endDate: string, reportType: UberReportType = 'PAYMENT_DETAILS_REPORT'): Promise<{ ok: boolean; status?: 'blocked' | 'error'; workflowId?: string; message: string }> {
   if (!process.env.UBER_CLIENT_ID || !process.env.UBER_CLIENT_SECRET) return { ok: false, status: 'blocked', message: 'Uber Eats is not connected (UBER_CLIENT_ID / UBER_CLIENT_SECRET).' };
   const r = readiness();
   if (!r.canSend) return { ok: false, status: 'blocked', message: blockedResult(KEY, r).message };
   if (!storeUuids.length) return { ok: false, status: 'error', message: 'No Uber Eats stores are mapped yet.' };
+  if (!UBER_REPORT_TYPES.includes(reportType)) return { ok: false, status: 'error', message: `Unknown Uber report type ${reportType}.` };
+  const rangeError = uberReportRangeError(reportType, startDate, endDate);
+  if (rangeError) return { ok: false, status: 'error', message: rangeError };
   try {
     const res = await uberFetch(`${base()}/v1/eats/report`, {
       method: 'POST',
@@ -142,8 +169,8 @@ export function reportDownloadLinks(body: unknown): string[] {
 function readiness() {
   return buildReadiness(KEY, ['UBER_CLIENT_ID', 'UBER_CLIENT_SECRET'], {
     // A static UBER_ACCESS_TOKEN cannot be refreshed (client-credentials tokens expire after 30 days).
-    note: `${process.env.UBER_ACCESS_TOKEN ? 'UBER_ACCESS_TOKEN override in use — it expires after 30 days and is never refreshed; remove it to use client credentials. ' : ''}${sandbox() ? 'SANDBOX (UBER_ENV=sandbox: sandbox-login.uber.com + test-api.uber.com). ' : ''}Direct mode. Requires Uber production access with eats.order, eats.store, eats.store.status.write, eats.pos_provisioning (+ eats.store.orders.read, eats.report, eats.store.status.notification). Uber developer dashboard → Webhooks → Primary Webhook, Basic HMAC, Signing Key = the value below. Then: Stores → “Connect Uber Eats”.`,
-    noteFr: `${process.env.UBER_ACCESS_TOKEN ? 'UBER_ACCESS_TOKEN est utilisé — il expire après 30 jours et n’est jamais renouvelé ; retirez-le pour utiliser les identifiants client. ' : ''}${sandbox() ? 'BAC À SABLE (UBER_ENV=sandbox : sandbox-login.uber.com + test-api.uber.com). ' : ''}Mode direct. Uber doit accorder l’accès production avec eats.order, eats.store, eats.store.status.write, eats.pos_provisioning (+ eats.store.orders.read, eats.report, eats.store.status.notification). Tableau de bord développeur Uber → Webhooks → Primary Webhook, Basic HMAC, Signing Key = la valeur ci-dessous. Ensuite : Magasins → « Brancher Uber Eats ».`,
+    note: `${process.env.UBER_ACCESS_TOKEN ? 'UBER_ACCESS_TOKEN override in use — it expires after 30 days and is never refreshed; remove it to use client credentials. ' : ''}${sandbox() ? 'SANDBOX (UBER_ENV=sandbox: sandbox-login.uber.com + test-api.uber.com). ' : ''}Direct mode. Requires Uber production access with eats.order, eats.store, eats.store.status.write, eats.pos_provisioning (+ eats.store.orders.read, eats.report, eats.store.status.notification; optional: eats.store.orders.restaurantdelivery.status, delivery.multiple.courier, eats.byoc.fulfillment.config). Uber developer dashboard → Webhooks → Primary Webhook, Basic HMAC, Signing Key = the value below. Then: Stores → “Connect Uber Eats”.`,
+    noteFr: `${process.env.UBER_ACCESS_TOKEN ? 'UBER_ACCESS_TOKEN est utilisé — il expire après 30 jours et n’est jamais renouvelé ; retirez-le pour utiliser les identifiants client. ' : ''}${sandbox() ? 'BAC À SABLE (UBER_ENV=sandbox : sandbox-login.uber.com + test-api.uber.com). ' : ''}Mode direct. Uber doit accorder l’accès production avec eats.order, eats.store, eats.store.status.write, eats.pos_provisioning (+ eats.store.orders.read, eats.report, eats.store.status.notification ; facultatif : eats.store.orders.restaurantdelivery.status, delivery.multiple.courier, eats.byoc.fulfillment.config). Tableau de bord développeur Uber → Webhooks → Primary Webhook, Basic HMAC, Signing Key = la valeur ci-dessous. Ensuite : Magasins → « Brancher Uber Eats ».`,
     extraWebhooks: [{ label: 'OAuth redirect URI (Uber developer dashboard → your app → Redirect URIs)', path: '/api/foodhub/uber-connect/callback' }],
     handoff: [{ label: 'Webhook Signing Key (Basic HMAC)', envKey: 'UBER_WEBHOOK_SIGNING_KEY' }],
   });
@@ -152,6 +179,27 @@ function readiness() {
 async function headers() {
   return { Authorization: `Bearer ${await uberAccessToken()}`, 'Content-Type': 'application/json' };
 }
+
+/** Is Food Hub allowed to change things on Uber now (keys + live switch)? */
+export function uberCanSend(): boolean { return readiness().canSend; }
+/** The honest "nothing was sent" result while Uber Eats is not live (keys or live switch missing). */
+export function uberBlockedResult() { return blockedResult(KEY, readiness()); }
+
+/** Read-only GET on the Uber API with the app token ('poll' = eats.store.orders.read). Never throws. */
+export async function uberGetJson(path: string, kind: TokenKind = 'orders'): Promise<{ ok: boolean; status: number; json: any; error?: string }> {
+  if (!readiness().configured) return { ok: false, status: 0, json: null, error: 'Uber Eats credentials missing' };
+  try {
+    const res = await uberFetch(`${base()}${path}`, {}, kind);
+    const json = await res.json().catch(() => null);
+    if (!res.ok) return { ok: false, status: res.status, json, error: `Uber ${path.split('?')[0]} HTTP ${res.status}${json?.message ? `: ${String(json.message).slice(0, 200)}` : ''}` };
+    return { ok: true, status: res.status, json };
+  } catch (error) {
+    return { ok: false, status: 0, json: null, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** A write on the Uber API (app token, live switch, one retry on 401). Never throws; 'blocked' when nothing was sent. */
+export function uberSend(method: string, path: string, body?: unknown) { return send(method, path, body); }
 
 async function send(method: string, path: string, body?: unknown, okStatus: 'done' | 'queued' = 'done') {
   const r = readiness();
@@ -184,6 +232,19 @@ const DENY_CODES: Array<[RegExp, string]> = [
   [/pos|offline|connect/i, 'POS_OFFLINE'],
 ];
 
+/**
+ * UBER_ORDER_API=current: accept / deny / cancel through the Order Fulfillment API suite (/v1/delivery/order/…).
+ * Default: the previous-version endpoints (Food Hub reads orders with GET /v2/eats/order, see uberPosDataBody).
+ */
+const currentOrderApi = () => process.env.UBER_ORDER_API === 'current';
+/** Deny / cancel reason types of the current suite (deny_reason.type, cancellation_reason.type). */
+const CURRENT_REASON: Array<[RegExp, string]> = [
+  [/stock|86|unavailable|item/i, 'ITEM_ISSUE'], [/closed/i, 'STORE_CLOSED'], [/busy|capacity/i, 'CAPACITY'], [/pos|offline|connect/i, 'POS_OFFLINE'], [/address/i, 'ADDRESS'], [/instruction|note/i, 'SPECIAL_INSTRUCTIONS'], [/price|pricing/i, 'PRICING'],
+];
+const CURRENT_CANCEL: Record<CancelReason, string> = {
+  out_of_stock: 'ITEM_ISSUE', store_closed: 'KITCHEN_CLOSED', too_busy: 'RESTAURANT_TOO_BUSY', customer_request: 'CUSTOMER_CALLED_TO_CANCEL', pos_issue: 'POS_OFFLINE', other: 'OTHER',
+};
+
 export const uberEatsAdapter: ChannelAdapter = {
   key: KEY,
   label: 'Uber Eats (direct)',
@@ -196,32 +257,50 @@ export const uberEatsAdapter: ChannelAdapter = {
     const keys = [process.env.UBER_WEBHOOK_SIGNING_KEY, process.env.UBER_WEBHOOK_SIGNING_KEY_2, process.env.UBER_CLIENT_SECRET].filter((k): k is string => Boolean(k));
     return keys.some((key) => safeEqual(crypto.createHmac('sha256', key).update(rawBody, 'utf8').digest('hex'), sig.toLowerCase()));
   },
-  // TODO(uber-prep-time): Uber's quality standards list "Update Store Prep Time" as required, but its endpoint is NOT
-  // in Uber's public reference (only third-party pages show one; never used here). Until Uber's integration support
-  // gives the official path, body and scope, the prep time reaches Uber per order as pickup_time below. Question for
-  // Uber: docs/CERTIFICATION_BACKLOG.md "Questions for the platforms". Do not guess the endpoint.
+  // Store prep time: Uber's Store API suite now documents "Update Prep Time" (POST /v1/delivery/store/{id}/
+  // update-store-prep-time) — sent from Settings → prep time (lib/foodhub/adapters/uber-api.ts, pushPrepTimeToUber).
+  // Per order, the ready time still goes with the accept (pickup_time) and with "+5 min" (updateReadyTime below).
   acceptOrder: (order, posRef) => {
     // pickup_time (Unix seconds) = when the food will be ready, from the location's normal/busy prep time or the cook's
     // estimate — Uber dispatches the courier on it instead of its own default.
     const ready = Date.parse(order.timeline?.readyTarget ?? '');
+    const future = Number.isFinite(ready) && ready > Date.now();
+    if (currentOrderApi()) {
+      // Order Fulfillment suite: POST /v1/delivery/order/{id}/accept (ready_for_pickup_time RFC 3339).
+      return send('POST', `/v1/delivery/order/${encodeURIComponent(order.externalOrderId)}/accept`, {
+        accepted_by: 'TAKATAK Food Hub', ...(posRef ? { external_reference_id: posRef } : {}), ...(future ? { ready_for_pickup_time: new Date(ready).toISOString() } : {}),
+      });
+    }
     return send('POST', `/v1/eats/orders/${encodeURIComponent(order.externalOrderId)}/accept_pos_order`, {
       reason: 'Accepted by TAKATAK Food Hub',
       ...(posRef ? { external_reference_id: posRef } : {}),
-      ...(Number.isFinite(ready) && ready > Date.now() ? { pickup_time: Math.floor(ready / 1000) } : {}),
+      ...(future ? { pickup_time: Math.floor(ready / 1000) } : {}),
     });
   },
-  denyOrder: (order, reason) => send('POST', `/v1/eats/orders/${encodeURIComponent(order.externalOrderId)}/deny_pos_order`, {
-    reason: { explanation: reason || 'Rejected by restaurant', code: DENY_CODES.find(([re]) => re.test(reason))?.[1] ?? 'OTHER' },
-  }),
-  async markReady() {
-    // Uber's order integration guide: there is no endpoint to mark an order ready after acceptance.
-    return result(KEY, 'skipped', 'Uber Eats has no "order ready" API; courier dispatch uses the pickup time sent at acceptance.');
+  denyOrder: (order, reason) => currentOrderApi()
+    ? send('POST', `/v1/delivery/order/${encodeURIComponent(order.externalOrderId)}/deny`, { deny_reason: { info: (reason || 'Rejected by restaurant').slice(0, 200), type: CURRENT_REASON.find(([re]) => re.test(reason))?.[1] ?? 'OTHER' } })
+    : send('POST', `/v1/eats/orders/${encodeURIComponent(order.externalOrderId)}/deny_pos_order`, {
+      reason: { explanation: reason || 'Rejected by restaurant', code: DENY_CODES.find(([re]) => re.test(reason))?.[1] ?? 'OTHER' },
+    }),
+  async markReady(order) {
+    // Order Fulfillment API suite: POST /v1/delivery/order/{id}/ready ("Mark an order as ready for pickup"; helps Uber
+    // time the courier). The kitchen's "Ready" never waits on Uber: without the live switch, or when Uber refuses the
+    // signal (store still on the previous order API, scope missing), the order is ready in Food Hub and the reason is
+    // said. UBER_MARK_READY=off stops the call.
+    if (process.env.UBER_MARK_READY === 'off' || !readiness().canSend) return result(KEY, 'skipped', 'Ready in Food Hub; the courier follows the pickup time sent to Uber Eats at acceptance.');
+    const r = await send('POST', `/v1/delivery/order/${encodeURIComponent(order.externalOrderId)}/ready`, {});
+    return r.ok ? { ...r, message: 'Uber Eats was told the order is ready.' } : result(KEY, 'skipped', `Ready in Food Hub; Uber Eats did not take the ready signal (${r.message}).`, { httpStatus: r.httpStatus });
   },
+  // "+5 min" in the kitchen → Update Order Ready Time (POST /v1/delivery/order/{id}/update-ready-time, RFC 3339), so the
+  // courier and the customer see the new time. Uber refuses it once the order is ready or the courier is on the way.
+  updateReadyTime: (order, readyAtIso) => send('POST', `/v1/delivery/order/${encodeURIComponent(order.externalOrderId)}/update-ready-time`, { ready_for_pickup_time: new Date(readyAtIso).toISOString() }),
   // POST /v1/eats/orders/{id}/cancel — reasons: OUT_OF_ITEMS, KITCHEN_CLOSED, CUSTOMER_CALLED_TO_CANCEL, RESTAURANT_TOO_BUSY, CANNOT_COMPLETE_CUSTOMER_NOTE, OTHER
-  cancelOrder: (order, reason, details) => send('POST', `/v1/eats/orders/${encodeURIComponent(order.externalOrderId)}/cancel`, {
-    reason: UBER_CANCEL[reason] ?? 'OTHER',
-    ...(UBER_CANCEL[reason] === 'OTHER' || details ? { details: (details || 'Cancelled by restaurant').slice(0, 200) } : {}),
-  }),
+  cancelOrder: (order, reason, details) => currentOrderApi()
+    ? send('POST', `/v1/delivery/order/${encodeURIComponent(order.externalOrderId)}/cancel`, { cancellation_reason: { info: (details || 'Cancelled by restaurant').slice(0, 200), type: CURRENT_CANCEL[reason] ?? 'OTHER' } })
+    : send('POST', `/v1/eats/orders/${encodeURIComponent(order.externalOrderId)}/cancel`, {
+      reason: UBER_CANCEL[reason] ?? 'OTHER',
+      ...(UBER_CANCEL[reason] === 'OTHER' || details ? { details: (details || 'Cancelled by restaurant').slice(0, 200) } : {}),
+    }),
   async publishMenu(store: ChannelStore, menu, ctx) {
     const res = await send('PUT', `/v2/eats/stores/${encodeURIComponent(store.channelStoreId)}/menus`, toUberMenu(menu, ctx));
     const holidays = ctx?.holidays ?? [];

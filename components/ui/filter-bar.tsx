@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { CalendarDays, Check, ChevronDown } from 'lucide-react';
 import { PlatformMark } from './badge';
+import { useConsoleScope } from '@/components/live/pulse';
+import { useViewer } from '@/components/shell/viewer';
 import { Input } from './form';
 import { useI18n } from '@/lib/i18n/client';
 import { rangeLabel, type Filters, type RangePreset } from '@/lib/ui/range';
@@ -45,6 +47,14 @@ export function FilterBar({ filters, set, locations, brands, presets, extra, sho
 }) {
   const { t } = useI18n();
   const list = presets ?? ['today', 'yesterday', '7d', '30d', 'month', 'last_month', 'custom'];
+  // Inside the console the header picks the kitchen and the brand: the page keeps the period and the platforms. With a
+  // kitchen picked (no brand), the brand picker offers that kitchen's brands only.
+  const cs = useConsoleScope();
+  const { brandsByKitchen } = useViewer();
+  const kitchenBrands = cs?.site.kitchen ? brandsByKitchen[cs.site.kitchen] : undefined;
+  const brandOptions = (brands ?? []).filter((b) => !kitchenBrands || kitchenBrands.includes(b));
+  const pickLocations = showLocations && !cs;
+  const pickBrands = showBrands && !cs?.site.brand;
   return (
     <div className="mb-5 flex flex-wrap items-center gap-2">
       <div className="relative">
@@ -61,9 +71,9 @@ export function FilterBar({ filters, set, locations, brands, presets, extra, sho
           <Input inputSize="sm" type="date" className="w-auto" value={filters.to} onChange={(e) => set({ to: e.target.value, preset: 'custom' })} aria-label={t('Au', 'To')} />
         </span>
       )}
-      {showLocations && locations.length > 1 && <MultiPick label={t('Succursales', 'Locations')} options={locations.map((l) => [l.code, l.name.split(' — ')[0]])} value={filters.locations} onChange={(v) => set({ locations: v })} />}
+      {pickLocations && locations.length > 1 && <MultiPick label={t('Succursales', 'Locations')} options={locations.map((l) => [l.code, l.name.split(' — ')[0]])} value={filters.locations} onChange={(v) => set({ locations: v })} />}
       <MultiPick label={t('Plateformes', 'Platforms')} options={CHANNEL_OPTIONS.map(([k, l]) => [k, l])} value={filters.channels} onChange={(v) => set({ channels: v })} renderOption={(k, l) => <span className="flex items-center gap-2"><PlatformMark channel={k} size="xs" />{l}</span>} />
-      {showBrands && brands && brands.length > 0 && <MultiPick label={t('Marques', 'Brands')} options={brands.map((b) => [b, b])} value={filters.brands} onChange={(v) => set({ brands: v })} />}
+      {pickBrands && brandOptions.length > 1 && <MultiPick label={t('Marques', 'Brands')} options={brandOptions.map((b) => [b, b])} value={filters.brands.filter((b) => brandOptions.includes(b))} onChange={(v) => set({ brands: v })} />}
       {extra}
     </div>
   );

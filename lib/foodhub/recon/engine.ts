@@ -34,7 +34,7 @@ export interface StatementImport {
   periodTo: string | null;
   importedBy: string;
   importedAt: string;
-  source: 'upload' | 'uber_reporting_api';
+  source: 'upload' | 'uber_reporting_api' | 'doordash_reporting_api';
 }
 
 // ---------------------------------------------------------------- import

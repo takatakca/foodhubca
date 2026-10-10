@@ -413,7 +413,8 @@ try {
   check('API without sign-in → 401 JSON', (await call('GET', '/api/foodhub/command', { auth: false })).status === 401);
   check('login page is public', (await call('GET', '/login', { auth: false })).status === 200);
   const home = await call('GET', '/');
-  check('console opens with the owner recovery password', home.status === 200 && home.text.includes('href="/orders"') && home.text.includes('href="/money"'));
+  // The side menu is grouped: Money sits under Reports and shows while that group is open.
+  check('console opens with the owner recovery password', home.status === 200 && home.text.includes('href="/orders"') && home.text.includes('href="/insights"') && (await call('GET', '/insights')).text.includes('href="/money"'));
   check('Money section at /money', (await call('GET', '/money')).status === 200);
   check('a malformed sign-in gets a clean error, never a stack trace', !(await call('POST', '/api/foodhub/auth/verify', { auth: false, body: { challengeId: 'x', code: 'abc' } })).text.includes(' at '));
   { const rawK = '{"event_type":"e2e.ping","meta":{"resource_id":"e2e"}}';
@@ -1576,10 +1577,11 @@ try {
   console.log('\n43. Expansion: own-order delivery (DoorDash Drive), website orders, AI phone line, grocery, alcohol');
   const exp0 = (await call('GET', '/api/foodhub/expansion')).json;
   check('every expansion feature starts OFF', exp0?.features?.length === 4 && exp0.features.every((f) => f.on === false), JSON.stringify(exp0?.features?.map((f) => [f.key, f.on])));
-  check('Own orders hidden from the side menu while off', !(await call('GET', '/')).text.includes('href="/direct"'));
+  // Own orders sit under Orders in the grouped side menu.
+  check('Own orders hidden from the side menu while off', !(await call('GET', '/orders')).text.includes('href="/direct"'));
   check('website orders refused while own delivery is off', (await call('POST', '/api/foodhub/webhooks/website-order', { auth: false, headers: { authorization: 'Bearer web-order-e2e' }, body: { id: 'W-0' } })).status === 503);
   check('owner turns own delivery on', (await call('PUT', '/api/foodhub/expansion', { body: { key: 'delivery', on: true } })).json?.features?.find((f) => f.key === 'delivery')?.on === true);
-  check('Own orders now in the side menu', (await call('GET', '/')).text.includes('href="/direct"'));
+  check('Own orders now in the side menu', (await call('GET', '/orders')).text.includes('href="/direct"'));
   const ndgLoc = (await call('GET', '/api/foodhub/catalog')).json?.locations?.find((l) => l.code === 'NDG_MAIN');
   await call('POST', '/api/foodhub/catalog', { body: { location: { ...ndgLoc, phone: '514 555-0100' } } });
   const rules = await call('PUT', '/api/foodhub/delivery/settings', { body: { settings: { compareQuotes: false, smsTracking: true, locations: { NDG_MAIN: { enabled: true, autoDispatch: false, leadMinutes: 10, maxDistanceKm: 8, postalPrefixes: [], maxAutoFee: 15 } } } } });

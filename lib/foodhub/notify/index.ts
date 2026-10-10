@@ -87,14 +87,16 @@ function twilioUrl(path: string) {
   return `${strip(process.env.TWILIO_BASE_URL || 'https://api.twilio.com')}/2010-04-01/Accounts/${encodeURIComponent(process.env.TWILIO_ACCOUNT_SID || '')}/${path}`;
 }
 
-export async function sendSms(input: { to: string; body: string }, meta: Meta): Promise<SendResult> {
+export async function sendSms(input: { to: string; body: string; /** Our own Twilio number to send from (e.g. the number the customer called); default TWILIO_FROM / the messaging service. */ from?: string }, meta: Meta): Promise<SendResult> {
   const to = normalizePhone(input.to);
   let r: SendResult;
   if (!to) r = { ok: false, channel: 'sms', message: 'Invalid phone number.' };
   else if (!smsConfigured()) r = { ok: false, skipped: true, channel: 'sms', message: 'SMS is not set up (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM).' };
   else {
     const form = new URLSearchParams({ To: to, Body: input.body.slice(0, 1500) });
-    if (process.env.TWILIO_MESSAGING_SERVICE_SID) form.set('MessagingServiceSid', process.env.TWILIO_MESSAGING_SERVICE_SID);
+    const own = normalizePhone(input.from);
+    if (own) form.set('From', own);
+    else if (process.env.TWILIO_MESSAGING_SERVICE_SID) form.set('MessagingServiceSid', process.env.TWILIO_MESSAGING_SERVICE_SID);
     else form.set('From', process.env.TWILIO_FROM!);
     try {
       const res = await timedFetch(twilioUrl('Messages.json'), { method: 'POST', headers: { Authorization: twilioAuth(), 'Content-Type': 'application/x-www-form-urlencoded' }, body: form.toString() });

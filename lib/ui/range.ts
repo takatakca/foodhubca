@@ -25,8 +25,11 @@ export function presetRange(p: RangePreset, custom?: { from: string; to: string 
 
 export type Filters = { preset: RangePreset; from: string; to: string; locations: string[]; channels: string[]; brands: string[] };
 
-/** Period + location / platform / brand filters, kept in the URL so a view can be shared as a link. */
-export function useFilters(defaultPreset: RangePreset = '7d', scope: string[] = []) {
+/**
+ * Period + location / platform / brand filters, kept in the URL so a view can be shared as a link.
+ * `scope` / `brandScope`: the console's kitchen and brand (header picker); when set they win over the page's own pickers.
+ */
+export function useFilters(defaultPreset: RangePreset = '7d', scope: string[] = [], brandScope: string[] = []) {
   const [f, setF] = useState<Filters>(() => ({ preset: defaultPreset, ...presetRange(defaultPreset), locations: [], channels: [], brands: [] }));
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
@@ -47,13 +50,14 @@ export function useFilters(defaultPreset: RangePreset = '7d', scope: string[] = 
       return next;
     });
   }, []);
-  const locations = f.locations.length ? f.locations : scope;
+  const locKey = (scope.length ? scope : f.locations).join(',');
+  const brandKey = (brandScope.length ? brandScope : f.brands).join(',');
   const query = useMemo(() => {
     const q = new URLSearchParams({ from: f.from, to: f.to });
-    if (locations.length) q.set('locations', locations.join(','));
+    if (locKey) q.set('locations', locKey);
     if (f.channels.length) q.set('channels', f.channels.join(','));
-    if (f.brands.length) q.set('brands', f.brands.join(','));
+    if (brandKey) q.set('brands', brandKey);
     return q.toString();
-  }, [f, locations]);
+  }, [f.from, f.to, f.channels, locKey, brandKey]);
   return { filters: f, set, query };
 }

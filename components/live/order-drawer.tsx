@@ -221,6 +221,7 @@ export function OrderDetail({ order, events, onChange, compact }: { order: FullO
           ))}
         </div>
         {order.notes && <div className={cn('mx-4 mb-3 rounded-md px-3 py-2 text-sm font-semibold', ALLERGY.test(order.notes) ? 'bg-stop-soft text-stop-2' : 'bg-wait-soft text-wait-2')}>📝 {order.notes}</div>}
+        {order.doorDash && <DoorDashFacts order={order} loc={loc} />}
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1 border-t border-line px-4 py-3 text-[13px]">
           <dt className="text-ink-3">{t('Sous-total', 'Subtotal')}</dt><dd className="num text-right">{money(order.subtotal, loc)}</dd>
           {order.discount ? <><dt className="text-ink-3">{t('Rabais', 'Discount')}</dt><dd className="num text-right">−{money(order.discount, loc)}</dd></> : null}
@@ -298,19 +299,43 @@ function Mini({ label, value, sub }: { label: string; value: ReactNode; sub?: Re
   );
 }
 
+/** What a DoorDash order carries beyond the common fields: cutlery, scheduled / catering, promotions (who pays), tax DoorDash keeps. */
+function DoorDashFacts({ order, loc }: { order: FullOrder; loc: string }) {
+  const { t } = useI18n();
+  const d = order.doorDash!;
+  const chips: ReactNode[] = [];
+  if (d.plasticware !== undefined) chips.push(<Badge key="cu" tone={d.plasticware ? 'go' : 'neutral'}>{d.plasticware ? t('Ustensiles : oui', 'Cutlery: yes') : t('Ustensiles : non', 'Cutlery: no')}</Badge>);
+  if (d.catering) chips.push(<Badge key="ca" tone="info">{t('Traiteur', 'Catering')}</Badge>);
+  else if (d.scheduled) chips.push(<Badge key="sc" tone="info">{t('Commande planifiée', 'Scheduled order')}</Badge>);
+  if (d.commissionType === 'dashpass') chips.push(<Badge key="dp" tone="neutral">DashPass</Badge>);
+  if (d.taxRemittedByDoorDash) chips.push(<Badge key="tx" tone="wait" title={t('DoorDash perçoit et remet cette taxe : elle n’est pas versée au restaurant.', 'DoorDash collects and remits this tax: it is not paid out to the restaurant.')}>{t('Taxe remise par DoorDash', 'Tax remitted by DoorDash')}{d.taxRemittedAmount ? ` ${money(d.taxRemittedAmount, loc)}` : ''}</Badge>);
+  if (!chips.length && !d.promotions?.length && !d.customerPhone && !d.deliveryAddress) return null;
+  return (
+    <div className="mx-4 mb-3 space-y-1.5 rounded-md border border-line px-3 py-2 text-[13px]">
+      {chips.length > 0 && <div className="flex flex-wrap gap-1.5">{chips}</div>}
+      {d.promotions?.map((p, i) => (
+        <div key={i} className="flex justify-between gap-3 text-ink-2"><span>{t('Promo', 'Promo')} {p.code || p.campaignId || p.id || ''}</span><span className="num">{t('vous', 'you')} {money(p.merchantFunded, loc)} · DoorDash {money(p.doordashFunded, loc)}</span></div>
+      ))}
+      {d.deliveryAddress && <div className="text-ink-2">🚚 {d.deliveryAddress}{d.addressInstructions ? ` — ${d.addressInstructions}` : ''}</div>}
+      {d.customerPhone && <div className="text-ink-3">{t('Téléphone client (masqué si activé)', 'Customer phone (masked when enabled)')} : <span className="num">{d.customerPhone}</span></div>}
+    </div>
+  );
+}
+
 function MissingDialog({ order, onSend, onClose }: { order: FullOrder; onSend: (m: Array<{ line: number; quantity: number }>) => void; onClose: () => void }) {
   const { t } = useI18n();
+  const dd = order.channel === 'doordash';
   const [qty, setQty] = useState<Record<number, number>>({});
   const picked = Object.entries(qty).filter(([, q]) => q > 0).map(([line, quantity]) => ({ line: Number(line), quantity }));
   const uber = order.channel === 'uber_eats';
   return (
-    <Modal title={uber ? t('Article manquant — Uber Eats', 'Missing item — Uber Eats') : t('Article manquant — SkipTheDishes', 'Missing item — SkipTheDishes')}
-      subtitle={uber ? t('Uber demande au client : retirer l’article ou annuler. Sa réponse revient ici.', 'Uber asks the customer: remove the item or cancel. The answer comes back here.') : t('Skip retire l’article et ajuste le prix payé par le client.', 'Skip removes the item and adjusts what the customer pays.')} onClose={onClose}
-      footer={<><Button variant="ghost" onClick={onClose}>{t('Retour', 'Back')}</Button><Button variant="danger" disabled={!picked.length} onClick={() => onSend(picked)}>{uber ? t('Envoyer à Uber Eats', 'Send to Uber Eats') : t('Envoyer à Skip', 'Send to Skip')}</Button></>}>
+    <Modal title={dd ? t('Article manquant — DoorDash', 'Missing item — DoorDash') : uber ? t('Article manquant — Uber Eats', 'Missing item — Uber Eats') : t('Article manquant — SkipTheDishes', 'Missing item — SkipTheDishes')}
+      subtitle={dd ? t('DoorDash retire l’article (ou réduit la quantité) et ajuste le total du client.', 'DoorDash removes the item (or lowers the quantity) and adjusts the customer’s total.') : uber ? t('Uber demande au client : retirer l’article ou annuler. Sa réponse revient ici.', 'Uber asks the customer: remove the item or cancel. The answer comes back here.') : t('Skip retire l’article et ajuste le prix payé par le client.', 'Skip removes the item and adjusts what the customer pays.')} onClose={onClose}
+      footer={<><Button variant="ghost" onClick={onClose}>{t('Retour', 'Back')}</Button><Button variant="danger" disabled={!picked.length} onClick={() => onSend(picked)}>{dd ? t('Envoyer à DoorDash', 'Send to DoorDash') : uber ? t('Envoyer à Uber Eats', 'Send to Uber Eats') : t('Envoyer à Skip', 'Send to Skip')}</Button></>}>
       <div className="space-y-2">
         {order.lines.map((l, i) => (
           <div key={i} className="flex items-center justify-between gap-3 rounded-md border border-line p-3">
-            <div><div className="font-semibold">{l.quantity}× {l.name}</div>{!uber && !l.externalId && <div className="text-xs text-ink-3">{t('pas d’identifiant Skip — utilisez la tablette', 'no Skip item id — use the tablet')}</div>}</div>
+            <div><div className="font-semibold">{l.quantity}× {l.name}</div>{!dd && !uber && !l.externalId && <div className="text-xs text-ink-3">{t('pas d’identifiant Skip — utilisez la tablette', 'no Skip item id — use the tablet')}</div>}{dd && !l.lineItemId && <div className="text-xs text-ink-3">{t('pas d’identifiant de ligne DoorDash — utilisez la tablette', 'no DoorDash line id — use the tablet')}</div>}</div>
             <Chips size="sm" value={qty[i] ?? 0} onChange={(v) => setQty({ ...qty, [i]: v })} options={Array.from({ length: Math.round(l.quantity) + 1 }, (_, n) => ({ value: n, label: n === 0 ? t('aucun', 'none') : `−${n}` }))} />
           </div>
         ))}

@@ -67,10 +67,11 @@ beforeEach(async () => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('store suggestions for the 17 Uber stores', () => {
-  it('9 NDG stores at 6280 Somerled and 8 at 5839 Jean-Talon (Food Hub says 5837) get a location; brands from Uber names', () => {
+  it('9 NDG stores at 6280 Somerled and 8 at 5839 Jean-Talon (5837 = the next unit, same kitchen) get a location; brands from Uber names', () => {
     expect(suggestMapping('BIN MOLLE & BIN DURE', '6280 Avenue Somerled, Montréal')).toEqual({ suggestedBrand: 'Bin molle & Bin Dure', suggestedLocation: 'NDG_MAIN' });
     expect(suggestMapping("O'OEUFS EXPRESS", '6280 Avenue Somerled')).toEqual({ suggestedBrand: 'OOeuf', suggestedLocation: 'NDG_MAIN' });
     expect(suggestMapping('Po Poulet', '5839 Rue Jean-Talon E, Saint-Léonard')).toEqual({ suggestedBrand: 'Po Poulet', suggestedLocation: 'SAINT_LEONARD' });
+    expect(suggestMapping('Taco Mexican', '5837 Rue Jean-Talon E, Saint-Léonard').suggestedLocation).toBe('SAINT_LEONARD');
     expect(suggestMapping('Pi Pita', 'Rue Jean-Talon Est').suggestedLocation).toBe('SAINT_LEONARD'); // the only kitchen on that street
     expect(suggestMapping('X', '6290 Avenue Somerled').suggestedLocation).toBeUndefined(); // two kitchens on Somerled: never guessed
     expect(suggestMapping('Pizza Algerie', '6280 Avenue Somerled').suggestedBrand).toBeUndefined();

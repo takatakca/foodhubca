@@ -83,27 +83,8 @@ async function getSession(id: string): Promise<Session | null> {
   return s;
 }
 
+// Brand / address matching lives in lib/foodhub/brand-match.ts (shared with the finance report); re-exported here.
 export { BRAND_ALIASES, LOCATION_NUMBER_ALIASES } from '../brand-match';
-const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
-
-/** Other names the platforms use for your brands (Uber Eats store names differ from DoorDash ones). */
-export const BRAND_ALIASES: Record<string, string[]> = {
-  'Gateau Montreal': ['Gateaux Montreal', 'Gateaux Montréal', 'Gâteau Montréal'],
-  'Nutrition Shake': ['Nutri Shake', 'Nutrishake'],
-  'Cafe Bolon': ['Bolon Cafe', 'Bolon Café', 'Café Bolon'],
-  OOeuf: ["O'Oeufs", 'O Oeufs', 'OOeufs', 'Ooeuf'],
-  'Bin molle & Bin Dure': ['Bin Molle Bin Dure', 'Binmolle Bindure'],
-  'Dejeuner & Dinner': ['Dejeuner et Dinner', 'Déjeuner & Dîner'],
-};
-
-/**
- * Other civic numbers the platforms use for a location's building. Saint-Léonard's public address is 5839 Rue
- * Jean-Talon E (owner, 2026-10-09); 5837 is the next unit of the same kitchen, still on some platform store records.
- */
-export const LOCATION_NUMBER_ALIASES: Record<string, string[]> = { SAINT_LEONARD: ['5837'] };
-
-/** "6280 Av Somerled" → "somerled": the street name without the number or the street type, for a fallback match. */
-const streetOf = (line: string) => norm(line.replace(/^\s*\d+[a-z]?\s+/i, '').replace(/\b(av|ave|avenue|rue|boul|boulevard|ch|chemin|e|o|est|ouest)\b\.?/gi, ' '));
 
 /**
  * Suggests the brand (longest brand name or alias found in the store name) and location (civic number in the address,

@@ -22,7 +22,7 @@ const UBER = [
 // DoorDash export printing fees as positive numbers.
 const DOORDASH = [
   'Timestamp local date,Payout date,Store ID,Store name,Transaction type,DoorDash order ID,Final order status,Subtotal,Subtotal tax passed to merchant,Commission,Commission tax,Marketing fees | (including any applicable taxes),Customer discounts from marketing | (funded by you),Customer discounts from marketing | (funded by DoorDash),Error charges,Adjustments,Net total,Payout ID',
-  '2026-08-04,2026-08-13,27510307,Nutrition Shake,DELIVERY,dd-1,Delivered,30.00,4.49,7.50,1.12,0,0,-3.00,0,0,25.87,PO-1',
+  '2026-08-04,2026-08-13,27510307,Nutrition Shake,DELIVERY,dd-1,Delivered,30.00,4.49,7.50,1.12,0,0,0,0,0,25.87,PO-1',
   '2026-08-05,2026-08-13,27510307,Nutrition Shake,DELIVERY,dd-2,Delivered,20.00,2.99,5.00,0.75,1.15,-2.00,0,-4.00,0,10.09,PO-1',
 ].join('\n');
 
@@ -79,8 +79,28 @@ describe('finance — DoorDash transactions', () => {
     expect(l.promotions).toBe(-2);
     expect(l.unexplained).toBeCloseTo(0);
   });
-  it('keeps platform-funded discounts as information only', () => {
-    expect(f.lines.find((x) => x.orderRef === 'dd-1')!.infoPlatformFundedDiscounts).toBe(-3);
+  it('nets a DoorDash-funded discount against the marketing credit that repays it', () => {
+    const csv = [
+      'Timestamp local date,Payout date,Store ID,Store name,Transaction type,DoorDash order ID,Final order status,Subtotal,Subtotal tax passed to merchant,Commission,Commission tax,Marketing fees | (including any applicable taxes),Customer discounts from marketing | (funded by you),Customer discounts from marketing | (funded by DoorDash),DoorDash marketing credit,Error charges,Adjustments,Net total,Payout ID',
+      '2026-07-02,2026-07-16,27982486,Po Poulet NDG,Order,10FE1F1B,Delivered,38.89,5.82,-11.28,-1.69,0,0,-20.00,20.00,0,0,31.74,594983493',
+    ].join('\n');
+    const g = parseFinanceFile('dd-credit.csv', bytes(csv));
+    expect(g.lines).toHaveLength(1);
+    expect(g.lines[0].marketing).toBe(0);
+    expect(g.lines[0].unexplained).toBeCloseTo(0);
+  });
+  it('uses the "historical reference" columns for orders before the April 2025 layout', () => {
+    const csv = [
+      'Timestamp local date,Payout date,Store ID,Store name,Transaction type,DoorDash order ID,Final order status,Subtotal,Subtotal tax passed to merchant,Commission,Commission tax,Marketing fees | (including any applicable taxes),Customer discounts from marketing | (funded by you),Error charges,Adjustments,Marketing fees (for historical reference only) | (all discounts and fees),Marketing fee tax (for historical reference only) | (taxes on any applicable marketing fees),Ad fee (for historical reference only),Ad fee tax (for historical reference only),Net total,Net total (for historical reference only),Merchant funded subtotal discount amount | (for historical reference only),Payout ID',
+      '2024-10-29,2024-11-04,28114454,Gateau La Viennoise (Bd Léger),Order,6CFA5F58,Delivered,81.50,6.10,-11.82,-1.77,0,0,0,0,-41.74,-0.15,-6.67,-1.00,0.00,24.45,40.75,418215283',
+    ].join('\n');
+    const g = parseFinanceFile('dd-hist.csv', bytes(csv));
+    const l = g.lines[0];
+    expect(l.net).toBe(24.45);
+    expect(l.promotions).toBe(-40.75);
+    expect(l.marketing).toBeCloseTo(-7.66);
+    expect(l.commissionTax).toBeCloseTo(-2.92);
+    expect(l.unexplained).toBeCloseTo(0);
   });
 });
 
@@ -213,5 +233,36 @@ describe('finance — Uber Manager download with two header rows', () => {
     expect(f.lines[0].qst).toBeCloseTo(3.99);
     expect(f.lines[0].commission).toBe(-12);
     expect(f.lines[0].payoutStatus).toBe('Paid');
+  });
+});
+
+describe('finance — tax inference', () => {
+  const H = 'Store Name,Store ID,Order ID,Workflow ID,Order Date,Order Status,Sales (excl. tax),Tax on Sales,GST/HST on Sales,QST on Sales,Offers on items,Tax On Offers on items,Marketplace fee,Tax on Marketplace fee,Total payout,Payout Date';
+  const ROWS = [
+    'Pi pita (NDG),u1,A1,wf-1,2025-03-05,Completed,40.00,3.99,3.99,0,0,0,-10.00,-1.50,32.49,2025-03-10',
+    'Pi pita (NDG),u1,A2,wf-2,2025-03-06,Completed,40.00,5.99,5.99,0,0,0,-10.00,-1.50,34.49,2025-03-10',
+    'Pi pita (NDG),u1,A3,wf-3,2025-01-10,Completed,40.00,3.99,3.99,0,0,0,-10.00,-1.50,32.49,2025-01-13',
+  ];
+  const lines = () => parseFinanceFile('uber_payment-details_test.csv', bytes([H, ...ROWS].join('\n'))).lines;
+  it('reads Uber\'s "GST/HST on Sales" as the whole tax and splits it by the rate actually charged', () => {
+    const [qstOnly, both, holiday] = lines();
+    expect([qstOnly.gst, qstOnly.qst, qstOnly.taxSplitEstimated]).toEqual([0, 3.99, false]);
+    expect([both.gst, both.qst]).toEqual([2, 3.99]);
+    expect([holiday.gst, holiday.qst]).toEqual([0, 3.99]);
+    for (const l of [qstOnly, both, holiday]) expect(l.unexplained).toBe(0);
+  });
+  it('flags the GST a platform did not charge outside the GST holiday', () => {
+    const [qstOnly, both, holiday] = lines();
+    expect([qstOnly.qstOnlySales, qstOnly.gstNotCharged]).toEqual([40, 2]);
+    expect(both.gstNotCharged).toBe(0);
+    expect(holiday.gstNotCharged).toBe(0);
+  });
+  it('counts DoorDash tablet fee tax with the recoverable tax on fees', () => {
+    const csv = [
+      'Timestamp local date,Payout date,Store ID,Store name,Transaction type,DoorDash order ID,Final order status,Subtotal,Subtotal tax passed to merchant,Commission,Commission tax,Tablet fee,Tablet fee tax,Error charges,Adjustments,Net total,Payout ID',
+      '2026-08-04,2026-08-13,27510307,Nutrition Shake,Tablet Fee,,,0,0,0,0,-3.00,-0.45,0,0,-3.45,PO-1',
+    ].join('\n');
+    const l = parseFinanceFile('dd-tablet.csv', bytes(csv)).lines[0];
+    expect([l.fees, l.commissionTax, l.unexplained]).toEqual([-3, -0.45, 0]);
   });
 });

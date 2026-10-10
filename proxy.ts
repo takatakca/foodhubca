@@ -22,6 +22,7 @@ const PUBLIC_PREFIXES = [
 /** Matched exactly, never as a prefix ("/api/healthz" or "/api/health/x" still need a sign-in). */
 const PUBLIC_PATHS = new Set([
   '/api/health', // uptime monitors: status only without CRON_SECRET or a session (app/api/health/route.ts)
+  '/courier', '/api/courier', // our couriers' page: the personal signed link (Bearer) is the credential (lib/foodhub/delivery/courier-app.ts)
 ]);
 
 export async function proxy(req: NextRequest) {

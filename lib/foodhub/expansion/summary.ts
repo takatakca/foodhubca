@@ -4,6 +4,7 @@ import { ALCOHOL_CHANNELS, getAlcoholSettings, permitExpired } from '../alcohol/
 import { getCatalog } from '../catalog';
 import { round2 } from '../config';
 import { fleetReadiness } from '../delivery/dispatch';
+import { getOwnFleet } from '../delivery/own-fleet';
 import { getDeliverySettings, listDeliveries, listDirectOrders } from '../delivery/store';
 import { ACTIVE } from '../delivery/types';
 import { aiConfigured, callConfigured, smsConfigured } from '../notify';
@@ -24,6 +25,8 @@ export async function expansionSummary(scope?: string[]) {
     getFeatures(), getCatalog(), getDeliverySettings(), listDirectOrders({ since, limit: 2000 }), listDeliveries({ since: new Date(Date.now() - 2 * 86400_000).toISOString(), limit: 2000 }),
     listCalls({ since, limit: 1000 }), getPhoneSettings(), getAlcoholSettings(), listProducts(),
   ]);
+  const own = await getOwnFleet();
+  const onShift = own.couriers.filter((c) => c.active && c.onShift).length;
   const myOrders = orders.filter((o) => inScope(o.locationCode));
   const orderIds = new Set(myOrders.map((o) => o.id));
   const todayDeliveries = deliveries.filter((d) => orderIds.has(d.orderId));
@@ -34,6 +37,7 @@ export async function expansionSummary(scope?: string[]) {
     delivery: [
       { ok: fleets[0].configured, fr: `DoorDash Drive : ${fleets[0].configured ? `branché (${fleets[0].environment === 'sandbox' ? 'bac à sable' : 'production'})` : 'clés manquantes'}`, en: `DoorDash Drive: ${fleets[0].configured ? `connected (${fleets[0].environment})` : 'keys missing'}`, href: '/settings/expansion/delivery' },
       { ok: fleets[1].configured, fr: `Uber Direct (comparaison) : ${fleets[1].configured ? 'branché' : 'optionnel — non branché'}`, en: `Uber Direct (comparison): ${fleets[1].configured ? 'connected' : 'optional — not connected'}`, href: '/settings/expansion/delivery' },
+      { ok: own.enabled && own.couriers.some((c) => c.active), fr: `Nos livreurs (optionnel) : ${own.enabled ? `${own.couriers.filter((c) => c.active).length} livreur(s), ${onShift} en service` : 'désactivé'}`, en: `Our couriers (optional): ${own.enabled ? `${own.couriers.filter((c) => c.active).length} courier(s), ${onShift} on shift` : 'off'}`, href: '/settings/expansion/couriers' },
       { ok: Object.values(dSettings.locations).some((r) => r.enabled), fr: 'Au moins une cuisine livre elle-même', en: 'At least one kitchen delivers its own orders', href: '/settings/expansion/delivery' },
       { ok: activeLocations.every((l) => Boolean(l.phone)), fr: 'Téléphone de chaque cuisine (le livreur l’appelle)', en: 'Every kitchen has a phone (the courier calls it)', href: '/settings/business' },
       { ok: smsConfigured(), fr: 'Textos (lien de suivi au client)', en: 'Texts (tracking link to the customer)', href: '/settings/alerts' },

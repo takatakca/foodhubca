@@ -19,16 +19,20 @@ import { parseScanRows } from './scans';
 import { CLOVER_STRAY_RATE, GST_RATE, QST_RATE, r2, splitQuebecTax, type BankLine, type FinanceLine, type LineType, type Mode, type Platform, type SourceFormat } from './model';
 
 /** "Tax on Sales", "TAX_ON_SALES", "Taxe sur ventes " → comparable lower-case text (API exports use snake_case). */
-export const normHeader = (h: string) => h.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[’']/g, "'").replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+export const normHeader = (h: string) => h.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[’']/g, "'").replace(/_/g, ' ').replace(/\s*\/\s*/g, '/').replace(/\s+/g, ' ').trim();
 
 type Field =
   | 'storeName' | 'storeId' | 'storeId2' | 'orderRef' | 'orderRef2' | 'mode' | 'status' | 'txType' | 'description' | 'payoutStatus'
   | 'orderDate' | 'orderDate2' | 'payoutDate' | 'payoutRef' | 'currency' | 'printedRate' | 'tender' | 'account'
   | 'itemSales' | 'promotions' | 'tips' | 'commission' | 'marketing' | 'fees'
   | 'errorCharges' | 'refunds' | 'adjustments' | 'other' | 'otherPayments' | 'taxWithheld' | 'net'
-  | 'infoTaxRemitted' | 'infoPlatformDiscounts' | 'gross' | 'tax' | 'amount' | 'credit' | 'debit' | 'ignore';
+  | 'infoTaxRemitted' | 'infoPlatformDiscounts' | 'gross' | 'tax' | 'amount' | 'credit' | 'debit' | 'ignore'
+  // DoorDash columns kept "for historical reference only": for orders before April 2025 they hold the real amounts
+  // and the current columns read 0.
+  | 'histNet' | 'histMarketingAll' | 'histMarketingTax' | 'histAdFee' | 'histAdFeeTax' | 'histAdjustments' | 'histMerchantDiscount' | 'histDdDiscount';
 
-const SUMMED: ReadonlySet<Field> = new Set<Field>(['itemSales', 'promotions', 'tips', 'commission', 'marketing', 'fees', 'errorCharges', 'refunds', 'adjustments', 'other', 'otherPayments', 'taxWithheld', 'infoTaxRemitted', 'infoPlatformDiscounts', 'gross', 'tax', 'amount', 'credit', 'debit']);
+const SUMMED: ReadonlySet<Field> = new Set<Field>(['itemSales', 'promotions', 'tips', 'commission', 'marketing', 'fees', 'errorCharges', 'refunds', 'adjustments', 'other', 'otherPayments', 'taxWithheld', 'infoTaxRemitted', 'infoPlatformDiscounts', 'gross', 'tax', 'amount', 'credit', 'debit',
+  'histNet', 'histMarketingAll', 'histMarketingTax', 'histAdFee', 'histAdFeeTax', 'histAdjustments', 'histMerchantDiscount', 'histDdDiscount']);
 const FEE_FIELDS: Field[] = ['commission', 'marketing', 'fees'];
 
 type Rule = [Field, RegExp];
@@ -43,7 +47,11 @@ const UBER_RULES: Rule[] = [
   ['payoutDate', /^payout date$/], ['payoutRef', /^payout reference id$/], ['payoutStatus', /^payout status$/], ['currency', /^currency$/],
   ['description', /^other payments description$/], ['printedRate', /^marketplace fee ?%$/],
   ['itemSales', /^sales \((excl|excluding)\.? tax(es)?\)$/],
-  ['refunds', /^refunds? \((excl|excluding)\.? tax(es)?\)$/],
+  ['refunds', /^refunds? \((excl|excluding)\.? tax(es)?\)$|^chargeback amount$/],
+  ['fees', /^(offer redemption fee|service fee \(markup\)|cost of delivery \((excl|excluding)\.? tax\))$/],
+  ['commission', /^marketplace fee discount$/],
+  ['other', /^(profit on delivery fee|container deposit fee|capital payments|garnishment)$/],
+  ['ignore', /^(sub-total|total order \(incl\.? tax\)|total cost of delivery \(incl\.? tax\)|order count|count of misc payment|store uuid|order completion time|currency code|retailer loyalty id|external store id)$/],
   ['adjustments', /^price adjustments? \((excl|excluding)\.? tax(es)?\)$/],
   ['promotions', /^(promotions?|offers?) on (items|delivery)$/],
   ['commission', /^marketplace fee$/],
@@ -57,7 +65,15 @@ const UBER_RULES: Rule[] = [
 ];
 
 const DOORDASH_RULES: Rule[] = [
-  ['ignore', /for historical reference only|^(tax \()?customer fees?\)?$|^consumer (delivery|service|small order|legislative) fee$|^consumer tip$|^customer fee tax remitted/],
+  ['histNet', /^net total \(for historical reference only\)$/],
+  ['histMarketingAll', /^marketing fees \(for historical reference only\)/],
+  ['histMarketingTax', /^marketing fee tax \(for historical reference only\)/],
+  ['histAdFee', /^ad fee \(for historical reference only\)$/],
+  ['histAdFeeTax', /^ad fee tax \(for historical reference only\)$/],
+  ['histAdjustments', /^adjustments \(for historical reference only\)$/],
+  ['histMerchantDiscount', /^merchant funded subtotal discount amount/],
+  ['histDdDiscount', /^doordash funded subtotal discount amount/],
+  ['ignore', /^(tax \()?customer fees?\)?$|^consumer (delivery|service|small order|legislative) fee$|^consumer tip$|^customer fee tax remitted/],
   ['storeName', /^store name$/], ['storeId', /^store id$/], ['storeId2', /^merchant store id$/],
   ['orderRef', /^(doordash|dd) order id$/], ['orderRef2', /^(merchant delivery id|external id)$/],
   ['txType', /^transaction type$/], ['status', /^final order status$/], ['description', /^description$/],
@@ -68,10 +84,11 @@ const DOORDASH_RULES: Rule[] = [
   ['infoTaxRemitted', /^tax remitted by doordash/],
   ['commission', /^commission$/],
   ['fees', /^(payment processing fee|merchant fees?|tablet( and printer)? fees?|printer fees?|tablet subscription( fee)?|drive charge|other fees?)$/],
-  ['marketing', /^marketing fees?|^ads? fees?$|^doordash marketing credit$|^sponsored listing/],
+  // DoorDash- or third-party-funded discounts and the credits that repay them are both inside the net total:
+  // together they are the net marketing cost (a credit larger than the discount offsets your own promotion cost).
+  ['marketing', /^marketing fees?|^ads? fees?$|^sponsored listing|^doordash marketing credit$|^customer discounts? from marketing.*funded by (doordash|a third.party)|^third.party contribution$/],
   ['promotions', /^customer discounts? from marketing.*funded by you|^merchant funded (subtotal )?discount/],
-  ['infoPlatformDiscounts', /^customer discounts? from marketing.*funded by (doordash|a third.party)|^doordash funded (subtotal )?discount/],
-  ['other', /^third.party contribution$/],
+  ['infoPlatformDiscounts', /^doordash funded (subtotal )?discount/],
   ['errorCharges', /^error charges?$/],
   ['adjustments', /^adjustments?$/],
   ['tips', /^(merchant )?tips?$/],
@@ -141,7 +158,7 @@ const BANK_RULES: Rule[] = [
 type TaxKind = 'combined' | 'gst' | 'qst' | 'other';
 interface TaxCol { idx: number; kind: TaxKind; base: string; target: 'salesTax' | 'commissionTax' }
 
-const FEE_BASE = /marketplace fee|merchant fees?|delivery network fee|order processing fee|service fee|commission/;
+const FEE_BASE = /marketplace fee|merchant fees?|delivery network fee|order processing fee|service fee|commission|ads? (spend|credit)|advertising|cost of delivery|offer redemption fee/;
 
 /** Recognises a tax column and what it is tax on: "QST on Sales", "Tax on Marketplace fee", "Subtotal tax passed to merchant (provincial)"… */
 export function taxColumn(header: string): Omit<TaxCol, 'idx'> | null {
@@ -154,6 +171,8 @@ export function taxColumn(header: string): Omit<TaxCol, 'idx'> | null {
   if (/^(tax \(subtotal\)|tax subtotal|subtotal tax)$/.test(h)) return { kind: 'combined', base: 'subtotal', target: 'salesTax' };
   if (/^(commission tax( amount)?|tax on commission|tax \(commission\))$/.test(h)) return { kind: 'combined', base: 'commission', target: 'commissionTax' };
   if (/^tax \(merchant fees?\)$/.test(h)) return { kind: 'combined', base: 'merchant fees', target: 'commissionTax' };
+  // "Tablet fee tax", "Payment processing fee tax"… (DoorDash): GST + QST on a platform fee, recoverable like commission tax.
+  if (/^(tablet( and printer)?|printer|merchant|processing|payment processing|drive|other|data|service) fees? tax$/.test(h)) return { kind: 'combined', base: h.replace(/ tax$/, ''), target: 'commissionTax' };
   if (/^(tax|taxes|sales tax|gst\/qst|tps\/tvq|tps \+ tvq|gst \+ qst|total tax)$/.test(h)) return { kind: 'combined', base: 'sales', target: 'salesTax' };
   if (/^(gst|tps|hst|gst\/hst)$/.test(h)) return { kind: 'gst', base: 'sales', target: 'salesTax' };
   if (/^(qst|tvq)$/.test(h)) return { kind: 'qst', base: 'sales', target: 'salesTax' };
@@ -163,18 +182,61 @@ export function taxColumn(header: string): Omit<TaxCol, 'idx'> | null {
 interface RowTax { salesTax: number; gst: number; qst: number; otherTax: number; commissionTax: number; estimated: boolean }
 
 /** Per base: split columns (GST, QST, other) when any is non-zero, else the combined column (split 5 : 9.975). First non-zero column of each kind wins. */
-function rowTax(row: string[], cols: TaxCol[]): RowTax {
+/** Federal GST holiday on restaurant food: no GST charged on orders in this window (QST still applied). */
+const GST_HOLIDAY: [string, string] = ['2024-12-14', '2025-02-15'];
+
+/**
+ * One tax total on a sale → GST and QST. The printed rate decides when the pre-tax amount is known (Uber Eats
+ * charged QST only on some stores and during the GST holiday); otherwise the holiday calendar, then the 5 : 9.975 split.
+ */
+function splitSalesTax(total: number, ctx?: { itemSales?: number; date?: string | null }): { gst: number; qst: number; estimated: boolean } {
+  const base = ctx?.itemSales ?? 0;
+  if (base > 0 && total > 0) {
+    const rate = total / base;
+    const near = (r: number) => Math.abs(rate - r) <= 0.0035;
+    if (near(QST_RATE)) return { gst: 0, qst: total, estimated: false };
+    if (near(GST_RATE)) return { gst: total, qst: 0, estimated: false };
+    if (near(GST_RATE + QST_RATE)) return { ...splitQuebecTax(total), estimated: false };
+  }
+  const d = ctx?.date ?? '';
+  if (d && d >= GST_HOLIDAY[0] && d <= GST_HOLIDAY[1]) return { gst: 0, qst: total, estimated: true };
+  return { ...splitQuebecTax(total), estimated: true };
+}
+
+interface TaxCtx { itemSales?: number; promotions?: number; refunds?: number; adjustments?: number; date?: string | null }
+const isSalesBase = (base: string) => /^(sales|subtotal|sub-total)$/.test(base);
+/** The pre-tax amount a tax column applies to, for the rate test. */
+function baseAmount(base: string, ctx?: TaxCtx): number {
+  if (!ctx) return 0;
+  if (isSalesBase(base)) return Math.abs(ctx.itemSales ?? 0);
+  if (/offer|promo|discount/.test(base)) return Math.abs(ctx.promotions ?? 0);
+  if (/chargeback|refund/.test(base)) return Math.abs(ctx.refunds ?? 0);
+  if (/adjust/.test(base)) return Math.abs(ctx.adjustments ?? 0);
+  return 0;
+}
+
+function rowTax(row: string[], cols: TaxCol[], ctx?: TaxCtx): RowTax {
   const out: RowTax = { salesTax: 0, gst: 0, qst: 0, otherTax: 0, commissionTax: 0, estimated: false };
   const bases = new Map<string, TaxCol[]>();
   for (const c of cols) bases.set(`${c.target}|${c.base}`, [...(bases.get(`${c.target}|${c.base}`) ?? []), c]);
-  for (const group of bases.values()) {
+  // The tax on the sale first: the tax on an offer, a refund or a price adjustment of the same order follows its GST : QST ratio.
+  const groups = [...bases.values()].sort((a, b) => Number(!isSalesBase(a[0].base)) - Number(!isSalesBase(b[0].base)));
+  let refShare: number | null = null;
+  for (const group of groups) {
     const first = (k: TaxKind) => { for (const c of group) if (c.kind === k) { const v = parseAmount(row[c.idx]); if (v) return v; } return 0; };
     const g = first('gst'); const q = first('qst'); const o = first('other'); const comb = first('combined');
-    const target = group[0].target;
-    if (g || q || o) {
-      if (target === 'salesTax') { out.gst += g; out.qst += q; out.otherTax += o; out.salesTax += g + q + o; } else out.commissionTax += g + q + o;
+    const { target, base } = group[0];
+    // Uber Eats Manager prints the whole tax in "GST/HST on Sales" and leaves "QST on Sales" empty: that is a total, not a split.
+    const degenerate = target === 'salesTax' && g !== 0 && !q && !o && comb !== 0 && Math.abs(comb - g) < 0.005;
+    if ((g || q || o) && !degenerate) {
+      if (target === 'salesTax') { out.gst += g; out.qst += q; out.otherTax += o; out.salesTax += g + q + o; if (isSalesBase(base) && g + q) refShare = g / (g + q); } else out.commissionTax += g + q + o;
     } else if (comb) {
-      if (target === 'salesTax') { const s = splitQuebecTax(comb); out.gst += s.gst; out.qst += s.qst; out.salesTax += comb; out.estimated = true; } else out.commissionTax += comb;
+      if (target === 'salesTax') {
+        let s = splitSalesTax(comb, { itemSales: baseAmount(base, ctx), date: ctx?.date });
+        if (s.estimated && refShare !== null) { const gst = r2(comb * refShare); s = { gst, qst: r2(comb - gst), estimated: false }; }
+        if (isSalesBase(base) && !s.estimated) refShare = s.gst / comb;
+        out.gst += s.gst; out.qst += s.qst; out.salesTax += comb; out.estimated = out.estimated || s.estimated;
+      } else out.commissionTax += comb;
     }
   }
   return { salesTax: r2(out.salesTax), gst: r2(out.gst), qst: r2(out.qst), otherTax: r2(out.otherTax), commissionTax: r2(out.commissionTax), estimated: out.estimated };
@@ -193,11 +255,18 @@ export function detectFinanceFormat(headers: string[], fileName = ''): Detected 
   if (has(/^type$/) && has(/^doordash services$/) && has(/^amendments$/)) return { format: 'doordash_scan_charges', platform: 'doordash', rules: [] };
   if (has(/^uber uuid$/) && has(/^kitchen$/)) return { format: 'reference', platform: 'uber_eats', rules: [], note: 'Uber store list (portal scan): used for the store map (store-map.csv), not for amounts.' };
   // Reports that repeat what the transactions export already counts: kept as reference, never added to totals.
+  if (has(/^error charges$/) && has(/^adjustments$/) && !has(/^subtotal$/) && !has(/^net total$/)) return { format: 'reference', platform: 'doordash', rules: [], note: 'DoorDash error charges & adjustments list: reference only (these rows are already in the Transactions export).' };
+  if (/SIMPLIFIED_TRANSACTIONS/i.test(fileName)) return { format: 'reference', platform: 'doordash', rules: [], note: 'DoorDash simplified transactions: reference only (the detailed transactions file is used).' };
   if (has(/^error category$/) && has(/^error charge$/)) return { format: 'reference', platform: 'doordash', rules: [], note: 'DoorDash menu-item error report: reference only (error charges are counted from the Transactions export).' };
   if (has(/^cancellation category$/) && has(/^is paid$/)) return { format: 'reference', platform: 'doordash', rules: [], note: 'DoorDash cancelled-orders report: reference only (cancellations are counted from the Transactions export).' };
   const base = detectFormat(headers.map((h) => h.replace(/_/g, ' ')));
   if (base.format === 'uber_payment_details') return { format: 'uber_payment_details', platform: 'uber_eats', rules: UBER_RULES };
   if (base.format === 'doordash_transactions' || (has(/^(doordash|dd) order id$/) && has(/^(net total|net payout|subtotal)$/))) return { format: 'doordash_transactions', platform: 'doordash', rules: DOORDASH_RULES };
+  // Clover exports beside the payments list: the orders list (open / unpaid orders are not sales; the payments file carries
+  // every amount), the refunds list (refunds are also columns of the payments file) and the Sales Overview report (totals).
+  if (has(/^order payment state$/) || (has(/^order id$/) && has(/^payments total$/))) return { format: 'reference', platform: 'clover', rules: [], note: 'Clover orders list: reference only (amounts come from the payments export; open or unpaid orders are not sales).' };
+  if (has(/^refund id$/) && has(/^refund amount$/)) return { format: 'reference', platform: 'clover', rules: [], note: 'Clover refunds list: reference only (refunds are already in the payments export).' };
+  if (/sales[ _-]?overview/i.test(f)) return { format: 'reference', platform: 'clover', rules: [], note: 'Clover Sales Overview report: totals only (the payments export is used).' };
   if (has(/^payment id$/) || (has(/^tender/) && has(/^(amount|payment amount|total)$/))) return { format: 'clover_payments', platform: 'clover', rules: CLOVER_PAY_RULES };
   if (has(/^(order total|total)$/) && has(/^(payment state|order state|state)$/) && has(/^order id$/)) return { format: 'clover_orders', platform: 'clover', rules: CLOVER_PAY_RULES };
   if ((/clover|fiserv|deposit|funding/.test(f) || has(/^(amount submitted|amount transferred)$/)) && has(/(net|deposit|amount)/) && !has(/order/)) return { format: 'clover_deposits', platform: 'clover', rules: CLOVER_DEPOSIT_RULES };
@@ -402,7 +471,7 @@ export function parseFinanceFile(fileName: string, bytes: Uint8Array, opts: { pl
     let payoutRef = txt(row, map.payoutRef);
     const payoutStatus = txt(row, map.payoutStatus);
     const currency = txt(row, map.currency);
-    const t = rowTax(row, tax);
+    const t = rowTax(row, tax, { itemSales: amt(row, map.itemSales), promotions: amt(row, map.promotions), refunds: amt(row, map.refunds), adjustments: amt(row, map.adjustments), date: orderDate });
     const c: Comp = {
       itemSales: amt(row, map.itemSales), promotions: amt(row, map.promotions), salesTax: t.salesTax, tips: amt(row, map.tips),
       commission: r2(feeSign * amt(row, map.commission)), commissionTax: r2(feeSign * t.commissionTax),
@@ -416,6 +485,7 @@ export function parseFinanceFile(fileName: string, bytes: Uint8Array, opts: { pl
     if (otherPayments) { const b = classifyOtherPayment(description || statusText); c[b] = r2(c[b] + otherPayments); }
 
     let net: number;
+    let infoDiscountsExtra = 0;
     let tender = '';
     let type: LineType;
     let level: FinanceLine['level'] = 'detail';
@@ -462,6 +532,38 @@ export function parseFinanceFile(fileName: string, bytes: Uint8Array, opts: { pl
       description = [statusText, gross ? `gross ${gross.toFixed(2)}` : '', fees ? `fees ${fees.toFixed(2)}` : ''].filter(Boolean).join(' · ');
     } else {
       net = map.net?.length ? amt(row, map.net) : r2(Object.values(c).reduce((s, v) => s + v, 0));
+      // Uber Eats, rare rows: "Other payments" is blank while "Total payout" carries the fee (tax included) — the
+      // description still says what it is.
+      if (platform === 'uber_eats' && net !== 0 && !Object.values(c).some(Boolean) && description) {
+        const bucket = classifyOtherPayment(description);
+        if (bucket === 'fees' || bucket === 'marketing') { const base = r2(net / (1 + GST_RATE + QST_RATE)); c[bucket] = base; c.commissionTax = r2(net - base); } else c[bucket] = net;
+      }
+      // DoorDash before April 2025: the current columns are 0 and the "(for historical reference only)" ones are real.
+      if (det.format === 'doordash_transactions') {
+        const histNet = amt(row, map.histNet);
+        const merchantDiscount = Math.abs(amt(row, map.histMerchantDiscount));
+        const marketingAll = amt(row, map.histMarketingAll); // discounts you funded + promotion fees, as one negative number
+        const adFee = amt(row, map.histAdFee);
+        // The historical "Adjustments" column: on an adjustment / error row it is the live adjustment (the live column
+        // is empty before 2025); on an order row it is the credit that repaid a promotion or ad fee — the current
+        // layout prints that one as "DoorDash marketing credit", so it belongs with marketing.
+        const histAdj = c.adjustments === 0 ? amt(row, map.histAdjustments) : 0;
+        const adjustmentRow = /adjustment|error/i.test(statusText);
+        if (histAdj && adjustmentRow) c.adjustments = r2(c.adjustments + histAdj);
+        const histCredit = histAdj && !adjustmentRow ? histAdj : 0;
+        // Marketing and discounts lived in the historical columns until the spring 2025 layout, and some rows of the
+        // transition carry both sets. Keep whichever set makes the row add up to its net total.
+        const target = net !== 0 ? net : histNet;
+        if ((marketingAll || merchantDiscount || adFee || histCredit) && target !== 0) {
+          const sumWith = (promo: number, mkt: number, ctax: number) => r2(Object.values({ ...c, promotions: promo, marketing: mkt, commissionTax: ctax }).reduce((s, v) => s + v, 0));
+          const histPromo = r2(-merchantDiscount), histMkt = r2((marketingAll + merchantDiscount) + adFee + histCredit);
+          const histTax = r2(c.commissionTax + amt(row, map.histMarketingTax) + amt(row, map.histAdFeeTax));
+          const resCurrent = Math.abs(target - sumWith(c.promotions, c.marketing, c.commissionTax));
+          const resHist = Math.abs(target - sumWith(histPromo, histMkt, histTax));
+          if (resHist < resCurrent) { c.promotions = histPromo; c.marketing = histMkt; c.commissionTax = histTax; infoDiscountsExtra = -Math.abs(amt(row, map.histDdDiscount)); }
+        }
+        if (net === 0 && histNet !== 0) net = histNet;
+      }
       if (det.format === 'doordash_payouts' || det.format === 'uber_payouts' || (det.format === 'skip_statement' && det.rules === PAYOUT_RULES)) {
         level = 'summary'; type = 'payout';
         tender = txt(row, map.account).replace(/\D/g, '').slice(-4);
@@ -481,6 +583,12 @@ export function parseFinanceFile(fileName: string, bytes: Uint8Array, opts: { pl
     if (/^(total|totals|sum|subtotal|grand total)$/i.test(orderRef || statusText)) { out.skipped++; return; }
     if (currency && !/^(cad|ca\$|\$)$/i.test(currency)) out.warnings.push(`Row ${i + 1}: currency ${currency} (amounts assumed CAD).`);
     if (!gst && !qst && !otherTax && c.salesTax) { const s = splitQuebecTax(c.salesTax); gst = s.gst; qst = s.qst; taxSplitEstimated = true; }
+    // Uber "Other payments" (data fee, tablet fee, ads…) are printed before tax; the GST+QST on them is inside the
+    // total payout but in no column. When the residual is exactly that tax, book it as recoverable tax on fees.
+    if (platform === 'uber_eats' && otherPayments) {
+      const provisional = r2(net - r2(Object.values(c).reduce((s, v) => s + v, 0)));
+      if (provisional !== 0 && Math.abs(provisional - r2(otherPayments * (GST_RATE + QST_RATE))) <= 0.02) c.commissionTax = r2(c.commissionTax + provisional);
+    }
     const explained = r2(Object.values(c).reduce((s, v) => s + v, 0));
     const unexplained = level === 'summary' || isClover ? 0 : r2(net - explained);
     const rateText = txt(row, map.printedRate);
@@ -490,13 +598,18 @@ export function parseFinanceFile(fileName: string, bytes: Uint8Array, opts: { pl
     const base = keyParts.join('|');
     const n = occurrences.get(base) ?? 0; occurrences.set(base, n + 1);
     const status = /cancel|annul/i.test(statusText) ? 'cancelled' : /refund/i.test(statusText) ? 'refunded' : statusText.toLowerCase().slice(0, 40);
+    // The platform charged the customer QST only (no GST) outside the GST holiday: GST is still owed on the pre-tax price.
+    const inHoliday = !!orderDate && orderDate >= GST_HOLIDAY[0] && orderDate <= GST_HOLIDAY[1];
+    const qstOnly = level === 'detail' && platform !== 'clover' && (type === 'order' || type === 'cancellation') && c.salesTax > 0 && r2(gst) === 0 && !inHoliday;
+    const qstOnlySales = qstOnly ? r2(c.itemSales + c.promotions > 0 ? c.itemSales + c.promotions : c.itemSales) : 0;
     const line: FinanceLine = {
       key: lineKey(keyParts, n), platform, level, type, status, mode, storeId, storeName,
       brand: '', location: '', kitchen: '', mappedBy: 'none',
       orderRef, orderRef2: orderRef2 === orderRef ? '' : orderRef2, orderDate, month: (orderDate ?? payoutDate ?? '').slice(0, 7),
       payoutRef, payoutDate, payoutStatus: level === 'summary' ? statusText : payoutStatus,
       ...c, gst: r2(gst), qst: r2(c.salesTax - r2(gst) - otherTax), otherTax, taxSplitEstimated, net, unexplained,
-      infoTaxRemittedByPlatform: amt(row, map.infoTaxRemitted), infoPlatformFundedDiscounts: amt(row, map.infoPlatformDiscounts),
+      infoTaxRemittedByPlatform: amt(row, map.infoTaxRemitted), infoPlatformFundedDiscounts: r2(amt(row, map.infoPlatformDiscounts) + infoDiscountsExtra),
+      qstOnlySales, gstNotCharged: r2(qstOnlySales * GST_RATE),
       printedRate: Number.isFinite(rateNum) ? (Math.abs(rateNum) > 1 ? rateNum / 100 : rateNum) : null,
       description: [statusText, description].filter(Boolean).join(' — ').slice(0, 220), tender,
       inPnl: type !== 'payout' && type !== 'platform_in_clover', orderCount: 0, cancelledCount: 0, notes: [],

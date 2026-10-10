@@ -148,6 +148,13 @@ const missing = EXPORTS_CHECKLIST.filter((e) => e.formats.length && !e.formats.s
 if (missing.length) addTodo({ id: 'AUTO-EXPORTS', priority: 'P1', area: 'Data', task: `Download the missing exports: ${missing.map((e) => `${e.id} ${e.platform} ${e.report.split(' — ')[0]}`).join('; ')} (see Exports tab)`, platform: 'All', amount: null, due: null, who: 'Owner', status: 'Open', notes: '' });
 if (resolver.unknown.size) addTodo({ id: 'AUTO-STORES', priority: 'P3', area: 'Data', task: `${resolver.unknown.size} store(s) in the exports are not in store-map.csv (brand/location guessed from the name) — see bottom of Stores tab`, platform: 'All', amount: null, due: null, who: 'Claude / owner', status: 'Open', notes: '' });
 const unexplained = r2(lines.filter((l) => l.inPnl).reduce((a, l) => a + l.unexplained, 0));
+{
+  const qstOnly = lines.filter((l) => l.inPnl && l.gstNotCharged > 0);
+  const owed = r2(qstOnly.reduce((a, l) => a + l.gstNotCharged, 0));
+  const where = [...new Set(qstOnly.map((l) => PLATFORM_LABEL[l.platform]))].join(', ');
+  const span = qstOnly.map((l) => l.month).sort();
+  if (owed >= 1) addTodo({ id: 'AUTO-GST-NOT-CHARGED', priority: 'P1', area: 'Tax', task: `${where}: ${qstOnly.length} order(s) from ${span[0]} to ${span[span.length - 1]} were taxed QST only (no GST charged to the customer) — the GST (about ${owed.toFixed(2)} $) is still owed on those sales (Tax_Summary, last two columns). Fix the store tax settings / tax numbers in the platform and ask the accountant how to report it`, platform: where, amount: owed, due: null, who: 'Owner / accountant', status: 'Open', notes: '' });
+}
 if (Math.abs(unexplained) >= 1) addTodo({ id: 'AUTO-UNEXPLAINED', priority: 'P2', area: 'Data', task: `Statement lines leave ${unexplained.toFixed(2)} $ not broken down (a statement column is not mapped) — see Files tab warnings`, platform: 'All', amount: unexplained, due: null, who: 'Claude', status: 'Open', notes: '' });
 
 const { bytes, expected } = buildFinanceWorkbook({

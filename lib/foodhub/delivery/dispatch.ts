@@ -23,9 +23,10 @@ import {
   addDirectEvent, deliveriesForOrder, findDelivery, getDelivery, getDeliverySettings, getDirectOrder, listDirectOrders, newId, ruleFor, saveDelivery,
 } from './store';
 import { DELIVERY_RANK, TERMINAL, type Delivery, type DeliveryQuote, type DeliverySettings, type DirectOrder, type FleetKey } from './types';
+import { getOwnFleet, ownFleet } from './own-fleet';
 import { uberDirect } from './uber-direct';
 
-export const FLEETS: Record<FleetKey, CourierFleet> = { doordash_drive: doorDashDrive, uber_direct: uberDirect, skip_daas: skipDaas };
+export const FLEETS: Record<FleetKey, CourierFleet> = { doordash_drive: doorDashDrive, uber_direct: uberDirect, skip_daas: skipDaas, own_fleet: ownFleet };
 export const AUTO_ACTOR: Actor = { username: 'auto-dispatch', name: 'Auto-dispatch', source: 'automation' };
 const MAX_AUTO_ATTEMPTS = 3;
 const AUTO_RETRY_MS = 2 * 60_000;
@@ -96,14 +97,14 @@ export async function buildRequest(order: DirectOrder, deliveryId: string, s: De
   };
 }
 
-/** Prices from the primary fleet and, when comparing, every other fleet that is set up. Cheapest working quote first (primary wins ties). */
+/** Prices from enabled fleets; when comparing, every configured fleet is quoted. Cheapest working quote first (primary wins ties). */
 export async function quoteFleets(req: DeliveryRequest, s: DeliverySettings, only?: FleetKey): Promise<DeliveryQuote[]> {
-  // Comparing: the primary fleet plus every other fleet that is set up (a fleet with no credentials is never asked).
-  const others = (Object.keys(FLEETS) as FleetKey[]).filter((k) => k !== s.primaryFleet);
-  const keys: FleetKey[] = only ? [only] : s.compareQuotes ? [s.primaryFleet, ...others] : [s.primaryFleet];
+  const own: FleetKey[] = !only && (await getOwnFleet()).enabled ? ['own_fleet'] : [];
+  const others = (Object.keys(FLEETS) as FleetKey[]).filter((k) => k !== s.primaryFleet && k !== 'own_fleet');
+  const keys: FleetKey[] = only ? [only] : [...own, s.primaryFleet, ...(s.compareQuotes ? others : [])];
   const usable = keys.filter((k) => FLEETS[k].readiness().configured);
   const quotes = await Promise.all((usable.length ? usable : keys.slice(0, 1)).map((k) => FLEETS[k].quote(req)));
-  return quotes.sort((a, b) => (a.ok === b.ok ? (a.fee ?? 999) - (b.fee ?? 999) || (a.fleet === s.primaryFleet ? -1 : 1) : a.ok ? -1 : 1));
+  return quotes.sort((a, b) => (a.ok === b.ok ? (a.fee ?? 999) - (b.fee ?? 999) || (a.fleet === s.primaryFleet ? -1 : b.fleet === s.primaryFleet ? 1 : 0) : a.ok ? -1 : 1));
 }
 
 export interface DispatchOutcome { ok: boolean; message: string; order: DirectOrder; delivery?: Delivery; quotes?: DeliveryQuote[]; problems?: string[] }
@@ -146,7 +147,7 @@ export async function dispatchOrder(orderId: string, actor: Actor, opts: { fleet
     }
     const fleet = FLEETS[q.fleet].readiness();
     let delivery: Delivery = {
-      id, orderId: order.id, fleet: q.fleet, environment: fleet.environment, fleetDeliveryId: res.fleetDeliveryId, status: res.deliveryStatus && res.deliveryStatus !== 'quoted' ? res.deliveryStatus : 'created',
+      id, orderId: order.id, fleet: q.fleet, environment: fleet.environment, fleetDeliveryId: res.fleetDeliveryId, ...(res.assignedCourierId ? { ownCourierId: res.assignedCourierId } : {}), status: res.deliveryStatus && res.deliveryStatus !== 'quoted' ? res.deliveryStatus : 'created',
       quote: q, comparedQuotes: quotes, fee: res.fee ?? q.fee, tip: req.tip, orderValue: req.orderValue, containsAlcohol: req.containsAlcohol,
       trackingUrl: res.trackingUrl, supportReference: res.supportReference, dropoffPin: res.dropoffPin, courier: res.courier, pickupEta: res.pickupEta ?? q.pickupEta, dropoffEta: res.dropoffEta ?? q.dropoffEta,
       requestedBy: actor.name, timeline: [{ at, status: 'created', message: `${res.message}${fleet.environment === 'sandbox' ? ' (sandbox — no real courier)' : ''}` }], createdAt: at, updatedAt: at,

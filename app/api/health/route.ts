@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getActor } from '@/lib/foodhub/auth';
 import { safeEqual } from '@/lib/foodhub/config';
 import { buildHealth, cachedHealth } from '@/lib/foodhub/health';
+import { tenantId } from '@/lib/foodhub/tenant';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,7 +22,7 @@ export async function GET(req: Request) {
   const httpStatus = h.status === 'down' ? 503 : 200;
   if (!('checks' in h)) return NextResponse.json({ ok: false, status: h.status, at: h.at }, { status: httpStatus, headers: { 'Cache-Control': 'no-store' } });
   const body = detailed
-    ? { ok: h.status !== 'down', ...h }
+    ? { ok: h.status !== 'down', ...h, tenant: tenantId() } // which merchant this instance serves (docs/ON2GO_HUB_ECOSYSTEM.md § 4)
     : { ok: h.status !== 'down', status: h.status, at: h.at, checks: Object.fromEntries(Object.entries(h.checks).map(([k, c]) => [k, c.status])) };
   return NextResponse.json(body, { status: httpStatus, headers: { 'Cache-Control': 'no-store' } });
 }

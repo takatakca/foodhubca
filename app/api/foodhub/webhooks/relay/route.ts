@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { parseRelayOrder, parseRelayStatus, relayStatusApplies, relayTargetStatus, verifyRelayWebhook } from '@/lib/foodhub/adapters/relay';
 import { acceptNeedsClover, applyExternalStatus } from '@/lib/foodhub/pipeline';
+import { applyTgtgEvent, tgtgEventKind } from '@/lib/foodhub/tgtg-feed';
 import { getRepo } from '@/lib/foodhub/repo';
 import { background, keepUnparsed, parseJson, queueOrder, retryLater } from '@/lib/foodhub/webhook-utils';
 
@@ -37,6 +38,11 @@ export async function POST(req: NextRequest) {
   const status = parseRelayStatus(body);
   if (status) {
     background(`relay status ${status.externalOrderId}`, async () => {
+      // Too Good To Go: "collected" / "no-show" mean the sale is done (pickup confirmed), not a courier hand-off.
+      if (status.channel === 'tgtg') {
+        const k = tgtgEventKind(status.state);
+        if (k === 'collected' || k === 'no_show') { await applyTgtgEvent({ kind: k, orderId: status.externalOrderId, word: status.state, reason: status.message }); return; }
+      }
       const order = await getRepo().findOrder(status.channel, status.externalOrderId);
       if (!order) {
         // The order may still be in the webhook inbox (server stopped before processing it): a cancel waits for it and

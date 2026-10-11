@@ -17,7 +17,7 @@ Developer account details (login, developer ID) are kept in the owner's private 
 | Alternate Launch Path | `/api/foodhub/clover-connect/callback` |
 | Default OAuth response | `CODE` |
 | Webhook URL | `https://YOUR-DOMAIN/api/foodhub/webhooks/clover`. Clover sends a verification code; Food Hub shows it in Settings → Platforms & Clover. |
-| Webhook events | **Inventory**, **App** (install, uninstall, subscription change) |
+| Webhook events | **Inventory**, **App** (install, uninstall, subscription change), **Orders** (Clover Online Ordering website orders, `docs/CLOVER_WEBSITE_ORDERS.md`). Set and verified 2026-10-09/10. |
 
 ## How a merchant connects
 

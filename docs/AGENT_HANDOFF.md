@@ -9,7 +9,7 @@ Date du relevé : **2026-10-14**. Aucun accès aux fichiers locaux git-ignorés 
 
 ## Tâche actuellement en cours
 
-Finaliser la branche `agent/foodhub-deployment-verifier`, faire vérifier la CI, ouvrir/inspecter la PR, puis obtenir une preuve de déploiement public du SHA choisi. La mise en ligne reste bloquée par DNS / accès Coolify / opt-in du workflow ; **ne pas prétendre que le push a déployé le site**.
+PR #49 ouverte sur `agent/foodhub-deployment-verifier`. Vérifier les builds CI/E2E encore en cours puis obtenir une preuve de déploiement public du SHA choisi. La mise en ligne reste bloquée par DNS / accès Coolify / opt-in du workflow ; **ne pas prétendre que le push a déployé le site**.
 
 ## Fichiers modifiés dans cette reprise
 
@@ -19,14 +19,14 @@ Finaliser la branche `agent/foodhub-deployment-verifier`, faire vérifier la CI,
 
 - `main` observé : `bb353ccfa82a7ba5e3d7af488e0da6bf03746c09`.
 - Dernier commit de code poussé pour ce lot : `7b97a3aa511f6bfb57b9fce61e9523d983064378`.
-- Branche du lot : `agent/foodhub-deployment-verifier` ; consulter sa tête GitHub pour le SHA de documentation suivant.
+- Branche du lot : `agent/foodhub-deployment-verifier` ; dernier commit de documentation précédant cette mise à jour : `71992f3f95a37ba6ac63f3c2187020c01d58e91d`. Le dernier commit poussé est toujours `refs/heads/agent/foodhub-deployment-verifier` (consulter GitHub : un fichier versionné ne peut pas contenir son propre SHA de façon fiable). PR [#49](https://github.com/takatakca/foodhubca/pull/49).
 - La fusion et la publication sont réservées au propriétaire conformément à `CLAUDE.md`. Ne jamais forcer `main`.
 
 ## Commandes / vérifications
 
 - API GitHub : dépôt, tête `main`, branches, PR #48 et #43/#45/#44/#39, issue #46, derniers workflow runs.
 - [CI #48](https://github.com/takatakca/foodhubca/actions/runs/38608758328) : `success` ; [Image #48](https://github.com/takatakca/foodhubca/actions/runs/38608758793) : `success`.
-- Nouvelle vérification proposée : `npm run check`, `npm run build`, `npm run verify:foodhub` ; test ciblé `npx vitest run tests/verify-live.test.mjs`. **Non exécutés localement dans cette reprise** ; lire la CI de la nouvelle PR avant de les dire réussis.
+- CI de PR #49 : [exécution 38613543386](https://github.com/takatakca/foodhubca/actions/runs/38613543386) — audit dépendances, typecheck, lint et tests unitaires réussis à la dernière consultation ; build et E2E encore en cours. [Image 38613543650](https://github.com/takatakca/foodhubca/actions/runs/38613543650) en construction. Aucun test local exécuté : vérifier l'état final des runs avant de les déclarer tous verts.
 - Vérification réelle, quand DNS/Coolify prêts : `npm run verify:live -- --url https://foodhub.on2go.ca/ --sha FULL_40_CHAR_SHA`.
 
 ## Problèmes et statut du déploiement
@@ -42,6 +42,6 @@ Droits GitHub pour PR, propriétaire DNS, Coolify (ressource FOOD HUB et logs), 
 
 ## Prochaine action exacte
 
-1. Vérifier les exécutions CI + image de la PR `agent/foodhub-deployment-verifier` et corriger tout échec sur **cette branche**.
+1. Vérifier les exécutions CI + image de la [PR #49](https://github.com/takatakca/foodhubca/pull/49) et corriger tout échec sur cette branche, sans reprendre les tâches déjà attribuées aux PR #43/#45/#48.
 2. Après approbation/fusion propriétaire, réparer DNS/HTTPS et activer le pipeline Coolify selon `docs/DEPLOYMENT.md`, sans double consommateur webhooks.
 3. Exécuter `verify:live` avec le SHA de `main` effectivement déployé et coller uniquement le résultat PASS/FAIL, URL et SHA dans l'issue #46 ; entreprendre ensuite la première tâche NEXT de `TASK_QUEUE.md` non attribuée.

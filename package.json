@@ -14,7 +14,8 @@
     "setup": "node scripts/setup-wizard.mjs",
     "sql:install": "node scripts/build-install-sql.mjs",
     "verify:foodhub": "node scripts/foodhub-e2e.mjs",
-    "demo:foodhub": "node scripts/foodhub-e2e.mjs --demo"
+    "demo:foodhub": "node scripts/foodhub-e2e.mjs --demo",
+    "verify:live": "node scripts/verify-live.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

@@ -1,12 +1,15 @@
 # TAKATAK Food Hub — container image for Coolify / any Docker host.
-# Keys are given as environment variables by the host (never baked into the image). No build argument is needed:
-# the Supabase URL (NEXT_PUBLIC_SUPABASE_URL or SUPABASE_URL) is read when the server runs, not when the image is
-# built (lib/supabase/server.ts), and webhook secrets are generated once and kept in the database when the host does
-# not set them (lib/foodhub/runtime-secrets.ts). SESSION_SECRET is never generated: set it once in the host's
-# environment (without it the sign-in key is derived from DASHBOARD_PASSWORD).
+# Keys are given as environment variables by the host (never baked into the image). SOURCE_COMMIT is only a public
+# release marker: the Supabase URL (NEXT_PUBLIC_SUPABASE_URL or SUPABASE_URL) is read when the server runs, not when
+# the image is built (lib/supabase/server.ts), and webhook secrets are generated once and kept in the database when
+# the host does not set them (lib/foodhub/runtime-secrets.ts). SESSION_SECRET is never generated: set it once in the
+# host's environment (without it the sign-in key is derived from DASHBOARD_PASSWORD).
 FROM node:22-bookworm-slim
+ARG SOURCE_COMMIT=""
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV FOODHUB_RELEASE_SHA=${SOURCE_COMMIT}
+LABEL org.opencontainers.image.revision="${SOURCE_COMMIT}"
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund --loglevel=error
 COPY . .

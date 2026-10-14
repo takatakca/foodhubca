@@ -65,6 +65,8 @@ jobs:
           push: false
           tags: foodhub:ci
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            SOURCE_COMMIT=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

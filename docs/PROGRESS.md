@@ -1,5 +1,10 @@
 # Food Hub: progress log and task board
 
+## 2026-10-14 — Live release proof and agent handoff
+
+- Branch `agent/foodhub-deployment-verifier`: new `npm run verify:live` command and mock-only tests for exact SHA, ON2GO public feed/CORS, health, login and private orders route. Five public continuity docs added without copying local private task files.
+- PR #48 remains open and green; `main` = `bb353ccfa82a7ba5e3d7af488e0da6bf03746c09` at inspection. Coolify deployment workflow remains gated/skipped; production success is **not** claimed. See `docs/AGENT_HANDOFF.md` and issue #46.
+
 Newest first. Every session reads this before starting (see `CLAUDE.md`) and updates its own row at the end of each
 piece of work. The plan itself is `docs/MASTER_PLAN.md`. Operations (support, emails, portals) are tracked privately in
 `private/CLAIMS.md` and `private/OPS_LOG.md` in the main checkout, never in git.

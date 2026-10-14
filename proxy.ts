@@ -16,13 +16,14 @@ const PUBLIC_PREFIXES = [
   '/api/foodhub/voice/', // brand phone lines: Twilio-signed webhooks + the signed voicemail listen link (brand-lines.ts)
   '/api/foodhub/clover-connect/test-order', // welcome-ticket credential (signed, one merchant, its own register)
   '/api/foodhub/auth/', '/api/foodhub/devices/heartbeat',
-  '/api/public/', // read-only public feeds (directory for ON2GO / QMAPS): public facts only, see lib/foodhub/public-directory.ts
+  // No blanket /api/public/ exemption: only explicitly reviewed read-only routes are public.
   '/login', '/kitchen/lock', '/manifest.webmanifest', '/sw.js', '/icons/', '/legal/', '/welcome/', '/media/',
 ];
 /** Matched exactly, never as a prefix ("/api/healthz" or "/api/health/x" still need a sign-in). */
 const PUBLIC_PATHS = new Set([
   '/api/health', // uptime monitors: status only without CRON_SECRET or a session (app/api/health/route.ts)
   '/api/release', // deployment proof: public commit SHA only, exact path, no settings or secrets
+  '/api/public/directory', // ON2GO/QMAPS read-only directory; future APIs under /api/public/ stay protected
   '/courier', '/api/courier', // our couriers' page: the personal signed link (Bearer) is the credential (lib/foodhub/delivery/courier-app.ts)
 ]);
 

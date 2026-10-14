@@ -125,8 +125,13 @@ export function signContract(body: string, eventId: string, secret: string, now 
 export function verifyContract(headers: Headers, body: string, secret: string, now = Date.now()): boolean {
   const ts = headers.get('x-timestamp') || '';
   const id = headers.get('x-event-id') || '';
+  const integrationId = headers.get('x-integration-id') || '';
+  const idempotencyKey = headers.get('idempotency-key') || '';
   const sig = (headers.get('x-signature') || '').replace(/^sha256=/, '');
-  if (!secret || !/^\d{9,11}$/.test(ts) || !id || !/^[a-f0-9]{64}$/.test(sig)) return false;
+  // The signed event's integration identity and dedupe key must match this product and event.
+  // Otherwise a correctly signed request can be misrouted or deduplicated under a different key.
+  if (integrationId !== PRODUCT_CODE || !id || idempotencyKey !== id) return false;
+  if (!secret || !/^\d{9,11}$/.test(ts) || !/^[a-f0-9]{64}$/.test(sig)) return false;
   if (Math.abs(now - Number(ts) * 1000) > SIGNATURE_WINDOW_MS) return false;
   const want = Buffer.from(mac(secret, ts, id, body), 'hex');
   const got = Buffer.from(sig, 'hex');

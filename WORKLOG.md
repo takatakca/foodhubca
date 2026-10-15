@@ -3,6 +3,8 @@
 Newest first, one line per piece of work. Rule: `AGENTS.md` › Work log rule.
 Format: `YYYY-MM-DD | agent | branch → PR | status | what | next step`
 
+- 2026-10-15 | Codex (Food Hub automatic production) | agent/foodhub-deployment-verifier → PR #49 | active | Continuing the checked release-verifier PR under the owner request to complete GitHub-triggered Coolify production and health checks; media volume and current rollback revision identified | Back up current media/configuration, retain database and session settings, enforce isolated build/runtime gates, repair GitHub App binding, then verify an automatic exact-SHA production release
+
 - 2026-10-14 | ChatGPT (release verifier and continuity) | agent/foodhub-deployment-verifier → PR #49 | PR #49 open; audit/typecheck/lint/unit tests passed; build/E2E pending | Added a read-only exact-SHA live deployment verifier, mocked regression tests and 5 continuity documents | Open PR, verify CI, owner reviews/merges; infra/DNS/Coolify remains blocked; no live release certified
 
 - 2026-10-14 | codex (Food Hub deployment hardening) | ops/foodhub-coolify-live-proof → PR #47/main | blocked: infrastructure | Merged release-proof /api/release endpoint, commit-stamped Docker image, gated Coolify deploy workflow and live checks; local tests/typecheck/lint/build passed; main CI + image passed for 53a2740; deploy workflow 38550244671 skipped by opt-in gate; Coolify app answers public directory internally, but foodhub.on2go.ca still returns 502/DNS mismatch | set DNS A/AAAA for foodhub + www to 31.220.96.134 / 2605:a144:2362:1936::1; set FOODHUB_COOLIFY_* vars/secrets and rerun deploy

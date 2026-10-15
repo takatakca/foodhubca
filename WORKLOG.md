@@ -3,6 +3,8 @@
 Newest first, one line per piece of work. Rule: `AGENTS.md` › Work log rule.
 Format: `YYYY-MM-DD | agent | branch → PR | status | what | next step`
 
+- 2026-10-15 | ChatGPT (live release drift gate) | fix/foodhub-production-proof-strict-sha → PR pending | active | Require a pinned expected SHA for production verifier; add opt-in automated public release drift check and regressions | implement, verify CI, hand off
+
 - 2026-10-15 | Codex (Food Hub automatic production) | PR #49 merged → main | active; native Webhook build passed | Main e7ce788 triggered native Coolify deployment nyf14yjdr5heghjgcoznlvfg; Contabo audit/check/build, 807 unit tests (2 skipped), E2E 536/0 and pruned-runtime probe passed. Existing Supabase/session settings and media volume verified preserved. Corrected Coolify 4.4.6 readiness override from missing curl/wget to the same strict Node checker | Trigger corrected native release through this configuration record; final Webhook/healthy/exact-SHA evidence in PR #49 description; no live connector activation
 
 - 2026-10-14 | ChatGPT (release verifier and continuity) | agent/foodhub-deployment-verifier → PR #49 | PR #49 open; audit/typecheck/lint/unit tests passed; build/E2E pending | Added a read-only exact-SHA live deployment verifier, mocked regression tests and 5 continuity documents | Open PR, verify CI, owner reviews/merges; infra/DNS/Coolify remains blocked; no live release certified

@@ -3,6 +3,8 @@
 Newest first, one line per piece of work. Rule: `AGENTS.md` › Work log rule.
 Format: `YYYY-MM-DD | agent | branch → PR | status | what | next step`
 
+- 2026-10-15 | ChatGPT (production status reconciliation) | fix/foodhub-production-proof-strict-sha → PR #51 | code pushed, CI pending | Read merged PR #49 release evidence: Coolify Webhook Success, public release SHA 027b602a, health/database OK at 12:49 UTC; agent DNS cannot independently recheck | Keep PR #51 review/CI; then certify real Clover/platform orders per issue #46
+
 - 2026-10-15 | ChatGPT (live release drift gate) | fix/foodhub-production-proof-strict-sha → PR #51 | PR #51 open; CI in progress | Require a pinned expected SHA for production verifier; add opt-in automated public release drift check and regressions | implement, verify CI, hand off
 
 - 2026-10-15 | Codex (Food Hub automatic production) | PR #49 merged → main | active; native Webhook build passed | Main e7ce788 triggered native Coolify deployment nyf14yjdr5heghjgcoznlvfg; Contabo audit/check/build, 807 unit tests (2 skipped), E2E 536/0 and pruned-runtime probe passed. Existing Supabase/session settings and media volume verified preserved. Corrected Coolify 4.4.6 readiness override from missing curl/wget to the same strict Node checker | Trigger corrected native release through this configuration record; final Webhook/healthy/exact-SHA evidence in PR #49 description; no live connector activation

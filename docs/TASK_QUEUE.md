@@ -1,6 +1,6 @@
 # FOODHUB — file de tâches coordonnée
 
-**2026-10-15, nouvelle tâche FH-015 (branche `fix/foodhub-production-proof-strict-sha`)** : rendre impossible un PASS de `verify:live` sans SHA attendu ; ajouter un workflow GitHub Actions opt-in pour surveiller le SHA et les endpoints publics. CI/PR et publication propriétaire à valider. La configuration Coolify native sur `main` est distincte, aucune action prod ici.
+**2026-10-15, nouvelle tâche FH-015 (branche `fix/foodhub-production-proof-strict-sha`)** : rendre impossible un PASS de `verify:live` sans SHA attendu ; ajouter un workflow GitHub Actions opt-in pour surveiller le SHA et les endpoints publics. [PR #51](https://github.com/takatakca/foodhubca/pull/51) ouverte ; CI de la tête de branche en cours, fusion/publication propriétaire à valider. La configuration Coolify native sur `main` est distincte, aucune action prod ici.
 
 **Reprise autorisée 2026-10-15** : FH-002 à FH-005 sont prises sur la PR #49 pour terminer la livraison native GitHub App → Coolify et prouver le SHA public. Accès/source/backup/santé configurés ; tests locaux réussis (807 unitaires, 536 E2E). La livraison finale reste à constater après fusion. Aucun changement aux intégrations réelles FH-006/FH-007. Le tableau du 2026-10-14 ci-dessous conserve son contexte historique.
 

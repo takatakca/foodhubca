@@ -35,3 +35,9 @@ Next.js 16 / React 19 / TypeScript ; interface marchand et cuisine FR/EN, comman
 ## Où reprendre
 
 Lire `AGENTS.md`, `CLAUDE.md`, `docs/AGENT_HANDOFF.md` puis `docs/TASK_QUEUE.md`. Le détail des blocages de production est dans `docs/DEPLOYMENT.md` et l'issue #46. Les décisions à préserver sont dans `docs/DECISIONS.md` et `docs/LOCKED_DECISIONS.md`.
+
+## Relevé complémentaire — 2026-10-15 (agent GitHub)
+
+- `main` observé : `027b602a12da39b1244e17b813bc51a7496a0217`, CI [38735636016](https://github.com/takatakca/foodhubca/actions/runs/38735636016) réussie ; PR #49 fermée/fusionnée ; PR #48 et #50 encore ouvertes. Ces faits priment les SHA historiques des sections précédentes.
+- Vérifications externes `foodhub.on2go.ca/api/release`, `/api/health` et `/api/public/directory` : aucune réponse utilisable ; la résolution DNS du sous-domaine échoue depuis l'environnement d'inspection (HTTP 000). Il n'existe toujours pas de preuve du SHA en production.
+- La branche `fix/foodhub-production-proof-strict-sha` corrige le risque d'un faux PASS du vérificateur sans SHA attendu et ajoute un contrôle GitHub Actions manuel/périodique, strictement en lecture seule. Aucune mise en production automatique n'est demandée depuis cette branche.

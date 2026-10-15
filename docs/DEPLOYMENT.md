@@ -45,3 +45,13 @@ La CI d'image accepte volontairement `/api/health` 503 lorsque la base est absen
 Faire valider, avec une personne habilitée : sign-in OTP, PIN gérant/tablette, commandes webhook signées, anti-doublons et réessais Clover, caisse/imprimante/KDS, menus/86/horaires, annulations, gestion de panne, suivi des livraisons, numéro Twilio, rapport de rapprochement et fonctionnement FR/EN sur mobile. Un fournisseur à la fois, en sandbox d'abord.
 
 Ne jamais activer l'acceptation automatisée si Clover n'a pas confirmé la réception. Maintenir les tablettes fournisseur de secours jusqu'à certification. En cas d'échec de release/health ou de traitement de commandes, restaurer **la version et les données réellement sauvegardées**, en assurant l'absence de doubles webhooks/cron. Inscrire timestamp + SHA + résultat PASS/FAIL/BLOCKED + preuve dans [issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+## Vérification périodique de la version publiée (opt-in)
+
+Le workflow `.github/workflows/verify-production.yml` vérifie **en lecture seule** la version publique et la sécurité des endpoints. Dans **Actions → Verify Food Hub production release → Run workflow**, sélectionner `main` pour lancer immédiatement une vérification sans déployer. Les exécutions automatiques (toutes les 6 heures) sont désactivées par défaut : renseigner la variable de dépôt `FOODHUB_PRODUCTION_VERIFY_ENABLED=true` uniquement quand l'exploitation souhaite la surveillance. Aucun secret ni token Coolify n'est utilisé. Les runners GitHub peuvent rester bloqués par la facturation ; dans ce cas utiliser la commande locale.
+
+```bash
+npm run verify:live -- --url https://foodhub.on2go.ca/ --sha FULL_40_CHARACTER_EXPECTED_MAIN_SHA
+```
+
+**Le SHA attendu est obligatoire.** Une réponse `/api/release` valide mais provenant d'une ancienne version doit échouer. Une exécution planifiée compare à la tête de `main` et peut échouer pendant un déploiement en cours : vérifier l'historique Coolify, puis relancer après publication. Le workflow ne modifie ni serveur, ni commandes, ni DNS.

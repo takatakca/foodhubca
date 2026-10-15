@@ -1,5 +1,16 @@
 # FOODHUB — relève de l'agent (à lire dès l'ouverture)
 
+## Reprise technique — 2026-10-15 (nouvelle branche, priorité sur les anciennes entrées)
+
+- **État GitHub contrôlé** : `main` = `027b602a12da39b1244e17b813bc51a7496a0217`, [CI 38735636016](https://github.com/takatakca/foodhubca/actions/runs/38735636016) = success. PR #49 fermée/intégrée ; PR #48 et #50 toujours ouvertes. L'intégration Coolify native GitHub est documentée sur `main`, mais sa publication exacte n'est pas prouvée.
+- **Dernière tâche terminée** : constat du SHA réel de `main`, revue de la CI et des documents de relève, tentatives d'accès externes ; DNS `foodhub.on2go.ca` non résolu depuis le présent environnement. Déploiement = **non vérifié**.
+- **Tâche en cours** : rendre `verify:live` strictement lié à un SHA attendu et ajouter un workflow Actions de surveillance opt-in. Branche `fix/foodhub-production-proof-strict-sha` ; PR, CI et dernier SHA à relever de GitHub après publication de cette branche.
+- **Fichiers modifiés** : `scripts/verify-live.mjs`, `tests/verify-live.test.mjs`, `.github/workflows/verify-production.yml`, `docs/DEPLOYMENT.md`, `docs/PROJECT_STATUS.md`, `docs/TASK_QUEUE.md`, `docs/AGENT_HANDOFF.md`, `WORKLOG.md`.
+- **Validation** : GitHub CI du `main` ci-dessus réussie ; CI de la nouvelle PR à consulter avant de déclarer ce correctif validé. Le script modifié ne fait aucun appel réseau tant qu'un SHA complet n'a pas été fourni.
+- **Blocage externe** : accès opérateur DNS/Contabo/Coolify requis pour rétablir le hostname et confirmer `/api/release`, `/api/health` et `/api/foodhub/orders` ; sans divulguer de secret. Les tests réels Clover/Uber/DoorDash/Skip restent à certifier. Ne pas ajouter de second consommateur d'ordres.
+- **Prochaine action exacte** : lire l'état CI/PR de `fix/foodhub-production-proof-strict-sha` et corriger ses erreurs ; après fusion propriétaire, relancer la vérification en fournissant le SHA exact attendu et documenter PASS/FAIL dans l'issue #46. Ensuite poursuivre les tâches indépendantes de `docs/TASK_QUEUE.md`.
+
+
 ## Reprise actuelle — 2026-10-15 (prioritaire sur le relevé historique ci-dessous)
 
 Demande explicite du propriétaire : terminer GitHub → production Coolify et les contrôles de santé de Food Hub. PR #49 fusionnée en `e7ce788a9432618ee93eb9ce3d6a6be7c64b3ca6`, aucune autre PR fusionnée. Source native Coolify liée au GitHub App existant ; auto-push activé ; arguments Docker gérés par le fichier et `SOURCE_COMMIT` disponible au build. Santé activée en **Container command** : `node /app/scripts/check-runtime.mjs`, intervalle 30 s, timeout 90 s, 3 essais, démarrage 60 s. La version Coolify 4.4.6 installée substitue le check de l'interface à celui de l'image : ne pas utiliser HTTP, car l'image n'embarque pas curl/wget.

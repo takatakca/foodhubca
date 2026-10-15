@@ -94,7 +94,7 @@ function Frame({ children }: { children: ReactNode }) {
   const visible = (n: Pick<NavItem, 'perm' | 'allLocations' | 'features'>) => navVisible(n, can, allLocations, features);
   const items = NAV.filter(visible);
   const toggle = () => { setCollapsed((c) => { try { localStorage.setItem('takatak.rail', c ? '0' : '1'); } catch { /* ignore */ } return !c; }); };
-  const kitchen = pathname.startsWith('/kitchen');
+  const kitchen = pathname === '/kitchen' || pathname.startsWith('/kitchen/');
   const mobile = [NAV[0], NAV[1], NAV[2], ALERTS].filter(visible);
 
   return (

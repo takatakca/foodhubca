@@ -1,5 +1,11 @@
 # Food Hub: progress log and task board
 
+## 2026-10-15 — Owner-authorized automatic production activation
+
+- Reusing PR #49. Existing Coolify resource rebound to its installed GitHub App, push deployment enabled, source commit available to Docker and health monitoring enabled. Historical Actions deployment controller disabled to keep one production writer while GitHub runner billing is blocked.
+- Dockerfile enforces isolated audit/check/build/E2E plus final pruned runtime smoke; production health requires a real healthy database. Fixed Vitest to include the verifier's `.mjs` regressions. Local audit/typecheck/lint/build passed, 807 unit tests passed (2 skipped), E2E 536/0.
+- Private media/configuration backup and rollback image retained on Contabo. Existing Supabase/session/media preserved. Automatic Webhook success and exact live main-SHA proof still pending at this commit; no live connector certification claimed.
+
 ## 2026-10-14 — Live release proof and agent handoff
 
 - Branch `agent/foodhub-deployment-verifier`: new `npm run verify:live` command and mock-only tests for exact SHA, ON2GO public feed/CORS, health, login and private orders route. Five public continuity docs added without copying local private task files.

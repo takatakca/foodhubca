@@ -1,5 +1,7 @@
 # FOODHUB — file de tâches coordonnée
 
+**Reprise autorisée 2026-10-15** : FH-002 à FH-005 sont prises sur la PR #49 pour terminer la livraison native GitHub App → Coolify et prouver le SHA public. Accès/source/backup/santé configurés ; tests locaux réussis (807 unitaires, 536 E2E). La livraison finale reste à constater après fusion. Aucun changement aux intégrations réelles FH-006/FH-007. Le tableau du 2026-10-14 ci-dessous conserve son contexte historique.
+
 Mise à jour : 2026-10-14. Ce tableau public est une relève Git ; il **ne remplace pas** `private/TASKS.md` (tableau local git-ignoré) ni les branches actives des autres agents, conformément à `CLAUDE.md`.
 Statuts : DONE = preuve GitHub ; REVIEW = branche/PR à valider ; BLOCKED = intervention externe ; NEXT = travail exécutable sans dépendance ; NOT CERTIFIED = manque la preuve live.
 

@@ -28,7 +28,7 @@ async function readJson(response, path) {
   }
 }
 
-export async function verifyLiveDeployment({ url, sha = '', fetchImpl = fetch }) {
+export async function verifyLiveDeployment({ url, sha = '', fetchImpl = fetch, allowLoopback = false, buildSmoke = false }) {
   let base;
   try {
     base = new URL(url);
@@ -36,7 +36,8 @@ export async function verifyLiveDeployment({ url, sha = '', fetchImpl = fetch })
     throw new Error('Supply a valid production HTTPS URL with --url or FOODHUB_HTTPS_URL');
   }
   // Never send a user-supplied URL with embedded credentials, query params or subpaths.
-  if (base.protocol !== 'https:' || !base.hostname || base.username || base.password ||
+  const localSmoke = allowLoopback && base.protocol === 'http:' && base.hostname === '127.0.0.1';
+  if ((base.protocol !== 'https:' && !localSmoke) || !base.hostname || base.username || base.password ||
       base.search || base.hash || base.pathname !== '/') {
     throw new Error('Production URL must be an HTTPS origin with no credentials, query or subpath');
   }
@@ -82,9 +83,12 @@ export async function verifyLiveDeployment({ url, sha = '', fetchImpl = fetch })
   }
 
   const healthResponse = await request('/api/health');
-  requireStatus(healthResponse, 200, '/api/health');
+  // Only an isolated final-image build probe may lack a database. Production never accepts 503.
+  const databaseFreeBuild = localSmoke && buildSmoke && healthResponse.status === 503;
+  if (!databaseFreeBuild) requireStatus(healthResponse, 200, '/api/health');
   const health = await readJson(healthResponse, '/api/health');
-  if (health.ok !== true || !health.status || !health.checks) {
+  if (databaseFreeBuild ? health.ok !== false || health.checks?.database !== 'down'
+    : health.ok !== true || !health.status || health.status === 'down' || health.checks?.database !== 'ok') {
     throw new Error('/api/health is not healthy');
   }
 

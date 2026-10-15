@@ -1,6 +1,6 @@
 # FOODHUB / ON2GO Hub — déploiement prouvable
 
-Environnement visé **documenté, pas automatiquement présumé actif** : Contabo VPS + Coolify, image `ghcr.io/takatakca/foodhubca`, domaine canonique des webhooks `https://foodhub.on2go.ca`, application Next.js sur port 3000.
+Environnement : Contabo VPS + Coolify, domaine canonique `https://foodhub.on2go.ca`, application Next.js sur port 3000. Depuis la reprise autorisée du 2026-10-15, la livraison retenue est le **GitHub App natif Coolify**, avec construction du `Dockerfile` sur Contabo. Le contrôleur Actions historique est désactivé pour éviter deux auteurs de production.
 Lire aussi `docs/RELEASE_GHCR_COOLIFY.md` et [issue #46](https://github.com/takatakca/foodhubca/issues/46).
 
 ## 1. Préparer sans toucher aux commandes actives
@@ -17,20 +17,15 @@ Lire aussi `docs/RELEASE_GHCR_COOLIFY.md` et [issue #46](https://github.com/taka
 - Dans Coolify, vérifier service, conteneur, port 3000, volume média persistant, base Supabase Montréal, proxy, logs et réponse `/api/health` **200** (un 503 en production n'est pas une réussite).
 - Tester ensuite `/api/release` et comparer le SHA complet à celui de l'image : HTTP 200 seul ne prouve pas la version.
 
-## 3. GitHub Actions — activation sécurisée
+## 3. GitHub → Coolify — contrôleur unique
 
-`.github/workflows/image.yml` construit/publie les images. `.github/workflows/coolify-deploy.yml` n'effectue le déploiement qu'après la publication réussie d'une image sur `main`, avec l'opt-in explicitement activé.
+Le propriétaire a explicitement demandé l'activation complète le 2026-10-15. Réutiliser l'application existante `1ijktzayh4dbcnn37igo8ktv`, dépôt `takatakca/foodhubca`, branche `main`, commit `HEAD`, Dockerfile `/Dockerfile`, port 3000. La source est maintenant liée au GitHub App déjà installé `g-r-o-u-p-e-t-a-k-a-t-a-k-github`, avec « Deploy on push (webhooks) » activé. Ne pas créer un deuxième consommateur de commandes.
 
-Variables du dépôt (`Settings → Secrets and variables → Actions → Variables`) :
-- `FOODHUB_COOLIFY_AUTODEPLOY_ENABLED=true` (uniquement après validation de la bascule)
-- `FOODHUB_COOLIFY_RESOURCE_UUID=1ijktzayh4dbcnn37igo8ktv` (identifiant documenté : **confirmer dans Coolify**)
-- `FOODHUB_HTTPS_URL=https://foodhub.on2go.ca/`
+Dans Advanced, garder les arguments gérés dans Dockerfile et `SOURCE_COMMIT` disponible pendant le build. Le Dockerfile refuse un SHA absent, exécute audit de production, typecheck/lint/tests unitaires, build, E2E simulé puis un démarrage de l'image finale après `npm prune`. Les commandes de test/build utilisent un environnement vidé : aucune clé de production ni commande réelle. Un échec empêche la publication. La facturation GitHub Actions est actuellement bloquée ; les mêmes contrôles s'exécutent sur Contabo. Les workflows CI/image restent utiles quand les runners sont disponibles, mais ne pilotent plus la production.
 
-Secrets (UI GitHub uniquement, jamais fichiers/PR/chat) :
-- `FOODHUB_COOLIFY_DEPLOY_WEBHOOK`
-- `FOODHUB_COOLIFY_DEPLOY_TOKEN`
+Le Docker HEALTHCHECK vérifie SHA, santé avec base `ok`, annuaire/CORS, login et refus des commandes anonymes. Coolify a aussi le contrôle HTTP `/api/health` configuré. Une réponse 503 est autorisée uniquement par le probe local isolé de construction, jamais en production. Une livraison n'est prouvée qu'après historique **Webhook / Success**, conteneur sain et vérificateur HTTPS au SHA de `main`.
 
-Le webhook doit pointer sur la ressource attendue de `https://coolify.takatak.ca/api/v1/deploy`, autorisée via token au minimum de privilèges. **Une réponse acceptée par Coolify = demande en file ; pas une preuve d'application live**. Ne pas activer l'opt-in tant que le propriétaire n'a pas approuvé le cutover.
+Sauvegarde préalable sur le serveur, répertoire privé `/home/takatak/foodhub-deployment-backups/20261015-before-auto` : inspection de configuration privée et archive média validée. Image de rollback conservée sous `foodhub-rollback:20261015-before-auto`. Volume conservé : `1ijktzayh4dbcnn37igo8ktv-foodhub-media` → `/app/data/media`. Supabase et secrets de session restent existants ; aucune migration SQL ni nouvelle sauvegarde complète Supabase n'a été réalisée par cette reprise. Ne jamais afficher l'inspection privée ni la placer dans Git.
 
 ## 4. Vérification en lecture seule
 

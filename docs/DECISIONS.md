@@ -18,6 +18,10 @@ Mise à jour : 2026-10-14. **Références normatives** : `CLAUDE.md`, `BRAND.md`
 | Fournisseurs | Ne pas activer `LIVE_CONNECTORS_GLOBAL_ENABLED=true` sans approbation, checklist Go-live et essais réels | `LOCKED_DECISIONS.md` |
 | Reprise | L'agent lit `AGENTS.md`, `AGENT_HANDOFF.md`, PR/CI puis prend la première tâche libre. Les fichiers privés restent hors Git | `AGENTS.md` / `CLAUDE.md` |
 
+## Activation autorisée du 2026-10-15
+
+La demande explicite du propriétaire autorise cette reprise à fusionner la PR #49 et terminer la livraison automatique de Food Hub. Pour cette activation, le GitHub App natif Coolify sur `main` remplace le contrôleur Actions/GHCR historique, car les runners GitHub sont bloqués par la facturation. Un seul contrôleur, tests isolés obligatoires dans Dockerfile, SHA exact et santé de production obligatoires. Cette autorisation ne lance aucun connecteur marchand et ne modifie pas les données Supabase, les secrets de session ou le volume média. Les règles historiques ci-dessus restent applicables aux travaux non autorisés.
+
 ## Décisions en attente
 
 La mise en production intégrale, le lancement Clover App Market, l'ouverture aux nouveaux marchands, les permissions fournisseurs, le basculement `hub.on2go.ca` et le calendrier des paiements nécessitent des preuves et/ou une approbation du propriétaire. Ne pas les interpréter comme réalisées du seul fait que leur code est présent.

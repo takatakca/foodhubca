@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseOptions, verifyLiveDeployment } from '../scripts/verify-live.mjs';
 
 const SHA = 'a'.repeat(40);
-function mockFetch({ sha = SHA, publicStatus = 200, privateStatus = 401, healthStatus = 200, cors = true } = {}) {
+function mockFetch({ sha = SHA, publicStatus = 200, privateStatus = 401, healthStatus = 200, database = 'ok', cors = true } = {}) {
   return async (url, options) => {
     const path = new URL(url).pathname;
     expect(options.method).toBe('GET');
@@ -18,7 +18,7 @@ function mockFetch({ sha = SHA, publicStatus = 200, privateStatus = 401, healthS
       });
     }
     if (path === '/api/health') {
-      return Response.json({ ok: true, status: 'healthy', checks: { db: true } }, { status: healthStatus });
+      return Response.json({ ok: healthStatus === 200, status: healthStatus === 200 ? 'ok' : 'down', checks: { database } }, { status: healthStatus });
     }
     if (path === '/login') return new Response('login', { status: 200 });
     if (path === '/api/foodhub/orders') return Response.json({ ok: false }, { status: privateStatus });
@@ -73,5 +73,21 @@ describe('Food Hub live release verification (no network)', () => {
       FOODHUB_HTTPS_URL: 'https://elsewhere.example/',
       EXPECTED_SHA: 'b'.repeat(40),
     })).toEqual({ url: 'https://foodhub.on2go.ca/', sha: SHA });
+  });
+
+  it('rejects memory-mode production and never permits database-free smoke over a public URL', async () => {
+    await expect(verifyLiveDeployment({ url: 'https://foodhub.on2go.ca/', sha: SHA,
+      fetchImpl: mockFetch({ database: 'down' }) })).rejects.toThrow(/not healthy/);
+    await expect(verifyLiveDeployment({ url: 'https://foodhub.on2go.ca/', sha: SHA, buildSmoke: true,
+      fetchImpl: mockFetch({ healthStatus: 503, database: 'down' }) })).rejects.toThrow(/expected 200/);
+  });
+
+  it('restricts the database-free build probe to explicitly allowed IPv4 loopback', async () => {
+    const local = { url: 'http://127.0.0.1:18092/', sha: SHA, allowLoopback: true, buildSmoke: true,
+      fetchImpl: mockFetch({ healthStatus: 503, database: 'down' }) };
+    expect((await verifyLiveDeployment(local)).sha).toBe(SHA);
+    await expect(verifyLiveDeployment({ ...local, buildSmoke: false })).rejects.toThrow(/expected 200/);
+    await expect(verifyLiveDeployment({ ...local, url: 'http://example.com/' })).rejects.toThrow(/HTTPS origin/);
+    await expect(verifyLiveDeployment({ ...local, url: 'http://127.0.0.1:18092/', allowLoopback: false })).rejects.toThrow(/HTTPS origin/);
   });
 });

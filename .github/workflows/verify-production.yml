@@ -43,8 +43,8 @@ jobs:
             echo "- Domain: \`https://foodhub.on2go.ca/\`"
             echo "- Outcome: $([ "$result" -eq 0 ] && echo 'PASS' || echo 'FAIL — do not claim deployed')"
             echo '### Read-only verification'
-            echo '\`\`\`'
+            echo '```'
             cat /tmp/foodhub-production-check.log
-            echo '\`\`\`'
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$result"

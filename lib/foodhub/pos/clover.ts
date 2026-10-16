@@ -153,7 +153,7 @@ async function cloverGetAll(mid: string, token: string, path: string, expand: st
  * menu): only its items, with its photos and descriptions, and its prices as platform prices (opts.platformPrices).
  * The import report rides along as `importReport` (the caller keeps it out of the saved menu).
  */
-export async function importMenuFromClover(brandName: string, merchantId?: string | null, opts: { cloverMenuId?: string | null; platformPrices?: Marketplace[]; includeArchived?: boolean } = {}): Promise<MasterMenu & { importReport?: CloverImportReport }> {
+export async function importMenuFromClover(brandName: string, merchantId?: string | null, opts: { cloverMenuId?: string | null; platformPrices?: Marketplace[]; includeArchived?: boolean; excludeCategories?: readonly string[] } = {}): Promise<MasterMenu & { importReport?: CloverImportReport }> {
   const mid = merchantId || process.env.CLOVER_MERCHANT_ID;
   if (!mid) throw new Error('No Clover merchant id. Set CLOVER_MERCHANT_ID or pass a merchant id.');
   const token = await cloverToken(mid);
@@ -173,7 +173,7 @@ export async function importMenuFromClover(brandName: string, merchantId?: strin
     menuItems = await cloverMenuItems(cloverBaseUrl(), mid, token, chosen.id);
     menuInfo = { id: chosen.id, name: chosen.name };
   }
-  const { menu, report } = buildMenuFromClover(brandName, items, groups, { menuItems, menuInfo, platformPrices: opts.platformPrices, includeArchived: opts.includeArchived });
+  const { menu, report } = buildMenuFromClover(brandName, items, groups, { menuItems, menuInfo, platformPrices: opts.platformPrices, includeArchived: opts.includeArchived, excludeCategories: opts.excludeCategories });
   return { ...menu, importReport: report };
 }
 

@@ -243,8 +243,13 @@ server with `npm run setup`, never in a chat.
    - webhook `https://foodhub.on2go.ca/api/foodhub/webhooks/clover`, verified, with events **App**, **Inventory**,
      **Orders**.
    - **Left for you:** put Clover's auth code in `CLOVER_WEBHOOK_AUTH` in Coolify, then Restart.
-   - **Then connect your own merchant:** console → Settings → Platforms & Clover → **Connect a Clover merchant** →
-     Approve. Settings → Clover app should then show "Tested end to end" once you send a test order.
+   - **Then connect your own register.** While the app is a draft, Clover will not install it: its authorize page
+     answers 404 for an app that is not on the App Market (seen 2026-10-10). So the group's register uses a merchant
+     **API token**: Clover → Account & Setup → API Tokens → "Food Hub" (Inventory, Merchant, Orders, Payments read +
+     write) → Coolify `CLOVER_ACCESS_TOKEN` (with `CLOVER_MERCHANT_ID`) → Restart.
+   - **Clover proof:** Settings → Clover app → **Send a test order**. The TEST order is created in the register, its
+     ticket prints and it closes as paid; each step shows Clover's answer. The checklist line "Tested end to end"
+     then turns green. After approval, merchants connect in one click through the app (welcome page, same test).
 6. **Permissions:** paste the four reasons.
 7. **App Market Listing:**
    - Tabs FR-CA, EN-CA and EN-US: tagline, benefits, description.

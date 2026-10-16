@@ -2,10 +2,11 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { Check, CheckCircle2, CircleDashed, ClipboardList, Copy, ExternalLink, FileText, Hourglass, KeyRound, Link2, RefreshCw, ShieldCheck, Store, TriangleAlert, Video } from 'lucide-react';
+import { Check, CheckCircle2, CircleAlert, CircleDashed, ClipboardList, Copy, ExternalLink, FileText, Hourglass, KeyRound, Link2, Printer, Receipt, RefreshCw, ShieldCheck, Store, Tags, TriangleAlert, Video, X } from 'lucide-react';
 import { Banner } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Select } from '@/components/ui/form';
 import { Segmented } from '@/components/ui/tabs';
 import { useViewer } from '@/components/shell/viewer';
 import { SettingsHead, Section } from '../settings-ui';
@@ -25,8 +26,10 @@ type AppInfo = {
   supportEmail: string | null;
   legalStatus: { supportEmailSet: boolean; supportPhoneSet: boolean; approved: boolean };
   merchants: Merchant[];
+  /** Last test order that went through every step (created, printed, paid). */
+  testOrder?: { merchantId: string; posOrderId: string; at: string } | null;
 };
-type ChannelsData = { clover: { webhookAuthSet?: boolean; verification?: { code: string } | null; app?: AppInfo } };
+type ChannelsData = { clover: { webhookAuthSet?: boolean; verification?: { code: string } | null; tokenMerchantIds?: string[]; app?: AppInfo } };
 type ReadyCheck = { ok: boolean; title: string; body: string; href?: string };
 
 // Settings → Clover app: everything the owner needs to finish the Clover App Market listing and press Submit.
@@ -60,8 +63,10 @@ export default function CloverAppPage() {
       body: t('FOODHUB_SUPPORT_EMAIL et FOODHUB_SUPPORT_PHONE (Clover exige les deux). Optionnel : FOODHUB_SUPPORT_HOURS.', 'FOODHUB_SUPPORT_EMAIL and FOODHUB_SUPPORT_PHONE (Clover requires both). Optional: FOODHUB_SUPPORT_HOURS.'), href: app.legal.support },
     { ok: app.legalStatus.approved, title: t('Pages légales relues et approuvées', 'Legal pages reviewed and approved'),
       body: t('Relisez confidentialité et conditions (avec un conseiller), puis FOODHUB_LEGAL_APPROVED=true : la bannière « projet » disparaît.', 'Review privacy and terms (with an adviser), then FOODHUB_LEGAL_APPROVED=true: the “draft” banner goes away.'), href: app.legal.privacy },
-    { ok: app.merchants.some((m) => m.status === 'active'), title: t('Testé de bout en bout sur un marchand', 'Tested end to end on a merchant'),
-      body: t('Ouvrez l’app depuis Clover sur votre marchand, puis « Envoyer une commande test » sur la page d’accueil.', 'Open the app from Clover on your merchant, then “Send a test order” on the welcome page.') },
+    { ok: Boolean(app.testOrder), title: t('Testé de bout en bout sur une caisse', 'Tested end to end on a register'),
+      body: app.testOrder
+        ? t(`Commande test créée, imprimée et payée sur ${app.testOrder.merchantId} (Clover ${app.testOrder.posOrderId}), le ${new Date(app.testOrder.at).toLocaleString('fr-CA')}.`, `Test order created, printed and paid on ${app.testOrder.merchantId} (Clover ${app.testOrder.posOrderId}), ${new Date(app.testOrder.at).toLocaleString('en-CA')}.`)
+        : t('Bouton « Envoyer une commande test » ci-dessous (caisse branchée par jeton API ou par l’app).', '“Send a test order” button below (register connected with an API token or through the app).') },
   ] : [];
   const ready = checks.filter((c) => c.ok).length;
   const pending = app?.merchants.filter((m) => m.status === 'pending') ?? [];
@@ -99,6 +104,8 @@ export default function CloverAppPage() {
                 ))}
               </ul>
             </Section>
+
+            <OwnerTestOrder merchants={[...new Set([...(data?.clover.tokenMerchantIds ?? []), ...app.merchants.filter((m) => m.status === 'active').map((m) => m.merchantId)])]} onDone={load} />
 
             <Section icon={<Store className="size-5" />} title={t('À faire dans le tableau de bord Clover (vous)', 'To do in the Clover dashboard (you)')}
               subtitle={t('Food Hub ne touche jamais à votre compte Clover : ces étapes sont les vôtres.', 'Food Hub never touches your Clover account: these steps are yours.')}>
@@ -167,6 +174,78 @@ export default function CloverAppPage() {
         )}
       </div>
     </div>
+  );
+}
+
+type TestStep = { key: 'created' | 'printed' | 'paid'; ok: boolean; detail: { fr: string; en: string } };
+type TestResult = { ok: boolean; reason?: string; error?: string; steps?: TestStep[] };
+
+/**
+ * The owner's Clover check on a real register: a TEST order created in Clover (platform order type), its kitchen ticket
+ * printed, then paid for Clover's own total with the platform tender. Works for a register connected with an API token
+ * (the group's own register while the App Market app is a draft) or through the app. Never stored in Food Hub.
+ */
+function OwnerTestOrder({ merchants, onDone }: { merchants: string[]; onDone: () => void }) {
+  const { t } = useI18n();
+  const [mid, setMid] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<TestResult | null>(null);
+  const target = mid || merchants[0] || '';
+  async function send() {
+    if (!target) return;
+    setBusy(true);
+    try {
+      const r = await fetch('/api/foodhub/clover-connect/owner-test-order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ merchantId: target }) });
+      const j = (await r.json().catch(() => ({ ok: false, error: `HTTP ${r.status}` }))) as TestResult;
+      setRes(j);
+      if (j.ok) onDone();
+    } catch (e) {
+      setRes({ ok: false, error: e instanceof Error ? e.message : String(e) });
+    } finally { setBusy(false); }
+  }
+  const label: Record<TestStep['key'], string> = {
+    created: t('Commande créée dans Clover', 'Order created in Clover'),
+    printed: t('Billet envoyé à l’imprimante', 'Ticket sent to the printer'),
+    paid: t('Payée avec le mode « Uber Eats »', 'Paid with the “Uber Eats” tender'),
+  };
+  const icon: Record<TestStep['key'], ReactNode> = { created: <Tags className="size-4" />, printed: <Printer className="size-4" />, paid: <Receipt className="size-4" /> };
+  const err = res && !res.ok
+    ? res.reason === 'not_approved' ? t('Cette caisse n’est pas branchée : ni jeton API, ni marchand approuvé.', 'This register is not connected: no API token and no approved merchant.')
+      : res.reason === 'limited' ? t('Trois commandes test par heure au maximum. Réessayez plus tard.', 'Three test orders per hour at most. Try again later.')
+        : res.reason === 'clover_refused' ? t('Clover a refusé la commande test (détail ci-dessus).', 'Clover refused the test order (details above).')
+          : res.error || t('Échec.', 'Failed.')
+    : null;
+  return (
+    <Section icon={<Receipt className="size-5" />} title={t('Envoyer une commande test à une caisse Clover', 'Send a test order to a Clover register')}
+      subtitle={t('Une commande TEST est créée dans la caisse, s’imprime à la cuisine et se ferme payée — comme une vraie commande Uber Eats. Rien n’est envoyé aux plateformes ; trois essais par heure.', 'A TEST order is created in the register, prints in the kitchen and closes as paid — just like a real Uber Eats order. Nothing is sent to the platforms; three tries per hour.')}>
+      {merchants.length === 0 ? (
+        <p className="text-[14px] text-ink-3">{t('Aucune caisse branchée : collez le jeton API Clover dans CLOVER_ACCESS_TOKEN (avec CLOVER_MERCHANT_ID), ou branchez un marchand par l’app.', 'No register connected: put the Clover API token in CLOVER_ACCESS_TOKEN (with CLOVER_MERCHANT_ID), or connect a merchant through the app.')}</p>
+      ) : (
+        <div className="flex flex-wrap items-center gap-3">
+          {merchants.length > 1 && (
+            <Select className="w-64" value={target} onChange={(e) => setMid(e.target.value)} aria-label={t('Caisse Clover', 'Clover register')}>
+              {merchants.map((m) => <option key={m} value={m}>{m}</option>)}
+            </Select>
+          )}
+          {merchants.length === 1 && <span className="num rounded-md bg-sunken px-2 py-1.5 font-mono text-xs text-ink">{target}</span>}
+          <Button variant="brand" loading={busy} onClick={send} icon={<Receipt className="size-4" />}>{t('Envoyer une commande test', 'Send a test order')}</Button>
+        </div>
+      )}
+      {res?.steps && res.steps.length > 0 && (
+        <ul className="mt-4 space-y-1.5" aria-live="polite">
+          {res.steps.map((st) => (
+            <li key={st.key} className="flex items-start gap-3 rounded-lg bg-raised px-3 py-2">
+              <span className={cn('mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-white', st.ok ? 'bg-go' : 'bg-stop')}>{st.ok ? <Check className="size-3.5" strokeWidth={3} /> : <X className="size-3.5" strokeWidth={3} />}</span>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 text-[14px] font-bold"><span className="text-ink-3">{icon[st.key]}</span>{label[st.key]}</div>
+                <div className="num text-[12px] break-words text-ink-3">{t(st.detail.fr, st.detail.en)}</div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {err && <p className="mt-3 flex items-start gap-2 rounded-lg bg-stop-soft px-3 py-2 text-[13px] text-ink" aria-live="polite"><CircleAlert className="mt-0.5 size-4 shrink-0 text-stop" />{err}</p>}
+    </Section>
   );
 }
 

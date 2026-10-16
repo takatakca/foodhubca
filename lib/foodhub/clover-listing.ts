@@ -3,9 +3,13 @@
 // in Settings → Clover app; docs/CLOVER_APP_LISTING.md carries the same text (tests keep the two in step and check
 // Clover's limits: tagline ≤ 255 characters, 3 to 5 benefits of ≤ 100 characters, no "Clover" in the app name).
 
+import { PRICING_STATEMENT } from './pos/clover-pricing';
 import { CLOVER_APP_NAME } from './product';
 
 export type Bilingual = { fr: string; en: string };
+
+/** Price on the listing (owner's decision of 2026-10-16; the tier and the metered event are set in the Clover dashboard). */
+export const LISTING_PRICING: Bilingual = PRICING_STATEMENT;
 
 /** The listing name is protected: it never follows FOODHUB_PRODUCT_NAME (renaming it needs a new Clover review). */
 export const LISTING_APP_NAME = CLOVER_APP_NAME;
@@ -37,6 +41,8 @@ export const LISTING_DESCRIPTION: Bilingual = {
     '',
     'Ce qu’il faut : un forfait Clover qui comprend l’inventaire et les commandes, un appareil Clover avec une imprimante de commandes, vos propres comptes marchands Uber Eats, DoorDash ou SkipTheDishes, et un compte TAKATAK Food Hub — chaque nouveau restaurant est approuvé par notre équipe avant que des commandes soient envoyées à sa caisse.',
     '',
+    `Prix : ${PRICING_STATEMENT.fr}`,
+    '',
     'Interface en français et en anglais. Food Hub ne traite aucun paiement par carte. Les jetons Clover restent sur notre serveur et se renouvellent seuls ; ils sont supprimés à la désinstallation.',
   ].join('\n'),
   en: [
@@ -52,6 +58,8 @@ export const LISTING_DESCRIPTION: Bilingual = {
     '',
     'Requirements: a Clover plan that includes Inventory and Orders, a Clover device with an order printer, your own Uber Eats, DoorDash or SkipTheDishes merchant accounts, and a TAKATAK Food Hub account — each new restaurant is approved by our team before any order is sent to its register.',
     '',
+    `Price: ${PRICING_STATEMENT.en}`,
+    '',
     'French and English interface. Food Hub never processes card payments. Clover tokens stay on our server and renew by themselves; they are deleted when the app is uninstalled.',
   ].join('\n'),
 };
@@ -62,7 +70,7 @@ export const LISTING_FUNCTIONAL_DESCRIPTION: Bilingual = {
     'WHAT IT DOES — TAKATAK Food Hub is a delivery-order hub for restaurants. It receives orders from Uber Eats, DoorDash, SkipTheDishes and Too Good To Go through each platform’s own API (no aggregator) and puts them in the merchant’s Clover:',
     '1. Each delivery order is created with the atomic order API: an order type named after the platform ("Uber Eats", "DoorDash"…), line items, modifiers, notes, and any restaurant-funded promotion as an order discount.',
     '2. The kitchen ticket is printed on the Clover order printer (print_event).',
-    '3. When the courier picks the order up, Food Hub records the payment with a custom tender named after the platform, so the order closes as PAID and the closeout is right. Food Hub never takes card payments and never charges anyone.',
+    '3. When the courier picks the order up, Food Hub records the payment with a custom tender named after the platform, so the order closes as PAID and the closeout is right. Food Hub never takes card payments and never charges the restaurant’s customers.',
     '4. Menus: Food Hub imports the Clover inventory (items, categories, modifier groups) into one master menu published to the platforms, and can add a kitchen printer label to items that would not print.',
     '5. Sold out: the Inventory webhook takes an item marked out of stock in Clover off every platform, and puts it back when it is available again.',
     '6. Uninstall: the App webhook deletes the merchant’s tokens at once.',
@@ -78,7 +86,7 @@ export const LISTING_FUNCTIONAL_DESCRIPTION: Bilingual = {
     'CE QUE FAIT L’APPLICATION — TAKATAK Food Hub est un centre de commandes de livraison pour restaurants. Il reçoit les commandes Uber Eats, DoorDash, SkipTheDishes et Too Good To Go par l’API de chaque plateforme (sans agrégateur) et les met dans la caisse Clover du marchand :',
     '1. Chaque commande est créée avec l’API de commande atomique : type de commande au nom de la plateforme (« Uber Eats », « DoorDash »…), articles, modificateurs, notes, et la promotion payée par le restaurant en rabais sur la commande.',
     '2. Le billet de cuisine s’imprime sur l’imprimante de commandes Clover (print_event).',
-    '3. Quand le livreur part avec la commande, Food Hub enregistre le paiement avec un mode de paiement au nom de la plateforme : la commande est PAYÉE et la fermeture de caisse est juste. Food Hub ne traite aucun paiement par carte et ne facture personne.',
+    '3. Quand le livreur part avec la commande, Food Hub enregistre le paiement avec un mode de paiement au nom de la plateforme : la commande est PAYÉE et la fermeture de caisse est juste. Food Hub ne traite aucun paiement par carte et ne facture jamais les clients du restaurant.',
     '4. Menus : Food Hub importe l’inventaire Clover (articles, catégories, groupes de modificateurs) dans un menu maître publié sur les plateformes, et peut ajouter une étiquette d’imprimante de cuisine aux articles qui ne s’imprimeraient pas.',
     '5. Ruptures : le webhook Inventaire retire de toutes les plateformes un article en rupture dans Clover, et le remet en vente quand il revient.',
     '6. Désinstallation : le webhook App supprime aussitôt les jetons du marchand.',

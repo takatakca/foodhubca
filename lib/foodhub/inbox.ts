@@ -43,6 +43,12 @@ export interface InboxEntry {
   lastError?: string | null;
   result?: string | null;
   orderId?: string | null;
+  /**
+   * DoorDash only: why this webhook is a DoorDash SANDBOX test (doordash/sandbox.ts), decided when it arrived. A tagged
+   * entry is always processed as a test (never the kitchen pipeline), whatever the env says when it is retried or
+   * replayed, and the answer-window cutoff never applies to it.
+   */
+  sandbox?: string | null;
   body: unknown;
 }
 
@@ -68,6 +74,10 @@ async function carriesOrder(e: InboxEntry): Promise<{ placedAt?: string | null; 
   const body = (e.body ?? {}) as Record<string, any>;
   if (e.kind === 'order') return { placedAt: body.placedAt ?? null, viaHub: body.viaHub };
   if (e.kind === 'uber') return /^orders(\.scheduled)?\.notification$/.test(String(body.event_type ?? '')) ? {} : null;
+  // A DoorDash sandbox test has no kitchen deadline (the sandbox handler never cooks and never throws): never cut off.
+  if (e.sandbox) return null;
+  const { doorDashSandboxReason } = await import('./doordash/sandbox');
+  if (await doorDashSandboxReason(body)) return null;
   const { classifyDoorDash } = await import('./webhooks/doordash');
   const c = classifyDoorDash(body);
   return c.kind === 'order' ? { placedAt: c.order?.placedAt ?? null } : null;
@@ -107,7 +117,12 @@ function visibleTo(e: Pick<InboxEntry, 'channel' | 'kind' | 'body'>, locations: 
 
 type Handler = (body: any) => Promise<{ result: string; orderId?: string | null }>;
 
-async function handlerFor(kind: InboxKind): Promise<Handler> {
+async function handlerFor(kind: InboxKind, sandbox?: string | null): Promise<Handler> {
+  // Tagged as a DoorDash sandbox test when it arrived: the test list only, never processIncomingOrder.
+  if (kind === 'doordash' && sandbox) {
+    const { handleDoorDashSandboxWebhook } = await import('./webhooks/doordash-sandbox');
+    return (body) => handleDoorDashSandboxWebhook(body, sandbox);
+  }
   if (kind === 'uber') return (await import('./webhooks/uber')).handleUberWebhook;
   if (kind === 'doordash') return (await import('./webhooks/doordash')).handleDoorDashWebhook;
   const { pipelineOutcomeText, processIncomingOrder } = await import('./pipeline');
@@ -129,10 +144,10 @@ export async function getInboxEntry(id: string): Promise<InboxEntry | null> {
  * Saves a webhook before the platform gets its answer. Throws when it cannot be saved: the route answers 503, after
  * refuseInboxEntry with the same id and receivedAt (the write may have landed with only its answer lost).
  */
-export async function receiveWebhook(input: { channel: ChannelKey; kind: InboxKind; body: unknown; reference?: string | null; id?: string; receivedAt?: string }): Promise<InboxEntry> {
+export async function receiveWebhook(input: { channel: ChannelKey; kind: InboxKind; body: unknown; reference?: string | null; id?: string; receivedAt?: string; sandbox?: string | null }): Promise<InboxEntry> {
   const at = input.receivedAt ?? nowIso();
   // `id`: the platform's own event id when it has one (Uber event_id — adapters/uber-inbox.ts), so a re-delivery is recognised.
-  const entry: InboxEntry = { id: input.id || crypto.randomUUID(), channel: input.channel, kind: input.kind, reference: input.reference ? String(input.reference).slice(0, 200) : null, status: 'received', receivedAt: at, updatedAt: at, attempts: 0, body: input.body };
+  const entry: InboxEntry = { id: input.id || crypto.randomUUID(), channel: input.channel, kind: input.kind, reference: input.reference ? String(input.reference).slice(0, 200) : null, status: 'received', receivedAt: at, updatedAt: at, attempts: 0, ...(input.kind === 'doordash' && input.sandbox ? { sandbox: input.sandbox } : {}), body: input.body };
   await save(entry);
   return entry;
 }
@@ -182,7 +197,7 @@ export async function runInboxEntry(id: string, opts: { now?: number; replayBy?:
   const started: InboxEntry = { ...entry, status: 'processing', attempts: entry.attempts + 1, updatedAt: new Date(now).toISOString() };
   await save(started);
   try {
-    const out = await (await handlerFor(entry.kind))(entry.body);
+    const out = await (await handlerFor(entry.kind, entry.sandbox))(entry.body);
     const done: InboxEntry = { ...started, status: 'done', nextAt: null, lastError: null, result: out.result, orderId: out.orderId ?? entry.orderId ?? null, updatedAt: nowIso() };
     await save(done);
     if (opts.replayBy) {

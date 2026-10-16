@@ -11,6 +11,8 @@ import { toDoorDashMenu } from '@/lib/foodhub/menu/translate';
 import { menuForLocation } from '@/lib/foodhub/ops';
 import { getRepo } from '@/lib/foodhub/repo';
 import { unauthorized } from '@/lib/foodhub/webhook-utils';
+import { addSandboxLog, doorDashStoreAccess, verifyDoorDashSandboxWebhook } from '@/lib/foodhub/doordash/sandbox';
+import { sandboxMenuPayloadParts, updateSandboxState } from '@/lib/foodhub/doordash/sandbox-ops';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,11 +20,21 @@ export const dynamic = 'force-dynamic';
 //   GET https://YOUR-DOMAIN/api/foodhub/webhooks/doordash/{location_id}
 // where location_id is the store's merchant_supplied_id (the DoorDash store id mapped under Stores → Mapping).
 // Developer Portal → Webhook subscriptions → Event type "Menu Request" → URL https://YOUR-DOMAIN/api/foodhub/webhooks/doordash
-// (no trailing slash; DoorDash appends /{location_id}), Authorization = DOORDASH_WEBHOOK_SECRET.
+// (no trailing slash; DoorDash appends /{location_id}), Authorization = DOORDASH_WEBHOOK_SECRET (a Sandbox subscription:
+// DOORDASH_SANDBOX_WEBHOOK_SECRET, answered only for the sandbox test store).
 // Answers the same menu, hours and holidays a Publish would send, as DoorDash expects: { store, menus: [ ... ] }.
 export async function GET(req: NextRequest, ctx: { params: Promise<{ locationId: string }> }) {
-  if (!doorDashAdapter.verifyWebhook(req.headers, '')) return unauthorized('doordash');
+  const productionAuth = doorDashAdapter.verifyWebhook(req.headers, '');
+  const sandboxAuth = !productionAuth && verifyDoorDashSandboxWebhook(req.headers);
+  if (!productionAuth && !sandboxAuth) return unauthorized('doordash');
   const { locationId } = await ctx.params;
+  // A DoorDash sandbox test store (DOORDASH_SANDBOX_STORE_IDS, never a mapped real store) is answered from the brand
+  // chosen under DoorDash sandbox tests, built like a real publish, and logged there only (doordash/sandbox-ops.ts).
+  // A sandbox request (DOORDASH_ENV=sandbox or the sandbox secret) about any other store: a real store's menu is never
+  // handed to DoorDash's sandbox (409).
+  const access = await doorDashStoreAccess(decodeURIComponent(locationId), { sandboxAuth });
+  if (access.kind === 'test') return sandboxMenuPull(decodeURIComponent(locationId));
+  if (access.kind === 'refused') return NextResponse.json({ error: access.message }, { status: 409 });
   const repo = getRepo();
   const store = await repo.findStore('doordash', decodeURIComponent(locationId));
   // A relay store ("relay:<id>") is not a DoorDash API store: it never receives a menu.
@@ -42,5 +54,18 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ locationId:
   const local = await menuWithAlcoholRules(menuForLocation(menu, store.locationCode), store.locationCode, 'doordash');
   const { reference: _reference, store: storeRef, ...menuBody } = toDoorDashMenu(local, store.channelStoreId, process.env.DOORDASH_PROVIDER_TYPE || '', `takatak-${store.channelStoreId}-pull`, publish);
   const menuId = typeof store.meta?.doordashMenuId === 'string' ? store.meta.doordashMenuId : undefined;
+  return NextResponse.json({ store: storeRef, menus: [{ ...(menuId ? { id: menuId } : {}), ...menuBody }] });
+}
+
+async function sandboxMenuPull(id: string) {
+  const parts = await sandboxMenuPayloadParts(id);
+  if ('error' in parts) {
+    await updateSandboxState((s) => addSandboxLog(s, { kind: 'menu_pull', text: `DoorDash asked for the test store menu — not answered: ${parts.error}`, ok: false, storeId: id }));
+    return NextResponse.json({ error: parts.error }, { status: 404 });
+  }
+  const { store, menu, ctx } = parts;
+  const { reference: _reference, store: storeRef, ...menuBody } = toDoorDashMenu(menu, store.channelStoreId, process.env.DOORDASH_PROVIDER_TYPE || '', `takatak-${store.channelStoreId}-pull`, ctx);
+  const menuId = typeof store.meta?.doordashMenuId === 'string' ? store.meta.doordashMenuId : undefined;
+  await updateSandboxState((s) => addSandboxLog(s, { kind: 'menu_pull', text: `DoorDash pulled the test store menu (${store.brandName}, ${menu.items.length} items)`, ok: true, storeId: id }));
   return NextResponse.json({ store: storeRef, menus: [{ ...(menuId ? { id: menuId } : {}), ...menuBody }] });
 }

@@ -11,6 +11,7 @@ import { Select } from '@/components/ui/form';
 import { useViewer } from '@/components/shell/viewer';
 import { Section, SettingsHead } from '../settings-ui';
 import { TgtgEmailSection } from './tgtg-email';
+import { DoorDashSandboxTests } from './doordash-sandbox';
 import { api } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 
@@ -349,6 +350,8 @@ export default function ChannelsSettingsPage() {
           </Card>
         </Section>
       )}
+
+      <DoorDashSandboxTests />
 
       <WebhookInbox unparsed={data.unparsed} onChanged={() => load(revealed)} />
 

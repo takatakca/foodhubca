@@ -84,6 +84,12 @@ function Frame({ children }: { children: ReactNode }) {
   useEffect(() => { try { setCollapsed(localStorage.getItem('takatak.rail') === '1'); } catch { /* ignore */ } }, []);
   useEffect(() => { const o = () => setCopilot(true); window.addEventListener('takatak:copilot', o); return () => window.removeEventListener('takatak:copilot', o); }, []);
   useEffect(() => { setMore(false); setScreen(pathname); }, [pathname]);
+  // Portaled order drawers and alerts inherit tokens from the document root.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle('theme-kitchen', pathname === '/kitchen' || pathname.startsWith('/kitchen/'));
+    return () => { root.classList.remove('theme-kitchen'); };
+  }, [pathname]);
   useEffect(() => { installSupervisor(); }, []);
   useEffect(() => {
     if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('/sw.js').catch(() => undefined);

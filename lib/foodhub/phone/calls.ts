@@ -45,6 +45,8 @@ export interface PhoneCall {
   /** The line part of the system prompt, frozen at the first AI turn (the prefix must not change during a call). Dropped when it ends. */
   prompt?: string;
   cart: CartLine[];
+  /** Duo / Trio / Combo already offered on this call (offered once per call). */
+  upsellOffered?: boolean;
   customer: { name?: string; phone?: string; fulfillment?: 'pickup' | 'delivery'; dropoff?: DropoffAddress; wantedAt?: string };
   orderId?: string;
   orderNumber?: string;

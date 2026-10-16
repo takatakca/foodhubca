@@ -1,6 +1,6 @@
 // AI phone ordering — the phone lines and how the agent behaves.
 // One Twilio number = one line. A line sells brands from one kitchen (location), or from several kitchens
-// ("brand@kitchen" groups: Po Poulet at NDG and at Saint-Léonard on the same number). On a line with several kitchens the
+// ("brand@kitchen" groups: Pi Pita at NDG and Po Poulet at Saint-Léonard on the same number). On a line with several kitchens the
 // agent first asks which restaurant the caller wants (tool choose_kitchen); everything after that — menu, hours, delivery
 // area, hand-off phone, the Clover ticket — is that kitchen's. Stored in fh_kv.
 import crypto from 'node:crypto';
@@ -180,11 +180,11 @@ export async function getPhoneSettings(): Promise<PhoneSettings> {
 
 /**
  * Locked by the owner, the same rule as the brand phone lines (brand-lines.ts): Po Poulet is never sold by phone from the
- * NDG kitchen — only from a kitchen whose location names another place (Saint-Léonard / Jean-Talon, Hochelaga).
+ * NDG kitchen (or any kitchen other than Saint-Léonard) — only from the kitchen whose location names Saint-Léonard / Jean-Talon.
  * "Po Poulet NDG is never touched" (CLAUDE.md § 4).
  */
 const PO_POULET = /\bpo[\s-]*poulet\b/i;
-const PO_POULET_OTHER_KITCHEN = /jean|talon|l[eé]onard|hochelaga/i;
+const PO_POULET_OTHER_KITCHEN = /jean|talon|l[eé]onard/i;
 
 /** True when this brand may not be sold by phone from this location (code, name, address, city). */
 export function brandLockedAt(brand: string, location: { code: string; name?: string; address?: string; city?: string } | undefined, code: string): boolean {

@@ -128,7 +128,6 @@ export function isSiteWebMarked(co: any): boolean {
 
 export type CloverOrderKind = 'website' | 'platform' | 'foodhub' | 'other';
 
-/** Which kind of Clover order this is. `known` = Clover ids of the orders Food Hub created itself. */
 /**
  * Our payment-link mark ("Réf. IA-1043") on a line: the Clover order a paid payment link created. Ours from the first
  * second — before Food Hub saved its id or gave it a title — so it is never mirrored as a website order.
@@ -138,6 +137,7 @@ export function hasFoodHubPayMark(co: any): boolean {
   return (co?.lineItems?.elements ?? []).some((li: any) => PAYLINK_MARK.test(String(li?.note ?? '')));
 }
 
+/** Which kind of Clover order this is. `known` = Clover ids of the orders Food Hub created itself. */
 export function classifyCloverOrder(co: any, ctx: { orderTypes: Map<string, string>; tenders: Map<string, string>; known?: Set<string> }): CloverOrderKind {
   const id = String(co?.id ?? '');
   if (id && ctx.known?.has(id)) return 'foodhub';

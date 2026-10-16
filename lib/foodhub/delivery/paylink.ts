@@ -27,7 +27,7 @@ import {
 import { printKitchenTicket } from '../pos/clover-order';
 import { prepFor } from '../prep';
 import { getRepo } from '../repo';
-import { createDirectOrderInClover, explicitMerchantFor, orderTypeId } from './clover-direct';
+import { createDirectOrderInClover, explicitMerchantFor, kitchenHasNoRegister, orderTypeId } from './clover-direct';
 import { confirmToCustomer } from './orders';
 import { addDirectEvent, getDeliverySettings, getDirectOrder, listDirectOrders, ruleFor, saveDirectOrder } from './store';
 import type { DirectOrder, PayLink } from './types';
@@ -56,6 +56,7 @@ export interface PaylinkReady { ok: boolean; merchantId?: string; reason?: strin
  */
 export async function paylinkReadiness(brand: string, locationCode: string): Promise<PaylinkReady> {
   if (!ecommConfigured()) return { ok: false, reason: 'No Clover Hosted Checkout key on this server (CLOVER_ECOMM_PRIVATE_KEY).' };
+  if (kitchenHasNoRegister(locationCode)) return { ok: false, reason: `${locationCode} has no Clover register (FOODHUB_CLOVER_NO_REGISTER): a paid order could not be printed there.` };
   const mid = await explicitMerchantFor(brand, locationCode).catch(() => null);
   if (!mid) return { ok: false, reason: `No Clover merchant mapped to ${locationCode} (Stores): a payment link would be paid on another kitchen's register.` };
   if (!ecommKeyFor(mid)) return { ok: false, merchantId: mid, reason: `No Hosted Checkout key for merchant ${mid} (CLOVER_ECOMM_KEYS).` };

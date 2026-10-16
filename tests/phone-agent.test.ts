@@ -189,7 +189,7 @@ describe('the agent', () => {
   });
 
   it('has no tool that can refund, cancel, discount or take a payment (the link is only checked or texted again)', () => {
-    expect(TOOLS.map((t) => t.name).sort()).toEqual(['add_item', 'check_payment', 'choose_kitchen', 'end_call', 'place_order', 'remove_item', 'resend_payment_link', 'set_language', 'set_order_details', 'transfer_to_human', 'view_cart']);
+    expect(TOOLS.map((t) => t.name).sort()).toEqual(['add_item', 'add_upsell', 'check_payment', 'choose_kitchen', 'end_call', 'place_order', 'remove_item', 'resend_payment_link', 'set_language', 'set_order_details', 'transfer_to_human', 'view_cart']);
     // No tool takes card details: no input field for a card, a CVV or an amount.
     expect(JSON.stringify(TOOLS.map((t) => t.input_schema))).not.toMatch(/card|cvv|amount|refund|discount/i);
   });

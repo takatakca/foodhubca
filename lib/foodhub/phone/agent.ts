@@ -24,7 +24,7 @@ import { getDirectOrder } from '../delivery/store';
 import { prepFor } from '../prep';
 import { localTimeLabel } from '../time';
 import { noteAiFailure, noteAiSuccess, phoneAiUsable } from './ai-health';
-import { addToCart, buildPhoneMenu, cartSummary, removeFromCart, type CartLine, type PhoneMenu } from './cart';
+import { addToCart, addUpsell, buildPhoneMenu, cartSummary, removeFromCart, upsellOffer, type CartLine, type PhoneMenu } from './cart';
 import { say, type PhoneCall, type PhoneLang, type TurnReply } from './calls';
 import { kitchenHours, paymentText, phoneDeliveryAvailable, phonePaymentPlan, placePhoneOrder, setOrderDetails } from './order';
 import { isMultiKitchen, kitchenView, lineKitchens, type PhoneLine, type PhoneSettings } from './settings';
@@ -58,6 +58,18 @@ export const TOOLS: Anthropic.Beta.BetaTool[] = [
         brand: str('Brand name exactly as in the MENU.'), item_ref: str('item_ref from the MENU.'), quantity: { type: 'integer', description: '1 to 20.' },
         option_refs: { type: 'array', items: { type: 'string' }, description: 'option_ref of every option chosen (empty if none).' },
         notes: str('Short kitchen note from the caller ("well done", "no onions"), or empty.'),
+      },
+    },
+  },
+  {
+    name: 'add_upsell', strict: true,
+    description: 'Add Duo, Trio or Combo (UPSELL options in the MENU) to one cart line, after the caller accepted it AND named the drink. The option chosen is the drink. At most one of the three per item.',
+    input_schema: {
+      type: 'object', additionalProperties: false, required: ['line_number', 'option_ref', 'caller_chose_drink'],
+      properties: {
+        line_number: { type: 'integer', description: 'Cart line of the main dish (as in add_item / view_cart).' },
+        option_ref: str('option_ref of the drink in the Duo, Trio or Combo the caller chose.'),
+        caller_chose_drink: { type: 'boolean', description: 'true only when the caller said which drink. Never choose it for them.' },
       },
     },
   },
@@ -119,7 +131,7 @@ Taking the order
 - If your instructions list several KITCHENS, first find out which restaurant the caller wants (ask, or deduce it when the brand they name is sold in only one kitchen) and call choose_kitchen. The MENU of that kitchen then appears.
 - Sell only what is in the MENU. Never invent items, prices, options, specials, discounts or promotions. If something is not there, say so and suggest something close from the MENU.
 - Call add_item as soon as the caller decides on an item, and confirm it in a few words (« Parfait, un poulet entier piri-piri. »). When a tool says a required choice is missing, ask exactly that question.
-- Suggest ONE relevant extra at most once per order — a drink or a side from the MENU (« Avec ça, une liqueur ou des frites ? »), never alcohol — and skip it if the caller is in a hurry or already said no.
+- The upsell: when add_item says UPSELL, offer it ONCE in one short sentence with the prices of its options (« Voulez-vous en faire un Duo avec un breuvage pour 2,50 $, un Trio avec petite frite et breuvage pour 5,42 $, ou un Combo avec petite poutine et breuvage pour 7,58 $ ? »). If the caller says yes, ALWAYS ask which drink (never choose it), then call add_upsell. Only one of Duo, Trio or Combo per item. If the caller says no or is in a hurry, do not offer it again on this call. Without an UPSELL in the menu, suggest at most one drink or side from the MENU once, never alcohol.
 - Then get the name, pickup or delivery (for delivery: street number, street, apartment, door code, postal code) and call set_order_details.
 - Call view_cart and read back every item and the TOTAL with taxes, plus pickup or delivery and the time. Only after a clear yes, call place_order with caller_confirmed=true and the payment chosen as PAYMENT says.
 - After place_order succeeds, Food Hub itself tells the caller the order number, the time and how to pay: do not repeat them. Answer a last question if any, then a warm short goodbye (« Merci d'avoir commandé chez <brand>, bonne soirée ! ») and call end_call.
@@ -233,7 +245,7 @@ export const clean = (s: string) => s.replace(/https?:\/\/\S+|www\.\S+/gi, '').r
 
 type ToolOutcome = { content: string; isError?: boolean; next?: TurnReply['next'] };
 
-const KITCHEN_FIRST = new Set(['add_item', 'set_order_details', 'place_order']);
+const KITCHEN_FIRST = new Set(['add_item', 'add_upsell', 'set_order_details', 'place_order']);
 
 interface TurnState { call: PhoneCall; kitchenChanged?: boolean; /** Said by the code after place_order (number, time, payment). */ confirm?: string; confirmDigits?: string }
 
@@ -281,6 +293,18 @@ async function runTool(name: string, input: any, state: TurnState, ctx: AgentCon
       const r = addToCart(ctx.menu, call.cart, input);
       if (!r.ok) return { content: r.error, isError: true };
       state.call = { ...call, cart: r.cart };
+      // The upsell is offered once per call, after the first main dish that has one (the code decides, not the model).
+      const offer = call.upsellOffered ? null : upsellOffer(ctx.menu, r.cart[r.cart.length - 1]);
+      if (offer) {
+        state.call = { ...state.call, upsellOffered: true };
+        return { content: `${r.message} UPSELL (offer it now, once, in one short sentence with these prices; if yes, ask which drink, then add_upsell line ${r.cart.length}): ${offer}` };
+      }
+      return { content: r.message };
+    }
+    case 'add_upsell': {
+      const r = addUpsell(ctx.menu, call.cart, input);
+      if (!r.ok) return { content: r.error, isError: true };
+      state.call = { ...call, cart: r.cart, upsellOffered: true };
       return { content: r.message };
     }
     case 'remove_item': {

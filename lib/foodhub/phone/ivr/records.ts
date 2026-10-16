@@ -3,6 +3,7 @@
 // about, saved BEFORE the transfer), and tickets (leads, voicemails, requests for a person). Stored in fh_docs.
 // Card numbers never get here (redacted before saving). The AI message history is dropped when the call ends.
 import { nowIso } from '../../config';
+import { dryRun } from '../../dry-run';
 import { normalizePhone, postToChat } from '../../notify';
 import { getRepo } from '../../repo';
 import type { IvrLang, PlatformId } from './config';
@@ -189,7 +190,8 @@ export async function endIvrCall(id: string, outcome?: IvrOutcome, durationSec?:
 export async function savePlatformRef(ref: Omit<PlatformRef, 'id' | 'at'> & { id?: string }): Promise<PlatformRef> {
   const at = nowIso();
   const full: PlatformRef = { ...ref, id: ref.id ?? `ref_${ref.callId.slice(-10)}_${Date.now().toString(36)}`, at };
-  await getRepo().putDocs<PlatformRef>(IVR_REFS, [{ id: full.id, key: full.orderId || full.platform, at, data: full }]);
+  // Call simulator (dry run): not kept.
+  if (!dryRun()) await getRepo().putDocs<PlatformRef>(IVR_REFS, [{ id: full.id, key: full.orderId || full.platform, at, data: full }]);
   return full;
 }
 
@@ -221,7 +223,8 @@ export const ticketLabel = (c: TicketCategory) => CATEGORY_LABEL[c] ?? c;
 export async function openTicket(input: Omit<IvrTicket, 'id' | 'at' | 'status'>): Promise<IvrTicket> {
   const at = nowIso();
   const t: IvrTicket = { ...input, summary: redactCards(input.summary).slice(0, 1000), ...(input.transcript ? { transcript: redactCards(input.transcript).slice(0, 4000) } : {}), id: `tk_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, at, status: 'open' };
-  await getRepo().putDocs<IvrTicket>(IVR_TICKETS, [{ id: t.id, key: t.category, at, data: t }]);
+  // Call simulator (dry run): the ticket is not kept; the team-chat post below is recorded, not sent.
+  if (!dryRun()) await getRepo().putDocs<IvrTicket>(IVR_TICKETS, [{ id: t.id, key: t.category, at, data: t }]);
   await postToChat({
     title: `☎️ ON2GO line: ${ticketLabel(t.category)}${t.from && t.from !== 'anonymous' ? ` — call back ${t.from}` : ''}`,
     text: `${t.summary}${t.orderRef ? ` (order ${t.orderRef})` : ''}`,

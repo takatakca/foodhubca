@@ -67,7 +67,7 @@ export async function expansionSummary(scope?: string[]) {
   };
 
   const courierCost = round2(todayDeliveries.filter((d) => d.status !== 'cancelled').reduce((s, d) => s + (d.fee ?? 0), 0));
-  const feesCharged = round2(myOrders.filter((o) => o.fulfillment === 'delivery' && o.status !== 'cancelled').reduce((s, o) => s + o.deliveryFee, 0));
+  const feesCharged = round2(myOrders.filter((o) => o.fulfillment === 'delivery' && o.status !== 'cancelled' && o.status !== 'awaiting_payment').reduce((s, o) => s + o.deliveryFee, 0));
   return {
     features: FEATURE_KEYS.map((k) => ({ ...features[k], label: FEATURE_LABELS[k], checks: checks[k] })),
     today: {

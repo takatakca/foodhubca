@@ -1,5 +1,11 @@
 # Food Hub: progress log and task board
 
+## 2026-10-16 — Clover billing: subscription status + extra-brand metered billing (`feature/clover-billing-extra-brands`)
+
+- Stacked on `feature/clover-voice-ai-app` (reuses its app registry, token store and billing_info reader). Owner's price: tier "Standard" CAD $50/month (Canada, 14-day trial) + metered "Extra brand, per platform, per month" CAD $15 (first brand included; each extra brand × each of Uber Eats / DoorDash / SkipTheDishes it is on).
+- New `lib/foodhub/pos/clover-pricing.ts` (prices, FR/EN copy) and `lib/foodhub/pos/clover-extra-brands.ts`: per-merchant subscription status (cached 15 min, trial days left), unit counting from store mappings (oldest brand or « marque principale » is free; TGTG and deactivated brands never count), monthly metered report (OFF unless `FOODHUB_CLOVER_METERED_ENABLED=true`; `CLOVER_METERED_EXTRA_BRAND_ID`; `FOODHUB_BILLING_EXEMPT_MERCHANTS` never billed; idempotent per merchant and month, 3 tries, lost answers never re-sent), billing log, dry run, price quote. Settings → Clover app → « Facturation Clover »; `components/billing/extra-brand-price.tsx` shows « +15 $/mois pour cette plateforme » before adding a brand or connecting a store. Listing copy no longer says "free". Owner steps: `docs/CLOVER_BILLING.md`.
+- Checks: typecheck OK, lint 0 errors, 1018 tests passed (1 skipped; 1 Windows-only CRLF failure in tests/tgtg-email.test.ts from main), webpack build OK, e2e 554/0.
+
 ## 2026-10-16 — AI phone as a second Clover app: multi-app plumbing (task 41)
 
 - Branch `feature/clover-voice-ai-app` (PR #61). One backend, two Clover App Market apps: TAKATAK Food Hub (unchanged) and the AI phone app, sold separately. New `lib/foodhub/pos/clover-apps.ts` (registry), per-app OAuth in `clover-oauth.ts` (optional app argument, Food Hub default), phone routes `/api/foodhub/clover-connect/phone/{start,callback}` and `/api/foodhub/webhooks/clover/phone` (404 until `CLOVER_PHONE_APP_ID` is set), tokens per (app, merchant), uninstall of one app only, `clover-entitlement.ts` (`voiceAiEntitled`, `recordPhoneOrder`, `appInstalled`, `phoneCloverToken`), Settings → Clover app "Clover apps on this server".

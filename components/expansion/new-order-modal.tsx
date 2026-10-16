@@ -22,7 +22,7 @@ export function NewDirectOrder({ onClose, onCreated, customerFee = 0 }: { onClos
   const toast = useToast();
   const [f, setF] = useState({
     locationCode: locations[0]?.code ?? '', brandName: brands[0] ?? '', name: '', phone: '', fulfillment: 'delivery' as 'pickup' | 'delivery',
-    street: '', unit: '', city: 'Montréal', postalCode: '', instructions: '', tip: '3', paid: false, sms: true, notes: '',
+    street: '', unit: '', city: 'Montréal', postalCode: '', instructions: '', tip: '3', paid: false, sms: true, notes: '', link: false, lang: 'fr' as 'fr' | 'en' | 'es',
   });
   const [items, setItems] = useState<Item[]>([{ name: '', quantity: '1', price: '', alcohol: false }]);
   const [busy, setBusy] = useState(false);
@@ -42,10 +42,10 @@ export function NewDirectOrder({ onClose, onCreated, customerFee = 0 }: { onClos
       const r = await api<{ order: { id: string; number: string }; problems: string[]; problemsFr: string[] }>('/api/foodhub/delivery', {
         method: 'POST',
         json: {
-          source: 'phone', locationCode: f.locationCode, brandName: f.brandName, customer: { name: f.name, phone: f.phone }, fulfillment: f.fulfillment,
+          source: 'phone', locationCode: f.locationCode, brandName: f.brandName, customer: { name: f.name, phone: f.phone, lang: f.lang }, fulfillment: f.fulfillment,
           dropoff: delivery ? { street: f.street, unit: f.unit, city: f.city, postalCode: f.postalCode, instructions: f.instructions } : undefined,
           items: items.map((i) => ({ name: i.name, quantity: Number(i.quantity) || 1, price: Number(i.price.replace(',', '.')) || 0, alcohol: i.alcohol })),
-          tip: delivery ? Number(f.tip.replace(',', '.')) || 0 : 0, payment: f.paid ? 'paid' : undefined, confirmBySms: f.sms, notes: f.notes,
+          tip: delivery ? Number(f.tip.replace(',', '.')) || 0 : 0, payment: f.paid ? 'paid' : f.link ? 'link' : undefined, confirmBySms: f.sms, notes: f.notes,
         },
       });
       toast.success(t(`Commande ${r.order.number} créée`, `Order ${r.order.number} created`), (lang === 'fr' ? r.problemsFr : r.problems)[0]);
@@ -91,10 +91,13 @@ export function NewDirectOrder({ onClose, onCreated, customerFee = 0 }: { onClos
         </div>
         <Field label={t('Note pour la cuisine', 'Kitchen note')}><Input value={f.notes} onChange={(e) => set({ notes: e.target.value })} /></Field>
         <div className="flex flex-wrap gap-x-6 gap-y-2">
-          <Checkbox checked={f.paid} onChange={(v) => set({ paid: v })} label={t('Déjà payée (carte prise au comptoir)', 'Already paid (card taken at the counter)')} />
+          <Checkbox checked={f.paid} onChange={(v) => set({ paid: v, link: v ? false : f.link })} label={t('Déjà payée (carte prise au comptoir)', 'Already paid (card taken at the counter)')} />
+          <Checkbox checked={f.link} onChange={(v) => set({ link: v, paid: v ? false : f.paid })} label={t('Envoyer un lien de paiement par texto (Clover)', 'Text a payment link (Clover)')} />
           <Checkbox checked={f.sms} onChange={(v) => set({ sms: v })} label={t('Texter la confirmation au client', 'Text the confirmation to the customer')} />
+          {f.link && <Field label={t('Langue des textos', 'Text language')}><Select value={f.lang} onChange={(e) => set({ lang: e.target.value as 'fr' | 'en' | 'es' })}><option value="fr">Français</option><option value="en">English</option><option value="es">Español</option></Select></Field>}
         </div>
-        {delivery && !f.paid && <Banner tone="warn">{t('Les livreurs n’encaissent jamais : le livreur partira quand la commande sera marquée « Paiement encaissé ».', 'Couriers never collect money: the courier goes once the order is marked "Payment taken".')}</Banner>}
+        {f.link && <Banner tone="info">{t('La commande attend le paiement : elle part en cuisine (et le livreur) dès que le client a payé le lien.', 'The order waits for the payment: it goes to the kitchen (and the courier) as soon as the customer pays the link.')}</Banner>}
+        {delivery && !f.paid && !f.link && <Banner tone="warn">{t('Les livreurs n’encaissent jamais : le livreur partira quand la commande sera marquée « Paiement encaissé ».', 'Couriers never collect money: the courier goes once the order is marked "Payment taken".')}</Banner>}
         {err && <Banner tone="stop">{err}</Banner>}
       </div>
     </Modal>

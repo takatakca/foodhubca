@@ -11,8 +11,12 @@ import { useViewer } from '@/components/shell/viewer';
 import type { PhoneLine, PhoneLineKitchen, PhoneSettings } from '@/lib/foodhub/phone/settings';
 import { api, ApiError } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
+import { SPEECH_MODELS, voicesFor, type VoiceOption } from '@/lib/foodhub/phone/voices';
 import { Section } from '../../settings-ui';
 import { CopyValue, ExpansionHead } from '../expansion-ui';
+import { CallSimulatorPanel, PhoneReadinessPanel } from './phone-tools';
+
+const voiceLabel = (v: VoiceOption) => `${v.label} · ${v.gender === 'female' ? '♀' : '♂'}${v.tier === 'generative' ? ' · generative' : ''}`;
 
 type Readiness = { ai: boolean; model: string; twilio: boolean; tokenSet: boolean; voiceUrl: string; statusUrl: string };
 type Draft = Omit<PhoneLine, 'id'> & { id?: string };
@@ -79,7 +83,7 @@ export default function PhoneSettingsPage() {
                     <Field label={t('Numéro Twilio', 'Twilio number')}><Input type="tel" value={l.number} onChange={(e) => setLine(i, { number: e.target.value })} placeholder="+15145550199" /></Field>
                     <Field label={t('Nom dit au téléphone', 'Name said on the phone')}><Input value={l.name} onChange={(e) => setLine(i, { name: e.target.value })} placeholder="Po Poulet, Notre-Dame-de-Grâce" /></Field>
                     <Field label={t('Transfert à (vide = téléphone de la cuisine)', 'Hand-off to (empty = kitchen phone)')}><Input type="tel" value={l.handoffNumber ?? ''} onChange={(e) => setLine(i, { handoffNumber: e.target.value || undefined })} /></Field>
-                    <div className="flex items-end sm:col-span-2"><Switch checked={l.delivery} onChange={(v) => setLine(i, { delivery: v })} label={t('Offrir la livraison (DoorDash Drive)', 'Offer delivery (DoorDash Drive)')} description={t('Un membre de l’équipe rappelle pour le paiement avant l’envoi du livreur.', 'A team member calls back for the payment before the courier is sent.')} /></div>
+                    <div className="flex items-end sm:col-span-2"><Switch checked={l.delivery} onChange={(v) => setLine(i, { delivery: v })} label={t('Offrir la livraison (DoorDash Drive)', 'Offer delivery (DoorDash Drive)')} description={t('Payée par le lien Clover texté quand il est configuré ; sinon un membre de l’équipe rappelle pour le paiement avant l’envoi du livreur.', 'Paid by the texted Clover link when it is set up; otherwise a team member calls back for the payment before the courier is sent.')} /></div>
                   </div>
                   <div className="mt-3 space-y-2">
                     {kitchensOf(l).map((k, ki, ks) => (
@@ -102,16 +106,37 @@ export default function PhoneSettingsPage() {
             </div>
           </Section>
 
-          <Section title={t('Voix et comportement', 'Voice and behaviour')}>
+          <Section title={t('Voix et comportement', 'Voice and behaviour')}
+            subtitle={t('Français québécois (comprend aussi le français de France), anglais (Canada / États-Unis), espagnol latino-américain (Mexique, Cuba).', 'Québec French (also understands France French), English (Canada / US), Latin-American Spanish (Mexico, Cuba).')}>
             <fieldset disabled={!owner} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <Field label={t('Voix française (fr-CA)', 'French voice (fr-CA)')}><Select value={s.voiceFr} onChange={(e) => setS({ ...s, voiceFr: e.target.value })}>{['Polly.Gabrielle-Neural', 'Polly.Liam-Neural', 'Google.fr-CA-Neural2-A', 'Google.fr-CA-Neural2-B', 'Google.fr-CA-Chirp3-HD-Aoede', 'Polly.Chantal'].map((x) => <option key={x}>{x}</option>)}</Select></Field>
-              <Field label={t('Voix anglaise', 'English voice')}><Select value={s.voiceEn} onChange={(e) => setS({ ...s, voiceEn: e.target.value })}>{['Polly.Joanna-Neural', 'Polly.Matthew-Neural', 'Polly.Danielle-Neural', 'Polly.Joanna-Generative', 'Polly.Ruth-Generative'].map((x) => <option key={x}>{x}</option>)}</Select></Field>
-              <Field label={t('Voix espagnole (es-US)', 'Spanish voice (es-US)')}><Select value={s.voiceEs} onChange={(e) => setS({ ...s, voiceEs: e.target.value })}>{['Polly.Lupe-Neural', 'Polly.Pedro-Neural', 'Google.es-US-Neural2-A', 'Google.es-US-Neural2-B'].map((x) => <option key={x}>{x}</option>)}</Select></Field>
+              <Field label={t('Voix française (fr-CA)', 'French voice (fr-CA)')}><Select value={s.voiceFr} onChange={(e) => setS({ ...s, voiceFr: e.target.value })}>{voicesFor('fr').map((x) => <option key={x.id} value={x.id}>{voiceLabel(x)}</option>)}</Select></Field>
+              <Field label={t('Voix anglaise (en-US)', 'English voice (en-US)')}><Select value={s.voiceEn} onChange={(e) => setS({ ...s, voiceEn: e.target.value })}>{voicesFor('en').map((x) => <option key={x.id} value={x.id}>{voiceLabel(x)}</option>)}</Select></Field>
+              <Field label={t('Voix espagnole (es-US / es-MX)', 'Spanish voice (es-US / es-MX)')}><Select value={s.voiceEs} onChange={(e) => setS({ ...s, voiceEs: e.target.value })}>{voicesFor('es').map((x) => <option key={x.id} value={x.id}>{voiceLabel(x)}</option>)}</Select></Field>
               <Field label={t('Silence de fin de phrase (s)', 'End-of-sentence silence (s)')}><Select value={String(s.speechTimeout)} onChange={(e) => setS({ ...s, speechTimeout: Number(e.target.value) })}>{[1, 2, 3, 4].map((x) => <option key={x} value={x}>{x}</option>)}</Select></Field>
+              <Field label={t('Prénom de l’assistant (facultatif)', 'Assistant’s first name (optional)')}><Input value={s.persona?.name ?? ''} maxLength={30} onChange={(e) => setS({ ...s, persona: { ...(s.persona ?? { name: '', gender: 'female' }), name: e.target.value } })} placeholder="Léa" /></Field>
+              <Field label={t('Reconnaissance (conversation)', 'Recognition (conversation)')}><Select value={s.speechModel} onChange={(e) => setS({ ...s, speechModel: e.target.value })}>{SPEECH_MODELS.map((x) => <option key={x} value={x}>{x}</option>)}</Select></Field>
+              <Field label={t('Reconnaissance (réponses courtes)', 'Recognition (short answers)')}><Select value={s.speechModelShort} onChange={(e) => setS({ ...s, speechModelShort: e.target.value })}>{SPEECH_MODELS.map((x) => <option key={x} value={x}>{x}</option>)}</Select></Field>
               <Field label={t('Tours max avant transfert', 'Max turns before hand-off')}><Input inputMode="numeric" value={s.maxTurns} onChange={(e) => setS({ ...s, maxTurns: Number(e.target.value) || 40 })} /></Field>
               <div className="sm:col-span-2"><Switch checked={s.smsConfirmation} onChange={(v) => setS({ ...s, smsConfirmation: v })} label={t('Texter la confirmation (numéro, total, heure)', 'Text the confirmation (number, total, time)')} /></div>
+              <div className="sm:col-span-2"><Switch checked={s.greetingMulti} onChange={(v) => setS({ ...s, greetingMulti: v })} label={t('Accueil ON2GO : écouter les trois langues à la fois (Deepgram)', 'ON2GO greeting: listen to all three languages at once (Deepgram)')} description={t('À activer seulement après un appel de test réussi sur le compte Twilio.', 'Turn on only after a successful test call on the Twilio account.')} /></div>
             </fieldset>
           </Section>
+
+          <Section title={t('Paiement des commandes par téléphone', 'Payment of phone orders')}
+            subtitle={t('Avec la clé Clover Hosted Checkout, un lien de paiement sécurisé est texté : la commande attend le paiement, puis part en cuisine (et le livreur) une seule fois. Sans la clé : paiement au comptoir, comme avant.', 'With the Clover Hosted Checkout key, a secure payment link is texted: the order waits for the payment, then goes to the kitchen (and the courier) exactly once. Without the key: pay at the counter, as before.')}>
+            <fieldset disabled={!owner} className="grid gap-3 sm:grid-cols-3">
+              <Field label={t('Mode', 'Mode')}><Select value={s.payment?.mode ?? 'link'} onChange={(e) => setS({ ...s, payment: { ...s.payment, mode: e.target.value as PhoneSettings['payment']['mode'] } })}>
+                <option value="link">{t('Lien par texto (comptoir si pas de cellulaire)', 'Link by text (counter if no cell)')}</option>
+                <option value="choose">{t('Le client choisit (pour emporter)', 'The caller chooses (pickup)')}</option>
+                <option value="counter">{t('Toujours au comptoir', 'Always at the counter')}</option>
+              </Select></Field>
+              <Field label={t('Lien valide (min)', 'Link valid (min)')}><Input inputMode="numeric" value={s.payment?.expiryMin ?? 30} onChange={(e) => setS({ ...s, payment: { ...s.payment, expiryMin: Number(e.target.value) || 30 } })} /></Field>
+              <Field label={t('Rappel texté après (min, 0 = aucun)', 'Reminder text after (min, 0 = none)')}><Input inputMode="numeric" value={s.payment?.reminderMin ?? 10} onChange={(e) => setS({ ...s, payment: { ...s.payment, reminderMin: Number(e.target.value) || 0 } })} /></Field>
+            </fieldset>
+          </Section>
+
+          <PhoneReadinessPanel owner={owner} />
+          {owner && <CallSimulatorPanel lines={lines} />}
         </div>
       )}
     </div>

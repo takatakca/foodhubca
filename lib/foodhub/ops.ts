@@ -6,8 +6,8 @@ import { isRelayStore } from './adapters/relay';
 import { CHANNEL_LABELS, nowIso, result } from './config';
 import { getHours, holidaysFor, localDate, publishContext } from './hours';
 import { getMenuLanguages } from './menu/language';
-import { isMenuLocked, menuLockedResult } from './menu/lock';
-import { activeMenus, getBrandMenu, getMenuSharing, groupOf, sourceOf } from './menu/shared';
+import { DO_NOT_TOUCH_MESSAGE, isDoNotTouch, isMenuLocked, menuLockedResult } from './menu/lock';
+import { activeMenus, dishesOf, dishScope, getBrandDishes, getBrandMenu, getMenuSharing, groupOf, sourceOf, unpublishableMenuReason, type BrandDishes } from './menu/shared';
 import { menuSnapshot } from './menu/snapshot';
 import { getRepo } from './repo';
 import { menuWithAlcoholRules } from './alcohol/rules';
@@ -78,15 +78,8 @@ export async function storesFor(filter: { brandName?: string; brandNames?: strin
     (!filter.channels?.length || filter.channels.includes(s.channel)));
 }
 
-/**
- * "Do not touch" (store.meta.doNotTouch): Food Hub never sends this store a menu, holiday hours or an 86 — its menu is
- * managed elsewhere (still on UrbanPiper, a special menu…). Orders, store status and pause / resume keep working.
- */
-export function isDoNotTouch(store: Pick<ChannelStore, 'meta'>): boolean {
-  return store.meta?.doNotTouch === true;
-}
-
-const DO_NOT_TOUCH_MESSAGE = 'Not sent: this store is marked “Do not touch” (Stores → edit the store to change it).';
+// "Do not touch" (store.meta.doNotTouch) lives in menu/lock.ts with the menu lock; re-exported for existing callers.
+export { isDoNotTouch };
 
 /** Refs 86'd at a location right now (timed 86s that already ended are ignored). */
 export function offRefsAt(menu: MasterMenu, locationCode: string, now = Date.now()): Set<string> {
@@ -113,6 +106,9 @@ export async function publishMenu(brandName: string, opts: { storeIds?: string[]
   const actor = opts.actor ?? SYSTEM_ACTOR;
   const menu = await getBrandMenu(brandName);
   if (!menu) throw new Error(`No master menu saved for ${brandName}. Import from Clover or create items first.`);
+  // A follower whose dish list matches nothing on the shared menu never publishes an empty menu.
+  const empty = unpublishableMenuReason(menu);
+  if (empty) throw new Error(empty);
   const stores = await storesFor({ brandName, storeIds: opts.storeIds, channels: opts.channels, locationCodes: opts.locationCodes });
   const hours = await getHours();
   const languages = await getMenuLanguages();
@@ -150,7 +146,7 @@ export async function publishMenu(brandName: string, opts: { storeIds?: string[]
  * Brands that share one menu share its 86 state too (same kitchen, same items): the 86 is saved on the shared menu
  * and sent to the stores of every brand that uses it.
  */
-export async function setItemAvailability(brandName: string, refs: string[], available: boolean, opts: { locationCode?: string; untilMs?: number; actor?: Actor; ownMenu?: boolean } = {}): Promise<FanOut> {
+export async function setItemAvailability(brandName: string, refs: string[], available: boolean, opts: { locationCode?: string; untilMs?: number; actor?: Actor; ownMenu?: boolean; storeIds?: string[] } = {}): Promise<FanOut> {
   const actor = opts.actor ?? SYSTEM_ACTOR;
   const repo = getRepo();
   // ownMenu: this brand's own stored menu and stores only (a brand that now shares another menu finishing the timed
@@ -163,6 +159,10 @@ export async function setItemAvailability(brandName: string, refs: string[], ava
   const modRefs = refs.filter((r) => modifierRefs.has(r));
   const names = new Map<string, string>([...(menu?.items ?? []).map((i) => [i.ref, i.name] as [string, string]), ...(menu?.modifierGroups ?? []).flatMap((g) => g.modifiers.map((m) => [m.ref, m.name] as [string, string]))]);
   const label = refs.map((r) => names.get(r) ?? r).join(', ');
+  // A follower brand with its own dish list only hears about its dishes and their options (read once, only when shared).
+  // Read BEFORE the 86 state is saved: getBrandDishes fails closed, so a read error stops here with nothing changed,
+  // never with an 86 saved in Food Hub and sent to no platform.
+  const dishes: BrandDishes = brands.length > 1 ? await getBrandDishes() : {};
   if (menu) {
     const byLoc = { ...(menu.unavailableByLocation ?? {}) };
     const until = { ...(menu.unavailableUntil ?? {}) };
@@ -179,9 +179,24 @@ export async function setItemAvailability(brandName: string, refs: string[], ava
     }
     await repo.saveMenu({ ...menu, unavailableByLocation: byLoc, unavailableUntil: until });
   }
-  const stores = await storesFor({ brandNames: brands, locationCode: opts.locationCode });
+  // storeIds: only these stores receive the change (the Clover sync sends it only to the stores that follow that
+  // merchant); an explicit empty list = no platform call at all, only the Food Hub state above.
+  const stores = opts.storeIds && !opts.storeIds.length ? [] : await storesFor({ brandNames: brands, locationCode: opts.locationCode, storeIds: opts.storeIds });
+  const scopes = new Map<string, ReturnType<typeof dishScope> | null>();
+  const scopeOf = (brand: string) => {
+    if (!scopes.has(brand)) { const list = menu ? dishesOf(sharing, dishes, brand) : null; scopes.set(brand, list ? dishScope(menu!, list) : null); }
+    return scopes.get(brand)!;
+  };
   const rows: FanOutRow[] = [];
   for (const store of stores) {
+    const scope = scopeOf(store.brandName);
+    const storeItemRefs = scope ? itemRefs.filter((r) => scope.itemRefs.has(r)) : itemRefs;
+    const storeModRefs = scope ? modRefs.filter((r) => scope.modifierRefs.has(r)) : modRefs;
+    if (scope && !storeItemRefs.length && !storeModRefs.length) {
+      // Not one of this brand's dishes: nothing to tell its platforms (no call, no job).
+      rows.push(row(store, result(store.channel, 'skipped', `Not sent: not on ${store.brandName}'s dishes of the shared menu.`)));
+      continue;
+    }
     if (isMenuLocked(store)) {
       // 86 / back in stock is a menu change: never sent to a locked store, from staff, Clover or a timer alike.
       const res = menuLockedResult(store, available ? 'back in stock' : '86');
@@ -193,14 +208,16 @@ export async function setItemAvailability(brandName: string, refs: string[], ava
     if (isDoNotTouch(store)) { rows.push(row(store, result(store.channel, 'skipped', DO_NOT_TOUCH_MESSAGE))); continue; }
     const adapter = getAdapter(store.channel);
     let res: ChannelResult = result(store.channel, 'skipped', 'Nothing to update.');
-    if (itemRefs.length) res = await adapter.setItemAvailability(store, itemRefs, available, opts.untilMs, 'item');
-    if (modRefs.length && (res.ok || !itemRefs.length)) {
-      const m = await adapter.setItemAvailability(store, modRefs, available, opts.untilMs, 'modifier');
-      res = itemRefs.length && m.ok ? { ...res, message: `${res.message}; modifiers: ${m.message}` } : m;
+    if (storeItemRefs.length) res = await adapter.setItemAvailability(store, storeItemRefs, available, opts.untilMs, 'item');
+    if (storeModRefs.length && (res.ok || !storeItemRefs.length)) {
+      const m = await adapter.setItemAvailability(store, storeModRefs, available, opts.untilMs, 'modifier');
+      res = storeItemRefs.length && m.ok ? { ...res, message: `${res.message}; modifiers: ${m.message}` } : m;
     }
-    await record('item_toggle', store, res, { brandName: store.brandName, itemRefs, modifierRefs: modRefs, available, untilMs: opts.untilMs ?? null });
+    const sentRefs = [...storeItemRefs, ...storeModRefs];
+    const sentLabel = scope ? sentRefs.map((r) => names.get(r) ?? r).join(', ') : label;
+    await record('item_toggle', store, res, { brandName: store.brandName, itemRefs: storeItemRefs, modifierRefs: storeModRefs, available, untilMs: opts.untilMs ?? null });
     await logStore(actor, 'item_availability', available ? 'item_on' : 'item_off', store, res,
-      `${available ? 'Back in stock' : "86'd"}: ${label}${!available && opts.untilMs ? ` until ${hhmm(opts.untilMs)}` : ''}`, { refs });
+      `${available ? 'Back in stock' : "86'd"}: ${sentLabel}${!available && opts.untilMs ? ` until ${hhmm(opts.untilMs)}` : ''}`, { refs: scope ? sentRefs : refs });
     rows.push(row(store, res));
   }
   const out = withSummary(rows);

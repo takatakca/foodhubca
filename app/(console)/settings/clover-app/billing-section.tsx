@@ -15,7 +15,7 @@ type BrandLine = { brand: string; platforms: BilledPlatform[]; extra: boolean; u
 type Why = 'ready' | 'off' | 'no_metered_id' | 'no_app_id' | 'exempt' | 'nothing_recorded' | 'zero' | 'reported' | 'failed' | 'uncertain' | 'sending' | 'not_due';
 type MerchantPreview = {
   merchantId: string; name: string | null; exempt: boolean; firstBrandMarked: string | null;
-  status: { text: { fr: string; en: string }; tone: 'trial' | 'active' | 'lapsed' | 'unknown'; paid: boolean; checkedAt: string | null };
+  status: { text: { fr: string; en: string }; tone: 'trial' | 'active' | 'lapsed' | 'unknown'; paid: boolean; notBilledTier: string | null; checkedAt: string | null };
   live: { firstBrand: string | null; firstBrandSource: 'owner' | 'oldest' | null; brands: BrandLine[]; units: number; monthlyCad: number };
   current: { month: string; units: number; amountCad: number; recorded: boolean };
   due: { month: string; units: number; amountCad: number; why: Why; wouldSend: boolean; request: string | null; state: string | null; at: string | null };
@@ -32,7 +32,7 @@ const WHY: Record<Why, { fr: string; en: string }> = {
   off: { fr: 'rien n’est envoyé : FOODHUB_CLOVER_METERED_ENABLED n’est pas à true', en: 'nothing is sent: FOODHUB_CLOVER_METERED_ENABLED is not true' },
   no_metered_id: { fr: 'rien n’est envoyé : CLOVER_METERED_EXTRA_BRAND_ID manque', en: 'nothing is sent: CLOVER_METERED_EXTRA_BRAND_ID is missing' },
   no_app_id: { fr: 'rien n’est envoyé : CLOVER_CLIENT_ID manque', en: 'nothing is sent: CLOVER_CLIENT_ID is missing' },
-  exempt: { fr: 'exempté (FOODHUB_BILLING_EXEMPT_MERCHANTS) : jamais facturé', en: 'exempt (FOODHUB_BILLING_EXEMPT_MERCHANTS): never billed' },
+  exempt: { fr: 'exempté (FOODHUB_BILLING_EXEMPT_MERCHANTS ou PHONE_OWN_MERCHANTS) : jamais facturé', en: 'exempt (FOODHUB_BILLING_EXEMPT_MERCHANTS or PHONE_OWN_MERCHANTS): never billed' },
   nothing_recorded: { fr: 'aucun compte enregistré pour ce mois : rien à envoyer', en: 'no count recorded for that month: nothing to send' },
   zero: { fr: 'aucune marque supplémentaire : rien à envoyer', en: 'no extra brand: nothing to send' },
   reported: { fr: 'déjà envoyé à Clover', en: 'already sent to Clover' },
@@ -124,13 +124,17 @@ export function CloverBillingSection() {
                       <option value="">{t('Automatique (la plus ancienne)', 'Automatic (the oldest)')}</option>
                       {m.live.brands.map((b) => <option key={b.brand} value={b.brand}>{b.brand}</option>)}
                     </Select>
+                    <span className="w-full text-[12px] text-ink-3">{t('Le changement s’applique au mois prochain ; ce mois-ci garde le compte le plus élevé déjà vu.', 'The change applies from next month; this month keeps the highest count already seen.')}</span>
                   </label>
                 )}
                 <div className="mt-3 grid gap-2 text-[13px] sm:grid-cols-2">
                   <div className="rounded-md bg-sunken px-3 py-2" data-testid="billing-current">
                     <div className="font-semibold text-ink">{t(`Ce mois-ci (${m.current.month})`, `This month (${m.current.month})`)}</div>
                     <div className="text-ink-2">{m.exempt ? t('Exempté : 0 $', 'Exempt: $0') : `${m.current.units} ${t('unité(s)', 'unit(s)')} = ${money(m.current.amountCad)}`}</div>
-                    {!m.exempt && !m.status.paid && <div className="text-ink-3">{t('Pas compté pendant l’essai gratuit ou un abonnement non payé.', 'Not counted during the free trial or an unpaid subscription.')}</div>}
+                    {!m.exempt && !m.status.paid && (m.status.notBilledTier
+                      ? <div className="text-ink-3">{t(`Non facturé : forfait ${m.status.notBilledTier} (seul le forfait Standard paie les marques supplémentaires).`, `Not billed: tier ${m.status.notBilledTier} (only the Standard tier pays for extra brands).`)}</div>
+                      : <div className="text-ink-3">{t('Pas compté pendant l’essai gratuit ou un abonnement non payé.', 'Not counted during the free trial or an unpaid subscription.')}</div>)}
+                    {!m.exempt && m.current.units > 0 && <div className="text-ink-3">{t('Garde le compte le plus élevé vu ce mois-ci : retirer une marque ou changer la marque principale baisse le mois prochain.', 'Keeps the highest count seen this month: removing a brand or changing the main brand lowers next month.')}</div>}
                   </div>
                   <div className="rounded-md bg-sunken px-3 py-2" data-testid="billing-due">
                     <div className="font-semibold text-ink">{t(`Envoi pour ${m.due.month}`, `Report for ${m.due.month}`)}</div>

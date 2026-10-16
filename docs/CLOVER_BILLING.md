@@ -36,13 +36,23 @@ Code: `lib/foodhub/pos/clover-extra-brands.ts`. Tests: `tests/clover-billing.tes
    - a store with no Clover merchant of its own follows the default merchant, like orders do.
 3. **Monthly report to Clover** (OFF by default). Each run (the sync, at most once an hour, or
    `/api/foodhub/cron/clover-billing`) keeps this month's **highest** count seen while the subscription was **paid**
-   (ACTIVE, not in the free trial). During the next month, that count is sent **once**:
+   (ACTIVE, not in the free trial, on the **Standard** tier). During the next month, that count is sent **once**:
    `POST /v3/apps/{appId}/merchants/{merchantId}/metereds/{meteredId}?count=N`.
-   - Idempotent per merchant and month: the month is saved as "sending" before the request leaves, then "reported".
-   - A refusal is tried again on later runs, 3 tries in all, then "given up" (shown in the log).
-   - A lost answer (timeout) or a run stopped mid-send is "uncertain": never sent again by itself. Check the charge
-     in the Clover dashboard.
-   - Count 0 = nothing sent. Exempt merchants are never counted or sent.
+   - Only the Standard tier pays for extra brands. With `CLOVER_FOODHUB_STANDARD_PLAN_IDS` set, the Clover
+     subscription ID decides; otherwise the tier name must say "Standard" and its price must not be $0. Any other tier
+     (an old $0 tier, for example) shows « Non facturé : forfait X » in the dry run and is never counted.
+   - Idempotent per merchant and month: each try is first claimed with one atomic database write (two containers
+     during a deploy can never both send it), then the month is saved as "sending", then "reported".
+   - Only an answer that shows Clover did not take it is tried again on later runs: a 4xx (429 included) or no
+     connection at all. 3 tries in all, then "given up" (shown in the log).
+   - A timeout, a connection that broke after sending, a 5xx or a 408, and a run stopped mid-send are "uncertain":
+     never sent again by itself. Check the charge in the Clover dashboard.
+   - A run that cannot read the brands (Business setup) or the « Marque principale » marks records no count for that
+     run (never a count from defaults); last month's report still goes out from its saved record.
+   - The month keeps its highest count: removing a brand or changing « Marque principale » lowers the bill from the
+     next month (the section says so under the selector).
+   - Count 0 = nothing sent. Exempt merchants (`FOODHUB_BILLING_EXEMPT_MERCHANTS` and `PHONE_OWN_MERCHANTS`) are never
+     counted or sent.
    - A month is only sent during the month right after it.
 4. **Dry run.** Settings → App Clover → Facturation Clover shows, for each merchant, the brands, the count, this
    month's amount, and exactly the request that would be sent for last month (or why nothing would be sent). Loading
@@ -50,7 +60,9 @@ Code: `lib/foodhub/pos/clover-extra-brands.ts`. Tests: `tests/clover-billing.tes
 5. **Price before confirming.** « Ajouter une marque » (Settings → Business) and connecting a platform store
    (Stores → Mapping, Uber activation) show « +15 $/mois pour cette plateforme » and ask to confirm, only for an
    extra brand of a merchant that installed the app and is not exempt. Nothing is shown for the first brand or for
-   our own restaurants.
+   our own restaurants. An Uber activation of several stores is quoted once with all of them added together
+   (« +30 $/mois : 2 marques sur Uber Eats »). A new brand in Business setup is not tied to a merchant yet, so its
+   notice is worded as a condition (« Si ce n’est pas la première marque de votre marchand Clover … »).
 
 ## Owner steps (environment names only, values in Coolify)
 
@@ -58,7 +70,10 @@ Code: `lib/foodhub/pos/clover-extra-brands.ts`. Tests: `tests/clover-billing.tes
    per month".
 2. In Coolify, set:
    - `CLOVER_METERED_EXTRA_BRAND_ID` = that ID;
-   - `FOODHUB_BILLING_EXEMPT_MERCHANTS` = our own restaurants' Clover merchant IDs, comma-separated (never billed);
+   - `FOODHUB_BILLING_EXEMPT_MERCHANTS` = our own restaurants' Clover merchant IDs, comma-separated (never billed;
+     the IDs already in `PHONE_OWN_MERCHANTS` are exempt too);
+   - `CLOVER_FOODHUB_STANDARD_PLAN_IDS` = the Clover subscription ID of the Standard tier (recommended; without it
+     the tier name "Standard" is used);
    - leave `FOODHUB_CLOVER_METERED_ENABLED` empty for now.
 3. Deploy, then open Settings → App Clover → **Facturation Clover**. Check the dry run: the right first brand per
    merchant, our own restaurants shown as « Exempté », the units and amounts you expect. Change « Marque principale »

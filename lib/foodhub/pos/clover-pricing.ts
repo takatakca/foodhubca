@@ -67,7 +67,7 @@ export function billingStatusText(b: BillingView | null | undefined, lang: Lang)
     return fr ? `Essai gratuit : ${about}${d} jour${d > 1 ? 's' : ''} restant${d > 1 ? 's' : ''}` : `Free trial: ${about}${d} day${d > 1 ? 's' : ''} left`;
   }
   const plan = (b.plan || 'Standard').trim();
-  const price = typeof b.amountCents === 'number' && b.amountCents > 0 ? b.amountCents / 100 : STANDARD_MONTHLY_CAD;
+  const price = typeof b.amountCents === 'number' && b.amountCents >= 0 ? b.amountCents / 100 : STANDARD_MONTHLY_CAD;
   if (status === 'ACTIVE') return fr ? `Forfait ${plan} ${formatCad(price, 'fr')}/mois` : `${plan} plan ${formatCad(price, 'en')}/month`;
   if (status === 'LAPSED') {
     const d = typeof b.daysLapsed === 'number' && b.daysLapsed > 0 ? b.daysLapsed : null;
@@ -96,10 +96,37 @@ export function extraPlatformNotice(lang: Lang, addedUnits = 1): string {
   return n === 1 ? `+${amount}/month for this platform` : `+${amount}/month for these ${n} platforms`;
 }
 
-/** Price notice before a new brand is added: it is an extra brand once the first brand is connected. */
-export function extraBrandNotice(lang: Lang): string {
+/** A brand that becomes billed when stores are connected, and the platforms it is billed for. */
+export interface ExtraUnitLine { brand: string; platforms: BilledPlatform[] }
+
+/**
+ * Price notice for several stores connected at once. One brand: "+30 $/mois pour ces 2 plateformes". Several brands:
+ * worded by brand and platform, e.g. "+30 $/mois : 2 marques sur Uber Eats".
+ */
+export function extraUnitsNotice(lang: Lang, addedUnits: number, lines: ExtraUnitLine[]): string {
+  const brands = new Set(lines.map((l) => l.brand));
+  if (brands.size <= 1) return extraPlatformNotice(lang, addedUnits);
+  const fr = lang === 'fr';
+  const parts = BILLED_PLATFORMS.map((p) => {
+    const n = lines.filter((l) => l.platforms.includes(p)).length;
+    if (!n) return null;
+    return fr ? `${n} marque${n > 1 ? 's' : ''} sur ${BILLED_PLATFORM_LABELS[p]}` : `${n} brand${n > 1 ? 's' : ''} on ${BILLED_PLATFORM_LABELS[p]}`;
+  }).filter(Boolean);
+  const amount = formatCad(extraBrandsMonthlyCad(Math.max(1, Math.floor(addedUnits))), lang);
+  return fr ? `+${amount}/mois : ${parts.join(', ')}` : `+${amount}/month: ${parts.join(', ')}`;
+}
+
+/**
+ * Price notice before a new brand is added: it is an extra brand once the first brand is connected. `conditional`:
+ * the merchant is not known yet (Business setup), so the price is stated as "if it is not your first brand".
+ */
+export function extraBrandNotice(lang: Lang, opts: { conditional?: boolean } = {}): string {
   const amount = formatCad(EXTRA_BRAND_PLATFORM_CAD, lang);
-  return lang === 'fr'
-    ? `Marque supplémentaire : +${amount}/mois pour chaque plateforme où elle sera branchée (Uber Eats, DoorDash, SkipTheDishes), facturé par Clover. Votre première marque est incluse dans le forfait de ${formatCad(STANDARD_MONTHLY_CAD, 'fr')}/mois.`
-    : `Extra brand: +${amount}/month for each platform it is connected to (Uber Eats, DoorDash, SkipTheDishes), billed by Clover. Your first brand is included in the ${formatCad(STANDARD_MONTHLY_CAD, 'en')}/month plan.`;
+  const fr = lang === 'fr';
+  const lead = opts.conditional
+    ? (fr ? 'Si ce n’est pas la première marque de votre marchand Clover' : 'If it is not the first brand on your Clover merchant')
+    : (fr ? 'Marque supplémentaire' : 'Extra brand');
+  return fr
+    ? `${lead} : +${amount}/mois pour chaque plateforme où elle sera branchée (Uber Eats, DoorDash, SkipTheDishes), facturé par Clover. Votre première marque est incluse dans le forfait de ${formatCad(STANDARD_MONTHLY_CAD, 'fr')}/mois.`
+    : `${lead}: +${amount}/month for each platform it is connected to (Uber Eats, DoorDash, SkipTheDishes), billed by Clover. Your first brand is included in the ${formatCad(STANDARD_MONTHLY_CAD, 'en')}/month plan.`;
 }

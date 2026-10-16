@@ -79,7 +79,7 @@ export interface CloverBilling {
   planId?: string | null;
   /** End of the free trial when Clover says it (trial end time, or days left in the trial); absent otherwise. */
   trialEndsAt?: string | null;
-  /** Tier price Clover reports (appSubscription.amount, in cents); absent when Clover does not send it. */
+  /** Tier price Clover reports (appSubscription.amount, in cents; 0 = a free tier); absent when Clover does not send it. */
   amountCents?: number | null;
   checkedAt: string;
 }
@@ -426,7 +426,7 @@ export async function readCloverBilling(mid: string, token: string, app: CloverA
     daysLapsed: typeof j.daysLapsed === 'number' ? j.daysLapsed : null,
     ...(planId ? { planId } : {}),
     ...(trialEndsAt ? { trialEndsAt } : {}),
-    ...(typeof amount === 'number' && Number.isFinite(amount) && amount > 0 ? { amountCents: Math.round(amount) } : {}),
+    ...(typeof amount === 'number' && Number.isFinite(amount) && amount >= 0 ? { amountCents: Math.round(amount) } : {}),
     checkedAt: nowIso(),
   };
 }

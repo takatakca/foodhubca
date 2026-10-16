@@ -11,7 +11,7 @@ import { useConfirm } from '@/components/ui/confirm';
 import { api } from '@/lib/ui/api';
 import { cn } from '@/lib/ui/cn';
 import { useI18n } from '@/lib/i18n/client';
-import { extraPlatformNotice, formatCad, PRICING_STATEMENT } from '@/lib/foodhub/pos/clover-pricing';
+import { formatCad, PRICING_STATEMENT } from '@/lib/foodhub/pos/clover-pricing';
 
 export type PriceQuery = { brandName: string; channel?: string | null; merchantId?: string | null; storeId?: string | null };
 export type Quote = {
@@ -31,6 +31,13 @@ export function quoteUrl(q: PriceQuery): string {
 export async function fetchQuote(q: PriceQuery): Promise<Quote | null> {
   if (!q.brandName.trim()) return null;
   try { return (await api<{ quote: Quote }>(quoteUrl(q))).quote; } catch { return null; }
+}
+
+/** One quote for several stores connected together (all added to the mappings at once on the server). */
+export async function fetchStoresQuote(list: PriceQuery[]): Promise<Quote | null> {
+  const stores = list.filter((q) => q.brandName.trim()).map((q) => ({ brandName: q.brandName.trim(), channel: q.channel ?? null, merchantId: q.merchantId?.trim() || null, storeId: q.storeId ?? null }));
+  if (!stores.length) return null;
+  try { return (await api<{ quote: Quote }>('/api/foodhub/clover-billing/quote', { method: 'POST', json: { stores } })).quote; } catch { return null; }
 }
 
 /** Inline price line, shown only when the brand or store is billed as an extra brand. */
@@ -58,21 +65,20 @@ export function ExtraBrandPriceNotice({ className, ...q }: PriceQuery & { classN
 
 /**
  * Ask before saving when the change adds a charge; resolves true at once when nothing is billed (or the price cannot
- * be read: Clover bills from the monthly count anyway). Several stores at once (Uber activation): one question, the
- * extra platforms added up.
+ * be read: Clover bills from the monthly count anyway). Several stores at once (Uber activation): one quote with all
+ * of them added together, so a second new brand on a merchant with no brand yet is shown as extra, worded by brand
+ * and platform ("+30 $/mois : 2 marques sur Uber Eats").
  */
 export function useExtraBrandPriceConfirm() {
   const { t } = useI18n();
   const confirm = useConfirm();
   return useCallback(async (query: PriceQuery | PriceQuery[]): Promise<boolean> => {
     const list = (Array.isArray(query) ? query : [query]).filter((q) => q.brandName.trim());
-    const seen = new Set<string>();
-    const unique = list.filter((q) => { const k = `${q.brandName.trim()}|${q.channel ?? ''}|${q.merchantId?.trim() ?? ''}`; if (seen.has(k)) return false; seen.add(k); return true; });
-    const quotes = (await Promise.all(unique.map(fetchQuote))).filter((x): x is Quote => Boolean(x?.applies && x.text));
-    if (!quotes.length) return true;
-    const units = quotes.reduce((n, x) => n + x.addedUnits, 0);
-    const text = quotes.length === 1 || units === 0 ? quotes[0].text! : { fr: extraPlatformNotice('fr', units), en: extraPlatformNotice('en', units) };
-    const first = quotes[0].firstBrand;
+    if (!list.length) return true;
+    const quote = list.length === 1 && !list[0].channel ? await fetchQuote(list[0]) : await fetchStoresQuote(list);
+    if (!quote?.applies || !quote.text) return true;
+    const text = quote.text;
+    const first = quote.firstBrand;
     return confirm({
       title: t('Marque supplémentaire facturée par Clover', 'Extra brand billed by Clover'),
       body: (

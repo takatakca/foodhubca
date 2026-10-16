@@ -18,9 +18,12 @@ export function cleanPersona(raw: unknown): Persona {
   return { name, gender: r.gender === 'male' ? 'male' : 'female' };
 }
 
-/** The persona as the voice sounds: a male voice makes "assistant", a female one "assistante". */
-export function personaFor(p: Persona, voiceFr?: string): Persona {
-  const g = voiceOption(voiceFr)?.gender;
+/**
+ * The persona as the voice sounds: a male voice makes "assistant" / "automatizado", a female one "assistante" /
+ * "automatizada". Pass the voice of the language being spoken (the Spanish voice for Spanish words).
+ */
+export function personaFor(p: Persona, voice?: string): Persona {
+  const g = voiceOption(voice)?.gender;
   return g && g !== p.gender ? { ...p, gender: g } : p;
 }
 

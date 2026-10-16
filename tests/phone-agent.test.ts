@@ -250,5 +250,68 @@ describe('automated-assistant disclosure and card numbers (legal review 2026-10-
     const t = await simulateTurn(sim.call.lineId, sim.call.id, 'Un poulet');
     expect(JSON.stringify(t.call.transcript)).not.toMatch(/4111 1111/);
     expect(JSON.stringify(t.call.transcript)).toContain('[card number removed]');
+    // The AI's own words are redacted in the stored AI history too, not only in the transcript.
+    expect(JSON.stringify(t.call)).not.toMatch(/4111/);
+  });
+
+  it('a card read in groups with punctuation or double spaces is still refused and never stored', async () => {
+    let n = 10;
+    for (const said of ['4111, 1111, 1111, 1111', '4111. 1111. 1111. 1111', '4111  1111  1111  1111', 'ma carte: 4111 - 1111 - 1111 - 1111']) {
+      const sid = `CA${n++}`;
+      await startCall(await form(signed('/api/foodhub/webhooks/voice', { CallSid: sid, From: '+15145551234', To: '+15145550199' })));
+      const xml = await (await callerTurn(await form(signed('/api/foodhub/webhooks/voice/turn', { CallSid: sid, SpeechResult: said })))).text();
+      expect(xml).toMatch(/ne donnez jamais un numéro de carte/);
+      expect(JSON.stringify(await getCall(sid))).not.toMatch(/4111/);
+    }
+    expect(claudeRequests).toHaveLength(0);
+  });
+
+  it('a card typed one key at a time is refused at the 13th key; the keys already typed are scrubbed; 0 still reaches a person', async () => {
+    await startCall(await form(signed('/api/foodhub/webhooks/voice', { CallSid: 'CA6', From: '+15145551234', To: '+15145550199' })));
+    const press = async (d: string) => (await callerTurn(await form(signed('/api/foodhub/webhooks/voice/turn', { CallSid: 'CA6', Digits: d })))).text();
+    const keys = '4111111111111111'.split('');
+    for (const d of keys.slice(0, 12)) expect(await press(d)).not.toMatch(/ne donnez jamais/);
+    expect(claudeRequests).toHaveLength(12);
+    expect(await press(keys[12])).toMatch(/ne donnez jamais un numéro de carte/);
+    // The rest of the card is refused too, and never reaches the AI.
+    for (const d of keys.slice(13)) expect(await press(d)).toMatch(/ne donnez jamais/);
+    expect(claudeRequests).toHaveLength(12);
+    const stored = (await getCall('CA6'))!;
+    expect(JSON.stringify(stored)).not.toMatch(/\(pressed \d\)/);
+    expect(JSON.stringify(stored)).toContain('card number: refused, not kept');
+    expect(stored.transcript.filter((t) => t.text === '(pressed a key)')).toHaveLength(12);
+    expect(await press('0')).toContain('+15145550100</Dial>');
+  });
+
+  it('a few keys mid-order still go to the AI', async () => {
+    await startCall(await form(signed('/api/foodhub/webhooks/voice', { CallSid: 'CA7', From: '+15145551234', To: '+15145550199' })));
+    await callerTurn(await form(signed('/api/foodhub/webhooks/voice/turn', { CallSid: 'CA7', SpeechResult: 'Un poulet entier' })));
+    for (const d of ['2', '1']) await callerTurn(await form(signed('/api/foodhub/webhooks/voice/turn', { CallSid: 'CA7', Digits: d })));
+    expect(claudeRequests).toHaveLength(3);
+    expect(JSON.stringify((await getCall('CA7'))!.transcript)).toContain('(pressed 1)');
+  });
+
+  it('"English, I want a chicken" on the greeting: the English notice is said before the answer (call and simulator)', async () => {
+    await startCall(await form(signed('/api/foodhub/webhooks/voice', { CallSid: 'CA8', From: '+15145551234', To: '+15145550199' })));
+    claude = [claudeResponse([text('Sure, which spice?')])];
+    const xml = await (await callerTurn(await form(signed('/api/foodhub/webhooks/voice/turn', { CallSid: 'CA8', SpeechResult: 'English, I want a chicken' })))).text();
+    expect(xml).toMatch(/<Response><Say voice="Polly.Joanna-Neural" language="en-US">I’m the automated assistant\. This call is transcribed to take your order\. To speak with a person, press 0\.<\/Say><Gather[^>]*language="en-US"[^>]*><Say[^>]*>Sure, which spice\?<\/Say>/);
+    expect(JSON.stringify(claudeRequests[0].body.messages.at(-1))).toContain('i want a chicken');
+    expect((await getCall('CA8'))!.transcript.some((t) => t.who === 'agent' && /automated assistant/.test(t.text))).toBe(true);
+    const sim = await simulateTurn((await getPhoneSettings()).lines[0].id, null, '');
+    claude = [claudeResponse([text('Sure, which spice?')])];
+    const r = await simulateTurn(sim.call.lineId, sim.call.id, 'English, I want a chicken');
+    expect(r.reply.say).toBe('I’m the automated assistant. This call is transcribed to take your order. To speak with a person, press 0. Sure, which spice?');
+  });
+
+  it('the Spanish words follow the Spanish voice’s gender, not the French one', async () => {
+    await savePhoneSettings({ voiceFr: 'Polly.Liam-Neural' }, actor);
+    await startCall(await form(signed('/api/foodhub/webhooks/voice', { CallSid: 'CA9', From: '+15145551234', To: '+15145550199' })));
+    const es = await (await callerTurn(await form(signed('/api/foodhub/webhooks/voice/turn', { CallSid: 'CA9', Digits: '3' })))).text();
+    expect(es).toContain('Soy su asistente automatizada.');
+    expect(JSON.stringify((await getCall('CA9'))!.transcript[0])).toContain('l’assistant automatisé');
+    await savePhoneSettings({ voiceFr: 'Polly.Gabrielle-Neural', voiceEs: 'Polly.Pedro-Neural' }, actor);
+    await startCall(await form(signed('/api/foodhub/webhooks/voice', { CallSid: 'CA10', From: '+15145551234', To: '+15145550199' })));
+    expect(await (await callerTurn(await form(signed('/api/foodhub/webhooks/voice/turn', { CallSid: 'CA10', Digits: '3' })))).text()).toContain('Soy su asistente automatizado.');
   });
 });

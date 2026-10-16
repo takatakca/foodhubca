@@ -219,6 +219,23 @@ describe('card numbers', () => {
     expect(redactCards('my card is 4111 1111 1111 1111 ok')).toBe('my card is [card number removed] ok');
   });
 
+  it('a card read in groups is found even with the punctuation speech recognition adds', () => {
+    for (const said of ['4111, 1111, 1111, 1111', '4111. 1111. 1111. 1111', '4111  1111  1111  1111', '4111 - 1111 - 1111 - 1111', '4111,\n1111,\n1111,\n1111']) {
+      expect(hasCardNumber(said)).toBe(true);
+      expect(redactCards(`ma carte ${said} merci`)).toBe('ma carte [card number removed] merci');
+    }
+    expect(hasCardNumber('4111, 1111, 1111, 1112')).toBe(false);
+    expect(hasCardNumber('commande 88231, 2 poulets, 3 frites')).toBe(false);
+    expect(hasCardNumber('514 555 1234')).toBe(false);
+  });
+
+  it('a card said with commas on the ON2GO menu is refused and never stored', async () => {
+    await start();
+    expect(await turn({ SpeechResult: 'ma carte c’est 4111, 1111, 1111, 1111' })).toMatch(/ne donnez jamais un numéro de carte/);
+    expect(claudeRequests).toHaveLength(0);
+    expect(JSON.stringify(await getIvrCall('CA1'))).not.toMatch(/4111/);
+  });
+
   it('a caller who starts giving a card number is stopped; nothing reaches the AI, the transcript or the records', async () => {
     await start();
     const r = await turn({ SpeechResult: 'mon numéro de carte est 4111 1111 1111 1111' });
@@ -291,6 +308,32 @@ describe('greeting and language', () => {
     expect(es).toMatch(/<Gather[^>]*language="es-US"/);
     expect(es).toMatch(/<Say voice="Polly.Lupe-Neural" language="es-US">Muy bien, en español\. Soy su asistente automatizada\. La llamada se transcribe para atender su solicitud\. Para hablar con una persona, marque el 0\. ¿Cómo puedo ayudarle\?<\/Say>/);
     expect(en).toMatch(/Okay, in English\. I’m the automated assistant\. This call is transcribed to handle your request\. To speak with a person, press 0\. How can I help you\?/);
+  });
+
+  it('a language word with a request after it: the notice in the new language is said before the answer', async () => {
+    await start('CA1');
+    const en = await turn({ SpeechResult: 'English, I have a problem with my order' }, 'CA1');
+    expect(en).toMatch(/^<\?xml[^>]*><Response><Say voice="Polly.Joanna-Neural" language="en-US">Okay, in English\. I’m the automated assistant\. This call is transcribed to handle your request\. To speak with a person, press 0\.<\/Say>/);
+    expect(JSON.stringify(claudeRequests.at(-1)!.body.messages.at(-1))).toContain('i have a problem with my order');
+    expect((await getIvrCall('CA1'))!.transcript.some((t) => t.who === 'agent' && /automated assistant/.test(t.text))).toBe(true);
+    // Keypad mode (no AI): the language comes from the words themselves, and the Spanish notice comes first.
+    await saveIvrSettings({ mode: 'keypad' }, actor);
+    await start('CA2');
+    const es = await turn({ SpeechResult: 'Hola, tengo un problema con mi pedido' }, 'CA2');
+    expect(es).toMatch(/<Response><Say voice="Polly.Lupe-Neural" language="es-US">Muy bien, en español\. Soy su asistente automatizada\. La llamada se transcribe/);
+    // Said again in French: no switch, no notice.
+    await start('CA3');
+    expect(await turn({ SpeechResult: 'Français, j’ai un problème avec ma commande' }, 'CA3')).not.toMatch(/Très bien, en français/);
+  });
+
+  it('the Spanish notice follows the Spanish voice’s gender, not the French one', async () => {
+    await saveIvrSettings({ voices: { ...(await getIvrSettings()).voices, fr: 'Polly.Liam-Neural' } }, actor);
+    const fr = await start('CA1');
+    expect(fr).toContain('Je suis l’assistant automatisé.');
+    expect(await turn({ Digits: '3' }, 'CA1')).toContain('Soy su asistente automatizada.');
+    await saveIvrSettings({ voices: { ...(await getIvrSettings()).voices, es: 'Polly.Pedro-Neural' } }, actor);
+    await start('CA2');
+    expect(await turn({ Digits: '3' }, 'CA2')).toContain('Soy su asistente automatizado.');
   });
 
   it('the AI can switch the language (set_language) and the next listen uses that language', async () => {

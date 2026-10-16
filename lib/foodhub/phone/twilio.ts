@@ -96,6 +96,17 @@ export function twiml(body: string): Response {
   return new Response(`<?xml version="1.0" encoding="UTF-8"?><Response>${body}</Response>`, { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } });
 }
 
+/**
+ * The same TwiML with `before` (e.g. a <Say>) said first: a reply built elsewhere (an AI turn, a menu step) is
+ * prefaced without each path knowing about it.
+ */
+export async function prefixTwiml(res: Response, before: string): Promise<Response> {
+  const body = await res.text();
+  // A function replacement: a "$" in the spoken text (prices) is never read as a replacement pattern.
+  const out = before ? body.replace('<Response>', () => `<Response>${before}`) : body;
+  return new Response(out, { status: res.status, headers: res.headers });
+}
+
 export function dialXml(number: string, callerId: string, action: string, timeout = 25): string {
   return `<Dial callerId="${attr(callerId)}" timeout="${timeout}" action="${attr(action)}" method="POST">${xml(number)}</Dial>`;
 }
@@ -110,11 +121,11 @@ export async function readForm(req: Request): Promise<URLSearchParams> {
  * Direct ordering line greeting, one short sentence per part (the French voice never reads English): the restaurant,
  * the automated assistant, the call transcribed to take the order, 0 for a person, then the question.
  */
-const disclosure = (p: Persona | undefined, lang: PhoneLang) => `${selfIntro(p ?? { name: '', gender: 'female' }, lang)}. ${ORDER_NOTICE[lang]}`;
+export const orderDisclosure = (p: Persona | undefined, lang: PhoneLang) => `${selfIntro(p ?? { name: '', gender: 'female' }, lang)}. ${ORDER_NOTICE[lang]}`;
 export const GREETING = {
-  fr: (name: string, p?: Persona) => `Bonjour, merci d’avoir appelé ${name}. ${disclosure(p, 'fr')} Qu’est-ce que je peux vous préparer ?`,
-  en: (name: string, p?: Persona) => `Hello, thank you for calling ${name}. ${disclosure(p, 'en')} What can I get for you?`,
-  es: (name: string, p?: Persona) => `Hola, gracias por llamar a ${name}. ${disclosure(p, 'es')} ¿Qué le preparamos?`,
+  fr: (name: string, p?: Persona) => `Bonjour, merci d’avoir appelé ${name}. ${orderDisclosure(p, 'fr')} Qu’est-ce que je peux vous préparer ?`,
+  en: (name: string, p?: Persona) => `Hello, thank you for calling ${name}. ${orderDisclosure(p, 'en')} What can I get for you?`,
+  es: (name: string, p?: Persona) => `Hola, gracias por llamar a ${name}. ${orderDisclosure(p, 'es')} ¿Qué le preparamos?`,
 };
 /** Language options read after the French greeting, each in its own voice. */
 export const LANG_OFFER = { en: 'For English, press 2.', es: 'Para español, marque el 3.' };

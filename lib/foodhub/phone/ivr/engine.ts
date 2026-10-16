@@ -26,7 +26,7 @@ import { phoneAgentConfigured } from '../agent';
 import { getCall, isTestCaller, saveCall, say as sayPhone, type PhoneCall } from '../calls';
 import { getPhoneSettings, isMultiKitchen, lineForNumber } from '../settings';
 import { goodDay, ORDER_NOTICE, personaFor, selfIntro, speakable, type Persona } from '../style';
-import { gatherXml, VOICE_PATH } from '../twilio';
+import { gatherXml, prefixTwiml, VOICE_PATH } from '../twilio';
 import { callStatus, lineHints, startCall, withConfidence } from '../voice';
 import { hintsForLang, sayLanguage, speechPlan, type ListenKind } from '../voices';
 import { ivrAiAvailable, runIvrTurn, textLink } from './agent';
@@ -144,13 +144,24 @@ async function afterLanguage(call: IvrCall, s: IvrSettings, preface = ''): Promi
 
 /** "Je suis l’assistante automatisée. L’appel est transcrit … Pour parler à une personne, faites le 0." in one language. */
 function disclosure(persona: Persona, s: IvrSettings, lang: IvrLang): string {
-  return `${selfIntro(personaFor(persona, s.voices.fr), lang)}. ${GREETING_NOTICE[lang]}`;
+  // "automatizada" / "automatizado": the gender of the voice that says it (Lupe, Pedro), not the French one.
+  return `${selfIntro(personaFor(persona, s.voices[lang]), lang)}. ${GREETING_NOTICE[lang]}`;
 }
 
 /** "Okay, in English." + the disclosure in the new language (the caller heard it only in French). */
 async function languageSet(s: IvrSettings, lang: IvrLang): Promise<string> {
   if (lang === 'fr') return SAY.langSet.fr;
   return `${SAY.langSet[lang]} ${disclosure((await getPhoneSettings()).persona, s, lang)}`;
+}
+
+/**
+ * A language switch with words after it ("English, I want a chicken"): that step's answer, said after "Okay, in
+ * English" + the notice in the new language (the caller heard it only in French). No switch: the answer alone.
+ */
+async function switchedThen(call: IvrCall, s: IvrSettings, from: IvrLang, run: (c: IvrCall) => Promise<Response>): Promise<Response> {
+  if (call.lang === from) return run(call);
+  const text = await languageSet(s, call.lang);
+  return prefixTwiml(await run(note(call, 'agent', text)), sayX(text, s, call.lang));
 }
 
 /**
@@ -239,13 +250,13 @@ async function onGreeting(call: IvrCall, s: IvrSettings, digits: string, speech:
   const asked = languageRequest(speech);
   if (asked) {
     const c = visit({ ...call, lang: asked.lang }, `lang_${asked.lang}`, 'speech');
-    if (asked.rest) return understand(c, s, asked.rest);
+    if (asked.rest) return switchedThen(c, s, call.lang, (x) => understand(x, s, asked.rest));
     return afterLanguage(c, s, await languageSet(s, asked.lang));
   }
   // Without the AI, the language comes from the words themselves ("Bueno, quiero hacer una orden").
   if (!(await ivrAiAvailable(s))) {
     const guess = guessLanguage(speech);
-    if (guess && guess !== call.lang) return understand(visit({ ...call, lang: guess }, `lang_${guess}`, 'speech'), s, speech);
+    if (guess && guess !== call.lang) return switchedThen(visit({ ...call, lang: guess }, `lang_${guess}`, 'speech'), s, call.lang, (x) => understand(x, s, speech));
   }
   return understand({ ...call, state: 'ai' }, s, forAi);
 }
@@ -257,7 +268,7 @@ async function onAi(call: IvrCall, s: IvrSettings, digits: string, speech: strin
   const asked = languageRequest(speech);
   if (asked && asked.lang !== call.lang) {
     const c = visit({ ...call, lang: asked.lang }, `lang_${asked.lang}`, 'speech');
-    if (asked.rest) return understand(c, s, asked.rest);
+    if (asked.rest) return switchedThen(c, s, call.lang, (x) => understand(x, s, asked.rest));
     return listenAi(c, s, `${await languageSet(s, asked.lang)} ${s.askHelp[asked.lang]}`);
   }
   return understand(call, s, forAi);
@@ -271,6 +282,11 @@ async function onMenu(call: IvrCall, s: IvrSettings, digits: string, speech: str
   if (asked && !asked.rest) return keypadMenu(visit({ ...call, lang: asked.lang }, `lang_${asked.lang}`, 'speech'), s, call.menu, await languageSet(s, asked.lang));
   const words = asked?.rest || speech;
   const c = asked ? visit({ ...call, lang: asked.lang }, `lang_${asked.lang}`, 'speech') : call;
+  return switchedThen(c, s, call.lang, (x) => menuWords(x, s, words));
+}
+
+/** Words on a keypad menu: a platform name, a known request, or "not understood" (a person after three tries). */
+async function menuWords(c: IvrCall, s: IvrSettings, words: string): Promise<Response> {
   // On a platform submenu a platform name is enough.
   const platform = detectPlatform(words);
   const level = levelOf(s.tree, c.menu || null);
@@ -556,7 +572,7 @@ async function handToOrdering(call: IvrCall, s: IvrSettings, preface: string): P
   const now = new Date().toISOString();
   // The menu's voices stay for the rest of the call (no voice change when the ordering assistant takes over).
   const voices = { voiceFr: s.voices.fr, voiceEn: s.voices.en, voiceEs: s.voices.es };
-  const persona = personaFor(ps.persona, s.voices.fr);
+  const persona = personaFor(ps.persona, s.voices[call.lang]);
   const intro = [preface, fill(SAY.orderIntro[call.lang], { S: selfIntro(persona, call.lang), N: ORDER_NOTICE[call.lang] })].filter(Boolean).join(' ');
   // Same CallSid: from here Twilio talks to the ordering agent (/webhooks/voice/turn); the order shows in Calls (AI).
   // A simulated or test call stays one: its order is never sent to Clover or the kitchen.

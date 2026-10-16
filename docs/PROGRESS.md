@@ -13,6 +13,15 @@
   DoorDash call and their status is not read (no false "deactivated" alert). Po Poulet NDG can never be a test store.
 - Webhook auth (DOORDASH_WEBHOOK_SECRET in Authorization) unchanged and checked first. Without the new settings, behaviour
   is unchanged. Owner steps: docs/DOORDASH_SANDBOX.md. Tests: tests/doordash-sandbox.test.ts.
+- Review fixes (same PR): the sandbox decision is taken when the webhook arrives and saved on its inbox entry, so a retry,
+  the recovery runner or a Replay after DOORDASH_ENV changed never sends a test order to the kitchen; every test order id
+  is kept in a permanent set (never emptied by the 50-order cap or Clear); a sandbox entry is never cut off by the
+  3-minute answer window (no failed entry, activity line or Watchtower incident). New DOORDASH_SANDBOX_WEBHOOK_SECRET:
+  the Sandbox subscriptions' own Authorization value, every request with it is a test whatever DOORDASH_ENV says. Item
+  polling and cart validation answer the test store and refuse real stores under sandbox (409). A store mapped in Food
+  Hub is never a test store (even if listed; the screen warns). The Reporting API is refused with the sandbox key unless
+  DOORDASH_REPORTS_* is set. A `_sandbox` DOORDASH_PROVIDER_TYPE alone no longer turns the mode on (warning only).
+  Docs step 6: delete the Sandbox subscriptions first, keep DOORDASH_SANDBOX_STORE_IDS and the sandbox secret.
 
 ## 2026-10-15 — Owner-authorized automatic production activation
 

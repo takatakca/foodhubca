@@ -10,7 +10,7 @@ import { Banner, Card, CardHeader } from '@/components/ui/card';
 import { FilterBar } from '@/components/ui/filter-bar';
 import { Input } from '@/components/ui/form';
 import { Tabs } from '@/components/ui/tabs';
-import { Table, Td, Th, Tr } from '@/components/ui/table';
+import { Table, TableSkeleton, Td, Th, Tr } from '@/components/ui/table';
 import { statusLabel } from '@/components/live/order-drawer';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { usePulse } from '@/components/live/pulse';
@@ -102,7 +102,7 @@ export default function ReconciliationPage() {
                   </Fragment>
                 );
               })}
-              {rows.length === 0 && <tr><td colSpan={10} className="px-4 py-10 text-center text-sm text-ink-3">{data ? (view === 'problems' ? t('Aucun problème dans cette période. 👍', 'No problem in this period. 👍') : t('Aucune commande dans cette vue.', 'No order in this view.')) : t('Chargement…', 'Loading…')}</td></tr>}
+              {rows.length === 0 && (!data ? <TableSkeleton columns={10} label={t('Chargement…', 'Loading…')} /> : <tr><td colSpan={10} className="px-4 py-10 text-center text-sm text-ink-3">{view === 'problems' ? t('Aucun problème dans cette période. 👍', 'No problem in this period. 👍') : t('Aucune commande dans cette vue.', 'No order in this view.')}</td></tr>)}
             </tbody>
           </Table>
           {rows.length > limit && <div className="p-3"><Button variant="ghost" size="sm" onClick={() => setLimit(limit + PAGE)}>{t('Afficher plus', 'Show more')} ({rows.length - limit})</Button></div>}

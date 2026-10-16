@@ -1,5 +1,12 @@
 # FOODHUB / ON2GO Hub — état vérifiable du projet
 
+## Reprise du 2026-10-16 — chargement des tableaux et listes
+
+Branche `fix/finance-table-loading-skeletons` (non fusionnée, non déployée) : composant `TableSkeleton` accessible (cinq tableaux : TGTG, payouts, statements, disputes, reconciliation) et `ListSkeleton` (grand livre, équipe). Les sept écrans n'affichent plus un état vide trompeur pendant le chargement ; les états vides définitifs et la logique métier restent inchangés. Trois tests de rendu SSR couvrent l'accessibilité et les limites des dimensions. Les CI et image Docker sont à vérifier sur la PR après son ouverture.
+
+Le `main` vérifié à la reprise est `444e8f2e60dd73e5eaa90bc4e9f92d05489b38f3` (fusion #53). Le dernier déploiement public documenté avec preuve exacte de SHA reste `027b602a12da39b1244e17b813bc51a7496a0217` selon la PR #49 ; ne pas supposer que le `main` plus récent est en production sans vérification extérieure. Les PR #51/#52 et la PR Clover #54 restent indépendantes de ce lot.
+
+
 ## Mise à jour du 2026-10-15 — activation en cours
 
 L'accès Coolify est rétabli et la source Food Hub est liée au GitHub App existant, avec livraison native sur push de `main`. Les anciennes lignes « bloqué accès / opt-in Actions » ci-dessous sont historiques. Le propriétaire a demandé cette activation ; le contrôleur Actions est désactivé pour éviter un double déploiement. Le Dockerfile applique tous les contrôles sur Contabo malgré le blocage de facturation Actions. Localement : audit/typecheck/lint/build réussis, 807 tests unitaires réussis (2 ignorés), E2E 536/0. Médias/configuration privée et image de rollback sauvegardés ; base, session et volume existants conservés. La publication n'est pas encore certifiée au moment de cette écriture : attendre le déploiement Webhook réussi et comparer `/api/release` au SHA complet de `main`.

@@ -1,5 +1,18 @@
 # FOODHUB — relève de l'agent (à lire dès l'ouverture)
 
+## Relève immédiate — 2026-10-16 (à lire avant l'historique)
+
+- **Dernière tâche codée** : Phase 3 P0, remplacer « Chargement… » par des placeholders accessibles dans cinq tableaux financiers et deux listes (grand livre, membres). Branche `fix/finance-table-loading-skeletons` ; PR [#55](https://github.com/takatakca/foodhubca/pull/55) ouverte ; aucune modification d'API, finances, base, permissions ou commandes.
+- **Tâche en cours** : vérifications [CI 38855634755](https://github.com/takatakca/foodhubca/actions/runs/38855634755) / [image 38855634774](https://github.com/takatakca/foodhubca/actions/runs/38855634774) de la PR #55, corrections en cas d'échec, puis revue du propriétaire. Tests de rendu SSR ajoutés dans `tests/loading-skeletons.test.ts`.
+- **Fichiers modifiés** : `components/ui/table.tsx`, `components/ui/list-skeleton.tsx`, `tests/loading-skeletons.test.ts`, `app/(console)/money/{tgtg,payouts,statements,disputes,reconciliation,ledger}/page.tsx`, `app/(console)/settings/team/page.tsx` ; cette documentation et `WORKLOG.md`.
+- **Dernier commit de code poussé** : `c2ab6dbc8fb17a1855c9aead5ea1753ab8e849a3`; le commit final de relève figure à la tête actuelle de la branche sur GitHub (ne pas figer un SHA auto-référentiel dans un fichier).
+- **Vérifications effectuées** : lecture des documents et PR GitHub, recherche des sept états de chargement, édition/commit via l'API GitHub ; GitHub CI : audit et typecheck réussis, lint et autres étapes en cours à la consultation ; image Docker en construction. Aucun résultat final encore confirmé. Aucun test local ni essai réel de commande.
+- **Blocages** : certifications Clover/Uber/DoorDash/Skip et validation sur tablette réelle restent hors de ce lot. `private/TASKS.md` n'est pas accessible depuis la connexion GitHub.
+- **Déploiement** : `main` vu au SHA `444e8f2e60dd73e5eaa90bc4e9f92d05489b38f3`. Dernière preuve publique exacte documentée : `027b602a12da39b1244e17b813bc51a7496a0217` (PR #49). **Aucun déploiement effectué pour cette branche**. Contrôleur actif : GitHub App natif Coolify, pas le workflow Actions historique.
+- **Accès** : connexion GitHub active pour branches/PR. Seul le propriétaire fusionne `main` et valide les opérations marchandes ; ne jamais partager de secrets.
+- **Prochaine action exacte** : vérifier CI #38855634755 et image #38855634774 sur la PR #55 / HEAD de branche, corriger toute erreur, puis demander revue/fusion par le propriétaire. Après fusion/production, vérifier le SHA exact via `npm run verify:live -- --url https://foodhub.on2go.ca/ --sha SHA40` depuis un réseau adapté.
+
+
 ## Reprise actuelle — 2026-10-15 (prioritaire sur le relevé historique ci-dessous)
 
 Demande explicite du propriétaire : terminer GitHub → production Coolify et les contrôles de santé de Food Hub. PR #49 fusionnée en `e7ce788a9432618ee93eb9ce3d6a6be7c64b3ca6`, aucune autre PR fusionnée. Source native Coolify liée au GitHub App existant ; auto-push activé ; arguments Docker gérés par le fichier et `SOURCE_COMMIT` disponible au build. Santé activée en **Container command** : `node /app/scripts/check-runtime.mjs`, intervalle 30 s, timeout 90 s, 3 essais, démarrage 60 s. La version Coolify 4.4.6 installée substitue le check de l'interface à celui de l'image : ne pas utiliser HTTP, car l'image n'embarque pas curl/wget.

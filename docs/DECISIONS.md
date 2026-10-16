@@ -1,5 +1,10 @@
 # FOODHUB — décisions d'architecture et d'exploitation
 
+## Décision UI locale — 2026-10-16
+
+Les listes et tableaux doivent distinguer **chargement** et **aucune donnée**. On utilise des placeholders sémantiques et non interactifs, sans afficher de données simulées ni déclencher de chargements supplémentaires. Les animations sont sous `motion-safe`, afin de respecter la préférence du système. Implémentation isolée sur `fix/finance-table-loading-skeletons`, sans changement aux décisions d'architecture, à `main` ou aux intégrations.
+
+
 Mise à jour : 2026-10-14. **Références normatives** : `CLAUDE.md`, `BRAND.md`, `docs/LOCKED_DECISIONS.md`, `docs/ON2GO_HUB_ECOSYSTEM.md`. En cas de divergence, les décisions explicites du propriétaire et les règles de sécurité des documents existants priment ; cette synthèse n'introduit pas d'approbations nouvelles.
 
 | Sujet | Décision à conserver | Source |

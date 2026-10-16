@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Banner, Card, CardHeader } from '@/components/ui/card';
 import { Field, Input, Select } from '@/components/ui/form';
 import { Modal } from '@/components/ui/overlay';
-import { Table, Td, Th, Tr } from '@/components/ui/table';
+import { Table, TableSkeleton, Td, Th, Tr } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { useViewer } from '@/components/shell/viewer';
 import { CH_NAME, MoneyHead, cad } from '../money-ui';
@@ -171,7 +171,7 @@ export default function StatementsPage() {
                 <Td align="right">{edit && <Button size="xs" variant="ghost" onClick={() => setRemoving(i)} icon={<Trash2 className="size-3.5" />}>{t('Retirer', 'Remove')}</Button>}</Td>
               </Tr>
             ))}
-            {imports.length === 0 && <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-ink-3">{loaded ? t('Aucun relevé importé pour l’instant.', 'No statement imported yet.') : t('Chargement…', 'Loading…')}</td></tr>}
+            {imports.length === 0 && (!loaded ? <TableSkeleton columns={9} label={t('Chargement…', 'Loading…')} /> : <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-ink-3">{t('Aucun relevé importé pour l’instant.', 'No statement imported yet.')}</td></tr>)}
           </tbody>
         </Table>
       </Card>

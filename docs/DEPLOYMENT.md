@@ -1,5 +1,10 @@
 # FOODHUB / ON2GO Hub — déploiement prouvable
 
+## Modifications UI de la branche `fix/finance-table-loading-skeletons` (2026-10-16)
+
+Ces composants de chargement ne changent ni la base ni les webhooks, les secrets, les commandes, les jobs, l'image de production actuelle ou les ports. Cette branche **n'est pas déployée** : vérifier ses statuts CI/image, la revue propriétaire, puis la publication native Coolify après fusion dans `main`. Confirmer alors `/api/release` au SHA complet de `main` et tester les tableaux sur tablette. Les anciens workflows Actions de déploiement sont intentionnellement désactivés ; ne pas créer de second contrôleur.
+
+
 Environnement : Contabo VPS + Coolify, domaine canonique `https://foodhub.on2go.ca`, application Next.js sur port 3000. Depuis la reprise autorisée du 2026-10-15, la livraison retenue est le **GitHub App natif Coolify**, avec construction du `Dockerfile` sur Contabo. Le contrôleur Actions historique est désactivé pour éviter deux auteurs de production.
 Lire aussi `docs/RELEASE_GHCR_COOLIFY.md` et [issue #46](https://github.com/takatakca/foodhubca/issues/46).
 

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { legalInfo, LEGAL_PATHS } from '@/lib/foodhub/legal';
+import { feesText, legalInfo, LEGAL_PATHS, TOKEN_DELETION } from '@/lib/foodhub/legal';
 import { Divider, H1, H2, LangBlock, LangSwitch, P, UL } from '../prose';
 
 export const dynamic = 'force-dynamic';
@@ -10,6 +10,7 @@ export const metadata: Metadata = { title: 'Conditions d’utilisation · Terms 
 // DRAFT until FOODHUB_LEGAL_APPROVED=true: the owner and a legal adviser must confirm it before submission.
 export default function TermsPage() {
   const i = legalInfo();
+  const fees = feesText(i.pricing);
   const contactFr = i.supportEmail ?? '[courriel à compléter — FOODHUB_SUPPORT_EMAIL]';
   const contactEn = i.supportEmail ?? '[email to be completed — FOODHUB_SUPPORT_EMAIL]';
   return (
@@ -39,16 +40,16 @@ export default function TermsPage() {
         <P>Nous faisons des efforts raisonnables pour que le service soit disponible et fiable, mais il dépend aussi de Clover, des plateformes, d’Internet et de nos fournisseurs. Gardez une solution de rechange (par exemple les tablettes des plateformes) pour les pannes.</P>
 
         <H2>6. Frais</H2>
-        <P>Le service et le compte Food Hub sont gratuits pour les restaurants approuvés : rien n’est facturé en dehors de Clover. Si des frais s’appliquaient un jour à l’application Clover, ils seraient indiqués dans sa fiche du Clover App Market et facturés uniquement par la facturation de Clover.</P>
+        <P>{fees.fr}</P>
 
         <H2>7. Propriété intellectuelle et licence</H2>
         <P>Nous vous accordons une licence non exclusive, non transférable et révocable d’utiliser le service pour votre restaurant pendant la durée de votre branchement. Vos données restent les vôtres ; vous nous permettez de les traiter pour fournir le service, comme le décrit notre <Link href={LEGAL_PATHS.privacy} className="underline">politique de confidentialité</Link>.</P>
 
         <H2>8. Responsabilité</H2>
-        <P>Dans la mesure permise par la loi, le service est fourni « tel quel » et notre responsabilité totale se limite aux sommes que vous nous avez payées pour le service au cours des douze derniers mois. Nous ne sommes pas responsables des pertes indirectes, des commandes perdues en raison d’une panne d’un tiers, ni des décisions prises par les plateformes. Rien dans les présentes ne limite les droits que la loi vous accorde et auxquels on ne peut renoncer.</P>
+        <P>Dans la mesure permise par la loi, le service est fourni « tel quel » et notre responsabilité totale se limite aux sommes que vous avez payées pour le service (par la facturation de Clover) au cours des douze derniers mois. Nous ne sommes pas responsables des pertes indirectes, des commandes perdues en raison d’une panne d’un tiers, ni des décisions prises par les plateformes. Rien dans les présentes ne limite les droits que la loi vous accorde et auxquels on ne peut renoncer.</P>
 
         <H2>9. Fin du service</H2>
-        <P>Vous pouvez désinstaller l’application Clover ou nous demander de débrancher votre restaurant en tout temps. Vos jetons d’accès Clover sont supprimés lorsque Clover nous avise de la désinstallation, ou sur demande. Nous pouvons suspendre ou mettre fin au service en cas de non-respect des présentes conditions ou avec un préavis raisonnable. Sur demande, nous vous remettons ou supprimons vos données, sous réserve de nos obligations légales de conservation.</P>
+        <P>Vous pouvez désinstaller l’application Clover ou nous demander de débrancher votre restaurant en tout temps. Vos jetons d’accès Clover {TOKEN_DELETION.fr}. Nous pouvons suspendre ou mettre fin au service en cas de non-respect des présentes conditions ou avec un préavis raisonnable. Sur demande, nous vous remettons ou supprimons vos données, sous réserve de nos obligations légales de conservation.</P>
 
         <H2>10. Droit applicable et langue</H2>
         <P>Les présentes conditions sont régies par les lois du Québec et les lois fédérales du Canada qui s’y appliquent. Les tribunaux du district judiciaire de Montréal sont compétents. La version française prévaut ; la version anglaise est fournie pour information.</P>
@@ -86,16 +87,16 @@ export default function TermsPage() {
         <P>We make reasonable efforts to keep the service available and reliable, but it also depends on Clover, the platforms, the Internet and our providers. Keep a fallback (for example the platforms’ tablets) for outages.</P>
 
         <H2>6. Fees</H2>
-        <P>The service and the Food Hub account are free for approved restaurants: nothing is billed outside Clover. If a fee ever applied to the Clover app, it would be shown on its Clover App Market listing and billed only through Clover’s billing.</P>
+        <P>{fees.en}</P>
 
         <H2>7. Intellectual property and licence</H2>
         <P>We grant you a non-exclusive, non-transferable, revocable licence to use the service for your restaurant while it is connected. Your data stays yours; you allow us to process it to provide the service, as described in our <Link href={LEGAL_PATHS.privacy} className="underline">privacy policy</Link>.</P>
 
         <H2>8. Liability</H2>
-        <P>To the extent permitted by law, the service is provided “as is” and our total liability is limited to the amounts you paid us for the service in the last twelve months. We are not liable for indirect losses, orders lost because of a third-party outage, or decisions made by the platforms. Nothing here limits rights the law gives you that cannot be waived.</P>
+        <P>To the extent permitted by law, the service is provided “as is” and our total liability is limited to the amounts you paid for the service (through Clover billing) in the last twelve months. We are not liable for indirect losses, orders lost because of a third-party outage, or decisions made by the platforms. Nothing here limits rights the law gives you that cannot be waived.</P>
 
         <H2>9. Ending the service</H2>
-        <P>You may uninstall the Clover app or ask us to disconnect your restaurant at any time. Your Clover access tokens are deleted when Clover notifies us that the app was uninstalled, or on request. We may suspend or end the service if these terms are not respected, or with reasonable notice. On request, we return or delete your data, subject to our legal retention obligations.</P>
+        <P>You may uninstall the Clover app or ask us to disconnect your restaurant at any time. Your Clover access tokens {TOKEN_DELETION.en}. We may suspend or end the service if these terms are not respected, or with reasonable notice. On request, we return or delete your data, subject to our legal retention obligations.</P>
 
         <H2>10. Governing law and language</H2>
         <P>These terms are governed by the laws of Québec and the federal laws of Canada that apply there. The courts of the judicial district of Montréal have jurisdiction. The French version prevails.</P>

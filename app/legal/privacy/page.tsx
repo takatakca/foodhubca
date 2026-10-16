@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { legalInfo } from '@/lib/foodhub/legal';
+import { legalInfo, TOKEN_DELETION } from '@/lib/foodhub/legal';
 import { Divider, H1, H2, LangBlock, LangSwitch, P, UL } from '../prose';
 
 export const dynamic = 'force-dynamic';
@@ -30,8 +30,8 @@ export default function PrivacyPage() {
           <li><b>Marchands Clover qui branchent l’application :</b> identifiant, nom, adresse et ville du marchand, inventaire (articles, catégories, modificateurs, prix, stock), commandes et paiements que Food Hub crée dans Clover, commandes Clover Online Ordering (avec le nom du client), paiements et remboursements enregistrés dans Clover, ventes du jour pour le rapprochement, et les jetons d’accès Clover (conservés uniquement sur notre serveur, jamais affichés ni transmis à des tiers). À l’ouverture de l’application, Food Hub fait aussi un relevé en lecture seule de la caisse (nombre d’articles, de catégories, de types de commande, de modes de paiement et d’appareils) et lit l’état de l’abonnement à l’application dans le Clover App Market, pour préremplir la page d’accueil.</li>
           <li><b>Commandes des plateformes de livraison :</b> prénom ou nom du client, numéro de téléphone fourni par la plateforme (souvent un numéro relais), adresse de livraison si la plateforme la transmet, contenu de la commande, instructions spéciales, montants, état de la commande et renseignements sur le livreur.</li>
           <li><b>Appels téléphoniques et messagerie vocale :</b> numéro de l’appelant, transcription de l’appel (la parole est convertie en texte), commande ou demande faite pendant l’appel, durée et issue de l’appel et, lorsque l’appelant laisse un message, l’enregistrement de la messagerie vocale et sa transcription. L’appelant peut faire le 0 pour parler à une personne.</li>
-          <li><b>Clients des commandes directes</b> (site Web, téléphone, Clover Online Ordering) : nom, numéro de téléphone, adresse de livraison, contenu et montant de la commande, état du paiement et textos envoyés (confirmation, suivi de livraison, lien de paiement). Le paiement se fait sur la page de paiement sécurisée de Clover.</li>
-          <li><b>Livreurs :</b> nom, numéro de téléphone, disponibilité (en service ou non), cuisines desservies, livraisons confiées et leur état. Pour une livraison confiée à DoorDash Drive, Uber Direct ou SkipTheDishes, nous recevons du service de livraison les renseignements sur le livreur et l’état de la livraison.</li>
+          <li><b>Clients des commandes directes</b> (site Web, téléphone, Clover Online Ordering) : nom, numéro de téléphone, adresse courriel si elle est fournie, adresse de livraison, contenu et montant de la commande, état du paiement et textos envoyés (confirmation, suivi de livraison, lien de paiement). Le paiement se fait sur la page de paiement sécurisée de Clover.</li>
+          <li><b>Livreurs :</b> nom, numéro de téléphone, disponibilité (en service ou non), cuisines desservies, livraisons confiées et leur état. Pour une livraison confiée à DoorDash Drive, Uber Direct ou SkipTheDishes, nous recevons du service de livraison les renseignements sur le livreur (nom, numéro de téléphone, véhicule et position pendant la livraison) et l’état de la livraison.</li>
           <li><b>Équipe du restaurant :</b> nom, courriel ou numéro de cellulaire (pour les codes de connexion), rôle, NIP de gérant (conservé sous forme hachée, jamais en clair), journal des actions et des tentatives de connexion, et l’état des tablettes de cuisine.</li>
           <li><b>Nous ne demandons jamais de numéro de carte de paiement</b>, ni en ligne ni au téléphone. Les paiements sont traités par Clover et par les plateformes ; Food Hub n’enregistre dans Clover que le mode de paiement et le montant.</li>
         </UL>
@@ -49,14 +49,15 @@ export default function PrivacyPage() {
         <H2>4. Avec qui nous les partageons</H2>
         <UL>
           <li>Les plateformes que le restaurant a branchées (Uber Eats, DoorDash, SkipTheDishes / Just Eat Takeaway, Too Good To Go) et Clover, uniquement pour traiter les commandes, les paiements et les menus.</li>
-          <li>Les services de livraison que le restaurant utilise pour ses commandes directes (DoorDash Drive, Uber Direct, SkipTheDishes) : nom et numéro du client, adresse de livraison et contenu de la commande, uniquement pour effectuer la livraison.</li>
+          <li>Les services de livraison que le restaurant utilise pour ses commandes directes (DoorDash Drive, Uber Direct, SkipTheDishes) : nom, numéro et courriel du client, adresse de livraison et contenu de la commande, uniquement pour effectuer la livraison.</li>
           <li>Nos fournisseurs techniques, liés par des obligations de confidentialité :
             <UL>
               <li>hébergement du serveur (Contabo) et base de données (Supabase) ;</li>
               <li>Twilio : appels, conversion de la parole en texte, enregistrements de la messagerie vocale et textos (connexion, commandes, liens de paiement) ;</li>
-              <li>Google, par l’intermédiaire de Twilio : reconnaissance de la parole et voix de l’assistant téléphonique ;</li>
+              <li>par l’intermédiaire de Twilio : Amazon (Polly) et Google pour les voix de l’assistant téléphonique ; Google et, lorsqu’il est activé, Deepgram pour la reconnaissance de la parole ;</li>
               <li>Anthropic (Claude) : l’assistant téléphonique, qui comprend la demande de l’appelant et y répond, et, si le propriétaire l’active, l’assistant d’analyse, qui reçoit un résumé des données de l’entreprise. Ni l’un ni l’autre n’approuve de remboursement ou de paiement ;</li>
               <li>envoi des courriels (Resend, ou le serveur de courriel de l’entreprise hébergé chez MochaHost) ;</li>
+              <li>réception des commandes Too Good To Go : la boîte de courriel de l’entreprise qui reçoit les courriels de commande (lue en lecture seule) ;</li>
               <li>alertes de l’équipe dans sa messagerie d’équipe (par exemple Slack, Microsoft Teams, Google Chat ou Discord), si le restaurant les active.</li>
             </UL>
           </li>
@@ -64,10 +65,10 @@ export default function PrivacyPage() {
         </UL>
 
         <H2>5. Où sont conservés les renseignements</H2>
-        <P>La base de données est hébergée à Montréal (Canada). Le serveur de l’application et les services de Twilio, d’Anthropic et de Google traitent les renseignements aux États-Unis. Clover, les plateformes et les services de livraison les traitent selon leurs propres politiques.</P>
+        <P>La base de données est hébergée à Montréal (Canada). Le serveur de l’application et les services de Twilio, d’Anthropic, de Google, d’Amazon et de Deepgram traitent les renseignements aux États-Unis. Nos autres fournisseurs nommés à la section 4 (courriel, messagerie d’équipe, réception des commandes) peuvent aussi traiter des renseignements à l’extérieur du Québec, surtout aux États-Unis. Clover, les plateformes et les services de livraison les traitent selon leurs propres politiques.</P>
 
         <H2>6. Durée de conservation</H2>
-        <P>Nous conservons les renseignements le temps nécessaire aux fins ci-dessus. Sur demande, nous supprimons vos renseignements (y compris les transcriptions d’appels et les enregistrements de la messagerie vocale) dans les 30 jours, sauf les données de vente que nos obligations comptables et fiscales nous obligent à garder (en général six ans). Les jetons d’accès Clover d’un marchand sont supprimés lorsque Clover nous avise de la désinstallation de l’application, ou sur demande.</P>
+        <P>Nous conservons les renseignements le temps nécessaire aux fins ci-dessus. Sur demande, nous supprimons vos renseignements (y compris les transcriptions d’appels et les enregistrements de la messagerie vocale) dans les 30 jours, sauf les données de vente que nos obligations comptables et fiscales nous obligent à garder (en général six ans). Les jetons d’accès Clover d’un marchand {TOKEN_DELETION.fr}.</P>
 
         <H2>7. Sécurité</H2>
         <P>L’accès est réservé aux membres de l’équipe autorisés (codes de connexion à usage unique, rôles et permissions), les échanges se font en HTTPS, les secrets restent sur le serveur et chaque action importante est journalisée. En cas d’incident de confidentialité présentant un risque de préjudice sérieux, nous avisons la Commission d’accès à l’information et les personnes concernées.</P>
@@ -99,8 +100,8 @@ export default function PrivacyPage() {
           <li><b>Clover merchants who connect the app:</b> merchant ID, name, address and city, inventory (items, categories, modifiers, prices, stock), the orders and payments Food Hub creates in Clover, Clover Online Ordering orders (with the customer’s name), payments and refunds recorded in Clover, daily sales for reconciliation, and Clover access tokens (kept only on our server, never displayed or shared with third parties). When the app is opened, Food Hub also takes a read-only snapshot of the register (number of items, categories, order types, tenders and devices) and reads the app’s Clover App Market subscription status, to pre-fill the welcome page.</li>
           <li><b>Delivery platform orders:</b> customer first name or name, the phone number provided by the platform (often a relay number), delivery address when the platform sends it, order contents, special instructions, amounts, order status and courier details.</li>
           <li><b>Phone calls and voicemail:</b> the caller’s number, the call transcript (speech is converted to text), the order or request made during the call, the call’s length and outcome and, when the caller leaves a message, the voicemail recording and its transcript. Callers can press 0 to speak with a person.</li>
-          <li><b>Direct-order customers</b> (website, phone, Clover Online Ordering): name, phone number, delivery address, order contents and amount, payment status and the texts sent (confirmation, delivery tracking, payment link). Payment happens on Clover’s secure payment page.</li>
-          <li><b>Couriers:</b> name, phone number, availability (on shift or not), kitchens served, deliveries assigned and their status. For a delivery handed to DoorDash Drive, Uber Direct or SkipTheDishes, we receive the courier details and the delivery status from that delivery service.</li>
+          <li><b>Direct-order customers</b> (website, phone, Clover Online Ordering): name, phone number, email address if given, delivery address, order contents and amount, payment status and the texts sent (confirmation, delivery tracking, payment link). Payment happens on Clover’s secure payment page.</li>
+          <li><b>Couriers:</b> name, phone number, availability (on shift or not), kitchens served, deliveries assigned and their status. For a delivery handed to DoorDash Drive, Uber Direct or SkipTheDishes, we receive the courier’s details (name, phone number, vehicle and position during the delivery) and the delivery status from that delivery service.</li>
           <li><b>Restaurant team:</b> name, email or mobile number (for sign-in codes), role, manager PIN (stored hashed), activity and sign-in log, and kitchen tablet status.</li>
           <li><b>We never ask for payment card numbers</b>, online or by phone. Payments are processed by Clover and the platforms; Food Hub only records the tender type and amount in Clover.</li>
         </UL>
@@ -118,14 +119,15 @@ export default function PrivacyPage() {
         <H2>4. Who we share it with</H2>
         <UL>
           <li>The platforms the restaurant connected (Uber Eats, DoorDash, SkipTheDishes / Just Eat Takeaway, Too Good To Go) and Clover, only to process orders, payments and menus.</li>
-          <li>The delivery services the restaurant uses for its direct orders (DoorDash Drive, Uber Direct, SkipTheDishes): the customer’s name and number, delivery address and order contents, only to make the delivery.</li>
+          <li>The delivery services the restaurant uses for its direct orders (DoorDash Drive, Uber Direct, SkipTheDishes): the customer’s name, number and email, delivery address and order contents, only to make the delivery.</li>
           <li>Our technical providers, bound by confidentiality:
             <UL>
               <li>server hosting (Contabo) and database (Supabase);</li>
               <li>Twilio: calls, speech-to-text, voicemail recordings and texts (sign-in, orders, payment links);</li>
-              <li>Google, through Twilio: speech recognition and the phone assistant’s voices;</li>
+              <li>through Twilio: Amazon (Polly) and Google for the phone assistant’s voices; Google and, when turned on, Deepgram for speech recognition;</li>
               <li>Anthropic (Claude): the phone assistant, which understands and answers the caller’s request, and, if the owner turns it on, the analysis assistant, which receives a summary of business data. Neither one approves refunds or payments;</li>
               <li>email delivery (Resend, or the company’s own mail server hosted by MochaHost);</li>
+              <li>receiving Too Good To Go orders: the company mailbox that receives the order emails (read-only);</li>
               <li>team alerts in the team’s chat (for example Slack, Microsoft Teams, Google Chat or Discord), when the restaurant turns them on.</li>
             </UL>
           </li>
@@ -133,10 +135,10 @@ export default function PrivacyPage() {
         </UL>
 
         <H2>5. Where it is stored</H2>
-        <P>The database is hosted in Montréal (Canada). The application server and the Twilio, Anthropic and Google services process information in the United States. Clover, the platforms and the delivery services process it under their own policies.</P>
+        <P>The database is hosted in Montréal (Canada). The application server and the Twilio, Anthropic, Google, Amazon and Deepgram services process information in the United States. Our other providers named in section 4 (email, team chat, order intake) may also process information outside Québec, mainly in the United States. Clover, the platforms and the delivery services process it under their own policies.</P>
 
         <H2>6. How long we keep it</H2>
-        <P>We keep information for as long as needed for the purposes above. On request, we delete your information (including call transcripts and voicemail recordings) within 30 days, except the sales data our accounting and tax obligations require us to keep (generally six years). A merchant’s Clover access tokens are deleted when Clover notifies us that the app was uninstalled, or on request.</P>
+        <P>We keep information for as long as needed for the purposes above. On request, we delete your information (including call transcripts and voicemail recordings) within 30 days, except the sales data our accounting and tax obligations require us to keep (generally six years). A merchant’s Clover access tokens {TOKEN_DELETION.en}.</P>
 
         <H2>7. Security</H2>
         <P>Access is limited to authorized team members (one-time sign-in codes, roles and permissions), traffic uses HTTPS, secrets stay on the server and every important action is logged. If a confidentiality incident presents a risk of serious injury, we notify the Commission d’accès à l’information and the people concerned.</P>

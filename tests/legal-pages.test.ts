@@ -10,11 +10,13 @@ import LegalIndexPage from '../app/legal/page';
 import PrivacyPage from '../app/legal/privacy/page';
 import SupportPage from '../app/legal/support/page';
 import TermsPage from '../app/legal/terms/page';
-import { LEGAL_PATHS } from '../lib/foodhub/legal';
+import { LISTING_DESCRIPTION, LISTING_FUNCTIONAL_DESCRIPTION } from '../lib/foodhub/clover-listing';
+import { feesText, LEGAL_PATHS, legalInfo, TOKEN_DELETION } from '../lib/foodhub/legal';
 
 const ENV_KEYS = [
   'SESSION_SECRET', 'DASHBOARD_PASSWORD', 'LIVE_CONNECTORS_GLOBAL_ENABLED', 'FOODHUB_LEGAL_APPROVED', 'FOODHUB_LEGAL_COMPANY',
   'FOODHUB_LEGAL_ADDRESS', 'FOODHUB_SUPPORT_EMAIL', 'FOODHUB_SUPPORT_PHONE', 'FOODHUB_PRIVACY_OFFICER', 'FOODHUB_LEGAL_UPDATED',
+  'FOODHUB_TRIAL_DAYS', 'FOODHUB_MONTHLY_PRICE_CAD', 'FOODHUB_EXTRA_BRAND_PRICE_CAD',
 ] as const;
 const saved: Partial<Record<(typeof ENV_KEYS)[number], string | undefined>> = {};
 beforeEach(() => { for (const k of ENV_KEYS) { saved[k] = process.env[k]; delete process.env[k]; } });
@@ -29,6 +31,13 @@ const halves = (page: () => ReactElement) => {
   const at = html.indexOf('id="en"');
   expect(at).toBeGreaterThan(0);
   return { fr: html.slice(0, at), en: html.slice(at) };
+};
+/** One numbered section of one language half: from its "<h2>N." heading to the next heading. */
+const section = (half: string, n: number) => {
+  const start = half.search(new RegExp(`<h2[^>]*>${n}\\. `));
+  expect(start).toBeGreaterThanOrEqual(0);
+  const next = half.indexOf('<h2', start + 3);
+  return half.slice(start, next < 0 ? undefined : next);
 };
 
 describe('/legal is public', () => {
@@ -64,35 +73,54 @@ describe('privacy policy (FR then EN)', () => {
     const { fr, en } = halves(PrivacyPage);
     for (const s of ['lignes téléphoniques', 'textos', 'livreurs', 'commandes directes', 'Clover Online Ordering', 'messagerie vocale', 'remboursements', 'adresse et ville du marchand']) expect(fr).toContain(s);
     for (const s of ['phone lines', 'texts', 'couriers', 'direct orders', 'Clover Online Ordering', 'voicemail', 'refunds', 'address and city']) expect(en).toContain(s);
+    expect(section(fr, 2)).toContain('adresse courriel si elle est fournie');
+    expect(section(fr, 2)).toContain('véhicule et position pendant la livraison');
+    expect(section(en, 2)).toContain('email address if given');
+    expect(section(en, 2)).toContain('vehicle and position during the delivery');
   });
   it('§4 names every provider and the delivery services', () => {
     const { fr, en } = halves(PrivacyPage);
     for (const half of [fr, en]) {
-      for (const s of ['Twilio', 'Anthropic', 'Google', 'MochaHost', 'DoorDash Drive', 'Uber Direct', 'SkipTheDishes', 'Supabase', 'Contabo', 'Slack']) expect(half).toContain(s);
+      const s4 = section(half, 4);
+      for (const s of ['Twilio', 'Anthropic', 'Google', 'Amazon (Polly)', 'Deepgram', 'MochaHost', 'Resend', 'Too Good To Go', 'DoorDash Drive', 'Uber Direct', 'SkipTheDishes', 'Supabase', 'Contabo', 'Slack']) expect(s4).toContain(s);
     }
+    // No third-party aggregator is named as a provider (owner's rule: direct platform links only).
+    for (const half of [fr, en]) expect(section(half, 4)).not.toContain('Deliverect');
+    // The delivery services also receive the customer's email (dispatch.ts dropoff.email; Drive and Skip require it).
+    expect(section(fr, 4)).toContain('nom, numéro et courriel du client, adresse de livraison et contenu de la commande');
+    expect(section(en, 4)).toContain('the customer’s name, number and email, delivery address and order contents');
+    // The default phone voices are Amazon Polly (lib/foodhub/phone/voices.ts DEFAULT_VOICES): keep Amazon named for the voices.
+    expect(section(fr, 4)).toContain('Amazon (Polly) et Google pour les voix');
+    expect(section(en, 4)).toContain('Amazon (Polly) and Google for the phone assistant’s voices');
     expect(fr).toContain('n’approuve de remboursement ou de paiement');
     expect(en).toContain('Neither one approves refunds or payments');
   });
-  it('§5 says where data lives and no longer promises a transfer assessment', () => {
-    const t = text(PrivacyPage);
-    expect(t).toContain('hébergée à Montréal');
-    expect(t).toContain('hosted in Montréal');
-    expect(t).toMatch(/aux États-Unis/);
-    expect(t).toMatch(/in the United States/);
-    expect(t).not.toMatch(/nous évaluons|we assess/);
+  it('§5 says where data lives (US processors named, other providers outside Québec), no transfer assessment promise', () => {
+    const { fr, en } = halves(PrivacyPage);
+    const fr5 = section(fr, 5);
+    const en5 = section(en, 5);
+    expect(fr5).toContain('hébergée à Montréal');
+    expect(en5).toContain('hosted in Montréal');
+    expect(fr5).toContain('Twilio, d’Anthropic, de Google, d’Amazon et de Deepgram traitent les renseignements aux États-Unis');
+    expect(en5).toContain('Twilio, Anthropic, Google, Amazon and Deepgram services process information in the United States');
+    expect(fr5).toContain('à l’extérieur du Québec');
+    expect(en5).toContain('outside Québec');
+    expect(text(PrivacyPage)).not.toMatch(/nous évaluons|we assess/);
   });
   it('§6 gives the 30-day deletion and the token wording, no destruction promise', () => {
     const t = text(PrivacyPage);
     expect(t).toContain('dans les 30 jours');
     expect(t).toContain('within 30 days');
-    expect(t).toContain('lorsque Clover nous avise de la désinstallation de l’application, ou sur demande');
-    expect(t).toContain('when Clover notifies us that the app was uninstalled, or on request');
+    expect(t).toContain(`Les jetons d’accès Clover d’un marchand ${TOKEN_DELETION.fr}.`);
+    expect(t).toContain(`A merchant’s Clover access tokens ${TOKEN_DELETION.en}.`);
     expect(t).not.toMatch(/détruisons|destroy or anonymize/);
   });
   it('§8 covers deletion, complaints, the 30-day answer and press 0', () => {
     const { fr, en } = halves(PrivacyPage);
-    for (const s of ['suppression', 'plainte', 'Nous répondons par écrit dans les 30 jours', 'faites le 0']) expect(fr).toContain(s);
-    for (const s of ['delete', 'complaint', 'We answer in writing within 30 days', 'press 0']) expect(en).toContain(s);
+    const fr8 = section(fr, 8);
+    const en8 = section(en, 8);
+    for (const s of ['leur rectification, leur suppression, leur portabilité', 'plainte', 'Nous répondons par écrit dans les 30 jours', 'faites le 0']) expect(fr8).toContain(s);
+    for (const s of ['access, correct, delete or port your information', 'complaint', 'We answer in writing within 30 days', 'press 0']) expect(en8).toContain(s);
   });
   it('wording rules: automated (never virtual), no round-the-clock claims', () => {
     const t = text(PrivacyPage) + text(TermsPage) + text(SupportPage);
@@ -101,12 +129,39 @@ describe('privacy policy (FR then EN)', () => {
 });
 
 describe('terms and support', () => {
-  it('terms §6: service and account free, nothing billed outside Clover', () => {
-    const { fr, en } = halves(TermsPage);
-    expect(fr).toContain('Le service et le compte Food Hub sont gratuits');
-    expect(fr).toContain('rien n’est facturé en dehors de Clover');
-    expect(en).toContain('The service and the Food Hub account are free');
-    expect(en).toContain('nothing is billed outside Clover');
+  it('terms §6 and the support FAQ: 14-day trial, then CAD $50 per month per app, billed only through Clover', () => {
+    const t = halves(TermsPage);
+    const s = halves(SupportPage);
+    for (const fr of [section(t.fr, 6), s.fr]) {
+      expect(fr).toContain('Essai gratuit de 14 jours, puis 50 $ CA par mois par application');
+      expect(fr).toContain('rien n’est facturé en dehors de Clover');
+      expect(fr).toContain('chaque marque additionnelle coûte 15 $ CA par mois par plateforme, facturés par Clover (le prix est affiché avant l’ajout)');
+      expect(fr).not.toMatch(/sont gratuits/);
+    }
+    for (const en of [section(t.en, 6), s.en]) {
+      expect(en).toContain('Free 14-day trial, then CAD $50 per month per app');
+      expect(en).toContain('nothing is billed outside Clover');
+      expect(en).toContain('each additional brand costs CAD $15 per month per platform, billed by Clover (the price is shown before you add it)');
+      expect(en).not.toMatch(/account are free/);
+    }
+    expect(section(t.fr, 8)).toContain('par la facturation de Clover');
+    expect(section(t.en, 8)).toContain('through Clover billing');
+  });
+  it('fees follow FOODHUB_TRIAL_DAYS / FOODHUB_MONTHLY_PRICE_CAD / FOODHUB_EXTRA_BRAND_PRICE_CAD; bad values fall back to the defaults', () => {
+    process.env.FOODHUB_TRIAL_DAYS = '30';
+    process.env.FOODHUB_MONTHLY_PRICE_CAD = '65';
+    process.env.FOODHUB_EXTRA_BRAND_PRICE_CAD = '20';
+    expect(text(TermsPage)).toContain('Free 30-day trial, then CAD $65 per month per app');
+    expect(text(TermsPage)).toContain('each additional brand costs CAD $20 per month per platform');
+    expect(text(SupportPage)).toContain('Essai gratuit de 30 jours, puis 65 $ CA par mois');
+    expect(text(SupportPage)).toContain('chaque marque additionnelle coûte 20 $ CA par mois par plateforme');
+    for (const bad of ['0', '-5', '12.5', 'abc', ' ']) {
+      process.env.FOODHUB_TRIAL_DAYS = bad;
+      process.env.FOODHUB_MONTHLY_PRICE_CAD = bad;
+      process.env.FOODHUB_EXTRA_BRAND_PRICE_CAD = bad;
+      expect(legalInfo().pricing).toEqual({ trialDays: 14, monthlyCad: 50, extraBrandCad: 15 });
+    }
+    expect(feesText({ trialDays: 14, monthlyCad: 50, extraBrandCad: 15 }).en).toContain('billed only through Clover App Market billing');
   });
   it('terms: customers’ personal information clause (service provider)', () => {
     const { fr, en } = halves(TermsPage);
@@ -115,13 +170,22 @@ describe('terms and support', () => {
     expect(en).toContain('Your customers’ personal information');
     expect(en).toContain('your service provider');
   });
-  it('terms §9 and support use the same token wording', () => {
-    for (const page of [TermsPage, SupportPage]) {
+  it('privacy §6, terms §9 and support use the exact same token wording', () => {
+    expect(TOKEN_DELETION.fr).toBe('sont supprimés lorsque Clover nous avise de la désinstallation de l’application, ou sur demande');
+    expect(TOKEN_DELETION.en).toBe('are deleted when Clover notifies us that the app was uninstalled, or on request');
+    for (const page of [PrivacyPage, TermsPage, SupportPage]) {
       const t = text(page);
-      expect(t).toContain('jetons d’accès Clover sont supprimés lorsque Clover nous avise de la désinstallation, ou sur demande');
-      expect(t).toContain('Clover access tokens are deleted when Clover notifies us that the app was uninstalled, or on request');
+      expect(t).toContain(TOKEN_DELETION.fr);
+      expect(t).toContain(TOKEN_DELETION.en);
+      expect(t).not.toMatch(/de la désinstallation, ou sur demande/);
       expect(t).not.toMatch(/dès que Clover nous en avise|as soon as Clover notifies us|tokens are then deleted|jetons Clover sont alors supprimés/);
     }
+  });
+  it('the Clover App Market listing uses the same token wording as the legal pages (no "at once" promise)', () => {
+    expect(LISTING_DESCRIPTION.fr).toContain(TOKEN_DELETION.fr);
+    expect(LISTING_DESCRIPTION.en).toContain(TOKEN_DELETION.en);
+    const all = [LISTING_DESCRIPTION.fr, LISTING_DESCRIPTION.en, LISTING_FUNCTIONAL_DESCRIPTION.fr, LISTING_FUNCTIONAL_DESCRIPTION.en].join(' ');
+    expect(all).not.toMatch(/tokens at once|supprime aussitôt les jetons|deleted when the app is uninstalled|supprimés à la désinstallation/);
   });
 });
 

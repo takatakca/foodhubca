@@ -1,5 +1,8 @@
 # FOODHUB — file de tâches coordonnée
 
+**16 octobre 2026 : FH-016 — REVIEW / branche `fix/console-kitchen-a11y`, PR #52.** Phase 3 P0 interface cuisine : tokens sombres pour les dialogues portalisés/écran NIP, thème avant premier rendu, contraste, zone tactile 48px, réduction des animations OS, erreur/chargement au niveau de la console. Code et tests poussés ; attendre la CI de la dernière tête puis révision/fusion réservées au propriétaire. Reprise après fusion PR #53 : `main` `444e8f2e60dd73e5eaa90bc4e9f92d05489b38f3`. Les dossiers FH-006/FH-007 de commandes réelles restent **non certifiés**.
+
+
 **Reprise autorisée 2026-10-15** : FH-002 à FH-005 sont prises sur la PR #49 pour terminer la livraison native GitHub App → Coolify et prouver le SHA public. Accès/source/backup/santé configurés ; tests locaux réussis (807 unitaires, 536 E2E). La livraison finale reste à constater après fusion. Aucun changement aux intégrations réelles FH-006/FH-007. Le tableau du 2026-10-14 ci-dessous conserve son contexte historique.
 
 Mise à jour : 2026-10-14. Ce tableau public est une relève Git ; il **ne remplace pas** `private/TASKS.md` (tableau local git-ignoré) ni les branches actives des autres agents, conformément à `CLAUDE.md`.

@@ -1,5 +1,22 @@
 # FOODHUB — relève de l'agent (à lire dès l'ouverture)
 
+## Reprise du 2026-10-16 — PRIORITÉ (agent GitHub, PR #52)
+
+**Dernière tâche réalisée** : correctifs d'interface cuisine sur la branche `fix/console-kitchen-a11y` ([PR #52](https://github.com/takatakca/foodhubca/pull/52), toujours brouillon au moment de cette écriture) ; rapprochement non destructif avec le nouveau `main` intégrant la PR #53 Clover. Dernier SHA de code/rapprochement poussé avant cette mise à jour de relève : `87e22d8da9feb137dc5e3623744166ae0d813db3`. Pour le SHA final incluant cette documentation, lire la tête actuelle de la branche dans GitHub.
+
+**Tâche en cours** : vérifier la CI et la construction image Docker de la PR #52 après le rapprochement ; corriger les erreurs éventuelles ; effectuer une validation visuelle sur tablette puis laisser le propriétaire fusionner. `main` contrôlé = `444e8f2e60dd73e5eaa90bc4e9f92d05489b38f3` ([CI main](https://github.com/takatakca/foodhubca/actions/runs/38845406916) et [image](https://github.com/takatakca/foodhubca/actions/runs/38845406823) réussies).
+
+**Code modifié** : `components/shell/console-shell.tsx`, `components/ui/route-theme.tsx`, `lib/ui/kitchen-theme.ts`, `lib/ui/display.tsx`, `app/layout.tsx`, `app/globals.css`, `app/(console)/loading.tsx`, `app/(console)/error.tsx`, `tests/kitchen-theme.test.ts`, `tests/display-kitchen-boot.test.ts` et `WORKLOG.md`. Thème sombre avant premier affichage puis maintenu durant les transitions de pages (dont /kitchen/lock), dialogues portalisés, réduction de mouvements OS, NIP shake, commandes tactiles min. 48 px, écran chargement/erreur bilingue. Aucun serveur, commande réelle, API, secret, base ou intégration marchand modifié.
+
+**Vérifications** : GitHub REST : `main`, PR #51/#52, PR #53 fusionnée, comparaison des arbres, PR #52 sans conflit après commit de rapprochement. [CI PR #52](https://github.com/takatakca/foodhubca/actions/runs/38852377905) et [image PR #52](https://github.com/takatakca/foodhubca/actions/runs/38852377889) démarrées après rapprochement ; **ne pas déclarer PASS tant que le dernier SHA n'est pas vert**. Tests locaux non exécutés : environnement de travail utilise l'API GitHub, sans clone local. Les 2 tests unitaires nouveaux couvrent le routage et le thème avant le premier rendu.
+
+**Production** : La [PR #49 fusionnée](https://github.com/takatakca/foodhubca/pull/49) documente une publication Coolify réussie du 2026-10-15 au SHA `027b602a12da39b1244e17b813bc51a7496a0217`. Un SHA `main` plus récent est maintenant présent ; les GET externes `/api/release`, `/api/health`, `/api/public/directory` n'ont pu être confirmés par l'outil externe de ce relevé. **Pas de nouvelle preuve de déploiement sur le dernier `main`**, ni de certification de commandes réelles. Les workflows GitHub Actions Coolify historiques sont `skipped` car le contrôleur natif Coolify est le chemin retenu.
+
+**Blocages / accès** : révision/merge réservés au propriétaire (`CLAUDE.md`) ; opérateur Coolify/Contabo et réseau HTTPS fonctionnel pour constater le SHA ; responsables Clover et plateformes pour les tests sandbox puis réels et l'impression cuisine. Ne pas divulguer de clés ni toucher à Po Poulet NDG DoorDash store 27982486.
+
+**Prochaine action exacte** : consulter la CI et l'image de la **tête courante de la PR #52** (les commits de documentation peuvent relancer les jobs). En cas d'échec, lire les logs de l'étape et corriger sur `fix/console-kitchen-a11y` ; sinon marquer la PR prête à réviser, laisser le propriétaire fusionner. Puis constater le SHA de production via `npm run verify:live -- --url https://foodhub.on2go.ca/ --sha FULL_SHA` et documenter dans l'issue #46. Ensuite passer aux intégrations commerciales non certifiées.
+
+
 ## Reprise actuelle — 2026-10-15 (prioritaire sur le relevé historique ci-dessous)
 
 Demande explicite du propriétaire : terminer GitHub → production Coolify et les contrôles de santé de Food Hub. PR #49 fusionnée en `e7ce788a9432618ee93eb9ce3d6a6be7c64b3ca6`, aucune autre PR fusionnée. Source native Coolify liée au GitHub App existant ; auto-push activé ; arguments Docker gérés par le fichier et `SOURCE_COMMIT` disponible au build. Santé activée en **Container command** : `node /app/scripts/check-runtime.mjs`, intervalle 30 s, timeout 90 s, 3 essais, démarrage 60 s. La version Coolify 4.4.6 installée substitue le check de l'interface à celui de l'image : ne pas utiliser HTTP, car l'image n'embarque pas curl/wget.

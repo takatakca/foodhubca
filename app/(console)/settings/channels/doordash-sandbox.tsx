@@ -11,7 +11,7 @@ import { Section } from '../settings-ui';
 import { api } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 
-type Status = { active: boolean; integration: boolean; env: string | null; providerSandbox: boolean; storeIds: string[]; warnings: string[] };
+type Status = { active: boolean; integration: boolean; env: string | null; providerSandbox: boolean; sandboxSecret?: boolean; storeIds: string[]; warnings: string[] };
 type Event = { at: string; text: string; ok?: boolean };
 type TestOrder = { id: string; clientOrderId: string; displayId?: string; storeId: string; reason: string; status: 'received' | 'confirmed' | 'failed' | 'ready' | 'cancelled'; courier?: string; receivedAt: string; events: Event[];
   order?: { subtotal: number; tax: number; customerName?: string; lines: Array<{ name: string; quantity: number }> } };
@@ -58,6 +58,7 @@ export function DoorDashSandboxTests() {
           <PlatformMark channel="doordash" size="sm" />
           <Badge tone={s.active ? 'violet' : 'neutral'}>{s.active ? t('Mode bac à sable ACTIF', 'Sandbox mode ON') : t('Mode bac à sable inactif', 'Sandbox mode off')}</Badge>
           {s.integration && <Badge tone="wait">{t('Toutes les commandes DoorDash directes = ESSAIS', 'Every direct DoorDash order = TEST')}</Badge>}
+          {s.sandboxSecret && <Badge tone="info">{t('Secret webhook du bac à sable configuré', 'Sandbox webhook secret set')}</Badge>}
           <span className="text-ink-3">{t('Magasin(s) d’essai :', 'Test store(s):')} {s.storeIds.length ? s.storeIds.map((id) => <code key={id} className="mr-1 rounded bg-sunken px-1 font-mono text-xs">{id}{data.paused[id] ? ' (pause)' : ''}</code>) : '—'}</span>
         </div>
         {s.warnings.map((w) => <Banner key={w} tone="warn">{w}</Banner>)}

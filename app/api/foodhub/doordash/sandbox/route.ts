@@ -1,10 +1,11 @@
 import { withPerm } from '@/lib/foodhub/auth';
 import { getCatalog } from '@/lib/foodhub/catalog';
-import { doorDashSandboxStatus, isDoorDashSandboxStoreId, readSandboxConfig, readSandboxState, writeSandboxConfig } from '@/lib/foodhub/doordash/sandbox';
+import { doorDashSandboxStatus, isDoorDashTestStore, readSandboxConfig, readSandboxState, writeSandboxConfig } from '@/lib/foodhub/doordash/sandbox';
 import {
   clearSandboxTests, pushSandboxMenu, runSandboxOrderAction, setSandboxItem, setSandboxStoreOnline, type SandboxAction,
 } from '@/lib/foodhub/doordash/sandbox-ops';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
+import { getRepo } from '@/lib/foodhub/repo';
 import { CANCEL_REASON_LABELS, type CancelReason } from '@/lib/foodhub/types';
 
 export const dynamic = 'force-dynamic';
@@ -15,9 +16,9 @@ export const maxDuration = 60;
 // store. Same permission as the platform settings page. Nothing here reaches Clover, a printer, a kitchen screen,
 // Watchtower or the reports; DoorDash calls are refused for any store that is not a listed test store.
 export const GET = withPerm('stores:map', async () => {
-  const [state, config, catalog] = await Promise.all([readSandboxState(), readSandboxConfig(), getCatalog()]);
+  const [state, config, catalog, stores] = await Promise.all([readSandboxState(), readSandboxConfig(), getCatalog(), getRepo().listStores('doordash')]);
   return ok({
-    status: doorDashSandboxStatus(), config, orders: state.orders, log: state.log, paused: state.paused, menuIds: state.menuIds,
+    status: doorDashSandboxStatus(process.env, stores), config, orders: state.orders, log: state.log, paused: state.paused, menuIds: state.menuIds,
     brands: catalog.brands.map((b) => b.name), locations: catalog.locations.map((l) => ({ code: l.code, name: l.name })),
   });
 });
@@ -42,7 +43,8 @@ export const POST = withPerm('stores:map', async (req) => {
   }
   if (action === 'clear') { await clearSandboxTests(); return ok({ message: 'Sandbox test list emptied.' }); }
   const storeId = String(b.storeId ?? '').trim();
-  if (!isDoorDashSandboxStoreId(storeId)) return fail(`${storeId || '(no store)'} is not a DoorDash test store (DOORDASH_SANDBOX_STORE_IDS).`, 400);
+  // A listed id that is a real (mapped) store is refused too: a real store's menu, items and pause are never driven from here.
+  if (!(await isDoorDashTestStore(storeId))) return fail(`${storeId || '(no store)'} is not a DoorDash test store (DOORDASH_SANDBOX_STORE_IDS, never a store mapped in Food Hub).`, 400);
   const out = action === 'push_menu' ? await pushSandboxMenu(storeId)
     : action === 'item' ? await setSandboxItem(storeId, String(b.ref ?? ''), b.available === true, b.kind === 'modifier' ? 'modifier' : 'item')
       : action === 'store' ? await setSandboxStoreOnline(storeId, b.online === true)

@@ -14,11 +14,21 @@ A DoorDash webhook is a **sandbox test** when any one of these is true:
 
 | Signal | Effect |
 |---|---|
+| the request carries `Authorization` = `DOORDASH_SANDBOX_WEBHOOK_SECRET` (the Sandbox subscriptions' own value) | always a test, **whatever `DOORDASH_ENV` says** |
 | `DOORDASH_ENV=sandbox` | every DoorDash Marketplace webhook is a test |
-| `DOORDASH_PROVIDER_TYPE` ends with `_sandbox` (DoorDash's naming for sandbox provider types) | same |
-| the payload names a store listed in `DOORDASH_SANDBOX_STORE_IDS` | that store's webhooks are tests |
-| the payload's store `provider_type` ends with `_sandbox` | that webhook is a test |
-| it is about a test order Food Hub already holds (cancel, Dasher, adjustment…) | that webhook is a test |
+| the payload names a store listed in `DOORDASH_SANDBOX_STORE_IDS` (never a store mapped in Food Hub) | that store's webhooks are tests |
+| while one of the three above is set: the payload's store `provider_type` ends with `_sandbox` | that webhook is a test |
+| it is about a test order Food Hub already recorded (cancel, Dasher, adjustment…) | that webhook is a test, even after the settings changed |
+
+The decision is taken **when the webhook arrives** and saved on its webhook-inbox entry. A DoorDash retry, the
+recovery runner, or a **Replay** (Settings → Platforms → Webhook inbox) made after `DOORDASH_ENV` changed still
+treats it as a test: it never reaches the kitchen. The ids of every test order are also kept in a permanent list
+(never emptied by "Vider la liste des essais"), so a late DoorDash event about one stays a test. A test entry is
+never cut off by DoorDash's 3-minute answer window (it is not cooked), so a late or resent test order never becomes an
+inbox failure, an activity-feed line or a Watchtower alert.
+
+A `DOORDASH_PROVIDER_TYPE` ending with `_sandbox` **alone does not turn the mode on**: the test screen only warns
+about it. Set `DOORDASH_ENV=sandbox` while the credentials are sandbox ones.
 
 A test order is **saved and shown as TEST** in the "Essais DoorDash (bac à sable)" list, and:
 
@@ -28,21 +38,27 @@ A test order is **saved and shown as TEST** in the "Essais DoorDash (bac à sabl
   `prep_time`, automatic on arrival by default), reject (PATCH `fail` with DoorDash's failure reason and `errors[]`),
   ready (`order_ready_for_pickup`), merchant cancel (only with `DOORDASH_MERCHANT_CANCEL=true`), DoorDash cancellations,
   Dasher status, order release and adjustment;
-- the **test store** gets the menu pull answer, menu pushes, item / option 86s and pause / reopen. It is answered from
-  the brand and location chosen in the test screen; it is never written to the Stores table (Watchtower and the store
-  sync never see it);
-- while the credentials are sandbox ones (`DOORDASH_ENV=sandbox` or a `_sandbox` provider type), **no real store** is
-  ever called: menu push, 86, pause and status reads for any store other than the listed test store(s) are refused
-  ("Not sent: DoorDash is in sandbox mode"). A real store's status stays at its last known state (no false
-  "deactivated" alert);
+- the **test store** gets the menu pull answer, item availability polling, order cart validation, menu pushes, item /
+  option 86s and pause / reopen. It is answered from the brand and location chosen in the test screen and logged in the
+  test log only; it is never written to the Stores table (Watchtower and the store sync never see it);
+- a store mapped in Food Hub (a **real** store) is never a test store, even if its id is put in
+  `DOORDASH_SANDBOX_STORE_IDS` by mistake: its orders stay real (Clover, kitchen) and the test screen refuses to change
+  its menu, items or pause. The test screen shows a warning when that happens;
+- while the credentials are sandbox ones (`DOORDASH_ENV=sandbox`), **no real store** is ever called: menu push, 86,
+  pause and status reads for any store other than the listed test store(s) are refused ("Not sent: DoorDash is in
+  sandbox mode"). A real store's status stays at its last known state (no false "deactivated" alert). A sandbox menu
+  pull, item polling or cart validation about a real store is answered 409. DoorDash reports are not fetched with the
+  sandbox key (a sandbox report never counts in money) unless the Reports integration has its own
+  `DOORDASH_REPORTS_*` key;
 - Po Poulet NDG (DoorDash store 27982486) is never touched: it can not be listed as a test store, and a sandbox webhook
   that names it is ignored.
 
-**Webhook authentication is unchanged.** Every DoorDash webhook (orders, menu pull, cart validation) must carry
-`Authorization` = the value of `DOORDASH_WEBHOOK_SECRET`; sandbox mode is decided only after that check.
+**Webhook authentication is not weakened.** Every DoorDash webhook (orders, menu pull, item polling, cart validation)
+must carry `Authorization` = `DOORDASH_WEBHOOK_SECRET` (production subscriptions) or `DOORDASH_SANDBOX_WEBHOOK_SECRET`
+(Sandbox subscriptions, only when it is set and different from the production value); anything else gets 401.
 
-**Without** `DOORDASH_ENV`, a `_sandbox` provider type and `DOORDASH_SANDBOX_STORE_IDS`, Food Hub behaves exactly as
-before.
+**Without** `DOORDASH_ENV=sandbox`, `DOORDASH_SANDBOX_STORE_IDS` and `DOORDASH_SANDBOX_WEBHOOK_SECRET`, Food Hub
+treats DoorDash orders as before (the only extra work is a lookup of the permanent test-order id list).
 
 ## Owner steps
 
@@ -60,6 +76,7 @@ In Coolify → Food Hub → Environment Variables, add or fill:
 | `DOORDASH_PROVIDER_TYPE` | the sandbox provider type DoorDash shows (it ends with `_sandbox`) |
 | `DOORDASH_ENV` | `sandbox` |
 | `DOORDASH_SANDBOX_STORE_IDS` | the location id of the sandbox store you add in step 3 (fill it after step 3) |
+| `DOORDASH_SANDBOX_WEBHOOK_SECRET` | a new random value you generate (for example `openssl rand -hex 32`), **different** from `DOORDASH_WEBHOOK_SECRET` |
 
 `DOORDASH_WEBHOOK_SECRET` already exists (Food Hub generated it). `LIVE_CONNECTORS_GLOBAL_ENABLED=true` must be on for
 Food Hub to answer DoorDash. Save, then Deploy (owner only).
@@ -73,8 +90,14 @@ Developer Portal (org FoodHub By Takatak) → **Webhook subscriptions** → **Co
    appends `/<location id>` itself).
 2. Event types: Order Create, Order Cancellation, Menu Status, Menu Request, Dasher Status, Order Release, Order
    Adjustment, Store Temporarily Deactivated (any the portal offers).
-3. Authorization header value: Food Hub → Réglages → **Plateformes et Clover** → DoorDash card → "Webhook Authorization
-   header value" → **Afficher les secrets** → **Copier**, then paste it in the portal. Not in a chat.
+3. Two more endpoints, if the portal (or DoorDash support) offers them:
+   - **Item Polling** (Automatic Item Availability Polling): `https://foodhub.on2go.ca/api/foodhub/webhooks/doordash/item-polling`
+     (DoorDash appends `/<location id>`);
+   - **Order Cart Validation**: `https://foodhub.on2go.ca/api/foodhub/webhooks/doordash/orderCartValidation`.
+4. Authorization header value, for **every Sandbox subscription**: the **sandbox** value. Food Hub → Réglages →
+   **Plateformes et Clover** → DoorDash card → "Sandbox webhook Authorization header value" → **Afficher les secrets** →
+   **Copier**, then paste it in the portal. Not in a chat. Do **not** use the production "Webhook Authorization header
+   value" on a Sandbox subscription: the sandbox value is what marks every request as a test, even after step 6.
 
 ### 3. DoorDash Developer Portal: a sandbox location
 
@@ -100,15 +123,28 @@ reaches Clover, the kitchen or the reports.
 
 ### 6. After certification (production keys)
 
-When DoorDash gives production credentials: replace the four DoorDash keys in Coolify, set `DOORDASH_ENV=production`
-(or remove it), and remove `DOORDASH_SANDBOX_STORE_IDS`, then Deploy. Food Hub then treats DoorDash orders as real
-orders again (Clover, kitchen, reports). The test screen disappears once the mode is off and the test list is empty
-("Vider la liste des essais").
+When DoorDash gives production credentials, in this order:
+
+1. **First**, in the Developer Portal, **delete the Sandbox webhook subscription(s)** created in step 2 (Sandbox
+   environment). Nothing should keep sending sandbox orders to Food Hub.
+2. Create the **Production** subscriptions with the production value ("Webhook Authorization header value" =
+   `DOORDASH_WEBHOOK_SECRET`).
+3. Then in Coolify: replace the four DoorDash keys, set `DOORDASH_ENV=production` (or remove it), and Deploy.
+   **Keep** `DOORDASH_SANDBOX_STORE_IDS` and `DOORDASH_SANDBOX_WEBHOOK_SECRET` set: the sandbox location id never
+   matches a real store, and anything still signed with the sandbox value stays a test instead of reaching the kitchen.
+
+Food Hub then treats DoorDash orders on the production subscriptions as real orders (Clover, kitchen, reports). Old
+test entries in the webhook inbox stay tests even if replayed.
 
 ## If something looks wrong
 
-- "Mode bac à sable inactif" while testing: `DOORDASH_ENV` is not `sandbox` and the provider type does not end with
-  `_sandbox`, or the deployment did not restart.
+- "Mode bac à sable inactif" while testing: none of `DOORDASH_ENV=sandbox`, `DOORDASH_SANDBOX_STORE_IDS` or
+  `DOORDASH_SANDBOX_WEBHOOK_SECRET` is set, or the deployment did not restart.
+- Warning "DOORDASH_PROVIDER_TYPE ends with _sandbox but DOORDASH_ENV is not sandbox": set `DOORDASH_ENV=sandbox`.
+- Warning "… a real store mapped in Food Hub": the id in `DOORDASH_SANDBOX_STORE_IDS` is a real store's; give the
+  sandbox location its own id.
+- Sandbox webhooks answered 401: the Sandbox subscription's Authorization is not `DOORDASH_SANDBOX_WEBHOOK_SECRET`, or
+  that value equals `DOORDASH_WEBHOOK_SECRET` (then it is ignored; the test screen warns).
 - Menu push refused "Not sent: DoorDash is in sandbox mode": the store is not in `DOORDASH_SANDBOX_STORE_IDS`.
 - Menu pull answered 404 "Choose the brand…": pick the brand in the test screen.
 - A test order stays "received": auto-confirm is off, or the confirm call failed (its history says why).

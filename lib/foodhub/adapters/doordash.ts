@@ -10,7 +10,7 @@ import { toDoorDashMenu } from '../menu/translate';
 import { localTimeLabel } from '../time';
 import { CANCEL_REASON_LABELS } from '../types';
 import type { CancelReason, ChannelAdapter, DoorDashOrderDetails, NormalizedOrder, OrderLine, PlatformState, StoredOrder } from '../types';
-import { doorDashIntegrationIsSandbox, doorDashSandboxStoreRefusal } from '../doordash/sandbox';
+import { doorDashIntegrationIsSandbox, doorDashSandboxSecretSet, doorDashSandboxStoreRefusal } from '../doordash/sandbox';
 import { blockedResult, buildReadiness, chunk } from './common';
 
 const KEY = 'doordash' as const;
@@ -116,9 +116,13 @@ function headers(): Record<string, string> {
 
 function readiness() {
   return buildReadiness(KEY, ['DOORDASH_DEVELOPER_ID', 'DOORDASH_KEY_ID', 'DOORDASH_SIGNING_SECRET', 'DOORDASH_PROVIDER_TYPE', 'DOORDASH_WEBHOOK_SECRET'], {
-    note: `${doorDashIntegrationIsSandbox() ? 'SANDBOX (DOORDASH_ENV=sandbox or a _sandbox provider type): DoorDash orders are TEST orders — never sent to Clover, see DoorDash sandbox tests below. ' : ''}Direct mode. DOORDASH_PROVIDER_TYPE is issued by DoorDash when your Marketplace integration is approved.`,
-    noteFr: `${doorDashIntegrationIsSandbox() ? 'BAC À SABLE (DOORDASH_ENV=sandbox ou un provider type _sandbox) : les commandes DoorDash sont des ESSAIS — jamais envoyées à Clover, voir Essais DoorDash (bac à sable) plus bas. ' : ''}Mode direct. DoorDash fournit DOORDASH_PROVIDER_TYPE quand votre intégration Marketplace est approuvée.`,
-    handoff: [{ label: 'Webhook Authorization header value', envKey: 'DOORDASH_WEBHOOK_SECRET' }],
+    note: `${doorDashIntegrationIsSandbox() ? 'SANDBOX (DOORDASH_ENV=sandbox): DoorDash orders are TEST orders — never sent to Clover, see DoorDash sandbox tests below. ' : ''}Direct mode. DOORDASH_PROVIDER_TYPE is issued by DoorDash when your Marketplace integration is approved.`,
+    noteFr: `${doorDashIntegrationIsSandbox() ? 'BAC À SABLE (DOORDASH_ENV=sandbox) : les commandes DoorDash sont des ESSAIS — jamais envoyées à Clover, voir Essais DoorDash (bac à sable) plus bas. ' : ''}Mode direct. DoorDash fournit DOORDASH_PROVIDER_TYPE quand votre intégration Marketplace est approuvée.`,
+    handoff: [
+      { label: 'Webhook Authorization header value', envKey: 'DOORDASH_WEBHOOK_SECRET' },
+      // Only once it is set (docs/DOORDASH_SANDBOX.md): the Sandbox subscriptions' own value, every request with it is a TEST.
+      ...(doorDashSandboxSecretSet() ? [{ label: 'Sandbox webhook Authorization header value (Sandbox subscriptions only)', envKey: 'DOORDASH_SANDBOX_WEBHOOK_SECRET' }] : []),
+    ],
   });
 }
 
@@ -188,7 +192,7 @@ export const doorDashAdapter: ChannelAdapter = {
     return res;
   },
   async publishMenu(store, menu, ctx) {
-    const sandboxRefusal = doorDashSandboxStoreRefusal(store.channelStoreId);
+    const sandboxRefusal = doorDashSandboxStoreRefusal(store.channelStoreId, process.env, store.id);
     if (sandboxRefusal) return result(KEY, 'blocked', sandboxRefusal);
     const menuId = typeof store.meta?.doordashMenuId === 'string' ? store.meta.doordashMenuId : null;
     const reference = `takatak-${store.channelStoreId}-${Date.now()}`;
@@ -202,7 +206,7 @@ export const doorDashAdapter: ChannelAdapter = {
   },
   // PUT /api/v1/stores/{msid}/items/status  or  /item_options/status — max 40 per request.
   async setItemAvailability(store, refs, available, _untilMs, kind = 'item') {
-    const sandboxRefusal = doorDashSandboxStoreRefusal(store.channelStoreId);
+    const sandboxRefusal = doorDashSandboxStoreRefusal(store.channelStoreId, process.env, store.id);
     if (sandboxRefusal) return result(KEY, 'blocked', sandboxRefusal);
     if (refs.length === 0) return result(KEY, 'skipped', 'No items to update.');
     const path = `/api/v1/stores/${encodeURIComponent(store.channelStoreId)}/${kind === 'modifier' ? 'item_options' : 'items'}/status`;
@@ -214,7 +218,7 @@ export const doorDashAdapter: ChannelAdapter = {
     return last;
   },
   async setStoreOnline(store, online, untilMs, reason) {
-    const sandboxRefusal = doorDashSandboxStoreRefusal(store.channelStoreId);
+    const sandboxRefusal = doorDashSandboxStoreRefusal(store.channelStoreId, process.env, store.id);
     if (sandboxRefusal) return result(KEY, 'blocked', sandboxRefusal);
     return send('PUT', `/api/v1/stores/${encodeURIComponent(store.channelStoreId)}/status`, online
       ? { is_active: true }

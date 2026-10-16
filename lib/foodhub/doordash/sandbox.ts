@@ -130,8 +130,12 @@ export async function isDoorDashTestStore(id: unknown, env: Env = process.env): 
  * listed test store: the sandbox credentials must never be aimed at a real store. Null = allowed. (Sync backstop used by
  * the adapter and the guard; the webhook routes use doorDashStoreAccess, which also reads the stores table.)
  */
-export function doorDashSandboxStoreRefusal(channelStoreId: unknown, env: Env = process.env): string | null {
-  if (!doorDashIntegrationIsSandbox(env) || isDoorDashSandboxStoreId(channelStoreId, env)) return null;
+export function doorDashSandboxStoreRefusal(channelStoreId: unknown, env: Env = process.env, storeRowId?: string | null): string | null {
+  if (!doorDashIntegrationIsSandbox(env)) return null;
+  // A row of the stores table (a real, mapped store) is never a test store, even when its id is listed: only the test
+  // store built by sandboxStoreFor ("sandbox:<id>", never stored) or a bare id is checked against the list.
+  const realRow = Boolean(storeRowId) && !String(storeRowId).startsWith('sandbox:');
+  if (!realRow && isDoorDashSandboxStoreId(channelStoreId, env)) return null;
   return `Not sent: DoorDash is in sandbox mode (DOORDASH_ENV=sandbox) — only the sandbox test store(s) in DOORDASH_SANDBOX_STORE_IDS are changed, never store ${String(channelStoreId ?? '') || '(none)'}.`;
 }
 

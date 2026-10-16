@@ -17,6 +17,9 @@
   private); language fixed by path (header read first by `getLang()`); anonymous `/` → `/hub` (`FOODHUB_PUBLIC_HOME=off`
   restores `/login`; tablets and signed-in users unchanged); `X-Robots-Tag: noindex` on every non-public response.
 - e2e: the "/ without sign-in" check now expects `/hub`, and new checks cover the public pages, robots, sitemap, llms.
+- Checks: typecheck OK, lint 0 errors (1 old warning), 977 tests passed (23 new in `tests/public-hub.test.ts`), 1 skipped,
+  1 failure that also fails on `origin/main` 12ba64d (`tests/tgtg-email.test.ts` "forged Too Good To Go From", not
+  touched here); webpack build OK; verify:foodhub 559/0.
 - Owner after merge: redeploy; optional env `FOODHUB_APP_MARKET_URL`, `FOODHUB_PUBLIC_SAME_AS`; Search Console
   URL-prefix property `https://foodhub.on2go.ca/` + sitemap; link the page from LinkedIn / YouTube / on2go.ca only once
   the legal Draft banner is gone. Rebase after `fix/legal-pages-complete` merges (both touch `proxy.ts`).

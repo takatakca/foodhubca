@@ -3,12 +3,14 @@
 // Mapping). Every DoorDash call written for the API-coverage work goes through this guard FIRST, before a token is
 // even signed: a protected store gets no read, no write, no webhook answer.
 //   - a LOCKED store (built-in, env or Stores → Mapping): refused for every kind of call, reads included;
+//   - in DoorDash sandbox mode (doordash/sandbox.ts), every store except the listed test store(s): refused for every call;
 //   - a store marked "Do not touch" (store.meta.doNotTouch): refused for menu / hours / availability changes only
 //     (kind "menu"), exactly like the publish path (orders, pause and resume keep working).
 // The older calls (accept, reject, ready, menu publish, 86, pause) keep their own locks and are unchanged.
 import { menuLockOf } from '../menu/lock';
 import { getRepo } from '../repo';
 import type { ChannelStore } from '../types';
+import { doorDashSandboxStoreRefusal } from './sandbox';
 
 /** read = GET only; write = changes something on DoorDash; menu = changes the menu, its hours or item availability. */
 export type DoorDashCallKind = 'read' | 'write' | 'menu';
@@ -20,7 +22,8 @@ export function doorDashStoreRefusal(store: StoreLike, kind: DoorDashCallKind = 
   const lock = menuLockOf({ channel: 'doordash', channelStoreId: store.channelStoreId, meta: store.meta ?? {} });
   if (lock.locked) return `Not sent: DoorDash store ${store.channelStoreId} is protected (${lock.reason ?? 'locked'}). Food Hub never touches it.`;
   if (kind === 'menu' && store.meta?.doNotTouch === true) return `Not sent: DoorDash store ${store.channelStoreId} is marked “Do not touch” (Stores → edit the store to change it).`;
-  return null;
+  // Sandbox credentials (DOORDASH_ENV=sandbox / a _sandbox provider type) are only ever aimed at the listed test store(s).
+  return doorDashSandboxStoreRefusal(store.channelStoreId);
 }
 
 /** True when this id is a protected DoorDash store (its mapping id or DoorDash's own store number). */

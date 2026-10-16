@@ -14,6 +14,7 @@ import { getBrandMenu } from '../menu/shared';
 import { prepFor } from '../prep';
 import { getRepo } from '../repo';
 import { guardDoorDashStore } from './guard';
+import { sandboxStoreFor } from './sandbox';
 
 export interface CartError { code: string; merchant_supplied_id: string; message: string }
 export interface CartValidation { valid: boolean; cart_id: string; expires_at: string; earliest_pickup_time?: string; errors?: CartError[] }
@@ -48,7 +49,8 @@ export async function validateDoorDashCart(body: any, now = Date.now()): Promise
   // A protected store (Po Poulet NDG…) gets no answer at all: DoorDash then skips the check, exactly as for a timeout.
   const refused = await guardDoorDashStore(msid, 'read');
   if (refused) return { refused, status: 409 };
-  const store = await getRepo().findStore('doordash', msid);
+  // A DoorDash sandbox test store is checked like a real one, from the brand chosen under DoorDash sandbox tests.
+  const store = (await sandboxStoreFor(msid)) ?? await getRepo().findStore('doordash', msid);
   if (!store) return { refused: `Unknown location_id ${msid} — map it under Food Hub → Stores → Mapping.`, status: 404 };
 
   const errors: CartError[] = [];

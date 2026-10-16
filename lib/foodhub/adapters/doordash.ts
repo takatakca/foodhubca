@@ -10,6 +10,7 @@ import { toDoorDashMenu } from '../menu/translate';
 import { localTimeLabel } from '../time';
 import { CANCEL_REASON_LABELS } from '../types';
 import type { CancelReason, ChannelAdapter, DoorDashOrderDetails, NormalizedOrder, OrderLine, PlatformState, StoredOrder } from '../types';
+import { doorDashIntegrationIsSandbox, doorDashSandboxStoreRefusal } from '../doordash/sandbox';
 import { blockedResult, buildReadiness, chunk } from './common';
 
 const KEY = 'doordash' as const;
@@ -115,8 +116,8 @@ function headers(): Record<string, string> {
 
 function readiness() {
   return buildReadiness(KEY, ['DOORDASH_DEVELOPER_ID', 'DOORDASH_KEY_ID', 'DOORDASH_SIGNING_SECRET', 'DOORDASH_PROVIDER_TYPE', 'DOORDASH_WEBHOOK_SECRET'], {
-    note: 'Direct mode. DOORDASH_PROVIDER_TYPE is issued by DoorDash when your Marketplace integration is approved.',
-    noteFr: 'Mode direct. DoorDash fournit DOORDASH_PROVIDER_TYPE quand votre intégration Marketplace est approuvée.',
+    note: `${doorDashIntegrationIsSandbox() ? 'SANDBOX (DOORDASH_ENV=sandbox or a _sandbox provider type): DoorDash orders are TEST orders — never sent to Clover, see DoorDash sandbox tests below. ' : ''}Direct mode. DOORDASH_PROVIDER_TYPE is issued by DoorDash when your Marketplace integration is approved.`,
+    noteFr: `${doorDashIntegrationIsSandbox() ? 'BAC À SABLE (DOORDASH_ENV=sandbox ou un provider type _sandbox) : les commandes DoorDash sont des ESSAIS — jamais envoyées à Clover, voir Essais DoorDash (bac à sable) plus bas. ' : ''}Mode direct. DoorDash fournit DOORDASH_PROVIDER_TYPE quand votre intégration Marketplace est approuvée.`,
     handoff: [{ label: 'Webhook Authorization header value', envKey: 'DOORDASH_WEBHOOK_SECRET' }],
   });
 }
@@ -187,6 +188,8 @@ export const doorDashAdapter: ChannelAdapter = {
     return res;
   },
   async publishMenu(store, menu, ctx) {
+    const sandboxRefusal = doorDashSandboxStoreRefusal(store.channelStoreId);
+    if (sandboxRefusal) return result(KEY, 'blocked', sandboxRefusal);
     const menuId = typeof store.meta?.doordashMenuId === 'string' ? store.meta.doordashMenuId : null;
     const reference = `takatak-${store.channelStoreId}-${Date.now()}`;
     const payload = toDoorDashMenu(menu, store.channelStoreId, process.env.DOORDASH_PROVIDER_TYPE || '', reference, ctx);
@@ -199,6 +202,8 @@ export const doorDashAdapter: ChannelAdapter = {
   },
   // PUT /api/v1/stores/{msid}/items/status  or  /item_options/status — max 40 per request.
   async setItemAvailability(store, refs, available, _untilMs, kind = 'item') {
+    const sandboxRefusal = doorDashSandboxStoreRefusal(store.channelStoreId);
+    if (sandboxRefusal) return result(KEY, 'blocked', sandboxRefusal);
     if (refs.length === 0) return result(KEY, 'skipped', 'No items to update.');
     const path = `/api/v1/stores/${encodeURIComponent(store.channelStoreId)}/${kind === 'modifier' ? 'item_options' : 'items'}/status`;
     let last = result(KEY, 'skipped', 'No items to update.');
@@ -208,9 +213,13 @@ export const doorDashAdapter: ChannelAdapter = {
     }
     return last;
   },
-  setStoreOnline: (store, online, untilMs, reason) => send('PUT', `/api/v1/stores/${encodeURIComponent(store.channelStoreId)}/status`, online
-    ? { is_active: true }
-    : { is_active: false, reason: 'operational_issues', notes: reason || 'Paused from TAKATAK Food Hub', ...(untilMs ? { end_time: new Date(untilMs).toISOString() } : {}) }),
+  async setStoreOnline(store, online, untilMs, reason) {
+    const sandboxRefusal = doorDashSandboxStoreRefusal(store.channelStoreId);
+    if (sandboxRefusal) return result(KEY, 'blocked', sandboxRefusal);
+    return send('PUT', `/api/v1/stores/${encodeURIComponent(store.channelStoreId)}/status`, online
+      ? { is_active: true }
+      : { is_active: false, reason: 'operational_issues', notes: reason || 'Paused from TAKATAK Food Hub', ...(untilMs ? { end_time: new Date(untilMs).toISOString() } : {}) });
+  },
 };
 
 /** Merchant-controllable pause: the reason Food Hub itself sends (operational_issues) or our own pause note. */
@@ -233,6 +242,9 @@ export function normalizeDoorDashDetails(body: any): { state: PlatformState; det
 /** Read-only status check. Runs whenever credentials exist (it changes nothing on DoorDash). */
 export async function fetchDoorDashStoreStatus(msid: string): Promise<{ ok: boolean; state: PlatformState; detail?: string; until?: string | null; error?: string }> {
   if (missingEnv(['DOORDASH_DEVELOPER_ID', 'DOORDASH_KEY_ID', 'DOORDASH_SIGNING_SECRET']).length) return { ok: false, state: 'unknown', error: 'DoorDash credentials missing' };
+  // Sandbox credentials know nothing of a real store: a read would come back 404 = "deactivated" and wake Watchtower.
+  // Kept 'unknown' (the store keeps its last known state), exactly like missing credentials.
+  if (doorDashSandboxStoreRefusal(msid)) return { ok: false, state: 'unknown', error: 'DoorDash sandbox mode: real stores are not read with sandbox credentials' };
   try {
     const res = await timedFetch(`${base()}/api/v1/stores/${encodeURIComponent(msid)}/store_details`, { headers: headers() });
     if (!res.ok) return { ok: false, state: res.status === 404 ? 'deactivated' : 'unknown', error: `DoorDash store_details HTTP ${res.status}` };

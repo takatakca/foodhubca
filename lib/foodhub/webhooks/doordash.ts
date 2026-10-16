@@ -22,6 +22,7 @@ import { parseDoorDashOrder } from '../adapters/doordash';
 import { nowIso } from '../config';
 import { applyCourierUpdate, doorDashCourierDetails, doorDashCourierStatus } from '../courier';
 import { isProtectedDoorDashId } from '../doordash/guard';
+import { doorDashSandboxReason } from '../doordash/sandbox';
 import { menuCallbackOutcome } from '../ops';
 import { applyExternalStatus, pipelineOutcomeText, processIncomingOrder } from '../pipeline';
 import { getRepo } from '../repo';
@@ -217,6 +218,10 @@ async function handleOnboarding(body: any): Promise<HandlerOutcome> {
 // ---------------------------------------------------------------------------------------------- the dispatcher
 
 export async function handleDoorDashWebhook(raw: any): Promise<HandlerOutcome> {
+  // DoorDash SANDBOX traffic (doordash/sandbox.ts) goes to the test list only: no order row, no Clover, no ticket,
+  // no kitchen ring, no alert, nothing in the reports. Checked first, for live deliveries, retries and Replays alike.
+  const sandbox = await doorDashSandboxReason(raw);
+  if (sandbox) return (await import('./doordash-sandbox')).handleDoorDashSandboxWebhook(raw, sandbox);
   const body = flattenDelivery(raw);
   const c = classifyDoorDash(raw);
   const doordashId = String(body?.external_order_id || body?.order?.external_order_id || body?.order?.id || body?.order_id || body?.id || '');

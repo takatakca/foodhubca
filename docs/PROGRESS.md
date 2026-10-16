@@ -1,5 +1,19 @@
 # Food Hub: progress log and task board
 
+## 2026-10-16 — DoorDash sandbox-safe mode (task 38, `feature/doordash-sandbox-safe-mode`)
+
+- DoorDash opened Marketplace for the org in SANDBOX only. New sandbox-safe mode lets the sandbox webhooks reach production
+  Food Hub with no effect on real operations: sandbox traffic (DOORDASH_ENV=sandbox, a `_sandbox` provider type,
+  DOORDASH_SANDBOX_STORE_IDS, a `_sandbox` provider_type in the payload, or an event about a held test order) becomes a
+  TEST order in Settings → Plateformes et Clover → Essais DoorDash (bac à sable): never in the orders table, so never
+  Clover, print, kitchen ring, Watchtower, SMS/calls, money or reports.
+- The DoorDash side runs with the same calls as a real order (confirm with prep_time, reject with DoorDash failure codes,
+  ready, merchant cancel, DoorDash cancel / Dasher / release / adjustment, menu pull, menu push, 86, pause), aimed only at
+  the test store (a virtual store, never in the Stores table). With sandbox keys, real stores are refused for every
+  DoorDash call and their status is not read (no false "deactivated" alert). Po Poulet NDG can never be a test store.
+- Webhook auth (DOORDASH_WEBHOOK_SECRET in Authorization) unchanged and checked first. Without the new settings, behaviour
+  is unchanged. Owner steps: docs/DOORDASH_SANDBOX.md. Tests: tests/doordash-sandbox.test.ts.
+
 ## 2026-10-15 — Owner-authorized automatic production activation
 
 - Reusing PR #49. Existing Coolify resource rebound to its installed GitHub App, push deployment enabled, source commit available to Docker and health monitoring enabled. Historical Actions deployment controller disabled to keep one production writer while GitHub runner billing is blocked.

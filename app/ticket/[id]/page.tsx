@@ -21,6 +21,10 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
   if (error) return <p style={{ padding: 16 }}>{error}</p>;
   if (!order) return <p style={{ padding: 16 }}>…</p>;
   const time = (iso?: string) => (iso ? new Date(iso).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' }) : '');
+  // Read from a Too Good To Go e-mail: one big label per bag follows the ticket (lib/foodhub/tgtg-email/ingest.ts).
+  const raw = order.raw as { source?: string; tgtg?: { code?: string; firstName?: string | null; quantity?: number; pickupLabel?: string | null } } | null;
+  const tgtg = raw?.source === 'tgtg_email' ? raw.tgtg ?? null : null;
+  const bagCount = tgtg ? Math.min(20, Math.max(1, Number(tgtg.quantity) || 1)) : 0;
   return (
     <div style={{ padding: 16, background: 'white', minHeight: '100dvh' }}>
       <div className="no-print" style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
@@ -55,6 +59,20 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
         <div className="t-row t-big"><strong>TOTAL</strong><strong>{money(order.total)}</strong></div>
         <div className="t-rule" />
         <div className="t-center" style={{ fontSize: 11 }}>{order.posOrderId ? `Clover ${order.posOrderId}` : 'Pas dans Clover'} · TAKATAK</div>
+        {tgtg && order.status !== 'cancelled' && bagCount > 0 && Array.from({ length: bagCount }, (_, i) => (
+          <div key={i} className="t-bag">
+            <div className="t-big">TOO GOOD TO GO</div>
+            <div className="t-bag-name">{(tgtg.firstName || order.customerName || 'CLIENT').toUpperCase()}</div>
+            <div className="t-big">{bagCount > 1 ? `SAC / BAG ${i + 1} / ${bagCount}` : 'SAC / BAG'}</div>
+            <div className="t-rule" />
+            <div>RAMASSAGE / PICKUP</div>
+            <div className="t-bag-when">{tgtg.pickupLabel || '—'}</div>
+            <div className="t-rule" />
+            <div>CODE TGTG</div>
+            <div className="t-bag-code">{tgtg.code || order.displayId}</div>
+            {order.brandName && <div style={{ fontSize: 11, marginTop: 4 }}>{order.brandName}</div>}
+          </div>
+        ))}
       </div>
     </div>
   );

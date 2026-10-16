@@ -7,7 +7,7 @@ import { getCatalog } from '../catalog';
 import { nowIso, round2 } from '../config';
 import { sendSms } from '../notify';
 import { prepFor } from '../prep';
-import { localTimeLabel } from '../time';
+import { money as textMoney, textTime } from '../phone/style';
 import { cloverOnlineBlockedReason } from '../pos/clover-website-orders';
 import { createDirectOrderInClover } from './clover-direct';
 import { tellDriveOrderReady } from './drive-api';
@@ -49,6 +49,11 @@ export interface NewDirectOrder {
   /** Text the customer a confirmation. */
   confirmBySms?: boolean;
   attention?: string;
+  /**
+   * Paid by a payment link (delivery/paylink.ts): the order is saved 'awaiting_payment' — nothing goes to Clover or
+   * the kitchen, no confirmation text, no courier — until the payment is confirmed.
+   */
+  holdForPayment?: boolean;
 }
 
 export async function createDirectOrder(input: NewDirectOrder, actor: Actor): Promise<DirectOrder> {
@@ -81,8 +86,8 @@ export async function createDirectOrder(input: NewDirectOrder, actor: Actor): Pr
     deliveryFee,
     tip,
     currency: process.env.FOODHUB_CURRENCY || 'CAD',
-    payment: input.payment,
-    status: 'new',
+    payment: input.holdForPayment ? 'unpaid' : input.payment,
+    status: input.holdForPayment ? 'awaiting_payment' : 'new',
     notes: input.notes,
     containsAlcohol: input.lines.some((l) => l.alcohol),
     placedAt: at,
@@ -95,6 +100,14 @@ export async function createDirectOrder(input: NewDirectOrder, actor: Actor): Pr
     updatedAt: at,
   };
   order = await saveDirectOrder(order);
+
+  if (input.holdForPayment) {
+    // Held: the Clover order (and the kitchen ticket) comes from the paid Hosted Checkout session — never from here.
+    order = await addDirectEvent(order, 'awaiting_payment', 'Held until the payment link is paid (not sent to the kitchen yet)', actor.name);
+    await logActivity({ actor: actor.name, source: actor.source, kind: 'order', action: 'direct_order', status: 'success', brandName: order.brandName, locationCode: order.locationCode,
+      summary: `${SOURCE_LABEL[order.source]} order ${order.number} (${order.brandName}) — ${order.fulfillment}, ${order.total.toFixed(2)} $ — waiting for the payment link` });
+    return order;
+  }
 
   // Kitchen ticket + register: Clover (a Clover order read back is already there).
   if (!order.posOrderId) {
@@ -114,15 +127,18 @@ export async function createDirectOrder(input: NewDirectOrder, actor: Actor): Pr
 
 export const SOURCE_LABEL: Record<DirectSource, string> = { phone: 'Phone', phone_ai: 'AI phone', clover: 'Clover', website: 'Website', manual: 'Manual', clover_online: 'Website / Clover Online' };
 
-const money = (n: number, lang: 'fr' | 'en') => (lang === 'fr' ? `${n.toFixed(2).replace('.', ',')} $` : `$${n.toFixed(2)}`);
-
+/** Confirmation text in the customer's language: Québec French ("19 h 30", "28,73 $"), English or Spanish (usted). */
 export function confirmationText(o: DirectOrder): string {
   const lang = o.customer.lang ?? 'fr';
-  const when = o.readyAt ? localTimeLabel(o.readyAt) : '';
+  const when = o.readyAt ? textTime(o.readyAt, lang) : '';
+  const total = textMoney(o.total, lang);
   if (lang === 'en') {
-    return `${o.brandName}: order ${o.number} received — total ${money(o.total, 'en')}. ${o.fulfillment === 'delivery' ? `Delivery planned around ${o.wantedAt ? localTimeLabel(o.wantedAt) : 'the next 45 min'}.` : `Ready for pickup around ${when}.`}${o.payment === 'paid' ? '' : o.fulfillment === 'pickup' ? ' Pay at the counter.' : ' We will call you to take the payment before the courier leaves.'}${o.containsAlcohol ? ' Alcohol: photo ID (18+) required.' : ''}`;
+    return `${o.brandName}: order ${o.number} received — total ${total}. ${o.fulfillment === 'delivery' ? `Delivery planned around ${o.wantedAt ? textTime(o.wantedAt, 'en') : 'the next 45 min'}.` : `Ready for pickup around ${when}.`}${o.payment === 'paid' ? '' : o.fulfillment === 'pickup' ? ' Pay at the counter.' : ' We will call you to take the payment before the courier leaves.'}${o.containsAlcohol ? ' Alcohol: photo ID (18+) required.' : ''}`;
   }
-  return `${o.brandName} : commande ${o.number} reçue — total ${money(o.total, 'fr')}. ${o.fulfillment === 'delivery' ? `Livraison prévue vers ${o.wantedAt ? localTimeLabel(o.wantedAt) : 'les 45 prochaines minutes'}.` : `Prête pour emporter vers ${when}.`}${o.payment === 'paid' ? '' : o.fulfillment === 'pickup' ? ' Paiement au comptoir.' : ' Nous vous rappelons pour le paiement avant le départ du livreur.'}${o.containsAlcohol ? ' Alcool : pièce d’identité avec photo (18+) exigée.' : ''}`;
+  if (lang === 'es') {
+    return `${o.brandName}: pedido ${o.number} recibido — total ${total}. ${o.fulfillment === 'delivery' ? `Entrega prevista hacia las ${o.wantedAt ? textTime(o.wantedAt, 'es') : 'próximos 45 min'}.` : `Listo para recoger hacia las ${when}.`}${o.payment === 'paid' ? '' : o.fulfillment === 'pickup' ? ' Pago en el mostrador.' : ' Le llamaremos para el pago antes de que salga el repartidor.'}${o.containsAlcohol ? ' Alcohol: identificación con foto (18+) obligatoria.' : ''}`;
+  }
+  return `${o.brandName} : commande ${o.number} reçue — total ${total}. ${o.fulfillment === 'delivery' ? `Livraison prévue vers ${o.wantedAt ? textTime(o.wantedAt, 'fr') : 'les 45 prochaines minutes'}.` : `Prête pour emporter vers ${when}.`}${o.payment === 'paid' ? '' : o.fulfillment === 'pickup' ? ' Paiement au comptoir.' : ' Nous vous rappelons pour le paiement avant le départ du livreur.'}${o.containsAlcohol ? ' Alcool : pièce d’identité avec photo (18+) exigée.' : ''}`;
 }
 
 export async function confirmToCustomer(order: DirectOrder): Promise<void> {
@@ -130,7 +146,7 @@ export async function confirmToCustomer(order: DirectOrder): Promise<void> {
   await addDirectEvent(order, r.ok ? 'sms_confirmation' : 'sms_failed', r.ok ? 'Confirmation texted to the customer' : `Confirmation not texted: ${r.message}`);
 }
 
-export type DirectAction = 'seen' | 'ready' | 'picked_up' | 'complete' | 'cancel' | 'mark_paid' | 'retry_clover' | 'clear_attention';
+export type DirectAction = 'seen' | 'ready' | 'picked_up' | 'complete' | 'cancel' | 'mark_paid' | 'retry_clover' | 'clear_attention' | 'resend_paylink' | 'pay_at_counter';
 
 /** Moves a direct order along. Courier side effects (cancel the courier) are in dispatch.ts. */
 export async function runDirectAction(orderId: string, action: DirectAction, actor: Actor, opts: { reason?: string } = {}): Promise<DirectOrder> {
@@ -143,8 +159,24 @@ export async function runDirectAction(orderId: string, action: DirectAction, act
   if (action === 'seen') return order.seenAt ? order : addDirectEvent(order, 'seen', 'Seen on the kitchen screen', actor.name, { seenAt: new Date().toISOString(), seenBy: actor.name });
   const closed = order.status === 'completed' || order.status === 'cancelled';
   if (closed && action !== 'clear_attention') throw new Error(`Order ${order.number} is already ${order.status}.`);
+  const held = order.status === 'awaiting_payment';
+  // A held order is paid through its link: "Payment taken" or a Clover send now would make a second Clover order (and a
+  // second ticket) when the link is paid. "Pay at the counter" converts it properly.
+  if (held && (action === 'mark_paid' || action === 'retry_clover')) throw new Error(`Order ${order.number} waits for its payment link: use "Pay at the counter" (pickup) or cancel it.`);
+  if (held && (action === 'ready' || action === 'picked_up' || action === 'complete')) throw new Error(`Order ${order.number} is not paid yet: it has not gone to the kitchen.`);
+  if (!held && (action === 'resend_paylink' || action === 'pay_at_counter')) throw new Error(`Order ${order.number} is not waiting for a payment link.`);
   let next: DirectOrder;
   switch (action) {
+    case 'resend_paylink': {
+      const { resendPayLink } = await import('./paylink');
+      next = await resendPayLink(order.id, actor);
+      break;
+    }
+    case 'pay_at_counter': {
+      const { payAtCounter } = await import('./paylink');
+      next = await payAtCounter(order.id, actor);
+      break;
+    }
     case 'ready':
       next = await addDirectEvent(order, 'ready', 'Ready', actor.name, { status: order.status === 'out_for_delivery' ? order.status : 'ready' });
       // DoorDash Drive: order_ready_time on the booked delivery, so the Dasher is sent / hurried. Never blocks the kitchen.
@@ -158,6 +190,12 @@ export async function runDirectAction(orderId: string, action: DirectAction, act
       next = await addDirectEvent(order, 'completed', 'Completed', actor.name, { status: 'completed', attention: undefined });
       break;
     case 'cancel':
+      if (held) {
+        // The link stops working at once; the customer is told nothing was charged.
+        const { cancelHeldOrder } = await import('./paylink');
+        next = await cancelHeldOrder(order.id, `Cancelled${opts.reason ? ` — ${opts.reason}` : ''}`, actor.name);
+        break;
+      }
       next = await addDirectEvent(order, 'cancelled', `Cancelled${opts.reason ? ` — ${opts.reason}` : ''}${order.payment === 'paid' ? ' (already paid: refund it in Clover if needed)' : ''}`, actor.name, { status: 'cancelled', attention: undefined });
       break;
     case 'mark_paid':

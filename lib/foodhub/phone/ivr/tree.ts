@@ -86,9 +86,9 @@ export const OWNER_GREETING: Texts = {
 };
 /** A claim that needs no proof under the Competition Act (shown as the safer choice in Settings). */
 export const SAFER_GREETING: Texts = {
-  fr: 'Bienvenue au service ON2GO, votre service de livraison local au Québec.',
-  en: 'Welcome to ON2GO, your local delivery service in Québec.',
-  es: 'Bienvenido al servicio ON2GO, su servicio de entrega local en Quebec.',
+  fr: 'Bonjour et bienvenue chez ON2GO, votre service de livraison local au Québec.',
+  en: 'Hello and welcome to ON2GO, your local delivery service in Québec.',
+  es: 'Hola y bienvenido a ON2GO, su servicio de entrega local en Quebec.',
 };
 
 const t3 = (fr: string, en: string, es: string): Texts => ({ fr, en, es });
@@ -97,7 +97,7 @@ const t3 = (fr: string, en: string, es: string): Texts => ({ fr, en, es });
 export const DEFAULT_TREE: IvrNode[] = [
   {
     id: 'online_order', digit: '1', enabled: true, action: { kind: 'menu' },
-    label: t3('une commande en ligne ON2GO, Clover ou sur le site d’un de nos restaurants', 'an online order from ON2GO, Clover or one of our restaurant websites', 'un pedido en línea de ON2GO, Clover o del sitio de uno de nuestros restaurantes'),
+    label: t3('une commande en ligne chez ON2GO ou sur le site d’un de nos restaurants', 'an online order from ON2GO or one of our restaurant websites', 'un pedido en línea de ON2GO o del sitio de uno de nuestros restaurantes'),
     prompt: { fr: 'Commande en ligne.', en: 'Online orders.', es: 'Pedidos en línea.' },
     hints: 'commande en ligne, site web, Clover, online order, website, pedido en línea',
     ai: 'Anything about an order placed with us directly (ON2GO, Clover online ordering, one of our restaurant websites). Prefer a child branch.',
@@ -111,13 +111,13 @@ export const DEFAULT_TREE: IvrNode[] = [
       {
         id: 'place_order', digit: '2', enabled: true, action: { kind: 'order' },
         label: t3('passer une commande', 'place an order', 'hacer un pedido'),
-        prompt: {}, hints: 'commander, passer une commande, order, place an order, pedir, hacer un pedido',
+        prompt: {}, hints: 'commander, passer une commande, placer une commande, pour emporter, order, place an order, takeout, pedir, hacer un pedido, hacer una orden, para llevar',
         ai: 'The caller wants to order food now (pickup or delivery). The ordering assistant takes over.',
       },
       {
         id: 'card_charge', digit: '3', enabled: true, action: { kind: 'ai', flow: 'card_charge', link: 'help' },
-        label: t3('des frais sur votre carte pour une commande en ligne', 'a charge on your card for an online order', 'un cargo en su tarjeta por un pedido en línea'),
-        prompt: {}, hints: 'frais, carte, transaction, charge, card, cargo, tarjeta',
+        label: t3('une transaction sur votre carte pour une commande en ligne', 'a charge on your card for an online order', 'un cargo en su tarjeta por un pedido en línea'),
+        prompt: {}, hints: 'carte, transaction, débité, montant, relevé, charge, card, statement, cargo, tarjeta, cobro',
         ai: 'The caller sees a charge on their card or bank statement about an online order and wants to know what it is.',
       },
     ],
@@ -125,7 +125,7 @@ export const DEFAULT_TREE: IvrNode[] = [
   {
     id: 'platform_order', digit: '2', enabled: true, action: { kind: 'menu' },
     label: t3('une commande Uber Eats, DoorDash ou SkipTheDishes', 'an Uber Eats, DoorDash or SkipTheDishes order', 'un pedido de Uber Eats, DoorDash o SkipTheDishes'),
-    prompt: { fr: 'Commande d’une plateforme.', en: 'Delivery app orders.', es: 'Pedidos de una aplicación.' },
+    prompt: { fr: 'Commandes faites dans une application de livraison.', en: 'Delivery app orders.', es: 'Pedidos de una aplicación.' },
     hints: 'Uber Eats, DoorDash, SkipTheDishes, Skip, plateforme, application, app, aplicación',
     ai: 'The order was placed on Uber Eats, DoorDash or SkipTheDishes. Route to the platform child, or here when the platform is not known yet.',
     children: [
@@ -151,32 +151,32 @@ export const DEFAULT_TREE: IvrNode[] = [
   },
   {
     id: 'merchant', digit: '4', enabled: true, action: { kind: 'ai', flow: 'merchant', link: 'merchant' },
-    label: t3('devenir restaurant partenaire', 'become a partner restaurant', 'ser restaurante asociado'), prompt: {},
+    label: t3('devenir restaurant partenaire', 'become a partner restaurant', 'registrar su restaurante'), prompt: {},
     hints: 'marchand, restaurant partenaire, mon restaurant, merchant, partner, my restaurant, restaurante asociado, comerciante',
     ai: 'A restaurant or shop owner who wants to sell with ON2GO (merchant sign-up).',
   },
   {
     id: 'courier', digit: '5', enabled: true, action: { kind: 'ai', flow: 'courier', link: 'courier' },
-    label: t3('devenir livreur', 'become a courier', 'ser repartidor'), prompt: {},
+    label: t3('devenir livreur ou livreuse', 'become a courier', 'ser repartidor'), prompt: {},
     hints: 'livreur, livreuse, devenir livreur, courier, driver, repartidor',
     ai: 'Someone who wants to deliver for ON2GO (courier sign-up).',
   },
   {
     id: 'customer_service', digit: '6', enabled: true, action: { kind: 'ai', flow: 'customer_service', link: 'help' },
     label: t3('le service à la clientèle', 'customer service', 'servicio al cliente'), prompt: {},
-    hints: 'service à la clientèle, question, renseignement, customer service, information, servicio al cliente, información',
+    hints: 'service à la clientèle, question, renseignement, heures d’ouverture, customer service, information, opening hours, servicio al cliente, información, horario',
     ai: 'Any other question for ON2GO (hours, restaurants, delivery area, feedback).',
   },
   {
     id: 'voicemail', digit: '7', enabled: true, action: { kind: 'voicemail' },
     label: t3('laisser un message', 'leave a message', 'dejar un mensaje'), prompt: {},
-    hints: 'message, boîte vocale, voicemail, leave a message, mensaje',
+    hints: 'laisser un message, boîte vocale, voicemail, leave a message, dejar un mensaje, dejar un recado',
     ai: 'The caller wants to leave a message.',
   },
   {
     id: 'person', digit: '0', enabled: true, action: { kind: 'handoff' },
     label: t3('parler à quelqu’un', 'talk to someone', 'hablar con alguien'), prompt: {},
-    hints: 'parler à quelqu’un, une personne, agent, someone, a person, representative, persona, alguien',
+    hints: 'parler à quelqu’un, une personne, un préposé, someone, a person, representative, persona, alguien',
     ai: 'The caller asks for a person, or the matter needs a person (complaint, refund, anything you cannot do).',
   },
 ];
@@ -184,7 +184,7 @@ export const DEFAULT_TREE: IvrNode[] = [
 /**
  * Official platform support, checked 2026-10-09 on each platform's own help pages:
  *  - DoorDash: help.doordash.com/consumers/s/contactsupport — fr_CA "Appelez-nous au 855-643-8439", en_CA / en_US
- *    "Call Us at 855-431-0459", es_US "Llámanos al 855-834-8733"; chat and call 24/7.
+ *    "Call Us at 855-431-0459", es_US "Llámanos al 855-834-8733"; chat and phone support.
  *  - Uber Eats: help.uber.com/ubereats — "we don't offer a customer service phone number for Uber Eats" (help in the app).
  *  - SkipTheDishes: skipthedishes.com/faq — "Need Help?" in the app or website, live chat (no customer phone line published).
  */
@@ -194,14 +194,21 @@ export const DEFAULT_PLATFORMS: Record<PlatformId, PlatformSupport> = {
   skip: { phones: {}, helpUrl: 'https://www.skipthedishes.com/faq' },
 };
 
-/** ON2GO pages texted to callers. Placeholders until the pages are live (owner edits them in Settings). */
+/**
+ * ON2GO pages texted to callers: pages that exist (on2go.ca answers; the sign-up and help pages do not exist yet —
+ * the owner sets them in Settings when they are live). The order link becomes FOODHUB_PUBLIC_CLOVER_ORDER_URL on the
+ * server when it is set (config.ts).
+ */
 export const DEFAULT_LINKS: Record<LinkKey, string> = {
-  merchant: 'https://on2go.ca/marchands',
-  courier: 'https://on2go.ca/livreurs',
-  help: 'https://on2go.ca/aide',
-  billing: 'https://on2go.ca/aide',
+  merchant: 'https://on2go.ca',
+  courier: 'https://on2go.ca',
+  help: 'https://on2go.ca',
+  billing: 'https://on2go.ca',
   order: 'https://on2go.ca',
 };
+
+/** The old placeholder pages (404): a stored value equal to one of these is replaced by the default above. */
+export const DEAD_PLACEHOLDER_LINKS = ['https://on2go.ca/marchands', 'https://on2go.ca/livreurs', 'https://on2go.ca/aide'];
 
 export const DEFAULT_IVR: IvrSettings = {
   enabled: true,
@@ -211,7 +218,7 @@ export const DEFAULT_IVR: IvrSettings = {
   marketing: t3(
     'Poulet grillé, pitas, tacos, déjeuners : vos restos du quartier, livrés chauds jusqu’à tard le soir.',
     'Grilled chicken, pitas, tacos, breakfast: your neighbourhood restaurants, delivered hot until late at night.',
-    'Pollo asado, pitas, tacos, desayunos: sus restaurantes del barrio, entregados calientes hasta tarde en la noche.',
+    'Pollo asado, pitas, tacos, desayunos: sus restaurantes del barrio, a domicilio o para llevar, hasta tarde en la noche.',
   ),
   askHelp: t3('Comment puis-je vous aider ?', 'How can I help you?', '¿Cómo puedo ayudarle?'),
   audio: { greeting: {}, voicemail: {} },

@@ -380,6 +380,7 @@ const env = {
   DOORDASH_BASE_URL: `${MOCK}/dd`, DOORDASH_DEVELOPER_ID: 'dd-dev-e2e', DOORDASH_KEY_ID: 'dd-key-e2e', DOORDASH_SIGNING_SECRET: DD_SECRET_B64, DOORDASH_PROVIDER_TYPE: 'takatak_e2e', DOORDASH_WEBHOOK_SECRET: 'dd-hook-e2e',
   SKIP_JET_BASE_URL: `${MOCK}/skip`, SKIP_JET_API_KEY: JET_API_KEY, SKIP_WEBHOOK_HMAC_SECRET: SKIP_HMAC, SKIP_WEBHOOK_API_KEY: SKIP_NOTIFY_KEY,
   TGTG_WEBHOOK_SECRET: 'tgtg-hook-e2e',
+  TGTG_EMAIL_WEBHOOK_SECRET: 'tgtg-mail-e2e',
   SKIP_ONBOARDING_HMAC_SECRET: 'skip-onboard-e2e', DELIVERECT_WEBHOOK_SECRET: 'dlv-hook-e2e', DELIVERECT_TGTG_CHANNEL_IDS: '777',
   FOODHUB_RELAY_SECRET: RELAY_SECRET, FOODHUB_RELAY_CHANNELS: 'tgtg', FOODHUB_RELAY_CALLBACK_URL: `${MOCK}/relay/callback`, FOODHUB_RELAY_CALLBACK_TOKEN: RELAY_CB_TOKEN,
   CLOVER_BASE_URL: `${MOCK}/clover`, CLOVER_MERCHANT_ID: 'MAINMERCHANT', CLOVER_ACCESS_TOKEN: CLOVER_TOKEN,
@@ -1776,6 +1777,46 @@ try {
   check('Settings → Clover app: API-token register listed and "tested end to end" recorded', chTest?.tokenMerchantIds?.includes('MAINMERCHANT') && chTest?.app?.testOrder?.merchantId === 'MAINMERCHANT');
   const welcomeTicketCannot = await call('POST', '/api/foodhub/clover-connect/test-order', { auth: false, body: { t: 'forged.ticket' } });
   check('the public welcome endpoint still needs a valid ticket', welcomeTicketCannot.status === 401);
+
+  console.log('\n47. Too Good To Go order e-mails (forwarding webhook) → kitchen + Clover');
+  {
+    const hm = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(ms));
+    const startMs = Date.now() + 20 * 60_000;
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date(startMs));
+    const window = `${day} ${hm(startMs)} - ${hm(startMs + 30 * 60_000)}`;
+    // The receiving mail server's verdict (topmost Authentication-Results): without dkim / dmarc pass nothing is acted on.
+    const AUTH_OK = 'Authentication-Results: mx.e2e.test; dkim=pass header.d=toogoodtogo.com; spf=pass smtp.mailfrom=toogoodtogo.com; dmarc=pass header.from=toogoodtogo.com';
+    const mime = (id, subject, lines, auth = AUTH_OK) => [...(auth ? [auth] : []), 'From: Too Good To Go <no-reply@toogoodtogo.com>', 'To: store@example.test', `Subject: ${subject}`, `Message-ID: <${id}@e2e.test>`, `Date: ${new Date().toUTCString()}`, 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8', '', ...lines, ''].join('\r\n');
+    const order = mime('tgtg-e2e-order', 'New order: 2 x Surprise Bag - OOEUF NDG E2E', ['Hi OOEUF NDG E2E,', '', 'Camille just reserved 2 Surprise Bags.', 'Customer: Camille', 'Quantity: 2', 'Total paid: $11.98', `Pickup: ${window}`, 'Order ID: E2EMAIL01', 'Store: OOEUF NDG E2E']);
+    const hook = (raw, token = 'tgtg-mail-e2e') => call('POST', '/api/foodhub/webhooks/tgtg-email', { auth: false, headers: { authorization: `Bearer ${token}`, 'content-type': 'message/rfc822' }, raw });
+    const atomics = () => sent('POST', /\/atomic_order\/orders$/);
+    const map = await call('POST', '/api/foodhub/tgtg-email', { body: { action: 'map', storeName: 'OOEUF NDG E2E', brandName: 'OOeuf', locationCode: 'NDG_6284' } });
+    check('Settings → Platforms: TGTG store name mapped to OOeuf @ NDG 6284', map.status === 200 && map.json?.mapping?.locationCode === 'NDG_6284', map.text.slice(0, 200));
+    check('Po Poulet cannot be mapped outside Saint-Léonard', (await call('POST', '/api/foodhub/tgtg-email', { body: { action: 'map', storeName: 'PO POULET NDG', brandName: 'Po Poulet', locationCode: 'NDG_MAIN' } })).status === 400);
+    check('TGTG e-mail webhook refuses a wrong token', (await hook(order, 'wrong')).status === 401);
+    const forgedBefore = atomics().length;
+    const forged = await hook(mime('tgtg-e2e-forged', 'New order: 1 x Surprise Bag - OOEUF NDG E2E', ['Eve just reserved 1 Surprise Bag.', 'Total paid: $5.99', `Pickup: ${window}`, 'Order ID: E2EFORGE1', 'Store: OOEUF NDG E2E'], 'Authentication-Results: mx.e2e.test; dkim=fail header.d=toogoodtogo.com; dmarc=fail header.from=toogoodtogo.com'));
+    check('forged Too Good To Go From (no DKIM / DMARC pass) → attention, nothing sent to Clover', forged.json?.status === 'attention' && /not verified/.test(forged.json?.reason || '') && atomics().length === forgedBefore, forged.text.slice(0, 200));
+    const before = atomics().length;
+    const got = await hook(order);
+    check('reservation e-mail → order created', got.status === 200 && got.json?.status === 'order_created' && got.json?.code === 'E2EMAIL01', got.text.slice(0, 200));
+    const atomic = atomics().find((e) => e.body?.orderCart?.title === 'Too Good To Go #E2EMAIL01');
+    const ot = cloverOrderTypes.find((o) => o.id === atomic?.body?.orderCart?.orderType?.id);
+    check('Clover order: title with the TGTG code, order type "Too Good To Go", one line per bag with the customer', Boolean(atomic) && ot?.label === 'Too Good To Go' && atomic.body.orderCart.lineItems.length === 2 && /CAMILLE/.test(atomic.body.orderCart.lineItems[0].note || '') && /Client: Camille/.test(atomic.body.orderCart.note || ''), JSON.stringify(atomic?.body?.orderCart ?? null).slice(0, 300));
+    const clvId = [...cloverAtomicTitles].find(([, title]) => title === 'Too Good To Go #E2EMAIL01')?.[0] ?? null;
+    check('kitchen ticket printed once', Boolean(clvId) && sent('POST', /\/print_event$/).filter((e) => e.body?.orderRef?.id === clvId).length === 1);
+    const again = await hook(order);
+    check('same e-mail again → duplicate, no second Clover order', again.json?.status === 'duplicate' && atomics().length === before + 1, again.text.slice(0, 200));
+    const cancel = await hook(mime('tgtg-e2e-cancel', 'Order cancelled - OOEUF NDG E2E', ['Camille has cancelled their order.', 'Order ID: E2EMAIL01']));
+    check('cancellation e-mail → order cancelled', cancel.json?.status === 'cancel_applied', cancel.text.slice(0, 200));
+    const onOrder = (method) => sent(method, /\/orders\/[^/]+$/).filter((e) => e.path.endsWith(`/orders/${clvId}`));
+    check('Clover order flagged CANCELLED, never deleted', onOrder('DELETE').length === 0 && onOrder('POST').some((e) => /^CANCELLED/.test(e.body?.title || '')));
+    const bad = await hook(mime('tgtg-e2e-nocode', 'New order - OOEUF NDG E2E', ['Nadia just reserved 1 Surprise Bag.', `Pickup: ${window}`]));
+    const panel = await call('GET', '/api/foodhub/tgtg-email');
+    check('e-mail without a code → attention list (never dropped)', bad.json?.status === 'attention' && panel.json?.attention?.some((m) => m.subject === 'New order - OOEUF NDG E2E'), bad.text.slice(0, 200));
+    check('Settings panel: last e-mails listed, mailbox not configured (IMAP off)', panel.status === 200 && panel.json?.recent?.length >= 3 && panel.json?.readiness?.imapConfigured === false && panel.json?.readiness?.webhookConfigured === true);
+    check('Settings panel needs a sign-in', (await call('GET', '/api/foodhub/tgtg-email', { auth: false })).status === 401);
+  }
 
   await sleep(300);
   // A webhook "kept in the inbox" (section 41: Uber refusing the order fetch on purpose) is handled, not a crash.

@@ -58,3 +58,19 @@ export function menuLockedResult(store: ChannelStore, what = 'menu change'): Cha
   const lock = menuLockOf(store);
   return result(store.channel, 'skipped', `Not sent — this store's menu is locked (${what} never sent by Food Hub). ${lock.reason ?? ''} · Non envoyé — le menu de ce magasin est verrouillé.`.trim());
 }
+
+/**
+ * "Do not touch" (store.meta.doNotTouch): Food Hub never sends this store a menu, holiday hours or an 86 — its menu is
+ * managed elsewhere (still on UrbanPiper, a special menu…). Orders, store status and pause / resume keep working.
+ * Lives here (not in ops.ts) so the menu paths that cannot import ops.ts (Deliverect, webhooks) share one rule.
+ */
+export function isDoNotTouch(store: Pick<ChannelStore, 'meta'>): boolean {
+  return store.meta?.doNotTouch === true;
+}
+
+export const DO_NOT_TOUCH_MESSAGE = 'Not sent: this store is marked “Do not touch” (Stores → edit the store to change it).';
+
+/** True when Food Hub must not change this store's menu in any way (locked or "Do not touch"). */
+export function menuChangesRefused(store: Pick<ChannelStore, 'channel' | 'channelStoreId' | 'meta'>): boolean {
+  return isMenuLocked(store) || isDoNotTouch(store);
+}

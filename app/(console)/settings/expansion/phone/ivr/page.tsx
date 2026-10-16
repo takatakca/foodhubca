@@ -10,6 +10,7 @@ import { Segmented } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/toast';
 import { useViewer } from '@/components/shell/viewer';
 import { DEFAULT_TREE, LINK_KEYS, PLATFORM_IDS, PLATFORM_NAME, type IvrLang, type IvrNode, type IvrSettings, type LinkKey, type Texts } from '@/lib/foodhub/phone/ivr/tree';
+import { voicesFor } from '@/lib/foodhub/phone/voices';
 import { api, ApiError } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { Section } from '../../../settings-ui';
@@ -21,11 +22,8 @@ type Readiness = {
 };
 
 const LANGS: Array<{ key: IvrLang; label: string }> = [{ key: 'fr', label: 'Français' }, { key: 'en', label: 'English' }, { key: 'es', label: 'Español' }];
-const VOICES: Record<IvrLang, string[]> = {
-  fr: ['Polly.Gabrielle-Neural', 'Polly.Liam-Neural', 'Google.fr-CA-Neural2-A', 'Google.fr-CA-Neural2-B', 'Google.fr-CA-Chirp3-HD-Aoede'],
-  en: ['Polly.Joanna-Neural', 'Polly.Matthew-Neural', 'Polly.Danielle-Neural', 'Polly.Ruth-Generative'],
-  es: ['Polly.Lupe-Neural', 'Polly.Pedro-Neural', 'Google.es-US-Neural2-A', 'Google.es-US-Neural2-B'],
-};
+/** Only voices from Twilio's list (the server keeps nothing else: voices.ts). */
+const VOICES: Record<IvrLang, Array<{ id: string; label: string }>> = Object.fromEntries((['fr', 'en', 'es'] as const).map((l) => [l, voicesFor(l).map((v) => ({ id: v.id, label: `${v.label} · ${v.gender === 'female' ? '♀' : '♂'}${v.tier === 'generative' ? ' · generative' : ''}` }))])) as Record<IvrLang, Array<{ id: string; label: string }>>;
 
 /** Updates one node anywhere in the tree. */
 function patchNode(tree: IvrNode[], id: string, patch: (n: IvrNode) => IvrNode): IvrNode[] {
@@ -91,7 +89,7 @@ export default function IvrSettingsPage() {
               <Field label={t('Phrase marketing (courte, sur la bouffe)', 'Marketing line (short, about the food)')}><Textarea rows={2} value={s.marketing[lang]} onChange={(e) => setText('marketing', e.target.value)} /></Field>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label={t('Question de l’IA', 'AI question')}><Input value={s.askHelp[lang]} onChange={(e) => setText('askHelp', e.target.value)} /></Field>
-                <Field label={t('Voix', 'Voice')}><Select value={s.voices[lang]} onChange={(e) => setS({ ...s, voices: { ...s.voices, [lang]: e.target.value } })}>{VOICES[lang].map((v) => <option key={v}>{v}</option>)}</Select></Field>
+                <Field label={t('Voix', 'Voice')}><Select value={s.voices[lang]} onChange={(e) => setS({ ...s, voices: { ...s.voices, [lang]: e.target.value } })}>{VOICES[lang].map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}</Select></Field>
                 <Field label={t('Accueil enregistré (MP3, https)', 'Recorded greeting (MP3, https)')} hint={t('Vide = voix neuronale ci-dessus.', 'Empty = the neural voice above.')}><Input value={s.audio.greeting[lang] ?? ''} placeholder="https://…/accueil-fr.mp3" onChange={(e) => setS({ ...s, audio: { ...s.audio, greeting: { ...s.audio.greeting, [lang]: e.target.value } } })} /></Field>
                 <Field label={t('Message de boîte vocale enregistré (MP3)', 'Recorded voicemail prompt (MP3)')}><Input value={s.audio.voicemail[lang] ?? ''} placeholder="https://…/boite-vocale-fr.mp3" onChange={(e) => setS({ ...s, audio: { ...s.audio, voicemail: { ...s.audio.voicemail, [lang]: e.target.value } } })} /></Field>
               </div>

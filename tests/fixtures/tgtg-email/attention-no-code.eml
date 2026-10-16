@@ -1,0 +1,15 @@
+Authentication-Results: mx.example.test; dkim=pass header.d=toogoodtogo.com header.s=synthetic; spf=pass smtp.mailfrom=toogoodtogo.com; dmarc=pass header.from=toogoodtogo.com
+From: Too Good To Go <no-reply@toogoodtogo.com>
+To: store@example.test
+Subject: New order - OOEUF NDG
+Date: Fri, 16 Oct 2026 13:00:00 -0400
+Message-ID: <synthetic-attention-0007@example.test>
+X-Takatak-Fixture: synthetic (a reservation e-mail without its order code: must go to the attention list)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Hi OOEUF NDG,
+
+Nadia just reserved 1 Surprise Bag.
+Pickup: today 17:00 - 17:30
+Open the Too Good To Go Store app to see the reservation.

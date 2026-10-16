@@ -81,6 +81,9 @@ describe('open, closed, paused', () => {
     expect(night.closesAt).toBe(new Date(at(3, 0, 15)).toISOString());
     const evening = openState(late, BRAND, LOC, at(22));
     expect(evening.closesAt).toBe(new Date(at(3, 0, 15)).toISOString());
+    // Whole-day hours: open, with no made-up closing time.
+    const allDay = openState({ locations: { [LOC]: everyDay('00:00', '23:59') }, brands: {}, holidays: [] }, BRAND, LOC, at(13));
+    expect(allDay).toEqual({ open: true, hoursKnown: true });
   });
 
   it('closed on a holiday; "Ouvre mardi à 9 h" a few days ahead; unknown hours are never "open"', () => {

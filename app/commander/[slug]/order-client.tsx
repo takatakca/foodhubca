@@ -130,7 +130,7 @@ export default function OrderClient({ menu, lang, src }: { menu: PublicMenu; lan
   }, [cart, form, lang, slug, src, t]);
 
   const st = menu.state;
-  const now = Date.now();
+  const now = Date.parse(menu.generatedAt); // the instant the server built this menu (pure render)
   const statusLine = st.paused ? t.paused : st.open ? (st.closesAt ? `${t.open} · ${t.closesAt(clockLabel(Date.parse(st.closesAt), lang))}` : t.open)
     : !st.hoursKnown ? t.noHours : st.nextOpenAt ? `${t.closed} · ${opensLabel(Date.parse(st.nextOpenAt), now, lang)}` : t.closed;
   const other = lang === 'fr' ? 'en' : 'fr';

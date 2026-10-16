@@ -118,12 +118,15 @@ export function openState(cfg: HoursConfig, brandName: string, locationCode: str
   const week = effectiveHours(cfg, brandName, locationCode);
   if (!week || weekIsEmpty(week)) return { open: false, hoursKnown: false };
   const holidays = holidaysFor(cfg, locationCode, localDate(now - 2 * 86400_000, tz), 12);
-  const iv = joined(week, holidays, now - 2 * 86400_000, now + 8 * 86400_000, tz);
+  const to = now + 8 * 86400_000;
+  const iv = joined(week, holidays, now - 2 * 86400_000, to, tz);
   const cur = iv.find(([a, b]) => a <= now && now < b);
   const next = iv.find(([a]) => a > now)?.[0];
+  // An opening that runs to the end of the window (whole-day hours) has no closing time to show.
+  const closes = cur && cur[1] < to - 2 * 86400_000 ? cur[1] - 60_000 : null;
   return {
     open: Boolean(cur), hoursKnown: true,
-    ...(cur ? { closesAt: new Date(cur[1] - 60_000).toISOString() } : {}),
+    ...(closes ? { closesAt: new Date(closes).toISOString() } : {}),
     ...(!cur && next ? { nextOpenAt: new Date(next).toISOString() } : {}),
   };
 }

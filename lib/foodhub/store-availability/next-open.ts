@@ -1,7 +1,7 @@
 // "Rouvre à …": when a kitchen or a brand opens next, or when it closes, from the hours saved in Food Hub.
 // Built on openIntervals (hours.ts, imported only): overnight slots (16:00–03:00), closed holidays, holiday special
 // hours and DST days are handled there; back-to-back slots (23:59 then 00:00) are joined here into one opening.
-import { dayKeyOf, localDate, openIntervals } from '../hours';
+import { dayKeyOf, localDate, normalizeWeek, openIntervals } from '../hours';
 import { foodhubTimeZone, localParts, startOfLocalDayMs } from '../time';
 import type { DayKey, Holiday, WeeklyHours } from '../types';
 
@@ -50,7 +50,8 @@ function joined(week: WeeklyHours, holidays: Holiday[], fromMs: number, toMs: nu
  */
 export function nextOpening(week: WeeklyHours | null | undefined, holidays: Holiday[], now = Date.now(), tz = foodhubTimeZone()): NextOpening {
   if (!week) return { known: false, openNow: false, label: { fr: 'Heures non définies', en: 'Hours not set' } };
-  const iv = joined(week, holidays, now - 36 * 3600_000, now + 8 * 86400_000, tz);
+  // Normalized first: an overnight slot (16:00–03:00) becomes 16:00–23:59 + next day 00:00–03:00, joined back below.
+  const iv = joined(normalizeWeek(week), holidays, now - 36 * 3600_000, now + 8 * 86400_000, tz);
   const cur = iv.find(([a, b]) => a <= now && now < b);
   if (cur) {
     // openIntervals ends one minute after the closing time; an opening that runs past the window never closes this week.

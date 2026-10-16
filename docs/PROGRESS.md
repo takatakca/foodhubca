@@ -1,5 +1,14 @@
 # Food Hub: progress log and task board
 
+## 2026-10-16 — Store availability center (task 44b, `feature/store-availability-center`)
+
+- New page `/stores/availability` (URL only; `/stores`, `/stores/hours` and `stores-tabs.tsx` untouched): status now per kitchen / brand / channel with who paused it (TAKATAK, platform, guard, hours), reopens-at (overnight, holidays, DST), tablets online, and a Clover Online Ordering reminder row (no Clover call; no official pause endpoint found in the Clover docs).
+- Status history from the activity log (pause, resume, platform_*, busy, prep, holiday, guard, reopen_failed) with reason and ok / blocked / failed, CSV export. No downtime % (analytics.ts / ops-quality do it).
+- Busy schedule per kitchen (`busy_schedule_v1`): busy mode on at a window start (normal + extra, Uber prep push live-gated), back at the end only if the last prep change is still the schedule's; a person's change wins.
+- Tablet-off guard (`downtime_guard_v1`, OFF by default): all tablets off for N min during open hours → timed pause of the chosen channels, re-extended every pauseMin/2, resumes only its own pauses; never relay, do-not-touch or FORBIDDEN_STORE_IDS stores; blocked results shown as not sent.
+- Special days (Halloween, Remembrance Day, Christmas Eve, Boxing Day, New Year's Eve, Valentine's, Mother's / Father's Day) saved as holidays; publish from /stores/hours.
+- Additive wiring: `tickAvailability` (throttled 30 s, never throws) in cron/watch (new `availability` key), pulse after(), instrumentation timer. Docs: docs/STORE_AVAILABILITY.md.
+- Later, in stores-tabs.tsx: `{ href: '/stores/availability', label: t('Disponibilité', 'Availability') }`.
 ## 2026-10-16 — Uber store kitchen mapping (task 39, `fix/uber-store-kitchen-mapping`)
 
 - The 7 Uber UUIDs in `data/actual/platform-stores-uber.json` are at 5839 Jean-Talon E (Saint-Léonard) in Uber's own records (Uber names them "(Hochelaga)"); production maps them to `NDG_6284`. That mapping was typed by hand in the console, so it lives only in the production `fh_channel_stores` rows: no repo seed or code defaulted Uber stores to NDG.

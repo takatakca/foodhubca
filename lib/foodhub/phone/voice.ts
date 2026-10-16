@@ -1,23 +1,33 @@
 // The phone call, end to end, as Twilio drives it:
-//   incoming → greeting (French, "press 2 / say English") → each caller sentence → AI turn → say + listen again
+//   incoming → greeting (Québec French; "For English, press 2" and "Para español, marque el 3" each in its own voice)
+//   → each caller sentence → AI turn → say + listen again
 //   → order placed and goodbye, or hand-off to a person (<Dial> the line's hand-off number / the kitchen phone).
 // A turn the AI has not finished within ~9 s says "one moment" and continues on /voice/wait (Twilio's 15 s limit).
 // Nobody answers the hand-off → the caller hears that we will call back, and the team chat gets the number to call.
-// The same turn runs in the console ("Try the agent"), where an order is never sent to the kitchen.
+// The same turn runs in the console ("Try the agent", and the call simulator), where an order is never sent anywhere;
+// a call from a test number (FOODHUB_PHONE_TEST_CALLERS) is real but its order is a test too.
 // A line with several kitchens (brand@kitchen groups) starts the call with no kitchen: the agent asks the caller and
 // calls choose_kitchen; from then on the call works on that kitchen only (menu, hours, hand-off phone, Clover ticket).
 import { getCatalog } from '../catalog';
 import { featureOn } from '../expansion/features';
 import { postToChat } from '../notify';
+import { phoneAiUsable } from './ai-health';
 import { runAgentTurn, phoneAgentConfigured } from './agent';
 import { buildPhoneMenu, noKitchenMenu } from './cart';
-import { endCall, getCall, maskNumber, saveCall, say, type PhoneCall, type TurnReply } from './calls';
+import { endCall, getCall, isTestCaller, maskNumber, saveCall, say, type PhoneCall, type PhoneLang, type TurnReply } from './calls';
+import { languageRequest, LANG_DIGIT } from './ivr/words';
 import { getPhoneSettings, isMultiKitchen, kitchenView, lineForNumber, type PhoneLine, type PhoneSettings } from './settings';
-import { dialXml, gatherXml, GREETING, NO_AGENT, NOBODY, sayXml, twiml, VOICE_PATH, WAIT } from './twilio';
+import { personaFor } from './style';
+import { dialXml, gatherInner, gatherXml, GREETING, LANG_OFFER, NO_AGENT, NOBODY, sayXml, twiml, VOICE_PATH, WAIT } from './twilio';
+import { hintsForLang } from './voices';
 
 const TURN_BUDGET_MS = 9_000;
-const SILENT_BYE = { fr: 'Je n’entends rien. Au revoir.', en: 'I can’t hear you. Goodbye.', es: 'No le escucho. Adiós.' };
-const STILL_HERE = { fr: 'Je suis là. Que puis-je vous préparer ?', en: 'I’m here. What can I get for you?', es: 'Aquí estoy. ¿Qué le preparamos?' };
+const SILENT_BYE = {
+  fr: 'Je ne vous entends pas. N’hésitez pas à nous rappeler. Bonne journée !',
+  en: 'I can’t hear you. Please feel free to call us back. Goodbye!',
+  es: 'No le escucho. No dude en volver a llamarnos. ¡Hasta luego!',
+};
+const STILL_HERE = { fr: 'Je suis toujours là. Qu’est-ce que je peux vous préparer ?', en: 'I’m still here. What can I get for you?', es: 'Aquí sigo. ¿Qué le preparamos?' };
 const inflight = (): Map<string, Promise<TurnReply>> => {
   const g = globalThis as unknown as { __fhPhoneTurns?: Map<string, Promise<TurnReply>> };
   g.__fhPhoneTurns ??= new Map();
@@ -35,25 +45,31 @@ export function callKitchen(line: PhoneLine, call: Pick<PhoneCall, 'locationCode
   return call.locationCode ? kitchenView(line, call.locationCode) : null;
 }
 
+/** The voices of this call: the ON2GO menu's when the call came from it (no voice change mid-call), else the line settings'. */
+export function callVoices(call: Pick<PhoneCall, 'voices'> | null | undefined, settings: PhoneSettings): PhoneSettings {
+  return call?.voices ? { ...settings, ...call.voices } : settings;
+}
+
 /**
  * The call's line as configured (`line`, every kitchen) and as worked now (`work`: the caller's kitchen, or the whole
  * line while a multi-kitchen line waits for the caller's choice).
  */
 async function lineOf(call: PhoneCall): Promise<{ line: PhoneLine; work: PhoneLine; kitchen: PhoneLine | null; settings: PhoneSettings } | null> {
-  const settings = await getPhoneSettings();
+  const settings = callVoices(call, await getPhoneSettings());
   const line = settings.lines.find((l) => l.id === call.lineId);
   if (!line) return null;
   const kitchen = callKitchen(line, call);
   return { line, work: kitchen ?? line, kitchen, settings };
 }
 
-function hints(line: PhoneLine): string {
-  return ['English', 'anglais', 'español', ...line.brands].join(', ');
+/** Speech hints of a conversation: the line's brands, plus the language words (only in the caller's language). */
+export function lineHints(line: PhoneLine, lang: PhoneLang): string {
+  return hintsForLang(['English', 'español', 'français', ...line.brands].join(', '), lang);
 }
 
 /** What Twilio must do with the agent's reply. */
 async function render(call: PhoneCall, reply: TurnReply, line: PhoneLine, settings: PhoneSettings): Promise<Response> {
-  if (reply.next === 'listen') return twiml(gatherXml(reply.say, settings, reply.lang, `${VOICE_PATH}/turn`, hints(line)));
+  if (reply.next === 'listen') return twiml(gatherXml(reply.say, settings, reply.lang, `${VOICE_PATH}/turn`, lineHints(line, reply.lang)));
   if (reply.next === 'hangup') {
     await endCall(call.id);
     return twiml(`${sayXml(reply.say, settings, reply.lang)}<Hangup/>`);
@@ -61,7 +77,8 @@ async function render(call: PhoneCall, reply: TurnReply, line: PhoneLine, settin
   const to = await handoffNumber(line);
   if (!to) {
     await missedHandoff(call, line, 'no hand-off number');
-    return twiml(`${sayXml(NOBODY[reply.lang], settings, reply.lang)}<Hangup/>`);
+    // An order confirmation said in this turn is still heard before "nobody is available".
+    return twiml(`${sayXml([reply.confirm, NOBODY[reply.lang]].filter(Boolean).join(' '), settings, reply.lang)}<Hangup/>`);
   }
   await saveCall({ ...say(call, 'system', `Transferred to ${maskNumber(to)}${call.handoffReason ? ` — ${call.handoffReason}` : ''}`), status: 'handoff' });
   return twiml(`${sayXml(reply.say, settings, reply.lang)}${dialXml(to, line.number, `${VOICE_PATH}/dial-done`)}`);
@@ -76,28 +93,37 @@ async function missedHandoff(call: PhoneCall, line: PhoneLine, why: string): Pro
   }, { purpose: 'phone_handoff_missed' });
 }
 
-/** Twilio "A call comes in". */
-export async function startCall(params: URLSearchParams): Promise<Response> {
+/** The direct line's greeting: Québec French, then the English and Spanish options, each in its own voice. */
+function greetingXml(line: PhoneLine, settings: PhoneSettings): string {
+  const persona = personaFor(settings.persona, settings.voiceFr);
+  const inner = `${sayXml(GREETING.fr(line.name, persona), settings, 'fr')}${sayXml(LANG_OFFER.en, settings, 'en')}${sayXml(LANG_OFFER.es, settings, 'es')}`;
+  return gatherInner(inner, settings, 'fr', `${VOICE_PATH}/turn`, lineHints(line, 'fr'));
+}
+
+/** Twilio "A call comes in". `simulated`: the console call simulator (nothing is sent, no order fired). */
+export async function startCall(params: URLSearchParams, opts: { simulated?: boolean } = {}): Promise<Response> {
   const sid = params.get('CallSid') || `call-${Date.now()}`;
   const from = params.get('From') || 'anonymous';
   const to = params.get('To') || '';
   const line = await lineForNumber(to);
   const settings = await getPhoneSettings();
   if (!line) return twiml(`${sayXml(NOBODY.fr, settings, 'fr')}<Hangup/>`);
+  const test = opts.simulated || isTestCaller(from);
   const call: PhoneCall = {
     // A multi-kitchen line starts with no kitchen: the agent asks the caller (choose_kitchen).
     id: sid, lineId: line.id, lineName: line.name, locationCode: isMultiKitchen(line) ? '' : line.locationCode, brands: line.brands, from, to, lang: 'fr', status: 'active',
-    startedAt: new Date().toISOString(), turns: 0, transcript: [], messages: [], cart: [], customer: {}, updatedAt: new Date().toISOString(),
+    startedAt: new Date().toISOString(), turns: 0, transcript: [], messages: [], cart: [], customer: {}, updatedAt: new Date().toISOString(), ...(test ? { simulated: true } : {}),
   };
-  // Switch off, line off or no AI key: never lose the call — straight to a person.
-  if (!line.enabled || !(await featureOn('phone')) || !phoneAgentConfigured()) {
-    const why = !line.enabled ? 'line turned off' : !phoneAgentConfigured() ? 'ANTHROPIC_API_KEY not set' : 'phone ordering turned off';
+  // Switch off, line off, no AI key or the AI paused: never lose the call — straight to a person.
+  const aiOk = phoneAgentConfigured() && (await phoneAiUsable());
+  if (!line.enabled || !(await featureOn('phone')) || !aiOk) {
+    const why = !line.enabled ? 'line turned off' : !phoneAgentConfigured() ? 'ANTHROPIC_API_KEY not set' : !aiOk ? 'phone AI paused (it was failing)' : 'phone ordering turned off';
     const saved = await saveCall({ ...say(call, 'system', `AI agent not used (${why})`), handoffReason: why });
     return render(saved, { say: NO_AGENT.fr, next: 'handoff', lang: 'fr' }, line, settings);
   }
-  const greeting = GREETING.fr(line.name);
+  const greeting = `${GREETING.fr(line.name, personaFor(settings.persona, settings.voiceFr))} ${LANG_OFFER.en} ${LANG_OFFER.es}`;
   await saveCall(say(call, 'agent', greeting));
-  return twiml(gatherXml(greeting, settings, 'fr', `${VOICE_PATH}/turn`, hints(line)));
+  return twiml(greetingXml(line, settings));
 }
 
 async function computeTurn(callId: string, text: string): Promise<TurnReply> {
@@ -124,36 +150,60 @@ async function turnWithBudget(call: PhoneCall, text: string, settings: PhoneSett
   return render(done, reply, (await lineOf(done))?.work ?? before, settings);
 }
 
+/** A low recognition confidence is passed to the AI so it confirms instead of guessing. */
+export function withConfidence(speech: string, confidence: string | null): string {
+  const c = Number(confidence);
+  return speech && Number.isFinite(c) && c > 0 && c < 0.4 ? `${speech} [speech recognition unsure: confirm what matters]` : speech;
+}
+
+/**
+ * A language switch on the ordering line. Keys 2 / 3 only answer the greeting (turn 0); later they answer the AI.
+ * Words: any explicit request on the greeting ("English, I want a chicken"); later only a request said on its own.
+ */
+export function languageChoice(turns: number, digits: string, speech: string): { lang: PhoneLang; rest: string } | null {
+  if (digits === '2' || digits === '3') return turns === 0 ? { lang: LANG_DIGIT[digits], rest: '' } : null;
+  if (!speech) return null;
+  const asked = languageRequest(speech);
+  if (!asked) return null;
+  return turns === 0 || !asked.rest ? asked : null;
+}
+
 /** Twilio <Gather> action: the caller said something (or pressed a key, or nothing). */
 export async function callerTurn(params: URLSearchParams): Promise<Response> {
   const call = await getCall(params.get('CallSid') || '');
-  const settings = await getPhoneSettings();
-  if (!call) return twiml(`${sayXml(NOBODY.fr, settings, 'fr')}<Hangup/>`);
+  const base = await getPhoneSettings();
+  if (!call) return twiml(`${sayXml(NOBODY.fr, base, 'fr')}<Hangup/>`);
   const ls = await lineOf(call);
+  const settings = callVoices(call, base);
   if (!ls) return twiml(`${sayXml(NOBODY[call.lang], settings, call.lang)}<Hangup/>`);
   const digits = params.get('Digits') || '';
   const speech = (params.get('SpeechResult') || '').trim();
-  // Language choice from the greeting: no AI needed.
-  if (call.lang === 'fr' && (digits === '2' || /^\W*(english|anglais|in english|speak english)\b/i.test(speech))) {
-    const greeting = GREETING.en(ls.line.name);
-    await saveCall(say({ ...call, lang: 'en' }, 'agent', greeting));
-    return twiml(gatherXml(greeting, settings, 'en', `${VOICE_PATH}/turn`, hints(ls.line)));
+  // Language choice: keys 2 / 3 on the greeting, or "English", "español" — no AI needed. The rest of the sentence goes
+  // on to the AI. Mid-order, keys answer the AI ("how many?") and only a request said on its own switches.
+  const asked = languageChoice(call.turns, digits, speech);
+  if (asked && asked.lang !== call.lang) {
+    const switched = await saveCall({ ...call, lang: asked.lang });
+    if (asked.rest) return turnWithBudget(switched, asked.rest, settings, ls.work);
+    const greeting = GREETING[asked.lang](ls.line.name, personaFor(settings.persona, settings.voiceFr));
+    await saveCall(say(switched, 'agent', greeting));
+    return twiml(gatherXml(greeting, settings, asked.lang, `${VOICE_PATH}/turn`, lineHints(ls.line, asked.lang)));
   }
   if (digits === '0') return render(await saveCall({ ...call, handoffReason: 'Caller pressed 0' }), { say: NO_AGENT[call.lang].replace(/^\S+\.\s*/, ''), next: 'handoff', lang: call.lang }, ls.work, settings);
   if (!speech && !digits) {
     const silent = call.transcript.slice(-2).every((t) => t.who === 'caller' && t.text === '(silence)');
     const updated = await saveCall(say(call, 'caller', '(silence)'));
     if (silent) return render(updated, { say: SILENT_BYE[call.lang], next: 'hangup', lang: call.lang }, ls.work, settings);
-    return twiml(gatherXml(STILL_HERE[call.lang], settings, call.lang, `${VOICE_PATH}/turn`, hints(ls.line)));
+    return twiml(gatherXml(STILL_HERE[call.lang], settings, call.lang, `${VOICE_PATH}/turn`, lineHints(ls.line, call.lang)));
   }
-  return turnWithBudget(call, speech || `(pressed ${digits})`, settings, ls.work);
+  return turnWithBudget(call, speech ? withConfidence(speech, params.get('Confidence')) : `(pressed ${digits})`, settings, ls.work);
 }
 
 /** Twilio <Redirect> after "one moment": the AI turn is still running (here, or already saved by another instance). */
 export async function waitTurn(params: URLSearchParams, n: number): Promise<Response> {
-  const settings = await getPhoneSettings();
+  const base = await getPhoneSettings();
   const call = await getCall(params.get('CallSid') || '');
-  if (!call) return twiml(`${sayXml(NOBODY.fr, settings, 'fr')}<Hangup/>`);
+  if (!call) return twiml(`${sayXml(NOBODY.fr, base, 'fr')}<Hangup/>`);
+  const settings = callVoices(call, base);
   const ls = await lineOf(call);
   if (!ls) return twiml(`${sayXml(NOBODY[call.lang], settings, call.lang)}<Hangup/>`);
   const job = inflight().get(call.id);
@@ -168,7 +218,7 @@ export async function waitTurn(params: URLSearchParams, n: number): Promise<Resp
 
 /** Twilio <Dial> action: did a person take the call? */
 export async function dialDone(params: URLSearchParams): Promise<Response> {
-  const settings = await getPhoneSettings();
+  const base = await getPhoneSettings();
   const call = await getCall(params.get('CallSid') || '');
   const status = params.get('DialCallStatus') || '';
   if (!call) return twiml('<Hangup/>');
@@ -179,7 +229,7 @@ export async function dialDone(params: URLSearchParams): Promise<Response> {
   const ls = await lineOf(call);
   if (ls) await missedHandoff(call, ls.work, `hand-off ${status || 'not answered'}`);
   await endCall(call.id, 'handoff_missed');
-  return twiml(`${sayXml(NOBODY[call.lang], settings, call.lang)}<Hangup/>`);
+  return twiml(`${sayXml(NOBODY[call.lang], callVoices(call, base), call.lang)}<Hangup/>`);
 }
 
 /** Twilio call status callback (the number's "Call status changes" URL). */
@@ -198,7 +248,7 @@ export async function simulateTurn(lineId: string, sessionId: string | null, tex
   let call = sessionId ? await getCall(sessionId) : null;
   if (call && !call.simulated) throw new Error('Not a test session.');
   if (!call) {
-    const greeting = GREETING.fr(line.name);
+    const greeting = GREETING.fr(line.name, personaFor(settings.persona, settings.voiceFr));
     call = await saveCall(say({
       id: `sim-${Date.now().toString(36)}`, lineId: line.id, lineName: line.name, locationCode: isMultiKitchen(line) ? '' : line.locationCode, brands: line.brands, from: 'console', to: line.number, lang: 'fr',
       status: 'active', startedAt: new Date().toISOString(), turns: 0, transcript: [], messages: [], cart: [], customer: {}, simulated: true, updatedAt: new Date().toISOString(),
@@ -206,10 +256,17 @@ export async function simulateTurn(lineId: string, sessionId: string | null, tex
     if (!text.trim()) return { call, reply: { say: greeting, next: 'listen', lang: 'fr' } };
   }
   if (call.status !== 'active') throw new Error('This test call has ended — start a new one.');
-  if (call.lang === 'fr' && /^\W*(english|anglais)\b/i.test(text)) {
-    const greeting = GREETING.en(line.name);
-    call = await saveCall(say(say({ ...call, lang: 'en' }, 'caller', text), 'agent', greeting));
-    return { call, reply: { say: greeting, next: 'listen', lang: 'en' } };
+  // The same language rules as a real call: "English", "español", or keys 2 / 3 typed as the first words.
+  const key = text.trim();
+  const asked = /^[23]$/.test(key) ? languageChoice(call.turns, key, '') : languageChoice(call.turns, '', key);
+  if (asked && asked.lang !== call.lang) {
+    call = await saveCall(say({ ...call, lang: asked.lang }, 'caller', text));
+    if (!asked.rest) {
+      const greeting = GREETING[asked.lang](line.name, personaFor(settings.persona, settings.voiceFr));
+      call = await saveCall(say(call, 'agent', greeting));
+      return { call, reply: { say: greeting, next: 'listen', lang: asked.lang } };
+    }
+    text = asked.rest;
   }
   const kitchen = callKitchen(line, call);
   const menu = kitchen ? await buildPhoneMenu(kitchen) : noKitchenMenu();

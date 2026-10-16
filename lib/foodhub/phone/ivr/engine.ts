@@ -1,38 +1,45 @@
 // ON2GO phone menu (IVR) — the call, as Twilio drives it:
 //
 //   incoming → greeting (recorded MP3 or neural voice) + marketing line + "Comment puis-je vous aider ?"
-//            + "For English say English or press 2 · Para español diga español o marque 3"
+//            + "For English, press 2 · Para español, marque el 3" (each in its own voice)
 //   → the AI talks with the caller and routes with a tool (agent.ts); keypad digits work at any time, 0 = a person,
-//     * = repeat; two misunderstandings (or no AI key, or mode "keypad") → the short keypad menu of the tree
+//     * = repeat; two misunderstandings (or no AI key, the AI paused by its circuit breaker, or mode "keypad") → the
+//     short keypad menu of the tree
 //   → branches: AI flows (online order problem, card charge, billing, merchant, courier, customer service: lookup,
 //     link by text, ticket) · place an order (the AI ordering agent, ../voice.ts, same call) · platform order
 //     (which platform → order number by voice or keypad → confirm → reference record SAVED → <Dial> that platform's
 //     official support line, or text its official help link when it has no phone line) · a person (<Dial>, nobody →
 //     voicemail) · voicemail (<Record> + live transcription → ticket + email to the team).
 //
+// When the AI fails on an option the caller picked on the keypad, that option runs without the AI (its link by text,
+// then a message) — never a loop back to the same submenu. An AI failure is never announced as "je n'ai pas compris".
+//
 // Every route is a Twilio webhook under /api/foodhub/webhooks/ivr/* and checks the Twilio signature (twilioRoute).
 // Card numbers: refused by voice and keypad, never stored (words.ts). Each platform hears only about itself: the
 // transfer passes the caller's own number, nothing else, and the texted link is that platform's own page.
 import { publicBaseUrl } from '../../config';
 import { featureOn } from '../../expansion/features';
-import { normalizePhone, sendEmail, sendSms } from '../../notify';
+import { normalizePhone, postToChat, sendEmail, sendSms } from '../../notify';
 import { localTimeLabel } from '../../time';
+import { phoneAiUsable } from '../ai-health';
 import { phoneAgentConfigured } from '../agent';
-import { getCall, saveCall, say as sayPhone, type PhoneCall } from '../calls';
+import { getCall, isTestCaller, saveCall, say as sayPhone, type PhoneCall } from '../calls';
 import { getPhoneSettings, isMultiKitchen, lineForNumber } from '../settings';
+import { goodDay, personaFor, selfIntro, speakable } from '../style';
 import { gatherXml, VOICE_PATH } from '../twilio';
-import { callStatus, startCall } from '../voice';
+import { callStatus, lineHints, startCall, withConfidence } from '../voice';
+import { hintsForLang, sayLanguage, speechPlan, type ListenKind } from '../voices';
 import { ivrAiAvailable, runIvrTurn, textLink } from './agent';
 import {
   findNode, getIvrSettings, handoffTarget, levelOf, nodeFor, PLATFORM_IDS, PLATFORM_NAME, platformHelpUrl, platformPhone, voicemailEmailTarget,
   type IvrLang, type IvrNode, type IvrSettings, type PlatformId, type Texts,
 } from './config';
 import {
-  endIvrCall, getIvrCall, listIvrCalls, newIvrCall, note, openTicket, saveIvrCall, savePlatformRef, updatePlatformRef, updateTicket, visit, withOrderId,
+  endIvrCall, getIvrCall, listIvrCalls, mergeIvrVoicemail, newIvrCall, note, openTicket, saveIvrCall, savePlatformRef, updatePlatformRef, updateTicket, visit, withOrderId,
   type IvrCall, type IvrReply, type TicketCategory,
 } from './records';
 import {
-  digitNode, hasCardNumber, keywordIntent, LANG_DIGIT, LANG_OPTIONS, languageWord, levelHints, menuSpeech, NO_CARD, normalizeOrderId, redactCards, spellOut, detectPlatform,
+  detectPlatform, digitNode, fold, guessLanguage, hasCardNumber, keywordIntent, LANG_DIGIT, languageRequest, levelHints, menuSpeech, NO, NO_CARD, NO_MORE, normalizeOrderId, redactCards, spellOut, YES,
 } from './words';
 
 export const IVR_PATH = '/api/foodhub/webhooks/ivr';
@@ -40,33 +47,38 @@ const TURN_BUDGET_MS = 9_000;
 const LANG_CODE: Record<IvrLang, string> = { fr: 'fr-CA', en: 'en-US', es: 'es-US' };
 
 // ---------------------------------------------------------------------------------------------------------------
-// Words said by the menu (the AI writes its own sentences)
+// Words said by the menu (the AI writes its own sentences). Québec French: vouvoiement, « faites le 1 », « le carré ».
 
 const T = (fr: string, en: string, es: string): Texts => ({ fr, en, es });
 export const SAY = {
-  stillHere: T('Je suis là. Dites-moi en quelques mots comment je peux vous aider, ou utilisez le clavier.', 'I’m here. Tell me in a few words how I can help, or use your keypad.', 'Aquí estoy. Dígame en pocas palabras cómo puedo ayudarle, o use el teclado.'),
-  notUnderstood: T('Je n’ai pas bien compris. Voici nos options.', 'I didn’t quite get that. Here are our options.', 'No le entendí bien. Estas son nuestras opciones.'),
-  badKey: T('Ce choix n’existe pas.', 'That is not an option.', 'Esa opción no existe.'),
-  goodbye: T('Merci d’avoir appelé ON2GO. Au revoir !', 'Thank you for calling ON2GO. Goodbye!', 'Gracias por llamar a ON2GO. ¡Adiós!'),
-  wait: T('Un instant, je vérifie.', 'One moment, let me check.', 'Un momento, lo verifico.'),
-  anythingElse: T('Puis-je vous aider avec autre chose ?', 'Can I help you with anything else?', '¿Puedo ayudarle con algo más?'),
+  stillHere: T('Je suis toujours là. Dites-moi en quelques mots ce que je peux faire pour vous, ou utilisez le clavier.', 'I’m still here. Tell me in a few words how I can help, or use your keypad.', 'Aquí sigo. Dígame en pocas palabras cómo puedo ayudarle, o use el teclado.'),
+  notUnderstood: T('Pardon, je n’ai pas bien saisi. Voici les choix du menu.', 'Sorry, I didn’t quite catch that. Here are the menu options.', 'Perdón, no le entendí bien. Estas son las opciones del menú.'),
+  /** The AI failed (or is paused): never the caller's fault. */
+  menuIntro: T('Je vais vous proposer les choix du menu.', 'Here are the menu options.', 'Le doy las opciones del menú.'),
+  badKey: T('Désolé, ce choix n’est pas offert.', 'Sorry, that is not an option.', 'Lo siento, esa opción no existe.'),
+  goodbye: T('Merci d’avoir appelé ON2GO.', 'Thank you for calling ON2GO.', 'Gracias por llamar a ON2GO.'),
+  wait: T('Un petit instant, je vérifie.', 'One moment, let me check.', 'Un momento, lo verifico.'),
+  anythingElse: T('Est-ce que je peux faire autre chose pour vous ?', 'Is there anything else I can do for you?', '¿Puedo ayudarle con algo más?'),
   askPlatform: T('Sur quelle application avez-vous commandé : Uber Eats, DoorDash ou SkipTheDishes ? Vous pouvez aussi faire le 1, le 2 ou le 3.', 'Which app did you order on: Uber Eats, DoorDash or SkipTheDishes? You can also press 1, 2 or 3.', '¿En qué aplicación hizo su pedido: Uber Eats, DoorDash o SkipTheDishes? También puede marcar 1, 2 o 3.'),
-  askOrderId: T('Dites ou tapez le numéro de commande %P, puis le carré. Si vous ne l’avez pas, faites seulement le carré.', 'Say or type your %P order number, then press pound. If you don’t have it, just press pound.', 'Diga o marque su número de pedido de %P, y luego numeral. Si no lo tiene, marque solo numeral.'),
-  againOrderId: T('Je n’ai pas saisi le numéro. Dites-le lentement, ou tapez-le, puis le carré.', 'I didn’t catch the number. Say it slowly, or type it, then press pound.', 'No entendí el número. Dígalo despacio, o márquelo, y luego numeral.'),
-  confirmId: T('J’ai noté : %I. Si c’est exact, dites oui ou faites le 1. Pour recommencer, faites le 2.', 'I have: %I. If that’s right, say yes or press 1. To start again, press 2.', 'Anoté: %I. Si es correcto, diga sí o marque 1. Para empezar de nuevo, marque 2.'),
-  transferPlatform: T('Merci, c’est noté. Je vous transfère au service à la clientèle de %P. Gardez votre numéro de commande à portée de main.', 'Thanks, it’s noted. I’m transferring you to %P customer support. Keep your order number handy.', 'Gracias, quedó anotado. Le transfiero al servicio al cliente de %P. Tenga a mano su número de pedido.'),
+  askOrderId: T('Dites ou entrez votre numéro de commande %P, suivi du carré. Si vous ne l’avez pas, appuyez simplement sur le carré.', 'Say or enter your %P order number, then press pound. If you don’t have it, just press pound.', 'Diga o marque su número de pedido de %P, y luego numeral. Si no lo tiene, marque solo numeral.'),
+  againOrderId: T('Je n’ai pas bien saisi le numéro. Dites-le lentement, ou entrez-le sur le clavier, suivi du carré.', 'I didn’t catch the number. Say it slowly, or enter it on your keypad, then press pound.', 'No entendí el número. Dígalo despacio, o márquelo, y luego numeral.'),
+  confirmId: T('J’ai noté : %I. Si c’est bien ça, dites oui ou faites le 1. Pour recommencer, faites le 2.', 'I have: %I. If that’s right, say yes or press 1. To start again, press 2.', 'Anoté: %I. Si es correcto, diga sí o marque 1. Para empezar de nuevo, marque 2.'),
+  transferPlatform: T('Merci, c’est noté. Je vous transfère au service à la clientèle de %P. Ayez votre numéro de commande sous la main.', 'Thanks, it’s noted. I’m transferring you to %P customer support. Keep your order number handy.', 'Gracias, quedó anotado. Le transfiero al servicio al cliente de %P. Tenga a mano su número de pedido.'),
   platformBusy: T('Le service de %P ne répond pas pour le moment.', '%P support is not answering right now.', 'El servicio de %P no contesta en este momento.'),
   linkSent: T('Je vous ai envoyé le lien officiel par texto.', 'I’ve texted you the official link.', 'Le envié el enlace oficial por mensaje de texto.'),
-  noLink: T('Le lien n’a pas pu être envoyé par texto.', 'The link could not be texted.', 'No se pudo enviar el enlace por mensaje.'),
-  transferPerson: T('Je vous transfère à un membre de l’équipe. Un instant.', 'I’m transferring you to a team member. One moment.', 'Le transfiero a un miembro del equipo. Un momento.'),
-  nobody: T('Personne n’est disponible pour le moment.', 'Nobody is available right now.', 'No hay nadie disponible en este momento.'),
-  voicemail: T('Laissez votre nom, votre numéro et votre message après le bip. Appuyez sur le carré quand vous avez terminé.', 'Leave your name, your number and your message after the beep. Press pound when you are done.', 'Deje su nombre, su número y su mensaje después del tono. Marque numeral cuando termine.'),
-  noMessage: T('Nous n’avons pas reçu de message. Au revoir.', 'We did not get a message. Goodbye.', 'No recibimos ningún mensaje. Adiós.'),
-  messageSaved: T('Merci, votre message est enregistré. Notre équipe vous rappelle dès que possible. Au revoir !', 'Thank you, your message is saved. Our team will call you back as soon as possible. Goodbye!', 'Gracias, su mensaje quedó grabado. Nuestro equipo le devolverá la llamada lo antes posible. ¡Adiós!'),
-  orderIntro: T('Parfait, je prends votre commande. Je suis l’assistant virtuel. Que puis-je vous préparer ?', 'Great, I’ll take your order. I’m the virtual assistant. What can I get for you?', 'Perfecto, tomo su pedido. Soy el asistente virtual. ¿Qué le preparamos?'),
-  closed: T('Le service ON2GO n’est pas disponible pour le moment.', 'The ON2GO line is not available right now.', 'La línea ON2GO no está disponible en este momento.'),
+  noLink: T('Désolé, je n’ai pas pu vous envoyer le lien par texto.', 'Sorry, I couldn’t text you the link.', 'Lo siento, no pude enviarle el enlace por mensaje.'),
+  transferPerson: T('Je vous transfère à un membre de notre équipe. Restez en ligne.', 'I’m transferring you to a team member. Please stay on the line.', 'Le transfiero a un miembro de nuestro equipo. No cuelgue, por favor.'),
+  nobody: T('Désolé, personne n’est disponible présentement.', 'Sorry, nobody is available right now.', 'Lo siento, no hay nadie disponible en este momento.'),
+  voicemail: T('Laissez votre nom, votre numéro de téléphone et votre message après le signal sonore, puis appuyez sur le carré.', 'Leave your name, your phone number and your message after the beep, then press pound.', 'Deje su nombre, su número de teléfono y su mensaje después del tono, y luego marque numeral.'),
+  noMessage: T('Nous n’avons pas reçu de message. N’hésitez pas à nous rappeler.', 'We did not get a message. Feel free to call us back.', 'No recibimos ningún mensaje. No dude en volver a llamar.'),
+  messageSaved: T('Merci, votre message est bien enregistré. Notre équipe vous rappellera dans les plus brefs délais.', 'Thank you, your message is saved. Our team will call you back as soon as possible.', 'Gracias, su mensaje quedó grabado. Nuestro equipo le devolverá la llamada lo antes posible.'),
+  orderIntro: T('Parfait ! %S et je prends votre commande. Qu’est-ce que je peux vous préparer ?', 'Great! %S and I’ll take your order. What can I get for you?', '¡Perfecto! %S y tomo su pedido. ¿Qué le preparamos?'),
+  closed: T('La ligne ON2GO n’est pas disponible pour le moment.', 'The ON2GO line is not available right now.', 'La línea ON2GO no está disponible en este momento.'),
   langSet: T('Très bien, en français.', 'Okay, in English.', 'Muy bien, en español.'),
 } as const;
+
+/** "Merci d'avoir appelé ON2GO. Bonne soirée !" — the day part follows the clock. */
+const bye = (lang: IvrLang) => `${SAY.goodbye[lang]} ${goodDay(lang)}`;
 
 /** How to reach a platform's support in its app, when it has no public phone line (only that platform is named). */
 const APP_HELP: Record<PlatformId, Texts> = {
@@ -89,19 +101,21 @@ function twiml(body: string): Response {
 }
 
 export function sayX(text: string, s: Pick<IvrSettings, 'voices'>, lang: IvrLang): string {
-  return text ? `<Say voice="${xml(s.voices[lang])}" language="${LANG_CODE[lang]}">${xml(text)}</Say>` : '';
+  return text ? `<Say voice="${xml(s.voices[lang])}" language="${sayLanguage(lang, s.voices[lang])}">${xml(speakable(text))}</Say>` : '';
 }
 
 const playX = (url: string) => `<Play>${xml(url)}</Play>`;
 
-interface Listen { hints?: string; many?: boolean; timeout?: number }
+interface Listen { hints?: string; many?: boolean; timeout?: number; kind?: ListenKind; /** Deepgram nova-3 "multi" (greeting only, when turned on). */ multi?: boolean }
 
 /** Say/play `inner`, then listen for words or keys; the answer comes back to /ivr/turn. */
 async function gatherX(inner: string, s: IvrSettings, lang: IvrLang, opts: Listen = {}): Promise<string> {
   const ps = await getPhoneSettings();
   const keys = opts.many ? 'finishOnKey="#"' : 'numDigits="1" finishOnKey=""';
-  const hints = opts.hints ? ` hints="${xml(opts.hints.slice(0, 1500))}"` : '';
-  return `<Gather input="speech dtmf" ${keys} action="${IVR_PATH}/turn" method="POST" language="${LANG_CODE[lang]}" speechModel="${xml(ps.speechModel)}" speechTimeout="${ps.speechTimeout}" timeout="${opts.timeout ?? s.timeout}" actionOnEmptyResult="true"${hints}>${inner}</Gather>`;
+  const kind: ListenKind = opts.kind ?? (opts.many ? 'digits' : 'short');
+  const plan = opts.multi ? { language: 'multi', model: 'deepgram_nova-3', timeout: ps.speechTimeout, hints: undefined as string | undefined } : speechPlan(lang, kind, ps, opts.hints ? hintsForLang(opts.hints, lang) : undefined);
+  const hints = plan.hints ? ` hints="${xml(plan.hints.slice(0, 1500))}"` : '';
+  return `<Gather input="speech dtmf" ${keys} action="${IVR_PATH}/turn" method="POST" language="${plan.language}" speechModel="${xml(plan.model)}" speechTimeout="${plan.timeout}" timeout="${opts.timeout ?? s.timeout}" actionOnEmptyResult="true"${hints}>${inner}</Gather>`;
 }
 
 const abs = (path: string) => `${publicBaseUrl()}${path}`;
@@ -110,46 +124,48 @@ const abs = (path: string) => `${publicBaseUrl()}${path}`;
 // Steps
 
 async function listenAi(call: IvrCall, s: IvrSettings, text: string): Promise<Response> {
-  const saved = await saveIvrCall(note({ ...call, state: 'ai' }, 'agent', text));
-  return twiml(await gatherX(sayX(text, s, saved.lang), s, saved.lang, { hints: levelHints(s.tree) }));
+  const saved = await saveIvrCall(note({ ...call, state: 'ai', aiNode: undefined }, 'agent', text));
+  return twiml(await gatherX(sayX(text, s, saved.lang), s, saved.lang, { hints: levelHints(s.tree), kind: 'conversation' }));
 }
 
 /** The keypad menu of one level (main menu = ''). */
 async function keypadMenu(call: IvrCall, s: IvrSettings, menuId: string, preface = ''): Promise<Response> {
   const text = [preface, menuSpeech(s.tree, menuId, call.lang)].filter(Boolean).join(' ');
-  const saved = await saveIvrCall(note({ ...call, state: 'menu', menu: menuId }, 'agent', text));
+  const saved = await saveIvrCall(note({ ...call, state: 'menu', menu: menuId, aiNode: undefined }, 'agent', text));
   return twiml(await gatherX(sayX(text, s, saved.lang), s, saved.lang, { hints: levelHints(s.tree, menuId || null) }));
 }
 
 /** After the language is known: the AI asks how it can help (AI mode), or the keypad main menu. */
 async function afterLanguage(call: IvrCall, s: IvrSettings, preface = ''): Promise<Response> {
-  if (ivrAiAvailable(s)) return listenAi(call, s, [preface, s.askHelp[call.lang]].filter(Boolean).join(' '));
+  if (await ivrAiAvailable(s)) return listenAi(call, s, [preface, s.askHelp[call.lang]].filter(Boolean).join(' '));
   return keypadMenu(call, s, '', preface);
 }
 
 /**
- * The greeting, in French first: the owner's welcome + the marketing line (or the recorded MP3), then "how can I help"
- * (AI mode) or "1 for French" (keypad mode), then the English and Spanish options in their own voices.
+ * The greeting, in Québec French first: the owner's welcome + the marketing line (or the recorded MP3), then "how can
+ * I help" (AI mode) or "1 for French" (keypad mode), then the English and Spanish options in their own voices.
  */
 async function greet(call: IvrCall, s: IvrSettings): Promise<Response> {
-  const ai = ivrAiAvailable(s);
+  const ai = await ivrAiAvailable(s);
   const welcome = `${s.greeting.fr} ${s.marketing.fr}`;
   const ask = ai ? s.askHelp.fr : 'Pour le français, faites le 1.';
-  const saved = await saveIvrCall(note({ ...call, state: 'greeting' }, 'agent', `${welcome} ${ask} ${LANG_OPTIONS}`));
+  const saved = await saveIvrCall(note({ ...call, state: 'greeting' }, 'agent', `${welcome} ${ask} For English, press 2. Para español, marque el 3.`));
   const audio = s.audio.greeting.fr;
   const intro = audio ? `${playX(audio)}${sayX(ask, s, 'fr')}` : sayX(`${welcome} ${ask}`, s, 'fr');
-  const options = `${sayX('For English, say English or press 2.', s, 'en')}${sayX('Para español, diga español o marque 3.', s, 'es')}`;
-  return twiml(await gatherX(`${intro}${options}`, s, saved.lang, { hints: levelHints(s.tree) }));
+  const options = `${sayX('For English, say English or press 2.', s, 'en')}${sayX('Para español, diga español o marque el 3.', s, 'es')}`;
+  const multi = (await getPhoneSettings()).greetingMulti;
+  return twiml(await gatherX(`${intro}${options}`, s, saved.lang, { hints: `${levelHints(s.tree)}, English, español`, kind: 'conversation', multi }));
 }
 
-/** Twilio "A call comes in" on the ON2GO line. */
-export async function ivrStart(params: URLSearchParams): Promise<Response> {
+/** Twilio "A call comes in" on the ON2GO line. `simulated` = the console call simulator (nothing is sent). */
+export async function ivrStart(params: URLSearchParams, opts: { simulated?: boolean } = {}): Promise<Response> {
   const s = await getIvrSettings();
   const sid = params.get('CallSid') || `call-${Date.now()}`;
-  const call = newIvrCall(sid, params.get('From') || 'anonymous', params.get('To') || '');
+  const from = params.get('From') || 'anonymous';
+  const call: IvrCall = { ...newIvrCall(sid, from, params.get('To') || ''), ...(opts.simulated ? { simulated: true } : {}), ...(isTestCaller(from) ? { testCall: true } : {}) };
   if (!s.enabled) {
     // Menu off: never lose the call — the AI ordering line of this number, else a person, else voicemail.
-    if (await lineForNumber(call.to)) return startCall(params);
+    if (await lineForNumber(call.to)) return startCall(params, { simulated: opts.simulated });
     return dialPerson(await saveIvrCall(note(call, 'system', 'Phone menu turned off')), s, SAY.closed.fr);
   }
   return greet(call, s);
@@ -173,9 +189,10 @@ export async function ivrTurn(params: URLSearchParams): Promise<Response> {
   const speech = redactCards(rawSpeech);
   if (speech) call = note(call, 'caller', speech);
   else if (digits) call = note(call, 'caller', `(keypad ${digits})`);
+  const forAi = withConfidence(speech, params.get('Confidence'));
   switch (call.state) {
-    case 'greeting': return onGreeting(call, s, digits, speech);
-    case 'ai': return onAi(call, s, digits, speech);
+    case 'greeting': return onGreeting(call, s, digits, speech, forAi);
+    case 'ai': return onAi(call, s, digits, speech, forAi);
     case 'menu': return onMenu(call, s, digits, speech);
     case 'platform': return onPlatform(call, s, digits, speech);
     case 'order_id': return onOrderId(call, s, digits, speech);
@@ -198,41 +215,57 @@ async function repeatStep(call: IvrCall, s: IvrSettings, preface: string): Promi
   }
 }
 
-async function onGreeting(call: IvrCall, s: IvrSettings, digits: string, speech: string): Promise<Response> {
+async function onGreeting(call: IvrCall, s: IvrSettings, digits: string, speech: string, forAi: string): Promise<Response> {
   if (digits && LANG_DIGIT[digits]) return afterLanguage(visit({ ...call, lang: LANG_DIGIT[digits] }, `lang_${LANG_DIGIT[digits]}`, 'keypad'), s, digits === '1' ? '' : SAY.langSet[LANG_DIGIT[digits]]);
   if (digits === '*') return greet(call, s);
   if (digits) return runDigit({ ...call, state: 'menu', menu: '' }, s, digits);
-  const lang = speech ? languageWord(speech) : null;
-  if (lang) return afterLanguage(visit({ ...call, lang }, `lang_${lang}`, 'speech'), s, SAY.langSet[lang]);
   if (!speech) return silence(call, s);
-  return understand({ ...call, state: 'ai' }, s, speech);
+  // "English" — or "English, I want to order a chicken": switch, then handle the rest right away.
+  const asked = languageRequest(speech);
+  if (asked) {
+    const c = visit({ ...call, lang: asked.lang }, `lang_${asked.lang}`, 'speech');
+    if (asked.rest) return understand(c, s, asked.rest);
+    return afterLanguage(c, s, SAY.langSet[asked.lang]);
+  }
+  // Without the AI, the language comes from the words themselves ("Bueno, quiero hacer una orden").
+  if (!(await ivrAiAvailable(s))) {
+    const guess = guessLanguage(speech);
+    if (guess && guess !== call.lang) return understand(visit({ ...call, lang: guess }, `lang_${guess}`, 'speech'), s, speech);
+  }
+  return understand({ ...call, state: 'ai' }, s, forAi);
 }
 
-async function onAi(call: IvrCall, s: IvrSettings, digits: string, speech: string): Promise<Response> {
+async function onAi(call: IvrCall, s: IvrSettings, digits: string, speech: string, forAi: string): Promise<Response> {
   if (digits === '*') return listenAi(call, s, s.askHelp[call.lang]);
   if (digits) return runDigit(call, s, digits);
   if (!speech) return silence(call, s);
-  const lang = languageWord(speech);
-  if (lang && lang !== call.lang) return listenAi(visit({ ...call, lang }, `lang_${lang}`, 'speech'), s, `${SAY.langSet[lang]} ${s.askHelp[lang]}`);
-  return understand(call, s, speech);
+  const asked = languageRequest(speech);
+  if (asked && asked.lang !== call.lang) {
+    const c = visit({ ...call, lang: asked.lang }, `lang_${asked.lang}`, 'speech');
+    if (asked.rest) return understand(c, s, asked.rest);
+    return listenAi(c, s, `${SAY.langSet[asked.lang]} ${s.askHelp[asked.lang]}`);
+  }
+  return understand(call, s, forAi);
 }
 
 async function onMenu(call: IvrCall, s: IvrSettings, digits: string, speech: string): Promise<Response> {
   if (digits === '*') return keypadMenu(call, s, call.menu);
   if (digits) return runDigit(call, s, digits);
   if (!speech) return silence(call, s);
-  const lang = languageWord(speech);
-  if (lang) return keypadMenu(visit({ ...call, lang }, `lang_${lang}`, 'speech'), s, call.menu, SAY.langSet[lang]);
+  const asked = languageRequest(speech);
+  if (asked && !asked.rest) return keypadMenu(visit({ ...call, lang: asked.lang }, `lang_${asked.lang}`, 'speech'), s, call.menu, SAY.langSet[asked.lang]);
+  const words = asked?.rest || speech;
+  const c = asked ? visit({ ...call, lang: asked.lang }, `lang_${asked.lang}`, 'speech') : call;
   // On a platform submenu a platform name is enough.
-  const platform = detectPlatform(speech);
-  const level = levelOf(s.tree, call.menu || null);
+  const platform = detectPlatform(words);
+  const level = levelOf(s.tree, c.menu || null);
   const byPlatform = platform ? level.find((n) => n.action.kind === 'platform' && n.action.platform === platform) : null;
-  if (byPlatform) return runNode(call, s, byPlatform, 'speech', { platform: platform! });
-  const kw = keywordIntent(speech, s.tree);
-  if (kw) return runNode(call, s, kw.node, 'speech', { platform: kw.platform });
-  const tries = call.tries + 1;
-  if (tries >= 3) return dialPerson({ ...call, tries }, s);
-  return keypadMenu({ ...call, tries }, s, call.menu, SAY.notUnderstood[call.lang]);
+  if (byPlatform) return runNode(c, s, byPlatform, 'speech', { platform: platform! });
+  const kw = keywordIntent(words, s.tree);
+  if (kw) return runNode(c, s, kw.node, 'speech', { platform: kw.platform });
+  const tries = c.tries + 1;
+  if (tries >= 3) return dialPerson({ ...c, tries }, s);
+  return keypadMenu({ ...c, tries }, s, c.menu, SAY.notUnderstood[c.lang]);
 }
 
 /** Silence: ask again, then the keypad menu, then goodbye. */
@@ -240,14 +273,14 @@ async function silence(call: IvrCall, s: IvrSettings): Promise<Response> {
   const n = call.silences + 1;
   const c = note({ ...call, silences: n }, 'caller', '(silence)');
   if (n >= 3) return goodbye(c, s, 'hangup');
-  if (call.state === 'menu' || !ivrAiAvailable(s)) return keypadMenu(c, s, call.state === 'menu' ? call.menu : '');
+  if (call.state === 'menu' || !(await ivrAiAvailable(s))) return keypadMenu(c, s, call.state === 'menu' ? call.menu : '');
   if (n === 1) return listenAi({ ...c, state: 'ai' }, s, SAY.stillHere[call.lang]);
   return keypadMenu(c, s, '');
 }
 
 /** Says goodbye and ends the call. `own` = the AI already said its goodbye: say only that. */
 async function goodbye(call: IvrCall, s: IvrSettings, outcome: IvrCall['outcome'], preface = '', own = false): Promise<Response> {
-  const text = own && preface ? preface : [preface, SAY.goodbye[call.lang]].filter(Boolean).join(' ');
+  const text = own && preface ? preface : [preface, bye(call.lang)].filter(Boolean).join(' ');
   await saveIvrCall(note({ ...call, state: 'done', outcome: call.outcome ?? outcome }, 'agent', text));
   await endIvrCall(call.id, call.outcome ?? outcome);
   return twiml(`${sayX(text, s, call.lang)}<Hangup/>`);
@@ -274,18 +307,25 @@ async function computeTurn(callId: string, text: string, s: IvrSettings): Promis
   const call = await getIvrCall(callId);
   if (!call) return { say: '', next: 'hangup' };
   const r = await runIvrTurn(call, text, s);
-  await saveIvrCall({ ...r.call, pending: { startedAt: new Date().toISOString(), reply: r.reply } });
+  await saveIvrCall({ ...r.call, aiNode: call.aiNode, pending: { startedAt: new Date().toISOString(), reply: r.reply } });
   return r.reply;
 }
 
-/** Words the AI must understand: AI turn within Twilio's time, or the keyword router when the AI is off. */
-async function understand(call: IvrCall, s: IvrSettings, text: string): Promise<Response> {
-  if (!ivrAiAvailable(s)) {
+/**
+ * Words the AI must understand: AI turn within Twilio's time, or the keyword router when the AI is off.
+ * `aiNode` = the keypad option (an AI flow) this turn comes from: if the AI fails, that option runs without it.
+ */
+async function understand(call: IvrCall, s: IvrSettings, text: string, aiNode?: string): Promise<Response> {
+  if (!(await ivrAiAvailable(s))) {
+    const fallback = findNode(s.tree, aiNode);
+    if (fallback) return runNode({ ...call, aiNode: undefined }, s, fallback, 'system', { noAi: true });
     const kw = keywordIntent(text, s.tree);
-    if (kw) return runNode(call, s, kw.node, 'speech', { platform: kw.platform });
-    return keypadMenu(call, s, '', SAY.notUnderstood[call.lang]);
+    if (kw) return runNode(call, s, kw.node, 'speech', { platform: kw.platform, noAi: true });
+    // Only "Non merci", "c'est tout", "no gracias" and nothing else: the caller is done ("No me llegó mi pedido" is not).
+    if (NO_MORE.test(fold(text))) return goodbye(call, s, call.outcome ?? 'resolved');
+    return keypadMenu(call, s, '', s.mode === 'ai' ? SAY.menuIntro[call.lang] : SAY.notUnderstood[call.lang]);
   }
-  const saved = await saveIvrCall({ ...call, state: 'ai' });
+  const saved = await saveIvrCall({ ...call, state: 'ai', aiNode });
   const job = computeTurn(saved.id, text, s).finally(() => { if (inflight().get(saved.id) === job) inflight().delete(saved.id); });
   inflight().set(saved.id, job);
   const reply = await Promise.race([job, new Promise<null>((r) => setTimeout(() => r(null), TURN_BUDGET_MS))]);
@@ -298,22 +338,28 @@ async function consume(callId: string, s: IvrSettings, reply: IvrReply, text = '
   const call = await getIvrCall(callId);
   if (!call) return twiml('<Hangup/>');
   const c = { ...call, pending: undefined };
+  const aiNode = c.aiNode;
   switch (reply.next) {
     case 'listen': {
-      const saved = await saveIvrCall({ ...c, state: 'ai', silences: 0 });
-      return twiml(await gatherX(sayX(reply.say, s, saved.lang), s, saved.lang, { hints: levelHints(s.tree) }));
+      const saved = await saveIvrCall({ ...c, state: 'ai', silences: 0, aiNode: undefined });
+      return twiml(await gatherX(sayX(reply.say, s, saved.lang), s, saved.lang, { hints: levelHints(s.tree), kind: 'conversation' }));
     }
-    case 'hangup': return goodbye(c, s, c.outcome ?? 'resolved', reply.say, true);
+    case 'hangup': return goodbye({ ...c, aiNode: undefined }, s, c.outcome ?? 'resolved', reply.say, true);
     case 'menu': {
+      // The keypad option the caller picked runs without the AI (its link by text, then a message) — never a loop
+      // back to the same submenu through the keyword router.
+      const picked = findNode(s.tree, aiNode);
+      if (picked && picked.action.kind === 'ai') return runNode({ ...c, aiNode: undefined, misses: 0 }, s, picked, 'system', { noAi: true });
       // The AI failed or did not understand twice: the keyword router on the last words, then the keypad menu.
       const kw = text ? keywordIntent(text, s.tree) : null;
-      if (kw) return runNode(c, s, kw.node, 'speech', { platform: kw.platform, noAi: true });
-      return keypadMenu({ ...c, misses: 0 }, s, '', SAY.notUnderstood[c.lang]);
+      if (kw) return runNode({ ...c, aiNode: undefined }, s, kw.node, 'speech', { platform: kw.platform, noAi: true });
+      if (reply.failed && NO_MORE.test(fold(text))) return goodbye(c, s, c.outcome ?? 'resolved');
+      return keypadMenu({ ...c, misses: 0, aiNode: undefined }, s, '', reply.failed ? SAY.menuIntro[c.lang] : SAY.notUnderstood[c.lang]);
     }
     case 'route': {
       const node = findNode(s.tree, reply.route?.node);
-      if (!node) return keypadMenu(c, s, '');
-      return runNode(c, s, node, 'ai', { platform: reply.route?.platform, orderId: reply.route?.orderId, preface: reply.say });
+      if (!node) return keypadMenu({ ...c, aiNode: undefined }, s, '');
+      return runNode({ ...c, aiNode: undefined }, s, node, 'ai', { platform: reply.route?.platform, orderId: reply.route?.orderId, preface: reply.say });
     }
   }
 }
@@ -327,7 +373,10 @@ export async function ivrWait(params: URLSearchParams, n: number): Promise<Respo
   const reply = job ? await Promise.race([job, new Promise<null>((r) => setTimeout(() => r(null), TURN_BUDGET_MS))]) : (await getIvrCall(call.id))?.pending?.reply ?? null;
   if (reply) return consume(call.id, s, reply);
   if (n < 3 && job) return twiml(`<Pause length="1"/><Redirect method="POST">${IVR_PATH}/wait?n=${n + 1}</Redirect>`);
-  return keypadMenu(call, s, '', SAY.notUnderstood[call.lang]);
+  // Too slow: the option picked runs without the AI, else the keypad menu (the AI is slow, not the caller).
+  const picked = findNode(s.tree, call.aiNode);
+  if (picked && picked.action.kind === 'ai') return runNode({ ...call, aiNode: undefined }, s, picked, 'system', { noAi: true });
+  return keypadMenu(call, s, '', SAY.menuIntro[call.lang]);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -347,9 +396,10 @@ export async function runNode(call0: IvrCall, s: IvrSettings, node: IvrNode, via
       return keypadMenu(call, s, node.id, extra.preface ?? '');
     }
     case 'ai': {
-      if (ivrAiAvailable(s) && !extra.noAi) {
-        // Keypad (or keyword) choice of a flow the AI handles: the AI takes it from there.
-        return understand({ ...call, state: 'ai' }, s, `(The caller chose "${node.label.en}" (${node.id}) ${via === 'keypad' ? 'on the keypad' : 'by voice'}. Route to ${node.id} and follow that flow.)`);
+      if (!extra.noAi && (await ivrAiAvailable(s))) {
+        // Keypad (or keyword) choice of a flow the AI handles: the AI takes it from there. If it fails, this option
+        // runs without it (aiNode), never the keyword router on this note.
+        return understand({ ...call, state: 'ai' }, s, `(The caller chose "${node.label.en}" (${node.id}) ${via === 'keypad' ? 'on the keypad' : 'by voice'}. Route to ${node.id} and follow that flow.)`, node.id);
       }
       // No AI: text the flow's link, then take a message (the voicemail becomes the ticket).
       let said = preface;
@@ -416,14 +466,11 @@ async function onOrderId(call: IvrCall, s: IvrSettings, digits: string, speech: 
 async function confirmOrderId(call: IvrCall, s: IvrSettings, preface = ''): Promise<Response> {
   const text = [preface, fill(SAY.confirmId[call.lang], { I: spellOut(call.pendingOrderId ?? '') })].filter(Boolean).join(' ');
   const saved = await saveIvrCall(note({ ...call, state: 'confirm_id' }, 'agent', text));
-  return twiml(await gatherX(sayX(text, s, saved.lang), s, saved.lang, { hints: 'oui, non, yes, no, sí, no' }));
+  return twiml(await gatherX(sayX(text, s, saved.lang), s, saved.lang, { hints: { fr: 'oui, non, ouin, exact', en: 'yes, no, yeah, correct', es: 'sí, no, correcto, dale' }[saved.lang] }));
 }
 
-const YES = /^(oui|ouais|yes|yeah|yep|si|exact|exactement|correct|c'est ca|cest ca|c'est bon|ok|okay|d'accord|claro|correcto|eso es)\b/;
-const NO = /\b(non|no|nope|recommencer|again|otra vez|de nuevo|incorrect|pas ca)\b/;
-
 async function onConfirm(call: IvrCall, s: IvrSettings, digits: string, speech: string): Promise<Response> {
-  const f = speech.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[’`]/g, "'").trim();
+  const f = fold(speech);
   if (digits === '1' || (f && YES.test(f))) return finishPlatform(call, s, call.pendingOrderId ?? '');
   if (digits === '0') return dialPerson(call, s);
   if (digits === '2' || (f && NO.test(f))) {
@@ -485,19 +532,25 @@ async function textPlatformHelp(call: IvrCall, s: IvrSettings, platform: Platfor
 async function handToOrdering(call: IvrCall, s: IvrSettings, preface: string): Promise<Response> {
   const ps = await getPhoneSettings();
   const line = ps.lines.find((l) => l.enabled && l.id === s.orderLineId) ?? ps.lines.find((l) => l.enabled && l.number === normalizePhone(call.to)) ?? ps.lines.find((l) => l.enabled);
-  if (!line || !(await featureOn('phone')) || !phoneAgentConfigured()) {
-    return dialPerson(note(call, 'system', `Ordering agent not available (${!line ? 'no AI phone line on' : !phoneAgentConfigured() ? 'no AI key' : 'AI phone ordering off'}): a person takes the order`), s, preface);
+  const aiOk = phoneAgentConfigured() && (await phoneAiUsable());
+  if (!line || !(await featureOn('phone')) || !aiOk) {
+    return dialPerson(note(call, 'system', `Ordering agent not available (${!line ? 'no AI phone line on' : !phoneAgentConfigured() ? 'no AI key' : !aiOk ? 'phone AI paused' : 'AI phone ordering off'}): a person takes the order`), s, preface);
   }
   const now = new Date().toISOString();
-  const intro = [preface, SAY.orderIntro[call.lang]].filter(Boolean).join(' ');
+  // The menu's voices stay for the rest of the call (no voice change when the ordering assistant takes over).
+  const voices = { voiceFr: s.voices.fr, voiceEn: s.voices.en, voiceEs: s.voices.es };
+  const persona = personaFor(ps.persona, s.voices.fr);
+  const intro = [preface, fill(SAY.orderIntro[call.lang], { S: selfIntro(persona, call.lang) })].filter(Boolean).join(' ');
   // Same CallSid: from here Twilio talks to the ordering agent (/webhooks/voice/turn); the order shows in Calls (AI).
+  // A simulated or test call stays one: its order is never sent to Clover or the kitchen.
   const pc: PhoneCall = {
     id: call.id, lineId: line.id, lineName: line.name, locationCode: isMultiKitchen(line) ? '' : line.locationCode, brands: line.brands,
     from: call.from, to: call.to, lang: call.lang, status: 'active', startedAt: now, turns: 0, transcript: [], messages: [], cart: [], customer: {}, updatedAt: now,
+    voices, ...(call.simulated || call.testCall ? { simulated: true } : {}),
   };
   if (!(await getCall(call.id))) await saveCall(sayPhone(pc, 'agent', intro));
   await saveIvrCall(note({ ...call, state: 'order', outcome: 'order_agent' }, 'system', `Handed to the ordering assistant (${line.name})`));
-  return twiml(gatherXml(intro, ps, call.lang, `${VOICE_PATH}/turn`, ['English', 'anglais', 'español', ...line.brands].join(', ')));
+  return twiml(gatherXml(intro, { ...ps, ...voices }, call.lang, `${VOICE_PATH}/turn`, lineHints(line, call.lang)));
 }
 
 // ---- a person, voicemail
@@ -533,7 +586,7 @@ export async function ivrDialDone(params: URLSearchParams, query: URLSearchParam
 
 async function startVoicemail(call: IvrCall, s: IvrSettings, reason: string, preface = ''): Promise<Response> {
   const lang = call.lang;
-  const saved = await saveIvrCall(note({ ...call, state: 'voicemail', outcome: call.outcome === 'handoff_missed' ? 'handoff_missed' : 'voicemail', voicemail: { ...(call.voicemail ?? {}), reason } }, 'agent', [preface, SAY.voicemail[lang]].filter(Boolean).join(' ')));
+  const saved = await saveIvrCall(note({ ...call, state: 'voicemail', aiNode: undefined, outcome: call.outcome === 'handoff_missed' ? 'handoff_missed' : 'voicemail', voicemail: { ...(call.voicemail ?? {}), reason } }, 'agent', [preface, SAY.voicemail[lang]].filter(Boolean).join(' ')));
   const transcribe = s.transcribeVoicemail
     ? `<Start><Transcription name="vm-${xml(saved.id)}" languageCode="${LANG_CODE[lang]}" track="inbound_track" transcriptionEngine="google" speechModel="telephony" partialResults="false" statusCallbackUrl="${xml(abs(`${IVR_PATH}/transcript`))}" statusCallbackMethod="POST"/></Start>`
     : '';
@@ -558,8 +611,14 @@ export async function ivrVoicemailDone(params: URLSearchParams): Promise<Respons
   const s = await getIvrSettings();
   const call = await getIvrCall(params.get('CallSid') || '');
   if (!call) return twiml('<Hangup/>');
-  const vm = { ...(call.voicemail ?? {}), recordingSid: params.get('RecordingSid') || call.voicemail?.recordingSid, recordingUrl: params.get('RecordingUrl') || call.voicemail?.recordingUrl, durationSec: Number(params.get('RecordingDuration')) || call.voicemail?.durationSec };
-  let next: IvrCall = { ...call, voicemail: vm, outcome: call.outcome === 'handoff_missed' ? 'handoff_missed' : 'voicemail' };
+  const rec = {
+    ...(params.get('RecordingSid') ? { recordingSid: params.get('RecordingSid')! } : {}),
+    ...(params.get('RecordingUrl') ? { recordingUrl: params.get('RecordingUrl')! } : {}),
+    ...(Number(params.get('RecordingDuration')) ? { durationSec: Number(params.get('RecordingDuration')) } : {}),
+  };
+  const vm = { ...(call.voicemail ?? {}), ...rec };
+  let ticket: Partial<{ ticketId: string }> = {};
+  let tickets = call.tickets;
   if (!vm.ticketId) {
     const reasonNode = findNode(s.tree, vm.reason);
     const t = await openTicket({
@@ -567,20 +626,26 @@ export async function ivrVoicemailDone(params: URLSearchParams): Promise<Respons
       summary: `Voicemail (${reasonNode ? reasonNode.label.en : vm.reason ?? 'message'}), ${vm.durationSec ?? '?'} s${call.platform ? `, ${PLATFORM_NAME[call.platform]}` : ''}`,
       ...(call.orderIds.length ? { orderRef: call.orderIds.at(-1) } : {}), ...(vm.recordingUrl ? { recordingUrl: vm.recordingUrl } : {}),
     });
-    next = { ...next, tickets: [...next.tickets, t.id], voicemail: { ...vm, ticketId: t.id } };
+    ticket = { ticketId: t.id };
+    tickets = [...call.tickets, t.id];
   }
-  next = await saveIvrCall(note(next, 'system', `Voicemail recorded (${vm.durationSec ?? '?'} s)`));
+  // Merged into the record as it is NOW (the transcript callback may have written meanwhile).
+  const cur = (await getIvrCall(call.id)) ?? call;
+  const next = await saveIvrCall(note({ ...cur, tickets, outcome: cur.outcome === 'handoff_missed' ? 'handoff_missed' : 'voicemail', voicemail: { ...(cur.voicemail ?? {}), ...rec, ...ticket } }, 'system', `Voicemail recorded (${vm.durationSec ?? '?'} s)`));
   if (!s.transcribeVoicemail) await emailVoicemail(next.id);
   const stop = s.transcribeVoicemail ? `<Stop><Transcription name="vm-${xml(call.id)}"/></Stop>` : '';
-  return twiml(`${stop}${sayX(SAY.messageSaved[call.lang], s, call.lang)}<Hangup/>`);
+  return twiml(`${stop}${sayX(`${SAY.messageSaved[call.lang]} ${goodDay(call.lang)}`, s, call.lang)}<Hangup/>`);
 }
 
 /** recordingStatusCallback: the recording file is ready. */
 export async function ivrRecording(params: URLSearchParams): Promise<void> {
   const call = await getIvrCall(params.get('CallSid') || '');
   if (!call || params.get('RecordingStatus') !== 'completed') return;
-  const url = params.get('RecordingUrl') || '';
-  await saveIvrCall({ ...call, voicemail: { ...(call.voicemail ?? {}), recordingSid: params.get('RecordingSid') || call.voicemail?.recordingSid, recordingUrl: url || call.voicemail?.recordingUrl, durationSec: Number(params.get('RecordingDuration')) || call.voicemail?.durationSec } });
+  await mergeIvrVoicemail(call.id, {
+    ...(params.get('RecordingSid') ? { recordingSid: params.get('RecordingSid')! } : {}),
+    ...(params.get('RecordingUrl') ? { recordingUrl: params.get('RecordingUrl')! } : {}),
+    ...(Number(params.get('RecordingDuration')) ? { durationSec: Number(params.get('RecordingDuration')) } : {}),
+  });
 }
 
 /** <Transcription> statusCallbackUrl: final sentences of the caller's message, then "stopped". */
@@ -593,28 +658,39 @@ export async function ivrTranscript(params: URLSearchParams): Promise<void> {
     try { text = String(JSON.parse(params.get('TranscriptionData') || '{}')?.transcript ?? ''); } catch { text = ''; }
     text = redactCards(text).trim();
     if (!text) return;
-    const before = call.voicemail?.transcript ?? '';
-    await saveIvrCall({ ...call, voicemail: { ...(call.voicemail ?? {}), transcript: `${before}${before ? ' ' : ''}${text}`.slice(0, 4000) } });
+    const cur = (await getIvrCall(call.id)) ?? call;
+    const before = cur.voicemail?.transcript ?? '';
+    await mergeIvrVoicemail(call.id, { transcript: `${before}${before ? ' ' : ''}${text}`.slice(0, 4000) });
     return;
   }
   if (event === 'transcription-stopped' || event === 'transcription-error') {
-    await saveIvrCall({ ...call, voicemail: { ...(call.voicemail ?? {}), transcriptDone: true } });
-    if (call.voicemail?.recordingUrl || call.voicemail?.ticketId) await emailVoicemail(call.id);
+    const next = await mergeIvrVoicemail(call.id, { transcriptDone: true });
+    if (next?.voicemail?.recordingUrl || next?.voicemail?.ticketId) await emailVoicemail(call.id);
   }
 }
 
-/** Emails a voicemail once (recording link in the console + transcript) and copies the transcript into its ticket. */
-export async function emailVoicemail(callId: string): Promise<boolean> {
+const EMAIL_CLAIM_MS = 2 * 60_000;
+const EMAIL_MAX_TRIES = 5;
+
+/**
+ * Emails a voicemail once (recording link in the console + transcript) and copies the transcript into its ticket.
+ * `emailedAt` is written ONLY after the email really went out: a failure (provider down, no provider, no address) is
+ * retried by the background tick (tickIvr), and with no way to email the team chat gets it once instead.
+ */
+export async function emailVoicemail(callId: string, now = Date.now()): Promise<boolean> {
   const call = await getIvrCall(callId);
   const vm = call?.voicemail;
   if (!call || !vm || vm.emailedAt || (!vm.recordingUrl && !vm.ticketId)) return false;
+  // Two callbacks arriving together send one email: a short claim, re-read before sending.
+  if (vm.emailClaimAt && now - Date.parse(vm.emailClaimAt) < EMAIL_CLAIM_MS) return false;
+  const claim = new Date(now).toISOString();
+  const claimed = await mergeIvrVoicemail(callId, { emailClaimAt: claim });
+  if (claimed?.voicemail?.emailClaimAt !== claim) return false;
   const s = await getIvrSettings();
   const to = voicemailEmailTarget(s);
-  await saveIvrCall({ ...call, voicemail: { ...vm, emailedAt: new Date().toISOString() } });
   if (vm.ticketId) {
     await updateTicket(vm.ticketId, { ...(vm.transcript ? { transcript: vm.transcript } : {}), ...(vm.recordingUrl ? { recordingUrl: vm.recordingUrl } : {}) }).catch(() => null);
   }
-  if (!to) return false;
   const reason = findNode(s.tree, vm.reason)?.label.fr ?? vm.reason ?? 'message';
   const link = `${publicBaseUrl()}/direct/ivr?id=${encodeURIComponent(call.id)}`;
   const text = [
@@ -630,8 +706,20 @@ export async function emailVoicemail(callId: string): Promise<boolean> {
     ``,
     `Écouter et rappeler / Listen and call back: ${link}`,
   ].join('\n');
-  const r = await sendEmail({ to, subject: `ON2GO — message vocal de ${call.from}`, text }, { purpose: 'ivr_voicemail' });
-  return r.ok;
+  const r = to ? await sendEmail({ to, subject: `ON2GO — message vocal de ${call.from}`, text }, { purpose: 'ivr_voicemail' }) : { ok: false, skipped: true, message: 'No voicemail email address (Settings → Menu téléphonique, or FOODHUB_VOICEMAIL_EMAIL).' };
+  if (r.ok) {
+    await mergeIvrVoicemail(callId, { emailedAt: new Date().toISOString(), emailClaimAt: undefined, emailError: undefined });
+    return true;
+  }
+  const tries = (vm.emailTries ?? 0) + 1;
+  // No way to email (no provider or no address), or the last try: the team chat gets it once, so it is never lost.
+  let chatAt = vm.chatAt;
+  if (!chatAt && (r.skipped || tries >= EMAIL_MAX_TRIES)) {
+    const c = await postToChat({ title: `☎️ ON2GO voicemail from ${call.from}`, text: `${reason} — ${vm.durationSec ?? '?'} s. ${vm.transcript ? `« ${vm.transcript.slice(0, 300)} »` : ''} Not emailed: ${r.message}`, link, severity: 'warning' }, { purpose: 'ivr_voicemail_chat' }).catch(() => null);
+    if (c?.ok) chatAt = new Date().toISOString();
+  }
+  await mergeIvrVoicemail(callId, { emailTries: tries, emailError: r.message.slice(0, 200), emailClaimAt: undefined, ...(chatAt ? { chatAt } : {}) });
+  return false;
 }
 
 /** Twilio "Call status changes" for the ON2GO line: closes the menu record and the ordering record (same CallSid). */
@@ -648,15 +736,17 @@ export async function ivrStatus(params: URLSearchParams): Promise<void> {
   if (call?.voicemail && !s.transcribeVoicemail) await emailVoicemail(id);
 }
 
-/** Background safety net (expansion tick): close calls that lost their final callback, send voicemails still unsent. */
+/** Background safety net (expansion tick): close calls that lost their final callback, send voicemails still unsent (retried). */
 export async function tickIvr(now = Date.now()): Promise<{ closed: number; emailed: number }> {
   const calls = await listIvrCalls({ since: new Date(now - 2 * 86400_000).toISOString(), limit: 500 });
   let closed = 0;
   let emailed = 0;
   for (const c of calls) {
     if (c.status === 'active' && now - Date.parse(c.updatedAt || c.startedAt) > 30 * 60_000) { await endIvrCall(c.id); closed++; }
-    if (c.voicemail && !c.voicemail.emailedAt && (c.voicemail.recordingUrl || c.voicemail.ticketId) && now - Date.parse(c.updatedAt) > 90_000) { if (await emailVoicemail(c.id)) emailed++; }
+    const vm = c.voicemail;
+    if (vm && !vm.emailedAt && (vm.recordingUrl || vm.ticketId) && (vm.emailTries ?? 0) < EMAIL_MAX_TRIES && now - Date.parse(c.updatedAt) > 90_000) {
+      if (await emailVoicemail(c.id, now)) emailed++;
+    }
   }
   return { closed, emailed };
 }
-

@@ -6,6 +6,7 @@ import { runOrderRecovery } from '@/lib/foodhub/recovery';
 import { runWatch } from '@/lib/foodhub/watch/engine';
 import { tickExpansion } from '@/lib/foodhub/expansion/tick';
 import { tickCloverWebsiteOrders } from '@/lib/foodhub/pos/clover-website-orders';
+import { tickTgtgEmail } from '@/lib/foodhub/tgtg-email/imap';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -27,5 +28,7 @@ export const GET = guard(async (req: NextRequest) => {
   const expansion = await tickExpansion();
   // Website orders taken by Clover Online Ordering → kitchen screen (Clover stays the source of truth).
   const websiteOrders = await tickCloverWebsiteOrders();
-  return ok({ report, reopened: reopened.length, recovery, expansion, websiteOrders });
+  // Too Good To Go order e-mails (IMAP mailbox) → kitchen + Clover. Only when a mailbox is configured and switched on.
+  const tgtgEmails = await tickTgtgEmail();
+  return ok({ report, reopened: reopened.length, recovery, expansion, websiteOrders, tgtgEmails });
 });

@@ -10,6 +10,42 @@
 - Review fixes: a follower with a dish list that stops sharing gets a copy of ITS dishes only (never the whole master menu; no copy at all when its list matches nothing); the "moved to another menu" timer copy keeps only its dishes' timers. A staff 86 reads the dish lists before saving any state. DoorDash Menu Request for a follower whose list matches nothing answers 409 with the reason and logs `menu_pull_refused`. Dish refs longer than 120 characters are refused by the API and dropped when read.
 - Checks: typecheck OK, lint 0 errors, 841 tests passed, 1 skipped (+30 in tests/menu-safety-brand-menus.test.ts), webpack build OK, verify:foodhub 554/0. Not deployed.
 - Owner after merge: nothing required for Clover 86s (stores without a merchant still follow `CLOVER_MERCHANT_ID`); set a merchant under Stores → Mapping only for a store that uses another Clover register. Menu → Shared menu: pick each brand's dishes, then publish those brands.
+## 2026-10-16 — AI phone go-live (task 34, branch `feature/ai-phone-quebec-paylink`)
+
+- Finished the paused WIP (f1402bf) and verified it. Voices and words: Québec French by default (understands France French), North-American English, Latin-American Spanish (Mexican / Cuban words), professional and short. Audit fixes: the keypad menu takes over when the AI fails (never a loop, never "je n'ai pas compris"); the order number, time and payment are always said, even with end_call in the same answer; each kitchen's real hours go to both assistants and hours never set refuse the order (a person takes it); AI authentication / credit failures pause the AI (keypad mode, one team-chat alert); texted links are pages that answer; a voicemail is marked emailed only once sent; FOODHUB_PUBLIC_URL trimmed and Twilio URL errors caught.
+- Payment link by text (Clover Hosted Checkout, only when CLOVER_ECOMM_PRIVATE_KEY is set): the order is held, released exactly once when paid (pickup: kitchen ticket; delivery: courier), one reminder, expiry with a courtesy text, late or double payments flagged for a refund by a person.
+- Duo (+2,50 $) / Trio (+5,42 $) / Combo (+7,58 $) read from the item's Clover modifier groups: offered once per call, at most one per item, the drink always asked (add_upsell); the Clover modifier id travels on the order line and goes to Clover as a real modification. Ticket printed on the kitchen's printer (CLOVER_PRINT_DEVICES "MID|LOCATION"). FOODHUB_CLOVER_NO_REGISTER keeps orders of a kitchen without a register out of Clover. Po Poulet only at Saint-Léonard (Hochelaga allowance removed).
+- Console: Settings → Expansion → AI phone gets « Prêt pour les appels de test ? » (read-only checks) and a call simulator (real handlers, dry run: nothing sent). Without the new env vars, ordering works as before (pay at the counter).
+- Review fixes (13 findings): a language word inside an order ("French fries", "Spanish rice", "frites à l'anglaise") never switches the language, and keys 2 / 3 switch it only on the greeting; in keypad mode a sentence starting with "no" is routed, only "non merci" / "that's all" alone ends the call; a delivery paid while the kitchen is closed (or for the wrong amount) gets no automatic courier and booking a courier keeps that flag; the courier tip is an untaxed line on Clover's page and the texted total is what Clover charges; merchants without GST / QST rates get no link, and a failed link lets the caller pay at the counter; only credit / billing / model 400s pause the AI, simulator and test calls never touch the breaker; the poller matches our whole mark and never releases a short payment; simulator owner-only with the fictional 555 caller; /p/ rate limit on the proxy's client IP, pruned, and a 10 s check cooldown; stored voices kept when well-formed.
+- Deploy notes (behaviour that changes with no new env var): AI phone orders are refused when a brand's hours were never set (check Settings → Hours for every phone brand before merging, the readiness panel flags it); tickExpansion runs tickIvr even with every expansion switch off; on2go.ca placeholders resolve to https://on2go.ca; the IVR menu and yes/no steps use googlev2_telephony_short; Po Poulet lines outside Saint-Léonard are stripped / disabled; the payment-link release is "exactly once" with ONE Food Hub process (one Coolify container) — add an atomic claim before scaling out.
+- Checks: typecheck OK, lint 0 errors, 849 tests (1 skipped), webpack build OK, verify:foodhub 541/0. Ready for owner review/merge.
+## 2026-10-16 — Too Good To Go order e-mails (task 36)
+
+- Branch `feature/tgtg-email-orders`: TGTG reservation / cancellation e-mails → Food Hub order on the same pipeline (kitchen screen, Clover order type "Too Good To Go", ticket with customer, bags, pickup window and TGTG code, paid with the "Too Good To Go" tender at pickup). Cancel = order cancelled, Clover order flagged "CANCELLED" (never deleted). Idempotent by Message-ID + TGTG code; unreadable e-mails go to an attention list.
+- Sources: read-only IMAP poller (`imapflow`, `mailparser`) on the existing heartbeat, and a token-protected webhook for forwarding services. Feature off unless `TGTG_IMAP_*` or `TGTG_EMAIL_WEBHOOK_SECRET` is set. Owner steps: `docs/TGTG_EMAIL_ORDERS.md`.
+- Review fixes (same day): a code needs a digit and a marker ("Order confirmation" is never a code); only From counts and the mailbox server must show dkim=pass / dmarc=pass; the "Too Good To Go" order type is forced only for e-mail orders; unmapped stores are never sent to Clover (unmap stops routing); one bad e-mail is kept as "error" and never blocks the poller; price paid by priority; cancel flag honours FOODHUB_CLOVER_DELETE_CANCELLED=off and keeps the note; webhook ?token= is opt-in and the 5 MB cap is enforced while reading. Checks: typecheck, lint 0 errors, 846 tests, webpack build, e2e 554/0.
+## 2026-10-16 — DoorDash sandbox-safe mode (task 38, `feature/doordash-sandbox-safe-mode`, PR #56)
+
+- DoorDash opened Marketplace for the org in SANDBOX only. New sandbox-safe mode lets the sandbox webhooks reach production
+  Food Hub with no effect on real operations: sandbox traffic (DOORDASH_ENV=sandbox, a `_sandbox` provider type,
+  DOORDASH_SANDBOX_STORE_IDS, a `_sandbox` provider_type in the payload, or an event about a held test order) becomes a
+  TEST order in Settings → Plateformes et Clover → Essais DoorDash (bac à sable): never in the orders table, so never
+  Clover, print, kitchen ring, Watchtower, SMS/calls, money or reports.
+- The DoorDash side runs with the same calls as a real order (confirm with prep_time, reject with DoorDash failure codes,
+  ready, merchant cancel, DoorDash cancel / Dasher / release / adjustment, menu pull, menu push, 86, pause), aimed only at
+  the test store (a virtual store, never in the Stores table). With sandbox keys, real stores are refused for every
+  DoorDash call and their status is not read (no false "deactivated" alert). Po Poulet NDG can never be a test store.
+- Webhook auth (DOORDASH_WEBHOOK_SECRET in Authorization) unchanged and checked first. Without the new settings, behaviour
+  is unchanged. Owner steps: docs/DOORDASH_SANDBOX.md. Tests: tests/doordash-sandbox.test.ts.
+- Review fixes (same PR): the sandbox decision is taken when the webhook arrives and saved on its inbox entry, so a retry,
+  the recovery runner or a Replay after DOORDASH_ENV changed never sends a test order to the kitchen; every test order id
+  is kept in a permanent set (never emptied by the 50-order cap or Clear); a sandbox entry is never cut off by the
+  3-minute answer window (no failed entry, activity line or Watchtower incident). New DOORDASH_SANDBOX_WEBHOOK_SECRET:
+  the Sandbox subscriptions' own Authorization value, every request with it is a test whatever DOORDASH_ENV says. Item
+  polling and cart validation answer the test store and refuse real stores under sandbox (409). A store mapped in Food
+  Hub is never a test store (even if listed; the screen warns). The Reporting API is refused with the sandbox key unless
+  DOORDASH_REPORTS_* is set. A `_sandbox` DOORDASH_PROVIDER_TYPE alone no longer turns the mode on (warning only).
+  Docs step 6: delete the Sandbox subscriptions first, keep DOORDASH_SANDBOX_STORE_IDS and the sandbox secret.
 
 ## 2026-10-15 — Owner-authorized automatic production activation
 

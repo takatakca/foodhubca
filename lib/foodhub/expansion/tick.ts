@@ -1,7 +1,9 @@
 // Background work for the expansion features, run right AFTER each Watchtower run (live pulse while a screen is open,
 // the server timer, or the 1-minute cron) — never inside it — and throttled here to at most every 15 s:
 //   - own delivery: auto-dispatch couriers that are due; read new Clover "Delivery" orders every 2 minutes
-//   - phone: close calls that never sent a "completed" status (lost callbacks); ON2GO menu voicemails still to email
+//   - phone: close calls that never sent a "completed" status (lost callbacks)
+//   - ON2GO menu (on by default, whatever the switches): calls that lost their callback, voicemails still to email (retried)
+//   - payment links (only with a Clover ecommerce key): ask Clover about held orders, one reminder, expiry
 // Every part is skipped while its feature switch is off. Never throws.
 import { getRepo } from '../repo';
 import { getFeatures } from './features';
@@ -9,15 +11,25 @@ import { getFeatures } from './features';
 const LAST = 'expansion_tick_last';
 const CLOVER_LAST = 'expansion_clover_delivery_last';
 
-export async function tickExpansion(now = Date.now()): Promise<{ ran: boolean; booked?: number; cloverImported?: number; callsClosed?: number }> {
+type TickOut = { ran: boolean; booked?: number; cloverImported?: number; callsClosed?: number; voicemailsEmailed?: number; paylinks?: { checked: number; released: number; cancelled: number; reminded: number } };
+
+export async function tickExpansion(now = Date.now()): Promise<TickOut> {
   const repo = getRepo();
   try {
     const features = await getFeatures();
-    if (!features.delivery.on && !features.phone.on) return { ran: false };
+    const [{ getIvrSettings }, { ecommConfigured }] = await Promise.all([import('../phone/ivr/config'), import('../pos/clover-checkout')]);
+    const ivrOn = (await getIvrSettings()).enabled;
+    const paylinks = ecommConfigured();
+    if (!features.delivery.on && !features.phone.on && !ivrOn && !paylinks) return { ran: false };
     const last = await repo.getKv<number>(LAST).catch(() => null);
     if (last && now - last < 15_000) return { ran: false };
     await repo.setKv(LAST, now);
-    const out: { ran: boolean; booked?: number; cloverImported?: number; callsClosed?: number } = { ran: true };
+    const out: TickOut = { ran: true };
+    if (paylinks) {
+      // Before dispatch: a payment found here releases the order, and tickDispatch then books its courier.
+      const { tickPaylinks } = await import('../delivery/paylink');
+      out.paylinks = await tickPaylinks(now);
+    }
     if (features.delivery.on) {
       const lastClover = (await repo.getKv<number>(CLOVER_LAST).catch(() => null)) ?? 0;
       if (now - lastClover >= 2 * 60_000) {
@@ -33,9 +45,14 @@ export async function tickExpansion(now = Date.now()): Promise<{ ran: boolean; b
     if (features.phone.on) {
       const { closeStaleCalls } = await import('../phone/calls');
       out.callsClosed = await closeStaleCalls(now);
-      // ON2GO phone menu: calls that lost their last callback, voicemails not emailed yet.
+    }
+    if (ivrOn) {
+      // ON2GO phone menu: calls that lost their last callback, voicemails not emailed yet (the menu is on by default,
+      // so this runs even with every expansion switch off).
       const { tickIvr } = await import('../phone/ivr/engine');
-      out.callsClosed += (await tickIvr(now)).closed;
+      const r = await tickIvr(now);
+      out.callsClosed = (out.callsClosed ?? 0) + r.closed;
+      out.voicemailsEmailed = r.emailed;
     }
     return out;
   } catch (e) {

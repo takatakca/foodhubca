@@ -3,6 +3,8 @@ const nextConfig = {
   experimental: {
     serverActions: { bodySizeLimit: '10mb' },
   },
+  // Mail readers for Too Good To Go order e-mails (lib/foodhub/tgtg-email): loaded from node_modules at run time.
+  serverExternalPackages: ['imapflow', 'mailparser'],
   // Old bookmarks from RC2–RC9 keep working.
   async redirects() {
     const map = [

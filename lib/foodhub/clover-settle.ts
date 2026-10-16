@@ -9,6 +9,7 @@ import { logActivity } from './activity';
 import { CHANNEL_LABELS, nowIso } from './config';
 import { closeCancelledCloverOrder, recordCloverPayment } from './pos/clover-books';
 import { getRepo } from './repo';
+import { isTgtgEmailOrder } from './tgtg-email/ids';
 import type { OrderTimeline, StoredOrder } from './types';
 
 async function patch(order: StoredOrder, t: OrderTimeline): Promise<StoredOrder> {
@@ -42,7 +43,7 @@ export async function settleInClover(order: StoredOrder | null): Promise<StoredO
         return patch(order, { posClosedAt: nowIso() });
       }
       const store = await repo.findStore(order.channel, order.channelStoreId);
-      const r = await closeCancelledCloverOrder(order, store?.cloverMerchantId);
+      const r = await closeCancelledCloverOrder(order, store?.cloverMerchantId, { flagOnly: isTgtgEmailOrder(order) });
       if (r.skipped) return order;
       await repo.addEvent(order.id, r.ok ? 'pos_cancelled' : 'pos_cancel_failed', { message: order.status === 'failed' ? `${r.message} (order handed to the Skip tablet)` : r.message });
       if (!r.ok) {

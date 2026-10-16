@@ -67,13 +67,14 @@ export async function expansionSummary(scope?: string[]) {
   };
 
   const courierCost = round2(todayDeliveries.filter((d) => d.status !== 'cancelled').reduce((s, d) => s + (d.fee ?? 0), 0));
-  const feesCharged = round2(myOrders.filter((o) => o.fulfillment === 'delivery' && o.status !== 'cancelled').reduce((s, o) => s + o.deliveryFee, 0));
+  const feesCharged = round2(myOrders.filter((o) => o.fulfillment === 'delivery' && o.status !== 'cancelled' && o.status !== 'awaiting_payment').reduce((s, o) => s + o.deliveryFee, 0));
   return {
     features: FEATURE_KEYS.map((k) => ({ ...features[k], label: FEATURE_LABELS[k], checks: checks[k] })),
     today: {
-      orders: myOrders.filter((o) => o.status !== 'cancelled').length,
-      sales: round2(myOrders.filter((o) => o.status !== 'cancelled').reduce((s, o) => s + o.total, 0)),
-      byPhone: myOrders.filter((o) => o.source === 'phone_ai' && o.status !== 'cancelled').length,
+      // An order still waiting for its payment link is not a sale yet.
+      orders: myOrders.filter((o) => o.status !== 'cancelled' && o.status !== 'awaiting_payment').length,
+      sales: round2(myOrders.filter((o) => o.status !== 'cancelled' && o.status !== 'awaiting_payment').reduce((s, o) => s + o.total, 0)),
+      byPhone: myOrders.filter((o) => o.source === 'phone_ai' && o.status !== 'cancelled' && o.status !== 'awaiting_payment').length,
       attention: myOrders.filter((o) => o.attention && o.status !== 'cancelled' && o.status !== 'completed').length,
       deliveriesActive: deliveries.filter((d) => orderIds.has(d.orderId) && ACTIVE.includes(d.status)).length,
       delivered: todayDeliveries.filter((d) => d.status === 'delivered').length,

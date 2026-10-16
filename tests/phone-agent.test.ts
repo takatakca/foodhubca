@@ -13,6 +13,7 @@ import { twilioSignature, verifyTwilio } from '../lib/foodhub/phone/twilio';
 import { callerTurn, simulateTurn, startCall } from '../lib/foodhub/phone/voice';
 import { getRepo } from '../lib/foodhub/repo';
 import type { MasterMenu } from '../lib/foodhub/types';
+import { openAllDay } from './helpers/phone-harness';
 
 const actor = { username: 'owner', name: 'Owner', source: 'dashboard' as const };
 const realFetch = globalThis.fetch;
@@ -73,6 +74,7 @@ beforeEach(async () => {
   await getRepo().saveMenu(MENU);
   await savePhoneSettings({ lines: [LINE as any] }, actor);
   await setFeature('phone', true, actor);
+  await openAllDay(['NDG']);
 });
 afterEach(() => { globalThis.fetch = realFetch; });
 
@@ -107,7 +109,9 @@ describe('Twilio', () => {
     expect(xml).toContain('<Gather input="speech dtmf"');
     expect(xml).toContain('language="fr-CA"');
     expect(xml).toContain('speechModel="googlev2_telephony" speechTimeout="2"');
-    expect(xml).toContain('For English, press 2');
+    // One sentence per voice: the French voice never reads English, and Spanish is offered too.
+    expect(xml).toMatch(/<Say voice="Polly.Gabrielle-Neural" language="fr-CA">Bonjour, merci d’avoir appelé Pi Pita NDG\. Je suis l’assistante virtuelle et je prends votre commande\. Qu’est-ce que je peux vous préparer \?<\/Say>/);
+    expect(xml).toMatch(/<Say voice="Polly.Joanna-Neural" language="en-US">For English, press 2\.<\/Say><Say voice="Polly.Lupe-Neural" language="es-US">Para español, marque el 3\.<\/Say>/);
     const en = await (await callerTurn(await form(signed('/api/foodhub/webhooks/voice/turn', { CallSid: 'CA1', Digits: '2' })))).text();
     expect(en).toContain('language="en-US"');
     expect(claudeRequests).toHaveLength(0);
@@ -150,12 +154,16 @@ describe('the agent', () => {
     expect(JSON.stringify(claudeRequests.at(-1)!.body.messages.at(-1))).toContain('TOTAL 28.73 $');
 
     claude = [
-      claudeResponse([toolUse('place_order', { caller_confirmed: true })], 'tool_use'),
-      claudeResponse([text('C’est noté, commande IA-1001. Au revoir !'), toolUse('end_call', { reason: 'order placed' }, 'tu_end')], 'tool_use'),
+      claudeResponse([toolUse('place_order', { caller_confirmed: true, payment: 'counter' })], 'tool_use'),
+      claudeResponse([text('Merci d’avoir commandé chez Pi Pita !'), toolUse('end_call', { reason: 'order placed' }, 'tu_end')], 'tool_use'),
       claudeResponse([text('Bonne journée !')]),
     ];
     const t3 = await (await callerTurn(await form(signed('/api/foodhub/webhooks/voice/turn', { CallSid: 'CA1', SpeechResult: 'Oui' })))).text();
     expect(t3).toContain('<Hangup/>');
+    // The order number, the ready time and the payment are said by Food Hub itself (digits only, no "IA-"), then the
+    // model's words of every step, in order.
+    expect(t3).toMatch(/Votre commande numéro 1001 est confirmée, prête vers \d{1,2} h( \d{2})?, payable au comptoir\. Merci d’avoir commandé chez Pi Pita ! Bonne journée !<\/Say><Hangup\/>/);
+    expect(t3).not.toContain('IA-1001');
     const orders = await listDirectOrders();
     expect(orders).toHaveLength(1);
     expect(orders[0]).toMatchObject({ source: 'phone_ai', sourceRef: 'CA1', fulfillment: 'pickup', payment: 'pay_at_pickup', total: 28.73, customer: { name: 'Ana', phone: '+15145551234', lang: 'fr' } });
@@ -180,19 +188,21 @@ describe('the agent', () => {
     expect((await getCall('CA2'))!).toMatchObject({ status: 'handoff', handoffReason: 'wants a refund for yesterday' });
   });
 
-  it('has no tool that can refund, cancel, discount or take a payment', () => {
-    expect(TOOLS.map((t) => t.name).sort()).toEqual(['add_item', 'choose_kitchen', 'end_call', 'place_order', 'remove_item', 'set_language', 'set_order_details', 'transfer_to_human', 'view_cart']);
+  it('has no tool that can refund, cancel, discount or take a payment (the link is only checked or texted again)', () => {
+    expect(TOOLS.map((t) => t.name).sort()).toEqual(['add_item', 'check_payment', 'choose_kitchen', 'end_call', 'place_order', 'remove_item', 'resend_payment_link', 'set_language', 'set_order_details', 'transfer_to_human', 'view_cart']);
+    // No tool takes card details: no input field for a card, a CVV or an amount.
+    expect(JSON.stringify(TOOLS.map((t) => t.input_schema))).not.toMatch(/card|cvv|amount|refund|discount/i);
   });
 
   it('the console simulator never sends an order anywhere', async () => {
     const first = await simulateTurn((await getPhoneSettings()).lines[0].id, null, '');
     expect(first.reply.say).toMatch(/^Bonjour/);
     claude = [
-      claudeResponse([toolUse('add_item', { brand: 'Pi Pita', item_ref: 'i1', quantity: 1, option_refs: ['m1'], notes: '' }), toolUse('set_order_details', { customer_name: 'Test', fulfillment: 'pickup', address: '', address_details: '', callback_phone: '5145551111', wanted_time: '' }, 'tu_d'), toolUse('place_order', { caller_confirmed: true }, 'tu_p')], 'tool_use'),
+      claudeResponse([toolUse('add_item', { brand: 'Pi Pita', item_ref: 'i1', quantity: 1, option_refs: ['m1'], notes: '' }), toolUse('set_order_details', { customer_name: 'Test', fulfillment: 'pickup', address: '', address_details: '', callback_phone: '5145551111', wanted_time: '' }, 'tu_d'), toolUse('place_order', { caller_confirmed: true, payment: 'counter' }, 'tu_p')], 'tool_use'),
       claudeResponse([text('Commande test confirmée.')]),
     ];
     const r = await simulateTurn(first.call.lineId, first.call.id, 'Un poulet doux pour Test, je confirme');
-    expect(r.reply.say).toBe('Commande test confirmée.');
+    expect(r.reply.say).toMatch(/^Votre commande numéro TEST est confirmée.*payable au comptoir\. Commande test confirmée\.$/);
     expect(JSON.stringify(claudeRequests.at(-1)!.body.messages.at(-1))).toContain('SIMULATION');
     expect(await listDirectOrders()).toHaveLength(0);
     expect(sms).toHaveLength(0);

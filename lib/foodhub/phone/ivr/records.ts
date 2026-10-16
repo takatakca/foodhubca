@@ -22,6 +22,20 @@ export interface IvrReply {
   /** listen = ask the caller again (AI); route = go to a branch; menu = the keypad menu takes over; hangup = goodbye. */
   next: 'listen' | 'route' | 'menu' | 'hangup';
   route?: { node: string; platform?: PlatformId; orderId?: string };
+  /** The AI failed (error, refusal, breaker open) — not a caller misunderstanding: never "je n'ai pas compris". */
+  failed?: boolean;
+}
+
+export interface IvrVoicemail {
+  recordingSid?: string; recordingUrl?: string; durationSec?: number; transcript?: string; transcriptDone?: boolean; ticketId?: string; reason?: string;
+  /** Set only once the email was really sent. */
+  emailedAt?: string;
+  /** Short lock while one request sends the email (two callbacks arriving together send it once). */
+  emailClaimAt?: string;
+  emailTries?: number;
+  emailError?: string;
+  /** No email possible (no provider or no address): the team chat got it instead. */
+  chatAt?: string;
 }
 
 export interface IvrCall {
@@ -57,7 +71,13 @@ export interface IvrCall {
   refs: string[];
   tickets: string[];
   sms: Array<{ at: string; kind: string; ok: boolean }>;
-  voicemail?: { recordingSid?: string; recordingUrl?: string; durationSec?: number; transcript?: string; transcriptDone?: boolean; emailedAt?: string; ticketId?: string; reason?: string };
+  voicemail?: IvrVoicemail;
+  /** The menu option (an AI flow) the caller picked on the keypad while its AI turn runs: if the AI fails, that option runs without it. */
+  aiNode?: string;
+  /** Console call simulator: nothing is sent (texts, emails, chat, orders), and the call is not listed with real calls. */
+  simulated?: boolean;
+  /** A call from a number in FOODHUB_PHONE_TEST_CALLERS: real call, but an order placed is a test (no Clover, no kitchen ticket). */
+  testCall?: boolean;
   outcome?: IvrOutcome;
   /** Known from an own order looked up during the call. */
   brand?: string;
@@ -122,6 +142,16 @@ export async function saveIvrCall(call: IvrCall): Promise<IvrCall> {
 export async function getIvrCall(id: string): Promise<IvrCall | null> {
   if (!id) return null;
   return (await getRepo().getDoc<IvrCall>(IVR_CALLS, id))?.data ?? null;
+}
+
+/**
+ * Merges fields into a call's voicemail, re-reading the record first: the recording, transcript and voicemail-done
+ * callbacks arrive close together and must keep each other's fields.
+ */
+export async function mergeIvrVoicemail(id: string, patch: Partial<IvrVoicemail>, extra: Partial<IvrCall> = {}): Promise<IvrCall | null> {
+  const cur = await getIvrCall(id);
+  if (!cur) return null;
+  return saveIvrCall({ ...cur, ...extra, voicemail: { ...(cur.voicemail ?? {}), ...patch } });
 }
 
 export async function listIvrCalls(opts: { since?: string; limit?: number } = {}): Promise<IvrCall[]> {

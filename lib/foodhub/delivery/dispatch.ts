@@ -51,6 +51,8 @@ export async function dispatchProblems(order: DirectOrder, settings?: DeliverySe
   if (order.source === 'clover_online') out.push(t('Clover online order: Clover handles it (Food Hub never sends a courier for it).', 'Commande Clover en ligne : Clover s’en occupe (Food Hub n’envoie jamais de livreur pour elle).'));
   if (order.fulfillment !== 'delivery') out.push(t('This is a pickup order.', 'C’est une commande pour emporter.'));
   if (order.status === 'cancelled' || order.status === 'completed') out.push(t(`The order is ${order.status}.`, order.status === 'cancelled' ? 'La commande est annulée.' : 'La commande est terminée.'));
+  // Held for its payment link: the courier is sent only after the payment (whatever "allow unpaid dispatch" says).
+  if (order.status === 'awaiting_payment') out.push(t('Waiting for the customer to pay the payment link — the courier is sent once it is paid.', 'En attente du paiement par lien — le livreur part dès que c’est payé.'));
   const rule = ruleFor(s, order.locationCode);
   if (!rule.enabled) out.push(t(`Own delivery is not turned on for ${order.locationCode} (Settings → Expansion → Delivery).`, `La livraison n’est pas activée pour ${order.locationCode} (Réglages → Expansion → Livraison).`));
   out.push(...addressProblems(order.dropoff, lang));

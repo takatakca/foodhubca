@@ -129,7 +129,9 @@ describe('menu tree', () => {
 
   it('reads the keypad menu in each language with 0 = person and star = repeat', () => {
     expect(menuSpeech(DEFAULT_TREE, '', 'fr')).toMatch(/^Pour une commande en ligne .*faites le 1\. Pour une commande Uber Eats, DoorDash ou SkipTheDishes, faites le 2\..*Pour parler à quelqu’un, faites le 0\..*étoile/);
-    expect(menuSpeech(DEFAULT_TREE, '', 'en')).toMatch(/For billing, press 3\..*For talk to someone, press 0\..*press star/);
+    // Verb labels read "To …", noun labels "For …".
+    expect(menuSpeech(DEFAULT_TREE, '', 'en')).toMatch(/For billing, press 3\. To become a partner restaurant, press 4\. To become a courier, press 5\..*To leave a message, press 7\. To talk to someone, press 0\..*press star/);
+    expect(menuSpeech(DEFAULT_TREE, 'online_order', 'en')).toMatch(/To place an order, press 2\./);
     expect(menuSpeech(DEFAULT_TREE, 'platform_order', 'es')).toMatch(/^Pedidos de una aplicación\. Para Uber Eats, marque el 1\. Para DoorDash, marque el 2\./);
   });
 
@@ -227,7 +229,7 @@ describe('greeting and language', () => {
     expect(r).toMatch(/<Gather input="speech dtmf" numDigits="1" finishOnKey="" action="\/api\/foodhub\/webhooks\/ivr\/turn" method="POST" language="fr-CA"/);
     expect(r).toMatch(/<Say voice="Polly.Gabrielle-Neural" language="fr-CA">Bienvenue au service ON2GO, votre service de livraison numéro un au Canada\. Poulet grillé.*Comment puis-je vous aider \?<\/Say>/);
     expect(r).toMatch(/<Say voice="Polly.Joanna-Neural" language="en-US">For English, say English or press 2\.<\/Say>/);
-    expect(r).toMatch(/<Say voice="Polly.Lupe-Neural" language="es-US">Para español, diga español o marque 3\.<\/Say>/);
+    expect(r).toMatch(/<Say voice="Polly.Lupe-Neural" language="es-US">Para español, diga español o marque el 3\.<\/Say>/);
   });
 
   it('plays a recorded greeting when an MP3 is set', async () => {
@@ -264,7 +266,7 @@ describe('AI routing (route_to) with the keypad as fallback', () => {
     expect(r1).toMatch(/notre site ou sur une application/);
     claude.push(route('platform_doordash', 'doordash'));
     const r2 = await turn({ SpeechResult: 'Sur DoorDash' });
-    expect(r2).toMatch(/Dites ou tapez le numéro de commande DoorDash/);
+    expect(r2).toMatch(/Dites ou entrez votre numéro de commande DoorDash, suivi du carré/);
     expect(r2).toMatch(/finishOnKey="#"/);
     expect(claudeRequests).toHaveLength(2);
     const [a, b] = claudeRequests.map((x) => x.body);
@@ -314,7 +316,7 @@ describe('AI routing (route_to) with the keypad as fallback', () => {
     expect(r1).toMatch(/répéter/);
     claude.push(claudeResponse([toolUse('not_understood', {})], 'tool_use'));
     const r2 = await turn({ SpeechResult: 'grrr' });
-    expect(r2).toMatch(/Je n’ai pas bien compris\. Voici nos options\. Pour une commande en ligne/);
+    expect(r2).toMatch(/Pardon, je n’ai pas bien saisi\. Voici les choix du menu\. Pour une commande en ligne/);
     expect((await getIvrCall('CA1'))!.state).toBe('menu');
   });
 
@@ -329,7 +331,10 @@ describe('AI routing (route_to) with the keypad as fallback', () => {
     const r = await turn({ SpeechResult: 'Je voudrais devenir livreur' });
     expect(r).toMatch(/<Record /);
     expect(r).toMatch(/Je vous ai envoyé le lien officiel par texto/);
-    expect(sms[0].Body).toContain('https://on2go.ca/livreurs');
+    // A page that exists (the old /livreurs placeholder was a 404).
+    expect(sms[0].Body).toBe('ON2GO — Devenir livreur ou livreuse : https://on2go.ca');
+    // An AI failure is never announced as the caller's fault.
+    expect(r).not.toMatch(/pas bien (compris|saisi)/);
     expect(claudeRequests.length).toBeLessThanOrEqual(2); // one call (+ one SDK retry), never again in the same request
     const call = await getIvrCall('CA1');
     expect(call!.path.map((p) => p.node)).toContain('courier');
@@ -385,7 +390,7 @@ describe('AI routing (route_to) with the keypad as fallback', () => {
     await turn({ SpeechResult: 'devenir livreur' });
     expect(sms).toHaveLength(1);
     expect(sms[0]).toMatchObject({ To: CALLER, From: IVR_NUMBER });
-    expect(sms[0].Body).toBe('ON2GO — Devenir livreur : https://on2go.ca/livreurs');
+    expect(sms[0].Body).toBe('ON2GO — Devenir livreur ou livreuse : https://on2go.ca');
   });
 });
 
@@ -482,7 +487,7 @@ describe('ordering agent, person, voicemail', () => {
     expect(r).toMatch(/<Record maxLength="180" playBeep="true"[^>]*action="\/api\/foodhub\/webhooks\/ivr\/voicemail-done"/);
     const done = await (await step('voicemail-done', { CallSid: 'CA1', RecordingUrl: 'https://api.twilio.com/2010-04-01/Accounts/AC1/Recordings/RE1', RecordingSid: 'RE1', RecordingDuration: '14' })).text();
     expect(done).toMatch(/<Stop><Transcription name="vm-CA1"\/><\/Stop>/);
-    expect(done).toMatch(/votre message est enregistré/);
+    expect(done).toMatch(/votre message est bien enregistré/);
     const tk = (await listTickets())[0];
     expect(tk).toMatchObject({ category: 'callback', from: CALLER, status: 'open' });
     expect(emails).toHaveLength(0); // waits for the transcript
@@ -506,7 +511,7 @@ describe('ordering agent, person, voicemail', () => {
     await start();
     await turn({ Digits: '0' });
     const r = await (await step('dial-done', { CallSid: 'CA1', DialCallStatus: 'no-answer' }, '?kind=person')).text();
-    expect(r).toMatch(/Personne n’est disponible/);
+    expect(r).toMatch(/personne n’est disponible présentement/);
     expect(r).toMatch(/<Record/);
     expect((await getIvrCall('CA1'))!.outcome).toBe('handoff_missed');
   });
@@ -531,8 +536,8 @@ describe('Calls log search and the Twilio signature', () => {
     expect((await ivrStep(signed('/api/foodhub/webhooks/ivr/nope', { CallSid: 'CA1' }), stepCtx('nope'))).status).toBe(404);
   });
 
-  it('the AI prompt block lists the branches and says what the caller ID allows', () => {
-    const block = ivrPromptBlock(cleanIvrSettings({}), { from: 'anonymous' }, Date.parse('2026-10-09T15:00:00Z'));
+  it('the AI prompt block lists the branches and says what the caller ID allows', async () => {
+    const block = await ivrPromptBlock(cleanIvrSettings({}), { from: 'anonymous' }, Date.parse('2026-10-09T15:00:00Z'));
     expect(block).toMatch(/- online_order \[submenu/);
     expect(block).toMatch(/ {2}- platform_skip \[platform order \(SkipTheDishes\)\]/);
     expect(block).toMatch(/DoorDash: the menu transfers to its official support line/);

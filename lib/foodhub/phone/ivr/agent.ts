@@ -14,11 +14,18 @@
 // AI turn and stored on the call; it never changes during the call (Claude binds thinking blocks to the exact prefix).
 // Later context — a key the caller pressed, a step that finished — is appended to the conversation as text.
 import Anthropic from '@anthropic-ai/sdk';
+import { getCatalog } from '../../catalog';
 import { listDirectOrders } from '../../delivery/store';
 import type { DirectOrder } from '../../delivery/types';
+import { describeHours, getHours } from '../../hours';
 import { normalizePhone, sendSms } from '../../notify';
+import { getRepo } from '../../repo';
 import { localTimeLabel } from '../../time';
+import { noteAiFailure, noteAiSuccess, phoneAiUsable } from '../ai-health';
 import { phoneAgentConfigured, phoneModel } from '../agent';
+import { linkUsable } from '../link-health';
+import { brandLockedAt, getPhoneSettings, lineKitchens } from '../settings';
+import { goodDay, personaBlock, personaFor, VOICE_STYLE } from '../style';
 import { findNode, LINK_KEYS, PLATFORM_IDS, PLATFORM_NAME, walk, type IvrLang, type IvrNode, type IvrSettings, type LinkKey, type PlatformId } from './config';
 import { note, openTicket, TICKET_CATEGORIES, visit, withOrderId, type IvrCall, type IvrReply, type TicketCategory } from './records';
 import { normalizeOrderId } from './words';
@@ -77,12 +84,14 @@ export const IVR_TOOLS: Anthropic.Beta.BetaTool[] = [
   },
 ];
 
-export const IVR_RULES = `You answer the ON2GO phone line in Montréal, Québec. ON2GO is a local food delivery and pickup service for a group of real neighbourhood restaurants (our own website, Clover online ordering and our restaurant websites), and our restaurants are also on Uber Eats, DoorDash and SkipTheDishes. What you write is spoken by a text-to-speech voice; the caller's words come from speech recognition (expect misheard words, ask again when unsure, especially numbers).
+export const IVR_RULES = `You answer the ON2GO phone line in Montréal, Québec. ON2GO is a local food delivery and pickup service for a group of real neighbourhood restaurants (our own website, Clover online ordering and our restaurant websites), and our restaurants are also on Uber Eats, DoorDash and SkipTheDishes.
 
-How to talk
-- Warm, efficient, short sentences, one question at a time. No lists, markdown, emojis or web addresses read aloud (texting a link is done with send_link).
-- Speak the caller's language: Québec French by default, English or Spanish when the caller uses it (call set_language first).
-- Your first job is to understand what the caller needs, then call route_to with the right branch. Ask one short question if it is not clear. If the words make no sense, call not_understood.
+${VOICE_STYLE}
+
+Your job
+- First understand what the caller needs, then call route_to with the right branch. Ask one short question if it is not clear. If the words make no sense, call not_understood.
+- Texting a link is done with send_link — never read a web address aloud.
+- Hours questions: answer from OUR KITCHENS AND HOURS only, in a short spoken sentence; if a kitchen's hours are not set, say a team member will confirm (customer service).
 
 Flows you handle yourself (route_to the branch first, then follow it)
 - Problem with an online order (ours): ask for the order number or use the caller's number, call lookup_order, explain the status simply. If it needs a person (refund, missing or wrong food, cancellation, change, complaint), call open_ticket (category online_order) with the details, tell the caller the team will call back, then offer to transfer (route_to the person branch) or end.
@@ -101,7 +110,7 @@ Absolute rules
 - Never ask for, repeat or accept card numbers or any payment details. If the caller starts giving one, stop them politely.
 - Never give or promise refunds, credits, discounts, free items or compensation, never cancel or change an order: a person decides (open_ticket, then offer the person branch).
 - Never invent prices, hours, promotions, addresses or delivery times.
-- If asked, say honestly that you are an automated AI assistant. If the caller is abusive, route_to the person branch.`;
+- If the caller is abusive, route_to the person branch.`;
 
 const LANG_NAME: Record<IvrLang, string> = { fr: 'French', en: 'English', es: 'Spanish' };
 
@@ -110,15 +119,44 @@ function branchLine(n: IvrNode, depth: number): string {
   return `${'  '.repeat(depth)}- ${n.id} [${kind}] ${n.label.en}${n.ai ? ` — ${n.ai}` : ''}`;
 }
 
-/** The call's part of the system prompt: the branches, the time, what the caller ID allows. Frozen at the first AI turn. */
-export function ivrPromptBlock(s: IvrSettings, call: Pick<IvrCall, 'from'>, now = Date.now()): string {
+/**
+ * Our kitchens (each location with its brands, from Stores and the phone lines — never Po Poulet at NDG) and their hours
+ * today and tomorrow, as the menu AI is told. From Food Hub's hours only; "not set" when nobody entered them.
+ */
+export async function kitchensAndHours(now = Date.now()): Promise<string[]> {
+  const [catalog, stores, phone, hours] = await Promise.all([getCatalog(), getRepo().listStores().catch(() => []), getPhoneSettings(), getHours()]);
+  const byLoc = new Map<string, Set<string>>();
+  const add = (code: string, brand: string) => { if (!code || !brand) return; const set = byLoc.get(code) ?? new Set<string>(); set.add(brand); byLoc.set(code, set); };
+  for (const st of stores) add(st.locationCode ?? '', st.brandName ?? '');
+  for (const l of phone.lines.filter((x) => x.enabled)) for (const k of lineKitchens(l)) for (const b of k.brands) add(k.locationCode, b);
+  const out: string[] = [];
+  for (const [code, set] of byLoc) {
+    const loc = catalog.locations.find((l) => l.code === code);
+    if (loc && loc.active === false) continue;
+    const brands = [...set].filter((b) => !brandLockedAt(b, loc, code)).sort();
+    if (!brands.length) continue;
+    const h = describeHours(hours, brands, code, now);
+    out.push(`- ${loc?.name ?? code}${loc?.address ? ` (${loc.address}${loc.city ? `, ${loc.city}` : ''})` : ''} — ${brands.join(', ')}. ${h.text}`);
+  }
+  return out;
+}
+
+/** The call's part of the system prompt: persona, the branches, kitchens and hours, the time, what the caller ID allows. Frozen at the first AI turn. */
+export async function ivrPromptBlock(s: IvrSettings, call: Pick<IvrCall, 'from'>, now = Date.now()): Promise<string> {
   const lines: string[] = [];
   const add = (nodes: IvrNode[], depth: number) => { for (const n of nodes) if (n.enabled) { lines.push(branchLine(n, depth)); if (n.children) add(n.children, depth + 1); } };
   add(s.tree, 0);
   const platforms = PLATFORM_IDS.map((p) => `${PLATFORM_NAME[p]}: ${Object.keys(s.platforms[p]?.phones ?? {}).length ? 'the menu transfers to its official support line' : 'no public phone line; the menu texts its official help link and explains the in-app help'}`);
+  const kitchens = await kitchensAndHours(now).catch(() => []);
+  const persona = personaFor((await getPhoneSettings()).persona, s.voices.fr);
   return [
+    personaBlock(persona),
+    '',
     'BRANCHES (route_to uses the id)',
     ...lines,
+    '',
+    'OUR KITCHENS AND HOURS',
+    ...(kitchens.length ? kitchens : ['(none listed in Food Hub yet: never state hours — customer service takes the question)']),
     '',
     `Platforms: ${platforms.join('; ')}.`,
     `Links you can text (send_link): ${LINK_KEYS.join(', ')}.`,
@@ -128,6 +166,7 @@ export function ivrPromptBlock(s: IvrSettings, call: Pick<IvrCall, 'from'>, now 
 }
 
 const STATUS_WORDS: Record<DirectOrder['status'], string> = {
+  awaiting_payment: 'waiting for the customer to pay the payment link texted to them (not sent to the kitchen yet)',
   new: 'received, not started yet', in_kitchen: 'being prepared in the kitchen', ready: 'ready', out_for_delivery: 'on its way with the courier', completed: 'completed (picked up or delivered)', cancelled: 'cancelled',
 };
 
@@ -152,8 +191,8 @@ function describeOrder(o: DirectOrder): string {
 }
 
 const LINK_LABEL: Record<LinkKey, Record<IvrLang, string>> = {
-  merchant: { fr: 'Devenir restaurant partenaire', en: 'Become a partner restaurant', es: 'Ser restaurante asociado' },
-  courier: { fr: 'Devenir livreur', en: 'Become a courier', es: 'Ser repartidor' },
+  merchant: { fr: 'Devenir restaurant partenaire', en: 'Become a partner restaurant', es: 'Registrar su restaurante' },
+  courier: { fr: 'Devenir livreur ou livreuse', en: 'Become a courier', es: 'Ser repartidor' },
   help: { fr: 'Aide ON2GO', en: 'ON2GO help', es: 'Ayuda ON2GO' },
   billing: { fr: 'Facturation ON2GO', en: 'ON2GO billing', es: 'Facturación ON2GO' },
   order: { fr: 'Commander sur ON2GO', en: 'Order on ON2GO', es: 'Pedir en ON2GO' },
@@ -164,6 +203,8 @@ export async function textLink(call: IvrCall, s: IvrSettings, link: LinkKey): Pr
   if (!normalizePhone(call.from)) return { call, ok: false, message: 'Caller ID is hidden: no text possible. Say the address in words (on2go point ca) only if they ask.' };
   if (call.sms.length >= 3) return { call, ok: false, message: 'Already texted 3 times on this call.' };
   const url = s.links[link];
+  // The last readiness check found this page down: never text a dead link.
+  if (!(await linkUsable(url))) return { call, ok: false, message: 'That page is not available right now (link check failed): do not promise a text; open_ticket so the team follows up.' };
   const r = await sendSms({ to: call.from, from: call.to, body: `ON2GO — ${LINK_LABEL[link][call.lang]} : ${url}` }, { purpose: `ivr_link_${link}` });
   const next = { ...call, sms: [...call.sms, { at: new Date().toISOString(), kind: link, ok: r.ok }] };
   return { call: next, ok: r.ok, message: r.ok ? 'Text sent. Tell the caller the link is on its way by text.' : `The text could not be sent (${r.message}). Do not promise a text.` };
@@ -231,7 +272,7 @@ async function runTool(name: string, input: any, state: State, s: IvrSettings): 
       return { content: 'Ask again in other words, very briefly (one short question).' };
     }
     case 'end_call':
-      return { content: 'Say a short goodbye; the call ends after it.' };
+      return { content: 'The call ends after this reply: a short warm goodbye (nothing more if you already said it).' };
     default:
       return { content: `Unknown tool ${name}.`, isError: true };
   }
@@ -261,8 +302,9 @@ function pushUser(messages: Anthropic.Beta.BetaMessageParam[], text: string): vo
   messages.push({ role: 'user', content: text });
 }
 
-export function ivrAiAvailable(s: Pick<IvrSettings, 'mode'>): boolean {
-  return s.mode === 'ai' && phoneAgentConfigured();
+/** AI mode, a key, and the AI not paused by the circuit breaker (ai-health.ts). */
+export async function ivrAiAvailable(s: Pick<IvrSettings, 'mode'>): Promise<boolean> {
+  return s.mode === 'ai' && phoneAgentConfigured() && (await phoneAiUsable());
 }
 
 /**
@@ -271,16 +313,18 @@ export function ivrAiAvailable(s: Pick<IvrSettings, 'mode'>): boolean {
  */
 export async function runIvrTurn(call: IvrCall, callerText: string, s: IvrSettings, now = Date.now()): Promise<{ call: IvrCall; reply: IvrReply }> {
   const state: State = { call: { ...call, turns: call.turns + 1 } };
+  const said: string[] = [];
   const fail = (why: string) => {
     state.call = note({ ...state.call, error: why }, 'system', `AI fallback: ${why}`);
-    return { call: state.call, reply: { say: '', next: 'menu' as const } };
+    return { call: state.call, reply: { say: '', next: 'menu' as const, failed: true } };
   };
   if (!phoneAgentConfigured()) return fail('ANTHROPIC_API_KEY is not set');
+  if (!(await phoneAiUsable())) return fail('Phone AI paused (circuit breaker)');
   if (state.call.turns > 30) return fail('More than 30 AI turns');
   const messages = [...((call.messages ?? []) as Anthropic.Beta.BetaMessageParam[])];
   const first = messages.length === 0;
   pushUser(messages, first ? `[Call answered. Language now: ${LANG_NAME[call.lang]}. The greeting asked how we can help.]\n${callerText}` : callerText);
-  const prompt = state.call.prompt ?? ivrPromptBlock(s, call, now);
+  const prompt = state.call.prompt ?? (await ivrPromptBlock(s, call, now));
   state.call = { ...state.call, prompt };
   const system: Anthropic.Beta.BetaTextBlockParam[] = [{ type: 'text', text: IVR_RULES }, { type: 'text', text: prompt, cache_control: { type: 'ephemeral' } }];
   const usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, requests: 0, ...(call.usage ?? {}) };
@@ -299,9 +343,13 @@ export async function runIvrTurn(call: IvrCall, callerText: string, s: IvrSettin
       usage.outputTokens += res.usage?.output_tokens ?? 0;
       usage.cacheReadTokens += res.usage?.cache_read_input_tokens ?? 0;
       state.call = { ...state.call, usage };
+      if (step === 0) await noteAiSuccess();
       if (res.stop_reason === 'refusal') return fail('The AI declined to continue');
       messages.push({ role: 'assistant', content: res.content as Anthropic.Beta.BetaContentBlockParam[] });
-      const spoken = clean(res.content.filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text').map((b) => b.text).join(' '));
+      // Every step's words are kept, in order: a preface written next to a tool call is spoken too.
+      const stepText = clean(res.content.filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text').map((b) => b.text).join(' '));
+      if (stepText) said.push(stepText);
+      const spoken = said.join(' ');
       const uses = res.content.filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === 'tool_use');
       if (res.stop_reason === 'tool_use' && uses.length) {
         const results: Anthropic.Beta.BetaToolResultBlockParam[] = [];
@@ -321,7 +369,7 @@ export async function runIvrTurn(call: IvrCall, callerText: string, s: IvrSettin
         }
         continue;
       }
-      const text = spoken || ({ fr: 'Pardon, pouvez-vous répéter ?', en: 'Sorry, could you say that again?', es: 'Perdón, ¿puede repetirlo?' } as const)[state.call.lang];
+      const text = spoken || (hangup ? goodDay(state.call.lang) : ({ fr: 'Pardon, la ligne est un peu mauvaise. Pouvez-vous répéter ?', en: 'Sorry, the line is a bit faint. Could you say that again?', es: 'Perdón, la línea está un poco mala. ¿Puede repetirlo?' } as const)[state.call.lang]);
       state.call = note({ ...state.call, messages }, 'agent', text);
       // Understood this time: the count of misunderstandings in a row starts again.
       if (!state.missed && state.call.misses) state.call = { ...state.call, misses: 0 };
@@ -330,7 +378,8 @@ export async function runIvrTurn(call: IvrCall, callerText: string, s: IvrSettin
     state.call = { ...state.call, messages };
     return fail('Too many steps in one turn');
   } catch (e) {
-    return fail(`AI error: ${e instanceof Error ? e.message.slice(0, 200) : String(e)}`);
+    const f = await noteAiFailure(e);
+    return fail(`AI error (${f.kind}): ${f.reason}`);
   }
 }
 

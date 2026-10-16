@@ -4,6 +4,7 @@
 // shown masked in lists. The AI conversation itself (Claude message history) is dropped when the call ends — only the
 // readable transcript stays.
 import { nowIso } from '../config';
+import { normalizePhone } from '../notify';
 import { getRepo } from '../repo';
 import type { DropoffAddress } from '../delivery/types';
 import type { CartLine } from './cart';
@@ -20,6 +21,8 @@ export interface TurnReply {
   /** What happens after saying it. */
   next: 'listen' | 'handoff' | 'hangup';
   lang: PhoneLang;
+  /** An order confirmation said in this turn: still said when the hand-off finds nobody. */
+  confirm?: string;
 }
 
 export interface PhoneCall {
@@ -49,9 +52,22 @@ export interface PhoneCall {
   pending?: { turn: number; startedAt: string; reply?: TurnReply };
   handoffReason?: string;
   error?: string;
+  /** Console simulator, or a test caller (FOODHUB_PHONE_TEST_CALLERS): an order is never sent to Clover or the kitchen. */
   simulated?: boolean;
+  /** Voices of the ON2GO menu when the call came from it (the voice never changes in the middle of a call). */
+  voices?: { voiceFr: string; voiceEn: string; voiceEs: string };
   usage?: { inputTokens: number; outputTokens: number; cacheReadTokens: number; requests: number };
   updatedAt: string;
+}
+
+/**
+ * Numbers that make TEST calls (FOODHUB_PHONE_TEST_CALLERS, comma separated, set in the host only — never in git): the
+ * call is real (voice, AI, texts of the menu), but an order placed is a test (no Clover order, no ticket, no link).
+ */
+export function isTestCaller(from: string | null | undefined): boolean {
+  const n = normalizePhone(from);
+  if (!n) return false;
+  return String(process.env.FOODHUB_PHONE_TEST_CALLERS ?? '').split(/[,;\s]+/).map((x) => normalizePhone(x)).includes(n);
 }
 
 export async function saveCall(call: PhoneCall): Promise<PhoneCall> {

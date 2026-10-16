@@ -16,7 +16,17 @@ export async function merchantFor(brandName: string, locationCode: string): Prom
   return here.find((s) => s.brandName === brandName)?.cloverMerchantId ?? here[0]?.cloverMerchantId ?? (await defaultCloverMerchant());
 }
 
-async function orderTypeId(mid: string, token: string, fulfillment: DirectOrder['fulfillment'], source: DirectOrder['source']): Promise<string | null> {
+/**
+ * The kitchen's OWN Clover merchant (a store of that brand there, else any store there) — never the default merchant.
+ * A payment link is offered only with it: a Saint-Léonard order must never be paid and printed on the NDG register.
+ */
+export async function explicitMerchantFor(brandName: string, locationCode: string): Promise<string | null> {
+  const stores = await getRepo().listStores();
+  const here = stores.filter((s) => s.locationCode === locationCode && s.cloverMerchantId);
+  return here.find((s) => s.brandName === brandName)?.cloverMerchantId ?? here[0]?.cloverMerchantId ?? null;
+}
+
+export async function orderTypeId(mid: string, token: string, fulfillment: DirectOrder['fulfillment'], source: DirectOrder['source']): Promise<string | null> {
   try {
     const res = await timedFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}/order_types?limit=200`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
     if (!res.ok) return null;

@@ -9,9 +9,10 @@
 import { logActivity, type Actor } from '../../activity';
 import { normalizeEmail, normalizePhone } from '../../notify';
 import { getRepo } from '../../repo';
+import { cleanVoice } from '../voices';
 import {
-  DEFAULT_IVR, DEFAULT_LINKS, DEFAULT_PLATFORMS, DEFAULT_TREE, IVR_LANGS, LINK_KEYS, OWNER_GREETING, PLATFORM_IDS, PLATFORM_NAME, URL_OK, validateTree, walk,
-  type IvrAction, type IvrLang, type IvrNode, type IvrSettings, type PlatformId, type PlatformSupport, type Texts,
+  DEAD_PLACEHOLDER_LINKS, DEFAULT_IVR, DEFAULT_LINKS, DEFAULT_PLATFORMS, DEFAULT_TREE, IVR_LANGS, LINK_KEYS, OWNER_GREETING, PLATFORM_IDS, PLATFORM_NAME, URL_OK, validateTree, walk,
+  type IvrAction, type IvrLang, type IvrNode, type IvrSettings, type LinkKey, type PlatformId, type PlatformSupport, type Texts,
 } from './tree';
 
 export * from './tree';
@@ -51,7 +52,11 @@ function cleanNode(raw: any): IvrNode {
   };
 }
 
-const VOICE = /^(Polly|Google)\.[A-Za-z0-9-]{3,60}$/;
+/** Default links on this server: the order link is the public Clover ordering page when it is set. */
+export function defaultLinks(): Record<LinkKey, string> {
+  const order = String(process.env.FOODHUB_PUBLIC_CLOVER_ORDER_URL ?? '').trim();
+  return { ...DEFAULT_LINKS, ...(URL_OK(order) ? { order } : {}) };
+}
 
 /** Settings as stored, completed with the defaults; throws a readable error on an invalid tree or value. */
 export function cleanIvrSettings(raw: Partial<IvrSettings> | null | undefined, strict = false): IvrSettings {
@@ -61,11 +66,14 @@ export function cleanIvrSettings(raw: Partial<IvrSettings> | null | undefined, s
   if (errors.length) {
     if (strict) throw new Error(`Phone menu: ${errors.slice(0, 3).join(' ')}`);
   }
+  // Only voices from Twilio's list (voices.ts): a typo or a withdrawn voice would break every <Say>.
   const voices = { ...DEFAULT_IVR.voices };
-  for (const l of IVR_LANGS) if (VOICE.test(String(s.voices?.[l] ?? ''))) voices[l] = String(s.voices![l]);
-  const links = { ...DEFAULT_LINKS };
+  for (const l of IVR_LANGS) voices[l] = cleanVoice(l, s.voices?.[l], DEFAULT_IVR.voices[l]);
+  const links = defaultLinks();
   for (const k of LINK_KEYS) {
     const v = String(s.links?.[k] ?? '').trim();
+    // The old placeholder pages never existed (404): they fall back to a page that answers.
+    if (v && DEAD_PLACEHOLDER_LINKS.includes(v.replace(/\/+$/, ''))) continue;
     if (v) { if (URL_OK(v)) links[k] = v; else if (strict) throw new Error(`Link "${k}": use a full https:// address.`); }
   }
   const platforms = {} as Record<PlatformId, PlatformSupport>;

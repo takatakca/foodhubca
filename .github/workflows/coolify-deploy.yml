@@ -1,8 +1,7 @@
 name: Deploy Food Hub to Coolify
 
-# Opt-in production automation for foodhub.on2go.ca. It only runs after the image workflow succeeds on main and
-# FOODHUB_COOLIFY_AUTODEPLOY_ENABLED is set to "true". When enabled, missing secrets or a bad live verification fails
-# the run instead of producing a misleading green deployment.
+# Historical Actions controller. Coolify's existing GitHub App now owns main-push releases;
+# Dockerfile runs the required checks on Contabo before publication. Keep one production writer.
 on:
   workflow_run:
     workflows: ["Food Hub image"]
@@ -18,7 +17,7 @@ concurrency:
 jobs:
   deploy:
     name: Deploy and verify Food Hub live
-    if: ${{ vars.FOODHUB_COOLIFY_AUTODEPLOY_ENABLED == 'true' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == 'takatakca/foodhubca' }}
+    if: ${{ false && vars.FOODHUB_COOLIFY_AUTODEPLOY_ENABLED == 'true' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == 'takatakca/foodhubca' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:

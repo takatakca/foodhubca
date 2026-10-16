@@ -7,7 +7,7 @@ import {
   handleCloverAppEvents, isLaunchState, listCloverConnections, startCloverConnect, startCloverLaunch,
 } from '../lib/foodhub/pos/clover-oauth';
 import { allCloverMerchants, cloverReadiness, cloverToken } from '../lib/foodhub/pos/clover';
-import { sendCloverTestOrder } from '../lib/foodhub/pos/clover-test-order';
+import { lastCloverTestOrder, sendCloverTestOrder } from '../lib/foodhub/pos/clover-test-order';
 
 const MID = 'TESTMERCH0001'; // a made-up merchant ID (the repository is public: never a real one)
 const APP = 'TESTAPP000001';
@@ -272,6 +272,33 @@ describe('send a test order to my Clover', () => {
     const fourth = await sendCloverTestOrder(MID, t0 + 10);
     expect(fourth.ok === false && fourth.reason).toBe('limited');
     expect((await sendCloverTestOrder(MID, t0 + 61 * 60_000)).ok).toBe(true);
+  });
+
+  it('the owner can test a register connected with an API token (draft app); the public welcome path cannot', async () => {
+    process.env.CLOVER_MERCHANT_ID = MID; process.env.CLOVER_ACCESS_TOKEN = 'ENV-TOKEN';
+    const publicPath = await sendCloverTestOrder(MID); // welcome ticket: only merchants approved through the app
+    expect(publicPath.ok === false && publicPath.reason).toBe('not_approved');
+    expect(await lastCloverTestOrder()).toBeNull();
+    const owner = await sendCloverTestOrder(MID, Date.now(), { tokenMerchant: true, actor: 'Owner' });
+    expect(owner.ok).toBe(true);
+    expect(owner.steps.every((s) => s.ok)).toBe(true);
+    expect(calls.find((c) => c.url.endsWith('/atomic_order/orders'))?.body.orderCart.title).toMatch(/^Uber Eats #TEST-/);
+    expect(await lastCloverTestOrder()).toMatchObject({ merchantId: MID, posOrderId: 'CLV1' });
+  });
+
+  it('the owner path still refuses a register with no token and no approved app connection', async () => {
+    const r = await sendCloverTestOrder('NOTOKENMERCH01', Date.now(), { tokenMerchant: true, actor: 'Owner' });
+    expect(r.ok === false && r.reason).toBe('not_approved');
+    expect(calls.some((c) => c.url.endsWith('/atomic_order/orders'))).toBe(false);
+  });
+
+  it('records “tested end to end” only when every step went through', async () => {
+    process.env.CLOVER_MERCHANT_ID = MID; process.env.CLOVER_ACCESS_TOKEN = 'ENV-TOKEN';
+    const base = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (input: any, init: any) => (String(input).endsWith('/print_event') ? new Response('{}', { status: 500 }) : base(input, init))) as any;
+    const r = await sendCloverTestOrder(MID, Date.now(), { tokenMerchant: true, actor: 'Owner' });
+    expect(r.ok && r.steps.find((s) => s.key === 'printed')?.ok).toBe(false);
+    expect(await lastCloverTestOrder()).toBeNull();
   });
 });
 

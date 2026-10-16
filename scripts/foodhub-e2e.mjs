@@ -399,7 +399,7 @@ const env = {
   FOODHUB_CLOVER_WEBSITE_LOCATION: JSON.stringify({ MAINMERCHANT: 'NDG_6284' }), FOODHUB_CLOVER_WEBSITE_BRAND: 'PPP Pizzeria',
 };
 for (const k of ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'UBER_ACCESS_TOKEN', 'TGTG_SPEC_CONFIRMED', 'SESSION_SECRET', 'FOODHUB_CLOVER_AUTOPRINT', 'CLOVER_PRINT_DEVICE_ID', 'FOODHUB_SYNC_MIN_INTERVAL_S', 'FOODHUB_CLOVER_RECORD_PAYMENT', 'FOODHUB_CLOVER_ORDER_TYPES', 'FOODHUB_CLOVER_INVENTORY_SYNC', 'FOODHUB_CLOVER_DELETE_CANCELLED', 'FOODHUB_SCHEDULED_AFTER_MIN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'FOODHUB_INSECURE_SHOW_CODES', 'TWILIO_MESSAGING_SERVICE_SID', 'FOODHUB_OWNER_EMAIL', 'FOODHUB_OWNER_PHONE', 'FOODHUB_FEATURE_DELIVERY', 'FOODHUB_FEATURE_RETAIL', 'FOODHUB_FEATURE_ALCOHOL', 'FOODHUB_FEATURE_PHONE', 'UBER_DIRECT_CUSTOMER_ID', 'UBER_DIRECT_CLIENT_ID', 'UBER_DIRECT_CLIENT_SECRET', 'FOODHUB_CLOVER_WEBSITE_ORDERS', 'FOODHUB_CLOVER_WEBSITE_ORDER_TYPES', 'FOODHUB_CLOVER_WEBSITE_POLL_S', 'FOODHUB_CLOVER_WEBSITE_CLOSE_MIN']) delete env[k];
-const app = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '-p', String(APP_PORT)], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+const app = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '-p', String(APP_PORT), '-H', '127.0.0.1'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
 let appLog = '';
 app.stdout.on('data', (d) => { appLog += d; });
 app.stderr.on('data', (d) => { appLog += d; });
@@ -1767,6 +1767,16 @@ try {
   check('end of day: the feed counts reach the bag log', bagCron.status === 200 && bagCron.json?.days?.some((d) => d.locationCode === 'NDG_MAIN' && d.synced), JSON.stringify(bagCron.json));
 
   }
+  console.log('\n46. Owner test order on a register connected with an API token (Settings → Clover app)');
+  const ownerTest = await call('POST', '/api/foodhub/clover-connect/owner-test-order', { body: { merchantId: 'MAINMERCHANT' } });
+  check('owner: TEST order created, printed and paid on the API-token register, each step confirmed by Clover', ownerTest.status === 200 && ownerTest.json?.steps?.length === 3 && ownerTest.json.steps.every((x) => x.ok), ownerTest.text.slice(0, 300));
+  check('owner test order needs a sign-in (no public access)', (await call('POST', '/api/foodhub/clover-connect/owner-test-order', { auth: false, body: { merchantId: 'MAINMERCHANT' } })).status === 401);
+  check('a register Food Hub cannot reach is refused, nothing sent', (await call('POST', '/api/foodhub/clover-connect/owner-test-order', { body: { merchantId: 'NOTCONNECTED01' } })).status === 403);
+  const chTest = (await call('GET', '/api/foodhub/channels')).json?.clover;
+  check('Settings → Clover app: API-token register listed and "tested end to end" recorded', chTest?.tokenMerchantIds?.includes('MAINMERCHANT') && chTest?.app?.testOrder?.merchantId === 'MAINMERCHANT');
+  const welcomeTicketCannot = await call('POST', '/api/foodhub/clover-connect/test-order', { auth: false, body: { t: 'forged.ticket' } });
+  check('the public welcome endpoint still needs a valid ticket', welcomeTicketCannot.status === 401);
+
   await sleep(300);
   // A webhook "kept in the inbox" (section 41: Uber refusing the order fetch on purpose) is handled, not a crash.
   const crashes = appLog.split('\n').filter((l) => /\[foodhub\] .* failed|Unhandled|TypeError|ReferenceError/.test(l) && !/kept in the inbox/.test(l));

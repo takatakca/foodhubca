@@ -365,6 +365,8 @@ function envOrderType(mid: string, fulfillment: StoredOrder['fulfillment']): str
  */
 export async function cloverOrderTypeForOrder(mid: string | null | undefined, order: Pick<StoredOrder, 'channel' | 'fulfillment'>, auth?: { token: string | null; base: string }): Promise<string | null> {
   if (!mid || !cloverOrderTypesEnabled()) return null;
+  // Too Good To Go bags always carry the merchant's own "Too Good To Go" order type (owner: it exists in Clover).
+  if (order.channel === 'tgtg') return cloverOrderTypeFor(mid, 'tgtg');
   if (process.env.FOODHUB_CLOVER_ORDER_TYPE_MODE !== 'platform') {
     const fromEnv = envOrderType(mid, order.fulfillment);
     if (fromEnv) return fromEnv;

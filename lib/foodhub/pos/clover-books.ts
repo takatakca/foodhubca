@@ -158,12 +158,20 @@ const SHORT: Record<ChannelKey, string> = { uber_eats: 'ue', doordash: 'dd', ski
  * why Food Hub records the payment only when the order leaves the kitchen). If Clover refuses the delete,
  * the order is renamed "CANCELLED" so nobody makes it or charges it.
  */
-export async function closeCancelledCloverOrder(order: StoredOrder, mid: string | null | undefined): Promise<{ ok: boolean; skipped?: boolean; message: string }> {
-  if (!cloverDeleteCancelledEnabled()) return { ok: false, skipped: true, message: 'Removing cancelled orders from Clover is off (FOODHUB_CLOVER_DELETE_CANCELLED=off).' };
+export async function closeCancelledCloverOrder(order: StoredOrder, mid: string | null | undefined, opts: { flagOnly?: boolean } = {}): Promise<{ ok: boolean; skipped?: boolean; message: string }> {
+  if (!opts.flagOnly && !cloverDeleteCancelledEnabled()) return { ok: false, skipped: true, message: 'Removing cancelled orders from Clover is off (FOODHUB_CLOVER_DELETE_CANCELLED=off).' };
   const merchant = mid || process.env.CLOVER_MERCHANT_ID;
   if (!merchant || !order.posOrderId) return { ok: false, skipped: true, message: 'Order is not in Clover.' };
   try {
     const path = `/orders/${encodeURIComponent(order.posOrderId)}`;
+    if (opts.flagOnly) {
+      // Kept in Clover for the record (Too Good To Go e-mail orders): renamed "CANCELLED", never deleted, never charged.
+      const tag = `CANCELLED — ${platformLabel(order.channel)} #${order.displayId || order.externalOrderId.slice(0, 8)}`;
+      const upd = await cloverJson(merchant, path, { method: 'POST', body: JSON.stringify({ title: tag.slice(0, 127), note: 'ANNULÉE / CANCELLED by the customer on Too Good To Go — do not make, do not hand over, do not charge.' }) });
+      return upd.ok
+        ? { ok: true, message: 'Flagged “CANCELLED” in Clover (kept for the record, not deleted).' }
+        : { ok: false, message: `Clover HTTP ${upd.status}: mark it cancelled in the Clover Orders app.` };
+    }
     const del = await cloverJson(merchant, path, { method: 'DELETE' });
     if (del.ok) return { ok: true, message: 'Cancelled order removed from the Clover register.' };
     const tag = `CANCELLED — ${platformLabel(order.channel)} #${order.displayId || order.externalOrderId.slice(0, 8)}`;

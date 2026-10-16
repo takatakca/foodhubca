@@ -10,6 +10,7 @@ import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { Select } from '@/components/ui/form';
 import { useViewer } from '@/components/shell/viewer';
 import { Section, SettingsHead } from '../settings-ui';
+import { TgtgEmailSection } from './tgtg-email';
 import { api } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 
@@ -328,6 +329,8 @@ export default function ChannelsSettingsPage() {
         })}
       </div>
 
+
+      <TgtgEmailSection />
 
       {data.relay && (
         <Section icon={<PlugZap className="size-5" />} title={t('Relais de commandes Food Hub', 'Food Hub Order Relay')}

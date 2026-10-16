@@ -1,0 +1,17 @@
+From: Too Good To Go <no-reply@toogoodtogo.com>
+To: store@example.test
+Subject: Order cancelled - OOEUF NDG
+Date: Fri, 16 Oct 2026 15:20:00 -0400
+Message-ID: <synthetic-cancel-en-0005@example.test>
+X-Takatak-Fixture: synthetic (mirrors a TGTG store notification; not a real e-mail)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Hi OOEUF NDG,
+
+Marie has cancelled their order. You no longer need to prepare it.
+
+Order ID: 3K7Q9XPT2A
+Quantity: 2
+Pickup: Friday, October 16, 2026, 17:00 - 17:30
+Store: OOEUF NDG

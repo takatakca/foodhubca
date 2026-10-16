@@ -2,6 +2,7 @@ import { after } from 'next/server';
 import { withPerm } from '@/lib/foodhub/auth';
 import { tickExpansion } from '@/lib/foodhub/expansion/tick';
 import { tickCloverWebsiteOrders } from '@/lib/foodhub/pos/clover-website-orders';
+import { tickTgtgEmail } from '@/lib/foodhub/tgtg-email/imap';
 import { ok } from '@/lib/foodhub/http';
 import { buildPulse } from '@/lib/foodhub/pulse';
 import { runOrderRecovery } from '@/lib/foodhub/recovery';
@@ -23,6 +24,8 @@ export const GET = withPerm('view', async (req, _ctx, actor) => {
     await runWatch({ trigger: 'pulse' }).catch(() => undefined);
     await tickExpansion();
     await tickCloverWebsiteOrders();
+    // Too Good To Go order e-mails (throttled to TGTG_IMAP_POLL_S; nothing when no mailbox is configured).
+    await tickTgtgEmail();
   });
   return ok({ ...(await buildPulse({ locationCodes: scope.length ? scope : actor.locations.length ? ['__none__'] : undefined })) });
 });

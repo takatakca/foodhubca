@@ -1,0 +1,26 @@
+From: "Too Good To Go" <notifications@toogoodtogo.com>
+To: store@example.test
+Subject: =?UTF-8?Q?Nouvelle_commande_=E2=80=93_OOEUF_NDG?=
+Date: Fri, 16 Oct 2026 09:12:00 -0400
+Message-ID: <synthetic-order-fr-html-0002@example.test>
+X-Takatak-Fixture: synthetic (mirrors a TGTG store notification; not a real e-mail)
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+<html><head><style>td{padding:4px}</style><title>Nouvelle commande</title></head><body>
+<h1>Bonjour OOEUF NDG,</h1>
+<p>Bonne nouvelle&nbsp;! Un client a r=C3=A9serv=C3=A9 un panier chez vous.</p>
+<table>
+<tr><td>Client</td><td>Lucas</td></tr>
+<tr><td>Panier</td><td>Panier Surprise D=C3=A9jeuner</td></tr>
+<tr><td>Quantit=C3=A9</td><td>1</td></tr>
+<tr><td>Montant pay=C3=A9</td><td>5,99&nbsp;$</td></tr>
+<tr><td>Collecte</td><td>vendredi 16 octobre, 17&nbsp;h&nbsp;00 =E2=80=93 17&nbsp;h&nbsp;30</td></tr>
+<tr><td>Num=C3=A9ro de commande</td><td>R8M2-55QX</td></tr>
+<tr><td>Magasin</td><td>OOEUF NDG</td></tr>
+<tr><td>Adresse</td><td>6284 Av Somerled, Montr=C3=A9al</td></tr>
+</table>
+<p>Le client pr=C3=A9sentera sa r=C3=A9servation dans l&#39;app Too Good To Go.</p>
+<p>Merci de lutter contre le gaspillage alimentaire&nbsp;!<br>L&#39;=C3=A9quipe Too Good To Go</p>
+</body></html>

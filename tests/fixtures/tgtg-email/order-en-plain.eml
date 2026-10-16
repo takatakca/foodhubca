@@ -1,0 +1,27 @@
+From: Too Good To Go <no-reply@toogoodtogo.com>
+To: Store account <store@example.test>
+Subject: New order: 2 x Surprise Bag - OOEUF NDG
+Date: Fri, 16 Oct 2026 14:05:00 -0400
+Message-ID: <synthetic-order-en-plain-0001@example.test>
+X-Takatak-Fixture: synthetic (mirrors a TGTG store notification; not a real e-mail)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+Hi OOEUF NDG,
+
+Great news! Marie just reserved 2 Surprise Bags.
+
+Order details
+Customer: Marie
+Item: Breakfast Surprise Bag
+Quantity: 2
+Total paid: $11.98
+Pickup: Friday, October 16, 2026, 17:00 - 17:30
+Order ID: 3K7Q9XPT2A
+Store: OOEUF NDG
+
+The customer will show the reservation in the Too Good To Go app at pickup.
+
+Thanks for fighting food waste with us!
+The Too Good To Go team

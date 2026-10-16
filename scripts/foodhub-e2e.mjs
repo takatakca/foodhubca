@@ -399,7 +399,7 @@ const env = {
   // Website orders taken by Clover Online Ordering go to this kitchen, under this brand (several kitchens share the merchant).
   FOODHUB_CLOVER_WEBSITE_LOCATION: JSON.stringify({ MAINMERCHANT: 'NDG_6284' }), FOODHUB_CLOVER_WEBSITE_BRAND: 'PPP Pizzeria',
 };
-for (const k of ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'UBER_ACCESS_TOKEN', 'TGTG_SPEC_CONFIRMED', 'SESSION_SECRET', 'FOODHUB_CLOVER_AUTOPRINT', 'CLOVER_PRINT_DEVICE_ID', 'FOODHUB_SYNC_MIN_INTERVAL_S', 'FOODHUB_CLOVER_RECORD_PAYMENT', 'FOODHUB_CLOVER_ORDER_TYPES', 'FOODHUB_CLOVER_INVENTORY_SYNC', 'FOODHUB_CLOVER_DELETE_CANCELLED', 'FOODHUB_SCHEDULED_AFTER_MIN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'FOODHUB_INSECURE_SHOW_CODES', 'TWILIO_MESSAGING_SERVICE_SID', 'FOODHUB_OWNER_EMAIL', 'FOODHUB_OWNER_PHONE', 'FOODHUB_FEATURE_DELIVERY', 'FOODHUB_FEATURE_RETAIL', 'FOODHUB_FEATURE_ALCOHOL', 'FOODHUB_FEATURE_PHONE', 'UBER_DIRECT_CUSTOMER_ID', 'UBER_DIRECT_CLIENT_ID', 'UBER_DIRECT_CLIENT_SECRET', 'FOODHUB_CLOVER_WEBSITE_ORDERS', 'FOODHUB_CLOVER_WEBSITE_ORDER_TYPES', 'FOODHUB_CLOVER_WEBSITE_POLL_S', 'FOODHUB_CLOVER_WEBSITE_CLOSE_MIN']) delete env[k];
+for (const k of ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'UBER_ACCESS_TOKEN', 'TGTG_SPEC_CONFIRMED', 'SESSION_SECRET', 'FOODHUB_CLOVER_AUTOPRINT', 'CLOVER_PRINT_DEVICE_ID', 'FOODHUB_SYNC_MIN_INTERVAL_S', 'FOODHUB_CLOVER_RECORD_PAYMENT', 'FOODHUB_CLOVER_ORDER_TYPES', 'FOODHUB_CLOVER_INVENTORY_SYNC', 'FOODHUB_CLOVER_DELETE_CANCELLED', 'FOODHUB_SCHEDULED_AFTER_MIN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'FOODHUB_INSECURE_SHOW_CODES', 'TWILIO_MESSAGING_SERVICE_SID', 'FOODHUB_OWNER_EMAIL', 'FOODHUB_OWNER_PHONE', 'FOODHUB_FEATURE_DELIVERY', 'FOODHUB_FEATURE_RETAIL', 'FOODHUB_FEATURE_ALCOHOL', 'FOODHUB_FEATURE_PHONE', 'UBER_DIRECT_CUSTOMER_ID', 'UBER_DIRECT_CLIENT_ID', 'UBER_DIRECT_CLIENT_SECRET', 'FOODHUB_CLOVER_WEBSITE_ORDERS', 'FOODHUB_CLOVER_WEBSITE_ORDER_TYPES', 'FOODHUB_CLOVER_WEBSITE_POLL_S', 'FOODHUB_CLOVER_WEBSITE_CLOSE_MIN', 'FOODHUB_PUBLIC_HOME', 'FOODHUB_APP_MARKET_URL', 'FOODHUB_PUBLIC_SAME_AS']) delete env[k];
 const app = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '-p', String(APP_PORT), '-H', '127.0.0.1'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
 let appLog = '';
 app.stdout.on('data', (d) => { appLog += d; });
@@ -411,7 +411,19 @@ const ids = {};
 try {
   console.log('\n1. Security');
   const anon = await call('GET', '/', { auth: false, redirect: 'manual' });
-  check('Command Center without sign-in → login page', [302, 307].includes(anon.status) && /\/login/.test(anon.location || ''), `${anon.status} ${anon.location}`);
+  check('bare address without sign-in → public ON2GO Hub page (FOODHUB_PUBLIC_HOME default)', [302, 307].includes(anon.status) && new URL(anon.location || '/', APP).pathname === '/hub', `${anon.status} ${anon.location}`);
+  { const page = await call('GET', '/orders', { auth: false, redirect: 'manual' });
+    check('Command Center without sign-in → login page', [302, 307].includes(page.status) && /\/login/.test(page.location || ''), `${page.status} ${page.location}`); }
+  { const fr = await call('GET', '/hub', { auth: false, headers: { cookie: 'fh_lang=en' } });
+    const en = await call('GET', '/en/hub/pricing', { auth: false });
+    check('public ON2GO Hub pages open without sign-in, language fixed by the path', fr.status === 200 && fr.text.includes('<html lang="fr-CA"') && fr.text.includes('application/ld+json') && en.status === 200 && en.text.includes('<html lang="en-CA"'), `${fr.status} ${en.status}`);
+    const login = await fetch(`${APP}/login`);
+    check('public pages are indexable, the console is not', !/noindex/.test(fr.text) && login.headers.get('x-robots-tag') === 'noindex', String(login.headers.get('x-robots-tag')));
+    const robots = await call('GET', '/robots.txt', { auth: false });
+    const map = await call('GET', '/sitemap.xml', { auth: false });
+    const llms = await call('GET', '/llms.txt', { auth: false });
+    check('robots.txt, sitemap.xml and llms.txt are public', robots.status === 200 && /Disallow: \/api\//.test(robots.text) && map.status === 200 && map.text.includes('/hub/tarifs') && llms.status === 200 && llms.text.includes('ON2GO Hub'), `${robots.status} ${map.status} ${llms.status}`);
+    check('/hubx is not public', [302, 307].includes((await call('GET', '/hubx', { auth: false, redirect: 'manual' })).status)); }
   check('API without sign-in → 401 JSON', (await call('GET', '/api/foodhub/command', { auth: false })).status === 401);
   check('login page is public', (await call('GET', '/login', { auth: false })).status === 200);
   const home = await call('GET', '/');

@@ -195,6 +195,30 @@ Store statuses sync every 2 minutes while any screen is open. For sync even when
 
 Finance covers every location's money, so it is only for logins that see all locations.
 
+## Public pages (ON2GO Hub, indexable)
+
+| Address | What | Sign-in |
+| --- | --- | --- |
+| `/hub`, `/en/hub` | ON2GO Hub landing (French first, English twin) | none |
+| `/hub/tarifs`, `/en/hub/pricing` | Pricing: 14-day trial, $50/month per app, $15 per extra brand per platform, billed by Clover (`lib/foodhub/pricing.ts`) | none |
+| `/hub/integrations/{uber-eats,doordash,skipthedishes}-clover` (+ `/en/…`) | One page per platform integration | none |
+| `/hub/ecran-de-cuisine-clover`, `/en/hub/clover-kitchen-display` | Kitchen display | none |
+| `/hub/telephone-ia-restaurant`, `/en/hub/ai-phone-for-restaurants` | AI phone: coming soon, separate app | none |
+| `/robots.txt`, `/sitemap.xml`, `/llms.txt`, `/og/*`, `/favicon.ico` | Crawlers, AI assistants, share images | none |
+| `/legal/*` | Privacy, terms, support | none |
+
+- Words: `lib/foodhub/public-hub-content.ts`; product facts reused from the Clover App Market listing
+  (`lib/foodhub/clover-listing.ts`). Only shipped features; no hours claims, no aggregator names (`tests/public-hub.test.ts`).
+- An anonymous visitor on `/` lands on `/hub` (`FOODHUB_PUBLIC_HOME=off` restores `/login`); kitchen tablets keep their
+  PIN screen; signed-in users keep the console.
+- Every other response carries `X-Robots-Tag: noindex` (console, `/login`, API): the console never reaches a search engine.
+- `FOODHUB_APP_MARKET_URL` empty: "Bientôt sur le Clover App Market" and "Tarif prévu au lancement", no Offer in the
+  structured data. Set it once Clover approves the listing.
+- `FOODHUB_PUBLIC_SAME_AS`: LinkedIn / YouTube links for the Organization's `sameAs`. The support email shown is
+  `FOODHUB_SUPPORT_EMAIL`.
+- No trackers on these pages (no consent banner needed). Owner after deploy: Search Console URL-prefix property
+  `https://foodhub.on2go.ca/`, then submit `https://foodhub.on2go.ca/sitemap.xml`.
+
 ## Daily use
 
 | Screen | Use it for |

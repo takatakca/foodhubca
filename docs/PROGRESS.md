@@ -1,5 +1,26 @@
 # Food Hub: progress log and task board
 
+## 2026-10-16 — Public ON2GO Hub pages for search engines (task 45, build B, `feature/seo-hub-landing`)
+
+- New public, indexable pages, French first with an English twin: `/hub` (landing), `/hub/tarifs`,
+  `/hub/integrations/{uber-eats,doordash,skipthedishes}-clover`, `/hub/ecran-de-cuisine-clover`,
+  `/hub/telephone-ia-restaurant` and `/en/hub/…`. Server-rendered, no session, no database, no client script, no trackers.
+- Product facts reused from the Clover App Market listing (`clover-listing.ts`); prices in `lib/foodhub/pricing.ts`
+  (14-day trial, $50/month per app, $15 per extra brand per platform, billed by Clover). Too Good To Go only "when your
+  account offers an order feed"; AI phone "coming soon, separate app".
+- JSON-LD: Organization (ON2GO Hub, alt. TAKATAK Food Hub, Quadro Holdings LTEE, address), SoftwareApplication
+  (BusinessApplication, Clover), WebPage, FAQPage = visible FAQ, breadcrumbs; Offer only when `FOODHUB_APP_MARKET_URL`
+  is set; never a rating. Title ≤ 60, description ≤ 155, canonical, hreflang fr-CA / en-CA / x-default, share images
+  `public/og/hub-{fr,en}.png`.
+- `robots.txt`, `sitemap.xml` (hub pages + 3 legal pages), `llms.txt`, `favicon.ico`.
+- `proxy.ts`: public site paths (exact `/hub`, `/en/hub`, prefixes `/hub/`, `/en/hub/`, `/og/`; `/hubx` stays
+  private); language fixed by path (header read first by `getLang()`); anonymous `/` → `/hub` (`FOODHUB_PUBLIC_HOME=off`
+  restores `/login`; tablets and signed-in users unchanged); `X-Robots-Tag: noindex` on every non-public response.
+- e2e: the "/ without sign-in" check now expects `/hub`, and new checks cover the public pages, robots, sitemap, llms.
+- Owner after merge: redeploy; optional env `FOODHUB_APP_MARKET_URL`, `FOODHUB_PUBLIC_SAME_AS`; Search Console
+  URL-prefix property `https://foodhub.on2go.ca/` + sitemap; link the page from LinkedIn / YouTube / on2go.ca only once
+  the legal Draft banner is gone. Rebase after `fix/legal-pages-complete` merges (both touch `proxy.ts`).
+
 ## 2026-10-16 — Uber store kitchen mapping (task 39, `fix/uber-store-kitchen-mapping`)
 
 - The 7 Uber UUIDs in `data/actual/platform-stores-uber.json` are at 5839 Jean-Talon E (Saint-Léonard) in Uber's own records (Uber names them "(Hochelaga)"); production maps them to `NDG_6284`. That mapping was typed by hand in the console, so it lives only in the production `fh_channel_stores` rows: no repo seed or code defaulted Uber stores to NDG.

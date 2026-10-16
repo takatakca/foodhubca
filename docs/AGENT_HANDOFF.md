@@ -3,7 +3,7 @@
 ## Relève prioritaire — 2026-10-16 (la suite ancienne est historique)
 
 - **Dépôt/source** : `takatakca/foodhubca`, `main` `12ba64d9f6941698118533d40d3f381ff709065c`, propriétaire seul autorisé à fusionner `main` (`CLAUDE.md`).
-- **Dernière tâche développée** : accessibilité clavier des modales/tiroirs de la console. Branche `fix/overlay-keyboard-focus-20261016`. Dernier commit de code observé `153bbe3e1f957de0d9829b9fdb145df5328a6c70`, consulter HEAD GitHub pour le SHA final après cette documentation.
+- **Dernière tâche développée** : accessibilité clavier des modales/tiroirs de la console. Branche `fix/overlay-keyboard-focus-20261016`. Dernier commit de code observé `bcbf9e8f0008200c2e77f93ad6270383b5751b53` (protège aussi la fenêtre supérieure si une fenêtre inférieure se démonte hors ordre), consulter HEAD GitHub pour le SHA final après cette documentation.
 - **En cours** : revue/CI/image de la [PR #62](https://github.com/takatakca/foodhubca/pull/62) ouverte, puis essai clavier sur vrai navigateur et tablette. Aucun conflit visé avec les PR en cours.
 - **Fichiers modifiés** : `components/ui/overlay.tsx`, `lib/ui/overlay-focus.ts`, `tests/overlay-focus.test.ts`, `WORKLOG.md`, et les cinq documents `docs/{PROJECT_STATUS,TASK_QUEUE,AGENT_HANDOFF,DEPLOYMENT,DECISIONS}.md` ; `docs/PROGRESS.md` si présent.
 - **Effet technique** : les dialogues ont un panneau focalisable, un titre/sous-titre ARIA, une première cible clavier ; le navigateur ne traverse plus l'arrière-plan avec Tab ; Échap affecte uniquement le dialogue du haut ; le focus initial est restauré et le body retrouve son overflow précédent après le dernier dialogue.

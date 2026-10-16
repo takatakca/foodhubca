@@ -15,9 +15,9 @@ export const GET = withPerm('analytics:view', async (req, _ctx, actor) => {
   const q = new URL(req.url).searchParams;
   const f = parseReviewQuery(q);
   const now = Date.now();
-  const { all, listed } = await findReviews(actor, f);
+  const { scoped, all, listed } = await findReviews(actor, f);
   const limit = parseLimit(q.get('limit'), 100, 500);
-  const brands = [...new Set(all.map((r) => r.brandName).filter((b): b is string => Boolean(b)))].sort();
+  const brands = [...new Set(scoped.map((r) => r.brandName).filter((b): b is string => Boolean(b)))].sort();
   return ok({
     reviews: listed.slice(0, limit).map((r) => reviewView(r, now)),
     total: listed.length,

@@ -4,7 +4,7 @@ import { draftBatch, MAX_BATCH } from '@/lib/foodhub/reviews/drafts';
 import { findReviews, parseReviewQuery } from '@/lib/foodhub/reviews/query';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 // POST { ids?: string[] } (+ the page's filters in the query string) → proposes replies for the unanswered reviews
 // without a draft, at most 25, one after the other. Drafts only: Food Hub never posts a reply on a platform.

@@ -49,10 +49,14 @@ export function inRange(r: Pick<Review, 'at'>, f: Pick<ReviewQuery, 'from' | 'to
   return (!f.from || day >= f.from) && (!f.to || day <= f.to);
 }
 
-/** The person's reviews matching the filters: `all` ignores the date range (for trends), `listed` respects it. */
-export async function findReviews(actor: Pick<AuthUser, 'locations'>, f: ReviewQuery): Promise<{ all: Review[]; listed: Review[] }> {
-  const all = (await listReviews()).filter((r) => reviewInScope(actor, r) && matchesFilters(r, f));
-  return { all, listed: all.filter((r) => inRange(r, f)).sort((a, b) => b.at.localeCompare(a.at)) };
+/**
+ * The person's reviews: `scoped` = every review of their kitchens (for the filter choices), `all` = matching the filters
+ * but any date (for trends), `listed` = matching the filters and the date range, newest first.
+ */
+export async function findReviews(actor: Pick<AuthUser, 'locations'>, f: ReviewQuery): Promise<{ scoped: Review[]; all: Review[]; listed: Review[] }> {
+  const scoped = (await listReviews()).filter((r) => reviewInScope(actor, r));
+  const all = scoped.filter((r) => matchesFilters(r, f));
+  return { scoped, all, listed: all.filter((r) => inRange(r, f)).sort((a, b) => b.at.localeCompare(a.at)) };
 }
 
 /** What the page shows for one review (days left to answer on DoorDash added). */

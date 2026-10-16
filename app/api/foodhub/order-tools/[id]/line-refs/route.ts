@@ -15,8 +15,8 @@ type Ctx = { params: Promise<{ id: string }> };
 export const GET = withPerm<Ctx>('view', async (_req, context, actor) => {
   const { id } = await context.params;
   const order = await getRepo().getOrder(id);
-  if (!order) return fail('Order not found', 404);
-  if (!inScope(actor, order.locationCode)) return fail('Not one of your locations.', 403);
+  // Same answer for an unknown order and an order of another kitchen: ids of other kitchens cannot be probed.
+  if (!order || !inScope(actor, order.locationCode)) return fail('Order not found', 404);
   // The whole shared menu: an order line is matched whatever dishes the brand shows today.
   const menu = order.brandName ? await getBrandMenu(order.brandName, undefined, { allDishes: true }) : null;
   const closesInMin = order.brandName && order.locationCode ? minutesUntilClose(await getHours(), order.brandName, order.locationCode) : null;

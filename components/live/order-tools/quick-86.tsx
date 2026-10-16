@@ -12,6 +12,7 @@ import { api, ApiError } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import type { T } from '@/lib/i18n';
 import type { LineRef } from '@/lib/foodhub/order-tools/line-refs';
+import { notChangedLines, outcomeOf, quick86Headline, type ResultRow } from '@/lib/foodhub/order-tools/outcome';
 import { startOfLocalDayMs } from '@/lib/foodhub/time';
 import type { StoredOrder } from '@/lib/foodhub/types';
 import { cn } from '@/lib/ui/cn';
@@ -19,7 +20,7 @@ import { cn } from '@/lib/ui/cn';
 type Refs = { brand: string | null; locationCode: string | null; hasMenu: boolean; closesInMin: number | null; lines: LineRef[] };
 type Target = { ref: string; name: string; kind: 'item' | 'option' };
 type Choice = 'close' | 'four' | 'today' | 'forever';
-type Answer = { okCount: number; blockedCount: number; errorCount: number; results: Array<{ channel?: string; result: { ok: boolean; status?: string; message: string } }> };
+type Answer = { results: ResultRow[] };
 
 /** Minutes each choice means. "Aujourd'hui" = until close; without hours set, until local midnight. */
 export function quick86Minutes(choice: Choice, closesInMin: number | null, now = Date.now()): number | null {
@@ -28,15 +29,6 @@ export function quick86Minutes(choice: Choice, closesInMin: number | null, now =
   if (closesInMin && closesInMin > 0) return closesInMin;
   if (choice === 'today') return Math.max(1, Math.ceil((startOfLocalDayMs(now) + 24 * 3600_000 - now) / 60_000));
   return null;
-}
-
-/** Honest toast headline from the availability route's counts. */
-function headline(t: T, a: Answer): { kind: 'success' | 'warn' | 'error'; title: string } {
-  if (a.okCount && !a.errorCount && !a.blockedCount) return { kind: 'success', title: t(`En rupture sur ${a.okCount} magasin(s)`, `Out of stock on ${a.okCount} store(s)`) };
-  if (a.okCount) return { kind: 'warn', title: t(`En rupture sur ${a.okCount} magasin(s) — ${a.blockedCount + a.errorCount} non changé(s)`, `Out of stock on ${a.okCount} store(s) — ${a.blockedCount + a.errorCount} not changed`) };
-  if (a.blockedCount && !a.errorCount) return { kind: 'warn', title: t('Rien n’a changé sur les plateformes (magasins verrouillés)', 'Nothing changed on the platforms (stores locked)') };
-  if (!a.results.length) return { kind: 'warn', title: t('Noté dans Food Hub — aucun magasin de plateforme relié ici', 'Saved in Food Hub — no platform store mapped here') };
-  return { kind: 'error', title: t('Les plateformes ont refusé la rupture', 'The platforms refused the 86') };
 }
 
 /** "Rupture" next to each line and option of a platform order: 86 it everywhere at this kitchen in two taps. */
@@ -64,8 +56,9 @@ export function Quick86({ order }: { order: Pick<StoredOrder, 'id' | 'lines' | '
     setBusy(choice);
     try {
       const a = await api<Answer>('/api/foodhub/availability', { method: 'POST', json: { brand: refs.brand, itemRefs: [target.ref], available: false, minutes, locationCode: refs.locationCode } });
-      const h = headline(t, a);
-      const body = a.results.filter((r) => !r.result.ok).map((r) => `${r.channel ?? ''}: ${r.result.message}`).join('\n') || target.name;
+      // Counted from each row's status: a skipped store (locked, "Do not touch", not this brand's dish) is never "changed".
+      const h = quick86Headline(t, a.results);
+      const body = notChangedLines(outcomeOf(a.results)).join('\n') || target.name;
       toast[h.kind](h.title, body);
       setTarget(null);
       refreshEverything();
@@ -133,13 +126,16 @@ function Row({ name, refValue, onPick, t, small }: { name: string; refValue?: st
     <div className="flex min-h-12 items-center gap-3">
       <div className="min-w-0 flex-1">
         <div className={cn('truncate', small ? 'text-[13px] text-ink-2' : 'font-semibold text-ink')}>{name}</div>
-        {!refValue && (
-          <div className="text-[11px] text-ink-3">
-            {t('Introuvable dans le menu : utilisez Ruptures (86)', 'Not found in the menu: use Out of stock (86)')} · <Link href="/menu/86" className="font-semibold underline underline-offset-2">{t('Ouvrir', 'Open')}</Link>
-          </div>
-        )}
+        {!refValue && <div className="text-xs text-ink-3">{t('Introuvable dans le menu : utilisez Ruptures (86)', 'Not found in the menu: use Out of stock (86)')}</div>}
       </div>
-      <Button size="lg" variant="soft" className="min-w-28 text-stop" disabled={!refValue} onClick={() => refValue && onPick(refValue)} icon={<Ban className="size-4" />}>{t('Rupture', '86')}</Button>
+      {refValue
+        ? <Button size="lg" variant="soft" className="min-w-28 text-stop" aria-label={t(`Rupture : ${name}`, `86: ${name}`)} onClick={() => onPick(refValue)} icon={<Ban className="size-4" />}>{t('Rupture', '86')}</Button>
+        : (
+          <Link href="/menu/86" aria-label={t(`Ouvrir Ruptures (86) pour ${name}`, `Open Out of stock (86) for ${name}`)}
+            className="inline-flex min-h-12 min-w-28 items-center justify-center rounded-md border border-line-2 px-4 text-sm font-semibold text-ink-2 hover:border-ink-4 hover:text-ink">
+            {t('Ruptures (86)', 'Out of stock (86)')}
+          </Link>
+        )}
     </div>
   );
 }

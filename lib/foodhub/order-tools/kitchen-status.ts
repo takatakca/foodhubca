@@ -1,17 +1,21 @@
 // Kitchen order tools — store status from the kitchen: Normal / Busy (prep minutes) / Paused (which channels, which
-// brands, how long, why). The screen sends the EXISTING routes (/api/foodhub/prep, /api/foodhub/stores/status); this
-// file only decides what to show and which stores a pause may include.
+// brands, how long, why). Prep goes to the existing /api/foodhub/prep; pause / reopen goes to the kitchen route
+// POST /api/foodhub/order-tools/kitchen/status, which re-checks every store on the SERVER (splitKitchenRequest) before
+// the existing store-status logic runs. This file decides what to show and which stores may be sent.
 //
 // Locked, shown but never sent: a store marked "Do not touch" (meta.doNotTouch) and a protected DoorDash store
 // (FORBIDDEN_STORE_IDS — Po Poulet NDG — or the built-in menu lock). Relay stores ("relay:<id>") are hidden: the
 // platform's API does not know them, so a pause could not reach them anyway.
 //
-// Pure (no server import): the screen and the tests both use it. The forbidden ids are passed in (the server route
+// Pure (no server import): the screen, the route and the tests all use it. The forbidden ids are passed in (the server
 // sends FORBIDDEN_STORE_IDS), so this file never carries a store id itself.
+import { localParts } from '../time';
 import type { ChannelKey, ChannelStore } from '../types';
 
 /** Same prefix as RELAY_STORE_PREFIX in adapters/relay.ts (not imported: that file is server-only). */
 const RELAY_PREFIX = 'relay:';
+/** Same text as HOLIDAY_REASON in ops.ts (not imported: that file is server-only) — the holiday auto-pause. */
+export const HOLIDAY_PAUSE_REASON = 'Holiday closure';
 
 export type KitchenStore = Pick<ChannelStore, 'id' | 'channel' | 'channelStoreId' | 'brandName' | 'locationCode' | 'online'> & {
   pausedUntil?: string | null;
@@ -64,9 +68,65 @@ export function pauseTargets(k: KitchenStores, pick: { channels: ChannelKey[]; b
   return k.stores.filter((s) => !s.locked && pick.channels.includes(s.channel) && pick.brands.includes(s.brandName)).map((s) => s.id);
 }
 
-/** Store ids "Tout rouvrir" sends: every unlocked store of the kitchen that is paused now. */
-export function resumeTargets(k: KitchenStores): string[] {
-  return k.stores.filter((s) => !s.locked && s.online === false).map((s) => s.id);
+/** Business day (YYYY-MM-DD, hub time zone) — same format as meta.holidayPause. */
+export function localDay(ms = Date.now()): string {
+  const p = localParts(ms);
+  return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
+}
+
+/**
+ * Why "Tout rouvrir" must leave this paused store alone, or null. The kitchen reopens its own pauses only:
+ *   - holiday: the holiday auto-pause (meta.holidayPause is today, or the pause reason is the holiday one);
+ *   - platform: the platform itself shut or closed the store (DoorDash deactivation webhook, outside menu hours…).
+ */
+export type ResumeHold = 'holiday' | 'platform';
+export function resumeHoldOf(s: Pick<KitchenStore, 'meta'>, today: string): ResumeHold | null {
+  const ps = s.meta?.platformStatus as { state?: string; detail?: string } | undefined;
+  if (s.meta?.holidayPause === today || ps?.detail === HOLIDAY_PAUSE_REASON) return 'holiday';
+  if (ps?.state === 'deactivated' || ps?.state === 'closed') return 'platform';
+  return null;
+}
+
+/** Store ids "Tout rouvrir" sends: unlocked paused stores of the kitchen, minus holiday and platform closures. */
+export function resumeTargets(k: KitchenStores, today = localDay()): string[] {
+  return k.stores.filter((s) => !s.locked && s.online === false && !resumeHoldOf(s, today)).map((s) => s.id);
+}
+
+/** Paused stores "Tout rouvrir" leaves closed, with the reason (shown in the sheet). */
+export function resumeHeld(k: KitchenStores, today = localDay()): Map<string, ResumeHold> {
+  const out = new Map<string, ResumeHold>();
+  for (const s of k.stores) {
+    const hold = !s.locked && s.online === false ? resumeHoldOf(s, today) : null;
+    if (hold) out.set(s.id, hold);
+  }
+  return out;
+}
+
+// ---------- server-side refusal (POST /api/foodhub/order-tools/kitchen/status) ----------
+
+export type NotSentReason = LockReason | ResumeHold | 'other_kitchen' | 'unknown';
+
+/**
+ * Splits the store ids a kitchen asked to pause / reopen into the ones that may be sent and the ones refused, with the
+ * same rules the sheet shows. The route runs it on the SERVER, so a stale tablet or a hand-made request never reaches a
+ * protected store. Pass stores carrying menuLock (menuLockOf) so the built-in lock counts too.
+ */
+export function splitKitchenRequest(
+  ids: string[], stores: KitchenStore[], opts: { locationCode: string; online: boolean; forbiddenIds: Iterable<string>; today: string },
+): { send: string[]; notSent: Array<{ storeId: string; reason: NotSentReason }> } {
+  const forbidden = [...opts.forbiddenIds];
+  const byId = new Map(stores.map((s) => [s.id, s]));
+  const send: string[] = [];
+  const notSent: Array<{ storeId: string; reason: NotSentReason }> = [];
+  for (const id of [...new Set(ids.map(String))]) {
+    const s = byId.get(id);
+    let reason: NotSentReason | null = null;
+    if (!s) reason = 'unknown';
+    else reason = lockReasonOf(s, forbidden) // a protected store is refused first, wherever it is mapped
+      ?? (s.locationCode !== opts.locationCode || isRelayKitchenStore(s) ? 'other_kitchen' : opts.online ? resumeHoldOf(s, opts.today) : null);
+    if (reason) notSent.push({ storeId: id, reason }); else send.push(id);
+  }
+  return { send, notSent };
 }
 
 // ---------- summary (the header button) ----------

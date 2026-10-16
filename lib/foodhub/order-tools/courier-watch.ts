@@ -8,7 +8,7 @@
 //   none      no courier info (pickup order, not assigned yet, cancelled order…)
 //
 // Pure (no server import): the screen and the tests both use it.
-import type { CourierInfo, StoredOrder } from '../types';
+import type { CourierInfo, OrderEvent, StoredOrder } from '../types';
 
 export type CourierWatchKind = 'none' | 'assigned' | 'arriving' | 'waiting' | 'here' | 'gone';
 
@@ -33,11 +33,33 @@ export interface CourierWatch {
 /** ETA at or under this many minutes = "arriving". */
 export const ARRIVING_MINUTES = 5;
 
-type OrderLike = Pick<StoredOrder, 'status' | 'fulfillment'> & { timeline?: StoredOrder['timeline'] };
+type OrderLike = Pick<StoredOrder, 'status' | 'fulfillment'> & { id?: string; timeline?: StoredOrder['timeline'] };
+type EventLike = Pick<OrderEvent, 'type' | 'detail' | 'at'>;
 
 const isReady = (o: OrderLike) => ['ready', 'dispatched', 'completed'].includes(o.status) || Boolean(o.timeline?.readyAt);
 
-export function courierWatchState(order: OrderLike, now = Date.now()): CourierWatch {
+/** Order id → first time this screen saw its courier at the counter (ms). Survives a re-sent at_store update. */
+const atStoreSeen = new Map<string, number>();
+
+/**
+ * When the courier really reached the counter. courier.updatedAt moves on EVERY courier update (a repeated at_store
+ * webhook, an ETA refresh, a name change), so it is only the fallback: the earliest of the first "courier" event with
+ * status at_store (the order's events), the first time this screen saw the order at_store, and updatedAt.
+ */
+export function atStoreSince(orderId: string | undefined, updatedAt: string, events: EventLike[] = [], memory: Map<string, number> = atStoreSeen): string {
+  const times = [Date.parse(updatedAt), ...events.filter((e) => e.type === 'courier' && e.detail?.status === 'at_store').map((e) => Date.parse(e.at))]
+    .filter(Number.isFinite);
+  if (orderId && memory.has(orderId)) times.push(memory.get(orderId)!);
+  if (!times.length) return updatedAt;
+  const first = Math.min(...times);
+  if (orderId && memory.get(orderId) !== first) {
+    memory.set(orderId, first);
+    if (memory.size > 500) memory.delete(memory.keys().next().value as string);
+  }
+  return new Date(first).toISOString();
+}
+
+export function courierWatchState(order: OrderLike, now = Date.now(), opts: { events?: EventLike[]; memory?: Map<string, number> } = {}): CourierWatch {
   const tl = order.timeline ?? {};
   const c: CourierInfo | undefined = tl.courier;
   if (order.status === 'cancelled' || order.status === 'failed') return { kind: 'none', chime: false };
@@ -51,7 +73,7 @@ export function courierWatchState(order: OrderLike, now = Date.now()): CourierWa
   }
   if (!c || c.status === 'unassigned') return { kind: 'none', chime: false };
   if (c.status === 'at_store') {
-    const since = c.updatedAt;
+    const since = atStoreSince(order.id, c.updatedAt, opts.events, opts.memory);
     const seconds = Math.max(0, Math.floor((now - Date.parse(since)) / 1000));
     if (!isReady(order)) return { kind: 'waiting', since, seconds, minutes: Math.floor(seconds / 60), chime: false, ...name, ...(c.etaAt ? { etaAt: c.etaAt } : {}) };
     return { kind: 'here', since, seconds, chime: false, ...name };
@@ -72,12 +94,21 @@ export function courierWatchState(order: OrderLike, now = Date.now()): CourierWa
 /** Order ids that already chimed on this screen (one chime per order, ever — never a loop). */
 const chimed = new Set<string>();
 
-/** True the first time an order reaches a chiming state; false afterwards. Pass your own Set in tests. */
-export function chimeOnce(orderId: string, state: Pick<CourierWatch, 'chime'>, memory: Set<string> = chimed): boolean {
+/**
+ * True the first time an order reaches a chiming state; false afterwards. Pass your own Set in tests.
+ * late = the screen first showed this order when its courier ETA had already passed (an old order opened later): the
+ * order is marked as chimed WITHOUT a sound, so opening it never beeps long after the 5-minute moment.
+ */
+export function chimeOnce(orderId: string, state: Pick<CourierWatch, 'chime'>, memory: Set<string> = chimed, late = false): boolean {
   if (!state.chime || memory.has(orderId)) return false;
   memory.add(orderId);
   if (memory.size > 500) memory.delete(memory.values().next().value as string);
-  return true;
+  return !late;
+}
+
+/** The ETA is already behind us: "arriving" with 0 minutes left from a known ETA. */
+export function etaPassed(state: Pick<CourierWatch, 'kind' | 'minutes' | 'etaAt'>): boolean {
+  return state.kind === 'arriving' && Boolean(state.etaAt) && state.minutes === 0;
 }
 
 /** "mm:ss" (or "h:mm:ss" past an hour) for the waiting timer. */

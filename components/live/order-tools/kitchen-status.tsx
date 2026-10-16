@@ -12,20 +12,22 @@ import { refreshEverything } from '@/components/live/pulse';
 import { api, ApiError, timeOf } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import {
-  kitchenStatusText, kitchenStores, PAUSE_CHOICES, PAUSE_REASONS, pauseMinutes, pauseTargets, resumeTargets, stepBusyMinutes, summarizeKitchen,
+  kitchenStatusText, kitchenStores, PAUSE_CHOICES, PAUSE_REASONS, pauseMinutes, pauseTargets, resumeHeld, resumeTargets, stepBusyMinutes, summarizeKitchen,
   type KitchenStore, type PauseChoice, type PrepLike,
 } from '@/lib/foodhub/order-tools/kitchen-status';
+import { notChangedLines, outcomeOf, type ResultRow } from '@/lib/foodhub/order-tools/outcome';
 import type { ChannelKey } from '@/lib/foodhub/types';
 import { cn } from '@/lib/ui/cn';
 
 type KitchenFacts = { closesInMin: number | null; brandsCloseInMin: Record<string, number | null>; forbiddenStoreIds: string[] };
-type StatusResult = { results: Array<{ channel?: string; result: { ok: boolean; message: string } }> };
+type StatusResult = { results: ResultRow[]; notSent: Array<{ storeId: string; reason: string }> };
 
 /**
  * Store status from the kitchen: one header button ("Ouvert · Normal 15 min", "Occupé · 25 min", "En pause jusqu'à
  * 18:30 (3/5)") opening a sheet — busy on/off and busy minutes ±5 (POST /api/foodhub/prep), pause by channel and brand
- * with a reason (POST /api/foodhub/stores/status, manager PIN through the existing rule), "Tout rouvrir". Protected and
- * "Do not touch" stores are shown locked and never sent.
+ * with a reason (POST /api/foodhub/order-tools/kitchen/status, manager PIN through the existing "store.pause" rule),
+ * "Tout rouvrir" (the kitchen's own pauses only: holiday and platform closures stay closed). Protected and "Do not
+ * touch" stores are shown locked; the route refuses them on the server too.
  */
 export function KitchenStatus({ locationCode }: { locationCode: string }) {
   const { t, lang, loc } = useI18n();
@@ -60,6 +62,7 @@ export function KitchenStatus({ locationCode }: { locationCode: string }) {
   const pickBrands = brands ?? k?.brands ?? [];
   const targets = k ? pauseTargets(k, { channels: pickChannels, brands: pickBrands }) : [];
   const resume = k ? resumeTargets(k) : [];
+  const held = k ? resumeHeld(k) : new Map<string, string>();
   const locked = k?.stores.filter((s) => s.locked) ?? [];
   const closeKnown = pickBrands.map((b) => facts?.brandsCloseInMin[b]).filter((m): m is number => typeof m === 'number');
   const closesInMin = closeKnown.length ? Math.max(...closeKnown) : null;
@@ -82,10 +85,13 @@ export function KitchenStatus({ locationCode }: { locationCode: string }) {
     setBusy(online ? 'resume' : 'pause');
     try {
       const why = PAUSE_REASONS.find((r) => r.value === reason)?.text;
-      const r = await api<StatusResult>('/api/foodhub/stores/status', { method: 'POST', json: online ? { storeIds: ids, online: true } : { storeIds: ids, online: false, minutes: minutes ?? 0, reason: why } });
-      const bad = r.results.filter((x) => !x.result.ok);
-      if (bad.length) toast.warn(t(`${r.results.length - bad.length}/${r.results.length} magasin(s) changé(s)`, `${r.results.length - bad.length}/${r.results.length} store(s) changed`), bad.map((b) => `${b.channel ?? ''}: ${b.result.message}`).join('\n'));
-      else toast.success(online ? t('Rouvert sur les plateformes', 'Reopened on the platforms') : t('En pause sur les plateformes', 'Paused on the platforms'), `${r.results.length} ${t('magasin(s)', 'store(s)')}`);
+      const r = await api<StatusResult>('/api/foodhub/order-tools/kitchen/status', { method: 'POST', json: online ? { locationCode, storeIds: ids, online: true } : { locationCode, storeIds: ids, online: false, minutes: minutes ?? 0, reason: why } });
+      // Counted from each row's status (a skipped row is not "changed"); stores the server refused are counted too.
+      const o = outcomeOf(r.results);
+      const asked = r.results.length + (r.notSent?.length ?? 0);
+      const lines = [...notChangedLines(o), ...(r.notSent?.length ? [t(`${r.notSent.length} non envoyé(s) : verrouillé, autre cuisine ou fermé par la plateforme / un férié`, `${r.notSent.length} not sent: locked, another kitchen, or closed by the platform / a holiday`)] : [])];
+      if (o.changed.length === asked && asked > 0) toast.success(online ? t('Rouvert sur les plateformes', 'Reopened on the platforms') : t('En pause sur les plateformes', 'Paused on the platforms'), `${o.changed.length} ${t('magasin(s)', 'store(s)')}`);
+      else toast.warn(t(`${o.changed.length}/${asked} magasin(s) changé(s)`, `${o.changed.length}/${asked} store(s) changed`), lines.join('\n'));
       await load(); refreshEverything();
     } catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(t('Changement impossible', 'Could not change it'), e instanceof Error ? e.message : String(e)); }
     finally { setBusy(null); }
@@ -161,7 +167,12 @@ export function KitchenStatus({ locationCode }: { locationCode: string }) {
                       {s.locked
                         ? <span className="inline-flex items-center gap-1 text-ink-3"><Lock className="size-3.5" />{s.lockReason === 'forbidden' ? t('Protégé — jamais touché', 'Protected — never touched') : t('« Ne pas toucher »', '“Do not touch”')}</span>
                         : s.online === false
-                          ? <span className="font-semibold text-stop">{s.pausedUntil ? t(`En pause jusqu’à ${timeOf(s.pausedUntil, loc)}`, `Paused until ${timeOf(s.pausedUntil, loc)}`) : t('En pause', 'Paused')}</span>
+                          ? (
+                            <span className="text-right font-semibold text-stop">
+                              {s.pausedUntil ? t(`En pause jusqu’à ${timeOf(s.pausedUntil, loc)}`, `Paused until ${timeOf(s.pausedUntil, loc)}`) : t('En pause', 'Paused')}
+                              {held.has(s.id) && <span className="block text-xs font-normal text-ink-3">{held.get(s.id) === 'holiday' ? t('Fermé pour un férié — pas dans « Tout rouvrir »', 'Holiday closure — not in “Reopen all”') : t('Fermé par la plateforme — pas dans « Tout rouvrir »', 'Closed by the platform — not in “Reopen all”')}</span>}
+                            </span>
+                          )
                           : <span className="text-go-2">{t('Ouvert', 'Open')}</span>}
                     </li>
                   ))}

@@ -2,7 +2,8 @@
 import { describe, expect, it } from 'vitest';
 import { RELAY_STORE_PREFIX } from '../lib/foodhub/adapters/relay';
 import {
-  kitchenStatusText, kitchenStores, lockReasonOf, pauseMinutes, pauseTargets, resumeTargets, stepBusyMinutes, summarizeKitchen, type KitchenStore,
+  HOLIDAY_PAUSE_REASON, kitchenStatusText, kitchenStores, lockReasonOf, pauseMinutes, pauseTargets, resumeHeld, resumeHoldOf, resumeTargets, splitKitchenRequest,
+  stepBusyMinutes, summarizeKitchen, type KitchenStore,
 } from '../lib/foodhub/order-tools/kitchen-status';
 import { BUILT_IN_MENU_LOCKS } from '../lib/foodhub/menu/lock';
 import { FORBIDDEN_STORE_IDS } from '../lib/foodhub/public-directory';
@@ -95,5 +96,44 @@ describe('choices', () => {
     expect(stepBusyMinutes(25, 5)).toBe(30);
     expect(stepBusyMinutes(5, -5)).toBe(5);
     expect(stepBusyMinutes(120, 5)).toBe(120);
+  });
+});
+
+describe('"Tout rouvrir" reopens the kitchen’s own pauses only', () => {
+  const TODAY = '2026-10-16';
+  const k = kitchenStores([
+    store({ id: 'mine', online: false, meta: { platformStatus: { state: 'paused', detail: 'Kitchen too busy', source: 'dashboard' } } }),
+    store({ id: 'holiday-reason', online: false, meta: { platformStatus: { state: 'paused', detail: HOLIDAY_PAUSE_REASON, source: 'dashboard' } } }),
+    store({ id: 'holiday-today', channel: 'skip', online: false, meta: { holidayPause: TODAY } }),
+    store({ id: 'holiday-old', channel: 'skip', online: false, meta: { holidayPause: '2026-10-01' } }),
+    store({ id: 'dd-shut', channel: 'doordash', online: false, meta: { platformStatus: { state: 'deactivated', source: 'webhook' } } }),
+    store({ id: 'uber-closed', online: false, meta: { platformStatus: { state: 'closed', detail: 'OUT_OF_MENU_HOURS', source: 'sync' } } }),
+  ], 'NDG', FORBIDDEN_STORE_IDS);
+
+  it('skips holiday auto-pauses and stores the platform shut or closed', () => {
+    expect(resumeTargets(k, TODAY).sort()).toEqual(['holiday-old', 'mine']);
+    expect(Object.fromEntries(resumeHeld(k, TODAY))).toEqual({ 'holiday-reason': 'holiday', 'holiday-today': 'holiday', 'dd-shut': 'platform', 'uber-closed': 'platform' });
+    expect(resumeHoldOf({ meta: {} }, TODAY)).toBeNull();
+  });
+});
+
+describe('splitKitchenRequest (the server-side refusal)', () => {
+  const opts = { locationCode: 'NDG', forbiddenIds: FORBIDDEN_STORE_IDS, today: '2026-10-16' };
+  it('never lets a protected, "Do not touch", relay, other-kitchen or unknown store through', () => {
+    const r = splitKitchenRequest(['u-alpha', 'd-protected', 'd-protected-number', 'u-dnt', 'relay', 'other-kitchen', 'missing', 'u-alpha'], all, { ...opts, online: false });
+    expect(r.send).toEqual(['u-alpha']);
+    expect(r.notSent).toEqual([
+      { storeId: 'd-protected', reason: 'forbidden' }, { storeId: 'd-protected-number', reason: 'forbidden' }, { storeId: 'u-dnt', reason: 'do_not_touch' },
+      { storeId: 'relay', reason: 'other_kitchen' }, { storeId: 'other-kitchen', reason: 'other_kitchen' }, { storeId: 'missing', reason: 'unknown' },
+    ]);
+  });
+  it('the built-in menu lock refuses the store even with an empty forbidden list', () => {
+    const s = [store({ id: 'dd', channel: 'doordash', channelStoreId: 'x', menuLock: { locked: true, source: 'built_in' } })];
+    expect(splitKitchenRequest(['dd'], s, { ...opts, forbiddenIds: [], online: false })).toEqual({ send: [], notSent: [{ storeId: 'dd', reason: 'forbidden' }] });
+  });
+  it('a reopen also leaves holiday and platform closures out; a pause does not care', () => {
+    const s = [store({ id: 'h', online: false, meta: { holidayPause: '2026-10-16' } }), store({ id: 'p', online: false, meta: { platformStatus: { state: 'deactivated' } } })];
+    expect(splitKitchenRequest(['h', 'p'], s, { ...opts, online: true }).notSent).toEqual([{ storeId: 'h', reason: 'holiday' }, { storeId: 'p', reason: 'platform' }]);
+    expect(splitKitchenRequest(['h', 'p'], s, { ...opts, online: false }).send).toEqual(['h', 'p']);
   });
 });

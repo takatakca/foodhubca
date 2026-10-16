@@ -232,7 +232,7 @@ export function OrderDetail({ order, events, onChange, compact }: { order: FullO
           <dt className="font-bold text-ink">{t('Total client', 'Customer total')}</dt><dd className="num text-right font-extrabold text-ink">{money(order.total, loc)}</dd>
         </dl>
       </div>
-      <OrderTools order={order} />
+      <OrderTools order={order} events={events} />
 
       {/* details */}
       <div className="rounded-lg border border-line bg-surface p-4 text-[13px]">

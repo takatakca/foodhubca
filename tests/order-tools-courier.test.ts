@@ -1,6 +1,6 @@
 // Kitchen order tools — courier watch: every state, the timers, and the single "arriving" chime per order.
 import { describe, expect, it } from 'vitest';
-import { ARRIVING_MINUTES, chimeOnce, courierWatchState, mmss } from '../lib/foodhub/order-tools/courier-watch';
+import { ARRIVING_MINUTES, chimeOnce, courierWatchState, etaPassed, mmss } from '../lib/foodhub/order-tools/courier-watch';
 import type { CourierInfo, OrderTimeline, StoredOrder } from '../lib/foodhub/types';
 
 const NOW = Date.parse('2026-10-16T22:00:00Z');
@@ -64,5 +64,39 @@ describe('chimeOnce', () => {
     expect(chimeOnce('o1', { chime: true }, mem)).toBe(false);
     expect(chimeOnce('o1', { chime: true }, mem)).toBe(false);
     expect(chimeOnce('o2', { chime: true }, mem)).toBe(true);
+  });
+});
+
+describe('waiting timer survives a re-sent at_store update', () => {
+  it('a second at_store update (new updatedAt) does not reset the timer seen on this screen', () => {
+    const mem = new Map<string, number>();
+    const first = { id: 'o-wait', ...order('accepted', { courier: courier({ status: 'at_store', updatedAt: new Date(NOW - 125_000).toISOString() }) }) };
+    expect(courierWatchState(first, NOW, { memory: mem })).toMatchObject({ kind: 'waiting', seconds: 125 });
+    // 30 s later the platform re-sends at_store (ETA refresh / same status): updatedAt jumps to "now"
+    const again = { id: 'o-wait', ...order('accepted', { courier: courier({ status: 'at_store', updatedAt: new Date(NOW + 30_000).toISOString() }) }) };
+    expect(courierWatchState(again, NOW + 30_000, { memory: mem })).toMatchObject({ kind: 'waiting', seconds: 155, since: new Date(NOW - 125_000).toISOString() });
+  });
+
+  it('counts from the first "courier" at_store event when the screen opens after the re-send', () => {
+    const again = { id: 'o-late-open', ...order('accepted', { courier: courier({ status: 'at_store', updatedAt: new Date(NOW - 10_000).toISOString() }) }) };
+    const events = [
+      { type: 'courier', detail: { status: 'arriving' }, at: new Date(NOW - 400_000).toISOString() },
+      { type: 'courier', detail: { status: 'at_store' }, at: new Date(NOW - 300_000).toISOString() },
+      { type: 'courier', detail: { status: 'at_store' }, at: new Date(NOW - 10_000).toISOString() },
+    ];
+    expect(courierWatchState(again, NOW, { events, memory: new Map() })).toMatchObject({ kind: 'waiting', seconds: 300, minutes: 5 });
+  });
+});
+
+describe('no late chime', () => {
+  it('opening an order whose courier ETA already passed marks it chimed, silently', () => {
+    const late = courierWatchState(order('accepted', { courier: courier({ etaAt: iso(-3) }) }), NOW);
+    expect(etaPassed(late)).toBe(true);
+    const mem = new Set<string>();
+    expect(chimeOnce('o-late', late, mem, etaPassed(late))).toBe(false);
+    expect(chimeOnce('o-late', late, mem)).toBe(false); // never chimes later either
+    const near = courierWatchState(order('accepted', { courier: courier({ etaAt: iso(4) }) }), NOW);
+    expect(etaPassed(near)).toBe(false);
+    expect(chimeOnce('o-near', near, mem, etaPassed(near))).toBe(true);
   });
 });

@@ -12,7 +12,7 @@ type Ctx = { params: Promise<{ id: string }> };
 export const GET = withPerm<Ctx>('analytics:view', async (_req, context, actor) => {
   const { id } = await context.params;
   const order = await getRepo().getOrder(id);
-  if (!order) return fail('Order not found', 404);
-  if (!inScope(actor, order.locationCode)) return fail('Not one of your locations.', 403);
+  // Same answer for an unknown order and an order of another kitchen: ids of other kitchens cannot be probed.
+  if (!order || !inScope(actor, order.locationCode)) return fail('Order not found', 404);
   return ok({ money: await orderMoney(order) });
 });

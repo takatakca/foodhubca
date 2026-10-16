@@ -5,7 +5,7 @@
 - New `components/live/order-tools/*` + `lib/foodhub/order-tools/*`, wired by two additive lines (order drawer after the items, kitchen header next to Busy). Doc: `docs/KITCHEN_ORDER_TOOLS.md`.
 - Rupture (86) from each order line and option (until close / 4 h / today / indefinitely) through the existing `/api/foodhub/availability` (manager PIN rule kept); courier watch (assigned, arriving with one chime, waiting mm:ss in red, gone planned vs actual); kitchen store status sheet (busy ±5 via `/api/foodhub/prep`, pause by channel + brand + reason via `/api/foodhub/stores/status`, reopen all; Po Poulet NDG DoorDash and "Do not touch" stores shown locked, never sent); read-only order money (reconcile + cases, 60 s cache, link to /money/disputes, no submission).
 - New read-only routes: `GET /api/foodhub/order-tools/[id]/line-refs`, `GET /api/foodhub/order-tools/[id]/money`, `GET /api/foodhub/order-tools/kitchen`. 5 new test files.
-- Checks: see the pull request (typecheck, lint, tests, webpack build, verify:foodhub).
+- Checks: typecheck OK, lint 0 errors (1 old warning), 991 tests passed + 1 skipped, 1 pre-existing Windows CRLF failure in tests/tgtg-email.test.ts (also on main), +37 new tests; webpack build OK; verify:foodhub 554/0. No env, no migration.
 
 ## 2026-10-16 — Uber store kitchen mapping (task 39, `fix/uber-store-kitchen-mapping`)
 

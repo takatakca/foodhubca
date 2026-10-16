@@ -56,7 +56,7 @@ beforeEach(() => {
   for (const k of ENV) { saved[k] = process.env[k]; delete process.env[k]; }
   setDoorDashSleep(async () => undefined);
   Object.assign(process.env, {
-    DOORDASH_DEVELOPER_ID: 'dev', DOORDASH_KEY_ID: 'kid', DOORDASH_SIGNING_SECRET: 'c2VjcmV0', DOORDASH_PROVIDER_TYPE: 'takatak_test', DOORDASH_WEBHOOK_SECRET: 'dd-secret', LIVE_CONNECTORS_GLOBAL_ENABLED: 'true',
+    DOORDASH_DEVELOPER_ID: 'dev', DOORDASH_KEY_ID: 'kid', DOORDASH_SIGNING_SECRET: 'c2VjcmV0', DOORDASH_PROVIDER_TYPE: 'takatak_sandbox', DOORDASH_WEBHOOK_SECRET: 'dd-secret', LIVE_CONNECTORS_GLOBAL_ENABLED: 'true',
     DOORDASH_DRIVE_DEVELOPER_ID: 'd1', DOORDASH_DRIVE_KEY_ID: 'k1', DOORDASH_DRIVE_SIGNING_SECRET: 'c2VjcmV0',
   });
 });
@@ -190,7 +190,7 @@ describe('onboarding: SOW, SSIO, retail self-serve', () => {
   it('sowBody fills every required field from stored data, or says what is missing', async () => {
     const store = await ddStore({ meta: { platformStoreId: '4455' } });
     expect(sowBody(store, kitchen, me, 'admin@example.com').body).toMatchObject({
-      partner_store_id: 'dd-1', partner_business_id: 'Pi Pita', doordash_store_id: 4455, partner_store_name: 'Pi Pita', provider_type: 'takatak_test', address_line_1: '6280 Somerled Ave', address_city: 'Montréal', address_state: 'QC', address_zip: 'H4V 1R9',
+      partner_store_id: 'dd-1', partner_business_id: 'Pi Pita', doordash_store_id: 4455, partner_store_name: 'Pi Pita', provider_type: 'takatak_sandbox', address_line_1: '6280 Somerled Ave', address_city: 'Montréal', address_state: 'QC', address_zip: 'H4V 1R9',
       requestor_first_name: 'Marc', requestor_email: 'marc@example.com', merchant_decision_maker_email: 'admin@example.com',
     });
     expect(sowBody(store, { ...kitchen, postalCode: '' }, me, 'a@b.co').error).toMatch(/incomplete/);

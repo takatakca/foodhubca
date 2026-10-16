@@ -16,19 +16,30 @@ import { menuForLocation } from '../ops';
 import { prepFor } from '../prep';
 import { CANCEL_REASON_LABELS, type CancelReason, type ChannelResult, type NormalizedOrder, type OrderStatus, type StoredOrder } from '../types';
 import {
-  SANDBOX_CLIENT_PREFIX, addSandboxEvent, addSandboxLog, findSandboxOrder, readSandboxConfig, readSandboxState, sandboxStoreFor, writeSandboxState,
+  SANDBOX_CLIENT_PREFIX, addSandboxEvent, addSandboxLog, findSandboxOrder, readSandboxConfig, readSandboxState, rememberSandboxOrderIds, sandboxStoreFor, writeSandboxState,
   type SandboxConfig, type SandboxOrder, type SandboxOrderStatus, type SandboxState,
 } from './sandbox';
 
 export type SandboxAction = 'confirm' | 'reject' | 'ready' | 'cancel';
 export interface SandboxOutcome { ok: boolean; message: string; order?: SandboxOrder }
 
-/** Read, change and save the test list in one go (re-read right before writing, so two webhooks do not erase each other). */
-export async function updateSandboxState<T>(fn: (s: SandboxState) => T): Promise<T> {
-  const s = await readSandboxState();
-  const out = fn(s);
-  await writeSandboxState(s);
-  return out;
+let queue: Promise<unknown> = Promise.resolve();
+
+/**
+ * Read, change and save the test list (one KV document). Updates are run one after the other inside this server
+ * process, so two webhooks handled by the same server do not erase each other; the KV write itself is NOT atomic across
+ * several processes. That is acceptable for a display list: what decides whether a webhook is sandbox — the inbox tag
+ * and the permanent sandbox id set (rememberSandboxOrderIds, one document per id) — never depends on it.
+ */
+export function updateSandboxState<T>(fn: (s: SandboxState) => T): Promise<T> {
+  const run = queue.then(async () => {
+    const s = await readSandboxState();
+    const out = fn(s);
+    await writeSandboxState(s);
+    return out;
+  });
+  queue = run.catch(() => undefined);
+  return run;
 }
 
 const STATUS_FOR: Record<SandboxOrderStatus, OrderStatus> = { received: 'new', confirmed: 'accepted', failed: 'cancelled', ready: 'ready', cancelled: 'cancelled' };
@@ -44,7 +55,7 @@ export function sandboxAsStoredOrder(o: SandboxOrder, cfg: SandboxConfig, readyT
 
 /** A new test order from DoorDash's Order Create (or the same order delivered again). */
 export async function recordSandboxOrder(n: NormalizedOrder, reason: string): Promise<{ order: SandboxOrder; duplicate: boolean; cancelledBefore: boolean }> {
-  return updateSandboxState((s) => {
+  const out = await updateSandboxState((s) => {
     const existing = findSandboxOrder(s, n.externalOrderId);
     if (existing && !existing.placeholder) {
       addSandboxEvent(existing, 'Order Create delivered again — ignored (already received).');
@@ -61,6 +72,9 @@ export async function recordSandboxOrder(n: NormalizedOrder, reason: string): Pr
     addSandboxLog(s, { kind: 'order', text: `Test order #${n.displayId || n.externalOrderId.slice(0, 8)} received for store ${n.channelStoreId || '(none)'}`, storeId: n.channelStoreId || null });
     return { order, duplicate: false, cancelledBefore: order.status === 'cancelled' };
   });
+  // Permanent: the test list may drop this order (cap, clear), later DoorDash events about it stay tests.
+  await rememberSandboxOrderIds(out.order.id, out.order.clientOrderId);
+  return out;
 }
 
 const ALLOWED: Record<SandboxAction, SandboxOrderStatus[]> = { confirm: ['received'], reject: ['received'], ready: ['confirmed'], cancel: ['confirmed', 'ready'] };

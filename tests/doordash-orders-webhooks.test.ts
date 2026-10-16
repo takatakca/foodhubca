@@ -43,7 +43,7 @@ beforeEach(() => {
   for (const k of ENV) saved[k] = process.env[k];
   setDoorDashSleep(async () => undefined);
   process.env.DOORDASH_DEVELOPER_ID = 'dev'; process.env.DOORDASH_KEY_ID = 'kid'; process.env.DOORDASH_SIGNING_SECRET = 'c2VjcmV0';
-  process.env.DOORDASH_PROVIDER_TYPE = 'takatak_test'; process.env.DOORDASH_WEBHOOK_SECRET = 'dd-secret'; process.env.LIVE_CONNECTORS_GLOBAL_ENABLED = 'true';
+  process.env.DOORDASH_PROVIDER_TYPE = 'takatak_sandbox'; process.env.DOORDASH_WEBHOOK_SECRET = 'dd-secret'; process.env.LIVE_CONNECTORS_GLOBAL_ENABLED = 'true';
   delete process.env.DOORDASH_ORDER_ADJUSTMENT; delete process.env.DOORDASH_ORDER_RETURNS; delete process.env.FOODHUB_MENU_LOCKED_STORES;
 });
 afterEach(() => {

@@ -2,22 +2,30 @@
 // effect on real operations.
 //
 // When is a DoorDash webhook sandbox traffic? (any one of these is enough)
-//   1. the whole integration is a sandbox one: DOORDASH_ENV=sandbox, or DOORDASH_PROVIDER_TYPE ends with "_sandbox"
-//      (DoorDash names sandbox provider types that way). Then EVERY DoorDash Marketplace webhook is a test;
+//   0. it was authenticated with DOORDASH_SANDBOX_WEBHOOK_SECRET (the Sandbox subscription's own Authorization value):
+//      always a test, whatever DOORDASH_ENV says;
+//   1. the whole integration is a sandbox one: DOORDASH_ENV=sandbox. Then EVERY DoorDash Marketplace webhook is a test;
 //   2. the payload names a DoorDash test store listed in DOORDASH_SANDBOX_STORE_IDS (location id = merchant_supplied_id,
-//      or DoorDash's own store id), comma separated;
-//   3. the payload itself says so: a store provider_type ending with "_sandbox";
-//   4. it is about a sandbox test order Food Hub already holds (a cancel, a Dasher update, an adjustment…).
+//      or DoorDash's own store id), comma separated — never a store mapped in Food Hub's stores table (a real store);
+//   3. while the mode is configured (0, 1 or 2 set up), the payload itself says so: a store provider_type ending _sandbox;
+//   4. it is about a sandbox test order Food Hub already recorded: our own client_order_id prefix, or an order id in the
+//      permanent sandbox id set (a cancel, a Dasher update, an adjustment… even after the env changed).
+//
+// The decision is taken when the webhook ARRIVES and saved on the webhook-inbox entry (InboxEntry.sandbox): a retry,
+// the recovery runner or a Replay made after DOORDASH_ENV changed never sends a sandbox order to the kitchen, and the
+// inbox's answer-window cutoff never hands a sandbox entry to a person.
 //
 // A sandbox order is kept in its own list (Settings → Platforms → DoorDash sandbox tests), NEVER in the orders table:
 // so it is never sent to Clover, never printed, never rings a kitchen screen, never raises a Watchtower alert, SMS or
 // call, and never counts in money or reports. Its DoorDash-facing flow (confirm, reject, ready, cancel, menu pull,
 // menu push, item and store availability) uses the same DoorDash calls as a real order, aimed only at the test store.
 //
-// Without DOORDASH_ENV, a sandbox provider type and DOORDASH_SANDBOX_STORE_IDS, Food Hub behaves exactly as before
-// (rule 3 only matches payloads DoorDash marks as sandbox, which real traffic never is).
-// Webhook authentication is not touched here: the route checks DOORDASH_WEBHOOK_SECRET before anything is read.
-import { nowIso } from '../config';
+// Without DOORDASH_ENV=sandbox, DOORDASH_SANDBOX_STORE_IDS and DOORDASH_SANDBOX_WEBHOOK_SECRET, Food Hub behaves as
+// before: a DOORDASH_PROVIDER_TYPE ending with _sandbox alone changes nothing (the status only warns about it), and
+// rule 4 can only match orders Food Hub itself recorded as tests.
+// Webhook authentication is not weakened: the routes check DOORDASH_WEBHOOK_SECRET (or the separate sandbox secret)
+// before anything is read.
+import { checkSharedSecret, nowIso } from '../config';
 import { menuLockOf } from '../menu/lock';
 import { getRepo } from '../repo';
 import type { ChannelStore, CourierStatus, NormalizedOrder } from '../types';
@@ -28,6 +36,8 @@ const SANDBOX_SUFFIX = /_sandbox$/i;
 const isProtectedDoorDashId = (id: string) => menuLockOf({ channel: 'doordash', channelStoreId: id, meta: {} }).locked;
 /** The merchant_supplied_id Food Hub sends when it confirms a sandbox order (comes back as client_order_id). */
 export const SANDBOX_CLIENT_PREFIX = 'takatak-test-';
+/** The reason saved on a webhook authenticated with the sandbox subscription's own secret. */
+export const SANDBOX_AUTH_REASON = 'sandbox webhook secret (DOORDASH_SANDBOX_WEBHOOK_SECRET)';
 
 type Env = Record<string, string | undefined>;
 
@@ -38,35 +48,108 @@ export function doorDashEnvSetting(env: Env = process.env): string {
 
 /** The whole DoorDash Marketplace integration is a sandbox one (sandbox credentials): every webhook is a test. */
 export function doorDashIntegrationIsSandbox(env: Env = process.env): boolean {
-  return doorDashEnvSetting(env) === 'sandbox' || SANDBOX_SUFFIX.test(String(env.DOORDASH_PROVIDER_TYPE ?? '').trim());
+  return doorDashEnvSetting(env) === 'sandbox';
+}
+
+/** The provider type looks like a DoorDash sandbox one. Only a status warning: it never switches the mode on. */
+export function doorDashProviderTypeLooksSandbox(env: Env = process.env): boolean {
+  return SANDBOX_SUFFIX.test(String(env.DOORDASH_PROVIDER_TYPE ?? '').trim());
+}
+
+/** The sandbox subscription's own Authorization value, when it is set and differs from the production one. */
+function sandboxWebhookSecret(env: Env = process.env): string | null {
+  const s = String(env.DOORDASH_SANDBOX_WEBHOOK_SECRET ?? '').trim();
+  if (!s) return null;
+  // The same value as production could not tell a sandbox request from a real one: ignored, and the status warns.
+  return s === String(env.DOORDASH_WEBHOOK_SECRET ?? '').trim() ? null : s;
+}
+
+export function doorDashSandboxSecretSet(env: Env = process.env): boolean {
+  return sandboxWebhookSecret(env) !== null;
+}
+
+/**
+ * Was this request authenticated with DOORDASH_SANDBOX_WEBHOOK_SECRET? The routes ask only when the production secret
+ * did not match. Such a request is always a sandbox test.
+ */
+export function verifyDoorDashSandboxWebhook(headers: Headers): boolean {
+  if (!doorDashSandboxSecretSet()) return false;
+  return checkSharedSecret(headers, 'DOORDASH_SANDBOX_WEBHOOK_SECRET', ['authorization', 'x-takatak-token']);
 }
 
 /**
  * DoorDash test stores (DOORDASH_SANDBOX_STORE_IDS: location ids and/or DoorDash store ids, comma / space separated).
- * A protected store (Po Poulet NDG, any menu lock) is never a test store: it is dropped from the list.
+ * A protected store (Po Poulet NDG, any menu lock) is never a test store: it is dropped from the list. A store mapped in
+ * Food Hub (a real store) is dropped too wherever the stores table is read (doorDashTestStoreIds / isDoorDashTestStore).
  */
 export function doorDashSandboxStoreIds(env: Env = process.env): string[] {
   const ids = String(env.DOORDASH_SANDBOX_STORE_IDS ?? '').split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
   return [...new Set(ids)].filter((id) => !isProtectedDoorDashId(id));
 }
 
-/** Sandbox-safe mode is on: the integration is a sandbox one, or at least one test store is listed. */
+/** Sandbox-safe mode is configured: sandbox integration, a listed test store, or the sandbox webhook secret. */
 export function doorDashSandboxActive(env: Env = process.env): boolean {
-  return doorDashIntegrationIsSandbox(env) || doorDashSandboxStoreIds(env).length > 0;
+  return doorDashIntegrationIsSandbox(env) || doorDashSandboxStoreIds(env).length > 0 || doorDashSandboxSecretSet(env);
 }
 
+/** Listed in DOORDASH_SANDBOX_STORE_IDS (env only: isDoorDashTestStore also checks it is not a real store). */
 export function isDoorDashSandboxStoreId(id: unknown, env: Env = process.env): boolean {
   const v = String(id ?? '').trim();
   return Boolean(v) && doorDashSandboxStoreIds(env).includes(v);
 }
 
+/** Every id a mapped (real) DoorDash store is known by: its location id and DoorDash's own store number. */
+export async function mappedDoorDashStoreIds(stores?: ChannelStore[]): Promise<Set<string>> {
+  const list = stores ?? (await getRepo().listStores('doordash'));
+  const out = new Set<string>();
+  for (const s of list) {
+    if (s.channel !== 'doordash') continue;
+    if (s.channelStoreId) out.add(String(s.channelStoreId).trim());
+    const own = s.meta?.platformStoreId;
+    if (own !== undefined && own !== null && String(own).trim()) out.add(String(own).trim());
+  }
+  return out;
+}
+
+/** The listed test stores that are not real (mapped) stores: a real store is never turned into a test store. */
+export async function doorDashTestStoreIds(env: Env = process.env): Promise<string[]> {
+  const ids = doorDashSandboxStoreIds(env);
+  if (!ids.length) return [];
+  const mapped = await mappedDoorDashStoreIds();
+  return ids.filter((id) => !mapped.has(id));
+}
+
+/** A listed test store that is not a mapped real store. */
+export async function isDoorDashTestStore(id: unknown, env: Env = process.env): Promise<boolean> {
+  const v = String(id ?? '').trim();
+  return Boolean(v) && (await doorDashTestStoreIds(env)).includes(v);
+}
+
 /**
  * May Food Hub change this DoorDash store (menu, items, open/closed) right now? With a sandbox integration, only a
- * listed test store: the sandbox credentials must never be aimed at a real store. Null = allowed.
+ * listed test store: the sandbox credentials must never be aimed at a real store. Null = allowed. (Sync backstop used by
+ * the adapter and the guard; the webhook routes use doorDashStoreAccess, which also reads the stores table.)
  */
 export function doorDashSandboxStoreRefusal(channelStoreId: unknown, env: Env = process.env): string | null {
   if (!doorDashIntegrationIsSandbox(env) || isDoorDashSandboxStoreId(channelStoreId, env)) return null;
-  return `Not sent: DoorDash is in sandbox mode (DOORDASH_ENV / provider type) — only the sandbox test store(s) in DOORDASH_SANDBOX_STORE_IDS are changed, never store ${String(channelStoreId ?? '') || '(none)'}.`;
+  return `Not sent: DoorDash is in sandbox mode (DOORDASH_ENV=sandbox) — only the sandbox test store(s) in DOORDASH_SANDBOX_STORE_IDS are changed, never store ${String(channelStoreId ?? '') || '(none)'}.`;
+}
+
+export type DoorDashStoreAccess = { kind: 'test' | 'real' } | { kind: 'refused'; message: string };
+
+/**
+ * How a DoorDash request about one store is answered (menu pull, item polling, cart validation):
+ *   'test'    — a listed test store that is not a real one: answered from the sandbox test setup, logged in the test log;
+ *   'refused' — sandbox credentials (DOORDASH_ENV=sandbox) or the sandbox secret, about any other store: 409;
+ *   'real'    — the usual path, unchanged.
+ */
+export async function doorDashStoreAccess(id: unknown, opts: { sandboxAuth?: boolean } = {}, env: Env = process.env): Promise<DoorDashStoreAccess> {
+  const v = String(id ?? '').trim();
+  if (await isDoorDashTestStore(v, env)) return { kind: 'test' };
+  if (opts.sandboxAuth || doorDashIntegrationIsSandbox(env)) {
+    return { kind: 'refused', message: `Not answered: DoorDash sandbox request (${opts.sandboxAuth ? 'sandbox webhook secret' : 'DOORDASH_ENV=sandbox'}) — only the sandbox test store(s) in DOORDASH_SANDBOX_STORE_IDS are answered, never store ${v || '(none)'}.` };
+  }
+  return { kind: 'real' };
 }
 
 const obj = (v: unknown): Record<string, any> | null => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, any>) : null);
@@ -106,28 +189,64 @@ export function payloadOrderRefs(body: any): { doordashId: string; clientOrderId
   };
 }
 
-/** Why this payload is sandbox traffic, from the environment and the payload alone (null = not sandbox by these rules). */
-export function doorDashSandboxReasonSync(body: any, env: Env = process.env): string | null {
-  if (doorDashEnvSetting(env) === 'sandbox') return 'DOORDASH_ENV=sandbox';
-  if (SANDBOX_SUFFIX.test(String(env.DOORDASH_PROVIDER_TYPE ?? '').trim())) return 'sandbox provider type (DOORDASH_PROVIDER_TYPE)';
-  const ids = doorDashSandboxStoreIds(env);
-  const hit = ids.length ? payloadStoreIds(body).find((id) => ids.includes(id)) : undefined;
-  if (hit) return `test store ${hit} (DOORDASH_SANDBOX_STORE_IDS)`;
-  const marker = sandboxProviderTypeIn(body);
-  if (marker) return `payload provider_type ${marker}`;
+/**
+ * Why this payload is sandbox traffic, from the environment and the payload alone (null = not sandbox by these rules).
+ * `mapped`: the ids of real (mapped) stores — a payload naming one is never a test-store webhook (rule 2).
+ */
+export function doorDashSandboxReasonSync(body: any, env: Env = process.env, mapped: Set<string> = new Set()): string | null {
+  if (doorDashIntegrationIsSandbox(env)) return 'DOORDASH_ENV=sandbox';
+  const ids = doorDashSandboxStoreIds(env).filter((id) => !mapped.has(id));
+  if (ids.length) {
+    const named = payloadStoreIds(body);
+    const hit = named.find((id) => ids.includes(id));
+    if (hit && !named.some((id) => mapped.has(id))) return `test store ${hit} (DOORDASH_SANDBOX_STORE_IDS)`;
+  }
+  if (doorDashSandboxActive(env)) {
+    const marker = sandboxProviderTypeIn(body);
+    if (marker) return `payload provider_type ${marker}`;
+  }
   if (payloadOrderRefs(body).clientOrderId.startsWith(SANDBOX_CLIENT_PREFIX)) return 'a sandbox test order (client_order_id)';
   return null;
 }
 
+// ------------------------------------------------------------------------- the permanent sandbox order-id set (docs)
+
 /**
- * Why this webhook is sandbox traffic, or null. Also recognises events about a test order Food Hub already holds
- * (looked up only while sandbox-safe mode is on: without the new settings nothing extra is read).
+ * Every DoorDash order id (and client_order_id) ever recorded as a sandbox test, one document each: never trimmed by
+ * the 50-order test-list cap or by "clear", and each write is its own document (no shared read-modify-write). A later
+ * DoorDash event about one of these orders stays a test even after DOORDASH_ENV or DOORDASH_SANDBOX_STORE_IDS changed.
+ */
+export const SANDBOX_IDS = 'doordash_sandbox_ids';
+
+export async function rememberSandboxOrderIds(doordashId: string, clientOrderId = ''): Promise<void> {
+  const at = nowIso();
+  const data = { doordashId, clientOrderId };
+  const docs = [
+    ...(doordashId ? [{ id: `order:${doordashId}`, key: 'sandbox', at, data }] : []),
+    ...(clientOrderId ? [{ id: `client:${clientOrderId}`, key: 'sandbox', at, data }] : []),
+  ];
+  if (docs.length) await getRepo().putDocs(SANDBOX_IDS, docs);
+}
+
+export async function isKnownSandboxOrder(doordashId: string, clientOrderId = ''): Promise<boolean> {
+  const repo = getRepo();
+  if (doordashId && (await repo.getDoc(SANDBOX_IDS, `order:${doordashId}`).catch(() => null))) return true;
+  if (clientOrderId && (await repo.getDoc(SANDBOX_IDS, `client:${clientOrderId}`).catch(() => null))) return true;
+  return false;
+}
+
+/**
+ * Why this webhook is sandbox traffic, or null. Reads the stores table only when test stores are listed (a real store
+ * is never a test store), and the permanent sandbox id set for events about a test order Food Hub already recorded.
  */
 export async function doorDashSandboxReason(body: any, env: Env = process.env): Promise<string | null> {
-  const direct = doorDashSandboxReasonSync(body, env);
-  if (direct || !doorDashSandboxActive(env)) return direct;
+  const mapped = doorDashSandboxStoreIds(env).length ? await mappedDoorDashStoreIds().catch(() => new Set<string>()) : new Set<string>();
+  const direct = doorDashSandboxReasonSync(body, env, mapped);
+  if (direct) return direct;
   const { doordashId, clientOrderId } = payloadOrderRefs(body);
   if (!doordashId && !clientOrderId) return null;
+  if (await isKnownSandboxOrder(doordashId, clientOrderId)) return `about sandbox test order ${doordashId || clientOrderId}`;
+  if (!doorDashSandboxActive(env)) return null;
   const state = await readSandboxState().catch(() => null);
   const hit = state && findSandboxOrder(state, doordashId, clientOrderId);
   return hit ? `about sandbox test order ${hit.id}` : null;
@@ -221,11 +340,12 @@ export function addSandboxLog(state: SandboxState, entry: Omit<SandboxLogEntry, 
 
 /**
  * The test store as a store row, for the DoorDash calls (menu pull / push, items, open/closed). It is never written to
- * the stores table: Watchtower, the store sync and the reports never see it. Null when the id is not a test store.
+ * the stores table: Watchtower, the store sync and the reports never see it. Null when the id is not a test store —
+ * including a listed id that is a real (mapped) store: a real store's menu is never overwritten from the test screen.
  */
 export async function sandboxStoreFor(channelStoreId: string, state?: SandboxState): Promise<ChannelStore | null> {
   const id = String(channelStoreId ?? '').trim();
-  if (!isDoorDashSandboxStoreId(id)) return null;
+  if (!(await isDoorDashTestStore(id))) return null;
   const [cfg, st] = await Promise.all([readSandboxConfig(), state ? Promise.resolve(state) : readSandboxState()]);
   return {
     id: `sandbox:${id}`, channel: 'doordash', channelStoreId: id, brandName: cfg.brandName ?? '', locationCode: cfg.locationCode ?? '',
@@ -234,17 +354,28 @@ export async function sandboxStoreFor(channelStoreId: string, state?: SandboxSta
   };
 }
 
-/** What the settings page shows about the mode. */
-export function doorDashSandboxStatus(env: Env = process.env) {
+/** What the settings page shows about the mode. `stores`: the mapped stores, to warn when a real one is listed. */
+export function doorDashSandboxStatus(env: Env = process.env, stores: ChannelStore[] = []) {
   const integration = doorDashIntegrationIsSandbox(env);
   const envSetting = doorDashEnvSetting(env);
-  const providerSandbox = SANDBOX_SUFFIX.test(String(env.DOORDASH_PROVIDER_TYPE ?? '').trim());
-  const listed = String(env.DOORDASH_SANDBOX_STORE_IDS ?? '').split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
-  const storeIds = doorDashSandboxStoreIds(env);
+  const providerSandbox = doorDashProviderTypeLooksSandbox(env);
+  const sandboxSecret = doorDashSandboxSecretSet(env);
+  const listed = [...new Set(String(env.DOORDASH_SANDBOX_STORE_IDS ?? '').split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean))];
+  const unprotected = doorDashSandboxStoreIds(env);
+  const mapped = new Set<string>();
+  for (const s of stores) {
+    if (s.channel !== 'doordash') continue;
+    if (s.channelStoreId) mapped.add(String(s.channelStoreId).trim());
+    if (s.meta?.platformStoreId !== undefined && s.meta?.platformStoreId !== null) mapped.add(String(s.meta.platformStoreId).trim());
+  }
+  const real = unprotected.filter((id) => mapped.has(id));
+  const storeIds = unprotected.filter((id) => !mapped.has(id));
   const warnings: string[] = [];
-  if (envSetting === 'sandbox' && env.DOORDASH_PROVIDER_TYPE && !providerSandbox) warnings.push('DOORDASH_ENV=sandbox but DOORDASH_PROVIDER_TYPE does not end with _sandbox: every DoorDash order is treated as a TEST — set DOORDASH_ENV=production once DoorDash gives production keys.');
-  if (envSetting === 'production' && providerSandbox) warnings.push('DOORDASH_ENV=production but DOORDASH_PROVIDER_TYPE ends with _sandbox: Food Hub keeps sandbox-safe mode on (the provider type is a sandbox one).');
+  if (providerSandbox && !integration) warnings.push('DOORDASH_PROVIDER_TYPE ends with _sandbox but DOORDASH_ENV is not sandbox: DoorDash orders are treated as REAL orders (Clover, kitchen). Set DOORDASH_ENV=sandbox while the credentials are sandbox ones.');
+  if (integration && env.DOORDASH_PROVIDER_TYPE && !providerSandbox) warnings.push('DOORDASH_ENV=sandbox but DOORDASH_PROVIDER_TYPE does not end with _sandbox: every DoorDash order is treated as a TEST — set DOORDASH_ENV=production once DoorDash gives production keys.');
   if (integration && !storeIds.length) warnings.push('No test store in DOORDASH_SANDBOX_STORE_IDS yet: menu pushes, items and open/closed changes are refused until it is set.');
-  if (listed.length > storeIds.length) warnings.push('A protected store was listed in DOORDASH_SANDBOX_STORE_IDS and was ignored (it is never touched).');
-  return { active: integration || storeIds.length > 0, integration, env: envSetting || null, providerSandbox, storeIds, warnings };
+  if (listed.length > unprotected.length) warnings.push('A protected store was listed in DOORDASH_SANDBOX_STORE_IDS and was ignored (it is never touched).');
+  if (real.length) warnings.push(`DOORDASH_SANDBOX_STORE_IDS lists ${real.join(', ')}, a real store mapped in Food Hub: ignored (its orders stay real, its menu is never changed from the test screen). Give the sandbox location its own id.`);
+  if (String(env.DOORDASH_SANDBOX_WEBHOOK_SECRET ?? '').trim() && !sandboxSecret) warnings.push('DOORDASH_SANDBOX_WEBHOOK_SECRET equals DOORDASH_WEBHOOK_SECRET: ignored. Give the Sandbox subscription its own value.');
+  return { active: integration || storeIds.length > 0 || sandboxSecret, integration, env: envSetting || null, providerSandbox, sandboxSecret, storeIds, warnings };
 }

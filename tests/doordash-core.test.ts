@@ -42,7 +42,7 @@ afterEach(() => {
 
 function doorDashEnv(live = true) {
   process.env.DOORDASH_DEVELOPER_ID = 'dev'; process.env.DOORDASH_KEY_ID = 'kid'; process.env.DOORDASH_SIGNING_SECRET = 'c2VjcmV0';
-  process.env.DOORDASH_PROVIDER_TYPE = 'takatak_test'; process.env.DOORDASH_WEBHOOK_SECRET = 'dd-secret';
+  process.env.DOORDASH_PROVIDER_TYPE = 'takatak_sandbox'; process.env.DOORDASH_WEBHOOK_SECRET = 'dd-secret';
   if (live) process.env.LIVE_CONNECTORS_GLOBAL_ENABLED = 'true'; else delete process.env.LIVE_CONNECTORS_GLOBAL_ENABLED;
   delete process.env.DOORDASH_USER_AGENT; delete process.env.DOORDASH_AVAILABILITY_STYLE;
 }

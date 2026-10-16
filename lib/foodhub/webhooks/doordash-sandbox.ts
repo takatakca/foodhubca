@@ -5,7 +5,7 @@
 // a failure.
 import { doorDashCourierStatus } from '../courier';
 import { isProtectedDoorDashId } from '../doordash/guard';
-import { addSandboxEvent, addSandboxLog, findSandboxOrder, payloadOrderRefs, payloadStoreIds, type SandboxOrder } from '../doordash/sandbox';
+import { addSandboxEvent, addSandboxLog, findSandboxOrder, payloadOrderRefs, payloadStoreIds, rememberSandboxOrderIds, type SandboxOrder } from '../doordash/sandbox';
 import { autoConfirmSandboxOrder, recordSandboxOrder, updateSandboxState } from '../doordash/sandbox-ops';
 import { menuCallbackOutcome } from '../ops';
 import { adjustedLines, classifyDoorDash, flattenDelivery } from './doordash';
@@ -35,6 +35,9 @@ async function handle(raw: any, reason: string): Promise<HandlerOutcome> {
     return { result: 'sandbox test: ignored (protected store)' };
   }
   const { doordashId, clientOrderId } = payloadOrderRefs(body);
+  // Every order this sandbox webhook is about joins the permanent sandbox id set: later events about it (and Replays)
+  // stay tests whatever the env says by then.
+  if (c.kind === 'cancel' || c.kind === 'dasher' || c.kind === 'release' || c.kind === 'adjustment') await rememberSandboxOrderIds(doordashId, clientOrderId);
 
   if (c.kind === 'order') {
     const { order, duplicate, cancelledBefore } = await recordSandboxOrder(c.order!, reason);

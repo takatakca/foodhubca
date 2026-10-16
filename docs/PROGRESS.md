@@ -1,5 +1,12 @@
 # Food Hub: progress log and task board
 
+## 2026-10-16 — Kitchen order tools (task 44c, `feature/kitchen-order-tools`)
+
+- New `components/live/order-tools/*` + `lib/foodhub/order-tools/*`, wired by two additive lines (order drawer after the items, kitchen header next to Busy). Doc: `docs/KITCHEN_ORDER_TOOLS.md`.
+- Rupture (86) from each order line and option (until close / 4 h / today / indefinitely) through the existing `/api/foodhub/availability` (manager PIN rule kept); courier watch (assigned, arriving with one chime, waiting mm:ss in red, gone planned vs actual); kitchen store status sheet (busy ±5 via `/api/foodhub/prep`, pause by channel + brand + reason via `/api/foodhub/stores/status`, reopen all; Po Poulet NDG DoorDash and "Do not touch" stores shown locked, never sent); read-only order money (reconcile + cases, 60 s cache, link to /money/disputes, no submission).
+- New read-only routes: `GET /api/foodhub/order-tools/[id]/line-refs`, `GET /api/foodhub/order-tools/[id]/money`, `GET /api/foodhub/order-tools/kitchen`. 5 new test files.
+- Checks: see the pull request (typecheck, lint, tests, webpack build, verify:foodhub).
+
 ## 2026-10-16 — Uber store kitchen mapping (task 39, `fix/uber-store-kitchen-mapping`)
 
 - The 7 Uber UUIDs in `data/actual/platform-stores-uber.json` are at 5839 Jean-Talon E (Saint-Léonard) in Uber's own records (Uber names them "(Hochelaga)"); production maps them to `NDG_6284`. That mapping was typed by hand in the console, so it lives only in the production `fh_channel_stores` rows: no repo seed or code defaulted Uber stores to NDG.

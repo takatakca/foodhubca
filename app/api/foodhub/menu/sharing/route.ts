@@ -2,7 +2,7 @@ import { logActivity } from '@/lib/foodhub/activity';
 import { withPerm } from '@/lib/foodhub/auth';
 import { getCatalog } from '@/lib/foodhub/catalog';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
-import { cleanBrandDishes, dishScope, getBrandDishes, getMenuSharing, saveBrandDishes, saveMenuSharing, type BrandDishes, type MenuSharing } from '@/lib/foodhub/menu/shared';
+import { cleanBrandDishes, dishScope, getBrandDishes, getMenuSharing, MAX_DISH_REF_LENGTH, saveBrandDishes, saveMenuSharing, type BrandDishes, type MenuSharing } from '@/lib/foodhub/menu/shared';
 import { applySharingChange } from '@/lib/foodhub/menu/sharing-change';
 import { getRepo } from '@/lib/foodhub/repo';
 
@@ -22,6 +22,11 @@ export const PUT = withPerm('menu:edit', async (req, _ctx, actor) => {
   const raw = b.sharing && typeof b.sharing === 'object' && !Array.isArray(b.sharing) ? (b.sharing as Record<string, unknown>) : null;
   if (!raw) return fail('sharing ({ brand: sourceBrand }) is required');
   if (b.dishes !== undefined && (!b.dishes || typeof b.dishes !== 'object' || Array.isArray(b.dishes))) return fail('dishes must be { brand: [itemRef, …] }');
+  if (b.dishes !== undefined) {
+    for (const [brand, refs] of Object.entries(b.dishes as Record<string, unknown>)) {
+      if (Array.isArray(refs) && refs.some((r) => String(r ?? '').trim().length > MAX_DISH_REF_LENGTH)) return fail(`${brand}: a dish ref is longer than ${MAX_DISH_REF_LENGTH} characters.`, 422);
+    }
+  }
   const menus = await getRepo().listMenus();
   const known = new Set([...(await getCatalog()).brands.map((x) => x.name), ...menus.map((m) => m.brandName)]);
   const next: MenuSharing = {};
@@ -68,7 +73,8 @@ export const PUT = withPerm('menu:edit', async (req, _ctx, actor) => {
   }
   const changed = [...new Set([...Object.keys(before), ...Object.keys(saved)])].filter((k) => before[k] !== saved[k]);
   const dishesChanged = [...new Set([...Object.keys(beforeDishes), ...Object.keys(savedDishes)])].filter((k) => !changed.includes(k) && !same(beforeDishes[k], savedDishes[k]));
-  const outcome = await applySharingChange(before, saved);
+  // beforeDishes: a brand that stops sharing keeps only ITS dishes on the menu it now owns (never the whole shared menu).
+  const outcome = await applySharingChange(before, saved, beforeDishes);
   if (changed.length || dishesChanged.length) {
     const parts = [
       ...changed.map((k) => (saved[k] ? `${k} uses the ${saved[k]} menu${savedDishes[k] ? ` (${savedDishes[k].length} dishes)` : ''}` : `${k} uses its own menu`)),
@@ -76,7 +82,7 @@ export const PUT = withPerm('menu:edit', async (req, _ctx, actor) => {
     ];
     const publish = [...changed, ...dishesChanged];
     await logActivity({ actor: actor.name, source: actor.source, kind: 'menu_publish', action: 'menu_sharing', status: 'success',
-      summary: `Shared menus changed: ${parts.join(', ')} — publish ${publish.join(', ')} to send it to the platforms`,
+      summary: `Shared menus changed: ${parts.join(', ')} — publish ${publish.join(', ')} to send it to the platforms${outcome.noDishesLeft.length ? `. No menu of its own yet for ${outcome.noDishesLeft.join(', ')} (its dishes are no longer on the shared menu): import or build it before publishing` : ''}`,
       detail: { before, after: saved, dishesBefore: beforeDishes, dishesAfter: savedDishes, ...outcome } });
   }
   // publish = brands whose platforms still show their previous menu until they are published.

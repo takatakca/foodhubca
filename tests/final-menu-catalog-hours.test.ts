@@ -123,8 +123,7 @@ describe('Clover inventory sync — staff always has the last word on an 86', ()
   async function setup() {
     const { getRepo } = await import('../lib/foodhub/repo');
     const repo = getRepo();
-    // Clover 86s only reach stores mapped to that Clover merchant by name (never through the default merchant).
-    await repo.upsertStore({ channel: 'uber_eats', channelStoreId: 'uber-1', brandName: 'Po Poulet', locationCode: 'NDG_MAIN', cloverMerchantId: 'M1', autoAccept: true, online: true } as any);
+    await repo.upsertStore({ channel: 'uber_eats', channelStoreId: 'uber-1', brandName: 'Po Poulet', locationCode: 'NDG_MAIN', autoAccept: true, online: true } as any);
     await repo.saveMenu({ brandName: 'Po Poulet', categories: [{ ref: 'c', name: 'Plats', sortOrder: 0 }], items: [{ ref: 'clv-1', posItemRef: 'clv-1', name: 'Poutine', price: 9, categoryRef: 'c', available: true, modifierGroupRefs: [] }], modifierGroups: [], updatedAt: new Date().toISOString() });
     return repo;
   }

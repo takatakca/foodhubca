@@ -1,6 +1,7 @@
 // Menu safety + per-brand menus:
 //  C1 Clover → platforms: the webhook respects FOODHUB_CLOVER_INVENTORY_SYNC, locked / "Do not touch" stores are left out
-//     before the fan-out, and only stores mapped to the Clover merchant by name are reached.
+//     before the fan-out, a store follows its own Clover merchant or the default one (CLOVER_MERCHANT_ID), a location
+//     where stores follow different merchants is skipped (logged once), and Clover-made 86s always come back on.
 //  C2 DoorDash menu pull + item polling and the Deliverect product push respect "Do not touch" and the menu lock.
 //  C3 a Clover import leaves the staff menu and in-store promotions out.
 //  C4 a brand that follows another brand's menu can show only its own dishes (option groups come along).
@@ -172,6 +173,21 @@ describe('C1 — Clover inventory sync safety', () => {
     expect(dd).not.toHaveBeenCalled();
     expect((await getRepo().listJobs(50)).some((j) => j.request.storeId === protectedStore.id || j.request.channelStoreId === '27982486')).toBe(false);
     expect(Object.keys((await getRepo().getMenu('Po Poulet'))!.unavailableByLocation ?? {})).toEqual(['SAINT_LEONARD']);
+  });
+
+  it('a location skipped for another merchant is logged once per out-of-stock, not on every webhook or poll', async () => {
+    await getRepo().saveMenu(sourceMenu());
+    await store('Cuisine Test', 'uber_eats', 'ue-ndg', 'NDG', { cloverMerchantId: 'M1' });
+    await store('Cuisine Test', 'doordash', 'dd-ndg', 'NDG', { cloverMerchantId: 'M2' });
+    const ue = vi.spyOn(uberEatsAdapter, 'setItemAvailability').mockResolvedValue(ok('uber_eats'));
+    const skips = async () => (await getRepo().listActivity({ limit: 50 })).filter((a) => a.action === 'clover_86_skipped').length;
+    for (let i = 0; i < 3; i++) await applyCloverItem('M1', { id: 'clv-poulet', available: false });
+    expect(await skips()).toBe(1);
+    // Back in stock, then out again: a new out-of-stock, logged again (once).
+    await applyCloverItem('M1', { id: 'clv-poulet', available: true });
+    for (let i = 0; i < 2; i++) await applyCloverItem('M1', { id: 'clv-poulet', available: false });
+    expect(await skips()).toBe(2);
+    expect(ue).not.toHaveBeenCalled();
   });
 
   it('a shared menu: the Clover 86 reaches every brand’s mapped stores, but only brands whose dishes include it', async () => {
@@ -446,5 +462,98 @@ describe('C4 — per-brand dishes on a shared menu', () => {
     expect(failed.body.error).toMatch(/Nothing changed/);
     const { getMenuSharing } = await import('../lib/foodhub/menu/shared');
     expect(await getMenuSharing()).toEqual({ 'Pi Pita': 'Cuisine Test', OOeuf: 'Cuisine Test' });
+  });
+});
+
+describe('C4 — review follow-ups', () => {
+  it('a follower with 2 dishes stops sharing: its own menu holds those 2 dishes and their option groups only', async () => {
+    const repo = getRepo();
+    await repo.saveMenu(sourceMenu({ unavailableByLocation: { NDG: ['clv-pita', 'clv-pizza', 'm-trio', 'm-grand'] } }));
+    await saveMenuSharing({ 'Pi Pita': 'Cuisine Test' });
+    await saveBrandDishes({ 'Pi Pita': ['clv-pita', 'clv-poulet'] });
+    const { PUT } = await import('../app/api/foodhub/menu/sharing/route');
+    const res = await PUT(call('PUT', '/api/foodhub/menu/sharing', { sharing: {} }), ctx);
+    expect(res.status).toBe(200);
+    expect((await res.json()).copiedMenu).toEqual(['Pi Pita']);
+    const own = (await repo.getMenu('Pi Pita'))!;
+    expect(own.items.map((i) => i.ref).sort()).toEqual(['clv-pita', 'clv-poulet']);
+    expect(own.modifierGroups.map((g) => g.ref).sort()).toEqual(['g-sauce', 'g-upsell']);
+    expect(own.categories.map((c) => c.ref)).toEqual(['c-plats']);
+    expect(own.unavailableByLocation).toEqual({ NDG: ['clv-pita', 'm-trio'] });
+    expect(own.sharedDishes).toBeUndefined();
+    // Its next publish sends those 2 dishes, not the master menu.
+    await store('Pi Pita', 'doordash', 'dd-pita', 'NDG');
+    const spy = vi.spyOn(doorDashAdapter, 'publishMenu').mockResolvedValue({ channel: 'doordash', ok: true, status: 'queued', message: 'OK' });
+    await publishMenu('Pi Pita');
+    expect(spy.mock.calls[0][1].items).toHaveLength(2);
+  });
+
+  it('a follower whose list matches nothing stops sharing: no menu is copied (never an empty or a full one)', async () => {
+    const { applySharingChange } = await import('../lib/foodhub/menu/sharing-change');
+    await getRepo().saveMenu(sourceMenu());
+    const out = await applySharingChange({ 'Pi Pita': 'Cuisine Test' }, {}, { 'Pi Pita': ['gone-after-reimport'] });
+    expect(out).toMatchObject({ copiedMenu: [], noDishesLeft: ['Pi Pita'] });
+    expect(await getRepo().getMenu('Pi Pita')).toBeNull();
+  });
+
+  it('a follower moving to another menu keeps only the timers of its own dishes', async () => {
+    const { applySharingChange } = await import('../lib/foodhub/menu/sharing-change');
+    const until = Date.now() + 60_000;
+    await getRepo().saveMenu(sourceMenu({ unavailableByLocation: { NDG: ['clv-pita', 'clv-pizza'] }, unavailableUntil: { 'NDG|clv-pita': until, 'NDG|clv-pizza': until } }));
+    await getRepo().saveMenu({ ...sourceMenu(), brandName: 'OOeuf' });
+    await applySharingChange({ 'Pi Pita': 'Cuisine Test' }, { 'Pi Pita': 'OOeuf' }, { 'Pi Pita': ['clv-pita'] });
+    const own = (await getRepo().getMenu('Pi Pita'))!;
+    expect(own.items.map((i) => i.ref)).toEqual(['clv-pita']);
+    expect(own.unavailableUntil).toEqual({ 'NDG|clv-pita': until });
+    expect(own.unavailableByLocation).toEqual({ NDG: ['clv-pita'] });
+  });
+
+  it('a staff 86 made from a follower reaches the source’s stores and other followers only for their own dishes', async () => {
+    await getRepo().saveMenu(sourceMenu());
+    await saveMenuSharing({ 'Pi Pita': 'Cuisine Test', 'Pita Deux': 'Cuisine Test', 'Pizza Inntime': 'Cuisine Test' });
+    await saveBrandDishes({ 'Pi Pita': ['clv-pita'], 'Pita Deux': ['clv-pita', 'clv-poulet'], 'Pizza Inntime': ['clv-pizza'] });
+    for (const [brand, id] of [['Cuisine Test', 'dd-src'], ['Pi Pita', 'dd-pita'], ['Pita Deux', 'dd-pita2'], ['Pizza Inntime', 'dd-pizza']] as const) await store(brand, 'doordash', id, 'NDG');
+    const dd = vi.spyOn(doorDashAdapter, 'setItemAvailability').mockResolvedValue(ok('doordash'));
+    await setItemAvailability('Pi Pita', ['clv-pita', 'clv-pizza'], false, { locationCode: 'NDG' });
+    expect(dd.mock.calls.map((c) => [c[0].channelStoreId, c[1].join('+')]).sort()).toEqual([
+      ['dd-pita', 'clv-pita'], ['dd-pita2', 'clv-pita'], ['dd-pizza', 'clv-pizza'], ['dd-src', 'clv-pita+clv-pizza'],
+    ]);
+    expect((await getRepo().getMenu('Cuisine Test'))!.unavailableByLocation?.NDG?.sort()).toEqual(['clv-pita', 'clv-pizza']);
+  });
+
+  it('a dish-list read error stops a shared 86 before any state is saved', async () => {
+    const repo = getRepo();
+    await repo.saveMenu(sourceMenu());
+    await saveMenuSharing({ 'Pi Pita': 'Cuisine Test' });
+    await store('Cuisine Test', 'doordash', 'dd-src', 'NDG');
+    const dd = vi.spyOn(doorDashAdapter, 'setItemAvailability').mockResolvedValue(ok('doordash'));
+    const getKv = repo.getKv.bind(repo);
+    vi.spyOn(repo, 'getKv').mockImplementation(async (key: string) => { if (key === 'menu_brand_dishes_v1') throw new Error('database down'); return getKv(key); });
+    await expect(setItemAvailability('Cuisine Test', ['clv-pita'], false, { locationCode: 'NDG' })).rejects.toThrow(/database down/);
+    vi.restoreAllMocks();
+    expect((await repo.getMenu('Cuisine Test'))!.unavailableByLocation ?? {}).toEqual({});
+    expect(dd).not.toHaveBeenCalled();
+  });
+
+  it('DoorDash menu pull for a follower whose list matches nothing: 409 with the reason, logged', async () => {
+    vi.spyOn(doorDashAdapter, 'verifyWebhook').mockReturnValue(true);
+    await getRepo().saveMenu(sourceMenu());
+    await saveMenuSharing({ 'Pi Pita': 'Cuisine Test' });
+    await saveBrandDishes({ 'Pi Pita': ['gone-after-reimport'] });
+    await store('Pi Pita', 'doordash', 'dd-pita', 'NDG');
+    const { GET } = await import('../app/api/foodhub/webhooks/doordash/[locationId]/route');
+    const res = await GET(new Request('http://hub.local/x/dd-pita') as never, { params: Promise.resolve({ locationId: 'dd-pita' }) });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/nothing was published/);
+    expect((await getRepo().listActivity({ limit: 20 })).some((a) => a.action === 'menu_pull_refused' && /Menu → Shared menu/.test(a.summary))).toBe(true);
+  });
+
+  it('dish refs longer than 120 characters: dropped when read, refused by the API', async () => {
+    expect(cleanBrandDishes({ A: ['clv-pita', 'x'.repeat(121)] })).toEqual({ A: ['clv-pita'] });
+    await getRepo().saveMenu(sourceMenu());
+    const { PUT } = await import('../app/api/foodhub/menu/sharing/route');
+    const res = await PUT(call('PUT', '/api/foodhub/menu/sharing', { sharing: { 'Pi Pita': 'Cuisine Test' }, dishes: { 'Pi Pita': ['clv-pita', 'x'.repeat(5000)] } }), ctx);
+    expect(res.status).toBe(422);
+    expect((await res.json()).error).toMatch(/longer than 120/);
   });
 });

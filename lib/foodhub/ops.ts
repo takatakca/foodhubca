@@ -159,6 +159,10 @@ export async function setItemAvailability(brandName: string, refs: string[], ava
   const modRefs = refs.filter((r) => modifierRefs.has(r));
   const names = new Map<string, string>([...(menu?.items ?? []).map((i) => [i.ref, i.name] as [string, string]), ...(menu?.modifierGroups ?? []).flatMap((g) => g.modifiers.map((m) => [m.ref, m.name] as [string, string]))]);
   const label = refs.map((r) => names.get(r) ?? r).join(', ');
+  // A follower brand with its own dish list only hears about its dishes and their options (read once, only when shared).
+  // Read BEFORE the 86 state is saved: getBrandDishes fails closed, so a read error stops here with nothing changed,
+  // never with an 86 saved in Food Hub and sent to no platform.
+  const dishes: BrandDishes = brands.length > 1 ? await getBrandDishes() : {};
   if (menu) {
     const byLoc = { ...(menu.unavailableByLocation ?? {}) };
     const until = { ...(menu.unavailableUntil ?? {}) };
@@ -178,8 +182,6 @@ export async function setItemAvailability(brandName: string, refs: string[], ava
   // storeIds: only these stores receive the change (the Clover sync sends it only to the stores that follow that
   // merchant); an explicit empty list = no platform call at all, only the Food Hub state above.
   const stores = opts.storeIds && !opts.storeIds.length ? [] : await storesFor({ brandNames: brands, locationCode: opts.locationCode, storeIds: opts.storeIds });
-  // A follower brand with its own dish list only hears about its dishes and their options (read once, only when shared).
-  const dishes: BrandDishes = brands.length > 1 ? await getBrandDishes() : {};
   const scopes = new Map<string, ReturnType<typeof dishScope> | null>();
   const scopeOf = (brand: string) => {
     if (!scopes.has(brand)) { const list = menu ? dishesOf(sharing, dishes, brand) : null; scopes.set(brand, list ? dishScope(menu!, list) : null); }

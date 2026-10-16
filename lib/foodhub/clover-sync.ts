@@ -17,6 +17,9 @@ import type { ChannelStore, MasterMenu } from './types';
 export const CLOVER_ACTOR: Actor = { username: 'clover', name: 'Clover', source: 'automation' };
 const ORIGIN_KEY = 'clover_86';          // items Food Hub turned off because Clover said so: "brand|loc|ref" → true
 const PRICE_KEY = 'clover_price_changes'; // "brand|ref" → change
+// Clover 86s NOT made because a store at that location uses another Clover merchant: "brand|loc|ref|mid" → true.
+// The "not 86'd" line is logged once per out-of-stock, not on every webhook or poll that sees the item again.
+const SKIPPED_KEY = 'clover_86_skipped';
 const SINCE_KEY = 'clover_inventory_since';
 export const VERIFY_KEY = 'clover_webhook_verification';
 
@@ -95,7 +98,8 @@ export async function applyCloverItem(mid: string, item: any, opts: { deleted?: 
   const dishes = await getBrandDishes();
   const origin = (await repo.getKv<Record<string, boolean>>(ORIGIN_KEY)) ?? {};
   const prices = (await repo.getKv<Record<string, CloverPriceChange>>(PRICE_KEY)) ?? {};
-  let originChanged = false; let pricesChanged = false;
+  const skipped = (await repo.getKv<Record<string, boolean>>(SKIPPED_KEY)) ?? {};
+  let originChanged = false; let pricesChanged = false; let skippedChanged = false;
 
   for (const menu of menus) {
     // Every brand using this menu (it may be shared); a follower with its own dish list only counts for its dishes.
@@ -120,6 +124,13 @@ export async function applyCloverItem(mid: string, item: any, opts: { deleted?: 
         const [brand, loc, ...rest] = key.split('|');
         if (brand === menu.brandName && loc && rest.join('|') === mi.ref) locs.add(loc);
       }
+      if (sellable) {
+        // Back in stock: a later out-of-stock is a new event, its "not 86'd" line is logged again.
+        for (const k of Object.keys(skipped)) {
+          const parts = k.split('|');
+          if (parts[0] === menu.brandName && parts[parts.length - 1] === mid && parts.slice(2, -1).join('|') === mi.ref) { delete skipped[k]; skippedChanged = true; }
+        }
+      }
       for (const loc of locs) {
         const here = byLoc.get(loc) ?? [];
         const reach = here.filter((s) => followsMerchant(s, mid));
@@ -128,6 +139,9 @@ export async function applyCloverItem(mid: string, item: any, opts: { deleted?: 
         if (!sellable && !off) {
           if (!reach.length) continue;
           if (reach.length < here.length) {
+            const skipKey = `${menu.brandName}|${loc}|${mi.ref}|${mid}`;
+            if (skipped[skipKey]) continue;
+            skipped[skipKey] = true; skippedChanged = true;
             await logActivity({ actor: 'Clover', source: 'automation', kind: 'item_availability', action: 'clover_86_skipped', status: 'info', brandName: menu.brandName, locationCode: loc,
               summary: `Out of stock in Clover: ${mi.name} — not 86'd at ${loc}: ${here.length - reach.length} store(s) there use another Clover merchant (Stores → Mapping).` });
             continue;
@@ -161,6 +175,7 @@ export async function applyCloverItem(mid: string, item: any, opts: { deleted?: 
   }
   if (originChanged) await repo.setKv(ORIGIN_KEY, origin);
   if (pricesChanged) await repo.setKv(PRICE_KEY, prices);
+  if (skippedChanged) await repo.setKv(SKIPPED_KEY, skipped);
   return out;
 }
 

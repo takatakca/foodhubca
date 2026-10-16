@@ -79,12 +79,17 @@ export async function menuGroupFor(brandName: string): Promise<string[]> {
 /** follower brand → item refs of the source menu it shows. */
 export type BrandDishes = Record<string, string[]>;
 
+/** Longest ref kept in a dish list (a Clover item id is 13 characters). */
+export const MAX_DISH_REF_LENGTH = 120;
+
 /** Unique, trimmed refs per brand; brands with no ref are dropped (= every dish). */
 export function cleanBrandDishes(raw: unknown): BrandDishes {
   const out: BrandDishes = {};
   for (const [k, v] of Object.entries(raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {})) {
     const brand = k.trim();
-    const refs = [...new Set((Array.isArray(v) ? v : []).map((x) => String(x ?? '').trim()).filter(Boolean))];
+    // A ref longer than MAX_DISH_REF_LENGTH is dropped: no menu ref is that long, and this list is read on every publish,
+    // order and cart check.
+    const refs = [...new Set((Array.isArray(v) ? v : []).map((x) => String(x ?? '').trim()).filter((x) => x && x.length <= MAX_DISH_REF_LENGTH))];
     if (brand && refs.length) out[brand] = refs;
   }
   return out;

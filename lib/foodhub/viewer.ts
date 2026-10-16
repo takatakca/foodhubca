@@ -1,6 +1,5 @@
 // Who is looking at a page (server components). Same rules as getActor() for API routes.
 import { cookies, headers } from 'next/headers';
-import rawDoorDashStores from '../../data/actual/platform-stores-doordash.json';
 import { getCatalog } from './catalog';
 import { getDevice } from './identity/devices';
 import { getRepo } from './repo';

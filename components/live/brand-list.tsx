@@ -51,7 +51,8 @@ export function BrandListRow({ row, onOpen, showKitchen }: { row: BrandRow; onOp
         </span>
       </span>
       <span className="hidden items-center gap-2.5 sm:flex" aria-label={t('Plateformes', 'Platforms')}>
-        {PLATFORM_ORDER.map((ch) => <PlatformStateDot key={ch} channel={ch} state={row.cells[ch] ?? 'missing'} />)}
+        {/* With a platform picked, a row carries that platform only. */}
+        {PLATFORM_ORDER.filter((ch) => ch in row.cells || Object.keys(row.cells).length > 1).map((ch) => <PlatformStateDot key={ch} channel={ch} state={row.cells[ch] ?? 'missing'} />)}
       </span>
       <span className="w-24 text-right">
         <span className="num block text-[15px] font-extrabold text-ink">{money(row.sales, loc)}</span>

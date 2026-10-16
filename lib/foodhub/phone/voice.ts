@@ -15,7 +15,7 @@ import { phoneAiUsable } from './ai-health';
 import { runAgentTurn, phoneAgentConfigured } from './agent';
 import { buildPhoneMenu, noKitchenMenu } from './cart';
 import { endCall, getCall, isTestCaller, maskNumber, saveCall, say, type PhoneCall, type PhoneLang, type TurnReply } from './calls';
-import { languageRequest, LANG_DIGIT } from './ivr/words';
+import { hasCardNumber, languageRequest, LANG_DIGIT, NO_CARD, redactCards } from './ivr/words';
 import { getPhoneSettings, isMultiKitchen, kitchenView, lineForNumber, type PhoneLine, type PhoneSettings } from './settings';
 import { personaFor } from './style';
 import { dialXml, gatherInner, gatherXml, GREETING, LANG_OFFER, NO_AGENT, NOBODY, sayXml, twiml, VOICE_PATH, WAIT } from './twilio';
@@ -168,6 +168,11 @@ export function languageChoice(turns: number, digits: string, speech: string): {
   return turns === 0 || !asked.rest ? asked : null;
 }
 
+/** A card number said or typed: noted as refused (never the number itself) and the caller hears why. */
+function refuseCard(call: PhoneCall): PhoneCall {
+  return say(say(call, 'system', 'The caller started giving a card number: refused, not kept'), 'agent', NO_CARD[call.lang]);
+}
+
 /** Twilio <Gather> action: the caller said something (or pressed a key, or nothing). */
 export async function callerTurn(params: URLSearchParams): Promise<Response> {
   const call = await getCall(params.get('CallSid') || '');
@@ -177,7 +182,13 @@ export async function callerTurn(params: URLSearchParams): Promise<Response> {
   const settings = callVoices(call, base);
   if (!ls) return twiml(`${sayXml(NOBODY[call.lang], settings, call.lang)}<Hangup/>`);
   const digits = params.get('Digits') || '';
-  const speech = (params.get('SpeechResult') || '').trim();
+  const rawSpeech = (params.get('SpeechResult') || '').trim();
+  // Card numbers, exactly as on the ON2GO menu (ivr/engine.ts): refused, never stored, never shown to the AI.
+  if (hasCardNumber(rawSpeech) || hasCardNumber(digits)) {
+    await saveCall(refuseCard(call));
+    return twiml(gatherXml(NO_CARD[call.lang], settings, call.lang, `${VOICE_PATH}/turn`, lineHints(ls.line, call.lang)));
+  }
+  const speech = redactCards(rawSpeech);
   // Language choice: keys 2 / 3 on the greeting, or "English", "español" — no AI needed. The rest of the sentence goes
   // on to the AI. Mid-order, keys answer the AI ("how many?") and only a request said on its own switches.
   const asked = languageChoice(call.turns, digits, speech);
@@ -256,6 +267,11 @@ export async function simulateTurn(lineId: string, sessionId: string | null, tex
     if (!text.trim()) return { call, reply: { say: greeting, next: 'listen', lang: 'fr' } };
   }
   if (call.status !== 'active') throw new Error('This test call has ended — start a new one.');
+  if (hasCardNumber(text)) {
+    call = await saveCall(refuseCard(call));
+    return { call, reply: { say: NO_CARD[call.lang], next: 'listen', lang: call.lang } };
+  }
+  text = redactCards(text);
   // The same language rules as a real call: "English", "español", or keys 2 / 3 typed as the first words.
   const key = text.trim();
   const asked = /^[23]$/.test(key) ? languageChoice(call.turns, key, '') : languageChoice(call.turns, '', key);

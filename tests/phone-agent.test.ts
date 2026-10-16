@@ -9,7 +9,7 @@ import { TOOLS } from '../lib/foodhub/phone/agent';
 import { addToCart, buildPhoneMenu, cartSummary } from '../lib/foodhub/phone/cart';
 import { getCall } from '../lib/foodhub/phone/calls';
 import { getPhoneSettings, savePhoneSettings } from '../lib/foodhub/phone/settings';
-import { twilioSignature, verifyTwilio } from '../lib/foodhub/phone/twilio';
+import { GREETING, twilioSignature, verifyTwilio } from '../lib/foodhub/phone/twilio';
 import { callerTurn, simulateTurn, startCall } from '../lib/foodhub/phone/voice';
 import { getRepo } from '../lib/foodhub/repo';
 import type { MasterMenu } from '../lib/foodhub/types';
@@ -110,7 +110,7 @@ describe('Twilio', () => {
     expect(xml).toContain('language="fr-CA"');
     expect(xml).toContain('speechModel="googlev2_telephony" speechTimeout="2"');
     // One sentence per voice: the French voice never reads English, and Spanish is offered too.
-    expect(xml).toMatch(/<Say voice="Polly.Gabrielle-Neural" language="fr-CA">Bonjour, merci d’avoir appelé Pi Pita NDG\. Je suis l’assistante virtuelle et je prends votre commande\. Qu’est-ce que je peux vous préparer \?<\/Say>/);
+    expect(xml).toMatch(/<Say voice="Polly.Gabrielle-Neural" language="fr-CA">Bonjour, merci d’avoir appelé Pi Pita NDG\. Je suis l’assistante automatisée\. L’appel est transcrit pour prendre votre commande\. Pour parler à une personne, faites le 0\. Qu’est-ce que je peux vous préparer \?<\/Say>/);
     expect(xml).toMatch(/<Say voice="Polly.Joanna-Neural" language="en-US">For English, press 2\.<\/Say><Say voice="Polly.Lupe-Neural" language="es-US">Para español, marque el 3\.<\/Say>/);
     const en = await (await callerTurn(await form(signed('/api/foodhub/webhooks/voice/turn', { CallSid: 'CA1', Digits: '2' })))).text();
     expect(en).toContain('language="en-US"');
@@ -206,5 +206,49 @@ describe('the agent', () => {
     expect(JSON.stringify(claudeRequests.at(-1)!.body.messages.at(-1))).toContain('SIMULATION');
     expect(await listDirectOrders()).toHaveLength(0);
     expect(sms).toHaveLength(0);
+  });
+});
+
+describe('automated-assistant disclosure and card numbers (legal review 2026-10-16)', () => {
+  it('the greeting says automated assistant, transcription and 0 for a person, in French, English and Spanish', () => {
+    const fem = { name: 'Léa', gender: 'female' as const };
+    const male = { name: '', gender: 'male' as const };
+    expect(GREETING.fr('Pi Pita', fem)).toBe('Bonjour, merci d’avoir appelé Pi Pita. Je suis Léa, l’assistante automatisée. L’appel est transcrit pour prendre votre commande. Pour parler à une personne, faites le 0. Qu’est-ce que je peux vous préparer ?');
+    expect(GREETING.fr('Pi Pita', male)).toContain('Je suis l’assistant automatisé.');
+    expect(GREETING.en('Pi Pita', fem)).toBe('Hello, thank you for calling Pi Pita. I’m Léa, the automated assistant. This call is transcribed to take your order. To speak with a person, press 0. What can I get for you?');
+    expect(GREETING.es('Pi Pita', fem)).toBe('Hola, gracias por llamar a Pi Pita. Soy Léa, su asistente automatizada. La llamada se transcribe para tomar su pedido. Para hablar con una persona, marque el 0. ¿Qué le preparamos?');
+    expect(GREETING.es('Pi Pita', male)).toContain('Soy su asistente automatizado.');
+    for (const g of [GREETING.fr, GREETING.en, GREETING.es]) expect(g('Pi Pita', fem)).not.toMatch(/virtu/i);
+  });
+
+  it('the English greeting (key 2) carries the disclosure, and 0 still reaches a person', async () => {
+    await startCall(await form(signed('/api/foodhub/webhooks/voice', { CallSid: 'CA3', From: '+15145551234', To: '+15145550199' })));
+    const en = await (await callerTurn(await form(signed('/api/foodhub/webhooks/voice/turn', { CallSid: 'CA3', Digits: '2' })))).text();
+    expect(en).toMatch(/I’m the automated assistant\. This call is transcribed to take your order\. To speak with a person, press 0\./);
+    const zero = await (await callerTurn(await form(signed('/api/foodhub/webhooks/voice/turn', { CallSid: 'CA3', Digits: '0' })))).text();
+    expect(zero).toContain('<Dial callerId="+15145550199"');
+    expect(zero).toContain('+15145550100</Dial>');
+    expect(claudeRequests).toHaveLength(0);
+    expect((await getCall('CA3'))!).toMatchObject({ status: 'handoff', handoffReason: 'Caller pressed 0' });
+  });
+
+  it('a card number said on the ordering line is refused, never stored and never sent to the AI', async () => {
+    await startCall(await form(signed('/api/foodhub/webhooks/voice', { CallSid: 'CA4', From: '+15145551234', To: '+15145550199' })));
+    const xml = await (await callerTurn(await form(signed('/api/foodhub/webhooks/voice/turn', { CallSid: 'CA4', SpeechResult: 'ma carte c’est 4111 1111 1111 1111' })))).text();
+    expect(xml).toMatch(/ne donnez jamais un numéro de carte/);
+    expect(xml).toContain('<Gather');
+    expect(claudeRequests).toHaveLength(0);
+    const stored = JSON.stringify(await getCall('CA4'));
+    expect(stored).not.toMatch(/4111/);
+    expect(stored).toContain('card number: refused, not kept');
+    // Anything that still reaches a transcript (the AI's own words, the simulator) is redacted.
+    const sim = await simulateTurn((await getPhoneSettings()).lines[0].id, null, '');
+    const r = await simulateTurn(sim.call.lineId, sim.call.id, '5555-5555-5555-4444');
+    expect(r.reply.say).toMatch(/ne donnez jamais/);
+    expect(JSON.stringify(r.call)).not.toMatch(/5555-5555-5555-4444|5555555555554444/);
+    claude = [claudeResponse([text('J’ai noté 4111 1111 1111 1111.')])];
+    const t = await simulateTurn(sim.call.lineId, sim.call.id, 'Un poulet');
+    expect(JSON.stringify(t.call.transcript)).not.toMatch(/4111 1111/);
+    expect(JSON.stringify(t.call.transcript)).toContain('[card number removed]');
   });
 });

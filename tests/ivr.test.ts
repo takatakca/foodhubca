@@ -10,7 +10,7 @@ import { saveDirectOrder } from '../lib/foodhub/delivery/store';
 import { setFeature } from '../lib/foodhub/expansion/features';
 import { getCall } from '../lib/foodhub/phone/calls';
 import { findOwnOrders, IVR_TOOLS, ivrPromptBlock } from '../lib/foodhub/phone/ivr/agent';
-import { cleanIvrSettings, DEFAULT_IVR, DEFAULT_TREE, getIvrSettings, OWNER_GREETING, platformHelpUrl, saveIvrSettings, validateTree, type IvrNode } from '../lib/foodhub/phone/ivr/config';
+import { cleanIvrSettings, DEFAULT_IVR, DEFAULT_TREE, getIvrSettings, GREETING_NOTICE, OWNER_GREETING, platformHelpUrl, saveIvrSettings, validateTree, type IvrNode } from '../lib/foodhub/phone/ivr/config';
 import { tickIvr } from '../lib/foodhub/phone/ivr/engine';
 import { callMatches, getIvrCall, IVR_REFS, listPlatformRefs, listTickets, newIvrCall } from '../lib/foodhub/phone/ivr/records';
 import { detectPlatform, fold, hasCardNumber, keywordIntent, languageRequest, languageWord, menuSpeech, NO_MORE, normalizeOrderId, redactCards } from '../lib/foodhub/phone/ivr/words';
@@ -253,7 +253,31 @@ describe('greeting and language', () => {
 
   it('plays a recorded greeting when an MP3 is set', async () => {
     await saveIvrSettings({ audio: { greeting: { fr: 'https://cdn.example.test/on2go-fr.mp3' }, voicemail: {} } }, actor);
-    expect(await start()).toMatch(/<Play>https:\/\/cdn.example.test\/on2go-fr.mp3<\/Play>/);
+    const r = await start();
+    expect(r).toMatch(/<Play>https:\/\/cdn.example.test\/on2go-fr.mp3<\/Play>/);
+    // The recording cannot drop the disclosure: it is said right after it.
+    expect(r).toMatch(/<\/Play><Say voice="Polly.Gabrielle-Neural" language="fr-CA">Je suis l’assistante automatisée\. L’appel est transcrit/);
+  });
+
+  it('says it is an automated assistant, that the call is transcribed and that 0 reaches a person — even with an edited greeting', async () => {
+    expect(GREETING_NOTICE.fr).toBe('L’appel est transcrit pour traiter votre demande. Pour parler à une personne, faites le 0.');
+    expect(GREETING_NOTICE.en).toMatch(/transcribed.*press 0/);
+    expect(GREETING_NOTICE.es).toMatch(/se transcribe.*marque el 0/);
+    const r = await start();
+    expect(r).toMatch(/numéro un au Canada\. Poulet grillé.*Je suis l’assistante automatisée\. L’appel est transcrit pour traiter votre demande\. Pour parler à une personne, faites le 0\. Comment puis-je vous aider \?<\/Say>/);
+    expect(r).not.toMatch(/virtu/i);
+    await saveIvrSettings({ greeting: { ...OWNER_GREETING, fr: 'Bonjour et bienvenue chez ON2GO.' } }, actor);
+    expect(await start('CA2')).toMatch(/Bonjour et bienvenue chez ON2GO\. .*assistante automatisée\..*faites le 0\./);
+  });
+
+  it('0 on the greeting reaches a person, even when the tree has no 0 option', async () => {
+    await saveIvrSettings({ handoffNumber: '514 555 0100' }, actor);
+    await start();
+    expect(await turn({ Digits: '0' })).toMatch(/<Dial[^>]*>\+15145550100<\/Dial>/);
+    await saveIvrSettings({ tree: DEFAULT_TREE.filter((n) => n.digit !== '0') }, actor);
+    expect((await getIvrSettings()).tree.some((n) => n.digit === '0')).toBe(false);
+    await start('CA2');
+    expect(await turn({ Digits: '0' }, 'CA2')).toMatch(/<Dial[^>]*>\+15145550100<\/Dial>/);
   });
 
   it('switches language by voice or keypad: English (en-US) and Spanish (es-US)', async () => {
@@ -265,7 +289,8 @@ describe('greeting and language', () => {
     await start('CA2');
     const es = await turn({ Digits: '3' }, 'CA2');
     expect(es).toMatch(/<Gather[^>]*language="es-US"/);
-    expect(es).toMatch(/<Say voice="Polly.Lupe-Neural" language="es-US">Muy bien, en español\. ¿Cómo puedo ayudarle\?<\/Say>/);
+    expect(es).toMatch(/<Say voice="Polly.Lupe-Neural" language="es-US">Muy bien, en español\. Soy su asistente automatizada\. La llamada se transcribe para atender su solicitud\. Para hablar con una persona, marque el 0\. ¿Cómo puedo ayudarle\?<\/Say>/);
+    expect(en).toMatch(/Okay, in English\. I’m the automated assistant\. This call is transcribed to handle your request\. To speak with a person, press 0\. How can I help you\?/);
   });
 
   it('the AI can switch the language (set_language) and the next listen uses that language', async () => {
@@ -507,7 +532,7 @@ describe('ordering agent, person, voicemail', () => {
     const r = await turn({ SpeechResult: 'I want to order a chicken' });
     expect(r).toMatch(/action="\/api\/foodhub\/webhooks\/voice\/turn"/);
     expect(r).toMatch(/language="en-US"/);
-    expect(r).toMatch(/I’ll take your order/);
+    expect(r).toMatch(/Great! I’m the automated assistant\. This call is transcribed to take your order\. To speak with a person, press 0\. What can I get for you\?/);
     const pc = await getCall('CA1');
     expect(pc).toMatchObject({ id: 'CA1', lineName: 'Pi Pita', lang: 'en', from: CALLER, status: 'active' });
     expect((await getIvrCall('CA1'))!.outcome).toBe('order_agent');

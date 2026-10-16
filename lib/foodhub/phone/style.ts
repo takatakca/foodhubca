@@ -24,19 +24,35 @@ export function personaFor(p: Persona, voiceFr?: string): Persona {
   return g && g !== p.gender ? { ...p, gender: g } : p;
 }
 
-/** "Je suis Léa, votre assistante virtuelle" / "I'm Léa, your virtual assistant" / "Soy Léa, su asistente virtual". */
+/**
+ * "Je suis Léa, l’assistante automatisée" / "I’m Léa, the automated assistant" / "Soy Léa, su asistente automatizada".
+ * The caller always hears that the assistant is automated (legal review 2026-10-16), never "virtuel" / "virtual".
+ */
 export function selfIntro(p: Persona, lang: PhoneLang): string {
   const fem = p.gender === 'female';
-  if (lang === 'en') return p.name ? `I’m ${p.name}, the virtual assistant` : 'I’m the virtual assistant';
-  if (lang === 'es') return p.name ? `Soy ${p.name}, su asistente virtual` : 'Soy su asistente virtual';
-  const role = fem ? 'l’assistante virtuelle' : 'l’assistant virtuel';
+  if (lang === 'en') return p.name ? `I’m ${p.name}, the automated assistant` : 'I’m the automated assistant';
+  if (lang === 'es') {
+    const role = `su asistente ${fem ? 'automatizada' : 'automatizado'}`;
+    return p.name ? `Soy ${p.name}, ${role}` : `Soy ${role}`;
+  }
+  const role = fem ? 'l’assistante automatisée' : 'l’assistant automatisé';
   return p.name ? `Je suis ${p.name}, ${role}` : `Je suis ${role}`;
 }
+
+/**
+ * Said right after the assistant introduces itself on the ordering line: the call is transcribed to take the order,
+ * and 0 reaches a person (voice.ts sends key 0 to a person at any point of the call). One short sentence per part.
+ */
+export const ORDER_NOTICE: Record<PhoneLang, string> = {
+  fr: 'L’appel est transcrit pour prendre votre commande. Pour parler à une personne, faites le 0.',
+  en: 'This call is transcribed to take your order. To speak with a person, press 0.',
+  es: 'La llamada se transcribe para tomar su pedido. Para hablar con una persona, marque el 0.',
+};
 
 /** Model-facing description of the persona (per-call block). */
 export function personaBlock(p: Persona): string {
   const fem = p.gender === 'female';
-  return `PERSONA: you are ${p.name ? `${p.name}, ` : ''}the ON2GO virtual assistant (${fem ? 'a woman’s voice: in French say "assistante", "prête", "ravie"' : 'a man’s voice: in French say "assistant", "prêt", "ravi"'}). If asked, say honestly that you are an automated AI assistant.`;
+  return `PERSONA: you are ${p.name ? `${p.name}, ` : ''}the ON2GO automated assistant (${fem ? 'a woman’s voice: in French say "assistante", "prête", "ravie"' : 'a man’s voice: in French say "assistant", "prêt", "ravi"'}). If asked, say honestly that you are an automated AI assistant, that the call is transcribed to serve the caller, and that pressing 0 or asking reaches a person.`;
 }
 
 /** Static style guide, the same for both assistants (part of the cached prompt). */

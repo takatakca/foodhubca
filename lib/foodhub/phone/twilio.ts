@@ -10,7 +10,7 @@ import crypto from 'node:crypto';
 import { publicBaseUrl, safeEqual } from '../config';
 import type { PhoneLang } from './calls';
 import type { PhoneSettings } from './settings';
-import { selfIntro, speakable, type Persona } from './style';
+import { ORDER_NOTICE, selfIntro, speakable, type Persona } from './style';
 import { DEFAULT_VOICES, FALLBACK_VOICES, sayLanguage, speechPlan, type ListenKind } from './voices';
 
 export const VOICE_PATH = '/api/foodhub/webhooks/voice';
@@ -106,11 +106,15 @@ export async function readForm(req: Request): Promise<URLSearchParams> {
   return new URLSearchParams(text);
 }
 
-/** Direct ordering line greeting, one sentence per voice (the French voice never reads English). */
+/**
+ * Direct ordering line greeting, one short sentence per part (the French voice never reads English): the restaurant,
+ * the automated assistant, the call transcribed to take the order, 0 for a person, then the question.
+ */
+const disclosure = (p: Persona | undefined, lang: PhoneLang) => `${selfIntro(p ?? { name: '', gender: 'female' }, lang)}. ${ORDER_NOTICE[lang]}`;
 export const GREETING = {
-  fr: (name: string, p?: Persona) => `Bonjour, merci d’avoir appelé ${name}. ${selfIntro(p ?? { name: '', gender: 'female' }, 'fr')} et je prends votre commande. Qu’est-ce que je peux vous préparer ?`,
-  en: (name: string, p?: Persona) => `Hello, thank you for calling ${name}. ${selfIntro(p ?? { name: '', gender: 'female' }, 'en')} and I’ll take your order. What can I get for you?`,
-  es: (name: string, p?: Persona) => `Hola, gracias por llamar a ${name}. ${selfIntro(p ?? { name: '', gender: 'female' }, 'es')} y tomo su pedido. ¿Qué le preparamos?`,
+  fr: (name: string, p?: Persona) => `Bonjour, merci d’avoir appelé ${name}. ${disclosure(p, 'fr')} Qu’est-ce que je peux vous préparer ?`,
+  en: (name: string, p?: Persona) => `Hello, thank you for calling ${name}. ${disclosure(p, 'en')} What can I get for you?`,
+  es: (name: string, p?: Persona) => `Hola, gracias por llamar a ${name}. ${disclosure(p, 'es')} ¿Qué le preparamos?`,
 };
 /** Language options read after the French greeting, each in its own voice. */
 export const LANG_OFFER = { en: 'For English, press 2.', es: 'Para español, marque el 3.' };

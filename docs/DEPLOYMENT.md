@@ -1,5 +1,10 @@
 # FOODHUB / ON2GO Hub — déploiement prouvable
 
+## Interface d'onglets — changement non déployé du 2026-10-16
+
+La branche `fix/console-tabs-keyboard-20261016` modifie uniquement la navigation clavier des onglets de la console et des tests unitaires ; aucun API, fournisseur, secret, base ou commande. Contrôler CI et image Docker avant revue et fusion propriétaire. Aucune publication Coolify n'a été déclenchée depuis cette branche. Ne pas considérer un build d'image ou une ancienne Action de déploiement `skipped` comme preuve de livraison ; comparer ensuite le SHA exact avec `/api/release`.
+
+
 Environnement : Contabo VPS + Coolify, domaine canonique `https://foodhub.on2go.ca`, application Next.js sur port 3000. Depuis la reprise autorisée du 2026-10-15, la livraison retenue est le **GitHub App natif Coolify**, avec construction du `Dockerfile` sur Contabo. Le contrôleur Actions historique est désactivé pour éviter deux auteurs de production.
 Lire aussi `docs/RELEASE_GHCR_COOLIFY.md` et [issue #46](https://github.com/takatakca/foodhubca/issues/46).
 

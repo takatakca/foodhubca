@@ -15,7 +15,7 @@
 import type { PhoneLang } from './calls';
 
 export type VoiceGender = 'female' | 'male';
-export interface VoiceOption { id: string; lang: PhoneLang; gender: VoiceGender; tier: 'neural' | 'generative'; label: string; /** <Say language> when it differs from the call's (es-MX voices). */ sayLanguage?: string }
+export interface VoiceOption { id: string; lang: PhoneLang; gender: VoiceGender; tier: 'standard' | 'neural' | 'generative'; label: string; /** <Say language> when it differs from the call's (es-MX voices). */ sayLanguage?: string }
 
 const chirp = (lang: PhoneLang, locale: string): VoiceOption[] => [
   ...['Aoede', 'Kore', 'Leda', 'Zephyr'].map((n) => ({ id: `Google.${locale}-Chirp3-HD-${n}`, lang, gender: 'female' as const, tier: 'generative' as const, label: `Google Chirp3-HD ${n}` })),
@@ -26,6 +26,8 @@ export const VOICE_OPTIONS: VoiceOption[] = [
   // Québec French (fr-CA)
   { id: 'Polly.Gabrielle-Neural', lang: 'fr', gender: 'female', tier: 'neural', label: 'Polly Gabrielle (Québec)' },
   { id: 'Polly.Liam-Neural', lang: 'fr', gender: 'male', tier: 'neural', label: 'Polly Liam (Québec)' },
+  // Older standard voice, kept so a line saved with it keeps it (the neural voices sound better).
+  { id: 'Polly.Chantal', lang: 'fr', gender: 'female', tier: 'standard', label: 'Polly Chantal (Québec, standard)' },
   { id: 'Google.fr-CA-Neural2-A', lang: 'fr', gender: 'female', tier: 'neural', label: 'Google Neural2 A' },
   { id: 'Google.fr-CA-Neural2-C', lang: 'fr', gender: 'female', tier: 'neural', label: 'Google Neural2 C' },
   { id: 'Google.fr-CA-Neural2-B', lang: 'fr', gender: 'male', tier: 'neural', label: 'Google Neural2 B' },

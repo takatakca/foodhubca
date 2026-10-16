@@ -112,7 +112,8 @@ export default function CloverAppPage() {
               </ul>
             </Section>
 
-            {data?.clover.apps && data.clover.apps.length > 0 && <CloverAppsSection apps={data.clover.apps} onDone={load} />}
+            {/* Only once a second app is set on this server (CLOVER_PHONE_APP_ID): without it the page is unchanged. */}
+            {(data?.clover.apps ?? []).filter((a) => a.enabled).length > 1 && <CloverAppsSection apps={(data?.clover.apps ?? []).filter((a) => a.enabled)} isAdmin={can('admin')} onDone={load} />}
 
             <OwnerTestOrder merchants={[...new Set([...(data?.clover.tokenMerchantIds ?? []), ...app.merchants.filter((m) => m.status === 'active').map((m) => m.merchantId)])]} onDone={load} />
 
@@ -191,18 +192,24 @@ export default function CloverAppPage() {
  * app. Keys set or not (environment variable names only), addresses for the Clover dashboard, webhook state, and which
  * merchants installed each app — a merchant with both apps shares its menu, stores and orders between them.
  */
-function CloverAppsSection({ apps, onDone }: { apps: CloverAppStatus[]; onDone: () => void }) {
+function CloverAppsSection({ apps, isAdmin, onDone }: { apps: CloverAppStatus[]; isAdmin: boolean; onDone: () => void }) {
   const { t } = useI18n();
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
   const ev = (e: CloverAppStatus['events'][number]) => ({ app: 'App', inventory: 'Inventory', orders: 'Orders' }[e]);
-  async function approve(app: CloverAppStatus['key'], merchantId: string) {
-    setBusy(`${app}:${merchantId}`);
+  // Approve and disconnect are owner-only (admin), like the API; each acts on one app only, never on the other.
+  async function send(method: 'POST' | 'DELETE', app: CloverAppStatus['key'], merchantId: string) {
+    setBusy(`${method}:${app}:${merchantId}`);
     try {
-      await api('/api/foodhub/clover-connect/merchants', { method: 'POST', body: JSON.stringify({ merchantId, app }) });
+      await api('/api/foodhub/clover-connect/merchants', { method, body: JSON.stringify({ merchantId, app }) });
       setErr('');
       onDone();
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
+  }
+  const approve = (app: CloverAppStatus['key'], merchantId: string) => send('POST', app, merchantId);
+  function disconnect(a: CloverAppStatus, merchantId: string) {
+    if (!window.confirm(t(`Débrancher le marchand Clover ${merchantId} de ${a.name} ? Ses jetons pour cette application sont supprimés ; l’autre application n’est pas touchée.`, `Disconnect Clover merchant ${merchantId} from ${a.name}? Its tokens for this app are deleted; the other app is not touched.`))) return;
+    void send('DELETE', a.key, merchantId);
   }
   return (
     <Section icon={<LayoutGrid className="size-5" />} title={t('Applications Clover de ce serveur', 'Clover apps on this server')}
@@ -246,10 +253,15 @@ function CloverAppsSection({ apps, onDone }: { apps: CloverAppStatus[]; onDone: 
                     {m.bothApps && <Badge tone="go">{t('Les deux apps', 'Both apps')}</Badge>}
                     {m.billing?.status && <Badge tone={m.billing.status === 'ACTIVE' ? 'go' : 'wait'}>{m.billing.status.toLowerCase()}{m.billing.inTrial ? ` · ${t('essai', 'trial')}` : ''}{m.billing.plan ? ` · ${m.billing.plan}` : ''}</Badge>}
                     {m.status === 'pending'
-                      ? a.key === 'foodhub'
+                      ? a.key === 'foodhub' || !isAdmin
                         ? <Badge tone="wait" icon={<Hourglass className="size-3" />}>{t('En attente', 'Waiting')}</Badge>
-                        : <Button size="sm" variant="outline" loading={busy === `${a.key}:${m.merchantId}`} onClick={() => approve(a.key, m.merchantId)}>{t('Approuver', 'Approve')}</Button>
+                        : <Button size="sm" variant="outline" loading={busy === `POST:${a.key}:${m.merchantId}`} onClick={() => approve(a.key, m.merchantId)}>{t('Approuver', 'Approve')}</Button>
                       : <Badge tone="go" icon={<Check className="size-3" />}>{t('Approuvé', 'Approved')}</Badge>}
+                    {isAdmin && (
+                      <Button size="sm" variant="ghost" icon={<X className="size-3.5" />} loading={busy === `DELETE:${a.key}:${m.merchantId}`} onClick={() => disconnect(a, m.merchantId)}>
+                        {t('Débrancher', 'Disconnect')}
+                      </Button>
+                    )}
                   </li>
                 ))}
               </ul>

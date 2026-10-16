@@ -31,7 +31,8 @@
 // Several Clover apps (clover-apps.ts): every function takes the app as an optional last argument and defaults to
 // Food Hub, so Food Hub callers are unchanged. The AI phone app ("phone") has its own keys (CLOVER_PHONE_APP_ID /
 // CLOVER_PHONE_APP_SECRET), callback, token store (clover_oauth_merchants:phone) and refresh locks; uninstalling
-// one app removes only that app's tokens. See docs/CLOVER_MULTI_APP.md.
+// one app removes only that app's tokens. Every token-map write goes through one lock per map; the phone's subscription
+// status has its own key per merchant (clover_phone_billing:<merchantId>). See docs/CLOVER_MULTI_APP.md.
 import crypto from 'node:crypto';
 import { logActivity } from '../activity';
 import { nowIso, publicBaseUrl, stripSlash } from '../config';
@@ -41,7 +42,7 @@ import { publicUrlCheck } from '../public-url';
 import { getRepo } from '../repo';
 import { signWelcome, verifyWelcome } from '../session';
 import { cloverApp, cloverAppKeysSet, cloverAppMissing, phoneOwnMerchants, type CloverAppKey } from './clover-apps';
-import { cloverFetch } from './clover-http';
+import { cloverFetch, type CloverFetchOptions } from './clover-http';
 
 export const CLOVER_CONNECT_CALLBACK = '/api/foodhub/clover-connect/callback';
 export const CLOVER_WEBHOOK_PATH = '/api/foodhub/webhooks/clover';
@@ -74,7 +75,26 @@ export interface CloverBilling {
   inTrial: boolean;
   plan: string | null;
   daysLapsed: number | null;
+  /** Clover subscription ID (appSubscription.id): maps a tier exactly, whatever its display name. */
+  planId?: string | null;
   checkedAt: string;
+}
+
+/**
+ * Subscription status of a sold app (the phone) for one merchant, kept under its OWN key per merchant
+ * (clover_<app>_billing:<merchantId>), never inside the token map: the live-call check writes it, and a write there must
+ * never put back an older token record of another merchant (Clover refresh tokens are single-use).
+ */
+export interface CloverBillingState {
+  billing: CloverBilling | null;
+  /** Last time Clover answered ACTIVE or "in trial" for this app (entitlement grace when Clover does not answer). */
+  billingLastGoodAt?: string | null;
+  /** First time Clover answered LAPSED in a row (grace for live calls); cleared by any other answer. */
+  lapsedSince?: string | null;
+  /** The saved billing must be read again (an App event arrived for this app). */
+  billingStale?: boolean;
+  /** Last time asking Clover failed or ran out of time: Clover is not asked again for a few minutes. */
+  checkFailedAt?: string | null;
 }
 
 export interface CloverConnection {
@@ -94,12 +114,6 @@ export interface CloverConnection {
   billing?: CloverBilling | null;
   /** Clover App ID the tokens were issued for (absent on connections saved before several apps existed). */
   appId?: string | null;
-  /** Last time Clover answered ACTIVE or "in trial" for this app (entitlement grace when Clover does not answer). */
-  billingLastGoodAt?: string | null;
-  /** First time Clover answered LAPSED in a row (grace for live calls); cleared by any other answer. */
-  lapsedSince?: string | null;
-  /** The saved billing must be read again (an App event arrived for this app). */
-  billingStale?: boolean;
 }
 
 /** Public view of a connection — never includes tokens. */
@@ -157,7 +171,53 @@ export function cloverAppReadiness(app: CloverAppKey = 'foodhub') {
 async function readAll(app: CloverAppKey = 'foodhub'): Promise<Record<string, CloverConnection>> {
   return (await getRepo().getKv<Record<string, CloverConnection>>(cloverApp(app).tokenStoreKey)) ?? {};
 }
-async function writeAll(all: Record<string, CloverConnection>, app: CloverAppKey = 'foodhub') { await getRepo().setKv(cloverApp(app).tokenStoreKey, all); }
+
+/**
+ * One read-modify-write at a time per KV key in this process. Every change to a token map (connect, refresh, approve,
+ * patch, disconnect, billing refresh) goes through it, so two merchants' writes never undo each other. Across server
+ * instances the token map is only written on rare events (connect, token refresh, approve, uninstall); the per-call
+ * subscription check writes its own per-merchant key instead (CloverBillingState).
+ */
+const kvLocks = new Map<string, Promise<unknown>>();
+function withKvLock<T>(key: string, work: () => Promise<T>): Promise<T> {
+  const prev = kvLocks.get(key) ?? Promise.resolve();
+  const next = prev.catch(() => undefined).then(work);
+  kvLocks.set(key, next);
+  void next.finally(() => { if (kvLocks.get(key) === next) kvLocks.delete(key); }).catch(() => undefined);
+  return next;
+}
+
+/** Change one app's token map under its lock: `change` gets a fresh copy and returns what to give back; `write` false = leave it. */
+async function updateAll<T>(app: CloverAppKey, change: (all: Record<string, CloverConnection>) => Promise<{ write: boolean; result: T }> | { write: boolean; result: T }): Promise<T> {
+  const key = cloverApp(app).tokenStoreKey;
+  return withKvLock(key, async () => {
+    const all = await readAll(app);
+    const { write, result } = await change(all);
+    if (write) await getRepo().setKv(key, all);
+    return result;
+  });
+}
+
+const billingKey = (app: CloverAppKey, mid: string) => `clover_${app}_billing:${mid}`;
+const EMPTY_BILLING_STATE: CloverBillingState = { billing: null, billingLastGoodAt: null, lapsedSince: null, billingStale: false, checkFailedAt: null };
+
+/** A sold app's saved subscription status for a merchant (its own key; empty when never read). Food Hub keeps it on the connection. */
+export async function readCloverBillingState(merchantId: string, app: CloverAppKey): Promise<CloverBillingState> {
+  if (!merchantId) return { ...EMPTY_BILLING_STATE };
+  const s = await getRepo().getKv<CloverBillingState>(billingKey(app, merchantId)).catch(() => null);
+  return { ...EMPTY_BILLING_STATE, ...(s ?? {}) };
+}
+
+/** Merge fields into a sold app's subscription status for a merchant (its own key: the token map is never rewritten). */
+export async function patchCloverBillingState(merchantId: string, patch: Partial<CloverBillingState>, app: CloverAppKey): Promise<CloverBillingState> {
+  const key = billingKey(app, merchantId);
+  return withKvLock(key, async () => {
+    const cur = { ...EMPTY_BILLING_STATE, ...((await getRepo().getKv<CloverBillingState>(key).catch(() => null)) ?? {}) };
+    const next = { ...cur, ...patch };
+    await getRepo().setKv(key, next);
+    return next;
+  });
+}
 
 /**
  * One app's saved connection for a merchant, tokens included (server-side only — never return it from an API).
@@ -175,11 +235,11 @@ export async function readCloverConnection(merchantId: string, app: CloverAppKey
 
 /** Merge fields into one app's connection for a merchant (re-read first; false = not connected any more). */
 export async function patchCloverConnection(merchantId: string, patch: Partial<CloverConnection>, app: CloverAppKey = 'foodhub'): Promise<boolean> {
-  const all = await readAll(app);
-  if (!all[merchantId]) return false;
-  all[merchantId] = { ...all[merchantId], ...patch };
-  await writeAll(all, app);
-  return true;
+  return updateAll(app, (all) => {
+    if (!all[merchantId]) return { write: false, result: false };
+    all[merchantId] = { ...all[merchantId], ...patch };
+    return { write: true, result: true };
+  });
 }
 
 const isoFromUnix = (s?: number | null) => (typeof s === 'number' && s > 0 ? new Date(s * 1000).toISOString() : null);
@@ -201,8 +261,15 @@ function info(c: CloverConnection, nowS = Math.floor(Date.now() / 1000)): Clover
   };
 }
 
+/** The subscription to show for a connection: Food Hub's is on the record; a sold app's latest is in its own key. */
+async function shownBilling(c: CloverConnection, app: CloverAppKey): Promise<CloverBilling | null> {
+  if (app === 'foodhub') return c.billing ?? null;
+  return (await readCloverBillingState(c.merchantId, app)).billing ?? c.billing ?? null;
+}
+
 export async function listCloverConnections(app: CloverAppKey = 'foodhub'): Promise<CloverConnectionInfo[]> {
-  return Object.values(await readAll(app)).map((c) => info(c)).sort((a, b) => a.merchantId.localeCompare(b.merchantId));
+  const list = await Promise.all(Object.values(await readAll(app)).map(async (c) => ({ ...info(c), billing: await shownBilling(c, app) })));
+  return list.sort((a, b) => a.merchantId.localeCompare(b.merchantId));
 }
 
 /** Merchants Food Hub may use (approved). Pending installs are left out. */
@@ -295,9 +362,9 @@ async function postJson(path: string, body: Record<string, string>): Promise<{ o
   return { ok: res.ok, status: res.status, json };
 }
 
-async function cloverGet(token: string, path: string): Promise<{ status: number; json: any }> {
+async function cloverGet(token: string, path: string, opts: CloverFetchOptions = {}): Promise<{ status: number; json: any }> {
   try {
-    const res = await cloverFetch(`${apiBase()}${path}`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+    const res = await cloverFetch(`${apiBase()}${path}`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } }, opts);
     return { status: res.status, json: res.ok ? await res.json().catch(() => ({})) : null };
   } catch {
     return { status: 0, json: null };
@@ -335,18 +402,23 @@ async function readMerchant(mid: string, token: string): Promise<{ name: string 
   };
 }
 
-/** The merchant's App Market subscription to one app (free apps report a subscription too). Null when Clover does not answer. */
-export async function readCloverBilling(mid: string, token: string, app: CloverAppKey = 'foodhub'): Promise<CloverBilling | null> {
+/**
+ * The merchant's App Market subscription to one app (free apps report a subscription too). Null when Clover does not
+ * answer. `opts` = a short timeout and no 429 retry for a caller with a time budget (the live-call check).
+ */
+export async function readCloverBilling(mid: string, token: string, app: CloverAppKey = 'foodhub', opts: CloverFetchOptions = {}): Promise<CloverBilling | null> {
   const appId = cloverApp(app).appId;
   if (!appId) return null;
-  const r = await cloverGet(token, `/v3/apps/${encodeURIComponent(appId)}/merchants/${encodeURIComponent(mid)}/billing_info`);
+  const r = await cloverGet(token, `/v3/apps/${encodeURIComponent(appId)}/merchants/${encodeURIComponent(mid)}/billing_info`, opts);
   if (!r.json) return null;
-  const j = r.json as { status?: string; isInTrial?: boolean; appSubscription?: { name?: string }; daysLapsed?: number };
+  const j = r.json as { status?: string; isInTrial?: boolean; appSubscription?: { id?: string; name?: string }; daysLapsed?: number };
+  const planId = str(j.appSubscription?.id, 40);
   return {
     status: str(j.status, 30)?.toUpperCase() ?? null,
     inTrial: Boolean(j.isInTrial),
     plan: str(j.appSubscription?.name, 80),
     daysLapsed: typeof j.daysLapsed === 'number' ? j.daysLapsed : null,
+    ...(planId ? { planId } : {}),
     checkedAt: nowIso(),
   };
 }
@@ -390,31 +462,35 @@ export async function finishCloverConnect(params: { code?: string | null; mercha
   }
   const { name, profile } = await readMerchant(mid, r.json.access_token);
   const billing = await readCloverBilling(mid, r.json.access_token, app);
-  const all = await readAll(app);
-  const prev = all[mid];
-  // Owner-started connections and already-trusted merchants are active; a new install from Clover waits for the owner.
-  const approved = !st.fromClover || prev?.status === 'active' || (prev && prev.status === undefined) || (await preApprovedFor(mid, app));
-  all[mid] = {
-    merchantId: mid,
-    name: name ?? prev?.name ?? null,
-    accessToken: r.json.access_token,
-    accessTokenExpiration: r.json.access_token_expiration ?? null,
-    refreshToken: r.json.refresh_token ?? null,
-    refreshTokenExpiration: r.json.refresh_token_expiration ?? null,
-    connectedAt: prev?.connectedAt ?? nowIso(),
-    refreshedAt: nowIso(),
-    connectedBy: st.actor ?? (st.fromClover ? 'Clover App Market' : null),
-    status: approved ? 'active' : 'pending',
-    approvedBy: approved ? (st.actor ?? prev?.approvedBy ?? (st.fromClover ? 'allow-list' : null)) : null,
-    profile,
-    billing: billing ?? prev?.billing ?? null,
-    ...(app === 'foodhub' ? {} : {
-      appId: def.appId,
-      ...(billing ? billingPatch(prev, billing) : { billingLastGoodAt: prev?.billingLastGoodAt ?? null, lapsedSince: prev?.lapsedSince ?? null, billingStale: true }),
-    }),
-  };
-  await writeAll(all, app);
-  const label = all[mid].name ? `${all[mid].name} (${mid})` : mid;
+  const tokens = r.json;
+  const { prev, approved, saved } = await updateAll(app, async (all) => {
+    const prev = all[mid];
+    // Owner-started connections and already-trusted merchants are active; a new install from Clover waits for the owner.
+    const approved = Boolean(!st.fromClover || prev?.status === 'active' || (prev && prev.status === undefined) || (await preApprovedFor(mid, app)));
+    all[mid] = {
+      merchantId: mid,
+      name: name ?? prev?.name ?? null,
+      accessToken: tokens.access_token!,
+      accessTokenExpiration: tokens.access_token_expiration ?? null,
+      refreshToken: tokens.refresh_token ?? null,
+      refreshTokenExpiration: tokens.refresh_token_expiration ?? null,
+      connectedAt: prev?.connectedAt ?? nowIso(),
+      refreshedAt: nowIso(),
+      connectedBy: st.actor ?? (st.fromClover ? 'Clover App Market' : null),
+      status: approved ? 'active' : 'pending',
+      approvedBy: approved ? (st.actor ?? prev?.approvedBy ?? (st.fromClover ? 'allow-list' : null)) : null,
+      profile,
+      billing: billing ?? prev?.billing ?? null,
+      ...(app === 'foodhub' ? {} : { appId: def.appId }),
+    };
+    return { write: true, result: { prev, approved, saved: all[mid] } };
+  });
+  // A sold app's subscription status lives in its own key (the live-call check reads and writes it there).
+  if (app !== 'foodhub') {
+    const prevState = await readCloverBillingState(mid, app);
+    await patchCloverBillingState(mid, billing ? { ...billingPatch(prevState, billing), checkFailedAt: null } : { billingStale: true }, app);
+  }
+  const label = saved.name ? `${saved.name} (${mid})` : mid;
   const target = app === 'foodhub' ? 'Food Hub' : def.name;
   await logActivity(approved
     ? { actor: st.actor || 'Clover', source: st.fromClover ? 'platform' : 'dashboard', kind: 'settings', action: 'clover_connected', status: 'success',
@@ -423,7 +499,7 @@ export async function finishCloverConnect(params: { code?: string | null; mercha
         summary: `Clover merchant ${label} opened the ${def.name} app from Clover. It is waiting for your approval (Settings → Platforms & Clover) — nothing is sent to it until then.` });
   // Tell the owner once per new request (not on every re-open), without holding up the merchant's browser.
   if (!approved && prev?.status !== 'pending') void tellOwnerPending(label, def.name).catch(() => undefined);
-  return { ok: true, merchantId: mid, name: all[mid].name ?? null, pending: !approved, fromClover: st.fromClover, ...tag };
+  return { ok: true, merchantId: mid, name: saved.name ?? null, pending: !approved, fromClover: st.fromClover, ...tag };
 }
 
 /** Team chat + owner email: a Clover merchant is waiting for approval (Clover reviewers install the app this way too). */
@@ -467,17 +543,21 @@ export async function cloverWelcome(ticket: string | null | undefined): Promise<
   const tag = app === 'foodhub' ? {} : { app };
   const c = (await readAll(app))[p.m];
   if (!c) return { merchantId: p.m, name: null, status: 'gone', profile: null, billing: null, ...tag };
-  return { merchantId: c.merchantId, name: c.name ?? null, status: c.status === 'pending' ? 'pending' : 'active', profile: c.profile ?? null, billing: c.billing ?? null, ...tag };
+  return { merchantId: c.merchantId, name: c.name ?? null, status: c.status === 'pending' ? 'pending' : 'active', profile: c.profile ?? null, billing: await shownBilling(c, app), ...tag };
 }
 
 /** Owner approves a merchant that installed the app from Clover. */
 export async function approveCloverMerchant(merchantId: string, actor: string, app: CloverAppKey = 'foodhub'): Promise<boolean> {
-  const all = await readAll(app);
-  const c = all[merchantId];
-  if (!c) return false;
-  if (c.status !== 'pending') return true;
-  all[merchantId] = { ...c, status: 'active', approvedBy: actor };
-  await writeAll(all, app);
+  const r = await updateAll(app, (all) => {
+    const c = all[merchantId];
+    if (!c) return { write: false, result: { found: false, changed: false, c } };
+    if (c.status !== 'pending') return { write: false, result: { found: true, changed: false, c } };
+    all[merchantId] = { ...c, status: 'active', approvedBy: actor };
+    return { write: true, result: { found: true, changed: true, c } };
+  });
+  if (!r.found || !r.c) return false;
+  if (!r.changed) return true;
+  const c = r.c;
   await logActivity({ actor, source: 'dashboard', kind: 'settings', action: 'clover_approved', status: 'success',
     summary: app === 'foodhub'
       ? `Clover merchant ${c.name || merchantId} approved — Food Hub now sends its orders to Clover and syncs it.`
@@ -489,26 +569,41 @@ export async function approveCloverMerchant(merchantId: string, actor: string, a
 const inflight = new Map<string, Promise<string | null>>();
 const lockKey = (app: CloverAppKey, merchantId: string) => `${app}:${merchantId}`;
 
+/** A sold app's failed refresh is written to the activity log at most once per merchant in this window. */
+const REFRESH_FAIL_LOG_MS = 10 * 60_000;
+const refreshFailLogged = new Map<string, number>();
+
 async function refresh(c: CloverConnection, app: CloverAppKey = 'foodhub'): Promise<string | null> {
   if (!c.refreshToken) return null;
+  // A refresh is never cut short: Clover may already have used up the single-use refresh token, and the answer
+  // carries the only copy of the new one. A caller with a time budget stops waiting instead (clover-entitlement.ts).
   const r = await postJson('/oauth/v2/refresh', { client_id: cloverApp(app).appId || '', refresh_token: c.refreshToken });
   if (!r.ok || !r.json.access_token) {
-    await logActivity({ actor: 'Clover', source: 'automation', kind: 'settings', action: 'clover_refresh_failed', status: 'failed',
-      summary: `Clover token refresh failed for merchant ${c.name || c.merchantId}${app === 'foodhub' ? '' : ` (${cloverApp(app).name})`} (HTTP ${r.status}). Reconnect it in Settings → Platforms & Clover.` });
+    // Food Hub logs every failure, as before; a sold app (asked on every live call) at most once per window.
+    const key = lockKey(app, c.merchantId);
+    const last = app === 'foodhub' ? 0 : refreshFailLogged.get(key) ?? 0;
+    if (Date.now() - last >= REFRESH_FAIL_LOG_MS) {
+      refreshFailLogged.set(key, Date.now());
+      await logActivity({ actor: 'Clover', source: 'automation', kind: 'settings', action: 'clover_refresh_failed', status: 'failed',
+        summary: `Clover token refresh failed for merchant ${c.name || c.merchantId}${app === 'foodhub' ? '' : ` (${cloverApp(app).name})`} (HTTP ${r.status}). Reconnect it in Settings → Platforms & Clover.` });
+    }
     return null;
   }
-  const all = await readAll(app);
-  const cur = all[c.merchantId] ?? c;
-  all[c.merchantId] = {
-    ...cur,
-    accessToken: r.json.access_token,
-    accessTokenExpiration: r.json.access_token_expiration ?? null,
-    refreshToken: r.json.refresh_token ?? cur.refreshToken ?? null,
-    refreshTokenExpiration: r.json.refresh_token_expiration ?? cur.refreshTokenExpiration ?? null,
-    refreshedAt: nowIso(),
-  };
-  await writeAll(all, app);
-  return r.json.access_token;
+  refreshFailLogged.delete(lockKey(app, c.merchantId));
+  const tokens = r.json;
+  await updateAll(app, (all) => {
+    const cur = all[c.merchantId] ?? c;
+    all[c.merchantId] = {
+      ...cur,
+      accessToken: tokens.access_token!,
+      accessTokenExpiration: tokens.access_token_expiration ?? null,
+      refreshToken: tokens.refresh_token ?? cur.refreshToken ?? null,
+      refreshTokenExpiration: tokens.refresh_token_expiration ?? cur.refreshTokenExpiration ?? null,
+      refreshedAt: nowIso(),
+    };
+    return { write: true, result: null };
+  });
+  return tokens.access_token!;
 }
 
 /** Access token for a merchant connected through the Clover app (refreshed when close to expiry). */
@@ -537,11 +632,15 @@ export function cloverAppToken(app: CloverAppKey, merchantId: string, nowS?: num
 
 /** Merchant uninstalled the app (or owner disconnected it): forget its tokens — that app's only, never another app's. */
 export async function disconnectCloverMerchant(merchantId: string, reason: 'uninstalled' | 'owner' = 'owner', actor = 'Clover', app: CloverAppKey = 'foodhub'): Promise<boolean> {
-  const all = await readAll(app);
-  const c = all[merchantId];
+  const c = await updateAll(app, (all) => {
+    const cur = all[merchantId];
+    if (!cur) return { write: false, result: null };
+    delete all[merchantId];
+    return { write: true, result: cur };
+  });
   if (!c) return false;
-  delete all[merchantId];
-  await writeAll(all, app);
+  // A sold app also forgets the merchant's saved subscription status (a reinstall starts fresh).
+  if (app !== 'foodhub') await patchCloverBillingState(merchantId, { ...EMPTY_BILLING_STATE }, app).catch(() => undefined);
   const name = cloverApp(app).name;
   await logActivity({
     actor, source: reason === 'uninstalled' ? 'platform' : 'dashboard', kind: 'settings', action: 'clover_disconnected', status: 'info',
@@ -557,7 +656,7 @@ export async function disconnectCloverMerchant(merchantId: string, reason: 'unin
 }
 
 /** Saved billing + grace markers after a fresh answer from Clover (apps other than Food Hub). */
-export function billingPatch(prev: Pick<CloverConnection, 'billingLastGoodAt' | 'lapsedSince'> | null | undefined, billing: CloverBilling): Partial<CloverConnection> {
+export function billingPatch(prev: Pick<CloverBillingState, 'billingLastGoodAt' | 'lapsedSince'> | null | undefined, billing: CloverBilling): Partial<CloverBillingState> {
   const good = billing.inTrial || billing.status === 'ACTIVE';
   return {
     billing,
@@ -573,18 +672,27 @@ export async function refreshCloverBilling(merchantId: string, app: CloverAppKey
   if (!token) return null;
   const billing = await readCloverBilling(merchantId, token, app);
   if (!billing) return null;
-  const all = await readAll(app);
-  if (!all[merchantId]) return null;
-  all[merchantId] = app === 'foodhub' ? { ...all[merchantId], billing } : { ...all[merchantId], ...billingPatch(all[merchantId], billing) };
-  await writeAll(all, app);
-  return billing;
+  if (app !== 'foodhub') {
+    // A sold app: its own per-merchant key only (the token map is not rewritten).
+    if (!(await readCloverConnection(merchantId, app))) return null;
+    const prev = await readCloverBillingState(merchantId, app);
+    await patchCloverBillingState(merchantId, { ...billingPatch(prev, billing), checkFailedAt: null }, app);
+    return billing;
+  }
+  const saved = await updateAll(app, (all) => {
+    if (!all[merchantId]) return { write: false, result: false };
+    all[merchantId] = { ...all[merchantId], billing };
+    return { write: true, result: true };
+  });
+  return saved ? billing : null;
 }
 
 /** App webhook events: { appId, merchants: { MID: [{ objectId: "A:<appId>", type: "DELETE" | "CREATE" | "UPDATE" }] } } */
 export async function handleCloverAppEvents(body: any, app: CloverAppKey = 'foodhub'): Promise<{ uninstalled: string[]; installed: string[] }> {
   const out = { uninstalled: [] as string[], installed: [] as string[] };
   // Food Hub keeps its original rule (falls back to the event's appId); another app only takes events for its own App ID.
-  const appId = app === 'foodhub' ? process.env.CLOVER_CLIENT_ID || String(body?.appId || '') : cloverApp(app).appId || '';
+  // Same App ID value as its OAuth flow (cloverApp; Food Hub's is read raw, as before).
+  const appId = app === 'foodhub' ? cloverApp('foodhub').appId || String(body?.appId || '') : cloverApp(app).appId || '';
   if (app !== 'foodhub' && (!appId || (body?.appId && String(body.appId) !== appId))) return out;
   const name = cloverApp(app).name;
   for (const [mid, events] of Object.entries((body?.merchants ?? {}) as Record<string, any[]>)) {
@@ -593,7 +701,10 @@ export async function handleCloverAppEvents(body: any, app: CloverAppKey = 'food
       if (kind !== 'A' || (appId && id && id !== appId)) continue;
       const type = String(ev?.type || '').toUpperCase();
       // Any event from a sold app makes its saved subscription answer stale: the entitlement check asks Clover again.
-      if (app !== 'foodhub' && type !== 'DELETE') await patchCloverConnection(mid, { billingStale: true }, app).catch(() => false);
+      // Written to the merchant's own subscription key, never to the token map.
+      if (app !== 'foodhub' && type !== 'DELETE' && (await readCloverConnection(mid, app).catch(() => null))) {
+        await patchCloverBillingState(mid, { billingStale: true }, app).catch(() => undefined);
+      }
       if (type === 'DELETE') {
         if (await disconnectCloverMerchant(mid, 'uninstalled', 'Clover', app)) out.uninstalled.push(mid);
       } else if (type === 'CREATE') {

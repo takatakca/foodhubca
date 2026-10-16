@@ -75,12 +75,16 @@ const DEFS: Record<CloverAppKey, Omit<CloverAppDef, 'appId' | 'secret' | 'webhoo
 export function cloverApp(key: CloverAppKey = 'foodhub'): CloverAppDef {
   const d = DEFS[key];
   const { defaultName, nameEnv, ...rest } = d;
+  // Food Hub reads its keys raw (never trimmed), exactly as before several apps existed: the authorize URL, the code
+  // exchange, the refresh, the launch-state signature, the wrong-app check, the App-event filter and the webhook auth
+  // all keep using the very same values. A new app (the phone) trims them.
+  const read = key === 'foodhub' ? (k: string) => process.env[k] || null : env;
   return {
     ...rest,
     name: (nameEnv && env(nameEnv)) || defaultName,
-    appId: env(d.env.appId),
-    secret: env(d.env.secret),
-    webhookAuth: env(d.env.webhookAuth),
+    appId: read(d.env.appId),
+    secret: read(d.env.secret),
+    webhookAuth: read(d.env.webhookAuth),
   };
 }
 

@@ -10,12 +10,13 @@ vi.mock('next/server', async (orig) => ({ ...(await orig<typeof import('next/ser
 import { cloverApp, cloverAppByAppId, cloverApps, cloverPhoneAppEnabled } from '../lib/foodhub/pos/clover-apps';
 import { cloverAppsOverview } from '../lib/foodhub/pos/clover-apps-status';
 import {
-  appInstalled, phoneAllowance, phoneCloverToken, phoneEntitled, phoneUsage, recordPhoneOrder, voiceAiEntitled,
+  appInstalled, phoneAllowance, phoneCloverToken, phoneEntitled, phoneUsage, recordPhoneOrder, settlePhoneUsage, voiceAiEntitled,
 } from '../lib/foodhub/pos/clover-entitlement';
 import {
   approveCloverMerchant, cloverAppReadiness, cloverAppToken, cloverOAuthToken, cloverWelcome, cloverWelcomeQuery, finishCloverConnect,
-  handleCloverAppEvents, listCloverConnections, startCloverConnect, startCloverLaunch,
+  handleCloverAppEvents, listCloverConnections, patchCloverBillingState, patchCloverConnection, readCloverBillingState, startCloverConnect, startCloverLaunch,
 } from '../lib/foodhub/pos/clover-oauth';
+import { DELETE as merchantsDelete, GET as merchantsGet, POST as merchantsPost } from '../app/api/foodhub/clover-connect/merchants/route';
 import { cloverToken } from '../lib/foodhub/pos/clover';
 import { cloverWebhookGate } from '../lib/foodhub/pos/clover-webhook-gate';
 import { getRepo } from '../lib/foodhub/repo';
@@ -38,6 +39,16 @@ let seq = 0;
 let billing: Record<string, unknown> = {};
 let billingDown = false;
 let meteredStatus = 200;
+/** billing_info / refresh never answer until the request is aborted (Clover hanging). */
+let billingHang = false;
+let refreshHang = false;
+let refreshStatus = 200;
+/** The metered POST reaches Clover but its answer is lost (timeout). */
+let meteredTimeout = false;
+const hang = (signal?: AbortSignal | null) => new Promise<Response>((_, reject) => {
+  const abort = () => reject(Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' }));
+  if (signal?.aborted) abort(); else signal?.addEventListener('abort', abort);
+});
 
 function mockClover() {
   globalThis.fetch = vi.fn(async (input: any, init: any = {}) => {
@@ -56,15 +67,21 @@ function mockClover() {
       return json(200, { access_token: `${prefix(body.client_id)}-${seq}`, access_token_expiration: now + 1800, refresh_token: `RT-${body.client_id}-${seq}`, refresh_token_expiration: now + 86400 * 30 });
     }
     if (p === '/oauth/v2/refresh') {
+      if (refreshHang) return hang(init.signal);
+      if (refreshStatus !== 200) return json(refreshStatus, { message: 'refresh refused' });
       seq++;
       return json(200, { access_token: `${prefix(body?.client_id)}-R${seq}`, access_token_expiration: now + 1800, refresh_token: `RT-${body?.client_id}-${seq}`, refresh_token_expiration: now + 86400 * 30 });
     }
     const bi = p.match(/^\/v3\/apps\/([^/]+)\/merchants\/([^/]+)\/billing_info$/);
     if (bi) {
+      if (billingHang) return hang(init.signal);
       if (billingDown) return json(503, {});
       return json(200, billing[`${bi[1]}:${bi[2]}`] ?? { status: 'ACTIVE', isInTrial: false, appSubscription: { name: 'Essentiel' } });
     }
-    if (/\/metereds\//.test(p)) return json(meteredStatus, { id: 'MTR-1' });
+    if (/\/metereds\//.test(p)) {
+      if (meteredTimeout) throw Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' });
+      return json(meteredStatus, { id: 'MTR-1' });
+    }
     const m = p.match(/^\/v3\/merchants\/([^/]+)$/);
     if (m) return json(200, { id: m[1], name: `Bistro ${m[1].slice(-1)}`, address: { city: 'Montréal', state: 'QC', country: 'CA' } });
     if (/^\/v3\/merchants\/[^/]+\/(items|categories|order_types|tenders|devices)$/.test(p)) return json(200, { elements: [] });
@@ -92,6 +109,10 @@ beforeEach(() => {
   process.env.CLOVER_ALLOWED_MERCHANTS = `${MID},${MID2}`;
   for (const k of [...PHONE_ENV, 'CLOVER_ACCESS_TOKEN', 'CLOVER_MERCHANT_ID', 'CLOVER_MERCHANT_TOKENS', 'CLOVER_WEB_URL', 'ALERT_WEBHOOK_URL', 'FOODHUB_OWNER_EMAIL']) delete process.env[k];
   calls = []; seq = 0; billing = {}; billingDown = false; meteredStatus = 200;
+  billingHang = false; refreshHang = false; refreshStatus = 200; meteredTimeout = false;
+  delete process.env.CLOVER_PHONE_PRO_SUBSCRIPTION_IDS;
+  delete process.env.CONNECTOR_NETWORK_TIMEOUT_MS;
+  delete process.env.DASHBOARD_PASSWORD;
   mockClover();
 });
 afterEach(() => { globalThis.fetch = realFetch; vi.useRealTimers(); });
@@ -356,6 +377,14 @@ describe('phone orders: allowance, per-order charge, once per order', () => {
     expect(phoneAllowance('Essentiel')).toBe(150);
     expect(phoneAllowance('TAKATAK Phone Pro')).toBe(500);
     expect(phoneAllowance(null)).toBe(150);
+    // Longer or French names of the Pro tier still count as Pro; words that only start with "pro" do not.
+    for (const name of ['Pro', 'PRO+', 'Pro-Plus', 'Professionnel', 'Professional', 'TAKATAK Téléphone — Pro', 'Forfait Pro (mensuel)']) expect(phoneAllowance(name)).toBe(500);
+    for (const name of ['Essentiel', 'Essential', 'Promo', 'Approved', 'Programme de base']) expect(phoneAllowance(name)).toBe(150);
+    // With the Pro tier's Clover subscription IDs set, the ID decides, whatever the name.
+    process.env.CLOVER_PHONE_PRO_SUBSCRIPTION_IDS = 'SUBPRO000001, SUBPRO000002';
+    expect(phoneAllowance('Forfait B', 'SUBPRO000002')).toBe(500);
+    expect(phoneAllowance('Pro', 'SUBESS000001')).toBe(150);
+    expect(phoneAllowance('Pro', null)).toBe(500); // no ID from Clover: the name decides
   });
 
   it('reports to Clover only beyond the allowance of an ACTIVE subscription, each order once', async () => {
@@ -414,5 +443,258 @@ describe('welcome query for the phone app', () => {
     const fq = await cloverWelcomeQuery(f);
     expect(fq.app).toBeUndefined();
     expect((await cloverWelcome(fq.t))?.app).toBeUndefined();
+  });
+});
+
+describe('live-call check never hangs on Clover', () => {
+  beforeEach(setPhoneEnv);
+  const billingCalls = () => calls.filter((c) => c.url.includes('/billing_info')).length;
+
+  it('a hung billing_info answers within the budget from the grace rules, and Clover is not asked again for a while', async () => {
+    await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID, app: 'phone' });
+    billingHang = true;
+    const later = Date.now() + 20 * 60_000;
+    const n0 = billingCalls();
+    const t0 = Date.now();
+    const e = await voiceAiEntitled(MID, 'call', { now: later, budgetMs: 150 });
+    expect(Date.now() - t0).toBeLessThan(1_000);
+    expect(e).toMatchObject({ ok: true, reason: 'clover_unreachable_grace', billable: false });
+    expect(billingCalls()).toBe(n0 + 1);
+    expect((await readCloverBillingState(MID, 'phone')).checkFailedAt).toBeTruthy();
+    // The next calls in the following minutes answer at once, without asking Clover.
+    const t1 = Date.now();
+    expect(await voiceAiEntitled(MID, 'call', { now: later + 30_000, budgetMs: 150 })).toMatchObject({ ok: true, reason: 'clover_unreachable_grace' });
+    expect(await voiceAiEntitled(MID, 'setup', { now: later + 60_000, budgetMs: 150 })).toMatchObject({ ok: false, reason: 'clover_unreachable' });
+    expect(Date.now() - t1).toBeLessThan(100);
+    expect(billingCalls()).toBe(n0 + 1);
+    // Clover back after the pause: asked again, the fresh answer clears the failure marker.
+    billingHang = false;
+    expect(await voiceAiEntitled(MID, 'call', { now: later + 3 * 60_000 })).toMatchObject({ ok: true, reason: 'active', cached: false });
+    expect((await readCloverBillingState(MID, 'phone')).checkFailedAt).toBeNull();
+    await new Promise((r) => setTimeout(r, 200)); // let the aborted read finish
+  });
+
+  it('a hung token refresh answers within the budget; the refresh is never cut short by the budget', async () => {
+    process.env.CONNECTOR_NETWORK_TIMEOUT_MS = '400';
+    await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID, app: 'phone' });
+    refreshHang = true;
+    const nearExpiry = Date.now() + (1800 - 60) * 1000; // token within the 5-minute refresh margin
+    const t0 = Date.now();
+    expect(await voiceAiEntitled(MID, 'call', { now: nearExpiry, budgetMs: 150 })).toMatchObject({ ok: true, reason: 'clover_unreachable_grace' });
+    expect(Date.now() - t0).toBeLessThan(380); // returned before the refresh's own network timeout
+    await new Promise((r) => setTimeout(r, 600)); // the refresh times out on its own, in the background
+    expect((await readCloverBillingState(MID, 'phone')).checkFailedAt).toBeTruthy();
+  });
+
+  it('a refused refresh is logged once per window, not on every call', async () => {
+    await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID, app: 'phone' });
+    refreshStatus = 400;
+    const nearExpiry = Date.now() + (1800 - 60) * 1000;
+    for (let i = 0; i < 4; i++) await voiceAiEntitled(MID, 'call', { now: nearExpiry + i * 3 * 60_000 }); // past the 2-minute pause each time
+    expect(calls.filter((c) => c.url.endsWith('/oauth/v2/refresh')).length).toBeGreaterThanOrEqual(2);
+    const rows = (await getRepo().listActivity({ limit: 500 })).filter((a) => a.action === 'clover_refresh_failed');
+    expect(rows).toHaveLength(1);
+  });
+});
+
+describe('phone token map: no lost update between merchants', () => {
+  beforeEach(setPhoneEnv);
+
+  it('the per-call check writes its own per-merchant key, never the token map', async () => {
+    await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID, app: 'phone' });
+    const repo = getRepo();
+    const writes: string[] = [];
+    const orig = repo.setKv.bind(repo);
+    const spy = vi.spyOn(repo, 'setKv').mockImplementation(async (k: string, v: unknown) => { writes.push(k); return orig(k, v); });
+    try {
+      await voiceAiEntitled(MID, 'call', { now: Date.now() + 16 * 60_000 }); // saved answer too old: asks Clover
+      await handleCloverAppEvents(appEvent(PH_APP, MID, 'UPDATE'), 'phone');
+    } finally { spy.mockRestore(); }
+    expect(writes).toContain(`clover_phone_billing:${MID}`);
+    expect(writes).not.toContain('clover_oauth_merchants:phone');
+  });
+
+  it('a refresh for merchant A interleaved with writes for merchant B keeps A’s new refresh token', async () => {
+    await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID, app: 'phone' });
+    await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID2, app: 'phone' });
+    const repo = getRepo();
+    const orig = repo.getKv.bind(repo);
+    // Every read of the token map takes a while and returns its own copy (as the database does), so the
+    // read-modify-writes overlap.
+    const spy = vi.spyOn(repo, 'getKv').mockImplementation(async (k: string) => {
+      const v = structuredClone(await orig(k));
+      if (k === 'clover_oauth_merchants:phone') await new Promise((r) => setTimeout(r, 20));
+      return v as any;
+    });
+    try {
+      const later = Math.floor(Date.now() / 1000) + 1800 - 60;
+      const [tokenA] = await Promise.all([
+        cloverAppToken('phone', MID, later),
+        patchCloverConnection(MID2, { name: 'Bistro B renamed' }, 'phone'),
+        new Promise((r) => setTimeout(r, 5)).then(() => patchCloverConnection(MID2, { connectedBy: 'Owner' }, 'phone')),
+      ]);
+      expect(tokenA).toMatch(/^PAT-R/);
+    } finally { spy.mockRestore(); }
+    const saved = await getRepo().getKv<Record<string, any>>('clover_oauth_merchants:phone');
+    const refreshed = calls.filter((c) => c.url.endsWith('/oauth/v2/refresh'));
+    expect(refreshed).toHaveLength(1);
+    expect(saved?.[MID].accessToken).toMatch(/^PAT-R/);
+    expect(saved?.[MID].refreshToken).not.toBe(refreshed[0].body.refresh_token); // the new one, not the used one
+    expect(saved?.[MID2]).toMatchObject({ name: 'Bistro B renamed', connectedBy: 'Owner' });
+  });
+
+  it('billing state writes for two merchants at once all land', async () => {
+    await Promise.all([
+      patchCloverBillingState(MID, { billingStale: true }, 'phone'),
+      patchCloverBillingState(MID, { checkFailedAt: '2026-10-16T00:00:00.000Z' }, 'phone'),
+      patchCloverBillingState(MID2, { billingStale: true }, 'phone'),
+    ]);
+    expect(await readCloverBillingState(MID, 'phone')).toMatchObject({ billingStale: true, checkFailedAt: '2026-10-16T00:00:00.000Z' });
+    expect(await readCloverBillingState(MID2, 'phone')).toMatchObject({ billingStale: true });
+  });
+});
+
+describe('phone charges: nothing lost, nothing charged twice', () => {
+  beforeEach(setPhoneEnv);
+  const metered = () => calls.filter((c) => c.url.includes('/metereds/'));
+  const fill = async (n: number, now: number) => {
+    const month = (await phoneUsage(MID, now)).month;
+    await getRepo().setKv(`clover_phone_usage:${MID}:${month}`, { orders: Array.from({ length: n }, (_, i) => `PRE${i}`), reported: [], failed: [] });
+  };
+
+  it('Clover down near the end of the month: orders beyond the allowance wait, then are charged once Clover says ACTIVE', async () => {
+    await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID, app: 'phone' });
+    const now = Date.now();
+    await fill(150, now);
+    billingDown = true;
+    const outage = now + 20 * 60_000;
+    expect(await recordPhoneOrder(MID, 'OUT1', { now: outage })).toMatchObject({ counted: true, reported: false, outcome: 'deferred', reason: 'clover_unreachable_grace' });
+    expect(await recordPhoneOrder(MID, 'OUT2', { now: outage + 1000 })).toMatchObject({ outcome: 'deferred' });
+    expect(metered()).toHaveLength(0);
+    expect(await phoneUsage(MID, outage)).toMatchObject({ orders: 152, pending: 2, reported: 0 });
+    // Clover back: the next order sends its own charge and the two that waited.
+    billingDown = false;
+    const back = outage + 5 * 60_000;
+    expect(await recordPhoneOrder(MID, 'BACK1', { now: back })).toMatchObject({ outcome: 'reported', reported: true, used: 153 });
+    expect(metered()).toHaveLength(3);
+    expect(await phoneUsage(MID, back)).toMatchObject({ orders: 153, pending: 0, reported: 3, uncertain: 0 });
+  });
+
+  it('a charge Clover refuses is tried again (3 times in all), then given up', async () => {
+    await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID, app: 'phone' });
+    const now = Date.now();
+    await fill(150, now);
+    meteredStatus = 500;
+    expect(await recordPhoneOrder(MID, 'R1', { now })).toMatchObject({ outcome: 'clover_refused', counted: true });
+    meteredStatus = 200;
+    expect(await settlePhoneUsage(MID, { now })).toMatchObject({ reported: 1, pending: 0, failed: 0 });
+    expect(metered()).toHaveLength(2);
+    meteredStatus = 400;
+    expect(await recordPhoneOrder(MID, 'R2', { now })).toMatchObject({ outcome: 'clover_refused' });
+    await settlePhoneUsage(MID, { now });
+    expect(await settlePhoneUsage(MID, { now })).toMatchObject({ pending: 0, failed: 1 });
+    await settlePhoneUsage(MID, { now });
+    expect(metered()).toHaveLength(5); // R1 twice, R2 three times, then never again
+  });
+
+  it('saved before the charge: a database error after Clover answered never charges twice', async () => {
+    await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID, app: 'phone' });
+    const now = Date.now();
+    await fill(150, now);
+    const repo = getRepo();
+    const orig = repo.setKv.bind(repo);
+    const spy = vi.spyOn(repo, 'setKv').mockImplementation(async (k: string, v: unknown) => {
+      if (k.startsWith('clover_phone_usage:') && metered().length > 0) throw new Error('database down');
+      return orig(k, v);
+    });
+    try {
+      await expect(recordPhoneOrder(MID, 'DB1', { now })).rejects.toThrow('database down');
+    } finally { spy.mockRestore(); }
+    expect(metered()).toHaveLength(1);
+    // The caller tries again: already counted, not charged again; a settle never re-sends an order whose answer was lost.
+    expect(await recordPhoneOrder(MID, 'DB1', { now })).toMatchObject({ outcome: 'duplicate', counted: false });
+    await settlePhoneUsage(MID, { now });
+    expect(metered()).toHaveLength(1);
+    expect(await phoneUsage(MID, now)).toMatchObject({ orders: 151, uncertain: 1, reported: 0, pending: 0 });
+  });
+
+  it('a charge whose answer timed out is kept aside for the owner, never re-sent', async () => {
+    await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID, app: 'phone' });
+    const now = Date.now();
+    await fill(150, now);
+    meteredTimeout = true;
+    expect(await recordPhoneOrder(MID, 'TO1', { now })).toMatchObject({ outcome: 'clover_uncertain', reported: false });
+    meteredTimeout = false;
+    await settlePhoneUsage(MID, { now });
+    expect(metered()).toHaveLength(1);
+    expect(await phoneUsage(MID, now)).toMatchObject({ uncertain: 1, pending: 0 });
+  });
+});
+
+describe('merchants API per app', () => {
+  const owner = { authorization: `Basic ${Buffer.from('owner:Owner-pass-123').toString('base64')}`, 'content-type': 'application/json' };
+  const url = 'http://hub.local/api/foodhub/clover-connect/merchants';
+  const ctx = { params: Promise.resolve({}) } as any;
+  const call = (method: 'POST' | 'DELETE', body: unknown) => (method === 'POST' ? merchantsPost : merchantsDelete)(new Request(url, { method, headers: owner, body: JSON.stringify(body) }) as any, ctx);
+  beforeEach(() => { setPhoneEnv(); process.env.DASHBOARD_PASSWORD = 'Owner-pass-123'; delete process.env.CLOVER_ALLOWED_MERCHANTS; });
+
+  it('GET lists one app at a time; an unknown app is refused', async () => {
+    await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID, state: new URL(await startCloverConnect('Owner')).searchParams.get('state') });
+    await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID2, app: 'phone' });
+    const get = async (q: string) => merchantsGet(new Request(`${url}${q}`, { headers: owner }) as any, ctx);
+    const fh = await (await get('')).json();
+    expect(fh.merchants.map((m: any) => m.merchantId)).toEqual([MID]);
+    expect(fh.app.appId).toBe(FH_APP);
+    expect((await (await get('?app=foodhub')).json()).merchants.map((m: any) => m.merchantId)).toEqual([MID]);
+    const ph = await (await get('?app=phone')).json();
+    expect(ph.merchants.map((m: any) => m.merchantId)).toEqual([MID2]);
+    expect(JSON.stringify(ph)).not.toMatch(/PAT-|RT-|phone-secret/);
+    expect((await get('?app=bogus')).status).toBe(400);
+    expect((await merchantsGet(new Request(`${url}?app=phone`) as any, ctx)).status).toBe(401);
+  });
+
+  it('POST approves a waiting phone install without touching Food Hub; missing app = Food Hub; unknown app = 400', async () => {
+    await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID, app: 'phone' }); // from Clover: waits
+    await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID }); // Food Hub from Clover: waits too
+    expect((await call('POST', { merchantId: MID, app: 'bogus' })).status).toBe(400);
+    const r = await call('POST', { merchantId: MID, app: 'phone' });
+    expect(r.status).toBe(200);
+    expect(await r.json()).toMatchObject({ approved: MID, app: 'phone' });
+    expect((await listCloverConnections('phone'))[0].status).toBe('active');
+    expect((await listCloverConnections())[0].status).toBe('pending');
+    expect((await call('POST', { merchantId: MID })).status).toBe(200);
+    expect((await listCloverConnections())[0].status).toBe('active');
+    expect((await call('POST', { merchantId: MID2, app: 'phone' })).status).toBe(404);
+    expect((await call('POST', { app: 'phone' })).status).toBe(400);
+  });
+
+  it('DELETE disconnects one app only', async () => {
+    await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID, state: new URL(await startCloverConnect('Owner')).searchParams.get('state') });
+    await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID, state: new URL(await startCloverConnect('Owner', 'phone')).searchParams.get('state'), app: 'phone' });
+    expect((await call('DELETE', { merchantId: MID, app: 'bogus' })).status).toBe(400);
+    expect((await call('DELETE', { merchantId: MID, app: 'phone' })).status).toBe(200);
+    expect(await listCloverConnections('phone')).toHaveLength(0);
+    expect(await listCloverConnections()).toHaveLength(1);
+    expect((await readCloverBillingState(MID, 'phone')).billing).toBeNull(); // its saved subscription is forgotten too
+    expect((await call('DELETE', { merchantId: MID, app: 'phone' })).status).toBe(404);
+    expect((await call('DELETE', { merchantId: MID })).status).toBe(200); // no app = Food Hub
+    expect(await listCloverConnections()).toHaveLength(0);
+  });
+});
+
+describe('Food Hub keys are read exactly as before (no trimming)', () => {
+  it('the same raw CLOVER_CLIENT_ID drives the authorize URL, the code exchange, the wrong-app check and the App-event filter', async () => {
+    process.env.CLOVER_CLIENT_ID = ` ${FH_APP}\n`;
+    const raw = process.env.CLOVER_CLIENT_ID;
+    expect(cloverApp('foodhub').appId).toBe(raw);
+    expect(new URL(await startCloverConnect('Owner')).searchParams.get('client_id')).toBe(raw);
+    expect(await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID, clientId: FH_APP })).toMatchObject({ ok: false, code: 'wrong_app' });
+    await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID, clientId: raw });
+    expect(calls.find((c) => c.url.endsWith('/oauth/v2/token'))?.body.client_id).toBe(raw);
+    // App events are filtered with that very value (an event for the trimmed ID is not this app's), as before.
+    expect(await handleCloverAppEvents(appEvent(FH_APP, MID, 'DELETE'))).toEqual({ uninstalled: [], installed: [] });
+    // The phone app (new) trims its own keys.
+    process.env.CLOVER_PHONE_APP_ID = ` ${PH_APP} `;
+    expect(cloverApp('phone').appId).toBe(PH_APP);
   });
 });

@@ -27,6 +27,7 @@ Phone app (all optional):
 | `CLOVER_PHONE_APP_SECRET` | The phone app's App Secret. |
 | `CLOVER_PHONE_WEBHOOK_AUTH` | The phone app's webhook auth code (X-Clover-Auth). |
 | `CLOVER_PHONE_METERED_ORDER_ID` | Clover ID of the per-order charge ("Phone order / Commande téléphonique"). Empty = never charge per order. |
+| `CLOVER_PHONE_PRO_SUBSCRIPTION_IDS` | Clover subscription IDs of the Pro tier, comma-separated. Set = the tier is picked by ID; empty = by plan name. |
 | `PHONE_OWN_MERCHANTS` | Our own restaurants' Clover merchant IDs, comma-separated: always allowed, never billed. |
 | `CLOVER_PHONE_APP_NAME` | Listing name if not "TAKATAK Phone". |
 
@@ -39,7 +40,10 @@ Phone app (all optional):
   "wrong app" check, the owner state and the signed launch state are per app: one app's link is refused by the other.
 - **Tokens:** kept per (app, merchant). Food Hub: `clover_oauth_merchants` (old records without `appId` are read as
   before). Phone: `clover_oauth_merchants:phone`, each record stamped with the App ID it was issued for (a record from a
-  former phone App ID is ignored). Refresh locks are per (app, merchant).
+  former phone App ID is ignored). Refresh locks are per (app, merchant). Every change to a token map goes through one
+  lock per map in the process, so two merchants' writes never undo each other (refresh tokens are single-use).
+  The phone's subscription status (what the live-call check reads and writes) has its own key per merchant,
+  `clover_phone_billing:<merchantId>`: the per-call check never rewrites the token map.
   Food Hub features use only Food Hub tokens (`cloverToken`, unchanged). Phone features use `phoneCloverToken`: the
   phone token first, then Food Hub's.
 - **Webhooks:** `lib/foodhub/pos/clover-webhook-gate.ts` checks each app's own verification key and auth code. Phone
@@ -48,9 +52,11 @@ Phone app (all optional):
 - **Uninstalling one app** removes only that app's tokens (and, for the phone, its saved subscription status). The phone
   gate then says "not installed": AI lines stop, calls go to the restaurant's own number, no per-order charge. Food
   Hub is not touched. Uninstalling Food Hub leaves the phone app alone.
-- **Settings → Clover app → "Clover apps on this server"** lists both apps: keys set or missing (names only), the
-  addresses to paste in Clover, webhook state and verification code, and each app's installs (approved / waiting,
-  subscription, "both apps"). Waiting phone installs are approved there.
+- **Settings → Clover app → "Clover apps on this server"** shows once `CLOVER_PHONE_APP_ID` is set (before that the
+  page is unchanged): keys set or missing (names only), the addresses to paste in Clover, webhook state and
+  verification code, and each app's installs (approved / waiting, subscription, "both apps"). The owner (admin) approves
+  waiting phone installs and disconnects a merchant from one app there; the other app is not touched.
+- **Food Hub's keys** are read raw (never trimmed), exactly as before; the phone app's keys are trimmed.
 - **Welcome page:** the phone callback lands on `/welcome/clover` with a ticket marked for the phone app (no Food Hub
   set-up steps, no Food Hub test order).
 
@@ -69,23 +75,40 @@ number). Answer: `{ ok, reason, billable, status, inTrial, plan, checkedAt, cach
 
 It never checks whether Food Hub is installed. A refused call is never dropped: forward it to the restaurant's number.
 
+**A live call never waits long on Clover** (Twilio gives the voice webhook about 15 s). Asking Clover (token refresh +
+`billing_info`) has a 2.5 s budget; the billing read has a 2.5 s timeout and no 429 retry. When Clover fails or runs
+out of time, it is not asked again for 2 minutes: calls in between answer at once from the saved status and rule 5.
+A token refresh that runs out of time is not cut short (its answer holds the only copy of the new single-use refresh
+token): it finishes in the background and saves its result. A failed phone-token refresh is logged at most once per
+merchant every 10 minutes.
+
 `recordPhoneOrder(merchantId, cloverOrderId)` counts one completed, paid phone order (never a call) for the month
-(Montréal time) and sends the per-order charge to Clover only when the merchant is ACTIVE (not trial, not ours) and the
-tier's allowance is used up (Essentiel 150, Pro 500; plan name containing "Pro" = Pro). Each Clover order is counted
-and reported once.
+(Montréal time). Beyond the tier's allowance (Essentiel 150, Pro 500) it sends the per-order charge to Clover while
+the merchant is ACTIVE (not trial, not ours). Tier: by Clover subscription ID when `CLOVER_PHONE_PRO_SUBSCRIPTION_IDS`
+is set, otherwise by plan name ("Pro", "PRO+", "Pro-Plus", "Professionnel", "Professional" = Pro).
+
+- An order beyond the allowance taken during a grace answer (LAPSED a few days, Clover not answering) is kept
+  **pending** and charged on the next ACTIVE answer (next order, or `settlePhoneUsage(merchantId)` from a cron). Last
+  month's pending charges are sent too.
+- A charge Clover refuses goes back to pending and is tried again: 3 times in all, then counted as failed.
+- Each order is saved **before** its charge is sent, and marked "sending" while in flight. A charge whose answer was
+  lost (timeout, or a database error after Clover answered) is never re-sent: `phoneUsage().uncertain` shows it to
+  the owner. So an order is never charged twice; the caller's retry gets "duplicate".
 
 `appInstalled(app, merchantId)` takes our key (`'foodhub'` / `'phone'`) or a Clover App ID.
 
-### Wiring into the phone code (after the AI phone pull request is merged; not done on this branch)
+### Wiring into the phone code (a follow-up pull request; not done on this branch)
 
 ```ts
-import { voiceAiEntitled, recordPhoneOrder } from '@/lib/foodhub/pos/clover-entitlement';
-// incoming-call handler (voice.ts / twilio.ts), first thing:
+import { voiceAiEntitled, recordPhoneOrder, settlePhoneUsage } from '@/lib/foodhub/pos/clover-entitlement';
+// incoming-call handler (voice.ts / twilio.ts), first thing (answers within 2.5 s even when Clover hangs):
 const gate = await voiceAiEntitled(cloverMerchantId, 'call');
 if (!gate.ok) return forwardToRestaurant(); // never drop the call
 // before texting the pay link (order.ts): same check
 // after the Clover order is confirmed paid:
 await recordPhoneOrder(cloverMerchantId, cloverOrderId);
+// a cron (e.g. hourly): send charges left pending (grace answers, refusals)
+await settlePhoneUsage(cloverMerchantId);
 // turning a line on (settings.ts / brand-lines.ts):
 const setup = await voiceAiEntitled(cloverMerchantId, 'setup');
 ```

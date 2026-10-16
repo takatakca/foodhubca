@@ -33,8 +33,8 @@ export async function cloverWebhookGate(app: CloverAppKey, body: any, authHeader
     }
     return { done: true, status: 200, json: { ok: true } };
   }
-  // Raw value, exactly as before for Food Hub (no trimming).
-  const expected = process.env[def.env.webhookAuth];
+  // The app's own code from its definition: raw for Food Hub, exactly as before (no trimming); trimmed for a new app.
+  const expected = def.webhookAuth;
   if (!expected || !safeEqual(String(authHeader || ''), expected)) {
     return { done: true, status: 401, json: { ok: false, error: `X-Clover-Auth check failed (set ${def.env.webhookAuth}).` } };
   }

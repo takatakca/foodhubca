@@ -1,5 +1,10 @@
 # FOODHUB / ON2GO Hub — état vérifiable du projet
 
+## Reprise 2026-10-16 — navigation clavier des onglets (non publié)
+
+Sur la branche `fix/console-tabs-keyboard-20261016` (créée à partir de `main` `12ba64d9f6941698118533d40d3f381ff709065c`), les onglets horizontaux de la console respectent maintenant le focus roving ARIA : seul l'onglet choisi est accessible avec Tab, flèche droite/gauche et Début/Fin sélectionnent et focalisent le bon onglet. Leurs événements `onChange` existants sont conservés, sans modification de données ni routes. Tests de navigation et cas invalides ajoutés dans `tests/tab-keyboard.test.ts`. CI, image Docker, revue navigateur et fusion propriétaire à contrôler ; aucune livraison de cette branche.
+
+
 ## Mise à jour du 2026-10-15 — activation en cours
 
 L'accès Coolify est rétabli et la source Food Hub est liée au GitHub App existant, avec livraison native sur push de `main`. Les anciennes lignes « bloqué accès / opt-in Actions » ci-dessous sont historiques. Le propriétaire a demandé cette activation ; le contrôleur Actions est désactivé pour éviter un double déploiement. Le Dockerfile applique tous les contrôles sur Contabo malgré le blocage de facturation Actions. Localement : audit/typecheck/lint/build réussis, 807 tests unitaires réussis (2 ignorés), E2E 536/0. Médias/configuration privée et image de rollback sauvegardés ; base, session et volume existants conservés. La publication n'est pas encore certifiée au moment de cette écriture : attendre le déploiement Webhook réussi et comparer `/api/release` au SHA complet de `main`.

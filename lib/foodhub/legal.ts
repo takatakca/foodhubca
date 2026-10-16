@@ -28,14 +28,14 @@ export function legalInfo(): LegalInfo {
     supportPhone: process.env.FOODHUB_SUPPORT_PHONE || null,
     supportHours: hours ? { fr: hours, en: hours } : SUPPORT_HOURS_DEFAULT,
     privacyOfficer: process.env.FOODHUB_PRIVACY_OFFICER || '',
-    updated: process.env.FOODHUB_LEGAL_UPDATED || '2026-10-07',
+    updated: process.env.FOODHUB_LEGAL_UPDATED || '2026-10-16',
     approved: process.env.FOODHUB_LEGAL_APPROVED === 'true',
     appName: 'TAKATAK Food Hub',
     baseUrl: publicBaseUrl(),
   };
 }
 
-export const LEGAL_PATHS = { privacy: '/legal/privacy', terms: '/legal/terms', support: '/legal/support' } as const;
+export const LEGAL_PATHS = { index: '/legal', privacy: '/legal/privacy', terms: '/legal/terms', support: '/legal/support' } as const;
 
 export function legalUrls() {
   const b = publicBaseUrl();

@@ -1,5 +1,13 @@
 # Food Hub: progress log and task board
 
+## 2026-10-16 — Legal pages complete for Clover review (`fix/legal-pages-complete`)
+
+- Privacy policy (FR then EN): §1 and §2 now cover the phone lines (caller number, transcripts, voicemail recordings), customer texts, the couriers' page, direct orders (website, phone, Clover Online Ordering) and more Clover data (merchant address, Online Ordering orders with the customer's name, payments, refunds). §4 lists Twilio, Google (speech, through Twilio), Anthropic (phone assistant; never approves refunds or payments), DoorDash Drive / Uber Direct / SkipTheDishes delivery, team-chat alerts and MochaHost mail. §5: database in Montréal, app server and Twilio / Anthropic / Google in the US; the "we assess" promise is gone. §6: deletion on request within 30 days (sales data kept for tax), no destruction promise; Clover tokens deleted "when Clover notifies us, or on request". §8: deletion, complaints, written answer within 30 days, press 0 for a person.
+- Terms: §6 "service and account free, nothing billed outside Clover"; §9 same token wording; new §12 on the merchant's customers' personal information (we act as service provider); contact moves to §13. Support page: same token and fee wording.
+- `/legal` redirects to `/legal/support` and is public in `proxy.ts` (it sent visitors to sign-in). Company, address, phone, email and officer stay env-driven (`FOODHUB_LEGAL_*`, `FOODHUB_SUPPORT_*`, `FOODHUB_PRIVACY_OFFICER`); the draft banner stays until `FOODHUB_LEGAL_APPROVED=true`.
+- Not in this branch (AI-phone branch): greeting wording "automated assistant, call transcribed, press 0" in `lib/foodhub/phone/twilio.ts`, `ivr/tree.ts`, `ivr/engine.ts`, and `redactCards` in `voice.ts` callerTurn.
+- Checks: typecheck OK, lint 0 errors, 971 tests passed + 1 skipped (+17 in `tests/legal-pages.test.ts`); 1 failure in `tests/tgtg-email.test.ts` (forged From) also fails on origin/main 12ba64d, not touched here; webpack build OK, verify:foodhub 554/0. Not deployed.
+
 ## 2026-10-16 — Uber store kitchen mapping (task 39, `fix/uber-store-kitchen-mapping`)
 
 - The 7 Uber UUIDs in `data/actual/platform-stores-uber.json` are at 5839 Jean-Talon E (Saint-Léonard) in Uber's own records (Uber names them "(Hochelaga)"); production maps them to `NDG_6284`. That mapping was typed by hand in the console, so it lives only in the production `fh_channel_stores` rows: no repo seed or code defaulted Uber stores to NDG.

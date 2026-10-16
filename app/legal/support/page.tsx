@@ -50,10 +50,10 @@ export default function SupportPage() {
           Non. Elles sont payées avec le mode de paiement de leur plateforme : votre fermeture de caisse les sépare des ventes en magasin.
         </Faq>
         <Faq q="Combien ça coûte ?">
-          L’application est gratuite pour les restaurants approuvés. Tout frais futur serait facturé uniquement par la facturation du Clover App Market, jamais en dehors.
+          Le service et le compte Food Hub sont gratuits pour les restaurants approuvés : rien n’est facturé en dehors de Clover. Tout frais futur serait facturé uniquement par la facturation du Clover App Market.
         </Faq>
         <Faq q="Comment me débrancher et supprimer mes données ?">
-          Désinstallez l’application dans Clover : vos jetons d’accès sont supprimés dès que Clover nous en avise et plus rien n’est envoyé à votre caisse. Pour obtenir ou supprimer vos autres données, écrivez-nous (voir la <Link className="underline" href={LEGAL_PATHS.privacy}>politique de confidentialité</Link>).
+          Désinstallez l’application dans Clover : plus rien n’est envoyé à votre caisse, et vos jetons d’accès Clover sont supprimés lorsque Clover nous avise de la désinstallation, ou sur demande. Pour obtenir ou supprimer vos autres données, écrivez-nous (voir la <Link className="underline" href={LEGAL_PATHS.privacy}>politique de confidentialité</Link>).
         </Faq>
         <P>Voir aussi notre <Link className="underline" href={LEGAL_PATHS.privacy}>politique de confidentialité</Link> et nos <Link className="underline" href={LEGAL_PATHS.terms}>conditions d’utilisation</Link>.</P>
       </LangBlock>
@@ -91,10 +91,10 @@ export default function SupportPage() {
           No. They are paid with their platform’s tender, so your closeout keeps them apart from in-store sales.
         </Faq>
         <Faq q="How much does it cost?">
-          The app is free for approved restaurants. Any future fee would be billed only through Clover App Market billing, never outside it.
+          The service and the Food Hub account are free for approved restaurants: nothing is billed outside Clover. Any future fee would be billed only through Clover App Market billing.
         </Faq>
         <Faq q="How do I disconnect and delete my data?">
-          Uninstall the app in Clover: your access tokens are deleted as soon as Clover notifies us and nothing more is sent to your register. To get or delete your other data, write to us (see the <Link className="underline" href={LEGAL_PATHS.privacy}>privacy policy</Link>).
+          Uninstall the app in Clover: nothing more is sent to your register, and your Clover access tokens are deleted when Clover notifies us that the app was uninstalled, or on request. To get or delete your other data, write to us (see the <Link className="underline" href={LEGAL_PATHS.privacy}>privacy policy</Link>).
         </Faq>
         <P>See also our <Link className="underline" href={LEGAL_PATHS.privacy}>privacy policy</Link> and <Link className="underline" href={LEGAL_PATHS.terms}>terms of use</Link>.</P>
       </LangBlock>

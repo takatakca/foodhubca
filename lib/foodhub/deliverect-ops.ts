@@ -13,7 +13,7 @@ import { DELIVERECT_ID_PREFIX, DELIVERECT_STORE_PREFIX, deliverectRef, parseDeli
 import { DELIVERECT_STATUS, deliverect } from './adapters/deliverect-api';
 import { nowIso, publicBaseUrl } from './config';
 import { isDoNotTouch, menuLockOf } from './menu/lock';
-import { getBrandMenu } from './menu/shared';
+import { getBrandMenu, unpublishableMenuReason } from './menu/shared';
 import { applyExternalStatus } from './pipeline';
 import { getRepo } from './repo';
 import type { ChannelStore, MasterMenu, NormalizedOrder } from './types';
@@ -154,6 +154,13 @@ export async function pushDeliverectProducts(locationId: string): Promise<{ ok: 
   }
   const menu = await getBrandMenu(store.brandName);
   if (!menu) return { ok: false, message: `No menu for ${store.brandName}.` };
+  // Never an empty product list (a follower's dish list that matches nothing): Deliverect keeps the products it has.
+  const empty = unpublishableMenuReason(menu);
+  if (empty) {
+    await logActivity({ actor: AUTOMATION, source: 'automation', kind: 'menu_publish', action: 'deliverect_sync_refused', status: 'failed', channel: 'tgtg', brandName: store.brandName, locationCode: store.locationCode, storeId: store.id,
+      summary: `Deliverect asked for the products of ${store.brandName} · ${store.locationCode} — not sent: ${empty}` });
+    return { ok: false, message: empty };
+  }
   const res = await deliverect.insertProducts(deliverectProductsFromMenu(menu, { accountId: record.accountId, locationId }));
   await logActivity({ actor: AUTOMATION, source: 'automation', kind: 'menu_publish', action: 'deliverect_sync', status: res.ok ? 'success' : 'failed', channel: 'tgtg', brandName: store.brandName, locationCode: store.locationCode, storeId: store.id,
     summary: `Products sent to Deliverect for ${store.brandName} · ${store.locationCode}: ${res.message}` });

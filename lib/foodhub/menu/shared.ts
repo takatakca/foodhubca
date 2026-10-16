@@ -159,6 +159,17 @@ export async function getBrandMenu(brandName: string, sharing?: MenuSharing, opt
   return refs ? filterMenuToDishes(seen, refs, source) : seen;
 }
 
+/**
+ * Why this menu must not be sent to a platform as a whole menu (null = it may). A follower whose dish list matches
+ * nothing on the shared menu (refs changed by a re-import) would send an EMPTY menu and wipe the store's menu: every
+ * path that sends a full menu (publish, DoorDash "Menu visible", the Uber publish plan, the Deliverect product push)
+ * calls this first and sends nothing — the platforms keep what they have until the list is fixed.
+ */
+export function unpublishableMenuReason(menu: Pick<MasterMenu, 'brandName' | 'items' | 'sharedDishes'>): string | null {
+  if (!menu.sharedDishes || menu.items.length > 0) return null;
+  return `None of ${menu.brandName}'s dishes is on the ${menu.sharedDishes.from} menu any more (${menu.sharedDishes.listed} listed). Pick its dishes again in Menu → Shared menu — nothing was published.`;
+}
+
 /** The stored menus that are in use (a follower's own, unused menu is left out — it must not drive 86s or syncs). */
 export async function activeMenus(sharing?: MenuSharing): Promise<MasterMenu[]> {
   const map = sharing ?? (await getMenuSharing());

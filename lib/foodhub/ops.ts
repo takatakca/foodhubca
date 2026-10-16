@@ -7,7 +7,7 @@ import { CHANNEL_LABELS, nowIso, result } from './config';
 import { getHours, holidaysFor, localDate, publishContext } from './hours';
 import { getMenuLanguages } from './menu/language';
 import { DO_NOT_TOUCH_MESSAGE, isDoNotTouch, isMenuLocked, menuLockedResult } from './menu/lock';
-import { activeMenus, dishesOf, dishScope, getBrandDishes, getBrandMenu, getMenuSharing, groupOf, sourceOf, type BrandDishes } from './menu/shared';
+import { activeMenus, dishesOf, dishScope, getBrandDishes, getBrandMenu, getMenuSharing, groupOf, sourceOf, unpublishableMenuReason, type BrandDishes } from './menu/shared';
 import { menuSnapshot } from './menu/snapshot';
 import { getRepo } from './repo';
 import { menuWithAlcoholRules } from './alcohol/rules';
@@ -106,11 +106,9 @@ export async function publishMenu(brandName: string, opts: { storeIds?: string[]
   const actor = opts.actor ?? SYSTEM_ACTOR;
   const menu = await getBrandMenu(brandName);
   if (!menu) throw new Error(`No master menu saved for ${brandName}. Import from Clover or create items first.`);
-  // A follower whose dish list matches nothing on the shared menu (refs changed by a re-import) never publishes an empty
-  // menu: the platforms keep what they have until the list is fixed in Menu Manager → Shared menu.
-  if (menu.sharedDishes && menu.items.length === 0) {
-    throw new Error(`None of ${brandName}'s dishes is on the ${menu.sharedDishes.from} menu any more (${menu.sharedDishes.listed} listed). Pick its dishes again in Menu → Shared menu — nothing was published.`);
-  }
+  // A follower whose dish list matches nothing on the shared menu never publishes an empty menu.
+  const empty = unpublishableMenuReason(menu);
+  if (empty) throw new Error(empty);
   const stores = await storesFor({ brandName, storeIds: opts.storeIds, channels: opts.channels, locationCodes: opts.locationCodes });
   const hours = await getHours();
   const languages = await getMenuLanguages();
@@ -177,8 +175,9 @@ export async function setItemAvailability(brandName: string, refs: string[], ava
     }
     await repo.saveMenu({ ...menu, unavailableByLocation: byLoc, unavailableUntil: until });
   }
-  // storeIds: only these stores receive the change (the Clover sync sends it only to the stores mapped to that merchant).
-  const stores = await storesFor({ brandNames: brands, locationCode: opts.locationCode, storeIds: opts.storeIds });
+  // storeIds: only these stores receive the change (the Clover sync sends it only to the stores that follow that
+  // merchant); an explicit empty list = no platform call at all, only the Food Hub state above.
+  const stores = opts.storeIds && !opts.storeIds.length ? [] : await storesFor({ brandNames: brands, locationCode: opts.locationCode, storeIds: opts.storeIds });
   // A follower brand with its own dish list only hears about its dishes and their options (read once, only when shared).
   const dishes: BrandDishes = brands.length > 1 ? await getBrandDishes() : {};
   const scopes = new Map<string, ReturnType<typeof dishScope> | null>();

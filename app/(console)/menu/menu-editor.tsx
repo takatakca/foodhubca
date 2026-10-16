@@ -719,7 +719,9 @@ function ShareDialog({ brand, brands, sharing, onSaved, onClose }: { brand: stri
   const [dishes, setDishes] = useState<Record<string, string[]> | null>(null);
   const [sourceMenu, setSourceMenu] = useState<MasterMenu | null>(null);
   const [picking, setPicking] = useState<string | null>(null);
-  useEffect(() => { api<{ dishes?: Record<string, string[]> }>('/api/foodhub/menu/sharing').then((d) => setDishes(d.dishes ?? {})).catch(() => setDishes({})); }, []);
+  // A failed read keeps `dishes` null: no picker, and Save leaves every saved dish list as it is (never sends an empty map).
+  const [dishesError, setDishesError] = useState(false);
+  useEffect(() => { api<{ dishes?: Record<string, string[]> }>('/api/foodhub/menu/sharing').then((d) => setDishes(d.dishes ?? {})).catch(() => { setDishes(null); setDishesError(true); }); }, []);
   useEffect(() => {
     let live = true;
     setSourceMenu(null); setPicking(null);
@@ -730,6 +732,8 @@ function ShareDialog({ brand, brands, sharing, onSaved, onClose }: { brand: stri
   const listOf = (b: string) => (sharing[b] === source ? dishes?.[b] ?? [] : dishes?.[`${source}::${b}`] ?? []);
   const setListOf = (b: string, refs: string[]) => setDishes((d) => ({ ...(d ?? {}), [sharing[b] === source ? b : `${source}::${b}`]: refs }));
   const others = brands.filter((b) => b !== source);
+  // Picks that are still dishes of the shared menu (by ref or Clover id); the rest is stale after a re-import.
+  const resolved = (refs: string[]) => (sourceMenu ? refs.filter((r) => sourceMenu.items.some((i) => i.ref === r || i.posItemRef === r)) : refs);
   async function save() {
     // Every link to this source is rewritten; links to other sources stay as they are.
     const next: Record<string, string> = Object.fromEntries(Object.entries(sharing).filter(([k, v]) => v !== source && k !== source && !users.includes(k)));
@@ -755,6 +759,7 @@ function ShareDialog({ brand, brands, sharing, onSaved, onClose }: { brand: stri
             <button type="button" className="text-xs font-semibold underline" onClick={() => setUsers(others)}>{t('Toutes', 'All')}</button>
             <button type="button" className="text-xs font-semibold underline" onClick={() => setUsers([])}>{t('Aucune', 'None')}</button>
           </div>
+          {dishesError && <p role="alert" className="mb-2 text-xs text-stop">{t('Les plats choisis par marque n’ont pas pu être lus : ils restent tels quels. Fermez et rouvrez pour les modifier.', 'The dishes picked per brand could not be read: they stay as they are. Close and reopen to change them.')}</p>}
           <div className="scrollbar-thin max-h-72 divide-y divide-line overflow-y-auto rounded-lg border border-line">
             {others.map((b) => {
               const leads = followersOf(b).length > 0;
@@ -767,7 +772,7 @@ function ShareDialog({ brand, brands, sharing, onSaved, onClose }: { brand: stri
                       label={<span>{b}{sharing[b] && sharing[b] !== source ? <span className="text-ink-3"> · {t(`utilise ${sharing[b]}`, `uses ${sharing[b]}`)}</span> : null}{leads ? <span className="text-ink-3"> · {t('d’autres marques utilisent son menu', 'other brands use its menu')}</span> : null}</span>} />
                     {using && dishes && (
                       <button type="button" className="min-h-11 text-xs font-semibold underline" aria-expanded={picking === b} onClick={() => setPicking(picking === b ? null : b)}>
-                        {picked.length ? t(`${picked.length} plat(s) choisis`, `${picked.length} dish(es) picked`) : t('Tous les plats', 'Every dish')}
+                        {picked.length ? t(`${resolved(picked).length} plat(s) choisis`, `${resolved(picked).length} dish(es) picked`) : t('Tous les plats', 'Every dish')}
                       </button>
                     )}
                   </div>
@@ -791,23 +796,36 @@ function DishPicker({ menu, value, onChange }: { menu: MasterMenu | null; value:
   const [q, setQ] = useState('');
   if (!menu) return <div className="mt-2 text-xs text-ink-3">{t('Chargement du menu…', 'Loading the menu…')}</div>;
   const chosen = new Set(value);
+  const isChosen = (i: MasterMenu['items'][number]) => chosen.has(i.ref) || (i.posItemRef !== undefined && chosen.has(i.posItemRef));
+  // Picks no longer on the menu (a re-import changed their refs): listed so they can be removed, never counted.
+  const missing = value.filter((r) => !menu.items.some((i) => i.ref === r || i.posItemRef === r));
+  const live = menu.items.filter(isChosen);
   const needle = q.trim().toLowerCase();
   const shown = menu.items.filter((i) => !needle || i.name.toLowerCase().includes(needle) || (i.nameFr ?? '').toLowerCase().includes(needle));
   const cats = [...menu.categories].sort((a, b) => a.sortOrder - b.sortOrder).map((c) => ({ c, items: shown.filter((i) => i.categoryRef === c.ref) })).filter((x) => x.items.length);
-  const toggle = (ref: string, on: boolean) => onChange(on ? [...value.filter((r) => r !== ref), ref] : value.filter((r) => r !== ref));
-  const groups = new Set(menu.items.filter((i) => chosen.has(i.ref)).flatMap((i) => i.modifierGroupRefs));
+  const toggle = (i: MasterMenu['items'][number], on: boolean) => {
+    const rest = value.filter((r) => r !== i.ref && r !== i.posItemRef);
+    onChange(on ? [...rest, i.ref] : rest);
+  };
+  const groups = new Set(live.flatMap((i) => i.modifierGroupRefs));
   return (
     <div className="mt-2 rounded-lg border border-line bg-raised p-2">
       <div className="mb-2 flex flex-wrap items-center gap-3">
         <Input className="w-full sm:w-56" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('Chercher un plat', 'Find a dish')} aria-label={t('Chercher un plat', 'Find a dish')} />
         <button type="button" className="min-h-11 text-xs font-semibold underline" onClick={() => onChange([])}>{t('Tous les plats', 'Every dish')}</button>
-        <span className="text-xs text-ink-3">{value.length ? t(`${value.length} plat(s) · ${groups.size} groupe(s) d’options suivent`, `${value.length} dish(es) · ${groups.size} option group(s) come along`) : t('Aucun choix = tous les plats', 'Nothing picked = every dish')}</span>
+        <span className="text-xs text-ink-3">{value.length ? t(`${live.length} plat(s) · ${groups.size} groupe(s) d’options suivent`, `${live.length} dish(es) · ${groups.size} option group(s) come along`) : t('Aucun choix = tous les plats', 'Nothing picked = every dish')}</span>
       </div>
+      {missing.length > 0 && (
+        <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-wait-2">
+          <span>{t(`${missing.length} plat(s) choisi(s) ne sont plus dans ce menu : ${missing.join(', ')}`, `${missing.length} picked dish(es) are no longer on this menu: ${missing.join(', ')}`)}</span>
+          <button type="button" className="min-h-11 font-semibold underline" onClick={() => onChange(value.filter((r) => !missing.includes(r)))}>{t('Les retirer', 'Remove them')}</button>
+        </div>
+      )}
       <div className="scrollbar-thin max-h-60 overflow-y-auto">
         {cats.map(({ c, items }) => (
           <div key={c.ref} className="py-1">
             <div className="px-1 text-[11px] font-semibold uppercase text-ink-3">{c.nameFr || c.name}</div>
-            {items.map((i) => <div key={i.ref} className="px-1"><Checkbox checked={chosen.has(i.ref)} onChange={(v) => toggle(i.ref, v)} label={<span>{i.nameFr || i.name} <span className="text-ink-3">· {money(i.price)}</span></span>} /></div>)}
+            {items.map((i) => <div key={i.ref} className="px-1"><Checkbox checked={isChosen(i)} onChange={(v) => toggle(i, v)} label={<span>{i.nameFr || i.name} <span className="text-ink-3">· {money(i.price)}</span></span>} /></div>)}
           </div>
         ))}
         {cats.length === 0 && <div className="p-2 text-xs text-ink-3">{t('Aucun plat.', 'No dish.')}</div>}

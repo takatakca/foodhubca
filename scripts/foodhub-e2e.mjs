@@ -953,11 +953,6 @@ try {
   const cloverHook = (body, auth = 'clover-auth-e2e') => call('POST', '/api/foodhub/webhooks/clover', { auth: false, headers: auth ? { 'x-clover-auth': auth } : {}, body });
   check('Clover event with a wrong X-Clover-Auth refused', (await cloverHook(cloverEvt('clv-item-1'), 'wrong')).status === 401);
   const menuNow = async () => (await call('GET', '/api/foodhub/menu?brand=Po%20Poulet')).json.menu;
-  // A Clover 86 only reaches stores mapped to that Clover merchant by name (never through the default merchant).
-  const mapped28 = await Promise.all([
-    { channel: 'uber_eats', channelStoreId: 'uber-store-uuid-1' }, { channel: 'doordash', channelStoreId: 'dd-popoulet-ndg' }, { channel: 'skip', channelStoreId: 'NDG-POPOULET' },
-  ].map((s) => call('POST', '/api/foodhub/stores', { body: { ...s, brandName: 'Po Poulet', locationCode: 'NDG_MAIN', cloverMerchantId: 'MAINMERCHANT' } })));
-  check('NDG stores mapped to the Clover merchant by name', mapped28.every((r) => r.json?.store?.cloverMerchantId === 'MAINMERCHANT'));
   cloverItems[0].available = false;
   const b28 = log.length;
   check('Clover inventory event accepted', (await cloverHook(cloverEvt('clv-item-1'))).status === 200);

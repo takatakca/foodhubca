@@ -65,7 +65,7 @@ export interface TgtgMailRecord {
   brandName?: string | null;
   locationCode?: string | null;
   /** The e-mail itself (text trimmed), for a retry. */
-  mail: Pick<TgtgMail, 'from' | 'senders' | 'subject' | 'text' | 'html' | 'messageId' | 'date'>;
+  mail: Pick<TgtgMail, 'from' | 'authResults' | 'subject' | 'text' | 'html' | 'messageId' | 'date'>;
   dismissedAt?: string;
   dismissedBy?: string;
 }
@@ -138,6 +138,12 @@ export function tgtgEmailStoreId(storeName: string): string {
   return `${STORE_PREFIX}${storeKey(storeName)}`;
 }
 
+/** Store id of an order whose TGTG store name is not mapped: no store ever has it, so nothing routes the order. */
+export const UNMAPPED_PREFIX = 'email-unmapped:';
+export function tgtgUnmappedStoreId(storeName: string): string {
+  return `${UNMAPPED_PREFIX}${storeKey(storeName)}`;
+}
+
 export function findMapping(settings: TgtgEmailSettings, storeName: string | undefined): TgtgStoreMapping | null {
   if (!storeName) return null;
   const k = storeKey(storeName);
@@ -203,9 +209,11 @@ export async function removeTgtgMapping(storeName: string, actor: Actor): Promis
   const repo = getRepo();
   const s = await getTgtgEmailSettings();
   await repo.setKv(SETTINGS_KEY, { ...s, mappings: s.mappings.filter((m) => storeKey(m.storeName) !== storeKey(storeName)), updatedAt: nowIso(), updatedBy: actor.name });
-  // The store stays (past orders keep their link); new e-mails from that name wait in the attention list.
+  // New e-mails from that name are no longer routed to it (ingest: no mapping → an id no store has, nothing sent to
+  // Clover, nothing accepted) and wait in the attention list. The store itself stays, with its Clover register, only so
+  // the orders it already sent can still be paid or flagged cancelled in that register; it never accepts on its own.
   const store = await repo.findStore('tgtg', tgtgEmailStoreId(storeName));
-  if (store) await repo.updateStore(store.id, { meta: { ...store.meta, unmappedAt: nowIso() } });
+  if (store) await repo.updateStore(store.id, { autoAccept: false, meta: { ...store.meta, unmappedAt: nowIso() } });
   await logActivity({ actor: actor.name, source: actor.source, kind: 'settings', action: 'tgtg_email_unmap', status: 'success', channel: 'tgtg', summary: `Too Good To Go e-mails: mapping for "${storeName}" removed` });
 }
 

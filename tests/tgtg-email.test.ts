@@ -4,16 +4,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { _resetOrderTypeCache } from '../lib/foodhub/pos/clover-order';
+import { _resetOrderTypeCache, cloverOrderTypeForOrder } from '../lib/foodhub/pos/clover-order';
 import { runOrderAction } from '../lib/foodhub/pipeline';
 import { getRepo } from '../lib/foodhub/repo';
 import { pollTgtgMailbox, type ImapLike } from '../lib/foodhub/tgtg-email/imap';
 import { buildTgtgMailOrder, ingestTgtgMail, isTgtgEmailOrder, retryTgtgMail, resolveWaitingForStore, tgtgMailOrderId } from '../lib/foodhub/tgtg-email/ingest';
 import { mailFromFields } from '../lib/foodhub/tgtg-email/inbound';
 import { mailFromMime } from '../lib/foodhub/tgtg-email/mime';
-import { codeFrom, dateFrom, htmlToText, mailKind, moneyFrom, parseTgtgMail, senderAllowed, timesFrom, type TgtgMail } from '../lib/foodhub/tgtg-email/parse';
+import { codeFrom, dateFrom, htmlToText, mailKind, moneyFrom, parseTgtgMail, senderAllowed, senderVerified, timesFrom, type TgtgMail } from '../lib/foodhub/tgtg-email/parse';
 import {
-  getMailboxStatus, getTgtgEmailSettings, listAttention, listMailRecords, mappingProblem, saveTgtgMapping, setTgtgEmailEnabled, suggestTgtgMapping, tgtgEmailStoreId,
+  getMailboxStatus, getMailRecord, getTgtgEmailSettings, listAttention, listMailRecords, mappingProblem, removeTgtgMapping, saveTgtgMapping, setTgtgEmailEnabled, suggestTgtgMapping, tgtgEmailStoreId, tgtgUnmappedStoreId,
 } from '../lib/foodhub/tgtg-email/settings';
 
 const FIX = path.join(__dirname, 'fixtures', 'tgtg-email');
@@ -45,7 +45,7 @@ function mockClover() {
     }
     if (p.endsWith('/print_event')) return json({ id: `PE-${body?.orderRef?.id}`, state: 'CREATED' });
     if (/\/orders\/[^/]+\/payments$/.test(p)) return json({ id: `PAY-${++seq}` });
-    if (/\/orders\/[^/]+$/.test(p)) return json({ id: p.split('/').pop(), total: 1198 });
+    if (/\/orders\/[^/]+$/.test(p)) return json({ id: p.split('/').pop(), total: 1198, ...(method === 'GET' ? { note: 'TGTG 3K7Q9XPT2A | MARIE | 2 SACS / BAGS' } : {}) });
     return json({}, 404);
   }) as any;
 }
@@ -55,7 +55,7 @@ const ENV: Record<string, string> = {
   CLOVER_BASE_URL: 'https://api.clover.test', CLOVER_MERCHANT_ID: MID, CLOVER_ACCESS_TOKEN: 'clover-token',
   TGTG_IMAP_HOST: 'imap.example.test', TGTG_IMAP_USER: 'orders@example.test', TGTG_IMAP_PASSWORD: 'not-a-real-password',
 };
-const CLEAR = ['CLOVER_MERCHANT_TOKENS', 'FOODHUB_POS_INJECTION', 'FOODHUB_CLOVER_ORDER_TYPE_MODE', 'CLOVER_ORDER_TYPES', 'CLOVER_CLIENT_ID', 'TGTG_EMAIL_FROM_ALLOW', 'TGTG_EMAIL_WEBHOOK_SECRET', 'TGTG_IMAP_PORT', 'TGTG_IMAP_MAILBOX', 'FOODHUB_CLOVER_DELETE_CANCELLED', 'CLOVER_PRINT_DEVICE_ID', 'CLOVER_PRINT_DEVICES', 'FOODHUB_CLOVER_AUTOPRINT'];
+const CLEAR = ['CLOVER_MERCHANT_TOKENS', 'FOODHUB_POS_INJECTION', 'FOODHUB_CLOVER_ORDER_TYPE_MODE', 'CLOVER_ORDER_TYPES', 'CLOVER_CLIENT_ID', 'TGTG_EMAIL_FROM_ALLOW', 'TGTG_EMAIL_WEBHOOK_SECRET', 'TGTG_IMAP_PORT', 'TGTG_IMAP_MAILBOX', 'FOODHUB_CLOVER_DELETE_CANCELLED', 'TGTG_EMAIL_AUTHSERV_ID', 'TGTG_EMAIL_WEBHOOK_QUERY_TOKEN', 'TGTG_IMAP_SECURE', 'CLOVER_PRINT_DEVICE_ID', 'CLOVER_PRINT_DEVICES', 'FOODHUB_CLOVER_AUTOPRINT'];
 const saved: Record<string, string | undefined> = {};
 
 beforeEach(() => {
@@ -74,6 +74,11 @@ afterEach(() => {
 
 /** Clock at a given UTC instant (Date only: promises and fetch keep running). */
 const at = (iso: string) => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date(iso)); };
+
+/** What the mailbox's own server writes on a genuine Too Good To Go e-mail (synthetic). */
+const AUTH = 'mx.example.test; dkim=pass header.d=toogoodtogo.com header.s=synthetic; spf=pass smtp.mailfrom=toogoodtogo.com; dmarc=pass header.from=toogoodtogo.com';
+/** A Too Good To Go e-mail built in a test (verified by the receiving server unless told otherwise). */
+const tgtgMail = (m: Partial<TgtgMail>): TgtgMail => ({ from: 'no-reply@toogoodtogo.com', authResults: [AUTH], subject: '', ...m });
 
 async function mapOoeuf() {
   await getRepo().upsertStore({ channel: 'doordash', channelStoreId: 'dd-ooeuf', brandName: 'OOeuf', locationCode: 'NDG_6284', cloverMerchantId: MID, autoAccept: true, online: true, meta: {} });
@@ -161,16 +166,79 @@ describe('TGTG e-mail reader (synthetic fixtures, FR + EN)', () => {
     expect(p.pickupStart).toBe('2026-11-02T22:00:00.000Z');
   });
 
-  it('accepts only Too Good To Go senders (or the ones the owner allows), From or Sender / Reply-To', () => {
+  it('accepts only Too Good To Go From addresses (or the ones the owner allows) — never Sender / Reply-To', async () => {
     expect(senderAllowed({ from: 'Too Good To Go <no-reply@toogoodtogo.com>' })).toBe(true);
     expect(senderAllowed({ from: 'mail@eu.toogoodtogo.com' })).toBe(true);
     expect(senderAllowed({ from: 'attacker@toogoodtogo.com.evil.test' })).toBe(false);
     expect(senderAllowed({ from: 'someone@example.test' })).toBe(false);
-    expect(senderAllowed({ from: 'forwarder@example.test', senders: ['no-reply@toogoodtogo.com'] })).toBe(true);
+    // Review finding: a Reply-To / Sender on Too Good To Go's domain used to let anyone in.
+    expect(senderAllowed({ from: 'attacker@evil.test', senders: ['x@toogoodtogo.com'] } as any)).toBe(false);
+    const spoof = await mailFromMime(Buffer.from('From: attacker@evil.test\r\nReply-To: x@toogoodtogo.com\r\nSender: y@toogoodtogo.com\r\nX-Original-From: z@toogoodtogo.com\r\nSubject: New order #AB12CD34\r\n\r\nOrder ID: AB12CD34\r\n'));
+    expect(spoof.from).toBe('attacker@evil.test');
+    expect(senderAllowed(spoof)).toBe(false);
     process.env.TGTG_EMAIL_FROM_ALLOW = 'example.test,boss@other.test';
     expect(senderAllowed({ from: 'someone@example.test' })).toBe(true);
     expect(senderAllowed({ from: 'boss@other.test' })).toBe(true);
     expect(senderAllowed({ from: 'no-reply@toogoodtogo.com' })).toBe(false);
+  });
+
+  it('acts only when the mail server vouches for the From domain (topmost Authentication-Results: dkim / dmarc pass)', async () => {
+    const from = 'no-reply@toogoodtogo.com';
+    expect(senderVerified({ from, authResults: [AUTH] })).toBe(true);
+    expect(senderVerified({ from, authResults: ['mx.example.test; dkim=pass header.d=toogoodtogo.com'] })).toBe(true);
+    expect(senderVerified({ from: 'mail@eu.toogoodtogo.com', authResults: ['mx.example.test; dmarc=pass header.from=toogoodtogo.com'] })).toBe(true);
+    expect(senderVerified({ from, authResults: [] })).toBe(false);
+    expect(senderVerified({ from })).toBe(false);
+    expect(senderVerified({ from, authResults: ['mx.example.test; dkim=fail header.d=toogoodtogo.com; spf=pass smtp.mailfrom=toogoodtogo.com'] })).toBe(false);
+    // DKIM by another domain proves nothing about From.
+    expect(senderVerified({ from, authResults: ['mx.example.test; dkim=pass header.d=evil.test; dmarc=fail header.from=toogoodtogo.com'] })).toBe(false);
+    expect(senderVerified({ from, authResults: ['mx.example.test; dkim=pass header.d=toogoodtogo.com.evil.test'] })).toBe(false);
+    // A forged "pass" written lower in the message by the sender is never read: only the receiving server's (topmost).
+    const forged = await mailFromMime(Buffer.from(`Authentication-Results: mx.example.test; dkim=none; dmarc=fail header.from=toogoodtogo.com\r\nFrom: ${from}\r\nAuthentication-Results: ${AUTH.replace(/^mx\.example\.test/, 'fake')}\r\nSubject: New order #AB12CD34\r\n\r\nOrder ID: AB12CD34\r\n`));
+    expect(forged.authResults).toHaveLength(2);
+    expect(senderVerified(forged)).toBe(false);
+    // Pinned to the mailbox server's id: its header is used wherever it is.
+    process.env.TGTG_EMAIL_AUTHSERV_ID = 'mx.example.test';
+    expect(senderVerified({ from, authResults: ['relay.other.test; dkim=none', AUTH] })).toBe(true);
+    expect(senderVerified({ from, authResults: ['fake.test; dkim=pass header.d=toogoodtogo.com'] })).toBe(false);
+  });
+
+  it('never turns a word into a reservation code (review probes) — they go to the attention list', async () => {
+    const probes: Array<Pick<TgtgMail, 'subject' | 'text'>> = [
+      { subject: 'Order confirmation - OOEUF NDG', text: 'Marie just reserved 1 Surprise Bag.\nPickup: today 17:00 - 17:30' },
+      { subject: 'New reservation - OOEUF NDG', text: 'Your order details\nMarie just reserved 1 Surprise Bag.' },
+      { subject: 'Commande confirmée - OOEUF NDG', text: 'Marie vient de réserver 1 Panier Surprise.' },
+      { subject: 'New reservation - OOEUF NDG', text: 'Here is your reservation summary.\nMarie just reserved 1 Surprise Bag.' },
+      { subject: 'Order cancelled - OOEUF NDG', text: 'Marie has cancelled their order.' },
+      { subject: 'Réservation annulée', text: 'Commande annulée par le client.' },
+    ];
+    for (const m of probes) {
+      const p = parseTgtgMail({ from: 'no-reply@toogoodtogo.com', ...m });
+      expect(p.code, m.subject).toBeUndefined();
+      expect(p.problems, m.subject).toContain('reservation code not found');
+    }
+    expect(codeFrom('CONFIRMATION')).toBeUndefined();
+    expect(codeFrom('CANCELLED')).toBeUndefined();
+    // Real codes still read: labelled, "order #…", "commande n° …".
+    expect(parseTgtgMail({ from: 'no-reply@toogoodtogo.com', subject: 'Order confirmation #AB12CD34 - OOEUF NDG', text: 'Marie just reserved 1 Surprise Bag.' }).code).toBe('AB12CD34');
+    expect(parseTgtgMail({ from: 'no-reply@toogoodtogo.com', subject: 'Commande confirmée', text: 'Commande n° 7TQ4ZP9M — Marie vient de réserver 1 Panier Surprise chez OOEUF NDG.' }).code).toBe('7TQ4ZP9M');
+    // In the pipeline: attention, never a 'duplicate' of a fake order, nothing in Clover.
+    await mapOoeuf();
+    at('2026-10-16T13:00:00Z');
+    const r1 = await ingestTgtgMail(tgtgMail({ subject: 'Order confirmation - OOEUF NDG', text: 'Marie just reserved 1 Surprise Bag.\nPickup: today 17:00 - 17:30\nStore: OOEUF NDG', messageId: '<probe-1@example.test>' }), 'webhook');
+    const r2 = await ingestTgtgMail(tgtgMail({ subject: 'Order confirmation - OOEUF NDG', text: 'Lea just reserved 2 Surprise Bags.\nPickup: today 18:00 - 18:30\nStore: OOEUF NDG', messageId: '<probe-2@example.test>' }), 'webhook');
+    const c = await ingestTgtgMail(tgtgMail({ subject: 'Order cancelled', text: 'Marie has cancelled their order.', messageId: '<probe-3@example.test>' }), 'webhook');
+    expect([r1.status, r2.status, c.status]).toEqual(['attention', 'attention', 'attention']);
+    expect(r1.reason).toMatch(/reservation code not found/);
+    expect(sent('POST', /\/atomic_order\/orders$/)).toHaveLength(0);
+  });
+
+  it('takes the price paid before a generic "Price" / "Total" line (the bag value)', () => {
+    const p = parseTgtgMail({ from: 'no-reply@toogoodtogo.com', subject: 'New order #AB12CD34 - OOEUF NDG', text: 'Price: $14.99 value\nTotal paid: $4.99\nOrder ID: AB12CD34\nStore: OOEUF NDG\nPickup: today 17:00 - 17:30' });
+    expect(p.pricePaid).toBe(4.99);
+    const fr = parseTgtgMail({ from: 'no-reply@toogoodtogo.com', subject: 'Nouvelle commande', text: 'Prix : 15,00 $\nMontant payé : 5,00 $\nNuméro de commande : AB12CD34\nMagasin : OOEUF NDG' });
+    expect(fr.pricePaid).toBe(5);
+    expect(parseTgtgMail({ from: 'no-reply@toogoodtogo.com', subject: 'New order', text: 'Price: CA$4.99\nOrder ID: AB12CD34' }).pricePaid).toBe(4.99);
   });
 });
 
@@ -290,10 +358,34 @@ describe('reservation e-mail → order → Clover → kitchen ticket → tender'
     const flag = sent('POST', /\/orders\/CLV1$/);
     expect(flag).toHaveLength(1);
     expect(flag[0].body.title).toBe('CANCELLED — Too Good To Go #3K7Q9XPT2A');
+    // The CANCELLED words are added in front of the note Clover had (code, customer, bags), never replacing it.
+    expect(flag[0].body.note).toMatch(/^ANNULÉE \/ CANCELLED/);
+    expect(flag[0].body.note).toContain('TGTG 3K7Q9XPT2A | MARIE | 2 SACS / BAGS');
+    expect(flag[0].body.note.length).toBeLessThanOrEqual(255);
     expect(sent('POST', /\/payments$/)).toHaveLength(0);
     // The same cancellation again: nothing more.
     expect((await ingestTgtgMail({ ...(await fixture('cancel-en.eml')), messageId: '<again@example.test>' }, 'webhook')).status).toBe('duplicate');
     expect(sent('POST', /\/orders\/CLV1$/)).toHaveLength(1);
+  });
+
+  it('the owner\'s FOODHUB_CLOVER_DELETE_CANCELLED=off switch also stops the CANCELLED flag', async () => {
+    await mapOoeuf();
+    at('2026-10-16T20:50:00Z');
+    const r = await ingestTgtgMail(await fixture('order-en-plain.eml'), 'imap');
+    process.env.FOODHUB_CLOVER_DELETE_CANCELLED = 'off';
+    expect((await ingestTgtgMail(await fixture('cancel-en.eml'), 'imap')).status).toBe('cancel_applied');
+    expect((await getRepo().getOrder(r.orderId!))!.status).toBe('cancelled');
+    expect(sent('POST', /\/orders\/CLV1$/)).toHaveLength(0);
+    expect(sent('DELETE', /\/orders\/CLV1$/)).toHaveLength(0);
+  });
+
+  it('only orders read from e-mails get the forced "Too Good To Go" order type: Deliverect / webhook TGTG orders keep the env type', async () => {
+    process.env.CLOVER_ORDER_TYPES = JSON.stringify({ pickup: 'OT-ENV-PICKUP' });
+    expect(await cloverOrderTypeForOrder(MID, { channel: 'tgtg', fulfillment: 'pickup', externalOrderId: 'dlv-123', raw: { source: 'deliverect' } })).toBe('OT-ENV-PICKUP');
+    expect(await cloverOrderTypeForOrder(MID, { channel: 'tgtg', fulfillment: 'pickup' })).toBe('OT-ENV-PICKUP');
+    expect(await cloverOrderTypeForOrder(MID, { channel: 'tgtg', fulfillment: 'pickup', externalOrderId: tgtgMailOrderId('AB12CD34'), raw: { source: 'tgtg_email' } })).toBe('OT-TGTG');
+    // Nothing created in Clover for the non-e-mail orders.
+    expect(sent('POST', /\/order_types$/)).toHaveLength(0);
   });
 
   it('a cancellation that arrives before its reservation cancels it on arrival (nothing sent to Clover)', async () => {
@@ -306,7 +398,7 @@ describe('reservation e-mail → order → Clover → kitchen ticket → tender'
     expect(sent('POST', /\/atomic_order\/orders$/)).toHaveLength(0);
   });
 
-  it('a store nobody mapped: the order waits on the Command Center + attention list; mapping it links the kitchen', async () => {
+  it('a store nobody mapped: the order waits on the Command Center (not in Clover, even with one register) + attention list; mapping it sends it', async () => {
     at('2026-10-16T20:50:00Z');
     const r = await ingestTgtgMail(await fixture('order-en-plain.eml'), 'imap');
     expect(r.status).toBe('attention');
@@ -315,10 +407,33 @@ describe('reservation e-mail → order → Clover → kitchen ticket → tender'
     const before = (await getRepo().getOrder(r.orderId!))!;
     expect(before.locationCode).toBeUndefined();
     expect(before.status).toBe('new'); // never accepted for an unmapped store
+    // Only one Clover register (CLOVER_MERCHANT_ID) — still nothing sent, nothing printed.
+    expect(before.posOrderId).toBeUndefined();
+    expect(before.posError).toMatch(/not mapped/);
+    expect(sent('POST', /\/atomic_order\/orders$/)).toHaveLength(0);
+    expect(sent('POST', /\/print_event$/)).toHaveLength(0);
     await mapOoeuf();
     expect(await resolveWaitingForStore('OOEUF NDG')).toBe(1);
-    expect((await getRepo().getOrder(r.orderId!))!).toMatchObject({ locationCode: 'NDG_6284', brandName: 'OOeuf' });
+    const after = (await getRepo().getOrder(r.orderId!))!;
+    expect(after).toMatchObject({ locationCode: 'NDG_6284', brandName: 'OOeuf', channelStoreId: tgtgEmailStoreId('OOEUF NDG'), posOrderId: 'CLV1' });
+    expect(sent('POST', /\/atomic_order\/orders$/)).toHaveLength(1);
     expect((await listAttention()).map((x) => x.id)).not.toContain(r.id);
+  });
+
+  it('unmapping a store stops routing to it: map → unmap → a reservation reaches no Clover register and is not accepted', async () => {
+    await mapOoeuf();
+    await removeTgtgMapping('OOEUF NDG', OWNER);
+    const store = await getRepo().findStore('tgtg', tgtgEmailStoreId('OOEUF NDG'));
+    expect(store?.autoAccept).toBe(false);
+    at('2026-10-16T20:50:00Z');
+    const r = await ingestTgtgMail(await fixture('order-en-plain.eml'), 'imap');
+    expect(r.status).toBe('attention');
+    const order = (await getRepo().getOrder(r.orderId!))!;
+    expect(order).toMatchObject({ status: 'new', channelStoreId: tgtgUnmappedStoreId('OOEUF NDG') });
+    expect(order.locationCode).toBeUndefined();
+    expect(order.brandName).toBeUndefined();
+    expect(order.posOrderId).toBeUndefined();
+    expect(calls.filter((c) => c.method !== 'GET')).toHaveLength(0);
   });
 
   it('unreadable → attention (kept, retry possible); newsletter and strangers → ignored without their body; too late → not sent to the kitchen', async () => {
@@ -347,11 +462,51 @@ describe('reservation e-mail → order → Clover → kitchen ticket → tender'
   });
 });
 
+describe('spoofing, one bad e-mail, two copies at once', () => {
+  it('a Too Good To Go From the mail server does not vouch for (no DKIM / DMARC pass) creates, prints and cancels nothing', async () => {
+    await mapOoeuf();
+    at('2026-10-16T20:50:00Z');
+    const real = await fixture('order-en-plain.eml');
+    // Same From, but the receiving server found no valid signature (someone typed the From line).
+    const forged = { ...real, messageId: '<forged-1@example.test>', authResults: ['mx.example.test; dkim=none; spf=fail smtp.mailfrom=evil.test; dmarc=fail header.from=toogoodtogo.com'] };
+    const r = await ingestTgtgMail(forged, 'webhook');
+    expect(r.status).toBe('attention');
+    expect(r.reason).toMatch(/sender not verified/);
+    expect(await getRepo().findOrder('tgtg', tgtgMailOrderId('3K7Q9XPT2A'))).toBeNull();
+    // A forged cancellation of a real reservation does nothing either.
+    const ok = await ingestTgtgMail(real, 'imap');
+    expect(ok.status).toBe('order_created');
+    const cancel = await fixture('cancel-en.eml');
+    const c = await ingestTgtgMail({ ...cancel, messageId: '<forged-cancel@example.test>', authResults: [] }, 'webhook');
+    expect(c.status).toBe('attention');
+    expect((await getRepo().getOrder(ok.orderId!))!.status).toBe('accepted');
+    expect(sent('POST', /\/atomic_order\/orders$/)).toHaveLength(1);
+    expect(sent('POST', /\/orders\/CLV1$/)).toHaveLength(0);
+  });
+
+  it('two copies of one reservation at once: if the first fails, the second still creates the order (none lost)', async () => {
+    await mapOoeuf();
+    at('2026-10-16T20:50:00Z');
+    const mail = await fixture('order-en-plain.eml');
+    const repo = getRepo();
+    const spy = vi.spyOn(repo, 'insertOrderIfNew').mockImplementationOnce(async () => { await new Promise((r) => setTimeout(r, 20)); throw new Error('database unreachable'); });
+    const both = await Promise.allSettled([ingestTgtgMail(mail, 'imap'), ingestTgtgMail({ ...mail, messageId: '<copy@example.test>' }, 'webhook')]);
+    spy.mockRestore();
+    expect(both[0].status).toBe('rejected');
+    expect(both[1]).toMatchObject({ status: 'fulfilled', value: { status: 'order_created', code: '3K7Q9XPT2A' } });
+    expect(await repo.findOrder('tgtg', tgtgMailOrderId('3K7Q9XPT2A'))).not.toBeNull();
+    // The first copy left no record: read again later, it is a duplicate of the order the second copy made.
+    expect((await ingestTgtgMail(mail, 'imap')).status).toBe('duplicate');
+    expect(sent('POST', /\/atomic_order\/orders$/)).toHaveLength(1);
+  });
+});
+
 // ---------------------------------------------------------------- IMAP + webhook
 
 function fakeImap(messages: Array<{ uid: number; source: Buffer }>, uidValidity = 777n) {
   const log: string[] = [];
   const envelopeOf = async (source: Buffer) => { const m = await mailFromMime(source); return { from: [{ address: m.from }], subject: m.subject }; };
+  const headerBlock = (source: Buffer) => Buffer.from(source.toString('utf8').split(/\r?\n\r?\n/)[0]);
   const client: ImapLike & { log: string[] } = {
     log,
     mailbox: { uidValidity, uidNext: Math.max(0, ...messages.map((m) => m.uid)) + 1 },
@@ -366,14 +521,14 @@ function fakeImap(messages: Array<{ uid: number; source: Buffer }>, uidValidity 
       const m = messages.find((x) => String(x.uid) === seqs);
       if (!m) return false;
       if (q.source) { log.push(`source ${seqs}`); return { uid: m.uid, source: m.source }; }
-      return { uid: m.uid, envelope: await envelopeOf(m.source) };
+      return { uid: m.uid, envelope: await envelopeOf(m.source), ...(q.headers ? { headers: headerBlock(m.source) } : {}) };
     },
     async logout() { log.push('logout'); },
   };
   return client;
 }
 
-describe('IMAP mailbox (read-only, cursor, only TGTG senders downloaded)', () => {
+describe('IMAP mailbox (read-only, cursor, only verified TGTG senders downloaded)', () => {
   it('reads new TGTG e-mails once, never downloads other mail, keeps a cursor', async () => {
     await mapOoeuf();
     at('2026-10-16T20:50:00Z');
@@ -392,6 +547,46 @@ describe('IMAP mailbox (read-only, cursor, only TGTG senders downloaded)', () =>
     expect(sent('POST', /\/atomic_order\/orders$/)).toHaveLength(1);
   });
 
+  it('a forged Too Good To Go From (Reply-To only, or no DKIM pass) is never downloaded nor acted on', async () => {
+    await mapOoeuf();
+    at('2026-10-16T20:50:00Z');
+    const replyTo = Buffer.from('From: attacker@evil.test\r\nReply-To: orders@toogoodtogo.com\r\nSubject: New order #AB12CD34 - OOEUF NDG\r\nMessage-ID: <r1@example.test>\r\n\r\nOrder ID: AB12CD34\r\nStore: OOEUF NDG\r\n');
+    const noDkim = Buffer.from(raw('order-en-plain.eml').toString('utf8').replace(/^Authentication-Results:.*\n/, 'Authentication-Results: mx.example.test; dkim=none; dmarc=fail header.from=toogoodtogo.com\n'));
+    const client = fakeImap([{ uid: 1, source: replyTo }, { uid: 2, source: noDkim }]);
+    const r = await pollTgtgMailbox({ client });
+    expect(r).toMatchObject({ ok: true, checked: 2, handled: 1, statuses: { attention: 1 } });
+    expect(client.log.filter((l) => l.startsWith('source'))).toEqual([]);
+    expect(sent('POST', /\/atomic_order\/orders$/)).toHaveLength(0);
+    expect((await listAttention()).some((x) => /sender not verified/.test(x.reason ?? ''))).toBe(true);
+  });
+
+  it('one e-mail that throws is kept as "error" (Needs attention) and the next ones still go through; a database outage keeps the cursor', async () => {
+    await mapOoeuf();
+    at('2026-10-16T20:50:00Z');
+    const repo = getRepo();
+    const client = fakeImap([{ uid: 10, source: raw('order-fr-html.eml') }, { uid: 11, source: raw('order-en-plain.eml') }]);
+    const spy = vi.spyOn(repo, 'insertOrderIfNew').mockImplementationOnce(async () => { throw new Error('unexpected reader state'); });
+    const r = await pollTgtgMailbox({ client });
+    spy.mockRestore();
+    expect(r).toMatchObject({ ok: true, checked: 2, handled: 2, statuses: { error: 1, order_created: 1 } });
+    expect(await getMailboxStatus()).toMatchObject({ lastUid: 11, lastError: null });
+    const errs = (await listAttention()).filter((x) => x.status === 'error');
+    expect(errs).toHaveLength(1);
+    expect(errs[0].reason).toMatch(/unexpected reader state/);
+    // Retry from Needs attention reads it again: now it goes through.
+    expect((await retryTgtgMail(errs[0].id, OWNER)).status).toBe('order_created');
+
+    // Database down: nothing can be recorded → the run stops, the cursor stays before that e-mail.
+    const client2 = fakeImap([{ uid: 10, source: raw('order-fr-html.eml') }, { uid: 11, source: raw('order-en-plain.eml') }, { uid: 12, source: raw('order-fr-sentence.eml') }]);
+    const down = vi.spyOn(repo, 'getDoc').mockRejectedValue(new Error('database unreachable'));
+    const downPut = vi.spyOn(repo, 'putDocs').mockRejectedValue(new Error('database unreachable'));
+    const r2 = await pollTgtgMailbox({ client: client2 });
+    down.mockRestore();
+    downPut.mockRestore();
+    expect(r2).toMatchObject({ ok: false, error: 'database unreachable' });
+    expect((await getMailboxStatus()).lastUid).toBe(11);
+  });
+
   it('a mailbox error is kept on the status, never thrown; switched off = not read', async () => {
     const client = fakeImap([]);
     client.connect = async () => { throw new Error('Invalid credentials (Failure)'); };
@@ -408,7 +603,8 @@ describe('IMAP mailbox (read-only, cursor, only TGTG senders downloaded)', () =>
 describe('inbound webhook (forwarding services)', () => {
   const call = async (body: BodyInit, headers: Record<string, string>, query = '') => {
     const { POST } = await import('../app/api/foodhub/webhooks/tgtg-email/route');
-    const res = await POST(new Request(`https://hub.test/api/foodhub/webhooks/tgtg-email${query}`, { method: 'POST', body, headers }));
+    const init = { method: 'POST', body, headers, ...(body instanceof ReadableStream ? { duplex: 'half' } : {}) } as RequestInit;
+    const res = await POST(new Request(`https://hub.test/api/foodhub/webhooks/tgtg-email${query}`, init));
     return { status: res.status, json: await res.json() };
   };
 
@@ -421,11 +617,16 @@ describe('inbound webhook (forwarding services)', () => {
     const mime = await call(raw('order-en-plain.eml').toString('utf8'), { authorization: 'Bearer tgtg-mail-secret', 'content-type': 'message/rfc822' });
     expect(mime).toMatchObject({ status: 200, json: { ok: true, status: 'order_created', code: '3K7Q9XPT2A' } });
     const fr = await fixture('order-fr-html.eml');
-    const asJson = await call(JSON.stringify({ from: fr.from, subject: fr.subject, html: fr.html, messageId: fr.messageId, date: fr.date }), { 'content-type': 'application/json' }, '?token=tgtg-mail-secret');
+    const frJson = JSON.stringify({ from: fr.from, subject: fr.subject, html: fr.html, messageId: fr.messageId, date: fr.date, authResults: fr.authResults });
+    // ?token= in the URL is refused unless the owner opted in (URLs end up in access logs).
+    expect((await call(frJson, { 'content-type': 'application/json' }, '?token=tgtg-mail-secret')).status).toBe(401);
+    process.env.TGTG_EMAIL_WEBHOOK_QUERY_TOKEN = 'on';
+    const asJson = await call(frJson, { 'content-type': 'application/json' }, '?token=tgtg-mail-secret');
     expect(asJson.json).toMatchObject({ ok: true, status: 'order_created', code: 'R8M2-55QX' });
     const form = new FormData();
     const cancel = await fixture('cancel-en.eml');
     form.set('from', `Too Good To Go <${cancel.from}>`); form.set('subject', cancel.subject); form.set('body-plain', cancel.text ?? ''); form.set('Message-Id', cancel.messageId ?? '');
+    form.set('message-headers', JSON.stringify([['Authentication-Results', AUTH], ['From', cancel.from]]));
     const asForm = await call(form, { 'x-api-key': 'tgtg-mail-secret' });
     expect(asForm.json).toMatchObject({ ok: true, status: 'cancel_applied', code: '3K7Q9XPT2A' });
     // Resent by the service: duplicate, nothing printed twice.
@@ -436,9 +637,25 @@ describe('inbound webhook (forwarding services)', () => {
     expect((await call(raw('order-fr-sentence.eml').toString('utf8'), { authorization: 'Bearer tgtg-mail-secret' })).status).toBe(503);
   });
 
-  it('maps service fields (Mailgun / SendGrid / Postmark names) to an e-mail', async () => {
+  it('caps the body while reading it: a chunked body with no Content-Length over 5 MB → 413', async () => {
+    process.env.TGTG_EMAIL_WEBHOOK_SECRET = 'tgtg-mail-secret';
+    const chunk = new Uint8Array(1024 * 1024).fill(65);
+    let pulled = 0;
+    const stream = new ReadableStream<Uint8Array>({ pull(c) { if (pulled++ < 8) c.enqueue(chunk); else c.close(); } });
+    const r = await call(stream, { authorization: 'Bearer tgtg-mail-secret', 'content-type': 'message/rfc822' });
+    expect(r.status).toBe(413);
+    expect(pulled).toBeLessThan(9);
+  });
+
+  it('maps service fields (Mailgun / SendGrid / Postmark names) to an e-mail; Reply-To never counts as the sender', async () => {
     const m = await mailFromFields({ From: 'no-reply@toogoodtogo.com', Subject: 'New order', TextBody: 'hi', 'Message-Id': '<a@b>', Date: 'Fri, 16 Oct 2026 14:05:00 -0400' }) as TgtgMail;
     expect(m).toMatchObject({ from: 'no-reply@toogoodtogo.com', subject: 'New order', text: 'hi', messageId: '<a@b>', date: '2026-10-16T18:05:00.000Z' });
     expect(await mailFromFields({})).toBeNull();
+    const spoof = await mailFromFields({ from: 'attacker@evil.test', 'Reply-To': 'x@toogoodtogo.com', 'X-Original-From': 'y@toogoodtogo.com', subject: 'New order #AB12CD34', text: 'Order ID: AB12CD34' }) as TgtgMail;
+    expect(senderAllowed(spoof)).toBe(false);
+    const sg = await mailFromFields({ from: 'Too Good To Go <no-reply@toogoodtogo.com>', subject: 's', text: 't', dkim: '{@toogoodtogo.com : pass}' }) as TgtgMail;
+    expect(senderVerified(sg)).toBe(true);
+    const sgHeaders = await mailFromFields({ from: 'no-reply@toogoodtogo.com', subject: 's', text: 't', headers: `Received: by mx\nAuthentication-Results: ${AUTH}\nFrom: no-reply@toogoodtogo.com\n` }) as TgtgMail;
+    expect(senderVerified(sgHeaders)).toBe(true);
   });
 });

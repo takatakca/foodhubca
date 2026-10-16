@@ -59,7 +59,12 @@ function actionsFor(order: { channel: ChannelKey; viaHub?: 'relay' }): Pick<Chan
   return order.viaHub === 'relay' ? relayActions : getAdapter(order.channel);
 }
 
-export async function processIncomingOrder(n: NormalizedOrder): Promise<PipelineOutcome> {
+/**
+ * opts.holdClover: the source knows the order must not reach any register yet (a Too Good To Go e-mail whose store
+ * name is not mapped): it is stored and shown on the Command Center, never sent to Clover, never printed, never
+ * accepted automatically — the reason is kept as its POS error until the store is mapped (or a person sends it).
+ */
+export async function processIncomingOrder(n: NormalizedOrder, opts: { holdClover?: string } = {}): Promise<PipelineOutcome> {
   const repo = getRepo();
   const store = n.channelStoreId ? await repo.findStore(n.channel, n.channelStoreId) : null;
   const brandName = store?.brandName || n.brandName;
@@ -126,7 +131,9 @@ export async function processIncomingOrder(n: NormalizedOrder): Promise<Pipeline
   // An order from a store nobody mapped is never dropped into a guessed register when several Clover merchants
   // exist: it waits on the Command Center until the store is mapped (then "Send to Clover").
   const severalRegisters = !store && (await allCloverMerchants()).length > 1;
-  const pos: InjectResult = severalRegisters
+  const pos: InjectResult = opts.holdClover
+    ? { ok: false, skipped: true, error: opts.holdClover }
+    : severalRegisters
     ? { ok: false, skipped: false, error: `Store ${n.channelStoreId || '(no id)'} is not mapped in Food Hub and there are several Clover registers — map it under Stores → Mapping, then use "Send to Clover".` }
     : await sendToClover(current, store);
   if (pos.ok) {
@@ -139,9 +146,10 @@ export async function processIncomingOrder(n: NormalizedOrder): Promise<Pipeline
   // 3) Auto-accept — never accept an order the kitchen did not receive, nor one from a store nobody mapped
   // (wrong brand, wrong location or wrong kitchen are all possible): a person decides.
   if (!store) await repo.addEvent(order.id, 'needs_attention', { reason: `Not accepted automatically: store ${n.channelStoreId || '(no id)'} is not mapped in Food Hub. Check the brand and kitchen, then accept or reject.` });
+  else if (opts.holdClover) await repo.addEvent(order.id, 'needs_attention', { reason: `Not sent to Clover, not accepted automatically: ${opts.holdClover}` });
   const posBlocksAccept = !pos.ok && !pos.skipped;
   let accept: ChannelResult | undefined;
-  if (store?.autoAccept && !posBlocksAccept) {
+  if (store?.autoAccept && !posBlocksAccept && !opts.holdClover) {
     const r = await autoAcceptAfterClover(current, pos.ok ? pos.posOrderId : undefined);
     current = r.order;
     accept = r.accept;

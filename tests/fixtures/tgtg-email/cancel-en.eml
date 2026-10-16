@@ -1,3 +1,4 @@
+Authentication-Results: mx.example.test; dkim=pass header.d=toogoodtogo.com header.s=synthetic; spf=pass smtp.mailfrom=toogoodtogo.com; dmarc=pass header.from=toogoodtogo.com
 From: Too Good To Go <no-reply@toogoodtogo.com>
 To: store@example.test
 Subject: Order cancelled - OOEUF NDG

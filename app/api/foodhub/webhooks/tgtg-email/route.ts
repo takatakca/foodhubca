@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { ingestTgtgMail } from '@/lib/foodhub/tgtg-email/ingest';
-import { mailFromRequest, verifyTgtgEmailWebhook } from '@/lib/foodhub/tgtg-email/inbound';
+import { ingestTgtgMailSafely } from '@/lib/foodhub/tgtg-email/ingest';
+import { BodyTooLargeError, mailFromRequest, verifyTgtgEmailWebhook } from '@/lib/foodhub/tgtg-email/inbound';
 import { getTgtgEmailSettings, webhookSecretSet } from '@/lib/foodhub/tgtg-email/settings';
 
 export const dynamic = 'force-dynamic';
@@ -21,17 +21,21 @@ export async function POST(req: Request) {
   }
   let mail;
   try {
-    mail = await mailFromRequest(req);
+    // The size cap is enforced while reading (a chunked body has no Content-Length).
+    mail = await mailFromRequest(req, MAX_BYTES);
   } catch (error) {
+    if (error instanceof BodyTooLargeError) return NextResponse.json({ ok: false, error: 'E-mail too large.' }, { status: 413 });
     return NextResponse.json({ ok: false, error: `E-mail could not be read: ${error instanceof Error ? error.message : String(error)}` }, { status: 400 });
   }
   if (!mail) return NextResponse.json({ ok: false, error: 'No e-mail in the request body.' }, { status: 400 });
   try {
-    const r = await ingestTgtgMail(mail, 'webhook');
+    // A problem with this one e-mail is kept on its record (status "error", Needs attention) and answered 200, so the
+    // service does not resend it forever; only a database outage or a reservation being handled right now throws.
+    const r = await ingestTgtgMailSafely(mail, 'webhook');
     return NextResponse.json({ ok: true, status: r.status, ...(r.reason ? { reason: r.reason } : {}), ...(r.orderId ? { orderId: r.orderId } : {}), ...(r.code ? { code: r.code } : {}) });
   } catch (error) {
-    // Could not be saved (database): the sender must try again — nothing was half done (the e-mail id was not recorded).
-    console.error('[foodhub] TGTG e-mail webhook failed', error);
+    // Could not be saved (database) or the same reservation is being handled: the sender must try again.
+    console.error('[foodhub] TGTG e-mail webhook failed', error instanceof Error ? error.message : error);
     return NextResponse.json({ ok: false, error: 'Food Hub could not save this e-mail — please send it again.' }, { status: 503, headers: { 'Retry-After': '30' } });
   }
 }

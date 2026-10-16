@@ -8,20 +8,25 @@ function firstAddress(a: AddressLike): string {
   return one?.value?.[0]?.address ?? one?.text ?? '';
 }
 
-/** Parses a raw MIME message (Buffer or string). Never throws for a malformed message: the parts it could read are returned. */
+/** "Authentication-Results: …" header lines (folded lines joined), top of the message first. */
+function authResultsOf(headerLines: Array<{ key: string; line: string }> | undefined): string[] {
+  return (headerLines ?? [])
+    .filter((h) => h.key.toLowerCase() === 'authentication-results')
+    .map((h) => h.line.replace(/\r?\n[ \t]+/g, ' ').replace(/^[^:]*:\s*/, '').trim())
+    .filter(Boolean);
+}
+
+/**
+ * Parses a raw MIME message (Buffer or string). Never throws for a malformed message: the parts it could read are
+ * returned. Only From is kept as the sender (Sender / Reply-To / X-Original-From are never trusted), plus the
+ * Authentication-Results headers the receiving server added (parse.ts → senderVerified).
+ */
 export async function mailFromMime(source: Buffer | string): Promise<TgtgMail> {
   const { simpleParser } = await import('mailparser');
   const p = await simpleParser(source, { skipImageLinks: true, skipTextLinks: true });
-  const header = (k: string) => {
-    const v = p.headers.get(k);
-    if (!v) return '';
-    if (typeof v === 'string') return v;
-    if (typeof v === 'object' && 'value' in (v as object)) return firstAddress(v as AddressLike);
-    return String(v);
-  };
   return {
     from: firstAddress(p.from as AddressLike),
-    senders: [header('sender'), firstAddress(p.replyTo as AddressLike), header('x-original-from'), header('x-forwarded-for')].filter(Boolean),
+    authResults: authResultsOf(p.headerLines as Array<{ key: string; line: string }> | undefined),
     to: firstAddress(p.to as AddressLike),
     subject: p.subject ?? '',
     text: p.text ?? '',

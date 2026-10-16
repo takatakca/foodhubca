@@ -1,3 +1,4 @@
+Authentication-Results: mx.example.test; dkim=pass header.d=toogoodtogo.ca header.s=synthetic; spf=pass smtp.mailfrom=toogoodtogo.ca; dmarc=pass header.from=toogoodtogo.ca
 From: Too Good To Go <ne-pas-repondre@toogoodtogo.ca>
 To: store@example.test
 Subject: =?UTF-8?Q?Confirmation_de_commande_=E2=80=93_PO_POULET_SAINT-L=C3=89ONARD?=

@@ -12,9 +12,13 @@
 import { foodhubTimeZone, localParts, localWallToUtcMs } from '../time';
 
 export interface TgtgMail {
+  /** The From address. The only sender that counts: Sender / Reply-To / X-Original-From are never trusted. */
   from: string;
-  /** Other sender headers (Sender, Reply-To) — a forwarding service may keep the original there. */
-  senders?: string[];
+  /**
+   * Authentication-Results headers, top (added last, by the receiving server) first. The mail is acted on only when
+   * the receiving server's header says dkim=pass (header.d) or dmarc=pass (header.from) for the From domain.
+   */
+  authResults?: string[];
   to?: string;
   subject: string;
   text?: string;
@@ -97,7 +101,9 @@ const LABELS = {
   customer: ['customer name', 'customer', 'reserved by', 'ordered by', 'first name', 'name', 'nom du client', 'prénom du client', 'client', 'réservé par', 'commandé par', 'prénom', 'nom'],
   quantity: ['quantity', 'qty', 'number of bags', 'number of surprise bags', 'bags', 'quantité', 'nombre de paniers', 'nombre de paniers surprises', 'nombre', 'paniers'],
   item: ['surprise bag', 'bag type', 'bag', 'item', 'product', 'offer', 'panier surprise', 'type de panier', 'panier', 'article', 'produit', 'offre'],
-  price: ['total paid', 'amount paid', 'price paid', 'paid', 'total', 'price', 'amount', 'total payé', 'montant payé', 'prix payé', 'montant', 'prix', 'payé'],
+  /** What the customer paid: always preferred to a generic "Price" / "Total" (which can be the bag's value). */
+  pricePaid: ['total paid', 'amount paid', 'price paid', 'paid', 'total payé', 'montant payé', 'prix payé', 'payé'],
+  price: ['total', 'price', 'amount', 'montant', 'prix'],
   pickup: ['pickup window', 'pickup time', 'pick-up window', 'pick-up time', 'pick up time', 'pickup slot', 'collection window', 'collection time', 'pickup', 'pick-up', 'pick up', 'collection', 'collect between', 'collect',
     'heure de collecte', 'créneau de collecte', 'fenêtre de collecte', 'heure de ramassage', 'heure de retrait', 'heure de cueillette', 'créneau', 'collecte', 'ramassage', 'retrait', 'cueillette', 'à récupérer', 'à collecter'],
   pickupDate: ['pickup date', 'pick-up date', 'collection date', 'date', 'date de collecte', 'date de retrait', 'date de ramassage', 'jour'],
@@ -163,11 +169,14 @@ export function mailLang(subject: string, text: string): 'fr' | 'en' {
 
 // ---------------------------------------------------------------- values
 
-/** "3K7Q9XPT", "#AB-12345" → the code; prefers a token with a digit. */
+/**
+ * "3K7Q9XPT", "#AB-12345" → the code. A code always has a digit: a word ("CONFIRMATION", "DETAILS", "CANCELLED") is
+ * never taken for a code — no code means the attention list, never a guessed order id.
+ */
 export function codeFrom(value: string): string | undefined {
   const tokens = value.replace(/^#/, '').match(/#?[A-Z0-9][A-Z0-9-]{3,39}/gi) ?? [];
   const clean = tokens.map((t) => t.replace(/^#/, '').replace(/-+$/, '').toUpperCase()).filter((t) => t.length >= 4);
-  return clean.find((t) => /\d/.test(t)) ?? clean.find((t) => /^[A-Z]{6,}$/.test(t) && !/^(ORDER|COMMANDE|NUMBER|NUMERO)$/.test(t));
+  return clean.find((t) => /\d/.test(t));
 }
 
 /** "$11.98", "11,98 $", "CA$ 5.99", "5.99 CAD" → 11.98. */
@@ -302,7 +311,8 @@ const SENTENCE_RESERVED_FR = /\b([\p{Lu}][\p{L}'’-]+)(?:\s+[\p{Lu}]\.?)?\s+(?:
 const SENTENCE_CANCEL = /\b([\p{Lu}][\p{L}'’-]+)(?:\s+[\p{Lu}]\.?)?\s+(?:has\s+)?(?:cancell?ed|a\s+annulé|vient\s+d['’]annuler)(?![\p{L}])/u;
 const QTY_BAGS = /\b(\d{1,2})\s*(?:[x×]\s*)?(?:surprise\s+bags?|magic\s+bags?|bags?|paniers?(?:\s+surprises?)?|sacs?(?:\s+surprises?)?)\b/i;
 const QTY_TIMES = /\b(\d{1,2})\s*[x×]\s+\S/i;
-const CODE_IN_TEXT = /\b(?:order|reservation|booking|commande|réservation)\s*(?:#|n°|no\.?|number|numéro|id|code|ref(?:erence)?|référence)?\s*[:#]?\s*#?([A-Z0-9][A-Z0-9-]{4,39})\b/i;
+// "order #…", "order number: …", "commande n° …": the marker is required ("Order confirmation", "Order details" are words).
+const CODE_IN_TEXT = /(?<![\p{L}\d])(?:order|reservation|booking|commande|réservation)\s*(?:#|n°|(?:no\.?|number|numéro|id|code|ref(?:erence)?|référence)(?![\p{L}\d]))\s*[:#]?\s*#?([A-Z0-9][A-Z0-9-]{3,39})(?![\p{L}\d])/iu;
 const HASH_CODE = /#\s?([A-Z0-9][A-Z0-9-]{3,39})\b/;
 const GREETING = /^(?:hi|hello|hey|dear|bonjour|salut|allô)\s+([^,!\n]{2,60})[,!]/im;
 
@@ -345,11 +355,14 @@ export function parseTgtgMail(mail: TgtgMail, opts: { tz?: string; now?: number 
   }
   if (bagName && bagName.length > 80) bagName = bagName.slice(0, 80);
 
-  let pricePaid = labelled(lines, 'price').map(moneyFrom).find((n) => n !== undefined);
+  // By priority, not by position: "Total paid" / "Montant payé" first, then a "paid … $x" sentence, and only then a
+  // generic "Price" / "Total" (a "Price: $14.99 value" line must never win over "Total paid: $4.99").
+  let pricePaid = labelled(lines, 'pricePaid').map(moneyFrom).find((n) => n !== undefined);
   if (pricePaid === undefined) {
     const m = /(?:paid|payé|pay[ée]e?s?|for a total of|pour un total de)\s*:?\s*([^\n]{0,30})/i.exec(text);
     if (m) pricePaid = moneyFrom(m[1]);
   }
+  pricePaid ??= labelled(lines, 'price').map(moneyFrom).find((n) => n !== undefined);
 
   const pickupText = labelled(lines, 'pickup').join(' ')
     || (/(?:between|entre|from|de)\s+\d{1,2}\s*[:h]\s*\d{0,2}[^\n]{0,60}/i.exec(text)?.[0] ?? '');
@@ -392,7 +405,46 @@ export function addressOf(from: string): string {
   return (m?.[1] ?? from).trim().toLowerCase();
 }
 
-/** Is this e-mail from Too Good To Go (or an address the owner allowed)? Checks From, then Sender / Reply-To. */
-export function senderAllowed(mail: Pick<TgtgMail, 'from' | 'senders'>, allow = allowedSenders()): boolean {
-  return [mail.from, ...(mail.senders ?? [])].filter(Boolean).map(addressOf).some((addr) => allow.some((a) => (a.includes('@') ? addr === a : addr.endsWith(`@${a}`) || addr.endsWith(`.${a}`))));
+/**
+ * Is the From address Too Good To Go's (or one the owner allowed)? Only From counts: Sender, Reply-To, X-Original-From
+ * and the like are free text for whoever writes the e-mail. A forwarder that rewrites From is accepted only when the
+ * owner lists its address in TGTG_EMAIL_FROM_ALLOW.
+ */
+export function senderAllowed(mail: Pick<TgtgMail, 'from'>, allow = allowedSenders()): boolean {
+  const addr = mail.from ? addressOf(mail.from) : '';
+  if (!addr.includes('@')) return false;
+  return allow.some((a) => (a.includes('@') ? addr === a : addr.endsWith(`@${a}`) || addr.endsWith(`.${a}`)));
+}
+
+/** Authentication-Results headers out of a raw header block ("Name: value" lines, folded lines joined), top first. */
+export function authResultsFromHeaders(block: string): string[] {
+  const head = block.replace(/\r/g, '').split(/\n\n/)[0].replace(/\n[ \t]+/g, ' ');
+  return head.split('\n').filter((l) => /^authentication-results\s*:/i.test(l)).map((l) => l.replace(/^[^:]*:\s*/, '').trim()).filter(Boolean);
+}
+
+/**
+ * Did the receiving mail server verify that the From domain really sent this e-mail? The topmost Authentication-Results
+ * header (added by the mailbox's own server; TGTG_EMAIL_AUTHSERV_ID pins it to that server's id) must say dkim=pass
+ * with header.d, or dmarc=pass with header.from, on the From domain or a parent of it (DMARC alignment). Headers
+ * further down (which a sender can write) are never read.
+ */
+export function senderVerified(mail: Pick<TgtgMail, 'from' | 'authResults'>): boolean {
+  const fromDomain = (mail.from ? addressOf(mail.from) : '').split('@')[1]?.trim();
+  if (!fromDomain) return false;
+  const pinned = process.env.TGTG_EMAIL_AUTHSERV_ID?.trim().toLowerCase();
+  const all = (mail.authResults ?? []).map((h) => h.trim()).filter(Boolean);
+  const header = pinned ? all.find((h) => h.split(/[;\s]/)[0].toLowerCase() === pinned) : all[0];
+  if (!header) return false;
+  const aligned = (d: string) => {
+    const v = d.toLowerCase().replace(/^.*@/, '').replace(/[;,"'\s)]+$/, '');
+    return Boolean(v) && (fromDomain === v || fromDomain.endsWith(`.${v}`));
+  };
+  for (const part of header.split(';').slice(1)) {
+    const p = part.trim();
+    const dkim = /^dkim\s*=\s*pass\b/i.test(p) ? /\bheader\.[di]\s*=\s*([^\s;]+)/i.exec(p) : null;
+    if (dkim && aligned(dkim[1])) return true;
+    const dmarc = /^dmarc\s*=\s*pass\b/i.test(p) ? /\bheader\.from\s*=\s*([^\s;]+)/i.exec(p) : null;
+    if (dmarc && aligned(dmarc[1])) return true;
+  }
+  return false;
 }

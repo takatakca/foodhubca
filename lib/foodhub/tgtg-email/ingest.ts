@@ -13,9 +13,9 @@ import { applyExternalStatus, processIncomingOrder, resendToClover } from '../pi
 import { getRepo } from '../repo';
 import type { NormalizedOrder } from '../types';
 import { ORDER_ID_PREFIX, isTgtgEmailOrder, tgtgMailOrderId } from './ids';
-import { parseTgtgMail, senderAllowed, type TgtgMail, type TgtgMailParse } from './parse';
+import { addressOf, parseTgtgMail, senderAllowed, senderVerified, type TgtgMail, type TgtgMailParse } from './parse';
 import {
-  findMapping, getMailRecord, getTgtgEmailSettings, listMailRecords, mailId, saveMailRecord, storeKey, tgtgEmailStoreId,
+  findMapping, getMailRecord, getTgtgEmailSettings, listMailRecords, mailId, saveMailRecord, storeKey, tgtgEmailStoreId, tgtgUnmappedStoreId,
   type MailStatus, type TgtgMailRecord, type TgtgStoreMapping,
 } from './settings';
 
@@ -49,7 +49,9 @@ export function buildTgtgMailOrder(p: TgtgMailParse, mail: Pick<TgtgMail, 'messa
     marketplace: 'tgtg',
     externalOrderId: tgtgMailOrderId(code),
     displayId: code,
-    channelStoreId: tgtgEmailStoreId(p.storeName ?? 'unknown'),
+    // Mapped: the Too Good To Go store the mapping created (brand, kitchen, Clover register). Not mapped: an id no store
+    // has, so nothing can route it — the order waits until the store is mapped (finishUnmappedOrder links it then).
+    channelStoreId: mapping ? tgtgEmailStoreId(mapping.storeName) : tgtgUnmappedStoreId(p.storeName ?? 'unknown'),
     brandName: mapping?.brandName,
     customerName: p.firstName,
     fulfillment: 'pickup',
@@ -81,9 +83,10 @@ export function buildTgtgMailOrder(p: TgtgMailParse, mail: Pick<TgtgMail, 'messa
   };
 }
 
-function inFlight(): Set<string> {
-  const g = globalThis as unknown as { __foodhubTgtgMail?: Set<string> };
-  return (g.__foodhubTgtgMail ??= new Set<string>());
+/** Reservations being handled right now (TGTG code → the handler's promise). */
+function inFlight(): Map<string, Promise<unknown>> {
+  const g = globalThis as unknown as { __foodhubTgtgMailLocks?: Map<string, Promise<unknown>> };
+  return (g.__foodhubTgtgMailLocks ??= new Map<string, Promise<unknown>>());
 }
 
 /**
@@ -100,7 +103,7 @@ export async function ingestTgtgMail(mail: TgtgMail, source: 'imap' | 'webhook',
   }
   const base: Omit<TgtgMailRecord, 'status'> = {
     id, source: opts.retry ? 'retry' : source, receivedAt: previous?.receivedAt ?? new Date(now).toISOString(), messageId: mail.messageId, from: mail.from, subject: String(mail.subject ?? '').slice(0, 300), date: mail.date,
-    mail: { from: mail.from, senders: mail.senders, subject: mail.subject, text: mail.text, html: mail.html, messageId: mail.messageId, date: mail.date },
+    mail: { from: mail.from, authResults: mail.authResults, subject: mail.subject, text: mail.text, html: mail.html, messageId: mail.messageId, date: mail.date },
   };
   const keep = async (status: MailStatus, extra: Partial<TgtgMailRecord> = {}): Promise<IngestResult> => {
     const rec: TgtgMailRecord = { ...base, ...extra, status };
@@ -118,6 +121,14 @@ export async function ingestTgtgMail(mail: TgtgMail, source: 'imap' | 'webhook',
     const notOrder = parse.problems.includes('not an order e-mail');
     return keep(notOrder ? 'ignored' : 'attention', { parse, reason: parse.problems.join('; '), ...(notOrder ? { mail: { from: mail.from, subject: mail.subject } } : {}) });
   }
+  if (!senderVerified(mail)) {
+    // A From line anyone can type: nothing is created, printed or cancelled until the mail server vouches for it.
+    const domain = addressOf(mail.from).split('@')[1] ?? '?';
+    const rec = await keep('attention', { parse, reason: `sender not verified — the mail server's Authentication-Results show no dkim=pass / dmarc=pass for ${domain}; nothing was sent to the kitchen` });
+    await logActivity({ actor: ACTOR, source: 'platform', kind: 'order', action: 'tgtg_email_unverified', status: 'failed', channel: 'tgtg',
+      summary: `Too Good To Go e-mail "${base.subject}" not acted on: sender not verified (DKIM / DMARC) — Settings → Platforms → Too Good To Go e-mails` });
+    return rec;
+  }
   if (parse.problems.length) {
     const rec = await keep('attention', { parse, reason: parse.problems.join('; ') });
     await logActivity({ actor: ACTOR, source: 'platform', kind: 'order', action: 'tgtg_email_attention', status: 'failed', channel: 'tgtg',
@@ -127,10 +138,8 @@ export async function ingestTgtgMail(mail: TgtgMail, source: 'imap' | 'webhook',
 
   const code = parse.code!;
   const extId = tgtgMailOrderId(code);
-  const lock = `${parse.kind}:${code}`;
-  if (inFlight().has(lock)) return { id, status: 'duplicate', reason: 'the same reservation is being handled right now', code };
-  inFlight().add(lock);
-  try {
+
+  const handle = async (): Promise<IngestResult> => {
     const repo = getRepo();
     if (parse.kind === 'cancel') {
       const order = await repo.findOrder('tgtg', extId);
@@ -155,18 +164,70 @@ export async function ingestTgtgMail(mail: TgtgMail, source: 'imap' | 'webhook',
       return rec;
     }
     const mapping = findMapping(await getTgtgEmailSettings(), parse.storeName);
-    const out = await processIncomingOrder(buildTgtgMailOrder(parse, mail, mapping, now));
+    // A store name nobody mapped (or the owner unmapped): the order is kept on the Command Center but never sent to a
+    // register, printed or accepted — not even the only register — until the store is mapped (then it goes to Clover).
+    const hold = mapping ? undefined : `Too Good To Go store "${parse.storeName}" is not mapped to a brand and kitchen — map it in Settings → Platforms → Too Good To Go e-mails, then it is sent to Clover.`;
+    const out = await processIncomingOrder(buildTgtgMailOrder(parse, mail, mapping, now), { holdClover: hold });
     const order = out.order;
     await repo.addEvent(order.id, 'tgtg_email', { message: `Read from a Too Good To Go e-mail (${source})${parse.warnings.length ? ` — ${parse.warnings.join('; ')}` : ''}`, code, subject: base.subject });
     if (out.duplicate) return keep('duplicate', { parse, orderId: order.id, reason: 'same TGTG code already received' });
-    await logActivity({ actor: ACTOR, source: 'platform', kind: 'order', action: 'tgtg_email_order', status: out.pos?.ok || out.pos?.skipped ? 'success' : 'failed', channel: 'tgtg', brandName: order.brandName, locationCode: order.locationCode, orderId: order.id,
-      summary: `Too Good To Go ${code}: ${parse.quantity ?? 1} bag(s) for ${parse.firstName ?? 'a customer'}, pickup ${parse.pickupLabel ?? '—'}${mapping ? '' : ` — store "${parse.storeName}" not mapped`}${out.pos?.ok ? ', in Clover' : out.pos?.error ? `, Clover: ${out.pos.error}` : ''}` });
+    await logActivity({ actor: ACTOR, source: 'platform', kind: 'order', action: 'tgtg_email_order', status: mapping && (out.pos?.ok || out.pos?.skipped) ? 'success' : 'failed', channel: 'tgtg', brandName: order.brandName, locationCode: order.locationCode, orderId: order.id,
+      summary: `Too Good To Go ${code}: ${parse.quantity ?? 1} bag(s) for ${parse.firstName ?? 'a customer'}, pickup ${parse.pickupLabel ?? '—'}${mapping ? '' : ` — store "${parse.storeName}" not mapped, not sent to Clover`}${out.pos?.ok ? ', in Clover' : mapping && out.pos?.error ? `, Clover: ${out.pos.error}` : ''}` });
     if (!mapping) {
-      return keep('attention', { parse, orderId: order.id, reason: `store "${parse.storeName}" is not mapped to a brand and kitchen — map it here; the order waits on the Command Center` });
+      return keep('attention', { parse, orderId: order.id, reason: `store "${parse.storeName}" is not mapped to a brand and kitchen — map it here; the order waits on the Command Center (not in Clover yet)` });
     }
     return keep('order_created', { parse, orderId: order.id, brandName: order.brandName, locationCode: order.locationCode });
+  };
+
+  const lock = `${parse.kind}:${code}`;
+  const busy = inFlight().get(lock);
+  if (busy) {
+    // The same reservation is being handled right now (IMAP + webhook together): wait for it, then read this copy again
+    // from the start — "duplicate" if the first one got through, or this copy does the work if the first one failed
+    // (never answered "duplicate" while nothing is saved yet, so no copy is lost).
+    await busy.catch(() => undefined);
+    return ingestTgtgMail(mail, source, opts);
+  }
+  const work = handle();
+  inFlight().set(lock, work);
+  try {
+    return await work;
   } finally {
-    inFlight().delete(lock);
+    if (inFlight().get(lock) === work) inFlight().delete(lock);
+  }
+}
+
+/**
+ * Keeps an e-mail that could not be handled as an 'error' record (Needs attention, with Retry), so it never blocks the
+ * e-mails after it. Throws only when even that record cannot be saved (database down): the caller reads it again later.
+ */
+export async function keepMailError(mail: TgtgMail, source: 'imap' | 'webhook', error: unknown, now = Date.now()): Promise<IngestResult> {
+  const id = mailId(mail);
+  const reason = `could not be handled: ${(error instanceof Error ? error.message : String(error)).slice(0, 240)}`;
+  await saveMailRecord({
+    id, source, receivedAt: new Date(now).toISOString(), messageId: mail.messageId, from: mail.from, subject: String(mail.subject ?? '').slice(0, 300), date: mail.date,
+    status: 'error', reason,
+    mail: { from: mail.from, authResults: mail.authResults, subject: mail.subject, text: mail.text, html: mail.html, messageId: mail.messageId, date: mail.date },
+  });
+  await logActivity({ actor: ACTOR, source: 'platform', kind: 'order', action: 'tgtg_email_error', status: 'failed', channel: 'tgtg',
+    summary: `Too Good To Go e-mail "${String(mail.subject ?? '').slice(0, 120)}" ${reason} — Settings → Platforms → Too Good To Go e-mails (Retry)` }).catch(() => undefined);
+  return { id, status: 'error', reason };
+}
+
+/**
+ * ingestTgtgMail for the IMAP poller and the webhook. A problem with this one e-mail (a malformed message, a reader or
+ * pipeline error) is kept as an 'error' record and the next e-mails go on; a database failure (the record itself cannot
+ * be saved) throws, so the IMAP cursor stays before this e-mail and the webhook answers 503.
+ */
+export async function ingestTgtgMailSafely(mail: TgtgMail, source: 'imap' | 'webhook', opts: { now?: number } = {}): Promise<IngestResult> {
+  try {
+    return await ingestTgtgMail(mail, source, opts);
+  } catch (error) {
+    try {
+      return await keepMailError(mail, source, error, opts.now);
+    } catch {
+      throw error;
+    }
   }
 }
 
@@ -192,7 +253,10 @@ async function finishUnmappedOrder(rec: TgtgMailRecord): Promise<IngestResult> {
   const mapping = findMapping(await getTgtgEmailSettings(), rec.parse?.storeName);
   if (!mapping) return { id: rec.id, status: 'attention', reason: `store "${rec.parse?.storeName ?? '?'}" is still not mapped`, orderId: order.id };
   let current = order;
-  if (!current.locationCode) current = (await repo.updateOrder(order.id, { locationCode: mapping.locationCode, brandName: mapping.brandName })) ?? current;
+  const channelStoreId = tgtgEmailStoreId(mapping.storeName);
+  if (!current.locationCode || current.channelStoreId !== channelStoreId) {
+    current = (await repo.updateOrder(order.id, { channelStoreId, locationCode: current.locationCode || mapping.locationCode, brandName: current.brandName || mapping.brandName, posError: current.posOrderId ? current.posError : undefined })) ?? current;
+  }
   let reason = 'linked to its kitchen';
   if (!current.posOrderId && ['new', 'accepted'].includes(current.status)) {
     const sent = await resendToClover(current, { by: 'Too Good To Go e-mail mapping' });

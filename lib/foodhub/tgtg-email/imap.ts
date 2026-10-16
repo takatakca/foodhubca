@@ -1,16 +1,16 @@
 // Reads the Too Good To Go e-mails from a mailbox (IMAP), from the existing heartbeat (cron/watch, live pulse, server
 // timer). The mailbox is opened READ-ONLY: nothing is marked read, moved or deleted, so a person can still use it.
 // A cursor (UIDVALIDITY + last UID) remembers how far Food Hub read; each e-mail is also recorded by Message-ID, so a
-// reset cursor never creates an order twice. Only e-mails from an allowed sender (TGTG_EMAIL_FROM_ALLOW) are
-// downloaded: the other mail in the box is never read beyond its envelope.
-import { senderAllowed } from './parse';
+// reset cursor never creates an order twice. Only e-mails whose From is allowed (TGTG_EMAIL_FROM_ALLOW) AND verified by
+// the mail server (Authentication-Results: dkim / dmarc pass) are downloaded: other mail is never read beyond its envelope.
+import { authResultsFromHeaders, senderAllowed, senderVerified, type TgtgMail } from './parse';
 import { mailFromMime } from './mime';
-import { ingestTgtgMail } from './ingest';
+import { ingestTgtgMailSafely, keepMailError } from './ingest';
 import { getMailboxStatus, getTgtgEmailSettings, imapConfig, setMailboxStatus } from './settings';
 import { getRepo } from '../repo';
 
 type Addr = { address?: string };
-type Envelope = { from?: Addr[]; sender?: Addr[]; replyTo?: Addr[]; subject?: string };
+type Envelope = { from?: Addr[]; subject?: string };
 
 /** The part of imapflow's client this poller uses (a fake one in tests). */
 export interface ImapLike {
@@ -18,7 +18,7 @@ export interface ImapLike {
   connect(): Promise<void>;
   getMailboxLock(path: string, options?: { readOnly?: boolean }): Promise<{ release(): void }>;
   search(query: Record<string, unknown>, options: { uid: true }): Promise<number[] | false | undefined>;
-  fetchOne(seq: string, query: Record<string, unknown>, options: { uid: true }): Promise<{ uid?: number; envelope?: Envelope; source?: Buffer } | false | undefined>;
+  fetchOne(seq: string, query: Record<string, unknown>, options: { uid: true }): Promise<{ uid?: number; envelope?: Envelope; source?: Buffer; headers?: Buffer } | false | undefined>;
   logout(): Promise<void>;
   close?(): void;
 }
@@ -77,18 +77,40 @@ export async function pollTgtgMailbox(opts: { now?: number; client?: ImapLike } 
       let lastUid = sameBox ? status.lastUid! : 0;
       for (const uid of uids) {
         checked++;
-        const head = await client.fetchOne(String(uid), { envelope: true, uid: true }, { uid: true });
+        // Envelope + the receiving server's Authentication-Results only: the body of a mail that is not a verified
+        // Too Good To Go mail (From allowed AND dkim / dmarc pass for that domain) is never downloaded.
+        const head = await client.fetchOne(String(uid), { envelope: true, uid: true, headers: ['authentication-results'] }, { uid: true });
         const env = head ? head.envelope : undefined;
         const from = env?.from?.[0]?.address ?? '';
-        const senders = [...(env?.sender ?? []), ...(env?.replyTo ?? [])].map((a) => a.address ?? '').filter(Boolean);
-        if (senderAllowed({ from, senders })) {
+        const authResults = head && head.headers ? authResultsFromHeaders(head.headers.toString('utf8')) : [];
+        const allowed = senderAllowed({ from });
+        if (allowed && senderVerified({ from, authResults })) {
           const msg = await client.fetchOne(String(uid), { source: true }, { uid: true });
           if (msg && msg.source) {
-            // A database failure throws here: the cursor stays before this e-mail, so the next run reads it again.
-            const r = await ingestTgtgMail(await mailFromMime(msg.source), 'imap', { now });
+            let mail: TgtgMail;
+            try {
+              mail = await mailFromMime(msg.source);
+            } catch (error) {
+              // A message the MIME reader cannot open: kept as an "error" record (Needs attention), the next ones go on.
+              mail = { from, authResults, subject: env?.subject ?? '', messageId: `imap-uid-${uidValidity}-${uid}` };
+              const r = await keepMailError(mail, 'imap', error, now);
+              statuses[r.status] = (statuses[r.status] ?? 0) + 1;
+              handled++;
+              lastUid = Math.max(lastUid, uid);
+              await setMailboxStatus({ uidValidity, lastUid });
+              continue;
+            }
+            // One bad e-mail is kept as an "error" record and never blocks the ones after it; only a database failure
+            // throws here — the cursor then stays before this e-mail, so the next run reads it again.
+            const r = await ingestTgtgMailSafely(mail, 'imap', { now });
             statuses[r.status] = (statuses[r.status] ?? 0) + 1;
             handled++;
           }
+        } else if (allowed) {
+          // From says Too Good To Go but the mail server does not vouch for it: listed (no body), never acted on.
+          const r = await ingestTgtgMailSafely({ from, authResults, subject: env?.subject ?? '', messageId: `imap-uid-${uidValidity}-${uid}` }, 'imap', { now });
+          statuses[r.status] = (statuses[r.status] ?? 0) + 1;
+          handled++;
         }
         lastUid = Math.max(lastUid, uid);
         await setMailboxStatus({ uidValidity, lastUid });

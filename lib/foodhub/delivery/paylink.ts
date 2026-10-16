@@ -370,8 +370,22 @@ export async function checkPayLink(orderId: string, via: PaymentEvidence['via'],
     return saveDirectOrder({ ...cur, paylink: { ...cur.paylink, lastCheckAt: new Date(now).toISOString() } });
   });
   if (!found?.length) return { state: payLinkState(o, now), order: o };
+  // Found by our mark only (no webhook): a payment short of what Clover was asked to charge is not ours to release —
+  // a person checks it in Clover.
+  const due = o.paylink?.expectedCents ?? 0;
+  const short = found.filter((p) => p.amountCents < due - 2);
+  const ours = found.filter((p) => p.amountCents >= due - 2);
+  if (short.length && !ours.length) {
+    const flag = `Paiement Clover ${short.map((p) => `${(p.amountCents / 100).toFixed(2)} $`).join(', ')} trouvé pour ${o.number}, moins que le total ${(due / 100).toFixed(2)} $ — vérifiez dans Clover (pas envoyée en cuisine).`;
+    o = await withLock(orderId, async () => {
+      const cur = await getDirectOrder(orderId);
+      if (!cur || cur.status !== 'awaiting_payment' || cur.attention === flag) return cur ?? o!;
+      return addDirectEvent(cur, 'paylink_amount_short', flag, SYSTEM, { attention: flag });
+    });
+    return { state: payLinkState(o, now), order: o };
+  }
   let last: ReleaseResult | null = null;
-  for (const p of found) last = await releasePaidOrder(orderId, { paymentId: p.paymentId, cloverOrderId: p.cloverOrderId, amountCents: p.amountCents, via }, now);
+  for (const p of ours) last = await releasePaidOrder(orderId, { paymentId: p.paymentId, cloverOrderId: p.cloverOrderId, amountCents: p.amountCents, via }, now);
   const after = (await getDirectOrder(orderId)) ?? last?.order ?? o;
   return { state: payLinkState(after, now), order: after };
 }

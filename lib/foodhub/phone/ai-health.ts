@@ -40,7 +40,8 @@ const pauseMs = () => Math.max(1, Number(process.env.FOODHUB_PHONE_AI_PAUSE_MIN)
 
 /** What kind of failure: the SDK's typed errors first, then the HTTP status / error type. */
 export function classifyAiError(e: unknown): { kind: AiErrorKind; reason: string } {
-  const msg = e instanceof Error ? e.message : String(e);
+  const raw = (e as { message?: unknown })?.message;
+  const msg = e instanceof Error ? e.message : typeof raw === 'string' ? raw : String(e);
   const status = (e as { status?: number })?.status;
   const type = String((e as { error?: { error?: { type?: string } } })?.error?.error?.type ?? (e as { type?: string })?.type ?? '');
   const short = msg.replace(/\s+/g, ' ').slice(0, 160);
@@ -50,7 +51,7 @@ export function classifyAiError(e: unknown): { kind: AiErrorKind; reason: string
   if (status === 402 || type === 'billing_error' || /credit balance|billing/i.test(msg)) return { kind: 'fatal', reason: `billing / credit (${status ?? 'billing'}): ${short}` };
   if (e instanceof Anthropic.BadRequestError || status === 400) {
     // The model name itself is refused: every call would fail the same way.
-    if (/model/i.test(msg) && /(invalid|not found|does not exist|unknown|not supported|deprecated)/i.test(msg)) return { kind: 'fatal', reason: `model refused (400): ${short}` };
+    if (/\bmodel\b/i.test(msg) && /\b(invalid|not (?:a )?valid|not found|does not exist|unknown|not supported|deprecated)\b/i.test(msg)) return { kind: 'fatal', reason: `model refused (400): ${short}` };
     return { kind: 'call', reason: `request refused for this call (400): ${short}` };
   }
   if (e instanceof Anthropic.RateLimitError || status === 429) return { kind: 'transient', reason: `rate limited (429): ${short}` };

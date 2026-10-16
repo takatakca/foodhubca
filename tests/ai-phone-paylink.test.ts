@@ -501,6 +501,20 @@ describe('review fixes: payment link edge cases', () => {
     expect(hasMarker('Réf. IA-1043', 'Réf. IA-1043')).toBe(true);
   });
 
+  it('the poller never releases a payment short of the total: a person checks it in Clover', async () => {
+    const o = await heldOrder();
+    const r = await startPayLink(o, { lang: 'en', expiryMin: 30, reminderMin: 10 });
+    if (!r.ok) throw new Error(r.error);
+    const due = r.order.paylink!.expectedCents;
+    paidOrders = [{ id: 'CLV-SHORT', lineItems: { elements: [{ note: `Réf. ${o.number}` }] }, payments: { elements: [{ id: 'PAYSHORT', result: 'SUCCESS', amount: due - 500 }] } }];
+    const out = await tickPaylinks(Date.now() + 25_000);
+    expect(out.released).toBe(0);
+    const held = (await getDirectOrder(o.id))!;
+    expect(held.status).toBe('awaiting_payment');
+    expect(held.attention).toMatch(/moins que le total/);
+    expect(prints).toHaveLength(0);
+  });
+
   it('the customer page asks Clover at most once per 10 s after the return from Clover', async () => {
     const o = await heldOrder();
     const r = await startPayLink(o, { lang: 'fr', expiryMin: 30, reminderMin: 10 });

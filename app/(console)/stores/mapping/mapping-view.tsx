@@ -31,7 +31,7 @@ type OrderManager = 'foodhub' | 'pending' | 'other' | 'unknown';
 type Pick = { storeId: string; name: string; address?: string; brandName: string; locationCode: string; cloverMerchantId: string; orderManager?: OrderManager; include: boolean };
 type CloverMerchant = { id: string; name: string | null; isDefault: boolean };
 type UberResult = { ok: boolean; message: string; orderManager?: OrderManager | null };
-type Known = { channel: string; storeId: string; name: string; address: string | null; suggestedBrand: string | null; suggestedLocation: string | null; confirmedByPlatform: boolean; mapped: { id: string; brandName: string; locationCode: string } | null };
+type Known = { channel: string; storeId: string; name: string; address: string | null; suggestedBrand: string | null; suggestedLocation: string | null; confirmedByPlatform: boolean; mapped: { id: string; brandName: string; locationCode: string } | null; expectedLocation: string | null; locationMismatch: boolean };
 
 export function MappingView() {
   const { t } = useI18n();
@@ -149,7 +149,21 @@ export function MappingView() {
     try { await api('/api/foodhub/stores', { method: 'POST', json: { channel: k.channel, channelStoreId: k.storeId, brandName: k.brandName, locationCode: k.locationCode, autoAccept: true } }); toast.success(t(`${k.name} relié`, `${k.name} linked`)); load(); }
     catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
   }
+  /** Moves a mapped store to its kitchen (Uber's address, or the one recorded for it): brand, Clover and menu lock stay. */
+  async function moveKnown(k: Known) {
+    if (!k.mapped || !k.expectedLocation) return;
+    const to = shortLoc(locName(k.expectedLocation));
+    const yes = await confirm({
+      title: t(`Déplacer ${k.name} vers ${to} ?`, `Move ${k.name} to ${to}?`), confirmLabel: t('Déplacer', 'Move'),
+      body: t(`Ses commandes s’afficheront dans la cuisine ${to} (écran, heures, alertes). Marque, caisse Clover et verrou du menu ne changent pas.`, `Its orders will show in the ${to} kitchen (screen, hours, alerts). Brand, Clover register and menu lock stay the same.`),
+    });
+    if (!yes) return;
+    setBusy(`move-${k.storeId}`);
+    try { await api('/api/foodhub/stores', { method: 'POST', json: { id: k.mapped.id, channel: k.channel, channelStoreId: k.storeId, brandName: k.mapped.brandName, locationCode: k.expectedLocation } }); toast.success(`${k.name} → ${to}`); load(); }
+    catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
+  }
   const unlinked = known.filter((k) => !k.mapped);
+  const misplaced = known.filter((k) => k.locationMismatch);
   const shown = (stores ?? []).filter((s) => !leaving.includes(s.id));
 
   return (
@@ -185,6 +199,19 @@ export function MappingView() {
             })}</tbody>
           </Table>
         </Card>
+      )}
+
+      {misplaced.length > 0 && (
+        <Banner tone="warn" className="mb-5">
+          <strong>{t(`${misplaced.length} magasin(s) Uber reliés à la mauvaise succursale`, `${misplaced.length} Uber store(s) linked to the wrong location`)}</strong> — {t('Uber les place dans une autre cuisine (même quand leur nom Uber dit « Hochelaga »).', 'Uber puts them in another kitchen (even when their Uber name says “Hochelaga”).')}
+          <ul className="mt-2 space-y-1.5">{misplaced.map((k) => (
+            <li key={k.storeId} className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-ink">{k.name}</span><span className="font-mono text-[11px] text-ink-3">{k.storeId}</span>
+              <span>{shortLoc(locName(k.mapped?.locationCode))} → <strong>{shortLoc(locName(k.expectedLocation))}</strong></span>
+              <Button size="sm" variant="outline" loading={busy === `move-${k.storeId}`} onClick={() => moveKnown(k)}>{t('Déplacer', 'Move')}</Button>
+            </li>
+          ))}</ul>
+        </Banner>
       )}
 
       {unlinked.length > 0 && (

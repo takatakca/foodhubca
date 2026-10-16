@@ -1,5 +1,10 @@
 # FOODHUB / ON2GO Hub — déploiement prouvable
 
+## Changement non déployé — accessibilité des dialogues (2026-10-16)
+
+La branche `fix/overlay-keyboard-focus-20261016` ne change ni données, ni webhooks, ni dépendances, ni variables d'environnement. Les nouvelles règles de Tab/Échap et de scroll imbriqué sont purement UI, et n'ajoutent aucun processus en parallèle. Valider CI/image et faire tester les boîtes de dialogue par le propriétaire avant fusion dans `main`. Coolify utilise son GitHub App natif ; ne pas réactiver le flux Actions parallèle. Après livraison, seul un contrôle public au SHA exact avec santé DB valide prouve la nouvelle version. Cette branche n'a pas été publiée pendant la présente session.
+
+
 Environnement : Contabo VPS + Coolify, domaine canonique `https://foodhub.on2go.ca`, application Next.js sur port 3000. Depuis la reprise autorisée du 2026-10-15, la livraison retenue est le **GitHub App natif Coolify**, avec construction du `Dockerfile` sur Contabo. Le contrôleur Actions historique est désactivé pour éviter deux auteurs de production.
 Lire aussi `docs/RELEASE_GHCR_COOLIFY.md` et [issue #46](https://github.com/takatakca/foodhubca/issues/46).
 

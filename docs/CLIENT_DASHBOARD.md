@@ -292,6 +292,19 @@ deploys.
 
 ## 22. Build status (2026-10-16)
 
-All P0, P1 and P2 items above are built on the branch. Checks: see the pull request text (typecheck, lint 0 errors, unit
-tests, webpack build, e2e). Not done: screenshots at 375 / 1440 px for the reviewer (the console needs a sign-in; take
-them after merge or with the owner's session).
+All P0, P1 and P2 items above are built on the branch, which also carries `origin/main` 12ba64d (merged in; only
+`docs/PROGRESS.md` needed a hand merge, both entries kept).
+
+Checks on the merged branch:
+- `npm run typecheck`: OK.
+- `npm run lint`: 0 errors (1 old warning in `settings/devices/page.tsx`, a file this branch does not touch).
+- `npm test`: 981 passed, 1 skipped, 1 failed of 983. The failure is `tests/tgtg-email.test.ts` (forged Too Good To Go
+  sender case), which also fails on `origin/main` 12ba64d; this branch touches no Too Good To Go file.
+- `rm -rf .next && npx next build --webpack`: OK.
+- `npm run verify:foodhub` (ports 5991 / 5992): 554 passed, 0 failed, including "32 screens return 200" and the old
+  bookmarks.
+- Pre-push grep of the diff: no round-the-clock string and no word calling a brand anything but a real restaurant on an
+  added line; no e-mail, phone number, store or merchant id, nothing from `private/`.
+
+Not done: screenshots at 375 / 1440 px for the reviewer (the console needs a sign-in; take them with the owner's
+session or the local demo).

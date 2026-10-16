@@ -6,6 +6,7 @@
 - Simple view by default (6-item rail, phone bar of 4, avatar menu with language, text size and the "Vue complète" switch for owners and managers; cookie `fh_view` read on the server). Full view = the console before, unchanged.
 - Scope gains the platform (`?channel=`) with store counts in the switcher (bottom sheet on phones) and filter chips; Home (4 numbers, To do, By platform, Get started), Orders (Actives / Planifiées / Historique), Alerts, Sales & trends, Reports and the new Restaurants → Tous les magasins follow it. Alarms, bell, badges and the kitchen screen never follow a brand or a platform.
 - Read-only API additions: `channels=` on `/api/foodhub/command` (output unchanged without it, tested), `locations=` on `/api/foodhub/incidents`. The owner's DoorDash list is gated to the owner's tenant. No webhook, order write, Clover or menu-publish change; no env var, no migration.
+- Checks (branch with `origin/main` 12ba64d merged in): typecheck OK, lint 0 errors, 981 tests passed + 1 skipped (1 failure in `tests/tgtg-email.test.ts`, also on `origin/main`, not touched here), webpack build OK, verify:foodhub 554/0 (32 screens). Not merged, not deployed: ready for owner review/merge.
 
 ## 2026-10-16 — Uber store kitchen mapping (task 39, `fix/uber-store-kitchen-mapping`)
 

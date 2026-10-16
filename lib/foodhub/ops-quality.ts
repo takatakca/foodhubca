@@ -8,7 +8,9 @@
 // platform. Rows add numerators and denominators (never an average of percentages).
 import { z } from 'zod';
 import { logActivity, type Actor } from './activity';
+import { isRelayStore } from './adapters/relay';
 import { intersectIntervals, seedState, type AnalyticsQuery } from './analytics';
+import { UserError } from './auth';
 import { getCatalog } from './catalog';
 import { CHANNEL_LABELS } from './config';
 import { effectiveHours, getHours, holidaysFor, localDate, openIntervals } from './hours';
@@ -16,7 +18,7 @@ import { COL, refKey } from './recon/engine';
 import type { PayoutLine } from './recon/statements';
 import { getRepo } from './repo';
 import { ROW_CAP } from './reports';
-import { foodhubTimeZone } from './time';
+import { foodhubTimeZone, startOfLocalDayMs } from './time';
 import type { ActivityEntry, ChannelKey, ChannelStore, StoredOrder } from './types';
 
 // ---------------------------------------------------------------- goals
@@ -41,13 +43,14 @@ const graceField = z.number().int().min(0).max(60);
 const FIELD_SCHEMA: Record<keyof OpsGoals, z.ZodNumber> = {
   missingIncorrectPct: pctField, lateReadyPct: pctField, avoidableCancelPct: pctField, downtimePct: pctField, lateGraceMin: graceField,
 };
-const GOALS_SCHEMA = z.object({
+// Strict: an unknown field (a typo) or an empty / unreadable body is a 400, never a silent "saved" with nothing changed.
+const GOALS_SCHEMA = z.strictObject({
   missingIncorrectPct: pctField.optional(),
   lateReadyPct: pctField.optional(),
   avoidableCancelPct: pctField.optional(),
   downtimePct: pctField.optional(),
   lateGraceMin: graceField.optional(),
-});
+}).refine((o) => Object.values(o).some((v) => v !== undefined), 'nothing to save');
 
 /** Stored goals merged over the defaults; a stored field that is not valid is ignored (the default stays). */
 export async function getOpsGoals(): Promise<OpsGoals> {
@@ -62,11 +65,11 @@ export async function getOpsGoals(): Promise<OpsGoals> {
   return out;
 }
 
-/** Validates (each % 0–100, grace an integer 0–60), saves over the current goals and logs it. Throws on invalid input. */
+/** Validates (each % 0–100, grace an integer 0–60), saves over the current goals and logs it. Invalid input → UserError (a 400). */
 export async function saveOpsGoals(input: unknown, actor: Actor): Promise<OpsGoals> {
   const parsed = GOALS_SCHEMA.safeParse(input);
   if (!parsed.success) {
-    throw new Error(parsed.error.issues.slice(0, 5).map((i) => `${i.path.join('.') || 'goals'}: ${i.message}`).join('; '));
+    throw new UserError(parsed.error.issues.slice(0, 5).map((i) => `${i.path.join('.') || 'goals'}: ${i.message}`).join('; '));
   }
   const clean = Object.fromEntries(Object.entries(parsed.data).filter(([, v]) => v !== undefined)) as Partial<OpsGoals>;
   const goals: OpsGoals = { ...(await getOpsGoals()), ...clean };
@@ -90,6 +93,8 @@ const DAY = 86400_000;
 /** Below this many orders (or open minutes for downtime) a metric says "not enough data" instead of a status. */
 export const MIN_ORDERS = 10;
 export const MIN_OPEN_MINUTES = 120;
+/** Cap of the second payout-line read (lines with a payout date only, 7–45 days after the range). */
+export const LATE_LINE_CAP = 10_000;
 
 export type CancelCause = 'store' | 'pos' | 'platform' | 'customer' | 'unknown';
 const POS_REASON = /\b(pos|clover|technical|technique|integration|intégration|tablet|tablette)\b/i;
@@ -103,7 +108,10 @@ export function cancelCause(o: Pick<StoredOrder, 'status' | 'timeline'>): Cancel
 }
 const AVOIDABLE = new Set<CancelCause>(['store', 'pos']);
 
-/** courier.ts fills readyAt at pickup when nobody tapped Ready: such an order has no real ready time. */
+/**
+ * courier.ts fills readyAt at pickup when nobody tapped Ready: such an order has no real ready time. (Its "delivered"
+ * path without a pickup update leaves readyAt empty: see neverMarkedReady.)
+ */
 export function isAutoReady(o: Pick<StoredOrder, 'timeline'>): boolean {
   const t = o.timeline;
   return Boolean(t?.dispatchedAt && t.readyAt && t.readyAt === t.dispatchedAt);
@@ -119,6 +127,8 @@ export function isLateReady(o: Pick<StoredOrder, 'status' | 'timeline' | 'readyB
 }
 
 const DONE = (o: StoredOrder) => o.status === 'dispatched' || o.status === 'completed';
+/** A delivered / picked-up order nobody marked ready: ready time filled in at pickup, or no ready time at all. */
+export const neverMarkedReady = (o: Pick<StoredOrder, 'timeline'>) => isAutoReady(o) || !o.timeline?.readyAt;
 
 // ---------------------------------------------------------------- downtime segments
 
@@ -168,8 +178,10 @@ export type OpsStatus = 'attention' | 'on_track' | 'no_data';
 export interface OpsMetric {
   /** Percent, 2 decimals. */
   value: number;
-  previous: number;
-  /** value − previous, in percentage points. */
+  /** Previous period's percent; null when that period did not have enough data to compare with. */
+  previous: number | null;
+  previousStatus: OpsStatus;
+  /** value − previous, in percentage points (0 when previous is null). */
   changePts: number;
   numerator: number;
   denominator: number;
@@ -177,7 +189,7 @@ export interface OpsMetric {
   status: OpsStatus;
   extra: Record<string, unknown>;
 }
-export type OpsRowMetric = Omit<OpsMetric, 'previous' | 'changePts'>;
+export type OpsRowMetric = Omit<OpsMetric, 'previous' | 'previousStatus' | 'changePts'>;
 export interface OpsRow {
   level: 'store' | 'brand' | 'location' | 'channel';
   key: string;
@@ -225,7 +237,7 @@ function orderMetrics(orders: StoredOrder[], lines: LineIndex, goals: OpsGoals):
     lateDen++;
     if (late) { lateNum++; lateMin += (ms(o.timeline?.readyAt) - ms(o.timeline?.readyTarget ?? o.readyBy)) / 60_000; }
   }
-  const notMarked = done.filter(isAutoReady).length;
+  const notMarked = done.filter(neverMarkedReady).length;
   // 3) avoidable cancellations
   const byCause: Record<CancelCause, number> = { store: 0, pos: 0, platform: 0, customer: 0, unknown: 0 };
   const avoidable: StoredOrder[] = [];
@@ -235,17 +247,13 @@ function orderMetrics(orders: StoredOrder[], lines: LineIndex, goals: OpsGoals):
     byCause[c]++;
     if (AVOIDABLE.has(c)) avoidable.push(o);
   }
-  const reasons = new Map<string, number>();
-  for (const o of avoidable) { const r = o.timeline?.cancelReason?.trim() || 'Not given'; reasons.set(r, (reasons.get(r) ?? 0) + 1); }
   return {
     missingIncorrect: { num: missNum, den: done.length, extra: { reportedByKitchen: reported, errorCharged: charged, errorChargeAmount: r2(amount) } },
     lateReady: { num: lateNum, den: lateDen, extra: { avgMinutesLate: lateNum ? r1(lateMin / lateNum) : 0, notMarkedReady: notMarked, notMarkedReadyPct: pct(notMarked, done.length) } },
     avoidableCancel: {
       num: avoidable.length, den: orders.length,
-      extra: {
-        byCause, lostSales: r2(avoidable.reduce((s, o) => s + (Number(o.total) || 0), 0)),
-        topReasons: [...reasons.entries()].map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count || a.reason.localeCompare(b.reason)).slice(0, 5),
-      },
+      // No free-text cancel reasons in the response: platform or staff text can carry a customer's name or phone number.
+      extra: { byCause, lostSales: r2(avoidable.reduce((s, o) => s + (Number(o.total) || 0), 0)) },
     },
   };
 }
@@ -267,12 +275,13 @@ function downtimeRaw(list: StoreDowntime[]): Raw & { topCause?: DowntimeCause } 
   return { num: offlineMinutes, den: openMinutes, topCause: top, extra: { openMinutes: Math.round(openMinutes), offlineMinutes: Math.round(offlineMinutes), byCause, storesWithoutHours: list.length - withHours.length } };
 }
 
-function storeDowntime(stores: ChannelStore[], activity: ActivityEntry[], hours: Awaited<ReturnType<typeof getHours>>, from: number, to: number, days: number, tz: string): StoreDowntime[] {
+function storeDowntime(stores: ChannelStore[], activityOf: Map<string, ActivityEntry[]>, hours: Awaited<ReturnType<typeof getHours>>, from: number, to: number, days: number, tz: string): StoreDowntime[] {
   return stores.map((s) => {
     const week = effectiveHours(hours, s.brandName, s.locationCode);
     if (!week || to <= from) return { store: s, hoursSet: Boolean(week), openMs: 0, offMs: 0, byCause: emptyCauses() };
     const open: Interval[] = openIntervals(week, holidaysFor(hours, s.locationCode, localDate(from, tz), days + 1), from, to, tz);
     const openMs = open.reduce((a, [x, y]) => a + (y - x), 0);
+    const activity = activityOf.get(s.id) ?? [];
     const segments = offlineSegments(activity, s, from, to, seedState(activity, s, from));
     const byCause = emptyCauses();
     let offMs = 0;
@@ -288,56 +297,84 @@ export async function buildOpsQuality(q: AnalyticsQuery & { storeIds?: string[] 
   const from = Date.parse(q.from);
   const toReq = Date.parse(q.to);
   const span = Math.max(0, toReq - from);
-  const prevFrom = from - span;
+  const days = Math.max(1, Math.round(span / DAY));
+  // Previous period = the same number of local calendar days before `from` (buildAnalytics' rule): stepped day by day
+  // so a range across a DST change still starts at local midnight and lines up with the Insights page.
+  let prevFrom = from - span;
+  if (startOfLocalDayMs(from, tz) === from) { prevFrom = from; for (let i = 0; i < days; i++) prevFrom = startOfLocalDayMs(prevFrom - 12 * 3600_000, tz); }
   const prevTo = from;
   // Downtime stops at "now": the rest of today has not happened yet (orders cannot exist there anyway).
   const toEff = Math.min(toReq, Math.max(now, from));
-  const days = Math.max(1, Math.round(span / DAY));
   const repo = getRepo();
-  const [goals, catalog, hours, rawOrders, allStores, activity, lineDocs, anyLine] = await Promise.all([
+  const iso = (t: number) => new Date(t).toISOString();
+  const [goals, catalog, hours, curRaw, prevRaw, allStores, activity, lineDocs, lateLineDocs, anyLine] = await Promise.all([
     getOpsGoals(),
     getCatalog(),
     getHours(),
-    repo.listOrders({ since: new Date(prevFrom).toISOString(), until: new Date(toReq).toISOString(), limit: ROW_CAP, locationCodes: q.locationCodes }),
+    // One capped query per period (as buildAnalytics does): a busy range can never cut the previous period silently.
+    repo.listOrders({ since: iso(from), until: iso(toReq), limit: ROW_CAP, locationCodes: q.locationCodes }),
+    repo.listOrders({ since: iso(prevFrom), until: iso(prevTo), limit: ROW_CAP, locationCodes: q.locationCodes }),
     repo.listStores(),
-    repo.listActivity({ since: new Date(prevFrom - 30 * DAY).toISOString(), until: new Date(toEff).toISOString(), kinds: ['store_status'], limit: ROW_CAP }),
-    repo.listDocs<PayoutLine>(COL.lines, { since: new Date(prevFrom - 7 * DAY).toISOString(), until: new Date(toReq + 60 * DAY).toISOString(), limit: ROW_CAP }),
+    repo.listActivity({ since: iso(prevFrom - 30 * DAY), until: iso(toEff), kinds: ['store_status'], limit: ROW_CAP, locationCodes: q.locationCodes }),
+    // Every line kind in the window: Uber lines carry Food Hub's order id in orderRef2 while the doc key is orderRef,
+    // so a `keys` query would miss them. Only error_charge lines are kept below. A line is dated by its orderDate when
+    // it has one (the common case), so the window hugs the two periods: a capped read keeps lines of these orders.
+    repo.listDocs<PayoutLine>(COL.lines, { since: iso(prevFrom - 7 * DAY), until: iso(toReq + 7 * DAY), limit: ROW_CAP }),
+    // A line with no orderDate is dated by its payout date, which can come weeks later: a smaller read of that late
+    // window keeps only such error charges.
+    repo.listDocs<PayoutLine>(COL.lines, { since: iso(toReq + 7 * DAY), until: iso(toReq + 45 * DAY), limit: LATE_LINE_CAP }),
     repo.listDocs(COL.lines, { limit: 1 }),
   ]);
   const notes: string[] = ['direct_orders_not_included'];
   if (!anyLine.length) notes.push('no_statements_imported');
+  if (lineDocs.length >= ROW_CAP || lateLineDocs.length >= LATE_LINE_CAP) notes.push('statements_truncated');
 
   // Error-charge lines indexed by channel + exact order reference (no short-code fallback).
   const lines: LineIndex = new Map();
-  for (const d of lineDocs) {
+  for (const d of [...lineDocs, ...lateLineDocs.filter((x) => !x.data?.orderDate)]) {
     const l = d.data;
     if (!l || l.kind !== 'error_charge') continue;
     const keys = new Set([refKey(l.orderRef), refKey(l.orderRef2)].filter(Boolean) as string[]);
-    for (const k of keys) { const key = `${l.channel}|${k}`; lines.set(key, [...(lines.get(key) ?? []), l]); }
+    for (const k of keys) {
+      const key = `${l.channel}|${k}`;
+      const list = lines.get(key);
+      if (list) list.push(l); else lines.set(key, [l]);
+    }
   }
 
-  const locName = (code?: string | null) => (code ? catalog.locations.find((l) => l.code === code)?.name ?? code : 'Unmapped store');
+  const locName = (code?: string | null) => (code ? catalog.locations.find((l) => l.code === code)?.name ?? code : 'Unmapped location');
   const storeByRef = new Map(allStores.map((s) => [`${s.channel}|${s.channelStoreId}`, s]));
   const storeOf = (o: StoredOrder) => storeByRef.get(`${o.channel}|${o.channelStoreId}`) ?? null;
+  // One brand per order, used for the filter and the brand row alike: the mapped store's brand wins over the order's own text.
+  const brandOf = (o: StoredOrder) => storeOf(o)?.brandName || o.brandName || '';
+  // Location: the order's own code first — it is what the location scope (a manager's locations) is applied to.
+  const locOf = (o: StoredOrder) => o.locationCode || storeOf(o)?.locationCode || '';
   const storeIds = q.storeIds?.length ? new Set(q.storeIds) : null;
   const keep = (o: StoredOrder) =>
     o.channel in CHANNEL_LABELS && o.marketplace !== 'other' && // platform orders only (direct orders: not in v1)
     (!q.channels?.length || q.channels.includes(o.channel)) &&
-    (!q.brands?.length || Boolean(o.brandName && q.brands.includes(o.brandName))) &&
+    (!q.brands?.length || q.brands.includes(brandOf(o))) &&
     (!storeIds || storeIds.has(storeOf(o)?.id ?? ''));
-  const orders = rawOrders.filter(keep);
-  const inRange = (o: StoredOrder, a: number, b: number) => { const t = Date.parse(o.createdAt); return t >= a && t < b; };
-  const cur = orders.filter((o) => inRange(o, from, toReq));
-  const prev = orders.filter((o) => inRange(o, prevFrom, prevTo));
+  const cur = curRaw.filter(keep);
+  const prev = prevRaw.filter(keep);
 
-  // Downtime: the stores in scope with their opening hours.
-  const stores = allStores.filter((s) =>
+  // Downtime: the stores in scope with their opening hours. Relay stores ("relay:…") receive orders only and never a
+  // store status, so they would always look 100 % online: they are left out of downtime (and said so).
+  const scoped = allStores.filter((s) =>
     (!q.locationCodes?.length || q.locationCodes.includes(s.locationCode)) &&
     (!q.channels?.length || q.channels.includes(s.channel)) &&
     (!q.brands?.length || q.brands.includes(s.brandName)) &&
     (!storeIds || storeIds.has(s.id)));
-  const downCur = storeDowntime(stores, activity, hours, from, toEff, days, tz);
-  const downPrev = storeDowntime(stores, activity, hours, prevFrom, prevTo, days, tz);
+  const stores = scoped.filter((s) => !isRelayStore(s));
+  if (stores.length < scoped.length) notes.push('relay_stores_no_status');
+  const activityOf = new Map<string, ActivityEntry[]>();
+  for (const e of activity) {
+    if (!e.storeId) continue;
+    const list = activityOf.get(e.storeId);
+    if (list) list.push(e); else activityOf.set(e.storeId, [e]);
+  }
+  const downCur = storeDowntime(stores, activityOf, hours, from, toEff, days, tz);
+  const downPrev = storeDowntime(stores, activityOf, hours, prevFrom, prevTo, days, tz);
   if (downCur.some((d) => !d.hoursSet)) notes.push('no_hours_for_some_stores');
 
   const metricsOf = (os: StoredOrder[], ds: StoreDowntime[]) => {
@@ -355,8 +392,10 @@ export async function buildOpsQuality(q: AnalyticsQuery & { storeIds?: string[] 
   const curAll = metricsOf(cur, downCur);
   const prevAll = metricsOf(prev, downPrev);
   const overall = Object.fromEntries(OPS_METRICS.map((k) => {
-    const m = curAll.metrics[k]; const p = prevAll.metrics[k].value;
-    return [k, { ...m, previous: p, changePts: r2(m.value - p) }];
+    // A previous period without enough data (a new store, 0 orders) is no baseline: no fake "+20 pts vs 0 %" trend.
+    const m = curAll.metrics[k]; const p = prevAll.metrics[k];
+    const comparable = p.status !== 'no_data';
+    return [k, { ...m, previous: comparable ? p.value : null, previousStatus: p.status, changePts: comparable ? r2(m.value - p.value) : 0 }];
   })) as Record<OpsMetricKey, OpsMetric>;
 
   // Rows: group orders and stores by the same key, then compute each metric from the group's own counts.
@@ -376,8 +415,8 @@ export async function buildOpsQuality(q: AnalyticsQuery & { storeIds?: string[] 
     if (!s) return { label: 'Unmapped store' };
     return { label: `${s.brandName} · ${locName(s.locationCode)} · ${CHANNEL_LABELS[s.channel] ?? s.channel}`, channel: s.channel, brandName: s.brandName, locationCode: s.locationCode };
   });
-  const byBrand = rows('brand', (o) => o.brandName || storeOf(o)?.brandName || 'unmapped', (s) => s.brandName || 'unmapped', (key) => (key === 'unmapped' ? { label: 'Unmapped store' } : { label: key, brandName: key }));
-  const byLocation = rows('location', (o) => o.locationCode || storeOf(o)?.locationCode || 'unmapped', (s) => s.locationCode || 'unmapped', (key) => (key === 'unmapped' ? { label: 'Unmapped store' } : { label: locName(key), locationCode: key }));
+  const byBrand = rows('brand', (o) => brandOf(o) || 'unmapped', (s) => s.brandName || 'unmapped', (key) => (key === 'unmapped' ? { label: 'Unmapped brand' } : { label: key, brandName: key }));
+  const byLocation = rows('location', (o) => locOf(o) || 'unmapped', (s) => s.locationCode || 'unmapped', (key) => (key === 'unmapped' ? { label: 'Unmapped location' } : { label: locName(key), locationCode: key }));
   const byChannel = rows('channel', (o) => o.channel, (s) => s.channel, (key) => ({ label: CHANNEL_LABELS[key as ChannelKey] ?? key, channel: key as ChannelKey }));
 
   const top5 = Object.fromEntries(OPS_METRICS.map((k) => [k, byStore.filter((r) => r.metrics[k].status !== 'no_data')
@@ -396,7 +435,8 @@ export async function buildOpsQuality(q: AnalyticsQuery & { storeIds?: string[] 
     return { metric: k, storeId: r.key, label: r.label, value: m.value, goal: m.goal, numerator: m.numerator, denominator: m.denominator, ...(cause ? { cause } : {}) };
   })).sort((a, b) => score(b) - score(a) || b.value - a.value).slice(0, 10);
 
-  const truncated = [rawOrders, activity, lineDocs].some((l) => l.length >= ROW_CAP);
+  // Orders and store status only; cut payout statements have their own note ('statements_truncated').
+  const truncated = [curRaw, prevRaw, activity].some((l) => l.length >= ROW_CAP);
   return {
     range: { from: new Date(from).toISOString(), to: new Date(toReq).toISOString(), days, previousFrom: new Date(prevFrom).toISOString(), previousTo: new Date(prevTo).toISOString(), timezone: tz, truncated },
     goals,

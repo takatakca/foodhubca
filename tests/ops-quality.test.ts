@@ -1,6 +1,6 @@
 // Operations quality (lib/foodhub/ops-quality.ts): 4 metrics vs the owner's goals, every platform at once.
 // Test data is invented (Brand A, LOC_A, store-a…).
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { ActivityEntry, ChannelKey, OrderStatus, OrderTimeline, WeeklyHours } from '../lib/foodhub/types';
 
 const FROM = '2026-09-14T04:00:00.000Z'; // Monday 2026-09-14 00:00 in Toronto (EDT)
@@ -22,27 +22,37 @@ async function mods() {
   return { repo: getRepo(), ops, COL, saveHours };
 }
 
+// Cold imports (repo, recon, hours, the routes) take seconds right after tsc: done once here, never inside a test body,
+// so a slow first import cannot time a test out and let its still-running body write into the next test's state.
+beforeAll(async () => {
+  await mods();
+  await import('../lib/foodhub/analytics');
+  await import('../lib/foodhub/auth');
+  await import('../app/api/foodhub/ops-quality/route');
+  await import('../app/api/foodhub/ops-quality/goals/route');
+}, 60_000);
+
 async function store(channel: ChannelKey, channelStoreId: string, brandName: string, locationCode = 'LOC_A') {
   const { repo } = await mods();
   return repo.upsertStore({ channel, channelStoreId, brandName, locationCode, autoAccept: false, online: true, meta: {} });
 }
 
 let seq = 0;
-async function order(o: { channel?: ChannelKey; storeRef?: string; brand?: string; status: OrderStatus; timeline?: OrderTimeline; total?: number; createdAt?: string; readyBy?: string; id?: string }) {
+async function order(o: { channel?: ChannelKey; storeRef?: string; brand?: string; status: OrderStatus; timeline?: OrderTimeline; total?: number; createdAt?: string; readyBy?: string; id?: string; marketplace?: string; location?: string }) {
   const { repo } = await mods();
   const at = o.createdAt ?? new Date(Date.parse('2026-09-14T16:00:00Z') + (seq++ % 600) * 60_000).toISOString();
   const channel = o.channel ?? 'uber_eats';
   const { order: row } = await repo.insertOrderIfNew({
-    channel, marketplace: channel, externalOrderId: o.id ?? `EXT-${++seq}`, channelStoreId: o.storeRef ?? 'store-a', brandName: o.brand ?? 'Brand A', locationCode: 'LOC_A',
+    channel, marketplace: (o.marketplace ?? channel) as any, externalOrderId: o.id ?? `EXT-${++seq}`, channelStoreId: o.storeRef ?? 'store-a', brandName: o.brand ?? 'Brand A', locationCode: o.location ?? 'LOC_A',
     fulfillment: 'delivery', placedAt: at, readyBy: o.readyBy, currency: 'CAD', subtotal: o.total ?? 20, tax: 0, deliveryFee: 0, tip: 0, discount: 0, total: o.total ?? 20, lines: [], raw: {}, createdAt: at,
   });
   await repo.patchOrder(row.id, o.timeline ?? {}, { status: o.status });
   return row;
 }
 
-const line = (id: string, channel: ChannelKey, orderRef: string, net: number, kind = 'error_charge') => ({
-  id, key: orderRef.toLowerCase(), at: '2026-09-20T12:00:00.000Z',
-  data: { id, importId: 'imp-1', channel, orderRef, orderRef2: null, storeRef: null, orderDate: '2026-09-20', payoutDate: null, payoutRef: null, kind, description: 'Error charge', sales: 0, tax: 0, commission: 0, commissionTax: 0, promotions: 0, adjustments: net, otherFees: 0, net, hasBreakdown: false, row: 1 },
+const line = (id: string, channel: ChannelKey, orderRef: string, net: number, kind = 'error_charge', dates: { orderDate: string | null; payoutDate: string | null } = { orderDate: '2026-09-14', payoutDate: null }) => ({
+  id, key: orderRef.toLowerCase(), at: `${dates.orderDate ?? dates.payoutDate}T12:00:00.000Z`,
+  data: { id, importId: 'imp-1', channel, orderRef, orderRef2: null, storeRef: null, ...dates, payoutRef: null, kind, description: 'Error charge', sales: 0, tax: 0, commission: 0, commissionTax: 0, promotions: 0, adjustments: net, otherFees: 0, net, hasBreakdown: false, row: 1 },
 });
 
 const WEEK: WeeklyHours = Object.fromEntries(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map((d) => [d, [{ open: '11:00', close: '20:00' }]])) as unknown as WeeklyHours;
@@ -95,9 +105,14 @@ describe('orders ready late', () => {
     await order(late);
     await order(auto);
     for (let i = 0; i < 9; i++) await order({ status: 'completed', timeline: { readyTarget: target, readyAt: plus(-60) } });
+    // courier.ts "delivered" without a pickup update: dispatchedAt set, readyAt never — also never marked ready.
+    const noReady = { status: 'completed' as const, timeline: { readyTarget: target, dispatchedAt: plus(1200), completedAt: plus(2400) } };
+    expect(ops.neverMarkedReady(noReady)).toBe(true);
+    expect(ops.neverMarkedReady(onTime)).toBe(false);
+    await order(noReady);
     const r = await ops.buildOpsQuality({ from: FROM, to: TO }, NOW);
     expect(r.overall.lateReady).toMatchObject({ numerator: 1, denominator: 11, value: 9.09, status: 'attention', goal: 5 });
-    expect(r.overall.lateReady.extra).toEqual({ avgMinutesLate: 5, notMarkedReady: 1, notMarkedReadyPct: 8.33 });
+    expect(r.overall.lateReady.extra).toEqual({ avgMinutesLate: 5, notMarkedReady: 2, notMarkedReadyPct: 15.38 });
   });
 });
 
@@ -120,7 +135,7 @@ describe('avoidable cancellations', () => {
     const r = await ops.buildOpsQuality({ from: FROM, to: TO }, NOW);
     expect(r.overall.avoidableCancel).toMatchObject({ numerator: 2, denominator: 10, value: 20 });
     expect(r.overall.avoidableCancel.extra).toMatchObject({ byCause: { store: 1, pos: 1, platform: 0, customer: 1, unknown: 0 }, lostSales: 42.5 });
-    expect((r.overall.avoidableCancel.extra.topReasons as Array<{ reason: string }>).map((x) => x.reason).sort()).toEqual(['Out of chicken', 'Tablet offline']);
+    expect(r.overall.avoidableCancel.extra).not.toHaveProperty('topReasons'); // free text (names, phones) never leaves the server
   });
 });
 
@@ -253,6 +268,104 @@ describe('routes', () => {
   });
 });
 
+describe('previous period', () => {
+  it('no baseline when the previous period has too little data; otherwise the change is in points', async () => {
+    const { ops } = await mods();
+    await store('uber_eats', 'store-a', 'Brand A');
+    for (let i = 0; i < 10; i++) await order({ status: i < 3 ? 'cancelled' : 'completed', timeline: i < 3 ? { cancelledBy: 'store' } : {} });
+    let r = await ops.buildOpsQuality({ from: FROM, to: TO }, NOW);
+    expect(r.overall.avoidableCancel).toMatchObject({ value: 30, previous: null, previousStatus: 'no_data', changePts: 0 }); // not "+30 pts vs 0 %"
+    const day0 = '2026-09-13T16:00:00.000Z'; // previous period = the day before
+    for (let i = 0; i < 10; i++) await order({ status: i < 1 ? 'cancelled' : 'completed', timeline: i < 1 ? { cancelledBy: 'store' } : {}, createdAt: new Date(Date.parse(day0) + i * 60_000).toISOString() });
+    r = await ops.buildOpsQuality({ from: FROM, to: TO }, NOW);
+    expect(r.overall.avoidableCancel).toMatchObject({ value: 30, previous: 10, previousStatus: 'attention', changePts: 20, numerator: 3, denominator: 10 });
+    expect(r.range).toMatchObject({ previousFrom: '2026-09-13T04:00:00.000Z', previousTo: FROM, truncated: false });
+  });
+});
+
+describe('scope: brands, platforms, relay stores', () => {
+  it('one brand per order (the mapped store wins); direct and unknown channels are left out', async () => {
+    const { ops } = await mods();
+    await store('uber_eats', 'store-a', 'Brand A');
+    await order({ status: 'completed', brand: '' }); // no brand on the order, store mapped to Brand A
+    await order({ status: 'completed', brand: 'brand a' }); // other casing: the store's brand wins
+    await order({ status: 'completed', storeRef: 'nowhere', brand: 'Brand Z' }); // unmapped store
+    await order({ status: 'completed', channel: 'phone' as ChannelKey }); // not a platform
+    await order({ status: 'completed', marketplace: 'other' }); // direct order
+    let r = await ops.buildOpsQuality({ from: FROM, to: TO, brands: ['Brand A'] }, NOW);
+    expect(r.overall.avoidableCancel.denominator).toBe(2);
+    expect(r.byBrand.map((b) => b.key)).toEqual(['Brand A']);
+    r = await ops.buildOpsQuality({ from: FROM, to: TO }, NOW);
+    expect(r.byBrand.map((b) => [b.key, b.metrics.avoidableCancel.denominator])).toEqual([['Brand A', 2], ['Brand Z', 1]]);
+    expect(r.byChannel.map((c) => c.key)).toEqual(['uber_eats']);
+    expect(r.overall.avoidableCancel.denominator).toBe(3);
+  });
+
+  it('relay stores (no status events) are left out of downtime and said so', async () => {
+    const { repo, ops, saveHours } = await mods();
+    const a = await store('uber_eats', 'store-a', 'Brand A');
+    await store('tgtg', 'relay:p-1', 'Brand A');
+    await saveHours({ locations: { LOC_A: WEEK }, brands: {}, holidays: [] });
+    await repo.addActivity({ at: '2026-09-14T16:00:00.000Z', action: 'pause', source: 'dashboard', status: 'success', kind: 'store_status', storeId: a.id, actor: 'x', summary: '' });
+    await repo.addActivity({ at: '2026-09-14T17:00:00.000Z', action: 'resume', source: 'dashboard', status: 'success', kind: 'store_status', storeId: a.id, actor: 'x', summary: '' });
+    const r = await ops.buildOpsQuality({ from: FROM, to: TO }, NOW);
+    expect(r.overall.downtime).toMatchObject({ numerator: 60, denominator: 541 }); // not 541 x 2 open minutes
+    expect(r.notes).toContain('relay_stores_no_status');
+  });
+});
+
+describe('route access', () => {
+  it('a manager sees only their locations; goals are owner-only; a database failure is a generic 500', async () => {
+    const prev = process.env.DASHBOARD_PASSWORD;
+    process.env.DASHBOARD_PASSWORD = 'Owner-pass-123';
+    try {
+      const { repo, saveHours } = await mods();
+      const { hashPassword } = await import('../lib/foodhub/auth');
+      const { GET } = await import('../app/api/foodhub/ops-quality/route');
+      const goals = await import('../app/api/foodhub/ops-quality/goals/route');
+      const a = await store('uber_eats', 'store-a', 'Brand A', 'LOC_A');
+      const b = await store('doordash', 'store-b', 'Brand B', 'LOC_B');
+      await saveHours({ locations: { LOC_A: WEEK, LOC_B: WEEK }, brands: {}, holidays: [] });
+      await order({ status: 'completed' });
+      await order({ status: 'completed', channel: 'doordash', storeRef: 'store-b', brand: 'Brand B', location: 'LOC_B' });
+      await repo.addActivity({ at: '2026-09-14T16:00:00.000Z', action: 'pause', source: 'dashboard', status: 'success', kind: 'store_status', storeId: b.id, locationCode: 'LOC_B', actor: 'x', summary: '' });
+      await repo.saveUser({ username: 'mgr', name: 'Manager', role: 'manager', locations: ['LOC_A'], passwordHash: hashPassword('manager-pass-1'), active: true } as any);
+      await repo.saveUser({ username: 'ana', name: 'Analyst', role: 'analyst', locations: [], passwordHash: hashPassword('analyst-pass-1'), active: true } as any);
+      const hdr = (who: string) => ({ authorization: `Basic ${Buffer.from(who).toString('base64')}`, 'content-type': 'application/json' });
+      const get = (who: string, qs = 'from=2026-09-14&to=2026-09-14') => GET(new Request(`http://hub.local/api/foodhub/ops-quality?${qs}`, { headers: hdr(who) }) as any, {} as never);
+
+      const mine = await (await get('mgr:manager-pass-1')).json();
+      expect(mine.byLocation.map((x: any) => x.key)).toEqual(['LOC_A']);
+      expect(mine.byStore.map((x: any) => x.key)).toEqual([a.id]);
+      expect(mine.overall.avoidableCancel.denominator).toBe(1);
+      expect(mine.overall.downtime.numerator).toBe(0); // LOC_B's pause is not in scope
+      const other = await (await get('mgr:manager-pass-1', 'from=2026-09-14&to=2026-09-14&locations=LOC_B')).json(); // asks for a location not theirs
+      expect(other.byStore).toEqual([]);
+      expect(other.overall.avoidableCancel.denominator).toBe(0);
+      const owner = await (await get('owner:Owner-pass-123')).json();
+      expect(owner.byLocation.map((x: any) => x.key).sort()).toEqual(['LOC_A', 'LOC_B']);
+      expect((await get('ana:analyst-pass-1')).status).toBe(200);
+
+      const put = (who: string, body: unknown) => goals.PUT(new Request('http://hub.local/api/foodhub/ops-quality/goals', { method: 'PUT', headers: hdr(who), body: JSON.stringify(body) }) as any, {} as never);
+      expect((await put('mgr:manager-pass-1', { downtimePct: 3 })).status).toBe(403);
+      expect((await put('ana:analyst-pass-1', { downtimePct: 3 })).status).toBe(403);
+
+      const setKv = repo.setKv;
+      repo.setKv = async () => { throw new Error('Supabase: relation "fh_kv" does not exist'); };
+      try {
+        const res = await put('owner:Owner-pass-123', { downtimePct: 3 });
+        expect(res.status).toBe(500);
+        expect(JSON.stringify(await res.json())).not.toMatch(/fh_kv|relation/);
+      } finally { repo.setKv = setKv; }
+      const bad = await put('owner:Owner-pass-123', { downtimePct: 101 });
+      expect(bad.status).toBe(400);
+      expect((await bad.json()).error).toMatch(/downtimePct/);
+    } finally {
+      if (prev === undefined) delete process.env.DASHBOARD_PASSWORD; else process.env.DASHBOARD_PASSWORD = prev;
+    }
+  });
+});
+
 describe('empty range', () => {
   it('only finite numbers, every metric no_data', async () => {
     const { ops, saveHours } = await mods();
@@ -267,5 +380,58 @@ describe('empty range', () => {
     walk(r);
     for (const k of ['missingIncorrect', 'lateReady', 'avoidableCancel', 'downtime'] as const) expect(r.overall[k]).toMatchObject({ value: 0, status: 'no_data', changePts: 0 });
     expect(r.attention).toEqual([]);
+  });
+});
+
+describe('payout statement window', () => {
+  it('lines dated by order date hug the range; a payout-date-only error charge weeks later still counts', async () => {
+    const { repo, ops, COL } = await mods();
+    await store('uber_eats', 'store-a', 'Brand A');
+    await order({ status: 'completed', id: 'EXT-PAYLATE' });
+    await order({ status: 'completed', id: 'EXT-PAYSOON' });
+    await order({ status: 'completed', id: 'EXT-LATERORDER' });
+    for (let i = 0; i < 7; i++) await order({ status: 'completed' });
+    await repo.putDocs(COL.lines, [
+      line('p1', 'uber_eats', 'EXT-PAYLATE', -6, 'error_charge', { orderDate: null, payoutDate: '2026-10-10' }), // paid out ~4 weeks later
+      line('p2', 'uber_eats', 'EXT-PAYSOON', -2, 'error_charge', { orderDate: null, payoutDate: '2026-09-18' }),
+      // Dated by a later order date: belongs to another order, not read by the late window.
+      line('p3', 'uber_eats', 'EXT-LATERORDER', -9, 'error_charge', { orderDate: '2026-10-10', payoutDate: '2026-10-15' }),
+    ]);
+    const r = await ops.buildOpsQuality({ from: FROM, to: TO }, NOW);
+    expect(r.overall.missingIncorrect).toMatchObject({ numerator: 2, denominator: 10 });
+    expect(r.overall.missingIncorrect.extra).toMatchObject({ errorCharged: 2, errorChargeAmount: 8 });
+    expect(r.notes).not.toContain('statements_truncated');
+  });
+});
+
+describe('goals input is strict', () => {
+  it('empty, unknown-only or unreadable bodies are a 400 and nothing is saved or logged', async () => {
+    const { repo, ops } = await mods();
+    await expect(ops.saveOpsGoals({}, OWNER)).rejects.toThrow(/nothing to save/);
+    await expect(ops.saveOpsGoals({ downtime: 3 }, OWNER)).rejects.toThrow();
+    await expect(ops.saveOpsGoals({ downtimePct: 3, typo: 1 }, OWNER)).rejects.toThrow();
+    const prev = process.env.DASHBOARD_PASSWORD;
+    process.env.DASHBOARD_PASSWORD = 'Owner-pass-123';
+    try {
+      const goals = await import('../app/api/foodhub/ops-quality/goals/route');
+      const headers = { authorization: `Basic ${Buffer.from('owner:Owner-pass-123').toString('base64')}`, 'content-type': 'application/json' };
+      const put = (body: string) => goals.PUT(new Request('http://hub.local/api/foodhub/ops-quality/goals', { method: 'PUT', headers, body }) as any, {} as never);
+      expect((await put('{bad json')).status).toBe(400);
+      expect((await put('')).status).toBe(400);
+      expect((await put(JSON.stringify({ downtime: 3 }))).status).toBe(400);
+    } finally {
+      if (prev === undefined) delete process.env.DASHBOARD_PASSWORD; else process.env.DASHBOARD_PASSWORD = prev;
+    }
+    expect(await repo.getKv('ops_quality_goals_v1')).toBeFalsy();
+    expect(await repo.listActivity({ kinds: ['settings'] })).toEqual([]);
+  });
+});
+
+describe('previous period across a DST change', () => {
+  it('starts at local midnight the same number of calendar days before (as the Insights page)', async () => {
+    const { ops } = await mods();
+    // Sun 2026-11-01 00:00 EDT → Tue 2026-11-03 00:00 EST: 49 hours, 2 local days. from − span would be 23:00 local.
+    const r = await ops.buildOpsQuality({ from: '2026-11-01T04:00:00.000Z', to: '2026-11-03T05:00:00.000Z' }, NOW);
+    expect(r.range).toMatchObject({ days: 2, previousFrom: '2026-10-30T04:00:00.000Z', previousTo: '2026-11-01T04:00:00.000Z' });
   });
 });

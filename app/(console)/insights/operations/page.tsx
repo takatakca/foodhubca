@@ -30,11 +30,16 @@ export default function OperationsQualityPage() {
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    api<OpsQuality>(`/api/foodhub/ops-quality?${query}`).then((d) => { if (alive) { setData(d); setError(''); } }).catch((e) => alive && setError(e.message)).finally(() => alive && setLoading(false));
+    api<OpsQuality>(`/api/foodhub/ops-quality?${query}`).then((d) => { if (alive) { setData(d); setError(''); } }).catch((e) => alive && setError(e instanceof ApiError && e.status === 400 ? 'bad_range' : e instanceof Error ? e.message : String(e))).finally(() => alive && setLoading(false));
     return () => { alive = false; };
   }, [query, reload]);
 
   const pctTxt = (n: number) => (lang === 'fr' ? `${n.toLocaleString('fr-CA')} %` : `${n}%`);
+  // Changes are in percentage points (1.00 % → 3.00 % is +2 pts, not +200 %).
+  const ptsTxt = (n: number) => (lang === 'fr' ? `${n.toLocaleString('fr-CA')} ${n < 2 ? 'pt' : 'pts'}` : `${n} ${n === 1 ? 'pt' : 'pts'}`);
+  const rowLabel = (level: OpsRow['level'], key: string, label: string) => (key !== 'unmapped' ? label
+    : level === 'location' ? t('Succursale non associée', 'Unmapped location') : level === 'brand' ? t('Marque non associée', 'Unmapped brand') : t('Magasin non associé', 'Unmapped store'));
+  const storeLabel = (storeId: string, label: string) => rowLabel('store', storeId, label);
   const grace = data?.goals.lateGraceMin ?? 5;
   const LABEL: Record<OpsMetricKey, string> = {
     missingIncorrect: t('Commandes incomplètes ou erronées', 'Missing or incorrect orders'),
@@ -57,6 +62,8 @@ export default function OperationsQualityPage() {
   const NOTE: Record<string, string> = {
     no_hours_for_some_stores: t('Ajoutez les heures d’ouverture pour mesurer le temps hors ligne.', 'Add opening hours to measure downtime.'),
     no_statements_imported: t('Importez les relevés de paiement pour compter les frais d’erreur.', 'Import payout statements to count error charges.'),
+    relay_stores_no_status: t('Les magasins reçus par le relais de commandes n’envoient pas leur statut : leur temps hors ligne n’est pas mesuré.', 'Stores reached through the order relay send no status: their downtime is not measured.'),
+    statements_truncated: t('Trop de lignes de relevés de paiement pour cette période : des frais d’erreur peuvent manquer. Choisissez une période plus courte.', 'Too many payout statement lines for this period: some error charges may be missing. Pick a shorter period.'),
     direct_orders_not_included: t('Les commandes directes (téléphone, site web, Clover) ne sont pas encore incluses.', 'Direct orders (phone, website, Clover) are not included yet.'),
   };
   const STATUS: Record<OpsStatus, string> = { attention: t('À surveiller', 'Needs attention'), on_track: t('Dans les objectifs', 'On track'), no_data: t('Pas assez de données', 'Not enough data') };
@@ -70,10 +77,23 @@ export default function OperationsQualityPage() {
     if (k === 'missingIncorrect') return t(`${e.reportedByKitchen} signalées par la cuisine · ${e.errorCharged} avec frais d’erreur (${fmtMoney(e.errorChargeAmount)})`, `${e.reportedByKitchen} reported by the kitchen · ${e.errorCharged} with an error charge (${fmtMoney(e.errorChargeAmount)})`);
     if (k === 'lateReady') return [t(`${pctTxt(e.notMarkedReadyPct)} jamais marquées prêtes`, `${e.notMarkedReadyPct}% never marked ready`), e.avgMinutesLate ? t(`retard moyen ${e.avgMinutesLate} min`, `average ${e.avgMinutesLate} min late`) : ''].filter(Boolean).join(' · ');
     if (k === 'avoidableCancel') {
-      const by = Object.entries(e.byCause as Record<string, number>).filter(([, n]) => n > 0).map(([c, n]) => `${CANCEL_CAUSE[c] ?? c} : ${n}`).join(' · ');
+      const by = Object.entries(e.byCause as Record<string, number>).filter(([, n]) => n > 0).map(([c, n]) => t(`${CANCEL_CAUSE[c] ?? c} : ${n}`, `${CANCEL_CAUSE[c] ?? c}: ${n}`)).join(' · ');
       return [by, e.lostSales ? t(`ventes perdues ${fmtMoney(e.lostSales)}`, `lost sales ${fmtMoney(e.lostSales)}`) : ''].filter(Boolean).join(' · ');
     }
-    return Object.entries(e.byCause as Record<string, number>).filter(([, n]) => n > 0).map(([c, n]) => `${DOWN_CAUSE[c] ?? c} : ${fmtInt(n)} min`).join(' · ');
+    return Object.entries(e.byCause as Record<string, number>).filter(([, n]) => n > 0).map(([c, n]) => t(`${DOWN_CAUSE[c] ?? c} : ${fmtInt(n)} min`, `${DOWN_CAUSE[c] ?? c}: ${fmtInt(n)} min`)).join(' · ');
+  };
+
+  // Change vs the previous period, in points; up is bad for all four metrics. Hidden when that period had too little data.
+  const deltaLine = (m: OpsMetric) => {
+    if (m.previous === null) return <p className="mt-2 text-xs text-ink-3">{t('Pas assez de données sur la période précédente pour comparer.', 'Not enough data in the previous period to compare.')}</p>;
+    const d = m.changePts;
+    const tone = d > 0 ? 'text-stop-2' : d < 0 ? 'text-go-2' : 'text-ink-2';
+    return (
+      <p className={`mt-2 text-[13px] font-bold ${tone}`}>
+        {d > 0 ? '▲ +' : d < 0 ? '▼ −' : '■ '}{ptsTxt(Math.abs(d))}{' '}
+        <span className="font-normal text-ink-3">{t(`par rapport à ${pctTxt(m.previous)} sur la période précédente`, `vs ${m.previous}% in the previous period`)}</span>
+      </p>
+    );
   };
 
   const metricCard = (k: OpsMetricKey) => {
@@ -81,25 +101,26 @@ export default function OperationsQualityPage() {
     const rows = data!.byStore.filter((r) => r.metrics[k].denominator > 0 || r.metrics[k].status !== 'no_data');
     return (
       <ChartCard key={k} title={LABEL[k]} subtitle={DEF[k]} loading={loading}
-        table={{ columns: [t('Magasin', 'Store'), '%', t('Compté', 'Counted'), t('Sur', 'Out of'), t('Objectif', 'Goal'), t('Statut', 'Status')], rows: rows.map((r) => [r.label, pctTxt(r.metrics[k].value), r.metrics[k].numerator, r.metrics[k].denominator, pctTxt(r.metrics[k].goal), STATUS[r.metrics[k].status]]), filename: `takatak-ops-${k}` }}>
-        <StatTile label={t(`Objectif : ${pctTxt(m.goal)} ou moins`, `Goal: ${m.goal}% or less`)} value={pctTxt(m.value)} change={m.changePts} previous={pctTxt(m.previous)} upIsGood={false} note={countTxt(k, m)} />
+        table={{ columns: [t('Magasin', 'Store'), '%', t('Compté', 'Counted'), t('Sur', 'Out of'), t('Objectif', 'Goal'), t('Statut', 'Status')], rows: rows.map((r) => [rowLabel('store', r.key, r.label), pctTxt(r.metrics[k].value), r.metrics[k].numerator, r.metrics[k].denominator, pctTxt(r.metrics[k].goal), STATUS[r.metrics[k].status]]), filename: `takatak-ops-${k}` }}>
+        <StatTile label={t(`Objectif : ${pctTxt(m.goal)} ou moins`, `Goal: ${m.goal}% or less`)} value={pctTxt(m.value)} note={countTxt(k, m)} />
+        {deltaLine(m)}
         {extraLine(k, m) && <p className="mt-3 text-xs text-ink-3">{extraLine(k, m)}</p>}
         <div className="mt-4 text-[13px] font-semibold text-ink-2">{t('Les 5 magasins les plus touchés', 'The 5 most affected stores')}</div>
-        <div className="mt-2"><HBars rows={data!.top5[k].map((r) => ({ label: r.label, value: r.value, detail: countTxt(k, r) }))} format={pctTxt} empty={t('Aucun magasin avec assez de données.', 'No store with enough data.')} /></div>
+        <div className="mt-2"><HBars rows={data!.top5[k].map((r) => ({ label: storeLabel(r.storeId, r.label), value: r.value, detail: countTxt(k, r) }))} format={pctTxt} empty={t('Aucun magasin avec assez de données.', 'No store with enough data.')} /></div>
       </ChartCard>
     );
   };
 
   const groupCard = (title: string, rows: OpsRow[], name: string) => (
     <ChartCard title={title} loading={loading}
-      table={{ columns: [title, ...METRICS.map((k) => LABEL[k])], rows: rows.map((r) => [r.label, ...METRICS.map((k) => (r.metrics[k].status === 'no_data' ? '—' : pctTxt(r.metrics[k].value)))]), filename: `takatak-ops-${name}` }}>
+      table={{ columns: [title, ...METRICS.map((k) => LABEL[k])], rows: rows.map((r) => [rowLabel(r.level, r.key, r.label), ...METRICS.map((k) => (r.metrics[k].status === 'no_data' ? '—' : pctTxt(r.metrics[k].value)))]), filename: `takatak-ops-${name}` }}>
       <div className="scrollbar-thin overflow-x-auto">
         <table className="w-full text-sm">
           <thead><tr><th className="px-2 py-1.5 text-left text-xs font-semibold text-ink-3">{title}</th>{METRICS.map((k) => <th key={k} className="px-2 py-1.5 text-right text-xs font-semibold text-ink-3">{LABEL[k]}</th>)}</tr></thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.key} className="border-t border-line">
-                <td className="px-2 py-1.5">{r.label}</td>
+                <td className="px-2 py-1.5">{rowLabel(r.level, r.key, r.label)}</td>
                 {METRICS.map((k) => { const m = r.metrics[k]; return <td key={k} className={`num px-2 py-1.5 text-right ${m.status === 'attention' ? 'font-bold text-stop-2' : m.status === 'on_track' ? 'text-go-2' : 'text-ink-3'}`}>{m.status === 'no_data' ? '—' : pctTxt(m.value)}</td>; })}
               </tr>
             ))}
@@ -119,8 +140,8 @@ export default function OperationsQualityPage() {
         <h2 className="mb-3 text-[17px] font-bold text-ink">{STATUS[status]}</h2>
         {attention.length > 0 && (
           <ChartCard className="mb-5" title={t('Magasins à corriger en premier', 'Stores to fix first')} subtitle={t('Le plus loin de l’objectif en premier', 'Furthest from the goal first')} loading={loading}
-            table={{ columns: [t('Magasin', 'Store'), t('Mesure', 'Metric'), '%', t('Objectif', 'Goal'), t('Compté', 'Counted'), t('Sur', 'Out of'), t('Cause', 'Cause')], rows: attention.map((a) => [a.label, LABEL[a.metric], pctTxt(a.value), pctTxt(a.goal), a.numerator, a.denominator, causeLabel(a.metric, a.cause)]), filename: 'takatak-ops-attention' }}>
-            <HBars rows={attention.map((a) => ({ label: `${a.label} · ${LABEL[a.metric]}`, value: a.value, detail: [t(`objectif ${pctTxt(a.goal)}`, `goal ${a.goal}%`), causeLabel(a.metric, a.cause)].filter(Boolean).join(' · ') }))} format={pctTxt} />
+            table={{ columns: [t('Magasin', 'Store'), t('Mesure', 'Metric'), '%', t('Objectif', 'Goal'), t('Compté', 'Counted'), t('Sur', 'Out of'), t('Cause', 'Cause')], rows: attention.map((a) => [storeLabel(a.storeId, a.label), LABEL[a.metric], pctTxt(a.value), pctTxt(a.goal), a.numerator, a.denominator, causeLabel(a.metric, a.cause)]), filename: 'takatak-ops-attention' }}>
+            <HBars rows={attention.map((a) => ({ label: `${storeLabel(a.storeId, a.label)} · ${LABEL[a.metric]}`, value: a.value, detail: [t(`objectif ${pctTxt(a.goal)}`, `goal ${a.goal}%`), causeLabel(a.metric, a.cause)].filter(Boolean).join(' · ') }))} format={pctTxt} />
           </ChartCard>
         )}
         {keys.length > 0 && <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">{keys.map(metricCard)}</div>}
@@ -134,7 +155,7 @@ export default function OperationsQualityPage() {
       <PageHeader title={t('Qualité des opérations', 'Operations quality')} subtitle={t('Toutes vos plateformes au même endroit, comparées à vos objectifs.', 'All your platforms in one place, compared with your goals.')} />
       <InsightsTabs />
       <FilterBar filters={filters} set={set} locations={locations} brands={brands} />
-      {error && <Banner tone="stop" className="mb-4">{error}</Banner>}
+      {error && <Banner tone="stop" className="mb-4">{error === 'bad_range' ? t('Période invalide : la date de fin doit suivre la date de début.', 'Invalid period: the end date must come after the start date.') : error}</Banner>}
       {!data && !error && <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">{[0, 1, 2, 3].map((i) => <div key={i} className="h-48 animate-pulse rounded-lg bg-sunken" />)}</div>}
       {data && (
         <div className={loading ? 'opacity-60 transition-opacity' : ''}>
@@ -162,7 +183,9 @@ function GoalsForm({ goals, onSaved }: { goals: OpsGoals; onSaved: () => void })
   const [hidden, setHidden] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ tone: 'go' | 'stop'; text: string } | null>(null);
-  useEffect(() => { setForm(Object.fromEntries(GOAL_FIELDS.map((k) => [k, String(goals[k])])) as Record<keyof OpsGoals, string>); }, [goals]);
+  // Reset only when the saved values change, not on every refetch (a new `goals` object): half-typed edits survive a filter change.
+  const saved = GOAL_FIELDS.map((k) => goals[k]).join('|');
+  useEffect(() => { setForm(Object.fromEntries(saved.split('|').map((v, i) => [GOAL_FIELDS[i], v])) as Record<keyof OpsGoals, string>); }, [saved]);
   if (hidden) return null;
   const LABELS: Record<keyof OpsGoals, string> = {
     missingIncorrectPct: t('Commandes incomplètes ou erronées (%)', 'Missing or incorrect orders (%)'),
@@ -173,15 +196,21 @@ function GoalsForm({ goals, onSaved }: { goals: OpsGoals; onSaved: () => void })
   };
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    setSaving(true); setMsg(null);
+    setMsg(null);
+    const body = Object.fromEntries(GOAL_FIELDS.map((k) => [k, Number(form[k].trim().replace(',', '.'))])) as Record<keyof OpsGoals, number>;
+    // Checked here first so the message is in the reader's language (the server's 400 text is technical English).
+    const badPct = GOAL_FIELDS.some((k) => k !== 'lateGraceMin' && (form[k].trim() === '' || !Number.isFinite(body[k]) || body[k] < 0 || body[k] > 100));
+    if (badPct) { setMsg({ tone: 'stop', text: t('Entrez un pourcentage entre 0 et 100.', 'Enter a percentage from 0 to 100.') }); return; }
+    const g = body.lateGraceMin;
+    if (form.lateGraceMin.trim() === '' || !Number.isInteger(g) || g < 0 || g > 60) { setMsg({ tone: 'stop', text: t('Entrez un nombre entier de minutes entre 0 et 60.', 'Enter whole minutes from 0 to 60.') }); return; }
+    setSaving(true);
     try {
-      const body = Object.fromEntries(GOAL_FIELDS.map((k) => [k, Number(form[k].replace(',', '.'))]));
       await api('/api/foodhub/ops-quality/goals', { method: 'PUT', json: body });
       setMsg({ tone: 'go', text: t('Objectifs enregistrés.', 'Goals saved.') });
       onSaved();
     } catch (err) {
       if (err instanceof ApiError && err.status === 403) { setHidden(true); return; }
-      setMsg({ tone: 'stop', text: err instanceof Error ? err.message : String(err) });
+      setMsg({ tone: 'stop', text: t('Impossible d’enregistrer les objectifs.', 'Could not save the goals.') });
     } finally { setSaving(false); }
   };
   return (

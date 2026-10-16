@@ -31,7 +31,7 @@ import { audioReady, playSound, unlockAudio } from '@/lib/ui/sound';
 import { api } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
-import { applyKitchenTheme, isKitchenRoute } from '@/lib/ui/kitchen-theme';
+import { isKitchenRoute } from '@/lib/ui/kitchen-theme';
 
 export function ConsoleShell({ children }: { children: ReactNode }) {
   const { viewer } = useViewer();
@@ -85,12 +85,6 @@ function Frame({ children }: { children: ReactNode }) {
   useEffect(() => { try { setCollapsed(localStorage.getItem('takatak.rail') === '1'); } catch { /* ignore */ } }, []);
   useEffect(() => { const o = () => setCopilot(true); window.addEventListener('takatak:copilot', o); return () => window.removeEventListener('takatak:copilot', o); }, []);
   useEffect(() => { setMore(false); setScreen(pathname); }, [pathname]);
-  // Portaled order drawers and alerts inherit tokens from the document root.
-  useEffect(() => {
-    const root = document.documentElement;
-    applyKitchenTheme(root.classList, pathname);
-    return () => { root.classList.remove('theme-kitchen'); };
-  }, [pathname]);
   useEffect(() => { installSupervisor(); }, []);
   useEffect(() => {
     if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('/sw.js').catch(() => undefined);

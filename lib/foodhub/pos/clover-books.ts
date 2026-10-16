@@ -4,7 +4,7 @@
 //  - once the order is in Clover it is recorded as PAID with a custom tender per platform, so it does
 //    not sit open on the register and Clover's sales reports match the platforms.
 // Clover endpoints (docs.clover.com):
-//   GET/POST /v3/merchants/{mId}/tenders               { label, enabled, visible, opensCashDrawer }
+//   GET/POST /v3/merchants/{mId}/tenders               { label, enabled, visible, opensCashDrawer } (labelKey: see tenderBodies)
 //   GET/POST /v3/merchants/{mId}/order_types           { label, taxable }
 //   POST     /v3/merchants/{mId}/orders/{orderId}/payments
 //            { amount, taxAmount, tipAmount, tender: { id }, externalPaymentId, result: "SUCCESS" }
@@ -56,33 +56,58 @@ async function saveRef(mid: string, kind: 'tenders' | 'orderTypes', label: strin
   await getRepo().setKv(KV, refs);
 }
 
+/** A Clover object found or created by label; error = what Clover really answered when it could not be. */
+export interface LabeledRef { id: string | null; error?: string }
+
+/** Clover's answer in one line, its own words kept: "HTTP 400 {"message":"…"}". */
+function cloverAnswer(r: { status: number; json: any }) {
+  return r.status ? `HTTP ${r.status} ${JSON.stringify(r.json).slice(0, 200)}` : String(r.json?.message ?? 'no answer');
+}
+
+/**
+ * Bodies tried in order to create a platform tender. Clover keeps labelKey for its own tenders and an app's namespace:
+ * tenders made by hand in the Clover dashboard have none, and the live register (API token) refused ours on 2026-10-16.
+ * So when Clover refuses the first body, the same tender is created without labelKey, like a hand-made one.
+ */
+function tenderBodies(label: string) {
+  const tender = { label, enabled: true, visible: true, opensCashDrawer: false };
+  return [{ ...tender, labelKey: `com.takatak.foodhub.${label.toLowerCase().replace(/[^a-z0-9]+/g, '_')}` }, tender];
+}
+
 /** Finds (or creates once) a Clover object by label — tenders and order types work the same way. */
-async function ensureLabeled(mid: string, kind: 'tenders' | 'orderTypes', label: string): Promise<string | null> {
+async function ensureLabeled(mid: string, kind: 'tenders' | 'orderTypes', label: string): Promise<LabeledRef> {
   const refs = await readRefs();
   const known = refs[mid]?.[kind]?.[label];
-  if (known) return known;
+  if (known) return { id: known };
   const path = kind === 'tenders' ? '/tenders' : '/order_types';
   const list = await cloverJson(mid, `${path}?limit=1000`);
   if (list.ok) {
     const hit = (list.json?.elements ?? []).find((e: any) => String(e.label || '').trim().toLowerCase() === label.toLowerCase());
-    if (hit?.id) { await saveRef(mid, kind, label, String(hit.id)); return String(hit.id); }
+    if (hit?.id) { await saveRef(mid, kind, label, String(hit.id)); return { id: String(hit.id) }; }
   }
-  const body = kind === 'tenders'
-    ? { label, labelKey: `com.takatak.foodhub.${label.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`, enabled: true, visible: true, opensCashDrawer: false }
-    : { label, taxable: true };
-  const created = await cloverJson(mid, path, { method: 'POST', body: JSON.stringify(body) });
-  if (created.ok && created.json?.id) { await saveRef(mid, kind, label, String(created.json.id)); return String(created.json.id); }
-  return null;
+  const bodies: object[] = kind === 'tenders' ? tenderBodies(label) : [{ label, taxable: true }];
+  const answers: string[] = [];
+  for (const body of bodies) {
+    const created = await cloverJson(mid, path, { method: 'POST', body: JSON.stringify(body) });
+    if (created.ok && created.json?.id) { await saveRef(mid, kind, label, String(created.json.id)); return { id: String(created.json.id) }; }
+    answers.push(cloverAnswer(created));
+    // Only a refusal is tried again: a 2xx without an id may have made it (the next lookup by label finds it — never
+    // post a twin), and no token (status 0) is not about the body.
+    if (created.ok || !created.status) break;
+  }
+  return { id: null, error: answers.length > 1 ? `${answers[0]} (with labelKey), then ${answers[1]} (without labelKey)` : answers[0] };
 }
 
 export async function cloverOrderTypeFor(mid: string | null | undefined, channel: ChannelKey): Promise<string | null> {
   if (!mid || !cloverOrderTypesEnabled()) return null;
-  try { return await ensureLabeled(mid, 'orderTypes', platformLabel(channel)); } catch { return null; }
+  try { return (await ensureLabeled(mid, 'orderTypes', platformLabel(channel))).id; } catch { return null; }
 }
 
-/** The platform's tender in this merchant's Clover (found by label, or created once). */
-export async function cloverTenderFor(mid: string, channel: ChannelKey): Promise<string | null> {
-  try { return await ensureLabeled(mid, 'tenders', platformLabel(channel)); } catch { return null; }
+/** The platform's tender in this merchant's Clover (found by label, or created once), or Clover's answer when it could not be. */
+export async function cloverTenderFor(mid: string, channel: ChannelKey): Promise<LabeledRef> {
+  try { return await ensureLabeled(mid, 'tenders', platformLabel(channel)); } catch (error) {
+    return { id: null, error: `Clover error: ${error instanceof Error ? error.message : String(error)}` };
+  }
 }
 
 /** Clover's own total for an order, in cents (null when Clover does not say). */
@@ -115,8 +140,9 @@ export async function recordCloverPayment(order: StoredOrder, mid: string | null
   const merchant = mid || process.env.CLOVER_MERCHANT_ID;
   if (!merchant || !order.posOrderId) return { ok: false, skipped: true, error: 'Order is not in Clover.' };
   try {
-    const tenderId = await ensureLabeled(merchant, 'tenders', platformLabel(order.channel));
-    if (!tenderId) return { ok: false, error: `Could not find or create the "${platformLabel(order.channel)}" tender in Clover (needs the Payments write permission).` };
+    const tender = await ensureLabeled(merchant, 'tenders', platformLabel(order.channel));
+    if (!tender.id) return { ok: false, error: `Could not find or create the "${platformLabel(order.channel)}" tender in Clover: ${tender.error}` };
+    const tenderId = tender.id;
     const amounts = cloverPaymentAmounts(order);
     const taxAmount = amounts.taxAmount;
     let amount = amounts.amount;

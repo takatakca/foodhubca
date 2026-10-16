@@ -61,7 +61,8 @@ function untilOf(a: ActivityEntry): string | null {
 }
 
 export async function statusHistory(filter: HistoryFilter = {}): Promise<HistoryRow[]> {
-  const to = filter.to ?? new Date().toISOString();
+  // The log's upper bound is exclusive: one second ahead keeps a line written in this very millisecond (coarse clocks).
+  const to = filter.to ?? new Date(Date.now() + 1000).toISOString();
   const from = filter.from ?? new Date(Date.parse(to) - 7 * 86400_000).toISOString();
   const locations = [...new Set([...(filter.locationCodes ?? []), ...(filter.locationCode ? [filter.locationCode] : [])])];
   const entries = await getRepo().listActivity({ since: from, until: to, kinds: ['store_status', 'hours'], ...(locations.length ? { locationCodes: locations } : {}), limit: 5000 });

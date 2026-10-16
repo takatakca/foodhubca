@@ -11,7 +11,7 @@ const MAX_RANGE_MS = 92 * 86400_000;
 // ?from=&to= (ISO) or ?days=N (default the last 7 days, at most 92 days) &location= &brand= &channel=
 export const GET = withPerm('view', async (req, _ctx, actor) => {
   const q = new URL(req.url).searchParams;
-  const toMs = q.get('to') ? Date.parse(String(q.get('to'))) : Date.now();
+  const toMs = q.get('to') ? Date.parse(String(q.get('to'))) : Date.now() + 1000; // exclusive bound: keep lines written right now
   const days = Number(q.get('days') || 7);
   const fromMs = q.get('from') ? Date.parse(String(q.get('from'))) : toMs - (Number.isFinite(days) && days > 0 ? days : 7) * 86400_000;
   if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || fromMs >= toMs) return fail('from / to must be dates, from before to');

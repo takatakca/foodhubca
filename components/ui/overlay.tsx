@@ -60,11 +60,13 @@ function useDialogInteraction<TPanel extends HTMLElement>(onClose: () => void, d
     document.addEventListener('keydown', keydown, true);
     return () => {
       document.removeEventListener('keydown', keydown, true);
+      const wasTop = dialogStack.isTop(token);
       if (dialogStack.remove(token) === 0) {
         document.body.style.overflow = previousBodyOverflow ?? '';
         previousBodyOverflow = null;
       }
-      if (priorFocus?.isConnected) priorFocus.focus({ preventScroll: true });
+      // If an underlying dialog disappears first, don't steal focus from a dialog above it.
+      if (wasTop && priorFocus?.isConnected) priorFocus.focus({ preventScroll: true });
     };
   }, []);
   return { backdropRef, panelRef };

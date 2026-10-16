@@ -1767,6 +1767,16 @@ try {
   check('end of day: the feed counts reach the bag log', bagCron.status === 200 && bagCron.json?.days?.some((d) => d.locationCode === 'NDG_MAIN' && d.synced), JSON.stringify(bagCron.json));
 
   }
+  console.log('\n46. Owner test order on a register connected with an API token (Settings → Clover app)');
+  const ownerTest = await call('POST', '/api/foodhub/clover-connect/owner-test-order', { body: { merchantId: 'MAINMERCHANT' } });
+  check('owner: TEST order created, printed and paid on the API-token register, each step confirmed by Clover', ownerTest.status === 200 && ownerTest.json?.steps?.length === 3 && ownerTest.json.steps.every((x) => x.ok), ownerTest.text.slice(0, 300));
+  check('owner test order needs a sign-in (no public access)', (await call('POST', '/api/foodhub/clover-connect/owner-test-order', { auth: false, body: { merchantId: 'MAINMERCHANT' } })).status === 401);
+  check('a register Food Hub cannot reach is refused, nothing sent', (await call('POST', '/api/foodhub/clover-connect/owner-test-order', { body: { merchantId: 'NOTCONNECTED01' } })).status === 403);
+  const chTest = (await call('GET', '/api/foodhub/channels')).json?.clover;
+  check('Settings → Clover app: API-token register listed and "tested end to end" recorded', chTest?.tokenMerchantIds?.includes('MAINMERCHANT') && chTest?.app?.testOrder?.merchantId === 'MAINMERCHANT');
+  const welcomeTicketCannot = await call('POST', '/api/foodhub/clover-connect/test-order', { auth: false, body: { t: 'forged.ticket' } });
+  check('the public welcome endpoint still needs a valid ticket', welcomeTicketCannot.status === 401);
+
   await sleep(300);
   // A webhook "kept in the inbox" (section 41: Uber refusing the order fetch on purpose) is handled, not a crash.
   const crashes = appLog.split('\n').filter((l) => /\[foodhub\] .* failed|Unhandled|TypeError|ReferenceError/.test(l) && !/kept in the inbox/.test(l));

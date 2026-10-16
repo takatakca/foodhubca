@@ -7,6 +7,12 @@
 // "Sales" here = the order SUBTOTAL: food and drinks before tax, delivery fee, tip and platform fees (when a subtotal
 // is missing: total − tax − delivery fee − tip). This differs from the Insights page (analytics.ts), which counts
 // order TOTALS. Read-only: nothing is sent anywhere.
+//
+// Direct orders: an order still 'awaiting_payment' (phone order held until its payment link is paid) is not a sale
+// and not a lost sale: it is left out. Their time is `placedAt` (the real order time: a Clover website order
+// imported late keeps its Clover time), falling back to `createdAt`.
+// Limit: direct orders are stored without a location index, so a location filter on them runs in memory after the
+// ROW_CAP newest direct orders of every location are read (`truncated` then warns that the period is too long).
 import { getCatalog } from './catalog';
 import { CHANNEL_LABELS } from './config';
 import { DIRECT_ORDERS } from './delivery/store';
@@ -91,6 +97,7 @@ export interface SalesFact {
   brand: string;
   locationCode: string;
   fulfillment: Fulfillment;
+  /** Order time: platform `createdAt`; direct `placedAt`, else `createdAt`. */
   createdAt: string;
   counted: boolean;
   sales: number;
@@ -106,8 +113,14 @@ function platformFact(o: StoredOrder): SalesFact {
 function directFact(o: DirectOrder): SalesFact {
   const source = sourceOf(o);
   return { id: o.id, source, group: 'direct', brand: o.brandName ?? '', locationCode: o.locationCode ?? '', fulfillment: o.fulfillment === 'delivery' ? 'delivery' : 'pickup',
-    createdAt: o.createdAt, counted: o.status !== 'cancelled', sales: factSales(o), lines: o.lines ?? [] };
+    createdAt: o.placedAt || o.createdAt, counted: o.status !== 'cancelled', sales: factSales(o), lines: o.lines ?? [] };
 }
+
+/** A direct order waiting for its payment link is neither a sale nor a lost sale (not in the kitchen, not in Clover). */
+const isDirectSale = (o: DirectOrder | undefined | null): o is DirectOrder => !!o && o.status !== 'awaiting_payment';
+
+/** Direct orders are indexed by when Food Hub stored them; a late import can be stored up to this long after it was placed. */
+const DIRECT_IMPORT_SLACK_MS = 2 * 86400_000;
 
 export interface SalesMixQuery {
   from: string;
@@ -164,7 +177,22 @@ function keepFact(f: SalesFact, q: SalesMixQuery, mode: DirectMode, sources: Set
   return true;
 }
 
-const dowOf = (ms: number, tz: string) => { const p = localParts(ms, tz); return (new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay() + 6) % 7; };
+const dowOfParts = (p: { year: number; month: number; day: number }) => (new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay() + 6) % 7;
+const dowOf = (ms: number, tz: string) => dowOfParts(localParts(ms, tz));
+
+/**
+ * Local hour and weekday (0 = Monday) of an instant, memoised per 15-minute UTC bucket: every zone offset and DST
+ * change is a whole number of quarter hours, so the local hour and date never change inside one bucket.
+ */
+function hourDowReader(tz: string) {
+  const memo = new Map<number, { hour: number; dow: number }>();
+  return (ms: number) => {
+    const bucket = Math.floor(ms / 900_000);
+    let v = memo.get(bucket);
+    if (!v) { const p = localParts(ms, tz); v = { hour: p.hour, dow: dowOfParts(p) }; memo.set(bucket, v); }
+    return v;
+  };
+}
 
 export async function buildSalesMix(q: SalesMixQuery, now = Date.now()) {
   const tz = foodhubTimeZone();
@@ -180,13 +208,16 @@ export async function buildSalesMix(q: SalesMixQuery, now = Date.now()) {
   const repo = getRepo();
   const sinceIso = new Date(prevFrom).toISOString();
   const untilIso = new Date(to).toISOString();
+  // Direct docs are indexed by storage time, which is never before the order time: the lower bound stays, the upper
+  // bound is widened for late imports, and the facts are then cut by their real order time below.
+  const directUntilIso = new Date(to + DIRECT_IMPORT_SLACK_MS).toISOString();
   const [catalog, platformRaw, directRaw] = await Promise.all([
     getCatalog(),
     repo.listOrders({ since: sinceIso, until: untilIso, limit: ROW_CAP, locationCodes: locs }),
-    repo.listDocs<DirectOrder>(DIRECT_ORDERS, { since: sinceIso, until: untilIso, limit: ROW_CAP }),
+    repo.listDocs<DirectOrder>(DIRECT_ORDERS, { since: sinceIso, until: directUntilIso, limit: ROW_CAP }),
   ]);
   const truncated = platformRaw.length >= ROW_CAP || directRaw.length >= ROW_CAP;
-  const direct = directRaw.map((d) => d.data).filter((o) => o && (!locs || locs.includes(o.locationCode)));
+  const direct = directRaw.map((d) => d.data).filter(isDirectSale).filter((o) => !locs || locs.includes(o.locationCode));
 
   const facts = [...platformRaw.map(platformFact), ...direct.map(directFact)].filter((f) => keepFact(f, q, mode, sources));
   const at = (f: SalesFact) => Date.parse(f.createdAt);
@@ -199,10 +230,12 @@ export async function buildSalesMix(q: SalesMixQuery, now = Date.now()) {
 
   const sales = sumSales(counted);
   const prevSales = sumSales(prevCounted);
+  const lostSales = sumSales(lost);
+  const prevLostSales = sumSales(prev.filter((f) => !f.counted));
   const itemsSold = counted.reduce((s, f) => s + f.lines.reduce((a, l) => a + num(l.quantity), 0), 0);
   const totals = {
     orders: counted.length, sales, aov: counted.length ? r2(sales / counted.length) : 0, itemsSold,
-    lostOrders: lost.length, lostSales: sumSales(lost),
+    lostOrders: lost.length, lostSales, prevLostSales, lostSalesChange: change(lostSales, prevLostSales),
     prevOrders: prevCounted.length, prevSales, salesChange: change(sales, prevSales), ordersChange: change(counted.length, prevCounted.length),
   };
 
@@ -242,10 +275,9 @@ export async function buildSalesMix(q: SalesMixQuery, now = Date.now()) {
   const byHour = Array.from({ length: 24 }, (_, hour) => ({ hour, orders: 0, sales: 0, aov: 0 }));
   const heatmap = { orders: Array.from({ length: 7 }, () => Array(24).fill(0) as number[]), sales: Array.from({ length: 7 }, () => Array(24).fill(0) as number[]) };
   const byWeekday = Array.from({ length: 7 }, (_, dow) => ({ dow, orders: 0, sales: 0, aov: 0, days: 0, avgSalesPerDay: 0 }));
+  const hourDow = hourDowReader(tz);
   for (const f of counted) {
-    const ms = at(f);
-    const h = localParts(ms, tz).hour;
-    const d = dowOf(ms, tz);
+    const { hour: h, dow: d } = hourDow(at(f));
     byHour[h].orders++; byHour[h].sales += f.sales;
     byWeekday[d].orders++; byWeekday[d].sales += f.sales;
     heatmap.orders[d][h]++; heatmap.sales[d][h] += f.sales;

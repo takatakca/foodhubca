@@ -28,14 +28,14 @@ async function platform(o: { channel: 'uber_eats' | 'doordash' | 'skip' | 'tgtg'
   return order;
 }
 
-async function direct(o: { source: 'phone' | 'phone_ai' | 'website' | 'clover_online' | 'clover' | 'manual'; at: string; brand?: string; loc?: string; lines?: Line[]; subtotal?: number; total?: number; status?: string; fulfillment?: 'pickup' | 'delivery' }) {
+async function direct(o: { source: 'phone' | 'phone_ai' | 'website' | 'clover_online' | 'clover' | 'manual'; at: string; placedAt?: string; brand?: string; loc?: string; lines?: Line[]; subtotal?: number; total?: number; status?: string; fulfillment?: 'pickup' | 'delivery' }) {
   const { getRepo } = await import('../lib/foodhub/repo');
   const { DIRECT_ORDERS } = await import('../lib/foodhub/delivery/store');
   const lines = (o.lines ?? [line('Test dish', 1, 10)]).map((l) => ({ ...l, unitPrice: l.total / (l.quantity || 1), modifiers: [] }));
   const subtotal = o.subtotal ?? lines.reduce((s, l) => s + l.total, 0);
   const id = `dir_${++seq}`;
   const data = { id, number: `T-${seq}`, source: o.source, brandName: o.brand ?? 'Brand A', locationCode: o.loc ?? 'LOC_A', customer: {}, fulfillment: o.fulfillment ?? 'pickup', lines, subtotal, tax: 0, deliveryFee: 0, tip: 0,
-    total: o.total ?? subtotal, currency: 'CAD', payment: 'paid', status: o.status ?? 'completed', containsAlcohol: false, placedAt: o.at, events: [], createdAt: o.at, updatedAt: o.at };
+    total: o.total ?? subtotal, currency: 'CAD', payment: 'paid', status: o.status ?? 'completed', containsAlcohol: false, placedAt: o.placedAt ?? o.at, events: [], createdAt: o.at, updatedAt: o.at };
   await getRepo().putDocs(DIRECT_ORDERS, [{ id, key: o.loc ?? 'LOC_A', at: o.at, data }]);
 }
 
@@ -109,9 +109,20 @@ describe('(4) local hour and weekday', () => {
     expect(m.heatmap.sales[0][10]).toBe(10);
   });
 
-  it('spring-forward week: one day per weekday, 7 in all', async () => {
+  it('spring-forward week: one day per weekday, 7 in all, and hours on each side of the change in local time', async () => {
+    // Sat Mar 7 2026 23:30 EST = 04:30Z Mar 8; Sun Mar 8 2026 03:30 EDT (after 02:00 → 03:00) = 07:30Z.
+    await platform({ channel: 'uber_eats', at: '2026-03-08T04:30:00Z' });
+    await direct({ source: 'phone', at: '2026-03-08T07:30:00Z' });
     const m = await mix({ from: '2026-03-02T05:00:00.000Z', to: '2026-03-09T04:00:00.000Z' });
     expect(m.byWeekday.map((d) => d.days)).toEqual([1, 1, 1, 1, 1, 1, 1]);
+    expect(m.byHour[23].orders).toBe(1);
+    expect(m.byHour[3].orders).toBe(1);
+    expect(m.byHour[4].orders + m.byHour[7].orders + m.byHour[2].orders).toBe(0);
+    expect(m.byWeekday[5].orders).toBe(1); // Saturday
+    expect(m.byWeekday[6].orders).toBe(1); // Sunday
+    expect(m.heatmap.orders[5][23]).toBe(1);
+    expect(m.heatmap.orders[6][3]).toBe(1);
+    expect(m.heatmap.sales[6][3]).toBe(10);
   });
 });
 
@@ -139,6 +150,62 @@ describe('(5)(6) lost sales and the previous period', () => {
     expect(m.items[0]).toMatchObject({ qty: 3, prevQty: 1, change: 200 });
     expect(m.bySource[0]).toMatchObject({ prevSales: 10, change: 200 });
   });
+
+  it('lost sales are compared with the previous period too', async () => {
+    await platform({ channel: 'uber_eats', at: '2026-09-30T16:00:00Z', lines: [line('Wrap', 1, 10)], status: 'cancelled' });
+    await platform({ channel: 'uber_eats', at: '2026-10-06T16:00:00Z', lines: [line('Wrap', 3, 30)], status: 'cancelled' });
+    const m = await mix({});
+    expect(m.totals).toMatchObject({ lostSales: 30, prevLostSales: 10, lostSalesChange: 200, prevSales: 0 });
+  });
+});
+
+describe('direct orders: payment-link holds and the real order time', () => {
+  it('an order waiting for its payment link is neither a sale nor a lost sale', async () => {
+    await direct({ source: 'phone', at: '2026-10-06T16:00:00Z', lines: [line('Wrap', 2, 24)], status: 'awaiting_payment' });
+    await direct({ source: 'phone', at: '2026-09-30T16:00:00Z', lines: [line('Wrap', 1, 12)], status: 'awaiting_payment' }); // previous period
+    await direct({ source: 'phone', at: '2026-10-06T17:00:00Z', lines: [line('Fries', 1, 5)] });
+    const m = await mix({});
+    expect(m.totals).toMatchObject({ orders: 1, sales: 5, itemsSold: 1, lostOrders: 0, lostSales: 0, prevSales: 0, prevOrders: 0, prevLostSales: 0 });
+    expect(m.items.map((i) => i.name)).toEqual(['Fries']);
+    expect(m.bySource).toEqual([expect.objectContaining({ key: 'phone', orders: 1, sales: 5, lostOrders: 0, prevSales: 0 })]);
+    expect(m.byHour.reduce((s, h) => s + h.orders, 0)).toBe(1);
+  });
+
+  it('uses placedAt (not the import time) for the period, hour and weekday', async () => {
+    // Imported on Tue Oct 6 (current week) but placed Wed Sep 30 at 12:15 local (previous week).
+    await direct({ source: 'clover_online', at: '2026-10-06T23:00:00Z', placedAt: '2026-09-30T16:15:00Z', lines: [line('Wrap', 1, 10)] });
+    // Placed Sun Oct 11 at 20:00 local (current week), imported one day after the period ended.
+    await direct({ source: 'clover_online', at: '2026-10-13T01:00:00Z', placedAt: '2026-10-12T00:00:00Z', lines: [line('Fries', 2, 8)] });
+    const m = await mix({});
+    expect(m.totals).toMatchObject({ orders: 1, sales: 8, prevOrders: 1, prevSales: 10 });
+    expect(m.byHour[20].orders).toBe(1);
+    expect(m.byHour[19].orders).toBe(0); // the import hour of the first order is not used
+    expect(m.byWeekday[6].orders).toBe(1); // Sunday
+    expect(m.byWeekday[1].orders).toBe(0); // not the Tuesday it was imported
+    expect(m.items.find((i) => i.name === 'Wrap')).toMatchObject({ qty: 0, prevQty: 1 });
+  });
+});
+
+describe('speed', () => {
+  it('builds 20 000 orders in well under the route time limit', async () => {
+    const { getRepo } = await import('../lib/foodhub/repo');
+    const { DIRECT_ORDERS } = await import('../lib/foodhub/delivery/store');
+    const start = Date.parse('2026-10-05T04:00:00.000Z');
+    const docs = Array.from({ length: 20_000 }, (_, i) => {
+      const at = new Date(start + Math.floor((i * 7 * 86400_000) / 20_000)).toISOString();
+      const id = `perf_${i}`;
+      const lines = [{ name: `Dish ${i % 40}`, quantity: 1, total: 10, unitPrice: 10, modifiers: [] }];
+      return { id, key: 'LOC_A', at, data: { id, number: `P-${i}`, source: 'phone', brandName: 'Brand A', locationCode: 'LOC_A', customer: {}, fulfillment: 'pickup', lines, subtotal: 10, tax: 0, deliveryFee: 0, tip: 0,
+        total: 10, currency: 'CAD', payment: 'paid', status: 'completed', containsAlcohol: false, placedAt: at, events: [], createdAt: at, updatedAt: at } };
+    });
+    await getRepo().putDocs(DIRECT_ORDERS, docs);
+    const t0 = performance.now();
+    const m = await mix({});
+    const ms = performance.now() - t0;
+    expect(m.totals.orders).toBe(20_000);
+    expect(m.byHour.reduce((s, h) => s + h.orders, 0)).toBe(20_000);
+    expect(ms).toBeLessThan(2_000);
+  }, 30_000);
 });
 
 describe('(7) filters', () => {
@@ -254,6 +321,38 @@ describe('(11) GET /api/foodhub/sales-mix', () => {
     expect((await call('from=2026-10-05&to=2026-10-11&direct=maybe')).status).toBe(400);
     expect((await call('from=2026-10-11&to=2026-10-05')).status).toBe(400);
     expect((await call('from=not-a-date')).status).toBe(400);
+  });
+
+  it('a manager limited to one location never sees another location, even when asking for it', async () => {
+    const { getRepo } = await import('../lib/foodhub/repo');
+    const { hashPassword } = await import('../lib/foodhub/auth');
+    await getRepo().saveUser({ username: 'mgr_a', name: 'Manager A', role: 'manager', locations: ['LOC_A'], passwordHash: hashPassword('manager-pass-1'), active: true } as any);
+    await platform({ channel: 'uber_eats', at: '2026-10-06T16:00:00Z', loc: 'LOC_A', lines: [line('Wrap A', 1, 10)] });
+    await platform({ channel: 'doordash', at: '2026-10-06T16:05:00Z', loc: 'LOC_B', lines: [line('Wrap B', 1, 20)] });
+    await direct({ source: 'phone', at: '2026-10-06T16:10:00Z', loc: 'LOC_A', lines: [line('Fries A', 1, 4)] });
+    await direct({ source: 'clover', at: '2026-10-06T16:15:00Z', loc: 'LOC_B', lines: [line('Fries B', 1, 6)] });
+    const { GET } = await import('../app/api/foodhub/sales-mix/route');
+    const as = async (qs: string) => {
+      const res = await GET(new Request(`http://hub.local/api/foodhub/sales-mix?from=2026-10-05&to=2026-10-11${qs}`, { headers: { authorization: `Basic ${Buffer.from('mgr_a:manager-pass-1').toString('base64')}` } }) as any, {} as never);
+      expect(res.status).toBe(200);
+      return (await res.json()) as any;
+    };
+    for (const qs of ['', '&locations=LOC_B', '&locations=LOC_A,LOC_B']) {
+      const body = await as(qs);
+      const names = body.items.map((i: any) => i.name).sort();
+      if (qs === '&locations=LOC_B') {
+        expect(names).toEqual([]);
+        expect(body.itemsTotal).toBe(0);
+        expect(body.bySource).toEqual([]);
+        expect(body.byLocation).toEqual([]);
+        expect(body.totals.orders).toBe(0);
+      } else {
+        expect(names).toEqual(['Fries A', 'Wrap A']);
+        expect(body.bySource.map((s: any) => s.key).sort()).toEqual(['phone', 'uber_eats']);
+        expect(body.byLocation.map((l: any) => l.key)).toEqual(['LOC_A']);
+        expect(body.totals).toMatchObject({ orders: 2, sales: 14 });
+      }
+    }
   });
 
   it('refuses without sign-in', async () => {

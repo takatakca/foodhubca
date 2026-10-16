@@ -86,7 +86,7 @@ export default function SalesMixPage() {
             <StatTile label={t('Commandes', 'Orders')} value={fmtInt(k.orders)} change={k.ordersChange} previous={fmtInt(k.prevOrders)} />
             <StatTile label={t('Panier moyen', 'Average order')} value={fmtMoney(k.aov)} />
             <StatTile label={t('Articles vendus', 'Items sold')} value={fmtInt(k.itemsSold)} />
-            <StatTile label={t('Ventes perdues', 'Lost sales')} value={fmtMoney(k.lostSales)} upIsGood={false} note={`${k.lostOrders} ${t('cmd annulées', 'cancelled orders')}`} />
+            <StatTile label={t('Ventes perdues', 'Lost sales')} value={fmtMoney(k.lostSales)} change={k.lostSalesChange} previous={fmtMoney(k.prevLostSales)} upIsGood={false} note={`${k.lostOrders} ${t('cmd annulées', 'cancelled orders')}`} />
           </div>
 
           <Card className="mb-5 p-5">
@@ -133,7 +133,8 @@ export default function SalesMixPage() {
                 </tbody>
               </table>
               {!shown.length && <div className="py-8 text-center text-sm text-ink-3">{t('Aucun article trouvé.', 'No item found.')}</div>}
-              {shown.length > 300 && <div className="pt-3 text-xs text-ink-3">{t('300 premiers articles affichés : exportez pour la liste complète.', 'First 300 items shown: export for the full list.')}</div>}
+              {data.itemsTotal > data.items.length && <div className="pt-3 text-xs text-ink-3">{t(`Recherche limitée aux ${data.items.length} premiers articles : exportez pour la liste complète.`, `Search covers the first ${data.items.length} items: export for the full list.`)}</div>}
+              {shown.length > 300 &&<div className="pt-3 text-xs text-ink-3">{t('300 premiers articles affichés : exportez pour la liste complète.', 'First 300 items shown: export for the full list.')}</div>}
             </div>
           </Card>
 
@@ -151,7 +152,7 @@ export default function SalesMixPage() {
           <ChartCard className="mb-5" title={t('Heures de pointe', 'Busiest hours')} subtitle={heat === 'sales' ? t('Ventes par jour et par heure', 'Sales by day and hour') : t('Commandes par jour et par heure', 'Orders by day and hour')}
             legend={<Segmented size="sm" value={heat} onChange={setHeat} options={[{ key: 'sales', label: t('Ventes', 'Sales') }, { key: 'orders', label: t('Commandes', 'Orders') }]} />}
             table={{ columns: ['', ...Array.from({ length: 24 }, (_, h) => `${h}h`)], rows: data.heatmap[heat].map((r, d) => [days[d], ...r]), filename: `takatak-heatmap-${heat}` }}>
-            <Heatmap grid={data.heatmap[heat]} />
+            <Heatmap grid={data.heatmap[heat]} days={days} format={heat === 'sales' ? fmtMoney : fmtInt} unit={heat === 'sales' ? t('ventes', 'sales') : t('cmd', 'orders')} ariaUnit={heat === 'sales' ? 'sales' : 'orders'} />
           </ChartCard>
 
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">

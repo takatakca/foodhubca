@@ -1,5 +1,10 @@
 # FOODHUB — décisions d'architecture et d'exploitation
 
+## Accessibilité des onglets — 2026-10-16
+
+Les `Tabs` horizontaux utilisent le modèle ARIA tablist : Tab atteint uniquement la sélection courante, ArrowLeft/ArrowRight parcourent les onglets avec bouclage et Home/End vont au début/à la fin ; la sélection continue à utiliser les callbacks existants. Aucune donnée simulée et aucune nouvelle autorité de session. Branche `fix/console-tabs-keyboard-20261016` soumise aux tests et à la revue propriétaire ; indépendante des dialogues de PR #62.
+
+
 Mise à jour : 2026-10-14. **Références normatives** : `CLAUDE.md`, `BRAND.md`, `docs/LOCKED_DECISIONS.md`, `docs/ON2GO_HUB_ECOSYSTEM.md`. En cas de divergence, les décisions explicites du propriétaire et les règles de sécurité des documents existants priment ; cette synthèse n'introduit pas d'approbations nouvelles.
 
 | Sujet | Décision à conserver | Source |

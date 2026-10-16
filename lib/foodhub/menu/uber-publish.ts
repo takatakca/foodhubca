@@ -12,7 +12,7 @@ import { isDoNotTouch, menuForLocation, publishMenu, type FanOutRow } from '../o
 import { getRepo } from '../repo';
 import type { ChannelStore, HoursConfig, MasterMenu } from '../types';
 import { getMenuLanguages } from './language';
-import { getBrandMenu, getMenuSharing, sourceOf, type MenuSharing } from './shared';
+import { getBrandMenu, getMenuSharing, sourceOf, unpublishableMenuReason, type MenuSharing } from './shared';
 import { checkUberMenu, markupPct, priceFor, toUberMenu, type UberMenuIssue } from './translate';
 import { verifyMenu } from './verify';
 
@@ -80,6 +80,9 @@ function planRow(store: ChannelStore, menu: MasterMenu | null, menuFrom: string 
   const body = built.body;
   const check = verifyMenu(menu, { stores, hours });
   const issues: UberMenuIssue[] = [...check.errors, ...checkUberMenu(body)];
+  // A follower's dish list that matches nothing would send an empty menu: blocked like any menu error.
+  const empty = unpublishableMenuReason(menu);
+  if (empty) issues.unshift({ level: 'error', code: 'no_dishes', message: empty });
   if (provisioning(store) === 'waiting') issues.push({ level: 'warning', code: 'awaiting_provision', message: 'Uber has not confirmed this store’s activation yet (store.provisioned) — Uber refuses the menu until it does.' });
   if (provisioning(store) === 'elsewhere') issues.push({ level: 'warning', code: 'other_integration', message: 'Another integration (e.g. UrbanPiper) still receives this store’s orders and may overwrite this menu — consider “Do not touch” until it lets go (Stores → Check with Uber).' });
   if (provisioning(store) === 'disconnected') issues.push({ level: 'warning', code: 'deprovisioned', message: 'Uber disconnected this store from Food Hub (store.deprovisioned) — reconnect it under Stores before publishing.' });

@@ -1,6 +1,6 @@
 // AI phone ordering — the phone lines and how the agent behaves.
 // One Twilio number = one line. A line sells brands from one kitchen (location), or from several kitchens
-// ("brand@kitchen" groups: Po Poulet at NDG and at Saint-Léonard on the same number). On a line with several kitchens the
+// ("brand@kitchen" groups: Pi Pita at NDG and Po Poulet at Saint-Léonard on the same number). On a line with several kitchens the
 // agent first asks which restaurant the caller wants (tool choose_kitchen); everything after that — menu, hours, delivery
 // area, hand-off phone, the Clover ticket — is that kitchen's. Stored in fh_kv.
 import crypto from 'node:crypto';
@@ -8,6 +8,8 @@ import { logActivity, type Actor } from '../activity';
 import { getCatalog } from '../catalog';
 import { normalizePhone } from '../notify';
 import { getRepo } from '../repo';
+import { cleanPersona, DEFAULT_PERSONA, type Persona } from './style';
+import { cleanVoice, DEFAULT_SPEECH, DEFAULT_VOICES } from './voices';
 
 /** One kitchen served by a line, with the brands sold from it on that number. */
 export interface PhoneLineKitchen {
@@ -42,8 +44,16 @@ export interface PhoneSettings {
   voiceEn: string;
   /** Spanish voice (es-US), for callers who chose español on the ON2GO menu. */
   voiceEs: string;
-  /** Twilio speech model (fr-CA is supported by phone_call and googlev2_telephony; English uses en-US). */
+  /** Twilio speech model for free conversation (googlev2_telephony; fr-CA / en-US / es-US). */
   speechModel: string;
+  /** Twilio speech model for short answers: menu, yes / no, order numbers (googlev2_telephony_short honours hints in all three languages). */
+  speechModelShort: string;
+  /** ON2GO greeting: listen with Deepgram nova-3 "multi" (French, English and Spanish at once). Off until a test call confirms it on the account. */
+  greetingMulti: boolean;
+  /** Who the assistant is (a first name, and the voice's gender for « assistante » / « assistant »). */
+  persona: Persona;
+  /** How phone orders are paid: a Clover payment link by text (when the Clover ecommerce key is set), at the counter, or the caller chooses. */
+  payment: PhonePayment;
   /** Seconds of silence that end the caller's sentence (Twilio needs a whole number with a speech model). */
   speechTimeout: number;
   /** Text the customer a confirmation with the order number and total. */
@@ -53,13 +63,36 @@ export interface PhoneSettings {
   updatedAt?: string;
 }
 
+export interface PhonePayment {
+  /** link = a payment link by text (pickup and delivery); counter = pay at the counter (as before); choose = the caller picks. */
+  mode: 'link' | 'counter' | 'choose';
+  /** An unpaid link expires: the held order is cancelled and the caller gets a courtesy text. */
+  expiryMin: number;
+  /** One reminder text this many minutes after the link (0 = none). */
+  reminderMin: number;
+}
+
+export const DEFAULT_PAYMENT: PhonePayment = { mode: 'link', expiryMin: 30, reminderMin: 10 };
+
+export function cleanPayment(raw: unknown): PhonePayment {
+  const r = (raw ?? {}) as Partial<PhonePayment>;
+  const expiryMin = Math.min(120, Math.max(16, Math.round(Number(r.expiryMin) || DEFAULT_PAYMENT.expiryMin)));
+  const reminder = Math.round(Number(r.reminderMin ?? DEFAULT_PAYMENT.reminderMin));
+  return {
+    mode: r.mode === 'counter' || r.mode === 'choose' ? r.mode : 'link',
+    expiryMin,
+    reminderMin: Number.isFinite(reminder) ? Math.min(expiryMin - 5, Math.max(0, reminder)) : DEFAULT_PAYMENT.reminderMin,
+  };
+}
+
 const KEY = 'phone_settings_v1';
 
 export const DEFAULT_PHONE: PhoneSettings = {
-  lines: [], voiceFr: 'Polly.Gabrielle-Neural', voiceEn: 'Polly.Joanna-Neural', voiceEs: 'Polly.Lupe-Neural', speechModel: 'googlev2_telephony', speechTimeout: 2, smsConfirmation: true, maxTurns: 40,
+  lines: [], voiceFr: DEFAULT_VOICES.fr, voiceEn: DEFAULT_VOICES.en, voiceEs: DEFAULT_VOICES.es, speechModel: DEFAULT_SPEECH.conversation, speechModelShort: DEFAULT_SPEECH.short,
+  greetingMulti: false, speechTimeout: 2, smsConfirmation: true, maxTurns: 40, persona: DEFAULT_PERSONA, payment: DEFAULT_PAYMENT,
 };
 
-const VOICE = /^(Polly|Google)\.[A-Za-z0-9-]{3,60}$/;
+const MODEL = /^[a-z0-9_.-]{3,40}$/i;
 
 const CODE = /^[A-Z0-9_]{2,30}$/;
 const MAX_BRANDS = 30;
@@ -125,12 +158,19 @@ export function cleanLine(raw: Partial<PhoneLine>): PhoneLine {
 export async function getPhoneSettings(): Promise<PhoneSettings> {
   const raw = (await getRepo().getKv<Partial<PhoneSettings>>(KEY).catch(() => null)) ?? {};
   const s = { ...DEFAULT_PHONE, ...raw };
+  // Owner's lock (brandLockedAt): a line saved before the lock never names Po Poulet at NDG — not in the menu, the
+  // prompt, the speech hints or the kitchen list.
+  const locations = (await getCatalog().catch(() => null))?.locations ?? [];
   return {
-    lines: Array.isArray(s.lines) ? s.lines : [],
-    voiceFr: VOICE.test(String(s.voiceFr)) ? s.voiceFr : DEFAULT_PHONE.voiceFr,
-    voiceEn: VOICE.test(String(s.voiceEn)) ? s.voiceEn : DEFAULT_PHONE.voiceEn,
-    voiceEs: VOICE.test(String(s.voiceEs)) ? s.voiceEs : DEFAULT_PHONE.voiceEs,
-    speechModel: /^[a-z0-9_.-]{3,40}$/i.test(String(s.speechModel)) ? s.speechModel : DEFAULT_PHONE.speechModel,
+    lines: (Array.isArray(s.lines) ? s.lines : []).map((l) => withoutLockedBrands(l, locations)),
+    voiceFr: cleanVoice('fr', s.voiceFr),
+    voiceEn: cleanVoice('en', s.voiceEn),
+    voiceEs: cleanVoice('es', s.voiceEs),
+    speechModel: MODEL.test(String(s.speechModel)) ? s.speechModel : DEFAULT_PHONE.speechModel,
+    speechModelShort: MODEL.test(String(s.speechModelShort)) ? s.speechModelShort : DEFAULT_PHONE.speechModelShort,
+    greetingMulti: s.greetingMulti === true,
+    persona: cleanPersona(s.persona),
+    payment: cleanPayment(s.payment),
     speechTimeout: Math.min(5, Math.max(1, Math.round(Number(s.speechTimeout) || DEFAULT_PHONE.speechTimeout))),
     smsConfirmation: s.smsConfirmation !== false,
     maxTurns: Math.min(80, Math.max(10, Math.round(Number(s.maxTurns) || DEFAULT_PHONE.maxTurns))),
@@ -140,16 +180,28 @@ export async function getPhoneSettings(): Promise<PhoneSettings> {
 
 /**
  * Locked by the owner, the same rule as the brand phone lines (brand-lines.ts): Po Poulet is never sold by phone from the
- * NDG kitchen — only from a kitchen whose location names another place (Saint-Léonard / Jean-Talon, Hochelaga).
+ * NDG kitchen (or any kitchen other than Saint-Léonard) — only from the kitchen whose location names Saint-Léonard / Jean-Talon.
  * "Po Poulet NDG is never touched" (CLAUDE.md § 4).
  */
 const PO_POULET = /\bpo[\s-]*poulet\b/i;
-const PO_POULET_OTHER_KITCHEN = /jean|talon|l[eé]onard|hochelaga/i;
+const PO_POULET_OTHER_KITCHEN = /jean|talon|l[eé]onard/i;
 
 /** True when this brand may not be sold by phone from this location (code, name, address, city). */
 export function brandLockedAt(brand: string, location: { code: string; name?: string; address?: string; city?: string } | undefined, code: string): boolean {
   if (!PO_POULET.test(brand)) return false;
   return !PO_POULET_OTHER_KITCHEN.test([code, location?.name, location?.address, location?.city].filter(Boolean).join(' '));
+}
+
+/** The line without the brands the owner's lock forbids at their kitchen (a line saved before the lock existed). */
+function withoutLockedBrands(line: PhoneLine, locations: Array<{ code: string; name?: string; address?: string; city?: string }>): PhoneLine {
+  const before = lineKitchens(line);
+  const ks = before.map((k) => ({ ...k, brands: k.brands.filter((b) => !brandLockedAt(b, locations.find((l) => l.code === k.locationCode), k.locationCode)) }));
+  if (ks.every((k, i) => k.brands.length === before[i].brands.length)) return line;
+  const kept = ks.filter((k) => k.brands.length);
+  if (!kept.length) return { ...line, brands: [], enabled: false };
+  const next: PhoneLine = { ...line, locationCode: kept[0].locationCode, brands: [...new Set(kept.flatMap((k) => k.brands))] };
+  if (kept.length > 1) next.kitchens = kept; else delete next.kitchens;
+  return next;
 }
 
 async function lockProblem(lines: PhoneLine[]): Promise<string | null> {

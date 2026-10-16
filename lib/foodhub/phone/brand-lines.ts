@@ -26,9 +26,9 @@ export interface BrandLine {
   say?: string;
 }
 
-/** Locked by the owner: no Po Poulet NDG line, ever. Po Poulet is only accepted for another kitchen, named. */
+/** Locked by the owner: no Po Poulet NDG line, ever. Po Poulet is sold only at Saint-Léonard (Jean-Talon), named as the kitchen. */
 const PO_POULET = /\bpo[\s-]*poulet\b/i;
-const PO_POULET_OTHER_KITCHEN = /jean|talon|l[eé]onard|hochelaga/i;
+const PO_POULET_OTHER_KITCHEN = /jean|talon|l[eé]onard/i;
 
 const text = (v: unknown, max: number): string => String(v ?? '').replace(/[<>\p{Cc}]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 

@@ -4,10 +4,18 @@
 // A follower's own stored menu is never deleted: it simply is not used while the brand follows another one,
 // and comes back if the brand stops sharing.
 // Stored in fh_kv: { followerBrand: sourceBrand }.
+//
+// Per-brand dishes (fh_kv menu_brand_dishes_v1: { followerBrand: [itemRef, …] }): a follower can show only ITS dishes
+// of the source menu (each brick-and-mortar brand sells its own 10–12 dishes of the one master menu imported from
+// Clover). The list holds item refs (the Clover item id after an import), so a fresh Clover import of the source menu
+// refreshes every brand's dishes — names, prices, photos — without touching the lists. Option groups used by a kept
+// dish come along (Duo / Trio / Combo upsells included); categories with no kept dish are left out.
+// No list (or an empty one) = every dish of the source menu, as before.
 import { getRepo } from '../repo';
 import type { MasterMenu } from '../types';
 
 const KEY = 'menu_sharing_v1';
+const DISHES_KEY = 'menu_brand_dishes_v1';
 
 /** follower brand → source brand. */
 export type MenuSharing = Record<string, string>;
@@ -68,11 +76,103 @@ export async function menuGroupFor(brandName: string): Promise<string[]> {
   return groupOf(await getMenuSharing(), brandName);
 }
 
-/** The menu a brand uses, seen as that brand (its own name — what the platforms show). Null when none is saved. */
-export async function getBrandMenu(brandName: string, sharing?: MenuSharing): Promise<MasterMenu | null> {
-  const source = sourceOf(sharing ?? (await getMenuSharing()), brandName);
+/** follower brand → item refs of the source menu it shows. */
+export type BrandDishes = Record<string, string[]>;
+
+/** Longest ref kept in a dish list (a Clover item id is 13 characters). */
+export const MAX_DISH_REF_LENGTH = 120;
+
+/** Unique, trimmed refs per brand; brands with no ref are dropped (= every dish). */
+export function cleanBrandDishes(raw: unknown): BrandDishes {
+  const out: BrandDishes = {};
+  for (const [k, v] of Object.entries(raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {})) {
+    const brand = k.trim();
+    // A ref longer than MAX_DISH_REF_LENGTH is dropped: no menu ref is that long, and this list is read on every publish,
+    // order and cart check.
+    const refs = [...new Set((Array.isArray(v) ? v : []).map((x) => String(x ?? '').trim()).filter((x) => x && x.length <= MAX_DISH_REF_LENGTH))];
+    if (brand && refs.length) out[brand] = refs;
+  }
+  return out;
+}
+
+/** The per-brand dish lists. Like the sharing map, a read error is not turned into "every dish" (fail closed). */
+export async function getBrandDishes(): Promise<BrandDishes> {
+  return cleanBrandDishes(await getRepo().getKv<BrandDishes>(DISHES_KEY));
+}
+
+export async function saveBrandDishes(next: BrandDishes): Promise<BrandDishes> {
+  const clean = cleanBrandDishes(next);
+  await getRepo().setKv(DISHES_KEY, clean);
+  return clean;
+}
+
+/** The dish list that applies to this brand: only a follower's own list counts (null = every dish). */
+export function dishesOf(sharing: MenuSharing, dishes: BrandDishes, brandName: string): string[] | null {
+  if (!isFollower(sharing, brandName)) return null;
+  const refs = dishes[brandName];
+  return refs?.length ? refs : null;
+}
+
+export interface DishScope { itemRefs: Set<string>; modifierRefs: Set<string>; groupRefs: Set<string>; missing: string[] }
+
+/** What a dish list keeps of a menu: its item refs, the groups those items use and their options, the refs not found. */
+export function dishScope(menu: Pick<MasterMenu, 'items' | 'modifierGroups'>, refs: string[]): DishScope {
+  const wanted = new Set(refs);
+  const kept = menu.items.filter((i) => wanted.has(i.ref) || (i.posItemRef !== undefined && wanted.has(i.posItemRef)));
+  const groupRefs = new Set(kept.flatMap((i) => i.modifierGroupRefs ?? []));
+  const modifierRefs = new Set(menu.modifierGroups.filter((g) => groupRefs.has(g.ref)).flatMap((g) => g.modifiers.map((m) => m.ref)));
+  const found = new Set(kept.flatMap((i) => [i.ref, ...(i.posItemRef ? [i.posItemRef] : [])]));
+  return { itemRefs: new Set(kept.map((i) => i.ref)), modifierRefs, groupRefs, missing: refs.filter((r) => !found.has(r)) };
+}
+
+/**
+ * The part of a menu a dish list shows (pure): the listed dishes (by ref or Clover id), the option groups they use, the
+ * categories that still hold a dish, and the 86 state of what is kept. `sharedDishes` says the menu was narrowed.
+ */
+export function filterMenuToDishes(menu: MasterMenu, refs: string[], from = menu.brandName): MasterMenu {
+  const scope = dishScope(menu, refs);
+  const items = menu.items.filter((i) => scope.itemRefs.has(i.ref));
+  const cats = new Set(items.map((i) => i.categoryRef));
+  const keep = (r: string) => scope.itemRefs.has(r) || scope.modifierRefs.has(r);
+  const byLoc = Object.fromEntries(Object.entries(menu.unavailableByLocation ?? {}).map(([loc, list]) => [loc, list.filter(keep)]));
+  const until = Object.fromEntries(Object.entries(menu.unavailableUntil ?? {}).filter(([k]) => keep(k.split('|').slice(1).join('|'))));
+  return {
+    ...menu,
+    items,
+    categories: menu.categories.filter((c) => cats.has(c.ref)),
+    modifierGroups: menu.modifierGroups.filter((g) => scope.groupRefs.has(g.ref)),
+    ...(menu.unavailableByLocation ? { unavailableByLocation: byLoc } : {}),
+    ...(menu.unavailableUntil ? { unavailableUntil: until } : {}),
+    sharedDishes: { from, listed: refs.length, shown: items.length, missing: scope.missing },
+  };
+}
+
+/**
+ * The menu a brand uses, seen as that brand (its own name — what the platforms show). Null when none is saved.
+ * A follower with its own dish list sees only those dishes. allDishes: the whole shared menu (an order line is matched
+ * to its Clover id whatever the brand shows today).
+ */
+export async function getBrandMenu(brandName: string, sharing?: MenuSharing, opts: { allDishes?: boolean; dishes?: BrandDishes } = {}): Promise<MasterMenu | null> {
+  const map = sharing ?? (await getMenuSharing());
+  const source = sourceOf(map, brandName);
   const menu = await getRepo().getMenu(source);
-  return menu ? (source === brandName ? menu : { ...menu, brandName }) : null;
+  if (!menu) return null;
+  if (source === brandName) return menu;
+  const seen = { ...menu, brandName };
+  if (opts.allDishes) return seen;
+  const refs = dishesOf(map, opts.dishes ?? (await getBrandDishes()), brandName);
+  return refs ? filterMenuToDishes(seen, refs, source) : seen;
+}
+
+/**
+ * Why this menu must not be sent to a platform as a whole menu (null = it may). A follower whose dish list matches
+ * nothing on the shared menu (refs changed by a re-import) would send an EMPTY menu and wipe the store's menu: every
+ * path that sends a full menu (publish, DoorDash "Menu visible", the Uber publish plan, the Deliverect product push)
+ * calls this first and sends nothing — the platforms keep what they have until the list is fixed.
+ */
+export function unpublishableMenuReason(menu: Pick<MasterMenu, 'brandName' | 'items' | 'sharedDishes'>): string | null {
+  if (!menu.sharedDishes || menu.items.length > 0) return null;
+  return `None of ${menu.brandName}'s dishes is on the ${menu.sharedDishes.from} menu any more (${menu.sharedDishes.listed} listed). Pick its dishes again in Menu → Shared menu — nothing was published.`;
 }
 
 /** The stored menus that are in use (a follower's own, unused menu is left out — it must not drive 86s or syncs). */

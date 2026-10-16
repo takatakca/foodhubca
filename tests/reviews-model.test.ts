@@ -1,7 +1,7 @@
 // Reviews hub model (lib/foodhub/reviews/model.ts + themes.ts): ids, dedupe, reply never overwritten, no personal data.
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
-  getReview, isPersonalHeader, makeReview, maskPersonalText, parseStars, reviewId, saveReply, stripPersonal, toReviewAt, upsertReviews,
+  getReview, isPersonalHeader, makeReview, maskPersonalText, parseStars, reviewId, saveReply, separateTwins, stripPersonal, toReviewAt, upsertReviews,
   type ReviewInput,
 } from '../lib/foodhub/reviews/model';
 import { detectLang, detectThemes } from '../lib/foodhub/reviews/themes';
@@ -16,7 +16,7 @@ beforeEach(() => {
 });
 
 describe('review ids', () => {
-  it('uses the platform review id when there is one, else platform|store|order|at|stars', () => {
+  it('uses the platform review id when there is one, else platform|store|order|at|stars (+ text without an order id)', () => {
     expect(reviewId({ platform: 'google', platformReviewId: 'abc', at: 'x', stars: 1 })).toBe(reviewId({ platform: 'google', platformReviewId: 'abc', at: 'y', stars: 5 }));
     expect(reviewId({ platform: 'google', platformReviewId: 'abc', at: 'x', stars: 1 })).not.toBe(reviewId({ platform: 'skip', platformReviewId: 'abc', at: 'x', stars: 1 }));
     const a = makeReview(base());
@@ -90,5 +90,35 @@ describe('themes and language', () => {
     expect(detectLang('The chicken was very good, thanks')).toBe('en');
     expect(detectLang('Super')).toBeNull();
     expect(detectLang('')).toBeNull();
+  });
+});
+
+describe('review fixes: same-day ids, snake_case personal columns', () => {
+  it('two same-day, same-star reviews without review or order id are two reviews, not a duplicate', async () => {
+    const day = { platform: 'tgtg' as const, storeRef: 'Pi Pita', orderRef: null, at: '2026-10-01T12:00:00.000Z', stars: 4 };
+    const a = makeReview(base({ ...day, text: 'Panier généreux' }));
+    const b = makeReview(base({ ...day, text: 'Bon pain, un peu sec' }));
+    expect(a.id).not.toBe(b.id);
+    expect(await upsertReviews([a, b])).toEqual({ added: 2, duplicates: 0, updated: 0 });
+    // The same text again is still the same review (re-import), case and accents ignored.
+    expect(makeReview(base({ ...day, text: 'PANIER  genereux' })).id).toBe(a.id);
+    // With an order id, an edited text stays the same review.
+    expect(makeReview(base({ text: 'A' })).id).toBe(makeReview(base({ text: 'B' })).id);
+  });
+
+  it('separateTwins: identical star-only rows of one file are kept apart, stable across re-imports', () => {
+    const star = () => makeReview(base({ platform: 'tgtg', orderRef: null, text: '', stars: 5 }));
+    const once = separateTwins([{ review: star() }, { review: star() }, { review: star() }]).map((r) => r.id);
+    expect(new Set(once).size).toBe(3);
+    expect(separateTwins([{ review: star() }, { review: star() }, { review: star() }]).map((r) => r.id)).toEqual(once);
+    // A row with a review id or an order id is never split (a true duplicate row).
+    const withOrder = makeReview(base());
+    expect(separateTwins([{ review: withOrder }, { review: withOrder }]).map((r) => r.id)).toEqual([withOrder.id, withOrder.id]);
+    expect(separateTwins([{ review: star(), platformReviewId: 'x' }, { review: star(), platformReviewId: 'x' }]).map((r) => r.id)).toEqual([star().id, star().id]);
+  });
+
+  it('snake_case and camelCase customer / user ids are personal; store ids are not', () => {
+    for (const h of ['customer_id', 'consumer_id', 'user_id', 'consumerId', 'EATER_UUID', 'guest-id', 'client_id', 'customer_email', 'CONSUMER_NAME', 'dasher_id']) expect(isPersonalHeader(h), h).toBe(true);
+    for (const h of ['store_id', 'STORE_ID', 'delivery_uuid', 'order_id', 'business_id', 'merchant_store_id', 'rating']) expect(isPersonalHeader(h), h).toBe(false);
   });
 });

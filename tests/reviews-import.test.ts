@@ -4,7 +4,7 @@ import { strToU8, zipSync } from 'fflate';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { FORBIDDEN_STORE_IDS } from '../lib/foodhub/public-directory';
 import { getRepo } from '../lib/foodhub/repo';
-import { detectPreset, importReviews, MAX_IMPORT_BYTES } from '../lib/foodhub/reviews/import';
+import { detectPreset, guessReviewMapping, IMPORT_ERRORS, importReviews, MAX_IMPORT_BYTES } from '../lib/foodhub/reviews/import';
 import { listReviews } from '../lib/foodhub/reviews/model';
 
 const actor = { username: 'owner', name: 'Owner', source: 'dashboard' as const };
@@ -136,5 +136,92 @@ describe('manual mapping, dry run, limits', () => {
     const scoped = await importReviews('skip.csv', csv(['Restaurant,Rating,Comment,Date', 'Pi Pita Hochelaga,4,Bon,2026-10-02', 'OOeuf NDG 6280 Av Somerled,4,Bon,2026-10-02']), { allowedLocations: ['HOCHELAGA'] }, actor);
     if (!scoped.ok) throw new Error(scoped.error);
     expect(scoped.counts).toMatchObject({ new: 1, skipped: 1 });
+  });
+});
+
+describe('protected store, whatever the file name, platform or mapped column', () => {
+  const [PROTECTED] = [...FORBIDDEN_STORE_IDS];
+
+  it('a DoorDash-like export named ratings.csv (detected as another platform) drops the protected row', async () => {
+    const out = await importReviews('ratings.csv', csv([
+      'Store ID,Store Name,Delivery UUID,Rating,Comment,Date',
+      `${PROTECTED},Po Poulet,dlv-1,1,Froid,2026-10-01`,
+      '33333333,Pi Pita Hochelaga,dlv-2,5,Parfait,2026-10-01',
+    ]), {}, actor);
+    if (!out.ok) throw new Error(out.error);
+    expect(out.counts).toMatchObject({ rows: 2, new: 1, dropped: 1 });
+    expect(JSON.stringify(await listReviews())).not.toContain(PROTECTED);
+  });
+
+  it('platform DoorDash with Store Name before Store ID: the id column is still checked and preferred', async () => {
+    const lines = ['Store Name,Store ID,Rating,Comment,Date', `Po Poulet,${PROTECTED},1,Froid,2026-10-01`, 'Pi Pita Hochelaga,44444444,4,Bon,2026-10-01'];
+    expect(guessReviewMapping(['Store Name', 'Store ID', 'Rating', 'Comment', 'Date'], null)).toMatchObject({ store: 1, storeName: 0 });
+    const out = await importReviews('export.csv', csv(lines), { platform: 'doordash' }, actor);
+    if (!out.ok) throw new Error(out.error);
+    expect(out.counts).toMatchObject({ new: 1, dropped: 1 });
+    expect((await listReviews()).map((r) => r.brandName)).toEqual(['Pi Pita']);
+  });
+
+  it('a manual mapping that skips the id column, platform Other: the row is still dropped', async () => {
+    const out = await importReviews('x.csv', csv(['A,B,C,D,E', `Po Poulet,${PROTECTED},2026-10-01,1,Froid`]), { platform: 'other', mapping: { store: 0, date: 2, stars: 3, text: 4 } }, actor);
+    if (!out.ok) throw new Error(out.error);
+    expect(out.counts).toMatchObject({ new: 0, dropped: 1 });
+  });
+
+  it('known only by name: DoorDash / Other rows that can be Po Poulet NDG are dropped; other kitchens and Google are kept', async () => {
+    const lines = ['Restaurant,Rating,Comment,Date', 'Po Poulet NDG,1,Froid,2026-10-01', 'Po Poulet,2,Tiède,2026-10-02', 'Po Poulet Hochelaga,5,Parfait,2026-10-03'];
+    const dd = await importReviews('dd.csv', csv(lines), { platform: 'doordash' }, actor);
+    if (!dd.ok) throw new Error(dd.error);
+    expect(dd.counts).toMatchObject({ new: 1, dropped: 2 });
+    const other = await importReviews('o.csv', csv(lines), { platform: 'other' }, actor);
+    expect(other.ok && other.counts).toMatchObject({ new: 1, dropped: 2 });
+    // The brand and kitchen chosen for a whole DoorDash file count too.
+    const chosen = await importReviews('c.csv', csv(['Rating,Comment,Date', '3,Correct,2026-10-04']), { platform: 'doordash', brandName: 'Po Poulet', locationCode: 'NDG_MAIN' }, actor);
+    expect(chosen.ok && chosen.counts).toMatchObject({ new: 0, dropped: 1 });
+    // Google reviews of the brick-and-mortar restaurant are not DoorDash data: kept.
+    const google = await importReviews('g.csv', csv(lines), { platform: 'google' }, actor);
+    expect(google.ok && google.counts).toMatchObject({ new: 3, dropped: 0 });
+  });
+
+  it('a mapped protected store is recognized by name too (its Stores mapping brand and kitchen)', async () => {
+    await getRepo().upsertStore({ channel: 'doordash', channelStoreId: 'mx-locked', brandName: 'OOeuf', locationCode: 'NDG_6284', autoAccept: true, online: true, meta: { platformStoreId: PROTECTED } });
+    const out = await importReviews('dd.csv', csv(['Restaurant,Rating,Comment,Date', 'OOeuf 6284 Av Somerled,1,Froid,2026-10-01', 'OOeuf 6280 Av Somerled,5,Bon,2026-10-01']), { platform: 'doordash' }, actor);
+    if (!out.ok) throw new Error(out.error);
+    expect(out.counts).toMatchObject({ new: 1, dropped: 1 });
+    expect((await listReviews())[0].locationCode).toBe('NDG_MAIN');
+  });
+});
+
+describe('column guesses, same-day reviews, French messages', () => {
+  it('"Order Date" is the date, not the order; sub-ratings are never the stars', () => {
+    expect(guessReviewMapping(['Order Date', 'Rating', 'Comment', 'Restaurant'], null)).toEqual({ date: 0, stars: 1, text: 2, store: 3 });
+    expect(guessReviewMapping(['Order ID', 'Order Total', 'Order Rating', 'Comment', 'Date'], null)).toMatchObject({ order: 0, stars: 2, date: 4 });
+    expect(guessReviewMapping(['STORE_ID', 'DELIVERY_UUID', 'FOOD_RATING', 'PACKAGING_RATING', 'OVERALL_RATING', 'COMMENT', 'CREATED_AT'], null)).toMatchObject({ store: 0, order: 1, stars: 4, text: 5, date: 6 });
+    expect(guessReviewMapping(['item_name', 'item_rating', 'rating', 'comment', 'date'], null)).toMatchObject({ stars: 2 });
+    expect(guessReviewMapping(['customer_id', 'rating', 'comment', 'date'], null).store).toBeUndefined();
+  });
+
+  it('two different reviews of one store on one day with the same stars are both kept (TGTG, no order id)', async () => {
+    const lines = ['Store,Rating,Comment,Date,Surprise Bag', 'Pi Pita,4,Panier généreux,2026-10-01,Panier', 'Pi Pita,4,Bon pain,2026-10-01,Panier', 'Pi Pita,5,,2026-10-01,Panier', 'Pi Pita,5,,2026-10-01,Panier'];
+    const out = await importReviews('tgtg.csv', csv(lines), {}, actor);
+    if (!out.ok) throw new Error(out.error);
+    expect(out.counts).toMatchObject({ rows: 4, new: 4, duplicate: 0 });
+    const again = await importReviews('tgtg.csv', csv(lines), { dryRun: true }, actor);
+    expect(again.ok && again.counts).toMatchObject({ new: 0, duplicate: 4 });
+  });
+
+  it('refusals come in French and English', async () => {
+    expect(await importReviews('empty.csv', new Uint8Array(0), {}, actor)).toMatchObject({ ok: false, error: IMPORT_ERRORS.empty.en, errorFr: IMPORT_ERRORS.empty.fr });
+    expect(await importReviews('x.csv', csv(['A,B', '1,2']), {}, actor)).toMatchObject({ ok: false, needsMapping: true, errorFr: expect.stringMatching(/^Colonnes non reconnues/) });
+  });
+
+  it('Google Takeout: the review resource name is the id; reviewer fields are dropped before reading', async () => {
+    const first = { name: 'accounts/1/locations/2/reviews/xyz', reviewer: { displayName: 'Julie Tremblay' }, starRating: 'FIVE', comment: 'Bravo, écrivez-moi: julie@mail.ca', createTime: '2026-10-01T15:00:00Z' };
+    await importReviews('reviews.json', strToU8(JSON.stringify({ reviews: [first] })), {}, actor);
+    const again = await importReviews('reviews.json', strToU8(JSON.stringify({ reviews: [{ ...first, comment: 'Bravo (edited)' }] })), { dryRun: true }, actor);
+    expect(again.ok && again.counts).toMatchObject({ new: 0, duplicate: 1 });
+    const saved = await listReviews();
+    expect(saved[0].text).toBe('Bravo, écrivez-moi: [courriel]');
+    expect(JSON.stringify(saved)).not.toMatch(/Julie|Tremblay/);
   });
 });

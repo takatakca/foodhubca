@@ -126,3 +126,38 @@ describe('DoorDash and batch routes', () => {
     expect((await POST(post('/api/foodhub/reviews/drafts', 'viewer', {}), {})).status).toBe(403);
   });
 });
+
+describe('review fixes: edited drafts, DoorDash list scope, early size refusal', () => {
+  it('save: the edited draft is stored when it passes the guard, refused (422, French reasons) when it does not', async () => {
+    const r = rv({ brandName: 'Pi Pita', locationCode: 'HOCHELAGA' });
+    await upsertReviews([r]);
+    const POST = await one();
+    const ctx = { params: Promise.resolve({ id: r.id }) };
+    const saved = await (await POST(post(`/api/foodhub/reviews/${r.id}`, 'hoch', { action: 'save', draft: 'Bonjour, désolés pour le repas froid. L’équipe Pi Pita' }), ctx)).json();
+    expect(saved).toMatchObject({ ok: true, review: { reply: { draft: 'Bonjour, désolés pour le repas froid. L’équipe Pi Pita', draftSource: 'edited', draftBy: 'hoch' } } });
+    const bad = await POST(post(`/api/foodhub/reviews/${r.id}`, 'hoch', { action: 'save', draft: 'Votre prochaine commande est sur nous: www.pipita.ca' }), ctx);
+    expect(bad.status).toBe(422);
+    expect(await bad.json()).toMatchObject({ ok: false, errorFr: expect.stringMatching(/^Brouillon non enregistré/), reasonsFr: expect.arrayContaining(['lien ou adresse web']) });
+    expect((await getReview(r.id))?.reply?.draft).toBe('Bonjour, désolés pour le repas froid. L’équipe Pi Pita');
+    expect((await POST(post(`/api/foodhub/reviews/${r.id}`, 'hoch', { action: 'save' }), ctx)).status).toBe(400);
+    expect((await POST(post(`/api/foodhub/reviews/${r.id}`, 'viewer', { action: 'save', draft: 'Bonjour' }), ctx)).status).toBe(403);
+    expect(await (await POST(post('/api/foodhub/reviews/nope', 'hoch', { action: 'save', draft: 'Bonjour' }), { params: Promise.resolve({ id: 'nope' }) })).json()).toMatchObject({ errorFr: 'Avis introuvable' });
+  });
+
+  it('DoorDash report list: refused to a person limited to some kitchens', async () => {
+    const { GET } = await dd();
+    const res = await GET(new Request(`${BASE}/api/foodhub/reviews/doordash`, { headers: auth('hoch') }), {});
+    expect(res.status).toBe(403);
+    expect((await res.json()).errorFr).toMatch(/toutes les cuisines/);
+  });
+
+  it('import: a body announced over the limit, or base64 over the limit, is refused before it is read', async () => {
+    const POST = await imp();
+    const big = new Request(`${BASE}/api/foodhub/reviews/import`, { method: 'POST', headers: { ...auth('boss'), 'content-type': 'application/json', 'content-length': String(50 * 1024 * 1024) }, body: '{}' });
+    const res = await POST(big, {});
+    expect(res.status).toBe(413);
+    expect((await res.json()).errorFr).toMatch(/max 5 Mo/);
+    const b64 = await POST(post('/api/foodhub/reviews/import', 'boss', { fileName: 'x.csv', contentBase64: 'A'.repeat(7 * 1024 * 1024 + 8) }), {});
+    expect(b64.status).toBe(413);
+  });
+});

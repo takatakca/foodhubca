@@ -24,19 +24,26 @@ type ListResponse = {
   brands: string[]; platforms: Array<{ key: string; label: string }>; themes: ThemeInfo[]; aiEnabled: boolean;
 };
 type ImportPreview = {
-  imported: boolean; needsMapping?: boolean; message?: string; headers?: string[]; platform?: string; preset?: string | null;
+  imported: boolean; needsMapping?: boolean; message?: string; messageFr?: string; headers?: string[]; platform?: string; preset?: string | null;
   counts?: { rows: number; new: number; duplicate: number; skipped: number; dropped: number; unmapped: number }; preview?: ReviewRow[]; mapping?: Record<string, number>;
 };
-type FeedbackReport = { id: string; from: string; to: string; status: string; message: string; at: string; rows?: number };
+type FeedbackReport = { id: string; from: string; to: string; status: string; message: string; messageFr?: string; at: string; rows?: number };
 
 const PLATFORM_FR: Record<string, string> = { other: 'Autre' };
-const MAPPING_FIELDS: Array<[string, string, string]> = [['date', 'Date', 'Date'], ['stars', 'Étoiles', 'Stars'], ['text', 'Commentaire', 'Comment'], ['store', 'Magasin / marque', 'Store / brand'], ['order', 'Commande', 'Order']];
+const MAPPING_FIELDS: Array<[string, string, string]> = [['date', 'Date', 'Date'], ['stars', 'Étoiles', 'Stars'], ['text', 'Commentaire', 'Comment'], ['store', 'Magasin / marque', 'Store / brand'], ['storeName', 'Nom du magasin', 'Store name'], ['order', 'Commande', 'Order']];
+
+/** The server's French message when it gives one (errorFr / messageFr), else its English one. */
+function serverText(t: (fr: string, en: string) => string, e: unknown): string {
+  if (e instanceof ApiError) { const fr = e.body?.errorFr; return typeof fr === 'string' && fr ? t(fr, e.message) : e.message; }
+  return e instanceof Error ? e.message : String(e);
+}
 
 function Stars({ n }: { n: number | null }) {
-  if (n === null) return <span className="text-xs text-ink-3">—</span>;
+  const { t } = useI18n();
+  if (n === null) return <span className="text-xs text-ink-3" role="img" aria-label={t('Sans note', 'No rating')}>—</span>;
   return (
-    <span className="inline-flex items-center gap-0.5" aria-label={`${n}/5`}>
-      {[1, 2, 3, 4, 5].map((i) => <Star key={i} className={i <= n ? 'size-3.5 fill-wait text-wait' : 'size-3.5 text-line-2'} />)}
+    <span className="inline-flex items-center gap-0.5" role="img" aria-label={t(`${n} étoile${n > 1 ? 's' : ''} sur 5`, `${n} out of 5 stars`)}>
+      {[1, 2, 3, 4, 5].map((i) => <Star key={i} aria-hidden="true" className={i <= n ? 'size-3.5 fill-wait text-wait' : 'size-3.5 text-line-2'} />)}
     </span>
   );
 }
@@ -78,8 +85,8 @@ export function ReviewsView() {
     try {
       setError(null);
       setData(await api<ListResponse>(`/api/foodhub/reviews?${query}`));
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-  }, [query]);
+    } catch (e) { setError(serverText(t, e)); }
+  }, [query, t]);
   useEffect(() => { void load(); }, [load]);
 
   const replaceRow = (row: ReviewRow) => setData((d) => (d ? { ...d, reviews: d.reviews.map((r) => (r.id === row.id ? row : r)) } : d));
@@ -93,8 +100,20 @@ export function ReviewsView() {
       replaceRow(out.review);
       if (action === 'draft') toast.success(out.source === 'ai' ? t('Réponse proposée', 'Reply proposed') : t('Modèle de réponse proposé', 'Template reply proposed'), out.rejected?.length ? t('Le brouillon de l’IA ne respectait pas les règles : modèle utilisé.', 'The AI draft broke a rule: template used.') : undefined);
       if (action === 'replied') { toast.success(t('Marqué comme répondu', 'Marked as replied')); void load(); }
-    } catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(t('Action impossible', 'Action failed'), e instanceof Error ? e.message : String(e)); }
+    } catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(t('Action impossible', 'Action failed'), serverText(t, e)); }
     finally { setBusy(null); }
+  }
+
+  /** Saves the edited draft (guarded on the server). False when it was refused: nothing is copied or marked. */
+  async function saveDraft(id: string, text: string): Promise<boolean> {
+    try {
+      const out = await api<{ review: ReviewRow }>(`/api/foodhub/reviews/${encodeURIComponent(id)}`, { method: 'POST', json: { action: 'save', draft: text } });
+      replaceRow(out.review);
+      return true;
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 499)) toast.error(t('Brouillon non enregistré', 'Draft not saved'), serverText(t, e));
+      return false;
+    }
   }
 
   async function copy(text: string) {
@@ -108,7 +127,7 @@ export function ReviewsView() {
       const out = await api<{ drafted: number; remaining: number }>(`/api/foodhub/reviews/drafts?${query}`, { method: 'POST', json: {} });
       toast.success(t(`${out.drafted} réponse(s) proposée(s)`, `${out.drafted} reply draft(s)`), out.remaining ? t(`${out.remaining} restent : relancez.`, `${out.remaining} left: run again.`) : undefined);
       await load();
-    } catch (e) { toast.error(t('Action impossible', 'Action failed'), e instanceof Error ? e.message : String(e)); }
+    } catch (e) { toast.error(t('Action impossible', 'Action failed'), serverText(t, e)); }
     finally { setBusy(null); }
   }
 
@@ -192,7 +211,7 @@ export function ReviewsView() {
           <div className="divide-y divide-line">
             {data.reviews.map((r) => (
               <ReviewCard key={r.id} r={r} canEdit={canEdit} busy={busy} platformLabel={platformLabel} themeLabel={themeLabel} kitchen={r.locationCode ? shortLoc(locName(r.locationCode)) : null}
-                onAct={(a) => void act(r.id, a)} onCopy={(text) => void copy(text)} />
+                onAct={(a) => void act(r.id, a)} onCopy={(text) => void copy(text)} onSave={(text) => saveDraft(r.id, text)} />
             ))}
           </div>
         )}
@@ -208,14 +227,23 @@ export function ReviewsView() {
   );
 }
 
-function ReviewCard({ r, canEdit, busy, platformLabel, themeLabel, kitchen, onAct, onCopy }: {
+function ReviewCard({ r, canEdit, busy, platformLabel, themeLabel, kitchen, onAct, onCopy, onSave }: {
   r: ReviewRow; canEdit: boolean; busy: string | null; platformLabel: (k: string) => string; themeLabel: (k: string) => string; kitchen: string | null;
-  onAct: (a: 'draft' | 'replied' | 'clear') => void; onCopy: (text: string) => void;
+  onAct: (a: 'draft' | 'replied' | 'clear') => void; onCopy: (text: string) => void; onSave: (text: string) => Promise<boolean>;
 }) {
   const { t, loc } = useI18n();
-  const [draft, setDraft] = useState(r.reply?.draft ?? '');
-  useEffect(() => { setDraft(r.reply?.draft ?? ''); }, [r.reply?.draft]);
+  const stored = r.reply?.draft ?? '';
+  const [draft, setDraft] = useState(stored);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { setDraft(stored); }, [stored]);
   const replied = Boolean(r.reply?.repliedAt);
+  const hasDraft = Boolean(stored) || Boolean(draft);
+  /** The edited text is saved before it is copied or the review is marked replied: what is stored is what was pasted. */
+  const saveIfEdited = async () => {
+    if (draft === stored) return true;
+    setSaving(true);
+    try { return await onSave(draft); } finally { setSaving(false); }
+  };
   return (
     <div className="px-5 py-4">
       <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -231,15 +259,15 @@ function ReviewCard({ r, canEdit, busy, platformLabel, themeLabel, kitchen, onAc
       {r.themes.length > 0 && <div className="mt-2 flex flex-wrap gap-1">{r.themes.map((k) => <Badge key={k} tone="violet">{themeLabel(k)}</Badge>)}</div>}
       {canEdit && r.text && (
         <div className="mt-3 rounded-md border border-line bg-sunken p-3">
-          {draft ? (
-            <Textarea rows={3} value={draft} onChange={(e) => setDraft(e.target.value)} aria-label={t('Brouillon de réponse', 'Reply draft')} />
+          {hasDraft ? (
+            <Textarea rows={3} value={draft} maxLength={600} onChange={(e) => setDraft(e.target.value)} onBlur={() => void saveIfEdited()} aria-label={t('Brouillon de réponse', 'Reply draft')} />
           ) : <p className="text-xs text-ink-3">{t('Pas encore de réponse proposée.', 'No reply proposed yet.')}</p>}
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Button size="sm" variant="soft" icon={<Sparkles className="size-4" />} loading={busy === `${r.id}:draft`} onClick={() => onAct('draft')}>{draft ? t('Proposer à nouveau', 'Propose again') : t('Proposer', 'Propose')}</Button>
-            <Button size="sm" variant="outline" icon={<Clipboard className="size-4" />} disabled={!draft} onClick={() => onCopy(draft)}>{t('Copier', 'Copy')}</Button>
-            {!replied && <Button size="sm" variant="go" icon={<Check className="size-4" />} loading={busy === `${r.id}:replied`} onClick={() => onAct('replied')}>{t('Marquer comme répondu', 'Mark as replied')}</Button>}
-            {(draft || replied) && <Button size="sm" variant="ghost" icon={<X className="size-4" />} loading={busy === `${r.id}:clear`} onClick={() => onAct('clear')}>{t('Effacer', 'Clear')}</Button>}
-            {r.reply?.draftSource && <span className="text-xs text-ink-3">{r.reply.draftSource === 'ai' ? t('Proposée par l’IA, à relire', 'Proposed by AI, review it') : t('Modèle', 'Template')}</span>}
+            <Button size="sm" variant="outline" icon={<Clipboard className="size-4" />} disabled={!draft.trim() || saving} onClick={() => void saveIfEdited().then((saved) => { if (saved) onCopy(draft); })}>{t('Copier', 'Copy')}</Button>
+            {!replied && <Button size="sm" variant="go" icon={<Check className="size-4" />} loading={busy === `${r.id}:replied` || saving} onClick={() => void saveIfEdited().then((saved) => { if (saved) onAct('replied'); })}>{t('Marquer comme répondu', 'Mark as replied')}</Button>}
+            {(hasDraft || replied) && <Button size="sm" variant="ghost" icon={<X className="size-4" />} loading={busy === `${r.id}:clear`} onClick={() => onAct('clear')}>{t('Effacer', 'Clear')}</Button>}
+            {r.reply?.draftSource && <span className="text-xs text-ink-3">{r.reply.draftSource === 'ai' ? t('Proposée par l’IA, à relire', 'Proposed by AI, review it') : r.reply.draftSource === 'edited' ? t('Modifiée', 'Edited') : t('Modèle', 'Template')}</span>}
           </div>
         </div>
       )}
@@ -266,14 +294,14 @@ function ImportCard({ onDone }: { onDone: () => void }) {
       if (platform) form.set('platform', platform);
       if (Object.keys(mapping).length) form.set('mapping', JSON.stringify(mapping));
       const res = await fetch(`/api/foodhub/reviews/import${dryRun ? '?dryRun=1' : ''}`, { method: 'POST', body: form, cache: 'no-store' });
-      const body = (await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }))) as ImportPreview & { ok: boolean; error?: string };
-      if (!res.ok || body.ok === false) throw new Error(body.error || `HTTP ${res.status}`);
+      const body = (await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }))) as ImportPreview & { ok: boolean; error?: string; errorFr?: string };
+      if (!res.ok || body.ok === false) throw new Error(body.errorFr ? t(body.errorFr, body.error || '') : body.error || `HTTP ${res.status}`);
       if (dryRun || body.needsMapping) { setPreview(body); return; }
       toast.success(t(`${body.counts?.new ?? 0} nouvel(s) avis importé(s)`, `${body.counts?.new ?? 0} new review(s) imported`));
       setPreview(null); setFile(null); setMapping({});
       if (fileRef.current) fileRef.current.value = '';
       onDone();
-    } catch (e) { toast.error(t('Import impossible', 'Import failed'), e instanceof Error ? e.message : String(e)); }
+    } catch (e) { toast.error(t('Import impossible', 'Import failed'), serverText(t, e)); }
     finally { setBusy(false); }
   }
 
@@ -285,13 +313,13 @@ function ImportCard({ onDone }: { onDone: () => void }) {
       <div className="space-y-3 px-5 pb-5">
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label={t('Fichier (max 5 Mo)', 'File (max 5 MB)')}><Input ref={fileRef} type="file" accept=".csv,.xlsx,.json,text/csv,application/json" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setPreview(null); setMapping({}); }} /></Field>
-          <Field label={t('Plateforme', 'Platform')}><Select value={platform} onChange={(e) => setPlatform(e.target.value)}>
+          <Field label={t('Plateforme', 'Platform')}><Select value={platform} onChange={(e) => { setPlatform(e.target.value); setPreview(null); setMapping({}); }}>
             <option value="">{t('Détecter', 'Detect')}</option><option value="uber_eats">Uber Eats</option><option value="skip">SkipTheDishes</option><option value="tgtg">Too Good To Go</option><option value="google">Google</option><option value="doordash">DoorDash</option><option value="other">{t('Autre', 'Other')}</option>
           </Select></Field>
         </div>
         {preview?.needsMapping && preview.headers && (
           <div className="rounded-md border border-line p-3">
-            <p className="mb-2 text-sm text-ink-2">{t('Colonnes non reconnues : choisissez-les.', 'Columns not recognized: choose them.')}</p>
+            <p className="mb-2 text-sm text-ink-2">{preview.message ? t(preview.messageFr || preview.message, preview.message) : t('Colonnes non reconnues : choisissez-les.', 'Columns not recognized: choose them.')}</p>
             <div className="grid gap-2 sm:grid-cols-2">
               {MAPPING_FIELDS.map(([k, fr, en]) => (
                 <Field key={k} label={t(fr, en)}>
@@ -311,6 +339,7 @@ function ImportCard({ onDone }: { onDone: () => void }) {
               <Badge>{t(`${preview.counts.duplicate} déjà là`, `${preview.counts.duplicate} already there`)}</Badge>
               {preview.counts.skipped > 0 && <Badge tone="wait">{t(`${preview.counts.skipped} ignorés`, `${preview.counts.skipped} skipped`)}</Badge>}
               {preview.counts.unmapped > 0 && <Badge tone="wait">{t(`${preview.counts.unmapped} sans marque`, `${preview.counts.unmapped} without brand`)}</Badge>}
+              {preview.counts.dropped > 0 && <Badge tone="stop">{t(`${preview.counts.dropped} d’un magasin protégé, laissés de côté`, `${preview.counts.dropped} of a protected store, left out`)}</Badge>}
             </div>
             <ul className="max-h-64 divide-y divide-line overflow-y-auto">
               {(preview.preview ?? []).map((r) => (
@@ -345,16 +374,17 @@ function DoorDashCard({ onDone }: { onDone: () => void }) {
   async function request() {
     setBusy('request');
     try { await api('/api/foodhub/reviews/doordash', { method: 'POST', json: { action: 'request', from, to } }); toast.success(t('Rapport demandé à DoorDash (jusqu’à 5 minutes)', 'Report requested from DoorDash (up to 5 minutes)')); await load(); }
-    catch (e) { toast.error(t('Demande impossible', 'Request failed'), e instanceof Error ? e.message : String(e)); }
+    catch (e) { toast.error(t('Demande impossible', 'Request failed'), serverText(t, e)); }
     finally { setBusy(null); }
   }
   async function ingest(id: string) {
     setBusy(id);
     try {
-      const out = await api<{ imported: boolean; message: string; added: number }>('/api/foodhub/reviews/doordash', { method: 'POST', json: { action: 'ingest', reportId: id } });
-      if (out.imported) { toast.success(t(`${out.added} nouvel(s) avis DoorDash`, `${out.added} new DoorDash review(s)`), out.message); onDone(); } else toast.info(t('Pas encore prêt', 'Not ready yet'), out.message);
+      const out = await api<{ imported: boolean; message: string; messageFr?: string; added: number }>('/api/foodhub/reviews/doordash', { method: 'POST', json: { action: 'ingest', reportId: id } });
+      const said = t(out.messageFr || out.message, out.message);
+      if (out.imported) { toast.success(t(`${out.added} nouvel(s) avis DoorDash`, `${out.added} new DoorDash review(s)`), said); onDone(); } else toast.info(t('Pas encore prêt', 'Not ready yet'), said);
       await load();
-    } catch (e) { toast.error(t('Import impossible', 'Import failed'), e instanceof Error ? e.message : String(e)); }
+    } catch (e) { toast.error(t('Import impossible', 'Import failed'), serverText(t, e)); }
     finally { setBusy(null); }
   }
 
@@ -375,7 +405,7 @@ function DoorDashCard({ onDone }: { onDone: () => void }) {
               <li key={r.id} className="flex flex-wrap items-center gap-2 py-2">
                 <span className="num">{r.from} → {r.to}</span>
                 <Badge tone={r.status === 'failed' ? 'stop' : r.status === 'requested' ? 'wait' : 'go'}>{r.status === 'requested' ? t('En préparation', 'Preparing') : r.status === 'failed' ? t('Échec', 'Failed') : t('Prêt', 'Ready')}</Badge>
-                <span className="min-w-0 flex-1 truncate text-xs text-ink-3" title={r.message}>{dayOf(r.at, loc)} · {r.message}</span>
+                <span className="min-w-0 flex-1 truncate text-xs text-ink-3" title={t(r.messageFr || r.message, r.message)}>{dayOf(r.at, loc)} · {t(r.messageFr || r.message, r.message)}</span>
                 {r.status !== 'failed' && <Button size="sm" variant="outline" loading={busy === r.id} onClick={() => void ingest(r.id)}>{t('Importer les avis', 'Import the reviews')}</Button>}
               </li>
             ))}

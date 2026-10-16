@@ -24,8 +24,8 @@ export function isReviewPlatform(v: unknown): v is ReviewPlatform {
 
 export interface ReviewReply {
   draft?: string; draftAt?: string; draftBy?: string;
-  /** Where the draft came from: Claude (checked by the guard) or a built-in template. */
-  draftSource?: 'ai' | 'template';
+  /** Where the draft came from: Claude (checked by the guard), a built-in template, or a person's edit (guarded too). */
+  draftSource?: 'ai' | 'template' | 'edited';
   repliedAt?: string; repliedBy?: string;
 }
 
@@ -66,10 +66,39 @@ export interface ReviewInput {
 const sha1 = (s: string) => crypto.createHash('sha1').update(s).digest('hex');
 const clean = (v: unknown) => { const s = String(v ?? '').trim(); return s || null; };
 
-/** sha1(platform|platformReviewId) when the platform gives one, else sha1(platform|storeRef|orderRef|at|stars). */
-export function reviewId(r: Pick<ReviewInput, 'platform' | 'platformReviewId' | 'storeRef' | 'orderRef' | 'at' | 'stars'>): string {
+/** The text part of a fallback id: a short hash of the folded, masked text (empty for a star-only rating). */
+const textKey = (text: string | null | undefined) => {
+  const t = fold(maskPersonalText(String(text ?? ''))).replace(/[^a-z0-9]+/g, ' ').trim();
+  return t ? sha1(t).slice(0, 12) : '';
+};
+
+/**
+ * sha1(platform|platformReviewId) when the platform gives one, else sha1(platform|storeRef|orderRef|at|stars), and with
+ * neither a review id nor an order id, a hash of the text is added: most exports give a day without time, so two
+ * reviews of one store on one day with the same stars differ only by their text. (One order has one review: with an
+ * order id, an edited text stays the same review.)
+ */
+export function reviewId(r: Pick<ReviewInput, 'platform' | 'platformReviewId' | 'storeRef' | 'orderRef' | 'at' | 'stars' | 'text'>): string {
   const pid = clean(r.platformReviewId);
-  return sha1(pid ? `${r.platform}|${pid}` : `${r.platform}|${clean(r.storeRef) ?? ''}|${clean(r.orderRef) ?? ''}|${r.at}|${r.stars ?? ''}`);
+  if (pid) return sha1(`${r.platform}|${pid}`);
+  const order = clean(r.orderRef);
+  const base = `${r.platform}|${clean(r.storeRef) ?? ''}|${order ?? ''}|${r.at}|${r.stars ?? ''}`;
+  return sha1(order ? base : `${base}|${textKey(r.text)}`);
+}
+
+/**
+ * Same-file twins: rows with no review id and no order id that still get the same id (two star-only ratings of one
+ * store on one day) are distinct reviews, not a duplicate. The 2nd, 3rd… copy in a file gets "#2", "#3"… added to its
+ * id, so importing the same file again still finds them. A row with a review id or an order id is never split.
+ */
+export function separateTwins(items: Array<{ review: Review; platformReviewId?: string | null }>): Review[] {
+  const seen = new Map<string, number>();
+  return items.map(({ review, platformReviewId }) => {
+    if (clean(platformReviewId) || review.orderRef) return review;
+    const n = (seen.get(review.id) ?? 0) + 1;
+    seen.set(review.id, n);
+    return n === 1 ? review : { ...review, id: sha1(`${review.id}#${n}`) };
+  });
 }
 
 // ---------------------------------------------------------------- privacy
@@ -85,12 +114,16 @@ export function maskPersonalText(text: string): string {
 
 const fold = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
-/** True for a column / field that names or reaches a person: customer name, e-mail, phone, address, any courier field. */
+/**
+ * True for a column / field that names or reaches a person: customer name, e-mail, phone, address, any courier field,
+ * a customer / user id. snake_case and camelCase headers (customer_id, consumerId) are read as words.
+ */
 export function isPersonalHeader(header: string): boolean {
-  const h = fold(String(header ?? ''));
+  const h = fold(String(header ?? '').replace(/([a-z])([A-Z])/g, '$1 $2')).replace(/[_.-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (/(^| )(consumer|eater|guest|customer|client|user|reviewer) ?(id|uuid|number|no)( |$)/.test(h)) return true;
   if (/(dasher|courier|livreur|livreuse|driver|chauffeur|coursier|delivery person)/.test(h)) return true;
   if (/(store|restaurant|merchant|business|brand|marque|magasin|location|item|dish|plat|product|produit|menu|place)/.test(h)) return false;
-  return /(name|nom|prenom|e-?mail|courriel|phone|telephone|(^|[^a-z])tel([^a-z]|$)|mobile|cell|address|adresse|reviewer|author|auteur|profile|profil|user ?id|customer ?id|consumer ?id|client ?id|photo)/.test(h);
+  return /(name|nom|prenom|e ?mail|courriel|phone|telephone|(^|[^a-z])tel([^a-z]|$)|mobile|cell|address|adresse|reviewer|author|auteur|profile|profil|photo)/.test(h);
 }
 
 /** A copy of a raw record without its personal fields; the remaining strings have e-mails and phones masked. */
@@ -147,7 +180,7 @@ export function makeReview(input: ReviewInput): Review {
   const text = maskPersonalText(String(input.text ?? '')).replace(/\s+/g, ' ').trim().slice(0, MAX_TEXT);
   const stars = input.stars === undefined ? null : parseStars(input.stars);
   const review: Review = {
-    id: reviewId({ ...input, stars }),
+    id: reviewId({ ...input, stars, text }),
     platform: input.platform,
     brandName: clean(input.brandName),
     locationCode: clean(input.locationCode),

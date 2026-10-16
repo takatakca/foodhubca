@@ -5,7 +5,7 @@ import { FORBIDDEN_STORE_IDS } from '../lib/foodhub/public-directory';
 import { getRepo } from '../lib/foodhub/repo';
 import * as reports from '../lib/foodhub/doordash/reports';
 import {
-  feedbackColumns, ingestDoorDashFeedbackReport, listDoorDashFeedbackReports, parseConsumerFeedback, requestDoorDashFeedback,
+  feedbackColumns, ingestDoorDashFeedbackReport, listDoorDashFeedbackReports, parseConsumerFeedback, reportMessageFr, requestDoorDashFeedback,
 } from '../lib/foodhub/reviews/doordash-feedback';
 import { listReviews } from '../lib/foodhub/reviews/model';
 
@@ -97,5 +97,34 @@ describe('requesting the report', () => {
     await seedFile('rep-a');
     await seedFile('rep-b', CSV, 'ORDER_DETAIL');
     expect((await listDoorDashFeedbackReports()).map((r) => r.id)).toEqual(['rep-a']);
+  });
+});
+
+describe('review fixes: overall rating, protected store by any column or by name, French messages', () => {
+  it('takes the overall rating, never a food / packaging / item sub-rating', () => {
+    expect(feedbackColumns(['STORE_ID', 'DELIVERY_UUID', 'FOOD_RATING', 'PACKAGING_RATING', 'OVERALL_RATING', 'COMMENT', 'CREATED_AT'])).toMatchObject({ storeRef: 0, orderRef: 1, stars: 4, text: 5, at: 6 });
+    expect(feedbackColumns(['item_name', 'item_rating', 'rating', 'comment', 'date']).stars).toBe(2);
+    expect(feedbackColumns(['store_id', 'customer_id', 'consumer_id', 'rating', 'comment']).storeRef).toBe(0);
+    const [row] = parseConsumerFeedback('store_id,item_name,item_rating,rating,comment,date\n11111111,Pita,1,5,Super,2026-10-10');
+    expect(row.stars).toBe('5');
+  });
+
+  it('drops a row whose protected number sits in another column, and a not-mapped Po Poulet NDG by name', async () => {
+    await seedFile('rep-x', [
+      'Merchant Ref,Store Name,Delivery UUID,Rating,Comment,Created At',
+      `${PROTECTED},Somewhere,dlv-1,1,Froid,2026-10-10`,
+      '55555555,Po Poulet NDG,dlv-2,2,Tiède,2026-10-10',
+      '66666666,Pi Pita Hochelaga,dlv-3,5,Parfait,2026-10-10',
+    ].join('\n'));
+    const out = await ingestDoorDashFeedbackReport('rep-x', actor);
+    expect(out).toMatchObject({ ok: true, rows: 3, added: 1, dropped: 2 });
+    expect(out.messageFr).toMatch(/^1 nouvel\(s\) avis, 0 déjà là, 2 d’un magasin protégé/);
+    expect((await listReviews()).map((r) => r.brandName)).toEqual(['Pi Pita']);
+  });
+
+  it('French text for the report messages written by the Reporting API code', () => {
+    expect(reportMessageFr('DoorDash is still preparing the file.')).toBe('DoorDash prépare encore le fichier.');
+    expect(reportMessageFr('12 row(s), 3 row(s) of a protected store left out.')).toBe('12 ligne(s), 3 ligne(s) d’un magasin protégé laissée(s) de côté.');
+    expect(reportMessageFr('Something new')).toBe('Something new');
   });
 });

@@ -8,22 +8,22 @@ import { nowIso } from '../config';
 import { readTable, splitHeader } from '../recon/statements';
 import { getRepo } from '../repo';
 import {
-  existingReviewIds, isPersonalHeader, isReviewPlatform, makeReview, REVIEW_IMPORTS, toReviewAt, upsertReviews,
+  existingReviewIds, isPersonalHeader, isReviewPlatform, makeReview, REVIEW_IMPORTS, separateTwins, stripPersonal, toReviewAt, upsertReviews,
   type Review, type ReviewInput, type ReviewPlatform,
 } from './model';
-import { StoreIndex } from './stores';
+import { rowHasForbiddenId, StoreIndex } from './stores';
 
 export const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
 export const PREVIEW_ROWS = 20;
 
-export const IMPORT_FIELDS = ['date', 'stars', 'text', 'store', 'order', 'reviewId', 'reply'] as const;
+export const IMPORT_FIELDS = ['date', 'stars', 'text', 'store', 'storeName', 'order', 'reviewId', 'reply'] as const;
 export type ImportField = (typeof IMPORT_FIELDS)[number];
 /** Column index per field (0-based), chosen by a person when the file is not recognized. */
 export type ReviewMapping = Partial<Record<ImportField, number>>;
 
 export const FIELD_LABELS: Record<ImportField, { fr: string; en: string }> = {
   date: { fr: 'Date', en: 'Date' }, stars: { fr: 'Étoiles', en: 'Stars' }, text: { fr: 'Commentaire', en: 'Comment' },
-  store: { fr: 'Magasin / marque', en: 'Store / brand' }, order: { fr: 'Commande', en: 'Order' }, reviewId: { fr: 'No d’avis', en: 'Review id' },
+  store: { fr: 'Magasin / marque', en: 'Store / brand' }, storeName: { fr: 'Nom du magasin', en: 'Store name' }, order: { fr: 'Commande', en: 'Order' }, reviewId: { fr: 'No d’avis', en: 'Review id' },
   reply: { fr: 'Réponse déjà publiée', en: 'Reply already posted' },
 };
 
@@ -49,12 +49,25 @@ export const PRESETS: Preset[] = [
 // Any export (and the fallback for a preset column the file names differently).
 const GENERIC: Record<ImportField, RegExp> = {
   reviewId: /^(review|feedback|rating) ?(id|uuid)$/,
-  order: /order|commande|delivery (id|uuid)|reservation/,
+  // Id-like order columns only: "Order Date", "Order Rating" or "Order Total" are not the order.
+  order: /^(order|commande)( id| uuid| number| no| #|#)?$|^(no|numero) (de )?commande$|delivery (id|uuid)$|^reservation( id)?$/,
   stars: /rating|stars?|etoiles?|score|^note$/,
   text: /comment|review|feedback|avis|text|message/,
   store: /store|restaurant|location|magasin|succursale|brand|marque|business|commerce/,
+  storeName: /(store|restaurant|location|business|merchant|magasin) name|^nom (du )?(magasin|restaurant|commerce)$/,
   date: /date|created|time|publi|jour/,
   reply: /reply|response|reponse/,
+};
+/** A store id column ("Store ID", "store_uuid", "Merchant Store ID"): preferred, the protected-store check needs it. */
+const STORE_ID = /(^| )(merchant )?(store|location|restaurant|business) ?(id|uuid|code|number)$/;
+/** The overall rating first ("Rating", "Overall Rating", "Star Rating"), never a sub-rating (food, packaging, item…). */
+const OVERALL_STARS = /^(rating|stars?|star rating|overall|overall rating|order rating|note|etoiles?|score)$|overall/;
+export const SUB_RATING = /food|packag|emballage|item|dish|plat|product|dasher|courier|driver|livr|delivery|accuracy|temperature|portion|value|taste|gout/;
+/** Columns a field must never take, whatever its pattern says. */
+const NOT_FOR: Partial<Record<ImportField, RegExp>> = {
+  text: /rating|score|date|(^| )id$|uuid/,
+  order: /date|rating|total|amount|montant|subtotal|tax|tip|fee|price|prix/,
+  stars: SUB_RATING,
 };
 
 export function detectPreset(headers: string[], fileName = ''): Preset | null {
@@ -68,9 +81,13 @@ export function guessReviewMapping(headers: string[], preset: Preset | null): Re
   const out: ReviewMapping = {};
   const used = new Set<number>();
   // Specific first: ids and ratings before the broad text pattern ("Review ID" is not the review text).
-  for (const field of ['reviewId', 'order', 'stars', 'date', 'reply', 'store', 'text'] as ImportField[]) {
-    const pick = (re?: RegExp) => (re ? h.findIndex((x, i) => !used.has(i) && !isPersonalHeader(headers[i]) && re.test(x) && !(field === 'text' && /rating|score|date|(^| )id$|uuid/.test(x))) : -1);
-    let i = pick(preset?.fields[field]);
+  for (const field of ['reviewId', 'order', 'stars', 'date', 'reply', 'store', 'storeName', 'text'] as ImportField[]) {
+    const pick = (re?: RegExp, presetOwn = false) => (re ? h.findIndex((x, i) => !used.has(i) && !isPersonalHeader(headers[i]) && re.test(x)
+      && !(NOT_FOR[field]?.test(x) && !(presetOwn && field === 'stars'))) : -1);
+    let i = -1;
+    if (field === 'stars') i = pick(OVERALL_STARS);
+    if (field === 'store') i = pick(STORE_ID);
+    if (i < 0) i = pick(preset?.fields[field], true); // a preset may name its own sub-rating (Skip "Food Rating") as the rating
     if (i < 0) i = pick(GENERIC[field]);
     if (i >= 0) { out[field] = i; used.add(i); }
   }
@@ -82,16 +99,28 @@ function platformFromName(fileName: string): ReviewPlatform | null {
   return PRESETS.find((p) => p.fileName?.test(fileName))?.platform ?? null;
 }
 
+/** The import's refusals, in English (error) and French (errorFr): the console is French first. */
+export const IMPORT_ERRORS = {
+  empty: { en: 'The file is empty.', fr: 'Le fichier est vide.' },
+  tooLarge: { en: 'File too large (max 5 MB): export a shorter period.', fr: 'Fichier trop gros (max 5 Mo) : exportez une période plus courte.' },
+  badJson: { en: 'This JSON file cannot be read.', fr: 'Ce fichier JSON ne peut pas être lu.' },
+  noJsonReviews: { en: 'No reviews found in this JSON file (expected a Google Takeout reviews file).', fr: 'Aucun avis dans ce fichier JSON (un fichier d’avis Google Takeout est attendu).' },
+  badTable: { en: 'This file cannot be read', fr: 'Ce fichier ne peut pas être lu (CSV ou Excel attendu)' },
+  noColumns: { en: 'No columns found in this file.', fr: 'Aucune colonne trouvée dans ce fichier.' },
+  needsMapping: { en: 'Columns not recognized: choose which column holds the date, the stars and the comment.', fr: 'Colonnes non reconnues : choisissez la colonne de la date, des étoiles et du commentaire.' },
+} as const;
+const refuse = (k: keyof typeof IMPORT_ERRORS, detail = '') => ({ ok: false as const, error: IMPORT_ERRORS[k].en + detail, errorFr: IMPORT_ERRORS[k].fr + detail });
+
 export interface ImportOptions { platform?: ReviewPlatform | string | null; mapping?: ReviewMapping | null; dryRun?: boolean; brandName?: string | null; locationCode?: string | null; allowedLocations?: string[] }
 
 export type ImportResult =
-  | { ok: false; error: string; needsMapping?: boolean; headers?: string[]; fields?: typeof FIELD_LABELS; platform?: ReviewPlatform }
+  | { ok: false; error: string; errorFr: string; needsMapping?: boolean; headers?: string[]; fields?: typeof FIELD_LABELS; platform?: ReviewPlatform }
   | {
     ok: true; dryRun: boolean; importId: string; platform: ReviewPlatform; preset: string | null; headers: string[]; mapping: ReviewMapping;
     counts: { rows: number; new: number; duplicate: number; skipped: number; dropped: number; unmapped: number }; preview: Review[];
   };
 
-type Raw = Omit<ReviewInput, 'source' | 'importId' | 'brandName' | 'locationCode'> & { storeName?: string | null; brandName?: string | null; locationCode?: string | null };
+type Raw = Omit<ReviewInput, 'source' | 'importId' | 'brandName' | 'locationCode'> & { storeName?: string | null; brandName?: string | null; locationCode?: string | null; forbidden?: boolean };
 
 // ---------------------------------------------------------------- Google Takeout (JSON)
 
@@ -106,19 +135,23 @@ export function parseTakeoutReviews(json: unknown): Raw[] {
   const out: Raw[] = [];
   const root = json as any;
   const list: any[] = Array.isArray(root) ? root : Array.isArray(root?.reviews) ? root.reviews : [];
-  for (const r of list) {
-    if (!r || typeof r !== 'object') continue;
+  for (const original of list) {
+    if (!original || typeof original !== 'object') continue;
+    // Personal fields (reviewer, profile photo…) are dropped before anything is read. The review's resource name
+    // ("accounts/…/reviews/…") is its id, not a person's name: it is read from the original record.
+    const r = stripPersonal(original) as any;
+    const resourceName = typeof original.name === 'string' && /\/reviews\//.test(original.name) ? original.name : null;
     const at = toReviewAt(r.createTime ?? r.updateTime ?? r.date);
     if (!at) continue;
     const replied = r.reviewReply?.comment ? toReviewAt(r.reviewReply.updateTime) ?? at : null;
     out.push({
-      platform: 'google', platformReviewId: r.reviewId ?? r.name ?? null, at, stars: STAR_WORDS[String(r.starRating ?? '').toUpperCase()] ?? r.rating ?? r.stars ?? null,
+      platform: 'google', platformReviewId: r.reviewId ?? resourceName ?? null, at, stars: STAR_WORDS[String(r.starRating ?? '').toUpperCase()] ?? r.rating ?? r.stars ?? null,
       text: String(r.comment ?? r.text ?? ''), storeName: r.locationName ?? r.location?.title ?? r.location?.name ?? null, storeRef: r.storeCode ?? r.locationName ?? null,
       ...(replied ? { reply: { repliedAt: replied, repliedBy: 'Google' } } : {}),
     });
   }
   for (const f of Array.isArray(root?.features) ? root.features : []) {
-    const p = f?.properties ?? {};
+    const p = stripPersonal(f?.properties ?? {}) as any;
     const at = toReviewAt(p.Published ?? p.date ?? p.published);
     if (!at) continue;
     const loc = p.Location ?? p.location ?? {};
@@ -136,13 +169,14 @@ export function parseTakeoutReviews(json: unknown): Raw[] {
 function rowsFromTable(headers: string[], rows: string[][], mapping: ReviewMapping, platform: ReviewPlatform): Array<Raw | null> {
   const get = (r: string[], f: ImportField) => (mapping[f] === undefined || isPersonalHeader(headers[mapping[f]!] ?? '') ? '' : String(r[mapping[f]!] ?? '').trim());
   return rows.map((r) => {
+    if (rowHasForbiddenId(r)) return { platform, at: '', forbidden: true }; // a protected store number in any column
     const at = toReviewAt(get(r, 'date'));
     const stars = get(r, 'stars'); const text = get(r, 'text');
     if (!at || (!stars && !text)) return null;
-    const store = get(r, 'store'); const replyText = get(r, 'reply');
+    const store = get(r, 'store'); const storeName = get(r, 'storeName'); const replyText = get(r, 'reply');
     return {
       platform, platformReviewId: get(r, 'reviewId') || null, at, stars, text, orderRef: get(r, 'order') || null,
-      storeRef: store || null, storeName: store || null, ...(replyText ? { reply: { repliedAt: at, repliedBy: 'Portal' } } : {}),
+      storeRef: store || storeName || null, storeName: storeName || store || null, ...(replyText ? { reply: { repliedAt: at, repliedBy: 'Portal' } } : {}),
     };
   });
 }
@@ -159,8 +193,8 @@ function isJson(fileName: string, bytes: Uint8Array): boolean {
  */
 export async function importReviews(fileName: string, bytes: Uint8Array, opts: ImportOptions, actor: Actor): Promise<ImportResult> {
   const name = String(fileName || 'reviews.csv');
-  if (!bytes?.length) return { ok: false, error: 'The file is empty.' };
-  if (bytes.length > MAX_IMPORT_BYTES) return { ok: false, error: 'File too large (max 5 MB): export a shorter period.' };
+  if (!bytes?.length) return refuse('empty');
+  if (bytes.length > MAX_IMPORT_BYTES) return refuse('tooLarge');
   const forced = isReviewPlatform(opts.platform) ? opts.platform : null;
 
   let raws: Array<Raw | null> = [];
@@ -168,43 +202,47 @@ export async function importReviews(fileName: string, bytes: Uint8Array, opts: I
   let platform: ReviewPlatform = forced ?? platformFromName(name) ?? 'other';
   if (isJson(name, bytes)) {
     let json: unknown;
-    try { json = JSON.parse(new TextDecoder('utf-8').decode(bytes).replace(/^﻿/, '')); } catch { return { ok: false, error: 'This JSON file cannot be read.' }; }
+    try { json = JSON.parse(new TextDecoder('utf-8').decode(bytes).replace(/^﻿/, '')); } catch { return refuse('badJson'); }
     platform = forced ?? 'google';
     raws = parseTakeoutReviews(json).map((r) => ({ ...r, platform }));
-    if (!raws.length) return { ok: false, error: 'No reviews found in this JSON file (expected a Google Takeout reviews file).' };
+    if (!raws.length) return refuse('noJsonReviews');
   } else {
     let table: string[][];
-    try { table = readTable(name, bytes); } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
+    try { table = readTable(name, bytes); } catch (e) { return refuse('badTable', `: ${e instanceof Error ? e.message : String(e)}`); }
     const split = splitHeader(table);
     headers = split.headers;
-    if (!headers.length) return { ok: false, error: 'No columns found in this file.' };
+    if (!headers.length) return refuse('noColumns');
     preset = detectPreset(headers, name);
     platform = forced ?? preset?.platform ?? platform;
     mapping = opts.mapping && Object.keys(opts.mapping).length ? sanitizeMapping(opts.mapping, headers.length) : guessReviewMapping(headers, preset);
     if (mapping.date === undefined || (mapping.stars === undefined && mapping.text === undefined)) {
-      return { ok: false, needsMapping: true, headers: headers.map((h) => (isPersonalHeader(h) ? '(personnel, ignoré / personal, ignored)' : h)), fields: FIELD_LABELS, platform,
-        error: 'Columns not recognized: choose which column holds the date, the stars and the comment.' };
+      return { ...refuse('needsMapping'), needsMapping: true, headers: headers.map((h) => (isPersonalHeader(h) ? '(personnel, ignoré / personal, ignored)' : h)), fields: FIELD_LABELS, platform };
     }
     raws = rowsFromTable(headers, split.rows, mapping, platform);
   }
 
   const stores = await StoreIndex.load();
   const importId = `import:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`;
-  const reviews: Review[] = [];
+  const made: Array<{ review: Review; platformReviewId?: string | null }> = [];
   let skipped = 0; let dropped = 0; let unmapped = 0;
   for (const raw of raws) {
+    if (raw?.forbidden) { dropped++; continue; } // protected store: never kept, not even shown in the preview
     if (!raw) { skipped++; continue; }
     const where = stores.resolve(platform, raw.storeRef, raw.storeName);
     if (where.forbidden) { dropped++; continue; }
     const brandName = where.brandName ?? opts.brandName ?? null;
     const locationCode = where.locationCode ?? opts.locationCode ?? null;
+    // Known only by name (or by the brand / kitchen chosen for the whole file): a DoorDash or unknown-platform row that
+    // could be the protected store is left out too.
+    if (!where.mapped && (platform === 'doordash' || platform === 'other') && stores.isProtectedPlace(brandName, locationCode)) { dropped++; continue; }
     if (opts.allowedLocations?.length && !(locationCode && opts.allowedLocations.includes(locationCode))) { skipped++; continue; } // outside the person's kitchens
     if (!brandName) unmapped++;
-    reviews.push(makeReview({
+    made.push({ platformReviewId: raw.platformReviewId, review: makeReview({
       platform, platformReviewId: raw.platformReviewId, storeRef: raw.storeRef, at: raw.at, stars: raw.stars, text: raw.text, orderRef: raw.orderRef, reply: raw.reply,
       brandName, locationCode, source: 'import', importId,
-    }));
+    }) });
   }
+  const reviews = separateTwins(made);
   const ids = [...new Set(reviews.map((r) => r.id))];
   const existing = await existingReviewIds(ids);
   const fresh = ids.filter((id) => !existing.has(id)).length;

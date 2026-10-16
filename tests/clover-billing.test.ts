@@ -422,8 +422,8 @@ describe('API', () => {
   it('cron route needs CRON_SECRET and does nothing while billing is off', async () => {
     const url = 'http://hub.local/api/foodhub/cron/clover-billing';
     process.env.CRON_SECRET = 'cron-secret-test';
-    expect((await cronGet(new Request(url) as any, ctx)).status).toBe(401);
-    const res = await cronGet(new Request(url, { headers: { authorization: 'Bearer cron-secret-test' } }) as any, ctx);
+    expect((await cronGet(new Request(url) as any)).status).toBe(401);
+    const res = await cronGet(new Request(url, { headers: { authorization: 'Bearer cron-secret-test' } }) as any);
     expect(res.status).toBe(200);
     expect((await res.json()).result).toMatchObject({ ran: false });
   });

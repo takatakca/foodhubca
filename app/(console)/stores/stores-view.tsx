@@ -149,7 +149,7 @@ export function StoresView() {
   const loading = !stores && !failed;
   return (
     <div>
-      <PageHeader title={t('Restaurants', 'Restaurants')} subtitle={t('Toutes les marques de chaque cuisine sur une liste. Touchez une marque pour l’ouvrir seule : pause, réouverture et temps de préparation, sur toutes les plateformes d’un coup.', 'Every brand of each kitchen in one list. Tap a brand to open it alone: pause, resume and prep time, on every platform at once.')} />
+      <PageHeader title={t('Restaurants', 'Restaurants')} subtitle={t('Toutes les marques de chaque succursale sur une liste. Touchez une marque pour l’ouvrir seule : pause, réouverture et temps de préparation, sur toutes les plateformes d’un coup.', 'Every brand of each location in one list. Tap a brand to open it alone: pause, resume and prep time, on every platform at once.')} />
       <StoresTabs />
       {failed && !stores && <Banner tone="stop" className="mb-5">{t('Impossible de lire vos magasins pour l’instant. Vérifiez la connexion : on réessaie toutes les 30 secondes.', 'Cannot read your stores right now. Check the connection: it retries every 30 seconds.')}</Banner>}
       {stores && stores.length === 0 && !(cc?.matrix.length) && (

@@ -5,6 +5,6 @@ node_modules
 .env.*
 !.env.example
 data/media
-tests
+private/
 tsconfig.tsbuildinfo
 *.zip

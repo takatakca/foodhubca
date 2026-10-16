@@ -2,6 +2,8 @@
 
 Start here:
 
+Agent continuity and production truth: [PROJECT_STATUS.md](PROJECT_STATUS.md) · [TASK_QUEUE.md](TASK_QUEUE.md) · [AGENT_HANDOFF.md](AGENT_HANDOFF.md) · [DEPLOYMENT.md](DEPLOYMENT.md) · [DECISIONS.md](DECISIONS.md).
+
 | Document | What it is for |
 |---|---|
 | [FOODHUB.md](FOODHUB.md) | **The guide.** What runs by itself, what to request from each platform, where to paste it, daily use, payouts & money |

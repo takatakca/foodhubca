@@ -6,6 +6,7 @@ import {
   ArrowRight, Check, CircleAlert, ExternalLink, Globe, Hourglass, Layers, Loader2, Lock, Mail, MonitorSmartphone,
   PartyPopper, Phone, PlugZap, Printer, Receipt, ShieldCheck, Store, Tablet, Tags, UtensilsCrossed, X,
 } from 'lucide-react';
+import { TakatakMark } from '@/components/brand/takatak-mark';
 import { buttonClass } from '@/components/ui/button';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
@@ -56,11 +57,10 @@ export function WelcomeView({ data }: { data: WelcomeData }) {
     <div className="grid min-h-dvh grid-cols-1 bg-canvas text-ink lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.25fr)]">
       <Rail t={t} />
       <main className="relative flex min-w-0 flex-col px-4 pt-5 pb-8 sm:px-10">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(60%_100%_at_70%_0%,rgb(255_91_20/0.08),transparent)]" aria-hidden />
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(60%_100%_at_70%_0%,rgb(31_139_255/0.08),transparent)]" aria-hidden />
         <header className="relative flex items-center justify-between gap-3">
           <span className="flex items-center gap-2 lg:invisible">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/icons/icon-192.png" alt="" className="size-8 rounded-lg" />
+            <TakatakMark size="sm" />
             <span className="font-extrabold tracking-tight">TAKATAK Food Hub</span>
           </span>
           <button type="button" onClick={() => setLang(lang === 'fr' ? 'en' : 'fr')} className="flex h-9 items-center gap-1.5 rounded-md px-2.5 text-[13px] font-bold text-ink-3 hover:bg-sunken hover:text-ink" aria-label={lang === 'fr' ? 'Switch to English' : 'Passer au français'}>
@@ -93,8 +93,7 @@ function Rail({ t }: { t: T }) {
   return (
     <aside className="relative hidden overflow-hidden bg-rail p-10 text-white lg:sticky lg:top-0 lg:flex lg:h-dvh lg:flex-col xl:p-12">
       <div className="flex items-center gap-3">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/icons/icon-192.png" alt="" className="size-10 rounded-xl" />
+        <TakatakMark />
         <div>
           <div className="text-lg leading-tight font-extrabold tracking-tight">TAKATAK Food Hub</div>
           <div className="text-[13px] text-white/50">{t('pour votre caisse Clover', 'for your Clover register')}</div>

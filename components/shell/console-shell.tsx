@@ -31,6 +31,7 @@ import { audioReady, playSound, unlockAudio } from '@/lib/ui/sound';
 import { api } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
+import { applyKitchenTheme, isKitchenRoute } from '@/lib/ui/kitchen-theme';
 
 export function ConsoleShell({ children }: { children: ReactNode }) {
   const { viewer } = useViewer();
@@ -87,7 +88,7 @@ function Frame({ children }: { children: ReactNode }) {
   // Portaled order drawers and alerts inherit tokens from the document root.
   useEffect(() => {
     const root = document.documentElement;
-    root.classList.toggle('theme-kitchen', pathname === '/kitchen' || pathname.startsWith('/kitchen/'));
+    applyKitchenTheme(root.classList, pathname);
     return () => { root.classList.remove('theme-kitchen'); };
   }, [pathname]);
   useEffect(() => { installSupervisor(); }, []);
@@ -100,7 +101,7 @@ function Frame({ children }: { children: ReactNode }) {
   const visible = (n: Pick<NavItem, 'perm' | 'allLocations' | 'features'>) => navVisible(n, can, allLocations, features);
   const items = NAV.filter(visible);
   const toggle = () => { setCollapsed((c) => { try { localStorage.setItem('takatak.rail', c ? '0' : '1'); } catch { /* ignore */ } return !c; }); };
-  const kitchen = pathname === '/kitchen' || pathname.startsWith('/kitchen/');
+  const kitchen = isKitchenRoute(pathname);
   const mobile = [NAV[0], NAV[1], NAV[2], ALERTS].filter(visible);
 
   return (

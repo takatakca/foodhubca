@@ -1,6 +1,7 @@
-import { checkPayLink, openPayLink, orderForToken, payLinkState } from '@/lib/foodhub/delivery/paylink';
+import { checkPayLink, openPayLink, orderForToken, payLinkState, payTotal } from '@/lib/foodhub/delivery/paylink';
 import type { DirectOrder } from '@/lib/foodhub/delivery/types';
 import { money } from '@/lib/foodhub/phone/style';
+import { clientIp } from '@/lib/foodhub/session';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -12,6 +13,7 @@ export const maxDuration = 30;
 // once Clover itself confirms the payment.
 
 type Ctx = { params: Promise<{ token: string }> };
+const CHECK_COOLDOWN_MS = 10_000;
 type Lang = 'fr' | 'en' | 'es';
 
 const HEADERS = {
@@ -26,9 +28,9 @@ const HEADERS = {
 const esc = (s: string) => s.replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[c]!));
 
 const W = {
-  fr: { title: 'Paiement de votre commande', pay: 'Payer avec Clover', order: 'Commande', total: 'Total (taxes incluses)', hello: 'Bonjour', secure: 'Paiement sécurisé par Clover. Nous ne voyons jamais votre carte.', paid: 'Paiement reçu, merci ! Votre commande est en préparation.', checking: 'Confirmation du paiement en cours…', cancel: 'Paiement annulé. Vous pouvez réessayer.', fail: 'Le paiement n’a pas fonctionné. Vous pouvez réessayer avec une autre carte.', expired: 'Ce lien de paiement a expiré. Aucun montant n’a été prélevé. Rappelez-nous pour passer une nouvelle commande.', cancelled: 'Cette commande est annulée. Aucun montant n’a été prélevé.', unknown: 'Ce lien n’est pas valide.', error: 'Le paiement n’est pas disponible pour le moment. Réessayez dans un instant.', pickup: 'Pour emporter', delivery: 'Livraison', busy: 'Trop d’essais. Réessayez dans une minute.' },
-  en: { title: 'Pay for your order', pay: 'Pay with Clover', order: 'Order', total: 'Total (taxes included)', hello: 'Hello', secure: 'Secure payment by Clover. We never see your card.', paid: 'Payment received, thank you! Your order is being prepared.', checking: 'Confirming your payment…', cancel: 'Payment cancelled. You can try again.', fail: 'The payment did not go through. You can try again with another card.', expired: 'This payment link has expired. Nothing was charged. Call us back to place a new order.', cancelled: 'This order is cancelled. Nothing was charged.', unknown: 'This link is not valid.', error: 'Payment is not available right now. Please try again in a moment.', pickup: 'Pickup', delivery: 'Delivery', busy: 'Too many tries. Please try again in a minute.' },
-  es: { title: 'Pago de su pedido', pay: 'Pagar con Clover', order: 'Pedido', total: 'Total (impuestos incluidos)', hello: 'Hola', secure: 'Pago seguro con Clover. Nunca vemos su tarjeta.', paid: '¡Pago recibido, gracias! Su pedido está en preparación.', checking: 'Confirmando su pago…', cancel: 'Pago cancelado. Puede intentarlo de nuevo.', fail: 'El pago no se completó. Puede intentarlo de nuevo con otra tarjeta.', expired: 'Este enlace de pago venció. No se le cobró nada. Llámenos para hacer un nuevo pedido.', cancelled: 'Este pedido fue cancelado. No se le cobró nada.', unknown: 'Este enlace no es válido.', error: 'El pago no está disponible en este momento. Intente de nuevo en un momento.', pickup: 'Para recoger', delivery: 'Entrega', busy: 'Demasiados intentos. Intente de nuevo en un minuto.' },
+  fr: { title: 'Paiement de votre commande', pay: 'Payer avec Clover', order: 'Commande', total: 'Total (taxes incluses)', hello: 'Bonjour', secure: 'Paiement sécurisé par Clover. Nous ne voyons jamais votre carte.', paid: 'Paiement reçu, merci ! Votre commande est en préparation.', checking: 'Confirmation du paiement en cours…', cancel: 'Paiement annulé. Vous pouvez réessayer.', fail: 'Le paiement n’a pas fonctionné. Vous pouvez réessayer avec une autre carte.', expired: 'Ce lien de paiement a expiré. Aucun montant n’a été prélevé. Rappelez-nous pour passer une nouvelle commande.', cancelled: 'Cette commande est annulée. Aucun montant n’a été prélevé.', unknown: 'Ce lien n’est pas valide.', error: 'Le paiement n’est pas disponible pour le moment. Réessayez dans un instant.', pickup: 'Pour emporter', delivery: 'Livraison', tip: 'Pourboire', busy: 'Trop d’essais. Réessayez dans une minute.' },
+  en: { title: 'Pay for your order', pay: 'Pay with Clover', order: 'Order', total: 'Total (taxes included)', hello: 'Hello', secure: 'Secure payment by Clover. We never see your card.', paid: 'Payment received, thank you! Your order is being prepared.', checking: 'Confirming your payment…', cancel: 'Payment cancelled. You can try again.', fail: 'The payment did not go through. You can try again with another card.', expired: 'This payment link has expired. Nothing was charged. Call us back to place a new order.', cancelled: 'This order is cancelled. Nothing was charged.', unknown: 'This link is not valid.', error: 'Payment is not available right now. Please try again in a moment.', pickup: 'Pickup', delivery: 'Delivery', tip: 'Tip', busy: 'Too many tries. Please try again in a minute.' },
+  es: { title: 'Pago de su pedido', pay: 'Pagar con Clover', order: 'Pedido', total: 'Total (impuestos incluidos)', hello: 'Hola', secure: 'Pago seguro con Clover. Nunca vemos su tarjeta.', paid: '¡Pago recibido, gracias! Su pedido está en preparación.', checking: 'Confirmando su pago…', cancel: 'Pago cancelado. Puede intentarlo de nuevo.', fail: 'El pago no se completó. Puede intentarlo de nuevo con otra tarjeta.', expired: 'Este enlace de pago venció. No se le cobró nada. Llámenos para hacer un nuevo pedido.', cancelled: 'Este pedido fue cancelado. No se le cobró nada.', unknown: 'Este enlace no es válido.', error: 'El pago no está disponible en este momento. Intente de nuevo en un momento.', pickup: 'Para recoger', delivery: 'Entrega', tip: 'Propina', busy: 'Demasiados intentos. Intente de nuevo en un minuto.' },
 } as const;
 
 function page(lang: Lang, body: string, opts: { refresh?: boolean; status?: number } = {}): Response {
@@ -47,7 +49,7 @@ function summary(o: DirectOrder, lang: Lang): string {
   const w = W[lang];
   const first = String(o.customer.name ?? '').trim().split(/\s+/)[0] ?? '';
   const items = o.lines.map((l) => `<li><span>${l.quantity} × ${esc(l.name)}</span><span>${esc(money(l.total, lang))}</span></li>`).join('');
-  return `<h1>${esc(o.brandName)}</h1><div class="muted">${esc(w.order)} ${esc(o.number)} · ${esc(o.fulfillment === 'delivery' ? w.delivery : w.pickup)}${first ? ` · ${esc(w.hello)} ${esc(first)}` : ''}</div><ul>${items}${o.deliveryFee > 0 ? `<li><span>${esc(w.delivery)}</span><span>${esc(money(o.deliveryFee, lang))}</span></li>` : ''}</ul><div class="total"><span>${esc(w.total)}</span><span>${esc(money(o.total, lang))}</span></div>`;
+  return `<h1>${esc(o.brandName)}</h1><div class="muted">${esc(w.order)} ${esc(o.number)} · ${esc(o.fulfillment === 'delivery' ? w.delivery : w.pickup)}${first ? ` · ${esc(w.hello)} ${esc(first)}` : ''}</div><ul>${items}${o.deliveryFee > 0 ? `<li><span>${esc(w.delivery)}</span><span>${esc(money(o.deliveryFee, lang))}</span></li>` : ''}${o.tip > 0 ? `<li><span>${esc(w.tip)}</span><span>${esc(money(o.tip, lang))}</span></li>` : ''}</ul><div class="total"><span>${esc(w.total)}</span><span>${esc(money(payTotal(o), lang))}</span></div>`;
 }
 
 const payButton = (lang: Lang) => `<form method="post"><button type="submit">${esc(W[lang].pay)}</button></form>`;
@@ -59,8 +61,10 @@ export async function GET(req: Request, ctx: Ctx) {
   if (!o?.paylink) return page('fr', `<p class="err">${esc(W.fr.unknown)}</p>`, { status: 404 });
   const lang = o.paylink.lang;
   const w = W[lang];
-  // Back from Clover: Clover itself is asked (the query string is never trusted).
-  if (r === 'ok' && payLinkState(o) === 'pending') o = (await checkPayLink(o.id, 'page')).order ?? o;
+  // Back from Clover: Clover itself is asked (the query string is never trusted) — at most once per 10 s per link (the
+  // page reloads every 5 s; the poller checks too).
+  const lastCheck = o.paylink.lastCheckAt ? Date.parse(o.paylink.lastCheckAt) : 0;
+  if (r === 'ok' && payLinkState(o) === 'pending' && !(Date.now() - lastCheck < CHECK_COOLDOWN_MS)) o = (await checkPayLink(o.id, 'page')).order ?? o;
   const state = payLinkState(o);
   if (state === 'paid') return page(lang, `${summary(o, lang)}<p class="ok">${esc(w.paid)}</p>`);
   if (state === 'expired') return page(lang, `${summary(o, lang)}<p class="err">${esc(w.expired)}</p>`);
@@ -70,22 +74,35 @@ export async function GET(req: Request, ctx: Ctx) {
   return page(lang, `${summary(o, lang)}${note}${payButton(lang)}`);
 }
 
-// A light per-address limit on session creation (each POST can create a Clover session).
+// A light limit on session creation (each POST can create a Clover session): 10 a minute per address and link, 20 a
+// minute per link whatever the address (the forwarded address is only trusted behind our proxy, see clientIp).
 const hits = (): Map<string, number[]> => {
   const g = globalThis as unknown as { __fhPayHits?: Map<string, number[]> };
   g.__fhPayHits ??= new Map();
   return g.__fhPayHits;
 };
+const WINDOW_MS = 60_000;
+const MAX_KEYS = 5000;
+
+/** Counts one try; false when over the limit. Expired entries are dropped, and the map never passes MAX_KEYS. */
+function allowPayTry(keys: Array<[string, number]>, now = Date.now()): boolean {
+  const map = hits();
+  if (map.size > MAX_KEYS / 2) for (const [k, v] of map) if (!v.some((t) => now - t < WINDOW_MS)) map.delete(k);
+  while (map.size >= MAX_KEYS) map.delete(map.keys().next().value!);
+  const recent = keys.map(([k]) => (map.get(k) ?? []).filter((t) => now - t < WINDOW_MS));
+  if (keys.some(([, max], i) => recent[i].length >= max)) return false;
+  keys.forEach(([k], i) => map.set(k, [...recent[i], now]));
+  return true;
+}
 
 export async function POST(req: Request, ctx: Ctx) {
   const { token } = await ctx.params;
-  const ip = (req.headers.get('x-forwarded-for') ?? '').split(',')[0].trim() || 'unknown';
+  const ip = clientIp(req.headers);
   const now = Date.now();
-  const recent = (hits().get(ip) ?? []).filter((t) => now - t < 60_000);
   const o = await orderForToken(token);
   const lang: Lang = o?.paylink?.lang ?? 'fr';
-  if (recent.length >= 10) return page(lang, `<p class="err">${esc(W[lang].busy)}</p>`, { status: 429 });
-  hits().set(ip, [...recent, now]);
+  const tok = token.slice(0, 64);
+  if (!allowPayTry([[`${ip}|${tok}`, 10], [`*|${tok}`, 20]], now)) return page(lang, `<p class="err">${esc(W[lang].busy)}</p>`, { status: 429 });
   if (!o?.paylink) return page('fr', `<p class="err">${esc(W.fr.unknown)}</p>`, { status: 404 });
   const r = await openPayLink(token, now);
   if (r.ok) return new Response(null, { status: 303, headers: { Location: r.href, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' } });

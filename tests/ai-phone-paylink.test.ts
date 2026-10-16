@@ -7,7 +7,7 @@ import { saveLocation } from '../lib/foodhub/catalog';
 import { publicBaseUrl } from '../lib/foodhub/config';
 import { buildDirectCloverCart, createDirectOrderInClover, kitchenHasNoRegister } from '../lib/foodhub/delivery/clover-direct';
 import { createDirectOrder } from '../lib/foodhub/delivery/orders';
-import { paylinkReadiness, payLinkState, startPayLink, tickPaylinks } from '../lib/foodhub/delivery/paylink';
+import { cancelHeldOrder, payAtCounter, paylinkReadiness, payLinkState, startPayLink, tickPaylinks } from '../lib/foodhub/delivery/paylink';
 import { getDirectOrder } from '../lib/foodhub/delivery/store';
 import type { DirectOrder } from '../lib/foodhub/delivery/types';
 import { setFeature } from '../lib/foodhub/expansion/features';
@@ -24,7 +24,14 @@ import { phoneReadiness } from '../lib/foodhub/phone/readiness';
 import { readTwiml, simulateCall } from '../lib/foodhub/phone/sim/driver';
 import { simulateTurn } from '../lib/foodhub/phone/voice';
 import { verifyTwilio } from '../lib/foodhub/phone/twilio';
-import { cloverSignatureHeader } from '../lib/foodhub/pos/clover-checkout';
+import { buildCheckoutRequest, checkoutTotalCents, clearTaxCache, cloverSignatureHeader, hasMarker } from '../lib/foodhub/pos/clover-checkout';
+import { hashPassword } from '../lib/foodhub/auth';
+import { tickDispatch } from '../lib/foodhub/delivery/dispatch';
+import { saveDeliverySettings, saveDirectOrder } from '../lib/foodhub/delivery/store';
+import { saveHours } from '../lib/foodhub/hours';
+import { placePhoneOrder } from '../lib/foodhub/phone/order';
+import { languageChoice } from '../lib/foodhub/phone/voice';
+import { POST as simRoute } from '../app/api/foodhub/phone/sim/route';
 import { getRepo } from '../lib/foodhub/repo';
 import type { MasterMenu } from '../lib/foodhub/types';
 import { POST as hcoWebhook } from '../app/api/foodhub/webhooks/clover-checkout/route';
@@ -44,6 +51,9 @@ let atomic: any[] = [];
 let claude: any[] = [];
 let paidOrders: any[] = [];
 let payAmount = 2300;
+let checkoutFail = false;
+let taxFail = false;
+let orderLists = 0;
 
 const UPSELL_MENU: MasterMenu = {
   brandName: 'Po Poulet', updatedAt: '', posMerchantId: MID,
@@ -74,21 +84,24 @@ beforeEach(async () => {
     CLOVER_MERCHANT_ID: MID, CLOVER_ACCESS_TOKEN: 'clv-token', CLOVER_BASE_URL: 'https://clover.test', CLOVER_HCO_BASE_URL: 'https://hco.test',
     CLOVER_ECOMM_PRIVATE_KEY: 'ecomm-key', CLOVER_HCO_WEBHOOK_SECRET: 'whsec-test', ALERT_WEBHOOK_URL: 'https://chat.test/hook', FOODHUB_CLOVER_RETRY_MS: '0',
   });
-  sms = []; chat = []; prints = []; checkouts = []; atomic = []; claude = []; paidOrders = []; payAmount = 2300;
+  sms = []; chat = []; prints = []; checkouts = []; atomic = []; claude = []; paidOrders = []; payAmount = 2300; checkoutFail = false; taxFail = false; orderLists = 0;
+  clearTaxCache();
   globalThis.fetch = vi.fn(async (url: any, init: RequestInit = {}) => {
     const u = String(url);
     const body = init.body ? (() => { try { return JSON.parse(String(init.body)); } catch { return String(init.body); } })() : undefined;
     if (u.includes('/Messages.json')) { const p = new URLSearchParams(String(init.body)); sms.push({ to: p.get('To') ?? '', body: p.get('Body') ?? '' }); return json({ sid: 'SM1' }, 201); }
     if (u.startsWith('https://chat.test')) { chat.push(String(init.body)); return json({}); }
     if (u.includes('/v1/messages')) return json(claude.shift() ?? claudeResponse([text('Autre chose ?')]));
+    if (u.includes('/tax_rates') && taxFail) return json({ elements: [{ id: 'TX9', name: 'Sales Tax', rate: 14975 }] });
     if (u.includes('/tax_rates')) return json({ elements: [{ id: 'TX1', name: 'TPS', rate: 500_000 }, { id: 'TX2', name: 'TVQ', rate: 997_500 }] });
+    if (u.startsWith('https://hco.test/invoicingcheckoutservice/v1/checkouts') && checkoutFail) return json({ message: 'Internal error' }, 500);
     if (u.startsWith('https://hco.test/invoicingcheckoutservice/v1/checkouts')) { checkouts.push(body); return json({ href: `https://checkout.clover.test/s/${checkouts.length}`, checkoutSessionId: `SESS${checkouts.length}`, expirationTime: Date.now() + 15 * 60_000 }); }
     const pay = u.match(/\/payments\/([^/?]+)\?expand=order/);
     if (pay) return json({ id: pay[1], amount: payAmount, result: 'SUCCESS', order: { id: `CLV-${pay[1]}` } });
     if (u.includes('/order_types')) return json({ elements: [{ id: 'OT-PHONE', label: 'Téléphone' }, { id: 'OT-DD', label: 'DoorDash' }] });
     if (u.includes('/print_event')) { prints.push({ url: u, body }); return json({ id: `PE${prints.length}`, state: 'CREATED' }); }
     if (u.includes('/atomic_order/orders')) { atomic.push(body); return json({ id: `ATOM${atomic.length}` }); }
-    if (/\/orders\?/.test(u)) return json({ elements: paidOrders });
+    if (/\/orders\?/.test(u)) { orderLists++; return json({ elements: paidOrders }); }
     if (/\/orders\/[^/?]+$/.test(u)) return json({});
     return json({});
   }) as any;
@@ -402,5 +415,174 @@ describe('Call simulator and readiness (nothing sent)', () => {
     expect(r.checks.some((c) => c.id.startsWith('pay_') && c.level === 'ok')).toBe(true);
     expect(sms).toHaveLength(0);
     expect(atomic).toHaveLength(0);
+  });
+});
+
+describe('review fixes: payment link edge cases', () => {
+  const DROP = { street: '5839 Rue Jean-Talon E', unit: '2', city: 'Saint-Léonard', province: 'QC', postalCode: 'H1S 1M4', country: 'CA' };
+  const closedWeek = () => Object.fromEntries(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map((d) => [d, []])) as any;
+
+  it('a tip on a delivery link is an untaxed line: the texted total, the page and Clover all say the same amount', async () => {
+    const o = await heldOrder({ fulfillment: 'delivery', dropoff: DROP as any, deliveryFee: 5, tip: 3, payment: 'unpaid' });
+    expect(o.total).toBeCloseTo(31.74, 2);
+    const r = await startPayLink(o, { lang: 'fr', expiryMin: 30, reminderMin: 10 });
+    if (!r.ok) throw new Error(r.error);
+    const items = checkouts[0].shoppingCart.lineItems;
+    const tip = items.find((l: any) => /Pourboire/.test(l.name));
+    expect(tip).toMatchObject({ price: 300, unitQty: 1 });
+    expect(tip.taxRates).toBeUndefined();
+    // 25.00 taxed: GST 1.25 + QST 2.49 (rounded one by one) + 3.00 tip.
+    expect(r.order.paylink!.expectedCents).toBe(3174);
+    expect(sms[0].body).toContain('total 31,74 $');
+    const token = r.order.paylink!.token;
+    const html = await (await payPage(new Request(`https://hub.test/p/${token}`), { params: Promise.resolve({ token }) })).text();
+    expect(html).toContain('Pourboire');
+    expect(html).toMatch(/31,74/);
+    // Without a tip: no tip line, and the tax is on every line.
+    const req = buildCheckoutRequest({ number: 'X', lines: o.lines, deliveryFee: 0, customer: {}, tip: 0 }, [{ name: 'TPS', rate: 500_000 }, { name: 'TVQ', rate: 997_500 }], { success: '', failure: '', cancel: '' });
+    expect(req.shoppingCart.lineItems).toHaveLength(1);
+    expect(checkoutTotalCents(req)).toBe(2300);
+  });
+
+  it('a delivery paid while the kitchen is closed: nothing printed, no courier booked automatically, the flag survives', async () => {
+    await setFeature('delivery', true, actor);
+    await saveDeliverySettings({ locations: { SAINT_LEONARD: { enabled: true, autoDispatch: true, leadMinutes: 10, maxDistanceKm: 0, postalPrefixes: [], maxAutoFee: 15 } } });
+    const o = await heldOrder({ fulfillment: 'delivery', dropoff: DROP as any, deliveryFee: 5, payment: 'unpaid' });
+    const r = await startPayLink(o, { lang: 'fr', expiryMin: 30, reminderMin: 10 });
+    if (!r.ok) throw new Error(r.error);
+    await saveHours({ locations: { SAINT_LEONARD: closedWeek() }, brands: {}, holidays: [] });
+    payAmount = r.order.paylink!.expectedCents;
+    await hcoWebhook(webhook({ type: 'PAYMENT', status: 'APPROVED', id: 'PAYC', merchantId: MID, data: 'SESS1' }));
+    const paid = (await getDirectOrder(o.id))!;
+    expect(paid.payment).toBe('paid');
+    expect(prints).toHaveLength(0);
+    expect(paid.attention).toMatch(/cuisine est fermée/);
+    expect(paid.paylink!.flag).toBe(paid.attention);
+    expect(paid.autoDispatch).toMatchObject({ attempts: 3, stoppedReason: 'paid_while_closed' });
+    expect((await tickDispatch(Date.now() + 3 * 3600_000)).booked).toBe(0);
+    const after = (await getDirectOrder(o.id))!;
+    expect(after.events.some((e) => e.type === 'auto_dispatch')).toBe(false);
+    expect(after.attention).toMatch(/cuisine est fermée/);
+    expect(sms.at(-1)!.body).toMatch(/Un membre de notre équipe vous appelle/);
+  });
+
+  it('pay at the counter stops the link; a payment that lands afterwards is flagged for a refund, never printed', async () => {
+    const o = await heldOrder();
+    const r = await startPayLink(o, { lang: 'fr', expiryMin: 30, reminderMin: 10 });
+    if (!r.ok) throw new Error(r.error);
+    const conv = await payAtCounter(o.id, actor);
+    expect(conv.payment).toBe('pay_at_pickup');
+    expect(conv.status).not.toBe('awaiting_payment');
+    expect(conv.paylink!.cancelledAt).toBeTruthy();
+    const printsBefore = prints.length;
+    await hcoWebhook(webhook({ type: 'PAYMENT', status: 'APPROVED', id: 'PAYLATE', merchantId: MID, data: 'SESS1' }));
+    const after = (await getDirectOrder(o.id))!;
+    expect(after.paylink!.extraPayments).toEqual(['PAYLATE']);
+    expect(after.attention).toMatch(/rembourse/);
+    expect(prints.length).toBe(printsBefore);
+  });
+
+  it('cancel vs a release: a running release wins, a release that died long ago does not block the cancel', async () => {
+    const o = await heldOrder();
+    const r = await startPayLink(o, { lang: 'fr', expiryMin: 30, reminderMin: 10 });
+    if (!r.ok) throw new Error(r.error);
+    const cur = (await getDirectOrder(o.id))!;
+    await saveDirectOrder({ ...cur, paylink: { ...cur.paylink!, releaseClaim: 'other', releaseClaimAt: new Date().toISOString() } });
+    expect((await cancelHeldOrder(o.id, 'staff', 'Owner')).status).toBe('awaiting_payment');
+    const again = (await getDirectOrder(o.id))!;
+    await saveDirectOrder({ ...again, paylink: { ...again.paylink!, releaseClaimAt: new Date(Date.now() - 10 * 60_000).toISOString() } });
+    expect((await cancelHeldOrder(o.id, 'staff', 'Owner')).status).toBe('cancelled');
+  });
+
+  it('the poller matches our whole mark: "Réf. IA-104" never releases the order of "Réf. IA-1043"', () => {
+    expect(hasMarker('Réf. IA-1043', 'Réf. IA-104')).toBe(false);
+    expect(hasMarker('Réf. IA-10430 · Sauce', 'Réf. IA-1043')).toBe(false);
+    expect(hasMarker('Réf. IA-1043 · Sauce BBQ', 'Réf. IA-1043')).toBe(true);
+    expect(hasMarker('Réf. IA-1043', 'Réf. IA-1043')).toBe(true);
+  });
+
+  it('the customer page asks Clover at most once per 10 s after the return from Clover', async () => {
+    const o = await heldOrder();
+    const r = await startPayLink(o, { lang: 'fr', expiryMin: 30, reminderMin: 10 });
+    if (!r.ok) throw new Error(r.error);
+    const token = r.order.paylink!.token;
+    const get = () => payPage(new Request(`https://hub.test/p/${token}?r=ok`), { params: Promise.resolve({ token }) });
+    await get();
+    await get();
+    await get();
+    expect(orderLists).toBe(1);
+  });
+
+  it('readiness: a merchant without GST / QST rates gets no link (pickup at the counter instead)', async () => {
+    taxFail = true;
+    const r = await paylinkReadiness('Po Poulet', 'SAINT_LEONARD');
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/GST.*QST/);
+    expect(await phonePaymentPlan(SL_LINE, { payment: DEFAULT_PAYMENT })).toMatchObject({ link: false, counter: true });
+  });
+
+  it('a payment link that cannot be created: the next place_order at the counter is accepted', async () => {
+    const menu = await buildPhoneMenu(SL_LINE);
+    const added = addToCart(menu, [], { brand: 'Po Poulet', item_ref: 'i2', quantity: 1, option_refs: [], notes: null });
+    if (!added.ok) throw new Error(added.error);
+    const call: any = {
+      id: 'CA-LINKFAIL', lineId: 'l1', lineName: SL_LINE.name, locationCode: 'SAINT_LEONARD', brands: SL_LINE.brands, from: '+15145550111', to: SL_LINE.number, lang: 'fr', status: 'active',
+      startedAt: new Date().toISOString(), turns: 3, transcript: [], messages: [], cart: added.cart, customer: { name: 'Marie', phone: '+15145550111', fulfillment: 'pickup' }, updatedAt: new Date().toISOString(),
+    };
+    const line: any = { ...SL_LINE, id: 'l1' };
+    checkoutFail = true;
+    const opts = { confirmed: true, simulate: false, smsConfirmation: false, settings: { payment: DEFAULT_PAYMENT } };
+    const first = await placePhoneOrder(call, line, menu, { ...opts, payment: 'link' });
+    expect(first.ok).toBe(false);
+    expect(first.call.linkFailed).toBe(true);
+    // Before the fix this was refused ("pickup is paid by the texted link"), leaving the caller stuck.
+    const second = await placePhoneOrder(first.call, line, menu, { ...opts, payment: 'counter' });
+    expect(second.ok).toBe(true);
+    expect(second.order!.status).not.toBe('awaiting_payment');
+    expect(second.order!.payment).toBe('pay_at_pickup');
+  });
+});
+
+describe('review fixes: AI breaker, simulator, language keys', () => {
+  it('a 400 that belongs to one conversation never pauses the AI; a test conversation never touches the breaker', async () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-test';
+    expect(classifyAiError({ status: 400, message: 'messages.3: thinking blocks cannot be modified' }).kind).toBe('call');
+    expect(classifyAiError({ status: 400, message: 'prompt is too long: 210000 tokens > 200000 maximum' }).kind).toBe('call');
+    expect(classifyAiError({ status: 400, message: 'model: claude-x is not a valid model' }).kind).toBe('fatal');
+    expect(classifyAiError({ status: 400, type: 'billing_error', message: 'billing' }).kind).toBe('fatal');
+    for (let i = 0; i < 5; i++) expect((await noteAiFailure({ status: 400, message: 'tool_result block mismatch' })).tripped).toBe(false);
+    expect(await phoneAiUsable()).toBe(true);
+    expect((await noteAiFailure({ status: 401, message: 'invalid x-api-key' }, { test: true })).tripped).toBe(false);
+    expect(await phoneAiUsable()).toBe(true);
+    expect(chat.filter((c) => c.includes('Phone AI paused'))).toHaveLength(0);
+  });
+
+  it('the call simulator is owner-only and never uses a caller number typed in', async () => {
+    const before = process.env.DASHBOARD_PASSWORD;
+    process.env.DASHBOARD_PASSWORD = 'owner-pass-test-1';
+    try {
+      await getRepo().saveUser({ username: 'lea', name: 'Léa', role: 'manager', locations: ['SAINT_LEONARD'], passwordHash: hashPassword('manager-pass-1'), active: true } as any);
+      const body = JSON.stringify({ target: 'ivr', from: '+15145550111', inputs: [{ digits: '1' }] });
+      const as = (who: string) => new Request('https://hub.test/api/foodhub/phone/sim', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Basic ${Buffer.from(who).toString('base64')}` }, body });
+      expect((await simRoute(as('lea:manager-pass-1'), undefined as any)).status).toBe(403);
+      const res = await simRoute(as('owner:owner-pass-test-1'), undefined as any);
+      expect(res.status).toBe(200);
+      const out = (await res.json()) as any;
+      const call = (await getIvrCall(out.callSid ?? out.data?.callSid))!;
+      expect(call.from).toBe('+15555550123');
+    } finally {
+      if (before === undefined) delete process.env.DASHBOARD_PASSWORD; else process.env.DASHBOARD_PASSWORD = before;
+    }
+  });
+
+  it('ordering line: keys 2 / 3 switch the language only on the greeting; mid-order only a request said alone', () => {
+    expect(languageChoice(0, '2', '')).toEqual({ lang: 'en', rest: '' });
+    expect(languageChoice(3, '2', '')).toBeNull();
+    expect(languageChoice(3, '3', '')).toBeNull();
+    expect(languageChoice(3, '', 'French fries please')).toBeNull();
+    expect(languageChoice(3, '', 'Two French fries')).toBeNull();
+    expect(languageChoice(3, '', 'English please')).toEqual({ lang: 'en', rest: '' });
+    expect(languageChoice(3, '', 'English, I want to add a chicken')).toBeNull();
+    expect(languageChoice(0, '', 'English, I want to order a chicken')).toEqual({ lang: 'en', rest: 'i want to order a chicken' });
   });
 });

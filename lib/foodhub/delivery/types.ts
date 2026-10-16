@@ -88,6 +88,8 @@ export interface PayLink {
   /** Payments that arrived after the order was paid or cancelled: a person refunds them in Clover. */
   extraPayments?: string[];
   declinedAt?: string;
+  /** The flag the release raised (kitchen closed, amount off, ticket not printed): booking a courier keeps it. */
+  flag?: string;
 }
 
 export interface DirectOrder {

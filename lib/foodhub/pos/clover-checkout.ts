@@ -68,7 +68,13 @@ export function hcoTaxCents(subtotalCents: number, rates: CloverTaxRate[]): numb
   return rates.reduce((sum, r) => sum + Math.round((subtotalCents * r.rate) / 10_000_000), 0);
 }
 
-const taxCache = new Map<string, { at: number; rates: CloverTaxRate[] }>();
+const taxCache = new Map<string, { at: number; rates: CloverTaxRate[] | null }>();
+const TAX_OK_MS = 10 * 60_000;
+/** A merchant without the rates (or Clover unreadable) is asked again after a minute, not on every phone turn. */
+const TAX_MISS_MS = 60_000;
+
+/** Tests: forget the merchants' tax rates read so far. */
+export function clearTaxCache(): void { taxCache.clear(); }
 
 /**
  * The merchant's GST (5 %) and QST (9.975 %) tax rates, with their Clover ids. Null when they cannot be read or one is
@@ -76,22 +82,23 @@ const taxCache = new Map<string, { at: number; rates: CloverTaxRate[] }>();
  */
 export async function merchantQcTaxRates(mid: string, now = Date.now()): Promise<CloverTaxRate[] | null> {
   const hit = taxCache.get(mid);
-  if (hit && now - hit.at < 10 * 60_000) return hit.rates;
+  if (hit && now - hit.at < (hit.rates ? TAX_OK_MS : TAX_MISS_MS)) return hit.rates;
+  const miss = () => { taxCache.set(mid, { at: now, rates: null }); return null; };
   const token = await cloverToken(mid);
   if (!token) return null;
   try {
     const res = await cloverFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}/tax_rates?limit=100`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
-    if (!res.ok) return null;
+    if (!res.ok) return miss();
     const rows: Array<{ id?: string; name?: string; rate?: number }> = (await res.json())?.elements ?? [];
     const pick = (rate: number, names: RegExp) => rows.find((r) => Number(r.rate) === rate) ?? rows.find((r) => names.test(String(r.name ?? '')));
     const gst = pick(GST, /\b(tps|gst)\b/i);
     const qst = pick(QST, /\b(tvq|qst)\b/i);
-    if (!gst || !qst || Number(gst.rate) !== GST || Number(qst.rate) !== QST) return null;
+    if (!gst || !qst || Number(gst.rate) !== GST || Number(qst.rate) !== QST) return miss();
     const rates = [gst, qst].map((r) => ({ ...(r.id ? { id: String(r.id) } : {}), name: String(r.name ?? (r === gst ? 'TPS' : 'TVQ')), rate: Number(r.rate) }));
     taxCache.set(mid, { at: now, rates });
     return rates;
   } catch {
-    return null;
+    return miss();
   }
 }
 
@@ -118,11 +125,16 @@ export function splitName(full: string | null | undefined): { firstName?: string
 /** Our mark on the first line of a session ("Réf. IA-1043"): how the poller finds the Clover order when a webhook is lost. */
 export const payMarker = (number: string) => `Réf. ${number}`;
 
+/** The whole mark, not a prefix: "Réf. IA-104" never matches "Réf. IA-1043". */
+export function hasMarker(note: string, marker: string): boolean {
+  return new RegExp(`${marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}_-])`, 'u').test(note);
+}
+
 /**
  * The Hosted Checkout body for a held order. Every line carries the GST / QST rates; the delivery fee is a line of its
  * own (taxed, like in Food Hub's totals). Only first name, last name and phone go to Clover (no email on phone orders).
  */
-export function buildCheckoutRequest(order: Pick<DirectOrder, 'number' | 'lines' | 'deliveryFee' | 'customer'>, taxRates: CloverTaxRate[], urls: HostedCheckoutRequest['redirectUrls']): HostedCheckoutRequest {
+export function buildCheckoutRequest(order: Pick<DirectOrder, 'number' | 'lines' | 'deliveryFee' | 'customer'> & { tip?: number }, taxRates: CloverTaxRate[], urls: HostedCheckoutRequest['redirectUrls']): HostedCheckoutRequest {
   const phone = String(order.customer.phone ?? '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
   const rates = taxRates.map((r) => ({ ...(r.id ? { id: r.id } : {}), name: r.name, rate: r.rate }));
   const lineItems: HostedCheckoutLineItem[] = order.lines.map((l, i) => {
@@ -131,6 +143,8 @@ export function buildCheckoutRequest(order: Pick<DirectOrder, 'number' | 'lines'
     return { name: cut(l.name, 127), price: toCents(l.unitPrice + mods), unitQty: Math.max(1, Math.round(l.quantity || 1)), ...(note ? { note: cut(note, 255) } : {}), ...(rates.length ? { taxRates: rates } : {}) };
   });
   if (order.deliveryFee > 0) lineItems.push({ name: 'Livraison / Delivery', price: toCents(order.deliveryFee), unitQty: 1, ...(rates.length ? { taxRates: rates } : {}) });
+  // The courier tip is part of Food Hub's total: the customer pays it here, untaxed (no tax rates on this line).
+  if ((order.tip ?? 0) > 0) lineItems.push({ name: 'Pourboire livreur / Courier tip', price: toCents(order.tip!), unitQty: 1 });
   const page = process.env.CLOVER_HCO_PAGE_CONFIG?.trim();
   return {
     customer: { ...splitName(order.customer.name), ...(phone ? { phoneNumber: phone } : {}) },
@@ -140,10 +154,13 @@ export function buildCheckoutRequest(order: Pick<DirectOrder, 'number' | 'lines'
   };
 }
 
-/** What Clover will charge for this request (cents): line totals + GST and QST rounded one by one. */
+/** What Clover will charge for this request (cents): line totals + GST and QST (on the taxed lines) rounded one by one. */
 export function checkoutTotalCents(req: HostedCheckoutRequest): number {
-  const sub = req.shoppingCart.lineItems.reduce((s, l) => s + l.price * l.unitQty, 0);
-  return sub + hcoTaxCents(sub, req.shoppingCart.lineItems[0]?.taxRates ?? []);
+  const items = req.shoppingCart.lineItems;
+  const sub = items.reduce((s, l) => s + l.price * l.unitQty, 0);
+  const taxed = items.filter((l) => l.taxRates?.length);
+  const taxedSub = taxed.reduce((s, l) => s + l.price * l.unitQty, 0);
+  return sub + hcoTaxCents(taxedSub, taxed[0]?.taxRates ?? []);
 }
 
 export type CreateCheckoutResult = { ok: true; href: string; sessionId: string; expiresAt: number | null } | { ok: false; status: number; error: string };
@@ -247,7 +264,7 @@ export async function findPaidByMarker(mid: string, marker: string, sinceMs: num
     const out: PaidCloverOrder[] = [];
     for (const o of rows) {
       const notes: string[] = (o?.lineItems?.elements ?? []).map((li: any) => String(li?.note ?? ''));
-      if (!notes.some((n) => n.includes(marker))) continue;
+      if (!notes.some((n) => hasMarker(n, marker))) continue;
       for (const p of o?.payments?.elements ?? []) {
         if (String(p?.result ?? '').toUpperCase() === 'SUCCESS' && p?.id) out.push({ paymentId: String(p.id), cloverOrderId: String(o.id), amountCents: Number(p.amount) || 0, result: 'SUCCESS' });
       }

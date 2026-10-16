@@ -1,12 +1,17 @@
 // Health of the phone AI (Anthropic): a circuit breaker so a dead key, an empty credit balance or a wrong model never
 // makes every caller hear "je n'ai pas compris" while each turn fails.
-//   - fatal errors (they repeat for every caller): 401 authentication, 403 permission, 404 model, 400 bad request
-//     (credit balance too low is a 400), 402 billing → the breaker opens for FOODHUB_PHONE_AI_PAUSE_MIN (10) minutes;
-//   - transient errors (429 rate limit, 5xx / 529 overloaded, network, timeout): 3 within 5 minutes → 2 minutes.
+//   - fatal errors (they repeat for every caller): 401 authentication, 403 permission, 404 model, 402 billing, and the
+//     400s that say so (credit balance too low, billing_error, an invalid model) → the breaker opens for
+//     FOODHUB_PHONE_AI_PAUSE_MIN (10) minutes;
+//   - transient errors (429 rate limit, 5xx / 529 overloaded, network, timeout): 3 within 5 minutes → 2 minutes;
+//   - call errors (any other 400: a conversation too long, a bad tool result, a thinking-block mismatch): only that
+//     call goes to a person or the keypad; the breaker is not touched.
+// The console simulator and test calls never touch the breaker (a broken test conversation never pauses real calls).
 // While open, the ON2GO menu works in keypad mode (greeting "Pour le français, faites le 1"), the ordering line goes to a
 // person, and nothing is sent to the AI. The team chat gets ONE critical alert per trip. State in fh_kv (shared by every
 // request of the server, survives a restart).
 import Anthropic from '@anthropic-ai/sdk';
+import { dryRun } from '../dry-run';
 import { postToChat } from '../notify';
 import { getRepo } from '../repo';
 
@@ -14,7 +19,7 @@ const KV = 'phone_ai_health_v1';
 const TRANSIENT_WINDOW_MS = 5 * 60_000;
 const TRANSIENT_TRIP = 3;
 
-export type AiErrorKind = 'fatal' | 'transient';
+export type AiErrorKind = 'fatal' | 'transient' | 'call';
 
 export interface AiHealth {
   /** Breaker open until (epoch ms); 0 = closed. */
@@ -43,7 +48,11 @@ export function classifyAiError(e: unknown): { kind: AiErrorKind; reason: string
   if (e instanceof Anthropic.PermissionDeniedError || status === 403) return { kind: 'fatal', reason: `permission denied (403): ${short}` };
   if (e instanceof Anthropic.NotFoundError || status === 404) return { kind: 'fatal', reason: `model or endpoint not found (404): ${short}` };
   if (status === 402 || type === 'billing_error' || /credit balance|billing/i.test(msg)) return { kind: 'fatal', reason: `billing / credit (${status ?? 'billing'}): ${short}` };
-  if (e instanceof Anthropic.BadRequestError || status === 400) return { kind: 'fatal', reason: `request refused (400): ${short}` };
+  if (e instanceof Anthropic.BadRequestError || status === 400) {
+    // The model name itself is refused: every call would fail the same way.
+    if (/model/i.test(msg) && /(invalid|not found|does not exist|unknown|not supported|deprecated)/i.test(msg)) return { kind: 'fatal', reason: `model refused (400): ${short}` };
+    return { kind: 'call', reason: `request refused for this call (400): ${short}` };
+  }
   if (e instanceof Anthropic.RateLimitError || status === 429) return { kind: 'transient', reason: `rate limited (429): ${short}` };
   if (e instanceof Anthropic.InternalServerError || (status && status >= 500)) return { kind: 'transient', reason: `server error (${status}): ${short}` };
   return { kind: 'transient', reason: `network / timeout: ${short}` };
@@ -65,9 +74,13 @@ export async function phoneAiUsable(now = Date.now()): Promise<boolean> {
   return !(h.openUntil && now < h.openUntil);
 }
 
-/** Records a failed AI request; trips the breaker (and alerts the team once) when it should. Never throws. */
-export async function noteAiFailure(e: unknown, now = Date.now()): Promise<{ tripped: boolean; kind: AiErrorKind; reason: string }> {
+/**
+ * Records a failed AI request; trips the breaker (and alerts the team once) when it should. Never throws.
+ * `test` = the console simulator, a dry run or a test call: classified, never recorded.
+ */
+export async function noteAiFailure(e: unknown, opts: { test?: boolean } = {}, now = Date.now()): Promise<{ tripped: boolean; kind: AiErrorKind; reason: string }> {
   const c = classifyAiError(e);
+  if (opts.test || dryRun() || c.kind === 'call') return { tripped: false, ...c };
   try {
     const h = await getAiHealth();
     const recent = [...h.transient.filter((t) => now - t < TRANSIENT_WINDOW_MS), now];

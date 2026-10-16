@@ -50,6 +50,8 @@ export interface PhoneCall {
   customer: { name?: string; phone?: string; fulfillment?: 'pickup' | 'delivery'; dropoff?: DropoffAddress; wantedAt?: string };
   orderId?: string;
   orderNumber?: string;
+  /** The payment link could not be made on this call: a pickup may then be paid at the counter. */
+  linkFailed?: boolean;
   /** Turn being computed (Twilio waits at most 15 s per request: a slow turn continues on a redirect). */
   pending?: { turn: number; startedAt: string; reply?: TurnReply };
   handoffReason?: string;

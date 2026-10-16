@@ -136,7 +136,7 @@ export default function PhoneSettingsPage() {
           </Section>
 
           <PhoneReadinessPanel owner={owner} />
-          <CallSimulatorPanel lines={lines} />
+          {owner && <CallSimulatorPanel lines={lines} />}
         </div>
       )}
     </div>

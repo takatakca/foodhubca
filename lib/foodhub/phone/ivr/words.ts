@@ -9,28 +9,54 @@ export function fold(s: string): string {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[’`]/g, "'").replace(/[^a-z0-9' ]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-const LANG_WORDS: Array<[IvrLang, RegExp]> = [
-  ['en', /\b(in english|speak english|english please|habla ingles|hablo ingles|english|anglais|anglaise|ingles|inglish)\b/],
-  ['es', /\b(en espanol|hablo espanol|habla espanol|spanish please|espanol|espagnol|spanish|castellano)\b/],
-  ['fr', /\b(parlez vous francais|en francais|french please|francais|french|frances)\b/],
+// A language request must be explicit and come first. "French fries please", "two French fries", "Spanish rice" or
+// "frites à l'anglaise" are food, not a request: a bare "french" / "spanish" counts only as the whole sentence.
+const LEAD = '(?:(?:euh|heu|um|uh|oh|ok|okay|yes|yeah|oui|si|hi|hello|allo|alo|bonjour|hola|bueno|well|ben|bon|pues|so)\\s+)*';
+const WANT = "(?:(?:do|can|could) (?:you|we|i) |(?:est ce que )?(?:vous |tu )?(?:pouvez|peux|pourriez|pourrais)(?: vous| tu)? |puis je |(?:usted )?(?:puede|podria) |(?:je veux|j'aimerais|je voudrais|i want to|i'd like to|i would like to|quiero|quisiera) )?";
+const SPEAK = '(?:speak|talk|parler|parlez|parle|hablar|habla|hablo|hable)(?: (?:in|en))?';
+const POLITE_WORDS = "please|s'il vous plait|s'il te plait|svp|por favor|thanks|thank you|merci|gracias|ok|okay";
+const POLITE = new RegExp(`\\b(?:${POLITE_WORDS})\\b`, 'g');
+/** Words that open a new sentence after a bare language name ("English, I want to order"). */
+const STARTERS = new Set(['i', "i'd", "i'm", 'im', 'id', 'can', 'could', 'may', 'je', "j'aimerais", "j'veux", 'jveux', 'est', 'puis', 'yo', 'quiero', 'quisiera', 'necesito', 'puedo']);
+/** names = may start a sentence; alone = only as the whole sentence ("French" is also a food word). */
+const LANG_NAMES: Array<{ lang: IvrLang; names: string; alone?: string }> = [
+  { lang: 'en', names: 'english|anglais|ingles|inglish' },
+  { lang: 'es', names: 'espanol|espagnol|castellano', alone: 'spanish' },
+  { lang: 'fr', names: 'francais|frances', alone: 'french' },
 ];
-const POLITE = /\b(please|s'il vous plait|s'il te plait|svp|por favor|thanks|thank you|merci|gracias|ok|okay)\b/g;
+const LANG_RES = LANG_NAMES.map(({ lang, names, alone }) => {
+  const all = alone ? `${names}|${alone}` : names;
+  return {
+    lang,
+    // "In English", "speak English", "do you speak English", "English please", "en français", "¿habla español?".
+    explicit: new RegExp(`^${LEAD}${WANT}(?:${SPEAK} (?:${all})|(?:in|en) (?:${all})|(?:parlez|parles|parle) vous (?:${all})|vous parlez (?:${all})|(?:${all}) (?:please|s'il vous plait|svp|por favor))\\b`),
+    // A bare name first in the sentence: alone, or followed by a new sentence ("Español, quiero una orden").
+    bare: new RegExp(`^${LEAD}(?:${names})\\b`),
+    alone: alone ? new RegExp(`^${LEAD}(?:${alone})(?: (?:${POLITE_WORDS}))*$`) : null,
+  };
+});
+
+function restOf(after: string): string {
+  const rest = after.replace(POLITE, ' ').replace(/^\s*(i|je|yo)?\s*$/, '').replace(/\s+/g, ' ').trim();
+  return rest.split(' ').filter(Boolean).length >= 2 ? rest : '';
+}
 
 /**
- * The caller asks for a language ("English", "español", "français") — in a short sentence, or at the start of a longer
- * one ("English, I want to order a chicken"). `rest` = what they said after it (to handle right away).
+ * The caller asks for a language, explicitly and first: "English", "in English", "English please", "en français",
+ * "español", or "English, I want to order a chicken". `rest` = what they said after it (to handle right away).
+ * A language word inside an order ("French fries please", "Spanish rice") is never a request.
  */
 export function languageRequest(speech: string): { lang: IvrLang; rest: string } | null {
   const f = fold(speech);
   if (!f) return null;
-  const words = f.split(' ');
-  for (const [lang, re] of LANG_WORDS) {
-    const m = f.match(re);
-    if (!m || m.index === undefined) continue;
-    const before = f.slice(0, m.index).trim().split(' ').filter(Boolean).length;
-    if (words.length > 6 && before > 2) continue;
-    const rest = f.slice(m.index + m[0].length).replace(POLITE, ' ').replace(/^\s*(i|je|yo)?\s*$/, '').replace(/\s+/g, ' ').trim();
-    return { lang, rest: rest.split(' ').filter(Boolean).length >= 2 ? rest : '' };
+  for (const r of LANG_RES) {
+    if (r.alone?.test(f)) return { lang: r.lang, rest: '' };
+    const m = f.match(r.explicit);
+    if (m) return { lang: r.lang, rest: restOf(f.slice(m[0].length)) };
+    const b = f.match(r.bare);
+    if (!b) continue;
+    const after = f.slice(b[0].length).replace(POLITE, ' ').replace(/\s+/g, ' ').trim();
+    if (!after || STARTERS.has(after.split(' ')[0])) return { lang: r.lang, rest: restOf(after) };
   }
   return null;
 }
@@ -162,8 +188,14 @@ const FILLERS = "(?:(?:euh|heu|ben|bah|bon|well|um|uh|oh|so|pues|este|eh|ah|oui 
 export const YES = new RegExp(`^${FILLERS}(oui|ouais|ouin|yes|yeah|yep|yup|sure|si|exact|exactement|correct|c'est ca|cest ca|c'est bon|c'est beau|c'est correct|en plein|parfait|ok|okay|d'accord|that's right|thats right|claro|correcto|eso es|andale|orale|dale|esta bien|perfecto|asi es)\\b`);
 export const NO = /\b(non|no|nope|nah|pantoute|recommencer|again|otra vez|de nuevo|incorrect|incorrecto|pas ca|esta mal)\b/;
 
-/** The caller is done ("non merci", "c'est tout", "no gracias", "that's all"). Input: folded text. */
-export const NO_MORE = new RegExp(`^${FILLERS}(non|no|nope|nah|non merci|no gracias|no thanks|no thank you|c'est tout|cest tout|c'est beau|ca va aller|ca va|je suis correct|rien d'autre|pas besoin|that's all|thats all|that's it|i'm good|im good|all good|eso es todo|es todo|nada mas|nada mas gracias)\\b`);
+const DONE = "(?:non merci|no gracias|no thanks|no thank you|non|no|nope|nah|pantoute|c'est tout|cest tout|c'est beau|ca va aller|ca va|je suis correct|rien d'autre|pas besoin|that's all|thats all|that's it|thats it|i'm good|im good|all good|eso es todo|es todo|nada mas)";
+const DONE_TAIL = "(?:merci beaucoup|merci|thank you|thanks|muchas gracias|gracias|bye bye|bye|au revoir|bonne journee|bonne soiree|have a good day|have a good night|adios|buen dia|buenas noches|c'est tout|cest tout|that's all|thats all|that's it|thats it|eso es todo|es todo|nada mas|ok|okay)";
+
+/**
+ * The caller is done ("non merci", "c'est tout", "no gracias", "that's all") and said nothing else. Input: folded
+ * text. "No me llegó mi pedido" or "Non, je veux parler à quelqu'un" start with "no" but are not a goodbye.
+ */
+export const NO_MORE = new RegExp(`^${FILLERS}${DONE}(?: ${DONE_TAIL})*$`);
 
 // ---------------------------------------------------------------------------------------------------------------
 // Order numbers and card numbers

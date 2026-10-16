@@ -28,6 +28,7 @@ import { printKitchenTicket } from '../pos/clover-order';
 import { prepFor } from '../prep';
 import { getRepo } from '../repo';
 import { createDirectOrderInClover, explicitMerchantFor, kitchenHasNoRegister, orderTypeId } from './clover-direct';
+import { MAX_AUTO_ATTEMPTS } from './dispatch';
 import { confirmToCustomer } from './orders';
 import { addDirectEvent, getDeliverySettings, getDirectOrder, listDirectOrders, ruleFor, saveDirectOrder } from './store';
 import type { DirectOrder, PayLink } from './types';
@@ -38,6 +39,7 @@ const REUSE_SESSION_MS = 13 * 60_000;
 const POLL_MS = 20_000;
 const CLAIM_STALE_MS = 2 * 60_000;
 const SYSTEM = 'Payment link';
+const PRINT_FLAG = 'Ticket non imprimé — réimprimez-le dans Clover (la commande est payée).';
 
 const tokenKey = (t: string) => `paylink:${t}`;
 const sessionKey = (s: string) => `hco_session:${s}`;
@@ -61,6 +63,8 @@ export async function paylinkReadiness(brand: string, locationCode: string): Pro
   if (!mid) return { ok: false, reason: `No Clover merchant mapped to ${locationCode} (Stores): a payment link would be paid on another kitchen's register.` };
   if (!ecommKeyFor(mid)) return { ok: false, merchantId: mid, reason: `No Hosted Checkout key for merchant ${mid} (CLOVER_ECOMM_KEYS).` };
   if (!(await cloverToken(mid).catch(() => null))) return { ok: false, merchantId: mid, reason: `No Clover REST token for merchant ${mid}: the paid order could not be read or printed.` };
+  // Read once per 10 minutes (cached): without GST and QST on the merchant, every link would fail — pay at the counter.
+  if (!(await merchantQcTaxRates(mid).catch(() => null))) return { ok: false, merchantId: mid, reason: `Clover merchant ${mid}: GST (5 %) and QST (9.975 %) tax rates not found (or Clover could not be read) — the payment page would charge the wrong total.` };
   if (!smsConfigured()) return { ok: false, merchantId: mid, reason: 'Texts are not set up (Twilio): the link cannot be sent.' };
   if (!/^https:\/\//.test(publicBaseUrl())) return { ok: false, merchantId: mid, reason: 'FOODHUB_PUBLIC_URL is not an https address: the link would not open.' };
   return { ok: true, merchantId: mid };
@@ -74,9 +78,14 @@ async function pickupAddress(locationCode: string): Promise<string> {
   return loc?.address ?? '';
 }
 
+/** The total the customer pays on Clover's page (what Clover charges, GST and QST rounded its way), in dollars. */
+export function payTotal(o: Pick<DirectOrder, 'total' | 'paylink'>): number {
+  return typeof o.paylink?.expectedCents === 'number' ? o.paylink.expectedCents / 100 : o.total;
+}
+
 export const PAYLINK_SMS = {
   link: (o: DirectOrder, url: string, min: number, lang: Lang) => {
-    const t = textMoney(o.total, lang);
+    const t = textMoney(payTotal(o), lang);
     if (lang === 'en') return `${o.brandName}: order ${o.number}, total ${t}. Pay securely with Clover: ${url} As soon as it is paid, we start preparing it${o.fulfillment === 'delivery' ? ' and send the courier' : ' for pickup'}. Link valid ${min} min.`;
     if (lang === 'es') return `${o.brandName}: pedido ${o.number}, total ${t}. Pague de forma segura con Clover: ${url} En cuanto recibamos el pago, lo preparamos${o.fulfillment === 'delivery' ? ' y enviamos al repartidor' : ' para recoger'}. Enlace válido ${min} min.`;
     return `${o.brandName} : commande ${o.number}, total ${t}. Payez en toute sécurité avec Clover : ${url} Dès le paiement reçu, on prépare votre commande${o.fulfillment === 'delivery' ? ' et on envoie le livreur' : ' pour emporter'}. Lien valide ${min} min.`;
@@ -216,12 +225,22 @@ const locks = (): Map<string, Promise<unknown>> => {
   return g.__fhPaylinkLocks;
 };
 
-/** One release at a time per order in this process (the claim below covers other processes). */
+/**
+ * One release at a time per order in this process. SINGLE INSTANCE: the claim written and re-read below narrows the
+ * window between two server processes but is not an atomic compare-and-set (saveDirectOrder overwrites). "Exactly once"
+ * (one print, one courier) holds with ONE Food Hub process, which is how it is deployed (one Coolify container). Before
+ * running several instances, add an atomic claim to the repo (INSERT … ON CONFLICT DO NOTHING on paylink_release:<id>).
+ */
 async function withLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
   const prev = locks().get(id) ?? Promise.resolve();
   const run = prev.catch(() => undefined).then(fn);
   locks().set(id, run);
   try { return await run; } finally { if (locks().get(id) === run) locks().delete(id); }
+}
+
+/** A release is running (its claim is younger than CLAIM_STALE_MS). */
+function claimFresh(pl: PayLink | undefined, now = Date.now()): boolean {
+  return Boolean(pl?.releaseClaim && pl.releaseClaimAt && now - Date.parse(pl.releaseClaimAt) < CLAIM_STALE_MS);
 }
 
 export interface PaymentEvidence { paymentId: string; cloverOrderId?: string; amountCents?: number; via: 'webhook' | 'poller' | 'page' | 'phone' | 'clover_event' }
@@ -256,7 +275,7 @@ export async function releasePaidOrder(orderId: string, ev: PaymentEvidence, now
     }
     if (o.status === 'cancelled' || pl0.cancelledAt) return flagExtraPayment(o, ev, 'late');
     if (o.status !== 'awaiting_payment') return { state: 'already', message: `Order is ${o.status}.`, order: o };
-    if (pl0.releaseClaim && pl0.releaseClaimAt && now - Date.parse(pl0.releaseClaimAt) < CLAIM_STALE_MS) return { state: 'pending', message: 'Another request is releasing it.', order: o };
+    if (claimFresh(pl0, now)) return { state: 'pending', message: 'Another request is releasing it.', order: o };
 
     // Claim, then re-read: if another server wrote its own claim in between, it releases and this one stops.
     const claim = crypto.randomUUID();
@@ -278,11 +297,12 @@ export async function releasePaidOrder(orderId: string, ev: PaymentEvidence, now
     }
     const paidAt = new Date(now).toISOString();
     const off = Math.abs((amountCents ?? 0) - pl.expectedCents);
+    const offFlag = off > 2 ? `Montant payé ${((amountCents ?? 0) / 100).toFixed(2)} $ ≠ total ${(pl.expectedCents / 100).toFixed(2)} $ — vérifiez dans Clover.` : '';
     // 1) The Clover order id FIRST: from here the website mirror and the "Delivery" importer know it is ours.
     o = await addDirectEvent(o, 'paid', `Paid online by the payment link — ${((amountCents ?? 0) / 100).toFixed(2)} $ (Clover payment ${ev.paymentId}, via ${ev.via})`, 'Clover', {
       payment: 'paid', posOrderId: cloverOrderId, posMerchantId: mid, posError: undefined,
-      paylink: { ...pl, paymentId: ev.paymentId, paidAt, paidCents: amountCents, cloverOrderId },
-      ...(off > 2 ? { attention: `Montant payé ${((amountCents ?? 0) / 100).toFixed(2)} $ ≠ total ${(pl.expectedCents / 100).toFixed(2)} $ — vérifiez dans Clover.` } : {}),
+      paylink: { ...pl, paymentId: ev.paymentId, paidAt, paidCents: amountCents, cloverOrderId, ...(offFlag ? { flag: offFlag } : {}) },
+      ...(offFlag ? { attention: offFlag } : {}),
     });
     // 2) Title, note, order type (the register and the ticket read like every Food Hub order).
     const token = await cloverToken(mid);
@@ -301,7 +321,8 @@ export async function releasePaidOrder(orderId: string, ev: PaymentEvidence, now
     const closed = !(Number.isFinite(wanted) && wanted > now) && brandHoursState(cfg, o.brandName, o.locationCode, now) === 'closed';
     let printed: string | undefined;
     if (closed) {
-      o = await addDirectEvent(o, 'paylink_kitchen_closed', 'Paid while the kitchen is closed — not printed; call the customer.', SYSTEM, { attention: 'Payée pendant que la cuisine est fermée — appelez le client (rien n’a été imprimé).' });
+      const flag = 'Payée pendant que la cuisine est fermée — appelez le client (rien n’a été imprimé).';
+      o = await addDirectEvent(o, 'paylink_kitchen_closed', 'Paid while the kitchen is closed — not printed; call the customer.', SYSTEM, { attention: flag, paylink: { ...o.paylink!, flag } });
     } else if (!o.paylink?.printClaimAt) {
       o = await saveDirectOrder({ ...o, paylink: { ...o.paylink!, printClaimAt: new Date().toISOString() } });
       if (process.env.FOODHUB_PAYLINK_PRINT === 'off' || !cloverAutoPrintEnabled()) printed = 'printing off (FOODHUB_PAYLINK_PRINT / FOODHUB_CLOVER_AUTOPRINT)';
@@ -310,7 +331,7 @@ export async function releasePaidOrder(orderId: string, ev: PaymentEvidence, now
         printed = p.message;
         o = p.ok
           ? await saveDirectOrder({ ...o, paylink: { ...o.paylink!, printedAt: new Date().toISOString() } })
-          : await addDirectEvent(o, 'print_failed', `Ticket not printed: ${p.message}`, SYSTEM, { paylink: { ...o.paylink!, printError: p.message }, attention: 'Ticket non imprimé — réimprimez-le dans Clover (la commande est payée).' });
+          : await addDirectEvent(o, 'print_failed', `Ticket not printed: ${p.message}`, SYSTEM, { paylink: { ...o.paylink!, printError: p.message, flag: PRINT_FLAG }, attention: PRINT_FLAG });
       }
     }
     // 4) In the kitchen, ready time from now.
@@ -318,10 +339,13 @@ export async function releasePaidOrder(orderId: string, ev: PaymentEvidence, now
     const readyMs = Number.isFinite(wanted) && wanted > now + prep.minutes * 60_000 ? wanted - (o.fulfillment === 'delivery' ? 20 : 0) * 60_000 : now + prep.minutes * 60_000;
     const rule = ruleFor(await getDeliverySettings(), o.locationCode);
     const needCourier = o.fulfillment === 'delivery' && !rule.autoDispatch && !o.attention;
-    o = await addDirectEvent(o, 'paylink_released', `Released to the kitchen${printed ? ` — ${printed}` : ''}`, SYSTEM, {
+    // Kitchen closed or amount off: a person decides first — no courier is booked automatically for this order.
+    const holdCourier = o.fulfillment === 'delivery' && (closed || !!offFlag);
+    o = await addDirectEvent(o, 'paylink_released', `Released to the kitchen${printed ? ` — ${printed}` : ''}${holdCourier ? ' — no automatic courier (a person checks first)' : ''}`, SYSTEM, {
       status: 'in_kitchen', readyAt: new Date(readyMs).toISOString(),
       paylink: { ...o.paylink!, releasedAt: new Date().toISOString(), releaseClaim: undefined, releaseClaimAt: undefined },
       ...(needCourier ? { attention: 'Payée — appelez un livreur (envoi automatique éteint pour cette cuisine).' } : {}),
+      ...(holdCourier ? { autoDispatch: { attempts: MAX_AUTO_ATTEMPTS, lastAt: new Date(now).toISOString(), stoppedReason: closed ? 'paid_while_closed' : 'amount_mismatch' } } : {}),
     });
     // 5) The customer.
     const sms = await textCustomer(o, closed ? PAYLINK_SMS.paidClosed(o, pl.lang) : PAYLINK_SMS.paid(o, await pickupAddress(o.locationCode), pl.lang), 'paylink_paid');
@@ -367,8 +391,9 @@ export async function cancelHeldOrder(orderId: string, reason: string, by = SYST
   const r = await withLock(orderId, async () => {
     const o = await getDirectOrder(orderId);
     if (!o) throw new Error('Order not found.');
-    // A release that just finished wins: a paid order is never cancelled here.
-    if (o.status !== 'awaiting_payment' || o.paylink?.releaseClaim) return { o, done: false };
+    // A release that just finished (or is running) wins: a paid order is never cancelled here. A claim older than
+    // CLAIM_STALE_MS is a release that died half-way: it no longer blocks.
+    if (o.status !== 'awaiting_payment' || claimFresh(o.paylink)) return { o, done: false };
     return { o: await addDirectEvent(o, 'cancelled', reason, by, { status: 'cancelled', attention: undefined, ...(o.paylink ? { paylink: { ...o.paylink, cancelledAt: new Date().toISOString(), cancelReason: reason } } : {}) }), done: true, before: o };
   });
   if (!r.done) return r.o;
@@ -400,7 +425,7 @@ export async function payAtCounter(orderId: string, actor: Actor): Promise<Direc
   if (check.state === 'paid') return check.order!;
   const converted = await withLock(o.id, async () => {
     const cur = await getDirectOrder(o.id);
-    if (!cur || cur.status !== 'awaiting_payment' || cur.paylink?.releaseClaim) return null;
+    if (!cur || cur.status !== 'awaiting_payment' || claimFresh(cur.paylink)) return null;
     return addDirectEvent(cur, 'pay_at_counter', 'The customer pays at the counter (payment link stopped)', actor.name, {
       status: 'new', payment: 'pay_at_pickup', ...(cur.paylink ? { paylink: { ...cur.paylink, cancelledAt: new Date().toISOString(), cancelReason: 'pay at the counter' } } : {}),
     });

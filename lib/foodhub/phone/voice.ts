@@ -156,6 +156,18 @@ export function withConfidence(speech: string, confidence: string | null): strin
   return speech && Number.isFinite(c) && c > 0 && c < 0.4 ? `${speech} [speech recognition unsure: confirm what matters]` : speech;
 }
 
+/**
+ * A language switch on the ordering line. Keys 2 / 3 only answer the greeting (turn 0); later they answer the AI.
+ * Words: any explicit request on the greeting ("English, I want a chicken"); later only a request said on its own.
+ */
+export function languageChoice(turns: number, digits: string, speech: string): { lang: PhoneLang; rest: string } | null {
+  if (digits === '2' || digits === '3') return turns === 0 ? { lang: LANG_DIGIT[digits], rest: '' } : null;
+  if (!speech) return null;
+  const asked = languageRequest(speech);
+  if (!asked) return null;
+  return turns === 0 || !asked.rest ? asked : null;
+}
+
 /** Twilio <Gather> action: the caller said something (or pressed a key, or nothing). */
 export async function callerTurn(params: URLSearchParams): Promise<Response> {
   const call = await getCall(params.get('CallSid') || '');
@@ -166,8 +178,9 @@ export async function callerTurn(params: URLSearchParams): Promise<Response> {
   if (!ls) return twiml(`${sayXml(NOBODY[call.lang], settings, call.lang)}<Hangup/>`);
   const digits = params.get('Digits') || '';
   const speech = (params.get('SpeechResult') || '').trim();
-  // Language choice: keys 2 / 3, or "English", "español" — no AI needed. The rest of the sentence goes on to the AI.
-  const asked = (digits === '2' || digits === '3') ? { lang: LANG_DIGIT[digits], rest: '' } : speech ? languageRequest(speech) : null;
+  // Language choice: keys 2 / 3 on the greeting, or "English", "español" — no AI needed. The rest of the sentence goes
+  // on to the AI. Mid-order, keys answer the AI ("how many?") and only a request said on its own switches.
+  const asked = languageChoice(call.turns, digits, speech);
   if (asked && asked.lang !== call.lang) {
     const switched = await saveCall({ ...call, lang: asked.lang });
     if (asked.rest) return turnWithBudget(switched, asked.rest, settings, ls.work);
@@ -245,7 +258,7 @@ export async function simulateTurn(lineId: string, sessionId: string | null, tex
   if (call.status !== 'active') throw new Error('This test call has ended — start a new one.');
   // The same language rules as a real call: "English", "español", or keys 2 / 3 typed as the first words.
   const key = text.trim();
-  const asked = /^[23]$/.test(key) && call.turns === 0 ? { lang: LANG_DIGIT[key], rest: '' } : languageRequest(text);
+  const asked = /^[23]$/.test(key) ? languageChoice(call.turns, key, '') : languageChoice(call.turns, '', key);
   if (asked && asked.lang !== call.lang) {
     call = await saveCall(say({ ...call, lang: asked.lang }, 'caller', text));
     if (!asked.rest) {

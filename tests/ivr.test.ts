@@ -13,7 +13,7 @@ import { findOwnOrders, IVR_TOOLS, ivrPromptBlock } from '../lib/foodhub/phone/i
 import { cleanIvrSettings, DEFAULT_IVR, DEFAULT_TREE, getIvrSettings, OWNER_GREETING, platformHelpUrl, saveIvrSettings, validateTree, type IvrNode } from '../lib/foodhub/phone/ivr/config';
 import { tickIvr } from '../lib/foodhub/phone/ivr/engine';
 import { callMatches, getIvrCall, IVR_REFS, listPlatformRefs, listTickets, newIvrCall } from '../lib/foodhub/phone/ivr/records';
-import { detectPlatform, hasCardNumber, keywordIntent, languageWord, menuSpeech, normalizeOrderId, redactCards } from '../lib/foodhub/phone/ivr/words';
+import { detectPlatform, fold, hasCardNumber, keywordIntent, languageRequest, languageWord, menuSpeech, NO_MORE, normalizeOrderId, redactCards } from '../lib/foodhub/phone/ivr/words';
 import { savePhoneSettings } from '../lib/foodhub/phone/settings';
 import { twilioSignature } from '../lib/foodhub/phone/twilio';
 import { getRepo } from '../lib/foodhub/repo';
@@ -188,6 +188,25 @@ describe('keyword router (fallback when the AI is off or fails): intent → bran
     expect(normalizeOrderId('#88231')).toBe('88231');
     expect(normalizeOrderId('euh')).toBeNull();
   });
+
+  it('a language word inside an order is food, not a language request', () => {
+    expect(languageRequest('French fries please')).toBeNull();
+    expect(languageRequest('Two French fries')).toBeNull();
+    expect(languageRequest('frites à l’anglaise')).toBeNull();
+    expect(languageRequest('Spanish rice and a chicken')).toBeNull();
+    expect(languageRequest('English muffin')).toBeNull();
+    expect(languageRequest('French')).toEqual({ lang: 'fr', rest: '' });
+    expect(languageRequest('Spanish please')).toEqual({ lang: 'es', rest: '' });
+    expect(languageRequest('Do you speak English?')).toEqual({ lang: 'en', rest: '' });
+    expect(languageRequest('¿Habla español?')).toEqual({ lang: 'es', rest: '' });
+    expect(languageRequest('English, I want to order a chicken')).toEqual({ lang: 'en', rest: 'i want to order a chicken' });
+    expect(languageRequest('Español, quiero una orden')).toEqual({ lang: 'es', rest: 'quiero una orden' });
+  });
+
+  it('"that’s all" ends the call only when it is all the caller said', () => {
+    for (const done of ['Non merci', 'non', 'euh non merci bonne journée', 'No gracias', 'That’s all, thanks', 'c’est tout merci']) expect(NO_MORE.test(fold(done))).toBe(true);
+    for (const more of ['No me llegó mi pedido', 'Non, je veux parler à quelqu’un', 'No, I have a problem with my order', 'Non c’est pas la bonne commande']) expect(NO_MORE.test(fold(more))).toBe(false);
+  });
 });
 
 describe('card numbers', () => {
@@ -348,6 +367,21 @@ describe('AI routing (route_to) with the keypad as fallback', () => {
     const r = await turn({ SpeechResult: 'Ma commande Uber Eats est en retard' });
     expect(r).toMatch(/numéro de commande Uber Eats/);
     expect(claudeRequests).toHaveLength(0);
+  });
+
+  it('without the AI, a sentence that starts with "no" is routed, not a goodbye; "non merci" alone ends the call', async () => {
+    await saveIvrSettings({ mode: 'keypad' }, actor);
+    await start('CA-NO1');
+    await turn({ SpeechResult: 'No me llegó mi pedido' }, 'CA-NO1');
+    expect((await getIvrCall('CA-NO1'))!.path.map((p) => p.node)).toContain('online_problem');
+    expect((await getIvrCall('CA-NO1'))!.outcome).not.toBe('resolved');
+    await start('CA-NO2');
+    await turn({ SpeechResult: 'Non, je veux parler à quelqu’un' }, 'CA-NO2');
+    expect((await getIvrCall('CA-NO2'))!.path.map((p) => p.node)).toContain('person');
+    await start('CA-NO3');
+    const bye = await turn({ SpeechResult: 'Non merci' }, 'CA-NO3');
+    expect(bye).toMatch(/<Hangup\/>/);
+    expect((await getIvrCall('CA-NO3'))!.outcome).toBe('resolved');
   });
 
   it('keypad-only mode: greeting → 1 français → main menu → 2 platforms → 2 DoorDash', async () => {

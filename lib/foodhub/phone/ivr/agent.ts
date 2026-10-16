@@ -378,7 +378,7 @@ export async function runIvrTurn(call: IvrCall, callerText: string, s: IvrSettin
     state.call = { ...state.call, messages };
     return fail('Too many steps in one turn');
   } catch (e) {
-    const f = await noteAiFailure(e);
+    const f = await noteAiFailure(e, { test: state.call.simulated || state.call.testCall });
     return fail(`AI error (${f.kind}): ${f.reason}`);
   }
 }

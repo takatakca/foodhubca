@@ -67,10 +67,19 @@ export function voiceOption(id: string | null | undefined): VoiceOption | null {
   return VOICE_OPTIONS.find((v) => v.id === id) ?? null;
 }
 
-/** A stored voice, kept only when it is a known voice of that language. */
-export function cleanVoice(lang: PhoneLang, raw: unknown, fallback = DEFAULT_VOICES[lang]): string {
-  const v = voiceOption(String(raw ?? ''));
-  return v && v.lang === lang ? v.id : fallback;
+/** The shape every Twilio voice name has (what was accepted before the list existed). */
+const VOICE_ID = /^(Polly|Google)\.[A-Za-z0-9-]{3,60}$/;
+
+/**
+ * A voice for that language. A known voice of the language is kept; a known voice of ANOTHER language falls back.
+ * Stored settings (strict = false) also keep a well-formed voice that is not in the list, as before the list existed
+ * (a line saved with it sounds the same after the update); a new pick (strict) must come from the list.
+ */
+export function cleanVoice(lang: PhoneLang, raw: unknown, fallback = DEFAULT_VOICES[lang], opts: { strict?: boolean } = {}): string {
+  const id = String(raw ?? '');
+  const v = voiceOption(id);
+  if (v) return v.lang === lang ? v.id : fallback;
+  return !opts.strict && VOICE_ID.test(id) ? id : fallback;
 }
 
 export const SPEECH_LANGUAGE: Record<PhoneLang, string> = { fr: 'fr-CA', en: 'en-US', es: 'es-US' };

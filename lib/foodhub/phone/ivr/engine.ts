@@ -317,12 +317,12 @@ async function computeTurn(callId: string, text: string, s: IvrSettings): Promis
  */
 async function understand(call: IvrCall, s: IvrSettings, text: string, aiNode?: string): Promise<Response> {
   if (!(await ivrAiAvailable(s))) {
-    // "Non merci", "c'est tout", "no gracias": the caller is done.
-    if (NO_MORE.test(fold(text))) return goodbye(call, s, call.outcome ?? 'resolved');
     const fallback = findNode(s.tree, aiNode);
     if (fallback) return runNode({ ...call, aiNode: undefined }, s, fallback, 'system', { noAi: true });
     const kw = keywordIntent(text, s.tree);
     if (kw) return runNode(call, s, kw.node, 'speech', { platform: kw.platform, noAi: true });
+    // Only "Non merci", "c'est tout", "no gracias" and nothing else: the caller is done ("No me llegó mi pedido" is not).
+    if (NO_MORE.test(fold(text))) return goodbye(call, s, call.outcome ?? 'resolved');
     return keypadMenu(call, s, '', s.mode === 'ai' ? SAY.menuIntro[call.lang] : SAY.notUnderstood[call.lang]);
   }
   const saved = await saveIvrCall({ ...call, state: 'ai', aiNode });

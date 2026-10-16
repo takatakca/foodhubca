@@ -8,7 +8,7 @@ import { featureOn } from '../expansion/features';
 import { brandHoursState, describeHours, getHours, type HoursFacts } from '../hours';
 import { addressProblems, parseAddressText, serviceAreaProblem } from '../delivery/address';
 import { createDirectOrder, totalsFor } from '../delivery/orders';
-import { cancelHeldOrder, PAYLINK_SMS, paylinkReadiness, payUrl, startPayLink } from '../delivery/paylink';
+import { cancelHeldOrder, PAYLINK_SMS, paylinkReadiness, payTotal, payUrl, startPayLink } from '../delivery/paylink';
 import { getDeliverySettings, ruleFor } from '../delivery/store';
 import type { DirectOrder } from '../delivery/types';
 import { normalizePhone } from '../notify';
@@ -160,7 +160,9 @@ export async function placePhoneOrder(call: PhoneCall, line: PhoneLine, menu: Ph
   const delivery = c.fulfillment === 'delivery' ? await phoneDeliveryAvailable(line) : { available: false, fee: 0 };
   const totals = totalsFor(lines, delivery.fee, 0);
   const lang = call.lang;
-  const plan = opts.settings ? await phonePaymentPlan(line, opts.settings) : { link: false, counter: true, mode: 'counter' as const };
+  const plan0 = opts.settings ? await phonePaymentPlan(line, opts.settings) : { link: false, counter: true, mode: 'counter' as const };
+  // The link already failed on this call: a pickup may be paid at the counter (never left stuck on a refused link).
+  const plan = call.linkFailed && c.fulfillment === 'pickup' ? { ...plan0, counter: true } : plan0;
   const hasCell = Boolean(normalizePhone(c.phone));
   if (opts.payment === 'counter' && plan.link && c.fulfillment === 'pickup' && !plan.counter && hasCell) {
     return { ok: false, call, message: 'On this line pickup is paid by the texted link (the caller can receive texts). Offer the link; pay at the counter only if they cannot receive texts.' };
@@ -193,14 +195,14 @@ export async function placePhoneOrder(call: PhoneCall, line: PhoneLine, menu: Ph
     if (!r.ok) {
       // The link could not be made: the held order never reached the kitchen — cancel it quietly and say so.
       await cancelHeldOrder(order.id, `Payment link not created: ${r.error}`, 'AI phone agent', { text: false });
-      return { ok: false, call, message: `The payment link could not be created (${r.error.slice(0, 160)}). Nothing was ordered. ${c.fulfillment === 'pickup' ? 'Offer to pay at the counter instead (place_order payment="counter").' : 'Apologise and call transfer_to_human.'}` };
+      return { ok: false, call: { ...call, linkFailed: true }, message: `The payment link could not be created (${r.error.slice(0, 160)}). Nothing was ordered. ${c.fulfillment === 'pickup' ? 'Offer to pay at the counter instead (place_order payment="counter").' : 'Apologise and call transfer_to_human.'}` };
     }
     const held = r.order;
     return {
       ok: true, order: held,
       call: { ...call, orderId: held.id, orderNumber: held.number, status: 'ordered' },
       confirm: orderConfirmation({ number: held.number, fulfillment: c.fulfillment, payment: 'link', readyAt: held.readyAt, cellEnd }, lang),
-      message: `Order ${held.number} is HELD until paid: total ${held.total.toFixed(2)} $. ${r.smsOk ? `The payment link was texted to the number ending in ${cellEnd}.` : 'The text with the link could NOT be sent: apologise, and offer to transfer to a person (transfer_to_human).'} The confirmation was already said to the caller (number, link by text, kitchen after payment). Ask if they received the text; you may check_payment once if they say they paid. Then a short goodbye and end_call.${held.containsAlcohol ? ' Remind them: photo ID (18+).' : ''}`,
+      message: `Order ${held.number} is HELD until paid: total ${payTotal(held).toFixed(2)} $. ${r.smsOk ? `The payment link was texted to the number ending in ${cellEnd}.` : 'The text with the link could NOT be sent: apologise, and offer to transfer to a person (transfer_to_human).'} The confirmation was already said to the caller (number, link by text, kitchen after payment). Ask if they received the text; you may check_payment once if they say they paid. Then a short goodbye and end_call.${held.containsAlcohol ? ' Remind them: photo ID (18+).' : ''}`,
     };
   }
   return {

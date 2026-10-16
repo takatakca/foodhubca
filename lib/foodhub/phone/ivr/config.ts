@@ -66,9 +66,9 @@ export function cleanIvrSettings(raw: Partial<IvrSettings> | null | undefined, s
   if (errors.length) {
     if (strict) throw new Error(`Phone menu: ${errors.slice(0, 3).join(' ')}`);
   }
-  // Only voices from Twilio's list (voices.ts): a typo or a withdrawn voice would break every <Say>.
+  // Voices from Twilio's list (voices.ts) for a new pick; a well-formed voice already stored is kept (voices.ts cleanVoice).
   const voices = { ...DEFAULT_IVR.voices };
-  for (const l of IVR_LANGS) voices[l] = cleanVoice(l, s.voices?.[l], DEFAULT_IVR.voices[l]);
+  for (const l of IVR_LANGS) voices[l] = cleanVoice(l, s.voices?.[l], DEFAULT_IVR.voices[l], { strict });
   const links = defaultLinks();
   for (const k of LINK_KEYS) {
     const v = String(s.links?.[k] ?? '').trim();

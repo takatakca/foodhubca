@@ -456,7 +456,7 @@ export async function runAgentTurn(call: PhoneCall, callerText: string, ctx: Age
     return handoff('Too many steps in one turn');
   } catch (e) {
     state.call = { ...state.call, usage };
-    const f = await noteAiFailure(e);
+    const f = await noteAiFailure(e, { test: ctx.simulate || state.call.simulated });
     return handoff(`AI error (${f.kind}): ${f.reason}`);
   }
 }

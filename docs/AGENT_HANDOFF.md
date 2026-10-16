@@ -1,5 +1,19 @@
 # FOODHUB — relève de l'agent (à lire dès l'ouverture)
 
+## Relève prioritaire — 2026-10-16 (la suite ancienne est historique)
+
+- **Dépôt/source** : `takatakca/foodhubca`, `main` `12ba64d9f6941698118533d40d3f381ff709065c`, propriétaire seul autorisé à fusionner `main` (`CLAUDE.md`).
+- **Dernière tâche développée** : accessibilité clavier des modales/tiroirs de la console. Branche `fix/overlay-keyboard-focus-20261016`. Dernier commit de code observé `153bbe3e1f957de0d9829b9fdb145df5328a6c70`, consulter HEAD GitHub pour le SHA final après cette documentation.
+- **En cours** : revue/CI/image de la PR à ouvrir, puis essai clavier sur vrai navigateur et tablette. Aucun conflit visé avec les PR en cours.
+- **Fichiers modifiés** : `components/ui/overlay.tsx`, `lib/ui/overlay-focus.ts`, `tests/overlay-focus.test.ts`, `WORKLOG.md`, et les cinq documents `docs/{PROJECT_STATUS,TASK_QUEUE,AGENT_HANDOFF,DEPLOYMENT,DECISIONS}.md` ; `docs/PROGRESS.md` si présent.
+- **Effet technique** : les dialogues ont un panneau focalisable, un titre/sous-titre ARIA, une première cible clavier ; le navigateur ne traverse plus l'arrière-plan avec Tab ; Échap affecte uniquement le dialogue du haut ; le focus initial est restauré et le body retrouve son overflow précédent après le dernier dialogue.
+- **Vérifications** : lecture via GitHub de `AGENTS.md`, `CLAUDE.md`, `WORKLOG.md`, documents de relève, PR/issues et CI, inspection du code `overlay.tsx` et plan Phase 3, commits/branches via API GitHub. Tests `tests/overlay-focus.test.ts` créés ; attendre résultats typecheck/lint/unit/build et image dans Actions. Aucun essai navigateur réel, aucune opération de commandes.
+- **Blocages** : tableau privé local `private/TASKS.md` non accessible depuis l'intégration GitHub ; certification Clover et plateformes, dont vrais paiements, reste propriétaire/opérateurs, issue #46.
+- **Déploiement** : Coolify natif GitHub App sur Contabo, non contrôlé par Actions. Ancienne preuve opérateur du SHA `027b602a12da39b1244e17b813bc51a7496a0217` (PR #49). La présence en production du nouveau `main` n'est pas prouvée par cette session. **La branche de ce correctif n'est pas déployée**.
+- **Accès requis** : GitHub branche/PR accessibles ; pour confirmer production, réseau externe et accès autorisé Coolify ; pour les commandes certifiées, comptes des plateformes et approbation propriétaire, sans publier de secrets.
+- **Prochaine action exacte** : ouvrir la PR pour `fix/overlay-keyboard-focus-20261016`, attendre CI + image sur son HEAD, corriger toute erreur puis soumettre au propriétaire ; tester ensuite Tab / Shift+Tab / Échap / focus rendu aux boutons dans un navigateur. Après fusion et livraison Coolify, comparer `/api/release` au SHA `main` exact via `npm run verify:live -- --url https://foodhub.on2go.ca/ --sha SHA40` et vérifier santé.
+
+
 ## Reprise actuelle — 2026-10-15 (prioritaire sur le relevé historique ci-dessous)
 
 Demande explicite du propriétaire : terminer GitHub → production Coolify et les contrôles de santé de Food Hub. PR #49 fusionnée en `e7ce788a9432618ee93eb9ce3d6a6be7c64b3ca6`, aucune autre PR fusionnée. Source native Coolify liée au GitHub App existant ; auto-push activé ; arguments Docker gérés par le fichier et `SOURCE_COMMIT` disponible au build. Santé activée en **Container command** : `node /app/scripts/check-runtime.mjs`, intervalle 30 s, timeout 90 s, 3 essais, démarrage 60 s. La version Coolify 4.4.6 installée substitue le check de l'interface à celui de l'image : ne pas utiliser HTTP, car l'image n'embarque pas curl/wget.

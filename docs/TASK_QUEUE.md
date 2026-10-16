@@ -1,5 +1,11 @@
 # FOODHUB — file de tâches coordonnée
 
+## Activité indépendante — 2026-10-16
+
+- **FH-014 / Phase 3 P0 (chargements)** : les sept vues finance/équipe sont prises sur `fix/finance-table-loading-skeletons` : composants `TableSkeleton` et `ListSkeleton`, états vides préservés, tests SSR ajoutés. Branche en cours ; CI + revue propriétaire avant fusion.
+- Les autres PR #48/#50/#51/#52/#54 sont déjà prises ; ne pas recoder leurs modifications. Les droits de fusion et `main` demeurent réservés au propriétaire.
+
+
 **Reprise autorisée 2026-10-15** : FH-002 à FH-005 sont prises sur la PR #49 pour terminer la livraison native GitHub App → Coolify et prouver le SHA public. Accès/source/backup/santé configurés ; tests locaux réussis (807 unitaires, 536 E2E). La livraison finale reste à constater après fusion. Aucun changement aux intégrations réelles FH-006/FH-007. Le tableau du 2026-10-14 ci-dessous conserve son contexte historique.
 
 Mise à jour : 2026-10-14. Ce tableau public est une relève Git ; il **ne remplace pas** `private/TASKS.md` (tableau local git-ignoré) ni les branches actives des autres agents, conformément à `CLAUDE.md`.

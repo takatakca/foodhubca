@@ -1,5 +1,10 @@
 # Food Hub: progress log and task board
 
+## 2026-10-16 — accessible horizontal tab keyboard navigation
+
+Branche `fix/console-tabs-keyboard-20261016`. Roving `tabIndex`, sélection et focus par ArrowLeft/ArrowRight, Home/End avec bouclage, cas de bord testés, aucune mutation métier. PR et CI à vérifier, pas de déploiement. La PR #62 cible séparément le focus des dialogues.
+
+
 ## 2026-10-16 — Uber store kitchen mapping (task 39, `fix/uber-store-kitchen-mapping`)
 
 - The 7 Uber UUIDs in `data/actual/platform-stores-uber.json` are at 5839 Jean-Talon E (Saint-Léonard) in Uber's own records (Uber names them "(Hochelaga)"); production maps them to `NDG_6284`. That mapping was typed by hand in the console, so it lives only in the production `fh_channel_stores` rows: no repo seed or code defaulted Uber stores to NDG.

@@ -10,14 +10,18 @@ export const dynamic = 'force-dynamic';
 
 const STATUSES: IncidentStatus[] = ['open', 'acknowledged', 'snoozed', 'resolved'];
 
-// GET ?status=open,acknowledged&days=3
+const list = (v: string | null) => (v || '').split(',').map((x) => x.trim()).filter(Boolean);
+
+// GET ?status=open,acknowledged&days=3&locations=A
+// `locations`: the console's location scope, always kept inside the person's own locations (incidents that name no
+// location, e.g. a platform-wide problem, still show).
 export const GET = withPerm('view', async (req, _ctx, actor) => {
   const q = new URL(req.url).searchParams;
   const status = (q.get('status') || '').split(',').filter((s) => STATUSES.includes(s as IncidentStatus)) as IncidentStatus[];
   const days = Math.max(1, Math.min(30, Number(q.get('days') || 3)));
-  const list = await listIncidents({ status, since: new Date(Date.now() - days * 86400_000).toISOString(), locationCodes: scopeFilter(actor) });
+  const found = await listIncidents({ status, since: new Date(Date.now() - days * 86400_000).toISOString(), locationCodes: scopeFilter(actor, list(q.get('locations'))) });
   const one = q.get('id');
-  return ok({ incidents: one ? list.filter((i) => i.id === one) : list });
+  return ok({ incidents: one ? found.filter((i) => i.id === one) : found });
 });
 
 // { id, action: 'ack' | 'resolve' | 'snooze' | 'note' | 'reopen' | 'customer_sms', minutes?, note?, text? }

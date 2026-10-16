@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CornerDownLeft, Search } from 'lucide-react';
 import { PlatformMark } from '@/components/ui/badge';
-import { ALERTS, NAV, navVisible } from './nav';
+import { allConsolePages } from './nav';
 import { useViewer } from './viewer';
 import { api, money } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
@@ -41,22 +41,9 @@ export function CommandPalette() {
     return () => clearTimeout(h);
   }, [q, open, loc]);
 
+  // Every page in both views (simple and full): the view only hides menu links, never a page.
   const pages: Hit[] = useMemo(() => {
-    const extra = [
-      { href: '/settings/team', label: t('Équipe et NIP', 'Team & PINs'), perm: 'stores:map' },
-      { href: '/settings/devices', label: t('Tablettes de cuisine', 'Kitchen tablets'), perm: 'stores:map' },
-      { href: '/settings/security', label: t('Règles NIP gérant', 'Manager PIN rules'), perm: 'admin' },
-      { href: '/settings/alerts', label: t('Règles d’alerte', 'Alert rules'), perm: 'view' },
-      { href: '/settings/channels', label: t('Canaux et branchements', 'Channels & setup'), perm: 'stores:map' },
-      { href: '/menu/86', label: t('Ruptures (86)', '86 board'), perm: 'items:toggle' },
-      { href: '/stores/hours', label: t('Heures d’ouverture', 'Store hours'), perm: 'menu:edit' },
-      { href: '/insights/reports', label: t('Rapports', 'Reports'), perm: 'analytics:view' },
-      { href: '/money/disputes', label: t('Litiges', 'Disputes'), perm: 'analytics:view' },
-    ];
-    const groups = [...NAV, ALERTS].filter((n) => navVisible(n, can, allLocations, features));
-    const kids = groups.flatMap((n) => (n.children ?? []).filter((c) => c.href !== n.href && navVisible(c, can, allLocations, features)).map((c) => ({ href: c.href, label: c.label(t) })));
-    const seen = new Set<string>();
-    const all = [...groups.map((n) => ({ href: n.href, label: n.label(t) })), ...kids, ...extra.filter((e) => can(e.perm))].filter((p) => !seen.has(p.href) && seen.add(p.href));
+    const all = allConsolePages(t, can, allLocations, features);
     const s = q.trim().toLowerCase();
     return all.filter((p) => !s || p.label.toLowerCase().includes(s)).map((p) => ({ key: p.href, label: p.label, href: p.href, sub: p.href }));
   }, [q, t, can, allLocations, features]);

@@ -1,5 +1,11 @@
 # Food Hub: progress log and task board
 
+## 2026-10-16 — AI phone disclosure + card redaction (legal review 2a items 3–4, `fix/phone-ai-disclosure`)
+
+- Both assistants now introduce themselves as automated (« Je suis l’assistante automatisée » / "I’m the automated assistant" / "Soy su asistente automatizada"), say the call is transcribed (to take the order / to handle the request) and that 0 reaches a person, one short sentence per part, Québec French first; "virtuel / virtual" wording removed (style.ts selfIntro, twilio.ts GREETING, ivr/engine.ts orderIntro, console intro).
+- ON2GO menu: the notice (`GREETING_NOTICE` in ivr/tree.ts) is kept apart from OWNER_GREETING, so an edited greeting or a recorded MP3 can never drop it; it is said again in English / Spanish after a language switch. Key 0 reaches a person even when the tree has no enabled 0 option.
+- Ordering line (voice.ts callerTurn + simulator): a card number said or typed is refused like on the ON2GO menu (never stored, never sent to the AI); every stored transcript line goes through `redactCards` (calls.ts say).
+- Checks: typecheck OK, lint 0 errors, 959 tests passed, 1 skipped; 1 pre-existing local-only failure in tests/tgtg-email.test.ts (Windows autocrlf turns the .eml fixture into CRLF; passes with LF, file untouched here); webpack build OK, verify:foodhub 554/0. Not deployed.
 ## 2026-10-16 — Uber store kitchen mapping (task 39, `fix/uber-store-kitchen-mapping`)
 
 - The 7 Uber UUIDs in `data/actual/platform-stores-uber.json` are at 5839 Jean-Talon E (Saint-Léonard) in Uber's own records (Uber names them "(Hochelaga)"); production maps them to `NDG_6284`. That mapping was typed by hand in the console, so it lives only in the production `fh_channel_stores` rows: no repo seed or code defaulted Uber stores to NDG.

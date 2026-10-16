@@ -1,15 +1,18 @@
 // Customer insights: new / occasional / frequent across every platform and direct orders, anonymous ids only.
 // All data below is invented (555-01xx phones, example.com e-mails, placeholder brands).
+import crypto from 'node:crypto';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { customerKey } from '../lib/foodhub/analytics';
+import { hashPassword } from '../lib/foodhub/auth';
 import { buildCustomerInsights, directCustomerKey, hashCustomerKey, normalizePhone, tierOf } from '../lib/foodhub/customer-insights';
 import { DIRECT_ORDERS } from '../lib/foodhub/delivery/store';
 import { getRepo } from '../lib/foodhub/repo';
+import { tenantId } from '../lib/foodhub/tenant';
 import type { ChannelKey } from '../lib/foodhub/types';
 
 const DAY = 86400_000;
 const FROM = '2026-09-01T04:00:00.000Z'; // Sept 1, local midnight (Montréal)
 const TO = '2026-10-01T04:00:00.000Z';
-const NOW = Date.parse('2026-10-02T12:00:00Z');
 const at = (iso: string, deltaMs = 0) => new Date(Date.parse(iso) + deltaMs).toISOString();
 
 beforeEach(() => {
@@ -44,7 +47,7 @@ async function direct(when: string, opts: { phone?: string; email?: string; name
   await getRepo().putDocs(DIRECT_ORDERS, [{ id, key: data.locationCode, at: when, data }]);
 }
 
-const run = (extra: Partial<Parameters<typeof buildCustomerInsights>[0]> = {}, range = { from: FROM, to: TO }, now = NOW) => buildCustomerInsights({ ...range, ...extra }, now);
+const run = (extra: Partial<Parameters<typeof buildCustomerInsights>[0]> = {}, range = { from: FROM, to: TO }, rowCap?: number) => buildCustomerInsights({ ...range, ...extra }, { rowCap });
 
 describe('identity helpers', () => {
   it('(1) normalizePhone keeps 10 digits, drops a leading 1, refuses the rest', () => {
@@ -211,7 +214,101 @@ describe('buildCustomerInsights', () => {
     expect(r.totals).toEqual({ customers: 0, orders: 0, sales: 0, identifiedOrders: 0, identifiedSales: 0, coveragePct: 0, unidentifiedOrders: 0, unidentifiedSales: 0 });
     expect(r.tiers.new).toEqual({ customers: 0, pctCustomers: 0, orders: 0, sales: 0, pctSales: 0, aov: 0 });
     expect(r.repeatRate).toBe(0);
-    expect(r.range.truncated).toBe(false);
+    expect(r.range).toMatchObject({ truncated: false, periodComplete: true, historyComplete: true });
+  });
+
+  it('(12) an unpaid pay-link direct order (awaiting_payment) is not counted, in the period or in the history', async () => {
+    await direct(at(FROM, 2 * DAY), { phone: '514-555-0150', status: 'awaiting_payment', total: 80 });
+    await direct(at(FROM, -10 * DAY), { phone: '514-555-0151', status: 'awaiting_payment', total: 80 });
+    await direct(at(FROM, 3 * DAY), { phone: '514-555-0151', total: 25 });
+    const r = await run();
+    expect(r.totals).toMatchObject({ customers: 1, orders: 1, sales: 25 });
+    expect(r.tiers.new.customers).toBe(1); // the unpaid history order does not make 0151 returning
+    expect(r.lapsed.customers).toBe(0);
+  });
+
+  it('(13) frequency window is [min(from, to − 90 d), to), also for a period that ends in the future', async () => {
+    const from = '2027-03-01T05:00:00.000Z';
+    const to = '2027-03-31T04:00:00.000Z'; // after today: the result must not depend on the current date
+    const edge = Date.parse(to) - 90 * DAY;
+    // F: one order 1 minute inside the window + 3 in the period = 4 → frequent
+    await plat(new Date(edge + 60_000).toISOString(), { customer: 'win-in' });
+    for (const d of [1, 2, 3]) await plat(at(from, d * DAY), { customer: 'win-in' });
+    // G: two orders 1 minute before the window + 3 in the period = 3 in the window → occasional
+    await plat(new Date(edge - 60_000).toISOString(), { customer: 'win-out' });
+    await plat(new Date(edge - 120_000).toISOString(), { customer: 'win-out' });
+    for (const d of [1, 2, 3]) await plat(at(from, d * DAY), { customer: 'win-out' });
+    const r = await run({}, { from, to });
+    expect(r.tiers.frequent.customers).toBe(1);
+    expect(r.tiers.occasional.customers).toBe(1);
+  });
+
+  it('(14) truncation: history incomplete vs period incomplete', async () => {
+    for (const d of [-100, -50, -20]) await plat(at(FROM, d * DAY), { customer: 'h-1' });
+    await plat(at(FROM, 2 * DAY), { customer: 'h-1' });
+    await plat(at(FROM, 3 * DAY), { customer: 'h-2' });
+    // cap 3: both period orders + the newest history order are loaded
+    const h = await run({}, undefined, 3);
+    expect(h.range).toMatchObject({ truncated: true, periodComplete: true, historyComplete: false });
+    expect(h.totals.orders).toBe(2);
+    // cap 1: only the newest period order
+    const p = await run({}, undefined, 1);
+    expect(p.range).toMatchObject({ truncated: true, periodComplete: false, historyComplete: false });
+    // no cap hit
+    expect((await run({}, undefined, 10)).range).toMatchObject({ truncated: false, periodComplete: true, historyComplete: true });
+  });
+
+  it('(15) direct orders are filtered by kitchen after the row cap, and the result says when that cut the period', async () => {
+    await direct(at(FROM, 1 * DAY), { phone: '514-555-0160', location: 'LOC_A' });
+    for (const d of [2, 3, 4]) await direct(at(FROM, d * DAY), { phone: '514-555-0161', location: 'LOC_B' });
+    const capped = await run({ locationCodes: ['LOC_A'], direct: 'only' }, undefined, 2);
+    expect(capped.range).toMatchObject({ truncated: true, periodComplete: false });
+    const full = await run({ locationCodes: ['LOC_A'], direct: 'only' });
+    expect(full.range.truncated).toBe(false);
+    expect(full.totals).toMatchObject({ customers: 1, orders: 1 });
+  });
+
+  it('(16) every raw customer-id shape is identified through analytics.customerKey', async () => {
+    const shapes: Array<[ChannelKey, Record<string, unknown>]> = [
+      ['uber_eats', { eater: { id: 'e-1' } }], ['doordash', { consumer: { id: 'c-1' } }], ['skip', { customer: { id: 7 } }],
+      ['doordash', { order: { consumer: { id: 'oc-1' } } }], ['uber_eats', {}],
+    ];
+    for (const [channel, raw] of shapes) {
+      await getRepo().insertOrderIfNew({
+        channel, marketplace: channel, externalOrderId: `shape-${++seq}`, channelStoreId: 'store-test', fulfillment: 'delivery', placedAt: at(FROM, DAY), createdAt: at(FROM, DAY),
+        currency: 'CAD', subtotal: 1, tax: 0, deliveryFee: 0, tip: 0, discount: 0, total: 1, lines: [], raw, locationCode: 'LOC_A',
+      });
+    }
+    const full = await getRepo().listOrders({ limit: 50 });
+    expect(full.map((o) => customerKey(o)).filter(Boolean)).toHaveLength(4);
+    const r = await run({ direct: 'exclude' });
+    expect(r.totals).toMatchObject({ orders: 5, identifiedOrders: 4, customers: 4, unidentifiedOrders: 1 });
+  });
+
+  it('(16b) the spec call shape (q, now) works, and a brandless order lands in a flagged unmapped row', async () => {
+    await plat(at(FROM, DAY), { customer: 'u-unmapped', brand: '' });
+    const r = await buildCustomerInsights({ from: FROM, to: TO }, Date.now());
+    expect(r.byBrand).toEqual([expect.objectContaining({ unmapped: true, customers: 1 })]);
+  });
+
+  it('(17) the anonymous id key is derived, never the raw password or the raw session secret', () => {
+    const prev = { pw: process.env.DASHBOARD_PASSWORD, ss: process.env.SESSION_SECRET };
+    const key = 'direct:tel:5145550170';
+    const rawHmac = (secret: string) => `c_${crypto.createHmac('sha256', secret).update(`${tenantId()}|${key}`).digest('hex').slice(0, 12)}`;
+    try {
+      delete process.env.SESSION_SECRET;
+      process.env.DASHBOARD_PASSWORD = 'Owner-pass-123';
+      const fromPassword = hashCustomerKey(key);
+      expect(fromPassword).not.toBe(rawHmac('Owner-pass-123'));
+      process.env.SESSION_SECRET = 'session-secret-for-tests-only';
+      const fromSecret = hashCustomerKey(key);
+      expect(fromSecret).not.toBe(rawHmac('session-secret-for-tests-only'));
+      expect(fromSecret).not.toBe(fromPassword);
+      expect(hashCustomerKey(key)).toBe(fromSecret); // stable
+    } finally {
+      if (prev.pw === undefined) delete process.env.DASHBOARD_PASSWORD; else process.env.DASHBOARD_PASSWORD = prev.pw;
+      if (prev.ss === undefined) delete process.env.SESSION_SECRET; else process.env.SESSION_SECRET = prev.ss;
+    }
   });
 });
 
@@ -237,5 +334,27 @@ describe('GET /api/foodhub/customer-insights', () => {
     } finally {
       if (prev === undefined) delete process.env.DASHBOARD_PASSWORD; else process.env.DASHBOARD_PASSWORD = prev;
     }
+  });
+
+  it('(18) a role without analytics:view gets 403; a kitchen-scoped user only sees its own kitchen', async () => {
+    const { GET } = await import('../app/api/foodhub/customer-insights/route');
+    const as = (user: string, pass: string, qs: string) => GET(new Request(`http://hub.local/api/foodhub/customer-insights?${qs}`, { headers: { authorization: `Basic ${Buffer.from(`${user}:${pass}`).toString('base64')}` } }) as any, {} as never);
+    await getRepo().saveUser({ username: 'staff1', name: 'Staff', role: 'operator', locations: [], passwordHash: hashPassword('operator-pass-1'), active: true });
+    await getRepo().saveUser({ username: 'mgr_a', name: 'Manager A', role: 'manager', locations: ['LOC_A'], passwordHash: hashPassword('manager-pass-1'), active: true });
+    await plat(at(FROM, 1 * DAY), { customer: 'pa', location: 'LOC_A' });
+    await plat(at(FROM, 1 * DAY), { customer: 'pb', location: 'LOC_B' });
+    await direct(at(FROM, 1 * DAY), { phone: '514-555-0180', location: 'LOC_A' });
+    await direct(at(FROM, 1 * DAY), { phone: '514-555-0181', location: 'LOC_B' });
+    const range = 'from=2026-09-01&to=2026-09-30';
+
+    expect((await as('staff1', 'operator-pass-1', range)).status).toBe(403);
+
+    const own = await (await as('mgr_a', 'manager-pass-1', range)).json();
+    expect(own.totals).toMatchObject({ customers: 2, orders: 2 });
+    expect(own.byChannel.map((c: { key: string }) => c.key).sort()).toEqual(['direct', 'uber_eats']);
+
+    const other = await as('mgr_a', 'manager-pass-1', `${range}&locations=LOC_B`);
+    expect(other.status).toBe(200);
+    expect((await other.json()).totals).toMatchObject({ customers: 0, orders: 0, sales: 0 });
   });
 });

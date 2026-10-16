@@ -1,5 +1,6 @@
 // Read-only verification of a deployed Food Hub instance. No credentials or order writes.
 // Usage: npm run verify:live -- --url https://foodhub.on2go.ca/ --sha <40-char-commit>
+// A missing expected commit is a failure: merely seeing *any* release marker is NOT deployment proof.
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -9,7 +10,7 @@ export function parseOptions(argv, env = process.env) {
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--url' && argv[i + 1]) url = argv[++i];
     else if (argv[i] === '--sha' && argv[i + 1]) sha = argv[++i];
-    else throw new Error('Usage: npm run verify:live -- --url https://foodhub.on2go.ca/ [--sha FULL_COMMIT_SHA]');
+    else throw new Error('Usage: npm run verify:live -- --url https://foodhub.on2go.ca/ --sha FULL_COMMIT_SHA');
   }
   return { url, sha };
 }
@@ -41,8 +42,10 @@ export async function verifyLiveDeployment({ url, sha = '', fetchImpl = fetch, a
       base.search || base.hash || base.pathname !== '/') {
     throw new Error('Production URL must be an HTTPS origin with no credentials, query or subpath');
   }
-  if (sha && !/^[0-9a-f]{40}$/i.test(sha)) {
-    throw new Error('Expected SHA must be the full 40-character Git commit');
+  // Never report a successful release verification without an expected revision.
+  // Both the runtime probe and the operator must pin the full Git commit.
+  if (typeof sha !== 'string' || !/^[0-9a-f]{40}$/i.test(sha)) {
+    throw new Error('Expected SHA is required and must be the full 40-character Git commit');
   }
 
   const request = async (path, headers = {}) => {
@@ -67,7 +70,7 @@ export async function verifyLiveDeployment({ url, sha = '', fetchImpl = fetch, a
       typeof release.sha !== 'string' || !/^[0-9a-f]{40}$/i.test(release.sha)) {
     throw new Error('/api/release did not prove a complete Food Hub commit');
   }
-  if (sha && release.sha.toLowerCase() !== sha.toLowerCase()) {
+  if (release.sha.toLowerCase() !== sha.toLowerCase()) {
     throw new Error('/api/release is on a different SHA: ' + release.sha.slice(0, 7));
   }
 

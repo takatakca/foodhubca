@@ -37,6 +37,21 @@ describe('Food Hub live release verification (no network)', () => {
     expect(report.checks).toHaveLength(5);
   });
 
+  it('fails closed when the expected revision is missing, before any HTTP request', async () => {
+    let networkCalls = 0;
+    const fetchImpl = async () => {
+      networkCalls += 1;
+      throw new Error('No request should happen');
+    };
+    await expect(verifyLiveDeployment({
+      url: 'https://foodhub.on2go.ca/', fetchImpl,
+    })).rejects.toThrow(/Expected SHA is required/);
+    await expect(verifyLiveDeployment({
+      url: 'https://foodhub.on2go.ca/', sha: '', fetchImpl,
+    })).rejects.toThrow(/Expected SHA is required/);
+    expect(networkCalls).toBe(0);
+  });
+
   it('fails when a different commit is deployed', async () => {
     await expect(verifyLiveDeployment({
       url: 'https://foodhub.on2go.ca/',

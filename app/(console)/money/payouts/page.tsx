@@ -10,7 +10,7 @@ import { FilterBar } from '@/components/ui/filter-bar';
 import { Field, Input } from '@/components/ui/form';
 import { Modal } from '@/components/ui/overlay';
 import { FormDraftNote } from '@/components/ui/save-chip';
-import { Table, Td, Th, Tr } from '@/components/ui/table';
+import { Table, TableSkeleton, Td, Th, Tr } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { StatTile, fmtInt } from '@/components/charts/charts';
 import { useViewer } from '@/components/shell/viewer';
@@ -99,7 +99,7 @@ export default function PayoutsPage() {
                 </Tr>
               );
             })}
-            {rows.length === 0 && <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-ink-3">{loaded ? t('Aucun paiement dans cette période. Importez les relevés dans Relevés.', 'No payout in this period. Import the statements in Statements.') : t('Chargement…', 'Loading…')}</td></tr>}
+            {rows.length === 0 && (!loaded ? <TableSkeleton columns={9} label={t('Chargement…', 'Loading…')} /> : <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-ink-3">{t('Aucun paiement dans cette période. Importez les relevés dans Relevés.', 'No payout in this period. Import the statements in Statements.')}</td></tr>)}
           </tbody>
         </Table>
         <p className="border-t border-line px-4 py-3 text-xs leading-relaxed text-ink-3">{t('Ventes + taxes − commission et ses taxes + tout le reste = net payé. « Tout le reste » = promotions, ajustements, remboursements, frais d’erreur, pubs et autres frais (le CSV les détaille). « Net seulement » veut dire que le relevé n’avait pas de détail — importez le rapport détaillé pour le répartir.', 'Food sales + tax − commission and its tax + everything else = net paid. “Everything else” is promotions, adjustments, refunds, error charges, ads and other fees (the CSV has each one). “Net only” means the statement had no breakdown — import the detailed report to split it.')}</p>

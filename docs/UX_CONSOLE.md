@@ -20,7 +20,8 @@ Captures avant / après : `OneDrive\00 MAT IMPORTANT\Food Hub - captures\` (`ava
 
 ## 2. Une seule portée pour toute la console
 
-Comme le choix de magasin de DoorDash Merchant : **Tous les restaurants → cuisine → marque**.
+Comme le choix de magasin de DoorDash Merchant : **Tous les restaurants → succursale → marque**, et depuis la tâche 40
+un 3ᵉ niveau, **plateforme** (`?channel=`), voir § 5.
 
 - Dans le lien : `?kitchen=NDG_MAIN&brand=Po%20Poulet`. Un lien partagé ouvre la même vue.
 - Le dernier choix est retenu sur l'appareil ; si une page s'ouvre sans portée dans le lien, la console l'y remet.
@@ -61,3 +62,31 @@ marine) ; vert, rouge et ambre seulement pour les statuts ; cibles tactiles de 4
 - **Saint-Léonard** : adresse publique **5839 Rue Jean-Talon E** (décision du 2026-10-09) ; 5837 est l'unité voisine de
   la même cuisine, gardée telle quelle dans les fiches des plateformes. Si Réglages → Entreprise affiche encore 5837
   (donnée enregistrée en base), la remplacer par 5839.
+
+## 5. Vue simple, vue complète et plateformes (tâche 40)
+
+Branche `feature/client-dashboard-easy`. Détail complet : `docs/CLIENT_DASHBOARD.md`.
+
+- **Vue simple par défaut** pour tout le monde : 6 entrées (Accueil · Commandes · Menus · Restaurants · Rapports ·
+  Réglages), puis Aide. L’écran cuisine est sous Commandes (en 2ᵉ entrée pour un employé ou une tablette).
+- **Vue complète** : la console d’avant, à l’identique, pour le propriétaire et les gérants (avatar → « Vue complète »).
+  Gardée dans le témoin `fh_view`, lu par le serveur : aucun menu ne clignote. La vue cache des liens seulement ;
+  chaque page s’ouvre encore par son adresse et par la recherche.
+- **Portée à 3 niveaux** : succursale → marque → plateforme, avec le nombre de magasins (« DoorDash (15) »). Accueil,
+  Commandes, Alertes, Ventes et tendances, Rapports et Tous les magasins suivent la plateforme. Les alarmes, la cloche,
+  les pastilles et l’écran cuisine ne suivent jamais une marque ni une plateforme ; une tablette n’en garde jamais.
+- **Nouveaux écrans** : Restaurants → Tous les magasins (`/stores/list`), « Pour bien démarrer » et « Par plateforme »
+  sur l’Accueil, onglets Actives · Planifiées · Historique dans Commandes, Réglages en sections.
+
+### Glossaire (un mot par idée)
+
+| Idée | FR | EN |
+|---|---|---|
+| Adresse physique (`locationCode`) | Succursale | Location |
+| Marque de restaurant | Marque | Brand |
+| Uber Eats, DoorDash, Skip, Too Good To Go | Plateforme | Platform |
+| Une marque × une succursale × une plateforme | Magasin | Store |
+| L’écran de la tablette | Écran cuisine | Kitchen screen |
+| Le tableau des ruptures (86) | Épuisés | Sold out |
+| Ce qui demande quelqu’un | À faire | To do |
+| Le groupe des analyses | Ventes et tendances | Sales & trends |

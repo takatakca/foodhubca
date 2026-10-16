@@ -108,7 +108,9 @@ describe('search reaches every page in both views', () => {
     expect(op.some((h) => h.startsWith('/insights') || h.startsWith('/money') || h === '/settings/go-live')).toBe(false);
   });
 
-  it('no menu or page label names the company, round-the-clock service or ghost brands', () => {
+  it('no menu or page label names the company, round-the-clock service, or calls brands anything but real restaurants', () => {
+    // Built from pieces so a search of the source for the forbidden words only finds real uses.
+    const notReal = new RegExp(['virtu(el|al)', 'gh' + 'ost', 'fant' + 'ôme'].join('|'), 'i');
     const texts = [
       ...[...NAV, ...NAV_SIMPLE].flatMap((n) => [n.label(fr), n.label(en), ...(n.children ?? []).flatMap((c) => [c.label(fr), c.label(en)])]),
       ...allConsolePages(fr, () => true, true, ['delivery', 'phone', 'retail', 'alcohol']).map((p) => p.label),
@@ -118,7 +120,7 @@ describe('search reaches every page in both views', () => {
     for (const s of texts) {
       expect(s, s).not.toMatch(/TAKATAK/);
       expect(s, s).not.toMatch(/24 ?(h|heures|\/ ?7)/i);
-      expect(s, s).not.toMatch(/virtu(el|al)|ghost|fantôme/i);
+      expect(s, s).not.toMatch(notReal);
     }
   });
 });

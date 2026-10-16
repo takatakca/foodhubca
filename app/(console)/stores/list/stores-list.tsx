@@ -116,7 +116,7 @@ export function StoresList() {
                         <Td><PlatformTag channel={s.channel} /></Td>
                         <Td><span className="block font-semibold">{shortLoc(locName(s.locationCode))}</span>{address(s.locationCode) && <span className="block text-xs text-ink-3">{address(s.locationCode)}</span>}</Td>
                         {full && <Td className="font-mono text-xs text-ink-3">{s.channelStoreId}</Td>}
-                        <Td align="right"><Button variant="ghost" size="md" onClick={() => manage(s)}>{t('Gérer', 'Manage')}<ChevronRight className="size-4" /></Button></Td>
+                        <Td align="right"><Button variant="soft" size="md" onClick={() => manage(s)}>{t('Gérer', 'Manage')}<ChevronRight className="size-4" /></Button></Td>
                       </Tr>
                     ))}
                   </tbody>

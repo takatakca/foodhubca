@@ -1,5 +1,12 @@
 # Food Hub: progress log and task board
 
+## 2026-10-16 — Client dashboard: simple view, full view, platform scope (task 40)
+
+- Branch `feature/client-dashboard-easy` (from `origin/main` 444e8f2), not merged. Spec and status: `docs/CLIENT_DASHBOARD.md`.
+- Simple view by default (6-item rail, phone bar of 4, avatar menu with language, text size and the "Vue complète" switch for owners and managers; cookie `fh_view` read on the server). Full view = the console before, unchanged.
+- Scope gains the platform (`?channel=`) with store counts in the switcher (bottom sheet on phones) and filter chips; Home (4 numbers, To do, By platform, Get started), Orders (Actives / Planifiées / Historique), Alerts, Sales & trends, Reports and the new Restaurants → Tous les magasins follow it. Alarms, bell, badges and the kitchen screen never follow a brand or a platform.
+- Read-only API additions: `channels=` on `/api/foodhub/command` (output unchanged without it, tested), `locations=` on `/api/foodhub/incidents`. The owner's DoorDash list is gated to the owner's tenant. No webhook, order write, Clover or menu-publish change; no env var, no migration.
+
 ## 2026-10-15 — Owner-authorized automatic production activation
 
 - Reusing PR #49. Existing Coolify resource rebound to its installed GitHub App, push deployment enabled, source commit available to Docker and health monitoring enabled. Historical Actions deployment controller disabled to keep one production writer while GitHub runner billing is blocked.

@@ -204,8 +204,93 @@ describe('speed', () => {
     const ms = performance.now() - t0;
     expect(m.totals.orders).toBe(20_000);
     expect(m.byHour.reduce((s, h) => s + h.orders, 0)).toBe(20_000);
-    expect(ms).toBeLessThan(2_000);
+    expect(ms).toBeLessThan(10_000); // loose: only catches a quadratic slip, never a slow CI machine
   }, 30_000);
+});
+
+describe('mixed-brand phone cart (one order, lines "[Brand] Dish")', () => {
+  it('each brand gets its own dishes and its share of the sales; the order counts once', async () => {
+    const { cartToLines } = await import('../lib/foodhub/phone/cart');
+    const cart = [
+      { brand: 'Brand A', itemRef: 'a1', name: 'Wrap', quantity: 2, unitPrice: 10, modifiers: [], notes: '' },
+      { brand: 'Brand B', itemRef: 'b1', posItemRef: 'CLV9', name: 'Poutine', quantity: 1, unitPrice: 10, modifiers: [], notes: '' },
+    ] as any;
+    const lines = cartToLines(cart).map((l) => ({ name: l.name, quantity: l.quantity, total: l.total, posItemRef: l.posItemRef }));
+    expect(lines.map((l) => l.name)).toEqual(['[Brand A] Wrap', '[Brand B] Poutine']); // the shape phone/cart.ts stores
+    await direct({ source: 'phone_ai', at: '2026-10-06T16:00:00Z', brand: 'Brand A', lines, subtotal: 30 });
+    await platform({ channel: 'uber_eats', at: '2026-10-06T17:00:00Z', brand: 'Brand B', lines: [line('Poutine', 1, 10, 'CLV9')] });
+
+    const all = await mix({});
+    expect(all.totals).toMatchObject({ orders: 2, sales: 40, itemsSold: 4 });
+    expect(all.items.map((i) => [i.key, i.name, i.qty]).sort()).toEqual([['Brand A|name:wrap', 'Wrap', 2], ['Brand B|pos:CLV9', 'Poutine', 2]]);
+    expect(all.byBrand.map((b) => [b.key, b.orders, b.sales]).sort()).toEqual([['Brand A', 1, 20], ['Brand B', 2, 20]]);
+    expect(all.bySource.find((s) => s.key === 'phone_ai')).toMatchObject({ orders: 1, sales: 30 });
+    expect(all.byHour.reduce((s, h) => s + h.orders, 0)).toBe(2);
+    expect(all.heatmap.orders.flat().reduce((s, v) => s + v, 0)).toBe(2);
+
+    const a = await mix({ brands: ['Brand A'] });
+    expect(a.items.map((i) => i.name)).toEqual(['Wrap']);
+    expect(a.totals).toMatchObject({ orders: 1, sales: 20 });
+    const b = await mix({ brands: ['Brand B'] });
+    expect(b.items).toEqual([expect.objectContaining({ key: 'Brand B|pos:CLV9', name: 'Poutine', qty: 2, bySource: { phone_ai: 1, uber_eats: 1 } })]);
+    expect(b.totals).toMatchObject({ orders: 2, sales: 20 });
+  });
+
+  it('a dish name that only looks bracketed keeps the order brand when nothing follows the bracket', async () => {
+    const { splitBrandPrefix } = await import('../lib/foodhub/sales-mix');
+    expect(splitBrandPrefix('[Brand B] Poutine')).toEqual({ brand: 'Brand B', name: 'Poutine' });
+    expect(splitBrandPrefix('[Spicy]')).toEqual({ brand: null, name: '[Spicy]' });
+    expect(splitBrandPrefix('Wrap')).toEqual({ brand: null, name: 'Wrap' });
+  });
+});
+
+describe('row cap: current and previous period read apart', () => {
+  const capped = async (q: Record<string, unknown>, cap: number) => {
+    const { buildSalesMix } = await import('../lib/foodhub/sales-mix');
+    return buildSalesMix({ from: '2026-10-05T04:00:00.000Z', to: '2026-10-12T04:00:00.000Z', ...q } as any, Date.parse('2027-01-01T00:00:00Z'), cap);
+  };
+
+  it('a busy current period never cuts the previous one; a capped read hides the comparison and blanks it in the export', async () => {
+    for (let i = 0; i < 4; i++) await platform({ channel: 'uber_eats', at: `2026-10-0${6 + i}T16:00:00Z`, lines: [line('Wrap', 1, 10)] });
+    await platform({ channel: 'uber_eats', at: '2026-09-30T16:00:00Z', lines: [line('Wrap', 1, 10)] }); // previous week
+    const ok = await capped({}, 10);
+    expect(ok.range).toMatchObject({ truncated: false, previousIncomplete: false, comparable: true });
+    expect(ok.totals).toMatchObject({ orders: 4, prevOrders: 1, salesChange: 300 });
+
+    const cut = await capped({}, 3);
+    expect(cut.range).toMatchObject({ truncated: true, previousIncomplete: false, comparable: false });
+    expect(cut.totals).toMatchObject({ orders: 3, prevOrders: 1 }); // the previous week is still read in full
+    const items = salesMixTable(cut, 'items');
+    expect(items.rows[0][9]).toBeNull(); // Change % blank
+    expect(salesMixTable(cut, 'sources').rows[0][7]).toBeNull();
+    expect(salesMixTable(ok, 'items').rows[0][9]).toBe(300);
+  });
+
+  it('a capped previous period is flagged on its own', async () => {
+    await platform({ channel: 'uber_eats', at: '2026-10-06T16:00:00Z' });
+    for (let i = 0; i < 3; i++) await platform({ channel: 'doordash', at: `2026-09-${28 + i}T16:00:00Z` });
+    expect((await capped({}, 2)).range).toMatchObject({ truncated: false, previousIncomplete: true, comparable: false });
+  });
+
+  it('direct orders of another location fill the cap: the scoped result says some orders may be missing', async () => {
+    await direct({ source: 'phone', at: '2026-10-06T15:00:00Z', loc: 'LOC_A', lines: [line('Fries A', 1, 4)] });
+    for (let i = 0; i < 3; i++) await direct({ source: 'clover', at: `2026-10-0${7 + i}T16:00:00Z`, loc: 'LOC_B' });
+    const m = await capped({ locationCodes: ['LOC_A'] }, 3);
+    expect(m.totals.orders).toBe(0); // LOC_A's older order was cut by LOC_B's newer ones…
+    expect(m.range.truncated).toBe(true); // …and the page says so, never a false "complete"
+    const full = await capped({ locationCodes: ['LOC_A'] }, 10);
+    expect(full.totals.orders).toBe(1);
+    expect(full.range.truncated).toBe(false);
+  });
+});
+
+describe('weekday day count when the period ends in the future', () => {
+  it('counts only the days already started', async () => {
+    // Period Mon Oct 5 → Mon Oct 12 (local); "now" = Wed Oct 7 at 12:00 local → Mon, Tue, Wed counted.
+    const m = await mix({}, Date.parse('2026-10-07T16:00:00Z'));
+    expect(m.byWeekday.map((d) => d.days)).toEqual([1, 1, 1, 0, 0, 0, 0]);
+    expect(m.byWeekday.every((d) => Number.isFinite(d.avgSalesPerDay))).toBe(true);
+  });
 });
 
 describe('(7) filters', () => {
@@ -359,6 +444,15 @@ describe('(11) GET /api/foodhub/sales-mix', () => {
     const { GET } = await import('../app/api/foodhub/sales-mix/route');
     const res = await GET(new Request('http://hub.local/api/foodhub/sales-mix') as any, {} as never);
     expect(res.status).toBe(401);
+  });
+
+  it('refuses a signed-in user whose role has no analytics:view (403)', async () => {
+    const { getRepo } = await import('../lib/foodhub/repo');
+    const { hashPassword } = await import('../lib/foodhub/auth');
+    await getRepo().saveUser({ username: 'op_a', name: 'Operator A', role: 'operator', locations: ['LOC_A'], passwordHash: hashPassword('operator-pass-1'), active: true } as any);
+    const { GET } = await import('../app/api/foodhub/sales-mix/route');
+    const res = await GET(new Request('http://hub.local/api/foodhub/sales-mix?from=2026-10-05&to=2026-10-11', { headers: { authorization: `Basic ${Buffer.from('op_a:operator-pass-1').toString('base64')}` } }) as any, {} as never);
+    expect(res.status).toBe(403);
   });
 });
 

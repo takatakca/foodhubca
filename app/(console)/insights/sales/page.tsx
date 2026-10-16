@@ -7,7 +7,7 @@ import { Banner, Card, EmptyState, PageHeader } from '@/components/ui/card';
 import { FilterBar } from '@/components/ui/filter-bar';
 import { Input } from '@/components/ui/form';
 import { Segmented } from '@/components/ui/tabs';
-import { ChartCard, Columns, fmtInt, fmtMoney, HBars, Heatmap, StatTile } from '@/components/charts/charts';
+import { ChartCard, Columns, fmtInt, fmtMoney, HBars, StatTile, VIZ } from '@/components/charts/charts';
 import { usePulse } from '@/components/live/pulse';
 import { useViewer } from '@/components/shell/viewer';
 import { InsightsTabs } from '../insights-tabs';
@@ -21,6 +21,35 @@ type View = 'all' | 'platforms' | 'direct';
 const DIRECT_PARAM: Record<View, string | null> = { all: null, platforms: 'exclude', direct: 'only' };
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 const signed = (n: number) => `${n > 0 ? '+' : ''}${n}%`;
+
+/** Day × hour grid for this page (translated day names, money or order counts); same look as the Insights heatmap. */
+function SalesHeatmap({ grid, days, format, title, unit }: { grid: number[][]; days: string[]; format: (v: number) => string; title: string; unit: string }) {
+  const max = Math.max(0, ...grid.flat());
+  const color = (v: number) => (v <= 0 || max <= 0 ? VIZ.none : VIZ.ramp[Math.min(VIZ.ramp.length - 1, Math.floor((v / max) * (VIZ.ramp.length - 1)))]);
+  const legend = [0, 0.25, 0.5, 0.75, 1].map((f) => f * max);
+  return (
+    <div className="viz-wrap">
+      <div className="viz-heat" role="grid" aria-label={title}>
+        <span />
+        {Array.from({ length: 24 }, (_, h) => <span key={h} className="viz-heat-h">{h % 3 === 0 ? h : ''}</span>)}
+        {grid.map((row, d) => (
+          <div key={d} className="viz-heat-row" role="row">
+            <span className="viz-heat-d">{days[d]}</span>
+            {row.map((v, h) => {
+              const text = `${days[d]} ${h}h · ${format(v)} ${unit}`;
+              return <span key={h} role="gridcell" tabIndex={0} aria-label={text} title={text} className="viz-heat-cell" style={{ background: color(v) }} />;
+            })}
+          </div>
+        ))}
+      </div>
+      <div className="viz-heat-legend small">
+        <span>−</span>
+        {legend.map((v, i) => <span key={i} className="viz-heat-swatch" style={{ background: color(v) }} title={`${format(v)} ${unit}`} />)}
+        <span>+ (max {format(max)})</span>
+      </div>
+    </div>
+  );
+}
 
 export default function SalesMixPage() {
   const { t, lang } = useI18n();
@@ -42,6 +71,9 @@ export default function SalesMixPage() {
   }, [fullQuery]);
 
   const label = (g: MixGroupRow) => (lang === 'en' ? g.labelEn : g.label);
+  // A read hit the row cap: the change vs the previous period would be wrong, so it is hidden.
+  const cmp = data?.range.comparable !== false;
+  const vs = (n: number) => (cmp ? signed(n) : '—');
   const days = lang === 'en' ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] : ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
   const exportLinks = (table: SalesMixTableKey) => (
     <div className="flex gap-2">
@@ -51,10 +83,10 @@ export default function SalesMixPage() {
   );
   const groupTable = (rows: MixGroupRow[], name: string, filename: string) => ({
     columns: [name, t('Ventes', 'Sales'), t('Commandes', 'Orders'), t('Panier', 'Avg'), '%', t('vs préc. %', 'vs prev %'), t('Annulées', 'Cancelled'), t('Perdu', 'Lost')],
-    rows: rows.map((g) => [label(g), fmtMoney(g.sales), g.orders, fmtMoney(g.aov), `${g.share}%`, signed(g.change), g.lostOrders, fmtMoney(g.lostSales)]),
+    rows: rows.map((g) => [label(g), fmtMoney(g.sales), g.orders, fmtMoney(g.aov), `${g.share}%`, vs(g.change), g.lostOrders, fmtMoney(g.lostSales)]),
     filename,
   });
-  const groupBars = (rows: MixGroupRow[]) => rows.map((g) => ({ label: label(g), value: g.sales, detail: `${g.orders} ${t('cmd', 'orders')} · ${g.share}% · ${signed(g.change)}` }));
+  const groupBars = (rows: MixGroupRow[]) => rows.map((g) => ({ label: label(g), value: g.sales, detail: `${g.orders} ${t('cmd', 'orders')} · ${g.share}%${cmp ? ` · ${signed(g.change)}` : ''}` }));
 
   const sourcesInItems = useMemo(() => (data ? data.bySource.map((s) => s.key as SourceKey).filter((k) => data.items.some((i) => (i.bySource[k] ?? 0) > 0)) : []), [data]);
   const sourceName = (k: SourceKey) => { const g = data?.bySource.find((s) => s.key === k); return g ? label(g) : k; };
@@ -77,16 +109,17 @@ export default function SalesMixPage() {
       </div>
       {error && <Banner tone="stop" className="mb-4">{error}</Banner>}
       {data?.range.truncated && <Banner tone="warn" className="mb-4">{t('Trop de commandes pour cette période : seules les plus récentes sont comptées. Choisissez une période plus courte.', 'Too many orders for this period: only the newest are counted. Pick a shorter period.')}</Banner>}
+      {data && !data.range.truncated && data.range.previousIncomplete && <Banner tone="warn" className="mb-4">{t('Trop de commandes dans la période précédente : la comparaison est masquée. Choisissez une période plus courte.', 'Too many orders in the previous period: the comparison is hidden. Pick a shorter period.')}</Banner>}
       {!data && !error && <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">{[0, 1, 2, 3].map((i) => <div key={i} className="h-28 animate-pulse rounded-lg bg-sunken" />)}</div>}
       {empty && <EmptyState title={t('Aucune vente pour cette période.', 'No sales in this period.')} />}
       {data && k && !empty && (
         <div className={loading ? 'opacity-60 transition-opacity' : ''}>
           <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatTile hero label={t('Ventes', 'Sales')} value={fmtMoney(k.sales)} change={k.salesChange} previous={fmtMoney(k.prevSales)} />
-            <StatTile label={t('Commandes', 'Orders')} value={fmtInt(k.orders)} change={k.ordersChange} previous={fmtInt(k.prevOrders)} />
+            <StatTile hero label={t('Ventes', 'Sales')} value={fmtMoney(k.sales)} change={cmp ? k.salesChange : undefined} previous={cmp ? fmtMoney(k.prevSales) : undefined} />
+            <StatTile label={t('Commandes', 'Orders')} value={fmtInt(k.orders)} change={cmp ? k.ordersChange : undefined} previous={cmp ? fmtInt(k.prevOrders) : undefined} />
             <StatTile label={t('Panier moyen', 'Average order')} value={fmtMoney(k.aov)} />
             <StatTile label={t('Articles vendus', 'Items sold')} value={fmtInt(k.itemsSold)} />
-            <StatTile label={t('Ventes perdues', 'Lost sales')} value={fmtMoney(k.lostSales)} change={k.lostSalesChange} previous={fmtMoney(k.prevLostSales)} upIsGood={false} note={`${k.lostOrders} ${t('cmd annulées', 'cancelled orders')}`} />
+            <StatTile label={t('Ventes perdues', 'Lost sales')} value={fmtMoney(k.lostSales)} change={cmp ? k.lostSalesChange : undefined} previous={cmp ? fmtMoney(k.prevLostSales) : undefined} upIsGood={false} note={`${k.lostOrders} ${t('cmd annulées', 'cancelled orders')}`} />
           </div>
 
           <Card className="mb-5 p-5">
@@ -126,7 +159,7 @@ export default function SalesMixPage() {
                       <td className="num py-2 pr-3 text-right">{fmtMoney(i.sales)}</td>
                       <td className="num py-2 pr-3 text-right">{i.share}%</td>
                       <td className="num py-2 pr-3 text-right">{fmtMoney(i.avgPrice)}</td>
-                      <td className={`num py-2 pr-3 text-right ${i.change > 0 ? 'text-go-2' : i.change < 0 ? 'text-stop-2' : 'text-ink-3'}`}>{signed(i.change)}</td>
+                      <td className={`num py-2 pr-3 text-right ${cmp && i.change > 0 ? 'text-go-2' : cmp && i.change < 0 ? 'text-stop-2' : 'text-ink-3'}`}>{vs(i.change)}</td>
                       {sourcesInItems.map((s) => <td key={s} className="num py-2 pr-3 text-right">{i.bySource[s] ?? 0}</td>)}
                     </tr>
                   ))}
@@ -134,7 +167,7 @@ export default function SalesMixPage() {
               </table>
               {!shown.length && <div className="py-8 text-center text-sm text-ink-3">{t('Aucun article trouvé.', 'No item found.')}</div>}
               {data.itemsTotal > data.items.length && <div className="pt-3 text-xs text-ink-3">{t(`Recherche limitée aux ${data.items.length} premiers articles : exportez pour la liste complète.`, `Search covers the first ${data.items.length} items: export for the full list.`)}</div>}
-              {shown.length > 300 &&<div className="pt-3 text-xs text-ink-3">{t('300 premiers articles affichés : exportez pour la liste complète.', 'First 300 items shown: export for the full list.')}</div>}
+              {shown.length > 300 && <div className="pt-3 text-xs text-ink-3">{t('300 premiers articles affichés : exportez pour la liste complète.', 'First 300 items shown: export for the full list.')}</div>}
             </div>
           </Card>
 
@@ -152,7 +185,8 @@ export default function SalesMixPage() {
           <ChartCard className="mb-5" title={t('Heures de pointe', 'Busiest hours')} subtitle={heat === 'sales' ? t('Ventes par jour et par heure', 'Sales by day and hour') : t('Commandes par jour et par heure', 'Orders by day and hour')}
             legend={<Segmented size="sm" value={heat} onChange={setHeat} options={[{ key: 'sales', label: t('Ventes', 'Sales') }, { key: 'orders', label: t('Commandes', 'Orders') }]} />}
             table={{ columns: ['', ...Array.from({ length: 24 }, (_, h) => `${h}h`)], rows: data.heatmap[heat].map((r, d) => [days[d], ...r]), filename: `takatak-heatmap-${heat}` }}>
-            <Heatmap grid={data.heatmap[heat]} days={days} format={heat === 'sales' ? fmtMoney : fmtInt} unit={heat === 'sales' ? t('ventes', 'sales') : t('cmd', 'orders')} ariaUnit={heat === 'sales' ? 'sales' : 'orders'} />
+            <SalesHeatmap grid={data.heatmap[heat]} days={days} format={heat === 'sales' ? fmtMoney : fmtInt} unit={heat === 'sales' ? t('de ventes', 'in sales') : t('commandes', 'orders')}
+              title={heat === 'sales' ? t('Ventes par jour et par heure', 'Sales by day and hour') : t('Commandes par jour et par heure', 'Orders by day and hour')} />
           </ChartCard>
 
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">

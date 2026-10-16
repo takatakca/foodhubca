@@ -4,19 +4,8 @@ export function foodhubTimeZone(): string {
   return process.env.FOODHUB_TIMEZONE || 'America/Toronto';
 }
 
-// Building an Intl.DateTimeFormat is slow (~0.1 ms each); one per time zone is kept and reused (it holds no state).
-const partsFormatters = new Map<string, Intl.DateTimeFormat>();
-function partsFormatter(timeZone: string): Intl.DateTimeFormat {
-  let f = partsFormatters.get(timeZone);
-  if (!f) {
-    f = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
-    partsFormatters.set(timeZone, f);
-  }
-  return f;
-}
-
 export function localParts(ms: number, timeZone = foodhubTimeZone()) {
-  const parts = partsFormatter(timeZone)
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })
     .formatToParts(new Date(ms)).reduce<Record<string, string>>((acc, p) => { acc[p.type] = p.value; return acc; }, {});
   return { year: +parts.year, month: +parts.month, day: +parts.day, hour: +parts.hour, minute: +parts.minute, second: +parts.second };
 }

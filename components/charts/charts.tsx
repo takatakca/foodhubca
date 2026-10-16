@@ -242,32 +242,27 @@ export function Columns({ rows, format, height = 180 }: { rows: Array<{ label: s
 
 const DOW = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 
-/**
- * Day-of-week x hour heatmap on the sequential blue ramp (light = few orders, dark = many).
- * Optional: `format` / `unit` for a grid that is not an order count (e.g. dollars), `days` for translated day names.
- */
-export function Heatmap({ grid, format = fmtInt, unit = 'cmd', ariaUnit = 'orders', days = DOW }: {
-  grid: number[][]; format?: (n: number) => string; unit?: string; ariaUnit?: string; days?: string[];
-}) {
+/** Day-of-week x hour heatmap on the sequential blue ramp (light = few orders, dark = many). */
+export function Heatmap({ grid }: { grid: number[][] }) {
   const [tip, setTip] = useState<Tip>(null);
   const box = useRef<HTMLDivElement>(null);
   const max = Math.max(0, ...grid.flat());
   const color = (v: number) => (v <= 0 ? VIZ.none : VIZ.ramp[Math.min(VIZ.ramp.length - 1, Math.floor((v / max) * (VIZ.ramp.length - 1)))]);
   const show = (d: number, h: number, el: HTMLElement) => {
     const b = box.current?.getBoundingClientRect(); const e = el.getBoundingClientRect();
-    setTip({ x: Math.max(0, Math.min((b ? e.left - b.left : 0) - 60, (b?.width ?? 400) - 180)), y: (b ? e.top - b.top : 0) + 22, title: `${days[d]} ${String(h).padStart(2, '0')}:00–${String(h).padStart(2, '0')}:59`, rows: [{ value: format(grid[d][h]), label: unit }] });
+    setTip({ x: Math.max(0, Math.min((b ? e.left - b.left : 0) - 60, (b?.width ?? 400) - 180)), y: (b ? e.top - b.top : 0) + 22, title: `${DOW[d]} ${String(h).padStart(2, '0')}:00–${String(h).padStart(2, '0')}:59`, rows: [{ value: fmtInt(grid[d][h]), label: 'cmd' }] });
   };
   const legend = useMemo(() => [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(f * max)), [max]);
   return (
     <div className="viz-wrap" ref={box}>
-      <div className="viz-heat" role="grid" aria-label={`${ariaUnit} by day and hour`}>
+      <div className="viz-heat" role="grid" aria-label="Orders by day and hour">
         <span />
         {Array.from({ length: 24 }, (_, h) => <span key={h} className="viz-heat-h">{h % 3 === 0 ? h : ''}</span>)}
         {grid.map((row, d) => (
           <div key={d} className="viz-heat-row" role="row">
-            <span className="viz-heat-d">{days[d]}</span>
+            <span className="viz-heat-d">{DOW[d]}</span>
             {row.map((v, h) => (
-              <span key={h} role="gridcell" tabIndex={0} aria-label={`${days[d]} ${h}h: ${format(v)} ${ariaUnit}`} className="viz-heat-cell" style={{ background: color(v) }}
+              <span key={h} role="gridcell" tabIndex={0} aria-label={`${DOW[d]} ${h}h: ${v} orders`} className="viz-heat-cell" style={{ background: color(v) }}
                 onPointerEnter={(e) => show(d, h, e.currentTarget)} onPointerLeave={() => setTip(null)} onFocus={(e) => show(d, h, e.currentTarget)} onBlur={() => setTip(null)} />
             ))}
           </div>
@@ -275,8 +270,8 @@ export function Heatmap({ grid, format = fmtInt, unit = 'cmd', ariaUnit = 'order
       </div>
       <div className="viz-heat-legend small">
         <span>−</span>
-        {legend.map((v, i) => <span key={i} className="viz-heat-swatch" style={{ background: color(v) }} title={`${format(v)} ${ariaUnit}`} />)}
-        <span>+ (max {format(max)})</span>
+        {legend.map((v, i) => <span key={i} className="viz-heat-swatch" style={{ background: color(v) }} title={`${v} orders`} />)}
+        <span>+ (max {fmtInt(max)})</span>
       </div>
       <Tooltip tip={tip} />
     </div>

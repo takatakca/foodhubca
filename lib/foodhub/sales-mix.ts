@@ -10,9 +10,18 @@
 //
 // Direct orders: an order still 'awaiting_payment' (phone order held until its payment link is paid) is not a sale
 // and not a lost sale: it is left out. Their time is `placedAt` (the real order time: a Clover website order
-// imported late keeps its Clover time), falling back to `createdAt`.
+// imported late keeps its Clover time), falling back to `createdAt`. Direct orders are stored by import time, so
+// they are read up to DIRECT_IMPORT_SLACK_MS past the period end and then cut by their real order time.
+// A phone cart with several brands is ONE direct order whose other brands' lines are named "[Brand] Dish": each
+// brand gets its own lines (prefix removed) and its share of the subtotal, and the order is still counted once.
+//
+// Reads: the current and the previous period are read separately (each up to `cap` rows, newest first), so a busy
+// current period never eats the comparison. `range.truncated` = the current period hit the cap (older orders of the
+// period are missing); `range.previousIncomplete` = the previous period hit the cap. When either is true the change
+// % are unreliable (`range.comparable` = false): the page hides them and the export leaves them blank.
 // Limit: direct orders are stored without a location index, so a location filter on them runs in memory after the
-// ROW_CAP newest direct orders of every location are read (`truncated` then warns that the period is too long).
+// newest `cap` direct orders of every location are read. `truncated` can then be true because of other locations'
+// orders: it means "some orders may be missing", never a false "complete".
 import { getCatalog } from './catalog';
 import { CHANNEL_LABELS } from './config';
 import { DIRECT_ORDERS } from './delivery/store';
@@ -91,6 +100,7 @@ export function itemKey(brand: string, line: Pick<OrderLine, 'posItemRef' | 'nam
 
 /** One order from any channel, in a common shape. */
 export interface SalesFact {
+  /** Order id: the brand parts of one mixed-brand direct order share it (the order is counted once). */
   id: string;
   source: SourceKey;
   group: SourceGroup;
@@ -110,10 +120,40 @@ function platformFact(o: StoredOrder): SalesFact {
     createdAt: o.createdAt, counted: o.status !== 'cancelled', sales: factSales(o), lines: o.lines ?? [] };
 }
 
-function directFact(o: DirectOrder): SalesFact {
-  const source = sourceOf(o);
-  return { id: o.id, source, group: 'direct', brand: o.brandName ?? '', locationCode: o.locationCode ?? '', fulfillment: o.fulfillment === 'delivery' ? 'delivery' : 'pickup',
-    createdAt: o.placedAt || o.createdAt, counted: o.status !== 'cancelled', sales: factSales(o), lines: o.lines ?? [] };
+/** "[Brand B] Poutine" (a mixed-brand phone cart, see phone/cart.ts cartToLines) → brand + plain dish name. */
+const BRAND_PREFIX = /^\[([^\]]+)\]\s+/;
+export function splitBrandPrefix(name: string): { brand: string | null; name: string } {
+  const s = String(name ?? '');
+  const m = BRAND_PREFIX.exec(s);
+  return m && m[1].trim() ? { brand: m[1].trim(), name: s.slice(m[0].length) } : { brand: null, name: s };
+}
+
+/** One fact per brand: a mixed-brand direct order is split by its lines, its sales shared by line totals. */
+export function directFacts(o: DirectOrder): SalesFact[] {
+  const base = {
+    id: o.id, source: sourceOf(o), group: 'direct' as const, locationCode: o.locationCode ?? '',
+    fulfillment: (o.fulfillment === 'delivery' ? 'delivery' : 'pickup') as Fulfillment, createdAt: o.placedAt || o.createdAt, counted: o.status !== 'cancelled',
+  };
+  const own = o.brandName ?? '';
+  const sales = factSales(o);
+  const parts = new Map<string, SalesFact['lines']>();
+  for (const l of o.lines ?? []) {
+    const p = splitBrandPrefix(l.name);
+    const brand = p.brand ?? own;
+    const list = parts.get(brand) ?? [];
+    list.push(p.brand ? { ...l, name: p.name } : l);
+    parts.set(brand, list);
+  }
+  const entries = [...parts.entries()];
+  if (entries.length <= 1) return [{ ...base, brand: entries[0]?.[0] ?? own, sales, lines: entries[0]?.[1] ?? [] }];
+  const lineSum = (ls: SalesFact['lines']) => ls.reduce((s, l) => s + num(l.total), 0);
+  const all = entries.reduce((s, [, ls]) => s + lineSum(ls), 0);
+  let left = sales;
+  return entries.map(([brand, lines], i) => {
+    const share = i === entries.length - 1 ? left : r2(all > 0 ? (sales * lineSum(lines)) / all : sales / entries.length);
+    left = r2(left - share);
+    return { ...base, brand, sales: r2(share), lines };
+  });
 }
 
 /** A direct order waiting for its payment link is neither a sale nor a lost sale (not in the kitchen, not in Clover). */
@@ -194,7 +234,10 @@ function hourDowReader(tz: string) {
   };
 }
 
-export async function buildSalesMix(q: SalesMixQuery, now = Date.now()) {
+/** Distinct orders (the brand parts of one mixed-brand direct order count once). */
+const orderCount = (xs: SalesFact[]) => new Set(xs.map((f) => f.id)).size;
+
+export async function buildSalesMix(q: SalesMixQuery, now = Date.now(), cap = ROW_CAP) {
   const tz = foodhubTimeZone();
   const from = Date.parse(q.from);
   const to = Date.parse(q.to);
@@ -206,20 +249,28 @@ export async function buildSalesMix(q: SalesMixQuery, now = Date.now()) {
   const locs = q.locationCodes?.length ? q.locationCodes : undefined;
 
   const repo = getRepo();
-  const sinceIso = new Date(prevFrom).toISOString();
-  const untilIso = new Date(to).toISOString();
-  // Direct docs are indexed by storage time, which is never before the order time: the lower bound stays, the upper
-  // bound is widened for late imports, and the facts are then cut by their real order time below.
-  const directUntilIso = new Date(to + DIRECT_IMPORT_SLACK_MS).toISOString();
-  const [catalog, platformRaw, directRaw] = await Promise.all([
+  const iso = (ms: number) => new Date(ms).toISOString();
+  // Current and previous period are read apart (each with its own cap), so a busy current period never cuts the
+  // previous one. Direct docs are indexed by storage time, which is never before the order time: the current read is
+  // widened past `to` for late imports; the direct reads [prevFrom, from) and [from, to + slack) cover the window
+  // once, and the facts are then cut by their real order time below.
+  const [catalog, platCur, platPrev, dirCur, dirPrev] = await Promise.all([
     getCatalog(),
-    repo.listOrders({ since: sinceIso, until: untilIso, limit: ROW_CAP, locationCodes: locs }),
-    repo.listDocs<DirectOrder>(DIRECT_ORDERS, { since: sinceIso, until: directUntilIso, limit: ROW_CAP }),
+    repo.listOrders({ since: iso(from), until: iso(to), limit: cap, locationCodes: locs }),
+    repo.listOrders({ since: iso(prevFrom), until: iso(from), limit: cap, locationCodes: locs }),
+    repo.listDocs<DirectOrder>(DIRECT_ORDERS, { since: iso(from), until: iso(to + DIRECT_IMPORT_SLACK_MS), limit: cap }),
+    repo.listDocs<DirectOrder>(DIRECT_ORDERS, { since: iso(prevFrom), until: iso(from), limit: cap }),
   ]);
-  const truncated = platformRaw.length >= ROW_CAP || directRaw.length >= ROW_CAP;
-  const direct = directRaw.map((d) => d.data).filter(isDirectSale).filter((o) => !locs || locs.includes(o.locationCode));
+  // Rows come newest first, so a read that hits the cap is missing its OLDEST rows. The current direct read starts at
+  // `from`: when it hits the cap, orders stored between `from` and its oldest row are missing, even if part of the
+  // read was imports after `to`, so the flag stays on the whole read. Those missing rows can also be late imports of
+  // previous-period orders, so a capped current direct read makes the previous period incomplete too.
+  const truncated = platCur.length >= cap || dirCur.length >= cap;
+  const previousIncomplete = platPrev.length >= cap || dirPrev.length >= cap || dirCur.length >= cap;
+  const comparable = !truncated && !previousIncomplete;
+  const direct = [...dirCur, ...dirPrev].map((d) => d.data).filter(isDirectSale).filter((o) => !locs || locs.includes(o.locationCode));
 
-  const facts = [...platformRaw.map(platformFact), ...direct.map(directFact)].filter((f) => keepFact(f, q, mode, sources));
+  const facts = [...platCur.map(platformFact), ...platPrev.map(platformFact), ...direct.flatMap(directFacts)].filter((f) => keepFact(f, q, mode, sources));
   const at = (f: SalesFact) => Date.parse(f.createdAt);
   const cur = facts.filter((f) => at(f) >= from && at(f) < to);
   const prev = facts.filter((f) => at(f) >= prevFrom && at(f) < from);
@@ -233,10 +284,12 @@ export async function buildSalesMix(q: SalesMixQuery, now = Date.now()) {
   const lostSales = sumSales(lost);
   const prevLostSales = sumSales(prev.filter((f) => !f.counted));
   const itemsSold = counted.reduce((s, f) => s + f.lines.reduce((a, l) => a + num(l.quantity), 0), 0);
+  const orders = orderCount(counted);
+  const prevOrders = orderCount(prevCounted);
   const totals = {
-    orders: counted.length, sales, aov: counted.length ? r2(sales / counted.length) : 0, itemsSold,
-    lostOrders: lost.length, lostSales, prevLostSales, lostSalesChange: change(lostSales, prevLostSales),
-    prevOrders: prevCounted.length, prevSales, salesChange: change(sales, prevSales), ordersChange: change(counted.length, prevCounted.length),
+    orders, sales, aov: orders ? r2(sales / orders) : 0, itemsSold,
+    lostOrders: orderCount(lost), lostSales, prevLostSales, lostSalesChange: change(lostSales, prevLostSales),
+    prevOrders, prevSales, salesChange: change(sales, prevSales), ordersChange: change(orders, prevOrders),
   };
 
   // ---------- items ----------
@@ -276,11 +329,15 @@ export async function buildSalesMix(q: SalesMixQuery, now = Date.now()) {
   const heatmap = { orders: Array.from({ length: 7 }, () => Array(24).fill(0) as number[]), sales: Array.from({ length: 7 }, () => Array(24).fill(0) as number[]) };
   const byWeekday = Array.from({ length: 7 }, (_, dow) => ({ dow, orders: 0, sales: 0, aov: 0, days: 0, avgSalesPerDay: 0 }));
   const hourDow = hourDowReader(tz);
+  const seen = new Set<string>();
   for (const f of counted) {
     const { hour: h, dow: d } = hourDow(at(f));
-    byHour[h].orders++; byHour[h].sales += f.sales;
-    byWeekday[d].orders++; byWeekday[d].sales += f.sales;
-    heatmap.orders[d][h]++; heatmap.sales[d][h] += f.sales;
+    // The brand parts of one order share its time: the order is counted once, its sales in full.
+    const n = seen.has(f.id) ? 0 : 1;
+    seen.add(f.id);
+    byHour[h].orders += n; byHour[h].sales += f.sales;
+    byWeekday[d].orders += n; byWeekday[d].sales += f.sales;
+    heatmap.orders[d][h] += n; heatmap.sales[d][h] += f.sales;
   }
   for (const r of byHour) { r.sales = r2(r.sales); r.aov = r.orders ? r2(r.sales / r.orders) : 0; }
   heatmap.sales = heatmap.sales.map((row) => row.map(r2));
@@ -297,17 +354,18 @@ export async function buildSalesMix(q: SalesMixQuery, now = Date.now()) {
   // ---------- groups ----------
   const locName = (code: string) => (code ? catalog.locations.find((l) => l.code === code)?.name ?? code : '');
   const group = (keyOf: (f: SalesFact) => string, label: (k: string) => Label, groupFor?: (k: string) => SourceGroup): MixGroupRow[] => {
-    const m = new Map<string, MixGroupRow>();
+    // Orders are counted by id: the brand parts of one order count once per group.
+    const m = new Map<string, MixGroupRow & { ids: Set<string>; lostIds: Set<string> }>();
     const get = (key: string) => {
       let g = m.get(key);
-      if (!g) { const l = label(key); g = { key, label: l.fr, labelEn: l.en, ...(groupFor ? { group: groupFor(key) } : {}), orders: 0, sales: 0, aov: 0, share: 0, prevSales: 0, change: 0, lostOrders: 0, lostSales: 0 }; m.set(key, g); }
+      if (!g) { const l = label(key); g = { key, label: l.fr, labelEn: l.en, ...(groupFor ? { group: groupFor(key) } : {}), orders: 0, sales: 0, aov: 0, share: 0, prevSales: 0, change: 0, lostOrders: 0, lostSales: 0, ids: new Set(), lostIds: new Set() }; m.set(key, g); }
       return g;
     };
-    for (const f of cur) { const g = get(keyOf(f)); if (f.counted) { g.orders++; g.sales += f.sales; } else { g.lostOrders++; g.lostSales += f.sales; } }
+    for (const f of cur) { const g = get(keyOf(f)); if (f.counted) { g.ids.add(f.id); g.sales += f.sales; } else { g.lostIds.add(f.id); g.lostSales += f.sales; } }
     for (const f of prevCounted) get(keyOf(f)).prevSales += f.sales;
-    return [...m.values()].map((g) => {
+    return [...m.values()].map(({ ids, lostIds, ...g }): MixGroupRow => {
       const s = r2(g.sales); const p = r2(g.prevSales);
-      return { ...g, sales: s, prevSales: p, lostSales: r2(g.lostSales), aov: g.orders ? r2(s / g.orders) : 0, share: pct(s, totals.sales), change: change(s, p) };
+      return { ...g, orders: ids.size, lostOrders: lostIds.size, sales: s, prevSales: p, lostSales: r2(g.lostSales), aov: ids.size ? r2(s / ids.size) : 0, share: pct(s, totals.sales), change: change(s, p) };
     }).sort((a, b) => b.sales - a.sales || b.orders - a.orders || a.key.localeCompare(b.key));
   };
   const bySource = group((f) => f.source, (k) => SOURCE_LABELS[k as SourceKey] ?? UNMAPPED, (k) => groupOf(k as SourceKey));
@@ -316,7 +374,7 @@ export async function buildSalesMix(q: SalesMixQuery, now = Date.now()) {
   const byLocation = group((f) => f.locationCode, (k) => (k ? { fr: locName(k), en: locName(k) } : UNMAPPED));
 
   return {
-    range: { from: new Date(from).toISOString(), to: new Date(to).toISOString(), days, previousFrom: new Date(prevFrom).toISOString(), previousTo: new Date(from).toISOString(), timezone: tz, truncated },
+    range: { from: new Date(from).toISOString(), to: new Date(to).toISOString(), days, previousFrom: new Date(prevFrom).toISOString(), previousTo: new Date(from).toISOString(), timezone: tz, truncated, previousIncomplete, comparable },
     totals,
     items,
     byHour,
@@ -343,7 +401,9 @@ export function salesMixTable(mix: SalesMix, table: SalesMixTableKey, lang: 'fr'
   const last = localDate(Date.parse(mix.range.to) - 1, tz);
   const filename = `takatak-sales-mix-${table}-${first}_to_${last}`;
   const groupCols = (name: string) => [name, t('Commandes', 'Orders'), t('Ventes', 'Sales'), t('Panier moyen', 'Average order'), t('Part %', 'Share %'), t('Ventes préc.', 'Prev sales'), t('Variation %', 'Change %'), t('Commandes annulées', 'Cancelled orders'), t('Ventes perdues', 'Lost sales')];
-  const groupRow = (g: MixGroupRow) => [g.orders, g.sales, g.aov, g.share, g.prevSales, g.change, g.lostOrders, g.lostSales];
+  // Change % left blank when a read hit the row cap (the comparison would be wrong).
+  const ch = (v: number) => (mix.range.comparable ? v : null);
+  const groupRow = (g: MixGroupRow) => [g.orders, g.sales, g.aov, g.share, g.prevSales, ch(g.change), g.lostOrders, g.lostSales];
 
   if (table === 'items') {
     const present = SOURCE_KEYS.filter((s) => mix.items.some((i) => (i.bySource[s] ?? 0) > 0));
@@ -352,7 +412,7 @@ export function salesMixTable(mix: SalesMix, table: SalesMixTableKey, lang: 'fr'
       filename,
       columns: [t('Rang', 'Rank'), t('Marque', 'Brand'), t('Article', 'Item'), t('Quantité', 'Quantity'), t('Ventes', 'Sales'), t('Commandes', 'Orders'), t('Part %', 'Share %'), t('Prix moyen', 'Average price'),
         t('Quantité préc.', 'Prev quantity'), t('Variation %', 'Change %'), t('Quantité annulée', 'Cancelled quantity'), ...present.map((s) => `${t('Qté', 'Qty')} ${SOURCE_LABELS[s][lang]}`)],
-      rows: mix.items.map((i) => [i.rank, i.brand, i.name, i.qty, i.sales, i.orders, i.share, i.avgPrice, i.prevQty, i.change, i.lostQty, ...present.map((s) => i.bySource[s] ?? 0)]),
+      rows: mix.items.map((i) => [i.rank, i.brand, i.name, i.qty, i.sales, i.orders, i.share, i.avgPrice, i.prevQty, ch(i.change), i.lostQty, ...present.map((s) => i.bySource[s] ?? 0)]),
     };
   }
   if (table === 'hours') {

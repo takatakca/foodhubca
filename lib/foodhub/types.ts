@@ -334,6 +334,11 @@ export interface MasterMenu {
   pickupMarkupPct?: Partial<Record<Marketplace, number>>;
   /** Default Uber Eats tax class of the brand's items and options (Item.tax_label_info); unset = none sent. */
   uberTaxClass?: string;
+  /**
+   * Set only on the menu a follower brand SEES (never stored): it shows its own dishes of the shared menu `from`.
+   * listed = refs in its dish list, shown = dishes found, missing = listed refs no longer on the shared menu.
+   */
+  sharedDishes?: { from: string; listed: number; shown: number; missing: string[] };
   updatedAt: string;
 }
 

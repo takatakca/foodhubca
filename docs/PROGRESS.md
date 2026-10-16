@@ -1,5 +1,14 @@
 # Food Hub: progress log and task board
 
+## 2026-10-16 — Menu safety + per-brand menus (task 37, `feature/menu-safety-brand-menus`)
+
+- Clover → platforms: the Clover webhook now obeys `FOODHUB_CLOVER_INVENTORY_SYNC=off` (the polling already did). A Clover 86 / back-in-stock is sent only to stores mapped to that Clover merchant by name, never to a locked or "Do not touch" store, and never through the default merchant (`locationsForMerchant(mid, { forFanOut: true })`, `cloverFanOutStores`).
+- DoorDash Menu Request (pull) and Item Polling answer 409 for a "Do not touch" store, like a locked one; the Deliverect product push refuses locked and "Do not touch" stores.
+- Clover import: `excludeCategories` (default "Menu Employés", "INSTORE PROMOTIONS", "Menu promotionnel"; accents and case ignored) — the real export now imports exactly the 175 DoorDash-menu dishes.
+- Per-brand dishes on a shared menu (`menu_brand_dishes_v1`): a follower brand shows only its picked dishes (by ref or Clover id), with the option groups they use (Duo / Trio / Combo) and their categories; applied in `getBrandMenu` and the 86 fan-out; edited in Menu → Menu partagé. A list that matches nothing never publishes an empty menu. Order line mapping still uses the whole shared menu.
+- Checks: typecheck OK, lint 0 errors, 828 tests (+17 in tests/menu-safety-brand-menus.test.ts), webpack build OK, verify:foodhub 542/0 (twice). Not deployed.
+- Owner after merge: Stores → Mapping, set the Clover merchant on each store that must follow Clover 86s (empty no longer means "follow the default merchant" for 86s); Menu → Menu partagé, pick each brand's dishes, then publish those brands.
+
 ## 2026-10-15 — Owner-authorized automatic production activation
 
 - Reusing PR #49. Existing Coolify resource rebound to its installed GitHub App, push deployment enabled, source commit available to Docker and health monitoring enabled. Historical Actions deployment controller disabled to keep one production writer while GitHub runner billing is blocked.

@@ -69,7 +69,7 @@ export async function processIncomingOrder(n: NormalizedOrder): Promise<Pipeline
   // one merchant: a menu imported from another merchant than this store's is sent as free text (Clover would refuse
   // foreign ids). Orders Clover itself received ("via Clover") already carry their Clover ids.
   if (!n.viaPos && cloverExpected()) {
-    const menu = brandName ? await getBrandMenu(brandName) : null;
+    const menu = brandName ? await getBrandMenu(brandName, undefined, { allDishes: true }) : null;
     const targetMerchant = store?.cloverMerchantId || process.env.CLOVER_MERCHANT_ID;
     const foreign = Boolean(menu?.posMerchantId && targetMerchant && menu.posMerchantId !== targetMerchant);
     const mapped = mapOrderLines(n.lines, menu, { foreign });
@@ -333,7 +333,7 @@ async function resendNow(order: StoredOrder, opts: { manual?: boolean; by?: stri
   if (store && !order.locationCode) Object.assign(patch, { locationCode: store.locationCode, brandName: store.brandName });
   const brandName = store?.brandName || order.brandName;
   if (!order.viaPos && cloverExpected() && order.lines.some((l) => !l.posItemRef)) {
-    const menu = brandName ? await getBrandMenu(brandName) : null;
+    const menu = brandName ? await getBrandMenu(brandName, undefined, { allDishes: true }) : null;
     const target = store?.cloverMerchantId || process.env.CLOVER_MERCHANT_ID;
     const mapped = mapOrderLines(order.lines, menu, { foreign: Boolean(menu?.posMerchantId && target && menu.posMerchantId !== target) });
     if (mapped.lines.some((l, i) => l.posItemRef !== order.lines[i].posItemRef)) Object.assign(patch, { lines: mapped.lines, mappingWarnings: mapped.warnings.length ? mapped.warnings : undefined });

@@ -7,10 +7,12 @@ import { logActivity, type Actor } from './activity';
 import { fromCents, nowIso } from './config';
 import { setItemAvailability } from './ops';
 import { cloverItemSellable, cloverItemsModifiedSince, getCloverItem } from './pos/clover-books';
-import { activeMenus, getMenuSharing, isFollower, menuSourceFor } from './menu/shared';
+import { isRelayStore } from './adapters/relay';
+import { menuChangesRefused } from './menu/lock';
+import { activeMenus, getMenuSharing, groupOf, isFollower, menuSourceFor } from './menu/shared';
 import { allCloverMerchants } from './pos/clover';
 import { getRepo } from './repo';
-import type { MasterMenu } from './types';
+import type { ChannelStore, MasterMenu } from './types';
 
 export const CLOVER_ACTOR: Actor = { username: 'clover', name: 'Clover', source: 'automation' };
 const ORIGIN_KEY = 'clover_86';          // items Food Hub turned off because Clover said so: "brand|loc|ref" → true
@@ -20,15 +22,29 @@ export const VERIFY_KEY = 'clover_webhook_verification';
 
 export interface CloverPriceChange { brandName: string; ref: string; name: string; foodhubPrice: number; cloverPrice: number; merchantId: string; at: string }
 
+/** FOODHUB_CLOVER_INVENTORY_SYNC=off stops every Clover → platform 86 / price flag: the webhook and the polling alike. */
 export function cloverInventorySyncEnabled() {
-  return process.env.FOODHUB_CLOVER_INVENTORY_SYNC !== 'off';
+  return String(process.env.FOODHUB_CLOVER_INVENTORY_SYNC ?? '').trim().toLowerCase() !== 'off';
 }
 
-/** Locations whose stores use this Clover merchant (stores without a merchant use the default one). */
-export async function locationsForMerchant(mid: string): Promise<string[]> {
+/**
+ * Locations whose stores use this Clover merchant (stores without a merchant use the default one).
+ * forFanOut: only stores mapped to this merchant BY NAME count — a store with no Clover merchant set is never 86'd
+ * because of the default merchant (it may cook from another Clover); relay stores never receive an 86.
+ */
+export async function locationsForMerchant(mid: string, opts: { forFanOut?: boolean } = {}): Promise<string[]> {
   const stores = await getRepo().listStores();
+  if (opts.forFanOut) return [...new Set(stores.filter((s) => s.cloverMerchantId === mid && !isRelayStore(s)).map((s) => s.locationCode))];
   const def = process.env.CLOVER_MERCHANT_ID;
   return [...new Set(stores.filter((s) => (s.cloverMerchantId || def) === mid).map((s) => s.locationCode))];
+}
+
+/**
+ * The stores a Clover item change may reach: mapped to this merchant by name, not relay, and whose menu Food Hub may
+ * change (a locked or "Do not touch" store is left out BEFORE the fan-out — no 86, no back-in-stock, no Food Hub state).
+ */
+export function cloverFanOutStores(stores: ChannelStore[], mid: string): ChannelStore[] {
+  return stores.filter((s) => s.cloverMerchantId === mid && !isRelayStore(s) && !menuChangesRefused(s));
 }
 
 function matches(menu: MasterMenu, cloverId: string) {
@@ -64,26 +80,31 @@ export async function applyCloverItem(mid: string, item: any, opts: { deleted?: 
   const id = String(item?.id ?? '');
   if (!id) return out;
   const repo = getRepo();
-  const menus = (await activeMenus()).filter((m) => matches(m, id).length);
+  const sharing = await getMenuSharing();
+  const menus = (await activeMenus(sharing)).filter((m) => matches(m, id).length);
   if (!menus.length) return out;
   const sellable = !opts.deleted && cloverItemSellable(item);
-  const locations = await locationsForMerchant(mid);
+  const reachable = cloverFanOutStores(await repo.listStores(), mid);
   const origin = (await repo.getKv<Record<string, boolean>>(ORIGIN_KEY)) ?? {};
   const prices = (await repo.getKv<Record<string, CloverPriceChange>>(PRICE_KEY)) ?? {};
   let originChanged = false; let pricesChanged = false;
 
   for (const menu of menus) {
+    // Every brand using this menu (it may be shared): only their stores that this merchant feeds.
+    const brands = new Set(groupOf(sharing, menu.brandName));
+    const byLoc = new Map<string, string[]>();
+    for (const s of reachable) if (brands.has(s.brandName)) byLoc.set(s.locationCode, [...(byLoc.get(s.locationCode) ?? []), s.id]);
     for (const mi of matches(menu, id)) {
       out.matched++;
-      for (const loc of locations) {
+      for (const [loc, storeIds] of byLoc) {
         const key = `${menu.brandName}|${loc}|${mi.ref}`;
         const off = (menu.unavailableByLocation?.[loc] ?? []).includes(mi.ref);
         if (!sellable && !off) {
-          await setItemAvailability(menu.brandName, [mi.ref], false, { locationCode: loc, actor: CLOVER_ACTOR });
+          await setItemAvailability(menu.brandName, [mi.ref], false, { locationCode: loc, actor: CLOVER_ACTOR, storeIds });
           origin[key] = true; originChanged = true; out.turnedOff++;
         } else if (sellable && off && origin[key]) {
           // Only switch back on what Clover switched off — never undo an 86 made by staff in Food Hub.
-          await setItemAvailability(menu.brandName, [mi.ref], true, { locationCode: loc, actor: CLOVER_ACTOR });
+          await setItemAvailability(menu.brandName, [mi.ref], true, { locationCode: loc, actor: CLOVER_ACTOR, storeIds });
           delete origin[key]; originChanged = true; out.turnedOn++;
         }
       }
@@ -106,9 +127,13 @@ export async function applyCloverItem(mid: string, item: any, opts: { deleted?: 
   return out;
 }
 
-/** Clover webhook body: { appId, merchants: { MID: [{ objectId: "I:ITEMID", type: "UPDATE", ts }] } } */
-export async function handleCloverWebhook(body: any): Promise<{ items: number; outcome: CloverItemOutcome }> {
+/**
+ * Clover webhook body: { appId, merchants: { MID: [{ objectId: "I:ITEMID", type: "UPDATE", ts }] } }
+ * FOODHUB_CLOVER_INVENTORY_SYNC=off: nothing is read from Clover and nothing changes (disabled: true).
+ */
+export async function handleCloverWebhook(body: any): Promise<{ items: number; outcome: CloverItemOutcome; disabled?: true }> {
   const total: CloverItemOutcome = { matched: 0, turnedOff: 0, turnedOn: 0, priceChanges: 0 };
+  if (!cloverInventorySyncEnabled()) return { items: 0, outcome: total, disabled: true };
   let items = 0;
   for (const [mid, events] of Object.entries((body?.merchants ?? {}) as Record<string, any[]>)) {
     const seen = new Set<string>();

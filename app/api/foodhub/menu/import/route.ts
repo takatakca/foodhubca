@@ -46,7 +46,9 @@ export const POST = withPerm('menu:edit', async (req, _ctx, actor) => {
   // descriptions, and its prices on the chosen platforms (default: the platform the menu is named for).
   const cloverMenuId = b.cloverMenuId ? String(b.cloverMenuId) : null;
   const platformPrices = (Array.isArray(b.platformPrices) ? b.platformPrices : []).filter((p: unknown): p is Marketplace => PLATFORMS.includes(p as Marketplace));
-  const { importReport, ...imported } = await importMenuFromClover(String(b.brand), merchantId, { cloverMenuId, platformPrices, includeArchived: b.includeArchived === true });
+  // Staff and in-store promotion categories stay out (DEFAULT_EXCLUDED_CATEGORIES) unless the request names its own list ([] = none).
+  const excludeCategories = Array.isArray(b.excludeCategories) ? b.excludeCategories.map((c: unknown) => String(c ?? '').trim()).filter(Boolean).slice(0, 50) : undefined;
+  const { importReport, ...imported } = await importMenuFromClover(String(b.brand), merchantId, { cloverMenuId, platformPrices, includeArchived: b.includeArchived === true, excludeCategories });
   const pricedPlatforms = importReport?.platformPrices ? (Object.keys(importReport.platformPrices) as Marketplace[]) : [];
   const existing = (await repo.getMenu(String(b.brand))) as MenuWithMerchant | null;
   // Keep what the owner set in Food Hub (platform prices, descriptions, photos, tags, allergens, category

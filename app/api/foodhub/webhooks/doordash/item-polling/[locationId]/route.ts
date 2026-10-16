@@ -3,7 +3,7 @@ import { logActivity } from '@/lib/foodhub/activity';
 import { menuWithAlcoholRules } from '@/lib/foodhub/alcohol/rules';
 import { doorDashAdapter } from '@/lib/foodhub/adapters/doordash';
 import { isRelayStore } from '@/lib/foodhub/adapters/relay';
-import { isMenuLocked } from '@/lib/foodhub/menu/lock';
+import { isDoNotTouch, isMenuLocked } from '@/lib/foodhub/menu/lock';
 import { getBrandMenu } from '@/lib/foodhub/menu/shared';
 import { toDoorDashItemPolling } from '@/lib/foodhub/menu/translate';
 import { menuForLocation } from '@/lib/foodhub/ops';
@@ -27,6 +27,8 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ locationId:
   if (!store || isRelayStore(store)) return NextResponse.json({ error: `Unknown location_id ${locationId} — map it under Food Hub → Stores → Mapping.` }, { status: 404 });
   // A locked store's menu is managed outside Food Hub: never answer for it (an answer could 86 its items).
   if (isMenuLocked(store)) return NextResponse.json({ error: `The menu of location_id ${locationId} is managed outside Food Hub (locked).` }, { status: 409 });
+  // Same for "Do not touch": its availability is managed elsewhere, an answer from Food Hub could 86 its items.
+  if (isDoNotTouch(store)) return NextResponse.json({ error: `The menu of location_id ${locationId} is managed outside Food Hub (Do not touch).` }, { status: 409 });
   const menu = await getBrandMenu(store.brandName);
   if (!menu) return NextResponse.json({ error: `No menu saved for ${store.brandName} yet.` }, { status: 404 });
   // The same location menu publishMenu sends (86 at this location, alcohol rules for DoorDash).

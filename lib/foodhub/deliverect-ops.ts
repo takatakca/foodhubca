@@ -12,6 +12,7 @@ import { AUTOMATION, logActivity } from './activity';
 import { DELIVERECT_ID_PREFIX, DELIVERECT_STORE_PREFIX, deliverectRef, parseDeliverectOrder } from './adapters/deliverect';
 import { DELIVERECT_STATUS, deliverect } from './adapters/deliverect-api';
 import { nowIso, publicBaseUrl } from './config';
+import { isDoNotTouch, menuLockOf } from './menu/lock';
 import { getBrandMenu } from './menu/shared';
 import { applyExternalStatus } from './pipeline';
 import { getRepo } from './repo';
@@ -142,6 +143,14 @@ export async function pushDeliverectProducts(locationId: string): Promise<{ ok: 
   if (!store || !record?.accountId) {
     await logActivity({ actor: AUTOMATION, source: 'automation', kind: 'menu_publish', action: 'deliverect_sync', status: 'info', channel: 'tgtg', summary: `Deliverect asked for the products of ${locationId}: ${!record ? 'the location was never registered' : 'no Food Hub store is mapped to it'} — nothing sent.` });
     return { ok: false, message: 'Location not registered or store not mapped.' };
+  }
+  // A locked or "Do not touch" store's menu is managed outside Food Hub: Deliverect keeps the products it has.
+  const lock = menuLockOf(store);
+  if (lock.locked || isDoNotTouch(store)) {
+    const why = lock.locked ? `its menu is locked (${lock.reason ?? 'locked'})` : 'it is marked “Do not touch”';
+    await logActivity({ actor: AUTOMATION, source: 'automation', kind: 'menu_publish', action: 'deliverect_sync_refused', status: 'info', channel: 'tgtg', brandName: store.brandName, locationCode: store.locationCode, storeId: store.id,
+      summary: `Deliverect asked for the products of ${store.brandName} · ${store.locationCode} — not sent: ${why}.` });
+    return { ok: false, message: `Not sent: ${why}.` };
   }
   const menu = await getBrandMenu(store.brandName);
   if (!menu) return { ok: false, message: `No menu for ${store.brandName}.` };

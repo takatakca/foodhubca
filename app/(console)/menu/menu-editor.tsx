@@ -127,6 +127,7 @@ export function MenuEditor() {
         <Banner tone="info" className="mb-4" action={<Button size="xs" variant="outline" onClick={() => setBrand(sharedFrom)}>{t(`Modifier ${sharedFrom}`, `Edit ${sharedFrom}`)}</Button>}>
           {t(`${brand} utilise le menu ${sharedFrom} (articles, prix, options, ruptures). Il est publié sous le nom, les heures et les magasins de ${brand}. Modifiez-le sur ${sharedFrom}.`,
             `${brand} uses the ${sharedFrom} menu (items, prices, options, 86s). It is published under ${brand}’s own name, hours and stores. Edit it on ${sharedFrom}.`)}
+          {menu?.sharedDishes ? ` ${t(`Elle ne montre que ${menu.sharedDishes.shown} plat(s) choisi(s) sous Menu partagé${menu.sharedDishes.missing.length ? ` (${menu.sharedDishes.missing.length} plat(s) choisi(s) ne sont plus dans le menu ${sharedFrom})` : ''}.`, `It shows only the ${menu.sharedDishes.shown} dish(es) picked under Shared menu${menu.sharedDishes.missing.length ? ` (${menu.sharedDishes.missing.length} picked dish(es) are no longer on the ${sharedFrom} menu)` : ''}.`)}` : ''}
         </Banner>
       ) : group.length > 1 && (
         <Banner tone="info" className="mb-4">
@@ -488,7 +489,7 @@ function PublishDialog({ brand, group, stores, check, onClose, onDone }: { brand
 
 type CloverMenu = { id: string; name: string; type?: string; channel?: string; status?: string; items?: number; platform: 'uber_eats' | 'doordash' | 'skip' | null };
 type ImportInfo = { merchants: Array<{ id: string; isDefault: boolean; locations: string[] }>; defaultMerchantId: string | null; cloverMenus: { merchantId: string | null; ok: boolean; menus: CloverMenu[]; error?: string } };
-type ImportReport = { items: number; categories: number; modifierGroups: number; requiredGroups: number; skipped: { hidden: number; archived: number; notInMenu: number; variablePrice: number }; menu?: { name: string; items: number; missingFromInventory: number }; platformPrices?: Record<string, { markupPct: number | null; overrides: number; items: number }> };
+type ImportReport = { items: number; categories: number; modifierGroups: number; requiredGroups: number; skipped: { hidden: number; archived: number; notInMenu: number; variablePrice: number; excluded?: number }; menu?: { name: string; items: number; missingFromInventory: number }; platformPrices?: Record<string, { markupPct: number | null; overrides: number; items: number }> };
 
 /**
  * Import from Clover: the whole visible inventory, or one of the merchant's Clover menus (e.g. the DoorDash +20 % menu
@@ -516,6 +517,7 @@ function ImportDialog({ brand, hasItems, onClose, onDone }: { brand: string; has
         t(`${r.items} articles · ${r.categories} catégories · ${r.modifierGroups} groupes d’options (${r.requiredGroups} obligatoires)`, `${r.items} items · ${r.categories} categories · ${r.modifierGroups} option groups (${r.requiredGroups} required)`),
         r.skipped.archived || r.skipped.hidden || r.skipped.notInMenu ? t(`Laissés de côté : ${r.skipped.archived} archivés, ${r.skipped.hidden} cachés${r.menu ? `, ${r.skipped.notInMenu} hors du menu « ${r.menu.name} »` : ''}`, `Left out: ${r.skipped.archived} archived, ${r.skipped.hidden} hidden${r.menu ? `, ${r.skipped.notInMenu} not in the "${r.menu.name}" menu` : ''}`) : '',
         ...Object.entries(r.platformPrices ?? {}).map(([p, x]) => `${p}: ${x.markupPct !== null ? `+${x.markupPct} %` : t('prix par article', 'item prices')}${x.overrides ? t(` (${x.overrides} prix propres)`, ` (${x.overrides} own prices)`) : ''}`),
+        r.skipped.excluded ? t(`${r.skipped.excluded} article(s) des catégories employés / promotions en magasin laissés de côté`, `${r.skipped.excluded} item(s) from staff / in-store promotion categories left out`) : '',
         r.skipped.variablePrice ? t(`${r.skipped.variablePrice} article(s) à prix variable importés indisponibles`, `${r.skipped.variablePrice} variable-price item(s) imported unavailable`) : '',
       ].filter(Boolean).join('\n') : `${d.menu.items.length} ${t('articles', 'items')}`;
       toast.success(t('Importé de Clover — publiez pour l’envoyer', 'Imported from Clover — publish to send it'), lines);
@@ -713,13 +715,30 @@ function ShareDialog({ brand, brands, sharing, onSaved, onClose }: { brand: stri
   const followersOf = (src: string) => brands.filter((b) => b !== src && sharing[b] === src);
   const [users, setUsers] = useState<string[]>(followersOf(sharing[brand] ?? brand));
   const [busy, setBusy] = useState(false);
+  // Per-brand dishes: a brand that uses this menu can show only its own dishes of it (no list = every dish).
+  const [dishes, setDishes] = useState<Record<string, string[]> | null>(null);
+  const [sourceMenu, setSourceMenu] = useState<MasterMenu | null>(null);
+  const [picking, setPicking] = useState<string | null>(null);
+  useEffect(() => { api<{ dishes?: Record<string, string[]> }>('/api/foodhub/menu/sharing').then((d) => setDishes(d.dishes ?? {})).catch(() => setDishes({})); }, []);
+  useEffect(() => {
+    let live = true;
+    setSourceMenu(null); setPicking(null);
+    api<{ menu: MasterMenu }>(`/api/foodhub/menu?brand=${encodeURIComponent(source)}`).then((d) => { if (live) setSourceMenu(d.menu); }).catch(() => undefined);
+    return () => { live = false; };
+  }, [source]);
+  // A dish list belongs to the menu it was picked on: moving a brand to another menu starts from every dish.
+  const listOf = (b: string) => (sharing[b] === source ? dishes?.[b] ?? [] : dishes?.[`${source}::${b}`] ?? []);
+  const setListOf = (b: string, refs: string[]) => setDishes((d) => ({ ...(d ?? {}), [sharing[b] === source ? b : `${source}::${b}`]: refs }));
   const others = brands.filter((b) => b !== source);
   async function save() {
     // Every link to this source is rewritten; links to other sources stay as they are.
     const next: Record<string, string> = Object.fromEntries(Object.entries(sharing).filter(([k, v]) => v !== source && k !== source && !users.includes(k)));
     for (const b of users) next[b] = source;
+    // Dish lists: kept for brands still on the same other menu; this menu's users get what was picked here.
+    const nextDishes: Record<string, string[]> = Object.fromEntries(Object.entries(dishes ?? {}).filter(([k, v]) => !k.includes('::') && next[k] && next[k] === sharing[k] && next[k] !== source && v.length));
+    for (const b of users) { const refs = listOf(b); if (refs.length) nextDishes[b] = refs; }
     setBusy(true);
-    try { const d = await api<{ sharing: Record<string, string>; publish?: string[] }>('/api/foodhub/menu/sharing', { method: 'PUT', json: { sharing: next } }); onSaved(d.sharing, d.publish ?? []); }
+    try { const d = await api<{ sharing: Record<string, string>; publish?: string[] }>('/api/foodhub/menu/sharing', { method: 'PUT', json: { sharing: next, ...(dishes ? { dishes: nextDishes } : {}) } }); onSaved(d.sharing, d.publish ?? []); }
     catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
   return (
@@ -739,19 +758,61 @@ function ShareDialog({ brand, brands, sharing, onSaved, onClose }: { brand: stri
           <div className="scrollbar-thin max-h-72 divide-y divide-line overflow-y-auto rounded-lg border border-line">
             {others.map((b) => {
               const leads = followersOf(b).length > 0;
+              const using = users.includes(b);
+              const picked = listOf(b);
               return (
                 <div key={b} className="px-3 py-2">
-                  <Checkbox checked={users.includes(b)} disabled={leads} onChange={(v) => setUsers(v ? [...users, b] : users.filter((x) => x !== b))}
-                    label={<span>{b}{sharing[b] && sharing[b] !== source ? <span className="text-ink-3"> · {t(`utilise ${sharing[b]}`, `uses ${sharing[b]}`)}</span> : null}{leads ? <span className="text-ink-3"> · {t('d’autres marques utilisent son menu', 'other brands use its menu')}</span> : null}</span>} />
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <Checkbox checked={using} disabled={leads} onChange={(v) => setUsers(v ? [...users, b] : users.filter((x) => x !== b))}
+                      label={<span>{b}{sharing[b] && sharing[b] !== source ? <span className="text-ink-3"> · {t(`utilise ${sharing[b]}`, `uses ${sharing[b]}`)}</span> : null}{leads ? <span className="text-ink-3"> · {t('d’autres marques utilisent son menu', 'other brands use its menu')}</span> : null}</span>} />
+                    {using && dishes && (
+                      <button type="button" className="min-h-11 text-xs font-semibold underline" aria-expanded={picking === b} onClick={() => setPicking(picking === b ? null : b)}>
+                        {picked.length ? t(`${picked.length} plat(s) choisis`, `${picked.length} dish(es) picked`) : t('Tous les plats', 'Every dish')}
+                      </button>
+                    )}
+                  </div>
+                  {using && picking === b && <DishPicker menu={sourceMenu} value={picked} onChange={(refs) => setListOf(b, refs)} />}
                 </div>
               );
             })}
             {others.length === 0 && <div className="p-4 text-sm text-ink-3">{t('Aucune autre marque.', 'No other brand.')}</div>}
           </div>
           <p className="mt-2 text-xs text-ink-3">{t('Le menu propre d’une marque n’est pas effacé : il revient (avec les ruptures en cours) si elle cesse de partager ; sans menu propre, elle reçoit une copie du menu partagé. Publiez ensuite les marques changées pour envoyer leur menu aux plateformes.', 'A brand’s own menu is not deleted: it comes back (with the current 86s) if the brand stops sharing; a brand without one gets a copy of the shared menu. Publish the changed brands afterwards to send their menu to the platforms.')}</p>
+          <p className="mt-1 text-xs text-ink-3">{t('Plats d’une marque : elle ne montre que les plats choisis du menu partagé, avec leurs groupes d’options (Duo, Trio, Combo…). Une nouvelle importation Clover du menu partagé met à jour les plats de chaque marque.', 'A brand’s dishes: it shows only the picked dishes of the shared menu, with their option groups (Duo, Trio, Combo…). A new Clover import of the shared menu refreshes every brand’s dishes.')}</p>
         </div>
       </div>
     </Modal>
+  );
+}
+
+/** Dishes of the shared menu one brand shows, by category. Empty = every dish. */
+function DishPicker({ menu, value, onChange }: { menu: MasterMenu | null; value: string[]; onChange: (refs: string[]) => void }) {
+  const { t } = useI18n();
+  const [q, setQ] = useState('');
+  if (!menu) return <div className="mt-2 text-xs text-ink-3">{t('Chargement du menu…', 'Loading the menu…')}</div>;
+  const chosen = new Set(value);
+  const needle = q.trim().toLowerCase();
+  const shown = menu.items.filter((i) => !needle || i.name.toLowerCase().includes(needle) || (i.nameFr ?? '').toLowerCase().includes(needle));
+  const cats = [...menu.categories].sort((a, b) => a.sortOrder - b.sortOrder).map((c) => ({ c, items: shown.filter((i) => i.categoryRef === c.ref) })).filter((x) => x.items.length);
+  const toggle = (ref: string, on: boolean) => onChange(on ? [...value.filter((r) => r !== ref), ref] : value.filter((r) => r !== ref));
+  const groups = new Set(menu.items.filter((i) => chosen.has(i.ref)).flatMap((i) => i.modifierGroupRefs));
+  return (
+    <div className="mt-2 rounded-lg border border-line bg-raised p-2">
+      <div className="mb-2 flex flex-wrap items-center gap-3">
+        <Input className="w-full sm:w-56" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('Chercher un plat', 'Find a dish')} aria-label={t('Chercher un plat', 'Find a dish')} />
+        <button type="button" className="min-h-11 text-xs font-semibold underline" onClick={() => onChange([])}>{t('Tous les plats', 'Every dish')}</button>
+        <span className="text-xs text-ink-3">{value.length ? t(`${value.length} plat(s) · ${groups.size} groupe(s) d’options suivent`, `${value.length} dish(es) · ${groups.size} option group(s) come along`) : t('Aucun choix = tous les plats', 'Nothing picked = every dish')}</span>
+      </div>
+      <div className="scrollbar-thin max-h-60 overflow-y-auto">
+        {cats.map(({ c, items }) => (
+          <div key={c.ref} className="py-1">
+            <div className="px-1 text-[11px] font-semibold uppercase text-ink-3">{c.nameFr || c.name}</div>
+            {items.map((i) => <div key={i.ref} className="px-1"><Checkbox checked={chosen.has(i.ref)} onChange={(v) => toggle(i.ref, v)} label={<span>{i.nameFr || i.name} <span className="text-ink-3">· {money(i.price)}</span></span>} /></div>)}
+          </div>
+        ))}
+        {cats.length === 0 && <div className="p-2 text-xs text-ink-3">{t('Aucun plat.', 'No dish.')}</div>}
+      </div>
+    </div>
   );
 }
 

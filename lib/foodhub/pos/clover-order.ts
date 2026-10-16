@@ -21,6 +21,7 @@ import type { ChannelKey, MasterMenu, MenuItem, MenuModifier, OrderLine, OrderMa
 import { orderSourceLabel } from '../types';
 import { customerContact } from '../watch/customer';
 import { cloverOrderTypeFor, cloverOrderTypesEnabled } from './clover-books';
+import { isTgtgEmailOrder } from '../tgtg-email/ids';
 
 // ---------------------------------------------------------------- names
 
@@ -363,8 +364,11 @@ function envOrderType(mid: string, fulfillment: StoredOrder['fulfillment']): str
  * Order type for a delivery order in this merchant's Clover. FOODHUB_CLOVER_ORDER_TYPE_MODE=platform keeps the
  * one-type-per-platform behaviour; the default uses the merchant's delivery / pickup types when it has them.
  */
-export async function cloverOrderTypeForOrder(mid: string | null | undefined, order: Pick<StoredOrder, 'channel' | 'fulfillment'>, auth?: { token: string | null; base: string }): Promise<string | null> {
+export async function cloverOrderTypeForOrder(mid: string | null | undefined, order: Pick<StoredOrder, 'channel' | 'fulfillment'> & Partial<Pick<StoredOrder, 'raw' | 'externalOrderId'>>, auth?: { token: string | null; base: string }): Promise<string | null> {
   if (!mid || !cloverOrderTypesEnabled()) return null;
+  // Bags read from Too Good To Go e-mails carry the merchant's own "Too Good To Go" order type (owner: it exists in
+  // Clover). Only those: Deliverect, TGTG-webhook and relay orders keep the rules below, as before.
+  if (isTgtgEmailOrder({ channel: order.channel, raw: order.raw, externalOrderId: order.externalOrderId ?? '' })) return cloverOrderTypeFor(mid, 'tgtg');
   if (process.env.FOODHUB_CLOVER_ORDER_TYPE_MODE !== 'platform') {
     const fromEnv = envOrderType(mid, order.fulfillment);
     if (fromEnv) return fromEnv;

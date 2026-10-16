@@ -1,5 +1,12 @@
 # FOODHUB / ON2GO Hub — état vérifiable du projet
 
+## État au 2026-10-16 — contrôlé dans GitHub
+
+`main` = `444e8f2e60dd73e5eaa90bc4e9f92d05489b38f3` (PR #53 Clover fusionnée). [CI 38845406916](https://github.com/takatakca/foodhubca/actions/runs/38845406916) et [image 38845406823](https://github.com/takatakca/foodhubca/actions/runs/38845406823) **success**. La preuve la plus récente du déploiement public consignée dans [PR #49](https://github.com/takatakca/foodhubca/pull/49) est le SHA `027b602a12da39b1244e17b813bc51a7496a0217` (2026-10-15). Aucune preuve externe nouvelle d'un conteneur exécutant `444e8f2` n'a pu être obtenue par cette session. Les jobs historiques Actions Coolify sont `skipped` ; la livraison native Coolify est documentée, non présumée réussite pour ce SHA.
+
+La [PR #52](https://github.com/takatakca/foodhubca/pull/52) résout la Phase 3 P0 cuisine/chargement/motion sur une branche **non déployée** et désormais sans conflit après rapprochement avec la PR #53. Contrôler les résultats CI les plus récents avant de déclarer prêt. Les paiements, commandes et connecteurs réels Clover/plateformes restent à certifier par essais autorisés.
+
+
 ## Mise à jour du 2026-10-15 — activation en cours
 
 L'accès Coolify est rétabli et la source Food Hub est liée au GitHub App existant, avec livraison native sur push de `main`. Les anciennes lignes « bloqué accès / opt-in Actions » ci-dessous sont historiques. Le propriétaire a demandé cette activation ; le contrôleur Actions est désactivé pour éviter un double déploiement. Le Dockerfile applique tous les contrôles sur Contabo malgré le blocage de facturation Actions. Localement : audit/typecheck/lint/build réussis, 807 tests unitaires réussis (2 ignorés), E2E 536/0. Médias/configuration privée et image de rollback sauvegardés ; base, session et volume existants conservés. La publication n'est pas encore certifiée au moment de cette écriture : attendre le déploiement Webhook réussi et comparer `/api/release` au SHA complet de `main`.

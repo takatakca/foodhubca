@@ -31,6 +31,7 @@ import { audioReady, playSound, unlockAudio } from '@/lib/ui/sound';
 import { api } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
+import { isKitchenRoute } from '@/lib/ui/kitchen-theme';
 
 export function ConsoleShell({ children }: { children: ReactNode }) {
   const { viewer } = useViewer();
@@ -94,7 +95,7 @@ function Frame({ children }: { children: ReactNode }) {
   const visible = (n: Pick<NavItem, 'perm' | 'allLocations' | 'features'>) => navVisible(n, can, allLocations, features);
   const items = NAV.filter(visible);
   const toggle = () => { setCollapsed((c) => { try { localStorage.setItem('takatak.rail', c ? '0' : '1'); } catch { /* ignore */ } return !c; }); };
-  const kitchen = pathname.startsWith('/kitchen');
+  const kitchen = isKitchenRoute(pathname);
   const mobile = [NAV[0], NAV[1], NAV[2], ALERTS].filter(visible);
 
   return (

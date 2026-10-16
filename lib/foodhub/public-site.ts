@@ -25,9 +25,10 @@ export function isPublicSitePath(pathname: string): boolean {
   return publicSiteLang(pathname) !== null || PUBLIC_SITE_FILES.has(pathname) || pathname.startsWith('/og/');
 }
 
-/** May be indexed: the public site and the legal pages. Every other response gets X-Robots-Tag: noindex. */
+/** May be indexed: the public site, the legal pages and the app icons (/icons/: the Organization logo in the structured
+ * data and the site icons must be crawlable and indexable). Every other response gets X-Robots-Tag: noindex. */
 export function isIndexablePath(pathname: string): boolean {
-  return isPublicSitePath(pathname) || pathname === '/legal' || pathname.startsWith('/legal/');
+  return isPublicSitePath(pathname) || pathname === '/legal' || pathname.startsWith('/legal/') || pathname.startsWith('/icons/');
 }
 
 /** FOODHUB_PUBLIC_HOME: on by default; "off" (or false / 0 / no) keeps "/" → /login for anonymous visitors. */

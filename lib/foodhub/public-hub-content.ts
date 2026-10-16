@@ -2,9 +2,22 @@
 // Rules: only features that ship today are claimed (the Clover App Market listing in clover-listing.ts is the source,
 // reused word for word where it fits); Too Good To Go only "when your account offers an order feed"; the AI phone is
 // "coming soon, a separate app"; no hours claims ("24…"), no competitor or aggregator names, no unproven numbers.
-// tests/public-hub.test.ts checks the lengths and the banned words.
+// Prices are built from pricing.ts (never typed here). Two tokens are filled per request by fillHub() in public-hub.ts:
+// {company} (the legal name, FOODHUB_LEGAL_COMPANY) and {planned} (« (tarif prévu au lancement) » / "(planned launch
+// pricing)" while the app is not on the Clover App Market, empty after). Each shared question lives on one page only.
+// tests/public-hub.test.ts checks the lengths, the banned words and the Too Good To Go condition.
 
-import type { Lang } from './pricing';
+import { EXTRA_BRAND_PLATFORM_CAD, formatCad, monthlyTotalCad, STANDARD_MONTHLY_CAD, TRIAL_DAYS, type Lang } from './pricing';
+
+const fr$ = (n: number) => formatCad(n, 'fr');
+const en$ = (n: number) => formatCad(n, 'en');
+
+/** The hub's own one-line pitch (under the landing H1, SoftwareApplication description, llms.txt). Too Good To Go is
+ * left out: it is only ever named with its condition. */
+export const HUB_TAGLINE: Record<Lang, string> = {
+  fr: 'Uber Eats, DoorDash et SkipTheDishes directement dans votre caisse Clover : un seul écran, des menus et des ruptures synchronisés, des paiements vérifiés.',
+  en: 'Uber Eats, DoorDash and SkipTheDishes straight into your Clover register: one screen, synced menus and sold-out items, verified payouts.',
+};
 
 export type HubPageKey = 'landing' | 'pricing' | 'uber' | 'doordash' | 'skip' | 'kitchen' | 'phone';
 
@@ -42,8 +55,8 @@ export interface HubPageContent {
   label: string;
   eyebrow: string;
   h1: string;
-  /** Under the H1. null = the listing's tagline (landing). */
-  lead: string | null;
+  /** Under the H1. */
+  lead: string;
   /** A "coming soon" badge next to the H1. */
   soon?: boolean;
   blocks: Block[];
@@ -69,24 +82,24 @@ const MULTI_BRAND: Record<Lang, Card> = {
 };
 
 const PHONE_CARD: Record<Lang, Card> = {
-  fr: { title: 'Téléphone IA (bientôt)', text: 'Une application distincte, avec son propre abonnement : un assistant qui répond aux appels de commande et envoie la commande à Clover.' },
-  en: { title: 'AI phone (coming soon)', text: 'A separate app with its own subscription: an assistant that answers ordering calls and sends the order to Clover.' },
+  fr: { title: 'Téléphone IA (bientôt)', text: 'Une application distincte, avec son propre abonnement : un assistant conçu pour répondre aux appels de commande et envoyer la commande à Clover.' },
+  en: { title: 'AI phone (coming soon)', text: 'A separate app with its own subscription: an assistant designed to answer ordering calls and send the order to Clover.' },
 };
 
 const MONTREAL: Record<Lang, string[]> = {
   fr: [
-    'ON2GO Hub est conçu à Montréal par Quadro Holdings LTEE et sert chaque jour dans nos propres restaurants ON2GO, à Notre-Dame-de-Grâce et à Saint-Léonard. Chaque fonction est née d’un vrai problème de cuisine : trop de tablettes, des menus qui ne concordent plus, des paiements difficiles à vérifier.',
+    'ON2GO Hub est conçu à Montréal par {company} et sert chaque jour dans nos propres restaurants ON2GO, à Notre-Dame-de-Grâce et à Saint-Léonard. Chaque fonction est née d’un vrai problème de cuisine : trop de tablettes, des menus qui ne concordent plus, des paiements difficiles à vérifier.',
     'Le service et l’interface sont en français et en anglais.',
   ],
   en: [
-    'ON2GO Hub is built in Montréal by Quadro Holdings LTEE and runs every day in our own ON2GO restaurants, in Notre-Dame-de-Grâce and Saint-Léonard. Each feature comes from a real kitchen problem: too many tablets, menus that drift apart, payouts that are hard to check.',
+    'ON2GO Hub is built in Montréal by {company} and runs every day in our own ON2GO restaurants, in Notre-Dame-de-Grâce and Saint-Léonard. Each feature comes from a real kitchen problem: too many tablets, menus that drift apart, payouts that are hard to check.',
     'Service and interface are in French and English.',
   ],
 };
 
 const FAQ_PRICE: Record<Lang, Faq> = {
-  fr: { q: 'Combien coûte ON2GO Hub ?', a: 'Essai gratuit de 14 jours, puis 50 $ par mois par app. Votre première marque est incluse ; chaque marque supplémentaire coûte 15 $ par mois pour chaque plateforme où elle est branchée. Clover facture l’abonnement.' },
-  en: { q: 'How much does ON2GO Hub cost?', a: '14-day free trial, then $50 a month per app. Your first brand is included; each extra brand costs $15 a month for each platform it is connected to. Clover bills the subscription.' },
+  fr: { q: 'Combien coûte ON2GO Hub ?', a: `Essai gratuit de ${TRIAL_DAYS} jours, puis ${fr$(STANDARD_MONTHLY_CAD)} par mois par app{planned}. Votre première marque est incluse ; chaque marque supplémentaire coûte ${fr$(EXTRA_BRAND_PLATFORM_CAD)} par mois pour chaque plateforme où elle est branchée. Clover facture l’abonnement.` },
+  en: { q: 'How much does ON2GO Hub cost?', a: `${TRIAL_DAYS}-day free trial, then ${en$(STANDARD_MONTHLY_CAD)} a month per app{planned}. Your first brand is included; each extra brand costs ${en$(EXTRA_BRAND_PLATFORM_CAD)} a month for each platform it is connected to. Clover bills the subscription.` },
 };
 
 const FAQ_CARDS: Record<Lang, Faq> = {
@@ -113,7 +126,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
       label: 'Accueil',
       eyebrow: 'Pour les restaurants qui utilisent Clover, au Canada',
       h1: 'Vos commandes Uber Eats, DoorDash et SkipTheDishes directement dans votre caisse Clover',
-      lead: null,
+      lead: HUB_TAGLINE.fr,
       blocks: [
         { kind: 'benefits', id: 'avantages', title: 'Ce qui change dans votre cuisine' },
         { kind: 'steps', id: 'comment', title: 'Comment ça marche', steps: STEPS.fr },
@@ -127,7 +140,6 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
         { q: 'Faut-il un agrégateur de livraison ?', a: 'Non. ON2GO Hub se branche directement aux plateformes de livraison et à votre caisse Clover, sans intermédiaire entre les deux.' },
         { q: 'Quelles plateformes sont prises en charge ?', a: 'Uber Eats, DoorDash et SkipTheDishes, ainsi que Too Good To Go lorsque votre compte offre un flux de commandes.' },
         { q: 'Quel matériel Clover faut-il ?', a: 'Un forfait Clover qui comprend l’inventaire et les commandes, et un appareil Clover avec une imprimante de commandes.' },
-        FAQ_PRICE.fr,
         FAQ_CARDS.fr,
         FAQ_APPROVAL.fr,
         { q: 'L’application est-elle en français ?', a: 'Oui. Toute l’interface est en français et en anglais, et chaque membre de l’équipe choisit sa langue.' },
@@ -139,7 +151,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
       label: 'Home',
       eyebrow: 'For restaurants on Clover, in Canada',
       h1: 'Your Uber Eats, DoorDash and SkipTheDishes orders straight into your Clover register',
-      lead: null,
+      lead: HUB_TAGLINE.en,
       blocks: [
         { kind: 'benefits', id: 'benefits', title: 'What changes in your kitchen' },
         { kind: 'steps', id: 'how', title: 'How it works', steps: STEPS.en },
@@ -153,7 +165,6 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
         { q: 'Do I need a delivery aggregator?', a: 'No. ON2GO Hub connects straight to the delivery platforms and to your Clover register, with nothing in between.' },
         { q: 'Which platforms are supported?', a: 'Uber Eats, DoorDash and SkipTheDishes, plus Too Good To Go when your account offers an order feed.' },
         { q: 'What Clover hardware do I need?', a: 'A Clover plan that includes Inventory and Orders, and a Clover device with an order printer.' },
-        FAQ_PRICE.en,
         FAQ_CARDS.en,
         FAQ_APPROVAL.en,
         { q: 'Is the app in French?', a: 'Yes. The whole interface is in French and English, and each team member picks their language.' },
@@ -163,8 +174,8 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
 
   pricing: {
     fr: {
-      title: 'Tarifs ON2GO Hub : essai gratuit de 14 jours',
-      description: 'Essai gratuit de 14 jours, puis 50 $/mois par app et 15 $ par marque supplémentaire par plateforme, facturé par Clover. Prix en dollars canadiens.',
+      title: `Tarifs ON2GO Hub : essai gratuit de ${TRIAL_DAYS} jours`,
+      description: `Essai gratuit de ${TRIAL_DAYS} jours, puis ${fr$(STANDARD_MONTHLY_CAD)}/mois par app et ${fr$(EXTRA_BRAND_PLATFORM_CAD)} par marque supplémentaire par plateforme, facturé par Clover. Prix en dollars canadiens.`,
       label: 'Tarifs',
       eyebrow: 'Tarifs',
       h1: 'Un prix simple, facturé par Clover',
@@ -172,9 +183,9 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
       blocks: [
         { kind: 'pricing', id: 'forfait', title: 'Le forfait' },
         { kind: 'cards', id: 'exemples', title: 'Exemples', cards: [
-          { title: 'Une marque', text: 'Un restaurant, une marque, branchée sur Uber Eats, DoorDash et SkipTheDishes : 50 $ par mois.' },
-          { title: 'Deux marques', text: 'Une deuxième marque branchée sur les trois plateformes : 3 × 15 $ = 45 $ de plus, soit 95 $ par mois.' },
-          { title: 'Une marque de plus sur une seule plateforme', text: 'Une deuxième marque sur Uber Eats seulement : 15 $ de plus, soit 65 $ par mois.' },
+          { title: 'Une marque', text: `Un restaurant, une marque, branchée sur Uber Eats, DoorDash et SkipTheDishes : ${fr$(monthlyTotalCad(0))} par mois.` },
+          { title: 'Deux marques', text: `Une deuxième marque branchée sur les trois plateformes : 3 × ${fr$(EXTRA_BRAND_PLATFORM_CAD)} = ${fr$(3 * EXTRA_BRAND_PLATFORM_CAD)} de plus, soit ${fr$(monthlyTotalCad(3))} par mois.` },
+          { title: 'Une marque de plus sur une seule plateforme', text: `Une deuxième marque sur Uber Eats seulement : ${fr$(EXTRA_BRAND_PLATFORM_CAD)} de plus, soit ${fr$(monthlyTotalCad(1))} par mois.` },
         ] },
         { kind: 'text', id: 'facturation', title: 'Comment la facturation fonctionne', paragraphs: [
           'L’abonnement passe par Clover, sur le compte marchand où l’application est installée : Clover gère l’essai gratuit et la facture. Nous ne vous facturons rien directement.',
@@ -182,14 +193,15 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
         ] },
       ],
       faq: [
-        { q: 'Qu’est-ce qu’une marque supplémentaire ?', a: 'Votre première marque est incluse. Chaque autre marque coûte 15 $ par mois pour chaque plateforme de livraison où elle est branchée (Uber Eats, DoorDash, SkipTheDishes).' },
-        { q: 'Qui facture l’abonnement ?', a: 'Clover, sur le compte marchand où l’application est installée. L’essai gratuit de 14 jours est géré par Clover.' },
+        FAQ_PRICE.fr,
+        { q: 'Qu’est-ce qu’une marque supplémentaire ?', a: `Votre première marque est incluse. Chaque autre marque coûte ${fr$(EXTRA_BRAND_PLATFORM_CAD)} par mois pour chaque plateforme de livraison où elle est branchée (Uber Eats, DoorDash, SkipTheDishes).` },
+        { q: 'Qui facture l’abonnement ?', a: `Clover, sur le compte marchand où l’application est installée. L’essai gratuit de ${TRIAL_DAYS} jours est géré par Clover.` },
         { q: 'Comment arrêter ?', a: 'Désinstallez l’application de votre compte Clover. Les jetons d’accès Clover sont alors supprimés aussitôt.' },
       ],
     },
     en: {
-      title: 'ON2GO Hub pricing: 14-day free trial',
-      description: '14-day free trial, then $50/month per app and $15 per extra brand per platform, billed by Clover. Prices in Canadian dollars.',
+      title: `ON2GO Hub pricing: ${TRIAL_DAYS}-day free trial`,
+      description: `${TRIAL_DAYS}-day free trial, then ${en$(STANDARD_MONTHLY_CAD)}/month per app and ${en$(EXTRA_BRAND_PLATFORM_CAD)} per extra brand per platform, billed by Clover. Prices in Canadian dollars.`,
       label: 'Pricing',
       eyebrow: 'Pricing',
       h1: 'Simple pricing, billed by Clover',
@@ -197,9 +209,9 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
       blocks: [
         { kind: 'pricing', id: 'plan', title: 'The plan' },
         { kind: 'cards', id: 'examples', title: 'Examples', cards: [
-          { title: 'One brand', text: 'One restaurant, one brand, on Uber Eats, DoorDash and SkipTheDishes: $50 a month.' },
-          { title: 'Two brands', text: 'A second brand on all three platforms: 3 × $15 = $45 more, so $95 a month.' },
-          { title: 'One more brand on one platform', text: 'A second brand on Uber Eats only: $15 more, so $65 a month.' },
+          { title: 'One brand', text: `One restaurant, one brand, on Uber Eats, DoorDash and SkipTheDishes: ${en$(monthlyTotalCad(0))} a month.` },
+          { title: 'Two brands', text: `A second brand on all three platforms: 3 × ${en$(EXTRA_BRAND_PLATFORM_CAD)} = ${en$(3 * EXTRA_BRAND_PLATFORM_CAD)} more, so ${en$(monthlyTotalCad(3))} a month.` },
+          { title: 'One more brand on one platform', text: `A second brand on Uber Eats only: ${en$(EXTRA_BRAND_PLATFORM_CAD)} more, so ${en$(monthlyTotalCad(1))} a month.` },
         ] },
         { kind: 'text', id: 'billing', title: 'How billing works', paragraphs: [
           'The subscription runs through Clover, on the merchant account where the app is installed: Clover runs the free trial and the invoice. We never bill you directly.',
@@ -207,8 +219,9 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
         ] },
       ],
       faq: [
-        { q: 'What is an extra brand?', a: 'Your first brand is included. Each other brand costs $15 a month for each delivery platform it is connected to (Uber Eats, DoorDash, SkipTheDishes).' },
-        { q: 'Who bills the subscription?', a: 'Clover, on the merchant account where the app is installed. The 14-day free trial is run by Clover.' },
+        FAQ_PRICE.en,
+        { q: 'What is an extra brand?', a: `Your first brand is included. Each other brand costs ${en$(EXTRA_BRAND_PLATFORM_CAD)} a month for each delivery platform it is connected to (Uber Eats, DoorDash, SkipTheDishes).` },
+        { q: 'Who bills the subscription?', a: `Clover, on the merchant account where the app is installed. The ${TRIAL_DAYS}-day free trial is run by Clover.` },
         { q: 'How do I stop?', a: 'Uninstall the app from your Clover account. Your Clover access tokens are deleted at once.' },
       ],
     },
@@ -238,7 +251,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
       faq: [
         { q: 'Mes prix Uber Eats peuvent-ils être différents de ceux du comptoir ?', a: 'Oui, si vous le choisissez : une majoration en % par plateforme s’applique au menu publié. Sans majoration, ce sont les prix de votre menu maître.' },
         { q: 'Que se passe-t-il si un article manque ?', a: 'Marquez-le en rupture dans Clover : il est retiré d’Uber Eats en quelques secondes et remis en vente d’un clic.' },
-        FAQ_CARDS.fr,
+        { q: 'Comment savoir si Uber Eats m’a tout payé ?', a: 'Chaque versement Uber Eats est comparé aux commandes reçues : les frais, les remboursements, les ajustements et l’argent manquant sont signalés dans ON2GO Hub.' },
       ],
     },
     en: {
@@ -264,7 +277,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
       faq: [
         { q: 'Can my Uber Eats prices differ from in-store prices?', a: 'Yes, if you choose: a % markup per platform applies to the published menu. Without one, your master menu prices are used.' },
         { q: 'What happens when an item runs out?', a: 'Mark it out of stock in Clover: it comes off Uber Eats within seconds and goes back on sale in one click.' },
-        FAQ_CARDS.en,
+        { q: 'How do I know Uber Eats paid me in full?', a: 'Each Uber Eats payout is checked against the orders you received: fees, refunds, adjustments and missing money are flagged in ON2GO Hub.' },
       ],
     },
   },
@@ -293,7 +306,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
       faq: [
         { q: 'Dois-je changer de compte DoorDash ?', a: 'Non. Vous gardez votre compte marchand DoorDash ; ON2GO Hub s’y relie pour recevoir les commandes et fournir le menu.' },
         { q: 'Les allergies sont-elles visibles à la cuisine ?', a: 'Oui. Les notes et les allergies sont imprimées sur le billet et affichées en rouge sur l’écran de cuisine.' },
-        FAQ_APPROVAL.fr,
+        { q: 'Que devient la tablette DoorDash ?', a: 'Les commandes DoorDash arrivent dans Clover, à l’imprimante et sur l’écran de cuisine, avec celles des autres plateformes : vous n’avez plus à surveiller une tablette à part pour les recevoir.' },
       ],
     },
     en: {
@@ -319,7 +332,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
       faq: [
         { q: 'Do I need a new DoorDash account?', a: 'No. You keep your DoorDash merchant account; ON2GO Hub links to it to receive orders and provide the menu.' },
         { q: 'Does the kitchen see allergies?', a: 'Yes. Notes and allergies are printed on the ticket and shown in red on the kitchen screen.' },
-        FAQ_APPROVAL.en,
+        { q: 'What about the DoorDash tablet?', a: 'DoorDash orders reach Clover, the printer and the kitchen display along with the other platforms, so you no longer watch a separate tablet to receive them.' },
       ],
     },
   },
@@ -348,7 +361,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
       faq: [
         { q: 'Puis-je accepter les commandes moi-même ?', a: 'Oui. L’acceptation automatique se règle magasin par magasin ; en mode manuel, la commande attend un geste de votre équipe.' },
         { q: 'Les montants sont-ils exacts dans Clover ?', a: 'Oui. Les montants reçus de SkipTheDishes sont repris au cent près dans la commande Clover.' },
-        FAQ_PRICE.fr,
+        { q: 'SkipTheDishes utilise-t-il le même menu que les autres plateformes ?', a: 'Oui. Le même menu maître sert à toutes vos plateformes ; seule la majoration en %, si vous en choisissez une pour SkipTheDishes, change les prix publiés.' },
       ],
     },
     en: {
@@ -374,7 +387,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
       faq: [
         { q: 'Can I accept orders myself?', a: 'Yes. Automatic accept is set store by store; in manual mode, the order waits for a tap from your team.' },
         { q: 'Are the amounts right in Clover?', a: 'Yes. Amounts from SkipTheDishes are carried to the cent into the Clover order.' },
-        FAQ_PRICE.en,
+        { q: 'Does SkipTheDishes use the same menu as the other platforms?', a: 'Yes. One master menu serves all your platforms; only the % markup, if you pick one for SkipTheDishes, changes the published prices.' },
       ],
     },
   },
@@ -404,7 +417,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
       faq: [
         { q: 'Faut-il acheter un écran spécial ?', a: 'Non. L’écran de cuisine s’ouvre dans un navigateur, sur une tablette ou un écran que vous avez déjà.' },
         { q: 'L’écran remplace-t-il l’imprimante ?', a: 'Non, il la complète : le billet s’imprime toujours sur l’imprimante de commandes Clover.' },
-        FAQ_PRICE.fr,
+        { q: 'Les commandes de toutes les plateformes sont-elles sur le même écran ?', a: 'Oui. Les commandes Uber Eats, DoorDash et SkipTheDishes s’affichent sur le même écran de cuisine, dans les mêmes colonnes.' },
       ],
     },
     en: {
@@ -431,7 +444,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
       faq: [
         { q: 'Do I need special hardware?', a: 'No. The kitchen display opens in a web browser, on a tablet or a screen you already have.' },
         { q: 'Does the display replace the printer?', a: 'No, it adds to it: the ticket still prints on the Clover order printer.' },
-        FAQ_PRICE.en,
+        { q: 'Are orders from every platform on the same screen?', a: 'Yes. Uber Eats, DoorDash and SkipTheDishes orders show on the same kitchen display, in the same columns.' },
       ],
     },
   },
@@ -444,10 +457,10 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
       eyebrow: 'Bientôt : application distincte',
       h1: 'Un téléphone IA qui prend les commandes de votre restaurant',
       soon: true,
-      lead: 'Une application Clover distincte, en préparation : elle répond à chaque appel de commande, même aux heures de pointe, et envoie la commande à votre caisse.',
+      lead: 'Une application Clover distincte, en préparation : elle est conçue pour répondre aux appels de commande, même pendant le rush, et envoyer la commande à votre caisse.',
       blocks: [
         { kind: 'cards', id: 'prevu', title: 'Ce qui est prévu', cards: [
-          { title: 'Répond à chaque appel', text: 'Plus d’appel manqué pendant le rush : l’assistant décroche, même quand toute l’équipe est occupée.' },
+          { title: 'Conçu pour le rush', text: 'L’assistant est conçu pour décrocher quand toute l’équipe est occupée, pendant les heures de pointe.' },
           { title: 'Français et anglais', text: 'L’assistant parle avec le client dans sa langue et se présente comme un assistant IA.' },
           { title: 'Commande dans Clover', text: 'La commande suit votre menu, ses options et vos heures, puis arrive dans Clover et à la cuisine comme les autres.' },
           { title: 'Lien de paiement', text: 'Le client peut recevoir un lien de paiement par texto pour payer avant de venir chercher sa commande.' },
@@ -461,7 +474,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
       faq: [
         { q: 'Le téléphone IA est-il inclus dans ON2GO Hub ?', a: 'Non. Ce sera une application distincte, avec son propre essai gratuit et son propre abonnement Clover.' },
         { q: 'Quand sera-t-il offert ?', a: 'Il est en préparation. Écrivez-nous pour être avisé de son lancement.' },
-        { q: 'Les clients sauront-ils qu’ils parlent à une IA ?', a: 'Oui. L’assistant se présente comme un assistant IA au début de chaque appel.' },
+        { q: 'Les clients sauront-ils qu’ils parlent à une IA ?', a: 'Oui. L’assistant se présentera comme un assistant IA au début de chaque appel.' },
       ],
     },
     en: {
@@ -471,10 +484,10 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
       eyebrow: 'Coming soon: a separate app',
       h1: 'An AI phone that takes your restaurant’s orders',
       soon: true,
-      lead: 'A separate Clover app, in the works: it answers every ordering call, even at rush hour, and sends the order to your register.',
+      lead: 'A separate Clover app, in the works: it is designed to answer ordering calls, even at rush hour, and send the order to your register.',
       blocks: [
         { kind: 'cards', id: 'planned', title: 'What is planned', cards: [
-          { title: 'Answers every call', text: 'No more missed calls during the rush: the assistant picks up, even when the whole team is busy.' },
+          { title: 'Built for the rush', text: 'The assistant is designed to pick up when the whole team is busy, at rush hour.' },
           { title: 'French and English', text: 'The assistant speaks with each caller in their language and introduces itself as an AI assistant.' },
           { title: 'Order in Clover', text: 'The order follows your menu, options and hours, then reaches Clover and the kitchen like the others.' },
           { title: 'Payment link', text: 'Callers can get a payment link by text message to pay before they pick up.' },
@@ -488,7 +501,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
       faq: [
         { q: 'Is the AI phone part of ON2GO Hub?', a: 'No. It will be a separate app, with its own free trial and its own Clover subscription.' },
         { q: 'When will it be available?', a: 'It is in the works. Write to us to hear when it launches.' },
-        { q: 'Will callers know they are talking to an AI?', a: 'Yes. The assistant introduces itself as an AI assistant at the start of each call.' },
+        { q: 'Will callers know they are talking to an AI?', a: 'Yes. The assistant will introduce itself as an AI assistant at the start of each call.' },
       ],
     },
   },
@@ -510,6 +523,7 @@ export const HUB_UI: Record<Lang, Record<string, string>> = {
     plannedPricing: 'Tarif prévu au lancement',
     seePricing: 'Voir les tarifs',
     trial: 'jours d’essai gratuit',
+    plannedNote: ' (tarif prévu au lancement)',
     perMonthPerApp: 'par mois, par app',
     perExtraBrand: 'par mois, par marque supplémentaire, par plateforme',
     firstBrand: 'Votre première marque est incluse.',
@@ -542,6 +556,7 @@ export const HUB_UI: Record<Lang, Record<string, string>> = {
     plannedPricing: 'Planned launch pricing',
     seePricing: 'See pricing',
     trial: 'day free trial',
+    plannedNote: ' (planned launch pricing)',
     perMonthPerApp: 'per month, per app',
     perExtraBrand: 'per month, per extra brand, per platform',
     firstBrand: 'Your first brand is included.',

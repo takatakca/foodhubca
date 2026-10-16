@@ -205,10 +205,18 @@ Finance covers every location's money, so it is only for logins that see all loc
 | `/hub/ecran-de-cuisine-clover`, `/en/hub/clover-kitchen-display` | Kitchen display | none |
 | `/hub/telephone-ia-restaurant`, `/en/hub/ai-phone-for-restaurants` | AI phone: coming soon, separate app | none |
 | `/robots.txt`, `/sitemap.xml`, `/llms.txt`, `/og/*`, `/favicon.ico` | Crawlers, AI assistants, share images | none |
-| `/legal/*` | Privacy, terms, support | none |
+| `/legal/*` | Privacy, terms, support (in the sitemap and llms.txt only once `FOODHUB_LEGAL_APPROVED=true`) | none |
+| `/icons/*` | App icons; the Organization logo (`icon-512.png`) must be indexable | none |
 
 - Words: `lib/foodhub/public-hub-content.ts`; product facts reused from the Clover App Market listing
   (`lib/foodhub/clover-listing.ts`). Only shipped features; no hours claims, no aggregator names (`tests/public-hub.test.ts`).
+  Prices are built from `lib/foodhub/pricing.ts`, the legal name from `FOODHUB_LEGAL_COMPANY`. Too Good To Go is only
+  named with its condition ("when your account offers an order feed"), never in the tagline. Each shared FAQ question
+  lives on one page (price on `/hub/tarifs`, approval and card payments on `/hub`).
+- robots.txt blocks only `/api/`: private pages stay crawlable so their `X-Robots-Tag: noindex` is seen.
+- Search Console, Software App report: "Either offers, review or aggregateRating should be specified" is **expected** on
+  every page until `FOODHUB_APP_MARKET_URL` is set (then the Offer is published). Ratings or reviews are only ever
+  added from real, published reviews: never invent one to clear the warning.
 - An anonymous visitor on `/` lands on `/hub` (`FOODHUB_PUBLIC_HOME=off` restores `/login`); kitchen tablets keep their
   PIN screen; signed-in users keep the console.
 - Every other response carries `X-Robots-Tag: noindex` (console, `/login`, API): the console never reaches a search engine.
@@ -216,7 +224,8 @@ Finance covers every location's money, so it is only for logins that see all loc
   structured data. Set it once Clover approves the listing.
 - `FOODHUB_PUBLIC_SAME_AS`: LinkedIn / YouTube links for the Organization's `sameAs`. The support email shown is
   `FOODHUB_SUPPORT_EMAIL`.
-- No trackers on these pages (no consent banner needed). Owner after deploy: Search Console URL-prefix property
+- No page-specific client component and no trackers on these pages (no consent banner needed); the root layout still
+  ships its small boot script and the Next.js runtime. Owner after deploy: Search Console URL-prefix property
   `https://foodhub.on2go.ca/`, then submit `https://foodhub.on2go.ca/sitemap.xml`.
 
 ## Daily use

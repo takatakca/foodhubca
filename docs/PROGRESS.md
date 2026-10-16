@@ -4,25 +4,32 @@
 
 - New public, indexable pages, French first with an English twin: `/hub` (landing), `/hub/tarifs`,
   `/hub/integrations/{uber-eats,doordash,skipthedishes}-clover`, `/hub/ecran-de-cuisine-clover`,
-  `/hub/telephone-ia-restaurant` and `/en/hub/…`. Server-rendered, no session, no database, no client script, no trackers.
+  `/hub/telephone-ia-restaurant` and `/en/hub/…`. Server-rendered, no session, no database, no page-specific client
+  component, no trackers (the root layout's boot script and the Next.js runtime still load).
 - Product facts reused from the Clover App Market listing (`clover-listing.ts`); prices in `lib/foodhub/pricing.ts`
-  (14-day trial, $50/month per app, $15 per extra brand per platform, billed by Clover). Too Good To Go only "when your
-  account offers an order feed"; AI phone "coming soon, separate app".
-- JSON-LD: Organization (ON2GO Hub, alt. TAKATAK Food Hub, Quadro Holdings LTEE, address), SoftwareApplication
-  (BusinessApplication, Clover), WebPage, FAQPage = visible FAQ, breadcrumbs; Offer only when `FOODHUB_APP_MARKET_URL`
-  is set; never a rating. Title ≤ 60, description ≤ 155, canonical, hreflang fr-CA / en-CA / x-default, share images
+  (14-day trial, $50/month per app, $15 per extra brand per platform, billed by Clover); FAQ and examples are built from
+  those constants and say "(planned launch pricing)" until `FOODHUB_APP_MARKET_URL` is set. Too Good To Go only "when
+  your account offers an order feed" (the hub has its own tagline without it; a test fails on any unconditional mention
+  in text, JSON-LD, metadata or llms.txt); AI phone "coming soon, separate app", in the planned tense.
+- JSON-LD: Organization (ON2GO Hub, alt. TAKATAK Food Hub, legal name from env, address), SoftwareApplication
+  (BusinessApplication, Clover), WebPage, FAQPage = visible FAQ (each shared question on one page only), breadcrumbs;
+  shared nodes keep one url (`/hub`); Offer only when `FOODHUB_APP_MARKET_URL` is set; never a rating (Search
+  Console's Software App warning is expected until then, see `docs/FOODHUB.md`). Title ≤ 60, description ≤ 155, canonical, hreflang fr-CA / en-CA / x-default, share images
   `public/og/hub-{fr,en}.png`.
-- `robots.txt`, `sitemap.xml` (hub pages + 3 legal pages), `llms.txt`, `favicon.ico`.
+- `robots.txt` (blocks only `/api/`, so private pages show their noindex), `sitemap.xml` (hub pages; the 3 legal pages
+  only once `FOODHUB_LEGAL_APPROVED=true`), `llms.txt`, `favicon.ico`. `/icons/` is indexable (Organization logo).
 - `proxy.ts`: public site paths (exact `/hub`, `/en/hub`, prefixes `/hub/`, `/en/hub/`, `/og/`; `/hubx` stays
   private); language fixed by path (header read first by `getLang()`); anonymous `/` → `/hub` (`FOODHUB_PUBLIC_HOME=off`
   restores `/login`; tablets and signed-in users unchanged); `X-Robots-Tag: noindex` on every non-public response.
 - e2e: the "/ without sign-in" check now expects `/hub`, and new checks cover the public pages, robots, sitemap, llms.
-- Checks: typecheck OK, lint 0 errors (1 old warning), 977 tests passed (23 new in `tests/public-hub.test.ts`), 1 skipped,
-  1 failure that also fails on `origin/main` 12ba64d (`tests/tgtg-email.test.ts` "forged Too Good To Go From", not
-  touched here); webpack build OK; verify:foodhub 559/0.
+- Built on `fix/legal-pages-complete` (PR #66: paid pricing in the terms and support FAQ, no more "free"): merge #66
+  first; this PR is stacked on it.
+- Checks: typecheck OK, lint 0 errors (1 old warning), 1003 tests passed (27 in `tests/public-hub.test.ts`, 3 in
+  `tests/i18n-server-lang.test.ts`), 1 skipped, 1 failure also on `origin/main` (`tests/tgtg-email.test.ts` "forged Too
+  Good To Go From", Windows CRLF checkout artifact, not touched here); webpack build OK; verify:foodhub 560/0.
 - Owner after merge: redeploy; optional env `FOODHUB_APP_MARKET_URL`, `FOODHUB_PUBLIC_SAME_AS`; Search Console
   URL-prefix property `https://foodhub.on2go.ca/` + sitemap; link the page from LinkedIn / YouTube / on2go.ca only once
-  the legal Draft banner is gone. Rebase after `fix/legal-pages-complete` merges (both touch `proxy.ts`).
+  the legal Draft banner is gone (`FOODHUB_LEGAL_APPROVED=true` also adds the legal pages to the sitemap).
 
 ## 2026-10-16 — Legal pages complete for Clover review (`fix/legal-pages-complete`)
 

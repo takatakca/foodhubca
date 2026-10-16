@@ -423,7 +423,9 @@ try {
     const map = await call('GET', '/sitemap.xml', { auth: false });
     const llms = await call('GET', '/llms.txt', { auth: false });
     check('robots.txt, sitemap.xml and llms.txt are public', robots.status === 200 && /Disallow: \/api\//.test(robots.text) && map.status === 200 && map.text.includes('/hub/tarifs') && llms.status === 200 && llms.text.includes('ON2GO Hub'), `${robots.status} ${map.status} ${llms.status}`);
-    check('/hubx is not public', [302, 307].includes((await call('GET', '/hubx', { auth: false, redirect: 'manual' })).status)); }
+    check('/hubx is not public', [302, 307].includes((await call('GET', '/hubx', { auth: false, redirect: 'manual' })).status));
+    const logo = await fetch(`${APP}/icons/icon-512.png`);
+    check('Organization logo is public and indexable', logo.status === 200 && logo.headers.get('x-robots-tag') === null, `${logo.status} ${logo.headers.get('x-robots-tag')}`); }
   check('API without sign-in → 401 JSON', (await call('GET', '/api/foodhub/command', { auth: false })).status === 401);
   check('login page is public', (await call('GET', '/login', { auth: false })).status === 200);
   const home = await call('GET', '/');

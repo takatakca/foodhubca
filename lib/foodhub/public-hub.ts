@@ -10,11 +10,11 @@
 //   FOODHUB_PUBLIC_URL       the canonical base (https://foodhub.on2go.ca), shared with the rest of the app.
 
 import type { Metadata } from 'next';
-import { LISTING_BENEFITS, LISTING_DESCRIPTION, LISTING_TAGLINE } from './clover-listing';
+import { LISTING_BENEFITS, LISTING_DESCRIPTION } from './clover-listing';
 import { legalInfo, LEGAL_PATHS } from './legal';
 import { appMarketUrl, PRICING, PRICING_STATEMENT, STANDARD_MONTHLY_CAD, TRIAL_DAYS, type Lang } from './pricing';
 import { CLOVER_APP_NAME } from './product';
-import { HUB_CONTENT, HUB_PAGE_KEYS, HUB_PATHS, type Card, type HubPageKey } from './public-hub-content';
+import { HUB_CONTENT, HUB_PAGE_KEYS, HUB_PATHS, HUB_TAGLINE, HUB_UI, type Card, type Faq, type HubPageKey } from './public-hub-content';
 import { publicBaseUrl } from './config';
 
 export { HUB_CONTENT, HUB_PAGE_KEYS, HUB_PATHS, type HubPageKey };
@@ -81,7 +81,8 @@ export function hubPageForSlug(lang: Lang, slug: string[] | undefined): HubPageK
 // ---------------------------------------------------------------------------------------------------------------
 // Product facts from the Clover App Market listing (one source).
 
-export const hubTagline = (lang: Lang) => LISTING_TAGLINE[lang];
+/** The hub's own tagline (not the listing's: that one names Too Good To Go without its condition). */
+export const hubTagline = (lang: Lang) => HUB_TAGLINE[lang];
 export const hubBenefits = (lang: Lang) => LISTING_BENEFITS.map((b) => b[lang]);
 
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -103,13 +104,27 @@ export function hubRequirements(lang: Lang): string {
   return capital(line.replace(/^(Ce qu’il faut|Requirements)\s?:\s*/, '').replace(/TAKATAK Food Hub/g, HUB_NAME));
 }
 
+/** " : " in French, ": " in English. */
+export const colon = (lang: Lang) => (lang === 'fr' ? ' : ' : ': ');
+
+/** Fills the content's per-request tokens: {company} (legal name) and {planned} (the launch-pricing note while the app
+ * is not on the Clover App Market). */
+export function fillHub(text: string, lang: Lang, ctx: Pick<HubContext, 'company' | 'appMarketUrl'>): string {
+  return text.replace(/\{company\}/g, ctx.company).replace(/\{planned\}/g, ctx.appMarketUrl ? '' : HUB_UI[lang].plannedNote);
+}
+
+/** A page's FAQ with its tokens filled: the same list feeds the visible FAQ and the FAQPage structured data. */
+export function hubFaq(key: HubPageKey, lang: Lang, ctx: Pick<HubContext, 'company' | 'appMarketUrl'>): Faq[] {
+  return HUB_CONTENT[key][lang].faq.map((f) => ({ q: fillHub(f.q, lang, ctx), a: fillHub(f.a, lang, ctx) }));
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Metadata
 
 export function hubMetadata(key: HubPageKey, lang: Lang, ctx: Pick<HubContext, 'base'> = { base: publicBaseUrl() }): Metadata {
   const c = HUB_CONTENT[key][lang];
   const url = hubUrl(ctx.base, key, lang);
-  const image = { url: `${ctx.base}${OG_IMAGE[lang]}`, width: 1200, height: 630, alt: `${HUB_NAME} : ${c.label}` };
+  const image = { url: `${ctx.base}${OG_IMAGE[lang]}`, width: 1200, height: 630, alt: `${HUB_NAME}${colon(lang)}${c.label}` };
   return {
     title: { absolute: c.title },
     description: c.description,
@@ -127,7 +142,10 @@ export function hubMetadata(key: HubPageKey, lang: Lang, ctx: Pick<HubContext, '
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Structured data (schema.org JSON-LD). Never a rating: there are no public reviews yet.
+// Structured data (schema.org JSON-LD). Never a rating: there are no public reviews yet (Search Console's Software App
+// report flags the missing offers / rating until the App Market link is set: expected, see docs/FOODHUB.md).
+// The shared Organization and SoftwareApplication nodes keep one @id and one url (the French landing) on every page;
+// only the WebPage node carries the page's own, language-specific url.
 
 /** "6280, av. Somerled, Montréal (Québec) H3X 2B6, Canada" → a PostalAddress (the whole text as the street otherwise). */
 export function postalAddress(address: string): Record<string, string> {
@@ -139,11 +157,12 @@ export function postalAddress(address: string): Record<string, string> {
 export function hubJsonLd(key: HubPageKey, lang: Lang, ctx: HubContext): Record<string, unknown> {
   const c = HUB_CONTENT[key][lang];
   const url = hubUrl(ctx.base, key, lang);
+  const home = hubUrl(ctx.base, 'landing', 'fr');
   const orgId = `${ctx.base}/hub#organization`;
   const appId = `${ctx.base}/hub#software`;
   const org: Record<string, unknown> = {
     '@type': 'Organization', '@id': orgId, name: HUB_NAME, alternateName: [HUB_ALT_NAME], legalName: ctx.company,
-    url: hubUrl(ctx.base, 'landing', lang), logo: `${ctx.base}/icons/icon-512.png`, address: postalAddress(ctx.address),
+    url: home, logo: `${ctx.base}/icons/icon-512.png`, address: postalAddress(ctx.address),
     areaServed: { '@type': 'Country', name: 'Canada' },
   };
   if (ctx.supportEmail) org.email = ctx.supportEmail;
@@ -153,7 +172,7 @@ export function hubJsonLd(key: HubPageKey, lang: Lang, ctx: HubContext): Record<
   const app: Record<string, unknown> = {
     '@type': 'SoftwareApplication', '@id': appId, name: HUB_NAME, alternateName: HUB_ALT_NAME,
     applicationCategory: 'BusinessApplication', operatingSystem: 'Clover', inLanguage: ['fr-CA', 'en-CA'],
-    description: hubTagline(lang), url: hubUrl(ctx.base, 'landing', lang), publisher: { '@id': orgId },
+    description: hubTagline(lang), url: home, publisher: { '@id': orgId },
     featureList: hubBenefits(lang),
   };
   if (ctx.appMarketUrl) {
@@ -167,7 +186,7 @@ export function hubJsonLd(key: HubPageKey, lang: Lang, ctx: HubContext): Record<
 
   const page: Record<string, unknown> = {
     '@type': 'WebPage', '@id': `${url}#webpage`, url, name: c.title, description: c.description, inLanguage: LOCALE[lang],
-    isPartOf: { '@type': 'WebSite', '@id': `${ctx.base}/hub#website`, name: HUB_NAME, url: hubUrl(ctx.base, 'landing', 'fr'), publisher: { '@id': orgId } },
+    isPartOf: { '@type': 'WebSite', '@id': `${ctx.base}/hub#website`, name: HUB_NAME, url: home, publisher: { '@id': orgId } },
     about: { '@id': appId },
     primaryImageOfPage: `${ctx.base}${OG_IMAGE[lang]}`,
   };
@@ -182,10 +201,11 @@ export function hubJsonLd(key: HubPageKey, lang: Lang, ctx: HubContext): Record<
     });
     page.breadcrumb = { '@id': `${url}#breadcrumb` };
   }
-  if (c.faq.length) {
+  const faq = hubFaq(key, lang, ctx);
+  if (faq.length) {
     graph.push({
       '@type': 'FAQPage', '@id': `${url}#faq`, inLanguage: LOCALE[lang],
-      mainEntity: c.faq.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
+      mainEntity: faq.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
     });
   }
   return { '@context': 'https://schema.org', '@graph': graph };
@@ -201,29 +221,34 @@ export function jsonLdScript(data: unknown): string {
 
 export interface SitemapEntry { url: string; alternates?: { languages: Record<string, string> } }
 
-export function hubSitemap(base = publicBaseUrl()): SitemapEntry[] {
+/** The legal pages go in the sitemap (and llms.txt) only once the owner approved them (FOODHUB_LEGAL_APPROVED=true):
+ * a draft with its banner is not something to promote. */
+export function hubSitemap(base = publicBaseUrl(), legalApproved = legalInfo().approved): SitemapEntry[] {
   const out: SitemapEntry[] = [];
   for (const key of HUB_PAGE_KEYS) {
     const languages = { 'fr-CA': hubUrl(base, key, 'fr'), 'en-CA': hubUrl(base, key, 'en'), 'x-default': hubUrl(base, key, 'fr') };
     for (const lang of ['fr', 'en'] as const) out.push({ url: hubUrl(base, key, lang), alternates: { languages } });
   }
-  for (const p of [LEGAL_PATHS.support, LEGAL_PATHS.privacy, LEGAL_PATHS.terms]) out.push({ url: `${base}${p}` });
+  if (legalApproved) for (const p of [LEGAL_PATHS.support, LEGAL_PATHS.privacy, LEGAL_PATHS.terms]) out.push({ url: `${base}${p}` });
   return out;
 }
 
+/** Only the API is blocked. Every other private page (payment links, tickets, courier, kitchen, console) is left
+ * crawlable on purpose: proxy.ts answers it with "X-Robots-Tag: noindex", which a crawler only sees if it may fetch the
+ * page (a blocked URL can still be indexed from a stray link), and robots.txt never lists the private paths. */
 export function hubRobots(base = publicBaseUrl()) {
   return {
     rules: [{
       userAgent: '*',
-      allow: ['/hub', '/en/hub', '/legal/', '/llms.txt', '/og/'],
-      disallow: ['/api/', '/p/', '/courier', '/kitchen/', '/ticket/', '/media/', '/welcome/'],
+      allow: ['/hub', '/en/hub', '/legal/', '/llms.txt', '/og/', '/icons/'],
+      disallow: ['/api/'],
     }],
     sitemap: `${base}/sitemap.xml`,
   };
 }
 
 /** Plain-text summary for AI assistants (llms.txt): French first, then English. Facts only. */
-export function hubLlmsTxt(ctx: HubContext = hubContext()): string {
+export function hubLlmsTxt(ctx: HubContext = hubContext(), legalApproved = legalInfo().approved): string {
   const block = (lang: Lang) => {
     const fr = lang === 'fr';
     const market = ctx.appMarketUrl
@@ -239,7 +264,7 @@ export function hubLlmsTxt(ctx: HubContext = hubContext()): string {
         : `${HUB_NAME} (Clover App Market name: ${HUB_ALT_NAME}) is an app for restaurants that use Clover, in Canada. It receives delivery platform orders through each platform’s own API, with no aggregator, and puts them in the Clover register. Built in Montréal by ${ctx.company}, used in the ON2GO restaurants (https://on2go.ca/).`,
       '',
       fr ? '### Fonctions' : '### Features',
-      ...hubFeatures(lang).map((f) => `- ${f.title}: ${f.text}`),
+      ...hubFeatures(lang).map((f) => `- ${f.title}${colon(lang)}${f.text}`),
       '',
       fr ? '### Préalables' : '### Requirements',
       hubRequirements(lang),
@@ -251,11 +276,13 @@ export function hubLlmsTxt(ctx: HubContext = hubContext()): string {
       '',
       fr ? '### Pages' : '### Pages',
       ...HUB_PAGE_KEYS.map((k) => `- [${HUB_CONTENT[k][lang].label}](${hubUrl(ctx.base, k, lang)})`),
-      `- [${fr ? 'Soutien' : 'Support'}](${ctx.base}${LEGAL_PATHS.support})`,
-      `- [${fr ? 'Confidentialité' : 'Privacy'}](${ctx.base}${LEGAL_PATHS.privacy})`,
-      `- [${fr ? 'Conditions' : 'Terms'}](${ctx.base}${LEGAL_PATHS.terms})`,
+      ...(legalApproved ? [
+        `- [${fr ? 'Soutien' : 'Support'}](${ctx.base}${LEGAL_PATHS.support})`,
+        `- [${fr ? 'Confidentialité' : 'Privacy'}](${ctx.base}${LEGAL_PATHS.privacy})`,
+        `- [${fr ? 'Conditions' : 'Terms'}](${ctx.base}${LEGAL_PATHS.terms})`,
+      ] : []),
     ];
-    if (ctx.supportEmail) lines.push('', `${fr ? 'Contact' : 'Contact'}: ${ctx.supportEmail}`);
+    if (ctx.supportEmail) lines.push('', `Contact${colon(lang)}${ctx.supportEmail}`);
     return lines.join('\n');
   };
   return [`# ${HUB_NAME}`, '', block('fr'), '', block('en'), ''].join('\n');

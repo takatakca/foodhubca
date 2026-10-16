@@ -6,9 +6,10 @@ import { HubPage } from '../components/public-hub/hub-page';
 import { LISTING_BENEFITS } from '../lib/foodhub/clover-listing';
 import { appMarketUrl, EXTRA_BRAND_PLATFORM_CAD, formatCad, monthlyTotalCad, PRICING, PRICING_STATEMENT, STANDARD_MONTHLY_CAD, TRIAL_DAYS } from '../lib/foodhub/pricing';
 import {
-  HUB_CONTENT, HUB_PAGE_KEYS, HUB_PATHS, hubFeatures, hubJsonLd, hubLlmsTxt, hubMetadata, hubPageAt, hubPageForSlug, hubRequirements,
-  hubSitemap, jsonLdScript, postalAddress, publicSameAs, type HubContext,
+  HUB_CONTENT, HUB_PAGE_KEYS, HUB_PATHS, hubFaq, hubFeatures, hubJsonLd, hubLlmsTxt, hubMetadata, hubPageAt, hubPageForSlug, hubRequirements,
+  hubRobots, hubSitemap, hubTagline, jsonLdScript, postalAddress, publicSameAs, type HubContext,
 } from '../lib/foodhub/public-hub';
+import { LANG_COOKIE } from '../lib/i18n';
 import { isIndexablePath, isPublicSitePath, PUBLIC_LANG_HEADER, publicHomeEnabled, publicSiteLang } from '../lib/foodhub/public-site';
 import { DEVICE_COOKIE, ownerSessionVersion, SESSION_COOKIE, signDevice, signSession } from '../lib/foodhub/session';
 import { proxy } from '../proxy';
@@ -32,6 +33,10 @@ const BANNED = [/24\s?\/\s?7/i, /\b24\s?h\b/i, /\b24\s?heures\b/i, /\b24\s?hours
   /deliverect/i, /\botter\b/i, /cuboh/i, /checkmate/i, /urbanpiper/i, /chowly/i];
 const banned = (text: string) => BANNED.filter((r) => r.test(text)).map(String);
 
+/** Too Good To Go is only ever named with its condition: right before « lorsque » / "when", or as the starred chip
+ * whose footnote says it. Returns the offending snippets. */
+const unconditionalTgtg = (text: string) => [...text.matchAll(/Too Good To Go(?!\*|\s?:?\s?(?:lorsque|when)\b)/g)].map((m) => text.slice(Math.max(0, m.index! - 40), m.index! + 60));
+
 describe('public site paths (lib/foodhub/public-site.ts)', () => {
   it('opens /hub, /en/hub, robots, sitemap, llms.txt, share images and the favicon — and nothing that merely looks alike', () => {
     for (const p of ['/hub', '/hub/tarifs', '/hub/integrations/uber-eats-clover', '/en/hub', '/en/hub/pricing', '/robots.txt', '/sitemap.xml', '/llms.txt', '/favicon.ico', '/og/hub-fr.png']) {
@@ -44,6 +49,7 @@ describe('public site paths (lib/foodhub/public-site.ts)', () => {
     expect(publicSiteLang('/en/hub/pricing')).toBe('en');
     expect(publicSiteLang('/robots.txt')).toBeNull();
     expect(isIndexablePath('/legal/terms')).toBe(true);
+    expect(isIndexablePath('/icons/icon-512.png')).toBe(true); // the Organization logo must be indexable
     expect(isIndexablePath('/login')).toBe(false);
   });
   it('FOODHUB_PUBLIC_HOME is on unless set to off', () => {
@@ -61,12 +67,12 @@ describe('proxy.ts with a sign-in configured', () => {
 
   it('lets the public pages through without a session, with their language fixed by the path', async () => {
     for (const [path, lang] of [['/hub', 'fr'], ['/hub/tarifs', 'fr'], ['/en/hub', 'en'], ['/en/hub/integrations/doordash-clover', 'en']] as const) {
-      const res = await get(path, { cookie: 'takatak_lang=en' });
+      const res = await get(path, { cookie: `${LANG_COOKIE}=${lang === 'fr' ? 'en' : 'fr'}` }); // a cookie that disagrees with the path
       expect(res.headers.get('x-middleware-next'), path).toBe('1');
       expect(res.headers.get(`x-middleware-request-${PUBLIC_LANG_HEADER}`), path).toBe(lang);
       expect(res.headers.get('x-robots-tag'), path).toBeNull();
     }
-    for (const path of ['/robots.txt', '/sitemap.xml', '/llms.txt', '/og/hub-fr.png']) {
+    for (const path of ['/robots.txt', '/sitemap.xml', '/llms.txt', '/og/hub-fr.png', '/icons/icon-512.png', '/icons/icon-192.png', '/icons/apple-touch-icon.png']) {
       const res = await get(path);
       expect(res.headers.get('x-middleware-next'), path).toBe('1');
       expect(res.headers.get('x-robots-tag'), path).toBeNull();
@@ -161,6 +167,8 @@ describe('metadata', () => {
       expect((m.twitter as { card?: string }).card).toBe('summary_large_image');
       expect(JSON.stringify(m.openGraph)).toContain(`${BASE}/og/hub-${lang}.png`);
       expect(m.robots).toEqual({ index: true, follow: true });
+      const alt = (m.openGraph as { images: Array<{ alt: string }> }).images[0].alt;
+      expect(alt).toBe(`ON2GO Hub${lang === 'fr' ? ' : ' : ': '}${c.label}`);
     }
     expect(titles.size).toBe(HUB_PAGE_KEYS.length * 2);
     expect(descriptions.size).toBe(HUB_PAGE_KEYS.length * 2);
@@ -168,19 +176,20 @@ describe('metadata', () => {
 });
 
 describe('page content', () => {
-  it('renders one H1, the FAQ, the legal links and no banned words, in both languages', () => {
+  it('renders one H1, the FAQ, the legal links and no banned words, in both languages (no page-specific client component or tracker)', () => {
     for (const key of HUB_PAGE_KEYS) for (const lang of LANGS) {
       const html = render(key, lang);
       expect(html.match(/<h1[\s>]/g)?.length, `${key}/${lang}`).toBe(1);
       expect(html).toContain(`lang="${lang === 'fr' ? 'fr-CA' : 'en-CA'}"`);
       const text = visibleText(html);
-      for (const f of HUB_CONTENT[key][lang].faq) expect(text, f.q).toContain(f.q);
+      for (const f of hubFaq(key, lang, ctx())) { expect(text, f.q).toContain(f.q); expect(text, f.q).toContain(f.a); }
       expect(html).toContain('href="/legal/privacy"');
       expect(html).toContain('href="/legal/terms"');
       expect(html).toContain(`href="${HUB_PATHS[key][lang === 'fr' ? 'en' : 'fr']}"`); // the language twin
       expect(banned(text), `${key}/${lang}`).toEqual([]);
       expect(banned(JSON.stringify(HUB_CONTENT[key][lang])), `${key}/${lang} content`).toEqual([]);
-      expect(html).not.toMatch(/<script(?! type="application\/ld\+json")/); // no client JavaScript of its own
+      expect(html).not.toMatch(/<script(?! type="application\/ld\+json")/); // no page-specific client component or tracker
+      expect(html, `${key}/${lang} tokens`).not.toMatch(/\{(company|planned)\}/);
     }
   });
   it('the landing reuses the App Market listing (benefits, features, requirements) and says Too Good To Go only with its condition', () => {
@@ -194,7 +203,43 @@ describe('page content', () => {
     expect(fr).toContain('Too Good To Go : lorsque votre compte offre un flux de commandes');
     expect(visibleText(render('landing', 'en'))).toContain('Too Good To Go: when your account offers an order feed');
   });
-  it('the AI phone is a separate app, coming soon', () => {
+  it('never names Too Good To Go without its condition: page text, JSON-LD, metadata, tagline and llms.txt', () => {
+    for (const lang of LANGS) expect(hubTagline(lang)).not.toContain('Too Good To Go');
+    for (const key of HUB_PAGE_KEYS) for (const lang of LANGS) {
+      const html = render(key, lang);
+      expect(unconditionalTgtg(visibleText(html)), `${key}/${lang} text`).toEqual([]);
+      expect(unconditionalTgtg(JSON.stringify(ldOf(html))), `${key}/${lang} JSON-LD`).toEqual([]);
+      expect(unconditionalTgtg(JSON.stringify(hubMetadata(key, lang, { base: BASE }))), `${key}/${lang} metadata`).toEqual([]);
+    }
+    expect(unconditionalTgtg(hubLlmsTxt(ctx(), true))).toEqual([]);
+    expect(unconditionalTgtg('Uber Eats et Too Good To Go dans Clover')).toHaveLength(1); // the check itself works
+  });
+  it('each FAQ question appears on one page only (no repeated FAQPage markup); the price question lives on the pricing page', () => {
+    for (const lang of LANGS) {
+      const seen = new Map<string, string>();
+      for (const key of HUB_PAGE_KEYS) for (const f of HUB_CONTENT[key][lang].faq) {
+        expect(seen.get(f.q), `${lang}: "${f.q}" on ${seen.get(f.q)} and ${key}`).toBeUndefined();
+        seen.set(f.q, key);
+      }
+      expect(seen.get(lang === 'fr' ? 'Combien coûte ON2GO Hub ?' : 'How much does ON2GO Hub cost?')).toBe('pricing');
+    }
+  });
+  it('the nav "Integrations" link goes to the landing’s integrations block, which exists', () => {
+    for (const lang of LANGS) {
+      expect(render('kitchen', lang)).toContain(`href="${HUB_PATHS.landing[lang]}#integrations"`);
+      expect(render('landing', lang)).toContain('id="integrations"');
+    }
+  });
+  it('the legal name comes from the context, not the words', () => {
+    const fr = visibleText(render('landing', 'fr', ctx({ company: 'Société Test inc.' })));
+    expect(fr).toContain('conçu à Montréal par Société Test inc.');
+    expect(JSON.stringify(HUB_CONTENT)).not.toContain('Quadro');
+  });
+  it('the AI phone is a separate app, coming soon, described in the planned tense', () => {
+    for (const lang of LANGS) {
+      const text = visibleText(render('phone', lang));
+      expect(text).not.toMatch(/répond à chaque appel|answers every call|Plus d’appel manqué|no more missed calls/i);
+    }
     expect(visibleText(render('phone', 'fr'))).toContain('Bientôt : application distincte');
     expect(visibleText(render('phone', 'en'))).toContain('Coming soon: a separate app');
     expect(visibleText(render('landing', 'fr'))).toContain('Téléphone IA (bientôt)');
@@ -207,6 +252,18 @@ describe('page content', () => {
     expect(soon).toContain('Tarif prévu au lancement');
     expect(soon).toContain('Bientôt sur le Clover App Market');
     expect(soon).not.toContain('Disponible sur le Clover App Market');
+    // The FAQ and the examples are built from pricing.ts, and say "planned" until the App Market link is set.
+    const price = hubFaq('pricing', 'fr', ctx()).find((f) => f.q === 'Combien coûte ON2GO Hub ?')!;
+    expect(price.a).toContain(`${TRIAL_DAYS} jours`);
+    expect(price.a).toContain(formatCad(STANDARD_MONTHLY_CAD, 'fr'));
+    expect(price.a).toContain(formatCad(EXTRA_BRAND_PLATFORM_CAD, 'fr'));
+    expect(price.a).toContain('(tarif prévu au lancement)');
+    expect(soon).toContain(formatCad(monthlyTotalCad(3), 'fr'));
+    expect(soon).toContain(formatCad(monthlyTotalCad(1), 'fr'));
+    const liveFaq = hubFaq('pricing', 'en', ctx({ appMarketUrl: 'https://www.clover.com/appmarket/apps/ABC123' }));
+    expect(liveFaq[0].a).toContain(formatCad(STANDARD_MONTHLY_CAD, 'en'));
+    expect(liveFaq[0].a).not.toContain('planned');
+    expect(hubFaq('pricing', 'en', ctx())[0].a).toContain('(planned launch pricing)');
     const url = 'https://www.clover.com/appmarket/apps/ABC123';
     const live = render('pricing', 'en', ctx({ appMarketUrl: url }));
     expect(visibleText(live)).toContain('Available on the Clover App Market');
@@ -234,7 +291,12 @@ describe('structured data', () => {
       expect(app).toMatchObject({ name: 'ON2GO Hub', alternateName: 'TAKATAK Food Hub', applicationCategory: 'BusinessApplication', operatingSystem: 'Clover' });
       expect(app.offers).toBeUndefined();
       const faq = node(ld, 'FAQPage')! as { mainEntity: Array<{ name: string; acceptedAnswer: { text: string } }> };
-      expect(faq.mainEntity.map((q) => q.name)).toEqual(HUB_CONTENT[key][lang].faq.map((f) => f.q));
+      expect(faq.mainEntity.map((q) => q.name)).toEqual(hubFaq(key, lang, ctx()).map((f) => f.q));
+      // One entity, one url: the shared nodes point at the French landing on every page; the WebPage has its own url.
+      expect(org.url, `${key}/${lang}`).toBe(`${BASE}/hub`);
+      expect(app.url, `${key}/${lang}`).toBe(`${BASE}/hub`);
+      expect(node(ld, 'WebPage')!.url).toBe(`${BASE}${HUB_PATHS[key][lang]}`);
+      expect(app.description).toBe(hubTagline(lang));
       const text = visibleText(html);
       for (const q of faq.mainEntity) expect(text).toContain(q.acceptedAnswer.text);
       expect(Boolean(node(ld, 'BreadcrumbList'))).toBe(key !== 'landing');
@@ -261,18 +323,28 @@ describe('robots.txt, sitemap.xml and llms.txt', () => {
   beforeEach(() => { process.env.FOODHUB_PUBLIC_URL = BASE; delete process.env.FOODHUB_APP_MARKET_URL; });
   afterEach(() => { delete process.env.FOODHUB_PUBLIC_URL; delete process.env.FOODHUB_APP_MARKET_URL; });
 
-  it('robots allows the public pages and keeps the console out; /login is not blocked (it says noindex)', async () => {
+  it('robots allows the public pages and blocks only the API: private pages stay fetchable so their noindex is seen', async () => {
     const robots = (await import('../app/robots')).default();
     const rule = (Array.isArray(robots.rules) ? robots.rules[0] : robots.rules)!;
-    expect(rule.allow).toEqual(expect.arrayContaining(['/hub', '/en/hub', '/legal/', '/llms.txt']));
-    expect(rule.disallow).toEqual(expect.arrayContaining(['/api/', '/p/', '/courier', '/kitchen/', '/ticket/', '/media/', '/welcome/']));
-    expect(rule.disallow).not.toContain('/login');
+    expect(rule.allow).toEqual(expect.arrayContaining(['/hub', '/en/hub', '/legal/', '/llms.txt', '/icons/']));
+    expect(rule.disallow).toEqual(['/api/']);
+    expect(JSON.stringify(hubRobots(BASE))).not.toMatch(/\/p\/|\/ticket\/|\/welcome\/|\/media\/|\/login/);
     expect(robots.sitemap).toBe(`${BASE}/sitemap.xml`);
   });
-  it('the sitemap lists every hub page in both languages with language links, and the 3 legal pages', async () => {
+  it('the sitemap lists every hub page in both languages with language links; the 3 legal pages only once approved', async () => {
+    delete process.env.FOODHUB_LEGAL_APPROVED;
     const map = (await import('../app/sitemap')).default();
-    expect(map.length).toBe(HUB_PAGE_KEYS.length * 2 + 3);
-    expect(map.map((e) => e.url)).toEqual(expect.arrayContaining([`${BASE}/hub`, `${BASE}/en/hub/pricing`, `${BASE}/legal/privacy`, `${BASE}/legal/terms`, `${BASE}/legal/support`]));
+    expect(map.length).toBe(HUB_PAGE_KEYS.length * 2);
+    expect(map.some((e) => e.url.includes('/legal/'))).toBe(false); // the draft (banner on) is not promoted
+    expect(map.map((e) => e.url)).toEqual(expect.arrayContaining([`${BASE}/hub`, `${BASE}/en/hub/pricing`]));
+    process.env.FOODHUB_LEGAL_APPROVED = 'true';
+    try {
+      const approved = (await import('../app/sitemap')).default();
+      expect(approved.length).toBe(HUB_PAGE_KEYS.length * 2 + 3);
+      expect(approved.map((e) => e.url)).toEqual(expect.arrayContaining([`${BASE}/legal/privacy`, `${BASE}/legal/terms`, `${BASE}/legal/support`]));
+    } finally { delete process.env.FOODHUB_LEGAL_APPROVED; }
+    expect(hubSitemap(BASE, false).length).toBe(HUB_PAGE_KEYS.length * 2);
+    expect(hubSitemap(BASE, true).length).toBe(HUB_PAGE_KEYS.length * 2 + 3);
     expect(map.find((e) => e.url === `${BASE}/hub/tarifs`)?.alternates?.languages).toMatchObject({ 'en-CA': `${BASE}/en/hub/pricing` });
     expect(map.every((e) => !('lastModified' in e))).toBe(true);
     expect(hubSitemap(BASE).every((e) => !e.url.includes('/login'))).toBe(true);
@@ -289,6 +361,10 @@ describe('robots.txt, sitemap.xml and llms.txt', () => {
     expect(text).toContain(`${BASE}/hub/tarifs`);
     expect(text).toContain('TAKATAK Food Hub');
     expect(banned(text)).toEqual([]);
+    expect(text).toMatch(/^- Commandes : /m); // French typography: " : "
+    expect(text).toMatch(/^- Orders: /m);
+    expect(text).not.toContain('/legal/'); // the legal pages wait for their approval
+    expect(hubLlmsTxt(ctx(), true)).toContain(`${BASE}/legal/terms`);
     expect(hubLlmsTxt(ctx({ appMarketUrl: 'https://www.clover.com/appmarket/apps/ABC123' }))).toContain('Disponible sur le Clover App Market : https://www.clover.com/appmarket/apps/ABC123');
   });
 });

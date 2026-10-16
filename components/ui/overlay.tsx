@@ -14,7 +14,7 @@ function useDialogInteraction<TPanel extends HTMLElement>(onClose: () => void, d
   const backdropRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<TPanel>(null);
   const latest = useRef({ onClose, dismissable });
-  latest.current = { onClose, dismissable };
+  useEffect(() => { latest.current = { onClose, dismissable }; });
 
   useEffect(() => {
     const backdrop = backdropRef.current;

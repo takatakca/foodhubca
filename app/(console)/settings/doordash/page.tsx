@@ -32,7 +32,7 @@ export default function DoorDashApiPage() {
 
   return (
     <div>
-      <SettingsHead title="DoorDash" intro={t('Toutes les API DoorDash qu’un groupe de restaurants peut utiliser : lectures en direct, ruptures, heures, commandes, rapports, épicerie, Drive, publicité. Po Poulet NDG n’est jamais touché.', 'Every DoorDash API a restaurant group can use: live reads, 86s, hours, orders, reports, retail, Drive, ads. Po Poulet NDG is never touched.')} />
+      <SettingsHead title="DoorDash" intro={t('Toutes les API DoorDash qu’un groupe de restaurants peut utiliser : lectures en direct, ruptures, heures, commandes, rapports, épicerie, Drive, publicité.', 'Every DoorDash API a restaurant group can use: live reads, 86s, hours, orders, reports, retail, Drive, ads.')} />
       {err && <Banner tone="stop">{err}</Banner>}
       {!data && !err && <Skeleton className="h-40" />}
       {data && (

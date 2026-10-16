@@ -12,7 +12,7 @@ import { usePulse } from '@/components/live/pulse';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { MenuTabs } from '../menu-tabs';
 import { api, ApiError, timeOf } from '@/lib/ui/api';
-import { useI18n } from '@/lib/i18n/client';
+import { useI18n, useProduct } from '@/lib/i18n/client';
 import type { MasterMenu } from '@/lib/foodhub/types';
 import { cn } from '@/lib/ui/cn';
 
@@ -23,8 +23,11 @@ function untilEndOfDay() { const e = new Date(); e.setHours(23, 59, 0, 0); retur
 /** 86 board: sold out at one location → off on Uber Eats, DoorDash and Skip there, back by itself if you want. */
 export default function EightySix() {
   const { t, lang, loc } = useI18n();
+  const product = useProduct();
   const { viewer, locations, brands: catalogBrands } = useViewer();
-  const { scope } = usePulse();
+  const { scope, site } = usePulse();
+  // Starts on the console's brand and location (header picker) when one is picked.
+  const scopeBrand = site.brand;
   const toast = useToast();
   const [brands, setBrands] = useState<string[]>([]);
   const [brand, setBrand] = useState('');
@@ -35,7 +38,7 @@ export default function EightySix() {
   const [duration, setDuration] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
 
-  useEffect(() => { api<{ brands: string[]; summary: Array<{ brandName: string; items: number }> }>('/api/foodhub/menu').then((d) => { const withItems = d.summary.filter((s) => s.items > 0).map((s) => s.brandName); const list = withItems.length ? withItems : d.brands; setBrands(list); setBrand((b) => b || list[0] || ''); }).catch(() => setBrands(catalogBrands)); }, [catalogBrands]);
+  useEffect(() => { api<{ brands: string[]; summary: Array<{ brandName: string; items: number }> }>('/api/foodhub/menu').then((d) => { const withItems = d.summary.filter((s) => s.items > 0).map((s) => s.brandName); const list = withItems.length ? withItems : d.brands; setBrands(list); setBrand((b) => b || (scopeBrand && list.includes(scopeBrand) ? scopeBrand : list[0]) || ''); }).catch(() => setBrands(catalogBrands)); }, [catalogBrands, scopeBrand]);
   const load = useCallback(async () => { if (!brand) return; const d = await api<{ menu: MasterMenu }>(`/api/foodhub/menu?brand=${encodeURIComponent(brand)}`).catch(() => null); if (d) setMenu(d.menu); }, [brand]);
   useEffect(() => { load(); }, [load]);
 
@@ -59,7 +62,7 @@ export default function EightySix() {
       const d = await api<{ results: Result[] }>('/api/foodhub/availability', { method: 'POST', json: { brand, locationCode: location, itemRefs: [ref], available, minutes } });
       const bad = d.results.filter((r) => !r.result.ok);
       if (bad.length) toast.error(t(`${name} : ${bad.length} plateforme(s) ont refusé`, `${name}: ${bad.length} platform(s) refused`), bad.map((b) => `${b.channel}: ${b.result.message}`).join('\n'));
-      else toast.success(available ? t(`${name} de retour`, `${name} back on`) : t(`${name} en rupture`, `${name} 86'd`), d.results.length ? `${d.results.length} ${t('plateforme(s) mise(s) à jour', 'platform(s) updated')}` : t('Aucun magasin branché ici — enregistré dans TAKATAK seulement.', 'No store connected here — saved in TAKATAK only.'));
+      else toast.success(available ? t(`${name} de retour`, `${name} back on`) : t(`${name} en rupture`, `${name} 86'd`), d.results.length ? `${d.results.length} ${t('plateforme(s) mise(s) à jour', 'platform(s) updated')}` : t(`Aucun magasin branché ici — enregistré dans ${product.name} seulement.`, `No store connected here — saved in ${product.name} only.`));
       await load();
     } catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(null); }
   }
@@ -96,7 +99,7 @@ export default function EightySix() {
           })}
         </div>
       )}
-      <p className="mt-4 text-xs text-ink-4">{t('Les options (sauces, tailles, extras) passent par les API d’options de chaque plateforme. DoorDash n’a pas de minuterie : TAKATAK remet l’article à l’heure prévue.', 'Options (sauces, sizes, extras) use each platform’s option APIs. DoorDash has no timer: TAKATAK turns the item back on at the planned time.')}</p>
+      <p className="mt-4 text-xs text-ink-4">{t(`Les options (sauces, tailles, extras) passent par les API d’options de chaque plateforme. DoorDash n’a pas de minuterie : ${product.name} remet l’article à l’heure prévue.`, `Options (sauces, sizes, extras) use each platform’s option APIs. DoorDash has no timer: ${product.name} turns the item back on at the planned time.`)}</p>
     </div>
   );
 }

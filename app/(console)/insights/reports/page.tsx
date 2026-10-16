@@ -40,9 +40,9 @@ export default function ReportsPage() {
   const { can, locations, brands, locName } = useViewer();
   // Emailing and scheduling a report need finance:edit on the server (owner, manager); an accountant / analyst downloads.
   const canSend = can('finance:edit');
-  const { scope, brands: brandScope } = usePulse();
+  const { scope, brands: brandScope, channels: channelScope } = usePulse();
   const toast = useToast();
-  const { filters, set, query } = useFilters('yesterday', scope, brandScope);
+  const { filters, set, query } = useFilters('yesterday', scope, brandScope, channelScope);
   const [reports, setReports] = useState<Report[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [emailOn, setEmailOn] = useState(false);
@@ -60,7 +60,7 @@ export default function ReportsPage() {
   const FREQ = { daily: t('Chaque jour (la veille)', 'Daily (yesterday)'), weekly: t('Chaque lundi (semaine passée)', 'Mondays (last week)'), monthly: t('Le 1er du mois (mois passé)', 'The 1st (last month)') };
   return (
     <div>
-      <PageHeader title={t('Analyses', 'Insights')} subtitle={t('Téléchargez n’importe quel rapport pour la période choisie, envoyez-le maintenant ou chaque jour, semaine ou mois.', 'Download any report for the chosen period, email it now, or every day, week or month.')} />
+      <PageHeader title={t('Ventes et tendances', 'Sales & trends')} subtitle={t('Téléchargez n’importe quel rapport pour la période choisie, envoyez-le maintenant ou chaque jour, semaine ou mois.', 'Download any report for the chosen period, email it now, or every day, week or month.')} />
       <InsightsTabs />
       {emailOn && !canSend && <Banner tone="info" className="mb-4">{t('Envoyer ou programmer un rapport : réservé au propriétaire et aux gérants. Les téléchargements marchent pour tous.', 'Emailing or scheduling a report: owner and managers only. Downloads work for everyone.')}</Banner>}
       {!emailOn && <Banner tone="warn" className="mb-4">{t('Courriel pas branché : les téléchargements marchent, mais « Envoyer » et les envois programmés demandent SMTP_HOST + SMTP_USER + SMTP_PASS (votre boîte courriel) ou RESEND_API_KEY, et REPORT_EMAIL_FROM (ou AUTH_EMAIL_FROM).', 'Email not set up: downloads work, but “Email” and schedules need SMTP_HOST + SMTP_USER + SMTP_PASS (your own mailbox) or RESEND_API_KEY, and REPORT_EMAIL_FROM (or AUTH_EMAIL_FROM).')}</Banner>}

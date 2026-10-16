@@ -21,8 +21,8 @@ type Group = Omit<Analytics['byChannel'][number], 'key'> & { key: string };
 export default function InsightsPage() {
   const { t, loc } = useI18n();
   const { locations, brands } = useViewer();
-  const { scope, brands: brandScope } = usePulse();
-  const { filters, set, query } = useFilters('7d', scope, brandScope);
+  const { scope, brands: brandScope, channels: channelScope } = usePulse();
+  const { filters, set, query } = useFilters('7d', scope, brandScope, channelScope);
   const [data, setData] = useState<Analytics | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -44,7 +44,7 @@ export default function InsightsPage() {
 
   return (
     <div>
-      <PageHeader title={t('Analyses', 'Insights')} subtitle={t('Chaque chiffre est comparé à la période précédente de même durée. Les commandes annulées sont des ventes perdues.', 'Every number is compared with the previous period of the same length. Cancelled orders count as lost sales.')}
+      <PageHeader title={t('Ventes et tendances', 'Sales & trends')} subtitle={t('Chaque chiffre est comparé à la période précédente de même durée. Les commandes annulées sont des ventes perdues.', 'Every number is compared with the previous period of the same length. Cancelled orders count as lost sales.')}
         right={<><Button variant="outline" onClick={() => navigator.clipboard?.writeText(window.location.href)} icon={<Link2 className="size-4" />}>{t('Copier le lien', 'Copy link')}</Button><Hint id="insights.export"><a className={buttonClass('outline', 'md')} href={`/api/foodhub/reports/order_transactions?format=xlsx&${query}`}><Download className="size-4" />Excel</a></Hint></>} />
       <InsightsTabs />
       <Hint id="insights.period"><FilterBar filters={filters} set={set} locations={locations} brands={brands} /></Hint>
@@ -89,7 +89,7 @@ export default function InsightsPage() {
             {data.lostItems.length > 0 && <p className="mt-3 text-xs text-ink-3">{t('Souvent dans les commandes annulées :', 'Often in cancelled orders:')} {data.lostItems.slice(0, 5).map((i) => `${i.name} (${i.qty})`).join(', ')}</p>}
           </ChartCard>
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-            <ChartCard title={t('Disponibilité pendant les heures d’ouverture', 'Uptime during opening hours')} subtitle={t('Les plus bas d’abord', 'Lowest first')} table={{ columns: [t('Plateforme', 'Platform'), t('Marque', 'Brand'), t('Succursale', 'Location'), t('Heures', 'Hours'), t('Ouvert (min)', 'Open (min)'), t('Hors ligne (min)', 'Offline (min)'), '%'], rows: data.uptime.stores.map((u) => [u.label, u.brandName, u.location, u.hoursSet ? '✓' : '24/7', u.openMinutes, u.offlineMinutes, `${u.uptimePct}%`]), filename: 'takatak-uptime' }}>
+            <ChartCard title={t('Disponibilité pendant les heures d’ouverture', 'Uptime during opening hours')} subtitle={t('Les plus bas d’abord', 'Lowest first')} table={{ columns: [t('Plateforme', 'Platform'), t('Marque', 'Brand'), t('Succursale', 'Location'), t('Heures', 'Hours'), t('Ouvert (min)', 'Open (min)'), t('Hors ligne (min)', 'Offline (min)'), '%'], rows: data.uptime.stores.map((u) => [u.label, u.brandName, u.location, u.hoursSet ? '✓' : t('Sans horaire', 'No hours set'), u.openMinutes, u.offlineMinutes, `${u.uptimePct}%`]), filename: 'takatak-uptime' }}>
               <HBars rows={data.uptime.stores.slice(0, 12).map((u) => ({ label: `${u.label} · ${u.brandName} · ${u.location}`, value: u.uptimePct, detail: `${mins(u.offlineMinutes)} ${t('hors ligne', 'offline')}` }))} format={(n) => `${n}%`} empty={t('Aucun magasin branché.', 'No store connected.')} />
             </ChartCard>
             <ChartCard title={t('Clients', 'Customers')} subtitle={t('Quand la plateforme partage un identifiant client', 'When the platform shares a customer id')} table={{ columns: ['', ''], rows: [[t('Identifiés', 'Identified'), data.customers.identified], [t('Nouveaux', 'New'), data.customers.newCustomers], [t('Fidèles', 'Returning'), data.customers.repeatCustomers], ['%', `${data.customers.repeatRate}%`]], filename: 'takatak-customers' }}>

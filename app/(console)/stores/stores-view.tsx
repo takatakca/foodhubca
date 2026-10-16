@@ -20,7 +20,7 @@ import { api, ApiError, timeOf } from '@/lib/ui/api';
 import { sameValue } from '@/lib/ui/autosave-core';
 import { useAutosave } from '@/lib/ui/use-autosave';
 import { useUndo } from '@/lib/ui/use-undo';
-import { useI18n } from '@/lib/i18n/client';
+import { useI18n, useProduct } from '@/lib/i18n/client';
 import type { T } from '@/lib/i18n';
 import type { ChannelStore, PlatformStatus } from '@/lib/foodhub/types';
 import type { CommandCenter } from '@/lib/foodhub/command';
@@ -49,6 +49,7 @@ export function stateText(t: T, state: string) {
 
 export function StoresView() {
   const { t, loc } = useI18n();
+  const product = useProduct();
   const { locations, can, locName } = useViewer();
   const { scope, site, setSite } = usePulse();
   const toast = useToast();
@@ -131,7 +132,7 @@ export function StoresView() {
         <div className="w-48 min-w-0">{showBrand && <div className="truncate text-sm font-bold">{s.brandName}</div>}<PlatformTag channel={s.channel} className={showBrand ? 'text-xs font-medium text-ink-3' : 'text-sm font-bold'} /></div>
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           <Badge tone={st.tone}>{stateText(t, st.state)}</Badge>
-          {st.ps?.source === 'dashboard' && st.state !== 'online' && <span className="text-xs text-ink-3">{t('par TAKATAK', 'from TAKATAK')}</span>}
+          {st.ps?.source === 'dashboard' && st.state !== 'online' && <span className="text-xs text-ink-3">{t(`par ${product.shortName}`, `from ${product.shortName}`)}</span>}
           {st.ps?.source && st.ps.source !== 'dashboard' && st.state !== 'online' && <span className="text-xs font-semibold text-wait-2">{t('par la plateforme', 'by the platform')}</span>}
           {s.pausedUntil && !s.online && <span className="text-xs text-ink-3">{t('jusqu’à', 'until')} {timeOf(s.pausedUntil, loc)}</span>}
           {st.ps?.detail && <span className="truncate text-xs text-ink-3" title={st.ps.detail}>{st.ps.detail}</span>}

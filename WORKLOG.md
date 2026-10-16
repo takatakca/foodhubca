@@ -3,6 +3,8 @@
 Newest first, one line per piece of work. Rule: `AGENTS.md` › Work log rule.
 Format: `YYYY-MM-DD | agent | branch → PR | status | what | next step`
 
+- 2026-10-16 | ChatGPT (finance UI) | fix/finance-table-loading-skeletons → PR pending | active | Replace blank loading messages with accessible skeleton rows in 5 existing finance tables | add component, check CI and PR
+
 - 2026-10-16 | claude (Clover Marketplace session, task 33) | feature/clover-admin-test-order → PR #53 | PR #53 open, ready for owner merge | Clover proof without the App Market (draft app cannot be installed): owner-only "Send a test order" in Settings → Clover app for API-token registers (CLOVER_ACCESS_TOKEN / CLOVER_MERCHANT_TOKENS); checklist "tested end to end" = last fully successful test; 811 tests, webpack OK, e2e 541/0 | owner merges (auto-deploy), pastes CLOVER_ACCESS_TOKEN in Coolify, then Settings → Clover app → Send a test order on the real register (FH-006)
 - 2026-10-15 | Codex (Food Hub automatic production) | PR #49 merged → main | active; native Webhook build passed | Main e7ce788 triggered native Coolify deployment nyf14yjdr5heghjgcoznlvfg; Contabo audit/check/build, 807 unit tests (2 skipped), E2E 536/0 and pruned-runtime probe passed. Existing Supabase/session settings and media volume verified preserved. Corrected Coolify 4.4.6 readiness override from missing curl/wget to the same strict Node checker | Trigger corrected native release through this configuration record; final Webhook/healthy/exact-SHA evidence in PR #49 description; no live connector activation
 

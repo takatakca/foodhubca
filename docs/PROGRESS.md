@@ -1,5 +1,10 @@
 # Food Hub: progress log and task board
 
+## 2026-10-16 — Modal/drawer keyboard accessibility
+
+Branche `fix/overlay-keyboard-focus-20261016` : focus initial, Tab/Shift+Tab circulaires, gestion Échap uniquement en haut de la pile, restitution du focus précédent, scroll-lock de fenêtres imbriquées, noms et descriptions ARIA ; tests unitaires de la pile et de navigation clavier. Aucun changement de données, de fournisseurs, de déploiement ni de `main`. PR, CI, image et essai navigateur à vérifier au SHA final.
+
+
 ## 2026-10-16 — Uber store kitchen mapping (task 39, `fix/uber-store-kitchen-mapping`)
 
 - The 7 Uber UUIDs in `data/actual/platform-stores-uber.json` are at 5839 Jean-Talon E (Saint-Léonard) in Uber's own records (Uber names them "(Hochelaga)"); production maps them to `NDG_6284`. That mapping was typed by hand in the console, so it lives only in the production `fh_channel_stores` rows: no repo seed or code defaulted Uber stores to NDG.

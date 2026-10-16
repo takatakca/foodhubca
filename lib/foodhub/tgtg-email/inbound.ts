@@ -82,7 +82,7 @@ export class BodyTooLargeError extends Error {
 }
 
 /** The request body, read with a byte counter: past `max` bytes the read stops (chunked bodies have no Content-Length). */
-export async function readBodyLimited(req: Request, max: number): Promise<Uint8Array> {
+export async function readBodyLimited(req: Request, max: number): Promise<Uint8Array<ArrayBuffer>> {
   if (!req.body) return new Uint8Array(0);
   const reader = req.body.getReader();
   const chunks: Uint8Array[] = [];

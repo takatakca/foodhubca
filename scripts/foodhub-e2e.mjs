@@ -1784,7 +1784,9 @@ try {
     const startMs = Date.now() + 20 * 60_000;
     const day = new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date(startMs));
     const window = `${day} ${hm(startMs)} - ${hm(startMs + 30 * 60_000)}`;
-    const mime = (id, subject, lines) => ['From: Too Good To Go <no-reply@toogoodtogo.com>', 'To: store@example.test', `Subject: ${subject}`, `Message-ID: <${id}@e2e.test>`, `Date: ${new Date().toUTCString()}`, 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8', '', ...lines, ''].join('\r\n');
+    // The receiving mail server's verdict (topmost Authentication-Results): without dkim / dmarc pass nothing is acted on.
+    const AUTH_OK = 'Authentication-Results: mx.e2e.test; dkim=pass header.d=toogoodtogo.com; spf=pass smtp.mailfrom=toogoodtogo.com; dmarc=pass header.from=toogoodtogo.com';
+    const mime = (id, subject, lines, auth = AUTH_OK) => [...(auth ? [auth] : []), 'From: Too Good To Go <no-reply@toogoodtogo.com>', 'To: store@example.test', `Subject: ${subject}`, `Message-ID: <${id}@e2e.test>`, `Date: ${new Date().toUTCString()}`, 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8', '', ...lines, ''].join('\r\n');
     const order = mime('tgtg-e2e-order', 'New order: 2 x Surprise Bag - OOEUF NDG E2E', ['Hi OOEUF NDG E2E,', '', 'Camille just reserved 2 Surprise Bags.', 'Customer: Camille', 'Quantity: 2', 'Total paid: $11.98', `Pickup: ${window}`, 'Order ID: E2EMAIL01', 'Store: OOEUF NDG E2E']);
     const hook = (raw, token = 'tgtg-mail-e2e') => call('POST', '/api/foodhub/webhooks/tgtg-email', { auth: false, headers: { authorization: `Bearer ${token}`, 'content-type': 'message/rfc822' }, raw });
     const atomics = () => sent('POST', /\/atomic_order\/orders$/);
@@ -1792,6 +1794,9 @@ try {
     check('Settings → Platforms: TGTG store name mapped to OOeuf @ NDG 6284', map.status === 200 && map.json?.mapping?.locationCode === 'NDG_6284', map.text.slice(0, 200));
     check('Po Poulet cannot be mapped outside Saint-Léonard', (await call('POST', '/api/foodhub/tgtg-email', { body: { action: 'map', storeName: 'PO POULET NDG', brandName: 'Po Poulet', locationCode: 'NDG_MAIN' } })).status === 400);
     check('TGTG e-mail webhook refuses a wrong token', (await hook(order, 'wrong')).status === 401);
+    const forgedBefore = atomics().length;
+    const forged = await hook(mime('tgtg-e2e-forged', 'New order: 1 x Surprise Bag - OOEUF NDG E2E', ['Eve just reserved 1 Surprise Bag.', 'Total paid: $5.99', `Pickup: ${window}`, 'Order ID: E2EFORGE1', 'Store: OOEUF NDG E2E'], 'Authentication-Results: mx.e2e.test; dkim=fail header.d=toogoodtogo.com; dmarc=fail header.from=toogoodtogo.com'));
+    check('forged Too Good To Go From (no DKIM / DMARC pass) → attention, nothing sent to Clover', forged.json?.status === 'attention' && /not verified/.test(forged.json?.reason || '') && atomics().length === forgedBefore, forged.text.slice(0, 200));
     const before = atomics().length;
     const got = await hook(order);
     check('reservation e-mail → order created', got.status === 200 && got.json?.status === 'order_created' && got.json?.code === 'E2EMAIL01', got.text.slice(0, 200));

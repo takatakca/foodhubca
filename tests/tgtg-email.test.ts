@@ -13,7 +13,7 @@ import { mailFromFields } from '../lib/foodhub/tgtg-email/inbound';
 import { mailFromMime } from '../lib/foodhub/tgtg-email/mime';
 import { codeFrom, dateFrom, htmlToText, mailKind, moneyFrom, parseTgtgMail, senderAllowed, senderVerified, timesFrom, type TgtgMail } from '../lib/foodhub/tgtg-email/parse';
 import {
-  getMailboxStatus, getMailRecord, getTgtgEmailSettings, listAttention, listMailRecords, mappingProblem, removeTgtgMapping, saveTgtgMapping, setTgtgEmailEnabled, suggestTgtgMapping, tgtgEmailStoreId, tgtgUnmappedStoreId,
+  getMailboxStatus, getTgtgEmailSettings, listAttention, listMailRecords, mappingProblem, removeTgtgMapping, saveTgtgMapping, setTgtgEmailEnabled, suggestTgtgMapping, tgtgEmailStoreId, tgtgUnmappedStoreId,
 } from '../lib/foodhub/tgtg-email/settings';
 
 const FIX = path.join(__dirname, 'fixtures', 'tgtg-email');

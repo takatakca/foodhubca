@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { Check, CheckCircle2, CircleAlert, CircleDashed, ClipboardList, Copy, ExternalLink, FileText, Hourglass, KeyRound, Link2, Printer, Receipt, RefreshCw, ShieldCheck, Store, Tags, TriangleAlert, Video, X } from 'lucide-react';
+import { Check, CheckCircle2, CircleAlert, CircleDashed, ClipboardList, Copy, ExternalLink, FileText, Hourglass, KeyRound, LayoutGrid, Link2, Printer, Receipt, RefreshCw, ShieldCheck, Store, Tags, TriangleAlert, Video, X } from 'lucide-react';
 import { Banner } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -29,7 +29,14 @@ type AppInfo = {
   /** Last test order that went through every step (created, printed, paid). */
   testOrder?: { merchantId: string; posOrderId: string; at: string } | null;
 };
-type ChannelsData = { clover: { webhookAuthSet?: boolean; verification?: { code: string } | null; tokenMerchantIds?: string[]; app?: AppInfo } };
+type CloverAppStatus = {
+  key: 'foodhub' | 'phone'; name: string; appId: string | null; configured: boolean; enabled: boolean; missing: string[];
+  env: { appId: string; secret: string; webhookAuth: string };
+  connectUrl: string; launchPath: string; webhookUrl: string; events: Array<'app' | 'inventory' | 'orders'>;
+  webhookAuthSet: boolean; verification: { code: string; at: string } | null;
+  installs: Array<{ merchantId: string; name: string | null; status: 'active' | 'pending'; billing: { status: string | null; inTrial: boolean; plan: string | null } | null; bothApps: boolean }>;
+};
+type ChannelsData = { clover: { webhookAuthSet?: boolean; verification?: { code: string } | null; tokenMerchantIds?: string[]; app?: AppInfo; apps?: CloverAppStatus[] } };
 type ReadyCheck = { ok: boolean; title: string; body: string; href?: string };
 
 // Settings → Clover app: everything the owner needs to finish the Clover App Market listing and press Submit.
@@ -105,6 +112,8 @@ export default function CloverAppPage() {
               </ul>
             </Section>
 
+            {data?.clover.apps && data.clover.apps.length > 0 && <CloverAppsSection apps={data.clover.apps} onDone={load} />}
+
             <OwnerTestOrder merchants={[...new Set([...(data?.clover.tokenMerchantIds ?? []), ...app.merchants.filter((m) => m.status === 'active').map((m) => m.merchantId)])]} onDone={load} />
 
             <Section icon={<Store className="size-5" />} title={t('À faire dans le tableau de bord Clover (vous)', 'To do in the Clover dashboard (you)')}
@@ -174,6 +183,82 @@ export default function CloverAppPage() {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Every Clover app this server serves, each sold on its own in the Clover App Market: TAKATAK Food Hub and the AI phone
+ * app. Keys set or not (environment variable names only), addresses for the Clover dashboard, webhook state, and which
+ * merchants installed each app — a merchant with both apps shares its menu, stores and orders between them.
+ */
+function CloverAppsSection({ apps, onDone }: { apps: CloverAppStatus[]; onDone: () => void }) {
+  const { t } = useI18n();
+  const [busy, setBusy] = useState('');
+  const [err, setErr] = useState('');
+  const ev = (e: CloverAppStatus['events'][number]) => ({ app: 'App', inventory: 'Inventory', orders: 'Orders' }[e]);
+  async function approve(app: CloverAppStatus['key'], merchantId: string) {
+    setBusy(`${app}:${merchantId}`);
+    try {
+      await api('/api/foodhub/clover-connect/merchants', { method: 'POST', body: JSON.stringify({ merchantId, app }) });
+      setErr('');
+      onDone();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
+  }
+  return (
+    <Section icon={<LayoutGrid className="size-5" />} title={t('Applications Clover de ce serveur', 'Clover apps on this server')}
+      subtitle={t('Chaque application est vendue séparément dans le Clover App Market. Un marchand qui a les deux partage son menu, ses magasins et ses commandes.', 'Each app is sold separately in the Clover App Market. A merchant with both shares its menu, stores and orders.')}>
+      {err && <Banner tone="stop" className="mb-3">{err}</Banner>}
+      <div className="space-y-4">
+        {apps.map((a) => (
+          <div key={a.key} className="rounded-lg border border-line p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="min-w-0 flex-1">
+                <div className="font-bold">{a.name}</div>
+                <div className="num text-[12px] text-ink-3">{a.appId ? `App ID ${a.appId}` : t('App ID non défini', 'App ID not set')}</div>
+              </div>
+              {a.configured ? <Badge tone="go" icon={<Check className="size-3" />}>{t('Configurée', 'Set up')}</Badge> : <Badge tone="wait">{t('Non configurée', 'Not set up')}</Badge>}
+              <Badge tone={a.installs.length ? 'go' : 'wait'}>{t(`${a.installs.length} installation(s)`, `${a.installs.length} install(s)`)}</Badge>
+            </div>
+            {!a.configured && (
+              <p className="mt-2 text-[13px] text-ink-3">
+                {a.key === 'phone'
+                  ? t(`Créez l’application dans le tableau de bord Clover, puis ajoutez sur le serveur : ${a.missing.join(', ')} (et ${a.env.webhookAuth}). Guide : docs/CLOVER_MULTI_APP.md. Sans ces variables, rien ne change.`, `Create the app in the Clover dashboard, then add on the server: ${a.missing.join(', ')} (and ${a.env.webhookAuth}). Guide: docs/CLOVER_MULTI_APP.md. Without these variables nothing changes.`)
+                  : t(`Manque : ${a.missing.join(', ')} — npm run setup sur le serveur.`, `Missing: ${a.missing.join(', ')} — npm run setup on the server.`)}
+              </p>
+            )}
+            {a.enabled && (
+              <div className="mt-3">
+                <CopyRow label="Alternate Launch Path" value={a.launchPath} />
+                <CopyRow label={t(`Webhook URL — événements : ${a.events.map(ev).join(', ')}`, `Webhook URL — events: ${a.events.map(ev).join(', ')}`)} value={a.webhookUrl} />
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-[13px] text-ink-3">
+                  {a.webhookAuthSet ? <Badge tone="go">{a.env.webhookAuth}</Badge> : <Badge tone="wait">{t(`${a.env.webhookAuth} manquant`, `${a.env.webhookAuth} missing`)}</Badge>}
+                  {a.verification
+                    ? <span>{t('Code de vérification reçu :', 'Verification code received:')} <code className="rounded bg-sunken px-1.5 py-0.5 font-mono text-xs text-ink">{a.verification.code}</code></span>
+                    : <span>{t('Aucun code de vérification reçu pour l’instant.', 'No verification code received yet.')}</span>}
+                </div>
+              </div>
+            )}
+            {a.installs.length > 0 && (
+              <ul className="mt-3 divide-y divide-line">
+                {a.installs.map((m) => (
+                  <li key={m.merchantId} className="flex flex-wrap items-center gap-2 py-2">
+                    <div className="min-w-0 flex-1"><div className="font-semibold">{m.name || m.merchantId}</div><div className="num text-[12px] text-ink-3">{m.merchantId}</div></div>
+                    {m.bothApps && <Badge tone="go">{t('Les deux apps', 'Both apps')}</Badge>}
+                    {m.billing?.status && <Badge tone={m.billing.status === 'ACTIVE' ? 'go' : 'wait'}>{m.billing.status.toLowerCase()}{m.billing.inTrial ? ` · ${t('essai', 'trial')}` : ''}{m.billing.plan ? ` · ${m.billing.plan}` : ''}</Badge>}
+                    {m.status === 'pending'
+                      ? a.key === 'foodhub'
+                        ? <Badge tone="wait" icon={<Hourglass className="size-3" />}>{t('En attente', 'Waiting')}</Badge>
+                        : <Button size="sm" variant="outline" loading={busy === `${a.key}:${m.merchantId}`} onClick={() => approve(a.key, m.merchantId)}>{t('Approuver', 'Approve')}</Button>
+                      : <Badge tone="go" icon={<Check className="size-3" />}>{t('Approuvé', 'Approved')}</Badge>}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {a.enabled && a.configured && <p className="mt-3 text-[13px]"><a href={a.connectUrl} className="font-semibold underline-offset-4 hover:underline">{t('Brancher un marchand à cette application', 'Connect a merchant to this app')}<ExternalLink className="ml-1 inline size-3.5" /></a></p>}
+          </div>
+        ))}
+      </div>
+    </Section>
   );
 }
 

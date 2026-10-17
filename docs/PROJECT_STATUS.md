@@ -1,10 +1,11 @@
 # FOODHUB / ON2GO Hub — état vérifiable du projet
 
-## Reprise du 2026-10-16 — chargement des tableaux et listes
+## Reprise 2026-10-16 — navigation clavier des onglets (non publié)
 
-Branche `fix/finance-table-loading-skeletons` (non fusionnée, non déployée) : composant `TableSkeleton` accessible (cinq tableaux : TGTG, payouts, statements, disputes, reconciliation) et `ListSkeleton` (grand livre, équipe). Les sept écrans n'affichent plus un état vide trompeur pendant le chargement ; les états vides définitifs et la logique métier restent inchangés. Trois tests de rendu SSR couvrent l'accessibilité et les limites des dimensions. Les CI et image Docker sont à vérifier sur la PR après son ouverture.
+Sur la branche `fix/console-tabs-keyboard-20261016` (créée à partir de `main` `12ba64d9f6941698118533d40d3f381ff709065c`), les onglets horizontaux de la console respectent maintenant le focus roving ARIA : seul l'onglet choisi est accessible avec Tab, flèche droite/gauche et Début/Fin sélectionnent et focalisent le bon onglet. Leurs événements `onChange` existants sont conservés, sans modification de données ni routes. Tests de navigation et cas invalides ajoutés dans `tests/tab-keyboard.test.ts`. CI, image Docker, revue navigateur et fusion propriétaire à contrôler ; aucune livraison de cette branche.
+## Reprise 2026-10-16 — focus des fenêtres de la console (branche, non déployé)
 
-Le `main` vérifié à la reprise est `444e8f2e60dd73e5eaa90bc4e9f92d05489b38f3` (fusion #53). Le dernier déploiement public documenté avec preuve exacte de SHA reste `027b602a12da39b1244e17b813bc51a7496a0217` selon la PR #49 ; ne pas supposer que le `main` plus récent est en production sans vérification extérieure. Les PR #51/#52 et la PR Clover #54 restent indépendantes de ce lot.
+`main` observé au SHA `12ba64d9f6941698118533d40d3f381ff709065c` (PR #57 fusionnée, CI et image réussies). Correctif indépendant sur `fix/overlay-keyboard-focus-20261016` : les dialogues et tiroirs portalisés partagent une pile de fenêtres active ; seul le dessus reçoit Échap et Tab, le focus reste dans la fenêtre, revient au déclencheur après fermeture, les zones de fond ne défilent pas en cas de fenêtres imbriquées. Les titres et sous-titres sont reliés aux attributs ARIA. Tests purs des règles d'empilement et du bouclage clavier ajoutés. Les validations GitHub de cette branche sont à contrôler sur son dernier commit. Aucune donnée marchande ni intégration modifiée ; **aucun déploiement effectué sur cette branche**. Les validations réelles Clover, Uber, DoorDash et Skip restent non certifiées : issue #46.
 
 
 ## Mise à jour du 2026-10-15 — activation en cours

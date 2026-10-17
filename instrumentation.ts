@@ -25,12 +25,18 @@ export async function register() {
     const { runWatch } = await import('./lib/foodhub/watch/engine');
     const { runOrderRecovery } = await import('./lib/foodhub/recovery');
     const { tickExpansion } = await import('./lib/foodhub/expansion/tick');
+    const { tickTgtgEmail } = await import('./lib/foodhub/tgtg-email/imap');
+    const { tickAvailability } = await import('./lib/foodhub/store-availability/tick');
     // Order recovery first (Clover retries, interrupted or failed webhooks — also right after a restart), then the Watchtower,
     // then the expansion features (courier auto-dispatch…) after the Watchtower run, never during it.
     const tick = async () => {
       await runOrderRecovery({ trigger: 'timer' }).catch((e) => console.error('[foodhub] recovery timer failed', e instanceof Error ? e.message : e));
       await runWatch({ trigger: 'timer' }).catch((e) => console.error('[foodhub] watch timer failed', e instanceof Error ? e.message : e));
       await tickExpansion();
+      // Too Good To Go order e-mails: the mailbox is read every TGTG_IMAP_POLL_S (default 60 s) when it is configured.
+      await tickTgtgEmail();
+      // Store availability center: busy schedule + tablet-off guard (at most every 30 s, never throws).
+      await tickAvailability();
     };
     g.__takatakWatchTimer = setInterval(() => { void tick(); }, Math.max(15, seconds) * 1000);
     g.__takatakWatchTimer.unref?.();

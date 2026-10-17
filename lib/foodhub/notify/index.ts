@@ -3,6 +3,7 @@
 // so the owner can see what was sent, to whom and whether it worked. Nothing here ever throws.
 import crypto from 'node:crypto';
 import { getRepo } from '../repo';
+import { dryRun, recordDry } from '../dry-run';
 import { timedFetch } from '../env-utils';
 import { emailConfigured, emailFrom, emailProvider, emailSetupMessage, sendMail } from './email';
 
@@ -61,10 +62,24 @@ async function record(e: Omit<OutboxEntry, 'id' | 'at'>): Promise<void> {
   }
 }
 
-type Meta = { purpose: string; incidentId?: string; orderId?: string; by?: string; /** do not keep the text (sign-in codes) */ secret?: boolean };
+type Meta = {
+  purpose: string; incidentId?: string; orderId?: string; by?: string; /** do not keep the text (sign-in codes) */ secret?: boolean;
+  /** Text kept in the outbox instead of the message (a payment link's secret token never lands there). */
+  preview?: string;
+};
+
+/** Inside the call simulator (dry-run.ts): recorded, never sent. */
+function dry(channel: MessageChannel, to: string, body: string, meta: Meta): SendResult | null {
+  const ctx = dryRun();
+  if (!ctx) return null;
+  recordDry(ctx, { channel, to: channel === 'chat' ? 'team chat' : maskContact(to), purpose: meta.purpose, body: meta.secret ? '(secret)' : body });
+  return { ok: true, channel, message: 'Simulation — not sent', ref: 'simulated' };
+}
 
 export async function sendEmail(input: { to: string; subject: string; text: string; html?: string }, meta: Meta): Promise<SendResult> {
   const to = normalizeEmail(input.to);
+  const simulated = to ? dry('email', to, `${input.subject}\n${input.text}`, meta) : null;
+  if (simulated) return simulated;
   let r: SendResult;
   if (!to) r = { ok: false, channel: 'email', message: 'Invalid email address.' };
   else if (!emailConfigured()) r = { ok: false, skipped: true, channel: 'email', message: emailSetupMessage('auth') };
@@ -80,6 +95,15 @@ export async function sendEmail(input: { to: string; subject: string; text: stri
   return r;
 }
 
+/** Twilio out of balance → ONE owner alert per incident; a later success re-arms it (phone/credit-alert.ts). Never throws. */
+async function twilioCredit(ok: boolean, status: number, body: { code?: unknown; message?: unknown } | null): Promise<void> {
+  try {
+    const { noteCreditRecovered, noteLowCredit, twilioLowBalance } = await import('../phone/credit-alert');
+    if (ok) await noteCreditRecovered('twilio');
+    else if (twilioLowBalance(status, body)) await noteLowCredit('twilio', `HTTP ${status}${body?.code ? ` code ${String(body.code)}` : ''}: ${String(body?.message ?? '').slice(0, 120)}`);
+  } catch { /* an alert problem never blocks a message */ }
+}
+
 function twilioAuth() {
   return `Basic ${Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64')}`;
 }
@@ -89,6 +113,8 @@ function twilioUrl(path: string) {
 
 export async function sendSms(input: { to: string; body: string; /** Our own Twilio number to send from (e.g. the number the customer called); default TWILIO_FROM / the messaging service. */ from?: string }, meta: Meta): Promise<SendResult> {
   const to = normalizePhone(input.to);
+  const simulated = to ? dry('sms', to, input.body, meta) : null;
+  if (simulated) return simulated;
   let r: SendResult;
   if (!to) r = { ok: false, channel: 'sms', message: 'Invalid phone number.' };
   else if (!smsConfigured()) r = { ok: false, skipped: true, channel: 'sms', message: 'SMS is not set up (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM).' };
@@ -102,11 +128,12 @@ export async function sendSms(input: { to: string; body: string; /** Our own Twi
       const res = await timedFetch(twilioUrl('Messages.json'), { method: 'POST', headers: { Authorization: twilioAuth(), 'Content-Type': 'application/x-www-form-urlencoded' }, body: form.toString() });
       const body = await res.json().catch(() => ({}));
       r = res.ok ? { ok: true, channel: 'sms', message: 'Sent', ref: body?.sid } : { ok: false, channel: 'sms', message: `Twilio HTTP ${res.status}: ${body?.message ?? ''}`.trim() };
+      await twilioCredit(res.ok, res.status, body);
     } catch (e) {
       r = { ok: false, channel: 'sms', message: `Network error: ${e instanceof Error ? e.message : String(e)}` };
     }
   }
-  await record({ channel: 'sms', to: to ? maskPhone(to) : '?', purpose: meta.purpose, ok: r.ok, skipped: r.skipped, message: r.message, ref: r.ref, incidentId: meta.incidentId, orderId: meta.orderId, by: meta.by, preview: meta.secret ? undefined : input.body.slice(0, 160) });
+  await record({ channel: 'sms', to: to ? maskPhone(to) : '?', purpose: meta.purpose, ok: r.ok, skipped: r.skipped, message: r.message, ref: r.ref, incidentId: meta.incidentId, orderId: meta.orderId, by: meta.by, preview: meta.secret ? undefined : (meta.preview ?? input.body).slice(0, 160) });
   return r;
 }
 
@@ -115,6 +142,8 @@ const xml = (s: string) => s.replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&g
 /** A short spoken alert, read twice. */
 export async function placeCall(input: { to: string; say: string; lang?: 'fr' | 'en' }, meta: Meta): Promise<SendResult> {
   const to = normalizePhone(input.to);
+  const simulated = to ? dry('call', to, input.say, meta) : null;
+  if (simulated) return simulated;
   let r: SendResult;
   if (!to) r = { ok: false, channel: 'call', message: 'Invalid phone number.' };
   else if (!callConfigured()) r = { ok: false, skipped: true, channel: 'call', message: 'Phone calls are not set up (Twilio + TWILIO_FROM).' };
@@ -129,6 +158,7 @@ export async function placeCall(input: { to: string; say: string; lang?: 'fr' | 
       });
       const body = await res.json().catch(() => ({}));
       r = res.ok ? { ok: true, channel: 'call', message: 'Calling', ref: body?.sid } : { ok: false, channel: 'call', message: `Twilio HTTP ${res.status}: ${body?.message ?? ''}`.trim() };
+      await twilioCredit(res.ok, res.status, body);
     } catch (e) {
       r = { ok: false, channel: 'call', message: `Network error: ${e instanceof Error ? e.message : String(e)}` };
     }
@@ -142,6 +172,8 @@ export async function postToChat(input: { title: string; text?: string; severity
   let r: SendResult;
   const icon = input.severity === 'critical' ? '🔴' : input.severity === 'warning' ? '🟠' : '🔵';
   const text = `${icon} *${input.title}*${input.text ? `\n${input.text}` : ''}${input.link ? `\n${input.link}` : ''}`;
+  const simulated = dry('chat', '', text, meta);
+  if (simulated) return simulated;
   if (!chatConfigured()) r = { ok: false, skipped: true, channel: 'chat', message: 'Team chat is not set up (ALERT_WEBHOOK_URL).' };
   else {
     try {

@@ -175,3 +175,91 @@ export function isOpenAt(week: WeeklyHours | null, holidays: Holiday[], ms: numb
   if (!week) return true;
   return openIntervals(week, holidays, ms, ms + 1, tz).length > 0;
 }
+
+// ---------- spoken hours (phone assistants) ----------
+
+const DAY_EN: Record<DayKey, string> = { monday: 'Monday', tuesday: 'Tuesday', wednesday: 'Wednesday', thursday: 'Thursday', friday: 'Friday', saturday: 'Saturday', sunday: 'Sunday' };
+
+/** Open intervals from `fromMs` on, with back-to-back slots joined (23:59 then 00:00 = one night). */
+function joinedIntervals(week: WeeklyHours, holidays: Holiday[], fromMs: number, toMs: number, tz: string): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  for (const [a, b] of openIntervals(week, holidays, fromMs, toMs, tz)) {
+    const last = out[out.length - 1];
+    if (last && a <= last[1] + 60_000) last[1] = Math.max(last[1], b); else out.push([a, b]);
+  }
+  return out;
+}
+
+const hhmm = (ms: number, tz: string) => { const p = localParts(ms, tz); return `${String(p.hour).padStart(2, '0')}:${String(p.minute).padStart(2, '0')}`; };
+
+/** One local day's opening, overnight slots joined to the next morning: "16:30 to 03:15 (next morning)". */
+function dayText(week: WeeklyHours, holidays: Holiday[], date: string, tz: string): string {
+  const start = localMs(date, 0, tz);
+  const end = localMs(date, 24 * 60, tz);
+  // From a little before midnight (a night that started the day before) to 30 hours after.
+  const all = joinedIntervals(week, holidays, start - 60_000, end + 30 * 3600_000, tz);
+  const parts: string[] = [];
+  for (const [a, b1] of all) {
+    const b = b1 - 60_000; // openIntervals ends one minute after the closing time
+    if (a <= start && b >= end - 2 * 60_000) { parts.push('open all day'); continue; }
+    // Only openings that START this day: the after-midnight tail belongs to the night before.
+    if (a < start || a >= end) continue;
+    parts.push(`${hhmm(a, tz)} to ${b >= end ? `${hhmm(b, tz)} (next morning)` : hhmm(b, tz)}`);
+  }
+  const holiday = holidays.find((h) => h.date === date);
+  const label = holiday ? ` (holiday: ${holiday.name})` : '';
+  return parts.length ? `${parts.join(' and ')}${label}` : `closed${label}`;
+}
+
+export interface HoursFacts {
+  state: 'open' | 'closed' | 'unknown';
+  /** Model-facing English text, times as HH:MM on a 0–23 clock (the assistant says them the local way). */
+  text: string;
+  closesAt?: number;
+  opensAt?: number;
+}
+
+/**
+ * The hours of some brands at one kitchen, as the phone assistants are told: today and tomorrow, and whether it is open
+ * now. "unknown" when none of the brands has hours there (the assistant is then told never to claim it is open).
+ */
+export function describeHours(cfg: HoursConfig, brands: string[], locationCode: string, now = Date.now(), tz = foodhubTimeZone()): HoursFacts {
+  const groups = new Map<string, { week: WeeklyHours; brands: string[] }>();
+  const missing: string[] = [];
+  for (const b of brands) {
+    const w = effectiveHours(cfg, b, locationCode);
+    if (!w) { missing.push(b); continue; }
+    const key = JSON.stringify(w);
+    const g = groups.get(key);
+    if (g) g.brands.push(b); else groups.set(key, { week: w, brands: [b] });
+  }
+  if (!groups.size) return { state: 'unknown', text: 'HOURS: NOT SET in Food Hub for this kitchen — never state opening hours or say that it is open; offer a team member or a message.' };
+  const holidays = holidaysFor(cfg, locationCode, localDate(now - 86400_000, tz), 10);
+  const today = localDate(now, tz);
+  const tomorrow = localDate(startOfLocalDayMs(now, tz) + 36 * 3600_000, tz);
+  let state: HoursFacts['state'] = 'closed';
+  let closesAt: number | undefined;
+  let opensAt: number | undefined;
+  const lines: string[] = [];
+  for (const g of groups.values()) {
+    const iv = joinedIntervals(g.week, holidays, now - 36 * 3600_000, now + 8 * 86400_000, tz);
+    const cur = iv.find(([a, b]) => a <= now && now < b);
+    const nextOpen = iv.find(([a]) => a > now)?.[0];
+    if (cur) { state = 'open'; closesAt = Math.max(closesAt ?? 0, cur[1] - 60_000); } else if (nextOpen && (!opensAt || nextOpen < opensAt)) opensAt = nextOpen;
+    const when = (ms: number) => (localDate(ms, tz) === today ? 'today' : localDate(ms, tz) === tomorrow ? 'tomorrow' : `on ${DAY_EN[dayKeyOf(localDate(ms, tz))]}`);
+    const nowText = cur
+      ? (cur[1] - now > 6 * 86400_000 ? 'OPEN now' : `OPEN now, closes ${when(cur[1] - 60_000) === 'today' ? '' : `${when(cur[1] - 60_000)} `}at ${hhmm(cur[1] - 60_000, tz)}`)
+      : nextOpen ? `CLOSED now, opens ${when(nextOpen)} at ${hhmm(nextOpen, tz)}` : 'CLOSED now (no opening in the next 7 days)';
+    const who = groups.size > 1 || missing.length ? `${g.brands.join(', ')}: ` : '';
+    lines.push(`${who}today ${DAY_EN[dayKeyOf(today)]} ${dayText(g.week, holidays, today, tz)}; tomorrow ${DAY_EN[dayKeyOf(tomorrow)]} ${dayText(g.week, holidays, tomorrow, tz)}; ${nowText}.`);
+  }
+  if (missing.length) lines.push(`${missing.join(', ')}: hours NOT SET — never state hours for ${missing.length > 1 ? 'them' : 'it'}.`);
+  return { state, text: `HOURS (Montréal time, from Food Hub): ${lines.join(' ')}`, ...(closesAt ? { closesAt } : {}), ...(opensAt && state !== 'open' ? { opensAt } : {}) };
+}
+
+/** Is this brand open at this kitchen at `ms`? "unknown" when its hours were never set (phone orders are then refused). */
+export function brandHoursState(cfg: HoursConfig, brand: string, locationCode: string, ms: number, tz = foodhubTimeZone()): 'open' | 'closed' | 'unknown' {
+  const w = effectiveHours(cfg, brand, locationCode);
+  if (!w) return 'unknown';
+  return isOpenAt(w, holidaysFor(cfg, locationCode, localDate(ms - 86400_000, tz), 3), ms, tz) ? 'open' : 'closed';
+}

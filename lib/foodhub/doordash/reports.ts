@@ -14,6 +14,7 @@ import { decodeText, parseCsv } from '../recon/statements';
 import { getRepo } from '../repo';
 import type { ChannelResult } from '../types';
 import { isProtectedDoorDashId, withoutProtectedIds } from './guard';
+import { doorDashIntegrationIsSandbox } from './sandbox';
 import { withDoorDashRetry } from './retry';
 
 const KEY = 'doordash' as const;
@@ -34,9 +35,22 @@ export interface DoorDashReportRequest {
   rows?: number; droppedRows?: number; fileName?: string; imported?: boolean;
 }
 
-function creds() {
+function ownCreds() {
   const own = { developerId: process.env.DOORDASH_REPORTS_DEVELOPER_ID, keyId: process.env.DOORDASH_REPORTS_KEY_ID, signingSecret: process.env.DOORDASH_REPORTS_SIGNING_SECRET };
-  return own.developerId && own.keyId && own.signingSecret ? own : { developerId: process.env.DOORDASH_DEVELOPER_ID, keyId: process.env.DOORDASH_KEY_ID, signingSecret: process.env.DOORDASH_SIGNING_SECRET };
+  return own.developerId && own.keyId && own.signingSecret ? own : null;
+}
+function creds() {
+  return ownCreds() ?? { developerId: process.env.DOORDASH_DEVELOPER_ID, keyId: process.env.DOORDASH_KEY_ID, signingSecret: process.env.DOORDASH_SIGNING_SECRET };
+}
+
+/**
+ * DoorDash sandbox mode (DOORDASH_ENV=sandbox, doordash/sandbox.ts): the Marketplace key is a sandbox one, so a report
+ * fetched with it is sandbox data and must never reach Money → Reconciliation. Refused unless the Reports integration
+ * has its own key (DOORDASH_REPORTS_*). Null = allowed.
+ */
+export function doorDashReportsSandboxRefusal(): string | null {
+  if (!doorDashIntegrationIsSandbox() || ownCreds()) return null;
+  return 'Not sent: DoorDash is in sandbox mode (DOORDASH_ENV=sandbox) and the Marketplace key is a sandbox one — a sandbox report never counts in money. Set DOORDASH_REPORTS_DEVELOPER_ID / _KEY_ID / _SIGNING_SECRET (Reports integration) to use reports.';
 }
 export const reportsBase = () => stripSlash(process.env.DOORDASH_REPORTS_BASE_URL || 'https://openapi.doordash.com');
 const headers = () => ({ Authorization: `Bearer ${doorDashJwt(undefined, creds())}`, 'Content-Type': 'application/json', Accept: 'application/json' });
@@ -72,6 +86,8 @@ export async function mappedDoorDashStoreNumbers(): Promise<number[]> {
 }
 
 export async function requestDoorDashReport(input: { reportType: string; from: string; to: string; businessIds?: number[]; storeIds?: number[]; webhookUrl?: string }, actor: Actor): Promise<DoorDashReportRequest | ChannelResult> {
+  const sandbox = doorDashReportsSandboxRefusal();
+  if (sandbox) return result(KEY, 'blocked', sandbox);
   const miss = missing();
   if (miss.length) return result(KEY, 'blocked', `DoorDash Reporting API credentials missing: ${miss.join(', ')} (Developer Portal → your Reports integration → access key).`);
   const built = reportBody(input);
@@ -105,6 +121,8 @@ export function readReportLink(body: any): ReportLink {
 }
 
 export async function getDoorDashReportLink(reportId: string): Promise<ChannelResult & { link?: ReportLink }> {
+  const sandbox = doorDashReportsSandboxRefusal();
+  if (sandbox) return result(KEY, 'blocked', sandbox);
   const miss = missing();
   if (miss.length) return result(KEY, 'blocked', `DoorDash Reporting API credentials missing: ${miss.join(', ')}.`);
   const res = await withDoorDashRetry(() => callApi(KEY, `${reportsBase()}/dataexchange/v1/reports/${encodeURIComponent(reportId)}/reportlink`, { headers: headers() }), { method: 'GET', waitOn429: false });
@@ -154,6 +172,9 @@ export async function refreshDoorDashReport(reportId: string, actor: Actor): Pro
     return next;
   };
   if (doc.data.status === 'imported' || doc.data.status === 'ready') return doc.data;
+  // Sandbox key: nothing is downloaded, nothing is imported (the request stays as it is, to fetch later).
+  const sandbox = doorDashReportsSandboxRefusal();
+  if (sandbox) return save({ message: sandbox });
   const linkRes = await getDoorDashReportLink(reportId);
   if (!linkRes.ok) return save({ message: linkRes.message });
   const link = linkRes.link!;

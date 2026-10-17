@@ -1,8 +1,11 @@
 # FOODHUB — décisions d'architecture et d'exploitation
 
-## Décision UI locale — 2026-10-16
+## Accessibilité des onglets — 2026-10-16
 
-Les listes et tableaux doivent distinguer **chargement** et **aucune donnée**. On utilise des placeholders sémantiques et non interactifs, sans afficher de données simulées ni déclencher de chargements supplémentaires. Les animations sont sous `motion-safe`, afin de respecter la préférence du système. Implémentation isolée sur `fix/finance-table-loading-skeletons`, sans changement aux décisions d'architecture, à `main` ou aux intégrations.
+Les `Tabs` horizontaux utilisent le modèle ARIA tablist : Tab atteint uniquement la sélection courante, ArrowLeft/ArrowRight parcourent les onglets avec bouclage et Home/End vont au début/à la fin ; la sélection continue à utiliser les callbacks existants. Aucune donnée simulée et aucune nouvelle autorité de session. Branche `fix/console-tabs-keyboard-20261016` soumise aux tests et à la revue propriétaire ; indépendante des dialogues de PR #62.
+## Décision d'accessibilité de la console — 2026-10-16
+
+Les modales et tiroirs sont des dialogues réels (titre et sous-titre ARIA, focus clavier contenu et restauré). Si plusieurs se superposent, un seul dialogue — le dernier ouvert — reçoit Échap et Tab ; l'échappement clavier d'un dialogue non refermable n'entraîne pas la fermeture du dialogue sous-jacent. Le blocage du défilement du document persiste jusqu'à fermeture de la dernière fenêtre. Aucun changement au comportement des commandes, des permissions ou des intégrations. Branche `fix/overlay-keyboard-focus-20261016`, soumise à validation et approbation du propriétaire.
 
 
 Mise à jour : 2026-10-14. **Références normatives** : `CLAUDE.md`, `BRAND.md`, `docs/LOCKED_DECISIONS.md`, `docs/ON2GO_HUB_ECOSYSTEM.md`. En cas de divergence, les décisions explicites du propriétaire et les règles de sécurité des documents existants priment ; cette synthèse n'introduit pas d'approbations nouvelles.

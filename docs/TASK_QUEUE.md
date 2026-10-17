@@ -1,9 +1,8 @@
 # FOODHUB — file de tâches coordonnée
 
-## Activité indépendante — 2026-10-16
+## 2026-10-16 — suite UX clavier, tâche indépendante
 
-- **FH-014 / Phase 3 P0 (chargements)** : les sept vues finance/équipe sont prises sur `fix/finance-table-loading-skeletons` : composants `TableSkeleton` et `ListSkeleton`, états vides préservés, tests SSR ajoutés. Branche en cours ; CI + revue propriétaire avant fusion.
-- Les autres PR #48/#50/#51/#52/#54 sont déjà prises ; ne pas recoder leurs modifications. Les droits de fusion et `main` demeurent réservés au propriétaire.
+- **FH-014 / interface** : améliorer l'accessibilité des `Tabs` horizontaux via ArrowLeft/ArrowRight, Home/End et `tabIndex` roving. Branche `fix/console-tabs-keyboard-20261016` ; code et tests créés, CI/revue navigateur nécessaires, fusion uniquement par propriétaire. Distinct de [PR #62](https://github.com/takatakca/foodhubca/pull/62) qui sécurise modales/tiroirs.
 
 
 **Reprise autorisée 2026-10-15** : FH-002 à FH-005 sont prises sur la PR #49 pour terminer la livraison native GitHub App → Coolify et prouver le SHA public. Accès/source/backup/santé configurés ; tests locaux réussis (807 unitaires, 536 E2E). La livraison finale reste à constater après fusion. Aucun changement aux intégrations réelles FH-006/FH-007. Le tableau du 2026-10-14 ci-dessous conserve son contexte historique.

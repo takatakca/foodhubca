@@ -12,6 +12,7 @@ import { OrderDrawer } from '@/components/live/order-drawer';
 import { useWebsiteOrders, WebsiteOrderCard } from '@/components/live/website-orders';
 import { OwnOrderCard, useOwnOrders } from '@/components/live/own-orders';
 import { CourierStrip } from '@/components/expansion/courier-strip';
+import { KitchenStatus } from '@/components/live/order-tools/kitchen-status';
 import { refreshEverything, usePulse } from '@/components/live/pulse';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { useBoardOrders } from '../orders/orders-view';
@@ -63,6 +64,7 @@ export function KitchenView() {
         </div>
         <div className="num ml-2 text-3xl font-extrabold text-ink-2" suppressHydrationWarning>{new Date(now).toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' })}</div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
+          {here && <KitchenStatus locationCode={here} />}
           {here && can('stores:toggle') && (
             <Hint id="kitchen.busy"><Button variant={kitchen?.busy ? 'danger' : 'outline'} size="lg" loading={busy} onClick={toggleBusy} icon={kitchen?.busy ? <Flame className="size-5" /> : <Snowflake className="size-5" />}>
               {kitchen?.busy ? t(`Occupé · ${kitchen.minutes} min`, `Busy · ${kitchen.minutes} min`) : t(`Normal · ${kitchen?.minutes ?? 15} min`, `Normal · ${kitchen?.minutes ?? 15} min`)}

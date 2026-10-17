@@ -4,14 +4,14 @@
 // busy minutes it replaced — only when the last prep change is still its own. A person's change during the window wins.
 import crypto from 'node:crypto';
 import { z } from 'zod';
-import { logActivity, SCHEDULE_ACTOR, type Actor } from '../activity';
+import { logActivity, type Actor } from '../activity';
 import { pushPrepTimeToUber } from '../adapters/uber-api';
 import { DAYS, dayKeyOf, localDate } from '../hours';
 import { getPrepSettings, prepFor, savePrep } from '../prep';
 import { getRepo } from '../repo';
 import { foodhubTimeZone, localParts } from '../time';
 import type { DayKey } from '../types';
-import { BUSY_SCHEDULE_ACTION } from './common';
+import { BUSY_ACTOR, BUSY_KEPT_ACTION, BUSY_SCHEDULE_ACTION } from './common';
 
 export const BUSY_SCHEDULE_KEY = 'busy_schedule_v1';
 export const BUSY_STATE_KEY = 'busy_schedule_state_v1';
@@ -27,8 +27,11 @@ export const busyWindowSchema = z.object({
 export type BusyWindow = { id: string; days: DayKey[]; start: string; end: string; extraMin: number };
 export type BusySchedule = Record<string, BusyWindow[]>;
 
-/** What the schedule did at a kitchen: kept so the end of the window knows what to restore. */
-export interface BusyState { windowId: string; occurrence: string; prevBusy: number; appliedAt: string; applied: boolean }
+/**
+ * What the schedule did at a kitchen: kept so the end of the window knows what to restore. kept = the window is over
+ * but busy mode stayed on because a person changed it during the window (shown to staff until busy mode is off).
+ */
+export interface BusyState { windowId: string; occurrence: string; prevBusy: number; appliedAt: string; applied: boolean; kept?: boolean; keptAt?: string }
 
 const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
 const WEEK = 7 * 1440;
@@ -97,14 +100,22 @@ export function activeBusyWindow(windows: BusyWindow[], now = Date.now(), tz = f
 
 export interface BusyTick { started: string[]; ended: string[]; kept: string[] }
 
-async function endWindow(loc: string, st: BusyState, out: BusyTick): Promise<void> {
-  if (!st.applied) return;
+/** Ends a window. Returns true when busy mode stays on because a person changed it during the window. */
+async function endWindow(loc: string, st: BusyState, out: BusyTick): Promise<boolean> {
+  if (!st.applied) return false;
   const current = (await getPrepSettings())[loc];
   // Only when the last prep change is still the schedule's own: a person who changed it during the window wins.
-  if (!current || current.changedBy !== SCHEDULE_ACTOR.name || !current.isBusy) { out.kept.push(loc); return; }
-  const prep = await savePrep(loc, { isBusy: false, busy: st.prevBusy }, SCHEDULE_ACTOR);
-  await pushPrepTimeToUber(loc, prep.normal, SCHEDULE_ACTOR).catch(() => []);
+  if (!current || current.changedBy !== BUSY_ACTOR.name || !current.isBusy) {
+    out.kept.push(loc);
+    if (!current?.isBusy) return false;
+    await logActivity({ actor: BUSY_ACTOR.name, source: BUSY_ACTOR.source, kind: 'hours', action: BUSY_KEPT_ACTION, status: 'success', locationCode: loc,
+      summary: `Busy schedule ${loc}: window over, busy mode LEFT ON — changed during the window by ${current.changedBy ?? 'someone'}; turn it off from Stores if needed` });
+    return true;
+  }
+  const prep = await savePrep(loc, { isBusy: false, busy: st.prevBusy }, BUSY_ACTOR);
+  await pushPrepTimeToUber(loc, prep.normal, BUSY_ACTOR).catch(() => []);
   out.ended.push(loc);
+  return false;
 }
 
 /** Busy mode on at a window's start, back to normal at its end. Idempotent (a start is acted on once); never throws. */
@@ -118,18 +129,42 @@ export async function tickBusySchedule(now = Date.now()): Promise<BusyTick> {
       try {
         const active = activeBusyWindow(schedule[loc] ?? [], now);
         const st = state[loc];
-        if (st && active?.occurrence === st.occurrence) continue; // this start was already handled
-        if (st) { await endWindow(loc, st, out); delete state[loc]; changed = true; }
+        if (st && !st.kept && active?.occurrence === st.occurrence) continue; // this start was already handled
+        if (st?.kept) {
+          // Busy mode left on after a window: shown until someone turns it off, or until the next window starts.
+          if (!active || active.occurrence === st.occurrence) {
+            if (!(await prepFor(loc)).isBusy) { delete state[loc]; changed = true; }
+            continue;
+          }
+          delete state[loc]; changed = true;
+        } else if (st) {
+          const kept = await endWindow(loc, st, out);
+          if (kept) state[loc] = { ...st, kept: true, keptAt: new Date(now).toISOString() }; else delete state[loc];
+          changed = true;
+        }
         if (!active) continue;
         const prep = await prepFor(loc);
-        if (prep.isBusy) {
+        const base = { windowId: active.window.id, occurrence: active.occurrence, appliedAt: new Date(now).toISOString() };
+        if (prep.isBusy && prep.changedBy === BUSY_ACTOR.name) {
+          // Busy mode is the schedule's own (its state was lost, e.g. a stop between the two saves): still its window,
+          // so the end turns it off. The busy minutes it replaced are unknown: normal time is the safe guess.
+          state[loc] = { ...base, prevBusy: Math.max(prep.normal, prep.busy - active.window.extraMin), applied: true };
+        } else if (prep.isBusy) {
           // Someone already turned busy mode on: the schedule leaves it (and will not turn it off at the end).
-          state[loc] = { windowId: active.window.id, occurrence: active.occurrence, prevBusy: prep.busy, appliedAt: new Date(now).toISOString(), applied: false };
+          state[loc] = { ...base, prevBusy: prep.busy, applied: false };
         } else {
-          const saved = await savePrep(loc, { isBusy: true, busy: prep.normal + active.window.extraMin }, SCHEDULE_ACTOR);
-          await pushPrepTimeToUber(loc, saved.busy, SCHEDULE_ACTOR).catch(() => []);
-          state[loc] = { windowId: active.window.id, occurrence: active.occurrence, prevBusy: prep.busy, appliedAt: new Date(now).toISOString(), applied: true };
-          out.started.push(loc);
+          // State first, then the change: a stop in between never leaves busy mode on with nobody to turn it off.
+          state[loc] = { ...base, prevBusy: prep.busy, applied: true };
+          changed = true;
+          await getRepo().setKv(BUSY_STATE_KEY, state);
+          try {
+            const saved = await savePrep(loc, { isBusy: true, busy: prep.normal + active.window.extraMin }, BUSY_ACTOR);
+            await pushPrepTimeToUber(loc, saved.busy, BUSY_ACTOR).catch(() => []);
+            out.started.push(loc);
+          } catch (e) {
+            state[loc] = { ...state[loc], applied: false };
+            throw e;
+          }
         }
         changed = true;
       } catch (e) {

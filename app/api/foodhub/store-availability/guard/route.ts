@@ -2,6 +2,7 @@ import { inScope, withPerm } from '@/lib/foodhub/auth';
 import { getCatalog } from '@/lib/foodhub/catalog';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { DEFAULT_GUARD, getGuardConfigs, getGuardState, saveGuardConfig } from '@/lib/foodhub/store-availability/downtime-guard';
+import { foodhubTimeZone } from '@/lib/foodhub/time';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,6 +13,7 @@ export const GET = withPerm('view', async (_req, _ctx, actor) => {
   return ok({
     guard: Object.fromEntries(locs.map((c) => [c, configs[c] ?? { ...DEFAULT_GUARD }])),
     state: Object.fromEntries(Object.entries(state).filter(([c]) => locs.includes(c))),
+    timeZone: foodhubTimeZone(),
   });
 });
 

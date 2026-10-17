@@ -6,11 +6,12 @@
 // Never: relay stores, "do not touch" stores, the DoorDash stores the owner forbids (FORBIDDEN_STORE_IDS).
 import { z } from 'zod';
 import { logActivity, type Actor } from '../activity';
-import { brandHoursState, getHours } from '../hours';
+import { brandHoursState, effectiveHours, getHours, holidaysFor, localDate, openIntervals } from '../hours';
 import { deviceStatus, listDevices, type Device } from '../identity/devices';
-import { setStoresOnline, storesFor } from '../ops';
+import { setStoresOnline, storesFor, type FanOut } from '../ops';
 import { getRepo } from '../repo';
-import type { ChannelKey } from '../types';
+import { foodhubTimeZone } from '../time';
+import type { ChannelKey, ChannelStore, HoursConfig } from '../types';
 import { AVAILABILITY_CHANNELS, GUARD_ACTOR, GUARD_REASON, isLockedStore, isStoreOnline, platformStatusOf } from './common';
 
 export const GUARD_KEY = 'downtime_guard_v1';
@@ -25,8 +26,9 @@ export const guardConfigSchema = z.object({
 export type GuardConfig = { enabled: boolean; graceMin: number; pauseMin: number; channels: ChannelKey[] };
 export const DEFAULT_GUARD: GuardConfig = { enabled: false, graceMin: 5, pauseMin: 30, channels: [...AVAILABILITY_CHANNELS] };
 
-/** What the guard paused at a kitchen (store ids that accepted the pause) and when it last (re)paused them. */
-export interface GuardState { storeIds: string[]; pausedAt: string; extendedAt: string; untilMs: number; blocked?: number }
+/** What the guard paused at a kitchen (store ids that accepted the pause), when it last (re)paused them, and how many
+ *  stores of the last attempt did not take the pause (blocked = not sent, failed = refused): those are tried again. */
+export interface GuardState { storeIds: string[]; pausedAt: string; extendedAt: string; untilMs: number; blocked?: number; failed?: number }
 
 export async function getGuardConfigs(): Promise<Record<string, GuardConfig>> {
   const raw = (await getRepo().getKv<Record<string, Partial<GuardConfig>>>(GUARD_KEY).catch(() => null)) ?? {};
@@ -60,23 +62,53 @@ function offSince(devices: Device[]): number {
   return Math.max(...devices.map((d) => Date.parse(d.lastSeenAt ?? d.enrolledAt) || 0));
 }
 
+/**
+ * When the brand's current opening started (epoch ms), or null when the brand is closed or its hours are unknown.
+ * Back-to-back slots (an overnight 16:00–03:00 split at midnight) count as one opening.
+ */
+export function openSince(hours: HoursConfig, brand: string, loc: string, now: number, tz = foodhubTimeZone()): number | null {
+  if (brandHoursState(hours, brand, loc, now, tz) !== 'open') return null;
+  const week = effectiveHours(hours, brand, loc);
+  if (!week) return null;
+  const holidays = holidaysFor(hours, loc, localDate(now - 2 * 86400_000, tz), 4);
+  let start: number | null = null;
+  let end = -Infinity;
+  for (const [a, b] of openIntervals(week, holidays, now - 36 * 3600_000, now + 1, tz)) {
+    if (start === null || a > end + 60_000) start = a;
+    end = Math.max(end, b);
+  }
+  // Should not happen (the brand is open): count from now, the safe side (a full grace time).
+  return start !== null && start <= now && now < end ? start : now;
+}
+
 export interface GuardTick { paused: string[]; extended: string[]; resumed: string[]; blocked: number }
 
+/** Still paused, still with the guard's reason: anything else means a person (or the platform) took over. */
+function guardPaused(s: ChannelStore): boolean {
+  return !isLockedStore(s) && !isStoreOnline(s) && platformStatusOf(s)?.detail === GUARD_REASON;
+}
+
+async function ownStores(loc: string, st: GuardState): Promise<ChannelStore[]> {
+  // An empty storeIds filter means "every store" in storesFor: never widen the guard's own scope to the kitchen.
+  if (!st.storeIds.length) return [];
+  return (await storesFor({ storeIds: st.storeIds, locationCode: loc })).filter(guardPaused);
+}
+
 async function resumeOwn(loc: string, st: GuardState, out: GuardTick): Promise<void> {
-  const stores = await storesFor({ storeIds: st.storeIds, locationCode: loc });
-  // Still paused, still with the guard's reason: anything else means a person (or the platform) took over.
-  const ids = stores.filter((s) => !isLockedStore(s) && !isStoreOnline(s) && platformStatusOf(s)?.detail === GUARD_REASON).map((s) => s.id);
+  const ids = (await ownStores(loc, st)).map((s) => s.id);
   if (!ids.length) return;
   const rows = await setStoresOnline(ids, true, { actor: GUARD_ACTOR });
   out.resumed.push(...rows.filter((r) => r.result.ok).map((r) => r.storeId));
   out.blocked += rows.summary.blockedCount;
 }
 
-async function kitchenOpenNow(loc: string, now: number): Promise<boolean> {
-  const hours = await getHours();
-  const brands = [...new Set((await storesFor({ locationCode: loc })).map((s) => s.brandName))];
-  // Unknown hours never count as open: the guard only acts when the hours say someone should be cooking.
-  return brands.some((b) => brandHoursState(hours, b, loc, now) === 'open');
+async function logNotPaused(loc: string, rows: FanOut): Promise<void> {
+  const { blockedCount, errorCount } = rows.summary;
+  if (!blockedCount && !errorCount) return;
+  const why = [blockedCount ? `${blockedCount} not sent (live connector off or not allowed)` : '', errorCount ? `${errorCount} refused or failed on the platform` : ''].filter(Boolean).join(', ');
+  await logActivity({ actor: GUARD_ACTOR.name, source: GUARD_ACTOR.source, kind: 'device', action: 'guard_blocked', status: 'failed', locationCode: loc,
+    summary: `Tablet-off guard ${loc}: ${blockedCount + errorCount} store(s) NOT paused — ${why}; tried again in a few minutes`,
+    detail: { notSent: blockedCount > 0, summary: rows.summary } });
 }
 
 /** One heartbeat of the guard. Never throws. */
@@ -88,6 +120,7 @@ export async function tickDowntimeGuard(now = Date.now()): Promise<GuardTick> {
     const enabledLocs = Object.entries(configs).filter(([, c]) => c.enabled).map(([loc]) => loc);
     if (!enabledLocs.length && !Object.keys(state).length) return out;
     const devices = await listDevices();
+    const hours = await getHours();
     let changed = false;
     for (const loc of new Set([...enabledLocs, ...Object.keys(state)])) {
       try {
@@ -102,45 +135,57 @@ export async function tickDowntimeGuard(now = Date.now()): Promise<GuardTick> {
           continue;
         }
         if (!cfg.enabled || !kitchen.length || anyOnline) continue;
-        if (now - offSince(kitchen) < cfg.graceMin * 60_000) continue;
-        if (!(await kitchenOpenNow(loc, now))) {
+        // Brands open right now (unknown hours never count as open: the guard acts only when someone should be cooking).
+        const brands = [...new Set((await storesFor({ locationCode: loc })).map((s) => s.brandName))];
+        const opened = brands.flatMap((b) => { const since = openSince(hours, b, loc, now); return since === null ? [] : [{ brand: b, since }]; });
+        if (!opened.length) {
           // Closed now: the guard's timed pauses end on their own (timed-pause re-open); forget them once they are over.
           if (st && now >= st.untilMs) { delete state[loc]; changed = true; }
           continue;
         }
+        // "Off for N minutes during the opening hours": the grace time counts from the later of the last heartbeat and
+        // the brand's opening, so a tablet switched off overnight is not "off for 13 h" on the first minute of service.
+        const silentSince = offSince(kitchen);
+        const ready = new Set(opened.filter((o) => now - Math.max(silentSince, o.since) >= cfg.graceMin * 60_000).map((o) => o.brand));
+        if (!ready.size) continue;
         const untilMs = now + cfg.pauseMin * 60_000;
         if (st) {
           if (now - Date.parse(st.extendedAt) < cfg.pauseMin * 30_000) continue;
-          // Nothing went through last time (blocked): try the kitchen's online stores again. Otherwise re-extend only
-          // the stores still paused by the guard; one a person resumed or re-paused is left alone (and never re-paused).
-          const retry = !st.storeIds.length && (st.blocked ?? 0) > 0;
-          const ids = retry ? await candidates(loc, cfg.channels)
-            : (await storesFor({ storeIds: st.storeIds, locationCode: loc })).filter((s) => !isLockedStore(s) && !isStoreOnline(s) && platformStatusOf(s)?.detail === GUARD_REASON).map((s) => s.id);
+          // Re-extend only the stores still paused by the guard, of brands still open; one a person resumed or re-paused
+          // is left alone (and never re-paused). When the last attempt did not go through everywhere (blocked or failed),
+          // try the kitchen's other online stores again.
+          const own = await ownStores(loc, st);
+          const extendIds = own.filter((s) => ready.has(s.brandName)).map((s) => s.id);
+          const retry = (st.blocked ?? 0) + (st.failed ?? 0) > 0;
+          const fresh = retry ? (await candidates(loc, cfg.channels, ready)).filter((id) => !st.storeIds.includes(id)) : [];
+          const ids = [...extendIds, ...fresh];
           let ok: string[] = [];
           let blocked = 0;
+          let failed = 0;
           if (ids.length) {
             const rows = await setStoresOnline(ids, false, { untilMs, reason: GUARD_REASON, actor: GUARD_ACTOR });
             ok = rows.filter((r) => r.result.ok).map((r) => r.storeId);
             blocked = rows.summary.blockedCount;
+            failed = rows.summary.errorCount;
             out.blocked += blocked;
-            (retry ? out.paused : out.extended).push(...ok);
+            out.extended.push(...ok.filter((id) => extendIds.includes(id)));
+            out.paused.push(...ok.filter((id) => fresh.includes(id)));
+            if (fresh.length) await logNotPaused(loc, rows);
           }
-          state[loc] = { ...st, storeIds: retry ? ok : ids, extendedAt: new Date(now).toISOString(), untilMs: ok.length ? untilMs : st.untilMs, blocked: retry ? blocked : 0 };
+          const storeIds = [...new Set([...own.map((s) => s.id), ...ok])];
+          state[loc] = { ...st, storeIds, extendedAt: new Date(now).toISOString(), untilMs: ok.length ? Math.max(untilMs, st.untilMs) : st.untilMs, blocked, failed };
           changed = true;
           continue;
         }
-        const ids = await candidates(loc, cfg.channels);
+        const ids = await candidates(loc, cfg.channels, ready);
         if (!ids.length) continue;
         const rows = await setStoresOnline(ids, false, { untilMs, reason: GUARD_REASON, actor: GUARD_ACTOR });
         const ok = rows.filter((r) => r.result.ok).map((r) => r.storeId);
         out.paused.push(...ok);
         out.blocked += rows.summary.blockedCount;
-        if (rows.summary.blockedCount) {
-          await logActivity({ actor: GUARD_ACTOR.name, source: GUARD_ACTOR.source, kind: 'device', action: 'guard_blocked', status: 'failed', locationCode: loc,
-            summary: `Tablet-off guard ${loc}: ${rows.summary.blockedCount} store(s) NOT paused — not sent (live connector off or not allowed)`, detail: { notSent: true, summary: rows.summary } });
-        }
-        // Remembered even when nothing went through (blocked): the next attempt waits pauseMin/2 instead of every tick.
-        state[loc] = { storeIds: ok, pausedAt: new Date(now).toISOString(), extendedAt: new Date(now).toISOString(), untilMs, blocked: rows.summary.blockedCount };
+        await logNotPaused(loc, rows);
+        // Remembered even when nothing went through (blocked or failed): the next attempt waits pauseMin/2, not every tick.
+        state[loc] = { storeIds: ok, pausedAt: new Date(now).toISOString(), extendedAt: new Date(now).toISOString(), untilMs, blocked: rows.summary.blockedCount, failed: rows.summary.errorCount };
         changed = true;
       } catch (e) {
         console.error(`[foodhub] tablet-off guard ${loc} failed`, e instanceof Error ? e.message : e);
@@ -153,7 +198,7 @@ export async function tickDowntimeGuard(now = Date.now()): Promise<GuardTick> {
   return out;
 }
 
-/** Online stores of the chosen channels at the kitchen — never relay, "do not touch" or forbidden stores. */
-async function candidates(loc: string, channels: ChannelKey[]): Promise<string[]> {
-  return (await storesFor({ locationCode: loc, channels })).filter((s) => !isLockedStore(s) && isStoreOnline(s)).map((s) => s.id);
+/** Online stores of the chosen channels and of open brands at the kitchen — never relay, "do not touch" or forbidden stores. */
+async function candidates(loc: string, channels: ChannelKey[], brands: Set<string>): Promise<string[]> {
+  return (await storesFor({ locationCode: loc, channels })).filter((s) => brands.has(s.brandName) && !isLockedStore(s) && isStoreOnline(s)).map((s) => s.id);
 }

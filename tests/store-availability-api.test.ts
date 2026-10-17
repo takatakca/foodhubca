@@ -1,11 +1,11 @@
 // Store availability center — the APIs: sign-in, permissions, location scope, manager approval; history rows and CSV;
 // the throttled heartbeat. Memory store only, no platform call.
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { logActivity } from '../lib/foodhub/activity';
 import { hashPassword } from '../lib/foodhub/auth';
 import { hashPin } from '../lib/foodhub/identity/pin';
 import { getRepo } from '../lib/foodhub/repo';
-import { statusHistory, toCsv } from '../lib/foodhub/store-availability/history';
+import { HISTORY_READ_LIMIT, statusHistory, statusHistoryPage, toCsv } from '../lib/foodhub/store-availability/history';
 import { tickAvailability } from '../lib/foodhub/store-availability/tick';
 import type { FoodHubUser } from '../lib/foodhub/types';
 import { GET as boardGet } from '../app/api/foodhub/store-availability/route';
@@ -114,6 +114,13 @@ describe('special days API', () => {
     expect((await post(MENU, { ids: ['halloween'], year: 2026, closed: true, locationCodes: ['HOCHELAGA'] })).status).toBe(403);
     expect((await post(OWNER, { ids: ['halloween'], year: 2026, closed: true, locationCodes: ['NOWHERE'] })).status).toBe(400);
     expect((await post(MENU, { ids: ['halloween'], year: 2026, slots: [{ open: '18:00', close: '02:00' }], locationCodes: ['NDG_MAIN'] })).status).toBe(400);
+    // Slots are parsed strictly: no extra fields, no null entry, 1 to 6 slots.
+    const bad = [[null], [{ open: '11:00', close: '23:00', note: 'x' }], [], Array.from({ length: 7 }, () => ({ open: '11:00', close: '12:00' })), 'x'];
+    for (const slots of bad) {
+      const r = await post(MENU, { ids: ['halloween'], year: 2026, slots, locationCodes: ['NDG_MAIN'] });
+      expect(r.status).toBe(400);
+      expect((await r.json()).error ?? '').not.toMatch(/TypeError|Cannot read/);
+    }
     const ok = await post(MENU, { ids: ['halloween'], year: 2026, slots: [{ open: '11:00', close: '23:00' }], locationCodes: ['NDG_MAIN'] });
     expect(ok.status).toBe(200);
     expect(await ok.json()).toMatchObject({ added: [{ date: '2026-10-31', locationCodes: ['NDG_MAIN'] }], skipped: [], publishAt: '/stores/hours' });
@@ -155,6 +162,29 @@ describe('status history', () => {
     expect(csv).toContain(`"'=HYPERLINK(""x"")"`);
     expect(csv).toContain('"a\nb"');
     expect(csv).not.toMatch(/%/);
+    // Formula starts hidden behind spaces, a tab or a carriage return are neutralised too.
+    const cells = (reason: string) => toCsv([{ at: 'x', brand: null, kitchen: null, channel: null, event: 'pause', until: null, reason, by: 'b', result: 'ok', summary: 's' }]).split('\r\n')[1];
+    expect(cells('  =1+1')).toContain("'  =1+1");
+    expect(cells('\t=1+1')).toContain("'\t=1+1");
+    expect(cells('\r=1+1')).toContain("'\r=1+1");
+    expect(cells('-5 min')).toContain("'-5 min");
+    expect(cells('Kitchen too busy')).toContain(',Kitchen too busy,');
+  });
+  it('says when the period has more lines than one read (truncated)', async () => {
+    await seed();
+    expect((await statusHistoryPage({ locationCode: 'NDG_MAIN' })).truncated).toBe(false);
+    const repo = getRepo();
+    const real = repo.listActivity.bind(repo);
+    const spy = vi.spyOn(repo, 'listActivity').mockImplementation(async (f) => {
+      const rows = await real(f);
+      return Array.from({ length: HISTORY_READ_LIMIT }, (_, i) => rows[i % rows.length]);
+    });
+    expect((await statusHistoryPage({ locationCode: 'NDG_MAIN' })).truncated).toBe(true);
+    const r = await (await historyGet(req('/api/foodhub/store-availability/history', OWNER), {})).json();
+    expect(r.truncated).toBe(true);
+    const csv = await historyGet(req('/api/foodhub/store-availability/history?format=csv', OWNER), {});
+    expect(csv.headers.get('x-history-truncated')).toBe('true');
+    spy.mockRestore();
   });
   it('API: scope, channel check, CSV download', async () => {
     await seed();

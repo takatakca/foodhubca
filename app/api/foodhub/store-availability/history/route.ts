@@ -1,7 +1,8 @@
 import { inScope, withPerm } from '@/lib/foodhub/auth';
 import { isChannelKey } from '@/lib/foodhub/adapters';
 import { fail, ok } from '@/lib/foodhub/http';
-import { statusHistory, toCsv } from '@/lib/foodhub/store-availability/history';
+import { statusHistoryPage, toCsv } from '@/lib/foodhub/store-availability/history';
+import { foodhubTimeZone } from '@/lib/foodhub/time';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,7 +21,7 @@ export const GET = withPerm('view', async (req, _ctx, actor) => {
   if (location && !inScope(actor, location)) return fail('Not one of your locations.', 403);
   const channel = q.get('channel') || undefined;
   if (channel && !isChannelKey(channel)) return fail('Unknown channel');
-  const rows = await statusHistory({
+  const { rows, truncated } = await statusHistoryPage({
     from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString(),
     ...(location ? { locationCode: location } : actor.locations.length ? { locationCodes: actor.locations } : {}),
     ...(q.get('brand') ? { brandName: String(q.get('brand')) } : {}),
@@ -33,8 +34,10 @@ export const GET = withPerm('view', async (req, _ctx, actor) => {
         'content-type': 'text/csv; charset=utf-8',
         'content-disposition': `attachment; filename="historique-statuts-${day(fromMs)}-${day(toMs)}.csv"`,
         'cache-control': 'no-store',
+        // More than the lines read in one go: the oldest of the period are missing — the page tells the user to narrow it.
+        ...(truncated ? { 'x-history-truncated': 'true' } : {}),
       },
     });
   }
-  return ok({ rows: rows.slice(0, 1000), total: rows.length });
+  return ok({ rows: rows.slice(0, 1000), total: rows.length, truncated, timeZone: foodhubTimeZone() });
 });

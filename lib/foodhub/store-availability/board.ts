@@ -45,7 +45,8 @@ export interface KitchenBoard {
   summary: KitchenSummary;
   brands: BrandBoard[];
 }
-export interface AvailabilityBoard { at: string; kitchens: KitchenBoard[] }
+/** timeZone: the hub's zone (FOODHUB_TIMEZONE), so the page shows times in it whatever the device's zone. */
+export interface AvailabilityBoard { at: string; timeZone: string; kitchens: KitchenBoard[] }
 
 /** FOODHUB_CLOVER_WEBSITE_BRAND / _LOCATION: one value, or a JSON map per Clover merchant (all its values count). */
 function envValues(key: string): string[] {
@@ -146,5 +147,5 @@ export async function availabilityBoard(filter: { locationCodes?: string[]; bran
       brands,
     });
   }
-  return { at: new Date(now).toISOString(), kitchens };
+  return { at: new Date(now).toISOString(), timeZone: tz, kitchens };
 }

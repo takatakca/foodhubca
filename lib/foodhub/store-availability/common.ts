@@ -49,3 +49,9 @@ export async function safely<T>(what: string, fn: () => Promise<T>, fallback: T)
 
 /** Activity action of a busy-schedule change (kind "hours"): shown in the status history. */
 export const BUSY_SCHEDULE_ACTION = 'busy_schedule_saved';
+
+/** Who the busy schedule writes as (prep changes, history): its own name, so it recognises its own busy mode. */
+export const BUSY_ACTOR: Actor = { username: 'busy-schedule', name: 'Calendrier occupé', source: 'schedule' };
+
+/** Activity action (kind "hours"): a window ended but busy mode stayed on, because a person changed it meanwhile. */
+export const BUSY_KEPT_ACTION = 'busy_schedule_kept';

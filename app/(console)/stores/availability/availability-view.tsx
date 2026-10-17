@@ -49,12 +49,21 @@ function byText(t: T, by: PausedBy | null): string | null {
   return ({ TAKATAK: t('par TAKATAK', 'from TAKATAK'), plateforme: t('par la plateforme', 'by the platform'), garde: t('par la garde tablette', 'by the tablet guard'), horaire: t('par les heures', 'by the hours') } as Record<PausedBy, string>)[by];
 }
 
-/** "à 16 h 30" today, "mar. 9 h" another day. */
-function whenText(iso: string, loc: string): string {
-  const d = new Date(iso);
-  const sameDay = d.toDateString() === new Date().toDateString();
-  return sameDay ? timeOf(iso, loc) : d.toLocaleString(loc, { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+/** A time in the hub's zone (from the API), not the device's: a phone set to another zone still reads Montréal time. */
+function hubTime(iso: string, loc: string, tz?: string, withDate = false): string {
+  if (!tz) return timeOf(iso, loc, withDate);
+  return new Date(iso).toLocaleString(loc, { ...(withDate ? { dateStyle: 'short', timeStyle: 'short' } : { hour: '2-digit', minute: '2-digit' }), timeZone: tz } as Intl.DateTimeFormatOptions);
 }
+
+/** "à 16 h 30" today, "mar. 9 h" another day (both in the hub's zone). */
+function whenText(iso: string, loc: string, tz?: string): string {
+  const day = (d: Date) => d.toLocaleDateString('en-CA', tz ? { timeZone: tz } : {});
+  const d = new Date(iso);
+  return day(d) === day(new Date()) ? hubTime(iso, loc, tz) : d.toLocaleString(loc, { weekday: 'short', hour: '2-digit', minute: '2-digit', ...(tz ? { timeZone: tz } : {}) });
+}
+
+/** "30 min", "1 h", "1 h 30" — the Québec way. */
+const durationText = (m: number) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${String(m % 60).padStart(2, '0')}` : ''}`);
 
 export function AvailabilityView() {
   const { t } = useI18n();
@@ -85,7 +94,7 @@ export function AvailabilityView() {
       {section === 'now' && <StatusNow />}
       {section === 'busy' && <>{kitchenPicker}{kitchen && <BusySchedule key={kitchen} code={kitchen} />}</>}
       {section === 'guard' && <>{kitchenPicker}{kitchen && <GuardSettings key={kitchen} code={kitchen} />}</>}
-      {section === 'special' && <SpecialDays kitchen={kitchen} />}
+      {section === 'special' && <>{kitchenPicker}<SpecialDays kitchen={kitchen} /></>}
       {section === 'history' && <History />}
     </div>
   );
@@ -110,12 +119,12 @@ function StatusNow() {
   return (
     <div className="space-y-5">
       <p className="text-sm text-ink-3">{t('Pour mettre en pause ou rouvrir, utilisez', 'To pause or resume, use')} <Link href="/stores" className="font-semibold text-brand hover:underline">{t('Statut et pauses', 'Status & pauses')}</Link>.</p>
-      {board.kitchens.map((k) => <KitchenCard key={k.code} k={k} />)}
+      {board.kitchens.map((k) => <KitchenCard key={k.code} k={k} tz={board.timeZone} />)}
     </div>
   );
 }
 
-function KitchenCard({ k }: { k: KitchenBoard }) {
+function KitchenCard({ k, tz }: { k: KitchenBoard; tz?: string }) {
   const { t, loc } = useI18n();
   const tone: Tone = k.summary.kind === 'open' ? 'go' : k.summary.kind === 'paused' ? 'wait' : 'neutral';
   const tabletsOff = k.devices.total > 0 && k.devices.online === 0;
@@ -147,7 +156,7 @@ function KitchenCard({ k }: { k: KitchenBoard }) {
                       <Badge tone={st.tone}>{st.text}</Badge>
                       {c.text && <span className="text-sm font-semibold text-ink">{pick(t, c.text)}</span>}
                       {by && <span className={c.by === 'plateforme' || c.by === 'garde' ? 'text-xs font-semibold text-wait-2' : 'text-xs text-ink-3'}>{by}</span>}
-                      {c.reopensAt && <span className="text-sm font-semibold text-ink">{t('rouvre', 'reopens')} {whenText(c.reopensAt, loc)}</span>}
+                      {c.reopensAt && <span className="text-sm font-semibold text-ink">{t('rouvre', 'reopens')} {whenText(c.reopensAt, loc, tz)}</span>}
                       {c.state === 'paused' && !c.reopensAt && <span className="text-xs text-ink-3">{t('jusqu’à réouverture manuelle', 'until resumed by hand')}</span>}
                       {c.detail && c.state !== 'online' && <span className="truncate text-xs text-ink-3" title={c.detail}>{c.detail}</span>}
                       {c.locked && <Badge tone="dark" icon={<Lock className="size-3" />} title={t('Jamais touché par les automatismes', 'Never touched by automations')}>{t('ne pas toucher', 'do not touch')}</Badge>}
@@ -200,11 +209,12 @@ function BusySchedule({ code }: { code: string }) {
       <CardHeader icon={<Flame className="size-4" />} title={t('Calendrier occupé', 'Busy schedule')}
         subtitle={t('Le mode occupé s’active au début de la plage et s’arrête à la fin (temps normal + minutes en plus, aussi envoyé à Uber Eats). Si quelqu’un change le mode occupé pendant la plage, son choix l’emporte.', 'Busy mode turns on at the start of a window and off at its end (normal time + extra minutes, also sent to Uber Eats). If someone changes busy mode during the window, their choice wins.')} />
       <div className="space-y-4 px-5 pb-5">
-        {state?.applied && <Banner tone="info">{t('Une plage est en cours : le mode occupé a été activé par le calendrier.', 'A window is running: busy mode was turned on by the schedule.')}</Banner>}
+        {state?.applied && !state.kept && <Banner tone="info">{t('Une plage est en cours : le mode occupé a été activé par le calendrier.', 'A window is running: busy mode was turned on by the schedule.')}</Banner>}
+        {state?.kept && <Banner tone="warn" action={<ButtonLink href="/stores" variant="outline">{t('Statut et pauses', 'Status & pauses')}</ButtonLink>}>{t('La plage est finie, mais le mode occupé est resté activé : quelqu’un l’a changé pendant la plage. Arrêtez-le dans Statut et pauses quand le rush est passé.', 'The window is over, but busy mode stayed on: someone changed it during the window. Turn it off in Status & pauses once the rush is over.')}</Banner>}
         <WeekGrid windows={windows} />
         {windows.map((w, i) => (
           <div key={w.id ?? `new-${i}`} className="space-y-3 rounded-lg border border-line p-4">
-            <Chips size="lg" value={w.days} onChange={(d) => editable && patch(i, { days: w.days.includes(d) ? w.days.filter((x) => x !== d) : [...w.days, d] })} options={DAYS.map((d) => ({ value: d, label: dayShort(t, d) }))} />
+            <Chips size="lg" disabled={!editable} value={w.days} onChange={(d) => editable && patch(i, { days: w.days.includes(d) ? w.days.filter((x) => x !== d) : [...w.days, d] })} options={DAYS.map((d) => ({ value: d, label: dayShort(t, d) }))} />
             <div className="flex flex-wrap items-center gap-3">
               <label className="flex items-center gap-2 text-sm font-semibold text-ink-2">{t('de', 'from')}<Input type="time" className="h-11 w-32 text-base" value={w.start} disabled={!editable} onChange={(e) => patch(i, { start: e.target.value })} /></label>
               <label className="flex items-center gap-2 text-sm font-semibold text-ink-2">{t('à', 'to')}<Input type="time" className="h-11 w-32 text-base" value={w.end} disabled={!editable} onChange={(e) => patch(i, { end: e.target.value })} /></label>
@@ -212,7 +222,7 @@ function BusySchedule({ code }: { code: string }) {
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <span className="text-sm font-semibold text-ink-2">{t('Minutes en plus', 'Extra minutes')}</span>
-              <Chips value={w.extraMin} onChange={(m) => editable && patch(i, { extraMin: m })} options={[5, 10, 15, 20, 30, 45, 60].map((m) => ({ value: m, label: `+${m}` }))} />
+              <Chips disabled={!editable} value={w.extraMin} onChange={(m) => editable && patch(i, { extraMin: m })} options={[5, 10, 15, 20, 30, 45, 60].map((m) => ({ value: m, label: `+${m}` }))} />
               <span className="flex-1" />
               {editable && <Button variant="ghost" icon={<Trash2 className="size-4" />} onClick={() => setWindows(windows.filter((_, j) => j !== i))}>{t('Retirer', 'Remove')}</Button>}
             </div>
@@ -234,6 +244,7 @@ function BusySchedule({ code }: { code: string }) {
 /** One line per day, midnight to midnight, windows drawn on it (a night across midnight continues on the next day). */
 function WeekGrid({ windows }: { windows: DraftWindow[] }) {
   const { t } = useI18n();
+  const summary = windows.filter((w) => w.days.length && w.start && w.end).map((w) => `${w.days.map((d) => dayShort(t, d)).join(', ')} ${w.start}–${w.end} +${w.extraMin} min`).join(' ; ');
   const bars = useMemo(() => {
     const out: Record<DayKey, Array<[number, number]>> = Object.fromEntries(DAYS.map((d) => [d, []])) as unknown as Record<DayKey, Array<[number, number]>>;
     for (const w of windows) {
@@ -247,7 +258,7 @@ function WeekGrid({ windows }: { windows: DraftWindow[] }) {
     return out;
   }, [windows]);
   return (
-    <div className="space-y-1.5" aria-label={t('Semaine', 'Week')}>
+    <div className="space-y-1.5" role="img" aria-label={`${t('Semaine du calendrier occupé', 'Busy schedule week')} : ${summary || t('aucune plage', 'no window')}`}>
       {DAYS.map((d) => (
         <div key={d} className="flex items-center gap-2">
           <span className="w-10 text-xs font-semibold text-ink-2">{dayShort(t, d)}</span>
@@ -270,10 +281,11 @@ function GuardSettings({ code }: { code: string }) {
   const editable = can('stores:map');
   const [cfg, setCfg] = useState<GuardConfig | null>(null);
   const [state, setState] = useState<GuardState | null>(null);
+  const [tz, setTz] = useState<string | undefined>();
   const [saving, setSaving] = useState(false);
   useEffect(() => {
-    api<{ guard: Record<string, GuardConfig>; state: Record<string, GuardState> }>('/api/foodhub/store-availability/guard')
-      .then((r) => { setCfg(r.guard[code] ?? { enabled: false, graceMin: 5, pauseMin: 30, channels: [...CHANNELS] }); setState(r.state[code] ?? null); })
+    api<{ guard: Record<string, GuardConfig>; state: Record<string, GuardState>; timeZone?: string }>('/api/foodhub/store-availability/guard')
+      .then((r) => { setCfg(r.guard[code] ?? { enabled: false, graceMin: 5, pauseMin: 30, channels: [...CHANNELS] }); setState(r.state[code] ?? null); setTz(r.timeZone); })
       .catch(() => setCfg({ enabled: false, graceMin: 5, pauseMin: 30, channels: [...CHANNELS] }));
   }, [code]);
 
@@ -295,13 +307,14 @@ function GuardSettings({ code }: { code: string }) {
         <Banner tone="warn">{t('Attention : une fois activée, la garde met vos magasins en pause automatiquement, pour une durée limitée. Elle rouvre seulement ce qu’elle a mis en pause, dès qu’une tablette revient. Les magasins « ne pas toucher » ne sont jamais touchés.', 'Careful: once on, the guard pauses your stores automatically, for a limited time. It reopens only what it paused, as soon as a tablet is back. “Do not touch” stores are never touched.')}</Banner>
         <Switch checked={cfg.enabled} disabled={!editable} onChange={(v) => set({ enabled: v })} label={t('Activer la garde pour cette cuisine', 'Turn on the guard for this kitchen')} description={t('Éteinte par défaut.', 'Off by default.')} />
         <div><div className="mb-2 text-sm font-semibold text-ink-2">{t('Tablettes éteintes depuis', 'Tablets off for')}</div>
-          <Chips size="lg" value={cfg.graceMin} onChange={(v) => editable && set({ graceMin: v })} options={[3, 5, 10, 15, 30].map((m) => ({ value: m, label: `${m} min` }))} /></div>
+          <Chips size="lg" disabled={!editable} value={cfg.graceMin} onChange={(v) => editable && set({ graceMin: v })} options={[3, 5, 10, 15, 30].map((m) => ({ value: m, label: `${m} min` }))} /></div>
         <div><div className="mb-2 text-sm font-semibold text-ink-2">{t('Durée de la pause (prolongée tant que les tablettes restent éteintes)', 'Pause length (extended while the tablets stay off)')}</div>
-          <Chips size="lg" value={cfg.pauseMin} onChange={(v) => editable && set({ pauseMin: v })} options={[15, 30, 60, 90, 120].map((m) => ({ value: m, label: m >= 60 ? `${m / 60} h` : `${m} min` }))} /></div>
+          <Chips size="lg" disabled={!editable} value={cfg.pauseMin} onChange={(v) => editable && set({ pauseMin: v })} options={[15, 30, 60, 90, 120].map((m) => ({ value: m, label: durationText(m) }))} /></div>
         <div><div className="mb-2 text-sm font-semibold text-ink-2">{t('Plateformes à mettre en pause', 'Platforms to pause')}</div>
-          <Chips size="lg" value={cfg.channels} onChange={(c) => editable && set({ channels: cfg.channels.includes(c) ? cfg.channels.filter((x) => x !== c) : [...cfg.channels, c] })} options={CHANNELS.map((c) => ({ value: c, label: CHANNEL_NAME[c] }))} /></div>
-        {state && state.storeIds.length > 0 && <Banner tone="info">{t(`La garde a ${state.storeIds.length} magasin(s) en pause jusqu’à ${timeOf(new Date(state.untilMs).toISOString(), loc)}.`, `The guard has ${state.storeIds.length} store(s) paused until ${timeOf(new Date(state.untilMs).toISOString(), loc)}.`)}</Banner>}
+          <Chips size="lg" disabled={!editable} value={cfg.channels} onChange={(c) => editable && set({ channels: cfg.channels.includes(c) ? cfg.channels.filter((x) => x !== c) : [...cfg.channels, c] })} options={CHANNELS.map((c) => ({ value: c, label: CHANNEL_NAME[c] }))} /></div>
+        {state && state.storeIds.length > 0 && <Banner tone="info">{t(`La garde a ${state.storeIds.length} magasin(s) en pause jusqu’à ${hubTime(new Date(state.untilMs).toISOString(), loc, tz)}.`, `The guard has ${state.storeIds.length} store(s) paused until ${hubTime(new Date(state.untilMs).toISOString(), loc, tz)}.`)}</Banner>}
         {state && (state.blocked ?? 0) > 0 && <Banner tone="stop">{t(`${state.blocked} magasin(s) non mis en pause : non envoyé (connexion live éteinte ou refusée).`, `${state.blocked} store(s) not paused: not sent (live connection off or refused).`)}</Banner>}
+        {state && (state.failed ?? 0) > 0 && <Banner tone="stop">{t(`${state.failed} magasin(s) non mis en pause : la plateforme a refusé ou n’a pas répondu. La garde réessaie toutes les ${cfg.pauseMin / 2} min.`, `${state.failed} store(s) not paused: the platform refused or did not answer. The guard tries again every ${cfg.pauseMin / 2} min.`)}</Banner>}
         {editable && <Button variant="brand" size="lg" loading={saving} disabled={!cfg.channels.length} onClick={() => save(cfg)}>{t('Enregistrer', 'Save')}</Button>}
       </div>
     </Card>
@@ -373,6 +386,7 @@ function SpecialDays({ kitchen }: { kitchen: string }) {
                 <Input type="time" className="h-11 w-32 text-base" value={close} onChange={(e) => setClose(e.target.value)} aria-label={t('Fermeture', 'Closing')} />
               </>}
             </div>
+            {closed && <p className="text-sm text-ink-2">{t('Skip : mis hors ligne automatiquement ce jour-là (jusqu’à minuit), sans publication. Les autres plateformes reçoivent la fermeture à la prochaine publication.', 'Skip: taken offline automatically that day (until midnight), with no publish. The other platforms get the closure with the next publish.')}</p>}
             {allLocations && locations.length > 1 && (
               <Chips value={where} onChange={setWhere} options={[{ value: 'all', label: t('Toutes les cuisines', 'Every kitchen') }, { value: 'one', label: t(`Seulement ${shortLoc(locations.find((l) => l.code === kitchen)?.name ?? kitchen)}`, `Only ${shortLoc(locations.find((l) => l.code === kitchen)?.name ?? kitchen)}`) }]} />
             )}
@@ -391,7 +405,7 @@ const EVENT_TEXT: Record<string, [string, string]> = {
   pause: ['Pause', 'Pause'], resume: ['Reprise', 'Resume'], busy_on: ['Occupé activé', 'Busy on'], busy_off: ['Occupé arrêté', 'Busy off'],
   prep_time: ['Temps de préparation', 'Prep time'], holiday_closure: ['Fermeture fériée', 'Holiday closure'], holiday: ['Jour spécial ajouté', 'Special day added'],
   hours: ['Heures', 'Hours'], guard_pause: ['Pause par la garde', 'Guard pause'], guard_resume: ['Reprise par la garde', 'Guard resume'],
-  reopen_failed: ['Réouverture échouée', 'Reopen failed'], busy_schedule: ['Calendrier occupé', 'Busy schedule'],
+  reopen_failed: ['Réouverture échouée', 'Reopen failed'], busy_schedule: ['Calendrier occupé', 'Busy schedule'], busy_kept: ['Occupé resté activé', 'Busy left on'],
   platform_online: ['Plateforme : en ligne', 'Platform: online'], platform_paused: ['Plateforme : en pause', 'Platform: paused'], platform_closed: ['Plateforme : fermé', 'Platform: closed'],
   platform_deactivated: ['Plateforme : désactivé', 'Platform: deactivated'],
 };
@@ -405,6 +419,8 @@ function History() {
   const [channel, setChannel] = useState('');
   const [rows, setRows] = useState<HistoryRow[] | null>(null);
   const [total, setTotal] = useState(0);
+  const [truncated, setTruncated] = useState(false);
+  const [tz, setTz] = useState<string | undefined>();
   const query = useMemo(() => {
     const q = new URLSearchParams({ days: String(days) });
     if (location) q.set('location', location);
@@ -413,7 +429,7 @@ function History() {
   }, [days, location, channel]);
   useEffect(() => {
     setRows(null);
-    api<{ rows: HistoryRow[]; total: number }>(`/api/foodhub/store-availability/history?${query}`).then((r) => { setRows(r.rows); setTotal(r.total); }).catch(() => setRows([]));
+    api<{ rows: HistoryRow[]; total: number; truncated?: boolean; timeZone?: string }>(`/api/foodhub/store-availability/history?${query}`).then((r) => { setRows(r.rows); setTotal(r.total); setTruncated(Boolean(r.truncated)); setTz(r.timeZone); }).catch(() => setRows([]));
   }, [query]);
   const resultText = (r: HistoryResult) => ({ ok: t('fait', 'done'), blocked: t('bloqué (non envoyé)', 'blocked (not sent)'), failed: t('échec', 'failed') })[r];
 
@@ -434,12 +450,12 @@ function History() {
               const ev = EVENT_TEXT[r.event];
               return (
                 <Tr key={`${r.at}-${i}`}>
-                  <Td className="whitespace-nowrap">{timeOf(r.at, loc, true)}</Td>
+                  <Td className="whitespace-nowrap">{hubTime(r.at, loc, tz, true)}</Td>
                   <Td>{r.kitchen ? shortLoc(locName(r.kitchen)) : t('toutes', 'all')}</Td>
                   <Td>{r.brand ?? '—'}</Td>
                   <Td>{r.channel ? CHANNEL_NAME[r.channel] : '—'}</Td>
                   <Td className="font-semibold">{ev ? t(ev[0], ev[1]) : r.event}</Td>
-                  <Td className="whitespace-nowrap">{r.until ? timeOf(r.until, loc, true) : '—'}</Td>
+                  <Td className="whitespace-nowrap">{r.until ? hubTime(r.until, loc, tz, true) : '—'}</Td>
                   <Td className="max-w-56 truncate" title={r.summary}>{r.reason ?? '—'}</Td>
                   <Td>{r.by}</Td>
                   <Td><Badge tone={RESULT_TONE[r.result]}>{resultText(r.result)}</Badge></Td>
@@ -449,7 +465,8 @@ function History() {
           </tbody>
         </Table>
       )}
-      {rows && total > rows.length && <p className="px-5 py-3 text-xs text-ink-3">{t(`${rows.length} lignes affichées sur ${total} : le CSV les contient toutes.`, `${rows.length} of ${total} lines shown: the CSV has them all.`)}</p>}
+      {rows && total > rows.length && !truncated && <p className="px-5 py-3 text-xs text-ink-3">{t(`${rows.length} lignes affichées sur ${total} : le CSV les contient toutes.`, `${rows.length} of ${total} lines shown: the CSV has them all.`)}</p>}
+      {rows && truncated && <div className="px-5 py-3"><Banner tone="warn">{t('Limité aux 5000 derniers événements : les plus anciens de la période manquent, ici et dans le CSV. Réduisez la période ou choisissez une cuisine.', 'Limited to the latest 5000 events: the oldest of the period are missing, here and in the CSV. Narrow the period or pick a kitchen.')}</Banner></div>}
     </Card>
   );
 }

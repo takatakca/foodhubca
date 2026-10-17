@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { inScope, withPerm } from '@/lib/foodhub/auth';
 import { getCatalog } from '@/lib/foodhub/catalog';
 import { getHours, localDate } from '@/lib/foodhub/hours';
@@ -5,6 +6,9 @@ import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { addSpecialDays, specialDayPresets } from '@/lib/foodhub/store-availability/special-days';
 
 export const dynamic = 'force-dynamic';
+
+/** Special hours as typed: 1 to 6 slots of exactly { open, close } (anything else is refused, never stored). */
+const slotsSchema = z.array(z.object({ open: z.string().max(5), close: z.string().max(5) }).strict()).min(1).max(6);
 
 // Special days in one tap (Halloween, Christmas Eve, Mother's Day…). ?year= (default this year).
 export const GET = withPerm('view', async (req, _ctx, actor) => {
@@ -32,7 +36,12 @@ export const POST = withPerm('menu:edit', async (req, _ctx, actor) => {
   const known = new Set((await getCatalog()).locations.map((l) => l.code));
   if (codes.some((c) => !known.has(c))) return fail('Unknown location');
   try {
-    const how = b.closed === true ? { closed: true as const } : { slots: Array.isArray(b.slots) ? b.slots : [] };
+    let how: { closed: true } | { slots: Array<{ open: string; close: string }> } = { closed: true };
+    if (b.closed !== true) {
+      const slots = slotsSchema.safeParse(b.slots);
+      if (!slots.success) return fail('slots: 1 to 6 slots of { open, close } (HH:MM), or closed: true');
+      how = { slots: slots.data.map(({ open, close }) => ({ open, close })) };
+    }
     const r = await addSpecialDays(ids, Number(b.year), how, codes, actor);
     return ok({ added: r.added, skipped: r.skipped, publishAt: '/stores/hours' });
   } catch (e) {

@@ -27,6 +27,10 @@ import { setStoresOnline } from '../lib/foodhub/ops';
 import { getRepo } from '../lib/foodhub/repo';
 import { localWallToUtcMs } from '../lib/foodhub/time';
 import type { DayKey, PlatformStatus, WeeklyHours } from '../lib/foodhub/types';
+import { FORBIDDEN_STORE_IDS } from '../lib/foodhub/public-directory';
+
+/** The owner's never-touched DoorDash store, from the constant the code uses (never typed out here). */
+const FORBIDDEN_ID = [...FORBIDDEN_STORE_IDS][0];
 
 const TZ = 'America/Toronto';
 const LOC = 'NDG_MAIN';
@@ -57,8 +61,8 @@ beforeEach(async () => {
   h.status = 'done';
   await saveHours({ locations: { [LOC]: week('16:00', '03:00') }, brands: {}, holidays: [] });
   await store('alphaUber', 'Alpha', 'uber_eats', 'ue-1');
-  await store('forbidden', 'Alpha', 'doordash', '27982486');
-  await store('forbiddenByNumber', 'Alpha', 'doordash', 'msid-1', { platformStoreId: '27982486' });
+  await store('forbidden', 'Alpha', 'doordash', FORBIDDEN_ID);
+  await store('forbiddenByNumber', 'Alpha', 'doordash', 'msid-1', { platformStoreId: FORBIDDEN_ID });
   await store('dnt', 'Alpha', 'skip', 'sk-1', { doNotTouch: true });
   await store('betaSkip', 'Beta', 'skip', 'sk-2');
   await store('betaTgtg', 'Beta', 'tgtg', 'tg-1');
@@ -163,6 +167,60 @@ describe('tablet-off guard', () => {
     const retry = await tickDowntimeGuard(OPEN + 16 * MIN);
     expect(retry.paused).toEqual([ids.alphaUber]);
     expect((await getGuardState())[LOC]).toMatchObject({ storeIds: [ids.alphaUber], blocked: 0 });
+  });
+
+  it('counts the grace time from the opening, not from a tablet switched off overnight', async () => {
+    await on({ graceMin: 5, channels: ['uber_eats'] });
+    const opening = localWallToUtcMs(2026, 10, 16, 16, 0, TZ); // Friday 16:00, the kitchen opens
+    await tablet(localWallToUtcMs(2026, 10, 16, 3, 5, TZ)); // last seen at 03:05, after closing
+    expect((await tickDowntimeGuard(opening)).paused).toEqual([]);
+    expect((await tickDowntimeGuard(opening + 4 * MIN)).paused).toEqual([]);
+    expect(h.calls).toEqual([]);
+    const r = await tickDowntimeGuard(opening + 6 * MIN);
+    expect(r.paused).toEqual([ids.alphaUber]);
+  });
+
+  it('a pause that failed on the platform (not blocked) is tried again after pauseMin/2', async () => {
+    h.status = 'error';
+    await on({ pauseMin: 30, channels: ['uber_eats'] });
+    await tablet(OPEN - 10 * MIN);
+    const r = await tickDowntimeGuard(OPEN);
+    expect(r.paused).toEqual([]);
+    expect((await getGuardState())[LOC]).toMatchObject({ storeIds: [], failed: 1 });
+    expect((await getRepo().listActivity({ kinds: ['device'] })).some((a) => a.action === 'guard_blocked')).toBe(true);
+    await tickDowntimeGuard(OPEN + 5 * MIN);
+    expect(h.calls.length).toBe(1);
+    h.status = 'done';
+    const retry = await tickDowntimeGuard(OPEN + 16 * MIN);
+    expect(retry.paused).toEqual([ids.alphaUber]);
+    expect((await get('alphaUber')).online).toBe(false);
+    expect((await getGuardState())[LOC]).toMatchObject({ storeIds: [ids.alphaUber], blocked: 0, failed: 0 });
+  });
+
+  it('pauses only the brands open right now, not a closed brand of the same kitchen', async () => {
+    await saveHours({ locations: { [LOC]: week('16:00', '03:00') }, brands: { Beta: week('11:00', '14:00') }, holidays: [] });
+    await on({ channels: ['uber_eats', 'skip', 'tgtg'] });
+    await tablet(OPEN - 10 * MIN);
+    const r = await tickDowntimeGuard(OPEN);
+    expect(r.paused).toEqual([ids.alphaUber]);
+    expect(h.calls.map((c) => c.id)).toEqual([ids.alphaUber]);
+    expect((await get('betaSkip')).online).toBe(true);
+  });
+
+  it('with nothing of its own (empty storeIds) it never re-extends or resumes the whole kitchen', async () => {
+    await on({ channels: ['uber_eats'] });
+    await tablet(OPEN - 10 * MIN);
+    // Someone else paused Beta's Skip store with the guard's reason text; the guard paused nothing itself.
+    await setStoresOnline([ids.betaSkip], false, { reason: GUARD_REASON, actor: PERSON });
+    await getRepo().setKv('downtime_guard_state_v1', { [LOC]: { storeIds: [], pausedAt: new Date(OPEN).toISOString(), extendedAt: new Date(OPEN).toISOString(), untilMs: OPEN + 30 * MIN, blocked: 0 } });
+    h.calls.length = 0;
+    const r = await tickDowntimeGuard(OPEN + 16 * MIN);
+    expect(r.extended).toEqual([]);
+    expect(h.calls).toEqual([]);
+    await tablet(OPEN + 17 * MIN);
+    const back = await tickDowntimeGuard(OPEN + 17 * MIN + 1000);
+    expect(back.resumed).toEqual([]);
+    expect((await get('betaSkip')).online).toBe(false);
   });
 
   it('validates its settings', async () => {

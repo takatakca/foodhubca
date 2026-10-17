@@ -7,6 +7,10 @@ import { HOLIDAY_REASON } from '../lib/foodhub/ops';
 import { getRepo } from '../lib/foodhub/repo';
 import { localWallToUtcMs } from '../lib/foodhub/time';
 import type { ChannelKey, ChannelStore, DayKey, PlatformStatus, WeeklyHours } from '../lib/foodhub/types';
+import { FORBIDDEN_STORE_IDS } from '../lib/foodhub/public-directory';
+
+/** The owner's never-touched DoorDash store, from the constant the code uses (never typed out here). */
+const FORBIDDEN_ID = [...FORBIDDEN_STORE_IDS][0];
 
 const TZ = 'America/Toronto';
 const DAYS: DayKey[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
@@ -95,8 +99,8 @@ describe('availability board', () => {
   it('locked stores: "do not touch" and the forbidden DoorDash store', async () => {
     process.env.FOODHUB_CLOVER_WEBSITE_ORDERS = 'off';
     const dnt = await store('Alpha', 'uber_eats', 'ue-1', { meta: { doNotTouch: true } }, { state: 'online' });
-    const forbidden = await store('Alpha', 'doordash', '27982486', {}, { state: 'online' });
-    const byNumber = await store('Beta', 'doordash', 'msid-9', { meta: { platformStoreId: '27982486' } }, { state: 'online' });
+    const forbidden = await store('Alpha', 'doordash', FORBIDDEN_ID, {}, { state: 'online' });
+    const byNumber = await store('Beta', 'doordash', 'msid-9', { meta: { platformStoreId: FORBIDDEN_ID } }, { state: 'online' });
     const free = await store('Beta', 'uber_eats', 'ue-2', {}, { state: 'online' });
     const rows = (await rowsOf(OPEN)).brands.flatMap((b) => b.channels);
     const locked = (id: string) => rows.find((r) => r.storeId === id)!.locked;

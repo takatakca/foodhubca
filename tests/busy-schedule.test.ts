@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const pushMock = vi.hoisted(() => vi.fn(async () => [] as Array<{ storeId: string; result: unknown }>));
 vi.mock('../lib/foodhub/adapters/uber-api', async (orig) => ({ ...(await orig<typeof import('../lib/foodhub/adapters/uber-api')>()), pushPrepTimeToUber: pushMock }));
 
-import { SCHEDULE_ACTOR, type Actor } from '../lib/foodhub/activity';
+import type { Actor } from '../lib/foodhub/activity';
+import { BUSY_ACTOR, BUSY_KEPT_ACTION } from '../lib/foodhub/store-availability/common';
 import { activeBusyWindow, getBusyState, saveBusySchedule, tickBusySchedule, validateBusyWindows } from '../lib/foodhub/store-availability/busy-schedule';
 import { getPrepSettings, prepFor, savePrep } from '../lib/foodhub/prep';
 import { getRepo } from '../lib/foodhub/repo';
@@ -59,8 +60,8 @@ describe('busy schedule — tick', () => {
     const r = await tickBusySchedule(FRI(17, 0));
     expect(r.started).toEqual([LOC]);
     const on = (await getPrepSettings())[LOC];
-    expect(on).toMatchObject({ isBusy: true, busy: 25, normal: 15, changedBy: SCHEDULE_ACTOR.name });
-    expect(pushMock).toHaveBeenCalledWith(LOC, 25, SCHEDULE_ACTOR);
+    expect(on).toMatchObject({ isBusy: true, busy: 25, normal: 15, changedBy: BUSY_ACTOR.name });
+    expect(pushMock).toHaveBeenCalledWith(LOC, 25, BUSY_ACTOR);
     expect((await getBusyState())[LOC]).toMatchObject({ windowId: 'w1', prevBusy: 30, applied: true });
 
     const activity = (await getRepo().listActivity({ kinds: ['store_status'] })).length;
@@ -72,7 +73,7 @@ describe('busy schedule — tick', () => {
     const end = await tickBusySchedule(FRI(20, 0));
     expect(end.ended).toEqual([LOC]);
     expect((await getPrepSettings())[LOC]).toMatchObject({ isBusy: false, busy: 30, normal: 15 });
-    expect(pushMock).toHaveBeenLastCalledWith(LOC, 15, SCHEDULE_ACTOR);
+    expect(pushMock).toHaveBeenLastCalledWith(LOC, 15, BUSY_ACTOR);
     expect((await getBusyState())[LOC]).toBeUndefined();
     await tickBusySchedule(FRI(20, 30));
     expect(pushMock).toHaveBeenCalledTimes(2);
@@ -110,6 +111,45 @@ describe('busy schedule — tick', () => {
     expect((await getPrepSettings())[LOC]).toMatchObject({ isBusy: true, busy: 30 });
     await tickBusySchedule(at(2026, 10, 18, 2, 1));
     expect((await prepFor(LOC)).isBusy).toBe(false);
+  });
+
+  it('busy mode that is the schedule’s own but whose state was lost is still turned off at the end', async () => {
+    await saveBusySchedule(LOC, [{ id: 'w1', days: ['friday'], start: '17:00', end: '20:00', extraMin: 10 }], PERSON);
+    // A stop between the prep save and the state save: busy mode on, written by the schedule, no state.
+    await savePrep(LOC, { isBusy: true, busy: 25 }, BUSY_ACTOR);
+    await tickBusySchedule(FRI(17, 1));
+    expect((await getBusyState())[LOC]).toMatchObject({ applied: true });
+    expect((await tickBusySchedule(FRI(20, 0))).ended).toEqual([LOC]);
+    expect((await prepFor(LOC)).isBusy).toBe(false);
+  });
+
+  it('the state is saved before busy mode goes on', async () => {
+    await saveBusySchedule(LOC, [{ id: 'w1', days: ['friday'], start: '17:00', end: '20:00', extraMin: 10 }], PERSON);
+    const repo = getRepo();
+    const order: string[] = [];
+    const real = repo.setKv.bind(repo);
+    const spy = vi.spyOn(repo, 'setKv').mockImplementation(async (key, value) => { order.push(key); return real(key, value); });
+    await tickBusySchedule(FRI(17, 0));
+    spy.mockRestore();
+    expect(order.indexOf('busy_schedule_state_v1')).toBeLessThan(order.indexOf('prep'));
+  });
+
+  it('busy mode kept by a person’s change (minutes only) is logged and shown until busy mode is off', async () => {
+    await saveBusySchedule(LOC, [{ id: 'w1', days: ['friday'], start: '17:00', end: '20:00', extraMin: 10 }], PERSON);
+    await tickBusySchedule(FRI(17, 0));
+    await savePrep(LOC, { busy: 35 }, PERSON); // only the minutes: busy mode stays on, now Mona's
+    const end = await tickBusySchedule(FRI(20, 0));
+    expect(end.kept).toEqual([LOC]);
+    expect((await prepFor(LOC)).isBusy).toBe(true);
+    expect((await getBusyState())[LOC]).toMatchObject({ kept: true });
+    const log = await getRepo().listActivity({ kinds: ['hours'] });
+    expect(log.filter((a) => a.action === BUSY_KEPT_ACTION)).toHaveLength(1);
+    await tickBusySchedule(FRI(20, 30)); // still busy: still shown, not logged again
+    expect((await getBusyState())[LOC]).toMatchObject({ kept: true });
+    expect((await getRepo().listActivity({ kinds: ['hours'] })).filter((a) => a.action === BUSY_KEPT_ACTION)).toHaveLength(1);
+    await savePrep(LOC, { isBusy: false }, PERSON);
+    await tickBusySchedule(FRI(20, 31));
+    expect((await getBusyState())[LOC]).toBeUndefined();
   });
 
   it('a window removed while running ends cleanly; the tick never throws', async () => {

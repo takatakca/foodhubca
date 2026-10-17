@@ -18,7 +18,11 @@ export interface LegalInfo {
   /** Free trial length, the monthly price per app and the price of each additional brand per platform (CAD),
    *  billed only through Clover App Market billing. */
   pricing: { trialDays: number; monthlyCad: number; extraBrandCad: number };
+  /** TAKATAK Phone, the second Clover app (automated phone assistant): free trial, monthly price and the price of each
+   *  minute the assistant is on the line (CAD), billed by Clover through the Clover App Market; Canada only. */
+  phonePricing: { trialDays: number; monthlyCad: number; minuteCad: number };
   appName: string;
+  phoneAppName: string;
   baseUrl: string;
 }
 
@@ -38,7 +42,13 @@ export function legalInfo(): LegalInfo {
       monthlyCad: positiveInt(process.env.FOODHUB_MONTHLY_PRICE_CAD, 50),
       extraBrandCad: positiveInt(process.env.FOODHUB_EXTRA_BRAND_PRICE_CAD, 15),
     },
+    phonePricing: {
+      trialDays: positiveInt(process.env.FOODHUB_PHONE_TRIAL_DAYS, 14),
+      monthlyCad: positiveInt(process.env.FOODHUB_PHONE_MONTHLY_PRICE_CAD, 50),
+      minuteCad: positiveCents(process.env.FOODHUB_PHONE_MINUTE_PRICE_CAD, 0.25),
+    },
     appName: 'TAKATAK Food Hub',
+    phoneAppName: 'TAKATAK Phone',
     baseUrl: publicBaseUrl(),
   };
 }
@@ -48,11 +58,33 @@ function positiveInt(raw: string | undefined, fallback: number): number {
   return Number.isInteger(n) && n > 0 ? n : fallback;
 }
 
+/** A positive amount with at most two decimals ("0.25", "1"); anything else falls back to the default. */
+function positiveCents(raw: string | undefined, fallback: number): number {
+  const s = (raw || '').trim();
+  const n = Number(s);
+  return /^\d+(\.\d{1,2})?$/.test(s) && n > 0 ? n : fallback;
+}
+
+/** An amount as French ("0,25") or English ("0.25") text; whole amounts stay whole ("50"). */
+function cad(n: number, lang: 'fr' | 'en'): string {
+  const s = Number.isInteger(n) ? String(n) : n.toFixed(2);
+  return lang === 'fr' ? s.replace('.', ',') : s;
+}
+
 /** The fees wording shared by the terms (§6) and the support FAQ, so both always say the same thing. */
 export function feesText(p: LegalInfo['pricing']): { fr: string; en: string } {
   return {
     fr: `Essai gratuit de ${p.trialDays} jours, puis ${p.monthlyCad} $ CA par mois par application, facturés uniquement par la facturation du Clover App Market : rien n’est facturé en dehors de Clover. Ce prix couvre une marque sur toutes ses plateformes ; chaque marque additionnelle coûte ${p.extraBrandCad} $ CA par mois par plateforme, facturés par Clover (le prix est affiché avant l’ajout). Le prix en vigueur est indiqué dans la fiche de l’application du Clover App Market.`,
     en: `Free ${p.trialDays}-day trial, then CAD $${p.monthlyCad} per month per app, billed only through Clover App Market billing: nothing is billed outside Clover. This price covers one brand on all its platforms; each additional brand costs CAD $${p.extraBrandCad} per month per platform, billed by Clover (the price is shown before you add it). The current price is shown on the app’s Clover App Market listing.`,
+  };
+}
+
+/** The TAKATAK Phone fees, shown next to feesText() in the terms (§6) and the support FAQ. Minutes follow the
+ *  metering of the phone app: AI time only, rounded up per call, never after a transfer to a person, never in the trial. */
+export function phoneFeesText(p: LegalInfo['phonePricing']): { fr: string; en: string } {
+  return {
+    fr: `Essai gratuit de ${p.trialDays} jours, puis ${cad(p.monthlyCad, 'fr')} $ CA par mois, plus ${cad(p.minuteCad, 'fr')} $ CA par minute d’appel avec l’assistant automatisé. Seul le temps où l’assistant est en ligne avec l’appelant est compté, arrondi à la minute supérieure pour chaque appel ; le temps passé avec une personne du restaurant après un transfert n’est pas compté, et aucune minute n’est facturée pendant l’essai gratuit. Le tout est facturé uniquement par Clover, par la facturation du Clover App Market : rien n’est facturé en dehors de Clover. Offert au Canada seulement.`,
+    en: `Free ${p.trialDays}-day trial, then CAD $${cad(p.monthlyCad, 'en')} per month, plus CAD $${cad(p.minuteCad, 'en')} per minute of call with the automated assistant. Only the time the assistant is on the line with the caller is counted, rounded up to the next minute for each call; time spent with a person from the restaurant after a transfer is not counted, and no minutes are billed during the free trial. Everything is billed only through Clover App Market billing: nothing is billed outside Clover. Offered in Canada only.`,
   };
 }
 

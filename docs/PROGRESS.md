@@ -1,6 +1,23 @@
 # Food Hub: progress log and task board
 
-## 2026-10-16 — Public ON2GO Hub pages for search engines (task 45, build B, `feature/seo-hub-landing`)
+## 2026-10-16 — ON2GO Hub pages, second review (task 45, `feature/seo-hub-landing`)
+
+- Status wording never ahead of the facts: "L’application sera bientôt offerte sur le Clover App Market" (no more "en
+  révision chez Clover": nothing is submitted yet); `FOODHUB_APP_MARKET_STATUS=review` turns that wording on later.
+- DoorDash and SkipTheDishes: « Intégration en cours de certification avec … » note, badge on the links, `{pending}`
+  line in the platforms FAQ and llms.txt; their pages are `noindex, follow` and out of the sitemap and llms.txt until
+  `FOODHUB_PUBLIC_LIVE_PLATFORMS` lists them (default `uber`).
+- `/media/` (dish photos used on on2go.ca) indexable again; draft legal pages `noindex, follow` until approved.
+- `/` keeps its query string on the way to `/hub` (fbclid / utm links no longer land on `/login`); still 307 on purpose.
+- Hub pages `Cache-Control: public, max-age=300, s-maxage=3600, stale-while-revalidate=86400`. In production a non-https
+  `FOODHUB_PUBLIC_URL` falls back to `https://foodhub.on2go.ca` for canonicals, sitemap, robots and JSON-LD.
+- Copy: allergies red on screen only, « par application », « heures de pointe », « versements », « 15 $/mois … taxes en
+  sus » (pricing sentence, meta description, FAQ, JSON-LD Offer), "days of free trial", llms.txt English colon.
+  Schema: `eligibleRegion` Canada + identifier CA, `primaryImageOfPage` ImageObject; docs: the Software App rating
+  warning stays until genuine Clover App Market reviews exist.
+- Tests: 32 in `tests/public-hub.test.ts`; e2e: no X-Robots-Tag on `/hub`, `/en/hub/pricing`, `/media/<photo>`; public
+  cache header; `/?utm_source=x&fbclid=y` → `/hub` with query; absolute https canonical; DoorDash page noindex; draft
+  legal page noindex.
 
 - New public, indexable pages, French first with an English twin: `/hub` (landing), `/hub/tarifs`,
   `/hub/integrations/{uber-eats,doordash,skipthedishes}-clover`, `/hub/ecran-de-cuisine-clover`,

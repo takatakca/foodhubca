@@ -200,13 +200,14 @@ Finance covers every location's money, so it is only for logins that see all loc
 | Address | What | Sign-in |
 | --- | --- | --- |
 | `/hub`, `/en/hub` | ON2GO Hub landing (French first, English twin) | none |
-| `/hub/tarifs`, `/en/hub/pricing` | Pricing: 14-day trial, $50/month per app, $15 per extra brand per platform, billed by Clover (`lib/foodhub/pricing.ts`) | none |
-| `/hub/integrations/{uber-eats,doordash,skipthedishes}-clover` (+ `/en/…`) | One page per platform integration | none |
+| `/hub/tarifs`, `/en/hub/pricing` | Pricing: 14-day trial, $50/month per app, $15/month per extra brand per platform, plus taxes, billed by Clover (`lib/foodhub/pricing.ts`) | none |
+| `/hub/integrations/{uber-eats,doordash,skipthedishes}-clover` (+ `/en/…`) | One page per platform integration; noindex and out of the sitemap / llms.txt until the platform is in `FOODHUB_PUBLIC_LIVE_PLATFORMS` | none |
 | `/hub/ecran-de-cuisine-clover`, `/en/hub/clover-kitchen-display` | Kitchen display | none |
 | `/hub/telephone-ia-restaurant`, `/en/hub/ai-phone-for-restaurants` | AI phone: coming soon, separate app | none |
 | `/robots.txt`, `/sitemap.xml`, `/llms.txt`, `/og/*`, `/favicon.ico` | Crawlers, AI assistants, share images | none |
-| `/legal/*` | Privacy, terms, support (in the sitemap and llms.txt only once `FOODHUB_LEGAL_APPROVED=true`) | none |
+| `/legal/*` | Privacy, terms, support: `noindex, follow` while drafts; indexable, in the sitemap and llms.txt once `FOODHUB_LEGAL_APPROVED=true` | none |
 | `/icons/*` | App icons; the Organization logo (`icon-512.png`) must be indexable | none |
+| `/media/*` | Menu photos (also shown on on2go.ca through the directory feed): indexable, so they can appear in image search | none |
 
 - Words: `lib/foodhub/public-hub-content.ts`; product facts reused from the Clover App Market listing
   (`lib/foodhub/clover-listing.ts`). Only shipped features; no hours claims, no aggregator names (`tests/public-hub.test.ts`).
@@ -215,8 +216,21 @@ Finance covers every location's money, so it is only for logins that see all loc
   lives on one page (price on `/hub/tarifs`, approval and card payments on `/hub`).
 - robots.txt blocks only `/api/`: private pages stay crawlable so their `X-Robots-Tag: noindex` is seen.
 - Search Console, Software App report: "Either offers, review or aggregateRating should be specified" is **expected** on
-  every page until `FOODHUB_APP_MARKET_URL` is set (then the Offer is published). Ratings or reviews are only ever
-  added from real, published reviews: never invent one to clear the warning.
+  every page until `FOODHUB_APP_MARKET_URL` is set (then the Offer is published). Even with the Offer, the item stays
+  flagged as missing a rating or review until genuine reviews exist on the Clover App Market: that warning is permanent
+  until then. Never add `aggregateRating` or `review` by hand to clear it.
+- Status wording, never ahead of the facts: `FOODHUB_APP_MARKET_STATUS=review` only after the listing is really
+  submitted ("en révision chez Clover"); otherwise "L’application sera bientôt offerte sur le Clover App Market".
+  `FOODHUB_PUBLIC_LIVE_PLATFORMS` (default `uber`) lists the platforms that approved the integration; the others show
+  "Intégration en cours de certification avec …" and their page is not promoted.
+- Public links always point at `https://foodhub.on2go.ca/hub` (its own canonical), never at the bare domain: `/`
+  answers a temporary redirect (307, query string kept), because a permanent one would be cached by browsers and hide
+  the console's `/` from a signed-in owner.
+- In production, a `FOODHUB_PUBLIC_URL` that is not https (unset → localhost, or a typo) is replaced by
+  `https://foodhub.on2go.ca` for canonicals, hreflang, the sitemap, robots.txt and the JSON-LD, with a warning in the
+  log. `npm run verify:foodhub` checks that the `/hub` canonical starts with `FOODHUB_PUBLIC_URL`.
+- The hub pages are sent with `Cache-Control: public, max-age=300, s-maxage=3600, stale-while-revalidate=86400`
+  (`proxy.ts`): the same HTML for everyone, no cookie or session read.
 - An anonymous visitor on `/` lands on `/hub` (`FOODHUB_PUBLIC_HOME=off` restores `/login`); kitchen tablets keep their
   PIN screen; signed-in users keep the console.
 - Every other response carries `X-Robots-Tag: noindex` (console, `/login`, API): the console never reaches a search engine.

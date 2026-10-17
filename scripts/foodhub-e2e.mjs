@@ -419,6 +419,20 @@ try {
     check('public ON2GO Hub pages open without sign-in, language fixed by the path', fr.status === 200 && fr.text.includes('<html lang="fr-CA"') && fr.text.includes('application/ld+json') && en.status === 200 && en.text.includes('<html lang="en-CA"'), `${fr.status} ${en.status}`);
     const login = await fetch(`${APP}/login`);
     check('public pages are indexable, the console is not', !/noindex/.test(fr.text) && login.headers.get('x-robots-tag') === 'noindex', String(login.headers.get('x-robots-tag')));
+    { const hubFr = await fetch(`${APP}/hub`); const hubEn = await fetch(`${APP}/en/hub/pricing`);
+      check('public pages carry no X-Robots-Tag header', hubFr.headers.get('x-robots-tag') === null && hubEn.headers.get('x-robots-tag') === null, `${hubFr.headers.get('x-robots-tag')} ${hubEn.headers.get('x-robots-tag')}`);
+      const cc = String(hubFr.headers.get('cache-control'));
+      check('public pages are cacheable (public, s-maxage)', /\bpublic\b/.test(cc) && /s-maxage=\d+/.test(cc) && !/no-store|private/.test(cc), cc); }
+    { const canon = fr.text.match(/<link rel="canonical" href="([^"]+)"/)?.[1] || '';
+      check('the /hub canonical is absolute https on FOODHUB_PUBLIC_URL', canon === 'https://takatak.example/hub', canon); }
+    { const q = await call('GET', '/?utm_source=x&fbclid=y', { auth: false, redirect: 'manual' });
+      const to = new URL(q.location || '/', APP);
+      check('"/" with tracking parameters lands on /hub (query kept), not on /login', [302, 307].includes(q.status) && to.pathname === '/hub' && to.search === '?utm_source=x&fbclid=y', `${q.status} ${q.location}`); }
+    { const dd = await call('GET', '/hub/integrations/doordash-clover', { auth: false });
+      const uber = await call('GET', '/hub/integrations/uber-eats-clover', { auth: false });
+      check('integration in certification (DoorDash) is noindex, a live one (Uber Eats) is indexable', dd.status === 200 && /<meta name="robots" content="noindex, follow"/.test(dd.text) && dd.text.includes('en cours de certification') && uber.status === 200 && !/noindex/.test(uber.text), `${dd.status} ${uber.status}`); }
+    { const legal = await call('GET', '/legal/terms', { auth: false });
+      check('draft legal pages are noindex (follow) until approved', legal.status === 200 && /<meta name="robots" content="noindex, follow"/.test(legal.text), String(legal.status)); }
     const robots = await call('GET', '/robots.txt', { auth: false });
     const map = await call('GET', '/sitemap.xml', { auth: false });
     const llms = await call('GET', '/llms.txt', { auth: false });
@@ -1412,6 +1426,8 @@ try {
   const mediaPath = new URL(up.json?.url || 'https://x/none').pathname;
   const served = await call('GET', mediaPath, { auth: false });
   check('photo served without sign-in (Uber / DoorDash / Skip download it)', served.status === 200 && served.contentType === 'image/png' && served.buf.length === 33);
+  { const head = await fetch(`${APP}${mediaPath}`);
+    check('menu photo has no X-Robots-Tag (on2go.ca dish photos stay eligible for image search)', head.status === 200 && head.headers.get('x-robots-tag') === null, String(head.headers.get('x-robots-tag'))); }
   check('a file that is not a photo is refused', (await upload(Buffer.from('<script>alert(1)</script>'), 'image/png')).status === 415);
   check('upload needs sign-in', [401, 302, 307].includes((await upload(pngBuf, 'image/png', false)).status));
   check('no path tricks on the public photo route', (await call('GET', '/media/..%2F..%2Fpackage.json', { auth: false })).status === 404);

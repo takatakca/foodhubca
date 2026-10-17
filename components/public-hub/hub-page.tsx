@@ -3,8 +3,8 @@ import { TakatakMark } from '@/components/brand/takatak-mark';
 import { LEGAL_PATHS } from '@/lib/foodhub/legal';
 import { EXTRA_BRAND_PLATFORM_CAD, formatCad, STANDARD_MONTHLY_CAD, TRIAL_DAYS, type Lang } from '@/lib/foodhub/pricing';
 import {
-  fillHub, HUB_CONTENT, HUB_NAME, HUB_PATHS, hubBenefits, hubFaq, hubFeatures, hubJsonLd, hubRequirements, jsonLdScript,
-  type HubContext, type HubPageKey,
+  fillHub, HUB_CONTENT, HUB_NAME, HUB_PATHS, hubBenefits, hubCertificationNote, hubFaq, hubFeatures, hubIndexable, hubJsonLd,
+  hubRequirements, jsonLdScript, pendingPlatforms, platformList, type HubContext, type HubPageKey,
 } from '@/lib/foodhub/public-hub';
 import { HUB_UI, type Block, type Card } from '@/lib/foodhub/public-hub-content';
 
@@ -77,7 +77,7 @@ function PricingBlock({ lang, ctx }: { lang: Lang; ctx: HubContext }) {
       <p className="mt-5 text-[15px] text-ink-2">{ui.firstBrand} {ui.billedByClover}</p>
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <MarketButton lang={lang} ctx={ctx} />
-        {!ctx.appMarketUrl && <span className="text-sm text-ink-3">{ui.marketSoonNote}</span>}
+        {!ctx.appMarketUrl && <span className="text-sm text-ink-3">{ctx.marketStatus === 'review' ? ui.marketReviewNote : ui.marketSoonNote}</span>}
       </div>
     </div>
   );
@@ -158,6 +158,7 @@ function BlockView({ block, lang, ctx }: { block: Block; lang: Lang; ctx: HubCon
                   <a href={HUB_PATHS[k][lang]} className="block h-full rounded-lg border border-line bg-surface p-4 hover:border-brand">
                     <span className="font-bold text-brand underline-offset-2 hover:underline">{c.label}</span>
                     {c.soon && <span className="ml-2 rounded-full bg-wait-soft px-2 py-0.5 text-xs font-bold text-ink">{HUB_UI[lang].soon}</span>}
+                    {!hubIndexable(k, ctx) && <span className="ml-2 rounded-full bg-wait-soft px-2 py-0.5 text-xs font-bold text-ink">{HUB_UI[lang].certBadge}</span>}
                     <span className="mt-1 block text-sm text-ink-2">{c.description}</span>
                   </a>
                 </li>
@@ -185,6 +186,8 @@ export function HubPage({ page, lang, ctx }: { page: HubPageKey; lang: Lang; ctx
   const other: Lang = lang === 'fr' ? 'en' : 'fr';
   const home = HUB_PATHS.landing[lang];
   const faq = hubFaq(page, lang, ctx);
+  const certification = hubCertificationNote(page, lang, ctx);
+  const pending = pendingPlatforms(ctx);
   return (
     <div lang={lang === 'fr' ? 'fr-CA' : 'en-CA'} className="min-h-dvh bg-canvas text-ink">
       <a href="#contenu" className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-10 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2">{ui.skip}</a>
@@ -217,6 +220,9 @@ export function HubPage({ page, lang, ctx }: { page: HubPageKey; lang: Lang; ctx
               {c.h1}
               {c.soon && <span className="ml-3 inline-block rounded-full bg-wait px-3 py-1 align-middle text-sm font-bold text-rail">{ui.soon}</span>}
             </h1>
+            {certification && (
+              <p className="mt-4 inline-flex rounded-full bg-wait px-3 py-1 text-sm font-bold text-rail">{certification}</p>
+            )}
             <p className="mt-5 max-w-3xl text-lg leading-relaxed text-silver">{fillHub(c.lead, lang, ctx)}</p>
             <div className="mt-7 flex flex-wrap items-center gap-3">
               <MarketButton lang={lang} ctx={ctx} large />
@@ -233,6 +239,9 @@ export function HubPage({ page, lang, ctx }: { page: HubPageKey; lang: Lang; ctx
                   ))}
                 </ul>
                 <p className="mt-2 text-[13px] text-silver">* {ui.tgtgNote}</p>
+                {pending.length > 0 && (
+                  <p className="mt-1 text-[13px] text-silver">{ui.pending.trim().replace('{platforms}', platformList(pending, lang))}</p>
+                )}
               </div>
             )}
           </div>

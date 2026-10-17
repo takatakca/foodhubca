@@ -9,7 +9,8 @@
 //
 // The Clover App Market link is FOODHUB_APP_MARKET_URL (empty until Clover approves the listing): without it the pages
 // say "Coming soon to the Clover App Market" and label the prices "Planned launch pricing", and no Offer is published
-// in the structured data. No server-only import here.
+// in the structured data. FOODHUB_APP_MARKET_STATUS=review (set by the owner only once the listing is really submitted
+// to Clover) adds "under review by Clover"; anything else says "coming soon". No server-only import here.
 
 export type Lang = 'fr' | 'en';
 export type Bilingual = { fr: string; en: string };
@@ -28,8 +29,8 @@ export const PRICING = {
 
 /** The one pricing sentence, everywhere a price is stated. */
 export const PRICING_STATEMENT: Bilingual = {
-  fr: `Essai gratuit de ${TRIAL_DAYS} jours, puis ${STANDARD_MONTHLY_CAD} $/mois par app, + ${EXTRA_BRAND_PLATFORM_CAD} $ par marque supplémentaire par plateforme, facturé par Clover.`,
-  en: `${TRIAL_DAYS}-day free trial, then $${STANDARD_MONTHLY_CAD}/month per app, + $${EXTRA_BRAND_PLATFORM_CAD} per extra brand per platform, billed by Clover.`,
+  fr: `Essai gratuit de ${TRIAL_DAYS} jours, puis ${STANDARD_MONTHLY_CAD} $/mois par application, + ${EXTRA_BRAND_PLATFORM_CAD} $/mois par marque supplémentaire par plateforme, taxes en sus, facturé par Clover.`,
+  en: `${TRIAL_DAYS}-day free trial, then $${STANDARD_MONTHLY_CAD}/month per app, + $${EXTRA_BRAND_PLATFORM_CAD}/month per extra brand per platform, plus applicable taxes, billed by Clover.`,
 };
 
 /** "50 $" (French, Canada) / "$50" (English). Whole dollars when the amount has no cents. */
@@ -60,4 +61,31 @@ export function appMarketUrl(raw: string | null | undefined = typeof process !==
   } catch {
     return null;
   }
+}
+
+/** Where the Clover App Market listing stands, for the public wording: "live" once FOODHUB_APP_MARKET_URL is set;
+ * "review" only when the owner set FOODHUB_APP_MARKET_STATUS=review after really submitting the listing; else "soon". */
+export type AppMarketStatus = 'soon' | 'review' | 'live';
+
+export function appMarketStatus(
+  url: string | null = appMarketUrl(),
+  raw: string | null | undefined = typeof process !== 'undefined' ? process.env.FOODHUB_APP_MARKET_STATUS : undefined,
+): AppMarketStatus {
+  if (url) return 'live';
+  return String(raw ?? '').trim().toLowerCase() === 'review' ? 'review' : 'soon';
+}
+
+/** The delivery platforms whose ON2GO Hub integration a page may present as live (the platform approved it).
+ * FOODHUB_PUBLIC_LIVE_PLATFORMS, comma-separated among uber, doordash, skip; unset = "uber" only. A platform not in
+ * the list shows "integration in certification", and its page stays out of the index, the sitemap and llms.txt. */
+export type HubPlatform = 'uber' | 'doordash' | 'skip';
+export const HUB_PLATFORMS: HubPlatform[] = ['uber', 'doordash', 'skip'];
+
+export function livePlatforms(
+  raw: string | null | undefined = typeof process !== 'undefined' ? process.env.FOODHUB_PUBLIC_LIVE_PLATFORMS : undefined,
+): HubPlatform[] {
+  const v = String(raw ?? '').trim();
+  if (!v) return ['uber'];
+  const asked = v.toLowerCase().split(/[\s,]+/);
+  return HUB_PLATFORMS.filter((p) => asked.includes(p));
 }

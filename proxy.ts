@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { basicOwner, clientIp, DEVICE_COOKIE, ownerSessionVersion, readCookie, sessionSecretSource, verifyDevice, verifySession } from './lib/foodhub/session';
-import { HUB_HOME, isIndexablePath, isPublicSitePath, PUBLIC_LANG_HEADER, publicHomeEnabled, publicSiteLang } from './lib/foodhub/public-site';
+import { HUB_HOME, isIndexablePath, isPublicSitePath, PUBLIC_LANG_HEADER, PUBLIC_PAGE_CACHE, publicHomeEnabled, publicSiteLang } from './lib/foodhub/public-site';
 
 // Sign-in gate for the whole console and its APIs.
 //  - Platform webhooks stay public (each verifies its own signature / token); cron uses CRON_SECRET;
@@ -44,7 +44,9 @@ async function gate(req: NextRequest) {
     if (!lang) return NextResponse.next();
     const headers = new Headers(req.headers);
     headers.set(PUBLIC_LANG_HEADER, lang); // the page's language comes from its path, never from the cookie
-    return NextResponse.next({ request: { headers } });
+    const res = NextResponse.next({ request: { headers } });
+    res.headers.set('Cache-Control', PUBLIC_PAGE_CACHE); // same HTML for everyone: no cookie, no session is read
+    return res;
   }
   if (PUBLIC_PATHS.has(pathname) || PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) return NextResponse.next();
 
@@ -75,10 +77,12 @@ async function gate(req: NextRequest) {
   const to = req.nextUrl.clone();
   const isTablet = Boolean(await verifyDevice(readCookie(req.headers.get('cookie'), DEVICE_COOKIE)));
   // An anonymous visitor on the bare address sees the public ON2GO Hub page (with its "Sign in" button); tablets keep
-  // their PIN screen, and FOODHUB_PUBLIC_HOME=off restores /login.
-  if (pathname === '/' && !search && !isTablet && publicHomeEnabled()) {
+  // their PIN screen, and FOODHUB_PUBLIC_HOME=off restores /login. The query string (?fbclid=, utm_…) goes along: a
+  // shared link to the root must land on /hub, not on /login?next=… . The redirect stays temporary (307): a permanent
+  // one would be cached by browsers and send a signed-in owner's "/" (the console) to /hub. Public links always point
+  // at /hub, its own canonical.
+  if (pathname === '/' && !isTablet && publicHomeEnabled()) {
     to.pathname = HUB_HOME;
-    to.search = '';
     return NextResponse.redirect(to);
   }
   to.pathname = isTablet ? '/kitchen/lock' : '/login';

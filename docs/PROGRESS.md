@@ -1,5 +1,10 @@
 # Food Hub: progress log and task board
 
+## 2026-10-17 — Commander direct / ON2GO storefront (task 44a, `feature/on2go-storefront`)
+
+- Commission-free pickup ordering page per brand at `/commander/<slug>` (FR first, EN with `?lang=en`): live menu of the brand's kitchen (86s, no alcohol, category hours, unpriced dishes hidden), server-priced cart, Duo / Trio / Combo offered once, pay online (Clover Hosted Checkout link opened in the browser) or at the counter, tracking page, SEO (JSON-LD, sitemap), QR / share kit, owner settings at `/settings/storefront`. Orders enter the existing direct-order pipeline as website orders (`sf_` ref). Everything off until the owner turns it on.
+- Review fixes: check-and-take rate limits (address, phone, page, server; parallel-safe, given back when no order is placed), Canada / US phones only (no international or premium texts), unpaid orders capped (25 items, per-brand max 150 $ by default, 40 / h per page, 120 / h per server), last-order cutoff (prep time before closing), same-origin checkout (JSON only, Origin / Sec-Fetch-Site), body streamed and cut at 32 KB, tracking links 7 days and only under their brand, orders by source read from real orders, localized dialog / stepper labels and focus trap.
+- Checks: typecheck OK, lint 0 errors, 1004 tests passed / 1 skipped / 1 known tgtg-email failure (not in this branch), webpack build OK, verify:foodhub 554/0 (ports 5910/5911). Not deployed.
 ## 2026-10-16 — Uber store kitchen mapping (task 39, `fix/uber-store-kitchen-mapping`)
 
 - The 7 Uber UUIDs in `data/actual/platform-stores-uber.json` are at 5839 Jean-Talon E (Saint-Léonard) in Uber's own records (Uber names them "(Hochelaga)"); production maps them to `NDG_6284`. That mapping was typed by hand in the console, so it lives only in the production `fh_channel_stores` rows: no repo seed or code defaulted Uber stores to NDG.

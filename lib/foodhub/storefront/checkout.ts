@@ -70,7 +70,7 @@ export async function ordersBySource(days = 7, now = Date.now()): Promise<Array<
 
 async function newTrack(orderId: string, now: number): Promise<string> {
   const token = crypto.randomBytes(18).toString('base64url');
-  await getRepo().setKv<TrackRecord>(trackKey(token), { orderId, at: now });
+  await getRepo().setKv(trackKey(token), { orderId, at: now } satisfies TrackRecord);
   return token;
 }
 

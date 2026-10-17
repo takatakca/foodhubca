@@ -3,6 +3,7 @@
 import { publicBaseUrl } from '../config';
 import { cloverApps, cloverPhoneAppEnabled, type CloverAppKey } from './clover-apps';
 import { listCloverConnections } from './clover-oauth';
+import { phoneMinutesSummary, type MinutesSummary, type PHONE_PRICE } from './clover-phone-minutes';
 import { cloverWebhookVerification } from './clover-webhook-gate';
 
 export interface CloverAppInstall {
@@ -12,6 +13,18 @@ export interface CloverAppInstall {
   billing: { status: string | null; inTrial: boolean; plan: string | null } | null;
   /** The merchant installed our other app too (they share the merchant's menu, stores and orders). */
   bothApps: boolean;
+  /** Phone app: this month's AI minutes (billed, or what WOULD be billed while metering is off). */
+  minutes?: MinutesSummary | null;
+}
+
+/** TAKATAK Phone per-minute metering (dry run while FOODHUB_PHONE_METERED_ENABLED is not "true"). */
+export interface PhoneMeteringStatus {
+  enabled: boolean;
+  meteredIdSet: boolean;
+  env: { enabled: string; meteredId: string; exempt: string };
+  price: typeof PHONE_PRICE;
+  month: string;
+  total: MinutesSummary;
 }
 
 export interface CloverAppStatus {
@@ -32,6 +45,8 @@ export interface CloverAppStatus {
   webhookAuthSet: boolean;
   verification: { code: string; at: string } | null;
   installs: CloverAppInstall[];
+  /** Phone app only. */
+  metering?: PhoneMeteringStatus;
 }
 
 export async function cloverAppsOverview(opts: { showVerification?: boolean } = {}): Promise<CloverAppStatus[]> {
@@ -39,6 +54,7 @@ export async function cloverAppsOverview(opts: { showVerification?: boolean } = 
   const defs = cloverApps();
   const lists = await Promise.all(defs.map((d) => (d.key === 'foodhub' || cloverPhoneAppEnabled() ? listCloverConnections(d.key).catch(() => []) : Promise.resolve([]))));
   const byApp = new Map(defs.map((d, i) => [d.key, new Set(lists[i].map((c) => c.merchantId))]));
+  const minutes = cloverPhoneAppEnabled() ? await phoneMinutesSummary().catch(() => null) : null;
   return Promise.all(defs.map(async (d, i) => {
     const enabled = d.key === 'foodhub' || cloverPhoneAppEnabled();
     const others = defs.filter((o) => o.key !== d.key).map((o) => byApp.get(o.key) ?? new Set<string>());
@@ -63,7 +79,14 @@ export async function cloverAppsOverview(opts: { showVerification?: boolean } = 
         status: c.status,
         billing: c.billing ? { status: c.billing.status, inTrial: c.billing.inTrial, plan: c.billing.plan } : null,
         bothApps: others.some((s) => s.has(c.merchantId)),
+        ...(d.key === 'phone' ? { minutes: minutes?.byMerchant[c.merchantId] ?? null } : {}),
       })),
+      ...(d.key === 'phone' && minutes ? {
+        metering: {
+          enabled: minutes.enabled, meteredIdSet: minutes.meteredIdSet, price: minutes.price, month: minutes.month, total: minutes.total,
+          env: { enabled: 'FOODHUB_PHONE_METERED_ENABLED', meteredId: 'CLOVER_PHONE_METERED_MINUTE_ID', exempt: 'FOODHUB_BILLING_EXEMPT_MERCHANTS' },
+        },
+      } : {}),
     };
   }));
 }

@@ -129,3 +129,12 @@ export function cloverAppByAppId(appId: string | null | undefined): CloverAppKey
 export function phoneOwnMerchants(): Set<string> {
   return new Set(String(process.env.PHONE_OWN_MERCHANTS || '').split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean));
 }
+
+/**
+ * Merchants never billed by either app (TAKATAK Phone minutes, Food Hub extra brands): FOODHUB_BILLING_EXEMPT_MERCHANTS
+ * (comma-separated) and our own restaurants (PHONE_OWN_MERCHANTS), so forgetting one list never bills our own merchant.
+ */
+export function billingExemptMerchants(): Set<string> {
+  const ids = String(process.env.FOODHUB_BILLING_EXEMPT_MERCHANTS || '').split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
+  return new Set([...ids, ...phoneOwnMerchants()]);
+}

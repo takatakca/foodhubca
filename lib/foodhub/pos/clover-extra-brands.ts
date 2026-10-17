@@ -37,7 +37,7 @@ import { stripSlash } from '../config';
 import { getRepo } from '../repo';
 import type { ChannelStore } from '../types';
 import { defaultCloverMerchant } from './clover';
-import { cloverApp, phoneOwnMerchants } from './clover-apps';
+import { billingExemptMerchants, cloverApp } from './clover-apps';
 import { phoneMonth as billingMonth } from './clover-entitlement';
 import { cloverFetch } from './clover-http';
 import {
@@ -66,13 +66,8 @@ const periodKey = (mid: string, month: string) => `clover_extra_brands:${mid}:${
 
 const idList = (v: string | undefined) => String(v || '').split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
 
-/**
- * Merchants never billed for extra brands: FOODHUB_BILLING_EXEMPT_MERCHANTS (comma-separated) and our own restaurants
- * already listed for the phone app (PHONE_OWN_MERCHANTS), so forgetting one list never bills our own merchant.
- */
-export function billingExemptMerchants(): Set<string> {
-  return new Set([...idList(process.env.FOODHUB_BILLING_EXEMPT_MERCHANTS), ...phoneOwnMerchants()]);
-}
+/** Merchants never billed for extra brands: the list shared by both apps (clover-apps.ts). */
+export { billingExemptMerchants };
 
 /** Clover subscription IDs of the Food Hub "Standard" tier (CLOVER_FOODHUB_STANDARD_PLAN_IDS, comma-separated). */
 export function standardPlanIds(): Set<string> {

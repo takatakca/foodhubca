@@ -1,7 +1,7 @@
 // Several Clover App Market apps on one backend: TAKATAK Food Hub (unchanged) + the AI phone app (sold separately).
 // Per-app registry, OAuth start/callback, token stores keyed by (app, merchant) with old single-app tokens still read,
 // per-app webhook verification + dispatch, uninstall of one app only, refresh locks per app, the phone entitlement
-// (billing_info cached, grace periods) and per-order usage. Clover is never called: fetch is mocked.
+// (billing_info cached, grace periods) and TAKATAK Phone per-minute metering. Clover is never called: fetch is mocked.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
@@ -9,9 +9,10 @@ vi.mock('next/server', async (orig) => ({ ...(await orig<typeof import('next/ser
 
 import { cloverApp, cloverAppByAppId, cloverApps, cloverPhoneAppEnabled } from '../lib/foodhub/pos/clover-apps';
 import { cloverAppsOverview } from '../lib/foodhub/pos/clover-apps-status';
+import { appInstalled, phoneCloverToken, phoneEntitled, voiceAiEntitled } from '../lib/foodhub/pos/clover-entitlement';
 import {
-  appInstalled, phoneAllowance, phoneCloverToken, phoneEntitled, phoneUsage, recordPhoneOrder, settlePhoneUsage, voiceAiEntitled,
-} from '../lib/foodhub/pos/clover-entitlement';
+  aiHandledSeconds, billableMinutes, getMinuteRecord, phoneMinutesSummary, recordCallMinutes, settlePhoneMinutes,
+} from '../lib/foodhub/pos/clover-phone-minutes';
 import {
   approveCloverMerchant, cloverAppReadiness, cloverAppToken, cloverOAuthToken, cloverWelcome, cloverWelcomeQuery, finishCloverConnect,
   handleCloverAppEvents, listCloverConnections, patchCloverBillingState, patchCloverConnection, readCloverBillingState, startCloverConnect, startCloverLaunch,
@@ -38,6 +39,8 @@ let seq = 0;
 /** billing_info answers per "appId:merchantId"; missing = ACTIVE, no trial. */
 let billing: Record<string, unknown> = {};
 let billingDown = false;
+/** billing_info down for these merchants only (Clover unreachable for one merchant). */
+let billingDownFor = new Set<string>();
 let meteredStatus = 200;
 /** billing_info / refresh never answer until the request is aborted (Clover hanging). */
 let billingHang = false;
@@ -45,6 +48,8 @@ let refreshHang = false;
 let refreshStatus = 200;
 /** The metered POST reaches Clover but its answer is lost (timeout). */
 let meteredTimeout = false;
+/** The metered POST fails at the network level with this code (ECONNREFUSED = never left; ECONNRESET = may have). */
+let meteredNetwork = '';
 const hang = (signal?: AbortSignal | null) => new Promise<Response>((_, reject) => {
   const abort = () => reject(Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' }));
   if (signal?.aborted) abort(); else signal?.addEventListener('abort', abort);
@@ -75,11 +80,12 @@ function mockClover() {
     const bi = p.match(/^\/v3\/apps\/([^/]+)\/merchants\/([^/]+)\/billing_info$/);
     if (bi) {
       if (billingHang) return hang(init.signal);
-      if (billingDown) return json(503, {});
+      if (billingDown || billingDownFor.has(bi[2])) return json(503, {});
       return json(200, billing[`${bi[1]}:${bi[2]}`] ?? { status: 'ACTIVE', isInTrial: false, appSubscription: { name: 'Essentiel' } });
     }
     if (/\/metereds\//.test(p)) {
       if (meteredTimeout) throw Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' });
+      if (meteredNetwork) throw Object.assign(new TypeError('fetch failed'), { cause: { code: meteredNetwork } });
       return json(meteredStatus, { id: 'MTR-1' });
     }
     const m = p.match(/^\/v3\/merchants\/([^/]+)$/);
@@ -93,9 +99,9 @@ function setPhoneEnv() {
   process.env.CLOVER_PHONE_APP_ID = PH_APP;
   process.env.CLOVER_PHONE_APP_SECRET = 'phone-secret-test';
   process.env.CLOVER_PHONE_WEBHOOK_AUTH = 'phone-hook-auth';
-  process.env.CLOVER_PHONE_METERED_ORDER_ID = 'METERED01';
+  process.env.CLOVER_PHONE_METERED_MINUTE_ID = 'METERED01';
 }
-const PHONE_ENV = ['CLOVER_PHONE_APP_ID', 'CLOVER_PHONE_APP_SECRET', 'CLOVER_PHONE_WEBHOOK_AUTH', 'CLOVER_PHONE_METERED_ORDER_ID', 'CLOVER_PHONE_APP_NAME', 'PHONE_OWN_MERCHANTS'];
+const PHONE_ENV = ['CLOVER_PHONE_APP_ID', 'CLOVER_PHONE_APP_SECRET', 'CLOVER_PHONE_WEBHOOK_AUTH', 'CLOVER_PHONE_METERED_MINUTE_ID', 'CLOVER_PHONE_APP_NAME', 'PHONE_OWN_MERCHANTS', 'FOODHUB_PHONE_METERED_ENABLED', 'FOODHUB_BILLING_EXEMPT_MERCHANTS'];
 
 beforeEach(() => {
   process.env.FOODHUB_FORCE_MEMORY = 'true';
@@ -108,9 +114,8 @@ beforeEach(() => {
   process.env.SESSION_SECRET = 'clover-multi-app-test-session-secret-0123';
   process.env.CLOVER_ALLOWED_MERCHANTS = `${MID},${MID2}`;
   for (const k of [...PHONE_ENV, 'CLOVER_ACCESS_TOKEN', 'CLOVER_MERCHANT_ID', 'CLOVER_MERCHANT_TOKENS', 'CLOVER_WEB_URL', 'ALERT_WEBHOOK_URL', 'FOODHUB_OWNER_EMAIL']) delete process.env[k];
-  calls = []; seq = 0; billing = {}; billingDown = false; meteredStatus = 200;
-  billingHang = false; refreshHang = false; refreshStatus = 200; meteredTimeout = false;
-  delete process.env.CLOVER_PHONE_PRO_SUBSCRIPTION_IDS;
+  calls = []; seq = 0; billing = {}; billingDown = false; billingDownFor = new Set(); meteredStatus = 200;
+  billingHang = false; refreshHang = false; refreshStatus = 200; meteredTimeout = false; meteredNetwork = '';
   delete process.env.CONNECTOR_NETWORK_TIMEOUT_MS;
   delete process.env.DASHBOARD_PASSWORD;
   mockClover();
@@ -147,8 +152,8 @@ describe('without the phone app env, everything behaves as before', () => {
     const e = await voiceAiEntitled(MID);
     expect(e).toMatchObject({ ok: true, reason: 'gate_off', billable: false });
     expect(await phoneEntitled(MID, 'setup')).toMatchObject({ ok: true, reason: 'gate_off' });
-    const r = await recordPhoneOrder(MID, 'ORDER1');
-    expect(r).toMatchObject({ counted: true, reported: false, outcome: 'not_billable', reason: 'gate_off' });
+    process.env.FOODHUB_PHONE_METERED_ENABLED = 'true';
+    expect(await recordCallMinutes({ callSid: 'CA-GATEOFF', merchantId: MID, aiSeconds: 90 })).toMatchObject({ outcome: 'not_billable', reason: 'gate_off', minutes: 2 });
     expect(calls).toHaveLength(0);
   });
 
@@ -296,7 +301,9 @@ describe('phone webhook (own verification, own auth, App events only)', () => {
     expect(await listCloverConnections('phone')).toHaveLength(0);
     expect(await cloverOAuthToken(MID)).toBe('AT-1');
     expect(await voiceAiEntitled(MID)).toMatchObject({ ok: false, reason: 'not_installed' });
-    expect(await recordPhoneOrder(MID, 'ORDER9')).toMatchObject({ reported: false, outcome: 'not_billable', reason: 'not_installed' });
+    process.env.FOODHUB_PHONE_METERED_ENABLED = 'true';
+    expect(await recordCallMinutes({ callSid: 'CA-UNINST', merchantId: MID, aiSeconds: 30 })).toMatchObject({ outcome: 'not_billable', reason: 'not_installed' });
+    expect(calls.filter((c) => c.url.includes('/metereds/'))).toHaveLength(0);
   });
 
   it('a phone-app event on the Food Hub webhook (or the reverse) touches nothing', async () => {
@@ -366,67 +373,6 @@ describe('phone entitlement (billing_info, saved 15 minutes, grace periods)', ()
     process.env.CLOVER_PHONE_APP_ID = 'TESTPHONEAPP2';
     expect(await appInstalled('phone', MID)).toBe(false);
     expect(await cloverAppToken('phone', MID)).toBeNull();
-  });
-});
-
-describe('phone orders: allowance, per-order charge, once per order', () => {
-  beforeEach(setPhoneEnv);
-  const metered = () => calls.filter((c) => c.url.includes('/metereds/'));
-
-  it('allowance per tier', () => {
-    expect(phoneAllowance('Essentiel')).toBe(150);
-    expect(phoneAllowance('TAKATAK Phone Pro')).toBe(500);
-    expect(phoneAllowance(null)).toBe(150);
-    // Longer or French names of the Pro tier still count as Pro; words that only start with "pro" do not.
-    for (const name of ['Pro', 'PRO+', 'Pro-Plus', 'Professionnel', 'Professional', 'TAKATAK Téléphone — Pro', 'Forfait Pro (mensuel)']) expect(phoneAllowance(name)).toBe(500);
-    for (const name of ['Essentiel', 'Essential', 'Promo', 'Approved', 'Programme de base']) expect(phoneAllowance(name)).toBe(150);
-    // With the Pro tier's Clover subscription IDs set, the ID decides, whatever the name.
-    process.env.CLOVER_PHONE_PRO_SUBSCRIPTION_IDS = 'SUBPRO000001, SUBPRO000002';
-    expect(phoneAllowance('Forfait B', 'SUBPRO000002')).toBe(500);
-    expect(phoneAllowance('Pro', 'SUBESS000001')).toBe(150);
-    expect(phoneAllowance('Pro', null)).toBe(500); // no ID from Clover: the name decides
-  });
-
-  it('reports to Clover only beyond the allowance of an ACTIVE subscription, each order once', async () => {
-    await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID, app: 'phone' });
-    const now = Date.now();
-    const month = (await phoneUsage(MID, now)).month;
-    await getRepo().setKv(`clover_phone_usage:${MID}:${month}`, { orders: Array.from({ length: 149 }, (_, i) => `PRE${i}`), reported: [], failed: [] });
-    expect(await recordPhoneOrder(MID, 'ORDER150', { now })).toMatchObject({ counted: true, reported: false, outcome: 'within_allowance', used: 150, allowance: 150 });
-    expect(metered()).toHaveLength(0);
-    const r = await recordPhoneOrder(MID, 'ORDER151', { now });
-    expect(r).toMatchObject({ counted: true, reported: true, outcome: 'reported', used: 151 });
-    expect(metered()).toHaveLength(1);
-    expect(metered()[0]).toMatchObject({ method: 'POST', auth: 'Bearer PAT-1' });
-    expect(metered()[0].url).toBe(`https://api.clover.com/v3/apps/${PH_APP}/merchants/${MID}/metereds/METERED01?count=1`);
-    expect(await recordPhoneOrder(MID, 'ORDER151', { now })).toMatchObject({ counted: false, reported: false, outcome: 'duplicate' });
-    expect(metered()).toHaveLength(1);
-    expect(await phoneUsage(MID, now)).toMatchObject({ orders: 151, reported: 1, failed: 0 });
-    // Concurrent records of the same order count once.
-    const [x, y] = await Promise.all([recordPhoneOrder(MID, 'ORDER152', { now }), recordPhoneOrder(MID, 'ORDER152', { now })]);
-    expect([x.outcome, y.outcome].sort()).toEqual(['duplicate', 'reported']);
-    expect(metered()).toHaveLength(2);
-  });
-
-  it('never bills a trial, our own restaurant, a missing metered ID; a Clover refusal is counted, not billed', async () => {
-    await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID, app: 'phone' });
-    const now = Date.now();
-    const month = (await phoneUsage(MID, now)).month;
-    const full = { orders: Array.from({ length: 600 }, (_, i) => `PRE${i}`), reported: [], failed: [] };
-    await getRepo().setKv(`clover_phone_usage:${MID}:${month}`, full);
-    delete process.env.CLOVER_PHONE_METERED_ORDER_ID;
-    expect(await recordPhoneOrder(MID, 'A1', { now })).toMatchObject({ outcome: 'no_metered_id', reported: false });
-    process.env.CLOVER_PHONE_METERED_ORDER_ID = 'METERED01';
-    meteredStatus = 400;
-    expect(await recordPhoneOrder(MID, 'A2', { now })).toMatchObject({ outcome: 'clover_refused', reported: false, counted: true });
-    meteredStatus = 200;
-    billing[`${PH_APP}:${MID}`] = { status: 'ACTIVE', isInTrial: true };
-    await handleCloverAppEvents(appEvent(PH_APP, MID, 'UPDATE'), 'phone');
-    expect(await recordPhoneOrder(MID, 'A3', { now })).toMatchObject({ outcome: 'not_billable', reason: 'trial' });
-    process.env.PHONE_OWN_MERCHANTS = MID;
-    expect(await recordPhoneOrder(MID, 'A4', { now })).toMatchObject({ outcome: 'not_billable', reason: 'own_merchant' });
-    expect(metered()).toHaveLength(1); // only the refused attempt reached Clover
-    expect(await recordPhoneOrder('bad id!', 'A5')).toMatchObject({ outcome: 'bad_input', counted: false });
   });
 });
 
@@ -554,80 +500,279 @@ describe('phone token map: no lost update between merchants', () => {
   });
 });
 
-describe('phone charges: nothing lost, nothing charged twice', () => {
-  beforeEach(setPhoneEnv);
+describe('TAKATAK Phone: per-minute metering (CAD 0.25 per AI minute)', () => {
+  beforeEach(() => { setPhoneEnv(); process.env.FOODHUB_PHONE_METERED_ENABLED = 'true'; });
   const metered = () => calls.filter((c) => c.url.includes('/metereds/'));
-  const fill = async (n: number, now: number) => {
-    const month = (await phoneUsage(MID, now)).month;
-    await getRepo().setKv(`clover_phone_usage:${MID}:${month}`, { orders: Array.from({ length: n }, (_, i) => `PRE${i}`), reported: [], failed: [] });
-  };
+  const connect = (mid = MID) => finishCloverConnect({ code: 'GOOD-CODE', merchantId: mid, app: 'phone' });
+  const end = (callSid: string, aiSeconds: number, opts: { now?: number; merchantId?: string } = {}) =>
+    recordCallMinutes({ callSid, merchantId: opts.merchantId ?? MID, aiSeconds, endedAt: opts.now ? new Date(opts.now).toISOString() : undefined }, { now: opts.now });
 
-  it('Clover down near the end of the month: orders beyond the allowance wait, then are charged once Clover says ACTIVE', async () => {
-    await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID, app: 'phone' });
-    const now = Date.now();
-    await fill(150, now);
-    billingDown = true;
-    const outage = now + 20 * 60_000;
-    expect(await recordPhoneOrder(MID, 'OUT1', { now: outage })).toMatchObject({ counted: true, reported: false, outcome: 'deferred', reason: 'clover_unreachable_grace' });
-    expect(await recordPhoneOrder(MID, 'OUT2', { now: outage + 1000 })).toMatchObject({ outcome: 'deferred' });
-    expect(metered()).toHaveLength(0);
-    expect(await phoneUsage(MID, outage)).toMatchObject({ orders: 152, pending: 2, reported: 0 });
-    // Clover back: the next order sends its own charge and the two that waited.
-    billingDown = false;
-    const back = outage + 5 * 60_000;
-    expect(await recordPhoneOrder(MID, 'BACK1', { now: back })).toMatchObject({ outcome: 'reported', reported: true, used: 153 });
-    expect(metered()).toHaveLength(3);
-    expect(await phoneUsage(MID, back)).toMatchObject({ orders: 153, pending: 0, reported: 3, uncertain: 0 });
+  it('rounds the AI time up to the minute; under 1 s is nothing', () => {
+    expect([0, 0.4, 0.99, 1, 59, 60, 60.2, 61, 125, 3600].map(billableMinutes)).toEqual([0, 0, 0, 1, 1, 1, 2, 2, 3, 60]);
+    expect(billableMinutes(Number.NaN)).toBe(0);
+    expect(billableMinutes(-5)).toBe(0);
   });
 
-  it('a charge Clover refuses is tried again (3 times in all), then given up', async () => {
-    await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID, app: 'phone' });
-    const now = Date.now();
-    await fill(150, now);
-    meteredStatus = 500;
-    expect(await recordPhoneOrder(MID, 'R1', { now })).toMatchObject({ outcome: 'clover_refused', counted: true });
-    meteredStatus = 200;
-    expect(await settlePhoneUsage(MID, { now })).toMatchObject({ reported: 1, pending: 0, failed: 0 });
+  it('counts only the part the AI handled: never the hold or the person after a transfer', () => {
+    const at = (s: number) => new Date(Date.parse('2026-10-17T15:00:00.000Z') + s * 1000).toISOString();
+    // Straight to a person (AI off or paused): the AI never answered.
+    expect(aiHandledSeconds({ startedAt: at(0), endedAt: at(300), durationSec: 300 })).toBe(0);
+    // The AI took the whole call: Twilio's duration is the end.
+    expect(aiHandledSeconds({ startedAt: at(0), aiStartedAt: at(0), endedAt: at(97), durationSec: 95 })).toBe(95);
+    // Handed to a person after 40 s; the caller then waited and talked for 4 more minutes.
+    expect(aiHandledSeconds({ startedAt: at(0), aiStartedAt: at(0), aiEndedAt: at(40), endedAt: at(300), durationSec: 300 })).toBe(40);
+    // No Twilio duration (lost callback): our own end time.
+    expect(aiHandledSeconds({ startedAt: at(0), aiStartedAt: at(2), endedAt: at(32) })).toBe(30);
+    // The caller hung up before the transfer mark was saved: the earlier end wins.
+    expect(aiHandledSeconds({ startedAt: at(0), aiStartedAt: at(0), aiEndedAt: at(90), durationSec: 50 })).toBe(50);
+    expect(billableMinutes(aiHandledSeconds({ startedAt: at(0), aiStartedAt: at(0), aiEndedAt: at(61), durationSec: 400 }))).toBe(2);
+  });
+
+  it('an ACTIVE merchant: the minutes go to Clover once per call SID, with the minute ID and the count', async () => {
+    await connect();
+    expect(await end('CA100', 61)).toMatchObject({ outcome: 'reported', minutes: 2 });
+    expect(metered()).toHaveLength(1);
+    expect(metered()[0]).toMatchObject({ method: 'POST', auth: 'Bearer PAT-1' });
+    expect(metered()[0].url).toBe(`https://api.clover.com/v3/apps/${PH_APP}/merchants/${MID}/metereds/METERED01?count=2`);
+    // The same call again (a repeated status callback, another server): never sent twice.
+    expect(await end('CA100', 61)).toMatchObject({ outcome: 'duplicate' });
+    const [x, y] = await Promise.all([end('CA101', 30), end('CA101', 30)]);
+    expect([x.outcome, y.outcome].sort()).toEqual(['duplicate', 'reported']);
     expect(metered()).toHaveLength(2);
-    meteredStatus = 400;
-    expect(await recordPhoneOrder(MID, 'R2', { now })).toMatchObject({ outcome: 'clover_refused' });
-    await settlePhoneUsage(MID, { now });
-    expect(await settlePhoneUsage(MID, { now })).toMatchObject({ pending: 0, failed: 1 });
-    await settlePhoneUsage(MID, { now });
-    expect(metered()).toHaveLength(5); // R1 twice, R2 three times, then never again
+    expect(await getMinuteRecord('CA100')).toMatchObject({ state: 'reported', minutes: 2, aiSeconds: 61, merchantId: MID });
+    expect((await phoneMinutesSummary()).total).toMatchObject({ calls: 2, aiMinutes: 3, reportedMinutes: 3, estimateCad: 0.75 });
+  });
+
+  it('never bills the free trial, our restaurants, an exempt merchant, a lapsed or inactive one, or under 1 s', async () => {
+    await connect();
+    billing[`${PH_APP}:${MID}`] = { status: 'ACTIVE', isInTrial: true };
+    await handleCloverAppEvents(appEvent(PH_APP, MID, 'UPDATE'), 'phone');
+    expect(await end('CA200', 120)).toMatchObject({ outcome: 'not_billable', reason: 'trial' });
+    billing[`${PH_APP}:${MID}`] = { status: 'ACTIVE', isInTrial: false };
+    await handleCloverAppEvents(appEvent(PH_APP, MID, 'UPDATE'), 'phone');
+    process.env.PHONE_OWN_MERCHANTS = MID;
+    expect(await end('CA201', 120)).toMatchObject({ outcome: 'not_billable', reason: 'exempt' });
+    delete process.env.PHONE_OWN_MERCHANTS;
+    process.env.FOODHUB_BILLING_EXEMPT_MERCHANTS = `OTHER0000001, ${MID}`;
+    expect(await end('CA202', 120)).toMatchObject({ outcome: 'not_billable', reason: 'exempt' });
+    delete process.env.FOODHUB_BILLING_EXEMPT_MERCHANTS;
+    billing[`${PH_APP}:${MID}`] = { status: 'LAPSED', daysLapsed: 2 };
+    await handleCloverAppEvents(appEvent(PH_APP, MID, 'UPDATE'), 'phone');
+    expect(await end('CA203', 120)).toMatchObject({ outcome: 'not_billable', reason: 'lapsed_grace' });
+    billing[`${PH_APP}:${MID}`] = { status: 'INACTIVE' };
+    await handleCloverAppEvents(appEvent(PH_APP, MID, 'UPDATE'), 'phone');
+    expect(await end('CA204', 120)).toMatchObject({ outcome: 'not_billable', reason: 'inactive' });
+    billing[`${PH_APP}:${MID}`] = { status: 'ACTIVE', isInTrial: false };
+    await handleCloverAppEvents(appEvent(PH_APP, MID, 'UPDATE'), 'phone');
+    expect(await end('CA205', 0.5)).toMatchObject({ outcome: 'zero', minutes: 0 });
+    expect(await recordCallMinutes({ callSid: 'sim-1', merchantId: MID, aiSeconds: 300, test: true })).toMatchObject({ outcome: 'test_call' });
+    delete process.env.CLOVER_PHONE_METERED_MINUTE_ID;
+    expect(await end('CA206', 60)).toMatchObject({ outcome: 'no_metered_id' });
+    expect(metered()).toHaveLength(0);
+    expect(await recordCallMinutes({ callSid: 'bad sid!', merchantId: MID, aiSeconds: 60 })).toMatchObject({ outcome: 'bad_input' });
+  });
+
+  it('off unless FOODHUB_PHONE_METERED_ENABLED=true: nothing sent, Clover not asked, the dry run shows what would be billed', async () => {
+    billing[`${PH_APP}:${MID2}`] = { status: 'ACTIVE', isInTrial: true };
+    await connect();
+    await connect(MID2);
+    for (const v of [undefined, 'false', 'yes', '1']) {
+      if (v === undefined) delete process.env.FOODHUB_PHONE_METERED_ENABLED; else process.env.FOODHUB_PHONE_METERED_ENABLED = v;
+      calls = [];
+      const sid = `CA300${v ?? 'unset'}`;
+      expect(await end(sid, 150)).toMatchObject({ outcome: 'preview', minutes: 3 });
+      expect(calls).toHaveLength(0); // no Clover request at all
+      expect(await getMinuteRecord(sid)).toMatchObject({ state: 'preview', wouldBill: true });
+    }
+    expect(await end('CA301', 45, { merchantId: MID2 })).toMatchObject({ outcome: 'preview' });
+    expect(await getMinuteRecord('CA301')).toMatchObject({ wouldBill: false }); // in its free trial
+    expect(await settlePhoneMinutes()).toMatchObject({ reported: 0 });
+    expect(calls).toHaveLength(0);
+    const sum = await phoneMinutesSummary();
+    expect(sum).toMatchObject({ enabled: false, meteredIdSet: true, price: { monthlyCad: 50, perMinuteCad: 0.25, trialDays: 14 } });
+    expect(sum.total).toMatchObject({ calls: 5, aiMinutes: 13, wouldBillMinutes: 12, reportedMinutes: 0, notBilledMinutes: 1, estimateCad: 3 });
+    // Settings → Clover app: the phone section carries the dry run, per merchant.
+    const phone = (await cloverAppsOverview()).find((a) => a.key === 'phone')!;
+    expect(phone.metering).toMatchObject({ enabled: false, env: { enabled: 'FOODHUB_PHONE_METERED_ENABLED', meteredId: 'CLOVER_PHONE_METERED_MINUTE_ID' } });
+    expect(phone.installs.find((i) => i.merchantId === MID)?.minutes).toMatchObject({ wouldBillMinutes: 12 });
+    expect(phone.installs.find((i) => i.merchantId === MID2)?.minutes).toMatchObject({ wouldBillMinutes: 0, notBilledMinutes: 1 });
+    expect(metered()).toHaveLength(0);
+  });
+
+  it('an uncertain answer (timeout, Clover 5xx, connection lost) is never sent again; the owner sees it', async () => {
+    await connect();
+    meteredTimeout = true;
+    expect(await end('CA400', 60)).toMatchObject({ outcome: 'uncertain' });
+    meteredTimeout = false;
+    meteredStatus = 503;
+    expect(await end('CA401', 60)).toMatchObject({ outcome: 'uncertain' });
+    meteredStatus = 200;
+    meteredNetwork = 'ECONNRESET';
+    expect(await end('CA402', 60)).toMatchObject({ outcome: 'uncertain' });
+    meteredNetwork = '';
+    expect(metered()).toHaveLength(3);
+    await settlePhoneMinutes();
+    await settlePhoneMinutes();
+    expect(await end('CA400', 60)).toMatchObject({ outcome: 'duplicate' });
+    expect(metered()).toHaveLength(3);
+    expect((await phoneMinutesSummary()).total).toMatchObject({ uncertainCalls: 3, uncertainMinutes: 3, reportedMinutes: 0 });
+    const logged = (await getRepo().listActivity()).filter((a) => a.action === 'clover_phone_minutes_uncertain');
+    expect(logged).toHaveLength(3);
+  });
+
+  it('a definite failure before Clover processed anything is retried (3 attempts in all), then given up', async () => {
+    await connect();
+    meteredStatus = 400; // Clover refused: nothing charged
+    expect(await end('CA500', 60)).toMatchObject({ outcome: 'pending' });
+    meteredStatus = 200;
+    expect(await settlePhoneMinutes()).toMatchObject({ reported: 1 });
+    expect(metered()).toHaveLength(2);
+    meteredNetwork = 'ECONNREFUSED'; // the connection never opened
+    expect(await end('CA501', 60)).toMatchObject({ outcome: 'pending' });
+    expect(await settlePhoneMinutes()).toMatchObject({ pending: 1 });
+    expect(await settlePhoneMinutes()).toMatchObject({ failed: 1 });
+    expect(await settlePhoneMinutes()).toMatchObject({ reported: 0, pending: 0, failed: 0 });
+    meteredNetwork = '';
+    expect(metered()).toHaveLength(5); // CA500 twice, CA501 three times, then never again
+    expect(await getMinuteRecord('CA501')).toMatchObject({ state: 'failed', attempts: 3 });
   });
 
   it('saved before the charge: a database error after Clover answered never charges twice', async () => {
-    await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID, app: 'phone' });
-    const now = Date.now();
-    await fill(150, now);
+    await connect();
     const repo = getRepo();
-    const orig = repo.setKv.bind(repo);
-    const spy = vi.spyOn(repo, 'setKv').mockImplementation(async (k: string, v: unknown) => {
-      if (k.startsWith('clover_phone_usage:') && metered().length > 0) throw new Error('database down');
-      return orig(k, v);
+    const orig = repo.putDocs.bind(repo);
+    const spy = vi.spyOn(repo, 'putDocs').mockImplementation(async (col: string, docs: any[]) => {
+      if (col === 'phone_minutes' && metered().length > 0) throw new Error('database down');
+      return orig(col, docs);
     });
     try {
-      await expect(recordPhoneOrder(MID, 'DB1', { now })).rejects.toThrow('database down');
+      await expect(end('CA600', 60)).rejects.toThrow('database down');
     } finally { spy.mockRestore(); }
     expect(metered()).toHaveLength(1);
-    // The caller tries again: already counted, not charged again; a settle never re-sends an order whose answer was lost.
-    expect(await recordPhoneOrder(MID, 'DB1', { now })).toMatchObject({ outcome: 'duplicate', counted: false });
-    await settlePhoneUsage(MID, { now });
+    expect(await getMinuteRecord('CA600')).toMatchObject({ state: 'sending' });
+    expect(await end('CA600', 60)).toMatchObject({ outcome: 'duplicate' });
+    await settlePhoneMinutes();
     expect(metered()).toHaveLength(1);
-    expect(await phoneUsage(MID, now)).toMatchObject({ orders: 151, uncertain: 1, reported: 0, pending: 0 });
+    expect((await phoneMinutesSummary()).total).toMatchObject({ uncertainCalls: 1 });
   });
 
-  it('a charge whose answer timed out is kept aside for the owner, never re-sent', async () => {
-    await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID, app: 'phone' });
+  it('Clover unreachable: minutes of a merchant last seen ACTIVE wait, then go once Clover answers ACTIVE; a trial never', async () => {
+    await connect();
+    billing[`${PH_APP}:${MID2}`] = { status: 'ACTIVE', isInTrial: true };
+    await connect(MID2);
     const now = Date.now();
-    await fill(150, now);
-    meteredTimeout = true;
-    expect(await recordPhoneOrder(MID, 'TO1', { now })).toMatchObject({ outcome: 'clover_uncertain', reported: false });
-    meteredTimeout = false;
-    await settlePhoneUsage(MID, { now });
+    billingDown = true;
+    const outage = now + 20 * 60_000;
+    expect(await end('CA700', 75, { now: outage })).toMatchObject({ outcome: 'pending', reason: 'clover_unreachable_grace' });
+    expect(await end('CA701', 75, { now: outage, merchantId: MID2 })).toMatchObject({ outcome: 'not_billable', reason: 'clover_unreachable_grace' });
+    expect(metered()).toHaveLength(0);
+    // Still down a minute later: it keeps waiting, nothing sent.
+    expect(await settlePhoneMinutes({ now: outage + 60_000 })).toMatchObject({ pending: 1, reported: 0 });
+    billingDown = false;
+    expect(await settlePhoneMinutes({ now: outage + 5 * 60_000 })).toMatchObject({ reported: 1 });
     expect(metered()).toHaveLength(1);
-    expect(await phoneUsage(MID, now)).toMatchObject({ uncertain: 1, pending: 0 });
+    expect(metered()[0].url).toContain('?count=2');
+  });
+
+  it('two settles on one out-of-date record: only one sees Clover answering; Clover gets exactly one POST', async () => {
+    await connect();
+    const base = Date.now();
+    meteredStatus = 400; // attempt 0 refused: pending on attempt 1
+    expect(await end('CA800', 60, { now: base })).toMatchObject({ outcome: 'pending' });
+    meteredStatus = 200;
+    const stale = (await getMinuteRecord('CA800'))!;
+    expect(stale).toMatchObject({ state: 'pending', attempts: 1 });
+    // Server A sends it.
+    expect(await settlePhoneMinutes({ now: base + 60_000 })).toMatchObject({ reported: 1 });
+    expect(metered()).toHaveLength(2);
+    // Server B works from its earlier read, and its own Clover check fails (grace: last answer ACTIVE).
+    const repo = getRepo();
+    const orig = repo.listDocs.bind(repo);
+    const spy = vi.spyOn(repo, 'listDocs').mockImplementation(async (col: string, f?: any) => (col === 'phone_minutes' ? [{ id: stale.callSid, key: stale.merchantId, at: stale.at, data: stale }] : orig(col, f)) as any);
+    billingDown = true;
+    try {
+      expect(await settlePhoneMinutes({ now: base + 20 * 60_000 })).toMatchObject({ pending: 1, reported: 0 });
+      // The same stale copy, Clover now saying INACTIVE: closing it needs the attempt's claim, already used by A.
+      billingDown = false;
+      billing[`${PH_APP}:${MID}`] = { status: 'INACTIVE' };
+      await handleCloverAppEvents(appEvent(PH_APP, MID, 'UPDATE'), 'phone');
+      await settlePhoneMinutes({ now: base + 21 * 60_000 });
+    } finally { spy.mockRestore(); }
+    expect(await getMinuteRecord('CA800')).toMatchObject({ state: 'reported', attempts: 1 });
+    // Later runs (past the 10-minute stuck rule) never send it again.
+    billing[`${PH_APP}:${MID}`] = { status: 'ACTIVE', isInTrial: false };
+    await handleCloverAppEvents(appEvent(PH_APP, MID, 'UPDATE'), 'phone');
+    for (const m of [32, 43, 54]) await settlePhoneMinutes({ now: base + m * 60_000 });
+    expect(metered()).toHaveLength(2);
+    expect(await getMinuteRecord('CA800')).toMatchObject({ state: 'reported', attempts: 1 });
+  });
+
+  it('an attempt whose server stopped: given up only when its POST never started, else uncertain (never sent twice)', async () => {
+    await connect();
+    const base = Date.now();
+    meteredStatus = 400;
+    await end('CA810', 60, { now: base });
+    await end('CA811', 60, { now: base });
+    meteredStatus = 200;
+    const repo = getRepo();
+    // CA810: attempt 1 claimed by a server that stopped before its POST claim. CA811: stopped after its POST claim.
+    await repo.claimKv('clover_phone_minutes_send:CA810:1', { at: new Date(base).toISOString() });
+    await repo.claimKv('clover_phone_minutes_send:CA811:1', { at: new Date(base).toISOString() });
+    await repo.claimKv('clover_phone_minutes_post:CA811:1', { at: new Date(base).toISOString() });
+    expect(await settlePhoneMinutes({ now: base + 5 * 60_000 })).toMatchObject({ pending: 2 }); // too early to tell
+    await settlePhoneMinutes({ now: base + 11 * 60_000 });
+    expect(await getMinuteRecord('CA810')).toMatchObject({ state: 'pending', attempts: 2 });
+    expect(await getMinuteRecord('CA811')).toMatchObject({ state: 'uncertain' });
+    await settlePhoneMinutes({ now: base + 12 * 60_000 });
+    expect(await getMinuteRecord('CA810')).toMatchObject({ state: 'reported', attempts: 2 });
+    expect(metered()).toHaveLength(3); // CA810 and CA811 refused once each, CA810 sent once; CA811 never again
+    expect((await getRepo().listActivity()).filter((a) => a.action === 'clover_phone_minutes_uncertain' && a.summary.includes('CA811'))).toHaveLength(1);
+  });
+
+  it('a "sending" left behind becomes "uncertain" and is logged for the owner once', async () => {
+    await connect();
+    const repo = getRepo();
+    const orig = repo.putDocs.bind(repo);
+    const spy = vi.spyOn(repo, 'putDocs').mockImplementation(async (col: string, docs: any[]) => {
+      if (col === 'phone_minutes' && metered().length > 0) throw new Error('database down');
+      return orig(col, docs);
+    });
+    const base = Date.now();
+    try {
+      await expect(end('CA820', 60, { now: base })).rejects.toThrow('database down');
+    } finally { spy.mockRestore(); }
+    const logged = async () => (await getRepo().listActivity()).filter((a) => a.action === 'clover_phone_minutes_uncertain' && a.summary.includes('CA820'));
+    expect(await getMinuteRecord('CA820')).toMatchObject({ state: 'sending' });
+    expect(await logged()).toHaveLength(1); // told right away, even though the record could not be saved
+    expect(await settlePhoneMinutes({ now: Date.now() + 11 * 60_000 })).toMatchObject({ uncertain: 1 });
+    expect(await getMinuteRecord('CA820')).toMatchObject({ state: 'uncertain' });
+    await settlePhoneMinutes({ now: Date.now() + 22 * 60_000 });
+    expect(await logged()).toHaveLength(1);
+    expect(metered()).toHaveLength(1);
+  });
+
+  it('one merchant waiting on Clover never holds up another merchant\'s minutes', async () => {
+    await connect();
+    await connect(MID2);
+    const base = Date.now();
+    meteredStatus = 400;
+    expect(await end('CA900', 60, { now: base + 1000 })).toMatchObject({ outcome: 'pending' });
+    meteredStatus = 200;
+    billingDownFor.add(MID2);
+    for (let i = 0; i < 30; i++) {
+      expect(await end(`CA91${String(i).padStart(2, '0')}`, 60, { now: base + 20 * 60_000 + i * 1000, merchantId: MID2 })).toMatchObject({ outcome: 'pending' });
+    }
+    expect(await settlePhoneMinutes({ now: base + 21 * 60_000 })).toMatchObject({ reported: 1, pending: 30 });
+    expect(await getMinuteRecord('CA900')).toMatchObject({ state: 'reported' });
+    expect(metered()).toHaveLength(2);
+  });
+
+  it('minutes ended before CLOVER_PHONE_METERED_MINUTE_ID was set are a warning in the summary', async () => {
+    await connect();
+    delete process.env.CLOVER_PHONE_METERED_MINUTE_ID;
+    expect(await end('CA950', 130)).toMatchObject({ outcome: 'no_metered_id' });
+    expect((await phoneMinutesSummary()).total).toMatchObject({ noMeteredIdCalls: 1, noMeteredIdMinutes: 3, notBilledMinutes: 0 });
+    expect(metered()).toHaveLength(0);
   });
 });
 

@@ -95,6 +95,15 @@ export async function sendEmail(input: { to: string; subject: string; text: stri
   return r;
 }
 
+/** Twilio out of balance → ONE owner alert per incident; a later success re-arms it (phone/credit-alert.ts). Never throws. */
+async function twilioCredit(ok: boolean, status: number, body: { code?: unknown; message?: unknown } | null): Promise<void> {
+  try {
+    const { noteCreditRecovered, noteLowCredit, twilioLowBalance } = await import('../phone/credit-alert');
+    if (ok) await noteCreditRecovered('twilio');
+    else if (twilioLowBalance(status, body)) await noteLowCredit('twilio', `HTTP ${status}${body?.code ? ` code ${String(body.code)}` : ''}: ${String(body?.message ?? '').slice(0, 120)}`);
+  } catch { /* an alert problem never blocks a message */ }
+}
+
 function twilioAuth() {
   return `Basic ${Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64')}`;
 }
@@ -119,6 +128,7 @@ export async function sendSms(input: { to: string; body: string; /** Our own Twi
       const res = await timedFetch(twilioUrl('Messages.json'), { method: 'POST', headers: { Authorization: twilioAuth(), 'Content-Type': 'application/x-www-form-urlencoded' }, body: form.toString() });
       const body = await res.json().catch(() => ({}));
       r = res.ok ? { ok: true, channel: 'sms', message: 'Sent', ref: body?.sid } : { ok: false, channel: 'sms', message: `Twilio HTTP ${res.status}: ${body?.message ?? ''}`.trim() };
+      await twilioCredit(res.ok, res.status, body);
     } catch (e) {
       r = { ok: false, channel: 'sms', message: `Network error: ${e instanceof Error ? e.message : String(e)}` };
     }
@@ -148,6 +158,7 @@ export async function placeCall(input: { to: string; say: string; lang?: 'fr' | 
       });
       const body = await res.json().catch(() => ({}));
       r = res.ok ? { ok: true, channel: 'call', message: 'Calling', ref: body?.sid } : { ok: false, channel: 'call', message: `Twilio HTTP ${res.status}: ${body?.message ?? ''}`.trim() };
+      await twilioCredit(res.ok, res.status, body);
     } catch (e) {
       r = { ok: false, channel: 'call', message: `Network error: ${e instanceof Error ? e.message : String(e)}` };
     }

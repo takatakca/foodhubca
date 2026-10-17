@@ -14,7 +14,8 @@ import { postToChat } from '../notify';
 import { phoneAiUsable } from './ai-health';
 import { runAgentTurn, phoneAgentConfigured } from './agent';
 import { buildPhoneMenu, noKitchenMenu } from './cart';
-import { endCall, getCall, isTestCaller, maskNumber, saveCall, say, type PhoneCall, type PhoneLang, type TurnReply } from './calls';
+import { endCall, getCall, isTestCaller, markAiEnded, maskNumber, saveCall, say, type PhoneCall, type PhoneLang, type TurnReply } from './calls';
+import { meterEndedCall } from './metering';
 import { languageRequest, LANG_DIGIT } from './ivr/words';
 import { getPhoneSettings, isMultiKitchen, kitchenView, lineForNumber, type PhoneLine, type PhoneSettings } from './settings';
 import { personaFor } from './style';
@@ -74,6 +75,12 @@ async function render(call: PhoneCall, reply: TurnReply, line: PhoneLine, settin
     await endCall(call.id);
     return twiml(`${sayXml(reply.say, settings, reply.lang)}<Hangup/>`);
   }
+  // From here a person takes over (or nobody can): the AI's minutes stop now (hold and the person are never billed).
+  if (call.aiStartedAt && !call.aiEndedAt) {
+    const at = new Date().toISOString();
+    call = { ...call, aiEndedAt: at };
+    await markAiEnded(call.id, at);
+  }
   const to = await handoffNumber(line);
   if (!to) {
     await missedHandoff(call, line, 'no hand-off number');
@@ -122,7 +129,8 @@ export async function startCall(params: URLSearchParams, opts: { simulated?: boo
     return render(saved, { say: NO_AGENT.fr, next: 'handoff', lang: 'fr' }, line, settings);
   }
   const greeting = `${GREETING.fr(line.name, personaFor(settings.persona, settings.voiceFr))} ${LANG_OFFER.en} ${LANG_OFFER.es}`;
-  await saveCall(say(call, 'agent', greeting));
+  // The AI answers from here: its minutes start (TAKATAK Phone bills the minutes the AI is on the line).
+  await saveCall({ ...say(call, 'agent', greeting), aiStartedAt: new Date().toISOString() });
   return twiml(greetingXml(line, settings));
 }
 
@@ -134,7 +142,15 @@ async function computeTurn(callId: string, text: string): Promise<TurnReply> {
   const menu = ls.kitchen ? await buildPhoneMenu(ls.kitchen) : noKitchenMenu();
   const started = new Date().toISOString();
   const r = await runAgentTurn(call, text, { line: ls.work, configured: ls.line, menu, settings: ls.settings, simulate: Boolean(call.simulated) });
-  await saveCall({ ...r.call, pending: { turn: r.call.turns, startedAt: started, reply: r.reply } });
+  // The call may have moved on while the AI was thinking (the wait ran out and a person took it, or the caller hung up).
+  // Never write the older copy back over it: that would erase the hand-off and the end of the AI's minutes. Only an
+  // order this turn placed is kept on the call.
+  const cur = await getCall(callId);
+  if (cur && cur.status !== 'active') {
+    await saveCall({ ...say(cur, 'system', 'Late AI turn not used (the call had already moved on)'), ...(r.call.orderId && !cur.orderId ? { orderId: r.call.orderId, orderNumber: r.call.orderNumber } : {}) });
+    return r.reply;
+  }
+  await saveCall({ ...r.call, ...(cur?.aiEndedAt ? { aiEndedAt: cur.aiEndedAt } : {}), pending: { turn: r.call.turns, startedAt: started, reply: r.reply } });
   return r.reply;
 }
 
@@ -232,13 +248,23 @@ export async function dialDone(params: URLSearchParams): Promise<Response> {
   return twiml(`${sayXml(NOBODY[call.lang], callVoices(call, base), call.lang)}<Hangup/>`);
 }
 
-/** Twilio call status callback (the number's "Call status changes" URL). */
-export async function callStatus(params: URLSearchParams): Promise<void> {
+/**
+ * Twilio call status callback (the number's "Call status changes" URL). Returns the call ID once the call is over, so
+ * the route meters its AI minutes after answering Twilio (meterEndedCall); null otherwise.
+ */
+export async function callStatus(params: URLSearchParams): Promise<string | null> {
   const id = params.get('CallSid') || '';
-  if (!id) return;
+  if (!id) return null;
   const st = params.get('CallStatus') || '';
-  if (['completed', 'busy', 'failed', 'no-answer', 'canceled'].includes(st)) await endCall(id, undefined, Number(params.get('CallDuration')) || undefined);
+  if (!['completed', 'busy', 'failed', 'no-answer', 'canceled'].includes(st)) return null;
+  // Twilio's own duration ("0" is a real answer: the call was never answered).
+  const raw = params.get('CallDuration');
+  const duration = raw !== null && raw !== '' && Number.isFinite(Number(raw)) ? Number(raw) : undefined;
+  const ended = await endCall(id, undefined, duration);
+  return ended ? id : null;
 }
+
+export { meterEndedCall };
 
 /** Console "Try the agent": same agent, same menu and rules — orders are never sent anywhere. */
 export async function simulateTurn(lineId: string, sessionId: string | null, text: string): Promise<{ call: PhoneCall; reply: TurnReply }> {

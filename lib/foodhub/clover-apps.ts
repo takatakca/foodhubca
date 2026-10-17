@@ -30,8 +30,8 @@ export const CLOVER_APPS: readonly CloverAppListing[] = [
     appId: '629HFYHNVMZYR',
     name: 'TAKATAK Food Hub',
     description: {
-      fr: 'Toutes vos plateformes de livraison arrivent directement dans votre caisse Clover.',
-      en: 'All your delivery platforms, straight into your Clover register.',
+      fr: 'Les commandes de toutes vos plateformes de livraison arrivent directement dans votre caisse Clover.',
+      en: 'Orders from all your delivery platforms, straight into your Clover register.',
     },
   },
   {
@@ -39,7 +39,7 @@ export const CLOVER_APPS: readonly CloverAppListing[] = [
     appId: '20FK28P20HJC6',
     name: 'TAKATAK Phone AI',
     description: {
-      fr: 'Une IA répond à vos appels, prend la commande et texte au client un lien de paiement Clover.',
+      fr: 'Une IA répond à vos appels, prend la commande et envoie au client un lien de paiement Clover par texto.',
       en: 'AI answers your phone orders and texts the customer a Clover pay link.',
     },
   },

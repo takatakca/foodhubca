@@ -1,12 +1,26 @@
 {
-  "source": "Uber Eats store UUIDs given by the owner on 2026-10-04 (Uber Eats Manager). Locations are confirmed from Uber's own address when the stores are connected (Stores → Mapping → Connect Uber Eats).",
+  "source": "Uber Eats store UUIDs given by the owner on 2026-10-04 (Uber Eats Manager). Kitchen (location_code) and address checked against Uber's own store records (Uber Eats Manager scan, 2026-10): all 7 are at 5839 Rue Jean-Talon E, Saint-Léonard (SAINT_LEONARD), even though Uber names most of them \"(Hochelaga)\". When the Uber keys are in, Uber's address confirms the kitchen (Stores → Mapping → Connect Uber Eats).",
   "stores": [
-    { "store_id": "b6b36ca0-bc57-50d0-a184-1d28bf74771f", "uber_name": "Pi Pita" },
-    { "store_id": "627d09f0-8fb4-57f2-8ec1-6a71984ad267", "uber_name": "PPP Pizzeria" },
-    { "store_id": "d4e00c50-971f-5eb4-afa2-d48231f98a48", "uber_name": "Gateaux Montréal" },
-    { "store_id": "c5585882-ab06-5a2f-bbc2-66fe5ec9179c", "uber_name": "O'Oeufs Montréal" },
-    { "store_id": "8c0a69ee-1667-5aa7-a8e6-7fdb707095da", "uber_name": "Nutri Shake" },
-    { "store_id": "8179598e-a40f-509e-8b03-59ce49d57d77", "uber_name": "Bolon Café" },
-    { "store_id": "7656b055-48d1-5f46-a6a7-2a0d23668c0b", "uber_name": "BIN MOLLE BIN DURE" }
-  ]
+    { "store_id": "b6b36ca0-bc57-50d0-a184-1d28bf74771f", "uber_name": "Pi Pita", "name_on_uber": "Pi pita (Hochelaga)", "location_code": "SAINT_LEONARD", "address_on_uber": "5839 Rue Jean-Talon E, Saint-Léonard, QC H1S 1M4" },
+    { "store_id": "627d09f0-8fb4-57f2-8ec1-6a71984ad267", "uber_name": "PPP Pizzeria", "name_on_uber": "PPP Pizzeria (Hochelaga)", "location_code": "SAINT_LEONARD", "address_on_uber": "5839 Rue Jean-Talon E, Saint-Léonard, QC H1S 1M4" },
+    { "store_id": "d4e00c50-971f-5eb4-afa2-d48231f98a48", "uber_name": "Gateaux Montréal", "name_on_uber": "Gâteaux Montreal (Hochelaga)", "location_code": "SAINT_LEONARD", "address_on_uber": "5839 Rue Jean-Talon E, Saint-Léonard, QC H1S 1M4" },
+    { "store_id": "c5585882-ab06-5a2f-bbc2-66fe5ec9179c", "uber_name": "O'Oeufs Montréal", "name_on_uber": "O'OEUFS Express (5839 Jean-Talon)", "location_code": "SAINT_LEONARD", "address_on_uber": "5839 Rue Jean-Talon E, Saint-Léonard, QC H1S 1M4" },
+    { "store_id": "8c0a69ee-1667-5aa7-a8e6-7fdb707095da", "uber_name": "Nutri Shake", "name_on_uber": "Nutri Shake (Hochelaga)", "location_code": "SAINT_LEONARD", "address_on_uber": "5839 Rue Jean-Talon E, Saint-Léonard, QC H1S 1M4" },
+    { "store_id": "8179598e-a40f-509e-8b03-59ce49d57d77", "uber_name": "Bolon Café", "name_on_uber": "Bolon Café (Hochelaga)", "location_code": "SAINT_LEONARD", "address_on_uber": "5839 Rue Jean-Talon E, Saint-Léonard, QC H1S 1M4" },
+    { "store_id": "7656b055-48d1-5f46-a6a7-2a0d23668c0b", "uber_name": "BIN MOLLE BIN DURE", "name_on_uber": "BIN MOLLE & BIN DURE (Hochelaga)", "location_code": "SAINT_LEONARD", "address_on_uber": "5839 Rue Jean-Talon E, Saint-Léonard, QC H1S 1M4" }
+  ],
+  "ndg_not_mapped": {
+    "note": "Reference only, NOT read by Food Hub and NOT mapped: the live NDG Uber Eats stores (Uber address 6280 Somerled). They are different stores from the 7 above. Link them with Stores → Mapping → Connect Uber Eats, where Uber's address suggests the kitchen (6280 → NDG_MAIN by street number; the NDG kitchen also uses NDG_6284, so the owner picks).",
+    "stores": [
+      { "store_id": "3ca49ac1-fb4c-562d-b066-0389875f24eb", "name_on_uber": "BIN MOLLE & BIN DURE (NDG)", "address_on_uber": "6280 Avenue Somerled, H4B 2V5" },
+      { "store_id": "8d911a03-247c-53a2-92da-593808f33592", "name_on_uber": "Bolon Café (NDG)", "address_on_uber": "6280 Avenue Somerled, H4B 2V5" },
+      { "store_id": "c20d55f1-661a-56d6-b1db-bd792423b777", "name_on_uber": "Gâteaux Montreal (NDG)", "address_on_uber": "6280 Avenue Somerled, H4B 2V5" },
+      { "store_id": "58f2a0dd-a9da-5a27-a130-d858a52e18f9", "name_on_uber": "Nutri Shake (NDG)", "address_on_uber": "6280 Avenue Somerled, H4B 2V5" },
+      { "store_id": "6cbb374c-c3a2-5951-b88c-11142bd5121a", "name_on_uber": "O'OEUFS EXPRESS (NDG)", "address_on_uber": "6280 Avenue Somerled, H4B 2V5" },
+      { "store_id": "b15edc79-c646-55a9-97e2-f8851ae79ff8", "name_on_uber": "O'OEUFS Express (6280 Somerled Ave)", "address_on_uber": "6280 Somerled Ave, H3X 2B6" },
+      { "store_id": "dc493fba-120f-529c-a508-caef6a926de9", "name_on_uber": "PPP Pizzeria (NDG)", "address_on_uber": "6280 Avenue Somerled, H4B 2V5" },
+      { "store_id": "c8390129-1c18-5c51-800e-d9be32a865a3", "name_on_uber": "Pi pita (NDG)", "address_on_uber": "6280 Avenue Somerled, H4B 2V5" },
+      { "store_id": "baa21fb9-e843-4667-895e-1fe7d3dbb0ce", "name_on_uber": "Pizza Algerie (Montréal)", "address_on_uber": "6280 Somerled Ave, H3X 2B6" }
+    ]
+  }
 }

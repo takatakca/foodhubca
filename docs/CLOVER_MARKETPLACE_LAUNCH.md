@@ -152,7 +152,7 @@ answering is a listed rejection reason.
 
 | Requirement | Status | Detail |
 |---|---|---|
-| A plan for every market, free allowed | 👤 | Choose **Free (0.00)** for Canada and the US. Clover may follow up about monetizing. |
+| A plan for every market | ✅ done (2026-10-16) | Tier **Standard** CAD $50/month, Canada only, 14-day trial, + metered event **Extra brand, per platform, per month** CAD $15. See [`CLOVER_BILLING.md`](CLOVER_BILLING.md). |
 | All fees through Clover billing, none outside | ✅ | The terms now say any fee for the Clover app goes through Clover's billing only. Food Hub charges nothing. |
 | Read the merchant's subscription (`GET /v3/apps/{appId}/merchants/{mId}/billing_info`) | ✅ **new** | Read at connect time and on each App UPDATE. Shown on the welcome page and in Settings → Clover app. Nothing is blocked by it: the app is free. If you add a paid plan later, decide then what a lapsed merchant loses. |
 | Prices in CAD for Canada; trial lengths | n/a | Only if you add a paid plan. |
@@ -243,8 +243,13 @@ server with `npm run setup`, never in a chat.
    - webhook `https://foodhub.on2go.ca/api/foodhub/webhooks/clover`, verified, with events **App**, **Inventory**,
      **Orders**.
    - **Left for you:** put Clover's auth code in `CLOVER_WEBHOOK_AUTH` in Coolify, then Restart.
-   - **Then connect your own merchant:** console → Settings → Platforms & Clover → **Connect a Clover merchant** →
-     Approve. Settings → Clover app should then show "Tested end to end" once you send a test order.
+   - **Then connect your own register.** While the app is a draft, Clover will not install it: its authorize page
+     answers 404 for an app that is not on the App Market (seen 2026-10-10). So the group's register uses a merchant
+     **API token**: Clover → Account & Setup → API Tokens → "Food Hub" (Inventory, Merchant, Orders, Payments read +
+     write) → Coolify `CLOVER_ACCESS_TOKEN` (with `CLOVER_MERCHANT_ID`) → Restart.
+   - **Clover proof:** Settings → Clover app → **Send a test order**. The TEST order is created in the register, its
+     ticket prints and it closes as paid; each step shows Clover's answer. The checklist line "Tested end to end"
+     then turns green. After approval, merchants connect in one click through the app (welcome page, same test).
 6. **Permissions:** paste the four reasons.
 7. **App Market Listing:**
    - Tabs FR-CA, EN-CA and EN-US: tagline, benefits, description.
@@ -254,7 +259,7 @@ server with `npm run setup`, never in a chat.
    - Categories (after §5).
    - Developer Support: email, phone, website `https://foodhub.on2go.ca/legal/support`, hours.
    - Optional: the cover image.
-8. **Pricing:** a free plan for Canada and the United States.
+8. **Pricing:** tier "Standard" CAD $50/month in Canada with a 14-day free trial, + metered "Extra brand, per platform, per month" CAD $15 ([`CLOVER_BILLING.md`](CLOVER_BILLING.md)).
 9. **Functional video** (§6): upload it to YouTube or Vimeo as **unlisted**.
 10. **Overview:** paste the functional description from Settings → Clover app, and the video URL.
 11. **Test** (§7) in sandbox and on your own merchant.

@@ -44,9 +44,12 @@ Developer account details (login, developer ID) are kept in the owner's private 
      type, prints it, and pays it for Clover's own total with the platform tender. It never enters Food Hub. Limit:
      3 per hour.
    - The ticket is valid 7 days. Without it, the page shows no merchant data.
-4. **From Food Hub:** Settings → Platforms & Clover → **Connect a Clover merchant**. These connections are approved at
+4. **With an API token** (the group's own register while the App Market app is a draft — Clover will not install a draft
+   app): `CLOVER_ACCESS_TOKEN` + `CLOVER_MERCHANT_ID` (or `CLOVER_MERCHANT_TOKENS`). The owner checks it with Settings →
+   Clover app → **Send a test order** (same TEST order as the welcome page; owner only, 3 per hour).
+5. **From Food Hub:** Settings → Platforms & Clover → **Connect a Clover merchant**. These connections are approved at
    once, because the owner started them.
-5. **Tokens:**
+6. **Tokens:**
    - They renew automatically 5 minutes before they expire. Every Clover call backs off on a 429.
    - Uninstalling the app (webhook `A:<appId>` DELETE) removes them. An App `UPDATE` re-reads the subscription.
    - API tokens in `CLOVER_ACCESS_TOKEN` / `CLOVER_MERCHANT_TOKENS` still work and take priority.

@@ -10,10 +10,10 @@ import { saveDirectOrder } from '../lib/foodhub/delivery/store';
 import { setFeature } from '../lib/foodhub/expansion/features';
 import { getCall } from '../lib/foodhub/phone/calls';
 import { findOwnOrders, IVR_TOOLS, ivrPromptBlock } from '../lib/foodhub/phone/ivr/agent';
-import { cleanIvrSettings, DEFAULT_IVR, DEFAULT_TREE, getIvrSettings, OWNER_GREETING, platformHelpUrl, saveIvrSettings, validateTree, type IvrNode } from '../lib/foodhub/phone/ivr/config';
+import { cleanIvrSettings, DEFAULT_IVR, DEFAULT_TREE, getIvrSettings, GREETING_NOTICE, OWNER_GREETING, platformHelpUrl, saveIvrSettings, validateTree, type IvrNode } from '../lib/foodhub/phone/ivr/config';
 import { tickIvr } from '../lib/foodhub/phone/ivr/engine';
 import { callMatches, getIvrCall, IVR_REFS, listPlatformRefs, listTickets, newIvrCall } from '../lib/foodhub/phone/ivr/records';
-import { detectPlatform, hasCardNumber, keywordIntent, languageWord, menuSpeech, normalizeOrderId, redactCards } from '../lib/foodhub/phone/ivr/words';
+import { detectPlatform, fold, hasCardNumber, keywordIntent, languageRequest, languageWord, menuSpeech, NO_MORE, normalizeOrderId, redactCards } from '../lib/foodhub/phone/ivr/words';
 import { savePhoneSettings } from '../lib/foodhub/phone/settings';
 import { twilioSignature } from '../lib/foodhub/phone/twilio';
 import { getRepo } from '../lib/foodhub/repo';
@@ -70,7 +70,7 @@ beforeEach(async () => {
     ANTHROPIC_API_KEY: 'sk-test', TWILIO_ACCOUNT_SID: 'AC1', TWILIO_AUTH_TOKEN: 'tw-token', TWILIO_FROM: '+15145550000',
     FOODHUB_IVR_NUMBER: IVR_NUMBER, RESEND_API_KEY: 're_test', AUTH_EMAIL_FROM: 'hub@example.test', FOODHUB_VOICEMAIL_EMAIL: 'team@example.test',
   });
-  for (const k of ['ANTHROPIC_BASE_URL', 'FOODHUB_IVR_HANDOFF_NUMBER', 'FOODHUB_MAIN_PHONE', 'TWILIO_MESSAGING_SERVICE_SID']) delete process.env[k];
+  for (const k of ['ANTHROPIC_BASE_URL', 'FOODHUB_IVR_HANDOFF_NUMBER', 'FOODHUB_MAIN_PHONE', 'TWILIO_MESSAGING_SERVICE_SID', 'CLOVER_PHONE_APP_ID', 'CLOVER_PHONE_APP_SECRET', 'PHONE_OWN_MERCHANTS']) delete process.env[k];
   for (const k of ['DELIVERY', 'RETAIL', 'ALCOHOL', 'PHONE']) delete process.env[`FOODHUB_FEATURE_${k}`];
   claude = []; claudeRequests = []; sms = []; emails = [];
   globalThis.fetch = vi.fn(async (url: any, init: RequestInit = {}) => {
@@ -129,7 +129,9 @@ describe('menu tree', () => {
 
   it('reads the keypad menu in each language with 0 = person and star = repeat', () => {
     expect(menuSpeech(DEFAULT_TREE, '', 'fr')).toMatch(/^Pour une commande en ligne .*faites le 1\. Pour une commande Uber Eats, DoorDash ou SkipTheDishes, faites le 2\..*Pour parler à quelqu’un, faites le 0\..*étoile/);
-    expect(menuSpeech(DEFAULT_TREE, '', 'en')).toMatch(/For billing, press 3\..*For talk to someone, press 0\..*press star/);
+    // Verb labels read "To …", noun labels "For …".
+    expect(menuSpeech(DEFAULT_TREE, '', 'en')).toMatch(/For billing, press 3\. To become a partner restaurant, press 4\. To become a courier, press 5\..*To leave a message, press 7\. To talk to someone, press 0\..*press star/);
+    expect(menuSpeech(DEFAULT_TREE, 'online_order', 'en')).toMatch(/To place an order, press 2\./);
     expect(menuSpeech(DEFAULT_TREE, 'platform_order', 'es')).toMatch(/^Pedidos de una aplicación\. Para Uber Eats, marque el 1\. Para DoorDash, marque el 2\./);
   });
 
@@ -186,6 +188,25 @@ describe('keyword router (fallback when the AI is off or fails): intent → bran
     expect(normalizeOrderId('#88231')).toBe('88231');
     expect(normalizeOrderId('euh')).toBeNull();
   });
+
+  it('a language word inside an order is food, not a language request', () => {
+    expect(languageRequest('French fries please')).toBeNull();
+    expect(languageRequest('Two French fries')).toBeNull();
+    expect(languageRequest('frites à l’anglaise')).toBeNull();
+    expect(languageRequest('Spanish rice and a chicken')).toBeNull();
+    expect(languageRequest('English muffin')).toBeNull();
+    expect(languageRequest('French')).toEqual({ lang: 'fr', rest: '' });
+    expect(languageRequest('Spanish please')).toEqual({ lang: 'es', rest: '' });
+    expect(languageRequest('Do you speak English?')).toEqual({ lang: 'en', rest: '' });
+    expect(languageRequest('¿Habla español?')).toEqual({ lang: 'es', rest: '' });
+    expect(languageRequest('English, I want to order a chicken')).toEqual({ lang: 'en', rest: 'i want to order a chicken' });
+    expect(languageRequest('Español, quiero una orden')).toEqual({ lang: 'es', rest: 'quiero una orden' });
+  });
+
+  it('"that’s all" ends the call only when it is all the caller said', () => {
+    for (const done of ['Non merci', 'non', 'euh non merci bonne journée', 'No gracias', 'That’s all, thanks', 'c’est tout merci']) expect(NO_MORE.test(fold(done))).toBe(true);
+    for (const more of ['No me llegó mi pedido', 'Non, je veux parler à quelqu’un', 'No, I have a problem with my order', 'Non c’est pas la bonne commande']) expect(NO_MORE.test(fold(more))).toBe(false);
+  });
 });
 
 describe('card numbers', () => {
@@ -196,6 +217,23 @@ describe('card numbers', () => {
     expect(hasCardNumber('514 555 1234')).toBe(false);
     expect(hasCardNumber('commande 88231')).toBe(false);
     expect(redactCards('my card is 4111 1111 1111 1111 ok')).toBe('my card is [card number removed] ok');
+  });
+
+  it('a card read in groups is found even with the punctuation speech recognition adds', () => {
+    for (const said of ['4111, 1111, 1111, 1111', '4111. 1111. 1111. 1111', '4111  1111  1111  1111', '4111 - 1111 - 1111 - 1111', '4111,\n1111,\n1111,\n1111']) {
+      expect(hasCardNumber(said)).toBe(true);
+      expect(redactCards(`ma carte ${said} merci`)).toBe('ma carte [card number removed] merci');
+    }
+    expect(hasCardNumber('4111, 1111, 1111, 1112')).toBe(false);
+    expect(hasCardNumber('commande 88231, 2 poulets, 3 frites')).toBe(false);
+    expect(hasCardNumber('514 555 1234')).toBe(false);
+  });
+
+  it('a card said with commas on the ON2GO menu is refused and never stored', async () => {
+    await start();
+    expect(await turn({ SpeechResult: 'ma carte c’est 4111, 1111, 1111, 1111' })).toMatch(/ne donnez jamais un numéro de carte/);
+    expect(claudeRequests).toHaveLength(0);
+    expect(JSON.stringify(await getIvrCall('CA1'))).not.toMatch(/4111/);
   });
 
   it('a caller who starts giving a card number is stopped; nothing reaches the AI, the transcript or the records', async () => {
@@ -227,12 +265,36 @@ describe('greeting and language', () => {
     expect(r).toMatch(/<Gather input="speech dtmf" numDigits="1" finishOnKey="" action="\/api\/foodhub\/webhooks\/ivr\/turn" method="POST" language="fr-CA"/);
     expect(r).toMatch(/<Say voice="Polly.Gabrielle-Neural" language="fr-CA">Bienvenue au service ON2GO, votre service de livraison numéro un au Canada\. Poulet grillé.*Comment puis-je vous aider \?<\/Say>/);
     expect(r).toMatch(/<Say voice="Polly.Joanna-Neural" language="en-US">For English, say English or press 2\.<\/Say>/);
-    expect(r).toMatch(/<Say voice="Polly.Lupe-Neural" language="es-US">Para español, diga español o marque 3\.<\/Say>/);
+    expect(r).toMatch(/<Say voice="Polly.Lupe-Neural" language="es-US">Para español, diga español o marque el 3\.<\/Say>/);
   });
 
   it('plays a recorded greeting when an MP3 is set', async () => {
     await saveIvrSettings({ audio: { greeting: { fr: 'https://cdn.example.test/on2go-fr.mp3' }, voicemail: {} } }, actor);
-    expect(await start()).toMatch(/<Play>https:\/\/cdn.example.test\/on2go-fr.mp3<\/Play>/);
+    const r = await start();
+    expect(r).toMatch(/<Play>https:\/\/cdn.example.test\/on2go-fr.mp3<\/Play>/);
+    // The recording cannot drop the disclosure: it is said right after it.
+    expect(r).toMatch(/<\/Play><Say voice="Polly.Gabrielle-Neural" language="fr-CA">Je suis l’assistante automatisée\. L’appel est transcrit/);
+  });
+
+  it('says it is an automated assistant, that the call is transcribed and that 0 reaches a person — even with an edited greeting', async () => {
+    expect(GREETING_NOTICE.fr).toBe('L’appel est transcrit pour traiter votre demande. Pour parler à une personne, faites le 0.');
+    expect(GREETING_NOTICE.en).toMatch(/transcribed.*press 0/);
+    expect(GREETING_NOTICE.es).toMatch(/se transcribe.*marque el 0/);
+    const r = await start();
+    expect(r).toMatch(/numéro un au Canada\. Poulet grillé.*Je suis l’assistante automatisée\. L’appel est transcrit pour traiter votre demande\. Pour parler à une personne, faites le 0\. Comment puis-je vous aider \?<\/Say>/);
+    expect(r).not.toMatch(/virtu/i);
+    await saveIvrSettings({ greeting: { ...OWNER_GREETING, fr: 'Bonjour et bienvenue chez ON2GO.' } }, actor);
+    expect(await start('CA2')).toMatch(/Bonjour et bienvenue chez ON2GO\. .*assistante automatisée\..*faites le 0\./);
+  });
+
+  it('0 on the greeting reaches a person, even when the tree has no 0 option', async () => {
+    await saveIvrSettings({ handoffNumber: '514 555 0100' }, actor);
+    await start();
+    expect(await turn({ Digits: '0' })).toMatch(/<Dial[^>]*>\+15145550100<\/Dial>/);
+    await saveIvrSettings({ tree: DEFAULT_TREE.filter((n) => n.digit !== '0') }, actor);
+    expect((await getIvrSettings()).tree.some((n) => n.digit === '0')).toBe(false);
+    await start('CA2');
+    expect(await turn({ Digits: '0' }, 'CA2')).toMatch(/<Dial[^>]*>\+15145550100<\/Dial>/);
   });
 
   it('switches language by voice or keypad: English (en-US) and Spanish (es-US)', async () => {
@@ -244,7 +306,34 @@ describe('greeting and language', () => {
     await start('CA2');
     const es = await turn({ Digits: '3' }, 'CA2');
     expect(es).toMatch(/<Gather[^>]*language="es-US"/);
-    expect(es).toMatch(/<Say voice="Polly.Lupe-Neural" language="es-US">Muy bien, en español\. ¿Cómo puedo ayudarle\?<\/Say>/);
+    expect(es).toMatch(/<Say voice="Polly.Lupe-Neural" language="es-US">Muy bien, en español\. Soy su asistente automatizada\. La llamada se transcribe para atender su solicitud\. Para hablar con una persona, marque el 0\. ¿Cómo puedo ayudarle\?<\/Say>/);
+    expect(en).toMatch(/Okay, in English\. I’m the automated assistant\. This call is transcribed to handle your request\. To speak with a person, press 0\. How can I help you\?/);
+  });
+
+  it('a language word with a request after it: the notice in the new language is said before the answer', async () => {
+    await start('CA1');
+    const en = await turn({ SpeechResult: 'English, I have a problem with my order' }, 'CA1');
+    expect(en).toMatch(/^<\?xml[^>]*><Response><Say voice="Polly.Joanna-Neural" language="en-US">Okay, in English\. I’m the automated assistant\. This call is transcribed to handle your request\. To speak with a person, press 0\.<\/Say>/);
+    expect(JSON.stringify(claudeRequests.at(-1)!.body.messages.at(-1))).toContain('i have a problem with my order');
+    expect((await getIvrCall('CA1'))!.transcript.some((t) => t.who === 'agent' && /automated assistant/.test(t.text))).toBe(true);
+    // Keypad mode (no AI): the language comes from the words themselves, and the Spanish notice comes first.
+    await saveIvrSettings({ mode: 'keypad' }, actor);
+    await start('CA2');
+    const es = await turn({ SpeechResult: 'Hola, tengo un problema con mi pedido' }, 'CA2');
+    expect(es).toMatch(/<Response><Say voice="Polly.Lupe-Neural" language="es-US">Muy bien, en español\. Soy su asistente automatizada\. La llamada se transcribe/);
+    // Said again in French: no switch, no notice.
+    await start('CA3');
+    expect(await turn({ SpeechResult: 'Français, j’ai un problème avec ma commande' }, 'CA3')).not.toMatch(/Très bien, en français/);
+  });
+
+  it('the Spanish notice follows the Spanish voice’s gender, not the French one', async () => {
+    await saveIvrSettings({ voices: { ...(await getIvrSettings()).voices, fr: 'Polly.Liam-Neural' } }, actor);
+    const fr = await start('CA1');
+    expect(fr).toContain('Je suis l’assistant automatisé.');
+    expect(await turn({ Digits: '3' }, 'CA1')).toContain('Soy su asistente automatizada.');
+    await saveIvrSettings({ voices: { ...(await getIvrSettings()).voices, es: 'Polly.Pedro-Neural' } }, actor);
+    await start('CA2');
+    expect(await turn({ Digits: '3' }, 'CA2')).toContain('Soy su asistente automatizado.');
   });
 
   it('the AI can switch the language (set_language) and the next listen uses that language', async () => {
@@ -264,7 +353,7 @@ describe('AI routing (route_to) with the keypad as fallback', () => {
     expect(r1).toMatch(/notre site ou sur une application/);
     claude.push(route('platform_doordash', 'doordash'));
     const r2 = await turn({ SpeechResult: 'Sur DoorDash' });
-    expect(r2).toMatch(/Dites ou tapez le numéro de commande DoorDash/);
+    expect(r2).toMatch(/Dites ou entrez votre numéro de commande DoorDash, suivi du carré/);
     expect(r2).toMatch(/finishOnKey="#"/);
     expect(claudeRequests).toHaveLength(2);
     const [a, b] = claudeRequests.map((x) => x.body);
@@ -314,7 +403,7 @@ describe('AI routing (route_to) with the keypad as fallback', () => {
     expect(r1).toMatch(/répéter/);
     claude.push(claudeResponse([toolUse('not_understood', {})], 'tool_use'));
     const r2 = await turn({ SpeechResult: 'grrr' });
-    expect(r2).toMatch(/Je n’ai pas bien compris\. Voici nos options\. Pour une commande en ligne/);
+    expect(r2).toMatch(/Pardon, je n’ai pas bien saisi\. Voici les choix du menu\. Pour une commande en ligne/);
     expect((await getIvrCall('CA1'))!.state).toBe('menu');
   });
 
@@ -329,7 +418,10 @@ describe('AI routing (route_to) with the keypad as fallback', () => {
     const r = await turn({ SpeechResult: 'Je voudrais devenir livreur' });
     expect(r).toMatch(/<Record /);
     expect(r).toMatch(/Je vous ai envoyé le lien officiel par texto/);
-    expect(sms[0].Body).toContain('https://on2go.ca/livreurs');
+    // A page that exists (the old /livreurs placeholder was a 404).
+    expect(sms[0].Body).toBe('ON2GO — Devenir livreur ou livreuse : https://on2go.ca');
+    // An AI failure is never announced as the caller's fault.
+    expect(r).not.toMatch(/pas bien (compris|saisi)/);
     expect(claudeRequests.length).toBeLessThanOrEqual(2); // one call (+ one SDK retry), never again in the same request
     const call = await getIvrCall('CA1');
     expect(call!.path.map((p) => p.node)).toContain('courier');
@@ -343,6 +435,21 @@ describe('AI routing (route_to) with the keypad as fallback', () => {
     const r = await turn({ SpeechResult: 'Ma commande Uber Eats est en retard' });
     expect(r).toMatch(/numéro de commande Uber Eats/);
     expect(claudeRequests).toHaveLength(0);
+  });
+
+  it('without the AI, a sentence that starts with "no" is routed, not a goodbye; "non merci" alone ends the call', async () => {
+    await saveIvrSettings({ mode: 'keypad' }, actor);
+    await start('CA-NO1');
+    await turn({ SpeechResult: 'No me llegó mi pedido' }, 'CA-NO1');
+    expect((await getIvrCall('CA-NO1'))!.path.map((p) => p.node)).toContain('online_problem');
+    expect((await getIvrCall('CA-NO1'))!.outcome).not.toBe('resolved');
+    await start('CA-NO2');
+    await turn({ SpeechResult: 'Non, je veux parler à quelqu’un' }, 'CA-NO2');
+    expect((await getIvrCall('CA-NO2'))!.path.map((p) => p.node)).toContain('person');
+    await start('CA-NO3');
+    const bye = await turn({ SpeechResult: 'Non merci' }, 'CA-NO3');
+    expect(bye).toMatch(/<Hangup\/>/);
+    expect((await getIvrCall('CA-NO3'))!.outcome).toBe('resolved');
   });
 
   it('keypad-only mode: greeting → 1 français → main menu → 2 platforms → 2 DoorDash', async () => {
@@ -385,7 +492,7 @@ describe('AI routing (route_to) with the keypad as fallback', () => {
     await turn({ SpeechResult: 'devenir livreur' });
     expect(sms).toHaveLength(1);
     expect(sms[0]).toMatchObject({ To: CALLER, From: IVR_NUMBER });
-    expect(sms[0].Body).toBe('ON2GO — Devenir livreur : https://on2go.ca/livreurs');
+    expect(sms[0].Body).toBe('ON2GO — Devenir livreur ou livreuse : https://on2go.ca');
   });
 });
 
@@ -468,7 +575,7 @@ describe('ordering agent, person, voicemail', () => {
     const r = await turn({ SpeechResult: 'I want to order a chicken' });
     expect(r).toMatch(/action="\/api\/foodhub\/webhooks\/voice\/turn"/);
     expect(r).toMatch(/language="en-US"/);
-    expect(r).toMatch(/I’ll take your order/);
+    expect(r).toMatch(/Great! I’m the automated assistant\. This call is transcribed to take your order\. To speak with a person, press 0\. What can I get for you\?/);
     const pc = await getCall('CA1');
     expect(pc).toMatchObject({ id: 'CA1', lineName: 'Pi Pita', lang: 'en', from: CALLER, status: 'active' });
     expect((await getIvrCall('CA1'))!.outcome).toBe('order_agent');
@@ -482,7 +589,7 @@ describe('ordering agent, person, voicemail', () => {
     expect(r).toMatch(/<Record maxLength="180" playBeep="true"[^>]*action="\/api\/foodhub\/webhooks\/ivr\/voicemail-done"/);
     const done = await (await step('voicemail-done', { CallSid: 'CA1', RecordingUrl: 'https://api.twilio.com/2010-04-01/Accounts/AC1/Recordings/RE1', RecordingSid: 'RE1', RecordingDuration: '14' })).text();
     expect(done).toMatch(/<Stop><Transcription name="vm-CA1"\/><\/Stop>/);
-    expect(done).toMatch(/votre message est enregistré/);
+    expect(done).toMatch(/votre message est bien enregistré/);
     const tk = (await listTickets())[0];
     expect(tk).toMatchObject({ category: 'callback', from: CALLER, status: 'open' });
     expect(emails).toHaveLength(0); // waits for the transcript
@@ -506,7 +613,7 @@ describe('ordering agent, person, voicemail', () => {
     await start();
     await turn({ Digits: '0' });
     const r = await (await step('dial-done', { CallSid: 'CA1', DialCallStatus: 'no-answer' }, '?kind=person')).text();
-    expect(r).toMatch(/Personne n’est disponible/);
+    expect(r).toMatch(/personne n’est disponible présentement/);
     expect(r).toMatch(/<Record/);
     expect((await getIvrCall('CA1'))!.outcome).toBe('handoff_missed');
   });
@@ -531,12 +638,81 @@ describe('Calls log search and the Twilio signature', () => {
     expect((await ivrStep(signed('/api/foodhub/webhooks/ivr/nope', { CallSid: 'CA1' }), stepCtx('nope'))).status).toBe(404);
   });
 
-  it('the AI prompt block lists the branches and says what the caller ID allows', () => {
-    const block = ivrPromptBlock(cleanIvrSettings({}), { from: 'anonymous' }, Date.parse('2026-10-09T15:00:00Z'));
+  it('the AI prompt block lists the branches and says what the caller ID allows', async () => {
+    const block = await ivrPromptBlock(cleanIvrSettings({}), { from: 'anonymous' }, Date.parse('2026-10-09T15:00:00Z'));
     expect(block).toMatch(/- online_order \[submenu/);
     expect(block).toMatch(/ {2}- platform_skip \[platform order \(SkipTheDishes\)\]/);
     expect(block).toMatch(/DoorDash: the menu transfers to its official support line/);
     expect(block).toMatch(/Uber Eats: no public phone line/);
     expect(block).toMatch(/Caller ID: hidden/);
+  });
+});
+
+describe('TAKATAK Phone on the ON2GO menu, and the empty answers of the status steps', () => {
+  async function orderingSetup() {
+    await saveLocation({ code: 'NDG', name: 'Notre-Dame-de-Grâce', address: '6280 Somerled Ave', city: 'Montréal', postalCode: 'H4V 1R9', phone: '514 555-0100', active: true });
+    await getRepo().saveMenu({ ...MENU, brandName: 'Pi Pita' });
+    // Made-up merchant ID (public repository).
+    await getRepo().upsertStore({ channel: 'uber_eats', channelStoreId: 'store-ndg', brandName: 'Pi Pita', locationCode: 'NDG', cloverMerchantId: 'TESTMERCHIVR1', autoAccept: false, online: true, meta: {} });
+    await savePhoneSettings({ lines: [{ number: '+15145550177', name: 'Pi Pita', locationCode: 'NDG', brands: ['Pi Pita'], enabled: true, delivery: false } as any] }, actor);
+    await setFeature('phone', true, actor);
+  }
+
+  it('"place an order" for a kitchen without the phone app: a person takes the order (voicemail when nobody), never the AI', async () => {
+    await orderingSetup();
+    Object.assign(process.env, { CLOVER_PHONE_APP_ID: 'TESTPHONEAPP3', CLOVER_PHONE_APP_SECRET: 'phone-secret-test' });
+    await start();
+    claude.push(route('place_order'));
+    const r = await turn({ SpeechResult: 'je veux commander un poulet' });
+    expect(r).not.toMatch(/webhooks\/voice\/turn/);
+    expect(r).toMatch(/<Record /); // no hand-off number set: voicemail, the call is never dropped
+    expect(await getCall('CA1')).toBeNull();
+    const ivr = (await getIvrCall('CA1'))!;
+    expect(ivr.outcome).not.toBe('order_agent');
+    expect(JSON.stringify(ivr.transcript)).toMatch(/TAKATAK Phone AI not active for kitchen NDG \(not_installed\)/);
+  });
+
+  it('"place an order" with Clover hanging: the app check waits 1 s at most (the menu\'s AI turn already used time)', async () => {
+    await orderingSetup();
+    Object.assign(process.env, { CLOVER_PHONE_APP_ID: 'TESTPHONEAPP3', CLOVER_PHONE_APP_SECRET: 'phone-secret-test' });
+    // The phone app is installed for the kitchen's merchant (made-up token), and Clover's billing_info never answers.
+    await getRepo().setKv('clover_oauth_merchants:phone', { TESTMERCHIVR1: { merchantId: 'TESTMERCHIVR1', accessToken: 'PAT-1', accessTokenExpiration: Math.floor(Date.now() / 1000) + 3600, connectedAt: '2026-10-01T00:00:00.000Z', appId: 'TESTPHONEAPP3' } });
+    const base = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: any, init: RequestInit = {}) => {
+      if (String(url).includes('/billing_info')) {
+        return new Promise<Response>((_, reject) => init.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))));
+      }
+      return base(url, init);
+    }) as any;
+    await start();
+    claude.push(route('place_order'));
+    const t0 = Date.now();
+    const r = await turn({ SpeechResult: 'je veux commander un poulet' });
+    expect(Date.now() - t0).toBeLessThan(2_000);
+    expect(r).not.toMatch(/webhooks\/voice\/turn/);
+    expect(JSON.stringify((await getIvrCall('CA1'))!.transcript)).toMatch(/TAKATAK Phone AI not active for kitchen NDG \(clover_unreachable\)/);
+    await new Promise((res) => setTimeout(res, 50));
+  });
+
+  it('the same kitchen as one of our own merchants: handed to the AI ordering agent as before', async () => {
+    await orderingSetup();
+    Object.assign(process.env, { CLOVER_PHONE_APP_ID: 'TESTPHONEAPP3', CLOVER_PHONE_APP_SECRET: 'phone-secret-test', PHONE_OWN_MERCHANTS: 'TESTMERCHIVR1' });
+    await start();
+    claude.push(route('place_order'));
+    expect(await turn({ SpeechResult: 'je veux commander un poulet' })).toMatch(/action="\/api\/foodhub\/webhooks\/voice\/turn"/);
+    expect((await getIvrCall('CA1'))!.outcome).toBe('order_agent');
+  });
+
+  it('status, recording and transcript answer a real 204 with no body (not the error message)', async () => {
+    await start();
+    for (const [name, fields] of [
+      ['status', { CallSid: 'CA1', CallStatus: 'completed', CallDuration: '30' }],
+      ['recording', { CallSid: 'CA1', RecordingSid: 'RE1', RecordingStatus: 'completed', RecordingUrl: 'https://api.twilio.com/2010-04-01/Accounts/AC1/Recordings/RE1' }],
+      ['transcript', { CallSid: 'CA1', TranscriptionEvent: 'transcription-stopped' }],
+    ] as const) {
+      const res = await step(name, fields);
+      expect(res.status).toBe(204);
+      expect(await res.text()).toBe('');
+    }
   });
 });

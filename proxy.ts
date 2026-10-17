@@ -20,6 +20,7 @@ const PUBLIC_PREFIXES = [
   '/api/public/', // read-only public feeds (directory for ON2GO / QMAPS): public facts only, see lib/foodhub/public-directory.ts
   '/p/', // payment links texted to customers: the secret token is the credential (app/p/[token]/route.ts, delivery/paylink.ts)
   '/login', '/kitchen/lock', '/manifest.webmanifest', '/sw.js', '/icons/', '/legal/', '/welcome/', '/media/',
+  '/commander/', '/api/storefront/', // ON2GO storefront: public menu + checkout; prices recomputed server side, rate-limited (lib/foodhub/storefront/*)
 ];
 /** Matched exactly, never as a prefix ("/api/healthz" or "/api/health/x" still need a sign-in). */
 const PUBLIC_PATHS = new Set([

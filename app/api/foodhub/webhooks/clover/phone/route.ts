@@ -7,7 +7,7 @@ import { background, parseJson } from '@/lib/foodhub/webhook-utils';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-// Webhook of the AI phone Clover app (default name "TAKATAK Phone"), separate from Food Hub's (../route.ts):
+// Webhook of the AI phone Clover app (default name "TAKATAK Phone AI"), separate from Food Hub's (../route.ts):
 //  - 404 until CLOVER_PHONE_APP_ID is set: without the phone app's env, this server behaves exactly as before.
 //  - { verificationCode } is stored under the phone app's own key; Settings → Clover app shows it to paste back.
 //  - Every event needs X-Clover-Auth = CLOVER_PHONE_WEBHOOK_AUTH (Food Hub's code is refused here).

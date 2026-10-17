@@ -195,6 +195,9 @@ describe('terms and support', () => {
     const s = halves(SupportPage);
     for (const fr of [section(t.fr, 6), s.fr]) {
       expect(fr).toContain('<b>TAKATAK Food Hub.</b> Essai gratuit de 14 jours');
+      expect(fr).toContain('<b>TAKATAK Phone AI.</b> Essai gratuit de 14 jours, puis 50 $ CA par mois, plus 0,25 $ CA par minute d’appel avec l’assistant automatisé.');
+      expect(fr).toContain('Seul le temps où l’assistant est en ligne avec l’appelant est compté, arrondi à la minute supérieure pour chaque appel');
+      expect(fr).toContain('le temps passé avec une personne du restaurant après un transfert n’est pas compté, et aucune minute n’est facturée pendant l’essai gratuit');
       expect(fr).toContain('<b>TAKATAK Phone AI.</b> Essai gratuit de 14 jours, puis 50 $ CA par mois, plus 0,25 $ CA par minute d’appel avec l’assistant automatisé, qu’une commande soit passée ou non.');
       expect(fr).toContain('Seul le temps où l’assistant est en ligne avec l’appelant est compté (de sa réponse jusqu’au transfert à une personne, à la fin de la conversation ou au raccrochage), arrondi à la minute supérieure pour chaque appel');
       expect(fr).toContain('l’attente pendant un transfert et le temps passé avec une personne du restaurant ne sont pas comptés, et aucune minute n’est facturée pendant l’essai gratuit ni lorsque l’abonnement Clover n’est pas actif');
@@ -203,6 +206,9 @@ describe('terms and support', () => {
     }
     for (const en of [section(t.en, 6), s.en]) {
       expect(en).toContain('<b>TAKATAK Food Hub.</b> Free 14-day trial');
+      expect(en).toContain('<b>TAKATAK Phone AI.</b> Free 14-day trial, then CAD $50 per month, plus CAD $0.25 per minute of call with the automated assistant.');
+      expect(en).toContain('Only the time the assistant is on the line with the caller is counted, rounded up to the next minute for each call');
+      expect(en).toContain('time spent with a person from the restaurant after a transfer is not counted, and no minutes are billed during the free trial');
       expect(en).toContain('<b>TAKATAK Phone AI.</b> Free 14-day trial, then CAD $50 per month, plus CAD $0.25 per minute of call with the automated assistant, whether or not an order is placed.');
       expect(en).toContain('Only the time the assistant is on the line with the caller is counted (from its answer until the transfer to a person, the end of the conversation or the caller hanging up), rounded up to the next minute for each call');
       expect(en).toContain('the wait during a transfer and the time spent with a person from the restaurant are not counted, and no minutes are billed during the free trial or while the Clover subscription is not active');

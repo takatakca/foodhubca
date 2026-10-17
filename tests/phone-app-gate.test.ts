@@ -130,7 +130,7 @@ describe('live call: gated', () => {
     expect(xml).not.toContain('<Gather');
     const c = (await getCall('CA1'))!;
     expect(c.status).toBe('handoff');
-    expect(c.handoffReason).toMatch(/TAKATAK Phone not active for kitchen NDG \(not_installed\)/);
+    expect(c.handoffReason).toMatch(/TAKATAK Phone AI not active for kitchen NDG \(not_installed\)/);
     expect(c.aiStartedAt).toBeUndefined();
     expect(ent.asked).toEqual([{ mid: KITCHEN_MID, purpose: 'call' }]);
   });
@@ -220,7 +220,7 @@ describe('live call: gated', () => {
   it('a refused live call is logged on the server (not only in the call log)', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     await call('CA1');
-    expect(warn.mock.calls.map((c) => String(c[0])).join('\n')).toMatch(/TAKATAK Phone not active for kitchen NDG \(not_installed\) \(merchant TESTMERCH0021\)/);
+    expect(warn.mock.calls.map((c) => String(c[0])).join('\n')).toMatch(/TAKATAK Phone AI not active for kitchen NDG \(not_installed\) \(merchant TESTMERCH0021\)/);
     warn.mockRestore();
   });
 
@@ -237,7 +237,7 @@ describe('readiness (Settings → Expansion → AI phone)', () => {
     const r = await phoneReadiness();
     const chk = r.checks.find((x) => x.id.startsWith('phone_app_'));
     expect(chk).toMatchObject({ level: 'stop' });
-    expect(chk!.en).toMatch(/TAKATAK Phone refused \(not_installed, merchant TESTMERCH0021\).*PHONE_OWN_MERCHANTS/);
+    expect(chk!.en).toMatch(/TAKATAK Phone AI refused \(not_installed, merchant TESTMERCH0021\).*PHONE_OWN_MERCHANTS/);
     expect(r.ready).toBe(false);
     process.env.PHONE_OWN_MERCHANTS = KITCHEN_MID;
     expect((await phoneReadiness()).checks.find((x) => x.id.startsWith('phone_app_'))).toMatchObject({ level: 'ok' });
@@ -261,8 +261,8 @@ describe('switching a line on (set-up: strict, FR / EN reason)', () => {
     phoneAppOn();
     const before = await getPhoneSettings();
     const err = await savePhoneSettings({ lines: [...before.lines, NEW as any] }, actor).then(() => null, (e: Error) => e);
-    expect(err?.message).toMatch(/TAKATAK Phone n’est pas actif pour Pi Pita Express \(cuisine NDG\) : l’app n’est pas installée pour ce marchand Clover\. La ligne reste éteinte\./);
-    expect(err?.message).toMatch(/TAKATAK Phone is not active for Pi Pita Express \(kitchen NDG\): the app is not installed for this Clover merchant\. The line stays off\./);
+    expect(err?.message).toMatch(/TAKATAK Phone AI n’est pas actif pour Pi Pita Express \(cuisine NDG\) : l’app n’est pas installée pour ce marchand Clover\. La ligne reste éteinte\./);
+    expect(err?.message).toMatch(/TAKATAK Phone AI is not active for Pi Pita Express \(kitchen NDG\): the app is not installed for this Clover merchant\. The line stays off\./);
     expect((await getPhoneSettings()).lines).toEqual(before.lines);
     expect(ent.asked).toEqual([{ mid: KITCHEN_MID, purpose: 'setup' }]);
   });

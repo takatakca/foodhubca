@@ -131,7 +131,7 @@ describe('without the phone app env, everything behaves as before', () => {
     expect(cloverPhoneAppEnabled()).toBe(false);
     expect(cloverApps().map((a) => a.key)).toEqual(['foodhub', 'phone']);
     expect(cloverApp('foodhub')).toMatchObject({ name: 'TAKATAK Food Hub', appId: FH_APP, tokenStoreKey: 'clover_oauth_merchants', verifyKey: 'clover_webhook_verification' });
-    expect(cloverApp('phone')).toMatchObject({ name: 'TAKATAK Phone', appId: null, events: ['app'] });
+    expect(cloverApp('phone')).toMatchObject({ name: 'TAKATAK Phone AI', appId: null, events: ['app'] });
     expect(cloverAppByAppId(FH_APP)).toBe('foodhub');
     expect(cloverAppByAppId(PH_APP)).toBe(null);
     expect(cloverAppReadiness()).toMatchObject({ configured: true, appId: FH_APP, launchPath: '/api/foodhub/clover-connect/callback', webhookUrl: 'https://foodhub.example/api/foodhub/webhooks/clover' });

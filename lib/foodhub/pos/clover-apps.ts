@@ -3,7 +3,7 @@
 //  - "foodhub" — TAKATAK Food Hub (platform orders → Clover, menu sync, kitchen screen). Its keys are the original
 //    ones (CLOVER_CLIENT_ID / CLOVER_CLIENT_SECRET / CLOVER_WEBHOOK_AUTH), its tokens the original store
 //    (clover_oauth_merchants): nothing changes for it.
-//  - "phone"   — the AI phone app (default name "TAKATAK Phone"): answers calls, takes the order, texts a Clover pay
+//  - "phone"   — the AI phone app (default name "TAKATAK Phone AI"): answers calls, takes the order, texts a Clover pay
 //    link. Optional: until CLOVER_PHONE_APP_ID and CLOVER_PHONE_APP_SECRET are set it does not exist (its routes
 //    answer 404, it is never listed as configured) and the server behaves exactly as before.
 //
@@ -59,7 +59,7 @@ const DEFS: Record<CloverAppKey, Omit<CloverAppDef, 'appId' | 'secret' | 'webhoo
   },
   phone: {
     key: 'phone',
-    defaultName: 'TAKATAK Phone',
+    defaultName: 'TAKATAK Phone AI',
     nameEnv: 'CLOVER_PHONE_APP_NAME',
     env: { appId: 'CLOVER_PHONE_APP_ID', secret: 'CLOVER_PHONE_APP_SECRET', webhookAuth: 'CLOVER_PHONE_WEBHOOK_AUTH' },
     tokenStoreKey: 'clover_oauth_merchants:phone',

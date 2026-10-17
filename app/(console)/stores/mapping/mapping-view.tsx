@@ -13,6 +13,7 @@ import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { FormDraftNote } from '@/components/ui/save-chip';
 import { Hint } from '@/components/help/hint';
+import { ExtraBrandPriceNotice, useExtraBrandPriceConfirm } from '@/components/billing/extra-brand-price';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { StoresTabs } from '../stores-tabs';
 import { stateOf, stateText } from '../stores-view';
@@ -31,7 +32,7 @@ type OrderManager = 'foodhub' | 'pending' | 'other' | 'unknown';
 type Pick = { storeId: string; name: string; address?: string; brandName: string; locationCode: string; cloverMerchantId: string; orderManager?: OrderManager; include: boolean };
 type CloverMerchant = { id: string; name: string | null; isDefault: boolean };
 type UberResult = { ok: boolean; message: string; orderManager?: OrderManager | null };
-type Known = { channel: string; storeId: string; name: string; address: string | null; suggestedBrand: string | null; suggestedLocation: string | null; confirmedByPlatform: boolean; mapped: { id: string; brandName: string; locationCode: string } | null };
+type Known = { channel: string; storeId: string; name: string; address: string | null; suggestedBrand: string | null; suggestedLocation: string | null; confirmedByPlatform: boolean; mapped: { id: string; brandName: string; locationCode: string } | null; expectedLocation: string | null; locationMismatch: boolean };
 
 export function MappingView() {
   const { t } = useI18n();
@@ -39,6 +40,7 @@ export function MappingView() {
   const params = useSearchParams();
   const toast = useToast();
   const confirm = useConfirm();
+  const checkPrice = useExtraBrandPriceConfirm();
   const [stores, setStores] = useState<StoreRow[] | null>(null);
   const [form, setForm] = useState<OpenForm | null>(null);
   /** Stores disconnected less than 6 s ago: hidden, and only removed on the server once "Undo" is no longer offered. */
@@ -101,6 +103,7 @@ export function MappingView() {
   async function activate() {
     const chosen = picks.filter((p) => p.include);
     if (chosen.some((p) => !p.brandName || !p.locationCode)) { toast.warn(t('Choisissez une marque et une succursale pour chaque magasin coché.', 'Pick a brand and a location for every selected store.')); return; }
+    if (!(await checkPrice(chosen.map((p) => ({ brandName: p.brandName, channel: 'uber_eats', merchantId: p.cloverMerchantId }))))) return;
     setBusy('activate');
     try {
       const d = await api<{ results: Array<{ storeId: string } & UberResult> }>('/api/foodhub/uber-connect/activate', { method: 'POST', json: { id: connectId, stores: chosen.map((p) => ({ storeId: p.storeId, brandName: p.brandName, locationCode: p.locationCode, cloverMerchantId: p.cloverMerchantId || undefined })) } });
@@ -145,11 +148,26 @@ export function MappingView() {
 
   async function linkKnown(k: Known & { brandName: string; locationCode: string }) {
     if (!k.brandName || !k.locationCode) { toast.warn(t('Choisissez la marque et la succursale.', 'Pick the brand and the location.')); return; }
+    if (!(await checkPrice({ brandName: k.brandName, channel: k.channel }))) return;
     setBusy(`known-${k.storeId}`);
     try { await api('/api/foodhub/stores', { method: 'POST', json: { channel: k.channel, channelStoreId: k.storeId, brandName: k.brandName, locationCode: k.locationCode, autoAccept: true } }); toast.success(t(`${k.name} relié`, `${k.name} linked`)); load(); }
     catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
   }
+  /** Moves a mapped store to its kitchen (Uber's address, or the one recorded for it): brand, Clover and menu lock stay. */
+  async function moveKnown(k: Known) {
+    if (!k.mapped || !k.expectedLocation) return;
+    const to = shortLoc(locName(k.expectedLocation));
+    const yes = await confirm({
+      title: t(`Déplacer ${k.name} vers ${to} ?`, `Move ${k.name} to ${to}?`), confirmLabel: t('Déplacer', 'Move'),
+      body: t(`Ses commandes s’afficheront dans la cuisine ${to} (écran, heures, alertes). Marque, caisse Clover et verrou du menu ne changent pas.`, `Its orders will show in the ${to} kitchen (screen, hours, alerts). Brand, Clover register and menu lock stay the same.`),
+    });
+    if (!yes) return;
+    setBusy(`move-${k.storeId}`);
+    try { await api('/api/foodhub/stores', { method: 'POST', json: { id: k.mapped.id, channel: k.channel, channelStoreId: k.storeId, brandName: k.mapped.brandName, locationCode: k.expectedLocation } }); toast.success(`${k.name} → ${to}`); load(); }
+    catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
+  }
   const unlinked = known.filter((k) => !k.mapped);
+  const misplaced = known.filter((k) => k.locationMismatch);
   const shown = (stores ?? []).filter((s) => !leaving.includes(s.id));
 
   return (
@@ -185,6 +203,19 @@ export function MappingView() {
             })}</tbody>
           </Table>
         </Card>
+      )}
+
+      {misplaced.length > 0 && (
+        <Banner tone="warn" className="mb-5">
+          <strong>{t(`${misplaced.length} magasin(s) Uber reliés à la mauvaise succursale`, `${misplaced.length} Uber store(s) linked to the wrong location`)}</strong> — {t('Uber les place dans une autre cuisine (même quand leur nom Uber dit « Hochelaga »).', 'Uber puts them in another kitchen (even when their Uber name says “Hochelaga”).')}
+          <ul className="mt-2 space-y-1.5">{misplaced.map((k) => (
+            <li key={k.storeId} className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-ink">{k.name}</span><span className="font-mono text-[11px] text-ink-3">{k.storeId}</span>
+              <span>{shortLoc(locName(k.mapped?.locationCode))} → <strong>{shortLoc(locName(k.expectedLocation))}</strong></span>
+              <Button size="sm" variant="outline" loading={busy === `move-${k.storeId}`} onClick={() => moveKnown(k)}>{t('Déplacer', 'Move')}</Button>
+            </li>
+          ))}</ul>
+        </Banner>
       )}
 
       {unlinked.length > 0 && (
@@ -287,6 +318,7 @@ function StoreLinkForm({ draftId, initial, lock, onClose, onSaved }: { draftId: 
   const form = draft.value;
   const setForm = draft.set;
   const [saving, setSaving] = useState(false);
+  const checkPrice = useExtraBrandPriceConfirm();
   // Built-in / environment locks are shown, never offered as a switch (the server refuses to lift them anyway).
   const fixedLock = Boolean(lock?.locked && lock.source !== 'store');
 
@@ -303,6 +335,7 @@ function StoreLinkForm({ draftId, initial, lock, onClose, onSaved }: { draftId: 
     onClose();
   }
   async function save() {
+    if (!(await checkPrice({ brandName: form.brandName, channel: form.channel, merchantId: form.cloverMerchantId, storeId: form.id }))) return;
     setSaving(true);
     try { await api('/api/foodhub/stores', { method: 'POST', json: fixedLock ? { ...form, menuLocked: undefined } : form }); draft.clear(); toast.success(t('Magasin branché', 'Store connected')); onSaved(); }
     catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setSaving(false); }
@@ -319,7 +352,7 @@ function StoreLinkForm({ draftId, initial, lock, onClose, onSaved }: { draftId: 
           <Field label={t('Marque', 'Brand')}><Select value={form.brandName} onChange={(e) => setForm({ ...form, brandName: e.target.value })}>{brands.map((b) => <option key={b}>{b}</option>)}</Select></Field>
           <Field label={t('Succursale', 'Location')}><Select value={form.locationCode} onChange={(e) => setForm({ ...form, locationCode: e.target.value })}>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select></Field>
         </div>
-        <Field label={t('Marchand Clover (optionnel)', 'Clover merchant (optional)')} hint={t('Vide = marchand par défaut (CLOVER_MERCHANT_ID). Sinon le code de lettres et de chiffres dans l’adresse du tableau de bord Clover (clover.com/home/m/…), pas le numéro de marchand du terminal de paiement.', 'Empty = default merchant (CLOVER_MERCHANT_ID). Otherwise the code of letters and digits in the Clover dashboard address (clover.com/home/m/…), not the payment terminal’s merchant number.')}><Input value={form.cloverMerchantId} onChange={(e) => setForm({ ...form, cloverMerchantId: e.target.value })} className="font-mono" /></Field>
+        <Field label={t('Marchand Clover (optionnel)', 'Clover merchant (optional)')} hint={t('Vide = marchand par défaut (CLOVER_MERCHANT_ID). Les ruptures venues de Clover suivent ce marchand ; une succursale n’en reçoit que si tous ses magasins suivent le même marchand. Sinon le code de lettres et de chiffres dans l’adresse du tableau de bord Clover (clover.com/home/m/…), pas le numéro de marchand du terminal de paiement.', 'Empty = default merchant (CLOVER_MERCHANT_ID). 86s coming from Clover follow this merchant; a location only gets them when all its stores follow the same merchant. Otherwise the code of letters and digits in the Clover dashboard address (clover.com/home/m/…), not the payment terminal’s merchant number.')}><Input value={form.cloverMerchantId} onChange={(e) => setForm({ ...form, cloverMerchantId: e.target.value })} className="font-mono" /></Field>
         <Hint id="mapping.autoaccept"><Switch checked={form.autoAccept} onChange={(v) => setForm({ ...form, autoAccept: v })} label={t('Accepter automatiquement', 'Accept automatically')} description={t('Seulement si Clover a bien reçu la commande. La cuisine doit quand même appuyer sur « Vu ».', 'Only when Clover received the order. The kitchen still taps “Seen”.')} /></Hint>
         <Field label={t('Numéro du magasin chez la plateforme (optionnel)', 'Platform store number (optional)')} hint={t('Ex. le numéro de magasin DoorDash (différent du merchant_supplied_id). Sert à reconnaître le magasin, p. ex. pour le verrou du menu.', 'E.g. the DoorDash store number (not the merchant_supplied_id). Used to recognise the store, e.g. for the menu lock.')}><Input value={form.platformStoreId ?? ''} onChange={(e) => setForm({ ...form, platformStoreId: e.target.value })} className="font-mono" inputMode="numeric" /></Field>
         {fixedLock
@@ -329,6 +362,7 @@ function StoreLinkForm({ draftId, initial, lock, onClose, onSaved }: { draftId: 
             {form.menuLocked && <Field label={t('Pourquoi (optionnel)', 'Why (optional)')}><Input value={form.menuLockedReason ?? ''} onChange={(e) => setForm({ ...form, menuLockedReason: e.target.value })} maxLength={200} /></Field>}
           </>}
         <Switch checked={Boolean(form.doNotTouch)} onChange={(v) => setForm({ ...form, doNotTouch: v })} label={t('Ne pas toucher au menu de ce magasin', 'Do not touch this store’s menu')} description={t('Food Hub ne lui envoie jamais de menu, d’heures de fériés ni de rupture (ex. : encore chez UrbanPiper, menu spécial). Les commandes et la pause continuent.', 'Food Hub never sends it a menu, holiday hours or an 86 (e.g. still on UrbanPiper, a special menu). Orders and pause keep working.')} />
+        <ExtraBrandPriceNotice brandName={form.brandName} channel={form.channel} merchantId={form.cloverMerchantId} storeId={form.id} />
         {form.channel === 'tgtg' && <Banner tone="info">{t('Too Good To Go n’a pas d’API publique : TAKATAK reçoit seulement ce que TGTG envoie.', 'Too Good To Go has no public API: TAKATAK only receives what TGTG sends.')}</Banner>}
       </div>
     </Modal>

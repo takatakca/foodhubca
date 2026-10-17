@@ -6,6 +6,7 @@ import { can } from '@/lib/foodhub/session';
 import { VERIFY_KEY, cloverInventorySyncEnabled } from '@/lib/foodhub/clover-sync';
 import { cloverReadiness, cloverTokenFor, knownCloverMerchants } from '@/lib/foodhub/pos/clover';
 import { cloverAppReadiness, listCloverConnections } from '@/lib/foodhub/pos/clover-oauth';
+import { cloverAppsOverview } from '@/lib/foodhub/pos/clover-apps-status';
 import { cloverOrderTypesEnabled, cloverRecordPaymentEnabled } from '@/lib/foodhub/pos/clover-books';
 import { lastCloverTestOrder } from '@/lib/foodhub/pos/clover-test-order';
 import { getRepo } from '@/lib/foodhub/repo';
@@ -58,6 +59,9 @@ export const GET = withPerm('stores:map', async (req, _ctx, actor) => {
         // Last test order that went through every step (created, printed, paid) on any register: "tested end to end".
         testOrder: await lastCloverTestOrder(),
       },
+      // Every Clover app this server serves (Food Hub + the AI phone app once its env is set): keys set, addresses,
+      // webhook, installs per merchant. Never tokens or secrets.
+      apps: await cloverAppsOverview({ showVerification: can(actor.role, 'admin') }).catch(() => []),
     },
     channels,
     // Food Hub Order Relay: partners that push orders (TGTG feed, website…) post to this address.

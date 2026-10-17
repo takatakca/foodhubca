@@ -70,7 +70,7 @@ beforeEach(async () => {
     ANTHROPIC_API_KEY: 'sk-test', TWILIO_ACCOUNT_SID: 'AC1', TWILIO_AUTH_TOKEN: 'tw-token', TWILIO_FROM: '+15145550000',
     FOODHUB_IVR_NUMBER: IVR_NUMBER, RESEND_API_KEY: 're_test', AUTH_EMAIL_FROM: 'hub@example.test', FOODHUB_VOICEMAIL_EMAIL: 'team@example.test',
   });
-  for (const k of ['ANTHROPIC_BASE_URL', 'FOODHUB_IVR_HANDOFF_NUMBER', 'FOODHUB_MAIN_PHONE', 'TWILIO_MESSAGING_SERVICE_SID']) delete process.env[k];
+  for (const k of ['ANTHROPIC_BASE_URL', 'FOODHUB_IVR_HANDOFF_NUMBER', 'FOODHUB_MAIN_PHONE', 'TWILIO_MESSAGING_SERVICE_SID', 'CLOVER_PHONE_APP_ID', 'CLOVER_PHONE_APP_SECRET', 'PHONE_OWN_MERCHANTS']) delete process.env[k];
   for (const k of ['DELIVERY', 'RETAIL', 'ALCOHOL', 'PHONE']) delete process.env[`FOODHUB_FEATURE_${k}`];
   claude = []; claudeRequests = []; sms = []; emails = [];
   globalThis.fetch = vi.fn(async (url: any, init: RequestInit = {}) => {
@@ -645,5 +645,74 @@ describe('Calls log search and the Twilio signature', () => {
     expect(block).toMatch(/DoorDash: the menu transfers to its official support line/);
     expect(block).toMatch(/Uber Eats: no public phone line/);
     expect(block).toMatch(/Caller ID: hidden/);
+  });
+});
+
+describe('TAKATAK Phone on the ON2GO menu, and the empty answers of the status steps', () => {
+  async function orderingSetup() {
+    await saveLocation({ code: 'NDG', name: 'Notre-Dame-de-Grâce', address: '6280 Somerled Ave', city: 'Montréal', postalCode: 'H4V 1R9', phone: '514 555-0100', active: true });
+    await getRepo().saveMenu({ ...MENU, brandName: 'Pi Pita' });
+    // Made-up merchant ID (public repository).
+    await getRepo().upsertStore({ channel: 'uber_eats', channelStoreId: 'store-ndg', brandName: 'Pi Pita', locationCode: 'NDG', cloverMerchantId: 'TESTMERCHIVR1', autoAccept: false, online: true, meta: {} });
+    await savePhoneSettings({ lines: [{ number: '+15145550177', name: 'Pi Pita', locationCode: 'NDG', brands: ['Pi Pita'], enabled: true, delivery: false } as any] }, actor);
+    await setFeature('phone', true, actor);
+  }
+
+  it('"place an order" for a kitchen without the phone app: a person takes the order (voicemail when nobody), never the AI', async () => {
+    await orderingSetup();
+    Object.assign(process.env, { CLOVER_PHONE_APP_ID: 'TESTPHONEAPP3', CLOVER_PHONE_APP_SECRET: 'phone-secret-test' });
+    await start();
+    claude.push(route('place_order'));
+    const r = await turn({ SpeechResult: 'je veux commander un poulet' });
+    expect(r).not.toMatch(/webhooks\/voice\/turn/);
+    expect(r).toMatch(/<Record /); // no hand-off number set: voicemail, the call is never dropped
+    expect(await getCall('CA1')).toBeNull();
+    const ivr = (await getIvrCall('CA1'))!;
+    expect(ivr.outcome).not.toBe('order_agent');
+    expect(JSON.stringify(ivr.transcript)).toMatch(/TAKATAK Phone not active for kitchen NDG \(not_installed\)/);
+  });
+
+  it('"place an order" with Clover hanging: the app check waits 1 s at most (the menu\'s AI turn already used time)', async () => {
+    await orderingSetup();
+    Object.assign(process.env, { CLOVER_PHONE_APP_ID: 'TESTPHONEAPP3', CLOVER_PHONE_APP_SECRET: 'phone-secret-test' });
+    // The phone app is installed for the kitchen's merchant (made-up token), and Clover's billing_info never answers.
+    await getRepo().setKv('clover_oauth_merchants:phone', { TESTMERCHIVR1: { merchantId: 'TESTMERCHIVR1', accessToken: 'PAT-1', accessTokenExpiration: Math.floor(Date.now() / 1000) + 3600, connectedAt: '2026-10-01T00:00:00.000Z', appId: 'TESTPHONEAPP3' } });
+    const base = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: any, init: RequestInit = {}) => {
+      if (String(url).includes('/billing_info')) {
+        return new Promise<Response>((_, reject) => init.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))));
+      }
+      return base(url, init);
+    }) as any;
+    await start();
+    claude.push(route('place_order'));
+    const t0 = Date.now();
+    const r = await turn({ SpeechResult: 'je veux commander un poulet' });
+    expect(Date.now() - t0).toBeLessThan(2_000);
+    expect(r).not.toMatch(/webhooks\/voice\/turn/);
+    expect(JSON.stringify((await getIvrCall('CA1'))!.transcript)).toMatch(/TAKATAK Phone not active for kitchen NDG \(clover_unreachable\)/);
+    await new Promise((res) => setTimeout(res, 50));
+  });
+
+  it('the same kitchen as one of our own merchants: handed to the AI ordering agent as before', async () => {
+    await orderingSetup();
+    Object.assign(process.env, { CLOVER_PHONE_APP_ID: 'TESTPHONEAPP3', CLOVER_PHONE_APP_SECRET: 'phone-secret-test', PHONE_OWN_MERCHANTS: 'TESTMERCHIVR1' });
+    await start();
+    claude.push(route('place_order'));
+    expect(await turn({ SpeechResult: 'je veux commander un poulet' })).toMatch(/action="\/api\/foodhub\/webhooks\/voice\/turn"/);
+    expect((await getIvrCall('CA1'))!.outcome).toBe('order_agent');
+  });
+
+  it('status, recording and transcript answer a real 204 with no body (not the error message)', async () => {
+    await start();
+    for (const [name, fields] of [
+      ['status', { CallSid: 'CA1', CallStatus: 'completed', CallDuration: '30' }],
+      ['recording', { CallSid: 'CA1', RecordingSid: 'RE1', RecordingStatus: 'completed', RecordingUrl: 'https://api.twilio.com/2010-04-01/Accounts/AC1/Recordings/RE1' }],
+      ['transcript', { CallSid: 'CA1', TranscriptionEvent: 'transcription-stopped' }],
+    ] as const) {
+      const res = await step(name, fields);
+      expect(res.status).toBe(204);
+      expect(await res.text()).toBe('');
+    }
   });
 });

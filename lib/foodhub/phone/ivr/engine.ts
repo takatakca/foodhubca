@@ -24,6 +24,7 @@ import { localTimeLabel } from '../../time';
 import { phoneAiUsable } from '../ai-health';
 import { phoneAgentConfigured } from '../agent';
 import { getCall, isTestCaller, saveCall, say as sayPhone, type PhoneCall } from '../calls';
+import { linePhoneGate, phoneGateNote } from '../gate';
 import { getPhoneSettings, isMultiKitchen, lineForNumber } from '../settings';
 import { goodDay, ORDER_NOTICE, personaFor, selfIntro, speakable, type Persona } from '../style';
 import { gatherXml, prefixTwiml, VOICE_PATH } from '../twilio';
@@ -562,6 +563,9 @@ async function textPlatformHelp(call: IvrCall, s: IvrSettings, platform: Platfor
 
 // ---- the AI ordering agent
 
+/** Longest wait on Clover for the TAKATAK Phone check when the menu hands a caller to the ordering agent. */
+export const ORDERING_GATE_BUDGET_MS = 1_000;
+
 async function handToOrdering(call: IvrCall, s: IvrSettings, preface: string): Promise<Response> {
   const ps = await getPhoneSettings();
   const line = ps.lines.find((l) => l.enabled && l.id === s.orderLineId) ?? ps.lines.find((l) => l.enabled && l.number === normalizePhone(call.to)) ?? ps.lines.find((l) => l.enabled);
@@ -569,6 +573,12 @@ async function handToOrdering(call: IvrCall, s: IvrSettings, preface: string): P
   if (!line || !(await featureOn('phone')) || !aiOk) {
     return dialPerson(note(call, 'system', `Ordering agent not available (${!line ? 'no AI phone line on' : !phoneAgentConfigured() ? 'no AI key' : !aiOk ? 'phone AI paused' : 'AI phone ordering off'}): a person takes the order`), s, preface);
   }
+  // The ordering line's kitchens must have TAKATAK Phone (no check without CLOVER_PHONE_APP_ID; ours always pass).
+  // Refused: a person takes the order, as when the AI is off (the menu itself is ours and keeps running).
+  // This webhook may already have waited up to ~9 s on the menu's AI turn (Twilio allows ~15 s): Clover gets 1 s here,
+  // then the saved status and the grace rules decide (pos/clover-entitlement.ts).
+  const gate = await linePhoneGate(line, 'call', { budgetMs: ORDERING_GATE_BUDGET_MS });
+  if (!gate.ok) return dialPerson(note(call, 'system', `Ordering agent not available (${phoneGateNote(gate)}): a person takes the order`), s, preface);
   const now = new Date().toISOString();
   // The menu's voices stay for the rest of the call (no voice change when the ordering assistant takes over).
   const voices = { voiceFr: s.voices.fr, voiceEn: s.voices.en, voiceEs: s.voices.es };
@@ -615,6 +625,20 @@ export async function ivrDialDone(params: URLSearchParams, query: URLSearchParam
   }
   if (answered) { await endIvrCall(call.id, 'handoff'); return twiml('<Hangup/>'); }
   return startVoicemail({ ...note(call, 'system', `Nobody took the call (${status || 'no answer'})`), outcome: 'handoff_missed' }, s, 'person', SAY.nobody[call.lang]);
+}
+
+/**
+ * A direct AI ordering line (voice.ts) with nobody to take the call: no hand-off number and no kitchen phone, or the
+ * person did not answer. ON2GO's person rings when one is set (`dial`), else ON2GO's voicemail takes a message (ticket +
+ * email to the team). The caller is never just hung up on. The <Dial> answer comes back to the IVR's dial-done, so a
+ * person not answering there ends in the same voicemail.
+ */
+export async function directLineFallback(c: { id: string; from: string; to: string; lang: IvrLang; simulated?: boolean }, why: string, opts: { preface?: string; dial?: boolean } = {}): Promise<Response> {
+  const s = await getIvrSettings();
+  const prev = await getIvrCall(c.id);
+  const call = note({ ...(prev ?? newIvrCall(c.id, c.from, c.to)), lang: c.lang, ...(c.simulated ? { simulated: true } : {}) }, 'system', `AI ordering line: ${why}`);
+  if (opts.dial && handoffTarget(s)) return dialPerson(call, s, opts.preface ?? '');
+  return startVoicemail(call, s, 'person', [opts.preface, SAY.nobody[c.lang]].filter(Boolean).join(' '));
 }
 
 async function startVoicemail(call: IvrCall, s: IvrSettings, reason: string, preface = ''): Promise<Response> {

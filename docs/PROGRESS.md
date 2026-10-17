@@ -1,5 +1,33 @@
 # Food Hub: progress log and task board
 
+## 2026-10-17 — TAKATAK Phone gate: review fixes (task 41, PR #61)
+
+- Own merchants: `CLOVER_MERCHANT_ID`, `CLOVER_MERCHANT_TOKENS` keys and `FOODHUB_BILLING_EXEMPT_MERCHANTS` count as ours (not only `PHONE_OWN_MERCHANTS`); readiness shows a per-kitchen app check (stop when refused); refused live calls are logged.
+- Never dropped: a line with no hand-off number and no kitchen phone rings ON2GO's person, else ON2GO voicemail; an unanswered hand-off goes to voicemail (`ivr/engine.ts` `directLineFallback`).
+- Live call + check failed (database) fails open; setup still refuses. ON2GO "place an order" gives Clover 1 s (`ORDERING_GATE_BUDGET_MS`). Setup: kitchens keyed by line + location (reordering brands never re-checks), "changes not saved; the line stays as it was" for a line already on, and a line mixing our kitchens with a client's is refused.
+
+## 2026-10-17 — TAKATAK Phone: the app check wired into the phone module (task 41, PR #61)
+
+- New `lib/foodhub/phone/gate.ts` (`kitchenPhoneGate` / `linePhoneGate`): `voiceAiEntitled` for the kitchen's own Clover merchant. Live call (`startCall`): refused = handed to the line's person (hand-off number, else kitchen phone), never hung up, no AI minute. ON2GO menu "place an order": refused = a person / voicemail. Pay link (`phonePaymentPlan`): refused = counter / call back. Switching a line on (`savePhoneSettings`): strict, FR / EN reason, nothing saved.
+- Unchanged without `CLOVER_PHONE_APP_ID` (nothing checked) and for `PHONE_OWN_MERCHANTS` or a kitchen with no Clover merchant of its own. ON2GO `ivr/[step]` 204 answers fixed (`new Response(null, { status: 204 })`). Tests: `tests/phone-app-gate.test.ts`, plus cases in `ivr.test.ts` and `ai-phone-paylink.test.ts`.
+
+## 2026-10-17 — TAKATAK Phone: review round 3 fixes (task 41, PR #61)
+
+- AI minutes stop at the hand-off even when a slow AI turn finishes later: the AI-end time is also kept outside the call record (`markAiEnded`, atomic insert) and a late turn never writes its older copy back.
+- Phone minutes: every change out of "pending" is claimed (attempt owner + POST claim), so a stale copy can never turn "reported" back into "pending" (no double charge); a "sending" left behind becomes "uncertain" and is logged once; settle runs oldest first with a send budget (waiting minutes are free), so one unreachable merchant never starves others; `no_metered_id` calls are a warning in Settings.
+- Low-credit alert: one key per provider, open saved before the claim (a failed write never silences it), re-sent at most every 10 min until a channel delivers, Anthropic recovery checked on every successful AI request, and lines with no hand-off number are named ("no fallback: calls are hung up").
+
+## 2026-10-17 — TAKATAK Phone: per-minute pricing, low-credit alert (task 41, PR #61)
+
+- Owner decision: the voice AI Clover app is **TAKATAK Phone**; 14-day free trial, then CAD $50/month + a Clover metered charge of CAD $0.25 per minute the AI is on the line (order or not). Per-order metering removed (`recordPhoneOrder`, allowance, tiers, `CLOVER_PHONE_METERED_ORDER_ID`, `CLOVER_PHONE_PRO_SUBSCRIPTION_IDS`).
+- New `lib/foodhub/pos/clover-phone-minutes.ts` (ceil(AI seconds / 60), ACTIVE merchants only, once per call SID via `repo.claimKv` (same as PR #69), saved before sending, uncertain never re-sent, definite pre-send failures retried 3×, dry run unless `FOODHUB_PHONE_METERED_ENABLED=true`), `lib/foodhub/phone/metering.ts` (status callback → kitchen's own merchant), AI start/stop marks on the call (`aiStartedAt` / `aiEndedAt`), settle every 10 min in the expansion tick, Settings → Clover app "Per-minute billing" dry-run preview.
+- New `lib/foodhub/phone/credit-alert.ts`: one owner alert per low-credit incident (Anthropic via the breaker, Twilio via texts / calls), re-armed on recovery. Voice status route now answers a real 204.
+- Env names: `CLOVER_PHONE_METERED_MINUTE_ID`, `FOODHUB_PHONE_METERED_ENABLED`, `FOODHUB_BILLING_EXEMPT_MERCHANTS`. Docs: `docs/CLOVER_MULTI_APP.md`.
+
+## 2026-10-16 — AI phone as a second Clover app: multi-app plumbing (task 41)
+
+- Branch `feature/clover-voice-ai-app` (PR #61). One backend, two Clover App Market apps: TAKATAK Food Hub (unchanged) and the AI phone app, sold separately. New `lib/foodhub/pos/clover-apps.ts` (registry), per-app OAuth in `clover-oauth.ts` (optional app argument, Food Hub default), phone routes `/api/foodhub/clover-connect/phone/{start,callback}` and `/api/foodhub/webhooks/clover/phone` (404 until `CLOVER_PHONE_APP_ID` is set), tokens per (app, merchant), uninstall of one app only, `clover-entitlement.ts` (`voiceAiEntitled`, `recordPhoneOrder`, `appInstalled`, `phoneCloverToken`), Settings → Clover app "Clover apps on this server".
+- Without the new env vars nothing changes. `lib/foodhub/phone/**` not touched: wiring steps in `docs/CLOVER_MULTI_APP.md`. Review fixes (PR #61): live-call check answers within 2.5 s when Clover hangs (failure remembered 2 min); phone billing status in its own per-merchant key and every token-map write serialized (no lost refresh token); charges saved before sending, pending ones settled on the next ACTIVE answer, lost answers never re-sent; Pro tier by Clover subscription ID; Settings section only once the phone app is set, approve/disconnect owner-only and per app; Food Hub keys read raw as before. Checks: typecheck OK, lint 0 errors, 993 tests (1 skipped; 1 Windows-only CRLF failure in tests/tgtg-email.test.ts from main), webpack build OK, e2e 554/0.
 ## 2026-10-16 — AI phone disclosure + card redaction (legal review 2a items 3–4, `fix/phone-ai-disclosure`)
 
 - Both assistants now introduce themselves as automated (« Je suis l’assistante automatisée » / "I’m the automated assistant" / "Soy su asistente automatizada"), say the call is transcribed (to take the order / to handle the request) and that 0 reaches a person, one short sentence per part, Québec French first; "virtuel / virtual" wording removed (style.ts selfIntro, twilio.ts GREETING, ivr/engine.ts orderIntro, console intro).

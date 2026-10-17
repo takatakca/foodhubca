@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import { logActivity, type Actor } from '../activity';
 import { getCatalog } from '../catalog';
 import { normalizePhone } from '../notify';
+import { cloverPhoneAppEnabled } from '../pos/clover-apps';
 import { getRepo } from '../repo';
 import { cleanPersona, DEFAULT_PERSONA, type Persona } from './style';
 import { cleanVoice, DEFAULT_SPEECH, DEFAULT_VOICES } from './voices';
@@ -216,6 +217,38 @@ async function lockProblem(lines: PhoneLine[]): Promise<string | null> {
   return null;
 }
 
+/**
+ * TAKATAK Phone, set-up step: a line switched on (or a kitchen added to a line that is on) needs the app for that
+ * kitchen's Clover merchant — strict (no grace). Kitchens already on are never re-checked here (their calls are checked
+ * live): a kitchen is keyed by line + location only, so renaming or reordering brands never re-checks it. No check
+ * without CLOVER_PHONE_APP_ID; our own merchants always pass. A line that would mix our kitchens with a client's is
+ * refused (the client's subscription would gate ours on live calls). Refused: nothing is saved, FR / EN reason.
+ */
+async function setupGate(before: PhoneLine[], after: PhoneLine[]): Promise<void> {
+  if (!cloverPhoneAppEnabled()) return;
+  const { kitchenIsOurs, kitchenPhoneGate, phoneGateMessage, phoneMixedMessage } = await import('./gate');
+  const key = (l: PhoneLine, k: PhoneLineKitchen) => `${l.id}|${k.locationCode}`;
+  const onBefore = before.filter((l) => l.enabled);
+  const lineWasOn = new Set(onBefore.map((l) => l.id));
+  const wasOn = new Set(onBefore.flatMap((l) => lineKitchens(l).map((k) => key(l, k))));
+  for (const line of after.filter((l) => l.enabled)) {
+    const kitchens = lineKitchens(line);
+    const fresh = kitchens.filter((k) => !wasOn.has(key(line, k)));
+    if (!fresh.length) continue;
+    const opts = { wasOn: lineWasOn.has(line.id) };
+    if (kitchens.length > 1) {
+      const ours = await Promise.all(kitchens.map((k) => kitchenIsOurs(k)));
+      if (ours.some(Boolean) && !ours.every(Boolean)) {
+        throw new Error(phoneMixedMessage(line.name, kitchens.filter((_, i) => ours[i]).map((k) => k.locationCode), kitchens.filter((_, i) => !ours[i]).map((k) => k.locationCode), opts));
+      }
+    }
+    for (const k of fresh) {
+      const g = await kitchenPhoneGate(k, 'setup');
+      if (!g.ok) throw new Error(phoneGateMessage(g, line.name, opts));
+    }
+  }
+}
+
 export async function savePhoneSettings(patch: Partial<PhoneSettings>, actor: Actor): Promise<PhoneSettings> {
   const cur = await getPhoneSettings();
   const lines = patch.lines ? patch.lines.map(cleanLine) : cur.lines;
@@ -223,6 +256,7 @@ export async function savePhoneSettings(patch: Partial<PhoneSettings>, actor: Ac
   if (locked) throw new Error(locked);
   const dup = lines.find((l, i) => lines.findIndex((x) => x.number === l.number) !== i);
   if (dup) throw new Error(`${dup.number} is used by two lines.`);
+  if (patch.lines) await setupGate(cur.lines, lines);
   const next: PhoneSettings = { ...cur, ...patch, lines, updatedAt: new Date().toISOString() };
   await getRepo().setKv(KEY, next);
   await logActivity({ actor: actor.name, source: actor.source, kind: 'settings', action: 'phone_settings', status: 'success',

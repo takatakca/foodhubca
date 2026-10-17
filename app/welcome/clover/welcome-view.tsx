@@ -27,6 +27,9 @@ export interface WelcomeData {
   loginHref: string;
   cloverUrl: string;
   support: { email: string | null; phone: string | null; hours: FrEn };
+  /** Which Clover app was opened (absent = TAKATAK Food Hub) and its listing name. */
+  app?: 'foodhub' | 'phone';
+  appName?: string;
 }
 
 type T = (fr: string, en: string) => string;
@@ -55,13 +58,13 @@ export function WelcomeView({ data }: { data: WelcomeData }) {
   const allDone = data.state === 'connected' && Boolean(data.steps?.length) && data.steps!.every((s) => s.done);
   return (
     <div className="grid min-h-dvh grid-cols-1 bg-canvas text-ink lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.25fr)]">
-      <Rail t={t} />
+      <Rail t={t} appName={data.appName} />
       <main className="relative flex min-w-0 flex-col px-4 pt-5 pb-8 sm:px-10">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(60%_100%_at_70%_0%,rgb(31_139_255/0.08),transparent)]" aria-hidden />
         <header className="relative flex items-center justify-between gap-3">
           <span className="flex items-center gap-2 lg:invisible">
             <TakatakMark size="sm" />
-            <span className="font-extrabold tracking-tight">TAKATAK Food Hub</span>
+            <span className="font-extrabold tracking-tight">{data.appName || 'TAKATAK Food Hub'}</span>
           </span>
           <button type="button" onClick={() => setLang(lang === 'fr' ? 'en' : 'fr')} className="flex h-9 items-center gap-1.5 rounded-md px-2.5 text-[13px] font-bold text-ink-3 hover:bg-sunken hover:text-ink" aria-label={lang === 'fr' ? 'Switch to English' : 'Passer au français'}>
             <Globe className="size-4" />{lang === 'fr' ? 'English' : 'Français'}
@@ -72,8 +75,8 @@ export function WelcomeView({ data }: { data: WelcomeData }) {
           <StatusHero data={data} t={t} />
           {allDone && <Celebration t={t} />}
           {data.merchant && data.state !== 'gone' && <RegisterCard data={data} t={t} lang={lang} />}
-          {(data.state === 'connected' || data.state === 'pending') && <Steps data={data} t={t} />}
-          {data.state === 'connected' && data.ticket && <TestOrder ticket={data.ticket} t={t} />}
+          {data.app !== 'phone' && (data.state === 'connected' || data.state === 'pending') && <Steps data={data} t={t} />}
+          {data.app !== 'phone' && data.state === 'connected' && data.ticket && <TestOrder ticket={data.ticket} t={t} />}
           <Help data={data} t={t} lang={lang} />
         </div>
       </main>
@@ -83,7 +86,7 @@ export function WelcomeView({ data }: { data: WelcomeData }) {
 
 /* ---------------------------------------------------------------- rail */
 
-function Rail({ t }: { t: T }) {
+function Rail({ t, appName }: { t: T; appName?: string }) {
   const platforms = [
     { name: 'Uber Eats', dot: 'bg-uber' },
     { name: 'DoorDash', dot: 'bg-doordash' },
@@ -95,7 +98,7 @@ function Rail({ t }: { t: T }) {
       <div className="flex items-center gap-3">
         <TakatakMark />
         <div>
-          <div className="text-lg leading-tight font-extrabold tracking-tight">TAKATAK Food Hub</div>
+          <div className="text-lg leading-tight font-extrabold tracking-tight">{appName || 'TAKATAK Food Hub'}</div>
           <div className="text-[13px] text-white/50">{t('pour votre caisse Clover', 'for your Clover register')}</div>
         </div>
       </div>
@@ -163,10 +166,12 @@ function StatusHero({ data, t }: { data: WelcomeData; t: T }) {
     pending: t('Demande reçue', 'Request received'),
     gone: t('Cette connexion n’est plus active', 'This connection is no longer active'),
     error: t('Le branchement n’a pas fonctionné', 'The connection did not work'),
-    intro: t('Bienvenue dans TAKATAK Food Hub', 'Welcome to TAKATAK Food Hub'),
+    intro: t(`Bienvenue dans ${data.appName || 'TAKATAK Food Hub'}`, `Welcome to ${data.appName || 'TAKATAK Food Hub'}`),
   }[data.state];
   const body = {
-    connected: t('Les commandes de livraison de ce restaurant arriveront dans Clover, s’imprimeront à la cuisine et se fermeront payées.', 'This restaurant’s delivery orders will land in Clover, print in the kitchen and close as paid.'),
+    connected: data.app === 'phone'
+      ? t('L’IA répondra aux appels de ce restaurant : la commande payée arrivera dans Clover et s’imprimera à la cuisine.', 'The AI will answer this restaurant’s calls: the paid order will land in Clover and print in the kitchen.')
+      : t('Les commandes de livraison de ce restaurant arriveront dans Clover, s’imprimeront à la cuisine et se fermeront payées.', 'This restaurant’s delivery orders will land in Clover, print in the kitchen and close as paid.'),
     pending: t('Votre caisse attend l’approbation de l’équipe TAKATAK. Rien n’est envoyé à votre caisse avant. Nous sommes avisés et répondons en général le jour ouvrable même.', 'Your register is waiting for the TAKATAK team’s approval. Nothing is sent to your register until then. We have been notified and usually answer the same business day.'),
     gone: t('L’application a été désinstallée ou la demande a été refusée. Rouvrez l’application depuis Clover pour recommencer.', 'The app was uninstalled or the request was declined. Open the app again from Clover to start over.'),
     error: data.error ? t(data.error.fr, data.error.en) : '',

@@ -11,10 +11,12 @@ import { featureOn } from '../expansion/features';
 import { describeHours, getHours } from '../hours';
 import { callConfigured, emailConfigured, maskEmail, maskPhone, smsConfigured } from '../notify';
 import { ecommConfigured, hcoWebhookSecret } from '../pos/clover-checkout';
+import { cloverApp, cloverPhoneAppEnabled } from '../pos/clover-apps';
 import { getRepo } from '../repo';
 import { getAiHealth } from './ai-health';
 import { phoneAgentConfigured, phoneModel } from './agent';
 import { buildPhoneMenu, upsellGroups } from './cart';
+import { kitchenPhoneGate } from './gate';
 import { getIvrSettings, handoffTarget, LINK_KEYS, voicemailEmailTarget } from './ivr/config';
 import { getLinkHealth, probeLink, saveLinkHealth } from './link-health';
 import { getPhoneSettings, lineKitchens } from './settings';
@@ -122,6 +124,14 @@ export async function phoneReadiness(opts: { probe?: boolean; now?: number } = {
           : mid
             ? c('lines', `register_${key}`, 'warn', `${where} : aucune boutique Clover liée à cette cuisine — le billet irait au marchand par défaut. Liez la cuisine (Boutiques) ou mettez-la dans FOODHUB_CLOVER_NO_REGISTER.`, `${where}: no Clover store mapped to this kitchen — the ticket would go to the default merchant. Map it (Stores) or list it in FOODHUB_CLOVER_NO_REGISTER.`)
             : c('lines', `register_${key}`, 'info', `${where} : aucun marchand Clover — les commandes restent dans Food Hub.`, `${where}: no Clover merchant — orders stay in Food Hub.`));
+      }
+      if (cloverPhoneAppEnabled()) {
+        // TAKATAK Phone is checked on every call: a kitchen that is neither ours nor entitled sends its calls to a person.
+        const g = await kitchenPhoneGate(k, 'call', { now, budgetMs: 1_500 });
+        const app = cloverApp('phone').name;
+        out.push(g.ok
+          ? c('lines', `phone_app_${key}`, 'ok', `${where} : ${app} OK (${g.reason}).`, `${where}: ${app} OK (${g.reason}).`)
+          : c('lines', `phone_app_${key}`, 'stop', `${where} : ${app} refusé (${g.reason}${g.merchantId ? `, marchand ${g.merchantId}` : ''}) — l’IA ne répond pas, les appels vont à une personne. Si c’est un de nos restaurants, ajoutez ce marchand à PHONE_OWN_MERCHANTS.`, `${where}: ${app} refused (${g.reason}${g.merchantId ? `, merchant ${g.merchantId}` : ''}) — the AI does not answer, calls go to a person. If it is one of our restaurants, add this merchant to PHONE_OWN_MERCHANTS.`));
       }
       if (phone.payment.mode !== 'counter' && ecommConfigured()) {
         const pay = await paylinkReadiness(k.brands[0] ?? '', k.locationCode);

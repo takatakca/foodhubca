@@ -44,6 +44,9 @@ export interface ReportTable {
   truncated?: boolean;
 }
 
+/** What the file formats need from a table: any module (sales mix, …) can build one and render it as CSV or Excel. */
+export type TableData = Pick<ReportTable, 'title' | 'columns' | 'rows' | 'filename'>;
+
 /** Most rows one report reads from the store (orders or activity entries). */
 export const ROW_CAP = 50_000;
 
@@ -170,7 +173,7 @@ function cell(v: string | number | null): string {
 }
 
 /** UTF-8 CSV with BOM so Excel opens accents correctly. Formula-looking text is neutralised. */
-export function toCsv(t: ReportTable): string {
+export function toCsv(t: TableData | ReportTable): string {
   return '﻿' + [t.columns, ...t.rows].map((r) => r.map(cell).join(',')).join('\r\n') + '\r\n';
 }
 
@@ -178,7 +181,7 @@ const xml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 function colName(i: number): string { let s = ''; for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; }
 
 /** Minimal valid .xlsx (one sheet, bold header, numbers stay numbers). */
-export function toXlsx(t: ReportTable): Uint8Array {
+export function toXlsx(t: TableData | ReportTable): Uint8Array {
   const rows = [t.columns, ...t.rows].map((r, ri) => `<row r="${ri + 1}">${r.map((v, ci) => {
     const ref = `${colName(ci)}${ri + 1}`;
     if (typeof v === 'number' && Number.isFinite(v)) return `<c r="${ref}"><v>${v}</v></c>`;
@@ -196,7 +199,7 @@ export function toXlsx(t: ReportTable): Uint8Array {
   return zipSync(files, { level: 6 });
 }
 
-export function renderReport(t: ReportTable, format: 'csv' | 'xlsx'): { body: Uint8Array | string; contentType: string; filename: string } {
+export function renderReport(t: TableData | ReportTable, format: 'csv' | 'xlsx'): { body: Uint8Array | string; contentType: string; filename: string } {
   return format === 'xlsx'
     ? { body: toXlsx(t), contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', filename: `${t.filename}.xlsx` }
     : { body: toCsv(t), contentType: 'text/csv; charset=utf-8', filename: `${t.filename}.csv` };

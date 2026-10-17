@@ -15,6 +15,7 @@ const PUBLIC_PREFIXES = [
   '/api/foodhub/webhooks/', '/api/foodhub/cron/', '/api/foodhub/uber-connect/callback', '/api/foodhub/clover-connect/callback',
   '/api/foodhub/voice/', // brand phone lines: Twilio-signed webhooks + the signed voicemail listen link (brand-lines.ts)
   '/api/foodhub/clover-connect/test-order', // welcome-ticket credential (signed, one merchant, its own register)
+  '/api/foodhub/clover-connect/phone/callback', // AI phone Clover app's OAuth callback (same rule as Food Hub's; 404 until its App ID is set)
   '/api/foodhub/auth/', '/api/foodhub/devices/heartbeat',
   '/api/public/', // read-only public feeds (directory for ON2GO / QMAPS): public facts only, see lib/foodhub/public-directory.ts
   '/p/', // payment links texted to customers: the secret token is the credential (app/p/[token]/route.ts, delivery/paylink.ts)
@@ -25,6 +26,7 @@ const PUBLIC_PREFIXES = [
 const PUBLIC_PATHS = new Set([
   '/api/health', // uptime monitors: status only without CRON_SECRET or a session (app/api/health/route.ts)
   '/api/release', // deployment proof: public commit SHA only, exact path, no settings or secrets
+  '/legal', // the legal pages' index: redirects to /legal/support (app/legal/page.tsx); /legal/* is in PUBLIC_PREFIXES
   '/courier', '/api/courier', // our couriers' page: the personal signed link (Bearer) is the credential (lib/foodhub/delivery/courier-app.ts)
 ]);
 

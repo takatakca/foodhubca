@@ -1,5 +1,12 @@
 # FOODHUB / ON2GO Hub — état vérifiable du projet
 
+## Reprise 2026-10-16 — navigation clavier des onglets (non publié)
+
+Sur la branche `fix/console-tabs-keyboard-20261016` (créée à partir de `main` `12ba64d9f6941698118533d40d3f381ff709065c`), les onglets horizontaux de la console respectent maintenant le focus roving ARIA : seul l'onglet choisi est accessible avec Tab, flèche droite/gauche et Début/Fin sélectionnent et focalisent le bon onglet. Leurs événements `onChange` existants sont conservés, sans modification de données ni routes. Tests de navigation et cas invalides ajoutés dans `tests/tab-keyboard.test.ts`. CI, image Docker, revue navigateur et fusion propriétaire à contrôler ; aucune livraison de cette branche.
+## Reprise 2026-10-16 — focus des fenêtres de la console (branche, non déployé)
+
+`main` observé au SHA `12ba64d9f6941698118533d40d3f381ff709065c` (PR #57 fusionnée, CI et image réussies). Correctif indépendant sur `fix/overlay-keyboard-focus-20261016` : les dialogues et tiroirs portalisés partagent une pile de fenêtres active ; seul le dessus reçoit Échap et Tab, le focus reste dans la fenêtre, revient au déclencheur après fermeture, les zones de fond ne défilent pas en cas de fenêtres imbriquées. Les titres et sous-titres sont reliés aux attributs ARIA. Tests purs des règles d'empilement et du bouclage clavier ajoutés. Les validations GitHub de cette branche sont à contrôler sur son dernier commit. Aucune donnée marchande ni intégration modifiée ; **aucun déploiement effectué sur cette branche**. Les validations réelles Clover, Uber, DoorDash et Skip restent non certifiées : issue #46.
+
 ## État au 2026-10-16 — contrôlé dans GitHub
 
 `main` = `444e8f2e60dd73e5eaa90bc4e9f92d05489b38f3` (PR #53 Clover fusionnée). [CI 38845406916](https://github.com/takatakca/foodhubca/actions/runs/38845406916) et [image 38845406823](https://github.com/takatakca/foodhubca/actions/runs/38845406823) **success**. La preuve la plus récente du déploiement public consignée dans [PR #49](https://github.com/takatakca/foodhubca/pull/49) est le SHA `027b602a12da39b1244e17b813bc51a7496a0217` (2026-10-15). Aucune preuve externe nouvelle d'un conteneur exécutant `444e8f2` n'a pu être obtenue par cette session. Les jobs historiques Actions Coolify sont `skipped` ; la livraison native Coolify est documentée, non présumée réussite pour ce SHA.

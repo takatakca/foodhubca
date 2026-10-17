@@ -173,7 +173,13 @@
 .t-rule { border-top: 1px dashed black; margin: 6px 0; }
 .t-row { display: flex; justify-content: space-between; gap: 8px; }
 .t-line { margin: 4px 0; } .t-mod { padding-left: 14px; font-size: 12px; }
+/* Too Good To Go bag label: one per bag, stuck on the bag (customer name, pickup window and code, big). */
+.t-bag { margin-top: 6mm; border: 2px solid black; padding: 3mm; text-align: center; }
+.t-bag-name { font-size: 34px; font-weight: 800; line-height: 1.1; word-break: break-word; }
+.t-bag-code { font-size: 26px; font-weight: 800; letter-spacing: 1px; }
+.t-bag-when { font-size: 18px; font-weight: 700; }
 @media print {
+  .t-bag { break-before: page; page-break-before: always; }
   @page { size: 80mm auto; margin: 0; }
   body { background: white !important; }
   .no-print { display: none !important; }

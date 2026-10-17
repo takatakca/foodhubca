@@ -14,7 +14,11 @@ import type { OrderLine } from '../types';
  * Food Hub only mirrors it on the kitchen screen (pos/clover-website-orders.ts). Clover is the source of truth.
  */
 export type DirectSource = 'phone' | 'phone_ai' | 'clover' | 'website' | 'manual' | 'clover_online';
-export type DirectStatus = 'new' | 'in_kitchen' | 'ready' | 'out_for_delivery' | 'completed' | 'cancelled';
+/**
+ * 'awaiting_payment' = a phone order HELD until the customer pays the Clover payment link texted to them: not on the
+ * kitchen screen, not in Clover, no courier. Paid → 'in_kitchen' (exactly once, delivery/paylink.ts); unpaid → cancelled.
+ */
+export type DirectStatus = 'awaiting_payment' | 'new' | 'in_kitchen' | 'ready' | 'out_for_delivery' | 'completed' | 'cancelled';
 /** How the customer pays. Couriers never collect money: a delivery waits until the order is paid (or the owner allows unpaid dispatch). */
 export type PaymentState = 'paid' | 'pay_at_pickup' | 'unpaid';
 
@@ -43,6 +47,51 @@ export interface DirectEvent {
   by?: string;
 }
 
+/** The payment link of a held order (Clover Hosted Checkout behind our own link /p/<token>). */
+export interface PayLink {
+  /** Secret part of our link (22+ characters): never in a log, an outbox preview or a page other than its own. */
+  token: string;
+  /** The Clover merchant that takes the payment (the kitchen's own merchant — never a default). */
+  merchantId: string;
+  /** "Réf. IA-1043" on the first Clover line: how a payment is matched when a webhook is lost. */
+  marker: string;
+  lang: 'fr' | 'en' | 'es';
+  /** Our number the texts are sent from (the number the caller called), when set. */
+  smsFrom?: string;
+  createdAt: string;
+  /** The link stops working (the order is cancelled at the next check). */
+  expiresAt: string;
+  reminderMin: number;
+  /** Clover sessions (each lives 15 minutes; a fresh one is made when the customer opens the link later). */
+  sessions: Array<{ id: string; href: string; createdAt: string; expiresAt?: string }>;
+  /** What Clover will charge (cents), computed like its page: GST and QST rounded one by one. */
+  expectedCents: number;
+  smsAt?: string;
+  smsError?: string;
+  remindedAt?: string;
+  openedAt?: string;
+  lastCheckAt?: string;
+  paymentId?: string;
+  paidAt?: string;
+  paidCents?: number;
+  cloverOrderId?: string;
+  /** Release lock (claim + re-read): only one request releases the order. */
+  releaseClaim?: string;
+  releaseClaimAt?: string;
+  releasedAt?: string;
+  /** Written BEFORE the print request: the ticket prints at most once. */
+  printClaimAt?: string;
+  printedAt?: string;
+  printError?: string;
+  cancelledAt?: string;
+  cancelReason?: string;
+  /** Payments that arrived after the order was paid or cancelled: a person refunds them in Clover. */
+  extraPayments?: string[];
+  declinedAt?: string;
+  /** The flag the release raised (kitchen closed, amount off, ticket not printed): booking a courier keeps it. */
+  flag?: string;
+}
+
 export interface DirectOrder {
   id: string;
   /** Short number said to the customer and printed on the Clover ticket. */
@@ -52,7 +101,7 @@ export interface DirectOrder {
   sourceRef?: string;
   brandName: string;
   locationCode: string;
-  customer: { name?: string; phone?: string; email?: string; lang?: 'fr' | 'en' };
+  customer: { name?: string; phone?: string; email?: string; lang?: 'fr' | 'en' | 'es' };
   fulfillment: 'pickup' | 'delivery';
   dropoff?: DropoffAddress;
   lines: DirectLine[];
@@ -88,6 +137,8 @@ export interface DirectOrder {
   attention?: string;
   /** Auto-dispatch attempts (retried every 2 minutes, at most 3 times, then a person decides). */
   autoDispatch?: { attempts: number; lastAt?: string; stoppedReason?: string };
+  /** Paid by a payment link texted to the customer (phone orders): the order is held until paid. */
+  paylink?: PayLink;
   events: DirectEvent[];
   createdAt: string;
   updatedAt: string;

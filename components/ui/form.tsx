@@ -61,14 +61,14 @@ export function Checkbox({ checked, onChange, label, disabled }: { checked: bool
 }
 
 /** Pill choices (single or multiple). */
-export function Chips<V extends string | number>({ options, value, onChange, size = 'md', className }: { options: Array<{ value: V; label: ReactNode }>; value: V | V[]; onChange: (v: V) => void; size?: 'sm' | 'md' | 'lg'; className?: string }) {
+export function Chips<V extends string | number>({ options, value, onChange, size = 'md', className, disabled }: { options: Array<{ value: V; label: ReactNode }>; value: V | V[]; onChange: (v: V) => void; size?: 'sm' | 'md' | 'lg'; className?: string; disabled?: boolean }) {
   const sel = (v: V) => (Array.isArray(value) ? value.includes(v) : value === v);
   return (
     <div className={cn('flex flex-wrap gap-1.5', className)}>
       {options.map((o) => (
-        <button key={String(o.value)} type="button" aria-pressed={sel(o.value)} onClick={() => onChange(o.value)}
+        <button key={String(o.value)} type="button" aria-pressed={sel(o.value)} disabled={disabled} onClick={() => onChange(o.value)}
           className={cn('rounded-full border font-semibold transition-colors', size === 'sm' ? 'h-7 px-2.5 text-xs' : size === 'lg' ? 'h-12 px-5 text-base' : 'h-9 px-3.5 text-[13px]',
-            sel(o.value) ? 'border-ink bg-ink text-canvas' : 'border-line-2 bg-surface text-ink-2 hover:border-ink-4 hover:text-ink')}>
+            sel(o.value) ? 'border-ink bg-ink text-canvas' : 'border-line-2 bg-surface text-ink-2 hover:border-ink-4 hover:text-ink', disabled && 'cursor-not-allowed opacity-60')}>
           {o.label}
         </button>
       ))}

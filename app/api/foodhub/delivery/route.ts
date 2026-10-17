@@ -2,6 +2,8 @@ import { inScope, withPerm } from '@/lib/foodhub/auth';
 import { normalizePostal } from '@/lib/foodhub/delivery/address';
 import { dispatchProblems, fleetReadiness } from '@/lib/foodhub/delivery/dispatch';
 import { createDirectOrder, lineTotal } from '@/lib/foodhub/delivery/orders';
+import { cancelHeldOrder, paylinkReadiness, startPayLink } from '@/lib/foodhub/delivery/paylink';
+import { getPhoneSettings } from '@/lib/foodhub/phone/settings';
 import { getDeliverySettings, listDeliveries, listDirectOrders } from '@/lib/foodhub/delivery/store';
 import type { DirectLine } from '@/lib/foodhub/delivery/types';
 import { requireFeature } from '@/lib/foodhub/expansion/features';
@@ -43,9 +45,17 @@ export const POST = withPerm('orders:act', async (req, _ctx, actor) => {
   const fulfillment = b.fulfillment === 'delivery' ? 'delivery' : 'pickup';
   const a = b.dropoff ?? {};
   const settings = await getDeliverySettings();
+  const byLink = b.payment === 'link';
+  const lang = b.customer?.lang === 'en' || b.customer?.lang === 'es' ? b.customer.lang : 'fr';
+  if (byLink) {
+    const ready = await paylinkReadiness(String(b.brandName ?? ''), String(b.locationCode ?? ''));
+    if (!ready.ok) return fail(`Payment link not available: ${ready.reason}`, 409);
+    if (!normalizePhone(b.customer?.phone)) return fail('A payment link needs the customer’s cell number.');
+  }
   const order = await createDirectOrder({
     source: b.source === 'phone' ? 'phone' : 'manual', brandName: String(b.brandName ?? ''), locationCode: String(b.locationCode ?? ''),
-    customer: { name: String(b.customer?.name ?? '').trim() || undefined, phone: normalizePhone(b.customer?.phone) ?? undefined, lang: b.customer?.lang === 'en' ? 'en' : 'fr' },
+    customer: { name: String(b.customer?.name ?? '').trim() || undefined, phone: normalizePhone(b.customer?.phone) ?? undefined, lang },
+    holdForPayment: byLink,
     fulfillment, lines, notes: b.notes ? String(b.notes).slice(0, 300) : undefined,
     dropoff: fulfillment === 'delivery'
       ? { street: String(a.street ?? '').trim(), unit: a.unit ? String(a.unit).trim() : undefined, city: String(a.city || 'Montréal').trim(), province: 'QC', postalCode: normalizePostal(a.postalCode) ?? String(a.postalCode ?? ''), country: 'CA', instructions: a.instructions ? String(a.instructions).slice(0, 200) : undefined }
@@ -53,8 +63,17 @@ export const POST = withPerm('orders:act', async (req, _ctx, actor) => {
     payment: b.payment === 'paid' ? 'paid' : fulfillment === 'pickup' ? 'pay_at_pickup' : 'unpaid',
     tip: Number(b.tip) || 0,
     deliveryFee: fulfillment === 'delivery' ? (b.deliveryFee !== undefined && b.deliveryFee !== '' ? Number(b.deliveryFee) || 0 : settings.customerFee) : 0,
-    confirmBySms: b.confirmBySms === true,
+    confirmBySms: !byLink && b.confirmBySms === true,
   }, actor);
+  if (byLink) {
+    const phone = await getPhoneSettings();
+    const r = await startPayLink(order, { lang, expiryMin: phone.payment.expiryMin, reminderMin: phone.payment.reminderMin, by: actor.name });
+    if (!r.ok) {
+      await cancelHeldOrder(order.id, `Payment link not created: ${r.error}`, actor.name, { text: false });
+      return fail(`The payment link could not be created: ${r.error} — the order was not kept.`, 409);
+    }
+    return ok({ order: r.order, problems: [], problemsFr: [] });
+  }
   const delivery = fulfillment === 'delivery';
   return ok({ order, problems: delivery ? await dispatchProblems(order) : [], problemsFr: delivery ? await dispatchProblems(order, undefined, undefined, 'fr') : [] });
 });

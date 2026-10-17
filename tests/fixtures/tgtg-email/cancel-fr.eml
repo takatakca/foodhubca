@@ -1,0 +1,16 @@
+Authentication-Results: mx.example.test; dkim=pass header.d=toogoodtogo.com header.s=synthetic; spf=pass smtp.mailfrom=toogoodtogo.com; dmarc=pass header.from=toogoodtogo.com
+From: "Too Good To Go" <notifications@toogoodtogo.com>
+To: store@example.test
+Subject: =?UTF-8?Q?Commande_annul=C3=A9e?=
+Date: Fri, 16 Oct 2026 10:02:00 -0400
+Message-ID: <synthetic-cancel-fr-0006@example.test>
+X-Takatak-Fixture: synthetic (mirrors a TGTG store notification; not a real e-mail)
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+<html><body><p>Bonjour OOEUF NDG,</p>
+<p>Lucas a annul=C3=A9 sa r=C3=A9servation. Vous n&#39;avez plus =C3=A0 la pr=C3=A9parer.</p>
+<table><tr><td>Num=C3=A9ro de commande</td><td>R8M2-55QX</td></tr>
+<tr><td>Collecte</td><td>vendredi 16 octobre, 17&nbsp;h&nbsp;00 =E2=80=93 17&nbsp;h&nbsp;30</td></tr></table>
+</body></html>

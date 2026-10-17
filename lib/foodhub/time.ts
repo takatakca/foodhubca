@@ -33,6 +33,14 @@ export function startOfLocalDayMs(ms = Date.now(), timeZone = foodhubTimeZone())
   return start;
 }
 
+/** UTC epoch ms of a local wall-clock time ("2026-10-16 17:30" in Montréal), DST-safe. */
+export function localWallToUtcMs(year: number, month: number, day: number, hour = 0, minute = 0, timeZone = foodhubTimeZone()): number {
+  const guess = Date.UTC(year, month - 1, day, hour, minute, 0);
+  let ms = guess - zoneOffset(guess, timeZone);
+  ms = guess - zoneOffset(ms, timeZone);
+  return ms;
+}
+
 export function localHour(ms: number, timeZone = foodhubTimeZone()): number {
   return localParts(ms, timeZone).hour;
 }

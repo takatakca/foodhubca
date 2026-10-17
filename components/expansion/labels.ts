@@ -4,11 +4,12 @@ import type { T } from '@/lib/i18n';
 
 export function directStatusLabel(t: T, s: string) {
   return ({
+    awaiting_payment: t('En attente de paiement', 'Waiting for payment'),
     new: t('Nouvelle', 'New'), in_kitchen: t('En cuisine', 'In the kitchen'), ready: t('Prête', 'Ready'), out_for_delivery: t('En livraison', 'Out for delivery'),
     completed: t('Terminée', 'Completed'), cancelled: t('Annulée', 'Cancelled'),
   } as Record<string, string>)[s] ?? s;
 }
-export const DIRECT_TONE: Record<string, Tone> = { new: 'brand', in_kitchen: 'wait', ready: 'go', out_for_delivery: 'info', completed: 'neutral', cancelled: 'stop' };
+export const DIRECT_TONE: Record<string, Tone> = { awaiting_payment: 'violet', new: 'brand', in_kitchen: 'wait', ready: 'go', out_for_delivery: 'info', completed: 'neutral', cancelled: 'stop' };
 
 export function deliveryStatusLabel(t: T, s: string) {
   return ({
@@ -26,7 +27,7 @@ export function sourceLabel(t: T, s: string) {
 }
 
 export function paymentLabel(t: T, s: string) {
-  return ({ paid: t('Payée', 'Paid'), pay_at_pickup: t('À payer au comptoir', 'Pay at the counter'), unpaid: t('À encaisser', 'To collect') } as Record<string, string>)[s] ?? s;
+  return ({ paid: t('Payée', 'Paid'), pay_at_pickup: t('À payer au comptoir', 'Pay at the counter'), unpaid: t('À encaisser', 'To collect'), link: t('Lien de paiement envoyé', 'Payment link sent') } as Record<string, string>)[s] ?? s;
 }
 export const PAYMENT_TONE: Record<string, Tone> = { paid: 'go', pay_at_pickup: 'neutral', unpaid: 'wait' };
 
@@ -49,5 +50,9 @@ export function eventLabel(t: T, type: string) {
     delivered: t('Livrée', 'Delivered'), auto_dispatch: t('Envoi automatique', 'Auto-dispatch'), auto_dispatch_stopped: t('Envoi automatique arrêté', 'Auto-dispatch stopped'), dispatch_waiting: t('En attente', 'Waiting'),
     paid: t('Paiement encaissé', 'Payment taken'), ready: t('Prête', 'Ready'), picked_up: t('Récupérée par le client', 'Picked up by the customer'), completed: t('Terminée', 'Completed'),
     cancelled: t('Annulée', 'Cancelled'), updated: t('Modifiée', 'Updated'), attention_cleared: t('Vérifiée', 'Checked'),
+    awaiting_payment: t('En attente de paiement', 'Waiting for payment'), paylink_created: t('Lien de paiement créé', 'Payment link created'), paylink_sent: t('Lien de paiement texté', 'Payment link texted'),
+    paylink_opened: t('Page de paiement ouverte', 'Payment page opened'), paylink_session: t('Nouvelle page de paiement', 'New payment page'), paylink_reminder: t('Rappel de paiement texté', 'Payment reminder texted'),
+    paylink_released: t('Envoyée en cuisine (payée)', 'Sent to the kitchen (paid)'), paylink_declined: t('Carte refusée', 'Card declined'), paylink_extra_payment: t('Paiement en trop — à rembourser', 'Extra payment — refund it'),
+    paylink_kitchen_closed: t('Payée, cuisine fermée', 'Paid, kitchen closed'), print_failed: t('Billet non imprimé', 'Ticket not printed'), pay_at_counter: t('Paiement au comptoir', 'Pay at the counter'), sms_cancelled: t('Annulation textée', 'Cancellation texted'),
   } as Record<string, string>)[type] ?? type.replace(/_/g, ' ');
 }

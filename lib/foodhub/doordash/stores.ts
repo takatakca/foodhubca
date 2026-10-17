@@ -10,7 +10,7 @@ import { menuWithAlcoholRules } from '../alcohol/rules';
 import { result } from '../config';
 import { getHours, publishContext } from '../hours';
 import { getMenuLanguages } from '../menu/language';
-import { getBrandMenu } from '../menu/shared';
+import { getBrandMenu, unpublishableMenuReason } from '../menu/shared';
 import { toDoorDashItemPolling, toDoorDashMenu } from '../menu/translate';
 import { menuForLocation } from '../ops';
 import { getRepo } from '../repo';
@@ -66,6 +66,9 @@ export async function setDoorDashMenuActive(store: ChannelStore, active: boolean
   if (refused) return result(KEY, 'blocked', refused);
   const menu = await getBrandMenu(store.brandName);
   if (!menu) return result(KEY, 'blocked', `No menu saved for ${store.brandName}.`);
+  // This sends the whole menu: never an empty one (a follower's dish list that matches nothing).
+  const empty = unpublishableMenuReason(menu);
+  if (empty) return result(KEY, 'blocked', empty);
   const hours = await getHours();
   const ctx = { ...(await publishContext(store.brandName, store.locationCode, hours)), language: (await getMenuLanguages()).doordash, menuActive: active };
   const local = await menuWithAlcoholRules(menuForLocation(menu, store.locationCode), store.locationCode, 'doordash');

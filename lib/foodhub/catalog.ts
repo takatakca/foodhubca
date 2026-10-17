@@ -41,9 +41,11 @@ export function seedCatalog(): Catalog {
   };
 }
 
-export async function getCatalog(): Promise<Catalog> {
+/** The catalog (seed + saved). `strict`: a failed database read throws instead of falling back to the seed (billing). */
+export async function getCatalog(opts: { strict?: boolean } = {}): Promise<Catalog> {
   const seed = seedCatalog();
-  const stored = (await getRepo().getKv<Partial<Catalog>>(KEY).catch(() => null)) ?? {};
+  const read = getRepo().getKv<Partial<Catalog>>(KEY);
+  const stored = (await (opts.strict ? read : read.catch(() => null))) ?? {};
   const locations = new Map(seed.locations.map((l) => [l.code, l]));
   for (const l of stored.locations ?? []) locations.set(l.code, { ...locations.get(l.code), ...l });
   const brands = new Map(seed.brands.map((b) => [b.name, b]));

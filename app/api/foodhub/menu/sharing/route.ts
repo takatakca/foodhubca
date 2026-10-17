@@ -2,20 +2,31 @@ import { logActivity } from '@/lib/foodhub/activity';
 import { withPerm } from '@/lib/foodhub/auth';
 import { getCatalog } from '@/lib/foodhub/catalog';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
-import { getMenuSharing, saveMenuSharing, type MenuSharing } from '@/lib/foodhub/menu/shared';
+import { cleanBrandDishes, dishScope, getBrandDishes, getMenuSharing, MAX_DISH_REF_LENGTH, saveBrandDishes, saveMenuSharing, type BrandDishes, type MenuSharing } from '@/lib/foodhub/menu/shared';
 import { applySharingChange } from '@/lib/foodhub/menu/sharing-change';
 import { getRepo } from '@/lib/foodhub/repo';
 
 export const dynamic = 'force-dynamic';
 
-// One menu for several brands: { sharing: { followerBrand: sourceBrand } }.
-export const GET = withPerm('view', async () => ok({ sharing: await getMenuSharing() }));
+const MAX_DISHES = 500;
 
-// Replaces the whole map. Brands must be known (Brands & locations, or an existing menu); the source needs a saved menu.
+// One menu for several brands: { sharing: { followerBrand: sourceBrand }, dishes: { followerBrand: [itemRef, …] } }.
+// dishes = the dishes of the shared menu a follower shows (no entry = every dish).
+export const GET = withPerm('view', async () => ok({ sharing: await getMenuSharing(), dishes: await getBrandDishes() }));
+
+// Replaces the whole sharing map. Brands must be known (Brands & locations, or an existing menu); the source needs a
+// saved menu. `dishes` (optional) replaces the dish lists; without it the saved lists stay, except for a brand that
+// stops sharing or moves to another menu (its list named dishes of the old menu).
 export const PUT = withPerm('menu:edit', async (req, _ctx, actor) => {
   const b = await readJson(req);
   const raw = b.sharing && typeof b.sharing === 'object' && !Array.isArray(b.sharing) ? (b.sharing as Record<string, unknown>) : null;
   if (!raw) return fail('sharing ({ brand: sourceBrand }) is required');
+  if (b.dishes !== undefined && (!b.dishes || typeof b.dishes !== 'object' || Array.isArray(b.dishes))) return fail('dishes must be { brand: [itemRef, …] }');
+  if (b.dishes !== undefined) {
+    for (const [brand, refs] of Object.entries(b.dishes as Record<string, unknown>)) {
+      if (Array.isArray(refs) && refs.some((r) => String(r ?? '').trim().length > MAX_DISH_REF_LENGTH)) return fail(`${brand}: a dish ref is longer than ${MAX_DISH_REF_LENGTH} characters.`, 422);
+    }
+  }
   const menus = await getRepo().listMenus();
   const known = new Set([...(await getCatalog()).brands.map((x) => x.name), ...menus.map((m) => m.brandName)]);
   const next: MenuSharing = {};
@@ -27,16 +38,53 @@ export const PUT = withPerm('menu:edit', async (req, _ctx, actor) => {
     if (!menus.some((m) => m.brandName === from)) return fail(`${from} has no saved menu yet — import it from Clover or create it before other brands share it.`, 409);
     next[brand] = from;
   }
+
   const before = await getMenuSharing();
+  const beforeDishes = await getBrandDishes();
+  // Dish lists: only for brands that follow a menu. A NEW or CHANGED list must name at least one dish of that menu; a
+  // list kept as it was (same menu, same dishes) is never re-checked here — a re-import that changed another brand's
+  // refs must not block this change (publish refuses an empty result on its own, and the editor shows the stale picks).
+  const same = (x?: string[], y?: string[]) => JSON.stringify([...(x ?? [])].sort()) === JSON.stringify([...(y ?? [])].sort());
+  const wanted: BrandDishes = b.dishes !== undefined ? cleanBrandDishes(b.dishes) : Object.fromEntries(Object.entries(beforeDishes).filter(([k]) => next[k] && next[k] === before[k]));
+  const dishes: BrandDishes = {};
+  for (const [brand, refs] of Object.entries(wanted)) {
+    const from = next[brand];
+    if (!from) {
+      if (b.dishes !== undefined) return fail(`${brand} does not share another brand's menu — only a brand that shares a menu picks its dishes.`, 422);
+      continue;
+    }
+    if (refs.length > MAX_DISHES) return fail(`${brand}: at most ${MAX_DISHES} dishes.`, 422);
+    const kept = from === before[brand] && same(refs, beforeDishes[brand]);
+    if (!kept) {
+      const source = menus.find((m) => m.brandName === from)!;
+      if (!dishScope(source, refs).itemRefs.size) return fail(`None of the dishes picked for ${brand} is on the ${from} menu. Pick at least one, or none to show every dish.`, 422);
+    }
+    dishes[brand] = refs;
+  }
+
+  // Two writes: the sharing map, then the dish lists. If the second fails, the map is put back as it was, so a brand
+  // never ends up on a new menu with the dish list of its old one.
   let saved: MenuSharing;
   try { saved = await saveMenuSharing(next); } catch (e) { return fail(e instanceof Error ? e.message : String(e), 422); }
+  let savedDishes: BrandDishes;
+  try { savedDishes = await saveBrandDishes(dishes); } catch (e) {
+    await saveMenuSharing(before).catch(() => undefined);
+    return fail(`Nothing changed — the dish lists could not be saved: ${e instanceof Error ? e.message : String(e)}`, 500);
+  }
   const changed = [...new Set([...Object.keys(before), ...Object.keys(saved)])].filter((k) => before[k] !== saved[k]);
-  const outcome = await applySharingChange(before, saved);
-  if (changed.length) {
+  const dishesChanged = [...new Set([...Object.keys(beforeDishes), ...Object.keys(savedDishes)])].filter((k) => !changed.includes(k) && !same(beforeDishes[k], savedDishes[k]));
+  // beforeDishes: a brand that stops sharing keeps only ITS dishes on the menu it now owns (never the whole shared menu).
+  const outcome = await applySharingChange(before, saved, beforeDishes);
+  if (changed.length || dishesChanged.length) {
+    const parts = [
+      ...changed.map((k) => (saved[k] ? `${k} uses the ${saved[k]} menu${savedDishes[k] ? ` (${savedDishes[k].length} dishes)` : ''}` : `${k} uses its own menu`)),
+      ...dishesChanged.map((k) => (savedDishes[k] ? `${k} shows ${savedDishes[k].length} dishes of the ${saved[k]} menu` : `${k} shows every dish of the ${saved[k]} menu`)),
+    ];
+    const publish = [...changed, ...dishesChanged];
     await logActivity({ actor: actor.name, source: actor.source, kind: 'menu_publish', action: 'menu_sharing', status: 'success',
-      summary: `Shared menus changed: ${changed.map((k) => (saved[k] ? `${k} uses the ${saved[k]} menu` : `${k} uses its own menu`)).join(', ')} — publish ${changed.join(', ')} to send it to the platforms`,
-      detail: { before, after: saved, ...outcome } });
+      summary: `Shared menus changed: ${parts.join(', ')} — publish ${publish.join(', ')} to send it to the platforms${outcome.noDishesLeft.length ? `. No menu of its own yet for ${outcome.noDishesLeft.join(', ')} (its dishes are no longer on the shared menu): import or build it before publishing` : ''}`,
+      detail: { before, after: saved, dishesBefore: beforeDishes, dishesAfter: savedDishes, ...outcome } });
   }
   // publish = brands whose platforms still show their previous menu until they are published.
-  return ok({ sharing: saved, publish: changed, ...outcome });
+  return ok({ sharing: saved, dishes: savedDishes, publish: [...changed, ...dishesChanged], ...outcome });
 });

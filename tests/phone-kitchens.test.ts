@@ -16,6 +16,7 @@ import { twilioSignature } from '../lib/foodhub/phone/twilio';
 import { callerTurn, simulateTurn, startCall } from '../lib/foodhub/phone/voice';
 import { getRepo } from '../lib/foodhub/repo';
 import type { MasterMenu } from '../lib/foodhub/types';
+import { openAllDay } from './helpers/phone-harness';
 
 const actor = { username: 'owner', name: 'Owner', source: 'dashboard' as const };
 const realFetch = globalThis.fetch;
@@ -76,6 +77,7 @@ beforeEach(async () => {
   for (const b of ['Po Poulet', 'Pi Pita', 'Taco Montréal']) await getRepo().saveMenu(MENU(b));
   await savePhoneSettings({ lines: [MULTI as any] }, actor);
   await setFeature('phone', true, actor);
+  await openAllDay(['NDG', 'JT']);
 });
 afterEach(() => { globalThis.fetch = realFetch; });
 

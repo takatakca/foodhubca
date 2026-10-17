@@ -71,21 +71,26 @@ Tant que `LIVE_CONNECTORS_GLOBAL_ENABLED=false`, les commandes arrivent et s'aff
 Active-le en dernier, quand Réglages → Mise en service est tout vert.
 
 ## 5. Tes 7 magasins Uber Eats
-Ils sont chargés dans Food Hub. La marque est déjà trouvée pour chacun :
+Ils sont chargés dans Food Hub. La marque est déjà trouvée pour chacun, et la succursale aussi : **les 7 sont à
+Saint-Léonard** (5839 rue Jean-Talon E, H1S 1M4), d'après la fiche Uber de chaque magasin. Uber les nomme presque tous
+« (Hochelaga) », mais ce ne sont **pas** des magasins NDG ni Hochelaga :
 
-| Magasin Uber | Marque Food Hub | UUID |
-|---|---|---|
-| Pi Pita | Pi Pita | b6b36ca0-bc57-50d0-a184-1d28bf74771f |
-| PPP Pizzeria | PPP Pizzeria | 627d09f0-8fb4-57f2-8ec1-6a71984ad267 |
-| Gateaux Montréal | Gateau Montreal | d4e00c50-971f-5eb4-afa2-d48231f98a48 |
-| O'Oeufs Montréal | OOeuf | c5585882-ab06-5a2f-bbc2-66fe5ec9179c |
-| Nutri Shake | Nutrition Shake | 8c0a69ee-1667-5aa7-a8e6-7fdb707095da |
-| Bolon Café | Cafe Bolon | 8179598e-a40f-509e-8b03-59ce49d57d77 |
-| BIN MOLLE BIN DURE | Bin molle & Bin Dure | 7656b055-48d1-5f46-a6a7-2a0d23668c0b |
+| Magasin Uber (nom sur Uber) | Marque Food Hub | Succursale | UUID |
+|---|---|---|---|
+| Pi pita (Hochelaga) | Pi Pita | SAINT_LEONARD | b6b36ca0-bc57-50d0-a184-1d28bf74771f |
+| PPP Pizzeria (Hochelaga) | PPP Pizzeria | SAINT_LEONARD | 627d09f0-8fb4-57f2-8ec1-6a71984ad267 |
+| Gâteaux Montreal (Hochelaga) | Gateau Montreal | SAINT_LEONARD | d4e00c50-971f-5eb4-afa2-d48231f98a48 |
+| O'OEUFS Express (5839 Jean-Talon) | OOeuf | SAINT_LEONARD | c5585882-ab06-5a2f-bbc2-66fe5ec9179c |
+| Nutri Shake (Hochelaga) | Nutrition Shake | SAINT_LEONARD | 8c0a69ee-1667-5aa7-a8e6-7fdb707095da |
+| Bolon Café (Hochelaga) | Cafe Bolon | SAINT_LEONARD | 8179598e-a40f-509e-8b03-59ce49d57d77 |
+| BIN MOLLE & BIN DURE (Hochelaga) | Bin molle & Bin Dure | SAINT_LEONARD | 7656b055-48d1-5f46-a6a7-2a0d23668c0b |
 
-La succursale de chacun n'est pas encore connue. Deux façons de la régler :
-- dès que les clés Uber sont en place, l'adresse donnée par Uber la choisit toute seule ;
-- sinon, choisis-la toi-même dans **Magasins → Branchement → « Vos magasins Uber Eats à relier »**.
+Dans **Magasins → Branchement → « Vos magasins Uber Eats à relier »**, la succursale Saint-Léonard est déjà choisie.
+Dès que les clés Uber sont en place, l'adresse donnée par Uber la confirme. Si un de ces magasins est relié à une autre
+succursale, la même page affiche un avertissement avec un bouton **Déplacer**.
+
+Les magasins Uber de NDG (6280 Somerled) ont d'**autres** UUID. Ils sont notés pour référence dans
+`data/actual/platform-stores-uber.json` (`ndg_not_mapped`), sans être reliés : relie-les avec **Brancher Uber Eats**.
 
 ## 6. Comment marche la tablette de cuisine
 1. **Une seule fois :** sur la tablette, ouvre l'adresse de Food Hub et connecte-toi (gérant ou propriétaire).

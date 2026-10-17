@@ -1,7 +1,9 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { legalInfo, LEGAL_PATHS } from '@/lib/foodhub/legal';
+import { feesText, legalInfo, LEGAL_PATHS, TOKEN_DELETION } from '@/lib/foodhub/legal';
 import { Divider, Faq, H1, H2, LangBlock, LangSwitch, P, UL } from '../prose';
+import { CloverAppBadges } from '@/components/clover-app-badges';
+import { liveCloverApps } from '@/lib/foodhub/clover-apps';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Soutien · Support — TAKATAK Food Hub' };
@@ -10,6 +12,7 @@ export const metadata: Metadata = { title: 'Soutien · Support — TAKATAK Food 
 // the privacy policy, the terms, an email and a phone number).
 export default function SupportPage() {
   const i = legalInfo();
+  const fees = feesText(i.pricing);
   const email = i.supportEmail;
   const phone = i.supportPhone;
   const tel = phone ? `tel:${phone.replace(/[^\d+]/g, '')}` : null;
@@ -20,6 +23,7 @@ export default function SupportPage() {
       <LangSwitch />
 
       <LangBlock id="fr">
+        <CloverAppBadges apps={liveCloverApps()} lang="fr" />
         <H2>Nous joindre</H2>
         <UL>
           <li>Courriel : {email ? <a className="underline" href={`mailto:${email}`}>{email}</a> : '[à compléter — FOODHUB_SUPPORT_EMAIL]'}</li>
@@ -50,10 +54,10 @@ export default function SupportPage() {
           Non. Elles sont payées avec le mode de paiement de leur plateforme : votre fermeture de caisse les sépare des ventes en magasin.
         </Faq>
         <Faq q="Combien ça coûte ?">
-          L’application est gratuite pour les restaurants approuvés. Tout frais futur serait facturé uniquement par la facturation du Clover App Market, jamais en dehors.
+          {fees.fr}
         </Faq>
         <Faq q="Comment me débrancher et supprimer mes données ?">
-          Désinstallez l’application dans Clover : vos jetons d’accès sont supprimés dès que Clover nous en avise et plus rien n’est envoyé à votre caisse. Pour obtenir ou supprimer vos autres données, écrivez-nous (voir la <Link className="underline" href={LEGAL_PATHS.privacy}>politique de confidentialité</Link>).
+          Désinstallez l’application dans Clover : plus rien n’est envoyé à votre caisse, et vos jetons d’accès Clover {TOKEN_DELETION.fr}. Pour obtenir ou supprimer vos autres données, écrivez-nous (voir la <Link className="underline" href={LEGAL_PATHS.privacy}>politique de confidentialité</Link>).
         </Faq>
         <P>Voir aussi notre <Link className="underline" href={LEGAL_PATHS.privacy}>politique de confidentialité</Link> et nos <Link className="underline" href={LEGAL_PATHS.terms}>conditions d’utilisation</Link>.</P>
       </LangBlock>
@@ -61,6 +65,7 @@ export default function SupportPage() {
       <Divider />
 
       <LangBlock id="en">
+        <CloverAppBadges apps={liveCloverApps()} lang="en" />
         <H2>Contact us</H2>
         <UL>
           <li>Email: {email ? <a className="underline" href={`mailto:${email}`}>{email}</a> : '[to be completed — FOODHUB_SUPPORT_EMAIL]'}</li>
@@ -91,10 +96,10 @@ export default function SupportPage() {
           No. They are paid with their platform’s tender, so your closeout keeps them apart from in-store sales.
         </Faq>
         <Faq q="How much does it cost?">
-          The app is free for approved restaurants. Any future fee would be billed only through Clover App Market billing, never outside it.
+          {fees.en}
         </Faq>
         <Faq q="How do I disconnect and delete my data?">
-          Uninstall the app in Clover: your access tokens are deleted as soon as Clover notifies us and nothing more is sent to your register. To get or delete your other data, write to us (see the <Link className="underline" href={LEGAL_PATHS.privacy}>privacy policy</Link>).
+          Uninstall the app in Clover: nothing more is sent to your register, and your Clover access tokens {TOKEN_DELETION.en}. To get or delete your other data, write to us (see the <Link className="underline" href={LEGAL_PATHS.privacy}>privacy policy</Link>).
         </Faq>
         <P>See also our <Link className="underline" href={LEGAL_PATHS.privacy}>privacy policy</Link> and <Link className="underline" href={LEGAL_PATHS.terms}>terms of use</Link>.</P>
       </LangBlock>

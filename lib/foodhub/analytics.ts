@@ -69,7 +69,7 @@ const OFF_ACTIONS: Record<string, 'online' | 'offline' | 'closed'> = {
   pause: 'offline', resume: 'online', platform_online: 'online', platform_paused: 'offline', platform_deactivated: 'offline', platform_closed: 'closed', platform_unknown: 'online',
 };
 
-function intersectIntervals(a: Interval[], b: Interval[]): number {
+export function intersectIntervals(a: Interval[], b: Interval[]): number {
   let total = 0;
   for (const [s1, e1] of a) for (const [s2, e2] of b) { const s = Math.max(s1, s2); const e = Math.min(e1, e2); if (e > s) total += e - s; }
   return total;

@@ -8,6 +8,7 @@ import { normalizePhone } from '../notify';
 import { getRepo } from '../repo';
 import type { DropoffAddress } from '../delivery/types';
 import type { CartLine } from './cart';
+import { redactCards } from './ivr/words';
 
 export const PHONE_CALLS = 'phone_calls';
 
@@ -38,6 +39,10 @@ export interface PhoneCall {
   startedAt: string;
   endedAt?: string;
   durationSec?: number;
+  /** The AI answered the call (its greeting). Absent = the AI never took it (straight to a person). TAKATAK Phone bills AI minutes. */
+  aiStartedAt?: string;
+  /** The AI handed the call to a person (the <Dial> started): the hold and the person's part are not AI minutes. */
+  aiEndedAt?: string;
   turns: number;
   transcript: Array<{ at: string; who: 'caller' | 'agent' | 'system'; text: string }>;
   /** Claude message history while the call runs (dropped when it ends). */
@@ -80,6 +85,23 @@ export async function saveCall(call: PhoneCall): Promise<PhoneCall> {
   return next;
 }
 
+const AI_END = (id: string) => `phone_ai_end:${id}`;
+
+/**
+ * The AI's minutes stop now (hand-off to a person). Kept OUTSIDE the call record too, with one atomic insert (the first
+ * mark wins): a slow AI turn that finishes after the hand-off and saves its older copy of the call can never erase it.
+ * Never throws (the call goes on).
+ */
+export async function markAiEnded(id: string, at: string): Promise<void> {
+  await getRepo().claimKv(AI_END(id), { at }).catch(() => undefined);
+}
+
+/** The AI-end mark of a call (markAiEnded), or undefined. */
+export async function aiEndMark(id: string): Promise<string | undefined> {
+  const v = await getRepo().getKv<{ at?: string }>(AI_END(id)).catch(() => null);
+  return typeof v?.at === 'string' ? v.at : undefined;
+}
+
 export async function getCall(id: string): Promise<PhoneCall | null> {
   return (await getRepo().getDoc<PhoneCall>(PHONE_CALLS, id))?.data ?? null;
 }
@@ -88,8 +110,9 @@ export async function listCalls(opts: { since?: string; limit?: number } = {}): 
   return (await getRepo().listDocs<PhoneCall>(PHONE_CALLS, { since: opts.since, limit: opts.limit ?? 300 })).map((d) => d.data);
 }
 
+/** Adds a transcript line. Card numbers never reach a stored transcript (same rule as the ON2GO menu's records). */
 export function say(call: PhoneCall, who: PhoneCall['transcript'][number]['who'], text: string): PhoneCall {
-  return { ...call, transcript: [...call.transcript, { at: nowIso(), who, text: text.slice(0, 2000) }].slice(-400) };
+  return { ...call, transcript: [...call.transcript, { at: nowIso(), who, text: redactCards(text).slice(0, 2000) }].slice(-400) };
 }
 
 /** Ends a call: final status, duration, and the AI history dropped (the transcript stays). */

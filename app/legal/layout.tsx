@@ -2,6 +2,8 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { TakatakMark } from '@/components/brand/takatak-mark';
 import { legalInfo, LEGAL_PATHS } from '@/lib/foodhub/legal';
+import { CloverAppBadges } from '@/components/clover-app-badges';
+import { liveCloverApps } from '@/lib/foodhub/clover-apps';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,6 +38,7 @@ export default function LegalLayout({ children }: { children: ReactNode }) {
         <div className="mx-auto max-w-3xl px-4 py-6 text-[13px] text-ink-3">
           © {new Date().getFullYear()} {info.company} · {info.address}
         </div>
+        <CloverAppBadges apps={liveCloverApps()} lang="fr-en" variant="compact" className="mx-auto max-w-3xl px-4 pb-6" />
       </footer>
     </div>
   );

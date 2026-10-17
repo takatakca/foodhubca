@@ -13,23 +13,13 @@ import { useI18n } from '@/lib/i18n/client';
 import type { T } from '@/lib/i18n';
 import type { LineRef } from '@/lib/foodhub/order-tools/line-refs';
 import { notChangedLines, outcomeOf, quick86Headline, type ResultRow } from '@/lib/foodhub/order-tools/outcome';
-import { startOfLocalDayMs } from '@/lib/foodhub/time';
+import { quick86Minutes, type Quick86Choice as Choice } from '@/lib/foodhub/order-tools/quick-86';
 import type { StoredOrder } from '@/lib/foodhub/types';
 import { cn } from '@/lib/ui/cn';
 
-type Refs = { brand: string | null; locationCode: string | null; hasMenu: boolean; closesInMin: number | null; lines: LineRef[] };
+type Refs = { brand: string | null; locationCode: string | null; hasMenu: boolean; closesAt: string | null; lines: LineRef[] };
 type Target = { ref: string; name: string; kind: 'item' | 'option' };
-type Choice = 'close' | 'four' | 'today' | 'forever';
 type Answer = { results: ResultRow[] };
-
-/** Minutes each choice means. "Aujourd'hui" = until close; without hours set, until local midnight. */
-export function quick86Minutes(choice: Choice, closesInMin: number | null, now = Date.now()): number | null {
-  if (choice === 'forever') return 0;
-  if (choice === 'four') return 240;
-  if (closesInMin && closesInMin > 0) return closesInMin;
-  if (choice === 'today') return Math.max(1, Math.ceil((startOfLocalDayMs(now) + 24 * 3600_000 - now) / 60_000));
-  return null;
-}
 
 /** "Rupture" next to each line and option of a platform order: 86 it everywhere at this kitchen in two taps. */
 export function Quick86({ order }: { order: Pick<StoredOrder, 'id' | 'lines' | 'brandName' | 'locationCode'> }) {
@@ -41,6 +31,8 @@ export function Quick86({ order }: { order: Pick<StoredOrder, 'id' | 'lines' | '
   const [err, setErr] = useState('');
   const [target, setTarget] = useState<Target | null>(null);
   const [busy, setBusy] = useState<Choice | null>(null);
+  // The drawer can stay open for hours: the minutes shown and sent are counted from closesAt at this moment.
+  const [now, setNow] = useState(() => Date.now());
   const allowed = can('items:toggle') && Boolean(order.brandName && order.locationCode);
 
   const load = useCallback(async () => {
@@ -48,10 +40,18 @@ export function Quick86({ order }: { order: Pick<StoredOrder, 'id' | 'lines' | '
     catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
   }, [order.id]);
   useEffect(() => { if (open && !refs) load(); }, [open, refs, load]);
+  useEffect(() => {
+    if (!target) return;
+    // Fresh closing time when a dish is picked (the brand may have opened or closed since the list was opened).
+    load();
+    setNow(Date.now());
+    const i = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(i);
+  }, [target, load]);
 
   async function send(choice: Choice) {
     if (!target || !refs?.brand) return;
-    const minutes = quick86Minutes(choice, refs.closesInMin);
+    const minutes = quick86Minutes(choice, refs.closesAt); // counted now, at the tap
     if (minutes === null) return;
     setBusy(choice);
     try {
@@ -106,7 +106,7 @@ export function Quick86({ order }: { order: Pick<StoredOrder, 'id' | 'lines' | '
               ['today', t('Aujourd’hui', 'Today')],
               ['forever', t('Indéfiniment', 'Until I turn it back on')],
             ] as Array<[Choice, string]>).map(([c, label]) => {
-              const m = quick86Minutes(c, refs.closesInMin);
+              const m = quick86Minutes(c, refs.closesAt, now);
               return (
                 <Button key={c} variant={c === 'forever' ? 'outline' : 'danger'} size="lg" className="w-full" disabled={m === null || Boolean(busy)} loading={busy === c} onClick={() => send(c)}>
                   {label}{m && c !== 'four' ? <span className="num text-xs font-normal opacity-80">· {m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}` : `${m} min`}</span> : null}
@@ -114,7 +114,7 @@ export function Quick86({ order }: { order: Pick<StoredOrder, 'id' | 'lines' | '
               );
             })}
           </div>
-          {refs.closesInMin === null && <p className="mt-3 text-xs text-ink-3">{t('Heures de fermeture inconnues ou déjà fermé : « Jusqu’à la fermeture » est désactivé.', 'Closing time unknown or already closed: “Until closing” is off.')}</p>}
+          {quick86Minutes('close', refs.closesAt, now) === null && <p className="mt-3 text-xs text-ink-3">{t('Heures de fermeture inconnues ou déjà fermé : « Jusqu’à la fermeture » est désactivé.', 'Closing time unknown or already closed: “Until closing” is off.')}</p>}
         </Modal>
       )}
     </div>

@@ -88,6 +88,37 @@ describe('waiting timer survives a re-sent at_store update', () => {
   });
 });
 
+describe('courier reassigned: the wait counts for the new courier only', () => {
+  it('a new assignment after the first courier reached the counter restarts the timer (events)', () => {
+    const o = { id: 'o-reassign', ...order('accepted', { courier: courier({ status: 'at_store', name: 'Bea', updatedAt: new Date(NOW - 60_000).toISOString() }) }) };
+    const events = [
+      { type: 'courier', detail: { status: 'assigned', name: 'Al' }, at: new Date(NOW - 1_500_000).toISOString() },
+      { type: 'courier', detail: { status: 'at_store', name: 'Al' }, at: new Date(NOW - 1_200_000).toISOString() }, // first courier, 20 min ago
+      { type: 'courier', detail: { status: 'assigned', name: 'Bea' }, at: new Date(NOW - 600_000).toISOString() }, // reassigned
+      { type: 'courier', detail: { status: 'at_store', name: 'Bea' }, at: new Date(NOW - 90_000).toISOString() },
+    ];
+    expect(courierWatchState(o, NOW, { events, memory: new Map() })).toMatchObject({ kind: 'waiting', seconds: 90, courierName: 'Bea' });
+  });
+
+  it('an at_store event naming another courier does not count', () => {
+    const o = { id: 'o-other-name', ...order('accepted', { courier: courier({ status: 'at_store', name: 'Bea', updatedAt: new Date(NOW - 30_000).toISOString() }) }) };
+    const events = [{ type: 'courier', detail: { status: 'at_store', name: 'Al' }, at: new Date(NOW - 900_000).toISOString() }];
+    expect(courierWatchState(o, NOW, { events, memory: new Map() })).toMatchObject({ kind: 'waiting', seconds: 30 });
+  });
+
+  it('the screen memory resets when the courier leaves at_store or changes', () => {
+    const mem = new Map<string, number>();
+    const atStore = (name: string, agoMs: number, now: number) => ({ id: 'o-mem', ...order('accepted', { courier: courier({ status: 'at_store', name, updatedAt: new Date(now - agoMs).toISOString() }) }) });
+    expect(courierWatchState(atStore('Al', 600_000, NOW), NOW, { memory: mem })).toMatchObject({ seconds: 600 });
+    // Platform reassigns: status leaves at_store → forgotten.
+    courierWatchState({ id: 'o-mem', ...order('accepted', { courier: courier({ status: 'assigned', name: 'Bea' }) }) }, NOW + 60_000, { memory: mem });
+    expect(mem.size).toBe(0);
+    expect(courierWatchState(atStore('Bea', 20_000, NOW + 300_000), NOW + 300_000, { memory: mem })).toMatchObject({ seconds: 20 });
+    // Same order, another name straight at the counter (no event in between): not the old courier's time either.
+    expect(courierWatchState(atStore('Cy', 5_000, NOW + 400_000), NOW + 400_000, { memory: mem })).toMatchObject({ seconds: 5 });
+  });
+});
+
 describe('no late chime', () => {
   it('opening an order whose courier ETA already passed marks it chimed, silently', () => {
     const late = courierWatchState(order('accepted', { courier: courier({ etaAt: iso(-3) }) }), NOW);

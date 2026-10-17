@@ -50,7 +50,7 @@ describe('GET /api/foodhub/order-tools/[id]/line-refs', () => {
     const res = await GET(get(`/api/foodhub/order-tools/${ndgOrder}/line-refs`, 'tools_op'), ctx(ndgOrder));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toMatchObject({ brand: 'Test Tools', locationCode: 'NDG_TOOLS', hasMenu: true });
+    expect(body).toMatchObject({ brand: 'Test Tools', locationCode: 'NDG_TOOLS', hasMenu: true, closesAt: null, closesInMin: null }); // no hours set here
     expect(body.lines[0]).toMatchObject({ itemRef: 'it-poutine', match: 'ref', modifierRefs: [{ name: 'BBQ', ref: 'm-bbq', match: 'name' }] });
     expect(body.lines[1]).toMatchObject({ match: 'none' });
   });
@@ -114,6 +114,43 @@ describe('POST /api/foodhub/order-tools/kitchen/status — refused on the SERVER
     for (const id of [alias, dnt, elsewhere]) expect((await repo.getStore(id))!.online).toBe(true);
   });
 
+  it('fails closed: a DoorDash store mapped by its merchant-supplied id without a DoorDash number, and an env-locked DoorDash store, are never paused', async () => {
+    const { POST } = await import('../app/api/foodhub/order-tools/kitchen/status/route');
+    const repo = getRepo();
+    const prev = process.env.FOODHUB_MENU_LOCKED_STORES;
+    process.env.FOODHUB_MENU_LOCKED_STORES = 'doordash:tools-env-locked';
+    try {
+      // (a) Could be the protected store: mapped by merchant_supplied_id, DoorDash's own store number never filled in.
+      const noNumber = (await repo.upsertStore({ channel: 'doordash', channelStoreId: 'tools-merchant-supplied', brandName: 'Test Tools', locationCode: 'NDG_TOOLS', autoAccept: true, online: true, meta: {} })).id;
+      // (b) Listed in FOODHUB_MENU_LOCKED_STORES (menuLock.source 'env'), even though its DoorDash number is known.
+      const envLocked = (await repo.upsertStore({ channel: 'doordash', channelStoreId: 'tools-env-locked', brandName: 'Test Tools', locationCode: 'NDG_TOOLS', autoAccept: true, online: true, meta: { platformStoreId: '11112222' } })).id;
+      const before = fetchSpy.mock.calls.length;
+      const res = await POST(post('tools_mgr', { locationCode: 'NDG_TOOLS', storeIds: [noNumber, envLocked], online: false, minutes: 30, reason: 'Kitchen too busy' }), {});
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.results).toEqual([]);
+      expect(body.notSent).toEqual([{ storeId: noNumber, reason: 'dd_number_missing' }, { storeId: envLocked, reason: 'forbidden' }]);
+      expect(fetchSpy.mock.calls.length).toBe(before);
+      for (const id of [noNumber, envLocked]) expect((await repo.getStore(id))!.online).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.FOODHUB_MENU_LOCKED_STORES; else process.env.FOODHUB_MENU_LOCKED_STORES = prev;
+    }
+  });
+
+  it('a pause needs minutes 1–1440 and one of the sheet’s reasons (400 otherwise, nothing sent)', async () => {
+    const { POST } = await import('../app/api/foodhub/order-tools/kitchen/status/route');
+    const open = (await getRepo().upsertStore({ channel: 'uber_eats', channelStoreId: 'tools-validate', brandName: 'Test Tools', locationCode: 'NDG_TOOLS', autoAccept: true, online: true, meta: {} })).id;
+    const before = fetchSpy.mock.calls.length;
+    for (const minutes of [undefined, 0, -5, 'abc', 2.5, 99_999]) {
+      const res = await POST(post('tools_mgr', { locationCode: 'NDG_TOOLS', storeIds: [open], online: false, minutes, reason: 'Kitchen too busy' }), {});
+      expect(res.status).toBe(400);
+    }
+    const free = await POST(post('tools_mgr', { locationCode: 'NDG_TOOLS', storeIds: [open], online: false, minutes: 15, reason: 'x'.repeat(5000) }), {});
+    expect(free.status).toBe(400);
+    expect(fetchSpy.mock.calls.length).toBe(before);
+    expect((await getRepo().getStore(open))!.online).toBe(true);
+  });
+
   it('"Tout rouvrir" leaves a holiday closure and a platform deactivation closed', async () => {
     const { POST } = await import('../app/api/foodhub/order-tools/kitchen/status/route');
     const repo = getRepo();
@@ -131,7 +168,7 @@ describe('POST /api/foodhub/order-tools/kitchen/status — refused on the SERVER
   it('keeps the manager PIN rule for a pause (operator without PIN → 428), checks the kitchen scope and the permission', async () => {
     const { POST } = await import('../app/api/foodhub/order-tools/kitchen/status/route');
     const open = (await getRepo().upsertStore({ channel: 'uber_eats', channelStoreId: 'tools-open', brandName: 'Test Tools', locationCode: 'NDG_TOOLS', autoAccept: true, online: true, meta: {} })).id;
-    expect((await POST(post('tools_op', { locationCode: 'NDG_TOOLS', storeIds: [open], online: false, minutes: 15 }), {})).status).toBe(428);
+    expect((await POST(post('tools_op', { locationCode: 'NDG_TOOLS', storeIds: [open], online: false, minutes: 15, reason: 'Short-staffed' }), {})).status).toBe(428);
     expect((await getRepo().getStore(open))!.online).toBe(true);
     expect((await POST(post('tools_op', { locationCode: 'SL_TOOLS', storeIds: [open], online: false }), {})).status).toBe(403);
     expect((await POST(post('tools_analyst', { locationCode: 'NDG_TOOLS', storeIds: [open], online: false }), {})).status).toBe(403);

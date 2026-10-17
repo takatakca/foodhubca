@@ -3,9 +3,14 @@
 // POST /api/foodhub/order-tools/kitchen/status, which re-checks every store on the SERVER (splitKitchenRequest) before
 // the existing store-status logic runs. This file decides what to show and which stores may be sent.
 //
-// Locked, shown but never sent: a store marked "Do not touch" (meta.doNotTouch) and a protected DoorDash store
-// (FORBIDDEN_STORE_IDS — Po Poulet NDG — or the built-in menu lock). Relay stores ("relay:<id>") are hidden: the
-// platform's API does not know them, so a pause could not reach them anyway.
+// Locked, shown but never sent (fail closed):
+//   - forbidden: a protected DoorDash store — FORBIDDEN_STORE_IDS (Po Poulet NDG), the built-in menu lock or a store
+//     listed in FOODHUB_MENU_LOCKED_STORES (menuLock.source 'built_in' / 'env');
+//   - dd_number_missing: a DoorDash store without its DoorDash store number (meta.platformStoreId). Food Hub maps
+//     DoorDash stores by merchant_supplied_id, which is NOT DoorDash's store number, so without the number nothing
+//     proves the store is not the protected one. Fill it under Stores → Mapping to unlock it here;
+//   - do_not_touch: a store marked "Do not touch" (meta.doNotTouch).
+// Relay stores ("relay:<id>") are hidden: the platform's API does not know them, so a pause could not reach them anyway.
 //
 // Pure (no server import): the screen, the route and the tests all use it. The forbidden ids are passed in (the server
 // sends FORBIDDEN_STORE_IDS), so this file never carries a store id itself.
@@ -23,7 +28,7 @@ export type KitchenStore = Pick<ChannelStore, 'id' | 'channel' | 'channelStoreId
   menuLock?: { locked: boolean; source?: string };
 };
 
-export type LockReason = 'forbidden' | 'do_not_touch';
+export type LockReason = 'forbidden' | 'dd_number_missing' | 'do_not_touch';
 export type ClassifiedStore = KitchenStore & { locked: boolean; lockReason?: LockReason };
 
 export interface KitchenStores {
@@ -40,12 +45,16 @@ export function isRelayKitchenStore(s: Pick<ChannelStore, 'channelStoreId'>): bo
   return String(s.channelStoreId ?? '').startsWith(RELAY_PREFIX);
 }
 
-/** Why this store is locked for kitchen pauses, or null. */
+/** Menu-lock sources that make a DoorDash store protected for every call (lock.ts / doordash/guard.ts). */
+const PROTECTING_LOCKS = new Set(['built_in', 'env']);
+
+/** Why this store is locked for kitchen pauses, or null. Fails closed for DoorDash (see the header). */
 export function lockReasonOf(s: KitchenStore, forbiddenIds: Iterable<string>): LockReason | null {
   const forbidden = new Set([...forbiddenIds].map(String));
   if (s.channel === 'doordash') {
     const ids = [s.channelStoreId, s.meta?.platformStoreId].filter((x) => x !== undefined && x !== null).map((x) => String(x).trim());
-    if (ids.some((id) => forbidden.has(id)) || s.menuLock?.source === 'built_in') return 'forbidden';
+    if (ids.some((id) => forbidden.has(id)) || (s.menuLock?.locked && PROTECTING_LOCKS.has(String(s.menuLock.source)))) return 'forbidden';
+    if (!String(s.meta?.platformStoreId ?? '').trim()) return 'dd_number_missing';
   }
   if (s.meta?.doNotTouch === true) return 'do_not_touch';
   return null;
@@ -134,29 +143,37 @@ export function splitKitchenRequest(
 export interface PrepLike { isBusy: boolean; normal: number; busy: number }
 
 export interface KitchenSummary {
-  kind: 'normal' | 'busy' | 'paused';
+  /** closed = no kitchen pause, and every unlocked store is closed by the platform or for a holiday. */
+  kind: 'normal' | 'busy' | 'paused' | 'closed';
   /** Prep minutes in force (busy or normal). */
   minutes: number;
-  /** Paused / total among the kitchen's unlocked stores. */
+  /** Paused by the kitchen / total among the kitchen's unlocked stores. */
   paused: number;
+  /** Closed by the platform (outside menu hours, deactivated) or for a holiday: not the kitchen's own pause. */
+  closed: number;
   total: number;
   /** Latest end of a timed pause (ISO), null when a paused store has no end. */
   until: string | null;
 }
 
-export function summarizeKitchen(prep: PrepLike | null | undefined, k: Pick<KitchenStores, 'stores'>): KitchenSummary {
+export function summarizeKitchen(prep: PrepLike | null | undefined, k: Pick<KitchenStores, 'stores'>, today = localDay()): KitchenSummary {
   const p = { isBusy: false, normal: 15, busy: 25, ...(prep ?? {}) };
   const minutes = p.isBusy ? p.busy : p.normal;
   const mine = k.stores.filter((s) => !s.locked);
-  const pausedStores = mine.filter((s) => s.online === false);
+  const off = mine.filter((s) => s.online === false);
+  // Same rule as "Tout rouvrir": a holiday or platform closure is not the kitchen's pause, so it never turns the header red.
+  const closedStores = off.filter((s) => resumeHoldOf(s, today));
+  const pausedStores = off.filter((s) => !resumeHoldOf(s, today));
   const ends = pausedStores.map((s) => (s.pausedUntil ? Date.parse(s.pausedUntil) : NaN));
   const until = pausedStores.length && ends.every(Number.isFinite) ? new Date(Math.max(...ends)).toISOString() : null;
-  const kind: KitchenSummary['kind'] = pausedStores.length ? 'paused' : p.isBusy ? 'busy' : 'normal';
-  return { kind, minutes, paused: pausedStores.length, total: mine.length, until };
+  const allClosed = mine.length > 0 && closedStores.length === mine.length;
+  const kind: KitchenSummary['kind'] = pausedStores.length ? 'paused' : allClosed ? 'closed' : p.isBusy ? 'busy' : 'normal';
+  return { kind, minutes, paused: pausedStores.length, closed: closedStores.length, total: mine.length, until };
 }
 
-/** Header text, French first: "Ouvert · Normal 15 min", "Occupé · 25 min", "En pause jusqu'à 18:30 (3/5)". */
+/** Header text, French first: "Ouvert · Normal 15 min", "Occupé · 25 min", "En pause jusqu'à 18:30 (3/5)", "Fermé". */
 export function kitchenStatusText(s: KitchenSummary, lang: 'fr' | 'en', time: (iso: string) => string): string {
+  if (s.kind === 'closed') return lang === 'fr' ? 'Fermé' : 'Closed';
   if (s.kind === 'paused') {
     const n = `(${s.paused}/${s.total})`;
     if (s.until) return lang === 'fr' ? `En pause jusqu’à ${time(s.until)} ${n}` : `Paused until ${time(s.until)} ${n}`;
@@ -180,6 +197,26 @@ export function pauseMinutes(choice: PauseChoice, closesInMin: number | null | u
 /** Busy prep minutes after a ±5 tap, kept between 5 and 120. */
 export function stepBusyMinutes(current: number, delta: number): number {
   return Math.min(120, Math.max(5, Math.round((Number(current) || 25) + delta)));
+}
+
+/** Longest pause the kitchen sheet sends (minutes): "until close" on a long day stays under a day. */
+export const MAX_KITCHEN_PAUSE_MINUTES = 1440;
+
+/**
+ * Checks the body of POST /api/foodhub/order-tools/kitchen/status the way the sheet builds it. A pause needs whole
+ * minutes from 1 to MAX_KITCHEN_PAUSE_MINUTES (the sheet never offers an indefinite pause) and, when a reason is sent,
+ * one of the PAUSE_REASONS texts. A reopen ignores both. Returns the error text, or the clean values.
+ */
+export function checkKitchenStatusBody(b: { online?: unknown; minutes?: unknown; reason?: unknown }):
+  { error: string } | { online: boolean; minutes?: number; reason?: string } {
+  const online = b.online === true;
+  if (online) return { online };
+  const minutes = typeof b.minutes === 'number' ? b.minutes : typeof b.minutes === 'string' && b.minutes.trim() ? Number(b.minutes) : NaN;
+  if (!Number.isInteger(minutes) || minutes < 1 || minutes > MAX_KITCHEN_PAUSE_MINUTES) return { error: `minutes must be a whole number from 1 to ${MAX_KITCHEN_PAUSE_MINUTES}` };
+  if (b.reason === undefined || b.reason === null || b.reason === '') return { online, minutes };
+  const reason = String(b.reason);
+  if (!PAUSE_REASONS.some((r) => r.text === reason)) return { error: 'reason must be one of the kitchen pause reasons' };
+  return { online, minutes, reason };
 }
 
 /** Pause reasons: the chip label (FR/EN) and the plain text the platforms receive (same wording as Stores → Pause). */

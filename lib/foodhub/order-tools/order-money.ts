@@ -37,10 +37,28 @@ export interface OrderMoneyDeps {
 const DEFAULT_DEPS: OrderMoneyDeps = { reconcile, listCases, now: () => Date.now() };
 
 export const ORDER_MONEY_TTL_MS = 60_000;
-const cache = new Map<string, { at: number; value: OrderMoney }>();
 
-/** Empties the 60-second cache (tests, or after a statement import). */
-export function clearOrderMoneyCache(): void { cache.clear(); }
+// One reconcile() run reads up to ~90 days of orders, the payout lines and the cases. So the run is cached per
+// (channel, kitchen, three-day window) and the case list per channel, 60 s each, and a run already in flight is
+// shared: clicking through the orders of one day (or a script looping over order ids) costs one run, not one per order.
+type Entry<T> = { at: number; value: Promise<T> };
+const reconCache = new Map<string, Entry<{ orders: OrderRecon[] }>>();
+const caseCache = new Map<string, Entry<ReconCase[]>>();
+const MAX_ENTRIES = 200;
+
+/** Empties the 60-second caches (tests, or after a statement import). */
+export function clearOrderMoneyCache(): void { reconCache.clear(); caseCache.clear(); }
+
+function cached<T>(map: Map<string, Entry<T>>, key: string, now: number, run: () => Promise<T>): Promise<T> {
+  const hit = map.get(key);
+  if (hit && now - hit.at < ORDER_MONEY_TTL_MS) return hit.value;
+  const value = run();
+  map.set(key, { at: now, value });
+  // A failed run is not kept: the next request tries again.
+  value.catch(() => { if (map.get(key)?.value === value) map.delete(key); });
+  if (map.size > MAX_ENTRIES) map.delete(map.keys().next().value as string);
+  return value;
+}
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
@@ -55,14 +73,12 @@ function pickCase(cases: ReconCase[]): OrderMoneyCase | null {
 export async function orderMoney(order: Pick<StoredOrder, 'id' | 'channel' | 'createdAt' | 'locationCode'>, deps: Partial<OrderMoneyDeps> = {}): Promise<OrderMoney> {
   const d = { ...DEFAULT_DEPS, ...deps };
   const now = d.now();
-  const hit = cache.get(order.id);
-  if (hit && now - hit.at < ORDER_MONEY_TTL_MS) return hit.value;
-
   const created = Date.parse(order.createdAt);
   const at = Number.isFinite(created) ? created : now;
+  const q = { from: day(at - 86400_000), to: day(at + 86400_000), channels: [order.channel], ...(order.locationCode ? { locationCodes: [order.locationCode] } : {}) };
   const [recon, cases] = await Promise.all([
-    d.reconcile({ from: day(at - 86400_000), to: day(at + 86400_000), channels: [order.channel], ...(order.locationCode ? { locationCodes: [order.locationCode] } : {}) }),
-    d.listCases({ channels: [order.channel] }),
+    cached(reconCache, [order.channel, order.locationCode ?? '*', q.from, q.to].join('|'), now, () => d.reconcile(q)),
+    cached(caseCache, order.channel, now, () => d.listCases({ channels: [order.channel] })),
   ]);
   const row = recon.orders.find((o) => o.orderId === order.id);
   const theCase = pickCase(cases.filter((c) => c.orderId === order.id));
@@ -84,7 +100,5 @@ export async function orderMoney(order: Pick<StoredOrder, 'id' | 'channel' | 'cr
       case: theCase,
     };
   }
-  cache.set(order.id, { at: now, value });
-  if (cache.size > 300) cache.delete(cache.keys().next().value as string);
   return value;
 }

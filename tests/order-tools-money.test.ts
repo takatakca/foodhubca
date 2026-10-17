@@ -63,6 +63,28 @@ describe('orderMoney', () => {
     expect(d.reconcile).toHaveBeenCalledTimes(2);
   });
 
+  it('orders of the same day and kitchen share ONE reconcile run (and one case list); another day or kitchen runs again', async () => {
+    const d = deps([recon({ orderId: 'ord-1' }), recon({ orderId: 'ord-2', actual: 20.12, diff: 0, status: 'matched' })], []);
+    const [a, b] = await Promise.all([orderMoney(order, d), orderMoney({ ...order, id: 'ord-2', createdAt: '2026-10-10T23:10:00Z' }, d)]);
+    expect(a.status).toBe('short_paid');
+    expect(b.status).toBe('matched');
+    for (let i = 3; i < 40; i++) await orderMoney({ ...order, id: `ord-${i}` }, d); // a loop over order ids
+    expect(d.reconcile).toHaveBeenCalledTimes(1);
+    expect(d.listCases).toHaveBeenCalledTimes(1);
+    await orderMoney({ ...order, id: 'ord-next-day', createdAt: '2026-10-12T22:00:00Z' }, d);
+    await orderMoney({ ...order, id: 'ord-sl', locationCode: 'SL' }, d);
+    expect(d.reconcile).toHaveBeenCalledTimes(3);
+    expect(d.listCases).toHaveBeenCalledTimes(1);
+  });
+
+  it('a failed run is not cached', async () => {
+    const d = deps([recon({ orderId: 'ord-1' })], []);
+    d.reconcile.mockRejectedValueOnce(new Error('db down'));
+    await expect(orderMoney(order, d)).rejects.toThrow('db down');
+    expect((await orderMoney(order, d)).status).toBe('short_paid');
+    expect(d.reconcile).toHaveBeenCalledTimes(2);
+  });
+
   it('is read-only: the module exposes no write (no submit, approve or case update)', async () => {
     const mod = await import('../lib/foodhub/order-tools/order-money');
     expect(Object.keys(mod).sort()).toEqual(['ORDER_MONEY_TTL_MS', 'clearOrderMoneyCache', 'orderMoney']);

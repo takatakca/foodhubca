@@ -1,6 +1,6 @@
 // Kitchen order tools — "Rupture" from an order line: which menu item / option each line is, and minutes until close.
 import { describe, expect, it } from 'vitest';
-import { coreName, minutesUntilClose, plainName, resolveLineRefs } from '../lib/foodhub/order-tools/line-refs';
+import { closesAtMs, coreName, minutesUntilClose, plainName, resolveLineRefs } from '../lib/foodhub/order-tools/line-refs';
 import { localWallToUtcMs } from '../lib/foodhub/time';
 import type { HoursConfig, MasterMenu, OrderLine, WeeklyHours } from '../lib/foodhub/types';
 
@@ -102,6 +102,13 @@ describe('minutesUntilClose', () => {
     expect(minutesUntilClose(c, 'Test Poulet', 'NDG', at(16, 23, 0), TZ)).toBe(240);
     expect(minutesUntilClose(c, 'Test Poulet', 'NDG', at(17, 1, 0), TZ)).toBe(120);
     expect(minutesUntilClose(c, 'Test Poulet', 'NDG', at(17, 10, 0), TZ)).toBeNull(); // closed in the morning
+  });
+
+  it('closesAtMs gives the absolute closing minute (the drawer counts the minutes at the tap)', () => {
+    const c = cfg(week('16:30', '03:00'));
+    expect(closesAtMs(c, 'Test Poulet', 'NDG', at(16, 23, 0), TZ)).toBe(at(17, 3, 0));
+    expect(closesAtMs(c, 'Test Poulet', 'NDG', at(17, 1, 0), TZ)).toBe(at(17, 3, 0));
+    expect(closesAtMs(c, 'Test Poulet', 'NDG', at(17, 10, 0), TZ)).toBeNull();
   });
 
   it('brand hours win over the kitchen’s; a closed holiday means closed; no hours = unknown', () => {

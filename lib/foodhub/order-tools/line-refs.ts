@@ -94,10 +94,10 @@ export function resolveLineRefs(order: Pick<StoredOrder, 'lines'>, menu: MasterM
 }
 
 /**
- * Minutes until this brand closes at this kitchen, from Settings → Hours (brand override, holidays, overnight slots:
- * a 16:30–03:00 night is one opening, so at 01:00 it answers 120). null = hours not set, or closed right now.
+ * When this brand closes at this kitchen (epoch ms of the closing minute), from Settings → Hours (brand override,
+ * holidays, overnight slots: a 16:30–03:00 night is one opening). null = hours not set, or closed right now.
  */
-export function minutesUntilClose(cfg: HoursConfig, brandName: string, locationCode: string, now = Date.now(), tz = foodhubTimeZone()): number | null {
+export function closesAtMs(cfg: HoursConfig, brandName: string, locationCode: string, now = Date.now(), tz = foodhubTimeZone()): number | null {
   const week = effectiveHours(cfg, brandName, locationCode);
   if (!week) return null;
   const holidays = holidaysFor(cfg, locationCode, localDate(now - 86400_000, tz), 4);
@@ -107,7 +107,12 @@ export function minutesUntilClose(cfg: HoursConfig, brandName: string, locationC
     if (last && a <= last[1] + 60_000) last[1] = Math.max(last[1], b); else joined.push([a, b]);
   }
   const cur = joined.find(([a, b]) => a <= now && now < b);
-  if (!cur) return null;
   // openIntervals ends one minute after the closing minute.
-  return Math.max(1, Math.ceil((cur[1] - 60_000 - now) / 60_000));
+  return cur ? cur[1] - 60_000 : null;
+}
+
+/** Minutes until this brand closes at this kitchen (at 01:00 on a 16:30–03:00 night: 120). null = no hours / closed. */
+export function minutesUntilClose(cfg: HoursConfig, brandName: string, locationCode: string, now = Date.now(), tz = foodhubTimeZone()): number | null {
+  const at = closesAtMs(cfg, brandName, locationCode, now, tz);
+  return at === null ? null : Math.max(1, Math.ceil((at - now) / 60_000));
 }

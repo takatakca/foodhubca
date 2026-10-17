@@ -1,14 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, Flame, Lock, Minus, Pause, Play, Plus, Snowflake, Store } from 'lucide-react';
+import { Check, Flame, Lock, Minus, Moon, Pause, Play, Plus, Snowflake, Store } from 'lucide-react';
 import { PlatformMark, platformOf } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Chips } from '@/components/ui/form';
 import { Modal } from '@/components/ui/overlay';
 import { useToast } from '@/components/ui/toast';
 import { useViewer } from '@/components/shell/viewer';
-import { refreshEverything } from '@/components/live/pulse';
+import { REFRESH_EVENT, refreshEverything } from '@/components/live/pulse';
 import { api, ApiError, timeOf } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import {
@@ -54,7 +54,16 @@ export function KitchenStatus({ locationCode }: { locationCode: string }) {
     if (p) setPrep(p.prep[locationCode] ?? null);
     if (f) setFacts(f);
   }, [locationCode]);
-  useEffect(() => { if (!allowed) return; load(); const i = setInterval(load, 30_000); return () => clearInterval(i); }, [allowed, load]);
+  // Reloads every 30 s and on every refreshEverything() (the Busy button next to this one, an 86, an order action), so
+  // the two header buttons never disagree.
+  useEffect(() => {
+    if (!allowed) return;
+    const now = () => { load(); };
+    now();
+    const i = setInterval(now, 30_000);
+    window.addEventListener(REFRESH_EVENT, now);
+    return () => { clearInterval(i); window.removeEventListener(REFRESH_EVENT, now); };
+  }, [allowed, load]);
 
   const k = useMemo(() => (stores && facts ? kitchenStores(stores, locationCode, facts.forbiddenStoreIds) : null), [stores, facts, locationCode]);
   const summary = k ? summarizeKitchen(prep, k) : null;
@@ -92,7 +101,7 @@ export function KitchenStatus({ locationCode }: { locationCode: string }) {
       const lines = [...notChangedLines(o), ...(r.notSent?.length ? [t(`${r.notSent.length} non envoyé(s) : verrouillé, autre cuisine ou fermé par la plateforme / un férié`, `${r.notSent.length} not sent: locked, another kitchen, or closed by the platform / a holiday`)] : [])];
       if (o.changed.length === asked && asked > 0) toast.success(online ? t('Rouvert sur les plateformes', 'Reopened on the platforms') : t('En pause sur les plateformes', 'Paused on the platforms'), `${o.changed.length} ${t('magasin(s)', 'store(s)')}`);
       else toast.warn(t(`${o.changed.length}/${asked} magasin(s) changé(s)`, `${o.changed.length}/${asked} store(s) changed`), lines.join('\n'));
-      await load(); refreshEverything();
+      refreshEverything(); // reloads this sheet too (REFRESH_EVENT)
     } catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(t('Changement impossible', 'Could not change it'), e instanceof Error ? e.message : String(e)); }
     finally { setBusy(null); }
   }
@@ -103,8 +112,8 @@ export function KitchenStatus({ locationCode }: { locationCode: string }) {
 
   return (
     <>
-      <Button size="lg" variant={summary?.kind === 'paused' ? 'danger' : summary?.kind === 'busy' ? 'brand' : 'outline'} onClick={() => { setOpen(true); load(); }}
-        icon={summary?.kind === 'paused' ? <Pause className="size-5" /> : summary?.kind === 'busy' ? <Flame className="size-5" /> : <Store className="size-5" />}>
+      <Button size="lg" variant={summary?.kind === 'paused' ? 'danger' : summary?.kind === 'busy' ? 'brand' : summary?.kind === 'closed' ? 'soft' : 'outline'} onClick={() => { setOpen(true); load(); }}
+        icon={summary?.kind === 'paused' ? <Pause className="size-5" /> : summary?.kind === 'busy' ? <Flame className="size-5" /> : summary?.kind === 'closed' ? <Moon className="size-5" /> : <Store className="size-5" />}>
         {label}
       </Button>
       {open && (
@@ -165,11 +174,11 @@ export function KitchenStatus({ locationCode }: { locationCode: string }) {
                       <PlatformMark channel={s.channel} size="sm" />
                       <span className="flex-1 font-semibold text-ink">{s.brandName}</span>
                       {s.locked
-                        ? <span className="inline-flex items-center gap-1 text-ink-3"><Lock className="size-3.5" />{s.lockReason === 'forbidden' ? t('Protégé — jamais touché', 'Protected — never touched') : t('« Ne pas toucher »', '“Do not touch”')}</span>
+                        ? <span className="inline-flex items-center gap-1 text-ink-3"><Lock className="size-3.5" />{s.lockReason === 'forbidden' ? t('Protégé — jamais touché', 'Protected — never touched') : s.lockReason === 'dd_number_missing' ? t('Numéro DoorDash manquant (Magasins → Branchements)', 'DoorDash store number missing (Stores → Mapping)') : t('« Ne pas toucher »', '“Do not touch”')}</span>
                         : s.online === false
                           ? (
-                            <span className="text-right font-semibold text-stop">
-                              {s.pausedUntil ? t(`En pause jusqu’à ${timeOf(s.pausedUntil, loc)}`, `Paused until ${timeOf(s.pausedUntil, loc)}`) : t('En pause', 'Paused')}
+                            <span className={cn('text-right font-semibold', held.has(s.id) ? 'text-ink-2' : 'text-stop')}>
+                              {held.has(s.id) ? t('Fermé', 'Closed') : s.pausedUntil ? t(`En pause jusqu’à ${timeOf(s.pausedUntil, loc)}`, `Paused until ${timeOf(s.pausedUntil, loc)}`) : t('En pause', 'Paused')}
                               {held.has(s.id) && <span className="block text-xs font-normal text-ink-3">{held.get(s.id) === 'holiday' ? t('Fermé pour un férié — pas dans « Tout rouvrir »', 'Holiday closure — not in “Reopen all”') : t('Fermé par la plateforme — pas dans « Tout rouvrir »', 'Closed by the platform — not in “Reopen all”')}</span>}
                             </span>
                           )

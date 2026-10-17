@@ -1174,7 +1174,7 @@ try {
   check('app icon served without sign-in', (await call('GET', '/icons/icon-192.png', { auth: false })).status === 200);
 
   console.log('\n35. Every screen renders');
-  const screens = ['/', '/orders', `/orders/${o8?.id}`, `/ticket/${o8?.id}`, '/kitchen', '/stores', '/stores/hours', '/stores/mapping', '/menu', '/menu/86', '/alerts',
+  const screens = ['/', '/orders', `/orders/${o8?.id}`, `/ticket/${o8?.id}`, '/kitchen', '/stores', '/stores/list', '/stores/hours', '/stores/mapping', '/menu', '/menu/86', '/alerts',
     '/insights', '/insights/reports', '/insights/activity', '/money', '/money/reconciliation', '/money/disputes', '/money/payouts', '/money/ledger', '/money/statements', '/money/fees', '/money/tgtg',
     '/settings', '/settings/profile', '/settings/team', '/settings/devices', '/settings/security', '/settings/alerts', '/settings/channels', '/settings/business', '/settings/go-live'];
   const rendered = await Promise.all(screens.map((s2) => call('GET', s2)));

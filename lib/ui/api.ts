@@ -60,6 +60,12 @@ export function money(n: number | null | undefined, loc = 'fr-CA') {
   return new Intl.NumberFormat(loc, { style: 'currency', currency: 'CAD' }).format(Number(n || 0));
 }
 
+/** A big number on a card: whole dollars from 1 000 $ ("12 346 $"), cents below. The exact amount stays in `money`. */
+export function moneyShort(n: number | null | undefined, loc = 'fr-CA') {
+  const v = Number(n || 0);
+  return new Intl.NumberFormat(loc, { style: 'currency', currency: 'CAD', ...(Math.abs(v) >= 1000 ? { minimumFractionDigits: 0, maximumFractionDigits: 0 } : {}) }).format(v);
+}
+
 export function timeOf(iso?: string | null, loc = 'fr-CA', withDate = false) {
   if (!iso) return '—';
   return new Date(iso).toLocaleString(loc, withDate ? { dateStyle: 'short', timeStyle: 'short' } : { hour: '2-digit', minute: '2-digit' });

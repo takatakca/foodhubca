@@ -1,5 +1,16 @@
 # Food Hub: progress log and task board
 
+## 2026-10-17 — Client dashboard (PR #72) brought up to main 6381aec
+
+- `feature/client-dashboard-easy` merged with `origin/main` (#61 to #80). Conflicts: `components/ui/overlay.tsx` (main's
+  focus trap and dialog stack kept; the PR's 44 px Modal close and the light-sheet hooks `useEscape` / `useDialogFocus`
+  for the phone's "Plus" sheet added back, quiet while a Modal or Drawer is open) and this file (both entries kept).
+- Main's own merge of #80 left a broken `lib/foodhub/legal.ts` (two `phoneFeesText`, typecheck and build fail) and stale
+  expectations in `tests/legal-pages.test.ts`: both restored to #79's version (4e592e0).
+- `FOODHUB_TENANT_ID`: new `isOwnerTenant()` fails closed on a set-but-invalid value (console warning, no crash, owner's
+  store list hidden). See `docs/CLIENT_DASHBOARD.md` § 21.
+- Checks: typecheck OK, lint 0 errors, 1531 tests passed + 1 skipped, webpack build OK, verify:foodhub 567/0.
+
 ## 2026-10-17 — ON2GO.ca hub pages on main (replaces PR #70, `feature/seo-hub-pages-main`)
 
 - PR #70 (`feature/seo-hub-landing`, based on the old `fix/legal-pages-complete`) merged onto main as a new branch: /hub + /en/hub pages, JSON-LD, robots.txt, sitemap.xml, llms.txt, share images, favicon; #77 legal wording (it only reached the legal branch) comes along. Conflicts only in WORKLOG.md and this file (both sides kept).
@@ -135,6 +146,15 @@ Branche `fix/overlay-keyboard-focus-20261016` : focus initial, Tab/Shift+Tab cir
 - `/legal` redirects to `/legal/support` and is public in `proxy.ts` (it sent visitors to sign-in). Company, address, phone, email and officer stay env-driven (`FOODHUB_LEGAL_*`, `FOODHUB_SUPPORT_*`, `FOODHUB_PRIVACY_OFFICER`); the draft banner stays until `FOODHUB_LEGAL_APPROVED=true`.
 - Not in this branch (AI-phone branch): greeting wording "automated assistant, call transcribed, press 0" in `lib/foodhub/phone/twilio.ts`, `ivr/tree.ts`, `ivr/engine.ts`, and `redactCards` in `voice.ts` callerTurn.
 - Checks: typecheck OK, lint 0 errors, 973 tests passed + 1 skipped (19 in `tests/legal-pages.test.ts`); 1 failure in `tests/tgtg-email.test.ts` (forged From): a Windows CRLF checkout artifact, passes with LF fixtures, not touched here; webpack build OK, verify:foodhub 554/0. Not deployed.
+
+## 2026-10-16 — Client dashboard: simple view, full view, platform scope (task 40)
+
+- Branch `feature/client-dashboard-easy` (from `origin/main` 444e8f2), not merged. Spec and status: `docs/CLIENT_DASHBOARD.md`.
+- Simple view by default (6-item rail, phone bar of 4, avatar menu with language, text size and the "Vue complète" switch for owners and managers; cookie `fh_view` read on the server). Full view = the console before, unchanged.
+- Scope gains the platform (`?channel=`) with store counts in the switcher (bottom sheet on phones) and filter chips; Home (4 numbers, To do, By platform, Get started), Orders (Actives / Planifiées / Historique), Alerts, Sales & trends, Reports and the new Restaurants → Tous les magasins follow it. Alarms, bell, badges and the kitchen screen never follow a brand or a platform.
+- Read-only API additions: `channels=` on `/api/foodhub/command` (output unchanged without it, tested), `locations=` on `/api/foodhub/incidents`. The owner's DoorDash list is gated to the owner's tenant. No webhook, order write, Clover or menu-publish change; no env var, no migration.
+- Review fixes (all majors and minors): Home numbers fit a phone, contrast, "Demander le branchement" on Get started, pause on the picked platform only, `/alerts?i=` links always show their alert, chip ARIA, 44 px targets, Épuisés wording, page titles, plain words. List in `docs/CLIENT_DASHBOARD.md` §22.
+- Checks after the review fixes: typecheck OK, lint 0 errors, 983 tests passed + 1 skipped (1 failure in `tests/tgtg-email.test.ts`, also on `origin/main`, not touched here), webpack build OK, verify:foodhub 554/0 (32 screens). Env check: `FOODHUB_TENANT_ID` unset or `takatak` in production. Not merged, not deployed: ready for owner review/merge.
 
 ## 2026-10-16 — Uber store kitchen mapping (task 39, `fix/uber-store-kitchen-mapping`)
 

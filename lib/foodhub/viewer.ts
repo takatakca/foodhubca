@@ -1,10 +1,10 @@
 // Who is looking at a page (server components). Same rules as getActor() for API routes.
 import { cookies, headers } from 'next/headers';
-import rawDoorDashStores from '../../data/actual/platform-stores-doordash.json';
 import { getCatalog } from './catalog';
 import { getDevice } from './identity/devices';
 import { getRepo } from './repo';
-import { buildScopeCatalog } from './scope';
+import { ownerSeedStores } from './owner-seed';
+import { buildScopeCatalog, channelsOf, type StorePoint } from './scope';
 import { basicOwner, ownerSessionVersion, readCookie, ROLE_PERMISSIONS, SESSION_COOKIE, userSessionVersion, verifySession, type Permission } from './session';
 import type { Role } from './types';
 
@@ -41,21 +41,33 @@ export async function getViewer(): Promise<Viewer | null> {
   };
 }
 
-const SEED_DD = rawDoorDashStores as Array<{ brand_name: string; location_code: string }>;
-
 /**
- * What the console may show this person: their kitchens, the active brands, and which brands each kitchen sells
- * (platform stores mapped in Food Hub + the DoorDash store list), for the scope picker and the brand lists.
+ * What the console may show this person: their kitchens, the active brands, which brands each kitchen sells (platform
+ * stores mapped in Food Hub + the owner's DoorDash list on the owner's own instance), the platforms they have stores on,
+ * and one point per store for the counts ("DoorDash (15)"). No store or merchant id leaves the server here.
  */
 export async function viewerCatalog(v: Viewer) {
   const c = await getCatalog();
   const locations = c.locations.filter((l) => l.active && (!v.locations.length || v.locations.includes(l.code))).map((l) => ({ code: l.code, name: l.name, address: l.address }));
   const brands = c.brands.filter((b) => b.active).map((b) => b.name);
   const stores = await getRepo().listStores().catch(() => []);
+  const seed = ownerSeedStores();
   const pairs = [
     ...stores.filter((s) => s.channel !== 'tgtg').map((s) => ({ brandName: s.brandName, locationCode: s.locationCode })),
-    ...SEED_DD.map((s) => ({ brandName: s.brand_name, locationCode: s.location_code })),
+    ...seed.map((s) => ({ brandName: s.brand_name, locationCode: s.location_code })),
   ];
   const { brandsByKitchen } = buildScopeCatalog(locations.map((l) => l.code), pairs, brands);
-  return { locations, brands, brandsByKitchen };
+  // Store counts: the mapped platform stores of the person's locations (Too Good To Go included), plus — on the owner's
+  // instance — the DoorDash stores of his list that are not mapped yet.
+  const visible = new Set(locations.map((l) => l.code));
+  const known = new Set(brands);
+  const points: StorePoint[] = stores
+    .filter((s) => visible.has(s.locationCode) && known.has(s.brandName))
+    .map((s) => ({ brandName: s.brandName, locationCode: s.locationCode, channel: s.channel }));
+  const ddMapped = new Set(points.filter((p) => p.channel === 'doordash').map((p) => `${p.brandName}|${p.locationCode}`));
+  for (const s of seed) {
+    if (!visible.has(s.location_code) || !known.has(s.brand_name) || ddMapped.has(`${s.brand_name}|${s.location_code}`)) continue;
+    points.push({ brandName: s.brand_name, locationCode: s.location_code, channel: 'doordash' });
+  }
+  return { locations, brands, brandsByKitchen, channels: channelsOf(points), stores: points };
 }

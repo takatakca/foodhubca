@@ -1,9 +1,9 @@
 // The tenant (merchant) of this ON2GO Hub instance and the contracts with the TAKATAK control plane
 // (docs/ON2GO_HUB_ECOSYSTEM.md § 4): a single-tenant default that changes nothing, idempotent usage events with counts
 // only, entitlements read defensively, and signatures with a replay window.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
-  controlPlane, DEFAULT_TENANT_ID, parseEntitlements, signContract, SINGLE_TENANT_ENTITLEMENTS, tenantId, tenantInfo, usageEvent, verifyContract,
+  controlPlane, DEFAULT_TENANT_ID, isOwnerTenant, parseEntitlements, signContract, SINGLE_TENANT_ENTITLEMENTS, tenantId, tenantInfo, usageEvent, verifyContract,
 } from '../lib/foodhub/tenant';
 
 describe('tenant id', () => {
@@ -22,6 +22,37 @@ describe('tenant id', () => {
     expect(controlPlane({ TAKATAK_CONTROL_PLANE_URL: 'http://takatak.ca', TAKATAK_ON2GO_HUB_KEY: 'k' } as any).configured).toBe(false);
     expect(controlPlane({ TAKATAK_CONTROL_PLANE_URL: 'https://takatak.ca/', TAKATAK_ON2GO_HUB_KEY: 'k' } as any)).toEqual({ url: 'https://takatak.ca', keySet: true, configured: true });
     expect(controlPlane({ TAKATAK_CONTROL_PLANE_URL: 'https://takatak.ca' } as any).configured).toBe(false);
+  });
+});
+
+describe('owner-only data (FOODHUB_TENANT_ID check before PR #72)', () => {
+  it('is the owner only when the id is unset, blank or exactly "takatak"', () => {
+    expect(isOwnerTenant({} as any)).toBe(true);
+    expect(isOwnerTenant({ FOODHUB_TENANT_ID: '' } as any)).toBe(true);
+    expect(isOwnerTenant({ FOODHUB_TENANT_ID: '   ' } as any)).toBe(true);
+    expect(isOwnerTenant({ FOODHUB_TENANT_ID: ' TAKATAK ' } as any)).toBe(true);
+    expect(isOwnerTenant({ FOODHUB_TENANT_ID: 'resto-laval' } as any)).toBe(false);
+  });
+
+  it('fails closed on a mistyped id: not the owner, one clear console warning, no throw', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      // tenantId() falls back to "takatak" for these, so the old check would have shown the owner's data.
+      for (const bad of ['Client X', 'client_x', 'a', 'x'.repeat(41), '../etc']) {
+        expect(tenantId(bad)).toBe(DEFAULT_TENANT_ID);
+        expect(() => isOwnerTenant({ FOODHUB_TENANT_ID: bad } as any)).not.toThrow();
+        expect(isOwnerTenant({ FOODHUB_TENANT_ID: bad } as any)).toBe(false);
+      }
+      expect(warn).toHaveBeenCalledTimes(5); // once per value, not on every request
+      expect(String(warn.mock.calls[0][0])).toMatch(/FOODHUB_TENANT_ID "client x" is not a valid tenant id/);
+      expect(String(warn.mock.calls[0][0])).toMatch(/store list is hidden/);
+      warn.mockClear();
+      isOwnerTenant({} as any);
+      isOwnerTenant({ FOODHUB_TENANT_ID: 'resto-laval' } as any);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 

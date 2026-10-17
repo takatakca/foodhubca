@@ -7,6 +7,9 @@
 - Fits main: #78 badges on the hub pages (and `NEXT_PUBLIC_CLOVER_APPS_LIVE=foodhub` links the listing / publishes the Offer); #75 storefront `/commander/<slug>` and its sitemap stay indexable (no X-Robots-Tag), tracking pages stay noindex, robots.txt lists both sitemaps.
 - Also fixed two merge leftovers already on origin/main: duplicate imports in `lib/foodhub/phone/voice.ts` (main failed typecheck / build and 6 phone test files) and the doubled token sentence in `lib/foodhub/clover-listing.ts`.
 - Checks: typecheck OK, lint 0 errors, 1500 tests (1 skipped; 1 storefront-checkout failure also on origin/main), webpack build OK, verify:foodhub 567/0, built app on :4941: 12 hub pages 200 signed out with one parseable JSON-LD graph each, robots / sitemap / llms.txt OK.
+## 2026-10-17 — Legal pages name and price TAKATAK Phone AI (`fix/legal-takatak-phone-ai`, re-land of #77)
+
+- #77 (2e18d23) merged into `fix/legal-pages-complete` after #66, so it never reached main; cherry-picked here, product renamed « TAKATAK Phone AI » (FR + EN), `phoneFeesText()` aligned with the merged metering (AI time only, order or not, rounded up per call, never the hold or the person after a transfer, ACTIVE subscriptions only).
 
 ## 2026-10-16 — accessible horizontal tab keyboard navigation
 

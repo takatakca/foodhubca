@@ -20,7 +20,7 @@ export default function SupportPage() {
   return (
     <article>
       <H1>Soutien · Support</H1>
-      <P>{i.appName} — {i.company}</P>
+      <P>{i.appName} · {i.phoneAppName} — {i.company}</P>
       <LangSwitch />
 
       <LangBlock id="fr">

@@ -183,8 +183,10 @@ only when the feature is on. Home adds no link to `/insights` or `/money`.
 1. Header: business day, "Aujourd'hui", "Bonjour, {prénom}. {scope in words}". The green live pill; the full view keeps
    the safe-mode pill.
 2. "Pour bien démarrer" (`components/home/getting-started.tsx`): "{done} étapes sur 3", one button per step
-   (Brancher mes magasins / Importer mon menu / Installer la tablette), hidden when done or after "Masquer".
-3. Four numbers (2×2 on phones, 4 at `lg`): Ventes (± vs yesterday; "Ventes (livraison)" / "Ventes ({plateforme})"
+   (simple view: Demander le branchement, a small form that sends a support report to the team; full view: Brancher mes
+   magasins / Importer mon menu / Installer la tablette), hidden when done or after "Masquer" (a small link brings it
+   back while steps remain).
+3. Four numbers (2×2 on phones and laptops, 4 from `xl`): Ventes (± vs yesterday; "Ventes (livraison)" / "Ventes ({plateforme})"
    when narrowed; "dont X $ en salle (Clover)"), Commandes, Préparation (moyenne), Magasins (ouverts → Tous les magasins); every card is a link (Ventes → Historique, Préparation → Commandes); whole dollars from 1 000 $ so the number fits a phone card, 4 columns only from xl.
 4. "En cours" and "À faire" (scoped alerts, count in the header, "Filtré : …" when narrowed).
 5. "Par plateforme" (`components/live/platform-summary.tsx`), shown when no platform is picked; a tap picks it; an
@@ -290,16 +292,42 @@ both entries). **Rollback:** revert the PR; until then any owner or manager can 
 No new env var, no database migration. New functional cookie `fh_view` (UI preference). The owner reviews, merges and
 deploys.
 
+Env check before merge: the owner's DoorDash list from screenshots and the rule that Uber Eats, DoorDash and Skip are
+all required now apply only when `tenantId(FOODHUB_TENANT_ID)` is `takatak` (`lib/foodhub/owner-seed.ts`,
+`requiredChannels` in `lib/foodhub/command.ts`). Confirm `FOODHUB_TENANT_ID` is unset or `takatak` in the production
+environment; any other value hides those DoorDash rows and changes the "not connected" alerts.
+
 ## 22. Build status (2026-10-16)
 
 All P0, P1 and P2 items above are built on the branch, which also carries `origin/main` 12ba64d (merged in; only
 `docs/PROGRESS.md` needed a hand merge, both entries kept).
 
-Checks on the merged branch:
+Review fixes (all majors and the minors), on top of f3ed70a:
+- Home numbers fit a phone card (size follows the screen, whole dollars from 1 000 $, labels wrap, 4 columns only from
+  `xl`); every card is a link. Contrast: lane empty texts, "mis à jour" and counts in ink-3, To-do badge dark on amber,
+  paused note in ink-2 with an amber dot, "Vue complète" switch outlined when off.
+- Get started: in the simple view the stores step is "Demander le branchement" (`components/home/connect-request.tsx`,
+  platforms + note, sent as a support report); the same button on an empty Tous les magasins; "Masquer" can be undone.
+- Restaurants → Statut et pauses follows the platform: "Tout mettre en pause sur DoorDash" pauses only the DoorDash stores
+  (`storesOfLocation`, tested), the dialog and a note say so. Alerts: the `/alerts?i=` link from a text or chat always
+  shows its alert whatever location the device remembers (`scopedAlerts`, tested); a location-only scope shows
+  "Filtré" and "Voir toutes les alertes" clears it.
+- Accessibility: filter chips use the disclosure pattern (labelled group, `aria-pressed`), 44 px clear / back / close
+  targets, platform chips and status pills wrap on phones, the Plus sheet closes on Esc and moves the focus, the scope
+  popover is not modal and gives the focus back, History rows open by keyboard and the search has a label.
+- Words: Épuisés / Sold out everywhere on the sold-out page and its help; "Rapports détaillés" and "Journal d'activité"
+  get their own titles; plain status names; "1 à 25 sur 45"; "commandes" not "cmd"; product name in Alerts; "Mes
+  restaurants" the same in the button and the panel; simple-view banners in plain words (go-live link, temporary data,
+  email not turned on).
+- Data: Planifiées also lists open orders placed more than 48 h ahead (`openAlso=1`); History ignores old `?channels=`
+  links; with a platform picked, locations and brands without a store there cannot be picked; a platform with orders
+  but no linked store is a plain row; `missing:<platform>` alerts are counted before the platform trim (tested).
+
+Checks on the branch after the review fixes:
 - `npm run typecheck`: OK.
 - `npm run lint`: 0 errors (1 old warning in `settings/devices/page.tsx`, a file this branch does not touch).
-- `npm test`: 981 passed, 1 skipped, 1 failed of 983. The failure is `tests/tgtg-email.test.ts` (forged Too Good To Go
-  sender case), which also fails on `origin/main` 12ba64d; this branch touches no Too Good To Go file.
+- `npm test`: 983 passed, 1 skipped, 1 failed of 985. The failure is `tests/tgtg-email.test.ts` (forged Too Good To Go
+  sender case), which also fails on `origin/main` 12ba64d; this branch touches no Too Good To Go, mail or pipeline file.
 - `rm -rf .next && npx next build --webpack`: OK.
 - `npm run verify:foodhub` (ports 5991 / 5992): 554 passed, 0 failed, including "32 screens return 200" and the old
   bookmarks.

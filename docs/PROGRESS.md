@@ -1,5 +1,13 @@
 # Food Hub: progress log and task board
 
+## 2026-10-17 — ON2GO.ca hub pages on main (replaces PR #70, `feature/seo-hub-pages-main`)
+
+- PR #70 (`feature/seo-hub-landing`, based on the old `fix/legal-pages-complete`) merged onto main as a new branch: /hub + /en/hub pages, JSON-LD, robots.txt, sitemap.xml, llms.txt, share images, favicon; #77 legal wording (it only reached the legal branch) comes along. Conflicts only in WORKLOG.md and this file (both sides kept).
+- Owner's SEO decisions of 2026-10-17: hub name ON2GO.ca; both apps submitted, so "under review by Clover" by default (`FOODHUB_APP_MARKET_STATUS=soon` to go back) and no "planned" price; one statement "14-day free trial, then CAD $50/month per app" + Food Hub extra brand CAD $15 per platform per month + Phone AI CAD $0.25 per AI minute (`lib/foodhub/pricing.ts`, Food Hub numbers re-exported from `pos/clover-pricing.ts`, phone checked against `PHONE_PRICE`); AI phone page = TAKATAK Phone AI (automated assistant, press 0, how minutes are counted); legal pages name TAKATAK Phone AI; email only from `FOODHUB_SUPPORT_EMAIL`; no hours on these pages.
+- Fits main: #78 badges on the hub pages (and `NEXT_PUBLIC_CLOVER_APPS_LIVE=foodhub` links the listing / publishes the Offer); #75 storefront `/commander/<slug>` and its sitemap stay indexable (no X-Robots-Tag), tracking pages stay noindex, robots.txt lists both sitemaps.
+- Also fixed two merge leftovers already on origin/main: duplicate imports in `lib/foodhub/phone/voice.ts` (main failed typecheck / build and 6 phone test files) and the doubled token sentence in `lib/foodhub/clover-listing.ts`.
+- Checks: typecheck OK, lint 0 errors, 1500 tests (1 skipped; 1 storefront-checkout failure also on origin/main), webpack build OK, verify:foodhub 567/0, built app on :4941: 12 hub pages 200 signed out with one parseable JSON-LD graph each, robots / sitemap / llms.txt OK.
+
 ## 2026-10-16 — accessible horizontal tab keyboard navigation
 
 Branche `fix/console-tabs-keyboard-20261016`. Roving `tabIndex`, sélection et focus par ArrowLeft/ArrowRight, Home/End avec bouclage, cas de bord testés, aucune mutation métier. PR et CI à vérifier, pas de déploiement. La PR #62 cible séparément le focus des dialogues.

@@ -13,7 +13,8 @@ export async function POST(req: NextRequest) {
   }
   const body = (await req.json().catch(() => ({}))) as { t?: string };
   const ticket = await verifyWelcome(typeof body.t === 'string' ? body.t : null);
-  if (!ticket?.m) return NextResponse.json({ ok: false, reason: 'ticket', error: 'Open the app again from Clover.' }, { status: 401 });
+  // Food Hub tickets only: a ticket from another Clover app (the AI phone) never sends Food Hub test orders.
+  if (!ticket?.m || ticket.a) return NextResponse.json({ ok: false, reason: 'ticket', error: 'Open the app again from Clover.' }, { status: 401 });
   const r = await sendCloverTestOrder(ticket.m);
   const status = r.ok ? 200 : r.reason === 'not_approved' ? 403 : r.reason === 'limited' ? 429 : 502;
   return NextResponse.json(r, { status });

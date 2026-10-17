@@ -57,6 +57,58 @@
 - Ordering line (voice.ts callerTurn + simulator): a card number said or typed is refused like on the ON2GO menu (never stored, never sent to the AI); every stored transcript line goes through `redactCards` (calls.ts say).
 - Review fixes: card numbers read in groups with the punctuation speech recognition adds ("4111, 1111, …", periods, double spaces) are found (ivr/words.ts CARD_RUN, length + Luhn on the digits only); a card typed one key per turn on the ordering line is refused at the 13th key, the keys already noted are scrubbed from the transcript and the AI history, the rest of the card is refused too, 0 still reaches a person; the AI's own words are redacted in the stored AI history (agent.ts storedContent); "English, I want a chicken" (both lines + simulator) hears the notice in the new language before the answer; the Spanish "automatizada / automatizado" follows the Spanish voice, not the French one.
 - Checks: typecheck OK, lint 0 errors, 968 tests passed, 1 skipped; 1 pre-existing local-only failure in tests/tgtg-email.test.ts (Windows autocrlf turns the .eml fixture into CRLF; passes with LF, file untouched here); webpack build OK, verify:foodhub 554/0. Not deployed.
+## 2026-10-16 — ON2GO Hub pages, second review (task 45, `feature/seo-hub-landing`)
+
+- Status wording never ahead of the facts: "L’application sera bientôt offerte sur le Clover App Market" (no more "en
+  révision chez Clover": nothing is submitted yet); `FOODHUB_APP_MARKET_STATUS=review` turns that wording on later.
+- DoorDash and SkipTheDishes: « Intégration en cours de certification avec … » note, badge on the links, `{pending}`
+  line in the platforms FAQ and llms.txt; their pages are `noindex, follow` and out of the sitemap and llms.txt until
+  `FOODHUB_PUBLIC_LIVE_PLATFORMS` lists them (default `uber`).
+- `/media/` (dish photos used on on2go.ca) indexable again; draft legal pages `noindex, follow` until approved.
+- `/` keeps its query string on the way to `/hub` (fbclid / utm links no longer land on `/login`); still 307 on purpose.
+- Hub pages `Cache-Control: public, max-age=300, s-maxage=3600, stale-while-revalidate=86400`. In production a non-https
+  `FOODHUB_PUBLIC_URL` falls back to `https://foodhub.on2go.ca` for canonicals, sitemap, robots and JSON-LD.
+- Copy: allergies red on screen only, « par application », « heures de pointe », « versements », « 15 $/mois … taxes en
+  sus » (pricing sentence, meta description, FAQ, JSON-LD Offer), "days of free trial", llms.txt English colon.
+  Schema: `eligibleRegion` Canada + identifier CA, `primaryImageOfPage` ImageObject; docs: the Software App rating
+  warning stays until genuine Clover App Market reviews exist.
+- Tests: 32 in `tests/public-hub.test.ts`; e2e: no X-Robots-Tag on `/hub`, `/en/hub/pricing`, `/media/<photo>`; public
+  cache header; `/?utm_source=x&fbclid=y` → `/hub` with query; absolute https canonical; DoorDash page noindex; draft
+  legal page noindex.
+
+- New public, indexable pages, French first with an English twin: `/hub` (landing), `/hub/tarifs`,
+  `/hub/integrations/{uber-eats,doordash,skipthedishes}-clover`, `/hub/ecran-de-cuisine-clover`,
+  `/hub/telephone-ia-restaurant` and `/en/hub/…`. Server-rendered, no session, no database, no page-specific client
+  component, no trackers (the root layout's boot script and the Next.js runtime still load).
+- Product facts reused from the Clover App Market listing (`clover-listing.ts`); prices in `lib/foodhub/pricing.ts`
+  (14-day trial, $50/month per app, $15 per extra brand per platform, billed by Clover); FAQ and examples are built from
+  those constants and say "(planned launch pricing)" until `FOODHUB_APP_MARKET_URL` is set. Too Good To Go only "when
+  your account offers an order feed" (the hub has its own tagline without it; a test fails on any unconditional mention
+  in text, JSON-LD, metadata or llms.txt); AI phone "coming soon, separate app", in the planned tense.
+- JSON-LD: Organization (ON2GO Hub, alt. TAKATAK Food Hub, legal name from env, address), SoftwareApplication
+  (BusinessApplication, Clover), WebPage, FAQPage = visible FAQ (each shared question on one page only), breadcrumbs;
+  shared nodes keep one url (`/hub`); Offer only when `FOODHUB_APP_MARKET_URL` is set; never a rating (Search
+  Console's Software App warning is expected until then, see `docs/FOODHUB.md`). Title ≤ 60, description ≤ 155, canonical, hreflang fr-CA / en-CA / x-default, share images
+  `public/og/hub-{fr,en}.png`.
+- `robots.txt` (blocks only `/api/`, so private pages show their noindex), `sitemap.xml` (hub pages; the 3 legal pages
+  only once `FOODHUB_LEGAL_APPROVED=true`), `llms.txt`, `favicon.ico`. `/icons/` is indexable (Organization logo).
+- `proxy.ts`: public site paths (exact `/hub`, `/en/hub`, prefixes `/hub/`, `/en/hub/`, `/og/`; `/hubx` stays
+  private); language fixed by path (header read first by `getLang()`); anonymous `/` → `/hub` (`FOODHUB_PUBLIC_HOME=off`
+  restores `/login`; tablets and signed-in users unchanged); `X-Robots-Tag: noindex` on every non-public response.
+- e2e: the "/ without sign-in" check now expects `/hub`, and new checks cover the public pages, robots, sitemap, llms.
+- Built on `fix/legal-pages-complete` (PR #66: paid pricing in the terms and support FAQ, no more "free"): merge #66
+  first; this PR is stacked on it.
+- Checks: typecheck OK, lint 0 errors (1 old warning), 1003 tests passed (27 in `tests/public-hub.test.ts`, 3 in
+  `tests/i18n-server-lang.test.ts`), 1 skipped, 1 failure also on `origin/main` (`tests/tgtg-email.test.ts` "forged Too
+  Good To Go From", Windows CRLF checkout artifact, not touched here); webpack build OK; verify:foodhub 560/0.
+- Owner after merge: redeploy; optional env `FOODHUB_APP_MARKET_URL`, `FOODHUB_PUBLIC_SAME_AS`; Search Console
+  URL-prefix property `https://foodhub.on2go.ca/` + sitemap; link the page from LinkedIn / YouTube / on2go.ca only once
+  the legal Draft banner is gone (`FOODHUB_LEGAL_APPROVED=true` also adds the legal pages to the sitemap).
+## 2026-10-17 — Legal pages name TAKATAK Phone (`fix/legal-takatak-phone`, stacked on #66)
+
+- The Clover App Market review of the second app, TAKATAK Phone, uses the same `/legal/privacy` and `/legal/terms` URLs. Privacy §1 (FR + EN) now also covers the Clover app « TAKATAK Phone » (automated phone assistant: answers calls, takes orders, texts a Clover payment link; its data = the calls, voicemail and direct orders of §2). Both pages' header and title name both apps.
+- Terms §1: « le service » = both apps; the caller is told it is an automated assistant and can press 0 for a person. §6 and the support FAQ: TAKATAK Food Hub price unchanged; TAKATAK Phone = 14-day free trial, then CAD $50/month + CAD $0.25 per minute the assistant is on the line (rounded up per call, not after a transfer to a person, never in the trial), billed only by Clover through the Clover App Market, Canada only (`phoneFeesText()`; env `FOODHUB_PHONE_TRIAL_DAYS`, `FOODHUB_PHONE_MONTHLY_PRICE_CAD`, `FOODHUB_PHONE_MINUTE_PRICE_CAD`, defaults 14/50/0.25). §11 names both apps as independent software.
+
 ## 2026-10-16 — Legal pages complete for Clover review (`fix/legal-pages-complete`)
 
 - Privacy policy (FR then EN): §1 and §2 now cover the phone lines (caller number, transcripts, voicemail recordings), customer texts, the couriers' page, direct orders (website, phone, Clover Online Ordering) and more Clover data (merchant address, Online Ordering orders with the customer's name, payments, refunds). §4 lists Twilio, Google (speech, through Twilio), Anthropic (phone assistant; never approves refunds or payments), DoorDash Drive / Uber Direct / SkipTheDishes delivery (they receive the customer's name, number and email, address and order), team-chat alerts and MochaHost mail. No order aggregator is named. §5: database in Montréal, app server and Twilio / Anthropic / Google in the US; the "we assess" promise is gone. §6: deletion on request within 30 days (sales data kept for tax), no destruction promise; Clover tokens deleted "when Clover notifies us, or on request". §8: deletion, complaints, written answer within 30 days, press 0 for a person.

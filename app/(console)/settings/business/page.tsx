@@ -11,6 +11,7 @@ import { Modal } from '@/components/ui/overlay';
 import { FormDraftNote } from '@/components/ui/save-chip';
 import { useToast } from '@/components/ui/toast';
 import { Hint } from '@/components/help/hint';
+import { ExtraBrandPriceNotice, useExtraBrandPriceConfirm } from '@/components/billing/extra-brand-price';
 import { useViewer } from '@/components/shell/viewer';
 import { Section, SettingsHead } from '../settings-ui';
 import { api } from '@/lib/ui/api';
@@ -36,6 +37,7 @@ export default function BusinessPage() {
   const [brands, setBrands] = useState<Brand[]>([]);
   const [loc, setLoc] = useState<LocDraft | null>(null);
   const [newBrand, setNewBrand] = useState('');
+  const checkPrice = useExtraBrandPriceConfirm();
   const [err, setErr] = useState('');
 
   const load = useCallback(() => api<{ locations: Loc[]; brands: Brand[] }>('/api/foodhub/catalog').then((d) => { setLocs(d.locations); setBrands(d.brands); setErr(''); }).catch((e) => setErr(e instanceof Error ? e.message : String(e))), []);
@@ -79,7 +81,8 @@ export default function BusinessPage() {
       </Section>
 
       <Section icon={<Tag className="size-5" />} title={`${t('Marques', 'Brands')} (${brands.filter((b) => b.active).length} ${t('actives', 'active')})`} subtitle={t('Désactiver cache la marque des nouveaux écrans ; l’historique est gardé.', 'Deactivating hides the brand from new screens; history is kept.')}
-        right={edit ? <Hint id="business.brand"><form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (newBrand.trim()) saveBrand(newBrand.trim(), true); }}><Input inputSize="sm" className="w-48" placeholder={t('Nouvelle marque', 'New brand')} value={newBrand} onChange={(e) => setNewBrand(e.target.value)} /><Button size="sm" type="submit" disabled={!newBrand.trim()} icon={<Plus className="size-4" />}>{t('Ajouter', 'Add')}</Button></form></Hint> : undefined}>
+        right={edit ? <Hint id="business.brand"><form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); const n = newBrand.trim(); if (n) void checkPrice({ brandName: n }).then((yes) => { if (yes) saveBrand(n, true); }); }}><Input inputSize="sm" className="w-48" placeholder={t('Nouvelle marque', 'New brand')} value={newBrand} onChange={(e) => setNewBrand(e.target.value)} /><Button size="sm" type="submit" disabled={!newBrand.trim()} icon={<Plus className="size-4" />}>{t('Ajouter', 'Add')}</Button></form></Hint> : undefined}>
+        {edit && newBrand.trim() && !brands.some((b) => b.name === newBrand.trim()) && <ExtraBrandPriceNotice className="mb-3" brandName={newBrand} />}
         <Hint id="business.brands"><div className="flex flex-wrap gap-2">
           {brands.map((b) => (
             <span key={b.name} className={cn('inline-flex items-center gap-2 rounded-full border py-1 pr-1 pl-3 text-[13px] font-semibold', b.active ? 'border-line-2 bg-surface text-ink' : 'border-dashed border-line-2 bg-raised text-ink-3 line-through')}>

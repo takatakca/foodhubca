@@ -40,6 +40,12 @@ export interface FoodHubRepo {
   /** Small key/value store (last sync report, Clover sales cache). */
   getKv<T = unknown>(key: string): Promise<T | null>;
   setKv(key: string, value: unknown): Promise<void>;
+  /**
+   * Write `key` only if it does not exist yet, in one atomic step (Supabase: INSERT on the primary key; the database
+   * refuses a duplicate). True = this caller claimed it; false = it was already there (another run or container).
+   * For "do this once" steps that must hold across processes (Clover metered charges).
+   */
+  claimKv(key: string, value: unknown): Promise<boolean>;
   addActivity(entry: ActivityEntry): Promise<void>;
   listActivity(filter?: ActivityFilter): Promise<ActivityEntry[]>;
   listUsers(): Promise<FoodHubUser[]>;
@@ -168,6 +174,12 @@ const memoryRepo: FoodHubRepo = {
   },
   async getKv<T>(key: string) { return (memState().kv.get(key) as T) ?? null; },
   async setKv(key, value) { memState().kv.set(key, JSON.parse(JSON.stringify(value))); },
+  async claimKv(key, value) {
+    const kv = memState().kv;
+    if (kv.has(key)) return false;
+    kv.set(key, JSON.parse(JSON.stringify(value)));
+    return true;
+  },
   async addActivity(entry) { memState().activity.push({ ...entry, id: entry.id ?? crypto.randomUUID() }); },
   async listActivity(filter = {}) {
     let list = [...memState().activity];
@@ -453,6 +465,12 @@ function supabaseRepo(): FoodHubRepo {
     },
     async setKv(key, value) {
       must(await db.from('fh_kv').upsert({ key, value, updated_at: nowIso() }, { onConflict: 'key' }));
+    },
+    async claimKv(key, value) {
+      const res = await db.from('fh_kv').insert({ key, value, updated_at: nowIso() });
+      if (!res.error) return true;
+      if ((res.error as { code?: string }).code === '23505') return false; // unique_violation: already claimed
+      throw new Error(`Supabase: ${res.error.message}`);
     },
     async addActivity(e) {
       must(await db.from('fh_activity').insert({

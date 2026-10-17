@@ -228,7 +228,11 @@ function luhn(digits: string): boolean {
   return sum % 10 === 0;
 }
 
-const CARD_RUN = /\d(?:[ -]?\d){12,18}/g;
+/**
+ * 13–19 digits with up to 3 separators between two digits: speech recognition punctuates a card read in groups
+ * ("4111, 1111, 1111, 1111", "4111. 1111.", double spaces). The length and Luhn checks run on the digits only.
+ */
+const CARD_RUN = /\d(?:[\s.,-]{0,3}\d){12,18}/g;
 
 /** True when the text holds what looks like a payment card number (13–19 digits passing the Luhn check). */
 export function hasCardNumber(text: string): boolean {

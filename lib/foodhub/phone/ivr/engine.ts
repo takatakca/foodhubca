@@ -26,13 +26,13 @@ import { phoneAgentConfigured } from '../agent';
 import { getCall, isTestCaller, saveCall, say as sayPhone, type PhoneCall } from '../calls';
 import { linePhoneGate, phoneGateNote } from '../gate';
 import { getPhoneSettings, isMultiKitchen, lineForNumber } from '../settings';
-import { goodDay, personaFor, selfIntro, speakable } from '../style';
-import { gatherXml, VOICE_PATH } from '../twilio';
+import { goodDay, ORDER_NOTICE, personaFor, selfIntro, speakable, type Persona } from '../style';
+import { gatherXml, prefixTwiml, VOICE_PATH } from '../twilio';
 import { callStatus, lineHints, startCall, withConfidence } from '../voice';
 import { hintsForLang, sayLanguage, speechPlan, type ListenKind } from '../voices';
 import { ivrAiAvailable, runIvrTurn, textLink } from './agent';
 import {
-  findNode, getIvrSettings, handoffTarget, levelOf, nodeFor, PLATFORM_IDS, PLATFORM_NAME, platformHelpUrl, platformPhone, voicemailEmailTarget,
+  findNode, getIvrSettings, GREETING_NOTICE, handoffTarget, levelOf, nodeFor, PLATFORM_IDS, PLATFORM_NAME, platformHelpUrl, platformPhone, voicemailEmailTarget,
   type IvrLang, type IvrNode, type IvrSettings, type PlatformId, type Texts,
 } from './config';
 import {
@@ -73,7 +73,8 @@ export const SAY = {
   voicemail: T('Laissez votre nom, votre numéro de téléphone et votre message après le signal sonore, puis appuyez sur le carré.', 'Leave your name, your phone number and your message after the beep, then press pound.', 'Deje su nombre, su número de teléfono y su mensaje después del tono, y luego marque numeral.'),
   noMessage: T('Nous n’avons pas reçu de message. N’hésitez pas à nous rappeler.', 'We did not get a message. Feel free to call us back.', 'No recibimos ningún mensaje. No dude en volver a llamar.'),
   messageSaved: T('Merci, votre message est bien enregistré. Notre équipe vous rappellera dans les plus brefs délais.', 'Thank you, your message is saved. Our team will call you back as soon as possible.', 'Gracias, su mensaje quedó grabado. Nuestro equipo le devolverá la llamada lo antes posible.'),
-  orderIntro: T('Parfait ! %S et je prends votre commande. Qu’est-ce que je peux vous préparer ?', 'Great! %S and I’ll take your order. What can I get for you?', '¡Perfecto! %S y tomo su pedido. ¿Qué le preparamos?'),
+  /** %S = "Je suis l’assistante automatisée" (style.ts), %N = the call is transcribed to take the order + 0 for a person. */
+  orderIntro: T('Parfait ! %S. %N Qu’est-ce que je peux vous préparer ?', 'Great! %S. %N What can I get for you?', '¡Perfecto! %S. %N ¿Qué le preparamos?'),
   closed: T('La ligne ON2GO n’est pas disponible pour le moment.', 'The ON2GO line is not available right now.', 'La línea ON2GO no está disponible en este momento.'),
   langSet: T('Très bien, en français.', 'Okay, in English.', 'Muy bien, en español.'),
 } as const;
@@ -142,19 +143,44 @@ async function afterLanguage(call: IvrCall, s: IvrSettings, preface = ''): Promi
   return keypadMenu(call, s, '', preface);
 }
 
+/** "Je suis l’assistante automatisée. L’appel est transcrit … Pour parler à une personne, faites le 0." in one language. */
+function disclosure(persona: Persona, s: IvrSettings, lang: IvrLang): string {
+  // "automatizada" / "automatizado": the gender of the voice that says it (Lupe, Pedro), not the French one.
+  return `${selfIntro(personaFor(persona, s.voices[lang]), lang)}. ${GREETING_NOTICE[lang]}`;
+}
+
+/** "Okay, in English." + the disclosure in the new language (the caller heard it only in French). */
+async function languageSet(s: IvrSettings, lang: IvrLang): Promise<string> {
+  if (lang === 'fr') return SAY.langSet.fr;
+  return `${SAY.langSet[lang]} ${disclosure((await getPhoneSettings()).persona, s, lang)}`;
+}
+
+/**
+ * A language switch with words after it ("English, I want a chicken"): that step's answer, said after "Okay, in
+ * English" + the notice in the new language (the caller heard it only in French). No switch: the answer alone.
+ */
+async function switchedThen(call: IvrCall, s: IvrSettings, from: IvrLang, run: (c: IvrCall) => Promise<Response>): Promise<Response> {
+  if (call.lang === from) return run(call);
+  const text = await languageSet(s, call.lang);
+  return prefixTwiml(await run(note(call, 'agent', text)), sayX(text, s, call.lang));
+}
+
 /**
  * The greeting, in Québec French first: the owner's welcome + the marketing line (or the recorded MP3), then "how can
  * I help" (AI mode) or "1 for French" (keypad mode), then the English and Spanish options in their own voices.
  */
 async function greet(call: IvrCall, s: IvrSettings): Promise<Response> {
   const ai = await ivrAiAvailable(s);
+  const ps = await getPhoneSettings();
   const welcome = `${s.greeting.fr} ${s.marketing.fr}`;
+  // Always said, even after a recorded MP3: the automated assistant, the call transcribed, 0 for a person.
+  const notice = disclosure(ps.persona, s, 'fr');
   const ask = ai ? s.askHelp.fr : 'Pour le français, faites le 1.';
-  const saved = await saveIvrCall(note({ ...call, state: 'greeting' }, 'agent', `${welcome} ${ask} For English, press 2. Para español, marque el 3.`));
+  const saved = await saveIvrCall(note({ ...call, state: 'greeting' }, 'agent', `${welcome} ${notice} ${ask} For English, press 2. Para español, marque el 3.`));
   const audio = s.audio.greeting.fr;
-  const intro = audio ? `${playX(audio)}${sayX(ask, s, 'fr')}` : sayX(`${welcome} ${ask}`, s, 'fr');
+  const intro = audio ? `${playX(audio)}${sayX(`${notice} ${ask}`, s, 'fr')}` : sayX(`${welcome} ${notice} ${ask}`, s, 'fr');
   const options = `${sayX('For English, say English or press 2.', s, 'en')}${sayX('Para español, diga español o marque el 3.', s, 'es')}`;
-  const multi = (await getPhoneSettings()).greetingMulti;
+  const multi = ps.greetingMulti;
   return twiml(await gatherX(`${intro}${options}`, s, saved.lang, { hints: `${levelHints(s.tree)}, English, español`, kind: 'conversation', multi }));
 }
 
@@ -217,7 +243,7 @@ async function repeatStep(call: IvrCall, s: IvrSettings, preface: string): Promi
 }
 
 async function onGreeting(call: IvrCall, s: IvrSettings, digits: string, speech: string, forAi: string): Promise<Response> {
-  if (digits && LANG_DIGIT[digits]) return afterLanguage(visit({ ...call, lang: LANG_DIGIT[digits] }, `lang_${LANG_DIGIT[digits]}`, 'keypad'), s, digits === '1' ? '' : SAY.langSet[LANG_DIGIT[digits]]);
+  if (digits && LANG_DIGIT[digits]) return afterLanguage(visit({ ...call, lang: LANG_DIGIT[digits] }, `lang_${LANG_DIGIT[digits]}`, 'keypad'), s, digits === '1' ? '' : await languageSet(s, LANG_DIGIT[digits]));
   if (digits === '*') return greet(call, s);
   if (digits) return runDigit({ ...call, state: 'menu', menu: '' }, s, digits);
   if (!speech) return silence(call, s);
@@ -225,13 +251,13 @@ async function onGreeting(call: IvrCall, s: IvrSettings, digits: string, speech:
   const asked = languageRequest(speech);
   if (asked) {
     const c = visit({ ...call, lang: asked.lang }, `lang_${asked.lang}`, 'speech');
-    if (asked.rest) return understand(c, s, asked.rest);
-    return afterLanguage(c, s, SAY.langSet[asked.lang]);
+    if (asked.rest) return switchedThen(c, s, call.lang, (x) => understand(x, s, asked.rest));
+    return afterLanguage(c, s, await languageSet(s, asked.lang));
   }
   // Without the AI, the language comes from the words themselves ("Bueno, quiero hacer una orden").
   if (!(await ivrAiAvailable(s))) {
     const guess = guessLanguage(speech);
-    if (guess && guess !== call.lang) return understand(visit({ ...call, lang: guess }, `lang_${guess}`, 'speech'), s, speech);
+    if (guess && guess !== call.lang) return switchedThen(visit({ ...call, lang: guess }, `lang_${guess}`, 'speech'), s, call.lang, (x) => understand(x, s, speech));
   }
   return understand({ ...call, state: 'ai' }, s, forAi);
 }
@@ -243,8 +269,8 @@ async function onAi(call: IvrCall, s: IvrSettings, digits: string, speech: strin
   const asked = languageRequest(speech);
   if (asked && asked.lang !== call.lang) {
     const c = visit({ ...call, lang: asked.lang }, `lang_${asked.lang}`, 'speech');
-    if (asked.rest) return understand(c, s, asked.rest);
-    return listenAi(c, s, `${SAY.langSet[asked.lang]} ${s.askHelp[asked.lang]}`);
+    if (asked.rest) return switchedThen(c, s, call.lang, (x) => understand(x, s, asked.rest));
+    return listenAi(c, s, `${await languageSet(s, asked.lang)} ${s.askHelp[asked.lang]}`);
   }
   return understand(call, s, forAi);
 }
@@ -254,9 +280,14 @@ async function onMenu(call: IvrCall, s: IvrSettings, digits: string, speech: str
   if (digits) return runDigit(call, s, digits);
   if (!speech) return silence(call, s);
   const asked = languageRequest(speech);
-  if (asked && !asked.rest) return keypadMenu(visit({ ...call, lang: asked.lang }, `lang_${asked.lang}`, 'speech'), s, call.menu, SAY.langSet[asked.lang]);
+  if (asked && !asked.rest) return keypadMenu(visit({ ...call, lang: asked.lang }, `lang_${asked.lang}`, 'speech'), s, call.menu, await languageSet(s, asked.lang));
   const words = asked?.rest || speech;
   const c = asked ? visit({ ...call, lang: asked.lang }, `lang_${asked.lang}`, 'speech') : call;
+  return switchedThen(c, s, call.lang, (x) => menuWords(x, s, words));
+}
+
+/** Words on a keypad menu: a platform name, a known request, or "not understood" (a person after three tries). */
+async function menuWords(c: IvrCall, s: IvrSettings, words: string): Promise<Response> {
   // On a platform submenu a platform name is enough.
   const platform = detectPlatform(words);
   const level = levelOf(s.tree, c.menu || null);
@@ -291,6 +322,8 @@ async function runDigit(call: IvrCall, s: IvrSettings, digits: string): Promise<
   const d = digits.slice(0, 1);
   const level = call.state === 'menu' ? call.menu : '';
   const node = digitNode(s.tree, level || null, d) ?? (level ? null : digitNode(s.tree, null, d));
+  // The greeting promises "0 for a person": it holds even when the tree has no (enabled) 0 option.
+  if (!node && d === '0') return dialPerson(call, s);
   if (!node) return keypadMenu({ ...call, tries: call.tries + 1 }, s, level, SAY.badKey[call.lang]);
   return runNode(call, s, node, 'keypad');
 }
@@ -549,8 +582,8 @@ async function handToOrdering(call: IvrCall, s: IvrSettings, preface: string): P
   const now = new Date().toISOString();
   // The menu's voices stay for the rest of the call (no voice change when the ordering assistant takes over).
   const voices = { voiceFr: s.voices.fr, voiceEn: s.voices.en, voiceEs: s.voices.es };
-  const persona = personaFor(ps.persona, s.voices.fr);
-  const intro = [preface, fill(SAY.orderIntro[call.lang], { S: selfIntro(persona, call.lang) })].filter(Boolean).join(' ');
+  const persona = personaFor(ps.persona, s.voices[call.lang]);
+  const intro = [preface, fill(SAY.orderIntro[call.lang], { S: selfIntro(persona, call.lang), N: ORDER_NOTICE[call.lang] })].filter(Boolean).join(' ');
   // Same CallSid: from here Twilio talks to the ordering agent (/webhooks/voice/turn); the order shows in Calls (AI).
   // A simulated or test call stays one: its order is never sent to Clover or the kitchen.
   const pc: PhoneCall = {

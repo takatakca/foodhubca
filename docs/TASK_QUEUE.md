@@ -1,5 +1,11 @@
 # FOODHUB — file de tâches coordonnée
 
+## Relève 2026-10-16 — nouvelle tâche UI indépendante
+
+- **FH-014 / UX accessibilité** : fenêtre modale/tiroir, ordre du focus, Tab/Shift+Tab, Échap réservé au premier plan, retour focus, blocage de défilement imbriqué. Prise sur `fix/overlay-keyboard-focus-20261016`. Les tests unitaires du moteur de focus sont ajoutés ; CI/revue et essai navigateur/tablette nécessaires. Aucune action réelle fournisseur ni modification de `main`.
+- Les PR #43, #45, #48, #50, #51, #52, #54, #55 et #61 demeurent indépendantes ; leurs responsables conservent leurs fichiers.
+
+
 **Reprise autorisée 2026-10-15** : FH-002 à FH-005 sont prises sur la PR #49 pour terminer la livraison native GitHub App → Coolify et prouver le SHA public. Accès/source/backup/santé configurés ; tests locaux réussis (807 unitaires, 536 E2E). La livraison finale reste à constater après fusion. Aucun changement aux intégrations réelles FH-006/FH-007. Le tableau du 2026-10-14 ci-dessous conserve son contexte historique.
 
 Mise à jour : 2026-10-14. Ce tableau public est une relève Git ; il **ne remplace pas** `private/TASKS.md` (tableau local git-ignoré) ni les branches actives des autres agents, conformément à `CLAUDE.md`.

@@ -43,7 +43,7 @@ export function SettingsHead({ title, intro, right }: { title: string; intro?: R
   return (
     <>
       <PageHeader
-        eyebrow={<Link href={href('/settings')} className="inline-flex h-8 items-center gap-1 rounded-md pr-2 normal-case tracking-normal text-brand hover:underline"><ArrowLeft className="size-3.5" />{t('Réglages', 'Settings')}</Link>}
+        eyebrow={<Link href={href('/settings')} className="-my-1.5 inline-flex min-h-11 items-center gap-1 rounded-md pr-2 normal-case tracking-normal text-brand hover:underline"><ArrowLeft className="size-3.5" />{t('Réglages', 'Settings')}</Link>}
         title={title} subtitle={intro} right={right} />
       {tabs.length > 1 && <LinkTabs tabs={tabs.map((p) => ({ href: p.href, label: t(p.fr, p.en) }))} />}
     </>

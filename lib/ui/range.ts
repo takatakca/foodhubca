@@ -29,16 +29,23 @@ export type Filters = { preset: RangePreset; from: string; to: string; locations
  * Period + location / platform / brand filters, kept in the URL so a view can be shared as a link.
  * `scope` / `brandScope` / `channelScope`: the console's location, brand and platform (header picker); when set they win
  * over the page's own pickers.
+ * `scopeOnly`: the page has no picker of its own (Orders → Historique): only the console's scope filters, and an old
+ * link's `?locations=` / `?brands=` / `?channels=` is dropped from the address instead of filtering with no visible chip.
  */
-export function useFilters(defaultPreset: RangePreset = '7d', scope: string[] = [], brandScope: string[] = [], channelScope: string[] = []) {
+export function useFilters(defaultPreset: RangePreset = '7d', scope: string[] = [], brandScope: string[] = [], channelScope: string[] = [], { scopeOnly = false }: { scopeOnly?: boolean } = {}) {
   const [f, setF] = useState<Filters>(() => ({ preset: defaultPreset, ...presetRange(defaultPreset), locations: [], channels: [], brands: [] }));
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     const preset = (q.get('range') as RangePreset) || defaultPreset;
     const custom = q.get('from') && q.get('to') ? { from: q.get('from')!, to: q.get('to')! } : undefined;
-    const split = (k: string) => (q.get(k) || '').split(',').filter(Boolean);
+    const split = (k: string) => (scopeOnly ? [] : (q.get(k) || '').split(',').filter(Boolean));
+    if (scopeOnly && ['locations', 'channels', 'brands'].some((k) => q.has(k))) {
+      for (const k of ['locations', 'channels', 'brands']) q.delete(k);
+      const s = q.toString();
+      window.history.replaceState(null, '', `${window.location.pathname}${s ? `?${s}` : ''}${window.location.hash}`);
+    }
     setF({ preset, ...presetRange(preset, custom), locations: split('locations'), channels: split('channels'), brands: split('brands') });
-  }, [defaultPreset]);
+  }, [defaultPreset, scopeOnly]);
   const set = useCallback((patch: Partial<Filters>) => {
     setF((cur) => {
       const next = { ...cur, ...patch };

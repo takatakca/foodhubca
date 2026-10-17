@@ -17,7 +17,7 @@ import { useScopedIncidents } from '@/components/live/scoped-incidents';
 import { useScopeLabel } from '@/components/shell/scope-switcher';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { api, ApiError, ago, timeOf } from '@/lib/ui/api';
-import { useI18n } from '@/lib/i18n/client';
+import { useI18n, useProduct } from '@/lib/i18n/client';
 import type { Incident } from '@/lib/foodhub/watch/types';
 import type { OutboxEntry } from '@/lib/foodhub/notify';
 import { cn } from '@/lib/ui/cn';
@@ -27,6 +27,7 @@ const SEV = { critical: 'bg-stop', warning: 'bg-wait', info: 'bg-info' } as cons
 
 export function AlertsView() {
   const { t, loc } = useI18n();
+  const product = useProduct();
   const { can, full } = useViewer();
   const { setSite } = usePulse();
   const label = useScopeLabel();
@@ -40,7 +41,8 @@ export function AlertsView() {
 
   // The alerts of the console's scope: location on the server, brand and platform here (an alert for the whole location
   // always shows). The bell keeps counting every alert of the location.
-  const { list, filtered, reload: load } = useScopedIncidents({ status: '', days: 3, poll: 10_000 });
+  const { list, filtered, reload: load } = useScopedIncidents({ status: '', days: 3, poll: 10_000, focusId: focus });
+  const seeAll = () => setSite({ kitchen: null, brand: null, channel: undefined });
   useEffect(() => { api<{ channels: Channels }>('/api/foodhub/watch/settings').then((d) => setChannels(d.channels)).catch(() => undefined); }, []);
   useEffect(() => { if (tab === 'messages') api<{ messages: OutboxEntry[] }>('/api/foodhub/messages').then((d) => setMessages(d.messages)).catch(() => undefined); }, [tab]);
 
@@ -56,7 +58,7 @@ export function AlertsView() {
 
   return (
     <div>
-      <PageHeader title={t('Alertes', 'Alerts')} subtitle={t('Food Hub surveille commandes, tablettes, magasins, Clover et paiements jour et nuit — et vous prévient : à l’écran, par texto, par appel, puis le propriétaire.', 'Food Hub watches orders, tablets, stores, Clover and payouts day and night — and alerts you: on screen, by text, by call, then the owner.')}
+      <PageHeader title={t('Alertes', 'Alerts')} subtitle={t(`${product.name} surveille commandes, tablettes, magasins, Clover et paiements jour et nuit — et vous prévient : à l’écran, par texto, par appel, puis le propriétaire.`, `${product.name} watches orders, tablets, stores, Clover and payouts day and night — and alerts you: on screen, by text, by call, then the owner.`)}
         right={<>{full && <Hint id="incident.check"><Button variant="outline" loading={busy} onClick={checkNow} icon={<RefreshCw className="size-4" />}>{t('Vérifier maintenant', 'Check now')}</Button></Hint>}<ButtonLink href="/settings/alerts" variant="primary" icon={<Settings2 className="size-4" />}>{t('Règles', 'Rules')}</ButtonLink></>} />
 
       {channels && (
@@ -72,13 +74,13 @@ export function AlertsView() {
       <Tabs className="mb-4" value={tab} onChange={setTab} tabs={[{ key: 'open', label: t('Ouvertes', 'Open'), count: open.length }, { key: 'resolved', label: t('Réglées (3 jours)', 'Fixed (3 days)'), count: resolved.length }, ...(can('stores:map') ? [{ key: 'messages' as const, label: t('Messages envoyés', 'Messages sent') }] : [])]} />
 
       {tab !== 'messages' && filtered && (
-        <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-3">{t(`Filtré : ${label.words}`, `Filtered: ${label.words}`)}<span aria-hidden>·</span><button type="button" onClick={() => setSite({ brand: null, channel: undefined })} className="min-h-11 font-semibold text-brand hover:underline">{t('Voir toutes les alertes', 'See every alert')}</button></div>
+        <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-3">{t(`Filtré : ${label.words}`, `Filtered: ${label.words}`)}<span aria-hidden>·</span><button type="button" onClick={seeAll} className="min-h-11 font-semibold text-brand hover:underline">{t('Voir toutes les alertes', 'See every alert')}</button></div>
       )}
       {tab !== 'messages' && (
         list === null ? <div className="space-y-3">{[0, 1, 2].map((i) => <div key={i} className="h-28 animate-pulse rounded-lg bg-sunken" />)}</div>
           : shown.length === 0 ? <Card>{filtered && tab === 'open'
-            ? <EmptyState icon={<ShieldCheck className="size-6 text-go" />} title={t(`Aucune alerte pour ${label.words}.`, `No alert for ${label.words}.`)} action={<Button variant="outline" size="lg" onClick={() => setSite({ brand: null, channel: undefined })}>{t('Voir toutes les alertes', 'See every alert')}</Button>} />
-            : <EmptyState icon={<ShieldCheck className="size-6 text-go" />} title={tab === 'open' ? t('Tout roule. Rien à faire.', 'All good. Nothing to do.') : t('Rien de réglé récemment', 'Nothing fixed recently')} body={tab === 'open' ? t('Food Hub continue de surveiller.', 'Food Hub keeps watching.') : undefined} />}</Card>
+            ? <EmptyState icon={<ShieldCheck className="size-6 text-go" />} title={t(`Aucune alerte pour ${label.words}.`, `No alert for ${label.words}.`)} action={<Button variant="outline" size="lg" onClick={seeAll}>{t('Voir toutes les alertes', 'See every alert')}</Button>} />
+            : <EmptyState icon={<ShieldCheck className="size-6 text-go" />} title={tab === 'open' ? t('Tout roule. Rien à faire.', 'All good. Nothing to do.') : t('Rien de réglé récemment', 'Nothing fixed recently')} body={tab === 'open' ? t(`${product.name} continue de surveiller.`, `${product.name} keeps watching.`) : undefined} />}</Card>
             : <div className="space-y-3">{shown.map((i) => <IncidentCard key={i.id} i={i} focus={focus === i.id} onChanged={load} />)}</div>
       )}
 

@@ -3,7 +3,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   alarmLocations, ALL_RESTAURANTS, brandHue, brandInitials, brandOpenState, brandRows, buildScopeCatalog, channelCounts, channelName, channelsOf, countStores, filterByScope, inScope,
-  inScopeLoose, isAllRestaurants, isEverything, parseScope, readRemembered, resolveScope, sameScope, scopeBrands, scopeChannels, scopeHref, scopeLocations, validScope, withScopeQuery,
+  inScopeLoose, isAllRestaurants, isEverything, parseScope, readRemembered, resolveScope, sameScope, scopeBrands, scopeChannels, scopeHref, scopeLocations, scopedAlerts, storesOfLocation,
+  validScope, withScopeQuery,
   type StorePoint,
 } from '../lib/foodhub/scope';
 import { averagePrepMinutes, buildCommandCenter, buildMatrix, requiredChannels } from '../lib/foodhub/command';
@@ -285,6 +286,36 @@ describe('platform scope (?channel=)', () => {
     expect(resolveScope({ url: ALL_RESTAURANTS, remembered: { kitchen: 'LOC_2', brand: 'Marque B', channel: 'skip' }, deviceKitchen: 'LOC_1', catalog: big }).scope).toEqual({ kitchen: 'LOC_1', brand: null });
   });
 
+  it('bulk pause under a platform scope sends only that platform’s store ids', () => {
+    const stores = [
+      { id: 'ua', brandName: 'Marque A', locationCode: 'LOC_1', channel: 'uber_eats' },
+      { id: 'da', brandName: 'Marque A', locationCode: 'LOC_1', channel: 'doordash' },
+      { id: 'sa', brandName: 'Marque A', locationCode: 'LOC_1', channel: 'skip' },
+      { id: 'db', brandName: 'Marque B', locationCode: 'LOC_1', channel: 'doordash' },
+      { id: 'd2', brandName: 'Marque A', locationCode: 'LOC_2', channel: 'doordash' },
+    ];
+    const ids = (scope: Parameters<typeof storesOfLocation>[2]) => storesOfLocation(stores, 'LOC_1', scope).map((s) => s.id);
+    expect(ids({ kitchen: null, brand: null, channel: 'doordash' })).toEqual(['da', 'db']);
+    expect(ids({ kitchen: 'LOC_1', brand: 'Marque A', channel: 'doordash' })).toEqual(['da']);
+    // No platform picked: every platform of the location, as before.
+    expect(ids({ kitchen: null, brand: null })).toEqual(['ua', 'da', 'sa', 'db']);
+    expect(ids({ kitchen: null, brand: 'Marque A' })).toEqual(['ua', 'da', 'sa']);
+  });
+
+  it('a remembered location plus ?i= for another location still shows that alert, first', () => {
+    const alerts = [
+      { id: 'a1', locationCode: 'LOC_1', brandName: null, channel: null },
+      { id: 'a2', locationCode: 'LOC_1', brandName: 'Marque A', channel: 'doordash' },
+      { id: 'w', locationCode: null, brandName: null, channel: null },
+    ];
+    const linked = { id: 'b1', locationCode: 'LOC_2', brandName: 'Marque B', channel: 'skip' };
+    const remembered = { kitchen: 'LOC_1', brand: 'Marque A', channel: 'doordash' };
+    expect(scopedAlerts(alerts, remembered, linked).map((a) => a.id)).toEqual(['b1', 'a1', 'a2', 'w']);
+    expect(scopedAlerts(alerts, remembered).map((a) => a.id)).toEqual(['a1', 'a2', 'w']);
+    // Listed once even when it is in the scope too.
+    expect(scopedAlerts([...alerts, linked], { kitchen: null, brand: null }, linked).map((a) => a.id)).toEqual(['b1', 'a1', 'a2', 'w']);
+  });
+
   it('the live alarms ignore brand and platform', () => {
     expect(alarmLocations({ kitchen: 'LOC_1', brand: 'Marque A', channel: 'uber_eats' })).toEqual(['LOC_1']);
     expect(alarmLocations({ kitchen: null, brand: 'Marque A', channel: 'uber_eats' })).toEqual([]);
@@ -382,6 +413,11 @@ describe('the dashboard for a platform scope', () => {
     expect(cc.matrix.every((r) => r.cells.uber_eats.state !== 'missing')).toBe(true);
     expect(cc.alerts.some((a) => a.id === 'deact:ch-db')).toBe(false);
     expect(cc.alerts.some((a) => a.id === 'missing:doordash' || a.id === 'missing:skip')).toBe(false);
+    // Marque B has no Uber Eats store: with Uber Eats picked, that is the "not connected" alert that matters.
+    const onlyB = await buildCommandCenter({ now, locationCodes: ['NDG_MAIN'], brandNames: ['Marque B'], channelKeys: ['uber_eats'] });
+    expect(onlyB.alerts.find((a) => a.id === 'missing:uber_eats')?.title).toBe('Uber Eats not connected for 1 brand/location');
+    const onlyA = await buildCommandCenter({ now, locationCodes: ['NDG_MAIN'], brandNames: ['Marque A'], channelKeys: ['uber_eats'] });
+    expect(onlyA.alerts.some((a) => a.id === 'missing:uber_eats')).toBe(false);
     // Without the platform scope, the DoorDash problem is there.
     const all = await buildCommandCenter({ now, locationCodes: ['NDG_MAIN'] });
     expect(all.alerts.some((a) => a.id === 'deact:ch-db')).toBe(true);

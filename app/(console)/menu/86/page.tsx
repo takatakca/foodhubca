@@ -62,7 +62,7 @@ export default function EightySix() {
       const d = await api<{ results: Result[] }>('/api/foodhub/availability', { method: 'POST', json: { brand, locationCode: location, itemRefs: [ref], available, minutes } });
       const bad = d.results.filter((r) => !r.result.ok);
       if (bad.length) toast.error(t(`${name} : ${bad.length} plateforme(s) ont refusé`, `${name}: ${bad.length} platform(s) refused`), bad.map((b) => `${b.channel}: ${b.result.message}`).join('\n'));
-      else toast.success(available ? t(`${name} de retour`, `${name} back on`) : t(`${name} en rupture`, `${name} 86'd`), d.results.length ? `${d.results.length} ${t('plateforme(s) mise(s) à jour', 'platform(s) updated')}` : t(`Aucun magasin branché ici — enregistré dans ${product.name} seulement.`, `No store connected here — saved in ${product.name} only.`));
+      else toast.success(available ? t(`${name} de retour`, `${name} back on`) : t(`${name} épuisé`, `${name} sold out`), d.results.length ? `${d.results.length} ${t('plateforme(s) mise(s) à jour', 'platform(s) updated')}` : t(`Aucun magasin branché ici — enregistré dans ${product.name} seulement.`, `No store connected here — saved in ${product.name} only.`));
       await load();
     } catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(null); }
   }
@@ -78,11 +78,11 @@ export default function EightySix() {
         <Hint id="menu86.return"><div className="flex items-center gap-2"><span className="text-[13px] font-semibold text-ink-3">{t('Retour', 'Back')} :</span><Chips size="sm" value={duration} onChange={setDuration} options={[{ value: 0, label: t('quand je le remets', 'when I turn it on') }, { value: 30, label: '30 min' }, { value: 60, label: '1 h' }, { value: 120, label: '2 h' }, { value: -1, label: t('fin de journée', 'end of day') }]} /></div></Hint>
       </div>
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <Hint id="menu86.tabs"><Tabs className="flex-1" value={tab} onChange={setTab} tabs={[{ key: 'items', label: t('Articles', 'Items'), count: menu?.items.length ?? 0 }, { key: 'options', label: t('Options', 'Options'), count: menu?.modifierGroups.reduce((s, g) => s + g.modifiers.length, 0) ?? 0 }, { key: 'off', label: t('En rupture', '86’d now'), count: offCount }]} /></Hint>
+        <Hint id="menu86.tabs"><Tabs className="flex-1" value={tab} onChange={setTab} tabs={[{ key: 'items', label: t('Articles', 'Items'), count: menu?.items.length ?? 0 }, { key: 'options', label: t('Options', 'Options'), count: menu?.modifierGroups.reduce((s, g) => s + g.modifiers.length, 0) ?? 0 }, { key: 'off', label: t('Épuisés maintenant', 'Sold out now'), count: offCount }]} /></Hint>
         <div className="relative w-full sm:w-64"><Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-3" /><Input className="pl-9" placeholder={t('Chercher', 'Search')} value={q} onChange={(e) => setQ(e.target.value)} /></div>
       </div>
       {!menu ? <div className="h-64 animate-pulse rounded-lg bg-sunken" /> : rows.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-line-2 px-6 py-14 text-center text-ink-3">{tab === 'off' ? t('Rien en rupture ici. 👍', 'Nothing 86’d here. 👍') : t('Aucun article. Importez le menu depuis Clover dans l’éditeur.', 'No items. Import the menu from Clover in the editor.')}</div>
+        <div className="rounded-xl border border-dashed border-line-2 px-6 py-14 text-center text-ink-3">{tab === 'off' ? t('Rien d’épuisé ici. 👍', 'Nothing sold out here. 👍') : t('Aucun article. Importez le menu depuis Clover dans l’éditeur.', 'No items. Import the menu from Clover in the editor.')}</div>
       ) : (
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {rows.map((r) => {
@@ -93,7 +93,7 @@ export default function EightySix() {
                 className={cn('flex min-h-24 flex-col items-start rounded-xl border-2 p-3.5 text-left transition-all active:scale-[0.98] disabled:opacity-60', off ? 'border-stop bg-stop-soft' : 'border-line bg-surface hover:border-ink-4')}>
                 <span className="flex w-full items-start justify-between gap-2"><span className={cn('text-[15px] leading-snug font-bold', off && 'text-stop-2 line-through decoration-2')}>{r.name}</span>{off ? <Ban className="size-5 shrink-0 text-stop" /> : <CheckCircle2 className="size-5 shrink-0 text-go/60" />}</span>
                 <span className="mt-auto pt-2 text-xs text-ink-3">{r.group}</span>
-                {off && <span className="mt-1 text-xs font-bold text-stop-2">{until ? t(`de retour à ${timeOf(new Date(until).toISOString(), loc)}`, `back at ${timeOf(new Date(until).toISOString(), loc)}`) : t('en rupture', '86’d')}</span>}
+                {off && <span className="mt-1 text-xs font-bold text-stop-2">{until ? t(`de retour à ${timeOf(new Date(until).toISOString(), loc)}`, `back at ${timeOf(new Date(until).toISOString(), loc)}`) : t('épuisé', 'sold out')}</span>}
               </button></Hint>
             );
           })}

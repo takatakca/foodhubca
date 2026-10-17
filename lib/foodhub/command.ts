@@ -280,8 +280,9 @@ export async function buildCommandCenter(opts: { now?: number; locationCodes?: s
 
   // ---------- Matrix ----------
   // Built from every platform of the scope, then (platform scope) only the lines that have a store on that platform.
-  const matrix = buildMatrix(scopeStores, LOCATIONS.map((l) => l.code), scope, required)
-    .filter((r) => brandOk(r.brandName) && (!channelScope || [...channelScope].some((ch) => r.cells[ch as ChannelKey] && r.cells[ch as ChannelKey].state !== 'missing')));
+  const fullMatrix = buildMatrix(scopeStores, LOCATIONS.map((l) => l.code), scope, required).filter((r) => brandOk(r.brandName));
+  const matrix = fullMatrix
+    .filter((r) => !channelScope || [...channelScope].some((ch) => r.cells[ch as ChannelKey] && r.cells[ch as ChannelKey].state !== 'missing'));
 
   // ---------- Alerts ----------
   const alerts: Alert[] = [];
@@ -327,8 +328,10 @@ export async function buildCommandCenter(opts: { now?: number; locationCodes?: s
     if (ps?.error && st.state !== 'deactivated') alerts.push({ id: `syncerr:${s.id}`, severity: 'warning', title: `Could not read ${name}`, detail: ps.error, href: '/settings/channels', at: ps.checkedAt });
   }
 
+  // Counted before the platform trim: with Uber Eats picked, a brand/location with no Uber Eats store is exactly what
+  // must show (the trimmed matrix only keeps the lines that have one).
   for (const ch of required.filter((c) => chOk(c))) {
-    const missing = matrix.filter((r) => r.cells[ch].state === 'missing').length;
+    const missing = fullMatrix.filter((r) => r.cells[ch].state === 'missing').length;
     if (missing) alerts.push({ id: `missing:${ch}`, severity: 'warning', title: `${CHANNEL_LABELS[ch]} not connected for ${missing} brand/location${missing > 1 ? 's' : ''}`, detail: required === REQUIRED_CHANNELS ? 'Required service (DoorDash + Uber Eats + SkipTheDishes for every brand/location). Map the store id under Stores.' : 'Map the store id under Stores.', href: '/stores' });
   }
   const ddSeedDeact = chOk('doordash') ? matrix.filter((r) => r.cells.doordash.source === 'screenshot' && r.cells.doordash.state === 'deactivated').length : 0;

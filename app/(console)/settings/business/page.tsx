@@ -55,7 +55,7 @@ export default function BusinessPage() {
 
   return (
     <div>
-      <SettingsHead title={t('Entreprise', 'Business')} intro={t('Vos succursales et vos marques : elles alimentent les restaurants, les heures, l’équipe et les rapports.', 'Your locations and your brands: they feed the restaurants, the hours, the team and the reports.')} />
+      <SettingsHead title={t('Entreprise', 'Business')} intro={t('Vos succursales et vos marques : elles alimentent les restaurants, les heures, l’équipe et les rapports.', 'Your locations and your brands: they set up your restaurants, hours, team and reports.')} />
       <div className="max-w-5xl">
       {err && !loc && <Banner tone="stop" className="mb-4">{err}</Banner>}
 

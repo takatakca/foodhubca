@@ -326,8 +326,8 @@ export const HINTS: Record<string, HintEntry> = {
     body: ['Cache les barres du navigateur pour donner plus de place aux commandes. « Quitter » pour en sortir.', 'Hides the browser bars to give the orders more room. “Exit” to leave.'],
   },
   'menu86.toggle': {
-    title: ['En rupture d’un geste', '86 in one tap'],
-    body: ['Touchez un article : il disparaît d’Uber Eats, DoorDash et Skip à cette succursale. Touchez-le encore pour le remettre. En rouge = en rupture.', 'Tap an item: it disappears from Uber Eats, DoorDash and Skip at this location. Tap it again to bring it back. Red = 86’d.'],
+    title: ['Épuisé d’un geste', 'Sold out in one tap'],
+    body: ['Touchez un article : il disparaît d’Uber Eats, DoorDash et Skip à cette succursale. Touchez-le encore pour le remettre. En rouge = épuisé.', 'Tap an item: it disappears from Uber Eats, DoorDash and Skip at this location. Tap it again to bring it back. Red = sold out.'],
   },
   'menu86.return': {
     title: ['Retour automatique', 'Automatic return'],
@@ -335,11 +335,11 @@ export const HINTS: Record<string, HintEntry> = {
   },
   'menu86.location': {
     title: ['La bonne succursale', 'The right location'],
-    body: ['Une rupture vaut pour une seule succursale. Vérifiez que c’est la bonne avant de toucher. Une tablette de cuisine reste sur sa succursale.', 'An 86 applies to one location only. Check it’s the right one before tapping. A kitchen tablet stays on its own location.'],
+    body: ['Un article épuisé l’est dans une seule succursale. Vérifiez que c’est la bonne avant de toucher. Une tablette de cuisine reste sur sa succursale.', 'Sold out applies to one location only. Check it’s the right one before tapping. A kitchen tablet stays on its own location.'],
   },
   'menu86.tabs': {
-    title: ['Articles, options, en rupture', 'Items, options, 86’d now'],
-    body: ['Les options, ce sont les sauces, tailles et extras. « En rupture » montre tout ce qui est retiré pour cette marque à cette succursale : touchez pour le remettre.', 'Options are sauces, sizes and extras. “86’d now” shows everything off for this brand at this location: tap to bring it back.'],
+    title: ['Articles, options, épuisés', 'Items, options, sold out now'],
+    body: ['Les options, ce sont les sauces, tailles et extras. « Épuisés maintenant » montre tout ce qui est retiré pour cette marque à cette succursale : touchez pour le remettre.', 'Options are sauces, sizes and extras. “Sold out now” shows everything off for this brand at this location: tap to bring it back.'],
   },
   'incident.card': {
     title: ['Une alerte', 'An alert'],
@@ -453,10 +453,10 @@ export const PAGES: PageHelp[] = [
     title: ['Épuisés', 'Sold out'],
     intro: ['Un article manque ? Touchez-le : il disparaît d’Uber Eats, DoorDash et Skip à cette succursale. Choisissez d’abord s’il revient tout seul.', 'Out of something? Tap it: it disappears from Uber Eats, DoorDash and Skip at this location. Pick first whether it comes back by itself.'],
     steps: [
-      { target: 'menu86.location', title: ['La succursale', 'The location'], body: ['Une rupture vaut pour une seule succursale. Vérifiez-la avant de toucher.', 'An 86 applies to one location. Check it before tapping.'] },
+      { target: 'menu86.location', title: ['La succursale', 'The location'], body: ['Un article épuisé l’est dans une seule succursale. Vérifiez-la avant de toucher.', 'Sold out applies to one location. Check it before tapping.'] },
       { target: 'menu86.return', title: ['Retour automatique', 'Automatic return'], body: ['30 min, 1 h, 2 h ou fin de journée : l’article revient tout seul. Sinon, il reste retiré jusqu’à ce que vous le remettiez.', '30 min, 1 h, 2 h or end of day: the item comes back by itself. Otherwise it stays off until you bring it back.'] },
       { target: 'menu86.toggle', title: ['Un geste', 'One tap'], body: ['Touchez l’article : il passe en rouge et disparaît des plateformes. Touchez encore pour le remettre.', 'Tap the item: it turns red and disappears from the platforms. Tap again to bring it back.'] },
-      { target: 'menu86.tabs', title: ['Ce qui est en rupture', 'What’s 86’d'], body: ['« En rupture » liste tout ce qui est retiré pour cette marque à cette succursale.', '“86’d now” lists everything off for this brand at this location.'] },
+      { target: 'menu86.tabs', title: ['Ce qui est épuisé', 'What’s sold out'], body: ['« Épuisés maintenant » liste tout ce qui est retiré pour cette marque à cette succursale.', '“Sold out now” lists everything off for this brand at this location.'] },
     ],
     tips: [['DoorDash n’a pas de minuterie : TAKATAK remet l’article lui-même à l’heure prévue.', 'DoorDash has no timer: TAKATAK turns the item back on itself at the planned time.']],
   },

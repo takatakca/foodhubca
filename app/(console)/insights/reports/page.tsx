@@ -37,7 +37,7 @@ const FR: Record<string, [string, string]> = {
 
 export default function ReportsPage() {
   const { t, lang, loc } = useI18n();
-  const { can, locations, brands, locName } = useViewer();
+  const { can, full, locations, brands, locName } = useViewer();
   // Emailing and scheduling a report need finance:edit on the server (owner, manager); an accountant / analyst downloads.
   const canSend = can('finance:edit');
   const { scope, brands: brandScope, channels: channelScope } = usePulse();
@@ -60,10 +60,12 @@ export default function ReportsPage() {
   const FREQ = { daily: t('Chaque jour (la veille)', 'Daily (yesterday)'), weekly: t('Chaque lundi (semaine passée)', 'Mondays (last week)'), monthly: t('Le 1er du mois (mois passé)', 'The 1st (last month)') };
   return (
     <div>
-      <PageHeader title={t('Ventes et tendances', 'Sales & trends')} subtitle={t('Téléchargez n’importe quel rapport pour la période choisie, envoyez-le maintenant ou chaque jour, semaine ou mois.', 'Download any report for the chosen period, email it now, or every day, week or month.')} />
+      <PageHeader title={t('Rapports détaillés', 'Detailed reports')} subtitle={t('Téléchargez n’importe quel rapport pour la période choisie, envoyez-le maintenant ou chaque jour, semaine ou mois.', 'Download any report for the chosen period, email it now, or every day, week or month.')} />
       <InsightsTabs />
       {emailOn && !canSend && <Banner tone="info" className="mb-4">{t('Envoyer ou programmer un rapport : réservé au propriétaire et aux gérants. Les téléchargements marchent pour tous.', 'Emailing or scheduling a report: owner and managers only. Downloads work for everyone.')}</Banner>}
-      {!emailOn && <Banner tone="warn" className="mb-4">{t('Courriel pas branché : les téléchargements marchent, mais « Envoyer » et les envois programmés demandent SMTP_HOST + SMTP_USER + SMTP_PASS (votre boîte courriel) ou RESEND_API_KEY, et REPORT_EMAIL_FROM (ou AUTH_EMAIL_FROM).', 'Email not set up: downloads work, but “Email” and schedules need SMTP_HOST + SMTP_USER + SMTP_PASS (your own mailbox) or RESEND_API_KEY, and REPORT_EMAIL_FROM (or AUTH_EMAIL_FROM).')}</Banner>}
+      {/* The simple view says it in plain words; the setup names are for the technician (full view, owner). */}
+      {!emailOn && !(full && can('admin')) && <Banner tone="info" className="mb-4">{t('Envoi par courriel pas encore activé : les téléchargements marchent.', 'Sending by email is not turned on yet: downloads work.')}</Banner>}
+      {!emailOn && full && can('admin') && <Banner tone="warn" className="mb-4">{t('Courriel pas branché : les téléchargements marchent, mais « Envoyer » et les envois programmés demandent SMTP_HOST + SMTP_USER + SMTP_PASS (votre boîte courriel) ou RESEND_API_KEY, et REPORT_EMAIL_FROM (ou AUTH_EMAIL_FROM).', 'Email not set up: downloads work, but “Email” and schedules need SMTP_HOST + SMTP_USER + SMTP_PASS (your own mailbox) or RESEND_API_KEY, and REPORT_EMAIL_FROM (or AUTH_EMAIL_FROM).')}</Banner>}
       <Hint id="reports.period"><FilterBar filters={filters} set={set} locations={locations} brands={brands} /></Hint>
       <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {reports.map((r) => (

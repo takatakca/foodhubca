@@ -38,7 +38,7 @@ export default function InsightsPage() {
   const points = useMemo(() => (data?.daily ?? []).map((d) => ({ label: d.date, cur: metric === 'sales' ? d.sales : d.orders, prev: metric === 'sales' ? d.prevSales : d.prevOrders })), [data, metric]);
   const k = data?.kpis;
   const table = (rows: Group[], name: string) => ({ columns: [name, t('Ventes', 'Sales'), t('Commandes', 'Orders'), t('Panier', 'Avg'), '%', t('vs préc. %', 'vs prev %'), t('Annulées', 'Cancelled'), t('Perdu', 'Lost')], rows: rows.map((g) => [g.label, fmtMoney(g.sales), g.orders, fmtMoney(g.aov), `${g.share}%`, `${g.change > 0 ? '+' : ''}${g.change}%`, g.lostOrders, fmtMoney(g.lostRevenue)]), filename: `takatak-${name}` });
-  const bars = (rows: Group[]) => rows.map((g) => ({ label: g.label, value: g.sales, detail: `${g.orders} ${t('cmd', 'orders')} · ${g.share}% · ${g.change > 0 ? '+' : ''}${g.change}%` }));
+  const bars = (rows: Group[]) => rows.map((g) => ({ label: g.label, value: g.sales, detail: `${g.orders} ${t('commandes', 'orders')} · ${g.share}% · ${g.change > 0 ? '+' : ''}${g.change}%` }));
   const WHO: Record<string, string> = { store: t('Vous (magasin)', 'You (store)'), platform: t('Plateforme', 'Platform'), customer: t('Client', 'Customer'), unknown: t('Non précisé', 'Not reported') };
   const STAGE: Record<string, string> = { before_accept: t('Avant acceptation', 'Before accepting'), after_accept: t('Après acceptation', 'After accepting'), unknown: t('Non précisé', 'Not reported') };
 
@@ -56,7 +56,7 @@ export default function InsightsPage() {
             <StatTile hero label={t('Ventes', 'Sales')} value={fmtMoney(k.sales.value)} change={k.sales.change} previous={fmtMoney(k.sales.previous)} />
             <StatTile label={t('Commandes', 'Orders')} value={fmtInt(k.orders.value)} change={k.orders.change} previous={fmtInt(k.orders.previous)} />
             <StatTile label={t('Panier moyen', 'Average order')} value={fmtMoney(k.aov.value)} change={k.aov.change} previous={fmtMoney(k.aov.previous)} />
-            <StatTile label={t('Ventes perdues (annulées)', 'Lost sales (cancelled)')} value={fmtMoney(k.lostRevenue.value)} change={k.lostRevenue.change} previous={fmtMoney(k.lostRevenue.previous)} upIsGood={false} note={`${k.lostOrders.value} ${t('cmd', 'orders')} · ${k.cancelRate.value}%`} />
+            <StatTile label={t('Ventes perdues (annulées)', 'Lost sales (cancelled)')} value={fmtMoney(k.lostRevenue.value)} change={k.lostRevenue.change} previous={fmtMoney(k.lostRevenue.previous)} upIsGood={false} note={`${k.lostOrders.value} ${t('commandes', 'orders')} · ${k.cancelRate.value}%`} />
             <StatTile label={t('Temps pour accepter', 'Time to accept')} value={mins(k.avgAcceptMin.value)} change={k.avgAcceptMin.change} previous={mins(k.avgAcceptMin.previous)} upIsGood={false} note={`${k.autoAcceptRate.value}% ${t('automatique', 'automatic')}`} />
             <StatTile label={t('Temps de préparation', 'Prep time')} value={k.avgPrepMin.value ? mins(k.avgPrepMin.value) : '—'} change={k.avgPrepMin.value ? k.avgPrepMin.change : undefined} previous={mins(k.avgPrepMin.previous)} upIsGood={false} note={t('acceptée → prête', 'accepted → ready')} />
             <StatTile label={t('Magasins ouverts (heures)', 'Store uptime (open hours)')} value={`${data.uptime.overallPct}%`} note={`${mins(data.uptime.offlineMinutes)} ${t('hors ligne', 'offline')}`} />

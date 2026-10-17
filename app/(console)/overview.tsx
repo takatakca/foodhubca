@@ -23,7 +23,7 @@ import { shortLoc, useViewer } from '@/components/shell/viewer';
 import type { CommandCenter } from '@/lib/foodhub/command';
 import type { OnboardingStep } from '@/lib/foodhub/onboarding';
 import { brandRows, channelName, type CellState } from '@/lib/foodhub/scope';
-import { api, money } from '@/lib/ui/api';
+import { api, money, moneyShort } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
 
@@ -91,19 +91,23 @@ export function Overview({ steps }: { steps?: OnboardingStep[] | null }) {
       <GettingStarted steps={steps} />
 
       {/* The four numbers of the scope */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Kpi icon={<Wallet className="size-4" />} label={salesLabel} value={sales === null ? null : money(sales, loc)}
+      {/* Four columns only from xl: at lg the rail is open and a card would be too narrow for "12 345 $". */}
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        <Kpi icon={<Wallet className="size-4" />} label={salesLabel} value={sales === null ? null : moneyShort(sales, loc)} exact={sales === null ? undefined : money(sales, loc)} href={href('/orders?view=history')}
           note={<>
             {vs !== null ? <span className={cn('inline-flex items-center gap-1 font-semibold', vs >= 0 ? 'text-go-2' : 'text-stop-2')}>{vs >= 0 ? <TrendingUp className="size-3.5" /> : <TrendingDown className="size-3.5" />}{vs > 0 ? '+' : ''}{vs}% {t('vs hier', 'vs yesterday')}</span> : k ? t('rien hier à la même heure', 'nothing yesterday at this time') : null}
             {k && !narrowed && k.inStore > 0 && <span className="block">{t(`dont ${money(k.inStore, loc)} en salle (Clover)`, `incl. ${money(k.inStore, loc)} in store (Clover)`)}</span>}
           </>} />
         <Kpi icon={<Receipt className="size-4" />} label={t('Commandes', 'Orders')} value={k ? String(k.deliveryOrders) : null} href={href('/orders')}
-          note={k ? (k.deliveryOrders ? t(`panier moyen ${money(k.avgTicket, loc)}`, `average ${money(k.avgTicket, loc)}`) : t('aucune pour l’instant', 'none yet')) : null} />
-        <Kpi icon={<Timer className="size-4" />} label={t('Préparation moyenne', 'Average prep')} value={k ? (k.avgPrepMin === null ? '—' : k.avgPrepMin < 1 ? '< 1 min' : `${k.avgPrepMin} min`) : null}
-          note={k ? (target ? t(`objectif ${target.minutes} min${target.isBusy ? ' (occupé)' : ''}`, `target ${target.minutes} min${target.isBusy ? ' (busy)' : ''}`) : t('acceptée → prête', 'accepted → ready')) : null}
+          note={k ? (k.deliveryOrders ? t(`panier moyen ${money(k.avgTicket, loc)}`, `avg. order ${money(k.avgTicket, loc)}`) : t('aucune pour l’instant', 'none yet')) : null} />
+        <Kpi icon={<Timer className="size-4" />} label={t('Préparation', 'Prep time')} value={k ? (k.avgPrepMin === null ? '—' : k.avgPrepMin < 1 ? '< 1 min' : `${k.avgPrepMin} min`) : null} href={href('/orders')}
+          note={k ? (target ? t(`moyenne · objectif ${target.minutes} min${target.isBusy ? ' (occupé)' : ''}`, `average · target ${target.minutes} min${target.isBusy ? ' (busy)' : ''}`) : t('moyenne, acceptée → prête', 'average, accepted → ready')) : null}
           tone={k && target && k.avgPrepMin !== null && k.avgPrepMin > target.minutes ? 'wait' : undefined} />
-        <Kpi icon={<Store className="size-4" />} label={t('Magasins ouverts', 'Stores open')} value={k ? `${k.storesOnline}/${k.storesMapped}` : null} href={href('/stores/list')}
-          note={k ? (k.storesPaused || k.storesDeactivated ? <span className="font-semibold text-wait-2">{[k.storesPaused ? t(`${k.storesPaused} en pause`, `${k.storesPaused} paused`) : '', k.storesDeactivated ? t(`${k.storesDeactivated} désactivé${k.storesDeactivated > 1 ? 's' : ''}`, `${k.storesDeactivated} deactivated`) : ''].filter(Boolean).join(' · ')}</span> : k.storesMapped ? t('tous ouverts', 'all open') : t('aucun magasin branché', 'no store connected')) : null} />
+        <Kpi icon={<Store className="size-4" />} label={t('Magasins', 'Stores')} value={k ? `${k.storesOnline}/${k.storesMapped}` : null} href={href('/stores/list')}
+          note={k ? (k.storesMapped ? <>
+            {t('ouverts', 'open')}
+            {(k.storesPaused > 0 || k.storesDeactivated > 0) && <span className="font-semibold text-ink-2"> · <span aria-hidden className="mr-1 inline-block size-2 rounded-full bg-wait align-middle" />{[k.storesPaused ? t(`${k.storesPaused} en pause`, `${k.storesPaused} paused`) : '', k.storesDeactivated ? t(`${k.storesDeactivated} désactivé${k.storesDeactivated > 1 ? 's' : ''}`, `${k.storesDeactivated} deactivated`) : ''].filter(Boolean).join(' · ')}</span>}
+          </> : t('aucun magasin branché', 'no store connected')) : null} />
       </div>
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.45fr_1fr]">
@@ -145,7 +149,7 @@ export function Overview({ steps }: { steps?: OnboardingStep[] | null }) {
               <Card className="p-5">
                 <h2 className="mb-3 text-[15px] font-bold">{site.brand ? t('Par plateforme', 'By platform') : t('Meilleures marques', 'Top brands')}</h2>
                 {!cc ? <Skeleton className="h-52" /> : site.brand
-                  ? <HBars rows={cc.channels.filter((c) => c.orders).map((c) => ({ label: c.label, value: c.sales, detail: `${c.orders} ${t('commandes', 'orders')}` }))} format={(n) => money(n, loc)} empty={t('Pas encore de ventes aujourd’hui.', 'No sales yet today.')} />
+                  ? <HBars rows={cc.channels.filter((c) => c.orders).map((c) => ({ label: channelName(c.channel), value: c.sales, detail: `${c.orders} ${t('commandes', 'orders')}` }))} format={(n) => money(n, loc)} empty={t('Pas encore de ventes aujourd’hui.', 'No sales yet today.')} />
                   : <HBars rows={cc.byBrand.slice(0, 8).map((b) => ({ label: brandLabel(b.brandName), value: b.sales, detail: `${b.orders} ${t('commandes', 'orders')}` }))} format={(n) => money(n, loc)} empty={t('Pas encore de ventes aujourd’hui.', 'No sales yet today.')} />}
               </Card>
             </div>
@@ -165,15 +169,21 @@ function NoBrandHere() {
   return <EmptyState icon={<Store className="size-6" />} title={t('Aucune marque n’est encore branchée ici.', 'No brand connected here yet.')} action={<ButtonLink href={href('/stores/list')} variant="outline" size="lg">{t('Voir les magasins', 'See the stores')}</ButtonLink>} />;
 }
 
-function Kpi({ icon, label, value, note, href, tone, className }: { icon: ReactNode; label: string; value: string | null; note?: ReactNode; href?: string; tone?: 'stop' | 'wait'; className?: string }) {
+/**
+ * One big number. Sized to its card: a phone card is about 130 px wide inside, so the number scales with the screen
+ * (clamp) and wraps rather than spilling into the next card; the label wraps to two lines rather than being cut.
+ * `exact`: the full amount (cents) when the number is rounded, for the tooltip and screen readers.
+ */
+function Kpi({ icon, label, value, exact, note, href, tone, className }: { icon: ReactNode; label: string; value: string | null; exact?: string; note?: ReactNode; href?: string; tone?: 'stop' | 'wait'; className?: string }) {
   const body = (
-    <div className={cn('h-full rounded-md border bg-surface p-4 transition-colors sm:p-5', tone === 'stop' ? 'border-stop/40' : tone === 'wait' ? 'border-wait/40' : 'border-line', href && 'hover:border-brand/40', className)}>
-      <div className="flex items-center gap-1.5 text-[14px] font-semibold text-ink-2">{icon}<span className="truncate">{label}</span></div>
-      {value === null ? <Skeleton className="mt-2 h-9 w-24" /> : <div className={cn('num mt-1 text-[30px] leading-tight font-extrabold tracking-tight sm:text-[34px]', tone === 'stop' ? 'text-stop' : tone === 'wait' ? 'text-wait-2' : 'text-ink')}>{value}</div>}
-      <div className="mt-1 min-h-4 text-xs text-ink-3">{note ?? (value === null ? <Skeleton className="h-3 w-24" /> : null)}</div>
+    <div className={cn('h-full min-w-0 rounded-md border bg-surface p-4 transition-colors sm:p-5', tone === 'stop' ? 'border-stop/40' : tone === 'wait' ? 'border-wait/40' : 'border-line', href && 'hover:border-brand/40', className)}>
+      <div className="flex items-start gap-1.5 text-[14px] leading-snug font-semibold text-ink-2"><span className="mt-0.5 shrink-0">{icon}</span><span className="min-w-0">{label}</span></div>
+      {value === null ? <Skeleton className="mt-2 h-9 w-24" />
+        : <div title={exact} className={cn('num mt-1 min-w-0 text-[clamp(22px,6vw,30px)] leading-tight font-extrabold tracking-tight [overflow-wrap:anywhere] sm:text-[30px] 2xl:text-[34px]', tone === 'stop' ? 'text-stop' : tone === 'wait' ? 'text-wait-2' : 'text-ink')}>{value}{exact && exact !== value && <span className="sr-only"> ({exact})</span>}</div>}
+      <div className="mt-1 min-h-4 text-xs leading-snug text-ink-3">{note ?? (value === null ? <Skeleton className="h-3 w-24" /> : null)}</div>
     </div>
   );
-  return href ? <Link href={href} className={cn('block', className)}>{body}</Link> : body;
+  return href ? <Link href={href} className={cn('block min-w-0', className)}>{body}</Link> : body;
 }
 
 /** "À faire": the alerts of the scope (brand and platform filtered loosely: an alert for the whole location stays). */
@@ -185,7 +195,7 @@ function ToDo() {
   const critical = (list ?? []).some((i) => i.severity === 'critical');
   return (
     <Card>
-      <CardHeader title={<span className="flex items-center gap-2">{t('À faire', 'To do')}{list && list.length > 0 && <span className={cn('num rounded-full px-2 text-xs leading-5 font-bold text-white', critical ? 'bg-stop' : 'bg-wait')}>{list.length}</span>}</span>}
+      <CardHeader title={<span className="flex items-center gap-2">{t('À faire', 'To do')}{list && list.length > 0 && <span className={cn('num rounded-full px-2 text-xs leading-5 font-bold', critical ? 'bg-stop-2 text-white' : 'bg-wait text-rail')}>{list.length}</span>}</span>}
         subtitle={filtered ? t(`Filtré : ${label.words}`, `Filtered: ${label.words}`) : undefined}
         icon={<BellRing className="size-5" />} right={<Link href={href('/alerts')} className="flex h-11 items-center gap-1 rounded-md px-2 text-[13px] font-semibold text-brand hover:bg-brand-soft">{t('Tout voir', 'See all')}<ArrowRight className="size-4" /></Link>} />
       <div className="divide-y divide-line border-t border-line">
@@ -272,7 +282,7 @@ function Kitchens({ cc, onOpen }: { cc: CommandCenter | null; onOpen: (code: str
               </span>
               <span className="w-24 text-right sm:w-28">
                 <span className="num block text-[15px] font-extrabold">{money((stats?.sales ?? 0) + (stats?.inStore ?? 0), loc)}</span>
-                <span className="block text-xs text-ink-3">{stats?.orders ?? 0} {t('cmd', 'orders')}</span>
+                <span className="block text-xs text-ink-3">{stats?.orders ?? 0} {t('commandes', 'orders')}</span>
               </span>
               <ChevronRight className="size-4 shrink-0 text-ink-4 group-hover:text-ink-2" />
             </button>
@@ -308,7 +318,7 @@ function BrandPlatforms({ cc, brand }: { cc: CommandCenter | null; brand: string
                   <div key={ch} className="flex items-center gap-3 px-5 py-3.5">
                     <PlatformStateDot channel={ch} state={(c?.state ?? 'missing') as CellState} />
                     <span className="min-w-0">
-                      <span className="block text-sm font-bold">{{ uber_eats: 'Uber Eats', doordash: 'DoorDash', skip: 'SkipTheDishes', tgtg: 'Too Good To Go' }[ch]}</span>
+                      <span className="block text-sm font-bold">{channelName(ch)}</span>
                       <span className="block truncate text-xs text-ink-3" title={c?.detail}>{cellText(t, (c?.state ?? 'missing') as CellState)}{c?.source === 'screenshot' ? ` · ${t('pas encore vérifié', 'not verified yet')}` : ''}</span>
                     </span>
                   </div>
@@ -364,7 +374,7 @@ function Connections() {
               <div key={p.channel} className="bg-surface px-4 py-3">
                 <div className="flex items-center gap-2"><PlatformMark channel={p.channel} size="sm" /><span className="truncate text-sm font-bold">{p.label}</span></div>
                 <div className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold"><StatusDot tone={tone === 'info' ? 'info' : tone} />{m}</div>
-                <div className="mt-0.5 text-[11px] text-ink-3">{p.stores} {t('magasin(s)', 'store(s)')} · {t('dernière cmd', 'last order')} {ago(p.lastOrderAt)}</div>
+                <div className="mt-0.5 text-[11px] text-ink-3">{p.stores} {t('magasin(s)', 'store(s)')} · {t('dernière commande', 'last order')} {ago(p.lastOrderAt)}</div>
               </div>
             );
           })}

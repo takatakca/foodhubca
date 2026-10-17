@@ -68,13 +68,16 @@ export function ScopeSwitcher() {
   const wide = useWide();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
   const locked = Boolean(viewer.device);
   const { t } = useI18n();
+  /** Closed by Esc or by a pick: focus goes back to the picker's button (a click elsewhere keeps the focus there). */
+  const close = () => { setOpen(false); requestAnimationFrame(() => trigger.current?.focus({ preventScroll: true })); };
 
   useEffect(() => {
     if (!open || !wide) return;
     const click = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { setOpen(false); trigger.current?.focus({ preventScroll: true }); } };
     document.addEventListener('mousedown', click);
     document.addEventListener('keydown', key);
     return () => { document.removeEventListener('mousedown', click); document.removeEventListener('keydown', key); };
@@ -96,18 +99,19 @@ export function ScopeSwitcher() {
 
   return (
     <div className="relative min-w-0" ref={ref}>
-      <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-haspopup="dialog"
+      <button ref={trigger} type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-haspopup="dialog"
         className={cn('flex h-12 min-w-0 items-center gap-2 rounded-lg border border-transparent px-1.5 pr-2 hover:border-line hover:bg-surface', open && 'border-line bg-surface')}>
         {button}<ChevronDown className={cn('size-4 shrink-0 text-ink-3 transition-transform', open && 'rotate-180')} />
       </button>
       {open && (wide ? (
-        <div role="dialog" aria-modal="true" aria-label={t('Choisir un restaurant', 'Choose a restaurant')}
+        // A popover, not a modal: the page stays usable around it (no aria-modal), Tab can leave it.
+        <div role="dialog" aria-label={t('Choisir un restaurant', 'Choose a restaurant')}
           className="absolute top-14 left-0 z-50 flex max-h-[min(72vh,600px)] w-[min(26rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop animate-rise">
-          <ScopePanel onDone={() => setOpen(false)} />
+          <ScopePanel onDone={close} />
         </div>
       ) : (
-        <Modal title={t('Choisir un restaurant', 'Choose a restaurant')} onClose={() => setOpen(false)} className="max-h-[85dvh]">
-          <div className="-mx-5 -my-4 flex flex-col"><ScopePanel onDone={() => setOpen(false)} /></div>
+        <Modal title={t('Choisir un restaurant', 'Choose a restaurant')} onClose={close} className="max-h-[85dvh]">
+          <div className="-mx-5 -my-4 flex flex-col"><ScopePanel onDone={close} /></div>
         </Modal>
       ))}
     </div>
@@ -116,7 +120,7 @@ export function ScopeSwitcher() {
 
 function ScopePanel({ onDone }: { onDone: () => void }) {
   const { t } = useI18n();
-  const { locations, brandsByKitchen, brands, channels, stores } = useViewer();
+  const { locations, brandsByKitchen, brands, channels, stores, allLocations } = useViewer();
   const { site, setSite } = usePulse();
   const [q, setQ] = useState('');
   const [expanded, setExpanded] = useState<string | null>(() => site.kitchen ?? null);
@@ -142,10 +146,13 @@ function ScopePanel({ onDone }: { onDone: () => void }) {
 
   const chips = channelCounts({ stores, channels }, site);
   const total = chips.reduce((a, c) => a + c.count, 0);
+  // With a platform picked, a location or a brand without a store on it cannot be picked: it would drop the platform
+  // without a word (the platform chips with 0 stores are disabled the same way).
+  const noneOnPlatform = (s: Scope) => Boolean(ch && counted && count(s) === 0);
   const brandRow = (kitchen: string | null, b: string, indent?: boolean) => {
     const n = count({ kitchen, brand: b, channel: ch });
     return (
-      <Row key={`${kitchen}|${b}`} indent={indent} on={sameScope(site, { kitchen, brand: b, ...(ch ? { channel: ch } : {}) })} onClick={() => pick({ kitchen, brand: b })}>
+      <Row key={`${kitchen}|${b}`} indent={indent} on={sameScope(site, { kitchen, brand: b, ...(ch ? { channel: ch } : {}) })} disabled={noneOnPlatform({ kitchen, brand: b, channel: ch })} onClick={() => pick({ kitchen, brand: b })}>
         <BrandMark name={b} size="xs" /><span className="min-w-0 flex-1 truncate font-semibold">{b}</span>
         {counted && <span className="shrink-0 text-xs text-ink-3">{storesText(t, n)}</span>}
       </Row>
@@ -163,11 +170,12 @@ function ScopePanel({ onDone }: { onDone: () => void }) {
       {!results && channels.length >= 2 && (
         <div className="border-b border-line px-2 py-2.5">
           <div className="mb-1.5 px-1 text-[11px] font-bold tracking-[0.12em] text-ink-3 uppercase">{t('Plateforme', 'Platform')}</div>
-          <div className="no-scrollbar flex gap-1.5 overflow-x-auto pb-0.5" role="group" aria-label={t('Plateforme', 'Platform')}>
-            <PlatformChip on={!ch} onClick={() => setSite({ channel: undefined })}>{t('Toutes', 'All')}{counted && <span className="num opacity-70">({total})</span>}</PlatformChip>
+          {/* Wraps onto a second line on a phone: every platform stays in sight (nothing hidden off-screen). */}
+          <div className="flex flex-wrap gap-1.5 pb-0.5" role="group" aria-label={t('Plateforme', 'Platform')}>
+            <PlatformChip on={!ch} onClick={() => setSite({ channel: undefined })}>{t('Toutes', 'All')}{counted && <span className={cn('num', ch && 'text-ink-3')}>({total})</span>}</PlatformChip>
             {chips.map((c) => (
               <PlatformChip key={c.channel} on={ch === c.channel} disabled={c.count === 0} onClick={() => setSite({ channel: c.channel })}>
-                <PlatformMark channel={c.channel} size="xs" />{channelName(c.channel)}<span className="num opacity-70">({c.count})</span>
+                <PlatformMark channel={c.channel} size="xs" />{channelName(c.channel)}<span className={cn('num', ch !== c.channel && 'text-ink-3')}>({c.count})</span>
               </PlatformChip>
             ))}
           </div>
@@ -177,7 +185,7 @@ function ScopePanel({ onDone }: { onDone: () => void }) {
         {!results && <>
           <Row on={isAllRestaurants(site)} onClick={() => pick({ kitchen: null, brand: null })}>
             <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-rail text-electric"><Store className="size-4" /></span>
-            <span className="min-w-0 flex-1"><span className="block font-bold">{t('Tous les restaurants', 'All restaurants')}</span>{counted && <span className="block text-xs text-ink-3">{storesText(t, count({ kitchen: null, brand: null, channel: ch }))}</span>}</span>
+            <span className="min-w-0 flex-1"><span className="block font-bold">{allLocations ? t('Tous les restaurants', 'All restaurants') : t('Mes restaurants', 'My restaurants')}</span>{counted && <span className="block text-xs text-ink-3">{storesText(t, count({ kitchen: null, brand: null, channel: ch }))}</span>}</span>
           </Row>
           {single ? <>
             <Heading>{t('Marques', 'Brands')} · {shortLoc(single.name)}</Heading>
@@ -191,7 +199,7 @@ function ScopePanel({ onDone }: { onDone: () => void }) {
                 <div key={l.code}>
                   <div className="flex items-center gap-1">
                     <div className="min-w-0 flex-1">
-                      <Row on={sameScope(site, { kitchen: l.code, brand: null, ...(ch ? { channel: ch } : {}) })} onClick={() => pick({ kitchen: l.code, brand: null })}>
+                      <Row on={sameScope(site, { kitchen: l.code, brand: null, ...(ch ? { channel: ch } : {}) })} disabled={noneOnPlatform({ kitchen: l.code, brand: null, channel: ch })} onClick={() => pick({ kitchen: l.code, brand: null })}>
                         <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-sunken text-ink-2"><MapPin className="size-4" /></span>
                         <span className="min-w-0"><span className="block truncate font-bold">{shortLoc(l.name)}</span><span className="block truncate text-xs text-ink-3">{[brandsText(t, list.length), counted ? storesText(t, count({ kitchen: l.code, brand: null, channel: ch })) : l.address].filter(Boolean).join(' · ')}</span></span>
                       </Row>
@@ -219,18 +227,18 @@ function ScopePanel({ onDone }: { onDone: () => void }) {
           ))}
           {results.kitchens.length > 0 && <Heading>{t('Succursales', 'Locations')}</Heading>}
           {results.kitchens.map((l) => (
-            <Row key={l.code} on={sameScope(site, { kitchen: l.code, brand: null, ...(ch ? { channel: ch } : {}) })} onClick={() => pick({ kitchen: l.code, brand: null })}>
+            <Row key={l.code} on={sameScope(site, { kitchen: l.code, brand: null, ...(ch ? { channel: ch } : {}) })} disabled={noneOnPlatform({ kitchen: l.code, brand: null, channel: ch })} onClick={() => pick({ kitchen: l.code, brand: null })}>
               <MapPin className="size-4 text-ink-3" /><span className="font-bold">{shortLoc(l.name)}</span><span className="truncate text-xs text-ink-3">{l.address}</span>
             </Row>
           ))}
           {(results.pairs.length > 0 || results.everywhere.length > 0) && <Heading>{t('Marques', 'Brands')}</Heading>}
           {results.pairs.map((p) => (
-            <Row key={`${p.kitchen}|${p.brand}`} on={sameScope(site, { ...p, ...(ch ? { channel: ch } : {}) })} onClick={() => pick(p)}>
+            <Row key={`${p.kitchen}|${p.brand}`} on={sameScope(site, { ...p, ...(ch ? { channel: ch } : {}) })} disabled={noneOnPlatform({ ...p, channel: ch })} onClick={() => pick(p)}>
               <BrandMark name={p.brand} size="xs" /><span className="truncate font-semibold">{p.brand}</span><span className="truncate text-xs text-ink-3">{shortLoc(locations.find((l) => l.code === p.kitchen)?.name ?? p.kitchen)}</span>
             </Row>
           ))}
           {results.everywhere.map((b) => (
-            <Row key={`*|${b}`} on={sameScope(site, { kitchen: null, brand: b, ...(ch ? { channel: ch } : {}) })} onClick={() => pick({ kitchen: null, brand: b })}>
+            <Row key={`*|${b}`} on={sameScope(site, { kitchen: null, brand: b, ...(ch ? { channel: ch } : {}) })} disabled={noneOnPlatform({ kitchen: null, brand: b, channel: ch })} onClick={() => pick({ kitchen: null, brand: b })}>
               <BrandMark name={b} size="xs" /><span className="truncate font-semibold">{b}</span><span className="truncate text-xs text-ink-3">{t('toutes les succursales', 'every location')}</span>
             </Row>
           ))}

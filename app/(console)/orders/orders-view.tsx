@@ -60,7 +60,7 @@ export function OrdersView() {
   return (
     <div>
       <PageHeader title={t('Commandes', 'Orders')}
-        subtitle={<>{t('Toutes vos plateformes, en direct.', 'All your platforms, live.')}{ago !== null && <span className="text-ink-4"> · {t(`mis à jour il y a ${ago} s`, `updated ${ago} s ago`)}</span>}</>}
+        subtitle={<>{t('Toutes vos plateformes, en direct.', 'All your platforms, live.')}{ago !== null && <span className="text-ink-3"> · {t(`mis à jour il y a ${ago} s`, `updated ${ago} s ago`)}</span>}</>}
         right={<ButtonLink href={href('/kitchen')} variant="outline" size="lg" icon={<ChefHat className="size-4" />}>{t('Écran cuisine', 'Kitchen screen')}</ButtonLink>} />
       <Hint id="orders.view">
         <Tabs className="mb-4" value={view} onChange={setView} tabs={[
@@ -98,13 +98,20 @@ function useBoardOrderState({ allBrands = false }: { allBrands?: boolean } = {})
   const [state, setState] = useState<{ orders: BoardOrder[] | null; at: number | null }>({ orders: null, at: null });
   const sig = pulse ? JSON.stringify([pulse.orders, pulse.incoming.map((o) => o.id + o.status)]) : '';
   const load = useCallback(async () => {
-    const q = new URLSearchParams({ status: 'new,accepted,ready,dispatched', since: new Date(Date.now() - 48 * 3600_000).toISOString(), limit: '400' });
+    const since = new Date(Date.now() - 48 * 3600_000).toISOString();
+    const q = new URLSearchParams({ status: 'new,accepted,ready,dispatched', since, limit: '400' });
     if (scope.length) q.set('locations', scope.join(','));
     if (brandKey) q.set('brands', brandKey);
     if (channelKey) q.set('channels', channelKey);
+    // Orders page: an order placed more than 48 h ahead still shows in Planifiées (openAlso lists open orders whatever
+    // day they arrived). Only those waiting for their cooking time are added: Actives stays the last 48 h, as before.
+    if (!allBrands) q.set('openAlso', '1');
     const d = await api<{ orders: BoardOrder[] }>(`/api/foodhub/orders?${q}`).catch(() => null);
-    if (d) setState({ orders: d.orders, at: Date.now() });
-  }, [scope, brandKey, channelKey]);
+    if (!d) return;
+    const now = Date.now();
+    const orders = allBrands ? d.orders : d.orders.filter((o) => o.createdAt >= since || Boolean(['new', 'accepted'].includes(o.status) && o.timeline?.fireAt && !o.timeline.firedAt && Date.parse(o.timeline.fireAt) > now));
+    setState({ orders, at: now });
+  }, [scope, brandKey, channelKey, allBrands]);
   useEffect(() => { load(); }, [load, sig]);
   useEffect(() => { const i = setInterval(load, 15_000); return () => clearInterval(i); }, [load]);
   useRefreshOn(load);
@@ -136,6 +143,7 @@ function CardList({ list, onOpen, showStatus }: { list: BoardOrder[]; onOpen: (i
 
 function LiveBoard({ orders, onOpen }: { orders: BoardOrder[] | null; onOpen: (id: string) => void }) {
   const { t } = useI18n();
+  const { viewer } = useViewer();
   const { site, setSite } = usePulse();
   const label = useScopeLabel();
   const href = useScopeHref();
@@ -146,12 +154,16 @@ function LiveBoard({ orders, onOpen }: { orders: BoardOrder[] | null; onOpen: (i
   const lane = (k: string) => (orders ?? []).filter((o) => o.status === k).sort((a, b) => (a.timeline?.readyTarget ?? a.createdAt).localeCompare(b.timeline?.readyTarget ?? b.createdAt));
   const late = (orders ?? []).filter((o) => o.status === 'accepted' && o.timeline?.readyTarget && Date.parse(o.timeline.readyTarget) < now).length;
   const narrowed = Boolean(site.brand || site.channel);
+  // A kitchen tablet never leaves its location: there the button widens to every brand and platform of that location.
+  const keepLocation = Boolean(site.kitchen && viewer.device);
+  const soundButton = !sound && <Button variant="primary" size="lg" icon={<Volume2 className="size-4" />} onClick={() => { unlockAudio(); playSound('soft'); setSound(true); }}>{t('Activer le son', 'Turn sound on')}</Button>;
+  // The status pills wrap onto a second line on a phone (every step stays visible, nothing hidden off-screen).
   const pills = (
-    <div className="no-scrollbar -mx-1 flex max-w-full gap-1.5 overflow-x-auto px-1" role="group" aria-label={t('Statut', 'Status')}>
+    <div className="flex max-w-full flex-wrap gap-1.5" role="group" aria-label={t('Statut', 'Status')}>
       {[{ key: '', fr: 'Toutes', en: 'All', n: orders?.length ?? 0 }, ...LANES.map((l) => ({ key: l.key, fr: l.fr, en: l.en, n: lane(l.key).length }))].map((p) => (
         <button key={p.key || 'all'} type="button" aria-pressed={status === p.key} onClick={() => setStatus(p.key)}
           className={cn('flex h-11 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-[13px] font-semibold whitespace-nowrap sm:h-9', status === p.key ? 'border-ink bg-ink text-canvas' : 'border-line-2 bg-surface text-ink-2 hover:border-ink-4')}>
-          {t(p.fr, p.en)}<span className="num opacity-70">{p.n}</span>
+          {t(p.fr, p.en)}<span className={cn('num', status !== p.key && 'text-ink-3')}>{p.n}</span>
         </button>
       ))}
     </div>
@@ -166,12 +178,13 @@ function LiveBoard({ orders, onOpen }: { orders: BoardOrder[] | null; onOpen: (i
         <Card>
           {narrowed ? (
             <EmptyState icon={<Inbox className="size-6" />} title={t(`Aucune commande en cours pour ${label.words}.`, `No orders right now for ${label.words}.`)}
-              action={<Button variant="outline" size="lg" onClick={() => setSite({ brand: null, channel: undefined })}>{t('Voir tous les restaurants et plateformes', 'See every restaurant and platform')}</Button>} />
+              action={<div className="flex flex-wrap justify-center gap-2">
+                {soundButton}
+                <Button variant="outline" size="lg" onClick={() => setSite(keepLocation ? { brand: null, channel: undefined } : { kitchen: null, brand: null, channel: undefined })}>{keepLocation ? t('Voir toutes les marques et plateformes de cette succursale', 'See every brand and platform of this location') : t('Voir tous les restaurants et plateformes', 'See every restaurant and platform')}</Button>
+              </div>} />
           ) : (
             <EmptyState icon={<Inbox className="size-6" />} title={t('Aucune commande en cours.', 'No orders right now.')} body={t('Les nouvelles commandes sonnent et s’ouvrent toutes seules.', 'New orders ring and open by themselves.')}
-              action={!sound
-                ? <Button variant="primary" size="lg" icon={<Volume2 className="size-4" />} onClick={() => { unlockAudio(); playSound('soft'); setSound(true); }}>{t('Activer le son', 'Turn sound on')}</Button>
-                : <ButtonLink href={href('/kitchen')} variant="outline" size="lg" icon={<ChefHat className="size-4" />}>{t('Ouvrir l’écran cuisine', 'Open the kitchen screen')}</ButtonLink>} />
+              action={soundButton || <ButtonLink href={href('/kitchen')} variant="outline" size="lg" icon={<ChefHat className="size-4" />}>{t('Ouvrir l’écran cuisine', 'Open the kitchen screen')}</ButtonLink>} />
           )}
         </Card>
       </>
@@ -191,7 +204,7 @@ function LiveBoard({ orders, onOpen }: { orders: BoardOrder[] | null; onOpen: (i
                 <div className="mb-2.5 flex items-center gap-2 px-1.5 pt-1 text-sm font-bold text-ink"><span className={cn('size-2 rounded-full', l.dot)} />{t(l.fr, l.en)}<span className="num ml-auto rounded-full bg-surface px-2 text-xs text-ink-2">{list.length}</span></div>
                 <div className="flex flex-col gap-2.5">
                   {list.map((o) => <Hint id="orders.card" key={o.id}><OrderCard o={o} onOpen={() => onOpen(o.id)} /></Hint>)}
-                  {list.length === 0 && <div className="px-2 py-8 text-center text-[13px] text-ink-4">{t(l.efr, l.een)}</div>}
+                  {list.length === 0 && <div className="px-2 py-8 text-center text-[13px] text-ink-3">{t(l.efr, l.een)}</div>}
                 </div>
               </section>
             );
@@ -226,7 +239,8 @@ function History({ onOpen }: { onOpen: (id: string) => void }) {
   const { locations, brands, locName } = useViewer();
   const { site, setSite, scope, brands: brandScope, channels: channelScope } = usePulse();
   const href = useScopeHref();
-  const { filters, set, query } = useFilters('today', scope, brandScope, channelScope);
+  // No brand or platform picker of its own here (the chips change the console's scope): old `?channels=` links are ignored.
+  const { filters, set, query } = useFilters('today', scope, brandScope, channelScope, { scopeOnly: true });
   const [status, setStatus] = useState('');
   const [q, setQ] = useState('');
   const [rows, setRows] = useState<Row[] | null>(null);
@@ -262,7 +276,7 @@ function History({ onOpen }: { onOpen: (id: string) => void }) {
         <option value="">{t('Tous les statuts', 'All statuses')}</option>
         {['new', 'accepted', 'ready', 'dispatched', 'completed', 'cancelled', 'failed'].map((s) => <option key={s} value={s}>{statusLabel(t, s)}</option>)}
       </select>
-      <div className="relative w-full sm:w-auto"><Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-ink-3" /><Input inputSize="sm" className="h-11 w-full pl-8 sm:h-9 sm:w-56" placeholder={t('No, client, Clover…', '#, customer, Clover…')} value={q} onChange={(e) => setQ(e.target.value)} /></div>
+      <div className="relative w-full sm:w-auto"><Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-ink-3" /><Input inputSize="sm" className="h-11 w-full pl-8 sm:h-9 sm:w-56" aria-label={t('Chercher une commande', 'Search an order')} placeholder={t('No, client, Clover…', '#, customer, Clover…')} value={q} onChange={(e) => setQ(e.target.value)} /></div>
       <Button variant="outline" size="sm" className="h-11 sm:h-9" onClick={csv} disabled={!shown.length} icon={<Download className="size-4" />}>{t('Exporter (CSV)', 'Export (CSV)')}</Button>
     </>
   );
@@ -290,7 +304,8 @@ function History({ onOpen }: { onOpen: (id: string) => void }) {
                       <Tr key={o.id} className="cursor-pointer" onClick={() => onOpen(o.id)}>
                         <Td className="whitespace-nowrap text-ink-2">{timeOf(o.createdAt, loc, filters.from !== filters.to)}</Td>
                         <Td><PlatformTag channel={o.channel} /></Td>
-                        <Td className="font-bold">#{o.displayId || o.externalOrderId.slice(0, 8)}</Td>
+                        {/* The order number is a real button: keyboard users open the order with Tab + Enter. */}
+                        <Td className="font-bold"><button type="button" onClick={(e) => { e.stopPropagation(); onOpen(o.id); }} className="-mx-1 rounded px-1 font-bold hover:underline">#{o.displayId || o.externalOrderId.slice(0, 8)}</button></Td>
                         <Td>{o.brandName ?? '—'}</Td>
                         <Td className="text-ink-2">{o.locationCode ? shortLoc(locName(o.locationCode)) : '—'}</Td>
                         <Td className="text-ink-2">{o.customerName ?? '—'}</Td>

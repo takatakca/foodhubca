@@ -17,6 +17,7 @@ import { nextTextSize, useDisplay, type TextSize } from '@/lib/ui/display';
 import { health, installSupervisor, setScreen, subscribe as subscribeHealth } from '@/lib/ui/supervisor';
 import { Kbd } from '@/components/ui/badge';
 import { ToastProvider } from '@/components/ui/toast';
+import { useDialogFocus, useEscape } from '@/components/ui/overlay';
 import { ApprovalProvider } from '@/components/live/approval';
 import { IncomingOrders } from '@/components/live/incoming';
 import { CancelAlarm } from '@/components/live/cancel-alarm';
@@ -90,6 +91,10 @@ function Frame({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [copilot, setCopilot] = useState(false);
   const [more, setMore] = useState(false);
+  // The phone's "Plus" sheet: Esc closes it, the focus moves in when it opens and back to "Plus" when it closes.
+  const moreRef = useRef<HTMLDivElement>(null);
+  useEscape(() => setMore(false), more);
+  useDialogFocus(moreRef, more);
   useEffect(() => { try { setCollapsed(localStorage.getItem('takatak.rail') === '1'); } catch { /* ignore */ } }, []);
   useEffect(() => { const o = () => setCopilot(true); window.addEventListener('takatak:copilot', o); return () => window.removeEventListener('takatak:copilot', o); }, []);
   useEffect(() => { setMore(false); setScreen(pathname); }, [pathname]);
@@ -149,7 +154,7 @@ function Frame({ children }: { children: ReactNode }) {
       </nav>
       {more && (
         <div className="fixed inset-0 z-50 bg-rail/50 lg:hidden" onClick={() => setMore(false)}>
-          <div className="safe-bottom absolute inset-x-0 bottom-0 max-h-[85dvh] overflow-y-auto rounded-t-2xl bg-surface p-4 animate-rise" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={t('Plus', 'More')}>
+          <div ref={moreRef} tabIndex={-1} className="safe-bottom absolute inset-x-0 bottom-0 max-h-[85dvh] overflow-y-auto rounded-t-2xl bg-surface p-4 outline-none animate-rise" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={t('Plus', 'More')}>
             <div className="mb-3 flex items-center justify-between"><span className="font-extrabold tracking-[0.14em]">{product.shortName}</span><button type="button" onClick={() => setMore(false)} className="flex size-11 items-center justify-center" aria-label={t('Fermer', 'Close')}><X className="size-5" /></button></div>
             <div className="grid grid-cols-3 gap-2">
               {items.filter((n) => full || !inBar.has(n.href)).map((n) => <Link key={n.href} href={href(n.href)} className="flex min-h-20 flex-col items-center justify-center gap-1.5 rounded-xl bg-sunken p-3 text-center text-xs font-semibold"><n.icon className="size-5" />{n.label(t)}</Link>)}
@@ -322,8 +327,9 @@ function FullViewSwitch() {
     <Hint id="shell.view">
       <button type="button" role="switch" aria-checked={full} onClick={() => setFull(!full)} className="flex min-h-11 w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm hover:bg-sunken">
         <span className="min-w-0 flex-1"><span className="block font-semibold text-ink">{t('Vue complète', 'Full view')}</span><span className="block text-xs text-ink-3">{t('Outils avancés', 'Advanced tools')}</span></span>
-        <span className={cn('relative h-6 w-10 shrink-0 rounded-full transition-colors', full ? 'bg-brand' : 'bg-line-2')} aria-hidden>
-          <span className={cn('absolute top-0.5 size-5 rounded-full bg-white shadow transition-[left]', full ? 'left-[18px]' : 'left-0.5')} />
+        {/* Off: outlined track and a grey knob (both well above 3:1 on the white menu); on: blue track, white knob. */}
+        <span className={cn('relative h-6 w-10 shrink-0 rounded-full border-2 transition-colors', full ? 'border-brand bg-brand' : 'border-ink-3 bg-surface')} aria-hidden>
+          <span className={cn('absolute top-[2px] size-4 rounded-full shadow transition-[left]', full ? 'left-[18px] bg-white' : 'left-[2px] bg-ink-3')} />
         </span>
       </button>
     </Hint>
@@ -347,7 +353,7 @@ function UserMenu() {
   const initials = viewer.name.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
   return (
     <div className="relative" ref={ref}>
-      <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-haspopup="menu" className="flex size-10 items-center justify-center rounded-full bg-ink text-[13px] font-extrabold text-canvas" aria-label={viewer.name}>{initials}</button>
+      <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="flex size-10 items-center justify-center rounded-full bg-ink text-[13px] font-extrabold text-canvas" aria-label={viewer.name}>{initials}</button>
       {open && (
         <div className="absolute top-12 right-0 z-50 w-[min(18rem,calc(100vw-1.5rem))] rounded-lg border border-line bg-surface p-1.5 shadow-pop animate-rise">
           <div className="px-3 py-2">
@@ -380,9 +386,15 @@ function StatusBanners() {
   if (pulse && !pulse.live && can('admin')) {
     bars.push(full
       ? <Bar key="live" tone="wait" href="/settings/channels">{t('Mode sécurité : rien n’est envoyé aux plateformes (LIVE_CONNECTORS_GLOBAL_ENABLED=false).', 'Safe mode: nothing is sent to the platforms (LIVE_CONNECTORS_GLOBAL_ENABLED=false).')}</Bar>
-      : <Bar key="live" tone="wait" href="/settings">{t('Pas encore en direct : rien n’est envoyé aux plateformes.', 'Not live yet: nothing is sent to the platforms.')}</Bar>);
+      // Mise en service explains it and can be opened by URL in either view (owner only).
+      : <Bar key="live" tone="wait" href="/settings/go-live">{t('Pas encore en direct : rien n’est envoyé aux plateformes. Votre technicien l’active dans Mise en service.', 'Not live yet: nothing is sent to the platforms. Your technician turns it on in Go-live.')}</Bar>);
   }
-  if (full && pulse?.mode === 'memory' && can('admin')) bars.push(<Bar key="mem" tone="info">{t('Mode démo : Supabase n’est pas branché, les données sont en mémoire.', 'Demo mode: Supabase is not connected, data lives in memory.')}</Bar>);
+  // The owner always sees that data is not kept (lost on a restart), in plain words in the simple view.
+  if (pulse?.mode === 'memory' && can('admin')) {
+    bars.push(full
+      ? <Bar key="mem" tone="info">{t('Mode démo : Supabase n’est pas branché, les données sont en mémoire.', 'Demo mode: Supabase is not connected, data lives in memory.')}</Bar>
+      : <Bar key="mem" tone="info">{t('Données temporaires : la base de données n’est pas branchée, rien n’est gardé après un redémarrage.', 'Temporary data: the database is not connected, nothing is kept after a restart.')}</Bar>);
+  }
   if (!bars.length) return null;
   return <div className="space-y-px">{bars}</div>;
 }

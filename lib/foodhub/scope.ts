@@ -175,6 +175,24 @@ export function filterByScope<T extends ScopedRow>(rows: readonly T[], scope: Sc
   return rows.filter((r) => inScope(r, scope));
 }
 
+/**
+ * The platform stores of one location inside the scope's brand and platform: what "Tout mettre en pause" / "Tout
+ * rouvrir" act on. With DoorDash picked, only that location's DoorDash stores: a pause never reaches a platform that is
+ * not on screen.
+ */
+export function storesOfLocation<T extends ScopedRow>(stores: readonly T[], locationCode: string, scope: Scope): T[] {
+  return filterByScope(stores, make(locationCode, scope.brand, scope.channel));
+}
+
+/**
+ * The alerts a screen lists: the scope's alerts (loose filter), with the one alert a link points at (`/alerts?i=…`,
+ * sent by text or chat) always first, whatever location, brand or platform the device remembers.
+ */
+export function scopedAlerts<T extends ScopedRow & { id: string }>(rows: readonly T[], scope: Scope, focused?: T | null): T[] {
+  const list = rows.filter((r) => inScopeLoose(r, scope) && r.id !== focused?.id);
+  return focused ? [focused, ...list] : list;
+}
+
 /** How many platform stores the scope covers ("45 magasins"). */
 export function countStores(catalog: Pick<ScopeCatalog, 'stores'>, scope: Scope): number {
   return (catalog.stores ?? []).filter((p) => inScope(p, scope)).length;

@@ -6,7 +6,8 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, CircleHelp, Plug, Search, Store } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plug, Search, Store } from 'lucide-react';
+import { ConnectRequestButton } from '@/components/home/connect-request';
 import { PlatformTag, StatusDot, type Tone } from '@/components/ui/badge';
 import { BrandMark } from '@/components/ui/brand-mark';
 import { Button, ButtonLink } from '@/components/ui/button';
@@ -51,7 +52,7 @@ export function StoresList() {
   useRefreshOn(load);
   useEffect(() => { setPage(0); }, [site, status, q]);
 
-  const statusLabel = (s: string) => ({ online: t('Ouverts', 'Open'), paused: t('En pause', 'Paused'), closed: t('Fermés (heures)', 'Closed (hours)'), deactivated: t('Désactivés', 'Deactivated'), unknown: t('Pas encore lus', 'Not read yet') } as Record<string, string>)[s] ?? s;
+  const statusLabel = (s: string) => ({ online: t('Ouverts', 'Open'), paused: t('En pause', 'Paused'), closed: t('Fermés selon l’horaire', 'Closed (outside hours)'), deactivated: t('Désactivés', 'Deactivated'), unknown: t('Statut inconnu', 'Status unknown') } as Record<string, string>)[s] ?? s;
   const inScopeRows = useMemo(() => (stores ?? []).filter((s) => inScope(s, site)), [stores, site]);
   const rows = useMemo(() => {
     const term = fold(q.trim());
@@ -69,14 +70,13 @@ export function StoresList() {
   const shown = rows.slice(page * PAGE, page * PAGE + PAGE);
   const manage = (s: ChannelStore) => router.push(scopeHref('/stores', { kitchen: s.locationCode, brand: s.brandName, ...(site.channel ? { channel: site.channel } : {}) }));
   const showAll = () => { setStatus(null); setQ(''); setSite({ kitchen: null, brand: null, channel: undefined }); };
-  const help = () => window.dispatchEvent(new Event('takatak:help'));
   const address = (code: string) => locations.find((l) => l.code === code)?.address;
   const n = inScopeRows.length;
   const summary = [
     t(`${n} magasin${n > 1 ? 's' : ''}`, `${n} store${n > 1 ? 's' : ''}`),
     counts.online ? t(`${counts.online} ouvert${counts.online > 1 ? 's' : ''}`, `${counts.online} open`) : null,
     counts.paused ? t(`${counts.paused} en pause`, `${counts.paused} paused`) : null,
-    counts.closed ? t(`${counts.closed} fermé${counts.closed > 1 ? 's' : ''} (heures)`, `${counts.closed} closed (hours)`) : null,
+    counts.closed ? t(`${counts.closed} fermé${counts.closed > 1 ? 's' : ''} selon l’horaire`, `${counts.closed} closed (outside hours)`) : null,
     counts.deactivated ? t(`${counts.deactivated} désactivé${counts.deactivated > 1 ? 's' : ''}`, `${counts.deactivated} deactivated`) : null,
   ].filter(Boolean).join(' · ');
   const connect = full && can('stores:map');
@@ -100,7 +100,8 @@ export function StoresList() {
         {!stores ? <div className="space-y-2 p-4">{[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-12" />)}</div>
           : (stores.length === 0 ? (
             <EmptyState icon={<Store className="size-6" />} title={t('Aucun magasin branché pour l’instant.', 'No store connected yet.')}
-              action={connect ? <ButtonLink href={href('/stores/mapping')} variant="primary" size="lg">{t('Brancher un magasin', 'Connect a store')}</ButtonLink> : <Button variant="primary" size="lg" icon={<CircleHelp className="size-4" />} onClick={help}>{t('Demander de l’aide', 'Ask for help')}</Button>} />
+              body={connect ? undefined : t('Dites-nous sur quelles plateformes vous vendez : on branche vos magasins pour vous.', 'Tell us which platforms you sell on: we connect your stores for you.')}
+              action={connect ? <ButtonLink href={href('/stores/mapping')} variant="primary" size="lg">{t('Brancher un magasin', 'Connect a store')}</ButtonLink> : <ConnectRequestButton />} />
           ) : rows.length === 0 ? (
             <EmptyState icon={<Search className="size-6" />} title={t('Aucun magasin pour ce choix.', 'No store for this choice.')} action={<Button variant="outline" size="lg" onClick={showAll}>{t('Tout afficher', 'Show everything')}</Button>} />
           ) : (
@@ -139,7 +140,7 @@ export function StoresList() {
               </ul>
               {rows.length > PAGE && (
                 <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-3 text-sm">
-                  <span className="text-ink-3">{t(`Affichage ${page * PAGE + 1}–${Math.min(rows.length, page * PAGE + PAGE)} de ${rows.length}`, `Showing ${page * PAGE + 1}–${Math.min(rows.length, page * PAGE + PAGE)} of ${rows.length}`)}</span>
+                  <span className="text-ink-3">{t(`${page * PAGE + 1} à ${Math.min(rows.length, page * PAGE + PAGE)} sur ${rows.length}`, `Showing ${page * PAGE + 1}–${Math.min(rows.length, page * PAGE + PAGE)} of ${rows.length}`)}</span>
                   <span className="flex gap-2">
                     <Button variant="outline" size="lg" disabled={page === 0} onClick={() => setPage(page - 1)} icon={<ChevronLeft className="size-4" />}>{t('Précédent', 'Previous')}</Button>
                     <Button variant="outline" size="lg" disabled={page >= pages - 1} onClick={() => setPage(page + 1)}>{t('Suivant', 'Next')}<ChevronRight className="size-4" /></Button>
@@ -150,11 +151,11 @@ export function StoresList() {
           ))}
       </Card>
       {stores && stores.length > 0 && (
-        <p className={cn('mt-4 text-sm text-ink-3')}>
+        <div className={cn('mt-4 text-sm text-ink-3')}>
           {connect
             ? <Link href={href('/stores/mapping')} className="font-semibold text-brand hover:underline">{t('Brancher un magasin', 'Connect a store')} →</Link>
-            : <>{t('Il manque un magasin ?', 'A store is missing?')} <button type="button" onClick={help} className="min-h-11 font-semibold text-brand hover:underline">{t('Ouvrez l’aide, on le branche pour vous.', 'Open the help, we connect it for you.')}</button></>}
-        </p>
+            : <span className="flex flex-wrap items-center gap-x-3 gap-y-2">{t('Il manque un magasin ? On le branche pour vous.', 'A store is missing? We connect it for you.')}<ConnectRequestButton variant="outline" size="md" /></span>}
+        </div>
       )}
     </div>
   );

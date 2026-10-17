@@ -185,7 +185,7 @@ only when the feature is on. Home adds no link to `/insights` or `/money`.
 2. "Pour bien démarrer" (`components/home/getting-started.tsx`): "{done} étapes sur 3", one button per step
    (Brancher mes magasins / Importer mon menu / Installer la tablette), hidden when done or after "Masquer".
 3. Four numbers (2×2 on phones, 4 at `lg`): Ventes (± vs yesterday; "Ventes (livraison)" / "Ventes ({plateforme})"
-   when narrowed; "dont X $ en salle (Clover)"), Commandes, Préparation moyenne, Magasins ouverts (→ Tous les magasins).
+   when narrowed; "dont X $ en salle (Clover)"), Commandes, Préparation (moyenne), Magasins (ouverts → Tous les magasins); every card is a link (Ventes → Historique, Préparation → Commandes); whole dollars from 1 000 $ so the number fits a phone card, 4 columns only from xl.
 4. "En cours" and "À faire" (scoped alerts, count in the header, "Filtré : …" when narrowed).
 5. "Par plateforme" (`components/live/platform-summary.tsx`), shown when no platform is picked; a tap picks it; an
    "En salle (Clover)" line when in-store sales exist.

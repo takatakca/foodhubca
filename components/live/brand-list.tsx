@@ -56,7 +56,7 @@ export function BrandListRow({ row, onOpen, showKitchen }: { row: BrandRow; onOp
       </span>
       <span className="w-24 text-right">
         <span className="num block text-[15px] font-extrabold text-ink">{money(row.sales, loc)}</span>
-        <span className="block text-xs text-ink-3">{row.orders} {t('cmd', 'orders')}</span>
+        <span className="block text-xs text-ink-3">{row.orders} {t('commandes', 'orders')}</span>
       </span>
       <ChevronRight className="size-4 shrink-0 text-ink-4 transition-transform group-hover:translate-x-0.5 group-hover:text-ink-2" />
     </button>

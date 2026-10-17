@@ -38,6 +38,10 @@ export interface PhoneCall {
   startedAt: string;
   endedAt?: string;
   durationSec?: number;
+  /** The AI answered the call (its greeting). Absent = the AI never took it (straight to a person). TAKATAK Phone bills AI minutes. */
+  aiStartedAt?: string;
+  /** The AI handed the call to a person (the <Dial> started): the hold and the person's part are not AI minutes. */
+  aiEndedAt?: string;
   turns: number;
   transcript: Array<{ at: string; who: 'caller' | 'agent' | 'system'; text: string }>;
   /** Claude message history while the call runs (dropped when it ends). */

@@ -1,5 +1,12 @@
 # Food Hub: progress log and task board
 
+## 2026-10-17 — TAKATAK Phone: per-minute pricing, low-credit alert (task 41, PR #61)
+
+- Owner decision: the voice AI Clover app is **TAKATAK Phone**; 14-day free trial, then CAD $50/month + a Clover metered charge of CAD $0.25 per minute the AI is on the line (order or not). Per-order metering removed (`recordPhoneOrder`, allowance, tiers, `CLOVER_PHONE_METERED_ORDER_ID`, `CLOVER_PHONE_PRO_SUBSCRIPTION_IDS`).
+- New `lib/foodhub/pos/clover-phone-minutes.ts` (ceil(AI seconds / 60), ACTIVE merchants only, once per call SID via `repo.claimKv` (same as PR #69), saved before sending, uncertain never re-sent, definite pre-send failures retried 3×, dry run unless `FOODHUB_PHONE_METERED_ENABLED=true`), `lib/foodhub/phone/metering.ts` (status callback → kitchen's own merchant), AI start/stop marks on the call (`aiStartedAt` / `aiEndedAt`), settle every 10 min in the expansion tick, Settings → Clover app "Per-minute billing" dry-run preview.
+- New `lib/foodhub/phone/credit-alert.ts`: one owner alert per low-credit incident (Anthropic via the breaker, Twilio via texts / calls), re-armed on recovery. Voice status route now answers a real 204.
+- Env names: `CLOVER_PHONE_METERED_MINUTE_ID`, `FOODHUB_PHONE_METERED_ENABLED`, `FOODHUB_BILLING_EXEMPT_MERCHANTS`. Docs: `docs/CLOVER_MULTI_APP.md`.
+
 ## 2026-10-16 — AI phone as a second Clover app: multi-app plumbing (task 41)
 
 - Branch `feature/clover-voice-ai-app` (PR #61). One backend, two Clover App Market apps: TAKATAK Food Hub (unchanged) and the AI phone app, sold separately. New `lib/foodhub/pos/clover-apps.ts` (registry), per-app OAuth in `clover-oauth.ts` (optional app argument, Food Hub default), phone routes `/api/foodhub/clover-connect/phone/{start,callback}` and `/api/foodhub/webhooks/clover/phone` (404 until `CLOVER_PHONE_APP_ID` is set), tokens per (app, merchant), uninstall of one app only, `clover-entitlement.ts` (`voiceAiEntitled`, `recordPhoneOrder`, `appInstalled`, `phoneCloverToken`), Settings → Clover app "Clover apps on this server".

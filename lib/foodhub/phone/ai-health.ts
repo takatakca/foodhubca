@@ -8,12 +8,15 @@
 //     call goes to a person or the keypad; the breaker is not touched.
 // The console simulator and test calls never touch the breaker (a broken test conversation never pauses real calls).
 // While open, the ON2GO menu works in keypad mode (greeting "Pour le français, faites le 1"), the ordering line goes to a
-// person, and nothing is sent to the AI. The team chat gets ONE critical alert per trip. State in fh_kv (shared by every
-// request of the server, survives a restart).
+// person, and nothing is sent to the AI. The team chat gets ONE critical alert per trip — except an empty credit
+// balance: that is ONE alert per incident ("Recharger les crédits / Top up", credit-alert.ts), not one per 10-minute
+// trip, re-armed only once an AI request works again. State in fh_kv (shared by every request of the server, survives
+// a restart).
 import Anthropic from '@anthropic-ai/sdk';
 import { dryRun } from '../dry-run';
 import { postToChat } from '../notify';
 import { getRepo } from '../repo';
+import { noteCreditRecovered, noteLowCredit } from './credit-alert';
 
 const KV = 'phone_ai_health_v1';
 const TRANSIENT_WINDOW_MS = 5 * 60_000;
@@ -32,11 +35,22 @@ export interface AiHealth {
   /** Trip already announced in the team chat (its `at`). */
   alertedFor?: number;
   lastOkAt?: number;
+  /** A low-credit incident is open (its one alert went out); closed by the next successful request. */
+  creditLow?: boolean;
 }
 
 const EMPTY: AiHealth = { openUntil: 0, transient: [] };
 
 const pauseMs = () => Math.max(1, Number(process.env.FOODHUB_PHONE_AI_PAUSE_MIN) || 10) * 60_000;
+
+/** The failure is an empty credit balance / billing problem (the owner must top up), not a key or model problem. */
+export function isCreditError(e: unknown): boolean {
+  const raw = (e as { message?: unknown })?.message;
+  const msg = e instanceof Error ? e.message : typeof raw === 'string' ? raw : String(e);
+  const status = (e as { status?: number })?.status;
+  const type = String((e as { error?: { error?: { type?: string } } })?.error?.error?.type ?? (e as { type?: string })?.type ?? '');
+  return status === 402 || type === 'billing_error' || /credit balance|billing/i.test(msg);
+}
 
 /** What kind of failure: the SDK's typed errors first, then the HTTP status / error type. */
 export function classifyAiError(e: unknown): { kind: AiErrorKind; reason: string } {
@@ -90,6 +104,13 @@ export async function noteAiFailure(e: unknown, opts: { test?: boolean } = {}, n
     if (trip && !(h.openUntil && now < h.openUntil)) {
       next = { ...next, openUntil: now + (c.kind === 'fatal' ? pauseMs() : 2 * 60_000), kind: c.kind, reason: c.reason, at: now, transient: [] };
     }
+    // Out of credit: one alert for the whole incident (credit-alert.ts), never one per trip.
+    if (trip && isCreditError(e)) {
+      next = { ...next, creditLow: true, ...(next.at ? { alertedFor: next.at } : {}) };
+      await save(next);
+      await noteLowCredit('anthropic', c.reason, now);
+      return { tripped: true, ...c };
+    }
     if (trip && next.at && next.alertedFor !== next.at) {
       next = { ...next, alertedFor: next.at };
       await save(next);
@@ -111,6 +132,12 @@ export async function noteAiFailure(e: unknown, opts: { test?: boolean } = {}, n
 export async function noteAiSuccess(now = Date.now()): Promise<void> {
   try {
     const h = await getAiHealth();
+    if (h.creditLow) {
+      // Credit is back: close the incident so the next one pings again.
+      await save({ ...h, transient: [], lastOkAt: now, creditLow: false });
+      await noteCreditRecovered('anthropic', now);
+      return;
+    }
     if (!h.transient.length && h.lastOkAt && now - h.lastOkAt < 10 * 60_000) return;
     await save({ ...h, transient: [], lastOkAt: now });
   } catch { /* never blocks a call */ }

@@ -1,5 +1,9 @@
 # Food Hub: progress log and task board
 
+## 2026-10-17 — Legal pages name and price TAKATAK Phone AI (`fix/legal-takatak-phone-ai`, re-land of #77)
+
+- #77 (2e18d23) merged into `fix/legal-pages-complete` after #66, so it never reached main; cherry-picked here, product renamed « TAKATAK Phone AI » (FR + EN), `phoneFeesText()` aligned with the merged metering (AI time only, order or not, rounded up per call, never the hold or the person after a transfer, ACTIVE subscriptions only).
+
 ## 2026-10-16 — accessible horizontal tab keyboard navigation
 
 Branche `fix/console-tabs-keyboard-20261016`. Roving `tabIndex`, sélection et focus par ArrowLeft/ArrowRight, Home/End avec bouclage, cas de bord testés, aucune mutation métier. PR et CI à vérifier, pas de déploiement. La PR #62 cible séparément le focus des dialogues.

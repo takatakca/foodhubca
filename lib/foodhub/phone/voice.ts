@@ -15,10 +15,10 @@ import { phoneAiUsable } from './ai-health';
 import { runAgentTurn, phoneAgentConfigured } from './agent';
 import { buildPhoneMenu, noKitchenMenu } from './cart';
 import { endCall, getCall, isTestCaller, maskNumber, saveCall, say, type PhoneCall, type PhoneLang, type TurnReply } from './calls';
-import { languageRequest, LANG_DIGIT } from './ivr/words';
+import { hasCardNumber, languageRequest, LANG_DIGIT, NO_CARD, redactCards } from './ivr/words';
 import { getPhoneSettings, isMultiKitchen, kitchenView, lineForNumber, type PhoneLine, type PhoneSettings } from './settings';
 import { personaFor } from './style';
-import { dialXml, gatherInner, gatherXml, GREETING, LANG_OFFER, NO_AGENT, NOBODY, sayXml, twiml, VOICE_PATH, WAIT } from './twilio';
+import { dialXml, gatherInner, gatherXml, GREETING, LANG_OFFER, NO_AGENT, NOBODY, orderDisclosure, prefixTwiml, sayXml, twiml, VOICE_PATH, WAIT } from './twilio';
 import { hintsForLang } from './voices';
 
 const TURN_BUDGET_MS = 9_000;
@@ -168,6 +168,54 @@ export function languageChoice(turns: number, digits: string, speech: string): {
   return turns === 0 || !asked.rest ? asked : null;
 }
 
+/** The persona as heard in one language: "automatizada" / "automatizado" follows that language's voice (Lupe, Pedro). */
+function personaIn(settings: PhoneSettings, lang: PhoneLang) {
+  return personaFor(settings.persona, { fr: settings.voiceFr, en: settings.voiceEn, es: settings.voiceEs }[lang]);
+}
+
+const CARD_REFUSED = 'The caller started giving a card number: refused, not kept';
+
+/** A card number said (or typed key by key, see typedCard): noted as refused, never the number itself. */
+function refuseCard(call: PhoneCall): PhoneCall {
+  return say(say(call, 'system', CARD_REFUSED), 'agent', NO_CARD[call.lang]);
+}
+
+const KEY_TURN = /\(pressed \d\)$/;
+/** A run of this many keys, one per turn, is treated as a card number being typed (no order step needs that many). */
+export const TYPED_CARD_KEYS = 13;
+
+/**
+ * The ordering line takes one key per turn (numDigits="1"), so a card typed on the keypad arrives one digit at a time.
+ * Counts the caller's last turns that were only a key (agent lines in between are skipped) plus this key. At
+ * TYPED_CARD_KEYS or more, the keys already noted are scrubbed from the transcript and the AI history. After a
+ * refusal, the next keys are refused too (the rest of the card), until the caller speaks — 0 still reaches a person.
+ * Returns the call to save with the refusal, or null when this key is an ordinary answer.
+ */
+export function typedCard(call: PhoneCall, digits: string): PhoneCall | null {
+  if (!/^\d$/.test(digits)) return null;
+  const idx: number[] = [];
+  let refused = false;
+  for (let i = call.transcript.length - 1; i >= 0; i--) {
+    const t = call.transcript[i];
+    if (t.who === 'system' && t.text === CARD_REFUSED) { refused = true; break; }
+    if (t.who !== 'caller') continue;
+    if (!/^\(pressed \d\)$/.test(t.text)) break;
+    idx.push(i);
+  }
+  if (refused ? digits === '0' : idx.length + 1 < TYPED_CARD_KEYS) return null;
+  const transcript = call.transcript.map((t, i) => (idx.includes(i) ? { ...t, text: '(pressed a key)' } : t));
+  let left = idx.length;
+  const messages = [...(call.messages ?? [])];
+  for (let i = messages.length - 1; i >= 0 && left > 0; i--) {
+    const m = messages[i] as { role?: string; content?: unknown };
+    if (m.role !== 'user' || typeof m.content !== 'string') continue;
+    if (!KEY_TURN.test(m.content)) break;
+    messages[i] = { ...m, content: m.content.replace(KEY_TURN, '(pressed a key)') };
+    left--;
+  }
+  return { ...call, transcript, messages };
+}
+
 /** Twilio <Gather> action: the caller said something (or pressed a key, or nothing). */
 export async function callerTurn(params: URLSearchParams): Promise<Response> {
   const call = await getCall(params.get('CallSid') || '');
@@ -177,14 +225,27 @@ export async function callerTurn(params: URLSearchParams): Promise<Response> {
   const settings = callVoices(call, base);
   if (!ls) return twiml(`${sayXml(NOBODY[call.lang], settings, call.lang)}<Hangup/>`);
   const digits = params.get('Digits') || '';
-  const speech = (params.get('SpeechResult') || '').trim();
+  const rawSpeech = (params.get('SpeechResult') || '').trim();
+  // Card numbers, exactly as on the ON2GO menu (ivr/engine.ts): refused, never stored, never shown to the AI. Said at
+  // once, or typed one key per turn (typedCard).
+  const typed = typedCard(call, digits);
+  if (hasCardNumber(rawSpeech) || typed) {
+    await saveCall(refuseCard(typed ?? call));
+    return twiml(gatherXml(NO_CARD[call.lang], settings, call.lang, `${VOICE_PATH}/turn`, lineHints(ls.line, call.lang)));
+  }
+  const speech = redactCards(rawSpeech);
   // Language choice: keys 2 / 3 on the greeting, or "English", "español" — no AI needed. The rest of the sentence goes
   // on to the AI. Mid-order, keys answer the AI ("how many?") and only a request said on its own switches.
   const asked = languageChoice(call.turns, digits, speech);
   if (asked && asked.lang !== call.lang) {
+    if (asked.rest) {
+      // "English, I want a chicken": the caller heard the notice only in French — it is said in English first.
+      const notice = orderDisclosure(personaIn(settings, asked.lang), asked.lang);
+      const switched = await saveCall(say({ ...call, lang: asked.lang }, 'agent', notice));
+      return prefixTwiml(await turnWithBudget(switched, asked.rest, settings, ls.work), sayXml(notice, settings, asked.lang));
+    }
     const switched = await saveCall({ ...call, lang: asked.lang });
-    if (asked.rest) return turnWithBudget(switched, asked.rest, settings, ls.work);
-    const greeting = GREETING[asked.lang](ls.line.name, personaFor(settings.persona, settings.voiceFr));
+    const greeting = GREETING[asked.lang](ls.line.name, personaIn(settings, asked.lang));
     await saveCall(say(switched, 'agent', greeting));
     return twiml(gatherXml(greeting, settings, asked.lang, `${VOICE_PATH}/turn`, lineHints(ls.line, asked.lang)));
   }
@@ -256,16 +317,25 @@ export async function simulateTurn(lineId: string, sessionId: string | null, tex
     if (!text.trim()) return { call, reply: { say: greeting, next: 'listen', lang: 'fr' } };
   }
   if (call.status !== 'active') throw new Error('This test call has ended — start a new one.');
+  if (hasCardNumber(text)) {
+    call = await saveCall(refuseCard(call));
+    return { call, reply: { say: NO_CARD[call.lang], next: 'listen', lang: call.lang } };
+  }
+  text = redactCards(text);
   // The same language rules as a real call: "English", "español", or keys 2 / 3 typed as the first words.
   const key = text.trim();
   const asked = /^[23]$/.test(key) ? languageChoice(call.turns, key, '') : languageChoice(call.turns, '', key);
+  let notice = '';
   if (asked && asked.lang !== call.lang) {
     call = await saveCall(say({ ...call, lang: asked.lang }, 'caller', text));
     if (!asked.rest) {
-      const greeting = GREETING[asked.lang](line.name, personaFor(settings.persona, settings.voiceFr));
+      const greeting = GREETING[asked.lang](line.name, personaIn(settings, asked.lang));
       call = await saveCall(say(call, 'agent', greeting));
       return { call, reply: { say: greeting, next: 'listen', lang: asked.lang } };
     }
+    // Same as a real call: the notice in the new language before the answer.
+    notice = orderDisclosure(personaIn(settings, asked.lang), asked.lang);
+    call = await saveCall(say(call, 'agent', notice));
     text = asked.rest;
   }
   const kitchen = callKitchen(line, call);
@@ -273,5 +343,5 @@ export async function simulateTurn(lineId: string, sessionId: string | null, tex
   const r = await runAgentTurn(call, text, { line: kitchen ?? line, configured: line, menu, settings, simulate: true });
   let saved = await saveCall(r.call);
   if (r.reply.next !== 'listen') saved = (await endCall(saved.id, r.reply.next === 'handoff' ? 'handoff' : undefined)) ?? saved;
-  return { call: saved, reply: r.reply };
+  return { call: saved, reply: notice ? { ...r.reply, say: `${notice} ${r.reply.say}` } : r.reply };
 }

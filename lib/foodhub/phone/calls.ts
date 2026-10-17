@@ -8,6 +8,7 @@ import { normalizePhone } from '../notify';
 import { getRepo } from '../repo';
 import type { DropoffAddress } from '../delivery/types';
 import type { CartLine } from './cart';
+import { redactCards } from './ivr/words';
 
 export const PHONE_CALLS = 'phone_calls';
 
@@ -88,8 +89,9 @@ export async function listCalls(opts: { since?: string; limit?: number } = {}): 
   return (await getRepo().listDocs<PhoneCall>(PHONE_CALLS, { since: opts.since, limit: opts.limit ?? 300 })).map((d) => d.data);
 }
 
+/** Adds a transcript line. Card numbers never reach a stored transcript (same rule as the ON2GO menu's records). */
 export function say(call: PhoneCall, who: PhoneCall['transcript'][number]['who'], text: string): PhoneCall {
-  return { ...call, transcript: [...call.transcript, { at: nowIso(), who, text: text.slice(0, 2000) }].slice(-400) };
+  return { ...call, transcript: [...call.transcript, { at: nowIso(), who, text: redactCards(text).slice(0, 2000) }].slice(-400) };
 }
 
 /** Ends a call: final status, duration, and the AI history dropped (the transcript stays). */

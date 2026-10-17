@@ -46,13 +46,13 @@ const en$ = (n: number) => formatCadLabel(n, 'en');
 
 /** The one pricing sentence, everywhere a price is stated: both apps. */
 export const PRICING_STATEMENT: Bilingual = {
-  fr: `Essai gratuit de ${TRIAL_DAYS} jours, puis ${fr$(STANDARD_MONTHLY_CAD)}/mois par application. ${FOOD_HUB_APP_NAME} : ${fr$(EXTRA_BRAND_PLATFORM_CAD)} par plateforme par mois pour chaque marque supplémentaire. ${PHONE_APP_NAME} : + ${fr$(PHONE_MINUTE_CAD)} par minute d’IA. Taxes en sus, facturé par Clover.`,
+  fr: `Essai gratuit de ${TRIAL_DAYS} jours, puis ${fr$(STANDARD_MONTHLY_CAD)}/mois par application. ${FOOD_HUB_APP_NAME} : ${fr$(EXTRA_BRAND_PLATFORM_CAD)} par plateforme par mois pour chaque marque supplémentaire. ${PHONE_APP_NAME} : + ${fr$(PHONE_MINUTE_CAD)} par minute d’IA. Taxes en sus. Facturé par Clover.`,
   en: `${TRIAL_DAYS}-day free trial, then ${en$(STANDARD_MONTHLY_CAD)}/month per app. ${FOOD_HUB_APP_NAME}: extra brand ${en$(EXTRA_BRAND_PLATFORM_CAD)} per platform per month. ${PHONE_APP_NAME}: + ${en$(PHONE_MINUTE_CAD)} per AI minute. Plus applicable taxes, billed by Clover.`,
 };
 
 /** TAKATAK Phone AI alone, for the AI phone page and the pricing page. */
 export const PHONE_PRICING_STATEMENT: Bilingual = {
-  fr: `Essai gratuit de ${PHONE_TRIAL_DAYS} jours, puis ${fr$(PHONE_MONTHLY_CAD)}/mois, + ${fr$(PHONE_MINUTE_CAD)} par minute d’IA. Taxes en sus, facturé par Clover.`,
+  fr: `Essai gratuit de ${PHONE_TRIAL_DAYS} jours, puis ${fr$(PHONE_MONTHLY_CAD)}/mois, + ${fr$(PHONE_MINUTE_CAD)} par minute d’IA. Taxes en sus. Facturé par Clover.`,
   en: `${PHONE_TRIAL_DAYS}-day free trial, then ${en$(PHONE_MONTHLY_CAD)}/month, + ${en$(PHONE_MINUTE_CAD)} per AI minute. Plus applicable taxes, billed by Clover.`,
 };
 

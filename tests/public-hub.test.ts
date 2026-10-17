@@ -159,7 +159,7 @@ describe('pricing (lib/foodhub/pricing.ts)', () => {
   });
   it('states the submitted-app pricing (owner, 2026-10-17): 14-day free trial, then CAD $50/month per app', () => {
     expect(PRICING_STATEMENT.en).toBe('14-day free trial, then CAD $50/month per app. TAKATAK Food Hub: extra brand CAD $15 per platform per month. TAKATAK Phone AI: + CAD $0.25 per AI minute. Plus applicable taxes, billed by Clover.');
-    expect(PRICING_STATEMENT.fr).toBe('Essai gratuit de 14 jours, puis 50 $ CA/mois par application. TAKATAK Food Hub : 15 $ CA par plateforme par mois pour chaque marque supplémentaire. TAKATAK Phone AI : + 0,25 $ CA par minute d’IA. Taxes en sus, facturé par Clover.');
+    expect(PRICING_STATEMENT.fr).toBe('Essai gratuit de 14 jours, puis 50 $ CA/mois par application. TAKATAK Food Hub : 15 $ CA par plateforme par mois pour chaque marque supplémentaire. TAKATAK Phone AI : + 0,25 $ CA par minute d’IA. Taxes en sus. Facturé par Clover.');
     expect(PHONE_PRICING_STATEMENT.en).toBe('14-day free trial, then CAD $50/month, + CAD $0.25 per AI minute. Plus applicable taxes, billed by Clover.');
     for (const t of [PRICING_STATEMENT.fr, PRICING_STATEMENT.en, PHONE_PRICING_STATEMENT.fr, PHONE_PRICING_STATEMENT.en]) {
       expect(t).not.toMatch(/prévu|planned|bientôt|coming soon/i);

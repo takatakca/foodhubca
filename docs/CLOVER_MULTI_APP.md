@@ -42,7 +42,7 @@ Phone app (all optional):
 | `FOODHUB_PHONE_METERED_ENABLED` | `true` = send AI minutes to Clover. Anything else (default) = dry run: nothing sent, Clover not asked, Settings → Clover app shows what would be billed. |
 | `PHONE_OWN_MERCHANTS` | Our own restaurants' Clover merchant IDs, comma-separated: always allowed, never billed. The default `CLOVER_MERCHANT_ID`, the keys of `CLOVER_MERCHANT_TOKENS` and `FOODHUB_BILLING_EXEMPT_MERCHANTS` count as ours too. |
 | `FOODHUB_BILLING_EXEMPT_MERCHANTS` | Other merchants never billed, comma-separated (also always allowed on the phone app). |
-| `CLOVER_PHONE_APP_NAME` | Listing name if not "TAKATAK Phone". |
+| `CLOVER_PHONE_APP_NAME` | Listing name if not "TAKATAK Phone AI". |
 
 ## How the backend keeps the two apps apart
 

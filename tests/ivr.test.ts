@@ -669,7 +669,7 @@ describe('TAKATAK Phone on the ON2GO menu, and the empty answers of the status s
     expect(await getCall('CA1')).toBeNull();
     const ivr = (await getIvrCall('CA1'))!;
     expect(ivr.outcome).not.toBe('order_agent');
-    expect(JSON.stringify(ivr.transcript)).toMatch(/TAKATAK Phone not active for kitchen NDG \(not_installed\)/);
+    expect(JSON.stringify(ivr.transcript)).toMatch(/TAKATAK Phone AI not active for kitchen NDG \(not_installed\)/);
   });
 
   it('"place an order" with Clover hanging: the app check waits 1 s at most (the menu\'s AI turn already used time)', async () => {
@@ -690,7 +690,7 @@ describe('TAKATAK Phone on the ON2GO menu, and the empty answers of the status s
     const r = await turn({ SpeechResult: 'je veux commander un poulet' });
     expect(Date.now() - t0).toBeLessThan(2_000);
     expect(r).not.toMatch(/webhooks\/voice\/turn/);
-    expect(JSON.stringify((await getIvrCall('CA1'))!.transcript)).toMatch(/TAKATAK Phone not active for kitchen NDG \(clover_unreachable\)/);
+    expect(JSON.stringify((await getIvrCall('CA1'))!.transcript)).toMatch(/TAKATAK Phone AI not active for kitchen NDG \(clover_unreachable\)/);
     await new Promise((res) => setTimeout(res, 50));
   });
 

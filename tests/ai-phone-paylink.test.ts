@@ -630,7 +630,7 @@ describe('TAKATAK Phone: the texted pay link needs the app for the kitchen\'s me
     await getRepo().setKv('clover_oauth_merchants', { [MID]: { merchantId: MID, accessToken: 'clv-token', accessTokenExpiration: Math.floor(Date.now() / 1000) + 3600, connectedAt: '2026-10-01T00:00:00.000Z' } });
     const plan = await phonePaymentPlan(SL_LINE, { payment: DEFAULT_PAYMENT });
     expect(plan).toMatchObject({ link: false, counter: true });
-    expect(plan.reason).toMatch(/TAKATAK Phone not active for kitchen SAINT_LEONARD \(not_installed\): no payment link/);
+    expect(plan.reason).toMatch(/TAKATAK Phone AI not active for kitchen SAINT_LEONARD \(not_installed\): no payment link/);
     const { menu, call, line } = await pickupCall('CA-GATE-ON');
     const r = await placePhoneOrder(call, line, menu, { ...opts, payment: 'link' });
     expect(r.ok).toBe(true);

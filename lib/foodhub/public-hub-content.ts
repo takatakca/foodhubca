@@ -188,7 +188,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
   pricing: {
     fr: {
       title: `Tarifs ON2GO.ca : essai gratuit de ${TRIAL_DAYS} jours`,
-      description: `Essai gratuit de ${TRIAL_DAYS} jours, puis ${fr$(STANDARD_MONTHLY_CAD)}/mois par application, ${fr$(EXTRA_BRAND_PLATFORM_CAD)}/mois par marque de plus par plateforme. Facturé par Clover.`,
+      description: `Essai gratuit de ${TRIAL_DAYS} jours, puis ${fr$(STANDARD_MONTHLY_CAD)}/mois par application et ${fr$(EXTRA_BRAND_PLATFORM_CAD)}/mois par marque supplémentaire par plateforme. Taxes en sus. Facturé par Clover.`,
       label: 'Tarifs',
       eyebrow: 'Tarifs',
       h1: 'Un prix simple, facturé par Clover',

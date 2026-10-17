@@ -19,8 +19,6 @@ import { buildPhoneMenu, noKitchenMenu } from './cart';
 import { linePhoneGate, phoneGateNote } from './gate';
 import { endCall, getCall, isTestCaller, markAiEnded, maskNumber, saveCall, say, type PhoneCall, type PhoneLang, type TurnReply } from './calls';
 import { meterEndedCall } from './metering';
-import { languageRequest, LANG_DIGIT } from './ivr/words';
-import { endCall, getCall, isTestCaller, maskNumber, saveCall, say, type PhoneCall, type PhoneLang, type TurnReply } from './calls';
 import { hasCardNumber, languageRequest, LANG_DIGIT, NO_CARD, redactCards } from './ivr/words';
 import { getPhoneSettings, isMultiKitchen, kitchenView, lineForNumber, type PhoneLine, type PhoneSettings } from './settings';
 import { personaFor } from './style';

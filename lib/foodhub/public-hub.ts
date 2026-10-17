@@ -1,13 +1,13 @@
-// The public ON2GO Hub site on foodhub.on2go.ca (spec: private SEO plan § 8): metadata, structured data (JSON-LD),
+// The public ON2GO.ca site on foodhub.on2go.ca (spec: private SEO plan § 8): metadata, structured data (JSON-LD),
 // sitemap entries and llms.txt for the pages in app/hub and app/en/hub. The words live in public-hub-content.ts; the
 // product facts come from the Clover App Market listing (clover-listing.ts) and the prices from pricing.ts, so the
 // site, the listing and the structured data never drift apart.
 //
 // Environment (all optional, read at request time):
 //   FOODHUB_APP_MARKET_URL   the listing's public address once Clover approves it (https://…clover.com/…). Empty =
-//                            "Coming soon to the Clover App Market", prices labelled "Planned launch pricing", no Offer.
-//   FOODHUB_APP_MARKET_STATUS "review" once the owner has really submitted the listing ("under review by Clover");
-//                            anything else = "coming soon". Ignored once FOODHUB_APP_MARKET_URL is set.
+//                            "under review by Clover" (both apps submitted on 2026-10-17), no Offer.
+//   FOODHUB_APP_MARKET_STATUS "soon" brings back "coming soon to the Clover App Market" (only if a listing is
+//                            withdrawn); anything else = "under review". Ignored once FOODHUB_APP_MARKET_URL is set.
 //   FOODHUB_PUBLIC_LIVE_PLATFORMS  the platforms that approved the integration (uber,doordash,skip; unset = uber). The
 //                            others show "in certification" and their pages stay out of the index, sitemap and llms.txt.
 //   FOODHUB_PUBLIC_SAME_AS   comma-separated public profile links (LinkedIn, YouTube…) for the Organization's sameAs.
@@ -19,8 +19,8 @@ import type { Metadata } from 'next';
 import { LISTING_BENEFITS, LISTING_DESCRIPTION } from './clover-listing';
 import { legalInfo, LEGAL_PATHS } from './legal';
 import {
-  appMarketStatus, appMarketUrl, HUB_PLATFORMS, livePlatforms, PRICING, PRICING_STATEMENT, STANDARD_MONTHLY_CAD, TRIAL_DAYS,
-  type AppMarketStatus, type HubPlatform, type Lang,
+  appMarketStatus, appMarketUrl, HUB_PLATFORMS, livePlatforms, PHONE_APP_NAME, PHONE_PRICING_STATEMENT, PRICING, PRICING_STATEMENT,
+  STANDARD_MONTHLY_CAD, type AppMarketStatus, type HubPlatform, type Lang,
 } from './pricing';
 import { CLOVER_APP_NAME } from './product';
 import { HUB_CONTENT, HUB_PAGE_KEYS, HUB_PATHS, HUB_TAGLINE, HUB_UI, PLATFORM_NAME, type Card, type Faq, type HubPageKey } from './public-hub-content';
@@ -28,7 +28,7 @@ import { publicBaseUrl } from './config';
 
 export { HUB_CONTENT, HUB_PAGE_KEYS, HUB_PATHS, type HubPageKey };
 
-export const HUB_NAME = 'ON2GO Hub';
+export const HUB_NAME = 'ON2GO.ca';
 /** The Clover App Market name, protected (renaming it needs a new Clover review). */
 export const HUB_ALT_NAME = CLOVER_APP_NAME;
 export const OG_IMAGE: Record<Lang, string> = { fr: '/og/hub-fr.png', en: '/og/hub-en.png' };
@@ -169,13 +169,11 @@ export const colon = (lang: Lang) => (lang === 'fr' ? ' : ' : ': ');
 
 type FillCtx = Pick<HubContext, 'company' | 'appMarketUrl'> & LiveCtx;
 
-/** Fills the content's per-request tokens: {company} (legal name), {planned} (the launch-pricing note while the app
- * is not on the Clover App Market) and {pending} (the platforms still in certification). */
+/** Fills the content's per-request tokens: {company} (legal name) and {pending} (the platforms still in certification). */
 export function fillHub(text: string, lang: Lang, ctx: FillCtx): string {
   const pending = pendingPlatforms(ctx);
   return text
     .replace(/\{company\}/g, ctx.company)
-    .replace(/\{planned\}/g, ctx.appMarketUrl ? '' : HUB_UI[lang].plannedNote)
     .replace(/\{pending\}/g, pending.length ? HUB_UI[lang].pending.replace('{platforms}', platformList(pending, lang)) : '');
 }
 
@@ -308,10 +306,11 @@ export function hubRobots(base = hubBase()) {
   return {
     rules: [{
       userAgent: '*',
-      allow: ['/hub', '/en/hub', '/legal/', '/llms.txt', '/og/', '/icons/'],
+      allow: ['/hub', '/en/hub', '/legal/', '/commander/', '/llms.txt', '/og/', '/icons/'],
       disallow: ['/api/'],
     }],
-    sitemap: `${base}/sitemap.xml`,
+    // The storefront ordering pages have their own sitemap (app/commander/sitemap.xml, lib/foodhub/storefront/seo.ts).
+    sitemap: [`${base}/sitemap.xml`, `${base}/commander/sitemap.xml`],
   };
 }
 
@@ -322,7 +321,7 @@ export function hubLlmsTxt(ctx: HubContext = hubContext(), legalApproved = legal
     const ui = HUB_UI[lang];
     const market = ctx.appMarketUrl
       ? `${ui.marketLive}${colon(lang)}${ctx.appMarketUrl}`
-      : `${ctx.marketStatus === 'review' ? ui.marketReviewNote : ui.marketSoonNote} ${ui.plannedPricing}.`;
+      : (ctx.marketStatus === 'review' ? ui.marketReviewNote : ui.marketSoonNote);
     const pending = pendingPlatforms(ctx);
     const lines = [
       fr ? '## Français' : '## English',
@@ -344,7 +343,9 @@ export function hubLlmsTxt(ctx: HubContext = hubContext(), legalApproved = legal
       fr ? '### Tarifs' : '### Pricing',
       PRICING_STATEMENT[lang],
       market,
-      fr ? `Téléphone IA : bientôt, application distincte avec son propre essai gratuit de ${TRIAL_DAYS} jours et son propre abonnement.` : `AI phone: coming soon, a separate app with its own ${TRIAL_DAYS}-day free trial and its own subscription.`,
+      fr
+        ? `${PHONE_APP_NAME} (téléphone IA) : application Clover distincte, un assistant automatisé qui répond aux appels du restaurant, prend les commandes et texte au client un lien de paiement Clover. ${PHONE_PRICING_STATEMENT.fr}`
+        : `${PHONE_APP_NAME} (AI phone): a separate Clover app, an automated assistant that answers the restaurant’s calls, takes orders and texts the customer a Clover payment link. ${PHONE_PRICING_STATEMENT.en}`,
       '',
       fr ? '### Pages' : '### Pages',
       ...HUB_PAGE_KEYS.filter((k) => hubIndexable(k, ctx)).map((k) => `- [${HUB_CONTENT[k][lang].label}](${hubUrl(ctx.base, k, lang)})`),

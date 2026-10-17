@@ -31,7 +31,7 @@ const PUBLIC_PATHS = new Set([
   '/courier', '/api/courier', // our couriers' page: the personal signed link (Bearer) is the credential (lib/foodhub/delivery/courier-app.ts)
 ]);
 
-// The public ON2GO Hub site (/hub, /en/hub, robots.txt, sitemap.xml, llms.txt, /og/, favicon) is open to everyone and
+// The public ON2GO.ca hub site (/hub, /en/hub, robots.txt, sitemap.xml, llms.txt, /og/, favicon) is open to everyone and
 // indexable, like the legal pages; every other response says "noindex" (lib/foodhub/public-site.ts).
 export async function proxy(req: NextRequest) {
   const res = await gate(req);
@@ -78,7 +78,7 @@ async function gate(req: NextRequest) {
   }
   const to = req.nextUrl.clone();
   const isTablet = Boolean(await verifyDevice(readCookie(req.headers.get('cookie'), DEVICE_COOKIE)));
-  // An anonymous visitor on the bare address sees the public ON2GO Hub page (with its "Sign in" button); tablets keep
+  // An anonymous visitor on the bare address sees the public ON2GO.ca hub page (with its "Sign in" button); tablets keep
   // their PIN screen, and FOODHUB_PUBLIC_HOME=off restores /login. The query string (?fbclid=, utm_…) goes along: a
   // shared link to the root must land on /hub, not on /login?next=… . The redirect stays temporary (307): a permanent
   // one would be cached by browsers and send a signed-in owner's "/" (the console) to /hub. Public links always point

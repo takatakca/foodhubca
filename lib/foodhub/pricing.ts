@@ -1,46 +1,62 @@
-// Public price of ON2GO Hub / TAKATAK Food Hub (owner's decision of 2026-10-16), the one source for the public pages
-// (/hub, /hub/tarifs, llms.txt) and their structured data.
-//  - 14-day free trial (Clover runs it), then CAD $50 per month per app, Canada only;
-//  - CAD $15 per month for each ADDITIONAL brand on each delivery platform it is connected to (the first brand is
-//    included in the $50): a second brand on Uber Eats, DoorDash and SkipTheDishes = 3 × $15 = $45 per month.
+// Public price of the two Clover apps sold on ON2GO.ca (owner's decisions of 2026-10-16 and 2026-10-17), the one source
+// for the public pages (/hub, /hub/tarifs, llms.txt) and their structured data.
+//  - TAKATAK Food Hub: 14-day free trial (Clover runs it), then CAD $50 per month, Canada only; CAD $15 per month for
+//    each ADDITIONAL brand on each delivery platform it is connected to (the first brand is included in the $50): a
+//    second brand on Uber Eats, DoorDash and SkipTheDishes = 3 × $15 = $45 per month.
+//  - TAKATAK Phone AI (the second Clover app): 14-day free trial, then CAD $50 per month, plus CAD $0.25 per AI minute.
 //  - Clover bills the merchant (never us).
-// Same numbers as lib/foodhub/pos/clover-pricing.ts on feature/clover-billing-extra-brands: when that branch merges,
-// one of the two files re-exports the other. The terms page (fix/legal-pages-complete) should import these too.
+// The Food Hub numbers are those of lib/foodhub/pos/clover-pricing.ts (re-exported here, never typed twice); the phone
+// numbers match PHONE_PRICE in lib/foodhub/pos/clover-phone-minutes.ts (tests/public-hub.test.ts checks it; that file
+// has server imports, so it is not imported here).
 //
-// The Clover App Market link is FOODHUB_APP_MARKET_URL (empty until Clover approves the listing): without it the pages
-// say "Coming soon to the Clover App Market" and label the prices "Planned launch pricing", and no Offer is published
-// in the structured data. FOODHUB_APP_MARKET_STATUS=review (set by the owner only once the listing is really submitted
-// to Clover) adds "under review by Clover"; anything else says "coming soon". No server-only import here.
+// Both apps are SUBMITTED to the Clover App Market (pending review, 2026-10-17). The Clover App Market link is
+// FOODHUB_APP_MARKET_URL (empty until Clover approves the listing): without it the pages say "under review by Clover"
+// and no Offer is published in the structured data. FOODHUB_APP_MARKET_STATUS=soon brings back "coming soon" (only if a
+// listing is withdrawn). No server-only import here.
 
-export type Lang = 'fr' | 'en';
-export type Bilingual = { fr: string; en: string };
+import { EXTRA_BRAND_PLATFORM_CAD, formatCad, STANDARD_MONTHLY_CAD, TRIAL_DAYS, type Bilingual, type Lang } from './pos/clover-pricing';
 
-export const TRIAL_DAYS = 14;
-export const STANDARD_MONTHLY_CAD = 50;
-export const EXTRA_BRAND_PLATFORM_CAD = 15;
+export { EXTRA_BRAND_PLATFORM_CAD, formatCad, STANDARD_MONTHLY_CAD, TRIAL_DAYS, type Bilingual, type Lang };
+
+/** TAKATAK Phone AI: CAD per minute the automated assistant is on the line (same 14-day trial and CAD $50 per month). */
+export const PHONE_MINUTE_CAD = 0.25;
+export const PHONE_MONTHLY_CAD = 50;
+export const PHONE_TRIAL_DAYS = 14;
+
+export const FOOD_HUB_APP_NAME = 'TAKATAK Food Hub';
+export const PHONE_APP_NAME = 'TAKATAK Phone AI';
 
 export const PRICING = {
   trialDays: TRIAL_DAYS,
   monthlyPerApp: STANDARD_MONTHLY_CAD,
   extraBrandPerPlatform: EXTRA_BRAND_PLATFORM_CAD,
+  phonePerMinute: PHONE_MINUTE_CAD,
   currency: 'CAD',
   country: 'CA',
 } as const;
 
-/** The one pricing sentence, everywhere a price is stated. */
-export const PRICING_STATEMENT: Bilingual = {
-  fr: `Essai gratuit de ${TRIAL_DAYS} jours, puis ${STANDARD_MONTHLY_CAD} $/mois par application, + ${EXTRA_BRAND_PLATFORM_CAD} $/mois par marque supplémentaire par plateforme, taxes en sus, facturé par Clover.`,
-  en: `${TRIAL_DAYS}-day free trial, then $${STANDARD_MONTHLY_CAD}/month per app, + $${EXTRA_BRAND_PLATFORM_CAD}/month per extra brand per platform, plus applicable taxes, billed by Clover.`,
-};
-
-/** "50 $" (French, Canada) / "$50" (English). Whole dollars when the amount has no cents. */
-export function formatCad(amount: number, lang: Lang): string {
-  const n = Math.round((Number(amount) || 0) * 100) / 100;
-  const text = Number.isInteger(n) ? String(n) : n.toFixed(2);
-  return lang === 'fr' ? `${text.replace('.', ',')} $` : `$${text}`;
+/** "50 $ CA" (French, Canada) / "CAD $50" (English); "0,25 $ CA" / "CAD $0.25". */
+export function formatCadLabel(amount: number, lang: Lang): string {
+  const text = formatCad(amount, lang);
+  return lang === 'fr' ? `${text} CA` : `CAD ${text}`;
 }
 
-/** Monthly cost of a plan with `extraUnits` extra brand × platform units. */
+const fr$ = (n: number) => formatCadLabel(n, 'fr');
+const en$ = (n: number) => formatCadLabel(n, 'en');
+
+/** The one pricing sentence, everywhere a price is stated: both apps. */
+export const PRICING_STATEMENT: Bilingual = {
+  fr: `Essai gratuit de ${TRIAL_DAYS} jours, puis ${fr$(STANDARD_MONTHLY_CAD)}/mois par application. ${FOOD_HUB_APP_NAME} : ${fr$(EXTRA_BRAND_PLATFORM_CAD)} par plateforme par mois pour chaque marque supplémentaire. ${PHONE_APP_NAME} : + ${fr$(PHONE_MINUTE_CAD)} par minute d’IA. Taxes en sus, facturé par Clover.`,
+  en: `${TRIAL_DAYS}-day free trial, then ${en$(STANDARD_MONTHLY_CAD)}/month per app. ${FOOD_HUB_APP_NAME}: extra brand ${en$(EXTRA_BRAND_PLATFORM_CAD)} per platform per month. ${PHONE_APP_NAME}: + ${en$(PHONE_MINUTE_CAD)} per AI minute. Plus applicable taxes, billed by Clover.`,
+};
+
+/** TAKATAK Phone AI alone, for the AI phone page and the pricing page. */
+export const PHONE_PRICING_STATEMENT: Bilingual = {
+  fr: `Essai gratuit de ${PHONE_TRIAL_DAYS} jours, puis ${fr$(PHONE_MONTHLY_CAD)}/mois, + ${fr$(PHONE_MINUTE_CAD)} par minute d’IA. Taxes en sus, facturé par Clover.`,
+  en: `${PHONE_TRIAL_DAYS}-day free trial, then ${en$(PHONE_MONTHLY_CAD)}/month, + ${en$(PHONE_MINUTE_CAD)} per AI minute. Plus applicable taxes, billed by Clover.`,
+};
+
+/** Monthly cost of a Food Hub plan with `extraUnits` extra brand × platform units. */
 export function monthlyTotalCad(extraUnits = 0): number {
   return STANDARD_MONTHLY_CAD + Math.max(0, Math.floor(Number(extraUnits) || 0)) * EXTRA_BRAND_PLATFORM_CAD;
 }
@@ -64,7 +80,7 @@ export function appMarketUrl(raw: string | null | undefined = typeof process !==
 }
 
 /** Where the Clover App Market listing stands, for the public wording: "live" once FOODHUB_APP_MARKET_URL is set;
- * "review" only when the owner set FOODHUB_APP_MARKET_STATUS=review after really submitting the listing; else "soon". */
+ * otherwise "review" (both apps were submitted on 2026-10-17), unless FOODHUB_APP_MARKET_STATUS=soon. */
 export type AppMarketStatus = 'soon' | 'review' | 'live';
 
 export function appMarketStatus(
@@ -72,10 +88,10 @@ export function appMarketStatus(
   raw: string | null | undefined = typeof process !== 'undefined' ? process.env.FOODHUB_APP_MARKET_STATUS : undefined,
 ): AppMarketStatus {
   if (url) return 'live';
-  return String(raw ?? '').trim().toLowerCase() === 'review' ? 'review' : 'soon';
+  return String(raw ?? '').trim().toLowerCase() === 'soon' ? 'soon' : 'review';
 }
 
-/** The delivery platforms whose ON2GO Hub integration a page may present as live (the platform approved it).
+/** The delivery platforms whose integration a page may present as live (the platform approved it).
  * FOODHUB_PUBLIC_LIVE_PLATFORMS, comma-separated among uber, doordash, skip; unset = "uber" only. A platform not in
  * the list shows "integration in certification", and its page stays out of the index, the sitemap and llms.txt. */
 export type HubPlatform = 'uber' | 'doordash' | 'skip';

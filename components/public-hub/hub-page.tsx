@@ -1,14 +1,14 @@
 import type { ReactNode } from 'react';
 import { TakatakMark } from '@/components/brand/takatak-mark';
 import { LEGAL_PATHS } from '@/lib/foodhub/legal';
-import { EXTRA_BRAND_PLATFORM_CAD, formatCad, STANDARD_MONTHLY_CAD, TRIAL_DAYS, type Lang } from '@/lib/foodhub/pricing';
+import { EXTRA_BRAND_PLATFORM_CAD, formatCadLabel, PHONE_APP_NAME, PHONE_PRICING_STATEMENT, STANDARD_MONTHLY_CAD, TRIAL_DAYS, type Lang } from '@/lib/foodhub/pricing';
 import {
   fillHub, HUB_CONTENT, HUB_NAME, HUB_PATHS, hubBenefits, hubCertificationNote, hubFaq, hubFeatures, hubIndexable, hubJsonLd,
   hubRequirements, jsonLdScript, pendingPlatforms, platformList, type HubContext, type HubPageKey,
 } from '@/lib/foodhub/public-hub';
 import { HUB_UI, type Block, type Card } from '@/lib/foodhub/public-hub-content';
 
-// The public ON2GO Hub pages (/hub, /en/hub…): server-rendered, no page-specific client component, no tracker, no
+// The public ON2GO.ca pages (/hub, /en/hub…): server-rendered, no page-specific client component, no tracker, no
 // session, no database (the root layout still ships its own small boot script and the Next.js runtime).
 // Everything from the environment arrives in `ctx` (hubContext()), so this component renders the same in tests.
 
@@ -48,7 +48,7 @@ function MarketButton({ lang, ctx, large }: { lang: Lang; ctx: HubContext; large
   }
   return (
     <span className={`inline-flex items-center rounded-md border border-line-2 bg-raised font-bold text-ink ${pad}`}>
-      {ui.marketSoon}
+      {ctx.marketStatus === 'review' ? ui.marketReview : ui.marketSoon}
     </span>
   );
 }
@@ -58,7 +58,7 @@ function PricingBlock({ lang, ctx }: { lang: Lang; ctx: HubContext }) {
   return (
     <div className="mt-6 rounded-xl border border-line bg-surface p-6 shadow-card">
       <p className="inline-flex rounded-full bg-brand-soft px-3 py-1 text-[13px] font-bold text-brand">
-        {ctx.appMarketUrl ? ui.marketLive : ui.plannedPricing}
+        {ctx.appMarketUrl ? ui.marketLive : ui.pricingBadge}
       </p>
       <dl className="mt-5 grid gap-5 sm:grid-cols-3">
         <div className="flex flex-col-reverse">
@@ -67,14 +67,15 @@ function PricingBlock({ lang, ctx }: { lang: Lang; ctx: HubContext }) {
         </div>
         <div className="flex flex-col-reverse">
           <dt className="text-sm text-ink-3">{ui.perMonthPerApp}</dt>
-          <dd className="text-3xl font-extrabold text-ink">{formatCad(STANDARD_MONTHLY_CAD, lang)}</dd>
+          <dd className="text-3xl font-extrabold text-ink">{formatCadLabel(STANDARD_MONTHLY_CAD, lang)}</dd>
         </div>
         <div className="flex flex-col-reverse">
           <dt className="text-sm text-ink-3">{ui.perExtraBrand}</dt>
-          <dd className="text-3xl font-extrabold text-ink">+{formatCad(EXTRA_BRAND_PLATFORM_CAD, lang)}</dd>
+          <dd className="text-3xl font-extrabold text-ink">+{formatCadLabel(EXTRA_BRAND_PLATFORM_CAD, lang)}</dd>
         </div>
       </dl>
       <p className="mt-5 text-[15px] text-ink-2">{ui.firstBrand} {ui.billedByClover}</p>
+      <p className="mt-3 text-[15px] text-ink-2"><b className="text-ink">{PHONE_APP_NAME}</b>{lang === 'fr' ? ' : ' : ': '}{PHONE_PRICING_STATEMENT[lang]}</p>
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <MarketButton lang={lang} ctx={ctx} />
         {!ctx.appMarketUrl && <span className="text-sm text-ink-3">{ctx.marketStatus === 'review' ? ui.marketReviewNote : ui.marketSoonNote}</span>}
@@ -157,7 +158,6 @@ function BlockView({ block, lang, ctx }: { block: Block; lang: Lang; ctx: HubCon
                 <li key={k}>
                   <a href={HUB_PATHS[k][lang]} className="block h-full rounded-lg border border-line bg-surface p-4 hover:border-brand">
                     <span className="font-bold text-brand underline-offset-2 hover:underline">{c.label}</span>
-                    {c.soon && <span className="ml-2 rounded-full bg-wait-soft px-2 py-0.5 text-xs font-bold text-ink">{HUB_UI[lang].soon}</span>}
                     {!hubIndexable(k, ctx) && <span className="ml-2 rounded-full bg-wait-soft px-2 py-0.5 text-xs font-bold text-ink">{HUB_UI[lang].certBadge}</span>}
                     <span className="mt-1 block text-sm text-ink-2">{c.description}</span>
                   </a>
@@ -218,7 +218,6 @@ export function HubPage({ page, lang, ctx }: { page: HubPageKey; lang: Lang; ctx
             <p className="text-[13px] font-bold uppercase tracking-[0.12em] text-cyan">{c.eyebrow}</p>
             <h1 className="mt-3 max-w-4xl text-3xl font-extrabold leading-tight tracking-tight sm:text-5xl">
               {c.h1}
-              {c.soon && <span className="ml-3 inline-block rounded-full bg-wait px-3 py-1 align-middle text-sm font-bold text-rail">{ui.soon}</span>}
             </h1>
             {certification && (
               <p className="mt-4 inline-flex rounded-full bg-wait px-3 py-1 text-sm font-bold text-rail">{certification}</p>

@@ -18,7 +18,7 @@ export interface LegalInfo {
   /** Free trial length, the monthly price per app and the price of each additional brand per platform (CAD),
    *  billed only through Clover App Market billing. */
   pricing: { trialDays: number; monthlyCad: number; extraBrandCad: number };
-  /** TAKATAK Phone, the second Clover app (automated phone assistant): free trial, monthly price and the price of each
+  /** TAKATAK Phone AI, the second Clover app (automated phone assistant): free trial, monthly price and the price of each
    *  minute the assistant is on the line (CAD), billed by Clover through the Clover App Market; Canada only. */
   phonePricing: { trialDays: number; monthlyCad: number; minuteCad: number };
   appName: string;
@@ -48,7 +48,7 @@ export function legalInfo(): LegalInfo {
       minuteCad: positiveCents(process.env.FOODHUB_PHONE_MINUTE_PRICE_CAD, 0.25),
     },
     appName: 'TAKATAK Food Hub',
-    phoneAppName: 'TAKATAK Phone',
+    phoneAppName: 'TAKATAK Phone AI',
     baseUrl: publicBaseUrl(),
   };
 }
@@ -79,7 +79,7 @@ export function feesText(p: LegalInfo['pricing']): { fr: string; en: string } {
   };
 }
 
-/** The TAKATAK Phone fees, shown next to feesText() in the terms (§6) and the support FAQ. Minutes follow the
+/** The TAKATAK Phone AI fees, shown next to feesText() in the terms (§6) and the support FAQ. Minutes follow the
  *  metering of the phone app: AI time only, rounded up per call, never after a transfer to a person, never in the trial. */
 export function phoneFeesText(p: LegalInfo['phonePricing']): { fr: string; en: string } {
   return {

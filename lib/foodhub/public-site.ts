@@ -1,4 +1,4 @@
-// The public, indexable part of foodhub.on2go.ca: the ON2GO Hub pages (/hub in French, /en/hub in English), robots.txt,
+// The public, indexable part of foodhub.on2go.ca: the ON2GO.ca pages (/hub in French, /en/hub in English), robots.txt,
 // sitemap.xml, llms.txt, the share images (/og/) and the favicon. Everything else stays behind the sign-in (proxy.ts)
 // and carries "X-Robots-Tag: noindex" so the console never lands in a search engine, even through a stray link.
 // No imports: proxy.ts loads this file on every request.
@@ -25,13 +25,21 @@ export function isPublicSitePath(pathname: string): boolean {
   return publicSiteLang(pathname) !== null || PUBLIC_SITE_FILES.has(pathname) || pathname.startsWith('/og/');
 }
 
-/** May be indexed: the public site, the legal pages, the app icons (/icons/: the Organization logo in the structured
- * data and the site icons must be crawlable and indexable) and the menu photos (/media/: the dish photos that the public
- * directory feed sends to on2go.ca, which must stay eligible for image search). Every other response gets
- * X-Robots-Tag: noindex. (The legal pages carry their own meta robots noindex while they are drafts: app/legal/layout.tsx.) */
+/** A storefront ordering page or its sitemap (/commander/<slug>, /commander/sitemap.xml: lib/foodhub/storefront/seo.ts),
+ * never an order-tracking page (/commander/<slug>/suivi/<token>: one customer's order) or the QR image. */
+export function isStorefrontIndexablePath(pathname: string): boolean {
+  if (!pathname.startsWith('/commander/')) return false;
+  return pathname.slice('/commander/'.length).split('/').filter(Boolean).length === 1;
+}
+
+/** May be indexed: the public site, the legal pages, the storefront ordering pages (/commander/<slug>), the app icons
+ * (/icons/: the Organization logo in the structured data and the site icons must be crawlable and indexable) and the
+ * menu photos (/media/: the dish photos that the public directory feed sends to on2go.ca, which must stay eligible for
+ * image search). Every other response gets X-Robots-Tag: noindex. (The legal pages carry their own meta robots noindex
+ * while they are drafts: app/legal/layout.tsx; a storefront page that is off says noindex in its own metadata.) */
 export function isIndexablePath(pathname: string): boolean {
   return isPublicSitePath(pathname) || pathname === '/legal' || pathname.startsWith('/legal/') || pathname.startsWith('/icons/')
-    || pathname.startsWith('/media/');
+    || pathname.startsWith('/media/') || isStorefrontIndexablePath(pathname);
 }
 
 /** Cache-Control of the public hub pages: they only change when an env variable changes (which needs a restart), so a

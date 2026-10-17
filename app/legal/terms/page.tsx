@@ -4,7 +4,7 @@ import { feesText, legalInfo, LEGAL_PATHS, phoneFeesText, TOKEN_DELETION } from 
 import { Divider, H1, H2, LangBlock, LangSwitch, P, UL } from '../prose';
 
 export const dynamic = 'force-dynamic';
-export const metadata: Metadata = { title: 'Conditions d’utilisation · Terms of use — TAKATAK Food Hub · TAKATAK Phone' };
+export const metadata: Metadata = { title: 'Conditions d’utilisation · Terms of use — TAKATAK Food Hub · TAKATAK Phone AI' };
 
 // Terms of use / end-user licence (French first; the French version prevails — Charter of the French language).
 // DRAFT until FOODHUB_LEGAL_APPROVED=true: the owner and a legal adviser must confirm it before submission.

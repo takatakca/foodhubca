@@ -171,7 +171,7 @@ describe('metadata', () => {
     for (const key of HUB_PAGE_KEYS) for (const lang of LANGS) {
       const c = HUB_CONTENT[key][lang];
       expect(c.title.length, c.title).toBeLessThanOrEqual(60);
-      expect(c.title, c.title).toMatch(/ON2GO Hub/);
+      expect(c.title, c.title).toMatch(/ON2GO.ca/);
       expect(c.description.length, c.description).toBeLessThanOrEqual(155);
       expect(c.description.length, c.description).toBeGreaterThanOrEqual(70);
       titles.add(c.title); descriptions.add(c.description);
@@ -183,7 +183,7 @@ describe('metadata', () => {
       expect(m.robots, `${key}/${lang}`).toEqual({ index: !PENDING_KEYS.includes(key), follow: true });
       expect(hubMetadata(key, lang, { base: BASE, livePlatforms: ALL_LIVE }).robots).toEqual({ index: true, follow: true });
       const alt = (m.openGraph as { images: Array<{ alt: string }> }).images[0].alt;
-      expect(alt).toBe(`ON2GO Hub${lang === 'fr' ? ' : ' : ': '}${c.label}`);
+      expect(alt).toBe(`ON2GO.ca${lang === 'fr' ? ' : ' : ': '}${c.label}`);
     }
     expect(titles.size).toBe(HUB_PAGE_KEYS.length * 2);
     expect(descriptions.size).toBe(HUB_PAGE_KEYS.length * 2);
@@ -214,7 +214,7 @@ describe('page content', () => {
     expect(hubFeatures('fr').length).toBeGreaterThanOrEqual(6);
     expect(hubRequirements('fr')).toMatch(/^Un forfait Clover/);
     expect(hubRequirements('en')).toMatch(/^A Clover plan/);
-    expect(hubRequirements('en')).toContain('ON2GO Hub account');
+    expect(hubRequirements('en')).toContain('ON2GO.ca account');
     expect(fr).toContain('Too Good To Go : lorsque votre compte offre un flux de commandes');
     expect(visibleText(render('landing', 'en'))).toContain('Too Good To Go: when your account offers an order feed');
   });
@@ -236,7 +236,7 @@ describe('page content', () => {
         expect(seen.get(f.q), `${lang}: "${f.q}" on ${seen.get(f.q)} and ${key}`).toBeUndefined();
         seen.set(f.q, key);
       }
-      expect(seen.get(lang === 'fr' ? 'Combien coûte ON2GO Hub ?' : 'How much does ON2GO Hub cost?')).toBe('pricing');
+      expect(seen.get(lang === 'fr' ? 'Combien coûte ON2GO.ca ?' : 'How much does ON2GO.ca cost?')).toBe('pricing');
     }
   });
   it('the nav "Integrations" link goes to the landing’s integrations block, which exists', () => {
@@ -268,7 +268,7 @@ describe('page content', () => {
     expect(soon).toContain('Bientôt sur le Clover App Market');
     expect(soon).not.toContain('Disponible sur le Clover App Market');
     // The FAQ and the examples are built from pricing.ts, and say "planned" until the App Market link is set.
-    const price = hubFaq('pricing', 'fr', ctx()).find((f) => f.q === 'Combien coûte ON2GO Hub ?')!;
+    const price = hubFaq('pricing', 'fr', ctx()).find((f) => f.q === 'Combien coûte ON2GO.ca ?')!;
     expect(price.a).toContain(`${TRIAL_DAYS} jours`);
     expect(price.a).toContain(formatCad(STANDARD_MONTHLY_CAD, 'fr'));
     expect(price.a).toContain(formatCad(EXTRA_BRAND_PLATFORM_CAD, 'fr'));
@@ -345,12 +345,12 @@ describe('structured data', () => {
       const ld = ldOf(html);
       expect(ld['@graph'].map((n) => n['@type'])).toEqual(expect.arrayContaining(['Organization', 'SoftwareApplication', 'WebPage', 'FAQPage']));
       const org = node(ld, 'Organization')!;
-      expect(org).toMatchObject({ name: 'ON2GO Hub', alternateName: ['TAKATAK Food Hub'], legalName: 'Quadro Holdings LTEE' });
+      expect(org).toMatchObject({ name: 'ON2GO.ca', alternateName: ['TAKATAK Food Hub'], legalName: 'Quadro Holdings LTEE' });
       expect(org.address).toEqual({ '@type': 'PostalAddress', streetAddress: '6280, av. Somerled', addressLocality: 'Montréal', addressRegion: 'QC', postalCode: 'H3X 2B6', addressCountry: 'CA' });
       expect(org.email).toBeUndefined();
       expect(org.sameAs).toBeUndefined();
       const app = node(ld, 'SoftwareApplication')!;
-      expect(app).toMatchObject({ name: 'ON2GO Hub', alternateName: 'TAKATAK Food Hub', applicationCategory: 'BusinessApplication', operatingSystem: 'Clover' });
+      expect(app).toMatchObject({ name: 'ON2GO.ca', alternateName: 'TAKATAK Food Hub', applicationCategory: 'BusinessApplication', operatingSystem: 'Clover' });
       expect(app.offers).toBeUndefined();
       const faq = node(ld, 'FAQPage')! as { mainEntity: Array<{ name: string; acceptedAnswer: { text: string } }> };
       expect(faq.mainEntity.map((q) => q.name)).toEqual(hubFaq(key, lang, ctx()).map((f) => f.q));

@@ -1,6 +1,6 @@
 import { hubLlmsTxt } from '@/lib/foodhub/public-hub';
 
-// /llms.txt: a plain-text summary of ON2GO Hub for AI assistants (French, then English). Public facts only.
+// /llms.txt: a plain-text summary of ON2GO.ca for AI assistants (French, then English). Public facts only.
 export const dynamic = 'force-dynamic';
 
 export function GET() {

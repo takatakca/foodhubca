@@ -79,16 +79,16 @@ describe('privacy policy (FR then EN)', () => {
     expect(section(en, 2)).toContain('email address if given');
     expect(section(en, 2)).toContain('vehicle and position during the delivery');
   });
-  it('§1 covers both Clover apps: TAKATAK Food Hub and TAKATAK Phone (the automated phone assistant)', () => {
+  it('§1 covers both Clover apps: TAKATAK Food Hub and TAKATAK Phone AI (the automated phone assistant)', () => {
     const { fr, en } = halves(PrivacyPage);
     const fr1 = section(fr, 1);
     const en1 = section(en, 1);
-    expect(fr1).toContain('à l’application Clover « TAKATAK Food Hub » et à l’application Clover « TAKATAK Phone », l’assistant téléphonique automatisé qui répond aux appels du restaurant, prend les commandes et envoie au client, par texto, un lien de paiement Clover');
-    expect(en1).toContain('the “TAKATAK Food Hub” Clover app and the “TAKATAK Phone” Clover app, the automated phone assistant that answers the restaurant’s calls, takes orders and texts the customer a Clover payment link');
+    expect(fr1).toContain('à l’application Clover « TAKATAK Food Hub » et à l’application Clover « TAKATAK Phone AI », l’assistant téléphonique automatisé qui répond aux appels du restaurant, prend les commandes et envoie au client, par texto, un lien de paiement Clover');
+    expect(en1).toContain('the “TAKATAK Food Hub” Clover app and the “TAKATAK Phone AI” Clover app, the automated phone assistant that answers the restaurant’s calls, takes orders and texts the customer a Clover payment link');
     expect(fr1).toContain('décrits à la section 2');
     expect(en1).toContain('described in section 2');
     // Both apps are named in the page header (the Clover App Market review opens the same URL for each app).
-    expect(text(PrivacyPage)).toContain('TAKATAK Food Hub · TAKATAK Phone — Quadro Holdings LTEE');
+    expect(text(PrivacyPage)).toContain('TAKATAK Food Hub · TAKATAK Phone AI — Quadro Holdings LTEE');
   });
   it('§4 names every provider and the delivery services', () => {
     const { fr, en } = halves(PrivacyPage);
@@ -179,21 +179,21 @@ describe('terms and support', () => {
     const { fr, en } = halves(TermsPage);
     const fr1 = section(fr, 1);
     const en1 = section(en, 1);
-    expect(fr1).toContain('et TAKATAK Phone, un assistant téléphonique automatisé qui répond aux appels du restaurant, prend les commandes et envoie au client, par texto, un lien de paiement Clover (ensemble, « le service »)');
+    expect(fr1).toContain('et TAKATAK Phone AI, un assistant téléphonique automatisé qui répond aux appels du restaurant, prend les commandes et envoie au client, par texto, un lien de paiement Clover (ensemble, « le service »)');
     expect(fr1).toContain('L’appelant est informé qu’il parle à un assistant automatisé et peut faire le 0 pour parler à une personne.');
     expect(fr1).toContain('En installant l’une de ces applications Clover');
-    expect(en1).toContain('and TAKATAK Phone, an automated phone assistant that answers the restaurant’s calls, takes orders and texts the customer a Clover payment link (together, “the service”)');
+    expect(en1).toContain('and TAKATAK Phone AI, an automated phone assistant that answers the restaurant’s calls, takes orders and texts the customer a Clover payment link (together, “the service”)');
     expect(en1).toContain('Callers are told they are speaking with an automated assistant and can press 0 to speak with a person.');
     expect(en1).toContain('By installing either of these Clover apps');
-    expect(section(fr, 11)).toContain('TAKATAK Food Hub et TAKATAK Phone sont des logiciels indépendants');
-    expect(section(en, 11)).toContain('TAKATAK Food Hub and TAKATAK Phone are independent software');
+    expect(section(fr, 11)).toContain('TAKATAK Food Hub et TAKATAK Phone AI sont des logiciels indépendants');
+    expect(section(en, 11)).toContain('TAKATAK Food Hub and TAKATAK Phone AI are independent software');
   });
-  it('terms §6 and the support FAQ: TAKATAK Phone is a 14-day trial, then CAD $50 per month plus CAD $0.25 per AI minute, Canada only', () => {
+  it('terms §6 and the support FAQ: TAKATAK Phone AI is a 14-day trial, then CAD $50 per month plus CAD $0.25 per AI minute, Canada only', () => {
     const t = halves(TermsPage);
     const s = halves(SupportPage);
     for (const fr of [section(t.fr, 6), s.fr]) {
       expect(fr).toContain('<b>TAKATAK Food Hub.</b> Essai gratuit de 14 jours');
-      expect(fr).toContain('<b>TAKATAK Phone.</b> Essai gratuit de 14 jours, puis 50 $ CA par mois, plus 0,25 $ CA par minute d’appel avec l’assistant automatisé.');
+      expect(fr).toContain('<b>TAKATAK Phone AI.</b> Essai gratuit de 14 jours, puis 50 $ CA par mois, plus 0,25 $ CA par minute d’appel avec l’assistant automatisé.');
       expect(fr).toContain('Seul le temps où l’assistant est en ligne avec l’appelant est compté, arrondi à la minute supérieure pour chaque appel');
       expect(fr).toContain('le temps passé avec une personne du restaurant après un transfert n’est pas compté, et aucune minute n’est facturée pendant l’essai gratuit');
       expect(fr).toContain('facturé uniquement par Clover, par la facturation du Clover App Market');
@@ -201,14 +201,14 @@ describe('terms and support', () => {
     }
     for (const en of [section(t.en, 6), s.en]) {
       expect(en).toContain('<b>TAKATAK Food Hub.</b> Free 14-day trial');
-      expect(en).toContain('<b>TAKATAK Phone.</b> Free 14-day trial, then CAD $50 per month, plus CAD $0.25 per minute of call with the automated assistant.');
+      expect(en).toContain('<b>TAKATAK Phone AI.</b> Free 14-day trial, then CAD $50 per month, plus CAD $0.25 per minute of call with the automated assistant.');
       expect(en).toContain('Only the time the assistant is on the line with the caller is counted, rounded up to the next minute for each call');
       expect(en).toContain('time spent with a person from the restaurant after a transfer is not counted, and no minutes are billed during the free trial');
       expect(en).toContain('billed only through Clover App Market billing');
       expect(en).toContain('Offered in Canada only.');
     }
   });
-  it('TAKATAK Phone fees follow FOODHUB_PHONE_TRIAL_DAYS / FOODHUB_PHONE_MONTHLY_PRICE_CAD / FOODHUB_PHONE_MINUTE_PRICE_CAD; bad values fall back', () => {
+  it('TAKATAK Phone AI fees follow FOODHUB_PHONE_TRIAL_DAYS / FOODHUB_PHONE_MONTHLY_PRICE_CAD / FOODHUB_PHONE_MINUTE_PRICE_CAD; bad values fall back', () => {
     expect(legalInfo().phonePricing).toEqual({ trialDays: 14, monthlyCad: 50, minuteCad: 0.25 });
     process.env.FOODHUB_PHONE_TRIAL_DAYS = '30';
     process.env.FOODHUB_PHONE_MONTHLY_PRICE_CAD = '60';

@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { HubPage } from '@/components/public-hub/hub-page';
 import { hubContext, hubMetadata, hubPageForSlug } from '@/lib/foodhub/public-hub';
 
-// Public ON2GO Hub pages, French (/hub/…): open without a sign-in (proxy.ts, lib/foodhub/public-site.ts).
+// Public ON2GO.ca pages, French (/hub/…): open without a sign-in (proxy.ts, lib/foodhub/public-site.ts).
 // Rendered per request: the App Market link and the base URL are server variables (no rebuild to change them).
 export const dynamic = 'force-dynamic';
 

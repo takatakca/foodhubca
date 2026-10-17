@@ -3,7 +3,7 @@ import { legalInfo, TOKEN_DELETION } from '@/lib/foodhub/legal';
 import { Divider, H1, H2, LangBlock, LangSwitch, P, UL } from '../prose';
 
 export const dynamic = 'force-dynamic';
-export const metadata: Metadata = { title: 'Politique de confidentialité · Privacy policy — TAKATAK Food Hub · TAKATAK Phone' };
+export const metadata: Metadata = { title: 'Politique de confidentialité · Privacy policy — TAKATAK Food Hub · TAKATAK Phone AI' };
 
 // Privacy policy (French first — Charter of the French language; Québec Law 25 and PIPEDA topics covered).
 // DRAFT until FOODHUB_LEGAL_APPROVED=true: it describes what the code actually does (orders, Clover, phone lines,

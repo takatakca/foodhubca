@@ -4,7 +4,7 @@ import { feesText, legalInfo, LEGAL_PATHS, phoneFeesText, TOKEN_DELETION } from 
 import { Divider, Faq, H1, H2, LangBlock, LangSwitch, P, UL } from '../prose';
 
 export const dynamic = 'force-dynamic';
-export const metadata: Metadata = { title: 'Soutien · Support — TAKATAK Food Hub' };
+export const metadata: Metadata = { title: 'Soutien · Support — TAKATAK Food Hub · TAKATAK Phone AI' };
 
 // Support page: the "Support website" of the Clover App Market listing (Clover asks for a support site with FAQs,
 // the privacy policy, the terms, an email and a phone number).

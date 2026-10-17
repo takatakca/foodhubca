@@ -7,7 +7,7 @@
 // The ON2GO menu (our own line) is never metered. Never throws: a metering problem never touches the call.
 import { explicitMerchantFor } from '../delivery/clover-direct';
 import { aiHandledSeconds, recordCallMinutes, type MinuteResult } from '../pos/clover-phone-minutes';
-import { getCall } from './calls';
+import { aiEndMark, getCall } from './calls';
 import { getPhoneSettings } from './settings';
 
 export async function meterEndedCall(callId: string, now = Date.now()): Promise<MinuteResult | null> {
@@ -20,7 +20,10 @@ export async function meterEndedCall(callId: string, now = Date.now()): Promise<
     const brand = call.brands[0] ?? line?.brands[0] ?? '';
     const mid = locationCode ? await explicitMerchantFor(brand, locationCode) : null;
     if (!mid) return null;
-    return await recordCallMinutes({ callSid: call.id, merchantId: mid, aiSeconds: aiHandledSeconds(call), endedAt: call.endedAt }, { now });
+    // The hand-off mark kept outside the call record (markAiEnded) survives a late write of the call: the earlier end wins.
+    const ends = [call.aiEndedAt, await aiEndMark(call.id)].filter((x): x is string => typeof x === 'string' && Number.isFinite(Date.parse(x)));
+    const aiEndedAt = ends.sort((a, b) => Date.parse(a) - Date.parse(b))[0];
+    return await recordCallMinutes({ callSid: call.id, merchantId: mid, aiSeconds: aiHandledSeconds({ ...call, aiEndedAt }), endedAt: call.endedAt }, { now });
   } catch (e) {
     console.error('[foodhub] phone minutes metering failed', e instanceof Error ? e.message : e);
     return null;

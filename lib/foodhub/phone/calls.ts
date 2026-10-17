@@ -84,6 +84,23 @@ export async function saveCall(call: PhoneCall): Promise<PhoneCall> {
   return next;
 }
 
+const AI_END = (id: string) => `phone_ai_end:${id}`;
+
+/**
+ * The AI's minutes stop now (hand-off to a person). Kept OUTSIDE the call record too, with one atomic insert (the first
+ * mark wins): a slow AI turn that finishes after the hand-off and saves its older copy of the call can never erase it.
+ * Never throws (the call goes on).
+ */
+export async function markAiEnded(id: string, at: string): Promise<void> {
+  await getRepo().claimKv(AI_END(id), { at }).catch(() => undefined);
+}
+
+/** The AI-end mark of a call (markAiEnded), or undefined. */
+export async function aiEndMark(id: string): Promise<string | undefined> {
+  const v = await getRepo().getKv<{ at?: string }>(AI_END(id)).catch(() => null);
+  return typeof v?.at === 'string' ? v.at : undefined;
+}
+
 export async function getCall(id: string): Promise<PhoneCall | null> {
   return (await getRepo().getDoc<PhoneCall>(PHONE_CALLS, id))?.data ?? null;
 }

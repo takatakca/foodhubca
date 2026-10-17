@@ -1,5 +1,11 @@
 # Food Hub: progress log and task board
 
+## 2026-10-17 — TAKATAK Phone: review round 3 fixes (task 41, PR #61)
+
+- AI minutes stop at the hand-off even when a slow AI turn finishes later: the AI-end time is also kept outside the call record (`markAiEnded`, atomic insert) and a late turn never writes its older copy back.
+- Phone minutes: every change out of "pending" is claimed (attempt owner + POST claim), so a stale copy can never turn "reported" back into "pending" (no double charge); a "sending" left behind becomes "uncertain" and is logged once; settle runs oldest first with a send budget (waiting minutes are free), so one unreachable merchant never starves others; `no_metered_id` calls are a warning in Settings.
+- Low-credit alert: one key per provider, open saved before the claim (a failed write never silences it), re-sent at most every 10 min until a channel delivers, Anthropic recovery checked on every successful AI request, and lines with no hand-off number are named ("no fallback: calls are hung up").
+
 ## 2026-10-17 — TAKATAK Phone: per-minute pricing, low-credit alert (task 41, PR #61)
 
 - Owner decision: the voice AI Clover app is **TAKATAK Phone**; 14-day free trial, then CAD $50/month + a Clover metered charge of CAD $0.25 per minute the AI is on the line (order or not). Per-order metering removed (`recordPhoneOrder`, allowance, tiers, `CLOVER_PHONE_METERED_ORDER_ID`, `CLOVER_PHONE_PRO_SUBSCRIPTION_IDS`).

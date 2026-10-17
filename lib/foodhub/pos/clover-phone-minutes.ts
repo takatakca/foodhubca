@@ -21,20 +21,26 @@
 //     never an exempt merchant (FOODHUB_BILLING_EXEMPT_MERCHANTS), never LAPSED / suspended / inactive / uninstalled.
 //     When Clover cannot be reached and its last good answer was ACTIVE (not trial), the minutes wait ("pending") and go
 //     on the next ACTIVE answer; any other answer drops them (not billed).
-//   - Exactly once per call: the call SID is claimed with one atomic insert (repo.claimKv) before anything else, and
-//     every send attempt claims its own key too (two servers never send the same attempt).
+//   - Exactly once per call: the call SID is claimed with one atomic insert (repo.claimKv) before anything else.
+//   - Every change out of "pending" is claimed too, so a server working from an out-of-date copy never writes over
+//     another's result: each attempt has ONE owner (claimKv on call + attempt), whether it sends the minutes or closes
+//     the record (not billable, no metered ID); a record that only keeps waiting is never written. The POST itself has
+//     its own claim, shared with the clean-up of an interrupted attempt: an attempt is either sent or given up, never both.
 //   - Saved BEFORE the charge goes out ("sending"). A lost answer (timeout, Clover 5xx, a network error after the
-//     connection was made, a database error after Clover answered) = "uncertain": logged for the owner, NEVER sent again.
+//     connection was made, a database error after Clover answered, a server stopped mid-charge) = "uncertain": logged
+//     for the owner (once per call), NEVER sent again. settlePhoneMinutes() turns a "sending" left behind into
+//     "uncertain" and logs it.
 //   - Retried (3 attempts in all) only after a definite failure before Clover processed anything: no token, the
 //     connection never opened (DNS, refused), or a Clover 4xx answer (Clover refused it: nothing was charged).
-//     settlePhoneMinutes() sends what is pending (expansion tick, every 10 minutes).
+//     settlePhoneMinutes() sends what is pending (expansion tick, every 10 minutes), oldest first, at most 25 sends per
+//     run; minutes waiting for Clover cost nothing in that budget, so one unreachable merchant never holds up the others.
 // Clover's metered call: POST /v3/apps/{appId}/merchants/{mId}/metereds/{CLOVER_PHONE_METERED_MINUTE_ID}?count={minutes}.
 // Clover is never called from tests (fetch is mocked).
 import { logActivity } from '../activity';
 import { stripSlash } from '../config';
 import { getRepo } from '../repo';
 import { cloverApp, cloverPhoneAppEnabled, phoneOwnMerchants } from './clover-apps';
-import { phoneMonth, previousMonth, voiceAiEntitled, type EntitlementReason } from './clover-entitlement';
+import { phoneMonth, previousMonth, voiceAiEntitled, type Entitlement, type EntitlementReason } from './clover-entitlement';
 import { cloverFetch } from './clover-http';
 import { cloverAppToken, readCloverBillingState, readCloverConnection } from './clover-oauth';
 
@@ -43,10 +49,16 @@ export const PHONE_PRICE = { monthlyCad: 50, perMinuteCad: 0.25, trialDays: 14 }
 
 export const PHONE_MINUTES = 'phone_minutes';
 const CLAIM = (sid: string) => `clover_phone_minutes_claim:${sid}`;
+/** The owner of one attempt (it sends the minutes, or closes the record). */
 const SEND_CLAIM = (sid: string, attempt: number) => `clover_phone_minutes_send:${sid}:${attempt}`;
+/** The POST of one attempt (the sender, or the clean-up of an interrupted attempt: one of the two, never both). */
+const POST_CLAIM = (sid: string, attempt: number) => `clover_phone_minutes_post:${sid}:${attempt}`;
+/** The owner is told once per call that a charge is uncertain. */
+const UNCERTAIN_LOG = (sid: string) => `clover_phone_minutes_uncertain_log:${sid}`;
 export const MAX_MINUTE_ATTEMPTS = 3;
+/** Sends per settle run (records that keep waiting do not count). */
 const SETTLE_BATCH = 25;
-/** An attempt claimed but never marked "sending" for this long was interrupted before its POST. */
+/** An attempt claimed this long ago and still "pending" (or a "sending" this old) was interrupted. */
 const STUCK_CLAIM_MS = 10 * 60_000;
 
 /** FOODHUB_PHONE_METERED_ENABLED=true turns sending on. Anything else: dry run (nothing sent, Clover not asked). */
@@ -201,50 +213,99 @@ function failed(r: PhoneMinuteRecord, detail: string): PhoneMinuteRecord {
   return { ...r, attempts, lastError: detail, state: attempts >= MAX_MINUTE_ATTEMPTS ? 'failed' : 'pending' };
 }
 
+/** The owner hears ONCE per call that a charge may or may not have gone through (never sent again). Never throws. */
+async function logUncertain(r: PhoneMinuteRecord, detail: string): Promise<void> {
+  const first = await getRepo().claimKv(UNCERTAIN_LOG(r.callSid), { at: new Date().toISOString() }).catch(() => true);
+  if (!first) return;
+  await logActivity({ actor: 'Clover', source: 'automation', kind: 'settings', action: 'clover_phone_minutes_uncertain', status: 'failed',
+    summary: `TAKATAK Phone: ${r.minutes} minute(s) of call ${r.callSid} for merchant ${r.merchantId} may or may not have been billed by Clover (${detail}). Not sent again: check the merchant's Clover usage.` }).catch(() => undefined);
+}
+
+/** When this attempt was claimed (its claim's own time), or null. */
+async function claimedAt(sid: string, attempt: number): Promise<number | null> {
+  return t((await getRepo().getKv<{ at?: string }>(SEND_CLAIM(sid, attempt)).catch(() => null))?.at);
+}
+
+/** The record as saved now, if it is still pending on this attempt (nobody moved it on). */
+async function stillPending(r: PhoneMinuteRecord): Promise<PhoneMinuteRecord | null> {
+  const cur = await getMinuteRecord(r.callSid);
+  return cur && cur.state === 'pending' && cur.attempts === r.attempts ? cur : null;
+}
+
 /**
- * Send one record's minutes (it is ACTIVE; metering on; the ID set). The attempt is claimed across servers, the record
- * saved as "sending" BEFORE the POST, then saved with what Clover said.
+ * Send one record's minutes (it is ACTIVE; metering on; the ID set). The attempt is claimed across servers, the POST
+ * claimed too, the record saved as "sending" BEFORE the POST, then saved with what Clover said.
  */
 async function sendRecord(r: PhoneMinuteRecord, meteredId: string, now: number): Promise<PhoneMinuteRecord> {
-  if (!(await getRepo().claimKv(SEND_CLAIM(r.callSid, r.attempts), { at: new Date(now).toISOString() }))) {
-    // Another server already made this attempt: its result is (or will be) on the record.
-    const cur = (await getMinuteRecord(r.callSid)) ?? r;
-    // Still "pending" on the same attempt long after it was claimed: that attempt stopped before "sending" was saved,
-    // so before any POST (the record is always saved as "sending" first). Count it as a definite failure.
-    if (cur.state === 'pending' && cur.attempts === r.attempts && now - (t(cur.updatedAt) ?? now) > STUCK_CLAIM_MS) return saveRecord(failed(cur, 'attempt interrupted before sending'));
-    return cur;
+  const repo = getRepo();
+  if (!(await repo.claimKv(SEND_CLAIM(r.callSid, r.attempts), { at: new Date(now).toISOString() }))) {
+    // Another server owns this attempt: its result is (or will be) on the record.
+    const cur = await stillPending(r);
+    if (!cur) return (await getMinuteRecord(r.callSid)) ?? r;
+    // Still "pending" long after the attempt was claimed: its owner stopped. Taking the POST claim proves the POST
+    // never started (a definite failure, tried again); when the POST claim is already taken, the owner stopped around
+    // the charge: maybe billed, never sent again.
+    const since = await claimedAt(r.callSid, r.attempts);
+    if (since === null || now - since <= STUCK_CLAIM_MS) return cur;
+    if (await repo.claimKv(POST_CLAIM(r.callSid, r.attempts), { at: new Date(now).toISOString(), by: 'cleanup' })) return saveRecord(failed(cur, 'attempt interrupted before sending'));
+    const lost = await saveRecord({ ...cur, state: 'uncertain', lastError: 'attempt interrupted around the charge' });
+    await logUncertain(lost, 'attempt interrupted around the charge');
+    return lost;
   }
-  const token = await cloverAppToken('phone', r.merchantId, Math.floor(now / 1000)).catch(() => null);
-  if (!token) return saveRecord(failed(r, 'no Clover token for the phone app'));
-  const sending = await saveRecord({ ...r, state: 'sending' }); // saved before the charge goes out
-  const out = await postMinutes(r.merchantId, token, meteredId, r.minutes);
-  if (out.kind === 'ok') return saveRecord({ ...sending, state: 'reported', lastError: undefined });
-  if (out.kind === 'uncertain') {
-    await logActivity({ actor: 'Clover', source: 'automation', kind: 'settings', action: 'clover_phone_minutes_uncertain', status: 'failed',
-      summary: `TAKATAK Phone: ${r.minutes} minute(s) of call ${r.callSid} for merchant ${r.merchantId} may or may not have been billed by Clover (${out.detail}). Not sent again: check the merchant's Clover usage.` }).catch(() => undefined);
-    return saveRecord({ ...sending, state: 'uncertain', lastError: out.detail });
+  // This attempt is ours: work from the record as saved now, never from an older copy.
+  const cur = await stillPending(r);
+  if (!cur) return (await getMinuteRecord(r.callSid)) ?? r;
+  const token = await cloverAppToken('phone', cur.merchantId, Math.floor(now / 1000)).catch(() => null);
+  if (!token) return saveRecord(failed(cur, 'no Clover token for the phone app'));
+  // The clean-up of an interrupted attempt took it over (this server was far too slow): it is not sent.
+  if (!(await repo.claimKv(POST_CLAIM(cur.callSid, cur.attempts), { at: new Date(now).toISOString(), by: 'send' }))) return (await getMinuteRecord(cur.callSid)) ?? cur;
+  const sending = await saveRecord({ ...cur, state: 'sending' }); // saved before the charge goes out
+  const out = await postMinutes(cur.merchantId, token, meteredId, cur.minutes);
+  try {
+    if (out.kind === 'ok') return await saveRecord({ ...sending, state: 'reported', lastError: undefined });
+    if (out.kind === 'uncertain') {
+      await logUncertain(sending, out.detail);
+      return await saveRecord({ ...sending, state: 'uncertain', lastError: out.detail });
+    }
+    const next = failed(sending, out.detail);
+    await logActivity({ actor: 'Clover', source: 'automation', kind: 'settings', action: 'clover_phone_minutes_failed', status: 'failed',
+      summary: `TAKATAK Phone: Clover did not take ${cur.minutes} minute(s) of call ${cur.callSid} for merchant ${cur.merchantId} (${out.detail}, try ${next.attempts} of ${MAX_MINUTE_ATTEMPTS}); ${next.state === 'failed' ? 'not billed.' : 'tried again later.'}` }).catch(() => undefined);
+    return await saveRecord(next);
+  } catch (e) {
+    // Clover answered but the record could not be saved: it stays "sending" (never sent again); the owner is told now.
+    await logUncertain(sending, `Clover answered (${out.kind === 'ok' ? 'billed' : out.detail}) but the record could not be saved`);
+    throw e;
   }
-  const next = failed(sending, out.detail);
-  await logActivity({ actor: 'Clover', source: 'automation', kind: 'settings', action: 'clover_phone_minutes_failed', status: 'failed',
-    summary: `TAKATAK Phone: Clover did not take ${r.minutes} minute(s) of call ${r.callSid} for merchant ${r.merchantId} (${out.detail}, try ${next.attempts} of ${MAX_MINUTE_ATTEMPTS}); ${next.state === 'failed' ? 'not billed.' : 'tried again later.'}` }).catch(() => undefined);
-  return saveRecord(next);
 }
 
 const DEFERRABLE: EntitlementReason[] = ['clover_unreachable_grace'];
 
-/** What to do with a record now: send it, keep it pending, or close it as not billable. Metering is on. */
-async function decideAndSend(r: PhoneMinuteRecord, now: number): Promise<PhoneMinuteRecord> {
-  if (!cloverPhoneAppEnabled()) return saveRecord({ ...r, state: 'not_billable', reason: 'gate_off' });
-  if (billingExemptMerchants().has(r.merchantId)) return saveRecord({ ...r, state: 'not_billable', reason: 'exempt' });
+/**
+ * Close a pending record (not billable, no metered ID). It takes this attempt's claim first, so it never writes over
+ * a send of the same attempt made by another server from a fresher copy.
+ */
+async function closeRecord(r: PhoneMinuteRecord, patch: Pick<PhoneMinuteRecord, 'state'> & { reason?: string }, now: number): Promise<PhoneMinuteRecord> {
+  if (!(await getRepo().claimKv(SEND_CLAIM(r.callSid, r.attempts), { at: new Date(now).toISOString(), close: patch.state }))) return (await getMinuteRecord(r.callSid)) ?? r;
+  const cur = await stillPending(r);
+  if (!cur) return (await getMinuteRecord(r.callSid)) ?? r;
+  return saveRecord({ ...cur, ...patch });
+}
+
+/**
+ * What to do with a pending record now: send it, keep it waiting (nothing written), or close it as not billable.
+ * Metering is on. `ent`: the merchant's entitlement when the caller already asked (one answer per merchant per run).
+ */
+async function decideAndSend(r: PhoneMinuteRecord, now: number, ent?: Entitlement): Promise<PhoneMinuteRecord> {
+  if (!cloverPhoneAppEnabled()) return closeRecord(r, { state: 'not_billable', reason: 'gate_off' }, now);
+  if (billingExemptMerchants().has(r.merchantId)) return closeRecord(r, { state: 'not_billable', reason: 'exempt' }, now);
   const meteredId = meteredMinuteId();
-  if (!meteredId) return saveRecord({ ...r, state: 'no_metered_id' });
-  const ent = await voiceAiEntitled(r.merchantId, 'call', { now });
-  if (ent.billable) return sendRecord(r, meteredId, now);
-  // Clover not answering: minutes of a merchant last seen ACTIVE (not in trial) wait for the next real answer.
-  if (DEFERRABLE.includes(ent.reason) && String(ent.status ?? '').toUpperCase() === 'ACTIVE' && !ent.inTrial) {
-    return r.state === 'pending' && r.reason === ent.reason ? r : saveRecord({ ...r, state: 'pending', reason: ent.reason });
-  }
-  return saveRecord({ ...r, state: 'not_billable', reason: ent.reason });
+  if (!meteredId) return closeRecord(r, { state: 'no_metered_id' }, now);
+  const e = ent ?? await voiceAiEntitled(r.merchantId, 'call', { now });
+  if (e.billable) return sendRecord(r, meteredId, now);
+  // Clover not answering: minutes of a merchant last seen ACTIVE (not in trial) wait for the next real answer. The
+  // record already says "pending": nothing is written (an older copy must never go back over a newer state).
+  if (DEFERRABLE.includes(e.reason) && String(e.status ?? '').toUpperCase() === 'ACTIVE' && !e.inTrial) return { ...r, state: 'pending', reason: e.reason };
+  return closeRecord(r, { state: 'not_billable', reason: e.reason }, now);
 }
 
 export interface CallMinutesInput {
@@ -281,7 +342,11 @@ export async function recordCallMinutes(input: CallMinutesInput, opts: { now?: n
   return { outcome: r.state, minutes, ...(r.reason ? { reason: r.reason } : {}) };
 }
 
-/** Send what is pending (this month and last). Off = nothing. For the expansion tick; never throws. */
+/**
+ * Send what is pending (this month and last), oldest first, at most SETTLE_BATCH sends per run (minutes still waiting
+ * for Clover cost nothing in that budget). A "sending" left behind (server stopped, record not saved after Clover
+ * answered) becomes "uncertain" and is logged for the owner. Off = nothing. For the expansion tick; never throws.
+ */
 export async function settlePhoneMinutes(opts: { now?: number; merchantId?: string } = {}): Promise<{ reported: number; pending: number; uncertain: number; failed: number; dropped: number }> {
   const out = { reported: 0, pending: 0, uncertain: 0, failed: 0, dropped: 0 };
   if (!phoneMeteringEnabled()) return out;
@@ -290,14 +355,40 @@ export async function settlePhoneMinutes(opts: { now?: number; merchantId?: stri
   const months = new Set([month, previousMonth(month)]);
   try {
     const docs = await getRepo().listDocs<PhoneMinuteRecord>(PHONE_MINUTES, { since: new Date(now - 70 * 86400_000).toISOString(), ...(opts.merchantId ? { keys: [opts.merchantId] } : {}), limit: 20_000 });
-    const pending = docs.map((d) => d.data).filter((r) => r.state === 'pending' && months.has(r.month)).slice(0, SETTLE_BATCH);
+    const all = docs.map((d) => d.data).filter((r) => months.has(r.month));
+    const old = (r: PhoneMinuteRecord) => now - (t(r.updatedAt) ?? now) > STUCK_CLAIM_MS;
+    for (const r of all.filter((x) => x.state === 'sending' && old(x))) {
+      try {
+        const cur = await getMinuteRecord(r.callSid);
+        if (!cur || cur.state !== 'sending' || !old(cur)) continue;
+        const lost = await saveRecord({ ...cur, state: 'uncertain', lastError: cur.lastError ?? 'the answer to the charge was never saved' });
+        await logUncertain(lost, 'the answer to the charge was never saved');
+        out.uncertain++;
+      } catch (e) {
+        console.error('[foodhub] phone minutes settle (sending) failed', r.callSid, e instanceof Error ? e.message : e);
+      }
+    }
+    const pending = all.filter((r) => r.state === 'pending').sort((a, b) => (t(a.at) ?? 0) - (t(b.at) ?? 0));
+    const ents = new Map<string, Promise<Entitlement>>();
+    let sends = 0;
     for (const r of pending) {
-      const after = await decideAndSend(r, now);
-      if (after.state === 'reported') out.reported++;
-      else if (after.state === 'pending') out.pending++;
-      else if (after.state === 'uncertain' || after.state === 'sending') out.uncertain++;
-      else if (after.state === 'failed') out.failed++;
-      else out.dropped++;
+      if (sends >= SETTLE_BATCH) break;
+      try {
+        let ent: Entitlement | undefined;
+        if (cloverPhoneAppEnabled() && !billingExemptMerchants().has(r.merchantId) && meteredMinuteId()) {
+          if (!ents.has(r.merchantId)) ents.set(r.merchantId, voiceAiEntitled(r.merchantId, 'call', { now }));
+          ent = await ents.get(r.merchantId)!;
+          if (ent.billable) sends++;
+        }
+        const after = await decideAndSend(r, now, ent);
+        if (after.state === 'reported') out.reported++;
+        else if (after.state === 'pending') out.pending++;
+        else if (after.state === 'uncertain' || after.state === 'sending') out.uncertain++;
+        else if (after.state === 'failed') out.failed++;
+        else out.dropped++;
+      } catch (e) {
+        console.error('[foodhub] phone minutes settle failed', r.callSid, e instanceof Error ? e.message : e);
+      }
     }
   } catch (e) {
     console.error('[foodhub] phone minutes settle failed', e instanceof Error ? e.message : e);
@@ -318,6 +409,9 @@ export interface MinutesSummary {
   uncertainMinutes: number;
   uncertainCalls: number;
   failedMinutes: number;
+  /** Metering was on but CLOVER_PHONE_METERED_MINUTE_ID was not set: never sent (a warning for the owner). */
+  noMeteredIdMinutes: number;
+  noMeteredIdCalls: number;
   notBilledMinutes: number;
   /** wouldBill (off) or reported + pending (on) × CAD 0.25. */
   estimateCad: number;
@@ -326,7 +420,7 @@ export interface MinutesSummary {
 /** This month's minutes, per merchant (Settings → Clover app, phone section). Reads only what is saved. */
 export async function phoneMinutesSummary(now = Date.now()): Promise<{ enabled: boolean; meteredIdSet: boolean; price: typeof PHONE_PRICE; month: string; total: MinutesSummary; byMerchant: Record<string, MinutesSummary> }> {
   const month = phoneMonth(now);
-  const empty = (): MinutesSummary => ({ month, calls: 0, aiMinutes: 0, wouldBillMinutes: 0, reportedMinutes: 0, pendingMinutes: 0, uncertainMinutes: 0, uncertainCalls: 0, failedMinutes: 0, notBilledMinutes: 0, estimateCad: 0 });
+  const empty = (): MinutesSummary => ({ month, calls: 0, aiMinutes: 0, wouldBillMinutes: 0, reportedMinutes: 0, pendingMinutes: 0, uncertainMinutes: 0, uncertainCalls: 0, failedMinutes: 0, noMeteredIdMinutes: 0, noMeteredIdCalls: 0, notBilledMinutes: 0, estimateCad: 0 });
   const total = empty();
   const byMerchant: Record<string, MinutesSummary> = {};
   const docs = await getRepo().listDocs<PhoneMinuteRecord>(PHONE_MINUTES, { since: new Date(now - 40 * 86400_000).toISOString(), limit: 20_000 }).catch(() => []);
@@ -340,6 +434,7 @@ export async function phoneMinutesSummary(now = Date.now()): Promise<{ enabled: 
       else if (r.state === 'pending') s.pendingMinutes += r.minutes;
       else if (r.state === 'uncertain' || r.state === 'sending') { s.uncertainMinutes += r.minutes; s.uncertainCalls++; }
       else if (r.state === 'failed') s.failedMinutes += r.minutes;
+      else if (r.state === 'no_metered_id') { s.noMeteredIdMinutes += r.minutes; s.noMeteredIdCalls++; }
       else s.notBilledMinutes += r.minutes;
     }
   }

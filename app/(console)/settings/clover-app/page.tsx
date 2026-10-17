@@ -31,7 +31,7 @@ type AppInfo = {
 };
 type MinutesSummary = {
   month: string; calls: number; aiMinutes: number; wouldBillMinutes: number; reportedMinutes: number; pendingMinutes: number;
-  uncertainMinutes: number; uncertainCalls: number; failedMinutes: number; notBilledMinutes: number; estimateCad: number;
+  uncertainMinutes: number; uncertainCalls: number; failedMinutes: number; noMeteredIdMinutes?: number; noMeteredIdCalls?: number; notBilledMinutes: number; estimateCad: number;
 };
 type PhoneMetering = {
   enabled: boolean; meteredIdSet: boolean; env: { enabled: string; meteredId: string; exempt: string };
@@ -323,6 +323,11 @@ function PhoneMinutes({ m }: { m: PhoneMetering }) {
       {s.uncertainCalls > 0 && (
         <Banner tone="warn" className="mt-2">
           {t(`${s.uncertainCalls} appel(s) (${s.uncertainMinutes} min) : la réponse de Clover s’est perdue. Jamais renvoyé : vérifiez l’usage du marchand dans Clover.`, `${s.uncertainCalls} call(s) (${s.uncertainMinutes} min): Clover's answer was lost. Never sent again: check the merchant's usage in Clover.`)}
+        </Banner>
+      )}
+      {(s.noMeteredIdCalls ?? 0) > 0 && (
+        <Banner tone="warn" className="mt-2">
+          {t(`${s.noMeteredIdCalls} appel(s) (${s.noMeteredIdMinutes ?? 0} min) terminés sans ${m.env.meteredId} : jamais envoyés à Clover, donc non facturés.`, `${s.noMeteredIdCalls} call(s) (${s.noMeteredIdMinutes ?? 0} min) ended without ${m.env.meteredId}: never sent to Clover, so not billed.`)}
         </Banner>
       )}
       {!m.enabled && <p className="mt-2 text-[12px] text-ink-3">{t(`Pour facturer : ${m.env.meteredId} puis ${m.env.enabled}=true sur le serveur.`, `To bill: ${m.env.meteredId}, then ${m.env.enabled}=true on the server.`)}</p>}

@@ -132,10 +132,12 @@ export async function noteAiFailure(e: unknown, opts: { test?: boolean } = {}, n
 export async function noteAiSuccess(now = Date.now()): Promise<void> {
   try {
     const h = await getAiHealth();
+    // Credit is back: close an open low-credit incident so the next one pings again. Asked every time (one read of
+    // its own key), never only when `creditLow` is set here: an older copy of this record saved over it would drop
+    // the flag and leave the incident open (and every later incident silent) for good.
+    await noteCreditRecovered('anthropic', now);
     if (h.creditLow) {
-      // Credit is back: close the incident so the next one pings again.
       await save({ ...h, transient: [], lastOkAt: now, creditLow: false });
-      await noteCreditRecovered('anthropic', now);
       return;
     }
     if (!h.transient.length && h.lastOkAt && now - h.lastOkAt < 10 * 60_000) return;

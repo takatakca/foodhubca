@@ -4,6 +4,20 @@
 // the phone app is not set.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// A slow AI turn: while `gate` is set, the agent waits for it, then answers (no Anthropic request).
+const agentHold = vi.hoisted(() => ({ gate: null as Promise<void> | null }));
+vi.mock('../lib/foodhub/phone/agent', async (orig) => {
+  const real = await orig<typeof import('../lib/foodhub/phone/agent')>();
+  return {
+    ...real,
+    runAgentTurn: async (...args: Parameters<typeof real.runAgentTurn>) => {
+      if (!agentHold.gate) return real.runAgentTurn(...args);
+      await agentHold.gate;
+      const [call, text] = args;
+      return { call: { ...call, turns: call.turns + 1, transcript: [...call.transcript, { at: new Date().toISOString(), who: 'caller' as const, text }] }, reply: { say: 'Parfait.', next: 'listen' as const, lang: 'fr' as const } };
+    },
+  };
+});
 vi.mock('next/server', async (orig) => ({ ...(await orig<typeof import('next/server')>()), after: (fn: () => unknown) => { void Promise.resolve().then(fn); } }));
 
 import { saveLocation } from '../lib/foodhub/catalog';
@@ -15,7 +29,7 @@ import { creditIncidents, noteCreditRecovered, noteLowCredit, twilioLowBalance }
 import { meterEndedCall } from '../lib/foodhub/phone/metering';
 import { savePhoneSettings } from '../lib/foodhub/phone/settings';
 import { twilioSignature } from '../lib/foodhub/phone/twilio';
-import { callerTurn, startCall } from '../lib/foodhub/phone/voice';
+import { callerTurn, startCall, waitTurn } from '../lib/foodhub/phone/voice';
 import { getMinuteRecord } from '../lib/foodhub/pos/clover-phone-minutes';
 import { getRepo } from '../lib/foodhub/repo';
 import type { MasterMenu } from '../lib/foodhub/types';
@@ -39,6 +53,8 @@ let chat: string[] = [];
 let other: string[] = [];
 /** Answer of Twilio's Messages.json. */
 let smsAnswer: { status: number; body: unknown } = { status: 201, body: { sid: 'SM1' } };
+/** The team chat webhook answer (500 = chat down). */
+let chatStatus = 200;
 
 function signed(path: string, fields: Record<string, string>) {
   const params = new URLSearchParams(fields);
@@ -58,10 +74,14 @@ beforeEach(async () => {
   Object.assign(process.env, { ANTHROPIC_API_KEY: 'sk-test', TWILIO_ACCOUNT_SID: 'AC1', TWILIO_AUTH_TOKEN: 'tw-token', TWILIO_FROM: '+15145550000' });
   for (const k of ['CLOVER_PHONE_APP_ID', 'CLOVER_PHONE_APP_SECRET', 'FOODHUB_PHONE_METERED_ENABLED', 'CLOVER_PHONE_METERED_MINUTE_ID', 'FOODHUB_OWNER_EMAIL', 'ANTHROPIC_BASE_URL']) delete process.env[k];
   for (const k of ['DELIVERY', 'RETAIL', 'ALCOHOL', 'PHONE']) delete process.env[`FOODHUB_FEATURE_${k}`];
-  chat = []; other = []; smsAnswer = { status: 201, body: { sid: 'SM1' } };
+  chat = []; other = []; smsAnswer = { status: 201, body: { sid: 'SM1' } }; chatStatus = 200; agentHold.gate = null;
   globalThis.fetch = vi.fn(async (url: any, init: RequestInit = {}) => {
     const u = String(url);
-    if (u.startsWith('https://chat.test/')) { chat.push(JSON.parse(String(init.body)).text); return new Response('ok', { status: 200 }); }
+    if (u.startsWith('https://chat.test/')) {
+      if (chatStatus !== 200) return new Response('down', { status: chatStatus });
+      chat.push(JSON.parse(String(init.body)).text);
+      return new Response('ok', { status: 200 });
+    }
     if (u.includes('/Messages.json')) return new Response(JSON.stringify(smsAnswer.body), { status: smsAnswer.status, headers: { 'content-type': 'application/json' } });
     other.push(u);
     return new Response('{}', { status: 200 });
@@ -74,7 +94,7 @@ beforeEach(async () => {
   await openAllDay(['NDG']);
   await resetAiHealth();
 });
-afterEach(() => { globalThis.fetch = realFetch; });
+afterEach(() => { globalThis.fetch = realFetch; vi.useRealTimers(); agentHold.gate = null; });
 
 describe('AI minutes on a real call', () => {
   it('start when the AI answers, stop when it hands the call to a person', async () => {
@@ -130,6 +150,50 @@ describe('AI minutes on a real call', () => {
     expect(await getMinuteRecord('sim-1')).toBeNull();
     await startCall(await form(signed('/api/foodhub/webhooks/voice', { CallSid: 'CA5', From: '+15145551234', To: '+15145550199' })));
     expect(await meterEndedCall('CA5')).toBeNull();
+  });
+
+  it('a slow AI turn that ends after the wait hand-off never brings back the minutes of the person', async () => {
+    let release!: () => void;
+    agentHold.gate = new Promise<void>((r) => { release = r; });
+    await startCall(await form(signed('/api/foodhub/webhooks/voice', { CallSid: 'CA6', From: '+15145551234', To: '+15145550199' })));
+    // The AI has been on the line for 100 s when the caller speaks.
+    const t0 = new Date(Date.now() - 100_000).toISOString();
+    await saveCall({ ...(await getCall('CA6'))!, startedAt: t0, aiStartedAt: t0 });
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    const first = callerTurn(await form(signed('/api/foodhub/webhooks/voice/turn', { CallSid: 'CA6', SpeechResult: 'deux frites' })));
+    await vi.advanceTimersByTimeAsync(9_000);
+    expect(await (await first).text()).toContain('/wait?n=1');
+    for (const n of [1, 2]) {
+      const w = waitTurn(await form(signed('/api/foodhub/webhooks/voice/wait', { CallSid: 'CA6' })), n);
+      await vi.advanceTimersByTimeAsync(9_000);
+      expect(await (await w).text()).toContain(`/wait?n=${n + 1}`);
+    }
+    const last = waitTurn(await form(signed('/api/foodhub/webhooks/voice/wait', { CallSid: 'CA6' })), 3);
+    await vi.advanceTimersByTimeAsync(9_000);
+    expect(await (await last).text()).toContain('<Dial');
+    vi.useRealTimers();
+    // The AI turn finishes only now, with its copy of the call read before the hand-off.
+    release();
+    await tick(); await tick(); await tick();
+    const after = (await getCall('CA6'))!;
+    expect(after.status).toBe('handoff');
+    expect(after.aiEndedAt).toBeTruthy();
+    expect(after.pending).toBeUndefined();
+    // The person talked with the caller: Twilio's duration is 400 s; only the AI's ~100 s count.
+    await statusRoute(signed('/api/foodhub/webhooks/voice/status', { CallSid: 'CA6', CallStatus: 'completed', CallDuration: '400' }));
+    await tick(); await tick(); await tick();
+    expect(await getMinuteRecord('CA6')).toMatchObject({ state: 'preview', minutes: 2 });
+  });
+
+  it('the hand-off time survives any older copy of the call saved after it', async () => {
+    await startCall(await form(signed('/api/foodhub/webhooks/voice', { CallSid: 'CA7', From: '+15145551234', To: '+15145550199' })));
+    const t0 = new Date(Date.now() - 100_000).toISOString();
+    const stale = await saveCall({ ...(await getCall('CA7'))!, startedAt: t0, aiStartedAt: t0 });
+    expect(await (await callerTurn(await form(signed('/api/foodhub/webhooks/voice/turn', { CallSid: 'CA7', Digits: '0' })))).text()).toContain('<Dial');
+    await saveCall(stale); // an older copy (still "active", no AI end) written back over the hand-off
+    await statusRoute(signed('/api/foodhub/webhooks/voice/status', { CallSid: 'CA7', CallStatus: 'completed', CallDuration: '400' }));
+    await tick(); await tick(); await tick();
+    expect(await getMinuteRecord('CA7')).toMatchObject({ state: 'preview', minutes: 2 });
   });
 });
 
@@ -191,5 +255,56 @@ describe('low credit: one ping, not a stream', () => {
     smsAnswer = { status: 400, body: { code: 21606, message: 'Insufficient funds: your account balance is too low.' } };
     await sendSms({ to: '+15145551234', body: 'x' }, { purpose: 'test' });
     expect(creditPings()).toHaveLength(2);
+  });
+
+  it('a failed write while opening the incident never silences it', async () => {
+    const repo = getRepo();
+    const orig = repo.setKv.bind(repo);
+    let fail = true;
+    const spy = vi.spyOn(repo, 'setKv').mockImplementation(async (k: string, v: unknown) => {
+      if (fail && k.startsWith('phone_credit_alert')) { fail = false; throw new Error('database down'); }
+      return orig(k, v);
+    });
+    try {
+      expect(await noteLowCredit('anthropic', 'credit balance too low')).toBe(false);
+      expect(await noteLowCredit('anthropic', 'credit balance too low')).toBe(true);
+    } finally { spy.mockRestore(); }
+    expect(creditPings()).toHaveLength(1);
+    expect(await noteLowCredit('anthropic', 'credit balance too low')).toBe(false);
+  });
+
+  it('nobody took the alert (chat down, no email): tried again on a later failure, at most every 10 minutes', async () => {
+    const t0 = Date.now();
+    chatStatus = 500;
+    expect(await noteLowCredit('twilio', 'HTTP 400 code 21606', t0)).toBe(false);
+    expect(await noteLowCredit('twilio', 'HTTP 400 code 21606', t0 + 1000)).toBe(false);
+    chatStatus = 200;
+    expect(await noteLowCredit('twilio', 'HTTP 400 code 21606', t0 + 10 * 60_000)).toBe(true);
+    expect(await noteLowCredit('twilio', 'HTTP 400 code 21606', t0 + 20 * 60_000)).toBe(false);
+    expect(creditPings()).toHaveLength(1);
+  });
+
+  it('each provider keeps its own incident; an older AI-health copy never leaves the Anthropic incident open', async () => {
+    const t0 = Date.now();
+    await noteAiFailure(CREDIT, {}, t0);
+    await noteLowCredit('twilio', 'HTTP 400 code 21606', t0);
+    expect(creditPings()).toHaveLength(2);
+    expect(await noteCreditRecovered('twilio')).toBe(true);
+    expect((await creditIncidents()).anthropic).toMatchObject({ open: true });
+    // An older copy of the AI-health record (no creditLow flag) saved over the newer one.
+    await getRepo().setKv('phone_ai_health_v1', { openUntil: 0, transient: [] });
+    await noteAiSuccess(t0 + 30 * 60_000);
+    expect((await creditIncidents()).anthropic).toMatchObject({ open: false, incident: 1 });
+    await noteAiFailure(CREDIT, {}, t0 + 40 * 60_000);
+    expect(creditPings()).toHaveLength(3);
+  });
+
+  it('names the ordering lines that have no person to go to (their calls are hung up)', async () => {
+    await saveLocation({ code: 'VRD', name: 'Verdun', address: '1 rue Test', city: 'Montréal', postalCode: 'H4G 1A1', active: true });
+    await savePhoneSettings({ lines: [LINE as any, { ...LINE, number: '+15145550198', name: 'Verdun Pita', locationCode: 'VRD' } as any] }, actor);
+    expect(await noteLowCredit('anthropic', 'credit balance too low')).toBe(true);
+    expect(creditPings()[0]).toMatch(/no fallback for: Verdun Pita/);
+    expect(creditPings()[0]).not.toMatch(/Pi Pita NDG/);
+    expect(creditPings()[0]).not.toMatch(/Nothing is lost/);
   });
 });

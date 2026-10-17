@@ -110,14 +110,25 @@ else any store there; never the default merchant). The ON2GO menu (our own line)
   never LAPSED (even in its 7-day call grace), suspended, inactive, waiting or uninstalled. When Clover does not
   answer and its last answer was ACTIVE (not trial), the minutes wait ("pending") for the next real answer; any other
   answer drops them.
-- **Exactly once per call**: the call SID is claimed with one atomic insert (`repo.claimKv`) before anything else;
-  each send attempt claims its own key too, so two servers never send the same attempt.
+- **Exactly once per call**: the call SID is claimed with one atomic insert (`repo.claimKv`) before anything else.
+- **Every change out of "pending" is claimed**, so a server working from an out-of-date copy never writes over
+  another one's result: each attempt has one owner (`claimKv` on call + attempt), whether it sends the minutes or closes
+  the record (not billable, no metered ID). A record that only keeps waiting for Clover is never written. The POST has
+  its own claim, shared with the clean-up of an interrupted attempt: an attempt is either sent or given up, never both.
+- **The AI's end time survives late writes**: the hand-off also stores the AI-end time outside the call record (one
+  atomic insert, `phone_ai_end:<CallSid>`), and a slow AI turn that finishes after the hand-off never writes its older
+  copy of the call back. The hold and the person are never billed, even when Anthropic is slow.
 - **Saved before sending** ("sending"). A lost answer (timeout, Clover 5xx, a network error once connected, a database
-  error after Clover answered) is **"uncertain"**: logged in the activity log for the owner, shown in Settings →
-  Clover app, **never sent again**.
+  error after Clover answered, a server stopped mid-charge) is **"uncertain"**: logged once in the activity log for
+  the owner, shown in Settings → Clover app, **never sent again**. A "sending" left behind for 10 minutes becomes
+  "uncertain" (and is logged) at the next settle.
 - **Retried only after a definite failure before Clover processed anything**: no token, the connection never opened
   (DNS, refused), or a Clover 4xx (Clover refused: nothing charged). 3 attempts in all, then "failed" (not billed).
-  `settlePhoneMinutes()` sends what is pending from the expansion tick, every 10 minutes.
+  `settlePhoneMinutes()` sends what is pending from the expansion tick, every 10 minutes: oldest first, at most 25
+  sends per run, one Clover check per merchant per run. Minutes waiting for Clover do not count in that budget, so
+  one unreachable merchant never holds up the others.
+- Calls ended while metering was on but `CLOVER_PHONE_METERED_MINUTE_ID` was not set are never billed and show as a
+  warning in Settings → Clover app.
 - Clover call: `POST /v3/apps/{appId}/merchants/{mId}/metereds/{CLOVER_PHONE_METERED_MINUTE_ID}?count={minutes}`.
 - **Settings → Clover app → "Clover apps on this server" → TAKATAK Phone → "Per-minute billing"**: price, on / dry run,
   this month's calls, AI minutes, minutes sent (or that would be billed), not billed, uncertain, and the estimate.
@@ -127,10 +138,14 @@ else any store there; never the default merchant). The ON2GO menu (our own line)
 When Anthropic says the credit balance is too low (the AI circuit breaker in `ai-health.ts`), or Twilio refuses for an
 empty balance / suspended account (a text or a call sent through `notify`), the owner gets **one** alert per incident:
 team chat, plus an email to `FOODHUB_OWNER_EMAIL` when email is set up, with the action "Recharger les crédits / Top
-up" and the fallback in place (the ordering line goes to a person, the ON2GO menu runs on the keypad: never a dead line;
-without Twilio texts, payment is taken at the counter). No other ping while the incident lasts, even though the breaker
-re-opens every 10 minutes. The alert re-arms only once the provider works again (the next successful AI request or
-text). The ping is claimed with one atomic insert per incident, so two servers never both send it.
+up" and the fallback in place (the ordering line goes to a person, the ON2GO menu runs on the keypad; without Twilio
+texts, payment is taken at the counter). An ordering line with no hand-off number and no kitchen phone has no person
+to go to: its calls are hung up, and the alert names it. No other ping once the alert was delivered, even though the
+breaker re-opens every 10 minutes; a send that reached nobody (chat down, no email) is tried again on the next failure,
+at most once per 10 minutes. The alert re-arms only once the provider works again (the next successful AI request or
+text). State: one `fh_kv` key per provider (`phone_credit_alert_v2:<provider>`), saved as open before the ping is
+claimed (a failed write never silences a later incident); each send is claimed with one atomic insert per incident and
+10-minute slot, so two servers never both send it.
 
 ## Wiring still to do (follow-up pull request)
 

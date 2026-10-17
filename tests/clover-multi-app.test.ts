@@ -39,6 +39,8 @@ let seq = 0;
 /** billing_info answers per "appId:merchantId"; missing = ACTIVE, no trial. */
 let billing: Record<string, unknown> = {};
 let billingDown = false;
+/** billing_info down for these merchants only (Clover unreachable for one merchant). */
+let billingDownFor = new Set<string>();
 let meteredStatus = 200;
 /** billing_info / refresh never answer until the request is aborted (Clover hanging). */
 let billingHang = false;
@@ -78,7 +80,7 @@ function mockClover() {
     const bi = p.match(/^\/v3\/apps\/([^/]+)\/merchants\/([^/]+)\/billing_info$/);
     if (bi) {
       if (billingHang) return hang(init.signal);
-      if (billingDown) return json(503, {});
+      if (billingDown || billingDownFor.has(bi[2])) return json(503, {});
       return json(200, billing[`${bi[1]}:${bi[2]}`] ?? { status: 'ACTIVE', isInTrial: false, appSubscription: { name: 'Essentiel' } });
     }
     if (/\/metereds\//.test(p)) {
@@ -112,7 +114,7 @@ beforeEach(() => {
   process.env.SESSION_SECRET = 'clover-multi-app-test-session-secret-0123';
   process.env.CLOVER_ALLOWED_MERCHANTS = `${MID},${MID2}`;
   for (const k of [...PHONE_ENV, 'CLOVER_ACCESS_TOKEN', 'CLOVER_MERCHANT_ID', 'CLOVER_MERCHANT_TOKENS', 'CLOVER_WEB_URL', 'ALERT_WEBHOOK_URL', 'FOODHUB_OWNER_EMAIL']) delete process.env[k];
-  calls = []; seq = 0; billing = {}; billingDown = false; meteredStatus = 200;
+  calls = []; seq = 0; billing = {}; billingDown = false; billingDownFor = new Set(); meteredStatus = 200;
   billingHang = false; refreshHang = false; refreshStatus = 200; meteredTimeout = false; meteredNetwork = '';
   delete process.env.CONNECTOR_NETWORK_TIMEOUT_MS;
   delete process.env.DASHBOARD_PASSWORD;
@@ -670,6 +672,107 @@ describe('TAKATAK Phone: per-minute metering (CAD 0.25 per AI minute)', () => {
     expect(await settlePhoneMinutes({ now: outage + 5 * 60_000 })).toMatchObject({ reported: 1 });
     expect(metered()).toHaveLength(1);
     expect(metered()[0].url).toContain('?count=2');
+  });
+
+  it('two settles on one out-of-date record: only one sees Clover answering; Clover gets exactly one POST', async () => {
+    await connect();
+    const base = Date.now();
+    meteredStatus = 400; // attempt 0 refused: pending on attempt 1
+    expect(await end('CA800', 60, { now: base })).toMatchObject({ outcome: 'pending' });
+    meteredStatus = 200;
+    const stale = (await getMinuteRecord('CA800'))!;
+    expect(stale).toMatchObject({ state: 'pending', attempts: 1 });
+    // Server A sends it.
+    expect(await settlePhoneMinutes({ now: base + 60_000 })).toMatchObject({ reported: 1 });
+    expect(metered()).toHaveLength(2);
+    // Server B works from its earlier read, and its own Clover check fails (grace: last answer ACTIVE).
+    const repo = getRepo();
+    const orig = repo.listDocs.bind(repo);
+    const spy = vi.spyOn(repo, 'listDocs').mockImplementation(async (col: string, f?: any) => (col === 'phone_minutes' ? [{ id: stale.callSid, key: stale.merchantId, at: stale.at, data: stale }] : orig(col, f)) as any);
+    billingDown = true;
+    try {
+      expect(await settlePhoneMinutes({ now: base + 20 * 60_000 })).toMatchObject({ pending: 1, reported: 0 });
+      // The same stale copy, Clover now saying INACTIVE: closing it needs the attempt's claim, already used by A.
+      billingDown = false;
+      billing[`${PH_APP}:${MID}`] = { status: 'INACTIVE' };
+      await handleCloverAppEvents(appEvent(PH_APP, MID, 'UPDATE'), 'phone');
+      await settlePhoneMinutes({ now: base + 21 * 60_000 });
+    } finally { spy.mockRestore(); }
+    expect(await getMinuteRecord('CA800')).toMatchObject({ state: 'reported', attempts: 1 });
+    // Later runs (past the 10-minute stuck rule) never send it again.
+    billing[`${PH_APP}:${MID}`] = { status: 'ACTIVE', isInTrial: false };
+    await handleCloverAppEvents(appEvent(PH_APP, MID, 'UPDATE'), 'phone');
+    for (const m of [32, 43, 54]) await settlePhoneMinutes({ now: base + m * 60_000 });
+    expect(metered()).toHaveLength(2);
+    expect(await getMinuteRecord('CA800')).toMatchObject({ state: 'reported', attempts: 1 });
+  });
+
+  it('an attempt whose server stopped: given up only when its POST never started, else uncertain (never sent twice)', async () => {
+    await connect();
+    const base = Date.now();
+    meteredStatus = 400;
+    await end('CA810', 60, { now: base });
+    await end('CA811', 60, { now: base });
+    meteredStatus = 200;
+    const repo = getRepo();
+    // CA810: attempt 1 claimed by a server that stopped before its POST claim. CA811: stopped after its POST claim.
+    await repo.claimKv('clover_phone_minutes_send:CA810:1', { at: new Date(base).toISOString() });
+    await repo.claimKv('clover_phone_minutes_send:CA811:1', { at: new Date(base).toISOString() });
+    await repo.claimKv('clover_phone_minutes_post:CA811:1', { at: new Date(base).toISOString() });
+    expect(await settlePhoneMinutes({ now: base + 5 * 60_000 })).toMatchObject({ pending: 2 }); // too early to tell
+    await settlePhoneMinutes({ now: base + 11 * 60_000 });
+    expect(await getMinuteRecord('CA810')).toMatchObject({ state: 'pending', attempts: 2 });
+    expect(await getMinuteRecord('CA811')).toMatchObject({ state: 'uncertain' });
+    await settlePhoneMinutes({ now: base + 12 * 60_000 });
+    expect(await getMinuteRecord('CA810')).toMatchObject({ state: 'reported', attempts: 2 });
+    expect(metered()).toHaveLength(3); // CA810 and CA811 refused once each, CA810 sent once; CA811 never again
+    expect((await getRepo().listActivity()).filter((a) => a.action === 'clover_phone_minutes_uncertain' && a.summary.includes('CA811'))).toHaveLength(1);
+  });
+
+  it('a "sending" left behind becomes "uncertain" and is logged for the owner once', async () => {
+    await connect();
+    const repo = getRepo();
+    const orig = repo.putDocs.bind(repo);
+    const spy = vi.spyOn(repo, 'putDocs').mockImplementation(async (col: string, docs: any[]) => {
+      if (col === 'phone_minutes' && metered().length > 0) throw new Error('database down');
+      return orig(col, docs);
+    });
+    const base = Date.now();
+    try {
+      await expect(end('CA820', 60, { now: base })).rejects.toThrow('database down');
+    } finally { spy.mockRestore(); }
+    const logged = async () => (await getRepo().listActivity()).filter((a) => a.action === 'clover_phone_minutes_uncertain' && a.summary.includes('CA820'));
+    expect(await getMinuteRecord('CA820')).toMatchObject({ state: 'sending' });
+    expect(await logged()).toHaveLength(1); // told right away, even though the record could not be saved
+    expect(await settlePhoneMinutes({ now: Date.now() + 11 * 60_000 })).toMatchObject({ uncertain: 1 });
+    expect(await getMinuteRecord('CA820')).toMatchObject({ state: 'uncertain' });
+    await settlePhoneMinutes({ now: Date.now() + 22 * 60_000 });
+    expect(await logged()).toHaveLength(1);
+    expect(metered()).toHaveLength(1);
+  });
+
+  it('one merchant waiting on Clover never holds up another merchant\'s minutes', async () => {
+    await connect();
+    await connect(MID2);
+    const base = Date.now();
+    meteredStatus = 400;
+    expect(await end('CA900', 60, { now: base + 1000 })).toMatchObject({ outcome: 'pending' });
+    meteredStatus = 200;
+    billingDownFor.add(MID2);
+    for (let i = 0; i < 30; i++) {
+      expect(await end(`CA91${String(i).padStart(2, '0')}`, 60, { now: base + 20 * 60_000 + i * 1000, merchantId: MID2 })).toMatchObject({ outcome: 'pending' });
+    }
+    expect(await settlePhoneMinutes({ now: base + 21 * 60_000 })).toMatchObject({ reported: 1, pending: 30 });
+    expect(await getMinuteRecord('CA900')).toMatchObject({ state: 'reported' });
+    expect(metered()).toHaveLength(2);
+  });
+
+  it('minutes ended before CLOVER_PHONE_METERED_MINUTE_ID was set are a warning in the summary', async () => {
+    await connect();
+    delete process.env.CLOVER_PHONE_METERED_MINUTE_ID;
+    expect(await end('CA950', 130)).toMatchObject({ outcome: 'no_metered_id' });
+    expect((await phoneMinutesSummary()).total).toMatchObject({ noMeteredIdCalls: 1, noMeteredIdMinutes: 3, notBilledMinutes: 0 });
+    expect(metered()).toHaveLength(0);
   });
 });
 

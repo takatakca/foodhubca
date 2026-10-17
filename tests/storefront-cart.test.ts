@@ -2,12 +2,12 @@
 // Duo / Trio / Combo optional (one per line, never pre-selected, Clover modifier refs carried), Québec taxes.
 import { describe, expect, it } from 'vitest';
 import { QC_TAX_RATE } from '../lib/foodhub/delivery/orders';
-import { cartSchema, cleanCustomer, cleanSrc, priceCart } from '../lib/foodhub/storefront/cart';
+import { cartSchema, cleanCustomer, cleanSrc, priceCart, storefrontPhone } from '../lib/foodhub/storefront/cart';
 import { buildPublicMenu } from '../lib/foodhub/storefront/catalog';
 import { BRAND, LOC, SLUG, at, everyDay, fixtureMenu } from './helpers/storefront-fixture';
 
 const sellable = (now = at(13)) => buildPublicMenu({
-  slug: SLUG, brandName: BRAND, cfg: { enabled: true, slug: SLUG, locationCode: LOC, payOnline: true, payAtPickup: true }, brandActive: true,
+  slug: SLUG, brandName: BRAND, cfg: { enabled: true, slug: SLUG, locationCode: LOC, payOnline: true, payAtPickup: true, pickupMaxTotal: 150 }, brandActive: true,
   menu: fixtureMenu(), hours: { locations: { [LOC]: everyDay('06:00', '23:00') }, brands: {}, holidays: [] }, stores: [], location: null, now,
 });
 type Line = Parameters<typeof priceCart>[1]['lines'][number];
@@ -95,6 +95,13 @@ describe('cart input', () => {
     expect(cartSchema.parse({ ...base, src: '<script>' }).src).toBeUndefined();
     expect(cleanSrc('QR')).toBe('qr');
     expect(cleanCustomer({ name: '  Marie   T ', phone: '(514) 555-0199' }, 'fr')).toEqual({ ok: true, customer: { name: 'Marie T', phone: '+15145550199', lang: 'fr' } });
-    expect(cleanCustomer({ name: 'Marie', phone: '123' }, 'en')).toMatchObject({ ok: false, error: 'Enter a valid phone number.' });
+    expect(cleanCustomer({ name: 'Marie', phone: '123' }, 'en')).toMatchObject({ ok: false, error: 'Enter a valid Canadian or US phone number.' });
+  });
+
+  it('phones: Canada / US only — never an international or premium number (texts are sent to it)', () => {
+    for (const ok of ['5145550199', '514-555-0199', '+1 514 555 0199', '1 (438) 555-0101', '+12125550100']) expect(storefrontPhone(ok)).toMatch(/^\+1\d{10}$/);
+    for (const bad of ['+44 20 7946 0958', '+882 1234 5678', '+33612345678', '011 44 20 7946 0958', '0044207946095', '+1 876 555 0100', '+1 809 555 0100', '+1 900 555 0100',
+      '1234567890', '5141234567', '911 555 0100', '514 911 0100', '+1 514 555 01999', '']) expect(storefrontPhone(bad)).toBeNull();
+    expect(cleanCustomer({ name: 'A', phone: '+44 20 7946 0958' }, 'fr')).toMatchObject({ ok: false, error: 'Entrez un numéro de téléphone valide du Canada ou des États-Unis.' });
   });
 });

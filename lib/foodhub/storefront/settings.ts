@@ -2,7 +2,8 @@
 // /commander/<slug>. Everything is OFF until the owner turns it on (master switch, then each brand).
 //
 // Stored in fh_kv 'storefront_settings_v1':
-//   { enabled, brands: { <Food Hub brand name>: { enabled, slug, locationCode, payOnline, payAtPickup, noteFr?, noteEn? } } }
+//   { enabled, brands: { <Food Hub brand name>: { enabled, slug, locationCode, payOnline, payAtPickup, pickupMaxTotal,
+//     noteFr?, noteEn? } } }
 // The host can force the master switch with FOODHUB_FEATURE_STOREFRONT=on|off (the environment wins, same convention as
 // the expansion features).
 // Defaults per brand: slug = the public directory id of the brand (DIRECTORY_SEED), else a slug of its name; kitchen =
@@ -15,6 +16,9 @@ import { getRepo } from '../repo';
 
 const KEY = 'storefront_settings_v1';
 export const SLUG_RE = /^[a-z0-9-]{2,40}$/;
+/** Default cap of an unpaid (pay at the counter) order, taxes in. */
+export const PICKUP_MAX_TOTAL = 150;
+const PICKUP_MAX_RANGE = { min: 20, max: 1000 };
 
 export interface StorefrontBrand {
   enabled: boolean;
@@ -24,6 +28,8 @@ export interface StorefrontBrand {
   payOnline: boolean;
   /** Pay at the counter on pickup. */
   payAtPickup: boolean;
+  /** Largest order total (taxes in, $) accepted unpaid ("pay at the counter"); above it the customer pays online. */
+  pickupMaxTotal: number;
   noteFr?: string;
   noteEn?: string;
 }
@@ -99,6 +105,7 @@ export function resolveSettings(stored: Stored | null, catalog: Catalog): Storef
     brands[b.name] = {
       enabled: s.enabled === true, slug, locationCode: loc,
       payOnline: s.payOnline !== false, payAtPickup: s.payAtPickup !== false,
+      pickupMaxTotal: Number.isFinite(s.pickupMaxTotal) && s.pickupMaxTotal! >= PICKUP_MAX_RANGE.min && s.pickupMaxTotal! <= PICKUP_MAX_RANGE.max ? Math.round(s.pickupMaxTotal!) : PICKUP_MAX_TOTAL,
       ...(clean(s.noteFr, 280) ? { noteFr: clean(s.noteFr, 280) } : {}),
       ...(clean(s.noteEn, 280) ? { noteEn: clean(s.noteEn, 280) } : {}),
     };
@@ -130,6 +137,7 @@ const brandSchema = z.object({
   locationCode: z.string().trim().min(1).max(40),
   payOnline: z.boolean(),
   payAtPickup: z.boolean(),
+  pickupMaxTotal: z.number().int().min(PICKUP_MAX_RANGE.min).max(PICKUP_MAX_RANGE.max).optional(),
   noteFr: z.string().trim().max(280).optional(),
   noteEn: z.string().trim().max(280).optional(),
 });

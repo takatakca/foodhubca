@@ -147,7 +147,9 @@ async function newSession(o: DirectOrder, token: string, mid: string): Promise<{
 
 /**
  * notify: 'sms' (default) texts the link to the customer; 'none' = the link is opened right away in the customer's own
- * browser (the online ordering page): nothing is texted — no link, no reminder, no expiry text.
+ * browser (the online ordering page): the link, the reminder and the expiry are never texted. Once Clover confirms the
+ * payment, the paid confirmation (ready time, pickup address) is texted like on every paid order — a real payment
+ * stands behind that number — and a staff action (cancel, pay at the counter, resend) texts as it always does.
  */
 export interface StartPayLinkOptions { lang: Lang; smsFrom?: string; expiryMin: number; reminderMin: number; by?: string; notify?: 'sms' | 'none' }
 

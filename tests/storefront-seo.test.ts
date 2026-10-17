@@ -9,7 +9,7 @@ import type { HoursConfig } from '../lib/foodhub/types';
 import { BRAND, LOC, SLUG, at, everyDay, fixtureMenu } from './helpers/storefront-fixture';
 
 const HOURS: HoursConfig = { locations: { [LOC]: everyDay('16:00', '03:00') }, brands: {}, holidays: [] };
-const menu = () => buildPublicMenu({ slug: SLUG, brandName: BRAND, cfg: { enabled: true, slug: SLUG, locationCode: LOC, payOnline: false, payAtPickup: true }, brandActive: true, menu: fixtureMenu(), hours: HOURS, stores: [], location: null, now: at(18) }).menu;
+const menu = () => buildPublicMenu({ slug: SLUG, brandName: BRAND, cfg: { enabled: true, slug: SLUG, locationCode: LOC, payOnline: false, payAtPickup: true, pickupMaxTotal: 150 }, brandActive: true, menu: fixtureMenu(), hours: HOURS, stores: [], location: null, now: at(18) }).menu;
 
 beforeEach(() => { process.env.FOODHUB_PUBLIC_URL = 'https://hub.example.test'; process.env.FOODHUB_PUBLIC_PHONE = '+15145550100'; });
 afterEach(() => { delete process.env.FOODHUB_PUBLIC_URL; delete process.env.FOODHUB_PUBLIC_PHONE; });

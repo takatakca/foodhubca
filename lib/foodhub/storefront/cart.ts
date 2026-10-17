@@ -6,7 +6,7 @@
 import { z } from 'zod';
 import { lineTotal, totalsFor } from '../delivery/orders';
 import type { DirectLine } from '../delivery/types';
-import { normalizeEmail, normalizePhone } from '../notify';
+import { normalizeEmail } from '../notify';
 import type { MenuItem, MenuModifier, MenuModifierGroup } from '../types';
 import type { PublicGroup, PublicItem, SellableMenu } from './catalog';
 import { sfText, type SfLang } from './i18n';
@@ -109,12 +109,36 @@ export function priceCart(menu: Pick<SellableMenu, 'menu' | 'source'>, cart: Pic
   return { ok: true, lines, ...totalsFor(lines, 0, 0) };
 }
 
-/** The customer's details, normalised (phone required, email only when valid). */
+// North American Numbering Plan areas outside Canada and the United States (Caribbean and Atlantic countries, billed as
+// international texts) and the 900 premium area: refused on the public page (SMS pumping / toll fraud).
+const NANP_ABROAD = new Set(['242', '246', '264', '268', '284', '345', '441', '473', '649', '658', '664', '721', '758', '767', '784', '809', '829', '849', '868', '869', '876', '900']);
+
+/**
+ * A phone number the ordering page accepts: Canada or the United States only (+1, a real area code and exchange),
+ * returned as +1XXXXXXXXXX. Any other country, a premium 900 number or a malformed number → null. The page texts this
+ * number (pay at the counter), so it never accepts a number that would be billed as an international text.
+ */
+export function storefrontPhone(raw: string | null | undefined): string | null {
+  const s = String(raw ?? '').trim();
+  let d = s.replace(/[^\d]/g, '');
+  if (s.startsWith('+') && !d.startsWith('1')) return null;
+  if (d.startsWith('011') || d.startsWith('00')) return null; // dialled abroad
+  if (d.length === 11 && d.startsWith('1')) d = d.slice(1);
+  if (d.length !== 10) return null;
+  const area = d.slice(0, 3);
+  const exchange = d.slice(3, 6);
+  if (!/^[2-9]\d\d$/.test(area) || !/^[2-9]\d\d$/.test(exchange)) return null;
+  if (area.slice(1) === '11' || exchange.slice(1) === '11') return null; // N11 service codes
+  if (NANP_ABROAD.has(area)) return null;
+  return `+1${d}`;
+}
+
+/** The customer's details, normalised (a Canada / US phone required, email only when valid). */
 export function cleanCustomer(c: Cart['customer'], lang: SfLang): { ok: true; customer: { name: string; phone: string; email?: string; lang: SfLang } } | { ok: false; error: string } {
   const t = sfText(lang);
   const name = c.name.replace(/\s+/g, ' ').trim();
   if (!name) return { ok: false, error: t.errors.name };
-  const phone = normalizePhone(c.phone);
+  const phone = storefrontPhone(c.phone);
   if (!phone) return { ok: false, error: t.errors.phone };
   const email = normalizeEmail(c.email);
   return { ok: true, customer: { name, phone, ...(email ? { email } : {}), lang } };

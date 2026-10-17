@@ -16,7 +16,7 @@ import { useI18n } from '@/lib/i18n/client';
 import { Section, SettingsHead } from '../settings-ui';
 
 interface BrandRow {
-  name: string; enabled: boolean; slug: string; locationCode: string; payOnline: boolean; payAtPickup: boolean; noteFr?: string; noteEn?: string;
+  name: string; enabled: boolean; slug: string; locationCode: string; payOnline: boolean; payAtPickup: boolean; pickupMaxTotal: number; noteFr?: string; noteEn?: string;
   url: string; color: string | null; hoursSet: boolean; payReady: { ok: boolean; reason?: string };
 }
 interface View {
@@ -27,6 +27,7 @@ interface View {
   bySource: Array<{ brand: string; src: string; orders: number }>;
   publicBase: string;
   https: boolean;
+  trustProxy: boolean;
 }
 
 const SOURCES = ['google', 'instagram', 'facebook', 'site', 'qr'] as const;
@@ -54,7 +55,7 @@ export default function StorefrontSettings() {
   async function save() {
     setBusy(true);
     try {
-      const body = { enabled, brands: Object.fromEntries(brands.map((b) => [b.name, { enabled: b.enabled, slug: b.slug, locationCode: b.locationCode, payOnline: b.payOnline, payAtPickup: b.payAtPickup, ...(b.noteFr ? { noteFr: b.noteFr } : {}), ...(b.noteEn ? { noteEn: b.noteEn } : {}) }])) };
+      const body = { enabled, brands: Object.fromEntries(brands.map((b) => [b.name, { enabled: b.enabled, slug: b.slug, locationCode: b.locationCode, payOnline: b.payOnline, payAtPickup: b.payAtPickup, pickupMaxTotal: b.pickupMaxTotal, ...(b.noteFr ? { noteFr: b.noteFr } : {}), ...(b.noteEn ? { noteEn: b.noteEn } : {}) }])) };
       apply(await api<View>('/api/foodhub/storefront/settings', { method: 'PUT', json: body }));
       toast.success(t('Enregistré', 'Saved'));
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
@@ -76,6 +77,7 @@ export default function StorefrontSettings() {
       {!data && <Skeleton className="h-64" />}
       {data && (
         <>
+          {!data.trustProxy && <Banner tone="info" className="mb-4">{t('FOODHUB_TRUST_PROXY n’est pas activé : tous les clients partagent une même limite par adresse (plus large). Les limites par téléphone, par page et par serveur s’appliquent toujours.', 'FOODHUB_TRUST_PROXY is not on: every customer shares one (wider) per-address limit. The per-phone, per-page and per-server limits still apply.')}</Banner>}
           {!data.https && <Banner tone="warn" className="mb-4">{t('FOODHUB_PUBLIC_URL n’est pas une adresse https : les liens et le paiement en ligne ne fonctionneront pas.', 'FOODHUB_PUBLIC_URL is not an https address: links and online payment will not work.')}</Banner>}
           <Section icon={<Store className="size-5" />} title={t('Interrupteur général', 'Master switch')}
             subtitle={t('Éteint : aucune page de commande n’est visible (404). Allumé : seules les marques activées ci-dessous le sont.', 'Off: no ordering page is visible (404). On: only the brands turned on below are.')}
@@ -107,6 +109,13 @@ export default function StorefrontSettings() {
                       <Checkbox checked={b.payOnline} disabled={!editable} onChange={(v) => patch(b.name, { payOnline: v })} label={t('Paiement en ligne (Clover)', 'Pay online (Clover)')} />
                       <Checkbox checked={b.payAtPickup} disabled={!editable} onChange={(v) => patch(b.name, { payAtPickup: v })} label={t('Paiement au comptoir', 'Pay at the counter')} />
                     </div>
+                    {b.payAtPickup && (
+                      <label className="text-xs font-bold text-ink-3">{t('Maximum payé au comptoir ($, taxes incluses)', 'Most paid at the counter ($, taxes in)')}
+                        <Input type="number" inputMode="numeric" min={20} max={1000} step={1} value={String(b.pickupMaxTotal)} disabled={!editable}
+                          onChange={(e) => patch(b.name, { pickupMaxTotal: Math.max(20, Math.min(1000, Math.round(Number(e.target.value) || 0))) })} />
+                        <span className="mt-1 block font-normal">{t('Au-delà, le client paie en ligne (25 articles au plus par commande au comptoir).', 'Above it, the customer pays online (25 items at most per counter order).')}</span>
+                      </label>
+                    )}
                     <p className="text-[13px] sm:col-span-2">
                       {b.payOnline ? (b.payReady.ok ? <span className="font-semibold text-go-2">{t('Paiement en ligne prêt pour cette cuisine.', 'Online payment ready for this kitchen.')}</span> : <span className="text-ink-3">{t('Paiement en ligne pas prêt', 'Online payment not ready')} : {b.payReady.reason}</span>) : <span className="text-ink-3">{t('Paiement en ligne désactivé pour cette marque.', 'Online payment turned off for this brand.')}</span>}
                       {!b.hoursSet && <span className="block font-semibold text-wait-2">{t('Heures non définies (Réglages → Heures) : la page affichera « fermé ».', 'Hours not set (Settings → Hours): the page will show "closed".')}</span>}

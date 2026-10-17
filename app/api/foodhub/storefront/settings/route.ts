@@ -6,6 +6,7 @@ import { effectiveHours, getHours } from '@/lib/foodhub/hours';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { clearStorefrontCache } from '@/lib/foodhub/storefront/catalog';
 import { ordersBySource } from '@/lib/foodhub/storefront/checkout';
+import { trustProxy } from '@/lib/foodhub/session';
 import { qrSvg } from '@/lib/foodhub/storefront/qr';
 import { pageUrl } from '@/lib/foodhub/storefront/seo';
 import { getStorefrontSettings, saveStorefrontSettings, seedBrandOf, storefrontSwitch, type StorefrontSettings } from '@/lib/foodhub/storefront/settings';
@@ -35,6 +36,7 @@ async function view(settings: StorefrontSettings) {
     bySource,
     publicBase: publicBaseUrl(),
     https: /^https:\/\//.test(publicBaseUrl()),
+    trustProxy: trustProxy(),
   };
 }
 

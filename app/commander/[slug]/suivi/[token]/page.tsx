@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 
 // Tracking page of an order placed on the ordering page: /commander/<slug>/suivi/<token>. The random token is the only
 // key; the page shows the order number, its status, the brand and the ready time — never the customer's details.
-// Not indexed; refreshes every 15 seconds.
+// The link works 7 days, and only under the order's own brand page. Not indexed; refreshes every 15 seconds.
 export const metadata: Metadata = { title: 'Suivi de commande · Order tracking', robots: { index: false, follow: false } };
 
 type Props = { params: Promise<{ slug: string; token: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> };
@@ -19,7 +19,7 @@ export default async function TrackPage({ params, searchParams }: Props) {
   const { slug, token } = await params;
   const lang = sfLang((await searchParams).lang);
   const t = sfText(lang);
-  const [view, hit] = await Promise.all([trackOrder(token), brandForSlug(slug)]);
+  const [view, hit] = await Promise.all([trackOrder(token, { slug }), brandForSlug(slug)]);
   const color = hit ? seedBrandOf(hit.brandName)?.color ?? '#1565d8' : '#1565d8';
   const back = `/commander/${slug}${lang === 'en' ? '?lang=en' : ''}`;
   if (!view) {

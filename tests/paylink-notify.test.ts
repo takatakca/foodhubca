@@ -2,7 +2,7 @@
 // nothing — no link, no reminder, no expiry text — and paylinkReadiness(…, { needSms: false }) skips only the texts
 // check. The default (texted link) is unchanged. Clover (clover-checkout, clover-direct, REST token) and notify are
 // mocked: nothing leaves the test.
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const h = vi.hoisted(() => ({ sms: [] as Array<{ to: string; body: string }>, smsOn: false, sessions: 0 }));
 
@@ -20,6 +20,7 @@ vi.mock('../lib/foodhub/delivery/clover-direct', async (orig) => ({
   ...(await orig<typeof import('../lib/foodhub/delivery/clover-direct')>()),
   explicitMerchantFor: async () => 'MID-TEST',
   kitchenHasNoRegister: () => false,
+  orderTypeId: async () => null,
   createDirectOrderInClover: async () => ({ ok: true, posOrderId: 'CLV-TEST', merchantId: 'MID-TEST' }),
 }));
 vi.mock('../lib/foodhub/pos/clover', async (orig) => ({ ...(await orig<typeof import('../lib/foodhub/pos/clover')>()), cloverToken: async () => 'rest-test-token' }));
@@ -31,7 +32,7 @@ vi.mock('../lib/foodhub/notify', async (orig) => ({
 }));
 
 import { createDirectOrder } from '../lib/foodhub/delivery/orders';
-import { paylinkReadiness, payLinkNotify, startPayLink, tickPaylinks } from '../lib/foodhub/delivery/paylink';
+import { paylinkReadiness, payLinkNotify, releasePaidOrder, startPayLink, tickPaylinks } from '../lib/foodhub/delivery/paylink';
 import { getDirectOrder } from '../lib/foodhub/delivery/store';
 
 const actor = { username: 'storefront', name: 'Commander direct', source: 'api' as const };
@@ -47,8 +48,11 @@ beforeEach(() => {
   process.env.FOODHUB_FORCE_MEMORY = 'true';
   (globalThis as any).__foodhubMem = undefined;
   process.env.FOODHUB_PUBLIC_URL = 'https://hub.example.test';
+  process.env.FOODHUB_PAYLINK_PRINT = 'off';
   h.sms = []; h.smsOn = false; h.sessions = 0;
 });
+
+afterAll(() => { delete process.env.FOODHUB_PAYLINK_PRINT; });
 
 describe('paylinkReadiness needSms', () => {
   it('without texts: refused by default, ready with needSms false; every other check stays', async () => {
@@ -91,5 +95,22 @@ describe('startPayLink notify', () => {
     await tickPaylinks(Date.parse(r.order.paylink!.createdAt) + 40 * 60_000);
     expect((await getDirectOrder(o.id))!.status).toBe('cancelled');
     expect(h.sms.at(-1)!.body).toMatch(/a expiré/);
+  });
+});
+
+describe("notify 'none' once paid", () => {
+  it('the paid confirmation is texted once (a real payment stands behind the number); nothing else is', async () => {
+    const o = await held();
+    const r = await startPayLink(o, { lang: 'fr', expiryMin: 20, reminderMin: 0, notify: 'none' });
+    if (!r.ok) throw new Error(r.error);
+    h.smsOn = true;
+    const rel = await releasePaidOrder(o.id, { paymentId: 'PAY-TEST-1', cloverOrderId: 'CLV-PAID-1', amountCents: r.order.paylink!.expectedCents, via: 'webhook' });
+    expect(rel.state).toBe('released');
+    expect(h.sms).toHaveLength(1);
+    expect(h.sms[0].to).toBe('+15145550177');
+    expect(h.sms[0].body).not.toContain('/p/'); // a confirmation, never the payment link
+    expect((await getDirectOrder(o.id))!.status).toBe('in_kitchen');
+    await tickPaylinks(Date.parse(r.order.paylink!.createdAt) + 40 * 60_000);
+    expect(h.sms).toHaveLength(1);
   });
 });

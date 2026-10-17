@@ -2,14 +2,16 @@
 //   - 5 orders per 10 minutes per address (in memory, this process);
 //   - 3 orders per 30 minutes per phone number (fh_docs 'sf_rl_phone', so a restart does not reset it). The document id
 //     is a hash of the number, never the number itself; documents untouched for a day are pruned;
-//   - 40 pay-at-the-counter orders per hour per page (in memory): a ceiling on unpaid orders reaching a kitchen.
+//   - 40 pay-at-the-counter orders per hour per page and 120 per hour on the whole server (in memory): a ceiling on
+//     unpaid orders reaching a kitchen, and on the confirmation texts they send.
 // Without a trusted proxy (FOODHUB_TRUST_PROXY / Vercel) every visitor shares the address "local": that shared bucket
-// gets a wider limit so real customers are never blocked by each other; the phone limit still applies. The settings
-// screen warns about it (trustProxy false).
+// gets a wider limit so real customers are never blocked by each other; the phone, page and server limits still apply.
+// The settings screen warns about it. The address limit is never the only guard (see cart.ts: North American numbers
+// only; checkout.ts: caps on unpaid orders).
 //
-// Race-free by construction: reserveCheckout() takes the address and page slots in the same tick it checks them (no
-// await in between), and the phone slot under an in-process lock per phone. Parallel requests therefore cannot all pass
-// the check before any of them is counted. A reservation is released when the order is not placed in the end.
+// Race-free: reserveCheckout() checks and takes each in-memory slot in one synchronous step, and the phone slot under an
+// in-process lock per phone (read, check and write inside the lock). Parallel requests therefore cannot all pass the
+// check before any of them is counted. A reservation is released when the order is not placed in the end.
 import crypto from 'node:crypto';
 import { getRepo } from '../repo';
 
@@ -17,6 +19,8 @@ export const IP_LIMIT = { max: 5, windowMs: 10 * 60_000 };
 export const SHARED_IP_LIMIT = { max: 60, windowMs: 10 * 60_000 };
 export const PHONE_LIMIT = { max: 3, windowMs: 30 * 60_000 };
 export const PICKUP_PAGE_LIMIT = { max: 40, windowMs: 60 * 60_000 };
+export const PICKUP_SERVER_LIMIT = { max: 120, windowMs: 60 * 60_000 };
+const SERVER_KEY = '*';
 export const PHONE_COL = 'sf_rl_phone';
 const PHONE_KEEP_MS = 24 * 3600_000;
 
@@ -81,11 +85,11 @@ async function prunePhones(now: number): Promise<void> {
 }
 
 export type Reservation = { release: () => Promise<void> };
-export type ReserveResult = ({ ok: true } & Reservation) | { ok: false; retryAfterSec: number; by: 'ip' | 'phone' | 'page' };
+export type ReserveResult = ({ ok: true } & Reservation) | { ok: false; retryAfterSec: number; by: 'ip' | 'phone' | 'page' | 'server' };
 
 /**
- * Reserves one order for this address, phone (and page, when paid at the counter). MUST be called before the caller's
- * first await: the address and page slots are taken synchronously. Refused → nothing stays reserved.
+ * Reserves one order for this address and phone (and page + server, when paid at the counter). Each check takes its
+ * slot in the same step. Refused → nothing stays reserved. `release()` gives every slot back (order not placed).
  */
 export function reserveCheckout(ip: string, phone: string, opts: { slug: string; payAtPickup: boolean }, now = Date.now()): Promise<ReserveResult> {
   const m = mem();
@@ -95,8 +99,10 @@ export function reserveCheckout(ip: string, phone: string, opts: { slug: string;
   if (opts.payAtPickup) {
     const byPage = take(m.pickup, opts.slug, PICKUP_PAGE_LIMIT, now);
     if (!byPage.ok) { give(m.ip, ip, now); return Promise.resolve({ ok: false, by: 'page', retryAfterSec: byPage.retryAfterSec }); }
+    const byServer = take(m.pickup, SERVER_KEY, PICKUP_SERVER_LIMIT, now);
+    if (!byServer.ok) { give(m.ip, ip, now); give(m.pickup, opts.slug, now); return Promise.resolve({ ok: false, by: 'server', retryAfterSec: byServer.retryAfterSec }); }
   }
-  const releaseMem = () => { give(m.ip, ip, now); if (opts.payAtPickup) give(m.pickup, opts.slug, now); };
+  const releaseMem = () => { give(m.ip, ip, now); if (opts.payAtPickup) { give(m.pickup, opts.slug, now); give(m.pickup, SERVER_KEY, now); } };
   const id = phoneHash(phone);
   return (async (): Promise<ReserveResult> => {
     const phoneOk = await withKeyLock(`sf_phone:${id}`, async () => {

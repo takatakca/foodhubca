@@ -35,8 +35,8 @@ import { getDirectOrder, listDirectOrders } from '../lib/foodhub/delivery/store'
 import { cancelHeldOrder, startPayLink } from '../lib/foodhub/delivery/paylink';
 import { getRepo } from '../lib/foodhub/repo';
 import { clearStorefrontCache } from '../lib/foodhub/storefront/catalog';
-import { ordersBySource, placeStorefrontOrder, trackOrder } from '../lib/foodhub/storefront/checkout';
-import { resetStorefrontRateLimits } from '../lib/foodhub/storefront/rate-limit';
+import { TRACK_TTL_MS, ordersBySource, placeStorefrontOrder, trackOrder } from '../lib/foodhub/storefront/checkout';
+import { PICKUP_PAGE_LIMIT, reserveCheckout, resetStorefrontRateLimits } from '../lib/foodhub/storefront/rate-limit';
 import { getStorefrontSettings, saveStorefrontSettings } from '../lib/foodhub/storefront/settings';
 import { POST as checkoutRoute } from '../app/api/storefront/checkout/route';
 import { GET as trackRoute } from '../app/api/storefront/track/[token]/route';
@@ -45,9 +45,9 @@ import { BRAND, LOC, SLUG, at, everyDay, fixtureMenu } from './helpers/storefron
 const owner = { username: 'owner', name: 'Owner', source: 'dashboard' as const };
 const NOW = at(13);
 
-async function setup(over: { enabled?: boolean; brand?: boolean; payOnline?: boolean; payAtPickup?: boolean } = {}) {
+async function setup(over: { enabled?: boolean; brand?: boolean; payOnline?: boolean; payAtPickup?: boolean; pickupMaxTotal?: number } = {}) {
   const base = await getStorefrontSettings();
-  await saveStorefrontSettings({ enabled: over.enabled ?? true, brands: { [BRAND]: { ...base.brands[BRAND], enabled: over.brand ?? true, payOnline: over.payOnline ?? true, payAtPickup: over.payAtPickup ?? true } } }, owner);
+  await saveStorefrontSettings({ enabled: over.enabled ?? true, brands: { [BRAND]: { ...base.brands[BRAND], enabled: over.brand ?? true, payOnline: over.payOnline ?? true, payAtPickup: over.payAtPickup ?? true, ...(over.pickupMaxTotal ? { pickupMaxTotal: over.pickupMaxTotal } : {}) } } }, owner);
   clearStorefrontCache();
 }
 
@@ -91,7 +91,8 @@ describe('refusals', () => {
     await setup();
     expect((await placeStorefrontOrder(cart({ website: 'http://spam.example' }), 'ip-1', NOW)).status).toBe(400);
     expect((await placeStorefrontOrder(cart({ lines: [] }), 'ip-1', NOW)).status).toBe(400);
-    expect((await placeStorefrontOrder(cart({ customer: { name: 'A', phone: '12345678' } }), 'ip-1', NOW))).toMatchObject({ status: 400, error: 'Entrez un numéro de téléphone valide.' });
+    expect((await placeStorefrontOrder(cart({ customer: { name: 'A', phone: '12345678' } }), 'ip-1', NOW))).toMatchObject({ status: 400, error: 'Entrez un numéro de téléphone valide du Canada ou des États-Unis.' });
+    expect((await placeStorefrontOrder(cart({ customer: { name: 'A', phone: '+44 20 7946 0958' } }), 'ip-1', NOW)).status).toBe(400); // never an international number
     expect((await placeStorefrontOrder(cart({ lines: [{ ref: 'ghost', qty: 1 }] }), 'ip-1', NOW)).status).toBe(422);
     expect(await listDirectOrders({ limit: 10 })).toHaveLength(0);
   });
@@ -112,6 +113,76 @@ describe('refusals', () => {
     resetStorefrontRateLimits();
     for (let i = 0; i < 5; i++) expect((await placeStorefrontOrder(cart({ customer: { name: 'Client', phone: `514555010${i}` } }), 'ip-same', at(14) + i * 1000)).ok).toBe(true);
     expect(await placeStorefrontOrder(cart({ customer: { name: 'Client', phone: '5145550109' } }), 'ip-same', at(14) + 6000)).toMatchObject({ status: 429 });
+  });
+
+  it('rate limits hold under parallel requests: 10 at once from one address → 5 pass; from one phone → 3 pass', async () => {
+    await setup();
+    const sameIp = await Promise.all(Array.from({ length: 10 }, (_, i) => placeStorefrontOrder(cart({ customer: { name: 'Client', phone: `51455502${String(i).padStart(2, '0')}` } }), 'ip-burst', NOW)));
+    expect(sameIp.filter((r) => r.ok)).toHaveLength(5);
+    expect(sameIp.filter((r) => !r.ok && r.status === 429)).toHaveLength(5);
+    resetStorefrontRateLimits();
+    const samePhone = await Promise.all(Array.from({ length: 10 }, (_, i) => placeStorefrontOrder(cart({ customer: { name: 'Client', phone: '5145550300' } }), `ip-p${i}`, NOW)));
+    expect(samePhone.filter((r) => r.ok)).toHaveLength(3);
+    expect(await listDirectOrders({ limit: 50 })).toHaveLength(8);
+  });
+
+  it('a failed online attempt gives its slot back (payment not ready → no order, not counted)', async () => {
+    await setup();
+    h.ready = false;
+    for (let i = 0; i < 4; i++) expect(await placeStorefrontOrder(cart({ pay: 'online' }), 'ip-1', NOW + i)).toMatchObject({ status: 409, fallback: 'pay_at_pickup' });
+    for (let i = 0; i < 3; i++) expect((await placeStorefrontOrder(cart(), 'ip-1', NOW + 10 + i)).ok).toBe(true);
+  });
+
+  it('pay-at-the-counter ceilings: 40 per page per hour; refused reservations keep nothing', async () => {
+    for (let i = 0; i < PICKUP_PAGE_LIMIT.max; i++) expect((await reserveCheckout(`ip-${i}`, `+1514555${String(1000 + i)}`, { slug: SLUG, payAtPickup: true }, NOW)).ok).toBe(true);
+    expect(await reserveCheckout('ip-x', '+15145559999', { slug: SLUG, payAtPickup: true }, NOW)).toMatchObject({ ok: false, by: 'page' });
+    expect((await reserveCheckout('ip-x', '+15145559999', { slug: SLUG, payAtPickup: false }, NOW)).ok).toBe(true); // paid online: not an unpaid order
+    expect((await reserveCheckout('ip-y', '+15145559998', { slug: 'other-page', payAtPickup: true }, NOW)).ok).toBe(true);
+    const r = await reserveCheckout('ip-z', '+15145559997', { slug: SLUG, payAtPickup: true }, NOW + PICKUP_PAGE_LIMIT.windowMs + 1);
+    if (!r.ok) throw new Error('expected a slot after the window');
+    await r.release();
+    await r.release(); // twice is harmless
+  });
+
+  it('unpaid orders are capped: 25 items and the brand’s maximum (taxes in); online payment is offered instead', async () => {
+    await setup({ pickupMaxTotal: 50 });
+    const many = await placeStorefrontOrder(cart({ lines: [{ ref: 'i-juice', qty: 20 }, { ref: 'i-juice', qty: 6 }] }), 'ip-1', NOW);
+    expect(many).toMatchObject({ ok: false, status: 422, reason: 'pickup_limit' });
+    if (!many.ok) expect(many.error).toMatch(/25 articles.+Payer en ligne/);
+    const big = await placeStorefrontOrder(cart({ lines: [{ ref: 'i-juice', qty: 15 }] }), 'ip-1', NOW); // 45 $ + taxes = 51.74 $
+    expect(big).toMatchObject({ ok: false, status: 422, reason: 'pickup_limit' });
+    if (!big.ok) expect(big.error).toContain('50,00 $');
+    expect(await listDirectOrders({ limit: 10 })).toHaveLength(0);
+    expect((await placeStorefrontOrder(cart({ pay: 'online', lines: [{ ref: 'i-juice', qty: 15 }] }), 'ip-1', NOW)).ok).toBe(true);
+    expect((await placeStorefrontOrder(cart({ lines: [{ ref: 'i-juice', qty: 14 }] }), 'ip-1', NOW)).ok).toBe(true); // 48.29 $
+    expect((await getStorefrontSettings()).brands[BRAND].pickupMaxTotal).toBe(50);
+  });
+
+  it('last order: refused when the kitchen closes before its prep time is up', async () => {
+    await setup();
+    const late = await placeStorefrontOrder(cart(), 'ip-1', at(22, 50)); // closes 23:00, prep 15 min
+    expect(late).toMatchObject({ ok: false, status: 409, reason: 'closed' });
+    if (!late.ok) expect(late.error).toMatch(/Trop tard/);
+    expect((await placeStorefrontOrder(cart(), 'ip-1', at(22, 40))).ok).toBe(true);
+  });
+
+  it('the route: JSON only (415), same origin only (403), 32 KB cut even without Content-Length (413)', async () => {
+    await setup();
+    const url = 'https://hub.test/api/storefront/checkout';
+    const post = (headers: Record<string, string>, body: BodyInit = JSON.stringify(cart())) => checkoutRoute(new Request(url, { method: 'POST', headers, body }));
+    expect((await post({ 'Content-Type': 'text/plain' })).status).toBe(415);
+    expect((await post({})).status).toBe(415);
+    expect((await post({ 'Content-Type': 'application/x-www-form-urlencoded' }, 'a=1')).status).toBe(415);
+    expect((await post({ 'Content-Type': 'application/json', Origin: 'https://evil.example' })).status).toBe(403);
+    expect((await post({ 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'cross-site' })).status).toBe(403);
+    expect(await listDirectOrders({ limit: 10 })).toHaveLength(0);
+    const chunks = [new TextEncoder().encode('{"pad":"'), ...Array.from({ length: 40 }, () => new TextEncoder().encode('x'.repeat(1024)))];
+    const stream = new ReadableStream<Uint8Array>({ pull(c) { const n = chunks.shift(); if (n) c.enqueue(n); else c.close(); } });
+    const chunked = new Request(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: stream, duplex: 'half' } as RequestInit);
+    expect(chunked.headers.get('content-length')).toBeNull();
+    expect((await checkoutRoute(chunked)).status).toBe(413);
+    const good = await post({ 'Content-Type': 'application/json; charset=utf-8', Origin: 'https://hub.test', 'Sec-Fetch-Site': 'same-origin' });
+    expect(good.status).toBe(200);
   });
 });
 
@@ -146,6 +217,7 @@ describe('orders through the direct-order pipeline', () => {
     expect(vi.mocked(startPayLink).mock.calls[0][1]).toMatchObject({ lang: 'en', expiryMin: 20, reminderMin: 0, notify: 'none' });
     expect(h.clover).toHaveLength(0);
     expect(h.sms).toHaveLength(0);
+    expect(await ordersBySource(7, NOW)).toEqual([]); // held, not paid yet: not an order by source
   });
 
   it('online payment not ready → no order, explicit fallback; link failure → held order cancelled without a text + fallback', async () => {
@@ -186,6 +258,14 @@ describe('tracking', () => {
     expect(JSON.parse(text)).toMatchObject({ ok: true, status: 'in_kitchen', brand: 'Pi Pita' });
     expect((await trackRoute(new Request('https://hub.test/x'), { params: Promise.resolve({ token: 'not-a-real-token-at-all-000' }) })).status).toBe(404);
     expect(await trackOrder('../../etc')).toBeNull();
+    // Only under the order's own brand page, and only for 7 days.
+    expect(await trackOrder(r.track, { slug: SLUG })).toMatchObject({ number: r.number });
+    const other = Object.entries((await getStorefrontSettings()).brands).find(([name]) => name !== BRAND)![1].slug;
+    expect(await trackOrder(r.track, { slug: other })).toBeNull();
+    expect(await trackOrder(r.track, { slug: 'not-a-page' })).toBeNull();
+    expect((await trackRoute(new Request(`https://hub.test/api/storefront/track/${r.track}?slug=${other}`), { params: Promise.resolve({ token: r.track }) })).status).toBe(404);
+    expect(await trackOrder(r.track, { now: Date.now() + TRACK_TTL_MS - 60_000 })).not.toBeNull();
+    expect(await trackOrder(r.track, { now: Date.now() + TRACK_TTL_MS + 60_000 })).toBeNull();
     const o = (await listDirectOrders({ limit: 1 }))[0];
     expect((await getDirectOrder(o.id))?.customer.name).toBe('Client Test'); // kept on the order, never on the tracking page
   });

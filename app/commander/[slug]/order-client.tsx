@@ -4,7 +4,7 @@
 // min / max), the "make it a meal" step (Duo / Trio / Combo, offered once, never pre-selected), the cart drawer, the
 // name / phone form and the payment choice. Prices shown here are for display only: the server prices every order
 // again from the menu (lib/foodhub/storefront/cart.ts). Mobile first, 48 px touch targets.
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { PublicCategory, PublicGroup, PublicItem, PublicMenu } from '@/lib/foodhub/storefront/catalog';
 import { clockLabel, opensLabel, priceLabel, sfText, type SfLang } from '@/lib/foodhub/storefront/i18n';
 
@@ -161,7 +161,7 @@ export default function OrderClient({ menu, lang, src }: { menu: PublicMenu; lan
         )}
       </div>
 
-      <nav aria-label={t.cart} className="sticky top-0 z-10 mt-4 border-y border-[var(--sf-line)] bg-[var(--sf-bg)]/95 backdrop-blur">
+      <nav aria-label={t.categories} className="sticky top-0 z-10 mt-4 border-y border-[var(--sf-line)] bg-[var(--sf-bg)]/95 backdrop-blur">
         <div className="sf-noscroll mx-auto flex max-w-3xl gap-2 overflow-x-auto px-4 py-2">
           {menu.categories.map((c) => <a key={c.ref} href={`#cat-${c.ref}`} className="sf-chip">{L(c, lang)}</a>)}
         </div>
@@ -209,13 +209,13 @@ export default function OrderClient({ menu, lang, src }: { menu: PublicMenu; lan
       )}
 
       {sheet && (
-        <Sheet onClose={() => setSheet(null)} title={L(sheet.item, lang)}>
+        <Sheet onClose={() => setSheet(null)} title={L(sheet.item, lang)} closeLabel={t.close}>
           {sheet.item.imageUrl && (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={sheet.item.imageUrl} alt="" className="mb-3 h-44 w-full rounded-xl object-cover" />
           )}
           {D(sheet.item, lang) && <p className="text-sm sf-muted">{D(sheet.item, lang)}</p>}
-          {sheet.item.allergens.length > 0 && <p className="mt-2 text-xs sf-muted">{t.allergens} : {sheet.item.allergens.join(', ')}</p>}
+          {sheet.item.allergens.length > 0 && <p className="mt-2 text-xs sf-muted">{t.allergensList(sheet.item.allergens.join(', '))}</p>}
           {sheet.item.groups.filter((g) => !g.upsell).map((g) => (
             <GroupPicker key={g.ref} g={g} lang={lang} picked={sheet.picks[g.ref] ?? {}} onToggle={(ref) => setSheet({ ...sheet, picks: toggle(g, ref, sheet.picks) })} />
           ))}
@@ -223,7 +223,7 @@ export default function OrderClient({ menu, lang, src }: { menu: PublicMenu; lan
             <input className="sf-input mt-1" maxLength={140} placeholder={t.notesHint} value={sheet.notes} onChange={(e) => setSheet({ ...sheet, notes: e.target.value })} />
           </label>
           <div className="mt-5 flex items-center gap-3">
-            <Stepper value={sheet.qty} onChange={(q) => setSheet({ ...sheet, qty: q })} />
+            <Stepper value={sheet.qty} onChange={(q) => setSheet({ ...sheet, qty: q })} labels={{ less: t.decrease, more: t.increase }} />
             <button type="button" className="sf-btn sf-accent-bg flex-1" disabled={!sheet.item.groups.filter((g) => !g.upsell).every((g) => groupOk(g, sheet.picks))} onClick={addFromSheet}>
               {t.addFor(priceLabel(r2(unitPrice(sheet.item, sheet.picks) * sheet.qty), lang))}
             </button>
@@ -232,7 +232,7 @@ export default function OrderClient({ menu, lang, src }: { menu: PublicMenu; lan
       )}
 
       {meal && (
-        <Sheet onClose={() => setMeal(null)} title={t.meal}>
+        <Sheet onClose={() => setMeal(null)} title={t.meal} closeLabel={t.close}>
           {!meal.group ? (
             <>
               <p className="text-sm sf-muted">{t.mealIntro}</p>
@@ -261,7 +261,7 @@ export default function OrderClient({ menu, lang, src }: { menu: PublicMenu; lan
       )}
 
       {drawer && (
-        <Sheet onClose={() => setDrawer(false)} title={t.cart}>
+        <Sheet onClose={() => setDrawer(false)} title={t.cart} closeLabel={t.close}>
           {!lines.length && <p className="sf-muted">{t.emptyCart}</p>}
           <ul className="grid gap-3">
             {lines.map(({ l, item }) => {
@@ -272,7 +272,7 @@ export default function OrderClient({ menu, lang, src }: { menu: PublicMenu; lan
                     <div className="font-extrabold">{L(item, lang)}</div>
                     {opts.length > 0 && <div className="text-sm sf-muted">{opts.join(', ')}</div>}
                     {l.notes && <div className="text-sm sf-muted">« {l.notes} »</div>}
-                    <div className="mt-2"><Stepper value={l.qty} onChange={(q) => change(l.key, q - l.qty)} allowZero /></div>
+                    <div className="mt-2"><Stepper value={l.qty} onChange={(q) => change(l.key, q - l.qty)} allowZero labels={{ less: t.decrease, more: t.increase }} /></div>
                   </div>
                   <div className="shrink-0 font-bold">{priceLabel(r2(unitPrice(item, l.picks) * l.qty), lang)}</div>
                 </li>
@@ -316,21 +316,45 @@ export default function OrderClient({ menu, lang, src }: { menu: PublicMenu; lan
   );
 }
 
-function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([tabindex="-1"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/** A modal sheet: focus moves into it on open, stays inside (Tab / Shift+Tab), Escape closes, focus returns on close. */
+function Sheet({ title, onClose, closeLabel, children }: { title: string; onClose: () => void; closeLabel: string; children: ReactNode }) {
+  const box = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
+  const headingId = useId();
+  useEffect(() => { close.current = onClose; }, [onClose]);
   useEffect(() => {
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const back = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    box.current?.querySelector<HTMLElement>('[data-autofocus]')?.focus();
+    const k = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { close.current(); return; }
+      if (e.key !== 'Tab' || !box.current) return;
+      const list = [...box.current.querySelectorAll<HTMLElement>(FOCUSABLE)];
+      if (!list.length) return;
+      const first = list[0];
+      const last = list[list.length - 1];
+      const at = document.activeElement;
+      if (!box.current.contains(at)) { e.preventDefault(); first.focus(); }
+      else if (e.shiftKey && at === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && at === last) { e.preventDefault(); first.focus(); }
+    };
     window.addEventListener('keydown', k);
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    return () => { window.removeEventListener('keydown', k); document.body.style.overflow = prev; };
-  }, [onClose]);
+    return () => {
+      window.removeEventListener('keydown', k);
+      document.body.style.overflow = prev;
+      if (back?.isConnected) back.focus();
+    };
+  }, []);
   return (
-    <div className="fixed inset-0 z-30 flex items-end justify-center bg-black/45 sm:items-center" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}
+    <div className="fixed inset-0 z-30 flex items-end justify-center bg-black/45 sm:items-center" onClick={() => close.current()}>
+      <div ref={box} role="dialog" aria-modal="true" aria-labelledby={headingId} onClick={(e) => e.stopPropagation()}
         className="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-[var(--sf-surface)] p-5 text-[var(--sf-ink)] sm:rounded-2xl">
         <div className="mb-3 flex items-start justify-between gap-3">
-          <h2 className="text-xl font-extrabold">{title}</h2>
-          <button type="button" onClick={onClose} aria-label="×" className="grid size-12 shrink-0 place-items-center rounded-full bg-[var(--sf-sunken)] text-xl font-bold">×</button>
+          <h2 id={headingId} className="text-xl font-extrabold">{title}</h2>
+          <button type="button" data-autofocus onClick={() => close.current()} aria-label={closeLabel} className="grid size-12 shrink-0 place-items-center rounded-full bg-[var(--sf-sunken)] text-xl font-bold"><span aria-hidden>×</span></button>
         </div>
         {children}
       </div>
@@ -372,12 +396,12 @@ function GroupPicker({ g, lang, picked, onToggle, title }: { g: PublicGroup; lan
   );
 }
 
-function Stepper({ value, onChange, allowZero }: { value: number; onChange: (v: number) => void; allowZero?: boolean }) {
+function Stepper({ value, onChange, allowZero, labels }: { value: number; onChange: (v: number) => void; allowZero?: boolean; labels: { less: string; more: string } }) {
   return (
     <div className="inline-flex items-center rounded-xl border border-[var(--sf-line)]">
-      <button type="button" aria-label="−" className="grid size-12 place-items-center text-xl font-bold" disabled={!allowZero && value <= 1} onClick={() => onChange(Math.max(allowZero ? 0 : 1, value - 1))}>−</button>
+      <button type="button" aria-label={labels.less} className="grid size-12 place-items-center text-xl font-bold" disabled={!allowZero && value <= 1} onClick={() => onChange(Math.max(allowZero ? 0 : 1, value - 1))}>−</button>
       <span className="w-8 text-center font-extrabold" aria-live="polite">{value}</span>
-      <button type="button" aria-label="+" className="grid size-12 place-items-center text-xl font-bold" disabled={value >= 20} onClick={() => onChange(Math.min(20, value + 1))}>+</button>
+      <button type="button" aria-label={labels.more} className="grid size-12 place-items-center text-xl font-bold" disabled={value >= 20} onClick={() => onChange(Math.min(20, value + 1))}>+</button>
     </div>
   );
 }

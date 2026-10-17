@@ -1,7 +1,8 @@
 // The public menu of a brand's ordering page: what a customer may order right now at the brand's kitchen.
 //
 //   getBrandMenu (shared menus and per-brand dishes) → menuForLocation (86s at that kitchen)
-//   → hidden: unavailable items and options, alcohol, items whose required choice has nothing left
+//   → hidden: unavailable items and options, alcohol, items whose required choice has nothing left, items with no price
+//     (base price 0 or missing, unless a required choice where every option has a price sets it)
 //   → categories outside their own schedule are shown greyed ("dès 7 h") and cannot be ordered
 //   → price = the in-store base price (item.price) + option price — the same price as at the counter.
 // Never returned: Clover ids (posItemRef / posModifierRef), operator notes, merchant or platform store ids.
@@ -94,6 +95,11 @@ function itemGroups(item: MenuItem, groups: Map<string, MenuModifierGroup>): Pub
   return out;
 }
 
+/** Has a price: a positive base price, or a required choice whose every option costs something (priced by size…). */
+export function hasPrice(basePrice: number, groups: PublicGroup[]): boolean {
+  return basePrice > 0 || groups.some((g) => g.min >= 1 && g.options.length > 0 && g.options.every((o) => o.price > 0));
+}
+
 function publicItem(item: MenuItem, groups: PublicGroup[]): PublicItem {
   return {
     ref: item.ref, name: item.name, ...(item.nameFr ? { nameFr: item.nameFr } : {}),
@@ -169,7 +175,9 @@ export function buildPublicMenu(input: {
   const categories: PublicCategory[] = [...source.categories].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).map((c) => {
     const items = source.items.filter((i) => i.categoryRef === c.ref && i.available !== false && !isAlcoholItem(i)).flatMap((i) => {
       const g = itemGroups(i, groups);
-      return g ? [publicItem(i, g)] : [];
+      if (!g) return [];
+      const pub = publicItem(i, g);
+      return hasPrice(pub.price, g) ? [pub] : [];
     });
     const st = categoryState(c.hours, now);
     return { ref: c.ref, name: c.name, ...(c.nameFr ? { nameFr: c.nameFr } : {}), ...st, items };

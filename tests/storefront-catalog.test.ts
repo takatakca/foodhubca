@@ -12,7 +12,7 @@ import type { ChannelStore, HoursConfig } from '../lib/foodhub/types';
 import { BRAND, LOC, SLUG, at, everyDay, fixtureMenu } from './helpers/storefront-fixture';
 
 const owner = { username: 'owner', name: 'Owner', source: 'dashboard' as const };
-const CFG: StorefrontBrand = { enabled: true, slug: SLUG, locationCode: LOC, payOnline: false, payAtPickup: true };
+const CFG: StorefrontBrand = { enabled: true, slug: SLUG, locationCode: LOC, payOnline: false, payAtPickup: true, pickupMaxTotal: 150 };
 const HOURS: HoursConfig = { locations: { [LOC]: everyDay('11:00', '23:00') }, brands: {}, holidays: [] };
 
 function store(over: Partial<ChannelStore>): ChannelStore {
@@ -44,6 +44,25 @@ describe('public menu: what a customer may order', () => {
     // The same item 86'd at ANOTHER kitchen stays on this page.
     const other = build({ menu: { ...fixtureMenu(), unavailableByLocation: { SAINT_LEONARD: ['i-plate'] } } }).menu;
     expect(other.categories.flatMap((c) => c.items.map((i) => i.ref))).toContain('i-plate');
+  });
+
+  it('hides an item with no price (0 or missing), unless a required choice where every option costs something sets it', () => {
+    const base = fixtureMenu();
+    const menu = {
+      ...base,
+      items: [...base.items,
+        { ref: 'i-free', name: 'No price yet', price: 0, categoryRef: 'c-main', available: true, modifierGroupRefs: [] },
+        { ref: 'i-nan', name: 'Missing price', price: undefined as unknown as number, categoryRef: 'c-main', available: true, modifierGroupRefs: ['g-extra'] },
+        { ref: 'i-by-size', name: 'Priced by size', price: 0, categoryRef: 'c-main', available: true, modifierGroupRefs: ['g-paid-size'] },
+        { ref: 'i-free-size', name: 'Free size only', price: 0, categoryRef: 'c-main', available: true, modifierGroupRefs: ['g-size'] }],
+      modifierGroups: [...base.modifierGroups, { ref: 'g-paid-size', name: 'Size', min: 1, max: 1, modifiers: [
+        { ref: 'p-sm', name: 'Small', price: 6, available: true }, { ref: 'p-lg', name: 'Large', price: 9, available: true }] }],
+    };
+    const refs = build({ menu }).menu.categories.flatMap((c) => c.items.map((i) => i.ref));
+    expect(refs).not.toContain('i-free');
+    expect(refs).not.toContain('i-nan');
+    expect(refs).not.toContain('i-free-size'); // its required size has a $0 option: still free
+    expect(refs).toContain('i-by-size');
   });
 
   it('prices are the in-store base price; Duo / Trio / Combo groups are flagged as optional upsells', () => {

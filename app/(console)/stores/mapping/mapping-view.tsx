@@ -13,6 +13,7 @@ import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { FormDraftNote } from '@/components/ui/save-chip';
 import { Hint } from '@/components/help/hint';
+import { ExtraBrandPriceNotice, useExtraBrandPriceConfirm } from '@/components/billing/extra-brand-price';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { StoresTabs } from '../stores-tabs';
 import { stateOf, stateText } from '../stores-view';
@@ -39,6 +40,7 @@ export function MappingView() {
   const params = useSearchParams();
   const toast = useToast();
   const confirm = useConfirm();
+  const checkPrice = useExtraBrandPriceConfirm();
   const [stores, setStores] = useState<StoreRow[] | null>(null);
   const [form, setForm] = useState<OpenForm | null>(null);
   /** Stores disconnected less than 6 s ago: hidden, and only removed on the server once "Undo" is no longer offered. */
@@ -101,6 +103,7 @@ export function MappingView() {
   async function activate() {
     const chosen = picks.filter((p) => p.include);
     if (chosen.some((p) => !p.brandName || !p.locationCode)) { toast.warn(t('Choisissez une marque et une succursale pour chaque magasin coché.', 'Pick a brand and a location for every selected store.')); return; }
+    if (!(await checkPrice(chosen.map((p) => ({ brandName: p.brandName, channel: 'uber_eats', merchantId: p.cloverMerchantId }))))) return;
     setBusy('activate');
     try {
       const d = await api<{ results: Array<{ storeId: string } & UberResult> }>('/api/foodhub/uber-connect/activate', { method: 'POST', json: { id: connectId, stores: chosen.map((p) => ({ storeId: p.storeId, brandName: p.brandName, locationCode: p.locationCode, cloverMerchantId: p.cloverMerchantId || undefined })) } });
@@ -145,6 +148,7 @@ export function MappingView() {
 
   async function linkKnown(k: Known & { brandName: string; locationCode: string }) {
     if (!k.brandName || !k.locationCode) { toast.warn(t('Choisissez la marque et la succursale.', 'Pick the brand and the location.')); return; }
+    if (!(await checkPrice({ brandName: k.brandName, channel: k.channel }))) return;
     setBusy(`known-${k.storeId}`);
     try { await api('/api/foodhub/stores', { method: 'POST', json: { channel: k.channel, channelStoreId: k.storeId, brandName: k.brandName, locationCode: k.locationCode, autoAccept: true } }); toast.success(t(`${k.name} relié`, `${k.name} linked`)); load(); }
     catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
@@ -314,6 +318,7 @@ function StoreLinkForm({ draftId, initial, lock, onClose, onSaved }: { draftId: 
   const form = draft.value;
   const setForm = draft.set;
   const [saving, setSaving] = useState(false);
+  const checkPrice = useExtraBrandPriceConfirm();
   // Built-in / environment locks are shown, never offered as a switch (the server refuses to lift them anyway).
   const fixedLock = Boolean(lock?.locked && lock.source !== 'store');
 
@@ -330,6 +335,7 @@ function StoreLinkForm({ draftId, initial, lock, onClose, onSaved }: { draftId: 
     onClose();
   }
   async function save() {
+    if (!(await checkPrice({ brandName: form.brandName, channel: form.channel, merchantId: form.cloverMerchantId, storeId: form.id }))) return;
     setSaving(true);
     try { await api('/api/foodhub/stores', { method: 'POST', json: fixedLock ? { ...form, menuLocked: undefined } : form }); draft.clear(); toast.success(t('Magasin branché', 'Store connected')); onSaved(); }
     catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setSaving(false); }
@@ -356,6 +362,7 @@ function StoreLinkForm({ draftId, initial, lock, onClose, onSaved }: { draftId: 
             {form.menuLocked && <Field label={t('Pourquoi (optionnel)', 'Why (optional)')}><Input value={form.menuLockedReason ?? ''} onChange={(e) => setForm({ ...form, menuLockedReason: e.target.value })} maxLength={200} /></Field>}
           </>}
         <Switch checked={Boolean(form.doNotTouch)} onChange={(v) => setForm({ ...form, doNotTouch: v })} label={t('Ne pas toucher au menu de ce magasin', 'Do not touch this store’s menu')} description={t('Food Hub ne lui envoie jamais de menu, d’heures de fériés ni de rupture (ex. : encore chez UrbanPiper, menu spécial). Les commandes et la pause continuent.', 'Food Hub never sends it a menu, holiday hours or an 86 (e.g. still on UrbanPiper, a special menu). Orders and pause keep working.')} />
+        <ExtraBrandPriceNotice brandName={form.brandName} channel={form.channel} merchantId={form.cloverMerchantId} storeId={form.id} />
         {form.channel === 'tgtg' && <Banner tone="info">{t('Too Good To Go n’a pas d’API publique : TAKATAK reçoit seulement ce que TGTG envoie.', 'Too Good To Go has no public API: TAKATAK only receives what TGTG sends.')}</Banner>}
       </div>
     </Modal>

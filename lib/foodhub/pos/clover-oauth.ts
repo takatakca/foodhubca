@@ -77,6 +77,10 @@ export interface CloverBilling {
   daysLapsed: number | null;
   /** Clover subscription ID (appSubscription.id): maps a tier exactly, whatever its display name. */
   planId?: string | null;
+  /** End of the free trial when Clover says it (trial end time, or days left in the trial); absent otherwise. */
+  trialEndsAt?: string | null;
+  /** Tier price Clover reports (appSubscription.amount, in cents; 0 = a free tier); absent when Clover does not send it. */
+  amountCents?: number | null;
   checkedAt: string;
 }
 
@@ -411,16 +415,40 @@ export async function readCloverBilling(mid: string, token: string, app: CloverA
   if (!appId) return null;
   const r = await cloverGet(token, `/v3/apps/${encodeURIComponent(appId)}/merchants/${encodeURIComponent(mid)}/billing_info`, opts);
   if (!r.json) return null;
-  const j = r.json as { status?: string; isInTrial?: boolean; appSubscription?: { id?: string; name?: string }; daysLapsed?: number };
+  const j = r.json as { status?: string; isInTrial?: boolean; appSubscription?: { id?: string; name?: string; amount?: number }; daysLapsed?: number };
   const planId = str(j.appSubscription?.id, 40);
+  const trialEndsAt = j.isInTrial ? trialEndOf(r.json as Record<string, unknown>) : null;
+  const amount = j.appSubscription?.amount;
   return {
     status: str(j.status, 30)?.toUpperCase() ?? null,
     inTrial: Boolean(j.isInTrial),
     plan: str(j.appSubscription?.name, 80),
     daysLapsed: typeof j.daysLapsed === 'number' ? j.daysLapsed : null,
     ...(planId ? { planId } : {}),
+    ...(trialEndsAt ? { trialEndsAt } : {}),
+    ...(typeof amount === 'number' && Number.isFinite(amount) && amount >= 0 ? { amountCents: Math.round(amount) } : {}),
     checkedAt: nowIso(),
   };
+}
+
+/**
+ * The trial end in a billing_info answer, when Clover sends one: an end time (epoch seconds or milliseconds, or an ISO
+ * date) or a number of days left. Null when it says nothing (the console then estimates it from the install date).
+ */
+export function trialEndOf(j: Record<string, unknown>, now = Date.now()): string | null {
+  for (const k of ['trialEndTime', 'trialEndDate', 'trialEnd', 'trialEndsAt', 'trialExpirationTime']) {
+    const v = j[k];
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) return new Date(v < 1e12 ? v * 1000 : v).toISOString();
+    if (typeof v === 'string' && v.trim()) {
+      const t = /^\d+$/.test(v.trim()) ? Number(v.trim()) : Date.parse(v);
+      if (Number.isFinite(t) && t > 0) return new Date(t < 1e12 ? t * 1000 : t).toISOString();
+    }
+  }
+  for (const k of ['trialDaysRemaining', 'daysLeftInTrial', 'remainingTrialDays', 'trialDaysLeft']) {
+    const v = j[k];
+    if (typeof v === 'number' && Number.isFinite(v) && v >= 0) return new Date(now + v * 24 * 3600_000).toISOString();
+  }
+  return null;
 }
 
 /** Why a connection failed — a stable code the welcome page turns into French / English. */

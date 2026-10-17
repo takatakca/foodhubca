@@ -141,3 +141,12 @@ export function phoneOwnMerchants(): Set<string> {
   } catch { /* not JSON: ignored, as clover.ts does */ }
   return ids;
 }
+
+/**
+ * Merchants never billed by either app (TAKATAK Phone minutes, Food Hub extra brands): FOODHUB_BILLING_EXEMPT_MERCHANTS
+ * (comma-separated) and our own restaurants (phoneOwnMerchants: PHONE_OWN_MERCHANTS, CLOVER_MERCHANT_ID,
+ * CLOVER_MERCHANT_TOKENS), so forgetting one list never bills our own merchant.
+ */
+export function billingExemptMerchants(): Set<string> {
+  return new Set([...idList(process.env.FOODHUB_BILLING_EXEMPT_MERCHANTS), ...phoneOwnMerchants()]);
+}

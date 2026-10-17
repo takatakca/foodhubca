@@ -39,7 +39,7 @@
 import { logActivity } from '../activity';
 import { stripSlash } from '../config';
 import { getRepo } from '../repo';
-import { cloverApp, cloverPhoneAppEnabled, phoneOwnMerchants } from './clover-apps';
+import { billingExemptMerchants, cloverApp, cloverPhoneAppEnabled } from './clover-apps';
 import { phoneMonth, previousMonth, voiceAiEntitled, type Entitlement, type EntitlementReason } from './clover-entitlement';
 import { cloverFetch } from './clover-http';
 import { cloverAppToken, readCloverBillingState, readCloverConnection } from './clover-oauth';
@@ -71,12 +71,8 @@ export function meteredMinuteId(): string {
   return String(process.env.CLOVER_PHONE_METERED_MINUTE_ID ?? '').trim();
 }
 
-const idList = (raw: string | undefined) => String(raw ?? '').split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
-
-/** Never billed: FOODHUB_BILLING_EXEMPT_MERCHANTS and our own restaurants (PHONE_OWN_MERCHANTS). */
-export function billingExemptMerchants(): Set<string> {
-  return new Set([...idList(process.env.FOODHUB_BILLING_EXEMPT_MERCHANTS), ...phoneOwnMerchants()]);
-}
+/** Never billed: the list shared by both apps (clover-apps.ts). */
+export { billingExemptMerchants };
 
 /** ceil(seconds / 60); under 1 s (or not a number) = 0. */
 export function billableMinutes(aiSeconds: number): number {

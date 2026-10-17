@@ -10,6 +10,7 @@ import { Select } from '@/components/ui/form';
 import { Segmented } from '@/components/ui/tabs';
 import { useViewer } from '@/components/shell/viewer';
 import { SettingsHead, Section } from '../settings-ui';
+import { CloverBillingSection } from './billing-section';
 import { api } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
@@ -17,6 +18,7 @@ import { PUBLIC_URL_PROBLEM_TEXT, type PublicUrlProblem } from '@/lib/foodhub/pu
 import {
   functionalDescription, LISTING_APP_NAME, LISTING_BENEFITS, LISTING_CATEGORIES, LISTING_DESCRIPTION, LISTING_PERMISSIONS, LISTING_TAGLINE,
 } from '@/lib/foodhub/clover-listing';
+import { PRICING_STATEMENT } from '@/lib/foodhub/pos/clover-pricing';
 
 type Merchant = { merchantId: string; name: string | null; status: 'active' | 'pending'; billing: { status: string | null; inTrial: boolean } | null };
 type AppInfo = {
@@ -124,6 +126,8 @@ export default function CloverAppPage() {
             {/* Only once a second app is set on this server (CLOVER_PHONE_APP_ID): without it the page is unchanged. */}
             {(data?.clover.apps ?? []).filter((a) => a.enabled).length > 1 && <CloverAppsSection apps={(data?.clover.apps ?? []).filter((a) => a.enabled)} isAdmin={can('admin')} onDone={load} />}
 
+            <CloverBillingSection />
+
             <OwnerTestOrder merchants={[...new Set([...(data?.clover.tokenMerchantIds ?? []), ...app.merchants.filter((m) => m.status === 'active').map((m) => m.merchantId)])]} onDone={load} />
 
             <Section icon={<Store className="size-5" />} title={t('À faire dans le tableau de bord Clover (vous)', 'To do in the Clover dashboard (you)')}
@@ -134,7 +138,7 @@ export default function CloverAppPage() {
                 <li>{t('Permissions : collez chaque justification (section Permissions plus bas).', 'Permissions: paste each justification (Permissions section below).')}</li>
                 <li>{t('App Market Listing : onglets Français (Canada), English (Canada) et English (US) — slogan, avantages, description, icône, captures, URL EULA et confidentialité, catégories.', 'App Market Listing: French (Canada), English (Canada) and English (US) tabs — tagline, benefits, description, icon, screenshots, EULA and privacy URLs, categories.')}</li>
                 <li>{t('Developer Support : courriel, téléphone, site de soutien et heures.', 'Developer Support: email, phone, support website and hours.')}</li>
-                <li>{t('Pricing : forfait gratuit (0,00 $) au Canada et aux États-Unis.', 'Pricing: free plan ($0.00) in Canada and the United States.')}</li>
+                <li>{t(`Pricing : forfait « Standard » 50 $/mois au Canada avec essai de 14 jours, et l’événement mesuré « Extra brand, per platform, per month » à 15 $. ${PRICING_STATEMENT.fr}`, `Pricing: “Standard” tier $50/month in Canada with a 14-day trial, and the metered event “Extra brand, per platform, per month” at $15. ${PRICING_STATEMENT.en}`)}</li>
                 <li><span className="inline-flex items-center gap-1 font-semibold text-ink"><Video className="size-4" />{t('Overview : description fonctionnelle (ci-dessous) et lien de la vidéo fonctionnelle (YouTube ou Vimeo, non répertoriée).', 'Overview: functional description (below) and the functional video link (YouTube or Vimeo, unlisted).')}</span></li>
                 <li>{t('Submit App → liste de contrôle → Submit for Approval. Répondez vite aux questions de Clover.', 'Submit App → checklist → Submit for Approval. Answer Clover’s questions quickly.')}</li>
               </ol>

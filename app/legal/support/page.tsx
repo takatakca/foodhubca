@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { legalInfo, LEGAL_PATHS } from '@/lib/foodhub/legal';
 import { Divider, Faq, H1, H2, LangBlock, LangSwitch, P, UL } from '../prose';
+import { CloverAppBadges } from '@/components/clover-app-badges';
+import { liveCloverApps } from '@/lib/foodhub/clover-apps';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Soutien · Support — TAKATAK Food Hub' };
@@ -20,6 +22,7 @@ export default function SupportPage() {
       <LangSwitch />
 
       <LangBlock id="fr">
+        <CloverAppBadges apps={liveCloverApps()} lang="fr" />
         <H2>Nous joindre</H2>
         <UL>
           <li>Courriel : {email ? <a className="underline" href={`mailto:${email}`}>{email}</a> : '[à compléter — FOODHUB_SUPPORT_EMAIL]'}</li>
@@ -61,6 +64,7 @@ export default function SupportPage() {
       <Divider />
 
       <LangBlock id="en">
+        <CloverAppBadges apps={liveCloverApps()} lang="en" />
         <H2>Contact us</H2>
         <UL>
           <li>Email: {email ? <a className="underline" href={`mailto:${email}`}>{email}</a> : '[to be completed — FOODHUB_SUPPORT_EMAIL]'}</li>

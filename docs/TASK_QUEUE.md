@@ -1,5 +1,10 @@
 # FOODHUB — file de tâches coordonnée
 
+## 2026-10-16 — suite UX clavier, tâche indépendante
+
+- **FH-014 / interface** : améliorer l'accessibilité des `Tabs` horizontaux via ArrowLeft/ArrowRight, Home/End et `tabIndex` roving. Branche `fix/console-tabs-keyboard-20261016` ; code et tests créés, CI/revue navigateur nécessaires, fusion uniquement par propriétaire. Distinct de [PR #62](https://github.com/takatakca/foodhubca/pull/62) qui sécurise modales/tiroirs.
+
+
 **Reprise autorisée 2026-10-15** : FH-002 à FH-005 sont prises sur la PR #49 pour terminer la livraison native GitHub App → Coolify et prouver le SHA public. Accès/source/backup/santé configurés ; tests locaux réussis (807 unitaires, 536 E2E). La livraison finale reste à constater après fusion. Aucun changement aux intégrations réelles FH-006/FH-007. Le tableau du 2026-10-14 ci-dessous conserve son contexte historique.
 
 Mise à jour : 2026-10-14. Ce tableau public est une relève Git ; il **ne remplace pas** `private/TASKS.md` (tableau local git-ignoré) ni les branches actives des autres agents, conformément à `CLAUDE.md`.

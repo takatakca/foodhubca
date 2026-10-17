@@ -43,7 +43,6 @@ export const LISTING_DESCRIPTION: Bilingual = {
     '',
     `Prix : ${PRICING_STATEMENT.fr}`,
     '',
-    'Interface en français et en anglais. Food Hub ne traite aucun paiement par carte. Les jetons Clover restent sur notre serveur et se renouvellent seuls ; ils sont supprimés à la désinstallation.',
     'Interface en français et en anglais. Food Hub ne traite aucun paiement par carte. Les jetons Clover restent sur notre serveur et se renouvellent seuls ; ils sont supprimés lorsque Clover nous avise de la désinstallation de l’application, ou sur demande.',
   ].join('\n'),
   en: [
@@ -61,7 +60,6 @@ export const LISTING_DESCRIPTION: Bilingual = {
     '',
     `Price: ${PRICING_STATEMENT.en}`,
     '',
-    'French and English interface. Food Hub never processes card payments. Clover tokens stay on our server and renew by themselves; they are deleted when the app is uninstalled.',
     'French and English interface. Food Hub never processes card payments. Clover tokens stay on our server and renew by themselves; they are deleted when Clover notifies us that the app was uninstalled, or on request.',
   ].join('\n'),
 };

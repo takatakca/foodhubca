@@ -41,7 +41,7 @@ import { claudeResponse, openAllDay, text, toolUse } from './helpers/phone-harne
 const actor = { username: 'owner', name: 'Owner', source: 'dashboard' as const };
 const realFetch = globalThis.fetch;
 const MID = 'MIDSL0000001';
-const ENV_KEYS = ['CLOVER_MERCHANT_ID', 'CLOVER_ACCESS_TOKEN', 'CLOVER_ECOMM_PRIVATE_KEY', 'CLOVER_ECOMM_KEYS', 'CLOVER_HCO_WEBHOOK_SECRET', 'CLOVER_BASE_URL', 'CLOVER_HCO_BASE_URL', 'FOODHUB_CLOVER_NO_REGISTER', 'CLOVER_PRINT_DEVICES', 'FOODHUB_POS_INJECTION', 'ALERT_WEBHOOK_URL', 'ANTHROPIC_API_KEY', 'FOODHUB_PHONE_TEST_CALLERS', 'FOODHUB_CLOVER_AUTOPRINT', 'FOODHUB_PAYLINK_PRINT'];
+const ENV_KEYS = ['CLOVER_MERCHANT_ID', 'CLOVER_ACCESS_TOKEN', 'CLOVER_ECOMM_PRIVATE_KEY', 'CLOVER_ECOMM_KEYS', 'CLOVER_HCO_WEBHOOK_SECRET', 'CLOVER_BASE_URL', 'CLOVER_HCO_BASE_URL', 'FOODHUB_CLOVER_NO_REGISTER', 'CLOVER_PRINT_DEVICES', 'FOODHUB_POS_INJECTION', 'ALERT_WEBHOOK_URL', 'ANTHROPIC_API_KEY', 'FOODHUB_PHONE_TEST_CALLERS', 'FOODHUB_CLOVER_AUTOPRINT', 'FOODHUB_PAYLINK_PRINT', 'CLOVER_PHONE_APP_ID', 'CLOVER_PHONE_APP_SECRET', 'PHONE_OWN_MERCHANTS'];
 
 let sms: Array<{ to: string; body: string }> = [];
 let chat: string[] = [];
@@ -598,5 +598,56 @@ describe('review fixes: AI breaker, simulator, language keys', () => {
     expect(languageChoice(3, '', 'English please')).toEqual({ lang: 'en', rest: '' });
     expect(languageChoice(3, '', 'English, I want to add a chicken')).toBeNull();
     expect(languageChoice(0, '', 'English, I want to order a chicken')).toEqual({ lang: 'en', rest: 'i want to order a chicken' });
+  });
+});
+
+describe('TAKATAK Phone: the texted pay link needs the app for the kitchen\'s merchant', () => {
+  async function pickupCall(id: string) {
+    const menu = await buildPhoneMenu(SL_LINE);
+    const added = addToCart(menu, [], { brand: 'Po Poulet', item_ref: 'i2', quantity: 1, option_refs: [], notes: null });
+    if (!added.ok) throw new Error(added.error);
+    const call: any = {
+      id, lineId: 'l1', lineName: SL_LINE.name, locationCode: 'SAINT_LEONARD', brands: SL_LINE.brands, from: '+15145550111', to: SL_LINE.number, lang: 'fr', status: 'active',
+      startedAt: new Date().toISOString(), turns: 3, transcript: [], messages: [], cart: added.cart, customer: { name: 'Marie', phone: '+15145550111', fulfillment: 'pickup' }, updatedAt: new Date().toISOString(),
+    };
+    return { menu, call, line: { ...SL_LINE, id: 'l1' } as any };
+  }
+  const opts = { confirmed: true, simulate: false, smsConfirmation: false, settings: { payment: DEFAULT_PAYMENT } };
+
+  it('without the phone app (as today) the link is offered and texted', async () => {
+    expect(await phonePaymentPlan(SL_LINE, { payment: DEFAULT_PAYMENT })).toMatchObject({ link: true });
+    const { menu, call, line } = await pickupCall('CA-GATE-OFF');
+    const r = await placePhoneOrder(call, line, menu, { ...opts, payment: 'link' });
+    expect(r.ok).toBe(true);
+    expect(r.order!.status).toBe('awaiting_payment');
+    expect(sms.filter((m) => m.body.includes('https://hub.test/p/'))).toHaveLength(1);
+  });
+
+  it('phone app set, merchant not entitled: no link offered, the pickup is placed for the counter and no link is texted', async () => {
+    Object.assign(process.env, { CLOVER_PHONE_APP_ID: 'TESTPHONEAPP4', CLOVER_PHONE_APP_SECRET: 'phone-secret-test' });
+    // A client merchant (connected through the Food Hub app), not the env default merchant (that one is ours).
+    delete process.env.CLOVER_MERCHANT_ID; delete process.env.CLOVER_ACCESS_TOKEN;
+    await getRepo().setKv('clover_oauth_merchants', { [MID]: { merchantId: MID, accessToken: 'clv-token', accessTokenExpiration: Math.floor(Date.now() / 1000) + 3600, connectedAt: '2026-10-01T00:00:00.000Z' } });
+    const plan = await phonePaymentPlan(SL_LINE, { payment: DEFAULT_PAYMENT });
+    expect(plan).toMatchObject({ link: false, counter: true });
+    expect(plan.reason).toMatch(/TAKATAK Phone AI not active for kitchen SAINT_LEONARD \(not_installed\): no payment link/);
+    const { menu, call, line } = await pickupCall('CA-GATE-ON');
+    const r = await placePhoneOrder(call, line, menu, { ...opts, payment: 'link' });
+    expect(r.ok).toBe(true);
+    expect(r.order!.status).not.toBe('awaiting_payment');
+    expect(r.order!.payment).toBe('pay_at_pickup');
+    expect(checkouts).toHaveLength(0);
+    expect(sms.filter((m) => m.body.includes('https://hub.test/p/'))).toHaveLength(0);
+  });
+
+  it('our own merchant (PHONE_OWN_MERCHANTS): the link works as before', async () => {
+    Object.assign(process.env, { CLOVER_PHONE_APP_ID: 'TESTPHONEAPP4', CLOVER_PHONE_APP_SECRET: 'phone-secret-test', PHONE_OWN_MERCHANTS: MID });
+    expect(await phonePaymentPlan(SL_LINE, { payment: DEFAULT_PAYMENT })).toMatchObject({ link: true });
+  });
+
+  it('the env default merchant (CLOVER_MERCHANT_ID) is ours even when PHONE_OWN_MERCHANTS is empty: the link works', async () => {
+    Object.assign(process.env, { CLOVER_PHONE_APP_ID: 'TESTPHONEAPP4', CLOVER_PHONE_APP_SECRET: 'phone-secret-test' });
+    expect(process.env.CLOVER_MERCHANT_ID).toBe(MID);
+    expect(await phonePaymentPlan(SL_LINE, { payment: DEFAULT_PAYMENT })).toMatchObject({ link: true });
   });
 });

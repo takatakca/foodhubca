@@ -78,6 +78,9 @@ caisse Clover — sans agrégateur.
 - un compte TAKATAK Food Hub : chaque nouveau restaurant est approuvé par notre équipe avant que des commandes
   soient envoyées à sa caisse.
 
+Prix : Essai gratuit de 14 jours, puis 50 $/mois par app, + 15 $ par marque supplémentaire par plateforme, facturé
+par Clover.
+
 Interface en français et en anglais. Food Hub ne traite aucun paiement par carte. Les jetons Clover restent sur notre
 serveur et se renouvellent seuls ; ils sont supprimés à la désinstallation.
 
@@ -105,6 +108,8 @@ register — no aggregator.
 - a Clover device with an order printer;
 - your own Uber Eats, DoorDash or SkipTheDishes merchant accounts;
 - a TAKATAK Food Hub account: each new restaurant is approved by our team before any order is sent to its register.
+
+Price: 14-day free trial, then $50/month per app, + $15 per extra brand per platform, billed by Clover.
 
 French and English interface. Food Hub never processes card payments. Clover tokens stay on our server and renew by
 themselves; they are deleted when the app is uninstalled.
@@ -197,8 +202,14 @@ The pending page and the settings page are useful for the reviewer, less for mer
 
 ## Pricing and distribution
 
-- **Pricing:** free (0.00) in Canada and the United States. Every app needs a subscription plan in Clover, even a free
-  one. Clover may follow up about monetizing.
+- **Pricing (owner's decision of 2026-10-16, set in the Clover developer dashboard):**
+  - subscription tier **Standard**: CAD $50/month, Canada only, 14-day free trial (Clover runs the trial);
+  - metered event **Extra brand, per platform, per month**: CAD $15 per unit. The first brand is included in the $50;
+    each additional brand costs $15 for each delivery platform it is connected to (Uber Eats, DoorDash,
+    SkipTheDishes). A second brand on all three = $45/month;
+  - the listing sentence is the one in the description above (`PRICING_STATEMENT` in
+    `lib/foodhub/pos/clover-pricing.ts`);
+  - how Food Hub counts and reports extra brands: [`CLOVER_BILLING.md`](CLOVER_BILLING.md).
 - **No fees outside Clover:** any future fee must go through Clover's billing.
 - **Who can use it:** a merchant that installs the app is **not** connected automatically. Unless it is one of your
   own merchants, it shows as **Pending** in Settings → Platforms & Clover, and nothing is sent to it until you click

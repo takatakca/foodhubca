@@ -5,7 +5,7 @@
 import rawLocations from '../../data/actual/locations.json';
 import { CHANNEL_KEYS, getAdapter } from './adapters';
 import { ownerSeedStores, type OwnerSeedStore } from './owner-seed';
-import { DEFAULT_TENANT_ID, tenantId } from './tenant';
+import { isOwnerTenant } from './tenant';
 import { CHANNEL_LABELS, liveConnectorsGloballyEnabled, round2 } from './config';
 import { getCatalog } from './catalog';
 import { cloverReadiness } from './pos/clover';
@@ -27,7 +27,7 @@ export const REQUIRED_CHANNELS: ChannelKey[] = ['uber_eats', 'doordash', 'skip']
  * is never reported as missing.
  */
 export function requiredChannels(stores: ReadonlyArray<Pick<ChannelStore, 'channel'>>, env: NodeJS.ProcessEnv = process.env): ChannelKey[] {
-  if (tenantId(env.FOODHUB_TENANT_ID) === DEFAULT_TENANT_ID) return REQUIRED_CHANNELS;
+  if (isOwnerTenant(env)) return REQUIRED_CHANNELS;
   return REQUIRED_CHANNELS.filter((ch) => stores.some((s) => s.channel === ch));
 }
 

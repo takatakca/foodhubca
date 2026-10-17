@@ -1,6 +1,6 @@
 // The console's scope (every restaurant → a kitchen → a brand): kept in the address, filters every screen, never
 // narrows the live alarms to a brand, and never touches the Po Poulet NDG DoorDash lock.
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   alarmLocations, ALL_RESTAURANTS, brandHue, brandInitials, brandOpenState, brandRows, buildScopeCatalog, channelCounts, channelName, channelsOf, countStores, filterByScope, inScope,
   inScopeLoose, isAllRestaurants, isEverything, parseScope, readRemembered, resolveScope, sameScope, scopeBrands, scopeChannels, scopeHref, scopeLocations, scopedAlerts, storesOfLocation,
@@ -433,6 +433,14 @@ describe('the dashboard for a platform scope', () => {
   it('another merchant’s instance never shows the owner’s DoorDash list', async () => {
     expect(ownerSeedStores({ FOODHUB_TENANT_ID: 'client-x' } as unknown as NodeJS.ProcessEnv)).toEqual([]);
     expect(ownerSeedStores({} as unknown as NodeJS.ProcessEnv).length).toBeGreaterThan(0);
+    // A mistyped id is not the owner either (it fails closed, with a console warning, never a crash).
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      expect(ownerSeedStores({ FOODHUB_TENANT_ID: 'Client X' } as unknown as NodeJS.ProcessEnv)).toEqual([]);
+      expect(requiredChannels([{ channel: 'uber_eats' }], { FOODHUB_TENANT_ID: 'Client X' } as unknown as NodeJS.ProcessEnv)).toEqual(['uber_eats']);
+    } finally {
+      warn.mockRestore();
+    }
     process.env.FOODHUB_TENANT_ID = 'client-x';
     try {
       const rows = buildMatrix([]);

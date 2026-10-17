@@ -292,10 +292,19 @@ both entries). **Rollback:** revert the PR; until then any owner or manager can 
 No new env var, no database migration. New functional cookie `fh_view` (UI preference). The owner reviews, merges and
 deploys.
 
-Env check before merge: the owner's DoorDash list from screenshots and the rule that Uber Eats, DoorDash and Skip are
-all required now apply only when `tenantId(FOODHUB_TENANT_ID)` is `takatak` (`lib/foodhub/owner-seed.ts`,
-`requiredChannels` in `lib/foodhub/command.ts`). Confirm `FOODHUB_TENANT_ID` is unset or `takatak` in the production
-environment; any other value hides those DoorDash rows and changes the "not connected" alerts.
+Env check before merge (`FOODHUB_TENANT_ID`): the owner's DoorDash list from screenshots and the rule that Uber Eats,
+DoorDash and Skip are all required apply only on the owner's own instance, checked by `isOwnerTenant()`
+(`lib/foodhub/tenant.ts`, used by `lib/foodhub/owner-seed.ts` and `requiredChannels` in `lib/foodhub/command.ts`).
+
+- Unset, blank or `takatak` (any case): the owner's instance. Everything as today. This is the expected production value.
+- Another valid id (e.g. `resto-laval`): another merchant. The owner's DoorDash rows are hidden from the store grid, the
+  scope picker and the counts, and only the platforms with at least one mapped store are required. No crash. If the
+  owner's own production had such a value by mistake, his DoorDash rows from screenshots would disappear and the
+  "not connected" alerts would only cover platforms with a mapped store.
+- Set but invalid (e.g. `Client X`, `client_x`): fails closed since 2026-10-17. Treated as NOT the owner (before, it
+  silently fell back to `takatak` and would have shown the owner's store list on another merchant's instance), with one
+  clear `[foodhub] FOODHUB_TENANT_ID "..." is not a valid tenant id` console warning per value. `tenantId()` (health,
+  usage events) is unchanged. Tests: `tests/tenant.test.ts`, `tests/scope.test.ts`.
 
 ## 22. Build status (2026-10-16)
 

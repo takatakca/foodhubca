@@ -2,7 +2,7 @@
 // owner's group only: another merchant's instance (FOODHUB_TENANT_ID set to something else) must never show those brands
 // in its store grid, its scope picker or its counts. Read at call time, so a test can switch the tenant.
 import rawDoorDashStores from '../../data/actual/platform-stores-doordash.json';
-import { DEFAULT_TENANT_ID, tenantId } from './tenant';
+import { isOwnerTenant } from './tenant';
 
 export interface OwnerSeedStore {
   brand_name: string;
@@ -16,5 +16,6 @@ const SEED = rawDoorDashStores as OwnerSeedStore[];
 
 /** The owner's DoorDash seed on the owner's own instance; nothing on any other merchant's instance. */
 export function ownerSeedStores(env: NodeJS.ProcessEnv = process.env): OwnerSeedStore[] {
-  return tenantId(env.FOODHUB_TENANT_ID) === DEFAULT_TENANT_ID ? SEED : [];
+  // Fails closed: a mistyped FOODHUB_TENANT_ID is not the owner (lib/foodhub/tenant.ts isOwnerTenant).
+  return isOwnerTenant(env) ? SEED : [];
 }

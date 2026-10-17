@@ -1,7 +1,8 @@
 // Background work for the expansion features, run right AFTER each Watchtower run (live pulse while a screen is open,
 // the server timer, or the 1-minute cron) — never inside it — and throttled here to at most every 15 s:
 //   - own delivery: auto-dispatch couriers that are due; read new Clover "Delivery" orders every 2 minutes
-//   - phone: close calls that never sent a "completed" status (lost callbacks)
+//   - phone: close calls that never sent a "completed" status (lost callbacks); every 10 minutes, send TAKATAK Phone
+//     minutes left pending (only with FOODHUB_PHONE_METERED_ENABLED=true; see pos/clover-phone-minutes.ts)
 //   - ON2GO menu (on by default, whatever the switches): calls that lost their callback, voicemails still to email (retried)
 //   - payment links (only with a Clover ecommerce key): ask Clover about held orders, one reminder, expiry
 // Every part is skipped while its feature switch is off. Never throws.
@@ -10,8 +11,9 @@ import { getFeatures } from './features';
 
 const LAST = 'expansion_tick_last';
 const CLOVER_LAST = 'expansion_clover_delivery_last';
+const MINUTES_LAST = 'expansion_phone_minutes_last';
 
-type TickOut = { ran: boolean; booked?: number; cloverImported?: number; callsClosed?: number; voicemailsEmailed?: number; paylinks?: { checked: number; released: number; cancelled: number; reminded: number } };
+type TickOut = { ran: boolean; minutesReported?: number; booked?: number; cloverImported?: number; callsClosed?: number; voicemailsEmailed?: number; paylinks?: { checked: number; released: number; cancelled: number; reminded: number } };
 
 export async function tickExpansion(now = Date.now()): Promise<TickOut> {
   const repo = getRepo();
@@ -45,6 +47,12 @@ export async function tickExpansion(now = Date.now()): Promise<TickOut> {
     if (features.phone.on) {
       const { closeStaleCalls } = await import('../phone/calls');
       out.callsClosed = await closeStaleCalls(now);
+      const { phoneMeteringEnabled, settlePhoneMinutes } = await import('../pos/clover-phone-minutes');
+      const lastMinutes = (await repo.getKv<number>(MINUTES_LAST).catch(() => null)) ?? 0;
+      if (phoneMeteringEnabled() && now - lastMinutes >= 10 * 60_000) {
+        await repo.setKv(MINUTES_LAST, now);
+        out.minutesReported = (await settlePhoneMinutes({ now })).reported;
+      }
     }
     if (ivrOn) {
       // ON2GO phone menu: calls that lost their last callback, voicemails not emailed yet (the menu is on by default,

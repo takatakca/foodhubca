@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import { logActivity, type Actor } from '../activity';
 import { getCatalog } from '../catalog';
 import { normalizePhone } from '../notify';
+import { cloverPhoneAppEnabled } from '../pos/clover-apps';
 import { getRepo } from '../repo';
 import { cleanPersona, DEFAULT_PERSONA, type Persona } from './style';
 import { cleanVoice, DEFAULT_SPEECH, DEFAULT_VOICES } from './voices';
@@ -216,6 +217,25 @@ async function lockProblem(lines: PhoneLine[]): Promise<string | null> {
   return null;
 }
 
+/**
+ * TAKATAK Phone, set-up step: a line switched on (or a kitchen added to a line that is on) needs the app for that
+ * kitchen's Clover merchant — strict (no grace). Lines already on are never re-checked here (their calls are checked
+ * live). No check without CLOVER_PHONE_APP_ID; our own merchants always pass. Refused: nothing is saved, FR / EN reason.
+ */
+async function setupGate(before: PhoneLine[], after: PhoneLine[]): Promise<void> {
+  if (!cloverPhoneAppEnabled()) return;
+  const { kitchenPhoneGate, phoneGateMessage } = await import('./gate');
+  const key = (l: PhoneLine, k: PhoneLineKitchen) => `${l.id}|${k.locationCode}|${k.brands[0] ?? ''}`;
+  const wasOn = new Set(before.filter((l) => l.enabled).flatMap((l) => lineKitchens(l).map((k) => key(l, k))));
+  for (const line of after.filter((l) => l.enabled)) {
+    for (const k of lineKitchens(line)) {
+      if (wasOn.has(key(line, k))) continue;
+      const g = await kitchenPhoneGate(k, 'setup');
+      if (!g.ok) throw new Error(phoneGateMessage(g, line.name));
+    }
+  }
+}
+
 export async function savePhoneSettings(patch: Partial<PhoneSettings>, actor: Actor): Promise<PhoneSettings> {
   const cur = await getPhoneSettings();
   const lines = patch.lines ? patch.lines.map(cleanLine) : cur.lines;
@@ -223,6 +243,7 @@ export async function savePhoneSettings(patch: Partial<PhoneSettings>, actor: Ac
   if (locked) throw new Error(locked);
   const dup = lines.find((l, i) => lines.findIndex((x) => x.number === l.number) !== i);
   if (dup) throw new Error(`${dup.number} is used by two lines.`);
+  if (patch.lines) await setupGate(cur.lines, lines);
   const next: PhoneSettings = { ...cur, ...patch, lines, updatedAt: new Date().toISOString() };
   await getRepo().setKv(KEY, next);
   await logActivity({ actor: actor.name, source: actor.source, kind: 'settings', action: 'phone_settings', status: 'success',

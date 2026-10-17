@@ -24,6 +24,7 @@ import { localTimeLabel } from '../../time';
 import { phoneAiUsable } from '../ai-health';
 import { phoneAgentConfigured } from '../agent';
 import { getCall, isTestCaller, saveCall, say as sayPhone, type PhoneCall } from '../calls';
+import { linePhoneGate, phoneGateNote } from '../gate';
 import { getPhoneSettings, isMultiKitchen, lineForNumber } from '../settings';
 import { goodDay, personaFor, selfIntro, speakable } from '../style';
 import { gatherXml, VOICE_PATH } from '../twilio';
@@ -536,6 +537,10 @@ async function handToOrdering(call: IvrCall, s: IvrSettings, preface: string): P
   if (!line || !(await featureOn('phone')) || !aiOk) {
     return dialPerson(note(call, 'system', `Ordering agent not available (${!line ? 'no AI phone line on' : !phoneAgentConfigured() ? 'no AI key' : !aiOk ? 'phone AI paused' : 'AI phone ordering off'}): a person takes the order`), s, preface);
   }
+  // The ordering line's kitchens must have TAKATAK Phone (no check without CLOVER_PHONE_APP_ID; ours always pass).
+  // Refused: a person takes the order, as when the AI is off (the menu itself is ours and keeps running).
+  const gate = await linePhoneGate(line, 'call');
+  if (!gate.ok) return dialPerson(note(call, 'system', `Ordering agent not available (${phoneGateNote(gate)}): a person takes the order`), s, preface);
   const now = new Date().toISOString();
   // The menu's voices stay for the rest of the call (no voice change when the ordering assistant takes over).
   const voices = { voiceFr: s.voices.fr, voiceEn: s.voices.en, voiceEs: s.voices.es };

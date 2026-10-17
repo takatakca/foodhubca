@@ -8,12 +8,14 @@
 // a call from a test number (FOODHUB_PHONE_TEST_CALLERS) is real but its order is a test too.
 // A line with several kitchens (brand@kitchen groups) starts the call with no kitchen: the agent asks the caller and
 // calls choose_kitchen; from then on the call works on that kitchen only (menu, hours, hand-off phone, Clover ticket).
+// TAKATAK Phone (the Clover app, gate.ts) is checked once when the call comes in: refused, the call goes to a person.
 import { getCatalog } from '../catalog';
 import { featureOn } from '../expansion/features';
 import { postToChat } from '../notify';
 import { phoneAiUsable } from './ai-health';
 import { runAgentTurn, phoneAgentConfigured } from './agent';
 import { buildPhoneMenu, noKitchenMenu } from './cart';
+import { linePhoneGate, phoneGateNote } from './gate';
 import { endCall, getCall, isTestCaller, markAiEnded, maskNumber, saveCall, say, type PhoneCall, type PhoneLang, type TurnReply } from './calls';
 import { meterEndedCall } from './metering';
 import { languageRequest, LANG_DIGIT } from './ivr/words';
@@ -121,10 +123,17 @@ export async function startCall(params: URLSearchParams, opts: { simulated?: boo
     id: sid, lineId: line.id, lineName: line.name, locationCode: isMultiKitchen(line) ? '' : line.locationCode, brands: line.brands, from, to, lang: 'fr', status: 'active',
     startedAt: new Date().toISOString(), turns: 0, transcript: [], messages: [], cart: [], customer: {}, updatedAt: new Date().toISOString(), ...(test ? { simulated: true } : {}),
   };
-  // Switch off, line off, no AI key or the AI paused: never lose the call — straight to a person.
+  // Switch off, line off, no AI key, the AI paused, or TAKATAK Phone not active for the kitchen's Clover merchant:
+  // never lose the call — straight to a person (the line's hand-off number, else the kitchen phone).
   const aiOk = phoneAgentConfigured() && (await phoneAiUsable());
-  if (!line.enabled || !(await featureOn('phone')) || !aiOk) {
-    const why = !line.enabled ? 'line turned off' : !phoneAgentConfigured() ? 'ANTHROPIC_API_KEY not set' : !aiOk ? 'phone AI paused (it was failing)' : 'phone ordering turned off';
+  let why = !line.enabled ? 'line turned off' : !phoneAgentConfigured() ? 'ANTHROPIC_API_KEY not set' : !aiOk ? 'phone AI paused (it was failing)' : !(await featureOn('phone')) ? 'phone ordering turned off' : '';
+  if (!why) {
+    // The Clover app check: none at all without CLOVER_PHONE_APP_ID, our own merchants always pass. It answers within
+    // 2.5 s even when Clover hangs, and lets a live call through on the grace rules (pos/clover-entitlement.ts).
+    const gate = await linePhoneGate(line, 'call');
+    if (!gate.ok) why = phoneGateNote(gate);
+  }
+  if (why) {
     const saved = await saveCall({ ...say(call, 'system', `AI agent not used (${why})`), handoffReason: why });
     return render(saved, { say: NO_AGENT.fr, next: 'handoff', lang: 'fr' }, line, settings);
   }

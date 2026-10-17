@@ -15,6 +15,7 @@ import { normalizePhone } from '../notify';
 import { localTimeLabel, startOfLocalDayMs } from '../time';
 import { cartToLines, type CartLine, type PhoneMenu } from './cart';
 import type { PhoneCall } from './calls';
+import { kitchenPhoneGate, phoneGateNote } from './gate';
 import type { PhoneLine, PhoneSettings } from './settings';
 import { orderConfirmation } from './style';
 
@@ -50,6 +51,11 @@ export async function phonePaymentPlan(line: Pick<PhoneLine, 'brands' | 'locatio
   if (mode === 'counter') return { link: false, counter: true, mode };
   const ready = await paylinkReadiness(line.brands[0] ?? '', line.locationCode);
   if (!ready.ok) return { link: false, counter: true, mode, reason: ready.reason };
+  // The texted Clover pay link is a TAKATAK Phone feature: never texted for a kitchen whose merchant does not have the
+  // app (no check without CLOVER_PHONE_APP_ID; our own merchants always pass). The order is then paid at the counter
+  // (pickup) or on a call back (delivery), as when the link is not set up.
+  const gate = await kitchenPhoneGate(line, 'call');
+  if (!gate.ok) return { link: false, counter: true, mode, reason: `${phoneGateNote(gate)}: no payment link` };
   return { link: true, counter: mode === 'choose', mode };
 }
 

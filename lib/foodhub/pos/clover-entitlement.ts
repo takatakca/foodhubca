@@ -30,7 +30,7 @@
 // phoneCloverToken(merchantId) — token for phone features: the phone app's own first, then Food Hub's (env tokens
 // included). Food Hub features never use the phone token (clover.ts cloverToken is unchanged).
 //
-// The live-call gate is not wired into lib/foodhub/phone/** yet (follow-up): see docs/CLOVER_MULTI_APP.md.
+// Wired into the phone module by lib/foodhub/phone/gate.ts (live call, pay link, switching a line on): see docs/CLOVER_MULTI_APP.md.
 // Clover is never called from tests (fetch is mocked).
 import { cloverToken } from './clover';
 import { cloverApp, cloverAppByAppId, cloverPhoneAppEnabled, isCloverAppKey, phoneOwnMerchants, type CloverAppKey } from './clover-apps';

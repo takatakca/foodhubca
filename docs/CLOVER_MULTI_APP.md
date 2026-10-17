@@ -147,18 +147,39 @@ text). State: one `fh_kv` key per provider (`phone_credit_alert_v2:<provider>`),
 claimed (a failed write never silences a later incident); each send is claimed with one atomic insert per incident and
 10-minute slot, so two servers never both send it.
 
-## Wiring still to do (follow-up pull request)
+## The gate in the phone module: `lib/foodhub/phone/gate.ts`
 
-The per-minute metering is wired (above). The live-call gate is not yet:
+`kitchenPhoneGate(kitchen, purpose)` / `linePhoneGate(line, purpose)` run `voiceAiEntitled` for the kitchen's own
+Clover merchant, found the same way as for metering (a store of the brand at that kitchen, else any store there; never
+the default merchant).
 
-```ts
-import { voiceAiEntitled } from '@/lib/foodhub/pos/clover-entitlement';
-// incoming-call handler (voice.ts / twilio.ts), first thing (answers within 2.5 s even when Clover hangs):
-const gate = await voiceAiEntitled(cloverMerchantId, 'call');
-if (!gate.ok) return forwardToRestaurant(); // never drop the call
-// turning a line on (settings.ts / brand-lines.ts):
-const setup = await voiceAiEntitled(cloverMerchantId, 'setup');
-```
+- **`CLOVER_PHONE_APP_ID` not set: no check at all**, nothing is read; every call, pay link and line works exactly as
+  before. **`PHONE_OWN_MERCHANTS`: always allowed.** A kitchen with no Clover merchant of its own is ours: allowed
+  (and never billed).
+- **Live call** (`voice.ts` `startCall`, first thing after the line, the AI key and the switch): `'call'`, so LAPSED
+  within 7 days and Clover unreachable within 3 days of the last good answer still go through; the check answers
+  within 2.5 s even when Clover hangs. Refused, or the check itself failed: **the call is never dropped**. The caller
+  hears the short "Je vous transfère à un membre de notre équipe" and the call rings the line's hand-off number, else
+  the kitchen's phone (Settings → Business), exactly like a line whose AI is off. The call log says why
+  ("TAKATAK Phone not active for kitchen NDG (lapsed)"); no AI minute starts. A line with no hand-off number and no
+  kitchen phone has nobody to ring: as for the AI off, the caller hears "nobody is available" and the team chat gets
+  the number to call back.
+- **A line with several kitchens** is allowed only when every kitchen is (the caller may pick any of them). The
+  kitchens are checked at once, so the call still waits at most one 2.5 s budget.
+- **ON2GO menu** (our own line, never gated itself): "place an order" hands the call to the ordering line's AI only when
+  that line passes the same live-call check; otherwise a person takes the order (`dialPerson`, else voicemail), as
+  when the AI is off.
+- **Texted Clover pay link** (`order.ts` `phonePaymentPlan`, used by the AI's instructions and by `placePhoneOrder`):
+  `'call'` check; refused = no link, pickup paid at the counter and a delivery paid on a call back, as when the link is
+  not set up.
+- **Switching a line on** (`settings.ts` `savePhoneSettings`): `'setup'`, strict (no grace, Clover must answer). Checked
+  for a line turned on, a new line saved on, or a kitchen (or main brand) added to a line that is on; lines already on
+  keep saving. Refused: nothing is saved and the console shows the reason in French then English, e.g. « TAKATAK Phone
+  n’est pas actif pour Pi Pita NDG (cuisine NDG) : l’abonnement est échu (paiement en retard dans Clover). La ligne
+  reste éteinte. / TAKATAK Phone is not active for Pi Pita NDG (kitchen NDG): the subscription has lapsed (payment
+  overdue in Clover). The line stays off. »
+- **Brand lines** (`brand-lines.ts`, `FOODHUB_BRAND_PHONES`) only ring the main number and take voicemail: no AI, no
+  Clover app, no gate.
 
 ## Owner steps in the Clover developer dashboard (the owner does these clicks)
 

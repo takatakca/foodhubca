@@ -1,5 +1,10 @@
 # Food Hub: progress log and task board
 
+## 2026-10-17 — TAKATAK Phone: the app check wired into the phone module (task 41, PR #61)
+
+- New `lib/foodhub/phone/gate.ts` (`kitchenPhoneGate` / `linePhoneGate`): `voiceAiEntitled` for the kitchen's own Clover merchant. Live call (`startCall`): refused = handed to the line's person (hand-off number, else kitchen phone), never hung up, no AI minute. ON2GO menu "place an order": refused = a person / voicemail. Pay link (`phonePaymentPlan`): refused = counter / call back. Switching a line on (`savePhoneSettings`): strict, FR / EN reason, nothing saved.
+- Unchanged without `CLOVER_PHONE_APP_ID` (nothing checked) and for `PHONE_OWN_MERCHANTS` or a kitchen with no Clover merchant of its own. ON2GO `ivr/[step]` 204 answers fixed (`new Response(null, { status: 204 })`). Tests: `tests/phone-app-gate.test.ts`, plus cases in `ivr.test.ts` and `ai-phone-paylink.test.ts`.
+
 ## 2026-10-17 — TAKATAK Phone: review round 3 fixes (task 41, PR #61)
 
 - AI minutes stop at the hand-off even when a slow AI turn finishes later: the AI-end time is also kept outside the call record (`markAiEnded`, atomic insert) and a late turn never writes its older copy back.

@@ -3,17 +3,20 @@
 //   → each caller sentence → AI turn → say + listen again
 //   → order placed and goodbye, or hand-off to a person (<Dial> the line's hand-off number / the kitchen phone).
 // A turn the AI has not finished within ~9 s says "one moment" and continues on /voice/wait (Twilio's 15 s limit).
-// Nobody answers the hand-off → the caller hears that we will call back, and the team chat gets the number to call.
+// No hand-off number and no kitchen phone → ON2GO's person, else ON2GO's voicemail; nobody answers the hand-off →
+// ON2GO's voicemail (ticket + email). The team chat gets the number to call back. A caller is never just hung up on.
 // The same turn runs in the console ("Try the agent", and the call simulator), where an order is never sent anywhere;
 // a call from a test number (FOODHUB_PHONE_TEST_CALLERS) is real but its order is a test too.
 // A line with several kitchens (brand@kitchen groups) starts the call with no kitchen: the agent asks the caller and
 // calls choose_kitchen; from then on the call works on that kitchen only (menu, hours, hand-off phone, Clover ticket).
+// TAKATAK Phone (the Clover app, gate.ts) is checked once when the call comes in: refused, the call goes to a person.
 import { getCatalog } from '../catalog';
 import { featureOn } from '../expansion/features';
 import { postToChat } from '../notify';
 import { phoneAiUsable } from './ai-health';
 import { runAgentTurn, phoneAgentConfigured } from './agent';
 import { buildPhoneMenu, noKitchenMenu } from './cart';
+import { linePhoneGate, phoneGateNote } from './gate';
 import { endCall, getCall, isTestCaller, markAiEnded, maskNumber, saveCall, say, type PhoneCall, type PhoneLang, type TurnReply } from './calls';
 import { meterEndedCall } from './metering';
 import { languageRequest, LANG_DIGIT } from './ivr/words';
@@ -84,11 +87,17 @@ async function render(call: PhoneCall, reply: TurnReply, line: PhoneLine, settin
   const to = await handoffNumber(line);
   if (!to) {
     await missedHandoff(call, line, 'no hand-off number');
-    // An order confirmation said in this turn is still heard before "nobody is available".
-    return twiml(`${sayXml([reply.confirm, NOBODY[reply.lang]].filter(Boolean).join(' '), settings, reply.lang)}<Hangup/>`);
+    // Never dropped: ON2GO's person, else ON2GO's voicemail. An order confirmation said in this turn is heard first.
+    return nobodyHere(call, 'no hand-off number and no kitchen phone', { preface: reply.confirm ?? '', dial: true });
   }
   await saveCall({ ...say(call, 'system', `Transferred to ${maskNumber(to)}${call.handoffReason ? ` — ${call.handoffReason}` : ''}`), status: 'handoff' });
   return twiml(`${sayXml(reply.say, settings, reply.lang)}${dialXml(to, line.number, `${VOICE_PATH}/dial-done`)}`);
+}
+
+/** Nobody on this line can take the call: ON2GO's person (`dial`), else ON2GO's voicemail (ivr/engine.ts). */
+async function nobodyHere(call: PhoneCall, why: string, opts: { preface?: string; dial?: boolean } = {}): Promise<Response> {
+  const { directLineFallback } = await import('./ivr/engine');
+  return directLineFallback({ id: call.id, from: call.from, to: call.to, lang: call.lang, simulated: call.simulated }, why, opts);
 }
 
 async function missedHandoff(call: PhoneCall, line: PhoneLine, why: string): Promise<void> {
@@ -121,10 +130,17 @@ export async function startCall(params: URLSearchParams, opts: { simulated?: boo
     id: sid, lineId: line.id, lineName: line.name, locationCode: isMultiKitchen(line) ? '' : line.locationCode, brands: line.brands, from, to, lang: 'fr', status: 'active',
     startedAt: new Date().toISOString(), turns: 0, transcript: [], messages: [], cart: [], customer: {}, updatedAt: new Date().toISOString(), ...(test ? { simulated: true } : {}),
   };
-  // Switch off, line off, no AI key or the AI paused: never lose the call — straight to a person.
+  // Switch off, line off, no AI key, the AI paused, or TAKATAK Phone not active for the kitchen's Clover merchant:
+  // never lose the call — straight to a person (the line's hand-off number, else the kitchen phone).
   const aiOk = phoneAgentConfigured() && (await phoneAiUsable());
-  if (!line.enabled || !(await featureOn('phone')) || !aiOk) {
-    const why = !line.enabled ? 'line turned off' : !phoneAgentConfigured() ? 'ANTHROPIC_API_KEY not set' : !aiOk ? 'phone AI paused (it was failing)' : 'phone ordering turned off';
+  let why = !line.enabled ? 'line turned off' : !phoneAgentConfigured() ? 'ANTHROPIC_API_KEY not set' : !aiOk ? 'phone AI paused (it was failing)' : !(await featureOn('phone')) ? 'phone ordering turned off' : '';
+  if (!why) {
+    // The Clover app check: none at all without CLOVER_PHONE_APP_ID, our own merchants always pass. It answers within
+    // 2.5 s even when Clover hangs, and lets a live call through on the grace rules (pos/clover-entitlement.ts).
+    const gate = await linePhoneGate(line, 'call');
+    if (!gate.ok) why = phoneGateNote(gate);
+  }
+  if (why) {
     const saved = await saveCall({ ...say(call, 'system', `AI agent not used (${why})`), handoffReason: why });
     return render(saved, { say: NO_AGENT.fr, next: 'handoff', lang: 'fr' }, line, settings);
   }
@@ -234,7 +250,6 @@ export async function waitTurn(params: URLSearchParams, n: number): Promise<Resp
 
 /** Twilio <Dial> action: did a person take the call? */
 export async function dialDone(params: URLSearchParams): Promise<Response> {
-  const base = await getPhoneSettings();
   const call = await getCall(params.get('CallSid') || '');
   const status = params.get('DialCallStatus') || '';
   if (!call) return twiml('<Hangup/>');
@@ -245,7 +260,8 @@ export async function dialDone(params: URLSearchParams): Promise<Response> {
   const ls = await lineOf(call);
   if (ls) await missedHandoff(call, ls.work, `hand-off ${status || 'not answered'}`);
   await endCall(call.id, 'handoff_missed');
-  return twiml(`${sayXml(NOBODY[call.lang], callVoices(call, base), call.lang)}<Hangup/>`);
+  // Never dropped: the caller can leave a message (ON2GO's voicemail: ticket + email to the team).
+  return nobodyHere(call, `hand-off ${status || 'not answered'}`);
 }
 
 /**

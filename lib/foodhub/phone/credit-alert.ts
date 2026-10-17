@@ -52,7 +52,7 @@ async function readOne(p: CreditProvider): Promise<CreditIncident | null> {
 
 /**
  * Turned-on ordering lines with no person to hand a call to: no hand-off number on the line and no kitchen phone
- * (Settings → Business) for one of its kitchens. Such a call hears "nobody is available" and is hung up.
+ * (Settings → Business) for one of its kitchens. Such a call goes to ON2GO's person, else ON2GO's voicemail.
  */
 export async function linesWithoutHandoff(): Promise<string[]> {
   try {
@@ -73,10 +73,10 @@ function message(p: CreditProvider, reason: string, deadLines: string[]) {
     : 'Téléphone — solde Twilio trop bas · Twilio balance too low: Recharger les crédits / Top up';
   const dead = deadLines.join(', ');
   const fr = p === 'anthropic'
-    ? `L’IA du téléphone (Anthropic) n’a plus de crédit (${reason}). Action : rechargez les crédits Anthropic (console Anthropic → Billing). En attendant, la ligne de commande passe à une personne et le menu ON2GO fonctionne au clavier.${deadLines.length ? ` ATTENTION, aucun repli pour : ${dead} — pas de numéro de transfert ni de téléphone de cuisine, les appels y sont raccrochés (« personne n’est disponible ») et seul le numéro à rappeler arrive dans le chat. Ajoutez un numéro de transfert (Réglages → Téléphone IA).` : ' Rien n’est perdu.'} L’IA reprend seule dès que le crédit revient.`
+    ? `L’IA du téléphone (Anthropic) n’a plus de crédit (${reason}). Action : rechargez les crédits Anthropic (console Anthropic → Billing). En attendant, la ligne de commande passe à une personne et le menu ON2GO fonctionne au clavier.${deadLines.length ? ` ATTENTION, aucun repli pour : ${dead} — pas de numéro de transfert ni de téléphone de cuisine, les appels y vont à la personne ON2GO, sinon à la boîte vocale ON2GO, et le numéro à rappeler arrive dans le chat. Ajoutez un numéro de transfert (Réglages → Téléphone IA).` : ' Rien n’est perdu.'} L’IA reprend seule dès que le crédit revient.`
     : `Twilio refuse faute de solde (${reason}). Action : rechargez le compte Twilio (console Twilio → Billing). En attendant, les textos (lien de paiement) ne partent pas : le paiement se fait au comptoir. Sans solde, Twilio peut aussi couper les appels entrants.`;
   const en = p === 'anthropic'
-    ? `The phone AI (Anthropic) is out of credit (${reason}). Action: top up the Anthropic credits (Anthropic console → Billing). Meanwhile the ordering line goes to a person and the ON2GO menu runs on the keypad.${deadLines.length ? ` WARNING, no fallback for: ${dead} — no hand-off number and no kitchen phone, so their calls are hung up ("nobody is available") and only the number to call back reaches the chat. Add a hand-off number (Settings → AI phone).` : ' Nothing is lost.'} The AI comes back by itself once credit is back.`
+    ? `The phone AI (Anthropic) is out of credit (${reason}). Action: top up the Anthropic credits (Anthropic console → Billing). Meanwhile the ordering line goes to a person and the ON2GO menu runs on the keypad.${deadLines.length ? ` WARNING, no fallback for: ${dead} — no hand-off number and no kitchen phone, so their calls go to ON2GO's person, else ON2GO's voicemail, and the number to call back reaches the chat. Add a hand-off number (Settings → AI phone).` : ' Nothing is lost.'} The AI comes back by itself once credit is back.`
     : `Twilio refuses for lack of balance (${reason}). Action: top up the Twilio account (Twilio console → Billing). Meanwhile texts (payment links) do not go out: payment is taken at the counter. With no balance Twilio may also stop incoming calls.`;
   return { title, fr, en };
 }

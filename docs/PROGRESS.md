@@ -1,5 +1,16 @@
 # Food Hub: progress log and task board
 
+## 2026-10-17 — TAKATAK Phone gate: review fixes (task 41, PR #61)
+
+- Own merchants: `CLOVER_MERCHANT_ID`, `CLOVER_MERCHANT_TOKENS` keys and `FOODHUB_BILLING_EXEMPT_MERCHANTS` count as ours (not only `PHONE_OWN_MERCHANTS`); readiness shows a per-kitchen app check (stop when refused); refused live calls are logged.
+- Never dropped: a line with no hand-off number and no kitchen phone rings ON2GO's person, else ON2GO voicemail; an unanswered hand-off goes to voicemail (`ivr/engine.ts` `directLineFallback`).
+- Live call + check failed (database) fails open; setup still refuses. ON2GO "place an order" gives Clover 1 s (`ORDERING_GATE_BUDGET_MS`). Setup: kitchens keyed by line + location (reordering brands never re-checks), "changes not saved; the line stays as it was" for a line already on, and a line mixing our kitchens with a client's is refused.
+
+## 2026-10-17 — TAKATAK Phone: the app check wired into the phone module (task 41, PR #61)
+
+- New `lib/foodhub/phone/gate.ts` (`kitchenPhoneGate` / `linePhoneGate`): `voiceAiEntitled` for the kitchen's own Clover merchant. Live call (`startCall`): refused = handed to the line's person (hand-off number, else kitchen phone), never hung up, no AI minute. ON2GO menu "place an order": refused = a person / voicemail. Pay link (`phonePaymentPlan`): refused = counter / call back. Switching a line on (`savePhoneSettings`): strict, FR / EN reason, nothing saved.
+- Unchanged without `CLOVER_PHONE_APP_ID` (nothing checked) and for `PHONE_OWN_MERCHANTS` or a kitchen with no Clover merchant of its own. ON2GO `ivr/[step]` 204 answers fixed (`new Response(null, { status: 204 })`). Tests: `tests/phone-app-gate.test.ts`, plus cases in `ivr.test.ts` and `ai-phone-paylink.test.ts`.
+
 ## 2026-10-17 — TAKATAK Phone: review round 3 fixes (task 41, PR #61)
 
 - AI minutes stop at the hand-off even when a slow AI turn finishes later: the AI-end time is also kept outside the call record (`markAiEnded`, atomic insert) and a late turn never writes its older copy back.

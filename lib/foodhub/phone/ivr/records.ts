@@ -3,6 +3,7 @@
 // about, saved BEFORE the transfer), and tickets (leads, voicemails, requests for a person). Stored in fh_docs.
 // Card numbers never get here (redacted before saving). The AI message history is dropped when the call ends.
 import { nowIso } from '../../config';
+import { dryRun } from '../../dry-run';
 import { normalizePhone, postToChat } from '../../notify';
 import { getRepo } from '../../repo';
 import type { IvrLang, PlatformId } from './config';
@@ -22,6 +23,20 @@ export interface IvrReply {
   /** listen = ask the caller again (AI); route = go to a branch; menu = the keypad menu takes over; hangup = goodbye. */
   next: 'listen' | 'route' | 'menu' | 'hangup';
   route?: { node: string; platform?: PlatformId; orderId?: string };
+  /** The AI failed (error, refusal, breaker open) — not a caller misunderstanding: never "je n'ai pas compris". */
+  failed?: boolean;
+}
+
+export interface IvrVoicemail {
+  recordingSid?: string; recordingUrl?: string; durationSec?: number; transcript?: string; transcriptDone?: boolean; ticketId?: string; reason?: string;
+  /** Set only once the email was really sent. */
+  emailedAt?: string;
+  /** Short lock while one request sends the email (two callbacks arriving together send it once). */
+  emailClaimAt?: string;
+  emailTries?: number;
+  emailError?: string;
+  /** No email possible (no provider or no address): the team chat got it instead. */
+  chatAt?: string;
 }
 
 export interface IvrCall {
@@ -57,7 +72,13 @@ export interface IvrCall {
   refs: string[];
   tickets: string[];
   sms: Array<{ at: string; kind: string; ok: boolean }>;
-  voicemail?: { recordingSid?: string; recordingUrl?: string; durationSec?: number; transcript?: string; transcriptDone?: boolean; emailedAt?: string; ticketId?: string; reason?: string };
+  voicemail?: IvrVoicemail;
+  /** The menu option (an AI flow) the caller picked on the keypad while its AI turn runs: if the AI fails, that option runs without it. */
+  aiNode?: string;
+  /** Console call simulator: nothing is sent (texts, emails, chat, orders), and the call is not listed with real calls. */
+  simulated?: boolean;
+  /** A call from a number in FOODHUB_PHONE_TEST_CALLERS: real call, but an order placed is a test (no Clover, no kitchen ticket). */
+  testCall?: boolean;
   outcome?: IvrOutcome;
   /** Known from an own order looked up during the call. */
   brand?: string;
@@ -124,6 +145,16 @@ export async function getIvrCall(id: string): Promise<IvrCall | null> {
   return (await getRepo().getDoc<IvrCall>(IVR_CALLS, id))?.data ?? null;
 }
 
+/**
+ * Merges fields into a call's voicemail, re-reading the record first: the recording, transcript and voicemail-done
+ * callbacks arrive close together and must keep each other's fields.
+ */
+export async function mergeIvrVoicemail(id: string, patch: Partial<IvrVoicemail>, extra: Partial<IvrCall> = {}): Promise<IvrCall | null> {
+  const cur = await getIvrCall(id);
+  if (!cur) return null;
+  return saveIvrCall({ ...cur, ...extra, voicemail: { ...(cur.voicemail ?? {}), ...patch } });
+}
+
 export async function listIvrCalls(opts: { since?: string; limit?: number } = {}): Promise<IvrCall[]> {
   return (await getRepo().listDocs<IvrCall>(IVR_CALLS, { since: opts.since, limit: opts.limit ?? 500 })).map((d) => d.data);
 }
@@ -159,7 +190,8 @@ export async function endIvrCall(id: string, outcome?: IvrOutcome, durationSec?:
 export async function savePlatformRef(ref: Omit<PlatformRef, 'id' | 'at'> & { id?: string }): Promise<PlatformRef> {
   const at = nowIso();
   const full: PlatformRef = { ...ref, id: ref.id ?? `ref_${ref.callId.slice(-10)}_${Date.now().toString(36)}`, at };
-  await getRepo().putDocs<PlatformRef>(IVR_REFS, [{ id: full.id, key: full.orderId || full.platform, at, data: full }]);
+  // Call simulator (dry run): not kept.
+  if (!dryRun()) await getRepo().putDocs<PlatformRef>(IVR_REFS, [{ id: full.id, key: full.orderId || full.platform, at, data: full }]);
   return full;
 }
 
@@ -191,7 +223,8 @@ export const ticketLabel = (c: TicketCategory) => CATEGORY_LABEL[c] ?? c;
 export async function openTicket(input: Omit<IvrTicket, 'id' | 'at' | 'status'>): Promise<IvrTicket> {
   const at = nowIso();
   const t: IvrTicket = { ...input, summary: redactCards(input.summary).slice(0, 1000), ...(input.transcript ? { transcript: redactCards(input.transcript).slice(0, 4000) } : {}), id: `tk_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, at, status: 'open' };
-  await getRepo().putDocs<IvrTicket>(IVR_TICKETS, [{ id: t.id, key: t.category, at, data: t }]);
+  // Call simulator (dry run): the ticket is not kept; the team-chat post below is recorded, not sent.
+  if (!dryRun()) await getRepo().putDocs<IvrTicket>(IVR_TICKETS, [{ id: t.id, key: t.category, at, data: t }]);
   await postToChat({
     title: `☎️ ON2GO line: ${ticketLabel(t.category)}${t.from && t.from !== 'anonymous' ? ` — call back ${t.from}` : ''}`,
     text: `${t.summary}${t.orderRef ? ` (order ${t.orderRef})` : ''}`,

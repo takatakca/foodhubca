@@ -23,7 +23,8 @@ export const GET = withPerm('orders:act', async (req, _ctx, actor) => {
     return ok({ call: { ...call, messages: undefined, prompt: undefined, pending: undefined }, refs: refs.filter((r) => r.callId === id), tickets: tickets.filter((t) => t.callId === id) });
   }
   const q = (url.searchParams.get('q') ?? '').slice(0, 60);
-  const calls = (await listIvrCalls({ since, limit: 2000 })).filter((c) => callMatches(c, refs, tickets, q));
+  // Calls played in the console simulator are not real calls: never listed here.
+  const calls = (await listIvrCalls({ since, limit: 2000 })).filter((c) => !c.simulated && callMatches(c, refs, tickets, q));
   const ids = new Set(calls.map((c) => c.id));
   return ok({
     calls: calls.map(lite),

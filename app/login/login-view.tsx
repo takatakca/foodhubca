@@ -8,11 +8,13 @@ import { Field, Input } from '@/components/ui/form';
 import { api } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
+import { CloverAppBadges } from '@/components/clover-app-badges';
+import type { CloverAppListing } from '@/lib/foodhub/clover-apps';
 
 type Step = 'start' | 'code' | 'recovery' | 'setup';
 type Sent = { challengeId: string; channel: 'email' | 'sms'; sentTo: string; devCode?: string };
 
-export function LoginView({ next, error, firstRun, recovery, needsKey }: { next: string; error: string | null; firstRun: boolean; recovery: boolean; needsKey: boolean }) {
+export function LoginView({ next, error, firstRun, recovery, needsKey, cloverApps = [] }: { next: string; error: string | null; firstRun: boolean; recovery: boolean; needsKey: boolean; cloverApps?: readonly CloverAppListing[] }) {
   const { t, lang, setLang } = useI18n();
   const [step, setStep] = useState<Step>(firstRun ? 'setup' : 'start');
   const [contact, setContact] = useState('');
@@ -145,6 +147,7 @@ export function LoginView({ next, error, firstRun, recovery, needsKey }: { next:
           )}
         </div>
         <p className="text-center text-xs text-ink-4">{t('Tablette de cuisine ? Un gérant l’enregistre une fois dans Réglages → Tablettes, puis l’équipe entre avec son NIP.', 'Kitchen tablet? A manager enrols it once in Settings → Tablets, then the team unlocks it with their PIN.')}</p>
+        <CloverAppBadges apps={cloverApps} lang={lang} variant="compact" className="mt-4 justify-center" />
       </main>
     </div>
   );

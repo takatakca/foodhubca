@@ -22,7 +22,8 @@ type Fleet = { fleet: string; label: string; configured: boolean; canSend: boole
 type Board = { orders: DirectRow[]; fleets: Fleet[]; settings: { customerFee: number } };
 type Filter = 'todo' | 'road' | 'done' | 'all';
 
-const OPEN = ['new', 'in_kitchen', 'ready'];
+/** "To do" on the board: held orders waiting for their payment link are listed too (resend, pay at the counter, cancel). */
+const OPEN = ['awaiting_payment', 'new', 'in_kitchen', 'ready'];
 
 export default function DirectPage() {
   const { t, loc } = useI18n();

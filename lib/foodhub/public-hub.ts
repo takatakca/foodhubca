@@ -22,6 +22,7 @@ import {
   appMarketStatus, appMarketUrl, HUB_PLATFORMS, livePlatforms, PHONE_APP_NAME, PHONE_PRICING_STATEMENT, PRICING, PRICING_STATEMENT,
   STANDARD_MONTHLY_CAD, type AppMarketStatus, type HubPlatform, type Lang,
 } from './pricing';
+import { CLOVER_APPS, cloverAppMarketUrl, liveCloverApps, type CloverAppListing } from './clover-apps';
 import { CLOVER_APP_NAME } from './product';
 import { HUB_CONTENT, HUB_PAGE_KEYS, HUB_PATHS, HUB_TAGLINE, HUB_UI, PLATFORM_NAME, type Card, type Faq, type HubPageKey } from './public-hub-content';
 import { publicBaseUrl } from './config';
@@ -61,7 +62,21 @@ export interface HubContext {
   marketStatus: AppMarketStatus;
   /** Platforms whose integration may be presented as live; the others are "in certification". */
   livePlatforms: HubPlatform[];
+  /** The Clover apps whose "Install From Clover App Market" badge may be shown (NEXT_PUBLIC_CLOVER_APPS_LIVE,
+   * lib/foodhub/clover-apps.ts); empty = no badge. */
+  cloverApps?: readonly CloverAppListing[];
 }
+
+/** The TAKATAK Food Hub listing address: FOODHUB_APP_MARKET_URL when set, else its Clover App Market page once the
+ * owner lists "foodhub" in NEXT_PUBLIC_CLOVER_APPS_LIVE (the same switch as the badges), else null. */
+export function hubMarketUrl(live: readonly CloverAppListing[] = liveCloverApps(), raw?: string | null): string | null {
+  const own = raw === undefined ? appMarketUrl() : appMarketUrl(raw);
+  if (own) return own;
+  const foodHub = live.find((a) => a.key === 'foodhub') ?? null;
+  return foodHub ? cloverAppMarketUrl(foodHub.appId) : null;
+}
+
+export { CLOVER_APPS };
 
 export function publicSameAs(raw: string | null | undefined = process.env.FOODHUB_PUBLIC_SAME_AS): string[] {
   const out: string[] = [];
@@ -78,7 +93,8 @@ export function publicSameAs(raw: string | null | undefined = process.env.FOODHU
 
 export function hubContext(): HubContext {
   const info = legalInfo();
-  const market = appMarketUrl();
+  const cloverApps = liveCloverApps();
+  const market = hubMarketUrl(cloverApps);
   return {
     base: hubBase(),
     appMarketUrl: market,
@@ -88,6 +104,7 @@ export function hubContext(): HubContext {
     address: info.address,
     marketStatus: appMarketStatus(market),
     livePlatforms: livePlatforms(),
+    cloverApps,
   };
 }
 

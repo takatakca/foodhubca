@@ -13,6 +13,7 @@ import {
   EXTRA_BRAND_PLATFORM_CAD, formatCadLabel, monthlyTotalCad, PHONE_APP_NAME, PHONE_MINUTE_CAD, PHONE_MONTHLY_CAD, PHONE_TRIAL_DAYS,
   STANDARD_MONTHLY_CAD, TRIAL_DAYS, type HubPlatform, type Lang,
 } from './pricing';
+import { TOKEN_DELETION } from './legal';
 
 const fr$ = (n: number) => formatCadLabel(n, 'fr');
 const en$ = (n: number) => formatCadLabel(n, 'en');
@@ -211,7 +212,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
         FAQ_PRICE.fr,
         { q: 'Qu’est-ce qu’une marque supplémentaire ?', a: `Votre première marque est incluse. Chaque autre marque coûte ${fr$(EXTRA_BRAND_PLATFORM_CAD)} par mois pour chaque plateforme de livraison où elle est branchée (Uber Eats, DoorDash, SkipTheDishes).` },
         { q: 'Qui facture l’abonnement ?', a: `Clover, sur le compte marchand où l’application est installée. L’essai gratuit de ${TRIAL_DAYS} jours est géré par Clover.` },
-        { q: 'Comment arrêter ?', a: 'Désinstallez l’application de votre compte Clover. Les jetons d’accès Clover sont alors supprimés aussitôt.' },
+        { q: 'Comment arrêter ?', a: `Désinstallez l’application de votre compte Clover : vos jetons d’accès Clover ${TOKEN_DELETION.fr}.` },
       ],
     },
     en: {
@@ -240,7 +241,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
         FAQ_PRICE.en,
         { q: 'What is an extra brand?', a: `Your first brand is included. Each other brand costs ${en$(EXTRA_BRAND_PLATFORM_CAD)} a month for each delivery platform it is connected to (Uber Eats, DoorDash, SkipTheDishes).` },
         { q: 'Who bills the subscription?', a: `Clover, on the merchant account where the app is installed. The ${TRIAL_DAYS}-day free trial is run by Clover.` },
-        { q: 'How do I stop?', a: 'Uninstall the app from your Clover account. Your Clover access tokens are deleted at once.' },
+        { q: 'How do I stop?', a: `Uninstall the app from your Clover account: your Clover access tokens ${TOKEN_DELETION.en}.` },
       ],
     },
   },

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { TakatakMark } from '@/components/brand/takatak-mark';
+import { CloverAppBadges } from '@/components/clover-app-badges';
 import { LEGAL_PATHS } from '@/lib/foodhub/legal';
 import { EXTRA_BRAND_PLATFORM_CAD, formatCadLabel, PHONE_APP_NAME, PHONE_PRICING_STATEMENT, STANDARD_MONTHLY_CAD, TRIAL_DAYS, type Lang } from '@/lib/foodhub/pricing';
 import {
@@ -76,6 +77,7 @@ function PricingBlock({ lang, ctx }: { lang: Lang; ctx: HubContext }) {
       </dl>
       <p className="mt-5 text-[15px] text-ink-2">{ui.firstBrand} {ui.billedByClover}</p>
       <p className="mt-3 text-[15px] text-ink-2"><b className="text-ink">{PHONE_APP_NAME}</b>{lang === 'fr' ? ' : ' : ': '}{PHONE_PRICING_STATEMENT[lang]}</p>
+      <CloverAppBadges apps={ctx.cloverApps ?? []} lang={lang} />
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <MarketButton lang={lang} ctx={ctx} />
         {!ctx.appMarketUrl && <span className="text-sm text-ink-3">{ctx.marketStatus === 'review' ? ui.marketReviewNote : ui.marketSoonNote}</span>}
@@ -279,6 +281,7 @@ export function HubPage({ page, lang, ctx }: { page: HubPageKey; lang: Lang; ctx
             <p>{ui.listingName} {ui.madeIn}</p>
             <p>© {new Date().getFullYear()} {ctx.company} · {ctx.address}</p>
             {ctx.supportEmail && <p><a href={`mailto:${ctx.supportEmail}`} className="underline underline-offset-2">{ctx.supportEmail}</a></p>}
+            <CloverAppBadges apps={ctx.cloverApps ?? []} lang={lang} variant="compact" className="mt-3" />
           </div>
           <nav aria-label={ui.support} className="flex flex-wrap gap-4 font-semibold">
             <a href={LEGAL_PATHS.support} className="underline underline-offset-2 hover:text-ink">{ui.support}</a>

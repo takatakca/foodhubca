@@ -195,21 +195,23 @@ Store statuses sync every 2 minutes while any screen is open. For sync even when
 
 Finance covers every location's money, so it is only for logins that see all locations.
 
-## Public pages (ON2GO Hub, indexable)
+## Public pages (ON2GO.ca hub, indexable)
 
 | Address | What | Sign-in |
 | --- | --- | --- |
-| `/hub`, `/en/hub` | ON2GO Hub landing (French first, English twin) | none |
-| `/hub/tarifs`, `/en/hub/pricing` | Pricing: 14-day trial, $50/month per app, $15/month per extra brand per platform, plus taxes, billed by Clover (`lib/foodhub/pricing.ts`) | none |
+| `/hub`, `/en/hub` | ON2GO.ca landing (French first, English twin) | none |
+| `/hub/tarifs`, `/en/hub/pricing` | Pricing: 14-day free trial, then CAD $50/month per app; TAKATAK Food Hub extra brand CAD $15 per platform per month; TAKATAK Phone AI + CAD $0.25 per AI minute; plus taxes, billed by Clover (`lib/foodhub/pricing.ts`, numbers from `pos/clover-pricing.ts`) | none |
 | `/hub/integrations/{uber-eats,doordash,skipthedishes}-clover` (+ `/en/…`) | One page per platform integration; noindex and out of the sitemap / llms.txt until the platform is in `FOODHUB_PUBLIC_LIVE_PLATFORMS` | none |
 | `/hub/ecran-de-cuisine-clover`, `/en/hub/clover-kitchen-display` | Kitchen display | none |
-| `/hub/telephone-ia-restaurant`, `/en/hub/ai-phone-for-restaurants` | AI phone: coming soon, separate app | none |
+| `/hub/telephone-ia-restaurant`, `/en/hub/ai-phone-for-restaurants` | TAKATAK Phone AI, the separate Clover app (automated assistant, press 0, its own price) | none |
 | `/robots.txt`, `/sitemap.xml`, `/llms.txt`, `/og/*`, `/favicon.ico` | Crawlers, AI assistants, share images | none |
 | `/legal/*` | Privacy, terms, support: `noindex, follow` while drafts; indexable, in the sitemap and llms.txt once `FOODHUB_LEGAL_APPROVED=true` | none |
 | `/icons/*` | App icons; the Organization logo (`icon-512.png`) must be indexable | none |
 | `/media/*` | Menu photos (also shown on on2go.ca through the directory feed): indexable, so they can appear in image search | none |
+| `/commander/<slug>`, `/commander/sitemap.xml` | Storefront ordering pages (docs/STOREFRONT.md): indexable, listed in robots.txt with their own sitemap; `/commander/<slug>/suivi/…` stays noindex | none |
 
-- Words: `lib/foodhub/public-hub-content.ts`; product facts reused from the Clover App Market listing
+- Name: the hub is "ON2GO.ca" (owner, 2026-10-17); the Clover App Market names stay "TAKATAK Food Hub" and
+  "TAKATAK Phone AI". Words: `lib/foodhub/public-hub-content.ts`; product facts reused from the Clover App Market listing
   (`lib/foodhub/clover-listing.ts`). Only shipped features; no hours claims, no aggregator names (`tests/public-hub.test.ts`).
   Prices are built from `lib/foodhub/pricing.ts`, the legal name from `FOODHUB_LEGAL_COMPANY`. Too Good To Go is only
   named with its condition ("when your account offers an order feed"), never in the tagline. Each shared FAQ question
@@ -219,8 +221,9 @@ Finance covers every location's money, so it is only for logins that see all loc
   every page until `FOODHUB_APP_MARKET_URL` is set (then the Offer is published). Even with the Offer, the item stays
   flagged as missing a rating or review until genuine reviews exist on the Clover App Market: that warning is permanent
   until then. Never add `aggregateRating` or `review` by hand to clear it.
-- Status wording, never ahead of the facts: `FOODHUB_APP_MARKET_STATUS=review` only after the listing is really
-  submitted ("en révision chez Clover"); otherwise "L’application sera bientôt offerte sur le Clover App Market".
+- Status wording, never ahead of the facts: both apps were submitted to the Clover App Market on 2026-10-17, so the
+  default is "Les deux applications sont soumises au Clover App Market et en révision chez Clover";
+  `FOODHUB_APP_MARKET_STATUS=soon` brings back "bientôt" (only if a listing is withdrawn). Prices are never "planned".
   `FOODHUB_PUBLIC_LIVE_PLATFORMS` (default `uber`) lists the platforms that approved the integration; the others show
   "Intégration en cours de certification avec …" and their page is not promoted.
 - Public links always point at `https://foodhub.on2go.ca/hub` (its own canonical), never at the bare domain: `/`
@@ -234,8 +237,10 @@ Finance covers every location's money, so it is only for logins that see all loc
 - An anonymous visitor on `/` lands on `/hub` (`FOODHUB_PUBLIC_HOME=off` restores `/login`); kitchen tablets keep their
   PIN screen; signed-in users keep the console.
 - Every other response carries `X-Robots-Tag: noindex` (console, `/login`, API): the console never reaches a search engine.
-- `FOODHUB_APP_MARKET_URL` empty: "Bientôt sur le Clover App Market" and "Tarif prévu au lancement", no Offer in the
-  structured data. Set it once Clover approves the listing.
+- `FOODHUB_APP_MARKET_URL` empty and `foodhub` not in `NEXT_PUBLIC_CLOVER_APPS_LIVE`: "Soumise au Clover App Market :
+  en révision", no Offer in the structured data. Once Clover approves, adding `foodhub` (and `phone`) to
+  `NEXT_PUBLIC_CLOVER_APPS_LIVE` turns on the badges (#78) on the hub pages too and links the TAKATAK Food Hub
+  listing (Offer published); `FOODHUB_APP_MARKET_URL` overrides that link.
 - `FOODHUB_PUBLIC_SAME_AS`: LinkedIn / YouTube links for the Organization's `sameAs`. The support email shown is
   `FOODHUB_SUPPORT_EMAIL`.
 - No page-specific client component and no trackers on these pages (no consent banner needed); the root layout still

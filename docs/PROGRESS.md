@@ -1,5 +1,15 @@
 # Food Hub: progress log and task board
 
+## 2026-10-16 — Store availability center (task 44b, `feature/store-availability-center`)
+
+- New page `/stores/availability` (URL only; `/stores`, `/stores/hours` and `stores-tabs.tsx` untouched): status now per kitchen / brand / channel with who paused it (TAKATAK, platform, guard, hours), reopens-at (overnight, holidays, DST), tablets online, and a Clover Online Ordering reminder row (no Clover call; no official pause endpoint found in the Clover docs).
+- Status history from the activity log (pause, resume, platform_*, busy, prep, holiday, guard, reopen_failed) with reason and ok / blocked / failed, CSV export. No downtime % (analytics.ts / ops-quality do it).
+- Busy schedule per kitchen (`busy_schedule_v1`): busy mode on at a window start (normal + extra, Uber prep push live-gated), back at the end only if the last prep change is still the schedule's; a person's change wins.
+- Tablet-off guard (`downtime_guard_v1`, OFF by default): all tablets off for N min during open hours → timed pause of the chosen channels, re-extended every pauseMin/2, resumes only its own pauses; never relay, do-not-touch or FORBIDDEN_STORE_IDS stores; blocked results shown as not sent.
+- Special days (Halloween, Remembrance Day, Christmas Eve, Boxing Day, New Year's Eve, Valentine's, Mother's / Father's Day) saved as holidays; publish from /stores/hours.
+- Additive wiring: `tickAvailability` (throttled 30 s, never throws) in cron/watch (new `availability` key), pulse after(), instrumentation timer. Docs: docs/STORE_AVAILABILITY.md.
+- Review fixes: the guard keeps one episode (`attemptedIds`, `pendingIds`): a store a person resumed is never re-paused in the same episode, a brand opening mid-episode is paused after its own grace time, only blocked / failed stores are retried; every locked DoorDash store (built in, `FOODHUB_MENU_LOCKED_STORES`, Stores → Mapping) is left alone; busy-schedule catch-up and removal documented and tested; bilingual route errors (`errorFr`), labelled chip groups, actor names in FR/EN; new `tests/store-availability-history.test.ts`. Shared file: `components/ui/form.tsx` (additive `disabled` prop on `Chips`).
+- Later, in stores-tabs.tsx: `{ href: '/stores/availability', label: t('Disponibilité', 'Availability') }`.
 ## 2026-10-17 — TAKATAK Phone gate: review fixes (task 41, PR #61)
 
 - Own merchants: `CLOVER_MERCHANT_ID`, `CLOVER_MERCHANT_TOKENS` keys and `FOODHUB_BILLING_EXEMPT_MERCHANTS` count as ours (not only `PHONE_OWN_MERCHANTS`); readiness shows a per-kitchen app check (stop when refused); refused live calls are logged.

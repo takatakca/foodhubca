@@ -1,9 +1,8 @@
 # FOODHUB — file de tâches coordonnée
 
-## Relève 2026-10-16 — nouvelle tâche UI indépendante
+## 2026-10-16 — suite UX clavier, tâche indépendante
 
-- **FH-014 / UX accessibilité** : fenêtre modale/tiroir, ordre du focus, Tab/Shift+Tab, Échap réservé au premier plan, retour focus, blocage de défilement imbriqué. Prise sur `fix/overlay-keyboard-focus-20261016`. Les tests unitaires du moteur de focus sont ajoutés ; CI/revue et essai navigateur/tablette nécessaires. Aucune action réelle fournisseur ni modification de `main`.
-- Les PR #43, #45, #48, #50, #51, #52, #54, #55 et #61 demeurent indépendantes ; leurs responsables conservent leurs fichiers.
+- **FH-014 / interface** : améliorer l'accessibilité des `Tabs` horizontaux via ArrowLeft/ArrowRight, Home/End et `tabIndex` roving. Branche `fix/console-tabs-keyboard-20261016` ; code et tests créés, CI/revue navigateur nécessaires, fusion uniquement par propriétaire. Distinct de [PR #62](https://github.com/takatakca/foodhubca/pull/62) qui sécurise modales/tiroirs.
 
 
 **Reprise autorisée 2026-10-15** : FH-002 à FH-005 sont prises sur la PR #49 pour terminer la livraison native GitHub App → Coolify et prouver le SHA public. Accès/source/backup/santé configurés ; tests locaux réussis (807 unitaires, 536 E2E). La livraison finale reste à constater après fusion. Aucun changement aux intégrations réelles FH-006/FH-007. Le tableau du 2026-10-14 ci-dessous conserve son contexte historique.

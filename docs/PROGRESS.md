@@ -1,5 +1,9 @@
 # Food Hub: progress log and task board
 
+## 2026-10-16 — accessible horizontal tab keyboard navigation
+
+Branche `fix/console-tabs-keyboard-20261016`. Roving `tabIndex`, sélection et focus par ArrowLeft/ArrowRight, Home/End avec bouclage, cas de bord testés, aucune mutation métier. PR et CI à vérifier, pas de déploiement. La PR #62 cible séparément le focus des dialogues.
+
 ## 2026-10-16 — Modal/drawer keyboard accessibility
 
 Branche `fix/overlay-keyboard-focus-20261016` : focus initial, Tab/Shift+Tab circulaires, gestion Échap uniquement en haut de la pile, restitution du focus précédent, scroll-lock de fenêtres imbriquées, noms et descriptions ARIA ; tests unitaires de la pile et de navigation clavier. Aucun changement de données, de fournisseurs, de déploiement ni de `main`. PR, CI, image et essai navigateur à vérifier au SHA final.

@@ -1,5 +1,8 @@
 # FOODHUB — décisions d'architecture et d'exploitation
 
+## Accessibilité des onglets — 2026-10-16
+
+Les `Tabs` horizontaux utilisent le modèle ARIA tablist : Tab atteint uniquement la sélection courante, ArrowLeft/ArrowRight parcourent les onglets avec bouclage et Home/End vont au début/à la fin ; la sélection continue à utiliser les callbacks existants. Aucune donnée simulée et aucune nouvelle autorité de session. Branche `fix/console-tabs-keyboard-20261016` soumise aux tests et à la revue propriétaire ; indépendante des dialogues de PR #62.
 ## Décision d'accessibilité de la console — 2026-10-16
 
 Les modales et tiroirs sont des dialogues réels (titre et sous-titre ARIA, focus clavier contenu et restauré). Si plusieurs se superposent, un seul dialogue — le dernier ouvert — reçoit Échap et Tab ; l'échappement clavier d'un dialogue non refermable n'entraîne pas la fermeture du dialogue sous-jacent. Le blocage du défilement du document persiste jusqu'à fermeture de la dernière fenêtre. Aucun changement au comportement des commandes, des permissions ou des intégrations. Branche `fix/overlay-keyboard-focus-20261016`, soumise à validation et approbation du propriétaire.

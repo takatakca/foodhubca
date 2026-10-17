@@ -6,7 +6,7 @@
 import { logActivity, type Actor } from '../activity';
 import { nowIso } from '../config';
 import {
-  getDoorDashReportFile, listDoorDashReports, refreshDoorDashReport, requestDoorDashReport, REPORT_REQUESTS,
+  getDoorDashReportFile, refreshDoorDashReport, requestDoorDashReport, REPORT_REQUESTS,
   type DoorDashReportRequest,
 } from '../doordash/reports';
 import { parseCsv, splitHeader } from '../recon/statements';
@@ -73,9 +73,13 @@ export function requestDoorDashFeedback(from: string, to: string, actor: Actor):
   return requestDoorDashReport({ reportType: 'CONSUMER_FEEDBACK', from, to }, actor);
 }
 
-/** The feedback report requests already made (newest first). */
+/**
+ * The feedback report requests already made (newest first). Every request of every report type is read (payout and
+ * transaction reports are asked for often): a feedback request never drops out of the list behind them.
+ */
 export async function listDoorDashFeedbackReports(limit = 20): Promise<DoorDashReportRequest[]> {
-  return (await listDoorDashReports(200)).filter((r) => (FEEDBACK_TYPES as readonly string[]).includes(r.reportType)).slice(0, limit);
+  const all = (await getRepo().listDocs<DoorDashReportRequest>(REPORT_REQUESTS, {})).map((d) => d.data);
+  return all.filter((r) => (FEEDBACK_TYPES as readonly string[]).includes(r.reportType)).sort((a, b) => b.at.localeCompare(a.at)).slice(0, limit);
 }
 
 export interface FeedbackIngest { ok: boolean; message: string; messageFr: string; status?: DoorDashReportRequest['status']; rows: number; added: number; duplicates: number; dropped: number; unmapped: number; skipped: number }
@@ -101,6 +105,8 @@ export async function ingestDoorDashFeedbackReport(reportId: string, actor: Acto
   if (!file) return { ok: false, message: 'Report file not found: request the report first.', messageFr: 'Fichier du rapport introuvable : demandez d’abord le rapport.', ...empty };
 
   const rows = parseConsumerFeedback(file.csv);
+  // A file cut at the size limit ends in the middle of a row: that last row is dropped (its columns may be shifted).
+  if (file.truncated && rows.length) rows.pop();
   const stores = await StoreIndex.load();
   const importId = `doordash:${id}`;
   const made: Array<{ review: Review; platformReviewId?: string | null }> = [];
@@ -120,8 +126,9 @@ export async function ingestDoorDashFeedbackReport(reportId: string, actor: Acto
   const reviews = separateTwins(made);
   const saved = await upsertReviews(reviews);
   await getRepo().putDocs(REVIEW_IMPORTS, [{ id: importId, at: nowIso(), data: { id: importId, fileName: file.fileName, platform: 'doordash', source: 'doordash_report', rows: rows.length, ...saved, dropped, skipped, by: actor.name, at: nowIso() } }]);
-  const message = `${saved.added} new review(s), ${saved.duplicates} already there${dropped ? `, ${dropped} of a protected store left out` : ''}${unmapped ? `, ${unmapped} not linked to a brand (Stores → Mapping)` : ''}.`;
-  const messageFr = `${saved.added} nouvel(s) avis, ${saved.duplicates} déjà là${dropped ? `, ${dropped} d’un magasin protégé laissé(s) de côté` : ''}${unmapped ? `, ${unmapped} sans marque (Magasins → Branchements)` : ''}.`;
+  const cut = file.truncated ? { en: ' File truncated: ask for a shorter period.', fr: ' Fichier tronqué : demandez une période plus courte.' } : { en: '', fr: '' };
+  const message = `${saved.added} new review(s), ${saved.duplicates} already there${dropped ? `, ${dropped} of a protected store left out` : ''}${unmapped ? `, ${unmapped} not linked to a brand (Stores → Mapping)` : ''}.${cut.en}`;
+  const messageFr = `${saved.added} nouvel(s) avis, ${saved.duplicates} déjà là${dropped ? `, ${dropped} d’un magasin protégé laissé(s) de côté` : ''}${unmapped ? `, ${unmapped} sans marque (Magasins → Branchements)` : ''}.${cut.fr}`;
   await logActivity({ actor: actor.name, source: actor.source, kind: 'settings', action: 'reviews_doordash_ingest', status: 'success', channel: 'doordash', summary: `DoorDash feedback report ${id}: ${message}` });
   return { ok: true, status, message, messageFr, rows: rows.length, added: saved.added, duplicates: saved.duplicates, dropped, unmapped, skipped };
 }
@@ -139,6 +146,15 @@ export function reportMessageFr(message: string): string {
     [/^DoorDash could not build this report\.?$/, 'DoorDash n’a pas pu préparer ce rapport.'],
     [/^DoorDash reported that the report failed\.?$/, 'DoorDash indique que le rapport a échoué.'],
     [/^Requested/i, 'Demandé à DoorDash : le fichier sera prêt dans quelques minutes.'],
+    [/^Not sent: DoorDash is in sandbox mode/i, 'Non envoyé : DoorDash est en mode test (sandbox) et la clé Marketplace est une clé de test. Renseignez DOORDASH_REPORTS_DEVELOPER_ID / _KEY_ID / _SIGNING_SECRET (intégration Reports) pour utiliser les rapports.'],
+    [/^Choose a valid date range/i, 'Choisissez une période valide (AAAA-MM-JJ, la fin après le début).'],
+    [/^No mapped DoorDash store/i, 'Aucun magasin DoorDash branché ne porte de numéro de magasin DoorDash : complétez Magasins → Branchements.'],
+    [/^Unknown report type/i, 'Type de rapport inconnu.'],
+    [/^Download refused:/i, 'Téléchargement refusé : le lien n’est pas un lien https DoorDash / AWS.'],
   ];
+  const creds = m.match(/^DoorDash Reporting API credentials missing: ([A-Z0-9_, ]+)/);
+  if (creds) return `Identifiants de l’API de rapports DoorDash manquants : ${creds[1].trim().replace(/,$/, '')} (Developer Portal → intégration Reports → clé d’accès).`;
+  const store = m.match(/^Store (.+) is protected: Food Hub never requests data for it.?$/);
+  if (store) return `Le magasin ${store[1]} est protégé : Food Hub ne demande jamais ses données.`;
   return known.find(([re]) => re.test(m))?.[1] ?? m;
 }

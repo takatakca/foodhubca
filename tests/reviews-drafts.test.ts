@@ -163,3 +163,38 @@ describe('review fixes: guard gaps, untrusted review text, edited drafts', () =>
     expect(await saveDraft('missing', 'Bonjour', actor)).toMatchObject({ ok: false, notFound: true });
   });
 });
+
+describe('review fixes 2: free food, codes, negated themes', () => {
+  it('rejects free-food and promo-code promises the word list alone missed', () => {
+    for (const bad of [
+      'Hello, your next order is free.', 'we would love to give you a free dessert next time', 'Bonjour, votre prochain repas vous est offert.',
+      'nous vous offrons votre prochaine commande', 'we can offer you a complimentary drink', 'Use code SORRY10 next time', 'Utilisez le code merci15',
+      'Code promo : MERCI', 'Votre boisson sera offerte par la maison.', 'We would like to offer you a drink on your next visit.', 'Let us make it up to you.',
+      'Nous vous offrirons un dessert.', 'Free fries next time!',
+    ]) {
+      const g = guardDraft(bad, 'doordash');
+      expect(g.ok, bad).toBe(false);
+      expect(g.reasons.join(' '), bad).toMatch(/money promise|compensation promise/);
+    }
+  });
+
+  it('keeps everyday wording that is not a promise', () => {
+    for (const good of [
+      'Ce n’est pas ce que nous voulons offrir, et votre commentaire a été transmis à l’équipe en cuisine.',
+      'Feel free to contact the restaurant directly.', 'Our gluten-free options are on the menu.', 'We are free to talk at the restaurant.',
+      'Au plaisir de vous servir lors de votre prochaine commande.', 'Merci pour votre commande, l’équipe Pi Pita',
+      'Votre code postal est bien dans notre zone.',
+    ]) expect(guardDraft(good, 'doordash'), good).toMatchObject({ ok: true });
+  });
+
+  it('a 5-star "pas froid du tout" review gets the thank-you template, not an apology', () => {
+    const happy = rv({ stars: 5, text: 'Excellent, pas froid du tout et livraison rapide!' });
+    expect(happy.themes).toEqual(['taste', 'fast']);
+    const fr = templateReply(happy, 'Pi Pita');
+    expect(fr).toContain('merci beaucoup pour votre beau commentaire');
+    expect(fr).not.toMatch(/désolés/);
+    expect(templateReply(rv({ stars: 5, text: 'Not cold at all, not late' }), 'Pi Pita', 'en')).toContain('thank you so much');
+    // 4–5 stars still get an apology when something was missing or wrong.
+    expect(templateReply(rv({ stars: 4, text: 'Bon, mais il manquait les frites' }), 'Pi Pita')).toContain('qu’il manquait quelque chose');
+  });
+});

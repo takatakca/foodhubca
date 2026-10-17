@@ -128,3 +128,37 @@ describe('review fixes: overall rating, protected store by any column or by name
     expect(reportMessageFr('Something new')).toBe('Something new');
   });
 });
+
+describe('review fixes 2: long request lists, truncated files, French refusals', () => {
+  it('lists feedback requests even behind hundreds of newer payout / transaction requests', async () => {
+    await seedFile('rep-old');
+    const others = Array.from({ length: 250 }, (_, i) => {
+      const at = new Date(Date.parse('2026-10-16T01:00:00Z') + i * 60_000).toISOString();
+      return { id: `pay-${i}`, at, data: { id: `pay-${i}`, reportType: 'FINANCIAL_DETAILED_TRANSACTION', from: '2026-10-01', to: '2026-10-15', storeIds: [], status: 'ready', message: '', requestedBy: 'Owner', at } };
+    });
+    await getRepo().putDocs(reports.REPORT_REQUESTS, others);
+    expect((await listDoorDashFeedbackReports()).map((r) => r.id)).toEqual(['rep-old']);
+  });
+
+  it('a truncated file: the cut last row is dropped and the message says so', async () => {
+    await seedFile('rep-cut', [
+      'Store ID,Store Name,Delivery UUID,Rating,Comment,Created At',
+      '11111111,Pi Pita,dlv-1,5,Parfait,2026-10-10',
+      '11111111,Pi Pita,dlv-2,4,Très b',
+    ].join('\n'));
+    const doc = await getRepo().getDoc<{ id: string; fileName: string; csv: string; truncated: boolean }>(reports.REPORT_FILES, 'rep-cut');
+    await getRepo().putDocs(reports.REPORT_FILES, [{ id: 'rep-cut', at: '2026-10-16T00:00:00Z', data: { ...doc!.data, truncated: true } }]);
+    const out = await ingestDoorDashFeedbackReport('rep-cut', actor);
+    expect(out).toMatchObject({ ok: true, rows: 1, added: 1 });
+    expect(out.message).toMatch(/File truncated: ask for a shorter period\.$/);
+    expect(out.messageFr).toMatch(/Fichier tronqué : demandez une période plus courte\.$/);
+  });
+
+  it('French text for the request refusals (credentials, sandbox, dates, stores)', () => {
+    expect(reportMessageFr('DoorDash Reporting API credentials missing: DOORDASH_REPORTS_DEVELOPER_ID, DOORDASH_REPORTS_KEY_ID (Developer Portal → your Reports integration → access key).'))
+      .toBe('Identifiants de l’API de rapports DoorDash manquants : DOORDASH_REPORTS_DEVELOPER_ID, DOORDASH_REPORTS_KEY_ID (Developer Portal → intégration Reports → clé d’accès).');
+    expect(reportMessageFr('Not sent: DoorDash is in sandbox mode (DOORDASH_ENV=sandbox) and the Marketplace key is a sandbox one.')).toMatch(/^Non envoyé : DoorDash est en mode test/);
+    expect(reportMessageFr('Choose a valid date range (YYYY-MM-DD).')).toBe('Choisissez une période valide (AAAA-MM-JJ, la fin après le début).');
+    expect(reportMessageFr('No mapped DoorDash store carries a DoorDash store number: give the store ids or business ids explicitly.')).toMatch(/^Aucun magasin DoorDash branché/);
+  });
+});

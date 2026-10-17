@@ -8,7 +8,7 @@
 import type { Actor } from '../activity';
 import { nowIso } from '../config';
 import { askClaude } from '../watch/ai';
-import { getReview, saveReply, type Review, type ReviewPlatform } from './model';
+import { containsPhone, getReview, saveReply, type Review, type ReviewPlatform } from './model';
 import { foldText, THEMES, type ReviewLang, type ThemeKey } from './themes';
 
 export const MAX_DRAFT_CHARS = 600;
@@ -25,7 +25,28 @@ const PLATFORM_NAMES: Record<Exclude<ReviewPlatform, 'other'>, string[]> = {
 
 /** Money promises (the AI never approves money): refunds, credits, discounts, compensation, free food. Folded. */
 const MONEY = ['rembours', 'credit', 'rabais', 'reduction', 'escompte', 'coupon', 'code promo', 'promo', 'compens', 'dedommag', 'gratuit', 'carte cadeau', 'carte-cadeau',
-  'refund', 'reimburs', 'discount', 'voucher', 'gift card', 'free meal', 'free order', 'for free', 'on the house', '% off', 'money back'];
+  'refund', 'reimburs', 'discount', 'voucher', 'gift card', 'free meal', 'free order', 'for free', 'on the house', '% off', 'money back',
+  'complimentary', 'make it up to you', 'offert par la maison', 'offerte par la maison', 'frais de la maison'];
+/**
+ * Free food and promo codes, which the word list above cannot see on its own (folded text):
+ * - "free" as a whole word ("your next order is free", "a free dessert"), except "feel free", "free to…" and
+ *   "gluten-free"-style words;
+ * - offrir / offert / offrons… next to an order word ("votre prochain repas vous est offert", "nous vous offrons votre
+ *   prochaine commande"), and "offer you a drink…"; the template's "ce que nous voulons offrir" stays allowed;
+ * - a code to type ("code sorry10", "code promo : merci5").
+ */
+const OFFER_FR = '(?:offr(?:e|es|ent|ons|ez|ir|irons|ira|irait|irions)|offert(?:e|s|es)?)';
+const ORDER_WORD = '(?:commandes?|repas|livraisons?|desserts?|boissons?|plats?|frites|poutines?|breuvages?|orders?|meals?|deliver(?:y|ies)|drinks?|dish(?:es)?|sides?|items?)';
+const GAP = "(?:[a-z'-]+\\s+){0,3}";
+const FREE_FOOD: Array<[RegExp, string]> = [
+  [/(?<!feel)(?<!(?:gluten|dairy|sugar|nut|lactose|peanut|allergen|egg|soy|fat|hassle|worry|stress|smoke|cruelty|cage)[ -]?)(^|[^a-z0-9-])free(?![a-z0-9-])(?! to\b)/, 'free'],
+  [new RegExp(`(^|[^a-z0-9])${OFFER_FR}\\s+${GAP}${ORDER_WORD}(?![a-z])`), 'offert'],
+  [new RegExp(`(^|[^a-z0-9])${ORDER_WORD}\\s+${GAP}${OFFER_FR}(?![a-z])`), 'offert'],
+  [new RegExp(`(^|[^a-z0-9])offer(?:s|ed|ing)?\\s+(?:you\\s+)?(?:a|an|your|one|another|some)\\s+(?:[a-z'-]+\\s+){0,2}${ORDER_WORD}(?![a-z])`), 'offer'],
+  [/(^|[^a-z0-9])code\s*(?:promo\s*)?[:«"']?\s*(?=[a-z0-9-]*\d)[a-z0-9-]{3,}/, 'code'],
+];
+/** An uppercase code after "code" / "coupon" in the text as written ("Use code SORRY", "code MERCI"). */
+const CODE_UPPER = /\b(?:[Cc]ode|CODE|[Cc]oupon|COUPON)(?:\s+(?:[Pp]romo|PROMO))?\s*[:«"']?\s*[A-Z0-9][A-Z0-9-]{2,}\b/;
 /** Compensation in kind: a replaced, re-sent or "on us" order is money too. Folded. */
 const IN_KIND = ['remplac', 'replace', 'renvoy', 'renvoi', 'resend', 're-send', 'new meal', 'new order', 'nouvelle commande', 'nouveau repas', 'refaire votre commande', 'redo your order', 'send you another'];
 const ON_US = [
@@ -36,7 +57,6 @@ const ON_US = [
 const BANNED = ['virtuel', 'virtuelle', 'virtual', 'ghost', 'fantome', 'dark kitchen', 'cuisine fantome'];
 const ROUND_THE_CLOCK = /24\s*(h\b|heures|hours|hrs?\b)|24\s*\/\s*7|24-7|jour et nuit|nuit et jour|vingt-? ?quatre|around the clock|day and night|night and day|twenty-? ?four/;
 const EMAIL = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
-const PHONE = /(?<!\d)(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}(?!\d)/;
 /** Links and bare domains: a reply never sends a customer anywhere. */
 const LINK = /https?:\/\/|\bwww\.|\b[a-z0-9][a-z0-9-]*\.(com|ca|net|org|io|ly|co|app|me|info|biz|fr|gl|link|shop|store|site|online|page|to|gg|xyz)\b/i;
 const ROLE = '(?:[Ll]ivreur|[Ll]ivreuse|[Dd]asher|[Cc]ourier|[Dd]river|[Cc]hauffeur|[Cc]oursier|LIVREUR|DRIVER|COURIER)s?';
@@ -91,7 +111,8 @@ export function guardDraft(text: string, platform: ReviewPlatform, ctx: GuardCon
     const hit = names.find((n) => word(n).test(f));
     if (hit) add(`names another platform (${hit})`, `nomme une autre plateforme (${hit})`);
   }
-  const money = MONEY.find((w) => (w.startsWith('%') ? f.includes(w) : word(w).test(f)));
+  const money = MONEY.find((w) => (w.startsWith('%') ? f.includes(w) : word(w).test(f)))
+    ?? FREE_FOOD.find(([re]) => re.test(f))?.[1] ?? (CODE_UPPER.test(cleaned) ? 'code' : undefined);
   if (money) add(`money promise (${money})`, `promesse d’argent (${money})`);
   const kind = IN_KIND.find((w) => word(w).test(f)) ?? (ON_US.some((re) => re.test(f)) ? 'on us' : undefined);
   if (kind) add(`compensation promise (${kind})`, `promesse de compensation (${kind})`);
@@ -99,7 +120,7 @@ export function guardDraft(text: string, platform: ReviewPlatform, ctx: GuardCon
   if (banned) add(`forbidden word (${banned})`, `mot interdit (${banned})`);
   if (ROUND_THE_CLOCK.test(f)) add('round-the-clock wording (24 h / 24/7)', 'ouvert jour et nuit (24 h / 24/7)');
   if (LINK.test(cleaned)) add('link or web address', 'lien ou adresse web');
-  if (EMAIL.test(cleaned) || PHONE.test(cleaned)) add('personal data (e-mail or phone)', 'donnée personnelle (courriel ou téléphone)');
+  if (EMAIL.test(cleaned) || containsPhone(cleaned)) add('personal data (e-mail or phone)', 'donnée personnelle (courriel ou téléphone)');
   if (NAMED_COURIER.some((re) => { const m = cleaned.match(re); return Boolean(m && !COMMON.has(m[1].toLowerCase())); })) add('names a courier', 'nomme un livreur');
   const brandWords = new Set(String(ctx.brandName ?? '').toLowerCase().split(/[^\p{L}0-9]+/u).filter(Boolean));
   const greeted = cleaned.match(GREETING)?.[1];
@@ -132,7 +153,8 @@ export function templateReply(review: Pick<Review, 'stars' | 'themes' | 'lang'>,
   const team = brand ? (en ? `The ${brand} team` : `L’équipe ${brand}`) : (en ? 'The restaurant team' : 'L’équipe du restaurant');
   const stars = review.stars;
   const issue = NEG_ORDER.find((k) => review.themes?.includes(k) && THEMES[k].negative) ?? (stars !== null && stars <= 3 ? NEG_ORDER.find((k) => review.themes?.includes(k)) : undefined);
-  if (stars !== null && stars >= 4 && !(issue && THEMES[issue].negative)) {
+  // 4–5 stars: a thank-you, unless something was missing or wrong ("froid" alone in a happy review is often "pas froid").
+  if (stars !== null && stars >= 4 && issue !== 'missing' && issue !== 'wrong') {
     return en
       ? `Hello, thank you so much for your kind words! The whole kitchen is happy to read that you enjoyed your order. We look forward to cooking for you again soon. ${team}`
       : `Bonjour, merci beaucoup pour votre beau commentaire! Toute l’équipe en cuisine est contente de savoir que vous avez apprécié votre commande. Au plaisir de cuisiner pour vous à nouveau. ${team}`;

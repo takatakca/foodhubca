@@ -2,6 +2,7 @@
 // kitchens only ever sees (and drafts for) the reviews of those kitchens; a review not linked to a kitchen is shown
 // to people who see every kitchen only.
 import type { AuthUser } from '../auth';
+import { localTimestamp } from '../time';
 import { isReviewPlatform, listReviews, needsReply, type Review, type ReviewPlatform } from './model';
 import { daysLeftToReply } from './summary';
 import { isThemeKey, type ThemeKey } from './themes';
@@ -44,8 +45,14 @@ export function matchesFilters(r: Review, f: ReviewQuery): boolean {
   return true;
 }
 
+/** The Montréal calendar day of a review (a 23:30 review of the 30th stays on the 30th, not the 1st in UTC). */
+export function localDay(at: string): string {
+  const ms = Date.parse(at);
+  return Number.isFinite(ms) ? localTimestamp(ms).slice(0, 10) : String(at ?? '').slice(0, 10);
+}
+
 export function inRange(r: Pick<Review, 'at'>, f: Pick<ReviewQuery, 'from' | 'to'>): boolean {
-  const day = r.at.slice(0, 10);
+  const day = localDay(r.at);
   return (!f.from || day >= f.from) && (!f.to || day <= f.to);
 }
 

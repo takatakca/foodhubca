@@ -106,10 +106,21 @@ export function separateTwins(items: Array<{ review: Review; platformReviewId?: 
 const EMAIL = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 // 10–11 digit phone numbers with the usual separators: 514-555-1234, (514) 555 1234, +1 514.555.1234, 5145551234.
 const PHONE = /(?<![\d])(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}(?![\d])/g;
+// International numbers: "+33 6 12 34 56 78", "+44 20 7946 0958" (a leading "+", 8–15 digits in all).
+const PHONE_INTL = /\+\d{1,3}(?:[\s.-]?\(?\d{1,4}\)?){1,7}(?![\d])/g;
+// 7-digit local numbers with a separator: 555-1234, 555 1234, 555.1234. A plain 8-digit order number is left alone.
+const PHONE_LOCAL = /(?<![\d+.-])\d{3}[\s.-]\d{4}(?![\d])/g;
+const intlDigits = (m: string) => { const n = m.replace(/\D/g, '').length; return n >= 8 && n <= 15; };
 
 /** Masks e-mail and phone-like strings inside a free text. */
 export function maskPersonalText(text: string): string {
-  return String(text ?? '').replace(EMAIL, '[courriel]').replace(PHONE, '[téléphone]');
+  return String(text ?? '').replace(EMAIL, '[courriel]').replace(PHONE, '[téléphone]')
+    .replace(PHONE_INTL, (m) => (intlDigits(m) ? '[téléphone]' : m)).replace(PHONE_LOCAL, '[téléphone]');
+}
+
+/** True when a text carries a phone-like string (same patterns as maskPersonalText). */
+export function containsPhone(text: string): boolean {
+  return maskPersonalText(String(text ?? '').replace(EMAIL, '')) !== String(text ?? '').replace(EMAIL, '');
 }
 
 const fold = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -212,7 +223,7 @@ export async function existingReviewIds(ids: string[]): Promise<Set<string>> {
 
 /**
  * Saves new reviews, skips the ones already stored (same id). A stored review keeps its reply state and its first
- * import; only a missing brand / kitchen is filled in from the new copy.
+ * import; only a missing brand / kitchen, or a missing replied mark (answered in the portal), is filled in from the new copy.
  */
 export async function upsertReviews(reviews: Review[]): Promise<{ added: number; duplicates: number; updated: number }> {
   const repo = getRepo();
@@ -225,9 +236,13 @@ export async function upsertReviews(reviews: Review[]): Promise<{ added: number;
     const old = stored.get(r.id);
     if (!old) { writes.push(r); added++; continue; }
     duplicates++;
-    const fill = { brandName: old.brandName ?? r.brandName, locationCode: old.locationCode ?? r.locationCode };
-    if (fill.brandName !== old.brandName || fill.locationCode !== old.locationCode) {
-      writes.push({ ...old, ...fill }); // the reply (and everything else) stays as stored
+    const fill: Partial<Review> = { brandName: old.brandName ?? r.brandName, locationCode: old.locationCode ?? r.locationCode };
+    // Answered in the platform's portal since the last import: the new file says so. A stored reply is never
+    // overwritten; a missing replied mark is filled in, the draft fields stay.
+    const repliedNow = !old.reply?.repliedAt && r.reply?.repliedAt;
+    if (repliedNow) fill.reply = { ...(old.reply ?? {}), repliedAt: r.reply!.repliedAt, ...(r.reply!.repliedBy ? { repliedBy: r.reply!.repliedBy } : {}) };
+    if (repliedNow || fill.brandName !== old.brandName || fill.locationCode !== old.locationCode) {
+      writes.push({ ...old, ...fill }); // everything else stays as stored
       updated++;
     }
   }

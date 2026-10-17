@@ -234,15 +234,21 @@ function ReviewCard({ r, canEdit, busy, platformLabel, themeLabel, kitchen, onAc
   const { t, loc } = useI18n();
   const stored = r.reply?.draft ?? '';
   const [draft, setDraft] = useState(stored);
-  const [saving, setSaving] = useState(false);
+  const pending = useRef<Promise<boolean> | null>(null);
   useEffect(() => { setDraft(stored); }, [stored]);
   const replied = Boolean(r.reply?.repliedAt);
   const hasDraft = Boolean(stored) || Boolean(draft);
-  /** The edited text is saved before it is copied or the review is marked replied: what is stored is what was pasted. */
-  const saveIfEdited = async () => {
-    if (draft === stored) return true;
-    setSaving(true);
-    try { return await onSave(draft); } finally { setSaving(false); }
+  /**
+   * The edited text is saved before it is copied or the review is marked replied: what is stored is what was pasted.
+   * Clicking Copier right after editing blurs the text box first (that blur starts the save): the click waits for that
+   * same save instead of being lost behind a disabled button, and nothing is saved twice.
+   */
+  const saveIfEdited = (): Promise<boolean> => {
+    if (pending.current) return pending.current;
+    if (draft === stored) return Promise.resolve(true);
+    const p = onSave(draft).finally(() => { pending.current = null; });
+    pending.current = p;
+    return p;
   };
   return (
     <div className="px-5 py-4">
@@ -264,8 +270,8 @@ function ReviewCard({ r, canEdit, busy, platformLabel, themeLabel, kitchen, onAc
           ) : <p className="text-xs text-ink-3">{t('Pas encore de réponse proposée.', 'No reply proposed yet.')}</p>}
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Button size="sm" variant="soft" icon={<Sparkles className="size-4" />} loading={busy === `${r.id}:draft`} onClick={() => onAct('draft')}>{draft ? t('Proposer à nouveau', 'Propose again') : t('Proposer', 'Propose')}</Button>
-            <Button size="sm" variant="outline" icon={<Clipboard className="size-4" />} disabled={!draft.trim() || saving} onClick={() => void saveIfEdited().then((saved) => { if (saved) onCopy(draft); })}>{t('Copier', 'Copy')}</Button>
-            {!replied && <Button size="sm" variant="go" icon={<Check className="size-4" />} loading={busy === `${r.id}:replied` || saving} onClick={() => void saveIfEdited().then((saved) => { if (saved) onAct('replied'); })}>{t('Marquer comme répondu', 'Mark as replied')}</Button>}
+            <Button size="sm" variant="outline" icon={<Clipboard className="size-4" />} disabled={!draft.trim()} onClick={() => void saveIfEdited().then((saved) => { if (saved) onCopy(draft); })}>{t('Copier', 'Copy')}</Button>
+            {!replied && <Button size="sm" variant="go" icon={<Check className="size-4" />} loading={busy === `${r.id}:replied`} onClick={() => void saveIfEdited().then((saved) => { if (saved) onAct('replied'); })}>{t('Marquer comme répondu', 'Mark as replied')}</Button>}
             {(hasDraft || replied) && <Button size="sm" variant="ghost" icon={<X className="size-4" />} loading={busy === `${r.id}:clear`} onClick={() => onAct('clear')}>{t('Effacer', 'Clear')}</Button>}
             {r.reply?.draftSource && <span className="text-xs text-ink-3">{r.reply.draftSource === 'ai' ? t('Proposée par l’IA, à relire', 'Proposed by AI, review it') : r.reply.draftSource === 'edited' ? t('Modifiée', 'Edited') : t('Modèle', 'Template')}</span>}
           </div>

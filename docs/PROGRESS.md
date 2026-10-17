@@ -1,14 +1,5 @@
 # Food Hub: progress log and task board
 
-## 2026-10-16 — Reviews hub (task 44d, `feature/reviews-hub`)
-
-- New page `/insights/reviews` (direct URL; `insights-tabs.tsx` unchanged, the tab line is in the PR): every platform's reviews in one place. Code in `lib/foodhub/reviews/`, API under `/api/foodhub/reviews` (signed in, kitchen scope), stored in the existing documents collection (no migration, no new dependency).
-- Sources: DoorDash CONSUMER_FEEDBACK report through the existing `requestDoorDashReport` / refresh / report file (no new DoorDash HTTP code; protected stores dropped a second time with `FORBIDDEN_STORE_IDS` + the menu lock); CSV / XLSX exports of Uber Eats, Skip, Too Good To Go, Google Business Profile and the Google Takeout JSON, with a preview before saving and a manual column mapping. No customer or courier personal data kept.
-- Numbers: average, count, 1–5 split, 7 / 30 / 90-day trend vs the period before, unanswered, DoorDash days left to reply (7). Themes FR / EN (froid, retard, manquant, erreur, portion, goût, emballage, prix, accueil, rapide).
-- Replies: drafts by the existing `askClaude` for the restaurant team, checked by `guardDraft` (another platform, refund / credit / discount, virtual / ghost, 24 h, personal data, named courier → template). Copy / Mark as replied. Food Hub never posts a reply. Doc: `docs/REVIEWS_HUB.md`.
-- Review fixes (10 findings): protected store dropped whatever the file name, platform or mapped column (any cell with its number; store ref and name both checked; DoorDash / Other rows that can be Po Poulet NDG by name); same-day reviews no longer merged (text hash without order id, numbered star-only twins); edited drafts saved through the guard (`save` action) before Copy / Mark replied; guard also rejects links, names, in-kind compensation, named couriers written either way, "jour et nuit"; review text delimited as untrusted data for Claude; "Order Date" / sub-ratings never mapped as order / stars; snake_case customer ids personal, Takeout through `stripPersonal`; DoorDash list refused to kitchen-scoped people; import body over the limit refused before reading; French messages + accessible star ratings; platform change clears the preview.
-- Checks: see the PR (re-run after the review fixes).
-
 ## 2026-10-16 — Uber store kitchen mapping (task 39, `fix/uber-store-kitchen-mapping`)
 
 - The 7 Uber UUIDs in `data/actual/platform-stores-uber.json` are at 5839 Jean-Talon E (Saint-Léonard) in Uber's own records (Uber names them "(Hochelaga)"); production maps them to `NDG_6284`. That mapping was typed by hand in the console, so it lives only in the production `fh_channel_stores` rows: no repo seed or code defaulted Uber stores to NDG.

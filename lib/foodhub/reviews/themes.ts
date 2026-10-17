@@ -28,13 +28,33 @@ export const THEMES: Record<ThemeKey, { fr: string; en: string; negative: boolea
 };
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const MATCHERS: Array<[ThemeKey, RegExp]> = THEME_KEYS.map((k) => [k, new RegExp(`(^|[^a-z0-9])(${THEMES[k].words.map(escape).join('|')})(?=$|[^a-z0-9])`)]);
+const MATCHERS: Array<[ThemeKey, RegExp]> = THEME_KEYS.map((k) => [k, new RegExp(`(^|[^a-z0-9])(${THEMES[k].words.map(escape).join('|')})(?=$|[^a-z0-9])`, 'g')]);
 
-/** The themes a review talks about, in THEME_KEYS order. */
+/**
+ * Themes whose meaning flips when negated ("pas froid", "not late", "aucun retard", "pas rapide"). The topic themes
+ * (portion, taste, price, friendly) stay: "pas bon" is still about the taste.
+ */
+const NEGATABLE = new Set<ThemeKey>(['cold', 'late', 'missing', 'wrong', 'packaging', 'fast']);
+const NEGATORS = new Set(['pas', 'jamais', 'aucun', 'aucune', 'sans', 'rien', 'not', 'never', 'no', 'nothing', 'without', 'cannot']);
+/** "wasnt", "didnt": the apostrophe is often left out. */
+const NT_NO_APOSTROPHE = /^(isn|wasn|weren|aren|didn|doesn|don|wouldn|couldn|haven|hasn)t$/;
+/** A clause ends at punctuation or at a joining word: "pas cher, mais froid" → "froid" is not negated. */
+const CLAUSE_END = /[,.;:!?()\n]|(^|[^a-z'])(mais|but|et|and|ou|or|however|cependant|sauf|except)(?![a-z'])/g;
+
+/** True when one of the 3 words before `start` (same clause) negates it. */
+function negatedAt(t: string, start: number): boolean {
+  const before = t.slice(0, start);
+  let cut = 0;
+  for (const m of before.matchAll(CLAUSE_END)) cut = m.index + m[0].length;
+  const words = before.slice(cut).split(/[^a-z']+/).filter(Boolean).slice(-3);
+  return words.some((w) => NEGATORS.has(w) || w.endsWith("n't") || NT_NO_APOSTROPHE.test(w));
+}
+
+/** The themes a review talks about, in THEME_KEYS order. A negated mention ("pas froid du tout") does not count. */
 export function detectThemes(text: string): ThemeKey[] {
   const t = foldText(text);
   if (!t.trim()) return [];
-  return MATCHERS.filter(([, re]) => re.test(t)).map(([k]) => k);
+  return MATCHERS.filter(([k, re]) => [...t.matchAll(re)].some((m) => !NEGATABLE.has(k) || !negatedAt(t, m.index + m[1].length))).map(([k]) => k);
 }
 
 const FR_WORDS = new Set(['le', 'la', 'les', 'et', 'est', 'tres', 'pas', 'une', 'des', 'du', 'je', 'j', 'c', 'commande', 'merci', 'bon', 'bonne', 'avec', 'pour', 'mais', 'tout', 'etait', 'sont', 'nous', 'vous', 'mon', 'ma', 'mes', 'au', 'aux', 'trop', 'bien', 'plat', 'livraison', 'encore', 'jamais', 'toujours', 'que', 'qui', 'il', 'elle', 'ca', 'cest']);

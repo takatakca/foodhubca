@@ -25,7 +25,7 @@ export const POST = withPerm('menu:edit', async (req, _ctx, actor) => {
   if (b.action === 'request') {
     const out = await requestDoorDashFeedback(String(b.from ?? ''), String(b.to ?? ''), actor);
     if ('reportType' in out) return ok({ report: out });
-    return fail(out.message, 409, { status: out.status });
+    return fail(out.message, 409, { status: out.status, errorFr: reportMessageFr(out.message) });
   }
   if (b.action === 'ingest') {
     const { ok: imported, ...out } = await ingestDoorDashFeedbackReport(String(b.reportId ?? ''), actor);

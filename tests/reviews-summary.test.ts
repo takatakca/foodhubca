@@ -2,6 +2,7 @@
 // DoorDash days left to reply, worst recent, groups per brand × platform × kitchen.
 import { describe, expect, it } from 'vitest';
 import { makeReview, type Review, type ReviewInput } from '../lib/foodhub/reviews/model';
+import { inRange, localDay } from '../lib/foodhub/reviews/query';
 import { daysLeftToReply, statsOf, summarizeReviews, worstRecent } from '../lib/foodhub/reviews/summary';
 
 const NOW = Date.parse('2026-10-16T12:00:00Z');
@@ -69,5 +70,16 @@ describe('groups and worst reviews', () => {
     expect(worst.map((r) => r.stars)).toEqual([1, 2, 2, 3]); // ≤ 3 stars only, lowest first
     expect(worstRecent([rv({ daysAgo: 60, stars: 2 })], NOW)).toHaveLength(1); // nothing recent: older ones
     expect(worstRecent([rv({ daysAgo: 1, stars: 5 })], NOW)).toHaveLength(0);
+  });
+});
+
+describe('review fixes 2: Montréal day for the date filter', () => {
+  it('a review at 23:30 in Montréal stays on that day, not the next UTC day', () => {
+    const lateEvening = '2026-10-01T03:30:00.000Z'; // 2026-09-30 23:30 in Montréal (EDT)
+    expect(localDay(lateEvening)).toBe('2026-09-30');
+    expect(inRange({ at: lateEvening }, { from: null, to: '2026-09-30' })).toBe(true);
+    expect(inRange({ at: lateEvening }, { from: '2026-10-01', to: null })).toBe(false);
+    expect(inRange({ at: '2026-10-01T04:30:00.000Z' }, { from: '2026-10-01', to: '2026-10-01' })).toBe(true); // 00:30 on the 1st
+    expect(localDay('2026-10-01T12:00:00.000Z')).toBe('2026-10-01'); // date-only rows (noon UTC)
   });
 });

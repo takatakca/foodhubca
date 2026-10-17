@@ -122,3 +122,38 @@ describe('review fixes: same-day ids, snake_case personal columns', () => {
     for (const h of ['store_id', 'STORE_ID', 'delivery_uuid', 'order_id', 'business_id', 'merchant_store_id', 'rating']) expect(isPersonalHeader(h), h).toBe(false);
   });
 });
+
+describe('review fixes 2: phones, replied in the portal, negation', () => {
+  it('masks 7-digit local and international numbers; an 8-digit order number stays', () => {
+    expect(maskPersonalText('Appelez le 555-1234 ou 555 1234 ou 555.1234')).toBe('Appelez le [téléphone] ou [téléphone] ou [téléphone]');
+    expect(maskPersonalText('Mon cell +33 6 12 34 56 78, merci')).toBe('Mon cell [téléphone], merci');
+    expect(maskPersonalText('London +44 20 7946 0958')).toBe('London [téléphone]');
+    expect(maskPersonalText('Commande 12345678 ok, 2 poutines à 12.50, le 2026-10-01')).toBe('Commande 12345678 ok, 2 poutines à 12.50, le 2026-10-01');
+    expect(maskPersonalText('5551234')).toBe('5551234'); // no separator: could be an order number, kept
+  });
+
+  it('a re-import that shows a reply given in the portal marks the stored review replied, keeping its draft', async () => {
+    const r = makeReview(base());
+    await upsertReviews([r]);
+    await saveReply(r.id, { draft: 'Merci!', draftAt: '2026-10-02T00:00:00Z', draftBy: 'Sara', draftSource: 'template' });
+    const again = makeReview(base({ reply: { repliedAt: '2026-10-03T12:00:00.000Z', repliedBy: 'Portal' } }));
+    expect(await upsertReviews([again])).toEqual({ added: 0, duplicates: 1, updated: 1 });
+    expect((await getReview(r.id))?.reply).toEqual({ draft: 'Merci!', draftAt: '2026-10-02T00:00:00Z', draftBy: 'Sara', draftSource: 'template', repliedAt: '2026-10-03T12:00:00.000Z', repliedBy: 'Portal' });
+    // A second re-import never moves the replied mark.
+    expect(await upsertReviews([makeReview(base({ reply: { repliedAt: '2030-01-01T00:00:00.000Z', repliedBy: 'file' } }))])).toEqual({ added: 0, duplicates: 1, updated: 0 });
+    expect((await getReview(r.id))?.reply?.repliedAt).toBe('2026-10-03T12:00:00.000Z');
+  });
+
+  it('negated mentions do not count as a theme; topics and other clauses still do', () => {
+    expect(detectThemes('Excellent, pas froid du tout et livraison rapide!')).toEqual(['taste', 'fast']);
+    expect(detectThemes('Not cold at all, not late')).toEqual([]);
+    expect(detectThemes('Aucun retard, rien ne manquait, sans erreur')).toEqual([]);
+    expect(detectThemes("It wasn't cold and nothing was missing")).toEqual([]);
+    expect(detectThemes('Pas cher, mais froid')).toEqual(['cold', 'price']);
+    expect(detectThemes('Not bad but cold')).toEqual(['cold']);
+    expect(detectThemes('Pas rapide du tout')).toEqual([]);
+    expect(detectThemes("Je n'ai jamais reçu mes frites")).toEqual(['missing']);
+    expect(detectThemes('Pas bon')).toEqual([]); // "bon" alone is not a theme word
+    expect(detectThemes('Pas de goût')).toEqual(['taste']); // a topic stays a topic
+  });
+});

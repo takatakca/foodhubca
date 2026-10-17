@@ -62,7 +62,9 @@ No personal data is kept:
 - columns naming or reaching a person are never read: customer / reviewer name, e-mail, phone, address, profile,
   customer / consumer / eater / user ids (also written `customer_id`, `consumerId`), and every courier field (name,
   rating); Google Takeout records go through `stripPersonal` before anything is read;
-- e-mail and phone-like strings inside the review text are masked (`[courriel]`, `[téléphone]`) before saving;
+- e-mail and phone-like strings inside the review text are masked (`[courriel]`, `[téléphone]`) before saving: North
+  American numbers, 7-digit local numbers written with a separator (555-1234) and international ones (+33 6 12 34 56
+  78); a plain 8-digit order number stays;
 - drafts are rejected if they contain an e-mail, a phone number, a link, a person's name (a greeting with a name, or a
   name taken from the review) or name a courier.
 
@@ -70,7 +72,9 @@ No personal data is kept:
 
 Plain French / English keyword buckets, accents and case ignored (`themes.ts`): froid / cold, retard / late, manquant /
 missing, erreur / wrong order, portion, goût / taste, emballage / packaging, prix / price, accueil / friendly, rapide /
-fast. The language of each review (fr / en) is detected the same simple way; Québec French is the default.
+fast. A negated mention does not count ("pas froid du tout", "not late", "aucun retard", "rien ne manquait"; up to 3
+words before, in the same clause), so a happy review is not tagged with a complaint. The language of each review
+(fr / en) is detected the same simple way; Québec French is the default.
 
 ## Replies (drafts only)
 
@@ -79,11 +83,12 @@ fast. The language of each review (fr / en) is detected the same simple way; Qu�
    brick-and-mortar restaurant in Montréal, in the review's language, at most 600 characters, no emojis: thanks, the
    specific point, an invitation to contact the restaurant. The review text is sent between `<review>` tags as
    untrusted customer data, never instructions. Without the key, built-in FR / EN templates (by stars and main theme)
-   are used.
+   are used: 4–5 stars get the thank-you, unless something was missing or wrong.
 3. **Guard** (`guardDraft`): a draft is thrown away and replaced by a template when it names another delivery platform
    (a DoorDash reply never names Uber Eats, Skip or Too Good To Go, and the reverse; Food Hub and Clover may be named),
    promises a refund, credit, discount or any compensation, in money or in kind (replaced or re-sent order, "sur nous" /
-   "on us"; the AI never approves money), says virtual / ghost / fantôme, 24 h, 24/7, "jour et nuit" or
+   "on us", "free" food, "complimentary", "offert" / "nous vous offrons" next to an order word, a promo code; the AI
+   never approves money), says virtual / ghost / fantôme, 24 h, 24/7, "jour et nuit" or
    "vingt-quatre heures", contains a link or personal data (a name too), names a courier, or is too long.
 4. Read and edit the draft. The edited text is **saved** (on leaving the box, and before *Copier* or *Marquer comme
    répondu*) through the same guard: a draft that breaks a rule is refused with the reason, and nothing is copied.

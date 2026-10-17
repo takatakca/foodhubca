@@ -112,7 +112,9 @@ describe('DoorDash and batch routes', () => {
     expect((await POST(post('/api/foodhub/reviews/doordash', 'hoch', { action: 'request', from: '2026-10-01', to: '2026-10-15' }), {})).status).toBe(403);
     const res = await POST(post('/api/foodhub/reviews/doordash', 'boss', { action: 'request', from: '2026-10-01', to: '2026-10-15' }), {});
     expect(res.status).toBe(409);
-    expect((await res.json()).error).toMatch(/credentials missing/);
+    const refusal = await res.json();
+    expect(refusal.error).toMatch(/credentials missing/);
+    expect(refusal.errorFr).toMatch(/^Identifiants de l’API de rapports DoorDash manquants : DOORDASH_REPORTS_DEVELOPER_ID/);
     expect(fetch).not.toHaveBeenCalled();
     expect(await (await GET(new Request(`${BASE}/api/foodhub/reviews/doordash`, { headers: auth('boss') }), {})).json()).toMatchObject({ ok: true, reports: [] });
     expect((await POST(post('/api/foodhub/reviews/doordash', 'boss', { action: 'nope' }), {})).status).toBe(400);

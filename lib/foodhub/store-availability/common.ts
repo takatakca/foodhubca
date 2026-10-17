@@ -16,11 +16,15 @@ function idsOf(store: Pick<ChannelStore, 'channelStoreId' | 'meta'>): string[] {
   return [store.channelStoreId, ...(own ? [String(own)] : [])].map((x) => String(x).trim()).filter(Boolean);
 }
 
-/** Owner's order: these DoorDash stores are never touched by any automation (FORBIDDEN_STORE_IDS, built-in locks). */
+/**
+ * Owner's order: these DoorDash stores are never touched by any automation — FORBIDDEN_STORE_IDS and every DoorDash
+ * lock (built in, FOODHUB_MENU_LOCKED_STORES, or Stores → Mapping), the same rule as the DoorDash guard
+ * (doorDashStoreRefusal: a locked DoorDash store is never touched by Food Hub).
+ */
 export function isForbiddenStore(store: Pick<ChannelStore, 'channel' | 'channelStoreId' | 'meta'>): boolean {
   if (store.channel !== 'doordash') return false;
   if (idsOf(store).some((id) => FORBIDDEN_STORE_IDS.has(id))) return true;
-  return menuLockOf(store).source === 'built_in';
+  return menuLockOf(store).locked;
 }
 
 /** Never paused or resumed by an automation of this center ("do not touch", or a forbidden DoorDash store). */
@@ -35,6 +39,17 @@ export function platformStatusOf(store: Pick<ChannelStore, 'meta'>): PlatformSta
 /** Online on its platform right now (the same reading as the Stores page). */
 export function isStoreOnline(store: Pick<ChannelStore, 'online' | 'meta'>): boolean {
   return (platformStatusOf(store)?.state ?? (store.online ? 'online' : 'paused')) === 'online';
+}
+
+/** An error with its French text, for the French console (the routes answer { error, errorFr }). */
+export class BilingualError extends Error {
+  constructor(message: string, public messageFr: string) { super(message); }
+}
+
+/** { error, errorFr } of any error (a plain error has no French text: the English one is used for both). */
+export function errorFields(e: unknown): { error: string; errorFr: string } {
+  const error = e instanceof Error ? e.message : String(e);
+  return { error, errorFr: e instanceof BilingualError ? e.messageFr : error };
 }
 
 /** Never throws: the heartbeat must keep running whatever one part does. */

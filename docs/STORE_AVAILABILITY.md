@@ -19,7 +19,7 @@ Skip, Too Good To Go) :
 | `state` | `meta.platformStatus.state`, sinon `online` / `paused` ; `closed` quand le magasin est en ligne mais hors des heures de la marque |
 | `by` | `TAKATAK` (pause du tableau de bord), `plateforme` (vue par la synchro ou un webhook), `garde` (garde tablette), `horaire` (heures ou fermeture fériée) |
 | `reopensAt` | fin de la pause (ou la prochaine ouverture après elle si la cuisine est fermée à ce moment) ; prochaine ouverture si fermé par les heures ; rien pour une pause sans fin (réouverture à la main) |
-| `locked` | magasin « ne pas toucher » ou magasin DoorDash interdit (`FORBIDDEN_STORE_IDS`) : jamais touché par un automatisme |
+| `locked` | magasin « ne pas toucher », ou magasin DoorDash interdit (`FORBIDDEN_STORE_IDS`) ou verrouillé (verrou intégré, `FOODHUB_MENU_LOCKED_STORES`, Magasins → Branchements ; même règle que le garde DoorDash) : jamais touché par un automatisme |
 
 Les magasins relais (`relay:…`) ne sont pas montrés : ils reçoivent seulement des commandes.
 
@@ -58,6 +58,12 @@ se chevauchent, une plage peut passer minuit). Le battement (`tickBusySchedule`)
   `busy_schedule_kept` va dans l'historique (« Occupé resté activé ») et l'onglet affiche un avertissement jusqu'à ce
   que le mode occupé soit arrêté.
 - Déjà en mode occupé au début : le calendrier ne touche à rien, ni au début ni à la fin.
+- **Rattrapage (voulu)** : une plage enregistrée pendant qu'elle est en cours, ou le premier battement après un arrêt du
+  serveur, active le mode occupé tout de suite (une seule fois par plage), puis la fin de plage l'arrête comme d'habitude.
+  Sinon un redémarrage à 17:02 ferait perdre toute la plage de 17:00.
+- **Plage supprimée pendant qu'elle tourne (voulu)** : la suppression vaut fin de plage. Au battement suivant, retour
+  au temps normal (et au temps envoyé à Uber Eats), avec la même règle : seulement si le dernier changement vient
+  encore du calendrier.
 
 ## 4. Garde tablette éteinte (`/guard` : GET `view`, PUT `stores:map`) — ÉTEINTE par défaut
 
@@ -69,14 +75,19 @@ l'ouverture de la marque (une tablette éteinte la nuit ne déclenche rien à la
 
 - Pause : `setStoresOnline(ids, false, { untilMs: maintenant + pauseMin, reason: 'Tablette de cuisine éteinte' })` pour
   les magasins en ligne des canaux choisis, **des marques ouvertes à ce moment seulement**. **Jamais** : relais,
-  « ne pas toucher », le magasin DoorDash interdit par le propriétaire (`FORBIDDEN_STORE_IDS` et le verrou intégré).
+  « ne pas toucher », un magasin DoorDash interdit ou verrouillé (`FORBIDDEN_STORE_IDS`, verrou intégré,
+  `FOODHUB_MENU_LOCKED_STORES`, Magasins → Branchements).
 - Tant que les tablettes restent éteintes : prolongation toutes les `pauseMin / 2` (une panne du serveur ne laisse donc
   jamais un magasin en pause longtemps : la réouverture des pauses minutées existante prend le relais).
+- Un épisode (de « toutes les tablettes éteintes » au retour d'une tablette) garde `attemptedIds` : chaque magasin visé
+  une fois. **Un magasin qu'une personne a repris (ou remis en pause) n'est jamais remis en pause dans le même
+  épisode.** Une marque qui ouvre pendant l'épisode (heures de marque différentes) est mise en pause dès que son propre
+  délai de grâce est passé, sans attendre la prolongation.
 - Une tablette revient (ou la garde est éteinte) : reprise **seulement** des magasins qu'elle a mis en pause et qui portent
   encore sa raison dans `meta.platformStatus.detail`. Une pause faite par une personne entre-temps est gardée.
 - Résultats bloqués (live éteint) ou refusés par la plateforme : pas comptés comme en pause, journalisés
-  (`guard_blocked`) et comptés dans l'état (`blocked`, `failed`) ; nouvel essai des autres magasins en ligne après
-  `pauseMin / 2`, pas à chaque battement. Un état sans magasin (`storeIds: []`) ne vise jamais toute la cuisine.
+  (`guard_blocked`) et comptés dans l'état (`blocked`, `failed`, `pendingIds`) ; nouvel essai de **ces magasins-là
+  seulement** (s'ils sont encore en ligne) toutes les `pauseMin / 2`, pas à chaque battement. Un état sans magasin (`storeIds: []`) ne vise jamais toute la cuisine.
 
 ## 5. Jours spéciaux (`/special-days` : GET `view` ?year=, POST `menu:edit`)
 
@@ -107,8 +118,9 @@ Ajouter l'onglet dans `app/(console)/stores/stores-tabs.tsx` (fichier de `featur
 
 **EN, short.** `/stores/availability` adds what "Status & pauses" lacks: per-channel status with who paused and when it
 reopens (overnight hours, holidays, DST), a Clover Online Ordering reminder row (no Clover call; no official pause
-endpoint found), a status history with CSV (no downtime %), a busy schedule that acts only at window edges (a person's
-change wins), a tablet-off guard that is OFF by default and only resumes its own pauses (never relay, "do not touch" or
-forbidden DoorDash stores; grace time counted from the opening, closed brands left alone, failed pauses retried), and
+endpoint found), a status history with CSV (no downtime %), a busy schedule that acts at window edges (a person's
+change wins; a window saved mid-way or missed by a restart is caught up at once; removing a running window ends it), a tablet-off guard that is OFF by default and only resumes its own pauses (never relay, "do not touch" or
+forbidden / locked DoorDash stores; a store a person resumed is never re-paused in the same episode; a brand opening
+mid-episode is paused after its own grace time; grace time counted from the opening, closed brands left alone, failed pauses retried), and
 one-tap special days (publish from /stores/hours; a closed day also takes Skip offline automatically that day).
 Times on the page are shown in the hub's zone.

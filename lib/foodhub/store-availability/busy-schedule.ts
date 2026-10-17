@@ -2,6 +2,8 @@
 // It acts only at the edges of a window: at the start it turns busy mode on (normal prep + extra minutes, also sent to
 // Uber Eats through the existing, live-gated pushPrepTimeToUber); at the end it goes back to normal and restores the
 // busy minutes it replaced — only when the last prep change is still its own. A person's change during the window wins.
+// On purpose: a window saved while it runs, or missed by a restart, is caught up on the next tick (once per window);
+// removing a running window counts as its end (same "still its own" rule).
 import crypto from 'node:crypto';
 import { z } from 'zod';
 import { logActivity, type Actor } from '../activity';
@@ -11,7 +13,7 @@ import { getPrepSettings, prepFor, savePrep } from '../prep';
 import { getRepo } from '../repo';
 import { foodhubTimeZone, localParts } from '../time';
 import type { DayKey } from '../types';
-import { BUSY_ACTOR, BUSY_KEPT_ACTION, BUSY_SCHEDULE_ACTION } from './common';
+import { BilingualError, BUSY_ACTOR, BUSY_KEPT_ACTION, BUSY_SCHEDULE_ACTION } from './common';
 
 export const BUSY_SCHEDULE_KEY = 'busy_schedule_v1';
 export const BUSY_STATE_KEY = 'busy_schedule_state_v1';
@@ -37,30 +39,42 @@ const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h
 const WEEK = 7 * 1440;
 const lengthOf = (w: Pick<BusyWindow, 'start' | 'end'>) => { const a = toMin(w.start); const b = toMin(w.end); return b > a ? b - a : 1440 - a + b; };
 
-/** Validates one kitchen's windows: shape, 5–60 extra minutes, start ≠ end, no two windows overlapping (across midnight too). */
-export function validateBusyWindows(input: unknown): { windows: BusyWindow[]; errors: string[] } {
+const DAY_FR: Record<DayKey, string> = { monday: 'lundi', tuesday: 'mardi', wednesday: 'mercredi', thursday: 'jeudi', friday: 'vendredi', saturday: 'samedi', sunday: 'dimanche' };
+
+/** Validates one kitchen's windows: shape, 5–60 extra minutes, start ≠ end, no two windows overlapping (across midnight too).
+ *  errorsFr: the same errors in French, in the same order. */
+export function validateBusyWindows(input: unknown): { windows: BusyWindow[]; errors: string[]; errorsFr: string[] } {
   const parsed = z.array(busyWindowSchema).max(30).safeParse(input);
-  if (!parsed.success) return { windows: [], errors: parsed.error.issues.slice(0, 5).map((i) => `${i.path.join('.') || 'windows'}: ${i.message}`) };
+  if (!parsed.success) {
+    const issues = parsed.error.issues.slice(0, 5);
+    return {
+      windows: [],
+      errors: issues.map((i) => `${i.path.join('.') || 'windows'}: ${i.message}`),
+      errorsFr: issues.map((i) => `${typeof i.path[0] === 'number' ? `Plage ${i.path[0] + 1}` : 'Plages'} : vérifiez les jours (au moins un), les heures (HH:MM) et les minutes en plus (5 à 60)`),
+    };
+  }
   const windows: BusyWindow[] = parsed.data.map((w) => ({ id: w.id ?? crypto.randomUUID(), days: [...new Set(w.days)].sort((a, b) => DAYS.indexOf(a) - DAYS.indexOf(b)), start: w.start, end: w.end, extraMin: w.extraMin }));
   const errors: string[] = [];
-  if (new Set(windows.map((x) => x.id)).size !== windows.length) errors.push('duplicate window id');
+  const errorsFr: string[] = [];
+  const add = (en: string, fr: string) => { if (!errors.includes(en)) { errors.push(en); errorsFr.push(fr); } };
+  if (new Set(windows.map((x) => x.id)).size !== windows.length) add('duplicate window id', 'identifiant de plage en double');
   const owner = new Int16Array(WEEK);
   windows.forEach((w, i) => {
-    if (w.start === w.end) { errors.push(`${w.start}–${w.end}: empty window`); return; }
+    if (w.start === w.end) { add(`${w.start}–${w.end}: empty window`, `${w.start}–${w.end} : plage vide (début = fin)`); return; }
     for (const d of w.days) {
       const s = DAYS.indexOf(d) * 1440 + toMin(w.start);
       for (let k = 0; k < lengthOf(w); k++) {
         const at = (s + k) % WEEK;
         if (owner[at] && owner[at] !== i + 1) {
           const other = windows[owner[at] - 1];
-          errors.push(`${d} ${w.start}–${w.end} overlaps ${other.start}–${other.end}`);
+          add(`${d} ${w.start}–${w.end} overlaps ${other.start}–${other.end}`, `${DAY_FR[d]} ${w.start}–${w.end} chevauche ${other.start}–${other.end}`);
           break;
         }
         owner[at] = i + 1;
       }
     }
   });
-  return { windows, errors: [...new Set(errors)] };
+  return { windows, errors, errorsFr };
 }
 
 export async function getBusySchedule(): Promise<BusySchedule> {
@@ -73,8 +87,8 @@ export async function getBusyState(): Promise<Record<string, BusyState>> {
 
 /** Saves one kitchen's windows (all of them, replacing the old list). Throws with readable errors when invalid. */
 export async function saveBusySchedule(locationCode: string, input: unknown, actor: Actor): Promise<BusyWindow[]> {
-  const { windows, errors } = validateBusyWindows(input);
-  if (errors.length) throw new Error(errors.join('; '));
+  const { windows, errors, errorsFr } = validateBusyWindows(input);
+  if (errors.length) throw new BilingualError(errors.join('; '), errorsFr.join(' ; '));
   const all = await getBusySchedule();
   const next = { ...all, [locationCode]: windows };
   if (!windows.length) delete next[locationCode];

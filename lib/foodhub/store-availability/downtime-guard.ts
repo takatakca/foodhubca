@@ -12,7 +12,7 @@ import { setStoresOnline, storesFor, type FanOut } from '../ops';
 import { getRepo } from '../repo';
 import { foodhubTimeZone } from '../time';
 import type { ChannelKey, ChannelStore, HoursConfig } from '../types';
-import { AVAILABILITY_CHANNELS, GUARD_ACTOR, GUARD_REASON, isLockedStore, isStoreOnline, platformStatusOf } from './common';
+import { AVAILABILITY_CHANNELS, BilingualError, GUARD_ACTOR, GUARD_REASON, isLockedStore, isStoreOnline, platformStatusOf } from './common';
 
 export const GUARD_KEY = 'downtime_guard_v1';
 export const GUARD_STATE_KEY = 'downtime_guard_state_v1';
@@ -26,9 +26,16 @@ export const guardConfigSchema = z.object({
 export type GuardConfig = { enabled: boolean; graceMin: number; pauseMin: number; channels: ChannelKey[] };
 export const DEFAULT_GUARD: GuardConfig = { enabled: false, graceMin: 5, pauseMin: 30, channels: [...AVAILABILITY_CHANNELS] };
 
-/** What the guard paused at a kitchen (store ids that accepted the pause), when it last (re)paused them, and how many
- *  stores of the last attempt did not take the pause (blocked = not sent, failed = refused): those are tried again. */
-export interface GuardState { storeIds: string[]; pausedAt: string; extendedAt: string; untilMs: number; blocked?: number; failed?: number }
+/** One guard episode at a kitchen (from "every tablet off" until a tablet is back):
+ *  - storeIds: stores the guard paused that took the pause (re-extended while they keep the guard's reason);
+ *  - attemptedIds: every store the guard tried to pause in this episode; never targeted again in the episode, except
+ *    the pendingIds (so a store a person resumed stays online: a person's change wins);
+ *  - pendingIds: stores of an attempt that did not take the pause (blocked = not sent, failed = refused), tried again
+ *    every pauseMin/2 while they are still online; blocked / failed: counts of the last attempt. */
+export interface GuardState {
+  storeIds: string[]; attemptedIds?: string[]; pendingIds?: string[];
+  pausedAt: string; extendedAt: string; untilMs: number; blocked?: number; failed?: number;
+}
 
 export async function getGuardConfigs(): Promise<Record<string, GuardConfig>> {
   const raw = (await getRepo().getKv<Record<string, Partial<GuardConfig>>>(GUARD_KEY).catch(() => null)) ?? {};
@@ -48,7 +55,10 @@ export async function getGuardState(): Promise<Record<string, GuardState>> {
 
 export async function saveGuardConfig(locationCode: string, input: unknown, actor: Actor): Promise<GuardConfig> {
   const parsed = guardConfigSchema.safeParse(input ?? {});
-  if (!parsed.success) throw new Error(parsed.error.issues.slice(0, 5).map((i) => `${i.path.join('.') || 'config'}: ${i.message}`).join('; '));
+  if (!parsed.success) {
+    throw new BilingualError(parsed.error.issues.slice(0, 5).map((i) => `${i.path.join('.') || 'config'}: ${i.message}`).join('; '),
+      'Réglages invalides : délai de 3 à 30 min, pause de 15 à 120 min, au moins une plateforme.');
+  }
   const cfg: GuardConfig = { ...parsed.data, channels: [...new Set(parsed.data.channels)] };
   const all = (await getRepo().getKv<Record<string, GuardConfig>>(GUARD_KEY).catch(() => null)) ?? {};
   await getRepo().setKv(GUARD_KEY, { ...all, [locationCode]: cfg });
@@ -149,15 +159,20 @@ export async function tickDowntimeGuard(now = Date.now()): Promise<GuardTick> {
         const ready = new Set(opened.filter((o) => now - Math.max(silentSince, o.since) >= cfg.graceMin * 60_000).map((o) => o.brand));
         if (!ready.size) continue;
         const untilMs = now + cfg.pauseMin * 60_000;
+        const online = await candidates(loc, cfg.channels, ready);
         if (st) {
-          if (now - Date.parse(st.extendedAt) < cfg.pauseMin * 30_000) continue;
-          // Re-extend only the stores still paused by the guard, of brands still open; one a person resumed or re-paused
-          // is left alone (and never re-paused). When the last attempt did not go through everywhere (blocked or failed),
-          // try the kitchen's other online stores again.
-          const own = await ownStores(loc, st);
+          // Every pauseMin/2: re-extend the stores still paused by the guard (brands still open) and try again the ones of
+          // the last attempt that did not take the pause and are still online. A brand that opens during the episode is
+          // paused as soon as its own grace time is over (no wait). A store already targeted in this episode that a
+          // person resumed (or re-paused) is left alone: never paused again until the episode ends.
+          const attempted = new Set(st.attemptedIds ?? st.storeIds);
+          const due = now - Date.parse(st.extendedAt) >= cfg.pauseMin * 30_000;
+          const newIds = online.filter((id) => !attempted.has(id));
+          if (!due && !newIds.length) continue;
+          const own = due ? await ownStores(loc, st) : [];
           const extendIds = own.filter((s) => ready.has(s.brandName)).map((s) => s.id);
-          const retry = (st.blocked ?? 0) + (st.failed ?? 0) > 0;
-          const fresh = retry ? (await candidates(loc, cfg.channels, ready)).filter((id) => !st.storeIds.includes(id)) : [];
+          const retryIds = due ? online.filter((id) => (st.pendingIds ?? []).includes(id)) : [];
+          const fresh = [...new Set([...retryIds, ...newIds])];
           const ids = [...extendIds, ...fresh];
           let ok: string[] = [];
           let blocked = 0;
@@ -172,12 +187,21 @@ export async function tickDowntimeGuard(now = Date.now()): Promise<GuardTick> {
             out.paused.push(...ok.filter((id) => fresh.includes(id)));
             if (fresh.length) await logNotPaused(loc, rows);
           }
-          const storeIds = [...new Set([...own.map((s) => s.id), ...ok])];
-          state[loc] = { ...st, storeIds, extendedAt: new Date(now).toISOString(), untilMs: ok.length ? Math.max(untilMs, st.untilMs) : st.untilMs, blocked, failed };
+          const kept = due ? own.map((s) => s.id) : st.storeIds;
+          const stillPending = due ? [] : (st.pendingIds ?? []);
+          state[loc] = {
+            ...st,
+            storeIds: [...new Set([...kept, ...ok])],
+            attemptedIds: [...new Set([...attempted, ...fresh])],
+            pendingIds: [...new Set([...stillPending, ...fresh.filter((id) => !ok.includes(id))])],
+            extendedAt: due ? new Date(now).toISOString() : st.extendedAt,
+            untilMs: ok.length ? Math.max(untilMs, st.untilMs) : st.untilMs,
+            blocked, failed,
+          };
           changed = true;
           continue;
         }
-        const ids = await candidates(loc, cfg.channels, ready);
+        const ids = online;
         if (!ids.length) continue;
         const rows = await setStoresOnline(ids, false, { untilMs, reason: GUARD_REASON, actor: GUARD_ACTOR });
         const ok = rows.filter((r) => r.result.ok).map((r) => r.storeId);
@@ -185,7 +209,11 @@ export async function tickDowntimeGuard(now = Date.now()): Promise<GuardTick> {
         out.blocked += rows.summary.blockedCount;
         await logNotPaused(loc, rows);
         // Remembered even when nothing went through (blocked or failed): the next attempt waits pauseMin/2, not every tick.
-        state[loc] = { storeIds: ok, pausedAt: new Date(now).toISOString(), extendedAt: new Date(now).toISOString(), untilMs, blocked: rows.summary.blockedCount, failed: rows.summary.errorCount };
+        state[loc] = {
+          storeIds: ok, attemptedIds: ids, pendingIds: ids.filter((id) => !ok.includes(id)),
+          pausedAt: new Date(now).toISOString(), extendedAt: new Date(now).toISOString(), untilMs,
+          blocked: rows.summary.blockedCount, failed: rows.summary.errorCount,
+        };
         changed = true;
       } catch (e) {
         console.error(`[foodhub] tablet-off guard ${loc} failed`, e instanceof Error ? e.message : e);

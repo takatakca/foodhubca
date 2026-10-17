@@ -69,7 +69,14 @@ describe('busy schedule API', () => {
     expect((await busyPut(req('/x', ANALYST, body('NDG_MAIN')), {})).status).toBe(403);
     expect((await busyPut(req('/x', OPERATOR, body('HOCHELAGA')), {})).status).toBe(403);
     expect((await busyPut(req('/x', OWNER, body('NOWHERE')), {})).status).toBe(400);
-    expect((await busyPut(req('/x', OPERATOR, body('NDG_MAIN', [{ days: ['friday'], start: '17:00', end: '17:00', extraMin: 10 }])), {})).status).toBe(400);
+    const empty = await busyPut(req('/x', OPERATOR, body('NDG_MAIN', [{ days: ['friday'], start: '17:00', end: '17:00', extraMin: 10 }])), {});
+    expect(empty.status).toBe(400);
+    expect(await empty.json()).toMatchObject({ error: expect.stringMatching(/empty window/), errorFr: expect.stringMatching(/plage vide/) });
+    const overlap = await busyPut(req('/x', OPERATOR, body('NDG_MAIN', [
+      { days: ['friday'], start: '17:00', end: '20:00', extraMin: 10 }, { days: ['friday'], start: '19:00', end: '21:00', extraMin: 10 },
+    ])), {});
+    expect((await overlap.json()).errorFr).toMatch(/vendredi .* chevauche/);
+    expect(await (await busyPut(req('/x', OPERATOR, body('HOCHELAGA')), {})).json()).toMatchObject({ errorFr: expect.stringMatching(/vos cuisines/) });
     const ok = await busyPut(req('/x', OPERATOR, body('NDG_MAIN')), {});
     expect(ok.status).toBe(200);
     expect((await ok.json()).windows[0]).toMatchObject({ start: '17:00', end: '20:00', extraMin: 10 });
@@ -95,7 +102,9 @@ describe('guard API', () => {
     const put = (who: string, locationCode: string, config: unknown) => guardPut(req('/x', who, { method: 'PUT', json: { locationCode, config } }), {});
     expect((await put(OPERATOR, 'NDG_MAIN', { enabled: true })).status).toBe(403);
     expect((await put(MANAGER, 'HOCHELAGA', { enabled: true })).status).toBe(403);
-    expect((await put(MANAGER, 'NDG_MAIN', { enabled: true, graceMin: 1 })).status).toBe(400);
+    const bad = await put(MANAGER, 'NDG_MAIN', { enabled: true, graceMin: 1 });
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).errorFr).toMatch(/Réglages invalides/);
     const ok = await put(MANAGER, 'NDG_MAIN', { enabled: true, graceMin: 10, pauseMin: 60, channels: ['uber_eats'] });
     expect(ok.status).toBe(200);
     expect((await ok.json()).guard).toEqual({ enabled: true, graceMin: 10, pauseMin: 60, channels: ['uber_eats'] });

@@ -8,7 +8,9 @@
 - Tablet-off guard (`downtime_guard_v1`, OFF by default): all tablets off for N min during open hours → timed pause of the chosen channels, re-extended every pauseMin/2, resumes only its own pauses; never relay, do-not-touch or FORBIDDEN_STORE_IDS stores; blocked results shown as not sent.
 - Special days (Halloween, Remembrance Day, Christmas Eve, Boxing Day, New Year's Eve, Valentine's, Mother's / Father's Day) saved as holidays; publish from /stores/hours.
 - Additive wiring: `tickAvailability` (throttled 30 s, never throws) in cron/watch (new `availability` key), pulse after(), instrumentation timer. Docs: docs/STORE_AVAILABILITY.md.
+- Review fixes: the guard keeps one episode (`attemptedIds`, `pendingIds`): a store a person resumed is never re-paused in the same episode, a brand opening mid-episode is paused after its own grace time, only blocked / failed stores are retried; every locked DoorDash store (built in, `FOODHUB_MENU_LOCKED_STORES`, Stores → Mapping) is left alone; busy-schedule catch-up and removal documented and tested; bilingual route errors (`errorFr`), labelled chip groups, actor names in FR/EN; new `tests/store-availability-history.test.ts`. Shared file: `components/ui/form.tsx` (additive `disabled` prop on `Chips`).
 - Later, in stores-tabs.tsx: `{ href: '/stores/availability', label: t('Disponibilité', 'Availability') }`.
+
 ## 2026-10-16 — Uber store kitchen mapping (task 39, `fix/uber-store-kitchen-mapping`)
 
 - The 7 Uber UUIDs in `data/actual/platform-stores-uber.json` are at 5839 Jean-Talon E (Saint-Léonard) in Uber's own records (Uber names them "(Hochelaga)"); production maps them to `NDG_6284`. That mapping was typed by hand in the console, so it lives only in the production `fh_channel_stores` rows: no repo seed or code defaulted Uber stores to NDG.

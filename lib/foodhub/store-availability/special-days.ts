@@ -5,6 +5,7 @@
 import { logActivity, type Actor } from '../activity';
 import { getHours, holidaySlotErrors, saveHours, type Slot } from '../hours';
 import type { Holiday, HoursConfig } from '../types';
+import { BilingualError } from './common';
 import type { Bilingual } from './next-open';
 
 export type SpecialDayId = 'valentines' | 'mothers_day' | 'fathers_day' | 'halloween' | 'remembrance' | 'christmas_eve' | 'boxing_day' | 'new_years_eve';
@@ -50,16 +51,16 @@ function clashes(h: Holiday, date: string, locationCodes: string[]): boolean {
 
 /** Adds the chosen special days as holidays (no duplicate date for the same kitchens). Throws on invalid input. */
 export async function addSpecialDays(ids: string[], year: number, how: SpecialDayHours, locationCodes: string[], actor: Actor): Promise<AddSpecialDaysResult> {
-  if (!Number.isInteger(year) || year < 2020 || year > 2100) throw new Error('year must be between 2020 and 2100');
+  if (!Number.isInteger(year) || year < 2020 || year > 2100) throw new BilingualError('year must be between 2020 and 2100', 'L’année doit être entre 2020 et 2100');
   const presets = specialDayPresets(year);
   const unknown = ids.filter((id) => !presets.some((p) => p.id === id));
-  if (unknown.length) throw new Error(`Unknown special day: ${unknown.join(', ')}`);
-  if (!ids.length) throw new Error('Choose at least one special day');
+  if (unknown.length) throw new BilingualError(`Unknown special day: ${unknown.join(', ')}`, `Jour spécial inconnu : ${unknown.join(', ')}`);
+  if (!ids.length) throw new BilingualError('Choose at least one special day', 'Choisissez au moins un jour spécial');
   const closed = how.closed === true;
   const slots = closed ? [] : (how as { slots?: Slot[] }).slots ?? [];
-  if (!closed && !slots.length) throw new Error('Give the special hours, or choose closed');
+  if (!closed && !slots.length) throw new BilingualError('Give the special hours, or choose closed', 'Indiquez les heures spéciales, ou choisissez « Fermé »');
   const errors = holidaySlotErrors({ closed, slots });
-  if (errors.length) throw new Error(errors.join('; '));
+  if (errors.length) throw new BilingualError(errors.join('; '), `Heures spéciales invalides (HH:MM, créneaux sans chevauchement) : ${errors.join(' ; ')}`);
   const codes = [...new Set(locationCodes.map(String).filter(Boolean))].sort();
   const cfg = await getHours();
   const holidays = [...cfg.holidays];

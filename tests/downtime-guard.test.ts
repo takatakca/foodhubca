@@ -6,6 +6,7 @@ import type { ChannelAdapter, ChannelKey, ChannelResult, ChannelStore } from '..
 const h = vi.hoisted(() => ({
   calls: [] as Array<{ id: string; online: boolean; untilMs?: number; reason?: string }>,
   status: 'done' as ChannelResult['status'],
+  statusById: {} as Record<string, ChannelResult['status']>,
 }));
 vi.mock('../lib/foodhub/adapters', async (orig) => {
   const real = await orig<typeof import('../lib/foodhub/adapters')>();
@@ -13,7 +14,8 @@ vi.mock('../lib/foodhub/adapters', async (orig) => {
     ...real.ADAPTERS[channel],
     setStoreOnline: async (store: ChannelStore, online: boolean, untilMs?: number, reason?: string) => {
       h.calls.push({ id: store.id, online, untilMs, reason });
-      return { channel, ok: h.status === 'done', status: h.status, message: h.status === 'blocked' ? 'Live connector off — not sent' : 'ok' };
+      const status = h.statusById[store.id] ?? h.status;
+      return { channel, ok: status === 'done', status, message: status === 'blocked' ? 'Live connector off — not sent' : 'ok' };
     },
   });
   return { ...real, getAdapter: (key: string) => fake(key as ChannelKey) };
@@ -59,6 +61,7 @@ beforeEach(async () => {
   (globalThis as any).__foodhubMem = undefined;
   h.calls.length = 0;
   h.status = 'done';
+  h.statusById = {};
   await saveHours({ locations: { [LOC]: week('16:00', '03:00') }, brands: {}, holidays: [] });
   await store('alphaUber', 'Alpha', 'uber_eats', 'ue-1');
   await store('forbidden', 'Alpha', 'doordash', FORBIDDEN_ID);
@@ -212,7 +215,8 @@ describe('tablet-off guard', () => {
     await tablet(OPEN - 10 * MIN);
     // Someone else paused Beta's Skip store with the guard's reason text; the guard paused nothing itself.
     await setStoresOnline([ids.betaSkip], false, { reason: GUARD_REASON, actor: PERSON });
-    await getRepo().setKv('downtime_guard_state_v1', { [LOC]: { storeIds: [], pausedAt: new Date(OPEN).toISOString(), extendedAt: new Date(OPEN).toISOString(), untilMs: OPEN + 30 * MIN, blocked: 0 } });
+    // The guard already tried Alpha's Uber store in this episode (a person resumed it since): not targeted again.
+    await getRepo().setKv('downtime_guard_state_v1', { [LOC]: { storeIds: [], attemptedIds: [ids.alphaUber], pendingIds: [], pausedAt:new Date(OPEN).toISOString(), extendedAt: new Date(OPEN).toISOString(), untilMs: OPEN + 30 * MIN, blocked: 0 } });
     h.calls.length = 0;
     const r = await tickDowntimeGuard(OPEN + 16 * MIN);
     expect(r.extended).toEqual([]);
@@ -221,6 +225,63 @@ describe('tablet-off guard', () => {
     const back = await tickDowntimeGuard(OPEN + 17 * MIN + 1000);
     expect(back.resumed).toEqual([]);
     expect((await get('betaSkip')).online).toBe(false);
+  });
+
+  it('a store a person resumed stays online while another store of the kitchen keeps being blocked', async () => {
+    await on({ pauseMin: 30, channels: ['uber_eats', 'skip'] });
+    await tablet(OPEN - 10 * MIN);
+    // Uber takes the pause, Skip is blocked (live switch off): a lasting condition.
+    h.statusById[ids.betaSkip] = 'blocked';
+    const first = await tickDowntimeGuard(OPEN);
+    expect(first.paused).toEqual([ids.alphaUber]);
+    expect((await getGuardState())[LOC]).toMatchObject({ storeIds: [ids.alphaUber], pendingIds: [ids.betaSkip] });
+    // A person resumes Uber by hand.
+    await setStoresOnline([ids.alphaUber], true, { actor: PERSON });
+    expect((await get('alphaUber')).online).toBe(true);
+    h.calls.length = 0;
+    await tickDowntimeGuard(OPEN + 16 * MIN);
+    await tickDowntimeGuard(OPEN + 32 * MIN);
+    // Only Skip is tried again (once per pauseMin/2); Uber is never paused again in this episode.
+    expect(h.calls.map((c) => c.id)).toEqual([ids.betaSkip, ids.betaSkip]);
+    expect((await get('alphaUber')).online).toBe(true);
+    expect(await detail('alphaUber')).not.toBe(GUARD_REASON);
+    expect((await getGuardState())[LOC]).toMatchObject({ storeIds: [], pendingIds: [ids.betaSkip], blocked: 1 });
+  });
+
+  it('a brand that opens during an episode is paused once its own grace time is over', async () => {
+    // Alpha open from 16:00 (kitchen hours), Beta only from 19:00.
+    await saveHours({ locations: { [LOC]: week('16:00', '03:00') }, brands: { Beta: week('19:00', '23:00') }, holidays: [] });
+    await on({ graceMin: 5, pauseMin: 30, channels: ['uber_eats', 'skip'] });
+    await tablet(OPEN - 10 * MIN);
+    expect((await tickDowntimeGuard(OPEN)).paused).toEqual([ids.alphaUber]);
+    const beta = localWallToUtcMs(2026, 10, 16, 19, 0, TZ);
+    expect((await tickDowntimeGuard(beta + 2 * MIN)).paused).toEqual([]); // Beta's grace time not over yet
+    expect((await get('betaSkip')).online).toBe(true);
+    const r = await tickDowntimeGuard(beta + 6 * MIN);
+    expect(r.paused).toEqual([ids.betaSkip]);
+    expect(await detail('betaSkip')).toBe(GUARD_REASON);
+    expect((await getGuardState())[LOC].storeIds.sort()).toEqual([ids.alphaUber, ids.betaSkip].sort());
+    // Back: both resumed (both are the guard's own pauses).
+    await tablet(beta + 7 * MIN);
+    expect((await tickDowntimeGuard(beta + 7 * MIN + 1000)).resumed.sort()).toEqual([ids.alphaUber, ids.betaSkip].sort());
+  });
+
+  it('never pauses a DoorDash store locked through FOODHUB_MENU_LOCKED_STORES or Stores → Mapping', async () => {
+    const before = process.env.FOODHUB_MENU_LOCKED_STORES;
+    process.env.FOODHUB_MENU_LOCKED_STORES = 'doordash:dd-env';
+    try {
+      await store('envLocked', 'Alpha', 'doordash', 'dd-env');
+      await store('mapLocked', 'Alpha', 'doordash', 'dd-map', { menuLocked: true });
+      await store('free', 'Alpha', 'doordash', 'dd-free');
+      await on({ channels: ['doordash'] });
+      await tablet(OPEN - 10 * MIN);
+      const r = await tickDowntimeGuard(OPEN);
+      expect(r.paused).toEqual([ids.free]);
+      expect((await get('envLocked')).online).toBe(true);
+      expect((await get('mapLocked')).online).toBe(true);
+    } finally {
+      if (before === undefined) delete process.env.FOODHUB_MENU_LOCKED_STORES; else process.env.FOODHUB_MENU_LOCKED_STORES = before;
+    }
   });
 
   it('validates its settings', async () => {

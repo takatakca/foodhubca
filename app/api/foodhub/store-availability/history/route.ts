@@ -15,12 +15,12 @@ export const GET = withPerm('view', async (req, _ctx, actor) => {
   const toMs = q.get('to') ? Date.parse(String(q.get('to'))) : Date.now() + 1000; // exclusive bound: keep lines written right now
   const days = Number(q.get('days') || 7);
   const fromMs = q.get('from') ? Date.parse(String(q.get('from'))) : toMs - (Number.isFinite(days) && days > 0 ? days : 7) * 86400_000;
-  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || fromMs >= toMs) return fail('from / to must be dates, from before to');
-  if (toMs - fromMs > MAX_RANGE_MS) return fail('At most 92 days at a time');
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || fromMs >= toMs) return fail('from / to must be dates, from before to', 400, { errorFr: 'Les dates « du » et « au » doivent être valides, « du » avant « au »' });
+  if (toMs - fromMs > MAX_RANGE_MS) return fail('At most 92 days at a time', 400, { errorFr: '92 jours au plus à la fois' });
   const location = q.get('location') || undefined;
-  if (location && !inScope(actor, location)) return fail('Not one of your locations.', 403);
+  if (location && !inScope(actor, location)) return fail('Not one of your locations.', 403, { errorFr: 'Ce n’est pas une de vos cuisines.' });
   const channel = q.get('channel') || undefined;
-  if (channel && !isChannelKey(channel)) return fail('Unknown channel');
+  if (channel && !isChannelKey(channel)) return fail('Unknown channel', 400, { errorFr: 'Plateforme inconnue' });
   const { rows, truncated } = await statusHistoryPage({
     from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString(),
     ...(location ? { locationCode: location } : actor.locations.length ? { locationCodes: actor.locations } : {}),

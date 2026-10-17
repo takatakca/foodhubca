@@ -1,6 +1,7 @@
 import { inScope, withPerm } from '@/lib/foodhub/auth';
 import { getCatalog } from '@/lib/foodhub/catalog';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
+import { errorFields } from '@/lib/foodhub/store-availability/common';
 import { DEFAULT_GUARD, getGuardConfigs, getGuardState, saveGuardConfig } from '@/lib/foodhub/store-availability/downtime-guard';
 import { foodhubTimeZone } from '@/lib/foodhub/time';
 
@@ -21,12 +22,13 @@ export const GET = withPerm('view', async (_req, _ctx, actor) => {
 export const PUT = withPerm('stores:map', async (req, _ctx, actor) => {
   const b = await readJson(req);
   const loc = String(b.locationCode || '');
-  if (!loc) return fail('locationCode is required');
-  if (!inScope(actor, loc)) return fail('Not one of your locations.', 403);
-  if (!(await getCatalog()).locations.some((l) => l.code === loc)) return fail('Unknown location');
+  if (!loc) return fail('locationCode is required', 400, { errorFr: 'Choisissez une cuisine' });
+  if (!inScope(actor, loc)) return fail('Not one of your locations.', 403, { errorFr: 'Ce n’est pas une de vos cuisines.' });
+  if (!(await getCatalog()).locations.some((l) => l.code === loc)) return fail('Unknown location', 400, { errorFr: 'Cuisine inconnue' });
   try {
     return ok({ locationCode: loc, guard: await saveGuardConfig(loc, b.config, actor) });
   } catch (e) {
-    return fail(e instanceof Error ? e.message : String(e));
+    const { error, errorFr } = errorFields(e);
+    return fail(error, 400, { errorFr });
   }
 });

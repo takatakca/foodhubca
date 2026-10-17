@@ -107,6 +107,22 @@ describe('availability board', () => {
     expect([locked(dnt.id), locked(forbidden.id), locked(byNumber.id), locked(free.id)]).toEqual([true, true, true, false]);
   });
 
+  it('locked stores: a DoorDash store locked by FOODHUB_MENU_LOCKED_STORES or Stores → Mapping is locked too', async () => {
+    process.env.FOODHUB_CLOVER_WEBSITE_ORDERS = 'off';
+    const before = process.env.FOODHUB_MENU_LOCKED_STORES;
+    process.env.FOODHUB_MENU_LOCKED_STORES = 'doordash:dd-env';
+    try {
+      const env = await store('Alpha', 'doordash', 'dd-env', {}, { state: 'online' });
+      const mapped = await store('Alpha', 'doordash', 'dd-map', { meta: { menuLocked: true } }, { state: 'online' });
+      const free = await store('Beta', 'doordash', 'dd-free', {}, { state: 'online' });
+      const rows = (await rowsOf(OPEN)).brands.flatMap((b) => b.channels);
+      const locked = (id: string) => rows.find((r) => r.storeId === id)!.locked;
+      expect([locked(env.id), locked(mapped.id), locked(free.id)]).toEqual([true, true, false]);
+    } finally {
+      if (before === undefined) delete process.env.FOODHUB_MENU_LOCKED_STORES; else process.env.FOODHUB_MENU_LOCKED_STORES = before;
+    }
+  });
+
   it('Clover Online Ordering row: only for the website brand, only when website orders are on, no Clover call', async () => {
     await store('Alpha', 'uber_eats', 'ue-1', {}, { state: 'online' });
     await store('Beta', 'uber_eats', 'ue-2', {}, { state: 'online' });

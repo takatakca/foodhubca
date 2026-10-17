@@ -152,6 +152,17 @@ describe('busy schedule — tick', () => {
     expect((await getBusyState())[LOC]).toBeUndefined();
   });
 
+  it('catch-up: a window saved while it is running (or the first tick after a restart) turns busy mode on at once', async () => {
+    await savePrep(LOC, { normal: 15, busy: 30 }, PERSON);
+    await saveBusySchedule(LOC, [{ id: 'w1', days: ['friday'], start: '17:00', end: '20:00', extraMin: 10 }], PERSON);
+    // Nothing ran at 17:00 (server stopped, or the window was saved at 18:30): the next tick in the window applies it.
+    const r = await tickBusySchedule(FRI(18, 30));
+    expect(r.started).toEqual([LOC]);
+    expect((await getPrepSettings())[LOC]).toMatchObject({ isBusy: true, busy: 25 });
+    expect(pushMock).toHaveBeenCalledWith(LOC, 25, BUSY_ACTOR);
+    expect((await tickBusySchedule(FRI(20, 0))).ended).toEqual([LOC]);
+  });
+
   it('a window removed while running ends cleanly; the tick never throws', async () => {
     await saveBusySchedule(LOC, [{ id: 'w1', days: ['friday'], start: '17:00', end: '20:00', extraMin: 10 }], PERSON);
     await tickBusySchedule(FRI(17, 0));

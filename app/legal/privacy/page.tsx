@@ -3,7 +3,7 @@ import { legalInfo, TOKEN_DELETION } from '@/lib/foodhub/legal';
 import { Divider, H1, H2, LangBlock, LangSwitch, P, UL } from '../prose';
 
 export const dynamic = 'force-dynamic';
-export const metadata: Metadata = { title: 'Politique de confidentialité · Privacy policy — TAKATAK Food Hub' };
+export const metadata: Metadata = { title: 'Politique de confidentialité · Privacy policy — TAKATAK Food Hub · TAKATAK Phone' };
 
 // Privacy policy (French first — Charter of the French language; Québec Law 25 and PIPEDA topics covered).
 // DRAFT until FOODHUB_LEGAL_APPROVED=true: it describes what the code actually does (orders, Clover, phone lines,
@@ -18,12 +18,12 @@ export default function PrivacyPage() {
   return (
     <article>
       <H1>Politique de confidentialité · Privacy policy</H1>
-      <P>{i.appName} — {i.company}. Mise à jour · Updated : {i.updated}</P>
+      <P>{i.appName} · {i.phoneAppName} — {i.company}. Mise à jour · Updated : {i.updated}</P>
       <LangSwitch />
 
       <LangBlock id="fr">
         <H2>1. Qui sommes-nous</H2>
-        <P>{i.appName} (« Food Hub ») est le logiciel de gestion des commandes de {i.company} ({i.address}). Il réunit sur un seul écran les commandes Uber Eats, DoorDash, SkipTheDishes et Too Good To Go, les envoie à la caisse Clover du restaurant, garde les menus et les ruptures de stock à jour sur chaque plateforme et rapproche les paiements des plateformes. Il gère aussi les commandes directes des restaurants (site Web, téléphone et Clover Online Ordering), leurs lignes téléphoniques (assistant téléphonique automatisé et messagerie vocale), les textos envoyés aux clients (confirmation, suivi de livraison, lien de paiement) et la page de nos livreurs. La présente politique s’applique au site Web de Food Hub, à ces lignes téléphoniques et textos, à la page des livreurs et à l’application Clover « TAKATAK Food Hub ».</P>
+        <P>{i.appName} (« Food Hub ») est le logiciel de gestion des commandes de {i.company} ({i.address}). Il réunit sur un seul écran les commandes Uber Eats, DoorDash, SkipTheDishes et Too Good To Go, les envoie à la caisse Clover du restaurant, garde les menus et les ruptures de stock à jour sur chaque plateforme et rapproche les paiements des plateformes. Il gère aussi les commandes directes des restaurants (site Web, téléphone et Clover Online Ordering), leurs lignes téléphoniques (assistant téléphonique automatisé et messagerie vocale), les textos envoyés aux clients (confirmation, suivi de livraison, lien de paiement) et la page de nos livreurs. La présente politique s’applique au site Web de Food Hub, à ces lignes téléphoniques et textos, à la page des livreurs, à l’application Clover « {i.appName} » et à l’application Clover « {i.phoneAppName} », l’assistant téléphonique automatisé qui répond aux appels du restaurant, prend les commandes et envoie au client, par texto, un lien de paiement Clover. Les renseignements que traite {i.phoneAppName} sont ceux des appels, de la messagerie vocale et des commandes directes décrits à la section 2.</P>
 
         <H2>2. Renseignements que nous traitons</H2>
         <UL>
@@ -93,7 +93,7 @@ export default function PrivacyPage() {
 
       <LangBlock id="en">
         <H2>1. Who we are</H2>
-        <P>{i.appName} (“Food Hub”) is the order-management software of {i.company} ({i.address}). It brings Uber Eats, DoorDash, SkipTheDishes and Too Good To Go orders onto one screen, sends them to the restaurant’s Clover POS, keeps menus and sold-out items up to date on each platform and reconciles platform payouts. It also handles the restaurants’ direct orders (website, phone and Clover Online Ordering), their phone lines (automated phone assistant and voicemail), the texts sent to customers (confirmation, delivery tracking, payment link) and our couriers’ page. This policy covers the Food Hub website, these phone lines and texts, the couriers’ page and the “TAKATAK Food Hub” Clover app. The French version prevails.</P>
+        <P>{i.appName} (“Food Hub”) is the order-management software of {i.company} ({i.address}). It brings Uber Eats, DoorDash, SkipTheDishes and Too Good To Go orders onto one screen, sends them to the restaurant’s Clover POS, keeps menus and sold-out items up to date on each platform and reconciles platform payouts. It also handles the restaurants’ direct orders (website, phone and Clover Online Ordering), their phone lines (automated phone assistant and voicemail), the texts sent to customers (confirmation, delivery tracking, payment link) and our couriers’ page. This policy covers the Food Hub website, these phone lines and texts, the couriers’ page, the “{i.appName}” Clover app and the “{i.phoneAppName}” Clover app, the automated phone assistant that answers the restaurant’s calls, takes orders and texts the customer a Clover payment link. The information {i.phoneAppName} processes is the call, voicemail and direct-order information described in section 2. The French version prevails.</P>
 
         <H2>2. Information we process</H2>
         <UL>

@@ -625,6 +625,9 @@ describe('TAKATAK Phone: the texted pay link needs the app for the kitchen\'s me
 
   it('phone app set, merchant not entitled: no link offered, the pickup is placed for the counter and no link is texted', async () => {
     Object.assign(process.env, { CLOVER_PHONE_APP_ID: 'TESTPHONEAPP4', CLOVER_PHONE_APP_SECRET: 'phone-secret-test' });
+    // A client merchant (connected through the Food Hub app), not the env default merchant (that one is ours).
+    delete process.env.CLOVER_MERCHANT_ID; delete process.env.CLOVER_ACCESS_TOKEN;
+    await getRepo().setKv('clover_oauth_merchants', { [MID]: { merchantId: MID, accessToken: 'clv-token', accessTokenExpiration: Math.floor(Date.now() / 1000) + 3600, connectedAt: '2026-10-01T00:00:00.000Z' } });
     const plan = await phonePaymentPlan(SL_LINE, { payment: DEFAULT_PAYMENT });
     expect(plan).toMatchObject({ link: false, counter: true });
     expect(plan.reason).toMatch(/TAKATAK Phone not active for kitchen SAINT_LEONARD \(not_installed\): no payment link/);
@@ -639,6 +642,12 @@ describe('TAKATAK Phone: the texted pay link needs the app for the kitchen\'s me
 
   it('our own merchant (PHONE_OWN_MERCHANTS): the link works as before', async () => {
     Object.assign(process.env, { CLOVER_PHONE_APP_ID: 'TESTPHONEAPP4', CLOVER_PHONE_APP_SECRET: 'phone-secret-test', PHONE_OWN_MERCHANTS: MID });
+    expect(await phonePaymentPlan(SL_LINE, { payment: DEFAULT_PAYMENT })).toMatchObject({ link: true });
+  });
+
+  it('the env default merchant (CLOVER_MERCHANT_ID) is ours even when PHONE_OWN_MERCHANTS is empty: the link works', async () => {
+    Object.assign(process.env, { CLOVER_PHONE_APP_ID: 'TESTPHONEAPP4', CLOVER_PHONE_APP_SECRET: 'phone-secret-test' });
+    expect(process.env.CLOVER_MERCHANT_ID).toBe(MID);
     expect(await phonePaymentPlan(SL_LINE, { payment: DEFAULT_PAYMENT })).toMatchObject({ link: true });
   });
 });

@@ -299,7 +299,7 @@ describe('low credit: one ping, not a stream', () => {
     expect(creditPings()).toHaveLength(3);
   });
 
-  it('names the ordering lines that have no person to go to (their calls are hung up)', async () => {
+  it('names the ordering lines that have no person to go to (their calls go to ON2GO)', async () => {
     await saveLocation({ code: 'VRD', name: 'Verdun', address: '1 rue Test', city: 'Montréal', postalCode: 'H4G 1A1', active: true });
     await savePhoneSettings({ lines: [LINE as any, { ...LINE, number: '+15145550198', name: 'Verdun Pita', locationCode: 'VRD' } as any] }, actor);
     expect(await noteLowCredit('anthropic', 'credit balance too low')).toBe(true);

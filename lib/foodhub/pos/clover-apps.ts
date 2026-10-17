@@ -125,7 +125,19 @@ export function cloverAppByAppId(appId: string | null | undefined): CloverAppKey
   return null;
 }
 
-/** Our own restaurants for the phone app (never billed, always allowed): PHONE_OWN_MERCHANTS, comma-separated. */
+const idList = (v: string | undefined) => String(v || '').split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
+
+/**
+ * Our own restaurants for the phone app (never billed, always allowed): PHONE_OWN_MERCHANTS, comma-separated, plus the
+ * merchants this server already treats as ours: the default CLOVER_MERCHANT_ID, the keys of CLOVER_MERCHANT_TOKENS
+ * (tokens pasted by the owner, never a client's) and FOODHUB_BILLING_EXEMPT_MERCHANTS. So adding the phone app env and
+ * forgetting one ID in PHONE_OWN_MERCHANTS never takes the AI off the owner's own lines.
+ */
 export function phoneOwnMerchants(): Set<string> {
-  return new Set(String(process.env.PHONE_OWN_MERCHANTS || '').split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean));
+  const ids = new Set([...idList(process.env.PHONE_OWN_MERCHANTS), ...idList(process.env.FOODHUB_BILLING_EXEMPT_MERCHANTS), ...idList(process.env.CLOVER_MERCHANT_ID)]);
+  try {
+    const map: unknown = JSON.parse(process.env.CLOVER_MERCHANT_TOKENS || '{}');
+    if (map && typeof map === 'object' && !Array.isArray(map)) for (const k of Object.keys(map)) if (k.trim()) ids.add(k.trim());
+  } catch { /* not JSON: ignored, as clover.ts does */ }
+  return ids;
 }

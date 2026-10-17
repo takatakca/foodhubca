@@ -3,7 +3,8 @@
 //   → each caller sentence → AI turn → say + listen again
 //   → order placed and goodbye, or hand-off to a person (<Dial> the line's hand-off number / the kitchen phone).
 // A turn the AI has not finished within ~9 s says "one moment" and continues on /voice/wait (Twilio's 15 s limit).
-// Nobody answers the hand-off → the caller hears that we will call back, and the team chat gets the number to call.
+// No hand-off number and no kitchen phone → ON2GO's person, else ON2GO's voicemail; nobody answers the hand-off →
+// ON2GO's voicemail (ticket + email). The team chat gets the number to call back. A caller is never just hung up on.
 // The same turn runs in the console ("Try the agent", and the call simulator), where an order is never sent anywhere;
 // a call from a test number (FOODHUB_PHONE_TEST_CALLERS) is real but its order is a test too.
 // A line with several kitchens (brand@kitchen groups) starts the call with no kitchen: the agent asks the caller and
@@ -86,11 +87,17 @@ async function render(call: PhoneCall, reply: TurnReply, line: PhoneLine, settin
   const to = await handoffNumber(line);
   if (!to) {
     await missedHandoff(call, line, 'no hand-off number');
-    // An order confirmation said in this turn is still heard before "nobody is available".
-    return twiml(`${sayXml([reply.confirm, NOBODY[reply.lang]].filter(Boolean).join(' '), settings, reply.lang)}<Hangup/>`);
+    // Never dropped: ON2GO's person, else ON2GO's voicemail. An order confirmation said in this turn is heard first.
+    return nobodyHere(call, 'no hand-off number and no kitchen phone', { preface: reply.confirm ?? '', dial: true });
   }
   await saveCall({ ...say(call, 'system', `Transferred to ${maskNumber(to)}${call.handoffReason ? ` — ${call.handoffReason}` : ''}`), status: 'handoff' });
   return twiml(`${sayXml(reply.say, settings, reply.lang)}${dialXml(to, line.number, `${VOICE_PATH}/dial-done`)}`);
+}
+
+/** Nobody on this line can take the call: ON2GO's person (`dial`), else ON2GO's voicemail (ivr/engine.ts). */
+async function nobodyHere(call: PhoneCall, why: string, opts: { preface?: string; dial?: boolean } = {}): Promise<Response> {
+  const { directLineFallback } = await import('./ivr/engine');
+  return directLineFallback({ id: call.id, from: call.from, to: call.to, lang: call.lang, simulated: call.simulated }, why, opts);
 }
 
 async function missedHandoff(call: PhoneCall, line: PhoneLine, why: string): Promise<void> {
@@ -243,7 +250,6 @@ export async function waitTurn(params: URLSearchParams, n: number): Promise<Resp
 
 /** Twilio <Dial> action: did a person take the call? */
 export async function dialDone(params: URLSearchParams): Promise<Response> {
-  const base = await getPhoneSettings();
   const call = await getCall(params.get('CallSid') || '');
   const status = params.get('DialCallStatus') || '';
   if (!call) return twiml('<Hangup/>');
@@ -254,7 +260,8 @@ export async function dialDone(params: URLSearchParams): Promise<Response> {
   const ls = await lineOf(call);
   if (ls) await missedHandoff(call, ls.work, `hand-off ${status || 'not answered'}`);
   await endCall(call.id, 'handoff_missed');
-  return twiml(`${sayXml(NOBODY[call.lang], callVoices(call, base), call.lang)}<Hangup/>`);
+  // Never dropped: the caller can leave a message (ON2GO's voicemail: ticket + email to the team).
+  return nobodyHere(call, `hand-off ${status || 'not answered'}`);
 }
 
 /**

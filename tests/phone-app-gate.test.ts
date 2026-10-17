@@ -5,13 +5,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The entitlement answer: the real check unless a test sets `answer` (LAPSED, Clover down…). Every ask is recorded.
-const ent = vi.hoisted(() => ({ answer: null as null | ((mid: string, purpose: string) => any), asked: [] as Array<{ mid: string; purpose: string }> }));
+const ent = vi.hoisted(() => ({ answer: null as null | ((mid: string, purpose: string) => any), asked: [] as Array<{ mid: string; purpose: string }>, budgets: [] as Array<number | undefined> }));
 vi.mock('../lib/foodhub/pos/clover-entitlement', async (orig) => {
   const real = await orig<typeof import('../lib/foodhub/pos/clover-entitlement')>();
   return {
     ...real,
-    voiceAiEntitled: async (mid: string, purpose: 'call' | 'setup' = 'call', opts?: { now?: number }) => {
+    voiceAiEntitled: async (mid: string, purpose: 'call' | 'setup' = 'call', opts?: { now?: number; budgetMs?: number }) => {
       ent.asked.push({ mid, purpose });
+      ent.budgets.push(opts?.budgetMs);
       if (ent.answer) return { billable: false, status: null, inTrial: false, plan: null, planId: null, checkedAt: null, cached: true, ...ent.answer(mid, purpose) };
       return real.voiceAiEntitled(mid, purpose, opts);
     },
@@ -24,7 +25,9 @@ import { getCall } from '../lib/foodhub/phone/calls';
 import { linePhoneGate, phoneGateMessage } from '../lib/foodhub/phone/gate';
 import { getPhoneSettings, savePhoneSettings } from '../lib/foodhub/phone/settings';
 import { twilioSignature } from '../lib/foodhub/phone/twilio';
-import { startCall } from '../lib/foodhub/phone/voice';
+import { dialDone, startCall } from '../lib/foodhub/phone/voice';
+import { getIvrCall } from '../lib/foodhub/phone/ivr/records';
+import { phoneReadiness } from '../lib/foodhub/phone/readiness';
 import { getRepo } from '../lib/foodhub/repo';
 import type { MasterMenu } from '../lib/foodhub/types';
 import { resetAiHealth } from '../lib/foodhub/phone/ai-health';
@@ -44,7 +47,7 @@ const MENU: MasterMenu = {
   items: [{ ref: 'i1', name: 'Fries', price: 4.5, categoryRef: 'c1', available: true, modifierGroupRefs: [] }],
   modifierGroups: [],
 };
-const ENV = ['CLOVER_PHONE_APP_ID', 'CLOVER_PHONE_APP_SECRET', 'PHONE_OWN_MERCHANTS', 'CLOVER_PHONE_APP_NAME'];
+const ENV = ['CLOVER_PHONE_APP_ID', 'CLOVER_PHONE_APP_SECRET', 'PHONE_OWN_MERCHANTS', 'CLOVER_PHONE_APP_NAME', 'CLOVER_MERCHANT_TOKENS', 'FOODHUB_BILLING_EXEMPT_MERCHANTS', 'FOODHUB_MAIN_PHONE', 'FOODHUB_IVR_HANDOFF_NUMBER'];
 
 let outbound: string[] = [];
 
@@ -67,7 +70,7 @@ beforeEach(async () => {
   Object.assign(process.env, { ANTHROPIC_API_KEY: 'sk-test', TWILIO_ACCOUNT_SID: 'AC1', TWILIO_AUTH_TOKEN: 'tw-token', TWILIO_FROM: '+15145550000' });
   for (const k of [...ENV, 'ALERT_WEBHOOK_URL', 'ANTHROPIC_BASE_URL', 'CLOVER_MERCHANT_ID']) delete process.env[k];
   for (const k of ['DELIVERY', 'RETAIL', 'ALCOHOL', 'PHONE']) delete process.env[`FOODHUB_FEATURE_${k}`];
-  ent.answer = null; ent.asked = []; outbound = [];
+  ent.answer = null; ent.asked = []; ent.budgets = []; outbound = [];
   globalThis.fetch = vi.fn(async (url: any) => { outbound.push(String(url)); return new Response('{}', { status: 200 }); }) as any;
   await saveLocation({ code: 'NDG', name: 'NDG', address: '6280 Somerled Ave', city: 'Montréal', postalCode: 'H4V 1R9', phone: '514 555-0100', active: true });
   await saveLocation({ code: 'SAINT_LEONARD', name: 'SAINT-LÉONARD', address: '5839 Rue Jean-Talon E', city: 'Saint-Léonard', postalCode: 'H1S 1M4', phone: '514 555-0102', active: true });
@@ -168,13 +171,80 @@ describe('live call: gated', () => {
     expect((await getCall('CA1'))!.handoffReason).toMatch(/kitchen SAINT_LEONARD \(inactive\)/);
   });
 
-  it('the check itself failing never drops the call: a person takes it', async () => {
+  it('the check itself failing (database blip): a live call fails open and the AI answers; setting a line up is refused', async () => {
     ent.answer = () => { throw new Error('database down'); };
     const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const xml = await call('CA1');
-    expect(xml).toContain('<Dial');
-    expect((await getCall('CA1'))!.handoffReason).toContain('(check_failed)');
+    expect(xml).toContain('<Gather');
+    expect(xml).not.toContain('<Dial');
+    expect((await getCall('CA1'))!.aiStartedAt).toBeTruthy();
+    expect(await linePhoneGate(LINE, 'call')).toMatchObject({ ok: true, reason: 'check_failed' });
+    expect(await linePhoneGate(LINE, 'setup')).toMatchObject({ ok: false, reason: 'check_failed' });
+    expect(err).toHaveBeenCalled();
     err.mockRestore();
+  });
+
+  it('a refused call on a line with no hand-off number and no kitchen phone: ON2GO voicemail, never just hung up', async () => {
+    await saveLocation({ code: 'NDG', name: 'NDG', address: '6280 Somerled Ave', city: 'Montréal', postalCode: 'H4V 1R9', phone: null, active: true });
+    await savePhoneSettings({ lines: [{ ...(await getPhoneSettings()).lines[0], handoffNumber: undefined } as any] }, actor);
+    const xml = await call('CA1');
+    expect(xml).toMatch(/<Record /);
+    expect((await getCall('CA1'))!.status).toBe('handoff_missed');
+    const ivr = (await getIvrCall('CA1'))!;
+    expect(ivr.state).toBe('voicemail');
+    expect(JSON.stringify(ivr.transcript)).toMatch(/AI ordering line: no hand-off number and no kitchen phone/);
+    // ON2GO's person set (FOODHUB_MAIN_PHONE): that person rings first.
+    process.env.FOODHUB_MAIN_PHONE = '+15145550120';
+    expect(await call('CA2')).toMatch(/<Dial [^>]*>\+15145550120<\/Dial>/);
+  });
+
+  it('the hand-off person does not answer: ON2GO voicemail takes a message', async () => {
+    await call('CA1');
+    const xml = await (await dialDone(await form(signed('/api/foodhub/webhooks/voice/dial-done', { CallSid: 'CA1', DialCallStatus: 'no-answer' })))).text();
+    expect(xml).toMatch(/<Record /);
+    expect((await getCall('CA1'))!.status).toBe('handoff_missed');
+  });
+
+  it('the owner forgot PHONE_OWN_MERCHANTS: his env merchants (CLOVER_MERCHANT_ID, CLOVER_MERCHANT_TOKENS, exempt) still get the AI', async () => {
+    for (const env of [{ CLOVER_MERCHANT_ID: KITCHEN_MID }, { CLOVER_MERCHANT_TOKENS: JSON.stringify({ [KITCHEN_MID]: 'tok' }) }, { FOODHUB_BILLING_EXEMPT_MERCHANTS: `X1, ${KITCHEN_MID}` }]) {
+      for (const k of ['CLOVER_MERCHANT_ID', 'CLOVER_MERCHANT_TOKENS', 'FOODHUB_BILLING_EXEMPT_MERCHANTS']) delete process.env[k];
+      Object.assign(process.env, env);
+      const sid = `CA-${Object.keys(env)[0]}`;
+      expect(await call(sid)).toContain('<Gather');
+      expect((await getCall(sid))!.aiStartedAt).toBeTruthy();
+      expect(await linePhoneGate(LINE, 'setup')).toMatchObject({ ok: true, reason: 'own_merchant' });
+    }
+    delete process.env.CLOVER_MERCHANT_ID;
+  });
+
+  it('a refused live call is logged on the server (not only in the call log)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await call('CA1');
+    expect(warn.mock.calls.map((c) => String(c[0])).join('\n')).toMatch(/TAKATAK Phone not active for kitchen NDG \(not_installed\) \(merchant TESTMERCH0021\)/);
+    warn.mockRestore();
+  });
+
+  it('the Clover budget is passed through to the entitlement check', async () => {
+    ent.answer = () => ({ ok: true, reason: 'active' });
+    await linePhoneGate(LINE, 'call', { budgetMs: 1000 });
+    expect(ent.budgets.at(-1)).toBe(1000);
+  });
+});
+
+describe('readiness (Settings → Expansion → AI phone)', () => {
+  it('flags a kitchen whose calls the app check refuses, and names PHONE_OWN_MERCHANTS', async () => {
+    phoneAppOn();
+    const r = await phoneReadiness();
+    const chk = r.checks.find((x) => x.id.startsWith('phone_app_'));
+    expect(chk).toMatchObject({ level: 'stop' });
+    expect(chk!.en).toMatch(/TAKATAK Phone refused \(not_installed, merchant TESTMERCH0021\).*PHONE_OWN_MERCHANTS/);
+    expect(r.ready).toBe(false);
+    process.env.PHONE_OWN_MERCHANTS = KITCHEN_MID;
+    expect((await phoneReadiness()).checks.find((x) => x.id.startsWith('phone_app_'))).toMatchObject({ level: 'ok' });
+  });
+
+  it('no check line at all without the phone app', async () => {
+    expect((await phoneReadiness()).checks.some((x) => x.id.startsWith('phone_app_'))).toBe(false);
   });
 });
 
@@ -227,6 +297,45 @@ describe('switching a line on (set-up: strict, FR / EN reason)', () => {
     ent.answer = () => ({ ok: true, reason: 'trial' });
     const third = { ...NEW, number: '+15145550196', name: 'Pi Pita Trois' };
     expect((await savePhoneSettings({ lines: [...s.lines, third as any] }, actor)).lines).toHaveLength(3);
+  });
+
+  it('a line already on: reordering its brands or renaming it saves even while the check refuses', async () => {
+    phoneAppOn();
+    const multi = { ...LINE, id: undefined, number: '+15145550195', name: 'Deux marques', brands: ['Pi Pita', 'Taco Montréal'] };
+    process.env.PHONE_OWN_MERCHANTS = KITCHEN_MID;
+    await savePhoneSettings({ lines: [...(await getPhoneSettings()).lines, multi as any] }, actor);
+    delete process.env.PHONE_OWN_MERCHANTS;
+    ent.answer = () => ({ ok: false, reason: 'clover_unreachable' });
+    ent.asked = [];
+    const cur = (await getPhoneSettings()).lines;
+    const s = await savePhoneSettings({ lines: cur.map((l) => (l.number === multi.number ? { ...l, brands: ['Taco Montréal', 'Pi Pita'] } : l)) }, actor);
+    expect(s.lines.find((l) => l.number === multi.number)!.brands).toEqual(['Taco Montréal', 'Pi Pita']);
+    expect(ent.asked).toHaveLength(0);
+  });
+
+  it('a kitchen added to a line already on and refused: the message says nothing was saved and the line stays as it was', async () => {
+    phoneAppOn();
+    ent.answer = (mid) => (mid === KITCHEN_MID ? { ok: true, reason: 'active' } : { ok: false, reason: 'inactive' });
+    const cur = (await getPhoneSettings()).lines;
+    const grown = cur.map((l) => ({ ...l, kitchens: [{ locationCode: 'NDG', brands: ['Pi Pita'] }, { locationCode: 'SAINT_LEONARD', brands: ['Po Poulet'] }] }));
+    const err = await savePhoneSettings({ lines: grown as any }, actor).then(() => null, (e: Error) => e);
+    expect(err?.message).toMatch(/cuisine SAINT_LEONARD.*Les changements ne sont pas enregistrés ; la ligne reste comme avant\./s);
+    expect(err?.message).toMatch(/Changes not saved; the line stays as it was\.$/);
+    expect(err?.message).not.toMatch(/The line stays off/);
+    expect((await getPhoneSettings()).lines).toEqual(cur);
+  });
+
+  it('one line may not mix our kitchens with a client\'s (the client\'s subscription would gate ours)', async () => {
+    phoneAppOn();
+    process.env.PHONE_OWN_MERCHANTS = KITCHEN_MID;
+    ent.answer = () => ({ ok: true, reason: 'active' });
+    const mixed = { ...LINE, number: '+15145550194', name: 'Mixte', kitchens: [{ locationCode: 'NDG', brands: ['Pi Pita'] }, { locationCode: 'SAINT_LEONARD', brands: ['Po Poulet'] }] };
+    const err = await savePhoneSettings({ lines: [...(await getPhoneSettings()).lines, mixed as any] }, actor).then(() => null, (e: Error) => e);
+    expect(err?.message).toMatch(/Mixte : une même ligne ne peut pas mêler nos cuisines \(NDG\) et celles d’un client \(SAINT_LEONARD\).*La ligne reste éteinte\./s);
+    expect(err?.message).toMatch(/one line cannot mix our kitchens \(NDG\) with a client's \(SAINT_LEONARD\)/);
+    // Both ours: allowed.
+    process.env.PHONE_OWN_MERCHANTS = `${KITCHEN_MID}, ${SL_MID}`;
+    expect((await savePhoneSettings({ lines: [...(await getPhoneSettings()).lines, mixed as any] }, actor)).lines).toHaveLength(2);
   });
 
   it('the message names the listing (CLOVER_PHONE_APP_NAME) and every reason has words', () => {

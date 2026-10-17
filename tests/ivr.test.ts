@@ -604,6 +604,28 @@ describe('TAKATAK Phone on the ON2GO menu, and the empty answers of the status s
     expect(JSON.stringify(ivr.transcript)).toMatch(/TAKATAK Phone not active for kitchen NDG \(not_installed\)/);
   });
 
+  it('"place an order" with Clover hanging: the app check waits 1 s at most (the menu\'s AI turn already used time)', async () => {
+    await orderingSetup();
+    Object.assign(process.env, { CLOVER_PHONE_APP_ID: 'TESTPHONEAPP3', CLOVER_PHONE_APP_SECRET: 'phone-secret-test' });
+    // The phone app is installed for the kitchen's merchant (made-up token), and Clover's billing_info never answers.
+    await getRepo().setKv('clover_oauth_merchants:phone', { TESTMERCHIVR1: { merchantId: 'TESTMERCHIVR1', accessToken: 'PAT-1', accessTokenExpiration: Math.floor(Date.now() / 1000) + 3600, connectedAt: '2026-10-01T00:00:00.000Z', appId: 'TESTPHONEAPP3' } });
+    const base = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: any, init: RequestInit = {}) => {
+      if (String(url).includes('/billing_info')) {
+        return new Promise<Response>((_, reject) => init.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))));
+      }
+      return base(url, init);
+    }) as any;
+    await start();
+    claude.push(route('place_order'));
+    const t0 = Date.now();
+    const r = await turn({ SpeechResult: 'je veux commander un poulet' });
+    expect(Date.now() - t0).toBeLessThan(2_000);
+    expect(r).not.toMatch(/webhooks\/voice\/turn/);
+    expect(JSON.stringify((await getIvrCall('CA1'))!.transcript)).toMatch(/TAKATAK Phone not active for kitchen NDG \(clover_unreachable\)/);
+    await new Promise((res) => setTimeout(res, 50));
+  });
+
   it('the same kitchen as one of our own merchants: handed to the AI ordering agent as before', async () => {
     await orderingSetup();
     Object.assign(process.env, { CLOVER_PHONE_APP_ID: 'TESTPHONEAPP3', CLOVER_PHONE_APP_SECRET: 'phone-secret-test', PHONE_OWN_MERCHANTS: 'TESTMERCHIVR1' });

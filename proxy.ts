@@ -24,6 +24,7 @@ const PUBLIC_PREFIXES = [
 const PUBLIC_PATHS = new Set([
   '/api/health', // uptime monitors: status only without CRON_SECRET or a session (app/api/health/route.ts)
   '/api/release', // deployment proof: public commit SHA only, exact path, no settings or secrets
+  '/legal', // the legal pages' index: redirects to /legal/support (app/legal/page.tsx); /legal/* is in PUBLIC_PREFIXES
   '/courier', '/api/courier', // our couriers' page: the personal signed link (Bearer) is the credential (lib/foodhub/delivery/courier-app.ts)
 ]);
 

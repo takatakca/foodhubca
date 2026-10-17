@@ -47,6 +47,10 @@
 - Owner after merge: redeploy; optional env `FOODHUB_APP_MARKET_URL`, `FOODHUB_PUBLIC_SAME_AS`; Search Console
   URL-prefix property `https://foodhub.on2go.ca/` + sitemap; link the page from LinkedIn / YouTube / on2go.ca only once
   the legal Draft banner is gone (`FOODHUB_LEGAL_APPROVED=true` also adds the legal pages to the sitemap).
+## 2026-10-17 — Legal pages name TAKATAK Phone (`fix/legal-takatak-phone`, stacked on #66)
+
+- The Clover App Market review of the second app, TAKATAK Phone, uses the same `/legal/privacy` and `/legal/terms` URLs. Privacy §1 (FR + EN) now also covers the Clover app « TAKATAK Phone » (automated phone assistant: answers calls, takes orders, texts a Clover payment link; its data = the calls, voicemail and direct orders of §2). Both pages' header and title name both apps.
+- Terms §1: « le service » = both apps; the caller is told it is an automated assistant and can press 0 for a person. §6 and the support FAQ: TAKATAK Food Hub price unchanged; TAKATAK Phone = 14-day free trial, then CAD $50/month + CAD $0.25 per minute the assistant is on the line (rounded up per call, not after a transfer to a person, never in the trial), billed only by Clover through the Clover App Market, Canada only (`phoneFeesText()`; env `FOODHUB_PHONE_TRIAL_DAYS`, `FOODHUB_PHONE_MONTHLY_PRICE_CAD`, `FOODHUB_PHONE_MINUTE_PRICE_CAD`, defaults 14/50/0.25). §11 names both apps as independent software.
 
 ## 2026-10-16 — Legal pages complete for Clover review (`fix/legal-pages-complete`)
 

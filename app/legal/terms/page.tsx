@@ -1,27 +1,28 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { feesText, legalInfo, LEGAL_PATHS, TOKEN_DELETION } from '@/lib/foodhub/legal';
+import { feesText, legalInfo, LEGAL_PATHS, phoneFeesText, TOKEN_DELETION } from '@/lib/foodhub/legal';
 import { Divider, H1, H2, LangBlock, LangSwitch, P, UL } from '../prose';
 
 export const dynamic = 'force-dynamic';
-export const metadata: Metadata = { title: 'Conditions d’utilisation · Terms of use — TAKATAK Food Hub' };
+export const metadata: Metadata = { title: 'Conditions d’utilisation · Terms of use — TAKATAK Food Hub · TAKATAK Phone' };
 
 // Terms of use / end-user licence (French first; the French version prevails — Charter of the French language).
 // DRAFT until FOODHUB_LEGAL_APPROVED=true: the owner and a legal adviser must confirm it before submission.
 export default function TermsPage() {
   const i = legalInfo();
   const fees = feesText(i.pricing);
+  const phoneFees = phoneFeesText(i.phonePricing);
   const contactFr = i.supportEmail ?? '[courriel à compléter — FOODHUB_SUPPORT_EMAIL]';
   const contactEn = i.supportEmail ?? '[email to be completed — FOODHUB_SUPPORT_EMAIL]';
   return (
     <article>
       <H1>Conditions d’utilisation · Terms of use</H1>
-      <P>{i.appName} — {i.company}. Mise à jour · Updated : {i.updated}</P>
+      <P>{i.appName} · {i.phoneAppName} — {i.company}. Mise à jour · Updated : {i.updated}</P>
       <LangSwitch />
 
       <LangBlock id="fr">
         <H2>1. Le service</H2>
-        <P>{i.company} (« nous ») fournit {i.appName} (« le service »), un logiciel qui reçoit les commandes des plateformes de livraison, les envoie à la caisse Clover, publie les menus et les disponibilités sur les plateformes et prépare des rapports. En installant l’application Clover ou en utilisant le service, le marchand (« vous ») accepte les présentes conditions.</P>
+        <P>{i.company} (« nous ») fournit {i.appName}, un logiciel qui reçoit les commandes des plateformes de livraison, les envoie à la caisse Clover, publie les menus et les disponibilités sur les plateformes et prépare des rapports, et {i.phoneAppName}, un assistant téléphonique automatisé qui répond aux appels du restaurant, prend les commandes et envoie au client, par texto, un lien de paiement Clover (ensemble, « le service »). L’appelant est informé qu’il parle à un assistant automatisé et peut faire le 0 pour parler à une personne. En installant l’une de ces applications Clover ou en utilisant le service, le marchand (« vous ») accepte les présentes conditions.</P>
 
         <H2>2. Accès et approbation</H2>
         <P>Le service est réservé aux restaurants que nous approuvons. Un marchand qui installe l’application depuis Clover reste « en attente » tant que nous n’avons pas approuvé son branchement ; aucune commande ne lui est envoyée pendant ce temps. Vous êtes responsable des comptes de votre équipe et de la confidentialité de leurs codes et NIP.</P>
@@ -40,7 +41,8 @@ export default function TermsPage() {
         <P>Nous faisons des efforts raisonnables pour que le service soit disponible et fiable, mais il dépend aussi de Clover, des plateformes, d’Internet et de nos fournisseurs. Gardez une solution de rechange (par exemple les tablettes des plateformes) pour les pannes.</P>
 
         <H2>6. Frais</H2>
-        <P>{fees.fr}</P>
+        <P><b>{i.appName}.</b> {fees.fr}</P>
+        <P><b>{i.phoneAppName}.</b> {phoneFees.fr}</P>
 
         <H2>7. Propriété intellectuelle et licence</H2>
         <P>Nous vous accordons une licence non exclusive, non transférable et révocable d’utiliser le service pour votre restaurant pendant la durée de votre branchement. Vos données restent les vôtres ; vous nous permettez de les traiter pour fournir le service, comme le décrit notre <Link href={LEGAL_PATHS.privacy} className="underline">politique de confidentialité</Link>.</P>
@@ -55,7 +57,7 @@ export default function TermsPage() {
         <P>Les présentes conditions sont régies par les lois du Québec et les lois fédérales du Canada qui s’y appliquent. Les tribunaux du district judiciaire de Montréal sont compétents. La version française prévaut ; la version anglaise est fournie pour information.</P>
 
         <H2>11. Marques de commerce</H2>
-        <P>Clover est une marque de Fiserv, Inc. ; Uber Eats, DoorDash, SkipTheDishes et Too Good To Go appartiennent à leurs propriétaires respectifs. {i.appName} est un logiciel indépendant : il n’est ni conçu, ni commandité, ni approuvé par ces entreprises.</P>
+        <P>Clover est une marque de Fiserv, Inc. ; Uber Eats, DoorDash, SkipTheDishes et Too Good To Go appartiennent à leurs propriétaires respectifs. {i.appName} et {i.phoneAppName} sont des logiciels indépendants : ils ne sont ni conçus, ni commandités, ni approuvés par ces entreprises.</P>
 
         <H2>12. Renseignements personnels de vos clients</H2>
         <P>Pour les renseignements personnels de vos clients que le service traite pour vous (noms, numéros de téléphone, adresses, commandes, appels et textos), vous en demeurez responsable et nous agissons comme votre fournisseur de services. Nous les traitons uniquement pour fournir le service, selon vos instructions et notre <Link href={LEGAL_PATHS.privacy} className="underline">politique de confidentialité</Link> : nous ne les vendons pas, ne les utilisons pas à nos propres fins, les protégeons par des mesures de sécurité raisonnables et vous avisons sans délai de tout incident de confidentialité qui les touche. Vous êtes responsable d’informer vos clients et d’obtenir les consentements que la loi exige.</P>
@@ -68,7 +70,7 @@ export default function TermsPage() {
 
       <LangBlock id="en">
         <H2>1. The service</H2>
-        <P>{i.company} (“we”) provides {i.appName} (“the service”), software that receives delivery platform orders, sends them to the Clover POS, publishes menus and availability on the platforms and prepares reports. By installing the Clover app or using the service, the merchant (“you”) accepts these terms. The French version prevails; this English version is provided for information.</P>
+        <P>{i.company} (“we”) provides {i.appName}, software that receives delivery platform orders, sends them to the Clover POS, publishes menus and availability on the platforms and prepares reports, and {i.phoneAppName}, an automated phone assistant that answers the restaurant’s calls, takes orders and texts the customer a Clover payment link (together, “the service”). Callers are told they are speaking with an automated assistant and can press 0 to speak with a person. By installing either of these Clover apps or using the service, the merchant (“you”) accepts these terms. The French version prevails; this English version is provided for information.</P>
 
         <H2>2. Access and approval</H2>
         <P>The service is reserved for restaurants we approve. A merchant who installs the app from Clover stays “pending” until we approve the connection; no orders are sent to it in the meantime. You are responsible for your team’s accounts and for keeping their codes and PINs confidential.</P>
@@ -87,7 +89,8 @@ export default function TermsPage() {
         <P>We make reasonable efforts to keep the service available and reliable, but it also depends on Clover, the platforms, the Internet and our providers. Keep a fallback (for example the platforms’ tablets) for outages.</P>
 
         <H2>6. Fees</H2>
-        <P>{fees.en}</P>
+        <P><b>{i.appName}.</b> {fees.en}</P>
+        <P><b>{i.phoneAppName}.</b> {phoneFees.en}</P>
 
         <H2>7. Intellectual property and licence</H2>
         <P>We grant you a non-exclusive, non-transferable, revocable licence to use the service for your restaurant while it is connected. Your data stays yours; you allow us to process it to provide the service, as described in our <Link href={LEGAL_PATHS.privacy} className="underline">privacy policy</Link>.</P>
@@ -102,7 +105,7 @@ export default function TermsPage() {
         <P>These terms are governed by the laws of Québec and the federal laws of Canada that apply there. The courts of the judicial district of Montréal have jurisdiction. The French version prevails.</P>
 
         <H2>11. Trademarks</H2>
-        <P>Clover is a trademark of Fiserv, Inc.; Uber Eats, DoorDash, SkipTheDishes and Too Good To Go belong to their respective owners. {i.appName} is independent software: it is not made, sponsored or endorsed by those companies.</P>
+        <P>Clover is a trademark of Fiserv, Inc.; Uber Eats, DoorDash, SkipTheDishes and Too Good To Go belong to their respective owners. {i.appName} and {i.phoneAppName} are independent software: they are not made, sponsored or endorsed by those companies.</P>
 
         <H2>12. Your customers’ personal information</H2>
         <P>For your customers’ personal information that the service processes for you (names, phone numbers, addresses, orders, calls and texts), you remain responsible and we act as your service provider. We process it only to provide the service, following your instructions and our <Link href={LEGAL_PATHS.privacy} className="underline">privacy policy</Link>: we do not sell it, we do not use it for our own purposes, we protect it with reasonable security measures and we tell you without delay about any confidentiality incident affecting it. You are responsible for informing your customers and obtaining the consents the law requires.</P>

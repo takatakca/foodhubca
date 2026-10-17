@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { basicOwner, clientIp, DEVICE_COOKIE, ownerSessionVersion, readCookie, sessionSecretSource, verifyDevice, verifySession } from './lib/foodhub/session';
+import { HUB_HOME, isIndexablePath, isPublicSitePath, PUBLIC_LANG_HEADER, PUBLIC_PAGE_CACHE, publicHomeEnabled, publicSiteLang } from './lib/foodhub/public-site';
 
 // Sign-in gate for the whole console and its APIs.
 //  - Platform webhooks stay public (each verifies its own signature / token); cron uses CRON_SECRET;
@@ -28,8 +29,25 @@ const PUBLIC_PATHS = new Set([
   '/courier', '/api/courier', // our couriers' page: the personal signed link (Bearer) is the credential (lib/foodhub/delivery/courier-app.ts)
 ]);
 
+// The public ON2GO Hub site (/hub, /en/hub, robots.txt, sitemap.xml, llms.txt, /og/, favicon) is open to everyone and
+// indexable, like the legal pages; every other response says "noindex" (lib/foodhub/public-site.ts).
 export async function proxy(req: NextRequest) {
+  const res = await gate(req);
+  if (!isIndexablePath(req.nextUrl.pathname)) res.headers.set('X-Robots-Tag', 'noindex');
+  return res;
+}
+
+async function gate(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
+  if (isPublicSitePath(pathname)) {
+    const lang = publicSiteLang(pathname);
+    if (!lang) return NextResponse.next();
+    const headers = new Headers(req.headers);
+    headers.set(PUBLIC_LANG_HEADER, lang); // the page's language comes from its path, never from the cookie
+    const res = NextResponse.next({ request: { headers } });
+    res.headers.set('Cache-Control', PUBLIC_PAGE_CACHE); // same HTML for everyone: no cookie, no session is read
+    return res;
+  }
   if (PUBLIC_PATHS.has(pathname) || PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) return NextResponse.next();
 
   // The live lock depends on the password alone: SESSION_SECRET by itself gives nobody a way to sign in as owner.
@@ -58,6 +76,15 @@ export async function proxy(req: NextRequest) {
   }
   const to = req.nextUrl.clone();
   const isTablet = Boolean(await verifyDevice(readCookie(req.headers.get('cookie'), DEVICE_COOKIE)));
+  // An anonymous visitor on the bare address sees the public ON2GO Hub page (with its "Sign in" button); tablets keep
+  // their PIN screen, and FOODHUB_PUBLIC_HOME=off restores /login. The query string (?fbclid=, utm_…) goes along: a
+  // shared link to the root must land on /hub, not on /login?next=… . The redirect stays temporary (307): a permanent
+  // one would be cached by browsers and send a signed-in owner's "/" (the console) to /hub. Public links always point
+  // at /hub, its own canonical.
+  if (pathname === '/' && !isTablet && publicHomeEnabled()) {
+    to.pathname = HUB_HOME;
+    return NextResponse.redirect(to);
+  }
   to.pathname = isTablet ? '/kitchen/lock' : '/login';
   to.search = pathname === '/' && !search ? '' : `?next=${encodeURIComponent(pathname + search)}`;
   return NextResponse.redirect(to);

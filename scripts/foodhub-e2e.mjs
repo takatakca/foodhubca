@@ -399,7 +399,7 @@ const env = {
   // Website orders taken by Clover Online Ordering go to this kitchen, under this brand (several kitchens share the merchant).
   FOODHUB_CLOVER_WEBSITE_LOCATION: JSON.stringify({ MAINMERCHANT: 'NDG_6284' }), FOODHUB_CLOVER_WEBSITE_BRAND: 'PPP Pizzeria',
 };
-for (const k of ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'UBER_ACCESS_TOKEN', 'TGTG_SPEC_CONFIRMED', 'SESSION_SECRET', 'FOODHUB_CLOVER_AUTOPRINT', 'CLOVER_PRINT_DEVICE_ID', 'FOODHUB_SYNC_MIN_INTERVAL_S', 'FOODHUB_CLOVER_RECORD_PAYMENT', 'FOODHUB_CLOVER_ORDER_TYPES', 'FOODHUB_CLOVER_INVENTORY_SYNC', 'FOODHUB_CLOVER_DELETE_CANCELLED', 'FOODHUB_SCHEDULED_AFTER_MIN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'FOODHUB_INSECURE_SHOW_CODES', 'TWILIO_MESSAGING_SERVICE_SID', 'FOODHUB_OWNER_EMAIL', 'FOODHUB_OWNER_PHONE', 'FOODHUB_FEATURE_DELIVERY', 'FOODHUB_FEATURE_RETAIL', 'FOODHUB_FEATURE_ALCOHOL', 'FOODHUB_FEATURE_PHONE', 'UBER_DIRECT_CUSTOMER_ID', 'UBER_DIRECT_CLIENT_ID', 'UBER_DIRECT_CLIENT_SECRET', 'FOODHUB_CLOVER_WEBSITE_ORDERS', 'FOODHUB_CLOVER_WEBSITE_ORDER_TYPES', 'FOODHUB_CLOVER_WEBSITE_POLL_S', 'FOODHUB_CLOVER_WEBSITE_CLOSE_MIN']) delete env[k];
+for (const k of ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'UBER_ACCESS_TOKEN', 'TGTG_SPEC_CONFIRMED', 'SESSION_SECRET', 'FOODHUB_CLOVER_AUTOPRINT', 'CLOVER_PRINT_DEVICE_ID', 'FOODHUB_SYNC_MIN_INTERVAL_S', 'FOODHUB_CLOVER_RECORD_PAYMENT', 'FOODHUB_CLOVER_ORDER_TYPES', 'FOODHUB_CLOVER_INVENTORY_SYNC', 'FOODHUB_CLOVER_DELETE_CANCELLED', 'FOODHUB_SCHEDULED_AFTER_MIN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'FOODHUB_INSECURE_SHOW_CODES', 'TWILIO_MESSAGING_SERVICE_SID', 'FOODHUB_OWNER_EMAIL', 'FOODHUB_OWNER_PHONE', 'FOODHUB_FEATURE_DELIVERY', 'FOODHUB_FEATURE_RETAIL', 'FOODHUB_FEATURE_ALCOHOL', 'FOODHUB_FEATURE_PHONE', 'UBER_DIRECT_CUSTOMER_ID', 'UBER_DIRECT_CLIENT_ID', 'UBER_DIRECT_CLIENT_SECRET', 'FOODHUB_CLOVER_WEBSITE_ORDERS', 'FOODHUB_CLOVER_WEBSITE_ORDER_TYPES', 'FOODHUB_CLOVER_WEBSITE_POLL_S', 'FOODHUB_CLOVER_WEBSITE_CLOSE_MIN', 'FOODHUB_PUBLIC_HOME', 'FOODHUB_APP_MARKET_URL', 'FOODHUB_PUBLIC_SAME_AS']) delete env[k];
 const app = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '-p', String(APP_PORT), '-H', '127.0.0.1'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
 let appLog = '';
 app.stdout.on('data', (d) => { appLog += d; });
@@ -411,7 +411,35 @@ const ids = {};
 try {
   console.log('\n1. Security');
   const anon = await call('GET', '/', { auth: false, redirect: 'manual' });
-  check('Command Center without sign-in → login page', [302, 307].includes(anon.status) && /\/login/.test(anon.location || ''), `${anon.status} ${anon.location}`);
+  check('bare address without sign-in → public ON2GO Hub page (FOODHUB_PUBLIC_HOME default)', [302, 307].includes(anon.status) && new URL(anon.location || '/', APP).pathname === '/hub', `${anon.status} ${anon.location}`);
+  { const page = await call('GET', '/orders', { auth: false, redirect: 'manual' });
+    check('Command Center without sign-in → login page', [302, 307].includes(page.status) && /\/login/.test(page.location || ''), `${page.status} ${page.location}`); }
+  { const fr = await call('GET', '/hub', { auth: false, headers: { cookie: 'fh_lang=en' } });
+    const en = await call('GET', '/en/hub/pricing', { auth: false });
+    check('public ON2GO Hub pages open without sign-in, language fixed by the path', fr.status === 200 && fr.text.includes('<html lang="fr-CA"') && fr.text.includes('application/ld+json') && en.status === 200 && en.text.includes('<html lang="en-CA"'), `${fr.status} ${en.status}`);
+    const login = await fetch(`${APP}/login`);
+    check('public pages are indexable, the console is not', !/noindex/.test(fr.text) && login.headers.get('x-robots-tag') === 'noindex', String(login.headers.get('x-robots-tag')));
+    { const hubFr = await fetch(`${APP}/hub`); const hubEn = await fetch(`${APP}/en/hub/pricing`);
+      check('public pages carry no X-Robots-Tag header', hubFr.headers.get('x-robots-tag') === null && hubEn.headers.get('x-robots-tag') === null, `${hubFr.headers.get('x-robots-tag')} ${hubEn.headers.get('x-robots-tag')}`);
+      const cc = String(hubFr.headers.get('cache-control'));
+      check('public pages are cacheable (public, s-maxage)', /\bpublic\b/.test(cc) && /s-maxage=\d+/.test(cc) && !/no-store|private/.test(cc), cc); }
+    { const canon = fr.text.match(/<link rel="canonical" href="([^"]+)"/)?.[1] || '';
+      check('the /hub canonical is absolute https on FOODHUB_PUBLIC_URL', canon === 'https://takatak.example/hub', canon); }
+    { const q = await call('GET', '/?utm_source=x&fbclid=y', { auth: false, redirect: 'manual' });
+      const to = new URL(q.location || '/', APP);
+      check('"/" with tracking parameters lands on /hub (query kept), not on /login', [302, 307].includes(q.status) && to.pathname === '/hub' && to.search === '?utm_source=x&fbclid=y', `${q.status} ${q.location}`); }
+    { const dd = await call('GET', '/hub/integrations/doordash-clover', { auth: false });
+      const uber = await call('GET', '/hub/integrations/uber-eats-clover', { auth: false });
+      check('integration in certification (DoorDash) is noindex, a live one (Uber Eats) is indexable', dd.status === 200 && /<meta name="robots" content="noindex, follow"/.test(dd.text) && dd.text.includes('en cours de certification') && uber.status === 200 && !/noindex/.test(uber.text), `${dd.status} ${uber.status}`); }
+    { const legal = await call('GET', '/legal/terms', { auth: false });
+      check('draft legal pages are noindex (follow) until approved', legal.status === 200 && /<meta name="robots" content="noindex, follow"/.test(legal.text), String(legal.status)); }
+    const robots = await call('GET', '/robots.txt', { auth: false });
+    const map = await call('GET', '/sitemap.xml', { auth: false });
+    const llms = await call('GET', '/llms.txt', { auth: false });
+    check('robots.txt, sitemap.xml and llms.txt are public', robots.status === 200 && /Disallow: \/api\//.test(robots.text) && map.status === 200 && map.text.includes('/hub/tarifs') && llms.status === 200 && llms.text.includes('ON2GO Hub'), `${robots.status} ${map.status} ${llms.status}`);
+    check('/hubx is not public', [302, 307].includes((await call('GET', '/hubx', { auth: false, redirect: 'manual' })).status));
+    const logo = await fetch(`${APP}/icons/icon-512.png`);
+    check('Organization logo is public and indexable', logo.status === 200 && logo.headers.get('x-robots-tag') === null, `${logo.status} ${logo.headers.get('x-robots-tag')}`); }
   check('API without sign-in → 401 JSON', (await call('GET', '/api/foodhub/command', { auth: false })).status === 401);
   check('login page is public', (await call('GET', '/login', { auth: false })).status === 200);
   const home = await call('GET', '/');
@@ -1398,6 +1426,8 @@ try {
   const mediaPath = new URL(up.json?.url || 'https://x/none').pathname;
   const served = await call('GET', mediaPath, { auth: false });
   check('photo served without sign-in (Uber / DoorDash / Skip download it)', served.status === 200 && served.contentType === 'image/png' && served.buf.length === 33);
+  { const head = await fetch(`${APP}${mediaPath}`);
+    check('menu photo has no X-Robots-Tag (on2go.ca dish photos stay eligible for image search)', head.status === 200 && head.headers.get('x-robots-tag') === null, String(head.headers.get('x-robots-tag'))); }
   check('a file that is not a photo is refused', (await upload(Buffer.from('<script>alert(1)</script>'), 'image/png')).status === 415);
   check('upload needs sign-in', [401, 302, 307].includes((await upload(pngBuf, 'image/png', false)).status));
   check('no path tricks on the public photo route', (await call('GET', '/media/..%2F..%2Fpackage.json', { auth: false })).status === 404);

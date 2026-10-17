@@ -1,9 +1,16 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { TakatakMark } from '@/components/brand/takatak-mark';
 import { legalInfo, LEGAL_PATHS } from '@/lib/foodhub/legal';
 
 export const dynamic = 'force-dynamic';
+
+// While the pages are drafts (banner below), search engines may follow their links but not index them; once the owner
+// sets FOODHUB_LEGAL_APPROVED=true they become indexable and join the sitemap and llms.txt (lib/foodhub/public-hub.ts).
+export function generateMetadata(): Metadata {
+  return legalInfo().approved ? {} : { robots: { index: false, follow: true } };
+}
 
 // Public pages (no sign-in, see proxy.ts): privacy policy, terms of use and support for TAKATAK Food Hub.
 // These are the URLs given to the Clover App Market and the delivery platforms.

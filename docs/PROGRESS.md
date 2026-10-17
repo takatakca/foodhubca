@@ -1,5 +1,52 @@
 # Food Hub: progress log and task board
 
+## 2026-10-16 — ON2GO Hub pages, second review (task 45, `feature/seo-hub-landing`)
+
+- Status wording never ahead of the facts: "L’application sera bientôt offerte sur le Clover App Market" (no more "en
+  révision chez Clover": nothing is submitted yet); `FOODHUB_APP_MARKET_STATUS=review` turns that wording on later.
+- DoorDash and SkipTheDishes: « Intégration en cours de certification avec … » note, badge on the links, `{pending}`
+  line in the platforms FAQ and llms.txt; their pages are `noindex, follow` and out of the sitemap and llms.txt until
+  `FOODHUB_PUBLIC_LIVE_PLATFORMS` lists them (default `uber`).
+- `/media/` (dish photos used on on2go.ca) indexable again; draft legal pages `noindex, follow` until approved.
+- `/` keeps its query string on the way to `/hub` (fbclid / utm links no longer land on `/login`); still 307 on purpose.
+- Hub pages `Cache-Control: public, max-age=300, s-maxage=3600, stale-while-revalidate=86400`. In production a non-https
+  `FOODHUB_PUBLIC_URL` falls back to `https://foodhub.on2go.ca` for canonicals, sitemap, robots and JSON-LD.
+- Copy: allergies red on screen only, « par application », « heures de pointe », « versements », « 15 $/mois … taxes en
+  sus » (pricing sentence, meta description, FAQ, JSON-LD Offer), "days of free trial", llms.txt English colon.
+  Schema: `eligibleRegion` Canada + identifier CA, `primaryImageOfPage` ImageObject; docs: the Software App rating
+  warning stays until genuine Clover App Market reviews exist.
+- Tests: 32 in `tests/public-hub.test.ts`; e2e: no X-Robots-Tag on `/hub`, `/en/hub/pricing`, `/media/<photo>`; public
+  cache header; `/?utm_source=x&fbclid=y` → `/hub` with query; absolute https canonical; DoorDash page noindex; draft
+  legal page noindex.
+
+- New public, indexable pages, French first with an English twin: `/hub` (landing), `/hub/tarifs`,
+  `/hub/integrations/{uber-eats,doordash,skipthedishes}-clover`, `/hub/ecran-de-cuisine-clover`,
+  `/hub/telephone-ia-restaurant` and `/en/hub/…`. Server-rendered, no session, no database, no page-specific client
+  component, no trackers (the root layout's boot script and the Next.js runtime still load).
+- Product facts reused from the Clover App Market listing (`clover-listing.ts`); prices in `lib/foodhub/pricing.ts`
+  (14-day trial, $50/month per app, $15 per extra brand per platform, billed by Clover); FAQ and examples are built from
+  those constants and say "(planned launch pricing)" until `FOODHUB_APP_MARKET_URL` is set. Too Good To Go only "when
+  your account offers an order feed" (the hub has its own tagline without it; a test fails on any unconditional mention
+  in text, JSON-LD, metadata or llms.txt); AI phone "coming soon, separate app", in the planned tense.
+- JSON-LD: Organization (ON2GO Hub, alt. TAKATAK Food Hub, legal name from env, address), SoftwareApplication
+  (BusinessApplication, Clover), WebPage, FAQPage = visible FAQ (each shared question on one page only), breadcrumbs;
+  shared nodes keep one url (`/hub`); Offer only when `FOODHUB_APP_MARKET_URL` is set; never a rating (Search
+  Console's Software App warning is expected until then, see `docs/FOODHUB.md`). Title ≤ 60, description ≤ 155, canonical, hreflang fr-CA / en-CA / x-default, share images
+  `public/og/hub-{fr,en}.png`.
+- `robots.txt` (blocks only `/api/`, so private pages show their noindex), `sitemap.xml` (hub pages; the 3 legal pages
+  only once `FOODHUB_LEGAL_APPROVED=true`), `llms.txt`, `favicon.ico`. `/icons/` is indexable (Organization logo).
+- `proxy.ts`: public site paths (exact `/hub`, `/en/hub`, prefixes `/hub/`, `/en/hub/`, `/og/`; `/hubx` stays
+  private); language fixed by path (header read first by `getLang()`); anonymous `/` → `/hub` (`FOODHUB_PUBLIC_HOME=off`
+  restores `/login`; tablets and signed-in users unchanged); `X-Robots-Tag: noindex` on every non-public response.
+- e2e: the "/ without sign-in" check now expects `/hub`, and new checks cover the public pages, robots, sitemap, llms.
+- Built on `fix/legal-pages-complete` (PR #66: paid pricing in the terms and support FAQ, no more "free"): merge #66
+  first; this PR is stacked on it.
+- Checks: typecheck OK, lint 0 errors (1 old warning), 1003 tests passed (27 in `tests/public-hub.test.ts`, 3 in
+  `tests/i18n-server-lang.test.ts`), 1 skipped, 1 failure also on `origin/main` (`tests/tgtg-email.test.ts` "forged Too
+  Good To Go From", Windows CRLF checkout artifact, not touched here); webpack build OK; verify:foodhub 560/0.
+- Owner after merge: redeploy; optional env `FOODHUB_APP_MARKET_URL`, `FOODHUB_PUBLIC_SAME_AS`; Search Console
+  URL-prefix property `https://foodhub.on2go.ca/` + sitemap; link the page from LinkedIn / YouTube / on2go.ca only once
+  the legal Draft banner is gone (`FOODHUB_LEGAL_APPROVED=true` also adds the legal pages to the sitemap).
 ## 2026-10-17 — Legal pages name TAKATAK Phone (`fix/legal-takatak-phone`, stacked on #66)
 
 - The Clover App Market review of the second app, TAKATAK Phone, uses the same `/legal/privacy` and `/legal/terms` URLs. Privacy §1 (FR + EN) now also covers the Clover app « TAKATAK Phone » (automated phone assistant: answers calls, takes orders, texts a Clover payment link; its data = the calls, voicemail and direct orders of §2). Both pages' header and title name both apps.

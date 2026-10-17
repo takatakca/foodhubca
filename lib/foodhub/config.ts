@@ -88,6 +88,7 @@ export async function callApi(channel: ChannelKey, url: string, init: RequestIni
 
 /** Public base URL of this deployment, used to show webhook URLs in the dashboard. */
 export function publicBaseUrl(): string {
-  return stripSlash(process.env.FOODHUB_PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'));
+  // Trimmed: a value pasted with a space or a new line would make every signed webhook (Twilio, Clover) fail.
+  return stripSlash((process.env.FOODHUB_PUBLIC_URL || '').trim() || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL.trim()}` : 'http://localhost:3000'));
 }
 

@@ -6,7 +6,9 @@ import { can } from '@/lib/foodhub/session';
 import { VERIFY_KEY, cloverInventorySyncEnabled } from '@/lib/foodhub/clover-sync';
 import { cloverReadiness, cloverTokenFor, knownCloverMerchants } from '@/lib/foodhub/pos/clover';
 import { cloverAppReadiness, listCloverConnections } from '@/lib/foodhub/pos/clover-oauth';
+import { cloverAppsOverview } from '@/lib/foodhub/pos/clover-apps-status';
 import { cloverOrderTypesEnabled, cloverRecordPaymentEnabled } from '@/lib/foodhub/pos/clover-books';
+import { lastCloverTestOrder } from '@/lib/foodhub/pos/clover-test-order';
 import { getRepo } from '@/lib/foodhub/repo';
 import { relayReadiness } from '@/lib/foodhub/adapters/relay';
 import { goLiveFacts } from '@/lib/foodhub/go-live';
@@ -42,6 +44,8 @@ export const GET = withPerm('stores:map', async (req, _ctx, actor) => {
       ...cloverReadiness(),
       // Merchants with an API token in the environment (CLOVER_ACCESS_TOKEN / CLOVER_MERCHANT_TOKENS): orders reach them too.
       tokenMerchants: knownCloverMerchants().filter((m) => cloverTokenFor(m)).length,
+      // Their IDs (not secrets): Settings → Clover app offers them for the owner's test order.
+      tokenMerchantIds: can(actor.role, 'admin') ? knownCloverMerchants().filter((m) => cloverTokenFor(m)) : [],
       webhookUrl: `${base}/api/foodhub/webhooks/clover`,
       webhookAuthSet: Boolean(process.env.CLOVER_WEBHOOK_AUTH),
       // The verification code is not a secret (Clover shows it to you too); only shown to owners.
@@ -50,7 +54,14 @@ export const GET = withPerm('stores:map', async (req, _ctx, actor) => {
       orderTypes: cloverOrderTypesEnabled(),
       inventorySync: cloverInventorySyncEnabled(),
       // Clover App Market app: Site URL + launch path to enter in the Clover developer dashboard, connected merchants.
-      app: { ...cloverAppReadiness(), connectUrl: `${base}/api/foodhub/clover-connect/start`, merchants: await listCloverConnections().catch(() => []) },
+      app: {
+        ...cloverAppReadiness(), connectUrl: `${base}/api/foodhub/clover-connect/start`, merchants: await listCloverConnections().catch(() => []),
+        // Last test order that went through every step (created, printed, paid) on any register: "tested end to end".
+        testOrder: await lastCloverTestOrder(),
+      },
+      // Every Clover app this server serves (Food Hub + the AI phone app once its env is set): keys set, addresses,
+      // webhook, installs per merchant. Never tokens or secrets.
+      apps: await cloverAppsOverview({ showVerification: can(actor.role, 'admin') }).catch(() => []),
     },
     channels,
     // Food Hub Order Relay: partners that push orders (TGTG feed, website…) post to this address.

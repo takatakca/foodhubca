@@ -95,10 +95,16 @@ describe.skipIf(!fixtureDir)('the real On2GO Clover menu (private fixture)', () 
     const groupRefs = new Set(menu.modifierGroups.map((g) => g.ref));
     expect(menu.items.every((i) => i.modifierGroupRefs.every((r) => groupRefs.has(r)))).toBe(true);
     expect(menu.modifierGroups.every((g) => g.min <= g.max && g.modifiers.length > 0)).toBe(true);
-    // The whole visible inventory (no Clover menu chosen): about 200 items — employee meals included, archive left out.
+    // The whole visible inventory (no Clover menu chosen): staff meals and in-store promotions are left out by default,
+    // which leaves exactly the DoorDash menu's dishes; archive always left out.
     const all = buildMenuFromClover('Po Poulet', raw, groups);
-    expect(all.menu.items.length).toBeGreaterThan(195);
-    expect(all.menu.items.length).toBeLessThan(215);
+    expect(all.menu.items.length).toBe(175);
+    expect(all.report.skipped.excluded).toBeGreaterThan(0);
+    expect(all.menu.categories.some((c) => /employ|promotion/i.test(c.name))).toBe(false);
+    // excludeCategories: [] = every visible category, employee meals included (about 200 items).
+    const every = buildMenuFromClover('Po Poulet', raw, groups, { excludeCategories: [] });
+    expect(every.menu.items.length).toBeGreaterThan(195);
+    expect(every.menu.items.length).toBeLessThan(215);
   });
 });
 

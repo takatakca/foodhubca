@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Banknote, Bike, Check, ExternalLink, MapPin, Pencil, Phone, Printer, RefreshCw, Store, TriangleAlert, Truck, Wine, X } from 'lucide-react';
+import { Banknote, Bike, Check, CreditCard, ExternalLink, MapPin, Pencil, Phone, Printer, RefreshCw, Send, Store, TriangleAlert, Truck, Wine, X } from 'lucide-react';
 import { Badge, StatusDot } from '@/components/ui/badge';
 import { Banner } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -59,7 +59,13 @@ export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onCl
     <Drawer width="lg" onClose={onClose}
       title={o ? <span className="flex flex-wrap items-center gap-2"><span className="num">{o.number}</span><Badge tone={DIRECT_TONE[o.status] ?? 'neutral'}>{directStatusLabel(t, o.status)}</Badge></span> : t('Commande', 'Order')}
       subtitle={o ? `${o.brandName} · ${locName(o.locationCode)} · ${sourceLabel(t, o.source)} · ${timeOf(o.placedAt, loc, true)}` : undefined}
-      footer={o && act_ && !closed ? (
+      footer={o && act_ && !closed && o.status === 'awaiting_payment' ? (
+        <div className="flex w-full flex-wrap items-center gap-2">
+          <Button variant="soft" icon={<Send className="size-4" />} loading={busy === 'resend_paylink'} onClick={() => act('resend_paylink', {}, t('Lien texté de nouveau', 'Link texted again'))}>{t('Renvoyer le lien de paiement', 'Text the payment link again')}</Button>
+          {o.fulfillment === 'pickup' && <Button variant="outline" icon={<Banknote className="size-4" />} loading={busy === 'pay_at_counter'} onClick={() => act('pay_at_counter', {}, t('Envoyée en cuisine — paiement au comptoir', 'Sent to the kitchen — pay at the counter'))}>{t('Payer au comptoir', 'Pay at the counter')}</Button>}
+          <Button variant="ghost" className="ml-auto text-stop" icon={<X className="size-4" />} onClick={() => setCancelling('order')}>{t('Annuler la commande', 'Cancel order')}</Button>
+        </div>
+      ) : o && act_ && !closed ? (
         <div className="flex w-full flex-wrap items-center gap-2">
           {o.payment !== 'paid' && <Button variant="soft" icon={<Banknote className="size-4" />} loading={busy === 'mark_paid'} onClick={() => act('mark_paid', {}, t('Paiement noté', 'Payment noted'))}>{t('Paiement encaissé', 'Payment taken')}</Button>}
           {o.fulfillment === 'pickup' && <Button variant="go" icon={<Store className="size-4" />} loading={busy === 'picked_up'} onClick={() => act('picked_up')}>{t('Récupérée par le client', 'Picked up by customer')}</Button>}
@@ -73,6 +79,13 @@ export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onCl
           {o.attention && !closed && (
             <Banner tone="warn" action={act_ ? <Button size="xs" variant="ghost" loading={busy === 'clear_attention'} onClick={() => act('clear_attention', {}, t('Marquée vérifiée', 'Marked as checked'))}>{t('C’est réglé', 'Done')}</Button> : undefined}>{o.attention}</Banner>
           )}
+          {o.status === 'awaiting_payment' && o.paylink && (
+            <Banner tone="info">
+              <span className="flex items-center gap-1.5"><CreditCard className="size-4" />{t('En attente du paiement par lien — rien n’est envoyé en cuisine (ni livreur) avant le paiement.', 'Waiting for the payment link — nothing goes to the kitchen (or a courier) before it is paid.')}</span>
+              <span className="mt-1 block text-xs">{t('Lien valide jusqu’à', 'Link valid until')} {timeOf(o.paylink.expiresAt, loc)}{o.paylink.smsAt ? ` · ${t('texté', 'texted')} ${timeOf(o.paylink.smsAt, loc)}` : o.paylink.smsError ? ` · ${t('texto non envoyé', 'text not sent')}: ${o.paylink.smsError}` : ''}{o.paylink.openedAt ? ` · ${t('page ouverte', 'page opened')}` : ''}{o.paylink.declinedAt ? ` · ${t('carte refusée une fois', 'a card was declined')}` : ''}</span>
+            </Banner>
+          )}
+          {o.paylink?.paidAt && <p className="text-xs text-go-2">{t('Payée en ligne (Clover)', 'Paid online (Clover)')} · {timeOf(o.paylink.paidAt, loc)}{o.paylink.printedAt ? ` · ${t('billet imprimé', 'ticket printed')}` : ''}</p>}
           {o.posError && !closed && <Banner tone="stop" action={act_ ? <Button size="xs" loading={busy === 'retry_clover'} icon={<Printer className="size-3.5" />} onClick={() => act('retry_clover')}>{t('Renvoyer à Clover', 'Send to Clover')}</Button> : undefined}>{t('Clover n’a pas reçu la commande : ', 'Clover did not receive the order: ')}{o.posError}</Banner>}
 
           <section className="grid gap-3 sm:grid-cols-2">

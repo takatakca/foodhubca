@@ -1,0 +1,27 @@
+Authentication-Results: mx.example.test; dkim=pass header.d=toogoodtogo.com header.s=synthetic; spf=pass smtp.mailfrom=toogoodtogo.com; dmarc=pass header.from=toogoodtogo.com
+From: Too Good To Go <no-reply@toogoodtogo.com>
+To: store@example.test
+Subject: You have a new reservation #W9XK3L7Q
+Date: Fri, 16 Oct 2026 20:41:00 -0400
+Message-ID: <synthetic-order-en-multipart-0003@example.test>
+X-Takatak-Fixture: synthetic (mirrors a TGTG store notification; not a real e-mail)
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="tgtg-synthetic-boundary"
+
+--tgtg-synthetic-boundary
+Content-Type: text/plain; charset=utf-8
+
+Hello,
+
+Alex has reserved 1 x Magic Bag at OOEUF NDG.
+
+Pickup window: Tomorrow, 5:00 - 5:30 PM
+Price: CA$4.99
+Reservation code: W9XK3L7Q
+
+--tgtg-synthetic-boundary
+Content-Type: text/html; charset=utf-8
+
+<p>Hello,</p><p><b>Alex</b> has reserved 1 x Magic Bag at OOEUF NDG.</p>
+<p>Pickup window: Tomorrow, 5:00 - 5:30 PM<br>Price: CA$4.99<br>Reservation code: W9XK3L7Q</p>
+--tgtg-synthetic-boundary--

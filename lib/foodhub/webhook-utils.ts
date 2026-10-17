@@ -55,7 +55,7 @@ export function parseJson(raw: string): any | undefined {
  * Returns false when it could not be saved — the route then answers 503 so the platform sends it again (and a copy
  * that did land, with only the database's answer lost, is marked refused: the platform keeps that one).
  */
-export async function saveThenProcess(input: { channel: ChannelKey; kind: InboxKind; body: unknown; reference?: string | null }): Promise<boolean> {
+export async function saveThenProcess(input: { channel: ChannelKey; kind: InboxKind; body: unknown; reference?: string | null; sandbox?: string | null }): Promise<boolean> {
   const id = crypto.randomUUID();
   const receivedAt = nowIso();
   let entry: Awaited<ReturnType<typeof receiveWebhook>>;

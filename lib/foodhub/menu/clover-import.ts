@@ -4,6 +4,8 @@
 //
 //  - Inventory: GET /v3/merchants/{mId}/items?expand=categories,modifierGroups and /modifier_groups?expand=modifiers.
 //    Hidden items, and items filed only in "ARCHIVE · …" categories, are left out (they are the old catalogue).
+//    Items filed only in a staff or in-store promotion category ("Menu Employés", "INSTORE PROMOTIONS", "Menu
+//    promotionnel" by default: excludeCategories) are left out too, so a re-import of the source menu stays clean.
 //  - Clover menus: GET /v3/merchants/{mId}/menus and /menus/{menuId}/items. Clover does not publish a reference for
 //    these endpoints, so every field is read defensively (item id, price, photo, description under the names seen so
 //    far); when the merchant's token cannot read them, the import says so and uses the inventory alone.
@@ -19,6 +21,14 @@ export interface CloverMenuSummary { id: string; name: string; type?: string; ch
 export interface CloverMenuItem { itemId: string; priceCents?: number; name?: string; description?: string; imageUrl?: string; categoryId?: string; categoryName?: string; sortOrder?: number }
 
 const ARCHIVE = /^\s*archive\b/i;
+
+/** Clover categories never imported to a platform menu: the staff menu and the in-store promotions. */
+export const DEFAULT_EXCLUDED_CATEGORIES: readonly string[] = ['Menu Employés', 'INSTORE PROMOTIONS', 'Menu promotionnel'];
+
+/** Case, accents and spacing do not matter: "menu employes", "Menu  Employés" and "MENU EMPLOYÉS" are one category. */
+export function categoryKey(name: unknown): string {
+  return String(name ?? '').normalize('NFD').replace(/\p{M}/gu, '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
 const CLOVER_STATIC = 'https://cloverstatic.com/menu-assets/items/';
 
 async function get(base: string, mid: string, token: string, path: string, qs: Record<string, string> = {}): Promise<any> {
@@ -90,7 +100,7 @@ export interface CloverImportReport {
   categories: number;
   modifierGroups: number;
   requiredGroups: number;
-  skipped: { hidden: number; archived: number; notInMenu: number; variablePrice: number };
+  skipped: { hidden: number; archived: number; notInMenu: number; variablePrice: number; excluded: number };
   menu?: { id: string; name: string; items: number; missingFromInventory: number };
   platformPrices?: Partial<Record<Marketplace, PlatformPriceResult>>;
 }
@@ -124,11 +134,18 @@ export interface BuildOptions {
   /** Platforms that get the chosen menu's prices (e.g. ["doordash", "uber_eats"]). */
   platformPrices?: Marketplace[];
   includeArchived?: boolean;
+  /**
+   * Category names left out (case and accents ignored). Default DEFAULT_EXCLUDED_CATEGORIES; [] imports every category.
+   * An item filed only in left-out categories is skipped; one also filed in a kept category keeps that category.
+   */
+  excludeCategories?: readonly string[];
 }
 
 /** Builds the master menu from raw Clover inventory rows (pure: the route fetches, this decides). */
 export function buildMenuFromClover(brandName: string, items: any[], groups: any[], opts: BuildOptions = {}): { menu: MasterMenu; report: CloverImportReport } {
-  const skipped = { hidden: 0, archived: 0, notInMenu: 0, variablePrice: 0 };
+  const skipped = { hidden: 0, archived: 0, notInMenu: 0, variablePrice: 0, excluded: 0 };
+  const excluded = new Set((opts.excludeCategories ?? DEFAULT_EXCLUDED_CATEGORIES).map(categoryKey).filter(Boolean));
+  const isExcluded = (name: unknown) => excluded.size > 0 && excluded.has(categoryKey(name));
   const inMenu = opts.menuItems ? new Map(opts.menuItems.map((m) => [m.itemId, m])) : null;
   const categories = new Map<string, MenuCategory>();
   const uncategorized: MenuCategory = { ref: 'uncategorized', name: 'Other', sortOrder: 999 };
@@ -139,11 +156,15 @@ export function buildMenuFromClover(brandName: string, items: any[], groups: any
     if (!it?.id || !it.name) continue;
     if (it.hidden) { skipped.hidden++; continue; }
     const cats: any[] = (it.categories?.elements ?? []).filter((c: any) => c?.id);
-    const live = cats.filter((c) => !ARCHIVE.test(String(c.name ?? '')));
-    if (!opts.includeArchived && cats.length && !live.length) { skipped.archived++; continue; }
+    const shown = cats.filter((c) => !isExcluded(c.name));
+    if (cats.length && !shown.length) { skipped.excluded++; continue; }
+    const live = shown.filter((c) => !ARCHIVE.test(String(c.name ?? '')));
+    if (!opts.includeArchived && shown.length && !live.length) { skipped.archived++; continue; }
     const m = inMenu?.get(String(it.id));
     if (inMenu && !m) { skipped.notInMenu++; continue; }
-    const cat = (opts.includeArchived ? cats : live)[0] ?? (m?.categoryId ? { id: m.categoryId, name: m.categoryName, sortOrder: m.sortOrder } : undefined);
+    // No inventory category: the Clover menu row's category decides (a staff / promotion one is left out too).
+    if (!cats.length && m?.categoryName && isExcluded(m.categoryName)) { skipped.excluded++; continue; }
+    const cat = (opts.includeArchived ? shown : live)[0] ?? (m?.categoryId ? { id: m.categoryId, name: m.categoryName, sortOrder: m.sortOrder } : undefined);
     if (cat?.id && !categories.has(String(cat.id))) categories.set(String(cat.id), { ref: String(cat.id), name: String(cat.name || 'Category'), sortOrder: Number(cat.sortOrder ?? categories.size) });
     // VARIABLE / PER_UNIT items have no fixed price in Clover: never publish them as $0 — import them unavailable with a note.
     const fixedPrice = !it.priceType || String(it.priceType).toUpperCase() === 'FIXED';

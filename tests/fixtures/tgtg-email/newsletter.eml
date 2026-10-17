@@ -1,0 +1,13 @@
+Authentication-Results: mx.example.test; dkim=pass header.d=toogoodtogo.com header.s=synthetic; spf=pass smtp.mailfrom=toogoodtogo.com; dmarc=pass header.from=toogoodtogo.com
+From: Too Good To Go <news@toogoodtogo.com>
+To: store@example.test
+Subject: Your monthly impact report
+Date: Fri, 16 Oct 2026 08:00:00 -0400
+Message-ID: <synthetic-newsletter-0008@example.test>
+X-Takatak-Fixture: synthetic (not an order e-mail: must be ignored)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Hello,
+
+Last month you saved 42 meals from going to waste. Thank you for being a partner!

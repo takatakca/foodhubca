@@ -3,6 +3,9 @@
 ## Reprise 2026-10-16 — navigation clavier des onglets (non publié)
 
 Sur la branche `fix/console-tabs-keyboard-20261016` (créée à partir de `main` `12ba64d9f6941698118533d40d3f381ff709065c`), les onglets horizontaux de la console respectent maintenant le focus roving ARIA : seul l'onglet choisi est accessible avec Tab, flèche droite/gauche et Début/Fin sélectionnent et focalisent le bon onglet. Leurs événements `onChange` existants sont conservés, sans modification de données ni routes. Tests de navigation et cas invalides ajoutés dans `tests/tab-keyboard.test.ts`. CI, image Docker, revue navigateur et fusion propriétaire à contrôler ; aucune livraison de cette branche.
+## Reprise 2026-10-16 — focus des fenêtres de la console (branche, non déployé)
+
+`main` observé au SHA `12ba64d9f6941698118533d40d3f381ff709065c` (PR #57 fusionnée, CI et image réussies). Correctif indépendant sur `fix/overlay-keyboard-focus-20261016` : les dialogues et tiroirs portalisés partagent une pile de fenêtres active ; seul le dessus reçoit Échap et Tab, le focus reste dans la fenêtre, revient au déclencheur après fermeture, les zones de fond ne défilent pas en cas de fenêtres imbriquées. Les titres et sous-titres sont reliés aux attributs ARIA. Tests purs des règles d'empilement et du bouclage clavier ajoutés. Les validations GitHub de cette branche sont à contrôler sur son dernier commit. Aucune donnée marchande ni intégration modifiée ; **aucun déploiement effectué sur cette branche**. Les validations réelles Clover, Uber, DoorDash et Skip restent non certifiées : issue #46.
 
 
 ## Mise à jour du 2026-10-15 — activation en cours

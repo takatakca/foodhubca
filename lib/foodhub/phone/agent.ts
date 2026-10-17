@@ -26,6 +26,7 @@ import { localTimeLabel } from '../time';
 import { noteAiFailure, noteAiSuccess, phoneAiUsable } from './ai-health';
 import { addToCart, addUpsell, buildPhoneMenu, cartSummary, removeFromCart, upsellOffer, type CartLine, type PhoneMenu } from './cart';
 import { say, type PhoneCall, type PhoneLang, type TurnReply } from './calls';
+import { redactCards } from './ivr/words';
 import { kitchenHours, paymentText, phoneDeliveryAvailable, phonePaymentPlan, placePhoneOrder, setOrderDetails } from './order';
 import { isMultiKitchen, kitchenView, lineKitchens, type PhoneLine, type PhoneSettings } from './settings';
 import { goodDay, orderDigits, personaBlock, personaFor, VOICE_STYLE } from './style';
@@ -377,6 +378,18 @@ const FALLBACK: Record<PhoneLang, { handoff: string; again: string }> = {
  * One turn of the conversation. Returns the call as updated (cart, details, history, usage) and what to say.
  * Never throws: any failure hands the call to a person.
  */
+/**
+ * The AI's words as kept in the call record: a card-like number it repeats never stays in call.messages (saved on every
+ * turn until the call ends). Blocks without one are kept as they are, byte for byte (cached prompt prefix).
+ */
+export function storedContent(content: Anthropic.Beta.BetaContentBlockParam[]): Anthropic.Beta.BetaContentBlockParam[] {
+  return content.map((b) => {
+    if (b.type !== 'text') return b;
+    const text = redactCards(b.text);
+    return text === b.text ? b : { ...b, text };
+  });
+}
+
 export async function runAgentTurn(call: PhoneCall, callerText: string, ctx: AgentContext): Promise<{ call: PhoneCall; reply: TurnReply }> {
   const state: TurnState = { call: say({ ...call, turns: call.turns + 1 }, 'caller', callerText || '(silence)') };
   const handoff = (why: string): { call: PhoneCall; reply: TurnReply } => {
@@ -422,7 +435,7 @@ export async function runAgentTurn(call: PhoneCall, callerText: string, ctx: Age
       usage.cacheReadTokens += res.usage?.cache_read_input_tokens ?? 0;
       if (step === 0) await noteAiSuccess();
       if (res.stop_reason === 'refusal') { state.call = { ...state.call, usage }; return handoff('The AI declined to continue'); }
-      messages.push({ role: 'assistant', content: res.content as Anthropic.Beta.BetaContentBlockParam[] });
+      messages.push({ role: 'assistant', content: storedContent(res.content as Anthropic.Beta.BetaContentBlockParam[]) });
       // Every step's words are spoken, in order (text written next to a tool call is not lost).
       const stepText = clean(res.content.filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text').map((b) => b.text).join(' '));
       if (stepText) said.push(stepText);

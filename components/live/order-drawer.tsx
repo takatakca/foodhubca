@@ -13,6 +13,7 @@ import { Countdown, Elapsed } from '@/components/ui/timer';
 import { useToast } from '@/components/ui/toast';
 import { useViewer } from '@/components/shell/viewer';
 import { refreshEverything } from '@/components/live/pulse';
+import { OrderTools } from '@/components/live/order-tools';
 import { api, ApiError, money, timeOf } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import type { T } from '@/lib/i18n';
@@ -231,6 +232,7 @@ export function OrderDetail({ order, events, onChange, compact }: { order: FullO
           <dt className="font-bold text-ink">{t('Total client', 'Customer total')}</dt><dd className="num text-right font-extrabold text-ink">{money(order.total, loc)}</dd>
         </dl>
       </div>
+      <OrderTools order={order} events={events} />
 
       {/* details */}
       <div className="rounded-lg border border-line bg-surface p-4 text-[13px]">

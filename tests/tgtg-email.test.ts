@@ -547,11 +547,19 @@ describe('IMAP mailbox (read-only, cursor, only verified TGTG senders downloaded
     expect(sent('POST', /\/atomic_order\/orders$/)).toHaveLength(1);
   });
 
-  it('a forged Too Good To Go From (Reply-To only, or no DKIM pass) is never downloaded nor acted on', async () => {
+  // Both line endings: IMAP servers hand over CRLF, and the fixtures are LF in git but CRLF in a Windows checkout
+  // (core.autocrlf). A forgery written for one ending only silently left the genuine DKIM pass in place on the other.
+  it.each([['LF', '\n'], ['CRLF', '\r\n']])('a forged Too Good To Go From (Reply-To only, or no DKIM pass) is never downloaded nor acted on (%s)', async (_name, eol) => {
     await mapOoeuf();
     at('2026-10-16T20:50:00Z');
-    const replyTo = Buffer.from('From: attacker@evil.test\r\nReply-To: orders@toogoodtogo.com\r\nSubject: New order #AB12CD34 - OOEUF NDG\r\nMessage-ID: <r1@example.test>\r\n\r\nOrder ID: AB12CD34\r\nStore: OOEUF NDG\r\n');
-    const noDkim = Buffer.from(raw('order-en-plain.eml').toString('utf8').replace(/^Authentication-Results:.*\n/, 'Authentication-Results: mx.example.test; dkim=none; dmarc=fail header.from=toogoodtogo.com\n'));
+    const lines = (s: string) => Buffer.from(s.replace(/\r?\n/g, eol));
+    const replyTo = lines('From: attacker@evil.test\nReply-To: orders@toogoodtogo.com\nSubject: New order #AB12CD34 - OOEUF NDG\nMessage-ID: <r1@example.test>\n\nOrder ID: AB12CD34\nStore: OOEUF NDG\n');
+    const noDkim = lines(raw('order-en-plain.eml').toString('utf8').replace(/^Authentication-Results:[^\r\n]*/, 'Authentication-Results: mx.example.test; dkim=none; dmarc=fail header.from=toogoodtogo.com'));
+    // The forgery really took: Too Good To Go's From, but the receiving server vouches for nothing.
+    const forged = await mailFromMime(noDkim);
+    expect(forged.authResults).toEqual(['mx.example.test; dkim=none; dmarc=fail header.from=toogoodtogo.com']);
+    expect(senderAllowed(forged)).toBe(true);
+    expect(senderVerified(forged)).toBe(false);
     const client = fakeImap([{ uid: 1, source: replyTo }, { uid: 2, source: noDkim }]);
     const r = await pollTgtgMailbox({ client });
     expect(r).toMatchObject({ ok: true, checked: 2, handled: 1, statuses: { attention: 1 } });

@@ -26,6 +26,7 @@ import { sendDueReports } from './reports';
 import { cloverReadiness, cloverSalesSince, allCloverMerchants, type CloverSales } from './pos/clover';
 import { importCloverPlatformOrders } from './pos/clover-platform-orders';
 import { importCloverWebsiteOrders } from './pos/clover-website-orders';
+import { tickExtraBrandBilling } from './pos/clover-extra-brands';
 import { runOrderRecovery } from './recovery';
 import { getRepo } from './repo';
 import { startOfLocalDayMs } from './time';
@@ -248,6 +249,8 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
     const scheduledFired = await fireDueScheduled().catch(() => 0);
     const inv = await pollCloverInventory().catch((e) => ({ turnedOff: 0, turnedOn: 0, priceChanges: 0, errors: [String(e?.message ?? e)] }));
     const recon = await dailyReconciliation().catch(() => null);
+    // Clover extra-brand billing (off unless FOODHUB_CLOVER_METERED_ENABLED=true; at most once an hour).
+    await tickExtraBrandBilling().catch((e) => console.error('[foodhub] extra-brand billing failed', e instanceof Error ? e.message : e));
     const stores = await repo.listStores();
     const dayStart = startOfLocalDayMs();
     const todays = await repo.listOrders({ since: new Date(dayStart).toISOString(), limit: 2000 });

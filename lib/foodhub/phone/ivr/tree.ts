@@ -90,6 +90,17 @@ export const SAFER_GREETING: Texts = {
   en: 'Hello and welcome to ON2GO, your local delivery service in Québec.',
   es: 'Hola y bienvenido a ON2GO, su servicio de entrega local en Quebec.',
 };
+/**
+ * Said after the greeting on every call, whatever the owner's greeting text or recorded MP3 says (legal review
+ * 2026-10-16): after "Je suis l’assistante automatisée" (style.ts selfIntro), the call is transcribed and 0 reaches a
+ * person (the engine sends 0 to a person on every step). Kept apart from OWNER_GREETING so an edited greeting can
+ * never drop it. One short sentence per part.
+ */
+export const GREETING_NOTICE: Texts = {
+  fr: 'L’appel est transcrit pour traiter votre demande. Pour parler à une personne, faites le 0.',
+  en: 'This call is transcribed to handle your request. To speak with a person, press 0.',
+  es: 'La llamada se transcribe para atender su solicitud. Para hablar con una persona, marque el 0.',
+};
 
 const t3 = (fr: string, en: string, es: string): Texts => ({ fr, en, es });
 

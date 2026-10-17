@@ -152,7 +152,7 @@ answering is a listed rejection reason.
 
 | Requirement | Status | Detail |
 |---|---|---|
-| A plan for every market, free allowed | 👤 | Choose **Free (0.00)** for Canada and the US. Clover may follow up about monetizing. |
+| A plan for every market | ✅ done (2026-10-16) | Tier **Standard** CAD $50/month, Canada only, 14-day trial, + metered event **Extra brand, per platform, per month** CAD $15. See [`CLOVER_BILLING.md`](CLOVER_BILLING.md). |
 | All fees through Clover billing, none outside | ✅ | The terms now say any fee for the Clover app goes through Clover's billing only. Food Hub charges nothing. |
 | Read the merchant's subscription (`GET /v3/apps/{appId}/merchants/{mId}/billing_info`) | ✅ **new** | Read at connect time and on each App UPDATE. Shown on the welcome page and in Settings → Clover app. Nothing is blocked by it: the app is free. If you add a paid plan later, decide then what a lapsed merchant loses. |
 | Prices in CAD for Canada; trial lengths | n/a | Only if you add a paid plan. |
@@ -259,7 +259,7 @@ server with `npm run setup`, never in a chat.
    - Categories (after §5).
    - Developer Support: email, phone, website `https://foodhub.on2go.ca/legal/support`, hours.
    - Optional: the cover image.
-8. **Pricing:** a free plan for Canada and the United States.
+8. **Pricing:** tier "Standard" CAD $50/month in Canada with a 14-day free trial, + metered "Extra brand, per platform, per month" CAD $15 ([`CLOVER_BILLING.md`](CLOVER_BILLING.md)).
 9. **Functional video** (§6): upload it to YouTube or Vimeo as **unlisted**.
 10. **Overview:** paste the functional description from Settings → Clover app, and the video URL.
 11. **Test** (§7) in sandbox and on your own merchant.

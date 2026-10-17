@@ -55,8 +55,10 @@ export interface PaylinkReady { ok: boolean; merchantId?: string; reason?: strin
 /**
  * Can this kitchen take a payment by link right now? A Hosted Checkout key for the kitchen's OWN Clover merchant (no
  * default fallback), a REST token for that merchant, texts configured and an https public address.
+ * `needSms: false` (the online ordering page opens the link in the customer's browser, nothing is texted) skips the
+ * texts check only; every other check stays.
  */
-export async function paylinkReadiness(brand: string, locationCode: string): Promise<PaylinkReady> {
+export async function paylinkReadiness(brand: string, locationCode: string, opts: { needSms?: boolean } = {}): Promise<PaylinkReady> {
   if (!ecommConfigured()) return { ok: false, reason: 'No Clover Hosted Checkout key on this server (CLOVER_ECOMM_PRIVATE_KEY).' };
   if (kitchenHasNoRegister(locationCode)) return { ok: false, reason: `${locationCode} has no Clover register (FOODHUB_CLOVER_NO_REGISTER): a paid order could not be printed there.` };
   const mid = await explicitMerchantFor(brand, locationCode).catch(() => null);
@@ -65,7 +67,7 @@ export async function paylinkReadiness(brand: string, locationCode: string): Pro
   if (!(await cloverToken(mid).catch(() => null))) return { ok: false, merchantId: mid, reason: `No Clover REST token for merchant ${mid}: the paid order could not be read or printed.` };
   // Read once per 10 minutes (cached): without GST and QST on the merchant, every link would fail — pay at the counter.
   if (!(await merchantQcTaxRates(mid).catch(() => null))) return { ok: false, merchantId: mid, reason: `Clover merchant ${mid}: GST (5 %) and QST (9.975 %) tax rates not found (or Clover could not be read) — the payment page would charge the wrong total.` };
-  if (!smsConfigured()) return { ok: false, merchantId: mid, reason: 'Texts are not set up (Twilio): the link cannot be sent.' };
+  if (opts.needSms !== false && !smsConfigured()) return { ok: false, merchantId: mid, reason: 'Texts are not set up (Twilio): the link cannot be sent.' };
   if (!/^https:\/\//.test(publicBaseUrl())) return { ok: false, merchantId: mid, reason: 'FOODHUB_PUBLIC_URL is not an https address: the link would not open.' };
   return { ok: true, merchantId: mid };
 }
@@ -143,7 +145,19 @@ async function newSession(o: DirectOrder, token: string, mid: string): Promise<{
   return { ok: true, expectedCents: checkoutTotalCents(req), session: { id: s.sessionId, href: s.href, createdAt: new Date(at).toISOString(), expiresAt: new Date(s.expiresAt ?? at + CLOVER_SESSION_MS).toISOString() } };
 }
 
-export interface StartPayLinkOptions { lang: Lang; smsFrom?: string; expiryMin: number; reminderMin: number; by?: string }
+/**
+ * notify: 'sms' (default) texts the link to the customer; 'none' = the link is opened right away in the customer's own
+ * browser (the online ordering page): the link, the reminder and the expiry are never texted. Once Clover confirms the
+ * payment, the paid confirmation (ready time, pickup address) is texted like on every paid order — a real payment
+ * stands behind that number — and a staff action (cancel, pay at the counter, resend) texts as it always does.
+ */
+export interface StartPayLinkOptions { lang: Lang; smsFrom?: string; expiryMin: number; reminderMin: number; by?: string; notify?: 'sms' | 'none' }
+
+/** The link's notify mode, kept on the order's payment link (absent on every link made before it existed = 'sms'). */
+type PayLinkNotify = { notify?: 'sms' | 'none' };
+export function payLinkNotify(pl: PayLink | undefined): 'sms' | 'none' {
+  return (pl as (PayLink & PayLinkNotify) | undefined)?.notify === 'none' ? 'none' : 'sms';
+}
 
 /**
  * Creates the link of a held order (a first Clover session right away, so a problem is known while the caller is still
@@ -151,19 +165,24 @@ export interface StartPayLinkOptions { lang: Lang; smsFrom?: string; expiryMin: 
  */
 export async function startPayLink(order: DirectOrder, opts: StartPayLinkOptions): Promise<{ ok: true; order: DirectOrder; smsOk: boolean } | { ok: false; error: string }> {
   if (order.status !== 'awaiting_payment') return { ok: false, error: 'The order is not waiting for a payment.' };
-  const ready = await paylinkReadiness(order.brandName, order.locationCode);
+  const notify = opts.notify === 'none' ? 'none' : 'sms';
+  const ready = await paylinkReadiness(order.brandName, order.locationCode, { needSms: notify !== 'none' });
   if (!ready.ok || !ready.merchantId) return { ok: false, error: ready.reason ?? 'Payment link not available.' };
   const token = crypto.randomBytes(18).toString('base64url');
   const first = await newSession(order, token, ready.merchantId);
   if (!first.ok) return { ok: false, error: first.error };
   const now = Date.now();
-  const paylink: PayLink = {
+  const paylink: PayLink & PayLinkNotify = {
     token, merchantId: ready.merchantId, marker: payMarker(order.number), lang: opts.lang, ...(opts.smsFrom ? { smsFrom: opts.smsFrom } : {}),
-    createdAt: new Date(now).toISOString(), expiresAt: new Date(now + opts.expiryMin * 60_000).toISOString(), reminderMin: opts.reminderMin,
-    sessions: [first.session], expectedCents: first.expectedCents,
+    createdAt: new Date(now).toISOString(), expiresAt: new Date(now + opts.expiryMin * 60_000).toISOString(), reminderMin: notify === 'none' ? 0 : opts.reminderMin,
+    sessions: [first.session], expectedCents: first.expectedCents, ...(notify === 'none' ? { notify } : {}),
   };
   await getRepo().setKv(tokenKey(token), order.id);
   let o = await addDirectEvent(order, 'paylink_created', `Payment link created (Clover merchant ${ready.merchantId}), valid ${opts.expiryMin} min`, opts.by ?? SYSTEM, { paylink });
+  if (notify === 'none') {
+    o = await addDirectEvent(o, 'paylink_browser', 'Payment link opened in the browser', SYSTEM);
+    return { ok: true, order: o, smsOk: false };
+  }
   const sms = await textCustomer(o, PAYLINK_SMS.link(o, payUrl(token), opts.expiryMin, opts.lang), 'paylink_link');
   o = await addDirectEvent(o, sms.ok ? 'paylink_sent' : 'sms_failed', sms.ok ? 'Payment link texted to the customer' : `Payment link not texted: ${sms.message}`, SYSTEM, { paylink: { ...o.paylink!, ...(sms.ok ? { smsAt: new Date().toISOString() } : { smsError: sms.message }) } });
   return { ok: true, order: o, smsOk: sms.ok };
@@ -479,11 +498,12 @@ export async function tickPaylinks(now = Date.now()): Promise<{ checked: number;
         // One last look before cancelling: a payment may have just gone through.
         const last = await checkPayLink(o.id, 'poller', now);
         if (last.state === 'paid') { out.released++; continue; }
-        await cancelHeldOrder(o.id, 'Payment link expired — not paid', SYSTEM, { expired: true });
+        // A link opened in the customer's browser (notify 'none') is never followed by a text.
+        await cancelHeldOrder(o.id, 'Payment link expired — not paid', SYSTEM, { expired: true, ...(payLinkNotify(p) === 'none' ? { text: false } : {}) });
         out.cancelled++;
         continue;
       }
-      if (p.reminderMin > 0 && !p.remindedAt && now >= Date.parse(p.createdAt) + p.reminderMin * 60_000 && now < Date.parse(p.expiresAt)) {
+      if (p.reminderMin > 0 && payLinkNotify(p) !== 'none' && !p.remindedAt && now >= Date.parse(p.createdAt) + p.reminderMin * 60_000 && now < Date.parse(p.expiresAt)) {
         const left = Math.max(1, Math.round((Date.parse(p.expiresAt) - now) / 60_000));
         const sms = await textCustomer(o, PAYLINK_SMS.reminder(o, payUrl(p.token), left, p.lang), 'paylink_reminder');
         await withLock(o.id, async () => {

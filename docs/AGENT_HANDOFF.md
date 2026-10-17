@@ -1,23 +1,5 @@
 # FOODHUB — relève de l'agent (à lire dès l'ouverture)
 
-<<<<<<< HEAD
-## Preuve de déploiement retrouvée — 2026-10-15 12:49 UTC
-
-La [description actualisée de la PR #49](https://github.com/takatakca/foodhubca/pull/49) consigne une **publication native Coolify réussie** après la fusion : déploiement [aq1pgwnyhwlebyteeqyhrmlr](https://coolify.takatak.ca/project/ci7kj4c0vvthwhqpvebogolb/environment/theoc1ynrzvwglqhyowcikka/application/1ijktzayh4dbcnn37igo8ktv/deployment/aq1pgwnyhwlebyteeqyhrmlr), statut `Webhook / Success`, mise à jour glissante terminée à 12:47:48 UTC. SHA rapporté à `/api/release` : `027b602a12da39b1244e17b813bc51a7496a0217` (même que `main` relevé). Les contrôles HTTPS rapportent annuaire/CORS public OK, santé HTTP 200 + base OK, login 200, commandes anonymes 401. Docker : 807 tests unitaires réussis (2 ignorés) et 536 E2E simulés réussis ; rollback et médias conservés.
-
-**Portée de la preuve :** ceci est le compte rendu GitHub du propriétaire / opérateur, non un nouvel accès direct au conteneur par cet agent. La certification de commandes, paiement, caisse, imprimante, Twilio et connecteurs live auprès des fournisseurs reste ouverte (issue #46). Les paragraphes historiques plus bas indiquant « déploiement non vérifié » décrivent l'état *avant* cette preuve et ne doivent pas supplanter ce relevé. Le réseau de cet agent est isolé du DNS externe et ne permet pas un nouveau contrôle HTTPS public.
-
-
-## Reprise technique — 2026-10-15 (nouvelle branche, priorité sur les anciennes entrées)
-
-- **État GitHub contrôlé** : `main` = `027b602a12da39b1244e17b813bc51a7496a0217`, [CI 38735636016](https://github.com/takatakca/foodhubca/actions/runs/38735636016) = success. PR #49 fermée/intégrée ; PR #48 et #50 toujours ouvertes. L'intégration Coolify native GitHub est documentée sur `main`, mais sa publication exacte n'est pas prouvée.
-- **Dernière tâche terminée** : constat du SHA réel de `main`, revue de la CI et des documents de relève, tentatives d'accès externes ; Le réseau de l'agent ne résout **aucun** nom externe testé (GitHub, Google, ON2GO, Food Hub) : **le résultat est inconclusif sur le DNS du domaine public lui-même**. Déploiement = **non vérifié**.
-- **Tâche en cours** : PR [#51](https://github.com/takatakca/foodhubca/pull/51) ouverte sur `fix/foodhub-production-proof-strict-sha` ; code poussée au SHA `1c1ac10f8597fff5df84d876682aa1730547edfb`, contrôles GitHub [CI 38775188501](https://github.com/takatakca/foodhubca/actions/runs/38775188501) et [image 38775188273](https://github.com/takatakca/foodhubca/actions/runs/38775188273) en cours au moment de ce relevé. La tête du branche après cette note doit être relue dans GitHub ; pas de succès global annoncé avant la fin des jobs.
-- **Fichiers modifiés** : `scripts/verify-live.mjs`, `tests/verify-live.test.mjs`, `.github/workflows/verify-production.yml`, `docs/DEPLOYMENT.md`, `docs/PROJECT_STATUS.md`, `docs/TASK_QUEUE.md`, `docs/AGENT_HANDOFF.md`, `WORKLOG.md`.
-- **Validation** : GitHub CI du `main` ci-dessus réussie ; CI de la nouvelle PR à consulter avant de déclarer ce correctif validé. Le script modifié ne fait aucun appel réseau tant qu'un SHA complet n'a pas été fourni.
-- **Blocage de vérification** : environnement de l'agent privé de résolution DNS externe ; faire confirmer la résolution réelle et les routes `/api/release`, `/api/health` et `/api/foodhub/orders` depuis une machine publique ou Coolify, puis traiter DNS/Contabo/Coolify **seulement si** le test autoritatif constate une panne ; sans divulguer de secret. Les tests réels Clover/Uber/DoorDash/Skip restent à certifier. Ne pas ajouter de second consommateur d'ordres.
-- **Prochaine action exacte** : lire l'état CI/PR de `fix/foodhub-production-proof-strict-sha` et corriger ses erreurs ; après fusion propriétaire, relancer la vérification en fournissant le SHA exact attendu et documenter PASS/FAIL dans l'issue #46. Ensuite poursuivre les tâches indépendantes de `docs/TASK_QUEUE.md`.
-=======
 ## Reprise prioritaire — 2026-10-16, navigation clavier des onglets
 
 - **Dépôt et branche** : `takatakca/foodhubca`, `fix/console-tabs-keyboard-20261016` depuis `main` `12ba64d9f6941698118533d40d3f381ff709065c`; `main` appartient au propriétaire (`CLAUDE.md`).
@@ -41,7 +23,22 @@ La [description actualisée de la PR #49](https://github.com/takatakca/foodhubca
 - **Déploiement** : Coolify natif GitHub App sur Contabo, non contrôlé par Actions. Ancienne preuve opérateur du SHA `027b602a12da39b1244e17b813bc51a7496a0217` (PR #49). La présence en production du nouveau `main` n'est pas prouvée par cette session. **La branche de ce correctif n'est pas déployée**.
 - **Accès requis** : GitHub branche/PR accessibles ; pour confirmer production, réseau externe et accès autorisé Coolify ; pour les commandes certifiées, comptes des plateformes et approbation propriétaire, sans publier de secrets.
 - **Prochaine action exacte** : contrôler CI + image de la PR #62 sur son HEAD, corriger toute erreur puis soumettre au propriétaire ; tester ensuite Tab / Shift+Tab / Échap / focus rendu aux boutons dans un navigateur. Après fusion et livraison Coolify, comparer `/api/release` au SHA `main` exact via `npm run verify:live -- --url https://foodhub.on2go.ca/ --sha SHA40` et vérifier santé.
->>>>>>> origin/main
+## Preuve de déploiement retrouvée — 2026-10-15 12:49 UTC
+
+La [description actualisée de la PR #49](https://github.com/takatakca/foodhubca/pull/49) consigne une **publication native Coolify réussie** après la fusion : déploiement [aq1pgwnyhwlebyteeqyhrmlr](https://coolify.takatak.ca/project/ci7kj4c0vvthwhqpvebogolb/environment/theoc1ynrzvwglqhyowcikka/application/1ijktzayh4dbcnn37igo8ktv/deployment/aq1pgwnyhwlebyteeqyhrmlr), statut `Webhook / Success`, mise à jour glissante terminée à 12:47:48 UTC. SHA rapporté à `/api/release` : `027b602a12da39b1244e17b813bc51a7496a0217` (même que `main` relevé). Les contrôles HTTPS rapportent annuaire/CORS public OK, santé HTTP 200 + base OK, login 200, commandes anonymes 401. Docker : 807 tests unitaires réussis (2 ignorés) et 536 E2E simulés réussis ; rollback et médias conservés.
+
+**Portée de la preuve :** ceci est le compte rendu GitHub du propriétaire / opérateur, non un nouvel accès direct au conteneur par cet agent. La certification de commandes, paiement, caisse, imprimante, Twilio et connecteurs live auprès des fournisseurs reste ouverte (issue #46). Les paragraphes historiques plus bas indiquant « déploiement non vérifié » décrivent l'état *avant* cette preuve et ne doivent pas supplanter ce relevé. Le réseau de cet agent est isolé du DNS externe et ne permet pas un nouveau contrôle HTTPS public.
+
+
+## Reprise technique — 2026-10-15 (nouvelle branche, priorité sur les anciennes entrées)
+
+- **État GitHub contrôlé** : `main` = `027b602a12da39b1244e17b813bc51a7496a0217`, [CI 38735636016](https://github.com/takatakca/foodhubca/actions/runs/38735636016) = success. PR #49 fermée/intégrée ; PR #48 et #50 toujours ouvertes. L'intégration Coolify native GitHub est documentée sur `main`, mais sa publication exacte n'est pas prouvée.
+- **Dernière tâche terminée** : constat du SHA réel de `main`, revue de la CI et des documents de relève, tentatives d'accès externes ; Le réseau de l'agent ne résout **aucun** nom externe testé (GitHub, Google, ON2GO, Food Hub) : **le résultat est inconclusif sur le DNS du domaine public lui-même**. Déploiement = **non vérifié**.
+- **Tâche en cours** : PR [#51](https://github.com/takatakca/foodhubca/pull/51) ouverte sur `fix/foodhub-production-proof-strict-sha` ; code poussée au SHA `1c1ac10f8597fff5df84d876682aa1730547edfb`, contrôles GitHub [CI 38775188501](https://github.com/takatakca/foodhubca/actions/runs/38775188501) et [image 38775188273](https://github.com/takatakca/foodhubca/actions/runs/38775188273) en cours au moment de ce relevé. La tête du branche après cette note doit être relue dans GitHub ; pas de succès global annoncé avant la fin des jobs.
+- **Fichiers modifiés** : `scripts/verify-live.mjs`, `tests/verify-live.test.mjs`, `.github/workflows/verify-production.yml`, `docs/DEPLOYMENT.md`, `docs/PROJECT_STATUS.md`, `docs/TASK_QUEUE.md`, `docs/AGENT_HANDOFF.md`, `WORKLOG.md`.
+- **Validation** : GitHub CI du `main` ci-dessus réussie ; CI de la nouvelle PR à consulter avant de déclarer ce correctif validé. Le script modifié ne fait aucun appel réseau tant qu'un SHA complet n'a pas été fourni.
+- **Blocage de vérification** : environnement de l'agent privé de résolution DNS externe ; faire confirmer la résolution réelle et les routes `/api/release`, `/api/health` et `/api/foodhub/orders` depuis une machine publique ou Coolify, puis traiter DNS/Contabo/Coolify **seulement si** le test autoritatif constate une panne ; sans divulguer de secret. Les tests réels Clover/Uber/DoorDash/Skip restent à certifier. Ne pas ajouter de second consommateur d'ordres.
+- **Prochaine action exacte** : lire l'état CI/PR de `fix/foodhub-production-proof-strict-sha` et corriger ses erreurs ; après fusion propriétaire, relancer la vérification en fournissant le SHA exact attendu et documenter PASS/FAIL dans l'issue #46. Ensuite poursuivre les tâches indépendantes de `docs/TASK_QUEUE.md`.
 
 
 ## Reprise actuelle — 2026-10-15 (prioritaire sur le relevé historique ci-dessous)

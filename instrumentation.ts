@@ -50,9 +50,10 @@ export async function register() {
   const syncMin = Number(process.env.FOODHUB_INTERNAL_SYNC_MIN ?? 0);
   if (Number.isFinite(syncMin) && syncMin > 0 && !g.__takatakSyncTimer) {
     const { runSync } = await import('./lib/foodhub/sync');
-    g.__takatakSyncTimer = setInterval(() => {
-      runSync({ trigger: 'timer', force: true }).catch((e) => console.error('[foodhub] sync timer failed', e instanceof Error ? e.message : e));
-    }, Math.max(1, syncMin) * 60_000);
+    const sync = () => runSync({ trigger: 'timer', force: true }).catch((e) => console.error('[foodhub] sync timer failed', e instanceof Error ? e.message : e));
+    g.__takatakSyncTimer = setInterval(() => { void sync(); }, Math.max(1, syncMin) * 60_000);
     g.__takatakSyncTimer.unref?.();
+    // The interval waits 5 min. A deploy after an outage would otherwise fail health on the previous sync's age.
+    void sync();
   }
 }

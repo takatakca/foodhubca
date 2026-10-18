@@ -124,8 +124,12 @@ export async function buildHealth(opts: { now?: number; uptimeSec?: number } = {
     checks.sync = { status: stale ? 'down' : 'warn', detail: stale ? `The platform sync never ran (server up for over ${maxMin} min): the scheduler is not running.` : 'The platform sync has not run yet.', detailFr: stale ? `La synchronisation n’a jamais roulé (serveur actif depuis plus de ${maxMin} min) : le planificateur ne tourne pas.` : 'La synchronisation n’a pas encore roulé.', at: null, ageS: null };
   } else {
     // With a promised schedule: on time, then late, then down (the scheduler died). Without one: never down.
-    const status: CheckStatus = maxMin > 0 ? (syncAge <= (maxMin * 60) / 2 ? 'ok' : syncAge <= maxMin * 60 ? 'warn' : 'down') : syncAge <= 15 * 60 ? 'ok' : 'warn';
-    checks.sync = { status, detail: `Last sync ${mins(syncAge)} ago.`, detailFr: `Dernière synchronisation il y a ${mins(syncAge)}.`, at: sync!.at, ageS: syncAge };
+    const aged: CheckStatus = maxMin > 0 ? (syncAge <= (maxMin * 60) / 2 ? 'ok' : syncAge <= maxMin * 60 ? 'warn' : 'down') : syncAge <= 15 * 60 ? 'ok' : 'warn';
+    // A restart inherits the previous process's timestamp. Coolify checks health about a minute after start, before
+    // this process has synced, so an outage's old stamp is a warning until the first sync window has passed.
+    const starting = aged === 'down' && maxMin > 0 && (opts.uptimeSec ?? process.uptime()) <= maxMin * 60;
+    const status: CheckStatus = starting ? 'warn' : aged;
+    checks.sync = { status, detail: `Last sync ${mins(syncAge)} ago.${starting ? ' This server just started.' : ''}`, detailFr: `Dernière synchronisation il y a ${mins(syncAge)}.${starting ? ' Ce serveur vient de démarrer.' : ''}`, at: sync!.at, ageS: syncAge };
   }
 
   const watchAge = age(watch?.at, now);

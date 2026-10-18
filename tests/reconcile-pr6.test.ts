@@ -347,10 +347,11 @@ describe('/api/health: cheap, time-bounded, honest in production', () => {
     expect(syncMaxAgeMin()).toBe(20);
     expect((await buildHealth({ uptimeSec: 60 })).checks.sync.status).toBe('warn');
     expect((await buildHealth({ uptimeSec: 3600 })).checks.sync.status).toBe('down');
-    const at = async (min: number) => { await getRepo().setKv('sync:at', { at: ago(min), cloverDown: 0 }); return (await buildHealth()).checks.sync.status; };
-    expect(await at(5)).toBe('ok');
-    expect(await at(15)).toBe('warn');
-    expect(await at(25)).toBe('down');
+    const at = async (min: number, uptimeSec: number) => { await getRepo().setKv('sync:at', { at: ago(min), cloverDown: 0 }); return (await buildHealth({ uptimeSec })).checks.sync.status; };
+    expect(await at(5, 3600)).toBe('ok');
+    expect(await at(15, 3600)).toBe('warn');
+    expect(await at(25, 3600)).toBe('down');
+    expect(await at(25, 60)).toBe('warn'); // old stamp from before this process started
   });
 
   it('callers in flight share one computation; memory mode is never reused once done', async () => {

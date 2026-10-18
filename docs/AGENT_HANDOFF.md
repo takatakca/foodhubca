@@ -1,5 +1,11 @@
 # FOODHUB — relève de l'agent (à lire dès l'ouverture)
 
+## Reprise — 2026-10-18, sync au démarrage
+
+- **Cause** : le contrôle de santé a répondu `database=ok,sync=down,watchtower=ok,recovery=ok,inbox=ok,clover=ok,console=ok`. Le site était resté sans conteneur environ une heure, donc `sync:at` avait plus de 20 min. Le nouveau processus ne lance la synchro qu’après 5 min, et Coolify vérifie dès 60 s.
+- **Correctif** : pendant la première fenêtre de synchro de ce processus, un horodatage ancien est un avertissement (HTTP 200). La synchro part aussi tout de suite au démarrage. Après cette fenêtre, une synchro morte reste un échec.
+- **Suite** : fusionner pour que Coolify reconstruise. Le déploiement en cours échouera encore tant que cette image n’est pas celle qui démarre.
+
 ## Reprise — 2026-10-18, santé du conteneur
 
 - **Cause** : l’image `c64fcec` a démarré (Next prêt), puis `node /app/scripts/check-runtime.mjs` a vu `/api/health` en 503. Le message ne disait pas quel contrôle était `down`. Coolify a retiré le conteneur ; le site public répond « no available server ».

@@ -55,7 +55,7 @@ describe('Food Hub live release verification (no network)', () => {
 
   it('rejects failed health, broken directory or missing CORS', async () => {
     const params = { url: 'https://foodhub.on2go.ca/', sha: SHA };
-    await expect(verifyLiveDeployment({ ...params, fetchImpl: mockFetch({ healthStatus: 503 }) })).rejects.toThrow(/api\/health/);
+    await expect(verifyLiveDeployment({ ...params, fetchImpl: mockFetch({ healthStatus: 503, database: 'down' }) })).rejects.toThrow(/api\/health returned HTTP 503, expected 200 \(database=down\)/);
     await expect(verifyLiveDeployment({ ...params, fetchImpl: mockFetch({ publicStatus: 503 }) })).rejects.toThrow(/api\/public\/directory/);
     await expect(verifyLiveDeployment({ ...params, fetchImpl: mockFetch({ cors: false }) })).rejects.toThrow(/ON2GO origin/);
   });

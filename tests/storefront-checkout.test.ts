@@ -168,21 +168,27 @@ describe('refusals', () => {
 
   it('the route: JSON only (415), same origin only (403), 32 KB cut even without Content-Length (413)', async () => {
     await setup();
-    const url = 'https://hub.test/api/storefront/checkout';
-    const post = (headers: Record<string, string>, body: BodyInit = JSON.stringify(cart())) => checkoutRoute(new Request(url, { method: 'POST', headers, body }));
-    expect((await post({ 'Content-Type': 'text/plain' })).status).toBe(415);
-    expect((await post({})).status).toBe(415);
-    expect((await post({ 'Content-Type': 'application/x-www-form-urlencoded' }, 'a=1')).status).toBe(415);
-    expect((await post({ 'Content-Type': 'application/json', Origin: 'https://evil.example' })).status).toBe(403);
-    expect((await post({ 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'cross-site' })).status).toBe(403);
-    expect(await listDirectOrders({ limit: 10 })).toHaveLength(0);
-    const chunks = [new TextEncoder().encode('{"pad":"'), ...Array.from({ length: 40 }, () => new TextEncoder().encode('x'.repeat(1024)))];
-    const stream = new ReadableStream<Uint8Array>({ pull(c) { const n = chunks.shift(); if (n) c.enqueue(n); else c.close(); } });
-    const chunked = new Request(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: stream, duplex: 'half' } as RequestInit);
-    expect(chunked.headers.get('content-length')).toBeNull();
-    expect((await checkoutRoute(chunked)).status).toBe(413);
-    const good = await post({ 'Content-Type': 'application/json; charset=utf-8', Origin: 'https://hub.test', 'Sec-Fetch-Site': 'same-origin' });
-    expect(good.status).toBe(200);
+    // The route uses the real clock. Hours are 11:00–23:00 America/Toronto, so a CI run overnight would be "closed" (409).
+    vi.spyOn(Date, 'now').mockReturnValue(NOW);
+    try {
+      const url = 'https://hub.test/api/storefront/checkout';
+      const post = (headers: Record<string, string>, body: BodyInit = JSON.stringify(cart())) => checkoutRoute(new Request(url, { method: 'POST', headers, body }));
+      expect((await post({ 'Content-Type': 'text/plain' })).status).toBe(415);
+      expect((await post({})).status).toBe(415);
+      expect((await post({ 'Content-Type': 'application/x-www-form-urlencoded' }, 'a=1')).status).toBe(415);
+      expect((await post({ 'Content-Type': 'application/json', Origin: 'https://evil.example' })).status).toBe(403);
+      expect((await post({ 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'cross-site' })).status).toBe(403);
+      expect(await listDirectOrders({ limit: 10 })).toHaveLength(0);
+      const chunks = [new TextEncoder().encode('{"pad":"'), ...Array.from({ length: 40 }, () => new TextEncoder().encode('x'.repeat(1024)))];
+      const stream = new ReadableStream<Uint8Array>({ pull(c) { const n = chunks.shift(); if (n) c.enqueue(n); else c.close(); } });
+      const chunked = new Request(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: stream, duplex: 'half' } as RequestInit);
+      expect(chunked.headers.get('content-length')).toBeNull();
+      expect((await checkoutRoute(chunked)).status).toBe(413);
+      const good = await post({ 'Content-Type': 'application/json; charset=utf-8', Origin: 'https://hub.test', 'Sec-Fetch-Site': 'same-origin' });
+      expect(good.status).toBe(200);
+    } finally {
+      vi.mocked(Date.now).mockRestore();
+    }
   });
 });
 

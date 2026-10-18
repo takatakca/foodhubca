@@ -1,5 +1,25 @@
 # FOODHUB — relève de l'agent (à lire dès l'ouverture)
 
+## Reprise — 2026-10-18, sync au démarrage
+
+- **Cause** : le contrôle de santé a répondu `database=ok,sync=down,watchtower=ok,recovery=ok,inbox=ok,clover=ok,console=ok`. Le site était resté sans conteneur environ une heure, donc `sync:at` avait plus de 20 min. Le nouveau processus ne lance la synchro qu’après 5 min, et Coolify vérifie dès 60 s.
+- **Correctif** : pendant la première fenêtre de synchro de ce processus, un horodatage ancien est un avertissement (HTTP 200). La synchro part aussi tout de suite au démarrage. Après cette fenêtre, une synchro morte reste un échec.
+- **Suite** : fusionner pour que Coolify reconstruise. Le déploiement en cours échouera encore tant que cette image n’est pas celle qui démarre.
+
+## Reprise — 2026-10-18, santé du conteneur
+
+- **Cause** : l’image `c64fcec` a démarré (Next prêt), puis `node /app/scripts/check-runtime.mjs` a vu `/api/health` en 503. Le message ne disait pas quel contrôle était `down`. Coolify a retiré le conteneur ; le site public répond « no available server ».
+- **Correctif** : l’échec du contrôle de santé inclut les statuts publics (`database=…`). La clé `health:ping` est par processus (deux conteneurs ne s’écrasent plus). Le Watchtower part tout de suite, et en production un Watchtower pas encore passé est un avertissement pendant 3 min, pas un échec. Une base absente ou une console sans secret reste un échec.
+- **Suite** : fusionner, laisser Coolify redéployer. Si le journal dit `database=down` ou `console=down`, les variables Runtime `SUPABASE_URL` (ou `NEXT_PUBLIC_SUPABASE_URL`), `SUPABASE_SERVICE_ROLE_KEY`, et `SESSION_SECRET` ou `DASHBOARD_PASSWORD` manquent. Ne pas les effacer en ajoutant `CLOVER_PHONE_*`.
+
+## Reprise — 2026-10-18, déploiement Coolify
+
+- **Cause** : `main` `6381aec` ne compilait pas. Deux `phoneFeesText` étaient collées dans `lib/foodhub/legal.ts` ; la première n’était pas fermée. Coolify s’arrêtait au `tsc` du Dockerfile.
+- **Correctif** : une seule fonction, le texte aligné sur le comptage des minutes (commande ou non, essai et abonnement inactif exclus). Tests juridiques ajustés. `npm run typecheck` et `tests/legal-pages.test.ts` (23) passent en local.
+- **Suite** : Coolify doit reconstruire `main`. Le site déjà en ligne reste l’image précédente tant que ce déploiement n’est pas sain. Les variables `CLOVER_PHONE_*` se posent après, dans Coolify, puis un nouveau déploiement.
+
+
+
 ## Reprise prioritaire — 2026-10-16, navigation clavier des onglets
 
 - **Dépôt et branche** : `takatakca/foodhubca`, `fix/console-tabs-keyboard-20261016` depuis `main` `12ba64d9f6941698118533d40d3f381ff709065c`; `main` appartient au propriétaire (`CLAUDE.md`).

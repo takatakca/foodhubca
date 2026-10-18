@@ -88,7 +88,13 @@ export async function verifyLiveDeployment({ url, sha = '', fetchImpl = fetch, a
   const healthResponse = await request('/api/health');
   // Only an isolated final-image build probe may lack a database. Production never accepts 503.
   const databaseFreeBuild = localSmoke && buildSmoke && healthResponse.status === 503;
-  if (!databaseFreeBuild) requireStatus(healthResponse, 200, '/api/health');
+  if (!databaseFreeBuild && healthResponse.status !== 200) {
+    const healthBody = await readJson(healthResponse, '/api/health').catch(() => null);
+    const checks = healthBody?.checks && typeof healthBody.checks === 'object'
+      ? Object.entries(healthBody.checks).map(([name, state]) => name + '=' + state).join(',')
+      : '';
+    throw new Error('/api/health returned HTTP ' + healthResponse.status + ', expected 200' + (checks ? ' (' + checks + ')' : ''));
+  }
   const health = await readJson(healthResponse, '/api/health');
   if (databaseFreeBuild ? health.ok !== false || health.checks?.database !== 'down'
     : health.ok !== true || !health.status || health.status === 'down' || health.checks?.database !== 'ok') {

@@ -30,8 +30,11 @@ export async function register() {
     // Order recovery first (Clover retries, interrupted or failed webhooks — also right after a restart), then the Watchtower,
     // then the expansion features (courier auto-dispatch…) after the Watchtower run, never during it.
     const tick = async () => {
+      // Watch starts immediately so watch:last exists before a slow recovery finishes. Coolify's first health
+      // check is 60 s after start and treats "Watchtower never ran" as down.
+      const watchPromise = runWatch({ trigger: 'timer' }).catch((e) => console.error('[foodhub] watch timer failed', e instanceof Error ? e.message : e));
       await runOrderRecovery({ trigger: 'timer' }).catch((e) => console.error('[foodhub] recovery timer failed', e instanceof Error ? e.message : e));
-      await runWatch({ trigger: 'timer' }).catch((e) => console.error('[foodhub] watch timer failed', e instanceof Error ? e.message : e));
+      await watchPromise;
       await tickExpansion();
       // Too Good To Go order e-mails: the mailbox is read every TGTG_IMAP_POLL_S (default 60 s) when it is configured.
       await tickTgtgEmail();
@@ -40,14 +43,17 @@ export async function register() {
     };
     g.__takatakWatchTimer = setInterval(() => { void tick(); }, Math.max(15, seconds) * 1000);
     g.__takatakWatchTimer.unref?.();
+    // The first interval wait is 30 s. Coolify's health check starts at 60 s and treats "Watchtower never ran" as down.
+    void tick();
   }
 
   const syncMin = Number(process.env.FOODHUB_INTERNAL_SYNC_MIN ?? 0);
   if (Number.isFinite(syncMin) && syncMin > 0 && !g.__takatakSyncTimer) {
     const { runSync } = await import('./lib/foodhub/sync');
-    g.__takatakSyncTimer = setInterval(() => {
-      runSync({ trigger: 'timer', force: true }).catch((e) => console.error('[foodhub] sync timer failed', e instanceof Error ? e.message : e));
-    }, Math.max(1, syncMin) * 60_000);
+    const sync = () => runSync({ trigger: 'timer', force: true }).catch((e) => console.error('[foodhub] sync timer failed', e instanceof Error ? e.message : e));
+    g.__takatakSyncTimer = setInterval(() => { void sync(); }, Math.max(1, syncMin) * 60_000);
     g.__takatakSyncTimer.unref?.();
+    // The interval waits 5 min. A deploy after an outage would otherwise fail health on the previous sync's age.
+    void sync();
   }
 }

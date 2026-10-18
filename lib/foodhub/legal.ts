@@ -80,9 +80,9 @@ export function feesText(p: LegalInfo['pricing']): { fr: string; en: string } {
 }
 
 /** The TAKATAK Phone AI fees, shown next to feesText() in the terms (§6) and the support FAQ. Minutes follow the
- *  metering on main (pos/clover-phone-minutes.ts, phone/metering.ts): AI time only (greeting to hand-off, goodbye or
- *  hang-up), order or not, ceil(seconds / 60) per call, never the hold or the person after a transfer, ACTIVE
- *  subscriptions only (never in the trial). */
+ *  metering of the phone app (pos/clover-phone-minutes.ts, phone/metering.ts): AI time only (greeting to hand-off,
+ *  goodbye or hang-up), order or not, ceil(seconds / 60) per call, never the hold or the person after a transfer,
+ *  ACTIVE subscriptions only (never in the trial). */
 export function phoneFeesText(p: LegalInfo['phonePricing']): { fr: string; en: string } {
   return {
     fr: `Essai gratuit de ${p.trialDays} jours, puis ${cad(p.monthlyCad, 'fr')} $ CA par mois, plus ${cad(p.minuteCad, 'fr')} $ CA par minute d’appel avec l’assistant automatisé, qu’une commande soit passée ou non. Seul le temps où l’assistant est en ligne avec l’appelant est compté (de sa réponse jusqu’au transfert à une personne, à la fin de la conversation ou au raccrochage), arrondi à la minute supérieure pour chaque appel ; l’attente pendant un transfert et le temps passé avec une personne du restaurant ne sont pas comptés, et aucune minute n’est facturée pendant l’essai gratuit ni lorsque l’abonnement Clover n’est pas actif. Le tout est facturé uniquement par Clover, par la facturation du Clover App Market : rien n’est facturé en dehors de Clover. Offert au Canada seulement.`,

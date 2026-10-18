@@ -1,5 +1,13 @@
 # FOODHUB — relève de l'agent (à lire dès l'ouverture)
 
+## Reprise — 2026-10-18, déploiement Coolify
+
+- **Cause** : `main` `6381aec` ne compilait pas. Deux `phoneFeesText` étaient collées dans `lib/foodhub/legal.ts` ; la première n’était pas fermée. Coolify s’arrêtait au `tsc` du Dockerfile.
+- **Correctif** : une seule fonction, le texte aligné sur le comptage des minutes (commande ou non, essai et abonnement inactif exclus). Tests juridiques ajustés. `npm run typecheck` et `tests/legal-pages.test.ts` (23) passent en local.
+- **Suite** : Coolify doit reconstruire `main`. Le site déjà en ligne reste l’image précédente tant que ce déploiement n’est pas sain. Les variables `CLOVER_PHONE_*` se posent après, dans Coolify, puis un nouveau déploiement.
+
+
+
 ## Reprise prioritaire — 2026-10-16, navigation clavier des onglets
 
 - **Dépôt et branche** : `takatakca/foodhubca`, `fix/console-tabs-keyboard-20261016` depuis `main` `12ba64d9f6941698118533d40d3f381ff709065c`; `main` appartient au propriétaire (`CLAUDE.md`).

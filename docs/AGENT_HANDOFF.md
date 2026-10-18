@@ -1,5 +1,11 @@
 # FOODHUB — relève de l'agent (à lire dès l'ouverture)
 
+## Reprise — 2026-10-18, santé du conteneur
+
+- **Cause** : l’image `c64fcec` a démarré (Next prêt), puis `node /app/scripts/check-runtime.mjs` a vu `/api/health` en 503. Le message ne disait pas quel contrôle était `down`. Coolify a retiré le conteneur ; le site public répond « no available server ».
+- **Correctif** : l’échec du contrôle de santé inclut les statuts publics (`database=…`). La clé `health:ping` est par processus (deux conteneurs ne s’écrasent plus). Le Watchtower part tout de suite, et en production un Watchtower pas encore passé est un avertissement pendant 3 min, pas un échec. Une base absente ou une console sans secret reste un échec.
+- **Suite** : fusionner, laisser Coolify redéployer. Si le journal dit `database=down` ou `console=down`, les variables Runtime `SUPABASE_URL` (ou `NEXT_PUBLIC_SUPABASE_URL`), `SUPABASE_SERVICE_ROLE_KEY`, et `SESSION_SECRET` ou `DASHBOARD_PASSWORD` manquent. Ne pas les effacer en ajoutant `CLOVER_PHONE_*`.
+
 ## Reprise — 2026-10-18, déploiement Coolify
 
 - **Cause** : `main` `6381aec` ne compilait pas. Deux `phoneFeesText` étaient collées dans `lib/foodhub/legal.ts` ; la première n’était pas fermée. Coolify s’arrêtait au `tsc` du Dockerfile.

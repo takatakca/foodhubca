@@ -88,7 +88,10 @@ export async function buildHealth(opts: { now?: number; uptimeSec?: number } = {
   // Database: a real write and read-back, within HEALTH_DB_TIMEOUT_MS.
   try {
     const stamp = new Date(now).toISOString();
-    const back = await within((async () => { await repo.setKv('health:ping', { at: stamp }); return repo.getKv<{ at: string }>('health:ping'); })());
+    // One key per process. A rolling update runs two containers, and they used to overwrite the same health:ping
+    // between the write and the read-back, so the new container saw a mismatch and reported the database down.
+    const pingKey = `health:ping:${process.pid}`;
+    const back = await within((async () => { await repo.setKv(pingKey, { at: stamp }); return repo.getKv<{ at: string }>(pingKey); })());
     checks.database = back?.at !== stamp
       ? { status: 'down', detail: 'Database write could not be read back.', detailFr: 'Écriture dans la base de données non relue.' }
       : repo.mode !== 'memory'
@@ -126,8 +129,11 @@ export async function buildHealth(opts: { now?: number; uptimeSec?: number } = {
   }
 
   const watchAge = age(watch?.at, now);
+  // A production process that just started has not written watch:last yet. Warn for the first 3 minutes so a
+  // rolling update is not failed for that alone. After that, never having run is still down.
+  const watchStarting = watchAge === null && process.env.NODE_ENV === 'production' && (opts.uptimeSec ?? process.uptime()) < 180;
   checks.watchtower = watchAge === null
-    ? { status: 'down', detail: 'The Watchtower never ran: nobody would be alerted.', detailFr: 'Le Watchtower n’a jamais roulé : personne ne serait alerté.', at: null, ageS: null }
+    ? { status: watchStarting ? 'warn' : 'down', detail: watchStarting ? 'The Watchtower is starting.' : 'The Watchtower never ran: nobody would be alerted.', detailFr: watchStarting ? 'Le Watchtower démarre.' : 'Le Watchtower n’a jamais roulé : personne ne serait alerté.', at: null, ageS: null }
     : { status: watchAge <= 5 * 60 ? 'ok' : watchAge <= 15 * 60 ? 'warn' : 'down', detail: `Watchtower ran ${mins(watchAge)} ago.`, detailFr: `Le Watchtower a roulé il y a ${mins(watchAge)}.`, at: watch!.at, ageS: watchAge };
 
   const recAge = age(recovery?.at, now);
@@ -168,8 +174,13 @@ export async function buildHealth(opts: { now?: number; uptimeSec?: number } = {
   });
 
   const all = Object.values(checks).map((c) => c.status);
+  const status = all.includes('down') ? 'down' : all.includes('warn') ? 'degraded' : 'ok';
+  if (status === 'down') {
+    const failed = Object.entries(checks).filter(([, c]) => c.status === 'down').map(([name]) => name).join(',');
+    console.error('[foodhub] health down:', failed || 'unknown');
+  }
   return {
-    status: all.includes('down') ? 'down' : all.includes('warn') ? 'degraded' : 'ok',
+    status,
     at: new Date(now).toISOString(),
     checks,
     platforms,

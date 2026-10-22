@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { BellRing, Blocks, Building2, MonitorSmartphone, PlugZap, Rocket, ShieldCheck, Store, Truck, UserRound, Users } from 'lucide-react';
+import { BellRing, Blocks, Building2, Handshake, MonitorSmartphone, PlugZap, Rocket, ShieldCheck, Store, Truck, UserRound, Users } from 'lucide-react';
 import { PageHeader } from '@/components/ui/card';
 import { LinkTabs } from '@/components/ui/tabs';
 import { useViewer } from '@/components/shell/viewer';
@@ -34,6 +34,7 @@ export const SETTINGS_PAGES = [
   { href: '/settings/business', icon: Building2, perm: 'view', fr: 'Entreprise', en: 'Business', dfr: 'Succursales et marques.', den: 'Locations and brands.' },
   { href: '/settings/clover-app', icon: Store, perm: 'admin', fr: 'App Clover', en: 'Clover app', dfr: 'Fiche App Market : textes, adresses à copier, soumission, marchands en attente.', den: 'App Market listing: texts, addresses to copy, submission, merchants waiting.' },
   { href: '/settings/expansion', icon: Blocks, perm: 'view', fr: 'Expansion', en: 'Expansion', dfr: 'Livraison par nos coursiers, épicerie, alcool, commandes par téléphone (IA) : interrupteurs et règles.', den: 'Own-order delivery, grocery, alcohol, AI phone ordering: switches and rules.' },
+  { href: '/settings/leads', icon: Handshake, perm: 'admin', fr: 'Demandes de restaurants', en: 'Restaurant leads', dfr: 'Les restaurants qui veulent rejoindre ON2GO (formulaire on2go.ca) : statut et notes.', den: 'Restaurants asking to join ON2GO (on2go.ca form): status and notes.' },
   { href: '/settings/go-live', icon: Rocket, perm: 'admin', fr: 'Mise en service', en: 'Go-live', dfr: 'La liste de ce qui reste avant d’ouvrir les vannes.', den: 'What is left before switching everything on.' },
 ] as const;
 

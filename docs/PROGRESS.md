@@ -1,5 +1,12 @@
 # Food Hub: progress log and task board
 
+## 2026-10-21 — Demandes de restaurants / Restaurant leads (`feature/restaurant-leads-api`)
+
+- Le formulaire « Rejoindre ON2GO » d’on2go.ca (site statique, dépôt séparé) a maintenant son arrière-boutique : `POST /api/public/restaurant-leads` (JSON, sans connexion, CORS on2go.ca et www.on2go.ca seulement, pot de miel `company` → 202 silencieux, 5 envois / 10 min par IP → 429 + Retry-After, corps ≤ 16 Ko), validation par champ (`errors: { champ: required | invalid | too_long }`), stockage dans `fh_docs` collection `restaurant_leads` (aucune migration), courriel à `FOODHUB_SUPPORT_EMAIL` + réponse automatique FR / EN au restaurant par l’expéditeur habituel (sautés sans fournisseur, jamais une erreur), ligne dans le journal d’activité.
+- Console : **Réglages → Demandes de restaurants** (propriétaire seulement) : plus récente en premier, filtres à suivre / nouvelle / contactée / gagnée / perdue, recherche, statut par liste déroulante, détails et notes internes (`GET/POST /api/foodhub/restaurant-leads`, permission `admin`).
+- EN: the on2go.ca “Join ON2GO” form posts to `POST /api/public/restaurant-leads` (validation, honeypot, per-IP quota, CORS for on2go.ca only), leads are stored as `restaurant_leads` docs, the owner is emailed and the lead gets an FR / EN auto-reply; Settings → Restaurant leads lists them newest first with status and notes. Contract: `docs/RESTAURANT_LEADS.md`.
+- Code: `lib/foodhub/restaurant-leads.ts`, `app/api/public/restaurant-leads/route.ts`, `app/api/foodhub/restaurant-leads/route.ts`, `app/(console)/settings/leads/page.tsx`, `app/(console)/settings/settings-ui.tsx` (new tab), tests `tests/restaurant-leads.test.ts` (13).
+
 ## 2026-10-17 — ON2GO.ca hub pages on main (replaces PR #70, `feature/seo-hub-pages-main`)
 
 - PR #70 (`feature/seo-hub-landing`, based on the old `fix/legal-pages-complete`) merged onto main as a new branch: /hub + /en/hub pages, JSON-LD, robots.txt, sitemap.xml, llms.txt, share images, favicon; #77 legal wording (it only reached the legal branch) comes along. Conflicts only in WORKLOG.md and this file (both sides kept).

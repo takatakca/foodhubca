@@ -205,6 +205,56 @@ describe('DoorDash Drive webhooks', () => {
     expect((await getDelivery(d2.id))!.status).toBe('assigned');
   });
 
+  it('a text whose answer was lost is never sent again; one refused before it left is', async () => {
+    const mock = globalThis.fetch;
+    let next: 'lost' | 'refused' | null = 'lost';
+    globalThis.fetch = (async (url: any, init?: RequestInit) => {
+      const fail = String(url).includes('/Messages.json') ? next : null;
+      if (fail) next = null;
+      // Refused: no connection was made, Twilio never saw it.
+      if (fail === 'refused') throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } });
+      const res = await mock(url, init);
+      // Lost: Twilio got the text, then its answer timed out (timedFetch's abort).
+      if (fail === 'lost') throw new DOMException('This operation was aborted', 'AbortError');
+      return res;
+    }) as typeof fetch;
+    const ev = (ref: string, status: 'assigned' | 'at_pickup' | 'picked_up', event: string) => ({ fleet: 'doordash_drive' as const, ref, status, event, at: new Date().toISOString() });
+    const o = await order();
+    const d = (await dispatchOrder(o.id, actor)).delivery!;
+    await applyFleetEvent(ev(d.id, 'assigned', 'DASHER_CONFIRMED'));
+    await applyFleetEvent(ev(d.id, 'at_pickup', 'DASHER_CONFIRMED_PICKUP_ARRIVAL'));
+    await applyFleetEvent(ev(d.id, 'picked_up', 'DASHER_PICKED_UP'));
+    expect(texts()).toHaveLength(1);
+    const events = (await getDirectOrder(o.id))!.events;
+    expect(events.filter((e) => e.type === 'sms_failed').map((e) => e.message)).toEqual([expect.stringMatching(/may not have been texted .*aborted.*Not sent again/)]);
+    expect(events.some((e) => e.type === 'sms_tracking')).toBe(false);
+    expect((await getDelivery(d.id))!.status).toBe('picked_up');
+
+    next = 'refused';
+    const o2 = await order();
+    const d2 = (await dispatchOrder(o2.id, actor)).delivery!;
+    await applyFleetEvent(ev(d2.id, 'assigned', 'DASHER_CONFIRMED'));
+    expect(texts()).toHaveLength(1);
+    expect((await getDirectOrder(o2.id))!.events.find((e) => e.type === 'sms_failed')!.message).toMatch(/^Tracking link not texted: Network error: fetch failed/);
+    await applyFleetEvent(ev(d2.id, 'picked_up', 'DASHER_PICKED_UP'));
+    expect(texts()).toHaveLength(2);
+    expect((await getDelivery(d2.id))!.trackingSmsAt).toEqual(expect.any(String));
+  });
+
+  it('one courier event at a time per delivery: an older event still in flight never undoes a newer one', async () => {
+    const o = await order();
+    const d = (await dispatchOrder(o.id, actor)).delivery!;
+    const at = new Date().toISOString();
+    // DASHER_PICKED_UP lands first and waits for Twilio; the late DASHER_CONFIRMED read the delivery at the same moment.
+    await Promise.all([
+      applyFleetEvent({ fleet: 'doordash_drive', ref: d.id, status: 'picked_up', event: 'DASHER_PICKED_UP', at }),
+      applyFleetEvent({ fleet: 'doordash_drive', ref: d.id, status: 'assigned', event: 'DASHER_CONFIRMED', at, courier: { name: 'Lea', updatedAt: at } }),
+    ]);
+    const after = (await getDelivery(d.id))!;
+    expect({ status: after.status, courier: after.courier?.name, texts: texts().length, order: (await getDirectOrder(o.id))!.status })
+      .toEqual({ status: 'picked_up', courier: 'Lea', texts: 1, order: 'out_for_delivery' });
+  });
+
   it('a courier cancellation flags the order for a person; unknown deliveries are kept', async () => {
     const o = await order();
     const d = (await dispatchOrder(o.id, actor)).delivery!;

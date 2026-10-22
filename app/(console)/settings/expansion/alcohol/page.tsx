@@ -55,7 +55,7 @@ export default function AlcoholPage() {
                 <LocationForm rule={r} owner={owner} permitHours={v.permitHours} onSave={(p) => save(l.code, p)} />
                 <div className="mt-4">
                   <div className="mb-2 text-[13px] font-semibold">{t('Canaux', 'Channels')}</div>
-                  <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="grid min-w-0 [&>*]:min-w-0 gap-2 sm:grid-cols-2">
                     {v.channels.map((c) => {
                       const d = now?.channels[c.key];
                       return (
@@ -83,8 +83,8 @@ function LocationForm({ rule, owner, permitHours, onSave }: { rule: LocationAlco
   const set = (p: Partial<typeof f>) => setF((x) => ({ ...x, ...p }));
   const legal = permitHours[f.permitType];
   return (
-    <fieldset disabled={!owner} className="grid gap-3">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <fieldset disabled={!owner} className="min-w-0 grid min-w-0 [&>*]:min-w-0 gap-3">
+      <div className="grid min-w-0 [&>*]:min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Field label={t('Type de permis', 'Permit type')}><Select value={f.permitType} onChange={(e) => set({ permitType: e.target.value as PermitType })}>
           <option value="none">{t('Aucun', 'None')}</option><option value="restaurant">{t('Restaurant (pour vendre)', 'Restaurant (to sell)')}</option><option value="epicerie">{t('Épicerie', 'Grocery')}</option><option value="bar">{t('Bar', 'Bar')}</option><option value="other">{t('Autre', 'Other')}</option>
         </Select></Field>
@@ -92,7 +92,7 @@ function LocationForm({ rule, owner, permitHours, onSave }: { rule: LocationAlco
         <Field label={t('Titulaire', 'Holder')}><Input value={f.holderName} onChange={(e) => set({ holderName: e.target.value })} placeholder="Restaurant Exemple inc." /></Field>
         <Field label={t('Expire le', 'Expires on')}><Input type="date" value={f.expiresOn} onChange={(e) => set({ expiresOn: e.target.value })} /></Field>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid min-w-0 [&>*]:min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Field label={t('Vente de', 'Sale from')} hint={t(`Permis : dès ${legal.from}`, `Permit: from ${legal.from}`)}><Input type="time" value={f.saleFrom} onChange={(e) => set({ saleFrom: e.target.value })} /></Field>
         <Field label={t('Jusqu’à', 'Until')} hint={t(`Permis : jusqu’à ${legal.to}`, `Permit: until ${legal.to}`)}><Input type="time" value={f.saleTo} onChange={(e) => set({ saleTo: e.target.value })} /></Field>
         {f.permitType === 'restaurant' && <div className="flex items-end sm:col-span-2"><Checkbox checked={f.thirdPartyAgreement} onChange={(v) => set({ thirdPartyAgreement: v })} label={t('Entente écrite signée avec l’entreprise de livraison (requise pour DoorDash, Uber, Skip et nos livreurs)', 'Written agreement signed with the delivery company (required for DoorDash, Uber, Skip and our couriers)')} /></div>}

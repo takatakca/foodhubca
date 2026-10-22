@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Clipboard, FileUp, MessageSquareText, RefreshCw, Sparkles, Star, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Button, buttonClass } from '@/components/ui/button';
 import { Banner, Card, CardHeader, EmptyState, PageHeader, Stat } from '@/components/ui/card';
 import { Checkbox, Chips, Field, Input, Select, Textarea } from '@/components/ui/form';
 import { useToast } from '@/components/ui/toast';
@@ -64,6 +64,7 @@ export function ReviewsView() {
   const [unanswered, setUnanswered] = useState(false);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const filtering = Boolean(brand || platform || kitchen || stars || theme || unanswered || from || to);
   const [data, setData] = useState<ListResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -153,8 +154,9 @@ export function ReviewsView() {
           note={t('Avis avec commentaire, pas encore marqués « répondu ».', 'Reviews with a comment, not marked “replied” yet.')} />
       </div>
 
-      <Card className="mb-4 p-4">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {/* Filters only once there are reviews (or a filter is on): an empty page shows the import action, not six fields. */}
+      {(filtering || (overall?.count ?? 0) > 0) && <Card className="mb-6 p-5">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 [&>*]:min-w-0">
           <Field label={t('Marque', 'Brand')}><Select value={brand} onChange={(e) => setBrand(e.target.value)}><option value="">{t('Toutes', 'All')}</option>{(data?.brands ?? []).map((b) => <option key={b} value={b}>{b}</option>)}</Select></Field>
           <Field label={t('Plateforme', 'Platform')}><Select value={platform} onChange={(e) => setPlatform(e.target.value)}><option value="">{t('Toutes', 'All')}</option>{(data?.platforms ?? []).map((p) => <option key={p.key} value={p.key}>{platformLabel(p.key)}</option>)}</Select></Field>
           <Field label={t('Cuisine', 'Kitchen')}><Select value={kitchen} onChange={(e) => setKitchen(e.target.value)}><option value="">{t('Toutes', 'All')}</option>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select></Field>
@@ -162,7 +164,7 @@ export function ReviewsView() {
           <Field label={t('Du', 'From')}><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
           <Field label={t('Au', 'To')}><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
           <div className="flex items-end pb-2"><Checkbox checked={unanswered} onChange={setUnanswered} label={t('Sans réponse seulement', 'Unanswered only')} /></div>
-          {canEdit && <div className="flex items-end"><Button variant="soft" loading={busy === 'batch'} disabled={!overall?.unanswered} icon={<Sparkles className="size-4" />} onClick={() => void batch()}>{t('Proposer pour les avis sans réponse', 'Propose for unanswered reviews')}</Button></div>}
+          {canEdit && <div className="flex items-end sm:col-span-2 lg:col-span-1"><Button variant="soft" className="h-auto min-h-11 w-full py-2 whitespace-normal" loading={busy === 'batch'} disabled={!overall?.unanswered} icon={<Sparkles className="size-4" />} onClick={() => void batch()}>{t('Proposer pour les avis sans réponse', 'Propose for unanswered reviews')}</Button></div>}
         </div>
         {data && (
           <Chips size="sm" className="mt-4" value={theme} onChange={(v) => setTheme(v === theme ? '' : v)}
@@ -171,11 +173,12 @@ export function ReviewsView() {
               return { value: th.key, label: `${t(th.fr, th.en)}${n ? ` · ${n}` : ''}` };
             })]} />
         )}
-      </Card>
+      </Card>}
 
       <Card className="mb-4">
         <CardHeader title={t('Par marque et plateforme', 'By brand and platform')} subtitle={t('Note, nombre d’avis, tendance 30 jours et thèmes principaux, par cuisine.', 'Rating, review count, 30-day trend and top themes, per kitchen.')} />
-        {!data ? <div className="h-24 animate-pulse rounded-b-lg bg-sunken" /> : data.summary.groups.length === 0 ? <EmptyState title={t('Aucun avis pour ces filtres', 'No reviews for these filters')} body={t('Importez un fichier ou les avis DoorDash ci-dessous.', 'Import a file or the DoorDash reviews below.')} /> : (
+        {!data ? <div className="h-24 animate-pulse rounded-b-lg bg-sunken" /> : data.summary.groups.length === 0 ? <EmptyState title={filtering ? t('Aucun avis pour ces filtres', 'No reviews for these filters') : t('Aucun avis pour l’instant', 'No reviews yet')} body={t('Importez un fichier ou les avis DoorDash.', 'Import a file or the DoorDash reviews.')}
+          action={<a href="#import-reviews" className={buttonClass('outline', 'md')}>{t('Importer des avis', 'Import reviews')}</a>} /> : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="border-y border-line text-left text-xs text-ink-3">
@@ -312,7 +315,7 @@ function ImportCard({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <Card>
+    <Card id="import-reviews" className="scroll-mt-24">
       <CardHeader icon={<FileUp className="size-4" />} title={t('Importer des avis', 'Import reviews')}
         subtitle={t('CSV ou Excel exporté du portail (Uber Eats, Skip, Too Good To Go, Google), ou le JSON de Google Takeout. Aperçu avant d’enregistrer. Aucune donnée personnelle n’est gardée.',
           'CSV or Excel exported from the portal (Uber Eats, Skip, Too Good To Go, Google), or the Google Takeout JSON. Preview before saving. No personal data is kept.')} />

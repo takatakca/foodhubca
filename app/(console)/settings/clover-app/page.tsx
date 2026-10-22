@@ -5,7 +5,8 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Check, CheckCircle2, CircleAlert, CircleDashed, ClipboardList, Copy, ExternalLink, FileText, Hourglass, KeyRound, LayoutGrid, Link2, Printer, Receipt, RefreshCw, ShieldCheck, Store, Tags, TriangleAlert, Video, X } from 'lucide-react';
 import { Banner } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Button, buttonClass } from '@/components/ui/button';
+import { TechDetails } from '../tech-details';
 import { Select } from '@/components/ui/form';
 import { Segmented } from '@/components/ui/tabs';
 import { useViewer } from '@/components/shell/viewer';
@@ -48,7 +49,8 @@ type CloverAppStatus = {
   metering?: PhoneMetering;
 };
 type ChannelsData = { clover: { webhookAuthSet?: boolean; verification?: { code: string } | null; tokenMerchantIds?: string[]; app?: AppInfo; apps?: CloverAppStatus[] } };
-type ReadyCheck = { ok: boolean; title: string; body: string; href?: string };
+/** `tech`: the setting names for the technician, folded under « Détails techniques » so the headline stays plain. */
+type ReadyCheck = { ok: boolean; title: string; body: string; href?: string; tech?: string };
 
 // Settings → Clover app: everything the owner needs to finish the Clover App Market listing and press Submit.
 // The checks are computed from the real configuration; the texts come from lib/foodhub/clover-listing.ts.
@@ -74,13 +76,17 @@ export default function CloverAppPage() {
     { ok: app.domain.ready, title: t('Votre propre domaine en HTTPS', 'Your own domain over HTTPS'),
       body: app.domain.ready ? app.domain.url : app.domain.problems.map((p) => t(PUBLIC_URL_PROBLEM_TEXT[p].fr, PUBLIC_URL_PROBLEM_TEXT[p].en)).join(' ') },
     { ok: app.configured, title: t('Clés de l’app (App ID et secret)', 'App keys (App ID and secret)'),
-      body: app.configured ? `App ID ${app.appId}` : t(`Manque : ${app.missing.join(', ')} — npm run setup sur le serveur.`, `Missing: ${app.missing.join(', ')} — npm run setup on the server.`) },
+      body: app.configured ? `App ID ${app.appId}` : t('Les clés de l’app ne sont pas encore sur le serveur : votre technicien les ajoute.', 'The app keys are not on the server yet: your technician adds them.'),
+      tech: app.configured ? undefined : t(`Manque : ${app.missing.join(', ')}. Commande : npm run setup sur le serveur.`, `Missing: ${app.missing.join(', ')}. Command: npm run setup on the server.`) },
     { ok: Boolean(data?.clover.webhookAuthSet && data?.clover.verification), title: t('Webhook Clover vérifié', 'Clover webhook verified'),
-      body: t('Événements Inventaire et App ; code de vérification recollé ; CLOVER_WEBHOOK_AUTH défini.', 'Inventory and App events; verification code pasted back; CLOVER_WEBHOOK_AUTH set.'), href: '/settings/channels' },
+      body: t('Clover prévient Food Hub des changements d’inventaire et d’installation, et le code de vérification est recollé.', 'Clover tells Food Hub about inventory and install changes, and the verification code is pasted back.'), href: '/settings/channels',
+      tech: t('Événements Inventory et App ; réglage CLOVER_WEBHOOK_AUTH défini.', 'Inventory and App events; CLOVER_WEBHOOK_AUTH setting defined.') },
     { ok: app.legalStatus.supportEmailSet && app.legalStatus.supportPhoneSet, title: t('Courriel et téléphone de soutien', 'Support email and phone'),
-      body: t('FOODHUB_SUPPORT_EMAIL et FOODHUB_SUPPORT_PHONE (Clover exige les deux). Optionnel : FOODHUB_SUPPORT_HOURS.', 'FOODHUB_SUPPORT_EMAIL and FOODHUB_SUPPORT_PHONE (Clover requires both). Optional: FOODHUB_SUPPORT_HOURS.'), href: app.legal.support },
+      body: t('Clover exige un courriel et un téléphone de soutien sur la page de soutien.', 'Clover requires a support email and phone on the support page.'), href: app.legal.support,
+      tech: t('FOODHUB_SUPPORT_EMAIL et FOODHUB_SUPPORT_PHONE. Optionnel : FOODHUB_SUPPORT_HOURS.', 'FOODHUB_SUPPORT_EMAIL and FOODHUB_SUPPORT_PHONE. Optional: FOODHUB_SUPPORT_HOURS.') },
     { ok: app.legalStatus.approved, title: t('Pages légales relues et approuvées', 'Legal pages reviewed and approved'),
-      body: t('Relisez confidentialité et conditions (avec un conseiller), puis FOODHUB_LEGAL_APPROVED=true : la bannière « projet » disparaît.', 'Review privacy and terms (with an adviser), then FOODHUB_LEGAL_APPROVED=true: the “draft” banner goes away.'), href: app.legal.privacy },
+      body: t('Relisez la confidentialité et les conditions (avec un conseiller) ; une fois approuvées, la bannière « projet » disparaît.', 'Review privacy and terms (with an adviser); once approved, the “draft” banner goes away.'), href: app.legal.privacy,
+      tech: 'FOODHUB_LEGAL_APPROVED=true' },
     { ok: Boolean(app.testOrder), title: t('Testé de bout en bout sur une caisse', 'Tested end to end on a register'),
       body: app.testOrder
         ? t(`Commande test créée, imprimée et payée sur ${app.testOrder.merchantId} (Clover ${app.testOrder.posOrderId}), le ${new Date(app.testOrder.at).toLocaleString('fr-CA')}.`, `Test order created, printed and paid on ${app.testOrder.merchantId} (Clover ${app.testOrder.posOrderId}), ${new Date(app.testOrder.at).toLocaleString('en-CA')}.`)
@@ -111,13 +117,14 @@ export default function CloverAppPage() {
               right={<Badge tone={ready === checks.length ? 'go' : 'wait'}>{ready}/{checks.length}</Badge>}>
               <ul className="divide-y divide-line">
                 {checks.map((c) => (
-                  <li key={c.title} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
-                    {c.ok ? <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-go" /> : <CircleDashed className="mt-0.5 size-5 shrink-0 text-wait-2" />}
+                  <li key={c.title} className="flex flex-wrap items-start gap-3 py-4 first:pt-0 last:pb-0 sm:flex-nowrap">
+                    {c.ok ? <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-go" aria-hidden /> : <CircleDashed className="mt-0.5 size-5 shrink-0 text-wait-2" aria-hidden />}
                     <div className="min-w-0 flex-1">
-                      <div className="font-bold">{c.title}</div>
-                      <div className="text-[13px] break-words text-ink-3">{c.body}</div>
+                      <div className="flex flex-wrap items-center gap-2"><span className="text-body font-bold">{c.title}</span><Badge tone={c.ok ? 'go' : 'wait'}>{c.ok ? t('Prêt', 'Ready') : t('À faire', 'To do')}</Badge></div>
+                      <div className="text-small mt-0.5 break-words text-ink-3">{c.body}</div>
+                      {c.tech && <TechDetails>{c.tech}</TechDetails>}
                     </div>
-                    {c.href && <a href={c.href} className="shrink-0 text-[13px] font-semibold text-ink-2 underline-offset-4 hover:underline">{t('Voir', 'See')}</a>}
+                    {c.href && <a href={c.href} className={buttonClass('outline', 'md', 'ml-8 shrink-0 sm:ml-0')}>{t('Voir', 'See')}</a>}
                   </li>
                 ))}
               </ul>
@@ -427,7 +434,7 @@ function CopyRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="mt-3 first:mt-0">
       <div className="text-[11px] font-semibold tracking-wide text-ink-3 uppercase">{label}</div>
-      <div className="mt-1 flex items-center gap-2"><code className="min-w-0 flex-1 truncate rounded-md bg-sunken px-2 py-1.5 font-mono text-xs text-ink" title={value}>{value}</code><CopyButton text={value} /></div>
+      <div className="mt-1 flex min-w-0 items-center gap-2"><code className="text-small min-w-0 flex-1 rounded-md bg-sunken px-2 py-1.5 font-mono break-all text-ink">{value}</code><CopyButton text={value} /></div>
     </div>
   );
 }

@@ -81,7 +81,7 @@ export function CallSimulatorPanel({ lines }: { lines: Array<{ id?: string; name
   return (
     <Section icon={<PhoneOutgoing className="size-5" />} title={t('Simulateur d’appel (aucun envoi)', 'Call simulator (nothing sent)')}
       subtitle={t('Un appel complet dans les vrais traitements Twilio. Les textos, courriels et messages d’équipe sont seulement affichés ; aucune commande ne va à Clover, en cuisine ou à un lien de paiement. Seule l’IA est appelée.', 'A whole call through the real Twilio handlers. Texts, emails and team messages are only shown; no order reaches Clover, the kitchen or a payment link. Only the AI is called.')}>
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid min-w-0 [&>*]:min-w-0 gap-3 md:grid-cols-3">
         <Field label={t('Numéro appelé', 'Number called')}>
           <Select value={target} onChange={(e) => setTarget(e.target.value)}>
             <option value="ivr">{t('Menu ON2GO', 'ON2GO menu')}</option>

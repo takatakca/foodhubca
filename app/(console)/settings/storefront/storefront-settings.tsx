@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Copy, ExternalLink, QrCode, Save, Store } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Button, buttonClass } from '@/components/ui/button';
 import { Banner, Skeleton } from '@/components/ui/card';
 import { Checkbox, Input, Select, Switch } from '@/components/ui/form';
 import { useToast } from '@/components/ui/toast';
@@ -14,6 +14,7 @@ import { useViewer } from '@/components/shell/viewer';
 import { api } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { Section, SettingsHead } from '../settings-ui';
+import { TechDetails } from '../tech-details';
 
 interface BrandRow {
   name: string; enabled: boolean; slug: string; locationCode: string; payOnline: boolean; payAtPickup: boolean; pickupMaxTotal: number; noteFr?: string; noteEn?: string;
@@ -77,26 +78,26 @@ export default function StorefrontSettings() {
       {!data && <Skeleton className="h-64" />}
       {data && (
         <>
-          {!data.trustProxy && <Banner tone="info" className="mb-4">{t('FOODHUB_TRUST_PROXY n’est pas activé : tous les clients partagent une même limite par adresse (plus large). Les limites par téléphone, par page et par serveur s’appliquent toujours.', 'FOODHUB_TRUST_PROXY is not on: every customer shares one (wider) per-address limit. The per-phone, per-page and per-server limits still apply.')}</Banner>}
-          {!data.https && <Banner tone="warn" className="mb-4">{t('FOODHUB_PUBLIC_URL n’est pas une adresse https : les liens et le paiement en ligne ne fonctionneront pas.', 'FOODHUB_PUBLIC_URL is not an https address: links and online payment will not work.')}</Banner>}
+          {!data.trustProxy && <Banner tone="info" className="mb-4">{t('Tous les clients partagent une même limite de commandes par adresse internet (plus large). Les limites par téléphone, par page et par serveur s’appliquent toujours.', 'Every customer shares one (wider) order limit per internet address. The per-phone, per-page and per-server limits still apply.')}<TechDetails>FOODHUB_TRUST_PROXY</TechDetails></Banner>}
+          {!data.https && <Banner tone="warn" className="mb-4">{t('L’adresse publique du site n’est pas sécurisée (https) : les liens et le paiement en ligne ne fonctionneront pas.', 'The site’s public address is not secure (https): links and online payment will not work.')}<TechDetails>FOODHUB_PUBLIC_URL</TechDetails></Banner>}
           <Section icon={<Store className="size-5" />} title={t('Interrupteur général', 'Master switch')}
             subtitle={t('Éteint : aucune page de commande n’est visible (404). Allumé : seules les marques activées ci-dessous le sont.', 'Off: no ordering page is visible (404). On: only the brands turned on below are.')}
-            right={<div className="flex items-center gap-2">{data.switch.source === 'env' && <Badge tone="info">{t('fixé par le serveur (FOODHUB_FEATURE_STOREFRONT)', 'set by the server (FOODHUB_FEATURE_STOREFRONT)')}</Badge>}<Switch checked={data.switch.source === 'env' ? data.switch.on : enabled} disabled={!editable || data.switch.source === 'env'} onChange={setEnabled} label={<span className="sr-only">{t('Interrupteur général', 'Master switch')}</span>} /></div>}>
+            right={<div className="flex items-center gap-2">{data.switch.source === 'env' && <Badge tone="info" title="FOODHUB_FEATURE_STOREFRONT">{t('fixé par le serveur', 'set by the server')}</Badge>}<Switch checked={data.switch.source === 'env' ? data.switch.on : enabled} disabled={!editable || data.switch.source === 'env'} onChange={setEnabled} label={<span className="sr-only">{t('Interrupteur général', 'Master switch')}</span>} /></div>}>
             <p className="text-[13px] text-ink-3">{data.settings.updatedAt ? `${t('Dernière modification', 'Last change')} : ${new Date(data.settings.updatedAt).toLocaleString()}${data.settings.updatedBy ? ` · ${data.settings.updatedBy}` : ''}` : t('Jamais enregistré.', 'Never saved.')}</p>
           </Section>
 
           <Section title={t('Marques', 'Brands')} subtitle={t('Pour emporter seulement. Les prix sont ceux du restaurant (menu Food Hub), recalculés à chaque commande. Alcool jamais offert en ligne.', 'Pickup only. Prices are the restaurant prices (Food Hub menu), recomputed on every order. Alcohol is never offered online.')}>
             <ul className="divide-y divide-line">
               {brands.map((b) => (
-                <li key={b.name} className="grid gap-3 py-4 lg:grid-cols-[220px_1fr]">
+                <li key={b.name} className="grid gap-4 py-5 lg:grid-cols-[220px_minmax(0,1fr)] [&>*]:min-w-0">
                   <div className="flex items-start gap-3">
                     <span className="mt-1 size-3 shrink-0 rounded-full" style={{ background: b.color ?? '#1565d8' }} />
                     <div className="min-w-0">
                       <Switch checked={b.enabled} disabled={!editable} onChange={(v) => patch(b.name, { enabled: v })} label={b.name} description={live(b) ? t('En ligne', 'Live') : t('Hors ligne', 'Off')} />
-                      {live(b) && <a href={`/commander/${b.slug}`} target="_blank" rel="noreferrer" className="mt-1 flex items-center gap-1 text-xs font-bold text-ink hover:underline"><ExternalLink className="size-3" />{t('Voir la page', 'Open the page')}</a>}
+                      {live(b) && <a href={`/commander/${b.slug}`} target="_blank" rel="noreferrer" className="text-small mt-1 inline-flex min-h-11 items-center gap-1 font-bold text-ink hover:underline"><ExternalLink className="size-4" aria-hidden />{t('Voir la page', 'Open the page')}</a>}
                     </div>
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="grid gap-3 sm:grid-cols-2 [&>*]:min-w-0">
                     <label className="text-xs font-bold text-ink-3">{t('Adresse', 'Address')} /commander/
                       <Input value={b.slug} disabled={!editable} onChange={(e) => patch(b.name, { slug: e.target.value.toLowerCase() })} />
                     </label>
@@ -131,7 +132,7 @@ export default function StorefrontSettings() {
           <Section icon={<QrCode className="size-5" />} title={t('Trousse de partage', 'Share kit')} subtitle={t('Liens, code QR et bouton à coller sur un site. Le ?src= dit d’où vient chaque commande.', 'Links, QR code and a button to paste on a website. The ?src= tells where each order comes from.')}
             right={<Select value={kit} onChange={(e) => setKit(e.target.value)}>{brands.map((b) => <option key={b.name} value={b.name}>{b.name}</option>)}</Select>}>
             {sel && (
-              <div className="grid gap-5 lg:grid-cols-[1fr_240px]">
+              <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_240px] [&>*]:min-w-0">
                 <div className="grid gap-4 text-[13px]">
                   {!live(sel) && <Banner tone="info">{t('Cette page n’est pas encore en ligne : allumez l’interrupteur général et la marque, puis enregistrez.', 'This page is not live yet: turn on the master switch and the brand, then save.')}</Banner>}
                   <div>
@@ -162,7 +163,7 @@ export default function StorefrontSettings() {
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={qrSrc} alt={t('Code QR de la page', 'QR code of the page')} className="w-full rounded-lg border border-line bg-white p-2" />
                   <label className="text-xs font-bold text-ink-3">{t('Numéro de table (facultatif)', 'Table number (optional)')}<Input inputMode="numeric" maxLength={3} value={table} onChange={(e) => setTable(e.target.value.replace(/\D/g, '').slice(0, 3))} /></label>
-                  <a href={`${qrSrc}&download=1`} className="text-center text-sm font-bold text-ink hover:underline">{t('Télécharger le code QR (SVG)', 'Download the QR code (SVG)')}</a>
+                  <a href={`${qrSrc}&download=1`} className={buttonClass('outline', 'md', 'w-full whitespace-normal text-center')}>{t('Télécharger le code QR (SVG)', 'Download the QR code (SVG)')}</a>
                 </div>
               </div>
             )}
@@ -176,7 +177,7 @@ export default function StorefrontSettings() {
               </table>
             )}
           </Section>
-          <p className="mt-2 text-xs text-ink-4">{t('Étapes du propriétaire : docs/STOREFRONT.md.', 'Owner steps: docs/STOREFRONT.md.')}</p>
+          <TechDetails label={t('Guide du propriétaire', 'Owner guide')}>docs/STOREFRONT.md</TechDetails>
         </>
       )}
     </div>
@@ -185,9 +186,9 @@ export default function StorefrontSettings() {
 
 function CopyLine({ text, onCopy }: { text: string; onCopy: (t: string) => void }) {
   return (
-    <div className="mt-1 flex items-center gap-2">
-      <code className="min-w-0 flex-1 truncate rounded bg-sunken px-2 py-1.5 font-mono text-xs">{text}</code>
-      <button type="button" onClick={() => onCopy(text)} className="grid size-9 shrink-0 place-items-center rounded-md border border-line hover:bg-sunken" aria-label="Copy"><Copy className="size-3.5" /></button>
+    <div className="mt-1 flex min-w-0 items-center gap-2">
+      <code className="text-small min-w-0 flex-1 rounded-md bg-sunken px-2 py-1.5 font-mono break-all">{text}</code>
+      <button type="button" onClick={() => onCopy(text)} className="grid size-11 shrink-0 place-items-center rounded-md border border-line hover:bg-sunken" aria-label="Copier / Copy"><Copy className="size-4" aria-hidden /></button>
     </div>
   );
 }

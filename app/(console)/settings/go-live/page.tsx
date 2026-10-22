@@ -5,6 +5,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { CheckCircle2, ChevronRight, CircleDashed, RefreshCw, TriangleAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Banner, Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { TechDetails } from '../tech-details';
+import { hasTech, plainTitle } from '../tech-text';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { SettingsHead } from '../settings-ui';
 import { api } from '@/lib/ui/api';
@@ -197,15 +200,15 @@ export default function GoLivePage() {
 
   return (
     <div>
-      <SettingsHead title={t('Mise en service', 'Go-live')} intro={t('Ce qui reste avant d’ouvrir les vannes. Chaque ligne se vérifie toute seule ; les clés se mettent avec npm run setup ou dans l’hébergeur, jamais dans le clavardage.', 'What is left before switching everything on. Each line checks itself; keys go in with npm run setup or the hosting settings, never in chat.')}
+      <SettingsHead title={t('Mise en service', 'Go-live')} intro={t('Ce qui reste avant d’ouvrir les vannes. Chaque ligne se vérifie toute seule ; les clés sont posées par votre technicien dans l’hébergeur, jamais dans le clavardage.', 'What is left before switching everything on. Each line checks itself; your technician sets the keys in the hosting settings, never in chat.')}
         right={<Button variant="outline" loading={busy} onClick={load} icon={<RefreshCw className="size-4" />}>{t('Revérifier', 'Re-check')}</Button>} />
       <div className="max-w-4xl">
       {err && <Banner tone="stop" className="mb-4">{err}</Banner>}
       {steps && (
         <Card className="mb-5 p-5">
           <div className="flex items-end justify-between gap-3">
-            <div><div className="text-3xl font-extrabold text-ink num">{done}/{total}</div><div className="text-[13px] text-ink-3">{t('étapes prêtes', 'steps ready')}</div></div>
-            <div className="text-right text-[13px] text-ink-3">{steps.filter((s) => s.state === 'todo').length} {t('à faire', 'to do')} · {steps.filter((s) => s.state === 'warn').length} {t('optionnelles', 'optional')}</div>
+            <div><div className="text-display num text-ink">{done}/{total}</div><div className="text-small text-ink-3">{t('étapes prêtes', 'steps ready')}</div></div>
+            <div className="text-small text-right text-ink-3">{steps.filter((s) => s.state === 'todo').length} {t('à faire', 'to do')} · {steps.filter((s) => s.state === 'warn').length} {t('optionnelles', 'optional')}</div>
           </div>
           <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-sunken"><div className="h-full rounded-full bg-go transition-all" style={{ width: `${Math.round((done / total) * 100)}%` }} /></div>
         </Card>
@@ -213,17 +216,23 @@ export default function GoLivePage() {
       {!steps && !err && <div className="h-96 animate-pulse rounded-lg bg-sunken" />}
       {groups.map((g) => (
         <div key={g} className="mb-5">
-          <div className="mb-2 text-xs font-bold tracking-wide text-ink-3 uppercase">{g}</div>
+          <h2 className="text-heading mb-3 text-ink">{g}</h2>
           <Card>
             <ul className="divide-y divide-line">
               {steps!.filter((s) => s.group === g).map((s) => (
-                <li key={s.key} className="flex items-start gap-3 px-5 py-3.5">
-                  {s.state === 'done' ? <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-go" /> : s.state === 'warn' ? <TriangleAlert className="mt-0.5 size-5 shrink-0 text-wait" /> : <CircleDashed className="mt-0.5 size-5 shrink-0 text-ink-4" />}
+                <li key={s.key} className="flex flex-wrap items-start gap-3 px-5 py-4 sm:flex-nowrap">
+                  {s.state === 'done' ? <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-go" aria-hidden /> : s.state === 'warn' ? <TriangleAlert className="mt-0.5 size-5 shrink-0 text-wait" aria-hidden /> : <CircleDashed className="mt-0.5 size-5 shrink-0 text-ink-3" aria-hidden />}
                   <div className="min-w-0 flex-1">
-                    <div className={cn('text-sm font-bold', s.state === 'done' ? 'text-ink-2' : 'text-ink')}>{s.title}</div>
-                    <div className="mt-0.5 text-[13px] leading-relaxed text-ink-3">{s.body}</div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={cn('text-body font-bold', s.state === 'done' ? 'text-ink-2' : 'text-ink')}>{plainTitle(s.title)}</span>
+                      <Badge tone={s.state === 'done' ? 'go' : s.state === 'warn' ? 'wait' : 'neutral'}>{s.state === 'done' ? t('Prêt', 'Ready') : s.state === 'warn' ? t('Optionnel', 'Optional') : t('À faire', 'To do')}</Badge>
+                    </div>
+                    {/* Setting names and commands are for the technician: a plain sentence, the details folded under it. */}
+                    {hasTech(s.body) || hasTech(s.title)
+                      ? <><div className="text-small mt-0.5 text-ink-3">{s.state === 'done' ? t('Réglé sur le serveur.', 'Set on the server.') : t('Un réglage du serveur, fait par votre technicien.', 'A server setting, done by your technician.')}</div><TechDetails>{s.title} — {s.body}</TechDetails></>
+                      : <div className="text-small mt-0.5 break-words text-ink-3">{s.body}</div>}
                   </div>
-                  {s.state !== 'done' && <Link href={s.href} className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[13px] font-bold text-ink hover:bg-sunken">{s.cta}<ChevronRight className="size-4" /></Link>}
+                  {s.state !== 'done' && <Link href={s.href} className="text-small ml-8 inline-flex min-h-11 shrink-0 items-center gap-1 rounded-md border border-line-2 px-3 font-bold text-ink hover:bg-sunken sm:ml-0">{s.cta}<ChevronRight className="size-4" aria-hidden /></Link>}
                 </li>
               ))}
             </ul>

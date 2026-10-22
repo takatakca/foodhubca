@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Eye, MapPin, Save, Truck } from 'lucide-react';
-import { Badge, StatusDot } from '@/components/ui/badge';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Banner, Skeleton } from '@/components/ui/card';
 import { Field, Input, Select, Switch } from '@/components/ui/form';
@@ -13,6 +13,7 @@ import { api, ApiError } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { Section } from '../../settings-ui';
 import { CopyValue, ExpansionHead } from '../expansion-ui';
+import { TechDetails } from '../../tech-details';
 
 type Fleet = { fleet: string; label: string; configured: boolean; canSend: boolean; environment: 'sandbox' | 'production'; missing: string[]; note: string; noteFr: string; webhookPath: string };
 type Resp = { settings: DeliverySettings; fleets: Fleet[]; baseUrl: string; secrets: { driveWebhook: string; websiteOrder: string } | null };
@@ -70,25 +71,25 @@ export default function DeliverySettingsPage() {
         right={edit && s ? <Button icon={<Save className="size-4" />} loading={busy} onClick={save}>{t('Enregistrer', 'Save')}</Button> : undefined} />
       {!data || !s ? <Skeleton className="h-96" /> : (
         <div className="max-w-5xl">
-          <Section icon={<Truck className="size-5" />} title={t('Services de livraison', 'Courier services')} subtitle={t('Les clés se mettent avec npm run setup ou dans les variables du serveur — jamais ici.', 'Keys go in with npm run setup or the server variables — never here.')}>
-            <div className="grid gap-3 md:grid-cols-2">
+          <Section icon={<Truck className="size-5" />} title={t('Services de livraison', 'Courier services')} subtitle={<>{t('Les clés des services de livraison sont posées sur le serveur par votre technicien, jamais sur cette page.', 'Courier service keys are set on the server by your technician, never on this page.')}<TechDetails>npm run setup</TechDetails></>}>
+            <div className="grid min-w-0 [&>*]:min-w-0 gap-3 md:grid-cols-2">
               {data.fleets.map((f) => (
-                <div key={f.fleet} className="rounded-md border border-line p-4">
-                  <div className="flex flex-wrap items-center gap-2"><StatusDot tone={f.canSend ? 'go' : f.configured ? 'wait' : 'neutral'} /><span className="font-bold">{f.label}</span>{f.configured && <Badge tone={f.environment === 'sandbox' ? 'info' : 'go'}>{f.environment === 'sandbox' ? t('bac à sable', 'sandbox') : 'production'}</Badge>}{f.fleet === s.primaryFleet && <Badge tone="dark">{t('principal', 'primary')}</Badge>}</div>
-                  <p className="mt-1 text-[13px] text-ink-3">{lang === 'fr' ? f.noteFr : f.note}</p>
+                <div key={f.fleet} className="min-w-0 rounded-md border border-line p-4">
+                  <div className="flex flex-wrap items-center gap-2"><span className="text-body font-bold">{f.label}</span><Badge tone={f.canSend ? 'go' : f.configured ? 'wait' : 'neutral'}>{f.canSend ? t('Prêt', 'Ready') : f.configured ? t('À vérifier', 'To check') : t('Pas branché', 'Not connected')}</Badge>{f.configured && <Badge tone={f.environment === 'sandbox' ? 'info' : 'go'}>{f.environment === 'sandbox' ? t('bac à sable', 'sandbox') : 'production'}</Badge>}{f.fleet === s.primaryFleet && <Badge tone="dark">{t('principal', 'primary')}</Badge>}</div>
+                  <p className="text-small mt-1 break-words text-ink-3">{lang === 'fr' ? f.noteFr : f.note}</p>
                   <div className="mt-3 space-y-2">
                     <CopyValue label={t('Adresse webhook à donner', 'Webhook URL to give')} value={`${data.baseUrl}${f.webhookPath}`} />
                     {f.fleet === 'doordash_drive' && <>
-                      <div className="grid grid-cols-2 gap-2"><CopyValue label={t('Type d’authentification', 'Authentication type')} value="Basic" mono={false} /><CopyValue label={t('Nom de l’en-tête', 'Header name')} value="Authorization" mono={false} /></div>
+                      <div className="grid gap-2 sm:grid-cols-2 [&>*]:min-w-0"><CopyValue label={t('Type d’authentification', 'Authentication type')} value="Basic" mono={false} /><CopyValue label={t('Nom de l’en-tête', 'Header name')} value="Authorization" mono={false} /></div>
                       {data.secrets ? <CopyValue label={t('Jeton (Authorization)', 'Token (Authorization)')} value={data.secrets.driveWebhook || t('(non généré)', '(not generated)')} /> : can('admin') && <Button size="xs" variant="ghost" icon={<Eye className="size-3.5" />} onClick={() => load(true)}>{t('Afficher le jeton', 'Show the token')}</Button>}
                       {/* Several kitchens: each one is a Drive store (pickup_external_business_id + pickup_external_store_id). */}
-                      <div className="flex flex-wrap items-center gap-2 text-xs text-ink-3">
+                      <div className="text-small flex flex-wrap items-center gap-2 text-ink-3">
                         <span>{t(`Cuisines inscrites chez DoorDash Drive : ${driveStores ? Object.keys(driveStores.stores).length : 0}`, `Kitchens registered with DoorDash Drive: ${driveStores ? Object.keys(driveStores.stores).length : 0}`)}</span>
                         {edit && f.canSend && <Button size="xs" variant="outline" loading={busy} onClick={registerKitchens}>{t('Inscrire / mettre à jour les cuisines', 'Register / update kitchens')}</Button>}
                       </div>
                     </>}
-                    {f.fleet === 'uber_direct' && <p className="text-xs text-ink-3">{t('Clé de signature : UBER_DIRECT_WEBHOOK_SECRET (copiée depuis Uber Direct → Webhooks).', 'Signing key: UBER_DIRECT_WEBHOOK_SECRET (copied from Uber Direct → Webhooks).')}</p>}
-                    {f.fleet === 'skip_daas' && <p className="text-xs text-ink-3">{t('Skip renvoie le secret SKIP_DAAS_WEBHOOK_SECRET dans l’en-tête x-api-key. Les points de collecte se règlent avec SKIP_DAAS_COLLECT_POINTS.', 'Skip sends back SKIP_DAAS_WEBHOOK_SECRET in the x-api-key header. Collect points are set with SKIP_DAAS_COLLECT_POINTS.')}</p>}
+                    {f.fleet === 'uber_direct' && <TechDetails>{t('Clé de signature : UBER_DIRECT_WEBHOOK_SECRET (copiée depuis Uber Direct → Webhooks).', 'Signing key: UBER_DIRECT_WEBHOOK_SECRET (copied from Uber Direct → Webhooks).')}</TechDetails>}
+                    {f.fleet === 'skip_daas' && <TechDetails>{t('Skip renvoie le secret SKIP_DAAS_WEBHOOK_SECRET dans l’en-tête x-api-key. Les points de collecte se règlent avec SKIP_DAAS_COLLECT_POINTS.', 'Skip sends back SKIP_DAAS_WEBHOOK_SECRET in the x-api-key header. Collect points are set with SKIP_DAAS_COLLECT_POINTS.')}</TechDetails>}
                   </div>
                 </div>
               ))}
@@ -97,7 +98,7 @@ export default function DeliverySettingsPage() {
           </Section>
 
           <Section title={t('Règles générales', 'General rules')}>
-            <fieldset disabled={!edit} className="grid gap-4 md:grid-cols-2">
+            <fieldset disabled={!edit} className="min-w-0 grid min-w-0 [&>*]:min-w-0 gap-4 md:grid-cols-2">
               <Field label={t('Service principal', 'Primary service')}><Select value={s.primaryFleet} onChange={(e) => setS({ ...s, primaryFleet: e.target.value as DeliverySettings['primaryFleet'] })}><option value="doordash_drive">DoorDash Drive</option><option value="uber_direct">Uber Direct</option><option value="skip_daas">Skip Delivery</option></Select></Field>
               <Field label={t('Si non livrable', 'If undeliverable')}><Select value={s.undeliverable} onChange={(e) => setS({ ...s, undeliverable: e.target.value as DeliverySettings['undeliverable'] })}><option value="return_to_pickup">{t('Retour à la cuisine', 'Back to the kitchen')}</option><option value="dispose">{t('Laisser / jeter', 'Leave / dispose')}</option></Select></Field>
               <Field label={t('Frais de livraison facturés au client ($)', 'Delivery fee charged to the customer ($)')}><Input inputMode="decimal" value={s.customerFee} onChange={(e) => setS({ ...s, customerFee: e.target.value as unknown as number })} /></Field>
@@ -110,7 +111,7 @@ export default function DeliverySettingsPage() {
           </Section>
 
           <Section title={t('Uber Direct : remise et preuve', 'Uber Direct: hand-off and proof')} subtitle={t('Alcool : toujours en main propre avec pièce d’identité. « Laisser à la porte » exige une photo ; un code NIP est texté au client avec le lien de suivi.', 'Alcohol: always handed over with an ID check. "Leave at the door" requires a photo; a PIN is texted to the customer with the tracking link.')}>
-            <fieldset disabled={!edit} className="grid gap-4 md:grid-cols-2">
+            <fieldset disabled={!edit} className="min-w-0 grid min-w-0 [&>*]:min-w-0 gap-4 md:grid-cols-2">
               <Field label={t('Remise au client', 'Hand-off')}><Select value={s.uberDirect?.deliverableAction ?? 'meet_at_door'} onChange={(e) => setS({ ...s, uberDirect: { ...uberOpts(s), deliverableAction: e.target.value as UberOpts['deliverableAction'] } })}><option value="meet_at_door">{t('En main propre', 'Meet at the door')}</option><option value="leave_at_door">{t('Laisser à la porte (photo)', 'Leave at the door (photo)')}</option></Select></Field>
               <Field label={t('Preuve de livraison', 'Proof of delivery')}><Select value={s.uberDirect?.proof ?? 'picture'} onChange={(e) => setS({ ...s, uberDirect: { ...uberOpts(s), proof: e.target.value as UberOpts['proof'] } })}><option value="picture">{t('Photo', 'Photo')}</option><option value="signature">{t('Signature', 'Signature')}</option><option value="pincode">{t('Code NIP du client', 'Customer PIN')}</option><option value="none">{t('Aucune', 'None')}</option></Select></Field>
               <Switch checked={Boolean(s.uberDirect?.pickPackPay)} onChange={(v) => setS({ ...s, uberDirect: { ...uberOpts(s), pickPackPay: v } })} label={t('Le livreur fait les courses (Courier Pick & Pack)', 'The courier shops the order (Courier Pick & Pack)')} description={t('Épicerie seulement ; exige une entente avec Uber Direct.', 'Grocery only; needs an agreement with Uber Direct.')} />
@@ -122,13 +123,13 @@ export default function DeliverySettingsPage() {
               {locations.map((l) => {
                 const r = rule(l.code);
                 return (
-                  <fieldset key={l.code} disabled={!edit} className="rounded-md border border-line p-4">
+                  <fieldset key={l.code} disabled={!edit} className="min-w-0 rounded-md border border-line p-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="font-bold">{l.name}</div>
                       <div className="flex flex-wrap gap-4"><Switch checked={r.enabled} onChange={(v) => setRule(l.code, { enabled: v })} label={t('Livre ses commandes', 'Delivers its orders')} /><Switch checked={r.autoDispatch} disabled={!r.enabled} onChange={(v) => setRule(l.code, { autoDispatch: v })} label={t('Envoi automatique', 'Auto-dispatch')} /></div>
                     </div>
                     {r.enabled && (
-                      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      <div className="mt-3 grid min-w-0 [&>*]:min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                         <Field label={t('Minutes avant « prête »', 'Minutes before "ready"')}><Input inputMode="numeric" value={r.leadMinutes} onChange={(e) => setRule(l.code, { leadMinutes: e.target.value as unknown as number })} /></Field>
                         <Field label={t('Plafond auto ($)', 'Auto price limit ($)')}><Input inputMode="decimal" value={r.maxAutoFee} onChange={(e) => setRule(l.code, { maxAutoFee: e.target.value as unknown as number })} /></Field>
                         <Field label={t('Distance max (km)', 'Max distance (km)')}><Input inputMode="decimal" value={r.maxDistanceKm} onChange={(e) => setRule(l.code, { maxDistanceKm: e.target.value as unknown as number })} /></Field>

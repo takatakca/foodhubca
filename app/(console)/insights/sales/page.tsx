@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { buttonClass } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Banner, Card, EmptyState, PageHeader } from '@/components/ui/card';
+import { Info } from 'lucide-react';
+import { Banner, Card, EmptyState, PageHeader, SkeletonStats } from '@/components/ui/card';
 import { FilterBar } from '@/components/ui/filter-bar';
 import { Input } from '@/components/ui/form';
 import { Segmented } from '@/components/ui/tabs';
@@ -105,21 +106,23 @@ export default function SalesMixPage() {
       <FilterBar filters={filters} set={set} locations={locations} brands={brands} />
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <Segmented value={view} onChange={setView} options={[{ key: 'all', label: t('Tout', 'All') }, { key: 'platforms', label: t('Plateformes', 'Platforms') }, { key: 'direct', label: t('Directes', 'Direct') }]} />
-        <span className="text-xs text-ink-3">{t('Les montants diffèrent de la page Analyses, qui compte les totaux des commandes.', 'Amounts differ from the Insights page, which counts order totals.')}</span>
+        <span className="text-small inline-flex min-h-11 cursor-help items-center gap-1 text-ink-3" tabIndex={0} title={t('Les montants diffèrent de la page Ventes et tendances, qui compte les totaux des commandes.', 'Amounts differ from the Sales & trends page, which counts order totals.')}>
+          <Info className="size-4" aria-hidden /><span className="sr-only">{t('Les montants diffèrent de la page Ventes et tendances, qui compte les totaux des commandes.', 'Amounts differ from the Sales & trends page, which counts order totals.')}</span><span aria-hidden>{t('Pourquoi ces montants ?', 'Why these amounts?')}</span>
+        </span>
       </div>
       {error && <Banner tone="stop" className="mb-4">{error}</Banner>}
       {data?.range.truncated && <Banner tone="warn" className="mb-4">{t('Trop de commandes pour cette période : seules les plus récentes sont comptées. Choisissez une période plus courte.', 'Too many orders for this period: only the newest are counted. Pick a shorter period.')}</Banner>}
       {data && !data.range.truncated && data.range.previousIncomplete && <Banner tone="warn" className="mb-4">{t('Trop de commandes dans la période précédente : la comparaison est masquée. Choisissez une période plus courte.', 'Too many orders in the previous period: the comparison is hidden. Pick a shorter period.')}</Banner>}
-      {!data && !error && <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">{[0, 1, 2, 3].map((i) => <div key={i} className="h-28 animate-pulse rounded-lg bg-sunken" />)}</div>}
+      {!data && !error && <SkeletonStats count={5} />}
       {empty && <EmptyState title={t('Aucune vente pour cette période.', 'No sales in this period.')} />}
       {data && k && !empty && (
         <div className={loading ? 'opacity-60 transition-opacity' : ''}>
-          <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatTile hero label={t('Ventes', 'Sales')} value={fmtMoney(k.sales)} change={cmp ? k.salesChange : undefined} previous={cmp ? fmtMoney(k.prevSales) : undefined} />
+          <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-3">
+            <StatTile hero wide label={t('Ventes', 'Sales')} value={fmtMoney(k.sales)} change={cmp ? k.salesChange : undefined} previous={cmp ? fmtMoney(k.prevSales) : undefined} />
             <StatTile label={t('Commandes', 'Orders')} value={fmtInt(k.orders)} change={cmp ? k.ordersChange : undefined} previous={cmp ? fmtInt(k.prevOrders) : undefined} />
             <StatTile label={t('Panier moyen', 'Average order')} value={fmtMoney(k.aov)} />
             <StatTile label={t('Articles vendus', 'Items sold')} value={fmtInt(k.itemsSold)} />
-            <StatTile label={t('Ventes perdues', 'Lost sales')} value={fmtMoney(k.lostSales)} change={cmp ? k.lostSalesChange : undefined} previous={cmp ? fmtMoney(k.prevLostSales) : undefined} upIsGood={false} note={`${k.lostOrders} ${t('cmd annulées', 'cancelled orders')}`} />
+            <StatTile label={t('Ventes perdues', 'Lost sales')} value={fmtMoney(k.lostSales)} change={cmp ? k.lostSalesChange : undefined} previous={cmp ? fmtMoney(k.prevLostSales) : undefined} upIsGood={false} note={k.lostOrders === 1 ? t('1 commande annulée', '1 cancelled order') : t(`${k.lostOrders} commandes annulées`, `${k.lostOrders} cancelled orders`)} />
           </div>
 
           <Card className="mb-5 p-5">

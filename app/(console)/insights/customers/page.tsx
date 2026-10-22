@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Banner, Card, EmptyState, PageHeader } from '@/components/ui/card';
+import { Users } from 'lucide-react';
+import { ButtonLink } from '@/components/ui/button';
+import { Banner, Card, EmptyState, PageHeader, SkeletonStats } from '@/components/ui/card';
 import { FilterBar } from '@/components/ui/filter-bar';
 import { Segmented } from '@/components/ui/tabs';
 import { ChartCard, fmtInt, fmtMoney, HBars, StatTile } from '@/components/charts/charts';
@@ -67,10 +69,17 @@ export default function CustomersInsightsPage() {
       {data?.range.truncated && (data.range.periodComplete
         ? <Banner tone="warn" className="mb-4">{t('Historique de 180 jours incomplet (trop de commandes) : les chiffres « nouveaux » et « à reconquérir » sont approximatifs. Filtrez par cuisine ou par marque pour un compte exact.', 'The 180-day history is incomplete (too many orders): the new and lapsed figures are approximate. Filter by kitchen or brand for an exact count.')}</Banner>
         : <Banner tone="warn" className="mb-4">{t('Beaucoup de commandes : seules les plus récentes de la période sont comptées. Filtrez par cuisine ou par marque, ou choisissez une période plus courte.', 'Many orders: only the most recent in the period are counted. Filter by kitchen or brand, or pick a shorter period.')}</Banner>)}
-      {!data && !error && <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">{[0, 1, 2, 3].map((i) => <div key={i} className="h-28 animate-pulse rounded-lg bg-sunken" />)}</div>}
-      {data && (
+      {!data && !error && <SkeletonStats count={4} />}
+      {/* One identified customer (or none) is not a report: say why, and what reveals customers, instead of six zero cards. */}
+      {data && data.totals.customers <= 1 && (
+        <Card className="mb-6"><EmptyState icon={<Users className="size-6" />}
+          title={data.totals.customers === 1 ? t('1 client identifié', '1 identified customer') : t('Aucun client identifié', 'No identified customer')}
+          body={t('Les plateformes masquent souvent leurs clients ; vos commandes directes les révèlent.', 'Platforms often hide their customers; your direct orders reveal them.')}
+          action={<ButtonLink href="/settings/storefront" variant="outline">{t('Ouvrir la commande directe', 'Open direct ordering')}</ButtonLink>} /></Card>
+      )}
+      {data && data.totals.customers > 1 && (
         <div className={loading ? 'opacity-60 transition-opacity' : ''}>
-          <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
             <StatTile hero label={t('Clients identifiés', 'Identified customers')} value={fmtInt(data.totals.customers)} note={t(`${data.totals.coveragePct} % des commandes`, `${data.totals.coveragePct}% of orders`)} />
             <StatTile label={t('Taux de retour', 'Repeat rate')} value={pctTxt(data.repeatRate)} />
             <StatTile label={t('Clients multi-marques', 'Multi-brand customers')} value={fmtInt(data.multiBrand.customers)} note={`${pctTxt(data.multiBrand.pct)} · ${fmtMoney(data.multiBrand.sales)}`} />
@@ -105,7 +114,7 @@ export default function CustomersInsightsPage() {
               </div>
               <ChartCard className="mb-5" title={t('Meilleurs clients (anonymisés)', 'Top customers (anonymized)')}
                 table={{ columns: [t('Code', 'Code'), t('Type', 'Type'), t('Commandes', 'Orders'), t('Ventes', 'Sales'), t('Panier', 'Avg'), t('Première', 'First'), t('Dernière', 'Last'), t('Plateformes', 'Platforms'), t('Marques', 'Brands')], rows: data.top.map((c) => [c.id, tierOne(c.tier), c.orders, fmtMoney(c.sales), fmtMoney(c.aov), c.firstOrder, c.lastOrder, c.channels.map((k) => (k === 'direct' ? t('Directes', 'Direct') : data.byChannel.find((r) => r.key === k)?.label ?? k)).join(', '), c.brands.join(', ')]), filename: 'takatak-top-customers' }}>
-                <HBars rows={data.top.slice(0, 10).map((c) => ({ label: `${c.id} · ${tierOne(c.tier)}`, value: c.sales, detail: `${c.orders} ${t('cmd', 'orders')} · ${c.brands.length} ${t('marque(s)', 'brand(s)')}` }))} format={fmtMoney} />
+                <HBars rows={data.top.slice(0, 10).map((c) => ({ label: `${c.id} · ${tierOne(c.tier)}`, value: c.sales, detail: `${c.orders} ${t('cmd', 'orders')} · ${c.brands.length === 1 ? t('1 marque', '1 brand') : t(`${c.brands.length} marques`, `${c.brands.length} brands`)}` }))} format={fmtMoney} />
               </ChartCard>
             </>
           )}

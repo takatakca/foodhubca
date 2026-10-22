@@ -5,8 +5,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Download, XCircle } from 'lucide-react';
 import { Badge, PlatformTag } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Banner, Card, CardHeader, EmptyState } from '@/components/ui/card';
+import { Button, ButtonLink } from '@/components/ui/button';
+import { Banner, Card, CardHeader, EmptyState, SkeletonTable } from '@/components/ui/card';
 import { FilterBar } from '@/components/ui/filter-bar';
 import { Modal } from '@/components/ui/overlay';
 import { Tabs } from '@/components/ui/tabs';
@@ -88,7 +88,9 @@ export default function LedgerPage() {
             </Table>
           </Card>
         ))}
-        {rows.length === 0 && <Card><EmptyState title={!loaded ? t('Chargement…', 'Loading…') : tab === 'draft' ? t('Rien à approuver', 'Nothing to approve') : t('Aucune écriture', 'No entry')} body={loaded && tab === 'draft' ? t('Les écritures apparaissent quand des relevés sont importés.', 'Entries appear when statements are imported.') : undefined} /></Card>}
+        {rows.length === 0 && !loaded && <SkeletonTable rows={4} cols={5} />}
+        {rows.length === 0 && loaded && <Card><EmptyState title={tab === 'draft' ? t('Rien à approuver', 'Nothing to approve') : t('Aucune écriture', 'No entry')} body={t('Les écritures apparaissent quand des relevés sont importés.', 'Entries appear when statements are imported.')}
+          action={<ButtonLink href="/money/statements" variant="outline">{t('Importer un relevé', 'Import a statement')}</ButtonLink>} /></Card>}
       </div>
 
       {byAccount.length > 0 && (

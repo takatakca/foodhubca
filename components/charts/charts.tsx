@@ -6,7 +6,7 @@
 // hover + keyboard tooltips that never gate (every chart has a table view), text in ink colors only.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { downloadCsv } from '@/lib/ui/api';
-import { useT } from '@/lib/i18n/client';
+import { useI18n, useT } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
 
 export const VIZ = {
@@ -24,6 +24,20 @@ export function compactMoney(n: number) {
 }
 export const fmtMoney = (n: number) => new Intl.NumberFormat('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: Math.abs(n) >= 1000 ? 0 : 2 }).format(n);
 export const fmtInt = (n: number) => new Intl.NumberFormat('fr-CA').format(Math.round(n));
+/** A signed change in the UI's locale: "+4,4 %" in French, "+4.4%" in English (one format per language, never mixed). */
+export function fmtChange(change: number, loc = 'fr-CA') {
+  const s = new Intl.NumberFormat(loc, { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1, signDisplay: 'exceptZero' }).format(change / 100);
+  return s.replace(/^-/, '−');
+}
+/**
+ * How a stat compares with the previous period. No previous period (nothing then) means there is nothing to compare:
+ * never "+100 % vs 0,00 $".
+ */
+export function changeKind(change: number | undefined, hasPrevious: boolean | undefined): 'none' | 'no-previous' | 'flat' | 'up' | 'down' {
+  if (change === undefined) return 'none';
+  if (hasPrevious === false) return 'no-previous';
+  return change === 0 ? 'flat' : change > 0 ? 'up' : 'down';
+}
 
 function niceTicks(max: number, count = 4): number[] {
   if (max <= 0) return [0, 1];
@@ -278,23 +292,28 @@ export function Heatmap({ grid }: { grid: number[][] }) {
   );
 }
 
-/** Stat tile: label · value · signed delta vs the previous period (icon + sign, never color alone). */
-export function StatTile({ label, value, change, previous, upIsGood = true, hero, note }: {
-  label: string; value: string; change?: number; previous?: string; upIsGood?: boolean; hero?: boolean; note?: string;
+/**
+ * Stat tile: label · value · signed change vs the previous period (arrow + sign, never colour alone). Same card as
+ * every other (20 px padding, 12 px radius); `hero` is the one dark card a screen may show, and `wide` spans two
+ * columns. `hasPrevious={false}` says "no previous period" instead of a meaningless +100 %.
+ */
+export function StatTile({ label, value, change, previous, upIsGood = true, hero, wide, note, hasPrevious }: {
+  label: string; value: string; change?: number; previous?: string; upIsGood?: boolean; hero?: boolean; wide?: boolean; note?: string; hasPrevious?: boolean;
 }) {
-  const t = useT();
-  const dir = change === undefined || change === 0 ? 0 : change > 0 ? 1 : -1;
-  const good = dir === 0 ? null : (dir > 0) === upIsGood;
+  const { t, loc } = useI18n();
+  const kind = changeKind(change, hasPrevious);
+  const good = kind === 'up' ? upIsGood : kind === 'down' ? !upIsGood : null;
   return (
-    <div className={cn('rounded-lg border border-line bg-surface p-4 shadow-card', hero && 'sm:col-span-2 bg-ink text-canvas border-ink')}>
-      <div className={cn('text-[13px] font-medium', hero ? 'text-canvas/70' : 'text-ink-3')}>{label}</div>
-      <div className={cn('num mt-1 font-extrabold tracking-tight', hero ? 'text-4xl sm:text-5xl' : 'text-[26px] text-ink')}>{value}</div>
-      {change !== undefined && (
-        <div className={cn('mt-1 text-[13px] font-bold', good === null ? (hero ? 'text-canvas/70' : 'text-ink-2') : good ? (hero ? 'text-[#5fe3a1]' : 'text-go-2') : (hero ? 'text-[#ff8a8c]' : 'text-stop-2'))}>
-          {dir > 0 ? '▲' : dir < 0 ? '▼' : '■'} {change > 0 ? '+' : ''}{change.toFixed(1)}% <span className={cn('font-normal', hero ? 'text-canvas/60' : 'text-ink-3')}>{t('vs', 'vs')} {previous ?? t('période précédente', 'previous period')}</span>
+    <div className={cn('min-w-0 rounded-md border border-line bg-surface p-5 shadow-card', wide && 'sm:col-span-2', hero && 'border-rail-2 bg-rail text-white')}>
+      <div className={cn('text-small font-semibold', hero ? 'text-white/75' : 'text-ink-3')}>{label}</div>
+      <div className={cn('num mt-1 tracking-tight', hero ? 'text-[34px] leading-none font-extrabold' : 'text-display text-ink')}>{value}</div>
+      {kind === 'no-previous' && <div className={cn('text-small mt-1', hero ? 'text-white/70' : 'text-ink-3')}>— {t('pas de période précédente', 'no previous period')}</div>}
+      {(kind === 'up' || kind === 'down' || kind === 'flat') && change !== undefined && (
+        <div className={cn('text-small mt-1 font-bold', good === null ? (hero ? 'text-white/75' : 'text-ink-2') : good ? (hero ? 'text-[#5fe3a1]' : 'text-go-2') : (hero ? 'text-[#ff9b9d]' : 'text-stop-2'))}>
+          <span aria-hidden>{kind === 'up' ? '▲' : kind === 'down' ? '▼' : '■'}</span> {fmtChange(change, loc)} <span className={cn('font-normal', hero ? 'text-white/70' : 'text-ink-3')}>{t('vs', 'vs')} {previous ?? t('période précédente', 'previous period')}</span>
         </div>
       )}
-      {note && <div className={cn('mt-1 text-xs', hero ? 'text-canvas/60' : 'text-ink-3')}>{note}</div>}
+      {note && <div className={cn('text-small mt-1', hero ? 'text-white/70' : 'text-ink-3')}>{note}</div>}
     </div>
   );
 }

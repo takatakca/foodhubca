@@ -1,9 +1,7 @@
 'use client';
 
-import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
-import { ArrowLeft } from 'lucide-react';
 import { PageHeader } from '@/components/ui/card';
 import { LinkTabs } from '@/components/ui/tabs';
 import { useScopeHref } from '@/components/live/pulse';
@@ -30,7 +28,8 @@ export function roleHelp(t: T, r: string) {
 }
 
 /**
- * A Settings page's header: "← Réglages" back to the hub, the title, and the tabs of its own group only (at most 4).
+ * A Settings page's header: "← Réglages" back to the hub, the title, and the action on the right. From 1280 px the
+ * side-nav (settings-nav.tsx) lists every page, so the tabs of the page's own group (at most 4) only show below that.
  * An advanced page opened by its address in the simple view still renders, with its group's tabs.
  */
 export function SettingsHead({ title, intro, right }: { title: string; intro?: ReactNode; right?: ReactNode }) {
@@ -42,25 +41,23 @@ export function SettingsHead({ title, intro, right }: { title: string; intro?: R
   const tabs = group ? SETTINGS_PAGES.filter((p) => p.group === group && can(p.perm)) : [];
   return (
     <>
-      <PageHeader
-        eyebrow={<Link href={href('/settings')} className="-my-1.5 inline-flex min-h-11 items-center gap-1 rounded-md pr-2 normal-case tracking-normal text-brand hover:underline"><ArrowLeft className="size-3.5" />{t('Réglages', 'Settings')}</Link>}
-        title={title} subtitle={intro} right={right} />
-      {tabs.length > 1 && <LinkTabs tabs={tabs.map((p) => ({ href: p.href, label: t(p.fr, p.en) }))} />}
+      <PageHeader back={{ href: href('/settings'), label: t('Réglages', 'Settings') }} title={title} subtitle={intro} right={right} />
+      {tabs.length > 1 && <LinkTabs className="xl:hidden" label={t('Pages de ce groupe', 'Pages in this group')} tabs={tabs.map((p) => ({ href: p.href, label: t(p.fr, p.en) }))} />}
     </>
   );
 }
 
 export function Section({ title, subtitle, right, children, icon }: { title: ReactNode; subtitle?: ReactNode; right?: ReactNode; children: ReactNode; icon?: ReactNode }) {
   return (
-    <section className="mb-5 rounded-md border border-line bg-surface">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-5 py-4">
+    <section className="mb-6 min-w-0 rounded-md border border-line bg-surface shadow-card">
+      <div className="flex flex-col gap-3 border-b border-line px-5 py-4 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
         <div className="flex min-w-0 items-start gap-3">
           {icon && <div className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-md bg-sunken text-ink-2">{icon}</div>}
-          <div className="min-w-0"><h2 className="text-base font-extrabold text-ink">{title}</h2>{subtitle && <p className="mt-0.5 text-[13px] leading-relaxed text-ink-3">{subtitle}</p>}</div>
+          <div className="min-w-0"><h2 className="text-heading break-words text-ink">{title}</h2>{subtitle && <p className="text-small mt-0.5 break-words text-ink-3">{subtitle}</p>}</div>
         </div>
         {right}
       </div>
-      <div className="px-5 py-4">{children}</div>
+      <div className="min-w-0 px-5 py-5">{children}</div>
     </section>
   );
 }

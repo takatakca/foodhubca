@@ -196,19 +196,19 @@ export function MappingView() {
         <Card className="mb-5 border-uber/40">
           <CardHeader icon={<PlatformMark channel="uber_eats" size="sm" />} title={t(`Magasins de votre compte Uber Eats (${picks.length})`, `Stores on your Uber Eats account (${picks.length})`)} subtitle={t('Marque, cuisine et caisse Clover pré-remplies d’après le nom et l’adresse Uber — vérifiez, puis activez. Un magasin encore chez UrbanPiper peut être activé : ses commandes passent à Food Hub quand UrbanPiper le libère.', 'Brand, location and Clover register pre-filled from the Uber name and address — check, then activate. A store still on UrbanPiper can be activated: its orders move to Food Hub once UrbanPiper lets it go.')}
             right={<Hint id="mapping.activate"><Button variant="brand" loading={busy === 'activate'} disabled={!picks.some((p) => p.include)} onClick={activate}>{t('Activer et relier', 'Activate & link')}</Button></Hint>} />
-          <Table>
-            <thead><tr><Th /><Th>{t('Magasin Uber', 'Uber store')}</Th><Th>{t('Marque', 'Brand')}</Th><Th>{t('Cuisine', 'Kitchen')}</Th><Th>Clover</Th><Th>{t('Commandes vont à', 'Orders go to')}</Th><Th /></tr></thead>
+          <Table cards>
+            <thead><tr><Th><span className="sr-only">{t('Choisir', 'Pick')}</span></Th><Th>{t('Magasin Uber', 'Uber store')}</Th><Th>{t('Marque', 'Brand')}</Th><Th>{t('Cuisine', 'Kitchen')}</Th><Th>Clover</Th><Th>{t('Commandes vont à', 'Orders go to')}</Th><Th><span className="sr-only">{t('Résultat', 'Result')}</span></Th></tr></thead>
             <tbody>{picks.map((p, i) => {
               const upd = (patch: Partial<Pick>) => setPicks((all) => all.map((x, j) => (j === i ? { ...x, ...patch } : x)));
               const r = results[p.storeId];
               return (<Fragment key={p.storeId}>
                 <Tr>
-                  <Td><input type="checkbox" className="size-4" checked={p.include} onChange={(e) => upd({ include: e.target.checked })} /></Td>
-                  <Td><div className="font-semibold">{p.name}</div><div className="text-small text-ink-3">{p.address}</div></Td>
-                  <Td><Select selectSize="sm" value={p.brandName} onChange={(e) => upd({ brandName: e.target.value })}><option value="">—</option>{brands.map((b) => <option key={b}>{b}</option>)}</Select></Td>
-                  <Td><Select selectSize="sm" value={p.locationCode} onChange={(e) => upd({ locationCode: e.target.value })}><option value="">—</option>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select></Td>
-                  <Td><Select selectSize="sm" value={p.cloverMerchantId} onChange={(e) => upd({ cloverMerchantId: e.target.value })} aria-label="Clover"><option value="">{t('par défaut', 'default')}</option>{cloverMerchants.map((m) => <option key={m.id} value={m.id}>{m.name ? `${m.name} · ${m.id}` : m.id}{m.isDefault ? t(' (défaut)', ' (default)') : ''}</option>)}</Select></Td>
-                  <Td><ManagerBadge value={r?.orderManager ?? p.orderManager} /></Td>
+                  <Td label={t('Activer', 'Activate')}><input type="checkbox" className="size-5" aria-label={t(`Activer ${p.name}`, `Activate ${p.name}`)} checked={p.include} onChange={(e) => upd({ include: e.target.checked })} /></Td>
+                  <Td primary><div className="font-semibold">{p.name}</div><div className="text-small text-ink-3">{p.address}</div></Td>
+                  <Td label={t('Marque', 'Brand')}><Select selectSize="sm" aria-label={t(`Marque de ${p.name}`, `${p.name} brand`)} value={p.brandName} onChange={(e) => upd({ brandName: e.target.value })}><option value="">—</option>{brands.map((b) => <option key={b}>{b}</option>)}</Select></Td>
+                  <Td label={t('Cuisine', 'Kitchen')}><Select selectSize="sm" aria-label={t(`Cuisine de ${p.name}`, `${p.name} kitchen`)} value={p.locationCode} onChange={(e) => upd({ locationCode: e.target.value })}><option value="">—</option>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select></Td>
+                  <Td label="Clover"><Select selectSize="sm" value={p.cloverMerchantId} onChange={(e) => upd({ cloverMerchantId: e.target.value })} aria-label="Clover"><option value="">{t('par défaut', 'default')}</option>{cloverMerchants.map((m) => <option key={m.id} value={m.id}>{m.name ? `${m.name} · ${m.id}` : m.id}{m.isDefault ? t(' (défaut)', ' (default)') : ''}</option>)}</Select></Td>
+                  <Td label={t('Commandes vont à', 'Orders go to')}><ManagerBadge value={r?.orderManager ?? p.orderManager} /></Td>
                   <Td>{r && <Badge tone={r.ok ? (r.orderManager === 'other' ? 'wait' : 'go') : 'stop'} title={r.message}>{r.ok ? t('activé', 'activated') : t('échec', 'failed')}</Badge>}
                     {((r?.orderManager ?? p.orderManager) === 'foodhub' || (r?.orderManager ?? p.orderManager) === 'pending') && (
                       <Button variant="ghost" size="sm" className="text-stop" loading={busy === `disconnect:${p.storeId}`} onClick={() => disconnect(p)}>{t('Débrancher d’Uber', 'Disconnect from Uber')}</Button>

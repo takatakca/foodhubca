@@ -5,7 +5,8 @@ import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
 
 /* One field style: 12 px radius, hairline, ink border and a soft ring on focus (the global focus-visible ring is for
-   the keyboard; a field shows its own ring on any focus). Heights 32 / 40 / 48, text 13 / 15 / 15. */
+   the keyboard; a field shows its own ring on any focus). Heights 32 / 40 / 48, text 13 / 15 / 16:
+   the large size (sign-in) stays at 16 px so iOS Safari does not zoom the page when the field gets focus. */
 const FIELD = 'text-body w-full rounded-md border border-line-2 bg-surface px-3 text-ink placeholder:text-ink-4 transition-colors duration-(--duration-fast) hover:border-ink-4 focus:border-ink focus:outline-none focus:ring-4 focus:ring-ink/5 disabled:bg-sunken disabled:text-ink-3 aria-[invalid=true]:border-stop aria-[invalid=true]:focus:ring-stop/10';
 const CHEVRON = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235c6677' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")";
 
@@ -27,12 +28,12 @@ function usePickerLang(type?: string) {
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement> & { inputSize?: 'sm' | 'md' | 'lg'; invalid?: boolean }>(function Input({ className, inputSize = 'md', invalid, type, ...rest }, ref) {
   const lang = usePickerLang(type);
-  return <input ref={ref} type={type} lang={lang} aria-invalid={invalid || undefined} className={cn(FIELD, inputSize === 'sm' ? 'text-small h-8' : inputSize === 'lg' ? 'h-12' : 'h-10', className)} {...rest} />;
+  return <input ref={ref} type={type} lang={lang} aria-invalid={invalid || undefined} className={cn(FIELD, inputSize === 'sm' ? 'text-small h-8' : inputSize === 'lg' ? 'h-12 text-base' : 'h-10', className)} {...rest} />;
 });
 
 export function Select({ className, children, selectSize = 'md', invalid, ...rest }: SelectHTMLAttributes<HTMLSelectElement> & { selectSize?: 'sm' | 'md' | 'lg'; invalid?: boolean }) {
   return (
-    <select aria-invalid={invalid || undefined} className={cn(FIELD, 'appearance-none bg-[length:16px] bg-[right_10px_center] bg-no-repeat pr-9', selectSize === 'sm' ? 'text-small h-8' : selectSize === 'lg' ? 'h-12' : 'h-10', className)}
+    <select aria-invalid={invalid || undefined} className={cn(FIELD, 'appearance-none bg-[length:16px] bg-[right_10px_center] bg-no-repeat pr-9', selectSize === 'sm' ? 'text-small h-8' : selectSize === 'lg' ? 'h-12 text-base' : 'h-10', className)}
       style={{ backgroundImage: CHEVRON }} {...rest}>
       {children}
     </select>

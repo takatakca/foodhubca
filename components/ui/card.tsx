@@ -117,7 +117,7 @@ export function SkeletonText({ lines = 3, className }: { lines?: number; classNa
 /** A grid of stat cards, same size as `Stat`. */
 export function SkeletonStats({ count = 4, className }: { count?: number; className?: string }) {
   return (
-    <div className={cn('grid grid-cols-2 gap-4 lg:grid-cols-4', className)} role="status" aria-label="…">
+    <div className={cn('grid grid-cols-2 gap-4 lg:grid-cols-4', className)} role="status" aria-label="Chargement… / Loading…">
       {Array.from({ length: count }, (_, i) => (
         <div key={i} className="rounded-md border border-line bg-surface p-5 shadow-card" aria-hidden>
           <Skeleton className="h-3.5 w-24" />
@@ -131,7 +131,7 @@ export function SkeletonStats({ count = 4, className }: { count?: number; classN
 /** A table being loaded: a header line and `rows` 44 px rows. */
 export function SkeletonTable({ rows = 5, cols = 4, className }: { rows?: number; cols?: number; className?: string }) {
   return (
-    <div className={cn('overflow-hidden rounded-md border border-line bg-surface shadow-card', className)} role="status" aria-label="…">
+    <div className={cn('overflow-hidden rounded-md border border-line bg-surface shadow-card', className)} role="status" aria-label="Chargement… / Loading…">
       <div className="flex h-11 items-center gap-6 border-b border-line bg-raised px-4" aria-hidden>
         {Array.from({ length: cols }, (_, i) => <Skeleton key={i} className="h-3 flex-1 bg-line" />)}
       </div>
@@ -147,7 +147,7 @@ export function SkeletonTable({ rows = 5, cols = 4, className }: { rows?: number
 /** A list of cards being loaded (orders, stores, brands). */
 export function SkeletonList({ count = 3, className }: { count?: number; className?: string }) {
   return (
-    <div className={cn('space-y-3', className)} role="status" aria-label="…">
+    <div className={cn('space-y-3', className)} role="status" aria-label="Chargement… / Loading…">
       {Array.from({ length: count }, (_, i) => (
         <div key={i} className="flex items-center gap-4 rounded-md border border-line bg-surface p-5 shadow-card" aria-hidden>
           <Skeleton className="size-10 shrink-0 rounded-full" />

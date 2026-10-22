@@ -35,8 +35,16 @@ function useStrip(activeKey: unknown) {
     return () => { ro?.disconnect(); mo?.disconnect(); };
   }, [measure]);
   useEffect(() => {
-    const active = ref.current?.querySelector<HTMLElement>('[aria-selected="true"],[aria-current="page"]');
-    active?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    // Scroll the strip only, sideways: scrollIntoView would also scroll the page (a strip below the fold, or a page
+    // whose scroll position the browser restored on "back", would jump on load).
+    const el = ref.current;
+    const active = el?.querySelector<HTMLElement>('[aria-selected="true"],[aria-current="page"]');
+    if (el && active) {
+      const s = el.getBoundingClientRect();
+      const a = active.getBoundingClientRect();
+      if (a.left < s.left) el.scrollLeft -= s.left - a.left + 16;
+      else if (a.right > s.right) el.scrollLeft += a.right - s.right + 16;
+    }
     measure();
   }, [activeKey, measure]);
   return { ref, fade, onScroll: measure };

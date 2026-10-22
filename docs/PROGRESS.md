@@ -1,5 +1,16 @@
 # Food Hub: progress log and task board
 
+## 2026-10-22 — Premium console: A3 reports, money, settings (`feature/premium-a3-reports-settings`, stacked on #88)
+
+- Scope A3 of the console audit: Insights (deltas without a previous period say so, 4 + 4 tiles, report cards with one
+  « Télécharger ▾ » menu, activity log in French with a « Technique » filter), Money (hero only when money is owed,
+  empty states with an action, skeletons, plurals), Settings (side-nav from 1280 px, phone overflow fixed on Clover app,
+  Storefront, Delivery, AI phone and IVR, setting names under « Détails techniques », states in words, one Devices list).
+- Brought up to A4 82b0ebc (main b40e446): clean merge, no file changed on both sides. After main: the Google sign-in
+  entries from #86 read in French in the journal; the Clover billing banner no longer pushes the phone to 456 px.
+- Checks: typecheck OK, lint 0 errors (1 pre-existing warning), 1567 tests passed + 1 skipped, webpack build OK,
+  verify:foodhub 567/0 on 5487/5488. Phone width 390 on the 11 A3 routes probed. Merge after #88.
+
 ## 2026-10-22 — Premium console: A4 shell + design system (`feature/premium-a4-shell`, stacked on #72)
 
 - Scope A4 of the console audit (`private/ux/CONSOLE_AUDIT_2026-10-21.md`): shell, navigation, theme tokens and shared

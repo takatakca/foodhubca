@@ -26,9 +26,13 @@ function useStrip(activeKey: unknown) {
     measure();
     const el = ref.current;
     if (!el) return;
+    // The strip's own width (a resize) and its content width (counts arriving, a label changing) both move the fade.
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
     ro?.observe(el);
-    return () => ro?.disconnect();
+    for (const child of Array.from(el.children)) ro?.observe(child);
+    const mo = typeof MutationObserver !== 'undefined' ? new MutationObserver(measure) : null;
+    mo?.observe(el, { childList: true, subtree: true, characterData: true });
+    return () => { ro?.disconnect(); mo?.disconnect(); };
   }, [measure]);
   useEffect(() => {
     const active = ref.current?.querySelector<HTMLElement>('[aria-selected="true"],[aria-current="page"]');
@@ -45,7 +49,7 @@ const TAB_OFF = 'border-transparent text-ink-3 hover:text-ink';
 export function Tabs<K extends string>({ tabs, value, onChange, className, label }: { tabs: Array<{ key: K; label: ReactNode; count?: number | null }>; value: K; onChange: (k: K) => void; className?: string; label?: string }) {
   const { ref: stripRef, fade, onScroll } = useStrip(value);
   return (
-    <div ref={stripRef} onScroll={onScroll} data-fade={fade} role="tablist" aria-label={label} className={cn('no-scrollbar fade-x flex gap-1 overflow-x-auto border-b border-line', className)}>
+    <div ref={stripRef} onScroll={onScroll} data-fade={fade} role="tablist" aria-label={label} className={cn('no-scrollbar fade-x flex min-w-0 max-w-full gap-1 overflow-x-auto border-b border-line', className)}>
       {tabs.map((t, i) => (
         <button key={t.key} role="tab" type="button" aria-selected={value === t.key} tabIndex={value === t.key ? 0 : -1}
           onKeyDown={(event) => {
@@ -88,7 +92,7 @@ export function LinkTabs({ tabs, className, label, selectBelow = 5 }: { tabs: Ar
           <ChevronDown className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-ink-3" aria-hidden />
         </div>
       )}
-      <div ref={stripRef} onScroll={onScroll} data-fade={fade} className={cn('no-scrollbar fade-x flex gap-1 overflow-x-auto border-b border-line', asSelect ? 'hidden md:flex' : 'flex')}>
+      <div ref={stripRef} onScroll={onScroll} data-fade={fade} className={cn('no-scrollbar fade-x flex min-w-0 max-w-full gap-1 overflow-x-auto border-b border-line', asSelect ? 'hidden md:flex' : 'flex')}>
         {tabs.map((t) => {
           const on = isOn(t);
           return (

@@ -89,8 +89,8 @@ export function ScopeSwitcher() {
         {site.channel && !site.brand ? <PlatformMark channel={site.channel} size="md" className="size-9" /> : site.brand ? <BrandMark name={site.brand} size="sm" className="size-9" /> : <Store className="size-[18px]" />}
       </span>
       <span className="min-w-0 text-left leading-tight">
-        <span className="block max-w-[52vw] truncate text-body font-extrabold text-ink sm:max-w-[16rem]">{label.title}</span>
-        <span className="block max-w-[52vw] truncate text-small font-medium text-ink-3 sm:max-w-[16rem]">{label.sub}</span>
+        <span className="block max-w-[calc(100vw-15rem)] truncate text-body font-extrabold text-ink sm:max-w-[16rem]">{label.title}</span>
+        <span className="block max-w-[calc(100vw-15rem)] truncate text-small font-medium text-ink-3 sm:max-w-[16rem]">{label.sub}</span>
       </span>
     </span>
   );

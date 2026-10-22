@@ -10,6 +10,13 @@ describe('activity log in French', () => {
       .toBe('Commande Uber Eats ab12cd34 pour OOEUF · NDG : jamais reçue automatiquement, retrouvée sur Uber et traitée');
     expect(activitySummary('Kitchen tablet "Passe" enrolled at NDG', 'fr')).toBe('Tablette de cuisine « Passe » enregistrée à NDG');
   });
+  it('translates the Google sign-in entries', () => {
+    expect(activitySummary('Marie signed in with Google (m***@x.ca)', 'fr')).toBe('Marie s’est connecté avec Google (m***@x.ca)');
+    expect(activitySummary('Google account not on the team (m***@x.ca)', 'fr')).toBe('Connexion Google refusée : ce compte n’est pas dans l’équipe (m***@x.ca)');
+    expect(activitySummary('Google account without a verified email refused', 'fr')).toBe('Connexion Google refusée : courriel non vérifié');
+    expect(activitySummary('Google callback with a missing or mismatched state', 'fr')).toBe('Connexion Google refusée : retour de Google expiré ou invalide');
+    expect(activitySummary('Google refused the code exchange (invalid_grant)', 'fr')).toBe('Google refused the code exchange (invalid_grant)');
+  });
   it('keeps English for English readers and unknown entries as written', () => {
     expect(activitySummary('Marie signed in with the recovery password (owner)', 'en')).toBe('Marie signed in with the recovery password (owner)');
     expect(activitySummary('Something new happened', 'fr')).toBe('Something new happened');

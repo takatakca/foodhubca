@@ -11,7 +11,7 @@ export function ListSkeleton({ rows = 3, label = 'Chargement… / Loading…' }:
     <div role="status" aria-busy="true" className="space-y-3">
       <span className="sr-only">{label}</span>
       {Array.from({ length: count }, (_, i) => (
-        <div key={i} aria-hidden="true" className="flex items-center gap-4 rounded-xl border border-line bg-surface p-4">
+        <div key={i} aria-hidden="true" className="flex items-center gap-4 rounded-md border border-line bg-surface p-4">
           <div className="size-10 shrink-0 rounded-full bg-sunken motion-safe:animate-pulse" />
           <div className="flex-1 space-y-2">
             <div className="h-3.5 w-1/3 rounded bg-sunken motion-safe:animate-pulse" />

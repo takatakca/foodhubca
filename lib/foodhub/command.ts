@@ -3,8 +3,9 @@
 // last sync report (platform store states + Clover in-store sales). No platform calls here,
 // so the screen can refresh every few seconds without touching any API limits.
 import rawLocations from '../../data/actual/locations.json';
-import rawDoorDashStores from '../../data/actual/platform-stores-doordash.json';
 import { CHANNEL_KEYS, getAdapter } from './adapters';
+import { ownerSeedStores, type OwnerSeedStore } from './owner-seed';
+import { isOwnerTenant } from './tenant';
 import { CHANNEL_LABELS, liveConnectorsGloballyEnabled, round2 } from './config';
 import { getCatalog } from './catalog';
 import { cloverReadiness } from './pos/clover';
@@ -19,6 +20,16 @@ import { foodhubTimeZone, localDateLabel, localHour, startOfLocalDayMs } from '.
 import type { ChannelKey, ChannelStore, PlatformState, PlatformStatus, StoredOrder } from './types';
 
 export const REQUIRED_CHANNELS: ChannelKey[] = ['uber_eats', 'doordash', 'skip'];
+
+/**
+ * The platforms every brand × location must be on. The owner's group: Uber Eats, DoorDash and Skip. Another merchant's
+ * instance: only those of the three it actually uses (at least one mapped store), so a platform it never signed up for
+ * is never reported as missing.
+ */
+export function requiredChannels(stores: ReadonlyArray<Pick<ChannelStore, 'channel'>>, env: NodeJS.ProcessEnv = process.env): ChannelKey[] {
+  if (isOwnerTenant(env)) return REQUIRED_CHANNELS;
+  return REQUIRED_CHANNELS.filter((ch) => stores.some((s) => s.channel === ch));
+}
 
 import { deadlineFor, ORDER_DEADLINE_MIN } from './deadline';
 export { deadlineFor, ORDER_DEADLINE_MIN };
@@ -52,10 +63,9 @@ export interface Alert {
   orderId?: string;
 }
 
-type SeedStore = { brand_name: string; store_name: string; location_code: string; activation_status: string; open_status: string };
+type SeedStore = OwnerSeedStore;
 
 const LOCATIONS = rawLocations as Array<{ code: string; name: string; address_line_1: string }>;
-const SEED_DD = rawDoorDashStores as SeedStore[];
 
 const STATE_RANK: Record<CellState, number> = { online: 6, closed: 5, paused: 4, not_synced: 3, unknown: 2, deactivated: 1, missing: 0 };
 const OPEN: StoredOrder['status'][] = ['new', 'accepted', 'ready', 'dispatched'];
@@ -75,7 +85,9 @@ function seedState(rows: SeedStore[]): CellState {
   return states.sort((a, b) => STATE_RANK[b] - STATE_RANK[a])[0] ?? 'missing';
 }
 
-export function buildMatrix(stores: ChannelStore[], locOrder: string[] = LOCATIONS.map((l) => l.code), scope?: string[]): MatrixRow[] {
+export function buildMatrix(stores: ChannelStore[], locOrder: string[] = LOCATIONS.map((l) => l.code), scope?: string[], required: ChannelKey[] = REQUIRED_CHANNELS): MatrixRow[] {
+  // The owner's DoorDash list only on the owner's own instance (never another merchant's brands).
+  const SEED_DD = ownerSeedStores();
   const keys = new Map<string, { brandName: string; locationCode: string }>();
   const add = (brandName: string, locationCode: string) => keys.set(`${brandName}|${locationCode}`, { brandName, locationCode });
   for (const s of SEED_DD) if (!scope?.length || scope.includes(s.location_code)) add(s.brand_name, s.location_code);
@@ -98,7 +110,7 @@ export function buildMatrix(stores: ChannelStore[], locOrder: string[] = LOCATIO
       } else {
         cells[ch] = { state: 'missing', source: 'none', stores: 0, storeIds: [] };
       }
-      if (REQUIRED_CHANNELS.includes(ch) && ['missing', 'deactivated', 'paused', 'unknown'].includes(cells[ch].state)) issues++;
+      if (required.includes(ch) && ['missing', 'deactivated', 'paused', 'unknown'].includes(cells[ch].state)) issues++;
     }
     rows.push({ brandName, locationCode, cells, issues });
   }
@@ -122,13 +134,18 @@ export function averagePrepMinutes(orders: StoredOrder[]): number | null {
 /**
  * `locationCodes`: the kitchens shown (empty = all). `brandNames`: the console's brand scope (empty = every brand):
  * orders, stores and the store matrix are narrowed to those brands; Clover in-store sales (per kitchen, not per brand)
- * are then left out and `brandScoped` says so.
+ * are then left out and `brandScoped` says so. `channelKeys`: the console's platform scope (empty = every platform):
+ * orders and stores of those platforms only, the store grid keeps the lines that have a store there (built from every
+ * platform first, so each line's other cells stay right), Clover in-store sales are left out and `channelScoped` says so.
+ * Without `channelKeys` the result is exactly what it was before the platform axis existed.
  */
-export async function buildCommandCenter(opts: { now?: number; locationCodes?: string[]; brandNames?: string[] } = {}) {
+export async function buildCommandCenter(opts: { now?: number; locationCodes?: string[]; brandNames?: string[]; channelKeys?: ChannelKey[] } = {}) {
   const now = opts.now ?? Date.now();
   const scope = opts.locationCodes?.length ? opts.locationCodes : undefined;
   const brandScope = opts.brandNames?.length ? new Set(opts.brandNames) : null;
   const brandOk = (name?: string | null) => !brandScope || (!!name && brandScope.has(name));
+  const channelScope = opts.channelKeys?.length ? new Set<string>(opts.channelKeys) : null;
+  const chOk = (ch?: string | null) => !channelScope || (!!ch && channelScope.has(ch));
   const repo = getRepo();
   const catalog = await getCatalog();
   const LOCATIONS = catalog.locations.filter((l) => l.active && (!scope || scope.includes(l.code))).map((l) => ({ code: l.code, name: l.name, address_line_1: l.address }));
@@ -139,16 +156,20 @@ export async function buildCommandCenter(opts: { now?: number; locationCodes?: s
   const yStart = startOfLocalDayMs(dayStart - 3600_000);
   const sinceYesterday = new Date(yStart).toISOString();
 
-  const [allOrdersRaw, stores, jobs, sync] = await Promise.all([
+  const [allOrdersRaw, allStores, jobs, sync] = await Promise.all([
     repo.listOrders({ since: sinceYesterday, limit: 5000, locationCodes: scope }),
-    repo.listStores().then((list) => list.filter((s) => (!scope || scope.includes(s.locationCode)) && brandOk(s.brandName))),
+    repo.listStores(),
     repo.listJobs(200),
     lastSyncReport(),
   ]);
-  const allOrders = allOrdersRaw.filter((o) => brandOk(o.brandName));
+  const required = requiredChannels(allStores);
+  // Every platform of the scope (the store grid is built from these), then the platform scope on top.
+  const scopeStores = allStores.filter((s) => (!scope || scope.includes(s.locationCode)) && brandOk(s.brandName));
+  const stores = scopeStores.filter((s) => chOk(s.channel));
+  const allOrders = allOrdersRaw.filter((o) => brandOk(o.brandName) && chOk(o.channel));
   const today = allOrders.filter((o) => new Date(o.createdAt).getTime() >= dayStart);
   // Open orders stay on the queue and in the alerts whatever day they arrived (an advance order can be days old).
-  const openEver = (await repo.listOrders({ statuses: OPEN, limit: 500, locationCodes: scope })).filter((o) => brandOk(o.brandName));
+  const openEver = (await repo.listOrders({ statuses: OPEN, limit: 500, locationCodes: scope })).filter((o) => brandOk(o.brandName) && chOk(o.channel));
   const todayIds = new Set(today.map((o) => o.id));
   const active = [...today, ...openEver.filter((o) => !todayIds.has(o.id))];
   const yesterday = allOrders.filter((o) => { const t = new Date(o.createdAt).getTime(); return t >= yStart && t < dayStart; });
@@ -157,8 +178,8 @@ export async function buildCommandCenter(opts: { now?: number; locationCodes?: s
   const live = liveConnectorsGloballyEnabled();
 
   // ---------- Clover in-store (from the last sync, only if it is from today's business day) ----------
-  // A brand scope leaves Clover out: its in-store sales are per kitchen (merchant), not per brand.
-  const cloverFresh: SyncReport['clover'] = !brandScope && sync && new Date(sync.businessDayStart).getTime() === dayStart ? sync.clover : [];
+  // A brand or platform scope leaves Clover out: its in-store sales are per kitchen (merchant), not per brand or platform.
+  const cloverFresh: SyncReport['clover'] = !brandScope && !channelScope && sync && new Date(sync.businessDayStart).getTime() === dayStart ? sync.clover : [];
   const inStore = round2(cloverFresh.filter((c) => c.ok).reduce((s, c) => s + c.net, 0));
   const cloverInfo = cloverReadiness();
 
@@ -258,7 +279,10 @@ export async function buildCommandCenter(opts: { now?: number; locationCodes?: s
     }));
 
   // ---------- Matrix ----------
-  const matrix = buildMatrix(stores, LOCATIONS.map((l) => l.code), scope).filter((r) => brandOk(r.brandName));
+  // Built from every platform of the scope, then (platform scope) only the lines that have a store on that platform.
+  const fullMatrix = buildMatrix(scopeStores, LOCATIONS.map((l) => l.code), scope, required).filter((r) => brandOk(r.brandName));
+  const matrix = fullMatrix
+    .filter((r) => !channelScope || [...channelScope].some((ch) => r.cells[ch as ChannelKey] && r.cells[ch as ChannelKey].state !== 'missing'));
 
   // ---------- Alerts ----------
   const alerts: Alert[] = [];
@@ -304,14 +328,16 @@ export async function buildCommandCenter(opts: { now?: number; locationCodes?: s
     if (ps?.error && st.state !== 'deactivated') alerts.push({ id: `syncerr:${s.id}`, severity: 'warning', title: `Could not read ${name}`, detail: ps.error, href: '/settings/channels', at: ps.checkedAt });
   }
 
-  for (const ch of REQUIRED_CHANNELS) {
-    const missing = matrix.filter((r) => r.cells[ch].state === 'missing').length;
-    if (missing) alerts.push({ id: `missing:${ch}`, severity: 'warning', title: `${CHANNEL_LABELS[ch]} not connected for ${missing} brand/location${missing > 1 ? 's' : ''}`, detail: 'Required service (DoorDash + Uber Eats + SkipTheDishes for every brand/location). Map the store id under Stores.', href: '/stores' });
+  // Counted before the platform trim: with Uber Eats picked, a brand/location with no Uber Eats store is exactly what
+  // must show (the trimmed matrix only keeps the lines that have one).
+  for (const ch of required.filter((c) => chOk(c))) {
+    const missing = fullMatrix.filter((r) => r.cells[ch].state === 'missing').length;
+    if (missing) alerts.push({ id: `missing:${ch}`, severity: 'warning', title: `${CHANNEL_LABELS[ch]} not connected for ${missing} brand/location${missing > 1 ? 's' : ''}`, detail: required === REQUIRED_CHANNELS ? 'Required service (DoorDash + Uber Eats + SkipTheDishes for every brand/location). Map the store id under Stores.' : 'Map the store id under Stores.', href: '/stores' });
   }
-  const ddSeedDeact = matrix.filter((r) => r.cells.doordash.source === 'screenshot' && r.cells.doordash.state === 'deactivated').length;
+  const ddSeedDeact = chOk('doordash') ? matrix.filter((r) => r.cells.doordash.source === 'screenshot' && r.cells.doordash.state === 'deactivated').length : 0;
   if (ddSeedDeact) alerts.push({ id: 'seed:dd-deact', severity: 'warning', title: `DoorDash: ${ddSeedDeact} brand/location${ddSeedDeact > 1 ? 's' : ''} deactivated (from your screenshots)`, detail: 'Not yet verified live — map the DoorDash store ids so Food Hub checks them automatically.', href: '/stores' });
 
-  for (const c of channels) {
+  for (const c of channels.filter((x) => chOk(x.channel))) {
     if (!c.configured) alerts.push({ id: `cfg:${c.channel}`, severity: 'info', title: `${c.label} not connected yet`, detail: `Needs ${c.missing.join(', ')} — run npm run setup.`, href: '/settings/channels' });
   }
   if (!cloverInfo.configured) alerts.push({ id: 'cfg:clover', severity: 'warning', title: 'Clover not connected — delivery orders will not reach the kitchen POS', detail: `Needs ${cloverInfo.missing.join(', ')}.`, href: '/settings/channels' });
@@ -346,7 +372,7 @@ export async function buildCommandCenter(opts: { now?: number; locationCodes?: s
   for (const s of stores.filter((x) => x.meta?.provisioned === false)) {
     alerts.push({ id: `deprov:${s.id}`, severity: 'critical', title: `${s.brandName} · ${locName(s.locationCode)} was disconnected by ${CHANNEL_LABELS[s.channel]}`, detail: 'Orders from this store no longer reach Food Hub or Clover. Reconnect it under Stores.', href: '/stores' });
   }
-  if (!scope && !brandScope) {
+  if (!scope && !brandScope && !channelScope) {
     const all = await listCases({ status: ['open', 'disputed'] }).catch(() => []);
     const cases = all.filter((c) => RECOVERABLE.includes(c.type));
     const unknown = all.filter((c) => c.type === 'unknown_order').length;
@@ -367,6 +393,7 @@ export async function buildCommandCenter(opts: { now?: number; locationCodes?: s
     kitchen,
     scoped: Boolean(scope),
     brandScoped: Boolean(brandScope),
+    ...(channelScope ? { channelScoped: true } : {}),
     generatedAt: new Date(now).toISOString(),
     businessDay: localDateLabel(now, tz),
     timezone: tz,

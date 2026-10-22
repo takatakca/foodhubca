@@ -113,6 +113,7 @@ export function AvailabilityView() {
 
 function StatusNow() {
   const { t } = useI18n();
+  const { can } = useViewer();
   const [board, setBoard] = useState<AvailabilityBoard | null>(null);
   const [failed, setFailed] = useState(false);
   const load = useCallback(async () => {
@@ -124,7 +125,7 @@ function StatusNow() {
   if (!board) return failed
     ? <Banner tone="stop">{t('Impossible de lire le statut pour l’instant : on réessaie toutes les 30 secondes.', 'Cannot read the status right now: it retries every 30 seconds.')}</Banner>
     : <div className="space-y-3">{[0, 1].map((i) => <Skeleton key={i} className="h-48" />)}</div>;
-  if (!board.kitchens.length) return <Card><EmptyState icon={<Tablet />} title={t('Aucune cuisine', 'No kitchen')} body={t('Les cuisines apparaissent ici dès qu’un magasin y est branché.', 'Kitchens show up here as soon as a store is connected to them.')} action={<ButtonLink href="/stores/mapping" variant="outline">{t('Brancher un magasin', 'Connect a store')}</ButtonLink>} /></Card>;
+  if (!board.kitchens.length) return <Card><EmptyState icon={<Tablet />} title={t('Aucune cuisine', 'No kitchen')} body={t('Les cuisines apparaissent ici dès qu’un magasin y est branché.', 'Kitchens show up here as soon as a store is connected to them.')} action={can('stores:map') ? <ButtonLink href="/stores/mapping" variant="outline">{t('Brancher un magasin', 'Connect a store')}</ButtonLink> : undefined} /></Card>;
   return (
     <div className="space-y-5">
       <p className="text-body text-ink-3">{t('Pour mettre en pause ou rouvrir, utilisez', 'To pause or resume, use')} <Link href="/stores" className="font-semibold text-brand hover:underline">{t('Statut et pauses', 'Status & pauses')}</Link>.</p>
@@ -135,6 +136,7 @@ function StatusNow() {
 
 function KitchenCard({ k, tz }: { k: KitchenBoard; tz?: string }) {
   const { t, loc } = useI18n();
+  const { can } = useViewer();
   const tone: Tone = k.summary.kind === 'open' ? 'go' : k.summary.kind === 'paused' ? 'wait' : 'neutral';
   const tabletsOff = k.devices.total > 0 && k.devices.online === 0;
   return (
@@ -150,7 +152,7 @@ function KitchenCard({ k, tz }: { k: KitchenBoard; tz?: string }) {
         </Badge>
         {k.prep.isBusy && <Badge tone="stop" icon={<Flame className="size-3.5" />}>{t(`Occupé · ${k.prep.minutes} min`, `Busy · ${k.prep.minutes} min`)}</Badge>}
       </div>
-      {!k.brands.length ? <EmptyState compact icon={<Tablet />} title={t('Aucun magasin branché dans cette cuisine', 'No store connected at this kitchen')} action={<ButtonLink href="/stores/mapping" variant="outline">{t('Brancher un magasin', 'Connect a store')}</ButtonLink>} /> : (
+      {!k.brands.length ? <EmptyState compact icon={<Tablet />} title={t('Aucun magasin branché dans cette cuisine', 'No store connected at this kitchen')} action={can('stores:map') ? <ButtonLink href="/stores/mapping" variant="outline">{t('Brancher un magasin', 'Connect a store')}</ButtonLink> : undefined} /> : (
         <div className="divide-y divide-line">
           {k.brands.map((b) => (
             <div key={b.name} className="px-5 py-3">
@@ -170,7 +172,7 @@ function KitchenCard({ k, tz }: { k: KitchenBoard; tz?: string }) {
                       {by && <span className={c.by === 'plateforme' || c.by === 'garde' ? 'text-small font-semibold text-wait-2' : 'text-small text-ink-3'}>{by}</span>}
                       {c.reopensAt && <span className="text-body font-semibold text-ink">{t('rouvre', 'reopens')} {whenText(c.reopensAt, loc, tz)}</span>}
                       {c.state === 'paused' && !c.reopensAt && <span className="text-small text-ink-3">{t('jusqu’à réouverture manuelle', 'until resumed by hand')}</span>}
-                      {detail && <span className="truncate text-small text-ink-3">{detail}</span>}
+                      {detail && <span className="truncate text-small text-ink-3" title={detail}>{detail}</span>}
                       {c.locked && <Badge tone="dark" icon={<Lock className="size-3" />} title={t('Jamais touché par les automatismes', 'Never touched by automations')}>{t('ne pas toucher', 'do not touch')}</Badge>}
                     </div>
                   );

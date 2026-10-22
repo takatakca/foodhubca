@@ -141,7 +141,7 @@ export function StoresView() {
           {st.ps?.source === 'dashboard' && st.state !== 'online' && <span className="text-small text-ink-3">{t(`par ${product.shortName}`, `from ${product.shortName}`)}</span>}
           {st.ps?.source && st.ps.source !== 'dashboard' && st.state !== 'online' && <span className="text-small font-semibold text-wait-2">{t('par la plateforme', 'by the platform')}</span>}
           {s.pausedUntil && !s.online && <span className="text-small text-ink-3">{t('jusqu’à', 'until')} {timeOf(s.pausedUntil, loc)}</span>}
-          {statusDetailText(t, st.ps?.detail) && <span className="truncate text-small text-ink-3">{statusDetailText(t, st.ps?.detail)}</span>}
+          {(() => { const d = statusDetailText(t, st.ps?.detail); return d ? <span className="truncate text-small text-ink-3" title={d}>{d}</span> : null; })()}
           {st.ps?.error && <Badge tone="stop" title={st.ps.error}>{t('lecture impossible', 'cannot read')}</Badge>}
           {!s.autoAccept && <Badge tone="neutral">{t('acceptation manuelle', 'manual accept')}</Badge>}
         </div>

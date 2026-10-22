@@ -18,6 +18,7 @@ const PUBLIC_PREFIXES = [
   '/api/foodhub/clover-connect/test-order', // welcome-ticket credential (signed, one merchant, its own register)
   '/api/foodhub/clover-connect/phone/callback', // AI phone Clover app's OAuth callback (same rule as Food Hub's; 404 until its App ID is set)
   '/api/foodhub/auth/', '/api/foodhub/devices/heartbeat',
+  '/api/auth/google/', // "Continue with Google": the state + PKCE cookie and Google's verified id_token are the credential (lib/foodhub/identity/google.ts)
   '/api/public/', // read-only public feeds (directory for ON2GO / QMAPS): public facts only, see lib/foodhub/public-directory.ts
   '/p/', // payment links texted to customers: the secret token is the credential (app/p/[token]/route.ts, delivery/paylink.ts)
   '/login', '/kitchen/lock', '/manifest.webmanifest', '/sw.js', '/icons/', '/legal/', '/welcome/', '/media/',

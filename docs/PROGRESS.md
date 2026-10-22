@@ -22,6 +22,8 @@
 - Brand list: platform chips 20 px with the state dot beside them, no « 0,00 $ · 0 commande » on brands that are off.
 - Plurals: `lib/ui/count-label.ts` (`countFr` / `countEn`) replaces every « (s) » in the A2 screens.
 - Tests: `tests/premium-a2-kitchen-menus-stores.test.ts` (plurals, status copy, pricing card, overflow menu, section picker).
+- Brought up to the updated A4 shell 82b0ebc (main b40e446: #43, #50, #51, #54, #72, #86, #89): no conflict, only this
+  file is changed on both sides (every entry kept, newest first); the A2 screens and main's changes touch no common file.
 
 ## 2026-10-22 — Premium console: A4 shell + design system (`feature/premium-a4-shell`, stacked on #72)
 
@@ -38,7 +40,14 @@
   sheet (Esc, focus), bell capped at 9+, proper plurals, dismissable demo-data band, « Toute la journée » for all-day hours.
 - Checks: typecheck OK, lint 0 errors (1 pre-existing warning), 1531 tests passed + 1 skipped, webpack build OK,
   verify:foodhub 567/0 on 5111/5112. Before/after screens (Po Poulet masked) in `docs/ux/premium-a4/`.
+- Brought up to main b40e446 (#43, #50, #51, #54, #72, #86, #89): only this file conflicted (both entries kept). No
+  other file is changed on both sides; main's new sign-in page (#86) picks up the shell's 16 px large fields and buttons.
 
+## 2026-10-21 — Simpler sign-in page + « Continuer avec Google » (`feature/login-google-signin`)
+
+- One calm sign-in screen: Food Hub mark, big « Continuer avec Google / Continue with Google » (only when `GOOGLE_OAUTH_CLIENT_ID` is set), the code-by-email/text sign-in as the second option, the owner recovery behind a small link; FR first, EN; 44 px targets; first run, code and recovery steps kept.
+- Google Sign-In server side (`lib/foodhub/identity/google.ts`): `/api/auth/google/start` (OAuth 2.0 URL, scope openid email profile, state + PKCE S256 + nonce in an httpOnly Secure SameSite=Lax cookie, 10 min) and `/api/auth/google/callback` (code exchange at oauth2.googleapis.com, id_token verified against Google JWKS with a one-hour cache: RS256 signature, iss, aud, exp, nonce, email_verified). Signs in only an active team member whose email is already known, through the same `sessionCookieFor` as the code sign-in (session kind `google`); otherwise the friendly « pas encore dans une équipe » notice. Never creates anyone; per-address throttle and activity log like the other sign-ins.
+- Tests `tests/google-signin.test.ts` (fake JWKS; bad signature / issuer / audience / expiry / nonce / alg none; state, cookie and nonce mismatches; unknown, deactivated and unverified emails refused; known email signed in; lock after repeated failures). Owner guide `docs/GOOGLE_SIGNIN.md` + `.env.example` lines.
 
 ## 2026-10-17 — Client dashboard (PR #72) brought up to main 6381aec
 
@@ -286,6 +295,26 @@ piece of work. The plan itself is `docs/MASTER_PLAN.md`. Operations (support, em
 | 18 | Brand phone lines: one Twilio number per brand rings one main number (whisper "Appel pour <marque>", voicemail and texts by email); numbers also serve Google Business Profile verification | `feature/brand-phone-lines` | Brand phone agent | DONE, pushed. Checks: typecheck OK, lint 0 errors, 420/420 tests, webpack OK | Owner merges and deploys; then creates the Twilio account (upgrade), buys the numbers, pastes the two webhook URLs on each number and adds the env names listed in `.env.example` (`FOODHUB_MAIN_PHONE`, `FOODHUB_BRAND_PHONES`, `FOODHUB_VOICEMAIL_EMAIL`, `TWILIO_*`). The owner guide is outside git. |
 | 20 | takatak.ca brand section connected to Food Hub's multi-brand data (feed `GET /api/public/directory`, task 19) + one TAKATAK V1 workspace per restaurant brand (Quadro Holding admin owns all; brand logins by invitation) | foodhubca `claude/google-doordash-id-extraction-wg2f5l` (decision note `docs/TAKATAK_BRANDS_BRIDGE.md`, being written there); takatak-v1 local branch `claude/provision-brand-workspaces` (not pushed: no write access in that session) | DoorDash/Google session (claude, 2026-10-09) | IN PROGRESS (claimed 2026-10-09) | Read the note on that branch. A new session needs takatak.ca allowed in Network access, the takatak-v1 DB secrets and write access to takatak-v1; then push the setup script, run it dry-run, show the owner, `--apply` only after the owner says yes. |
 | 27 | DoorDash: every store back to tablet after UrbanPiper; store list and IDs; Google listings / Ads prep (operations, outside git) | owner's private Google Drive folder "TAKATAK OPS (private)" (README, CLAIMS, APPROVED_VALUES, OPS_LOG) | DoorDash/Google session (claude, 2026-10-09) | IN PROGRESS | Read the Drive folder README first. Never redo, undo or re-send anything its OPS_LOG records without the owner. One agent at a time in the DoorDash portal and each Gmail inbox. |
+
+## 2026-10-10 09:20 UTC (Finance A–Z session, task 30: `fix/finance-tax-split-doordash-hist`)
+
+**Done**
+- Importer fixes after the real exports arrived (DoorDash transactions Oct 2024 → Oct 2026, Uber Payment Details + Payout
+  Summary Jan 2025 → Oct 2026, Clover May → Oct 2026): every statement line now adds up to the platform's net total.
+  - DoorDash pre-April-2025 layout: historical marketing / ad-fee / credit columns; "Tablet fee tax" counted as recoverable tax.
+  - Uber Eats Manager prints the whole tax in "GST/HST on Sales": split by the rate actually charged (QST only, GST only,
+    both), GST-holiday aware; offers / refunds follow the sale's ratio. A rare Uber row with a blank "Other payments" is
+    classified from its description.
+  - New Lines / Tax_Summary columns + auto to-do: sales the platform taxed **QST only** outside the holiday and the GST still
+    owed on them.
+  - Clover orders / refunds / Sales Overview exports are reference files (the payments export carries the amounts).
+- Checks: lint 0 errors, 22/22 finance tests, Excel recalculation of the workbook (21,937 formulas, 0 errors). `typecheck`
+  fails only on `lib/foodhub/adapters/uber-provision.ts` from `main` (main red since #34, fix in #40).
+- Private outputs (never committed): report + workbook rebuilt in `private/finance/`, copied to OneDrive.
+
+**Next**
+- Owner reviews and merges the PR. No env var, no migration, nothing deployed.
+- Owner actions are listed in `private/finance/HANDOFF.md` (Skip and bank exports, Uber tax number / bank, disputes).
 
 ## 2026-10-08 06:20 UTC (brand phone agent, task 18: `feature/brand-phone-lines`)
 

@@ -46,9 +46,9 @@ export function OrderMoney({ orderId }: { orderId: string }) {
 
   if (!m) {
     return (
-      <div className="rounded-lg border border-line bg-surface p-3">
-        <Button variant="soft" size="lg" className="w-full" loading={busy} onClick={load} icon={<CircleDollarSign className="size-5" />}>{t('Voir l’argent de cette commande', 'See this order’s money')}</Button>
-        {err && <p className="mt-2 text-[13px] text-stop">{err}</p>}
+      <div>
+        <Button variant="outline" loading={busy} onClick={load} icon={<CircleDollarSign className="size-4" />}>{t('Voir l’argent de cette commande', 'See this order’s money')}</Button>
+        {err && <p className="text-small mt-2 text-stop-2">{err}</p>}
       </div>
     );
   }

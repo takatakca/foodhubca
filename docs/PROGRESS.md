@@ -1,10 +1,53 @@
 # Food Hub: progress log and task board
 
+## 2026-10-22 — Premium console: A1 Home / Orders / Alerts (`feature/premium-a1-home-orders`, stacked on A4 #88)
+
+- Scope A1 of the console audit: Home (`app/(console)/overview.tsx`), Orders (board, history, drawer, incoming and
+  cancel pop-ups) and Alerts, plus their `components/live/*` pieces. No change to `components/ui`, `globals.css`, routes,
+  APIs or data.
+- Home: what needs someone first, then what is cooking, then the locations (before the platforms); one number card
+  (20 px, 13/28 type, tone colours the value only, never the border); the greeting no longer repeats the scope.
+- Orders board: the late count is a chip next to the status pills (the board no longer shifts); lane titles 11 px
+  uppercase; the total sits under the timer instead of being cut; a late card says it once (red border, ink timer);
+  skeletons of the board's shape.
+- Orders history: on a phone one "Filtres" button (with the number on) folds the filters, the search stays visible;
+  the status picker uses the shared `Select`; "Client inconnu" instead of "—"; order numbers never end with "-".
+- Drawer: Accepter / Prête + Refuser stay the big pair; the other actions are one outlined row, print / ticket / cancel a
+  quiet row; the three facts become a label | value list on a phone; Lucide icons instead of emoji; 44 px links.
+- Incoming pop-up: on a phone a bottom sheet as tall as its content. Alerts: escalation steps under the title on a phone
+  (no more overlap), only the first alert open, channels as one status line with a settings link, one primary per
+  alert, 44 px buttons, French timeline (no English or variable names).
+- New: `components/live/words.ts` (`plural`, `orderNumber`, `incidentStepText`), `alert-parts.tsx`,
+  `collapsible-filters.tsx`; tests `tests/live-words.test.ts`, `tests/live-a1-parts.test.ts`.
+- Checks: typecheck OK, lint 0 errors (1 pre-existing warning), 1537 tests passed + 1 skipped, webpack build OK,
+  verify:foodhub 567/0 on 5121/5122. Before/after screens (Po Poulet masked) in `docs/ux/premium-a1/`.
+- Brought up to the updated A4 shell (82b0ebc, itself on main b40e446): only this file conflicted (all entries kept,
+  newest first); no code file is changed on both sides.
+
+## 2026-10-22 — Premium console: A4 shell + design system (`feature/premium-a4-shell`, stacked on #72)
+
+- Scope A4 of the console audit (`private/ux/CONSOLE_AUDIT_2026-10-21.md`): shell, navigation, theme tokens and shared
+  UI only (`components/shell/**`, `components/ui/**`, `app/globals.css`); feature pages untouched beyond three shell labels.
+- Tokens: type scale 28/22/17/15/13/11 (`text-display` … `text-micro`, `eyebrow`, scaled by A/A+/A++, merged by `cn()`),
+  spacing scale `--space-*`, three motion durations, complete dark kitchen tokens, one focus ring (cyan on navy / kitchen).
+- Components: `Card` (padding sm/md/lg, `tone="hero"`), `PageHeader` (eyebrow, back, tabs), `Stat` (`loading`),
+  `EmptyState`, `Skeleton*` (text, stats, table, list), `Table` (44 px rows, sticky head, `cards` under 768 px, `framed`,
+  `dense`), `Button` (readable disabled state, 44 px touch targets), fields (`invalid`, fr-CA pickers), `Tabs` / `LinkTabs`
+  (fade on the hidden side, active tab scrolled into view, native select past five sections on phones), `Segmented`,
+  `Badge` / `PlatformMark` never under 11 px, one toast style above the phone bar.
+- Shell: TakTak help button in the top bar (no floating button over tables or the bottom bar), bottom bar 4 + "Plus"
+  sheet (Esc, focus), bell capped at 9+, proper plurals, dismissable demo-data band, « Toute la journée » for all-day hours.
+- Checks: typecheck OK, lint 0 errors (1 pre-existing warning), 1531 tests passed + 1 skipped, webpack build OK,
+  verify:foodhub 567/0 on 5111/5112. Before/after screens (Po Poulet masked) in `docs/ux/premium-a4/`.
+- Brought up to main b40e446 (#43, #50, #51, #54, #72, #86, #89): only this file conflicted (both entries kept). No
+  other file is changed on both sides; main's new sign-in page (#86) picks up the shell's 16 px large fields and buttons.
+
 ## 2026-10-21 — Simpler sign-in page + « Continuer avec Google » (`feature/login-google-signin`)
 
 - One calm sign-in screen: Food Hub mark, big « Continuer avec Google / Continue with Google » (only when `GOOGLE_OAUTH_CLIENT_ID` is set), the code-by-email/text sign-in as the second option, the owner recovery behind a small link; FR first, EN; 44 px targets; first run, code and recovery steps kept.
 - Google Sign-In server side (`lib/foodhub/identity/google.ts`): `/api/auth/google/start` (OAuth 2.0 URL, scope openid email profile, state + PKCE S256 + nonce in an httpOnly Secure SameSite=Lax cookie, 10 min) and `/api/auth/google/callback` (code exchange at oauth2.googleapis.com, id_token verified against Google JWKS with a one-hour cache: RS256 signature, iss, aud, exp, nonce, email_verified). Signs in only an active team member whose email is already known, through the same `sessionCookieFor` as the code sign-in (session kind `google`); otherwise the friendly « pas encore dans une équipe » notice. Never creates anyone; per-address throttle and activity log like the other sign-ins.
 - Tests `tests/google-signin.test.ts` (fake JWKS; bad signature / issuer / audience / expiry / nonce / alg none; state, cookie and nonce mismatches; unknown, deactivated and unverified emails refused; known email signed in; lock after repeated failures). Owner guide `docs/GOOGLE_SIGNIN.md` + `.env.example` lines.
+
 ## 2026-10-17 — Client dashboard (PR #72) brought up to main 6381aec
 
 - `feature/client-dashboard-easy` merged with `origin/main` (#61 to #80). Conflicts: `components/ui/overlay.tsx` (main's

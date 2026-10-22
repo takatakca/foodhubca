@@ -21,6 +21,8 @@
   `collapsible-filters.tsx`; tests `tests/live-words.test.ts`, `tests/live-a1-parts.test.ts`.
 - Checks: typecheck OK, lint 0 errors (1 pre-existing warning), 1537 tests passed + 1 skipped, webpack build OK,
   verify:foodhub 567/0 on 5121/5122. Before/after screens (Po Poulet masked) in `docs/ux/premium-a1/`.
+- Brought up to the updated A4 shell (82b0ebc, itself on main b40e446): only this file conflicted (all entries kept,
+  newest first); no code file is changed on both sides.
 
 ## 2026-10-22 — Premium console: A4 shell + design system (`feature/premium-a4-shell`, stacked on #72)
 
@@ -37,8 +39,8 @@
   sheet (Esc, focus), bell capped at 9+, proper plurals, dismissable demo-data band, « Toute la journée » for all-day hours.
 - Checks: typecheck OK, lint 0 errors (1 pre-existing warning), 1531 tests passed + 1 skipped, webpack build OK,
   verify:foodhub 567/0 on 5111/5112. Before/after screens (Po Poulet masked) in `docs/ux/premium-a4/`.
-
-
+- Brought up to main b40e446 (#43, #50, #51, #54, #72, #86, #89): only this file conflicted (both entries kept). No
+  other file is changed on both sides; main's new sign-in page (#86) picks up the shell's 16 px large fields and buttons.
 
 ## 2026-10-21 — Simpler sign-in page + « Continuer avec Google » (`feature/login-google-signin`)
 

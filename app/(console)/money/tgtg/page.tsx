@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Banner, Card, CardHeader } from '@/components/ui/card';
 import { Field, Input, Select } from '@/components/ui/form';
 import { FormDraftNote } from '@/components/ui/save-chip';
-import { Table, Td, Th, Tr } from '@/components/ui/table';
+import { Table, TableSkeleton, Td, Th, Tr } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { StatTile, fmtInt } from '@/components/charts/charts';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
@@ -142,7 +142,7 @@ export default function TgtgPage() {
                 <Td className="text-ink-3">{d.note ?? ''}</Td><Td className="text-ink-3">{d.by}</Td>
               </Tr>
             ))}
-            {days.length === 0 && <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-ink-3">{loaded ? t('Aucune journée entrée.', 'No day logged yet.') : t('Chargement…', 'Loading…')}</td></tr>}
+            {days.length === 0 && (!loaded ? <TableSkeleton columns={9} label={t('Chargement…', 'Loading…')} /> : <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-ink-3">{t('Aucune journée entrée.', 'No day logged yet.')}</td></tr>)}
           </tbody>
         </Table>
       </Card></Hint>

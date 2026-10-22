@@ -3,6 +3,7 @@
 Newest first, one line per piece of work. Rule: `AGENTS.md` › Work log rule.
 Format: `YYYY-MM-DD | agent | branch → PR | status | what | next step`
 
+- 2026-10-18 | claude (PR #55 update) | fix/finance-table-loading-skeletons → PR #55 | ready for owner review/merge | Brought up to date with main (through #85): accessible TableSkeleton in five finance tables, ListSkeleton in ledger and team, SSR tests; docs conflicts resolved by keeping main | owner merges
 - 2026-10-16 | ChatGPT | fix/on2go-contract-header-validation → PR #50 | code checked; base reconciled | Verify TAKATAK signed contract integration ID and event idempotency-key align; tampering regression tests, no network writes | verify new CI+image then owner review/merge
 - 2026-10-18 | cursor | fix/sync-startup-grace → PR | in progress | Coolify health of the new container was 503 with only sync=down: the site had been down for about an hour, so the stored sync time was older than 20 min, and the new process does not sync until 5 min; a restart now treats that old stamp as a warning until its own first sync window, and the sync starts at boot | merge so Coolify rebuilds
 - 2026-10-18 | cursor | fix/healthcheck-startup → PR #84 | done | Coolify image of c64fcec started, then /api/health returned 503 with no check name and the proxy was left with no server; health failure now names the checks, the ping key is per process, and the Watchtower starts immediately with a 3 min production grace | merge so Coolify rebuilds; owner confirms Supabase and session env are Runtime before that deploy

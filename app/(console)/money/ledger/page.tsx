@@ -11,6 +11,7 @@ import { FilterBar } from '@/components/ui/filter-bar';
 import { Modal } from '@/components/ui/overlay';
 import { Tabs } from '@/components/ui/tabs';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
+import { ListSkeleton } from '@/components/ui/list-skeleton';
 import { useToast } from '@/components/ui/toast';
 import { useViewer } from '@/components/shell/viewer';
 import { MoneyHead, cad } from '../money-ui';
@@ -88,7 +89,7 @@ export default function LedgerPage() {
             </Table>
           </Card>
         ))}
-        {rows.length === 0 && <Card><EmptyState title={!loaded ? t('Chargement…', 'Loading…') : tab === 'draft' ? t('Rien à approuver', 'Nothing to approve') : t('Aucune écriture', 'No entry')} body={loaded && tab === 'draft' ? t('Les écritures apparaissent quand des relevés sont importés.', 'Entries appear when statements are imported.') : undefined} /></Card>}
+        {rows.length === 0 && (!loaded ? <Card className="p-4"><ListSkeleton label={t('Chargement…', 'Loading…')} /></Card> : <Card><EmptyState title={tab === 'draft' ? t('Rien à approuver', 'Nothing to approve') : t('Aucune écriture', 'No entry')} body={tab === 'draft' ? t('Les écritures apparaissent quand des relevés sont importés.', 'Entries appear when statements are imported.') : undefined} /></Card>)}
       </div>
 
       {byAccount.length > 0 && (

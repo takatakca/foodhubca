@@ -9,6 +9,7 @@ import { Checkbox, Field, Input, Switch } from '@/components/ui/form';
 import { Modal } from '@/components/ui/overlay';
 import { FormDraftNote } from '@/components/ui/save-chip';
 import { Segmented } from '@/components/ui/tabs';
+import { ListSkeleton } from '@/components/ui/list-skeleton';
 import { useToast } from '@/components/ui/toast';
 import { Hint } from '@/components/help/hint';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
@@ -98,7 +99,7 @@ export default function TeamPage() {
             </li>
           ))}
         </ul>
-        {rows.length === 0 && <EmptyState title={loaded ? t('Personne ici', 'Nobody here') : t('Chargement…', 'Loading…')} body={loaded && show === 'active' && !q ? t('Ajoutez vos gérants et employés. Ils reçoivent un lien de connexion.', 'Add your managers and staff. They receive a sign-in link.') : undefined} />}
+        {rows.length === 0 && (!loaded ? <div className="p-4"><ListSkeleton label={t('Chargement…', 'Loading…')} /></div> : <EmptyState title={t('Personne ici', 'Nobody here')} body={show === 'active' && !q ? t('Ajoutez vos gérants et employés. Ils reçoivent un lien de connexion.', 'Add your managers and staff. They receive a sign-in link.') : undefined} />)}
       </Card>
 
       {edit && <PersonDialog draft={edit} isOwner={isOwner} locations={locations} viewerLocations={viewer.locations} onClose={() => setEdit(null)} onSaved={(msg) => { toast.success(msg.title, msg.body); setEdit(null); load(); }} />}

@@ -98,5 +98,17 @@ describe('contract signatures', () => {
     const swapped = new Headers(h);
     swapped.set('x-event-id', 'evt_2');
     expect(verifyContract(swapped, body, 'secret', now)).toBe(false);
+    const wrongProduct = new Headers(h);
+    wrongProduct.set('x-integration-id', 'other_product');
+    expect(verifyContract(wrongProduct, body, 'secret', now)).toBe(false);
+    const wrongDedupe = new Headers(h);
+    wrongDedupe.set('idempotency-key', 'other-event');
+    expect(verifyContract(wrongDedupe, body, 'secret', now)).toBe(false);
+    const missingDedupe = new Headers(h);
+    missingDedupe.delete('idempotency-key');
+    expect(verifyContract(missingDedupe, body, 'secret', now)).toBe(false);
+    const missingProduct = new Headers(h);
+    missingProduct.delete('x-integration-id');
+    expect(verifyContract(missingProduct, body, 'secret', now)).toBe(false);
   });
 });

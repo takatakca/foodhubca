@@ -89,7 +89,7 @@ function LocationForm({ rule, owner, permitHours, onSave }: { rule: LocationAlco
           <option value="none">{t('Aucun', 'None')}</option><option value="restaurant">{t('Restaurant (pour vendre)', 'Restaurant (to sell)')}</option><option value="epicerie">{t('Épicerie', 'Grocery')}</option><option value="bar">{t('Bar', 'Bar')}</option><option value="other">{t('Autre', 'Other')}</option>
         </Select></Field>
         <Field label={t('Numéro de permis', 'Permit number')}><Input value={f.permitNumber} onChange={(e) => set({ permitNumber: e.target.value })} /></Field>
-        <Field label={t('Titulaire', 'Holder')}><Input value={f.holderName} onChange={(e) => set({ holderName: e.target.value })} placeholder="Quadro Holdings LTÉE" /></Field>
+        <Field label={t('Titulaire', 'Holder')}><Input value={f.holderName} onChange={(e) => set({ holderName: e.target.value })} placeholder="Restaurant Exemple inc." /></Field>
         <Field label={t('Expire le', 'Expires on')}><Input type="date" value={f.expiresOn} onChange={(e) => set({ expiresOn: e.target.value })} /></Field>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

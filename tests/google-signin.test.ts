@@ -46,6 +46,9 @@ async function seedTeam() {
   await getRepo().saveUser({ username: 'gone', name: 'Gone', role: 'operator', locations: [], email: 'gone@example.com', active: false } as unknown as FoodHubUser);
 }
 
+/** The refusal reason, or "ok" when the person was signed in (narrows the union for one-line expects). */
+const reasonOf = (r: Awaited<ReturnType<typeof finishGoogleSignIn>>) => (r.ok ? 'ok' : r.reason);
+
 /** Plays the browser: /start gives the cookie, Google would come back with ?code&state. */
 function startAndCookie(next = '/orders') {
   const { url, cookie } = beginGoogleSignIn({ next, lang: 'fr' });
@@ -195,10 +198,10 @@ describe('callback: only a known, verified team email signs in', () => {
   it('refuses a state mismatch, a missing cookie, a forged cookie and a nonce mismatch, without ever calling Google for the first three', async () => {
     const { raw, state, nonce } = startAndCookie();
     fakeGoogle(() => ({ body: { id_token: idToken({ nonce, email: 'sara@example.com' }) } }));
-    expect((await finishGoogleSignIn({ code: 'c', state: 'another-state', cookie: raw, ip: '203.0.113.7' })).reason).toBe('state');
-    expect((await finishGoogleSignIn({ code: 'c', state, cookie: null, ip: '203.0.113.7' })).reason).toBe('state');
-    expect((await finishGoogleSignIn({ code: 'c', state, cookie: 'forged', ip: '203.0.113.7' })).reason).toBe('state');
-    expect((await finishGoogleSignIn({ code: '', state, cookie: raw, ip: '203.0.113.7' })).reason).toBe('state');
+    expect(reasonOf(await finishGoogleSignIn({ code: 'c', state: 'another-state', cookie: raw, ip: '203.0.113.7' }))).toBe('state');
+    expect(reasonOf(await finishGoogleSignIn({ code: 'c', state, cookie: null, ip: '203.0.113.7' }))).toBe('state');
+    expect(reasonOf(await finishGoogleSignIn({ code: 'c', state, cookie: 'forged', ip: '203.0.113.7' }))).toBe('state');
+    expect(reasonOf(await finishGoogleSignIn({ code: '', state, cookie: raw, ip: '203.0.113.7' }))).toBe('state');
     expect(tokenCalls.length).toBe(0);
     // Google answers a token whose nonce is not the one this browser started with (replayed from another session)
     fakeGoogle(() => ({ body: { id_token: idToken({ nonce: 'someone-elses-nonce', email: 'sara@example.com' }) } }));
@@ -207,16 +210,16 @@ describe('callback: only a known, verified team email signs in', () => {
     if (!r.ok) expect(r.reason).toBe('state');
     expect(tokenCalls.length).toBe(1);
     // Google itself refusing (user cancelled) or the exchange failing is a soft "try again", never a sign-in
-    expect((await finishGoogleSignIn({ code: '', state: '', cookie: raw, ip: '203.0.113.8', googleError: 'access_denied' })).reason).toBe('google');
+    expect(reasonOf(await finishGoogleSignIn({ code: '', state: '', cookie: raw, ip: '203.0.113.8', googleError: 'access_denied' }))).toBe('google');
     fakeGoogle(() => ({ status: 400, body: { error: 'invalid_grant' } }));
-    expect((await finishGoogleSignIn({ code: 'c', state, cookie: raw, ip: '203.0.113.8' })).reason).toBe('google');
+    expect(reasonOf(await finishGoogleSignIn({ code: 'c', state, cookie: raw, ip: '203.0.113.8' }))).toBe('google');
   });
 
   it('locks the client address after repeated bad callbacks, like the other sign-ins', async () => {
     const { raw, state, nonce } = startAndCookie();
     fakeGoogle(() => ({ body: { id_token: idToken({ nonce, email: 'nobody@example.com' }) } }));
-    for (let i = 0; i < 5; i++) expect((await finishGoogleSignIn({ code: 'c', state, cookie: raw, ip: '203.0.113.9' })).reason).toBe('not_on_team');
-    expect((await finishGoogleSignIn({ code: 'c', state, cookie: raw, ip: '203.0.113.9' })).reason).toBe('locked');
+    for (let i = 0; i < 5; i++) expect(reasonOf(await finishGoogleSignIn({ code: 'c', state, cookie: raw, ip: '203.0.113.9' }))).toBe('not_on_team');
+    expect(reasonOf(await finishGoogleSignIn({ code: 'c', state, cookie: raw, ip: '203.0.113.9' }))).toBe('locked');
     fakeGoogle(() => ({ body: { id_token: idToken({ nonce, email: 'sara@example.com' }) } }));
     expect((await finishGoogleSignIn({ code: 'c', state, cookie: raw, ip: '203.0.113.9' })).ok).toBe(false); // still locked
     expect((await finishGoogleSignIn({ code: 'c', state, cookie: raw, ip: '203.0.113.10' })).ok).toBe(true); // another address is fine
@@ -225,6 +228,6 @@ describe('callback: only a known, verified team email signs in', () => {
   it('is fully off without the client secret', async () => {
     vi.stubEnv('GOOGLE_OAUTH_CLIENT_SECRET', '');
     const { raw, state } = startAndCookie();
-    expect((await finishGoogleSignIn({ code: 'c', state, cookie: raw, ip: '203.0.113.11' })).reason).toBe('disabled');
+    expect(reasonOf(await finishGoogleSignIn({ code: 'c', state, cookie: raw, ip: '203.0.113.11' }))).toBe('disabled');
   });
 });

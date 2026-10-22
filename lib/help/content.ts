@@ -18,7 +18,31 @@ export const HINTS: Record<string, HintEntry> = {
   },
   'shell.scope': {
     title: ['Quel restaurant ?', 'Which restaurant?'],
-    body: ['Tous les restaurants, une cuisine, ou une marque seule (la flèche ouvre ses marques). Toute la console suit, et le choix reste dans le lien. Les alarmes sonnent quand même pour toutes les marques de la cuisine. Une tablette reste sur sa cuisine.', 'Every restaurant, one kitchen, or one brand alone (the arrow opens its brands). The whole console follows, and the choice stays in the link. Alarms still ring for every brand of the kitchen. A tablet stays on its own kitchen.'],
+    body: ['Tous les restaurants, une succursale, une marque, une plateforme. Toute la console suit, et le choix reste dans le lien. Les alarmes sonnent quand même pour toutes les marques et plateformes de la succursale. Une tablette reste sur sa succursale.', 'All restaurants, one location, one brand, one platform. The whole console follows, and the choice stays in the link. Alarms still ring for every brand and platform of the location. A tablet stays on its own location.'],
+  },
+  'shell.help': {
+    title: ['Besoin d’aide ?', 'Need help?'],
+    body: ['L’aide de l’écran où vous êtes, une visite guidée, et une question au copilote si vous êtes bloqué.', 'Help for the screen you are on, a guided tour, and a question for the co-pilot if you are stuck.'],
+  },
+  'shell.view': {
+    title: ['Vue complète', 'Full view'],
+    body: ['La vue simple montre l’essentiel. La vue complète ajoute les outils avancés : branchements, API, mise en service. Vous pouvez revenir quand vous voulez.', 'The simple view shows the essentials. The full view adds the advanced tools: connections, APIs, go-live. You can switch back any time.'],
+  },
+  'home.start': {
+    title: ['Pour bien démarrer', 'Get started'],
+    body: ['Trois étapes : brancher vos magasins, importer votre menu, installer la tablette de cuisine. La carte disparaît quand tout est fait.', 'Three steps: connect your stores, import your menu, set up the kitchen tablet. The card goes away once everything is done.'],
+  },
+  'home.platforms': {
+    title: ['Par plateforme', 'By platform'],
+    body: ['Vos magasins, commandes et ventes de chaque plateforme. Touchez une ligne pour voir cette plateforme seule.', 'Your stores, orders and sales on each platform. Tap a row to see that platform on its own.'],
+  },
+  'stores.list': {
+    title: ['Tous les magasins', 'All stores'],
+    body: ['Une ligne par marque, plateforme et succursale, avec son statut. « Gérer » ouvre la pause, la réouverture et le temps de préparation.', 'One row per brand, platform and location, with its status. “Manage” opens pause, reopen and prep time.'],
+  },
+  'settings.advanced': {
+    title: ['Outils avancés', 'Advanced tools'],
+    body: ['Branchements, API et mise en service : pour votre technicien ou notre équipe. « Passer à la vue complète » les montre.', 'Connections, APIs and go-live: for your technician or our team. “Switch to the full view” shows them.'],
   },
   'shell.search': {
     title: ['Tout trouver', 'Find anything'],
@@ -274,8 +298,8 @@ export const HINTS: Record<string, HintEntry> = {
     body: ['Touchez une ligne pour la recharger dans le formulaire, corrigez, puis « Enregistrer la journée ». Les nouveaux chiffres remplacent les anciens.', 'Tap a row to load it into the form, fix it, then “Save day”. The new numbers replace the old ones.'],
   },
   'orders.view': {
-    title: ['En direct ou historique', 'Live or history'],
-    body: ['En direct : les commandes en cours, rangées par étape. Historique : toutes les commandes d’une période, avec recherche et export CSV.', 'Live: orders in progress, sorted by step. History: every order for a period, with search and a CSV export.'],
+    title: ['Actives, Planifiées ou Historique', 'Active, Scheduled or History'],
+    body: ['Actives : les commandes en cours, rangées par étape. Planifiées : celles pour plus tard. Historique : toutes les commandes d’une période, avec recherche et export CSV.', 'Active: orders in progress, sorted by step. Scheduled: orders for later. History: every order for a period, with search and a CSV export.'],
   },
   'orders.card': {
     title: ['Une commande', 'An order'],
@@ -283,7 +307,7 @@ export const HINTS: Record<string, HintEntry> = {
   },
   'orders.filters': {
     title: ['Retrouver une commande', 'Find an order'],
-    body: ['Choisissez la période, la succursale, la marque ou le statut. La recherche trouve un numéro de commande, un client ou un numéro Clover. « CSV » télécharge la liste.', 'Pick the period, location, brand or status. Search finds an order number, a customer or a Clover number. “CSV” downloads the list.'],
+    body: ['Succursale, marque, plateforme, statut… La recherche trouve un numéro de commande, un client ou un numéro Clover. « Exporter (CSV) » télécharge la liste.', 'Location, brand, platform, status… Search finds an order number, a customer or a Clover number. “Export (CSV)” downloads the list.'],
   },
   'kitchen.ticket': {
     title: ['À préparer', 'To cook'],
@@ -302,8 +326,8 @@ export const HINTS: Record<string, HintEntry> = {
     body: ['Cache les barres du navigateur pour donner plus de place aux commandes. « Quitter » pour en sortir.', 'Hides the browser bars to give the orders more room. “Exit” to leave.'],
   },
   'menu86.toggle': {
-    title: ['En rupture d’un geste', '86 in one tap'],
-    body: ['Touchez un article : il disparaît d’Uber Eats, DoorDash et Skip à cette succursale. Touchez-le encore pour le remettre. En rouge = en rupture.', 'Tap an item: it disappears from Uber Eats, DoorDash and Skip at this location. Tap it again to bring it back. Red = 86’d.'],
+    title: ['Épuisé d’un geste', 'Sold out in one tap'],
+    body: ['Touchez un article : il disparaît d’Uber Eats, DoorDash et Skip à cette succursale. Touchez-le encore pour le remettre. En rouge = épuisé.', 'Tap an item: it disappears from Uber Eats, DoorDash and Skip at this location. Tap it again to bring it back. Red = sold out.'],
   },
   'menu86.return': {
     title: ['Retour automatique', 'Automatic return'],
@@ -311,11 +335,11 @@ export const HINTS: Record<string, HintEntry> = {
   },
   'menu86.location': {
     title: ['La bonne succursale', 'The right location'],
-    body: ['Une rupture vaut pour une seule succursale. Vérifiez que c’est la bonne avant de toucher. Une tablette de cuisine reste sur sa succursale.', 'An 86 applies to one location only. Check it’s the right one before tapping. A kitchen tablet stays on its own location.'],
+    body: ['Un article épuisé l’est dans une seule succursale. Vérifiez que c’est la bonne avant de toucher. Une tablette de cuisine reste sur sa succursale.', 'Sold out applies to one location only. Check it’s the right one before tapping. A kitchen tablet stays on its own location.'],
   },
   'menu86.tabs': {
-    title: ['Articles, options, en rupture', 'Items, options, 86’d now'],
-    body: ['Les options, ce sont les sauces, tailles et extras. « En rupture » montre tout ce qui est retiré pour cette marque à cette succursale : touchez pour le remettre.', 'Options are sauces, sizes and extras. “86’d now” shows everything off for this brand at this location: tap to bring it back.'],
+    title: ['Articles, options, épuisés', 'Items, options, sold out now'],
+    body: ['Les options, ce sont les sauces, tailles et extras. « Épuisés maintenant » montre tout ce qui est retiré pour cette marque à cette succursale : touchez pour le remettre.', 'Options are sauces, sizes and extras. “Sold out now” shows everything off for this brand at this location: tap to bring it back.'],
   },
   'incident.card': {
     title: ['Une alerte', 'An alert'],
@@ -404,13 +428,13 @@ export const PAGES: PageHelp[] = [
   {
     match: '/orders',
     title: ['Commandes', 'Orders'],
-    intro: ['Toutes les commandes d’Uber Eats, DoorDash et Skip au même endroit. En direct : rangées par étape. Historique : par période, avec recherche. Touchez une commande pour tout voir et agir.', 'Every Uber Eats, DoorDash and Skip order in one place. Live: sorted by step. History: by period, with search. Tap an order to see everything and act.'],
+    intro: ['Toutes les commandes de vos plateformes au même endroit. Actives : rangées par étape. Planifiées : pour plus tard. Historique : par période, avec recherche. Touchez une commande pour tout voir et agir.', 'Every order from your platforms in one place. Active: sorted by step. Scheduled: for later. History: by period, with search. Tap an order to see everything and act.'],
     steps: [
-      { target: 'orders.view', title: ['En direct ou historique', 'Live or history'], body: ['En direct pour le service ; Historique pour retrouver une commande passée.', 'Live for service; History to find a past order.'] },
+      { target: 'orders.view', title: ['Actives, Planifiées ou Historique', 'Active, Scheduled or History'], body: ['Actives pour le service ; Planifiées pour plus tard ; Historique pour retrouver une commande passée.', 'Active for service; Scheduled for later; History to find a past order.'] },
       { target: 'orders.card', title: ['Une commande', 'An order'], body: ['Les colonnes suivent l’étape : nouvelles, en préparation, prêtes, parties. Le bouton du bas passe à l’étape suivante.', 'Columns follow the step: new, preparing, ready, picked up. The bottom button moves it to the next step.'] },
-      { target: 'orders.filters', title: ['Retrouver une commande', 'Find an order'], body: ['Dans Historique : période, succursale, statut, et recherche par numéro, client ou numéro Clover.', 'In History: period, location, status, and search by number, customer or Clover number.'] },
+      { target: 'orders.filters', title: ['Filtrer', 'Filter'], body: ['Succursale, marque, plateforme et statut. Dans Historique : période et recherche par numéro, client ou numéro Clover.', 'Location, brand, platform and status. In History: period and search by number, customer or Clover number.'] },
     ],
-    tips: [['Une commande d’un magasin non relié attend une personne : vérifiez la marque et la cuisine avant d’accepter.', 'An order from an unlinked store waits for a person: check the brand and kitchen before accepting.'], ['Une bande rouge en haut = des commandes en retard sur leur heure « prête ».', 'A red strip at the top = orders past their ready time.']],
+    tips: [['Une commande d’un magasin non relié attend une personne : vérifiez la marque et la succursale avant d’accepter.', 'An order from an unlinked store waits for a person: check the brand and location before accepting.'], ['Une bande rouge en haut = des commandes en retard sur leur heure « prête ».', 'A red strip at the top = orders past their ready time.']],
   },
   {
     match: '/kitchen',
@@ -426,13 +450,13 @@ export const PAGES: PageHelp[] = [
   },
   {
     match: '/menu/86',
-    title: ['Ruptures (86)', 'Out of stock (86)'],
+    title: ['Épuisés', 'Sold out'],
     intro: ['Un article manque ? Touchez-le : il disparaît d’Uber Eats, DoorDash et Skip à cette succursale. Choisissez d’abord s’il revient tout seul.', 'Out of something? Tap it: it disappears from Uber Eats, DoorDash and Skip at this location. Pick first whether it comes back by itself.'],
     steps: [
-      { target: 'menu86.location', title: ['La succursale', 'The location'], body: ['Une rupture vaut pour une seule succursale. Vérifiez-la avant de toucher.', 'An 86 applies to one location. Check it before tapping.'] },
+      { target: 'menu86.location', title: ['La succursale', 'The location'], body: ['Un article épuisé l’est dans une seule succursale. Vérifiez-la avant de toucher.', 'Sold out applies to one location. Check it before tapping.'] },
       { target: 'menu86.return', title: ['Retour automatique', 'Automatic return'], body: ['30 min, 1 h, 2 h ou fin de journée : l’article revient tout seul. Sinon, il reste retiré jusqu’à ce que vous le remettiez.', '30 min, 1 h, 2 h or end of day: the item comes back by itself. Otherwise it stays off until you bring it back.'] },
       { target: 'menu86.toggle', title: ['Un geste', 'One tap'], body: ['Touchez l’article : il passe en rouge et disparaît des plateformes. Touchez encore pour le remettre.', 'Tap the item: it turns red and disappears from the platforms. Tap again to bring it back.'] },
-      { target: 'menu86.tabs', title: ['Ce qui est en rupture', 'What’s 86’d'], body: ['« En rupture » liste tout ce qui est retiré pour cette marque à cette succursale.', '“86’d now” lists everything off for this brand at this location.'] },
+      { target: 'menu86.tabs', title: ['Ce qui est épuisé', 'What’s sold out'], body: ['« Épuisés maintenant » liste tout ce qui est retiré pour cette marque à cette succursale.', '“Sold out now” lists everything off for this brand at this location.'] },
     ],
     tips: [['DoorDash n’a pas de minuterie : TAKATAK remet l’article lui-même à l’heure prévue.', 'DoorDash has no timer: TAKATAK turns the item back on itself at the planned time.']],
   },
@@ -617,7 +641,7 @@ export const PAGES: PageHelp[] = [
     title: ['Aperçu', 'Overview'],
     intro: ['Les ventes du jour, ce qui attend, et l’état de chaque plateforme. Les nouvelles commandes sonnent et s’ouvrent en plein écran.', 'Today’s sales, what is waiting, and every platform’s status. New orders ring and open full screen.'],
     steps: [
-      { target: 'shell.scope', title: ['Vos restaurants', 'Your restaurants'], body: ['Tous, une cuisine ou une marque : toute la console suit.', 'All, one kitchen or one brand: the whole console follows.'] },
+      { target: 'shell.scope', title: ['Vos restaurants', 'Your restaurants'], body: ['Tous, une succursale, une marque ou une plateforme : toute la console suit.', 'All, one location, one brand or one platform: the whole console follows.'] },
       { target: 'shell.search', title: ['Chercher', 'Search'], body: ['Une commande, un client ou une page, d’un mot.', 'An order, a customer or a page, in one word.'] },
       { target: 'shell.sound', title: ['Le son', 'Sound'], body: ['Touchez une fois pour que les commandes sonnent sur cette tablette.', 'Tap once so orders ring on this tablet.'] },
       { target: 'shell.taktak', title: ['Toujours là', 'Always here'], body: ['Besoin d’aide sur n’importe quel écran ? Touchez-moi.', 'Need help on any screen? Tap me.'] },

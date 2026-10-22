@@ -20,11 +20,11 @@ import { api, ApiError, timeOf } from '@/lib/ui/api';
 import { sameValue } from '@/lib/ui/autosave-core';
 import { useAutosave } from '@/lib/ui/use-autosave';
 import { useUndo } from '@/lib/ui/use-undo';
-import { useI18n } from '@/lib/i18n/client';
+import { useI18n, useProduct } from '@/lib/i18n/client';
 import type { T } from '@/lib/i18n';
 import type { ChannelStore, PlatformStatus } from '@/lib/foodhub/types';
 import type { CommandCenter } from '@/lib/foodhub/command';
-import { brandRows } from '@/lib/foodhub/scope';
+import { brandRows, channelName, storesOfLocation } from '@/lib/foodhub/scope';
 
 type PrepSetting = { normal: number; busy: number; isBusy: boolean };
 /** Body of POST /api/foodhub/prep: minutes and/or busy mode for one location. */
@@ -44,11 +44,12 @@ export function stateOf(s: ChannelStore): { state: string; tone: Tone; ps?: Plat
   return { state, tone, ps };
 }
 export function stateText(t: T, state: string) {
-  return ({ online: t('En ligne', 'Online'), paused: t('En pause', 'Paused'), closed: t('Fermé (heures)', 'Closed (hours)'), deactivated: t('Désactivé', 'Deactivated'), unknown: t('Inconnu', 'Unknown') } as Record<string, string>)[state] ?? state;
+  return ({ online: t('En ligne', 'Online'), paused: t('En pause', 'Paused'), closed: t('Fermé selon l’horaire', 'Closed (outside hours)'), deactivated: t('Désactivé', 'Deactivated'), unknown: t('Inconnu', 'Unknown') } as Record<string, string>)[state] ?? state;
 }
 
 export function StoresView() {
   const { t, loc } = useI18n();
+  const product = useProduct();
   const { locations, can, locName } = useViewer();
   const { scope, site, setSite } = usePulse();
   const toast = useToast();
@@ -56,7 +57,7 @@ export function StoresView() {
   const [prep, setPrep] = useState<Record<string, PrepSetting>>({});
   const [cc, setCc] = useState<CommandCenter | null>(null);
   const [failed, setFailed] = useState(false);
-  const [pauseFor, setPauseFor] = useState<{ ids: string[]; label: string } | null>(null);
+  const [pauseFor, setPauseFor] = useState<{ ids: string[]; label: string; channel?: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   /** Prep writes finished on this screen: a refresh that overlapped one may hold the older copy, so its prep part is skipped. */
@@ -79,6 +80,8 @@ export function StoresView() {
   useRefreshOn(load);
 
   const shownLocs = locations.filter((l) => !scope.length || scope.includes(l.code));
+  /** The platform picked in the header: the bulk buttons and the brand list act on that platform only. */
+  const platform = site.channel ? channelName(site.channel) : null;
 
   async function setOnline(ids: string[], online: boolean, minutes = 0, reason?: string) {
     setBusy(ids.join(','));
@@ -118,8 +121,8 @@ export function StoresView() {
     if (!list.length || !can('stores:toggle')) return null;
     const online = list.filter((s) => stateOf(s).state === 'online');
     return <>
-      <Button variant="outline" onClick={() => setPauseFor({ ids: online.map((s) => s.id), label })} icon={<Pause className="size-4" />} disabled={!online.length}>{t('Tout mettre en pause', 'Pause all')}</Button>
-      <Hint id="stores.resume"><Button variant="outline" loading={busy === list.map((s) => s.id).join(',')} onClick={() => setOnline(list.map((s) => s.id), true)} icon={<Play className="size-4" />}>{t('Tout rouvrir', 'Resume all')}</Button></Hint>
+      <Button variant="outline" onClick={() => setPauseFor({ ids: online.map((s) => s.id), label, channel: site.channel })} icon={<Pause className="size-4" />} disabled={!online.length}>{platform ? t(`Tout mettre en pause sur ${platform}`, `Pause all on ${platform}`) : t('Tout mettre en pause', 'Pause all')}</Button>
+      <Hint id="stores.resume"><Button variant="outline" loading={busy === list.map((s) => s.id).join(',')} onClick={() => setOnline(list.map((s) => s.id), true)} icon={<Play className="size-4" />}>{platform ? t(`Tout rouvrir sur ${platform}`, `Resume all on ${platform}`) : t('Tout rouvrir', 'Resume all')}</Button></Hint>
     </>;
   };
 
@@ -131,7 +134,7 @@ export function StoresView() {
         <div className="w-48 min-w-0">{showBrand && <div className="truncate text-sm font-bold">{s.brandName}</div>}<PlatformTag channel={s.channel} className={showBrand ? 'text-xs font-medium text-ink-3' : 'text-sm font-bold'} /></div>
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           <Badge tone={st.tone}>{stateText(t, st.state)}</Badge>
-          {st.ps?.source === 'dashboard' && st.state !== 'online' && <span className="text-xs text-ink-3">{t('par TAKATAK', 'from TAKATAK')}</span>}
+          {st.ps?.source === 'dashboard' && st.state !== 'online' && <span className="text-xs text-ink-3">{t(`par ${product.shortName}`, `from ${product.shortName}`)}</span>}
           {st.ps?.source && st.ps.source !== 'dashboard' && st.state !== 'online' && <span className="text-xs font-semibold text-wait-2">{t('par la plateforme', 'by the platform')}</span>}
           {s.pausedUntil && !s.online && <span className="text-xs text-ink-3">{t('jusqu’à', 'until')} {timeOf(s.pausedUntil, loc)}</span>}
           {st.ps?.detail && <span className="truncate text-xs text-ink-3" title={st.ps.detail}>{st.ps.detail}</span>}
@@ -139,7 +142,7 @@ export function StoresView() {
           {!s.autoAccept && <Badge tone="neutral">{t('acceptation manuelle', 'manual accept')}</Badge>}
         </div>
         {can('stores:toggle') && (st.state === 'online'
-          ? <Button variant="outline" onClick={() => setPauseFor({ ids: [s.id], label: `${s.brandName} · ${s.channel}` })} icon={<Pause className="size-4" />}>{t('Pause', 'Pause')}</Button>
+          ? <Button variant="outline" onClick={() => setPauseFor({ ids: [s.id], label: `${s.brandName} · ${channelName(s.channel)}`, channel: s.channel })} icon={<Pause className="size-4" />}>{t('Pause', 'Pause')}</Button>
           : st.state !== 'deactivated' && <Hint id="stores.resume"><Button variant="go" loading={busy === s.id} onClick={() => setOnline([s.id], true)} icon={<Play className="size-4" />}>{t('Rouvrir', 'Resume')}</Button></Hint>)}
       </div>
     );
@@ -148,8 +151,11 @@ export function StoresView() {
   const loading = !stores && !failed;
   return (
     <div>
-      <PageHeader title={t('Restaurants', 'Restaurants')} subtitle={t('Toutes les marques de chaque cuisine sur une liste. Touchez une marque pour l’ouvrir seule : pause, réouverture et temps de préparation, sur toutes les plateformes d’un coup.', 'Every brand of each kitchen in one list. Tap a brand to open it alone: pause, resume and prep time, on every platform at once.')} />
+      <PageHeader title={t('Restaurants', 'Restaurants')} subtitle={t('Toutes les marques de chaque succursale sur une liste. Touchez une marque pour l’ouvrir seule : pause, réouverture et temps de préparation, sur toutes les plateformes d’un coup.', 'Every brand of each location in one list. Tap a brand to open it alone: pause, resume and prep time, on every platform at once.')} />
       <StoresTabs />
+      {platform && (
+        <div className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-2">{t(`${platform} seulement : les pauses et réouvertures de cette page ne touchent que ${platform}.`, `${platform} only: pauses and resumes on this page only reach ${platform}.`)}<span aria-hidden>·</span><button type="button" onClick={() => setSite({ channel: undefined })} className="min-h-11 font-semibold text-brand hover:underline">{t('Voir toutes les plateformes', 'See every platform')}</button></div>
+      )}
       {failed && !stores && <Banner tone="stop" className="mb-5">{t('Impossible de lire vos magasins pour l’instant. Vérifiez la connexion : on réessaie toutes les 30 secondes.', 'Cannot read your stores right now. Check the connection: it retries every 30 seconds.')}</Banner>}
       {stores && stores.length === 0 && !(cc?.matrix.length) && (
         <Card><EmptyState icon={<StoreIcon className="size-6" />} title={t('Aucun magasin branché', 'No store connected yet')} body={t('Branchez vos magasins Uber Eats, DoorDash, Skip et TGTG pour les contrôler d’ici.', 'Connect your Uber Eats, DoorDash, Skip and TGTG stores to control them from here.')} action={can('stores:map') ? <ButtonLink href="/stores/mapping" variant="brand">{t('Brancher un magasin', 'Connect a store')}</ButtonLink> : undefined} /></Card>
@@ -162,8 +168,8 @@ export function StoresView() {
             <ArrowLeft className="size-4" />{site.kitchen ? t(`Toutes les marques de ${shortLoc(locName(site.kitchen))}`, `All ${shortLoc(locName(site.kitchen))} brands`) : t('Tous les restaurants', 'All restaurants')}
           </button>
           {shownLocs.map((l) => {
-            const list = (stores ?? []).filter((s) => s.locationCode === l.code && s.brandName === site.brand).sort((a, b) => a.channel.localeCompare(b.channel));
-            const sold = (cc?.matrix ?? []).some((r) => r.locationCode === l.code && r.brandName === site.brand);
+            const list = storesOfLocation(stores ?? [], l.code, site).sort((a, b) => a.channel.localeCompare(b.channel));
+            const sold = (cc?.matrix ?? []).some((r) => r.locationCode === l.code && r.brandName === site.brand && (!site.channel || ((r.cells as Record<string, { state: string } | undefined>)[site.channel]?.state ?? 'missing') !== 'missing'));
             if (!loading && !list.length && !sold) return null;
             const online = list.filter((s) => stateOf(s).state === 'online').length;
             return (
@@ -174,7 +180,7 @@ export function StoresView() {
                   {pauseButtons(list, `${site.brand} · ${shortLoc(l.name)}`)}
                 </div>
                 {loading ? <div className="space-y-2 p-5"><Skeleton className="h-12" /><Skeleton className="h-12" /></div>
-                  : list.length === 0 ? <EmptyState icon={<StoreIcon className="size-6" />} title={t('Pas encore branchée ici', 'Not connected here yet')} body={t('Cette marque est vendue dans cette cuisine, mais aucun de ses magasins n’est relié à Food Hub. Reliez-les pour les contrôler d’ici.', 'This brand is sold in this kitchen, but none of its stores is linked to Food Hub yet. Link them to control them from here.')} action={can('stores:map') ? <ButtonLink href="/stores/mapping" variant="brand">{t('Relier un magasin', 'Link a store')}</ButtonLink> : undefined} />
+                  : list.length === 0 ? <EmptyState icon={<StoreIcon className="size-6" />} title={t('Pas encore branchée ici', 'Not connected here yet')} body={t(`Cette marque est vendue dans cette cuisine, mais aucun de ses magasins n’est relié à ${product.name}. Reliez-les pour les contrôler d’ici.`, `This brand is sold in this kitchen, but none of its stores is linked to ${product.name} yet. Link them to control them from here.`)} action={can('stores:map') ? <ButtonLink href="/stores/mapping" variant="brand">{t('Relier un magasin', 'Link a store')}</ButtonLink> : undefined} />
                     : <div className="divide-y divide-line">{list.map((s) => storeRow(s, false))}</div>}
               </Card>
             );
@@ -184,10 +190,10 @@ export function StoresView() {
         // Each kitchen: its prep time and all its brands in one list; one tap opens a brand.
         <div className="space-y-5">
           {shownLocs.map((l) => {
-            const list = (stores ?? []).filter((s) => s.locationCode === l.code);
+            const list = storesOfLocation(stores ?? [], l.code, site);
             const p: PrepSetting = Object.assign({ normal: 15, busy: 25, isBusy: false }, prep[l.code]);
             if (loading) return <div key={l.code} className="h-64 animate-pulse rounded-lg bg-sunken" />;
-            const rows = cc ? brandRows(cc.matrix, cc.byBrandLocation, { kitchen: l.code, brand: null }) : [];
+            const rows = cc ? brandRows(cc.matrix, cc.byBrandLocation, site.channel ? { kitchen: l.code, brand: null, channel: site.channel } : { kitchen: l.code, brand: null }) : [];
             const open = rows.filter((r) => r.state === 'open').length;
             return (
               <Card key={l.code}>
@@ -205,7 +211,7 @@ export function StoresView() {
           })}
         </div>
       )}
-      {pauseFor && <PauseDialog label={pauseFor.label} count={pauseFor.ids.length} busy={busy !== null} onClose={() => setPauseFor(null)} onPause={(m, r) => setOnline(pauseFor.ids, false, m, r)} />}
+      {pauseFor && <PauseDialog label={pauseFor.label} count={pauseFor.ids.length} channel={pauseFor.channel} busy={busy !== null} onClose={() => setPauseFor(null)} onPause={(m, r) => setOnline(pauseFor.ids, false, m, r)} />}
     </div>
   );
 }
@@ -294,7 +300,7 @@ function PrepRow({ code, p, editable, send, onBusyMode }: { code: string; p: Pre
   );
 }
 
-function PauseDialog({ label, count, busy, onClose, onPause }: { label: string; count: number; busy: boolean; onClose: () => void; onPause: (minutes: number, reason: string) => void }) {
+function PauseDialog({ label, count, channel, busy, onClose, onPause }: { label: string; count: number; channel?: string; busy: boolean; onClose: () => void; onPause: (minutes: number, reason: string) => void }) {
   const { t } = useI18n();
   const [minutes, setMinutes] = useState(30);
   const [reason, setReason] = useState('busy');
@@ -305,7 +311,7 @@ function PauseDialog({ label, count, busy, onClose, onPause }: { label: string; 
     { value: 'closed', label: t('Fermeture', 'Closing'), text: 'Closed' },
   ], [t]);
   return (
-    <Modal title={t('Mettre en pause', 'Pause')} subtitle={`${label} · ${count} ${t('magasin(s) sur toutes les plateformes', 'store(s) on every platform')}`} onClose={onClose}
+    <Modal title={channel ? t(`Pause sur ${channelName(channel)}`, `Pause on ${channelName(channel)}`) : t('Mettre en pause', 'Pause')} subtitle={`${label} · ${count} ${channel ? t(`magasin(s) sur ${channelName(channel)} seulement`, `store(s) on ${channelName(channel)} only`) : t('magasin(s) sur toutes les plateformes', 'store(s) on every platform')}`} onClose={onClose}
       footer={<><Button variant="ghost" size="lg" onClick={onClose}>{t('Retour', 'Back')}</Button><Button variant="danger" size="lg" loading={busy} onClick={() => onPause(minutes, reasons.find((r) => r.value === reason)?.text ?? '')} icon={<Pause className="size-5" />}>{minutes ? t(`Pause ${minutes >= 60 ? `${minutes / 60} h` : `${minutes} min`}`, `Pause ${minutes >= 60 ? `${minutes / 60} h` : `${minutes} min`}`) : t('Pause jusqu’à réouverture', 'Pause until resumed')}</Button></>}>
       <div className="space-y-5">
         <div><div className="mb-2 text-[13px] font-semibold text-ink-2">{t('Combien de temps ?', 'How long?')}</div><Chips size="lg" value={minutes} onChange={setMinutes} options={[{ value: 15, label: '15 min' }, { value: 30, label: '30 min' }, { value: 60, label: '1 h' }, { value: 120, label: '2 h' }, { value: 0, label: t('Jusqu’à réouverture', 'Until resumed') }]} /></div>

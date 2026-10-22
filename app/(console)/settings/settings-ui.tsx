@@ -1,12 +1,18 @@
 'use client';
 
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
-import { BellRing, Blocks, Building2, MonitorSmartphone, PlugZap, Rocket, ShieldCheck, Store, Truck, UserRound, Users } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { PageHeader } from '@/components/ui/card';
 import { LinkTabs } from '@/components/ui/tabs';
+import { useScopeHref } from '@/components/live/pulse';
+import { SETTINGS_PAGES, settingsPageOf } from '@/components/shell/settings-pages';
 import { useViewer } from '@/components/shell/viewer';
 import { useI18n } from '@/lib/i18n/client';
 import type { T } from '@/lib/i18n';
+
+export { SETTINGS_GROUPS, SETTINGS_PAGES, type SettingsGroup } from '@/components/shell/settings-pages';
 
 export type Role = 'owner' | 'manager' | 'operator' | 'menu' | 'analyst';
 export const ROLES: Role[] = ['owner', 'manager', 'operator', 'menu', 'analyst'];
@@ -23,34 +29,30 @@ export function roleHelp(t: T, r: string) {
   } as Record<string, string>)[r] ?? '';
 }
 
-export const SETTINGS_PAGES = [
-  { href: '/settings/profile', icon: UserRound, perm: 'view', fr: 'Mon profil', en: 'My profile', dfr: 'Nom, courriel, cellulaire, langue, votre NIP et vos alertes.', den: 'Name, email, cell, language, your PIN and your alerts.' },
-  { href: '/settings/team', icon: Users, perm: 'stores:map', fr: 'Équipe et NIP', en: 'Team & PINs', dfr: 'Qui a accès, à quelles succursales, avec quel rôle et quel NIP.', den: 'Who has access, to which locations, with which role and PIN.' },
-  { href: '/settings/devices', icon: MonitorSmartphone, perm: 'view', fr: 'Tablettes', en: 'Tablets', dfr: 'Les écrans de cuisine : en ligne, son, batterie. Enregistrer ou retirer.', den: 'Kitchen screens: online, sound, battery. Enrol or remove.' },
-  { href: '/settings/security', icon: ShieldCheck, perm: 'view', fr: 'NIP gérant', en: 'Manager PIN', dfr: 'Quelles actions demandent le NIP d’un gérant : refuser, annuler, rembourser, fermer…', den: 'Which actions need a manager PIN: reject, cancel, refund, pause…' },
-  { href: '/settings/alerts', icon: BellRing, perm: 'view', fr: 'Alertes et surveillance', en: 'Alerts & watchtower', dfr: 'Quand texter, appeler, réveiller le propriétaire. Heures calmes, IA, clavardage.', den: 'When to text, call, wake the owner. Quiet hours, AI, chat.' },
-  { href: '/settings/channels', icon: PlugZap, perm: 'stores:map', fr: 'Plateformes et Clover', en: 'Platforms & Clover', dfr: 'Adresses webhook, secrets à donner aux plateformes, état des branchements.', den: 'Webhook URLs, secrets to give the platforms, connection status.' },
-  { href: '/settings/doordash', icon: Truck, perm: 'stores:map', fr: 'DoorDash (API)', en: 'DoorDash (API)', dfr: 'Toutes les API DoorDash : lectures en direct, ruptures, heures, rapports, épicerie, Drive, publicité.', den: 'Every DoorDash API: live reads, 86s, hours, reports, retail, Drive, ads.' },
-  { href: '/settings/business', icon: Building2, perm: 'view', fr: 'Entreprise', en: 'Business', dfr: 'Succursales et marques.', den: 'Locations and brands.' },
-  { href: '/settings/clover-app', icon: Store, perm: 'admin', fr: 'App Clover', en: 'Clover app', dfr: 'Fiche App Market : textes, adresses à copier, soumission, marchands en attente.', den: 'App Market listing: texts, addresses to copy, submission, merchants waiting.' },
-  { href: '/settings/expansion', icon: Blocks, perm: 'view', fr: 'Expansion', en: 'Expansion', dfr: 'Livraison par nos coursiers, épicerie, alcool, commandes par téléphone (IA) : interrupteurs et règles.', den: 'Own-order delivery, grocery, alcohol, AI phone ordering: switches and rules.' },
-  { href: '/settings/go-live', icon: Rocket, perm: 'admin', fr: 'Mise en service', en: 'Go-live', dfr: 'La liste de ce qui reste avant d’ouvrir les vannes.', den: 'What is left before switching everything on.' },
-] as const;
-
+/**
+ * A Settings page's header: "← Réglages" back to the hub, the title, and the tabs of its own group only (at most 4).
+ * An advanced page opened by its address in the simple view still renders, with its group's tabs.
+ */
 export function SettingsHead({ title, intro, right }: { title: string; intro?: ReactNode; right?: ReactNode }) {
   const { t } = useI18n();
   const { can } = useViewer();
+  const path = usePathname();
+  const href = useScopeHref();
+  const group = settingsPageOf(path)?.group;
+  const tabs = group ? SETTINGS_PAGES.filter((p) => p.group === group && can(p.perm)) : [];
   return (
     <>
-      <PageHeader eyebrow={t('Réglages', 'Settings')} title={title} subtitle={intro} right={right} />
-      <LinkTabs tabs={SETTINGS_PAGES.filter((p) => can(p.perm)).map((p) => ({ href: p.href, label: t(p.fr, p.en) }))} />
+      <PageHeader
+        eyebrow={<Link href={href('/settings')} className="-my-1.5 inline-flex min-h-11 items-center gap-1 rounded-md pr-2 normal-case tracking-normal text-brand hover:underline"><ArrowLeft className="size-3.5" />{t('Réglages', 'Settings')}</Link>}
+        title={title} subtitle={intro} right={right} />
+      {tabs.length > 1 && <LinkTabs tabs={tabs.map((p) => ({ href: p.href, label: t(p.fr, p.en) }))} />}
     </>
   );
 }
 
 export function Section({ title, subtitle, right, children, icon }: { title: ReactNode; subtitle?: ReactNode; right?: ReactNode; children: ReactNode; icon?: ReactNode }) {
   return (
-    <section className="mb-5 rounded-lg border border-line bg-surface shadow-card">
+    <section className="mb-5 rounded-md border border-line bg-surface">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-5 py-4">
         <div className="flex min-w-0 items-start gap-3">
           {icon && <div className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-md bg-sunken text-ink-2">{icon}</div>}

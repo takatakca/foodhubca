@@ -44,7 +44,7 @@ function blank(platform: Platform, format: SourceFormat, source: string, row: nu
     orderRef: '', orderRef2: '', orderDate: null, month: '', payoutRef: '', payoutDate: null, payoutStatus: '',
     itemSales: 0, promotions: 0, salesTax: 0, gst: 0, qst: 0, otherTax: 0, taxSplitEstimated: false, tips: 0, commission: 0, commissionTax: 0,
     marketing: 0, fees: 0, errorCharges: 0, refunds: 0, adjustments: 0, other: 0, taxWithheld: 0, net: 0, unexplained: 0,
-    infoTaxRemittedByPlatform: 0, infoPlatformFundedDiscounts: 0, printedRate: null, description: '', tender: '',
+    infoTaxRemittedByPlatform: 0, infoPlatformFundedDiscounts: 0, qstOnlySales: 0, gstNotCharged: 0, printedRate: null, description: '', tender: '',
     inPnl: false, orderCount: 0, cancelledCount: 0, notes: [], source, format, row,
   };
 }

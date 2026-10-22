@@ -1,5 +1,22 @@
 # Food Hub: progress log and task board
 
+## 2026-10-22 — Premium console: A4 shell + design system (`feature/premium-a4-shell`, stacked on #72)
+
+- Scope A4 of the console audit (`private/ux/CONSOLE_AUDIT_2026-10-21.md`): shell, navigation, theme tokens and shared
+  UI only (`components/shell/**`, `components/ui/**`, `app/globals.css`); feature pages untouched beyond three shell labels.
+- Tokens: type scale 28/22/17/15/13/11 (`text-display` … `text-micro`, `eyebrow`, scaled by A/A+/A++, merged by `cn()`),
+  spacing scale `--space-*`, three motion durations, complete dark kitchen tokens, one focus ring (cyan on navy / kitchen).
+- Components: `Card` (padding sm/md/lg, `tone="hero"`), `PageHeader` (eyebrow, back, tabs), `Stat` (`loading`),
+  `EmptyState`, `Skeleton*` (text, stats, table, list), `Table` (44 px rows, sticky head, `cards` under 768 px, `framed`,
+  `dense`), `Button` (readable disabled state, 44 px touch targets), fields (`invalid`, fr-CA pickers), `Tabs` / `LinkTabs`
+  (fade on the hidden side, active tab scrolled into view, native select past five sections on phones), `Segmented`,
+  `Badge` / `PlatformMark` never under 11 px, one toast style above the phone bar.
+- Shell: TakTak help button in the top bar (no floating button over tables or the bottom bar), bottom bar 4 + "Plus"
+  sheet (Esc, focus), bell capped at 9+, proper plurals, dismissable demo-data band, « Toute la journée » for all-day hours.
+- Checks: typecheck OK, lint 0 errors (1 pre-existing warning), 1531 tests passed + 1 skipped, webpack build OK,
+  verify:foodhub 567/0 on 5111/5112. Before/after screens (Po Poulet masked) in `docs/ux/premium-a4/`.
+
+
 ## 2026-10-17 — Client dashboard (PR #72) brought up to main 6381aec
 
 - `feature/client-dashboard-easy` merged with `origin/main` (#61 to #80). Conflicts: `components/ui/overlay.tsx` (main's

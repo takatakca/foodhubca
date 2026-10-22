@@ -19,7 +19,7 @@ export function Field({ label, hint, error, children, className, required }: { l
   );
 }
 
-/** Date and time inputs follow the console's language (fr-CA: 24 h, day first) wherever the browser honours `lang`. */
+/** Date and time inputs follow the console's language (fr-CA: 0–23 hour clock, day first) wherever the browser honours `lang`. */
 function usePickerLang(type?: string) {
   const { loc } = useI18n();
   return type === 'date' || type === 'time' || type === 'datetime-local' || type === 'month' || type === 'week' ? loc : undefined;

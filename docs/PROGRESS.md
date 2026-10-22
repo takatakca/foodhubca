@@ -1,5 +1,27 @@
 # Food Hub: progress log and task board
 
+## 2026-10-22 — Premium console: A1 Home / Orders / Alerts (`feature/premium-a1-home-orders`, stacked on A4 #88)
+
+- Scope A1 of the console audit: Home (`app/(console)/overview.tsx`), Orders (board, history, drawer, incoming and
+  cancel pop-ups) and Alerts, plus their `components/live/*` pieces. No change to `components/ui`, `globals.css`, routes,
+  APIs or data.
+- Home: what needs someone first, then what is cooking, then the locations (before the platforms); one number card
+  (20 px, 13/28 type, tone colours the value only, never the border); the greeting no longer repeats the scope.
+- Orders board: the late count is a chip next to the status pills (the board no longer shifts); lane titles 11 px
+  uppercase; the total sits under the timer instead of being cut; a late card says it once (red border, ink timer);
+  skeletons of the board's shape.
+- Orders history: on a phone one "Filtres" button (with the number on) folds the filters, the search stays visible;
+  the status picker uses the shared `Select`; "Client inconnu" instead of "—"; order numbers never end with "-".
+- Drawer: Accepter / Prête + Refuser stay the big pair; the other actions are one outlined row, print / ticket / cancel a
+  quiet row; the three facts become a label | value list on a phone; Lucide icons instead of emoji; 44 px links.
+- Incoming pop-up: on a phone a bottom sheet as tall as its content. Alerts: escalation steps under the title on a phone
+  (no more overlap), only the first alert open, channels as one status line with a settings link, one primary per
+  alert, 44 px buttons, French timeline (no English or variable names).
+- New: `components/live/words.ts` (`plural`, `orderNumber`, `incidentStepText`), `alert-parts.tsx`,
+  `collapsible-filters.tsx`; tests `tests/live-words.test.ts`, `tests/live-a1-parts.test.ts`.
+- Checks: typecheck OK, lint 0 errors (1 pre-existing warning), 1537 tests passed + 1 skipped, webpack build OK,
+  verify:foodhub 567/0 on 5121/5122. Before/after screens (Po Poulet masked) in `docs/ux/premium-a1/`.
+
 ## 2026-10-22 — Premium console: A4 shell + design system (`feature/premium-a4-shell`, stacked on #72)
 
 - Scope A4 of the console audit (`private/ux/CONSOLE_AUDIT_2026-10-21.md`): shell, navigation, theme tokens and shared

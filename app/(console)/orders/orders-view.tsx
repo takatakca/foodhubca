@@ -336,7 +336,7 @@ function History({ onOpen }: { onOpen: (id: string) => void }) {
                     <button type="button" onClick={() => onOpen(o.id)} className="flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left hover:bg-raised">
                       <PlatformMark channel={o.channel} size="sm" />
                       <span className="min-w-0 flex-1">
-                        <span className="flex items-baseline gap-2"><span className="font-extrabold">#{orderNumber(o)}</span><span className="text-small truncate text-ink-3">{o.brandName ?? '—'}</span></span>
+                        <span className="flex min-w-0 items-baseline gap-2"><span className="shrink-0 font-extrabold whitespace-nowrap">#{orderNumber(o)}</span><span className="text-small truncate text-ink-3">{o.brandName ?? '—'}</span></span>
                         <span className="text-small block text-ink-3">{timeOf(o.createdAt, loc, filters.from !== filters.to)}</span>
                       </span>
                       <span className="text-right">

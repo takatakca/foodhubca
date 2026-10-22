@@ -1,5 +1,204 @@
 # Food Hub: progress log and task board
 
+## 2026-10-17 — ON2GO.ca hub pages on main (replaces PR #70, `feature/seo-hub-pages-main`)
+
+- PR #70 (`feature/seo-hub-landing`, based on the old `fix/legal-pages-complete`) merged onto main as a new branch: /hub + /en/hub pages, JSON-LD, robots.txt, sitemap.xml, llms.txt, share images, favicon; #77 legal wording (it only reached the legal branch) comes along. Conflicts only in WORKLOG.md and this file (both sides kept).
+- Owner's SEO decisions of 2026-10-17: hub name ON2GO.ca; both apps submitted, so "under review by Clover" by default (`FOODHUB_APP_MARKET_STATUS=soon` to go back) and no "planned" price; one statement "14-day free trial, then CAD $50/month per app" + Food Hub extra brand CAD $15 per platform per month + Phone AI CAD $0.25 per AI minute (`lib/foodhub/pricing.ts`, Food Hub numbers re-exported from `pos/clover-pricing.ts`, phone checked against `PHONE_PRICE`); AI phone page = TAKATAK Phone AI (automated assistant, press 0, how minutes are counted); legal pages name TAKATAK Phone AI; email only from `FOODHUB_SUPPORT_EMAIL`; no hours on these pages.
+- Fits main: #78 badges on the hub pages (and `NEXT_PUBLIC_CLOVER_APPS_LIVE=foodhub` links the listing / publishes the Offer); #75 storefront `/commander/<slug>` and its sitemap stay indexable (no X-Robots-Tag), tracking pages stay noindex, robots.txt lists both sitemaps.
+- Also fixed two merge leftovers already on origin/main: duplicate imports in `lib/foodhub/phone/voice.ts` (main failed typecheck / build and 6 phone test files) and the doubled token sentence in `lib/foodhub/clover-listing.ts`.
+- Checks: typecheck OK, lint 0 errors, 1500 tests (1 skipped; 1 storefront-checkout failure also on origin/main), webpack build OK, verify:foodhub 567/0, built app on :4941: 12 hub pages 200 signed out with one parseable JSON-LD graph each, robots / sitemap / llms.txt OK.
+## 2026-10-17 — Legal pages name and price TAKATAK Phone AI (`fix/legal-takatak-phone-ai`, re-land of #77)
+
+- #77 (2e18d23) merged into `fix/legal-pages-complete` after #66, so it never reached main; cherry-picked here, product renamed « TAKATAK Phone AI » (FR + EN), `phoneFeesText()` aligned with the merged metering (AI time only, order or not, rounded up per call, never the hold or the person after a transfer, ACTIVE subscriptions only).
+
+## 2026-10-16 — accessible horizontal tab keyboard navigation
+
+Branche `fix/console-tabs-keyboard-20261016`. Roving `tabIndex`, sélection et focus par ArrowLeft/ArrowRight, Home/End avec bouclage, cas de bord testés, aucune mutation métier. PR et CI à vérifier, pas de déploiement. La PR #62 cible séparément le focus des dialogues.
+
+## 2026-10-16 — Modal/drawer keyboard accessibility
+
+Branche `fix/overlay-keyboard-focus-20261016` : focus initial, Tab/Shift+Tab circulaires, gestion Échap uniquement en haut de la pile, restitution du focus précédent, scroll-lock de fenêtres imbriquées, noms et descriptions ARIA ; tests unitaires de la pile et de navigation clavier. Aucun changement de données, de fournisseurs, de déploiement ni de `main`. PR, CI, image et essai navigateur à vérifier au SHA final.
+
+## 2026-10-17 — Commander direct / ON2GO storefront (task 44a, `feature/on2go-storefront`)
+
+- Commission-free pickup ordering page per brand at `/commander/<slug>` (FR first, EN with `?lang=en`): live menu of the brand's kitchen (86s, no alcohol, category hours, unpriced dishes hidden), server-priced cart, Duo / Trio / Combo offered once, pay online (Clover Hosted Checkout link opened in the browser) or at the counter, tracking page, SEO (JSON-LD, sitemap), QR / share kit, owner settings at `/settings/storefront`. Orders enter the existing direct-order pipeline as website orders (`sf_` ref). Everything off until the owner turns it on.
+- Review fixes: check-and-take rate limits (address, phone, page, server; parallel-safe, given back when no order is placed), Canada / US phones only (no international or premium texts), unpaid orders capped (25 items, per-brand max 150 $ by default, 40 / h per page, 120 / h per server), last-order cutoff (prep time before closing), same-origin checkout (JSON only, Origin / Sec-Fetch-Site), body streamed and cut at 32 KB, tracking links 7 days and only under their brand, orders by source read from real orders, localized dialog / stepper labels and focus trap.
+- Checks: typecheck OK, lint 0 errors, 1004 tests passed / 1 skipped / 1 known tgtg-email failure (not in this branch), webpack build OK, verify:foodhub 554/0 (ports 5910/5911). Not deployed.
+## 2026-10-16 — Store availability center (task 44b, `feature/store-availability-center`)
+
+- New page `/stores/availability` (URL only; `/stores`, `/stores/hours` and `stores-tabs.tsx` untouched): status now per kitchen / brand / channel with who paused it (TAKATAK, platform, guard, hours), reopens-at (overnight, holidays, DST), tablets online, and a Clover Online Ordering reminder row (no Clover call; no official pause endpoint found in the Clover docs).
+- Status history from the activity log (pause, resume, platform_*, busy, prep, holiday, guard, reopen_failed) with reason and ok / blocked / failed, CSV export. No downtime % (analytics.ts / ops-quality do it).
+- Busy schedule per kitchen (`busy_schedule_v1`): busy mode on at a window start (normal + extra, Uber prep push live-gated), back at the end only if the last prep change is still the schedule's; a person's change wins.
+- Tablet-off guard (`downtime_guard_v1`, OFF by default): all tablets off for N min during open hours → timed pause of the chosen channels, re-extended every pauseMin/2, resumes only its own pauses; never relay, do-not-touch or FORBIDDEN_STORE_IDS stores; blocked results shown as not sent.
+- Special days (Halloween, Remembrance Day, Christmas Eve, Boxing Day, New Year's Eve, Valentine's, Mother's / Father's Day) saved as holidays; publish from /stores/hours.
+- Additive wiring: `tickAvailability` (throttled 30 s, never throws) in cron/watch (new `availability` key), pulse after(), instrumentation timer. Docs: docs/STORE_AVAILABILITY.md.
+- Review fixes: the guard keeps one episode (`attemptedIds`, `pendingIds`): a store a person resumed is never re-paused in the same episode, a brand opening mid-episode is paused after its own grace time, only blocked / failed stores are retried; every locked DoorDash store (built in, `FOODHUB_MENU_LOCKED_STORES`, Stores → Mapping) is left alone; busy-schedule catch-up and removal documented and tested; bilingual route errors (`errorFr`), labelled chip groups, actor names in FR/EN; new `tests/store-availability-history.test.ts`. Shared file: `components/ui/form.tsx` (additive `disabled` prop on `Chips`).
+- Later, in stores-tabs.tsx: `{ href: '/stores/availability', label: t('Disponibilité', 'Availability') }`.
+## 2026-10-17 — TAKATAK Phone gate: review fixes (task 41, PR #61)
+
+- Own merchants: `CLOVER_MERCHANT_ID`, `CLOVER_MERCHANT_TOKENS` keys and `FOODHUB_BILLING_EXEMPT_MERCHANTS` count as ours (not only `PHONE_OWN_MERCHANTS`); readiness shows a per-kitchen app check (stop when refused); refused live calls are logged.
+- Never dropped: a line with no hand-off number and no kitchen phone rings ON2GO's person, else ON2GO voicemail; an unanswered hand-off goes to voicemail (`ivr/engine.ts` `directLineFallback`).
+- Live call + check failed (database) fails open; setup still refuses. ON2GO "place an order" gives Clover 1 s (`ORDERING_GATE_BUDGET_MS`). Setup: kitchens keyed by line + location (reordering brands never re-checks), "changes not saved; the line stays as it was" for a line already on, and a line mixing our kitchens with a client's is refused.
+
+## 2026-10-17 — TAKATAK Phone: the app check wired into the phone module (task 41, PR #61)
+
+- New `lib/foodhub/phone/gate.ts` (`kitchenPhoneGate` / `linePhoneGate`): `voiceAiEntitled` for the kitchen's own Clover merchant. Live call (`startCall`): refused = handed to the line's person (hand-off number, else kitchen phone), never hung up, no AI minute. ON2GO menu "place an order": refused = a person / voicemail. Pay link (`phonePaymentPlan`): refused = counter / call back. Switching a line on (`savePhoneSettings`): strict, FR / EN reason, nothing saved.
+- Unchanged without `CLOVER_PHONE_APP_ID` (nothing checked) and for `PHONE_OWN_MERCHANTS` or a kitchen with no Clover merchant of its own. ON2GO `ivr/[step]` 204 answers fixed (`new Response(null, { status: 204 })`). Tests: `tests/phone-app-gate.test.ts`, plus cases in `ivr.test.ts` and `ai-phone-paylink.test.ts`.
+
+## 2026-10-17 — TAKATAK Phone: review round 3 fixes (task 41, PR #61)
+
+- AI minutes stop at the hand-off even when a slow AI turn finishes later: the AI-end time is also kept outside the call record (`markAiEnded`, atomic insert) and a late turn never writes its older copy back.
+- Phone minutes: every change out of "pending" is claimed (attempt owner + POST claim), so a stale copy can never turn "reported" back into "pending" (no double charge); a "sending" left behind becomes "uncertain" and is logged once; settle runs oldest first with a send budget (waiting minutes are free), so one unreachable merchant never starves others; `no_metered_id` calls are a warning in Settings.
+- Low-credit alert: one key per provider, open saved before the claim (a failed write never silences it), re-sent at most every 10 min until a channel delivers, Anthropic recovery checked on every successful AI request, and lines with no hand-off number are named ("no fallback: calls are hung up").
+
+## 2026-10-17 — TAKATAK Phone: per-minute pricing, low-credit alert (task 41, PR #61)
+
+- Owner decision: the voice AI Clover app is **TAKATAK Phone**; 14-day free trial, then CAD $50/month + a Clover metered charge of CAD $0.25 per minute the AI is on the line (order or not). Per-order metering removed (`recordPhoneOrder`, allowance, tiers, `CLOVER_PHONE_METERED_ORDER_ID`, `CLOVER_PHONE_PRO_SUBSCRIPTION_IDS`).
+- New `lib/foodhub/pos/clover-phone-minutes.ts` (ceil(AI seconds / 60), ACTIVE merchants only, once per call SID via `repo.claimKv` (same as PR #69), saved before sending, uncertain never re-sent, definite pre-send failures retried 3×, dry run unless `FOODHUB_PHONE_METERED_ENABLED=true`), `lib/foodhub/phone/metering.ts` (status callback → kitchen's own merchant), AI start/stop marks on the call (`aiStartedAt` / `aiEndedAt`), settle every 10 min in the expansion tick, Settings → Clover app "Per-minute billing" dry-run preview.
+- New `lib/foodhub/phone/credit-alert.ts`: one owner alert per low-credit incident (Anthropic via the breaker, Twilio via texts / calls), re-armed on recovery. Voice status route now answers a real 204.
+- Env names: `CLOVER_PHONE_METERED_MINUTE_ID`, `FOODHUB_PHONE_METERED_ENABLED`, `FOODHUB_BILLING_EXEMPT_MERCHANTS`. Docs: `docs/CLOVER_MULTI_APP.md`.
+
+## 2026-10-16 — Clover billing: subscription status + extra-brand metered billing (`feature/clover-billing-extra-brands`)
+
+- Stacked on `feature/clover-voice-ai-app` (reuses its app registry, token store and billing_info reader). Owner's price: tier "Standard" CAD $50/month (Canada, 14-day trial) + metered "Extra brand, per platform, per month" CAD $15 (first brand included; each extra brand × each of Uber Eats / DoorDash / SkipTheDishes it is on).
+- New `lib/foodhub/pos/clover-pricing.ts` (prices, FR/EN copy) and `lib/foodhub/pos/clover-extra-brands.ts`: per-merchant subscription status (cached 15 min, trial days left), unit counting from store mappings (oldest brand or « marque principale » is free; TGTG and deactivated brands never count), monthly metered report (OFF unless `FOODHUB_CLOVER_METERED_ENABLED=true`; `CLOVER_METERED_EXTRA_BRAND_ID`; `FOODHUB_BILLING_EXEMPT_MERCHANTS` never billed; idempotent per merchant and month, 3 tries, lost answers never re-sent), billing log, dry run, price quote. Settings → Clover app → « Facturation Clover »; `components/billing/extra-brand-price.tsx` shows « +15 $/mois pour cette plateforme » before adding a brand or connecting a store. Listing copy no longer says "free". Owner steps: `docs/CLOVER_BILLING.md`.
+- Review fixes (8 findings, all real, all fixed): a 5xx / 408 / broken connection after sending is "uncertain" and never re-sent (only a 4xx or no connection is retried); each send try is claimed with one atomic `fh_kv` insert (`claimKv`), so two containers never send the same month; a billing run that cannot read the catalog or the « marque principale » marks records no count (`getCatalog({ strict })`, `primaryBrands({ strict })`; `setPrimaryBrand` never wipes other marks on a failed read); only the Standard tier is billed (`CLOVER_FOODHUB_STANDARD_PLAN_IDS`, else name "Standard" and not $0; dry run shows « Non facturé : forfait X »); `PHONE_OWN_MERCHANTS` is exempt too; Uber activation quotes all stores together (`POST /api/foodhub/clover-billing/quote`, « +30 $/mois : 2 marques sur Uber Eats »); a new brand's notice is tied to a merchant when known, else worded as a condition; the section says a main-brand change applies next month.
+- Checks: typecheck OK, lint 0 errors, 1032 tests passed (1 skipped; 1 Windows-only CRLF failure in tests/tgtg-email.test.ts from main), webpack build OK, e2e 554/0.
+
+## 2026-10-16 — AI phone as a second Clover app: multi-app plumbing (task 41)
+
+- Branch `feature/clover-voice-ai-app` (PR #61). One backend, two Clover App Market apps: TAKATAK Food Hub (unchanged) and the AI phone app, sold separately. New `lib/foodhub/pos/clover-apps.ts` (registry), per-app OAuth in `clover-oauth.ts` (optional app argument, Food Hub default), phone routes `/api/foodhub/clover-connect/phone/{start,callback}` and `/api/foodhub/webhooks/clover/phone` (404 until `CLOVER_PHONE_APP_ID` is set), tokens per (app, merchant), uninstall of one app only, `clover-entitlement.ts` (`voiceAiEntitled`, `recordPhoneOrder`, `appInstalled`, `phoneCloverToken`), Settings → Clover app "Clover apps on this server".
+- Without the new env vars nothing changes. `lib/foodhub/phone/**` not touched: wiring steps in `docs/CLOVER_MULTI_APP.md`. Review fixes (PR #61): live-call check answers within 2.5 s when Clover hangs (failure remembered 2 min); phone billing status in its own per-merchant key and every token-map write serialized (no lost refresh token); charges saved before sending, pending ones settled on the next ACTIVE answer, lost answers never re-sent; Pro tier by Clover subscription ID; Settings section only once the phone app is set, approve/disconnect owner-only and per app; Food Hub keys read raw as before. Checks: typecheck OK, lint 0 errors, 993 tests (1 skipped; 1 Windows-only CRLF failure in tests/tgtg-email.test.ts from main), webpack build OK, e2e 554/0.
+## 2026-10-16 — AI phone disclosure + card redaction (legal review 2a items 3–4, `fix/phone-ai-disclosure`)
+
+- Both assistants now introduce themselves as automated (« Je suis l’assistante automatisée » / "I’m the automated assistant" / "Soy su asistente automatizada"), say the call is transcribed (to take the order / to handle the request) and that 0 reaches a person, one short sentence per part, Québec French first; "virtuel / virtual" wording removed (style.ts selfIntro, twilio.ts GREETING, ivr/engine.ts orderIntro, console intro).
+- ON2GO menu: the notice (`GREETING_NOTICE` in ivr/tree.ts) is kept apart from OWNER_GREETING, so an edited greeting or a recorded MP3 can never drop it; it is said again in English / Spanish after a language switch. Key 0 reaches a person even when the tree has no enabled 0 option.
+- Ordering line (voice.ts callerTurn + simulator): a card number said or typed is refused like on the ON2GO menu (never stored, never sent to the AI); every stored transcript line goes through `redactCards` (calls.ts say).
+- Review fixes: card numbers read in groups with the punctuation speech recognition adds ("4111, 1111, …", periods, double spaces) are found (ivr/words.ts CARD_RUN, length + Luhn on the digits only); a card typed one key per turn on the ordering line is refused at the 13th key, the keys already noted are scrubbed from the transcript and the AI history, the rest of the card is refused too, 0 still reaches a person; the AI's own words are redacted in the stored AI history (agent.ts storedContent); "English, I want a chicken" (both lines + simulator) hears the notice in the new language before the answer; the Spanish "automatizada / automatizado" follows the Spanish voice, not the French one.
+- Checks: typecheck OK, lint 0 errors, 968 tests passed, 1 skipped; 1 pre-existing local-only failure in tests/tgtg-email.test.ts (Windows autocrlf turns the .eml fixture into CRLF; passes with LF, file untouched here); webpack build OK, verify:foodhub 554/0. Not deployed.
+## 2026-10-16 — ON2GO Hub pages, second review (task 45, `feature/seo-hub-landing`)
+
+- Status wording never ahead of the facts: "L’application sera bientôt offerte sur le Clover App Market" (no more "en
+  révision chez Clover": nothing is submitted yet); `FOODHUB_APP_MARKET_STATUS=review` turns that wording on later.
+- DoorDash and SkipTheDishes: « Intégration en cours de certification avec … » note, badge on the links, `{pending}`
+  line in the platforms FAQ and llms.txt; their pages are `noindex, follow` and out of the sitemap and llms.txt until
+  `FOODHUB_PUBLIC_LIVE_PLATFORMS` lists them (default `uber`).
+- `/media/` (dish photos used on on2go.ca) indexable again; draft legal pages `noindex, follow` until approved.
+- `/` keeps its query string on the way to `/hub` (fbclid / utm links no longer land on `/login`); still 307 on purpose.
+- Hub pages `Cache-Control: public, max-age=300, s-maxage=3600, stale-while-revalidate=86400`. In production a non-https
+  `FOODHUB_PUBLIC_URL` falls back to `https://foodhub.on2go.ca` for canonicals, sitemap, robots and JSON-LD.
+- Copy: allergies red on screen only, « par application », « heures de pointe », « versements », « 15 $/mois … taxes en
+  sus » (pricing sentence, meta description, FAQ, JSON-LD Offer), "days of free trial", llms.txt English colon.
+  Schema: `eligibleRegion` Canada + identifier CA, `primaryImageOfPage` ImageObject; docs: the Software App rating
+  warning stays until genuine Clover App Market reviews exist.
+- Tests: 32 in `tests/public-hub.test.ts`; e2e: no X-Robots-Tag on `/hub`, `/en/hub/pricing`, `/media/<photo>`; public
+  cache header; `/?utm_source=x&fbclid=y` → `/hub` with query; absolute https canonical; DoorDash page noindex; draft
+  legal page noindex.
+
+- New public, indexable pages, French first with an English twin: `/hub` (landing), `/hub/tarifs`,
+  `/hub/integrations/{uber-eats,doordash,skipthedishes}-clover`, `/hub/ecran-de-cuisine-clover`,
+  `/hub/telephone-ia-restaurant` and `/en/hub/…`. Server-rendered, no session, no database, no page-specific client
+  component, no trackers (the root layout's boot script and the Next.js runtime still load).
+- Product facts reused from the Clover App Market listing (`clover-listing.ts`); prices in `lib/foodhub/pricing.ts`
+  (14-day trial, $50/month per app, $15 per extra brand per platform, billed by Clover); FAQ and examples are built from
+  those constants and say "(planned launch pricing)" until `FOODHUB_APP_MARKET_URL` is set. Too Good To Go only "when
+  your account offers an order feed" (the hub has its own tagline without it; a test fails on any unconditional mention
+  in text, JSON-LD, metadata or llms.txt); AI phone "coming soon, separate app", in the planned tense.
+- JSON-LD: Organization (ON2GO Hub, alt. TAKATAK Food Hub, legal name from env, address), SoftwareApplication
+  (BusinessApplication, Clover), WebPage, FAQPage = visible FAQ (each shared question on one page only), breadcrumbs;
+  shared nodes keep one url (`/hub`); Offer only when `FOODHUB_APP_MARKET_URL` is set; never a rating (Search
+  Console's Software App warning is expected until then, see `docs/FOODHUB.md`). Title ≤ 60, description ≤ 155, canonical, hreflang fr-CA / en-CA / x-default, share images
+  `public/og/hub-{fr,en}.png`.
+- `robots.txt` (blocks only `/api/`, so private pages show their noindex), `sitemap.xml` (hub pages; the 3 legal pages
+  only once `FOODHUB_LEGAL_APPROVED=true`), `llms.txt`, `favicon.ico`. `/icons/` is indexable (Organization logo).
+- `proxy.ts`: public site paths (exact `/hub`, `/en/hub`, prefixes `/hub/`, `/en/hub/`, `/og/`; `/hubx` stays
+  private); language fixed by path (header read first by `getLang()`); anonymous `/` → `/hub` (`FOODHUB_PUBLIC_HOME=off`
+  restores `/login`; tablets and signed-in users unchanged); `X-Robots-Tag: noindex` on every non-public response.
+- e2e: the "/ without sign-in" check now expects `/hub`, and new checks cover the public pages, robots, sitemap, llms.
+- Built on `fix/legal-pages-complete` (PR #66: paid pricing in the terms and support FAQ, no more "free"): merge #66
+  first; this PR is stacked on it.
+- Checks: typecheck OK, lint 0 errors (1 old warning), 1003 tests passed (27 in `tests/public-hub.test.ts`, 3 in
+  `tests/i18n-server-lang.test.ts`), 1 skipped, 1 failure also on `origin/main` (`tests/tgtg-email.test.ts` "forged Too
+  Good To Go From", Windows CRLF checkout artifact, not touched here); webpack build OK; verify:foodhub 560/0.
+- Owner after merge: redeploy; optional env `FOODHUB_APP_MARKET_URL`, `FOODHUB_PUBLIC_SAME_AS`; Search Console
+  URL-prefix property `https://foodhub.on2go.ca/` + sitemap; link the page from LinkedIn / YouTube / on2go.ca only once
+  the legal Draft banner is gone (`FOODHUB_LEGAL_APPROVED=true` also adds the legal pages to the sitemap).
+## 2026-10-17 — Legal pages name TAKATAK Phone (`fix/legal-takatak-phone`, stacked on #66)
+
+- The Clover App Market review of the second app, TAKATAK Phone, uses the same `/legal/privacy` and `/legal/terms` URLs. Privacy §1 (FR + EN) now also covers the Clover app « TAKATAK Phone » (automated phone assistant: answers calls, takes orders, texts a Clover payment link; its data = the calls, voicemail and direct orders of §2). Both pages' header and title name both apps.
+- Terms §1: « le service » = both apps; the caller is told it is an automated assistant and can press 0 for a person. §6 and the support FAQ: TAKATAK Food Hub price unchanged; TAKATAK Phone = 14-day free trial, then CAD $50/month + CAD $0.25 per minute the assistant is on the line (rounded up per call, not after a transfer to a person, never in the trial), billed only by Clover through the Clover App Market, Canada only (`phoneFeesText()`; env `FOODHUB_PHONE_TRIAL_DAYS`, `FOODHUB_PHONE_MONTHLY_PRICE_CAD`, `FOODHUB_PHONE_MINUTE_PRICE_CAD`, defaults 14/50/0.25). §11 names both apps as independent software.
+
+## 2026-10-16 — Legal pages complete for Clover review (`fix/legal-pages-complete`)
+
+- Privacy policy (FR then EN): §1 and §2 now cover the phone lines (caller number, transcripts, voicemail recordings), customer texts, the couriers' page, direct orders (website, phone, Clover Online Ordering) and more Clover data (merchant address, Online Ordering orders with the customer's name, payments, refunds). §4 lists Twilio, Google (speech, through Twilio), Anthropic (phone assistant; never approves refunds or payments), DoorDash Drive / Uber Direct / SkipTheDishes delivery (they receive the customer's name, number and email, address and order), team-chat alerts and MochaHost mail. No order aggregator is named. §5: database in Montréal, app server and Twilio / Anthropic / Google in the US; the "we assess" promise is gone. §6: deletion on request within 30 days (sales data kept for tax), no destruction promise; Clover tokens deleted "when Clover notifies us, or on request". §8: deletion, complaints, written answer within 30 days, press 0 for a person.
+- Terms: §6 and the support FAQ follow the owner's 2026-10-16 pricing (not the 2a sheet's "free"): 14-day free trial, then CAD $50 per month per app, each additional brand CAD $15 per month per platform, billed only by Clover (one `feesText()`; env `FOODHUB_TRIAL_DAYS`, `FOODHUB_MONTHLY_PRICE_CAD`, `FOODHUB_EXTRA_BRAND_PRICE_CAD`, defaults 14/50/15). §8 liability cap = amounts paid for the service through Clover billing (for the adviser). §9 same token wording; new §12 on the merchant's customers' personal information (we act as service provider); contact moves to §13. Clover listing copy uses the same token wording.
+- `/legal` redirects to `/legal/support` and is public in `proxy.ts` (it sent visitors to sign-in). Company, address, phone, email and officer stay env-driven (`FOODHUB_LEGAL_*`, `FOODHUB_SUPPORT_*`, `FOODHUB_PRIVACY_OFFICER`); the draft banner stays until `FOODHUB_LEGAL_APPROVED=true`.
+- Not in this branch (AI-phone branch): greeting wording "automated assistant, call transcribed, press 0" in `lib/foodhub/phone/twilio.ts`, `ivr/tree.ts`, `ivr/engine.ts`, and `redactCards` in `voice.ts` callerTurn.
+- Checks: typecheck OK, lint 0 errors, 973 tests passed + 1 skipped (19 in `tests/legal-pages.test.ts`); 1 failure in `tests/tgtg-email.test.ts` (forged From): a Windows CRLF checkout artifact, passes with LF fixtures, not touched here; webpack build OK, verify:foodhub 554/0. Not deployed.
+
+## 2026-10-16 — Uber store kitchen mapping (task 39, `fix/uber-store-kitchen-mapping`)
+
+- The 7 Uber UUIDs in `data/actual/platform-stores-uber.json` are at 5839 Jean-Talon E (Saint-Léonard) in Uber's own records (Uber names them "(Hochelaga)"); production maps them to `NDG_6284`. That mapping was typed by hand in the console, so it lives only in the production `fh_channel_stores` rows: no repo seed or code defaulted Uber stores to NDG.
+- Repo: data file records `SAINT_LEONARD` + Uber's name/address for the 7, plus the 9 live NDG UUIDs as an unmapped reference list (no Po Poulet). Stores → Mapping suggests the recorded kitchen (never a guess from the "(Hochelaga)" name) and warns about a known store mapped elsewhere, with a **Move** button. Production fix = owner steps / SQL in the pull request; production not changed.
+- Checks: typecheck OK, lint 0 errors, 816 tests (1 skipped), webpack build OK, verify 541/0.
+## 2026-10-16 — Menu safety + per-brand menus (task 37, `feature/menu-safety-brand-menus`)
+
+- Clover → platforms: the Clover webhook now obeys `FOODHUB_CLOVER_INVENTORY_SYNC=off` (the polling already did). Locked and "Do not touch" stores are left out BEFORE the fan-out (no call, no Food Hub 86 state). A store follows the Clover merchant set on it under Stores → Mapping, or the default one (`CLOVER_MERCHANT_ID`) when none is set — as before, so nothing changes for today's stores. A location where the stores follow different merchants is not 86'd; one `clover_86_skipped` activity line per out-of-stock says why. An 86 Clover made earlier is always switched back on when Clover restocks, even where no store follows that merchant any more (`clover_86` origin keys).
+- Deviation from C1 as first written ("stores without a merchant never count"): rejected after review, because with no mapping done every Clover 86 would stop silently and old Clover 86s would stay stuck. Owner can still ask for the stricter rule.
+- DoorDash Menu Request (pull) and Item Polling answer 409 for a "Do not touch" store, like a locked one; the Deliverect product push refuses locked and "Do not touch" stores.
+- Clover import: `excludeCategories` (default "Menu Employés", "INSTORE PROMOTIONS", "Menu promotionnel"; accents and case ignored) — the real export now imports exactly the 175 DoorDash-menu dishes.
+- Per-brand dishes on a shared menu (`menu_brand_dishes_v1`): a follower brand shows only its picked dishes (by ref or Clover id), with the option groups they use (Duo / Trio / Combo) and their categories; applied in `getBrandMenu` and the 86 fan-out; edited in Menu → Menu partagé. A list that matches nothing never publishes an empty menu. Order line mapping still uses the whole shared menu.
+- Review fixes: a follower with a dish list that stops sharing gets a copy of ITS dishes only (never the whole master menu; no copy at all when its list matches nothing); the "moved to another menu" timer copy keeps only its dishes' timers. A staff 86 reads the dish lists before saving any state. DoorDash Menu Request for a follower whose list matches nothing answers 409 with the reason and logs `menu_pull_refused`. Dish refs longer than 120 characters are refused by the API and dropped when read.
+- Checks: typecheck OK, lint 0 errors, 841 tests passed, 1 skipped (+30 in tests/menu-safety-brand-menus.test.ts), webpack build OK, verify:foodhub 554/0. Not deployed.
+- Owner after merge: nothing required for Clover 86s (stores without a merchant still follow `CLOVER_MERCHANT_ID`); set a merchant under Stores → Mapping only for a store that uses another Clover register. Menu → Shared menu: pick each brand's dishes, then publish those brands.
+## 2026-10-16 — AI phone go-live (task 34, branch `feature/ai-phone-quebec-paylink`)
+
+- Finished the paused WIP (f1402bf) and verified it. Voices and words: Québec French by default (understands France French), North-American English, Latin-American Spanish (Mexican / Cuban words), professional and short. Audit fixes: the keypad menu takes over when the AI fails (never a loop, never "je n'ai pas compris"); the order number, time and payment are always said, even with end_call in the same answer; each kitchen's real hours go to both assistants and hours never set refuse the order (a person takes it); AI authentication / credit failures pause the AI (keypad mode, one team-chat alert); texted links are pages that answer; a voicemail is marked emailed only once sent; FOODHUB_PUBLIC_URL trimmed and Twilio URL errors caught.
+- Payment link by text (Clover Hosted Checkout, only when CLOVER_ECOMM_PRIVATE_KEY is set): the order is held, released exactly once when paid (pickup: kitchen ticket; delivery: courier), one reminder, expiry with a courtesy text, late or double payments flagged for a refund by a person.
+- Duo (+2,50 $) / Trio (+5,42 $) / Combo (+7,58 $) read from the item's Clover modifier groups: offered once per call, at most one per item, the drink always asked (add_upsell); the Clover modifier id travels on the order line and goes to Clover as a real modification. Ticket printed on the kitchen's printer (CLOVER_PRINT_DEVICES "MID|LOCATION"). FOODHUB_CLOVER_NO_REGISTER keeps orders of a kitchen without a register out of Clover. Po Poulet only at Saint-Léonard (Hochelaga allowance removed).
+- Console: Settings → Expansion → AI phone gets « Prêt pour les appels de test ? » (read-only checks) and a call simulator (real handlers, dry run: nothing sent). Without the new env vars, ordering works as before (pay at the counter).
+- Review fixes (13 findings): a language word inside an order ("French fries", "Spanish rice", "frites à l'anglaise") never switches the language, and keys 2 / 3 switch it only on the greeting; in keypad mode a sentence starting with "no" is routed, only "non merci" / "that's all" alone ends the call; a delivery paid while the kitchen is closed (or for the wrong amount) gets no automatic courier and booking a courier keeps that flag; the courier tip is an untaxed line on Clover's page and the texted total is what Clover charges; merchants without GST / QST rates get no link, and a failed link lets the caller pay at the counter; only credit / billing / model 400s pause the AI, simulator and test calls never touch the breaker; the poller matches our whole mark and never releases a short payment; simulator owner-only with the fictional 555 caller; /p/ rate limit on the proxy's client IP, pruned, and a 10 s check cooldown; stored voices kept when well-formed.
+- Deploy notes (behaviour that changes with no new env var): AI phone orders are refused when a brand's hours were never set (check Settings → Hours for every phone brand before merging, the readiness panel flags it); tickExpansion runs tickIvr even with every expansion switch off; on2go.ca placeholders resolve to https://on2go.ca; the IVR menu and yes/no steps use googlev2_telephony_short; Po Poulet lines outside Saint-Léonard are stripped / disabled; the payment-link release is "exactly once" with ONE Food Hub process (one Coolify container) — add an atomic claim before scaling out.
+- Checks: typecheck OK, lint 0 errors, 849 tests (1 skipped), webpack build OK, verify:foodhub 541/0. Ready for owner review/merge.
+## 2026-10-16 — Too Good To Go order e-mails (task 36)
+
+- Branch `feature/tgtg-email-orders`: TGTG reservation / cancellation e-mails → Food Hub order on the same pipeline (kitchen screen, Clover order type "Too Good To Go", ticket with customer, bags, pickup window and TGTG code, paid with the "Too Good To Go" tender at pickup). Cancel = order cancelled, Clover order flagged "CANCELLED" (never deleted). Idempotent by Message-ID + TGTG code; unreadable e-mails go to an attention list.
+- Sources: read-only IMAP poller (`imapflow`, `mailparser`) on the existing heartbeat, and a token-protected webhook for forwarding services. Feature off unless `TGTG_IMAP_*` or `TGTG_EMAIL_WEBHOOK_SECRET` is set. Owner steps: `docs/TGTG_EMAIL_ORDERS.md`.
+- Review fixes (same day): a code needs a digit and a marker ("Order confirmation" is never a code); only From counts and the mailbox server must show dkim=pass / dmarc=pass; the "Too Good To Go" order type is forced only for e-mail orders; unmapped stores are never sent to Clover (unmap stops routing); one bad e-mail is kept as "error" and never blocks the poller; price paid by priority; cancel flag honours FOODHUB_CLOVER_DELETE_CANCELLED=off and keeps the note; webhook ?token= is opt-in and the 5 MB cap is enforced while reading. Checks: typecheck, lint 0 errors, 846 tests, webpack build, e2e 554/0.
+## 2026-10-16 — DoorDash sandbox-safe mode (task 38, `feature/doordash-sandbox-safe-mode`, PR #56)
+
+- DoorDash opened Marketplace for the org in SANDBOX only. New sandbox-safe mode lets the sandbox webhooks reach production
+  Food Hub with no effect on real operations: sandbox traffic (DOORDASH_ENV=sandbox, a `_sandbox` provider type,
+  DOORDASH_SANDBOX_STORE_IDS, a `_sandbox` provider_type in the payload, or an event about a held test order) becomes a
+  TEST order in Settings → Plateformes et Clover → Essais DoorDash (bac à sable): never in the orders table, so never
+  Clover, print, kitchen ring, Watchtower, SMS/calls, money or reports.
+- The DoorDash side runs with the same calls as a real order (confirm with prep_time, reject with DoorDash failure codes,
+  ready, merchant cancel, DoorDash cancel / Dasher / release / adjustment, menu pull, menu push, 86, pause), aimed only at
+  the test store (a virtual store, never in the Stores table). With sandbox keys, real stores are refused for every
+  DoorDash call and their status is not read (no false "deactivated" alert). Po Poulet NDG can never be a test store.
+- Webhook auth (DOORDASH_WEBHOOK_SECRET in Authorization) unchanged and checked first. Without the new settings, behaviour
+  is unchanged. Owner steps: docs/DOORDASH_SANDBOX.md. Tests: tests/doordash-sandbox.test.ts.
+- Review fixes (same PR): the sandbox decision is taken when the webhook arrives and saved on its inbox entry, so a retry,
+  the recovery runner or a Replay after DOORDASH_ENV changed never sends a test order to the kitchen; every test order id
+  is kept in a permanent set (never emptied by the 50-order cap or Clear); a sandbox entry is never cut off by the
+  3-minute answer window (no failed entry, activity line or Watchtower incident). New DOORDASH_SANDBOX_WEBHOOK_SECRET:
+  the Sandbox subscriptions' own Authorization value, every request with it is a test whatever DOORDASH_ENV says. Item
+  polling and cart validation answer the test store and refuse real stores under sandbox (409). A store mapped in Food
+  Hub is never a test store (even if listed; the screen warns). The Reporting API is refused with the sandbox key unless
+  DOORDASH_REPORTS_* is set. A `_sandbox` DOORDASH_PROVIDER_TYPE alone no longer turns the mode on (warning only).
+  Docs step 6: delete the Sandbox subscriptions first, keep DOORDASH_SANDBOX_STORE_IDS and the sandbox secret.
+
+## 2026-10-15 — Owner-authorized automatic production activation
+
+- Reusing PR #49. Existing Coolify resource rebound to its installed GitHub App, push deployment enabled, source commit available to Docker and health monitoring enabled. Historical Actions deployment controller disabled to keep one production writer while GitHub runner billing is blocked.
+- Dockerfile enforces isolated audit/check/build/E2E plus final pruned runtime smoke; production health requires a real healthy database. Fixed Vitest to include the verifier's `.mjs` regressions. Local audit/typecheck/lint/build passed, 807 unit tests passed (2 skipped), E2E 536/0.
+- Private media/configuration backup and rollback image retained on Contabo. Existing Supabase/session/media preserved. Automatic Webhook success and exact live main-SHA proof still pending at this commit; no live connector certification claimed.
+
+## 2026-10-14 — Live release proof and agent handoff
+
+- Branch `agent/foodhub-deployment-verifier`: new `npm run verify:live` command and mock-only tests for exact SHA, ON2GO public feed/CORS, health, login and private orders route. Five public continuity docs added without copying local private task files.
+- PR #48 remains open and green; `main` = `bb353ccfa82a7ba5e3d7af488e0da6bf03746c09` at inspection. Coolify deployment workflow remains gated/skipped; production success is **not** claimed. See `docs/AGENT_HANDOFF.md` and issue #46.
+
 Newest first. Every session reads this before starting (see `CLAUDE.md`) and updates its own row at the end of each
 piece of work. The plan itself is `docs/MASTER_PLAN.md`. Operations (support, emails, portals) are tracked privately in
 `private/CLAIMS.md` and `private/OPS_LOG.md` in the main checkout, never in git.

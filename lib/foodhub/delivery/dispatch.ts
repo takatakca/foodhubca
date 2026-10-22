@@ -28,8 +28,13 @@ import { uberDirect } from './uber-direct';
 
 export const FLEETS: Record<FleetKey, CourierFleet> = { doordash_drive: doorDashDrive, uber_direct: uberDirect, skip_daas: skipDaas, own_fleet: ownFleet };
 export const AUTO_ACTOR: Actor = { username: 'auto-dispatch', name: 'Auto-dispatch', source: 'automation' };
-const MAX_AUTO_ATTEMPTS = 3;
+export const MAX_AUTO_ATTEMPTS = 3;
 const AUTO_RETRY_MS = 2 * 60_000;
+
+/** A booked courier clears the dispatch flags, never one it did not raise (a paid-by-link order's release flag). */
+function keptAttention(order: DirectOrder): string | undefined {
+  return order.attention && order.paylink?.flag === order.attention ? order.attention : undefined;
+}
 
 export function fleetReadiness() {
   return (Object.keys(FLEETS) as FleetKey[]).map((k) => FLEETS[k].readiness());
@@ -51,6 +56,8 @@ export async function dispatchProblems(order: DirectOrder, settings?: DeliverySe
   if (order.source === 'clover_online') out.push(t('Clover online order: Clover handles it (Food Hub never sends a courier for it).', 'Commande Clover en ligne : Clover s’en occupe (Food Hub n’envoie jamais de livreur pour elle).'));
   if (order.fulfillment !== 'delivery') out.push(t('This is a pickup order.', 'C’est une commande pour emporter.'));
   if (order.status === 'cancelled' || order.status === 'completed') out.push(t(`The order is ${order.status}.`, order.status === 'cancelled' ? 'La commande est annulée.' : 'La commande est terminée.'));
+  // Held for its payment link: the courier is sent only after the payment (whatever "allow unpaid dispatch" says).
+  if (order.status === 'awaiting_payment') out.push(t('Waiting for the customer to pay the payment link — the courier is sent once it is paid.', 'En attente du paiement par lien — le livreur part dès que c’est payé.'));
   const rule = ruleFor(s, order.locationCode);
   if (!rule.enabled) out.push(t(`Own delivery is not turned on for ${order.locationCode} (Settings → Expansion → Delivery).`, `La livraison n’est pas activée pour ${order.locationCode} (Réglages → Expansion → Livraison).`));
   out.push(...addressProblems(order.dropoff, lang));
@@ -154,7 +161,7 @@ export async function dispatchOrder(orderId: string, actor: Actor, opts: { fleet
       requestedBy: actor.name, timeline: [{ at, status: 'created', message: `${res.message}${fleet.environment === 'sandbox' ? ' (sandbox — no real courier)' : ''}` }], createdAt: at, updatedAt: at,
     };
     delivery = await saveDelivery(delivery);
-    order = await addDirectEvent(order, 'courier_booked', `${FLEET_LABELS[q.fleet]} booked — ${(delivery.fee ?? 0).toFixed(2)} $ + ${req.tip.toFixed(2)} $ tip${quotes.length > 1 ? ` (${quotes.map((x) => `${FLEET_LABELS[x.fleet]} ${x.ok ? `${x.fee?.toFixed(2)} $` : 'n/a'}`).join(' vs ')})` : ''}`, actor.name, { deliveryId: delivery.id, attention: undefined });
+    order = await addDirectEvent(order, 'courier_booked', `${FLEET_LABELS[q.fleet]} booked — ${(delivery.fee ?? 0).toFixed(2)} $ + ${req.tip.toFixed(2)} $ tip${quotes.length > 1 ? ` (${quotes.map((x) => `${FLEET_LABELS[x.fleet]} ${x.ok ? `${x.fee?.toFixed(2)} $` : 'n/a'}`).join(' vs ')})` : ''}`, actor.name, { deliveryId: delivery.id, attention: keptAttention(order) });
     await logActivity({ actor: actor.name, source: actor.source, kind: 'order', action: 'courier_booked', status: 'success', brandName: order.brandName, locationCode: order.locationCode,
       summary: `${order.number}: courier booked on ${FLEET_LABELS[q.fleet]}${fleet.environment === 'sandbox' ? ' (sandbox)' : ''} — ${(delivery.fee ?? 0).toFixed(2)} $${opts.auto ? ' (auto-dispatch)' : ''}` });
     return { ok: true, message: `${FLEET_LABELS[q.fleet]} booked.`, order, delivery, quotes };

@@ -1,8 +1,7 @@
 name: Deploy Food Hub to Coolify
 
-# Opt-in release automation. No deployment will be requested until BOTH repository secrets exist,
-# and Coolify has already been cut over to a Docker Image resource for ghcr.io/takatakca/foodhubca:main.
-# The upstream image workflow must succeed (including its anonymous pull verification).
+# Historical Actions controller. Coolify's existing GitHub App now owns main-push releases;
+# Dockerfile runs the required checks on Contabo before publication. Keep one production writer.
 on:
   workflow_run:
     workflows: ["Food Hub image"]
@@ -17,28 +16,152 @@ concurrency:
 
 jobs:
   deploy:
-    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == 'takatakca/foodhubca' }}
+    name: Deploy and verify Food Hub live
+    if: ${{ false && vars.FOODHUB_COOLIFY_AUTODEPLOY_ENABLED == 'true' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == 'takatakca/foodhubca' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
+    env:
+      EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+      FOODHUB_COOLIFY_RESOURCE_UUID: ${{ vars.FOODHUB_COOLIFY_RESOURCE_UUID }}
+      FOODHUB_HTTPS_URL: ${{ vars.FOODHUB_HTTPS_URL }}
+      COOLIFY_DEPLOY_WEBHOOK: ${{ secrets.FOODHUB_COOLIFY_DEPLOY_WEBHOOK || secrets.COOLIFY_DEPLOY_WEBHOOK }}
+      COOLIFY_DEPLOY_TOKEN: ${{ secrets.FOODHUB_COOLIFY_DEPLOY_TOKEN || secrets.COOLIFY_DEPLOY_TOKEN }}
     steps:
-      - name: Request Coolify deployment
+      - name: Validate Food Hub deployment target
         shell: bash
-        env:
-          COOLIFY_DEPLOY_WEBHOOK: ${{ secrets.COOLIFY_DEPLOY_WEBHOOK }}
-          COOLIFY_DEPLOY_TOKEN: ${{ secrets.COOLIFY_DEPLOY_TOKEN }}
         run: |
           set -euo pipefail
-          if [ -z "$COOLIFY_DEPLOY_WEBHOOK" ] || [ -z "$COOLIFY_DEPLOY_TOKEN" ]; then
-            echo "::notice::Coolify auto-deploy is not enabled. Add COOLIFY_DEPLOY_WEBHOOK and COOLIFY_DEPLOY_TOKEN to Actions secrets after the Docker Image cutover. No server deployment attempted."
-            exit 0
-          fi
+          : "${EXPECTED_SHA:?Missing upstream commit SHA}"
+          : "${FOODHUB_COOLIFY_RESOURCE_UUID:?Missing repository variable FOODHUB_COOLIFY_RESOURCE_UUID}"
+          : "${FOODHUB_HTTPS_URL:?Missing repository variable FOODHUB_HTTPS_URL}"
+          : "${COOLIFY_DEPLOY_WEBHOOK:?Missing secret FOODHUB_COOLIFY_DEPLOY_WEBHOOK}"
+          : "${COOLIFY_DEPLOY_TOKEN:?Missing secret FOODHUB_COOLIFY_DEPLOY_TOKEN}"
+          node <<'NODE'
+          let webhook;
+          try {
+            webhook = new URL(process.env.COOLIFY_DEPLOY_WEBHOOK);
+          } catch {
+            throw new Error('Coolify webhook secret is not a valid URL');
+          }
+          let live;
+          try {
+            live = new URL(process.env.FOODHUB_HTTPS_URL);
+          } catch {
+            throw new Error('FOODHUB_HTTPS_URL is not a valid URL');
+          }
+          const expectedUuid = process.env.FOODHUB_COOLIFY_RESOURCE_UUID;
+          const uuid = webhook.searchParams.get('uuid');
+          if (webhook.origin !== 'https://coolify.takatak.ca') {
+            throw new Error('Coolify webhook must target https://coolify.takatak.ca');
+          }
+          if (webhook.pathname !== '/api/v1/deploy') {
+            throw new Error('Coolify webhook must use /api/v1/deploy');
+          }
+          if (uuid !== expectedUuid) {
+            throw new Error(`Coolify webhook uuid does not match FOODHUB_COOLIFY_RESOURCE_UUID (${expectedUuid})`);
+          }
+          if (webhook.searchParams.has('tag')) {
+            throw new Error('Coolify webhook must not pin a tag; production should redeploy the configured Food Hub resource');
+          }
+          if (live.origin !== 'https://foodhub.on2go.ca' || live.pathname !== '/') {
+            throw new Error('FOODHUB_HTTPS_URL must be exactly https://foodhub.on2go.ca/');
+          }
+          NODE
+
+      - name: Request Coolify deployment
+        shell: bash
+        run: |
+          set -euo pipefail
           # Never echo the webhook URL or bearer token.
           code=$(curl --silent --show-error --max-time 30 --retry 2 --output /tmp/coolify-response.json --write-out '%{http_code}' \
             --request POST "$COOLIFY_DEPLOY_WEBHOOK" \
             --header "Authorization: Bearer $COOLIFY_DEPLOY_TOKEN")
           if [ "$code" != "200" ] && [ "$code" != "201" ] && [ "$code" != "202" ]; then
-            echo "::error::Coolify deployment request failed (HTTP $code). Verify API access, deploy-only token and resource webhook in Coolify."
+            echo "::error::Coolify deployment request failed (HTTP $code). Verify API access, deploy-only token and the Food Hub resource webhook."
             exit 1
           fi
-          echo "Coolify accepted the deployment request for Food Hub. This is QUEUED, not proof of a healthy production release." >> "$GITHUB_STEP_SUMMARY"
-          echo "Review Coolify deployment logs, the running image tag and /api/health before marking the production deploy complete." >> "$GITHUB_STEP_SUMMARY"
+          echo "Coolify accepted the Food Hub deployment request." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Wait for exact live commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          live="${FOODHUB_HTTPS_URL%/}"
+          for attempt in $(seq 1 90); do
+            code=$(curl --silent --show-error --max-time 20 --output /tmp/release.json --write-out '%{http_code}' "$live/api/release" || true)
+            if [ "$code" = "200" ] && node <<'NODE'
+          const fs = require('node:fs');
+          try {
+            const body = JSON.parse(fs.readFileSync('/tmp/release.json', 'utf8'));
+            if (body.app === 'foodhub' && body.sha === process.env.EXPECTED_SHA) process.exit(0);
+            console.log(`Waiting for ${process.env.EXPECTED_SHA.slice(0, 7)}; live release is ${body.sha || 'missing'}.`);
+          } catch (error) {
+            console.log(`Release marker not ready: ${error.message}`);
+          }
+          process.exit(1);
+          NODE
+            then
+              echo "Food Hub live commit matches ${EXPECTED_SHA::7}." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Food Hub did not publish expected commit ${EXPECTED_SHA::7} at /api/release within 15 minutes."
+          cat /tmp/release.json 2>/dev/null || true
+          exit 1
+
+      - name: Verify live public and private routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          live="${FOODHUB_HTTPS_URL%/}"
+
+          code=$(curl --silent --show-error --max-time 20 --dump-header /tmp/directory.headers \
+            --header "Origin: https://on2go.ca" --output /tmp/directory.json --write-out '%{http_code}' \
+            "$live/api/public/directory" || true)
+          if [ "$code" != "200" ]; then
+            echo "::error::Public directory returned HTTP $code"
+            exit 1
+          fi
+          tr -d '\r' < /tmp/directory.headers | grep -qi '^access-control-allow-origin: https://on2go.ca$'
+          node <<'NODE'
+          const fs = require('node:fs');
+          const body = JSON.parse(fs.readFileSync('/tmp/directory.json', 'utf8'));
+          if (body.version !== 1) throw new Error('public directory version must be 1');
+          if (!Array.isArray(body.brands) || body.brands.length < 1) throw new Error('public directory has no brands');
+          if (!Array.isArray(body.kitchens) || body.kitchens.length < 1) throw new Error('public directory has no kitchens');
+          NODE
+
+          health=$(curl --silent --show-error --max-time 20 --output /tmp/health.json --write-out '%{http_code}' "$live/api/health" || true)
+          if [ "$health" != "200" ]; then
+            echo "::error::/api/health returned HTTP $health; production health must be 200 after deploy."
+            cat /tmp/health.json 2>/dev/null || true
+            exit 1
+          fi
+          node <<'NODE'
+          const fs = require('node:fs');
+          const body = JSON.parse(fs.readFileSync('/tmp/health.json', 'utf8'));
+          if (body.ok !== true || !body.status || !body.checks) throw new Error('/api/health did not return the expected public health JSON');
+          NODE
+
+          login=$(curl --silent --show-error --max-time 20 --output /tmp/login.html --write-out '%{http_code}' "$live/login" || true)
+          if [ "$login" != "200" ]; then
+            echo "::error::/login returned HTTP $login"
+            exit 1
+          fi
+
+          private=$(curl --silent --show-error --max-time 20 --output /tmp/private.json --write-out '%{http_code}' "$live/api/foodhub/orders" || true)
+          if [ "$private" != "401" ]; then
+            echo "::error::Private Food Hub API without auth returned HTTP $private; expected 401."
+            cat /tmp/private.json 2>/dev/null || true
+            exit 1
+          fi
+
+          {
+            echo "### Food Hub live deployment verified"
+            echo "- Commit: \`${EXPECTED_SHA::7}\`"
+            echo "- Public directory: 200 with ON2GO CORS"
+            echo "- Health: 200"
+            echo "- Login: 200"
+            echo "- Private order API: 401 without auth"
+          } >> "$GITHUB_STEP_SUMMARY"

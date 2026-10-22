@@ -31,7 +31,7 @@ export const GET = withPerm<Ctx>('view', async (_req, ctx, actor) => {
   return ok(d);
 });
 
-const DIRECT: DirectAction[] = ['seen', 'ready', 'picked_up', 'complete', 'cancel', 'mark_paid', 'retry_clover', 'clear_attention'];
+const DIRECT: DirectAction[] = ['seen', 'ready', 'picked_up', 'complete', 'cancel', 'mark_paid', 'retry_clover', 'clear_attention', 'resend_paylink', 'pay_at_counter'];
 
 export const POST = withPerm<Ctx>('orders:act', async (req, ctx, actor) => {
   const id = (await ctx.params).id;

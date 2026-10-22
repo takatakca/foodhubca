@@ -14,3 +14,7 @@ Line format: `YYYY-MM-DD | agent | branch → PR | status | what | next step`
 ## Brand rule
 
 Everything visual or written for TAKATAK follows `BRAND.md` (logo, colours, tagline, services). Electric blue on deep navy; never the old gold "TK" logo; green is for status only.
+
+## Continuity documents
+
+Before resuming work, read `docs/AGENT_HANDOFF.md` and `docs/TASK_QUEUE.md` after this file; they do not replace the private task board. Update the handoff and worklog on your branch before stopping. Never publish private operational notes, credentials or the local `private/` folder.

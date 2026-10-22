@@ -5,7 +5,8 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
 type Ctx = { params: Promise<{ step: string }> };
-const empty = () => new Response('', { status: 204 });
+// A 204 has no body: a '' body makes the Response constructor throw (Twilio then got the error TwiML instead).
+const empty = () => new Response(null, { status: 204 });
 
 // Every step of the ON2GO phone menu. The Twilio signature is checked first, whatever the step (403 when unsigned).
 //   turn           <Gather> action: words or keys (AI, keypad menu, platform order capture)

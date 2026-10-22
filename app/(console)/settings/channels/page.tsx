@@ -10,6 +10,8 @@ import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { Select } from '@/components/ui/form';
 import { useViewer } from '@/components/shell/viewer';
 import { Section, SettingsHead } from '../settings-ui';
+import { TgtgEmailSection } from './tgtg-email';
+import { DoorDashSandboxTests } from './doordash-sandbox';
 import { api } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 
@@ -329,6 +331,8 @@ export default function ChannelsSettingsPage() {
       </div>
 
 
+      <TgtgEmailSection />
+
       {data.relay && (
         <Section icon={<PlugZap className="size-5" />} title={t('Relais de commandes Food Hub', 'Food Hub Order Relay')}
           subtitle={t('Pour un partenaire qui envoie ses commandes (ex. flux Too Good To Go) : il les envoie à cette adresse et Food Hub les traite comme les autres (ticket Clover, écran cuisine, alertes). Format compatible UrbanPiper « Order Relay ». Magasins à relier sous l’identifiant relay:<id>.',
@@ -346,6 +350,8 @@ export default function ChannelsSettingsPage() {
           </Card>
         </Section>
       )}
+
+      <DoorDashSandboxTests />
 
       <WebhookInbox unparsed={data.unparsed} onChanged={() => load(revealed)} />
 

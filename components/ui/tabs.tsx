@@ -4,13 +4,22 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/ui/cn';
+import { nextTabIndex } from '@/lib/ui/tab-keyboard';
 import { useScopeHref } from '@/components/live/pulse';
 
 export function Tabs<K extends string>({ tabs, value, onChange, className }: { tabs: Array<{ key: K; label: ReactNode; count?: number | null }>; value: K; onChange: (k: K) => void; className?: string }) {
   return (
     <div role="tablist" className={cn('no-scrollbar flex gap-1 overflow-x-auto border-b border-line', className)}>
-      {tabs.map((t) => (
-        <button key={t.key} role="tab" type="button" aria-selected={value === t.key} onClick={() => onChange(t.key)}
+      {tabs.map((t, i) => (
+        <button key={t.key} role="tab" type="button" aria-selected={value === t.key} tabIndex={value === t.key ? 0 : -1}
+          onKeyDown={(event) => {
+            const next = nextTabIndex(i, tabs.length, event.key);
+            if (next === null) return;
+            event.preventDefault();
+            onChange(tabs[next].key);
+            const buttons = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+            buttons?.[next]?.focus();
+          }} onClick={() => onChange(t.key)}
           className={cn('relative -mb-px flex h-10 items-center gap-2 border-b-2 px-3 text-sm font-semibold whitespace-nowrap transition-colors',
             value === t.key ? 'border-ink text-ink' : 'border-transparent text-ink-3 hover:text-ink')}>
           {t.label}

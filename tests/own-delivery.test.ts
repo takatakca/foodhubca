@@ -73,7 +73,7 @@ describe('booking a DoorDash Drive courier', () => {
     expect(quote.body).toMatchObject({
       pickup_business_name: 'Po Poulet', pickup_phone_number: '+15145550100', pickup_address: '6280 Somerled Ave, Montréal, QC H4V 1R9, Canada',
       dropoff_address: '5555 Monkland Ave, #3, Montréal, QC H4A 1E1, Canada', dropoff_phone_number: '+15145551234', dropoff_contact_given_name: 'Ana', dropoff_contact_family_name: 'Bel',
-      order_value: 2499, // the food only: DoorDash wants the subtotal without taxes, tip or fees tip: 400, currency: 'CAD', pickup_reference_tag: o.number, contactless_dropoff: false, action_if_undeliverable: 'return_to_pickup',
+      order_value: 2499 /* the food only: DoorDash wants the subtotal without taxes, tip or fees */, tip: 400, currency: 'CAD', pickup_reference_tag: o.number, contactless_dropoff: false, action_if_undeliverable: 'return_to_pickup',
       items: [{ name: 'Poulet entier', quantity: 1, price: 2499, description: 'Piri-piri' }],
     });
     expect(quote.body.dropoff_instructions).toContain('Code 1234');

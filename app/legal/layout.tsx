@@ -1,8 +1,18 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { TakatakMark } from '@/components/brand/takatak-mark';
 import { legalInfo, LEGAL_PATHS } from '@/lib/foodhub/legal';
+import { CloverAppBadges } from '@/components/clover-app-badges';
+import { liveCloverApps } from '@/lib/foodhub/clover-apps';
 
 export const dynamic = 'force-dynamic';
+
+// While the pages are drafts (banner below), search engines may follow their links but not index them; once the owner
+// sets FOODHUB_LEGAL_APPROVED=true they become indexable and join the sitemap and llms.txt (lib/foodhub/public-hub.ts).
+export function generateMetadata(): Metadata {
+  return legalInfo().approved ? {} : { robots: { index: false, follow: true } };
+}
 
 // Public pages (no sign-in, see proxy.ts): privacy policy, terms of use and support for TAKATAK Food Hub.
 // These are the URLs given to the Clover App Market and the delivery platforms.
@@ -13,8 +23,7 @@ export default function LegalLayout({ children }: { children: ReactNode }) {
       <header className="border-b border-line bg-surface">
         <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-3 px-4 py-3">
           <Link href={LEGAL_PATHS.support} className="flex items-center gap-2 font-extrabold tracking-tight">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/icons/icon-192.png" alt="" className="size-8 rounded-lg" />
+            <TakatakMark size="sm" />
             {info.appName}
           </Link>
           <nav className="flex flex-wrap gap-4 text-sm font-semibold text-ink-2">
@@ -36,6 +45,7 @@ export default function LegalLayout({ children }: { children: ReactNode }) {
         <div className="mx-auto max-w-3xl px-4 py-6 text-[13px] text-ink-3">
           © {new Date().getFullYear()} {info.company} · {info.address}
         </div>
+        <CloverAppBadges apps={liveCloverApps()} lang="fr-en" variant="compact" className="mx-auto max-w-3xl px-4 pb-6" />
       </footer>
     </div>
   );

@@ -62,13 +62,13 @@ export function KitchenView() {
           <div className="eyebrow mb-1 text-brand">{t('Cuisine', 'Kitchen')}</div>
           <h1 className="text-display text-ink">{here ? shortLoc(locName(here)) : t('Toutes les cuisines', 'All kitchens')}</h1>
         </div>
-        <div className="num text-display ml-2 text-ink-2" suppressHydrationWarning>{new Date(now).toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' })}</div>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <div className="num text-display text-ink-2 sm:ml-2" suppressHydrationWarning>{new Date(now).toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' })}</div>
+        <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
           {/* Enrolling the tablet is a one-time step: a header chip, not a 64 px banner over the tickets. */}
           {!viewer.device && can('stores:map') && (
             <ButtonLink href="/settings/devices" variant="outline" size="lg" icon={<MonitorSmartphone className="size-5 text-brand" aria-hidden />}
               title={t('Enregistrez cette tablette : l’équipe entre avec son NIP et vous êtes alerté si elle s’éteint.', 'Enrol this tablet: the team unlocks it with their PIN and you get alerted if it goes off.')}>
-              {t('Enregistrer cette tablette', 'Enrol this tablet')}
+              <span className="sm:hidden">{t('Enregistrer', 'Enrol')}</span><span className="hidden sm:inline">{t('Enregistrer cette tablette', 'Enrol this tablet')}</span>
             </ButtonLink>
           )}
           {here && <KitchenStatus locationCode={here} />}

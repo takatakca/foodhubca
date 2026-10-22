@@ -55,8 +55,8 @@ export function PlatformPricing({ menu, onChange, disabled }: { menu: MasterMenu
         className="flex min-h-14 w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-md px-5 py-3 text-left hover:bg-raised">
         <Tags className="size-5 shrink-0 text-ink-3" aria-hidden />
         <span className="text-heading text-ink">{t('Prix par plateforme', 'Price per platform')}</span>
-        <span className="text-small num min-w-0 flex-1 text-ink-3">{pricingSummary(menu.channelMarkupPct, loc)}</span>
-        <ChevronDown className={cn('size-5 shrink-0 text-ink-3 transition-transform duration-(--duration-fast)', open && 'rotate-180')} aria-hidden />
+        <span className="text-small num order-last w-full pl-8 text-ink-3 sm:order-none sm:w-auto sm:min-w-0 sm:flex-1 sm:pl-0">{pricingSummary(menu.channelMarkupPct, loc)}</span>
+        <ChevronDown className={cn('ml-auto size-5 shrink-0 text-ink-3 transition-transform duration-(--duration-fast) sm:ml-0', open && 'rotate-180')} aria-hidden />
       </button>
       {open && (
         <div id={panel} className="border-t border-line">

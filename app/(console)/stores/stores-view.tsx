@@ -123,8 +123,8 @@ export function StoresView() {
     const online = list.filter((s) => stateOf(s).state === 'online');
     // Phone: the two buttons share one row under the title (never a 90 px title column beside two full-width buttons).
     return <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
-      <Button variant="outline" className="w-full sm:w-auto" onClick={() => setPauseFor({ ids: online.map((s) => s.id), label, channel: site.channel })} icon={<Pause className="size-4" />} disabled={!online.length}>{platform ? t(`Tout mettre en pause sur ${platform}`, `Pause all on ${platform}`) : t('Tout mettre en pause', 'Pause all')}</Button>
-      <Hint id="stores.resume"><Button variant="outline" className="w-full sm:w-auto" loading={busy === list.map((s) => s.id).join(',')} onClick={() => setOnline(list.map((s) => s.id), true)} icon={<Play className="size-4" />}>{platform ? t(`Tout rouvrir sur ${platform}`, `Resume all on ${platform}`) : t('Tout rouvrir', 'Resume all')}</Button></Hint>
+      <Button variant="outline" className="w-full sm:w-auto" onClick={() => setPauseFor({ ids: online.map((s) => s.id), label, channel: site.channel })} icon={<Pause className="size-4" />} disabled={!online.length}><span className="sm:hidden">{t('Pause', 'Pause')}</span><span className="hidden sm:inline">{platform ? t(`Tout mettre en pause sur ${platform}`, `Pause all on ${platform}`) : t('Tout mettre en pause', 'Pause all')}</span></Button>
+      <Hint id="stores.resume"><Button variant="outline" className="w-full sm:w-auto" loading={busy === list.map((s) => s.id).join(',')} onClick={() => setOnline(list.map((s) => s.id), true)} icon={<Play className="size-4" />}><span className="sm:hidden">{t('Rouvrir', 'Resume')}</span><span className="hidden sm:inline">{platform ? t(`Tout rouvrir sur ${platform}`, `Resume all on ${platform}`) : t('Tout rouvrir', 'Resume all')}</span></Button></Hint>
     </div>;
   };
   /** A card's header: title block, then its buttons (stacked on a phone, side by side from 640 px). */

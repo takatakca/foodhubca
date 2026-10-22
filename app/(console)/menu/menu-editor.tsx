@@ -126,7 +126,7 @@ export function MenuEditor() {
               : <span role="status" className="text-small inline-flex h-10 shrink-0 items-center gap-1.5 px-1 font-semibold text-ink-3"><CircleCheck className="size-4 text-go" aria-hidden />{t('Enregistré', 'Saved')}</span>)}
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" className="flex-1 sm:flex-none" disabled={Boolean(sharedFrom)} loading={busy === 'import'} onClick={importClover} icon={<Download className="size-4" />}>{t('Importer', 'Import')}<span className="sr-only sm:not-sr-only">&nbsp;{t('de Clover', 'from Clover')}</span></Button>
+            <Button variant="outline" className="flex-1 sm:flex-none" disabled={Boolean(sharedFrom)} loading={busy === 'import'} onClick={importClover} icon={<Download className="size-4" />}><span className="sm:hidden">{t('Importer', 'Import')}</span><span className="hidden sm:inline">{t('Importer de Clover', 'Import from Clover')}</span></Button>
             <Button variant="brand" className="flex-1 sm:flex-none" onClick={() => (dirty ? toast.warn(t('Enregistrez avant de publier.', 'Save before publishing.')) : setDialog('publish'))} icon={<Send className="size-4" />}>{t('Publier', 'Publish')}</Button>
             <OverflowMenu label={t('Plus d’actions', 'More actions')} items={[
               { key: 'share', icon: <Link2 />, label: t('Menu partagé', 'Shared menu'), hint: t('Un seul menu pour plusieurs marques', 'One menu for several brands'), onSelect: () => (dirty ? toast.warn(t('Enregistrez d’abord.', 'Save first.')) : setDialog('share')) },

@@ -3,7 +3,7 @@ import { AlertTriangle, CheckCircle2, Info, XCircle } from 'lucide-react';
 import { cn } from '@/lib/ui/cn';
 
 export function Card({ className, children, ...rest }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn('rounded-lg border border-line bg-surface shadow-card', className)} {...rest}>{children}</div>;
+  return <div className={cn('rounded-md border border-line bg-surface', className)} {...rest}>{children}</div>;
 }
 
 export function CardHeader({ title, subtitle, right, className, icon }: { title: ReactNode; subtitle?: ReactNode; right?: ReactNode; className?: string; icon?: ReactNode }) {
@@ -37,7 +37,7 @@ export function PageHeader({ title, subtitle, right, eyebrow }: { title: ReactNo
 export function Stat({ label, value, note, tone, hero, icon, className }: { label: ReactNode; value: ReactNode; note?: ReactNode; tone?: 'go' | 'stop' | 'wait' | 'brand'; hero?: boolean; icon?: ReactNode; className?: string }) {
   const color = tone === 'go' ? 'text-go' : tone === 'stop' ? 'text-stop' : tone === 'wait' ? 'text-wait-2' : tone === 'brand' ? 'text-brand' : 'text-ink';
   return (
-    <div className={cn('rounded-lg border border-line bg-surface p-4 shadow-card', className)}>
+    <div className={cn('rounded-md border border-line bg-surface p-4', className)}>
       <div className="flex items-center gap-1.5 text-[13px] font-medium text-ink-3">{icon}{label}</div>
       <div className={cn('num mt-1 font-extrabold tracking-tight', hero ? 'text-4xl' : 'text-[26px]', color)}>{value}</div>
       {note && <div className="mt-1 text-xs text-ink-3">{note}</div>}

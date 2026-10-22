@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { BellRing, ChevronsLeft, ChevronsRight, Globe, Lock, LogOut, Menu as MenuIcon, Search, Sparkles, UserRound, Volume2, VolumeX, WifiOff, X } from 'lucide-react';
+import { BellRing, ChevronsLeft, ChevronsRight, CircleHelp, Globe, Lock, LogOut, Menu as MenuIcon, Search, SlidersHorizontal, Sparkles, UserRound, Volume2, VolumeX, WifiOff, X } from 'lucide-react';
 import { ConfirmProvider } from '@/components/ui/confirm';
 import { CoachMark, Hint } from '@/components/help/hint';
 import { HelpDrawer } from '@/components/help/help-drawer';
@@ -13,23 +13,25 @@ import { Tour } from '@/components/help/tour';
 import { Welcome } from '@/components/help/welcome';
 import { ErrorBoundary } from '@/components/supervisor/error-boundary';
 import { clearAllDrafts } from '@/lib/ui/autosave-core';
-import { nextTextSize, useDisplay } from '@/lib/ui/display';
+import { nextTextSize, useDisplay, type TextSize } from '@/lib/ui/display';
 import { health, installSupervisor, setScreen, subscribe as subscribeHealth } from '@/lib/ui/supervisor';
 import { Kbd } from '@/components/ui/badge';
 import { ToastProvider } from '@/components/ui/toast';
+import { useDialogFocus, useEscape } from '@/components/ui/overlay';
 import { ApprovalProvider } from '@/components/live/approval';
 import { IncomingOrders } from '@/components/live/incoming';
 import { CancelAlarm } from '@/components/live/cancel-alarm';
 import { PulseProvider, usePulse, useScopeHref } from '@/components/live/pulse';
 import { DeviceHeartbeat } from '@/components/live/device-heartbeat';
+import { roleLabel } from '@/app/(console)/settings/settings-ui';
 import { CommandPalette } from './command-palette';
-import { ALERTS, childActive, NAV, navActive, navVisible, type NavItem } from './nav';
+import { ALERTS, childActive, mobileNav, navActive, navFor, navVisible, type NavItem } from './nav';
 import { CopilotDrawer } from './copilot';
 import { ScopeSwitcher } from './scope-switcher';
 import { useViewer } from './viewer';
 import { audioReady, playSound, unlockAudio } from '@/lib/ui/sound';
 import { api } from '@/lib/ui/api';
-import { useI18n } from '@/lib/i18n/client';
+import { useI18n, useProduct } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
 import { isKitchenRoute } from '@/lib/ui/kitchen-theme';
 
@@ -59,29 +61,41 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
   );
 }
 
-/** GROUPE TAKATAK mark (BRAND.md): a white T in a glowing electric-blue circle, on navy. */
+const openHelp = () => window.dispatchEvent(new Event('takatak:help'));
+
+/**
+ * The product's mark on navy. The default product keeps the GROUPE TAKATAK lockup (BRAND.md): a white T in a glowing
+ * electric-blue circle, "TAKATAK / FOOD HUB". Any other product name: its first letter as the mark, and its name.
+ */
 function Logo({ compact }: { compact?: boolean }) {
+  const product = useProduct();
+  const letter = product.isDefault ? 'T' : (product.name.trim()[0] ?? 'F').toUpperCase();
   return (
     <span className="flex items-center gap-2.5">
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-electric text-[15px] font-black text-white shadow-[0_0_18px_rgb(31_139_255/0.55)]">T</span>
-      {!compact && (
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-electric text-[15px] font-black text-white shadow-[0_0_18px_rgb(31_139_255/0.55)]">{letter}</span>
+      {!compact && (product.isDefault ? (
         <span className="leading-none">
           <span className="block text-[15px] font-extrabold tracking-[0.16em] text-[#f5f8fc]">TAKATAK</span>
           <span className="mt-1 block text-[10px] font-bold tracking-[0.28em] text-cyan">FOOD HUB</span>
         </span>
-      )}
+      ) : <span className="truncate text-[15px] font-extrabold tracking-[0.04em] text-[#f5f8fc]">{product.name}</span>)}
     </span>
   );
 }
 
 function Frame({ children }: { children: ReactNode }) {
-  const { can, allLocations, features } = useViewer();
+  const { viewer, can, allLocations, features, full } = useViewer();
   const { t } = useI18n();
+  const product = useProduct();
   const pathname = usePathname();
   const href = useScopeHref();
   const [collapsed, setCollapsed] = useState(false);
   const [copilot, setCopilot] = useState(false);
   const [more, setMore] = useState(false);
+  // The phone's "Plus" sheet: Esc closes it, the focus moves in when it opens and back to "Plus" when it closes.
+  const moreRef = useRef<HTMLDivElement>(null);
+  useEscape(() => setMore(false), more);
+  useDialogFocus(moreRef, more);
   useEffect(() => { try { setCollapsed(localStorage.getItem('takatak.rail') === '1'); } catch { /* ignore */ } }, []);
   useEffect(() => { const o = () => setCopilot(true); window.addEventListener('takatak:copilot', o); return () => window.removeEventListener('takatak:copilot', o); }, []);
   useEffect(() => { setMore(false); setScreen(pathname); }, [pathname]);
@@ -93,22 +107,31 @@ function Frame({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('pointerdown', first);
   }, []);
   const visible = (n: Pick<NavItem, 'perm' | 'allLocations' | 'features'>) => navVisible(n, can, allLocations, features);
-  const items = NAV.filter(visible);
+  const who = { device: viewer.device, role: viewer.role };
+  const items = navFor(full, who).filter(visible);
   const toggle = () => { setCollapsed((c) => { try { localStorage.setItem('takatak.rail', c ? '0' : '1'); } catch { /* ignore */ } return !c; }); };
   const kitchen = isKitchenRoute(pathname);
-  const mobile = [NAV[0], NAV[1], NAV[2], ALERTS].filter(visible);
+  const mobile = mobileNav(full, who, visible);
+  const inBar = new Set(mobile.map((n) => n.href));
 
   return (
     <div className={cn('min-h-dvh', kitchen && 'theme-kitchen bg-canvas text-ink')}>
       <aside className={cn('fixed inset-y-0 left-0 z-40 hidden flex-col bg-rail text-white transition-[width] duration-200 lg:flex', collapsed ? 'w-[76px]' : 'w-64')}>
-        <Link href={href('/')} className={cn('flex h-16 items-center px-5', collapsed && 'justify-center px-0')} aria-label="TAKATAK Food Hub"><Logo compact={collapsed} /></Link>
+        <Link href={href('/')} className={cn('flex h-16 items-center px-5', collapsed && 'justify-center px-0')} aria-label={product.fullName}><Logo compact={collapsed} /></Link>
         <nav className="scrollbar-thin flex-1 space-y-1 overflow-y-auto px-3 py-3" aria-label={t('Menu principal', 'Main menu')}>
           {items.map((n) => <NavGroup key={n.href} item={n} collapsed={collapsed} visible={visible} />)}
         </nav>
         <div className="space-y-1 border-t border-white/10 p-3">
-          <button type="button" onClick={() => setCopilot(true)} className={cn('flex h-11 w-full items-center gap-3 rounded-lg px-3 text-sm font-semibold text-white/75 hover:bg-white/[0.08] hover:text-white', collapsed && 'justify-center px-0')}>
-            <Sparkles className="size-[18px] text-electric" />{!collapsed && t('Copilote', 'Co-pilot')}
-          </button>
+          {full && (
+            <button type="button" onClick={() => setCopilot(true)} className={cn('flex h-11 w-full items-center gap-3 rounded-lg px-3 text-sm font-semibold text-white/75 hover:bg-white/[0.08] hover:text-white', collapsed && 'justify-center px-0')}>
+              <Sparkles className="size-[18px] text-electric" />{!collapsed && t('Copilote', 'Co-pilot')}
+            </button>
+          )}
+          <Hint id="shell.help">
+            <button type="button" onClick={openHelp} title={collapsed ? t('Aide', 'Help') : undefined} className={cn('flex h-11 w-full items-center gap-3 rounded-lg px-3 text-sm font-semibold text-white/75 hover:bg-white/[0.08] hover:text-white', collapsed && 'justify-center px-0')}>
+              <CircleHelp className="size-[18px] text-white/60" />{!collapsed && t('Aide', 'Help')}
+            </button>
+          </Hint>
           <button type="button" onClick={toggle} className={cn('flex h-10 w-full items-center gap-3 rounded-lg px-3 text-[13px] text-white/50 hover:bg-white/[0.08] hover:text-white', collapsed && 'justify-center px-0')} aria-label={collapsed ? t('Agrandir le menu', 'Expand menu') : t('Réduire le menu', 'Collapse menu')}>
             {collapsed ? <ChevronsRight className="size-4" /> : <><ChevronsLeft className="size-4" />{t('Réduire', 'Collapse')}</>}
           </button>
@@ -123,20 +146,22 @@ function Frame({ children }: { children: ReactNode }) {
         </main>
       </div>
 
-      {/* mobile bottom bar */}
+      {/* mobile bottom bar: 4 slots, then "Plus" */}
       <nav className="safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 backdrop-blur lg:hidden" aria-label={t('Menu', 'Menu')}>
-        <div className="grid grid-cols-5">
+        <div className="grid" style={{ gridTemplateColumns: `repeat(${mobile.length + 1},1fr)` }}>
           {mobile.map((n) => <MobileLink key={n.href} item={n} />)}
           <button type="button" onClick={() => setMore(true)} className="flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-semibold text-ink-3"><MenuIcon className="size-5" />{t('Plus', 'More')}</button>
         </div>
       </nav>
       {more && (
         <div className="fixed inset-0 z-50 bg-rail/50 lg:hidden" onClick={() => setMore(false)}>
-          <div className="safe-bottom absolute inset-x-0 bottom-0 max-h-[80dvh] overflow-y-auto rounded-t-2xl bg-surface p-4 animate-rise" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-3 flex items-center justify-between"><span className="font-extrabold tracking-[0.14em]">TAKATAK</span><button type="button" onClick={() => setMore(false)} className="flex size-11 items-center justify-center" aria-label={t('Fermer', 'Close')}><X className="size-5" /></button></div>
+          <div ref={moreRef} tabIndex={-1} className="safe-bottom absolute inset-x-0 bottom-0 max-h-[85dvh] overflow-y-auto rounded-t-2xl bg-surface p-4 outline-none animate-rise" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={t('Plus', 'More')}>
+            <div className="mb-3 flex items-center justify-between"><span className="font-extrabold tracking-[0.14em]">{product.shortName}</span><button type="button" onClick={() => setMore(false)} className="flex size-11 items-center justify-center" aria-label={t('Fermer', 'Close')}><X className="size-5" /></button></div>
             <div className="grid grid-cols-3 gap-2">
-              {items.map((n) => <Link key={n.href} href={href(n.href)} className="flex min-h-20 flex-col items-center justify-center gap-1.5 rounded-xl bg-sunken p-3 text-center text-xs font-semibold"><n.icon className="size-5" />{n.label(t)}</Link>)}
-              <button type="button" onClick={() => { setMore(false); setCopilot(true); }} className="flex min-h-20 flex-col items-center justify-center gap-1.5 rounded-xl bg-brand-soft p-3 text-xs font-semibold text-brand-2"><Sparkles className="size-5" />{t('Copilote', 'Co-pilot')}</button>
+              {items.filter((n) => full || !inBar.has(n.href)).map((n) => <Link key={n.href} href={href(n.href)} className="flex min-h-20 flex-col items-center justify-center gap-1.5 rounded-xl bg-sunken p-3 text-center text-xs font-semibold"><n.icon className="size-5" />{n.label(t)}</Link>)}
+              {visible(ALERTS) && !inBar.has(ALERTS.href) && <Link href={href(ALERTS.href)} className="flex min-h-20 flex-col items-center justify-center gap-1.5 rounded-xl bg-sunken p-3 text-center text-xs font-semibold"><BellRing className="size-5" />{ALERTS.label(t)}</Link>}
+              <button type="button" onClick={() => { setMore(false); openHelp(); }} className="flex min-h-20 flex-col items-center justify-center gap-1.5 rounded-xl bg-sunken p-3 text-xs font-semibold"><CircleHelp className="size-5" />{t('Aide', 'Help')}</button>
+              {full && <button type="button" onClick={() => { setMore(false); setCopilot(true); }} className="flex min-h-20 flex-col items-center justify-center gap-1.5 rounded-xl bg-brand-soft p-3 text-xs font-semibold text-brand-2"><Sparkles className="size-5" />{t('Copilote', 'Co-pilot')}</button>}
             </div>
             {items.some((n) => (n.children ?? []).filter(visible).length > 1) && (
               <div className="mt-4 space-y-3">
@@ -148,6 +173,7 @@ function Frame({ children }: { children: ReactNode }) {
                 ))}
               </div>
             )}
+            <div className="mt-4 space-y-2 border-t border-line pt-4"><DisplayControls /><div className="-mx-3"><FullViewSwitch /></div></div>
           </div>
         </div>
       )}
@@ -202,12 +228,13 @@ function MobileLink({ item }: { item: NavItem }) {
   const { t } = useI18n();
   const path = usePathname();
   const href = useScopeHref();
-  const on = navActive(item, path);
+  // The sold-out board lights up on its own page only (Menus is a different entry).
+  const on = item.href === '/menu/86' ? path === '/menu/86' : navActive(item, path) && !(item.href === '/menu' && path === '/menu/86');
   const b = useBadge(item.badge);
   const label = item.href === '/kitchen' ? t('Cuisine', 'Kitchen') : item.label(t);
   return (
-    <Link href={href(item.href)} className={cn('relative flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-semibold', on ? 'text-ink' : 'text-ink-3')}>
-      <item.icon className={cn('size-5', on && 'text-brand')} />{label}
+    <Link href={href(item.href)} className={cn('relative flex h-16 min-w-0 flex-col items-center justify-center gap-1 px-1 text-[11px] font-semibold', on ? 'text-ink' : 'text-ink-3')}>
+      <item.icon className={cn('size-5', on && 'text-brand')} /><span className="max-w-full truncate">{label}</span>
       {b && <span className={cn('num absolute top-2 right-[calc(50%-20px)] min-w-4 rounded-full px-1 text-[10px] leading-4 font-bold text-white', b.tone === 'stop' ? 'bg-stop' : b.tone === 'wait' ? 'bg-wait' : 'bg-brand')}>{b.n}</span>}
     </Link>
   );
@@ -230,13 +257,17 @@ function AlertsBell() {
 
 function Topbar() {
   const { t, lang, setLang } = useI18n();
+  const { viewer, full } = useViewer();
+  const product = useProduct();
   const href = useScopeHref();
   const [sound, setSound] = useState(false);
   useEffect(() => { const i = setInterval(() => setSound(audioReady()), 1000); return () => clearInterval(i); }, []);
+  // The full view and kitchen tablets keep today's bar (text size button on it); the simple view moves it to the avatar menu.
+  const textSizeInBar = full || Boolean(viewer.device);
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-canvas/90 backdrop-blur-md">
       <div className="flex h-16 items-center gap-2 px-3 sm:px-6 lg:px-8">
-        <Link href={href('/')} className="mr-0.5 hidden sm:block lg:hidden" aria-label="TAKATAK Food Hub"><span className="flex size-9 items-center justify-center rounded-full bg-rail text-[15px] font-black text-white"><span className="flex size-7 items-center justify-center rounded-full bg-electric">T</span></span></Link>
+        <Link href={href('/')} className="mr-0.5 hidden sm:block lg:hidden" aria-label={product.fullName}><span className="flex size-9 items-center justify-center rounded-full bg-rail text-[15px] font-black text-white"><span className="flex size-7 items-center justify-center rounded-full bg-electric">{product.isDefault ? 'T' : (product.name.trim()[0] ?? 'F').toUpperCase()}</span></span></Link>
         <Hint id="shell.scope"><ScopeSwitcher /></Hint>
         <Hint id="shell.search">
           <button type="button" onClick={() => window.dispatchEvent(new Event('takatak:palette'))}
@@ -244,7 +275,7 @@ function Topbar() {
             <Search className="size-4" /><span className="truncate">{t('Chercher une commande, une page…', 'Search an order, a page…')}</span><span className="ml-auto flex gap-1"><Kbd>⌘</Kbd><Kbd>K</Kbd></span>
           </button>
         </Hint>
-        <div className="ml-auto flex items-center gap-0.5 sm:gap-1">
+        <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
           <button type="button" onClick={() => window.dispatchEvent(new Event('takatak:palette'))} className="flex size-11 items-center justify-center rounded-lg text-ink-2 hover:bg-sunken md:hidden" aria-label={t('Chercher', 'Search')}><Search className="size-5" /></button>
           <AlertsBell />
           <Hint id="shell.sound">
@@ -252,7 +283,7 @@ function Topbar() {
             {sound ? <Volume2 className="size-5" /> : <VolumeX className="size-5" />}
           </button>
           </Hint>
-          <TextSizeButton />
+          {textSizeInBar && <TextSizeButton />}
           <button type="button" onClick={() => setLang(lang === 'fr' ? 'en' : 'fr')} className="hidden h-11 items-center gap-1 rounded-lg px-2 text-[13px] font-bold text-ink-2 hover:bg-sunken hover:text-ink sm:flex" aria-label="Langue / Language"><Globe className="size-4" />{lang === 'fr' ? 'EN' : 'FR'}</button>
           <UserMenu />
         </div>
@@ -261,13 +292,59 @@ function Topbar() {
   );
 }
 
+/** Language and text size, as one row of buttons (avatar menu and the phone's "Plus" sheet). */
+function DisplayControls() {
+  const { t, lang, setLang } = useI18n();
+  const [display, setDisplay] = useDisplay();
+  const sizes: Array<[TextSize, string]> = [['md', 'A'], ['lg', 'A+'], ['xl', 'A++']];
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="flex w-28 shrink-0 items-center gap-1.5 text-[13px] font-semibold text-ink-3"><Globe className="size-4" />{t('Langue', 'Language')}</span>
+        <div className="inline-flex rounded-md bg-sunken p-0.5" role="group" aria-label={t('Langue', 'Language')}>
+          {(['fr', 'en'] as const).map((l) => (
+            <button key={l} type="button" aria-pressed={lang === l} onClick={() => setLang(l)} className={cn('h-9 min-w-11 rounded-[9px] px-2.5 text-[13px] font-bold', lang === l ? 'bg-surface text-ink shadow-card' : 'text-ink-3 hover:text-ink')}>{l === 'fr' ? 'FR' : 'EN'}</button>
+          ))}
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="flex w-28 shrink-0 items-center gap-1.5 text-[13px] font-semibold text-ink-3"><SlidersHorizontal className="size-4" />{t('Taille du texte', 'Text size')}</span>
+        <div className="inline-flex rounded-md bg-sunken p-0.5" role="group" aria-label={t('Taille du texte', 'Text size')}>
+          {sizes.map(([k, l]) => (
+            <button key={k} type="button" aria-pressed={display.text === k} onClick={() => setDisplay({ text: k })} className={cn('h-9 min-w-11 rounded-[9px] px-2.5 text-[13px] font-extrabold', display.text === k ? 'bg-surface text-ink shadow-card' : 'text-ink-3 hover:text-ink')}>{l}</button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** "Vue complète (outils avancés)": owners and managers only, never a kitchen tablet. */
+function FullViewSwitch() {
+  const { t } = useI18n();
+  const { full, canFull, setFull } = useViewer();
+  if (!canFull) return null;
+  return (
+    <Hint id="shell.view">
+      <button type="button" role="switch" aria-checked={full} onClick={() => setFull(!full)} className="flex min-h-11 w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm hover:bg-sunken">
+        <span className="min-w-0 flex-1"><span className="block font-semibold text-ink">{t('Vue complète', 'Full view')}</span><span className="block text-xs text-ink-3">{t('Outils avancés', 'Advanced tools')}</span></span>
+        {/* Off: outlined track and a grey knob (both well above 3:1 on the white menu); on: blue track, white knob. */}
+        <span className={cn('relative h-6 w-10 shrink-0 rounded-full border-2 transition-colors', full ? 'border-brand bg-brand' : 'border-ink-3 bg-surface')} aria-hidden>
+          <span className={cn('absolute top-[2px] size-4 rounded-full shadow transition-[left]', full ? 'left-[18px] bg-white' : 'left-[2px] bg-ink-3')} />
+        </span>
+      </button>
+    </Hint>
+  );
+}
+
 function UserMenu() {
   const { viewer } = useViewer();
-  const { t, lang, setLang } = useI18n();
+  const { t } = useI18n();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => { const c = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); }; document.addEventListener('mousedown', c); return () => document.removeEventListener('mousedown', c); }, []);
+  useEffect(() => { if (!open) return; const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k); }, [open]);
   const signOut = useCallback(async () => {
     // Drafts belong to the person: never left behind on a shared tablet.
     try { clearAllDrafts(window.localStorage, viewer.username); } catch { /* ignore */ }
@@ -277,18 +354,19 @@ function UserMenu() {
   const initials = viewer.name.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
   return (
     <div className="relative" ref={ref}>
-      <button type="button" onClick={() => setOpen(!open)} className="flex size-10 items-center justify-center rounded-full bg-ink text-[13px] font-extrabold text-canvas" aria-label={viewer.name}>{initials}</button>
+      <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="flex size-10 items-center justify-center rounded-full bg-ink text-[13px] font-extrabold text-canvas" aria-label={viewer.name}>{initials}</button>
       {open && (
-        <div className="absolute top-12 right-0 z-50 w-64 rounded-lg border border-line bg-surface p-1.5 shadow-pop animate-rise">
+        <div className="absolute top-12 right-0 z-50 w-[min(18rem,calc(100vw-1.5rem))] rounded-lg border border-line bg-surface p-1.5 shadow-pop animate-rise">
           <div className="px-3 py-2">
-            <div className="font-bold text-ink">{viewer.name}</div>
-            <div className="text-xs text-ink-3">{viewer.role}{viewer.device ? ` · ${viewer.device.name}` : ''}</div>
+            <div className="truncate font-bold text-ink">{viewer.name}</div>
+            <div className="text-xs text-ink-3">{roleLabel(t, viewer.role)}{viewer.device ? ` · ${viewer.device.name}` : ''}</div>
           </div>
-          <button type="button" onClick={() => { setLang(lang === 'fr' ? 'en' : 'fr'); setOpen(false); }} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-sunken sm:hidden"><Globe className="size-4" />{lang === 'fr' ? 'English' : 'Français'}</button>
-          {!viewer.builtin && <button type="button" onClick={() => { setOpen(false); router.push('/settings/profile'); }} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-sunken"><UserRound className="size-4" />{t('Mon profil et NIP', 'My profile & PIN')}</button>}
+          <div className="border-y border-line px-3 py-3"><DisplayControls /></div>
+          <FullViewSwitch />
+          {!viewer.builtin && <button type="button" onClick={() => { setOpen(false); router.push('/settings/profile'); }} className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-sunken"><UserRound className="size-4" />{t('Mon profil', 'My profile')}</button>}
           {viewer.device
-            ? <button type="button" onClick={signOut} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold hover:bg-sunken"><Lock className="size-4" />{t('Verrouiller la tablette', 'Lock the tablet')}</button>
-            : <button type="button" onClick={signOut} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-sunken"><LogOut className="size-4" />{t('Se déconnecter', 'Sign out')}</button>}
+            ? <button type="button" onClick={signOut} className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold hover:bg-sunken"><Lock className="size-4" />{t('Verrouiller la tablette', 'Lock the tablet')}</button>
+            : <button type="button" onClick={signOut} className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-sunken"><LogOut className="size-4" />{t('Se déconnecter', 'Sign out')}</button>}
         </div>
       )}
     </div>
@@ -298,7 +376,7 @@ function UserMenu() {
 function StatusBanners() {
   const { pulse, online } = usePulse();
   const healthNow = useSyncExternalStore(subscribeHealth, () => health(), () => 'good' as const);
-  const { can } = useViewer();
+  const { can, full } = useViewer();
   const { t } = useI18n();
   const [netOk, setNetOk] = useState(true);
   useEffect(() => { const u = () => setNetOk(navigator.onLine); u(); window.addEventListener('online', u); window.addEventListener('offline', u); return () => { window.removeEventListener('online', u); window.removeEventListener('offline', u); }; }, []);
@@ -306,8 +384,18 @@ function StatusBanners() {
   if (netOk && online && healthNow === 'stale') bars.push(<Bar key="stale" tone="wait" icon={<WifiOff className="size-4" />}>{t('Les données ne se rafraîchissent plus — reconnexion… Les commandes continuent sur les tablettes des plateformes et dans Clover.', 'Data is not refreshing — reconnecting… Orders keep arriving on the platform tablets and in Clover.')}</Bar>);
   if (!netOk || !online) bars.push(<Bar key="off" tone="stop" icon={<WifiOff className="size-4" />}>{t('Pas de connexion — les commandes continuent sur les tablettes des plateformes et dans Clover. Reconnexion automatique…', 'No connection — orders keep coming on the platform tablets and in Clover. Reconnecting…')}</Bar>);
   if (pulse?.devices.offline) bars.push(<Bar key="dev" tone="wait" href="/alerts">{t(`${pulse.devices.offline} tablette(s) de cuisine hors ligne`, `${pulse.devices.offline} kitchen tablet(s) offline`)}</Bar>);
-  if (pulse && !pulse.live && can('admin')) bars.push(<Bar key="live" tone="wait" href="/settings/channels">{t('Mode sécurité : rien n’est envoyé aux plateformes (LIVE_CONNECTORS_GLOBAL_ENABLED=false).', 'Safe mode: nothing is sent to the platforms (LIVE_CONNECTORS_GLOBAL_ENABLED=false).')}</Bar>);
-  if (pulse?.mode === 'memory' && can('admin')) bars.push(<Bar key="mem" tone="info">{t('Mode démo : Supabase n’est pas branché, les données sont en mémoire.', 'Demo mode: Supabase is not connected, data lives in memory.')}</Bar>);
+  if (pulse && !pulse.live && can('admin')) {
+    bars.push(full
+      ? <Bar key="live" tone="wait" href="/settings/channels">{t('Mode sécurité : rien n’est envoyé aux plateformes (LIVE_CONNECTORS_GLOBAL_ENABLED=false).', 'Safe mode: nothing is sent to the platforms (LIVE_CONNECTORS_GLOBAL_ENABLED=false).')}</Bar>
+      // Mise en service explains it and can be opened by URL in either view (owner only).
+      : <Bar key="live" tone="wait" href="/settings/go-live">{t('Pas encore en direct : rien n’est envoyé aux plateformes. Votre technicien l’active dans Mise en service.', 'Not live yet: nothing is sent to the platforms. Your technician turns it on in Go-live.')}</Bar>);
+  }
+  // The owner always sees that data is not kept (lost on a restart), in plain words in the simple view.
+  if (pulse?.mode === 'memory' && can('admin')) {
+    bars.push(full
+      ? <Bar key="mem" tone="info">{t('Mode démo : Supabase n’est pas branché, les données sont en mémoire.', 'Demo mode: Supabase is not connected, data lives in memory.')}</Bar>
+      : <Bar key="mem" tone="info">{t('Données temporaires : la base de données n’est pas branchée, rien n’est gardé après un redémarrage.', 'Temporary data: the database is not connected, nothing is kept after a restart.')}</Bar>);
+  }
   if (!bars.length) return null;
   return <div className="space-y-px">{bars}</div>;
 }

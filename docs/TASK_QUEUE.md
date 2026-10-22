@@ -7,6 +7,11 @@
 **16 octobre 2026 : FH-016 — REVIEW / branche `fix/console-kitchen-a11y`, PR #52.** Phase 3 P0 interface cuisine : tokens sombres pour les dialogues portalisés/écran NIP, thème avant premier rendu, contraste, zone tactile 48px, réduction des animations OS, erreur/chargement au niveau de la console. Code et tests poussés ; attendre la CI de la dernière tête puis révision/fusion réservées au propriétaire. Reprise après fusion PR #53 : `main` `444e8f2e60dd73e5eaa90bc4e9f92d05489b38f3`. Les dossiers FH-006/FH-007 de commandes réelles restent **non certifiés**.
 
 
+**État de mise en ligne 2026-10-15** : [PR #49](https://github.com/takatakca/foodhubca/pull/49) indique une publication Coolify native **Success**, SHA live `027b602a12da39b1244e17b813bc51a7496a0217` confirmé en HTTP et conteneur sain à 12:49 UTC. FH-002/003/004/005 : preuve de publication consignée, non une nouvelle vérification par cet agent ; la dernière condition de certification **réelle** des commandes / fournisseurs (FH-006/FH-007) demeure bloquante. PR #51 renforce la vérification de dérive de version et ajoute un contrôle automatisé opt-in.
+
+
+**2026-10-15, nouvelle tâche FH-015 (branche `fix/foodhub-production-proof-strict-sha`)** : rendre impossible un PASS de `verify:live` sans SHA attendu ; ajouter un workflow GitHub Actions opt-in pour surveiller le SHA et les endpoints publics. [PR #51](https://github.com/takatakca/foodhubca/pull/51) ouverte ; CI de la tête de branche en cours, fusion/publication propriétaire à valider. La configuration Coolify native sur `main` est distincte, aucune action prod ici.
+
 **Reprise autorisée 2026-10-15** : FH-002 à FH-005 sont prises sur la PR #49 pour terminer la livraison native GitHub App → Coolify et prouver le SHA public. Accès/source/backup/santé configurés ; tests locaux réussis (807 unitaires, 536 E2E). La livraison finale reste à constater après fusion. Aucun changement aux intégrations réelles FH-006/FH-007. Le tableau du 2026-10-14 ci-dessous conserve son contexte historique.
 
 Mise à jour : 2026-10-14. Ce tableau public est une relève Git ; il **ne remplace pas** `private/TASKS.md` (tableau local git-ignoré) ni les branches actives des autres agents, conformément à `CLAUDE.md`.

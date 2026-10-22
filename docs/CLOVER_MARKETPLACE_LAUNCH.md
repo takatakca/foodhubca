@@ -379,8 +379,10 @@ merchant with the demo platforms. Show the Clover device or Clover web dashboard
 - **Approved merchants join your Food Hub.** Food Hub is single-tenant: an approved merchant's Clover sales and
   platform orders are synced into your console. Disconnect review merchants after approval. A multi-tenant mode is
   Phase 5 work.
-- **The test order uses "Uber Eats" labels.** It creates the "Uber Eats" order type and tender in the merchant's
-  Clover, as a first real order would. The order is titled `Uber Eats #TEST-…` and is never read back into Food Hub.
+- **The test order uses "Uber Eats" labels.** It reuses the merchant's "Uber Eats" order type and tender (any case, e.g.
+  one made by hand) or creates them, as a first real order would. If Clover refuses the tender's `labelKey`, the tender
+  is created without it, like a hand-made one; if Clover still refuses, the paid step shows Clover's own answer. The
+  order is titled `Uber Eats #TEST-…` and is never read back into Food Hub.
 - **Tokens are stored without encryption** in the database (`fh_kv`). Only the service role can read it, and RLS is
   on. Clover does not state an encryption requirement (to confirm). Encrypting with a server key is an optional
   hardening step.

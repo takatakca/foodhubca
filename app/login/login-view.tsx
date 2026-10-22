@@ -108,7 +108,7 @@ export function LoginView({ next, error, firstRun, recovery, needsKey, googleEna
                 <a href={googleHref} className={buttonClass('primary', 'xl', 'mt-8 w-full text-base')} data-testid="google-signin">
                   <GoogleMark />{t('Continuer avec Google', 'Continue with Google')}
                 </a>
-                <div className="my-6 flex items-center gap-3 text-xs font-semibold tracking-wide text-ink-4 uppercase" aria-hidden><span className="h-px flex-1 bg-line" />{t('ou par code', 'or with a code')}<span className="h-px flex-1 bg-line" /></div>
+                <div className="my-6 flex items-center gap-3 text-xs font-semibold tracking-wide text-ink-3 uppercase" aria-hidden><span className="h-px flex-1 bg-line" />{t('ou par code', 'or with a code')}<span className="h-px flex-1 bg-line" /></div>
               </>
             )}
 
@@ -121,7 +121,7 @@ export function LoginView({ next, error, firstRun, recovery, needsKey, googleEna
               </Field>
               <Button type="submit" variant={googleEnabled ? 'outline' : 'primary'} size="lg" className="mt-3 w-full" loading={busy} disabled={contact.trim().length < 5}>{t('Recevoir mon code', 'Send me a code')}<ArrowRight className="size-4" /></Button>
             </form>
-            {recovery && <button type="button" onClick={() => { setErr(null); setStep('recovery'); }} className="mx-auto mt-8 flex min-h-11 items-center justify-center gap-1.5 px-2 text-xs font-semibold text-ink-4 hover:text-ink"><KeyRound className="size-3.5" />{t('Connexion de secours du propriétaire', 'Owner recovery sign-in')}</button>}
+            {recovery && <button type="button" onClick={() => { setErr(null); setStep('recovery'); }} className="mx-auto mt-8 flex min-h-11 items-center justify-center gap-1.5 px-2 text-xs font-semibold text-ink-3 hover:text-ink"><KeyRound className="size-3.5" />{t('Connexion de secours du propriétaire', 'Owner recovery sign-in')}</button>}
           </div>
         )}
 
@@ -167,7 +167,7 @@ export function LoginView({ next, error, firstRun, recovery, needsKey, googleEna
             </div>
             {err && <Banner tone="stop" className="mt-3">{err}</Banner>}
             <Button type="submit" size="lg" className="mt-5 w-full" loading={busy} disabled={!setup.name.trim() || setup.contact.trim().length < 5}>{t('Créer et recevoir mon code', 'Create and send my code')}<ArrowRight className="size-4" /></Button>
-            {recovery && <button type="button" onClick={() => setStep('recovery')} className="mx-auto mt-8 flex min-h-11 items-center justify-center gap-1.5 px-2 text-xs font-semibold text-ink-4 hover:text-ink"><KeyRound className="size-3.5" />{t('Connexion de secours du propriétaire', 'Owner recovery sign-in')}</button>}
+            {recovery && <button type="button" onClick={() => setStep('recovery')} className="mx-auto mt-8 flex min-h-11 items-center justify-center gap-1.5 px-2 text-xs font-semibold text-ink-3 hover:text-ink"><KeyRound className="size-3.5" />{t('Connexion de secours du propriétaire', 'Owner recovery sign-in')}</button>}
           </form>
         )}
       </main>

@@ -1,18 +1,20 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Ban, CheckCircle2, Search } from 'lucide-react';
+import { Ban, CheckCircle2, Info, Search } from 'lucide-react';
 import { Hint } from '@/components/help/hint';
 import { Badge } from '@/components/ui/badge';
-import { PageHeader } from '@/components/ui/card';
+import { Button, ButtonLink } from '@/components/ui/button';
+import { Card, EmptyState, PageHeader, Skeleton } from '@/components/ui/card';
 import { Chips, Input, Select } from '@/components/ui/form';
-import { Tabs } from '@/components/ui/tabs';
+import { Segmented } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/toast';
 import { usePulse } from '@/components/live/pulse';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { MenuTabs } from '../menu-tabs';
 import { api, ApiError, timeOf } from '@/lib/ui/api';
 import { useI18n, useProduct } from '@/lib/i18n/client';
+import { countEn, countFr } from '@/lib/ui/count-label';
 import type { MasterMenu } from '@/lib/foodhub/types';
 import { cn } from '@/lib/ui/cn';
 
@@ -24,7 +26,7 @@ function untilEndOfDay() { const e = new Date(); e.setHours(23, 59, 0, 0); retur
 export default function EightySix() {
   const { t, lang, loc } = useI18n();
   const product = useProduct();
-  const { viewer, locations, brands: catalogBrands } = useViewer();
+  const { viewer, locations, brands: catalogBrands, can } = useViewer();
   const { scope, site } = usePulse();
   // Starts on the console's brand and location (header picker) when one is picked.
   const scopeBrand = site.brand;
@@ -61,28 +63,38 @@ export default function EightySix() {
       const minutes = available ? 0 : duration === -1 ? untilEndOfDay() : duration;
       const d = await api<{ results: Result[] }>('/api/foodhub/availability', { method: 'POST', json: { brand, locationCode: location, itemRefs: [ref], available, minutes } });
       const bad = d.results.filter((r) => !r.result.ok);
-      if (bad.length) toast.error(t(`${name} : ${bad.length} plateforme(s) ont refusé`, `${name}: ${bad.length} platform(s) refused`), bad.map((b) => `${b.channel}: ${b.result.message}`).join('\n'));
-      else toast.success(available ? t(`${name} de retour`, `${name} back on`) : t(`${name} épuisé`, `${name} sold out`), d.results.length ? `${d.results.length} ${t('plateforme(s) mise(s) à jour', 'platform(s) updated')}` : t(`Aucun magasin branché ici — enregistré dans ${product.name} seulement.`, `No store connected here — saved in ${product.name} only.`));
+      if (bad.length) toast.error(t(`${name} : ${countFr(bad.length, 'plateforme a', 'plateformes ont')} refusé`, `${name}: ${countEn(bad.length, 'platform')} refused`), bad.map((b) => `${b.channel}: ${b.result.message}`).join('\n'));
+      else toast.success(available ? t(`${name} de retour`, `${name} back on`) : t(`${name} épuisé`, `${name} sold out`), d.results.length ? t(`${countFr(d.results.length, 'plateforme mise', 'plateformes mises')} à jour`, `${countEn(d.results.length, 'platform')} updated`) : t(`Aucun magasin branché ici — enregistré dans ${product.name} seulement.`, `No store connected here — saved in ${product.name} only.`));
       await load();
     } catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(null); }
   }
 
   return (
     <div>
-      <PageHeader title={t('Menus', 'Menus')} subtitle={t('Un article manque ? Touchez-le : il disparaît d’Uber Eats, DoorDash et Skip à cette succursale. Touchez encore pour le remettre.', 'Out of something? Tap it: it disappears from Uber Eats, DoorDash and Skip at this location. Tap again to bring it back.')} />
-      <MenuTabs />
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Select className="w-56" value={brand} onChange={(e) => setBrand(e.target.value)} aria-label={t('Marque', 'Brand')}>{brands.map((b) => <option key={b}>{b}</option>)}</Select>
-        <Hint id="menu86.location">{viewer.device ? <Badge tone="dark" className="h-9 px-3 text-sm">{shortLoc(locations.find((l) => l.code === location)?.name ?? location)}</Badge>
-          : <Select className="w-52" value={location} onChange={(e) => setLocation(e.target.value)} aria-label={t('Succursale', 'Location')}>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select>}</Hint>
-        <Hint id="menu86.return"><div className="flex items-center gap-2"><span className="text-[13px] font-semibold text-ink-3">{t('Retour', 'Back')} :</span><Chips size="sm" value={duration} onChange={setDuration} options={[{ value: 0, label: t('quand je le remets', 'when I turn it on') }, { value: 30, label: '30 min' }, { value: 60, label: '1 h' }, { value: 120, label: '2 h' }, { value: -1, label: t('fin de journée', 'end of day') }]} /></div></Hint>
+      <PageHeader eyebrow={t('Menus', 'Menus')} tabs={<MenuTabs className="mb-0" />}
+        title={<span className="inline-flex flex-wrap items-center gap-3">{t('Épuisés', 'Sold out')}{menu && <Badge tone={offCount ? 'stop' : 'neutral'} className="num">{offCount ? t(`${offCount} en ce moment`, `${offCount} right now`) : t('aucun', 'none')}</Badge>}</span>}
+        subtitle={t('Un article manque ? Touchez-le : il disparaît d’Uber Eats, DoorDash et Skip dans cette cuisine. Touchez encore pour le remettre.', 'Out of something? Tap it: it disappears from Uber Eats, DoorDash and Skip at this kitchen. Tap again to bring it back.')} />
+      <div className="mb-4 flex flex-wrap items-end gap-3">
+        <Select className="w-full sm:w-56" value={brand} onChange={(e) => setBrand(e.target.value)} aria-label={t('Marque', 'Brand')}>{brands.map((b) => <option key={b}>{b}</option>)}</Select>
+        <Hint id="menu86.location">{viewer.device ? <Badge tone="dark" className="text-body h-10 px-3">{shortLoc(locations.find((l) => l.code === location)?.name ?? location)}</Badge>
+          : <Select className="w-full sm:w-52" value={location} onChange={(e) => setLocation(e.target.value)} aria-label={t('Cuisine', 'Kitchen')}>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select>}</Hint>
+        {/* The label sits above its chips: on a phone « Retour : » no longer breaks beside them. */}
+        <Hint id="menu86.return"><div role="group" aria-labelledby="menu86-return"><div id="menu86-return" className="text-small mb-1.5 font-semibold text-ink-3">{t('Revient en ligne', 'Comes back')}</div><Chips size="sm" value={duration} onChange={setDuration} options={[{ value: 0, label: t('quand je le remets', 'when I turn it on') }, { value: 30, label: '30 min' }, { value: 60, label: '1 h' }, { value: 120, label: '2 h' }, { value: -1, label: t('fin de journée', 'end of day') }]} /></div></Hint>
       </div>
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <Hint id="menu86.tabs"><Tabs className="flex-1" value={tab} onChange={setTab} tabs={[{ key: 'items', label: t('Articles', 'Items'), count: menu?.items.length ?? 0 }, { key: 'options', label: t('Options', 'Options'), count: menu?.modifierGroups.reduce((s, g) => s + g.modifiers.length, 0) ?? 0 }, { key: 'off', label: t('Épuisés maintenant', 'Sold out now'), count: offCount }]} /></Hint>
-        <div className="relative w-full sm:w-64"><Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-3" /><Input className="pl-9" placeholder={t('Chercher', 'Search')} value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        {/* A filter, not a third level of navigation (A4 #3): rail → Menus tabs → this. */}
+        <Hint id="menu86.tabs"><Segmented label={t('Afficher', 'Show')} value={tab} onChange={setTab} options={[
+          { key: 'items', label: <>{t('Articles', 'Items')} <span className="num text-ink-3">{menu?.items.length ?? 0}</span></> },
+          { key: 'options', label: <>{t('Options', 'Options')} <span className="num text-ink-3">{menu?.modifierGroups.reduce((s, g) => s + g.modifiers.length, 0) ?? 0}</span></> },
+          { key: 'off', label: <>{t('Épuisés', 'Sold out')} <span className={cn('num', offCount ? 'text-stop-2' : 'text-ink-3')}>{offCount}</span></> },
+        ]} /></Hint>
+        <span className="hidden flex-1 sm:block" />
+        <div className="relative w-full sm:w-64"><Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-3" aria-hidden /><Input className="pl-9" aria-label={t('Chercher un article', 'Search an item')} placeholder={t('Chercher', 'Search')} value={q} onChange={(e) => setQ(e.target.value)} /></div>
       </div>
-      {!menu ? <div className="h-64 animate-pulse rounded-lg bg-sunken" /> : rows.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-line-2 px-6 py-14 text-center text-ink-3">{tab === 'off' ? t('Rien d’épuisé ici. 👍', 'Nothing sold out here. 👍') : t('Aucun article. Importez le menu depuis Clover dans l’éditeur.', 'No items. Import the menu from Clover in the editor.')}</div>
+      {!menu ? <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5" aria-busy>{Array.from({ length: 10 }, (_, i) => <Skeleton key={i} className="h-24" />)}</div> : rows.length === 0 ? (
+        <Card>{q ? <EmptyState icon={<Search />} title={t('Rien ne correspond', 'Nothing matches')} action={<Button variant="outline" onClick={() => setQ('')}>{t('Effacer la recherche', 'Clear the search')}</Button>} />
+          : tab === 'off' ? <EmptyState icon={<CheckCircle2 />} title={t('Rien d’épuisé ici', 'Nothing sold out here')} body={t('Tout le menu est en vente dans cette cuisine.', 'The whole menu is on sale at this kitchen.')} action={<Button variant="outline" onClick={() => setTab('items')}>{t('Voir les articles', 'See the items')}</Button>} />
+            : <EmptyState icon={<Ban />} title={t('Aucun article', 'No items')} body={t('Importez le menu de cette marque depuis Clover dans l’éditeur.', 'Import this brand’s menu from Clover in the editor.')} action={can('menu:edit') ? <ButtonLink href="/menu" variant="primary">{t('Ouvrir l’éditeur de menu', 'Open the menu editor')}</ButtonLink> : undefined} />}</Card>
       ) : (
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {rows.map((r) => {
@@ -91,15 +103,15 @@ export default function EightySix() {
             return (
               <Hint id="menu86.toggle" key={r.ref}><button type="button" disabled={busy === r.ref} onClick={() => toggle(r.ref, r.name)}
                 className={cn('flex min-h-24 flex-col items-start rounded-xl border-2 p-3.5 text-left transition-all active:scale-[0.98] disabled:opacity-60', off ? 'border-stop bg-stop-soft' : 'border-line bg-surface hover:border-ink-4')}>
-                <span className="flex w-full items-start justify-between gap-2"><span className={cn('text-[15px] leading-snug font-bold', off && 'text-stop-2 line-through decoration-2')}>{r.name}</span>{off ? <Ban className="size-5 shrink-0 text-stop" /> : <CheckCircle2 className="size-5 shrink-0 text-go/60" />}</span>
-                <span className="mt-auto pt-2 text-xs text-ink-3">{r.group}</span>
-                {off && <span className="mt-1 text-xs font-bold text-stop-2">{until ? t(`de retour à ${timeOf(new Date(until).toISOString(), loc)}`, `back at ${timeOf(new Date(until).toISOString(), loc)}`) : t('épuisé', 'sold out')}</span>}
+                <span className="flex w-full items-start justify-between gap-2"><span className={cn('text-body leading-snug font-bold', off && 'text-stop-2 line-through decoration-2')}>{r.name}</span>{off ? <Ban className="size-5 shrink-0 text-stop" /> : <CheckCircle2 className="size-5 shrink-0 text-go/60" />}</span>
+                <span className="mt-auto pt-2 text-small text-ink-3">{r.group}</span>
+                {off && <span className="mt-1 text-small font-bold text-stop-2">{until ? t(`de retour à ${timeOf(new Date(until).toISOString(), loc)}`, `back at ${timeOf(new Date(until).toISOString(), loc)}`) : t('épuisé', 'sold out')}</span>}
               </button></Hint>
             );
           })}
         </div>
       )}
-      <p className="mt-4 text-xs text-ink-4">{t(`Les options (sauces, tailles, extras) passent par les API d’options de chaque plateforme. DoorDash n’a pas de minuterie : ${product.name} remet l’article à l’heure prévue.`, `Options (sauces, sizes, extras) use each platform’s option APIs. DoorDash has no timer: ${product.name} turns the item back on at the planned time.`)}</p>
+      <p className="text-small mt-4 flex items-start gap-2 text-ink-3"><Info className="mt-0.5 size-4 shrink-0" aria-hidden />{t(`Les options (sauces, tailles, extras) passent par les API d’options de chaque plateforme. DoorDash n’a pas de minuterie : ${product.name} remet l’article à l’heure prévue.`, `Options (sauces, sizes, extras) use each platform’s option APIs. DoorDash has no timer: ${product.name} turns the item back on at the planned time.`)}</p>
     </div>
   );
 }

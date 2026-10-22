@@ -177,14 +177,14 @@ describe('callback: only a known, verified team email signs in', () => {
       [{ email: 'stranger@gmail.com' }, 'unknown'],
       [{ email: 'gone@example.com' }, 'deactivated'],
       [{ email: 'sara@example.com', email_verified: false }, 'unverified'],
-      [{ email: 'sara@example.com', email_verified: undefined }, 'no email_verified claim'],
-      [{}, 'no email'],
+      [{ email: 'sara@example.com', email_verified: undefined }, 'unverified'],
+      [{}, 'unverified'],
     ] as Array<[Record<string, unknown>, string]>) {
       const { raw, state, nonce } = startAndCookie();
       fakeGoogle(() => ({ body: { id_token: idToken({ nonce, ...claims }) } }));
       const r = await finishGoogleSignIn({ code: 'c', state, cookie: raw, ip: '203.0.113.6' });
       expect(r.ok, why).toBe(false);
-      if (!r.ok) expect(r.reason, why).toBe('not_on_team');
+      if (!r.ok) expect(r.reason, why).toBe(why === 'unverified' ? 'unverified' : 'not_on_team'); // and the page says why, in FR or EN
     }
     expect((await getRepo().listUsers()).length).toBe(before);
     const log = await getRepo().listActivity({ limit: 10 });

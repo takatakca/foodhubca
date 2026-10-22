@@ -7,7 +7,7 @@ import { LoginView, type GoogleNotice } from './login-view';
 
 export const dynamic = 'force-dynamic';
 
-const GOOGLE_NOTICES = new Set<GoogleNotice>(['not_on_team', 'off', 'state', 'google', 'locked', 'disabled']);
+const GOOGLE_NOTICES = new Set<GoogleNotice>(['not_on_team', 'unverified', 'off', 'state', 'google', 'locked', 'disabled']);
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const q = await searchParams;

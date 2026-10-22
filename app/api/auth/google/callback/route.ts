@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
   });
   const res = r.ok
     ? NextResponse.redirect(`${base}${r.next}`)
-    : NextResponse.redirect(`${base}/login?google=${r.reason}${r.reason === 'not_on_team' ? '' : `&error=${encodeURIComponent(r.error)}`}${r.next && r.next !== '/' ? `&next=${encodeURIComponent(r.next)}` : ''}`);
+    : NextResponse.redirect(`${base}/login?google=${r.reason}${r.next && r.next !== '/' ? `&next=${encodeURIComponent(r.next)}` : ''}`); // only the reason travels: the page says it in the person's language
   res.headers.append('Set-Cookie', stateCookie('', 0)); // one shot: the state never serves twice
   if (r.ok) res.headers.append('Set-Cookie', await sessionCookieFor(r.user, 'google'));
   res.headers.set('Cache-Control', 'no-store');

@@ -62,7 +62,8 @@ Un membre inscrit seulement par cellulaire doit d’abord recevoir son courriel 
 | Pas de bouton Google | `GOOGLE_OAUTH_CLIENT_ID` vide ou pas encore déployé. |
 | Google : `redirect_uri_mismatch` | L’URI dans la console Google n’est pas exactement `https://foodhub.on2go.ca/api/auth/google/callback`. |
 | Google : `access_blocked` / « application non vérifiée » | Écran de consentement encore en mode **Test** : passer en production, ou ajouter la personne aux utilisateurs test. |
-| « La connexion Google a expiré ou ne vient pas d’ici » | Plus de 10 minutes entre le clic et le retour, cookies bloqués, ou lien ouvert dans un autre navigateur. Recommencer. |
+| « La connexion Google n’a pas abouti » | Plus de 10 minutes entre le clic et le retour, cookies bloqués, lien ouvert dans un autre navigateur, ou retour annulé chez Google. Recommencer ; le détail est dans le journal des connexions. |
+| « Trop d’essais » | Cette adresse IP a envoyé plusieurs retours invalides : attendre une minute. |
 | « Ce compte Google n’est pas encore dans une équipe » | L’adresse n’est pas (ou plus) dans Réglages → Équipe, ou le membre est désactivé. |
 
 ---

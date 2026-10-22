@@ -14,7 +14,7 @@ import type { CloverAppListing } from '@/lib/foodhub/clover-apps';
 type Step = 'start' | 'code' | 'recovery' | 'setup';
 type Sent = { challengeId: string; channel: 'email' | 'sms'; sentTo: string; devCode?: string };
 /** Why the Google round trip came back to /login (app/api/auth/google/callback). */
-export type GoogleNotice = 'not_on_team' | 'off' | 'state' | 'google' | 'locked' | 'disabled';
+export type GoogleNotice = 'not_on_team' | 'unverified' | 'off' | 'state' | 'google' | 'locked' | 'disabled';
 
 export function LoginView({ next, error, firstRun, recovery, needsKey, googleEnabled = false, google = null, cloverApps = [] }: {
   next: string; error: string | null; firstRun: boolean; recovery: boolean; needsKey: boolean; googleEnabled?: boolean; google?: GoogleNotice | null; cloverApps?: readonly CloverAppListing[];
@@ -94,7 +94,12 @@ export function LoginView({ next, error, firstRun, recovery, needsKey, googleEna
               </div>
             )}
             {google && google !== 'not_on_team' && !err && (
-              <Banner tone="info" className="mt-6">{google === 'off' || google === 'disabled' ? t('La connexion Google n’est pas activée ici. Entrez avec votre courriel ou votre cellulaire.', 'Google sign-in is not enabled here. Sign in with your email or cell number.') : t('La connexion Google n’a pas abouti. Réessayez ou entrez avec votre courriel.', 'The Google sign-in did not go through. Try again or sign in with your email.')}</Banner>
+              <Banner tone={google === 'locked' ? 'stop' : 'info'} className="mt-6">
+                {google === 'off' || google === 'disabled' ? t('La connexion Google n’est pas activée ici. Entrez avec votre courriel ou votre cellulaire.', 'Google sign-in is not enabled here. Sign in with your email or cell number.')
+                  : google === 'unverified' ? t('Ce compte Google n’a pas de courriel vérifié. Entrez avec votre courriel ou votre cellulaire.', 'This Google account has no verified email. Sign in with your email or cell number.')
+                  : google === 'locked' ? t('Trop d’essais. Attendez une minute, puis réessayez.', 'Too many tries. Wait a minute, then try again.')
+                  : t('La connexion Google n’a pas abouti. Réessayez ou entrez avec votre courriel.', 'The Google sign-in did not go through. Try again or sign in with your email.')}
+              </Banner>
             )}
             {err && <Banner tone="stop" className="mt-6">{err}</Banner>}
 

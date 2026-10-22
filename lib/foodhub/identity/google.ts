@@ -164,7 +164,7 @@ export async function verifyGoogleIdToken(idToken: string, expected: { clientId:
 export type GoogleFinish =
   | { ok: true; user: FoodHubUser; next: string; lang: 'fr' | 'en' }
   /** `not_on_team`: Google verified the email, but nobody with it is on the team. Shown as a friendly page, never a 500. */
-  | { ok: false; reason: 'not_on_team' | 'state' | 'google' | 'locked' | 'disabled'; error: string; next?: string; lang?: 'fr' | 'en' };
+  | { ok: false; reason: 'not_on_team' | 'unverified' | 'state' | 'google' | 'locked' | 'disabled'; error: string; next?: string; lang?: 'fr' | 'en' };
 
 const BAD_STATE = 'La connexion Google a expiré ou ne vient pas d’ici. Réessayez. / The Google sign-in expired or did not start here. Try again.';
 
@@ -217,7 +217,7 @@ export async function finishGoogleSignIn(input: { code: string; state: string; c
   if (!verified || !email) {
     recordFailure(key);
     await refused('Google account without a verified email refused');
-    return { ok: false, reason: 'not_on_team', error: 'Ce compte Google n’a pas de courriel vérifié. / This Google account has no verified email.', lang, next };
+    return { ok: false, reason: 'unverified', error: 'Ce compte Google n’a pas de courriel vérifié. / This Google account has no verified email.', lang, next };
   }
   const user = await findUserByContact(email);
   if (!user) {

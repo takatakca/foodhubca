@@ -257,7 +257,7 @@ function AlertsBell() {
   const path = usePathname();
   const b = useBadge('alerts');
   return (
-    <Link href={href('/alerts')} aria-label={b ? t(`Alertes : ${b.n} ouverte(s)`, `Alerts: ${b.n} open`) : t('Alertes', 'Alerts')}
+    <Link href={href('/alerts')} aria-label={b ? t(b.n > 1 ? `Alertes : ${b.n} ouvertes` : 'Alertes : 1 ouverte', b.n > 1 ? `Alerts: ${b.n} open` : 'Alerts: 1 open') : t('Alertes', 'Alerts')}
       title={t('Alertes', 'Alerts')} className={cn('relative flex size-11 items-center justify-center rounded-lg hover:bg-sunken', path.startsWith('/alerts') ? 'text-brand' : 'text-ink-2')}>
       <BellRing className="size-5" aria-hidden />
       {b && <span className={cn('num text-micro absolute top-1.5 right-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 font-bold text-white', b.tone === 'stop' ? 'bg-stop' : 'bg-wait')} aria-hidden>{capCount(b.n)}</span>}
@@ -338,7 +338,7 @@ function FullViewSwitch() {
   if (!canFull) return null;
   return (
     <Hint id="shell.view">
-      <button type="button" role="switch" aria-checked={full} onClick={() => setFull(!full)} className="flex min-h-11 w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm hover:bg-sunken">
+      <button type="button" role="switch" aria-checked={full} onClick={() => setFull(!full)} className="flex min-h-11 w-full items-center gap-3 rounded-md px-3 py-2 text-left text-body hover:bg-sunken">
         <span className="min-w-0 flex-1"><span className="text-body block font-semibold text-ink">{t('Vue complète', 'Full view')}</span><span className="text-small block text-ink-3">{t('Outils avancés', 'Advanced tools')}</span></span>
         {/* Off: outlined track and a grey knob (both well above 3:1 on the white menu); on: blue track, white knob. */}
         <span className={cn('relative h-6 w-10 shrink-0 rounded-full border-2 transition-colors', full ? 'border-brand bg-brand' : 'border-ink-3 bg-surface')} aria-hidden>
@@ -407,7 +407,7 @@ function StatusBanners() {
   const bars: ReactNode[] = [];
   if (netOk && online && healthNow === 'stale') bars.push(<Bar key="stale" tone="wait" icon={<WifiOff className="size-4" aria-hidden />}>{t('Les données ne se rafraîchissent plus — reconnexion… Les commandes continuent sur les tablettes des plateformes et dans Clover.', 'Data is not refreshing — reconnecting… Orders keep arriving on the platform tablets and in Clover.')}</Bar>);
   if (!netOk || !online) bars.push(<Bar key="off" tone="stop" icon={<WifiOff className="size-4" aria-hidden />}>{t('Pas de connexion — les commandes continuent sur les tablettes des plateformes et dans Clover. Reconnexion automatique…', 'No connection — orders keep coming on the platform tablets and in Clover. Reconnecting…')}</Bar>);
-  if (pulse?.devices.offline) bars.push(<Bar key="dev" tone="wait" href="/alerts">{t(`${pulse.devices.offline} tablette(s) de cuisine hors ligne`, `${pulse.devices.offline} kitchen tablet(s) offline`)}</Bar>);
+  if (pulse?.devices.offline) bars.push(<Bar key="dev" tone="wait" href="/alerts">{t(pulse.devices.offline > 1 ? `${pulse.devices.offline} tablettes de cuisine hors ligne` : '1 tablette de cuisine hors ligne', pulse.devices.offline > 1 ? `${pulse.devices.offline} kitchen tablets offline` : '1 kitchen tablet offline')}</Bar>);
   if (pulse && !pulse.live && can('admin')) {
     bars.push(full
       ? <Bar key="live" tone="wait" href="/settings/channels">{t('Mode sécurité : rien n’est envoyé aux plateformes (LIVE_CONNECTORS_GLOBAL_ENABLED=false).', 'Safe mode: nothing is sent to the platforms (LIVE_CONNECTORS_GLOBAL_ENABLED=false).')}</Bar>

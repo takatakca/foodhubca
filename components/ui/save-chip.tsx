@@ -56,7 +56,7 @@ export function SaveChip({ autosave, undo, className }: { autosave: Pick<Autosav
 export function DraftRestoredBanner({ onDiscard, className }: { onDiscard: () => void; className?: string }) {
   const { t } = useI18n();
   return (
-    <div className={cn('mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-info/30 bg-info-soft px-4 py-3 text-sm text-info-2', className)} role="status">
+    <div className={cn('mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-info/30 bg-info-soft px-4 py-3 text-body text-info-2', className)} role="status">
       <span className="flex-1 font-semibold">{t('Vos changements non enregistrés ont été récupérés sur cet écran et vont être enregistrés.', 'Your unsaved changes were recovered on this screen and are being saved.')}</span>
       <button type="button" onClick={onDiscard} className="min-h-10 rounded-md px-3 font-bold hover:bg-info/10">{t('Revenir à la version enregistrée', 'Go back to the saved version')}</button>
     </div>
@@ -71,7 +71,7 @@ export function FormDraftNote({ restored, onDiscard, className }: { restored: bo
   const { t } = useI18n();
   if (!restored) return null;
   return (
-    <div className={cn('mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-info/30 bg-info-soft px-3 py-2 text-sm text-info-2', className)} role="status" data-testid="form-draft-note">
+    <div className={cn('mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-info/30 bg-info-soft px-3 py-2 text-body text-info-2', className)} role="status" data-testid="form-draft-note">
       <span className="flex-1 font-semibold">{t('Repris là où vous étiez — rien n’a encore été envoyé.', 'Picked up where you left off — nothing was sent yet.')}</span>
       <button type="button" onClick={onDiscard} className="min-h-10 rounded-md px-3 font-bold hover:bg-info/10">{t('Recommencer', 'Start over')}</button>
     </div>

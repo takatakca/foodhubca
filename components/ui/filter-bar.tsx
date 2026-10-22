@@ -32,7 +32,7 @@ export function MultiPick({ label, options, value, onChange, renderOption }: { l
           {options.map(([k, l]) => {
             const on = value.includes(k);
             return (
-              <button key={k} type="button" onClick={() => onChange(on ? value.filter((x) => x !== k) : [...value, k])} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-sunken">
+              <button key={k} type="button" onClick={() => onChange(on ? value.filter((x) => x !== k) : [...value, k])} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-body hover:bg-sunken">
                 <span className={cn('flex size-4 items-center justify-center rounded-[4px] border', on ? 'border-ink bg-ink text-canvas' : 'border-line-2')}>{on && <Check className="size-3" />}</span>
                 {renderOption ? renderOption(k, l) : l}
               </button>
@@ -73,7 +73,7 @@ export function FilterBar({ filters, set, locations, brands, presets, extra, sho
       {filters.preset === 'custom' && (
         <span className="flex items-center gap-1.5">
           <Input inputSize="sm" type="date" className="w-auto" value={filters.from} onChange={(e) => set({ from: e.target.value, preset: 'custom' })} aria-label={t('Du', 'From')} />
-          <span className="text-xs text-ink-3">→</span>
+          <span className="text-small text-ink-3">→</span>
           <Input inputSize="sm" type="date" className="w-auto" value={filters.to} onChange={(e) => set({ to: e.target.value, preset: 'custom' })} aria-label={t('Au', 'To')} />
         </span>
       )}

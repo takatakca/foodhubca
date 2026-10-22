@@ -26,7 +26,7 @@ export const locationsText = (t: T, n: number) => t(`${n} succursale${n > 1 ? 's
 function Row({ on, onClick, children, indent, disabled }: { on: boolean; onClick: () => void; children: ReactNode; indent?: boolean; disabled?: boolean }) {
   return (
     <button type="button" onClick={onClick} disabled={disabled} aria-current={on ? 'true' : undefined}
-      className={cn('flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm hover:bg-sunken disabled:opacity-50', on && 'bg-brand-soft hover:bg-brand-soft', indent && 'pl-11')}>
+      className={cn('flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-body hover:bg-sunken disabled:opacity-50', on && 'bg-brand-soft hover:bg-brand-soft', indent && 'pl-11')}>
       {children}
       {on && <Check className="ml-auto size-4 shrink-0 text-brand" />}
     </button>
@@ -154,7 +154,7 @@ function ScopePanel({ onDone }: { onDone: () => void }) {
     return (
       <Row key={`${kitchen}|${b}`} indent={indent} on={sameScope(site, { kitchen, brand: b, ...(ch ? { channel: ch } : {}) })} disabled={noneOnPlatform({ kitchen, brand: b, channel: ch })} onClick={() => pick({ kitchen, brand: b })}>
         <BrandMark name={b} size="xs" /><span className="min-w-0 flex-1 truncate font-semibold">{b}</span>
-        {counted && <span className="shrink-0 text-xs text-ink-3">{storesText(t, n)}</span>}
+        {counted && <span className="shrink-0 text-small text-ink-3">{storesText(t, n)}</span>}
       </Row>
     );
   };
@@ -162,7 +162,7 @@ function ScopePanel({ onDone }: { onDone: () => void }) {
   return (
     <>
       <div className="border-b border-line p-2">
-        <label className="flex h-11 items-center gap-2 rounded-lg bg-sunken px-3 text-sm">
+        <label className="flex h-11 items-center gap-2 rounded-lg bg-sunken px-3 text-body">
           <Search className="size-4 text-ink-3" />
           <input ref={input} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('Chercher une succursale, une marque ou une plateforme', 'Search a location, a brand or a platform')} className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-ink-3" />
         </label>
@@ -185,7 +185,7 @@ function ScopePanel({ onDone }: { onDone: () => void }) {
         {!results && <>
           <Row on={isAllRestaurants(site)} onClick={() => pick({ kitchen: null, brand: null })}>
             <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-rail text-electric"><Store className="size-4" /></span>
-            <span className="min-w-0 flex-1"><span className="block font-bold">{allLocations ? t('Tous les restaurants', 'All restaurants') : t('Mes restaurants', 'My restaurants')}</span>{counted && <span className="block text-xs text-ink-3">{storesText(t, count({ kitchen: null, brand: null, channel: ch }))}</span>}</span>
+            <span className="min-w-0 flex-1"><span className="block font-bold">{allLocations ? t('Tous les restaurants', 'All restaurants') : t('Mes restaurants', 'My restaurants')}</span>{counted && <span className="block text-small text-ink-3">{storesText(t, count({ kitchen: null, brand: null, channel: ch }))}</span>}</span>
           </Row>
           {single ? <>
             <Heading>{t('Marques', 'Brands')} · {shortLoc(single.name)}</Heading>
@@ -201,7 +201,7 @@ function ScopePanel({ onDone }: { onDone: () => void }) {
                     <div className="min-w-0 flex-1">
                       <Row on={sameScope(site, { kitchen: l.code, brand: null, ...(ch ? { channel: ch } : {}) })} disabled={noneOnPlatform({ kitchen: l.code, brand: null, channel: ch })} onClick={() => pick({ kitchen: l.code, brand: null })}>
                         <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-sunken text-ink-2"><MapPin className="size-4" /></span>
-                        <span className="min-w-0"><span className="block truncate font-bold">{shortLoc(l.name)}</span><span className="block truncate text-xs text-ink-3">{[brandsText(t, list.length), counted ? storesText(t, count({ kitchen: l.code, brand: null, channel: ch })) : l.address].filter(Boolean).join(' · ')}</span></span>
+                        <span className="min-w-0"><span className="block truncate font-bold">{shortLoc(l.name)}</span><span className="block truncate text-small text-ink-3">{[brandsText(t, list.length), counted ? storesText(t, count({ kitchen: l.code, brand: null, channel: ch })) : l.address].filter(Boolean).join(' · ')}</span></span>
                       </Row>
                     </div>
                     {list.length > 0 && (
@@ -228,26 +228,26 @@ function ScopePanel({ onDone }: { onDone: () => void }) {
           {results.kitchens.length > 0 && <Heading>{t('Succursales', 'Locations')}</Heading>}
           {results.kitchens.map((l) => (
             <Row key={l.code} on={sameScope(site, { kitchen: l.code, brand: null, ...(ch ? { channel: ch } : {}) })} disabled={noneOnPlatform({ kitchen: l.code, brand: null, channel: ch })} onClick={() => pick({ kitchen: l.code, brand: null })}>
-              <MapPin className="size-4 text-ink-3" /><span className="font-bold">{shortLoc(l.name)}</span><span className="truncate text-xs text-ink-3">{l.address}</span>
+              <MapPin className="size-4 text-ink-3" /><span className="font-bold">{shortLoc(l.name)}</span><span className="truncate text-small text-ink-3">{l.address}</span>
             </Row>
           ))}
           {(results.pairs.length > 0 || results.everywhere.length > 0) && <Heading>{t('Marques', 'Brands')}</Heading>}
           {results.pairs.map((p) => (
             <Row key={`${p.kitchen}|${p.brand}`} on={sameScope(site, { ...p, ...(ch ? { channel: ch } : {}) })} disabled={noneOnPlatform({ ...p, channel: ch })} onClick={() => pick(p)}>
-              <BrandMark name={p.brand} size="xs" /><span className="truncate font-semibold">{p.brand}</span><span className="truncate text-xs text-ink-3">{shortLoc(locations.find((l) => l.code === p.kitchen)?.name ?? p.kitchen)}</span>
+              <BrandMark name={p.brand} size="xs" /><span className="truncate font-semibold">{p.brand}</span><span className="truncate text-small text-ink-3">{shortLoc(locations.find((l) => l.code === p.kitchen)?.name ?? p.kitchen)}</span>
             </Row>
           ))}
           {results.everywhere.map((b) => (
             <Row key={`*|${b}`} on={sameScope(site, { kitchen: null, brand: b, ...(ch ? { channel: ch } : {}) })} disabled={noneOnPlatform({ kitchen: null, brand: b, channel: ch })} onClick={() => pick({ kitchen: null, brand: b })}>
-              <BrandMark name={b} size="xs" /><span className="truncate font-semibold">{b}</span><span className="truncate text-xs text-ink-3">{t('toutes les succursales', 'every location')}</span>
+              <BrandMark name={b} size="xs" /><span className="truncate font-semibold">{b}</span><span className="truncate text-small text-ink-3">{t('toutes les succursales', 'every location')}</span>
             </Row>
           ))}
-          {!results.kitchens.length && !results.pairs.length && !results.everywhere.length && !results.platforms.length && <div className="px-3 py-6 text-center text-sm text-ink-3">{t('Aucune succursale, marque ni plateforme à ce nom.', 'No location, brand or platform by that name.')}</div>}
+          {!results.kitchens.length && !results.pairs.length && !results.everywhere.length && !results.platforms.length && <div className="px-3 py-6 text-center text-body text-ink-3">{t('Aucune succursale, marque ni plateforme à ce nom.', 'No location, brand or platform by that name.')}</div>}
         </>}
       </div>
       {!isEverything(site) && (
         <div className="border-t border-line p-1.5">
-          <button type="button" onClick={() => { setSite({ kitchen: null, brand: null, channel: undefined }); onDone(); }} className="flex h-11 w-full items-center justify-center gap-2 rounded-lg text-sm font-semibold text-brand hover:bg-brand-soft">
+          <button type="button" onClick={() => { setSite({ kitchen: null, brand: null, channel: undefined }); onDone(); }} className="flex h-11 w-full items-center justify-center gap-2 rounded-lg text-body font-semibold text-brand hover:bg-brand-soft">
             <RotateCcw className="size-4" />{t('Tout réinitialiser', 'Reset everything')}
           </button>
         </div>

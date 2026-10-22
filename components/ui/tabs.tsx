@@ -43,9 +43,9 @@ const TAB_ON = 'border-ink text-ink';
 const TAB_OFF = 'border-transparent text-ink-3 hover:text-ink';
 
 export function Tabs<K extends string>({ tabs, value, onChange, className, label }: { tabs: Array<{ key: K; label: ReactNode; count?: number | null }>; value: K; onChange: (k: K) => void; className?: string; label?: string }) {
-  const strip = useStrip(value);
+  const { ref: stripRef, fade, onScroll } = useStrip(value);
   return (
-    <div ref={strip.ref} onScroll={strip.onScroll} data-fade={strip.fade} role="tablist" aria-label={label} className={cn('no-scrollbar fade-x flex gap-1 overflow-x-auto border-b border-line', className)}>
+    <div ref={stripRef} onScroll={onScroll} data-fade={fade} role="tablist" aria-label={label} className={cn('no-scrollbar fade-x flex gap-1 overflow-x-auto border-b border-line', className)}>
       {tabs.map((t, i) => (
         <button key={t.key} role="tab" type="button" aria-selected={value === t.key} tabIndex={value === t.key ? 0 : -1}
           onKeyDown={(event) => {
@@ -75,7 +75,7 @@ export function LinkTabs({ tabs, className, label, selectBelow = 5 }: { tabs: Ar
   const href = useScopeHref();
   const isOn = (t: { href: string; exact?: boolean }) => (t.exact ? path === t.href : path === t.href || path.startsWith(`${t.href}/`));
   const current = tabs.find(isOn)?.href ?? '';
-  const strip = useStrip(current);
+  const { ref: stripRef, fade, onScroll } = useStrip(current);
   const asSelect = tabs.length > selectBelow;
   return (
     <nav className={cn('mb-6', className)} aria-label={label}>
@@ -88,7 +88,7 @@ export function LinkTabs({ tabs, className, label, selectBelow = 5 }: { tabs: Ar
           <ChevronDown className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-ink-3" aria-hidden />
         </div>
       )}
-      <div ref={strip.ref} onScroll={strip.onScroll} data-fade={strip.fade} className={cn('no-scrollbar fade-x flex gap-1 overflow-x-auto border-b border-line', asSelect ? 'hidden md:flex' : 'flex')}>
+      <div ref={stripRef} onScroll={onScroll} data-fade={fade} className={cn('no-scrollbar fade-x flex gap-1 overflow-x-auto border-b border-line', asSelect ? 'hidden md:flex' : 'flex')}>
         {tabs.map((t) => {
           const on = isOn(t);
           return (

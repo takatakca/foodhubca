@@ -34,7 +34,7 @@ export function PinPad({ onDone, length = 4, maxLength = 6, busy, error, dark }:
           <span key={i} className={cn('size-3.5 rounded-full transition-colors', i < pin.length ? (error ? 'bg-stop' : 'bg-ink') : 'bg-line-2')} />
         ))}
       </div>
-      {error && <div className="-mt-2 mb-3 text-center text-sm font-semibold text-stop">{error}</div>}
+      {error && <div className="-mt-2 mb-3 text-center text-body font-semibold text-stop">{error}</div>}
       <div className="grid grid-cols-3 gap-2.5">
         {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => <button key={d} type="button" className={key} onClick={() => press(d)} disabled={busy}>{d}</button>)}
         <button type="button" className={cn(key, 'text-base')} onClick={back} aria-label="Effacer / Delete"><Delete className="size-6" /></button>

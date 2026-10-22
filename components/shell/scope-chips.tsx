@@ -46,14 +46,14 @@ export function FilterChip({ label, value, options, onPick, onClear, allLabel }:
   const list = (
     <div className="space-y-0.5">
       {/* Disclosure pattern: plain buttons in a labelled group, the picked one aria-pressed (not a listbox). */}
-      <button type="button" onClick={() => { onClear(); setOpen(false); }} aria-pressed={!value} className={cn('flex min-h-11 w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-semibold hover:bg-sunken', !value && 'bg-brand-soft')}>
+      <button type="button" onClick={() => { onClear(); setOpen(false); }} aria-pressed={!value} className={cn('flex min-h-11 w-full items-center gap-2 rounded-md px-3 py-2 text-left text-body font-semibold hover:bg-sunken', !value && 'bg-brand-soft')}>
         <span className="flex-1">{allLabel ?? t('Toutes', 'All')}</span>{!value && <Check aria-hidden className="size-4 text-brand" />}
       </button>
       {options.map((o) => (
         <button key={o.key} type="button" disabled={o.disabled} onClick={() => choose(o.key)} aria-pressed={value === o.key}
-          className={cn('flex min-h-11 w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-sunken disabled:cursor-not-allowed disabled:opacity-40', value === o.key && 'bg-brand-soft')}>
+          className={cn('flex min-h-11 w-full items-center gap-2 rounded-md px-3 py-2 text-left text-body hover:bg-sunken disabled:cursor-not-allowed disabled:opacity-40', value === o.key && 'bg-brand-soft')}>
           {o.icon}<span className="min-w-0 flex-1 truncate font-semibold">{o.label}</span>
-          {o.note && <span className="shrink-0 text-xs text-ink-3">{o.note}</span>}
+          {o.note && <span className="shrink-0 text-small text-ink-3">{o.note}</span>}
           {value === o.key && <Check aria-hidden className="size-4 shrink-0 text-brand" />}
         </button>
       ))}

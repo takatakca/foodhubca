@@ -22,7 +22,7 @@ Workbook tabs:
 | README, Exports | How to read the workbook; which exports are received or still waiting |
 | PnL_Monthly, PnL_Brand_Location | P&L per platform × month, and per platform × brand × location × month |
 | Commission_Compare | Effective commission %, all-in platform cost %, net per order, cancellations; per platform, mode, kitchen, brand and year |
-| Tax_Summary | GST / QST collected, GST / QST paid on platform fees (ITC / ITR, estimated), the stray Clover "Sales Tax" |
+| Tax_Summary | GST / QST collected, GST / QST paid on platform fees (ITC / ITR, estimated), the stray Clover "Sales Tax", sales the platform taxed QST only (no GST charged) and the GST still owed on them |
 | Disputes | Error charges, refunds, adjustments and cancellations, with the deadline from the Rules tab |
 | Payouts_vs_Bank, Money_Held, To_Do | Bank matching, money held and to-do list. The owner types in the yellow cells, which are kept on rebuild. |
 | Rules, Stores, Lines, Bank, Files | Parameters with sources, the store map, the raw data, and what was read |

@@ -29,7 +29,7 @@ export interface SessionPayload {
   /** kitchen device id when the session was opened with a PIN on an enrolled tablet */
   d?: string;
   /** how the person signed in */
-  k?: 'otp' | 'link' | 'pin' | 'password';
+  k?: 'otp' | 'link' | 'pin' | 'password' | 'google';
 }
 
 export interface DevicePayload {

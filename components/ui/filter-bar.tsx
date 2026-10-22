@@ -15,16 +15,19 @@ export const CHANNEL_OPTIONS = [['uber_eats', 'Uber Eats'], ['doordash', 'DoorDa
 export function MultiPick({ label, options, value, onChange, renderOption }: { label: string; options: Array<[string, string]>; value: string[]; onChange: (v: string[]) => void; renderOption?: (k: string, l: string) => ReactNode }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
+  const [right, setRight] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => { const c = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); }; document.addEventListener('mousedown', c); return () => document.removeEventListener('mousedown', c); }, []);
+  // Near the right edge of the screen the list opens to the left, so it stays inside the screen.
+  const toggle = () => { const r = ref.current?.getBoundingClientRect(); setRight(Boolean(r && r.left + 256 > window.innerWidth - 16)); setOpen(!open); };
   const summary = value.length === 0 ? t('Toutes', 'All') : value.length === 1 ? options.find(([k]) => k === value[0])?.[1] ?? value[0] : `${value.length}`;
   return (
     <div className="relative" ref={ref}>
-      <button type="button" onClick={() => setOpen(!open)} className={cn('flex h-9 items-center gap-1.5 rounded-md border px-3 text-[13px] font-semibold', value.length ? 'border-ink bg-ink text-canvas' : 'border-line-2 bg-surface text-ink-2 hover:border-ink-4')}>
+      <button type="button" onClick={toggle} className={cn('flex h-9 items-center gap-1.5 rounded-md border px-3 text-[13px] font-semibold', value.length ? 'border-ink bg-ink text-canvas' : 'border-line-2 bg-surface text-ink-2 hover:border-ink-4')}>
         {label}: <span className="max-w-32 truncate">{summary}</span><ChevronDown className="size-3.5 opacity-70" />
       </button>
       {open && (
-        <div className="absolute top-11 left-0 z-40 max-h-80 w-64 overflow-y-auto rounded-lg border border-line bg-surface p-1.5 shadow-pop animate-rise">
+        <div className={cn('absolute top-11 z-40 max-h-80 w-[min(16rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-line bg-surface p-1.5 shadow-pop animate-rise', right ? 'right-0' : 'left-0')}>
           <button type="button" onClick={() => onChange([])} className="w-full rounded-md px-3 py-2 text-left text-[13px] font-semibold text-ink-3 hover:bg-sunken">{t('Tout effacer', 'Clear')}</button>
           {options.map(([k, l]) => {
             const on = value.includes(k);
@@ -41,20 +44,23 @@ export function MultiPick({ label, options, value, onChange, renderOption }: { l
   );
 }
 
-export function FilterBar({ filters, set, locations, brands, presets, extra, showBrands = true, showLocations = true }: {
+export function FilterBar({ filters, set, locations, brands, presets, extra, showBrands = true, showLocations = true, showChannels = true }: {
   filters: Filters; set: (p: Partial<Filters>) => void; locations: Array<{ code: string; name: string }>; brands?: string[];
-  presets?: RangePreset[]; extra?: ReactNode; showBrands?: boolean; showLocations?: boolean;
+  presets?: RangePreset[]; extra?: ReactNode; showBrands?: boolean; showLocations?: boolean; showChannels?: boolean;
 }) {
   const { t } = useI18n();
   const list = presets ?? ['today', 'yesterday', '7d', '30d', 'month', 'last_month', 'custom'];
-  // Inside the console the header picks the kitchen and the brand: the page keeps the period and the platforms. With a
-  // kitchen picked (no brand), the brand picker offers that kitchen's brands only.
+  // Inside the console the header picks the location, the brand and the platform: the page keeps the period (and the
+  // platforms while none is picked in the header). With a location picked (no brand), the brand picker offers that
+  // location's brands only.
   const cs = useConsoleScope();
   const { brandsByKitchen } = useViewer();
   const kitchenBrands = cs?.site.kitchen ? brandsByKitchen[cs.site.kitchen] : undefined;
   const brandOptions = (brands ?? []).filter((b) => !kitchenBrands || kitchenBrands.includes(b));
   const pickLocations = showLocations && !cs;
   const pickBrands = showBrands && !cs?.site.brand;
+  // A platform picked in the header wins: the page's own platform picker hides itself.
+  const pickChannels = showChannels && !cs?.site.channel;
   return (
     <div className="mb-5 flex flex-wrap items-center gap-2">
       <div className="relative">
@@ -72,7 +78,7 @@ export function FilterBar({ filters, set, locations, brands, presets, extra, sho
         </span>
       )}
       {pickLocations && locations.length > 1 && <MultiPick label={t('Succursales', 'Locations')} options={locations.map((l) => [l.code, l.name.split(' — ')[0]])} value={filters.locations} onChange={(v) => set({ locations: v })} />}
-      <MultiPick label={t('Plateformes', 'Platforms')} options={CHANNEL_OPTIONS.map(([k, l]) => [k, l])} value={filters.channels} onChange={(v) => set({ channels: v })} renderOption={(k, l) => <span className="flex items-center gap-2"><PlatformMark channel={k} size="xs" />{l}</span>} />
+      {pickChannels && <MultiPick label={t('Plateformes', 'Platforms')} options={CHANNEL_OPTIONS.map(([k, l]) => [k, l])} value={filters.channels} onChange={(v) => set({ channels: v })} renderOption={(k, l) => <span className="flex items-center gap-2"><PlatformMark channel={k} size="xs" />{l}</span>} />}
       {pickBrands && brandOptions.length > 1 && <MultiPick label={t('Marques', 'Brands')} options={brandOptions.map((b) => [b, b])} value={filters.brands.filter((b) => brandOptions.includes(b))} onChange={(v) => set({ brands: v })} />}
       {extra}
     </div>

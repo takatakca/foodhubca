@@ -123,6 +123,8 @@ describe('booking a DoorDash Drive courier', () => {
 function driveHook(body: Record<string, unknown>, token = 'drive-hook-token') {
   return handleFleetWebhook('doordash_drive', new Request('https://hub.test/api/foodhub/webhooks/doordash-drive', { method: 'POST', headers: { Authorization: `Basic ${token}` }, body: JSON.stringify(body) }));
 }
+// Fixed pause only before checking that something did NOT happen; positive checks poll with vi.waitFor,
+// because the webhook side effects run after the response and a loaded machine needs more than 30 ms.
 const settle = () => new Promise((r) => setTimeout(r, 30));
 
 describe('DoorDash Drive webhooks', () => {
@@ -131,17 +133,14 @@ describe('DoorDash Drive webhooks', () => {
     const d = (await dispatchOrder(o.id, actor)).delivery!;
     expect((await driveHook({ event_name: 'DASHER_CONFIRMED', external_delivery_id: d.id }, 'wrong')).status).toBe(401);
     expect((await driveHook({ event_name: 'DASHER_CONFIRMED', external_delivery_id: d.id, dasher_name: 'Lea', dasher_location: { lat: 45.47, lng: -73.61 } })).status).toBe(200);
-    await settle();
-    expect((await getDelivery(d.id))).toMatchObject({ status: 'assigned', courier: { name: 'Lea', lat: 45.47 } });
+    await vi.waitFor(async () => expect((await getDelivery(d.id))).toMatchObject({ status: 'assigned', courier: { name: 'Lea', lat: 45.47 } }));
+    await vi.waitFor(() => expect(calls.filter((c) => c.url.includes('/Messages.json'))).toHaveLength(1));
     const sms = calls.filter((c) => c.url.includes('/Messages.json'));
-    expect(sms).toHaveLength(1);
     expect(String(sms[0].body)).toContain(encodeURIComponent('https://track.doordash.com/x'));
     await driveHook({ event_name: 'DASHER_PICKED_UP', external_delivery_id: d.id });
-    await settle();
-    expect((await getDirectOrder(o.id))!.status).toBe('out_for_delivery');
+    await vi.waitFor(async () => expect((await getDirectOrder(o.id))!.status).toBe('out_for_delivery'));
     await driveHook({ event_name: 'DASHER_DROPPED_OFF', external_delivery_id: d.id });
-    await settle();
-    expect((await getDirectOrder(o.id))!.status).toBe('completed');
+    await vi.waitFor(async () => expect((await getDirectOrder(o.id))!.status).toBe('completed'));
     await driveHook({ event_name: 'DASHER_CONFIRMED_PICKUP_ARRIVAL', external_delivery_id: d.id });
     await settle();
     expect((await getDelivery(d.id))!.status).toBe('delivered');
@@ -152,11 +151,9 @@ describe('DoorDash Drive webhooks', () => {
     const o = await order();
     const d = (await dispatchOrder(o.id, actor)).delivery!;
     await driveHook({ event_name: 'DELIVERY_CANCELLED', external_delivery_id: d.id, cancellation_reason_message: 'No Dasher available' });
-    await settle();
-    expect((await getDirectOrder(o.id))!.attention).toMatch(/Cancelled by the courier service — No Dasher available/);
+    await vi.waitFor(async () => expect((await getDirectOrder(o.id))!.attention).toMatch(/Cancelled by the courier service — No Dasher available/));
     await driveHook({ event_name: 'DASHER_CONFIRMED', external_delivery_id: 'nobody' });
-    await settle();
-    expect((await getRepo().listDocs('delivery_webhooks')).length).toBe(1);
+    await vi.waitFor(async () => expect((await getRepo().listDocs('delivery_webhooks')).length).toBe(1));
     expect(driveEventStatus('dasher_enroute_to_dropoff')).toBe('picked_up');
   });
 });
@@ -192,7 +189,9 @@ describe('auto-dispatch and cancel', () => {
     const o = await order();
     const booked = await dispatchOrder(o.id, actor);
     await driveHook({ event_name: 'DASHER_CONFIRMED', external_delivery_id: booked.delivery!.id, dasher_name: 'Sam' });
-    await settle();
+    // The webhook side effects run after the response: poll until the Dasher is on the delivery and the order says so.
+    await vi.waitFor(async () => expect((await getDelivery(booked.delivery!.id))!.status).toBe('assigned'));
+    await vi.waitFor(async () => expect((await getDirectOrder(o.id))!.events.some((e) => e.type === 'courier_assigned')).toBe(true));
     calls = [];
     const r = await cancelCourier(o.id, actor, 'Customer cancelled');
     expect(r.ok).toBe(false);

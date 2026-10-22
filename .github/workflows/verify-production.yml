@@ -1,0 +1,50 @@
+name: Verify Food Hub production release
+
+# Read-only verification; never deploys, posts orders, reads secrets or changes merchant data.
+# A scheduled run must opt in explicitly. Manual runs may be started by the owner at any time.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: foodhub-production-readonly-verify
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.FOODHUB_PRODUCTION_VERIFY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Checkout expected revision
+        uses: actions/checkout@v4
+      - name: Configure Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify deployed public revision and endpoints
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          # No npm dependencies or production secrets are required.
+          # On manual runs, select main. GitHub scheduled runs always target default-branch HEAD.
+          set -uo pipefail
+          node scripts/verify-live.mjs --url https://foodhub.on2go.ca/ --sha "$EXPECTED_SHA" > /tmp/foodhub-production-check.log 2>&1
+          result=$?
+          cat /tmp/foodhub-production-check.log
+          {
+            echo '## Food Hub production release proof'
+            echo "- Expected Git SHA: \`$EXPECTED_SHA\`"
+            echo "- Domain: \`https://foodhub.on2go.ca/\`"
+            echo "- Outcome: $([ "$result" -eq 0 ] && echo 'PASS' || echo 'FAIL — do not claim deployed')"
+            echo '### Read-only verification'
+            echo '```'
+            cat /tmp/foodhub-production-check.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$result"

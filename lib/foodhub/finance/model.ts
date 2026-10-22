@@ -80,6 +80,10 @@ export interface FinanceLine {
   /** Information only (not in net): tax the platform says it remitted, discounts funded by the platform. */
   infoTaxRemittedByPlatform: number;
   infoPlatformFundedDiscounts: number;
+  /** Pre-tax sales on which the platform charged the customer QST only (no GST) outside the GST holiday. */
+  qstOnlySales: number;
+  /** GST owed on those sales anyway (5 % of the pre-tax price): not collected, so it comes out of the proceeds. */
+  gstNotCharged: number;
   /** Commission rate printed on the statement (fraction), when given. */
   printedRate: number | null;
   description: string;

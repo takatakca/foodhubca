@@ -5,7 +5,24 @@
 - Le formulaire « Rejoindre ON2GO » d’on2go.ca (site statique, dépôt séparé) a maintenant son arrière-boutique : `POST /api/public/restaurant-leads` (JSON, sans connexion, CORS on2go.ca et www.on2go.ca seulement, pot de miel `company` → 202 silencieux, 5 envois / 10 min par IP → 429 + Retry-After, corps ≤ 16 Ko), validation par champ (`errors: { champ: required | invalid | too_long }`), stockage dans `fh_docs` collection `restaurant_leads` (aucune migration), courriel à `FOODHUB_SUPPORT_EMAIL` + réponse automatique FR / EN au restaurant par l’expéditeur habituel (sautés sans fournisseur, jamais une erreur), ligne dans le journal d’activité.
 - Console : **Réglages → Demandes de restaurants** (propriétaire seulement) : plus récente en premier, filtres à suivre / nouvelle / contactée / gagnée / perdue, recherche, statut par liste déroulante, détails et notes internes (`GET/POST /api/foodhub/restaurant-leads`, permission `admin`).
 - EN: the on2go.ca “Join ON2GO” form posts to `POST /api/public/restaurant-leads` (validation, honeypot, per-IP quota, CORS for on2go.ca only), leads are stored as `restaurant_leads` docs, the owner is emailed and the lead gets an FR / EN auto-reply; Settings → Restaurant leads lists them newest first with status and notes. Contract: `docs/RESTAURANT_LEADS.md`.
-- Code: `lib/foodhub/restaurant-leads.ts`, `app/api/public/restaurant-leads/route.ts`, `app/api/foodhub/restaurant-leads/route.ts`, `app/(console)/settings/leads/page.tsx`, `app/(console)/settings/settings-ui.tsx` (new tab), tests `tests/restaurant-leads.test.ts` (14).
+- Code: `lib/foodhub/restaurant-leads.ts`, `app/api/public/restaurant-leads/route.ts`, `app/api/foodhub/restaurant-leads/route.ts`, `app/(console)/settings/leads/page.tsx`, `components/shell/settings-pages.ts` (new page in the « Votre entreprise / Your business » group), tests `tests/restaurant-leads.test.ts` (14).
+- Brought up to main b40e446 (#72 #54 #50 #51 #43 #86 #89): main moved the Settings page list to `components/shell/settings-pages.ts`, so the leads page is listed there (group `business`, permission `admin`).
+
+## 2026-10-21 — Simpler sign-in page + « Continuer avec Google » (`feature/login-google-signin`)
+
+- One calm sign-in screen: Food Hub mark, big « Continuer avec Google / Continue with Google » (only when `GOOGLE_OAUTH_CLIENT_ID` is set), the code-by-email/text sign-in as the second option, the owner recovery behind a small link; FR first, EN; 44 px targets; first run, code and recovery steps kept.
+- Google Sign-In server side (`lib/foodhub/identity/google.ts`): `/api/auth/google/start` (OAuth 2.0 URL, scope openid email profile, state + PKCE S256 + nonce in an httpOnly Secure SameSite=Lax cookie, 10 min) and `/api/auth/google/callback` (code exchange at oauth2.googleapis.com, id_token verified against Google JWKS with a one-hour cache: RS256 signature, iss, aud, exp, nonce, email_verified). Signs in only an active team member whose email is already known, through the same `sessionCookieFor` as the code sign-in (session kind `google`); otherwise the friendly « pas encore dans une équipe » notice. Never creates anyone; per-address throttle and activity log like the other sign-ins.
+- Tests `tests/google-signin.test.ts` (fake JWKS; bad signature / issuer / audience / expiry / nonce / alg none; state, cookie and nonce mismatches; unknown, deactivated and unverified emails refused; known email signed in; lock after repeated failures). Owner guide `docs/GOOGLE_SIGNIN.md` + `.env.example` lines.
+## 2026-10-17 — Client dashboard (PR #72) brought up to main 6381aec
+
+- `feature/client-dashboard-easy` merged with `origin/main` (#61 to #80). Conflicts: `components/ui/overlay.tsx` (main's
+  focus trap and dialog stack kept; the PR's 44 px Modal close and the light-sheet hooks `useEscape` / `useDialogFocus`
+  for the phone's "Plus" sheet added back, quiet while a Modal or Drawer is open) and this file (both entries kept).
+- Main's own merge of #80 left a broken `lib/foodhub/legal.ts` (two `phoneFeesText`, typecheck and build fail) and stale
+  expectations in `tests/legal-pages.test.ts`: both restored to #79's version (4e592e0).
+- `FOODHUB_TENANT_ID`: new `isOwnerTenant()` fails closed on a set-but-invalid value (console warning, no crash, owner's
+  store list hidden). See `docs/CLIENT_DASHBOARD.md` § 21.
+- Checks: typecheck OK, lint 0 errors, 1531 tests passed + 1 skipped, webpack build OK, verify:foodhub 567/0.
 
 ## 2026-10-17 — ON2GO.ca hub pages on main (replaces PR #70, `feature/seo-hub-pages-main`)
 
@@ -143,6 +160,15 @@ Branche `fix/overlay-keyboard-focus-20261016` : focus initial, Tab/Shift+Tab cir
 - Not in this branch (AI-phone branch): greeting wording "automated assistant, call transcribed, press 0" in `lib/foodhub/phone/twilio.ts`, `ivr/tree.ts`, `ivr/engine.ts`, and `redactCards` in `voice.ts` callerTurn.
 - Checks: typecheck OK, lint 0 errors, 973 tests passed + 1 skipped (19 in `tests/legal-pages.test.ts`); 1 failure in `tests/tgtg-email.test.ts` (forged From): a Windows CRLF checkout artifact, passes with LF fixtures, not touched here; webpack build OK, verify:foodhub 554/0. Not deployed.
 
+## 2026-10-16 — Client dashboard: simple view, full view, platform scope (task 40)
+
+- Branch `feature/client-dashboard-easy` (from `origin/main` 444e8f2), not merged. Spec and status: `docs/CLIENT_DASHBOARD.md`.
+- Simple view by default (6-item rail, phone bar of 4, avatar menu with language, text size and the "Vue complète" switch for owners and managers; cookie `fh_view` read on the server). Full view = the console before, unchanged.
+- Scope gains the platform (`?channel=`) with store counts in the switcher (bottom sheet on phones) and filter chips; Home (4 numbers, To do, By platform, Get started), Orders (Actives / Planifiées / Historique), Alerts, Sales & trends, Reports and the new Restaurants → Tous les magasins follow it. Alarms, bell, badges and the kitchen screen never follow a brand or a platform.
+- Read-only API additions: `channels=` on `/api/foodhub/command` (output unchanged without it, tested), `locations=` on `/api/foodhub/incidents`. The owner's DoorDash list is gated to the owner's tenant. No webhook, order write, Clover or menu-publish change; no env var, no migration.
+- Review fixes (all majors and minors): Home numbers fit a phone, contrast, "Demander le branchement" on Get started, pause on the picked platform only, `/alerts?i=` links always show their alert, chip ARIA, 44 px targets, Épuisés wording, page titles, plain words. List in `docs/CLIENT_DASHBOARD.md` §22.
+- Checks after the review fixes: typecheck OK, lint 0 errors, 983 tests passed + 1 skipped (1 failure in `tests/tgtg-email.test.ts`, also on `origin/main`, not touched here), webpack build OK, verify:foodhub 554/0 (32 screens). Env check: `FOODHUB_TENANT_ID` unset or `takatak` in production. Not merged, not deployed: ready for owner review/merge.
+
 ## 2026-10-16 — Uber store kitchen mapping (task 39, `fix/uber-store-kitchen-mapping`)
 
 - The 7 Uber UUIDs in `data/actual/platform-stores-uber.json` are at 5839 Jean-Talon E (Saint-Léonard) in Uber's own records (Uber names them "(Hochelaga)"); production maps them to `NDG_6284`. That mapping was typed by hand in the console, so it lives only in the production `fh_channel_stores` rows: no repo seed or code defaulted Uber stores to NDG.
@@ -233,6 +259,26 @@ piece of work. The plan itself is `docs/MASTER_PLAN.md`. Operations (support, em
 | 18 | Brand phone lines: one Twilio number per brand rings one main number (whisper "Appel pour <marque>", voicemail and texts by email); numbers also serve Google Business Profile verification | `feature/brand-phone-lines` | Brand phone agent | DONE, pushed. Checks: typecheck OK, lint 0 errors, 420/420 tests, webpack OK | Owner merges and deploys; then creates the Twilio account (upgrade), buys the numbers, pastes the two webhook URLs on each number and adds the env names listed in `.env.example` (`FOODHUB_MAIN_PHONE`, `FOODHUB_BRAND_PHONES`, `FOODHUB_VOICEMAIL_EMAIL`, `TWILIO_*`). The owner guide is outside git. |
 | 20 | takatak.ca brand section connected to Food Hub's multi-brand data (feed `GET /api/public/directory`, task 19) + one TAKATAK V1 workspace per restaurant brand (Quadro Holding admin owns all; brand logins by invitation) | foodhubca `claude/google-doordash-id-extraction-wg2f5l` (decision note `docs/TAKATAK_BRANDS_BRIDGE.md`, being written there); takatak-v1 local branch `claude/provision-brand-workspaces` (not pushed: no write access in that session) | DoorDash/Google session (claude, 2026-10-09) | IN PROGRESS (claimed 2026-10-09) | Read the note on that branch. A new session needs takatak.ca allowed in Network access, the takatak-v1 DB secrets and write access to takatak-v1; then push the setup script, run it dry-run, show the owner, `--apply` only after the owner says yes. |
 | 27 | DoorDash: every store back to tablet after UrbanPiper; store list and IDs; Google listings / Ads prep (operations, outside git) | owner's private Google Drive folder "TAKATAK OPS (private)" (README, CLAIMS, APPROVED_VALUES, OPS_LOG) | DoorDash/Google session (claude, 2026-10-09) | IN PROGRESS | Read the Drive folder README first. Never redo, undo or re-send anything its OPS_LOG records without the owner. One agent at a time in the DoorDash portal and each Gmail inbox. |
+
+## 2026-10-10 09:20 UTC (Finance A–Z session, task 30: `fix/finance-tax-split-doordash-hist`)
+
+**Done**
+- Importer fixes after the real exports arrived (DoorDash transactions Oct 2024 → Oct 2026, Uber Payment Details + Payout
+  Summary Jan 2025 → Oct 2026, Clover May → Oct 2026): every statement line now adds up to the platform's net total.
+  - DoorDash pre-April-2025 layout: historical marketing / ad-fee / credit columns; "Tablet fee tax" counted as recoverable tax.
+  - Uber Eats Manager prints the whole tax in "GST/HST on Sales": split by the rate actually charged (QST only, GST only,
+    both), GST-holiday aware; offers / refunds follow the sale's ratio. A rare Uber row with a blank "Other payments" is
+    classified from its description.
+  - New Lines / Tax_Summary columns + auto to-do: sales the platform taxed **QST only** outside the holiday and the GST still
+    owed on them.
+  - Clover orders / refunds / Sales Overview exports are reference files (the payments export carries the amounts).
+- Checks: lint 0 errors, 22/22 finance tests, Excel recalculation of the workbook (21,937 formulas, 0 errors). `typecheck`
+  fails only on `lib/foodhub/adapters/uber-provision.ts` from `main` (main red since #34, fix in #40).
+- Private outputs (never committed): report + workbook rebuilt in `private/finance/`, copied to OneDrive.
+
+**Next**
+- Owner reviews and merges the PR. No env var, no migration, nothing deployed.
+- Owner actions are listed in `private/finance/HANDOFF.md` (Skip and bank exports, Uber tax number / bank, disputes).
 
 ## 2026-10-08 06:20 UTC (brand phone agent, task 18: `feature/brand-phone-lines`)
 

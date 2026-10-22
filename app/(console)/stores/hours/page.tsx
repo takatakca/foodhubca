@@ -18,7 +18,7 @@ import { StoresTabs } from '../stores-tabs';
 import { api, ApiError } from '@/lib/ui/api';
 import { useAutosave } from '@/lib/ui/use-autosave';
 import { useUndo } from '@/lib/ui/use-undo';
-import { useI18n } from '@/lib/i18n/client';
+import { useI18n, useProduct } from '@/lib/i18n/client';
 
 type Holiday = { id: string; date: string; name: string; locationCodes: string[]; closed: boolean; slots?: Slot[] };
 type Hours = { locations: Record<string, Week>; brands: Record<string, Week>; holidays: Holiday[] };
@@ -27,6 +27,7 @@ const QC = (y: number): Array<[string, string]> => [[`${y}-01-01`, 'Jour de l’
 
 export default function HoursPage() {
   const { t, lang } = useI18n();
+  const product = useProduct();
   const { viewer, locations, brands, can } = useViewer();
   const toast = useToast();
   const editable = can('menu:edit');
@@ -138,7 +139,7 @@ export default function HoursPage() {
 
       {tab === 'holidays' && (
         <Hint id="hours.holidays"><Card>
-          <CardHeader title={t('Fériés et jours spéciaux', 'Holidays & special days')} subtitle={t('Uber Eats et DoorDash les reçoivent à la publication. Skip n’a pas d’API : TAKATAK met Skip hors ligne pour la journée et le rouvre après minuit.', 'Uber Eats and DoorDash get them when you publish. Skip has no API: TAKATAK takes Skip offline for the day and reopens it after midnight.')}
+          <CardHeader title={t('Fériés et jours spéciaux', 'Holidays & special days')} subtitle={t(`Uber Eats et DoorDash les reçoivent à la publication. Skip n’a pas d’API : ${product.name} met Skip hors ligne pour la journée et le rouvre après minuit.`, `Uber Eats and DoorDash get them when you publish. Skip has no API: ${product.name} takes Skip offline for the day and reopens it after midnight.`)}
             right={editable && <><Button size="sm" variant="outline" onClick={() => patch((h) => ({ ...h, holidays: [...h.holidays, ...QC(year).filter(([d]) => !h.holidays.some((x) => x.date === d)).map(([date, name]) => ({ id: `hol-${date}`, date, name, locationCodes: [], closed: true, slots: [] }))] }))} icon={<CalendarPlus className="size-4" />}>{t(`Fériés du Québec ${year}`, `Québec holidays ${year}`)}</Button><Button size="sm" onClick={() => patch((h) => ({ ...h, holidays: [...h.holidays, { id: `hol-${Date.now().toString(36)}`, date: new Date().toISOString().slice(0, 10), name: t('Jour spécial', 'Special day'), locationCodes: [], closed: true, slots: [] }] }))}>{t('+ Ajouter', '+ Add')}</Button></>} />
           <div className="divide-y divide-line border-t border-line">
             {[...hours.holidays].sort((a, b) => a.date.localeCompare(b.date)).map((hol) => {

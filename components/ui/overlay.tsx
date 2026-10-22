@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/ui/cn';
@@ -72,6 +72,35 @@ function useDialogInteraction<TPanel extends HTMLElement>(onClose: () => void, d
   return { backdropRef, panelRef };
 }
 
+/**
+ * Esc for a light sheet that is not a Modal or Drawer (the phone's "Plus" sheet). It stays quiet while a Modal or
+ * Drawer is open, so one Esc never closes two layers.
+ */
+export function useEscape(onClose: () => void, active = true) {
+  const ref = useRef(onClose);
+  useEffect(() => { ref.current = onClose; });
+  useEffect(() => {
+    if (!active) return;
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape' && dialogStack.size === 0) ref.current(); };
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  }, [active]);
+}
+
+/**
+ * A light sheet takes the focus when it opens (unless something inside already has it) and gives it back to what had
+ * it before when it closes. Modal and Drawer do this themselves.
+ */
+export function useDialogFocus(ref: RefObject<HTMLElement | null>, active = true) {
+  useEffect(() => {
+    if (!active) return;
+    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const el = ref.current;
+    if (el && !el.contains(document.activeElement)) el.focus({ preventScroll: true });
+    return () => { if (before && before !== document.body && before.isConnected) before.focus({ preventScroll: true }); };
+  }, [active, ref]);
+}
+
 function Portal({ children }: { children: ReactNode }) {
   if (typeof document === 'undefined') return null;
   return createPortal(children, document.body);
@@ -95,7 +124,8 @@ export function Modal({ title, subtitle, onClose, children, footer, size = 'md',
                 {title && <h2 id={titleId} className="text-lg font-extrabold text-ink">{title}</h2>}
                 {subtitle && <div id={subtitleId} className="mt-0.5 text-[13px] text-ink-3">{subtitle}</div>}
               </div>
-              {dismissable && <button type="button" onClick={onClose} aria-label="Fermer / Close" className="-mr-1 rounded-md p-1.5 text-ink-3 hover:bg-sunken hover:text-ink"><X className="size-5" /></button>}
+              {/* 44 px to tap (the only visible close on a phone's bottom sheet); the negative margins keep the header height. */}
+              {dismissable && <button type="button" onClick={onClose} aria-label="Fermer / Close" className="-my-1.5 -mr-2.5 flex size-11 shrink-0 items-center justify-center rounded-md text-ink-3 hover:bg-sunken hover:text-ink"><X className="size-5" /></button>}
             </div>
           )}
           <div className="scrollbar-thin flex-1 overflow-y-auto px-5 py-4">{children}</div>

@@ -9,9 +9,10 @@ const HUES = ['#1565d8', '#5b4fe0', '#8b3fd9', '#0e7c86', '#0b84b8', '#475569', 
 export function BrandMark({ name, size = 'md', className }: { name: string; size?: 'xs' | 'sm' | 'md' | 'lg'; className?: string }) {
   const initials = brandInitials(name);
   const long = initials.length > 2;
-  const dim = { xs: long ? 'size-6 text-[8px] rounded-[6px]' : 'size-6 text-[10px] rounded-[6px]', sm: long ? 'size-8 text-[10px] rounded-md' : 'size-8 text-[11px] rounded-md', md: long ? 'size-10 text-[12px] rounded-lg' : 'size-10 text-[14px] rounded-lg', lg: 'size-12 text-[15px] rounded-xl' }[size];
+  // Letters never under 11 px (premium rule 1): three initials tighten their tracking instead of shrinking.
+  const dim = { xs: 'size-6 text-micro rounded-[6px]', sm: long ? 'size-8 text-micro rounded-md' : 'size-8 text-small rounded-md', md: long ? 'size-10 text-small rounded-lg' : 'size-10 text-body rounded-lg', lg: 'size-12 text-body rounded-xl' }[size];
   return (
-    <span aria-hidden className={cn('inline-flex shrink-0 items-center justify-center font-extrabold tracking-tight text-white', dim, className)} style={{ background: HUES[brandHue(name)] }}>
+    <span aria-hidden className={cn('inline-flex shrink-0 items-center justify-center font-extrabold text-white', long ? 'tracking-tighter' : 'tracking-tight', dim, className)} style={{ background: HUES[brandHue(name)] }}>
       {initials}
     </span>
   );

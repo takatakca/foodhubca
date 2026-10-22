@@ -19,7 +19,7 @@ export function SaveChip({ autosave, undo, className }: { autosave: Pick<Autosav
   useTick(15_000);
   const { status, problems, error, lastSavedAt, saveNow } = autosave;
   const at = lastSavedAt ? new Date(lastSavedAt).toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' }) : null;
-  const base = 'inline-flex min-h-10 items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold';
+  const base = 'inline-flex min-h-10 items-center gap-1.5 rounded-full px-3 text-small font-semibold';
   let chip;
   switch (status) {
     case 'saving':

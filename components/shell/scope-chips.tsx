@@ -61,7 +61,7 @@ export function FilterChip({ label, value, options, onPick, onClear, allLabel }:
   );
   return (
     <div className="relative" ref={ref}>
-      <span className={cn('flex h-11 items-center rounded-full border text-[13px] font-semibold sm:h-9', value ? 'border-ink bg-ink text-canvas' : 'border-line-2 bg-surface text-ink-2 hover:border-ink-4')}>
+      <span className={cn('flex h-11 items-center rounded-full border text-small font-semibold sm:h-9', value ? 'border-ink bg-ink text-canvas' : 'border-line-2 bg-surface text-ink-2 hover:border-ink-4')}>
         <button type="button" onClick={toggle} aria-expanded={open} className="flex h-full items-center gap-1.5 pr-2 pl-3.5">
           <span className="whitespace-nowrap">{t(`${label} :`, `${label}:`)}</span><span className="max-w-36 truncate">{current?.label ?? value ?? allLabel ?? t('Toutes', 'All')}</span>
           {!value && <ChevronDown aria-hidden className="size-3.5 opacity-70" />}
@@ -110,7 +110,7 @@ export function ScopeChips({ extra, extraActive, onClearExtra, className }: { ex
       {extra}
       {anything && (
         <button type="button" onClick={() => { setSite(tablet ? { brand: null } : { kitchen: null, brand: null, channel: undefined }); onClearExtra?.(); }}
-          className="flex h-11 items-center rounded-full px-3 text-[13px] font-semibold text-brand hover:bg-brand-soft sm:h-9">{t('Tout effacer', 'Clear all')}</button>
+          className="flex h-11 items-center rounded-full px-3 text-small font-semibold text-brand hover:bg-brand-soft sm:h-9">{t('Tout effacer', 'Clear all')}</button>
       )}
     </div>
   );

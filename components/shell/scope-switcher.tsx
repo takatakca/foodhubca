@@ -33,7 +33,7 @@ function Row({ on, onClick, children, indent, disabled }: { on: boolean; onClick
   );
 }
 
-const Heading = ({ children }: { children: ReactNode }) => <div className="px-3 pt-3 pb-1 text-[11px] font-bold tracking-[0.12em] text-ink-3 uppercase">{children}</div>;
+const Heading = ({ children }: { children: ReactNode }) => <div className="px-3 pt-3 pb-1 text-micro font-bold tracking-[0.12em] text-ink-3 uppercase">{children}</div>;
 
 /**
  * The scope in words. `title`: "Tous les restaurants", a location or a brand. `sub`: the rest ("3 succursales · 45
@@ -89,8 +89,8 @@ export function ScopeSwitcher() {
         {site.channel && !site.brand ? <PlatformMark channel={site.channel} size="md" className="size-9" /> : site.brand ? <BrandMark name={site.brand} size="sm" className="size-9" /> : <Store className="size-[18px]" />}
       </span>
       <span className="min-w-0 text-left leading-tight">
-        <span className="block max-w-[52vw] truncate text-[14px] font-extrabold text-ink sm:max-w-[16rem]">{label.title}</span>
-        <span className="block max-w-[52vw] truncate text-[12px] font-medium text-ink-3 sm:max-w-[16rem]">{label.sub}</span>
+        <span className="block max-w-[52vw] truncate text-body font-extrabold text-ink sm:max-w-[16rem]">{label.title}</span>
+        <span className="block max-w-[52vw] truncate text-small font-medium text-ink-3 sm:max-w-[16rem]">{label.sub}</span>
       </span>
     </span>
   );
@@ -169,7 +169,7 @@ function ScopePanel({ onDone }: { onDone: () => void }) {
       </div>
       {!results && channels.length >= 2 && (
         <div className="border-b border-line px-2 py-2.5">
-          <div className="mb-1.5 px-1 text-[11px] font-bold tracking-[0.12em] text-ink-3 uppercase">{t('Plateforme', 'Platform')}</div>
+          <div className="mb-1.5 px-1 text-micro font-bold tracking-[0.12em] text-ink-3 uppercase">{t('Plateforme', 'Platform')}</div>
           {/* Wraps onto a second line on a phone: every platform stays in sight (nothing hidden off-screen). */}
           <div className="flex flex-wrap gap-1.5 pb-0.5" role="group" aria-label={t('Plateforme', 'Platform')}>
             <PlatformChip on={!ch} onClick={() => setSite({ channel: undefined })}>{t('Toutes', 'All')}{counted && <span className={cn('num', ch && 'text-ink-3')}>({total})</span>}</PlatformChip>
@@ -259,7 +259,7 @@ function ScopePanel({ onDone }: { onDone: () => void }) {
 function PlatformChip({ on, disabled, onClick, children }: { on: boolean; disabled?: boolean; onClick: () => void; children: ReactNode }) {
   return (
     <button type="button" onClick={onClick} disabled={disabled} aria-pressed={on}
-      className={cn('flex h-11 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[13px] font-semibold whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-40', on ? 'border-ink bg-ink text-canvas' : 'border-line-2 bg-surface text-ink-2 hover:border-ink-4')}>
+      className={cn('flex h-11 shrink-0 items-center gap-1.5 rounded-full border px-3 text-small font-semibold whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-40', on ? 'border-ink bg-ink text-canvas' : 'border-line-2 bg-surface text-ink-2 hover:border-ink-4')}>
       {children}
     </button>
   );

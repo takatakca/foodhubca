@@ -44,7 +44,7 @@ export function WeekEditor({ value, onChange, disabled }: { value: Week; onChang
                   <input type="time" className={time} value={s.open} disabled={disabled} aria-label={t('Ouvre', 'Opens')} onChange={(e) => setDay(day, slots.map((x, j) => (j === i ? { ...x, open: e.target.value } : x)))} />
                   <span className="text-ink-3">–</span>
                   <input type="time" className={time} value={s.close} disabled={disabled} aria-label={t('Ferme', 'Closes')} onChange={(e) => setDay(day, slots.map((x, j) => (j === i ? { ...x, close: e.target.value } : x)))} />
-                  {s.close <= s.open && s.close !== s.open && <span className="text-[11px] text-ink-3">(+1 {t('j', 'd')})</span>}
+                  {s.close <= s.open && s.close !== s.open && <span className="text-micro text-ink-3">(+1 {t('j', 'd')})</span>}
                   {!disabled && <button type="button" className="rounded p-1 text-ink-4 hover:bg-sunken hover:text-ink" onClick={() => setDay(day, slots.filter((_, j) => j !== i))} aria-label={t('Retirer', 'Remove')}><X className="size-4" /></button>}
                 </span>
               ))}

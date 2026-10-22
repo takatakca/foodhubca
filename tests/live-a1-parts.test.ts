@@ -40,6 +40,8 @@ describe('A1 parts: Alerts and order filters', () => {
     expect(closed).toMatch(/class="hidden md:block"[^>]*>|<div id="[^"]+" class="hidden md:block">/);
     expect(closed).toContain('FILTERS');
     expect(closed).toContain('>2<');
+    // The count is read as words ("2 actifs") by screen readers: an aria-label on a plain span is not announced.
+    expect(closed).toMatch(/class="sr-only">, 2 (actifs|on)</);
     const open = html(filters({ defaultOpen: true }));
     expect(open).toContain('aria-expanded="true"');
     expect(open).toContain('data-open="true"');

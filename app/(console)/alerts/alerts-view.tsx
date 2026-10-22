@@ -113,7 +113,8 @@ function IncidentCard({ i, focus, defaultOpen, onChanged }: { i: Incident; focus
     catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
   }
   const explanation = (i.explanation ?? '').split('\n\n');
-  // The actions of this alert: the first one is the screen's primary, the others are outlined (one primary per screen).
+  // The actions of this alert: the first link is its primary, the others are outlined; with no link, "Réglé" is the one
+  // filled button, so every alert keeps one main action.
   const links = [
     i.orderId ? { href: `/orders?open=${i.orderId}`, label: t('Ouvrir la commande', 'Open the order') } : null,
     i.storeId ? { href: '/stores', label: t('Voir le magasin', 'See the store') } : null,
@@ -152,7 +153,7 @@ function IncidentCard({ i, focus, defaultOpen, onChanged }: { i: Incident; focus
                     <div className="mt-4 flex flex-wrap gap-2">
                       {links.map((l, k) => <ButtonLink key={l.href} href={l.href} variant={k === 0 ? 'primary' : 'outline'}>{l.label}</ButtonLink>)}
                       {i.status !== 'acknowledged' && <Hint id="incident.ack"><Button variant="outline" loading={busy === 'ack'} onClick={() => act('ack')} icon={<Hand className="size-4" />}>{t('Je m’en occupe', 'I’m on it')}</Button></Hint>}
-                      <Button variant="outline" loading={busy === 'resolve'} onClick={() => act('resolve')} icon={<Check className="size-4" />}>{t('Réglé', 'Fixed')}</Button>
+                      <Button variant={links.length ? 'outline' : 'go'} loading={busy === 'resolve'} onClick={() => act('resolve')} icon={<Check className="size-4" />}>{t('Réglé', 'Fixed')}</Button>
                       <Hint id="incident.snooze"><Button variant="ghost" loading={busy === 'snooze'} onClick={() => act('snooze', { minutes: 30 })} icon={<BellOff className="size-4" />}>{t('Sourdine 30 min', 'Snooze 30 min')}</Button></Hint>
                       {i.kind === 'order_late' && i.customer?.phone && <Button variant="outline" onClick={() => setTexting(true)} icon={<MessageSquareText className="size-4" />}>{t('Texter le client', 'Text the customer')}</Button>}
                     </div>

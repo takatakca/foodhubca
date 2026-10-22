@@ -20,7 +20,7 @@ export function CollapsibleFilters({ active = 0, lead, children, defaultOpen = f
           className={cn('text-small inline-flex h-11 shrink-0 items-center gap-2 rounded-md border px-3 font-semibold', active ? 'border-ink bg-ink text-canvas' : 'border-line-2 bg-surface text-ink-2', !lead && 'w-full justify-center')}>
           <SlidersHorizontal className="size-4" aria-hidden />
           {t('Filtres', 'Filters')}
-          {active > 0 && <span className="num text-micro inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-canvas px-1.5 font-bold text-ink" aria-label={t(`${active} actif${active > 1 ? 's' : ''}`, `${active} on`)}>{active}</span>}
+          {active > 0 && <span className="num text-micro inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-canvas px-1.5 font-bold text-ink"><span aria-hidden>{active}</span><span className="sr-only">{t(`, ${active} actif${active > 1 ? 's' : ''}`, `, ${active} on`)}</span></span>}
           <ChevronDown className={cn('size-4 motion-safe:transition-transform', open && 'rotate-180')} aria-hidden />
         </button>
       </div>

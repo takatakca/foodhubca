@@ -103,7 +103,7 @@ export function OrderDrawer({ orderId, onClose }: { orderId: string; onClose: ()
   const p = order ? platformOf(order.channel) : null;
   return (
     <Drawer onClose={onClose} width="lg"
-      title={order ? <span className="flex items-center gap-2.5"><PlatformMark channel={order.channel} size="md" />#{orderNumber(order)}<Badge tone={STATUS_TONE[order.status]}>{statusLabel(t, order.status)}</Badge>{orderSourceLabel(order.orderSource) && <Badge tone="neutral">{orderSourceLabel(order.orderSource)}</Badge>}</span> : t('Commande', 'Order')}
+      title={order ? <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1"><PlatformMark channel={order.channel} size="md" /><span className="whitespace-nowrap">#{orderNumber(order)}</span><Badge tone={STATUS_TONE[order.status]}>{statusLabel(t, order.status)}</Badge>{orderSourceLabel(order.orderSource) && <Badge tone="neutral">{orderSourceLabel(order.orderSource)}</Badge>}</span> : t('Commande', 'Order')}
       subtitle={order ? `${p?.label} · ${order.brandName ?? t('Marque ?', 'Brand ?')}` : undefined}
       headerRight={order ? <Link href={`/orders/${order.id}`} className="-my-1.5 flex size-11 shrink-0 items-center justify-center rounded-md text-ink-3 hover:bg-sunken hover:text-ink" aria-label={t('Ouvrir en plein écran', 'Open full page')} title={t('Ouvrir en plein écran', 'Open full page')}><ExternalLink className="size-5" aria-hidden /></Link> : null}>
       {error && <div className="p-5"><Banner tone="stop">{error}</Banner></div>}
@@ -163,21 +163,22 @@ export function OrderDetail({ order, events, onChange, compact }: { order: FullO
       {/* actions */}
       {act && (actions.length > 0 || ['accepted', 'ready'].includes(order.status)) && (
         <div className="rounded-md border border-line bg-surface p-4 shadow-card">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 empty:hidden">
             {prim === 'accept' && <Button variant="go" size="lg" className="flex-1" loading={busy === 'accept'} onClick={() => run(order.id, 'accept')} icon={<Check className="size-5" />}>{t('Accepter', 'Accept')}</Button>}
             {prim === 'ready' && <Button variant="go" size="lg" className="flex-1" loading={busy === 'ready'} onClick={() => run(order.id, 'ready')} icon={<PackageCheck className="size-5" />}>{t('Prête', 'Ready')}</Button>}
             {prim === 'dispatch' && <Button variant="primary" size="lg" className="flex-1" loading={busy === 'dispatch'} onClick={() => run(order.id, 'dispatch')} icon={<Bike className="size-5" />}>{t('Remise au livreur', 'Picked up')}</Button>}
             {prim === 'complete' && <Button variant="primary" size="lg" className="flex-1" loading={busy === 'complete'} onClick={() => run(order.id, 'complete')} icon={<Check className="size-5" />}>{t('Terminer', 'Complete')}</Button>}
             {actions.includes('deny') && <Button variant="outline" size="lg" className="text-stop" onClick={() => order.channel === 'skip' && !order.viaHub ? run(order.id, 'deny', { reason: 'Handled on Skip tablet' }) : setReasonFor('deny')} icon={<X className="size-5" />}>{order.channel === 'skip' && !order.viaHub ? t('Vers tablette Skip', 'To Skip tablet') : t('Refuser', 'Reject')}</Button>}
           </div>
-          <div className="mt-3 flex flex-wrap gap-2 empty:hidden">
+          <div className="flex flex-wrap gap-2 empty:hidden [:not(:empty)~&]:mt-3">
             {['accepted', 'ready'].includes(order.status) && [5, 10].map((m) => <Button key={m} variant="outline" loading={busy === 'delay'} onClick={() => run(order.id, 'delay', { delayMinutes: m })} icon={<AlarmClockPlus className="size-4" />}>+{m} min</Button>)}
             {actions.includes('complete') && prim !== 'complete' && <Button variant="outline" onClick={() => run(order.id, 'complete')}>{t('Terminer', 'Complete')}</Button>}
             {actions.includes('report_missing') && <Button variant="outline" onClick={() => setMissingOpen(true)} icon={<ShoppingBag className="size-4" />}>{t('Article manquant', 'Missing item')}</Button>}
             {actions.includes('adjust_price') && <Button variant="outline" onClick={() => setPriceOpen(true)} icon={<CircleDollarSign className="size-4" />}>{t('Changer le prix', 'Change the price')}</Button>}
             {actions.includes('retry_pos') && !order.posError && <Button variant="outline" loading={busy === 'retry_pos'} onClick={() => run(order.id, 'retry_pos')} icon={<Send className="size-4" />}>{t('Envoyer à Clover', 'Send to Clover')}</Button>}
           </div>
-          <div className="mt-3 flex flex-wrap gap-1 border-t border-line pt-3">
+          {/* The quiet row only gets its rule and gap when a row above it shows (a cancelled order has none). */}
+          <div className="flex flex-wrap gap-1 empty:hidden [:not(:empty)~&]:mt-3 [:not(:empty)~&]:border-t [:not(:empty)~&]:border-line [:not(:empty)~&]:pt-3">
             {actions.includes('print') && <Button variant="ghost" loading={busy === 'print'} onClick={() => run(order.id, 'print')} icon={<Printer className="size-4" />}>{t('Réimprimer (Clover)', 'Reprint (Clover)')}</Button>}
             <a className={buttonClass('ghost', 'md')} href={`/ticket/${order.id}`} target="_blank" rel="noreferrer"><Printer className="size-4" aria-hidden />{t('Billet 80 mm', '80 mm ticket')}</a>
             {actions.includes('cancel') && <Button variant="ghost" className="text-stop-2 hover:bg-stop-soft hover:text-stop-2" onClick={() => setReasonFor('cancel')} icon={<Undo2 className="size-4" />}>{t('Annuler la commande', 'Cancel order')}</Button>}

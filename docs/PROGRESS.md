@@ -1,5 +1,10 @@
 # Food Hub: progress log and task board
 
+## 2026-10-21 — Simpler sign-in page + « Continuer avec Google » (`feature/login-google-signin`)
+
+- One calm sign-in screen: Food Hub mark, big « Continuer avec Google / Continue with Google » (only when `GOOGLE_OAUTH_CLIENT_ID` is set), the code-by-email/text sign-in as the second option, the owner recovery behind a small link; FR first, EN; 44 px targets; first run, code and recovery steps kept.
+- Google Sign-In server side (`lib/foodhub/identity/google.ts`): `/api/auth/google/start` (OAuth 2.0 URL, scope openid email profile, state + PKCE S256 + nonce in an httpOnly Secure SameSite=Lax cookie, 10 min) and `/api/auth/google/callback` (code exchange at oauth2.googleapis.com, id_token verified against Google JWKS with a one-hour cache: RS256 signature, iss, aud, exp, nonce, email_verified). Signs in only an active team member whose email is already known, through the same `sessionCookieFor` as the code sign-in (session kind `google`); otherwise the friendly « pas encore dans une équipe » notice. Never creates anyone; per-address throttle and activity log like the other sign-ins.
+- Tests `tests/google-signin.test.ts` (fake JWKS; bad signature / issuer / audience / expiry / nonce / alg none; state, cookie and nonce mismatches; unknown, deactivated and unverified emails refused; known email signed in; lock after repeated failures). Owner guide `docs/GOOGLE_SIGNIN.md` + `.env.example` lines.
 ## 2026-10-17 — Client dashboard (PR #72) brought up to main 6381aec
 
 - `feature/client-dashboard-easy` merged with `origin/main` (#61 to #80). Conflicts: `components/ui/overlay.tsx` (main's

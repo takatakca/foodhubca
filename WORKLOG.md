@@ -3,6 +3,7 @@
 Newest first, one line per piece of work. Rule: `AGENTS.md` › Work log rule.
 Format: `YYYY-MM-DD | agent | branch → PR | status | what | next step`
 
+- 2026-10-16 | ChatGPT | fix/on2go-contract-header-validation → PR #50 | code checked; base reconciled | Verify TAKATAK signed contract integration ID and event idempotency-key align; tampering regression tests, no network writes | verify new CI+image then owner review/merge
 - 2026-10-18 | cursor | fix/sync-startup-grace → PR | in progress | Coolify health of the new container was 503 with only sync=down: the site had been down for about an hour, so the stored sync time was older than 20 min, and the new process does not sync until 5 min; a restart now treats that old stamp as a warning until its own first sync window, and the sync starts at boot | merge so Coolify rebuilds
 - 2026-10-18 | cursor | fix/healthcheck-startup → PR #84 | done | Coolify image of c64fcec started, then /api/health returned 503 with no check name and the proxy was left with no server; health failure now names the checks, the ping key is per process, and the Watchtower starts immediately with a 3 min production grace | merge so Coolify rebuilds; owner confirms Supabase and session env are Runtime before that deploy
 - 2026-10-18 | cursor | fix/storefront-checkout-clock → PR | done | Coolify image runs npm test; storefront checkout route test returned 409 at night because it used the real clock outside 11:00–23:00 America/Toronto; Date.now pinned to 13:00 Toronto, 14 tests passed | merge so Coolify can build main

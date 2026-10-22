@@ -1,13 +1,16 @@
 // The console's scope (every restaurant → a kitchen → a brand): kept in the address, filters every screen, never
 // narrows the live alarms to a brand, and never touches the Po Poulet NDG DoorDash lock.
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  alarmLocations, ALL_RESTAURANTS, brandHue, brandInitials, brandOpenState, brandRows, buildScopeCatalog, filterByScope, inScope,
-  parseScope, readRemembered, resolveScope, sameScope, scopeBrands, scopeHref, scopeLocations, validScope, withScopeQuery,
+  alarmLocations, ALL_RESTAURANTS, brandHue, brandInitials, brandOpenState, brandRows, buildScopeCatalog, channelCounts, channelName, channelsOf, countStores, filterByScope, inScope,
+  inScopeLoose, isAllRestaurants, isEverything, parseScope, readRemembered, resolveScope, sameScope, scopeBrands, scopeChannels, scopeHref, scopeLocations, scopedAlerts, storesOfLocation,
+  validScope, withScopeQuery,
+  type StorePoint,
 } from '../lib/foodhub/scope';
-import { averagePrepMinutes, buildCommandCenter } from '../lib/foodhub/command';
+import { averagePrepMinutes, buildCommandCenter, buildMatrix, requiredChannels } from '../lib/foodhub/command';
+import { ownerSeedStores } from '../lib/foodhub/owner-seed';
 import { BUILT_IN_MENU_LOCKS, isMenuLocked, menuLockOf } from '../lib/foodhub/menu/lock';
-import type { StoredOrder } from '../lib/foodhub/types';
+import type { ChannelStore, StoredOrder } from '../lib/foodhub/types';
 
 const catalog = buildScopeCatalog(
   ['NDG_MAIN', 'SAINT_LEONARD', 'HOCHELAGA'],
@@ -221,5 +224,236 @@ describe('Po Poulet NDG lock is untouched by the scope', () => {
       expect(isMenuLocked(store)).toBe(true);
       expect(menuLockOf(store).source).toBe('built_in');
     }
+  });
+});
+
+// ---------- the platform axis (task 40): succursale → marque → plateforme ----------
+
+const LOCS = ['LOC_1', 'LOC_2', 'LOC_3'];
+const BRANDS5 = ['Marque A', 'Marque B', 'Marque C', 'Marque D', 'Marque E'];
+const PLATFORMS3 = ['uber_eats', 'doordash', 'skip'];
+/** 3 locations × 5 brands × 3 platforms = 45 stores, plus one Too Good To Go store for Marque A in LOC_1. */
+const STORES: StorePoint[] = [
+  ...LOCS.flatMap((locationCode) => BRANDS5.flatMap((brandName) => PLATFORMS3.map((channel) => ({ brandName, locationCode, channel })))),
+  { brandName: 'Marque A', locationCode: 'LOC_1', channel: 'tgtg' },
+];
+const big = {
+  ...buildScopeCatalog(LOCS, STORES, BRANDS5),
+  channels: channelsOf(STORES),
+  stores: STORES,
+};
+
+describe('platform scope (?channel=)', () => {
+  it('reads, writes and round-trips the platform; other parameters stay', () => {
+    expect(parseScope('?kitchen=LOC_1&channel=doordash')).toEqual({ kitchen: 'LOC_1', brand: null, channel: 'doordash' });
+    const s = { kitchen: 'LOC_1', brand: 'Marque A', channel: 'uber_eats' };
+    const q = withScopeQuery('?view=history', s);
+    expect(q).toBe('?view=history&kitchen=LOC_1&brand=Marque+A&channel=uber_eats');
+    expect(parseScope(q)).toEqual(s);
+    expect(withScopeQuery(q, { kitchen: 'LOC_1', brand: 'Marque A' })).toBe('?view=history&kitchen=LOC_1&brand=Marque+A');
+    expect(scopeHref('/orders', { kitchen: null, brand: null, channel: 'skip' })).toBe('/orders?channel=skip');
+    // No platform = the key is not written at all (existing scopes keep their two keys).
+    expect(Object.keys(parseScope('?kitchen=LOC_1'))).toEqual(['kitchen', 'brand']);
+  });
+
+  it('drops an unknown platform, one the person has no store on, and one with 0 stores for the picked location or brand', () => {
+    expect(parseScope('?channel=pigeon')).toEqual(ALL_RESTAURANTS);
+    expect(parseScope('?channel=pigeon', big)).toEqual(ALL_RESTAURANTS);
+    expect(validScope({ kitchen: null, brand: null, channel: 'doordash' }, { ...big, channels: ['uber_eats'] })).toEqual(ALL_RESTAURANTS);
+    // Too Good To Go exists only for Marque A in LOC_1.
+    expect(validScope({ kitchen: 'LOC_1', brand: 'Marque A', channel: 'tgtg' }, big)).toEqual({ kitchen: 'LOC_1', brand: 'Marque A', channel: 'tgtg' });
+    expect(validScope({ kitchen: 'LOC_2', brand: null, channel: 'tgtg' }, big)).toEqual({ kitchen: 'LOC_2', brand: null });
+    expect(validScope({ kitchen: 'LOC_1', brand: 'Marque B', channel: 'tgtg' }, big)).toEqual({ kitchen: 'LOC_1', brand: 'Marque B' });
+  });
+
+  it('a link with only ?channel= wins; "all restaurants" ignores the platform, "everything" does not', () => {
+    const r = resolveScope({ url: { kitchen: null, brand: null, channel: 'doordash' }, current: { kitchen: 'LOC_1', brand: null }, catalog: big });
+    expect(r).toEqual({ scope: { kitchen: null, brand: null, channel: 'doordash' }, writeUrl: false });
+    expect(isAllRestaurants({ kitchen: null, brand: null, channel: 'doordash' })).toBe(true);
+    expect(isEverything({ kitchen: null, brand: null, channel: 'doordash' })).toBe(false);
+    expect(isEverything(ALL_RESTAURANTS)).toBe(true);
+    expect(sameScope({ kitchen: 'LOC_1', brand: null, channel: 'skip' }, { kitchen: 'LOC_1', brand: null })).toBe(false);
+    expect(sameScope({ kitchen: 'LOC_1', brand: null, channel: undefined }, { kitchen: 'LOC_1', brand: null })).toBe(true);
+  });
+
+  it('a remembered scope from before the platform axis still reads (every platform); a newer one keeps its platform', () => {
+    expect(readRemembered('{"kitchen":"LOC_1","brand":"Marque A"}')).toEqual({ kitchen: 'LOC_1', brand: 'Marque A' });
+    expect(readRemembered('{"kitchen":"LOC_1","brand":null,"channel":"skip"}')).toEqual({ kitchen: 'LOC_1', brand: null, channel: 'skip' });
+  });
+
+  it('a kitchen tablet always clears the platform and stays on its location', () => {
+    expect(resolveScope({ url: { kitchen: 'LOC_1', brand: null, channel: 'doordash' }, deviceKitchen: 'LOC_1', catalog: big }).scope).toEqual({ kitchen: 'LOC_1', brand: null });
+    expect(resolveScope({ url: ALL_RESTAURANTS, remembered: { kitchen: 'LOC_2', brand: 'Marque B', channel: 'skip' }, deviceKitchen: 'LOC_1', catalog: big }).scope).toEqual({ kitchen: 'LOC_1', brand: null });
+  });
+
+  it('bulk pause under a platform scope sends only that platform’s store ids', () => {
+    const stores = [
+      { id: 'ua', brandName: 'Marque A', locationCode: 'LOC_1', channel: 'uber_eats' },
+      { id: 'da', brandName: 'Marque A', locationCode: 'LOC_1', channel: 'doordash' },
+      { id: 'sa', brandName: 'Marque A', locationCode: 'LOC_1', channel: 'skip' },
+      { id: 'db', brandName: 'Marque B', locationCode: 'LOC_1', channel: 'doordash' },
+      { id: 'd2', brandName: 'Marque A', locationCode: 'LOC_2', channel: 'doordash' },
+    ];
+    const ids = (scope: Parameters<typeof storesOfLocation>[2]) => storesOfLocation(stores, 'LOC_1', scope).map((s) => s.id);
+    expect(ids({ kitchen: null, brand: null, channel: 'doordash' })).toEqual(['da', 'db']);
+    expect(ids({ kitchen: 'LOC_1', brand: 'Marque A', channel: 'doordash' })).toEqual(['da']);
+    // No platform picked: every platform of the location, as before.
+    expect(ids({ kitchen: null, brand: null })).toEqual(['ua', 'da', 'sa', 'db']);
+    expect(ids({ kitchen: null, brand: 'Marque A' })).toEqual(['ua', 'da', 'sa']);
+  });
+
+  it('a remembered location plus ?i= for another location still shows that alert, first', () => {
+    const alerts = [
+      { id: 'a1', locationCode: 'LOC_1', brandName: null, channel: null },
+      { id: 'a2', locationCode: 'LOC_1', brandName: 'Marque A', channel: 'doordash' },
+      { id: 'w', locationCode: null, brandName: null, channel: null },
+    ];
+    const linked = { id: 'b1', locationCode: 'LOC_2', brandName: 'Marque B', channel: 'skip' };
+    const remembered = { kitchen: 'LOC_1', brand: 'Marque A', channel: 'doordash' };
+    expect(scopedAlerts(alerts, remembered, linked).map((a) => a.id)).toEqual(['b1', 'a1', 'a2', 'w']);
+    expect(scopedAlerts(alerts, remembered).map((a) => a.id)).toEqual(['a1', 'a2', 'w']);
+    // Listed once even when it is in the scope too.
+    expect(scopedAlerts([...alerts, linked], { kitchen: null, brand: null }, linked).map((a) => a.id)).toEqual(['b1', 'a1', 'a2', 'w']);
+  });
+
+  it('the live alarms ignore brand and platform', () => {
+    expect(alarmLocations({ kitchen: 'LOC_1', brand: 'Marque A', channel: 'uber_eats' })).toEqual(['LOC_1']);
+    expect(alarmLocations({ kitchen: null, brand: 'Marque A', channel: 'uber_eats' })).toEqual([]);
+    expect(alarmLocations({ kitchen: 'LOC_2', brand: null, channel: 'skip' }, 'LOC_1')).toEqual(['LOC_1']);
+    expect(scopeChannels({ kitchen: null, brand: null, channel: 'doordash' })).toEqual(['doordash']);
+    expect(scopeChannels(ALL_RESTAURANTS)).toEqual([]);
+  });
+
+  it('inScope drops rows of another platform; rows without a platform pass', () => {
+    const s = { kitchen: 'LOC_1', brand: null, channel: 'doordash' };
+    expect(inScope({ locationCode: 'LOC_1', brandName: 'Marque A', channel: 'doordash' }, s)).toBe(true);
+    expect(inScope({ locationCode: 'LOC_1', brandName: 'Marque A', channel: 'uber_eats' }, s)).toBe(false);
+    expect(inScope({ locationCode: 'LOC_1', brandName: 'Marque A' }, s)).toBe(true); // a matrix line
+    expect(inScope({ locationCode: 'LOC_2', brandName: 'Marque A', channel: 'doordash' }, s)).toBe(false);
+  });
+
+  it('inScopeLoose keeps an alert that covers a whole location under a brand + platform scope', () => {
+    const s = { kitchen: 'LOC_1', brand: 'Marque A', channel: 'uber_eats' };
+    expect(inScopeLoose({ locationCode: 'LOC_1', brandName: null, channel: null }, s)).toBe(true); // tablet offline
+    expect(inScopeLoose({ locationCode: null }, s)).toBe(true); // platform-wide problem
+    expect(inScopeLoose({ locationCode: 'LOC_1', brandName: 'Marque A', channel: 'uber_eats' }, s)).toBe(true);
+    expect(inScopeLoose({ locationCode: 'LOC_1', brandName: 'Marque B', channel: 'uber_eats' }, s)).toBe(false);
+    expect(inScopeLoose({ locationCode: 'LOC_1', brandName: 'Marque A', channel: 'doordash' }, s)).toBe(false);
+    expect(inScopeLoose({ locationCode: 'LOC_2', brandName: null }, s)).toBe(false);
+  });
+
+  it('counts stores: 3 locations × 5 brands × 3 platforms = 45, DoorDash 15', () => {
+    expect(countStores(big, ALL_RESTAURANTS)).toBe(46); // + 1 Too Good To Go
+    expect(countStores(big, { kitchen: null, brand: null, channel: 'doordash' })).toBe(15);
+    expect(countStores(big, { kitchen: 'LOC_1', brand: null })).toBe(16);
+    expect(countStores(big, { kitchen: 'LOC_2', brand: 'Marque C' })).toBe(3);
+    expect(channelCounts(big, { kitchen: null, brand: null })).toEqual([
+      { channel: 'uber_eats', count: 15 }, { channel: 'doordash', count: 15 }, { channel: 'skip', count: 15 }, { channel: 'tgtg', count: 1 },
+    ]);
+    expect(channelCounts(big, { kitchen: 'LOC_2', brand: null }).find((c) => c.channel === 'tgtg')).toEqual({ channel: 'tgtg', count: 0 });
+    expect(channelsOf(STORES)).toEqual(['uber_eats', 'doordash', 'skip', 'tgtg']);
+    expect(channelName('skip')).toBe('Skip');
+  });
+
+  it('brand rows with a platform keep that one cell and drop brands that are not on it', () => {
+    const cell = (state: string) => ({ state });
+    const matrix = [
+      { brandName: 'Marque A', locationCode: 'LOC_1', cells: { uber_eats: cell('online'), doordash: cell('paused'), skip: cell('missing'), tgtg: cell('missing') } },
+      { brandName: 'Marque B', locationCode: 'LOC_1', cells: { uber_eats: cell('online'), doordash: cell('missing'), skip: cell('missing'), tgtg: cell('missing') } },
+    ];
+    const rows = brandRows(matrix, [], { kitchen: 'LOC_1', brand: null, channel: 'doordash' });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ brandName: 'Marque A', state: 'paused', cells: { doordash: 'paused' } });
+    expect(Object.keys(rows[0].cells)).toEqual(['doordash']);
+    // Without a platform: every cell, state from all of them.
+    expect(brandRows(matrix, [], { kitchen: 'LOC_1', brand: null }).find((r) => r.brandName === 'Marque A')).toMatchObject({ state: 'open' });
+  });
+});
+
+describe('the dashboard for a platform scope', () => {
+  const mem = () => (globalThis as unknown as { __foodhubMem?: { orders: Map<string, StoredOrder>; stores: Map<string, ChannelStore> } }).__foodhubMem;
+  const now = Date.now();
+  const order = (id: string, channel: StoredOrder['channel'], brandName: string, total: number): StoredOrder => ({
+    id, channel, marketplace: channel, externalOrderId: id, displayId: id, channelStoreId: 's', fulfillment: 'delivery',
+    placedAt: new Date(now).toISOString(), currency: 'CAD', subtotal: total, tax: 0, total, deliveryFee: 0, tip: 0, discount: 0, lines: [], raw: {},
+    status: 'completed', timeline: {}, createdAt: new Date(now - 60_000).toISOString(), updatedAt: new Date(now).toISOString(), brandName, locationCode: 'NDG_MAIN',
+  } as StoredOrder);
+  const store = (id: string, channel: ChannelStore['channel'], brandName: string, state: string): ChannelStore => ({
+    id, channel, channelStoreId: id, brandName, locationCode: 'NDG_MAIN', autoAccept: true, online: true, meta: { platformStatus: { state, checkedAt: new Date(now).toISOString(), source: 'sync' } },
+  });
+
+  beforeEach(async () => {
+    process.env.FOODHUB_FORCE_MEMORY = 'true';
+    delete process.env.FOODHUB_TENANT_ID;
+    const { getRepo } = await import('../lib/foodhub/repo');
+    await getRepo().listOrders({ limit: 1 });
+    const m = mem();
+    if (!m) throw new Error('memory repo missing');
+    for (const k of [...m.orders.keys()]) if (k.startsWith('ch-')) m.orders.delete(k);
+    for (const k of [...m.stores.keys()]) if (k.startsWith('ch-')) m.stores.delete(k);
+    m.orders.set('ch-1', order('ch-1', 'uber_eats', 'Marque A', 20));
+    m.orders.set('ch-2', order('ch-2', 'doordash', 'Marque A', 10));
+    m.orders.set('ch-3', order('ch-3', 'doordash', 'Marque B', 5));
+    m.stores.set('ch-ua', store('ch-ua', 'uber_eats', 'Marque A', 'online'));
+    m.stores.set('ch-da', store('ch-da', 'doordash', 'Marque A', 'online'));
+    m.stores.set('ch-db', store('ch-db', 'doordash', 'Marque B', 'deactivated'));
+  });
+
+  it('counts only Uber orders, leaves in-store sales out, keeps only lines with an Uber store, alerts for Uber only', async () => {
+    const cc = await buildCommandCenter({ now, locationCodes: ['NDG_MAIN'], channelKeys: ['uber_eats'] });
+    expect(cc.channelScoped).toBe(true);
+    const ours = (list: Array<{ brandName: string }>) => list.filter((b) => b.brandName.startsWith('Marque '));
+    expect(ours(cc.byBrandLocation)).toEqual([{ brandName: 'Marque A', locationCode: 'NDG_MAIN', orders: 1, sales: 20, open: 0 }]);
+    expect(cc.recent.every((o) => o.channel === 'uber_eats')).toBe(true);
+    expect(cc.kpis.inStore).toBe(0);
+    expect(cc.kpis.storesMapped).toBe(cc.channels.find((c) => c.channel === 'uber_eats')!.storesMapped);
+    expect(ours(cc.matrix).map((r) => r.brandName)).toEqual(['Marque A']);
+    // The line keeps its other platforms' cells (built from every platform first).
+    expect(cc.matrix.find((r) => r.brandName === 'Marque A')!.cells.doordash.state).toBe('online');
+    expect(cc.matrix.every((r) => r.cells.uber_eats.state !== 'missing')).toBe(true);
+    expect(cc.alerts.some((a) => a.id === 'deact:ch-db')).toBe(false);
+    expect(cc.alerts.some((a) => a.id === 'missing:doordash' || a.id === 'missing:skip')).toBe(false);
+    // Marque B has no Uber Eats store: with Uber Eats picked, that is the "not connected" alert that matters.
+    const onlyB = await buildCommandCenter({ now, locationCodes: ['NDG_MAIN'], brandNames: ['Marque B'], channelKeys: ['uber_eats'] });
+    expect(onlyB.alerts.find((a) => a.id === 'missing:uber_eats')?.title).toBe('Uber Eats not connected for 1 brand/location');
+    const onlyA = await buildCommandCenter({ now, locationCodes: ['NDG_MAIN'], brandNames: ['Marque A'], channelKeys: ['uber_eats'] });
+    expect(onlyA.alerts.some((a) => a.id === 'missing:uber_eats')).toBe(false);
+    // Without the platform scope, the DoorDash problem is there.
+    const all = await buildCommandCenter({ now, locationCodes: ['NDG_MAIN'] });
+    expect(all.alerts.some((a) => a.id === 'deact:ch-db')).toBe(true);
+  });
+
+  it('without a platform the dashboard is exactly what it was (no channelScoped key)', async () => {
+    const a = await buildCommandCenter({ now, locationCodes: ['NDG_MAIN'] });
+    const b = await buildCommandCenter({ now, locationCodes: ['NDG_MAIN'], channelKeys: [] });
+    expect('channelScoped' in a).toBe(false);
+    expect(b).toEqual(a);
+  });
+
+  it('another merchant’s instance never shows the owner’s DoorDash list', async () => {
+    expect(ownerSeedStores({ FOODHUB_TENANT_ID: 'client-x' } as unknown as NodeJS.ProcessEnv)).toEqual([]);
+    expect(ownerSeedStores({} as unknown as NodeJS.ProcessEnv).length).toBeGreaterThan(0);
+    // A mistyped id is not the owner either (it fails closed, with a console warning, never a crash).
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      expect(ownerSeedStores({ FOODHUB_TENANT_ID: 'Client X' } as unknown as NodeJS.ProcessEnv)).toEqual([]);
+      expect(requiredChannels([{ channel: 'uber_eats' }], { FOODHUB_TENANT_ID: 'Client X' } as unknown as NodeJS.ProcessEnv)).toEqual(['uber_eats']);
+    } finally {
+      warn.mockRestore();
+    }
+    process.env.FOODHUB_TENANT_ID = 'client-x';
+    try {
+      const rows = buildMatrix([]);
+      expect(rows).toEqual([]);
+      const cc = await buildCommandCenter({ now, locationCodes: ['NDG_MAIN'] });
+      expect(cc.matrix.every((r) => r.cells.doordash.source !== 'screenshot')).toBe(true);
+      expect(cc.matrix.map((r) => r.brandName).sort()).toEqual(['Marque A', 'Marque B']);
+      // Only the platforms this merchant uses are required: Skip (no store) is never "missing".
+      expect(requiredChannels([{ channel: 'uber_eats' }, { channel: 'doordash' }])).toEqual(['uber_eats', 'doordash']);
+      expect(cc.alerts.some((a) => a.id === 'missing:skip')).toBe(false);
+    } finally {
+      delete process.env.FOODHUB_TENANT_ID;
+    }
+    expect(requiredChannels([])).toEqual(['uber_eats', 'doordash', 'skip']);
   });
 });

@@ -57,7 +57,7 @@ export default function BusinessPage() {
 
   return (
     <div>
-      <SettingsHead title={t('Entreprise', 'Business')} intro={t('Quadro Holdings LTÉE. Les succursales et marques ici alimentent la grille des magasins, le jumelage, les heures, l’équipe et les rapports. Chaque marque doit être sur DoorDash, Uber Eats et SkipTheDishes dans chaque succursale où elle cuisine ; Too Good To Go est un canal en plus.', 'Quadro Holdings LTEE. Locations and brands here drive the store grid, mapping, hours, team and reports. Every brand must be on DoorDash, Uber Eats and SkipTheDishes at each location where it cooks; Too Good To Go is an extra channel.')} />
+      <SettingsHead title={t('Entreprise', 'Business')} intro={t('Vos succursales et vos marques : elles alimentent les restaurants, les heures, l’équipe et les rapports.', 'Your locations and your brands: they set up your restaurants, hours, team and reports.')} />
       <div className="max-w-5xl">
       {err && !loc && <Banner tone="stop" className="mb-4">{err}</Banner>}
 

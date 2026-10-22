@@ -25,6 +25,28 @@ export function tenantId(raw: string | undefined = process.env.FOODHUB_TENANT_ID
   return SLUG.test(v) ? v : DEFAULT_TENANT_ID;
 }
 
+const warnedTenant = new Set<string>();
+
+/**
+ * True only on the owner's own instance: FOODHUB_TENANT_ID unset (or blank), or exactly "takatak" (case and spaces
+ * ignored). It fails closed: a value that is set but is not a valid id (a typo such as "Client X" or "client_x") is
+ * NOT the owner, so another merchant's instance never shows the owner's store list, even when its id is mistyped.
+ * `tenantId()` still falls back to "takatak" for such a value (health, usage events); this check is for owner-only
+ * data. A set-but-invalid value logs one clear console warning (once per value), never an error.
+ */
+export function isOwnerTenant(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = String(env.FOODHUB_TENANT_ID ?? '').trim().toLowerCase();
+  if (!raw) return true;
+  if (SLUG.test(raw)) return raw === DEFAULT_TENANT_ID;
+  if (!warnedTenant.has(raw)) {
+    warnedTenant.add(raw);
+    console.warn(`[foodhub] FOODHUB_TENANT_ID "${raw.slice(0, 40)}" is not a valid tenant id (2 to 40 characters: a-z, 0-9, "-"). `
+      + "This instance is treated as NOT the owner's: the owner's DoorDash store list is hidden and only the platforms with a mapped store are required. "
+      + "Fix the value, or leave it unset on the owner's own install.");
+  }
+  return false;
+}
+
 export interface ControlPlane {
   /** TAKATAK base URL (e.g. https://takatak.ca), from TAKATAK_CONTROL_PLANE_URL. */
   url: string | null;

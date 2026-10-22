@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hasTech, plainTitle } from '@/app/(console)/settings/tech-text';
+import { hasTech, plainTitle, splitTech } from '@/app/(console)/settings/tech-text';
 import { settingsNavGroups, isNavOn } from '@/app/(console)/settings/settings-nav-model';
 
 describe('owner copy: technical text', () => {
@@ -11,6 +11,14 @@ describe('owner copy: technical text', () => {
     expect(hasTech('Les codes partent par courriel.')).toBe(false);
     expect(hasTech('TPS + TVQ')).toBe(false);
     expect(hasTech(undefined)).toBe(false);
+  });
+  it('keeps the owner’s plain sentences and folds only the technical ones', () => {
+    expect(splitTech('Brouillons publics à faire relire. Manque : FOODHUB_SUPPORT_EMAIL, FOODHUB_LEGAL_APPROVED=true'))
+      .toEqual({ plain: 'Brouillons publics à faire relire.', tech: 'Manque : FOODHUB_SUPPORT_EMAIL, FOODHUB_LEGAL_APPROVED=true' });
+    expect(splitTech('A changé le 3 octobre : tout le monde a dû se reconnecter. Mettez une valeur fixe.'))
+      .toEqual({ plain: 'A changé le 3 octobre : tout le monde a dû se reconnecter. Mettez une valeur fixe.', tech: '' });
+    expect(splitTech('Optionnel : CLOVER_CLIENT_ID et CLOVER_CLIENT_SECRET avec npm run setup.')).toEqual({ plain: '', tech: 'Optionnel : CLOVER_CLIENT_ID et CLOVER_CLIENT_SECRET avec npm run setup.' });
+    expect(splitTech(undefined)).toEqual({ plain: '', tech: '' });
   });
   it('drops setting names from titles', () => {
     expect(plainTitle('Secret de session (SESSION_SECRET)')).toBe('Secret de session');

@@ -48,10 +48,13 @@ export function activitySummary(summary: string, lang: 'fr' | 'en'): string {
 }
 
 /**
- * A screen diagnostic (a failed call or a crash reported by a screen): shown only under « Technique ». Support reports
- * written by a person are not technical: they stay in the main list.
+ * A screen diagnostic (a failed call or a crash reported by a screen, written by /api/foodhub/client-report): shown
+ * only under « Technique ». Only those entries: a failed platform action (pause, 86, menu publish) carries the
+ * platform's « HTTP 500 » in its text and must stay in « Tout » and in its own filter. Support reports written by a
+ * person are not technical either: they stay in the main list.
  */
 export function isTechnical(e: Pick<ActivityEntry, 'action' | 'summary'>): boolean {
   if (e.action === 'screen_problem') return true;
-  return /^\d+ problem\(s\) on /.test(e.summary) || /→ network error|\bHTTP \d{3}\b|\bGET \/api\/|\bPOST \/api\//.test(e.summary);
+  if (e.action === 'support_report') return false;
+  return /^\d+ problem\(s\) on /.test(e.summary);
 }

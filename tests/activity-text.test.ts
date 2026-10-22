@@ -27,6 +27,11 @@ describe('activity log in French', () => {
     expect(isTechnical({ action: 'support_report', summary: 'Marie sent a support report from the console: printer jam' })).toBe(false);
     expect(isTechnical({ action: 'sign_in', summary: 'Marie signed in with a code (m***@x.ca)' })).toBe(false);
   });
+  it('keeps failed platform actions in the main list, even with the platform’s HTTP status in the text', () => {
+    expect(isTechnical({ action: 'pause', summary: 'Paused — OOEUF · NDG on Uber Eats (POST /v1/delivery/store/x/update-store-status returned HTTP 500: busy)' })).toBe(false);
+    expect(isTechnical({ action: 'item_off', summary: "86'd Poutine — OOEUF · NDG on Uber Eats (GET /api/menus returned HTTP 404)" })).toBe(false);
+    expect(isTechnical({ action: 'publish', summary: 'Menu published — OOEUF · NDG on Uber Eats (Network error: fetch failed)' })).toBe(false);
+  });
 });
 
 describe('stat change vs the previous period', () => {
@@ -36,6 +41,13 @@ describe('stat change vs the previous period', () => {
     expect(changeKind(0, true)).toBe('flat');
     expect(changeKind(-3, true)).toBe('down');
     expect(changeKind(4.4, undefined)).toBe('up');
+  });
+  it('a previous period with orders but a 0 for this stat: no percentage, and never "no previous period"', () => {
+    // No cancellations in either period: change(0, 0) = 0 → flat, not "pas de période précédente".
+    expect(changeKind(0, true, true)).toBe('flat');
+    // No cancellations then, some now: change(x, 0) = 100 → no "+100 %".
+    expect(changeKind(100, true, true)).toBe('from-zero');
+    expect(changeKind(100, false, true)).toBe('no-previous');
   });
   it('formats the change in the reader’s locale, one format per language', () => {
     expect(fmtChange(4.35, 'fr-CA').replace(/\s/g, ' ')).toMatch(/^\+4,4 %$/);

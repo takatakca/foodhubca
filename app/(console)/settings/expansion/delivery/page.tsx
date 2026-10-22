@@ -33,7 +33,7 @@ export default function DeliverySettingsPage() {
   const load = useCallback((reveal = false) => api<Resp>(`/api/foodhub/delivery/settings${reveal ? '?reveal=1' : ''}`).then((d) => {
     setData(d); setS(d.settings);
     setPrefixes(Object.fromEntries(Object.entries(d.settings.locations).map(([k, r]) => [k, r.postalPrefixes.join(', ')])));
-    if (reveal && !d.secrets) toast.info(t('Seul le propriétaire voit les secrets (avec DASHBOARD_PASSWORD).', 'Only the owner sees secrets (with DASHBOARD_PASSWORD).'));
+    if (reveal && !d.secrets) toast.info(t('Seul le propriétaire voit les secrets, et seulement si le mot de passe de secours est réglé sur le serveur.', 'Only the owner sees secrets, and only when the recovery password is set on the server.'));
   }).catch((e) => toast.error(e instanceof Error ? e.message : String(e))), [toast, t]);
   useEffect(() => { load(); }, [load]);
 
@@ -149,7 +149,8 @@ export default function DeliverySettingsPage() {
             <div className="space-y-2">
               <CopyValue label="POST" value={`${data.baseUrl}/api/foodhub/webhooks/website-order`} />
               {data.secrets ? <CopyValue label="Authorization: Bearer" value={data.secrets.websiteOrder || t('(non généré)', '(not generated)')} /> : can('admin') && <Button size="xs" variant="ghost" icon={<Eye className="size-3.5" />} onClick={() => load(true)}>{t('Afficher le jeton', 'Show the token')}</Button>}
-              <p className="text-xs text-ink-3">{t('Format : docs/EXPANSION_FEATURES.md (section Site web).', 'Format: docs/EXPANSION_FEATURES.md (Website section).')}</p>
+              <p className="text-xs text-ink-3">{t('Votre technicien branche le site avec cette adresse et ce jeton.', 'Your technician connects the website with this address and token.')}</p>
+              <TechDetails>{t('Format : docs/EXPANSION_FEATURES.md (section Site web).', 'Format: docs/EXPANSION_FEATURES.md (Website section).')}</TechDetails>
             </div>
           </Section>
         </div>

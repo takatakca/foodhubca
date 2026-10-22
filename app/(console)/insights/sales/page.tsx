@@ -97,6 +97,8 @@ export default function SalesMixPage() {
   }, [data, search]);
   const k = data?.totals;
   const empty = data && k && k.orders === 0 && k.lostOrders === 0;
+  // Same rule as Sales & trends: "no previous period" when the previous period had no order at all, else no +100 %.
+  const hadPrev = Boolean(k && (k.prevOrders > 0 || k.prevLostSales > 0));
 
   return (
     <div>
@@ -118,11 +120,11 @@ export default function SalesMixPage() {
       {data && k && !empty && (
         <div className={loading ? 'opacity-60 transition-opacity' : ''}>
           <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-3">
-            <StatTile hero wide label={t('Ventes', 'Sales')} value={fmtMoney(k.sales)} change={cmp ? k.salesChange : undefined} previous={cmp ? fmtMoney(k.prevSales) : undefined} />
-            <StatTile label={t('Commandes', 'Orders')} value={fmtInt(k.orders)} change={cmp ? k.ordersChange : undefined} previous={cmp ? fmtInt(k.prevOrders) : undefined} />
+            <StatTile hero wide label={t('Ventes', 'Sales')} value={fmtMoney(k.sales)} change={cmp ? k.salesChange : undefined} previous={cmp ? fmtMoney(k.prevSales) : undefined} hasPrevious={hadPrev} fromZero={!k.prevSales} />
+            <StatTile label={t('Commandes', 'Orders')} value={fmtInt(k.orders)} change={cmp ? k.ordersChange : undefined} previous={cmp ? fmtInt(k.prevOrders) : undefined} hasPrevious={hadPrev} fromZero={!k.prevOrders} />
             <StatTile label={t('Panier moyen', 'Average order')} value={fmtMoney(k.aov)} />
             <StatTile label={t('Articles vendus', 'Items sold')} value={fmtInt(k.itemsSold)} />
-            <StatTile label={t('Ventes perdues', 'Lost sales')} value={fmtMoney(k.lostSales)} change={cmp ? k.lostSalesChange : undefined} previous={cmp ? fmtMoney(k.prevLostSales) : undefined} upIsGood={false} note={k.lostOrders === 1 ? t('1 commande annulée', '1 cancelled order') : t(`${k.lostOrders} commandes annulées`, `${k.lostOrders} cancelled orders`)} />
+            <StatTile label={t('Ventes perdues', 'Lost sales')} value={fmtMoney(k.lostSales)} change={cmp ? k.lostSalesChange : undefined} previous={cmp ? fmtMoney(k.prevLostSales) : undefined} hasPrevious={hadPrev} fromZero={!k.prevLostSales} upIsGood={false} note={k.lostOrders === 1 ? t('1 commande annulée', '1 cancelled order') : t(`${k.lostOrders} commandes annulées`, `${k.lostOrders} cancelled orders`)} />
           </div>
 
           <Card className="mb-5 p-5">

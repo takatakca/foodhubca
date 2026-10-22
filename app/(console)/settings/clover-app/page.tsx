@@ -105,7 +105,7 @@ export default function CloverAppPage() {
         {!data && !err && <div className="h-96 animate-pulse rounded-lg bg-sunken" />}
         {app && (
           <>
-            {app.sandbox && <Banner tone="info" className="mb-4">{t('Environnement sandbox de Clover (CLOVER_BASE_URL) : parfait pour tester, mais la soumission se fait avec l’app de production.', 'Clover sandbox environment (CLOVER_BASE_URL): fine for testing, but you submit the production app.')}</Banner>}
+            {app.sandbox && <Banner tone="info" className="mb-4">{t('Environnement d’essai de Clover (sandbox) : parfait pour tester, mais la soumission se fait avec l’app de production.', 'Clover test environment (sandbox): fine for testing, but you submit the production app.')}<TechDetails>CLOVER_BASE_URL</TechDetails></Banner>}
             {pending.length > 0 && (
               <Banner tone="warn" className="mb-4" action={<Link href="/settings/channels" className="text-sm font-bold underline">{t('Approuver', 'Approve')}</Link>}>
                 {t(`${pending.length} marchand(s) Clover attendent votre approbation : ${pending.map((m) => m.name || m.merchantId).join(', ')}. Pendant la révision de Clover, approuvez le marchand de test du réviseur.`, `${pending.length} Clover merchant(s) waiting for your approval: ${pending.map((m) => m.name || m.merchantId).join(', ')}. During Clover’s review, approve the reviewer’s test merchant.`)}
@@ -156,7 +156,7 @@ export default function CloverAppPage() {
             </Section>
 
             <Section icon={<Link2 className="size-5" />} title={t('Adresses à coller dans Clover', 'Addresses to paste in Clover')}
-              subtitle={t('Construites à partir de FOODHUB_PUBLIC_URL : changez le domaine, elles suivent.', 'Built from FOODHUB_PUBLIC_URL: change the domain and they follow.')}>
+              subtitle={<>{t('Construites à partir de l’adresse publique du serveur : changez le domaine, elles suivent.', 'Built from the server’s public address: change the domain and they follow.')}<TechDetails>FOODHUB_PUBLIC_URL</TechDetails></>}>
               <CopyRow label="Site URL" value={app.siteUrl} />
               <CopyRow label="Alternate Launch Path" value={app.launchPath} />
               <CopyRow label={t('Webhook URL', 'Webhook URL')} value={app.webhookUrl} />
@@ -389,7 +389,7 @@ function OwnerTestOrder({ merchants, onDone }: { merchants: string[]; onDone: ()
     <Section icon={<Receipt className="size-5" />} title={t('Envoyer une commande test à une caisse Clover', 'Send a test order to a Clover register')}
       subtitle={t('Une commande TEST est créée dans la caisse, s’imprime à la cuisine et se ferme payée — comme une vraie commande Uber Eats. Rien n’est envoyé aux plateformes ; trois essais par heure.', 'A TEST order is created in the register, prints in the kitchen and closes as paid — just like a real Uber Eats order. Nothing is sent to the platforms; three tries per hour.')}>
       {merchants.length === 0 ? (
-        <p className="text-[14px] text-ink-3">{t('Aucune caisse branchée : collez le jeton API Clover dans CLOVER_ACCESS_TOKEN (avec CLOVER_MERCHANT_ID), ou branchez un marchand par l’app.', 'No register connected: put the Clover API token in CLOVER_ACCESS_TOKEN (with CLOVER_MERCHANT_ID), or connect a merchant through the app.')}</p>
+        <div><p className="text-[14px] text-ink-3">{t('Aucune caisse branchée : branchez un marchand par l’app, ou demandez à votre technicien de poser le jeton API Clover sur le serveur.', 'No register connected: connect a merchant through the app, or ask your technician to put the Clover API token on the server.')}</p><TechDetails>CLOVER_ACCESS_TOKEN, CLOVER_MERCHANT_ID</TechDetails></div>
       ) : (
         <div className="flex flex-wrap items-center gap-3">
           {merchants.length > 1 && (

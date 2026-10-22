@@ -177,8 +177,9 @@ export function ReviewsView() {
 
       <Card className="mb-4">
         <CardHeader title={t('Par marque et plateforme', 'By brand and platform')} subtitle={t('Note, nombre d’avis, tendance 30 jours et thèmes principaux, par cuisine.', 'Rating, review count, 30-day trend and top themes, per kitchen.')} />
-        {!data ? <div className="h-24 animate-pulse rounded-b-lg bg-sunken" /> : data.summary.groups.length === 0 ? <EmptyState title={filtering ? t('Aucun avis pour ces filtres', 'No reviews for these filters') : t('Aucun avis pour l’instant', 'No reviews yet')} body={t('Importez un fichier ou les avis DoorDash.', 'Import a file or the DoorDash reviews.')}
-          action={<a href="#import-reviews" className={buttonClass('outline', 'md')}>{t('Importer des avis', 'Import reviews')}</a>} /> : (
+        {!data ? <div className="h-24 animate-pulse rounded-b-lg bg-sunken" /> : data.summary.groups.length === 0 ? <EmptyState title={filtering ? t('Aucun avis pour ces filtres', 'No reviews for these filters') : t('Aucun avis pour l’instant', 'No reviews yet')} body={canEdit ? t('Importez un fichier ou les avis DoorDash.', 'Import a file or the DoorDash reviews.') : t('Les avis apparaissent ici dès qu’un responsable les importe.', 'Reviews show up here as soon as a manager imports them.')}
+          /* The import card (#import-reviews) is only rendered for editors: no button that jumps nowhere. */
+          action={canEdit ? <a href="#import-reviews" className={buttonClass('outline', 'md')}>{t('Importer des avis', 'Import reviews')}</a> : undefined} /> : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="border-y border-line text-left text-xs text-ink-3">

@@ -30,13 +30,16 @@ export function fmtChange(change: number, loc = 'fr-CA') {
   return s.replace(/^-/, '−');
 }
 /**
- * How a stat compares with the previous period. No previous period (nothing then) means there is nothing to compare:
- * never "+100 % vs 0,00 $".
+ * How a stat compares with the previous period. `hasPrevious` is about the PERIOD (did it have any orders?), never one
+ * stat: no previous period means there is nothing to compare. A previous period that had orders but a 0 for this stat
+ * (no cancellations then, say) gives no percentage either (`fromZero`): never "+100 % vs 0,00 $".
  */
-export function changeKind(change: number | undefined, hasPrevious: boolean | undefined): 'none' | 'no-previous' | 'flat' | 'up' | 'down' {
+export function changeKind(change: number | undefined, hasPrevious: boolean | undefined, fromZero?: boolean): 'none' | 'no-previous' | 'from-zero' | 'flat' | 'up' | 'down' {
   if (change === undefined) return 'none';
   if (hasPrevious === false) return 'no-previous';
-  return change === 0 ? 'flat' : change > 0 ? 'up' : 'down';
+  if (change === 0) return 'flat';
+  if (fromZero) return 'from-zero';
+  return change > 0 ? 'up' : 'down';
 }
 
 function niceTicks(max: number, count = 4): number[] {
@@ -295,19 +298,21 @@ export function Heatmap({ grid }: { grid: number[][] }) {
 /**
  * Stat tile: label · value · signed change vs the previous period (arrow + sign, never colour alone). Same card as
  * every other (20 px padding, 12 px radius); `hero` is the one dark card a screen may show, and `wide` spans two
- * columns. `hasPrevious={false}` says "no previous period" instead of a meaningless +100 %.
+ * columns. `hasPrevious={false}` (the previous period had no orders) says "no previous period" instead of a
+ * meaningless +100 %; `fromZero` (this stat was 0 then) shows the previous value without a percentage.
  */
-export function StatTile({ label, value, change, previous, upIsGood = true, hero, wide, note, hasPrevious }: {
-  label: string; value: string; change?: number; previous?: string; upIsGood?: boolean; hero?: boolean; wide?: boolean; note?: string; hasPrevious?: boolean;
+export function StatTile({ label, value, change, previous, upIsGood = true, hero, wide, note, hasPrevious, fromZero }: {
+  label: string; value: string; change?: number; previous?: string; upIsGood?: boolean; hero?: boolean; wide?: boolean; note?: string; hasPrevious?: boolean; fromZero?: boolean;
 }) {
   const { t, loc } = useI18n();
-  const kind = changeKind(change, hasPrevious);
+  const kind = changeKind(change, hasPrevious, fromZero);
   const good = kind === 'up' ? upIsGood : kind === 'down' ? !upIsGood : null;
   return (
     <div className={cn('min-w-0 rounded-md border border-line bg-surface p-5 shadow-card', wide && 'sm:col-span-2', hero && 'border-rail-2 bg-rail text-white')}>
       <div className={cn('text-small font-semibold', hero ? 'text-white/75' : 'text-ink-3')}>{label}</div>
       <div className={cn('num mt-1 tracking-tight', hero ? 'text-[34px] leading-none font-extrabold' : 'text-display text-ink')}>{value}</div>
       {kind === 'no-previous' && <div className={cn('text-small mt-1', hero ? 'text-white/70' : 'text-ink-3')}>— {t('pas de période précédente', 'no previous period')}</div>}
+      {kind === 'from-zero' && <div className={cn('text-small mt-1', hero ? 'text-white/70' : 'text-ink-3')}>— {previous ?? '0'} {t('à la période précédente', 'in the previous period')}</div>}
       {(kind === 'up' || kind === 'down' || kind === 'flat') && change !== undefined && (
         <div className={cn('text-small mt-1 font-bold', good === null ? (hero ? 'text-white/75' : 'text-ink-2') : good ? (hero ? 'text-[#5fe3a1]' : 'text-go-2') : (hero ? 'text-[#ff9b9d]' : 'text-stop-2'))}>
           <span aria-hidden>{kind === 'up' ? '▲' : kind === 'down' ? '▼' : '■'}</span> {fmtChange(change, loc)} <span className={cn('font-normal', hero ? 'text-white/70' : 'text-ink-3')}>{t('vs', 'vs')} {previous ?? t('période précédente', 'previous period')}</span>

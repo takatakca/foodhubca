@@ -237,7 +237,10 @@ describe('readiness (Settings → Expansion → AI phone)', () => {
     const r = await phoneReadiness();
     const chk = r.checks.find((x) => x.id.startsWith('phone_app_'));
     expect(chk).toMatchObject({ level: 'stop' });
-    expect(chk!.en).toMatch(/TAKATAK Phone AI refused \(not_installed, merchant TESTMERCH0021\).*PHONE_OWN_MERCHANTS/);
+    expect(chk!.en).toMatch(/TAKATAK Phone AI refused \(not_installed, merchant TESTMERCH0021\).*our restaurants list/);
+    // The setting name is for the technician: folded under « Détails techniques », never in the owner's sentence.
+    expect(chk!.en).not.toMatch(/PHONE_OWN_MERCHANTS/);
+    expect(chk!.tech).toBe('PHONE_OWN_MERCHANTS');
     expect(r.ready).toBe(false);
     process.env.PHONE_OWN_MERCHANTS = KITCHEN_MID;
     expect((await phoneReadiness()).checks.find((x) => x.id.startsWith('phone_app_'))).toMatchObject({ level: 'ok' });

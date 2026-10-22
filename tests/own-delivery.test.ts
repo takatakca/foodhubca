@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { saveLocationAlcohol } from '../lib/foodhub/alcohol/rules';
 import { saveLocation } from '../lib/foodhub/catalog';
-import { cancelCourier, dispatchOrder, dispatchProblems, tickDispatch } from '../lib/foodhub/delivery/dispatch';
+import { applyFleetEvent, cancelCourier, dispatchOrder, dispatchProblems, tickDispatch } from '../lib/foodhub/delivery/dispatch';
 import { driveBody, driveEventStatus } from '../lib/foodhub/delivery/doordash-drive';
 import { createDirectOrder, runDirectAction } from '../lib/foodhub/delivery/orders';
 import { getDelivery, getDirectOrder, saveDeliverySettings } from '../lib/foodhub/delivery/store';
@@ -126,6 +126,7 @@ function driveHook(body: Record<string, unknown>, token = 'drive-hook-token') {
 // Fixed pause only before checking that something did NOT happen; positive checks poll with vi.waitFor,
 // because the webhook side effects run after the response and a loaded machine needs more than 30 ms.
 const settle = () => new Promise((r) => setTimeout(r, 30));
+const texts = () => calls.filter((c) => c.url.includes('/Messages.json'));
 
 describe('DoorDash Drive webhooks', () => {
   it('move the delivery and the order forward, text the tracking link once, ignore late events', async () => {
@@ -145,6 +146,113 @@ describe('DoorDash Drive webhooks', () => {
     await settle();
     expect((await getDelivery(d.id))!.status).toBe('delivered');
     expect(calls.filter((c) => c.url.includes('/Messages.json'))).toHaveLength(1);
+  });
+
+  it('events that arrive together send ONE tracking text and never write an older status over a newer one', async () => {
+    const o = await order();
+    const d = (await dispatchOrder(o.id, actor)).delivery!;
+    // Twilio holds its answer to the first text: the other events run while that text is on its way.
+    let open!: () => void;
+    const gate = new Promise<void>((r) => { open = r; });
+    const mock = globalThis.fetch;
+    let held = 0;
+    globalThis.fetch = (async (url: any, init?: RequestInit) => {
+      const res = await mock(url, init);
+      if (String(url).includes('/Messages.json') && held++ === 0) await gate;
+      return res;
+    }) as typeof fetch;
+    const at = new Date().toISOString();
+    const confirmed = { fleet: 'doordash_drive' as const, ref: d.id, status: 'assigned' as const, event: 'DASHER_CONFIRMED', at, courier: { name: 'Lea', lat: 45.47, lng: -73.61, updatedAt: at } };
+    // DASHER_CONFIRMED and its retry land together; DASHER_PICKED_UP comes while the first text is still on its way.
+    const confirmations = Promise.all([applyFleetEvent(confirmed), applyFleetEvent(confirmed)]);
+    await vi.waitFor(() => expect(texts().length).toBeGreaterThanOrEqual(1));
+    const pickedUp = applyFleetEvent({ fleet: 'doordash_drive', ref: d.id, status: 'picked_up', event: 'DASHER_PICKED_UP', at: new Date().toISOString() });
+    await Promise.race([pickedUp, new Promise((r) => setTimeout(r, 100))]); // it finishes, or waits for the confirmation
+    open();
+    await Promise.all([confirmations, pickedUp]);
+    const after = await getDelivery(d.id);
+    expect({ texts: texts().length, status: after!.status, courier: after!.courier?.name, texted: Boolean(after!.trackingSmsAt), order: (await getDirectOrder(o.id))!.status })
+      .toEqual({ texts: 1, status: 'picked_up', courier: 'Lea', texted: true, order: 'out_for_delivery' });
+  });
+
+  it('a text that fails gives its claim back; a text another server claimed is not sent twice', async () => {
+    const mock = globalThis.fetch;
+    let failNext = true;
+    globalThis.fetch = (async (url: any, init?: RequestInit) => {
+      const res = await mock(url, init);
+      if (!String(url).includes('/Messages.json') || !failNext) return res;
+      failNext = false;
+      return new Response(JSON.stringify({ message: 'Service unavailable' }), { status: 503, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    const ev = (ref: string, status: 'assigned' | 'at_pickup' | 'picked_up', event: string) => ({ fleet: 'doordash_drive' as const, ref, status, event, at: new Date().toISOString() });
+    const o = await order();
+    const d = (await dispatchOrder(o.id, actor)).delivery!;
+    await applyFleetEvent(ev(d.id, 'assigned', 'DASHER_CONFIRMED'));
+    expect(texts()).toHaveLength(1);
+    expect((await getDelivery(d.id))!.trackingSmsAt).toBeUndefined();
+    await applyFleetEvent(ev(d.id, 'at_pickup', 'DASHER_CONFIRMED_PICKUP_ARRIVAL'));
+    await applyFleetEvent(ev(d.id, 'picked_up', 'DASHER_PICKED_UP'));
+    expect(texts()).toHaveLength(2);
+    expect((await getDelivery(d.id))!.trackingSmsAt).toEqual(expect.any(String));
+    expect((await getDirectOrder(o.id))!.events.map((e) => e.type)).toEqual(expect.arrayContaining(['sms_failed', 'sms_tracking']));
+
+    // Another Food Hub server (a deploy overlap) already claimed this delivery's text: this one does not send it.
+    const o2 = await order();
+    const d2 = (await dispatchOrder(o2.id, actor)).delivery!;
+    expect(await getRepo().claimKv(`delivery_tracking_sms:${d2.id}`, { at: new Date().toISOString() })).toBe(true);
+    await applyFleetEvent(ev(d2.id, 'assigned', 'DASHER_CONFIRMED'));
+    expect(texts()).toHaveLength(2);
+    expect((await getDelivery(d2.id))!.status).toBe('assigned');
+  });
+
+  it('a text whose answer was lost is never sent again; one refused before it left is', async () => {
+    const mock = globalThis.fetch;
+    let next: 'lost' | 'refused' | null = 'lost';
+    globalThis.fetch = (async (url: any, init?: RequestInit) => {
+      const fail = String(url).includes('/Messages.json') ? next : null;
+      if (fail) next = null;
+      // Refused: no connection was made, Twilio never saw it.
+      if (fail === 'refused') throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } });
+      const res = await mock(url, init);
+      // Lost: Twilio got the text, then its answer timed out (timedFetch's abort).
+      if (fail === 'lost') throw new DOMException('This operation was aborted', 'AbortError');
+      return res;
+    }) as typeof fetch;
+    const ev = (ref: string, status: 'assigned' | 'at_pickup' | 'picked_up', event: string) => ({ fleet: 'doordash_drive' as const, ref, status, event, at: new Date().toISOString() });
+    const o = await order();
+    const d = (await dispatchOrder(o.id, actor)).delivery!;
+    await applyFleetEvent(ev(d.id, 'assigned', 'DASHER_CONFIRMED'));
+    await applyFleetEvent(ev(d.id, 'at_pickup', 'DASHER_CONFIRMED_PICKUP_ARRIVAL'));
+    await applyFleetEvent(ev(d.id, 'picked_up', 'DASHER_PICKED_UP'));
+    expect(texts()).toHaveLength(1);
+    const events = (await getDirectOrder(o.id))!.events;
+    expect(events.filter((e) => e.type === 'sms_failed').map((e) => e.message)).toEqual([expect.stringMatching(/may not have been texted .*aborted.*Not sent again/)]);
+    expect(events.some((e) => e.type === 'sms_tracking')).toBe(false);
+    expect((await getDelivery(d.id))!.status).toBe('picked_up');
+
+    next = 'refused';
+    const o2 = await order();
+    const d2 = (await dispatchOrder(o2.id, actor)).delivery!;
+    await applyFleetEvent(ev(d2.id, 'assigned', 'DASHER_CONFIRMED'));
+    expect(texts()).toHaveLength(1);
+    expect((await getDirectOrder(o2.id))!.events.find((e) => e.type === 'sms_failed')!.message).toMatch(/^Tracking link not texted: Network error: fetch failed/);
+    await applyFleetEvent(ev(d2.id, 'picked_up', 'DASHER_PICKED_UP'));
+    expect(texts()).toHaveLength(2);
+    expect((await getDelivery(d2.id))!.trackingSmsAt).toEqual(expect.any(String));
+  });
+
+  it('one courier event at a time per delivery: an older event still in flight never undoes a newer one', async () => {
+    const o = await order();
+    const d = (await dispatchOrder(o.id, actor)).delivery!;
+    const at = new Date().toISOString();
+    // DASHER_PICKED_UP lands first and waits for Twilio; the late DASHER_CONFIRMED read the delivery at the same moment.
+    await Promise.all([
+      applyFleetEvent({ fleet: 'doordash_drive', ref: d.id, status: 'picked_up', event: 'DASHER_PICKED_UP', at }),
+      applyFleetEvent({ fleet: 'doordash_drive', ref: d.id, status: 'assigned', event: 'DASHER_CONFIRMED', at, courier: { name: 'Lea', updatedAt: at } }),
+    ]);
+    const after = (await getDelivery(d.id))!;
+    expect({ status: after.status, courier: after.courier?.name, texts: texts().length, order: (await getDirectOrder(o.id))!.status })
+      .toEqual({ status: 'picked_up', courier: 'Lea', texts: 1, order: 'out_for_delivery' });
   });
 
   it('a courier cancellation flags the order for a person; unknown deliveries are kept', async () => {

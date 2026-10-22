@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Flame, Pause, Play, Snowflake, Store as StoreIcon } from 'lucide-react';
 import { Badge, PlatformTag, type Tone } from '@/components/ui/badge';
@@ -15,12 +14,14 @@ import { DraftRestoredBanner, SaveChip } from '@/components/ui/save-chip';
 import { Hint } from '@/components/help/hint';
 import { refreshEverything, usePulse, useRefreshOn } from '@/components/live/pulse';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
+import { statusDetailText } from '@/components/stores/status-detail';
 import { StoresTabs } from './stores-tabs';
 import { api, ApiError, timeOf } from '@/lib/ui/api';
 import { sameValue } from '@/lib/ui/autosave-core';
 import { useAutosave } from '@/lib/ui/use-autosave';
 import { useUndo } from '@/lib/ui/use-undo';
 import { useI18n, useProduct } from '@/lib/i18n/client';
+import { countEn, countFr } from '@/lib/ui/count-label';
 import type { T } from '@/lib/i18n';
 import type { ChannelStore, PlatformStatus } from '@/lib/foodhub/types';
 import type { CommandCenter } from '@/lib/foodhub/command';
@@ -88,8 +89,8 @@ export function StoresView() {
     try {
       const r = await api<{ results: Result[] }>('/api/foodhub/stores/status', { method: 'POST', json: { storeIds: ids, online, minutes, reason } });
       const bad = r.results.filter((x) => !x.result.ok);
-      if (bad.length) toast.error(t(`${bad.length} plateforme(s) ont refusé`, `${bad.length} platform(s) refused`), bad.map((b) => `${b.channel}: ${b.result.message}`).join('\n'));
-      else toast.success(online ? t('Rouvert sur les plateformes', 'Reopened on the platforms') : t('Mis en pause sur les plateformes', 'Paused on the platforms'), `${r.results.length} ${t('magasin(s)', 'store(s)')}`);
+      if (bad.length) toast.error(t(`${countFr(bad.length, 'plateforme a', 'plateformes ont')} refusé`, `${countEn(bad.length, 'platform')} refused`), bad.map((b) => `${b.channel}: ${b.result.message}`).join('\n'));
+      else toast.success(online ? t('Rouvert sur les plateformes', 'Reopened on the platforms') : t('Mis en pause sur les plateformes', 'Paused on the platforms'), t(countFr(r.results.length, 'magasin'), countEn(r.results.length, 'store')));
       setPauseFor(null);
       await load(); refreshEverything();
     } catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); }
@@ -120,24 +121,27 @@ export function StoresView() {
   const pauseButtons = (list: ChannelStore[], label: string) => {
     if (!list.length || !can('stores:toggle')) return null;
     const online = list.filter((s) => stateOf(s).state === 'online');
-    return <>
-      <Button variant="outline" onClick={() => setPauseFor({ ids: online.map((s) => s.id), label, channel: site.channel })} icon={<Pause className="size-4" />} disabled={!online.length}>{platform ? t(`Tout mettre en pause sur ${platform}`, `Pause all on ${platform}`) : t('Tout mettre en pause', 'Pause all')}</Button>
-      <Hint id="stores.resume"><Button variant="outline" loading={busy === list.map((s) => s.id).join(',')} onClick={() => setOnline(list.map((s) => s.id), true)} icon={<Play className="size-4" />}>{platform ? t(`Tout rouvrir sur ${platform}`, `Resume all on ${platform}`) : t('Tout rouvrir', 'Resume all')}</Button></Hint>
-    </>;
+    // Phone: the two buttons share one row under the title (never a 90 px title column beside two full-width buttons).
+    return <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+      <Button variant="outline" className="w-full sm:w-auto" onClick={() => setPauseFor({ ids: online.map((s) => s.id), label, channel: site.channel })} icon={<Pause className="size-4" />} disabled={!online.length}>{platform ? t(`Tout mettre en pause sur ${platform}`, `Pause all on ${platform}`) : t('Tout mettre en pause', 'Pause all')}</Button>
+      <Hint id="stores.resume"><Button variant="outline" className="w-full sm:w-auto" loading={busy === list.map((s) => s.id).join(',')} onClick={() => setOnline(list.map((s) => s.id), true)} icon={<Play className="size-4" />}>{platform ? t(`Tout rouvrir sur ${platform}`, `Resume all on ${platform}`) : t('Tout rouvrir', 'Resume all')}</Button></Hint>
+    </div>;
   };
+  /** A card's header: title block, then its buttons (stacked on a phone, side by side from 640 px). */
+  const cardHead = 'flex flex-col gap-3 border-b border-line px-5 py-4 sm:flex-row sm:flex-wrap sm:items-center';
 
   /** One platform store: its state and its Pause / Resume button. */
   const storeRow = (s: ChannelStore, showBrand: boolean) => {
     const st = stateOf(s);
     return (
       <div key={s.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3">
-        <div className="w-48 min-w-0">{showBrand && <div className="truncate text-sm font-bold">{s.brandName}</div>}<PlatformTag channel={s.channel} className={showBrand ? 'text-xs font-medium text-ink-3' : 'text-sm font-bold'} /></div>
+        <div className="w-48 min-w-0">{showBrand && <div className="truncate text-body font-bold">{s.brandName}</div>}<PlatformTag channel={s.channel} className={showBrand ? 'text-small font-medium text-ink-3' : 'text-body font-bold'} /></div>
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           <Badge tone={st.tone}>{stateText(t, st.state)}</Badge>
-          {st.ps?.source === 'dashboard' && st.state !== 'online' && <span className="text-xs text-ink-3">{t(`par ${product.shortName}`, `from ${product.shortName}`)}</span>}
-          {st.ps?.source && st.ps.source !== 'dashboard' && st.state !== 'online' && <span className="text-xs font-semibold text-wait-2">{t('par la plateforme', 'by the platform')}</span>}
-          {s.pausedUntil && !s.online && <span className="text-xs text-ink-3">{t('jusqu’à', 'until')} {timeOf(s.pausedUntil, loc)}</span>}
-          {st.ps?.detail && <span className="truncate text-xs text-ink-3" title={st.ps.detail}>{st.ps.detail}</span>}
+          {st.ps?.source === 'dashboard' && st.state !== 'online' && <span className="text-small text-ink-3">{t(`par ${product.shortName}`, `from ${product.shortName}`)}</span>}
+          {st.ps?.source && st.ps.source !== 'dashboard' && st.state !== 'online' && <span className="text-small font-semibold text-wait-2">{t('par la plateforme', 'by the platform')}</span>}
+          {s.pausedUntil && !s.online && <span className="text-small text-ink-3">{t('jusqu’à', 'until')} {timeOf(s.pausedUntil, loc)}</span>}
+          {statusDetailText(t, st.ps?.detail) && <span className="truncate text-small text-ink-3">{statusDetailText(t, st.ps?.detail)}</span>}
           {st.ps?.error && <Badge tone="stop" title={st.ps.error}>{t('lecture impossible', 'cannot read')}</Badge>}
           {!s.autoAccept && <Badge tone="neutral">{t('acceptation manuelle', 'manual accept')}</Badge>}
         </div>
@@ -151,10 +155,10 @@ export function StoresView() {
   const loading = !stores && !failed;
   return (
     <div>
-      <PageHeader title={t('Restaurants', 'Restaurants')} subtitle={t('Toutes les marques de chaque succursale sur une liste. Touchez une marque pour l’ouvrir seule : pause, réouverture et temps de préparation, sur toutes les plateformes d’un coup.', 'Every brand of each location in one list. Tap a brand to open it alone: pause, resume and prep time, on every platform at once.')} />
-      <StoresTabs />
+      <PageHeader title={t('Restaurants', 'Restaurants')} tabs={<StoresTabs className="mb-0" />}
+        subtitle={t('Chaque cuisine et ses marques. Touchez une marque pour la mettre en pause, la rouvrir ou changer son temps de préparation, sur toutes les plateformes d’un coup.', 'Each kitchen and its brands. Tap a brand to pause it, resume it or change its prep time, on every platform at once.')} />
       {platform && (
-        <div className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-2">{t(`${platform} seulement : les pauses et réouvertures de cette page ne touchent que ${platform}.`, `${platform} only: pauses and resumes on this page only reach ${platform}.`)}<span aria-hidden>·</span><button type="button" onClick={() => setSite({ channel: undefined })} className="min-h-11 font-semibold text-brand hover:underline">{t('Voir toutes les plateformes', 'See every platform')}</button></div>
+        <div className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-body text-ink-2">{t(`${platform} seulement : les pauses et réouvertures de cette page ne touchent que ${platform}.`, `${platform} only: pauses and resumes on this page only reach ${platform}.`)}<span aria-hidden>·</span><button type="button" onClick={() => setSite({ channel: undefined })} className="min-h-11 font-semibold text-brand hover:underline">{t('Voir toutes les plateformes', 'See every platform')}</button></div>
       )}
       {failed && !stores && <Banner tone="stop" className="mb-5">{t('Impossible de lire vos magasins pour l’instant. Vérifiez la connexion : on réessaie toutes les 30 secondes.', 'Cannot read your stores right now. Check the connection: it retries every 30 seconds.')}</Banner>}
       {stores && stores.length === 0 && !(cc?.matrix.length) && (
@@ -164,7 +168,7 @@ export function StoresView() {
       {site.brand ? (
         // One brand on its own: its platforms in each kitchen of the scope.
         <div className="space-y-5">
-          <button type="button" onClick={() => setSite({ kitchen: site.kitchen, brand: null })} className="-mt-1 flex h-10 items-center gap-1.5 rounded-lg px-2 text-sm font-semibold text-brand hover:bg-brand-soft">
+          <button type="button" onClick={() => setSite({ kitchen: site.kitchen, brand: null })} className="-mt-1 flex h-10 items-center gap-1.5 rounded-lg px-2 text-body font-semibold text-brand hover:bg-brand-soft">
             <ArrowLeft className="size-4" />{site.kitchen ? t(`Toutes les marques de ${shortLoc(locName(site.kitchen))}`, `All ${shortLoc(locName(site.kitchen))} brands`) : t('Tous les restaurants', 'All restaurants')}
           </button>
           {shownLocs.map((l) => {
@@ -174,9 +178,9 @@ export function StoresView() {
             const online = list.filter((s) => stateOf(s).state === 'online').length;
             return (
               <Card key={l.code}>
-                <div className="flex flex-wrap items-center gap-3 border-b border-line px-5 py-4">
-                  <BrandMark name={site.brand!} size="lg" />
-                  <div className="min-w-0 flex-1"><h2 className="text-lg font-extrabold">{site.brand}</h2><div className="text-[13px] text-ink-3">{shortLoc(l.name)} · {l.address}{list.length ? ` · ${online}/${list.length} ${t('en ligne', 'online')}` : ''}</div></div>
+                <div className={cardHead}>
+                  <div className="flex min-w-0 flex-1 items-center gap-3"><BrandMark name={site.brand!} size="lg" />
+                  <div className="min-w-0 flex-1"><h2 className="text-heading text-ink">{site.brand}</h2><div className="text-small text-ink-3">{shortLoc(l.name)} · {l.address}{list.length ? ` · ${online}/${list.length} ${t('en ligne', 'online')}` : ''}</div></div></div>
                   {pauseButtons(list, `${site.brand} · ${shortLoc(l.name)}`)}
                 </div>
                 {loading ? <div className="space-y-2 p-5"><Skeleton className="h-12" /><Skeleton className="h-12" /></div>
@@ -192,19 +196,19 @@ export function StoresView() {
           {shownLocs.map((l) => {
             const list = storesOfLocation(stores ?? [], l.code, site);
             const p: PrepSetting = Object.assign({ normal: 15, busy: 25, isBusy: false }, prep[l.code]);
-            if (loading) return <div key={l.code} className="h-64 animate-pulse rounded-lg bg-sunken" />;
+            if (loading) return <Card key={l.code} aria-busy><div className="space-y-2 p-5"><Skeleton className="h-6 w-48" /><Skeleton className="h-4 w-72" /></div><div className="space-y-2 border-t border-line p-5">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-14" />)}</div></Card>;
             const rows = cc ? brandRows(cc.matrix, cc.byBrandLocation, site.channel ? { kitchen: l.code, brand: null, channel: site.channel } : { kitchen: l.code, brand: null }) : [];
             const open = rows.filter((r) => r.state === 'open').length;
             return (
               <Card key={l.code}>
-                <div className="flex flex-wrap items-center gap-3 border-b border-line px-5 py-4">
-                  <div className="min-w-0 flex-1"><h2 className="text-lg font-extrabold">{shortLoc(l.name)}</h2><div className="text-[13px] text-ink-3">{l.address}{rows.length ? ` · ${t(`${open}/${rows.length} marques ouvertes`, `${open}/${rows.length} brands open`)}` : ''}</div></div>
+                <div className={cardHead}>
+                  <div className="min-w-0 flex-1"><h2 className="text-heading text-ink">{shortLoc(l.name)}</h2><div className="text-small text-ink-3">{l.address}{rows.length ? ` · ${t(`${open}/${rows.length} marques ouvertes`, `${open}/${rows.length} brands open`)}` : ''}</div></div>
                   {pauseButtons(list, shortLoc(l.name))}
                 </div>
                 <PrepRow code={l.code} p={p} editable={can('stores:toggle')} send={sendPrep} onBusyMode={setBusyMode} />
                 {!cc ? <div className="space-y-2 p-5">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-14" />)}</div>
                   : <BrandList rows={rows} onOpen={(r) => setSite({ kitchen: r.locationCode, brand: r.brandName })}
-                    empty={<div className="px-5 py-6 text-sm text-ink-3">{t('Aucune marque branchée ici.', 'No brand connected here.')}{can('stores:map') && <> <Link href="/stores/mapping" className="font-semibold text-brand hover:underline">{t('Relier un magasin', 'Link a store')}</Link></>}</div>} />}
+                    empty={<EmptyState compact icon={<StoreIcon />} title={t('Aucune marque branchée dans cette cuisine', 'No brand connected at this kitchen')} action={can('stores:map') ? <ButtonLink href="/stores/mapping" variant="outline">{t('Relier un magasin', 'Link a store')}</ButtonLink> : undefined} />} />}
                 {cc && rows.length > 0 && <div className="border-t border-line px-5 py-2.5"><PlatformLegend /></div>}
               </Card>
             );
@@ -284,7 +288,7 @@ function PrepRow({ code, p, editable, send, onBusyMode }: { code: string; p: Pre
 
   const field = 'h-11 w-20 text-center text-base';
   return (
-    <div className="border-b border-line bg-raised px-5 py-3 text-sm">
+    <div className="border-b border-line bg-raised px-5 py-3 text-body">
       <div className="flex flex-wrap items-center gap-3">
         <span className="font-semibold text-ink-2">{t('Préparation', 'Prep time')}</span>
         <Hint id="stores.prep"><div className="flex flex-wrap items-center gap-3">
@@ -311,12 +315,12 @@ function PauseDialog({ label, count, channel, busy, onClose, onPause }: { label:
     { value: 'closed', label: t('Fermeture', 'Closing'), text: 'Closed' },
   ], [t]);
   return (
-    <Modal title={channel ? t(`Pause sur ${channelName(channel)}`, `Pause on ${channelName(channel)}`) : t('Mettre en pause', 'Pause')} subtitle={`${label} · ${count} ${channel ? t(`magasin(s) sur ${channelName(channel)} seulement`, `store(s) on ${channelName(channel)} only`) : t('magasin(s) sur toutes les plateformes', 'store(s) on every platform')}`} onClose={onClose}
+    <Modal title={channel ? t(`Pause sur ${channelName(channel)}`, `Pause on ${channelName(channel)}`) : t('Mettre en pause', 'Pause')} subtitle={`${label} · ${channel ? t(`${countFr(count, 'magasin')} sur ${channelName(channel)} seulement`, `${countEn(count, 'store')} on ${channelName(channel)} only`) : t(`${countFr(count, 'magasin')} sur toutes les plateformes`, `${countEn(count, 'store')} on every platform`)}`} onClose={onClose}
       footer={<><Button variant="ghost" size="lg" onClick={onClose}>{t('Retour', 'Back')}</Button><Button variant="danger" size="lg" loading={busy} onClick={() => onPause(minutes, reasons.find((r) => r.value === reason)?.text ?? '')} icon={<Pause className="size-5" />}>{minutes ? t(`Pause ${minutes >= 60 ? `${minutes / 60} h` : `${minutes} min`}`, `Pause ${minutes >= 60 ? `${minutes / 60} h` : `${minutes} min`}`) : t('Pause jusqu’à réouverture', 'Pause until resumed')}</Button></>}>
       <div className="space-y-5">
-        <div><div className="mb-2 text-[13px] font-semibold text-ink-2">{t('Combien de temps ?', 'How long?')}</div><Chips size="lg" value={minutes} onChange={setMinutes} options={[{ value: 15, label: '15 min' }, { value: 30, label: '30 min' }, { value: 60, label: '1 h' }, { value: 120, label: '2 h' }, { value: 0, label: t('Jusqu’à réouverture', 'Until resumed') }]} /></div>
-        <div><div className="mb-2 text-[13px] font-semibold text-ink-2">{t('Pourquoi ?', 'Why?')}</div><Chips value={reason} onChange={setReason} options={reasons.map((r) => ({ value: r.value, label: r.label }))} /></div>
-        <p className="text-xs text-ink-3">{t('Chaque minute en pause = des ventes perdues. Les pauses minutées rouvrent toutes seules. Un gérant peut devoir approuver.', 'Every minute paused is lost sales. Timed pauses reopen by themselves. A manager may need to approve.')}</p>
+        <div><div className="mb-2 text-small font-semibold text-ink-2">{t('Combien de temps ?', 'How long?')}</div><Chips size="lg" value={minutes} onChange={setMinutes} options={[{ value: 15, label: '15 min' }, { value: 30, label: '30 min' }, { value: 60, label: '1 h' }, { value: 120, label: '2 h' }, { value: 0, label: t('Jusqu’à réouverture', 'Until resumed') }]} /></div>
+        <div><div className="mb-2 text-small font-semibold text-ink-2">{t('Pourquoi ?', 'Why?')}</div><Chips value={reason} onChange={setReason} options={reasons.map((r) => ({ value: r.value, label: r.label }))} /></div>
+        <p className="text-small text-ink-3">{t('Chaque minute en pause = des ventes perdues. Les pauses minutées rouvrent toutes seules. Un gérant peut devoir approuver.', 'Every minute paused is lost sales. Timed pauses reopen by themselves. A manager may need to approve.')}</p>
       </div>
     </Modal>
   );

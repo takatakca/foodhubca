@@ -1,10 +1,10 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Flame, Maximize, Minimize, MonitorSmartphone, Snowflake } from 'lucide-react';
+import { ChefHat, Flame, LayoutGrid, Maximize, Minimize, MonitorSmartphone, PackageCheck, Snowflake } from 'lucide-react';
 import { Hint } from '@/components/help/hint';
 import { Button, ButtonLink } from '@/components/ui/button';
+import { Card, EmptyState } from '@/components/ui/card';
 import { useNow } from '@/components/ui/timer';
 import { useToast } from '@/components/ui/toast';
 import { OrderCard } from '@/components/live/order-card';
@@ -18,7 +18,6 @@ import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { useBoardOrders } from '../orders/orders-view';
 import { api, ApiError } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
-import { cn } from '@/lib/ui/cn';
 
 /** Kitchen display: big tickets, one tap to bump. Dark, readable from across the kitchen. */
 export function KitchenView() {
@@ -56,14 +55,22 @@ export function KitchenView() {
   }
 
   return (
-    <div className="-mx-4 -mt-5 min-h-[calc(100dvh-4rem)] px-4 pt-5 sm:-mx-6 sm:px-6">
+    // The dark theme’s amber chip fill is lifted one step here (#33280a read muddy from across the kitchen).
+    <div className="-mx-4 -mt-5 min-h-[calc(100dvh-4rem)] px-4 pt-5 [--color-wait-soft:#4a3a0e] sm:-mx-6 sm:px-6">
       <div className="mb-5 flex flex-wrap items-center gap-3">
         <div>
-          <div className="text-xs font-bold tracking-[0.14em] text-brand uppercase">{t('Cuisine', 'Kitchen')}</div>
-          <h1 className="text-2xl font-extrabold">{here ? shortLoc(locName(here)) : t('Toutes les cuisines', 'All kitchens')}</h1>
+          <div className="eyebrow mb-1 text-brand">{t('Cuisine', 'Kitchen')}</div>
+          <h1 className="text-display text-ink">{here ? shortLoc(locName(here)) : t('Toutes les cuisines', 'All kitchens')}</h1>
         </div>
-        <div className="num ml-2 text-3xl font-extrabold text-ink-2" suppressHydrationWarning>{new Date(now).toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' })}</div>
+        <div className="num text-display ml-2 text-ink-2" suppressHydrationWarning>{new Date(now).toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' })}</div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
+          {/* Enrolling the tablet is a one-time step: a header chip, not a 64 px banner over the tickets. */}
+          {!viewer.device && can('stores:map') && (
+            <ButtonLink href="/settings/devices" variant="outline" size="lg" icon={<MonitorSmartphone className="size-5 text-brand" aria-hidden />}
+              title={t('Enregistrez cette tablette : l’équipe entre avec son NIP et vous êtes alerté si elle s’éteint.', 'Enrol this tablet: the team unlocks it with their PIN and you get alerted if it goes off.')}>
+              {t('Enregistrer cette tablette', 'Enrol this tablet')}
+            </ButtonLink>
+          )}
           {here && <KitchenStatus locationCode={here} />}
           {here && can('stores:toggle') && (
             <Hint id="kitchen.busy"><Button variant={kitchen?.busy ? 'danger' : 'outline'} size="lg" loading={busy} onClick={toggleBusy} icon={kitchen?.busy ? <Flame className="size-5" /> : <Snowflake className="size-5" />}>
@@ -74,37 +81,29 @@ export function KitchenView() {
         </div>
       </div>
 
-      {!viewer.device && can('stores:map') && (
-        <div className="mb-5 flex flex-wrap items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3 text-sm">
-          <MonitorSmartphone className="size-5 text-brand" />
-          <span className="flex-1">{t('Cet écran est-il la tablette de la cuisine ? Enregistrez-la : l’équipe entrera avec son NIP et vous serez alerté si elle s’éteint.', 'Is this screen the kitchen tablet? Enrol it: the team unlocks it with their PIN and you get alerted if it goes off.')}</span>
-          <ButtonLink href="/settings/devices" variant="brand" size="sm">{t('Enregistrer cette tablette', 'Enrol this tablet')}</ButtonLink>
-        </div>
-      )}
-
       {/* Our own delivery orders and their courier (only when own delivery is on and something is on the road). */}
       <CourierStrip locationCode={here ?? undefined} />
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_340px]">
         <section>
           {/* The tip sits on the column title, not on each ticket: no card pops over the next ticket during a rush, and the tour finds it even with no orders. */}
-          <Hint id="kitchen.ticket"><div className="mb-3 flex items-baseline gap-2 text-lg font-extrabold">{t('À préparer', 'To cook')}<span className="num text-ink-3">{cooking.length + webCooking.length + ownCooking.length}</span></div></Hint>
+          <Hint id="kitchen.ticket"><h2 className="text-heading mb-3 flex items-baseline gap-2 text-ink">{t('À préparer', 'To cook')}<span className="num text-ink-3">{cooking.length + webCooking.length + ownCooking.length}</span></h2></Hint>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-3">
             {cooking.map((o) => <OrderCard key={o.id} o={o} big onOpen={() => setOpen(o.id)} />)}
             {webCooking.map((o) => <WebsiteOrderCard key={o.id} o={o} big onChanged={web.reload} />)}
             {ownCooking.map((o) => <OwnOrderCard key={o.id} o={o} big onChanged={own.reload} />)}
           </div>
-          {orders && cooking.length === 0 && webCooking.length === 0 && ownCooking.length === 0 && <div className="rounded-xl border border-dashed border-line-2 px-6 py-16 text-center text-lg text-ink-3">{t('Aucune commande à préparer. 🍳', 'Nothing to cook. 🍳')}</div>}
+          {orders && cooking.length === 0 && webCooking.length === 0 && ownCooking.length === 0 && <Card><EmptyState icon={<ChefHat />} title={t('Rien à préparer', 'Nothing to cook')} body={t('Les nouvelles commandes arrivent ici toutes seules, avec une sonnerie.', 'New orders land here by themselves, with a chime.')} /></Card>}
         </section>
         <section>
-          <Hint id="kitchen.pickup"><div className="mb-3 flex items-baseline gap-2 text-lg font-extrabold">{t('Prêtes — attendent le livreur', 'Ready — waiting for courier')}<span className="num text-ink-3">{ready.length + webReady.length + ownReady.length}</span></div></Hint>
+          <Hint id="kitchen.pickup"><h2 className="text-heading mb-3 flex items-baseline gap-2 text-ink">{t('Prêtes — attendent le livreur', 'Ready — waiting for courier')}<span className="num text-ink-3">{ready.length + webReady.length + ownReady.length}</span></h2></Hint>
           <div className="flex flex-col gap-3">
             {ready.map((o) => <OrderCard key={o.id} o={o} onOpen={() => setOpen(o.id)} />)}
             {webReady.map((o) => <WebsiteOrderCard key={o.id} o={o} onChanged={web.reload} />)}
             {ownReady.map((o) => <OwnOrderCard key={o.id} o={o} onChanged={own.reload} />)}
           </div>
-          {orders && ready.length === 0 && webReady.length === 0 && ownReady.length === 0 && <div className="rounded-xl border border-dashed border-line-2 px-4 py-10 text-center text-ink-3">—</div>}
-          {!viewer.device && <p className={cn('mt-6 text-xs text-ink-4')}><Link href="/orders" className="underline">{t('Vue tableau des commandes', 'Orders board view')}</Link></p>}
+          {orders && ready.length === 0 && webReady.length === 0 && ownReady.length === 0 && <Card><EmptyState compact icon={<PackageCheck />} title={t('Aucune commande prête', 'No order ready')} body={t('Touchez « Prête » sur un billet : il passe ici jusqu’au livreur.', 'Tap “Ready” on a ticket: it moves here until the courier comes.')} /></Card>}
+          {!viewer.device && <ButtonLink href="/orders" variant="ghost" size="lg" className="mt-4" icon={<LayoutGrid className="size-4" aria-hidden />}>{t('Vue tableau des commandes', 'Orders board view')}</ButtonLink>}
         </section>
       </div>
       {open && <OrderDrawer orderId={open} onClose={() => setOpen(null)} />}

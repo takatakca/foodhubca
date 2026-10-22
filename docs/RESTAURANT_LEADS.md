@@ -42,11 +42,11 @@ leads** (owner only): status `new → contacted → won / lost` plus private not
 
 | Field | Required | Rule |
 |---|---|---|
-| `restaurant` | yes | 2–120 characters |
-| `contact` | yes | 2–80 characters (person’s name) |
+| `restaurant` | yes | 2–120 characters; no link (`http`, `://`, `www.`) |
+| `contact` | yes | 2–80 characters (person’s name); no link |
 | `email` | yes | valid address, ≤ 254; stored lower-case |
 | `phone` | yes | North-American number (10 digits, or `+` and 8–15 digits), ≤ 30 characters as typed; stored as E.164 |
-| `city` | yes | 2–80 characters |
+| `city` | yes | 2–80 characters; no link |
 | `address` | no | ≤ 200 |
 | `website` | no | ≤ 200; `https://` is added when the scheme is missing; must be http(s) with a dotted host |
 | `platforms` | yes (may be empty) | array of `uber`, `doordash`, `skip`, `tgtg`, `direct`, `phone`; unknown values are dropped; anything that is not an array → `invalid` |
@@ -56,7 +56,10 @@ leads** (owner only): status `new → contacted → won / lost` plus private not
 | `source` | no | ≤ 40, default `on2go.ca` |
 | `company` | honeypot | hidden field, must stay empty. Any value → `202 { "ok": true }` and the submission is dropped silently |
 
-Control characters are stripped from every text field; nothing is ever HTML-rendered from the request.
+Control characters are stripped from every text field, line breaks from every field but `message` (one line per email
+header, one line in the console), and the three quoted fields (`restaurant`, `contact`, `city`) refuse anything that
+looks like a link: the auto-reply repeats them, and a form that sends attacker text to any address would be a spam relay.
+Nothing is ever HTML-rendered from the request.
 
 ## Answers
 

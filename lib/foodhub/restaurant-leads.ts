@@ -98,7 +98,13 @@ export const LEAD_MAX_BODY_BYTES = 16_000;
 
 export type LeadParse = { kind: 'ok'; lead: LeadInput } | { kind: 'honeypot' } | { kind: 'invalid'; errors: Record<string, string> };
 
+// Every text field loses its control characters; single-line fields (everything but the message) also lose their line
+// breaks, so a name can never carry a second email header or a second line in the console. Restaurant, contact and city
+// must not look like a link either: the auto-reply quotes them, and a form that mails attacker text to any address is a
+// spam relay.
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').trim().slice(0, max + 1) : '');
+const line = (v: unknown, max: number) => str(v, max).replace(/\s+/g, ' ').trim();
+const LINK_LIKE = /https?:|:\/\/|www\./i;
 
 export function parseLead(body: unknown): LeadParse {
   const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
@@ -107,13 +113,14 @@ export function parseLead(body: unknown): LeadParse {
 
   const errors: Record<string, string> = {};
   const required = (key: 'restaurant' | 'contact' | 'city', min = 2) => {
-    const v = str(b[key], LEAD_LIMITS[key]);
+    const v = line(b[key], LEAD_LIMITS[key]);
     if (v.length < min) errors[key] = 'required';
     else if (v.length > LEAD_LIMITS[key]) errors[key] = 'too_long';
+    else if (LINK_LIKE.test(v)) errors[key] = 'invalid';
     return v;
   };
   const optional = (key: 'address' | 'website' | 'message') => {
-    const v = str(b[key], LEAD_LIMITS[key]);
+    const v = key === 'message' ? str(b[key], LEAD_LIMITS[key]).replace(/\r\n?/g, '\n') : line(b[key], LEAD_LIMITS[key]);
     if (v.length > LEAD_LIMITS[key]) errors[key] = 'too_long';
     return v || undefined;
   };
@@ -133,12 +140,12 @@ export function parseLead(body: unknown): LeadParse {
     } catch { errors.website = 'invalid'; }
   }
 
-  const rawEmail = str(b.email, LEAD_LIMITS.email);
+  const rawEmail = line(b.email, LEAD_LIMITS.email);
   const email = normalizeEmail(rawEmail);
   if (!rawEmail) errors.email = 'required';
   else if (!email || rawEmail.length > LEAD_LIMITS.email) errors.email = 'invalid';
 
-  const rawPhone = str(b.phone, LEAD_LIMITS.phone);
+  const rawPhone = line(b.phone, LEAD_LIMITS.phone);
   const phone = normalizePhone(rawPhone);
   if (!rawPhone) errors.phone = 'required';
   else if (!phone || rawPhone.length > LEAD_LIMITS.phone) errors.phone = 'invalid';
@@ -155,7 +162,7 @@ export function parseLead(body: unknown): LeadParse {
 
   const lang: LeadLang = b.lang === 'en' ? 'en' : 'fr';
   if (b.lang !== undefined && b.lang !== 'fr' && b.lang !== 'en') errors.lang = 'invalid';
-  const source = str(b.source, LEAD_LIMITS.source) || 'on2go.ca';
+  const source = line(b.source, LEAD_LIMITS.source) || 'on2go.ca';
   if (source.length > LEAD_LIMITS.source) errors.source = 'too_long';
 
   if (Object.keys(errors).length) return { kind: 'invalid', errors };

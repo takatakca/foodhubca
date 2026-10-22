@@ -61,6 +61,21 @@ describe('parseLead (validation)', () => {
     if (ok.kind === 'ok') expect(ok.lead.contact).toBe('Mimi T');
   });
 
+  it('single-line fields lose their line breaks (no second email header); restaurant, contact and city refuse links', () => {
+    const ok = parseLead({ ...valid(), restaurant: 'Chez\r\nBcc: victim@example.com', city: 'Mont\nréal', message: 'ligne 1\r\nligne 2' });
+    expect(ok.kind).toBe('ok');
+    if (ok.kind === 'ok') {
+      expect(ok.lead.restaurant).toBe('Chez Bcc: victim@example.com');
+      expect(ok.lead.city).toBe('Mont réal');
+      expect(ok.lead.message).toBe('ligne 1\nligne 2');
+    }
+    for (const bad of ['Visit https://evil.example', 'www.evil.example', 'evil://x']) {
+      const r = parseLead({ ...valid(), restaurant: bad, contact: bad, city: bad });
+      expect(r.kind).toBe('invalid');
+      if (r.kind === 'invalid') expect(r.errors).toEqual({ restaurant: 'invalid', contact: 'invalid', city: 'invalid' });
+    }
+  });
+
   it('optional fields may be absent; unknown platforms are dropped; lang defaults to fr; brands is optional', () => {
     const r = parseLead({ restaurant: 'Resto', contact: 'A B', email: 'a@b.ca', phone: '4385550100', city: 'Laval', platforms: ['skip', 'bogus', 'skip'] });
     expect(r.kind).toBe('ok');

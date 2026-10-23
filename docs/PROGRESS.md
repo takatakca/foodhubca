@@ -1,5 +1,15 @@
 # Food Hub: progress log and task board
 
+## 2026-10-23 — Clover picture register / kiosk: research + architecture (`docs/clover-visual-register-research`)
+
+- New folder `docs/clover-visual-register/` (docs only, no code, no env, no deploy): README (FR then EN one-page
+  summary), RESEARCH_CLOVER_TECH, LEGAL_AND_MARKET (not legal advice + lawyer questions), ARCHITECTURE (mermaid data
+  flow, Food Hub reuse), ROADMAP (P0 / P1 / P2, acceptance checks, App Market checklist), OWNER_DECISIONS (11, FR+EN).
+- Verdict: staff picture register first, as a Kotlin Android APK on the Clover device (web apps cannot be the register
+  screen); French-first kiosk second (Clover Kiosk is English only and not offered in Québec). Blocker to clear before
+  any Québec sale: Revenu Québec SRM / WEB-SRM (two Clover MEV apps are already certified). Draft conflict: leave
+  "on2go" (N4NYCJCZ17FF4) to the free ON2GO app, new Android record for the register (decision 2).
+
 ## 2026-10-21 — Simpler sign-in page + « Continuer avec Google » (`feature/login-google-signin`)
 
 - One calm sign-in screen: Food Hub mark, big « Continuer avec Google / Continue with Google » (only when `GOOGLE_OAUTH_CLIENT_ID` is set), the code-by-email/text sign-in as the second option, the owner recovery behind a small link; FR first, EN; 44 px targets; first run, code and recovery steps kept.

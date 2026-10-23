@@ -88,7 +88,7 @@ export default function LedgerPage() {
             </Table>
           </Card>
         ))}
-        {rows.length === 0 && !loaded && <SkeletonTable rows={4} cols={5} />}
+        {rows.length === 0 && !loaded && <SkeletonTable rows={4} cols={5} label={t('Chargement…', 'Loading…')} />}
         {rows.length === 0 && loaded && <Card><EmptyState title={tab === 'draft' ? t('Rien à approuver', 'Nothing to approve') : t('Aucune écriture', 'No entry')} body={t('Les écritures apparaissent quand des relevés sont importés.', 'Entries appear when statements are imported.')}
           action={<ButtonLink href="/money/statements" variant="outline">{t('Importer un relevé', 'Import a statement')}</ButtonLink>} /></Card>}
       </div>

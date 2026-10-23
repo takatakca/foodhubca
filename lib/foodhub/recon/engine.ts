@@ -32,6 +32,8 @@ export interface StatementImport {
   totalNet: number;
   periodFrom: string | null;
   periodTo: string | null;
+  /** `PERIOD_RULE` the period was worked out with (absent on imports saved before it). */
+  periodRule?: number;
   importedBy: string;
   importedAt: string;
   source: 'upload' | 'uber_reporting_api' | 'doordash_reporting_api';
@@ -100,7 +102,7 @@ export async function importStatement(input: { fileName: string; bytes: Uint8Arr
   const { periodFrom, periodTo } = statementPeriod(lines);
   const record: StatementImport = {
     id: importId, channel, fileName: input.fileName.slice(0, 120), format: parsed.format, rows: parsed.lines.length + parsed.skipped, lines: lines.length, newLines: fresh.length - replaced.length,
-    skipped: parsed.skipped, totalNet: r2(lines.reduce((s, l) => s + l.net, 0)), periodFrom, periodTo,
+    skipped: parsed.skipped, totalNet: r2(lines.reduce((s, l) => s + l.net, 0)), periodFrom, periodTo, periodRule: PERIOD_RULE,
     importedBy: input.actor.name, importedAt: nowIso(), source: input.source ?? 'upload',
   };
   await repo.putDocs(COL.imports, [{ id: importId, at: record.importedAt, key: channel, data: record }]);
@@ -109,18 +111,26 @@ export async function importStatement(input: { fileName: string; bytes: Uint8Arr
   return { ok: true, import: record };
 }
 
+/** Version of the `statementPeriod` rule an import's period was worked out with; imports saved by an older rule are redone from their lines. */
+export const PERIOD_RULE = 2;
+/** Rows dated by an older order (or not by an order at all): they never stretch a statement's period. */
+const BACKDATED: LineKind[] = ['refund', 'adjustment', 'error_charge', 'other'];
+/** A credit or debit about an older order that reads as an order row: Uber's "Refund Disputed" (money back for a refund the restaurant disputed). */
+const CORRECTION = /refund|disput/i;
+
 /**
- * Days a statement covers: from the earliest order date of its order rows to its latest payout date. Refund, adjustment and
- * error-charge rows carry the date of an older order and would stretch the period over weeks whose statement was never imported.
+ * Days a statement covers (an order is only "missing" on a day the statement lists): from the earliest to the latest date
+ * of its own rows (orders, fees, promotions). Payout dates come after the orders they pay (Uber pays a month's last days on
+ * the next Monday, so a September file carries October payout dates), and refunds, adjustments, error charges and dispute
+ * credits carry the date of an older order: neither stretches the period over days whose statement was never imported.
+ * A statement whose rows have no order date (net-only payout lines) covers its payout dates; one with only charges covers no day.
  */
-export function statementPeriod(lines: Array<Pick<PayoutLine, 'kind' | 'orderDate' | 'payoutDate'>>): { periodFrom: string | null; periodTo: string | null } {
-  const backdated: LineKind[] = ['refund', 'adjustment', 'error_charge', 'other'];
-  const d10 = (s: string | null) => (s ? s.slice(0, 10) : null);
-  const starts = (lines.filter((l) => !backdated.includes(l.kind)).map((l) => d10(l.orderDate ?? l.payoutDate)).filter(Boolean) as string[]).sort();
-  const ends = (lines.map((l) => d10(l.payoutDate ?? l.orderDate)).filter(Boolean) as string[]).sort();
-  const periodFrom = starts[0] ?? ends[0] ?? null;
-  const periodTo = ends[ends.length - 1] ?? null;
-  return { periodFrom, periodTo: periodFrom && periodTo && periodTo < periodFrom ? periodFrom : periodTo };
+export function statementPeriod(lines: Array<Pick<PayoutLine, 'kind' | 'orderDate' | 'payoutDate' | 'description'>>): { periodFrom: string | null; periodTo: string | null } {
+  const d10 = (v: string | null) => (v ? v.slice(0, 10) : null);
+  const own = lines.filter((l) => !BACKDATED.includes(l.kind) && !CORRECTION.test(l.description ?? ''));
+  const orderDays = (own.map((l) => d10(l.orderDate)).filter(Boolean) as string[]).sort();
+  const days = orderDays.length ? orderDays : (own.map((l) => d10(l.payoutDate)).filter(Boolean) as string[]).sort();
+  return { periodFrom: days[0] ?? null, periodTo: days[days.length - 1] ?? null };
 }
 
 /** One statement row, whatever its id: references (placeholders read as empty), amount, order date and payout. */
@@ -227,8 +237,26 @@ export interface ReconResult {
 
 /** Days covered by each platform's imported statements (an order is only "missing" inside a covered period). */
 async function coverage(): Promise<Record<string, Array<[string, string]>>> {
+  const repo = getRepo();
+  const docs = await repo.listDocs<StatementImport>(COL.imports, {});
+  const stale = docs.filter((d) => d.data.periodRule !== PERIOD_RULE);
+  if (stale.length) {
+    // Imports saved by an older rule (period stretched to the last payout date or to a dispute credit's older order) are
+    // worked out again, once, from their own lines: a stretched period calls orders "missing" that the next statement holds.
+    const byImport = new Map<string, PayoutLine[]>();
+    for (const l of await repo.listDocs<PayoutLine>(COL.lines, {})) for (const id of lineImportIds(l.data)) {
+      const ls = byImport.get(id);
+      if (ls) ls.push(l.data); else byImport.set(id, [l.data]);
+    }
+    const fixed: Doc<StatementImport>[] = [];
+    for (const d of stale) {
+      d.data = { ...d.data, ...statementPeriod(byImport.get(d.id) ?? []), periodRule: PERIOD_RULE };
+      if (await repo.getDoc(COL.imports, d.id)) fixed.push(d); // never brings back a statement removed meanwhile
+    }
+    if (fixed.length) await repo.putDocs(COL.imports, fixed);
+  }
   const out: Record<string, Array<[string, string]>> = {};
-  for (const d of await getRepo().listDocs<StatementImport>(COL.imports, {})) {
+  for (const d of docs) {
     const i = d.data;
     if (i.periodFrom && i.periodTo) (out[i.channel] ??= []).push([i.periodFrom, i.periodTo]);
   }

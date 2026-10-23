@@ -158,6 +158,76 @@ describe('reconciliation tiles agree with the per-order rows', () => {
   });
 });
 
+describe('a statement covers only the days it lists (Uber monthly Payment Details)', () => {
+  // September file: orders of Sept 1 and Sept 30 (paid on Monday Oct 5), plus a "Refund Disputed" credit for an August order.
+  const sept = [
+    'Test Kitchen,u-1,S0901,wf-s1,2026-09-01,Completed,20.00,2.99,1.00,1.99,0,0,-5.00,-0.75,0,17.24,2026-09-07,PR-1',
+    'Test Kitchen,u-1,A0823,wf-a1,2026-08-23,Refund Disputed,0,0,0,0,0,0,0,0,0,6.04,2026-09-07,PR-1',
+    'Test Kitchen,u-1,S0930,wf-s2,2026-09-30,Completed,20.00,2.99,1.00,1.99,0,0,-5.00,-0.75,0,17.24,2026-10-05,PR-5',
+  ];
+  const october = ['Test Kitchen,u-1,O1002,wf-o1,2026-10-02,Completed,20.00,2.99,1.00,1.99,0,0,-5.00,-0.75,0,17.24,2026-10-05,PR-5'];
+  const file = (rows: string[]) => enc([UBER_DESC, UBER_NAMES, ...rows].join('\n'));
+  const q = { from: '2026-08-20T04:00:00.000Z', to: '2026-10-10T04:00:00.000Z', now: Date.parse('2026-10-23T16:00:00.000Z') };
+
+  beforeEach(() => {
+    process.env.FOODHUB_FORCE_MEMORY = 'true';
+    (globalThis as any).__foodhubMem = undefined;
+  });
+  const seed = async () => {
+    const { getRepo } = await import('../lib/foodhub/repo');
+    const repo = getRepo();
+    // Food Hub orders: two the September file pays, one it should list but does not, one in August and one in October.
+    for (const [id, day] of [['wf-s1', '2026-09-01'], ['wf-s2', '2026-09-30'], ['wf-s3', '2026-09-15'], ['wf-a2', '2026-08-25'], ['wf-o1', '2026-10-02']]) {
+      const at = `${day}T16:00:00.000Z`;
+      const { order } = await repo.insertOrderIfNew({ channel: 'uber_eats', marketplace: 'uber_eats', channelStoreId: 'u-1', fulfillment: 'delivery', placedAt: at, createdAt: at, currency: 'CAD', deliveryFee: 0, tip: 0, discount: 0, lines: [], raw: {}, externalOrderId: id, displayId: id.toUpperCase(), subtotal: 20, tax: 2.99, total: 22.99 } as any);
+      await repo.updateOrder(order.id, { status: 'completed' });
+    }
+  };
+  const statusOf = (r: { orders: Array<{ ref: string; status: string }> }) => Object.fromEntries(r.orders.map((o) => [o.ref, o.status]));
+
+  it('runs from its first to its last order day: no later payout date, no older dispute credit', async () => {
+    const { statementPeriod } = await import('../lib/foodhub/recon/engine');
+    const p = parseStatement('uber_payment-details_2026-09.csv', file(sept));
+    expect(p.lines.map((l) => [l.orderRef, l.kind])).toEqual([['wf-s1', 'order'], ['wf-a1', 'order'], ['wf-s2', 'order']]);
+    expect(statementPeriod(p.lines)).toEqual({ periodFrom: '2026-09-01', periodTo: '2026-09-30' }); // before: 2026-08-23 → 2026-10-05
+    // Only charges (an error-charges export): no day listed. Net-only payout lines: their payout days.
+    expect(statementPeriod([{ kind: 'adjustment', orderDate: '2026-09-02', payoutDate: '2026-09-08', description: 'Adjustment' }])).toEqual({ periodFrom: null, periodTo: null });
+    expect(statementPeriod([{ kind: 'order', orderDate: null, payoutDate: '2026-09-14', description: '' }, { kind: 'order', orderDate: null, payoutDate: '2026-09-07', description: '' }])).toEqual({ periodFrom: '2026-09-07', periodTo: '2026-09-14' });
+  });
+
+  it('orders of the next and previous month are "no statement yet", not "missing", and open no case', async () => {
+    const { importStatement, listCases, reconcile, syncCases } = await import('../lib/foodhub/recon/engine');
+    await seed();
+    const out = await importStatement({ fileName: 'uber_payment-details_2026-09.csv', bytes: file(sept), channel: 'uber_eats', actor, source: 'uber_reporting_api' });
+    expect(out.ok && [out.import.periodFrom, out.import.periodTo]).toEqual(['2026-09-01', '2026-09-30']);
+    const r = await reconcile(q);
+    expect(statusOf(r)).toMatchObject({ 'wf-s3': 'missing', 'wf-a2': 'not_covered', 'wf-o1': 'not_covered' });
+    expect(['wf-s1', 'wf-s2'].map((ref) => r.orders.find((o) => o.ref === ref)?.lines)).toEqual([1, 1]);
+    await syncCases(r);
+    expect((await listCases({ status: ['open'] })).filter((c) => c.type === 'missing').map((c) => c.ref)).toEqual(['WF-S3']);
+    // The October file pays the October order.
+    expect((await importStatement({ fileName: 'uber_payment-details_2026-10.csv', bytes: file(october), channel: 'uber_eats', actor })).ok).toBe(true);
+    const r2 = await reconcile(q);
+    expect(r2.orders.find((o) => o.ref === 'wf-o1')?.lines).toBe(1);
+    expect(statusOf(r2)['wf-a2']).toBe('not_covered');
+  });
+
+  it('an import saved with the old stretched period is worked out again from its lines', async () => {
+    const { COL, PERIOD_RULE, importStatement, reconcile } = await import('../lib/foodhub/recon/engine');
+    const { getRepo } = await import('../lib/foodhub/repo');
+    await seed();
+    const out = await importStatement({ fileName: 'uber_payment-details_2026-09.csv', bytes: file(sept), channel: 'uber_eats', actor });
+    if (!out.ok) throw new Error('import refused');
+    const repo = getRepo();
+    const doc = (await repo.getDoc<any>(COL.imports, out.import.id))!;
+    const legacy = { ...doc.data, periodFrom: '2026-08-23', periodTo: '2026-10-05' }; // as saved before this rule
+    delete legacy.periodRule;
+    await repo.putDocs(COL.imports, [{ ...doc, data: legacy }]);
+    expect(statusOf(await reconcile(q))).toMatchObject({ 'wf-s3': 'missing', 'wf-a2': 'not_covered', 'wf-o1': 'not_covered' });
+    expect((await repo.getDoc<any>(COL.imports, out.import.id))?.data).toMatchObject({ periodFrom: '2026-09-01', periodTo: '2026-09-30', periodRule: PERIOD_RULE });
+  });
+});
+
 describe('finance: platform sales with no tax charged at all', () => {
   const rows = [
     'Test Kitchen,u-1,A1,wf-1,2026-09-05,Completed,40.00,0,0,0,0,0,-10.00,-1.50,0,28.50,2026-09-10,P1', // no tax at all → flagged

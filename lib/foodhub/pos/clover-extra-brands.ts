@@ -34,6 +34,7 @@
 import { logActivity } from '../activity';
 import { getCatalog } from '../catalog';
 import { stripSlash } from '../config';
+import { networkErrorCode, neverSent } from '../env-utils';
 import { getRepo } from '../repo';
 import type { ChannelStore } from '../types';
 import { defaultCloverMerchant } from './clover';
@@ -355,16 +356,14 @@ export function meteredPath(merchantId: string, count: number, meteredId = extra
   return `/v3/apps/${encodeURIComponent(appId)}/merchants/${encodeURIComponent(merchantId)}/metereds/${encodeURIComponent(meteredId)}?count=${count}`;
 }
 
-/** Network errors raised before anything reached Clover (no connection was made): safe to send again. */
-const NOT_SENT_CODES = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN']);
-
 export type MeteredOutcome = { ok: boolean; status: number; uncertain: boolean; reason: string | null };
 
 /**
  * Sort a metered answer (or thrown error) into sent / refused / uncertain. Only answers that show Clover did NOT
- * process the request are tried again: a 4xx (429 included: Clover's rate limit) or a connection refused before
- * sending. A timeout, any other thrown error (socket reset, "fetch failed") and any 5xx or 408 may have been recorded
- * by Clover: uncertain, never sent again automatically (the owner checks it in Clover).
+ * process the request are tried again: a 4xx (429 included: Clover's rate limit) or an error raised before anything
+ * left (env-utils neverSent: DNS failure, connection refused, bad URL, connect timeout). A timeout, any other thrown
+ * error (socket reset, "fetch failed") and any 5xx or 408 may have been recorded by Clover: uncertain, never sent
+ * again automatically (the owner checks it in Clover).
  */
 export function meteredOutcome(r: { status: number } | { error: unknown }): MeteredOutcome {
   if ('status' in r) {
@@ -372,11 +371,11 @@ export function meteredOutcome(r: { status: number } | { error: unknown }): Mete
     if (r.status === 408 || r.status >= 500) return { ok: false, status: r.status, uncertain: true, reason: `http_${r.status}` };
     return { ok: false, status: r.status, uncertain: false, reason: `http_${r.status}` };
   }
-  const e = r.error as { name?: string; code?: string; cause?: { code?: string } } | null;
-  if (e?.name === 'AbortError' || e?.name === 'TimeoutError') return { ok: false, status: 0, uncertain: true, reason: 'timeout' };
-  const code = e?.cause?.code ?? e?.code ?? '';
-  if (NOT_SENT_CODES.has(code)) return { ok: false, status: 0, uncertain: false, reason: code.toLowerCase() };
-  return { ok: false, status: 0, uncertain: true, reason: code ? code.toLowerCase() : 'network' };
+  const name = (r.error as { name?: unknown } | null)?.name;
+  if (name === 'AbortError' || name === 'TimeoutError') return { ok: false, status: 0, uncertain: true, reason: 'timeout' };
+  const code = networkErrorCode(r.error).toLowerCase();
+  if (neverSent(r.error)) return { ok: false, status: 0, uncertain: false, reason: code };
+  return { ok: false, status: 0, uncertain: true, reason: code || 'network' };
 }
 
 /** Clover App Market metered event with a count. */

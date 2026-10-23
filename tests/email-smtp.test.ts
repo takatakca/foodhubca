@@ -201,7 +201,15 @@ describe('sending by Resend (unchanged)', () => {
 
   it('a network error is a failure, not an exception', async () => {
     fetchMock.mockReset().mockRejectedValueOnce(new Error('ECONNRESET'));
-    expect(await sendMail(msg, 'auth')).toEqual({ ok: false, provider: 'resend', failure: { kind: 'network', detail: 'ECONNRESET' } });
+    expect(await sendMail(msg, 'auth')).toEqual({ ok: false, provider: 'resend', failure: { kind: 'network', detail: 'ECONNRESET', uncertain: true } });
+  });
+
+  it('uncertain only when Resend may have taken it: a lost answer or a 5xx, never a refused connection or a 4xx', async () => {
+    const refused = Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } });
+    fetchMock.mockReset().mockRejectedValueOnce(refused).mockResolvedValueOnce(jsonRes(502, { message: 'Bad Gateway' })).mockResolvedValueOnce(jsonRes(422, { message: 'Invalid `to` field' }));
+    expect(await sendMail(msg, 'auth')).toEqual({ ok: false, provider: 'resend', failure: { kind: 'network', detail: 'fetch failed' } });
+    expect(await sendMail(msg, 'auth')).toEqual({ ok: false, provider: 'resend', failure: { kind: 'http', status: 502, detail: 'Bad Gateway', uncertain: true } });
+    expect(await sendMail(msg, 'auth')).toEqual({ ok: false, provider: 'resend', failure: { kind: 'http', status: 422, detail: 'Invalid `to` field' } });
   });
 });
 
@@ -256,8 +264,11 @@ describe('callers: sign-in / alert email (notify) and reports', () => {
     const { sendEmail } = await import('../lib/foodhub/notify');
     fetchMock.mockReset().mockResolvedValueOnce(jsonRes(200, { id: 'email-9' })).mockResolvedValueOnce(jsonRes(403, { message: 'domain not verified' })).mockRejectedValueOnce(new Error('boom'));
     expect(await sendEmail({ to: 'a@b.co', subject: 's', text: 't' }, { purpose: 'test' })).toMatchObject({ ok: true, message: 'Sent', ref: 'email-9' });
-    expect(await sendEmail({ to: 'a@b.co', subject: 's', text: 't' }, { purpose: 'test' })).toMatchObject({ ok: false, message: 'Resend HTTP 403: domain not verified' });
-    expect(await sendEmail({ to: 'a@b.co', subject: 's', text: 't' }, { purpose: 'test' })).toMatchObject({ ok: false, message: 'Network error: boom' });
+    const refused = await sendEmail({ to: 'a@b.co', subject: 's', text: 't' }, { purpose: 'test' });
+    expect(refused).toMatchObject({ ok: false, message: 'Resend HTTP 403: domain not verified' });
+    expect(refused.uncertain).toBeUndefined();
+    // Like an SMS: an answer lost on the way back means the email may have gone out.
+    expect(await sendEmail({ to: 'a@b.co', subject: 's', text: 't' }, { purpose: 'test' })).toMatchObject({ ok: false, message: 'Network error: boom', uncertain: true });
     expect(h.createTransport).not.toHaveBeenCalled();
   });
 

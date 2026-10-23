@@ -23,16 +23,16 @@ export function MultiPick({ label, options, value, onChange, renderOption }: { l
   const summary = value.length === 0 ? t('Toutes', 'All') : value.length === 1 ? options.find(([k]) => k === value[0])?.[1] ?? value[0] : `${value.length}`;
   return (
     <div className="relative" ref={ref}>
-      <button type="button" onClick={toggle} className={cn('flex h-9 items-center gap-1.5 rounded-md border px-3 text-[13px] font-semibold', value.length ? 'border-ink bg-ink text-canvas' : 'border-line-2 bg-surface text-ink-2 hover:border-ink-4')}>
+      <button type="button" onClick={toggle} className={cn('flex h-9 items-center gap-1.5 rounded-md border px-3 text-small font-semibold', value.length ? 'border-ink bg-ink text-canvas' : 'border-line-2 bg-surface text-ink-2 hover:border-ink-4')}>
         {label}: <span className="max-w-32 truncate">{summary}</span><ChevronDown className="size-3.5 opacity-70" />
       </button>
       {open && (
         <div className={cn('absolute top-11 z-40 max-h-80 w-[min(16rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-line bg-surface p-1.5 shadow-pop animate-rise', right ? 'right-0' : 'left-0')}>
-          <button type="button" onClick={() => onChange([])} className="w-full rounded-md px-3 py-2 text-left text-[13px] font-semibold text-ink-3 hover:bg-sunken">{t('Tout effacer', 'Clear')}</button>
+          <button type="button" onClick={() => onChange([])} className="w-full rounded-md px-3 py-2 text-left text-small font-semibold text-ink-3 hover:bg-sunken">{t('Tout effacer', 'Clear')}</button>
           {options.map(([k, l]) => {
             const on = value.includes(k);
             return (
-              <button key={k} type="button" onClick={() => onChange(on ? value.filter((x) => x !== k) : [...value, k])} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-sunken">
+              <button key={k} type="button" onClick={() => onChange(on ? value.filter((x) => x !== k) : [...value, k])} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-body hover:bg-sunken">
                 <span className={cn('flex size-4 items-center justify-center rounded-[4px] border', on ? 'border-ink bg-ink text-canvas' : 'border-line-2')}>{on && <Check className="size-3" />}</span>
                 {renderOption ? renderOption(k, l) : l}
               </button>
@@ -65,7 +65,7 @@ export function FilterBar({ filters, set, locations, brands, presets, extra, sho
     <div className="mb-5 flex flex-wrap items-center gap-2">
       <div className="relative">
         <CalendarDays className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-ink-3" />
-        <select value={filters.preset} onChange={(e) => set({ preset: e.target.value as RangePreset })} className="h-9 appearance-none rounded-md border border-line-2 bg-surface pr-8 pl-8 text-[13px] font-semibold text-ink hover:border-ink-4" aria-label={t('Période', 'Period')}>
+        <select value={filters.preset} onChange={(e) => set({ preset: e.target.value as RangePreset })} className="h-9 appearance-none rounded-md border border-line-2 bg-surface pr-8 pl-8 text-small font-semibold text-ink hover:border-ink-4" aria-label={t('Période', 'Period')}>
           {list.map((k) => <option key={k} value={k}>{rangeLabel(t, k)}</option>)}
         </select>
         <ChevronDown className="pointer-events-none absolute top-1/2 right-2.5 size-3.5 -translate-y-1/2 text-ink-3" />
@@ -73,7 +73,7 @@ export function FilterBar({ filters, set, locations, brands, presets, extra, sho
       {filters.preset === 'custom' && (
         <span className="flex items-center gap-1.5">
           <Input inputSize="sm" type="date" className="w-auto" value={filters.from} onChange={(e) => set({ from: e.target.value, preset: 'custom' })} aria-label={t('Du', 'From')} />
-          <span className="text-xs text-ink-3">→</span>
+          <span className="text-small text-ink-3">→</span>
           <Input inputSize="sm" type="date" className="w-auto" value={filters.to} onChange={(e) => set({ to: e.target.value, preset: 'custom' })} aria-label={t('Au', 'To')} />
         </span>
       )}

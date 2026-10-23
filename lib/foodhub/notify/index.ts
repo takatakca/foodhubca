@@ -4,14 +4,18 @@
 import crypto from 'node:crypto';
 import { getRepo } from '../repo';
 import { dryRun, recordDry } from '../dry-run';
-import { timedFetch } from '../env-utils';
+import { neverSent, timedFetch } from '../env-utils';
 import { emailConfigured, emailFrom, emailProvider, emailSetupMessage, sendMail } from './email';
 
 // The shared email helpers live in ./email; re-exported so existing imports from '../notify' keep working.
 export { emailConfigured, emailFrom };
 
 export type MessageChannel = 'email' | 'sms' | 'call' | 'chat';
-export interface SendResult { ok: boolean; channel: MessageChannel; message: string; ref?: string; skipped?: boolean }
+export interface SendResult {
+  ok: boolean; channel: MessageChannel; message: string; ref?: string; skipped?: boolean;
+  /** Failed without an answer (timeout, dropped connection): the provider may still have sent it, so never resend blindly. */
+  uncertain?: boolean;
+}
 export interface OutboxEntry {
   id: string; at: string; channel: MessageChannel; to: string; purpose: string; ok: boolean; skipped?: boolean;
   message: string; ref?: string; incidentId?: string; orderId?: string; by?: string; preview?: string;
@@ -111,6 +115,11 @@ function twilioUrl(path: string) {
   return `${strip(process.env.TWILIO_BASE_URL || 'https://api.twilio.com')}/2010-04-01/Accounts/${encodeURIComponent(process.env.TWILIO_ACCOUNT_SID || '')}/${path}`;
 }
 
+/** A fetch that threw. Unless the request surely never left (DNS failure, connection refused), its outcome is unknown. */
+function networkFailure(channel: MessageChannel, e: unknown): SendResult {
+  return { ok: false, channel, message: `Network error: ${e instanceof Error ? e.message : String(e)}`, ...(neverSent(e) ? {} : { uncertain: true }) };
+}
+
 export async function sendSms(input: { to: string; body: string; /** Our own Twilio number to send from (e.g. the number the customer called); default TWILIO_FROM / the messaging service. */ from?: string }, meta: Meta): Promise<SendResult> {
   const to = normalizePhone(input.to);
   const simulated = to ? dry('sms', to, input.body, meta) : null;
@@ -130,7 +139,7 @@ export async function sendSms(input: { to: string; body: string; /** Our own Twi
       r = res.ok ? { ok: true, channel: 'sms', message: 'Sent', ref: body?.sid } : { ok: false, channel: 'sms', message: `Twilio HTTP ${res.status}: ${body?.message ?? ''}`.trim() };
       await twilioCredit(res.ok, res.status, body);
     } catch (e) {
-      r = { ok: false, channel: 'sms', message: `Network error: ${e instanceof Error ? e.message : String(e)}` };
+      r = networkFailure('sms', e);
     }
   }
   await record({ channel: 'sms', to: to ? maskPhone(to) : '?', purpose: meta.purpose, ok: r.ok, skipped: r.skipped, message: r.message, ref: r.ref, incidentId: meta.incidentId, orderId: meta.orderId, by: meta.by, preview: meta.secret ? undefined : (meta.preview ?? input.body).slice(0, 160) });
@@ -160,7 +169,7 @@ export async function placeCall(input: { to: string; say: string; lang?: 'fr' | 
       r = res.ok ? { ok: true, channel: 'call', message: 'Calling', ref: body?.sid } : { ok: false, channel: 'call', message: `Twilio HTTP ${res.status}: ${body?.message ?? ''}`.trim() };
       await twilioCredit(res.ok, res.status, body);
     } catch (e) {
-      r = { ok: false, channel: 'call', message: `Network error: ${e instanceof Error ? e.message : String(e)}` };
+      r = networkFailure('call', e);
     }
   }
   await record({ channel: 'call', to: to ? maskPhone(to) : '?', purpose: meta.purpose, ok: r.ok, skipped: r.skipped, message: r.message, ref: r.ref, incidentId: meta.incidentId, orderId: meta.orderId, by: meta.by, preview: input.say.slice(0, 160) });
@@ -180,7 +189,7 @@ export async function postToChat(input: { title: string; text?: string; severity
       const res = await timedFetch(process.env.ALERT_WEBHOOK_URL!, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, content: text.replace(/\*/g, '**') }) });
       r = res.ok ? { ok: true, channel: 'chat', message: 'Posted' } : { ok: false, channel: 'chat', message: `Chat webhook HTTP ${res.status}` };
     } catch (e) {
-      r = { ok: false, channel: 'chat', message: `Network error: ${e instanceof Error ? e.message : String(e)}` };
+      r = networkFailure('chat', e);
     }
   }
   await record({ channel: 'chat', to: 'team chat', purpose: meta.purpose, ok: r.ok, skipped: r.skipped, message: r.message, incidentId: meta.incidentId, orderId: meta.orderId, by: meta.by, preview: input.title });

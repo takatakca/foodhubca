@@ -67,6 +67,11 @@ export async function saveDelivery(d: Delivery): Promise<Delivery> {
   return next;
 }
 
+/** Changes the delivery as stored NOW (re-read), so a writer holding an older copy never undoes another's status, courier or text mark. */
+export async function updateDelivery(d: Delivery, change: (cur: Delivery) => Delivery): Promise<Delivery> {
+  return saveDelivery(change((await getDelivery(d.id)) ?? d));
+}
+
 export async function getDelivery(id: string): Promise<Delivery | null> {
   return (await getRepo().getDoc<Delivery>(DELIVERIES, id))?.data ?? null;
 }

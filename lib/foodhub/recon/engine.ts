@@ -13,7 +13,7 @@ import { localDate } from '../hours';
 import { getRepo, type Doc } from '../repo';
 import type { ChannelKey, StoredOrder } from '../types';
 import { expectedPayout, getFees, planFor, type Expected, type FeeConfig } from './fees';
-import { headerSignature, lineId, parseStatement, type ColumnMapping, type FormatKey, type LineKind, type PayoutLine } from './statements';
+import { headerSignature, isPlaceholder, lineId, parseStatement, type ColumnMapping, type FormatKey, type LineKind, type PayoutLine } from './statements';
 
 export const COL = { imports: 'payout_imports', lines: 'payout_lines', cases: 'recon_cases', deposits: 'payout_deposits', mappings: 'statement_mappings', approvals: 'ledger_approvals' } as const;
 const DAY = 86400_000;
@@ -32,6 +32,8 @@ export interface StatementImport {
   totalNet: number;
   periodFrom: string | null;
   periodTo: string | null;
+  /** `PERIOD_RULE` the period was worked out with (absent on imports saved before it). */
+  periodRule?: number;
   importedBy: string;
   importedAt: string;
   source: 'upload' | 'uber_reporting_api' | 'doordash_reporting_api';
@@ -74,14 +76,33 @@ export async function importStatement(input: { fileName: string; bytes: Uint8Arr
     return { ...l, id: n ? lineId(channel, l, n) : base, importId, importIds: [importId], channel };
   });
   const existing = new Map((await repo.listDocs<PayoutLine>(COL.lines, {})).map((d) => [d.id, d]));
+  // Lines saved before placeholder cells were read as empty carry the text "NULL" as a reference (DoorDash prints it in
+  // "Merchant delivery ID" on order rows and in "DoorDash order ID" on fee rows), so the same row read today has another id.
+  // Each such row this file contains again replaces the old line (keeping its imports): it is never counted twice.
+  const replaced: string[] = [];
+  const legacy = new Map<string, Doc<PayoutLine>[]>();
+  for (const d of existing.values()) {
+    if (d.data.channel !== channel || !(isPlaceholder(d.data.orderRef) || isPlaceholder(d.data.orderRef2) || isPlaceholder(d.data.payoutRef))) continue;
+    const k = sameRow(d.data);
+    legacy.set(k, [...(legacy.get(k) ?? []), d]);
+  }
+  if (legacy.size) for (const l of lines) {
+    if (existing.has(l.id)) continue;
+    const old = legacy.get(sameRow(l))?.shift();
+    if (!old) continue;
+    replaced.push(old.id);
+    const ids = [...new Set([...lineImportIds(old.data), importId])];
+    l.importId = ids[0]; l.importIds = ids;
+  }
+  if (replaced.length) await repo.deleteDocs(COL.lines, replaced);
   const fresh = lines.filter((l) => !existing.has(l.id));
   // A line an earlier file already had now belongs to both imports, so it survives deleting either one.
   const shared = lines.filter((l) => existing.has(l.id)).map((l) => { const d = existing.get(l.id)!; return { ...d, data: { ...d.data, importIds: [...new Set([...lineImportIds(d.data), importId])] } }; });
   await repo.putDocs(COL.lines, [...fresh.map((l) => ({ id: l.id, key: refKey(l.orderRef) ?? refKey(l.orderRef2), at: lineAt(l), data: l })), ...shared]);
   const { periodFrom, periodTo } = statementPeriod(lines);
   const record: StatementImport = {
-    id: importId, channel, fileName: input.fileName.slice(0, 120), format: parsed.format, rows: parsed.lines.length + parsed.skipped, lines: lines.length, newLines: fresh.length,
-    skipped: parsed.skipped, totalNet: r2(lines.reduce((s, l) => s + l.net, 0)), periodFrom, periodTo,
+    id: importId, channel, fileName: input.fileName.slice(0, 120), format: parsed.format, rows: parsed.lines.length + parsed.skipped, lines: lines.length, newLines: fresh.length - replaced.length,
+    skipped: parsed.skipped, totalNet: r2(lines.reduce((s, l) => s + l.net, 0)), periodFrom, periodTo, periodRule: PERIOD_RULE,
     importedBy: input.actor.name, importedAt: nowIso(), source: input.source ?? 'upload',
   };
   await repo.putDocs(COL.imports, [{ id: importId, at: record.importedAt, key: channel, data: record }]);
@@ -90,18 +111,31 @@ export async function importStatement(input: { fileName: string; bytes: Uint8Arr
   return { ok: true, import: record };
 }
 
+/** Version of the `statementPeriod` rule an import's period was worked out with; imports saved by an older rule are redone from their lines. */
+export const PERIOD_RULE = 2;
+/** Rows dated by an older order (or not by an order at all): they never stretch a statement's period. */
+const BACKDATED: LineKind[] = ['refund', 'adjustment', 'error_charge', 'other'];
+/** A credit or debit about an older order that reads as an order row: Uber's "Refund Disputed" (money back for a refund the restaurant disputed). */
+const CORRECTION = /refund|disput/i;
+
 /**
- * Days a statement covers: from the earliest order date of its order rows to its latest payout date. Refund, adjustment and
- * error-charge rows carry the date of an older order and would stretch the period over weeks whose statement was never imported.
+ * Days a statement covers (an order is only "missing" on a day the statement lists): from the earliest to the latest date
+ * of its own rows (orders, fees, promotions). Payout dates come after the orders they pay (Uber pays a month's last days on
+ * the next Monday, so a September file carries October payout dates), and refunds, adjustments, error charges and dispute
+ * credits carry the date of an older order: neither stretches the period over days whose statement was never imported.
+ * A statement whose rows have no order date (net-only payout lines) covers its payout dates; one with only charges covers no day.
  */
-export function statementPeriod(lines: Array<Pick<PayoutLine, 'kind' | 'orderDate' | 'payoutDate'>>): { periodFrom: string | null; periodTo: string | null } {
-  const backdated: LineKind[] = ['refund', 'adjustment', 'error_charge', 'other'];
-  const d10 = (s: string | null) => (s ? s.slice(0, 10) : null);
-  const starts = (lines.filter((l) => !backdated.includes(l.kind)).map((l) => d10(l.orderDate ?? l.payoutDate)).filter(Boolean) as string[]).sort();
-  const ends = (lines.map((l) => d10(l.payoutDate ?? l.orderDate)).filter(Boolean) as string[]).sort();
-  const periodFrom = starts[0] ?? ends[0] ?? null;
-  const periodTo = ends[ends.length - 1] ?? null;
-  return { periodFrom, periodTo: periodFrom && periodTo && periodTo < periodFrom ? periodFrom : periodTo };
+export function statementPeriod(lines: Array<Pick<PayoutLine, 'kind' | 'orderDate' | 'payoutDate' | 'description'>>): { periodFrom: string | null; periodTo: string | null } {
+  const d10 = (v: string | null) => (v ? v.slice(0, 10) : null);
+  const own = lines.filter((l) => !BACKDATED.includes(l.kind) && !CORRECTION.test(l.description ?? ''));
+  const orderDays = (own.map((l) => d10(l.orderDate)).filter(Boolean) as string[]).sort();
+  const days = orderDays.length ? orderDays : (own.map((l) => d10(l.payoutDate)).filter(Boolean) as string[]).sort();
+  return { periodFrom: days[0] ?? null, periodTo: days[days.length - 1] ?? null };
+}
+
+/** One statement row, whatever its id: references (placeholders read as empty), amount, order date and payout. */
+function sameRow(l: Pick<PayoutLine, 'orderRef' | 'orderRef2' | 'net' | 'orderDate' | 'payoutRef'>): string {
+  return [refKey(l.orderRef) ?? '', refKey(l.orderRef2) ?? '', l.net.toFixed(2), l.orderDate ?? '', isPlaceholder(l.payoutRef) ? '' : l.payoutRef ?? ''].join('|');
 }
 
 /** Imports a line belongs to (older lines only know their first import). */
@@ -125,9 +159,10 @@ export async function deleteImport(id: string, actor: Actor): Promise<boolean> {
   return true;
 }
 
+/** Matching key of an order reference; a placeholder ("NULL", "N/A", "-") is no reference. */
 export function refKey(ref: string | null | undefined): string | null {
   const s = String(ref ?? '').trim().toLowerCase().replace(/^#/, '');
-  return s ? s : null;
+  return s && !isPlaceholder(s) ? s : null;
 }
 function lineAt(l: Pick<PayoutLine, 'orderDate' | 'payoutDate'>) {
   const d = l.orderDate ?? l.payoutDate;
@@ -200,10 +235,35 @@ export interface ReconResult {
   imports: number;
 }
 
+/** Imported statements, each period worked out by the current `statementPeriod` rule: the Statements page shows the days coverage uses. */
+export async function listImports(): Promise<Doc<StatementImport>[]> {
+  const repo = getRepo();
+  const docs = await repo.listDocs<StatementImport>(COL.imports, {});
+  const stale = docs.filter((d) => d.data.periodRule !== PERIOD_RULE);
+  if (stale.length) {
+    // Imports saved by an older rule (period stretched to the last payout date or to a dispute credit's older order) are
+    // worked out again, once, from their own lines: a stretched period calls orders "missing" that the next statement holds.
+    const byImport = new Map<string, PayoutLine[]>();
+    for (const l of await repo.listDocs<PayoutLine>(COL.lines, {})) for (const id of lineImportIds(l.data)) {
+      const ls = byImport.get(id);
+      if (ls) ls.push(l.data); else byImport.set(id, [l.data]);
+    }
+    const fixed: Doc<StatementImport>[] = [];
+    const removed = new Set<string>();
+    for (const d of stale) {
+      d.data = { ...d.data, ...statementPeriod(byImport.get(d.id) ?? []), periodRule: PERIOD_RULE };
+      if (await repo.getDoc(COL.imports, d.id)) fixed.push(d); else removed.add(d.id); // never brings back a statement removed meanwhile
+    }
+    if (fixed.length) await repo.putDocs(COL.imports, fixed);
+    if (removed.size) return docs.filter((d) => !removed.has(d.id));
+  }
+  return docs;
+}
+
 /** Days covered by each platform's imported statements (an order is only "missing" inside a covered period). */
 async function coverage(): Promise<Record<string, Array<[string, string]>>> {
   const out: Record<string, Array<[string, string]>> = {};
-  for (const d of await getRepo().listDocs<StatementImport>(COL.imports, {})) {
+  for (const d of await listImports()) {
     const i = d.data;
     if (i.periodFrom && i.periodTo) (out[i.channel] ??= []).push([i.periodFrom, i.periodTo]);
   }
@@ -317,7 +377,9 @@ export async function reconcile(q: { from: string; to: string; channels?: Channe
     const rs = rows.filter((r) => r.channel === ch);
     const counts = Object.fromEntries((Object.keys(STATUS_LABEL) as ReconStatus[]).map((s) => [s, rs.filter((r) => r.status === s).length])) as Record<ReconStatus, number>;
     const paid = r2(rs.reduce((s, r) => s + (r.actual ?? 0), 0));
-    const expected = r2(rs.filter((r) => r.actual !== null).reduce((s, r) => s + r.expected.net + r.promotions, 0));
+    // What the platform owed for the paid orders, exactly as each order's diff counts it (actual − diff): a restaurant-funded
+    // promotion the order already carries is in expected.net once, never subtracted a second time here.
+    const expected = r2(rs.reduce((s, r) => s + (r.actual !== null && r.diff !== null ? r.actual - r.diff : 0), 0));
     return {
       channel: ch, label: CHANNEL_LABELS[ch], orders: rs.length, sales: r2(rs.reduce((s, r) => s + r.total, 0)), expected, paid, diff: r2(paid - expected),
       // Money still to chase: problems the owner has not already recovered, written off or ignored.
@@ -435,6 +497,13 @@ export async function syncCases(result: ReconResult, actor: Actor = { username: 
   };
   for (const [id, cur] of existing) {
     if (want.has(id) || !(cur.status === 'open' || cur.status === 'disputed') || cur.type === 'deposit_gap') continue;
+    // "Paid order not in Food Hub" opened for a placeholder reference ("doordash:unknown:NULL", a tablet fee or an equipment
+    // rebate read as an order before placeholders were ignored): not an order, so it is closed whatever the range.
+    if (cur.type === 'unknown_order' && refKey(cur.ref) === null) {
+      closed++;
+      writes.push({ id, key: cur.channel, at: cur.openedAt, data: { ...cur, status: 'resolved', autoClosed: true, updatedAt: now, notes: [...cur.notes, { at: now, by: actor.name, text: 'Closed automatically: this statement row is a fee or a rebate, not an order.' }] } });
+      continue;
+    }
     if (!cur.orderDate || cur.orderDate < rangeFrom || cur.orderDate > rangeTo) continue;
     if (result.channels.every((c) => c.channel !== cur.channel) || !paidNow(cur)) continue;
     closed++;

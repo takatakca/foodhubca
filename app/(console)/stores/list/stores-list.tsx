@@ -83,9 +83,8 @@ export function StoresList() {
 
   return (
     <div data-help="stores.list">
-      <PageHeader title={t('Tous les magasins', 'All stores')} subtitle={t('Chaque marque, sur chaque plateforme, dans chaque succursale.', 'Every brand, on every platform, at every location.')}
+      <PageHeader title={t('Restaurants', 'Restaurants')} tabs={<StoresTabs className="mb-0" />} subtitle={t('Chaque magasin : une marque, sur une plateforme, dans une cuisine.', 'Every store: one brand, on one platform, at one kitchen.')}
         right={connect ? <ButtonLink href={href('/stores/mapping')} variant="outline" size="lg" icon={<Plug className="size-4" />}>{t('Brancher un magasin', 'Connect a store')}</ButtonLink> : undefined} />
-      <StoresTabs />
       {failed && !stores && <Banner tone="stop" className="mb-4">{t('La liste des magasins ne répond pas. On réessaie toutes les 30 secondes.', 'The store list is not answering. It retries every 30 seconds.')}</Banner>}
       <ScopeChips extraActive={Boolean(status || q.trim())} onClearExtra={() => { setStatus(null); setQ(''); }} extra={<>
         <FilterChip label={t('Statut', 'Status')} allLabel={t('Tous', 'All')} value={status} onClear={() => setStatus(null)} onPick={setStatus}
@@ -95,7 +94,7 @@ export function StoresList() {
           <Input inputSize="sm" className="h-11 w-full pl-8 sm:h-9 sm:w-56" placeholder={t('Chercher une marque', 'Search a brand')} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t('Chercher une marque', 'Search a brand')} />
         </div>
       </>} />
-      {stores && n > 0 && <p className="mb-3 text-sm font-semibold text-ink-2">{summary}</p>}
+      {stores && n > 0 && <p className="mb-3 text-body font-semibold text-ink-2">{summary}</p>}
       <Card>
         {!stores ? <div className="space-y-2 p-4">{[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-12" />)}</div>
           : (stores.length === 0 ? (
@@ -108,15 +107,15 @@ export function StoresList() {
             <>
               <div className="hidden md:block">
                 <Table>
-                  <thead><tr><Th>{t('Statut', 'Status')}</Th><Th>{t('Marque', 'Brand')}</Th><Th>{t('Plateforme', 'Platform')}</Th><Th>{t('Succursale', 'Location')}</Th>{full && <Th>{t('No de magasin', 'Store #')}</Th>}<Th align="right"><span className="sr-only">{t('Gérer', 'Manage')}</span></Th></tr></thead>
+                  <thead><tr><Th>{t('Statut', 'Status')}</Th><Th>{t('Marque', 'Brand')}</Th><Th>{t('Plateforme', 'Platform')}</Th><Th>{t('Cuisine', 'Kitchen')}</Th>{full && <Th>{t('No de magasin', 'Store #')}</Th>}<Th align="right"><span className="sr-only">{t('Gérer', 'Manage')}</span></Th></tr></thead>
                   <tbody>
                     {shown.map(({ s, st }) => (
                       <Tr key={s.id}>
                         <Td><span className="flex items-center gap-2 font-semibold whitespace-nowrap"><StatusDot tone={DOT[st.state] ?? 'neutral'} />{stateText(t, st.state)}</span></Td>
                         <Td><span className="flex items-center gap-2.5 font-semibold"><BrandMark name={s.brandName} size="xs" />{s.brandName}</span></Td>
                         <Td><PlatformTag channel={s.channel} /></Td>
-                        <Td><span className="block font-semibold">{shortLoc(locName(s.locationCode))}</span>{address(s.locationCode) && <span className="block text-xs text-ink-3">{address(s.locationCode)}</span>}</Td>
-                        {full && <Td className="font-mono text-xs text-ink-3">{s.channelStoreId}</Td>}
+                        <Td><span className="block font-semibold">{shortLoc(locName(s.locationCode))}</span>{address(s.locationCode) && <span className="block text-small text-ink-3">{address(s.locationCode)}</span>}</Td>
+                        {full && <Td className="font-mono text-small text-ink-3">{s.channelStoreId}</Td>}
                         <Td align="right"><Button variant="soft" size="md" onClick={() => manage(s)}>{t('Gérer', 'Manage')}<ChevronRight className="size-4" /></Button></Td>
                       </Tr>
                     ))}
@@ -130,16 +129,16 @@ export function StoresList() {
                       <BrandMark name={s.brandName} size="sm" />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate font-bold text-ink">{s.brandName}</span>
-                        <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-3"><PlatformTag channel={s.channel} className="text-xs font-medium" /><span>{shortLoc(locName(s.locationCode))}</span></span>
+                        <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-small text-ink-3"><PlatformTag channel={s.channel} className="text-small font-medium" /><span>{shortLoc(locName(s.locationCode))}</span></span>
                       </span>
-                      <span className="flex shrink-0 items-center gap-1.5 text-xs font-semibold text-ink-2"><StatusDot tone={DOT[st.state] ?? 'neutral'} />{stateText(t, st.state)}</span>
+                      <span className="flex shrink-0 items-center gap-1.5 text-small font-semibold text-ink-2"><StatusDot tone={DOT[st.state] ?? 'neutral'} />{stateText(t, st.state)}</span>
                       <ChevronRight className="size-4 shrink-0 text-ink-4" />
                     </button>
                   </li>
                 ))}
               </ul>
               {rows.length > PAGE && (
-                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-3 text-body">
                   <span className="text-ink-3">{t(`${page * PAGE + 1} à ${Math.min(rows.length, page * PAGE + PAGE)} sur ${rows.length}`, `Showing ${page * PAGE + 1}–${Math.min(rows.length, page * PAGE + PAGE)} of ${rows.length}`)}</span>
                   <span className="flex gap-2">
                     <Button variant="outline" size="lg" disabled={page === 0} onClick={() => setPage(page - 1)} icon={<ChevronLeft className="size-4" />}>{t('Précédent', 'Previous')}</Button>
@@ -151,7 +150,7 @@ export function StoresList() {
           ))}
       </Card>
       {stores && stores.length > 0 && (
-        <div className={cn('mt-4 text-sm text-ink-3')}>
+        <div className={cn('mt-4 text-body text-ink-3')}>
           {connect
             ? <Link href={href('/stores/mapping')} className="font-semibold text-brand hover:underline">{t('Brancher un magasin', 'Connect a store')} →</Link>
             : <span className="flex flex-wrap items-center gap-x-3 gap-y-2">{t('Il manque un magasin ? On le branche pour vous.', 'A store is missing? We connect it for you.')}<ConnectRequestButton variant="outline" size="md" /></span>}

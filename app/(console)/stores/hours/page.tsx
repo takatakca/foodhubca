@@ -4,11 +4,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { CalendarPlus, Send, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Banner, Card, CardHeader, PageHeader } from '@/components/ui/card';
+import { Banner, Card, CardHeader, EmptyState, PageHeader, Skeleton } from '@/components/ui/card';
 import { Checkbox, Input, Select } from '@/components/ui/form';
 import { DraftRestoredBanner, SaveChip } from '@/components/ui/save-chip';
 import { Hint } from '@/components/help/hint';
-import { Tabs } from '@/components/ui/tabs';
+import { SectionPicker } from '@/components/stores/section-picker';
 import { useToast } from '@/components/ui/toast';
 import { fullWeek, WeekEditor, weekProblems, weekSummary, type Slot, type Week } from '@/components/ui/week-editor';
 import { MultiPick } from '@/components/ui/filter-bar';
@@ -19,6 +19,7 @@ import { api, ApiError } from '@/lib/ui/api';
 import { useAutosave } from '@/lib/ui/use-autosave';
 import { useUndo } from '@/lib/ui/use-undo';
 import { useI18n, useProduct } from '@/lib/i18n/client';
+import { countEn, countFr } from '@/lib/ui/count-label';
 
 type Holiday = { id: string; date: string; name: string; locationCodes: string[]; closed: boolean; slots?: Slot[] };
 type Hours = { locations: Record<string, Week>; brands: Record<string, Week>; holidays: Holiday[] };
@@ -73,7 +74,7 @@ export default function HoursPage() {
   function removeBrandHours(b: string) {
     const week = hours?.brands[b];
     patch((h) => { const next = { ...h.brands }; delete next[b]; return { ...h, brands: next }; });
-    if (week) toast.undo(t(`${b} suit de nouveau les heures de la succursale`, `${b} follows the location hours again`), () => patch((h) => ({ ...h, brands: { ...h.brands, [b]: week } })));
+    if (week) toast.undo(t(`${b} suit de nouveau les heures de la cuisine`, `${b} follows the kitchen hours again`), () => patch((h) => ({ ...h, brands: { ...h.brands, [b]: week } })));
   }
 
   async function publishAll() {
@@ -90,35 +91,31 @@ export default function HoursPage() {
     setBusy('');
     if (!withMenu.length) toast.warn(t('Aucune marque n’a de menu enregistré.', 'No brand has a saved menu yet.'));
     else if (errs.length) toast.error(t(`${ok}/${withMenu.length} marques publiées`, `${ok}/${withMenu.length} brands published`), errs.slice(0, 4).join('\n'));
-    else toast.success(t(`${ok} marque(s) publiée(s) avec les heures`, `${ok} brand(s) published with the hours`));
+    else toast.success(t(`${countFr(ok, 'marque publiée', 'marques publiées')} avec les heures`, `${countEn(ok, 'brand')} published with the hours`));
   }
 
-  if (!hours) return <div><PageHeader title={t('Magasins', 'Stores')} /><StoresTabs /><div className="h-96 animate-pulse rounded-lg bg-sunken" /></div>;
+  if (!hours) return <div><PageHeader title={t('Restaurants', 'Restaurants')} tabs={<StoresTabs className="mb-0" />} /><Card aria-busy><div className="space-y-3 p-5">{Array.from({ length: 7 }, (_, i) => <Skeleton key={i} className="h-11" />)}</div></Card></div>;
   const locWeek = hours.locations[loc];
   const brandWeek = hours.brands[brand];
   const year = new Date().getFullYear();
   return (
     <div>
-      <PageHeader title={t('Magasins', 'Stores')} subtitle={t('Heures par succursale, exceptions par marque et jours fériés — envoyées à chaque plateforme avec le menu. Heure de Montréal.', 'Hours per location, brand exceptions and holidays — sent to every platform with the menu. Montréal time.')}
+      <PageHeader title={t('Restaurants', 'Restaurants')} tabs={<StoresTabs className="mb-0" />} subtitle={t('Heures par cuisine, exceptions par marque et jours fériés, envoyées aux plateformes avec le menu. Heure de Montréal.', 'Hours per kitchen, brand exceptions and holidays, sent to the platforms with the menu. Montréal time.')}
         right={editable && <><SaveChip autosave={autosave} undo={undo} /><Hint id="hours.publish"><Button variant="brand" size="lg" loading={busy === 'publish'} onClick={publishAll} icon={<Send className="size-4" />}>{t('Publier sur les plateformes', 'Publish to platforms')}</Button></Hint></>} />
-      <StoresTabs />
       {autosave.draftRestored && <DraftRestoredBanner onDiscard={autosave.discardDraft} />}
       {problems.length > 0 && <Banner tone="warn" className="mb-4">{problems.slice(0, 4).join(' · ')}</Banner>}
-      <Tabs className="mb-4" value={tab} onChange={setTab} tabs={[{ key: 'locations', label: t('Succursales', 'Locations') }, { key: 'brands', label: t('Exceptions par marque', 'Brand exceptions') }, { key: 'holidays', label: t('Fériés et jours spéciaux', 'Holidays & special days'), count: hours.holidays.length }]} />
+      <SectionPicker className="mb-4" label={t('Afficher', 'Show')} value={tab} onChange={setTab} options={[{ key: 'locations', label: t('Cuisines', 'Kitchens') }, { key: 'brands', label: t('Exceptions par marque', 'Brand exceptions') }, { key: 'holidays', label: hours.holidays.length ? t(`Fériés et jours spéciaux · ${hours.holidays.length}`, `Holidays & special days · ${hours.holidays.length}`) : t('Fériés et jours spéciaux', 'Holidays & special days') }]} />
 
       {tab === 'locations' && (
         <Card>
-          <CardHeader title={t('Heures de la succursale', 'Location hours')} right={<Select selectSize="sm" className="w-auto" value={loc} onChange={(e) => setLoc(e.target.value)}>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)} — {weekSummary(hours.locations[l.code], lang)}</option>)}</Select>} />
+          <CardHeader title={t('Heures de la cuisine', 'Kitchen hours')} right={<Select className="w-full sm:w-auto" aria-label={t('Cuisine', 'Kitchen')} value={loc} onChange={(e) => setLoc(e.target.value)}>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)} — {weekSummary(hours.locations[l.code], lang)}</option>)}</Select>} />
           <div className="px-5 pb-5">
             {!locWeek ? (
-              <div className="rounded-lg border border-dashed border-line-2 p-6 text-center">
-                <p className="text-sm text-ink-3">{t('Pas d’heures pour cette succursale : un menu publié sans heures paraît ouvert 24/7 sur les plateformes.', 'No hours for this location: a menu published without hours shows open 24/7 on the platforms.')}</p>
-                {editable && <Button className="mt-3" onClick={() => patch((h) => ({ ...h, locations: { ...h.locations, [loc]: fullWeek() } }))}>{t('Définir les heures', 'Set the hours')}</Button>}
-              </div>
+              <EmptyState compact icon={<CalendarPlus />} title={t('Pas encore d’heures', 'No hours yet')} body={t('Sans heures, un menu publié paraît ouvert jour et nuit sur les plateformes.', 'Without hours, a published menu shows open day and night on the platforms.')} action={editable ? <Button onClick={() => patch((h) => ({ ...h, locations: { ...h.locations, [loc]: fullWeek() } }))}>{t('Définir les heures', 'Set the hours')}</Button> : undefined} />
             ) : (
               <>
                 <Hint id="hours.week"><div><WeekEditor value={locWeek} disabled={!editable} onChange={(w) => patch((h) => ({ ...h, locations: { ...h.locations, [loc]: w } }))} /></div></Hint>
-                {editable && <Hint id="hours.copy"><div className="mt-3 flex flex-wrap items-center gap-2 text-[13px]"><span className="text-ink-3">{t('Copier vers :', 'Copy to:')}</span>{locations.filter((l) => l.code !== loc).map((l) => <Button key={l.code} size="sm" variant="soft" onClick={() => { patch((h) => ({ ...h, locations: { ...h.locations, [l.code]: JSON.parse(JSON.stringify(locWeek)) } })); toast.undo(t(`Heures copiées vers ${shortLoc(l.name)}`, `Hours copied to ${shortLoc(l.name)}`), undo.undo); }}>{shortLoc(l.name)}</Button>)}</div></Hint>}
+                {editable && <Hint id="hours.copy"><div className="mt-3 flex flex-wrap items-center gap-2 text-small"><span className="text-ink-3">{t('Copier vers :', 'Copy to:')}</span>{locations.filter((l) => l.code !== loc).map((l) => <Button key={l.code} size="sm" variant="soft" onClick={() => { patch((h) => ({ ...h, locations: { ...h.locations, [l.code]: JSON.parse(JSON.stringify(locWeek)) } })); toast.undo(t(`Heures copiées vers ${shortLoc(l.name)}`, `Hours copied to ${shortLoc(l.name)}`), undo.undo); }}>{shortLoc(l.name)}</Button>)}</div></Hint>}
               </>
             )}
           </div>
@@ -127,12 +124,12 @@ export default function HoursPage() {
 
       {tab === 'brands' && (
         <Card>
-          <CardHeader title={t('Exception par marque', 'Brand exception')} subtitle={t('Remplace les heures de la succursale pour cette marque partout (ex. marque déjeuner seulement).', 'Replaces the location hours for this brand everywhere (e.g. a breakfast-only brand).')}
-            right={<Select selectSize="sm" className="w-auto" value={brand} onChange={(e) => setBrand(e.target.value)}>{brands.map((b) => <option key={b} value={b}>{b}{hours.brands[b] ? ` — ${t('heures propres', 'own hours')}` : ''}</option>)}</Select>} />
+          <CardHeader title={t('Exception par marque', 'Brand exception')} subtitle={t('Remplace les heures de la cuisine pour cette marque partout (ex. une marque déjeuner seulement).', 'Replaces the kitchen hours for this brand everywhere (e.g. a breakfast-only brand).')}
+            right={<Select className="w-full sm:w-auto" aria-label={t('Marque', 'Brand')} value={brand} onChange={(e) => setBrand(e.target.value)}>{brands.map((b) => <option key={b} value={b}>{b}{hours.brands[b] ? ` — ${t('heures propres', 'own hours')}` : ''}</option>)}</Select>} />
           <div className="px-5 pb-5">
             {!brandWeek
               ? editable && <Button onClick={() => patch((h) => ({ ...h, brands: { ...h.brands, [brand]: hours.locations[loc] ? JSON.parse(JSON.stringify(hours.locations[loc])) : fullWeek() } }))}>{t(`Donner des heures propres à ${brand}`, `Give ${brand} its own hours`)}</Button>
-              : <><WeekEditor value={brandWeek} disabled={!editable} onChange={(w) => patch((h) => ({ ...h, brands: { ...h.brands, [brand]: w } }))} />{editable && <Button variant="ghost" className="mt-3" onClick={() => removeBrandHours(brand)}>{t('Revenir aux heures de la succursale', 'Follow the location hours again')}</Button>}</>}
+              : <><WeekEditor value={brandWeek} disabled={!editable} onChange={(w) => patch((h) => ({ ...h, brands: { ...h.brands, [brand]: w } }))} />{editable && <Button variant="ghost" className="mt-3" onClick={() => removeBrandHours(brand)}>{t('Revenir aux heures de la cuisine', 'Follow the kitchen hours again')}</Button>}</>}
           </div>
         </Card>
       )}
@@ -146,26 +143,26 @@ export default function HoursPage() {
               const set = (p: Partial<Holiday>) => patch((h) => ({ ...h, holidays: h.holidays.map((x) => (x.id === hol.id ? { ...x, ...p } : x)) }));
               return (
                 <div key={hol.id} className="flex flex-wrap items-center gap-3 px-5 py-3">
-                  <Input inputSize="sm" type="date" className="w-40" value={hol.date} disabled={!editable} onChange={(e) => set({ date: e.target.value })} />
-                  <Input inputSize="sm" className="w-56" value={hol.name} disabled={!editable} onChange={(e) => set({ name: e.target.value })} />
-                  <MultiPick label={t('Succursales', 'Locations')} options={locations.map((l) => [l.code, shortLoc(l.name)])} value={hol.locationCodes} onChange={(v) => set({ locationCodes: v })} />
+                  <Input type="date" className="w-44" aria-label={t('Date', 'Date')} value={hol.date} disabled={!editable} onChange={(e) => set({ date: e.target.value })} />
+                  <Input className="w-full sm:w-56" aria-label={t('Nom du jour', 'Day name')} value={hol.name} disabled={!editable} onChange={(e) => set({ name: e.target.value })} />
+                  <MultiPick label={t('Cuisines', 'Kitchens')} options={locations.map((l) => [l.code, shortLoc(l.name)])} value={hol.locationCodes} onChange={(v) => set({ locationCodes: v })} />
                   <Checkbox checked={hol.closed} disabled={!editable} onChange={(c) => set({ closed: c, slots: c ? [] : [{ open: '12:00', close: '20:00' }] })} label={t('Fermé toute la journée', 'Closed all day')} />
                   {!hol.closed && (hol.slots ?? []).map((s, i) => (
                     <span key={i} className="flex items-center gap-1">
-                      <input type="time" className="h-8 rounded-md border border-line-2 px-2 text-sm" value={s.open} disabled={!editable} onChange={(e) => set({ slots: (hol.slots ?? []).map((x, j) => (j === i ? { ...x, open: e.target.value } : x)) })} />–
-                      <input type="time" className="h-8 rounded-md border border-line-2 px-2 text-sm" value={s.close} disabled={!editable} onChange={(e) => set({ slots: (hol.slots ?? []).map((x, j) => (j === i ? { ...x, close: e.target.value } : x)) })} />
+                      <Input type="time" className="num w-28" aria-label={t('Ouvre', 'Opens')} value={s.open} disabled={!editable} onChange={(e) => set({ slots: (hol.slots ?? []).map((x, j) => (j === i ? { ...x, open: e.target.value } : x)) })} />–
+                      <Input type="time" className="num w-28" aria-label={t('Ferme', 'Closes')} value={s.close} disabled={!editable} onChange={(e) => set({ slots: (hol.slots ?? []).map((x, j) => (j === i ? { ...x, close: e.target.value } : x)) })} />
                     </span>
                   ))}
                   {hol.closed ? <Badge tone="stop">{t('fermé', 'closed')}</Badge> : <Badge tone="info">{t('heures spéciales', 'special hours')}</Badge>}
-                  {editable && <button type="button" className="ml-auto rounded p-1.5 text-ink-4 hover:bg-sunken hover:text-stop" onClick={() => removeHoliday(hol)} aria-label={t('Retirer', 'Remove')}><Trash2 className="size-4" /></button>}
+                  {editable && <button type="button" className="ml-auto inline-flex size-11 items-center justify-center rounded-md text-ink-3 hover:bg-sunken hover:text-stop" onClick={() => removeHoliday(hol)} aria-label={t(`Retirer ${hol.name || hol.date}`, `Remove ${hol.name || hol.date}`)}><Trash2 className="size-4" /></button>}
                 </div>
               );
             })}
-            {hours.holidays.length === 0 && <div className="px-5 py-6 text-sm text-ink-3">{t('Aucun férié pour l’instant.', 'No holidays yet.')}</div>}
+            {hours.holidays.length === 0 && <EmptyState compact icon={<CalendarPlus />} title={t('Aucun férié pour l’instant', 'No holidays yet')} body={t('Ajoutez les fériés du Québec en un clic, ou un jour spécial.', 'Add the Québec holidays in one click, or a special day.')} />}
           </div>
         </Card></Hint>
       )}
-      <p className="mt-4 text-xs text-ink-4">{t('Les horaires par catégorie (déjeuner, midi) se règlent dans Menus.', 'Category schedules (breakfast, lunch) are set in Menus.')} {updatedAt ? `${t('Dernier enregistrement', 'Last saved')} ${new Date(updatedAt).toLocaleString()}` : ''}</p>
+      <p className="mt-4 text-small text-ink-3">{t('Les horaires par catégorie (déjeuner, midi) se règlent dans Menus.', 'Category schedules (breakfast, lunch) are set in Menus.')} {updatedAt ? `${t('Dernier enregistrement', 'Last saved')} ${new Date(updatedAt).toLocaleString(lang === 'fr' ? 'fr-CA' : 'en-CA', { dateStyle: 'medium', timeStyle: 'short' })}` : ''}</p>
     </div>
   );
 }

@@ -66,6 +66,21 @@
   --shadow-pop: 0 18px 50px -12px rgb(6 13 31 / 0.3), 0 2px 8px rgb(6 13 31 / 0.08);
   --shadow-ring: 0 0 0 4px rgb(31 139 255 / 0.2);
 
+  /* Spacing scale (premium rule 2): 4 / 8 / 12 / 16 / 20 / 24 / 32. Card padding 20, grid gap 16, section gap 24. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Motion: three durations, one curve. 180–280 ms, never longer, and only with motion-safe. */
+  --duration-fast: 180ms;
+  --duration-base: 220ms;
+  --duration-slow: 280ms;
+  --ease-premium: cubic-bezier(0.2, 0.8, 0.2, 1);
+
   --animate-ring: ring 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   --animate-slide-in: slide-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
   --animate-rise: rise 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -86,7 +101,8 @@
   @keyframes flow { 0% { transform: translateY(0); opacity: 0; } 20% { opacity: 1; } 80% { opacity: 1; } 100% { transform: translateY(21px); opacity: 0; } }
 }
 
-/* Kitchen screen: dark, high contrast, readable from 2 m. */
+/* Kitchen screen: dark, high contrast, readable from 2 m. Every token the light theme defines has a dark value here,
+   so a shared component (badge, banner, toast, table) needs no kitchen-specific class. */
 .theme-kitchen {
   --color-canvas: #050a17;
   --color-surface: #0d1730;
@@ -101,12 +117,24 @@
   --color-brand: #1f8bff;
   --color-brand-2: #6fb4ff;
   --color-brand-soft: #0d2147;
+  /* The "-2" text shades sit on the "-soft" fills: each pair stays ≥ 4.5:1 in the dark. */
+  --color-go: #22c55e;
+  --color-go-2: #86efac;
   --color-go-soft: #0e2d1d;
+  --color-wait: #f5b800;
+  --color-wait-2: #fcd34d;
   --color-wait-soft: #33280a;
+  --color-stop: #f05252;
+  --color-stop-2: #fca5a5;
   --color-stop-soft: #3a1415;
+  --color-info: #5b9bff;
+  --color-info-2: #a9c8ff;
   --color-info-soft: #13213e;
+  --color-violet: #b7a3ff;
   --color-violet-soft: #221b45;
+  --color-silver: #8a98ab;
   --shadow-card: 0 0 0 1px rgb(255 255 255 / 0.04);
+  --shadow-pop: 0 18px 50px -12px rgb(0 0 0 / 0.7), 0 0 0 1px rgb(255 255 255 / 0.06);
   color-scheme: dark;
 }
 
@@ -114,15 +142,46 @@
   html { -webkit-text-size-adjust: 100%; text-rendering: optimizeLegibility; }
   body { @apply bg-canvas text-ink font-sans antialiased; font-feature-settings: 'ss01', 'cv11'; }
   ::selection { background: rgb(31 139 255 / 0.24); }
+  /* One focus ring everywhere: 2 px brand outline, 2 px offset. On navy chrome and on the dark kitchen it turns cyan
+     (blue on navy is under 3:1). Mouse clicks never show it (focus-visible). */
   :focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; border-radius: 6px; }
+  .bg-rail :focus-visible, .theme-kitchen :focus-visible { outline-color: var(--color-cyan); }
   input, select, textarea, button { font: inherit; color: inherit; }
   input[type='number']::-webkit-inner-spin-button { opacity: 0.4; }
-  h1, h2, h3 { letter-spacing: -0.015em; }
+  h1, h2, h3 { letter-spacing: -0.015em; text-wrap: balance; }
   a { color: inherit; text-decoration: none; }
   button:disabled { cursor: not-allowed; }
+  /* Native pickers in the French console: the calendar/clock glyphs follow the ink, not the browser's grey. */
+  input[type='date'], input[type='time'] { font-variant-numeric: tabular-nums; }
+  .theme-kitchen input[type='date']::-webkit-calendar-picker-indicator, .theme-kitchen input[type='time']::-webkit-calendar-picker-indicator { filter: invert(1); }
 }
 
+/* ------------------------------------------------------------------------------------------------
+   Type scale (premium rule 1): six steps, nothing under 11 px. Pixel-based so every screen agrees, and multiplied by
+   --ts so the A / A+ / A++ text-size setting scales them like the rem sizes.
+     text-display  28  page title (H1)              text-body   15  running text, inputs, buttons
+     text-title    22  hero number, dialog title     text-small  13  labels, meta, table header
+     text-heading  17  card title, section (H2)      text-micro  11  badges, eyebrows, bottom-bar labels
+------------------------------------------------------------------------------------------------- */
+@utility text-display { font-size: calc(28px * var(--ts)); line-height: 1.15; font-weight: 800; letter-spacing: -0.02em; }
+@utility text-title { font-size: calc(22px * var(--ts)); line-height: 1.2; font-weight: 800; letter-spacing: -0.015em; }
+@utility text-heading { font-size: calc(17px * var(--ts)); line-height: 1.3; font-weight: 700; letter-spacing: -0.01em; }
+@utility text-body { font-size: calc(15px * var(--ts)); line-height: 1.5; }
+@utility text-small { font-size: calc(13px * var(--ts)); line-height: 1.45; }
+@utility text-micro { font-size: calc(11px * var(--ts)); line-height: 1.4; }
+/* Eyebrow: micro, bold, spaced capitals (section name above an H1, group name in a sheet). */
+@utility eyebrow { font-size: calc(11px * var(--ts)); line-height: 1.4; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+
 @utility num { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
+/* Horizontal strips (tabs, chips) that may overflow: a soft fade on the side that hides more. Driven by data-fade on
+   the element (none | start | end | both), set by the component from its scroll position. */
+@utility fade-x {
+  &[data-fade='end'] { mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
+  &[data-fade='start'] { mask-image: linear-gradient(to right, transparent, #000 40px); }
+  &[data-fade='both'] { mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent); }
+}
+/* Every target on a touch screen is at least 44 px (the shared buttons are 40 px on a desktop with a mouse). */
+@utility touch-target { @media (pointer: coarse) { min-height: 44px; min-width: 44px; } }
 @utility scrollbar-thin {
   scrollbar-width: thin;
   scrollbar-color: var(--color-line-2) transparent;
@@ -217,7 +276,48 @@ html[data-density='compact'] { --row-py: 0.5rem; }
 html[data-density='comfortable'] { --row-py: 0.75rem; }
 
 html[data-motion='reduce'] *, html[data-motion='reduce'] *::before, html[data-motion='reduce'] *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
-@media (prefers-reduced-motion: reduce) { .taktak-spin, .taktak-bob, .taktak-wave { animation: none !important; } }
+/* Premium rule 7 + the system's « reduce motion » (#52): entrance animations stop, every other animation and transition
+   is cut to 1 ms and smooth scrolling stops, without touching the screen's own settings. The incoming-order ring
+   (animate-ring, also sm:animate-ring) is the one exception: it is an alarm, so it keeps pulsing; the in-app « reduce
+   motion » setting (data-motion, above) still shortens it. */
+@media (prefers-reduced-motion: reduce) {
+  .taktak-spin, .taktak-bob, .taktak-wave, .animate-rise, .animate-fade, .animate-slide-in, .animate-pulse-soft, .animate-pop, .animate-confetti, .animate-flow { animation: none !important; }
+  .animate-pulse, .animate-bounce, .animate-ping { animation: none !important; }
+  html *:not([class*='animate-ring']), html *::before, html *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+  html, html * { scroll-behavior: auto !important; }
+}
+
+/* ------------------------------------------------------------------------------------------------
+   Tables (premium rule 4): one style. Under 768 px a `cards` table turns each row into a card and each cell into a
+   "label · value" line (the label comes from Td's `label`, written to data-label), so nothing scrolls sideways.
+------------------------------------------------------------------------------------------------- */
+@media (max-width: 767px) {
+  .table-cards thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .table-cards, .table-cards tbody, .table-cards tr, .table-cards td { display: block; }
+  .table-cards tr { border: 1px solid var(--color-line); border-radius: var(--radius-md); background: var(--color-surface); padding: 8px 16px; margin-bottom: 12px; }
+  .table-cards tr:hover { background: var(--color-surface); }
+  .table-cards td { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; border: 0; padding: 8px 0; min-height: 0; text-align: right; }
+  .table-cards td + td { border-top: 1px solid var(--color-line); }
+  .table-cards td[data-label]::before { content: attr(data-label); flex: 0 0 auto; color: var(--color-ink-3); font-size: calc(13px * var(--ts)); font-weight: 600; text-align: left; }
+  .table-cards td:not([data-label]) { justify-content: flex-end; }
+  .table-cards td[data-primary] { justify-content: flex-start; text-align: left; font-weight: 700; }
+}
+
+/* Kitchen touch controls and portaled dialogs: 48px minimum, even in compact mode. */
+html.theme-kitchen :is(button, a[role='button'], select, input:not([type='checkbox']):not([type='radio']):not([type='range'])) {
+  min-height: 48px;
+}
+
+/* Invalid PIN feedback; short, non-looping and disabled by reduced motion above. */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
 
 /* Undo toast countdown, help coach marks, guided tour, TakTak the mascot. */
 @keyframes toast-countdown { from { width: 100%; } to { width: 0%; } }

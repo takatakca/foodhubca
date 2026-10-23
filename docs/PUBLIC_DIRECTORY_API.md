@@ -10,6 +10,12 @@
 | Code | `lib/foodhub/public-directory.ts`, route `app/api/public/directory/route.ts`, tests `tests/public-directory.test.ts` |
 | Base data | `data/public/directory-seed.json` (17 brands, 2 kitchens, 10–12 dishes each), built by `scripts/public-directory/build-seed.mts` |
 
+## Availability and isolation
+
+- Only exact, reviewed paths are exempt from the session gate: `/api/public/directory` (this feed) and `/api/public/restaurant-leads` (the on2go.ca form, `docs/RESTAURANT_LEADS.md`). Unknown routes under `/api/public/` remain private by default; `/api/foodhub/orders` and all merchant controls remain protected.
+- Each optional database read (hours, menus, recent orders) has a 2.5-second maximum wait. If a read fails or stalls, the endpoint returns the checked-in seed for that portion rather than waiting indefinitely. The `source` field shows `seed` unless live hours/menu data was obtained.
+- This resilience change does not repair incorrect DNS, a stopped Coolify application, an invalid Supabase key, or enable platform order connectors. Check `/api/release` and `/api/health` separately after deployment.
+
 ## What it contains
 
 - `kitchens[]`: NDG (6280 Av Somerled, H3X 2B6) and Saint-Léonard (5839 Rue Jean-Talon E, H1S 1M4): address, map point,

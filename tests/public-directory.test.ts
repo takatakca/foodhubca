@@ -3,10 +3,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { NextRequest } from 'next/server';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   allowedOrigin, buildPublicDirectory, cloverFromEnv, DIRECTORY_SEED, FORBIDDEN_STORE_IDS, isOpenLate, itemsByCloverId,
-  rankTrending, resetPublicDirectoryCache, storeUrl, uuidToBase64Url,
+  rankTrending, readPublicDirectoryWithin, resetPublicDirectoryCache, storeUrl, uuidToBase64Url,
 } from '../lib/foodhub/public-directory';
 import { allDayWeek, normalizeWeek } from '../lib/foodhub/hours';
 import type { HoursConfig, MasterMenu, WeeklyHours } from '../lib/foodhub/types';
@@ -144,6 +144,32 @@ describe('trending', () => {
   });
 });
 
+describe('optional live database reads', () => {
+  it('uses fast results and falls back to null on rejection', async () => {
+    expect(await readPublicDirectoryWithin(Promise.resolve('live'), 10)).toBe('live');
+    expect(await readPublicDirectoryWithin(Promise.reject(new Error('database offline')), 10)).toBeNull();
+  });
+
+  it('returns the seed fallback promptly when a database read stalls', async () => {
+    vi.useFakeTimers();
+    try {
+      let finish!: (value: string) => void;
+      const stalled = new Promise<string>((resolve) => { finish = resolve; });
+      const result = readPublicDirectoryWithin(stalled, 2500);
+      await vi.advanceTimersByTimeAsync(2499);
+      let done = false;
+      void result.then(() => { done = true; });
+      await Promise.resolve();
+      expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await result).toBeNull();
+      finish('late database result');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('CORS and the route', () => {
   it('allows on2go.ca, qmaps.ca and localhost only', () => {
     expect(allowedOrigin('https://on2go.ca', '')).toBe('https://on2go.ca');
@@ -159,6 +185,12 @@ describe('CORS and the route', () => {
     process.env.SESSION_SECRET = 's'.repeat(64);
     process.env.DASHBOARD_PASSWORD = 'p'.repeat(16);
     expect((await proxy(new NextRequest('http://hub.local/api/public/directory'))).headers.get('x-middleware-next')).toBe('1');
+    expect((await proxy(new NextRequest('http://hub.local/api/public/internal'))).status).toBe(401);
+    expect((await proxy(new NextRequest('http://hub.local/api/public/directory-private'))).status).toBe(401);
+    // The on2go.ca « Join » form (PR #87) is the other reviewed public route: exact path only.
+    expect((await proxy(new NextRequest('http://hub.local/api/public/restaurant-leads', { method: 'POST' }))).headers.get('x-middleware-next')).toBe('1');
+    expect((await proxy(new NextRequest('http://hub.local/api/public/restaurant-leads', { method: 'OPTIONS' }))).headers.get('x-middleware-next')).toBe('1');
+    expect((await proxy(new NextRequest('http://hub.local/api/public/restaurant-leads/export'))).status).toBe(401);
     const { GET, OPTIONS } = await import('../app/api/public/directory/route');
     const res = await GET(new Request('http://hub.local/api/public/directory', { headers: { origin: 'https://on2go.ca' } }));
     expect(res.status).toBe(200);

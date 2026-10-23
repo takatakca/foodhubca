@@ -10,7 +10,7 @@ leads** (owner only): status `new → contacted → won / lost` plus private not
 
 | What | Detail |
 |---|---|
-| Public endpoint | `POST /api/public/restaurant-leads` (no sign-in; `proxy.ts` lets `/api/public/` through) |
+| Public endpoint | `POST /api/public/restaurant-leads` (no sign-in: this exact path is listed in `PUBLIC_PATHS` of `proxy.ts`; other `/api/public/*` paths stay protected) |
 | Preflight | `OPTIONS /api/public/restaurant-leads` → 204 |
 | CORS | `https://on2go.ca` and `https://www.on2go.ca` only (writes: no localhost, no partners, no `FOODHUB_PUBLIC_CORS_ORIGINS`) |
 | Quota | 5 submissions per 10 minutes per client IP (`x-forwarded-for` only with `FOODHUB_TRUST_PROXY=true` or on Vercel), then `429` + `Retry-After: 600` |

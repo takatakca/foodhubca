@@ -2,9 +2,9 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { AlarmClockPlus, Bike, Check, CircleDollarSign, ExternalLink, MessageSquareText, PackageCheck, Phone, Printer, RotateCcw, Send, ShoppingBag, TriangleAlert, Undo2, X } from 'lucide-react';
+import { AlarmClockPlus, Bike, Check, CircleDollarSign, ExternalLink, MessageSquareText, PackageCheck, Phone, Printer, RotateCcw, Send, ShoppingBag, StickyNote, Truck, TriangleAlert, Undo2, X } from 'lucide-react';
 import { Badge, PlatformMark, platformOf, type Tone } from '@/components/ui/badge';
-import { Banner } from '@/components/ui/card';
+import { Banner, Skeleton } from '@/components/ui/card';
 import { Button, buttonClass } from '@/components/ui/button';
 import { Chips, Field, Input, Select, Textarea } from '@/components/ui/form';
 import { Drawer, Modal } from '@/components/ui/overlay';
@@ -14,6 +14,7 @@ import { useToast } from '@/components/ui/toast';
 import { useViewer } from '@/components/shell/viewer';
 import { refreshEverything } from '@/components/live/pulse';
 import { OrderTools } from '@/components/live/order-tools';
+import { orderNumber, plurals } from '@/components/live/words';
 import { api, ApiError, money, timeOf } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import type { T } from '@/lib/i18n';
@@ -102,11 +103,11 @@ export function OrderDrawer({ orderId, onClose }: { orderId: string; onClose: ()
   const p = order ? platformOf(order.channel) : null;
   return (
     <Drawer onClose={onClose} width="lg"
-      title={order ? <span className="flex items-center gap-2.5"><PlatformMark channel={order.channel} size="md" />#{order.displayId || order.externalOrderId.slice(0, 8)}<Badge tone={STATUS_TONE[order.status]}>{statusLabel(t, order.status)}</Badge>{orderSourceLabel(order.orderSource) && <Badge tone="neutral">{orderSourceLabel(order.orderSource)}</Badge>}</span> : t('Commande', 'Order')}
+      title={order ? <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1"><PlatformMark channel={order.channel} size="md" /><span className="whitespace-nowrap">#{orderNumber(order)}</span><Badge tone={STATUS_TONE[order.status]}>{statusLabel(t, order.status)}</Badge>{orderSourceLabel(order.orderSource) && <Badge tone="neutral">{orderSourceLabel(order.orderSource)}</Badge>}</span> : t('Commande', 'Order')}
       subtitle={order ? `${p?.label} · ${order.brandName ?? t('Marque ?', 'Brand ?')}` : undefined}
-      headerRight={order ? <Link href={`/orders/${order.id}`} className="rounded-md p-1.5 text-ink-3 hover:bg-sunken hover:text-ink" aria-label={t('Ouvrir en plein écran', 'Open full page')}><ExternalLink className="size-5" /></Link> : null}>
+      headerRight={order ? <Link href={`/orders/${order.id}`} className="-my-1.5 flex size-11 shrink-0 items-center justify-center rounded-md text-ink-3 hover:bg-sunken hover:text-ink" aria-label={t('Ouvrir en plein écran', 'Open full page')} title={t('Ouvrir en plein écran', 'Open full page')}><ExternalLink className="size-5" aria-hidden /></Link> : null}>
       {error && <div className="p-5"><Banner tone="stop">{error}</Banner></div>}
-      {!order && !error && <div className="space-y-3 p-5">{[0, 1, 2].map((i) => <div key={i} className="h-20 animate-pulse rounded-lg bg-sunken" />)}</div>}
+      {!order && !error && <div className="space-y-4 p-5" role="status" aria-label={t('Chargement…', 'Loading…')}><Skeleton className="h-16" /><Skeleton className="h-24" /><Skeleton className="h-40" /></div>}
       {order && <OrderDetail order={order} events={events} onChange={(o) => { if (o) setOrder(o); load(); }} />}
     </Drawer>
   );
@@ -128,15 +129,16 @@ export function OrderDetail({ order, events, onChange, compact }: { order: FullO
   const prim = primaryAction(order);
   const items = order.lines.reduce((s, l) => s + l.quantity, 0);
   const tel = customerTel(order);
+  const itemWords = plurals(items, ['article'], ['item']);
 
   return (
     <div className={cn('space-y-4', compact ? '' : 'p-5')}>
       {/* timer strip */}
-      <div className="grid grid-cols-3 gap-2">
+      <dl className="divide-y divide-line rounded-md border border-line bg-surface sm:grid sm:grid-cols-3 sm:gap-2 sm:divide-y-0 sm:border-0 sm:bg-transparent">
         <Mini label={t('Reçue', 'Received')} value={timeOf(order.createdAt, loc)} sub={<Elapsed since={order.createdAt} />} />
         <Mini label={t('Prête à', 'Ready by')} value={tl.readyTarget ? timeOf(tl.readyTarget, loc) : '—'} sub={tl.readyTarget && ['new', 'accepted'].includes(order.status) ? <Countdown to={tl.readyTarget} /> : tl.readyAt ? `✓ ${timeOf(tl.readyAt, loc)}` : null} />
-        <Mini label={t('Mode', 'Mode')} value={order.fulfillment === 'pickup' ? t('Pour emporter', 'Pickup') : order.fulfillment === 'dine_in' ? t('Sur place', 'Dine-in') : t('Livraison', 'Delivery')} sub={`${items} ${t('article(s)', 'item(s)')}`} />
-      </div>
+        <Mini label={t('Mode', 'Mode')} value={order.fulfillment === 'pickup' ? t('Pour emporter', 'Pickup') : order.fulfillment === 'dine_in' ? t('Sur place', 'Dine-in') : t('Livraison', 'Delivery')} sub={t(itemWords[0], itemWords[1])} />
+      </dl>
 
       {allergy && <Banner tone="stop"><strong>{t('ALLERGIE / note importante', 'ALLERGY / important note')}</strong> — {t('lisez les notes avant de préparer.', 'read the notes before cooking.')}</Banner>}
       {order.posError && !order.posOrderId && <Banner tone={tl.posRetry?.nextAt && !tl.posRetry.gaveUpAt ? 'warn' : 'stop'} action={act && actions.includes('retry_pos') ? <Button size="sm" variant="outline" loading={busy === 'retry_pos'} onClick={() => run(order.id, 'retry_pos')} icon={<RotateCcw className="size-4" />}>{t('Renvoyer', 'Retry')}</Button> : null}>
@@ -160,70 +162,73 @@ export function OrderDetail({ order, events, onChange, compact }: { order: FullO
 
       {/* actions */}
       {act && (actions.length > 0 || ['accepted', 'ready'].includes(order.status)) && (
-        <div className="rounded-lg border border-line bg-surface p-3">
-          <div className="flex flex-wrap gap-2">
+        <div className="rounded-md border border-line bg-surface p-4 shadow-card">
+          <div className="flex flex-wrap gap-2 empty:hidden">
             {prim === 'accept' && <Button variant="go" size="lg" className="flex-1" loading={busy === 'accept'} onClick={() => run(order.id, 'accept')} icon={<Check className="size-5" />}>{t('Accepter', 'Accept')}</Button>}
             {prim === 'ready' && <Button variant="go" size="lg" className="flex-1" loading={busy === 'ready'} onClick={() => run(order.id, 'ready')} icon={<PackageCheck className="size-5" />}>{t('Prête', 'Ready')}</Button>}
             {prim === 'dispatch' && <Button variant="primary" size="lg" className="flex-1" loading={busy === 'dispatch'} onClick={() => run(order.id, 'dispatch')} icon={<Bike className="size-5" />}>{t('Remise au livreur', 'Picked up')}</Button>}
             {prim === 'complete' && <Button variant="primary" size="lg" className="flex-1" loading={busy === 'complete'} onClick={() => run(order.id, 'complete')} icon={<Check className="size-5" />}>{t('Terminer', 'Complete')}</Button>}
             {actions.includes('deny') && <Button variant="outline" size="lg" className="text-stop" onClick={() => order.channel === 'skip' && !order.viaHub ? run(order.id, 'deny', { reason: 'Handled on Skip tablet' }) : setReasonFor('deny')} icon={<X className="size-5" />}>{order.channel === 'skip' && !order.viaHub ? t('Vers tablette Skip', 'To Skip tablet') : t('Refuser', 'Reject')}</Button>}
           </div>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {['accepted', 'ready'].includes(order.status) && [5, 10].map((m) => <Button key={m} size="sm" variant="soft" loading={busy === 'delay'} onClick={() => run(order.id, 'delay', { delayMinutes: m })} icon={<AlarmClockPlus className="size-4" />}>+{m} min</Button>)}
-            {actions.includes('complete') && prim !== 'complete' && <Button size="sm" variant="soft" onClick={() => run(order.id, 'complete')}>{t('Terminer', 'Complete')}</Button>}
-            {actions.includes('print') && <Button size="sm" variant="soft" loading={busy === 'print'} onClick={() => run(order.id, 'print')} icon={<Printer className="size-4" />}>{t('Réimprimer (Clover)', 'Reprint (Clover)')}</Button>}
-            <a className={buttonClass('soft', 'sm')} href={`/ticket/${order.id}`} target="_blank" rel="noreferrer"><Printer className="size-4" />{t('Billet 80 mm', '80 mm ticket')}</a>
-            {actions.includes('report_missing') && <Button size="sm" variant="soft" onClick={() => setMissingOpen(true)} icon={<ShoppingBag className="size-4" />}>{t('Article manquant', 'Missing item')}</Button>}
-            {actions.includes('adjust_price') && <Button size="sm" variant="soft" onClick={() => setPriceOpen(true)} icon={<CircleDollarSign className="size-4" />}>{t('Changer le prix', 'Change the price')}</Button>}
-            {actions.includes('retry_pos') && !order.posError && <Button size="sm" variant="soft" loading={busy === 'retry_pos'} onClick={() => run(order.id, 'retry_pos')} icon={<Send className="size-4" />}>{t('Envoyer à Clover', 'Send to Clover')}</Button>}
-            {actions.includes('cancel') && <Button size="sm" variant="soft" className="text-stop" onClick={() => setReasonFor('cancel')} icon={<Undo2 className="size-4" />}>{t('Annuler la commande', 'Cancel order')}</Button>}
+          <div className="flex flex-wrap gap-2 empty:hidden [:not(:empty)~&]:mt-3">
+            {['accepted', 'ready'].includes(order.status) && [5, 10].map((m) => <Button key={m} variant="outline" loading={busy === 'delay'} onClick={() => run(order.id, 'delay', { delayMinutes: m })} icon={<AlarmClockPlus className="size-4" />}>+{m} min</Button>)}
+            {actions.includes('complete') && prim !== 'complete' && <Button variant="outline" onClick={() => run(order.id, 'complete')}>{t('Terminer', 'Complete')}</Button>}
+            {actions.includes('report_missing') && <Button variant="outline" onClick={() => setMissingOpen(true)} icon={<ShoppingBag className="size-4" />}>{t('Article manquant', 'Missing item')}</Button>}
+            {actions.includes('adjust_price') && <Button variant="outline" onClick={() => setPriceOpen(true)} icon={<CircleDollarSign className="size-4" />}>{t('Changer le prix', 'Change the price')}</Button>}
+            {actions.includes('retry_pos') && !order.posError && <Button variant="outline" loading={busy === 'retry_pos'} onClick={() => run(order.id, 'retry_pos')} icon={<Send className="size-4" />}>{t('Envoyer à Clover', 'Send to Clover')}</Button>}
+          </div>
+          {/* The quiet row only gets its rule and gap when a row above it shows (a cancelled order has none). */}
+          <div className="flex flex-wrap gap-1 empty:hidden [:not(:empty)~&]:mt-3 [:not(:empty)~&]:border-t [:not(:empty)~&]:border-line [:not(:empty)~&]:pt-3">
+            {actions.includes('print') && <Button variant="ghost" loading={busy === 'print'} onClick={() => run(order.id, 'print')} icon={<Printer className="size-4" />}>{t('Réimprimer (Clover)', 'Reprint (Clover)')}</Button>}
+            <a className={buttonClass('ghost', 'md')} href={`/ticket/${order.id}`} target="_blank" rel="noreferrer"><Printer className="size-4" aria-hidden />{t('Billet 80 mm', '80 mm ticket')}</a>
+            {actions.includes('cancel') && <Button variant="ghost" className="text-stop-2 hover:bg-stop-soft hover:text-stop-2" onClick={() => setReasonFor('cancel')} icon={<Undo2 className="size-4" />}>{t('Annuler la commande', 'Cancel order')}</Button>}
           </div>
           {['accepted', 'ready'].includes(order.status) && (order.channel === 'doordash' || order.channel === 'skip') && (
-            <p className="mt-2 text-xs text-ink-3">{order.channel === 'doordash' ? t('DoorDash : annulation après acceptation depuis le portail ou la tablette DoorDash.', 'DoorDash: cancel after accepting from the DoorDash portal or tablet.') : t('Skip : annulation après acceptation par la tablette ou le soutien Skip.', 'Skip: cancel after accepting from the Skip tablet or support.')}</p>
+            <p className="text-small mt-2 text-ink-3">{order.channel === 'doordash' ? t('DoorDash : annulation après acceptation depuis le portail ou la tablette DoorDash.', 'DoorDash: cancel after accepting from the DoorDash portal or tablet.') : t('Skip : annulation après acceptation par la tablette ou le soutien Skip.', 'Skip: cancel after accepting from the Skip tablet or support.')}</p>
           )}
         </div>
       )}
 
       {/* courier + customer */}
       {(tl.courier || order.customerName) && (
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {tl.courier && (
-            <div className="rounded-lg border border-line bg-surface p-3">
-              <div className="flex items-center gap-2 text-sm font-bold text-ink"><Bike className="size-4 text-info" />{courierLabel(t, tl.courier.status)}</div>
-              <div className="mt-1 text-[13px] text-ink-3">{[tl.courier.name, tl.courier.vehicle, tl.courier.etaAt ? `${t('au comptoir vers', 'at counter ~')} ${timeOf(tl.courier.etaAt, loc)}` : null].filter(Boolean).join(' · ') || '—'}</div>
-              {tl.courier.phone && <a href={`tel:${tl.courier.phone}`} className="mt-2 inline-flex items-center gap-1.5 text-[13px] font-semibold text-ink underline-offset-4 hover:underline"><Phone className="size-3.5" />{t('Appeler le livreur', 'Call courier')}</a>}
+            <div className="rounded-md border border-line bg-surface p-4 shadow-card">
+              <div className="text-body flex items-center gap-2 font-bold text-ink"><Bike className="size-4 text-info" />{courierLabel(t, tl.courier.status)}</div>
+              <div className="text-small mt-1 text-ink-3">{[tl.courier.name, tl.courier.vehicle, tl.courier.etaAt ? `${t('au comptoir vers', 'at counter ~')} ${timeOf(tl.courier.etaAt, loc)}` : null].filter(Boolean).join(' · ') || '—'}</div>
+              {tl.courier.phone && <a href={`tel:${tl.courier.phone}`} className="text-small mt-1 inline-flex min-h-11 items-center gap-1.5 font-semibold text-ink underline-offset-4 hover:underline"><Phone className="size-4" aria-hidden />{t('Appeler le livreur', 'Call courier')}</a>}
             </div>
           )}
-          <div className="rounded-lg border border-line bg-surface p-3">
-            <div className="text-sm font-bold text-ink">{order.customerName || t('Client', 'Customer')}</div>
-            <div className="mt-1 text-[13px] text-ink-3">{t('Numéro relais fourni par la plateforme quand disponible.', 'Relay number from the platform when available.')}</div>
-            <div className="mt-2 flex flex-wrap gap-3">
-              {tel && <a href={tel} className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-ink underline-offset-4 hover:underline"><Phone className="size-3.5" />{t('Appeler', 'Call')}</a>}
-              {act && !['completed', 'cancelled'].includes(order.status) && <button type="button" onClick={() => setTextOpen(true)} className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-ink underline-offset-4 hover:underline"><MessageSquareText className="size-3.5" />{t('Texter', 'Text')}</button>}
+          <div className="rounded-md border border-line bg-surface p-4 shadow-card">
+            <div className="text-body font-bold text-ink">{order.customerName || t('Client', 'Customer')}</div>
+            <div className="text-small mt-1 text-ink-3">{t('Numéro relais fourni par la plateforme quand disponible.', 'Relay number from the platform when available.')}</div>
+            <div className="mt-1 flex flex-wrap gap-x-4">
+              {tel && <a href={tel} className="text-small inline-flex min-h-11 items-center gap-1.5 font-semibold text-ink underline-offset-4 hover:underline"><Phone className="size-4" aria-hidden />{t('Appeler', 'Call')}</a>}
+              {act && !['completed', 'cancelled'].includes(order.status) && <button type="button" onClick={() => setTextOpen(true)} className="text-small inline-flex min-h-11 items-center gap-1.5 font-semibold text-ink underline-offset-4 hover:underline"><MessageSquareText className="size-4" aria-hidden />{t('Texter', 'Text')}</button>}
             </div>
           </div>
         </div>
       )}
 
       {/* items */}
-      <div className="rounded-lg border border-line bg-surface">
+      <div className="rounded-md border border-line bg-surface shadow-card">
         <div className="divide-y divide-line">
           {order.lines.map((l, i) => (
             <div key={i} className="flex gap-3 px-4 py-3">
-              <span className="num flex size-8 shrink-0 items-center justify-center rounded-md bg-ink text-sm font-extrabold text-canvas">{l.quantity}</span>
+              <span className="num text-small flex size-8 shrink-0 items-center justify-center rounded-sm bg-ink font-extrabold text-canvas">{l.quantity}</span>
               <div className="min-w-0 flex-1">
                 <div className="font-bold text-ink">{l.name}</div>
-                {l.modifiers.map((m, j) => <div key={j} className="text-[13px] text-ink-2">+ {m.quantity > 1 ? `${m.quantity}× ` : ''}{m.name}</div>)}
-                {l.notes && <div className={cn('mt-1 rounded-sm px-2 py-1 text-[13px] font-semibold', ALLERGY.test(l.notes) ? 'bg-stop-soft text-stop-2' : 'bg-wait-soft text-wait-2')}>« {l.notes} »</div>}
-                {!l.posItemRef && <div className="text-[11px] text-ink-4">{t('ligne libre dans Clover', 'custom line in Clover')}</div>}
+                {l.modifiers.map((m, j) => <div key={j} className="text-small text-ink-2">+ {m.quantity > 1 ? `${m.quantity}× ` : ''}{m.name}</div>)}
+                {l.notes && <div className={cn('text-small mt-1 rounded-sm px-2 py-1 font-semibold', ALLERGY.test(l.notes) ? 'bg-stop-soft text-stop-2' : 'bg-wait-soft text-wait-2')}>« {l.notes} »</div>}
+                {!l.posItemRef && <div className="text-micro text-ink-3">{t('ligne libre dans Clover', 'custom line in Clover')}</div>}
               </div>
-              <div className="num text-sm font-semibold text-ink-2">{money(l.total, loc)}</div>
+              <div className="num text-body font-semibold text-ink-2">{money(l.total, loc)}</div>
             </div>
           ))}
         </div>
-        {order.notes && <div className={cn('mx-4 mb-3 rounded-md px-3 py-2 text-sm font-semibold', ALLERGY.test(order.notes) ? 'bg-stop-soft text-stop-2' : 'bg-wait-soft text-wait-2')}>📝 {order.notes}</div>}
+        {order.notes && <div className={cn('text-body mx-4 mb-3 flex items-start gap-2 rounded-md px-3 py-2 font-semibold', ALLERGY.test(order.notes) ? 'bg-stop-soft text-stop-2' : 'bg-wait-soft text-wait-2')}><StickyNote className="mt-0.5 size-4 shrink-0" aria-label={t('Note', 'Note')} />{order.notes}</div>}
         {order.doorDash && <DoorDashFacts order={order} loc={loc} />}
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-1 border-t border-line px-4 py-3 text-[13px]">
+        <dl className="text-small grid grid-cols-2 gap-x-4 gap-y-1 border-t border-line px-4 py-3">
           <dt className="text-ink-3">{t('Sous-total', 'Subtotal')}</dt><dd className="num text-right">{money(order.subtotal, loc)}</dd>
           {order.discount ? <><dt className="text-ink-3">{t('Rabais', 'Discount')}</dt><dd className="num text-right">−{money(order.discount, loc)}</dd></> : null}
           <dt className="text-ink-3">{t('Taxes', 'Tax')}</dt><dd className="num text-right">{money(order.tax, loc)}</dd>
@@ -235,11 +240,11 @@ export function OrderDetail({ order, events, onChange, compact }: { order: FullO
       <OrderTools order={order} events={events} />
 
       {/* details */}
-      <div className="rounded-lg border border-line bg-surface p-4 text-[13px]">
+      <div className="text-small rounded-md border border-line bg-surface p-4 shadow-card">
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
           <dt className="text-ink-3">{t('Succursale', 'Location')}</dt><dd>{order.locationCode ? locName(order.locationCode) : <span className="text-stop">{t('Magasin non relié', 'Store not mapped')} ({order.channelStoreId})</span>}</dd>
-          <dt className="text-ink-3">{t('No plateforme', 'Platform id')}</dt><dd className="font-mono text-xs break-all">{order.externalOrderId}</dd>
-          <dt className="text-ink-3">Clover</dt><dd className="font-mono text-xs">{order.posOrderId || '—'} {tl.posPaymentId ? <Badge tone="go" className="ml-1">{t('payée', 'paid')}</Badge> : tl.posPaymentError ? <Badge tone="stop" className="ml-1" title={tl.posPaymentError}>{t('paiement non noté', 'payment not recorded')}</Badge> : null}</dd>
+          <dt className="text-ink-3">{t('No plateforme', 'Platform id')}</dt><dd className="font-mono break-all">{order.externalOrderId}</dd>
+          <dt className="text-ink-3">Clover</dt><dd className="font-mono">{order.posOrderId || '—'} {tl.posPaymentId ? <Badge tone="go" className="ml-1">{t('payée', 'paid')}</Badge> : tl.posPaymentError ? <Badge tone="stop" className="ml-1" title={tl.posPaymentError}>{t('paiement non noté', 'payment not recorded')}</Badge> : null}</dd>
           {tl.acceptedAt && <><dt className="text-ink-3">{t('Acceptée', 'Accepted')}</dt><dd>{timeOf(tl.acceptedAt, loc)} · {tl.acceptedBy === 'auto' ? t('automatiquement', 'automatically') : tl.acceptedBy}{tl.seenBy ? ` · ${t('vue par', 'seen by')} ${tl.seenBy}` : ''}</dd></>}
           {tl.approvedBy && <><dt className="text-ink-3">{t('Approuvé par', 'Approved by')}</dt><dd>{tl.approvedBy}</dd></>}
           {tl.cancelledAt && <><dt className="text-ink-3">{t('Annulée', 'Cancelled')}</dt><dd>{timeOf(tl.cancelledAt, loc)} · {tl.cancelledBy} · {tl.cancelReason}</dd></>}
@@ -248,8 +253,8 @@ export function OrderDetail({ order, events, onChange, compact }: { order: FullO
       </div>
 
       {/* history */}
-      <div className="rounded-lg border border-line bg-surface p-4">
-        <div className="mb-2 flex items-center justify-between"><div className="text-sm font-bold text-ink">{t('Historique', 'History')}</div><button type="button" className="text-xs font-semibold text-ink-3 hover:text-ink" onClick={() => setShowRaw(!showRaw)}>{showRaw ? t('Masquer les détails', 'Hide details') : t('Détails techniques', 'Technical details')}</button></div>
+      <div className="rounded-md border border-line bg-surface p-4 shadow-card">
+        <div className="mb-2 flex items-center justify-between"><h3 className="text-body font-bold text-ink">{t('Historique', 'History')}</h3><button type="button" className="text-small -mr-2 min-h-11 rounded-sm px-2 font-semibold text-ink-3 hover:text-ink" onClick={() => setShowRaw(!showRaw)}>{showRaw ? t('Masquer les détails', 'Hide details') : t('Détails techniques', 'Technical details')}</button></div>
         <ol className="relative space-y-2.5 border-l border-line pl-4">
           {events.map((e, i) => {
             const label = EVENT[e.type] ? (lang === 'fr' ? EVENT[e.type][0] : EVENT[e.type][1]) : e.type;
@@ -258,13 +263,13 @@ export function OrderDetail({ order, events, onChange, compact }: { order: FullO
             return (
               <li key={i} className="relative">
                 <span className={cn('absolute top-1.5 -left-[21px] size-2.5 rounded-full border-2 border-surface', bad ? 'bg-stop' : 'bg-ink-4')} />
-                <div className="flex flex-wrap items-baseline gap-x-2 text-[13px]"><span className="num text-xs text-ink-3">{new Date(e.at).toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span><span className="font-semibold text-ink">{label}</span>
+                <div className="text-small flex flex-wrap items-baseline gap-x-2"><span className="num text-ink-3">{new Date(e.at).toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span><span className="font-semibold text-ink">{label}</span>
                   <span className="text-ink-3">{(lang === 'fr' && d?.messageFr) || d?.message || d?.error || d?.reason || d?.posOrderId || d?.state || ''}{d?.by ? ` · ${d.by}` : d?.auto ? ` · ${t('auto', 'auto')}` : ''}{d?.approvedBy ? ` · ✓ ${d.approvedBy}` : ''}</span></div>
-                {showRaw && <pre className="mt-1 overflow-x-auto rounded-sm bg-sunken p-2 text-[11px]">{JSON.stringify(e.detail, null, 2)}</pre>}
+                {showRaw && <pre className="text-micro mt-1 overflow-x-auto rounded-sm bg-sunken p-2">{JSON.stringify(e.detail, null, 2)}</pre>}
               </li>
             );
           })}
-          {events.length === 0 && <li className="text-[13px] text-ink-3">{t('Aucun événement.', 'No events.')}</li>}
+          {events.length === 0 && <li className="text-small text-ink-3">{t('Aucun événement.', 'No events.')}</li>}
         </ol>
       </div>
 
@@ -291,12 +296,15 @@ function customerTel(o: FullOrder): string | null {
   return `tel:${digits}${code ? `,,${code}` : ''}`;
 }
 
+/** One fact of the order: a label | value row on a phone (inside one card), a small tile from 640 px. */
 function Mini({ label, value, sub }: { label: string; value: ReactNode; sub?: ReactNode }) {
   return (
-    <div className="rounded-lg border border-line bg-surface px-3 py-2.5">
-      <div className="text-[11px] font-semibold tracking-wide text-ink-3 uppercase">{label}</div>
-      <div className="num mt-0.5 text-base font-extrabold text-ink">{value}</div>
-      {sub && <div className="text-xs">{sub}</div>}
+    <div className="flex items-baseline justify-between gap-3 px-4 py-2.5 sm:block sm:rounded-md sm:border sm:border-line sm:bg-surface sm:px-4 sm:py-3 sm:shadow-card">
+      <dt className="eyebrow text-ink-3">{label}</dt>
+      <dd className="text-right sm:mt-1 sm:text-left">
+        <span className="num text-heading block text-ink">{value}</span>
+        {sub && <span className="text-small block text-ink-3">{sub}</span>}
+      </dd>
     </div>
   );
 }
@@ -313,12 +321,12 @@ function DoorDashFacts({ order, loc }: { order: FullOrder; loc: string }) {
   if (d.taxRemittedByDoorDash) chips.push(<Badge key="tx" tone="wait" title={t('DoorDash perçoit et remet cette taxe : elle n’est pas versée au restaurant.', 'DoorDash collects and remits this tax: it is not paid out to the restaurant.')}>{t('Taxe remise par DoorDash', 'Tax remitted by DoorDash')}{d.taxRemittedAmount ? ` ${money(d.taxRemittedAmount, loc)}` : ''}</Badge>);
   if (!chips.length && !d.promotions?.length && !d.customerPhone && !d.deliveryAddress) return null;
   return (
-    <div className="mx-4 mb-3 space-y-1.5 rounded-md border border-line px-3 py-2 text-[13px]">
+    <div className="text-small mx-4 mb-3 space-y-1.5 rounded-md border border-line px-3 py-2">
       {chips.length > 0 && <div className="flex flex-wrap gap-1.5">{chips}</div>}
       {d.promotions?.map((p, i) => (
         <div key={i} className="flex justify-between gap-3 text-ink-2"><span>{t('Promo', 'Promo')} {p.code || p.campaignId || p.id || ''}</span><span className="num">{t('vous', 'you')} {money(p.merchantFunded, loc)} · DoorDash {money(p.doordashFunded, loc)}</span></div>
       ))}
-      {d.deliveryAddress && <div className="text-ink-2">🚚 {d.deliveryAddress}{d.addressInstructions ? ` — ${d.addressInstructions}` : ''}</div>}
+      {d.deliveryAddress && <div className="flex items-start gap-1.5 text-ink-2"><Truck className="mt-0.5 size-4 shrink-0" aria-label={t('Livraison', 'Delivery')} />{d.deliveryAddress}{d.addressInstructions ? ` — ${d.addressInstructions}` : ''}</div>}
       {d.customerPhone && <div className="text-ink-3">{t('Téléphone client (masqué si activé)', 'Customer phone (masked when enabled)')} : <span className="num">{d.customerPhone}</span></div>}
     </div>
   );
@@ -337,7 +345,7 @@ function MissingDialog({ order, onSend, onClose }: { order: FullOrder; onSend: (
       <div className="space-y-2">
         {order.lines.map((l, i) => (
           <div key={i} className="flex items-center justify-between gap-3 rounded-md border border-line p-3">
-            <div><div className="font-semibold">{l.quantity}× {l.name}</div>{!dd && !uber && !l.externalId && <div className="text-xs text-ink-3">{t('pas d’identifiant Skip — utilisez la tablette', 'no Skip item id — use the tablet')}</div>}{dd && !l.lineItemId && <div className="text-xs text-ink-3">{t('pas d’identifiant de ligne DoorDash — utilisez la tablette', 'no DoorDash line id — use the tablet')}</div>}</div>
+            <div><div className="font-semibold">{l.quantity}× {l.name}</div>{!dd && !uber && !l.externalId && <div className="text-small text-ink-3">{t('pas d’identifiant Skip — utilisez la tablette', 'no Skip item id — use the tablet')}</div>}{dd && !l.lineItemId && <div className="text-small text-ink-3">{t('pas d’identifiant de ligne DoorDash — utilisez la tablette', 'no DoorDash line id — use the tablet')}</div>}</div>
             <Chips size="sm" value={qty[i] ?? 0} onChange={(v) => setQty({ ...qty, [i]: v })} options={Array.from({ length: Math.round(l.quantity) + 1 }, (_, n) => ({ value: n, label: n === 0 ? t('aucun', 'none') : `−${n}` }))} />
           </div>
         ))}
@@ -390,7 +398,7 @@ function TextCustomer({ order, onClose }: { order: FullOrder; onClose: () => voi
   return (
     <Modal title={t('Contacter le client', 'Contact the customer')} onClose={onClose}
       footer={<><Button variant="ghost" onClick={onClose}>{t('Fermer', 'Close')}</Button>{info?.contact.canSms && <Button variant="primary" loading={busy} disabled={!text.trim()} onClick={send} icon={<Send className="size-4" />}>{t('Envoyer le texto', 'Send text')}</Button>}</>}>
-      {!info && !err && <div className="h-24 animate-pulse rounded-md bg-sunken" />}
+      {!info && !err && <Skeleton className="h-24" />}
       {err && <Banner tone="stop">{err}</Banner>}
       {info && (
         <div className="space-y-3">
@@ -399,9 +407,9 @@ function TextCustomer({ order, onClose }: { order: FullOrder; onClose: () => voi
           {info.contact.canSms ? (
             <>
               <Textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} maxLength={320} />
-              <p className="flex items-center gap-1.5 text-xs text-ink-3"><TriangleAlert className="size-3.5" />{t('Messages de service seulement (retard, question). Jamais de publicité.', 'Service messages only (delay, question). Never marketing.')}</p>
+              <p className="text-small flex items-center gap-1.5 text-ink-3"><TriangleAlert className="size-3.5" />{t('Messages de service seulement (retard, question). Jamais de publicité.', 'Service messages only (delay, question). Never marketing.')}</p>
             </>
-          ) : info.contact.tel ? <p className="text-[13px] text-ink-3">{t('Ce numéro relais accepte les appels seulement (code d’accès inclus).', 'This relay number takes calls only (access code included).')}</p> : null}
+          ) : info.contact.tel ? <p className="text-small text-ink-3">{t('Ce numéro relais accepte les appels seulement (code d’accès inclus).', 'This relay number takes calls only (access code included).')}</p> : null}
         </div>
       )}
     </Modal>

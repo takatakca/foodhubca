@@ -1,8 +1,8 @@
 'use client';
 
 // "Aujourd'hui": the one dashboard. Four big numbers for the scope picked in the header (every restaurant, a location,
-// one brand, one platform), what is cooking now, what needs someone, the platforms, then the locations or the brands of
-// the scope (one tap opens one). Everything else (sales by hour, connections, the full store grid) waits behind
+// one brand, one platform), what needs someone, what is cooking now, then the locations or the brands of the scope (one
+// tap opens one: the operational list stays near the top), then the platforms. Everything else (sales by hour, connections, the full store grid) waits behind
 // "Voir plus de chiffres"; the technician parts show in the full view only.
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -19,6 +19,7 @@ import { ExpansionTiles } from '@/components/expansion/overview-tiles';
 import { GettingStarted } from '@/components/home/getting-started';
 import { BrandMark } from '@/components/ui/brand-mark';
 import { useScopeLabel } from '@/components/shell/scope-switcher';
+import { plurals } from '@/components/live/words';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import type { CommandCenter } from '@/lib/foodhub/command';
 import type { OnboardingStep } from '@/lib/foodhub/onboarding';
@@ -75,12 +76,12 @@ export function Overview({ steps }: { steps?: OnboardingStep[] | null }) {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-[13px] font-medium text-ink-3 first-letter:uppercase">{cc?.businessDay ?? ' '}</div>
-          <h1 className="mt-0.5 text-[32px] leading-tight font-extrabold tracking-tight">{t('Aujourd’hui', 'Today')}</h1>
-          <p className="mt-1 text-sm text-ink-3">{hello}, {viewer.name.split(' ')[0]}. <span className="font-semibold text-ink-2">{label.title}</span>{label.sub ? ` · ${label.sub}` : ''}</p>
+          <div className="text-small font-semibold text-ink-3 first-letter:uppercase">{cc?.businessDay ?? ' '}</div>
+          <h1 className="text-display mt-1 text-ink">{t('Aujourd’hui', 'Today')}</h1>
+          <p className="text-body mt-1 text-ink-3">{hello}, {viewer.name.split(' ')[0]}.</p>
         </div>
         {(pulse?.live || (full && pulse)) && (
-          <span className={cn('flex h-9 items-center gap-2 rounded-full border px-3 text-[13px] font-semibold', pulse?.live ? 'border-go/25 bg-go-soft text-go-2' : 'border-wait/30 bg-wait-soft text-wait-2')}>
+          <span className={cn('text-small flex h-9 items-center gap-2 rounded-full border px-3 font-semibold', pulse?.live ? 'border-go/25 bg-go-soft text-go-2' : 'border-wait/30 bg-wait-soft text-wait-2')}>
             <StatusDot tone={pulse?.live ? 'go' : 'wait'} pulse={pulse?.live} />{pulse?.live ? t('En direct avec les plateformes', 'Live with the platforms') : t('Mode sécurité : rien n’est envoyé', 'Safe mode: nothing is sent')}
           </span>
         )}
@@ -92,10 +93,10 @@ export function Overview({ steps }: { steps?: OnboardingStep[] | null }) {
 
       {/* The four numbers of the scope */}
       {/* Four columns only from xl: at lg the rail is open and a card would be too narrow for "12 345 $". */}
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
         <Kpi icon={<Wallet className="size-4" />} label={salesLabel} value={sales === null ? null : moneyShort(sales, loc)} exact={sales === null ? undefined : money(sales, loc)} href={href('/orders?view=history')}
           note={<>
-            {vs !== null ? <span className={cn('inline-flex items-center gap-1 font-semibold', vs >= 0 ? 'text-go-2' : 'text-stop-2')}>{vs >= 0 ? <TrendingUp className="size-3.5" /> : <TrendingDown className="size-3.5" />}{vs > 0 ? '+' : ''}{vs}% {t('vs hier', 'vs yesterday')}</span> : k ? t('rien hier à la même heure', 'nothing yesterday at this time') : null}
+            {vs !== null ? <span className={cn('inline-flex items-center gap-1 font-semibold', vs >= 0 ? 'text-go-2' : 'text-stop-2')}>{vs >= 0 ? <TrendingUp className="size-4" aria-hidden /> : <TrendingDown className="size-4" aria-hidden />}{vs > 0 ? '+' : ''}{vs}% {t('vs hier', 'vs yesterday')}</span> : k ? t('rien hier à la même heure', 'nothing yesterday at this time') : null}
             {k && !narrowed && k.inStore > 0 && <span className="block">{t(`dont ${money(k.inStore, loc)} en salle (Clover)`, `incl. ${money(k.inStore, loc)} in store (Clover)`)}</span>}
           </>} />
         <Kpi icon={<Receipt className="size-4" />} label={t('Commandes', 'Orders')} value={k ? String(k.deliveryOrders) : null} href={href('/orders')}
@@ -110,12 +111,10 @@ export function Overview({ steps }: { steps?: OnboardingStep[] | null }) {
           </> : t('aucun magasin branché', 'no store connected')) : null} />
       </div>
 
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.45fr_1fr]">
-        <LiveOrders cc={cc} />
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_1.45fr]">
         <ToDo />
+        <LiveOrders cc={cc} />
       </div>
-
-      {!site.channel && <PlatformSummary cc={cc} />}
 
       {/* The scope's restaurants: locations (every restaurant), the brands of a location, or one brand's platforms */}
       {locations.length === 0 ? (
@@ -131,23 +130,25 @@ export function Overview({ steps }: { steps?: OnboardingStep[] | null }) {
           </Card>
         ) : <Kitchens cc={cc} onOpen={(code) => setSite({ kitchen: code, brand: null })} />}
 
+      {!site.channel && <PlatformSummary cc={cc} />}
+
       {/* Expansion: own delivery, AI phone, grocery, alcohol — only the features that are on. */}
       <ExpansionTiles />
 
       <div>
         <button type="button" onClick={() => setDetails(!details)} aria-expanded={details}
-          className="flex min-h-11 items-center gap-2 rounded-lg border border-line bg-surface px-4 text-sm font-semibold text-ink-2 hover:border-line-2 hover:text-ink">
-          <ChevronDown className={cn('size-4 transition-transform', details && 'rotate-180')} />{details ? t('Moins de chiffres', 'Fewer numbers') : t('Voir plus de chiffres', 'More numbers')}
+          className="text-body flex min-h-11 items-center gap-2 rounded-md border border-line bg-surface px-4 font-semibold text-ink-2 shadow-card hover:border-line-2 hover:text-ink">
+          <ChevronDown aria-hidden className={cn('size-4 motion-safe:transition-transform', details && 'rotate-180')} />{details ? t('Moins de chiffres', 'Fewer numbers') : t('Voir plus de chiffres', 'More numbers')}
         </button>
         {details && (
-          <div className="mt-5 space-y-5">
-            <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.4fr_1fr]">
-              <Card className="p-5">
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h2 className="text-[15px] font-bold">{t('Ventes par heure', 'Sales by hour')}</h2><LineLegend items={[{ label: t('Aujourd’hui', 'Today'), color: VIZ.series }, { label: t('Hier', 'Yesterday'), color: VIZ.compare, dash: true }]} /></div>
-                {cc && hours.every((h) => !h.cur && !h.prev) ? <div className="flex h-52 items-center justify-center text-sm text-ink-3">{t('Pas encore de ventes aujourd’hui ni hier.', 'No sales yet today or yesterday.')}</div> : hours.length > 1 ? <CompareLine points={hours} curLabel={t('Aujourd’hui', 'Today')} prevLabel={t('Hier', 'Yesterday')} format={(n) => money(n, loc)} axisFormat={(n) => `${Math.round(n)} $`} height={220} /> : <Skeleton className="h-52" />}
+          <div className="mt-6 space-y-6">
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.4fr_1fr]">
+              <Card padding="md">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h2 className="text-heading text-ink">{t('Ventes par heure', 'Sales by hour')}</h2><LineLegend items={[{ label: t('Aujourd’hui', 'Today'), color: VIZ.series }, { label: t('Hier', 'Yesterday'), color: VIZ.compare, dash: true }]} /></div>
+                {cc && hours.every((h) => !h.cur && !h.prev) ? <div className="text-body flex h-52 items-center justify-center text-ink-3">{t('Pas encore de ventes aujourd’hui ni hier.', 'No sales yet today or yesterday.')}</div> : hours.length > 1 ? <CompareLine points={hours} curLabel={t('Aujourd’hui', 'Today')} prevLabel={t('Hier', 'Yesterday')} format={(n) => money(n, loc)} axisFormat={(n) => `${Math.round(n)} $`} height={220} /> : <Skeleton className="h-52" />}
               </Card>
-              <Card className="p-5">
-                <h2 className="mb-3 text-[15px] font-bold">{site.brand ? t('Par plateforme', 'By platform') : t('Meilleures marques', 'Top brands')}</h2>
+              <Card padding="md">
+                <h2 className="text-heading mb-3 text-ink">{site.brand ? t('Par plateforme', 'By platform') : t('Meilleures marques', 'Top brands')}</h2>
                 {!cc ? <Skeleton className="h-52" /> : site.brand
                   ? <HBars rows={cc.channels.filter((c) => c.orders).map((c) => ({ label: channelName(c.channel), value: c.sales, detail: `${c.orders} ${t('commandes', 'orders')}` }))} format={(n) => money(n, loc)} empty={t('Pas encore de ventes aujourd’hui.', 'No sales yet today.')} />
                   : <HBars rows={cc.byBrand.slice(0, 8).map((b) => ({ label: brandLabel(b.brandName), value: b.sales, detail: `${b.orders} ${t('commandes', 'orders')}` }))} format={(n) => money(n, loc)} empty={t('Pas encore de ventes aujourd’hui.', 'No sales yet today.')} />}
@@ -155,7 +156,7 @@ export function Overview({ steps }: { steps?: OnboardingStep[] | null }) {
             </div>
             {full && <Connections />}
             {full && !site.brand && <StoreHealth cc={cc} />}
-            {full && can('admin') && cc && !cc.dashboardProtected && <p className="text-xs text-ink-3"><Wallet className="mr-1 inline size-3.5" />{t('Astuce : définissez DASHBOARD_PASSWORD (connexion de secours) avant la mise en ligne.', 'Tip: set DASHBOARD_PASSWORD (recovery sign-in) before going live.')}</p>}
+            {full && can('admin') && cc && !cc.dashboardProtected && <p className="text-small text-ink-3"><Wallet className="mr-1 inline size-4" aria-hidden />{t('Astuce : définissez DASHBOARD_PASSWORD (connexion de secours) avant la mise en ligne.', 'Tip: set DASHBOARD_PASSWORD (recovery sign-in) before going live.')}</p>}
           </div>
         )}
       </div>
@@ -170,17 +171,17 @@ function NoBrandHere() {
 }
 
 /**
- * One big number. Sized to its card: a phone card is about 130 px wide inside, so the number scales with the screen
- * (clamp) and wraps rather than spilling into the next card; the label wraps to two lines rather than being cut.
+ * One big number, the same card as every stat (20 px padding, 13 px label, 28 px value). `tone` colours the value only,
+ * never the border. Amounts are short ("1,2 k$") so they fit a phone card; a long one wraps rather than spilling.
  * `exact`: the full amount (cents) when the number is rounded, for the tooltip and screen readers.
  */
 function Kpi({ icon, label, value, exact, note, href, tone, className }: { icon: ReactNode; label: string; value: string | null; exact?: string; note?: ReactNode; href?: string; tone?: 'stop' | 'wait'; className?: string }) {
   const body = (
-    <div className={cn('h-full min-w-0 rounded-md border bg-surface p-4 transition-colors sm:p-5', tone === 'stop' ? 'border-stop/40' : tone === 'wait' ? 'border-wait/40' : 'border-line', href && 'hover:border-brand/40', className)}>
-      <div className="flex items-start gap-1.5 text-[14px] leading-snug font-semibold text-ink-2"><span className="mt-0.5 shrink-0">{icon}</span><span className="min-w-0">{label}</span></div>
-      {value === null ? <Skeleton className="mt-2 h-9 w-24" />
-        : <div title={exact} className={cn('num mt-1 min-w-0 text-[clamp(22px,6vw,30px)] leading-tight font-extrabold tracking-tight [overflow-wrap:anywhere] sm:text-[30px] 2xl:text-[34px]', tone === 'stop' ? 'text-stop' : tone === 'wait' ? 'text-wait-2' : 'text-ink')}>{value}{exact && exact !== value && <span className="sr-only"> ({exact})</span>}</div>}
-      <div className="mt-1 min-h-4 text-xs leading-snug text-ink-3">{note ?? (value === null ? <Skeleton className="h-3 w-24" /> : null)}</div>
+    <div className={cn('h-full min-w-0 rounded-md border border-line bg-surface p-5 shadow-card motion-safe:transition-colors', href && 'hover:border-ink-4', className)} aria-busy={value === null || undefined}>
+      <div className="text-small flex items-start gap-1.5 font-semibold text-ink-3"><span className="mt-px shrink-0 [&>svg]:size-4" aria-hidden>{icon}</span><span className="min-w-0">{label}</span></div>
+      {value === null ? <Skeleton className="mt-2 h-8 w-24" />
+        : <div title={exact} className={cn('num text-display mt-1 min-w-0 [overflow-wrap:anywhere]', tone === 'stop' ? 'text-stop-2' : tone === 'wait' ? 'text-wait-2' : 'text-ink')}>{value}{exact && exact !== value && <span className="sr-only"> ({exact})</span>}</div>}
+      <div className="text-small mt-1 min-h-5 text-ink-3">{note ?? (value === null ? <Skeleton className="h-3.5 w-24" /> : null)}</div>
     </div>
   );
   return href ? <Link href={href} className={cn('block min-w-0', className)}>{body}</Link> : body;
@@ -195,19 +196,19 @@ function ToDo() {
   const critical = (list ?? []).some((i) => i.severity === 'critical');
   return (
     <Card>
-      <CardHeader title={<span className="flex items-center gap-2">{t('À faire', 'To do')}{list && list.length > 0 && <span className={cn('num rounded-full px-2 text-xs leading-5 font-bold', critical ? 'bg-stop-2 text-white' : 'bg-wait text-rail')}>{list.length}</span>}</span>}
+      <CardHeader title={<span className="flex items-center gap-2">{t('À faire', 'To do')}{list && list.length > 0 && <span className={cn('num text-small rounded-full px-2 leading-5 font-bold', critical ? 'bg-stop-2 text-white' : 'bg-wait text-rail')}>{list.length > 9 ? '9+' : list.length}</span>}</span>}
         subtitle={filtered ? t(`Filtré : ${label.words}`, `Filtered: ${label.words}`) : undefined}
-        icon={<BellRing className="size-5" />} right={<Link href={href('/alerts')} className="flex h-11 items-center gap-1 rounded-md px-2 text-[13px] font-semibold text-brand hover:bg-brand-soft">{t('Tout voir', 'See all')}<ArrowRight className="size-4" /></Link>} />
+        icon={<BellRing className="size-5" />} right={<Link href={href('/alerts')} className="text-small flex h-11 items-center gap-1 rounded-md px-2 font-semibold text-brand hover:bg-brand-soft">{t('Tout voir', 'See all')}<ArrowRight className="size-4" aria-hidden /></Link>} />
       <div className="divide-y divide-line border-t border-line">
         {(list ?? []).slice(0, 5).map((i) => (
           <Link key={i.id} href={href(i.orderId ? `/orders?open=${i.orderId}` : `/alerts?i=${i.id}`)} className="flex min-h-12 items-center gap-3 px-5 py-2.5 hover:bg-raised">
             <StatusDot tone={i.severity === 'critical' ? 'stop' : i.severity === 'warning' ? 'wait' : 'info'} pulse={i.severity === 'critical'} />
-            <span className="min-w-0 flex-1 truncate text-sm font-semibold">{lang === 'fr' ? i.title : i.titleEn}</span>
+            <span className="text-body min-w-0 flex-1 truncate font-semibold text-ink">{lang === 'fr' ? i.title : i.titleEn}</span>
             {i.status === 'acknowledged' && <Badge tone="neutral">{t('pris en charge', 'on it')}</Badge>}
-            <ChevronRight className="size-4 text-ink-4" />
+            <ChevronRight className="size-4 text-ink-4" aria-hidden />
           </Link>
         ))}
-        {list && list.length === 0 && <div className="flex items-center gap-3 px-5 py-8 text-sm text-ink-3"><CircleCheck className="size-5 text-go" />{t('Tout roule. Rien à faire.', 'All good. Nothing to do.')}</div>}
+        {list && list.length === 0 && <div className="text-body flex items-center gap-3 px-5 py-8 text-ink-3"><CircleCheck className="size-5 text-go" aria-hidden />{t('Tout roule. Rien à faire.', 'All good. Nothing to do.')}</div>}
         {!list && <div className="space-y-2 p-5"><Skeleton className="h-10" /><Skeleton className="h-10" /><Skeleton className="h-10" /></div>}
       </div>
     </Card>
@@ -227,29 +228,31 @@ function LiveOrders({ cc }: { cc: CommandCenter | null }) {
   const queue = (cc?.queue ?? []).filter((o) => !o.waitingScheduled);
   const scheduled = (cc?.queue ?? []).length - queue.length;
   const now = cc ? Date.parse(cc.generatedAt) : 0;
+  const qWords = plurals(queue.length, ['commande'], ['order']);
+  const sWords = plurals(scheduled, ['planifiée'], ['scheduled', 'scheduled']);
   const status = (s: string) => ({ new: t('Nouvelle', 'New'), accepted: t('En préparation', 'Preparing'), ready: t('Prête', 'Ready'), dispatched: t('Partie', 'Picked up') } as Record<string, string>)[s] ?? s;
   return (
     <Card>
       <CardHeader title={t('En cours', 'In progress')} icon={<ChefHat className="size-5" />}
-        subtitle={cc ? (queue.length ? t(`${queue.length} commande(s)${scheduled ? ` · ${scheduled} planifiée(s)` : ''}`, `${queue.length} order(s)${scheduled ? ` · ${scheduled} scheduled` : ''}`) : t('Rien sur le feu.', 'Nothing cooking.')) : ' '}
-        right={<Link href={href('/orders')} className="flex h-11 items-center gap-1 rounded-md px-2 text-[13px] font-semibold text-brand hover:bg-brand-soft">{t('Tout voir', 'See all')}<ArrowRight className="size-4" /></Link>} />
+        subtitle={cc ? (queue.length ? t(`${qWords[0]}${scheduled ? ` · ${sWords[0]}` : ''}`, `${qWords[1]}${scheduled ? ` · ${sWords[1]}` : ''}`) : t('Rien sur le feu.', 'Nothing cooking.')) : ' '}
+        right={<Link href={href('/orders')} className="text-small flex h-11 items-center gap-1 rounded-md px-2 font-semibold text-brand hover:bg-brand-soft">{t('Tout voir', 'See all')}<ArrowRight className="size-4" aria-hidden /></Link>} />
       <div className="divide-y divide-line border-t border-line">
         {queue.slice(0, 6).map((o) => (
           <Link key={o.id} href={href(`/orders?open=${o.id}`)} className="flex min-h-14 items-center gap-3 px-5 py-2.5 hover:bg-raised">
             <PlatformMark channel={o.channel} size="sm" />
             <span className="min-w-0 flex-1">
-              <span className="flex items-center gap-2"><span className="text-sm font-extrabold">#{o.displayId}</span><Badge tone={QUEUE_TONE[o.status] ?? 'neutral'}>{status(o.status)}</Badge></span>
-              <span className="block truncate text-xs text-ink-3">{[site.brand ? null : o.brandName, site.kitchen ? null : o.locationCode ? shortLoc(locName(o.locationCode)) : null, `${o.items} ${t('art.', 'items')}`].filter(Boolean).join(' · ')}</span>
+              <span className="flex items-center gap-2"><span className="text-body font-extrabold text-ink">#{o.displayId}</span><Badge tone={QUEUE_TONE[o.status] ?? 'neutral'}>{status(o.status)}</Badge></span>
+              <span className="text-small block truncate text-ink-3">{[site.brand ? null : o.brandName, site.kitchen ? null : o.locationCode ? shortLoc(locName(o.locationCode)) : null, o.items > 1 ? t(`${o.items} articles`, `${o.items} items`) : t(`${o.items} article`, `${o.items} item`)].filter(Boolean).join(' · ')}</span>
             </span>
             <span className="text-right">
-              <span className="num block text-sm font-bold">{money(o.total, loc)}</span>
-              <span className="block text-xs text-ink-3">{t(`il y a ${minutesAgo(o.createdAt, now)} min`, `${minutesAgo(o.createdAt, now)} min ago`)}</span>
+              <span className="num text-body block font-bold text-ink">{money(o.total, loc)}</span>
+              <span className="num text-small block text-ink-3">{t(`il y a ${minutesAgo(o.createdAt, now)} min`, `${minutesAgo(o.createdAt, now)} min ago`)}</span>
             </span>
           </Link>
         ))}
-        {cc && queue.length === 0 && <div className="flex items-center gap-3 px-5 py-8 text-sm text-ink-3"><CircleCheck className="size-5 text-go" />{t('Aucune commande en cours. Les nouvelles sonnent et s’ouvrent toutes seules.', 'No orders right now. New ones ring and open by themselves.')}</div>}
+        {cc && queue.length === 0 && <div className="text-body flex items-center gap-3 px-5 py-8 text-ink-3"><CircleCheck className="size-5 text-go" aria-hidden />{t('Aucune commande en cours. Les nouvelles sonnent et s’ouvrent toutes seules.', 'No orders right now. New ones ring and open by themselves.')}</div>}
         {!cc && <div className="space-y-2 p-5">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-12" />)}</div>}
-        {queue.length > 6 && <Link href={href('/orders')} className="flex h-11 items-center justify-center text-[13px] font-semibold text-brand hover:bg-raised">{t(`Voir les ${queue.length - 6} autres`, `See the other ${queue.length - 6}`)}</Link>}
+        {queue.length > 6 && <Link href={href('/orders')} className="text-small flex h-11 items-center justify-center font-semibold text-brand hover:bg-raised">{t(`Voir les ${queue.length - 6} autres`, `See the other ${queue.length - 6}`)}</Link>}
       </div>
     </Card>
   );
@@ -275,16 +278,16 @@ function Kitchens({ cc, onOpen }: { cc: CommandCenter | null; onOpen: (code: str
           const tabs = (pulse?.devices.list ?? []).filter((d) => d.locationCode === l.code);
           return (
             <button key={l.code} type="button" onClick={() => onOpen(l.code)} className="group flex min-h-16 w-full items-center gap-3 px-5 py-3 text-left hover:bg-raised sm:gap-4">
-              <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-rail text-electric"><Store className="size-5" /></span>
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-rail text-electric" aria-hidden><Store className="size-5" /></span>
               <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-2"><span className="truncate text-[15px] font-bold">{shortLoc(l.name)}</span>{busy && <Badge tone="stop" icon={<Flame className="size-3" />}>{t('occupé', 'busy')}</Badge>}</span>
-                <span className="block truncate text-xs text-ink-3">{rows.length ? t(`${open}/${rows.length} marques ouvertes`, `${open}/${rows.length} brands open`) : t('aucune marque branchée', 'no brand connected')}{tabs.length ? ` · ${tabs.filter((d) => d.status === 'online').length}/${tabs.length} ${t('tablette(s)', 'tablet(s)')}` : ''}<span className="hidden sm:inline">{l.address ? ` · ${l.address}` : ''}</span></span>
+                <span className="flex items-center gap-2"><span className="text-body truncate font-bold text-ink">{shortLoc(l.name)}</span>{busy && <Badge tone="stop" icon={<Flame className="size-3" />}>{t('occupé', 'busy')}</Badge>}</span>
+                <span className="text-small block truncate text-ink-3">{rows.length ? t(`${open}/${rows.length} marques ouvertes`, `${open}/${rows.length} brands open`) : t('aucune marque branchée', 'no brand connected')}{tabs.length ? ` · ${tabs.filter((d) => d.status === 'online').length}/${tabs.length} ${tabs.length > 1 ? t('tablettes', 'tablets') : t('tablette', 'tablet')}` : ''}<span className="hidden sm:inline">{l.address ? ` · ${l.address}` : ''}</span></span>
               </span>
               <span className="w-24 text-right sm:w-28">
-                <span className="num block text-[15px] font-extrabold">{money((stats?.sales ?? 0) + (stats?.inStore ?? 0), loc)}</span>
-                <span className="block text-xs text-ink-3">{stats?.orders ?? 0} {t('commandes', 'orders')}</span>
+                <span className="num text-body block font-extrabold text-ink">{money((stats?.sales ?? 0) + (stats?.inStore ?? 0), loc)}</span>
+                <span className="text-small block text-ink-3">{(() => { const w = plurals(stats?.orders ?? 0, ['commande'], ['order']); return t(w[0], w[1]); })()}</span>
               </span>
-              <ChevronRight className="size-4 shrink-0 text-ink-4 group-hover:text-ink-2" />
+              <ChevronRight className="size-4 shrink-0 text-ink-4 group-hover:text-ink-2" aria-hidden />
             </button>
           );
         })}
@@ -304,13 +307,13 @@ function BrandPlatforms({ cc, brand }: { cc: CommandCenter | null; brand: string
   return (
     <Card>
       <CardHeader title={<span className="flex items-center gap-2.5"><BrandMark name={brand} size="sm" />{site.channel ? t(`${brand} sur ${channelName(site.channel)}`, `${brand} on ${channelName(site.channel)}`) : t(`${brand} sur les plateformes`, `${brand} on the platforms`)}</span>}
-        right={<Link href={href('/stores')} className="flex h-11 items-center gap-1 rounded-md px-2 text-[13px] font-semibold text-brand hover:bg-brand-soft">{t('Pause, réouverture, heures', 'Pause, resume, hours')}<ArrowRight className="size-4" /></Link>} />
+        right={<Link href={href('/stores')} className="text-small flex h-11 items-center gap-1 rounded-md px-2 font-semibold text-brand hover:bg-brand-soft">{t('Pause, réouverture, heures', 'Pause, resume, hours')}<ArrowRight className="size-4" /></Link>} />
       <div className="border-t border-line">
         {!cc && <div className="space-y-2 p-5"><Skeleton className="h-14" /><Skeleton className="h-14" /></div>}
         {cc && rows.length === 0 && <NoBrandHere />}
         {rows.map((r) => (
           <div key={r.locationCode} className="border-b border-line last:border-b-0">
-            {rows.length > 1 && <div className="bg-raised px-5 py-2 text-xs font-bold tracking-[0.08em] text-ink-3 uppercase">{shortLoc(locName(r.locationCode))}</div>}
+            {rows.length > 1 && <div className="eyebrow bg-raised px-5 py-2 text-ink-3">{shortLoc(locName(r.locationCode))}</div>}
             <div className={cn('grid grid-cols-1 divide-y divide-line sm:divide-y-0', platforms.length > 1 && 'sm:grid-cols-2 xl:grid-cols-4')}>
               {platforms.map((ch) => {
                 const c = r.cells[ch];
@@ -318,8 +321,8 @@ function BrandPlatforms({ cc, brand }: { cc: CommandCenter | null; brand: string
                   <div key={ch} className="flex items-center gap-3 px-5 py-3.5">
                     <PlatformStateDot channel={ch} state={(c?.state ?? 'missing') as CellState} />
                     <span className="min-w-0">
-                      <span className="block text-sm font-bold">{channelName(ch)}</span>
-                      <span className="block truncate text-xs text-ink-3" title={c?.detail}>{cellText(t, (c?.state ?? 'missing') as CellState)}{c?.source === 'screenshot' ? ` · ${t('pas encore vérifié', 'not verified yet')}` : ''}</span>
+                      <span className="text-body block font-bold text-ink">{channelName(ch)}</span>
+                      <span className="text-small block truncate text-ink-3" title={c?.detail}>{cellText(t, (c?.state ?? 'missing') as CellState)}{c?.source === 'screenshot' ? ` · ${t('pas encore vérifié', 'not verified yet')}` : ''}</span>
                     </span>
                   </div>
                 );
@@ -364,7 +367,7 @@ function Connections() {
     <Card>
       <CardHeader title={t('Connexions et synchro', 'Connections & sync')} icon={<Activity className="size-5" />}
         subtitle={t('Plateformes, Clover, réception des commandes et surveillance — mis à jour toutes les 30 s.', 'Platforms, Clover, order intake and supervision — refreshed every 30 s.')}
-        right={<span className="flex items-center gap-2 text-sm font-semibold"><StatusDot tone={overall[1]} pulse={overall[1] === 'stop'} />{overall[0]}</span>} />
+        right={<span className="text-small flex items-center gap-2 font-semibold"><StatusDot tone={overall[1]} pulse={overall[1] === 'stop'} />{overall[0]}</span>} />
       {/* min-w-0: the long check texts truncate instead of widening their column and squeezing the platform tiles. */}
       <div className="grid grid-cols-1 gap-0 border-t border-line lg:grid-cols-[1.25fr_1fr]">
         <div className="grid min-w-0 auto-rows-fr grid-cols-2 gap-px bg-line sm:grid-cols-4 lg:border-r lg:border-line">
@@ -372,9 +375,9 @@ function Connections() {
             const [m, tone] = mode(p);
             return (
               <div key={p.channel} className="bg-surface px-4 py-3">
-                <div className="flex items-center gap-2"><PlatformMark channel={p.channel} size="sm" /><span className="truncate text-sm font-bold">{p.label}</span></div>
-                <div className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold"><StatusDot tone={tone === 'info' ? 'info' : tone} />{m}</div>
-                <div className="mt-0.5 text-[11px] text-ink-3">{p.stores} {t('magasin(s)', 'store(s)')} · {t('dernière commande', 'last order')} {ago(p.lastOrderAt)}</div>
+                <div className="flex items-center gap-2"><PlatformMark channel={p.channel} size="sm" /><span className="text-body truncate font-bold">{p.label}</span></div>
+                <div className="text-small mt-1.5 flex items-center gap-1.5 font-semibold"><StatusDot tone={tone === 'info' ? 'info' : tone} />{m}</div>
+                <div className="text-small mt-0.5 text-ink-3">{(() => { const w = plurals(p.stores, ['magasin'], ['store']); return t(w[0], w[1]); })()} · {t('dernière commande', 'last order')} {ago(p.lastOrderAt)}</div>
               </div>
             );
           })}
@@ -384,8 +387,8 @@ function Connections() {
           {Object.entries(h?.checks ?? {}).map(([k, c]) => (
             <li key={k} className="flex items-start gap-2.5 px-4 py-2" title={lang === 'fr' ? c.detailFr : c.detail}>
               <StatusDot tone={TONE[c.status]} pulse={c.status === 'down'} className="mt-1" />
-              <span className="w-36 shrink-0 text-[13px] font-semibold">{t(...(NAMES[k] ?? [k, k]))}</span>
-              <span className="min-w-0 flex-1 truncate text-xs text-ink-3">{lang === 'fr' ? c.detailFr : c.detail}</span>
+              <span className="text-small w-36 shrink-0 font-semibold">{t(...(NAMES[k] ?? [k, k]))}</span>
+              <span className="text-small min-w-0 flex-1 truncate text-ink-3">{lang === 'fr' ? c.detailFr : c.detail}</span>
             </li>
           ))}
           {!h && <li className="p-4"><Skeleton className="h-24" /></li>}
@@ -411,12 +414,12 @@ function StoreHealth({ cc }: { cc: CommandCenter | null }) {
       <CardHeader title={t('Santé des magasins', 'Store health')} icon={<Store className="size-5" />}
         subtitle={t('Chaque marque, chaque succursale : Uber Eats · DoorDash · Skip (obligatoires) · TGTG.', 'Every brand, every location: Uber Eats · DoorDash · Skip (required) · TGTG.')}
         right={<>
-          <div className="hidden flex-wrap gap-3 text-xs text-ink-3 md:flex">{[['online', t('en ligne', 'online')], ['closed', t('fermé', 'closed')], ['paused', t('pause', 'paused')], ['deactivated', t('désactivé', 'deactivated')], ['missing', t('manquant', 'missing')]].map(([k, l]) => <span key={k} className="flex items-center gap-1.5"><span className={cn('size-3 rounded-[4px]', CELL[k])} />{l}</span>)}</div>
-          <button type="button" onClick={() => setOnlyIssues(!onlyIssues)} className={cn('h-8 rounded-full border px-3 text-xs font-semibold', onlyIssues ? 'border-ink bg-ink text-canvas' : 'border-line-2 text-ink-2')}>{t(`À corriger (${issues})`, `To fix (${issues})`)}</button>
+          <div className="text-small hidden flex-wrap gap-3 text-ink-3 md:flex">{[['online', t('en ligne', 'online')], ['closed', t('fermé', 'closed')], ['paused', t('pause', 'paused')], ['deactivated', t('désactivé', 'deactivated')], ['missing', t('manquant', 'missing')]].map(([k, l]) => <span key={k} className="flex items-center gap-1.5"><span className={cn('size-3 rounded-[4px]', CELL[k])} />{l}</span>)}</div>
+          <button type="button" onClick={() => setOnlyIssues(!onlyIssues)} aria-pressed={onlyIssues} className={cn('text-small h-11 rounded-full border px-3 font-semibold sm:h-9', onlyIssues ? 'border-ink bg-ink text-canvas' : 'border-line-2 text-ink-2')}>{t(`À corriger (${issues})`, `To fix (${issues})`)}</button>
         </>} />
       <div className="scrollbar-thin overflow-x-auto border-t border-line">
-        <table className="w-full text-sm">
-          <thead><tr><th className="bg-raised px-5 py-2.5 text-left text-xs font-semibold text-ink-3">{t('Marque', 'Brand')}</th>{locs.map((l) => <th key={l} className="bg-raised px-3 py-2.5 text-left text-xs font-semibold text-ink-3">{shortLoc(locName(l))}</th>)}</tr></thead>
+        <table className="text-body w-full">
+          <thead><tr><th scope="col" className="text-small h-11 bg-raised px-5 text-left font-semibold text-ink-3">{t('Marque', 'Brand')}</th>{locs.map((l) => <th key={l} scope="col" className="text-small h-11 bg-raised px-3 text-left font-semibold text-ink-3">{shortLoc(locName(l))}</th>)}</tr></thead>
           <tbody>
             {brands.map((b) => (
               <tr key={b} className="border-t border-line hover:bg-raised/60">
@@ -425,7 +428,7 @@ function StoreHealth({ cc }: { cc: CommandCenter | null }) {
                   const r = matrix.find((x) => x.brandName === b && x.locationCode === l);
                   return (
                     <td key={l} className="px-3 py-2.5">
-                      {r ? <div className="flex items-center gap-1">{CH.map((c) => <span key={c} title={`${c} · ${stateLabel(r.cells[c].state)}${r.cells[c].detail ? ` · ${r.cells[c].detail}` : ''}${r.cells[c].source === 'screenshot' ? ` · ${t('selon vos captures', 'from your screenshots')}` : ''}`} className={cn('size-4 rounded-[5px]', CELL[r.cells[c].state] ?? CELL.unknown, r.cells[c].source === 'screenshot' && 'opacity-55')} />)}{r.issues > 0 && <span className="ml-1 text-[11px] font-bold text-stop">{r.issues}</span>}</div> : <span className="text-ink-4">·</span>}
+                      {r ? <div className="flex items-center gap-1">{CH.map((c) => <span key={c} title={`${c} · ${stateLabel(r.cells[c].state)}${r.cells[c].detail ? ` · ${r.cells[c].detail}` : ''}${r.cells[c].source === 'screenshot' ? ` · ${t('selon vos captures', 'from your screenshots')}` : ''}`} className={cn('size-4 rounded-[5px]', CELL[r.cells[c].state] ?? CELL.unknown, r.cells[c].source === 'screenshot' && 'opacity-55')} />)}{r.issues > 0 && <span className="text-micro ml-1 font-bold text-stop-2">{r.issues}</span>}</div> : <span className="text-ink-4">·</span>}
                     </td>
                   );
                 })}
@@ -434,7 +437,7 @@ function StoreHealth({ cc }: { cc: CommandCenter | null }) {
           </tbody>
         </table>
         {!cc && <div className="p-5"><Skeleton className="h-40" /></div>}
-        {cc && <div className="border-t border-line px-5 py-2.5 text-xs text-ink-3">{t('Ordre des carrés : Uber Eats · DoorDash · Skip · TGTG. Pâle = selon vos captures d’écran, pas encore vérifié en direct.', 'Square order: Uber Eats · DoorDash · Skip · TGTG. Faded = from your screenshots, not verified live yet.')} <Link href="/stores" className="font-semibold text-ink underline-offset-4 hover:underline">{t('Gérer les magasins', 'Manage stores')} →</Link></div>}
+        {cc && <div className="text-small border-t border-line px-5 py-2.5 text-ink-3">{t('Ordre des carrés : Uber Eats · DoorDash · Skip · TGTG. Pâle = selon vos captures d’écran, pas encore vérifié en direct.', 'Square order: Uber Eats · DoorDash · Skip · TGTG. Faded = from your screenshots, not verified live yet.')} <Link href="/stores" className="font-semibold text-ink underline-offset-4 hover:underline">{t('Gérer les magasins', 'Manage stores')} →</Link></div>}
       </div>
     </Card>
   );

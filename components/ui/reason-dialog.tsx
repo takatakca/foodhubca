@@ -30,7 +30,7 @@ export function ReasonDialog({ title, note, confirmLabel, onPick, onClose, busy 
       <div className="grid grid-cols-2 gap-2">
         {REASONS.map((r) => (
           <button key={r.code} type="button" onClick={() => setCode(r.code)} aria-pressed={code === r.code}
-            className={cn('flex min-h-16 items-center gap-3 rounded-lg border-2 px-3.5 py-3 text-left text-sm font-bold transition-colors', code === r.code ? 'border-stop bg-stop-soft text-ink' : 'border-line bg-surface text-ink-2 hover:border-ink-4')}>
+            className={cn('flex min-h-16 items-center gap-3 rounded-lg border-2 px-3.5 py-3 text-left text-body font-bold transition-colors', code === r.code ? 'border-stop bg-stop-soft text-ink' : 'border-line bg-surface text-ink-2 hover:border-ink-4')}>
             <span className="text-xl" aria-hidden>{r.emoji}</span>{t(r.fr, r.en)}
           </button>
         ))}

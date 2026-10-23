@@ -13,15 +13,10 @@ import { useToast } from '@/components/ui/toast';
 import { ChartCard, HBars, StatTile, fmtInt } from '@/components/charts/charts';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { usePulse } from '@/components/live/pulse';
-import { CaseBadge, MoneyHead, PROBLEM, RECOVERABLE, ReconBadge, cad, reconLabel, signed, toRecover, type Recon, type ReconStatus } from './money-ui';
+import { CaseBadge, MoneyHead, PROBLEM, RECOVERABLE, ReconBadge, cad, plural, reconLabel, settledCard, signed, toRecover, type Recon, type ReconStatus } from './money-ui';
 import { api, ApiError, dayOf } from '@/lib/ui/api';
 import { useFilters } from '@/lib/ui/range';
 import { useI18n } from '@/lib/i18n/client';
-
-/** "1 commande" / "3 commandes": a real plural, never "commande(s)". */
-function plural(t: (fr: string, en: string) => string, n: number, fr: [string, string], en: [string, string]) {
-  return t(`${n} ${n === 1 ? fr[0] : fr[1]}`, `${n} ${n === 1 ? en[0] : en[1]}`);
-}
 
 export default function MoneyOverview() {
   const { t, loc } = useI18n();
@@ -48,7 +43,7 @@ export default function MoneyOverview() {
   }
   const problems = useMemo(() => (data?.orders ?? []).filter((o) => PROBLEM.includes(o.status)).sort((a, b) => toRecover(b) - toRecover(a)), [data]);
   const unconfirmed = (data?.channels ?? []).filter((c) => c.orders > 0 && !c.planConfirmed);
-  const notCovered = (data?.orders ?? []).filter((o) => o.status === 'not_covered').length;
+  const calm = data ? settledCard(t, data) : null;
   const statusRows = useMemo(() => { const m = new Map<ReconStatus, number>(); for (const o of data?.orders ?? []) m.set(o.status, (m.get(o.status) ?? 0) + 1); return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([s, n]) => ({ label: reconLabel(t, s), value: n })); }, [data, t]);
   const recoverRows = (data?.channels ?? []).filter((c) => c.orders || c.unknownOrders).map((c) => ({ label: c.label, value: c.missingMoney, detail: `${c.counts.missing} ${t('absentes', 'missing')} · ${c.counts.short_paid + c.counts.error_charge + c.counts.refunded} ${t('payées en moins', 'paid less')}` }));
   return (
@@ -62,13 +57,14 @@ export default function MoneyOverview() {
       {data && (
         <>
           <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-3">
-            {/* The dark hero only when there is money to recover. The calm green "all settled" card only when statements
-                really covered the period: with no import, or orders no statement covers yet, nothing was checked. */}
+            {/* The dark hero only when there is money to recover. The calm green "all settled" card only when every order
+                of the period was checked against a statement (settledCard): no import, orders no statement covers yet
+                and payouts not due yet each keep a neutral card that says so. */}
             <Hint id="money.recover">{data.totals.missingMoney > 0
               ? <StatTile hero label={t('Argent à récupérer', 'Money to recover')} value={cad(data.totals.missingMoney, loc)} note={`${plural(t, problems.filter((o) => toRecover(o) > 0).length, ['commande', 'commandes'], ['order', 'orders'])} · ${plural(t, cases?.count ?? 0, ['litige ouvert', 'litiges ouverts'], ['open case', 'open cases'])}`} />
-              : data.imports === 0 || notCovered > 0
-                ? <div className="flex h-full flex-col justify-center rounded-md border border-line bg-surface p-5 shadow-card"><div className="text-heading text-ink">{data.imports === 0 ? t('Pas encore vérifié', 'Not checked yet') : t('Rien à récupérer pour l’instant', 'Nothing to recover so far')}</div><div className="text-small mt-1 text-ink-2">{data.imports === 0 ? t('Importez un relevé pour vérifier cette période.', 'Import a statement to check this period.') : plural(t, notCovered, ['commande pas encore couverte par un relevé.', 'commandes pas encore couvertes par un relevé.'], ['order not covered by a statement yet.', 'orders not covered by a statement yet.'])}</div></div>
-                : <div className="flex h-full flex-col justify-center rounded-md border border-go/30 bg-go-soft p-5"><div className="text-heading flex items-center gap-2 text-go-2"><CheckCircle2 className="size-5" aria-hidden />{t('Tout est réglé', 'All settled')}</div><div className="text-small mt-1 text-ink-2">{t('Aucun argent à récupérer pour cette période.', 'No money to recover in this period.')}</div></div>}</Hint>
+              : calm && !calm.settled
+                ? <div className="flex h-full flex-col justify-center rounded-md border border-line bg-surface p-5 shadow-card"><div className="text-heading text-ink">{calm.title}</div><div className="text-small mt-1 text-ink-2">{calm.body}</div></div>
+                : <div className="flex h-full flex-col justify-center rounded-md border border-go/30 bg-go-soft p-5"><div className="text-heading flex items-center gap-2 text-go-2"><CheckCircle2 className="size-5" aria-hidden />{calm?.title}</div><div className="text-small mt-1 text-ink-2">{calm?.body}</div></div>}</Hint>
             <StatTile label={t('Payé par les plateformes', 'Paid by the platforms')} value={cad(data.totals.paid, loc)} />
             <StatTile label={t('Attendu pour ces commandes', 'Expected for those orders')} value={cad(data.totals.expected, loc)} />
             <Hint id="money.diff"><StatTile label={t('Écart', 'Difference')} value={signed(data.totals.diff, loc)} note={t('payé − attendu', 'paid − expected')} /></Hint>

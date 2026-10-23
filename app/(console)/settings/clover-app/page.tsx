@@ -12,6 +12,7 @@ import { Segmented } from '@/components/ui/tabs';
 import { useViewer } from '@/components/shell/viewer';
 import { SettingsHead, Section } from '../settings-ui';
 import { CloverBillingSection } from './billing-section';
+import { cloverAppSetupText, meteringTech, webhookKeyBadge } from './apps-text';
 import { api } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
@@ -156,7 +157,7 @@ export default function CloverAppPage() {
             </Section>
 
             <Section icon={<Link2 className="size-5" />} title={t('Adresses à coller dans Clover', 'Addresses to paste in Clover')}
-              subtitle={<>{t('Construites à partir de l’adresse publique du serveur : changez le domaine, elles suivent.', 'Built from the server’s public address: change the domain and they follow.')}<TechDetails>FOODHUB_PUBLIC_URL</TechDetails></>}>
+              subtitle={t('Construites à partir de l’adresse publique du serveur : changez le domaine, elles suivent.', 'Built from the server’s public address: change the domain and they follow.')} tech="FOODHUB_PUBLIC_URL">
               <CopyRow label="Site URL" value={app.siteUrl} />
               <CopyRow label="Alternate Launch Path" value={app.launchPath} />
               <CopyRow label={t('Webhook URL', 'Webhook URL')} value={app.webhookUrl} />
@@ -236,7 +237,7 @@ function CloverAppsSection({ apps, isAdmin, onDone }: { apps: CloverAppStatus[];
       subtitle={t('Chaque application est vendue séparément dans le Clover App Market. Un marchand qui a les deux partage son menu, ses magasins et ses commandes.', 'Each app is sold separately in the Clover App Market. A merchant with both shares its menu, stores and orders.')}>
       {err && <Banner tone="stop" className="mb-3">{err}</Banner>}
       <div className="space-y-4">
-        {apps.map((a) => (
+        {apps.map((a) => { const hook = webhookKeyBadge(t, a); return (
           <div key={a.key} className="rounded-lg border border-line p-4">
             <div className="flex flex-wrap items-center gap-2">
               <div className="min-w-0 flex-1">
@@ -246,23 +247,21 @@ function CloverAppsSection({ apps, isAdmin, onDone }: { apps: CloverAppStatus[];
               {a.configured ? <Badge tone="go" icon={<Check className="size-3" />}>{t('Configurée', 'Set up')}</Badge> : <Badge tone="wait">{t('Non configurée', 'Not set up')}</Badge>}
               <Badge tone={a.installs.length ? 'go' : 'wait'}>{t(`${a.installs.length} installation(s)`, `${a.installs.length} install(s)`)}</Badge>
             </div>
-            {!a.configured && (
-              <p className="mt-2 text-[13px] text-ink-3">
-                {a.key === 'phone'
-                  ? t(`Créez l’application dans le tableau de bord Clover, puis ajoutez sur le serveur : ${a.missing.join(', ')} (et ${a.env.webhookAuth}). Guide : docs/CLOVER_MULTI_APP.md. Sans ces variables, rien ne change.`, `Create the app in the Clover dashboard, then add on the server: ${a.missing.join(', ')} (and ${a.env.webhookAuth}). Guide: docs/CLOVER_MULTI_APP.md. Without these variables nothing changes.`)
-                  : t(`Manque : ${a.missing.join(', ')} — npm run setup sur le serveur.`, `Missing: ${a.missing.join(', ')} — npm run setup on the server.`)}
-              </p>
-            )}
+            {!a.configured && (() => {
+              const s = cloverAppSetupText(t, a);
+              return <div className="mt-2"><p className="text-[13px] text-ink-3">{s.plain}</p><TechDetails className="mt-1">{s.tech}</TechDetails></div>;
+            })()}
             {a.enabled && (
               <div className="mt-3">
                 <CopyRow label="Alternate Launch Path" value={a.launchPath} />
                 <CopyRow label={t(`Webhook URL — événements : ${a.events.map(ev).join(', ')}`, `Webhook URL — events: ${a.events.map(ev).join(', ')}`)} value={a.webhookUrl} />
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-[13px] text-ink-3">
-                  {a.webhookAuthSet ? <Badge tone="go">{a.env.webhookAuth}</Badge> : <Badge tone="wait">{t(`${a.env.webhookAuth} manquant`, `${a.env.webhookAuth} missing`)}</Badge>}
+                  <Badge tone={hook.ok ? 'go' : 'wait'}>{hook.word}</Badge>
                   {a.verification
                     ? <span>{t('Code de vérification reçu :', 'Verification code received:')} <code className="rounded bg-sunken px-1.5 py-0.5 font-mono text-xs text-ink">{a.verification.code}</code></span>
                     : <span>{t('Aucun code de vérification reçu pour l’instant.', 'No verification code received yet.')}</span>}
                 </div>
+                {hook.tech && <TechDetails className="mt-1">{hook.tech}</TechDetails>}
               </div>
             )}
             {a.installs.length > 0 && (
@@ -296,7 +295,7 @@ function CloverAppsSection({ apps, isAdmin, onDone }: { apps: CloverAppStatus[];
             {a.key === 'phone' && a.metering && <PhoneMinutes m={a.metering} />}
             {a.enabled && a.configured && <p className="mt-3 text-[13px]"><a href={a.connectUrl} className="font-semibold underline-offset-4 hover:underline">{t('Brancher un marchand à cette application', 'Connect a merchant to this app')}<ExternalLink className="ml-1 inline size-3.5" /></a></p>}
           </div>
-        ))}
+        ); })}
       </div>
     </Section>
   );
@@ -324,8 +323,8 @@ function PhoneMinutes({ m }: { m: PhoneMetering }) {
       </div>
       <p className="mt-1 text-[13px] text-ink-3">
         {t(
-          `Prix : essai gratuit de ${m.price.trialDays} jours, puis ${cad(m.price.monthlyCad)} CA/mois + ${cad(m.price.perMinuteCad)} CA par minute où l’IA est en ligne (commande ou non). Minutes = durée de l’IA arrondie à la minute supérieure ; l’attente et la personne après un transfert ne comptent pas. Seuls les marchands ACTIFS sont facturés (jamais l’essai, nos restaurants ou ${m.env.exempt}).`,
-          `Price: ${m.price.trialDays}-day free trial, then CAD ${cad(m.price.monthlyCad)}/month + CAD ${cad(m.price.perMinuteCad)} per minute the AI is on the line (order or not). Minutes = the AI's time rounded up to the minute; hold and the person after a transfer do not count. Only ACTIVE merchants are billed (never the trial, our restaurants or ${m.env.exempt}).`,
+          `Prix : essai gratuit de ${m.price.trialDays} jours, puis ${cad(m.price.monthlyCad)} CA/mois + ${cad(m.price.perMinuteCad)} CA par minute où l’IA est en ligne (commande ou non). Minutes = durée de l’IA arrondie à la minute supérieure ; l’attente et la personne après un transfert ne comptent pas. Seuls les marchands ACTIFS sont facturés (jamais l’essai, nos restaurants ni les marchands exemptés).`,
+          `Price: ${m.price.trialDays}-day free trial, then CAD ${cad(m.price.monthlyCad)}/month + CAD ${cad(m.price.perMinuteCad)} per minute the AI is on the line (order or not). Minutes = the AI's time rounded up to the minute; hold and the person after a transfer do not count. Only ACTIVE merchants are billed (never the trial, our restaurants or exempt merchants).`,
         )}
       </p>
       <dl className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 text-[13px] sm:grid-cols-2">
@@ -338,11 +337,12 @@ function PhoneMinutes({ m }: { m: PhoneMetering }) {
       )}
       {(s.noMeteredIdCalls ?? 0) > 0 && (
         <Banner tone="warn" className="mt-2">
-          {t(`${s.noMeteredIdCalls} appel(s) (${s.noMeteredIdMinutes ?? 0} min) terminés sans ${m.env.meteredId} : jamais envoyés à Clover, donc non facturés.`, `${s.noMeteredIdCalls} call(s) (${s.noMeteredIdMinutes ?? 0} min) ended without ${m.env.meteredId}: never sent to Clover, so not billed.`)}
+          {t(`${s.noMeteredIdCalls} appel(s) (${s.noMeteredIdMinutes ?? 0} min) terminés sans l’identifiant de facturation Clover sur le serveur : jamais envoyés à Clover, donc non facturés.`, `${s.noMeteredIdCalls} call(s) (${s.noMeteredIdMinutes ?? 0} min) ended without the Clover billing ID on the server: never sent to Clover, so not billed.`)}
         </Banner>
       )}
-      {!m.enabled && <p className="mt-2 text-[12px] text-ink-3">{t(`Pour facturer : ${m.env.meteredId} puis ${m.env.enabled}=true sur le serveur.`, `To bill: ${m.env.meteredId}, then ${m.env.enabled}=true on the server.`)}</p>}
-      {m.enabled && !m.meteredIdSet && <Banner tone="stop" className="mt-2">{t(`${m.env.meteredId} manquant : aucune minute n’est envoyée.`, `${m.env.meteredId} missing: no minute is sent.`)}</Banner>}
+      {!m.enabled && <p className="mt-2 text-[12px] text-ink-3">{t('Pour facturer, votre technicien pose l’identifiant de facturation Clover sur le serveur, puis active l’envoi.', 'To bill, your technician sets the Clover billing ID on the server, then turns sending on.')}</p>}
+      {m.enabled && !m.meteredIdSet && <Banner tone="stop" className="mt-2">{t('Identifiant de facturation Clover manquant sur le serveur : aucune minute n’est envoyée.', 'Clover billing ID missing on the server: no minute is sent.')}</Banner>}
+      <TechDetails className="mt-1">{meteringTech(m.env)}</TechDetails>
     </div>
   );
 }

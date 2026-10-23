@@ -71,7 +71,7 @@ export default function DeliverySettingsPage() {
         right={edit && s ? <Button icon={<Save className="size-4" />} loading={busy} onClick={save}>{t('Enregistrer', 'Save')}</Button> : undefined} />
       {!data || !s ? <Skeleton className="h-96" /> : (
         <div className="max-w-5xl">
-          <Section icon={<Truck className="size-5" />} title={t('Services de livraison', 'Courier services')} subtitle={<>{t('Les clés des services de livraison sont posées sur le serveur par votre technicien, jamais sur cette page.', 'Courier service keys are set on the server by your technician, never on this page.')}<TechDetails>npm run setup</TechDetails></>}>
+          <Section icon={<Truck className="size-5" />} title={t('Services de livraison', 'Courier services')} subtitle={t('Les clés des services de livraison sont posées sur le serveur par votre technicien, jamais sur cette page.', 'Courier service keys are set on the server by your technician, never on this page.')} tech="npm run setup">
             <div className="grid min-w-0 [&>*]:min-w-0 gap-3 md:grid-cols-2">
               {data.fleets.map((f) => (
                 <div key={f.fleet} className="min-w-0 rounded-md border border-line p-4">

@@ -22,15 +22,15 @@ vi.mock('../lib/foodhub/pos/clover-entitlement', async (orig) => {
 import { saveLocation } from '../lib/foodhub/catalog';
 import { setFeature } from '../lib/foodhub/expansion/features';
 import { getCall } from '../lib/foodhub/phone/calls';
-import { linePhoneGate, phoneGateMessage } from '../lib/foodhub/phone/gate';
+import { linePhoneGate, phoneGateMessage, phoneGateWords } from '../lib/foodhub/phone/gate';
 import { getPhoneSettings, savePhoneSettings } from '../lib/foodhub/phone/settings';
 import { twilioSignature } from '../lib/foodhub/phone/twilio';
 import { dialDone, startCall } from '../lib/foodhub/phone/voice';
 import { getIvrCall } from '../lib/foodhub/phone/ivr/records';
-import { phoneReadiness } from '../lib/foodhub/phone/readiness';
+import { aiPauseWords, phoneReadiness } from '../lib/foodhub/phone/readiness';
 import { getRepo } from '../lib/foodhub/repo';
 import type { MasterMenu } from '../lib/foodhub/types';
-import { resetAiHealth } from '../lib/foodhub/phone/ai-health';
+import { noteAiFailure, resetAiHealth } from '../lib/foodhub/phone/ai-health';
 import { openAllDay } from './helpers/phone-harness';
 
 const actor = { username: 'owner', name: 'Owner', source: 'dashboard' as const };
@@ -237,13 +237,58 @@ describe('readiness (Settings → Expansion → AI phone)', () => {
     const r = await phoneReadiness();
     const chk = r.checks.find((x) => x.id.startsWith('phone_app_'));
     expect(chk).toMatchObject({ level: 'stop' });
-    expect(chk!.en).toMatch(/TAKATAK Phone AI refused \(not_installed, merchant TESTMERCH0021\).*our restaurants list/);
-    // The setting name is for the technician: folded under « Détails techniques », never in the owner's sentence.
-    expect(chk!.en).not.toMatch(/PHONE_OWN_MERCHANTS/);
-    expect(chk!.tech).toBe('PHONE_OWN_MERCHANTS');
+    // The owner reads plain words, in French and in English…
+    expect(chk!.fr).toMatch(/TAKATAK Phone AI refusé, car l’app n’est pas installée pour ce marchand Clover\. L’IA ne répond pas, les appels vont à une personne\..*liste de nos restaurants\./);
+    expect(chk!.en).toMatch(/TAKATAK Phone AI refused because the app is not installed for this Clover merchant\. The AI does not answer, calls go to a person\..*our restaurants list\./);
+    // …and the setting name, the raw code and the merchant number are for the technician (« Détails techniques »).
+    for (const s of [chk!.fr, chk!.en]) expect(s).not.toMatch(/PHONE_OWN_MERCHANTS|not_installed|TESTMERCH0021|[a-z]+_[a-z]+/);
+    expect(chk!.tech).toBe('PHONE_OWN_MERCHANTS · not_installed · merchant TESTMERCH0021');
     expect(r.ready).toBe(false);
     process.env.PHONE_OWN_MERCHANTS = KITCHEN_MID;
-    expect((await phoneReadiness()).checks.find((x) => x.id.startsWith('phone_app_'))).toMatchObject({ level: 'ok' });
+    const ok = (await phoneReadiness()).checks.find((x) => x.id.startsWith('phone_app_'));
+    expect(ok).toMatchObject({ level: 'ok', fr: expect.stringMatching(/TAKATAK Phone AI OK \(un de nos restaurants\)\.$/), en: expect.stringMatching(/TAKATAK Phone AI OK \(one of our restaurants\)\.$/) });
+    expect(ok!.tech).toBe('own_merchant · merchant TESTMERCH0021');
+  });
+
+  it('every answer of the check has plain words, never the bare code', () => {
+    const reasons = ['gate_off', 'own_merchant', 'no_merchant', 'not_installed', 'pending_approval', 'active', 'trial', 'lapsed_grace', 'lapsed', 'suspended', 'inactive', 'unknown_status', 'clover_unreachable_grace', 'clover_unreachable', 'check_failed'] as const;
+    for (const reason of reasons) {
+      const w = phoneGateWords(reason);
+      // A code is never the sentence: no snake_case word in either language, and the French never borrows the code.
+      for (const s of [w.fr, w.en]) { expect(s.length).toBeGreaterThan(5); expect(s).not.toBe(reason); expect(s).not.toMatch(/[a-z]+_[a-z]+/); }
+      expect(w.fr).not.toContain(reason);
+      expect(w.fr).not.toBe(w.en);
+    }
+    expect(phoneGateWords('something_new' as any)).toEqual({ fr: 'Clover a donné une réponse inconnue', en: 'Clover gave an unknown answer' });
+  });
+
+  it('a paused AI says why in plain words; the API error goes to the technical details', async () => {
+    const now = Date.now();
+    await noteAiFailure({ status: 401, message: 'invalid x-api-key' }, {}, now);
+    const chk = (await phoneReadiness({ now })).checks.find((x) => x.id === 'ai_breaker');
+    expect(chk).toMatchObject({ level: 'stop', fr: 'IA en pause encore 10 min : la clé de l’IA est refusée. Vérifiez la clé et le crédit Anthropic.', en: 'AI paused for 10 more min: the AI key is refused. Check the Anthropic key and credit.' });
+    expect(chk!.tech).toBe('authentication refused (401): invalid x-api-key');
+    for (const s of [chk!.fr, chk!.en]) expect(s).not.toMatch(/401|authentication|x-api-key/);
+  });
+
+  it('each kind of AI failure has its own plain words (FR / EN)', () => {
+    const cases: Array<[string | undefined, RegExp, RegExp]> = [
+      ['authentication refused (401): bad key', /clé de l’IA est refusée/, /AI key is refused/],
+      ['permission denied (403): no access', /n’a pas accès au modèle/, /no access to the chosen model/],
+      ['billing / credit (402): Your credit balance is too low', /crédit de l’IA est épuisé/, /AI credit has run out/],
+      ['model or endpoint not found (404): x', /modèle d’IA choisi n’existe pas/, /AI model does not exist/],
+      ['model refused (400): invalid model', /modèle d’IA choisi n’existe pas/, /AI model does not exist/],
+      ['rate limited (429): slow down', /trop de demandes/, /too many AI requests/],
+      ['server error (529): overloaded', /erreurs de son côté/, /errors on its side/],
+      ['network / timeout: ECONNRESET', /ne répond pas \(réseau ou délai dépassé\)/, /not answering \(network or timeout\)/],
+      [undefined, /plusieurs échecs de suite/, /several failures in a row/],
+    ];
+    for (const [reason, fr, en] of cases) {
+      const w = aiPauseWords(reason);
+      expect(w.fr).toMatch(fr);
+      expect(w.en).toMatch(en);
+      for (const s of [w.fr, w.en]) expect(s).not.toMatch(/\(\d{3}\)|ECONNRESET|endpoint/);
+    }
   });
 
   it('no check line at all without the phone app', async () => {

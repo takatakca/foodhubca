@@ -16,7 +16,7 @@ import { getRepo } from '../repo';
 import { getAiHealth } from './ai-health';
 import { phoneAgentConfigured, phoneModel } from './agent';
 import { buildPhoneMenu, upsellGroups } from './cart';
-import { kitchenPhoneGate } from './gate';
+import { kitchenPhoneGate, phoneGateWords } from './gate';
 import { getIvrSettings, handoffTarget, LINK_KEYS, voicemailEmailTarget } from './ivr/config';
 import { getLinkHealth, probeLink, saveLinkHealth } from './link-health';
 import { getPhoneSettings, lineKitchens } from './settings';
@@ -27,6 +27,22 @@ export interface ReadinessCheck { id: string; level: CheckLevel; fr: string; en:
 export interface PhoneReadiness { at: string; ready: boolean; checks: ReadinessCheck[] }
 
 const c = (group: ReadinessCheck['group'], id: string, level: CheckLevel, fr: string, en: string, tech?: string): ReadinessCheck => ({ group, id, level, fr, en, ...(tech ? { tech } : {}) });
+
+/**
+ * Why the AI breaker is open, in plain words. The breaker keeps the API's own words ("authentication refused (401): …",
+ * ai-health.ts classifyAiError); those go to « Détails techniques », this sentence to the owner.
+ */
+export function aiPauseWords(reason: string | null | undefined): { fr: string; en: string } {
+  const r = String(reason ?? '');
+  if (/^authentication/i.test(r)) return { fr: 'la clé de l’IA est refusée', en: 'the AI key is refused' };
+  if (/^permission/i.test(r)) return { fr: 'la clé de l’IA n’a pas accès au modèle choisi', en: 'the AI key has no access to the chosen model' };
+  if (/^billing/i.test(r)) return { fr: 'le crédit de l’IA est épuisé', en: 'the AI credit has run out' };
+  if (/^model/i.test(r)) return { fr: 'le modèle d’IA choisi n’existe pas ou est refusé', en: 'the chosen AI model does not exist or is refused' };
+  if (/^rate limit/i.test(r)) return { fr: 'trop de demandes à l’IA en même temps', en: 'too many AI requests at once' };
+  if (/^server error/i.test(r)) return { fr: 'le service d’IA a des erreurs de son côté', en: 'the AI service is having errors on its side' };
+  if (/^network/i.test(r)) return { fr: 'le service d’IA ne répond pas (réseau ou délai dépassé)', en: 'the AI service is not answering (network or timeout)' };
+  return { fr: 'plusieurs échecs de suite', en: 'several failures in a row' };
+}
 
 export async function phoneReadiness(opts: { probe?: boolean; now?: number } = {}): Promise<PhoneReadiness> {
   const now = opts.now ?? Date.now();
@@ -53,7 +69,8 @@ export async function phoneReadiness(opts: { probe?: boolean; now?: number } = {
     const h = await getAiHealth();
     if (h.openUntil && now < h.openUntil) {
       const min = Math.ceil((h.openUntil - now) / 60_000);
-      out.push(c('ai', 'ai_breaker', 'stop', `IA en pause encore ${min} min (${h.reason ?? 'échecs'}) : vérifiez la clé et le crédit Anthropic.`, `AI paused for ${min} more min (${h.reason ?? 'failures'}): check the Anthropic key and credit.`));
+      const why = aiPauseWords(h.reason);
+      out.push(c('ai', 'ai_breaker', 'stop', `IA en pause encore ${min} min : ${why.fr}. Vérifiez la clé et le crédit Anthropic.`, `AI paused for ${min} more min: ${why.en}. Check the Anthropic key and credit.`, h.reason));
     } else {
       out.push(c('ai', 'ai_key', 'ok', `IA prête (${phoneModel()})${h.lastOkAt ? '' : ' — pas encore utilisée'}.`, `AI ready (${phoneModel()})${h.lastOkAt ? '' : ' — not used yet'}.`));
     }
@@ -130,9 +147,12 @@ export async function phoneReadiness(opts: { probe?: boolean; now?: number } = {
         // TAKATAK Phone is checked on every call: a kitchen that is neither ours nor entitled sends its calls to a person.
         const g = await kitchenPhoneGate(k, 'call', { now, budgetMs: 1_500 });
         const app = cloverApp('phone').name;
+        // The answer in plain words; the raw code and the merchant number are for the technician (« Détails techniques »).
+        const w = phoneGateWords(g.reason);
+        const raw = [g.reason, g.merchantId && `merchant ${g.merchantId}`].filter(Boolean).join(' · ');
         out.push(g.ok
-          ? c('lines', `phone_app_${key}`, 'ok', `${where} : ${app} OK (${g.reason}).`, `${where}: ${app} OK (${g.reason}).`)
-          : c('lines', `phone_app_${key}`, 'stop', `${where} : ${app} refusé (${g.reason}${g.merchantId ? `, marchand ${g.merchantId}` : ''}) — l’IA ne répond pas, les appels vont à une personne. Si c’est un de nos restaurants, demandez à votre technicien d’ajouter ce marchand à la liste de nos restaurants.`, `${where}: ${app} refused (${g.reason}${g.merchantId ? `, merchant ${g.merchantId}` : ''}) — the AI does not answer, calls go to a person. If it is one of our restaurants, ask your technician to add this merchant to our restaurants list.`, 'PHONE_OWN_MERCHANTS'));
+          ? c('lines', `phone_app_${key}`, 'ok', `${where} : ${app} OK (${w.fr}).`, `${where}: ${app} OK (${w.en}).`, raw)
+          : c('lines', `phone_app_${key}`, 'stop', `${where} : ${app} refusé, car ${w.fr}. L’IA ne répond pas, les appels vont à une personne. Si c’est un de nos restaurants, demandez à votre technicien d’ajouter ce marchand à la liste de nos restaurants.`, `${where}: ${app} refused because ${w.en}. The AI does not answer, calls go to a person. If it is one of our restaurants, ask your technician to add this merchant to our restaurants list.`, `PHONE_OWN_MERCHANTS · ${raw}`));
       }
       if (phone.payment.mode !== 'counter' && ecommConfigured()) {
         const pay = await paylinkReadiness(k.brands[0] ?? '', k.locationCode);

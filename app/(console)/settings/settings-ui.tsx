@@ -9,6 +9,7 @@ import { SETTINGS_PAGES, settingsPageOf } from '@/components/shell/settings-page
 import { useViewer } from '@/components/shell/viewer';
 import { useI18n } from '@/lib/i18n/client';
 import type { T } from '@/lib/i18n';
+import { TechDetails } from './tech-details';
 
 export { SETTINGS_GROUPS, SETTINGS_PAGES, type SettingsGroup } from '@/components/shell/settings-pages';
 
@@ -47,13 +48,17 @@ export function SettingsHead({ title, intro, right }: { title: string; intro?: R
   );
 }
 
-export function Section({ title, subtitle, right, children, icon }: { title: ReactNode; subtitle?: ReactNode; right?: ReactNode; children: ReactNode; icon?: ReactNode }) {
+/**
+ * A settings card. `subtitle` is one plain sentence (inline content: it sits in a <p>); `tech` folds the setting names
+ * behind it under « Détails techniques », rendered after the <p> (a <details> block may not sit inside a paragraph).
+ */
+export function Section({ title, subtitle, tech, right, children, icon }: { title: ReactNode; subtitle?: ReactNode; tech?: ReactNode; right?: ReactNode; children: ReactNode; icon?: ReactNode }) {
   return (
     <section className="mb-6 min-w-0 rounded-md border border-line bg-surface shadow-card">
       <div className="flex flex-col gap-3 border-b border-line px-5 py-4 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
         <div className="flex min-w-0 items-start gap-3">
           {icon && <div className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-md bg-sunken text-ink-2">{icon}</div>}
-          <div className="min-w-0"><h2 className="text-heading break-words text-ink">{title}</h2>{subtitle && <p className="text-small mt-0.5 break-words text-ink-3">{subtitle}</p>}</div>
+          <div className="min-w-0"><h2 className="text-heading break-words text-ink">{title}</h2>{subtitle && <p className="text-small mt-0.5 break-words text-ink-3">{subtitle}</p>}{tech && <TechDetails className="mt-1">{tech}</TechDetails>}</div>
         </div>
         {right}
       </div>

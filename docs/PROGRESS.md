@@ -10,6 +10,10 @@
   entries from #86 read in French in the journal; the Clover billing banner no longer pushes the phone to 456 px.
 - Checks: typecheck OK, lint 0 errors (1 pre-existing warning), 1567 tests passed + 1 skipped, webpack build OK,
   verify:foodhub 567/0 on 5487/5488. Phone width 390 on the 11 A3 routes probed. Merge after #88.
+- Review round 1 (#94): Money's green « Tout est réglé » only once every order was checked (payouts not due yet read
+  « Versements pas encore dus »); AI phone readiness and Clover apps in plain words (raw codes, merchant number, setting
+  names, guide path and command under « Détails techniques »); Go-live keeps « Optionnel » for optional steps apart
+  from « À vérifier »; Section takes `tech` so no <details> sits inside the subtitle <p>. Tests: owner-copy-a3.test.ts.
 
 ## 2026-10-22 — Premium console: A4 shell + design system (`feature/premium-a4-shell`, stacked on #72)
 

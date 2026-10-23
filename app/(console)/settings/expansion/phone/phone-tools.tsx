@@ -4,7 +4,7 @@
 // (a whole call through the real phone handlers, nothing sent — lib/foodhub/phone/sim/driver.ts).
 import { useCallback, useEffect, useState } from 'react';
 import { ClipboardCheck, Link2, PhoneOutgoing, Play, RotateCcw } from 'lucide-react';
-import { Badge, StatusDot, type Tone } from '@/components/ui/badge';
+import { Badge, type Tone } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Banner, Skeleton } from '@/components/ui/card';
 import { Field, Select, Textarea } from '@/components/ui/form';
@@ -14,6 +14,7 @@ import type { SimResult } from '@/lib/foodhub/phone/sim/driver';
 import { api } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { Section } from '../../settings-ui';
+import { TechDetails } from '../../tech-details';
 
 const LEVEL_TONE: Record<ReadinessCheck['level'], Tone> = { ok: 'go', warn: 'wait', stop: 'stop', info: 'info' };
 
@@ -29,6 +30,7 @@ export function PhoneReadinessPanel({ owner }: { owner: boolean }) {
     try { setR(await api<PhoneReadiness>('/api/foodhub/phone/readiness', { method: 'POST', json: { [kind]: true } })); } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(null); }
   }
   const paused = r?.checks.some((c) => c.id === 'ai_breaker');
+  const levelWord: Record<ReadinessCheck['level'], string> = { ok: t('Prêt', 'Ready'), warn: t('À vérifier', 'To check'), stop: t('À régler', 'To fix'), info: t('Info', 'Info') };
   return (
     <Section icon={<ClipboardCheck className="size-5" />} title={t('Prêt pour les appels de test ?', 'Ready for test calls?')}
       subtitle={t('Tout ce dont les deux assistants ont besoin, vérifié sur ce serveur. Rien n’est envoyé.', 'Everything both assistants need, checked on this server. Nothing is sent.')}
@@ -40,10 +42,14 @@ export function PhoneReadinessPanel({ owner }: { owner: boolean }) {
       ) : undefined}>
       {!r ? <Skeleton className="h-40" /> : (
         <div className="space-y-2">
-          <Banner tone={r.ready ? 'go' : 'stop'}>{r.ready ? t('Aucun blocage : vous pouvez faire des appels de test.', 'Nothing blocking: you can make test calls.') : t('À régler avant les appels de test (en rouge).', 'Fix the red items before test calls.')}</Banner>
+          <Banner tone={r.ready ? 'go' : 'stop'}>{r.ready ? t('Aucun blocage : vous pouvez faire des appels de test.', 'Nothing blocking: you can make test calls.') : t('Réglez les points « À régler » avant les appels de test.', 'Fix the items marked “To fix” before test calls.')}</Banner>
+          {/* Each line says its state in a word (never colour alone); setting names fold under « Détails techniques ». */}
           <ul className="space-y-1.5">
             {r.checks.map((c) => (
-              <li key={c.id} className="flex items-start gap-2 rounded-md bg-sunken px-3 py-2 text-[13px]"><StatusDot tone={LEVEL_TONE[c.level]} className="mt-1.5" /><span>{lang === 'fr' ? c.fr : c.en}</span></li>
+              <li key={c.id} className="flex min-w-0 items-start gap-2 rounded-md bg-sunken px-3 py-2 text-[13px]">
+                <Badge size="sm" tone={LEVEL_TONE[c.level]} className="mt-0.5 shrink-0">{levelWord[c.level]}</Badge>
+                <div className="min-w-0 flex-1"><span className="break-words">{lang === 'fr' ? c.fr : c.en}</span>{c.tech && <TechDetails className="mt-0">{c.tech}</TechDetails>}</div>
+              </li>
             ))}
           </ul>
         </div>
@@ -81,7 +87,7 @@ export function CallSimulatorPanel({ lines }: { lines: Array<{ id?: string; name
   return (
     <Section icon={<PhoneOutgoing className="size-5" />} title={t('Simulateur d’appel (aucun envoi)', 'Call simulator (nothing sent)')}
       subtitle={t('Un appel complet dans les vrais traitements Twilio. Les textos, courriels et messages d’équipe sont seulement affichés ; aucune commande ne va à Clover, en cuisine ou à un lien de paiement. Seule l’IA est appelée.', 'A whole call through the real Twilio handlers. Texts, emails and team messages are only shown; no order reaches Clover, the kitchen or a payment link. Only the AI is called.')}>
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid min-w-0 [&>*]:min-w-0 gap-3 md:grid-cols-3">
         <Field label={t('Numéro appelé', 'Number called')}>
           <Select value={target} onChange={(e) => setTarget(e.target.value)}>
             <option value="ivr">{t('Menu ON2GO', 'ON2GO menu')}</option>

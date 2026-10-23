@@ -2,18 +2,18 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FileUp, RefreshCw } from 'lucide-react';
+import { CheckCircle2, FileUp, RefreshCw } from 'lucide-react';
 import { Hint } from '@/components/help/hint';
 import { PlatformTag } from '@/components/ui/badge';
 import { Button, ButtonLink } from '@/components/ui/button';
-import { Banner, Card, CardHeader } from '@/components/ui/card';
+import { Banner, Card, CardHeader, EmptyState, SkeletonStats } from '@/components/ui/card';
 import { FilterBar } from '@/components/ui/filter-bar';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { ChartCard, HBars, StatTile, fmtInt } from '@/components/charts/charts';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { usePulse } from '@/components/live/pulse';
-import { CaseBadge, MoneyHead, PROBLEM, RECOVERABLE, ReconBadge, cad, reconLabel, signed, toRecover, type Recon, type ReconStatus } from './money-ui';
+import { CaseBadge, MoneyHead, PROBLEM, RECOVERABLE, ReconBadge, cad, plural, reconLabel, settledCard, signed, toRecover, type Recon, type ReconStatus } from './money-ui';
 import { api, ApiError, dayOf } from '@/lib/ui/api';
 import { useFilters } from '@/lib/ui/range';
 import { useI18n } from '@/lib/i18n/client';
@@ -38,11 +38,12 @@ export default function MoneyOverview() {
   useEffect(() => { load(); }, [load]);
   async function recheck() {
     setBusy(true);
-    try { const r = await api<{ opened: number; closed: number }>('/api/foodhub/recon/run', { method: 'POST' }); toast.success(t('90 derniers jours revérifiés', 'Last 90 days re-checked'), t(`${r.opened} nouveau(x) problème(s) · ${r.closed} réglé(s)`, `${r.opened} new problem(s) · ${r.closed} fixed`)); await load(); }
+    try { const r = await api<{ opened: number; closed: number }>('/api/foodhub/recon/run', { method: 'POST' }); toast.success(t('90 derniers jours revérifiés', 'Last 90 days re-checked'), `${plural(t, r.opened, ['nouveau problème', 'nouveaux problèmes'], ['new problem', 'new problems'])} · ${plural(t, r.closed, ['réglé', 'réglés'], ['fixed', 'fixed'])}`); await load(); }
     catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
   const problems = useMemo(() => (data?.orders ?? []).filter((o) => PROBLEM.includes(o.status)).sort((a, b) => toRecover(b) - toRecover(a)), [data]);
   const unconfirmed = (data?.channels ?? []).filter((c) => c.orders > 0 && !c.planConfirmed);
+  const calm = data ? settledCard(t, data) : null;
   const statusRows = useMemo(() => { const m = new Map<ReconStatus, number>(); for (const o of data?.orders ?? []) m.set(o.status, (m.get(o.status) ?? 0) + 1); return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([s, n]) => ({ label: reconLabel(t, s), value: n })); }, [data, t]);
   const recoverRows = (data?.channels ?? []).filter((c) => c.orders || c.unknownOrders).map((c) => ({ label: c.label, value: c.missingMoney, detail: `${c.counts.missing} ${t('absentes', 'missing')} · ${c.counts.short_paid + c.counts.error_charge + c.counts.refunded} ${t('payées en moins', 'paid less')}` }));
   return (
@@ -51,12 +52,19 @@ export default function MoneyOverview() {
         right={<><ButtonLink href="/money/statements" variant="outline" icon={<FileUp className="size-4" />}>{t('Importer un relevé', 'Import a statement')}</ButtonLink>{can('finance:edit') && <Button loading={busy} onClick={recheck} icon={<RefreshCw className="size-4" />}>{t('Revérifier', 'Re-check')}</Button>}</>} />
       {err && <Banner tone="stop" className="mb-4">{err}</Banner>}
       <Hint id="money.period"><FilterBar filters={filters} set={set} locations={locations} showBrands={false} presets={['yesterday', '7d', '30d', 'month', 'last_month', 'custom']} /></Hint>
-      {data && data.imports === 0 && <Banner tone="info" className="mb-4">{t('Aucun relevé importé : les montants attendus sont calculés, mais rien ne peut être marqué absent ou payé en moins avant un import.', 'No statement imported: expected payouts are calculated, but nothing can be marked missing or short-paid until you import one.')} <Link href="/money/statements" className="font-bold underline">{t('Importer', 'Import')}</Link></Banner>}
-      {unconfirmed.length > 0 && <Banner tone="warn" className="mb-4">{t('Plan de commission non confirmé pour', 'Commission plan not confirmed for')} {unconfirmed.map((c) => c.label).join(', ')}. <Link href="/money/fees" className="font-bold underline">{t('Vérifier', 'Check')}</Link></Banner>}
+      {data && data.imports === 0 && <Banner tone="info" className="mb-4" action={<ButtonLink href="/money/statements" variant="outline" size="md" className="shrink-0">{t('Importer', 'Import')}</ButtonLink>}>{t('Aucun relevé importé : les montants attendus sont calculés, mais rien ne peut être marqué absent ou payé en moins avant un import.', 'No statement imported: expected payouts are calculated, but nothing can be marked missing or short-paid until you import one.')}</Banner>}
+      {unconfirmed.length > 0 && <Banner tone="warn" className="mb-4" action={<ButtonLink href="/money/fees" variant="outline" size="md" className="shrink-0">{t('Vérifier', 'Check')}</ButtonLink>}>{t('Plan de commission non confirmé pour', 'Commission plan not confirmed for')} {unconfirmed.map((c) => c.label).join(', ')}.</Banner>}
       {data && (
         <>
-          <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Hint id="money.recover"><StatTile hero label={t('Argent à récupérer', 'Money to recover')} value={cad(data.totals.missingMoney, loc)} note={`${problems.filter((o) => toRecover(o) > 0).length} ${t('commande(s)', 'order(s)')} · ${cases?.count ?? 0} ${t('litige(s) ouvert(s)', 'open case(s)')}`} /></Hint>
+          <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-3">
+            {/* The dark hero only when there is money to recover. The calm green "all settled" card only when every order
+                of the period was checked against a statement (settledCard): no import, orders no statement covers yet
+                and payouts not due yet each keep a neutral card that says so. */}
+            <Hint id="money.recover">{data.totals.missingMoney > 0
+              ? <StatTile hero label={t('Argent à récupérer', 'Money to recover')} value={cad(data.totals.missingMoney, loc)} note={`${plural(t, problems.filter((o) => toRecover(o) > 0).length, ['commande', 'commandes'], ['order', 'orders'])} · ${plural(t, cases?.count ?? 0, ['litige ouvert', 'litiges ouverts'], ['open case', 'open cases'])}`} />
+              : calm && !calm.settled
+                ? <div className="flex h-full flex-col justify-center rounded-md border border-line bg-surface p-5 shadow-card"><div className="text-heading text-ink">{calm.title}</div><div className="text-small mt-1 text-ink-2">{calm.body}</div></div>
+                : <div className="flex h-full flex-col justify-center rounded-md border border-go/30 bg-go-soft p-5"><div className="text-heading flex items-center gap-2 text-go-2"><CheckCircle2 className="size-5" aria-hidden />{calm?.title}</div><div className="text-small mt-1 text-ink-2">{calm?.body}</div></div>}</Hint>
             <StatTile label={t('Payé par les plateformes', 'Paid by the platforms')} value={cad(data.totals.paid, loc)} />
             <StatTile label={t('Attendu pour ces commandes', 'Expected for those orders')} value={cad(data.totals.expected, loc)} />
             <Hint id="money.diff"><StatTile label={t('Écart', 'Difference')} value={signed(data.totals.diff, loc)} note={t('payé − attendu', 'paid − expected')} /></Hint>
@@ -83,7 +91,7 @@ export default function MoneyOverview() {
           </div>
           <Card>
             <CardHeader title={t('Plus gros problèmes', 'Biggest problems')} right={<><ButtonLink href="/money/reconciliation" variant="ghost" size="sm">{t('Toutes les commandes', 'All orders')} →</ButtonLink><ButtonLink href="/money/disputes" variant="ghost" size="sm">{t('Litiges', 'Disputes')}{cases ? ` (${cases.count})` : ''} →</ButtonLink></>} />
-            {problems.length === 0 ? <div className="px-5 pb-5 text-sm text-ink-3">{t('Aucune commande absente ou payée en moins pour cette période.', 'No missing or short-paid order in this period.')}</div> : (
+            {problems.length === 0 ? <EmptyState compact icon={<CheckCircle2 className="size-6" />} title={t('Aucun problème', 'No problem')} body={t('Aucune commande absente ou payée en moins pour cette période.', 'No missing or short-paid order in this period.')} action={<ButtonLink href="/money/statements" variant="outline" icon={<FileUp className="size-4" />}>{t('Importer un relevé', 'Import a statement')}</ButtonLink>} /> : (
               <Table>
                 <thead><tr><Th>Date</Th><Th>{t('Plateforme', 'Platform')}</Th><Th>{t('Commande', 'Order')}</Th><Th>{t('Marque · succursale', 'Brand · location')}</Th><Th align="right">{t('Attendu', 'Expected')}</Th><Th align="right">{t('Payé', 'Paid')}</Th><Th align="right">{t('À récupérer', 'To recover')}</Th><Th>{t('Statut', 'Status')}</Th><Th>{t('Litige', 'Dispute')}</Th></tr></thead>
                 <tbody>{problems.slice(0, 10).map((o) => (
@@ -98,7 +106,7 @@ export default function MoneyOverview() {
           </Card>
         </>
       )}
-      {!data && !err && <div className="h-96 animate-pulse rounded-lg bg-sunken" />}
+      {!data && !err && <SkeletonStats count={6} />}
     </div>
   );
 }

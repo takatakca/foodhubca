@@ -26,6 +26,10 @@ type Ctx = {
 const ToastCtx = createContext<Ctx | null>(null);
 let seq = 1;
 
+/**
+ * Toasts: one style, bottom-right on a desktop, above the bottom bar on a phone (nothing else floats there any more).
+ * Errors are `role="alert"`; everything else is polite. An undo toast is the one inverted (ink) toast, with a countdown.
+ */
 export function ToastProvider({ children }: { children: ReactNode }) {
   const { t } = useI18n();
   const [list, setList] = useState<Toast[]>([]);
@@ -72,30 +76,30 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     success: (a, b, o) => push('success', a, b, o), error: (a, b, o) => push('error', a, b, o), info: (a, b, o) => push('info', a, b, o), warn: (a, b, o) => push('warn', a, b, o),
   }), [push, undo, remove]);
   const icon: Record<Kind, ReactNode> = {
-    success: <CheckCircle2 className="size-5 text-go" />, error: <XCircle className="size-5 text-stop" />, info: <Info className="size-5 text-info" />,
-    warn: <AlertTriangle className="size-5 text-wait" />, undo: <RotateCcw className="size-5 text-ink-3" />,
+    success: <CheckCircle2 className="size-5 text-go" aria-hidden />, error: <XCircle className="size-5 text-stop" aria-hidden />, info: <Info className="size-5 text-info" aria-hidden />,
+    warn: <AlertTriangle className="size-5 text-wait" aria-hidden />, undo: <RotateCcw className="size-5 text-canvas/70" aria-hidden />,
   };
   return (
     <ToastCtx.Provider value={value}>
       {children}
-      <div className="pointer-events-none fixed inset-x-0 bottom-40 z-[120] flex flex-col items-center gap-2 px-4 sm:items-end sm:pr-5 lg:bottom-24" aria-live="polite">
+      <div className="pointer-events-none fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-[120] flex flex-col items-center gap-2 px-4 sm:items-end sm:pr-6 lg:bottom-6" aria-live="polite">
         {list.map((x) => (
-          <div key={x.id} className={cn('pointer-events-auto relative w-full max-w-sm overflow-hidden rounded-lg border border-line bg-surface shadow-pop animate-rise', x.kind === 'undo' && 'bg-ink text-canvas border-ink')}>
+          <div key={x.id} role={x.kind === 'error' ? 'alert' : 'status'} className={cn('pointer-events-auto relative w-full max-w-sm overflow-hidden rounded-md border border-line bg-surface shadow-pop motion-safe:animate-rise', x.kind === 'undo' && 'border-ink bg-ink text-canvas')}>
             <div className="flex items-start gap-3 px-4 py-3">
-              {icon[x.kind]}
+              <span className="mt-px shrink-0">{icon[x.kind]}</span>
               <div className="min-w-0 flex-1">
-                <div className={cn('text-sm font-bold', x.kind === 'undo' ? 'text-canvas' : 'text-ink')}>{x.title}</div>
-                {x.body && <div className={cn('mt-0.5 text-[0.8125rem] whitespace-pre-line', x.kind === 'undo' ? 'text-canvas/70' : 'text-ink-3')}>{x.body}</div>}
+                <div className={cn('text-body font-bold', x.kind === 'undo' ? 'text-canvas' : 'text-ink')}>{x.title}</div>
+                {x.body && <div className={cn('text-small mt-0.5 whitespace-pre-line', x.kind === 'undo' ? 'text-canvas/70' : 'text-ink-3')}>{x.body}</div>}
               </div>
               {x.action && (
                 <button type="button" onClick={x.action.onClick}
-                  className={cn('-my-1 min-h-10 shrink-0 rounded-md px-3 text-sm font-extrabold', x.kind === 'undo' ? 'bg-canvas text-ink hover:bg-canvas/90' : 'bg-sunken text-ink hover:bg-line')}>
+                  className={cn('text-small -my-1 min-h-10 shrink-0 rounded-sm px-3 font-extrabold', x.kind === 'undo' ? 'bg-canvas text-ink hover:bg-canvas/90' : 'bg-sunken text-ink hover:bg-line')}>
                   {x.action.label}
                 </button>
               )}
-              <button type="button" onClick={() => remove(x.id)} className={cn('-mr-1 flex size-8 shrink-0 items-center justify-center rounded-md', x.kind === 'undo' ? 'text-canvas/60 hover:text-canvas' : 'text-ink-4 hover:text-ink')} aria-label="OK"><X className="size-4" /></button>
+              <button type="button" onClick={() => remove(x.id)} className={cn('-my-1 -mr-2 flex size-10 shrink-0 items-center justify-center rounded-sm', x.kind === 'undo' ? 'text-canvas/60 hover:text-canvas' : 'text-ink-4 hover:bg-sunken hover:text-ink')} aria-label={t('Fermer', 'Close')}><X className="size-4" aria-hidden /></button>
             </div>
-            {x.kind === 'undo' && <div className="absolute bottom-0 left-0 h-1 bg-brand" style={{ animation: `toast-countdown ${x.ms}ms linear forwards` }} />}
+            {x.kind === 'undo' && <div className="absolute bottom-0 left-0 h-1 bg-electric" style={{ animation: `toast-countdown ${x.ms}ms linear forwards` }} />}
           </div>
         ))}
       </div>

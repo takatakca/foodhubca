@@ -1,10 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { CalendarClock, Download, Eye, Mail, Trash2 } from 'lucide-react';
+import { CalendarClock, ChevronDown, Download, Eye, FileSpreadsheet, FileText, Mail, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonClass } from '@/components/ui/button';
-import { Banner, Card, CardHeader, PageHeader } from '@/components/ui/card';
+import { Banner, Card, CardHeader, EmptyState, PageHeader, SkeletonList } from '@/components/ui/card';
 import { FilterBar, MultiPick, CHANNEL_OPTIONS } from '@/components/ui/filter-bar';
 import { Field, Input, Select } from '@/components/ui/form';
 import { Modal } from '@/components/ui/overlay';
@@ -49,7 +49,8 @@ export default function ReportsPage() {
   const [preview, setPreview] = useState<{ key: string; data: Preview | null } | null>(null);
   const [mailFor, setMailFor] = useState<Report | null>(null);
   const [schedFor, setSchedFor] = useState<Report | null>(null);
-  const load = useCallback(() => api<{ reports: Report[]; schedules: Schedule[]; emailConfigured: boolean }>('/api/foodhub/reports').then((d) => { setReports(d.reports); setSchedules(d.schedules); setEmailOn(d.emailConfigured); }).catch((e) => toast.error(e.message)), [toast]);
+  const [loaded, setLoaded] = useState(false);
+  const load = useCallback(() => api<{ reports: Report[]; schedules: Schedule[]; emailConfigured: boolean }>('/api/foodhub/reports').then((d) => { setReports(d.reports); setSchedules(d.schedules); setEmailOn(d.emailConfigured); }).catch((e) => toast.error(e.message)).finally(() => setLoaded(true)), [toast]);
   useEffect(() => { load(); }, [load]);
   const title = (r: Report) => (lang === 'fr' && FR[r.key] ? FR[r.key][0] : r.title);
   const desc = (r: Report) => (lang === 'fr' && FR[r.key] ? FR[r.key][1] : r.description);
@@ -67,21 +68,29 @@ export default function ReportsPage() {
       {!emailOn && !(full && can('admin')) && <Banner tone="info" className="mb-4">{t('Envoi par courriel pas encore activé : les téléchargements marchent.', 'Sending by email is not turned on yet: downloads work.')}</Banner>}
       {!emailOn && full && can('admin') && <Banner tone="warn" className="mb-4">{t('Courriel pas branché : les téléchargements marchent, mais « Envoyer » et les envois programmés demandent SMTP_HOST + SMTP_USER + SMTP_PASS (votre boîte courriel) ou RESEND_API_KEY, et REPORT_EMAIL_FROM (ou AUTH_EMAIL_FROM).', 'Email not set up: downloads work, but “Email” and schedules need SMTP_HOST + SMTP_USER + SMTP_PASS (your own mailbox) or RESEND_API_KEY, and REPORT_EMAIL_FROM (or AUTH_EMAIL_FROM).')}</Banner>}
       <Hint id="reports.period"><FilterBar filters={filters} set={set} locations={locations} brands={brands} /></Hint>
+      {/* Each card is the report: one outline "Télécharger" menu (Excel, CSV, preview) and quiet send / schedule links. No black primary per card. */}
+      {!loaded && <SkeletonList count={3} className="mb-6" />}
       <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {reports.map((r) => (
-          <Card key={r.key} className="flex flex-col p-5">
-            <h2 className="text-[15px] font-bold">{title(r)}</h2>
-            <p className="mt-1 flex-1 text-[13px] text-ink-3">{desc(r)}</p>
-            <div className="mt-4 flex flex-wrap gap-1.5">
-              <Hint id="reports.download"><a className={buttonClass('primary', 'md')} href={`/api/foodhub/reports/${r.key}?format=xlsx&${query}`}><Download className="size-4" />Excel</a></Hint>
-              <a className={buttonClass('outline', 'md')} href={`/api/foodhub/reports/${r.key}?format=csv&${query}`}>CSV</a>
-              <Button variant="ghost" onClick={() => show(r.key)} icon={<Eye className="size-4" />}>{t('Aperçu', 'Preview')}</Button>
+          <Card key={r.key} className="flex min-w-0 flex-col p-5">
+            <h2 className="text-heading text-ink">{title(r)}</h2>
+            <p className="text-small mt-1 flex-1 text-ink-3">{desc(r)}</p>
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <Hint id="reports.download"><details className="group relative">
+                <summary className={buttonClass('outline', 'md', 'list-none [&::-webkit-details-marker]:hidden')}><Download className="size-4" />{t('Télécharger', 'Download')}<ChevronDown className="size-4 transition-transform group-open:rotate-180 motion-reduce:transition-none" aria-hidden /></summary>
+                <div className="absolute left-0 z-20 mt-1 w-56 rounded-md border border-line bg-surface p-1 shadow-pop motion-safe:animate-fade" role="menu">
+                  <a role="menuitem" className="text-body flex min-h-11 items-center gap-2 rounded-sm px-3 font-semibold text-ink hover:bg-sunken" href={`/api/foodhub/reports/${r.key}?format=xlsx&${query}`}><FileSpreadsheet className="size-4" aria-hidden />Excel</a>
+                  <a role="menuitem" className="text-body flex min-h-11 items-center gap-2 rounded-sm px-3 font-semibold text-ink hover:bg-sunken" href={`/api/foodhub/reports/${r.key}?format=csv&${query}`}><FileText className="size-4" aria-hidden />CSV</a>
+                  <button type="button" role="menuitem" className="text-body flex min-h-11 w-full items-center gap-2 rounded-sm px-3 text-left font-semibold text-ink hover:bg-sunken" onClick={(e) => { (e.currentTarget.closest('details') as HTMLDetailsElement | null)?.removeAttribute('open'); show(r.key); }}><Eye className="size-4" aria-hidden />{t('Aperçu', 'Preview')}</button>
+                </div>
+              </details></Hint>
               <Hint id="reports.email"><Button variant="ghost" disabled={!emailOn || !canSend} onClick={() => setMailFor(r)} icon={<Mail className="size-4" />}>{t('Envoyer', 'Email')}</Button></Hint>
               <Hint id="reports.schedule"><Button variant="ghost" disabled={!emailOn || !canSend} onClick={() => setSchedFor(r)} icon={<CalendarClock className="size-4" />}>{t('Programmer', 'Schedule')}</Button></Hint>
             </div>
           </Card>
         ))}
       </div>
+      {loaded && reports.length === 0 && <Card className="mb-6"><EmptyState title={t('Aucun rapport disponible', 'No report available')} body={t('Les rapports apparaissent quand des commandes arrivent.', 'Reports appear once orders arrive.')} /></Card>}
       <Card>
         <CardHeader title={t(`Envois programmés (${schedules.length})`, `Scheduled emails (${schedules.length})`)} subtitle={t('Envoyés après 8 h (Montréal) par la tâche quotidienne.', 'Sent after 8:00 (Montréal) by the daily job.')} />
         <div className="divide-y divide-line border-t border-line">
@@ -101,7 +110,7 @@ export default function ReportsPage() {
               }} aria-label={t('Arrêter', 'Stop')} title={t('Arrêter cet envoi', 'Stop this email')}><Trash2 className="size-5" /></button></Hint>}
             </div>
           ))}
-          {schedules.length === 0 && <div className="px-5 py-6 text-sm text-ink-3">{t('Aucun envoi programmé.', 'No scheduled email.')}</div>}
+          {schedules.length === 0 && <EmptyState compact title={t('Aucun envoi programmé', 'No scheduled email')} body={t('« Programmer » sur un rapport l’envoie chaque jour, semaine ou mois.', '“Schedule” on a report sends it every day, week or month.')} />}
         </div>
       </Card>
       {preview && (

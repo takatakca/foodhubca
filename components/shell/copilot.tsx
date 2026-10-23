@@ -39,22 +39,22 @@ export function CopilotDrawer({ onClose }: { onClose: () => void }) {
         <form className="flex items-end gap-2" onSubmit={(e) => { e.preventDefault(); ask(q); }}>
           <textarea value={q} onChange={(e) => setQ(e.target.value)} rows={1} placeholder={t('Posez une question…', 'Ask a question…')}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(q); } }}
-            className="max-h-32 min-h-11 flex-1 resize-none rounded-lg border border-line-2 bg-surface px-3 py-2.5 text-sm outline-none focus:border-ink" />
+            className="max-h-32 min-h-11 flex-1 resize-none rounded-lg border border-line-2 bg-surface px-3 py-2.5 text-body outline-none focus:border-ink" />
           <button type="submit" disabled={!q.trim() || busy} className="flex size-11 items-center justify-center rounded-lg bg-ink text-canvas disabled:opacity-40" aria-label={t('Envoyer', 'Send')}><ArrowUp className="size-5" /></button>
         </form>
       }>
       <div className="space-y-3 p-5">
         {msgs.length === 0 && (
           <div>
-            <div className="mb-3 text-sm text-ink-3">{t('Essayez :', 'Try:')}</div>
+            <div className="mb-3 text-body text-ink-3">{t('Essayez :', 'Try:')}</div>
             <div className="flex flex-col gap-2">
-              {suggestions.map((s) => <button key={s} type="button" onClick={() => ask(s)} className="rounded-lg border border-line bg-surface px-3.5 py-2.5 text-left text-sm font-semibold text-ink hover:border-ink-4">{s}</button>)}
+              {suggestions.map((s) => <button key={s} type="button" onClick={() => ask(s)} className="rounded-lg border border-line bg-surface px-3.5 py-2.5 text-left text-body font-semibold text-ink hover:border-ink-4">{s}</button>)}
             </div>
           </div>
         )}
         {msgs.map((m, i) => (
           <div key={i} className={cn('flex', m.who === 'me' ? 'justify-end' : 'justify-start')}>
-            <div className={cn('max-w-[88%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-line', m.who === 'me' ? 'rounded-br-md bg-ink text-canvas' : 'rounded-bl-md border border-line bg-surface text-ink')}>
+            <div className={cn('max-w-[88%] rounded-2xl px-4 py-2.5 text-body whitespace-pre-line', m.who === 'me' ? 'rounded-br-md bg-ink text-canvas' : 'rounded-bl-md border border-line bg-surface text-ink')}>
               {m.text}
               {m.source && <div className="mt-1.5"><Badge tone={m.source === 'claude' ? 'brand' : 'neutral'}>{m.source === 'claude' ? 'Claude' : t('Réponse intégrée', 'Built-in answer')}</Badge></div>}
             </div>

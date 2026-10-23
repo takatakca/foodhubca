@@ -1,5 +1,13 @@
 # Food Hub: progress log and task board
 
+## 2026-10-23 — Dev-only npm audit findings cleared where a safe fix exists (`fix/dev-tooling-audit`, on top of #92)
+
+- `package-lock.json` only (package.json unchanged): vitest 4.1.9 → 4.1.12 (+ @vitest/*), vite 8.1.3 → 8.3.4 (rolldown 1.2.14), brace-expansion 1.1.15 → 1.1.21 and 5.0.7 → 5.0.12, browserslist 4.28.4 → 4.29.3, js-yaml 4.3.0 → 4.3.2. Next stays 16.4.2.
+- `npm audit`: 11 (9 high, 2 moderate) → 5 high; `npm audit --omit=dev`: 0 → 0. The 5 left are one chain (eslint-config-next → @next/eslint-plugin-next → fast-glob → micromatch → braces ≤3.0.3, no patched braces exists); npm only offers a semver-major downgrade to eslint-config-next 14, not applied. Lint-time only.
+- npm 10.9.8/10.9.9 `audit fix` crash (arborist `#loadPeerSet` null `edgesOut` on vitest's optional peers), so the fix ran with `npx npm@11.21.0 audit fix --before=2026-10-16` (no --force; 7-day cooldown on new releases). Lockfile format unchanged; `npm ci` with npm 10.9.8 (as in the Docker image) installs it.
+- Shared with Next's production tree, in range: caniuse-lite 1.0.30001800 → 1.0.30001816 (browser data) and nanoid 3.3.19 → 3.3.20 (patch), pulled by the new browserslist and vite's postcss.
+- Checks: typecheck OK, lint 0 errors (1 old warning), 1556 tests + 1 skipped, webpack build OK, verify:foodhub 567/0.
+
 ## 2026-10-21 — Simpler sign-in page + « Continuer avec Google » (`feature/login-google-signin`)
 
 - One calm sign-in screen: Food Hub mark, big « Continuer avec Google / Continue with Google » (only when `GOOGLE_OAUTH_CLIENT_ID` is set), the code-by-email/text sign-in as the second option, the owner recovery behind a small link; FR first, EN; 44 px targets; first run, code and recovery steps kept.

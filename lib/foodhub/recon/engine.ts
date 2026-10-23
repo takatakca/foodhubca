@@ -13,7 +13,7 @@ import { localDate } from '../hours';
 import { getRepo, type Doc } from '../repo';
 import type { ChannelKey, StoredOrder } from '../types';
 import { expectedPayout, getFees, planFor, type Expected, type FeeConfig } from './fees';
-import { headerSignature, lineId, parseStatement, type ColumnMapping, type FormatKey, type LineKind, type PayoutLine } from './statements';
+import { headerSignature, isPlaceholder, lineId, parseStatement, type ColumnMapping, type FormatKey, type LineKind, type PayoutLine } from './statements';
 
 export const COL = { imports: 'payout_imports', lines: 'payout_lines', cases: 'recon_cases', deposits: 'payout_deposits', mappings: 'statement_mappings', approvals: 'ledger_approvals' } as const;
 const DAY = 86400_000;
@@ -74,13 +74,32 @@ export async function importStatement(input: { fileName: string; bytes: Uint8Arr
     return { ...l, id: n ? lineId(channel, l, n) : base, importId, importIds: [importId], channel };
   });
   const existing = new Map((await repo.listDocs<PayoutLine>(COL.lines, {})).map((d) => [d.id, d]));
+  // Lines saved before placeholder cells were read as empty carry the text "NULL" as a reference (DoorDash prints it in
+  // "Merchant delivery ID" on order rows and in "DoorDash order ID" on fee rows), so the same row read today has another id.
+  // Each such row this file contains again replaces the old line (keeping its imports): it is never counted twice.
+  const replaced: string[] = [];
+  const legacy = new Map<string, Doc<PayoutLine>[]>();
+  for (const d of existing.values()) {
+    if (d.data.channel !== channel || !(isPlaceholder(d.data.orderRef) || isPlaceholder(d.data.orderRef2) || isPlaceholder(d.data.payoutRef))) continue;
+    const k = sameRow(d.data);
+    legacy.set(k, [...(legacy.get(k) ?? []), d]);
+  }
+  if (legacy.size) for (const l of lines) {
+    if (existing.has(l.id)) continue;
+    const old = legacy.get(sameRow(l))?.shift();
+    if (!old) continue;
+    replaced.push(old.id);
+    const ids = [...new Set([...lineImportIds(old.data), importId])];
+    l.importId = ids[0]; l.importIds = ids;
+  }
+  if (replaced.length) await repo.deleteDocs(COL.lines, replaced);
   const fresh = lines.filter((l) => !existing.has(l.id));
   // A line an earlier file already had now belongs to both imports, so it survives deleting either one.
   const shared = lines.filter((l) => existing.has(l.id)).map((l) => { const d = existing.get(l.id)!; return { ...d, data: { ...d.data, importIds: [...new Set([...lineImportIds(d.data), importId])] } }; });
   await repo.putDocs(COL.lines, [...fresh.map((l) => ({ id: l.id, key: refKey(l.orderRef) ?? refKey(l.orderRef2), at: lineAt(l), data: l })), ...shared]);
   const { periodFrom, periodTo } = statementPeriod(lines);
   const record: StatementImport = {
-    id: importId, channel, fileName: input.fileName.slice(0, 120), format: parsed.format, rows: parsed.lines.length + parsed.skipped, lines: lines.length, newLines: fresh.length,
+    id: importId, channel, fileName: input.fileName.slice(0, 120), format: parsed.format, rows: parsed.lines.length + parsed.skipped, lines: lines.length, newLines: fresh.length - replaced.length,
     skipped: parsed.skipped, totalNet: r2(lines.reduce((s, l) => s + l.net, 0)), periodFrom, periodTo,
     importedBy: input.actor.name, importedAt: nowIso(), source: input.source ?? 'upload',
   };
@@ -104,6 +123,11 @@ export function statementPeriod(lines: Array<Pick<PayoutLine, 'kind' | 'orderDat
   return { periodFrom, periodTo: periodFrom && periodTo && periodTo < periodFrom ? periodFrom : periodTo };
 }
 
+/** One statement row, whatever its id: references (placeholders read as empty), amount, order date and payout. */
+function sameRow(l: Pick<PayoutLine, 'orderRef' | 'orderRef2' | 'net' | 'orderDate' | 'payoutRef'>): string {
+  return [refKey(l.orderRef) ?? '', refKey(l.orderRef2) ?? '', l.net.toFixed(2), l.orderDate ?? '', isPlaceholder(l.payoutRef) ? '' : l.payoutRef ?? ''].join('|');
+}
+
 /** Imports a line belongs to (older lines only know their first import). */
 export function lineImportIds(l: Pick<PayoutLine, 'importId' | 'importIds'>): string[] {
   return l.importIds?.length ? l.importIds : [l.importId];
@@ -125,9 +149,10 @@ export async function deleteImport(id: string, actor: Actor): Promise<boolean> {
   return true;
 }
 
+/** Matching key of an order reference; a placeholder ("NULL", "N/A", "-") is no reference. */
 export function refKey(ref: string | null | undefined): string | null {
   const s = String(ref ?? '').trim().toLowerCase().replace(/^#/, '');
-  return s ? s : null;
+  return s && !isPlaceholder(s) ? s : null;
 }
 function lineAt(l: Pick<PayoutLine, 'orderDate' | 'payoutDate'>) {
   const d = l.orderDate ?? l.payoutDate;
@@ -317,7 +342,9 @@ export async function reconcile(q: { from: string; to: string; channels?: Channe
     const rs = rows.filter((r) => r.channel === ch);
     const counts = Object.fromEntries((Object.keys(STATUS_LABEL) as ReconStatus[]).map((s) => [s, rs.filter((r) => r.status === s).length])) as Record<ReconStatus, number>;
     const paid = r2(rs.reduce((s, r) => s + (r.actual ?? 0), 0));
-    const expected = r2(rs.filter((r) => r.actual !== null).reduce((s, r) => s + r.expected.net + r.promotions, 0));
+    // What the platform owed for the paid orders, exactly as each order's diff counts it (actual − diff): a restaurant-funded
+    // promotion the order already carries is in expected.net once, never subtracted a second time here.
+    const expected = r2(rs.reduce((s, r) => s + (r.actual !== null && r.diff !== null ? r.actual - r.diff : 0), 0));
     return {
       channel: ch, label: CHANNEL_LABELS[ch], orders: rs.length, sales: r2(rs.reduce((s, r) => s + r.total, 0)), expected, paid, diff: r2(paid - expected),
       // Money still to chase: problems the owner has not already recovered, written off or ignored.
@@ -435,6 +462,13 @@ export async function syncCases(result: ReconResult, actor: Actor = { username: 
   };
   for (const [id, cur] of existing) {
     if (want.has(id) || !(cur.status === 'open' || cur.status === 'disputed') || cur.type === 'deposit_gap') continue;
+    // "Paid order not in Food Hub" opened for a placeholder reference ("doordash:unknown:NULL", a tablet fee or an equipment
+    // rebate read as an order before placeholders were ignored): not an order, so it is closed whatever the range.
+    if (cur.type === 'unknown_order' && refKey(cur.ref) === null) {
+      closed++;
+      writes.push({ id, key: cur.channel, at: cur.openedAt, data: { ...cur, status: 'resolved', autoClosed: true, updatedAt: now, notes: [...cur.notes, { at: now, by: actor.name, text: 'Closed automatically: this statement row is a fee or a rebate, not an order.' }] } });
+      continue;
+    }
     if (!cur.orderDate || cur.orderDate < rangeFrom || cur.orderDate > rangeTo) continue;
     if (result.channels.every((c) => c.channel !== cur.channel) || !paidNow(cur)) continue;
     closed++;

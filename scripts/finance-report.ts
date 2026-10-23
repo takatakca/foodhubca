@@ -155,6 +155,14 @@ const unexplained = r2(lines.filter((l) => l.inPnl).reduce((a, l) => a + l.unexp
   const span = qstOnly.map((l) => l.month).sort();
   if (owed >= 1) addTodo({ id: 'AUTO-GST-NOT-CHARGED', priority: 'P1', area: 'Tax', task: `${where}: ${qstOnly.length} order(s) from ${span[0]} to ${span[span.length - 1]} were taxed QST only (no GST charged to the customer) — the GST (about ${owed.toFixed(2)} $) is still owed on those sales (Tax_Summary, last two columns). Fix the store tax settings / tax numbers in the platform and ask the accountant how to report it`, platform: where, amount: owed, due: null, who: 'Owner / accountant', status: 'Open', notes: '' });
 }
+{
+  const untaxed = lines.filter((l) => l.inPnl && l.taxNotCharged > 0);
+  const owed = r2(untaxed.reduce((a, l) => a + l.taxNotCharged, 0));
+  const sales = r2(untaxed.reduce((a, l) => a + l.untaxedSales, 0));
+  const where = [...new Set(untaxed.map((l) => PLATFORM_LABEL[l.platform]))].join(', ');
+  const span = untaxed.map((l) => l.month).sort();
+  if (owed >= 1) addTodo({ id: 'AUTO-TAX-NOT-CHARGED', priority: 'P1', area: 'Tax', task: `${where}: ${untaxed.length} order(s) from ${span[0]} to ${span[span.length - 1]} carried no sales tax at all (${sales.toFixed(2)} $ of pre-tax sales: no GST, no QST charged to the customer) — the GST + QST (about ${owed.toFixed(2)} $) are still owed on those sales (Tax_Summary, last two columns). Check the store tax settings in the platform portal and the tax sent with the menus, then ask the accountant how to report it`, platform: where, amount: owed, due: null, who: 'Owner / accountant', status: 'Open', notes: '' });
+}
 if (Math.abs(unexplained) >= 1) addTodo({ id: 'AUTO-UNEXPLAINED', priority: 'P2', area: 'Data', task: `Statement lines leave ${unexplained.toFixed(2)} $ not broken down (a statement column is not mapped) — see Files tab warnings`, platform: 'All', amount: unexplained, due: null, who: 'Claude', status: 'Open', notes: '' });
 
 const { bytes, expected } = buildFinanceWorkbook({

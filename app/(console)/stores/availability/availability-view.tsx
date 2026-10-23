@@ -142,7 +142,8 @@ function KitchenCard({ k, tz }: { k: KitchenBoard; tz?: string }) {
   return (
     <Card>
       <div className="flex flex-wrap items-center gap-3 border-b border-line px-5 py-4">
-        <div className="min-w-0 flex-1">
+        {/* basis-48: on a phone the badges wrap under the name instead of squeezing it to a sliver (min-w-0 + flex-1 let it shrink to 18 px). */}
+        <div className="min-w-0 grow basis-48">
           <h2 className="text-heading text-ink">{shortLoc(k.name)}</h2>
           <div className="text-small text-ink-3">{pick(t, k.nextOpening.label)}</div>
         </div>

@@ -7,6 +7,7 @@ import { Banner } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/form';
 import { Section } from '../settings-ui';
+import { TechDetails } from '../tech-details';
 import { api } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { BILLED_PLATFORM_LABELS, EXTRA_BRAND_PLATFORM_CAD, formatCad, type BilledPlatform } from '@/lib/foodhub/pos/clover-pricing';
@@ -89,8 +90,9 @@ export function CloverBillingSection() {
             action={p.enabled && p.meteredIdSet ? <Button size="sm" variant="outline" loading={busy === 'run'} onClick={() => post({ action: 'run' }, 'run')} icon={<Send className="size-4" />}>{t('Lancer maintenant', 'Run now')}</Button> : undefined}>
             {p.enabled && p.meteredIdSet
               ? t(`Envoi des marques supplémentaires à Clover : activé. Le mois ${p.previousMonth} est envoyé une seule fois pendant ${p.month}.`, `Sending extra brands to Clover: on. ${p.previousMonth} is sent once during ${p.month}.`)
-              : t('Aperçu seulement : rien n’est envoyé à Clover tant que FOODHUB_CLOVER_METERED_ENABLED=true et CLOVER_METERED_EXTRA_BRAND_ID ne sont pas réglés (docs/CLOVER_BILLING.md).', 'Preview only: nothing is sent to Clover until FOODHUB_CLOVER_METERED_ENABLED=true and CLOVER_METERED_EXTRA_BRAND_ID are set (docs/CLOVER_BILLING.md).')}
-            {p.exemptCount > 0 && <> {t(`${p.exemptCount} marchand(s) exempté(s).`, `${p.exemptCount} exempt merchant(s).`)}</>}
+              : t('Aperçu seulement : rien n’est envoyé à Clover tant que l’envoi n’est pas activé sur le serveur.', 'Preview only: nothing is sent to Clover until sending is turned on on the server.')}
+            {p.exemptCount > 0 && <> {p.exemptCount === 1 ? t('1 marchand exempté.', '1 exempt merchant.') : t(`${p.exemptCount} marchands exemptés.`, `${p.exemptCount} exempt merchants.`)}</>}
+            {!(p.enabled && p.meteredIdSet) && <TechDetails>FOODHUB_CLOVER_METERED_ENABLED=true · CLOVER_METERED_EXTRA_BRAND_ID · docs/CLOVER_BILLING.md</TechDetails>}
           </Banner>
           {p.merchants.length === 0 && <p className="text-[14px] text-ink-3">{t('Aucun marchand approuvé par l’app Clover pour l’instant.', 'No merchant approved through the Clover app yet.')}</p>}
           <div className="space-y-4">

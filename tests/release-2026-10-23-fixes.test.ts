@@ -225,6 +225,10 @@ describe('a statement covers only the days it lists (Uber monthly Payment Detail
     await repo.putDocs(COL.imports, [{ ...doc, data: legacy }]);
     expect(statusOf(await reconcile(q))).toMatchObject({ 'wf-s3': 'missing', 'wf-a2': 'not_covered', 'wf-o1': 'not_covered' });
     expect((await repo.getDoc<any>(COL.imports, out.import.id))?.data).toMatchObject({ periodFrom: '2026-09-01', periodTo: '2026-09-30', periodRule: PERIOD_RULE });
+    // The Statements page lists the same corrected days, even before any reconciliation ran.
+    await repo.putDocs(COL.imports, [{ ...doc, data: legacy }]);
+    const { listImports } = await import('../lib/foodhub/recon/engine');
+    expect((await listImports()).map((d) => [d.data.periodFrom, d.data.periodTo])).toEqual([['2026-09-01', '2026-09-30']]);
   });
 });
 

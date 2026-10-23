@@ -235,8 +235,8 @@ export interface ReconResult {
   imports: number;
 }
 
-/** Days covered by each platform's imported statements (an order is only "missing" inside a covered period). */
-async function coverage(): Promise<Record<string, Array<[string, string]>>> {
+/** Imported statements, each period worked out by the current `statementPeriod` rule: the Statements page shows the days coverage uses. */
+export async function listImports(): Promise<Doc<StatementImport>[]> {
   const repo = getRepo();
   const docs = await repo.listDocs<StatementImport>(COL.imports, {});
   const stale = docs.filter((d) => d.data.periodRule !== PERIOD_RULE);
@@ -249,14 +249,21 @@ async function coverage(): Promise<Record<string, Array<[string, string]>>> {
       if (ls) ls.push(l.data); else byImport.set(id, [l.data]);
     }
     const fixed: Doc<StatementImport>[] = [];
+    const removed = new Set<string>();
     for (const d of stale) {
       d.data = { ...d.data, ...statementPeriod(byImport.get(d.id) ?? []), periodRule: PERIOD_RULE };
-      if (await repo.getDoc(COL.imports, d.id)) fixed.push(d); // never brings back a statement removed meanwhile
+      if (await repo.getDoc(COL.imports, d.id)) fixed.push(d); else removed.add(d.id); // never brings back a statement removed meanwhile
     }
     if (fixed.length) await repo.putDocs(COL.imports, fixed);
+    if (removed.size) return docs.filter((d) => !removed.has(d.id));
   }
+  return docs;
+}
+
+/** Days covered by each platform's imported statements (an order is only "missing" inside a covered period). */
+async function coverage(): Promise<Record<string, Array<[string, string]>>> {
   const out: Record<string, Array<[string, string]>> = {};
-  for (const d of docs) {
+  for (const d of await listImports()) {
     const i = d.data;
     if (i.periodFrom && i.periodTo) (out[i.channel] ??= []).push([i.periodFrom, i.periodTo]);
   }

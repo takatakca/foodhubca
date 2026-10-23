@@ -26,13 +26,19 @@ export async function timedFetch(url: string, init: RequestInit = {}, opts: { ti
 /** Network errors that prove a request never left (no connection was made): the other side never saw it. */
 const NEVER_SENT_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ERR_INVALID_URL', 'UND_ERR_CONNECT_TIMEOUT']);
 
+/** The system code of a fetch that threw (fetch puts it on `cause`), or '' when there is none. */
+export function networkErrorCode(e: unknown): string {
+  const err = e as { code?: unknown; cause?: { code?: unknown } } | null;
+  return String(err?.cause?.code ?? err?.code ?? '');
+}
+
 /**
  * A fetch that threw: true only when the request surely never reached the other side (DNS failure, connection
- * refused). A timeout (timedFetch's abort), a dropped connection or any other error may have been received and acted
- * on: its outcome is unknown.
+ * refused, bad URL, connect timeout). A timeout (timedFetch's abort), a dropped connection or any other error may have
+ * been received and acted on: its outcome is unknown.
  */
 export function neverSent(e: unknown): boolean {
-  const err = e as { name?: unknown; code?: unknown; cause?: { code?: unknown } } | null;
-  if (err?.name === 'AbortError' || err?.name === 'TimeoutError') return false;
-  return NEVER_SENT_CODES.has(String(err?.cause?.code ?? err?.code ?? ''));
+  const name = (e as { name?: unknown } | null)?.name;
+  if (name === 'AbortError' || name === 'TimeoutError') return false;
+  return NEVER_SENT_CODES.has(networkErrorCode(e));
 }

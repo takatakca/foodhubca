@@ -38,6 +38,7 @@
 // Clover is never called from tests (fetch is mocked).
 import { logActivity } from '../activity';
 import { stripSlash } from '../config';
+import { networkErrorCode, neverSent } from '../env-utils';
 import { getRepo } from '../repo';
 import { billingExemptMerchants, cloverApp, cloverPhoneAppEnabled } from './clover-apps';
 import { phoneMonth, previousMonth, voiceAiEntitled, type Entitlement, type EntitlementReason } from './clover-entitlement';
@@ -175,14 +176,6 @@ async function savedWouldBill(mid: string): Promise<boolean> {
 
 function apiBase() { return stripSlash(process.env.CLOVER_BASE_URL || 'https://api.clover.com'); }
 
-/** Network errors that prove the request never left (nothing reached Clover): safe to try again. */
-const PRE_SEND_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ERR_INVALID_URL', 'UND_ERR_CONNECT_TIMEOUT']);
-
-function errCode(e: unknown): string {
-  const err = e as { code?: unknown; cause?: { code?: unknown } } | null;
-  return String(err?.cause?.code ?? err?.code ?? '');
-}
-
 type SendOutcome = { kind: 'ok' } | { kind: 'refused'; status: number; detail: string } | { kind: 'uncertain'; detail: string };
 
 /** One metered POST. 429 is retried inside cloverFetch (Clover did not process it). */
@@ -196,8 +189,9 @@ async function postMinutes(mid: string, token: string, meteredId: string, minute
     if (res.status >= 500) return { kind: 'uncertain', detail: `HTTP ${res.status}` };
     return { kind: 'refused', status: res.status, detail: `HTTP ${res.status}` };
   } catch (e) {
-    const code = errCode(e);
-    if (PRE_SEND_CODES.has(code)) return { kind: 'refused', status: 0, detail: `network ${code}` };
+    const code = networkErrorCode(e);
+    // The request never left (nothing reached Clover): safe to try again.
+    if (neverSent(e)) return { kind: 'refused', status: 0, detail: `network ${code}` };
     const name = (e as { name?: string } | null)?.name;
     return { kind: 'uncertain', detail: name === 'AbortError' || name === 'TimeoutError' ? 'timeout' : `network ${code || name || 'error'}` };
   }

@@ -215,7 +215,8 @@ const TRACKING_SMS_CLAIM = (deliveryId: string) => `delivery_tracking_sms:${deli
  * Text the tracking link once per delivery, when a courier is on it. The text is claimed first (one atomic insert), so
  * events that arrive together, a fleet's retry or a second server never send it twice. A send that surely failed (Twilio
  * said no, SMS not set up, connection refused) gives the claim back, so the next courier event tries again. A send whose
- * answer was lost (timeout, dropped connection) keeps it: Twilio may have sent it, and a second text is worse than none.
+ * answer was lost (timeout, dropped connection, a Twilio 5xx) keeps it: Twilio may have sent it, and a second text is
+ * worse than none. That one is logged as "sms_uncertain", not as a failure.
  */
 async function textTracking(order: DirectOrder, d: Delivery): Promise<Delivery> {
   const s = await getDeliverySettings();
@@ -229,8 +230,9 @@ async function textTracking(order: DirectOrder, d: Delivery): Promise<Delivery> 
     : `${order.brandName}: a courier has your order ${order.number}. Track it: ${d.trackingUrl}${d.dropoffPin ? ` — Code for the courier: ${d.dropoffPin}` : ''}${d.containsAlcohol ? ' — Alcohol: photo ID required.' : ''}`;
   const r = await sendSms({ to: order.customer.phone!, body }, { purpose: 'delivery_tracking', by: 'Food Hub' });
   if (!r.ok && !r.uncertain) await repo.releaseKv(claim);
-  const failed = r.uncertain ? `Tracking link may not have been texted (${r.message}). Not sent again, so the customer never gets it twice.` : `Tracking link not texted: ${r.message}`;
-  await addDirectEvent(order, r.ok ? 'sms_tracking' : 'sms_failed', r.ok ? 'Tracking link texted to the customer' : failed);
+  if (r.ok) await addDirectEvent(order, 'sms_tracking', 'Tracking link texted to the customer');
+  else if (r.uncertain) await addDirectEvent(order, 'sms_uncertain', `Tracking link may not have been texted (${r.message}). Not sent again, so the customer never gets it twice.`);
+  else await addDirectEvent(order, 'sms_failed', `Tracking link not texted: ${r.message}`);
   return r.ok ? updateDelivery(d, (cur) => ({ ...cur, trackingSmsAt: nowIso() })) : d;
 }
 

@@ -21,17 +21,22 @@ from search-index snippets only and must be re-checked with Clover Developer Rel
 
 - **FACT.** Clover's App Settings page says an Android app runs on Clover devices, while a Web app (REST client) is
   launched from the Merchant Dashboard: "Select Clover devices only if you want your Android app to run on the
-  Clover device." One app record can have several types.
-  Source: https://docs.clover.com/dev/docs/app-settings (read 2026-10-23).
+  Clover device." Several app types can be selected, and the page is used to edit an existing app's settings; it does
+  not say the type is locked at creation. Source: https://docs.clover.com/dev/docs/app-settings (updated 2026-03-24,
+  read 2026-10-23).
 - **UNCONFIRMED.** A Clover community answer (snippet only) said an Android app that wraps a WebView is still an
   Android app.
 - **FACT (repo).** TAKATAK Food Hub (629HFYHNVMZYR) and TAKATAK Phone AI (20FK28P20HJC6) are web apps, both
-  PENDING review since 2026-10-17. The empty draft "on2go" (N4NYCJCZ17FF4) is type "Android & Web", site
-  https://on2go.ca/. `docs/CLOVER_MULTI_APP.md` (owner step 2) says to keep that draft "for a future ON2GO device
-  app", and an app's type and billing country are set at creation.
-- **INFERENCE.** The picture register must be an Android APK on the device. Food Hub and Phone AI cannot be this
-  screen. An Android shell around a WebView could reuse web tile code, but payment, printer and inventory calls
-  still go through native Clover SDK connectors.
+  PENDING review since 2026-10-17. `docs/CLOVER_MULTI_APP.md` (owner step 2) said to keep the older "on2go" draft
+  (N4NYCJCZ17FF4) "for a future ON2GO device app", and that an app's type and billing country are set at creation; the
+  Clover page above does not support the type part.
+- **FACT (owner, 2026-10-23).** The owner created a new draft "TAKATAK Picture Register" / FR "Caisse en images
+  TAKATAK" (App ID J0H36VTJBSBBP), with the app type intentionally unset. He renamed N4NYCJCZ17FF4 to "ON2GO" and saved
+  its FR/EN taglines and benefits; it still has App type Android (Mobile) + REST and an earlier Read + Write Customers
+  permission he may remove. The TAKATAK app (listings, social) is F4TMP23FM7K5M.
+- **INFERENCE.** The picture register must be an Android APK on the device. Food Hub and Phone AI launch from the
+  Merchant Dashboard, so they cannot be this screen. An Android shell around a WebView could reuse web tile code, but
+  payment, printer and inventory calls still go through native Clover SDK connectors (limits in §15).
 
 ## 2. Clover Android platform
 
@@ -56,25 +61,27 @@ from search-index snippets only and must be re-checked with Clover Developer Rel
 | Flex 4, Flex Pocket, Compact | Android 13 (API 33) | Flex: portrait | P1 if available in Canada |
 | Gen-1 (Station C010, Mobile C020/C021, Mini C030/C031, Flex C041/C042) | End-of-App-Update | — | **Never list as supported** |
 
-- **FACT.** Clover recommends "a targetSdkVersion of 25 or lower". minSdkVersion by device: 17 runs on any Clover
-  device; 29 for Flex 3, Mini 3, Station Duo 2 and Station Solo; 33 for Flex 4, Flex Pocket and Compact (page
-  updated 2026-05-08). Source: https://docs.clover.com/docs/setting-android-sdk-versions (read 2026-10-23).
-- **FACT.** Gen-1 devices reached End-of-App-Update on 2026-05-15: no new apps, no APK updates.
-  Source: https://docs.clover.com/docs/announcement-end-of-app-update-gen-1-devices (read 2026-10-23).
-  **CONFLICT:** another Clover page gives 2026-03-30 for US Gen-1 dates
-  (https://docs.clover.com/dev/docs/clover-devices). Either way, Gen-1 is out.
+- **FACT.** Clover recommends a targetSdkVersion of 25 or lower, but "higher versions are supported if thoroughly
+  tested". minSdkVersion by device: 17 runs on any Clover device; 29 for Flex 3, Mini 3, Station Duo 2 and Station
+  Solo; 33 for Flex 4, Flex Pocket and Compact (page updated 2026-05-08).
+  Source: https://docs.clover.com/docs/setting-android-sdk-versions (read 2026-10-23).
+- **FACT.** Gen-1 devices reached End-of-App-Update on 2026-05-15: no new apps, no APK updates. The announcement says
+  the cutoff was extended from March 30 to May 15, 2026, for North America (United States and Canada); the devices
+  page still carries the old March 30 title. Gen-1 is out.
+  Sources: https://docs.clover.com/docs/announcement-end-of-app-update-gen-1-devices ;
+  https://docs.clover.com/dev/docs/clover-devices (read 2026-10-23).
 - **FACT.** Device list: Station Duo 2, Station Solo, Mini 3 and Flex 3 run AOSP 10 (API 29); the original Station
   Duo runs 8.1, upgradable to 10; Flex 4, Flex Pocket and Compact run Android 13. Design requirements: Station Duo
   landscape and must fill both merchant and customer screens; Mini landscape; Flex portrait. WCAG, 4.5:1 contrast,
   alt text and TalkBack on merchant- and customer-facing screens.
   Sources: https://docs.clover.com/dev/docs/clover-devices ; https://docs.clover.com/dev/docs/app-design-requirements
   (read 2026-10-23).
-- **CONFLICT (to ask DevRel).** The general SDK page says targetSdk 25 or lower, but the Clover Kiosk quick start says
-  kiosk apps must target Android 10 (API 29) with clover-android-sdk
-  (https://docs.clover.com/dev/docs/developer-quick-start-clover-kiosk-integration).
-- **INFERENCE.** minSdk 29. targetSdk: follow the page that matches the mode (25 for the staff register per the SDK
-  page, 29 for kiosk per the quick start) until DevRel answers; compile against a current SDK. Before coding,
-  confirm whether the owner's Station Duo is a Duo 1 or a Duo 2.
+- **FACT.** The Clover Kiosk quick start lists Android 10 (API 29) as the target SDK, with clover-android-sdk
+  (https://docs.clover.com/dev/docs/developer-quick-start-clover-kiosk-integration, updated 2026-05-27, read
+  2026-10-23). This is no conflict with the SDK page, which allows higher targets when thoroughly tested.
+- **INFERENCE.** minSdk 29 and targetSdk 29 for both modes (staff register and kiosk), fully tested on each Canadian
+  device ROM in sandbox; a targetSdk of 25 below a minSdk of 29 makes no sense. Compile against a current SDK. DevRel
+  question 4 only asks for confirmation. Before coding, confirm whether the owner's Station Duo is a Duo 1 or a Duo 2.
 
 ## 4. Station Duo: merchant screen vs customer screen
 
@@ -84,7 +91,9 @@ from search-index snippets only and must be re-checked with Clover Developer Rel
   the Clover API and shows on the customer screen. Station Duo 1 is API 27 with a 14" and a 7" display.
   Sources: https://docs.clover.com/docs/build-apps-for-station-duo-2 ;
   https://docs.clover.com/docs/building-apps-for-station-pro (read 2026-10-23).
-- **INFERENCE.** The staff picture register fits the Duo's merchant screen with no special permission. A customer
+- **INFERENCE.** The staff picture register fits the Duo's merchant screen with no special permission. Clover's design
+  requirements still say content fills both screens on a Station Duo (§3): plan an order summary on the customer screen
+  through the customer-facing platform, or ask DevRel for a written exemption (DevRel question 11). A customer
   self-order screen on the Duo's small customer display is constrained and not its intended use: it is **not** the
   kiosk plan.
 
@@ -93,12 +102,19 @@ from search-index snippets only and must be re-checked with Clover Developer Rel
 - **FACT.** No official Clover document says a third-party app may replace or reskin Register. App approval forbids
   apps that "impersonate a Clover or another developer's app".
   Source: https://docs.clover.com/docs/developer-app-approval (read 2026-10-23).
+- **FACT.** Clover's Developer Program Policies, "Deceptive Behavior": an app must not have names or icons confusingly
+  similar to existing products or to the Clover apps supplied with the device, and must not simulate functionality or
+  warnings of Clover's operating system or other Clover apps. "Functionality Policies": an app may not install or
+  launch other executable code, nor unlock features through any channel other than the App Market.
+  Source: https://www.clover.com/app-market-policies (last updated 2025-01-01, read in a browser 2026-10-23).
 - **UNCONFIRMED.** A community answer (snippet) said a custom Android home app needs the user to set it as default
   home, and doubted Clover would allow it without a special merchant relationship.
 - **FACT.** Clover's own Kiosk guide launches the app on `BOOT_COMPLETED`.
   Source: https://docs.clover.com/dev/docs/developer-quick-start-clover-kiosk-integration (read 2026-10-23).
 - **INFERENCE.** The picture register is a normal app the staff opens, next to Register, writing real Clover orders.
-  It does not try to become the launcher, and it does not copy Clover's or McDonald's look or branding.
+  It does not try to become the launcher, and it does not copy Clover's or McDonald's look or branding. Its English
+  name should not lean on "Register" (the built-in app's name): "TAKATAK Picture Register" could be read as a version
+  of Clover's Register (OWNER_DECISIONS 8, DevRel question 10).
 
 ## 6. Item images
 
@@ -149,12 +165,15 @@ from search-index snippets only and must be re-checked with Clover Developer Rel
   clover-android-connector-sdk 262.2, needs a Remote App ID, and waits for `onDeviceConnected`.
   Sources: https://docs.clover.com/docs/using-payment-connector ;
   https://docs.clover.com/docs/take-a-payment-with-payment-connector (read 2026-10-23).
-- **FACT.** Canada: `auth`, `preAuth` and `tipAdjustAuth` are not supported; Interac refunds need the card inserted;
-  Canadian integrations need SDK 2.0 or higher.
+- **FACT.** Canada: both pages list `auth()`, `preAuth()` and `tipAdjustAuth()` as not supported, under intros that
+  tie the Canadian limits to Interac (the Canada-merchants page says the methods differ "in part" because devices
+  process Interac). Neither row says whether the limit also covers credit cards. Interac refunds need the card
+  inserted; Canadian integrations need SDK 2.0 or higher.
   Sources: https://docs.clover.com/docs/region-specific-features (updated 2026-07-10) ;
-  https://docs.clover.com/dev/docs/canadian-merchants (read 2026-10-23).
-- **INFERENCE.** Payment Connector in Canada, not the Android Payments API. Tips at sale time (no tip adjust). Clover's
-  secure payment screen takes the money; full payment only.
+  https://docs.clover.com/dev/docs/canadian-merchants (updated 2026-03-24, read 2026-10-23).
+- **INFERENCE.** Payment Connector in Canada, not the Android Payments API. Interac: no auth, pre-auth or tip adjust;
+  credit: to confirm with DevRel (question 12). Tips at sale time is our design choice either way. Clover's secure
+  payment screen takes the money; full payment only.
 
 ## 9. PCI scope
 
@@ -172,6 +191,7 @@ from search-index snippets only and must be re-checked with Clover Developer Rel
 
 - **FACT.** "Clover devices are only certified for use in attended and semi-attended environments, as defined in the"
   PCI PTS POI Evaluation FAQ. Integrations that use a Clover device unattended are neither allowed nor approved.
+  Clover does not define "semi-attended" itself; it points to that PCI FAQ.
   Source: https://docs.clover.com/docs/semi-integration-process (read 2026-10-23).
 - **CONFLICT.** Clover's Kiosk semi-integration announcement (updated 2026-06-17) lists "unattended kiosks" as an ideal
   use. Source: https://docs.clover.com/dev/docs/announcing-clover-kiosk-for-semi-integration-in-us (read 2026-10-23).
@@ -182,20 +202,30 @@ from search-index snippets only and must be re-checked with Clover Developer Rel
   - `CustomerMode`: full screen, nav and status bars hidden, the customer cannot exit, secure exit for staff;
   - launch on `BOOT_COMPLETED` after the daily reboot; auto-unlock with the `Lockscreen` class (needs Employee Read);
   - `keepScreenOn`; pay with `KioskPayRequestIntentBuilder` and `setAllowPartialPayments(false)`;
-  - touch targets at least 48 dp; WCAG Level A minimum before App Market release, AA recommended;
+  - touch targets at least 48 dp; WCAG Level A minimum before App Market release, AA recommended; ADA compliance
+    (US law) is the integrator's responsibility;
   - a Station Duo can be used for testing without special setup; real Kiosk hardware needs Developer Relations to
     enable the app.
-  Source: https://docs.clover.com/dev/docs/developer-quick-start-clover-kiosk-integration (read 2026-10-23).
+  Source: https://docs.clover.com/dev/docs/developer-quick-start-clover-kiosk-integration (updated 2026-05-27, read
+  2026-10-23).
+- **FACT.** The 4.5:1 contrast ratio that Clover's design requirements make mandatory is WCAG Success Criterion 1.4.3,
+  Level **AA** (https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html, read 2026-10-23), so the real target
+  is AA for contrast, not "A, AA aimed". The Canadian standard for self-service kiosks is CSA/ASC B651.2 (the 2022
+  edition is withdrawn and superseded by CSA/ASC B651.2:25; https://scc-ccn.ca/standardsdb/standards/4031775, read in a
+  browser 2026-10-23); INFERENCE: it is voluntary unless a law or contract references it.
 - **FACT.** The US page lists $2,499 + $34.95/month per device and says the Kiosk pulls menu and prices from the Clover
   POS. Source: https://get.clover.com/kiosk (read 2026-10-23).
-- **FACT.** Clover's device table (updated 2026-03-24) marks Clover Kiosk as US only.
+- **FACT (stale on this point).** Clover's developer device table (updated 2026-03-24) marks Clover Kiosk as US only.
   Source: https://docs.clover.com/docs/clover-devices (read 2026-10-23).
-- **FACT (read in a browser; WebFetch was blocked).** clover.com/ca/kiosk footnote: "*Clover Kiosk is available in
-  English only and not offered in the province of Quebec." Source: https://www.clover.com/ca/kiosk (read 2026-10-23).
-  This closes the earlier "unconfirmed" flag.
-- **INFERENCE.** Our kiosk mode meets these exact rules even on a Mini, Flex or Station, stays semi-attended (staff in
-  the room), and treats the owner's Station Duo as the official test bench. Clover Kiosk hardware itself cannot be
-  sold in Québec, so a Québec kiosk runs on Mini 3, Flex or Station hardware, or on a big non-Clover screen (§11).
+- **FACT (read in a browser; WebFetch was blocked).** clover.com/ca/kiosk sells Clover Kiosk in Canada ("Contact
+  sales"), with this footnote: "*Clover Kiosk is available in English only and not offered in the province of
+  Quebec." Source: https://www.clover.com/ca/kiosk (read 2026-10-23). This closes the earlier "unconfirmed" flag and
+  shows the device table above is out of date.
+- **INFERENCE.** Our kiosk mode meets these exact rules even on a Mini, Flex or Station and stays semi-attended (for us:
+  staff in the room). The test bench is a sandbox-registered device (a sandbox Station Duo works with no special setup);
+  the owner's production Station Duo only receives approved APKs (§14). Clover Kiosk hardware is not offered in
+  Québec, so a Québec kiosk runs on Mini 3, Flex or Station hardware, or on a big non-Clover screen (§11). Outside
+  Québec, Clover Kiosk competes directly; French is our edge there.
 
 ## 11. Big screen kiosk: semi-integration
 
@@ -256,27 +286,39 @@ from search-index snippets only and must be re-checked with Clover Developer Rel
 
 - **FACT.** Clover's Q4 2025 ROM update moved Android WebView to 140.0.7339.52. ROMs roll out to sandbox first, then to
   production over several weeks. Source: https://docs.clover.com/docs/clover-android-rom-updates-2025 (read 2026-10-23).
-- **INFERENCE.** A Kotlin shell plus web tile UI is workable; test on each Canadian device ROM in sandbox.
+- **INFERENCE.** A Kotlin shell plus web tile UI is workable **only** with web assets bundled inside the APK, no remote
+  JavaScript, and no JS bridge to OrderConnector, PaymentConnector or printer connectors from content loaded over the
+  network: Clover's Functionality Policies (§5) forbid launching other executable code and unlocking features outside
+  the App Market, and a remote page that can call payment is a security risk. Test on each Canadian device ROM in
+  sandbox.
 
 ## 16. Canadian App Market
 
 - **FACT.** For Québec merchants, "every merchant and customer-facing screen and prompt must be available in French and
   English". Each Canadian hospitality, full-service or quick-service restaurant app must be certified under Revenu
-  Québec's SRM mandate. Receipts need the GST number, cash rounds to 5¢, and the EULA and privacy policy must follow
-  PIPEDA. Source: https://docs.clover.com/dev/docs/international-app-market-readiness (read 2026-10-23).
+  Québec's SRM mandate. Apps must allow tax-exempt transactions; receipts need the GST number; cash rounds to the
+  nearest 5¢ (cards are not rounded); the EULA and privacy policy must follow PIPEDA.
+  Source: https://docs.clover.com/dev/docs/international-app-market-readiness (updated 2026-03-24, read 2026-10-23).
 - **CONFLICT.** That page says Canadian merchants have only Payments Plus and Register Lite plans; the Canada-merchants
   page lists Payments Plus, Register Lite, Register, Counter Service and Table Service Restaurant (both updated
   2026-03-24). Source: https://docs.clover.com/dev/docs/canadian-merchants (read 2026-10-23).
-- **FACT.** Clover added fiscalization support (custom payment receipts, Fiscalization app support) to its payment SDK
-  in October 2024. Source: https://docs.clover.com/dev/docs/whats-new-2024 (read 2026-10-23).
+- **FACT.** Clover's October 2024 entry, tagged Canada, is titled "Added capabilities to meet fiscalization
+  requirements from Revenu Québec": custom payment receipts, hiding text / email receipts in Orders, Fiscalization app
+  support, and payment flows without text / email receipts. Source: https://docs.clover.com/dev/docs/whats-new-2024
+  (read 2026-10-23).
+- **FACT.** The standard Payment Connector receipt screen offers "No receipt", Print, Email and Text message
+  (screenshot on https://docs.clover.com/docs/take-a-payment-with-payment-connector, read 2026-10-23).
 - **INFERENCE.** Both the register and the kiosk are fully bilingual (French default for customers). SRM matters far
-  more here than for Food Hub, because a register is where the customer's bill is made (see LEGAL_AND_MARKET.md §1).
+  more here than for Food Hub, because a register is where the order enters the SRS and the customer's bill is made
+  (see LEGAL_AND_MARKET.md §1). For Québec merchants the design must use those fiscalization features so that no sale
+  ends with "No receipt" (ROADMAP A15, DevRel question 2). The register also needs a tax-exempt order path and 5¢ cash
+  rounding (ROADMAP A16, A17).
 
 ## 17. Existing picture-tile ordering on Clover
 
 | Product | What (FACT / vendor claim) | Source (read 2026-10-23) |
 |---|---|---|
-| Clover Kiosk (first-party) | 23.8" + Mini; photo menu from the Clover POS; US; Canada page says English only, not in Québec | https://get.clover.com/kiosk ; https://www.clover.com/ca/kiosk |
+| Clover Kiosk (first-party) | 23.8" + Mini; photo menu from the Clover POS; US, and Canada except Québec (English only) | https://get.clover.com/kiosk ; https://www.clover.com/ca/kiosk |
 | GRUBBRR "Clover Kiosk App" / "Samsung Kiosk App by Grubbrr" | Samsung kiosk + Clover payment device; ingests Clover menu photos and prices; high-res images and upsell; $99/month per kiosk (introductory) | https://clov.grubbrr.com/how-it-works/ ; https://www.clover.com/appmarket/apps/6EV0BD632JZC0 |
 | LoyLap "Self Checkout" (Facilipay) | Turns a Flex, Mini or Station Solo into a self-order kiosk ("Product Selector: browse and tap to order on screen"); $95/month per location after a 30-day trial | https://www.clover.com/appmarket/apps/8M1B7YV28R3BT |
 | Samsung Ordering Kiosk | In Clover's April 2023 App Market roundup; orders go to Clover "like any other terminal"; images managed in Nanonation Commandpoint | https://blog.clover.com/new-and-notable-in-the-clover-app-market-april-2023 ; https://content.nanonation.net/Support/Clover/Guides/Clover_Software_Setup_Guide_Current.pdf |
@@ -288,13 +330,20 @@ from search-index snippets only and must be re-checked with Clover Developer Rel
 App Market prices were read inside a signed-in Clover dashboard session ("Test Merchant"); whether they reflect the US
 or the Canadian market, and the currency, is UNCONFIRMED.
 
+- **FACT.** Clover's own merchant-needs page lists "Menu with photos" (visual identification of items) as an app type
+  for quick-service restaurants. Source: https://docs.clover.com/docs/merchant-needs (updated 2026-03-24, read
+  2026-10-23).
 - **INFERENCE.** What the owner saw was most likely Clover Kiosk, GRUBBRR / Samsung kiosks, LoyLap Self Checkout or
-  Clover Sport kiosk mode. Kiosks are crowded and English-first. A bilingual **staff** picture register is an empty
-  niche, and a French-first kiosk for Québec is open.
+  Clover Sport kiosk mode. Kiosks are crowded and English-first. We found no bilingual **staff** picture register in our
+  search on 2026-10-23, but the merchant-needs page shows the category is known, so others may exist. A French-first
+  kiosk is open in Québec (Clover Kiosk is not offered there); outside Québec it competes with Clover Kiosk.
 - **OPEN.** Does Clover's own Register show item photos on current ROMs? No official evidence either way.
 
 ## 18. Evidence limits
 
 - community.clover.com: NXDOMAIN on 2026-10-23 (forum points = snippets only).
-- Revenu Québec certified-SRS list: returned 403 to fetch tools, but was read in a browser (see LEGAL_AND_MARKET.md §1).
-- LégisQuébec returned 403; several clover.com help pages are JavaScript-rendered and were seen only as snippets.
+- Revenu Québec pages (certified-SRS list and detail pages, restaurant-sector pages, developer certification page):
+  403 to fetch tools, read in a browser (see LEGAL_AND_MARKET.md §1).
+- LégisQuébec: 403 to fetch tools, read in a browser on 2026-10-23 (C-11, P-40.1, I-8.1, P-39.1).
+- www.clover.com/app-market-policies and www.clover.com/ca/kiosk render with JavaScript: read in a browser. Several
+  clover.com help pages were seen only as snippets.

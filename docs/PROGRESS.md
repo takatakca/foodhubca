@@ -9,6 +9,13 @@
   screen); French-first kiosk second (Clover Kiosk is English only and not offered in Québec). Blocker to clear before
   any Québec sale: Revenu Québec SRM / WEB-SRM (two Clover MEV apps are already certified). Draft conflict: leave
   "on2go" (N4NYCJCZ17FF4) to the free ON2GO app, new Android record for the register (decision 2).
+- Fact-check pass (PR #98 review, same day): SRM reading made cautious (RQ puts order entry in the certified SRS, so
+  the register is assumed part of the SRS until RQ says otherwise; MEV vendor questions; A15 receipt check; per-MEV
+  capability table); stray Clover "Sales Tax" step (P0.11) and tax guard; Clover policy limits (name near "Register",
+  no remote JS in a WebView, no in-app ads, quick reference guide, Clover billing for every tier); Law 25 privacy
+  impact assessment (P0.12); Charter, CPA, Competition Act and alcohol citations read on LégisQuébec / Justice Laws;
+  Clover Kiosk sold in Canada except Québec; targetSdk 29. Owner drafts of 2026-10-23 recorded: J0H36VTJBSBBP
+  ("TAKATAK Picture Register" / "Caisse en images TAKATAK", type unset), N4NYCJCZ17FF4 renamed "ON2GO".
 
 ## 2026-10-21 — Simpler sign-in page + « Continuer avec Google » (`feature/login-google-signin`)
 

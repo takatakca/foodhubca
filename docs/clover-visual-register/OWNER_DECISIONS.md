@@ -18,13 +18,25 @@
 - C. La caisse photo seulement. / Register only.
 
 **FR — Pourquoi A.** La caisse photo tourne sur l'écran marchand de votre Station Duo sans permission spéciale, et
-personne ne la vend encore. La borne a plus de règles (semi-surveillée, mode client, alcool, approbation séparée
-pour un grand écran) et elle réutilise tout le travail de la caisse.
-**EN — Why A.** The register runs on your Station Duo's merchant screen with no special permission, and nobody sells
-one yet. The kiosk has more rules (semi-attended, customer mode, alcohol, a separate approval for a big screen) and it
-reuses all the register work.
+nous n'en avons trouvé aucune dans notre recherche du 2026-10-23 (la doc Clover cite pourtant « Menu with photos »
+comme type d'appli de restauration rapide : d'autres peuvent exister). La borne a plus de règles (semi-surveillée,
+mode client, alcool, approbation séparée pour un grand écran) et elle réutilise tout le travail de la caisse.
+**EN — Why A.** The register runs on your Station Duo's merchant screen with no special permission, and we found none
+in our search on 2026-10-23 (Clover's docs do list "Menu with photos" as a quick-service app type,
+https://docs.clover.com/docs/merchant-needs, so others may exist). The kiosk has more rules (semi-attended, customer
+mode, alcohol, a separate approval for a big screen) and it reuses all the register work.
 
 ## 2. Quelle fiche d'appli Clover ? / Which Clover app record?
+
+> **Décidé le 2026-10-23 : A.** Le propriétaire a créé le brouillon « TAKATAK Picture Register » / « Caisse en
+> images TAKATAK » (App ID J0H36VTJBSBBP, type d'appli laissé vide exprès) et renommé N4NYCJCZ17FF4 en « ON2GO »
+> (accroches et avantages FR/EN enregistrés ; ce brouillon garde le type Android (Mobile) + REST et une ancienne
+> permission Customers lecture + écriture que le propriétaire peut retirer). TAKATAK (fiches, réseaux) =
+> F4TMP23FM7K5M.
+> **Decided on 2026-10-23: A.** The owner created the draft "TAKATAK Picture Register" / "Caisse en images TAKATAK"
+> (App ID J0H36VTJBSBBP, app type intentionally unset) and renamed N4NYCJCZ17FF4 to "ON2GO" (FR/EN taglines and
+> benefits saved; that draft keeps App type Android (Mobile) + REST and an earlier Read + Write Customers permission the
+> owner may remove). TAKATAK (listings, social) = F4TMP23FM7K5M.
 
 - **A (recommandé / recommended).** Créer une **nouvelle fiche Android** (Canada) pour la caisse photo, et **laisser
   le brouillon « on2go » (N4NYCJCZ17FF4) à l'appli ON2GO gratuite** (tâche 65, dépôt on2goca). / Create a **new
@@ -34,23 +46,31 @@ reuses all the register work.
   / Use the "on2go" draft for the register and create a new web app record for the free ON2GO app.
 
 **FR — Pourquoi A.** Un brouillon ne peut pas être deux applis. Le nom « on2go » et son site on2go.ca vont avec
-l'appli ON2GO gratuite, qui le réclame déjà. Le type et le pays d'une appli sont fixés à la création, et l'historique
-du brouillon est inconnu : une fiche neuve « Android, Canada » est plus propre pour la caisse.
+l'appli ON2GO gratuite, qui le réclame déjà. L'historique du brouillon est inconnu : une fiche neuve est plus propre
+pour la caisse. (La page Clover des réglages d'appli permet de choisir plusieurs types ; le type n'est donc pas une
+raison.)
 **EN — Why A.** One draft cannot be two apps. The "on2go" name and its on2go.ca site fit the free ON2GO app, which
-already claims it. An app's type and country are set at creation and the draft's history is unknown: a fresh
-"Android, Canada" record is cleaner for the register.
+already claims it. The draft's history is unknown: a fresh record is cleaner for the register. (Clover's App Settings
+page lets you select several app types, so the type is not the reason.)
 
 ## 3. Comment la construire ? / How to build it?
 
 - **A (recommandé / recommended).** Appli **Android native en Kotlin** avec le SDK Clover. / **Native Android app in
   Kotlin** with the Clover SDK.
-- B. Une coquille Android qui affiche une page web Food Hub (WebView). / An Android shell showing a Food Hub web page
-  (WebView).
+- B. Une coquille Android qui affiche une page web (WebView), **seulement** avec les fichiers web inclus dans l'APK,
+  sans JavaScript chargé à distance et sans pont JS vers les connecteurs de commande, de paiement ou d'impression. /
+  An Android shell showing a web page (WebView), **only** with the web files bundled in the APK, no remote JavaScript
+  and no JS bridge to the order, payment or printer connectors.
 
 **FR — Pourquoi A.** Commandes, paiement, impression et menu passent de toute façon par le SDK Clover natif. Clover
-préfère Kotlin/Java. L'appli native continue d'afficher les tuiles et de bâtir la commande quand Internet tombe.
+préfère Kotlin/Java. L'appli native continue d'afficher les tuiles et de bâtir la commande quand Internet tombe. Les
+règles Clover interdisent à une appli de lancer d'autre code exécutable ou de débloquer des fonctions hors de l'App
+Market : une page Food Hub chargée à distance qui appelle le paiement serait probablement refusée.
 **EN — Why A.** Orders, payment, printing and menu go through Clover's native SDK anyway. Clover prefers Kotlin/Java.
-A native app keeps showing tiles and building the order when the internet drops.
+A native app keeps showing tiles and building the order when the internet drops. Clover's Functionality Policies
+forbid an app launching other executable code or unlocking features outside the App Market
+(https://www.clover.com/app-market-policies, read 2026-10-23): a remote Food Hub page calling payment would likely be
+rejected.
 
 ## 4. Sur quels appareils au départ ? / Which devices first?
 
@@ -80,47 +100,78 @@ The same photo store serves the TAKATAK app (listings and social): one source.
 
 ## 6. Facturation MEV / SRM de Revenu Québec / Revenu Québec SRM billing
 
-- **A (recommandé / recommended).** L'appli **crée seulement la commande** ; Clover et l'appli MEV certifiée de
-  chaque restaurant (« Clover MEV Connect » ou « Clover MEV Web ») produisent la facture. **Aucune vente à un autre
-  marchand avant les réponses écrites** de Clover et de Revenu Québec, et l'avis d'un avocat. Pilote dans vos
-  restaurants seulement après avoir vérifié que la facture d'une commande de la caisse photo sort bien par votre
-  appli MEV. / The app **only creates the order**; Clover and each restaurant's certified MEV app ("Clover MEV
-  Connect" or "Clover MEV Web") produce the bill. **No sale to another merchant before written answers** from Clover
-  and Revenu Québec, and a lawyer's opinion. Pilot in your restaurants only after checking that the bill for a picture
-  register order does come out of your MEV app.
-- B. Faire certifier notre appli comme SEV dès le départ (devenir partenaire de Revenu Québec). / Get our app
-  certified as an SEV from the start (become a Revenu Québec partner).
+- **A (recommandé / recommended).** **Hypothèse prudente.** Pour les restaurants du Québec, on suppose que la caisse
+  fait partie du SEV tant que Revenu Québec n'a pas dit par écrit le contraire. On pose d'abord la question à Revenu
+  Québec et aux deux concepteurs MEV (Pulsar informatique Inc pour « Clover MEV Connect » ; 15535743 Canada inc. pour
+  « Clover MEV Web ») : leur version certifiée enregistre-t-elle, sans nouvelle certification, une commande créée par
+  une autre appli avec OrderConnector ? La caisse n'offre que ce que l'appli MEV du restaurant sait enregistrer.
+  **Aucun restaurant québécois dans une fiche ou une vente** avant les réponses de Revenu Québec, du concepteur et de
+  Clover, et l'avis d'un avocat. Dans vos restaurants : vraies commandes seulement après la réponse écrite du
+  concepteur et le test A15 (reçu de fermeture avec code QR, sans choix « pas de reçu »). On prévoit dès maintenant le
+  budget de B, le chemin probable pour le Québec. / **Cautious assumption.** For Québec restaurants, we assume the
+  register is part of the SRS until Revenu Québec says in writing that it is not. First ask Revenu Québec and both MEV
+  vendors (Pulsar informatique Inc for "Clover MEV Connect"; 15535743 Canada inc. for "Clover MEV Web"): does your
+  certified version record an order created by another app through OrderConnector, with no recertification? The
+  register offers only what the restaurant's MEV app can record. **No Québec restaurant in any listing or sale** before
+  Revenu Québec, the vendor and Clover have answered, and a lawyer's opinion. In your restaurants: live orders only
+  after the vendor's written answer and check A15 (closing receipt with QR code, no "no receipt" choice). Budget now for
+  B, the likely path for Québec.
+- B. Faire certifier notre appli comme SEV (devenir partenaire de Revenu Québec). / Get our app certified as an SEV
+  (become a Revenu Québec partner).
 
-**FR — Pourquoi A.** C'est le seul vrai bloqueur. La certification coûte du temps et doit être refaite à chaque
-nouvelle fonction ; on ne la paie que si les réponses disent qu'elle est obligatoire.
-**EN — Why A.** This is the only real blocker. Certification costs time and must be redone for each new feature; we
-pay for it only if the answers say it is required.
+**FR — Pourquoi A.** C'est le seul vrai bloqueur. Dans le scénario « service au comptoir » de Revenu Québec, l'employé
+saisit la commande dans le SEV ; une appli qui prend la commande fait donc probablement partie du SEV. Revenu Québec
+exige un nouveau numéro de certification pour toute version avec des changements non certifiés (sauf l'ajout ou le
+retrait d'un mode de paiement), et Clover peut refuser une appli non conforme aux lois régionales. « L'appli crée
+seulement la commande » est donc la lecture la plus faible, pas un choix sûr. A ne retarde la dépense de B que le temps
+d'obtenir les réponses.
+**EN — Why A.** This is the only real blocker. In Revenu Québec's counter-service scenario the user enters the order in
+the SRS, so an app that takes the order is probably part of the SRS. Revenu Québec requires a new certification number
+for any version with uncertified changes (except adding or removing a payment method), and Clover may deny an app that
+does not comply with regional laws. "The app only builds the order" is the weaker reading, not a safe default. A only
+delays spending on B until the answers are in.
 
 ## 7. Prix / Price
 
 - **A (recommandé / recommended).** **Appli séparée : 14 jours d'essai, puis 50 $ CA/mois**, facturée par Clover
   (même modèle que Food Hub et Phone AI). Le mode borne sur appareil Clover (P2a) est inclus. La borne grand écran
-  (P2b) aura son prix plus tard. Vos restaurants ne paient jamais. / **Separate app: 14-day trial, then CAD
-  $50/month**, billed by Clover (same model as Food Hub and Phone AI). Kiosk mode on a Clover device (P2a) is included.
-  The big-screen kiosk (P2b) is priced later. Your restaurants never pay.
+  (P2b) aura son prix plus tard, facturé lui aussi par Clover (règle d'achat de l'App Market). Vos restaurants ne
+  paient jamais. / **Separate app: 14-day trial, then CAD $50/month**, billed by Clover (same model as Food Hub and
+  Phone AI). Kiosk mode on a Clover device (P2a) is included. The big-screen kiosk (P2b) is priced later, also billed
+  through Clover (App Market purchase policy). Your restaurants never pay.
 - B. Option de Food Hub (+15 $ comme une marque de plus). / A Food Hub add-on (+$15 like an extra brand).
 
-**FR — Pourquoi A.** Le marché est plus cher : environ 95–99 $/mois pour les bornes sur Clover, 70 $ CA/mois par
-appareil pour Square au Canada. 50 $ reste bas et simple, et un marchand peut la prendre sans Food Hub.
-**EN — Why A.** The market is pricier: about $95–99/month for kiosks on Clover, CAD $70/month per device for Square in
-Canada. $50 stays low and simple, and a merchant can take it without Food Hub.
+**FR — Pourquoi A.** Repères publics : environ 95–99 $/mois par borne ou par emplacement pour les bornes sur Clover
+(devise non confirmée), 70 $ CA/mois par appareil pour Square au Canada. Notre 50 $ CA est par marchand : ce n'est pas
+une comparaison à l'identique, donc pas de « moins cher que le marché » en public. 50 $ reste simple, et un marchand
+peut la prendre sans Food Hub.
+**EN — Why A.** Public reference points: about $95–99/month per kiosk or per location for kiosks on Clover (currency
+unconfirmed), CAD $70/month per device for Square in Canada. Our CAD $50 is per merchant: not a like-for-like
+comparison, so no public "below the market" claim. $50 stays simple, and a merchant can take it without Food Hub.
 
 ## 8. Nom de l'appli / App name
 
-- **A (recommandé / recommended).** « **TAKATAK Caisse Photo** » (fiche anglaise : « TAKATAK Picture Register »).
-  Visuel 100 % original. / "**TAKATAK Caisse Photo**" (English listing: "TAKATAK Picture Register"). 100 % original
-  look.
-- B. Un autre nom de votre choix. / Another name of your choice.
+> **État au 2026-10-23 / Status on 2026-10-23.** Le brouillon J0H36VTJBSBBP s'appelle « Caisse en images TAKATAK »
+> (FR) et « TAKATAK Picture Register » (EN). / Draft J0H36VTJBSBBP is named "Caisse en images TAKATAK" (FR) and
+> "TAKATAK Picture Register" (EN).
 
-**FR — Pourquoi A.** Clair en français, dans la famille TAKATAK. Clover refuse les applis qui imitent une appli
-Clover ou d'un autre développeur : jamais « McDonald's », ni leurs couleurs, ni un logo qui ressemble à Clover.
-**EN — Why A.** Clear in French, in the TAKATAK family. Clover rejects apps that imitate a Clover or another developer's
-app: never "McDonald's", their colours, or a Clover-like logo.
+- **A (recommandé / recommended).** Garder « **Caisse en images TAKATAK** » en français ; **avant la soumission**,
+  choisir un nom anglais qui ne s'appuie pas sur « Register », par exemple « TAKATAK Photo Menu POS ». Visuel 100 %
+  original. / Keep "**Caisse en images TAKATAK**" in French; **before submission**, pick an English name that does not
+  lean on "Register", for example "TAKATAK Photo Menu POS". 100 % original look.
+- B. Garder « TAKATAK Picture Register » seulement si Clover Developer Relations le confirme par écrit (question
+  DevRel 10). / Keep "TAKATAK Picture Register" only if Clover Developer Relations confirms it in writing (DevRel
+  question 10).
+
+**FR — Pourquoi A.** Les règles Clover (« Deceptive Behavior ») interdisent les noms ou icônes qui ressemblent à s'y
+méprendre aux applis Clover livrées avec l'appareil, et « Register » est le nom de la caisse intégrée de Clover, qui
+fait le même travail. Clover refuse aussi les applis qui imitent une appli Clover ou d'un autre développeur : jamais
+« McDonald's », ni leurs couleurs, ni un logo qui ressemble à Clover. Un nom de brouillon se change avant la soumission.
+**EN — Why A.** Clover's Deceptive Behavior policy forbids names or icons confusingly similar to the Clover apps supplied
+with the device (https://www.clover.com/app-market-policies, last updated 2025-01-01, read 2026-10-23), and "Register"
+is the name of Clover's built-in register app, which does the same job. Clover also rejects apps that imitate a Clover
+or another developer's app: never "McDonald's", their colours, or a Clover-like logo. A draft's name can be changed
+before submission.
 
 ## 9. Quelle borne pour le Québec ? / Which kiosk for Québec?
 
@@ -130,10 +181,14 @@ app: never "McDonald's", their colours, or a Clover-like logo.
   **then a big screen** paired with a Mini or Flex that takes the payment (P2b). We do not wait for Clover Kiosk.
 - B. Attendre que Clover vende Clover Kiosk au Québec. / Wait for Clover to sell Clover Kiosk in Québec.
 
-**FR — Pourquoi A.** Clover écrit que Clover Kiosk est « en anglais seulement » et « pas offert au Québec ». C'est
-justement notre créneau. Clover n'autorise pas l'usage sans surveillance : un employé reste dans la salle.
-**EN — Why A.** Clover says Clover Kiosk is "English only" and "not offered" in Québec. That is exactly our gap. Clover
-does not allow unattended use: a staff member stays in the room.
+**FR — Pourquoi A.** Selon clover.com/ca/kiosk (note en anglais, traduite ici), Clover Kiosk est vendu au Canada en
+anglais seulement et n'est pas offert au Québec. C'est justement notre créneau au Québec ; ailleurs au Canada, Clover
+Kiosk nous fait concurrence et le français reste notre atout. Clover n'autorise pas l'usage sans surveillance : pour
+nous, un employé reste dans la salle.
+**EN — Why A.** clover.com/ca/kiosk says Clover Kiosk "is available in English only and not offered in the province of
+Quebec", and sells it elsewhere in Canada ("Contact sales"). That is exactly our gap in Québec; outside Québec, Clover
+Kiosk competes directly and French is our edge. Clover does not allow unattended use: for us, a staff member stays in
+the room.
 
 ## 10. Alcool à la borne / Alcohol at the kiosk
 
@@ -166,11 +221,17 @@ repo is public.
 
 1. Répondre aux décisions 1 à 11. / Answer decisions 1 to 11.
 2. Vérifier le modèle de la Station Duo (décision 4). / Check the Station Duo model (decision 4).
-3. Envoyer les questions à Clover Developer Relations et à Revenu Québec (brouillons dans ROADMAP.md, à réécrire
-   avec votre voix). / Send the questions to Clover Developer Relations and Revenu Québec (drafts in ROADMAP.md, to
-   rewrite in your voice).
+3. Envoyer les questions à Clover Developer Relations, à Revenu Québec et aux deux concepteurs MEV (brouillons dans
+   ROADMAP.md, à réécrire avec votre voix). / Send the questions to Clover Developer Relations, Revenu Québec and both
+   MEV vendors (drafts in ROADMAP.md, to rewrite in your voice).
 4. Consulter un avocat du Québec (questions dans LEGAL_AND_MARKET.md §10). / See a Québec lawyer (questions in
    LEGAL_AND_MARKET.md §10).
-5. Créer la fiche d'appli dans le tableau de bord développeur Clover et la clé de signature. / Create the app record in
-   the Clover developer dashboard and the signing key.
-6. Fusionner cette PR. / Merge this PR.
+5. Fiche d'appli : brouillon créé le 2026-10-23 (J0H36VTJBSBBP). Reste : choisir le type d'appli et le nom anglais
+   (décision 8), créer la clé de signature. / App record: draft created on 2026-10-23 (J0H36VTJBSBBP). Left: set the
+   app type and the English name (decision 8), create the signing key.
+6. Retirer la taxe « Sales Tax » (0,14975 %) dans Clover → Setup → Taxes & Fees, pour chaque marchand
+   (ROADMAP P0.11). / Remove the "Sales Tax" rate (0.14975 %) in Clover → Setup → Taxes & Fees, in each merchant
+   (ROADMAP P0.11).
+7. Signer l'évaluation des facteurs relatifs à la vie privée (Loi 25) préparée par un agent (ROADMAP P0.12). / Sign the
+   Law 25 privacy impact assessment an agent drafts (ROADMAP P0.12).
+8. Fusionner cette PR. / Merge this PR.

@@ -5,12 +5,16 @@
 > français venant de Food Hub, crée une vraie commande Clover, l'envoie en cuisine par Clover et ouvre l'écran de
 > paiement Clover. Le serveur Food Hub reçoit une 3ᵉ clé d'appli Clover (comme Phone AI) et un flux « menu photo ».
 > La borne grand écran (phase 2) réutilise la page de commande web existante et paie sur un Mini ou Flex relié.
+> **Au Québec**, on suppose que la caisse fait partie du SEV de Revenu Québec tant que celui-ci n'a pas dit le
+> contraire par écrit ; elle n'offre que ce que l'appli MEV certifiée du marchand sait enregistrer (§2b).
 >
 > **EN — In short.** The picture register is a **native Android app (Kotlin)** on the Clover device. It reads the
 > Clover menu on the device (items, categories, modifiers, prices, stock), adds our photos and French names from Food
 > Hub, writes a real Clover order, fires it to the kitchen through Clover and opens Clover's payment screen. The Food
 > Hub server gets a 3rd Clover app key (like Phone AI) and a "picture menu" feed. The big-screen kiosk (phase 2) reuses
-> the existing web ordering page and pays on a paired Mini or Flex.
+> the existing web ordering page and pays on a paired Mini or Flex. **In Québec**, we assume the register is part of
+> Revenu Québec's SRS until RQ says in writing that it is not; it offers only what the merchant's certified MEV app can
+> record (§2b).
 
 Labels: **FACT** (Clover docs or the repo at origin/main b40e446), **INFERENCE** (design choice or reasoning).
 Clover facts and their sources are in [RESEARCH_CLOVER_TECH.md](RESEARCH_CLOVER_TECH.md).
@@ -21,9 +25,9 @@ Clover facts and their sources are in [RESEARCH_CLOVER_TECH.md](RESEARCH_CLOVER_
 
 | Option | Runs where | Verdict |
 |---|---|---|
-| A. Web app only (like Food Hub, Phone AI) | Opens from the Merchant Dashboard, not on the device as a register (FACT) | **Rejected**: cannot be the register screen |
+| A. Web app only (like Food Hub, Phone AI) | Opens from the Merchant Dashboard (FACT); so it cannot run on the device as a register (INFERENCE) | **Rejected**: cannot be the register screen |
 | B. **Native Kotlin APK** with Clover Android SDK + connector SDK | On the device (merchant screen of Station Duo, Mini, Flex) | **Recommended for P1 and P2a** |
-| C. Kotlin shell + WebView showing a Food Hub tile page, JS bridge to native connectors | On the device | Fallback. Reuses more web code, but needs the network for the page unless bundled, adds a bridge to secure, and Clover discourages cross-platform stacks (FACT: Kotlin/Java preferred) |
+| C. Kotlin shell + WebView showing a tile page | On the device | Fallback **only** with web assets bundled inside the APK, no remote JavaScript, and no JS bridge to OrderConnector, PaymentConnector or printer connectors from content loaded over the network. Clover's Functionality Policies forbid an app installing or launching other executable code and unlocking features outside the App Market (FACT, https://www.clover.com/app-market-policies, read 2026-10-23); remote JS calling payment connectors would also widen the attack surface. Clover also prefers Kotlin/Java (FACT). Otherwise dropped |
 | D. Web kiosk on a big non-Clover screen + Clover Mini/Flex for payment (REST / Cloud Pay Display, RAID) | Tablet or 24" screen + Clover payment device | **Recommended for P2b** (big French kiosk); separate approval track |
 | E. Replace or reskin Clover Register / become the launcher | — | **Rejected**: no official path; impersonation ban (FACT) |
 
@@ -69,7 +73,8 @@ flowchart LR
   APP -->|"tap tiles, cart"| ORDC --> ORD
   ORDC -->|"fire / fireLineItems"| PRN
   APP -->|"pay total"| PAYC --> PAY
-  PAY -->|"receipt / bill"| MEV
+  ORD -.->|"records the order? (P0.4b, to confirm)"| MEV
+  PAY -.->|"RQ closing receipt + QR (check A15)"| MEV
   APP -->|"entitlement check"| ENT
   REG --- ENT
   ORD --> WH -->|"Orders + App events"| REG
@@ -88,15 +93,46 @@ Step by step:
 3. **Order.** Tapping tiles builds a cart; the modifier sheet enforces min / max / required; the upsell step offers
    Duo / Trio / Combo once, with the drink always chosen (owner rule). "Send" writes a real Clover order through
    **OrderConnector** (line items, modifications, discounts) and fires it to the kitchen (`fire` / `fireLineItems`,
-   FACT since SDK v306), so Clover's own printer labels and KDS routing apply.
+   FACT since SDK v306), so Clover's own printer labels and KDS routing apply. For Québec merchants the order carries
+   the Revenu Québec fields (type of service, activity subsector, detailed item description) in the form the merchant's
+   MEV app needs (§2b). A tax guard blocks "Send", with a warning, when an item carries any tax rate other than GST 5 %
+   or QST 9.975 % (the stray "Sales Tax" rate, LEGAL_AND_MARKET.md §3); tax-exempt orders are an explicit path.
 4. **Payment.** "Pay" hands the order total to **PaymentConnector** (FACT: the Canadian path). Clover's secure screen
-   takes the card, the tip (at sale time; no tip adjust in Canada) and prints the receipt. The app never sees card
-   data. In Québec, the bill comes from Clover plus the merchant's certified MEV app (INFERENCE, to confirm; see
-   LEGAL_AND_MARKET.md §1).
+   takes the card and the tip; the app never sees card data. Tips are taken at sale time as a design choice (Clover
+   lists `tipAdjustAuth()` as unsupported in Canada; whether that covers credit cards or only Interac is a DevRel
+   question). Clover's standard receipt screen offers "No receipt" (FACT); for Québec merchants the merchant's MEV app
+   must print the RQ closing receipt automatically, using Clover's October 2024 Revenu Québec fiscalization features
+   (FACT that they exist; how they apply to a PaymentConnector sale is a DevRel question; check A15). Working
+   assumption for Québec: the register is part of the SRS until Revenu Québec says in writing that it is not
+   (LEGAL_AND_MARKET.md §1).
 5. **Back office.** Clover webhooks (Orders, App) reach Food Hub. Today `lib/foodhub/pos/clover-website-orders.ts`
    classifies a Clover order as `website`, `platform`, `foodhub` or `other`, and only shows website / Food Hub orders on
    the kitchen screen (FACT). Register orders would be `other` and stay out of Food Hub unless we add a `register` kind
    (optional; Clover's KDS and printers already cover the kitchen).
+
+## 2b. What each certified MEV product can record (Québec)
+
+FACT: Revenu Québec detail pages, read in a browser 2026-10-23 (URLs in LEGAL_AND_MARKET.md §1). The register turns off
+any feature the merchant's MEV product cannot record (INFERENCE; each row to test with the vendor, P0.4b).
+
+| Register feature | Clover MEV Connect 1.2.1 (Pulsar informatique Inc) | Clover MEV Web 1.0.33 (15535743 Canada inc.) |
+|---|---|---|
+| Counter service | Yes | Yes |
+| Table service | **No** → off | Yes |
+| Delivery by the operator | **No** → off | Yes |
+| Digital-platform orders | **No** → off (never route them through the register) | Yes |
+| Cancel a transaction after "Send" | **No** → off | Yes |
+| Mixed (split) payment | **No** → full payment only | **No** → full payment only |
+| Coupon tender | **No** → off | **No** → off |
+| Transfer, split or group items / bills | **No** → off | Yes |
+| Item notes ("précisions") | Yes | Yes |
+| Tip entry | Yes | Yes |
+| Bar subsector (alcohol under a bar permit) | Yes | Yes |
+| Receipt medium | Paper only | Paper only |
+
+Fields every Québec order must carry (FACT, RQ restaurant-sector specifics page): type of service, activity subsector
+per item, detailed description of each item. How the order passes them to the MEV app (order type, item tags, notes)
+is unknown until the vendor answers (P0.4b).
 
 ## 3. What changes on the Food Hub server
 
@@ -125,7 +161,7 @@ outside installs stay "pending" until the owner approves them, `docs/CLOVER_MARK
 | Sold out (86) | `lib/foodhub/clover-sync.ts`, `lib/foodhub/order-tools/quick-86.ts` | High (grey tiles); the device also reads Clover stock directly |
 | Upsell Duo / Trio / Combo | `isUpsellGroup` in `lib/foodhub/storefront/catalog.ts`; `lib/foodhub/storefront/cart.ts`; `lib/foodhub/phone/cart.ts` | High as **rules** (ported to Kotlin for the APK; reused as-is for the web kiosk) |
 | Server-side pricing | `priceCart` in `lib/foodhub/storefront/cart.ts` | High for the web kiosk; the APK lets Clover price the order |
-| Customer ordering page | `app/commander/[slug]/order-client.tsx`, `app/api/storefront/menu/[slug]/route.ts` | High for the P2b web kiosk logic; layout is a mobile list with a 96 px photo, needs a big-tile grid. Its hard-coded 14.975 % display tax must give way to Clover's tax rates |
+| Customer ordering page | `app/commander/[slug]/order-client.tsx`, `app/api/storefront/menu/[slug]/route.ts` | High for the P2b web kiosk logic; layout is a mobile list with a 96 px photo, needs a big-tile grid. Its hard-coded 14.975 % display tax must give way to Clover's tax rates, once the stray "Sales Tax" rate is removed (ROADMAP P0.11) |
 | Order into Clover + kitchen print (REST) | `lib/foodhub/delivery/clover-direct.ts` (`atomic_order`), `lib/foodhub/pos/clover-order.ts` (`printKitchenTicket`, `print_event`) | High for the P2b web kiosk; the APK uses OrderConnector instead |
 | Payment | `lib/foodhub/pos/clover-checkout.ts` (Hosted Checkout, card-not-present) | Low: a register needs card-present payment (PaymentConnector / Pay Display) |
 | Staff order entry | `components/expansion/new-order-modal.tsx` (free-text lines) | Low |
@@ -149,8 +185,13 @@ Same APK, a "kiosk" mode turned on by a manager:
   device (FACT: Clover Kiosk rules).
 - Pay with the kiosk payment intent where available (`KioskPayRequestIntentBuilder`, `setAllowPartialPayments(false)`),
   otherwise PaymentConnector; full payment only.
-- French by default; 48 dp touch targets; WCAG A minimum, AA aimed.
+- French by default; attract screen French markedly predominant (Charter art. 58); 48 dp touch targets.
+- Accessibility: WCAG 2.2 AA for contrast (SC 1.4.3, 4.5:1, which Clover's design requirements make mandatory), plus
+  Clover's mandatory alt text, TalkBack and Android accessibility. The Kiosk guide's "Level A minimum" is a floor, not
+  the target. Reach and height per CSA/ASC B651.2 (current edition :25), not the guide's US ADA reference.
 - Alcohol hidden (or held for staff ID check). Semi-attended only.
+- Station Duo: Clover's design requirements say content fills both the merchant and customer screens (FACT). Plan: order
+  summary on the customer screen through Clover's customer-facing platform, or a written DevRel exemption.
 
 ## 7. Big-screen web kiosk (P2b)
 
@@ -164,6 +205,10 @@ Same APK, a "kiosk" mode turned on by a manager:
 
 - No card data ever in our code, logs or storage; PaymentConnector / Pay Display only.
 - The feed returns only that merchant's menu; device requests are checked against Clover before serving.
-- No customer personal data collected by default (no name, phone or email at the register).
+- No customer personal data (no name, phone or email at the register); employee identifiers only, as Clover already
+  stores them (the signed-in employee on each order). Only the minimum data the app needs (Clover Data Policies).
+- Law 25: a privacy impact assessment before development (s. 3.3), signed off by the person named in
+  `FOODHUB_PRIVACY_OFFICER`, and an s. 17 assessment if the Food Hub server is outside Québec (ROADMAP P0.12).
 - Permissions asked, each with a reason for the review: Orders read + write, Inventory read, Employees read (kiosk
-  unlock), Merchant read; printing through Clover's own order flow.
+  unlock, employee on the order), Merchant read; printing through Clover's own order flow. No Customers permission.
+- No in-app ads or promotion of other TAKATAK apps (Clover Advertisement Policy).

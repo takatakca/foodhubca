@@ -86,7 +86,7 @@ export default function MevSettingsPage() {
           </Section>
 
           {s.outbox && (
-            <Section title={t('File des factures (24 h)', 'Invoice queue (24 h)')} subtitle={t('Rien n’est perdu : une facture qui n’est pas partie attend ici et repart toute seule. La loi donne 48 heures.', 'Nothing is lost: an invoice that did not go out waits here and goes again by itself. The law allows 48 hours.')}>
+            <Section title={t('File des factures (24 h)', 'Invoice queue (24 h)')} subtitle={t('Une vente en attente ici n’a pas encore de facture : elle repart toute seule, mais la facture est due dès le paiement. Une alerte part après 1 minute.', 'A sale waiting here has no invoice yet: it goes again by itself, but the invoice is due at payment. An alert goes out after 1 minute.')}>
               <div className="flex flex-wrap gap-2">
                 <Badge tone="go">{s.outbox.done} {t('émises', 'issued')}</Badge>
                 <Badge tone={s.outbox.pending ? 'wait' : 'neutral'}>{s.outbox.pending} {t('en attente', 'waiting')}</Badge>

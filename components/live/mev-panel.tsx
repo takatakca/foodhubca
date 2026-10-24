@@ -37,13 +37,13 @@ function reasonText(t: T, raw?: string): string | null {
   if (review[r]) return detail ? `${review[r]} (${detail})` : review[r];
   const known: Record<string, string> = {
     tender_unknown: t('On ne sait pas encore comment le client a payé : choisissez-le ci-dessous.', 'We do not know yet how the customer paid: pick it below.'),
-    qcmev_unreachable: t('Takatak MEV ne répond pas : Food Hub réessaie tout seul.', 'Takatak MEV does not answer: Food Hub tries again by itself.'),
+    qcmev_unreachable: t('Takatak MEV ne répond pas : aucune facture n’existe encore. Food Hub réessaie tout seul ; redémarrez Takatak MEV et gardez le sac jusqu’à la facture.', 'Takatak MEV does not answer: no invoice exists yet. Food Hub tries again by itself; restart Takatak MEV and keep the bag until the invoice is out.'),
     location_not_ready: t('Cette cuisine n’est pas prête dans Takatak MEV (appareil, certificat ou utilisateur).', 'This kitchen is not ready in Takatak MEV (device, certificate or user).'),
     queued: t('Takatak MEV l’a reçue et la signe dans un instant.', 'Takatak MEV has it and signs it in a moment.'),
     depends: t('Attend la facture d’origine.', 'Waiting for the original invoice.'),
     not_certified: t('Takatak MEV n’est pas dans le bon environnement (production certifiée exigée).', 'Takatak MEV is not in the right environment (certified production required).'),
     offline_pending: t('Signée hors ligne : elle part à Revenu Québec dès le retour de la connexion.', 'Signed offline: it goes to Revenu Québec as soon as the connection is back.'),
-    log_order: t('Journal des sacs Too Good To Go (ancienne règle) : pas envoyé.', 'Too Good To Go bag log (old rule): not sent.'),
+    log_order: t('Compte des sacs Too Good To Go de la journée : ce n’est pas une vente, rien n’est envoyé. Chaque sac a sa propre facture au ramassage (« Sac remis » ou les courriels Too Good To Go).', 'Too Good To Go daily bag count: not a sale, nothing is sent. Each bag gets its own invoice at pickup (“Bag handed over” or the Too Good To Go e-mails).'),
     dry_run: t('Commande d’essai : pas de facture.', 'Test order: no invoice.'),
   };
   return known[r] ?? raw;

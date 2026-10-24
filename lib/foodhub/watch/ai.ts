@@ -107,10 +107,10 @@ export const PLAYBOOK: Record<IncidentKind, { fr: string; en: string; doFr: stri
     doEn: ['Send the kept message to your developer (Settings → Channels)'],
   },
   mev_pending: {
-    fr: 'Une facture Revenu Québec n’est pas encore émise par Takatak MEV. Rien n’est perdu : elle attend dans la file de Food Hub. La loi donne 48 heures pour la transmettre.',
-    en: 'A Revenu Québec invoice is not issued by Takatak MEV yet. Nothing is lost: it waits in Food Hub’s queue. The law allows 48 hours to send it.',
-    doFr: ['Ouvrir la commande : la raison est écrite sous « Facture (MEV) »', 'Si Takatak MEV est arrêté, le redémarrer : la facture part toute seule', 'Si une personne doit trancher : corriger puis « Renvoyer »'],
-    doEn: ['Open the order: the reason is under “Invoice (MEV)”', 'If Takatak MEV is down, restart it: the invoice goes out by itself', 'If a person must decide: fix it, then “Send again”'],
+    fr: 'Takatak MEV n’a pas encore enregistré cette vente : aucune facture n’existe pour elle. La facture doit être remise au client tout de suite après le paiement. Le délai de 48 heures ne vaut que pour une vente déjà enregistrée par Takatak MEV pendant une panne d’Internet, pas pour celle-ci. Un sac parti sans sa facture ne la recevra plus.',
+    en: 'Takatak MEV has not recorded this sale yet: no invoice exists for it. The invoice must be handed to the customer right after payment. The 48-hour delay only applies to a sale Takatak MEV already recorded during an Internet outage, not to this one. A bag that left without its invoice will never get it.',
+    doFr: ['Ouvrir la commande : la raison est écrite sous « Facture (MEV) »', 'Si Takatak MEV est arrêté, le redémarrer tout de suite : la vente part toute seule', 'Garder le sac tant que la facture n’est pas sortie, puis « Imprimer la facture » et la mettre dans le sac', 'Si une personne doit trancher : corriger puis « Renvoyer »'],
+    doEn: ['Open the order: the reason is under “Invoice (MEV)”', 'If Takatak MEV is down, restart it now: the sale goes out by itself', 'Keep the bag until the invoice is out, then “Print the invoice” and put it in the bag', 'If a person must decide: fix it, then “Send again”'],
   },
   platform_silent: {
     fr: 'Aucune commande de cette plateforme depuis des heures alors que ses magasins sont ouverts : le branchement (webhook, clés, magasin désactivé) est peut-être cassé.',

@@ -335,7 +335,8 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
     const owed = Math.round(cases.reduce((a, c) => a + c.amount, 0) * 100) / 100;
     if (owed >= 1) out.push({ key: 'payout_gap', kind: 'payout_gap', severity: 'info', title: `${owed.toFixed(2).replace('.', ',')} $ à récupérer des plateformes`, titleEn: `$${owed.toFixed(2)} to recover from the platforms`, detail: `${cases.length} cas à contester`, detailEn: `${cases.length} case(s) to dispute` });
   }
-  // Revenu Québec invoices (Takatak MEV) waiting 15+ min or for a person. Nothing is read when FOODHUB_MEV=off.
+  // Revenu Québec invoices Takatak MEV has not issued yet (mevAlerts: a sale after 1 min, a copy after 15). Nothing is
+  // read when FOODHUB_MEV=off.
   if (on('mev_pending')) {
     const { mevAlerts } = await import('../mev/outbox');
     for (const a of await mevAlerts(now).catch(() => [])) {

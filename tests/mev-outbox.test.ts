@@ -17,6 +17,9 @@ import { publicReceiptHtml } from '../lib/foodhub/mev/receipt';
 import type { MevJob } from '../lib/foodhub/mev/types';
 import { getRepo } from '../lib/foodhub/repo';
 import { contractMac } from '../lib/foodhub/tenant';
+import { recordBagPickup, saveBagDay } from '../lib/foodhub/tgtg';
+import { tgtgMailOrderId } from '../lib/foodhub/tgtg-email/ids';
+import { localDate } from '../lib/foodhub/hours';
 import type { NormalizedOrder, StoredOrder } from '../lib/foodhub/types';
 
 const SECRET = crypto.randomBytes(32).toString('hex');
@@ -213,11 +216,11 @@ describe('platform orders through QCMEV', () => {
     expect((await getRepo().getOrder(o.id))!.timeline?.mev?.status).toBe('shadow');
   });
 
-  it('the Too Good To Go daily log is one not-printed LVT sale; a reprint and a merchant copy are transmitted', async () => {
+  it('the Too Good To Go daily count never reaches Takatak MEV; a reprint and a merchant copy are transmitted', async () => {
     const log = await accept(await platformOrder({ channel: 'tgtg', marketplace: 'tgtg', externalOrderId: 'tgtg-log-2026-10-24-E2E_A', raw: { source: 'daily_log' }, tax: 0, subtotal: 17.97, total: 17.97, tip: 0, deliveryFee: 0, lines: [{ name: 'Surprise Bag', quantity: 3, unitPrice: 5.99, total: 17.97, modifiers: [] }] }));
-    expect(log.timeline?.mev).toMatchObject({ status: 'accepted', format: 'NON' });
-    expect(posts()[0].body.receipt.format).toBe('NON');
-    expect(log.timeline?.mev?.token).toBeUndefined();
+    expect(log.timeline?.mev).toMatchObject({ status: 'skipped', reason: 'log_order' });
+    expect(posts()).toHaveLength(0);
+    expect(await jobsFor(storedBaseKey(log))).toEqual([]);
     const o = await accept(await platformOrder());
     expect((await requestMevPrint('stored', o.id, 'DUP', ACTOR)).ok).toBe(true);
     expect((await requestMevPrint('stored', o.id, 'RPR', ACTOR)).ok).toBe(true);
@@ -284,12 +287,67 @@ describe('platform orders through QCMEV', () => {
     expect(race.filter((r) => r.granted)).toHaveLength(1);
   });
 
-  it('pending for 15+ minutes raises a Watchtower alert; the legal-limit side is critical at 24 h', async () => {
+  it('a sale Takatak MEV has not recorded has no invoice: critical after 1 minute, whatever the reason (no 48-hour wait)', async () => {
     mock.state.down = true;
     await accept(await platformOrder());
     expect(await mevAlerts(Date.now())).toEqual([]);
-    expect((await mevAlerts(Date.now() + 16 * 60_000))[0]).toMatchObject({ severity: 'warning' });
-    expect((await mevAlerts(Date.now() + 25 * 3600_000))[0]).toMatchObject({ severity: 'critical' });
+    expect((await mevAlerts(Date.now() + 2 * 60_000)).map((a) => a.severity)).toEqual(['critical']);
+    // QCMEV took it but has not signed it yet (202): still no invoice → the same alert.
+    mock.state.down = false;
+    const [job] = (await getRepo().listDocs<MevJob>(MEV_OUTBOX)).map((d) => d.data);
+    await getRepo().putDocs<MevJob>(MEV_OUTBOX, [{ id: job.id, key: job.baseKey, at: job.createdAt, data: { ...job, status: 'pending', wait: 'queued' } }]);
+    expect((await mevAlerts(Date.now() + 2 * 60_000)).map((a) => a.severity)).toEqual(['critical']);
+  });
+
+  it('a sale the SEV recorded offline (MEV-WEB down) is not Food Hub’s alert: its invoice is printed, QCMEV sends it within 48 h', async () => {
+    mock.state.mevDown = true;
+    const o = await accept(await platformOrder());
+    expect((await getRepo().getOrder(o.id))!.timeline?.mev?.status).toBe('offline');
+    expect(await mevAlerts(Date.now() + 25 * 3600_000)).toEqual([]);
+  });
+
+  it('a copy (RPR) that waits is a warning after 15 minutes; the sale it copies was issued', async () => {
+    const o = await accept(await platformOrder());
+    mock.state.down = true;
+    expect((await requestMevPrint('stored', o.id, 'RPR', ACTOR)).ok).toBe(true);
+    await settleMevKicks();
+    expect(await mevAlerts(Date.now() + 2 * 60_000)).toEqual([]);
+    expect((await mevAlerts(Date.now() + 16 * 60_000)).map((a) => [a.job.kind, a.severity])).toEqual([['print', 'warning']]);
+  });
+
+  it('« Sac remis »: one Too Good To Go bag → one LVT sale printed for the customer; the same code twice or an e-mail reservation is never a second sale', async () => {
+    const p = await recordBagPickup({ locationCode: 'E2E_A', pricePerBag: 5.99, code: 'ab12' }, ACTOR, { waitMs: 5000 });
+    expect(p).toMatchObject({ quantity: 1, total: 5.99, code: 'AB12' });
+    expect(p.mev).toMatchObject({ status: 'accepted', format: 'PAP' });
+    expect(p.mev?.mentions).toContain('COMMANDE PAR UNE PLATEFORME NUMÉRIQUE');
+    const sent = posts().filter((c: any) => c.path.endsWith('/sales'));
+    expect(sent).toHaveLength(1);
+    expect(sent[0].body).toMatchObject({ serviceType: 'LVT', receipt: { format: 'PAP', deliver: 'print' }, payment: { mode: 'AUT' }, amounts: { subtotalCents: 521, totalCents: 599 }, source: { channel: 'tgtg' } });
+    // Tapped twice with the same code: the same sale.
+    expect(await recordBagPickup({ locationCode: 'E2E_A', pricePerBag: 5.99, code: 'AB12' }, ACTOR, { waitMs: 0 })).toMatchObject({ id: p.id, existing: 'pickup' });
+    // A reservation read from a TGTG e-mail: that order is the sale (its invoice prints from it).
+    const mail = await platformOrder({ channel: 'tgtg', marketplace: 'tgtg', externalOrderId: tgtgMailOrderId('ZX9'), raw: { source: 'tgtg_email' }, tax: 0, subtotal: 5.99, total: 5.99, tip: 0, deliveryFee: 0, fulfillment: 'pickup', lines: [{ name: 'Surprise Bag', quantity: 1, unitPrice: 5.99, total: 5.99, modifiers: [] }] });
+    expect(await recordBagPickup({ locationCode: 'E2E_A', pricePerBag: 5.99, code: 'zx9' }, ACTOR, { waitMs: 0 })).toMatchObject({ id: mail.id, existing: 'email' });
+    await settleMevKicks();
+    expect(posts().filter((c: any) => c.path.endsWith('/sales'))).toHaveLength(1);
+    // A kitchen that does not issue its invoices through Takatak MEV: refused (it logs its day as before).
+    await expect(recordBagPickup({ locationCode: 'E2E_B', pricePerBag: 5.99 }, ACTOR)).rejects.toThrow(/Takatak MEV/);
+    await expect(recordBagPickup({ locationCode: 'E2E_A', pricePerBag: 0 }, ACTOR)).rejects.toThrow(/price/);
+  });
+
+  it('the day’s count on a Takatak MEV kitchen: kept for the reports, never sent, and the bags without their own invoice are flagged', async () => {
+    const today = localDate(Date.now());
+    await recordBagPickup({ locationCode: 'E2E_A', pricePerBag: 5.99 }, ACTOR, { waitMs: 5000 });
+    const day = await saveBagDay({ date: today, locationCode: 'E2E_A', bagsOffered: 5, bagsSold: 3, pricePerBag: 5.99 }, ACTOR);
+    expect(day.mev).toEqual({ invoicedBags: 1, missingBags: 2 });
+    await settleMevKicks();
+    // Only the bag handed over reached QCMEV; the count did not.
+    expect(posts().filter((c: any) => c.path.endsWith('/sales')).map((c: any) => c.body.source.externalOrderId)).toEqual([expect.stringMatching(/^tgtg-pickup-E2E_A-/)]);
+    const acts = await getRepo().listActivity({ limit: 50 });
+    expect(acts.some((a) => a.action === 'tgtg_bags_without_invoice' && a.status === 'failed' && /2 of 3 bag/.test(a.summary))).toBe(true);
+    // Not a Takatak MEV kitchen: no invoice count at all.
+    const other = await saveBagDay({ date: today, locationCode: 'E2E_B', bagsOffered: 5, bagsSold: 3, pricePerBag: 5.99 }, ACTOR);
+    expect(other.mev).toBeNull();
   });
 });
 

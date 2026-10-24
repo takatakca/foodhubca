@@ -181,12 +181,17 @@ describe('platform orders → LVT', () => {
     expect(relay.flags?.taxIncluded).toBe(true);
     expect(relay.receipt.format).toBe('PAP');
   });
-  it('the Too Good To Go daily bag log (no per-order feed that day) is one LVT sale, transmitted, not printed (NON)', () => {
-    const log = sale(toMevSaleFromStored(stored({ channel: 'tgtg', marketplace: 'tgtg', externalOrderId: 'tgtg-log-E2E_A-2026-10-24', raw: { source: 'daily_log' }, status: 'completed', tax: 0, subtotal: 17.97, total: 17.97, tip: 0, deliveryFee: 0, fulfillment: 'pickup', lines: [{ name: 'Surprise Bag', quantity: 3, unitPrice: 5.99, total: 17.97, modifiers: [] }] }), CTX));
-    expect(qcmevAccepts(log)).toEqual([]);
-    expect(log.serviceType).toBe('LVT');
-    expect(log.receipt).toEqual({ format: 'NON', deliver: 'none' });
-    expect(log.amounts.totalCents).toBe(1797);
+  it('the Too Good To Go daily bag count is never a sale (log_order): many customers, after the day, nobody to hand an invoice to', () => {
+    const bagLog = { channel: 'tgtg' as const, marketplace: 'tgtg', tax: 0, subtotal: 17.97, total: 17.97, tip: 0, deliveryFee: 0, fulfillment: 'pickup' as const, status: 'completed' as const, lines: [{ name: 'Surprise Bag', quantity: 3, unitPrice: 5.99, total: 17.97, modifiers: [] }] };
+    expect(toMevSaleFromStored(stored({ ...bagLog, externalOrderId: 'tgtg-log-E2E_A-2026-10-24', raw: { source: 'daily_log' } }), CTX)).toEqual({ ok: false, reason: 'log_order' });
+    // Recognised by its id alone too (an older log without raw.source).
+    expect(toMevSaleFromStored(stored({ ...bagLog, externalOrderId: 'tgtg-log-E2E_A-2026-10-23', raw: {} }), CTX)).toEqual({ ok: false, reason: 'log_order' });
+  });
+  it('a Too Good To Go bag handed over at the counter (« Sac remis ») is its own LVT sale, printed for the customer (PAP)', () => {
+    const one = sale(toMevSaleFromStored(stored({ channel: 'tgtg', marketplace: 'tgtg', externalOrderId: 'tgtg-pickup-E2E_A-x1', raw: { source: 'tgtg_pickup' }, status: 'completed', tax: 0, subtotal: 5.99, total: 5.99, tip: 0, deliveryFee: 0, fulfillment: 'pickup', lines: [{ name: 'Surprise Bag', quantity: 1, unitPrice: 5.99, total: 5.99, modifiers: [] }] }), CTX));
+    expect(qcmevAccepts(one)).toEqual([]);
+    expect(one).toMatchObject({ serviceType: 'LVT', receipt: { format: 'PAP', deliver: 'print' }, payment: { mode: 'AUT', collectedBy: 'platform' } });
+    expect(one.amounts).toEqual({ subtotalCents: 521, gstCents: 26, qstCents: 52, totalCents: 599, tipCents: 0 });
   });
   it('a new order is not a sale yet; ready trigger waits for ready', () => {
     expect(toMevSaleFromStored(stored({ status: 'new' }), CTX)).toEqual({ ok: false, reason: 'not_final' });

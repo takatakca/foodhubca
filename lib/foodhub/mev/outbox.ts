@@ -4,8 +4,10 @@
 //
 //   statuses   pending → sending → done | needs_human | skipped
 //   claim      random claim + re-read, 90 s expiry (same pattern as order-retry.ts): two timers never send one job twice
-//   retries    FOODHUB_MEV_RETRY_S (15,60,300; the last repeats). Revenu Québec's limit is 48 h: Food Hub alerts at
-//              15 min pending, critical at 24 h; QCMEV alerts on its own side at 6 h.
+//   retries    FOODHUB_MEV_RETRY_S (15,60,300; the last repeats). A job still here is NOT recorded by Takatak MEV: no
+//              invoice exists for it, and the invoice is due right after payment. So a sale or credit note alerts after
+//              1 minute, critical (mevAlerts). Revenu Québec's 48 hours only cover sales the SEV already recorded during
+//              a communication problem with MEV-WEB (here: done + offline_pending); QCMEV sends and alerts on those.
 //   runs from  runOrderRecovery (Watchtower timer, 30 s), /api/foodhub/cron/watch, and right after a job is written.
 import crypto from 'node:crypto';
 import { logActivity, type Actor } from '../activity';
@@ -19,7 +21,7 @@ import type { FoodHubCreditV1, FoodHubSaleV1, MevJob, MevOrderStatus, MevReceipt
 
 export const MEV_OUTBOX = 'mev_outbox';
 export const CLAIM_MS = 90_000;
-/** Look back this far for open jobs (the 48-hour legal limit, plus margin). */
+/** Look back this far for open jobs (an old one stays visible until a person deals with it). */
 const OPEN_WINDOW_MS = 4 * 86400_000;
 /** How often an offline receipt is read again until MEV-WEB numbered it (FOODHUB_MEV_OFFLINE_POLL_S, default 300). */
 const pollOfflineMs = () => Math.max(1, Math.min(3600, Number(process.env.FOODHUB_MEV_OFFLINE_POLL_S) || 300)) * 1000;
@@ -369,7 +371,16 @@ export async function replayJob(id: string, actor: Actor): Promise<MevJob | null
 
 export interface MevAlert { key: string; severity: 'critical' | 'warning'; job: MevJob; ageMin: number }
 
-/** Jobs a person must know about: pending 15+ min (critical at 24 h; the legal limit is 48 h), or waiting for a person. */
+/**
+ * Jobs a person must know about. A sale or a credit note still in Food Hub's outbox is not recorded by Takatak MEV: no
+ * invoice exists for it yet, and Revenu Québec wants the invoice handed over right after payment (« Remise de la facture
+ * – restauration ») and the sale sent « sans délai ». The 48 hours of « Problème de communication » only cover sales the
+ * SEV has already recorded and stored (status done + offline_pending here: QCMEV signed and printed them, sends them and
+ * alerts on them itself), never a sale the SEV has not seen. So:
+ *   sale / credit note   waiting 1+ minute (whatever the reason), a tender to pick (at once), or held for a person
+ *                        → critical: a customer is owed an invoice now
+ *   copy (RPR / DUP)     waiting 15+ minutes → warning; held for a person → warning
+ */
 export async function mevAlerts(now = Date.now()): Promise<MevAlert[]> {
   if (mevMode() === 'off') return [];
   const jobs = await listJobs({ since: new Date(now - OPEN_WINDOW_MS).toISOString() });
@@ -377,9 +388,12 @@ export async function mevAlerts(now = Date.now()): Promise<MevAlert[]> {
   for (const j of jobs) {
     if (j.shadow) continue;
     const ageMin = (now - Date.parse(j.createdAt)) / 60_000;
-    if (j.status === 'needs_human') out.push({ key: `mev:${j.id}`, severity: j.kind === 'sale' ? 'critical' : 'warning', job: j, ageMin });
-    // No invoice can be handed out meanwhile: Takatak MEV silent for a minute, or a pay-at-pickup tender to pick → at once.
-    else if ((j.status === 'pending' || j.status === 'sending') && (ageMin >= 15 || j.wait === 'tender_unknown' || (j.wait === 'qcmev_unreachable' && ageMin >= 1))) out.push({ key: `mev:${j.id}`, severity: ageMin >= 24 * 60 ? 'critical' : 'warning', job: j, ageMin });
+    const owed = j.kind !== 'print';
+    const add = (severity: MevAlert['severity']) => out.push({ key: `mev:${j.id}`, severity, job: j, ageMin });
+    if (j.status === 'needs_human') add(owed ? 'critical' : 'warning');
+    else if (j.status !== 'pending' && j.status !== 'sending') continue;
+    else if (owed && (j.wait === 'tender_unknown' || ageMin >= 1)) add('critical');
+    else if (!owed && ageMin >= 15) add('warning');
   }
   return out;
 }

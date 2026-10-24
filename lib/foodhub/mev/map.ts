@@ -211,12 +211,15 @@ export function storedIsFinal(o: Pick<StoredOrder, 'status' | 'channel'>, trigge
 }
 
 export function storedExclusion(o: StoredOrder, opts: { dryRun?: boolean } = {}): Exclusion | null {
-  void o;
   if (opts.dryRun) return 'dry_run';
+  // The Too Good To Go daily bag count is never a sale: it is typed after the day, for many customers at once, with no
+  // customer left to hand an invoice to. Revenu Québec wants each meal's invoice at payment and each sale sent « sans
+  // délai ». Each bag is its own LVT sale, printed at pickup: a TGTG e-mail order, or « Sac remis » (tgtg.ts).
+  if (LOG_ORDER(o)) return 'log_order';
   return null;
 }
 
-/** The Too Good To Go daily bag log (lib/foodhub/tgtg.ts): a count of bags sold on a day without a per-order feed. */
+/** The Too Good To Go daily bag count (lib/foodhub/tgtg.ts): for Food Hub's reports only, never sent to Takatak MEV. */
 export const isBagLog = LOG_ORDER;
 
 /** The moment the platform order became a sale (stable across re-mappings). */
@@ -240,7 +243,6 @@ export function toMevSaleFromStored(o: StoredOrder, ctx: MapCtx): MapResult {
   const skipTablet = o.channel === 'skip' && o.status === 'failed' && !o.tax;
   // Too Good To Go shows its price taxes included and sends no tax: the pre-tax prices are worked out, the tax computed.
   const taxIncluded = o.channel === 'tgtg' && !o.tax;
-  const bagLog = LOG_ORDER(o);
   // The items are the receipt; the platform's subtotal must agree with them (Skip: JET Connect item prices are before
   // tax, items_in_cart.inc_tax − tax = their sum). A restaurant-funded discount is the only « Rabais ».
   const discountCents = Math.max(0, cents(discount));
@@ -263,9 +265,8 @@ export function toMevSaleFromStored(o: StoredOrder, ctx: MapCtx): MapResult {
     amounts: money.amounts,
     // Collected by the platform (SPEC: AUT until Revenu Québec answers); nothing to collect → AUC.
     payment: { mode: money.amounts.totalCents === 0 ? 'AUC' : 'AUT', collectedBy: 'platform' },
-    // Platforms mask the customer's contact: the paper copy goes in the bag. The bag log is recorded after the day,
-    // with no customer to hand it to: transmitted, not printed (NON).
-    receipt: bagLog ? { format: 'NON', deliver: 'none' } : { format: 'PAP', deliver: 'print' },
+    // Platforms mask the customer's contact: the paper copy goes in the bag (or in the hand, for a Too Good To Go bag).
+    receipt: { format: 'PAP', deliver: 'print' },
     ...(ctx.referenceSaleKey ? { referenceSaleKey: ctx.referenceSaleKey } : {}),
     testMode: ctx.testMode,
     ...(Object.keys(money.flags).length ? { flags: money.flags } : {}),

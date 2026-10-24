@@ -95,7 +95,8 @@ export function MevTicketBlock({ mev, copy, print }: { mev?: MevRecord | null; c
     if (want !== 'FAC') return <><div className="t-rule" /><div className="t-center t-big">COPIE PAS ENCORE ÉMISE</div><div className="t-center">NE PAS REMETTRE AU CLIENT</div></>;
     if (mev.format === 'ELE') return <><div className="t-rule" /><div className="t-center">Facture électronique (aucune copie papier)</div></>;
     if (mev.format === 'NON') return <><div className="t-rule" /><div className="t-center">Vente transmise, non imprimée</div></>;
-    return <><div className="t-rule" /><div className="t-center t-big">FACTURE À VENIR</div><div className="t-center">NE PAS REMETTRE AU CLIENT</div></>;
+    // Not recorded by Takatak MEV yet: no invoice exists. It is due at payment, so the bag waits for it (no 48 h here).
+    return <><div className="t-rule" /><div className="t-center t-big">FACTURE À VENIR</div><div className="t-center">NE PAS REMETTRE AU CLIENT</div><div className="t-center">Garder le sac : imprimer la facture dès qu’elle sort et la joindre</div></>;
   }
   if (print.state === 'loading') return <><div className="t-rule" /><div className="t-center">Facture…</div></>;
   if (print.state === 'refused' || print.state === 'none') {

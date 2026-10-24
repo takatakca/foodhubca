@@ -21,7 +21,7 @@ export type IncidentKind =
   | 'payout_gap'         // money to recover from the platforms
   | 'customer_issue'     // cancelled by the customer, missing item reported…
   | 'platform_silent'    // no order from a platform for hours while its stores are open (webhook broken?)
-  | 'mev_pending';       // a Revenu Québec invoice (Takatak MEV) waits 15+ min or needs a person (legal limit 48 h)
+  | 'mev_pending';       // a sale Takatak MEV has not recorded (no invoice yet: due right after payment) or a copy waiting
 
 export type Severity = 'critical' | 'warning' | 'info';
 export type IncidentStatus = 'open' | 'acknowledged' | 'snoozed' | 'resolved';

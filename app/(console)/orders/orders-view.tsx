@@ -9,6 +9,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { AlarmClock, ArrowRight, CalendarClock, ChefHat, Download, Inbox, Search, Volume2 } from 'lucide-react';
 import { Hint } from '@/components/help/hint';
 import { Badge, PlatformMark, PlatformTag } from '@/components/ui/badge';
+import { MevBadge } from '@/components/live/mev-panel';
 import { Button, ButtonLink } from '@/components/ui/button';
 import { Card, EmptyState, PageHeader, Skeleton, SkeletonList, SkeletonTable } from '@/components/ui/card';
 import { FilterBar } from '@/components/ui/filter-bar';
@@ -322,7 +323,7 @@ function History({ onOpen }: { onOpen: (id: string) => void }) {
                         <Td>{o.brandName ?? '—'}</Td>
                         <Td className="text-ink-2">{o.locationCode ? shortLoc(locName(o.locationCode)) : '—'}</Td>
                         <Td className={o.customerName ? 'text-ink-2' : 'text-ink-3'}>{o.customerName || t('Client inconnu', 'Unknown customer')}</Td>
-                        <Td><Badge tone={STATUS_TONE[o.status]}>{statusLabel(t, o.status)}</Badge></Td>
+                        <Td><span className="flex flex-wrap items-center gap-1"><Badge tone={STATUS_TONE[o.status]}>{statusLabel(t, o.status)}</Badge><MevBadge mev={o.timeline?.mev} /></span></Td>
                         <Td align="right" className={cn('font-semibold', o.status === 'cancelled' && 'text-ink-3 line-through')}>{money(o.total, loc)}</Td>
                       </Tr>
                     ))}
@@ -342,6 +343,7 @@ function History({ onOpen }: { onOpen: (id: string) => void }) {
                       <span className="text-right">
                         <span className={cn('num text-body block font-bold', o.status === 'cancelled' && 'text-ink-3 line-through')}>{money(o.total, loc)}</span>
                         <Badge tone={STATUS_TONE[o.status]}>{statusLabel(t, o.status)}</Badge>
+                        <MevBadge mev={o.timeline?.mev} />
                       </span>
                     </button>
                   </li>

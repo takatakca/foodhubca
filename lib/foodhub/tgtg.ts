@@ -7,6 +7,7 @@
 //  - TGTG payouts are reconciled from their statements in Statement imports.
 import { logActivity, type Actor } from './activity';
 import { nowIso } from './config';
+import { mevOnOrderChange } from './mev/hooks';
 import { getRepo } from './repo';
 import { foodhubTimeZone, startOfLocalDayMs } from './time';
 import type { StoredOrder } from './types';
@@ -80,6 +81,8 @@ export async function saveBagDay(input: { date: string; locationCode: string; ba
     orderId = order.id;
     await repo.updateOrder(order.id, { status: 'completed', timeline: { completedAt: noonLocal(input.date) } });
   }
+  // The bag log is a count, never a sale to invoice: a kitchen on Takatak MEV records it as skipped (nothing sent).
+  if (orderId) await mevOnOrderChange({ id: orderId });
   const day: BagDay = { id, date: input.date, locationCode: input.locationCode, bagsOffered: offered, bagsSold: sold, pricePerBag: price, note: input.note?.slice(0, 200), by: actor.name, at: nowIso(), orderId, feedOrders: feed.length };
   await repo.putDocs(BAGS, [{ id, at: noonLocal(input.date), key: input.locationCode, data: day }]);
   await logActivity({ actor: actor.name, source: actor.source, kind: 'order', action: 'tgtg_bag_log', status: 'success', channel: 'tgtg', locationCode: input.locationCode,

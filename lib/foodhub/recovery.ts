@@ -87,7 +87,7 @@ export async function runCloverRetries(opts: { now?: number; trigger?: string } 
   return out;
 }
 
-export interface RecoveryReport { at: string; trigger: string; ran: boolean; clover: CloverRetryReport; inbox: { processed: number; failed: number } }
+export interface RecoveryReport { at: string; trigger: string; ran: boolean; clover: CloverRetryReport; inbox: { processed: number; failed: number }; mev?: { due: number; done: number; waiting: number; needsHuman: number } }
 
 const LAST_KEY = 'recovery:last';
 
@@ -108,7 +108,10 @@ export async function runOrderRecovery(opts: { now?: number; trigger?: string; f
     const clover = await runCloverRetries({ now, trigger: opts.trigger }).catch((e) => { console.error('[foodhub] Clover retries failed', e); return empty.clover; });
     const { sweepInbox } = await import('./inbox');
     const inbox = await sweepInbox({ now }).catch((e) => { console.error('[foodhub] inbox sweep failed', e); return empty.inbox; });
-    return { ...empty, ran: true, clover, inbox };
+    // Revenu Québec invoices waiting in the Takatak MEV outbox (nothing at all when FOODHUB_MEV=off).
+    const { runMevOutbox } = await import('./mev/outbox');
+    const m = await runMevOutbox({ now, trigger: opts.trigger }).catch((e) => { console.error('[foodhub] MEV outbox failed', e instanceof Error ? e.message : e); return null; });
+    return { ...empty, ran: true, clover, inbox, ...(m?.ran ? { mev: { due: m.due, done: m.done, waiting: m.waiting, needsHuman: m.needsHuman } } : {}) };
   } finally {
     g.__takatakRecoveryRunning = 0;
   }

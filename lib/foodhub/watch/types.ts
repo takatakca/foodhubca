@@ -20,7 +20,8 @@ export type IncidentKind =
   | 'menu_failed'        // a menu / 86 / pause did not reach a platform
   | 'payout_gap'         // money to recover from the platforms
   | 'customer_issue'     // cancelled by the customer, missing item reported…
-  | 'platform_silent';   // no order from a platform for hours while its stores are open (webhook broken?)
+  | 'platform_silent'    // no order from a platform for hours while its stores are open (webhook broken?)
+  | 'mev_pending';       // a Revenu Québec invoice (Takatak MEV) waits 15+ min or needs a person (legal limit 48 h)
 
 export type Severity = 'critical' | 'warning' | 'info';
 export type IncidentStatus = 'open' | 'acknowledged' | 'snoozed' | 'resolved';
@@ -110,7 +111,7 @@ export interface WatchSettings {
 
 export const INCIDENT_KINDS: IncidentKind[] = [
   'order_unaccepted', 'order_unseen', 'order_late', 'courier_waiting', 'pos_failed', 'store_unmapped', 'store_offline', 'store_deactivated',
-  'device_offline', 'device_muted', 'cancel_spike', 'sync_stale', 'webhook_unreadable', 'menu_failed', 'payout_gap', 'customer_issue', 'platform_silent',
+  'device_offline', 'device_muted', 'cancel_spike', 'sync_stale', 'webhook_unreadable', 'menu_failed', 'payout_gap', 'customer_issue', 'platform_silent', 'mev_pending',
 ];
 
 export const KIND_LABEL: Record<IncidentKind, { fr: string; en: string }> = {
@@ -131,6 +132,7 @@ export const KIND_LABEL: Record<IncidentKind, { fr: string; en: string }> = {
   payout_gap: { fr: 'Argent à récupérer', en: 'Money to recover' },
   customer_issue: { fr: 'Problème client', en: 'Customer issue' },
   platform_silent: { fr: 'Plateforme silencieuse', en: 'Platform gone quiet' },
+  mev_pending: { fr: 'Facture Revenu Québec en attente', en: 'Revenu Québec invoice waiting' },
 };
 
 const on = (escalate = true): RuleSetting => ({ enabled: true, escalate });
@@ -138,7 +140,7 @@ const on = (escalate = true): RuleSetting => ({ enabled: true, escalate });
 export const DEFAULT_RULES: Record<IncidentKind, RuleSetting> = {
   order_unaccepted: on(), order_unseen: on(), order_late: on(), courier_waiting: on(), pos_failed: on(), store_unmapped: on(),
   store_offline: on(), store_deactivated: on(), device_offline: on(), device_muted: on(),
-  cancel_spike: on(false), sync_stale: on(), webhook_unreadable: on(false), menu_failed: on(), payout_gap: on(false), customer_issue: on(false), platform_silent: on(),
+  cancel_spike: on(false), sync_stale: on(), webhook_unreadable: on(false), menu_failed: on(), payout_gap: on(false), customer_issue: on(false), platform_silent: on(), mev_pending: on(),
 };
 
 export const DEFAULT_WATCH: WatchSettings = {

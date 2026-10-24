@@ -1,5 +1,26 @@
 # Food Hub: progress log and task board
 
+## 2026-10-24 — Revenu Québec invoices through Takatak MEV (QCMEV), off by default (`feature/mev-qcmev-integration`, stacked on #97)
+
+- Owner's order of 2026-10-24: make QCMEV work with food delivery. Food Hub side of contract `foodhub.sale.v1`
+  (docs/MEV_INTEGRATION.md): `lib/foodhub/mev/` (config, map, client, outbox, hooks, receipt, status), the Clover tender
+  read `lib/foodhub/pos/clover-payments.ts`, owner switch « Factures Revenu Québec (MEV) », Settings → Add-ons → MEV
+  invoices, a badge and a « Facture (MEV) » panel on orders, QCMEV's receipt on the 80 mm ticket (and a new own-order
+  ticket `/ticket/direct/{id}`), the electronic copy `/r/{token}`, a Watchtower incident « Facture Revenu Québec en
+  attente », and `MenuItem.mevTax` in the menu editor.
+- Hooks: `settleInClover` (every platform status change), auto-accept, DoorDash adjustment, Skip final order and tablet
+  route, missing items / price change, Clover's own platform orders, the TGTG bag log (skipped), and
+  `addDirectEvent` (every own-order step). Sale once accepted / paid; credit note when cancelled after the receipt;
+  credit note + corrected receipt when the content changes; nothing when cancelled before it was sent.
+- Off by default on four switches (FOODHUB_MEV, owner switch, FOODHUB_MEV_LOCATIONS, per-kitchen system). With
+  FOODHUB_MEV=off nothing is read or sent. `on` needs QCMEV PROD + certified; `simulator` never sends to PROD.
+- Payloads checked against QCMEV's own validator (worktree `QCMEV.CA-wt/functional-mev`): items = qty × unit with options
+  as their own items, subtotal rule, credit amounts as magnitudes, key characters, ms or s timestamps.
+- Checks: typecheck OK, lint 0 errors, unit tests + 2 new files (mev-map, mev-outbox), webpack build OK, verify:foodhub
+  with the new section 48 (S1–S11 against `scripts/e2e/mock-qcmev.mjs`; zero QCMEV calls before the switch is on).
+- Not done: kitchen-screen auto-print of the invoice block, Phase-2 staff sync to QCMEV users (UTL), anything that
+  needs SW-73 / SW-77 or Revenu Québec's DEV / ESSAI environments. Merge after #97.
+
 ## 2026-10-22 — Premium console: A3 reports, money, settings (`feature/premium-a3-reports-settings`, stacked on #88)
 
 - Scope A3 of the console audit: Insights (deltas without a previous period say so, 4 + 4 tiles, report cards with one

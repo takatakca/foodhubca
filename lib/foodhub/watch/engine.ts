@@ -335,6 +335,21 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
     const owed = Math.round(cases.reduce((a, c) => a + c.amount, 0) * 100) / 100;
     if (owed >= 1) out.push({ key: 'payout_gap', kind: 'payout_gap', severity: 'info', title: `${owed.toFixed(2).replace('.', ',')} $ à récupérer des plateformes`, titleEn: `$${owed.toFixed(2)} to recover from the platforms`, detail: `${cases.length} cas à contester`, detailEn: `${cases.length} case(s) to dispute` });
   }
+  // Revenu Québec invoices (Takatak MEV) waiting 15+ min or for a person. Nothing is read when FOODHUB_MEV=off.
+  if (on('mev_pending')) {
+    const { mevAlerts } = await import('../mev/outbox');
+    for (const a of await mevAlerts(now).catch(() => [])) {
+      const j = a.job;
+      const what = j.kind === 'credit' ? 'Note de crédit' : j.kind === 'print' ? 'Copie de facture' : 'Facture';
+      const whatEn = j.kind === 'credit' ? 'Credit note' : j.kind === 'print' ? 'Invoice copy' : 'Invoice';
+      const age = a.ageMin >= 120 ? `${Math.floor(a.ageMin / 60)} h` : `${Math.round(a.ageMin)} min`;
+      const human = j.status === 'needs_human';
+      out.push({ key: a.key, kind: 'mev_pending', severity: a.severity, locationCode: j.order.locationCode || null, orderId: j.order.model === 'stored' ? j.order.id : null,
+        title: human ? `${what} MEV à vérifier : ${j.order.label}` : `${what} MEV en attente depuis ${age} : ${j.order.label}`,
+        titleEn: human ? `MEV ${whatEn.toLowerCase()} needs a person: ${j.order.label}` : `MEV ${whatEn.toLowerCase()} waiting for ${age}: ${j.order.label}`,
+        detail: `${j.lastError ?? j.wait ?? ''}`.slice(0, 200) || undefined, detailEn: `${j.lastError ?? j.wait ?? ''}`.slice(0, 200) || undefined });
+    }
+  }
   return out;
 }
 

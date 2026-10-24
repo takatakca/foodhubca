@@ -6,6 +6,7 @@
 // Payments cannot be deleted or refunded through Clover's REST API, so they are only recorded once the
 // order can no longer be cancelled by the restaurant — that keeps Clover's sales equal to the real sales.
 import { logActivity } from './activity';
+import { mevOnOrderChange } from './mev/hooks';
 import { CHANNEL_LABELS, nowIso } from './config';
 import { closeCancelledCloverOrder, recordCloverPayment } from './pos/clover-books';
 import { getRepo } from './repo';
@@ -16,7 +17,17 @@ async function patch(order: StoredOrder, t: OrderTimeline): Promise<StoredOrder>
   return (await getRepo().patchOrder(order.id, t)) ?? { ...order, timeline: { ...(order.timeline ?? {}), ...t } };
 }
 
+/**
+ * Every status change of a platform order goes through here, so this is also where the Revenu Québec invoice (Takatak
+ * MEV) follows the order: sale once accepted, credit note when cancelled after it (mev/hooks.ts). Off = no cost.
+ */
 export async function settleInClover(order: StoredOrder | null): Promise<StoredOrder | null> {
+  const settled = await settleCloverOnly(order);
+  await mevOnOrderChange(settled ?? order);
+  return settled;
+}
+
+async function settleCloverOnly(order: StoredOrder | null): Promise<StoredOrder | null> {
   if (!order?.posOrderId) return order;
   // Orders that came through Clover's own platform integration are already paid / closed by that integration.
   if (order.viaPos) return order;

@@ -8,6 +8,7 @@ export const EXPANSION_LINKS = [
   { href: '/settings/expansion/alcohol', fr: 'Alcool', en: 'Alcohol', exact: false },
   { href: '/settings/expansion/phone', fr: 'Téléphone IA', en: 'AI phone', exact: true },
   { href: '/settings/expansion/phone/ivr', fr: 'Menu téléphonique', en: 'Phone menu', exact: false },
+  { href: '/settings/expansion/mev', fr: 'Factures MEV', en: 'MEV invoices', exact: false },
 ] as const;
 
 /**

@@ -21,6 +21,7 @@ const PUBLIC_PREFIXES = [
   '/api/auth/google/', // "Continue with Google": the state + PKCE cookie and Google's verified id_token are the credential (lib/foodhub/identity/google.ts)
   // No blanket /api/public/ exemption: only explicitly reviewed read-only routes are public (PUBLIC_PATHS below).
   '/p/', // payment links texted to customers: the secret token is the credential (app/p/[token]/route.ts, delivery/paylink.ts)
+  '/r/', // electronic copy of a Takatak MEV invoice: the secret token is the credential (app/r/[token]/route.ts, mev/receipt.ts)
   '/login', '/kitchen/lock', '/manifest.webmanifest', '/sw.js', '/icons/', '/legal/', '/welcome/', '/media/',
   '/commander/', '/api/storefront/', // ON2GO storefront: public menu + checkout; prices recomputed server side, rate-limited (lib/foodhub/storefront/*)
 ];

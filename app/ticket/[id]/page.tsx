@@ -3,6 +3,7 @@
 import { use, useEffect, useRef, useState } from 'react';
 import { api, money } from '@/lib/ui/api';
 import { orderSourceLabel, type StoredOrder } from '@/lib/foodhub/types';
+import { MevTicketBlock } from '@/components/live/mev-ticket';
 
 const LABEL: Record<string, string> = { uber_eats: 'UBER EATS', doordash: 'DOORDASH', skip: 'SKIPTHEDISHES', tgtg: 'TOO GOOD TO GO' };
 
@@ -12,6 +13,9 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
   const [order, setOrder] = useState<StoredOrder | null>(null);
   const [error, setError] = useState('');
   const printed = useRef(false);
+  // ?copy=DUP (merchant copy) or RPR (reprint): the Revenu Québec invoice copy QCMEV rendered for it.
+  // (Read once on the client; nothing is drawn before the order arrives, so the server render never differs.)
+  const [copy] = useState<string | null>(() => (typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('copy')));
   useEffect(() => { api<{ order: StoredOrder }>(`/api/foodhub/orders/${id}`).then((d) => setOrder(d.order)).catch((e) => setError(String(e.message || e))); }, [id]);
   useEffect(() => {
     if (!order || printed.current) return;
@@ -57,6 +61,8 @@ export default function TicketPage({ params }: { params: Promise<{ id: string }>
         {order.deliveryFee ? <div className="t-row"><span>Livraison</span><span>{money(order.deliveryFee)}</span></div> : null}
         {order.tip ? <div className="t-row"><span>Pourboire</span><span>{money(order.tip)}</span></div> : null}
         <div className="t-row t-big"><strong>TOTAL</strong><strong>{money(order.total)}</strong></div>
+        <div className="t-rule" />
+        <MevTicketBlock mev={order.timeline?.mev} copy={copy} />
         <div className="t-rule" />
         <div className="t-center" style={{ fontSize: 11 }}>{order.posOrderId ? `Clover ${order.posOrderId}` : 'Pas dans Clover'} · TAKATAK</div>
         {tgtg && order.status !== 'cancelled' && bagCount > 0 && Array.from({ length: bagCount }, (_, i) => (

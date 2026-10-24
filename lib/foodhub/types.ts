@@ -1,4 +1,5 @@
 // TAKATAK Food Hub — shared domain types.
+import type { MevRecord, MevTaxCode } from './mev/types';
 // One normalized model for every channel, so the order board, Clover
 // injection and the finance control tower all read the same shape.
 
@@ -56,6 +57,8 @@ export interface OrderTimeline {
   /** The kitchen confirmed it saw that the platform / customer cancelled this order (stop cooking). */
   cancelSeenAt?: string;
   cancelSeenBy?: string;
+  /** Revenu Québec invoice issued by Takatak MEV (QCMEV): the current receipt as QCMEV rendered it (mev/outbox.ts). */
+  mev?: MevRecord;
   /** Automatic Clover retries after a failed injection (order-retry.ts). */
   posRetry?: {
     attempts: number;
@@ -294,6 +297,8 @@ export interface MenuItem {
   channelPrices?: Partial<Record<Marketplace, number>>;
   /** Uber Eats tax class for this item (key of UBER_TAX_CLASSES, lib/foodhub/menu/uber-tax.ts); overrides the menu default. */
   uberTaxClass?: string;
+  /** Québec tax code on the MEV invoice: FP = GST + QST (default, prepared food), F = GST only, P = QST only, NON = none. */
+  mevTax?: MevTaxCode;
   modifierGroupRefs: string[];
 }
 

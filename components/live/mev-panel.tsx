@@ -10,6 +10,7 @@ import { useToast } from '@/components/ui/toast';
 import { useViewer } from '@/components/shell/viewer';
 import type { T } from '@/lib/i18n';
 import { useI18n } from '@/lib/i18n/client';
+import { printableDoc, printedAt } from '@/lib/foodhub/mev/printable';
 import type { MevRecord } from '@/lib/foodhub/mev/types';
 import { api } from '@/lib/ui/api';
 
@@ -23,9 +24,17 @@ export function mevLabel(t: T, s: MevRecord['status']): string {
   } as Record<string, string>)[s] ?? s;
 }
 
-/** What the reason means, in plain words. */
-function reasonText(t: T, r?: string): string | null {
-  if (!r) return null;
+/** What the reason means, in plain words. A blocked sale's reason is "<code>: <detail>". */
+function reasonText(t: T, raw?: string): string | null {
+  if (!raw) return null;
+  const [r, ...rest] = raw.split(': ');
+  const detail = rest.join(': ');
+  const review: Record<string, string> = {
+    amounts_mismatch: t('Les montants de la plateforme ne s’additionnent pas : aucune facture n’est inventée. Corrigez la commande (articles, prix) ; elle part dès que les montants concordent.', 'The platform’s amounts do not add up: no invoice is made up. Fix the order (items, prices); it goes out as soon as the amounts agree.'),
+    description_missing: t('Un article sans nom : la facture exige une description de chaque article. Corrigez la commande.', 'An item without a name: the invoice needs a description of every item. Fix the order.'),
+    no_lines: t('Commande sans article : rien à facturer tant qu’elle n’a pas d’article.', 'Order without items: nothing to invoice until it has items.'),
+  };
+  if (review[r]) return detail ? `${review[r]} (${detail})` : review[r];
   const known: Record<string, string> = {
     tender_unknown: t('On ne sait pas encore comment le client a payé : choisissez-le ci-dessous.', 'We do not know yet how the customer paid: pick it below.'),
     qcmev_unreachable: t('Takatak MEV ne répond pas : Food Hub réessaie tout seul.', 'Takatak MEV does not answer: Food Hub tries again by itself.'),
@@ -34,10 +43,10 @@ function reasonText(t: T, r?: string): string | null {
     depends: t('Attend la facture d’origine.', 'Waiting for the original invoice.'),
     not_certified: t('Takatak MEV n’est pas dans le bon environnement (production certifiée exigée).', 'Takatak MEV is not in the right environment (certified production required).'),
     offline_pending: t('Signée hors ligne : elle part à Revenu Québec dès le retour de la connexion.', 'Signed offline: it goes to Revenu Québec as soon as the connection is back.'),
-    log_order: t('Journal des sacs Too Good To Go : pas une vente à facturer.', 'Too Good To Go bag log: not a sale to invoice.'),
+    log_order: t('Journal des sacs Too Good To Go (ancienne règle) : pas envoyé.', 'Too Good To Go bag log (old rule): not sent.'),
     dry_run: t('Commande d’essai : pas de facture.', 'Test order: no invoice.'),
   };
-  return known[r] ?? r;
+  return known[r] ?? raw;
 }
 
 export function MevBadge({ mev, className }: { mev?: MevRecord | null; className?: string }) {
@@ -65,6 +74,11 @@ export function MevPanel({ model, id, mev, onChange }: { model: 'stored' | 'dire
   const issued = mev.status === 'accepted' || mev.status === 'offline' || mev.status === 'shadow';
   const ticket = model === 'direct' ? `/ticket/direct/${id}` : `/ticket/${id}`;
   const lastCopy = [...(mev.prints ?? [])].reverse().find((p) => p.text80mm?.length);
+  // Printed once (Revenu Québec, « Modes d'impression »): the original, then each reprint / merchant copy, once each.
+  const original = printableDoc(mev, 'FAC');
+  const originalPrinted = printedAt(mev, original?.key);
+  const copies = (['RPR', 'DUP'] as const).map((mode) => ({ mode, doc: printableDoc(mev, mode) })).filter((c) => c.doc && !printedAt(mev, c.doc.key));
+  const when = (iso: string) => new Date(iso).toLocaleString('fr-CA', { dateStyle: 'short', timeStyle: 'short' });
   return (
     <section className="rounded-md border border-line bg-surface p-4 shadow-card" aria-label={t('Facture (MEV)', 'Invoice (MEV)')}>
       <div className="flex flex-wrap items-center gap-2">
@@ -81,12 +95,14 @@ export function MevPanel({ model, id, mev, onChange }: { model: 'stored' | 'dire
           {mev.qrImage && <img src={mev.qrImage} alt={t('Code QR de la transaction', 'Transaction QR code')} className="size-36 shrink-0 self-center bg-white p-1" />}
         </div>
       ) : null}
+      {originalPrinted && <p className="text-small mt-2 text-ink-3">{t('Facture originale imprimée le', 'Original invoice printed on')} {when(originalPrinted)}. {t('Une autre copie : « Réimprimer (RPR) ».', 'Another copy: “Reprint (RPR)”.')}</p>}
       {lastCopy && <details className="mt-2"><summary className="text-small cursor-pointer text-ink-3">{lastCopy.mode === 'DUP' ? t('Dernière copie du commerçant', 'Last merchant copy') : t('Dernière réimpression', 'Last reprint')}</summary><pre className="mt-2 overflow-auto rounded-sm bg-sunken p-3 font-mono text-[12px] whitespace-pre-wrap">{lastCopy.text80mm!.join('\n')}</pre></details>}
       <div className="mt-3 flex flex-wrap gap-2">
-        {issued && <a className={buttonClass('ghost', 'md')} href={ticket} target="_blank" rel="noreferrer"><Printer className="size-4" aria-hidden />{t('Imprimer la facture', 'Print the invoice')}</a>}
+        {issued && original && !originalPrinted && <a className={buttonClass('ghost', 'md')} href={ticket} target="_blank" rel="noreferrer"><Printer className="size-4" aria-hidden />{t('Imprimer la facture (une fois)', 'Print the invoice (once)')}</a>}
+        {copies.map((c) => <a key={c.mode} className={buttonClass('ghost', 'md')} href={`${ticket}?copy=${c.mode}`} target="_blank" rel="noreferrer"><Printer className="size-4" aria-hidden />{c.mode === 'RPR' ? t('Imprimer la reproduction', 'Print the reproduction') : t('Imprimer la copie du commerçant', 'Print the merchant copy')}</a>)}
         {act && issued && mev.status !== 'shadow' && <Button variant="outline" loading={busy === 'reprint'} onClick={() => run('reprint', {}, t('Réimpression demandée', 'Reprint requested'))} icon={<RotateCcw className="size-4" />}>{t('Réimprimer (RPR)', 'Reprint (RPR)')}</Button>}
         {act && issued && mev.status !== 'shadow' && <Button variant="outline" loading={busy === 'merchant_copy'} onClick={() => run('merchant_copy', {}, t('Copie du commerçant demandée', 'Merchant copy requested'))} icon={<Copy className="size-4" />}>{t('Copie du commerçant (DUP)', 'Merchant copy (DUP)')}</Button>}
-        {mev.token && issued && <a className={buttonClass('ghost', 'md')} href={`/r/${mev.token}`} target="_blank" rel="noreferrer"><ExternalLink className="size-4" aria-hidden />{t('Copie électronique', 'Electronic copy')}</a>}
+        {mev.token && issued && (mev.format === 'ELE' || mev.format === 'PEL') && <a className={buttonClass('ghost', 'md')} href={`/r/${mev.token}`} target="_blank" rel="noreferrer"><ExternalLink className="size-4" aria-hidden />{t('Facture électronique', 'Electronic invoice')}</a>}
         {act && (mev.status === 'needs_human' || mev.status === 'rejected') && <Button variant="soft" loading={busy === 'replay'} onClick={() => run('replay', {}, t('Renvoyée', 'Sent again'))} icon={<RotateCcw className="size-4" />}>{t('Renvoyer', 'Send again')}</Button>}
       </div>
       {act && model === 'direct' && mev.reason === 'tender_unknown' && (

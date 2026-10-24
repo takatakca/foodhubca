@@ -6,7 +6,8 @@ import { getRepo } from '@/lib/foodhub/repo';
 export const dynamic = 'force-dynamic';
 
 // The electronic copy of a Takatak MEV invoice: https://<FOODHUB_PUBLIC_URL>/r/<token> (public: the secret token is the
-// credential, proxy.ts). Shows the lines QCMEV rendered, the QR and « Consulter la transaction en ligne » under it.
+// credential, proxy.ts). Only for an electronic receipt (ELE / PEL): the electronic document QCMEV rendered, the QR in its
+// block and « Consulter la transaction en ligne » right under it. A paper receipt (PAP) has no public copy.
 // No customer name, phone or address is ever on this page.
 const HEADERS = {
   'Content-Type': 'text/html; charset=utf-8',
@@ -26,10 +27,12 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   if (ref.model === 'direct') {
     const d = await getDirectOrder(ref.id);
     if (!d?.mev || d.mev.token !== token) return notFound();
-    return new Response(publicReceiptHtml(d.mev, { brand: d.brandName, number: d.number }), { status: 200, headers: HEADERS });
+    const html = publicReceiptHtml(d.mev, { brand: d.brandName, number: d.number });
+    return html ? new Response(html, { status: 200, headers: HEADERS }) : notFound();
   }
   const o = await getRepo().getOrder(ref.id);
   const mev = o?.timeline?.mev;
   if (!o || !mev || mev.token !== token) return notFound();
-  return new Response(publicReceiptHtml(mev, { brand: o.brandName, number: o.displayId ? `#${o.displayId}` : undefined }), { status: 200, headers: HEADERS });
+  const html = publicReceiptHtml(mev, { brand: o.brandName, number: o.displayId ? `#${o.displayId}` : undefined });
+  return html ? new Response(html, { status: 200, headers: HEADERS }) : notFound();
 }

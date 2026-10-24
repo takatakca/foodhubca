@@ -93,12 +93,16 @@ export function recordFromJobs(jobs: MevJob[], prev?: MevRecord | null): MevReco
     ...(qrUrlOf(rec?.qr) ? { qrUrl: qrUrlOf(rec?.qr) } : {}),
     ...(rec?.mentions ? { mentions: rec.mentions } : {}),
     ...(rec?.text80mm ? { text80mm: rec.text80mm } : {}),
+    ...(current.kind === 'sale' && !current.blocked ? { format: (current.payload as FoodHubSaleV1).receipt?.format ?? 'PAP' } : {}),
+    // The electronic document is kept as first issued (the link the customer got shows what was sent, not a re-render).
+    ...(prev?.textElectronic?.length && prev.saleKey === current.key ? { textElectronic: prev.textElectronic } : rec?.electronic?.lines?.length ? { textElectronic: rec.electronic.lines } : {}),
     ...(rec?.renderHash ? { renderHash: rec.renderHash } : {}),
     ...(rec?.issuedAt ? { issuedAt: rec.issuedAt } : current.doneAt ? { issuedAt: current.doneAt } : {}),
     ...(prev?.token ? { token: prev.token } : {}),
+    ...(prev?.printed ? { printed: prev.printed } : {}),
     ...(prev?.tender ? { tender: prev.tender } : {}),
     ...(credits.length ? { creditNotes: credits.map((c) => ({ creditKey: c.key, reason: (c.payload as FoodHubCreditV1).reason, status: receiptStatus(c), ...(c.result?.receipt?.noTrans ? { noTrans: c.result.receipt.noTrans } : {}), at: c.doneAt ?? c.createdAt })) } : {}),
-    ...(prints.length ? { prints: prints.map((p) => ({ printKey: p.key, mode: (p.payload as { mode: 'RPR' | 'DUP' }).mode, status: receiptStatus(p), ...(p.result?.receipt?.text80mm ? { text80mm: p.result.receipt.text80mm } : {}), at: p.doneAt ?? p.createdAt })) } : {}),
+    ...(prints.length ? { prints: prints.map((p) => ({ printKey: p.key, mode: (p.payload as { mode: 'RPR' | 'DUP' }).mode, status: receiptStatus(p), ...(p.result?.receipt?.text80mm ? { text80mm: p.result.receipt.text80mm } : {}), ...(qrImageOf(p.result?.receipt?.qr) ? { qrImage: qrImageOf(p.result?.receipt?.qr) } : {}), at: p.doneAt ?? p.createdAt })) } : {}),
     updatedAt: nowIso(),
   };
 }
@@ -114,7 +118,7 @@ export async function syncOrderMev(ref: MevJob['order'], baseKey: string): Promi
     if (!o) return null;
     const rec = recordFromJobs(jobs, o.timeline?.mev);
     if (!rec) return null;
-    if (!rec.token && ['accepted', 'offline'].includes(rec.status)) rec.token = await newReceiptToken(ref);
+    if (!rec.token && ['accepted', 'offline'].includes(rec.status) && isElectronic(rec)) rec.token = await newReceiptToken(ref);
     await repo.patchOrder(o.id, { mev: rec });
     await noteCloverInvoice(o.posOrderId && !o.viaPos ? { mid: (await repo.findStore(o.channel, o.channelStoreId))?.cloverMerchantId ?? null, posOrderId: o.posOrderId, notes: o.notes } : null, rec, o.timeline?.mev);
     return rec;
@@ -124,7 +128,7 @@ export async function syncOrderMev(ref: MevJob['order'], baseKey: string): Promi
   if (!d) return null;
   const rec = recordFromJobs(jobs, d.mev);
   if (!rec) return null;
-  if (!rec.token && ['accepted', 'offline'].includes(rec.status)) rec.token = await newReceiptToken(ref);
+  if (!rec.token && ['accepted', 'offline'].includes(rec.status) && isElectronic(rec)) rec.token = await newReceiptToken(ref);
   const cur = (await getDirectOrder(ref.id)) ?? d;
   await saveDirectOrder({ ...cur, mev: rec });
   await noteCloverInvoice(d.posOrderId ? { mid: d.posMerchantId ?? d.paylink?.merchantId ?? null, posOrderId: d.posOrderId, notes: d.notes } : null, rec, d.mev);
@@ -133,6 +137,14 @@ export async function syncOrderMev(ref: MevJob['order'], baseKey: string): Promi
     await sendReceiptLink(cur, rec).catch(() => undefined);
   }
   return rec;
+}
+
+/**
+ * Only an electronic receipt (ELE / PEL) has a public link: a paper receipt (PAP) printed for the bag gets no second,
+ * electronic copy (« Modes d'impression »: one document, printed or sent once; PEL's electronic copy says so).
+ */
+export function isElectronic(rec: Pick<MevRecord, 'format' | 'textElectronic'>): boolean {
+  return (rec.format === 'ELE' || rec.format === 'PEL') && Boolean(rec.textElectronic?.length);
 }
 
 async function newReceiptToken(ref: MevJob['order']): Promise<string> {
@@ -341,6 +353,12 @@ export async function settleMevKicks(): Promise<void> {
 export async function replayJob(id: string, actor: Actor): Promise<MevJob | null> {
   const j = await getJob(id);
   if (!j || j.status !== 'needs_human') return j;
+  if (j.blocked) {
+    // Never sent as it was: the order is mapped again (a person fixed it, or it still waits with the reason).
+    const { replanOrder } = await import('./hooks');
+    await replanOrder(j.order);
+    return getJob(id);
+  }
   const next = await putJob({ ...j, status: 'pending', wait: undefined, nextAt: null, lastError: `Replayed by ${actor.name}` });
   await logActivity({ actor: actor.name, source: actor.source, kind: 'order', action: 'mev_replay', status: 'info', locationCode: j.order.locationCode, orderId: j.order.model === 'stored' ? j.order.id : null, summary: `Invoice (MEV) for ${j.order.label} sent again` });
   kickMevOutbox(j.baseKey);
@@ -360,7 +378,8 @@ export async function mevAlerts(now = Date.now()): Promise<MevAlert[]> {
     if (j.shadow) continue;
     const ageMin = (now - Date.parse(j.createdAt)) / 60_000;
     if (j.status === 'needs_human') out.push({ key: `mev:${j.id}`, severity: j.kind === 'sale' ? 'critical' : 'warning', job: j, ageMin });
-    else if ((j.status === 'pending' || j.status === 'sending') && ageMin >= 15) out.push({ key: `mev:${j.id}`, severity: ageMin >= 24 * 60 ? 'critical' : 'warning', job: j, ageMin });
+    // No invoice can be handed out meanwhile: Takatak MEV silent for a minute, or a pay-at-pickup tender to pick → at once.
+    else if ((j.status === 'pending' || j.status === 'sending') && (ageMin >= 15 || j.wait === 'tender_unknown' || (j.wait === 'qcmev_unreachable' && ageMin >= 1))) out.push({ key: `mev:${j.id}`, severity: ageMin >= 24 * 60 ? 'critical' : 'warning', job: j, ageMin });
   }
   return out;
 }

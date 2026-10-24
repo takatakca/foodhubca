@@ -5,7 +5,10 @@ import { describe, expect, it } from 'vitest';
 import { hcoTaxCents } from '../lib/foodhub/pos/clover-checkout';
 import type { DirectOrder } from '../lib/foodhub/delivery/types';
 import type { StoredOrder } from '../lib/foodhub/types';
-import { quebecTaxCents, reconcileTax, roundHalfUpDiv } from '../lib/foodhub/mev/money';
+import { preTaxFromIncluded, quebecTaxCents, reconcileTax, roundHalfUpDiv } from '../lib/foodhub/mev/money';
+import { parseSkipOrder } from '../lib/foodhub/adapters/skip';
+import { copyOf, printableDoc } from '../lib/foodhub/mev/printable';
+import type { MevRecord } from '../lib/foodhub/mev/types';
 import {
   canonicalJson, contentHashOf, creditFor, creditKeyFor, isoWithOffset, lineCents, payloadHashOf, printFor, printKeyFor, saleKeyFor, sha256, tenderMode, toMevSaleFromDirect, toMevSaleFromStored, type MapCtx,
 } from '../lib/foodhub/mev/map';
@@ -132,19 +135,58 @@ describe('platform orders → LVT', () => {
     expect(s.flags?.taxComputed).toBe(true);
     expect(s.amounts).toMatchObject({ subtotalCents: 2497, gstCents: 125, qstCents: 249, totalCents: 2871 });
   });
-  it('a platform subtotal that is not the sum of its lines still adds up (price difference)', () => {
-    const more = sale(toMevSaleFromStored(stored({ subtotal: 35, tax: 5.24 }), CTX));
-    expect(qcmevAccepts(more)).toEqual([]);
-    expect(more.lines.at(-1)?.description).toMatch(/ÉCART/);
-    const less = sale(toMevSaleFromStored(stored({ subtotal: 30, tax: 4.49 }), CTX));
-    expect(qcmevAccepts(less)).toEqual([]);
-    expect(less.discountCents).toBe(398);
+  it('lines that do not add up are never balanced with an invented line or « Rabais »: the sale waits for a person', () => {
+    const more = toMevSaleFromStored(stored({ subtotal: 35, tax: 5.24 }), CTX);
+    expect(more).toMatchObject({ ok: false, reason: 'amounts_mismatch' });
+    const less = toMevSaleFromStored(stored({ subtotal: 30, tax: 4.49 }), CTX);
+    expect(less).toMatchObject({ ok: false, reason: 'amounts_mismatch' });
+    // A cent or two of platform rounding: the lines are the receipt (flagged), no extra line.
+    const round = sale(toMevSaleFromStored(stored({ subtotal: 33.97 }), CTX));
+    expect(qcmevAccepts(round)).toEqual([]);
+    expect(round.flags?.subtotalRounded).toBe(true);
+    expect(round.lines).toHaveLength(1);
+    expect(round.discountCents).toBe(0);
+    for (const s of [round]) expect(JSON.stringify(s)).not.toMatch(/ÉCART|PRICE DIFFERENCE|"COMMANDE"|"Article"|"Option"|divers/i);
   });
-  it('relay (Too Good To Go feed) orders are LVT on the relay channel; the daily bag log is never a sale', () => {
+  it('no item, an unnamed item or a paid unnamed option → waits for a person; a free unnamed option is left out', () => {
+    expect(toMevSaleFromStored(stored({ lines: [], subtotal: 0, tax: 0, total: 0 }), CTX)).toMatchObject({ ok: false, reason: 'no_lines' });
+    expect(toMevSaleFromStored(stored({ lines: [{ name: ' ', quantity: 1, unitPrice: 33.98, total: 33.98, modifiers: [] }] }), CTX)).toMatchObject({ ok: false, reason: 'description_missing' });
+    expect(toMevSaleFromStored(stored({ lines: [{ name: 'Poulet', quantity: 1, unitPrice: 32.98, total: 33.98, modifiers: [{ name: '', quantity: 1, unitPrice: 1 }] }] }), CTX)).toMatchObject({ ok: false, reason: 'description_missing' });
+    const free = sale(toMevSaleFromStored(stored({ lines: [{ name: 'Poulet', quantity: 2, unitPrice: 16.99, total: 33.98, modifiers: [{ name: '', quantity: 1, unitPrice: 0 }] }] }), CTX));
+    expect(free.lines[0].modifiers).toEqual([]);
+    expect(qcmevAccepts(free)).toEqual([]);
+  });
+  it('Skip (JET Connect): item prices are before tax, as in JET\'s documented examples; tax-included lines are held, never a « Rabais »', () => {
+    // JET's "Delivery by restaurant" example on Skip: Cheesy Pasta 500, items_in_cart { inc_tax 600, tax 100 }.
+    const jet = parseSkipOrder({ id: 'jet-doc', posLocationId: 'R1', type: 'delivery-by-delivery-partner', items: [{ name: 'Cheesy Pasta', plu: 'P1', price: 500, quantity: 1 }], payment: { items_in_cart: { inc_tax: 600, tax: 100 }, final: { inc_tax: 600, tax: 100 } } })!;
+    const ok = sale(toMevSaleFromStored(stored({ ...jet, channel: 'skip', marketplace: 'skip' } as Partial<StoredOrder>), CTX));
+    expect(ok.amounts.subtotalCents).toBe(500);
+    expect(ok.discountCents).toBe(0);
+    // The old fixture (lines = the tax-included total 26.47, tax 3.45): would have printed a 3,45 $ « Rabais ».
+    const incl = parseSkipOrder({ id: 'skip-incl', posLocationId: 'R1', type: 'delivery-by-delivery-partner', items: [{ name: 'Poulet Grillé', price: 1549, quantity: 1, children: [{ name: 'Piri-piri', price: 100 }] }, { name: 'Frites', price: 499, quantity: 2 }], payment: { items_in_cart: { inc_tax: 2647, tax: 345 }, final: { inc_tax: 2647, tax: 345 } } })!;
+    expect(toMevSaleFromStored(stored({ ...incl, channel: 'skip', marketplace: 'skip' } as Partial<StoredOrder>), CTX)).toMatchObject({ ok: false, reason: 'amounts_mismatch' });
+  });
+  it('Too Good To Go (prices taxes included, no tax in the feed): pre-tax prices worked out, total = what the customer paid', () => {
+    expect(preTaxFromIncluded(599)).toBe(521);
+    for (let inc = 100; inc <= 5000; inc += 37) {
+      const b = preTaxFromIncluded(inc);
+      const t = quebecTaxCents(b);
+      expect(Math.abs(b + t.gstCents + t.qstCents - inc)).toBeLessThanOrEqual(1);
+    }
     const relay = sale(toMevSaleFromStored(stored({ channel: 'tgtg', marketplace: 'tgtg', viaHub: 'relay', externalOrderId: 'TGTG-77', fulfillment: 'pickup', tax: 0, subtotal: 11.98, total: 11.98, tip: 0, lines: [{ name: 'Panier surprise', quantity: 2, unitPrice: 5.99, total: 11.98, modifiers: [] }] }), CTX));
     expect(relay.source.channel).toBe('relay');
     expect(qcmevAccepts(relay)).toEqual([]);
-    expect(toMevSaleFromStored(stored({ channel: 'tgtg', externalOrderId: 'tgtg-log-2026-10-24-E2E_A', raw: { source: 'daily_log' } }), CTX)).toEqual({ ok: false, reason: 'log_order' });
+    expect(relay.lines[0]).toMatchObject({ quantity: '2', unitPriceCents: 521, totalCents: 1042 });
+    expect(relay.amounts).toEqual({ subtotalCents: 1042, gstCents: 52, qstCents: 104, totalCents: 1198, tipCents: 0 });
+    expect(relay.flags?.taxIncluded).toBe(true);
+    expect(relay.receipt.format).toBe('PAP');
+  });
+  it('the Too Good To Go daily bag log (no per-order feed that day) is one LVT sale, transmitted, not printed (NON)', () => {
+    const log = sale(toMevSaleFromStored(stored({ channel: 'tgtg', marketplace: 'tgtg', externalOrderId: 'tgtg-log-E2E_A-2026-10-24', raw: { source: 'daily_log' }, status: 'completed', tax: 0, subtotal: 17.97, total: 17.97, tip: 0, deliveryFee: 0, fulfillment: 'pickup', lines: [{ name: 'Surprise Bag', quantity: 3, unitPrice: 5.99, total: 17.97, modifiers: [] }] }), CTX));
+    expect(qcmevAccepts(log)).toEqual([]);
+    expect(log.serviceType).toBe('LVT');
+    expect(log.receipt).toEqual({ format: 'NON', deliver: 'none' });
+    expect(log.amounts.totalCents).toBe(1797);
   });
   it('a new order is not a sale yet; ready trigger waits for ready', () => {
     expect(toMevSaleFromStored(stored({ status: 'new' }), CTX)).toEqual({ ok: false, reason: 'not_final' });
@@ -236,5 +278,23 @@ describe('keys, hashes, credit notes, prints', () => {
     expect(tenderMode(['Cash', 'Credit Card'])).toBe('MIX');
     expect(tenderMode(['Uber Eats'])).toBeNull();
     expect(tenderMode([])).toBeNull();
+  });
+});
+
+describe('printed once (Revenu Québec, « Modes d\'impression »)', () => {
+  const rec = (p: Partial<MevRecord> = {}): MevRecord => ({ status: 'accepted', saleKey: 'fh:takatak:stored:uber_eats:x', text80mm: ['a', '[CODE QR]', 'b'], format: 'PAP', updatedAt: AT, ...p });
+  it('the original of an issued paper receipt; nothing for ELE / NON, pending or credited receipts', () => {
+    expect(printableDoc(rec(), 'FAC')?.key).toBe('fh:takatak:stored:uber_eats:x');
+    expect(printableDoc(rec({ format: 'ELE' }), 'FAC')).toBeNull();
+    expect(printableDoc(rec({ format: 'NON' }), 'FAC')).toBeNull();
+    expect(printableDoc(rec({ status: 'pending', text80mm: undefined }), 'FAC')).toBeNull();
+    expect(printableDoc(rec({ status: 'credited' }), 'FAC')).toBeNull();
+  });
+  it('a copy is the newest issued RPR / DUP, with its own QR', () => {
+    const r = rec({ prints: [{ printKey: 'k:pr:rpr1', mode: 'RPR', status: 'accepted', text80mm: ['x'], qrImage: 'data:image/png;base64,AAAA', at: AT }, { printKey: 'k:pr:rpr2', mode: 'RPR', status: 'pending', at: AT }] });
+    expect(printableDoc(r, 'RPR')).toMatchObject({ key: 'k:pr:rpr1', qrImage: 'data:image/png;base64,AAAA' });
+    expect(printableDoc(r, 'DUP')).toBeNull();
+    expect(copyOf('RPR')).toBe('RPR');
+    expect(copyOf('anything')).toBe('FAC');
   });
 });

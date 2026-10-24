@@ -81,7 +81,9 @@ export async function saveBagDay(input: { date: string; locationCode: string; ba
     orderId = order.id;
     await repo.updateOrder(order.id, { status: 'completed', timeline: { completedAt: noonLocal(input.date) } });
   }
-  // The bag log is a count, never a sale to invoice: a kitchen on Takatak MEV records it as skipped (nothing sent).
+  // A kitchen on Takatak MEV transmits the day's bags (no per-order feed that day) as one platform sale, not printed
+  // (formImpr NON): Revenu Québec gets every bag sold. Per-order feeds (TGTG e-mails, Deliverect) invoice each bag at
+  // pickup instead; then this log is cancelled and, if it was sent, credited.
   if (orderId) await mevOnOrderChange({ id: orderId });
   const day: BagDay = { id, date: input.date, locationCode: input.locationCode, bagsOffered: offered, bagsSold: sold, pricePerBag: price, note: input.note?.slice(0, 200), by: actor.name, at: nowIso(), orderId, feedOrders: feed.length };
   await repo.putDocs(BAGS, [{ id, at: noonLocal(input.date), key: input.locationCode, data: day }]);

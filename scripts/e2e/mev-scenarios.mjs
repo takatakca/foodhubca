@@ -9,8 +9,10 @@
 //   S3 Skip order handed to the tablet (tax 0)         → tax computed from the base
 //   S4 phone pickup, cash at the counter, tip $2       → CMP, ARG, pourb; with QCMEV stopped meanwhile (outbox)
 //   S5 website own delivery paid online, fee $4.99     → LVR, e-commerce, card; with MEV-WEB down (offline receipt)
-//   S6 Skip cancels after acceptance                   → full credit note
-//   S7 Too Good To Go daily bag log                    → skipped (never a sale)
+//   S6 Skip cancels after acceptance                   → full credit note (JET Connect prices: before tax)
+//   S6b Skip lines that do not add up (tax-included)   → held for a person: no invented « Rabais », nothing sent
+//   S7 Too Good To Go daily bag log (no per-order feed) → one LVT sale, not printed (NON), taxes worked out of 5,99 $
+//   P1 printed once: the original, then each copy, once; a paper (PAP) receipt has no public electronic copy
 //   S8 the same Uber webhook three times               → one transaction
 //   S9 civil date / time                               → datTrans = the local wall clock of occurredAt
 //   S10 a $0 order                                     → AUC
@@ -67,8 +69,14 @@ export async function runMevScenarios(h) {
   check('S1 receipt on the order: number, QR image, platform mention', /^\d{6}-\d{4}$/.test(m1?.noTrans || '') && /^data:image\//.test(m1?.qrImage || '') && m1.mentions?.includes('COMMANDE PAR UNE PLATEFORME NUMÉRIQUE'), JSON.stringify(m1 && { n: m1.noTrans, m: m1.mentions }));
   const o1 = await findOrder('uber-mev-1');
   check('S1 kitchen ticket page answers', (await call('GET', `/ticket/${o1?.id}?autoprint=0`)).status === 200);
-  const pub = await call('GET', `/r/${m1?.token}`, { auth: false });
-  check('S1 electronic copy /r/<token> is public, shows the lines, the QR and « Consulter la transaction en ligne »', pub.status === 200 && pub.text.includes(m1?.noTrans) && pub.text.includes('Consulter la transaction en ligne') && pub.text.includes('data:image/'), String(pub.status));
+  check('S1 a paper receipt for the bag (PAP) has no public electronic copy (no token)', m1?.format === 'PAP' && !m1.token && !m1.textElectronic, JSON.stringify(m1 && { f: m1.format, t: !!m1.token }));
+  // P1 — the original prints once; the next ticket is refused and points to « Réimprimer (RPR) ».
+  const claim = (id, model, copy) => call('POST', `/api/foodhub/mev/orders/${id}/print`, { body: { model, copy } });
+  const p1a = await claim(o1?.id, 'stored', 'FAC');
+  const p1b = await claim(o1?.id, 'stored', 'FAC');
+  const m1p = await mevOf('uber-mev-1');
+  check('P1 the original invoice (FAC) is granted to one ticket only; the second open is refused with the time it printed', p1a.json?.granted === true && p1b.json?.granted === false && p1b.json?.reason === 'printed' && !!p1b.json?.at && m1p?.printed?.[m1p.saleKey] === p1a.json?.at, JSON.stringify({ a: p1a.json, b: p1b.json }));
+  check('P1 nothing to print for a copy that was never asked (RPR)', (await claim(o1?.id, 'stored', 'RPR')).json?.reason === 'nothing_to_print');
   check('a wrong receipt token → 404', (await call('GET', '/r/AAAAAAAAAAAAAAAAAAAAAA', { auth: false })).status === 404);
   report.scenarios.S1 = { noTrans: m1?.noTrans, serviceType: s1?.serviceType, amounts: s1?.amounts };
 
@@ -118,31 +126,51 @@ export async function runMevScenarios(h) {
 
   // S5 — website own delivery paid online, $4.99 fee; MEV-WEB down → offline receipt, then numbered
   st.mevDown = true;
-  const web = await call('POST', '/api/foodhub/webhooks/website-order', { auth: false, headers: { authorization: 'Bearer web-order-e2e' }, body: { id: 'WEB-MEV-5', brand: 'Po Poulet', location: LOC, customer: { name: 'Client Web' }, fulfillment: 'delivery', address: { street: '5555 Av Essai', city: 'Montréal', postalCode: 'H4A 1E1' }, items: [{ name: 'Poulet Grillé', quantity: 1, price: 14.99 }], deliveryFee: 4.99, paid: true } });
+  const web = await call('POST', '/api/foodhub/webhooks/website-order', { auth: false, headers: { authorization: 'Bearer web-order-e2e' }, body: { id: 'WEB-MEV-5', brand: 'Po Poulet', location: LOC, customer: { name: 'Client Web', email: 'client.web@example.invalid' }, fulfillment: 'delivery', address: { street: '5555 Av Essai', city: 'Montréal', postalCode: 'H4A 1E1' }, items: [{ name: 'Poulet Grillé', quantity: 1, price: 14.99 }], deliveryFee: 4.99, paid: true } });
   const webId = web.json?.id;
   const m5 = await waitFor(async () => { const m = await directMev(webId); return m?.status === 'offline' ? m : null; }, 15000);
   const s5 = saleFor(`fh:takatak:direct:website:${webId}`)[0]?.body;
   check('S5 website delivery paid online → LVR, e-commerce, card, the delivery fee is the restaurant’s', s5?.serviceType === 'LVR' && s5.ecommerce === true && s5.payment.mode === 'CRE' && s5.fees.deliveryCents === 499, JSON.stringify(s5 && { t: s5.serviceType, p: s5.payment, f: s5.fees }));
-  check('S5 MEV-WEB down → offline receipt with its number and a local QR', !!m5 && !!m5.noTrans && /^data:image\//.test(m5.qrImage || '') && /HORS LIGNE/.test((m5.text80mm || []).join('\n')), JSON.stringify(m5 && { s: m5.status, n: m5.noTrans }));
+  check('S5 MEV-WEB down → offline receipt with its number and a local QR; processing time and MEV number read « PROBLÈME DE COMMUNICATION »', !!m5 && !!m5.noTrans && /^data:image\//.test(m5.qrImage || '') && (m5.text80mm || []).filter((l) => l.trim() === 'PROBLÈME DE COMMUNICATION').length === 2, JSON.stringify(m5 && { s: m5.status, n: m5.noTrans }));
   st.mevDown = false;
   await sleep(1300);
   await call('POST', '/api/foodhub/mev', { body: { action: 'run' } });
   const m5b = await waitFor(async () => { const m = await directMev(webId); return m?.status === 'accepted' && m.mevNumber ? m : null; }, 10000);
   check('S5 MEV-WEB back → the same receipt gets its MEV number (batch flush)', !!m5b && m5b.noTrans === m5?.noTrans && /^MEV-/.test(m5b.mevNumber || ''), JSON.stringify(m5b && { n: m5b.noTrans, mev: m5b.mevNumber }));
+  // E1 — paid online with an e-mail: paper + electronic (PEL). The public page is the electronic invoice: QR inside the
+  // block, the link right under it, « Copie électronique »; it stays what was sent (here: issued offline).
+  const pub5 = await call('GET', `/r/${m5b?.token}`, { auth: false });
+  check('E1 PEL: /r/<token> shows the electronic invoice: QR in the block, « Consulter la transaction en ligne » right under it, « Copie électronique », no [CODE QR] text', m5b?.format === 'PEL' && pub5.status === 200
+    && /<img class="qr"[^>]*><p class="link"><a href="[^"]+"[^>]*>Consulter la transaction en ligne<\/a><\/p>/.test(pub5.text) && pub5.text.includes('Copie électronique') && !pub5.text.includes('[CODE QR]')
+    && pub5.text.indexOf('<img class="qr"') < pub5.text.lastIndexOf('='.repeat(42)), String(pub5.status));
+  const p5a = await call('POST', `/api/foodhub/mev/orders/${webId}/print`, { body: { model: 'direct', copy: 'FAC' } });
+  const p5b = await call('POST', `/api/foodhub/mev/orders/${webId}/print`, { body: { model: 'direct', copy: 'FAC' } });
+  check('P1 own order: the paper original prints once too', p5a.json?.granted === true && p5b.json?.granted === false, JSON.stringify({ a: p5a.json, b: p5b.json }));
 
   // S6 — Skip cancels after acceptance
-  await skipWebhook('orders', skipOrder('skip-mev-0006', 'MEV-SKIP', 'tx-mev-6'));
+  // JET Connect's documented examples: item prices are before tax (items_in_cart.inc_tax − tax = the items).
+  const jet = (o, pre) => { const tax = Math.floor((2 * pre * 5 + 100) / 200) + Math.floor((2 * pre * 9975 + 100000) / 200000); return { ...o, payment: { items_in_cart: { inc_tax: pre + tax, tax }, final: { inc_tax: pre + tax, tax } }, total: pre + tax }; };
+  await skipWebhook('orders', jet(skipOrder('skip-mev-0006', 'MEV-SKIP', 'tx-mev-6'), 2647));
   const m6 = await waitFor(async () => { const m = await mevOf('skip-mev-0006'); return m?.status === 'accepted' ? m : null; }, 15000);
   await skipWebhook('cancel', { orderID: 'skip-mev-0006', reason: { code: 'customer_cancelled' }, happenedAt: new Date().toISOString() }, { hmac: false });
   const m6b = await waitFor(async () => { const m = await mevOf('skip-mev-0006'); return m?.status === 'credited' && m.creditNotes?.[0]?.status === 'accepted' ? m : null; }, 15000);
   const cn6 = st.transactions.find((t) => t.key === 'fh:takatak:stored:skip:skip-mev-0006:cn:1');
   check('S6 cancelled after acceptance → full credit note, negative amounts, names the original', !!m6 && !!m6b && cn6?.totalCents < 0 && cn6.mentions.includes(`RÉF. FACTURE ${m6.noTrans}`), JSON.stringify(cn6 && { total: cn6.totalCents, m: cn6.mentions }));
+  const s6 = saleFor('fh:takatak:stored:skip:skip-mev-0006')[0]?.body;
+  check('S6 Skip (JET prices before tax): items 26,47 $ + taxes 3,96 $, no « Rabais »', s6?.amounts?.subtotalCents === 2647 && s6.amounts.gstCents + s6.amounts.qstCents === 396 && s6.discountCents === 0, JSON.stringify(s6?.amounts));
+  // S6b — a Skip order whose item prices add up to the tax-included total (not JET's documented shape).
+  await skipWebhook('orders', skipOrder('skip-mev-0006b', 'MEV-SKIP', 'tx-mev-6b'));
+  const m6c = await waitFor(async () => { const m = await mevOf('skip-mev-0006b'); return m?.status === 'needs_human' ? m : null; }, 15000);
+  check('S6b lines that do not add up → held for a person (amounts_mismatch); nothing sent, no invented line or « Rabais »', !!m6c && /^amounts_mismatch/.test(m6c.reason || '') && saleFor('fh:takatak:stored:skip:skip-mev-0006b').length === 0, JSON.stringify(m6c));
 
   // S7 — Too Good To Go daily bag log
   const today = localDay(0);
   await call('POST', '/api/foodhub/tgtg', { body: { date: today, locationCode: LOC, bagsOffered: 5, bagsSold: 3, pricePerBag: 5.99 } });
   const ord7 = (await call('GET', `/api/foodhub/orders?limit=500&from=${today}&to=${today}`)).json?.orders?.find((o) => o.externalOrderId === `tgtg-log-${LOC}-${today}`);
-  check('S7 Too Good To Go bag log → skipped, nothing sent', ord7?.timeline?.mev?.status === 'skipped' && ord7.timeline.mev.reason === 'log_order' && !st.calls.some((c) => JSON.stringify(c.body ?? '').includes('tgtg-log-')), JSON.stringify(ord7?.timeline?.mev));
+  const m7 = await waitFor(async () => { const o = (await call('GET', `/api/foodhub/orders?limit=500&from=${today}&to=${today}`)).json?.orders?.find((x) => x.externalOrderId === `tgtg-log-${LOC}-${today}`); return o?.timeline?.mev?.status === 'accepted' ? o.timeline.mev : null; }, 15000);
+  const s7 = sales().map((c) => c.body).find((b) => b.saleKey === `fh:takatak:stored:tgtg:tgtg-log-${LOC}-${today}`);
+  check('S7 Too Good To Go bag log (no per-order feed) → one LVT sale, not printed (NON); 3 × 5,99 $ taxes included = 3 × 5,21 $ + TPS + TVQ = 17,97 $', !!ord7 && !!m7 && s7?.serviceType === 'LVT' && s7.receipt.format === 'NON'
+    && s7.lines[0]?.unitPriceCents === 521 && s7.lines[0]?.quantity === '3' && s7.amounts.totalCents === 1797 && s7.flags?.taxIncluded === true, JSON.stringify(s7 && { r: s7.receipt, l: s7.lines, a: s7.amounts }));
 
   // S10 — a $0 order
   const z = await call('POST', '/api/foodhub/delivery', { body: { source: 'phone', locationCode: LOC, brandName: 'Po Poulet', customer: { name: 'Repas offert' }, fulfillment: 'pickup', items: [{ name: 'Repas offert', quantity: 1, price: 0 }] } });
@@ -156,6 +184,9 @@ export async function runMevScenarios(h) {
   const rpr = await call('POST', `/api/foodhub/mev/orders/${o1?.id}`, { body: { model: 'stored', action: 'reprint' } });
   const m11 = await waitFor(async () => { const m = await mevOf('uber-mev-1'); return (m?.prints ?? []).filter((p) => p.status === 'accepted').length === 2 ? m : null; }, 10000);
   check('S11 merchant copy (DUP) and reprint (RPR) transmitted; the copy says « COPIE DU COMMERÇANT / NE PAS REMETTRE AU CLIENT »', dup.status === 200 && rpr.status === 200 && prints().map((c) => c.body.mode).join(',') === 'DUP,RPR' && /COPIE DU COMMERÇANT[\s\S]*NE PAS REMETTRE AU CLIENT/.test((m11?.prints?.find((p) => p.mode === 'DUP')?.text80mm || []).join('\n')), JSON.stringify(m11?.prints?.map((p) => [p.mode, p.status])));
+  const r11a = await claim(o1?.id, 'stored', 'RPR');
+  const r11b = await claim(o1?.id, 'stored', 'RPR');
+  check('P1 the reproduction (RPR) Takatak MEV transmitted prints once as well', r11a.json?.granted === true && r11b.json?.granted === false, JSON.stringify({ a: r11a.json, b: r11b.json }));
 
   // ---- assertions over everything QCMEV received ----
   const allSales = sales().map((c) => c.body);
@@ -165,7 +196,7 @@ export async function runMevScenarios(h) {
   const okRound = uniqueSales.filter((s) => !s.flags?.taxGap && s.lines.every((l) => l.taxCode === 'FP')).every((s) => s.amounts.gstCents === half(Math.max(0, s.amounts.subtotalCents) * 5, 100) && s.amounts.qstCents === half(Math.max(0, s.amounts.subtotalCents) * 9975, 100000));
   check('every sale: apresTax = avantTax + TPS + TVQ to the cent; TPS and TVQ rounded one by one', okMath && okRound);
   check('pourb only on the phone pickup (S4): never on a platform order', uniqueSales.filter((s) => s.amounts.tipCents > 0).map((s) => s.source.channel).join(',') === 'phone', uniqueSales.filter((s) => s.amounts.tipCents > 0).map((s) => s.saleKey).join(' '));
-  check('service types: LVT for platforms, CMP for the phone pickup, LVR for our delivery', uniqueSales.every((s) => (['uber_eats', 'doordash', 'skip'].includes(s.source.channel) ? s.serviceType === 'LVT' : s.source.channel === 'website' ? s.serviceType === 'LVR' : s.serviceType === 'CMP')));
+  check('service types: LVT for platforms, CMP for the phone pickup, LVR for our delivery', uniqueSales.every((s) => (['uber_eats', 'doordash', 'skip', 'tgtg'].includes(s.source.channel) ? s.serviceType === 'LVT' : s.source.channel === 'website' ? s.serviceType === 'LVR' : s.serviceType === 'CMP')));
   const days = new Map();
   for (const t of st.transactions) { const k = `${t.deviceId}:${t.datTrans.slice(0, 8)}:${t.noTrans}`; days.set(k, (days.get(k) || 0) + 1); }
   check('noTrans unique per device and civil day', [...days.values()].every((n) => n === 1) && st.transactions.length > 0, `${st.transactions.length} transactions`);
@@ -188,7 +219,7 @@ export async function runMevScenarios(h) {
   check('no secret, key or identity number in the logs, the API answers or the payloads', !leaks.some((x) => appLog().includes(x) || mevApi.includes(x)) && !/\b\d{9}RT\d{4}\b|\b\d{10}TQ\d{4}\b/.test(JSON.stringify(st.calls.map((c) => c.body))));
 
   const counts = { sales: uniqueSales.length, creditNotes: [...new Set(credits().map((c) => c.body.creditKey))].length, prints: [...new Set(prints().map((c) => c.body.printKey))].length, skipped: 1, transactions: st.transactions.length, requests: st.calls.length };
-  check(`counts: ${counts.sales} receipts, ${counts.creditNotes} credit notes, ${counts.prints} copies, ${counts.skipped} skipped`, counts.sales === 8 && counts.creditNotes === 2 && counts.prints === 2, JSON.stringify(counts));
+  check(`counts: ${counts.sales} receipts, ${counts.creditNotes} credit notes, ${counts.prints} copies, ${counts.skipped} held for a person`, counts.sales === 9 && counts.creditNotes === 2 && counts.prints === 2, JSON.stringify(counts));
   report.counts = counts;
   report.chain = chain;
   report.transactions = st.transactions.map((t) => ({ key: t.key, kind: t.kind, noTrans: t.noTrans, datTrans: t.datTrans, utc: t.utc, typServ: t.typServ, totalCents: t.totalCents, mevStatus: t.mevStatus, signatureLength: t.signa.actu.length }));

@@ -1,5 +1,23 @@
 # Food Hub: progress log and task board
 
+## 2026-10-24 — MEV verification round 1 fixes (`feature/mev-qcmev-integration`, PR #99; QCMEV.CA PR #2)
+
+- Printed once (« Modes d'impression »): each Revenu Québec document (original, then each RPR / DUP) is claimed by the
+  first ticket that prints it (`POST /api/foodhub/mev/orders/{id}/print`, KV); later tickets say « FACTURE DÉJÀ
+  IMPRIMÉE » and point to « Réimprimer (RPR) »; `?autoprint=0` is a preview that prints « APERÇU ».
+- One set of amounts on the paper: with Takatak MEV on, the ticket shows no Food Hub subtotal, taxes, platform fee,
+  courier tip or total, only the SEV invoice. 42 columns fit (2,4 mm font, `white-space: pre`, auto-shrink).
+- `/r/{token}` only for electronic receipts (ELE / PEL): QCMEV's electronic document, QR in the block, the link right
+  under it, « Copie électronique »; no token for paper (PAP) receipts.
+- No invented lines: « ÉCART DE PRIX », « COMMANDE », « Article », « Option » and the surplus « Rabais » are gone; such
+  sales are held for a person (amounts_mismatch / description_missing / no_lines, Watchtower alert, re-mapped on change).
+- Skip: JET Connect's documented examples show item prices before tax, so the tablet path was right and the old
+  tax-included fixture is now held (no « Rabais » = tax). Too Good To Go: prices taxes included → pre-tax worked out;
+  the daily bag log (no per-order feed) is one LVT sale, not printed (NON).
+- Alerts at once for a tender to pick, after 1 min when QCMEV is silent; QCMEV must run next to Food Hub (docs).
+- QCMEV side (same day): mode SEV, Revenu Québec layout, « PROBLÈME DE COMMUNICATION », « Facture corrigée », QR data
+  encrypted with MEV-WEB's certificate, PROD refused until a non-exportable key custody exists.
+
 ## 2026-10-24 — Revenu Québec invoices through Takatak MEV (QCMEV), off by default (`feature/mev-qcmev-integration`, stacked on #97)
 
 - Owner's order of 2026-10-24: make QCMEV work with food delivery. Food Hub side of contract `foodhub.sale.v1`

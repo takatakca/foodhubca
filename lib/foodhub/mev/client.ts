@@ -39,11 +39,14 @@ export function cleanReceipt(r: unknown): MevReceipt | undefined {
   const s = (v: unknown, n = 200) => (typeof v === 'string' || typeof v === 'number' ? String(v).slice(0, n) : undefined);
   const qr = o.qr && typeof o.qr === 'object' ? o.qr as Record<string, unknown> : null;
   const lines = (v: unknown) => (Array.isArray(v) ? v.slice(0, 200).map((x) => String(x ?? '').slice(0, 64)) : undefined);
+  const el = o.electronic && typeof o.electronic === 'object' ? o.electronic as Record<string, unknown> : null;
   const out: MevReceipt = {
     qcmevTransactionId: s(o.qcmevTransactionId, 80), noTrans: s(o.noTrans, 40), datTrans: s(o.datTrans, 20), utc: s(o.utc, 8), deviceId: s(o.deviceId, 40),
     mevProcessedAt: s(o.mevProcessedAt, 40), mevTransactionNumber: s(o.mevTransactionNumber, 60),
     qr: qr ? { content: s(qr.content, 2000), svg: s(qr.svg, 200_000), pngDataUrl: s(qr.pngDataUrl, 400_000) } : undefined,
     mentions: lines(o.mentions), text80mm: lines(o.text80mm), html: s(o.html, 200_000), renderHash: s(o.renderHash, 80), issuedAt: s(o.issuedAt, 40),
+    // The electronic document (ELE / PEL): its lines are what the public page shows (QCMEV's html is never injected).
+    electronic: el ? { mentions: lines(el.mentions), lines: lines(el.lines) } : undefined,
   };
   for (const k of Object.keys(out) as Array<keyof MevReceipt>) if (out[k] === undefined) delete out[k];
   return out;

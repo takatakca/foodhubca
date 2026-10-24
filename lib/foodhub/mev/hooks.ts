@@ -11,6 +11,9 @@
 //   cancelled after the receipt      → a full credit note
 //   content changed after receipt    → credit note + a corrected receipt that names the one it replaces
 //   cancelled before it was sent     → the sale is dropped (skipped), nothing reaches QCMEV
+//   data that cannot make a truthful invoice (lines that do not add up, an unnamed item, no item)
+//                                    → a "blocked" sale that needs a person (never sent, never balanced with an
+//                                      invented line); the next change of the order maps it again
 import { CHANNEL_LABELS, nowIso } from '../config';
 import { dryRun } from '../dry-run';
 import type { Actor } from '../activity';
@@ -20,11 +23,11 @@ import { tenantId } from '../tenant';
 import type { OrderLine, StoredOrder } from '../types';
 import { mevGate, mevMode, mevTrigger } from './config';
 import {
-  changeReason, creditFor, creditKeyFor, directChannel, directIsFinal, isoWithOffset, paidOnline, printFor, printKeyFor, reissueKeyFor, saleKeyFor, storedChannel,
+  changeReason, creditFor, creditKeyFor, directChannel, directIsFinal, isoWithOffset, isReview, paidOnline, payloadHashOf, printFor, printKeyFor, reissueKeyFor, saleKeyFor, storedChannel,
   storedExclusion, storedIsFinal, tenderMode, toMevSaleFromDirect, toMevSaleFromStored, type MapCtx, type MapResult,
 } from './map';
 import { jobIdFor, jobsFor, kickMevOutbox, putJob, syncOrderMev } from './outbox';
-import type { FoodHubSaleV1, MevCreditReason, MevJob, MevMode, MevPayMode, MevTaxCode } from './types';
+import type { FoodHubSaleV1, MevChannel, MevCreditReason, MevJob, MevMode, MevPayMode, MevReview, MevTaxCode } from './types';
 
 type Ref = MevJob['order'];
 
@@ -98,6 +101,24 @@ function newJob(p: Plan, kind: MevJob['kind'], key: string, payload: MevJob['pay
   };
 }
 
+/**
+ * The row kept for a sale whose data cannot make a truthful invoice: never sent (status needs_human, `blocked`), with an
+ * empty shell as its payload so nothing could ever go out by mistake. The order shows why; a person fixes the order.
+ */
+function blockedJob(p: Plan, key: string, review: MevReview, detail: string | undefined, testMode: boolean, extra: Partial<MevJob> = {}, referenceSaleKey?: string): MevJob {
+  const [, tenant = '', , channel = 'manual'] = p.baseKey.split(':');
+  const shell: FoodHubSaleV1 = {
+    schema: 'foodhub.sale.v1', tenantId: tenant, locationId: p.ref.locationCode, saleKey: key, occurredAt: isoWithOffset(Date.now()),
+    source: { model: p.ref.model, channel: channel as MevChannel, orderId: p.ref.id, externalOrderId: p.ref.id },
+    serviceType: 'LVT', ecommerce: false, user: { id: 'FOODHUB-AUTO', name: 'FOODHUB-AUTO' }, lines: [], fees: { deliveryCents: 0, serviceFeeCents: 0 }, discountCents: 0,
+    amounts: { subtotalCents: 0, gstCents: 0, qstCents: 0, totalCents: 0, tipCents: 0 }, payment: { mode: 'AUC', collectedBy: 'platform' }, receipt: { format: 'NON', deliver: 'none' }, testMode, payloadHash: '',
+    ...(referenceSaleKey ? { referenceSaleKey } : {}),
+  };
+  shell.payloadHash = payloadHashOf(shell as unknown as Record<string, unknown>);
+  const job = newJob(p, 'sale', key, shell, extra);
+  return { ...job, status: p.mode === 'shadow' ? 'skipped' : 'needs_human', blocked: review, lastError: `${review}: ${detail ?? 'needs a person'}`.slice(0, 300) };
+}
+
 /** The reconciliation itself. Returns the jobs it wrote (tests). */
 async function reconcile(p: Plan): Promise<MevJob[]> {
   const jobs = await jobsFor(p.baseKey);
@@ -106,7 +127,13 @@ async function reconcile(p: Plan): Promise<MevJob[]> {
   const now = Date.now();
   const writes: MevJob[] = [];
 
-  if (p.cancelled) {
+  // A blocked sale (never sent): mapped again on every change; it goes out as soon as the order makes a truthful invoice.
+  if (current?.blocked && !p.cancelled && p.final) {
+    const sale = current.payload as FoodHubSaleV1;
+    const m = p.map({ saleKey: current.key, ...(sale.referenceSaleKey ? { referenceSaleKey: sale.referenceSaleKey } : {}) });
+    if (m.ok) writes.push({ ...current, status: p.mode === 'shadow' ? 'skipped' : 'pending', blocked: undefined, lastError: undefined, wait: undefined, nextAt: null, payload: m.sale, payloadHash: m.sale.payloadHash, contentHash: m.contentHash });
+    else if (isReview(m.reason) && `${m.reason}: ${m.detail ?? 'needs a person'}` !== current.lastError) writes.push({ ...current, blocked: m.reason, lastError: `${m.reason}: ${m.detail ?? 'needs a person'}`.slice(0, 300) });
+  } else if (p.cancelled) {
     if (current) {
       if (neverSent(current) || (current.status === 'needs_human' && !current.result)) {
         // Never reached QCMEV: nothing to credit.
@@ -125,6 +152,7 @@ async function reconcile(p: Plan): Promise<MevJob[]> {
       let m = p.map(extra);
       let wait: MevJob['wait'];
       if (!m.ok && m.reason === 'tender_unknown' && p.placeholder) { m = p.placeholder(extra); wait = 'tender_unknown'; }
+      if (!m.ok && isReview(m.reason)) writes.push(blockedJob(p, key, m.reason, m.detail, p.mode !== 'on', lastCredited?.creditedBy ? { dependsOn: lastCredited.creditedBy } : {}, extra.referenceSaleKey));
       if (m.ok) writes.push(newJob(p, 'sale', key, m.sale, { contentHash: m.contentHash, ...(lastCredited?.creditedBy ? { dependsOn: lastCredited.creditedBy } : {}), ...(wait && p.mode !== 'shadow' ? { wait } : {}) }));
     } else {
       const sale = current.payload as FoodHubSaleV1;

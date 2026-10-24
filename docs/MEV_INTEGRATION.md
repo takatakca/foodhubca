@@ -10,8 +10,9 @@ environment.
 
 ## 1. Roles
 
-- **Takatak MEV (QCMEV)** is the SEV in remote-server mode. It alone numbers the transactions, signs them, sends them
-  to MEV-WEB and lays out the invoice (80 mm text, QR code, mentions).
+- **Takatak MEV (QCMEV)** is the SEV, in mode SEV (SW-76 §4.1.2: it creates, numbers and signs every transaction and
+  sends it to MEV-WEB itself; it is not a forwarding « serveur distant »). It alone lays out the invoice (80 mm text,
+  QR code, mentions) in Revenu Québec's published order.
 - **Food Hub** takes the orders (Uber Eats, DoorDash, Skip, Too Good To Go relay, phone, website, storefront) like a
   terminal of that SEV. It never signs, never talks to Revenu Québec, and prints only the exact lines QCMEV returns.
 - Because Food Hub takes the orders, it must be declared inside the certified product's scope (owner decision).
@@ -73,8 +74,19 @@ Food Hub never causes on purpose (a change after a receipt is always credit note
   code). `amounts.subtotalCents` (avantTax) = items + options + the restaurant's own delivery fee (LVR only) + service
   fee − the restaurant-funded discount. GST = round(base × 5 %) and QST = round(base × 9.975 %), each rounded half-up on
   its own (the same cents as Clover's Hosted Checkout). `totalCents` (apresTax) = subtotal + GST + QST exactly.
-- When a platform's subtotal is not the sum of its lines, the receipt still adds up: a missing amount becomes the item
-  « ÉCART DE PRIX », an extra amount is counted with the discount.
+- **Nothing is invented.** The items are the receipt. When a platform's subtotal differs from the sum of its lines by
+  more than 2 cents, when an item (or a paid option) has no name, or when the order has no item, the sale is **held for
+  a person** (status « Facture à vérifier », reason `amounts_mismatch` / `description_missing` / `no_lines`, a
+  Watchtower alert); it is never sent with an « ÉCART », « COMMANDE », « Article », « Option » or « divers » line, and a
+  « Rabais » is only a discount the restaurant really gave (Revenu Québec, « Description détaillée »). Fixing the order
+  (or « Renvoyer ») maps it again; it goes out as soon as the numbers agree. A 1–2 cent rounding gap: the lines are the
+  receipt (`subtotalRounded`).
+- Skip (JET Connect): item prices are **before tax** — every example in JET's API shows `items_in_cart.inc_tax − tax` =
+  the items (e.g. Skip « Delivery by restaurant »: Cheesy Pasta 500, inc_tax 600, tax 100). A Skip tablet order (tax 0
+  in the feed) therefore gets its tax computed on top. A Skip order whose items add up to the tax-included total is
+  held (it does not follow JET's documented shape), never printed with a « Rabais » equal to the tax.
+- Too Good To Go shows its price **taxes included** and sends no tax: each item's pre-tax price is worked out
+  (5,99 $ → 5,21 $ + TPS 0,26 $ + TVQ 0,52 $), flagged `taxIncluded`.
 - When the platform charged one combined tax that differs from the computed split by more than 1 cent, its tax is
   split instead and flagged `taxGap`. A Skip order handed to the tablet (tax 0 in the feed) gets its tax computed
   (`taxComputed`). DoorDash orders whose tax DoorDash remits keep the tax as charged.
@@ -85,8 +97,12 @@ Food Hub never causes on purpose (a change after a receipt is always credit note
   debit `DEB`, credit `CRE`, gift card `CPR`, several `MIX`); when Clover's payment cannot be read, the sale **waits**
   and the order shows « Payée par : » buttons — it is never sent as `INC`. The tip of an own order is its pourb.
 - $0 → `AUC`. Simulator mode → `testMode: true` (modTrans FOR).
-- Never sent: the Too Good To Go daily bag log (recorded « skipped »), dry-run (phone simulator) orders, kitchens whose
-  system of record is not `qcmev`, orders cancelled before their sale was sent.
+- Too Good To Go **daily bag log** (a count entered for a day with no per-order feed): one `LVT` sale for the bags sold,
+  transmitted and **not printed** (`formImpr NON`, there is no customer left to hand it to), so Revenu Québec gets every
+  bag. The right way to invoice each bag at pickup is a per-order feed (TGTG e-mails or Deliverect): those orders are
+  normal `LVT` sales printed with the bag label, and the day's log is then cancelled (credited if it was sent).
+- Never sent: dry-run (phone simulator) orders, kitchens whose system of record is not `qcmev`, orders cancelled before
+  their sale was sent, sales held for a person.
 - Line tax code from the menu: `MenuItem.mevTax` (FP default, F, P, NON), editable in the menu editor.
 
 ## 6. Never lose an invoice (lib/foodhub/mev/outbox.ts)
@@ -106,20 +122,43 @@ job is written, from the Watchtower timer (every 30 s, through the order recover
 | 429 / 5xx / time-out / network | retries on `FOODHUB_MEV_RETRY_S` with the same key and body |
 
 Revenu Québec's limit is 48 hours. The Watchtower opens « Facture Revenu Québec en attente » at 15 minutes pending
-(critical at 24 h) and for every job that needs a person. QCMEV alerts on its own side from 6 h.
+(critical at 24 h), after 1 minute when Takatak MEV does not answer, at once when a pay-at-pickup order waits for its
+tender, and for every job that needs a person. QCMEV alerts on its own side from 6 h.
+
+**When Takatak MEV itself cannot be reached.** Food Hub is a terminal of the SEV: SW-76 §2 (« Terminal ») says every
+action on a terminal is completed by the SEV, including the printing. Revenu Québec's offline mode (SW-76 §4.1.1) is
+the SEV's mode when MEV-WEB cannot be reached — QCMEV has it (it signs, prints « PROBLÈME DE COMMUNICATION » and sends
+the batch later). If the SEV itself is down, no terminal can make an invoice, and Food Hub must never make one itself:
+the ticket says « FACTURE À VENIR / NE PAS REMETTRE AU CLIENT », the sale waits in the outbox with the same key, and the
+invoice is printed from the order (« Imprimer la facture ») as soon as QCMEV answers. So QCMEV runs **next to** Food
+Hub, on the same Coolify server and internal network (no internet hop between the terminal and its SEV), and the
+alert above calls a person after one minute. A pay-at-pickup order needs its payment mode before the invoice: Clover's
+tender is read automatically; when it cannot be read, staff tap « Payée par : » when they take the payment.
 
 ## 7. What the order keeps and prints
 
 - `order.mev` (platform orders: inside the order timeline, merged safely; own orders: on the order document): status,
   sale key, `noTrans`, `datTrans`, MEV number, QR image (QCMEV's SVG or PNG as a data URL, shown in an `<img>` so it
   cannot run anything), the QR link, mentions, `text80mm`, `renderHash`, credit notes and copies. No identity number.
-- 80 mm ticket (`/ticket/{id}`, and `/ticket/direct/{id}` for own orders): QCMEV's lines exactly, with its QR where the
-  receipt says « [CODE QR] ». While the invoice is not issued: « FACTURE À VENIR / NE PAS REMETTRE AU CLIENT ».
-  `?copy=DUP` prints the merchant copy, `?copy=RPR` the reprint.
-- Electronic copy: `/r/{token}` (public, the secret token is the credential, no customer data), with « Consulter la
-  transaction en ligne » under the QR. Platform orders get the paper copy in the bag (their contact is masked).
-- Console: a badge on the order lists, a « Facture (MEV) » panel in the order drawer (preview, Reprint RPR, Merchant
-  copy DUP, Send again), and Settings → Add-ons → MEV invoices (switches, kitchens, queue).
+- 80 mm ticket (`/ticket/{id}`, and `/ticket/direct/{id}` for own orders): when Takatak MEV issues the order's invoice,
+  the ticket carries **no amount of its own** (no Food Hub subtotal, taxes, platform delivery fee, courier tip or
+  platform total): the kitchen part (items, options, notes) and QCMEV's invoice, its lines exactly, the QR on the
+  « [CODE QR] » line, 42 columns at 2,5 mm (they fit the 64 mm of paper; the font shrinks if a printer's font is wider).
+  While the invoice is not issued: « FACTURE À VENIR / NE PAS REMETTRE AU CLIENT ».
+- **Printed once** (Revenu Québec, « Modes d'impression »: an invoice or credit note is printed or sent once; any other
+  copy is a reproduction or a duplicate made by the SEV). The first ticket that prints a document claims it
+  (`POST /api/foodhub/mev/orders/{id}/print`, kept apart from the order); every later ticket shows « FACTURE DÉJÀ
+  IMPRIMÉE le … — Autre copie : « Réimprimer (RPR) » ». « Réimprimer (RPR) » asks Takatak MEV for a transmitted
+  reproduction, then « Imprimer la reproduction » prints it, once; the same for the merchant copy (DUP).
+  `?autoprint=0` is a preview: the invoice shows on screen and prints as « APERÇU — PAS UNE FACTURE ».
+- Electronic invoice: `/r/{token}` only for an electronic receipt (`ELE`, or `PEL` when the customer ordered online
+  with a contact): QCMEV's electronic document, the QR inside the block and « Consulter la transaction en ligne » right
+  under it, « Copie électronique » on PEL, kept as it was sent. A paper receipt (platform orders: their contact is
+  masked, the paper goes in the bag) has no public copy.
+- Corrected receipt (credit note + new receipt after a change): QCMEV prints « Facture corrigée ».
+- Console: a badge on the order lists, a « Facture (MEV) » panel in the order drawer (preview, « Imprimer la facture
+  (une fois) », when it was printed, Reprint RPR, Merchant copy DUP, print each copy once, Send again), and Settings →
+  Add-ons → MEV invoices (switches, kitchens, queue).
 
 ## 8. How it is tested
 

@@ -3,15 +3,20 @@
 //
 // Which orders: platform orders once accepted (or ready with FOODHUB_MEV_TRIGGER=ready), Skip orders handed to the
 // Skip tablet (still made and sold), direct orders once paid (online, or at the counter / pickup).
-// Never: the Too Good To Go daily bag log, dry-run (simulator) orders, kitchens not switched to QCMEV.
+// The Too Good To Go daily bag log too, as one LVT sale not printed (formImpr NON), only on a day with no per-order
+// feed: the bags were sold, so Revenu Québec gets them (see docs/MEV_INTEGRATION.md § Too Good To Go).
+// Never: dry-run (simulator) orders, kitchens not switched to QCMEV.
+// Never invented: a line that is not a real item. When the platform's numbers do not add up, the order waits for a
+// person (needs_human, reason amounts_mismatch / description_missing / no_lines): no « ÉCART », no « COMMANDE », no
+// « divers », and « Rabais » only for a discount the restaurant really gave (Revenu Québec, « Description détaillée »).
 // Money: integer cents; the restaurant's own supply only (no platform courier tip, platform delivery / service fee or
 // platform-funded promotion); GST and QST rounded one by one; the tip (pourb) only when the restaurant keeps it, and
 // never inside the total.
 import crypto from 'node:crypto';
 import type { DirectOrder } from '../delivery/types';
 import type { OrderLine, StoredOrder } from '../types';
-import { cents, qty, reconcileTax, roundHalfUpDiv, taxByCode } from './money';
-import type { FoodHubCreditV1, FoodHubPrintV1, FoodHubSaleV1, MevChannel, MevCreditReason, MevPayMode, MevSaleLine, MevServiceType, MevTaxCode, MevTrigger } from './types';
+import { cents, preTaxFromIncluded, qty, reconcileTax, roundHalfUpDiv, taxByCode } from './money';
+import type { FoodHubCreditV1, FoodHubPrintV1, FoodHubSaleV1, MevChannel, MevCreditReason, MevPayMode, MevReview, MevSaleLine, MevServiceType, MevTaxCode, MevTrigger } from './types';
 
 export const AUTO_USER = { id: 'FOODHUB-AUTO', name: 'FOODHUB-AUTO' } as const;
 export const MEV_TZ = 'America/Montreal';
@@ -85,8 +90,12 @@ export interface MapCtx {
   referenceSaleKey?: string;
 }
 
-export type Exclusion = 'log_order' | 'dry_run' | 'not_final' | 'cancelled_before_sale' | 'awaiting_payment' | 'tender_unknown';
-export type MapResult = { ok: true; sale: FoodHubSaleV1; contentHash: string } | { ok: false; reason: Exclusion };
+export type Exclusion = 'log_order' | 'dry_run' | 'not_final' | 'cancelled_before_sale' | 'awaiting_payment' | 'tender_unknown' | MevReview;
+export type MapResult = { ok: true; sale: FoodHubSaleV1; contentHash: string } | { ok: false; reason: Exclusion; detail?: string };
+
+/** Exclusions a person must look at (the order's data cannot make a truthful invoice). */
+export const REVIEW_REASONS: readonly MevReview[] = ['amounts_mismatch', 'description_missing', 'no_lines'];
+export const isReview = (r: Exclusion): r is MevReview => (REVIEW_REASONS as readonly string[]).includes(r);
 
 const LOG_ORDER = (o: Pick<StoredOrder, 'raw' | 'externalOrderId'>) => (o.raw as { source?: string } | undefined)?.source === 'daily_log' || o.externalOrderId.startsWith('tgtg-log-');
 
@@ -105,27 +114,41 @@ export function lineCents(unitPriceCents: number, quantity: number): number {
  * own item (same tax code). So the option totals come out of the line total; amounts are never negative (an option
  * that lowers the price stays inside its line).
  */
-function mapLines(lines: OrderLine[], ctx: MapCtx, alcoholOf: (l: OrderLine) => boolean): MevSaleLine[] {
-  return lines.filter((l) => (Number(l.quantity) || 0) > 0).map((l) => {
+function mapLines(lines: OrderLine[], ctx: MapCtx, alcoholOf: (l: OrderLine) => boolean, taxIncluded = false): MevSaleLine[] | { review: MevReview; detail: string } {
+  const out: MevSaleLine[] = [];
+  const named = (s: unknown) => String(s ?? '').replace(/\s+/g, ' ').trim();
+  // A price that includes the taxes (Too Good To Go): the pre-tax price, worked out per unit.
+  const pre = (c: number) => (taxIncluded ? preTaxFromIncluded(c) : c);
+  for (const l of lines.filter((x) => (Number(x.quantity) || 0) > 0)) {
     const q = Math.round((Number(l.quantity) || 1) * 1000) / 1000;
-    const modifiers = (l.modifiers ?? []).map((m) => {
+    if (!named(l.name)) return { review: 'description_missing', detail: 'an item has no name' };
+    const modifiers: MevSaleLine['modifiers'] = [];
+    let modsAsCharged = 0;
+    for (const m of l.modifiers ?? []) {
       const mq = Math.round((Number(m.quantity) || 1) * q * 1000) / 1000;
-      const unit = Math.max(0, cents(m.unitPrice));
-      return { description: String(m.name || 'Option').slice(0, 100), quantity: qty(mq), unitPriceCents: unit, totalCents: lineCents(unit, mq) };
-    });
-    const modsCents = modifiers.reduce((s, m) => s + m.totalCents, 0);
-    const unit = Math.max(0, Math.round((cents(l.total) - modsCents) / q));
-    return {
+      const charged = Math.max(0, cents(m.unitPrice));
+      // An unnamed option that costs nothing describes nothing: it is left out. One that costs something needs a person.
+      if (!named(m.name)) {
+        if (charged === 0) continue;
+        return { review: 'description_missing', detail: `an option of « ${named(l.name).slice(0, 40)} » has no name` };
+      }
+      modsAsCharged += lineCents(charged, mq);
+      const unit = pre(charged);
+      modifiers.push({ description: named(m.name).slice(0, 100), quantity: qty(mq), unitPriceCents: unit, totalCents: lineCents(unit, mq) });
+    }
+    const unit = pre(Math.max(0, Math.round((cents(l.total) - modsAsCharged) / q)));
+    out.push({
       ...(l.posItemRef || l.externalId ? { ref: String(l.posItemRef || l.externalId).slice(0, 60) } : {}),
-      description: String(l.name || 'Article').slice(0, 100),
+      description: named(l.name).slice(0, 100),
       quantity: qty(q),
       unitPriceCents: unit,
       totalCents: lineCents(unit, q),
       taxCode: ctx.taxCodeOf?.(l) ?? 'FP',
       activity: alcoholOf(l) && ctx.barPermit ? 'BAR' : 'RES',
       modifiers,
-    };
-  });
+    });
+  }
+  return out;
 }
 
 /** An item with its options (what it adds to the subtotal). */
@@ -151,16 +174,22 @@ function amountsFor(m: Money): { amounts: FoodHubSaleV1['amounts']; flags: NonNu
   };
 }
 
+/** How far the platform's subtotal may differ from its own lines (rounding): the lines are then the receipt. */
+export const SUBTOTAL_ROUNDING_CENTS = 2;
+
 /**
- * When the order's subtotal is not the sum of its items (platform rounding, tax-included prices…), the receipt still
- * adds up: a missing amount becomes one more item, an extra amount a price difference counted with the discount.
+ * The receipt is the items. When the order's own subtotal is not the sum of its items by more than a rounding cent or
+ * two (tax-included prices, a fee or a promotion folded in…), nothing is invented to make it add up: the sale waits
+ * for a person. No item at all → waits too (QCMEV refuses an empty receipt, and « COMMANDE » describes nothing).
  */
-function balance(lines: MevSaleLine[], subtotalCents: number): { lines: MevSaleLine[]; extraDiscountCents: number } {
-  // A receipt always has at least one item (QCMEV refuses an empty list).
-  if (!lines.length && subtotalCents <= 0) return { lines: [{ description: 'COMMANDE', quantity: '1', unitPriceCents: 0, totalCents: 0, taxCode: 'FP', activity: 'RES', modifiers: [] }], extraDiscountCents: Math.max(0, -subtotalCents) };
-  const gap = subtotalCents - lines.reduce((s, l) => s + itemCents(l), 0);
-  if (gap > 0) return { lines: [...lines, { description: 'ÉCART DE PRIX / PRICE DIFFERENCE', quantity: '1', unitPriceCents: gap, totalCents: gap, taxCode: 'FP', activity: 'RES', modifiers: [] }], extraDiscountCents: 0 };
-  return { lines, extraDiscountCents: -gap };
+function checkLines(mapped: MevSaleLine[] | { review: MevReview; detail: string }, subtotalCents: number | null): { lines: MevSaleLine[]; rounded: boolean } | { review: MevReview; detail: string } {
+  if (!Array.isArray(mapped)) return mapped;
+  if (!mapped.length) return { review: 'no_lines', detail: 'the order has no item' };
+  if (subtotalCents === null) return { lines: mapped, rounded: false };
+  const sum = mapped.reduce((s, l) => s + itemCents(l), 0);
+  const gap = subtotalCents - sum;
+  if (Math.abs(gap) > SUBTOTAL_ROUNDING_CENTS) return { review: 'amounts_mismatch', detail: `items ${(sum / 100).toFixed(2)} $ ≠ subtotal ${(subtotalCents / 100).toFixed(2)} $` };
+  return { lines: mapped, rounded: gap !== 0 };
 }
 
 function finish(sale: Omit<FoodHubSaleV1, 'payloadHash'>): MapResult {
@@ -182,10 +211,13 @@ export function storedIsFinal(o: Pick<StoredOrder, 'status' | 'channel'>, trigge
 }
 
 export function storedExclusion(o: StoredOrder, opts: { dryRun?: boolean } = {}): Exclusion | null {
-  if (LOG_ORDER(o)) return 'log_order';
+  void o;
   if (opts.dryRun) return 'dry_run';
   return null;
 }
+
+/** The Too Good To Go daily bag log (lib/foodhub/tgtg.ts): a count of bags sold on a day without a per-order feed. */
+export const isBagLog = LOG_ORDER;
 
 /** The moment the platform order became a sale (stable across re-mappings). */
 export function storedOccurredMs(o: StoredOrder, trigger: MevTrigger): number {
@@ -206,10 +238,18 @@ export function toMevSaleFromStored(o: StoredOrder, ctx: MapCtx): MapResult {
   const discount = o.channel === 'doordash' ? (o.doorDash?.merchantFundedDiscount ?? o.discount ?? 0) : (o.discount || 0);
   // Skip tablet orders arrive with tax 0 hard-coded: the tax is computed from the base.
   const skipTablet = o.channel === 'skip' && o.status === 'failed' && !o.tax;
-  const b = balance(mapLines(o.lines, ctx, () => false), cents(o.subtotal));
-  const discountCents = Math.max(0, cents(discount)) + b.extraDiscountCents;
+  // Too Good To Go shows its price taxes included and sends no tax: the pre-tax prices are worked out, the tax computed.
+  const taxIncluded = o.channel === 'tgtg' && !o.tax;
+  const bagLog = LOG_ORDER(o);
+  // The items are the receipt; the platform's subtotal must agree with them (Skip: JET Connect item prices are before
+  // tax, items_in_cart.inc_tax − tax = their sum). A restaurant-funded discount is the only « Rabais ».
+  const discountCents = Math.max(0, cents(discount));
+  const b = checkLines(mapLines(o.lines, ctx, () => false, taxIncluded), taxIncluded ? null : cents(o.subtotal));
+  if ('review' in b) return { ok: false, reason: b.review, detail: b.detail };
   // No tip (pourb) on a platform order: the platform pays its courier, and an LVT receipt never carries one.
-  const money = amountsFor({ lines: b.lines, deliveryCents: 0, serviceFeeCents: 0, discountCents, tipCents: 0, platformTaxCents: skipTablet ? null : cents(o.tax) });
+  const money = amountsFor({ lines: b.lines, deliveryCents: 0, serviceFeeCents: 0, discountCents, tipCents: 0, platformTaxCents: skipTablet || taxIncluded ? null : cents(o.tax) });
+  if (taxIncluded) money.flags.taxIncluded = true;
+  if (b.rounded) money.flags.subtotalRounded = true;
   const user = ctx.userMode === 'staff' && o.timeline?.acceptedBy && !['auto', 'clover'].includes(o.timeline.acceptedBy) ? { id: o.timeline.acceptedBy, name: o.timeline.acceptedBy } : { ...AUTO_USER };
   const saleKey = ctx.saleKey ?? saleKeyFor(ctx.tenantId, 'stored', channel, o.externalOrderId);
   return finish({
@@ -223,8 +263,9 @@ export function toMevSaleFromStored(o: StoredOrder, ctx: MapCtx): MapResult {
     amounts: money.amounts,
     // Collected by the platform (SPEC: AUT until Revenu Québec answers); nothing to collect → AUC.
     payment: { mode: money.amounts.totalCents === 0 ? 'AUC' : 'AUT', collectedBy: 'platform' },
-    // Platforms mask the customer's contact: the paper copy goes in the bag.
-    receipt: { format: 'PAP', deliver: 'print' },
+    // Platforms mask the customer's contact: the paper copy goes in the bag. The bag log is recorded after the day,
+    // with no customer to hand it to: transmitted, not printed (NON).
+    receipt: bagLog ? { format: 'NON', deliver: 'none' } : { format: 'PAP', deliver: 'print' },
     ...(ctx.referenceSaleKey ? { referenceSaleKey: ctx.referenceSaleKey } : {}),
     testMode: ctx.testMode,
     ...(Object.keys(money.flags).length ? { flags: money.flags } : {}),
@@ -270,10 +311,12 @@ export function toMevSaleFromDirect(o: DirectOrder, ctx: MapCtx & { dryRun?: boo
   const online = paidOnline(o);
   // Our own delivery (our couriers or a fleet the restaurant hires) → LVR; pickup → CMP (SPEC for phone / website pickup).
   const serviceType: MevServiceType = o.fulfillment === 'delivery' ? 'LVR' : 'CMP';
-  const b = balance(mapLines(o.lines, ctx, (l) => Boolean((l as { alcohol?: boolean }).alcohol)), cents(o.subtotal));
+  const b = checkLines(mapLines(o.lines, ctx, (l) => Boolean((l as { alcohol?: boolean }).alcohol)), cents(o.subtotal));
+  if ('review' in b) return { ok: false, reason: b.review, detail: b.detail };
   const deliveryCents = o.fulfillment === 'delivery' ? Math.max(0, cents(o.deliveryFee)) : 0;
   // The tax the customer was charged (Food Hub / Clover computed it); the split follows the base when it agrees.
-  const money = amountsFor({ lines: b.lines, deliveryCents, serviceFeeCents: 0, discountCents: b.extraDiscountCents, tipCents: Math.max(0, cents(o.tip)), platformTaxCents: cents(o.tax) });
+  const money = amountsFor({ lines: b.lines, deliveryCents, serviceFeeCents: 0, discountCents: 0, tipCents: Math.max(0, cents(o.tip)), platformTaxCents: cents(o.tax) });
+  if (b.rounded) money.flags.subtotalRounded = true;
   let mode: MevPayMode | null;
   let collectedBy: FoodHubSaleV1['payment']['collectedBy'];
   if (money.amounts.totalCents === 0) { mode = 'AUC'; collectedBy = 'clover_tender'; }
@@ -293,7 +336,7 @@ export function toMevSaleFromDirect(o: DirectOrder, ctx: MapCtx & { dryRun?: boo
     serviceType, ecommerce: online, user: { ...AUTO_USER },
     lines: b.lines,
     fees: { deliveryCents, serviceFeeCents: 0 },
-    discountCents: b.extraDiscountCents,
+    discountCents: 0,
     amounts: money.amounts,
     payment: { mode, collectedBy, ...(o.paylink?.paymentId ? { reference: o.paylink.paymentId.slice(0, 40) } : {}) },
     // Paper with the order; an electronic copy too when the customer ordered online with a contact (SMS / e-mail).

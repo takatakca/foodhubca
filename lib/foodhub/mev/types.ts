@@ -1,7 +1,7 @@
 // Takatak MEV (QCMEV) integration: the shapes Food Hub sends and keeps (docs/MEV_INTEGRATION.md).
 //
-// QCMEV is the SEV (sales recording system) running in remote-server mode: it alone numbers, signs, sends to
-// Revenu Québec's MEV-WEB and lays out the invoice. Food Hub takes the orders like a terminal of that SEV: it never
+// QCMEV is the SEV (sales recording system), in mode SEV: it alone numbers, signs, sends to Revenu Québec's MEV-WEB
+// and lays out the invoice. Food Hub takes the orders like a terminal of that SEV: it never
 // signs, never talks to Revenu Québec, and prints only the exact lines QCMEV rendered.
 //
 // Identity values (file number, GST/QST numbers, device id given by Revenu Québec, authorization code) live ONLY in
@@ -71,8 +71,12 @@ export interface FoodHubSaleV1 {
   referenceSaleKey?: string;
   /** Training transactions (modTrans FOR): every sale in simulator mode. */
   testMode: boolean;
-  /** taxGap = the platform's tax differed from the computed split by more than 1 cent; taxComputed = the feed had no tax. */
-  flags?: { taxGap?: boolean; taxComputed?: boolean };
+  /**
+   * taxGap = the platform's tax differed from the computed split by more than 1 cent; taxComputed = the feed had no tax;
+   * taxIncluded = the platform's prices include the taxes (Too Good To Go): the pre-tax prices were worked out from them;
+   * subtotalRounded = the platform's subtotal differed from its own lines by 1–2 cents: the lines are the receipt.
+   */
+  flags?: { taxGap?: boolean; taxComputed?: boolean; taxIncluded?: boolean; subtotalRounded?: boolean };
   /** sha256 of the canonical JSON of everything above. */
   payloadHash: string;
 }
@@ -111,6 +115,8 @@ export interface MevReceipt {
   mentions?: string[];
   text80mm?: string[];
   html?: string;
+  /** The electronic document (formImpr ELE / PEL): the link « Consulter la transaction en ligne » right under the QR. */
+  electronic?: { mentions?: string[]; lines?: string[]; html?: string } | null;
   renderHash?: string;
   issuedAt?: string;
 }
@@ -146,6 +152,11 @@ export interface MevJob {
   result?: { status: 'accepted' | 'offline_pending' | 'rejected'; receipt?: MevReceipt; errors?: Array<{ id?: string; mess?: string; codRetour?: string }> };
   /** A credit or a replacing sale was made for this sale: it is no longer the order's current receipt. */
   creditedBy?: string;
+  /**
+   * Never sent: the order's data does not make a truthful invoice (lines that do not add up, an item without a name, no
+   * line at all). A person fixes the order; the next change maps it again. Food Hub never invents a line to balance it.
+   */
+  blocked?: MevReview;
   /** Shadow mode: mapped and checked, never sent. */
   shadow?: boolean;
   claim?: string;
@@ -155,6 +166,9 @@ export interface MevJob {
   createdAt: string;
   updatedAt: string;
 }
+
+/** Why a sale cannot be sent as it is (shown on the order; needs a person). */
+export type MevReview = 'amounts_mismatch' | 'description_missing' | 'no_lines';
 
 export type MevOrderStatus = 'pending' | 'accepted' | 'offline' | 'rejected' | 'needs_human' | 'skipped' | 'shadow' | 'credited';
 
@@ -174,14 +188,20 @@ export interface MevRecord {
   qrUrl?: string;
   mentions?: string[];
   text80mm?: string[];
+  /** The receipt's support: PAP (paper), ELE (electronic), PEL (both), NON (not printed). */
+  format?: FoodHubSaleV1['receipt']['format'];
+  /** The electronic document's lines (ELE / PEL only): what /r/<token> shows. */
+  textElectronic?: string[];
   renderHash?: string;
   issuedAt?: string;
-  /** Secret part of the public receipt link /r/<token>. */
+  /** Each document is printed once (« Modes d'impression »): document key → when its original was printed. */
+  printed?: Record<string, string>;
+  /** Secret part of the public receipt link /r/<token> (electronic receipts only). */
   token?: string;
   /** Staff-chosen tender for a pay-at-pickup order whose Clover payment is not readable. */
   tender?: MevPayMode;
   creditNotes?: Array<{ creditKey: string; reason: MevCreditReason; status: MevOrderStatus; noTrans?: string; at: string }>;
   /** Reprints / merchant copies, with the lines QCMEV rendered for each (the merchant copy carries its own mention). */
-  prints?: Array<{ printKey: string; mode: 'RPR' | 'DUP'; status: MevOrderStatus; text80mm?: string[]; at: string }>;
+  prints?: Array<{ printKey: string; mode: 'RPR' | 'DUP'; status: MevOrderStatus; text80mm?: string[]; qrImage?: string; at: string }>;
   updatedAt: string;
 }

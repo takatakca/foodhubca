@@ -11,7 +11,9 @@ import type { DirectOrder } from '../lib/foodhub/delivery/types';
 import { classify, signMev } from '../lib/foodhub/mev/client';
 import { healthRefusal, mevGate, mevMode, setSevOfRecord } from '../lib/foodhub/mev/config';
 import { mevOnDirectChange, mevOnOrderChange, requestMevPrint, setDirectTender, storedBaseKey } from '../lib/foodhub/mev/hooks';
-import { applyOutcome, jobsFor, MEV_OUTBOX, mevAlerts, runMevOutbox, settleMevKicks } from '../lib/foodhub/mev/outbox';
+import { applyOutcome, jobsFor, MEV_OUTBOX, mevAlerts, replayJob, runMevOutbox, settleMevKicks } from '../lib/foodhub/mev/outbox';
+import { claimDocument, claimOrderPrint } from '../lib/foodhub/mev/print-claim';
+import { publicReceiptHtml } from '../lib/foodhub/mev/receipt';
 import type { MevJob } from '../lib/foodhub/mev/types';
 import { getRepo } from '../lib/foodhub/repo';
 import { contractMac } from '../lib/foodhub/tenant';
@@ -114,7 +116,9 @@ describe('platform orders through QCMEV', () => {
     expect(mev?.mentions).toContain('COMMANDE PAR UNE PLATEFORME NUMÉRIQUE');
     expect(mev?.qrImage).toMatch(/^data:image\/(png|svg\+xml);base64,/);
     expect(mev?.qrUrl).toMatch(/^http:\/\/127\.0\.0\.1\//);
-    expect(mev?.token).toMatch(/^[A-Za-z0-9_-]{20,}$/);
+    // A paper receipt for the bag (PAP): no public electronic copy.
+    expect(mev?.format).toBe('PAP');
+    expect(mev?.token).toBeUndefined();
     // Completed later: same receipt, no new call.
     await settleInClover((await getRepo().patchOrder(o.id, { completedAt: new Date().toISOString() }, { status: 'completed' }))!);
     await settleMevKicks();
@@ -168,7 +172,7 @@ describe('platform orders through QCMEV', () => {
     const mev = (await getRepo().getOrder(o.id))!.timeline?.mev;
     expect(mev?.saleKey).toBe(`${storedBaseKey(o)}:r1`);
     expect(mev?.status).toBe('accepted');
-    expect(mev?.mentions).toContain('FACTURE CORRIGÉE');
+    expect(mev?.mentions).toContain('Facture corrigée');
   });
 
   it('QCMEV down: the job waits, then goes with the same key, body and event id (one invoice)', async () => {
@@ -192,7 +196,7 @@ describe('platform orders through QCMEV', () => {
     let mev = (await getRepo().getOrder(o.id))!.timeline?.mev;
     expect(mev?.status).toBe('offline');
     expect(mev?.noTrans).toBeTruthy();
-    expect(mev?.text80mm?.join('\n')).toMatch(/HORS LIGNE/);
+    expect(mev?.text80mm?.filter((l) => l.trim() === 'PROBLÈME DE COMMUNICATION')).toHaveLength(2);
     mock.state.mevDown = false;
     await runMevOutbox({ now: Date.now() + 6 * 60_000 });
     mev = (await getRepo().getOrder(o.id))!.timeline?.mev;
@@ -209,10 +213,11 @@ describe('platform orders through QCMEV', () => {
     expect((await getRepo().getOrder(o.id))!.timeline?.mev?.status).toBe('shadow');
   });
 
-  it('the Too Good To Go daily log is skipped; a reprint and a merchant copy are transmitted', async () => {
-    const log = await accept(await platformOrder({ channel: 'tgtg', marketplace: 'tgtg', externalOrderId: 'tgtg-log-2026-10-24-E2E_A', raw: { source: 'daily_log' } }));
-    expect(log.timeline?.mev).toMatchObject({ status: 'skipped', reason: 'log_order' });
-    expect(posts().length).toBe(0);
+  it('the Too Good To Go daily log is one not-printed LVT sale; a reprint and a merchant copy are transmitted', async () => {
+    const log = await accept(await platformOrder({ channel: 'tgtg', marketplace: 'tgtg', externalOrderId: 'tgtg-log-2026-10-24-E2E_A', raw: { source: 'daily_log' }, tax: 0, subtotal: 17.97, total: 17.97, tip: 0, deliveryFee: 0, lines: [{ name: 'Surprise Bag', quantity: 3, unitPrice: 5.99, total: 17.97, modifiers: [] }] }));
+    expect(log.timeline?.mev).toMatchObject({ status: 'accepted', format: 'NON' });
+    expect(posts()[0].body.receipt.format).toBe('NON');
+    expect(log.timeline?.mev?.token).toBeUndefined();
     const o = await accept(await platformOrder());
     expect((await requestMevPrint('stored', o.id, 'DUP', ACTOR)).ok).toBe(true);
     expect((await requestMevPrint('stored', o.id, 'RPR', ACTOR)).ok).toBe(true);
@@ -221,6 +226,46 @@ describe('platform orders through QCMEV', () => {
     expect(prints.map((c: any) => c.body.mode)).toEqual(['DUP', 'RPR']);
     const mev = (await getRepo().getOrder(o.id))!.timeline?.mev;
     expect(mev?.prints?.find((p) => p.mode === 'DUP')?.text80mm?.join('\n')).toMatch(/COPIE DU COMMERÇANT[\s\S]*NE PAS REMETTRE AU CLIENT/);
+  });
+
+  it('platform numbers that do not add up: held for a person (never sent, never balanced); sent once the order is fixed', async () => {
+    const o = await accept(await platformOrder({ subtotal: 35, tax: 5.24, total: 40.23 }));
+    const mev = o.timeline?.mev;
+    expect(mev?.status).toBe('needs_human');
+    expect(mev?.reason).toMatch(/^amounts_mismatch: items 33\.98 \$ ≠ subtotal 35\.00 \$/);
+    expect(posts().length).toBe(0);
+    expect((await mevAlerts(Date.now()))[0]).toMatchObject({ severity: 'critical' });
+    // « Renvoyer » maps it again: still wrong → still held, still nothing sent.
+    const [job] = await jobsFor(storedBaseKey(o));
+    await replayJob(job.id, ACTOR);
+    await settleMevKicks();
+    expect(posts().length).toBe(0);
+    // A person fixes the order: the next change sends the truthful sale (same key), no « ÉCART » line.
+    const repo = getRepo();
+    await repo.updateOrder(o.id, { subtotal: 33.98, tax: 5.09, total: 39.07 });
+    await mevOnOrderChange({ id: o.id });
+    await settleMevKicks();
+    const sent = posts().filter((c: any) => c.path.endsWith('/sales'));
+    expect(sent).toHaveLength(1);
+    expect(sent[0].body.saleKey).toBe(storedBaseKey(o));
+    expect(JSON.stringify(sent[0].body.lines)).not.toMatch(/ÉCART/);
+    expect((await repo.getOrder(o.id))!.timeline?.mev?.status).toBe('accepted');
+  });
+
+  it('printed once: the original, then each copy, once; a paper receipt has no public electronic copy', async () => {
+    const o = await accept(await platformOrder());
+    const mev = (await getRepo().getOrder(o.id))!.timeline!.mev!;
+    expect(mev.format).toBe('PAP');
+    expect(mev.token).toBeUndefined();
+    expect(publicReceiptHtml(mev, {})).toBeNull();
+    const first = await claimOrderPrint(mev, 'FAC', 'Cuisine');
+    const second = await claimOrderPrint(mev, 'FAC', 'Comptoir');
+    expect(first.granted).toBe(true);
+    expect(second).toMatchObject({ granted: false, reason: 'printed', by: 'Cuisine' });
+    expect(await claimOrderPrint(mev, 'RPR', 'Cuisine')).toMatchObject({ granted: false, reason: 'nothing_to_print' });
+    // Two tickets racing for the same document: one wins.
+    const race = await Promise.all([claimDocument('doc-race', 'A'), claimDocument('doc-race', 'B')]);
+    expect(race.filter((r) => r.granted)).toHaveLength(1);
   });
 
   it('pending for 15+ minutes raises a Watchtower alert; the legal-limit side is critical at 24 h', async () => {
@@ -254,6 +299,23 @@ describe('own orders through QCMEV', () => {
     await settleMevKicks();
     expect(posts().length).toBe(1);
     expect(posts()[0].body).toMatchObject({ serviceType: 'CMP', payment: { mode: 'ARG', collectedBy: 'cash' }, amounts: { tipCents: 200 } });
+  });
+
+  it('paid online with an e-mail → PEL: the public page is the electronic invoice (QR in the block, link under it, « Copie électronique »)', async () => {
+    const now = new Date().toISOString();
+    const d = await saveDirectOrder({ id: 'dir_pel1', number: 'W-77', source: 'website', brandName: 'Po Poulet', locationCode: 'E2E_A', customer: { name: 'Client Web', email: 'client@example.invalid' }, fulfillment: 'pickup',
+      lines: [{ name: 'Poulet Grillé', quantity: 1, unitPrice: 14.99, total: 14.99, modifiers: [] }], subtotal: 14.99, tax: 2.25, deliveryFee: 0, tip: 0, total: 17.24, currency: 'CAD', payment: 'paid', status: 'new', containsAlcohol: false,
+      placedAt: now, events: [{ at: now, type: 'received', message: 'Web' }], createdAt: now, updatedAt: now } as DirectOrder);
+    await mevOnDirectChange(d);
+    await settleMevKicks();
+    const { getDirectOrder } = await import('../lib/foodhub/delivery/store');
+    const mev = (await getDirectOrder('dir_pel1'))!.mev!;
+    expect(mev.format).toBe('PEL');
+    expect(mev.token).toBeTruthy();
+    const html = publicReceiptHtml(mev, { brand: 'Po Poulet' })!;
+    expect(html).toMatch(/<img class="qr"[^>]*><p class="link"><a href="[^"]+"[^>]*>Consulter la transaction en ligne<\/a><\/p>/);
+    expect(html).toContain('Copie électronique');
+    expect(html).not.toContain('[CODE QR]');
   });
 
   it('website delivery paid online → LVR, e-commerce card sale right away', async () => {

@@ -54,13 +54,13 @@ export function createMockQcmev({ secret, tenant = 'takatak', locations = null, 
     return { actu, preced };
   }
 
-  function issue({ key, kind, saleKey, locationId, occurredAt, amounts, typServ, mentions, lines, modImpr, modTrans, original }) {
+  function issue({ key, kind, saleKey, locationId, occurredAt, amounts, typServ, mentions, lines, modImpr, modTrans, original, format = 'PAP', footer = [] }) {
     const c = civil(occurredAt) || civil(new Date().toISOString());
     const dev = `DEV-${locationId}`;
     const n = (state.seq.get(`${dev}:${c.day}`) || 0) + 1;
     state.seq.set(`${dev}:${c.day}`, n);
     const noTrans = `${c.day.slice(2)}-${String(n).padStart(4, '0')}`;
-    const t = { key, kind, saleKey, locationId, deviceId: dev, noTrans, datTrans: c.datTrans, utc: c.utc, ...amounts, typServ, modImpr, modTrans, mentions, lines, original, mevStatus: state.mevDown ? 'OFFLINE_PENDING' : 'ACCEPTED', mevNumber: null };
+    const t = { key, kind, saleKey, locationId, deviceId: dev, noTrans, datTrans: c.datTrans, utc: c.utc, ...amounts, typServ, modImpr, modTrans, mentions, footer, format, lines, original, mevStatus: state.mevDown ? 'OFFLINE_PENDING' : 'ACCEPTED', mevNumber: null };
     if (!state.mevDown) t.mevNumber = `MEV-${noTrans}`;
     t.signa = sign(t);
     state.transactions.push(t);
@@ -72,24 +72,31 @@ export function createMockQcmev({ secret, tenant = 'takatak', locations = null, 
     for (const t of state.transactions) if (t.mevStatus === 'OFFLINE_PENDING') { t.mevStatus = 'ACCEPTED'; t.mevNumber = `MEV-${t.noTrans}`; }
   }
 
+  // The same layout as QCMEV's renderer (SW-76 §4.4.1): items and subtotal, then "=", TPS, TVQ, TOTAL, tip, mentions,
+  // [CODE QR], (electronic: the link), processing time, MEV-WEB number, device id, "=", footer mentions. Offline: the
+  // processing time and the MEV-WEB number read « PROBLÈME DE COMMUNICATION ».
   function render(t) {
     const money = (c) => `${(c / 100).toFixed(2).replace('.', ',')} $`;
-    const qr = `http://127.0.0.1/mev-sim/qr?f=${encodeURIComponent(t.noTrans)}`;
-    const text80mm = [
-      '='.repeat(42), 'RESTAURANT D’ESSAI (SIMULATEUR)', '='.repeat(42),
-      ...t.mentions,
-      ...t.lines.map((l) => `${l.quantity} ${l.description}`.slice(0, 30).padEnd(31) + money(l.totalCents).padStart(11)),
-      `SOUS-TOTAL ${money(t.subtotalCents)}`, `TPS ${money(t.gstCents)}`, `TVQ ${money(t.qstCents)}`, `TOTAL ${money(t.totalCents)}`,
-      ...(t.tipCents ? [`POURBOIRE ${money(t.tipCents)}`] : []),
-      `Facture n° ${t.noTrans}`, `${t.datTrans} ${t.utc}`,
-      '='.repeat(42), '[CODE QR]', 'Consulter la transaction en ligne',
-      ...(t.mevStatus === 'OFFLINE_PENDING' ? ['TRANSACTION HORS LIGNE'] : []), '='.repeat(42),
+    const qr = `http://127.0.0.1/mev-sim/qr?f=e1.${encodeURIComponent(Buffer.from(t.noTrans).toString('base64url'))}`;
+    const off = t.mevStatus === 'OFFLINE_PENDING';
+    const doc = (electronic) => [
+      'RESTAURANT D’ESSAI (SIMULATEUR)', '-'.repeat(42), `Date : ${t.datTrans} (${t.utc})`, `Transaction : ${t.noTrans}`, '-'.repeat(42),
+      ...t.lines.map((l) => `${l.quantity} x ${l.description}`.slice(0, 30).padEnd(31) + money(l.totalCents).padStart(11)),
+      '-'.repeat(42), `Sous-total ${money(t.subtotalCents)}`, 'No TPS : 000000000RT0001', 'No TVQ : 0000000000TQ0001',
+      ...(t.kind === 'credit_note' ? ['Crédité à : ______________________________', 'Date de la remise : ______________________'] : []),
+      '='.repeat(42), `TPS 5 % : ${money(t.gstCents)}`, `TVQ 9,975 % : ${money(t.qstCents)}`, `TOTAL : ${money(t.totalCents)}`,
+      ...(t.tipCents ? [`Pourboire : ${money(t.tipCents)}`] : []),
+      ...t.mentions, '[CODE QR]', ...(electronic ? ['Consulter la transaction en ligne'] : []),
+      off ? 'PROBLÈME DE COMMUNICATION' : new Date().toISOString().slice(0, 19).replace('T', ' '), off ? 'PROBLÈME DE COMMUNICATION' : t.mevNumber, t.deviceId,
+      '='.repeat(42), ...t.footer, ...(electronic && t.format === 'PEL' ? ['Copie électronique'] : []),
     ];
+    const text80mm = doc(t.format === 'ELE');
+    const electronic = t.format === 'ELE' || t.format === 'PEL' ? { mentions: [...t.mentions, ...t.footer, ...(t.format === 'PEL' ? ['Copie électronique'] : [])], lines: doc(true), html: '' } : null;
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 21 21"><rect width="21" height="21" fill="#fff"/><path d="M1 1h7v7H1zM13 1h7v7h-7zM1 13h7v7H1z" fill="#000"/></svg>`;
     return {
       qcmevTransactionId: `tx_${t.noTrans}`, noTrans: t.noTrans, datTrans: t.datTrans, utc: t.utc, deviceId: t.deviceId, mevStatus: t.mevStatus,
       mevProcessedAt: t.mevStatus === 'ACCEPTED' ? new Date().toISOString() : null, mevTransactionNumber: t.mevNumber, issuedAt: new Date().toISOString(),
-      mentions: t.mentions, text80mm, html: '', qr: { content: qr, svg, pngDataUrl: TINY_PNG }, renderHash: sha256(text80mm.join('\n')),
+      mentions: [...t.mentions, ...(off ? ['PROBLÈME DE COMMUNICATION'] : []), ...t.footer], text80mm, html: '', electronic, qr: { content: qr, svg, pngDataUrl: TINY_PNG }, renderHash: sha256(text80mm.join('\n')),
     };
   }
 
@@ -162,7 +169,8 @@ export function createMockQcmev({ secret, tenant = 'takatak', locations = null, 
       if (!allowed(body.locationId)) return { status: 423, json: { error: 'location_not_ready' } };
       return once(body.saleKey, body, () => issue({
         key: body.saleKey, kind: 'sale', saleKey: body.saleKey, locationId: body.locationId, occurredAt: body.occurredAt, amounts: body.amounts, typServ: body.serviceType,
-        mentions: [...(body.serviceType === 'LVT' ? ['COMMANDE PAR UNE PLATEFORME NUMÉRIQUE'] : []), ...(body.payment.mode !== 'AUC' && body.payment.collectedBy !== 'platform' ? ['PAIEMENT REÇU'] : []), ...(body.referenceSaleKey ? ['FACTURE CORRIGÉE'] : []), ...(body.testMode ? ['FORMATION'] : [])],
+        mentions: ['PAIEMENT REÇU', ...(body.referenceSaleKey ? ['Facture corrigée'] : []), ...(body.serviceType === 'LVT' ? ['COMMANDE PAR UNE PLATEFORME NUMÉRIQUE'] : [])],
+        footer: body.testMode ? ['***DOCUMENT DE FORMATION***', 'NE PAS REMETTRE AU CLIENT'] : [], format: body.receipt?.format ?? 'PAP',
         lines: body.lines, modImpr: 'FAC', modTrans: body.testMode ? 'FOR' : 'OPE', original: body,
       }));
     }
@@ -175,7 +183,7 @@ export function createMockQcmev({ secret, tenant = 'takatak', locations = null, 
       return once(body.creditKey, body, () => issue({
         key: body.creditKey, kind: 'credit_note', saleKey, locationId: s.t.locationId, occurredAt: body.occurredAt, typServ: s.t.typServ,
         amounts: { subtotalCents: -s.t.subtotalCents, gstCents: -s.t.gstCents, qstCents: -s.t.qstCents, totalCents: -s.t.totalCents, tipCents: 0 },
-        mentions: ['NOTE DE CRÉDIT', `RÉF. FACTURE ${s.t.noTrans}`], lines: s.t.lines, modImpr: 'ANN', modTrans: s.t.modTrans, original: s.t,
+        mentions: ['NOTE DE CRÉDIT', `RÉF. FACTURE ${s.t.noTrans}`], footer: s.t.footer, format: s.t.format, lines: s.t.lines, modImpr: 'FAC', modTrans: s.t.modTrans, original: s.t,
       }));
     }
     const print = p.match(/^\/sales\/([^/]+)\/prints$/);
@@ -187,7 +195,7 @@ export function createMockQcmev({ secret, tenant = 'takatak', locations = null, 
       return once(body.printKey, body, () => issue({
         key: body.printKey, kind: 'print', saleKey, locationId: s.t.locationId, occurredAt: new Date().toISOString(), typServ: s.t.typServ,
         amounts: { subtotalCents: s.t.subtotalCents, gstCents: s.t.gstCents, qstCents: s.t.qstCents, totalCents: s.t.totalCents, tipCents: s.t.tipCents },
-        mentions: body.mode === 'DUP' ? ['*** COPIE DU COMMERÇANT ***', 'NE PAS REMETTRE AU CLIENT'] : ['REPRODUCTION'], lines: s.t.lines, modImpr: body.mode, modTrans: s.t.modTrans, original: s.t,
+        mentions: s.t.mentions, footer: body.mode === 'DUP' ? ['***COPIE DU COMMERÇANT***', 'NE PAS REMETTRE AU CLIENT'] : ['REPRODUCTION'], format: s.t.format, lines: s.t.lines, modImpr: body.mode, modTrans: s.t.modTrans, original: s.t,
       }));
     }
     return { status: 404, json: { error: 'not_found' } };

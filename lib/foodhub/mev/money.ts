@@ -42,6 +42,24 @@ export function reconcileTax(computed: { gstCents: number; qstCents: number }, p
   return { gstCents, qstCents: platformTaxCents - gstCents, taxGap: true };
 }
 
+/**
+ * The pre-tax price of an FP item whose price includes GST and QST (Too Good To Go shows 5,99 $ taxes included):
+ * the base B with B + TPS(B) + TVQ(B) = the price, when such a base exists; otherwise the closest one (never off by
+ * more than a cent). Integer search around price / 1.14975.
+ */
+export function preTaxFromIncluded(includedCents: number): number {
+  if (!Number.isFinite(includedCents) || includedCents <= 0) return 0;
+  const start = Math.round((includedCents * 100_000) / 114_975);
+  let best = start;
+  let bestDiff = Infinity;
+  for (let b = Math.max(0, start - 3); b <= start + 3; b++) {
+    const t = quebecTaxCents(b);
+    const diff = Math.abs(b + t.gstCents + t.qstCents - includedCents);
+    if (diff < bestDiff) { best = b; bestDiff = diff; }
+  }
+  return best;
+}
+
 /** "2", "0.5", "1.25": a quantity as the decimal string MEV-WEB expects (at most 3 decimals). */
 export function qty(n: number): string {
   const v = Math.round((Number(n) || 0) * 1000) / 1000;

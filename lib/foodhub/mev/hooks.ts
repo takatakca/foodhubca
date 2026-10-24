@@ -73,6 +73,19 @@ interface Plan {
   placeholder?: (extra: Partial<MapCtx>) => MapResult;
 }
 
+/**
+ * The gate, plus one exception: an order that already has a receipt keeps being followed (its credit note or corrected
+ * receipt) even after the owner switch, the allowlist or the kitchen's system changed. Only FOODHUB_MEV=off stops that.
+ */
+async function gateFor(locationCode: string | null | undefined, baseKey: string): Promise<{ active: true; mode: Exclude<MevMode, 'off'> } | { active: false }> {
+  const gate = await mevGate(locationCode);
+  if (gate.active) return gate;
+  const mode = mevMode();
+  if (mode === 'off' || gate.reason === 'not_configured') return { active: false };
+  const issued = (await jobsFor(baseKey)).some((j) => j.kind === 'sale' && (j.status !== 'skipped' || j.shadow));
+  return issued ? { active: true, mode } : { active: false };
+}
+
 const neverSent = (j: MevJob) => !j.shadow && j.status === 'pending' && j.attempts === 0;
 const isCurrent = (j: MevJob) => j.kind === 'sale' && !j.creditedBy && (j.status !== 'skipped' || Boolean(j.shadow));
 
@@ -108,14 +121,14 @@ async function reconcile(p: Plan): Promise<MevJob[]> {
     if (!current) {
       const lastCredited = [...sales].reverse().find((j) => j.creditedBy);
       const key = sales.length ? reissueKeyFor(p.baseKey, sales.length) : p.baseKey;
-      const extra: Partial<MapCtx> = { saleKey: key, ...(lastCredited ? { replacesSaleKey: lastCredited.key, occurredAt: isoWithOffset(now) } : {}) };
+      const extra: Partial<MapCtx> = { saleKey: key, ...(lastCredited ? { referenceSaleKey: lastCredited.key, occurredAt: isoWithOffset(now) } : {}) };
       let m = p.map(extra);
       let wait: MevJob['wait'];
       if (!m.ok && m.reason === 'tender_unknown' && p.placeholder) { m = p.placeholder(extra); wait = 'tender_unknown'; }
       if (m.ok) writes.push(newJob(p, 'sale', key, m.sale, { contentHash: m.contentHash, ...(lastCredited?.creditedBy ? { dependsOn: lastCredited.creditedBy } : {}), ...(wait && p.mode !== 'shadow' ? { wait } : {}) }));
     } else {
       const sale = current.payload as FoodHubSaleV1;
-      const m = p.map({ saleKey: current.key, occurredAt: sale.occurredAt, ...(sale.replacesSaleKey ? { replacesSaleKey: sale.replacesSaleKey } : {}) });
+      const m = p.map({ saleKey: current.key, occurredAt: sale.occurredAt, ...(sale.referenceSaleKey ? { referenceSaleKey: sale.referenceSaleKey } : {}) });
       if (m.ok) {
         // The tender is known now: the sale may go at once.
         const clearWait = current.wait === 'tender_unknown' && m.ok ? { wait: undefined, nextAt: null } : {};
@@ -128,7 +141,7 @@ async function reconcile(p: Plan): Promise<MevJob[]> {
           // Issued (or maybe issued): full credit note, then the corrected receipt that names the one it replaces.
           const ck = creditKeyFor(current.key, 1);
           const rk = reissueKeyFor(p.baseKey, sales.length);
-          const re = p.map({ saleKey: rk, replacesSaleKey: current.key, occurredAt: isoWithOffset(now) });
+          const re = p.map({ saleKey: rk, referenceSaleKey: current.key, occurredAt: isoWithOffset(now) });
           if (re.ok) {
             writes.push(newJob(p, 'credit', ck, creditFor(sale, ck, p.changeReason, now), { saleKey: current.key, dependsOn: current.key }));
             writes.push({ ...current, creditedBy: ck });
@@ -161,11 +174,11 @@ async function planStored(id: string): Promise<MevJob[]> {
   const repo = getRepo();
   const o = await repo.getOrder(id);
   if (!o) return [];
-  const gate = await mevGate(o.locationCode);
-  if (!gate.active) return [];
   const tenant = tenantId();
   const trigger = mevTrigger();
   const baseKey = storedBaseKey(o, tenant);
+  const gate = await gateFor(o.locationCode, baseKey);
+  if (!gate.active) return [];
   const ex = storedExclusion(o, { dryRun: Boolean(dryRun()) && gate.mode !== 'simulator' });
   if (ex) {
     if (!o.timeline?.mev) await repo.patchOrder(o.id, { mev: { status: 'skipped', reason: ex, saleKey: baseKey, updatedAt: nowIso() } });
@@ -224,10 +237,10 @@ async function planDirect(id: string): Promise<MevJob[]> {
   const { getDirectOrder } = await import('../delivery/store');
   const d = await getDirectOrder(id);
   if (!d) return [];
-  const gate = await mevGate(d.locationCode);
+  const tenant = tenantId();
+  const gate = await gateFor(d.locationCode, directBaseKey(d, tenant));
   if (!gate.active) return [];
   if (dryRun() && gate.mode !== 'simulator') return [];
-  const tenant = tenantId();
   const final = directIsFinal(d);
   const tender = final && !paidOnline(d) ? await tenderFor(d) : null;
   const ctx: MapCtx = { tenantId: tenant, testMode: gate.mode !== 'on', trigger: 'accept', taxCodeOf: await taxResolver(d.brandName), barPermit: await barPermitAt(d.locationCode), userMode: userMode() };

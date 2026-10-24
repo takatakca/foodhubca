@@ -87,7 +87,7 @@ export async function runMevScenarios(h) {
   const m2b = await waitFor(async () => { const m = await mevOf('dd-mev-2'); return m?.saleKey?.endsWith(':r1') && m.status === 'accepted' ? m : null; }, 15000);
   const cn2 = credits().find((c) => c.body?.saleKey === 'fh:takatak:stored:doordash:dd-mev-2');
   const re2 = saleFor('fh:takatak:stored:doordash:dd-mev-2:r1')[0]?.body;
-  check('S2 adjustment → full credit note of the first receipt + a corrected receipt that names it', adj.status === 200 && !!cn2 && cn2.body.creditKey === 'fh:takatak:stored:doordash:dd-mev-2:cn:1' && re2?.replacesSaleKey === 'fh:takatak:stored:doordash:dd-mev-2' && re2.amounts.subtotalCents === 1299 && !!m2b && m2b.creditNotes?.length === 1, JSON.stringify({ adj: adj.status, cn: cn2?.body?.creditKey, re: re2 && { r: re2.replacesSaleKey, a: re2.amounts } }));
+  check('S2 adjustment → full credit note of the first receipt + a corrected receipt that names it', adj.status === 200 && !!cn2 && cn2.body.creditKey === 'fh:takatak:stored:doordash:dd-mev-2:cn:1' && re2?.referenceSaleKey === 'fh:takatak:stored:doordash:dd-mev-2' && re2.amounts.subtotalCents === 1299 && !!m2b && m2b.creditNotes?.length === 1, JSON.stringify({ adj: adj.status, cn: cn2?.body?.creditKey, re: re2 && { r: re2.referenceSaleKey, a: re2.amounts } }));
   report.scenarios.S2 = { first: m2?.noTrans, corrected: m2b?.noTrans, creditNote: m2b?.creditNotes?.[0]?.noTrans };
 
   // S3 — Skip handed to the tablet, tax 0 in the feed
@@ -170,7 +170,7 @@ export async function runMevScenarios(h) {
   for (const t of st.transactions) { const k = `${t.deviceId}:${t.datTrans.slice(0, 8)}:${t.noTrans}`; days.set(k, (days.get(k) || 0) + 1); }
   check('noTrans unique per device and civil day', [...days.values()].every((n) => n === 1) && st.transactions.length > 0, `${st.transactions.length} transactions`);
   // S9: the civil date/time QCMEV used is the Montréal wall clock of occurredAt (the 23:30 edge is unit-tested).
-  check('S9 datTrans = the local date and time Food Hub sent (America/Montreal, offset kept)', uniqueSales.every((s) => { const t = st.transactions.find((x) => x.key === s.saleKey); return t && t.datTrans === s.occurredAt.slice(0, 19).replace(/[-T:]/g, '') && /^[+-]0[45]:00$/.test(t.utc); }));
+  check('S9 datTrans is a Montréal local date and time with its -04:00 / -05:00 offset (the 23:30 edge is unit-tested)', uniqueSales.every((s) => { const t = st.transactions.find((x) => x.key === s.saleKey); return t && t.datTrans === s.occurredAt.slice(0, 19).replace(/[-T:]/g, '') && /^[+-]0[45]:00$/.test(t.utc); }));
   const chain = mevMock.verifyChain();
   check('every signature is 88 characters, verifies (ECDSA P-256) and chains; the first preced is 88 "="', chain.ok && chain.count === st.transactions.length && st.chain[0]?.preced === '='.repeat(88), JSON.stringify(chain));
   // Replay and conflict, straight against the stand-in with Food Hub's own signed request.

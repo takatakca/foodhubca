@@ -68,7 +68,7 @@ export interface FoodHubSaleV1 {
   payment: { mode: MevPayMode; collectedBy: 'platform' | 'paylink' | 'clover_tender' | 'cash'; reference?: string };
   receipt: { format: 'PAP' | 'ELE' | 'PEL' | 'NON'; deliver: 'print' | 'sms' | 'email' | 'none' };
   /** Set on a corrected receipt that replaces a credited one (order adjustment): the sale it replaces. */
-  replacesSaleKey?: string;
+  referenceSaleKey?: string;
   /** Training transactions (modTrans FOR): every sale in simulator mode. */
   testMode: boolean;
   /** taxGap = the platform's tax differed from the computed split by more than 1 cent; taxComputed = the feed had no tax. */

@@ -162,7 +162,7 @@ export function createMockQcmev({ secret, tenant = 'takatak', locations = null, 
       if (!allowed(body.locationId)) return { status: 423, json: { error: 'location_not_ready' } };
       return once(body.saleKey, body, () => issue({
         key: body.saleKey, kind: 'sale', saleKey: body.saleKey, locationId: body.locationId, occurredAt: body.occurredAt, amounts: body.amounts, typServ: body.serviceType,
-        mentions: [...(body.serviceType === 'LVT' ? ['COMMANDE PAR UNE PLATEFORME NUMÉRIQUE'] : []), ...(body.payment.mode !== 'AUC' && body.payment.collectedBy !== 'platform' ? ['PAIEMENT REÇU'] : []), ...(body.replacesSaleKey ? ['FACTURE CORRIGÉE'] : []), ...(body.testMode ? ['FORMATION'] : [])],
+        mentions: [...(body.serviceType === 'LVT' ? ['COMMANDE PAR UNE PLATEFORME NUMÉRIQUE'] : []), ...(body.payment.mode !== 'AUC' && body.payment.collectedBy !== 'platform' ? ['PAIEMENT REÇU'] : []), ...(body.referenceSaleKey ? ['FACTURE CORRIGÉE'] : []), ...(body.testMode ? ['FORMATION'] : [])],
         lines: body.lines, modImpr: 'FAC', modTrans: body.testMode ? 'FOR' : 'OPE', original: body,
       }));
     }

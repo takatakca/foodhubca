@@ -135,6 +135,16 @@ describe('platform orders through QCMEV', () => {
     expect(mock.verifyChain()).toMatchObject({ ok: true, count: 2 });
   });
 
+  it('switched off after the receipt: the cancel still gets its credit note; a new order sends nothing', async () => {
+    const o = await accept(await platformOrder());
+    process.env.FOODHUB_FEATURE_MEV = 'off';
+    await settleInClover((await getRepo().patchOrder(o.id, { cancelledAt: new Date().toISOString() }, { status: 'cancelled' }))!);
+    await settleMevKicks();
+    expect(posts().filter((c: any) => c.path.endsWith('/credit-notes')).length).toBe(1);
+    await accept(await platformOrder());
+    expect(posts().length).toBe(2);
+  });
+
   it('cancelled before anything was sent → nothing reaches QCMEV', async () => {
     mock.state.down = true;
     const o = await accept(await platformOrder());
@@ -154,7 +164,7 @@ describe('platform orders through QCMEV', () => {
     const kinds = posts().map((c: any) => (c.path.endsWith('/credit-notes') ? 'credit' : 'sale'));
     expect(kinds).toEqual(['sale', 'credit', 'sale']);
     const re = posts()[2].body;
-    expect(re).toMatchObject({ saleKey: `${storedBaseKey(o)}:r1`, replacesSaleKey: storedBaseKey(o), amounts: { subtotalCents: 1699 } });
+    expect(re).toMatchObject({ saleKey: `${storedBaseKey(o)}:r1`, referenceSaleKey: storedBaseKey(o), amounts: { subtotalCents: 1699 } });
     const mev = (await getRepo().getOrder(o.id))!.timeline?.mev;
     expect(mev?.saleKey).toBe(`${storedBaseKey(o)}:r1`);
     expect(mev?.status).toBe('accepted');

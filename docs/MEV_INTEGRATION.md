@@ -34,6 +34,10 @@ environment.
 | `FOODHUB_MEV_CLOVER_NOTE` | `on` writes « Facture n° … : voir facture imprimée » as the Clover order note (replaces that note) | off | server env |
 | `FOODHUB_MEV_SEND_RECEIPT` | `on` texts / e-mails the receipt link of an own order that gave a contact | off | server env |
 
+Switching the owner switch off (or removing a kitchen from the list) stops **new** sales only: an order that already
+has a receipt still gets its credit note or corrected receipt, and invoices already in the outbox still go out (the
+48-hour limit). Only `FOODHUB_MEV=off` stops everything.
+
 `on` is refused unless QCMEV's `GET /health` answers `environment=PROD` and `certified=true`. `simulator` is refused
 when QCMEV answers `PROD`: training sales never reach a production SEV. With `FOODHUB_MEV=off` Food Hub does not even
 read the other settings.
@@ -59,7 +63,7 @@ request. No staff session rides on these calls.
 | `GET /health` | Settings, and before sending in `simulator` / `on` (cached 60 s) |
 
 Keys: `saleKey = fh:{tenant}:{stored|direct}:{channel}:{order id}` (characters `A-Z a-z 0-9 . _ # -` and `:`),
-corrected receipt `{saleKey}:r{n}` (it carries `replacesSaleKey`), credit note `{saleKey}:cn:1`, copies
+corrected receipt `{saleKey}:r{n}` (it carries `referenceSaleKey`), credit note `{saleKey}:cn:1`, copies
 `{saleKey}:pr:{rpr|dup}{n}`. Same key + same body → QCMEV replays its answer; same key + another body → 409, which
 Food Hub never causes on purpose (a change after a receipt is always credit note + corrected receipt).
 

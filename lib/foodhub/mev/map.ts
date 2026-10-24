@@ -82,7 +82,7 @@ export interface MapCtx {
   userMode?: 'auto' | 'staff';
   /** A corrected receipt replacing a credited one: its own key and the key it replaces. */
   saleKey?: string;
-  replacesSaleKey?: string;
+  referenceSaleKey?: string;
 }
 
 export type Exclusion = 'log_order' | 'dry_run' | 'not_final' | 'cancelled_before_sale' | 'awaiting_payment' | 'tender_unknown';
@@ -156,6 +156,8 @@ function amountsFor(m: Money): { amounts: FoodHubSaleV1['amounts']; flags: NonNu
  * adds up: a missing amount becomes one more item, an extra amount a price difference counted with the discount.
  */
 function balance(lines: MevSaleLine[], subtotalCents: number): { lines: MevSaleLine[]; extraDiscountCents: number } {
+  // A receipt always has at least one item (QCMEV refuses an empty list).
+  if (!lines.length && subtotalCents <= 0) return { lines: [{ description: 'COMMANDE', quantity: '1', unitPriceCents: 0, totalCents: 0, taxCode: 'FP', activity: 'RES', modifiers: [] }], extraDiscountCents: Math.max(0, -subtotalCents) };
   const gap = subtotalCents - lines.reduce((s, l) => s + itemCents(l), 0);
   if (gap > 0) return { lines: [...lines, { description: 'ÉCART DE PRIX / PRICE DIFFERENCE', quantity: '1', unitPriceCents: gap, totalCents: gap, taxCode: 'FP', activity: 'RES', modifiers: [] }], extraDiscountCents: 0 };
   return { lines, extraDiscountCents: -gap };
@@ -223,7 +225,7 @@ export function toMevSaleFromStored(o: StoredOrder, ctx: MapCtx): MapResult {
     payment: { mode: money.amounts.totalCents === 0 ? 'AUC' : 'AUT', collectedBy: 'platform' },
     // Platforms mask the customer's contact: the paper copy goes in the bag.
     receipt: { format: 'PAP', deliver: 'print' },
-    ...(ctx.replacesSaleKey ? { replacesSaleKey: ctx.replacesSaleKey } : {}),
+    ...(ctx.referenceSaleKey ? { referenceSaleKey: ctx.referenceSaleKey } : {}),
     testMode: ctx.testMode,
     ...(Object.keys(money.flags).length ? { flags: money.flags } : {}),
   });
@@ -296,7 +298,7 @@ export function toMevSaleFromDirect(o: DirectOrder, ctx: MapCtx & { dryRun?: boo
     payment: { mode, collectedBy, ...(o.paylink?.paymentId ? { reference: o.paylink.paymentId.slice(0, 40) } : {}) },
     // Paper with the order; an electronic copy too when the customer ordered online with a contact (SMS / e-mail).
     receipt: contact ? { format: 'PEL', deliver: o.customer.email ? 'email' : 'sms' } : { format: 'PAP', deliver: 'print' },
-    ...(ctx.replacesSaleKey ? { replacesSaleKey: ctx.replacesSaleKey } : {}),
+    ...(ctx.referenceSaleKey ? { referenceSaleKey: ctx.referenceSaleKey } : {}),
     testMode: ctx.testMode,
     ...(Object.keys(money.flags).length ? { flags: money.flags } : {}),
   });

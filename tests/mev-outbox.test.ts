@@ -252,6 +252,22 @@ describe('platform orders through QCMEV', () => {
     expect((await repo.getOrder(o.id))!.timeline?.mev?.status).toBe('accepted');
   });
 
+  it('changed after its receipt into numbers that do not add up: the receipt is credited, the corrected one waits for a person', async () => {
+    const o = await accept(await platformOrder());
+    expect(posts().filter((c: any) => c.path.endsWith('/sales'))).toHaveLength(1);
+    await getRepo().updateOrder(o.id, { subtotal: 20, tax: 3, total: 23 });
+    await mevOnOrderChange({ id: o.id });
+    await settleMevKicks();
+    expect(posts().filter((c: any) => c.path.endsWith('/credit-notes'))).toHaveLength(1);
+    expect(posts().filter((c: any) => c.path.endsWith('/sales'))).toHaveLength(1);
+    const mev = (await getRepo().getOrder(o.id))!.timeline?.mev;
+    expect(mev?.status).toBe('needs_human');
+    expect(mev?.saleKey).toBe(`${storedBaseKey(o)}:r1`);
+    expect(mev?.reason).toMatch(/^amounts_mismatch/);
+    const blocked = (await jobsFor(storedBaseKey(o))).find((j) => j.key.endsWith(':r1'))!;
+    expect((blocked.payload as { referenceSaleKey?: string }).referenceSaleKey).toBe(storedBaseKey(o));
+  });
+
   it('printed once: the original, then each copy, once; a paper receipt has no public electronic copy', async () => {
     const o = await accept(await platformOrder());
     const mev = (await getRepo().getOrder(o.id))!.timeline!.mev!;

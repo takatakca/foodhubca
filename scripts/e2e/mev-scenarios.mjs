@@ -86,7 +86,8 @@ export async function runMevScenarios(h) {
 
   // S2 — DoorDash pickup with a restaurant promotion, then an adjustment
   const dd = (items, subtotal, tax) => ({ id: 'dd-mev-2', store: { merchant_supplied_id: 'dd-mev-e2e' }, consumer: { first_name: 'Luc' }, fulfillment_type: 'pickup', subtotal, tax, total_merchant_funded_discount_amount: 200, categories: [{ name: 'Plats', items }] });
-  const both = [{ name: 'Poulet Grillé', quantity: 1, price: 1499, merchant_supplied_id: 'clv-item-1', extras: [] }, { name: 'Frites', quantity: 1, price: 499, merchant_supplied_id: 'clv-item-2', extras: [] }];
+  // DoorDash order items carry line_item_id: the adjustment removes the line it names (webhooks/doordash.ts adjustedLines).
+  const both = [{ name: 'Poulet Grillé', quantity: 1, price: 1499, merchant_supplied_id: 'clv-item-1', line_item_id: 'dd-li-1', extras: [] }, { name: 'Frites', quantity: 1, price: 499, merchant_supplied_id: 'clv-item-2', line_item_id: 'dd-li-2', extras: [] }];
   await call('POST', '/api/foodhub/webhooks/doordash', { auth: false, headers: { authorization: 'dd-hook-e2e' }, body: dd(both, 1998, 269) });
   const m2 = await waitFor(async () => { const m = await mevOf('dd-mev-2'); return m?.status === 'accepted' ? m : null; }, 15000);
   const s2 = saleFor('fh:takatak:stored:doordash:dd-mev-2')[0]?.body;

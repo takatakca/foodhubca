@@ -90,6 +90,8 @@ async function gateFor(locationCode: string | null | undefined, baseKey: string)
 }
 
 const neverSent = (j: MevJob) => !j.shadow && j.status === 'pending' && j.attempts === 0;
+/** Issued, or maybe issued (sent at least once, or a shadow receipt). */
+const issuedOrMaybe = (j: MevJob) => j.status === 'done' || j.status === 'sending' || Boolean(j.shadow) || (j.status === 'pending' && j.attempts > 0);
 const isCurrent = (j: MevJob) => j.kind === 'sale' && !j.creditedBy && (j.status !== 'skipped' || Boolean(j.shadow));
 
 function newJob(p: Plan, kind: MevJob['kind'], key: string, payload: MevJob['payload'], extra: Partial<MevJob> = {}): MevJob {
@@ -165,7 +167,7 @@ async function reconcile(p: Plan): Promise<MevJob[]> {
           if (m.sale.payloadHash !== current.payloadHash && neverSent(current)) writes.push({ ...current, payload: m.sale, payloadHash: m.sale.payloadHash, ...clearWait });
         } else if (neverSent(current)) {
           writes.push({ ...current, payload: m.sale, payloadHash: m.sale.payloadHash, contentHash: m.contentHash, ...clearWait });
-        } else if (current.status === 'done' || current.status === 'sending' || current.shadow || (current.status === 'pending' && current.attempts > 0)) {
+        } else if (issuedOrMaybe(current)) {
           // Issued (or maybe issued): full credit note, then the corrected receipt that names the one it replaces.
           const ck = creditKeyFor(current.key, 1);
           const rk = reissueKeyFor(p.baseKey, sales.length);
@@ -177,6 +179,14 @@ async function reconcile(p: Plan): Promise<MevJob[]> {
           }
         }
         // needs_human: a person decides (Replay); nothing is changed under them.
+      } else if (isReview(m.reason) && issuedOrMaybe(current)) {
+        // The order changed after its receipt and its new numbers do not make a truthful invoice: the old receipt is
+        // credited (it no longer matches the order) and the corrected receipt waits for a person, never balanced.
+        const ck = creditKeyFor(current.key, 1);
+        const rk = reissueKeyFor(p.baseKey, sales.length);
+        writes.push(newJob(p, 'credit', ck, creditFor(sale, ck, p.changeReason, now), { saleKey: current.key, dependsOn: current.key }));
+        writes.push({ ...current, creditedBy: ck });
+        writes.push(blockedJob(p, rk, m.reason, m.detail, p.mode !== 'on', { dependsOn: ck }, current.key));
       }
     }
   }

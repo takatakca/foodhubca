@@ -17,7 +17,7 @@ import { publicReceiptHtml } from '../lib/foodhub/mev/receipt';
 import type { MevJob } from '../lib/foodhub/mev/types';
 import { getRepo } from '../lib/foodhub/repo';
 import { contractMac } from '../lib/foodhub/tenant';
-import { recordBagPickup, saveBagDay } from '../lib/foodhub/tgtg';
+import { pickupCodeRequired, recordBagPickup, saveBagDay } from '../lib/foodhub/tgtg';
 import { tgtgMailOrderId } from '../lib/foodhub/tgtg-email/ids';
 import { localDate } from '../lib/foodhub/hours';
 import type { NormalizedOrder, StoredOrder } from '../lib/foodhub/types';
@@ -340,6 +340,9 @@ describe('platform orders through QCMEV', () => {
     await recordBagPickup({ locationCode: 'E2E_A', pricePerBag: 5.99 }, ACTOR, { waitMs: 5000 });
     const day = await saveBagDay({ date: today, locationCode: 'E2E_A', bagsOffered: 5, bagsSold: 3, pricePerBag: 5.99 }, ACTOR);
     expect(day.mev).toEqual({ invoicedBags: 1, missingBags: 2 });
+    // The bag handed over is its own sale: the log counts the 2 others for the reports (never a sale).
+    expect(day).toMatchObject({ pickupBags: 1, feedOrders: 0 });
+    expect((await getRepo().getOrder(day.orderId!))?.lines[0].quantity).toBe(2);
     await settleMevKicks();
     // Only the bag handed over reached QCMEV; the count did not.
     expect(posts().filter((c: any) => c.path.endsWith('/sales')).map((c: any) => c.body.source.externalOrderId)).toEqual([expect.stringMatching(/^tgtg-pickup-E2E_A-/)]);
@@ -348,6 +351,49 @@ describe('platform orders through QCMEV', () => {
     // Not a Takatak MEV kitchen: no invoice count at all.
     const other = await saveBagDay({ date: today, locationCode: 'E2E_B', bagsOffered: 5, bagsSold: 3, pricePerBag: 5.99 }, ACTOR);
     expect(other.mev).toBeNull();
+  });
+
+  it('a bag handed over is its own sale: the day’s log counts only the other bags, also when the day was logged first', async () => {
+    const today = localDate(Date.now());
+    const logOf = async () => (await getRepo().findOrder('tgtg', `tgtg-log-E2E_A-${today}`))!;
+    // Logged first: 3 bags in the log.
+    const first = await saveBagDay({ date: today, locationCode: 'E2E_A', bagsOffered: 5, bagsSold: 3, pricePerBag: 5.99 }, ACTOR);
+    expect(first.feedOrders).toBe(0);
+    expect((await logOf()).lines[0].quantity).toBe(3);
+    // Then a bag is handed over: the log now counts 2 (the reports never count that bag twice).
+    await recordBagPickup({ locationCode: 'E2E_A', pricePerBag: 5.99, quantity: 1 }, ACTOR, { waitMs: 5000 });
+    const log = await logOf();
+    expect(log).toMatchObject({ status: 'completed', total: 11.98 });
+    expect(log.lines[0].quantity).toBe(2);
+    expect((await getRepo().getDoc<any>('tgtg_bag_days', `E2E_A|${today}`))?.data).toMatchObject({ bagsSold: 3, pickupBags: 1, feedOrders: 0, orderId: log.id });
+    // Saved again: the same split, still never sent.
+    const again = await saveBagDay({ date: today, locationCode: 'E2E_A', bagsOffered: 5, bagsSold: 3, pricePerBag: 5.99 }, ACTOR);
+    expect(again).toMatchObject({ pickupBags: 1, mev: { invoicedBags: 1, missingBags: 2 } });
+    expect((await logOf()).lines[0].quantity).toBe(2);
+    // Every bag sold handed over one by one: no log sale left.
+    await recordBagPickup({ locationCode: 'E2E_A', pricePerBag: 5.99, quantity: 2 }, ACTOR, { waitMs: 5000 });
+    expect(await logOf()).toMatchObject({ status: 'cancelled', total: 0 });
+    await settleMevKicks();
+    expect(posts().filter((c: any) => c.path.endsWith('/sales')).map((c: any) => c.body.source.externalOrderId)).toEqual([expect.stringMatching(/^tgtg-pickup-/), expect.stringMatching(/^tgtg-pickup-/)]);
+  });
+
+  it('TGTG e-mails read for the kitchen: « Sac remis » needs the reservation code (a reservation never becomes a second sale)', async () => {
+    const saved = process.env.TGTG_EMAIL_WEBHOOK_SECRET;
+    process.env.TGTG_EMAIL_WEBHOOK_SECRET = 'tgtg-mail-hook-test';
+    try {
+      await getRepo().setKv('tgtg_email_settings', { enabled: true, mappings: [{ storeName: 'TEST STORE', brandName: 'Test', locationCode: 'E2E_A', at: new Date().toISOString(), by: 'test' }] });
+      expect(await pickupCodeRequired(['E2E_A', 'E2E_B'])).toEqual({ E2E_A: true, E2E_B: false });
+      await expect(recordBagPickup({ locationCode: 'E2E_A', pricePerBag: 5.99 }, ACTOR)).rejects.toThrow(/reservation code/);
+      expect(posts()).toHaveLength(0);
+      const p = await recordBagPickup({ locationCode: 'E2E_A', pricePerBag: 5.99, code: '#qa-77k1' }, ACTOR, { waitMs: 5000 });
+      expect(p).toMatchObject({ code: 'QA-77K1', mev: { status: 'accepted' } });
+      expect((await getRepo().getOrder(p.id))?.externalOrderId).toBe('tgtg-pickup-QA-77K1');
+      // The e-mails switched off: the code is optional again.
+      await getRepo().setKv('tgtg_email_settings', { enabled: false, mappings: [{ storeName: 'TEST STORE', brandName: 'Test', locationCode: 'E2E_A', at: new Date().toISOString(), by: 'test' }] });
+      expect(await pickupCodeRequired(['E2E_A'])).toEqual({ E2E_A: false });
+    } finally {
+      if (saved === undefined) delete process.env.TGTG_EMAIL_WEBHOOK_SECRET; else process.env.TGTG_EMAIL_WEBHOOK_SECRET = saved;
+    }
   });
 });
 

@@ -182,7 +182,7 @@ describe('platform orders → LVT', () => {
     expect(relay.receipt.format).toBe('PAP');
   });
   it('the Too Good To Go daily bag count is never a sale (log_order): many customers, after the day, nobody to hand an invoice to', () => {
-    const bagLog = { channel: 'tgtg' as const, marketplace: 'tgtg', tax: 0, subtotal: 17.97, total: 17.97, tip: 0, deliveryFee: 0, fulfillment: 'pickup' as const, status: 'completed' as const, lines: [{ name: 'Surprise Bag', quantity: 3, unitPrice: 5.99, total: 17.97, modifiers: [] }] };
+    const bagLog = { channel: 'tgtg' as const, marketplace: 'tgtg' as const, tax: 0, subtotal: 17.97, total: 17.97, tip: 0, deliveryFee: 0, fulfillment: 'pickup' as const, status: 'completed' as const, lines: [{ name: 'Surprise Bag', quantity: 3, unitPrice: 5.99, total: 17.97, modifiers: [] }] };
     expect(toMevSaleFromStored(stored({ ...bagLog, externalOrderId: 'tgtg-log-E2E_A-2026-10-24', raw: { source: 'daily_log' } }), CTX)).toEqual({ ok: false, reason: 'log_order' });
     // Recognised by its id alone too (an older log without raw.source).
     expect(toMevSaleFromStored(stored({ ...bagLog, externalOrderId: 'tgtg-log-E2E_A-2026-10-23', raw: {} }), CTX)).toEqual({ ok: false, reason: 'log_order' });

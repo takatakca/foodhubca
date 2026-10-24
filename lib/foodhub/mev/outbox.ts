@@ -1,4 +1,4 @@
-// The Food Hub side of "never lose an invoice": every sale, credit note and reprint for Takatak MEV (QCMEV) is first
+// The Food Hub side of "never lose a sale": every sale, credit note and reprint for Takatak MEV (QCMEV) is first
 // written to the outbox (fh_docs collection "mev_outbox"), then sent. A time-out or a QCMEV restart only delays it: the
 // same key and the same body are sent again (QCMEV replays its stored answer), so a retry never makes a second invoice.
 //

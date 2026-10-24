@@ -1,5 +1,24 @@
 # Food Hub: progress log and task board
 
+## 2026-10-24 — MEV verification round 2 fixes (`feature/mev-qcmev-integration`, PR #99)
+
+- No 48 hours for a sale QCMEV has not recorded: the 48 h only cover sales the SEV already recorded during a
+  communication problem (`offline_pending`, QCMEV's side). Watchtower: a sale or credit note still in Food Hub's outbox
+  is critical after 1 minute whatever the reason (tender to pick or held for a person: at once); copies warn at 15 min.
+  The alert, the order panel, Settings and the 80 mm ticket now say: no invoice exists yet, keep the bag, restart Takatak
+  MEV; a bag gone without its invoice will not get it.
+- Too Good To Go: the daily bag count is never a sale (`log_order`, nothing sent). Each bag is its own LVT sale printed
+  at pickup: TGTG e-mail orders, or the new « Sac remis » (Money → Too Good To Go, Takatak MEV kitchens only; one order,
+  recorded before the answer, its invoice prints once; reservation code = no second sale). The day screen shows bags
+  with / without their own invoice and flags the gap (activity `tgtg_bags_without_invoice`).
+- « Sac remis » never double: the day's log counts only the bags without their own sale (also when the bag is handed
+  over after the day was logged); the order id is the reservation code (`tgtg-pickup-CODE`), so a TGTG e-mail read later
+  is a `duplicate`; the code is required when TGTG e-mails are read for that kitchen; a paper already printed is not
+  printed again; the pickup list reads again every 10 s until the invoice is out.
+- Tests: tests/mev-outbox.test.ts (alerts 1 min / offline / copy; Sac remis; day count; log remainder; code required),
+  tests/tgtg-email.test.ts (late e-mail after « Sac remis » = duplicate), tests/mev-map.test.ts (log_order; pickup = PAP
+  5,21 + TPS + TVQ = 5,99), verify:foodhub section 48 S7 / S7b / S7c / S7d.
+
 ## 2026-10-24 — MEV verification round 1 fixes (`feature/mev-qcmev-integration`, PR #99; QCMEV.CA PR #2)
 
 - Printed once (« Modes d'impression »): each Revenu Québec document (original, then each RPR / DUP) is claimed by the

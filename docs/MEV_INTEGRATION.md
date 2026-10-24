@@ -36,8 +36,8 @@ environment.
 | `FOODHUB_MEV_SEND_RECEIPT` | `on` texts / e-mails the receipt link of an own order that gave a contact | off | server env |
 
 Switching the owner switch off (or removing a kitchen from the list) stops **new** sales only: an order that already
-has a receipt still gets its credit note or corrected receipt, and invoices already in the outbox still go out (the
-48-hour limit). Only `FOODHUB_MEV=off` stops everything.
+has a receipt still gets its credit note or corrected receipt, and sales already in the outbox still go out (they are
+owed: their invoice is due at payment). Only `FOODHUB_MEV=off` stops everything.
 
 `on` is refused unless QCMEV's `GET /health` answers `environment=PROD` and `certified=true`. `simulator` is refused
 when QCMEV answers `PROD`: training sales never reach a production SEV. With `FOODHUB_MEV=off` Food Hub does not even
@@ -97,15 +97,32 @@ Food Hub never causes on purpose (a change after a receipt is always credit note
   debit `DEB`, credit `CRE`, gift card `CPR`, several `MIX`); when Clover's payment cannot be read, the sale **waits**
   and the order shows « Payée par : » buttons — it is never sent as `INC`. The tip of an own order is its pourb.
 - $0 → `AUC`. Simulator mode → `testMode: true` (modTrans FOR).
-- Too Good To Go **daily bag log** (a count entered for a day with no per-order feed): one `LVT` sale for the bags sold,
-  transmitted and **not printed** (`formImpr NON`, there is no customer left to hand it to), so Revenu Québec gets every
-  bag. The right way to invoice each bag at pickup is a per-order feed (TGTG e-mails or Deliverect): those orders are
-  normal `LVT` sales printed with the bag label, and the day's log is then cancelled (credited if it was sent).
-- Never sent: dry-run (phone simulator) orders, kitchens whose system of record is not `qcmev`, orders cancelled before
-  their sale was sent, sales held for a person.
+- Too Good To Go: **each bag is its own `LVT` sale, printed when the customer takes it** (« Remise de la facture –
+  restauration »: the invoice is handed over right after payment; « Transmission des renseignements exigés »: each sale is
+  sent « sans délai »). Two ways, both normal platform sales (`PAP`, mention « COMMANDE PAR UNE PLATEFORME NUMÉRIQUE »,
+  price taxes included → pre-tax worked out):
+  - a per-order feed: TGTG reservation e-mails (or Deliverect) → one order per reservation, its invoice prints with the
+    kitchen ticket and the bag labels;
+  - **« Sac remis »** (Money → Too Good To Go, only on a Takatak MEV kitchen): staff tap it when a customer takes their
+    bag → one order (`tgtg-pickup-…`, completed), recorded by QCMEV before the answer (up to 8 s) and its invoice opens to
+    print once. With the reservation code, a reservation already read from an e-mail prints that order's invoice instead
+    (never a second sale; a paper already printed with the kitchen ticket is not printed again), and the same code twice
+    is the same sale. The order id is the code (`tgtg-pickup-CODE`): a TGTG e-mail read later for that reservation is a
+    `duplicate` (no second order, ticket or invoice). When TGTG e-mails are read for that kitchen (switch on and a store
+    mapped to it), the code is **required**, so a reservation already received never becomes a second sale. A bag whose
+    invoice is not out yet stays on the list, read again every 10 s, with « Imprimer la facture » as soon as it is issued.
+- The Too Good To Go **daily bag count** (Money → Too Good To Go, « Enregistrer la journée ») is **never a sale**
+  (`log_order`): it is typed after the day, for many customers at once, with nobody left to hand an invoice to. It stays
+  Food Hub's report (sales, analytics, payouts). On a Takatak MEV kitchen the screen says so, each day shows how many bags
+  had their own invoice, and bags sold without one are flagged « N sans facture » (activity `tgtg_bags_without_invoice`).
+  Food Hub does not turn them into a late combined sale: that would not be an invoice per meal either. Bags handed over
+  one by one are their own sales, so the day's log order counts only the **other** bags (3 sold, 1 « Sac remis » → the
+  log counts 2), also when the bag is handed over after the day was logged: the reports never count a bag twice.
+- Never sent: dry-run (phone simulator) orders, the Too Good To Go daily bag count, kitchens whose system of record is
+  not `qcmev`, orders cancelled before their sale was sent, sales held for a person.
 - Line tax code from the menu: `MenuItem.mevTax` (FP default, F, P, NON), editable in the menu editor.
 
-## 6. Never lose an invoice (lib/foodhub/mev/outbox.ts)
+## 6. Never lose a sale (lib/foodhub/mev/outbox.ts)
 
 Every sale, credit note and copy is first written to the outbox (`fh_docs` collection `mev_outbox`), then sent.
 Statuses `pending → sending → done | needs_human | skipped`; random claim + re-read, 90 s expiry. Runs right after a
@@ -121,19 +138,37 @@ job is written, from the Watchtower timer (every 30 s, through the order recover
 | 423 location not ready | waits 5 min, alert |
 | 429 / 5xx / time-out / network | retries on `FOODHUB_MEV_RETRY_S` with the same key and body |
 
-Revenu Québec's limit is 48 hours. The Watchtower opens « Facture Revenu Québec en attente » at 15 minutes pending
-(critical at 24 h), after 1 minute when Takatak MEV does not answer, at once when a pay-at-pickup order waits for its
-tender, and for every job that needs a person. QCMEV alerts on its own side from 6 h.
+**A sale still in Food Hub's outbox has no invoice.** Takatak MEV has not recorded it, so nothing can be handed to the
+customer, and the invoice is due right after payment. Revenu Québec's 48 hours (« Problème de communication ») only cover
+sales the SEV has **already recorded and stored** while MEV-WEB cannot be reached: here, a job `done` with an
+`offline_pending` receipt, which QCMEV signed and printed (« PROBLÈME DE COMMUNICATION »), sends later and alerts on from
+6 h. They never cover a sale the SEV has not seen. So the Watchtower opens « Facture Revenu Québec en attente »:
+
+| Job | Alert |
+|---|---|
+| sale or credit note waiting (QCMEV silent, 202 queued, 423, 5xx, not certified…) | critical after **1 minute** |
+| sale waiting for its tender (pay at pickup) | critical at once |
+| sale or credit note held for a person (rejected, amounts_mismatch, description_missing, no_lines) | critical at once |
+| copy (RPR / DUP) waiting | warning after 15 minutes (held for a person: warning) |
+| receipt signed offline by QCMEV (`offline_pending`) | none in Food Hub (QCMEV's 48 h side) |
+
+The alert says it plainly: no invoice exists yet, keep the bag until it is out, restart Takatak MEV now; a bag that left
+without its invoice will not get it (the sale is still recorded, late, as soon as QCMEV answers).
 
 **When Takatak MEV itself cannot be reached.** Food Hub is a terminal of the SEV: SW-76 §2 (« Terminal ») says every
 action on a terminal is completed by the SEV, including the printing. Revenu Québec's offline mode (SW-76 §4.1.1) is
 the SEV's mode when MEV-WEB cannot be reached — QCMEV has it (it signs, prints « PROBLÈME DE COMMUNICATION » and sends
 the batch later). If the SEV itself is down, no terminal can make an invoice, and Food Hub must never make one itself:
 the ticket says « FACTURE À VENIR / NE PAS REMETTRE AU CLIENT », the sale waits in the outbox with the same key, and the
-invoice is printed from the order (« Imprimer la facture ») as soon as QCMEV answers. So QCMEV runs **next to** Food
-Hub, on the same Coolify server and internal network (no internet hop between the terminal and its SEV), and the
-alert above calls a person after one minute. A pay-at-pickup order needs its payment mode before the invoice: Clover's
-tender is read automatically; when it cannot be read, staff tap « Payée par : » when they take the payment.
+invoice is printed from the order (« Imprimer la facture ») as soon as QCMEV answers. That is not « nothing lost »: a
+customer whose bag leaves meanwhile never gets that invoice. So QCMEV runs **next to** Food Hub, on the same Coolify
+server and internal network (no internet hop between the terminal and its SEV), the ticket says « Garder le sac :
+imprimer la facture dès qu'elle sort et la joindre », and the alert above calls a person after one minute. A
+pay-at-pickup order needs its payment mode before the invoice: Clover's tender is read automatically; when it cannot be
+read, staff tap « Payée par : » when they take the payment.
+
+QCMEV's `CONTRACT.md` §8 still says « Food Hub alerts at 15 minutes pending »: Food Hub is stricter on purpose (1 minute,
+critical, for a sale or credit note), because a sale QCMEV has not recorded has no invoice at all.
 
 ## 7. What the order keeps and prints
 
@@ -144,7 +179,8 @@ tender is read automatically; when it cannot be read, staff tap « Payée par : 
   the ticket carries **no amount of its own** (no Food Hub subtotal, taxes, platform delivery fee, courier tip or
   platform total): the kitchen part (items, options, notes) and QCMEV's invoice, its lines exactly, the QR on the
   « [CODE QR] » line, 42 columns at 2,5 mm (they fit the 64 mm of paper; the font shrinks if a printer's font is wider).
-  While the invoice is not issued: « FACTURE À VENIR / NE PAS REMETTRE AU CLIENT ».
+  While the invoice is not issued: « FACTURE À VENIR / NE PAS REMETTRE AU CLIENT / Garder le sac : imprimer la facture
+  dès qu’elle sort et la joindre ».
 - **Printed once** (Revenu Québec, « Modes d'impression »: an invoice or credit note is printed or sent once; any other
   copy is a reproduction or a duplicate made by the SEV). The first ticket that prints a document claims it
   (`POST /api/foodhub/mev/orders/{id}/print`, kept apart from the order); every later ticket shows « FACTURE DÉJÀ

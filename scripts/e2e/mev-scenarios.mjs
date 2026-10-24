@@ -11,7 +11,10 @@
 //   S5 website own delivery paid online, fee $4.99     → LVR, e-commerce, card; with MEV-WEB down (offline receipt)
 //   S6 Skip cancels after acceptance                   → full credit note (JET Connect prices: before tax)
 //   S6b Skip lines that do not add up (tax-included)   → held for a person: no invented « Rabais », nothing sent
-//   S7 Too Good To Go daily bag log (no per-order feed) → one LVT sale, not printed (NON), taxes worked out of 5,99 $
+//   S7 Too Good To Go daily bag count                  → never a sale (log_order): nothing reaches Takatak MEV
+//   S7b « Sac remis » (one bag at the counter)         → one LVT sale, printed (PAP), taxes worked out of 5,99 $;
+//                                                        the day shows 1 bag with its invoice, 2 without, and its
+//                                                        log counts only those 2 (S7d)
 //   P1 printed once: the original, then each copy, once; a paper (PAP) receipt has no public electronic copy
 //   S8 the same Uber webhook three times               → one transaction
 //   S9 civil date / time                               → datTrans = the local wall clock of occurredAt
@@ -164,14 +167,24 @@ export async function runMevScenarios(h) {
   const m6c = await waitFor(async () => { const m = await mevOf('skip-mev-0006b'); return m?.status === 'needs_human' ? m : null; }, 15000);
   check('S6b lines that do not add up → held for a person (amounts_mismatch); nothing sent, no invented line or « Rabais »', !!m6c && /^amounts_mismatch/.test(m6c.reason || '') && saleFor('fh:takatak:stored:skip:skip-mev-0006b').length === 0, JSON.stringify(m6c));
 
-  // S7 — Too Good To Go daily bag log
+  // S7 — Too Good To Go daily bag count: a report, never a sale (each meal's invoice is due at payment)
   const today = localDay(0);
   await call('POST', '/api/foodhub/tgtg', { body: { date: today, locationCode: LOC, bagsOffered: 5, bagsSold: 3, pricePerBag: 5.99 } });
-  const ord7 = (await call('GET', `/api/foodhub/orders?limit=500&from=${today}&to=${today}`)).json?.orders?.find((o) => o.externalOrderId === `tgtg-log-${LOC}-${today}`);
-  const m7 = await waitFor(async () => { const o = (await call('GET', `/api/foodhub/orders?limit=500&from=${today}&to=${today}`)).json?.orders?.find((x) => x.externalOrderId === `tgtg-log-${LOC}-${today}`); return o?.timeline?.mev?.status === 'accepted' ? o.timeline.mev : null; }, 15000);
-  const s7 = sales().map((c) => c.body).find((b) => b.saleKey === `fh:takatak:stored:tgtg:tgtg-log-${LOC}-${today}`);
-  check('S7 Too Good To Go bag log (no per-order feed) → one LVT sale, not printed (NON); 3 × 5,99 $ taxes included = 3 × 5,21 $ + TPS + TVQ = 17,97 $', !!ord7 && !!m7 && s7?.serviceType === 'LVT' && s7.receipt.format === 'NON'
-    && s7.lines[0]?.unitPriceCents === 521 && s7.lines[0]?.quantity === '3' && s7.amounts.totalCents === 1797 && s7.flags?.taxIncluded === true, JSON.stringify(s7 && { r: s7.receipt, l: s7.lines, a: s7.amounts }));
+  const m7 = await waitFor(async () => { const o = (await call('GET', `/api/foodhub/orders?limit=500&from=${today}&to=${today}`)).json?.orders?.find((x) => x.externalOrderId === `tgtg-log-${LOC}-${today}`); return o?.timeline?.mev?.status === 'skipped' ? o.timeline.mev : null; }, 15000);
+  await sleep(500);
+  check('S7 Too Good To Go daily bag count → not a sale (log_order): nothing reaches Takatak MEV', m7?.reason === 'log_order' && !sales().some((c) => String(c.body?.saleKey).includes('tgtg-log-')), JSON.stringify(m7));
+  // S7b — « Sac remis »: the customer takes one bag at the counter
+  const pk = await call('POST', '/api/foodhub/tgtg', { body: { action: 'pickup', locationCode: LOC, pricePerBag: 5.99 } });
+  const p7 = pk.json?.pickup;
+  const s7 = sales().map((c) => c.body).find((b) => String(b.saleKey).includes(':tgtg:tgtg-pickup-'));
+  check('S7b « Sac remis » → one LVT sale, printed (PAP), issued before the answer; 5,99 $ taxes included = 5,21 $ + TPS + TVQ', pk.status === 200 && p7?.mev?.status === 'accepted' && p7.mev.format === 'PAP' && s7?.serviceType === 'LVT' && s7.receipt.format === 'PAP'
+    && s7.lines[0]?.unitPriceCents === 521 && s7.lines[0]?.quantity === '1' && s7.amounts.totalCents === 599 && s7.flags?.taxIncluded === true, JSON.stringify({ http: pk.status, mev: p7?.mev?.status, s: s7 && { r: s7.receipt, l: s7.lines, a: s7.amounts } }));
+  const d7 = await call('GET', `/api/foodhub/tgtg?from=${today}&locations=${LOC}`);
+  const day7 = d7.json?.days?.find((d) => d.locationCode === LOC && d.date === today);
+  check('S7c the day: 1 bag with its own invoice, 2 flagged without one; Takatak MEV kitchen named', d7.json?.mev?.[LOC] === true && day7?.mev?.invoicedBags === 1 && day7.mev.missingBags === 2 && d7.json?.pickups?.some((p) => p.id === p7?.id), JSON.stringify({ mev: d7.json?.mev, day: day7?.mev }));
+  // The day was logged before the bag was handed over: the log now counts the 2 other bags (never one bag twice).
+  const log7 = (await call('GET', `/api/foodhub/orders?limit=500&from=${today}&to=${today}`)).json?.orders?.find((x) => x.externalOrderId === `tgtg-log-${LOC}-${today}`);
+  check('S7d the day’s log counts only the bags without their own sale: 3 sold − 1 « Sac remis » = 2 (reports never count a bag twice)', day7?.pickupBags === 1 && log7?.lines?.[0]?.quantity === 2 && log7?.status === 'completed', JSON.stringify({ pickupBags: day7?.pickupBags, log: log7 && { q: log7.lines?.[0]?.quantity, s: log7.status } }));
 
   // S10 — a $0 order
   const z = await call('POST', '/api/foodhub/delivery', { body: { source: 'phone', locationCode: LOC, brandName: 'Po Poulet', customer: { name: 'Repas offert' }, fulfillment: 'pickup', items: [{ name: 'Repas offert', quantity: 1, price: 0 }] } });

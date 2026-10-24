@@ -47,6 +47,7 @@ export default function TgtgPage() {
   const [days, setDays] = useState<BagDay[]>([]);
   const [mevOn, setMevOn] = useState<Record<string, boolean>>({});
   const [pickups, setPickups] = useState<BagPickup[]>([]);
+  const [codeRequired, setCodeRequired] = useState<Record<string, boolean>>({});
   const [loaded, setLoaded] = useState(false);
   // Which day is in the form (date + location); what is typed for it is a draft kept on this device until "Save day".
   const [pick, setPick] = useState({ date: ymd(new Date()), locationCode: locations[0]?.code ?? '' });
@@ -57,10 +58,18 @@ export default function TgtgPage() {
   const codes = locations.map((l) => l.code).join(',');
   const load = useCallback(() => {
     const from = new Date(); from.setDate(from.getDate() - 60);
-    return api<{ days: BagDay[]; mev?: Record<string, boolean>; pickups?: BagPickup[] }>(`/api/foodhub/tgtg?from=${ymd(from)}&locations=${encodeURIComponent(codes)}`)
-      .then((d) => { setDays(d.days); setMevOn(d.mev ?? {}); setPickups(d.pickups ?? []); setLoaded(true); }).catch((e) => setErr(e instanceof Error ? e.message : String(e)));
+    return api<{ days: BagDay[]; mev?: Record<string, boolean>; pickups?: BagPickup[]; codeRequired?: Record<string, boolean> }>(`/api/foodhub/tgtg?from=${ymd(from)}&locations=${encodeURIComponent(codes)}`)
+      .then((d) => { setDays(d.days); setMevOn(d.mev ?? {}); setPickups(d.pickups ?? []); setCodeRequired(d.codeRequired ?? {}); setLoaded(true); }).catch((e) => setErr(e instanceof Error ? e.message : String(e)));
   }, [codes]);
   useEffect(() => { load(); }, [load]);
+  // A bag handed over whose invoice is not out yet: read again every 10 s, so « Imprimer la facture » shows as soon as
+  // Takatak MEV issues it (the customer is waiting for it).
+  const waiting = pickups.some((p) => p.mev?.status === 'pending');
+  useEffect(() => {
+    if (!waiting) return;
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void load(); }, 10_000);
+    return () => window.clearInterval(timer);
+  }, [waiting, load]);
   useEffect(() => { setPick((p) => (p.locationCode || !locations[0] ? p : { ...p, locationCode: locations[0].code })); }, [locations]);
   useEffect(() => { try { const p = window.localStorage.getItem(PRICE_KEY); if (p) setLastPrice(p); } catch { /* private mode */ } }, []);
 
@@ -119,12 +128,12 @@ export default function TgtgPage() {
       {mevOn[pick.locationCode] && (
         <Banner tone="warn" className="mb-4">
           <strong>{t('Factures Revenu Québec (Takatak MEV) :', 'Revenu Québec invoices (Takatak MEV):')}</strong>{' '}
-          {t('chaque sac doit avoir sa propre facture, remise au client quand il prend son sac. Le compte de la journée ne fait aucune facture et n’est pas envoyé à Revenu Québec : il sert aux rapports. À chaque ramassage, touchez « Sac remis » (ou branchez les courriels Too Good To Go dans Réglages → Canaux).', 'each bag needs its own invoice, handed to the customer when they take their bag. The day’s count makes no invoice and is not sent to Revenu Québec: it is for the reports. At each pickup, tap “Bag handed over” (or connect the Too Good To Go e-mails in Settings → Channels).')}
+          {t('chaque sac doit avoir sa propre facture, remise au client quand il prend son sac. Le compte de la journée ne fait aucune facture et n’est pas envoyé à Revenu Québec : il sert aux rapports. À chaque ramassage, touchez « Sac remis » (ou branchez les courriels Too Good To Go dans Réglages → Plateformes et Clover). Les sacs remis un à un ne sont jamais comptés deux fois : le compte de la journée ne compte que les autres.', 'each bag needs its own invoice, handed to the customer when they take their bag. The day’s count makes no invoice and is not sent to Revenu Québec: it is for the reports. At each pickup, tap “Bag handed over” (or connect the Too Good To Go e-mails in Settings → Platforms & Clover). Bags handed over one by one are never counted twice: the day’s count only counts the others.')}
         </Banner>
       )}
 
       {can('orders:act') && mevOn[pick.locationCode] && (
-        <PickupCard locationCode={pick.locationCode} locationLabel={shortLoc(locName(pick.locationCode))} usualPrice={usualPrice} pickups={pickups.filter((p) => p.locationCode === pick.locationCode)} onDone={load} />
+        <PickupCard locationCode={pick.locationCode} locationLabel={shortLoc(locName(pick.locationCode))} usualPrice={usualPrice} codeRequired={Boolean(codeRequired[pick.locationCode])} pickups={pickups.filter((p) => p.locationCode === pick.locationCode)} onDone={load} />
       )}
 
       {can('orders:act') && (
@@ -180,7 +189,7 @@ export default function TgtgPage() {
  * and its invoice prints at once for the customer's hand. With the reservation code, a reservation already read from a
  * TGTG e-mail prints that order's invoice instead (never a second sale).
  */
-function PickupCard({ locationCode, locationLabel, usualPrice, pickups, onDone }: { locationCode: string; locationLabel: string; usualPrice: string; pickups: BagPickup[]; onDone: () => unknown }) {
+function PickupCard({ locationCode, locationLabel, usualPrice, codeRequired, pickups, onDone }: { locationCode: string; locationLabel: string; usualPrice: string; codeRequired: boolean; pickups: BagPickup[]; onDone: () => unknown }) {
   const { t, loc } = useI18n();
   const toast = useToast();
   const [price, setPrice] = useState<string | null>(null);
@@ -200,9 +209,12 @@ function PickupCard({ locationCode, locationLabel, usualPrice, pickups, onDone }
     try {
       const r = await api<{ pickup: BagPickup }>('/api/foodhub/tgtg', { method: 'POST', json: { action: 'pickup', locationCode, pricePerBag: Number(shownPrice || 0), quantity: Number(qty || 1), code: code.trim() || undefined, firstName: firstName.trim() || undefined } });
       const p = r.pickup;
-      if (issued(p.mev) && !printedAt(p.mev, p.mev?.saleKey)) { if (w) w.location.href = `/ticket/${encodeURIComponent(p.id)}`; } else w?.close();
-      if (p.existing === 'email') toast.info(t('Réservation déjà reçue par courriel', 'Reservation already received by e-mail'), issued(p.mev) ? t('C’est cette commande qui fait la vente : sa facture s’imprime (une seule fois).', 'That order is the sale: its invoice prints (once).') : t('C’est cette commande qui fait la vente, mais sa facture n’est pas encore émise : ouvrez-la dans Commandes et gardez le sac.', 'That order is the sale, but its invoice is not issued yet: open it in Orders and keep the bag.'));
-      else if (p.existing === 'pickup') toast.info(t('Ce code est déjà remis', 'This code was already handed over'), t('Même vente, pas de deuxième facture.', 'Same sale, no second invoice.'));
+      // The original prints once (« Modes d'impression »): a paper already printed is never printed again from here.
+      const printNow = issued(p.mev) && !printedAt(p.mev, p.mev?.saleKey);
+      if (printNow) { if (w) w.location.href = `/ticket/${encodeURIComponent(p.id)}`; } else w?.close();
+      const already = t('Sa facture est déjà imprimée (avec le billet de cuisine) : remettez ce papier. Une autre copie est une « Reproduction », depuis la commande.', 'Its invoice is already printed (with the kitchen ticket): hand that paper over. Another copy is a “Reproduction”, from the order.');
+      if (p.existing === 'email') toast.info(t('Réservation déjà reçue par courriel', 'Reservation already received by e-mail'), printNow ? t('C’est cette commande qui fait la vente : sa facture s’imprime (une seule fois).', 'That order is the sale: its invoice prints (once).') : issued(p.mev) ? already : t('C’est cette commande qui fait la vente, mais sa facture n’est pas encore émise : ouvrez-la dans Commandes et gardez le sac.', 'That order is the sale, but its invoice is not issued yet: open it in Orders and keep the bag.'));
+      else if (p.existing === 'pickup') toast.info(t('Ce code est déjà remis', 'This code was already handed over'), printNow ? t('Même vente, pas de deuxième facture : sa facture s’imprime (une seule fois).', 'Same sale, no second invoice: its invoice prints (once).') : t('Même vente, pas de deuxième facture.', 'Same sale, no second invoice.'));
       else if (issued(p.mev)) toast.success(t('Facture émise', 'Invoice issued'), t('Remettez la facture au client avec son sac.', 'Hand the invoice to the customer with their bag.'));
       else if (p.mev?.status === 'shadow') toast.info(t('Essai à blanc', 'Shadow test'), t('Vente vérifiée, aucune facture (mode essai).', 'Sale checked, no invoice (test mode).'));
       else toast.error(t('Facture pas encore émise', 'Invoice not issued yet'), t('Gardez le sac : Takatak MEV n’a pas encore répondu. Imprimez la facture ci-dessous dès qu’elle sort.', 'Keep the bag: Takatak MEV has not answered yet. Print the invoice below as soon as it is out.'), { durationMs: 15000 });
@@ -217,16 +229,16 @@ function PickupCard({ locationCode, locationLabel, usualPrice, pickups, onDone }
   return (
     <Card className="mb-5 p-5">
       <div className="mb-1 flex items-center gap-2"><ReceiptText className="size-5 text-[#00615f]" /><h2 className="text-base font-extrabold">{t('Sac remis — facture au client', 'Bag handed over — invoice to the customer')}</h2></div>
-      <p className="mb-4 text-sm text-ink-2">{t(`À chaque client qui prend son sac à ${locationLabel} : une vente, sa facture s’imprime tout de suite.`, `For each customer who takes their bag at ${locationLabel}: one sale, its invoice prints right away.`)}</p>
+      <p className="mb-4 text-sm text-ink-2">{t(`À chaque client qui prend son sac à ${locationLabel} : une vente, sa facture s’imprime tout de suite.`, `For each customer who takes their bag at ${locationLabel}: one sale, its invoice prints right away.`)}{codeRequired && <> {t('Les courriels Too Good To Go sont lus pour cette cuisine : tapez le code de réservation, pour qu’une réservation déjà reçue ne fasse jamais une deuxième vente.', 'Too Good To Go e-mails are read for this kitchen: type the reservation code, so a reservation already received never makes a second sale.')}</>}</p>
       {err && <Banner tone="stop" className="mb-3">{err}</Banner>}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Field label={t('Prix client / sac ($)', 'Customer price / bag ($)')}><Input type="number" inputMode="decimal" min={0} step={0.01} value={shownPrice} disabled={busy} onChange={(e) => setPrice(e.target.value)} /></Field>
         <Field label={t('Sacs pour ce client', 'Bags for this customer')}><Input type="number" inputMode="numeric" min={1} max={20} step={1} value={qty} disabled={busy} onChange={(e) => setQty(e.target.value)} /></Field>
-        <Field label={t('Code de réservation', 'Reservation code')}><Input value={code} maxLength={32} disabled={busy} onChange={(e) => setCode(e.target.value)} placeholder={t('optionnel', 'optional')} /></Field>
+        <Field label={t('Code de réservation', 'Reservation code')}><Input value={code} maxLength={40} disabled={busy} onChange={(e) => setCode(e.target.value)} placeholder={codeRequired ? t('obligatoire (app TGTG)', 'required (TGTG app)') : t('optionnel', 'optional')} /></Field>
         <Field label={t('Prénom', 'First name')}><Input value={firstName} maxLength={40} disabled={busy} onChange={(e) => setFirstName(e.target.value)} placeholder={t('optionnel', 'optional')} /></Field>
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        <Button size="lg" loading={busy} disabled={!locationCode || !(Number(shownPrice) > 0) || !(Number(qty) >= 1)} icon={<Printer className="size-4" />} onClick={handOver}>{t('Sac remis : imprimer la facture', 'Bag handed over: print the invoice')}</Button>
+        <Button size="lg" loading={busy} disabled={!locationCode || !(Number(shownPrice) > 0) || !(Number(qty) >= 1) || (codeRequired && !code.trim())} icon={<Printer className="size-4" />} onClick={handOver}>{t('Sac remis : imprimer la facture', 'Bag handed over: print the invoice')}</Button>
         {Number(shownPrice) > 0 && Number(qty) >= 1 && <span className="text-sm text-ink-2">= <strong className="text-ink">{cad(Number(shownPrice) * Number(qty), loc)}</strong> {t('taxes incluses', 'taxes included')}</span>}
       </div>
       {pickups.length > 0 && (

@@ -1,13 +1,14 @@
 import { inScope, withPerm } from '@/lib/foodhub/auth';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { mevGate } from '@/lib/foodhub/mev/config';
-import { listBagDays, listBagPickups, recordBagPickup, saveBagDay, withInvoiceCounts } from '@/lib/foodhub/tgtg';
+import { listBagDays, listBagPickups, pickupCodeRequired, recordBagPickup, saveBagDay, withInvoiceCounts } from '@/lib/foodhub/tgtg';
 import { startOfLocalDayMs } from '@/lib/foodhub/time';
 
 export const dynamic = 'force-dynamic';
 
 // ?locations=A,B (the viewer's locations): which of them issue their invoices through Takatak MEV (nothing is read when
-// FOODHUB_MEV=off). For those: each day's bags with their own invoice, and the « Sac remis » of today and yesterday.
+// FOODHUB_MEV=off). For those: each day's bags with their own invoice, the « Sac remis » of today and yesterday, and
+// where the reservation code is required (TGTG e-mails are read for that kitchen: never a second sale for one bag).
 export const GET = withPerm('view', async (req, _ctx, actor) => {
   const q = new URL(req.url).searchParams;
   const days = (await listBagDays(q.get('from') || undefined, q.get('to') || undefined)).filter((d) => inScope(actor, d.locationCode));
@@ -17,7 +18,8 @@ export const GET = withPerm('view', async (req, _ctx, actor) => {
   for (const c of codes) mev[c] = (await mevGate(c).catch(() => ({ active: false }))).active;
   const on = codes.filter((c) => mev[c]);
   const pickups = on.length ? await listBagPickups(new Date(startOfLocalDayMs(Date.now()) - 86400_000).toISOString(), on) : [];
-  return ok({ days: await withInvoiceCounts(days), mev, pickups });
+  const codeRequired = on.length ? await pickupCodeRequired(on) : {};
+  return ok({ days: await withInvoiceCounts(days), mev, pickups, codeRequired });
 });
 
 // { date, locationCode, bagsOffered, bagsSold, pricePerBag, note? }  — the day's count (a report, never a sale)

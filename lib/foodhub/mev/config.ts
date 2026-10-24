@@ -43,7 +43,10 @@ export function mevTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
   return Number.isFinite(n) && n >= 500 ? Math.min(Math.round(n), 60_000) : 8000;
 }
 
-/** Seconds between attempts; the last value repeats until the job is done (never given up inside the 48-hour limit). */
+/**
+ * Seconds between attempts; the last value repeats until the job is done (never given up). A sale still waiting has no
+ * invoice yet (it is due at payment): the Watchtower calls a person after 1 minute (outbox.ts mevAlerts).
+ */
 export function mevRetryDelaysS(env: NodeJS.ProcessEnv = process.env): number[] {
   const list = String(env.FOODHUB_MEV_RETRY_S ?? '15,60,300').split(/[\s,;]+/).map(Number).filter((n) => Number.isFinite(n) && n > 0).map((n) => Math.min(Math.round(n), 3600));
   return list.length ? list.slice(0, 6) : [15, 60, 300];

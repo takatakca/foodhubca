@@ -71,20 +71,20 @@ export function OwnOrderCard({ o, big, onChanged }: { o: DirectOrder; big?: bool
         <div className="flex items-start gap-2.5">
           <span className={cn('inline-flex shrink-0 items-center justify-center rounded-sm bg-brand text-white', big ? 'size-8' : 'size-6')} title={source}><Icon className={big ? 'size-4.5' : 'size-3.5'} /></span>
           <div className="min-w-0 flex-1">
-            <div className={cn('flex items-baseline gap-2 font-extrabold text-ink', big ? 'text-xl' : 'text-base')}>{o.customer.name || o.number}<span className="truncate text-[13px] font-semibold text-ink-3">{o.brandName}</span></div>
-            <div className="truncate text-xs text-ink-3">{o.number} · {source} · {shortLoc(locName(o.locationCode))} · {items} {t('art.', 'items')} · {money(o.total, loc)}</div>
+            <div className={cn('flex items-baseline gap-2 font-extrabold text-ink', big ? 'text-heading' : 'text-body')}>{o.customer.name || o.number}<span className="truncate text-small font-semibold text-ink-3">{o.brandName}</span></div>
+            <div className="truncate text-small text-ink-3">{o.number} · {source} · {shortLoc(locName(o.locationCode))} · {items} {t('art.', 'items')} · {money(o.total, loc)}</div>
           </div>
-          <Elapsed since={o.placedAt} warnAt={900} badAt={1500} className="text-sm" />
+          <Elapsed since={o.placedAt} warnAt={900} badAt={1500} className="text-body" />
         </div>
         {big && (
           <ul className="mt-3 space-y-1">
             {o.lines.slice(0, 8).map((l, i) => (
-              <li key={i} className="text-[15px] leading-snug"><span className="num font-extrabold">{l.quantity}×</span> <span className="font-semibold">{l.name}</span>
-                {l.modifiers.length > 0 && <span className="block pl-6 text-[13px] text-ink-2">{l.modifiers.map((m) => m.name).join(', ')}</span>}
-                {l.notes && <span className={cn('ml-6 mt-0.5 inline-block rounded px-1.5 text-[13px] font-bold', ALLERGY.test(l.notes) ? 'bg-stop text-white' : 'bg-wait-soft text-wait-2')}>« {l.notes} »</span>}
+              <li key={i} className="text-title leading-snug"><span className="num font-extrabold">{l.quantity}×</span> <span className="font-bold">{l.name}</span>
+                {l.modifiers.length > 0 && <span className="text-body block pl-8 font-medium text-ink-2">{l.modifiers.map((m) => m.name).join(', ')}</span>}
+                {l.notes && <span className={cn('text-body mt-0.5 ml-8 inline-block rounded px-1.5 font-bold', ALLERGY.test(l.notes) ? 'bg-stop text-white' : 'bg-wait-soft text-wait-2')}>« {l.notes} »</span>}
               </li>
             ))}
-            {o.lines.length > 8 && <li className="text-xs text-ink-3">+{o.lines.length - 8} {t('autres', 'more')}</li>}
+            {o.lines.length > 8 && <li className="text-small text-ink-3">+{o.lines.length - 8} {t('autres', 'more')}</li>}
           </ul>
         )}
         <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
@@ -108,7 +108,7 @@ export function OwnOrderCard({ o, big, onChanged }: { o: DirectOrder; big?: bool
               ? <Button variant="go" size={big ? 'lg' : 'sm'} className="flex-1" loading={busy === 'ready'} onClick={() => run('ready')} icon={<PackageCheck className="size-4" />}>{t('Prête', 'Ready')}</Button>
               : o.fulfillment === 'pickup'
                 ? <Button variant="outline" size={big ? 'lg' : 'sm'} className="flex-1" loading={busy === 'picked_up'} onClick={() => run('picked_up')} icon={<Check className="size-4" />}>{t('Remise au client', 'Picked up')}</Button>
-                : <div className="flex flex-1 items-center gap-1.5 px-2 text-[13px] font-semibold text-ink-3"><Bike className="size-4" />{t('Attend le livreur', 'Waiting for the courier')}</div>}
+                : <div className="flex flex-1 items-center gap-1.5 px-2 text-small font-semibold text-ink-3"><Bike className="size-4" />{t('Attend le livreur', 'Waiting for the courier')}</div>}
           </div>
         </div>
       )}

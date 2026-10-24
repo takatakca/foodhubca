@@ -70,7 +70,15 @@ export async function kitchenIsOurs(kitchen: Pick<PhoneLineKitchen, 'locationCod
   return !mid || phoneOwnMerchants().has(mid);
 }
 
-const REASON: Partial<Record<PhoneGateReason, { fr: string; en: string }>> = {
+/** Every answer of the check in plain words (FR / EN): the raw code is for the technician, never the owner's sentence. */
+const REASON: Record<PhoneGateReason, { fr: string; en: string }> = {
+  gate_off: { fr: 'aucune vérification, l’app n’est pas activée sur ce serveur', en: 'not checked, the app is not turned on on this server' },
+  own_merchant: { fr: 'un de nos restaurants', en: 'one of our restaurants' },
+  no_merchant: { fr: 'pas de marchand Clover propre à cette cuisine, un de nos restaurants', en: 'no Clover merchant of its own, one of our restaurants' },
+  active: { fr: 'abonnement actif', en: 'subscription active' },
+  trial: { fr: 'période d’essai en cours', en: 'free trial running' },
+  lapsed_grace: { fr: 'paiement en retard dans Clover, encore accepté quelques jours', en: 'payment overdue in Clover, still accepted for a few days' },
+  clover_unreachable_grace: { fr: 'Clover ne répond pas, sa dernière réponse reste valable quelques jours', en: 'Clover is not answering, its last answer stays valid for a few days' },
   not_installed: { fr: 'l’app n’est pas installée pour ce marchand Clover', en: 'the app is not installed for this Clover merchant' },
   pending_approval: { fr: 'l’installation attend l’approbation du propriétaire (Réglages → App Clover)', en: 'the install is waiting for the owner’s approval (Settings → Clover app)' },
   lapsed: { fr: 'l’abonnement est échu (paiement en retard dans Clover)', en: 'the subscription has lapsed (payment overdue in Clover)' },
@@ -81,6 +89,11 @@ const REASON: Partial<Record<PhoneGateReason, { fr: string; en: string }>> = {
   check_failed: { fr: 'la vérification a échoué : réessayez dans quelques minutes', en: 'the check failed: try again in a few minutes' },
 };
 
+/** The check's answer in plain words; a code this list does not know yet still gets a sentence, never the bare code. */
+export function phoneGateWords(reason: PhoneGateReason): { fr: string; en: string } {
+  return REASON[reason] ?? { fr: 'Clover a donné une réponse inconnue', en: 'Clover gave an unknown answer' };
+}
+
 /** The end of a refusal: a new line stays off; a line already on keeps its old settings (nothing is saved). */
 const OUTCOME = (wasOn: boolean) => (wasOn
   ? { fr: 'Les changements ne sont pas enregistrés ; la ligne reste comme avant.', en: 'Changes not saved; the line stays as it was.' }
@@ -89,7 +102,7 @@ const OUTCOME = (wasOn: boolean) => (wasOn
 /** Why a line cannot be switched on (or changed), in French then English (shown in the console). */
 export function phoneGateMessage(g: PhoneGate, lineName: string, opts: { wasOn?: boolean } = {}): string {
   const app = cloverApp('phone').name;
-  const r = REASON[g.reason] ?? { fr: `refusé (${g.reason})`, en: `refused (${g.reason})` };
+  const r = phoneGateWords(g.reason);
   const o = OUTCOME(Boolean(opts.wasOn));
   return `${app} n’est pas actif pour ${lineName} (cuisine ${g.locationCode}) : ${r.fr}. ${o.fr} / `
     + `${app} is not active for ${lineName} (kitchen ${g.locationCode}): ${r.en}. ${o.en}`;

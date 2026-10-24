@@ -5,12 +5,14 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Check, CheckCircle2, CircleAlert, CircleDashed, ClipboardList, Copy, ExternalLink, FileText, Hourglass, KeyRound, LayoutGrid, Link2, Printer, Receipt, RefreshCw, ShieldCheck, Store, Tags, TriangleAlert, Video, X } from 'lucide-react';
 import { Banner } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Button, buttonClass } from '@/components/ui/button';
+import { TechDetails } from '../tech-details';
 import { Select } from '@/components/ui/form';
 import { Segmented } from '@/components/ui/tabs';
 import { useViewer } from '@/components/shell/viewer';
 import { SettingsHead, Section } from '../settings-ui';
 import { CloverBillingSection } from './billing-section';
+import { cloverAppSetupText, meteringTech, webhookKeyBadge } from './apps-text';
 import { api } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
@@ -48,7 +50,8 @@ type CloverAppStatus = {
   metering?: PhoneMetering;
 };
 type ChannelsData = { clover: { webhookAuthSet?: boolean; verification?: { code: string } | null; tokenMerchantIds?: string[]; app?: AppInfo; apps?: CloverAppStatus[] } };
-type ReadyCheck = { ok: boolean; title: string; body: string; href?: string };
+/** `tech`: the setting names for the technician, folded under « Détails techniques » so the headline stays plain. */
+type ReadyCheck = { ok: boolean; title: string; body: string; href?: string; tech?: string };
 
 // Settings → Clover app: everything the owner needs to finish the Clover App Market listing and press Submit.
 // The checks are computed from the real configuration; the texts come from lib/foodhub/clover-listing.ts.
@@ -74,13 +77,17 @@ export default function CloverAppPage() {
     { ok: app.domain.ready, title: t('Votre propre domaine en HTTPS', 'Your own domain over HTTPS'),
       body: app.domain.ready ? app.domain.url : app.domain.problems.map((p) => t(PUBLIC_URL_PROBLEM_TEXT[p].fr, PUBLIC_URL_PROBLEM_TEXT[p].en)).join(' ') },
     { ok: app.configured, title: t('Clés de l’app (App ID et secret)', 'App keys (App ID and secret)'),
-      body: app.configured ? `App ID ${app.appId}` : t(`Manque : ${app.missing.join(', ')} — npm run setup sur le serveur.`, `Missing: ${app.missing.join(', ')} — npm run setup on the server.`) },
+      body: app.configured ? `App ID ${app.appId}` : t('Les clés de l’app ne sont pas encore sur le serveur : votre technicien les ajoute.', 'The app keys are not on the server yet: your technician adds them.'),
+      tech: app.configured ? undefined : t(`Manque : ${app.missing.join(', ')}. Commande : npm run setup sur le serveur.`, `Missing: ${app.missing.join(', ')}. Command: npm run setup on the server.`) },
     { ok: Boolean(data?.clover.webhookAuthSet && data?.clover.verification), title: t('Webhook Clover vérifié', 'Clover webhook verified'),
-      body: t('Événements Inventaire et App ; code de vérification recollé ; CLOVER_WEBHOOK_AUTH défini.', 'Inventory and App events; verification code pasted back; CLOVER_WEBHOOK_AUTH set.'), href: '/settings/channels' },
+      body: t('Clover prévient Food Hub des changements d’inventaire et d’installation, et le code de vérification est recollé.', 'Clover tells Food Hub about inventory and install changes, and the verification code is pasted back.'), href: '/settings/channels',
+      tech: t('Événements Inventory et App ; réglage CLOVER_WEBHOOK_AUTH défini.', 'Inventory and App events; CLOVER_WEBHOOK_AUTH setting defined.') },
     { ok: app.legalStatus.supportEmailSet && app.legalStatus.supportPhoneSet, title: t('Courriel et téléphone de soutien', 'Support email and phone'),
-      body: t('FOODHUB_SUPPORT_EMAIL et FOODHUB_SUPPORT_PHONE (Clover exige les deux). Optionnel : FOODHUB_SUPPORT_HOURS.', 'FOODHUB_SUPPORT_EMAIL and FOODHUB_SUPPORT_PHONE (Clover requires both). Optional: FOODHUB_SUPPORT_HOURS.'), href: app.legal.support },
+      body: t('Clover exige un courriel et un téléphone de soutien sur la page de soutien.', 'Clover requires a support email and phone on the support page.'), href: app.legal.support,
+      tech: t('FOODHUB_SUPPORT_EMAIL et FOODHUB_SUPPORT_PHONE. Optionnel : FOODHUB_SUPPORT_HOURS.', 'FOODHUB_SUPPORT_EMAIL and FOODHUB_SUPPORT_PHONE. Optional: FOODHUB_SUPPORT_HOURS.') },
     { ok: app.legalStatus.approved, title: t('Pages légales relues et approuvées', 'Legal pages reviewed and approved'),
-      body: t('Relisez confidentialité et conditions (avec un conseiller), puis FOODHUB_LEGAL_APPROVED=true : la bannière « projet » disparaît.', 'Review privacy and terms (with an adviser), then FOODHUB_LEGAL_APPROVED=true: the “draft” banner goes away.'), href: app.legal.privacy },
+      body: t('Relisez la confidentialité et les conditions (avec un conseiller) ; une fois approuvées, la bannière « projet » disparaît.', 'Review privacy and terms (with an adviser); once approved, the “draft” banner goes away.'), href: app.legal.privacy,
+      tech: 'FOODHUB_LEGAL_APPROVED=true' },
     { ok: Boolean(app.testOrder), title: t('Testé de bout en bout sur une caisse', 'Tested end to end on a register'),
       body: app.testOrder
         ? t(`Commande test créée, imprimée et payée sur ${app.testOrder.merchantId} (Clover ${app.testOrder.posOrderId}), le ${new Date(app.testOrder.at).toLocaleString('fr-CA')}.`, `Test order created, printed and paid on ${app.testOrder.merchantId} (Clover ${app.testOrder.posOrderId}), ${new Date(app.testOrder.at).toLocaleString('en-CA')}.`)
@@ -99,7 +106,7 @@ export default function CloverAppPage() {
         {!data && !err && <div className="h-96 animate-pulse rounded-lg bg-sunken" />}
         {app && (
           <>
-            {app.sandbox && <Banner tone="info" className="mb-4">{t('Environnement sandbox de Clover (CLOVER_BASE_URL) : parfait pour tester, mais la soumission se fait avec l’app de production.', 'Clover sandbox environment (CLOVER_BASE_URL): fine for testing, but you submit the production app.')}</Banner>}
+            {app.sandbox && <Banner tone="info" className="mb-4">{t('Environnement d’essai de Clover (sandbox) : parfait pour tester, mais la soumission se fait avec l’app de production.', 'Clover test environment (sandbox): fine for testing, but you submit the production app.')}<TechDetails>CLOVER_BASE_URL</TechDetails></Banner>}
             {pending.length > 0 && (
               <Banner tone="warn" className="mb-4" action={<Link href="/settings/channels" className="text-sm font-bold underline">{t('Approuver', 'Approve')}</Link>}>
                 {t(`${pending.length} marchand(s) Clover attendent votre approbation : ${pending.map((m) => m.name || m.merchantId).join(', ')}. Pendant la révision de Clover, approuvez le marchand de test du réviseur.`, `${pending.length} Clover merchant(s) waiting for your approval: ${pending.map((m) => m.name || m.merchantId).join(', ')}. During Clover’s review, approve the reviewer’s test merchant.`)}
@@ -111,13 +118,14 @@ export default function CloverAppPage() {
               right={<Badge tone={ready === checks.length ? 'go' : 'wait'}>{ready}/{checks.length}</Badge>}>
               <ul className="divide-y divide-line">
                 {checks.map((c) => (
-                  <li key={c.title} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
-                    {c.ok ? <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-go" /> : <CircleDashed className="mt-0.5 size-5 shrink-0 text-wait-2" />}
+                  <li key={c.title} className="flex flex-wrap items-start gap-3 py-4 first:pt-0 last:pb-0 sm:flex-nowrap">
+                    {c.ok ? <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-go" aria-hidden /> : <CircleDashed className="mt-0.5 size-5 shrink-0 text-wait-2" aria-hidden />}
                     <div className="min-w-0 flex-1">
-                      <div className="font-bold">{c.title}</div>
-                      <div className="text-[13px] break-words text-ink-3">{c.body}</div>
+                      <div className="flex flex-wrap items-center gap-2"><span className="text-body font-bold">{c.title}</span><Badge tone={c.ok ? 'go' : 'wait'}>{c.ok ? t('Prêt', 'Ready') : t('À faire', 'To do')}</Badge></div>
+                      <div className="text-small mt-0.5 break-words text-ink-3">{c.body}</div>
+                      {c.tech && <TechDetails>{c.tech}</TechDetails>}
                     </div>
-                    {c.href && <a href={c.href} className="shrink-0 text-[13px] font-semibold text-ink-2 underline-offset-4 hover:underline">{t('Voir', 'See')}</a>}
+                    {c.href && <a href={c.href} className={buttonClass('outline', 'md', 'ml-8 shrink-0 sm:ml-0')}>{t('Voir', 'See')}</a>}
                   </li>
                 ))}
               </ul>
@@ -149,7 +157,7 @@ export default function CloverAppPage() {
             </Section>
 
             <Section icon={<Link2 className="size-5" />} title={t('Adresses à coller dans Clover', 'Addresses to paste in Clover')}
-              subtitle={t('Construites à partir de FOODHUB_PUBLIC_URL : changez le domaine, elles suivent.', 'Built from FOODHUB_PUBLIC_URL: change the domain and they follow.')}>
+              subtitle={t('Construites à partir de l’adresse publique du serveur : changez le domaine, elles suivent.', 'Built from the server’s public address: change the domain and they follow.')} tech="FOODHUB_PUBLIC_URL">
               <CopyRow label="Site URL" value={app.siteUrl} />
               <CopyRow label="Alternate Launch Path" value={app.launchPath} />
               <CopyRow label={t('Webhook URL', 'Webhook URL')} value={app.webhookUrl} />
@@ -229,7 +237,7 @@ function CloverAppsSection({ apps, isAdmin, onDone }: { apps: CloverAppStatus[];
       subtitle={t('Chaque application est vendue séparément dans le Clover App Market. Un marchand qui a les deux partage son menu, ses magasins et ses commandes.', 'Each app is sold separately in the Clover App Market. A merchant with both shares its menu, stores and orders.')}>
       {err && <Banner tone="stop" className="mb-3">{err}</Banner>}
       <div className="space-y-4">
-        {apps.map((a) => (
+        {apps.map((a) => { const hook = webhookKeyBadge(t, a); return (
           <div key={a.key} className="rounded-lg border border-line p-4">
             <div className="flex flex-wrap items-center gap-2">
               <div className="min-w-0 flex-1">
@@ -239,23 +247,21 @@ function CloverAppsSection({ apps, isAdmin, onDone }: { apps: CloverAppStatus[];
               {a.configured ? <Badge tone="go" icon={<Check className="size-3" />}>{t('Configurée', 'Set up')}</Badge> : <Badge tone="wait">{t('Non configurée', 'Not set up')}</Badge>}
               <Badge tone={a.installs.length ? 'go' : 'wait'}>{t(`${a.installs.length} installation(s)`, `${a.installs.length} install(s)`)}</Badge>
             </div>
-            {!a.configured && (
-              <p className="mt-2 text-[13px] text-ink-3">
-                {a.key === 'phone'
-                  ? t(`Créez l’application dans le tableau de bord Clover, puis ajoutez sur le serveur : ${a.missing.join(', ')} (et ${a.env.webhookAuth}). Guide : docs/CLOVER_MULTI_APP.md. Sans ces variables, rien ne change.`, `Create the app in the Clover dashboard, then add on the server: ${a.missing.join(', ')} (and ${a.env.webhookAuth}). Guide: docs/CLOVER_MULTI_APP.md. Without these variables nothing changes.`)
-                  : t(`Manque : ${a.missing.join(', ')} — npm run setup sur le serveur.`, `Missing: ${a.missing.join(', ')} — npm run setup on the server.`)}
-              </p>
-            )}
+            {!a.configured && (() => {
+              const s = cloverAppSetupText(t, a);
+              return <div className="mt-2"><p className="text-[13px] text-ink-3">{s.plain}</p><TechDetails className="mt-1">{s.tech}</TechDetails></div>;
+            })()}
             {a.enabled && (
               <div className="mt-3">
                 <CopyRow label="Alternate Launch Path" value={a.launchPath} />
                 <CopyRow label={t(`Webhook URL — événements : ${a.events.map(ev).join(', ')}`, `Webhook URL — events: ${a.events.map(ev).join(', ')}`)} value={a.webhookUrl} />
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-[13px] text-ink-3">
-                  {a.webhookAuthSet ? <Badge tone="go">{a.env.webhookAuth}</Badge> : <Badge tone="wait">{t(`${a.env.webhookAuth} manquant`, `${a.env.webhookAuth} missing`)}</Badge>}
+                  <Badge tone={hook.ok ? 'go' : 'wait'}>{hook.word}</Badge>
                   {a.verification
                     ? <span>{t('Code de vérification reçu :', 'Verification code received:')} <code className="rounded bg-sunken px-1.5 py-0.5 font-mono text-xs text-ink">{a.verification.code}</code></span>
                     : <span>{t('Aucun code de vérification reçu pour l’instant.', 'No verification code received yet.')}</span>}
                 </div>
+                {hook.tech && <TechDetails className="mt-1">{hook.tech}</TechDetails>}
               </div>
             )}
             {a.installs.length > 0 && (
@@ -289,7 +295,7 @@ function CloverAppsSection({ apps, isAdmin, onDone }: { apps: CloverAppStatus[];
             {a.key === 'phone' && a.metering && <PhoneMinutes m={a.metering} />}
             {a.enabled && a.configured && <p className="mt-3 text-[13px]"><a href={a.connectUrl} className="font-semibold underline-offset-4 hover:underline">{t('Brancher un marchand à cette application', 'Connect a merchant to this app')}<ExternalLink className="ml-1 inline size-3.5" /></a></p>}
           </div>
-        ))}
+        ); })}
       </div>
     </Section>
   );
@@ -317,8 +323,8 @@ function PhoneMinutes({ m }: { m: PhoneMetering }) {
       </div>
       <p className="mt-1 text-[13px] text-ink-3">
         {t(
-          `Prix : essai gratuit de ${m.price.trialDays} jours, puis ${cad(m.price.monthlyCad)} CA/mois + ${cad(m.price.perMinuteCad)} CA par minute où l’IA est en ligne (commande ou non). Minutes = durée de l’IA arrondie à la minute supérieure ; l’attente et la personne après un transfert ne comptent pas. Seuls les marchands ACTIFS sont facturés (jamais l’essai, nos restaurants ou ${m.env.exempt}).`,
-          `Price: ${m.price.trialDays}-day free trial, then CAD ${cad(m.price.monthlyCad)}/month + CAD ${cad(m.price.perMinuteCad)} per minute the AI is on the line (order or not). Minutes = the AI's time rounded up to the minute; hold and the person after a transfer do not count. Only ACTIVE merchants are billed (never the trial, our restaurants or ${m.env.exempt}).`,
+          `Prix : essai gratuit de ${m.price.trialDays} jours, puis ${cad(m.price.monthlyCad)} CA/mois + ${cad(m.price.perMinuteCad)} CA par minute où l’IA est en ligne (commande ou non). Minutes = durée de l’IA arrondie à la minute supérieure ; l’attente et la personne après un transfert ne comptent pas. Seuls les marchands ACTIFS sont facturés (jamais l’essai, nos restaurants ni les marchands exemptés).`,
+          `Price: ${m.price.trialDays}-day free trial, then CAD ${cad(m.price.monthlyCad)}/month + CAD ${cad(m.price.perMinuteCad)} per minute the AI is on the line (order or not). Minutes = the AI's time rounded up to the minute; hold and the person after a transfer do not count. Only ACTIVE merchants are billed (never the trial, our restaurants or exempt merchants).`,
         )}
       </p>
       <dl className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 text-[13px] sm:grid-cols-2">
@@ -331,11 +337,12 @@ function PhoneMinutes({ m }: { m: PhoneMetering }) {
       )}
       {(s.noMeteredIdCalls ?? 0) > 0 && (
         <Banner tone="warn" className="mt-2">
-          {t(`${s.noMeteredIdCalls} appel(s) (${s.noMeteredIdMinutes ?? 0} min) terminés sans ${m.env.meteredId} : jamais envoyés à Clover, donc non facturés.`, `${s.noMeteredIdCalls} call(s) (${s.noMeteredIdMinutes ?? 0} min) ended without ${m.env.meteredId}: never sent to Clover, so not billed.`)}
+          {t(`${s.noMeteredIdCalls} appel(s) (${s.noMeteredIdMinutes ?? 0} min) terminés sans l’identifiant de facturation Clover sur le serveur : jamais envoyés à Clover, donc non facturés.`, `${s.noMeteredIdCalls} call(s) (${s.noMeteredIdMinutes ?? 0} min) ended without the Clover billing ID on the server: never sent to Clover, so not billed.`)}
         </Banner>
       )}
-      {!m.enabled && <p className="mt-2 text-[12px] text-ink-3">{t(`Pour facturer : ${m.env.meteredId} puis ${m.env.enabled}=true sur le serveur.`, `To bill: ${m.env.meteredId}, then ${m.env.enabled}=true on the server.`)}</p>}
-      {m.enabled && !m.meteredIdSet && <Banner tone="stop" className="mt-2">{t(`${m.env.meteredId} manquant : aucune minute n’est envoyée.`, `${m.env.meteredId} missing: no minute is sent.`)}</Banner>}
+      {!m.enabled && <p className="mt-2 text-[12px] text-ink-3">{t('Pour facturer, votre technicien pose l’identifiant de facturation Clover sur le serveur, puis active l’envoi.', 'To bill, your technician sets the Clover billing ID on the server, then turns sending on.')}</p>}
+      {m.enabled && !m.meteredIdSet && <Banner tone="stop" className="mt-2">{t('Identifiant de facturation Clover manquant sur le serveur : aucune minute n’est envoyée.', 'Clover billing ID missing on the server: no minute is sent.')}</Banner>}
+      <TechDetails className="mt-1">{meteringTech(m.env)}</TechDetails>
     </div>
   );
 }
@@ -382,7 +389,7 @@ function OwnerTestOrder({ merchants, onDone }: { merchants: string[]; onDone: ()
     <Section icon={<Receipt className="size-5" />} title={t('Envoyer une commande test à une caisse Clover', 'Send a test order to a Clover register')}
       subtitle={t('Une commande TEST est créée dans la caisse, s’imprime à la cuisine et se ferme payée — comme une vraie commande Uber Eats. Rien n’est envoyé aux plateformes ; trois essais par heure.', 'A TEST order is created in the register, prints in the kitchen and closes as paid — just like a real Uber Eats order. Nothing is sent to the platforms; three tries per hour.')}>
       {merchants.length === 0 ? (
-        <p className="text-[14px] text-ink-3">{t('Aucune caisse branchée : collez le jeton API Clover dans CLOVER_ACCESS_TOKEN (avec CLOVER_MERCHANT_ID), ou branchez un marchand par l’app.', 'No register connected: put the Clover API token in CLOVER_ACCESS_TOKEN (with CLOVER_MERCHANT_ID), or connect a merchant through the app.')}</p>
+        <div><p className="text-[14px] text-ink-3">{t('Aucune caisse branchée : branchez un marchand par l’app, ou demandez à votre technicien de poser le jeton API Clover sur le serveur.', 'No register connected: connect a merchant through the app, or ask your technician to put the Clover API token on the server.')}</p><TechDetails>CLOVER_ACCESS_TOKEN, CLOVER_MERCHANT_ID</TechDetails></div>
       ) : (
         <div className="flex flex-wrap items-center gap-3">
           {merchants.length > 1 && (
@@ -427,7 +434,7 @@ function CopyRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="mt-3 first:mt-0">
       <div className="text-[11px] font-semibold tracking-wide text-ink-3 uppercase">{label}</div>
-      <div className="mt-1 flex items-center gap-2"><code className="min-w-0 flex-1 truncate rounded-md bg-sunken px-2 py-1.5 font-mono text-xs text-ink" title={value}>{value}</code><CopyButton text={value} /></div>
+      <div className="mt-1 flex min-w-0 items-center gap-2"><code className="text-small min-w-0 flex-1 rounded-md bg-sunken px-2 py-1.5 font-mono break-all text-ink">{value}</code><CopyButton text={value} /></div>
     </div>
   );
 }

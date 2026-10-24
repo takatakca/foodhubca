@@ -1,10 +1,166 @@
 # Food Hub: progress log and task board
 
+## 2026-10-24 — MEV verification round 2 fixes (`feature/mev-qcmev-integration`, PR #99)
+
+- No 48 hours for a sale QCMEV has not recorded: the 48 h only cover sales the SEV already recorded during a
+  communication problem (`offline_pending`, QCMEV's side). Watchtower: a sale or credit note still in Food Hub's outbox
+  is critical after 1 minute whatever the reason (tender to pick or held for a person: at once); copies warn at 15 min.
+  The alert, the order panel, Settings and the 80 mm ticket now say: no invoice exists yet, keep the bag, restart Takatak
+  MEV; a bag gone without its invoice will not get it.
+- Too Good To Go: the daily bag count is never a sale (`log_order`, nothing sent). Each bag is its own LVT sale printed
+  at pickup: TGTG e-mail orders, or the new « Sac remis » (Money → Too Good To Go, Takatak MEV kitchens only; one order,
+  recorded before the answer, its invoice prints once; reservation code = no second sale). The day screen shows bags
+  with / without their own invoice and flags the gap (activity `tgtg_bags_without_invoice`).
+- « Sac remis » never double: the day's log counts only the bags without their own sale (also when the bag is handed
+  over after the day was logged); the order id is the reservation code (`tgtg-pickup-CODE`), so a TGTG e-mail read later
+  is a `duplicate`; the code is required when TGTG e-mails are read for that kitchen; a paper already printed is not
+  printed again; the pickup list reads again every 10 s until the invoice is out.
+- Tests: tests/mev-outbox.test.ts (alerts 1 min / offline / copy; Sac remis; day count; log remainder; code required),
+  tests/tgtg-email.test.ts (late e-mail after « Sac remis » = duplicate), tests/mev-map.test.ts (log_order; pickup = PAP
+  5,21 + TPS + TVQ = 5,99), verify:foodhub section 48 S7 / S7b / S7c / S7d.
+
+## 2026-10-24 — MEV verification round 1 fixes (`feature/mev-qcmev-integration`, PR #99; QCMEV.CA PR #2)
+
+- Printed once (« Modes d'impression »): each Revenu Québec document (original, then each RPR / DUP) is claimed by the
+  first ticket that prints it (`POST /api/foodhub/mev/orders/{id}/print`, KV); later tickets say « FACTURE DÉJÀ
+  IMPRIMÉE » and point to « Réimprimer (RPR) »; `?autoprint=0` is a preview that prints « APERÇU ».
+- One set of amounts on the paper: with Takatak MEV on, the ticket shows no Food Hub subtotal, taxes, platform fee,
+  courier tip or total, only the SEV invoice. 42 columns fit (2,4 mm font, `white-space: pre`, auto-shrink).
+- `/r/{token}` only for electronic receipts (ELE / PEL): QCMEV's electronic document, QR in the block, the link right
+  under it, « Copie électronique »; no token for paper (PAP) receipts.
+- No invented lines: « ÉCART DE PRIX », « COMMANDE », « Article », « Option » and the surplus « Rabais » are gone; such
+  sales are held for a person (amounts_mismatch / description_missing / no_lines, Watchtower alert, re-mapped on change).
+- Skip: JET Connect's documented examples show item prices before tax, so the tablet path was right and the old
+  tax-included fixture is now held (no « Rabais » = tax). Too Good To Go: prices taxes included → pre-tax worked out;
+  the daily bag log (no per-order feed) is one LVT sale, not printed (NON).
+- Alerts at once for a tender to pick, after 1 min when QCMEV is silent; QCMEV must run next to Food Hub (docs).
+- QCMEV side (same day): mode SEV, Revenu Québec layout, « PROBLÈME DE COMMUNICATION », « Facture corrigée », QR data
+  encrypted with MEV-WEB's certificate, PROD refused until a non-exportable key custody exists.
+
+## 2026-10-24 — Revenu Québec invoices through Takatak MEV (QCMEV), off by default (`feature/mev-qcmev-integration`, stacked on #97)
+
+- Owner's order of 2026-10-24: make QCMEV work with food delivery. Food Hub side of contract `foodhub.sale.v1`
+  (docs/MEV_INTEGRATION.md): `lib/foodhub/mev/` (config, map, client, outbox, hooks, receipt, status), the Clover tender
+  read `lib/foodhub/pos/clover-payments.ts`, owner switch « Factures Revenu Québec (MEV) », Settings → Add-ons → MEV
+  invoices, a badge and a « Facture (MEV) » panel on orders, QCMEV's receipt on the 80 mm ticket (and a new own-order
+  ticket `/ticket/direct/{id}`), the electronic copy `/r/{token}`, a Watchtower incident « Facture Revenu Québec en
+  attente », and `MenuItem.mevTax` in the menu editor.
+- Hooks: `settleInClover` (every platform status change), auto-accept, DoorDash adjustment, Skip final order and tablet
+  route, missing items / price change, Clover's own platform orders, the TGTG bag log (skipped), and
+  `addDirectEvent` (every own-order step). Sale once accepted / paid; credit note when cancelled after the receipt;
+  credit note + corrected receipt when the content changes; nothing when cancelled before it was sent.
+- Off by default on four switches (FOODHUB_MEV, owner switch, FOODHUB_MEV_LOCATIONS, per-kitchen system). With
+  FOODHUB_MEV=off nothing is read or sent. `on` needs QCMEV PROD + certified; `simulator` never sends to PROD.
+- Payloads checked against QCMEV's own validator (worktree `QCMEV.CA-wt/functional-mev`): items = qty × unit with options
+  as their own items, subtotal rule, credit amounts as magnitudes, key characters, ms or s timestamps.
+- Checks: typecheck OK, lint 0 errors, unit tests + 2 new files (mev-map, mev-outbox), webpack build OK, verify:foodhub
+  with the new section 48 (S1–S11 against `scripts/e2e/mock-qcmev.mjs`; zero QCMEV calls before the switch is on).
+- Not done: kitchen-screen auto-print of the invoice block, Phase-2 staff sync to QCMEV users (UTL), anything that
+  needs SW-73 / SW-77 or Revenu Québec's DEV / ESSAI environments. Merge after #97.
+
+## 2026-10-22 — Premium console: A3 reports, money, settings (`feature/premium-a3-reports-settings`, stacked on #88)
+
+- Scope A3 of the console audit: Insights (deltas without a previous period say so, 4 + 4 tiles, report cards with one
+  « Télécharger ▾ » menu, activity log in French with a « Technique » filter), Money (hero only when money is owed,
+  empty states with an action, skeletons, plurals), Settings (side-nav from 1280 px, phone overflow fixed on Clover app,
+  Storefront, Delivery, AI phone and IVR, setting names under « Détails techniques », states in words, one Devices list).
+- Brought up to A4 82b0ebc (main b40e446): clean merge, no file changed on both sides. After main: the Google sign-in
+  entries from #86 read in French in the journal; the Clover billing banner no longer pushes the phone to 456 px.
+- Checks: typecheck OK, lint 0 errors (1 pre-existing warning), 1567 tests passed + 1 skipped, webpack build OK,
+  verify:foodhub 567/0 on 5487/5488. Phone width 390 on the 11 A3 routes probed. Merge after #88.
+- Review round 1 (#94): Money's green « Tout est réglé » only once every order was checked (payouts not due yet read
+  « Versements pas encore dus »); AI phone readiness and Clover apps in plain words (raw codes, merchant number, setting
+  names, guide path and command under « Détails techniques »); Go-live keeps « Optionnel » for optional steps apart
+  from « À vérifier »; Section takes `tech` so no <details> sits inside the subtitle <p>. Tests: owner-copy-a3.test.ts.
+
+## 2026-10-22 — Premium console: A1 Home / Orders / Alerts (`feature/premium-a1-home-orders`, stacked on A4 #88)
+
+- Scope A1 of the console audit: Home (`app/(console)/overview.tsx`), Orders (board, history, drawer, incoming and
+  cancel pop-ups) and Alerts, plus their `components/live/*` pieces. No change to `components/ui`, `globals.css`, routes,
+  APIs or data.
+- Home: what needs someone first, then what is cooking, then the locations (before the platforms); one number card
+  (20 px, 13/28 type, tone colours the value only, never the border); the greeting no longer repeats the scope.
+- Orders board: the late count is a chip next to the status pills (the board no longer shifts); lane titles 11 px
+  uppercase; the total sits under the timer instead of being cut; a late card says it once (red border, ink timer);
+  skeletons of the board's shape.
+- Orders history: on a phone one "Filtres" button (with the number on) folds the filters, the search stays visible;
+  the status picker uses the shared `Select`; "Client inconnu" instead of "—"; order numbers never end with "-".
+- Drawer: Accepter / Prête + Refuser stay the big pair; the other actions are one outlined row, print / ticket / cancel a
+  quiet row; the three facts become a label | value list on a phone; Lucide icons instead of emoji; 44 px links.
+- Incoming pop-up: on a phone a bottom sheet as tall as its content. Alerts: escalation steps under the title on a phone
+  (no more overlap), only the first alert open, channels as one status line with a settings link, one primary per
+  alert, 44 px buttons, French timeline (no English or variable names).
+- New: `components/live/words.ts` (`plural`, `orderNumber`, `incidentStepText`), `alert-parts.tsx`,
+  `collapsible-filters.tsx`; tests `tests/live-words.test.ts`, `tests/live-a1-parts.test.ts`.
+- Checks: typecheck OK, lint 0 errors (1 pre-existing warning), 1537 tests passed + 1 skipped, webpack build OK,
+  verify:foodhub 567/0 on 5121/5122. Before/after screens (Po Poulet masked) in `docs/ux/premium-a1/`.
+- Brought up to the updated A4 shell (82b0ebc, itself on main b40e446): only this file conflicted (all entries kept,
+  newest first); no code file is changed on both sides.
+
+## 2026-10-22 — Premium console: A2 kitchen, menus, sold out, restaurants (`feature/premium-a2-kitchen-menus-stores`, stacked on A4 #88)
+
+- Scope A2 of the console audit: `app/(console)/kitchen/**`, `menu/**`, `stores/**`, the kitchen cards
+  (`components/live/website-orders.tsx`, `own-orders.tsx`, the `big` branch and hand-off button of `order-card.tsx`) and
+  `components/live/brand-list.tsx`. No change to `components/ui/**` or `app/globals.css`; no route, API or data change.
+- Kitchen: tablet enrolment is a header chip (no 64 px banner); in a ticket the item line is the largest text (22 px), the
+  order id second (17 px); one outline style for every hand-off in the "Prêtes" column; empty columns use `EmptyState`;
+  the board link is a 44 px ghost button; the amber chip fill is one step lighter on the dark screen.
+- Menus: the toolbar keeps brand · save status · Importer · Publier; "Menu partagé", "Publier sur tous les magasins Uber"
+  and the menu languages move to a "Plus d’actions" menu (`components/menu/overflow-menu.tsx`); "Enregistré" is a status
+  with a check, not a grey button; the markup strip becomes the "Prix par plateforme" card
+  (`components/menu/platform-pricing.tsx`); empty menu / options / stores states carry their one action; skeletons.
+- Sold out: eyebrow Menus, H1 « Épuisés » with its count, filters as `Segmented` (no third tab strip), the return label
+  above its chips, empty states with an action.
+- Restaurants: H1 « Restaurants » on every tab, tabs inside the header, new « Disponibilité » tab, « cuisine » for a
+  location everywhere, phone card headers stacked (title, then the two buttons on one row), inner tab strips replaced by
+  `components/stores/section-picker.tsx` (pills, a select on phones), raw platform reasons mapped to owner copy
+  (`components/stores/status-detail.ts`), twin stores read « magasin 2 », mapping tables become cards under 768 px with
+  outline « Relier » and one « Tout relier », Uber tab empty states with « Lire chez Uber », no env var names in copy.
+- Brand list: platform chips 20 px with the state dot beside them, no « 0,00 $ · 0 commande » on brands that are off.
+- Plurals: `lib/ui/count-label.ts` (`countFr` / `countEn`) replaces every « (s) » in the A2 screens.
+- Tests: `tests/premium-a2-kitchen-menus-stores.test.ts` (plurals, status copy, pricing card, overflow menu, section picker).
+- Brought up to the updated A4 shell 82b0ebc (main b40e446: #43, #50, #51, #54, #72, #86, #89): no conflict, only this
+  file is changed on both sides (every entry kept, newest first); the A2 screens and main's changes touch no common file.
+
+## 2026-10-22 — Courier tracking text exactly once (`fix/tracking-sms-once`)
+
+- Root cause of the "flaky" own-delivery webhook test was a real race in `lib/foodhub/delivery/dispatch.ts`: each courier event read the delivery, waited for Twilio, then saved its own (old) copy. Two events together (DASHER_CONFIRMED + its retry, or + DASHER_PICKED_UP) both saw "not texted yet" and both texted the customer, and the slower one wrote an older status over the newer one (picked up back to assigned); its order write could also undo "out for delivery".
+- Fix: one change at a time per delivery in the process (webhooks, refresh, courier taps, cancel), each applied to the delivery as stored when its turn comes; the text is claimed first with `repo.claimKv` (atomic insert, holds across servers) and given back with the new `repo.releaseKv` when the send fails; marks and cancels re-read the delivery before saving (`updateDelivery`).
+- Tests: two new cases in `tests/own-delivery.test.ts` (Twilio's answer held while other events arrive; failed send then retry; another server's claim). Both failed on the old code (2–3 texts, status `assigned`), pass now; the file passed 10 runs in a row and 12 runs in parallel.
+- Review follow-up: `sendSms` never throws, so a timeout or dropped connection came back as an ordinary failure and gave the claim back (a second text if Twilio had sent the first). `SendResult` now carries `uncertain` (set unless `neverSent()` in `env-utils.ts` proves the request never left: DNS failure, connection refused); only a sure failure gives the claim back. Two more tests: a lost answer is never resent while a refused connection is retried, and a newer courier event is never undone by an older one in flight (fails when the per-delivery lock is removed).
+
+## 2026-10-22 — Premium console: A4 shell + design system (`feature/premium-a4-shell`, stacked on #72)
+
+- Scope A4 of the console audit (`private/ux/CONSOLE_AUDIT_2026-10-21.md`): shell, navigation, theme tokens and shared
+  UI only (`components/shell/**`, `components/ui/**`, `app/globals.css`); feature pages untouched beyond three shell labels.
+- Tokens: type scale 28/22/17/15/13/11 (`text-display` … `text-micro`, `eyebrow`, scaled by A/A+/A++, merged by `cn()`),
+  spacing scale `--space-*`, three motion durations, complete dark kitchen tokens, one focus ring (cyan on navy / kitchen).
+- Components: `Card` (padding sm/md/lg, `tone="hero"`), `PageHeader` (eyebrow, back, tabs), `Stat` (`loading`),
+  `EmptyState`, `Skeleton*` (text, stats, table, list), `Table` (44 px rows, sticky head, `cards` under 768 px, `framed`,
+  `dense`), `Button` (readable disabled state, 44 px touch targets), fields (`invalid`, fr-CA pickers), `Tabs` / `LinkTabs`
+  (fade on the hidden side, active tab scrolled into view, native select past five sections on phones), `Segmented`,
+  `Badge` / `PlatformMark` never under 11 px, one toast style above the phone bar.
+- Shell: TakTak help button in the top bar (no floating button over tables or the bottom bar), bottom bar 4 + "Plus"
+  sheet (Esc, focus), bell capped at 9+, proper plurals, dismissable demo-data band, « Toute la journée » for all-day hours.
+- Checks: typecheck OK, lint 0 errors (1 pre-existing warning), 1531 tests passed + 1 skipped, webpack build OK,
+  verify:foodhub 567/0 on 5111/5112. Before/after screens (Po Poulet masked) in `docs/ux/premium-a4/`.
+- Brought up to main b40e446 (#43, #50, #51, #54, #72, #86, #89): only this file conflicted (both entries kept). No
+  other file is changed on both sides; main's new sign-in page (#86) picks up the shell's 16 px large fields and buttons.
+
+## 2026-10-21 — Demandes de restaurants / Restaurant leads (`feature/restaurant-leads-api`)
+
+- Le formulaire « Rejoindre ON2GO » d’on2go.ca (site statique, dépôt séparé) a maintenant son arrière-boutique : `POST /api/public/restaurant-leads` (JSON, sans connexion, CORS on2go.ca et www.on2go.ca seulement, pot de miel `company` → 202 silencieux, 5 envois / 10 min par IP → 429 + Retry-After, corps ≤ 16 Ko), validation par champ (`errors: { champ: required | invalid | too_long }`), stockage dans `fh_docs` collection `restaurant_leads` (aucune migration), courriel à `FOODHUB_SUPPORT_EMAIL` + réponse automatique FR / EN au restaurant par l’expéditeur habituel (sautés sans fournisseur, jamais une erreur), ligne dans le journal d’activité.
+- Console : **Réglages → Demandes de restaurants** (propriétaire seulement) : plus récente en premier, filtres à suivre / nouvelle / contactée / gagnée / perdue, recherche, statut par liste déroulante, détails et notes internes (`GET/POST /api/foodhub/restaurant-leads`, permission `admin`).
+- EN: the on2go.ca “Join ON2GO” form posts to `POST /api/public/restaurant-leads` (validation, honeypot, per-IP quota, CORS for on2go.ca only), leads are stored as `restaurant_leads` docs, the owner is emailed and the lead gets an FR / EN auto-reply; Settings → Restaurant leads lists them newest first with status and notes. Contract: `docs/RESTAURANT_LEADS.md`.
+- Code: `lib/foodhub/restaurant-leads.ts`, `app/api/public/restaurant-leads/route.ts`, `app/api/foodhub/restaurant-leads/route.ts`, `app/(console)/settings/leads/page.tsx`, `components/shell/settings-pages.ts` (new page in the « Votre entreprise / Your business » group), tests `tests/restaurant-leads.test.ts` (14).
+- Brought up to main b40e446 (#72 #54 #50 #51 #43 #86 #89): main moved the Settings page list to `components/shell/settings-pages.ts`, so the leads page is listed there (group `business`, permission `admin`).
+
 ## 2026-10-21 — Simpler sign-in page + « Continuer avec Google » (`feature/login-google-signin`)
 
 - One calm sign-in screen: Food Hub mark, big « Continuer avec Google / Continue with Google » (only when `GOOGLE_OAUTH_CLIENT_ID` is set), the code-by-email/text sign-in as the second option, the owner recovery behind a small link; FR first, EN; 44 px targets; first run, code and recovery steps kept.
 - Google Sign-In server side (`lib/foodhub/identity/google.ts`): `/api/auth/google/start` (OAuth 2.0 URL, scope openid email profile, state + PKCE S256 + nonce in an httpOnly Secure SameSite=Lax cookie, 10 min) and `/api/auth/google/callback` (code exchange at oauth2.googleapis.com, id_token verified against Google JWKS with a one-hour cache: RS256 signature, iss, aud, exp, nonce, email_verified). Signs in only an active team member whose email is already known, through the same `sessionCookieFor` as the code sign-in (session kind `google`); otherwise the friendly « pas encore dans une équipe » notice. Never creates anyone; per-address throttle and activity log like the other sign-ins.
 - Tests `tests/google-signin.test.ts` (fake JWKS; bad signature / issuer / audience / expiry / nonce / alg none; state, cookie and nonce mismatches; unknown, deactivated and unverified emails refused; known email signed in; lock after repeated failures). Owner guide `docs/GOOGLE_SIGNIN.md` + `.env.example` lines.
+
 ## 2026-10-17 — Client dashboard (PR #72) brought up to main 6381aec
 
 - `feature/client-dashboard-easy` merged with `origin/main` (#61 to #80). Conflicts: `components/ui/overlay.tsx` (main's
@@ -212,6 +368,11 @@ Branche `fix/overlay-keyboard-focus-20261016` : focus initial, Tab/Shift+Tab cir
   Hub is never a test store (even if listed; the screen warns). The Reporting API is refused with the sandbox key unless
   DOORDASH_REPORTS_* is set. A `_sandbox` DOORDASH_PROVIDER_TYPE alone no longer turns the mode on (warning only).
   Docs step 6: delete the Sandbox subscriptions first, keep DOORDASH_SANDBOX_STORE_IDS and the sandbox secret.
+
+## 2026-10-16 — Kitchen UI accessibility and reconciliation
+
+PR #52 (`fix/console-kitchen-a11y`): kitchen tokens on document root and first paint, reduced motion, 48px controls, PIN shake, bilingual loading/error, regression tests. Manually reconciled feature branch with `main` `444e8f2e` to retain merged Clover test-order PR #53 and all its unrelated code. GitHub CI/image pending on latest PR branch, no production rollout/connector toggles. Merge remains owner-only.
+
 
 ## 2026-10-15 — Owner-authorized automatic production activation
 

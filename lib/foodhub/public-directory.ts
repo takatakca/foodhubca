@@ -307,6 +307,24 @@ export function cloverFromEnv(env: Record<string, string | undefined> = process.
 }
 
 const TTL_MS = 5 * 60_000;
+const LIVE_READ_DEADLINE_MS = 2500;
+
+/**
+ * Treat a slow or failing optional database read as unavailable. The public directory must
+ * remain available from its checked-in seed even if Supabase stalls without rejecting.
+ * Promise.race installs a rejection handler on the original read, including late failures.
+ */
+export async function readPublicDirectoryWithin<T>(operation: Promise<T>, deadlineMs = LIVE_READ_DEADLINE_MS): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race<T | null>([
+      operation.catch(() => null),
+      new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), deadlineMs); }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 let cache: { at: number; value: PublicDirectory } | null = null;
 let pending: Promise<PublicDirectory> | null = null;
 
@@ -317,9 +335,9 @@ async function loadLive(now: number): Promise<PublicDirectory> {
   const mediaBase = publicUrlCheck().url || null;
   // Each part is optional: a database hiccup gives the seed values, never an error page.
   const [hours, menus, orders] = await Promise.all([
-    repo.getKv<HoursConfig>('hours').catch(() => null),
-    repo.listMenus().catch(() => null),
-    repo.listOrders({ since: new Date(now - 7 * 86400_000).toISOString(), limit: 5000 }).catch(() => null),
+    readPublicDirectoryWithin(repo.getKv<HoursConfig>('hours')),
+    readPublicDirectoryWithin(repo.listMenus()),
+    readPublicDirectoryWithin(repo.listOrders({ since: new Date(now - 7 * 86400_000).toISOString(), limit: 5000 })),
   ]);
   const live = Boolean(hours || (menus && menus.length));
   return buildPublicDirectory(DIRECTORY_SEED, {

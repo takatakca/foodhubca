@@ -2,17 +2,16 @@ import { approvalGate } from '@/lib/foodhub/auth';
 import { isChannelKey } from '@/lib/foodhub/adapters';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { refreshCases } from '@/lib/foodhub/recon/automation';
-import { COL, deleteImport, importStatement, type StatementImport } from '@/lib/foodhub/recon/engine';
+import { deleteImport, importStatement, listImports } from '@/lib/foodhub/recon/engine';
 import { withFinance } from '@/lib/foodhub/recon/http';
 import { FIELD_LABELS, type ColumnMapping } from '@/lib/foodhub/recon/statements';
-import { getRepo } from '@/lib/foodhub/repo';
 import type { ChannelKey } from '@/lib/foodhub/types';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 export const GET = withFinance('analytics:view', async () => ok({
-  imports: (await getRepo().listDocs<StatementImport>(COL.imports, {})).map((d) => d.data),
+  imports: (await listImports()).map((d) => d.data),
   fields: FIELD_LABELS,
 }));
 

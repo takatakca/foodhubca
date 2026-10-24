@@ -65,12 +65,12 @@ export function CommandPalette() {
             <li key={h.key}>
               <button type="button" onMouseEnter={() => setI(k)} onClick={() => go(h)} className={cn('flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left', k === i && 'bg-sunken')}>
                 {h.channel ? <PlatformMark channel={h.channel} size="sm" /> : <span className="size-6" />}
-                <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-ink">{h.label}</span>{h.sub && <span className="block truncate text-xs text-ink-3">{h.sub}</span>}</span>
+                <span className="min-w-0 flex-1"><span className="block truncate text-body font-semibold text-ink">{h.label}</span>{h.sub && <span className="block truncate text-small text-ink-3">{h.sub}</span>}</span>
                 {k === i && <CornerDownLeft className="size-4 text-ink-3" />}
               </button>
             </li>
           ))}
-          {hits.length === 0 && <li className="px-3 py-6 text-center text-sm text-ink-3">{t('Rien trouvé.', 'Nothing found.')}</li>}
+          {hits.length === 0 && <li className="px-3 py-6 text-center text-body text-ink-3">{t('Rien trouvé.', 'Nothing found.')}</li>}
         </ul>
       </div>
     </div>

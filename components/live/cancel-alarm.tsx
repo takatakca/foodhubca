@@ -45,29 +45,29 @@ export function CancelAlarm() {
   }
 
   return (
-    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-stop/85 p-4 backdrop-blur-sm animate-fade" onPointerDown={() => unlockAudio()} role="alertdialog" aria-modal="true">
-      <div className="w-full max-w-xl overflow-hidden rounded-2xl bg-surface shadow-pop animate-rise">
+    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-stop/85 p-4 backdrop-blur-sm motion-safe:animate-fade" onPointerDown={() => unlockAudio()} role="alertdialog" aria-modal="true">
+      <div className="w-full max-w-xl overflow-hidden rounded-2xl bg-surface shadow-pop motion-safe:animate-rise">
         <div className="flex items-center gap-4 bg-stop px-6 py-5 text-white">
           <div className="grid size-14 shrink-0 place-items-center rounded-full bg-white/15"><Ban className="size-8" /></div>
           <div className="min-w-0">
-            <div className="text-xs font-bold tracking-[0.16em] uppercase opacity-90">{t('Commande annulée', 'Order cancelled')} {who}</div>
-            <div className="text-3xl font-black">#{c.displayId}</div>
+            <div className="text-small font-bold tracking-[0.16em] uppercase opacity-90">{t('Commande annulée', 'Order cancelled')} {who}</div>
+            <div className="text-display">#{c.displayId}</div>
           </div>
         </div>
         <div className="space-y-4 px-6 py-5">
           <div className="flex flex-wrap items-center gap-3">
             <PlatformMark channel={c.channel} size="md" />
             <div className="min-w-0">
-              <div className="text-lg font-extrabold text-ink">{c.brandName ?? platformOf(c.channel).label}</div>
-              <div className="text-sm text-ink-3">{c.locationCode ? shortLoc(locName(c.locationCode)) : ''} · {c.items} {t('article(s)', 'item(s)')} · {money(c.total, loc)} · {ago(c.cancelledAt, lang)}</div>
+              <div className="text-heading font-extrabold text-ink">{c.brandName ?? platformOf(c.channel).label}</div>
+              <div className="text-body text-ink-3">{c.locationCode ? shortLoc(locName(c.locationCode)) : ''} · {c.items} {t('article(s)', 'item(s)')} · {money(c.total, loc)} · {ago(c.cancelledAt, lang)}</div>
             </div>
           </div>
-          <div className="rounded-lg border-2 border-stop/30 bg-stop/5 px-4 py-3 text-[15px] font-bold text-stop">
+          <div className="rounded-md border-2 border-stop/30 bg-stop/5 px-4 py-3 text-body font-bold text-stop">
             {c.wasCooking ? t('ARRÊTEZ de la préparer. Ne la donnez à aucun livreur.', 'STOP preparing it. Do not hand it to any courier.') : t('Ne la préparez pas.', 'Do not prepare it.')}
           </div>
-          {c.reason && <div className="text-sm text-ink-2"><span className="font-semibold text-ink">{t('Raison :', 'Reason:')}</span> {reasonText(t, c.reason)}</div>}
-          {c.posOrderId && <div className="text-xs text-ink-3">{c.posClosed ? t('Retirée de la caisse Clover.', 'Removed from the Clover register.') : t('Vérifiez qu’elle est retirée de Clover.', 'Check it is removed from Clover.')}</div>}
-          {list.length > 1 && <div className="text-xs font-semibold text-ink-3">{t(`+ ${list.length - 1} autre(s) annulation(s)`, `+ ${list.length - 1} more cancellation(s)`)}</div>}
+          {c.reason && <div className="text-body text-ink-2"><span className="font-semibold text-ink">{t('Raison :', 'Reason:')}</span> {reasonText(t, c.reason)}</div>}
+          {c.posOrderId && <div className="text-small text-ink-3">{c.posClosed ? t('Retirée de la caisse Clover.', 'Removed from the Clover register.') : t('Vérifiez qu’elle est retirée de Clover.', 'Check it is removed from Clover.')}</div>}
+          {list.length > 1 && <div className="text-small font-semibold text-ink-3">{t(`+ ${list.length - 1} autre(s) annulation(s)`, `+ ${list.length - 1} more cancellation(s)`)}</div>}
         </div>
         <div className="border-t border-line px-6 py-4">
           <Button size="xl" variant="danger" className="w-full" loading={busy === 'ack'} onClick={seen} icon={<Check className="size-6" />}>{t('Compris — j’arrête', 'Got it — stopping')}</Button>

@@ -22,6 +22,7 @@ import { cloverBaseUrl, cloverToken } from './clover';
 import { isPlatformTender, platformFromLabel } from './platform-labels';
 import { normName } from './clover-order';
 import { noteLastOrder } from '../order-retry';
+import { mevOnOrderChange } from '../mev/hooks';
 
 const SINCE_KEY = (mid: string) => `clover_platform_orders_since:${mid}`;
 const MIN_AGE_MS = 2 * 60_000;
@@ -184,6 +185,8 @@ export async function importCloverPlatformOrders(mid: string, opts: { now?: numb
         });
         await repo.addEvent(order.id, 'via_clover', { message: `Received in Clover through Clover's own ${CHANNEL_LABELS[channel]} integration — Food Hub only follows it (nothing is sent to ${CHANNEL_LABELS[channel]} or Clover).${store ? '' : ` Brand not known: ${candidates.length} ${CHANNEL_LABELS[channel]} stores use this Clover and the order does not name one.`}`, cloverOrderId: id });
         await noteLastOrder(channel, n.placedAt);
+        // Only for a kitchen whose invoices go through Takatak MEV (sevOfRecord qcmev); the Clover MEV app otherwise.
+        await mevOnOrderChange(order);
         out.imported++;
         out.posOrderIds.push(id);
       }

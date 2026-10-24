@@ -19,8 +19,9 @@ const PUBLIC_PREFIXES = [
   '/api/foodhub/clover-connect/phone/callback', // AI phone Clover app's OAuth callback (same rule as Food Hub's; 404 until its App ID is set)
   '/api/foodhub/auth/', '/api/foodhub/devices/heartbeat',
   '/api/auth/google/', // "Continue with Google": the state + PKCE cookie and Google's verified id_token are the credential (lib/foodhub/identity/google.ts)
-  '/api/public/', // read-only public feeds (directory for ON2GO / QMAPS): public facts only, see lib/foodhub/public-directory.ts
+  // No blanket /api/public/ exemption: only explicitly reviewed read-only routes are public (PUBLIC_PATHS below).
   '/p/', // payment links texted to customers: the secret token is the credential (app/p/[token]/route.ts, delivery/paylink.ts)
+  '/r/', // electronic copy of a Takatak MEV invoice: the secret token is the credential (app/r/[token]/route.ts, mev/receipt.ts)
   '/login', '/kitchen/lock', '/manifest.webmanifest', '/sw.js', '/icons/', '/legal/', '/welcome/', '/media/',
   '/commander/', '/api/storefront/', // ON2GO storefront: public menu + checkout; prices recomputed server side, rate-limited (lib/foodhub/storefront/*)
 ];
@@ -28,6 +29,8 @@ const PUBLIC_PREFIXES = [
 const PUBLIC_PATHS = new Set([
   '/api/health', // uptime monitors: status only without CRON_SECRET or a session (app/api/health/route.ts)
   '/api/release', // deployment proof: public commit SHA only, exact path, no settings or secrets
+  '/api/public/directory', // ON2GO/QMAPS read-only directory (public facts only, lib/foodhub/public-directory.ts); other /api/public/* stay protected
+  '/api/public/restaurant-leads', // on2go.ca « Rejoindre » form: POST + OPTIONS only, JSON, size cap, honeypot, per-IP quota, CORS on2go.ca (lib/foodhub/restaurant-leads.ts)
   '/legal', // the legal pages' index: redirects to /legal/support (app/legal/page.tsx); /legal/* is in PUBLIC_PREFIXES
   '/courier', '/api/courier', // our couriers' page: the personal signed link (Bearer) is the credential (lib/foodhub/delivery/courier-app.ts)
 ]);

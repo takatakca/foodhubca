@@ -11,7 +11,7 @@ import { Field, Input, Select, Textarea } from '@/components/ui/form';
 import { Modal } from '@/components/ui/overlay';
 import { FormDraftNote } from '@/components/ui/save-chip';
 import { Tabs } from '@/components/ui/tabs';
-import { Table, Td, Th, Tr } from '@/components/ui/table';
+import { Table, TableSkeleton, Td, Th, Tr } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { StatTile, fmtInt } from '@/components/charts/charts';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
@@ -111,7 +111,7 @@ export default function DisputesPage() {
                   : <Button size="md" variant="outline" onClick={() => setEdit(c)}>{t('Historique', 'History')}</Button>}</Td>
               </Tr>
             ))}
-            {rows.length === 0 && <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-ink-3">{!loaded ? t('Chargement…', 'Loading…') : tab === 'active' ? t('Rien à contester. Les nouveaux problèmes apparaissent ici après chaque import de relevé et chaque jour.', 'Nothing to dispute right now. New problems appear here after each statement import and every day.') : t('Aucun dossier ici.', 'No case here.')}</td></tr>}
+            {rows.length === 0 && (!loaded ? <TableSkeleton columns={9} label={t('Chargement…', 'Loading…')} /> : <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-ink-3">{tab === 'active' ? t('Rien à contester. Les nouveaux problèmes apparaissent ici après chaque import de relevé et chaque jour.', 'Nothing to dispute right now. New problems appear here after each statement import and every day.') : t('Aucun dossier ici.', 'No case here.')}</td></tr>)}
           </tbody>
         </Table>
       </Card>

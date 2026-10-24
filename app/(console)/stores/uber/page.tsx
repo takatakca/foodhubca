@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { BadgePercent, RefreshCw, Store, Truck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Banner, Card, CardHeader, PageHeader } from '@/components/ui/card';
+import { Button, ButtonLink } from '@/components/ui/button';
+import { Banner, Card, CardHeader, EmptyState, PageHeader, Skeleton } from '@/components/ui/card';
 import { Field, Input, Select, Switch } from '@/components/ui/form';
 import { useToast } from '@/components/ui/toast';
 import { useViewer } from '@/components/shell/viewer';
@@ -82,26 +82,25 @@ export default function UberStoresPage() {
 
   return (
     <div>
-      <PageHeader title={t('Magasins', 'Stores')} subtitle={t('Uber Eats : ce qu’Uber affiche pour chaque magasin, instructions au livreur, promotions, et le compte Uber Direct.', 'Uber Eats: what Uber shows for each store, courier instructions, promotions, and the Uber Direct account.')} />
-      <StoresTabs />
-      {!base && <div className="h-64 animate-pulse rounded-lg bg-sunken" />}
+      <PageHeader title={t('Restaurants', 'Restaurants')} tabs={<StoresTabs className="mb-0" />} subtitle={t('Uber Eats : ce qu’Uber affiche pour chaque magasin, instructions au livreur, promotions, et le compte Uber Direct.', 'Uber Eats: what Uber shows for each store, courier instructions, promotions, and the Uber Direct account.')} />
+      {!base && <div className="grid gap-4 lg:grid-cols-2" aria-busy><Skeleton className="h-64" /><Skeleton className="h-64" /></div>}
       {base && !base.configured && <Banner tone="warn" className="mb-4">{lang === 'fr' ? base.noteFr : base.note}</Banner>}
-      {base && base.configured && !base.live && <Banner tone="info" className="mb-4">{t('Lecture seulement : les changements chez Uber demandent l’interrupteur « live » (LIVE_CONNECTORS_GLOBAL_ENABLED).', 'Read-only: changes on Uber need the live switch (LIVE_CONNECTORS_GLOBAL_ENABLED).')}</Banner>}
+      {base && base.configured && !base.live && <Banner tone="info" className="mb-4">{t('Lecture seulement : l’envoi de changements à Uber n’est pas encore ouvert pour votre compte. Écrivez-nous pour l’activer.', 'Read-only: sending changes to Uber is not open for your account yet. Write to us to turn it on.')}</Banner>}
 
-      {base && base.stores.length === 0 && <Banner tone="info">{t('Aucun magasin Uber Eats branché : Magasins → Branchement des magasins → « Brancher Uber Eats ».', 'No Uber Eats store connected yet: Stores → Store connections → “Connect Uber Eats”.')}</Banner>}
+      {base && base.stores.length === 0 && <Card><EmptyState icon={<Store />} title={t('Aucun magasin Uber Eats branché', 'No Uber Eats store connected')} body={t('Branchez votre compte Uber Eats pour lire et régler vos magasins d’ici.', 'Connect your Uber Eats account to read and set your stores from here.')} action={<ButtonLink href="/stores/mapping" variant="brand">{t('Brancher Uber Eats', 'Connect Uber Eats')}</ButtonLink>} /></Card>}
 
       {base && base.stores.length > 0 && (
         <div className="grid gap-4 lg:grid-cols-2">
           <Card>
             <CardHeader icon={<Store className="size-5" />} title={t('Magasin Uber Eats', 'Uber Eats store')}
-              right={<Button size="sm" variant="soft" loading={busy === 'read'} onClick={read} icon={<RefreshCw className="size-4" />}>{t('Lire chez Uber', 'Read from Uber')}</Button>} />
+              right={<Button size="sm" variant="outline" loading={busy === 'read'} onClick={read} icon={<RefreshCw className="size-4" />}>{detail ? t('Relire', 'Read again') : t('Lire chez Uber', 'Read from Uber')}</Button>} />
             <div className="space-y-3 px-5 pb-5">
-              <Select value={storeId} onChange={(e) => { setStoreId(e.target.value); setDetail(null); }}>
+              <Select aria-label={t('Magasin Uber Eats', 'Uber Eats store')} value={storeId} onChange={(e) => { setStoreId(e.target.value); setDetail(null); }}>
                 {base.stores.map((s) => <option key={s.id} value={s.id}>{s.brandName} · {s.locationCode}{s.orderManager === 'foodhub' ? '' : ` (${t('commandes ailleurs', 'orders elsewhere')})`}</option>)}
               </Select>
               {detail && !detail.info.ok && <Banner tone="warn">{detail.info.error}</Banner>}
               {info && (
-                <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-body">
                   <dt className="text-ink-3">{t('Statut', 'Status')}</dt><dd><Badge tone={info.status === 'ONLINE' ? 'go' : 'wait'}>{info.status ?? '—'}</Badge>{info.offlineReason ? ` ${info.offlineReason}` : ''}</dd>
                   <dt className="text-ink-3">{t('Commandable', 'Orderable')}</dt><dd>{info.isOrderable === null || info.isOrderable === undefined ? '—' : info.isOrderable ? t('oui', 'yes') : t('non', 'no')}</dd>
                   <dt className="text-ink-3">{t('Temps de préparation chez Uber', 'Prep time on Uber')}</dt><dd>{info.prepTimeMinutes ? `${info.prepTimeMinutes} min` : '—'}</dd>
@@ -129,10 +128,10 @@ export default function UberStoresPage() {
           <Card>
             <CardHeader icon={<BadgePercent className="size-5" />} title={t('Promotions Uber Eats', 'Uber Eats promotions')} subtitle={t('« X $ de rabais dès Y $ ». Seules les promotions créées par Food Hub sont listées (règle d’Uber).', '"X $ off from Y $". Only promotions created by Food Hub are listed (Uber’s rule).')} />
             <div className="space-y-3 px-5 pb-5">
-              {!detail && <p className="text-sm text-ink-3">{t('Lisez d’abord le magasin chez Uber.', 'Read the store from Uber first.')}</p>}
+              {!detail && <EmptyState compact icon={<BadgePercent />} title={t('Lisez d’abord le magasin chez Uber', 'Read the store from Uber first')} action={<Button variant="outline" loading={busy === 'read'} onClick={read} icon={<RefreshCw className="size-4" />}>{t('Lire chez Uber', 'Read from Uber')}</Button>} />}
               {detail && !detail.promotions.ok && <Banner tone="warn">{detail.promotions.error}</Banner>}
               {detail?.promotions.promotions.map((p) => (
-                <div key={p.promotion_id} className="flex items-center justify-between gap-2 rounded-md border border-line p-2 text-sm">
+                <div key={p.promotion_id} className="flex items-center justify-between gap-2 rounded-md border border-line p-2 text-body">
                   <span><Badge tone={p.state === 'ACTIVE' ? 'go' : 'neutral'}>{p.state ?? '—'}</Badge> {p.promo_type} {p.flat_off_discount?.discount_value?.amount ? `${(p.flat_off_discount.discount_value.amount / 100).toFixed(2)} $` : ''} · {fmt(p.start_time)} → {fmt(p.end_time)}</span>
                   {p.promotion_id && p.state !== 'REVOKED' && <Button size="sm" variant="ghost" className="text-stop" disabled={!detail.live} loading={busy === 'promo_revoke'} onClick={() => post('promo_revoke', { promotionId: p.promotion_id }, t('Promotion retirée', 'Promotion revoked'))}>{t('Retirer', 'Revoke')}</Button>}
                 </div>
@@ -155,9 +154,9 @@ export default function UberStoresPage() {
       {can('stores:map') && (
         <Card className="mt-4">
           <CardHeader icon={<Truck className="size-5" />} title={t('Compte Uber Direct', 'Uber Direct account')} subtitle={t('Organisation, magasins Uber Direct et leur code de cuisine (external id). Les livraisons se règlent dans Réglages → Livraison.', 'Organization, Uber Direct stores and their kitchen code (external id). Deliveries are set in Settings → Delivery.')}
-            right={<Button size="sm" variant="soft" loading={busy === 'direct'} onClick={readDirect} icon={<RefreshCw className="size-4" />}>{t('Lire chez Uber', 'Read from Uber')}</Button>} />
-          <div className="space-y-2 px-5 pb-5 text-sm">
-            {!direct && <p className="text-ink-3">{t('Pas encore lu.', 'Not read yet.')}</p>}
+            right={direct ? <Button size="sm" variant="ghost" loading={busy === 'direct'} onClick={readDirect} icon={<RefreshCw className="size-4" />}>{t('Relire', 'Read again')}</Button> : undefined} />
+          <div className="space-y-2 px-5 pb-5 text-body">
+            {!direct && <EmptyState compact icon={<Truck />} title={t('Compte Uber Direct pas encore lu', 'Uber Direct account not read yet')} body={t('Uber répond en quelques secondes.', 'Uber answers in a few seconds.')} action={<Button variant="outline" loading={busy === 'direct'} onClick={readDirect} icon={<RefreshCw className="size-4" />}>{t('Lire chez Uber', 'Read from Uber')}</Button>} />}
             {direct && !direct.org.ok && <Banner tone="warn">{direct.org.error}</Banner>}
             {direct?.org.ok && <p><strong>{direct.org.organization?.info?.name ?? '—'}</strong> · {direct.org.organization?.billing_info?.billing_status ?? '—'} · {direct.org.readiness?.environment}</p>}
             {direct?.error && <Banner tone="warn">{direct.error}</Banner>}

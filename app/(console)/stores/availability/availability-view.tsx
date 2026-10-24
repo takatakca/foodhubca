@@ -8,13 +8,15 @@ import { Button, ButtonLink } from '@/components/ui/button';
 import { Banner, Card, CardHeader, EmptyState, PageHeader, Skeleton } from '@/components/ui/card';
 import { Checkbox, Chips, Input, Select, Switch } from '@/components/ui/form';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
-import { Tabs } from '@/components/ui/tabs';
+import { SectionPicker } from '@/components/stores/section-picker';
+import { statusDetailText } from '@/components/stores/status-detail';
 import { useToast } from '@/components/ui/toast';
 import { useRefreshOn } from '@/components/live/pulse';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { StoresTabs } from '../stores-tabs';
 import { api, ApiError, timeOf } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
+import { countEn, countFr } from '@/lib/ui/count-label';
 import type { T } from '@/lib/i18n';
 import type { AvailabilityBoard, ChannelRow, KitchenBoard, PausedBy } from '@/lib/foodhub/store-availability/board';
 import type { BusyState, BusyWindow } from '@/lib/foodhub/store-availability/busy-schedule';
@@ -82,17 +84,16 @@ export function AvailabilityView() {
 
   const kitchenPicker = locations.length > 1 && (
     <div className="mb-4 flex flex-wrap items-center gap-2">
-      <span className="text-sm font-semibold text-ink-2">{t('Cuisine', 'Kitchen')}</span>
+      <span className="text-body font-semibold text-ink-2">{t('Cuisine', 'Kitchen')}</span>
       <Group label={t('Cuisine', 'Kitchen')}><Chips size="lg" value={kitchen} onChange={setKitchen} options={locations.map((l) => ({ value: l.code, label: shortLoc(l.name) }))} /></Group>
     </div>
   );
 
   return (
     <div>
-      <PageHeader title={t('Disponibilité des magasins', 'Store availability')}
+      <PageHeader title={t('Restaurants', 'Restaurants')} tabs={<StoresTabs className="mb-0" />}
         subtitle={t('Qui est ouvert, en pause ou fermé sur chaque plateforme, et quand ça rouvre. Mode occupé à l’horaire, garde tablette éteinte, jours spéciaux et historique.', 'Who is open, paused or closed on each platform, and when it reopens. Busy mode by the clock, tablet-off guard, special days and history.')} />
-      <StoresTabs />
-      <Tabs className="mb-4" value={section} onChange={setSection} tabs={[
+      <SectionPicker className="mb-4" label={t('Afficher', 'Show')} value={section} onChange={setSection} options={[
         { key: 'now', label: t('Statut maintenant', 'Status now') },
         { key: 'busy', label: t('Calendrier occupé', 'Busy schedule') },
         { key: 'guard', label: t('Garde tablette éteinte', 'Tablet-off guard') },
@@ -112,6 +113,7 @@ export function AvailabilityView() {
 
 function StatusNow() {
   const { t } = useI18n();
+  const { can } = useViewer();
   const [board, setBoard] = useState<AvailabilityBoard | null>(null);
   const [failed, setFailed] = useState(false);
   const load = useCallback(async () => {
@@ -123,10 +125,10 @@ function StatusNow() {
   if (!board) return failed
     ? <Banner tone="stop">{t('Impossible de lire le statut pour l’instant : on réessaie toutes les 30 secondes.', 'Cannot read the status right now: it retries every 30 seconds.')}</Banner>
     : <div className="space-y-3">{[0, 1].map((i) => <Skeleton key={i} className="h-48" />)}</div>;
-  if (!board.kitchens.length) return <Card><EmptyState title={t('Aucune cuisine', 'No kitchen')} /></Card>;
+  if (!board.kitchens.length) return <Card><EmptyState icon={<Tablet />} title={t('Aucune cuisine', 'No kitchen')} body={t('Les cuisines apparaissent ici dès qu’un magasin y est branché.', 'Kitchens show up here as soon as a store is connected to them.')} action={can('stores:map') ? <ButtonLink href="/stores/mapping" variant="outline">{t('Brancher un magasin', 'Connect a store')}</ButtonLink> : undefined} /></Card>;
   return (
     <div className="space-y-5">
-      <p className="text-sm text-ink-3">{t('Pour mettre en pause ou rouvrir, utilisez', 'To pause or resume, use')} <Link href="/stores" className="font-semibold text-brand hover:underline">{t('Statut et pauses', 'Status & pauses')}</Link>.</p>
+      <p className="text-body text-ink-3">{t('Pour mettre en pause ou rouvrir, utilisez', 'To pause or resume, use')} <Link href="/stores" className="font-semibold text-brand hover:underline">{t('Statut et pauses', 'Status & pauses')}</Link>.</p>
       {board.kitchens.map((k) => <KitchenCard key={k.code} k={k} tz={board.timeZone} />)}
     </div>
   );
@@ -134,39 +136,44 @@ function StatusNow() {
 
 function KitchenCard({ k, tz }: { k: KitchenBoard; tz?: string }) {
   const { t, loc } = useI18n();
+  const { can } = useViewer();
   const tone: Tone = k.summary.kind === 'open' ? 'go' : k.summary.kind === 'paused' ? 'wait' : 'neutral';
   const tabletsOff = k.devices.total > 0 && k.devices.online === 0;
   return (
     <Card>
       <div className="flex flex-wrap items-center gap-3 border-b border-line px-5 py-4">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-lg font-extrabold">{shortLoc(k.name)}</h2>
-          <div className="text-[13px] text-ink-3">{pick(t, k.nextOpening.label)}</div>
+        {/* basis-48: on a phone the badges wrap under the name instead of squeezing it to a sliver (min-w-0 + flex-1 let it shrink to 18 px). */}
+        <div className="min-w-0 grow basis-48">
+          <h2 className="text-heading text-ink">{shortLoc(k.name)}</h2>
+          <div className="text-small text-ink-3">{pick(t, k.nextOpening.label)}</div>
         </div>
-        <Badge tone={tone} className="text-sm">{pick(t, k.summary.label)}</Badge>
+        <Badge tone={tone} className="text-body">{pick(t, k.summary.label)}</Badge>
         <Badge tone={tabletsOff ? 'stop' : k.devices.total ? 'go' : 'neutral'} icon={<Tablet className="size-3.5" />}>
           {k.devices.total ? t(`Tablettes ${k.devices.online}/${k.devices.total} en ligne`, `Tablets ${k.devices.online}/${k.devices.total} online`) : t('Aucune tablette', 'No tablet')}
         </Badge>
         {k.prep.isBusy && <Badge tone="stop" icon={<Flame className="size-3.5" />}>{t(`Occupé · ${k.prep.minutes} min`, `Busy · ${k.prep.minutes} min`)}</Badge>}
       </div>
-      {!k.brands.length ? <div className="px-5 py-6 text-sm text-ink-3">{t('Aucun magasin branché ici.', 'No store connected here.')}</div> : (
+      {!k.brands.length ? <EmptyState compact icon={<Tablet />} title={t('Aucun magasin branché dans cette cuisine', 'No store connected at this kitchen')} action={can('stores:map') ? <ButtonLink href="/stores/mapping" variant="outline">{t('Brancher un magasin', 'Connect a store')}</ButtonLink> : undefined} /> : (
         <div className="divide-y divide-line">
           {k.brands.map((b) => (
             <div key={b.name} className="px-5 py-3">
-              <div className="mb-2 flex flex-wrap items-baseline gap-x-3"><span className="text-base font-bold">{b.name}</span><span className="text-xs text-ink-3">{pick(t, b.nextOpening.label)}</span></div>
+              <div className="mb-2 flex flex-wrap items-baseline gap-x-3"><span className="text-body font-bold">{b.name}</span><span className="text-small text-ink-3">{pick(t, b.nextOpening.label)}</span></div>
               <div className="space-y-1.5">
-                {b.channels.map((c) => {
+                {b.channels.map((c, i) => {
                   const st = stateText(t, c.state);
                   const by = byText(t, c.by);
+                  // Two stores of one brand on the same platform (e.g. two Too Good To Go stores) read « magasin 2 », not a twin row.
+                  const twin = b.channels.filter((x) => x.channel === c.channel).length > 1 ? b.channels.slice(0, i + 1).filter((x) => x.channel === c.channel).length : 0;
+                  const detail = c.state !== 'online' ? statusDetailText(t, c.detail) : null;
                   return (
                     <div key={c.storeId ?? `${b.name}-${c.channel}`} className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-raised px-3 py-2">
-                      <span className="w-40 text-sm font-semibold">{c.channel === 'clover_online' ? CHANNEL_NAME.clover_online : <PlatformTag channel={c.channel} />}</span>
+                      <span className="text-body flex w-48 items-center gap-2 font-semibold">{c.channel === 'clover_online' ? CHANNEL_NAME.clover_online : <PlatformTag channel={c.channel} />}{twin > 0 && <span className="text-small font-normal text-ink-3">{t(`magasin ${twin}`, `store ${twin}`)}</span>}</span>
                       <Badge tone={st.tone}>{st.text}</Badge>
-                      {c.text && <span className="text-sm font-semibold text-ink">{pick(t, c.text)}</span>}
-                      {by && <span className={c.by === 'plateforme' || c.by === 'garde' ? 'text-xs font-semibold text-wait-2' : 'text-xs text-ink-3'}>{by}</span>}
-                      {c.reopensAt && <span className="text-sm font-semibold text-ink">{t('rouvre', 'reopens')} {whenText(c.reopensAt, loc, tz)}</span>}
-                      {c.state === 'paused' && !c.reopensAt && <span className="text-xs text-ink-3">{t('jusqu’à réouverture manuelle', 'until resumed by hand')}</span>}
-                      {c.detail && c.state !== 'online' && <span className="truncate text-xs text-ink-3" title={c.detail}>{c.detail}</span>}
+                      {c.text && <span className="text-body font-semibold text-ink">{pick(t, c.text)}</span>}
+                      {by && <span className={c.by === 'plateforme' || c.by === 'garde' ? 'text-small font-semibold text-wait-2' : 'text-small text-ink-3'}>{by}</span>}
+                      {c.reopensAt && <span className="text-body font-semibold text-ink">{t('rouvre', 'reopens')} {whenText(c.reopensAt, loc, tz)}</span>}
+                      {c.state === 'paused' && !c.reopensAt && <span className="text-small text-ink-3">{t('jusqu’à réouverture manuelle', 'until resumed by hand')}</span>}
+                      {detail && <span className="truncate text-small text-ink-3" title={detail}>{detail}</span>}
                       {c.locked && <Badge tone="dark" icon={<Lock className="size-3" />} title={t('Jamais touché par les automatismes', 'Never touched by automations')}>{t('ne pas toucher', 'do not touch')}</Badge>}
                     </div>
                   );
@@ -224,19 +231,19 @@ function BusySchedule({ code }: { code: string }) {
           <div key={w.id ?? `new-${i}`} className="space-y-3 rounded-lg border border-line p-4">
             <Group label={t('Jours de la plage', 'Days of the window')}><Chips size="lg" disabled={!editable} value={w.days} onChange={(d) => editable && patch(i, { days: w.days.includes(d) ? w.days.filter((x) => x !== d) : [...w.days, d] })} options={DAYS.map((d) => ({ value: d, label: dayShort(t, d) }))} /></Group>
             <div className="flex flex-wrap items-center gap-3">
-              <label className="flex items-center gap-2 text-sm font-semibold text-ink-2">{t('de', 'from')}<Input type="time" className="h-11 w-32 text-base" value={w.start} disabled={!editable} onChange={(e) => patch(i, { start: e.target.value })} /></label>
-              <label className="flex items-center gap-2 text-sm font-semibold text-ink-2">{t('à', 'to')}<Input type="time" className="h-11 w-32 text-base" value={w.end} disabled={!editable} onChange={(e) => patch(i, { end: e.target.value })} /></label>
-              {w.end && w.start && toMin(w.end) < toMin(w.start) && <span className="text-xs text-ink-3">{t('finit le lendemain', 'ends the next day')}</span>}
+              <label className="flex items-center gap-2 text-body font-semibold text-ink-2">{t('de', 'from')}<Input type="time" className="h-11 w-32 text-base" value={w.start} disabled={!editable} onChange={(e) => patch(i, { start: e.target.value })} /></label>
+              <label className="flex items-center gap-2 text-body font-semibold text-ink-2">{t('à', 'to')}<Input type="time" className="h-11 w-32 text-base" value={w.end} disabled={!editable} onChange={(e) => patch(i, { end: e.target.value })} /></label>
+              {w.end && w.start && toMin(w.end) < toMin(w.start) && <span className="text-small text-ink-3">{t('finit le lendemain', 'ends the next day')}</span>}
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <span className="text-sm font-semibold text-ink-2">{t('Minutes en plus', 'Extra minutes')}</span>
+              <span className="text-body font-semibold text-ink-2">{t('Minutes en plus', 'Extra minutes')}</span>
               <Group label={t('Minutes en plus', 'Extra minutes')}><Chips disabled={!editable} value={w.extraMin} onChange={(m) => editable && patch(i, { extraMin: m })} options={[5, 10, 15, 20, 30, 45, 60].map((m) => ({ value: m, label: `+${m}` }))} /></Group>
               <span className="flex-1" />
               {editable && <Button variant="ghost" icon={<Trash2 className="size-4" />} onClick={() => setWindows(windows.filter((_, j) => j !== i))}>{t('Retirer', 'Remove')}</Button>}
             </div>
           </div>
         ))}
-        {!windows.length && <p className="text-sm text-ink-3">{t('Aucune plage. Exemple : vendredi et samedi de 17 h à 20 h, +10 min.', 'No window. Example: Friday and Saturday 5 pm to 8 pm, +10 min.')}</p>}
+        {!windows.length && <p className="text-body text-ink-3">{t('Aucune plage. Exemple : vendredi et samedi de 17 h à 20 h, +10 min.', 'No window. Example: Friday and Saturday 5 pm to 8 pm, +10 min.')}</p>}
         {error && <Banner tone="stop">{error}</Banner>}
         {editable && (
           <div className="flex flex-wrap gap-2">
@@ -269,13 +276,13 @@ function WeekGrid({ windows }: { windows: DraftWindow[] }) {
     <div className="space-y-1.5" role="img" aria-label={`${t('Semaine du calendrier occupé', 'Busy schedule week')} : ${summary || t('aucune plage', 'no window')}`}>
       {DAYS.map((d) => (
         <div key={d} className="flex items-center gap-2">
-          <span className="w-10 text-xs font-semibold text-ink-2">{dayShort(t, d)}</span>
+          <span className="w-10 text-small font-semibold text-ink-2">{dayShort(t, d)}</span>
           <div className="relative h-6 flex-1 rounded bg-sunken">
             {bars[d].map(([a, b], i) => <span key={i} className="absolute inset-y-0 rounded bg-stop" style={{ left: `${(a / 1440) * 100}%`, width: `${((b - a) / 1440) * 100}%` }} />)}
           </div>
         </div>
       ))}
-      <div className="flex justify-between pl-12 text-[11px] text-ink-3"><span>0 h</span><span>6 h</span><span>12 h</span><span>18 h</span><span>{t('minuit', 'midnight')}</span></div>
+      <div className="flex justify-between pl-12 text-micro text-ink-3"><span>0 h</span><span>6 h</span><span>12 h</span><span>18 h</span><span>{t('minuit', 'midnight')}</span></div>
     </div>
   );
 }
@@ -314,15 +321,15 @@ function GuardSettings({ code }: { code: string }) {
       <div className="space-y-5 px-5 pb-5">
         <Banner tone="warn">{t('Attention : une fois activée, la garde met vos magasins en pause automatiquement, pour une durée limitée. Elle rouvre seulement ce qu’elle a mis en pause, dès qu’une tablette revient. Les magasins « ne pas toucher » ne sont jamais touchés.', 'Careful: once on, the guard pauses your stores automatically, for a limited time. It reopens only what it paused, as soon as a tablet is back. “Do not touch” stores are never touched.')}</Banner>
         <Switch checked={cfg.enabled} disabled={!editable} onChange={(v) => set({ enabled: v })} label={t('Activer la garde pour cette cuisine', 'Turn on the guard for this kitchen')} description={t('Éteinte par défaut.', 'Off by default.')} />
-        <div><div className="mb-2 text-sm font-semibold text-ink-2">{t('Tablettes éteintes depuis', 'Tablets off for')}</div>
+        <div><div className="mb-2 text-body font-semibold text-ink-2">{t('Tablettes éteintes depuis', 'Tablets off for')}</div>
           <Group label={t('Tablettes éteintes depuis', 'Tablets off for')}><Chips size="lg" disabled={!editable} value={cfg.graceMin} onChange={(v) => editable && set({ graceMin: v })} options={[3, 5, 10, 15, 30].map((m) => ({ value: m, label: `${m} min` }))} /></Group></div>
-        <div><div className="mb-2 text-sm font-semibold text-ink-2">{t('Durée de la pause (prolongée tant que les tablettes restent éteintes)', 'Pause length (extended while the tablets stay off)')}</div>
+        <div><div className="mb-2 text-body font-semibold text-ink-2">{t('Durée de la pause (prolongée tant que les tablettes restent éteintes)', 'Pause length (extended while the tablets stay off)')}</div>
           <Group label={t('Durée de la pause', 'Pause length')}><Chips size="lg" disabled={!editable} value={cfg.pauseMin} onChange={(v) => editable && set({ pauseMin: v })} options={[15, 30, 60, 90, 120].map((m) => ({ value: m, label: durationText(m) }))} /></Group></div>
-        <div><div className="mb-2 text-sm font-semibold text-ink-2">{t('Plateformes à mettre en pause', 'Platforms to pause')}</div>
+        <div><div className="mb-2 text-body font-semibold text-ink-2">{t('Plateformes à mettre en pause', 'Platforms to pause')}</div>
           <Group label={t('Plateformes à mettre en pause', 'Platforms to pause')}><Chips size="lg" disabled={!editable} value={cfg.channels} onChange={(c) => editable && set({ channels: cfg.channels.includes(c) ? cfg.channels.filter((x) => x !== c) : [...cfg.channels, c] })} options={CHANNELS.map((c) => ({ value: c, label: CHANNEL_NAME[c] }))} /></Group></div>
-        {state && state.storeIds.length > 0 && <Banner tone="info">{t(`La garde a ${state.storeIds.length} magasin(s) en pause jusqu’à ${hubTime(new Date(state.untilMs).toISOString(), loc, tz)}.`, `The guard has ${state.storeIds.length} store(s) paused until ${hubTime(new Date(state.untilMs).toISOString(), loc, tz)}.`)}</Banner>}
-        {state && (state.blocked ?? 0) > 0 && <Banner tone="stop">{t(`${state.blocked} magasin(s) non mis en pause : non envoyé (connexion live éteinte ou refusée).`, `${state.blocked} store(s) not paused: not sent (live connection off or refused).`)}</Banner>}
-        {state && (state.failed ?? 0) > 0 && <Banner tone="stop">{t(`${state.failed} magasin(s) non mis en pause : la plateforme a refusé ou n’a pas répondu. La garde réessaie toutes les ${cfg.pauseMin / 2} min.`, `${state.failed} store(s) not paused: the platform refused or did not answer. The guard tries again every ${cfg.pauseMin / 2} min.`)}</Banner>}
+        {state && state.storeIds.length > 0 && <Banner tone="info">{t(`La garde a ${countFr(state.storeIds.length, 'magasin')} en pause jusqu’à ${hubTime(new Date(state.untilMs).toISOString(), loc, tz)}.`, `The guard has ${countEn(state.storeIds.length, 'store')} paused until ${hubTime(new Date(state.untilMs).toISOString(), loc, tz)}.`)}</Banner>}
+        {state && (state.blocked ?? 0) > 0 && <Banner tone="stop">{t(`${countFr(state.blocked, 'magasin')} non mis en pause : rien n’a été envoyé (la connexion à la plateforme est éteinte ou a refusé).`, `${countEn(state.blocked, 'store')} not paused: nothing was sent (the platform connection is off or refused).`)}</Banner>}
+        {state && (state.failed ?? 0) > 0 && <Banner tone="stop">{t(`${countFr(state.failed, 'magasin')} non mis en pause : la plateforme a refusé ou n’a pas répondu. La garde réessaie toutes les ${cfg.pauseMin / 2} min.`, `${countEn(state.failed, 'store')} not paused: the platform refused or did not answer. The guard tries again every ${cfg.pauseMin / 2} min.`)}</Banner>}
         {editable && <Button variant="brand" size="lg" loading={saving} disabled={!cfg.channels.length} onClick={() => save(cfg)}>{t('Enregistrer', 'Save')}</Button>}
       </div>
     </Card>
@@ -359,7 +366,7 @@ function SpecialDays({ kitchen }: { kitchen: string }) {
     try {
       const codes = where === 'all' && allLocations ? [] : [kitchen || locations[0]?.code].filter(Boolean);
       const r = await api<{ added: Array<{ name: string }>; skipped: Array<{ id: string }> }>('/api/foodhub/store-availability/special-days', { method: 'POST', json: { ids: chosen, year, locationCodes: codes, ...(closed ? { closed: true } : { slots: [{ open, close }] }) } });
-      setDone(t(`${r.added.length} jour(s) ajouté(s)${r.skipped.length ? `, ${r.skipped.length} déjà présent(s)` : ''}.`, `${r.added.length} day(s) added${r.skipped.length ? `, ${r.skipped.length} already there` : ''}.`));
+      setDone(t(`${countFr(r.added.length, 'jour ajouté', 'jours ajoutés')}${r.skipped.length ? `, ${countFr(r.skipped.length, 'déjà présent', 'déjà présents')}` : ''}.`, `${countEn(r.added.length, 'day')} added${r.skipped.length ? `, ${r.skipped.length} already there` : ''}.`));
       setChosen([]);
       await load();
     } catch (e) { if (!cancelled(e)) toast.error(errText(t, e)); } finally { setSaving(false); }
@@ -377,8 +384,8 @@ function SpecialDays({ kitchen }: { kitchen: string }) {
               <div key={p.id} className="flex min-h-12 flex-wrap items-center gap-3 px-4 py-2.5">
                 <Checkbox checked={chosen.includes(p.id)} disabled={!editable} onChange={(v) => setChosen(v ? [...chosen, p.id] : chosen.filter((x) => x !== p.id))}
                   label={<span className="font-semibold">{t(p.nameFr, p.nameEn)}</span>} />
-                <span className="text-sm text-ink-2">{new Date(`${p.date}T12:00:00`).toLocaleDateString(loc, { weekday: 'long', day: 'numeric', month: 'long' })}</span>
-                <span className="flex-1 text-xs text-ink-3">{pick(t, p.suggestion)}</span>
+                <span className="text-body text-ink-2">{new Date(`${p.date}T12:00:00`).toLocaleDateString(loc, { weekday: 'long', day: 'numeric', month: 'long' })}</span>
+                <span className="flex-1 text-small text-ink-3">{pick(t, p.suggestion)}</span>
                 {p.existing.length > 0 && <Badge tone="go">{p.existing[0].closed ? t('déjà : fermé', 'already: closed') : t('déjà ajouté', 'already added')}</Badge>}
               </div>
             ))}
@@ -390,15 +397,15 @@ function SpecialDays({ kitchen }: { kitchen: string }) {
               <Group label={t('Ce jour-là', 'That day')}><Chips size="lg" value={closed ? 'closed' : 'hours'} onChange={(v) => setClosed(v === 'closed')} options={[{ value: 'hours', label: t('Heures spéciales', 'Special hours') }, { value: 'closed', label: t('Fermé', 'Closed') }]} /></Group>
               {!closed && <>
                 <Input type="time" className="h-11 w-32 text-base" value={open} onChange={(e) => setOpen(e.target.value)} aria-label={t('Ouverture', 'Opening')} />
-                <span className="text-sm text-ink-3">{t('à', 'to')}</span>
+                <span className="text-body text-ink-3">{t('à', 'to')}</span>
                 <Input type="time" className="h-11 w-32 text-base" value={close} onChange={(e) => setClose(e.target.value)} aria-label={t('Fermeture', 'Closing')} />
               </>}
             </div>
-            {closed && <p className="text-sm text-ink-2">{t('Skip : mis hors ligne automatiquement ce jour-là (jusqu’à minuit), sans publication. Les autres plateformes reçoivent la fermeture à la prochaine publication.', 'Skip: taken offline automatically that day (until midnight), with no publish. The other platforms get the closure with the next publish.')}</p>}
+            {closed && <p className="text-body text-ink-2">{t('Skip : mis hors ligne automatiquement ce jour-là (jusqu’à minuit), sans publication. Les autres plateformes reçoivent la fermeture à la prochaine publication.', 'Skip: taken offline automatically that day (until midnight), with no publish. The other platforms get the closure with the next publish.')}</p>}
             {allLocations && locations.length > 1 && (
               <Group label={t('Pour quelles cuisines', 'For which kitchens')}><Chips value={where} onChange={setWhere} options={[{ value: 'all', label: t('Toutes les cuisines', 'Every kitchen') }, { value: 'one', label: t(`Seulement ${shortLoc(locations.find((l) => l.code === kitchen)?.name ?? kitchen)}`, `Only ${shortLoc(locations.find((l) => l.code === kitchen)?.name ?? kitchen)}`) }]} /></Group>
             )}
-            <Button variant="brand" size="lg" loading={saving} disabled={!chosen.length} onClick={add}>{t(`Ajouter ${chosen.length || ''} jour(s)`, `Add ${chosen.length || ''} day(s)`)}</Button>
+            <Button variant="brand" size="lg" loading={saving} disabled={!chosen.length} onClick={add}>{t(chosen.length ? `Ajouter ${countFr(chosen.length, 'jour')}` : 'Ajouter', chosen.length ? `Add ${countEn(chosen.length, 'day')}` : 'Add')}</Button>
           </>
         )}
         {done && <Banner tone="go" action={<ButtonLink href="/stores/hours" variant="brand">{t('Publier sur les plateformes', 'Publish to platforms')}</ButtonLink>}>{done} {t('Publiez depuis Heures d’ouverture pour les envoyer aux plateformes.', 'Publish from Opening hours to send them to the platforms.')}</Banner>}
@@ -446,7 +453,7 @@ function History() {
   return (
     <Card>
       <CardHeader title={t('Historique des statuts', 'Status history')} subtitle={t('Pauses, reprises, changements des plateformes, mode occupé, fériés et garde, avec la raison et le résultat.', 'Pauses, resumes, platform changes, busy mode, holidays and the guard, with the reason and the result.')}
-        right={<a className="inline-flex h-11 items-center gap-2 rounded-lg border border-line-2 px-4 text-sm font-semibold text-ink hover:bg-raised" href={`/api/foodhub/store-availability/history?${query}&format=csv`}><Download className="size-4" />CSV</a>} />
+        right={<a className="inline-flex h-11 items-center gap-2 rounded-lg border border-line-2 px-4 text-body font-semibold text-ink hover:bg-raised" href={`/api/foodhub/store-availability/history?${query}&format=csv`}><Download className="size-4" />CSV</a>} />
       <div className="flex flex-wrap items-center gap-3 px-5 pb-4">
         <Group label={t('Période', 'Period')}><Chips value={days} onChange={setDays} options={[{ value: 1, label: t('1 jour', '1 day') }, { value: 7, label: t('7 jours', '7 days') }, { value: 30, label: t('30 jours', '30 days') }, { value: 90, label: t('90 jours', '90 days') }]} /></Group>
         {locations.length > 1 && <Select value={location} onChange={(e) => setLocation(e.target.value)} aria-label={t('Cuisine', 'Kitchen')}><option value="">{t('Toutes les cuisines', 'Every kitchen')}</option>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select>}
@@ -475,7 +482,7 @@ function History() {
           </tbody>
         </Table>
       )}
-      {rows && total > rows.length && !truncated && <p className="px-5 py-3 text-xs text-ink-3">{t(`${rows.length} lignes affichées sur ${total} : le CSV les contient toutes.`, `${rows.length} of ${total} lines shown: the CSV has them all.`)}</p>}
+      {rows && total > rows.length && !truncated && <p className="px-5 py-3 text-small text-ink-3">{t(`${rows.length} lignes affichées sur ${total} : le CSV les contient toutes.`, `${rows.length} of ${total} lines shown: the CSV has them all.`)}</p>}
       {rows && truncated && <div className="px-5 py-3"><Banner tone="warn">{t('Limité aux 5000 derniers événements : les plus anciens de la période manquent, ici et dans le CSV. Réduisez la période ou choisissez une cuisine.', 'Limited to the latest 5000 events: the oldest of the period are missing, here and in the CSV. Narrow the period or pick a kitchen.')}</Banner></div>}
     </Card>
   );

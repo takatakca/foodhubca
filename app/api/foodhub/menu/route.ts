@@ -32,6 +32,8 @@ const itemSchema = z.object({
   tags: z.array(z.string().max(40)).max(20).optional(), allergens: z.array(z.string().max(60)).max(40).optional(), calories: z.number().min(0).max(100_000).optional(),
   price, imageUrl: text(2000), categoryRef: ref, available: z.boolean().default(true), posItemRef: text(120), note: text(500),
   channelPrices: z.partialRecord(marketplace, price).optional(), uberTaxClass: z.enum(UBER_TAX_CLASS_KEYS).optional(), modifierGroupRefs: z.array(z.string().max(120)).max(50).default([]),
+  // Québec tax code on the Revenu Québec invoice (Takatak MEV): FP (default), F, P or NON.
+  mevTax: z.enum(['FP', 'F', 'P', 'NON']).optional(),
 });
 // Platform markups: percentage added to every price on that platform (-50 … 200). Clover holds the in-store price.
 const markupSchema = z.partialRecord(z.enum(['uber_eats', 'doordash', 'skip']), z.number().finite().min(-50).max(200)).optional();

@@ -7,7 +7,8 @@
   flow, Food Hub reuse), ROADMAP (P0 / P1 / P2, acceptance checks, App Market checklist), OWNER_DECISIONS (11, FR+EN).
 - Verdict: staff picture register first, as a Kotlin Android APK on the Clover device (web apps cannot be the register
   screen); French-first kiosk second (Clover Kiosk is English only and not offered in Québec). Blocker to clear before
-  any Québec sale: Revenu Québec SRM / WEB-SRM (two Clover MEV apps are already certified). Draft conflict: leave
+  any Québec sale: Revenu Québec SRM / WEB-SRM (two third-party MEV apps for Clover, by Pulsar informatique and
+  15535743 Canada inc., are certified; a register that takes the order is probably part of the SRS). Draft conflict: leave
   "on2go" (N4NYCJCZ17FF4) to the free ON2GO app, new Android record for the register (decision 2).
 - Fact-check pass (PR #98 review, same day): SRM reading made cautious (RQ puts order entry in the certified SRS, so
   the register is assumed part of the SRS until RQ says otherwise; MEV vendor questions; A15 receipt check; per-MEV

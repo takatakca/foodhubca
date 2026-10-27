@@ -19,6 +19,7 @@ const PUBLIC_PREFIXES = [
   '/api/foodhub/clover-connect/phone/callback', // AI phone Clover app's OAuth callback (same rule as Food Hub's; 404 until its App ID is set)
   '/api/foodhub/clover-connect/mev/callback', // TAKATAK MEV Clover app's OAuth callback (same rule; 404 until its App ID is set)
   '/api/foodhub/mev/clover-device/', // TAKATAK MEV device app: the merchant's own Clover token is the credential, checked with Clover (mev/clover-device.ts)
+  '/api/foodhub/mev/clover-merchant', // TAKATAK MEV welcome page "check my set-up": the signed TAKATAK MEV welcome ticket is the credential (mev/clover-merchants.ts)
   '/api/foodhub/auth/', '/api/foodhub/devices/heartbeat',
   '/api/auth/google/', // "Continue with Google": the state + PKCE cookie and Google's verified id_token are the credential (lib/foodhub/identity/google.ts)
   // No blanket /api/public/ exemption: only explicitly reviewed read-only routes are public (PUBLIC_PATHS below).

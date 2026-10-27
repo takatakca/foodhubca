@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { legalInfo } from '@/lib/foodhub/legal';
+import { mevMerchantSetup } from '@/lib/foodhub/mev/clover-merchants';
 import { onboardingSteps } from '@/lib/foodhub/onboarding';
 import { cloverApp } from '@/lib/foodhub/pos/clover-apps';
 import { CLOVER_CONNECT_ERRORS, cloverWebUrl, cloverWelcome, type CloverConnectError } from '@/lib/foodhub/pos/clover-oauth';
@@ -37,6 +38,10 @@ export default async function CloverWelcomePage({ searchParams }: { searchParams
   const steps = canSetup && state === 'connected' && app === 'foodhub'
     ? await onboardingSteps({ merchantId: welcome?.merchantId ?? null, viewerHasPin: viewer?.hasPin }).catch(() => null)
     : null;
+  // TAKATAK MEV from the App Market: the merchant's own self-serve set-up (its location code, read live from Takatak MEV).
+  const mevSetup = app === 'mev' && state === 'connected' && welcome
+    ? await mevMerchantSetup(welcome.merchantId, welcome.name).catch(() => null)
+    : null;
   const here = `/welcome/clover${ticket ? `?t=${encodeURIComponent(ticket)}` : ''}`;
 
   const data: WelcomeData = {
@@ -52,6 +57,7 @@ export default async function CloverWelcomePage({ searchParams }: { searchParams
     cloverUrl: cloverWebUrl(),
     support: { email: info.supportEmail, phone: info.supportPhone, hours: info.supportHours },
     ...(app !== 'foodhub' ? { app, appName: cloverApp(app).name } : {}),
+    ...(mevSetup ? { mevSetup } : {}),
   };
   // The Clover landing matches the Clover listing ("TAKATAK Food Hub"), whatever the console is called.
   return <KeepProductNames><WelcomeView data={data} /></KeepProductNames>;

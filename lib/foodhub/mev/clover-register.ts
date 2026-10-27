@@ -79,11 +79,23 @@ export function registerTableTypes(env: NodeJS.ProcessEnv = process.env): RegExp
 }
 
 /**
- * The kitchen whose SEV device numbers this merchant's register sales. Never guessed (a sale numbered on the wrong
- * device is a wrong fiscal record): FOODHUB_MEV_REGISTER_LOCATION (one code, or JSON per merchant), else the one
- * kitchen whose stores use this Clover merchant. Several kitchens and no setting → null.
+ * The place whose SEV device numbers this merchant's register sales. Never guessed (a sale numbered on the wrong
+ * device is a wrong fiscal record): a Food Hub kitchen (kitchenPlace), else the merchant's own location once it set
+ * itself up in Takatak MEV (App Market, clover-merchants.ts). Neither → null.
  */
 export async function registerPlace(mid: string): Promise<{ locationCode: string; brandName?: string } | null> {
+  const kitchen = await kitchenPlace(mid);
+  if (kitchen) return kitchen;
+  const { getMevMerchant } = await import('./clover-merchants');
+  const own = await getMevMerchant(mid);
+  return own?.status === 'active' ? { locationCode: own.locationCode } : null;
+}
+
+/**
+ * The Food Hub kitchen of this merchant: FOODHUB_MEV_REGISTER_LOCATION (one code, or JSON per merchant), else the one
+ * kitchen whose stores use this Clover merchant. Several kitchens and no setting → null.
+ */
+export async function kitchenPlace(mid: string): Promise<{ locationCode: string; brandName?: string } | null> {
   const catalog = await getCatalog();
   const valid = new Set(catalog.locations.map((l) => l.code));
   const stores = await getRepo().listStores();
@@ -164,8 +176,12 @@ async function warnUnplaced(mid: string) {
   const last = await repo.getKv<number>(UNPLACED_KEY(mid)).catch(() => null);
   if (last && Date.now() - last < 3600_000) return;
   await repo.setKv(UNPLACED_KEY(mid), Date.now());
+  const { getMevMerchant } = await import('./clover-merchants');
+  const own = await getMevMerchant(mid);
   await logActivity({ actor: 'Food Hub', source: 'automation', kind: 'settings', action: 'mev_register_unplaced', status: 'failed',
-    summary: `Clover register sales of merchant ${mid} are NOT invoiced: Food Hub cannot tell which kitchen's SEV device numbers them. Set FOODHUB_MEV_REGISTER_LOCATION.` });
+    summary: own
+      ? `Clover register sales of merchant ${mid} are NOT invoiced yet: its TAKATAK MEV set-up is not finished in Takatak MEV (location ${own.locationCode}, welcome page steps).`
+      : `Clover register sales of merchant ${mid} are NOT invoiced: Food Hub cannot tell which kitchen's SEV device numbers them. Set FOODHUB_MEV_REGISTER_LOCATION.` });
 }
 
 /**
@@ -327,6 +343,9 @@ export async function tickCloverRegister(now = Date.now()): Promise<{ ran: boole
     const last = await repo.getKv<number>(TICK_KEY).catch(() => null);
     if (last && now - last < pollMs()) return { ran: false };
     await repo.setKv(TICK_KEY, now);
+    // App Market merchants that finished their Takatak MEV set-up since the last run are invoiced from this run on.
+    const { activateWaitingMevMerchants } = await import('./clover-merchants');
+    await activateWaitingMevMerchants().catch((e) => console.error('[foodhub] TAKATAK MEV merchant check failed', e instanceof Error ? e.message : e));
     let recorded = 0;
     const merchants = new Set(await allCloverMerchants((await repo.listStores()).map((s) => s.cloverMerchantId)));
     if (cloverMevAppEnabled()) for (const mid of await connectedCloverMerchantIds('mev').catch(() => [])) merchants.add(mid);

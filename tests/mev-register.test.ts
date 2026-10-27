@@ -12,7 +12,11 @@ import { saveLocation } from '../lib/foodhub/catalog';
 import {
   cloverRegisterEnabled, getRegisterSale, handleCloverRegisterEvents, ingestRegisterOrder, isRegisterOrder, pollCloverRegister, registerFacts, registerSaleId,
 } from '../lib/foodhub/mev/clover-register';
-import { setSevOfRecord } from '../lib/foodhub/mev/config';
+import {
+  activateWaitingMevMerchants, APP_MARKET_CODE, getMevMerchant, isActiveMerchantLocation, mevMerchantByCode, mevMerchantSetup, newMerchantLocationCode,
+} from '../lib/foodhub/mev/clover-merchants';
+import { mevGate, setSevOfRecord } from '../lib/foodhub/mev/config';
+import { signWelcome } from '../lib/foodhub/session';
 import { registerBaseKey } from '../lib/foodhub/mev/hooks';
 import { registerTender, toMevSaleFromRegister } from '../lib/foodhub/mev/map';
 import { jobsFor, settleMevKicks } from '../lib/foodhub/mev/outbox';
@@ -74,10 +78,11 @@ function env() {
 /** Clover REST answers from `clover` (orders), with one order type and the tenders. */
 async function fakeClover(input: any): Promise<Response> {
   const url = new URL(String(typeof input === 'string' ? input : input.url));
-  const path = url.pathname.replace(`/v3/merchants/${MID}/`, '');
+  const root = url.pathname.match(/^\/v3\/merchants\/([^/]+)\/?(.*)$/);
+  const path = root?.[2] ?? '';
   const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
-  if (url.pathname === `/v3/merchants/${MID}`) {
-    return json(200, { id: MID, name: 'Resto test' });
+  if (root && !path) {
+    return json(200, { id: root[1], name: 'Resto test' });
   }
   if (path === 'order_types') return json(200, { elements: [{ id: 'OT1', label: 'Sur place' }, { id: 'OT2', label: 'Online Order Pick Up' }] });
   if (path === 'tenders') return json(200, { elements: [{ id: 'T1', label: 'Cash' }] });
@@ -374,5 +379,97 @@ describe('TAKATAK MEV Clover app webhook', () => {
     clover.set('ORDERREG0009', cloverOrder('ORDERREG0009'));
     expect((await POST(hook(body, 'mev-hook-auth') as any)).status).toBe(200);
     await vi.waitFor(async () => expect((await getRegisterSale(registerSaleId(MID, 'ORDERREG0009')))?.mev?.status).toBe('accepted'), { timeout: 5000 });
+  });
+});
+
+describe('TAKATAK MEV from the App Market: a merchant sets itself up (no Food Hub kitchen)', () => {
+  const AM = 'MIDAPPMARKET1';
+  /** The locations the QCMEV stand-in reports linked and ready (its /health) and accepts sales for. */
+  let ready: string[];
+  const check = (t: string | null) => new Request('http://foodhub.test/api/foodhub/mev/clover-merchant', { method: 'POST', body: JSON.stringify({ t }), headers: { 'content-type': 'application/json' } });
+  beforeEach(async () => {
+    env();
+    process.env.CLOVER_MEV_APP_ID = 'MEVAPPID000001';
+    process.env.CLOVER_MEV_APP_SECRET = 'mev-secret';
+    process.env.SESSION_SECRET = 'mev-register-test-session-secret-0123456';
+    process.env.FOODHUB_MEV_DASHBOARD_URL = 'https://mev.example.test';
+    ready = ['E2E_A'];
+    mock = createMockQcmev({ secret: SECRET, tenant: 'takatak', locations: ready });
+    globalThis.fetch = vi.fn(mockQcmevFetch(mock, QCMEV, fakeClover)) as any;
+    // An approved TAKATAK MEV install (Clover → Food Hub OAuth), nothing else: no Food Hub store uses this merchant.
+    await getRepo().setKv('clover_oauth_merchants:mev', { [AM]: { merchantId: AM, name: 'Resto App Market', accessToken: 'AM-token', accessTokenExpiration: Math.floor(Date.now() / 1000) + 3600, connectedAt: '2026-10-27T00:00:00.000Z', status: 'active', appId: 'MEVAPPID000001' } });
+  });
+  afterEach(() => { for (const k of ['CLOVER_MEV_APP_ID', 'CLOVER_MEV_APP_SECRET', 'SESSION_SECRET', 'FOODHUB_MEV_DASHBOARD_URL']) delete process.env[k]; });
+
+  it('its own code (80 random bits) — no invoice until Takatak MEV says it is ready, then every register sale', async () => {
+    const codes = new Set(Array.from({ length: 200 }, () => newMerchantLocationCode()));
+    expect(codes.size).toBe(200);
+    for (const c of codes) expect(c).toMatch(APP_MARKET_CODE);
+
+    const setup = await mevMerchantSetup(AM, 'Resto App Market');
+    expect(setup).toMatchObject({ open: true, tenantId: 'takatak', status: 'waiting', testMode: true });
+    const code = setup.locationCode!;
+    expect(code).toMatch(APP_MARKET_CODE);
+    expect(setup.signUpUrl).toBe(`https://mev.example.test/register?tenant=takatak&fh=${code}`);
+    expect((await mevMerchantSetup(AM)).locationCode).toBe(code); // the same code on every visit
+
+    // Paid at the register, set-up not finished in Takatak MEV: nothing numbered, nothing sent.
+    clover.set('AMORDER00001', cloverOrder('AMORDER00001'));
+    expect(await ingestRegisterOrder(AM, clover.get('AMORDER00001'))).toBeNull();
+    expect(await mevGate(code)).toMatchObject({ active: false, reason: 'not_allowlisted' });
+    expect(await activateWaitingMevMerchants()).toBe(0);
+    await settleMevKicks();
+    expect(posts().length).toBe(0);
+
+    // The merchant linked its code to its certified device in Takatak MEV: the next check turns it on.
+    ready.push(code);
+    (globalThis as any).__mevHealth = undefined;
+    expect(await activateWaitingMevMerchants()).toBe(1);
+    expect(await getMevMerchant(AM)).toMatchObject({ status: 'active', ready: { linked: true, deviceReady: true, certReady: true, usersReady: true } });
+    expect(await mevGate(code)).toMatchObject({ active: true, mode: 'simulator' });
+
+    const sale = await ingestRegisterOrder(AM, clover.get('AMORDER00001'));
+    expect(sale?.locationCode).toBe(code);
+    await settleMevKicks();
+    expect(posts().length).toBe(1);
+    expect(posts()[0].body).toMatchObject({ locationId: code, source: { model: 'pos', channel: 'clover_pos' }, testMode: true });
+    expect((await getRegisterSale(registerSaleId(AM, 'AMORDER00001')))?.mev?.status).toBe('accepted');
+  });
+
+  it('a guessed or another merchant\'s code opens nothing', async () => {
+    const setup = await mevMerchantSetup(AM);
+    expect(await isActiveMerchantLocation(`CLV_${'A'.repeat(16)}`)).toBe(false);
+    expect(await mevMerchantByCode(`CLV_${'A'.repeat(16)}`)).toBeNull();
+    expect(await mevMerchantByCode('E2E_A')).toBeNull();
+    expect((await mevMerchantByCode(setup.locationCode!))?.merchantId).toBe(AM);
+    expect(await isActiveMerchantLocation(setup.locationCode!)).toBe(false); // waiting
+  });
+
+  it('the welcome page check: only an approved merchant\'s TAKATAK MEV ticket; it turns the merchant on', async () => {
+    const { POST } = await import('../app/api/foodhub/mev/clover-merchant/route');
+    expect((await POST(check(await signWelcome(AM)) as any)).status).toBe(401); // a Food Hub ticket
+    expect((await POST(check(await signWelcome('MIDNOTAPPROVED1', undefined, 'mev')) as any)).status).toBe(403);
+    const t = await signWelcome(AM, undefined, 'mev');
+    let res = await POST(check(t) as any);
+    expect(res.status).toBe(200);
+    const first = (await res.json()).setup;
+    expect(first).toMatchObject({ open: true, status: 'waiting', ready: { linked: false } });
+    ready.push(first.locationCode);
+    (globalThis as any).__mevHealth = undefined;
+    res = await POST(check(t) as any);
+    expect((await res.json()).setup).toMatchObject({ status: 'active', locationCode: first.locationCode });
+  });
+
+  it('a merchant that is already a Food Hub kitchen has no set-up to do (its kitchen numbers its sales)', async () => {
+    await saveLocation({ code: 'E2E_A', name: 'Cuisine A (test)', address: '1 rue Exemple', active: true });
+    await getRepo().upsertStore({ channel: 'uber_eats', channelStoreId: 'store-am', brandName: 'Po Poulet', locationCode: 'E2E_A', cloverMerchantId: AM, autoAccept: true, online: true, meta: {} });
+    expect(await mevMerchantSetup(AM)).toMatchObject({ open: true, kitchen: true });
+    expect(await getMevMerchant(AM)).toBeNull();
+  });
+
+  it('closed while FOODHUB_MEV_CLOVER_REGISTER is off: no code is handed out', async () => {
+    delete process.env.FOODHUB_MEV_CLOVER_REGISTER;
+    expect(await mevMerchantSetup(AM)).toMatchObject({ open: false });
+    expect(await getMevMerchant(AM)).toBeNull();
   });
 });

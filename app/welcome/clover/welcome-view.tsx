@@ -10,6 +10,7 @@ import { TakatakMark } from '@/components/brand/takatak-mark';
 import { buttonClass } from '@/components/ui/button';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
+import type { MevMerchantSetup } from '@/lib/foodhub/mev/clover-merchants';
 import type { CloverBilling, CloverMerchantProfile } from '@/lib/foodhub/pos/clover-oauth';
 import type { OnboardingKey, OnboardingStep } from '@/lib/foodhub/onboarding';
 
@@ -30,6 +31,8 @@ export interface WelcomeData {
   /** Which Clover app was opened (absent = TAKATAK Food Hub) and its listing name. */
   app?: 'foodhub' | 'phone' | 'mev';
   appName?: string;
+  /** TAKATAK MEV: the merchant's own self-serve set-up in Takatak MEV (lib/foodhub/mev/clover-merchants.ts). */
+  mevSetup?: MevMerchantSetup;
 }
 
 type T = (fr: string, en: string) => string;
@@ -77,6 +80,7 @@ export function WelcomeView({ data }: { data: WelcomeData }) {
           {data.merchant && data.state !== 'gone' && <RegisterCard data={data} t={t} lang={lang} />}
           {(!data.app || data.app === 'foodhub') && (data.state === 'connected' || data.state === 'pending') && <Steps data={data} t={t} />}
           {(!data.app || data.app === 'foodhub') && data.state === 'connected' && data.ticket && <TestOrder ticket={data.ticket} t={t} />}
+          {data.app === 'mev' && data.state === 'connected' && data.ticket && data.mevSetup?.open && !data.mevSetup.kitchen && <MevSetup ticket={data.ticket} initial={data.mevSetup} t={t} />}
           <Help data={data} t={t} lang={lang} />
         </div>
       </main>
@@ -171,6 +175,10 @@ function StatusHero({ data, t }: { data: WelcomeData; t: T }) {
   const body = {
     connected: data.app === 'phone'
       ? t('L’IA répondra aux appels de ce restaurant : la commande payée arrivera dans Clover et s’imprimera à la cuisine.', 'The AI will answer this restaurant’s calls: the paid order will land in Clover and print in the kitchen.')
+      : data.app === 'mev' && data.mevSetup?.kitchen
+      ? t('Votre caisse est reliée à TAKATAK MEV. Ses ventes reçoivent leur facture par votre cuisine Food Hub : rien d’autre à faire ici.', 'Your register is linked to TAKATAK MEV. Its sales get their invoice through your Food Hub kitchen: nothing else to do here.')
+      : data.app === 'mev' && data.mevSetup?.open
+      ? t('Votre caisse est reliée à TAKATAK MEV. Suivez les 3 étapes ci-dessous pour que ses ventes reçoivent leur facture Revenu Québec.', 'Your register is linked to TAKATAK MEV. Follow the 3 steps below so its sales get their Revenu Québec invoice.')
       : data.app === 'mev'
       ? t('Votre caisse est reliée à TAKATAK MEV. Avant la première facture Revenu Québec, l’équipe TAKATAK configure votre dossier (NEQ, code d’autorisation, certificat) et active votre caisse : nous vous contactons.', 'Your register is linked to TAKATAK MEV. Before the first Revenu Québec invoice, the TAKATAK team sets up your file (NEQ, authorization code, certificate) and turns your register on: we will contact you.')
       : t('Les commandes de livraison de ce restaurant arriveront dans Clover, s’imprimeront à la cuisine et se fermeront payées.', 'This restaurant’s delivery orders will land in Clover, print in the kitchen and close as paid.'),
@@ -419,6 +427,109 @@ function TestOrder({ ticket, t }: { ticket: string; t: T }) {
           ))}
         </ul>
       )}
+      {err && <p className="mt-3 flex items-start gap-2 rounded-lg bg-stop-soft px-3 py-2 text-[13px] text-ink" aria-live="polite"><CircleAlert className="mt-0.5 size-4 shrink-0 text-stop" />{err}</p>}
+    </section>
+  );
+}
+
+/* ---------------------------------------------------------------- TAKATAK MEV set-up */
+
+function MevSetup({ ticket, initial, t }: { ticket: string; initial: MevMerchantSetup; t: T }) {
+  const [setup, setSetup] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const active = setup.status === 'active';
+  const r = setup.ready;
+  async function check() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch('/api/foodhub/mev/clover-merchant', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ t: ticket }) });
+      const j = (await res.json().catch(() => null)) as { ok?: boolean; reason?: string; setup?: MevMerchantSetup } | null;
+      if (j?.ok && j.setup) {
+        setSetup(j.setup);
+        if (j.setup.error) setErr(t('Takatak MEV ne répond pas pour le moment. Réessayez dans quelques minutes.', 'Takatak MEV is not answering right now. Try again in a few minutes.'));
+      } else if (j?.reason === 'ticket') setErr(t('Lien expiré : rouvrez l’application depuis Clover.', 'Link expired: open the app again from Clover.'));
+      else setErr(t('La vérification n’a pas fonctionné.', 'The check did not work.'));
+    } catch {
+      setErr(t('La vérification n’a pas fonctionné.', 'The check did not work.'));
+    } finally { setBusy(false); }
+  }
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(setup.locationCode ?? '');
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* the code stays visible to copy by hand */ }
+  }
+  const flags: Array<{ ok: boolean; label: string }> = [
+    { ok: Boolean(r?.linked), label: t('Code lié', 'Code linked') },
+    { ok: Boolean(r?.deviceReady), label: t('Caisse inscrite', 'Register enrolled') },
+    { ok: Boolean(r?.certReady), label: t('Certificat', 'Certificate') },
+    { ok: Boolean(r?.usersReady), label: t('Utilisateur Food Hub', 'Food Hub user') },
+  ];
+  const steps = [
+    {
+      title: t('Créez votre compte Takatak MEV', 'Create your Takatak MEV account'),
+      body: t('Le nom de l’entreprise, son NEQ, ses numéros de TPS et de TVQ, et le gérant qui s’y connectera.', 'The business name, its NEQ, its GST and QST numbers, and the manager who will sign in.'),
+    },
+    {
+      title: t('Inscrivez votre caisse et demandez son certificat', 'Enrol your register and request its certificate'),
+      body: t('Dans Appareils : le numéro de dossier et le code d’autorisation que Revenu Québec vous a donnés pour cet établissement. Puis Paramètres → Demander un certificat.', 'In Appareils (Devices): the file number and authorization code Revenu Québec gave you for this establishment. Then Paramètres (Settings) → Demander un certificat.'),
+    },
+    {
+      title: t('Liez votre caisse à Food Hub', 'Link your register to Food Hub'),
+      body: t(`Dans Appareils → Cuisines Food Hub : locataire « ${setup.tenantId} », cuisine = votre code ci-dessous.`, `In Appareils (Devices) → Cuisines Food Hub: tenant “${setup.tenantId}”, kitchen = your code below.`),
+    },
+  ];
+  return (
+    <section className="motion-safe:animate-rise rounded-2xl border border-line bg-surface p-5 shadow-card sm:p-6">
+      <div className="text-xs font-bold tracking-[0.12em] text-brand uppercase">{t('Mise en route', 'Getting started')}</div>
+      <h3 className="mt-1 text-lg font-extrabold">{active ? t('Vos factures Revenu Québec sont activées', 'Your Revenu Québec invoices are on') : t('3 étapes dans Takatak MEV', '3 steps in Takatak MEV')}</h3>
+      {setup.testMode && (
+        <p className="mt-2 flex items-start gap-2 rounded-lg bg-wait-soft px-3 py-2 text-[13px] text-ink">
+          <CircleAlert className="mt-0.5 size-4 shrink-0 text-wait-2" />
+          {t('Mode essai : Takatak MEV attend sa certification par Revenu Québec. D’ici là, les factures sont des essais, sans valeur fiscale.', 'Test mode: Takatak MEV is waiting for its Revenu Québec certification. Until then, invoices are tests with no tax value.')}
+        </p>
+      )}
+      {!active && (
+        <ol className="mt-4 space-y-2">
+          {steps.map((s, i) => (
+            <li key={i} className="flex items-start gap-4 rounded-xl border border-line bg-raised px-4 py-3">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-surface text-sm font-extrabold text-ink shadow-card">{i + 1}</span>
+              <div className="min-w-0">
+                <div className="font-bold">{s.title}</div>
+                <div className="mt-0.5 text-[13px] text-ink-2">{s.body}</div>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+      <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl bg-raised px-4 py-3">
+        <div className="min-w-0 flex-1 basis-56">
+          <div className="text-[12px] font-semibold text-ink-3">{t('Votre code de cuisine Food Hub (gardez-le pour vous)', 'Your Food Hub kitchen code (keep it to yourself)')}</div>
+          <div className="num mt-0.5 font-mono text-[15px] font-extrabold break-all">{setup.locationCode}</div>
+        </div>
+        <button type="button" onClick={copy} className={buttonClass('outline', 'sm')}>{copied ? <Check className="size-3.5" /> : null}{copied ? t('Copié', 'Copied') : t('Copier', 'Copy')}</button>
+      </div>
+      <ul className="mt-3 flex flex-wrap gap-2" aria-live="polite">
+        {flags.map((f) => (
+          <li key={f.label} className={cn('inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-bold', f.ok ? 'bg-go-soft text-go-2' : 'bg-sunken text-ink-3')}>
+            {f.ok ? <Check className="size-3.5" strokeWidth={3} /> : <Hourglass className="size-3.5" />}{f.label}
+          </li>
+        ))}
+      </ul>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        {!active && setup.signUpUrl && <a href={setup.signUpUrl} target="_blank" rel="noopener noreferrer" className={buttonClass('primary', 'lg')}>{t('Ouvrir Takatak MEV', 'Open Takatak MEV')}<ExternalLink className="size-4" /></a>}
+        {!active && (
+          <button type="button" onClick={check} disabled={busy} className={buttonClass('outline', 'lg')}>
+            {busy ? <Loader2 className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}{t('Vérifier maintenant', 'Check now')}
+          </button>
+        )}
+      </div>
+      {!active && !setup.signUpUrl && <p className="mt-3 text-[13px] text-ink-3">{t('L’adresse de Takatak MEV vous est envoyée par l’équipe TAKATAK : écrivez-nous.', 'The TAKATAK team sends you the Takatak MEV address: write to us.')}</p>}
+      {active && <p className="mt-3 text-[13px] text-ink-2">{t('Chaque vente payée à votre caisse reçoit sa facture. L’application TAKATAK MEV sur votre appareil Clover l’imprime avec son code QR.', 'Every sale paid at your register gets its invoice. The TAKATAK MEV app on your Clover device prints it with its QR code.')}</p>}
       {err && <p className="mt-3 flex items-start gap-2 rounded-lg bg-stop-soft px-3 py-2 text-[13px] text-ink" aria-live="polite"><CircleAlert className="mt-0.5 size-4 shrink-0 text-stop" />{err}</p>}
     </section>
   );

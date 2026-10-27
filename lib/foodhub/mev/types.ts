@@ -21,7 +21,9 @@ export const MEV_TAX_CODES: readonly MevTaxCode[] = ['FP', 'F', 'P', 'NON'];
 export type MevServiceType = 'LVT' | 'LVR' | 'CMP' | 'TBL';
 /** The payment modes Food Hub can know (a subset of the 16 MEV-WEB values; QCMEV maps them). */
 export type MevPayMode = 'AUT' | 'CRE' | 'DEB' | 'ARG' | 'CPR' | 'MIX' | 'AUC';
-export type MevChannel = 'uber_eats' | 'doordash' | 'skip' | 'tgtg' | 'relay' | 'website' | 'phone' | 'storefront' | 'clover_online' | 'manual';
+export type MevChannel = 'uber_eats' | 'doordash' | 'skip' | 'tgtg' | 'relay' | 'website' | 'phone' | 'storefront' | 'clover_online' | 'clover_pos' | 'manual';
+/** Where a sale comes from: a platform order (stored), Food Hub's own order (direct), or a sale rung up on the Clover register (pos). */
+export type MevOrderModel = 'stored' | 'direct' | 'pos';
 
 export interface MevSaleModifier { description: string; quantity: string; unitPriceCents: number; totalCents: number }
 
@@ -47,7 +49,7 @@ export interface FoodHubSaleV1 {
   /** ISO-8601 with the Montréal offset: the moment the sale became final. */
   occurredAt: string;
   source: {
-    model: 'stored' | 'direct';
+    model: MevOrderModel;
     channel: MevChannel;
     orderId: string;
     externalOrderId: string;
@@ -136,7 +138,7 @@ export interface MevJob {
   baseKey: string;
   /** For a credit or a print: the sale it refers to. */
   saleKey: string;
-  order: { model: 'stored' | 'direct'; id: string; locationCode: string; label: string };
+  order: { model: MevOrderModel; id: string; locationCode: string; label: string };
   status: MevJobStatus;
   payload: FoodHubSaleV1 | FoodHubCreditV1 | FoodHubPrintV1;
   payloadHash: string;
@@ -203,5 +205,44 @@ export interface MevRecord {
   creditNotes?: Array<{ creditKey: string; reason: MevCreditReason; status: MevOrderStatus; noTrans?: string; at: string }>;
   /** Reprints / merchant copies, with the lines QCMEV rendered for each (the merchant copy carries its own mention). */
   prints?: Array<{ printKey: string; mode: 'RPR' | 'DUP'; status: MevOrderStatus; text80mm?: string[]; qrImage?: string; at: string }>;
+  updatedAt: string;
+}
+
+/**
+ * A sale rung up on the restaurant's Clover register (model `pos`, channel `clover_pos`): what Food Hub keeps of the
+ * Clover order to make its invoice (lib/foodhub/mev/clover-register.ts). Only the MEV pipeline reads it: it is not a
+ * Food Hub order (no kitchen screen, no reports — Clover already counts it).
+ */
+export interface RegisterSale {
+  /** pos_<merchant>_<Clover order id> */
+  id: string;
+  merchantId: string;
+  cloverOrderId: string;
+  /** The kitchen whose SEV device numbers the sale (never guessed: one kitchen per Clover merchant, or pinned). */
+  locationCode: string;
+  brandName?: string;
+  /** Clover's title / number of the order, shown to staff. */
+  title?: string;
+  /** Lines still sold (refunded lines left out), as Food Hub lines. */
+  lines: Array<{ externalId?: string; posItemRef?: string; name: string; quantity: number; unitPrice: number; total: number; modifiers?: Array<{ name: string; quantity: number; unitPrice: number }> }>;
+  /** Clover's own numbers, in cents: the order total (taxes included, no tip), the tax it charged, the tips. */
+  totalCents: number;
+  taxCents: number;
+  tipCents: number;
+  /** Clover order-level discounts and service charge present (amounts are worked out from Clover's total). */
+  hasDiscount: boolean;
+  serviceChargeCents: number;
+  /** Tender labels of the successful payments. */
+  tenders: string[];
+  orderTypeLabel?: string;
+  paid: boolean;
+  /** Fully refunded, credited, voided or deleted in Clover. */
+  refunded: boolean;
+  /** Refunded by an amount, not by lines: the invoice cannot follow it without a person. */
+  partlyRefundedByAmount: boolean;
+  /** When the payment went through (ms). */
+  paidAtMs: number | null;
+  mev?: MevRecord;
+  createdAt: string;
   updatedAt: string;
 }

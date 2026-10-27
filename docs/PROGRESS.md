@@ -1,5 +1,21 @@
 # Food Hub: progress log and task board
 
+## 2026-10-27 — Clover register sales → Takatak MEV invoices (`feature/mev-clover-register`, stacked on PR #99)
+
+- New `lib/foodhub/mev/clover-register.ts`: what staff ring up on the restaurant's own Clover register (the Clover
+  orders nothing else invoices: not Food Hub's, not a platform's, not online) becomes a Takatak MEV sale once paid; whole
+  refund / void / deletion → credit note; items refunded → credit note + corrected receipt; refund by an amount only →
+  waits for a person. Clover webhook (Orders events) + a catch-up poll (`FOODHUB_MEV_CLOVER_REGISTER_POLL_S`). Off unless
+  `FOODHUB_MEV_CLOVER_REGISTER=on`.
+- Mapping `toMevSaleFromRegister` (model `pos`, channel `clover_pos`): Clover's lines, money from its payments − refunds;
+  Clover's tax must equal TPS + TVQ within 1 cent, otherwise held for a person (the stray « Sales Tax »); discounts,
+  tenders (cash / debit / credit / gift / mix / other / none), tip as pourb, TBL by order type.
+- Its own small record (`mev_pos:<id>`), not a Food Hub order: never on the kitchen screen, dispatch or reports.
+- Kitchen never guessed: one kitchen per merchant or `FOODHUB_MEV_REGISTER_LOCATION`.
+- QCMEV side: CONTRACT accepts model `pos` / channel `clover_pos` (QCMEV.CA branch `claude/nice-cray-4fhekg`).
+- Tests: `tests/mev-register.test.ts` (14); typecheck OK, lint 0 errors, 1716 tests, webpack OK, verify:foodhub 617/0.
+- Still to do: the TAKATAK MEV app on the Clover device prints the invoice (QR) — Clover's REST API cannot.
+
 ## 2026-10-27 — MEV stand-in aligned with QCMEV's CONTRACT.md §7 (`feature/mev-qcmev-integration`, PR #99)
 
 - `scripts/e2e/mock-qcmev.mjs` now answers like the real QCMEV (`fix/backend-readiness`): `noTrans` "1", "2"… per

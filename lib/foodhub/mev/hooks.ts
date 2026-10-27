@@ -24,10 +24,10 @@ import type { OrderLine, StoredOrder } from '../types';
 import { mevGate, mevMode, mevTrigger } from './config';
 import {
   changeReason, creditFor, creditKeyFor, directChannel, directIsFinal, isoWithOffset, isReview, paidOnline, payloadHashOf, printFor, printKeyFor, reissueKeyFor, saleKeyFor, storedChannel,
-  storedExclusion, storedIsFinal, tenderMode, toMevSaleFromDirect, toMevSaleFromStored, type MapCtx, type MapResult,
+  storedExclusion, storedIsFinal, tenderMode, toMevSaleFromDirect, toMevSaleFromRegister, toMevSaleFromStored, type MapCtx, type MapResult,
 } from './map';
 import { jobIdFor, jobsFor, kickMevOutbox, putJob, syncOrderMev } from './outbox';
-import type { FoodHubSaleV1, MevChannel, MevCreditReason, MevJob, MevMode, MevPayMode, MevReview, MevTaxCode } from './types';
+import type { FoodHubSaleV1, MevChannel, MevCreditReason, MevJob, MevMode, MevOrderModel, MevPayMode, MevReview, MevTaxCode, RegisterSale } from './types';
 
 type Ref = MevJob['order'];
 
@@ -299,18 +299,60 @@ export async function mevOnDirectChange(order: Pick<DirectOrder, 'id'> | null | 
   }
 }
 
+// ---------- Clover register sales (clover-register.ts) ----------
+
+export function registerRef(r: RegisterSale): Ref {
+  return { model: 'pos', id: r.id, locationCode: r.locationCode, label: `Clover ${r.title || r.cloverOrderId.slice(0, 13)}` };
+}
+
+export function registerBaseKey(r: Pick<RegisterSale, 'id'>, tenant = tenantId()): string {
+  return saleKeyFor(tenant, 'pos', 'clover_pos', r.id);
+}
+
+async function planRegister(id: string): Promise<MevJob[]> {
+  const { getRegisterSale, registerTableTypes } = await import('./clover-register');
+  const r = await getRegisterSale(id);
+  if (!r) return [];
+  const tenant = tenantId();
+  const baseKey = registerBaseKey(r, tenant);
+  const gate = await gateFor(r.locationCode, baseKey);
+  if (!gate.active) return [];
+  if (dryRun() && gate.mode !== 'simulator') return [];
+  const ctx = { tenantId: tenant, testMode: gate.mode !== 'on', trigger: 'accept' as const, taxCodeOf: await taxResolver(r.brandName), userMode: userMode(), tableTypes: registerTableTypes() };
+  return reconcile({
+    ref: registerRef(r), baseKey, mode: gate.mode, cancelled: r.refunded, final: r.paid && !r.refunded, cancelReason: 'refund', changeReason: 'adjusted',
+    map: (extra) => toMevSaleFromRegister(r, { ...ctx, ...extra }),
+  });
+}
+
+/** After a Clover register sale changed (paid, refunded, deleted). Never throws; off = returns at once. */
+export async function mevOnRegisterChange(sale: Pick<RegisterSale, 'id'> | null | undefined): Promise<void> {
+  if (!sale || mevMode() === 'off') return;
+  try {
+    await serialize(`pos:${sale.id}`, () => planRegister(sale.id));
+  } catch (e) {
+    console.error('[foodhub] MEV plan failed', e instanceof Error ? e.message : e);
+  }
+}
+
 /** The outbox asks again for an order (a tender that may be readable now). */
 export async function replanOrder(ref: Pick<Ref, 'model' | 'id'>): Promise<void> {
   if (ref.model === 'stored') await mevOnOrderChange({ id: ref.id });
+  else if (ref.model === 'pos') await mevOnRegisterChange({ id: ref.id });
   else await mevOnDirectChange({ id: ref.id });
 }
 
 // ---------- staff actions ----------
 
-async function refFor(model: 'stored' | 'direct', id: string): Promise<{ ref: Ref; baseKey: string } | null> {
+async function refFor(model: MevOrderModel, id: string): Promise<{ ref: Ref; baseKey: string } | null> {
   if (model === 'stored') {
     const o = await getRepo().getOrder(id);
     return o ? { ref: storedRef(o), baseKey: storedBaseKey(o) } : null;
+  }
+  if (model === 'pos') {
+    const { getRegisterSale } = await import('./clover-register');
+    const r = await getRegisterSale(id);
+    return r ? { ref: registerRef(r), baseKey: registerBaseKey(r) } : null;
   }
   const { getDirectOrder } = await import('../delivery/store');
   const d = await getDirectOrder(id);
@@ -318,7 +360,7 @@ async function refFor(model: 'stored' | 'direct', id: string): Promise<{ ref: Re
 }
 
 /** Reprint (RPR) or merchant copy (DUP) of the current receipt: transmitted by QCMEV, printed as it answers. */
-export async function requestMevPrint(model: 'stored' | 'direct', id: string, mode: 'RPR' | 'DUP', actor: Actor): Promise<{ ok: boolean; message: string; key?: string }> {
+export async function requestMevPrint(model: MevOrderModel, id: string, mode: 'RPR' | 'DUP', actor: Actor): Promise<{ ok: boolean; message: string; key?: string }> {
   const m = mevMode();
   if (m === 'off') return { ok: false, message: 'MEV is off (FOODHUB_MEV).' };
   const found = await refFor(model, id);

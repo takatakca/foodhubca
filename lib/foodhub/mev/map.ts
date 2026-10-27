@@ -16,7 +16,7 @@ import crypto from 'node:crypto';
 import type { DirectOrder } from '../delivery/types';
 import type { OrderLine, StoredOrder } from '../types';
 import { cents, preTaxFromIncluded, qty, reconcileTax, roundHalfUpDiv, taxByCode } from './money';
-import type { FoodHubCreditV1, FoodHubPrintV1, FoodHubSaleV1, MevChannel, MevCreditReason, MevPayMode, MevReview, MevSaleLine, MevServiceType, MevTaxCode, MevTrigger } from './types';
+import type { FoodHubCreditV1, FoodHubPrintV1, FoodHubSaleV1, MevChannel, MevCreditReason, MevOrderModel, MevPayMode, MevReview, MevSaleLine, MevServiceType, MevTaxCode, MevTrigger, RegisterSale } from './types';
 
 export const AUTO_USER = { id: 'FOODHUB-AUTO', name: 'FOODHUB-AUTO' } as const;
 export const MEV_TZ = 'America/Montreal';
@@ -44,7 +44,7 @@ export function payloadHashOf(p: Record<string, unknown>): string {
  * fh:{tenant}:{model}:{channel}:{external id | direct order id}. Keys use only A-Z a-z 0-9 . _ # - and ":" (QCMEV's
  * key rule) and stay short enough for ":r1:cn:1" / ":pr:dup1" to fit in 160 characters.
  */
-export function saleKeyFor(tenant: string, model: 'stored' | 'direct', channel: MevChannel, ref: string): string {
+export function saleKeyFor(tenant: string, model: MevOrderModel, channel: MevChannel, ref: string): string {
   return `fh:${tenant}:${model}:${channel}:${String(ref).replace(/[^A-Za-z0-9._#-]+/g, '-').slice(0, 90)}`;
 }
 /** The credit note of one sale (each sale is credited at most once: a change is credit + corrected receipt). */
@@ -342,6 +342,84 @@ export function toMevSaleFromDirect(o: DirectOrder, ctx: MapCtx & { dryRun?: boo
     payment: { mode, collectedBy, ...(o.paylink?.paymentId ? { reference: o.paylink.paymentId.slice(0, 40) } : {}) },
     // Paper with the order; an electronic copy too when the customer ordered online with a contact (SMS / e-mail).
     receipt: contact ? { format: 'PEL', deliver: o.customer.email ? 'email' : 'sms' } : { format: 'PAP', deliver: 'print' },
+    ...(ctx.referenceSaleKey ? { referenceSaleKey: ctx.referenceSaleKey } : {}),
+    testMode: ctx.testMode,
+    ...(Object.keys(money.flags).length ? { flags: money.flags } : {}),
+  });
+}
+
+// ---------- Clover register sales (RegisterSale, model pos) ----------
+
+/** How far Clover's own tax may differ from TPS + TVQ of the receipt (rounding): beyond, a tax rate in Clover is wrong. */
+export const REGISTER_TAX_TOLERANCE_CENTS = 1;
+/** Order types that mean table service (TBL) unless FOODHUB_MEV_REGISTER_TABLE_TYPES says otherwise; else counter (CMP). */
+export const REGISTER_TABLE_TYPE = /\btables?\b|service aux tables|table service/i;
+
+/**
+ * The Clover register's tenders → one MEV payment mode. Known labels as tenderMode(); a tender Clover names otherwise
+ * (a house account, a custom tender) is « Autre » (AUT), never guessed as card or cash; several modes → MIX.
+ */
+export function registerTender(labels: string[], totalCents: number): MevPayMode | null {
+  if (totalCents === 0) return 'AUC';
+  if (!labels.length) return null;
+  const known = tenderMode(labels);
+  if (known) return known;
+  const modes = new Set(labels.map((l) => tenderMode([l]) ?? 'AUT'));
+  return modes.size > 1 ? 'MIX' : 'AUT';
+}
+
+/**
+ * A sale rung up on the restaurant's Clover register → foodhub.sale.v1. Clover is the cash register: its lines are the
+ * receipt, its payment the tender, its tip the pourb. Nothing is invented: when Clover's own numbers (total, tax) do not
+ * agree with the lines and TPS + TVQ, the sale waits for a person (a wrong tax rate in Clover, an amount-only refund).
+ */
+export function toMevSaleFromRegister(r: RegisterSale, ctx: MapCtx & { tableTypes?: RegExp }): MapResult {
+  if (r.refunded) return { ok: false, reason: 'cancelled_before_sale' };
+  if (!r.paid) return { ok: false, reason: 'not_final' };
+  if (r.partlyRefundedByAmount) {
+    return { ok: false, reason: 'amounts_mismatch', detail: 'partly refunded in Clover by an amount, not by items: credit the items in Clover, or a person corrects the invoice' };
+  }
+  const mapped = mapLines(r.lines as unknown as OrderLine[], ctx, () => false);
+  if (!Array.isArray(mapped)) return { ok: false, reason: mapped.review, detail: mapped.detail };
+  if (!mapped.length) return { ok: false, reason: 'no_lines', detail: 'the Clover order has no item' };
+  const itemsCents = mapped.reduce((s, l) => s + itemCents(l), 0);
+  const serviceFeeCents = Math.max(0, r.serviceChargeCents);
+  // Clover's total includes its taxes (not the tip): the pre-tax amount it charged is total − tax.
+  const preTaxCents = r.totalCents - r.taxCents;
+  let discountCents = itemsCents + serviceFeeCents - preTaxCents;
+  let rounded = false;
+  if (Math.abs(discountCents) <= SUBTOTAL_ROUNDING_CENTS) {
+    rounded = discountCents !== 0;
+    discountCents = 0;
+  } else if (!(discountCents > 0 && r.hasDiscount)) {
+    return { ok: false, reason: 'amounts_mismatch', detail: `Clover charged ${(preTaxCents / 100).toFixed(2)} $ before tax; the items come to ${((itemsCents + serviceFeeCents) / 100).toFixed(2)} $` };
+  }
+  const money = amountsFor({ lines: mapped, deliveryCents: 0, serviceFeeCents, discountCents, tipCents: Math.max(0, r.tipCents), platformTaxCents: null });
+  delete money.flags.taxComputed;
+  if (rounded) money.flags.subtotalRounded = true;
+  const taxGap = money.amounts.gstCents + money.amounts.qstCents - r.taxCents;
+  if (Math.abs(taxGap) > REGISTER_TAX_TOLERANCE_CENTS) {
+    return { ok: false, reason: 'amounts_mismatch', detail: `Clover charged ${(r.taxCents / 100).toFixed(2)} $ of tax; TPS + TVQ of the receipt = ${((money.amounts.gstCents + money.amounts.qstCents) / 100).toFixed(2)} $ (check the tax rates in Clover)` };
+  }
+  const mode = registerTender(r.tenders, money.amounts.totalCents);
+  if (!mode) return { ok: false, reason: 'tender_unknown' };
+  const serviceType: MevServiceType = (ctx.tableTypes ?? REGISTER_TABLE_TYPE).test(r.orderTypeLabel ?? '') ? 'TBL' : 'CMP';
+  const saleKey = ctx.saleKey ?? saleKeyFor(ctx.tenantId, 'pos', 'clover_pos', r.id);
+  return finish({
+    schema: 'foodhub.sale.v1', tenantId: ctx.tenantId, locationId: r.locationCode, saleKey,
+    occurredAt: ctx.occurredAt ?? isoWithOffset(r.paidAtMs ?? (Date.parse(r.updatedAt) || Date.now())),
+    source: {
+      model: 'pos', channel: 'clover_pos', orderId: r.id, externalOrderId: r.cloverOrderId, posOrderId: r.cloverOrderId,
+      ...(r.title ? { displayId: r.title.slice(0, 20) } : {}), ...(r.brandName ? { brand: r.brandName } : {}),
+    },
+    serviceType, ecommerce: false, user: { ...AUTO_USER },
+    lines: mapped,
+    fees: { deliveryCents: 0, serviceFeeCents },
+    discountCents,
+    amounts: money.amounts,
+    payment: { mode, collectedBy: mode === 'ARG' ? 'cash' : 'clover_tender' },
+    // Printed at the register by the TAKATAK MEV app on the Clover device.
+    receipt: { format: 'PAP', deliver: 'print' },
     ...(ctx.referenceSaleKey ? { referenceSaleKey: ctx.referenceSaleKey } : {}),
     testMode: ctx.testMode,
     ...(Object.keys(money.flags).length ? { flags: money.flags } : {}),

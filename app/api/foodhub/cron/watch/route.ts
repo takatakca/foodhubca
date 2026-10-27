@@ -6,6 +6,7 @@ import { runOrderRecovery } from '@/lib/foodhub/recovery';
 import { runWatch } from '@/lib/foodhub/watch/engine';
 import { tickExpansion } from '@/lib/foodhub/expansion/tick';
 import { tickCloverWebsiteOrders } from '@/lib/foodhub/pos/clover-website-orders';
+import { tickCloverRegister } from '@/lib/foodhub/mev/clover-register';
 import { tickTgtgEmail } from '@/lib/foodhub/tgtg-email/imap';
 import { tickAvailability } from '@/lib/foodhub/store-availability/tick';
 
@@ -29,9 +30,11 @@ export const GET = guard(async (req: NextRequest) => {
   const expansion = await tickExpansion();
   // Website orders taken by Clover Online Ordering → kitchen screen (Clover stays the source of truth).
   const websiteOrders = await tickCloverWebsiteOrders();
+  // Sales rung up on the Clover register → Takatak MEV invoices (FOODHUB_MEV_CLOVER_REGISTER=on only; catch-up poll).
+  const registerSales = await tickCloverRegister();
   // Too Good To Go order e-mails (IMAP mailbox) → kitchen + Clover. Only when a mailbox is configured and switched on.
   const tgtgEmails = await tickTgtgEmail();
   // Store availability center: busy schedule + tablet-off guard (throttled, never throws).
   const availability = await tickAvailability();
-  return ok({ report, reopened: reopened.length, recovery, expansion, websiteOrders, tgtgEmails, availability });
+  return ok({ report, reopened: reopened.length, recovery, expansion, websiteOrders, registerSales, tgtgEmails, availability });
 });

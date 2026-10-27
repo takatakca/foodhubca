@@ -22,6 +22,8 @@ import { getCatalog } from '../catalog';
 import { nowIso } from '../config';
 import { getRepo } from '../repo';
 import { allCloverMerchants, cloverToken } from '../pos/clover';
+import { cloverMevAppEnabled } from '../pos/clover-apps';
+import { cloverAppToken, connectedCloverMerchantIds } from '../pos/clover-oauth';
 import {
   classifyCloverOrder, cloverGet, cloverLines, isSiteWebMarked, knownFoodHubCloverIds, labelMaps, ONLINE_TYPE, perMerchant, readCloverOrderState,
 } from '../pos/clover-website-orders';
@@ -57,6 +59,11 @@ export async function saveRegisterSale(r: RegisterSale): Promise<RegisterSale> {
   const next = { ...r, updatedAt: nowIso() };
   await getRepo().setKv(KV(r.id), next);
   return next;
+}
+
+/** A token to read this merchant's orders: Food Hub's (env or its app), else the TAKATAK MEV app's own. */
+async function readToken(mid: string): Promise<string | null> {
+  return (await cloverToken(mid)) ?? (cloverMevAppEnabled() ? await cloverAppToken('mev', mid).catch(() => null) : null);
 }
 
 function pollMs(): number {
@@ -231,7 +238,7 @@ export async function handleCloverRegisterEvents(body: any, now = Date.now()): P
     }
     if (!byId.size) continue;
     out.events += byId.size;
-    const token = await cloverToken(mid);
+    const token = await readToken(mid);
     if (!token) continue;
     let maps: Awaited<ReturnType<typeof labelMaps>> | null = null;
     let known: Set<string> | null = null;
@@ -259,7 +266,7 @@ export async function handleCloverRegisterEvents(body: any, now = Date.now()): P
 /** Orders of one merchant modified since the last run: every register sale is found again, even after a missed webhook. */
 export async function pollCloverRegister(mid: string, now = Date.now()): Promise<{ recorded: number; error?: string }> {
   const out = { recorded: 0 };
-  const token = await cloverToken(mid);
+  const token = await readToken(mid);
   if (!token) return { ...out, error: `No Clover API token for merchant ${mid}` };
   const repo = getRepo();
   const since = Math.max((await repo.getKv<number>(SINCE_KEY(mid))) ?? 0, now - FIRST_LOOKBACK_MS);
@@ -301,7 +308,9 @@ export async function tickCloverRegister(now = Date.now()): Promise<{ ran: boole
     if (last && now - last < pollMs()) return { ran: false };
     await repo.setKv(TICK_KEY, now);
     let recorded = 0;
-    for (const mid of await allCloverMerchants((await repo.listStores()).map((s) => s.cloverMerchantId))) {
+    const merchants = new Set(await allCloverMerchants((await repo.listStores()).map((s) => s.cloverMerchantId)));
+    if (cloverMevAppEnabled()) for (const mid of await connectedCloverMerchantIds('mev').catch(() => [])) merchants.add(mid);
+    for (const mid of merchants) {
       const r = await pollCloverRegister(mid, now);
       recorded += r.recorded;
       if (r.error) console.error('[foodhub] Clover register poll', mid, r.error);

@@ -1,5 +1,16 @@
 # Food Hub: progress log and task board
 
+## 2026-10-27 — TAKATAK MEV, third Clover app + device endpoint (`feature/mev-clover-register`)
+
+- Registry key `mev` (« TAKATAK MEV »): own App ID / secret / webhook auth (`CLOVER_MEV_*`), OAuth start + callback,
+  webhook `/api/foodhub/webhooks/clover/mev` (App + Orders events), 404 until `CLOVER_MEV_APP_ID` is set. Welcome page:
+  no Food Hub steps for it; says the TAKATAK team sets up the Revenu Québec file first.
+- Register sales read with Food Hub's token, else TAKATAK MEV's own; the poll covers approved MEV installs.
+- Device endpoint `/api/foodhub/mev/clover-device/receipt|print|copy` for the TAKATAK MEV app on the Clover device: the
+  merchant's own Clover token, checked with Clover; reads a just-paid order at once; prints the original once; RPR / DUP.
+- Tests: mev-register 19, clover-multi-app updated for three apps; 1721 tests, webpack OK, verify:foodhub 617/0.
+- Onboarding a marketplace merchant is by hand (its QCMEV operator + a Food Hub kitchen code): docs/CLOVER_MULTI_APP.md.
+
 ## 2026-10-27 — Clover register sales → Takatak MEV invoices (`feature/mev-clover-register`, stacked on PR #99)
 
 - New `lib/foodhub/mev/clover-register.ts`: what staff ring up on the restaurant's own Clover register (the Clover

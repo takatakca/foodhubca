@@ -4,6 +4,8 @@
 // Memory repository, placeholder data only.
 import crypto from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+// Webhook routes answer at once and finish in Next's after(): run it right away in tests (as tests/clover-multi-app.test.ts).
+vi.mock('next/server', async (orig) => ({ ...(await orig<typeof import('next/server')>()), after: (fn: () => unknown) => { void Promise.resolve().then(fn); } }));
 // @ts-expect-error -- plain ESM helper shared with the e2e harness (no type declarations)
 import { createMockQcmev, mockQcmevFetch } from '../scripts/e2e/mock-qcmev.mjs';
 import { saveLocation } from '../lib/foodhub/catalog';
@@ -16,6 +18,9 @@ import { registerTender, toMevSaleFromRegister } from '../lib/foodhub/mev/map';
 import { jobsFor, settleMevKicks } from '../lib/foodhub/mev/outbox';
 import type { RegisterSale } from '../lib/foodhub/mev/types';
 import { getRepo } from '../lib/foodhub/repo';
+import { GET as deviceReceiptGET } from '../app/api/foodhub/mev/clover-device/receipt/route';
+import { POST as devicePrintPOST } from '../app/api/foodhub/mev/clover-device/print/route';
+import { POST as deviceCopyPOST } from '../app/api/foodhub/mev/clover-device/copy/route';
 
 const SECRET = crypto.randomBytes(32).toString('hex');
 const QCMEV = 'http://qcmev.test';
@@ -69,6 +74,9 @@ async function fakeClover(input: any): Promise<Response> {
   const url = new URL(String(typeof input === 'string' ? input : input.url));
   const path = url.pathname.replace(`/v3/merchants/${MID}/`, '');
   const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  if (url.pathname === `/v3/merchants/${MID}`) {
+    return json(200, { id: MID, name: 'Resto test' });
+  }
   if (path === 'order_types') return json(200, { elements: [{ id: 'OT1', label: 'Sur place' }, { id: 'OT2', label: 'Online Order Pick Up' }] });
   if (path === 'tenders') return json(200, { elements: [{ id: 'T1', label: 'Cash' }] });
   if (path === 'orders') return json(200, { elements: [...clover.values()].filter(Boolean) });
@@ -259,5 +267,83 @@ describe('register sales through QCMEV (outbox, stand-in QCMEV, fake Clover)', (
     expect((await ingestRegisterOrder(MID, clover.get('A')))?.locationCode).toBe('E2E_A');
     await settleMevKicks();
     expect(posts().length).toBe(1);
+  });
+});
+
+describe('TAKATAK MEV device app (print the invoice at the register)', () => {
+  const dev = (path: string, init: RequestInit & { mid?: string; token?: string } = {}) => new Request(`http://foodhub.test/api/foodhub/mev/clover-device/${path}`, {
+    ...init, headers: { 'x-clover-merchant-id': init.mid ?? MID, authorization: `Bearer ${init.token ?? 'device-token-0123456789'}`, 'content-type': 'application/json' },
+  });
+  beforeEach(async () => {
+    env();
+    await saveLocation({ code: 'E2E_A', name: 'Cuisine A (test)', address: '1 rue Exemple', active: true });
+    await getRepo().upsertStore({ channel: 'uber_eats', channelStoreId: 'store-reg', brandName: 'Po Poulet', locationCode: 'E2E_A', cloverMerchantId: MID, autoAccept: true, online: true, meta: {} });
+    await setSevOfRecord('E2E_A', 'qcmev', ACTOR);
+  });
+
+  it('right after payment (before any webhook): reads the order, records it and answers the printable invoice', async () => {
+    clover.set('ORDERREG0001', cloverOrder('ORDERREG0001'));
+    const res = await deviceReceiptGET(dev('receipt?order=ORDERREG0001'));
+    expect(res.status).toBe(200);
+    const { receipt } = await res.json();
+    expect(receipt.status).toBe('accepted');
+    expect(receipt.text80mm.some((l: string) => l.includes('Poutine'))).toBe(true);
+    expect(receipt.qrImage).toMatch(/^data:image\//);
+    expect(posts().length).toBe(1);
+  });
+
+  it('prints the original once; a second paper is a reproduction asked from Takatak MEV', async () => {
+    clover.set('ORDERREG0002', cloverOrder('ORDERREG0002'));
+    await deviceReceiptGET(dev('receipt?order=ORDERREG0002'));
+    const first = await (await devicePrintPOST(dev('print', { method: 'POST', body: JSON.stringify({ order: 'ORDERREG0002', copy: 'FAC' }) }))).json();
+    const second = await (await devicePrintPOST(dev('print', { method: 'POST', body: JSON.stringify({ order: 'ORDERREG0002', copy: 'FAC' }) }))).json();
+    expect(first.granted).toBe(true);
+    expect(second).toMatchObject({ granted: false, reason: 'printed' });
+    const copy = await deviceCopyPOST(dev('copy', { method: 'POST', body: JSON.stringify({ order: 'ORDERREG0002', mode: 'RPR' }) }));
+    expect(copy.status).toBe(200);
+    await settleMevKicks();
+    const { receipt } = await (await deviceReceiptGET(dev('receipt?order=ORDERREG0002'))).json();
+    expect(receipt.printedAt).toBeTruthy();
+    expect(receipt.prints?.[0]).toMatchObject({ mode: 'RPR', status: 'accepted' });
+    expect(receipt.prints[0].text80mm).toContain('REPRODUCTION');
+  });
+
+  it('refuses a merchant Food Hub does not work with, and a token Clover does not accept', async () => {
+    expect((await deviceReceiptGET(dev('receipt?order=ORDERREG0003', { mid: 'OTHERMERCHANT1' }))).status).toBe(403);
+    const realClover = fakeClover;
+    globalThis.fetch = vi.fn(mockQcmevFetch(mock, QCMEV, async (input: any) => (String(input).endsWith(`/v3/merchants/${MID}`) ? new Response('{"message":"Unauthorized"}', { status: 401 }) : realClover(input)))) as any;
+    expect((await deviceReceiptGET(dev('receipt?order=ORDERREG0003', { token: 'another-token-0123456789' }))).status).toBe(401);
+  });
+
+  it('an order invoiced another way (a platform\'s) is never invoiced again from the register', async () => {
+    clover.set('ORDERREG0004', cloverOrder('ORDERREG0004', { title: 'Uber Eats #AB12C' }));
+    const { receipt } = await (await deviceReceiptGET(dev('receipt?order=ORDERREG0004'))).json();
+    expect(receipt.status).toBe('not_register');
+    expect(posts().length).toBe(0);
+  });
+});
+
+describe('TAKATAK MEV Clover app webhook', () => {
+  const hook = (body: unknown, auth: string) => new Request('http://foodhub.test/api/foodhub/webhooks/clover/mev', { method: 'POST', body: JSON.stringify(body), headers: { 'x-clover-auth': auth, 'content-type': 'application/json' } });
+  beforeEach(async () => {
+    env();
+    await saveLocation({ code: 'E2E_A', name: 'Cuisine A (test)', address: '1 rue Exemple', active: true });
+    await getRepo().upsertStore({ channel: 'uber_eats', channelStoreId: 'store-reg', brandName: 'Po Poulet', locationCode: 'E2E_A', cloverMerchantId: MID, autoAccept: true, online: true, meta: {} });
+    await setSevOfRecord('E2E_A', 'qcmev', ACTOR);
+  });
+  afterEach(() => { for (const k of ['CLOVER_MEV_APP_ID', 'CLOVER_MEV_APP_SECRET', 'CLOVER_MEV_WEBHOOK_AUTH', 'CLOVER_WEBHOOK_AUTH']) delete process.env[k]; });
+
+  it('does not exist until CLOVER_MEV_APP_ID is set; then only its own auth code opens it, and register sales are invoiced', async () => {
+    const { POST } = await import('../app/api/foodhub/webhooks/clover/mev/route');
+    const body = { merchants: { [MID]: [{ objectId: 'O:ORDERREG0009', type: 'UPDATE' }] } };
+    expect((await POST(hook(body, 'mev-hook-auth') as any)).status).toBe(404);
+    process.env.CLOVER_MEV_APP_ID = 'MEVAPPID000001';
+    process.env.CLOVER_MEV_APP_SECRET = 'mev-secret';
+    process.env.CLOVER_MEV_WEBHOOK_AUTH = 'mev-hook-auth';
+    process.env.CLOVER_WEBHOOK_AUTH = 'fh-hook-auth';
+    expect((await POST(hook(body, 'fh-hook-auth') as any)).status).toBe(401);
+    clover.set('ORDERREG0009', cloverOrder('ORDERREG0009'));
+    expect((await POST(hook(body, 'mev-hook-auth') as any)).status).toBe(200);
+    await vi.waitFor(async () => expect((await getRegisterSale(registerSaleId(MID, 'ORDERREG0009')))?.mev?.status).toBe('accepted'), { timeout: 5000 });
   });
 });

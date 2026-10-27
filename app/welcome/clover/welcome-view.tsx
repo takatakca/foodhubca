@@ -28,7 +28,7 @@ export interface WelcomeData {
   cloverUrl: string;
   support: { email: string | null; phone: string | null; hours: FrEn };
   /** Which Clover app was opened (absent = TAKATAK Food Hub) and its listing name. */
-  app?: 'foodhub' | 'phone';
+  app?: 'foodhub' | 'phone' | 'mev';
   appName?: string;
 }
 
@@ -75,8 +75,8 @@ export function WelcomeView({ data }: { data: WelcomeData }) {
           <StatusHero data={data} t={t} />
           {allDone && <Celebration t={t} />}
           {data.merchant && data.state !== 'gone' && <RegisterCard data={data} t={t} lang={lang} />}
-          {data.app !== 'phone' && (data.state === 'connected' || data.state === 'pending') && <Steps data={data} t={t} />}
-          {data.app !== 'phone' && data.state === 'connected' && data.ticket && <TestOrder ticket={data.ticket} t={t} />}
+          {(!data.app || data.app === 'foodhub') && (data.state === 'connected' || data.state === 'pending') && <Steps data={data} t={t} />}
+          {(!data.app || data.app === 'foodhub') && data.state === 'connected' && data.ticket && <TestOrder ticket={data.ticket} t={t} />}
           <Help data={data} t={t} lang={lang} />
         </div>
       </main>
@@ -171,6 +171,8 @@ function StatusHero({ data, t }: { data: WelcomeData; t: T }) {
   const body = {
     connected: data.app === 'phone'
       ? t('L’IA répondra aux appels de ce restaurant : la commande payée arrivera dans Clover et s’imprimera à la cuisine.', 'The AI will answer this restaurant’s calls: the paid order will land in Clover and print in the kitchen.')
+      : data.app === 'mev'
+      ? t('Votre caisse est reliée à TAKATAK MEV. Avant la première facture Revenu Québec, l’équipe TAKATAK configure votre dossier (NEQ, code d’autorisation, certificat) et active votre caisse : nous vous contactons.', 'Your register is linked to TAKATAK MEV. Before the first Revenu Québec invoice, the TAKATAK team sets up your file (NEQ, authorization code, certificate) and turns your register on: we will contact you.')
       : t('Les commandes de livraison de ce restaurant arriveront dans Clover, s’imprimeront à la cuisine et se fermeront payées.', 'This restaurant’s delivery orders will land in Clover, print in the kitchen and close as paid.'),
     pending: t('Votre caisse attend l’approbation de l’équipe TAKATAK. Rien n’est envoyé à votre caisse avant. Nous sommes avisés et répondons en général le jour ouvrable même.', 'Your register is waiting for the TAKATAK team’s approval. Nothing is sent to your register until then. We have been notified and usually answer the same business day.'),
     gone: t('L’application a été désinstallée ou la demande a été refusée. Rouvrez l’application depuis Clover pour recommencer.', 'The app was uninstalled or the request was declined. Open the app again from Clover to start over.'),

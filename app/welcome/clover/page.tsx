@@ -29,8 +29,10 @@ export default async function CloverWelcomePage({ searchParams }: { searchParams
   else if (q.status === 'error' || q.err || ticket) state = 'error'; // an expired / forged ticket lands here too
   else state = 'intro';
   const errCode = (q.err && q.err in CLOVER_CONNECT_ERRORS ? q.err : null) as CloverConnectError | null;
-  // The AI phone app lands here too: the signed ticket says which app (the ?app= hint only names it when there is no ticket).
-  const app: 'foodhub' | 'phone' = welcome ? (welcome.app === 'phone' ? 'phone' : 'foodhub') : q.app === 'phone' ? 'phone' : 'foodhub';
+  // The AI phone and TAKATAK MEV apps land here too: the signed ticket says which app (the ?app= hint only names it when
+  // there is no ticket).
+  const named = (a: unknown): 'phone' | 'mev' | null => (a === 'phone' || a === 'mev' ? a : null);
+  const app: 'foodhub' | 'phone' | 'mev' = (welcome ? named(welcome.app) : named(q.app)) ?? 'foodhub';
   const canSetup = Boolean(viewer && can(viewer.role, 'stores:map'));
   const steps = canSetup && state === 'connected' && app === 'foodhub'
     ? await onboardingSteps({ merchantId: welcome?.merchantId ?? null, viewerHasPin: viewer?.hasPin }).catch(() => null)
@@ -49,7 +51,7 @@ export default async function CloverWelcomePage({ searchParams }: { searchParams
     loginHref: `/login?next=${encodeURIComponent(here)}`,
     cloverUrl: cloverWebUrl(),
     support: { email: info.supportEmail, phone: info.supportPhone, hours: info.supportHours },
-    ...(app === 'phone' ? { app, appName: cloverApp('phone').name } : {}),
+    ...(app !== 'foodhub' ? { app, appName: cloverApp(app).name } : {}),
   };
   // The Clover landing matches the Clover listing ("TAKATAK Food Hub"), whatever the console is called.
   return <KeepProductNames><WelcomeView data={data} /></KeepProductNames>;

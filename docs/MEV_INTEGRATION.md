@@ -237,8 +237,14 @@ on, it still needs every switch of § 2 for the kitchen.
   poll of orders modified since the last run, every `FOODHUB_MEV_CLOVER_REGISTER_POLL_S` (60 s), from the live pulse
   and the cron. One record per Clover order (`mev_pos:<id>`): a sale is found again after a missed webhook, never twice.
 - **Kitchen.** The kitchen whose stores use that Clover merchant; when one merchant serves several kitchens,
-  `FOODHUB_MEV_REGISTER_LOCATION` must name it (one code, or JSON per merchant). Food Hub never guesses the SEV device:
-  without it, nothing is invoiced and the activity log says so (`mev_register_unplaced`, at most once an hour).
+  `FOODHUB_MEV_REGISTER_LOCATION` must name it (one code, or JSON per merchant). A merchant that is not a Food Hub
+  kitchen (TAKATAK MEV from the App Market) uses its own `CLV_…` code once it set itself up in Takatak MEV
+  (docs/CLOVER_MULTI_APP.md § TAKATAK MEV, `lib/foodhub/mev/clover-merchants.ts`). Food Hub never guesses the SEV
+  device: without a place, nothing is invoiced and the activity log says so (`mev_register_unplaced`, at most once an
+  hour).
+- **Catch-up poll on a busy merchant.** Orders are read oldest change first (`orderBy=modifiedTime ASC`; unsorted when
+  Clover refuses the sort); a run that reaches its page limit (10 × 100 orders) resumes after the last order it read,
+  never past one it did not read.
 - **Mapping** (`toMevSaleFromRegister`, model `pos`, channel `clover_pos` — QCMEV's CONTRACT.md accepts both).
   - The Clover lines are the items (refunded lines left out; options as their own items; tax codes from the menu's
     `mevTax`, FP by default).

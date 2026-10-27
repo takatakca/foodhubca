@@ -115,7 +115,7 @@ describe('platform orders through QCMEV', () => {
     expect(call.body).toMatchObject({ schema: 'foodhub.sale.v1', serviceType: 'LVT', testMode: true, amounts: { tipCents: 0, totalCents: 3907 } });
     const mev = o.timeline?.mev;
     expect(mev?.status).toBe('accepted');
-    expect(mev?.noTrans).toMatch(/^\d{6}-0001$/);
+    expect(mev?.noTrans).toBe('1'); // opaque per device and civil day (QCMEV CONTRACT.md §7)
     expect(mev?.mentions).toContain('COMMANDE PAR UNE PLATEFORME NUMÉRIQUE');
     expect(mev?.qrImage).toMatch(/^data:image\/(png|svg\+xml);base64,/);
     expect(mev?.qrUrl).toMatch(/^http:\/\/127\.0\.0\.1\//);
@@ -204,7 +204,7 @@ describe('platform orders through QCMEV', () => {
     await runMevOutbox({ now: Date.now() + 6 * 60_000 });
     mev = (await getRepo().getOrder(o.id))!.timeline?.mev;
     expect(mev?.status).toBe('accepted');
-    expect(mev?.mevNumber).toMatch(/^MEV-/);
+    expect(mev?.mevNumber).toMatch(/^SIM\d{9}$/); // MEV-WEB's number as received
   });
 
   it('shadow mode maps and checks only: nothing is sent', async () => {

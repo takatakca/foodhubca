@@ -3,6 +3,7 @@
 Newest first, one line per piece of work. Rule: `AGENTS.md` › Work log rule.
 Format: `YYYY-MM-DD | agent | branch → PR | status | what | next step`
 
+- 2026-10-27 | claude | feature/mev-qcmev-integration → PR #99 | ready for owner review/merge | QCMEV stand-in + checks aligned with QCMEV CONTRACT.md §7 (numbers, MEV number as received, « Réf. » text line, credit/copy dated when issued); 1702 tests, webpack OK, e2e 617/0 | owner merges QCMEV `fix/backend-readiness` and this PR
 - 2026-10-18 | claude (PR #55 update) | fix/finance-table-loading-skeletons → PR #55 | ready for owner review/merge | Brought up to date with main (through #85): accessible TableSkeleton in five finance tables, ListSkeleton in ledger and team, SSR tests; docs conflicts resolved by keeping main | owner merges
 - 2026-10-16 | ChatGPT | fix/on2go-contract-header-validation → PR #50 | code checked; base reconciled | Verify TAKATAK signed contract integration ID and event idempotency-key align; tampering regression tests, no network writes | verify new CI+image then owner review/merge
 - 2026-10-18 | cursor | fix/sync-startup-grace → PR | in progress | Coolify health of the new container was 503 with only sync=down: the site had been down for about an hour, so the stored sync time was older than 20 min, and the new process does not sync until 5 min; a restart now treats that old stamp as a warning until its own first sync window, and the sync starts at boot | merge so Coolify rebuilds

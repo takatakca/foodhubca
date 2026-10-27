@@ -69,7 +69,7 @@ export async function runMevScenarios(h) {
   const m1 = await waitFor(async () => { const m = await mevOf('uber-mev-1'); return m?.status === 'accepted' ? m : null; }, 15000);
   const s1 = saleFor('fh:takatak:stored:uber_eats:uber-mev-1')[0]?.body;
   check('S1 Uber → one LVT sale, no courier tip, no platform fees', !!m1 && s1?.serviceType === 'LVT' && s1.amounts.tipCents === 0 && s1.fees.deliveryCents === 0 && s1.payment.mode === 'AUT' && s1.testMode === true, JSON.stringify(s1 && { t: s1.serviceType, a: s1.amounts, f: s1.fees }));
-  check('S1 receipt on the order: number, QR image, platform mention', /^\d{6}-\d{4}$/.test(m1?.noTrans || '') && /^data:image\//.test(m1?.qrImage || '') && m1.mentions?.includes('COMMANDE PAR UNE PLATEFORME NUMÉRIQUE'), JSON.stringify(m1 && { n: m1.noTrans, m: m1.mentions }));
+  check('S1 receipt on the order: number, QR image, platform mention', /^\d+$/.test(m1?.noTrans || '') && /^data:image\//.test(m1?.qrImage || '') && m1.mentions?.includes('COMMANDE PAR UNE PLATEFORME NUMÉRIQUE'), JSON.stringify(m1 && { n: m1.noTrans, m: m1.mentions }));
   const o1 = await findOrder('uber-mev-1');
   check('S1 kitchen ticket page answers', (await call('GET', `/ticket/${o1?.id}?autoprint=0`)).status === 200);
   check('S1 a paper receipt for the bag (PAP) has no public electronic copy (no token)', m1?.format === 'PAP' && !m1.token && !m1.textElectronic, JSON.stringify(m1 && { f: m1.format, t: !!m1.token }));
@@ -140,7 +140,7 @@ export async function runMevScenarios(h) {
   await sleep(1300);
   await call('POST', '/api/foodhub/mev', { body: { action: 'run' } });
   const m5b = await waitFor(async () => { const m = await directMev(webId); return m?.status === 'accepted' && m.mevNumber ? m : null; }, 10000);
-  check('S5 MEV-WEB back → the same receipt gets its MEV number (batch flush)', !!m5b && m5b.noTrans === m5?.noTrans && /^MEV-/.test(m5b.mevNumber || ''), JSON.stringify(m5b && { n: m5b.noTrans, mev: m5b.mevNumber }));
+  check('S5 MEV-WEB back → the same receipt gets its MEV number (batch flush)', !!m5b && m5b.noTrans === m5?.noTrans && /^SIM\d{9}$/.test(m5b.mevNumber || ''), JSON.stringify(m5b && { n: m5b.noTrans, mev: m5b.mevNumber }));
   // E1 — paid online with an e-mail: paper + electronic (PEL). The public page is the electronic invoice: QR inside the
   // block, the link right under it, « Copie électronique »; it stays what was sent (here: issued offline).
   const pub5 = await call('GET', `/r/${m5b?.token}`, { auth: false });
@@ -159,7 +159,9 @@ export async function runMevScenarios(h) {
   await skipWebhook('cancel', { orderID: 'skip-mev-0006', reason: { code: 'customer_cancelled' }, happenedAt: new Date().toISOString() }, { hmac: false });
   const m6b = await waitFor(async () => { const m = await mevOf('skip-mev-0006'); return m?.status === 'credited' && m.creditNotes?.[0]?.status === 'accepted' ? m : null; }, 15000);
   const cn6 = st.transactions.find((t) => t.key === 'fh:takatak:stored:skip:skip-mev-0006:cn:1');
-  check('S6 cancelled after acceptance → full credit note, negative amounts, names the original', !!m6 && !!m6b && cn6?.totalCents < 0 && cn6.mentions.includes(`RÉF. FACTURE ${m6.noTrans}`), JSON.stringify(cn6 && { total: cn6.totalCents, m: cn6.mentions }));
+  check('S6 cancelled after acceptance → full credit note, negative amounts, names the original', !!m6 && !!m6b && cn6?.totalCents < 0 && cn6.mentions.includes('NOTE DE CRÉDIT') && !cn6.mentions.some((x) => x.includes(m6.noTrans)) && cn6.ref?.noTrans === m6.noTrans, JSON.stringify(cn6 && { total: cn6.totalCents, m: cn6.mentions, ref: cn6.ref }));
+  const cn6doc = (await mevOf('skip-mev-0006'))?.creditNotes?.[0];
+  check('S6 the credit note dates itself when issued (Montréal time), not at the original\'s time', !!cn6 && cn6.datTrans >= st.transactions.find((t) => t.key === 'fh:takatak:stored:skip:skip-mev-0006')?.datTrans && /^[+-]\d{2}:\d{2}$/.test(cn6.utc || ''), JSON.stringify(cn6 && { d: cn6.datTrans, u: cn6.utc, cn6doc }));
   const s6 = saleFor('fh:takatak:stored:skip:skip-mev-0006')[0]?.body;
   check('S6 Skip (JET prices before tax): items 26,47 $ + taxes 3,96 $, no « Rabais »', s6?.amounts?.subtotalCents === 2647 && s6.amounts.gstCents + s6.amounts.qstCents === 396 && s6.discountCents === 0, JSON.stringify(s6?.amounts));
   // S6b — a Skip order whose item prices add up to the tax-included total (not JET's documented shape).

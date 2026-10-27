@@ -1,5 +1,16 @@
 # Food Hub: progress log and task board
 
+## 2026-10-27 — MEV stand-in aligned with QCMEV's CONTRACT.md §7 (`feature/mev-qcmev-integration`, PR #99)
+
+- `scripts/e2e/mock-qcmev.mjs` now answers like the real QCMEV (`fix/backend-readiness`): `noTrans` "1", "2"… per
+  device and civil day (opaque), `qcmevTransactionId` unique per transaction (was built from the per-day number and
+  could repeat), `mevTransactionNumber` passed through as MEV-WEB gives it (simulator `SIM` + 9 digits), the reference to
+  the original as the « Réf. : transaction N / du … » **text lines** (credit note, corrected receipt, RPR / DUP), never a
+  mention, and credit notes / copies dated when issued, Montréal time with its offset.
+- Checks: S1 number, S5 MEV number, S6 credit note (mention « NOTE DE CRÉDIT » without the original's number, reference
+  kept) + a new S6 date check; `tests/mev-outbox.test.ts` two expectations. No production code changed.
+- typecheck OK, lint 0 errors, 1702 tests (2 skipped), `next build --webpack` OK, `verify:foodhub` 617/0.
+
 ## 2026-10-24 — MEV verification round 2 fixes (`feature/mev-qcmev-integration`, PR #99)
 
 - No 48 hours for a sale QCMEV has not recorded: the 48 h only cover sales the SEV already recorded during a

@@ -55,6 +55,8 @@ export interface DeviceReceipt {
   mevNumber?: string;
   text80mm?: string[];
   qrImage?: string;
+  /** What the QR code encodes: the device draws the QR itself when the image is not a PNG it can print. */
+  qrUrl?: string;
   /** Original printed already (then a second paper is a reproduction, RPR). */
   printedAt?: string;
   prints?: Array<{ printKey: string; mode: 'RPR' | 'DUP'; status: string; text80mm?: string[]; qrImage?: string }>;
@@ -71,6 +73,7 @@ export function deviceReceipt(r: RegisterSale | null): DeviceReceipt {
     ...(mev.mevNumber ? { mevNumber: mev.mevNumber } : {}),
     ...(mev.text80mm?.length ? { text80mm: mev.text80mm } : {}),
     ...(mev.qrImage ? { qrImage: mev.qrImage } : {}),
+    ...(mev.qrUrl ? { qrUrl: mev.qrUrl } : {}),
     ...(mev.printed?.[mev.saleKey] ? { printedAt: mev.printed[mev.saleKey] } : {}),
     ...(mev.prints?.length ? { prints: mev.prints.map((p) => ({ printKey: p.printKey, mode: p.mode, status: p.status, ...(p.text80mm ? { text80mm: p.text80mm } : {}), ...(p.qrImage ? { qrImage: p.qrImage } : {}) })) } : {}),
     ...(mev.creditNotes?.length ? { creditNotes: mev.creditNotes } : {}),

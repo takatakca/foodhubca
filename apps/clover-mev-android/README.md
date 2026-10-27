@@ -22,7 +22,7 @@ Clover SDK names (`ACTION_PAYMENT_PROCESSED`, `EXTRA_ORDER_ID`, `CloverAuth.auth
 
 ## Status (2026-10-27) — read before continuing
 
-- Code written; **first Gradle build not yet confirmed** (see the HANDOFF in docs/PROGRESS.md / the PR).
+- **Builds** (2026-10-27): `./gradlew test assembleDebug` OK against clover-android-sdk 341, 8/8 unit tests, debug APK 4.4 MB.
 - **Not tested on a real Clover device.** To verify on a Clover Dev Kit / sandbox merchant:
   1. the `PAYMENT_PROCESSED` broadcast reaches a manifest receiver on Clover's Android (if not: register it from a
      foreground service or poll recent orders);

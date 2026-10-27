@@ -6,7 +6,7 @@ import java.net.URL
 import java.net.URLEncoder
 
 /**
- * Food Hub's /api/foodhub/mev/clover-device/* with the merchant's own Clover token (from CloverAuth on this device):
+ * Food Hub's /api/foodhub/mev/clover-device routes (receipt, print, copy) with the merchant's own Clover token (from CloverAuth on this device):
  * Food Hub checks it with Clover and serves only this merchant's register sales.
  */
 class HttpFoodHubApi(baseUrl: String, private val merchantId: String, private val cloverToken: String) : FoodHubApi {

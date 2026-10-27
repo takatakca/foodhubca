@@ -31,6 +31,8 @@ const realFetch = globalThis.fetch;
 let mock: any;
 /** The fake Clover's orders, by id (null = deleted). */
 let clover: Map<string, any>;
+/** The fake Clover answers 400 to a sorted orders list. */
+let cloverRefusesSort = false;
 
 const NO_MAPS = { orderTypes: new Map<string, string>(), tenders: new Map<string, string>() };
 const ctx = { tenantId: 'takatak', testMode: true, trigger: 'accept' as const };
@@ -79,7 +81,15 @@ async function fakeClover(input: any): Promise<Response> {
   }
   if (path === 'order_types') return json(200, { elements: [{ id: 'OT1', label: 'Sur place' }, { id: 'OT2', label: 'Online Order Pick Up' }] });
   if (path === 'tenders') return json(200, { elements: [{ id: 'T1', label: 'Cash' }] });
-  if (path === 'orders') return json(200, { elements: [...clover.values()].filter(Boolean) });
+  if (path === 'orders') {
+    if (url.searchParams.has('orderBy') && cloverRefusesSort) return json(400, { message: 'Invalid orderBy' });
+    let rows = [...clover.values()].filter(Boolean);
+    const since = /modifiedTime>=(\d+)/.exec(url.searchParams.get('filter') ?? '');
+    if (since) rows = rows.filter((o) => (o.modifiedTime ?? Date.now()) >= Number(since[1]));
+    if (url.searchParams.get('orderBy') === 'modifiedTime ASC') rows.sort((a, b) => (a.modifiedTime ?? 0) - (b.modifiedTime ?? 0));
+    const offset = Number(url.searchParams.get('offset') ?? 0);
+    return json(200, { elements: rows.slice(offset, offset + Number(url.searchParams.get('limit') ?? 1000)) });
+  }
   const m = path.match(/^orders\/([^/]+)$/);
   if (m) {
     const co = clover.get(decodeURIComponent(m[1]));
@@ -97,6 +107,7 @@ beforeEach(async () => {
     'FOODHUB_MEV_REGISTER_TABLE_TYPES', 'CLOVER_ACCESS_TOKEN', 'CLOVER_MERCHANT_ID', 'CLOVER_MERCHANT_TOKENS', 'CLOVER_BASE_URL', 'FOODHUB_MEV_CLOVER_NOTE']) delete process.env[k];
   mock = createMockQcmev({ secret: SECRET, tenant: 'takatak', locations: ['E2E_A', 'E2E_B'] });
   clover = new Map();
+  cloverRefusesSort = false;
   globalThis.fetch = vi.fn(mockQcmevFetch(mock, QCMEV, fakeClover)) as any;
 });
 afterEach(async () => { await settleMevKicks(); globalThis.fetch = realFetch; });
@@ -254,6 +265,24 @@ describe('register sales through QCMEV (outbox, stand-in QCMEV, fake Clover)', (
     await pollCloverRegister(MID);
     await settleMevKicks();
     expect(posts().length).toBe(1);
+  });
+
+  it('a busy merchant: a poll that hits its page limit resumes after the last order it read, never skipping one', async () => {
+    const now = Date.now();
+    for (let i = 1; i <= 5; i++) clover.set(`BUSY${i}`, { ...cloverOrder(`BUSY${i}`), modifiedTime: now - (60 - i * 10) * 60_000 });
+    for (let run = 0; run < 6; run++) await pollCloverRegister(MID, now, { pageSize: 2, maxPages: 1 });
+    await settleMevKicks();
+    for (let i = 1; i <= 5; i++) expect((await getRegisterSale(registerSaleId(MID, `BUSY${i}`)))?.mev?.status).toBe('accepted');
+    expect(posts().length).toBe(5);
+  });
+
+  it('a Clover API that refuses the sort: the poll reads unsorted and still finds every sale', async () => {
+    cloverRefusesSort = true;
+    clover.set('A', cloverOrder('A'));
+    clover.set('B', cloverOrder('B'));
+    expect(await pollCloverRegister(MID)).toEqual({ recorded: 2 });
+    await settleMevKicks();
+    expect(posts().length).toBe(2);
   });
 
   it('a merchant used by two kitchens and no FOODHUB_MEV_REGISTER_LOCATION → nothing numbered on a guessed device; pinned → sent', async () => {

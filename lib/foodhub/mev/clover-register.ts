@@ -263,31 +263,51 @@ export async function handleCloverRegisterEvents(body: any, now = Date.now()): P
 
 // ---------------------------------------------------------------- catch-up poller
 
-/** Orders of one merchant modified since the last run: every register sale is found again, even after a missed webhook. */
-export async function pollCloverRegister(mid: string, now = Date.now()): Promise<{ recorded: number; error?: string }> {
+/**
+ * Orders of one merchant modified since the last run: every register sale is found again, even after a missed webhook.
+ * Read oldest change first, so a run that stops at its page limit (a very busy merchant) resumes after the last order
+ * it read instead of skipping the rest.
+ */
+export async function pollCloverRegister(mid: string, now = Date.now(), opts: { pageSize?: number; maxPages?: number } = {}): Promise<{ recorded: number; error?: string }> {
   const out = { recorded: 0 };
   const token = await readToken(mid);
   if (!token) return { ...out, error: `No Clover API token for merchant ${mid}` };
   const repo = getRepo();
   const since = Math.max((await repo.getKv<number>(SINCE_KEY(mid))) ?? 0, now - FIRST_LOOKBACK_MS);
+  const size = opts.pageSize ?? PAGE;
   try {
     const maps = await labelMaps(mid, token);
     const known = await knownFoodHubCloverIds(now);
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const qs = (expand: string) => ({ filter: `modifiedTime>=${since}`, expand, limit: String(PAGE), offset: String(page * PAGE) });
+    let ordered = true;
+    let complete = false;
+    let lastSeen = since;
+    for (let page = 0; page < (opts.maxPages ?? MAX_PAGES); page++) {
+      const qs = (expand: string) => ({ filter: `modifiedTime>=${since}`, expand, limit: String(size), offset: String(page * size), ...(ordered ? { orderBy: 'modifiedTime ASC' } : {}) });
       let r = await cloverGet(mid, token, 'orders', qs(EXPAND_FULL));
+      if (r.status === 400 && page === 0) {
+        // A merchant API that refuses the sort: read unsorted (a run that hits the page limit then starts over).
+        ordered = false;
+        r = await cloverGet(mid, token, 'orders', qs(EXPAND_FULL));
+      }
       if (r.status === 400) r = await cloverGet(mid, token, 'orders', qs(EXPAND_BASIC));
       if (r.status < 200 || r.status >= 300) throw new Error(`Clover orders HTTP ${r.status}`);
       const rows: any[] = Array.isArray(r.json?.elements) ? r.json.elements : [];
       for (const co of rows) {
         if (!co?.id) continue;
+        lastSeen = Math.max(lastSeen, Number(co.modifiedTime) || 0);
         const existing = await getRegisterSale(registerSaleId(mid, String(co.id)));
         if (!existing && !isRegisterOrder(co, { ...maps, known })) continue;
         if (await ingestRegisterOrder(mid, co, { orderTypes: maps.orderTypes })) out.recorded++;
       }
-      if (rows.length < PAGE) break;
+      if (rows.length < size) {
+        complete = true;
+        break;
+      }
     }
-    await repo.setKv(SINCE_KEY(mid), now - OVERLAP_MS);
+    // All read → next run starts a little before now. Page limit hit → resume at the last change read (sorted), or
+    // from the same point (unsorted): never past an order not read yet.
+    await repo.setKv(SINCE_KEY(mid), complete ? now - OVERLAP_MS : ordered ? lastSeen : since);
+    if (!complete) console.error('[foodhub] Clover register poll', mid, `more than ${size * (opts.maxPages ?? MAX_PAGES)} orders changed; the rest on the next run`);
     return out;
   } catch (error) {
     return { ...out, error: error instanceof Error ? error.message : String(error) };

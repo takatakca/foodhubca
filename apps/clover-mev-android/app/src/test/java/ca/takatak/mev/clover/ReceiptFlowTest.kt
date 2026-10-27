@@ -57,6 +57,19 @@ class ReceiptFlowTest {
         assertTrue(printer.jobs.isEmpty())
     }
 
+    @Test fun aReplacedJobStopsWaitingAndPrintsNothing() {
+        // Split bill: the first payment's job waits; the last payment's job replaces it and prints.
+        val printer = FakePrinter()
+        var t = 0L
+        val api = FakeApi(mutableListOf(Receipt("unknown"), Receipt("unknown"), ok()))
+        val replaced = ReceiptFlow(api, printer, sleep = { t += it }, now = { t }, maxWaitMs = 10_000, stepMs = 2_000, stopped = { t >= 2_000 })
+        assertEquals(Outcome.Replaced, replaced.printOriginal("O"))
+        assertTrue(api.claims.isEmpty())
+        assertTrue(printer.jobs.isEmpty())
+        assertEquals(Outcome.Printed("1"), flow(api, printer).printOriginal("O"))
+        assertEquals(1, printer.jobs.size)
+    }
+
     @Test fun aReproductionIsAskedFromTakatakMevAndPrintsTheNewCopy() {
         val old = Copy("k:pr:rpr1", "RPR", "accepted", listOf("OLD"), null)
         val new = Copy("k:pr:rpr2", "RPR", "accepted", listOf("RESTO", "REPRODUCTION"), null)

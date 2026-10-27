@@ -18,7 +18,7 @@ class ReceiptWorker(context: Context, params: WorkerParameters) : Worker(context
         val account = CloverAccount.getAccount(applicationContext) ?: return done(order, "no_clover_account")
         val auth = try { CloverAuth.authenticate(applicationContext, account) } catch (e: Exception) { null }
         if (auth?.authToken.isNullOrBlank() || auth?.merchantId.isNullOrBlank()) return done(order, "clover_auth_failed", retry = true)
-        val flow = ReceiptFlow(HttpFoodHubApi(History.foodHubUrl(applicationContext), auth!!.merchantId, auth.authToken), CloverReceiptPrinter(applicationContext, account))
+        val flow = ReceiptFlow(HttpFoodHubApi(History.foodHubUrl(applicationContext), auth!!.merchantId, auth.authToken), CloverReceiptPrinter(applicationContext, account), stopped = { isStopped })
         val outcome = if (mode == "FAC") flow.printOriginal(order) else flow.printCopy(order, mode)
         return when (outcome) {
             is Outcome.Printed -> done(order, if (mode == "FAC") "printed ${outcome.noTrans ?: ""}".trim() else "printed $mode")
@@ -28,6 +28,8 @@ class ReceiptWorker(context: Context, params: WorkerParameters) : Worker(context
             is Outcome.NoInvoice -> done(order, outcome.status)
             // Not ready within 90 s (Food Hub or Takatak MEV unreachable): try again later, never print anything invented.
             Outcome.TimedOut -> done(order, "waiting", retry = runAttemptCount < 5)
+            // The newer job for this document prints; nothing to record here.
+            Outcome.Replaced -> Result.success()
         }
     }
 
@@ -42,8 +44,9 @@ class ReceiptWorker(context: Context, params: WorkerParameters) : Worker(context
 
         fun enqueue(context: Context, order: String, mode: String = "FAC") {
             val req = OneTimeWorkRequestBuilder<ReceiptWorker>().setInputData(workDataOf(KEY_ORDER to order, KEY_MODE to mode)).build()
-            // One job per document: the same payment broadcast twice never prints twice.
-            WorkManager.getInstance(context).enqueueUniqueWork("mev-$order-$mode", if (mode == "FAC") ExistingWorkPolicy.KEEP else ExistingWorkPolicy.REPLACE, req)
+            // One job per document, the newest: a bill paid in several payments (split bill) restarts the wait at its
+            // last payment instead of sitting in a retry pause. Never two papers: Food Hub grants each print once (/print).
+            WorkManager.getInstance(context).enqueueUniqueWork("mev-$order-$mode", ExistingWorkPolicy.REPLACE, req)
         }
     }
 }

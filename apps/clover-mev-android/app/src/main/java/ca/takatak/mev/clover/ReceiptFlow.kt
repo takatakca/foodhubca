@@ -25,6 +25,8 @@ sealed class Outcome {
     /** Credited or not invoiced (refunded before it was sent, switched off): nothing to print. */
     data class NoInvoice(val status: String) : Outcome()
     object TimedOut : Outcome()
+    /** Replaced by a newer job for the same document (the bill's next payment): that one prints. */
+    object Replaced : Outcome()
 }
 
 /**
@@ -39,6 +41,8 @@ class ReceiptFlow(
     private val now: () -> Long = { System.currentTimeMillis() },
     private val maxWaitMs: Long = 90_000,
     private val stepMs: Long = 2_000,
+    /** The job was replaced (WorkManager isStopped): stop waiting. Checked between answers, never during a print. */
+    private val stopped: () -> Boolean = { false },
 ) {
     fun printOriginal(order: String): Outcome {
         val until = now() + maxWaitMs
@@ -54,6 +58,7 @@ class ReceiptFlow(
                 r.status == "needs_human" || r.status == "rejected" -> return Outcome.NeedsPerson(r.reason)
                 r.status == "credited" || r.status == "skipped" -> return Outcome.NoInvoice(r.status)
             }
+            if (stopped()) return Outcome.Replaced
             if (now() >= until) return Outcome.TimedOut
             sleep(stepMs)
         }
@@ -72,6 +77,7 @@ class ReceiptFlow(
                 printer.print(copy.text80mm, copy.qrImage, null)
                 return Outcome.Printed(null)
             }
+            if (stopped()) return Outcome.Replaced
             if (now() >= until) return Outcome.TimedOut
             sleep(stepMs)
         }

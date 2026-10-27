@@ -42,7 +42,7 @@ losing the keystore means a new app listing. The build forces exactly that (v1 o
 
 ## Status (2026-10-27) — read before continuing
 
-- **Builds** (2026-10-27): `./gradlew test assembleDebug` OK against clover-android-sdk 341, 8/8 unit tests, debug APK 4.4 MB.
+- **Builds** (2026-10-27): `./gradlew test assembleDebug` OK against clover-android-sdk 341, 9/9 unit tests, debug APK 4.4 MB.
 - **Release signing checked** (2026-10-27) with a throwaway key: `assembleRelease` gives a v1-only APK with
   `META-INF/CERT.RSA` that `apksigner verify` accepts (targetSdk 25).
 - **Not tested on a real Clover device.** To verify on a Clover Dev Kit / sandbox merchant:

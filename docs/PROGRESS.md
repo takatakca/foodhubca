@@ -1,5 +1,11 @@
 # Food Hub: progress log and task board
 
+## 2026-10-28 — Platform screens: Uber Eats / DoorDash order screens inside Food Hub (`claude/busy-cannon-5spy86`)
+
+- Stores → « Écrans des plateformes / Platform screens »: each platform account runs in an always-on Chromium on a screen relay host (`deploy/screens/`), shown live in Food Hub with status, waiting count from the page title, Reload and full screen. The owner signs in once inside each screen; Food Hub never stores or types a platform password.
+- Relay agent heartbeat `POST /api/foodhub/screens/heartbeat` (public, Bearer `FOODHUB_SCREENS_AGENT_TOKEN`, off until set); blank / crashed pages reloaded by the agent; Watchtower rule `screen_down` (offline, signed out or crashed during opening hours). The agent never clicks or reads orders (platform terms): orders keep entering through the integrations and the Order Relay.
+- Guide `docs/PLATFORM_SCREENS.md`; tests `tests/platform-screens.test.ts`.
+
 ## 2026-10-21 — Simpler sign-in page + « Continuer avec Google » (`feature/login-google-signin`)
 
 - One calm sign-in screen: Food Hub mark, big « Continuer avec Google / Continue with Google » (only when `GOOGLE_OAUTH_CLIENT_ID` is set), the code-by-email/text sign-in as the second option, the owner recovery behind a small link; FR first, EN; 44 px targets; first run, code and recovery steps kept.

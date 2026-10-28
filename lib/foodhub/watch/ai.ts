@@ -88,6 +88,12 @@ export const PLAYBOOK: Record<IncidentKind, { fr: string; en: string; doFr: stri
     doFr: ['Toucher l’écran pour réactiver le son', 'Remettre TAKATAK au premier plan'],
     doEn: ['Tap the screen to turn sound on', 'Bring TAKATAK back to the front'],
   },
+  screen_down: {
+    fr: 'Un écran de plateforme (Uber Eats, DoorDash…) sur le serveur relais ne répond plus, ou la plateforme demande de se reconnecter. Les commandes de cette plateforme ne sonnent peut-être plus.',
+    en: 'A platform screen (Uber Eats, DoorDash…) on the relay host stopped answering, or the platform asks to sign in again. Orders from that platform may no longer ring.',
+    doFr: ['Ouvrir Magasins → Écrans des plateformes', 'Toucher « Recharger », ou se reconnecter dans l’écran (le propriétaire tape le mot de passe)', 'Si l’écran reste hors ligne : vérifier le serveur relais (internet, alimentation)'],
+    doEn: ['Open Stores → Platform screens', 'Tap “Reload”, or sign in again inside the screen (the owner types the password)', 'If it stays offline: check the relay host (internet, power)'],
+  },
   cancel_spike: {
     fr: 'Plusieurs annulations dans la dernière heure. Les plateformes baissent le classement des magasins qui annulent souvent.',
     en: 'Several cancellations in the last hour. Platforms rank stores that cancel often lower.',

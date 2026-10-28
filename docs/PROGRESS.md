@@ -1,5 +1,11 @@
 # Food Hub: progress log and task board
 
+## 2026-10-28 — TAKATAK Suite: Food Hub side of the nine Clover apps (`claude/busy-cannon-5spy86`)
+
+- The nine Clover App Market repos with a "4" (C4ISSE, T4CTILE, 4CCOUNTING, TR4CKER, ST4FF, M4RKETING, LOY4LTY, REW4RD, CH4T) exist but are empty. Contract for building them as one SaaS of independent apps: `docs/TAKATAK_SUITE.md`.
+- Food Hub side built: `lib/foodhub/suite/*` (registry from `FOODHUB_SUITE_<APP>_URL` / `_SECRET`, HMAC signatures both ways, order change watch → outbox → signed delivery with backoff, app → app events), routes `/api/suite/v1/{ping,orders,events}` (public in proxy, signed per app), Settings → Connected apps. Reads orders only; no customer name/phone/email/address leaves Food Hub; optional one-way `customerKey` (`FOODHUB_SUITE_CUSTOMER_SALT`). Off until an app is connected.
+- Tests `tests/takatak-suite.test.ts`.
+
 ## 2026-10-28 — Platform screens: Uber Eats / DoorDash order screens inside Food Hub (`claude/busy-cannon-5spy86`)
 
 - Stores → « Écrans des plateformes / Platform screens »: each platform account runs in an always-on Chromium on a screen relay host (`deploy/screens/`), shown live in Food Hub with status, waiting count from the page title, Reload and full screen. The owner signs in once inside each screen; Food Hub never stores or types a platform password.

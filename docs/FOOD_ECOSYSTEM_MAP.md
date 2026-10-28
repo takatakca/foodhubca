@@ -36,7 +36,7 @@ the food project only. Builds on `docs/ON2GO_HUB_ECOSYSTEM.md` (contracts C1–C
 | **takatakbackend** | Legacy Express / MongoDB API, being retired. | — | **Out of the food project.** Build nothing new on it. |
 | **takatak** | Empty Next.js starter. | — | Out. |
 | **TAKATAKREVIEW** | Empty repository. | — | Out (Food Hub already has the Reviews hub). |
-| **Clover Marketplace apps** (the repos with a "4" in their name) | Not visible to Claude yet. Known Clover apps in code: TAKATAK Food Hub and TAKATAK Phone AI, both inside `foodhubca` (`docs/CLOVER_MULTI_APP.md`). | — | Rule for any other Clover app: it uses **Food Hub's** API for menus/orders and its own OAuth token per merchant, never Food Hub's database. |
+| **Clover Marketplace apps** (C4ISSE, T4CTILE, 4CCOUNTING, TR4CKER, ST4FF, M4RKETING, LOY4LTY, REW4RD, CH4T) | Nine Clover apps, each independent, together as the TAKATAK Suite. Repos created empty on 2026-10-28; contract in `docs/TAKATAK_SUITE.md`. Also in `foodhubca`: TAKATAK Food Hub and TAKATAK Phone AI (`docs/CLOVER_MULTI_APP.md`). | Their own data, keyed by Clover merchant ID | Food Hub only: signed events out, signed calls in (`/api/suite/v1/*`); never Food Hub's database, never each other directly |
 
 ## 3. How information moves (one direction each, so nothing fights)
 
@@ -64,7 +64,7 @@ the food project only. Builds on `docs/ON2GO_HUB_ECOSYSTEM.md` (contracts C1–C
 ## 5. Next steps, in order (each is one branch, one PR)
 
 1. Merge what is open: Food Hub platform screens (this branch), MEV link (Food Hub #100 + QCMEV #4).
-2. Give Claude access to the Clover "#4" repos, then add each to the table above with its contract.
+2. Clover "4" repos: found (empty). Build each against `docs/TAKATAK_SUITE.md`; owner confirms each app's purpose first.
 3. Owner decision on Deli Aden → Order Relay; then a small change in `deli-aden-online` (point its relay at Food Hub).
 4. pppmtl reads its menu from Food Hub's public menu feed (one menu, no copy).
 5. V1 → Food Hub sign-in hand-off (same pattern as `takatak-v1/docs/TAKATAK_ACADEMY_BRIDGE.md`) and a Food Hub tile in V1.

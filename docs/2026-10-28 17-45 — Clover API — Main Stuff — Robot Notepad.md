@@ -197,7 +197,7 @@ Lecture : pour chaque app — son travail réel (d'après son package de soumiss
 **Permissions cœur :** Orders R/W, Inventory R, Payments W (flux), Customers R/W, Employees R, Merchant R.
 
 - **Base 50 $** — le nécessaire : vente au comptoir via connecteurs Android (#48) et Android Payments API (#49) ; panier sur le vrai menu (#12–#17) ; tenders natifs + comptant, ouverture du tiroir (#56) ; impression des reçus (#55).
-- **Premium 100 $** — plus : photos d'articles depuis notre CDN (contournement L4 — c'est la matière de Picture Register, 2.13) ; recherche client par téléphone et rattachement (#42) ; rabais et frais de service (#19, #26) ; modes de paiement personnalisés (#39 : carte-cadeau maison REW4RDS, compte client).
+- **Premium 100 $** — plus : photos d'articles depuis notre CDN (contournement L4 — c'est le module caisse-photo de C4ISSE, décrit en 2.13) ; recherche client par téléphone et rattachement (#42) ; rabais et frais de service (#19, #26) ; modes de paiement personnalisés (#39 : carte-cadeau maison REW4RDS, compte client).
 - **VIP 150 $** — full kit : tout Premium + contrôle gérant maison (NIP vérifié contre #45, journalisé — contournement L12) ; tenue de caisse complète (événements #47, fermeture auto Canada #67) ; mode hors-ligne **de consultation seulement** (les paiements hors ligne sont interdits au Canada, #41) ; écrans clients pilotés (#58) avec saisie fidélité (#43).
 
 ## 2.5 CH4T by TAKATAK — RGE4PFGC9SR7C — brouillon
@@ -272,8 +272,10 @@ Lecture : pour chaque app — son travail réel (d'après son package de soumiss
 - **Premium 100 $** — plus : vue portefeuille multi-établissements sans fusion des données (chaque marque dans son espace) ; écarts à vérifier (commandes sans paiement, ruptures fréquentes) ; suivi des actifs numériques reliés à la marque (Pages, profils, comptes).
 - **VIP 150 $** — full kit : tout Premium + le plan de contrôle complet de la suite : état de toutes les apps TAKATAK installées (webhooks `A`, #64), facturation et usage consolidés, indicateurs sociaux/publicitaires en lecture quand le client active ces modules, brouillons IA approuvés par un humain ; c'est l'écran où le « système unique » de la section 4 devient visible.
 
-## 2.13 TAKATAK Picture Register — J0H36VTJBSBBP — brouillon
-**Travail :** caisse visuelle : le registre du comptoir avec **photos des articles** en grand — pensée pour la vitesse et la formation du personnel (on touche la photo, pas un code). Sœur de C4ISSE (2.4) : C4ISSE = couche caisse complète ; Picture Register = l'interface photo d'abord.
+## 2.13 TAKATAK Picture Register — J0H36VTJBSBBP — brouillon (module de C4ISSE)
+
+**★ CORRECTION 2026-10-28 18:30 (Matt) : « Picture Register, c'est C4ISSE »** — `J0H36VTJBSBBP` n'est PAS une app à paliers séparée : c'est le **module caisse-photo de C4ISSE** (2.4). Les paliers 50/100/150 sont ceux de C4ISSE ; le module photo est une feature de son palier **Premium** (photos d'articles depuis le CDN) et de son palier **VIP** (synchronisation photo automatique, mode formation). Le mapping ci-dessous est conservé comme description des FEATURES du module, pas comme plans d'abonnement séparés. Le brouillon portail Picture Register reste en place, non soumis comme app distincte, aucune suppression.
+**Travail :** caisse visuelle : le registre du comptoir avec **photos des articles** en grand — pensée pour la vitesse et la formation du personnel (on touche la photo, pas un code). Module de C4ISSE (2.4) : C4ISSE = couche caisse complète ; ce module = son interface photo d'abord.
 **Permissions cœur :** Inventory R, Orders R/W, Payments W (flux), Employees R.
 
 - **Base 50 $** — le nécessaire : grille photo des items par catégorie (#12, #13) alimentée par notre CDN (contournement L4) ; ajout au panier en un toucher ; paiement via Android Payments API (#49) ; impression (#55).
@@ -304,7 +306,7 @@ Lecture : pour chaque app — son travail réel (d'après son package de soumiss
 | On2GO | TE77CFFZC9394 | ON2GO N4NYCJCZ17FF4 |
 | TAKATAK | P8JGS60SV1R7W | TAKATAK F4TMP23FM7K5M |
 | (packages locaux sans jumeau sandbox nommé : st4ff, rew4rd, mev-quebec) | — | ST4FF E0BGTY752BZYE · REW4RDS 239362NZSVFSC · MEV (à créer/décider) |
-| (sans prédécesseur sandbox connu) | — | 4CCOUNTING, C4ISSE, CH4T, M4RKETING, Picture Register, TR4CKER |
+| (sans prédécesseur sandbox connu) | — | 4CCOUNTING, C4ISSE, CH4T, M4RKETING, Picture Register (module de C4ISSE), TR4CKER |
 
 **Rappel mécanique :** une app sandbox doit être recréée en production (#6) — la correspondance ci-dessus est fonctionnelle, pas un transfert automatique.
 
@@ -313,7 +315,7 @@ Lecture : pour chaque app — son travail réel (d'après son package de soumiss
 Les 14 apps ne sont pas 14 produits isolés : ce sont 14 visages du **même système**, branchés sur quatre colonnes partagées. C'est exactement la vision du système maître unique : un client, un dos de données, des accès par groupe/app.
 
 ## 3.1 Colonne 1 — La commande unique (Orders backplane)
-Toute commande, d'où qu'elle vienne, devient **une commande Clover** (#23/#24) avec son type (#9) : comptoir (C4ISSE, Picture Register), borne (T4CTILE), téléphone (Phone AI), plateformes (Food Hub), en ligne (On2GO/Online Ordering). Ensuite tout le monde lit la même vérité : la cuisine imprime/KDS (#27/#29), TR4CKER suit la livraison, CH4T informe le client, 4CCOUNTING comptabilise, LOY4LTY crédite, MEV capture, le dashboard TAKATAK affiche. Un seul format, zéro ressaisie.
+Toute commande, d'où qu'elle vienne, devient **une commande Clover** (#23/#24) avec son type (#9) : comptoir (C4ISSE et son module caisse-photo), borne (T4CTILE), téléphone (Phone AI), plateformes (Food Hub), en ligne (On2GO/Online Ordering). Ensuite tout le monde lit la même vérité : la cuisine imprime/KDS (#27/#29), TR4CKER suit la livraison, CH4T informe le client, 4CCOUNTING comptabilise, LOY4LTY crédite, MEV capture, le dashboard TAKATAK affiche. Un seul format, zéro ressaisie.
 
 ## 3.2 Colonne 2 — Le bus d'événements (Webhooks)
 Un seul consommateur de webhooks (#60) par marchand, derrière un **adaptateur** (à cause des changements annoncés aux webhooks d'inventaire), qui distribue les 12 types d'événements aux apps concernées :
@@ -323,7 +325,7 @@ Un seul consommateur de webhooks (#60) par marchand, derrière un **adaptateur**
 | `O` Orders | Food Hub (états), TR4CKER (livraison), CH4T (avis au client), LOY4LTY (gain), 4CCOUNTING, TAKATAK (écarts) |
 | `P` Payments | LOY4LTY (crédit après paiement confirmé), 4CCOUNTING, Food Hub (rapprochement), TR4CKER (pourboires) |
 | `C` Customers | LOY4LTY, CH4T, M4RKETING (segments), REW4RDS (cartes liées) |
-| `I`/`IC`/`IG`/`IM` Inventory | Food Hub (synchro plateformes), T4CTILE/Picture Register (photos et 86), Phone AI (menu en direct), On2GO (fiche publique) |
+| `I`/`IC`/`IG`/`IM` Inventory | Food Hub (synchro plateformes), T4CTILE/module caisse-photo de C4ISSE (photos et 86), Phone AI (menu en direct), On2GO (fiche publique) |
 | `E` Employees | ST4FF (horaires), C4ISSE (autorisations) |
 | `CA` Cash | 4CCOUNTING (rapprochement de caisse), TAKATAK (alertes) |
 | `A` Apps | TAKATAK (plan de contrôle : installations, abonnements) |
@@ -352,7 +354,7 @@ Source principale : audit plateforme interne du 2026-10-25/26 (`research_notes/c
 | L1 | **Aucune API téléphonie** | Ni appels, ni IVR, ni enregistrement dans la doc développeur Clover. | Hub téléphonique maison : le fournisseur voix poste une commande structurée à NOTRE hub ; le hub valide, prixe avec la même logique taxes, crée la commande atomique (#24), déclenche impression/KDS, renvoie l'ID Clover et l'heure promise. Variante humaine : web POS léger + Terminal virtuel (#66). C'est l'architecture de Phone AI. |
 | L2 | **Aucun API de points de fidélité** | Rewards/Promos natifs existent à la caisse, mais aucun endpoint de solde/points ; seul crochet = données client pendant le paiement (#43). | Registre de points maison clé par téléphone (#42), alimenté par webhooks `O`/`P` ; échange = rabais appliqué à la commande avant paiement (Write orders). On possède les données et le bilinguisme. C'est l'architecture de LOY4LTY (package Fidélité). |
 | L3 | **Modificateurs sans compteur** | Les modificateurs n'ont qu'un booléen `available` ; Clover a répondu « Not at this time » à la demande de stock sur modificateurs (UserVoice, 2025). | Compteurs dans notre backend, décrémentés sur événements de commande ; à zéro, on bascule `available` à faux via l'API (#17). Ou modéliser l'ingrédient compté comme un item réel. Éventuel, pas transactionnel — à assumer. |
-| L4 | **Aucune image d'article via l'API** | Aucun champ image dans l'API Inventaire ; les images vivent dans les vues en ligne de Clover, pas dans l'API. | CDN maison clé par ID d'article Clover (le modèle des kiosques du marché, ex. GRUBBRR). Alimente T4CTILE, Picture Register, On2GO et les sites. |
+| L4 | **Aucune image d'article via l'API** | Aucun champ image dans l'API Inventaire ; les images vivent dans les vues en ligne de Clover, pas dans l'API. | CDN maison clé par ID d'article Clover (le modèle des kiosques du marché, ex. GRUBBRR). Alimente T4CTILE, le module caisse-photo de C4ISSE, On2GO et les sites. |
 | L5 | **Pas d'agrégation de livraison native ; SkipTheDishes absent** | Aucun connecteur natif Uber/DoorDash ; pour Skip : demande marchande toujours « request » sur UserVoice (sept. 2025), aucun partenaire Clover confirmé pour Skip au Canada. | Uber/DoorDash via partenaires App Market (#65) ou notre hub ; **Skip : notre hub ingère Skip (API partenaire/agrégateur) et crée lui-même la commande Clover** — on devient l'agrégateur de ce canal. Ne jamais présumer qu'une liste de canaux US implique le Canada/Skip. |
 | L6 | **Aucun API de cadence (coursing/throttling/hold-and-fire)** | Rien pour retarder, cadencer ou « tirer » les commandes. | Machine à états dans notre hub (reçu → retenu → tiré) ; on ne crée/imprime la commande Clover (ou on n'appelle `print_event`, #27) qu'au moment du tir. Même garde entre le webhook agrégateur et la création de commande pour la cadence de préparation. |
 | L7 | **Aucune API KDS** | Le KDS Clover est natif, sans API publique trouvée. | On l'alimente indirectement : commandes Clover correctes avec bons groupes d'impression et types de commande (#25, #9). |

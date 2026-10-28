@@ -1,13 +1,13 @@
 # 2026-10-28 18:23 — Pack vidéos Marketplace Clover — Scripts, storyboards et prompts Runway — Standard LUXE TAKATAK
 
 **Commande :** Matt, 2026-10-28 18:22 — « crée des vidéos avec les autres IA, prépare-moi les tools — ça doit être quelque chose de LUXE qui représente vraiment TAKATAK (takatak.ca), le meilleur des meilleurs. »
-**Portée :** 13 films prêts à produire — 1 film maître « TAKATAK — le système » + les 12 applications Clover en brouillon (production, Developer ID 9KJ25ATT15TTW). Food Hub 629HFYHNVMZYR et Phone AI 20FK28P20HJC6 sont **EN RÉVISION** : aucune modification de fiche — voir la section 16, « prêt à produire, à appliquer après approbation Clover ».
+**Portée :** 12 films prêts à produire — 1 film maître « TAKATAK — le système » + les 11 applications Clover en brouillon (production, Developer ID 9KJ25ATT15TTW). **Correction 2026-10-28 18:30 (Matt) : « Picture Register, c'est C4ISSE » — Picture Register (J0H36VTJBSBBP) n'est pas une app distincte, c'est le module caisse-photo de C4ISSE ; son film est fusionné dans le film C4ISSE (section 5).** Food Hub 629HFYHNVMZYR et Phone AI 20FK28P20HJC6 sont **EN RÉVISION** : aucune modification de fiche — voir la section 15, « prêt à produire, à appliquer après approbation Clover ».
 **Matière première :** base API « Clover API — Main Stuff — Robot Notepad » (2026-10-28 17:45, 67 entrées) + packages de soumission `~/workspace/clover-apps/`. Les fonctions montrées dans chaque film sont uniquement celles du mapping Base/Premium/VIP de l'app.
 **Aucun secret dans ce document.** Aucun prix d'app affiché dans les vidéos (les paliers 50/100/150 $ vivent dans la fiche texte du portail, jamais à l'image). Aucun numéro de téléphone personnel : le seul contact autorisé à l'écran est +1 450-999-4999 (téléphone restaurants) — et en pratique, les films se terminent sur **takatak.ca**.
 
 ---
 
-# 1. CHARTE ARTISTIQUE LUXE TAKATAK (s'applique aux 13 films, sans exception)
+# 1. CHARTE ARTISTIQUE LUXE TAKATAK (s'applique aux 12 films, sans exception)
 
 **Positionnement.** TAKATAK n'est pas « un fournisseur d'apps ». C'est la maison qui équipe les meilleurs restaurants de Montréal. Chaque film doit donner l'impression d'une marque de luxe technologique : calme, précise, assurée. Jamais d'agitation, jamais de couleurs criardes, jamais d'humour de bas étage.
 
@@ -21,7 +21,7 @@
 
 **Voix.** Voix off enregistrée via **ElevenLabs** (compte TAKATAK, session confirmée 2026-10-26) : voix FR au français québécois neutre et posé, voix EN nord-américaine calme ; débit ~140 mots/min ; aucune voix robotique par défaut. Le texte intégral de chaque voix off est écrit dans ce pack (FR + EN) — production = lecture directe, aucune réécriture libre.
 
-**Musique.** Bande originale générée via **Suno** (compte TAKATAK) : un seul thème maître pour les 13 films — piano feutré, contrebasse douce, pulsation électronique discrète, ~90 BPM, décliné en version 45 s (film maître) et 35 s (films d'app). Mixage : musique à −18 dB sous la voix.
+**Musique.** Bande originale générée via **Suno** (compte TAKATAK) : un seul thème maître pour les 12 films — piano feutré, contrebasse douce, pulsation électronique discrète, ~90 BPM, décliné en version 45 s (film maître) et 35 s (films d'app). Mixage : musique à −18 dB sous la voix.
 
 **Interdits visuels absolus (tous les prompts les portent).** Aucun texte lisible, aucun logo, aucun prix, aucun menu lisible, aucune enseigne inventée dans les images générées ; aucun vrai numéro de carte ; aucun visage identifiable de vraie personne ; aucune plaque/adresse réelle. Les écrans d'app montrés sont des captures de la vraie app (sandbox) intégrées au montage — jamais des écrans inventés par l'IA vidéo.
 
@@ -47,13 +47,13 @@
 ---
 # 3. FILM MAÎTRE — « TAKATAK — LE SYSTÈME » (45 s)
 
-**Usage :** vidéo principale de la fiche TAKATAK (F4TMP23FM7K5M), page développeur Clover, et ouverture de toutes les présentations de la suite. Il raconte la doctrine de Matt : 14 apps, un seul grand système connecté.
+**Usage :** vidéo principale de la fiche TAKATAK (F4TMP23FM7K5M), page développeur Clover, et ouverture de toutes les présentations de la suite. Il raconte la doctrine de Matt : 13 apps, un seul grand système connecté.
 
 **Voix off FR (texte intégral, ~45 s) :**
-« Un restaurant ne devrait jamais travailler avec dix systèmes qui s'ignorent. TAKATAK en a bâti un seul. La commande entre — au comptoir, à la borne, au téléphone, en ligne — et devient une seule commande Clover. Le client est reconnu par son numéro de téléphone, partout. Les points, les cartes-cadeaux, le personnel, la comptabilité et la livraison vivent sur le même dos de données. Quatorze applications. Trois niveaux, pour chaque besoin. Un seul système. TAKATAK. Le meilleur des meilleurs. »
+« Un restaurant ne devrait jamais travailler avec dix systèmes qui s'ignorent. TAKATAK en a bâti un seul. La commande entre — au comptoir, à la borne, au téléphone, en ligne — et devient une seule commande Clover. Le client est reconnu par son numéro de téléphone, partout. Les points, les cartes-cadeaux, le personnel, la comptabilité et la livraison vivent sur le même dos de données. Treize applications. Trois niveaux, pour chaque besoin. Un seul système. TAKATAK. Le meilleur des meilleurs. »
 
 **Voice-over EN (full text, ~45 s):**
-"A restaurant should never run on ten systems that ignore each other. TAKATAK built one. An order comes in — at the counter, at the kiosk, by phone, online — and becomes a single Clover order. The customer is recognized by phone number, everywhere. Points, gift cards, staff, accounting and delivery all live on the same backbone. Fourteen applications. Three tiers, for every need. One system. TAKATAK. The best of the best."
+"A restaurant should never run on ten systems that ignore each other. TAKATAK built one. An order comes in — at the counter, at the kiosk, by phone, online — and becomes a single Clover order. The customer is recognized by phone number, everywhere. Points, gift cards, staff, accounting and delivery all live on the same backbone. Thirteen applications. Three tiers, for every need. One system. TAKATAK. The best of the best."
 
 | Plan | Durée | Type | Visuel | Texte à l'écran (montage) |
 |---|---|---|---|---|
@@ -100,29 +100,30 @@
 
 ---
 
-# 5. C4ISSE by TAKATAK — VDV7XAH5TPB78 (35 s)
+# 5. C4ISSE by TAKATAK — VDV7XAH5TPB78 (40 s)
 
-**Angle :** la caisse comptoir rapide qui coexiste avec le Register Clover — vrai menu, photos, tenders maison, contrôle gérant. Fonctions : connecteurs Android (#48), Android Payments (#49), Customers par téléphone (#42), tenders personnalisés (#39), tiroir (#56).
+**Angle :** la caisse comptoir rapide qui coexiste avec le Register Clover — vrai menu, photos, tenders maison, contrôle gérant. **Inclut le module caisse-photo (ex-« Picture Register » J0H36VTJBSBBP, fusionné ici le 2026-10-28 sur correction de Matt : ce n'est pas une app distincte, c'est le module photo de C4ISSE).** Fonctions : connecteurs Android (#48), Android Payments (#49), Customers par téléphone (#42), tenders personnalisés (#39), tiroir (#56), grille photo CDN du module (#12, #13 + L4), scan SKU (#57), verrouillage par employé (#45).
 
 **Voix off FR :**
-« Au comptoir, chaque seconde compte. C4ISSE est la couche caisse de TAKATAK, branchée sur votre vrai menu Clover : vente rapide, photos des articles, client retrouvé par son numéro de téléphone, carte-cadeau maison acceptée comme au comptoir. Le tiroir s'ouvre, le reçu part en cuisine, et les actions sensibles restent sous contrôle du gérant. Rapide pour l'équipe. Simple pour le client. C4ISSE by TAKATAK. »
+« Au comptoir, chaque seconde compte. C4ISSE est la couche caisse de TAKATAK, branchée sur votre vrai menu Clover : vente rapide, photos des articles, client retrouvé par son numéro de téléphone, carte-cadeau maison acceptée comme au comptoir. Et avec le module caisse-photo, l'équipe touche l'image, pas un code : un nouvel employé est rapide dès son premier quart, les variantes et le scan passent sans chercher, chaque caisse verrouillée par employé. Le tiroir s'ouvre, le reçu part en cuisine, et les actions sensibles restent sous contrôle du gérant. Rapide pour l'équipe. Simple pour le client. C4ISSE by TAKATAK. »
 
 **Voice-over EN:**
-"At the counter, every second counts. C4ISSE is TAKATAK's register layer, plugged into your real Clover menu: fast checkout, item photos, customers found by phone number, your own gift cards accepted right at the counter. The drawer opens, the receipt fires to the kitchen, and sensitive actions stay under manager control. Fast for the team. Simple for the customer. C4ISSE by TAKATAK."
+"At the counter, every second counts. C4ISSE is TAKATAK's register layer, plugged into your real Clover menu: fast checkout, item photos, customers found by phone number, your own gift cards accepted right at the counter. And with the photo register module, your team taps the picture, not a code: a new hire is fast from the very first shift, variants and scanning take no searching, every register locked by employee. The drawer opens, the receipt fires to the kitchen, and sensitive actions stay under manager control. Fast for the team. Simple for the customer. C4ISSE by TAKATAK."
 
 | Plan | Durée | Type | Visuel | Texte à l'écran |
 |---|---|---|---|---|
 | 1 | 0:00–0:06 | Ambiance | Heure de pointe feutrée : file courte, équipe fluide, comptoir sombre et or | « LE COMPTOIR, SANS FRICTION » |
-| 2 | 0:06–0:14 | Écran réel | C4ISSE (sandbox) : grille photo, panier, paiement sur l'appareil | « VOTRE VRAI MENU CLOVER » |
-| 3 | 0:14–0:22 | Écran réel | Recherche client par téléphone + tender carte-cadeau maison | « LE CLIENT, RECONNU PAR TÉLÉPHONE » |
-| 4 | 0:22–0:30 | Ambiance | Le reçu part en cuisine, le client repart avec son sac, sourire | « DE LA CAISSE À LA CUISINE » |
-| 5 | 0:30–0:35 | Signature | Plan signature | « C4ISSE by TAKATAK — takatak.ca » |
+| 2 | 0:06–0:15 | Écran réel | **Module caisse-photo de C4ISSE** (sandbox) : grille photo en grand, toucher l'image → panier, paiement sur l'appareil | « ON TOUCHE LA PHOTO. C'EST TOUT. » |
+| 3 | 0:15–0:24 | Écran réel | Variantes photo + scan d'un code, recherche client par téléphone, tender carte-cadeau maison | « VARIANTES, SCAN, CLIENT RECONNU » |
+| 4 | 0:24–0:34 | Ambiance | Nouvel employé rapide dès son premier quart ; le reçu part en cuisine, la file avance | « RAPIDE DÈS LE PREMIER QUART » |
+| 5 | 0:34–0:40 | Signature | Plan signature | « C4ISSE by TAKATAK — takatak.ca » |
 
 **Prompts Runway Gen-4 :**
-1. `Photorealistic cinematic shot, elegant fast-casual restaurant counter at dinner rush, calm confident staff, customers in soft focus, dark counter with brass trim, warm golden lighting, smooth lateral tracking shot, premium mood, no text, no logos, no readable menus, 16:9`
-4. `Photorealistic cinematic shot, kitchen pass in a premium Montreal restaurant, a receipt sliding out of a small printer, chef hand taking it, steam and warm golden light, shallow depth of field, slow motion feel, no readable text on the receipt, no logos, 16:9`
+1. (plan 1) `Photorealistic cinematic shot, elegant fast-casual restaurant counter at dinner rush, calm confident staff, customers in soft focus, dark counter with brass trim, warm golden lighting, smooth lateral tracking shot, premium mood, no text, no logos, no readable menus, 16:9`
+2. (plan 4) `Photorealistic cinematic shot, young new employee confidently taking their first order at a bright photo-based register in a premium fast-casual restaurant, warm golden light, encouraging senior colleague nearby, smooth slow dolly, no readable screen text, no logos, 16:9`
+3. (plan 4) `Photorealistic cinematic shot, kitchen pass in a premium Montreal restaurant, a receipt sliding out of a small printer, chef hand taking it, steam and warm golden light, shallow depth of field, slow motion feel, no readable text on the receipt, no logos, 16:9`
 
-**Vignette :** plan 1, titre « C4ISSE » or.
+**Vignette :** plan 1 (ou la grille photo du plan 2), titre « C4ISSE » or.
 
 ---
 
@@ -332,33 +333,7 @@
 
 ---
 
-# 14. TAKATAK Picture Register — J0H36VTJBSBBP (35 s)
-
-**Angle :** la caisse visuelle — on touche la photo, pas un code ; vitesse au comptoir et formation du personnel. Sœur de C4ISSE. Fonctions : grille photo CDN (#12, #13 + L4), Android Payments (#49), scan SKU (#57), verrouillage employé (#45).
-
-**Voix off FR :**
-« Un nouvel employé devrait être rapide dès le premier quart. Picture Register met votre menu en photos, en grand : on touche l'image, l'article est au panier. Variantes, rabais rapides, recherche par code ou par scan — et chaque caisse verrouillée par employé. Moins d'erreurs, une formation éclair, un comptoir qui avance. Picture Register by TAKATAK. »
-
-**Voice-over EN:**
-"A new hire should be fast from the very first shift. Picture Register puts your menu in big, beautiful photos: tap the picture, the item is in the cart. Variants, quick discounts, search by code or by scan — and every register locked by employee. Fewer mistakes, lightning training, a counter that keeps moving. Picture Register by TAKATAK."
-
-| Plan | Durée | Type | Visuel | Texte à l'écran |
-|---|---|---|---|---|
-| 1 | 0:00–0:06 | Ambiance | Jeune employé souriant qui prend sa première commande sans hésiter | « RAPIDE DÈS LE PREMIER QUART » |
-| 2 | 0:06–0:14 | Écran réel | Grille photo Picture Register (sandbox) : toucher → panier | « ON TOUCHE LA PHOTO. C'EST TOUT. » |
-| 3 | 0:14–0:22 | Écran réel | Variantes photo + scan d'un code à la caisse | « VARIANTES ET SCAN, SANS CHERCHER » |
-| 4 | 0:22–0:30 | Ambiance | File qui avance fluidement au comptoir, heure de pointe sereine | « LE COMPTOIR AVANCE » |
-| 5 | 0:30–0:35 | Signature | Plan signature | « PICTURE REGISTER by TAKATAK — takatak.ca » |
-
-**Prompts Runway Gen-4 :**
-1. `Photorealistic cinematic shot, young new employee confidently taking their first order at a bright photo-based register in a premium fast-casual restaurant, warm golden light, encouraging senior colleague nearby, smooth slow dolly, no readable screen text, no logos, 16:9`
-4. `Photorealistic cinematic shot, lunch line flowing smoothly at an elegant restaurant counter, customers ordering quickly, staff in rhythm, warm golden ambience, dark wood and brass, lateral tracking shot, no text, no logos, 16:9`
-
-**Vignette :** plan 1, titre « PICTURE REGISTER » or.
-
----
-
-# 15. TR4CKER by TAKATAK — EB2EPCWEJBZ82 (40 s)
+# 14. TR4CKER by TAKATAK — EB2EPCWEJBZ82 (40 s)
 
 **Angle :** le suivi de livraison maison, de la commande Clover à la porte — position du livreur en direct, pourboire après livraison, avis routés (bon → Google, mauvais → interne). Fonctions : commandes (#23), webhooks `O` (#60), pourboire par lien Ecommerce (#31, #36), notifications CH4T.
 
@@ -384,7 +359,7 @@
 
 ---
 
-# 16. APPS EN RÉVISION — AUCUNE MODIFICATION DE FICHE
+# 15. APPS EN RÉVISION — AUCUNE MODIFICATION DE FICHE
 
 **TAKATAK Food Hub (629HFYHNVMZYR) et TAKATAK Phone AI (20FK28P20HJC6)** sont en révision au Clover App Market (soumissions reçues le 2026-10-17). Règle absolue : on ne touche ni à leurs fiches, ni à leurs vidéos actuelles, ni à leurs webhooks tant que la révision n'est pas terminée.
 
@@ -393,11 +368,11 @@ Leurs films LUXE sont **prêts à produire selon cette même charte** dès l'app
 - **Phone AI** — angle prêt : « Le téléphone répond, prend la commande, l'envoie dans Clover. » (assistant FR québécois/EN/ES, menu en direct, lien de paiement par texto). Production différée à l'approbation.
 Les scripts complets seront écrits au même standard (FR + EN, storyboard, prompts) dans une passe dédiée déclenchée par l'approbation — pas avant, pour ne pas risquer une fiche en révision.
 
-# 17. ORDRE DE PRODUCTION RECOMMANDÉ
+# 16. ORDRE DE PRODUCTION RECOMMANDÉ
 
 1. **Film maître** (sert partout, y compris hors Clover).
 2. **LOY4LTY, REW4RDS, T4CTILE** — les trois visages les plus vendeurs de la suite.
-3. **C4ISSE, Picture Register, TR4CKER** — démonstrations comptoir/livraison.
+3. **C4ISSE (avec son module caisse-photo), TR4CKER** — démonstrations comptoir/livraison.
 4. **4CCOUNTING, ST4FF, M4RKETING, CH4T, ON2GO, TAKATAK** — complétion de la suite.
 5. Contrôle qualité Twelve Labs sur chaque film avant dépôt au portail ; déclinaisons 1:1 et vignettes dans la même passe.
 

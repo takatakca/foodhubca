@@ -2,6 +2,8 @@
 
 **Commande :** Matt, 2026-10-28 18:22 — « prépare-moi les tools » au standard LUXE TAKATAK. **Base :** Robot Notepad API Clover (2026-10-28 17:45) + passe code/repos vérifiée le 2026-10-28 18:15 (9 apps poussées sur GitHub, 3 build-outs locaux dans `~/workspace/clover-apps-code/`). **Lecture des états :** ✅ PRÊT = existe et vérifié · 🟡 SCAFFOLD = squelette en place (repo, noms de variables, structure), logique métier à bâtir · 🔨 À BÂTIR = spécifié ici, pas encore commencé · ⛔ BLOQUÉ = dépend d'une décision ou d'un tiers. Aucun secret dans ce tableau : variables nommées, jamais valuées.
 
+**★ Correction 2026-10-28 18:30 (Matt) : « Picture Register, c'est C4ISSE »** — Picture Register (J0H36VTJBSBBP) est le **module caisse-photo de C4ISSE** : ses tools vivent à la section 2.4 (C4ISSE), ses paliers sont ceux de C4ISSE, et le repo « PICTURE-REGISTER » est **annulé** (restent ON2GO-CLOVER et TAKATAK-APP à créer). Le brouillon portail reste en place, non soumis comme app distincte.
+
 ---
 
 # 1. OUTILS PARTAGÉS — LES 4 COLONNES DU SYSTÈME UNIQUE
@@ -10,7 +12,7 @@
 |---|---|---|---|---|
 | S1 | **Bus d'événements webhooks TAKATAK** | Un seul consommateur de webhooks par marchand, derrière un adaptateur (changements inventaire annoncés 2026), idempotent, qui re-lit l'objet en REST puis distribue les 12 types d'événements (`A C CA E I IC IG IM O M P SH`) aux apps abonnées | #60, L16 | 🟡 SCAFFOLD — modèle foodhubca en place dans les 9 repos poussés (endpoints `/webhooks/clover` par app) ; le consommateur unique consolidé + table de distribution restent à bâtir |
 | S2 | **Couche OAuth v2 + rotation des jetons** | Flux d'autorisation PKCE/high-trust, stockage chiffré des jetons par marchand, rotation automatique des refresh tokens (obligatoire Amérique du Nord depuis 2025-03-31) | #2 | 🟡 SCAFFOLD — flux documenté dans les repos (variables `CLOVER_APP_ID`, `CLOVER_APP_SECRET`, `CLOVER_REDIRECT_URL` nommées seulement) ; rotation à implémenter avant toute installation réelle |
-| S3 | **CDN d'images d'articles** | Photos d'items servies par notre CDN, clé = ID d'article Clover (l'API n'expose aucune image d'item) ; alimente T4CTILE, Picture Register, ON2GO et les sites | L4 | 🟡 PARTIEL — pack d'images officielles Canva déposé (168 exports, Drive PPP, dossier `18eXYO8o335TiL1LktCcO1sTSduow_jEf`) ; le service CDN + la table de correspondance ID→photo restent à bâtir |
+| S3 | **CDN d'images d'articles** | Photos d'items servies par notre CDN, clé = ID d'article Clover (l'API n'expose aucune image d'item) ; alimente T4CTILE, le module caisse-photo de C4ISSE, ON2GO et les sites | L4 | 🟡 PARTIEL — pack d'images officielles Canva déposé (168 exports, Drive PPP, dossier `18eXYO8o335TiL1LktCcO1sTSduow_jEf`) ; le service CDN + la table de correspondance ID→photo restent à bâtir |
 | S4 | **Registre client unique (clé = téléphone)** | Identité maître du client ancrée dans Customers Clover ; points, cartes, conversations, appels et livraisons s'y rattachent ; cloisonnement strict par marque/marchand | #42 | 🟡 SCAFFOLD — modèle de données décrit dans les packages LOY4LTY/REW4RDS ; service central à bâtir |
 | S5 | **Moteur de taxes Québec** | Deux taux Clover par item taxable (TPS 5 % + TVQ 9,975 %, sans cumul) + preuves au centime en sandbox avant tout lancement | #20, L9 | 🔨 À BÂTIR — preuves sandbox à produire (pratique marchand déjà vérifiée : TPS 5 % / TVQ 9,975 %) |
 | S6 | **Gabarits de fiches Marketplace** | Fiche FR/EN, légaux (confidentialité + conditions), specs vidéo (voir le pack vidéos du 2026-10-28 18:23), couvertures premium 1080×216 | #5 | ✅ PRÊT — packages `~/workspace/clover-apps/` (10 familles) + `assets-premium/` ; alignement requis avant soumission : le téléphone de soutien des packages locaux doit passer à +1 450-999-4999 (déjà corrigé dans les copies GitHub) |
@@ -53,6 +55,9 @@
 | Tenders maison | Carte-cadeau REW4RDS + compte client (#39) | 🔨 À BÂTIR |
 | Contrôle gérant | NIP vérifié contre les dossiers employés (#45), journalisé (L12) | 🔨 À BÂTIR |
 | Tiroir + impression | `openCashDrawer()` (#56), impression (#55) | 🟡 SCAFFOLD SDK |
+| **Module caisse-photo** (ex-« Picture Register » `J0H36VTJBSBBP` — fusionné dans C4ISSE le 2026-10-28, correction de Matt : pas une app distincte) | Grille photo par catégorie : items + catégories (#12, #13) alimentés par le CDN S3 ; panier + paiement Android Payments (#49), impression (#55) — features des paliers Premium/VIP de C4ISSE | 🟡 SCAFFOLD — build-out local `~/workspace/clover-apps-code/picture-register/` (9 fichiers) conservé comme source du module |
+| Module caisse-photo — synchro photo automatique | Webhook `I` via S1 : la photo suit l'item (borne T4CTILE, ON2GO, sites) — palier VIP de C4ISSE | 🔨 À BÂTIR |
+| Module caisse-photo — mode formation | Photos + noms FR/EN affichés — palier VIP de C4ISSE | 🔨 À BÂTIR |
 
 ## 2.5 CH4T — RGE4PFGC9SR7C — repo GitHub poussé (commit 250e101f) — **SPEC ONLY**
 | Tool | Détail | État |
@@ -122,15 +127,7 @@
 | Plan de contrôle des apps | État des installations/abonnements via webhooks `A` (#60, #64) | 🔨 À BÂTIR |
 | Alertes d'écarts | Commandes sans paiement, données périmées, compte non relié | 🔨 À BÂTIR |
 
-## 2.13 Picture Register — J0H36VTJBSBBP — build-out local `~/workspace/clover-apps-code/picture-register/` (9 fichiers) — repo à créer : **PICTURE-REGISTER**
-| Tool | Détail | État |
-|---|---|---|
-| Grille photo par catégorie | Items + catégories (#12, #13) alimentés par le CDN S3 | 🟡 SCAFFOLD local |
-| Panier + paiement | Android Payments API (#49), impression (#55) | 🟡 SCAFFOLD |
-| Synchro photo automatique | Webhook `I` via S1 : la photo suit l'item (borne, ON2GO, sites) | 🔨 À BÂTIR |
-| Mode formation | Photos + noms FR/EN affichés | 🔨 À BÂTIR |
-
-## 2.14 TR4CKER — EB2EPCWEJBZ82 — repo GitHub poussé (commit f92ca067)
+## 2.13 TR4CKER — EB2EPCWEJBZ82 — repo GitHub poussé (commit f92ca067)
 | Tool | Détail | État |
 |---|---|---|
 | Suivi livreur en direct | Position rattachée à la commande Clover (#23), statuts par webhooks `O` | 🟡 SCAFFOLD |
@@ -139,7 +136,7 @@
 | Paiement à la porte (VIP) | REST Pay Display (#52) vers un Flex du magasin ; Clover Go seulement si le Canada est confirmé par écrit (L18) | ⛔ EN ATTENTE de confirmation DevRel |
 | Ventilation pourboires | Flux automatique vers 4CCOUNTING | 🔨 À BÂTIR |
 
-## 2.15 MEV.QUEBEC — aucun App ID production (rappel)
+## 2.14 MEV.QUEBEC — aucun App ID production (rappel)
 Package local complet (`~/workspace/clover-apps/mev-quebec/`), code SEV dans le dépôt takatakca/QCMEV.CA. **Étape 0 = décision de certification Revenu Québec** (Matt) ; ensuite seulement : créer l'app au portail ou rattacher à 4CCOUNTING/C4ISSE. Aucun usage fiscal avant certification. État : ⛔ DÉCISION À VENIR.
 
 ---
@@ -148,9 +145,9 @@ Package local complet (`~/workspace/clover-apps/mev-quebec/`), code SEV dans le 
 
 1. **S1 + S2** — consolider le bus de webhooks unique et la rotation OAuth v2 : tout le reste en dépend.
 2. **S5** — preuves de taxes au centime en sandbox (débloque 4CCOUNTING et toute vente réelle).
-3. **S3** — service CDN d'images branché sur le pack Canva officiel (débloque T4CTILE, Picture Register, ON2GO).
-4. **Créer les 3 repos manquants** (ON2GO-CLOVER, TAKATAK-APP, PICTURE-REGISTER) — geste Pierre/Matt (le 403 de création est connu).
-5. **S7** — lancer la production des 13 films du pack vidéos (session navigateur dédiée).
+3. **S3** — service CDN d'images branché sur le pack Canva officiel (débloque T4CTILE, le module caisse-photo de C4ISSE, ON2GO).
+4. **Créer les 2 repos manquants** (ON2GO-CLOVER, TAKATAK-APP) — geste Pierre/Matt (le 403 de création est connu). Le repo PICTURE-REGISTER est annulé (correction du 2026-10-28 18:30 : Picture Register = module de C4ISSE).
+5. **S7** — lancer la production des 12 films du pack vidéos (session navigateur dédiée).
 6. **Transaction sandbox LOY4LTY complétée** (pré-requis de finition PPP) puis ouverture des ventes.
 
 *Tableau vivant — à mettre à jour à chaque changement d'état, avec dépôt Drive + GitHub à l'instant (règle nº 1). Préparé le 2026-10-28 18:23, standard LUXE TAKATAK.*

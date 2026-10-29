@@ -13,6 +13,7 @@ import { getRepo } from '../repo';
 import type { OrderStatus, StoredOrder } from '../types';
 import { customerContact } from '../watch/customer';
 import { connectedSuiteApps, suiteApp, type SuiteAppConfig, type SuiteEventType } from './apps';
+import { installCounts, recordDirectoryEvent } from './directory';
 import { APP_HEADER, SIGNATURE_HEADER, signSuite } from './sign';
 
 export const OUTBOX = 'suite_outbox';
@@ -165,10 +166,14 @@ export async function tickSuite(now = Date.now()): Promise<{ queued: number; sen
   }
 }
 
-/** An app's own event (e.g. "loy4lty.points_awarded"): logged, then passed on as app.event to the other connected apps. */
+/**
+ * An app's own event (e.g. "loy4lty.points_awarded"): logged, then passed on as app.event to the other connected apps.
+ * "<app>.installed" / "<app>.uninstalled" also update the suite directory (which restaurant has which app).
+ */
 export async function receiveAppEvent(appKey: string, input: { id: string; type: string; data?: unknown }): Promise<{ id: string; forwardedTo: number }> {
   const id = `app_${appKey}_${input.id}`;
   if (!(await getRepo().claimKv(`suite:evt:${id}`, new Date().toISOString()))) return { id, forwardedTo: 0 }; // repeat: already handled
+  await recordDirectoryEvent(appKey, input.type, input.data);
   const event: SuiteEvent = { id, type: 'app.event', createdAt: new Date().toISOString(), source: appKey, data: { type: input.type, data: input.data ?? null } };
   const forwardedTo = await queueEvent(event, connectedSuiteApps(), appKey);
   await logActivity({ actor: suiteApp(appKey)?.name ?? appKey, source: 'api', kind: 'settings', action: 'suite_app_event', status: 'info', summary: `${suiteApp(appKey)?.name ?? appKey}: ${input.type} (passed to ${forwardedTo} app(s))` });
@@ -176,8 +181,8 @@ export async function receiveAppEvent(appKey: string, input: { id: string; type:
 }
 
 /** Settings → Connected apps: each app, connected or not, and its delivery counts. */
-export async function suiteStatus(): Promise<Array<{ key: string; name: string; repo: string; fr: string; en: string; connected: boolean; problem: string | null; subscribed: string[]; pending: number; failed: number; sent24h: number; lastError: string | null }>> {
-  const docs = await getRepo().listDocs<OutboxItem>(OUTBOX, { limit: 2000 });
+export async function suiteStatus(): Promise<Array<{ key: string; name: string; repo: string; fr: string; en: string; connected: boolean; problem: string | null; subscribed: string[]; pending: number; failed: number; sent24h: number; lastError: string | null; restaurants: number }>> {
+  const [docs, installs] = await Promise.all([getRepo().listDocs<OutboxItem>(OUTBOX, { limit: 2000 }), installCounts()]);
   const { suiteApps } = await import('./apps');
   return suiteApps().map((a) => {
     const mine = docs.filter((d) => d.data.app === a.key);
@@ -185,7 +190,7 @@ export async function suiteStatus(): Promise<Array<{ key: string; name: string; 
     return {
       key: a.key, name: a.name, repo: a.repo, fr: a.fr, en: a.en, connected: a.connected, problem: a.problem, subscribed: a.subscribed,
       pending: mine.filter((d) => d.data.status === 'pending').length, failed: mine.filter((d) => d.data.status === 'failed').length,
-      sent24h: mine.filter((d) => d.data.status === 'sent').length, lastError: lastErr?.data.lastError ?? null,
+      sent24h: mine.filter((d) => d.data.status === 'sent').length, lastError: lastErr?.data.lastError ?? null, restaurants: installs[a.key] ?? 0,
     };
   });
 }

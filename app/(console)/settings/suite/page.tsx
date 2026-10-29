@@ -12,7 +12,7 @@ import { cn } from '@/lib/ui/cn';
 // Settings → Connected apps (the TAKATAK Suite): the Clover App Market apps (C4ISSE, T4CTILE, 4CCOUNTING…) that work alone and together.
 // Each app is connected by two server variables (docs/TAKATAK_SUITE.md); this page only shows the state, never a secret.
 
-type App = { key: string; name: string; repo: string; fr: string; en: string; connected: boolean; problem: string | null; subscribed: string[]; pending: number; failed: number; sent24h: number; lastError: string | null };
+type App = { key: string; name: string; repo: string; fr: string; en: string; connected: boolean; problem: string | null; subscribed: string[]; pending: number; failed: number; sent24h: number; lastError: string | null; restaurants: number };
 
 export default function SuitePage() {
   const { t } = useI18n();
@@ -44,6 +44,7 @@ export default function SuitePage() {
             <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
               <span className="flex items-center gap-1.5 text-ink-3"><StatusDot tone={a.connected ? 'go' : a.problem ? 'stop' : 'neutral'} />{a.connected ? t('Branchée', 'Connected') : a.problem ? a.problem : t('Pas branchée', 'Not connected')}</span>
               {a.connected && <Badge>{a.sent24h} {t('envoyés (24 h)', 'sent (24 h)')}</Badge>}
+              {a.restaurants > 0 && <Badge tone="go">{a.restaurants} {a.restaurants > 1 ? t('restaurants', 'restaurants') : t('restaurant', 'restaurant')}</Badge>}
               {a.pending > 0 && <Badge tone="wait">{a.pending} {t('en attente', 'waiting')}</Badge>}
               {a.failed > 0 && <Badge tone="stop">{a.failed} {t('échoués', 'failed')}</Badge>}
             </div>

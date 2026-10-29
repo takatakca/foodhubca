@@ -6,6 +6,8 @@ import { deliverOutbox, detectOrderChanges, OUTBOX, orderView, type OutboxItem, 
 import { signSuite, verifySuite } from '../lib/foodhub/suite/sign';
 import { POST as eventsRoute } from '../app/api/suite/v1/events/route';
 import { GET as ordersRoute } from '../app/api/suite/v1/orders/route';
+import { GET as directoryRoute } from '../app/api/suite/v1/directory/route';
+import { installCounts } from '../lib/foodhub/suite/directory';
 import type { NormalizedOrder } from '../lib/foodhub/types';
 
 const SECRET_A = 'l'.repeat(40);
@@ -154,5 +156,42 @@ describe('app → Food Hub API', () => {
     const body = await res.json();
     expect(body.orders).toHaveLength(1);
     expect(JSON.stringify(body)).not.toMatch(/Ana|5550101/);
+  });
+});
+
+describe('suite directory (which restaurant has which app)', () => {
+  const MID = 'MERCHANT0001';
+  const signedPost = (app: string, secret: string, body: unknown) => {
+    const text = JSON.stringify(body);
+    return new Request('http://hub.local/api/suite/v1/events', { method: 'POST', headers: { 'content-type': 'application/json', 'x-takatak-app': app, 'x-takatak-signature': signSuite(secret, text) }, body: text });
+  };
+  const ask = (app: string, secret: string, merchant = MID) => {
+    const path = `/api/suite/v1/directory?merchant=${merchant}`;
+    return directoryRoute(new Request(`http://hub.local${path}`, { headers: { 'x-takatak-app': app, 'x-takatak-signature': signSuite(secret, path) } }));
+  };
+
+  it('an app announces itself; another app reads it; an uninstall clears it; nobody speaks for another app', async () => {
+    const installed = { id: `installed:${MID}:1`, type: 'loy4lty.installed', data: { cloverMerchantId: MID, appUrl: 'https://loyalty.example.ca/' } };
+    expect((await eventsRoute(signedPost('loy4lty', SECRET_A, installed))).status).toBe(200);
+    let body = await (await ask('rew4rd', SECRET_B)).json();
+    expect(body.apps).toHaveLength(SUITE_APPS.length);
+    expect(body.apps.find((a: any) => a.key === 'loy4lty')).toMatchObject({ installed: true, url: 'https://loyalty.example.ca' });
+    expect(body.apps.find((a: any) => a.key === 'rew4rd')).toMatchObject({ installed: false, url: null });
+    expect(await installCounts()).toEqual({ loy4lty: 1 });
+    // REW4RD cannot claim LOY4LTY's events.
+    expect((await eventsRoute(signedPost('rew4rd', SECRET_B, { id: 'x', type: 'loy4lty.uninstalled', data: { cloverMerchantId: MID } }))).status).toBe(403);
+    expect((await eventsRoute(signedPost('loy4lty', SECRET_A, { id: `uninstalled:${MID}:2`, type: 'loy4lty.uninstalled', data: { cloverMerchantId: MID } }))).status).toBe(200);
+    body = await (await ask('rew4rd', SECRET_B)).json();
+    expect(body.apps.find((a: any) => a.key === 'loy4lty')).toMatchObject({ installed: false, url: null });
+    expect(await installCounts()).toEqual({});
+  });
+
+  it('refuses unsigned reads and bad merchant IDs; drops unsafe addresses', async () => {
+    const path = `/api/suite/v1/directory?merchant=${MID}`;
+    expect((await directoryRoute(new Request(`http://hub.local${path}`, { headers: { 'x-takatak-app': 'rew4rd' } }))).status).toBe(401);
+    expect((await ask('rew4rd', SECRET_B, 'bad-id')).status).toBe(400);
+    await eventsRoute(signedPost('loy4lty', SECRET_A, { id: 'i2', type: 'loy4lty.installed', data: { cloverMerchantId: MID, appUrl: 'javascript:alert(1)' } }));
+    const body = await (await ask('rew4rd', SECRET_B)).json();
+    expect(body.apps.find((a: any) => a.key === 'loy4lty')).toMatchObject({ installed: true, url: null });
   });
 });

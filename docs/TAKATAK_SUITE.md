@@ -22,8 +22,13 @@ contract each of them is built against. Food Hub's side is built (lib/foodhub/su
 
 ## 2. One dashboard
 
-- **Food Hub → Settings → Connected apps**: the nine apps, connected or not, events sent, waiting, failed.
-- Each app keeps its own screen (in Clover and on the web) for its own work, so it also sells alone.
+- **Food Hub → Settings → Connected apps**: the nine apps, connected or not, events sent, waiting, failed, and how many
+  restaurants have each one (the suite directory, § 6).
+- Each app keeps its own screen (in Clover and on the web) for its own work, so it also sells alone. Since 2026-10-29
+  every app has the same premium frame (each repo's `docs/SUITE_KIT.md`): a side menu with sub-menus (the app's own
+  screens; TAKATAK Suite; My account → Profile, Plan and billing, Authorized actions, Devices, Payments and deposits,
+  Security and data, Activity log; Help), a suite app switcher, Clover roles checked on the server for each sensitive
+  action, and an activity log. The review of the whole suite and what to simplify next: `docs/TAKATAK_SUITE_PLAYBOOK.md`.
 - Company-level accounts and agency billing stay in TAKATAK V1 (`docs/FOOD_ECOSYSTEM_MAP.md`). Each app's merchant
   subscription is billed by Clover, like Food Hub and TAKATAK Phone AI today. A bundle price is an owner decision.
 
@@ -96,6 +101,8 @@ Every call carries `X-Takatak-App: <app key, lower case>` and `X-Takatak-Signatu
 | `GET /api/suite/v1/ping` | Setup check: app name, events, server time. |
 | `GET /api/suite/v1/orders?since=<ISO>&limit=<1..500>` | Catch-up, same order shape, at most 7 days back. |
 | `POST /api/suite/v1/events` `{ "id", "type": "<app>.<name>", "data" }` | Tell the other apps (e.g. `loy4lty.points_awarded`). 64 KB max; each id once. |
+| `POST /api/suite/v1/events` `{ "type": "<app>.installed", "data": { "cloverMerchantId", "appUrl" } }` | A merchant connected the app: the suite directory notes it (with the app's https address). `<app>.uninstalled` removes it. An app can only speak for itself. |
+| `GET /api/suite/v1/directory?merchant=<Clover merchant ID>` | Which suite apps this restaurant has, each `{ key, name, installed, url, at }` (the app switcher and Suite page of every app). |
 
 ## 7. Signature (both directions)
 
@@ -125,6 +132,6 @@ export const sign = (secret, payload) => { const t = Math.floor(Date.now() / 100
 ## 9. Food Hub side (built)
 
 `lib/foodhub/suite/apps.ts` (registry + config), `sign.ts`, `auth.ts`, `bus.ts` (change watch, outbox, delivery, app
-events), routes `app/api/suite/v1/{ping,orders,events}`, `app/api/foodhub/suite` (admin), page Settings → Connected apps,
+events), `directory.ts` (which restaurant has which app), routes `app/api/suite/v1/{ping,orders,events,directory}`, `app/api/foodhub/suite` (admin), page Settings → Connected apps,
 tick in `instrumentation.ts` and `/api/foodhub/cron/watch`. The bus only reads orders: it never changes one and never
 blocks the order pipeline.

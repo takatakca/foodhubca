@@ -1,5 +1,11 @@
 # Food Hub: progress log and task board
 
+## 2026-10-29 — TAKATAK Suite premium: directory, one frame for the nine apps (`claude/busy-cannon-5spy86`)
+
+- Food Hub keeps the suite directory (`lib/foodhub/suite/directory.ts`): each app announces `<app>.installed` (with its https address) or `<app>.uninstalled` per Clover merchant through `/api/suite/v1/events`; any connected app reads `GET /api/suite/v1/directory?merchant=` (signed) for its Suite page and app switcher. Settings → Connected apps shows how many restaurants have each app.
+- The nine app repos (PR #1 each) got the same premium frame: side menu with sub-menus, My account (Profile, Plan and billing, Authorized actions, Devices, Payments and deposits, Security and data, Activity log), TAKATAK Suite page, Help; Clover roles in the session, authorized actions checked on the server with an activity log; a crash in yesterday's forms fixed (found by a browser walk-through).
+- Review of the whole suite and what to simplify next: `docs/TAKATAK_SUITE_PLAYBOOK.md`. Tests: `tests/takatak-suite.test.ts` (directory).
+
 ## 2026-10-28 — TAKATAK Suite: Food Hub side of the nine Clover apps (`claude/busy-cannon-5spy86`)
 
 - The nine Clover App Market repos with a "4" (C4ISSE, T4CTILE, 4CCOUNTING, TR4CKER, ST4FF, M4RKETING, LOY4LTY, REW4RD, CH4T) exist but are empty. Contract for building them as one SaaS of independent apps: `docs/TAKATAK_SUITE.md`.

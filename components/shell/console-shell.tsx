@@ -33,6 +33,7 @@ import { audioReady, playSound, unlockAudio } from '@/lib/ui/sound';
 import { api } from '@/lib/ui/api';
 import { useI18n, useProduct } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
+import { isKitchenRoute } from '@/lib/ui/kitchen-theme';
 
 export function ConsoleShell({ children }: { children: ReactNode }) {
   const { viewer } = useViewer();
@@ -109,7 +110,7 @@ function Frame({ children }: { children: ReactNode }) {
   const who = { device: viewer.device, role: viewer.role };
   const items = navFor(full, who).filter(visible);
   const toggle = () => { setCollapsed((c) => { try { localStorage.setItem('takatak.rail', c ? '0' : '1'); } catch { /* ignore */ } return !c; }); };
-  const kitchen = pathname.startsWith('/kitchen');
+  const kitchen = isKitchenRoute(pathname);
   const mobile = mobileNav(full, who, visible);
   const inBar = new Set(mobile.map((n) => n.href));
   // "Plus" lights up when the current page is reachable from the sheet only.

@@ -67,6 +67,13 @@ request and in the issue.
   A3 heartbeat v2 accepted and stored (`mode`, `app`, `waiting`, `waitingSince`), A4 store numbers per screen with the
   protected ones flagged: **done**, tested (`tests/platform-screens.test.ts`). Lane B can rely on heartbeat v2 now.
 
+- 2026-10-29 09:14: **lane B done** — `feature/screens-relay-kit` → #107 (generator, Android mode, Windows PC kit,
+  guide). 09:45: lane A merged that branch into `claude/busy-cannon-5spy86` (merge, no rewrite) and added the v2.1
+  items lane B had not picked up: the `open` command in both agents (`agent/commands.mjs`), `screens.18.example.json`
+  (s01–s18, SCREEN_ID = the slot id, no `.env` line), each web screen served under `/sNN/` (`SUBFOLDER`), Skip start page
+  aligned, and the guide's "18 numbered screens" + framing/sub-domain section. #102 now contains #107: merge #107 then
+  #102, or #102 alone.
+
 ## Contract between lanes: heartbeat v2
 
 ```
@@ -86,7 +93,8 @@ POST /api/foodhub/screens/heartbeat        Authorization: Bearer <FOODHUB_SCREEN
 
 - Android states: `ok` = order app in front and device online · `login` = the app's sign-in screen is in front ·
   `blank` = another app (or the home screen) is in front · `crashed` = device or adb not answering.
-- `reload` for Android = bring the order app back to the front (`monkey -p <package> 1`). Nothing else is ever tapped.
+- `reload` for Android = bring the order app back to the front (`am start -a android.intent.action.MAIN -c
+  android.intent.category.LAUNCHER -p <package>`: deterministic, no Monkey side effects). Nothing else is ever tapped.
 - Fields not in v1 are optional, so a v1 agent keeps working.
 
 ### v2.1 (owner's ask 2026-10-29 04:20: "18 screens side by side, choose DoorDash / Uber Eats / Skip, ready to sign in")
@@ -98,7 +106,8 @@ POST /api/foodhub/screens/heartbeat        Authorization: Bearer <FOODHUB_SCREEN
 - **Command `open`.** `commands: [{ "id": "s03", "kind": "open", "url": "https://order.doordash.com/" }]`. Sent when the
   owner sets up a screen or switches its channel, or taps "Sign-in page". The agent goes to `url` **only** if it is
   https on `doordash.com`, `ubereats.com`, `uber.com` or `skipthedishes.com` (or a sub-domain); otherwise it ignores it.
-  Android: `open` launches the app of that platform. A screen starts empty (about:blank) until its first `open`.
+  Android: `open` launches the order app of that platform (`deploy/screens/agent/commands.mjs`, shared by both
+  agents and tested against Food Hub's own list in `tests/screens-relay-commands.test.ts`).
 - **Start pages** (Food Hub sends them; override with `FOODHUB_SCREEN_START_DOORDASH|UBEREATS|SKIP`):
   DoorDash `https://order.doordash.com/` · Uber Eats `https://merchants.ubereats.com/manager/orders` ·
   Skip `https://restaurants.skipthedishes.com/` (to confirm with the owner's Skip account).

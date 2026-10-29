@@ -19,7 +19,7 @@ import { cn } from '@/lib/ui/cn';
 import { playSound, unlockAudio } from '@/lib/ui/sound';
 import { ringDecision, type RingMemory } from '@/lib/ui/screens-ring';
 import {
-  addTile, BOARD, changeTile, clampPage, clampTile, defaultCustom, DEFAULT_WALL, gridShape, moveId, orderIds, pageCount, pageSlice, parseWall,
+  addTile, BOARD, changeTile, clampPage, clampTile, defaultCustom, DEFAULT_WALL, gridShape, moveId, orderIds, pageCount, pageOf, pageSlice, parseWall,
   removeTile, type CustomTile, type GridView, type WallState, type WallView,
 } from '@/lib/ui/screens-layout';
 
@@ -206,6 +206,14 @@ export default function PlatformScreensPage() {
   }
   const reorder = (from: string, to: string) => setWall((w) => ({ ...w, order: moveId(order, from, to) }));
   const focus = (id: string) => { setArrange(false); setWall((w) => ({ ...w, view: 'tabs', tab: id })); };
+  /** Show a screen where the owner is: its page in a grid view, its tab, or big when it is not on the custom board. */
+  const reveal = (id: string) => {
+    const per = Number(view);
+    if (Number.isFinite(per) && per > 0) setWall((w) => ({ ...w, page: pageOf(order, id, per) }));
+    else if (view === 'tabs' || !wall.custom.some((x) => x.id === id)) focus(id);
+    wallRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  const waitingScreens = ordered.filter((s) => s.status === 'online' && (s.titleCount ?? 0) > 0);
 
   const tileProps = (s: Screen) => ({
     s, lang, loc: shortLoc(locName(s.locationCode)), manage, canAct,
@@ -231,7 +239,10 @@ export default function PlatformScreensPage() {
       )}
       {waitingNow.waiting > 0 && (
         <Banner tone="warn" className={cn('mb-3 text-base', ring && 'animate-pulse')}>
-          <strong>{t(`${waitingNow.waiting} commande(s) en attente`, `${waitingNow.waiting} order(s) waiting`)}</strong> — {waitingNow.waitingOn.join(' · ')}. {t('Acceptez-les dans l’écran de la plateforme.', 'Accept them inside the platform screen.')}
+          <strong>{t(`${waitingNow.waiting} commande(s) en attente`, `${waitingNow.waiting} order(s) waiting`)}</strong> —{' '}
+          {waitingScreens.map((s, i) => (
+            <span key={s.id}>{i > 0 && ' · '}<button type="button" className="font-semibold underline underline-offset-2" onClick={() => reveal(s.id)}>{s.name} ({s.titleCount})</button></span>
+          ))}. {t('Touchez un écran pour y aller, puis acceptez dans l’écran de la plateforme.', 'Tap a screen to go to it, then accept inside the platform screen.')}
         </Banner>
       )}
       {loaded && down > 0 && <Banner tone="stop" className="mb-3">{t(`${down} écran(s) à vérifier : hors ligne, déconnecté(s) ou planté(s). Rechargez, ou reconnectez-vous dans l’écran.`, `${down} screen(s) need attention: offline, signed out or crashed. Reload, or sign in again inside the screen.`)}</Banner>}
@@ -312,7 +323,7 @@ function WallToolbar({ t, wall, count, narrow, full, arrange, ring, unplaced, on
   const views: Array<{ v: WallView; label: ReactNode; title: string }> = [
     { v: '1', label: <Square className="size-3.5" />, title: t('1 écran', '1 screen') },
     { v: '2', label: <Columns2 className="size-3.5" />, title: t('2 écrans', '2 screens') },
-    ...(['4', '8', '12', '16'] as const).map((v) => ({ v, label: v, title: t(`${v} écrans`, `${v} screens`) })),
+    ...(['4', '8', '12', '16', '20', '24'] as const).map((v) => ({ v, label: v, title: t(`${v} écrans`, `${v} screens`) })),
     { v: 'tabs', label: t('Onglets', 'Tabs'), title: t('Un grand écran, les autres en onglets', 'One big screen, the others as tabs') },
     { v: 'custom', label: <><LayoutGrid className="size-3.5" />{t('Personnalisé', 'Custom')}</>, title: t('Placez et redimensionnez chaque écran', 'Place and resize each screen') },
   ];

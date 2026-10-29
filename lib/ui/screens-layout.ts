@@ -1,10 +1,10 @@
-// Screens wall layouts (docs/ORDER_SCREENS_RESCUE.md): 1, 2, 4, 8, 12 or 16 screens at a time (pages beyond), tabs, or a
+// Screens wall layouts (docs/ORDER_SCREENS_RESCUE.md): 1, 2, 4, 8, 12, 16, 20 or 24 screens at a time (pages beyond), tabs, or a
 // custom board where each screen is dragged and resized on a 12 × 12 grid. Saved per device. Pure, so it is tested.
 
-export const GRID_VIEWS = [1, 2, 4, 8, 12, 16] as const;
+export const GRID_VIEWS = [1, 2, 4, 8, 12, 16, 20, 24] as const;
 export type GridView = (typeof GRID_VIEWS)[number];
 export type WallView = `${GridView}` | 'tabs' | 'custom';
-export const WALL_VIEWS: WallView[] = ['1', '2', '4', '8', '12', '16', 'tabs', 'custom'];
+export const WALL_VIEWS: WallView[] = ['1', '2', '4', '8', '12', '16', '20', '24', 'tabs', 'custom'];
 
 /** A screen on the custom board, in grid cells (12 columns × 12 rows). */
 export interface CustomTile { id: string; x: number; y: number; w: number; h: number }
@@ -23,7 +23,7 @@ export interface WallState {
 
 export const DEFAULT_WALL: WallState = { view: '4', page: 0, order: [], tab: null, custom: [] };
 
-/** Columns × rows for each grid view: 2 side by side, 4 = 2 × 2, 8 = 4 × 2, 12 = 4 × 3, 16 = 4 × 4. */
+/** Columns × rows for each grid view: 2 side by side, 4 = 2 × 2, 8 = 4 × 2, 12 = 4 × 3, 16 = 4 × 4, 20 = 5 × 4, 24 = 6 × 4. */
 export function gridShape(view: GridView): { cols: number; rows: number } {
   switch (view) {
     case 1: return { cols: 1, rows: 1 };
@@ -31,7 +31,9 @@ export function gridShape(view: GridView): { cols: number; rows: number } {
     case 4: return { cols: 2, rows: 2 };
     case 8: return { cols: 4, rows: 2 };
     case 12: return { cols: 4, rows: 3 };
-    default: return { cols: 4, rows: 4 };
+    case 16: return { cols: 4, rows: 4 };
+    case 20: return { cols: 5, rows: 4 };
+    default: return { cols: 6, rows: 4 };
   }
 }
 
@@ -41,6 +43,12 @@ export function orderIds(ids: string[], saved: string[]): string[] {
   const kept = saved.filter((id, i) => known.has(id) && saved.indexOf(id) === i);
   const seen = new Set(kept);
   return [...kept, ...ids.filter((id) => !seen.has(id))];
+}
+
+/** The page a screen is on in a grid view (to jump to a screen with orders waiting). */
+export function pageOf(order: string[], id: string, per: number): number {
+  const i = order.indexOf(id);
+  return i < 0 ? 0 : Math.floor(i / per);
 }
 
 /** Drag `from` onto `to`: `from` takes `to`'s place, the others shift. */

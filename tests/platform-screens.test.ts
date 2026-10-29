@@ -277,7 +277,10 @@ describe('screens wall layouts', () => {
     const L = await import('../lib/ui/screens-layout');
     expect(L.GRID_VIEWS.map((v) => L.gridShape(v))).toEqual([
       { cols: 1, rows: 1 }, { cols: 2, rows: 1 }, { cols: 2, rows: 2 }, { cols: 4, rows: 2 }, { cols: 4, rows: 3 }, { cols: 4, rows: 4 },
+      { cols: 5, rows: 4 }, { cols: 6, rows: 4 },
     ]);
+    expect(L.pageOf(['a', 'b', 'c', 'd', 'e'], 'e', 4)).toBe(1);
+    expect(L.pageOf(['a', 'b'], 'zz', 4)).toBe(0);
     const ids = Array.from({ length: 18 }, (_, i) => `s${String(i + 1).padStart(2, '0')}`);
     expect(L.orderIds(['a', 'b', 'c'], ['c', 'gone', 'a', 'c'])).toEqual(['c', 'a', 'b']);
     expect(L.moveId(['a', 'b', 'c', 'd'], 'd', 'b')).toEqual(['a', 'd', 'b', 'c']);

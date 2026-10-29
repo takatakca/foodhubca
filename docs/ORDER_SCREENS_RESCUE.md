@@ -53,8 +53,9 @@ request and in the issue.
 
 ## What the wall looks like (test data: a fake relay host, 18 screens)
 
-16 at a time · custom board (one screen dragged to the middle) · tabs · phone:
+24 at a time (all 18 on one page) · 16 at a time · custom board (one screen dragged to the middle) · tabs · phone:
 
+![24 screens](order-screens/wall-24.png)
 ![16 screens](order-screens/wall-16.png)
 ![Custom board](order-screens/wall-custom.png)
 ![Tabs](order-screens/wall-tabs.png)

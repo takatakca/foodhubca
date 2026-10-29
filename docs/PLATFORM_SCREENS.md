@@ -13,14 +13,14 @@ its sign-in loses orders without anyone noticing.
   and the page title (platforms put the number of waiting orders there, e.g. "(2) Orders"). A blank or crashed page is
   reloaded by itself. During opening hours, a screen that is offline, signed out or crashed opens a **Watchtower
   incident** (`screen_down`: screen beep → SMS → call → owner, like a tablet that is off).
-- **The screens wall:** Stores → Platform screens shows every screen side by side: **1, 2, 4, 8, 12 or 16 at a
-  time** (pages beyond), **tabs** (one big screen, the others as tabs), or **custom** (tap "Arrange", then drag each
+- **The screens wall:** Stores → Platform screens shows every screen side by side: **1, 2, 4, 8, 12, 16, 20 or 24
+  at a time** (pages beyond), **tabs** (one big screen, the others as tabs), or **custom** (tap "Arrange", then drag each
   screen anywhere on a 12 × 12 board and resize it from its corner; arrow keys move, Shift + arrows resize). Drag a
   screen's title bar onto another to swap places; double-click it to make it big. **Full screen** hides the console.
   The view, the order and the board are saved on each device; **Share layout** makes this device's layout the one every
   device without its own starts from, and **Shared layout** takes it on any device (`GET/PUT /api/foodhub/screens/layout`). Each tile shows its channel (switch DoorDash / Uber Eats /
   Skip right there: the screen opens that platform's sign-in page), its status, the orders waiting, Reload and
-  "Sign-in page".
+  "Sign-in page". The "orders waiting" banner names each screen: tap one to jump to it (its page, its tab).
 - **Relay host address:** put the relay host on a sub-domain of Food Hub's own domain (e.g. `screens.<your Food Hub
   domain>`): browsers block sign-in cookies inside a frame from another site, and the relay host's own page must allow
   being framed by Food Hub (`frame-ancestors`).

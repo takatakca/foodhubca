@@ -1,5 +1,11 @@
 # FOODHUB — relève de l'agent (à lire dès l'ouverture)
 
+## 2026-10-28 — security follow-up, website-order body cap
+
+Draft [PR #104](https://github.com/takatakca/foodhubca/pull/104) on branch `security/website-order-payload-limit-20261028` adds a 128-KiB streaming body cap to the existing authenticated website-order webhook, with negative tests for oversize and bad input. **No PPP → Food Hub order connection, no merchant production changes, no deployment.** Code/tests SHA `577530c6a6b8a97e44dc6fc7adc8e81afe68ba68`; final PR CI pending. The existing endpoint still trusts submitted price and paid fields. Issue [#103](https://github.com/takatakca/foodhubca/issues/103) remains NO-GO until signed merchant mapping, server-priced checkout, verified payment and durable inbox/outbox are ready. Read [technical handoff](agent-notes/2026-10-28-website-order-body-cap.md). Next: final SHA CI and staging simulation, owner review only.
+
+---
+
 ## Reprise — 2026-10-18, sync au démarrage
 
 - **Cause** : le contrôle de santé a répondu `database=ok,sync=down,watchtower=ok,recovery=ok,inbox=ok,clover=ok,console=ok`. Le site était resté sans conteneur environ une heure, donc `sync:at` avait plus de 20 min. Le nouveau processus ne lance la synchro qu’après 5 min, et Coolify vérifie dès 60 s.

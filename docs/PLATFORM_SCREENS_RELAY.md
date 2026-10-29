@@ -64,6 +64,25 @@ rien à copier à la main.
 **Skip :** ses commandes en direct sont peut-être seulement dans l'app **Skip Partner** (le portail Web sert aux menus et
 à l'historique). Si un écran Skip Web ne montre pas les commandes, faites-le en Android (façon B).
 
+## 54 comptes : 18 DoorDash, 18 Uber Eats, 18 Skip
+
+- **Un écran par compte.** Chaque écran est un navigateur séparé, avec sa propre mémoire. Il se connecte avec **son
+  propre courriel et son propre mot de passe**, tapés par vous dans l'écran, une seule fois. Aucun fichier, ni Food Hub,
+  ni un agent ne garde de mot de passe.
+- **Food Hub** : Écrans des plateformes → **Préparer les écrans**. Par défaut 18 / 18 / 18 = s01 à s54. Ensuite, la vue
+  **Liste** permet de nommer chaque écran (le restaurant), de choisir sa succursale et ses numéros de magasin.
+- **Taille** : compter environ 0,6 Go de mémoire et un demi-vCPU par écran.
+  - **Un gros serveur** (16 vCPU / 64 Go) : `cp screens.54.example.json screens.json && node generate.mjs`, une seule
+    adresse `ecrans.on2go.ca`.
+  - **Trois serveurs de 18** (8 vCPU / 16–24 Go chacun) :
+    - sur le 1er : `node generate.mjs screens.json --only s01-s18` → `ecrans.on2go.ca` ;
+    - sur le 2e : `--only s19-s36` → `ecrans2.on2go.ca` ;
+    - sur le 3e : `--only s37-s54` → `ecrans3.on2go.ca`.
+
+    Dans Food Hub, « Préparer les écrans » une fois par serveur, avec son adresse et son numéro de départ (1, 19, 37).
+    Puis `FOODHUB_SCREENS_VIEW_HOSTS=ecrans.on2go.ca,ecrans2.on2go.ca,ecrans3.on2go.ca`.
+- Les numéros et les ports ne changent jamais d'un serveur à l'autre (s19 = port 3119).
+
 ## A. Serveur Linux avec Docker (30 minutes)
 
 ### 1. Le jeton (5 min)
@@ -214,6 +233,16 @@ Food Hub's screens wall and this host use the same numbers, so nothing is copied
 
 **Skip:** live orders may only be in the Skip Partner app (the web portal is for menus and history); if a Skip web
 screen shows no orders, run it in Android (B).
+
+## 54 accounts: 18 DoorDash, 18 Uber Eats, 18 Skip
+- One screen per account: a separate browser with its own memory, signed in with **its own email and password**, typed by
+  you inside the screen once. No file, no Food Hub, no agent keeps a password.
+- Food Hub → Platform screens → **Set up screens** (default 18 / 18 / 18 = s01–s54); then the **List** view names each
+  screen, its location and its store numbers.
+- Size: about 0.6 GB of memory and half a vCPU per screen. One big host (16 vCPU / 64 GB): `screens.54.example.json`,
+  one address. Or three hosts of 18 (8 vCPU / 16–24 GB each): `node generate.mjs screens.json --only s01-s18` (then
+  `s19-s36`, `s37-s54`), one address each (`ecrans`, `ecrans2`, `ecrans3.on2go.ca`); in Food Hub, Set up screens once
+  per host with its address and start number (1, 19, 37), and list all three in `FOODHUB_SCREENS_VIEW_HOSTS`.
 
 ## A. Linux server with Docker
 1. **Token:** `openssl rand -hex 24` → in Coolify → Food Hub → `FOODHUB_SCREENS_AGENT_TOKEN` (secret), redeploy.

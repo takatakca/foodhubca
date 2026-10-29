@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import {
   Bell, BellOff, Columns2, ExternalLink, Expand, GripVertical, LayoutGrid, LogIn, Maximize2, MonitorPlay, Move, Pencil, Plus, RefreshCw,
-  Download, RotateCcw, Share2, ShieldAlert, Shrink, Smartphone, Square, Trash2, Wand2, X,
+  Download, List, RotateCcw, Save, Share2, ShieldAlert, Shrink, Smartphone, Square, Trash2, Wand2, X,
 } from 'lucide-react';
 import { Badge, StatusDot } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -49,6 +49,12 @@ const PLATFORMS: Array<{ value: Platform; label: string }> = [
 ];
 const platformLabel = (p: Platform) => PLATFORMS.find((x) => x.value === p)?.label ?? p;
 const PLATFORM_DOT: Record<Platform, string> = { doordash: 'bg-[#eb1700]', ubereats: 'bg-[#06c167]', skip: 'bg-[#f36d00]', other: 'bg-ink-3' };
+
+/** The first free numbered screen after the highest one (s01 when none exists). */
+function nextSlot(screens: Array<{ id: string }>) {
+  const nums = screens.map((s) => /^s(\d{2})$/.exec(s.id)?.[1]).filter(Boolean).map(Number);
+  return nums.length ? Math.min(99, Math.max(...nums) + 1) : 1;
+}
 
 function useNarrow() {
   const [narrow, setNarrow] = useState(false);
@@ -198,7 +204,7 @@ export default function PlatformScreensPage() {
   const waitingNow = ringDecision(screens, {});
 
   // A phone shows one screen at a time (with pages) or the tabs.
-  const view: WallView = narrow && wall.view !== '1' && wall.view !== 'tabs' ? '1' : wall.view;
+  const view: WallView = narrow && wall.view !== '1' && wall.view !== 'tabs' && wall.view !== 'list' ? '1' : wall.view;
   function setView(view: WallView) {
     setArrange(false);
     setWall((w) => ({ ...w, view, page: 0, custom: view === 'custom' && !w.custom.length ? defaultCustom(order) : w.custom }));
@@ -257,11 +263,14 @@ export default function PlatformScreensPage() {
           onShare={manage ? shareLayout : undefined} onUseShared={useSharedLayout} />
         {loaded && screens.length === 0 ? (
           <Card><EmptyState icon={<MonitorPlay className="size-6" />} title={t('Aucun écran', 'No screen')}
-            body={t('« Préparer les écrans » crée d’un coup les écrans numérotés (ex. 8 DoorDash, 6 Uber Eats, 4 Skip), chacun prêt à se connecter. Le serveur relais : docs/PLATFORM_SCREENS.md.', '“Set up screens” creates the numbered screens in one go (e.g. 8 DoorDash, 6 Uber Eats, 4 Skip), each ready to sign in. The relay host: docs/PLATFORM_SCREENS.md.')}
+            body={t('« Préparer les écrans » crée d’un coup les écrans numérotés (ex. 18 DoorDash, 18 Uber Eats, 18 Skip), chacun prêt à se connecter. Le serveur relais : docs/PLATFORM_SCREENS.md.', '“Set up screens” creates the numbered screens in one go (e.g. 18 DoorDash, 18 Uber Eats, 18 Skip), each ready to sign in. The relay host: docs/PLATFORM_SCREENS.md.')}
             action={manage ? <Button onClick={() => setSetup(true)} icon={<Wand2 className="size-4" />}>{t('Préparer les écrans', 'Set up screens')}</Button> : undefined} /></Card>
         ) : (
           <div className="min-h-0" style={narrow ? undefined : { height: full ? 'calc(100vh - 64px)' : areaH ? `${areaH}px` : 'max(480px, calc(100vh - 290px))' }}>
-            {view === 'tabs' ? (
+            {view === 'list' ? (
+              <ListWall screens={ordered} locations={locations} manage={manage} canAct={canAct} t={t} lang={lang}
+                onSaved={load} onFocus={focus} onCommand={command} />
+            ) : view === 'tabs' ? (
               <TabsWall screens={ordered} active={wall.tab} t={t} onTab={(id) => setWall((w) => ({ ...w, tab: id }))} onMove={reorder} tile={tileProps} />
             ) : view === 'custom' ? (
               <CustomWall screens={ordered} tiles={wall.custom} arrange={arrange} t={t} tile={tileProps}
@@ -275,7 +284,7 @@ export default function PlatformScreensPage() {
 
       {edit && <ScreenDialog screen={edit === 'new' ? null : edit} locations={locations} onClose={() => setEdit(null)}
         onDone={async (name) => { setEdit(null); toast.success(t('Écran enregistré', 'Screen saved'), name); await load(); }} />}
-      {setup && <SetupDialog locations={locations} existing={screens.length} onClose={() => setSetup(false)}
+      {setup && <SetupDialog locations={locations} existing={screens.length} nextSlot={nextSlot(screens)} onClose={() => setSetup(false)}
         onDone={async (n) => { setSetup(false); toast.success(t('Écrans prêts', 'Screens ready'), t(`${n} écran(s) créé(s), chacun ouvre sa page de connexion.`, `${n} screen(s) created, each opens its sign-in page.`)); await load(); }} />}
       {remove && (
         <Modal size="sm" title={t('Retirer cet écran ?', 'Remove this screen?')} onClose={() => setRemove(null)}
@@ -317,7 +326,7 @@ function WallToolbar({ t, wall, count, narrow, full, arrange, ring, unplaced, on
   onView: (v: WallView) => void; onPage: (p: number) => void; onFull: () => void; onArrange: () => void; onRing: () => void; onResetCustom: () => void; onPlace: (id: string) => void;
   onShare?: () => void; onUseShared: () => void;
 }) {
-  const per = wall.view === 'tabs' || wall.view === 'custom' ? null : Number(wall.view);
+  const per = wall.view === 'tabs' || wall.view === 'custom' || wall.view === 'list' ? null : Number(wall.view);
   const pages = per ? pageCount(count, per) : 1;
   const page = per ? clampPage(wall.page, count, per) : 0;
   const views: Array<{ v: WallView; label: ReactNode; title: string }> = [
@@ -326,11 +335,12 @@ function WallToolbar({ t, wall, count, narrow, full, arrange, ring, unplaced, on
     ...(['4', '8', '12', '16', '20', '24'] as const).map((v) => ({ v, label: v, title: t(`${v} écrans`, `${v} screens`) })),
     { v: 'tabs', label: t('Onglets', 'Tabs'), title: t('Un grand écran, les autres en onglets', 'One big screen, the others as tabs') },
     { v: 'custom', label: <><LayoutGrid className="size-3.5" />{t('Personnalisé', 'Custom')}</>, title: t('Placez et redimensionnez chaque écran', 'Place and resize each screen') },
+    { v: 'list', label: <><List className="size-3.5" />{t('Liste', 'List')}</>, title: t('Tous les écrans en liste : nommer, canal, succursale, magasins', 'Every screen as a list: name, channel, location, stores') },
   ];
   return (
     <div className="flex flex-wrap items-center gap-2">
       <div role="radiogroup" aria-label={t('Affichage', 'View')} className="inline-flex flex-wrap rounded-md border border-line bg-surface p-0.5">
-        {views.filter((x) => !narrow || x.v === '1' || x.v === 'tabs').map((x) => (
+        {views.filter((x) => !narrow || x.v === '1' || x.v === 'tabs' || x.v === 'list').map((x) => (
           <button key={x.v} type="button" role="radio" aria-checked={wall.view === x.v} title={x.title} onClick={() => onView(x.v)}
             className={cn('inline-flex h-8 min-w-8 items-center justify-center gap-1 rounded-sm px-2 text-xs font-bold', wall.view === x.v ? 'bg-ink text-canvas' : 'text-ink-2 hover:bg-sunken')}>
             {x.label}
@@ -483,6 +493,90 @@ function CustomWall({ screens, tiles: saved, arrange, t, tile, onTiles }: { scre
   );
 }
 
+// ---- List: every screen on one line (54 accounts are named and assigned here, no live view loaded) ----
+
+function ListWall({ screens, locations, manage, canAct, t, lang, onSaved, onFocus, onCommand }: {
+  screens: Screen[]; locations: Array<{ code: string; name: string }>; manage: boolean; canAct: boolean; t: T; lang: 'fr' | 'en';
+  onSaved: () => void; onFocus: (id: string) => void; onCommand: (s: Screen, action: 'reload' | 'open') => void;
+}) {
+  const counts = PLATFORMS.map((p) => ({ ...p, n: screens.filter((s) => s.platform === p.value).length })).filter((p) => p.n > 0);
+  return (
+    <div className="h-full overflow-auto rounded-md border border-line bg-surface">
+      <div className="flex flex-wrap gap-2 border-b border-line px-3 py-2 text-xs text-ink-2">
+        <strong className="text-ink">{t(`${screens.length} écran(s)`, `${screens.length} screen(s)`)}</strong>
+        {counts.map((p) => <span key={p.value} className="inline-flex items-center gap-1"><span className={cn('size-2 rounded-full', PLATFORM_DOT[p.value])} />{p.label} {p.n}</span>)}
+        <span className="ml-auto">{t('Un compte par écran : chacun se connecte avec son propre courriel et mot de passe, tapés par vous dans l’écran.', 'One account per screen: each signs in with its own email and password, typed by you inside the screen.')}</span>
+      </div>
+      <table className="w-full min-w-[860px] text-sm">
+        <thead className="sticky top-0 z-10 bg-sunken text-left text-xs text-ink-3">
+          <tr>
+            <th className="px-3 py-2">#</th><th className="px-2 py-2">{t('Canal', 'Channel')}</th><th className="px-2 py-2">{t('Nom (restaurant)', 'Name (restaurant)')}</th>
+            <th className="px-2 py-2">{t('Succursale', 'Location')}</th><th className="px-2 py-2">{t('Magasins', 'Stores')}</th><th className="px-2 py-2">{t('État', 'Status')}</th><th className="px-2 py-2" />
+          </tr>
+        </thead>
+        <tbody>
+          {screens.map((s) => <ListRow key={s.id} s={s} locations={locations} manage={manage} canAct={canAct} t={t} lang={lang} onSaved={onSaved} onFocus={onFocus} onCommand={onCommand} />)}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ListRow({ s, locations, manage, canAct, t, lang, onSaved, onFocus, onCommand }: {
+  s: Screen; locations: Array<{ code: string; name: string }>; manage: boolean; canAct: boolean; t: T; lang: 'fr' | 'en';
+  onSaved: () => void; onFocus: (id: string) => void; onCommand: (s: Screen, action: 'reload' | 'open') => void;
+}) {
+  const toast = useToast();
+  const initial = { name: s.name, platform: s.platform, locationCode: s.locationCode, storeIds: (s.storeIds ?? []).join(', ') };
+  const [f, setF] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const dirty = f.name !== initial.name || f.platform !== initial.platform || f.locationCode !== initial.locationCode || f.storeIds !== initial.storeIds;
+  const waiting = s.status === 'online' && (s.titleCount ?? 0) > 0 ? s.titleCount ?? 0 : 0;
+  async function save() {
+    setBusy(true);
+    try {
+      await api(`/api/foodhub/screens/${s.id}`, { method: 'PATCH', body: JSON.stringify(f) });
+      toast.success(t('Écran enregistré', 'Screen saved'), `${s.id} · ${f.name}`);
+      onSaved();
+    } catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  }
+  return (
+    <tr className={cn('border-t border-line align-middle', waiting > 0 && 'bg-wait-soft')}>
+      <td className="px-3 py-1.5 font-mono text-xs text-ink-3">{s.id}</td>
+      <td className="px-2 py-1.5">
+        {manage ? (
+          <Select selectSize="sm" aria-label={t('Canal', 'Channel')} value={f.platform} onChange={(e) => setF((x) => ({ ...x, platform: e.target.value as Platform }))} className="h-8 text-xs">
+            {PLATFORMS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+          </Select>
+        ) : <span className="inline-flex items-center gap-1.5 text-xs font-bold"><span className={cn('size-2 rounded-full', PLATFORM_DOT[s.platform])} />{platformLabel(s.platform)}</span>}
+      </td>
+      <td className="px-2 py-1.5">{manage ? <Input inputSize="sm" aria-label={t('Nom', 'Name')} value={f.name} maxLength={60} onChange={(e) => setF((x) => ({ ...x, name: e.target.value }))} /> : s.name}</td>
+      <td className="px-2 py-1.5">
+        {manage ? (
+          <Select selectSize="sm" aria-label={t('Succursale', 'Location')} value={f.locationCode} onChange={(e) => setF((x) => ({ ...x, locationCode: e.target.value }))} className="h-8 text-xs">
+            {locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}
+          </Select>
+        ) : <span className="text-xs">{shortLoc(locations.find((l) => l.code === s.locationCode)?.name ?? s.locationCode)}</span>}
+      </td>
+      <td className="px-2 py-1.5">
+        {manage ? <Input inputSize="sm" aria-label={t('Magasins', 'Stores')} value={f.storeIds} inputMode="numeric" placeholder="28040070" onChange={(e) => setF((x) => ({ ...x, storeIds: e.target.value }))} />
+          : <span className="text-xs">{(s.storeIds ?? []).join(', ') || '—'}</span>}
+        {(s.protectedStoreIds ?? []).length > 0 && <Badge tone="stop" className="mt-1" icon={<ShieldAlert className="size-3" />}>{t('protégé', 'protected')}</Badge>}
+      </td>
+      <td className="px-2 py-1.5 whitespace-nowrap text-xs">
+        <span className="inline-flex items-center gap-1.5"><StatusDot tone={statusTone(s.status)} />{statusText(s, t, lang)}</span>
+        {waiting > 0 && <Badge tone="wait" className="ml-1">{waiting} {t('en attente', 'waiting')}</Badge>}
+      </td>
+      <td className="px-2 py-1.5 whitespace-nowrap text-right">
+        {manage && <Button size="xs" variant={dirty ? 'primary' : 'ghost'} disabled={!dirty} loading={busy} onClick={save} icon={<Save className="size-3.5" />}>{t('Enregistrer', 'Save')}</Button>}
+        {canAct && s.platform !== 'other' && <TileButton label={t('Page de connexion', 'Sign-in page')} onClick={() => onCommand(s, 'open')} disabled={!!s.command}><LogIn className="size-3.5" /></TileButton>}
+        <TileButton label={t('Voir l’écran', 'See the screen')} onClick={() => onFocus(s.id)}><Maximize2 className="size-3.5" /></TileButton>
+      </td>
+    </tr>
+  );
+}
+
 // ---- One screen ----
 
 const statusTone = (s: Status) => (s === 'online' ? 'go' : s === 'never' ? 'neutral' : s === 'login_required' ? 'wait' : 'stop') as 'go' | 'neutral' | 'wait' | 'stop';
@@ -569,26 +663,32 @@ function TileButton({ label, onClick, disabled, children }: { label: string; onC
 
 // ---- Dialogs ----
 
-function SetupDialog({ locations, existing, onClose, onDone }: { locations: Array<{ code: string; name: string }>; existing: number; onClose: () => void; onDone: (n: number) => void }) {
+const MAX_SLOTS = 99;
+
+function SetupDialog({ locations, existing, nextSlot, onClose, onDone }: { locations: Array<{ code: string; name: string }>; existing: number; nextSlot: number; onClose: () => void; onDone: (n: number) => void }) {
   const { t } = useI18n();
   const [baseUrl, setBaseUrl] = useState('');
   const [locationCode, setLocation] = useState(locations[0]?.code ?? '');
-  const [counts, setCounts] = useState({ doordash: 8, ubereats: 6, skip: 4 });
+  // One account per screen: 18 DoorDash + 18 Uber Eats + 18 Skip by default (owner's 54 accounts).
+  const [counts, setCounts] = useState({ doordash: 18, ubereats: 18, skip: 18 });
+  const [start, setStart] = useState(nextSlot);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const total = counts.doordash + counts.ubereats + counts.skip;
-  const num = (v: string) => Math.max(0, Math.min(32, Math.floor(Number(v) || 0)));
+  const last = start + total - 1;
+  const num = (v: string) => Math.max(0, Math.min(MAX_SLOTS, Math.floor(Number(v) || 0)));
+  const slot = (n: number) => `s${String(n).padStart(2, '0')}`;
   async function go() {
     setBusy(true); setErr('');
     try {
-      const r = await api<{ created: number; kept: string[] }>('/api/foodhub/screens/setup', { method: 'POST', body: JSON.stringify({ baseUrl, locationCode, counts }) });
+      const r = await api<{ created: number; kept: string[] }>('/api/foodhub/screens/setup', { method: 'POST', body: JSON.stringify({ baseUrl, locationCode, counts, start }) });
       onDone(r.created);
     } catch (e) { if (!(e instanceof ApiError && e.status === 499)) setErr(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); }
   }
   return (
     <Modal title={t('Préparer les écrans', 'Set up screens')} onClose={onClose}
-      footer={<><Button variant="ghost" size="lg" onClick={onClose}>{t('Annuler', 'Cancel')}</Button><Button size="lg" loading={busy} disabled={!total || total > 32} onClick={go}>{t(`Créer ${total} écran(s)`, `Create ${total} screen(s)`)}</Button></>}>
+      footer={<><Button variant="ghost" size="lg" onClick={onClose}>{t('Annuler', 'Cancel')}</Button><Button size="lg" loading={busy} disabled={!total || last > MAX_SLOTS} onClick={go}>{t(`Créer ${total} écran(s)`, `Create ${total} screen(s)`)}</Button></>}>
       <div className="space-y-3">
         {err && <Banner tone="stop">{err}</Banner>}
         <p className="text-sm text-ink-2">{t('Crée les écrans numérotés s01, s02… Chacun ouvre la page de connexion de son canal sur le serveur relais : vous vous connectez ensuite une fois dans chaque écran. Le serveur relais utilise les mêmes numéros (docs/ORDER_SCREENS_RESCUE.md).', 'Creates the numbered screens s01, s02… Each opens its channel’s sign-in page on the relay host: you then sign in once in each screen. The relay host uses the same numbers (docs/ORDER_SCREENS_RESCUE.md).')}</p>
@@ -596,10 +696,15 @@ function SetupDialog({ locations, existing, onClose, onDone }: { locations: Arra
         <div className="grid grid-cols-3 gap-2">
           {(['doordash', 'ubereats', 'skip'] as const).map((p) => (
             <Field key={p} label={<span className="inline-flex items-center gap-1.5"><span className={cn('size-2 rounded-full', PLATFORM_DOT[p])} />{platformLabel(p)}</span>}>
-              <Input type="number" min={0} max={32} value={counts[p]} onChange={(e) => setCounts((c) => ({ ...c, [p]: num(e.target.value) }))} />
+              <Input type="number" min={0} max={MAX_SLOTS} value={counts[p]} onChange={(e) => setCounts((c) => ({ ...c, [p]: num(e.target.value) }))} />
             </Field>
           ))}
         </div>
+        <Field label={t('Commencer au numéro', 'Start at number')}
+          hint={total ? t(`Crée ${slot(start)} à ${slot(last)} : un compte par écran, chacun avec sa propre connexion. Plusieurs serveurs relais ? Lancez-le une fois par serveur, avec son adresse et son numéro de départ.`, `Creates ${slot(start)} to ${slot(last)}: one account per screen, each with its own sign-in. Several relay hosts? Run it once per host, with its address and start number.`) : undefined}
+          error={last > MAX_SLOTS ? t(`${MAX_SLOTS} écrans au plus (s01 à s${MAX_SLOTS}).`, `${MAX_SLOTS} screens at most (s01 to s${MAX_SLOTS}).`) : undefined}>
+          <Input type="number" min={1} max={MAX_SLOTS} value={start} onChange={(e) => setStart(Math.max(1, Math.min(MAX_SLOTS, Math.floor(Number(e.target.value) || 1))))} />
+        </Field>
         <Field label={t('Succursale', 'Location')}>
           <Select value={locationCode} onChange={(e) => setLocation(e.target.value)}>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select>
         </Field>

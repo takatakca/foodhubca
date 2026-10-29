@@ -3,8 +3,8 @@
 
 export const GRID_VIEWS = [1, 2, 4, 8, 12, 16, 20, 24] as const;
 export type GridView = (typeof GRID_VIEWS)[number];
-export type WallView = `${GridView}` | 'tabs' | 'custom';
-export const WALL_VIEWS: WallView[] = ['1', '2', '4', '8', '12', '16', '20', '24', 'tabs', 'custom'];
+export type WallView = `${GridView}` | 'tabs' | 'custom' | 'list';
+export const WALL_VIEWS: WallView[] = ['1', '2', '4', '8', '12', '16', '20', '24', 'tabs', 'custom', 'list'];
 
 /** A screen on the custom board, in grid cells (12 columns × 12 rows). */
 export interface CustomTile { id: string; x: number; y: number; w: number; h: number }

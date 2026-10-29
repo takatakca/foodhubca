@@ -25,8 +25,11 @@ its sign-in loses orders without anyone noticing.
   `foodhub.on2go.ca`): browsers block sign-in cookies inside a frame from another site. The relay kit's **gateway**
   (`deploy/screens/gateway/`) serves every screen under one address (`/s01/`…), asks the view password once and lets
   only Food Hub frame the screens (`FOODHUB_ORIGIN`).
-- **Set up screens:** creates numbered screens `s01`, `s02`… in one go (e.g. 8 DoorDash, 6 Uber Eats, 4 Skip) for one
-  location, each at `<relay host>/sNN/` and opening its platform's sign-in page. The relay host uses the same numbers.
+- **Set up screens:** creates numbered screens `s01` … `s99` in one go (default 18 DoorDash, 18 Uber Eats, 18 Skip =
+  54 accounts, one screen and one sign-in each) for one location, each at `<relay host>/sNN/` and opening its platform's
+  sign-in page; "Start at number" splits them over several relay hosts. The relay host uses the same numbers.
+- **List view:** every screen on one line — name it after the restaurant, switch its channel, pick its location and
+  store numbers, see its status; no live view loads, so it stays fast with 54 screens.
 - **Orders → Clover strip:** above the wall, how each platform's orders reach Clover (the platform's own Clover link, or
   Food Hub's connection, or "screen only") and when the last one came in.
 - **Rings on one device:** Stores → Platform screens → **Ring on this device** turns any tablet or PC at the counter into

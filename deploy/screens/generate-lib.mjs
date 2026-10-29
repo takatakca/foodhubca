@@ -24,7 +24,7 @@ export const CHROMIUM_IMAGE = 'lscr.io/linuxserver/chromium:latest';
 //   docker build -t foodhub/android-playstore:33 <dest>
 // Pass another name with --android-image when the host built it under a different tag.
 export const ANDROID_IMAGE = 'foodhub/android-playstore:33';
-export const MAX_SCREENS = 50;
+export const MAX_SCREENS = 99; // e.g. 18 DoorDash + 18 Uber Eats + 18 Skip = 54, one account each
 
 const ID_RE = /^[A-Za-z][A-Za-z0-9_-]{1,63}$/;
 const ENV_REF_RE = /^SCREEN_ID_[A-Z0-9_]{1,40}$/;
@@ -137,7 +137,8 @@ export function buildCompose(screens, opts = {}) {
           SUBFOLDER: `/${svc}/`,
         },
         volumes: [`./profiles/${svc}:/config`],
-        ports: [`127.0.0.1:${WEB_VIEW_PORT_BASE + web}:3001`],
+        // A numbered screen keeps its number on every host (s19 → 3119), so a list can be split across hosts.
+        ports: [`127.0.0.1:${WEB_VIEW_PORT_BASE + (SLOT_ID_RE.test(s.id) ? Number(s.id.slice(1)) : web)}:3001`],
       };
       services[`${svc}-agent`] = {
         build: './agent', restart: 'unless-stopped', network_mode: `service:${svc}`,
@@ -222,6 +223,22 @@ export function envTemplate(screens) {
     ...(screens.some((s) => SLOT_ID_RE.test(s.id)) ? ['# Numbered screens (s01, s02…) use their own id: nothing to fill in for them.'] : []),
   ];
   return lines.join('\n') + '\n';
+}
+
+/**
+ * Keep only the numbered screens in a range, "s19-s36" (one relay host's share of a big list). Other ids are kept.
+ * Returns the list unchanged when the range is empty, or null when it is not a range.
+ */
+export function pickRange(input, range) {
+  const r = String(range ?? '').trim();
+  if (!r) return input;
+  const m = /^s(\d{2})-s(\d{2})$/.exec(r);
+  if (!m || Number(m[1]) > Number(m[2])) return null;
+  const [lo, hi] = [Number(m[1]), Number(m[2])];
+  const list = Array.isArray(input) ? input : input?.screens;
+  if (!Array.isArray(list)) return input;
+  const kept = list.filter((s) => !SLOT_ID_RE.test(String(s?.id ?? '')) || (Number(String(s.id).slice(1)) >= lo && Number(String(s.id).slice(1)) <= hi));
+  return Array.isArray(input) ? kept : { ...input, screens: kept };
 }
 
 /** Validate + build + serialize in one go. Returns { yaml, env, screens, counts } or { errors }. */

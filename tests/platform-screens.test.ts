@@ -252,7 +252,7 @@ describe('numbered screens and the open command (contract v2.1)', () => {
     expect(again.created.map((x) => x.id)).toEqual(['s19', 's20']);
     expect(await setupScreens({ baseUrl: 'https://u:p@x.ca', locationCode: 'NDG_6284', counts: { doordash: 1 } }, ACTOR)).toHaveProperty('error');
     expect(await setupScreens({ baseUrl: 'https://x.ca', locationCode: 'NDG_6284', counts: {} }, ACTOR)).toHaveProperty('error');
-    expect(await setupScreens({ baseUrl: 'https://x.ca', locationCode: 'NDG_6284', counts: { doordash: 40 } }, ACTOR)).toHaveProperty('error');
+    expect(await setupScreens({ baseUrl: 'https://x.ca', locationCode: 'NDG_6284', counts: { doordash: 100 } }, ACTOR)).toHaveProperty('error'); // past s99
   });
 
   it('switching a screen\'s channel opens the new platform\'s page; "Sign-in page" asks it again', async () => {
@@ -356,5 +356,39 @@ describe('relay host lock (FOODHUB_SCREENS_VIEW_HOSTS)', () => {
       const ok = await setupScreens({ baseUrl: 'https://ecrans.on2go.ca/', locationCode: 'NDG_6284', counts: { doordash: 1 } }, ACTOR);
       expect('error' in ok ? ok.error : ok.created[0].viewUrl).toBe('https://ecrans.on2go.ca/s01/');
     } finally { delete process.env.FOODHUB_SCREENS_VIEW_HOSTS; }
+  });
+});
+
+describe('54 accounts: 18 DoorDash + 18 Uber Eats + 18 Skip, one screen and one sign-in each', () => {
+  it('sets up s01–s54 in one go, names count per channel', async () => {
+    const r = await setupScreens({ baseUrl: 'https://ecrans.on2go.ca/', locationCode: 'NDG_6284', counts: { doordash: 18, ubereats: 18, skip: 18 } }, ACTOR);
+    if ('error' in r) throw new Error(r.error);
+    expect(r.created).toHaveLength(54);
+    expect(r.created.at(-1)).toMatchObject({ id: 's54', platform: 'skip', name: 'SkipTheDishes 18', viewUrl: 'https://ecrans.on2go.ca/s54/' });
+    expect(await getScreen('s19')).toMatchObject({ platform: 'ubereats', name: 'Uber Eats 1' });
+    expect(new Set((await listScreens()).map((x) => x.viewUrl)).size).toBe(54); // each screen its own browser, its own account
+  });
+
+  it('several relay hosts: start at a number, names keep counting, never past s99', async () => {
+    const a = await setupScreens({ baseUrl: 'https://ecrans.on2go.ca/', locationCode: 'NDG_6284', counts: { doordash: 18 } }, ACTOR);
+    const b = await setupScreens({ baseUrl: 'https://ecrans2.on2go.ca/', locationCode: 'NDG_6284', counts: { doordash: 2, ubereats: 18 }, start: 19 }, ACTOR);
+    if ('error' in a || 'error' in b) throw new Error('setup failed');
+    expect(b.created[0]).toMatchObject({ id: 's19', name: 'DoorDash 19', viewUrl: 'https://ecrans2.on2go.ca/s19/' });
+    expect(b.created.at(-1)).toMatchObject({ id: 's38', platform: 'ubereats', name: 'Uber Eats 18' });
+    expect(await setupScreens({ baseUrl: 'https://x.ca/', locationCode: 'NDG_6284', counts: { skip: 2 }, start: 99 }, ACTOR)).toHaveProperty('error');
+    expect(await setupScreens({ baseUrl: 'https://x.ca/', locationCode: 'NDG_6284', counts: { skip: 1 }, start: 0 }, ACTOR)).toHaveProperty('error');
+    expect(await setupScreens({ baseUrl: 'https://x.ca/', locationCode: 'NDG_6284', counts: { skip: 1 }, start: 'abc' }, ACTOR)).toHaveProperty('error');
+  });
+
+  it('one relay host can report all 54 screens in one heartbeat (never more than s99)', async () => {
+    const { heartbeatSchema } = await import('../lib/foodhub/screens');
+    const all = Array.from({ length: 54 }, (_, i) => ({ id: `s${String(i + 1).padStart(2, '0')}`, state: 'ok' }));
+    expect(heartbeatSchema.safeParse({ screens: all }).success).toBe(true);
+    expect(heartbeatSchema.safeParse({ screens: Array.from({ length: 100 }, () => all[0]) }).success).toBe(false);
+  });
+
+  it('the List view is a saved view like the others', async () => {
+    const L = await import('../lib/ui/screens-layout');
+    expect(L.parseWall(JSON.stringify({ view: 'list' })).view).toBe('list');
   });
 });

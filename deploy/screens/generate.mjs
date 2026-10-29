@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Usage (on the relay host, in deploy/screens):  node generate.mjs [screens.json] [--out docker-compose.yml] [--env .env.example]
+// Usage (on the relay host, in deploy/screens):  node generate.mjs [screens.json] [--only s01-s18] [--out docker-compose.yml] [--env .env.example]
 // Reads the list, refuses anything that carries a sign-in secret, writes the compose file and the .env template.
 import { readFileSync, writeFileSync } from 'node:fs';
-import { generate } from './generate-lib.mjs';
+import { generate, pickRange } from './generate-lib.mjs';
 
 const args = process.argv.slice(2);
 const opts = {}; const positional = [];
@@ -17,6 +17,12 @@ const androidImage = opts['android-image'] || undefined;
 
 let input;
 try { input = JSON.parse(readFileSync(source, 'utf8')); } catch (e) { console.error(`Cannot read ${source}: ${e instanceof Error ? e.message : e}`); process.exit(2); }
+// --only s19-s36: this host runs that share of the list (several hosts for 54 screens).
+if (opts.only) {
+  const picked = pickRange(input, opts.only);
+  if (!picked) { console.error(`--only must look like s01-s18 (got "${opts.only}").`); process.exit(2); }
+  input = picked;
+}
 const r = generate(input, { source, androidImage });
 if ('errors' in r) { console.error(`${source} is refused:`); for (const e of r.errors) console.error(`  - ${e}`); process.exit(1); }
 writeFileSync(out, r.yaml);

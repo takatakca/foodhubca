@@ -61,6 +61,12 @@ request and in the issue.
 ![Tabs](order-screens/wall-tabs.png)
 <img src="order-screens/wall-phone.png" alt="Phone" width="260">
 
+54 comptes (18 DoorDash, 18 Uber Eats, 18 Skip) — vue Liste et grille de 24 (3 pages) / 54 accounts — List view and 24-grid (3 pages):
+
+![54 screens, List view](order-screens/wall-list-54.png)
+![24 of 54 screens](order-screens/wall-24-of-54.png)
+<img src="order-screens/wall-phone-list.png" alt="Phone, List view" width="260">
+
 ## Lane A status
 
 - 2026-10-29: A1 screens wall that rings (Stores → Platform screens → "Ring on this device"), A2 `screen_waiting`,

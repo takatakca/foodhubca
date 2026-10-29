@@ -169,3 +169,16 @@ You join the TAKATAK Food Hub "order screens rescue" as LANE B (relay host side)
    owner steps), post DONE on #105, and report to the owner: branch, SHA, checks, owner steps,
    "ready for owner review/merge".
 ```
+
+## Owner decisions waiting (nothing built for these yet)
+
+1. **"Re-enter in Clover" from a screen** (the owner's "recreate / reprint"): for a platform with no Clover link, a quick
+   form on the screen's tile (platform order code, items from the menu, note) that creates the Clover order and the
+   kitchen ticket through Food Hub's normal pipeline, marked as entered by hand, with no call back to the platform.
+   Risk: a double order if that platform's own Clover link is also on (rule: one path per order). Build only once the
+   owner says which platforms stay "screen only".
+2. **Alert "order on the screen, nothing in Clover"**: a screen shows a new order and no order from that platform reached
+   Food Hub / Clover within a few minutes. Useful once each platform's Clover path is known; false alarms otherwise.
+3. **Skip start page:** `restaurants.skipthedishes.com` (Food Hub default) or `partner.skipthedishes.com` — confirm with
+   the Skip account, then set `FOODHUB_SCREEN_START_SKIP` if needed.
+4. **Auto-accept** inside each platform screen: only where a kitchen ticket still comes out (Clover link or printer).

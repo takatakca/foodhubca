@@ -21,9 +21,10 @@ its sign-in loses orders without anyone noticing.
   device without its own starts from, and **Shared layout** takes it on any device (`GET/PUT /api/foodhub/screens/layout`). Each tile shows its channel (switch DoorDash / Uber Eats /
   Skip right there: the screen opens that platform's sign-in page), its status, the orders waiting, Reload and
   "Sign-in page". The "orders waiting" banner names each screen: tap one to jump to it (its page, its tab).
-- **Relay host address:** put the relay host on a sub-domain of Food Hub's own domain (e.g. `screens.<your Food Hub
-  domain>`): browsers block sign-in cookies inside a frame from another site, and the relay host's own page must allow
-  being framed by Food Hub (`frame-ancestors`).
+- **Relay host address:** put the relay host on a sub-domain of Food Hub's own domain (e.g. `ecrans.on2go.ca` next to
+  `foodhub.on2go.ca`): browsers block sign-in cookies inside a frame from another site. The relay kit's **gateway**
+  (`deploy/screens/gateway/`) serves every screen under one address (`/s01/`…), asks the view password once and lets
+  only Food Hub frame the screens (`FOODHUB_ORIGIN`).
 - **Set up screens:** creates numbered screens `s01`, `s02`… in one go (e.g. 8 DoorDash, 6 Uber Eats, 4 Skip) for one
   location, each at `<relay host>/sNN/` and opening its platform's sign-in page. The relay host uses the same numbers.
 - **Orders → Clover strip:** above the wall, how each platform's orders reach Clover (the platform's own Clover link, or

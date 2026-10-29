@@ -43,18 +43,21 @@ rien à copier à la main.
    ```bash
    cp screens.18.example.json screens.json   # s01–s08 DoorDash, s09–s14 Uber Eats, s15–s18 Skip
    node generate.mjs
-   cp .env.example .env && nano .env         # FOODHUB_URL, le jeton, un utilisateur/mot de passe pour VOIR les écrans
+   cp .env.example .env && nano .env         # FOODHUB_URL, FOODHUB_ORIGIN, le jeton, un utilisateur/mot de passe pour VOIR les écrans
    docker compose up -d --build
    ```
    Aucune ligne `SCREEN_ID_…` à remplir : chaque écran utilise son numéro.
-4. **Une seule adresse https pour les 18.** Dans le proxy (Coolify / Traefik / Cloudflare Tunnel) : `/s01/` →
-   `127.0.0.1:3101`, …, `/s18/` → `127.0.0.1:3118`, **en gardant le chemin** (ne pas retirer `/s01/` : chaque écran
-   répond déjà sous son chemin).
+4. **Une seule adresse pour les 18 : la passerelle.** `docker compose` démarre aussi une **passerelle** sur
+   `127.0.0.1:3100`. Elle envoie `/s01/` vers l'écran s01, …, `/s18/` vers s18 (chemin gardé). Elle demande une seule
+   fois le mot de passe de VUE (`SCREENS_VIEW_USER` / `SCREENS_VIEW_PASSWORD`) et laisse seulement Food Hub
+   (`FOODHUB_ORIGIN`) afficher les écrans. Dans **Coolify** (ou Cloudflare Tunnel), un seul domaine :
+   `https://ecrans.on2go.ca` → `127.0.0.1:3100`. C'est tout.
 5. **Pour que les écrans s'affichent DANS Food Hub** :
-   - mettez le serveur sur un **sous-domaine du domaine de Food Hub** (Food Hub sur `foodhub.on2go.ca` → écrans sur
-     `ecrans.on2go.ca`). Sinon, Safari et Chrome bloquent la connexion à l'intérieur du cadre ;
-   - le proxy doit permettre l'affichage dans Food Hub : en-tête `Content-Security-Policy: frame-ancestors
-     https://foodhub.on2go.ca`, et **pas** de `X-Frame-Options: DENY` ni `SAMEORIGIN`.
+   - le serveur doit être sur un **sous-domaine du domaine de Food Hub** : Food Hub sur `foodhub.on2go.ca`, écrans sur
+     `ecrans.on2go.ca`. Sinon, Safari et Chrome bloquent la connexion à l'intérieur du cadre ;
+   - `FOODHUB_ORIGIN=https://foodhub.on2go.ca` dans `.env` (la passerelle s'occupe des en-têtes) ;
+   - dans Food Hub (Coolify) : `FOODHUB_SCREENS_VIEW_HOSTS=ecrans.on2go.ca` (un écran ne peut alors montrer que ce
+     serveur).
 6. **Connectez-vous une fois dans chaque écran**, dans Food Hub. Pour changer le canal d'un écran (DoorDash / Uber Eats /
    Skip), choisissez-le sur sa tuile : l'écran ouvre la page de connexion du nouveau canal.
 
@@ -201,11 +204,12 @@ Food Hub's screens wall and this host use the same numbers, so nothing is copied
    location, the host's address (e.g. `https://screens.on2go.ca/`). It creates s01–s18 at `…/s01/` … `…/s18/`.
 3. On the host: `cp screens.18.example.json screens.json && node generate.mjs`, fill `.env` (no `SCREEN_ID_…` lines
    needed), `docker compose up -d --build`.
-4. One https address for all 18: `/s01/` → `127.0.0.1:3101` … `/s18/` → `3118`, **path kept** (each screen answers
-   under its own path).
+4. One address for all 18, the **gateway** (started by the same `docker compose`, `127.0.0.1:3100`): it sends `/s01/` to
+   screen s01 … `/s18/` to s18 (path kept), asks the view password once, and lets only Food Hub (`FOODHUB_ORIGIN`) frame
+   the screens. In Coolify (or Cloudflare Tunnel) one domain: `https://ecrans.on2go.ca` → `127.0.0.1:3100`.
 5. To show them **inside** Food Hub: a **sub-domain of Food Hub's domain** (browsers block the view's sign-in cookie in
-   a frame from another site), and `Content-Security-Policy: frame-ancestors https://<Food Hub>`, no
-   `X-Frame-Options: DENY/SAMEORIGIN`.
+   a frame from another site), `FOODHUB_ORIGIN=https://foodhub.on2go.ca` in `.env`, and in Food Hub
+   `FOODHUB_SCREENS_VIEW_HOSTS=ecrans.on2go.ca`.
 6. Sign in once in each screen. Switch a screen's channel on its tile in Food Hub: it opens that platform's sign-in page.
 
 **Skip:** live orders may only be in the Skip Partner app (the web portal is for menus and history); if a Skip web

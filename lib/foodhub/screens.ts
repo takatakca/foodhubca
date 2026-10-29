@@ -120,16 +120,30 @@ export function screenStatus(s: PlatformScreen, now = Date.now()): ScreenStatus 
  * The view address must be https (http only for this machine), and never carry a user name or password: anyone who
  * can read Food Hub settings would see them. The relay host is protected by its own sign-in or access policy.
  */
-export function checkViewUrl(raw: unknown): { url: string } | { error: string } {
+export function checkViewUrl(raw: unknown, env: Record<string, string | undefined> = process.env): { url: string } | { error: string } {
   const text = String(raw ?? '').trim();
   if (!text) return { error: 'Adresse de l’écran requise. / Screen address required.' };
   if (text.length > 500) return { error: 'Adresse trop longue. / Address too long.' };
   let u: URL;
   try { u = new URL(text); } catch { return { error: 'Adresse invalide. / Invalid address.' }; }
   if (u.username || u.password) return { error: 'Ne mettez jamais de nom d’utilisateur ni de mot de passe dans l’adresse. / Never put a user name or password in the address.' };
+  const hosts = viewHosts(env);
+  // Owners type their platform passwords inside these frames: once the relay host is named, a screen can only show it
+  // (a fake "sign-in" page elsewhere can never be put on the wall).
+  if (hosts.length) {
+    if (u.protocol !== 'https:' || !hosts.some((h) => u.hostname === h || u.hostname.endsWith(`.${h}`))) {
+      return { error: `L’écran doit être sur le serveur relais (${hosts.join(', ')}). / The screen must be on the relay host (${hosts.join(', ')}).` };
+    }
+    return { url: u.toString() };
+  }
   const local = u.hostname === 'localhost' || u.hostname === '127.0.0.1';
   if (u.protocol !== 'https:' && !(u.protocol === 'http:' && local)) return { error: 'L’adresse doit commencer par https://. / The address must start with https://.' };
   return { url: u.toString() };
+}
+
+/** FOODHUB_SCREENS_VIEW_HOSTS: the relay host name(s), comma-separated (e.g. "ecrans.on2go.ca"). Empty = any https. */
+export function viewHosts(env: Record<string, string | undefined> = process.env): string[] {
+  return String(env.FOODHUB_SCREENS_VIEW_HOSTS ?? '').split(',').map((h) => h.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '')).filter(Boolean);
 }
 
 export async function listScreens(): Promise<PlatformScreen[]> {

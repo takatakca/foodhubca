@@ -5,7 +5,7 @@ import { allDayWeek, saveHours } from '../lib/foodhub/hours';
 import {
   addScreen, agentAuthorized, allowedScreenUrl, checkViewUrl, cleanStoreIds, getScreen, listScreens, nextWaitingSince, orderPaths, protectedStoreIds,
   recordHeartbeat, removeScreen, requestOpen, requestReload, SCREEN_OFFLINE_AFTER_MS, screenStartUrl, screenStatus, setupScreens, titleCount, updateScreen,
-  getSharedWall, saveSharedWall, type PlatformScreen,
+  getSharedWall, saveSharedWall, viewHosts, type PlatformScreen,
 } from '../lib/foodhub/screens';
 import { listIncidents, runWatch } from '../lib/foodhub/watch/engine';
 import { POST as heartbeatRoute } from '../app/api/foodhub/screens/heartbeat/route';
@@ -332,5 +332,29 @@ describe('wall layout shared with every device', () => {
     expect(saved).toEqual({ view: 'custom', page: 0, order: ['s02', 's01'], tab: null, custom: [{ id: 's01', x: 8, y: 0, w: 4, h: 4 }] });
     expect(await getSharedWall()).toMatchObject({ view: 'custom', order: ['s02', 's01'], savedBy: 'Owner' });
     expect(await saveSharedWall('not json', ACTOR)).toMatchObject({ view: '4', custom: [] });
+  });
+});
+
+describe('relay host lock (FOODHUB_SCREENS_VIEW_HOSTS)', () => {
+  it('once the relay host is named, a screen can only show it — never a look-alike sign-in page elsewhere', () => {
+    const env = { FOODHUB_SCREENS_VIEW_HOSTS: 'ecrans.on2go.ca, https://screens2.on2go.ca/' };
+    expect(viewHosts(env)).toEqual(['ecrans.on2go.ca', 'screens2.on2go.ca']);
+    expect(checkViewUrl('https://ecrans.on2go.ca/s01/', env)).toEqual({ url: 'https://ecrans.on2go.ca/s01/' });
+    expect(checkViewUrl('https://screens2.on2go.ca/s02/', env)).toEqual({ url: 'https://screens2.on2go.ca/s02/' });
+    for (const bad of ['https://ecrans.on2go.ca.evil.example/s01/', 'https://doordash-login.example/', 'http://ecrans.on2go.ca/s01/', 'http://localhost:3101/']) {
+      expect(checkViewUrl(bad, env)).toHaveProperty('error');
+    }
+    // Not set: any https address (and http on this machine), as before.
+    expect(viewHosts({})).toEqual([]);
+    expect(checkViewUrl('https://any.example/s01/', {})).toEqual({ url: 'https://any.example/s01/' });
+  });
+
+  it('Set up screens follows the lock too', async () => {
+    process.env.FOODHUB_SCREENS_VIEW_HOSTS = 'ecrans.on2go.ca';
+    try {
+      expect(await setupScreens({ baseUrl: 'https://evil.example/', locationCode: 'NDG_6284', counts: { doordash: 1 } }, ACTOR)).toHaveProperty('error');
+      const ok = await setupScreens({ baseUrl: 'https://ecrans.on2go.ca/', locationCode: 'NDG_6284', counts: { doordash: 1 } }, ACTOR);
+      expect('error' in ok ? ok.error : ok.created[0].viewUrl).toBe('https://ecrans.on2go.ca/s01/');
+    } finally { delete process.env.FOODHUB_SCREENS_VIEW_HOSTS; }
   });
 });

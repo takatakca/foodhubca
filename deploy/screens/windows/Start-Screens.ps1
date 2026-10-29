@@ -113,17 +113,16 @@ function Get-BrowserArguments {
   $argList = @(
     ('--user-data-dir=' + $profileDir),
     ('--remote-debugging-port=' + $Screen.port),
-    '--no-first-run', '--no-default-browser-check',
-    '--disable-session-crashed-bubble', '--restore-last-session',
+    '--no-first-run', '--no-default-browser-check', '--disable-session-crashed-bubble',
     '--disable-features=TranslateUI',
     ('--window-position=' + $Screen.window.x + ',' + $Screen.window.y),
-    ('--window-size=' + $Screen.window.width + ',' + $Screen.window.height)
+    ('--window-size=' + $Screen.window.width + ',' + $Screen.window.height),
+    [string]$Screen.startUrl
   )
-  # First start of this profile: open the order page. Later starts restore the last session (the same page, still
-  # signed in) and would otherwise add one more tab each time; if the session comes back empty, the agent opens the
-  # start page itself.
-  $hasSession = Test-Path -LiteralPath (Join-Path $profileDir 'Default\Sessions') -PathType Container
-  if (-not $hasSession) { $argList += @('--new-window', [string]$Screen.startUrl) }
+  # Every start opens the order page in one fresh tab, like the Docker kit (CHROME_CLI). The sign-in lives in the
+  # profile (cookies), not in the tab list, so nothing is lost. --restore-last-session is NOT used on purpose: measured
+  # on Chrome 142 / Windows 11, it makes Chrome exit at once when the saved session is empty (the watchdog would then
+  # relaunch every 30 s) and, with a URL on a fresh profile, it either ignored the URL or closed the window after ~9 s.
   return $argList
 }
 

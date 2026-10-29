@@ -93,7 +93,7 @@ Deux façons :
 | Port avec `!` dans Status, Chrome « down » | Chrome n'a pas démarré : regardez le journal ; un autre programme utilise-t-il le port ? Relancez avec `-PortBase 9300` dans `Install-Screens.ps1`. |
 | La fenêtre revient sans arrêt (toutes les 30 s) | C'est voulu : le chien de garde rouvre une fenêtre fermée. Pour arrêter : `.\Stop-Screens.ps1`. |
 | Rien ne démarre à l'ouverture de session | Planificateur de tâches → « FoodHub Screens » : est-elle là ? Sinon `.\Install-Screens.ps1` encore ; si le Planificateur refuse, le script met un raccourci dans le dossier Démarrage de votre session. |
-| Trop d'onglets dans une fenêtre | Fermez les onglets en trop ; la session est gardée. (La page de départ n'est ouverte qu'au tout premier démarrage du profil ; ensuite Chrome reprend la session précédente.) |
+| Trop d'onglets dans une fenêtre | Chaque démarrage ouvre la page des commandes dans un seul nouvel onglet ; fermez les autres. La connexion est gardée dans le profil, pas dans les onglets. |
 | Le PC se met en veille | Paramètres → Système → Alimentation et mise en veille → Jamais (sur secteur). |
 
 **Po Poulet NDG (DoorDash 27982486) :** si un écran DoorDash montre ce magasin, personne n'y touche depuis Food Hub.
@@ -191,7 +191,7 @@ Two ways:
 | Port with `!` in Status, Chrome "down" | Chrome did not start: read the log; does another program use the port? Reinstall with `-PortBase 9300`. |
 | The window keeps coming back (every 30 s) | By design: the watchdog reopens a closed window. To stop: `.\Stop-Screens.ps1`. |
 | Nothing starts at sign-in | Task Scheduler → "FoodHub Screens": is it there? Else run `.\Install-Screens.ps1` again; if the Task Scheduler refuses, the script puts a shortcut in your session's Startup folder. |
-| Too many tabs in a window | Close the extra tabs; the session is kept. (The start page is opened only on the profile's very first start; later Chrome restores the previous session.) |
+| Too many tabs in a window | Every start opens the orders page in one fresh tab; close the others. The sign-in is kept in the profile, not in the tabs. |
 | The PC goes to sleep | Settings → System → Power & sleep → Never (plugged in). |
 
 **Po Poulet NDG (DoorDash 27982486):** if a DoorDash screen shows that store, nobody acts on it from Food Hub.

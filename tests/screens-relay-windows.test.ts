@@ -61,9 +61,11 @@ describe('windows kit: files and rules (always)', () => {
     expect(common).toMatch(/LogRotateBytes = 5MB/);
   });
 
-  it('starts Chrome with its own profile, debugging port and window, restores the session, and never passes the token on a command line', () => {
+  it('starts Chrome with its own profile, debugging port, window and start URL (no --restore-last-session: see the comment there), never the token on a command line', () => {
     const start = read('Start-Screens.ps1');
-    for (const flag of ['--user-data-dir=', '--remote-debugging-port=', '--no-first-run', '--disable-session-crashed-bubble', '--restore-last-session', '--window-position=', '--window-size=']) expect(start).toContain(flag);
+    for (const flag of ['--user-data-dir=', '--remote-debugging-port=', '--no-first-run', '--disable-session-crashed-bubble', '--window-position=', '--window-size=', '[string]$Screen.startUrl']) expect(start).toContain(flag);
+    expect(start).toMatch(/--restore-last-session is NOT used on purpose/);
+    expect(withoutComments(start)).not.toContain('--restore-last-session');
     for (const env of ['FOODHUB_URL', 'FOODHUB_SCREENS_AGENT_TOKEN', 'SCREEN_ID', 'SCREEN_START_URL', 'CDP_URL', 'HEARTBEAT_SECONDS']) expect(start).toContain(env);
     expect(start).toContain('-Environment $r.env'); // the agent gets the values through its environment
     expect(start).not.toMatch(/--token|FOODHUB_SCREENS_AGENT_TOKEN=/);

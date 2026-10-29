@@ -4,6 +4,8 @@
 
 - **FH-014 / interface** : améliorer l'accessibilité des `Tabs` horizontaux via ArrowLeft/ArrowRight, Home/End et `tabIndex` roving. Branche `fix/console-tabs-keyboard-20261016` ; code et tests créés, CI/revue navigateur nécessaires, fusion uniquement par propriétaire. Distinct de [PR #62](https://github.com/takatakca/foodhubca/pull/62) qui sécurise modales/tiroirs.
 
+**16 octobre 2026 : FH-016 — REVIEW / branche `fix/console-kitchen-a11y`, PR #52.** Phase 3 P0 interface cuisine : tokens sombres pour les dialogues portalisés/écran NIP, thème avant premier rendu, contraste, zone tactile 48px, réduction des animations OS, erreur/chargement au niveau de la console. Code et tests poussés ; attendre la CI de la dernière tête puis révision/fusion réservées au propriétaire. Reprise après fusion PR #53 : `main` `444e8f2e60dd73e5eaa90bc4e9f92d05489b38f3`. Les dossiers FH-006/FH-007 de commandes réelles restent **non certifiés**.
+
 
 **État de mise en ligne 2026-10-15** : [PR #49](https://github.com/takatakca/foodhubca/pull/49) indique une publication Coolify native **Success**, SHA live `027b602a12da39b1244e17b813bc51a7496a0217` confirmé en HTTP et conteneur sain à 12:49 UTC. FH-002/003/004/005 : preuve de publication consignée, non une nouvelle vérification par cet agent ; la dernière condition de certification **réelle** des commandes / fournisseurs (FH-006/FH-007) demeure bloquante. PR #51 renforce la vérification de dérive de version et ajoute un contrôle automatisé opt-in.
 

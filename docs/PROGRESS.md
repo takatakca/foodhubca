@@ -240,6 +240,11 @@ Branche `fix/overlay-keyboard-focus-20261016` : focus initial, Tab/Shift+Tab cir
   DOORDASH_REPORTS_* is set. A `_sandbox` DOORDASH_PROVIDER_TYPE alone no longer turns the mode on (warning only).
   Docs step 6: delete the Sandbox subscriptions first, keep DOORDASH_SANDBOX_STORE_IDS and the sandbox secret.
 
+## 2026-10-16 — Kitchen UI accessibility and reconciliation
+
+PR #52 (`fix/console-kitchen-a11y`): kitchen tokens on document root and first paint, reduced motion, 48px controls, PIN shake, bilingual loading/error, regression tests. Manually reconciled feature branch with `main` `444e8f2e` to retain merged Clover test-order PR #53 and all its unrelated code. GitHub CI/image pending on latest PR branch, no production rollout/connector toggles. Merge remains owner-only.
+
+
 ## 2026-10-15 — Owner-authorized automatic production activation
 
 - Reusing PR #49. Existing Coolify resource rebound to its installed GitHub App, push deployment enabled, source commit available to Docker and health monitoring enabled. Historical Actions deployment controller disabled to keep one production writer while GitHub runner billing is blocked.

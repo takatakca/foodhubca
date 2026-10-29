@@ -83,9 +83,10 @@ Session « Food Hub order manager integration » (busy-cannon), Claude Code dans
 - **Où** : PR #1 dans chacun des 9 dépôts (branche `claude/busy-cannon-5spy86`). Côté Food Hub : bus d'événements et
   annuaire de la suite (`lib/foodhub/suite/*`, `GET /api/suite/v1/directory` signé, Réglages → Applications
   connectées), fusionnés dans foodhubca #102. Contrat : `docs/TAKATAK_SUITE.md` ; revue : `docs/TAKATAK_SUITE_PLAYBOOK.md`.
-- **Reste** : fusionner les 9 PR #1 (vérifier d'abord qu'elles se fusionnent proprement avec ce qui a été ajouté sur
-  `main` depuis, p. ex. « Picture Register » dans C4ISSE) ; l'inscription au Clover App Market est une étape du
-  propriétaire (`DEPLOY.md` de chaque app).
+- **Fait le 2026-10-29** : les 9 PR #1 fusionnées dans `main` (chacune : typecheck, tests et build verts ; aucune
+  n'avait de conflit avec `main`).
+- **Reste** : l'inscription au Clover App Market et les réglages Coolify de chaque app sont des étapes du propriétaire
+  (`DEPLOY.md` de chaque app).
 
 ### 4.2 Écrans de commande : les tablettes DoorDash / Uber Eats / Skip sur un serveur (2026-10-29)
 - **Le problème** : les tablettes perdent le Wi-Fi ou leur connexion, la plateforme met le magasin en pause puis le
@@ -149,7 +150,7 @@ Google Drive « 00 — Opérations TAKATAK » : notes 2026-10-29 04-55, 05-50, 1
 | #98 | recherche : caisse visuelle Clover | conflit (docs) | mettre à jour, fusionner |
 | #39, #44 | anciennes lignes de journal | conflit (docs) | fermer : remplacées par ce registre et `docs/PROGRESS.md` |
 
-**Les 9 applications Clover** : PR #1 dans chaque dépôt (voir 4.1).
+**Les 9 applications Clover** : PR #1 fusionnées le 2026-10-29 (voir 4.1).
 ## 2. Index des dépôts publics takatakca (52) / Public repository index
 
 _Les 9 dépôts privés sont dans la version complète du registre, dans Google Drive « 00 — Opérations TAKATAK » (jamais dans un dépôt public)._

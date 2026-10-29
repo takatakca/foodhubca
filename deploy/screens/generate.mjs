@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Usage (on the relay host, in deploy/screens):  node generate.mjs [screens.json] [--only s01-s18] [--out docker-compose.yml] [--env .env.example]
+// Usage (on the relay host, in deploy/screens):  node generate.mjs [screens.json] [--only s01-s18] [--domain ecrans.on2go.ca] [--gateway-host 172.17.0.1] [--out docker-compose.yml] [--env .env.example]
+// The easy way is ./setup.sh, which runs this for you.
 // Reads the list, refuses anything that carries a sign-in secret, writes the compose file and the .env template.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { generate, pickRange } from './generate-lib.mjs';
@@ -23,9 +24,11 @@ if (opts.only) {
   if (!picked) { console.error(`--only must look like s01-s18 (got "${opts.only}").`); process.exit(2); }
   input = picked;
 }
-const r = generate(input, { source, androidImage });
+// --domain ecrans.on2go.ca: add the built-in https front (Caddy) for that name.
+// --gateway-host 172.17.0.1: the gateway listens on the Docker bridge so Coolify's Traefik can reach it (setup.sh).
+const r = generate(input, { source, androidImage, domain: opts.domain || undefined, gatewayHost: opts['gateway-host'] || undefined });
 if ('errors' in r) { console.error(`${source} is refused:`); for (const e of r.errors) console.error(`  - ${e}`); process.exit(1); }
 writeFileSync(out, r.yaml);
 writeFileSync(envOut, r.env);
-console.log(`${out}: ${r.counts.web} web screen(s), ${r.counts.android} Android screen(s). .env names in ${envOut}.`);
+console.log(`${out}: ${r.counts.web} web screen(s), ${r.counts.android} Android screen(s)${opts.domain && r.counts.web ? `, https://${opts.domain.toLowerCase()}/` : ''}. .env names in ${envOut}.`);
 for (const s of r.screens) console.log(`  ${s.name} (${s.platform}, ${s.mode})`);

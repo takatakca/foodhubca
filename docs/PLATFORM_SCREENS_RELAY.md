@@ -81,15 +81,24 @@ Quand une plateforme n'offre que son application, l'écran est un **Android comp
 Store. Il faut un serveur Linux **avec KVM** (la plupart des VPS « KVM » et tout serveur dédié ; pas un VPS « OpenVZ »).
 Vérifiez : `ls /dev/kvm` doit exister.
 
-1. Dans `screens.json`, la ligne de l'écran a `"mode": "android"` et `"package"` (le nom de l'app ; les valeurs par
-   défaut des trois plateformes sont déjà connues du générateur).
-2. `node generate.mjs`, puis `docker compose --profile android up -d --build` (le profil `android` ne démarre que ces
-   écrans ; les écrans web continuent comme avant).
-3. Ouvrez la vue de l'écran (`127.0.0.1:6081`, `6082`, … derrière votre proxy), **vous-même** : ouvrez le Play Store,
+1. **Une fois, construisez l'image Android avec Play Store** sur le serveur (les images Android publiques n'ont pas
+   le Play Store). Avec les scripts officiels de Google, `github.com/google/android-emulator-container-scripts` :
+   vous acceptez la licence du SDK Android, puis `emu-docker create <émulateur> <image système google_apis_playstore x86_64 33>`
+   et `docker build -t foodhub/android-playstore:33 <dossier>`. Un autre nom d'image se passe avec
+   `node generate.mjs --android-image <nom>`.
+2. **Une clé adb** pour que l'agent parle à l'appareil : dans `deploy/screens/`, `adb keygen adbkey` (deux fichiers,
+   ignorés par git ; ne les copiez nulle part).
+3. Dans `screens.json`, la ligne de l'écran a `"mode": "android"` et `"package"` (le nom de l'app de commandes :
+   DoorDash Order Manager, Uber Eats Order Manager, Skip Partner ; le générateur connaît déjà les trois).
+4. `node generate.mjs`, puis `ADBKEY="$(cat adbkey)" docker compose --profile android up -d --build` (le profil
+   `android` ne démarre que ces écrans ; les écrans web continuent comme avant). L'appareil garde ses données dans un
+   volume nommé : les apps et la connexion survivent aux redémarrages.
+5. Ouvrez la vue de l'écran (`127.0.0.1:6081`, `6082`, … derrière votre proxy), **vous-même** : ouvrez le Play Store,
    connectez-vous à un compte Google, installez l'app de la plateforme, ouvrez-la, connectez-vous au compte du
    magasin. Elle reste connectée.
-4. L'agent Android ne fait que trois choses : vérifier que l'appareil répond, que l'app est devant, et **compter** ses
-   notifications. « Recharger » depuis Food Hub remet l'app devant, rien d'autre. Il ne touche jamais l'écran.
+6. L'agent Android ne fait que trois choses : vérifier que l'appareil répond, que l'app est devant, et **compter** ses
+   notifications (le compte est fait sur l'appareil ; seul un chiffre en sort). « Recharger » depuis Food Hub remet
+   l'app devant, rien d'autre. Il ne touche jamais l'écran.
 
 Le Play Store, les comptes Google et les applications sont à vous ; aucun robot ne s'y connecte.
 
@@ -163,11 +172,16 @@ the app's notifications).
 6. **Sign in once in each screen.** The green dot appears within 20 s.
 
 ## B. The real Android app
-Needs a Linux host **with KVM** (`ls /dev/kvm`). In `screens.json` set `"mode": "android"` and `"package"`;
-`node generate.mjs`; `docker compose --profile android up -d --build`; open the screen's view (`127.0.0.1:6081`, …) and,
-yourself: Play Store → Google account → install the platform app → sign in to the store account. The Android agent
-only checks the device answers, the app is in front, and **counts** its notifications; "Reload" brings the app back to
-the front. It never touches the screen.
+Needs a Linux host **with KVM** (`ls /dev/kvm`). Once, build the Play Store image with Google's own scripts
+(`github.com/google/android-emulator-container-scripts`: accept the Android SDK licence, `emu-docker create` with a
+`google_apis_playstore` system image, `docker build -t foodhub/android-playstore:33`), and make an adb key
+(`adb keygen adbkey`, git-ignored). In `screens.json` set `"mode": "android"` and `"package"` (the order apps: DoorDash
+Order Manager, Uber Eats Order Manager, Skip Partner; the generator knows all three); `node generate.mjs`;
+`ADBKEY="$(cat adbkey)" docker compose --profile android up -d --build`. The device keeps its data in a named volume.
+Open the screen's view (`127.0.0.1:6081`, …) and, yourself: Play Store → Google account → install the platform app →
+sign in to the store account. The Android agent only checks the device answers, the app is in front, and **counts** its
+notifications (counted on the device; only a number comes out); "Reload" brings the app back to the front. It never
+touches the screen.
 
 ## C. The store's Windows PC
 One Chrome per screen with its own profile and an agent each, restarted at sign-in and watched every 30 s. Steps in

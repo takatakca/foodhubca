@@ -1,5 +1,17 @@
 # Food Hub: progress log and task board
 
+## 2026-10-29 (22 h) — Registre de tout le travail + ordres permanents du propriétaire (`claude/busy-cannon-5spy86`)
+
+- `docs/REGISTRE_TAKATAK.md` : les dépôts publics `takatakca`, l'historique complet (PR fusionnées, signatures) de ceux
+  qui sont lisibles ici depuis leur premier commit, ce que la session busy-cannon a fait et comment, et les PR encore
+  ouvertes avec quoi en faire. La version complète (dépôts privés compris) est seulement dans Google Drive
+  « 00 — Opérations TAKATAK ».
+- `CLAUDE.md` + gabarit de PR : ordres du propriétaire du 2026-10-29 (notes instantanées signées, travail toujours
+  poussé, chaque agent fusionne sa PR quand les vérifications sont vertes, Copilot quand il aide, notes GitHub + Drive).
+- Fusionnées après une fusion à blanc testée (typecheck, 1663 tests, build, verify 578/0) : #106, #52, #48, #45.
+
+— signé : Claude (busy-cannon, Claude Code cloud) · 2026-10-29 22:55
+
 ## 2026-10-29 — Order screens rescue, lane A: one device rings for every platform screen (`claude/busy-cannon-5spy86`)
 
 - Problem: DoorDash / Uber Eats tablets drop their Wi-Fi or sign-in; the platforms pause, then deactivate the stores. Plan and lanes: `docs/ORDER_SCREENS_RESCUE.md` (lane A Food Hub side, lane B relay kit by a second agent, lane C the owner's portal steps; agents coordinate on board #105).

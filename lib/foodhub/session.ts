@@ -29,7 +29,7 @@ export interface SessionPayload {
   /** kitchen device id when the session was opened with a PIN on an enrolled tablet */
   d?: string;
   /** how the person signed in */
-  k?: 'otp' | 'link' | 'pin' | 'password';
+  k?: 'otp' | 'link' | 'pin' | 'password' | 'google';
 }
 
 export interface DevicePayload {
@@ -150,11 +150,13 @@ export const verifyDevice = (t: string | null | undefined) => verify<DevicePaylo
  * Welcome ticket: put in the /welcome/clover link after a merchant opens the app from Clover, so that public page
  * may show that merchant's own connection (name, approval, register check). Without a valid ticket the page shows
  * nothing about any merchant — a merchant ID typed in the address bar reveals nothing.
+ * `a` = the Clover app the ticket was issued for when it is not Food Hub ('phone'); a Food Hub ticket has no `a`.
  */
-export interface WelcomePayload { m: string; exp: number }
+export interface WelcomePayload { m: string; exp: number; a?: 'phone' }
 export const WELCOME_TICKET_TTL_S = 7 * 24 * 3600;
-export async function signWelcome(merchantId: string, ttlS = WELCOME_TICKET_TTL_S): Promise<string | null> {
-  try { return await sign('w', { m: merchantId, exp: Math.floor(Date.now() / 1000) + ttlS }); } catch { return null; }
+export async function signWelcome(merchantId: string, ttlS = WELCOME_TICKET_TTL_S, app?: 'phone'): Promise<string | null> {
+  const exp = Math.floor(Date.now() / 1000) + ttlS;
+  try { return await sign('w', app ? { m: merchantId, exp, a: app } : { m: merchantId, exp }); } catch { return null; }
 }
 export const verifyWelcome = (t: string | null | undefined) => verify<WelcomePayload>('w', t);
 

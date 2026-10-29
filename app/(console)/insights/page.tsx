@@ -21,8 +21,8 @@ type Group = Omit<Analytics['byChannel'][number], 'key'> & { key: string };
 export default function InsightsPage() {
   const { t, loc } = useI18n();
   const { locations, brands } = useViewer();
-  const { scope, brands: brandScope } = usePulse();
-  const { filters, set, query } = useFilters('7d', scope, brandScope);
+  const { scope, brands: brandScope, channels: channelScope } = usePulse();
+  const { filters, set, query } = useFilters('7d', scope, brandScope, channelScope);
   const [data, setData] = useState<Analytics | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -38,13 +38,13 @@ export default function InsightsPage() {
   const points = useMemo(() => (data?.daily ?? []).map((d) => ({ label: d.date, cur: metric === 'sales' ? d.sales : d.orders, prev: metric === 'sales' ? d.prevSales : d.prevOrders })), [data, metric]);
   const k = data?.kpis;
   const table = (rows: Group[], name: string) => ({ columns: [name, t('Ventes', 'Sales'), t('Commandes', 'Orders'), t('Panier', 'Avg'), '%', t('vs préc. %', 'vs prev %'), t('Annulées', 'Cancelled'), t('Perdu', 'Lost')], rows: rows.map((g) => [g.label, fmtMoney(g.sales), g.orders, fmtMoney(g.aov), `${g.share}%`, `${g.change > 0 ? '+' : ''}${g.change}%`, g.lostOrders, fmtMoney(g.lostRevenue)]), filename: `takatak-${name}` });
-  const bars = (rows: Group[]) => rows.map((g) => ({ label: g.label, value: g.sales, detail: `${g.orders} ${t('cmd', 'orders')} · ${g.share}% · ${g.change > 0 ? '+' : ''}${g.change}%` }));
+  const bars = (rows: Group[]) => rows.map((g) => ({ label: g.label, value: g.sales, detail: `${g.orders} ${t('commandes', 'orders')} · ${g.share}% · ${g.change > 0 ? '+' : ''}${g.change}%` }));
   const WHO: Record<string, string> = { store: t('Vous (magasin)', 'You (store)'), platform: t('Plateforme', 'Platform'), customer: t('Client', 'Customer'), unknown: t('Non précisé', 'Not reported') };
   const STAGE: Record<string, string> = { before_accept: t('Avant acceptation', 'Before accepting'), after_accept: t('Après acceptation', 'After accepting'), unknown: t('Non précisé', 'Not reported') };
 
   return (
     <div>
-      <PageHeader title={t('Analyses', 'Insights')} subtitle={t('Chaque chiffre est comparé à la période précédente de même durée. Les commandes annulées sont des ventes perdues.', 'Every number is compared with the previous period of the same length. Cancelled orders count as lost sales.')}
+      <PageHeader title={t('Ventes et tendances', 'Sales & trends')} subtitle={t('Chaque chiffre est comparé à la période précédente de même durée. Les commandes annulées sont des ventes perdues.', 'Every number is compared with the previous period of the same length. Cancelled orders count as lost sales.')}
         right={<><Button variant="outline" onClick={() => navigator.clipboard?.writeText(window.location.href)} icon={<Link2 className="size-4" />}>{t('Copier le lien', 'Copy link')}</Button><Hint id="insights.export"><a className={buttonClass('outline', 'md')} href={`/api/foodhub/reports/order_transactions?format=xlsx&${query}`}><Download className="size-4" />Excel</a></Hint></>} />
       <InsightsTabs />
       <Hint id="insights.period"><FilterBar filters={filters} set={set} locations={locations} brands={brands} /></Hint>
@@ -56,7 +56,7 @@ export default function InsightsPage() {
             <StatTile hero label={t('Ventes', 'Sales')} value={fmtMoney(k.sales.value)} change={k.sales.change} previous={fmtMoney(k.sales.previous)} />
             <StatTile label={t('Commandes', 'Orders')} value={fmtInt(k.orders.value)} change={k.orders.change} previous={fmtInt(k.orders.previous)} />
             <StatTile label={t('Panier moyen', 'Average order')} value={fmtMoney(k.aov.value)} change={k.aov.change} previous={fmtMoney(k.aov.previous)} />
-            <StatTile label={t('Ventes perdues (annulées)', 'Lost sales (cancelled)')} value={fmtMoney(k.lostRevenue.value)} change={k.lostRevenue.change} previous={fmtMoney(k.lostRevenue.previous)} upIsGood={false} note={`${k.lostOrders.value} ${t('cmd', 'orders')} · ${k.cancelRate.value}%`} />
+            <StatTile label={t('Ventes perdues (annulées)', 'Lost sales (cancelled)')} value={fmtMoney(k.lostRevenue.value)} change={k.lostRevenue.change} previous={fmtMoney(k.lostRevenue.previous)} upIsGood={false} note={`${k.lostOrders.value} ${t('commandes', 'orders')} · ${k.cancelRate.value}%`} />
             <StatTile label={t('Temps pour accepter', 'Time to accept')} value={mins(k.avgAcceptMin.value)} change={k.avgAcceptMin.change} previous={mins(k.avgAcceptMin.previous)} upIsGood={false} note={`${k.autoAcceptRate.value}% ${t('automatique', 'automatic')}`} />
             <StatTile label={t('Temps de préparation', 'Prep time')} value={k.avgPrepMin.value ? mins(k.avgPrepMin.value) : '—'} change={k.avgPrepMin.value ? k.avgPrepMin.change : undefined} previous={mins(k.avgPrepMin.previous)} upIsGood={false} note={t('acceptée → prête', 'accepted → ready')} />
             <StatTile label={t('Magasins ouverts (heures)', 'Store uptime (open hours)')} value={`${data.uptime.overallPct}%`} note={`${mins(data.uptime.offlineMinutes)} ${t('hors ligne', 'offline')}`} />
@@ -89,7 +89,7 @@ export default function InsightsPage() {
             {data.lostItems.length > 0 && <p className="mt-3 text-xs text-ink-3">{t('Souvent dans les commandes annulées :', 'Often in cancelled orders:')} {data.lostItems.slice(0, 5).map((i) => `${i.name} (${i.qty})`).join(', ')}</p>}
           </ChartCard>
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-            <ChartCard title={t('Disponibilité pendant les heures d’ouverture', 'Uptime during opening hours')} subtitle={t('Les plus bas d’abord', 'Lowest first')} table={{ columns: [t('Plateforme', 'Platform'), t('Marque', 'Brand'), t('Succursale', 'Location'), t('Heures', 'Hours'), t('Ouvert (min)', 'Open (min)'), t('Hors ligne (min)', 'Offline (min)'), '%'], rows: data.uptime.stores.map((u) => [u.label, u.brandName, u.location, u.hoursSet ? '✓' : '24/7', u.openMinutes, u.offlineMinutes, `${u.uptimePct}%`]), filename: 'takatak-uptime' }}>
+            <ChartCard title={t('Disponibilité pendant les heures d’ouverture', 'Uptime during opening hours')} subtitle={t('Les plus bas d’abord', 'Lowest first')} table={{ columns: [t('Plateforme', 'Platform'), t('Marque', 'Brand'), t('Succursale', 'Location'), t('Heures', 'Hours'), t('Ouvert (min)', 'Open (min)'), t('Hors ligne (min)', 'Offline (min)'), '%'], rows: data.uptime.stores.map((u) => [u.label, u.brandName, u.location, u.hoursSet ? '✓' : t('Sans horaire', 'No hours set'), u.openMinutes, u.offlineMinutes, `${u.uptimePct}%`]), filename: 'takatak-uptime' }}>
               <HBars rows={data.uptime.stores.slice(0, 12).map((u) => ({ label: `${u.label} · ${u.brandName} · ${u.location}`, value: u.uptimePct, detail: `${mins(u.offlineMinutes)} ${t('hors ligne', 'offline')}` }))} format={(n) => `${n}%`} empty={t('Aucun magasin branché.', 'No store connected.')} />
             </ChartCard>
             <ChartCard title={t('Clients', 'Customers')} subtitle={t('Quand la plateforme partage un identifiant client', 'When the platform shares a customer id')} table={{ columns: ['', ''], rows: [[t('Identifiés', 'Identified'), data.customers.identified], [t('Nouveaux', 'New'), data.customers.newCustomers], [t('Fidèles', 'Returning'), data.customers.repeatCustomers], ['%', `${data.customers.repeatRate}%`]], filename: 'takatak-customers' }}>

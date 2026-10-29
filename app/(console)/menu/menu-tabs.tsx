@@ -8,7 +8,7 @@ export function MenuTabs() {
   const { t } = useI18n();
   const { can, features } = useViewer();
   return <LinkTabs tabs={[
-    { href: '/menu/86', label: t('Ruptures (86)', '86 board') },
+    { href: '/menu/86', label: t('Épuisés', 'Sold out') },
     ...(can('menu:edit') ? [{ href: '/menu', label: t('Éditeur de menu', 'Menu editor'), exact: true }] : []),
     ...(features.includes('retail') ? [{ href: '/menu/retail', label: t('Épicerie', 'Grocery') }] : []),
   ]} />;

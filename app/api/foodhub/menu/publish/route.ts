@@ -6,7 +6,7 @@ import { getHours } from '@/lib/foodhub/hours';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { cancelScheduled, listScheduled, schedulePublish, type ScheduledPublish } from '@/lib/foodhub/menu/schedule';
 import { getMenuLanguages } from '@/lib/foodhub/menu/language';
-import { getBrandMenu, getMenuSharing, groupOf } from '@/lib/foodhub/menu/shared';
+import { getBrandMenu, getMenuSharing, groupOf, unpublishableMenuReason } from '@/lib/foodhub/menu/shared';
 import { previewPublish } from '@/lib/foodhub/menu/preview';
 import { verifyMenu } from '@/lib/foodhub/menu/verify';
 import { publishMenu, type FanOutRow } from '@/lib/foodhub/ops';
@@ -60,6 +60,9 @@ export const POST = withPerm('menu:edit', async (req, _ctx, actor) => {
   for (const name of brands) {
     const menu = await getBrandMenu(name, sharing);
     if (!menu) return fail(`No master menu saved for ${name}. Import from Clover or create items first.`, 409);
+    // Never an empty menu (a follower's dish list that matches nothing): nothing is sent, the platforms keep theirs.
+    const empty = unpublishableMenuReason(menu);
+    if (empty && b.dryRun !== true) return fail(empty, 422);
     const c = verifyMenu(menu, { stores, hours });
     if (name === brand) check = c;
     // A dry run still answers (with the check): it shows what blocks the publish next to what it would send.

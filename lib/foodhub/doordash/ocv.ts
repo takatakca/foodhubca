@@ -14,6 +14,7 @@ import { getBrandMenu } from '../menu/shared';
 import { prepFor } from '../prep';
 import { getRepo } from '../repo';
 import { guardDoorDashStore } from './guard';
+import { doorDashStoreAccess, sandboxStoreFor } from './sandbox';
 
 export interface CartError { code: string; merchant_supplied_id: string; message: string }
 export interface CartValidation { valid: boolean; cart_id: string; expires_at: string; earliest_pickup_time?: string; errors?: CartError[] }
@@ -42,13 +43,17 @@ function cartRefs(categories: any[]): Array<{ id: string; name: string; kind: 'i
 }
 
 /** Answers one Order Cart Validation request. Never calls DoorDash and never writes anything. */
-export async function validateDoorDashCart(body: any, now = Date.now()): Promise<CartOutcome> {
+export async function validateDoorDashCart(body: any, now = Date.now(), opts: { sandboxAuth?: boolean } = {}): Promise<CartOutcome> {
   const cartId = String(body?.cart_id ?? '');
   const msid = String(body?.store?.merchant_supplied_id ?? '');
   // A protected store (Po Poulet NDG…) gets no answer at all: DoorDash then skips the check, exactly as for a timeout.
   const refused = await guardDoorDashStore(msid, 'read');
   if (refused) return { refused, status: 409 };
-  const store = await getRepo().findStore('doordash', msid);
+  // A DoorDash sandbox test store is checked like a real one, from the brand chosen under DoorDash sandbox tests; a
+  // sandbox request (DOORDASH_ENV=sandbox or the sandbox secret) about any other store is not answered (409).
+  const access = await doorDashStoreAccess(msid, opts);
+  if (access.kind === 'refused') return { refused: access.message, status: 409 };
+  const store = access.kind === 'test' ? await sandboxStoreFor(msid) : await getRepo().findStore('doordash', msid);
   if (!store) return { refused: `Unknown location_id ${msid} — map it under Food Hub → Stores → Mapping.`, status: 404 };
 
   const errors: CartError[] = [];
@@ -84,8 +89,8 @@ export async function validateDoorDashCart(body: any, now = Date.now()): Promise
 }
 
 /** The HTTP answer for a cart validation: the validation itself (200), or 404 / 409 so DoorDash skips the check. */
-export async function cartValidationResponse(body: any): Promise<NextResponse> {
-  const out = await validateDoorDashCart(body);
+export async function cartValidationResponse(body: any, opts: { sandboxAuth?: boolean } = {}): Promise<NextResponse> {
+  const out = await validateDoorDashCart(body, Date.now(), opts);
   if ('refused' in out) return NextResponse.json({ error: out.refused }, { status: out.status });
   return NextResponse.json(out.answer);
 }

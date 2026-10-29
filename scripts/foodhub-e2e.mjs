@@ -380,6 +380,7 @@ const env = {
   DOORDASH_BASE_URL: `${MOCK}/dd`, DOORDASH_DEVELOPER_ID: 'dd-dev-e2e', DOORDASH_KEY_ID: 'dd-key-e2e', DOORDASH_SIGNING_SECRET: DD_SECRET_B64, DOORDASH_PROVIDER_TYPE: 'takatak_e2e', DOORDASH_WEBHOOK_SECRET: 'dd-hook-e2e',
   SKIP_JET_BASE_URL: `${MOCK}/skip`, SKIP_JET_API_KEY: JET_API_KEY, SKIP_WEBHOOK_HMAC_SECRET: SKIP_HMAC, SKIP_WEBHOOK_API_KEY: SKIP_NOTIFY_KEY,
   TGTG_WEBHOOK_SECRET: 'tgtg-hook-e2e',
+  TGTG_EMAIL_WEBHOOK_SECRET: 'tgtg-mail-e2e',
   SKIP_ONBOARDING_HMAC_SECRET: 'skip-onboard-e2e', DELIVERECT_WEBHOOK_SECRET: 'dlv-hook-e2e', DELIVERECT_TGTG_CHANNEL_IDS: '777',
   FOODHUB_RELAY_SECRET: RELAY_SECRET, FOODHUB_RELAY_CHANNELS: 'tgtg', FOODHUB_RELAY_CALLBACK_URL: `${MOCK}/relay/callback`, FOODHUB_RELAY_CALLBACK_TOKEN: RELAY_CB_TOKEN,
   CLOVER_BASE_URL: `${MOCK}/clover`, CLOVER_MERCHANT_ID: 'MAINMERCHANT', CLOVER_ACCESS_TOKEN: CLOVER_TOKEN,
@@ -398,7 +399,7 @@ const env = {
   // Website orders taken by Clover Online Ordering go to this kitchen, under this brand (several kitchens share the merchant).
   FOODHUB_CLOVER_WEBSITE_LOCATION: JSON.stringify({ MAINMERCHANT: 'NDG_6284' }), FOODHUB_CLOVER_WEBSITE_BRAND: 'PPP Pizzeria',
 };
-for (const k of ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'UBER_ACCESS_TOKEN', 'TGTG_SPEC_CONFIRMED', 'SESSION_SECRET', 'FOODHUB_CLOVER_AUTOPRINT', 'CLOVER_PRINT_DEVICE_ID', 'FOODHUB_SYNC_MIN_INTERVAL_S', 'FOODHUB_CLOVER_RECORD_PAYMENT', 'FOODHUB_CLOVER_ORDER_TYPES', 'FOODHUB_CLOVER_INVENTORY_SYNC', 'FOODHUB_CLOVER_DELETE_CANCELLED', 'FOODHUB_SCHEDULED_AFTER_MIN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'FOODHUB_INSECURE_SHOW_CODES', 'TWILIO_MESSAGING_SERVICE_SID', 'FOODHUB_OWNER_EMAIL', 'FOODHUB_OWNER_PHONE', 'FOODHUB_FEATURE_DELIVERY', 'FOODHUB_FEATURE_RETAIL', 'FOODHUB_FEATURE_ALCOHOL', 'FOODHUB_FEATURE_PHONE', 'UBER_DIRECT_CUSTOMER_ID', 'UBER_DIRECT_CLIENT_ID', 'UBER_DIRECT_CLIENT_SECRET', 'FOODHUB_CLOVER_WEBSITE_ORDERS', 'FOODHUB_CLOVER_WEBSITE_ORDER_TYPES', 'FOODHUB_CLOVER_WEBSITE_POLL_S', 'FOODHUB_CLOVER_WEBSITE_CLOSE_MIN']) delete env[k];
+for (const k of ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'UBER_ACCESS_TOKEN', 'TGTG_SPEC_CONFIRMED', 'SESSION_SECRET', 'FOODHUB_CLOVER_AUTOPRINT', 'CLOVER_PRINT_DEVICE_ID', 'FOODHUB_SYNC_MIN_INTERVAL_S', 'FOODHUB_CLOVER_RECORD_PAYMENT', 'FOODHUB_CLOVER_ORDER_TYPES', 'FOODHUB_CLOVER_INVENTORY_SYNC', 'FOODHUB_CLOVER_DELETE_CANCELLED', 'FOODHUB_SCHEDULED_AFTER_MIN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'FOODHUB_INSECURE_SHOW_CODES', 'TWILIO_MESSAGING_SERVICE_SID', 'FOODHUB_OWNER_EMAIL', 'FOODHUB_OWNER_PHONE', 'FOODHUB_FEATURE_DELIVERY', 'FOODHUB_FEATURE_RETAIL', 'FOODHUB_FEATURE_ALCOHOL', 'FOODHUB_FEATURE_PHONE', 'UBER_DIRECT_CUSTOMER_ID', 'UBER_DIRECT_CLIENT_ID', 'UBER_DIRECT_CLIENT_SECRET', 'FOODHUB_CLOVER_WEBSITE_ORDERS', 'FOODHUB_CLOVER_WEBSITE_ORDER_TYPES', 'FOODHUB_CLOVER_WEBSITE_POLL_S', 'FOODHUB_CLOVER_WEBSITE_CLOSE_MIN', 'FOODHUB_PUBLIC_HOME', 'FOODHUB_APP_MARKET_URL', 'FOODHUB_APP_MARKET_STATUS', 'FOODHUB_PUBLIC_LIVE_PLATFORMS', 'FOODHUB_PUBLIC_SAME_AS', 'NEXT_PUBLIC_CLOVER_APPS_LIVE']) delete env[k];
 const app = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '-p', String(APP_PORT), '-H', '127.0.0.1'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
 let appLog = '';
 app.stdout.on('data', (d) => { appLog += d; });
@@ -410,7 +411,35 @@ const ids = {};
 try {
   console.log('\n1. Security');
   const anon = await call('GET', '/', { auth: false, redirect: 'manual' });
-  check('Command Center without sign-in → login page', [302, 307].includes(anon.status) && /\/login/.test(anon.location || ''), `${anon.status} ${anon.location}`);
+  check('bare address without sign-in → public ON2GO Hub page (FOODHUB_PUBLIC_HOME default)', [302, 307].includes(anon.status) && new URL(anon.location || '/', APP).pathname === '/hub', `${anon.status} ${anon.location}`);
+  { const page = await call('GET', '/orders', { auth: false, redirect: 'manual' });
+    check('Command Center without sign-in → login page', [302, 307].includes(page.status) && /\/login/.test(page.location || ''), `${page.status} ${page.location}`); }
+  { const fr = await call('GET', '/hub', { auth: false, headers: { cookie: 'fh_lang=en' } });
+    const en = await call('GET', '/en/hub/pricing', { auth: false });
+    check('public ON2GO Hub pages open without sign-in, language fixed by the path', fr.status === 200 && fr.text.includes('<html lang="fr-CA"') && fr.text.includes('application/ld+json') && en.status === 200 && en.text.includes('<html lang="en-CA"'), `${fr.status} ${en.status}`);
+    const login = await fetch(`${APP}/login`);
+    check('public pages are indexable, the console is not', !/noindex/.test(fr.text) && login.headers.get('x-robots-tag') === 'noindex', String(login.headers.get('x-robots-tag')));
+    { const hubFr = await fetch(`${APP}/hub`); const hubEn = await fetch(`${APP}/en/hub/pricing`);
+      check('public pages carry no X-Robots-Tag header', hubFr.headers.get('x-robots-tag') === null && hubEn.headers.get('x-robots-tag') === null, `${hubFr.headers.get('x-robots-tag')} ${hubEn.headers.get('x-robots-tag')}`);
+      const cc = String(hubFr.headers.get('cache-control'));
+      check('public pages are cacheable (public, s-maxage)', /\bpublic\b/.test(cc) && /s-maxage=\d+/.test(cc) && !/no-store|private/.test(cc), cc); }
+    { const canon = fr.text.match(/<link rel="canonical" href="([^"]+)"/)?.[1] || '';
+      check('the /hub canonical is absolute https on FOODHUB_PUBLIC_URL', canon === 'https://takatak.example/hub', canon); }
+    { const q = await call('GET', '/?utm_source=x&fbclid=y', { auth: false, redirect: 'manual' });
+      const to = new URL(q.location || '/', APP);
+      check('"/" with tracking parameters lands on /hub (query kept), not on /login', [302, 307].includes(q.status) && to.pathname === '/hub' && to.search === '?utm_source=x&fbclid=y', `${q.status} ${q.location}`); }
+    { const dd = await call('GET', '/hub/integrations/doordash-clover', { auth: false });
+      const uber = await call('GET', '/hub/integrations/uber-eats-clover', { auth: false });
+      check('integration in certification (DoorDash) is noindex, a live one (Uber Eats) is indexable', dd.status === 200 && /<meta name="robots" content="noindex, follow"/.test(dd.text) && dd.text.includes('en cours de certification') && uber.status === 200 && !/noindex/.test(uber.text), `${dd.status} ${uber.status}`); }
+    { const legal = await call('GET', '/legal/terms', { auth: false });
+      check('draft legal pages are noindex (follow) until approved', legal.status === 200 && /<meta name="robots" content="noindex, follow"/.test(legal.text), String(legal.status)); }
+    const robots = await call('GET', '/robots.txt', { auth: false });
+    const map = await call('GET', '/sitemap.xml', { auth: false });
+    const llms = await call('GET', '/llms.txt', { auth: false });
+    check('robots.txt, sitemap.xml and llms.txt are public', robots.status === 200 && /Disallow: \/api\//.test(robots.text) && map.status === 200 && map.text.includes('/hub/tarifs') && llms.status === 200 && llms.text.includes('# ON2GO.ca'), `${robots.status} ${map.status} ${llms.status}`);
+    check('/hubx is not public', [302, 307].includes((await call('GET', '/hubx', { auth: false, redirect: 'manual' })).status));
+    const logo = await fetch(`${APP}/icons/icon-512.png`);
+    check('Organization logo is public and indexable', logo.status === 200 && logo.headers.get('x-robots-tag') === null, `${logo.status} ${logo.headers.get('x-robots-tag')}`); }
   check('API without sign-in → 401 JSON', (await call('GET', '/api/foodhub/command', { auth: false })).status === 401);
   check('login page is public', (await call('GET', '/login', { auth: false })).status === 200);
   const home = await call('GET', '/');
@@ -1145,7 +1174,7 @@ try {
   check('app icon served without sign-in', (await call('GET', '/icons/icon-192.png', { auth: false })).status === 200);
 
   console.log('\n35. Every screen renders');
-  const screens = ['/', '/orders', `/orders/${o8?.id}`, `/ticket/${o8?.id}`, '/kitchen', '/stores', '/stores/hours', '/stores/mapping', '/menu', '/menu/86', '/alerts',
+  const screens = ['/', '/orders', `/orders/${o8?.id}`, `/ticket/${o8?.id}`, '/kitchen', '/stores', '/stores/list', '/stores/hours', '/stores/mapping', '/menu', '/menu/86', '/alerts',
     '/insights', '/insights/reports', '/insights/activity', '/money', '/money/reconciliation', '/money/disputes', '/money/payouts', '/money/ledger', '/money/statements', '/money/fees', '/money/tgtg',
     '/settings', '/settings/profile', '/settings/team', '/settings/devices', '/settings/security', '/settings/alerts', '/settings/channels', '/settings/business', '/settings/go-live'];
   const rendered = await Promise.all(screens.map((s2) => call('GET', s2)));
@@ -1397,6 +1426,8 @@ try {
   const mediaPath = new URL(up.json?.url || 'https://x/none').pathname;
   const served = await call('GET', mediaPath, { auth: false });
   check('photo served without sign-in (Uber / DoorDash / Skip download it)', served.status === 200 && served.contentType === 'image/png' && served.buf.length === 33);
+  { const head = await fetch(`${APP}${mediaPath}`);
+    check('menu photo has no X-Robots-Tag (on2go.ca dish photos stay eligible for image search)', head.status === 200 && head.headers.get('x-robots-tag') === null, String(head.headers.get('x-robots-tag'))); }
   check('a file that is not a photo is refused', (await upload(Buffer.from('<script>alert(1)</script>'), 'image/png')).status === 415);
   check('upload needs sign-in', [401, 302, 307].includes((await upload(pngBuf, 'image/png', false)).status));
   check('no path tricks on the public photo route', (await call('GET', '/media/..%2F..%2Fpackage.json', { auth: false })).status === 404);
@@ -1767,6 +1798,56 @@ try {
   check('end of day: the feed counts reach the bag log', bagCron.status === 200 && bagCron.json?.days?.some((d) => d.locationCode === 'NDG_MAIN' && d.synced), JSON.stringify(bagCron.json));
 
   }
+  console.log('\n46. Owner test order on a register connected with an API token (Settings → Clover app)');
+  const ownerTest = await call('POST', '/api/foodhub/clover-connect/owner-test-order', { body: { merchantId: 'MAINMERCHANT' } });
+  check('owner: TEST order created, printed and paid on the API-token register, each step confirmed by Clover', ownerTest.status === 200 && ownerTest.json?.steps?.length === 3 && ownerTest.json.steps.every((x) => x.ok), ownerTest.text.slice(0, 300));
+  check('owner test order needs a sign-in (no public access)', (await call('POST', '/api/foodhub/clover-connect/owner-test-order', { auth: false, body: { merchantId: 'MAINMERCHANT' } })).status === 401);
+  check('a register Food Hub cannot reach is refused, nothing sent', (await call('POST', '/api/foodhub/clover-connect/owner-test-order', { body: { merchantId: 'NOTCONNECTED01' } })).status === 403);
+  const chTest = (await call('GET', '/api/foodhub/channels')).json?.clover;
+  check('Settings → Clover app: API-token register listed and "tested end to end" recorded', chTest?.tokenMerchantIds?.includes('MAINMERCHANT') && chTest?.app?.testOrder?.merchantId === 'MAINMERCHANT');
+  const welcomeTicketCannot = await call('POST', '/api/foodhub/clover-connect/test-order', { auth: false, body: { t: 'forged.ticket' } });
+  check('the public welcome endpoint still needs a valid ticket', welcomeTicketCannot.status === 401);
+
+  console.log('\n47. Too Good To Go order e-mails (forwarding webhook) → kitchen + Clover');
+  {
+    const hm = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(ms));
+    const startMs = Date.now() + 20 * 60_000;
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date(startMs));
+    const window = `${day} ${hm(startMs)} - ${hm(startMs + 30 * 60_000)}`;
+    // The receiving mail server's verdict (topmost Authentication-Results): without dkim / dmarc pass nothing is acted on.
+    const AUTH_OK = 'Authentication-Results: mx.e2e.test; dkim=pass header.d=toogoodtogo.com; spf=pass smtp.mailfrom=toogoodtogo.com; dmarc=pass header.from=toogoodtogo.com';
+    const mime = (id, subject, lines, auth = AUTH_OK) => [...(auth ? [auth] : []), 'From: Too Good To Go <no-reply@toogoodtogo.com>', 'To: store@example.test', `Subject: ${subject}`, `Message-ID: <${id}@e2e.test>`, `Date: ${new Date().toUTCString()}`, 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8', '', ...lines, ''].join('\r\n');
+    const order = mime('tgtg-e2e-order', 'New order: 2 x Surprise Bag - OOEUF NDG E2E', ['Hi OOEUF NDG E2E,', '', 'Camille just reserved 2 Surprise Bags.', 'Customer: Camille', 'Quantity: 2', 'Total paid: $11.98', `Pickup: ${window}`, 'Order ID: E2EMAIL01', 'Store: OOEUF NDG E2E']);
+    const hook = (raw, token = 'tgtg-mail-e2e') => call('POST', '/api/foodhub/webhooks/tgtg-email', { auth: false, headers: { authorization: `Bearer ${token}`, 'content-type': 'message/rfc822' }, raw });
+    const atomics = () => sent('POST', /\/atomic_order\/orders$/);
+    const map = await call('POST', '/api/foodhub/tgtg-email', { body: { action: 'map', storeName: 'OOEUF NDG E2E', brandName: 'OOeuf', locationCode: 'NDG_6284' } });
+    check('Settings → Platforms: TGTG store name mapped to OOeuf @ NDG 6284', map.status === 200 && map.json?.mapping?.locationCode === 'NDG_6284', map.text.slice(0, 200));
+    check('Po Poulet cannot be mapped outside Saint-Léonard', (await call('POST', '/api/foodhub/tgtg-email', { body: { action: 'map', storeName: 'PO POULET NDG', brandName: 'Po Poulet', locationCode: 'NDG_MAIN' } })).status === 400);
+    check('TGTG e-mail webhook refuses a wrong token', (await hook(order, 'wrong')).status === 401);
+    const forgedBefore = atomics().length;
+    const forged = await hook(mime('tgtg-e2e-forged', 'New order: 1 x Surprise Bag - OOEUF NDG E2E', ['Eve just reserved 1 Surprise Bag.', 'Total paid: $5.99', `Pickup: ${window}`, 'Order ID: E2EFORGE1', 'Store: OOEUF NDG E2E'], 'Authentication-Results: mx.e2e.test; dkim=fail header.d=toogoodtogo.com; dmarc=fail header.from=toogoodtogo.com'));
+    check('forged Too Good To Go From (no DKIM / DMARC pass) → attention, nothing sent to Clover', forged.json?.status === 'attention' && /not verified/.test(forged.json?.reason || '') && atomics().length === forgedBefore, forged.text.slice(0, 200));
+    const before = atomics().length;
+    const got = await hook(order);
+    check('reservation e-mail → order created', got.status === 200 && got.json?.status === 'order_created' && got.json?.code === 'E2EMAIL01', got.text.slice(0, 200));
+    const atomic = atomics().find((e) => e.body?.orderCart?.title === 'Too Good To Go #E2EMAIL01');
+    const ot = cloverOrderTypes.find((o) => o.id === atomic?.body?.orderCart?.orderType?.id);
+    check('Clover order: title with the TGTG code, order type "Too Good To Go", one line per bag with the customer', Boolean(atomic) && ot?.label === 'Too Good To Go' && atomic.body.orderCart.lineItems.length === 2 && /CAMILLE/.test(atomic.body.orderCart.lineItems[0].note || '') && /Client: Camille/.test(atomic.body.orderCart.note || ''), JSON.stringify(atomic?.body?.orderCart ?? null).slice(0, 300));
+    const clvId = [...cloverAtomicTitles].find(([, title]) => title === 'Too Good To Go #E2EMAIL01')?.[0] ?? null;
+    check('kitchen ticket printed once', Boolean(clvId) && sent('POST', /\/print_event$/).filter((e) => e.body?.orderRef?.id === clvId).length === 1);
+    const again = await hook(order);
+    check('same e-mail again → duplicate, no second Clover order', again.json?.status === 'duplicate' && atomics().length === before + 1, again.text.slice(0, 200));
+    const cancel = await hook(mime('tgtg-e2e-cancel', 'Order cancelled - OOEUF NDG E2E', ['Camille has cancelled their order.', 'Order ID: E2EMAIL01']));
+    check('cancellation e-mail → order cancelled', cancel.json?.status === 'cancel_applied', cancel.text.slice(0, 200));
+    const onOrder = (method) => sent(method, /\/orders\/[^/]+$/).filter((e) => e.path.endsWith(`/orders/${clvId}`));
+    check('Clover order flagged CANCELLED, never deleted', onOrder('DELETE').length === 0 && onOrder('POST').some((e) => /^CANCELLED/.test(e.body?.title || '')));
+    const bad = await hook(mime('tgtg-e2e-nocode', 'New order - OOEUF NDG E2E', ['Nadia just reserved 1 Surprise Bag.', `Pickup: ${window}`]));
+    const panel = await call('GET', '/api/foodhub/tgtg-email');
+    check('e-mail without a code → attention list (never dropped)', bad.json?.status === 'attention' && panel.json?.attention?.some((m) => m.subject === 'New order - OOEUF NDG E2E'), bad.text.slice(0, 200));
+    check('Settings panel: last e-mails listed, mailbox not configured (IMAP off)', panel.status === 200 && panel.json?.recent?.length >= 3 && panel.json?.readiness?.imapConfigured === false && panel.json?.readiness?.webhookConfigured === true);
+    check('Settings panel needs a sign-in', (await call('GET', '/api/foodhub/tgtg-email', { auth: false })).status === 401);
+  }
+
   await sleep(300);
   // A webhook "kept in the inbox" (section 41: Uber refusing the order fetch on purpose) is handled, not a crash.
   const crashes = appLog.split('\n').filter((l) => /\[foodhub\] .* failed|Unhandled|TypeError|ReferenceError/.test(l) && !/kept in the inbox/.test(l));

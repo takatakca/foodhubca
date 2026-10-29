@@ -8,7 +8,7 @@ import { locationsForMerchant } from '../clover-sync';
 import { getCatalog } from '../catalog';
 import { cloverBaseUrl, cloverToken } from '../pos/clover';
 import { platformFromLabel } from '../pos/clover-platform-orders';
-import { isCloverOnlineOrderType } from '../pos/clover-website-orders';
+import { hasFoodHubPayMark, isCloverOnlineOrderType } from '../pos/clover-website-orders';
 import { getRepo } from '../repo';
 import { normalizePhone } from '../notify';
 import { addressProblems, normalizePostal, parseAddressText } from './address';
@@ -92,7 +92,8 @@ export async function importCloverDeliveryOrders(mid: string, now = Date.now()):
       const rows: any[] = json?.elements ?? [];
       for (const co of rows) {
         const id = String(co?.id ?? '');
-        if (!id || ours.has(id) || Number(co?.createdTime) > until || !isOwnDeliveryOrder(co, orderTypes)) continue;
+        // Ours: created by Food Hub, or made by one of our paid payment links ("Réf. IA-1043" on a line).
+        if (!id || ours.has(id) || hasFoodHubPayMark(co) || Number(co?.createdTime) > until || !isOwnDeliveryOrder(co, orderTypes)) continue;
         if (await findDirectOrderBySource('clover', id)) continue;
         const lines = linesOf(co);
         if (!lines.length) continue;

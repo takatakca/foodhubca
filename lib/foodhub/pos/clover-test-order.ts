@@ -1,4 +1,6 @@
-// "Send a test order to my Clover" (welcome page, approved merchants only).
+// "Send a test order to my Clover": on the welcome page for approved app merchants, and in Settings → Clover app for the
+// owner, who may also test a register connected with an API token (CLOVER_ACCESS_TOKEN / CLOVER_MERCHANT_TOKENS) — the
+// way the group's own register is connected while the App Market app is still a draft that Clover will not install.
 // Shows a merchant — and a Clover App Market reviewer on a test merchant — exactly what Food Hub does with a delivery
 // order, end to end, on their own register: the order is created in Clover with the platform's order type (OPEN), the
 // kitchen ticket is sent to the Clover printer, then the order is paid with the platform's tender for exactly the
@@ -12,12 +14,15 @@ import { logActivity } from '../activity';
 import { getRepo } from '../repo';
 import type { StoredOrder } from '../types';
 import { cloverOrderTotalCents, cloverOrderTypeFor, cloverTenderFor, platformLabel, postCloverPayment } from './clover-books';
-import { injectOrder, printCloverOrder } from './clover';
+import { cloverTokenFor, injectOrder, printCloverOrder } from './clover';
 import { connectedCloverMerchantIds } from './clover-oauth';
 
 const LIMIT = 3;
 const WINDOW_MS = 60 * 60_000;
 const KEY = (mid: string) => `clover-test-orders:${mid}`;
+/** The last test order that went through every step (Settings → Clover app: "tested end to end"). */
+const LAST_OK_KEY = 'clover-test-order:last-ok';
+export interface LastTestOrder { merchantId: string; posOrderId: string; at: string }
 const CHANNEL = 'uber_eats' as const;
 
 /** detail is in French and English (Québec merchants see every screen in both); Clover's own error text is kept as is. */
@@ -69,9 +74,19 @@ async function takeSlot(mid: string, nowMs: number): Promise<boolean> {
   return true;
 }
 
-export async function sendCloverTestOrder(merchantId: string, nowMs = Date.now()): Promise<TestOrderResult> {
+/** Last fully successful test order, or null. */
+export async function lastCloverTestOrder(): Promise<LastTestOrder | null> {
+  return (await getRepo().getKv<LastTestOrder>(LAST_OK_KEY).catch(() => null)) ?? null;
+}
+
+/**
+ * opts.tokenMerchant: the owner (signed in, admin) may also test a register reached with an API token from the environment.
+ * The public welcome page never sets it: there, only merchants approved through the Clover app qualify.
+ */
+export async function sendCloverTestOrder(merchantId: string, nowMs = Date.now(), opts: { tokenMerchant?: boolean; actor?: string } = {}): Promise<TestOrderResult> {
   const steps: TestOrderStep[] = [];
-  if (!(await connectedCloverMerchantIds().catch(() => [] as string[])).includes(merchantId)) {
+  const approved = (await connectedCloverMerchantIds().catch(() => [] as string[])).includes(merchantId) || (Boolean(opts.tokenMerchant) && Boolean(cloverTokenFor(merchantId)));
+  if (!approved) {
     return { ok: false, reason: 'not_approved', error: 'This Clover merchant is not approved yet: nothing is sent to its register.', steps };
   }
   if (!(await takeSlot(merchantId, nowMs))) {
@@ -82,7 +97,7 @@ export async function sendCloverTestOrder(merchantId: string, nowMs = Date.now()
   const injected = await injectOrder(order, merchantId, { orderTypeId });
   if (!injected.ok) {
     steps.push({ key: 'created', ok: false, detail: { fr: `Clover a refusé la commande : ${injected.error}`, en: `Clover refused the order: ${injected.error}` } });
-    await logActivity({ actor: 'Clover', source: 'platform', kind: 'settings', action: 'clover_test_order', status: 'failed', summary: `Test order not created in Clover for merchant ${merchantId}: ${injected.error}` });
+    await logActivity({ actor: opts.actor || 'Clover', source: opts.actor ? 'dashboard' : 'platform', kind: 'settings', action: 'clover_test_order', status: 'failed', summary: `Test order not created in Clover for merchant ${merchantId}: ${injected.error}` });
     return { ok: false, reason: 'clover_refused', error: injected.error, steps };
   }
   const posOrderId = injected.posOrderId;
@@ -96,19 +111,21 @@ export async function sendCloverTestOrder(merchantId: string, nowMs = Date.now()
   steps.push({ key: 'printed', ok: printed.ok, detail: printed.ok ? { fr: 'Envoyé à l’imprimante de cuisine Clover', en: printed.message } : { fr: `Clover : ${printed.message}`, en: `Clover: ${printed.message}` } });
 
   // Pay exactly what Clover computed (its own tax rates apply), so the order closes as PAID.
-  const tenderId = await cloverTenderFor(merchantId, CHANNEL);
+  const tender = await cloverTenderFor(merchantId, CHANNEL);
   const total = await cloverOrderTotalCents(merchantId, posOrderId);
-  if (!tenderId) steps.push({ key: 'paid', ok: false, detail: { fr: `Le mode de paiement « ${label} » n’a pas pu être trouvé ni créé (permission Paiements en écriture).`, en: `The “${label}” tender could not be found or created (Payments write permission).` } });
+  if (!tender.id) steps.push({ key: 'paid', ok: false, detail: { fr: `Le mode de paiement « ${label} » n’a pas pu être trouvé ni créé dans Clover : ${tender.error}`, en: `The “${label}” tender could not be found or created in Clover: ${tender.error}` } });
   else if (!total) steps.push({ key: 'paid', ok: false, detail: { fr: 'Clover n’a pas renvoyé le total de la commande.', en: 'Clover did not return the order total.' } });
   else {
     const subtotalCents = Math.round(order.subtotal * 100);
-    const paid = await postCloverPayment(merchantId, posOrderId, { amount: total, taxAmount: Math.max(0, total - subtotalCents), tenderId, externalPaymentId: `foodhub-test-${order.displayId}` });
+    const paid = await postCloverPayment(merchantId, posOrderId, { amount: total, taxAmount: Math.max(0, total - subtotalCents), tenderId: tender.id, externalPaymentId: `foodhub-test-${order.displayId}` });
     const amount = (total / 100).toFixed(2);
     steps.push({ key: 'paid', ok: paid.ok, detail: paid.ok
       ? { fr: `${amount.replace('.', ',')} $ ${order.currency}, taxes de Clover comprises — mode « ${label} »`, en: `${amount} ${order.currency}, Clover’s taxes included — tender “${label}”` }
       : both(paid.error) });
   }
-  await logActivity({ actor: 'Clover', source: 'platform', kind: 'settings', action: 'clover_test_order', status: steps.every((s) => s.ok) ? 'success' : 'failed',
-    summary: `Test order ${order.displayId} sent to Clover merchant ${merchantId}: ${steps.map((s) => `${s.key} ${s.ok ? 'ok' : 'failed'}`).join(', ')}.` });
+  const allOk = steps.every((s) => s.ok);
+  if (allOk) await getRepo().setKv(LAST_OK_KEY, { merchantId, posOrderId, at: new Date(nowMs).toISOString() } satisfies LastTestOrder).catch(() => undefined);
+  await logActivity({ actor: opts.actor || 'Clover', source: opts.actor ? 'dashboard' : 'platform', kind: 'settings', action: 'clover_test_order', status: allOk ? 'success' : 'failed',
+    summary: `Test order ${order.displayId} sent to Clover merchant ${merchantId}: ${steps.map((s) => `${s.key} ${s.ok ? 'ok' : `failed (${s.detail.en})`}`).join(', ')}.` });
   return { ok: true, posOrderId, steps };
 }

@@ -37,6 +37,21 @@ describe('Food Hub live release verification (no network)', () => {
     expect(report.checks).toHaveLength(5);
   });
 
+  it('fails closed when the expected revision is missing, before any HTTP request', async () => {
+    let networkCalls = 0;
+    const fetchImpl = async () => {
+      networkCalls += 1;
+      throw new Error('No request should happen');
+    };
+    await expect(verifyLiveDeployment({
+      url: 'https://foodhub.on2go.ca/', fetchImpl,
+    })).rejects.toThrow(/Expected SHA is required/);
+    await expect(verifyLiveDeployment({
+      url: 'https://foodhub.on2go.ca/', sha: '', fetchImpl,
+    })).rejects.toThrow(/Expected SHA is required/);
+    expect(networkCalls).toBe(0);
+  });
+
   it('fails when a different commit is deployed', async () => {
     await expect(verifyLiveDeployment({
       url: 'https://foodhub.on2go.ca/',
@@ -55,7 +70,7 @@ describe('Food Hub live release verification (no network)', () => {
 
   it('rejects failed health, broken directory or missing CORS', async () => {
     const params = { url: 'https://foodhub.on2go.ca/', sha: SHA };
-    await expect(verifyLiveDeployment({ ...params, fetchImpl: mockFetch({ healthStatus: 503 }) })).rejects.toThrow(/api\/health/);
+    await expect(verifyLiveDeployment({ ...params, fetchImpl: mockFetch({ healthStatus: 503, database: 'down' }) })).rejects.toThrow(/api\/health returned HTTP 503, expected 200 \(database=down\)/);
     await expect(verifyLiveDeployment({ ...params, fetchImpl: mockFetch({ publicStatus: 503 }) })).rejects.toThrow(/api\/public\/directory/);
     await expect(verifyLiveDeployment({ ...params, fetchImpl: mockFetch({ cors: false }) })).rejects.toThrow(/ON2GO origin/);
   });

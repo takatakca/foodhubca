@@ -71,6 +71,8 @@ its sign-in loses orders without anyone noticing.
 | Where | Name | Meaning |
 |---|---|---|
 | Food Hub | `FOODHUB_SCREENS_AGENT_TOKEN` | Shared secret of the relay agents (24+ characters). Off until set. |
+| Food Hub | `FOODHUB_SCREENS_VIEW_HOSTS` | Recommended: the relay host name(s), e.g. `ecrans.on2go.ca`. Once set, a screen can only show that host (https), so nobody can put a look-alike sign-in page on the wall. Empty = any https address. |
+| Food Hub | `FOODHUB_SCREEN_START_DOORDASH` / `_UBEREATS` / `_SKIP` | The page each channel opens (its sign-in page while signed out). Defaults built in; only the platforms' own https sites are accepted. |
 | Relay host `.env` | `FOODHUB_URL` | Food Hub address. |
 | Relay host `.env` | `FOODHUB_SCREENS_AGENT_TOKEN` | Same value as on Food Hub. |
 | Relay host `.env` | `SCREENS_VIEW_USER` / `SCREENS_VIEW_PASSWORD` | Sign-in of the relay host's web view (not a platform password). |

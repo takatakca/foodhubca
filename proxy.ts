@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { basicOwner, clientIp, DEVICE_COOKIE, ownerSessionVersion, readCookie, sessionSecretSource, verifyDevice, verifySession } from './lib/foodhub/session';
+import { framePolicyFor } from './lib/foodhub/frame-policy';
 import { HUB_HOME, isIndexablePath, isPublicSitePath, PUBLIC_LANG_HEADER, PUBLIC_PAGE_CACHE, publicHomeEnabled, publicSiteLang } from './lib/foodhub/public-site';
 
 // Sign-in gate for the whole console and its APIs.
@@ -39,6 +40,9 @@ const PUBLIC_PATHS = new Set([
 export async function proxy(req: NextRequest) {
   const res = await gate(req);
   if (!isIndexablePath(req.nextUrl.pathname)) res.headers.set('X-Robots-Tag', 'noindex');
+  // Anti-clickjacking: the console and its sign-in pages only inside Food Hub itself or Clover (lib/foodhub/frame-policy.ts).
+  const frame = framePolicyFor(req.nextUrl.pathname);
+  if (frame && !res.headers.has('Content-Security-Policy')) res.headers.set('Content-Security-Policy', frame);
   return res;
 }
 

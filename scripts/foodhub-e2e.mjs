@@ -1871,6 +1871,9 @@ try {
     const got = await call('GET', '/api/foodhub/screens/layout');
     check('wall layout shared with every device', put.status === 200 && got.json?.wall?.view === '24' && got.json.wall.order[0] === 's04', got.text.slice(0, 200));
     check('sharing a layout needs a sign-in', (await call('PUT', '/api/foodhub/screens/layout', { auth: false, body: { wall: {} } })).status === 401);
+    const csp = async (path) => (await fetch(`${APP}${path}`, { headers: { authorization: basic }, redirect: 'manual' })).headers.get('content-security-policy') || '';
+    check('anti-clickjacking: console pages and sign-in can only be framed by Food Hub and Clover', /frame-ancestors 'self' https:\/\/\*\.clover\.com/.test(await csp('/stores/screens')) && /frame-ancestors/.test(await csp('/login')), await csp('/stores/screens'));
+    check('the storefront keeps its own framing rules (embeddable on brand sites)', !/frame-ancestors 'self' https:\/\/\*\.clover/.test(await csp('/commander/')));
   }
 
   await sleep(300);

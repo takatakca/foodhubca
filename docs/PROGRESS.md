@@ -3,6 +3,7 @@
 ## 2026-10-29 — Order screens rescue, lane A: one device rings for every platform screen (`claude/busy-cannon-5spy86`)
 
 - Problem: DoorDash / Uber Eats tablets drop their Wi-Fi or sign-in; the platforms pause, then deactivate the stores. Plan and lanes: `docs/ORDER_SCREENS_RESCUE.md` (lane A Food Hub side, lane B relay kit by a second agent, lane C the owner's portal steps; agents coordinate on board #105).
+- **Screens wall** (Stores → Platform screens): 1, 2, 4, 8, 12 or 16 screens at a time (pages beyond), tabs, or a custom board (drag anywhere, resize from the corner, arrow keys); drag a title bar onto another to swap; double-click to make big; full screen; saved per device (`lib/ui/screens-layout.ts`). **Set up screens** creates `s01`… (so many DoorDash / Uber Eats / Skip), each sent to its platform's sign-in page by the new `open` command (allowed hosts only); switching a tile's channel does the same. Orders → Clover strip above the wall.
 - Stores → Platform screens → **Ring on this device**: the screens wall rings while orders wait on any online screen and when a screen drops, stays awake, refreshes every 10 s (`lib/ui/screens-ring.ts`).
 - Watchtower **`screen_waiting`**: orders unanswered on a screen past the "order waiting" delay during opening hours → critical incident (beep → SMS → call → owner).
 - Heartbeat v2 (`mode` web|android, `app`, `waiting`), `waitingSince`, store numbers per screen with protected stores (Po Poulet NDG 27982486) marked "never act". Tests: `tests/platform-screens.test.ts`.

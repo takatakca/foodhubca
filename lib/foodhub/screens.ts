@@ -71,7 +71,8 @@ export function screenStartUrl(platform: ScreenPlatform, env: Record<string, str
 
 /** Numbered screens made by "Set up screens": ids s01, s02… so the relay host's list uses the same ids (no copying). */
 export const SLOT_ID = /^s\d{2}$/;
-export const MAX_SLOTS = 32;
+/** s01 … s99: e.g. 18 DoorDash + 18 Uber Eats + 18 Skip = 54 accounts, each its own screen and its own sign-in. */
+export const MAX_SLOTS = 99;
 export const slotId = (n: number) => `s${String(n).padStart(2, '0')}`;
 
 export interface PlatformScreen {
@@ -249,7 +250,7 @@ export type SetupCounts = Partial<Record<Exclude<ScreenPlatform, 'other'>, numbe
  * Each one's view address is <base>/sNN/ on the relay host, and each opens its platform's sign-in page. Existing ids are
  * kept as they are (run it again to add more).
  */
-export async function setupScreens(input: { baseUrl?: unknown; locationCode: string; counts?: SetupCounts }, actor: Actor): Promise<{ created: PlatformScreen[]; kept: string[] } | { error: string }> {
+export async function setupScreens(input: { baseUrl?: unknown; locationCode: string; counts?: SetupCounts; start?: unknown }, actor: Actor): Promise<{ created: PlatformScreen[]; kept: string[] } | { error: string }> {
   const base = checkViewUrl(input.baseUrl);
   if ('error' in base) return base;
   const plan: ScreenPlatform[] = [];
@@ -259,17 +260,22 @@ export async function setupScreens(input: { baseUrl?: unknown; locationCode: str
     for (let i = 0; i < n; i++) plan.push(p);
   }
   if (!plan.length) return { error: 'Choisissez au moins un écran. / Choose at least one screen.' };
-  if (plan.length > MAX_SLOTS) return { error: `${MAX_SLOTS} écrans au plus. / ${MAX_SLOTS} screens at most.` };
+  // "Start at" lets the screens be split over several relay hosts (e.g. s01–s27 on one, s28–s54 on another).
+  const start = input.start === undefined || input.start === null || input.start === '' ? 1 : Math.floor(Number(input.start));
+  if (!Number.isFinite(start) || start < 1 || start > MAX_SLOTS) return { error: `Numéro de départ entre 1 et ${MAX_SLOTS}. / Start number between 1 and ${MAX_SLOTS}.` };
+  if (start - 1 + plan.length > MAX_SLOTS) return { error: `${MAX_SLOTS} écrans au plus (s01 à s${MAX_SLOTS}). / ${MAX_SLOTS} screens at most (s01 to s${MAX_SLOTS}).` };
   const root = base.url.endsWith('/') ? base.url : `${base.url}/`;
   const created: PlatformScreen[] = [];
   const kept: string[] = [];
+  // Names keep counting across runs: a second host's DoorDash screens follow the first host's (DoorDash 19, 20…).
   const perPlatform: Partial<Record<ScreenPlatform, number>> = {};
+  for (const x of await listScreens()) perPlatform[x.platform] = (perPlatform[x.platform] ?? 0) + 1;
   const now = new Date().toISOString();
   for (let i = 0; i < plan.length; i++) {
-    const id = slotId(i + 1);
+    const id = slotId(start + i);
     const platform = plan[i];
-    perPlatform[platform] = (perPlatform[platform] ?? 0) + 1;
     if (await getScreen(id)) { kept.push(id); continue; }
+    perPlatform[platform] = (perPlatform[platform] ?? 0) + 1;
     const url = screenStartUrl(platform);
     const screen: PlatformScreen = {
       id, name: `${SCREEN_PLATFORM_LABEL[platform]} ${perPlatform[platform]}`, platform, locationCode: input.locationCode, viewUrl: new URL(`${id}/`, root).toString(),
@@ -320,7 +326,7 @@ const reportSchema = z.object({
 });
 export const heartbeatSchema = z.object({
   version: z.string().max(40).optional().nullable(),
-  screens: z.array(reportSchema).max(50),
+  screens: z.array(reportSchema).max(MAX_SLOTS),
 });
 export type Heartbeat = z.infer<typeof heartbeatSchema>;
 

@@ -47,7 +47,7 @@ describe('validateScreens', () => {
     expect(errs([{ id: 'a-1', platform: 'uber', name: 'A', colour: 'red' }])).toMatch(/unknown field/);
     expect(errs([])).toMatch(/empty/);
     expect('errors' in validateScreens('nope')).toBe(true);
-    expect('errors' in validateScreens({ screens: Array.from({ length: 51 }, (_, i) => ({ id: `s-${i}`, platform: 'uber', name: `S ${i}` })) })).toBe(true);
+    expect('errors' in validateScreens({ screens: Array.from({ length: 100 }, (_, i) => ({ id: `s-${i}`, platform: 'uber', name: `S ${i}` })) })).toBe(true);
   });
 });
 

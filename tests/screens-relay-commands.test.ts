@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 // @ts-expect-error plain ESM module without types
 import { ALLOWED_HOSTS, ORDER_APPS, allowedUrl, commandsFor, packageForUrl } from '../deploy/screens/agent/commands.mjs';
 // @ts-expect-error plain ESM module without types
-import { buildCompose, envTemplate, generate, PLATFORMS, validateScreens } from '../deploy/screens/generate-lib.mjs';
+import { buildCompose, envTemplate, generate, pickRange, PLATFORMS, validateScreens } from '../deploy/screens/generate-lib.mjs';
 import { allowedScreenUrl, SCREEN_ALLOWED_HOSTS, screenStartUrl } from '../lib/foodhub/screens';
 
 describe('open command: the agents accept exactly what Food Hub sends', () => {
@@ -71,5 +71,31 @@ describe('Food Hub\'s 18 numbered screens on the relay host', () => {
     expect(r.yaml).toContain('s01 = DoorDash "DoorDash 1" (web) → Food Hub screen s01');
     expect(r.yaml).toContain('SCREEN_ID: s01');
     expect(r.yaml).toContain('SCREEN_ID: "${SCREEN_ID_UBER_EXTRA}"');
+  });
+});
+
+describe('54 screens over one or several relay hosts', () => {
+  const list54 = JSON.parse(readFileSync(path.join(__dirname, '../deploy/screens/screens.54.example.json'), 'utf8'));
+
+  it('the 54-screen list is valid: 18 per channel, ids s01–s54, ports keep the screen number', () => {
+    const v = validateScreens(list54);
+    expect(v.errors).toBeUndefined();
+    expect(v.screens).toHaveLength(54);
+    for (const p of ['doordash', 'uber', 'skip']) expect(v.screens.filter((s: { platform: string }) => s.platform === p)).toHaveLength(18);
+    const doc = buildCompose(v.screens);
+    expect(doc.services.s54.ports).toEqual(['127.0.0.1:3154:3001']);
+    expect(doc.services.gateway.environment.SCREENS.split(',')).toHaveLength(54);
+  });
+
+  it('--only gives one host its share, with the same ports and ids', () => {
+    const share = pickRange(list54, 's19-s36');
+    const v = validateScreens(share);
+    expect(v.screens.map((s: { id: string }) => s.id)).toEqual(Array.from({ length: 18 }, (_, i) => `s${i + 19}`));
+    const doc = buildCompose(v.screens);
+    expect(doc.services.s19.ports).toEqual(['127.0.0.1:3119:3001']);
+    expect(doc.services['s19-agent'].environment.SCREEN_ID).toBe('s19');
+    expect(pickRange(list54, '')).toBe(list54);
+    expect(pickRange(list54, 's36-s19')).toBeNull();
+    expect(pickRange(list54, 'all')).toBeNull();
   });
 });

@@ -3,3 +3,5 @@ profiles/
 screens.json
 adbkey
 adbkey.pub
+.env.*
+!.env.example

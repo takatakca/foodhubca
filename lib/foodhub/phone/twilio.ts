@@ -47,9 +47,9 @@ export function candidateUrls(reqUrl: string, headers?: Headers): string[] {
   return [...out];
 }
 
-export function verifyTwilio(headers: Headers, reqUrl: string, params: URLSearchParams): boolean {
+export function verifyTwilio(headers: Headers, reqUrl: string, params: URLSearchParams, authToken?: string): boolean {
   try {
-    const token = process.env.TWILIO_AUTH_TOKEN?.trim();
+    const token = (authToken ?? process.env.TWILIO_AUTH_TOKEN)?.trim();
     const got = headers.get('x-twilio-signature');
     if (!token || !got) return false;
     return candidateUrls(reqUrl, headers).some((url) => safeEqual(signatureFor(url, params, token), got));

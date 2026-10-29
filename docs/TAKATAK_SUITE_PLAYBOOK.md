@@ -18,7 +18,7 @@ was one shared premium layer, the same in every app. It is now built:
 | Menus with sub-menus | Every app has the same side menu: its own screens (with sub-menus) · TAKATAK Suite · My account · Help |
 | Account → bank, profile, authorized actions | My account → Profile · Plan and billing · Authorized actions · Devices · Payments and deposits · Security and data · Activity log |
 | Secured | Clover roles checked by the server for each sensitive action, an activity log, sealed tokens, hashed device keys, no bank or card number anywhere |
-| Tested | 30 kit and app tests in each app (the kit's own checks included), plus a browser walk-through of every screen against a fake Clover (§ 7) |
+| Tested | 31 to 32 tests in each app (the kit's own checks included), plus a browser walk-through of every screen against a fake Clover (§ 7) |
 
 ## 2. How it is built (one picture)
 
@@ -117,7 +117,8 @@ listed; roadmap lines start with "Bientôt / Coming". Today most Premium and VIP
 
 - Each app: `npm run typecheck`, `npm test` (kit tests: roles, authorized actions, refusals and the activity log, device
   keys acting as employees, unconfirmed roles, lock-out protection, export scrubbing, directory announce/read/cache,
-  form result templates, the app's sections/actions/plans wiring; plus the app's own tests), `npm run build`.
+  form result templates, Food Hub outage handling, the app's sections/actions/plans wiring; plus the app's own tests),
+  `npm run build`, and `npm audit --omit=dev` (no high or critical finding).
 - A browser walk-through (Playwright) of every screen of C4ISSE against a fake Clover and a fake Food Hub: all screens
   200 with no browser error, desktop and phone, a real form round trip (device key shown once → activity log). This
   found and fixed a bug from 2026-10-28: forms that formatted their own answer crashed the page on the server.

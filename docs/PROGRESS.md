@@ -5,6 +5,7 @@
 - Food Hub keeps the suite directory (`lib/foodhub/suite/directory.ts`): each app announces `<app>.installed` (with its https address) or `<app>.uninstalled` per Clover merchant through `/api/suite/v1/events`; any connected app reads `GET /api/suite/v1/directory?merchant=` (signed) for its Suite page and app switcher. Settings → Connected apps shows how many restaurants have each app.
 - The nine app repos (PR #1 each) got the same premium frame: side menu with sub-menus, My account (Profile, Plan and billing, Authorized actions, Devices, Payments and deposits, Security and data, Activity log), TAKATAK Suite page, Help; Clover roles in the session, authorized actions checked on the server with an activity log; a crash in yesterday's forms fixed (found by a browser walk-through).
 - Review of the whole suite and what to simplify next: `docs/TAKATAK_SUITE_PLAYBOOK.md`. Tests: `tests/takatak-suite.test.ts` (directory).
+- Security: CI's production audit started failing on new advisories (next 16.0.0–16.4.0 critical RCE, zod < 4.6.6 high), on `main` too. Upgraded next / eslint-config-next to 16.4.3 and zod to 4.6.7; `npm audit --omit=dev --audit-level=high` passes (2 moderate nodemailer findings left: the only fix is a forced `mailparser` major change, owner decision).
 
 ## 2026-10-28 — TAKATAK Suite: Food Hub side of the nine Clover apps (`claude/busy-cannon-5spy86`)
 

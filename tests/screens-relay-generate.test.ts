@@ -55,15 +55,16 @@ describe('buildCompose', () => {
   const screens = (validateScreens(example()) as { screens: any[] }).screens;
   const doc = buildCompose(screens);
 
-  it('creates one browser + one agent per screen, agents sharing the browser network', () => {
-    expect(Object.keys(doc.services)).toEqual(['uber-1', 'uber-1-agent', 'doordash-1', 'doordash-1-agent', 'skip-1', 'skip-1-agent', 'doordash-2', 'doordash-2-agent']);
+  it('creates one browser + one agent per screen, agents sharing the browser network, and one gateway for the web screens', () => {
+    expect(Object.keys(doc.services)).toEqual(['uber-1', 'uber-1-agent', 'doordash-1', 'doordash-1-agent', 'skip-1', 'skip-1-agent', 'doordash-2', 'doordash-2-agent', 'gateway']);
+    expect(doc.services.gateway.environment).toMatchObject({ SCREENS: 'uber-1,doordash-1,skip-1', FOODHUB_ORIGIN: '${FOODHUB_ORIGIN}' });
     expect(doc.counts).toEqual({ web: 3, android: 1 });
     for (const name of ['uber-1', 'doordash-1', 'skip-1', 'doordash-2']) expect(doc.services[`${name}-agent`].network_mode).toBe(`service:${name}`);
   });
 
   it('gives every screen a unique host port and a unique profile folder', () => {
     const ports = Object.values(doc.services).flatMap((s: any) => s.ports ?? []);
-    expect(ports).toEqual(['127.0.0.1:3101:3001', '127.0.0.1:3102:3001', '127.0.0.1:3103:3001', '127.0.0.1:6081:8554']);
+    expect(ports).toEqual(['127.0.0.1:3101:3001', '127.0.0.1:3102:3001', '127.0.0.1:3103:3001', '127.0.0.1:6081:8554', '127.0.0.1:3100:8080']);
     const volumes = Object.values(doc.services).flatMap((s: any) => s.volumes ?? []);
     expect(new Set(volumes).size).toBe(volumes.length);
     expect(ports.every((p: string) => p.startsWith('127.0.0.1:'))).toBe(true); // never exposed directly

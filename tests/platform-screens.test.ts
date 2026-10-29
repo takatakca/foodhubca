@@ -171,9 +171,11 @@ describe('stores shown by a screen', () => {
 });
 
 describe('Watchtower: orders waiting on a screen (screen_waiting)', () => {
-  async function waitingFor(sec: number, opts: { hours?: boolean; count?: number } = {}) {
+  // A location closed every day (an empty day = closed), so the test never depends on the time it runs at.
+  const closedWeek = () => Object.fromEntries(Object.keys(allDayWeek()).map((d) => [d, []])) as unknown as ReturnType<typeof allDayWeek>;
+  async function waitingFor(sec: number, opts: { closed?: boolean; count?: number } = {}) {
     (globalThis as any).__foodhubMem = undefined;
-    if (opts.hours !== false) await saveHours({ locations: { NDG_6284: allDayWeek() }, brands: {}, holidays: [] });
+    await saveHours({ locations: { NDG_6284: opts.closed ? closedWeek() : allDayWeek() }, brands: {}, holidays: [] });
     const s = await addScreen({ name: 'DoorDash NDG', platform: 'doordash', locationCode: 'NDG_6284', viewUrl: 'https://screens.example.ca/dd-1/' }, ACTOR);
     if ('error' in s) throw new Error(s.error);
     const now = Date.now();
@@ -194,7 +196,7 @@ describe('Watchtower: orders waiting on a screen (screen_waiting)', () => {
   it('a short wait, no waiting order, or a closed location → no incident', async () => {
     expect(await waitingFor(20)).toHaveLength(0);
     expect(await waitingFor(600, { count: 0 })).toHaveLength(0);
-    expect(await waitingFor(600, { hours: false })).toHaveLength(0);
+    expect(await waitingFor(600, { closed: true })).toHaveLength(0);
   });
 });
 

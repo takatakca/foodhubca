@@ -79,6 +79,22 @@ POST /api/foodhub/screens/heartbeat        Authorization: Bearer <FOODHUB_SCREEN
 - `reload` for Android = bring the order app back to the front (`monkey -p <package> 1`). Nothing else is ever tapped.
 - Fields not in v1 are optional, so a v1 agent keeps working.
 
+### v2.1 (owner's ask 2026-10-29 04:20: "18 screens side by side, choose DoorDash / Uber Eats / Skip, ready to sign in")
+
+- **Numbered screens.** Food Hub → Stores → Platform screens → **Set up screens** creates screens with fixed ids
+  `s01`, `s02`… `s18` (up to 32) for one location, with so many DoorDash, Uber Eats and Skip. Each one's view address is
+  `<base>/sNN/` (e.g. `https://screens.example.ca/s01/`). The relay host uses the same ids: `SCREEN_ID=s01`…, local
+  port `31NN` (s01 → 127.0.0.1:3101 … s18 → 3118), reverse-proxy path `/sNN/` → that port. Nobody copies ids by hand.
+- **Command `open`.** `commands: [{ "id": "s03", "kind": "open", "url": "https://order.doordash.com/" }]`. Sent when the
+  owner sets up a screen or switches its channel, or taps "Sign-in page". The agent goes to `url` **only** if it is
+  https on `doordash.com`, `ubereats.com`, `uber.com` or `skipthedishes.com` (or a sub-domain); otherwise it ignores it.
+  Android: `open` launches the app of that platform. A screen starts empty (about:blank) until its first `open`.
+- **Start pages** (Food Hub sends them; override with `FOODHUB_SCREEN_START_DOORDASH|UBEREATS|SKIP`):
+  DoorDash `https://order.doordash.com/` · Uber Eats `https://merchants.ubereats.com/manager/orders` ·
+  Skip `https://restaurants.skipthedishes.com/` (to confirm with the owner's Skip account).
+- **One relay host for 18 screens:** about 0.5–0.8 GB RAM per Chromium screen → 8 vCPU / 16 GB for 18 (lane B states
+  the real numbers it measures).
+
 ## How agents talk (so one can stop and the other continues)
 
 All of it goes on the agent board #105, one line per comment, in its format:

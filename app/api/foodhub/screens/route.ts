@@ -1,15 +1,16 @@
 import { inScope, withPerm } from '@/lib/foodhub/auth';
 import { getCatalog } from '@/lib/foodhub/catalog';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
-import { addScreen, agentToken, listScreens, protectedStoreIds, screenStatus } from '@/lib/foodhub/screens';
+import { addScreen, agentToken, listScreens, orderPaths, protectedStoreIds, screenStatus } from '@/lib/foodhub/screens';
 
 export const dynamic = 'force-dynamic';
 
 // Platform screens (Uber Eats / DoorDash order screens on the relay host): list with live status, add one.
+// `orderPaths`: how each platform's orders reach Food Hub and Clover (the screens never carry orders themselves).
 export const GET = withPerm('view', async (_req, _ctx, actor) => {
   const now = Date.now();
   const screens = (await listScreens()).filter((s) => inScope(actor, s.locationCode)).map((s) => ({ ...s, status: screenStatus(s, now), protectedStoreIds: protectedStoreIds(s) }));
-  return ok({ screens, agentConfigured: !!agentToken() });
+  return ok({ screens, agentConfigured: !!agentToken(), orderPaths: await orderPaths() });
 });
 
 // { name, platform, locationCode, viewUrl, storeIds? }

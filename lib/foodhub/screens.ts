@@ -15,6 +15,10 @@ import { z } from 'zod';
 import { logActivity, type Actor } from './activity';
 import { isProtectedDoorDashId } from './doordash/guard';
 import { FORBIDDEN_STORE_IDS } from './public-directory';
+import { getAdapter } from './adapters';
+import { lastOrderTimes } from './order-retry';
+import { cloverReadiness } from './pos/clover';
+import type { ChannelKey } from './types';
 import { getRepo } from './repo';
 import { safeEqual } from './session';
 
@@ -36,7 +40,38 @@ export type ScreenState = (typeof SCREEN_STATES)[number];
 export const SCREEN_MODES = ['web', 'android'] as const;
 export type ScreenMode = (typeof SCREEN_MODES)[number];
 
-export interface ScreenCommand { kind: 'reload'; at: string; by: string }
+/** reload = reload the page (Android: bring the order app back); open = go to the platform's start page (`url`). */
+export interface ScreenCommand { kind: 'reload' | 'open'; url?: string; at: string; by: string }
+
+/** Each platform's merchant page a screen opens on (its sign-in page while signed out). Override per environment. */
+const DEFAULT_START: Record<ScreenPlatform, string | null> = {
+  doordash: 'https://order.doordash.com/',
+  ubereats: 'https://merchants.ubereats.com/manager/orders',
+  skip: 'https://restaurants.skipthedishes.com/',
+  other: null,
+};
+const START_ENV: Record<ScreenPlatform, string> = {
+  doordash: 'FOODHUB_SCREEN_START_DOORDASH', ubereats: 'FOODHUB_SCREEN_START_UBEREATS', skip: 'FOODHUB_SCREEN_START_SKIP', other: 'FOODHUB_SCREEN_START_OTHER',
+};
+/** A screen is only ever sent to the platforms' own sites (the relay agent checks the same list). */
+export const SCREEN_ALLOWED_HOSTS = ['doordash.com', 'ubereats.com', 'uber.com', 'skipthedishes.com'] as const;
+
+export function allowedScreenUrl(raw: string | null | undefined): boolean {
+  try {
+    const u = new URL(String(raw ?? ''));
+    return u.protocol === 'https:' && !u.username && !u.password && SCREEN_ALLOWED_HOSTS.some((h) => u.hostname === h || u.hostname.endsWith(`.${h}`));
+  } catch { return false; }
+}
+
+export function screenStartUrl(platform: ScreenPlatform, env: Record<string, string | undefined> = process.env): string | null {
+  const v = env[START_ENV[platform]]?.trim() || DEFAULT_START[platform];
+  return v && allowedScreenUrl(v) ? v : null;
+}
+
+/** Numbered screens made by "Set up screens": ids s01, s02… so the relay host's list uses the same ids (no copying). */
+export const SLOT_ID = /^s\d{2}$/;
+export const MAX_SLOTS = 32;
+export const slotId = (n: number) => `s${String(n).padStart(2, '0')}`;
 
 export interface PlatformScreen {
   id: string;
@@ -150,6 +185,9 @@ export async function updateScreen(id: string, patch: { name?: unknown; platform
   if (patch.platform !== undefined) {
     const p = asPlatform(patch.platform);
     if (!p) return { error: 'Choisissez la plateforme. / Choose the platform.' };
+    // A new channel: the relay host opens that platform's page (its sign-in page) on the next heartbeat.
+    const url = p !== s.platform ? screenStartUrl(p) : null;
+    if (url) next.command = { kind: 'open', url, at: new Date().toISOString(), by: actor.name };
     next.platform = p;
   }
   if (patch.name !== undefined) next.name = cleanName(patch.name, next.platform);
@@ -175,6 +213,59 @@ export async function removeScreen(id: string, actor: Actor): Promise<boolean> {
   await getRepo().deleteDocs(SCREENS, [id]);
   await logActivity({ actor: actor.name, source: actor.source, kind: 'device', action: 'screen_removed', status: 'success', locationCode: s.locationCode, summary: `Platform screen "${s.name}" removed` });
   return true;
+}
+
+/** "Go to the sign-in page" from the console: the agent opens the platform's start page on its next heartbeat. */
+export async function requestOpen(id: string, actor: Actor): Promise<PlatformScreen | { error: string } | null> {
+  const s = await getScreen(id);
+  if (!s) return null;
+  const url = screenStartUrl(s.platform);
+  if (!url) return { error: 'Aucune page de départ pour cette plateforme. / No start page for this platform.' };
+  const next = { ...s, command: { kind: 'open' as const, url, at: new Date().toISOString(), by: actor.name } };
+  await save(next);
+  await logActivity({ actor: actor.name, source: actor.source, kind: 'device', action: 'screen_open', status: 'queued', locationCode: s.locationCode, summary: `Start page asked for platform screen "${s.name}"` });
+  return next;
+}
+
+export type SetupCounts = Partial<Record<Exclude<ScreenPlatform, 'other'>, number>>;
+
+/**
+ * "Set up screens": numbered screens s01, s02… for one location, so many DoorDash, so many Uber Eats, so many Skip.
+ * Each one's view address is <base>/sNN/ on the relay host, and each opens its platform's sign-in page. Existing ids are
+ * kept as they are (run it again to add more).
+ */
+export async function setupScreens(input: { baseUrl?: unknown; locationCode: string; counts?: SetupCounts }, actor: Actor): Promise<{ created: PlatformScreen[]; kept: string[] } | { error: string }> {
+  const base = checkViewUrl(input.baseUrl);
+  if ('error' in base) return base;
+  const plan: ScreenPlatform[] = [];
+  for (const p of ['doordash', 'ubereats', 'skip'] as const) {
+    const n = Math.floor(Number(input.counts?.[p] ?? 0));
+    if (!Number.isFinite(n) || n < 0) return { error: 'Nombre d’écrans invalide. / Invalid number of screens.' };
+    for (let i = 0; i < n; i++) plan.push(p);
+  }
+  if (!plan.length) return { error: 'Choisissez au moins un écran. / Choose at least one screen.' };
+  if (plan.length > MAX_SLOTS) return { error: `${MAX_SLOTS} écrans au plus. / ${MAX_SLOTS} screens at most.` };
+  const root = base.url.endsWith('/') ? base.url : `${base.url}/`;
+  const created: PlatformScreen[] = [];
+  const kept: string[] = [];
+  const perPlatform: Partial<Record<ScreenPlatform, number>> = {};
+  const now = new Date().toISOString();
+  for (let i = 0; i < plan.length; i++) {
+    const id = slotId(i + 1);
+    const platform = plan[i];
+    perPlatform[platform] = (perPlatform[platform] ?? 0) + 1;
+    if (await getScreen(id)) { kept.push(id); continue; }
+    const url = screenStartUrl(platform);
+    const screen: PlatformScreen = {
+      id, name: `${SCREEN_PLATFORM_LABEL[platform]} ${perPlatform[platform]}`, platform, locationCode: input.locationCode, viewUrl: new URL(`${id}/`, root).toString(),
+      createdBy: actor.name, createdAt: now, lastSeenAt: null, state: null, storeIds: [],
+      command: url ? { kind: 'open', url, at: now, by: actor.name } : null,
+    };
+    await save(screen);
+    created.push(screen);
+  }
+  if (created.length) await logActivity({ actor: actor.name, source: actor.source, kind: 'device', action: 'screens_setup', status: 'success', locationCode: input.locationCode, summary: `${created.length} platform screen(s) set up (${created.map((x) => x.id).join(', ')})` });
+  return { created, kept };
 }
 
 /** "Reload" from the console: the agent picks it up on its next heartbeat (≤ 20 s). */
@@ -238,15 +329,18 @@ export function nextWaitingSince(prev: Pick<PlatformScreen, 'titleCount' | 'wait
 }
 
 /** Save each screen's report and hand back the commands waiting for it (each command is given once). */
-export async function recordHeartbeat(hb: Heartbeat, now = new Date()): Promise<{ commands: Array<{ id: string; kind: ScreenCommand['kind'] }>; unknown: string[] }> {
-  const commands: Array<{ id: string; kind: ScreenCommand['kind'] }> = [];
+export type AgentCommand = { id: string; kind: ScreenCommand['kind']; url?: string };
+
+export async function recordHeartbeat(hb: Heartbeat, now = new Date()): Promise<{ commands: AgentCommand[]; unknown: string[] }> {
+  const commands: AgentCommand[] = [];
   const unknown: string[] = [];
   for (const r of hb.screens) {
     const s = await getScreen(r.id);
     if (!s) { unknown.push(r.id); continue; }
     const title = r.title ? r.title.slice(0, 120) : null;
     const wasLogin = s.state === 'login';
-    if (s.command) commands.push({ id: s.id, kind: s.command.kind });
+    if (s.command?.kind === 'open' && allowedScreenUrl(s.command.url)) commands.push({ id: s.id, kind: 'open', url: s.command.url });
+    else if (s.command?.kind === 'reload') commands.push({ id: s.id, kind: 'reload' });
     const mode: ScreenMode = r.mode ?? 'web';
     const count = titleCount(title) ?? r.waiting ?? null;
     await save({
@@ -259,4 +353,27 @@ export async function recordHeartbeat(hb: Heartbeat, now = new Date()): Promise<
     }
   }
   return { commands, unknown };
+}
+
+// ---- How each platform's orders reach Food Hub and Clover (shown above the screens wall) ----
+
+const CHANNEL_OF: Record<Exclude<ScreenPlatform, 'other'>, ChannelKey> = { doordash: 'doordash', ubereats: 'uber_eats', skip: 'skip' };
+
+export interface OrderPath {
+  platform: ScreenPlatform;
+  /** via_clover = the platform's own Clover link, Food Hub reads the orders from Clover; direct = Food Hub's own
+   *  connection sends them to Clover; none = only the screen (the tablet's printer or a person enters them). */
+  mode: 'via_clover' | 'direct' | 'none';
+  /** Food Hub can write orders into Clover (merchant token or the Clover app). */
+  cloverReady: boolean;
+  lastOrderAt: string | null;
+}
+
+export async function orderPaths(): Promise<OrderPath[]> {
+  const last = await lastOrderTimes().catch(() => ({} as Partial<Record<ChannelKey, string>>));
+  const clover = cloverReadiness().configured;
+  return (Object.keys(CHANNEL_OF) as Array<keyof typeof CHANNEL_OF>).map((p) => {
+    const r = getAdapter(CHANNEL_OF[p]).readiness();
+    return { platform: p, mode: r.viaClover ? 'via_clover' : r.configured ? 'direct' : 'none', cloverReady: clover, lastOrderAt: last[CHANNEL_OF[p]] ?? null };
+  });
 }

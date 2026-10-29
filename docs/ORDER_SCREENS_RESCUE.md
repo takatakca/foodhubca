@@ -89,3 +89,51 @@ All of it goes on the agent board #105, one line per comment, in its format:
   commit. Post `TAKEOVER lane X from <agent>`, then continue from its next step on its branch (merge, never
   force-push).
 - **Need something from the other lane:** post `ASK lane X: …`. Never edit its files to unblock yourself.
+
+## Prompt for the second agent (the owner pastes it into a new Claude Code session)
+
+```text
+You join the TAKATAK Food Hub "order screens rescue" as LANE B (relay host side). Another Claude Code session
+("busy-cannon", lane A, Food Hub side) is working at the same time. Stay strictly in your lane.
+
+0. READ FIRST, do nothing else before:
+   - foodhubca CLAUDE.md and AGENTS.md (main belongs to the owner, checks before every push, public repo).
+   - git fetch origin, then: git show origin/claude/busy-cannon-5spy86:docs/ORDER_SCREENS_RESCUE.md
+     (the plan, the lanes, the heartbeat v2 contract, the hand-off rules).
+   - The latest comments of the agent board https://github.com/takatakca/foodhubca/issues/105
+   - docs/PLATFORM_SCREENS.md and everything in deploy/screens/ (what already exists).
+1. CLAIM on #105 (one line): CLAIM | agent: <your name> @ <where you run> | foodhubca · <branch> → PR | order screens
+   lane B | next: <step>. If lane B was claimed or updated by someone else in the last 60 min, do not take it: post ASK.
+2. BRANCH: the branch your session was given; if none:
+   git worktree add .claude/worktrees/screens-relay-kit -b feature/screens-relay-kit origin/main
+   Never commit to main, never merge into main, never force-push, never rebase pushed commits.
+3. YOUR FILES ONLY: deploy/screens/**, docs/PLATFORM_SCREENS_RELAY.md, and new test files tests/screens-relay-*.test.ts.
+   Everything else (lib/, app/, other tests/, docs/PLATFORM_SCREENS.md, docs/ORDER_SCREENS_RESCUE.md, WORKLOG.md,
+   docs/PROGRESS.md) belongs to lane A: post "ASK lane A: …" on #105 instead of editing.
+4. TASKS, in order:
+   B1 generator: one list (deploy/screens/screens.example.json: id, platform, name, start URL, mode web|android)
+      → a compose file for N screens (Chromium + agent per web screen, unique ports, persistent profiles). Refuse any
+      list entry that carries a user name, password or token. Pure functions, tested.
+   B2 Android mode: optional compose profile (needs a Linux host with KVM or binder): an Android container with the
+      Play Store and a web view of its screen; agent/android.mjs speaks heartbeat v2 exactly as in the plan (mode
+      "android", app = package in front, waiting = count of the order app's notifications, never their text); "reload"
+      only brings the order app back to the front. The owner installs the apps from the Play Store and signs in himself.
+   B3 in-store Windows PC kit (PowerShell): one Chrome profile per screen with its debugging port, starts at sign-in,
+      a watchdog that restarts a closed window, and agent.mjs per screen with Node 22.
+   B4 owner guide docs/PLATFORM_SCREENS_RELAY.md: plain words, French first, 30 minutes, step by step.
+5. NEVER: type, store, paste or ask for any password, SMS or 2FA code (the owner signs in inside each screen himself);
+   click, accept, read or copy orders on any platform screen, or change its settings; open the DoorDash, Uber, Clover,
+   Coolify or Gmail accounts (operations are the owner's); touch Po Poulet NDG (DoorDash store 27982486); name another
+   platform in a platform message; commit keys, tokens, .env values, emails, phone numbers or store lists.
+6. CHECKS before every push: npm run typecheck, npm run lint (0 errors), npm test; node --check on every .mjs you add;
+   docker compose -f <generated file> config when Docker exists.
+7. NOTES so nobody loses work: post UPDATE on #105 every ~20 minutes, at every push and before any long step
+   (branch, SHA, checks, exact next step). Before stopping for any reason (credit, usage limit, done): commit and push
+   (WIP is fine), then PAUSED or DONE on #105 with the exact next step. When something changes for the owner, add a
+   new dated note in Google Drive folder "00 — Opérations TAKATAK" (never edit another agent's note).
+8. TAKEOVER: if lane A's last line on #105 is more than 60 minutes old and its branch has no newer commit, you may
+   continue lane A: post TAKEOVER first, then work on its branch from its next step (merges only).
+9. FINISH: open a PR to main "feat(screens): relay kit — N screens, Android mode, in-store PC" (what changed, checks,
+   owner steps), post DONE on #105, and report to the owner: branch, SHA, checks, owner steps,
+   "ready for owner review/merge".
+```

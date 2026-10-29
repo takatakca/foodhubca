@@ -5,6 +5,7 @@
 //   - Never signs in: when the platform shows its sign-in page, it reports "login" and the owner signs in in the screen.
 // Settings (environment): see docs/PLATFORM_SCREENS.md.
 import { chromium } from 'playwright-core';
+import { commandsFor } from './commands.mjs';
 
 const env = (k, d = '') => (process.env[k] ?? d).trim();
 const FOODHUB_URL = env('FOODHUB_URL').replace(/\/+$/, '');
@@ -73,7 +74,14 @@ async function tick() {
     const body = await res.json().catch(() => ({}));
     if (!res.ok) { console.error(`Food Hub answered ${res.status}: ${body.error ?? ''}`); return; }
     if (body.unknown?.includes(SCREEN_ID)) console.error(`Food Hub does not know screen ${SCREEN_ID}: add it in Stores → Platform screens.`);
-    for (const c of body.commands ?? []) if (c.id === SCREEN_ID && c.kind === 'reload' && r.p) await r.p.reload({ timeout: 30_000 }).catch(() => {});
+    // reload, or open a platform's page (its sign-in page): the only two things Food Hub can ask. Nothing is clicked.
+    for (const c of commandsFor(body, SCREEN_ID)) {
+      if (c.kind === 'refused') { console.error(c.reason); continue; }
+      const p = r.p ?? (await page().catch(() => null));
+      if (!p) continue;
+      if (c.kind === 'reload') await p.reload({ timeout: 30_000 }).catch(() => {});
+      else await p.goto(c.url, { timeout: 30_000 }).catch((e) => console.error('open failed:', e instanceof Error ? e.message : e));
+    }
   } catch (e) {
     console.error('heartbeat failed:', e instanceof Error ? e.message : e);
   }

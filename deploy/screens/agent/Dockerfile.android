@@ -2,6 +2,6 @@
 FROM node:22-alpine
 RUN apk add --no-cache android-tools
 WORKDIR /agent
-COPY android-lib.mjs android.mjs ./
+COPY android-lib.mjs android.mjs commands.mjs ./
 USER node
 CMD ["node", "android.mjs"]

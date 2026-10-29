@@ -2,7 +2,8 @@
 // installed from the Play Store and signed in by the owner) through adb, and every 20 s tells Food Hub whether the
 // app is in front, signed in, and how many of its notifications are waiting (a count, never their text).
 //   - Reads only: device state, the package in front, the number of the app's notifications.
-//   - Never taps, never types, never reads an order. "Reload" from Food Hub only brings the app back to the front.
+//   - Never taps, never types, never reads an order. "Reload" from Food Hub only brings the app back to the front;
+//     "open" (a platform's address, when the owner switches the screen's channel) launches that platform's order app.
 //   - Never signs in: when the app's sign-in screen is in front, it reports "login" and the owner signs in.
 // Settings (environment): FOODHUB_URL, FOODHUB_SCREENS_AGENT_TOKEN, SCREEN_ID, ANDROID_PACKAGE, ADB_HOST (127.0.0.1),
 // ADB_PORT (5555), HEARTBEAT_SECONDS (20). Contract: docs/ORDER_SCREENS_RESCUE.md (heartbeat v2).
@@ -11,6 +12,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { ADB_COMMANDS, decideReport, deviceOnline, parseCount, parseFrontActivity } from './android-lib.mjs';
+import { commandsFor, packageForUrl } from './commands.mjs';
 
 const run = promisify(execFile);
 
@@ -37,7 +39,8 @@ const env = (k, d = '') => (process.env[k] ?? d).trim();
 const FOODHUB_URL = env('FOODHUB_URL').replace(/\/+$/, '');
 const TOKEN = env('FOODHUB_SCREENS_AGENT_TOKEN');
 const SCREEN_ID = env('SCREEN_ID');
-const PACKAGE = env('ANDROID_PACKAGE');
+// The order app this screen watches; an "open" from Food Hub (channel switched) moves it to that platform's app.
+let PACKAGE = env('ANDROID_PACKAGE');
 const ADB_HOST = env('ADB_HOST', '127.0.0.1');
 const ADB_PORT = env('ADB_PORT', '5555');
 const EVERY_MS = Math.max(10, Number(env('HEARTBEAT_SECONDS', '20')) || 20) * 1000;
@@ -106,7 +109,16 @@ async function check() {
     const body = await res.json().catch(() => ({}));
     if (!res.ok) { console.error(`Food Hub answered ${res.status}: ${body.error ?? ''}`); return; }
     if (body.unknown?.includes(SCREEN_ID)) console.error(`Food Hub does not know screen ${SCREEN_ID}: add it in Stores → Platform screens.`);
-    for (const c of body.commands ?? []) if (c.id === SCREEN_ID && c.kind === 'reload') await toFront();
+    for (const c of commandsFor(body, SCREEN_ID)) {
+      if (c.kind === 'refused') { console.error(c.reason); continue; }
+      if (c.kind === 'open') {
+        const pkg = packageForUrl(c.url);
+        if (!pkg) { console.error('open: no order app for', c.url); continue; }
+        if (pkg !== PACKAGE) console.log(`Channel switched: ${PACKAGE} → ${pkg}`);
+        PACKAGE = pkg;
+      }
+      await toFront();
+    }
   } catch (e) {
     console.error('heartbeat failed:', e instanceof Error ? e.message : e);
   }

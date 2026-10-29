@@ -1,5 +1,43 @@
 # Food Hub: progress log and task board
 
+## 2026-10-29 (22 h) — Registre de tout le travail + ordres permanents du propriétaire (`claude/busy-cannon-5spy86`)
+
+- `docs/REGISTRE_TAKATAK.md` : les dépôts publics `takatakca`, l'historique complet (PR fusionnées, signatures) de ceux
+  qui sont lisibles ici depuis leur premier commit, ce que la session busy-cannon a fait et comment, et les PR encore
+  ouvertes avec quoi en faire. La version complète (dépôts privés compris) est seulement dans Google Drive
+  « 00 — Opérations TAKATAK ».
+- `CLAUDE.md` + gabarit de PR : ordres du propriétaire du 2026-10-29 (notes instantanées signées, travail toujours
+  poussé, chaque agent fusionne sa PR quand les vérifications sont vertes, Copilot quand il aide, notes GitHub + Drive).
+- Fusionnées après une fusion à blanc testée (typecheck, 1663 tests, build, verify 578/0) : #106, #52, #48, #45.
+
+— signé : Claude (busy-cannon, Claude Code cloud) · 2026-10-29 22:55
+
+## 2026-10-29 — Order screens rescue, lane A: one device rings for every platform screen (`claude/busy-cannon-5spy86`)
+
+- Problem: DoorDash / Uber Eats tablets drop their Wi-Fi or sign-in; the platforms pause, then deactivate the stores. Plan and lanes: `docs/ORDER_SCREENS_RESCUE.md` (lane A Food Hub side, lane B relay kit by a second agent, lane C the owner's portal steps; agents coordinate on board #105).
+- **Screens wall** (Stores → Platform screens): 1, 2, 4, 8, 12 or 16 screens at a time (pages beyond), tabs, or a custom board (drag anywhere, resize from the corner, arrow keys); drag a title bar onto another to swap; double-click to make big; full screen; saved per device (`lib/ui/screens-layout.ts`). **Set up screens** creates `s01`… (so many DoorDash / Uber Eats / Skip), each sent to its platform's sign-in page by the new `open` command (allowed hosts only); switching a tile's channel does the same. Orders → Clover strip above the wall.
+- Stores → Platform screens → **Ring on this device**: the screens wall rings while orders wait on any online screen and when a screen drops, stays awake, refreshes every 10 s (`lib/ui/screens-ring.ts`).
+- Watchtower **`screen_waiting`**: orders unanswered on a screen past the "order waiting" delay during opening hours → critical incident (beep → SMS → call → owner).
+- Heartbeat v2 (`mode` web|android, `app`, `waiting`), `waitingSince`, store numbers per screen with protected stores (Po Poulet NDG 27982486) marked "never act". Tests: `tests/platform-screens.test.ts`.
+
+## 2026-10-29 — TAKATAK Suite premium: directory, one frame for the nine apps (`claude/busy-cannon-5spy86`)
+
+- Food Hub keeps the suite directory (`lib/foodhub/suite/directory.ts`): each app announces `<app>.installed` (with its https address) or `<app>.uninstalled` per Clover merchant through `/api/suite/v1/events`; any connected app reads `GET /api/suite/v1/directory?merchant=` (signed) for its Suite page and app switcher. Settings → Connected apps shows how many restaurants have each app.
+- The nine app repos (PR #1 each) got the same premium frame: side menu with sub-menus, My account (Profile, Plan and billing, Authorized actions, Devices, Payments and deposits, Security and data, Activity log), TAKATAK Suite page, Help; Clover roles in the session, authorized actions checked on the server with an activity log; a crash in yesterday's forms fixed (found by a browser walk-through).
+- Review of the whole suite and what to simplify next: `docs/TAKATAK_SUITE_PLAYBOOK.md`. Tests: `tests/takatak-suite.test.ts` (directory).
+- Security: CI's production audit started failing on new advisories (next 16.0.0–16.4.0 critical RCE, zod < 4.6.6 high), on `main` too. Upgraded next / eslint-config-next to 16.4.3 and zod to 4.6.7; `npm audit --omit=dev --audit-level=high` passes (2 moderate nodemailer findings left: the only fix is a forced `mailparser` major change, owner decision).
+
+## 2026-10-28 — TAKATAK Suite: Food Hub side of the nine Clover apps (`claude/busy-cannon-5spy86`)
+
+- The nine Clover App Market repos with a "4" (C4ISSE, T4CTILE, 4CCOUNTING, TR4CKER, ST4FF, M4RKETING, LOY4LTY, REW4RD, CH4T) exist but are empty. Contract for building them as one SaaS of independent apps: `docs/TAKATAK_SUITE.md`.
+- Food Hub side built: `lib/foodhub/suite/*` (registry from `FOODHUB_SUITE_<APP>_URL` / `_SECRET`, HMAC signatures both ways, order change watch → outbox → signed delivery with backoff, app → app events), routes `/api/suite/v1/{ping,orders,events}` (public in proxy, signed per app), Settings → Connected apps. Reads orders only; no customer name/phone/email/address leaves Food Hub; optional one-way `customerKey` (`FOODHUB_SUITE_CUSTOMER_SALT`). Off until an app is connected.
+- Tests `tests/takatak-suite.test.ts`.
+
+## 2026-10-28 — Platform screens: Uber Eats / DoorDash order screens inside Food Hub (`claude/busy-cannon-5spy86`)
+
+- Stores → « Écrans des plateformes / Platform screens »: each platform account runs in an always-on Chromium on a screen relay host (`deploy/screens/`), shown live in Food Hub with status, waiting count from the page title, Reload and full screen. The owner signs in once inside each screen; Food Hub never stores or types a platform password.
+- Relay agent heartbeat `POST /api/foodhub/screens/heartbeat` (public, Bearer `FOODHUB_SCREENS_AGENT_TOKEN`, off until set); blank / crashed pages reloaded by the agent; Watchtower rule `screen_down` (offline, signed out or crashed during opening hours). The agent never clicks or reads orders (platform terms): orders keep entering through the integrations and the Order Relay.
+- Guide `docs/PLATFORM_SCREENS.md`; tests `tests/platform-screens.test.ts`.
 ## 2026-10-22 — Premium console: A1 Home / Orders / Alerts (`feature/premium-a1-home-orders`, stacked on A4 #88)
 
 - Scope A1 of the console audit: Home (`app/(console)/overview.tsx`), Orders (board, history, drawer, incoming and
@@ -41,6 +79,10 @@
   verify:foodhub 567/0 on 5111/5112. Before/after screens (Po Poulet masked) in `docs/ux/premium-a4/`.
 - Brought up to main b40e446 (#43, #50, #51, #54, #72, #86, #89): only this file conflicted (both entries kept). No
   other file is changed on both sides; main's new sign-in page (#86) picks up the shell's 16 px large fields and buttons.
+- Brought up to main 47cf850 on 2026-10-29 (screens wall, suite, delivery fixes, registry): `app/globals.css` (both
+  reduced-motion blocks and the kitchen 48 px touch rule kept) and this file conflicted; nothing else. — signé : Claude
+  (busy-cannon, Claude Code cloud) · 2026-10-29 23:58
+
 
 ## 2026-10-21 — Simpler sign-in page + « Continuer avec Google » (`feature/login-google-signin`)
 
@@ -255,6 +297,11 @@ Branche `fix/overlay-keyboard-focus-20261016` : focus initial, Tab/Shift+Tab cir
   Hub is never a test store (even if listed; the screen warns). The Reporting API is refused with the sandbox key unless
   DOORDASH_REPORTS_* is set. A `_sandbox` DOORDASH_PROVIDER_TYPE alone no longer turns the mode on (warning only).
   Docs step 6: delete the Sandbox subscriptions first, keep DOORDASH_SANDBOX_STORE_IDS and the sandbox secret.
+
+## 2026-10-16 — Kitchen UI accessibility and reconciliation
+
+PR #52 (`fix/console-kitchen-a11y`): kitchen tokens on document root and first paint, reduced motion, 48px controls, PIN shake, bilingual loading/error, regression tests. Manually reconciled feature branch with `main` `444e8f2e` to retain merged Clover test-order PR #53 and all its unrelated code. GitHub CI/image pending on latest PR branch, no production rollout/connector toggles. Merge remains owner-only.
+
 
 ## 2026-10-15 — Owner-authorized automatic production activation
 

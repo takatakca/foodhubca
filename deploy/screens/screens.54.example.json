@@ -1,0 +1,329 @@
+{
+  "$comment": "54 accounts, one screen each (Stores → Platform screens → Set up screens: 18 DoorDash, 18 Uber Eats, 18 Skip). Each screen signs in with its OWN account: you type that account's email and password inside the screen, once; nothing here holds a password. One big host (16 vCPU / 64 GB) runs all 54: node generate.mjs screens.json. Three hosts of 18 (8 vCPU / 16-24 GB each): node generate.mjs screens.json --only s01-s18 on the first, s19-s36 on the second, s37-s54 on the third. Guide: docs/PLATFORM_SCREENS_RELAY.md.",
+  "screens": [
+    {
+      "id": "s01",
+      "platform": "doordash",
+      "name": "DoorDash 1",
+      "mode": "web"
+    },
+    {
+      "id": "s02",
+      "platform": "doordash",
+      "name": "DoorDash 2",
+      "mode": "web"
+    },
+    {
+      "id": "s03",
+      "platform": "doordash",
+      "name": "DoorDash 3",
+      "mode": "web"
+    },
+    {
+      "id": "s04",
+      "platform": "doordash",
+      "name": "DoorDash 4",
+      "mode": "web"
+    },
+    {
+      "id": "s05",
+      "platform": "doordash",
+      "name": "DoorDash 5",
+      "mode": "web"
+    },
+    {
+      "id": "s06",
+      "platform": "doordash",
+      "name": "DoorDash 6",
+      "mode": "web"
+    },
+    {
+      "id": "s07",
+      "platform": "doordash",
+      "name": "DoorDash 7",
+      "mode": "web"
+    },
+    {
+      "id": "s08",
+      "platform": "doordash",
+      "name": "DoorDash 8",
+      "mode": "web"
+    },
+    {
+      "id": "s09",
+      "platform": "doordash",
+      "name": "DoorDash 9",
+      "mode": "web"
+    },
+    {
+      "id": "s10",
+      "platform": "doordash",
+      "name": "DoorDash 10",
+      "mode": "web"
+    },
+    {
+      "id": "s11",
+      "platform": "doordash",
+      "name": "DoorDash 11",
+      "mode": "web"
+    },
+    {
+      "id": "s12",
+      "platform": "doordash",
+      "name": "DoorDash 12",
+      "mode": "web"
+    },
+    {
+      "id": "s13",
+      "platform": "doordash",
+      "name": "DoorDash 13",
+      "mode": "web"
+    },
+    {
+      "id": "s14",
+      "platform": "doordash",
+      "name": "DoorDash 14",
+      "mode": "web"
+    },
+    {
+      "id": "s15",
+      "platform": "doordash",
+      "name": "DoorDash 15",
+      "mode": "web"
+    },
+    {
+      "id": "s16",
+      "platform": "doordash",
+      "name": "DoorDash 16",
+      "mode": "web"
+    },
+    {
+      "id": "s17",
+      "platform": "doordash",
+      "name": "DoorDash 17",
+      "mode": "web"
+    },
+    {
+      "id": "s18",
+      "platform": "doordash",
+      "name": "DoorDash 18",
+      "mode": "web"
+    },
+    {
+      "id": "s19",
+      "platform": "uber",
+      "name": "Uber Eats 1",
+      "mode": "web"
+    },
+    {
+      "id": "s20",
+      "platform": "uber",
+      "name": "Uber Eats 2",
+      "mode": "web"
+    },
+    {
+      "id": "s21",
+      "platform": "uber",
+      "name": "Uber Eats 3",
+      "mode": "web"
+    },
+    {
+      "id": "s22",
+      "platform": "uber",
+      "name": "Uber Eats 4",
+      "mode": "web"
+    },
+    {
+      "id": "s23",
+      "platform": "uber",
+      "name": "Uber Eats 5",
+      "mode": "web"
+    },
+    {
+      "id": "s24",
+      "platform": "uber",
+      "name": "Uber Eats 6",
+      "mode": "web"
+    },
+    {
+      "id": "s25",
+      "platform": "uber",
+      "name": "Uber Eats 7",
+      "mode": "web"
+    },
+    {
+      "id": "s26",
+      "platform": "uber",
+      "name": "Uber Eats 8",
+      "mode": "web"
+    },
+    {
+      "id": "s27",
+      "platform": "uber",
+      "name": "Uber Eats 9",
+      "mode": "web"
+    },
+    {
+      "id": "s28",
+      "platform": "uber",
+      "name": "Uber Eats 10",
+      "mode": "web"
+    },
+    {
+      "id": "s29",
+      "platform": "uber",
+      "name": "Uber Eats 11",
+      "mode": "web"
+    },
+    {
+      "id": "s30",
+      "platform": "uber",
+      "name": "Uber Eats 12",
+      "mode": "web"
+    },
+    {
+      "id": "s31",
+      "platform": "uber",
+      "name": "Uber Eats 13",
+      "mode": "web"
+    },
+    {
+      "id": "s32",
+      "platform": "uber",
+      "name": "Uber Eats 14",
+      "mode": "web"
+    },
+    {
+      "id": "s33",
+      "platform": "uber",
+      "name": "Uber Eats 15",
+      "mode": "web"
+    },
+    {
+      "id": "s34",
+      "platform": "uber",
+      "name": "Uber Eats 16",
+      "mode": "web"
+    },
+    {
+      "id": "s35",
+      "platform": "uber",
+      "name": "Uber Eats 17",
+      "mode": "web"
+    },
+    {
+      "id": "s36",
+      "platform": "uber",
+      "name": "Uber Eats 18",
+      "mode": "web"
+    },
+    {
+      "id": "s37",
+      "platform": "skip",
+      "name": "Skip 1",
+      "mode": "web"
+    },
+    {
+      "id": "s38",
+      "platform": "skip",
+      "name": "Skip 2",
+      "mode": "web"
+    },
+    {
+      "id": "s39",
+      "platform": "skip",
+      "name": "Skip 3",
+      "mode": "web"
+    },
+    {
+      "id": "s40",
+      "platform": "skip",
+      "name": "Skip 4",
+      "mode": "web"
+    },
+    {
+      "id": "s41",
+      "platform": "skip",
+      "name": "Skip 5",
+      "mode": "web"
+    },
+    {
+      "id": "s42",
+      "platform": "skip",
+      "name": "Skip 6",
+      "mode": "web"
+    },
+    {
+      "id": "s43",
+      "platform": "skip",
+      "name": "Skip 7",
+      "mode": "web"
+    },
+    {
+      "id": "s44",
+      "platform": "skip",
+      "name": "Skip 8",
+      "mode": "web"
+    },
+    {
+      "id": "s45",
+      "platform": "skip",
+      "name": "Skip 9",
+      "mode": "web"
+    },
+    {
+      "id": "s46",
+      "platform": "skip",
+      "name": "Skip 10",
+      "mode": "web"
+    },
+    {
+      "id": "s47",
+      "platform": "skip",
+      "name": "Skip 11",
+      "mode": "web"
+    },
+    {
+      "id": "s48",
+      "platform": "skip",
+      "name": "Skip 12",
+      "mode": "web"
+    },
+    {
+      "id": "s49",
+      "platform": "skip",
+      "name": "Skip 13",
+      "mode": "web"
+    },
+    {
+      "id": "s50",
+      "platform": "skip",
+      "name": "Skip 14",
+      "mode": "web"
+    },
+    {
+      "id": "s51",
+      "platform": "skip",
+      "name": "Skip 15",
+      "mode": "web"
+    },
+    {
+      "id": "s52",
+      "platform": "skip",
+      "name": "Skip 16",
+      "mode": "web"
+    },
+    {
+      "id": "s53",
+      "platform": "skip",
+      "name": "Skip 17",
+      "mode": "web"
+    },
+    {
+      "id": "s54",
+      "platform": "skip",
+      "name": "Skip 18",
+      "mode": "web"
+    }
+  ]
+}

@@ -6,6 +6,7 @@ import { I18nProvider } from '@/lib/i18n/client';
 import { getLang } from '@/lib/i18n/server';
 import { productInfo } from '@/lib/foodhub/product';
 import { DISPLAY_BOOT_SCRIPT } from '@/lib/ui/display';
+import { RouteTheme } from '@/components/ui/route-theme';
 
 export const viewport: Viewport = { themeColor: '#060D1F', width: 'device-width', initialScale: 1, viewportFit: 'cover' };
 
@@ -29,6 +30,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: DISPLAY_BOOT_SCRIPT }} />
       </head>
       <body>
+        <RouteTheme />
         <I18nProvider lang={lang} product={productInfo()}>{children}</I18nProvider>
       </body>
     </html>

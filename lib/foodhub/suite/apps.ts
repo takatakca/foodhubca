@@ -22,17 +22,18 @@ export interface SuiteAppDef {
   events: SuiteEventType[];
 }
 
-// Purposes are read from the app names (owner to confirm, docs/TAKATAK_SUITE.md § 3).
+// Purposes and Clover App IDs from each repo's README (agent "Clover code", 2026-10-28); see docs/TAKATAK_SUITE.md § 3.
+// Each app receives Food Hub events at <its APP_BASE_URL>/api/suite/events.
 export const SUITE_APPS: SuiteAppDef[] = [
-  { key: 'c4isse', repo: 'C4ISSE', name: 'C4ISSE', fr: 'Caisse : tiroir-caisse, fonds de caisse, fermeture du jour', en: 'Cash: drawer, float, end-of-day close', events: ['order.created', 'order.status_changed'] },
-  { key: 't4ctile', repo: 'T4CTILE', name: 'T4CTILE', fr: 'Borne tactile de commande en magasin', en: 'In-store self-order touch kiosk', events: ['order.status_changed'] },
-  { key: '4ccounting', repo: '4CCOUNTING', name: '4CCOUNTING', fr: 'Comptabilité : ventes, taxes, exports', en: 'Accounting: sales, taxes, exports', events: ['order.created', 'order.status_changed'] },
-  { key: 'tr4cker', repo: 'TR4CKER', name: 'TR4CKER', fr: 'Suivi de commande et de livraison pour le client', en: 'Order and delivery tracking for the customer', events: ['order.created', 'order.status_changed'] },
-  { key: 'st4ff', repo: 'ST4FF', name: 'ST4FF', fr: 'Personnel : horaires, pointage, main-d’œuvre', en: 'Staff: schedules, time clock, labour', events: ['order.created'] },
-  { key: 'm4rketing', repo: 'M4RKETING', name: 'M4RKETING', fr: 'Marketing : campagnes, promotions', en: 'Marketing: campaigns, promotions', events: ['order.created', 'app.event'] },
-  { key: 'loy4lty', repo: 'LOY4LTY', name: 'LOY4LTY', fr: 'Fidélité : points par commande', en: 'Loyalty: points per order', events: ['order.status_changed', 'app.event'] },
-  { key: 'rew4rd', repo: 'REW4RD', name: 'REW4RD', fr: 'Récompenses : catalogue et échanges', en: 'Rewards: catalogue and redemptions', events: ['app.event'] },
-  { key: 'ch4t', repo: 'CH4T', name: 'CH4T', fr: 'Messages clients : clavardage, texto', en: 'Customer messages: chat, text', events: ['order.status_changed', 'app.event'] },
+  { key: 'c4isse', repo: 'C4ISSE', name: 'C4ISSE', fr: 'Caisse au comptoir, tiroir et fermeture de journée, caisse-photo', en: 'Counter register, cash drawer and end-of-day close, picture register', events: ['order.created', 'order.status_changed'] },
+  { key: 't4ctile', repo: 'T4CTILE', name: 'T4CTILE', fr: 'Borne libre-service et commande tactile', en: 'Self-service kiosk and touch ordering', events: ['order.status_changed'] },
+  { key: '4ccounting', repo: '4CCOUNTING', name: '4CCOUNTING', fr: 'Comptabilité : ventes, TPS/TVQ, pourboires, exports', en: 'Accounting: sales, GST/QST, tips, exports', events: ['order.created', 'order.status_changed'] },
+  { key: 'tr4cker', repo: 'TR4CKER', name: 'TR4CKER', fr: 'Suivi en direct de nos propres livraisons', en: 'Live tracking of our own deliveries', events: ['order.created', 'order.status_changed'] },
+  { key: 'st4ff', repo: 'ST4FF', name: 'ST4FF', fr: 'Personnel : heures, quarts, coût de main-d’œuvre', en: 'Staff: hours, shifts, labour cost', events: ['order.created'] },
+  { key: 'm4rketing', repo: 'M4RKETING', name: 'M4RKETING', fr: 'Marketing : segments, rabais, campagnes', en: 'Marketing: segments, discounts, campaigns', events: ['order.created', 'app.event'] },
+  { key: 'loy4lty', repo: 'LOY4LTY', name: 'LOY4LTY', fr: 'Fidélité par téléphone', en: 'Loyalty by phone number', events: ['order.status_changed', 'app.event'] },
+  { key: 'rew4rd', repo: 'REW4RD', name: 'REW4RDS', fr: 'Cartes-cadeaux', en: 'Gift cards', events: ['app.event'] },
+  { key: 'ch4t', repo: 'CH4T', name: 'CH4T', fr: 'Soutien client (aucun envoi pour l’instant)', en: 'Customer support (no sending yet)', events: ['order.status_changed', 'app.event'] },
 ];
 
 /** Shorter secrets are refused: the secret is the only lock on the app's calls. */

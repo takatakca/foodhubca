@@ -27,22 +27,30 @@ contract each of them is built against. Food Hub's side is built (lib/foodhub/su
 - Company-level accounts and agency billing stay in TAKATAK V1 (`docs/FOOD_ECOSYSTEM_MAP.md`). Each app's merchant
   subscription is billed by Clover, like Food Hub and TAKATAK Phone AI today. A bundle price is an owner decision.
 
-## 3. The nine apps (purposes read from the names: owner to confirm)
+## 3. The nine apps (built 2026-10-28, each in its own repo, PR #1 open)
 
-| Repo | Purpose | Already in Food Hub (reuse, don't rebuild) | Default events |
-|---|---|---|---|
-| **C4ISSE** | Cash: drawer, float, end-of-day close | Clover register; Food Hub Money (payout checks) | `order.created`, `order.status_changed` |
-| **T4CTILE** | In-store self-order touch kiosk | Storefront menu + checkout (`/commander/<slug>`), Order Relay | `order.status_changed` (show "ready" on the kiosk) |
-| **4CCOUNTING** | Accounting: sales, taxes, exports | Money section, finance exports; MEV receipts = QCMEV; B2B invoices = Facturations | `order.created`, `order.status_changed` |
-| **TR4CKER** | Order and delivery tracking for the customer | Tracking texts and courier pages (own fleet) | `order.created`, `order.status_changed` |
-| **ST4FF** | Staff: schedules, time clock, labour | Team, roles and kitchen PINs (Settings → Team) | `order.created` (orders per hour → labour %) |
-| **M4RKETING** | Campaigns, promotions | Platform promotions (Uber/DoorDash APIs), Reviews hub | `order.created`, `app.event` |
-| **LOY4LTY** | Points per order | — | `order.status_changed` (points when `completed`), `app.event` |
-| **REW4RD** | Rewards catalogue and redemptions | — | `app.event` (hears `loy4lty.*`) |
-| **CH4T** | Customer messages: chat, text | Messages, AI phone texts | `order.status_changed`, `app.event` |
+Each repo is a working Next.js 16 app on the same kit (Clover OAuth v2 with sealed tokens, webhooks, PostgreSQL,
+tiers from the Clover plan name, Food Hub link at `<APP_BASE_URL>/api/suite/events`, Dockerfile for Coolify).
+Owner steps for each: its `DEPLOY.md` § 5. Prices: Base 50 $ · Premium 100 $ · VIP 150 $ per month, billed by Clover.
 
-**To decide (owner):** LOY4LTY and REW4RD overlap (points vs redeeming them): two listings or one app? T4CTILE's
-orders: Clover or Order Relay? 4CCOUNTING must not issue Revenu Québec sales receipts (that is QCMEV's certified job).
+| Repo | Clover App ID | Purpose (from its README) | Built | PR |
+|---|---|---|---|---|
+| **C4ISSE** | `VDV7XAH5TPB78` | Register layer next to the Clover Register; Picture Register is its photo module (not a separate app) | menu + photos API, cart → Clover order, day report, cash drawer (VIP) | [C4ISSE#1](https://github.com/takatakca/C4ISSE/pull/1) |
+| **T4CTILE** | `SFH7X57N3B5FJ` | Touch ordering + self-service kiosk | web kiosk `/kiosk`, Clover order + kitchen print, ready screen from Food Hub | [T4CTILE#1](https://github.com/takatakca/T4CTILE/pull/1) |
+| **4CCOUNTING** | `VQTZE8C31D8MW` | Accounting: sales, GST/QST, tips, tenders | day books, GST/QST split, CSV, platform sales from Food Hub | [4CCOUNTING#1](https://github.com/takatakca/4CCOUNTING/pull/1) |
+| **TR4CKER** | `EB2EPCWEJBZ82` | Live tracking of our own deliveries, tip + review | courier / customer links, positions, review routing, Food Hub direct orders | [TR4CKER#1](https://github.com/takatakca/TR4CKER/pull/1) |
+| **ST4FF** | `E0BGTY752BZYE` | Schedules, time clock, labour cost | hours from Clover shifts, wages, labour %, planned shifts | [ST4FF#1](https://github.com/takatakca/ST4FF/pull/1) |
+| **M4RKETING** | `EQRZ028619JRW` | Promotions, customer segments, campaigns | segments, Clover discounts "M4 · …", approved campaigns, consent-only export | [M4RKETING#1](https://github.com/takatakca/M4RKETING/pull/1) |
+| **LOY4LTY** | `WX0Y6313JX1TY` | Loyalty by phone | points from confirmed Clover payments, redeem as order discount | [LOY4LTY#1](https://github.com/takatakca/LOY4LTY/pull/1) |
+| **REW4RDS** (repo REW4RD) | `239362NZSVFSC` | Gift cards | hashed codes, partial redemption, reloads, liability, Clover tender | [REW4RD#1](https://github.com/takatakca/REW4RD/pull/1) |
+| **CH4T** | `RGE4PFGC9SR7C` | Support; **no sending** until Pierre grants an exception | internal threads with Clover context, templates | [CH4T#1](https://github.com/takatakca/CH4T/pull/1) |
+
+Between the apps, the customer is recognised by phone inside one merchant: LOY4LTY and REW4RDS events carry
+`customerRef = sha256("<merchantId>:<phone>")`, never the phone. Food Hub's `customerKey` (platform orders) is a
+different, salted key: platform orders rarely have a real phone, so the two are not joined.
+
+What still needs native Android work (Android Studio, outside this container): C4ISSE's counter app and T4CTILE's
+on-device payment (Clover Payments API). Their server APIs are ready (device keys).
 
 ## 4. Connecting an app (server variables only, never in git)
 
@@ -55,6 +63,7 @@ orders: Clover or Order Relay? 4CCOUNTING must not issue Revenu Québec sales re
 | The app | `FOODHUB_URL` + the same secret | to verify events and to sign its calls |
 
 `<APP>` = `C4ISSE`, `T4CTILE`, `4CCOUNTING`, `TR4CKER`, `ST4FF`, `M4RKETING`, `LOY4LTY`, `REW4RD`, `CH4T`.
+The app's address for `FOODHUB_SUITE_<APP>_URL` is `https://<app host>/api/suite/events`.
 Without the two variables an app is simply not connected; nothing is sent and nothing changes in Food Hub.
 
 ## 5. Food Hub → app: events

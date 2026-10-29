@@ -7,10 +7,26 @@
 // Settings (environment): FOODHUB_URL, FOODHUB_SCREENS_AGENT_TOKEN, SCREEN_ID, ANDROID_PACKAGE, ADB_HOST (127.0.0.1),
 // ADB_PORT (5555), HEARTBEAT_SECONDS (20). Contract: docs/ORDER_SCREENS_RESCUE.md (heartbeat v2).
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import { promisify } from 'node:util';
 import { ADB_COMMANDS, countNotifications, decideReport, deviceOnline, parseFrontActivity } from './android-lib.mjs';
 
 const run = promisify(execFile);
+
+/** The adb client: ADB_PATH, else the first "adb" (or adb.exe / adb.cmd on Windows) found on PATH. */
+function findAdb() {
+  const given = (process.env.ADB_PATH ?? '').trim();
+  if (given) return given;
+  const names = process.platform === 'win32' ? ['adb.exe', 'adb.cmd', 'adb.bat', 'adb'] : ['adb'];
+  for (const dir of (process.env.PATH ?? '').split(path.delimiter).filter(Boolean)) {
+    for (const n of names) { const p = path.join(dir, n); if (existsSync(p)) return p; }
+  }
+  return 'adb';
+}
+const ADB = findAdb();
+// A .cmd/.bat shim can only run through the shell; a real binary never needs it.
+const ADB_OPTS = /\.(cmd|bat)$/i.test(ADB) ? { shell: true } : {};
 const env = (k, d = '') => (process.env[k] ?? d).trim();
 const FOODHUB_URL = env('FOODHUB_URL').replace(/\/+$/, '');
 const TOKEN = env('FOODHUB_SCREENS_AGENT_TOKEN');
@@ -32,12 +48,12 @@ let autoReloads = 0;
 let badChecks = 0;
 
 async function adb(args, timeout = 8000) {
-  const { stdout } = await run('adb', ['-s', target, ...args], { timeout, maxBuffer: 4 * 1024 * 1024 });
+  const { stdout } = await run(ADB, ['-s', target, ...args], { ...ADB_OPTS, timeout, maxBuffer: 4 * 1024 * 1024 });
   return stdout;
 }
 
 async function connect() {
-  try { await run('adb', ['connect', target], { timeout: 8000 }); } catch { /* reported as crashed below */ }
+  try { await run(ADB, ['connect', target], { ...ADB_OPTS, timeout: 8000 }); } catch { /* reported as crashed below */ }
 }
 
 async function inspect() {
@@ -80,7 +96,7 @@ async function tick() {
   }
 }
 
-console.log(`Screen agent ${VERSION} for ${SCREEN_ID} (${PACKAGE} on ${target}) → ${FOODHUB_URL} (every ${EVERY_MS / 1000} s)`);
+console.log(`Screen agent ${VERSION} for ${SCREEN_ID} (${PACKAGE} on ${target}, adb: ${ADB}) → ${FOODHUB_URL} (every ${EVERY_MS / 1000} s)`);
 await connect();
 await tick();
 setInterval(tick, EVERY_MS);

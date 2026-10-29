@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import {
   Bell, BellOff, Columns2, ExternalLink, Expand, GripVertical, LayoutGrid, LogIn, Maximize2, MonitorPlay, Move, Pencil, Plus, RefreshCw,
-  RotateCcw, ShieldAlert, Shrink, Smartphone, Square, Trash2, Wand2, X,
+  Download, RotateCcw, Share2, ShieldAlert, Shrink, Smartphone, Square, Trash2, Wand2, X,
 } from 'lucide-react';
 import { Badge, StatusDot } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -88,11 +88,15 @@ export default function PlatformScreensPage() {
   const canAct = can('orders:act');
 
   // This device's choices: ringing, view, order, custom board.
+  // A device with no layout of its own starts from the layout shared with every device (if one was shared).
   useEffect(() => {
+    let local: string | null = null;
     try {
       setRing(localStorage.getItem(RING_KEY) === '1');
-      setWall(parseWall(localStorage.getItem(WALL_KEY)));
+      local = localStorage.getItem(WALL_KEY);
     } catch { /* private mode: defaults */ }
+    if (local) setWall(parseWall(local));
+    else api<{ wall: WallState | null }>('/api/foodhub/screens/layout').then((d) => { if (d.wall) setWall(parseWall(JSON.stringify(d.wall))); }).catch(() => undefined);
     restored.current = true;
   }, []);
   useEffect(() => { ringRef.current = ring; }, [ring]);
@@ -142,6 +146,19 @@ export default function PlatformScreensPage() {
     if (next) { unlockAudio(); playSound('soft'); }
     setRing(next);
     try { localStorage.setItem(RING_KEY, next ? '1' : '0'); } catch { /* private mode */ }
+  }
+  async function shareLayout() {
+    try {
+      await api('/api/foodhub/screens/layout', { method: 'PUT', body: JSON.stringify({ wall }) });
+      toast.success(t('Disposition partagée', 'Layout shared'), t('Les appareils sans disposition à eux partent de celle-ci ; les autres peuvent la reprendre.', 'Devices without a layout of their own start from it; the others can take it.'));
+    } catch (e) { fail(e); }
+  }
+  async function useSharedLayout() {
+    try {
+      const d = await api<{ wall: WallState | null }>('/api/foodhub/screens/layout');
+      if (d.wall) { setWall(parseWall(JSON.stringify(d.wall))); toast.success(t('Disposition partagée reprise', 'Shared layout applied')); }
+      else toast.error(t('Aucune disposition partagée pour l’instant.', 'No shared layout yet.'));
+    } catch (e) { fail(e); }
   }
   function toggleFull() {
     if (document.fullscreenElement) document.exitFullscreen().catch(() => undefined);
@@ -225,7 +242,8 @@ export default function PlatformScreensPage() {
           onView={setView} onPage={(page) => setWall((w) => ({ ...w, page }))} onFull={toggleFull} onArrange={() => setArrange((a) => !a)} onRing={toggleRing}
           onResetCustom={() => setWall((w) => ({ ...w, custom: defaultCustom(order) }))}
           unplaced={wall.view === 'custom' ? ordered.filter((s) => !wall.custom.some((x) => x.id === s.id)) : []}
-          onPlace={(id) => setWall((w) => ({ ...w, custom: addTile(w.custom, id) }))} />
+          onPlace={(id) => setWall((w) => ({ ...w, custom: addTile(w.custom, id) }))}
+          onShare={manage ? shareLayout : undefined} onUseShared={useSharedLayout} />
         {loaded && screens.length === 0 ? (
           <Card><EmptyState icon={<MonitorPlay className="size-6" />} title={t('Aucun écran', 'No screen')}
             body={t('« Préparer les écrans » crée d’un coup les écrans numérotés (ex. 8 DoorDash, 6 Uber Eats, 4 Skip), chacun prêt à se connecter. Le serveur relais : docs/PLATFORM_SCREENS.md.', '“Set up screens” creates the numbered screens in one go (e.g. 8 DoorDash, 6 Uber Eats, 4 Skip), each ready to sign in. The relay host: docs/PLATFORM_SCREENS.md.')}
@@ -283,9 +301,10 @@ function OrderPathsStrip({ paths, t, lang }: { paths: OrderPath[]; t: T; lang: '
 
 // ---- Toolbar: views, pages, arrange, full screen ----
 
-function WallToolbar({ t, wall, count, narrow, full, arrange, ring, unplaced, onView, onPage, onFull, onArrange, onRing, onResetCustom, onPlace }: {
+function WallToolbar({ t, wall, count, narrow, full, arrange, ring, unplaced, onView, onPage, onFull, onArrange, onRing, onResetCustom, onPlace, onShare, onUseShared }: {
   t: T; wall: WallState; count: number; narrow: boolean; full: boolean; arrange: boolean; ring: boolean; unplaced: Screen[];
   onView: (v: WallView) => void; onPage: (p: number) => void; onFull: () => void; onArrange: () => void; onRing: () => void; onResetCustom: () => void; onPlace: (id: string) => void;
+  onShare?: () => void; onUseShared: () => void;
 }) {
   const per = wall.view === 'tabs' || wall.view === 'custom' ? null : Number(wall.view);
   const pages = per ? pageCount(count, per) : 1;
@@ -323,7 +342,9 @@ function WallToolbar({ t, wall, count, narrow, full, arrange, ring, unplaced, on
           ))}
         </>
       )}
-      <span className="ml-auto inline-flex gap-1">
+      <span className="ml-auto inline-flex flex-wrap gap-1">
+        {!narrow && onShare && <Button size="sm" variant="ghost" onClick={onShare} icon={<Share2 className="size-3.5" />} title={t('Cette disposition devient celle de tous les appareils sans disposition à eux', 'This layout becomes the one of every device without its own')}>{t('Partager la disposition', 'Share layout')}</Button>}
+        {!narrow && <Button size="sm" variant="ghost" onClick={onUseShared} icon={<Download className="size-3.5" />} title={t('Reprendre la disposition partagée sur cet appareil', 'Use the shared layout on this device')}>{t('Disposition partagée', 'Shared layout')}</Button>}
         {full && <Button size="sm" variant={ring ? 'primary' : 'outline'} onClick={onRing} icon={ring ? <Bell className="size-3.5" /> : <BellOff className="size-3.5" />}>{ring ? t('Sonne', 'Ringing') : t('Muet', 'Muted')}</Button>}
         {!narrow && <Button size="sm" variant="outline" onClick={onFull} icon={full ? <Shrink className="size-3.5" /> : <Expand className="size-3.5" />}>{full ? t('Quitter le plein écran', 'Exit full screen') : t('Plein écran', 'Full screen')}</Button>}
       </span>

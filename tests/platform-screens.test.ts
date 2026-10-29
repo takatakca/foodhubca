@@ -5,7 +5,7 @@ import { allDayWeek, saveHours } from '../lib/foodhub/hours';
 import {
   addScreen, agentAuthorized, allowedScreenUrl, checkViewUrl, cleanStoreIds, getScreen, listScreens, nextWaitingSince, orderPaths, protectedStoreIds,
   recordHeartbeat, removeScreen, requestOpen, requestReload, SCREEN_OFFLINE_AFTER_MS, screenStartUrl, screenStatus, setupScreens, titleCount, updateScreen,
-  type PlatformScreen,
+  getSharedWall, saveSharedWall, type PlatformScreen,
 } from '../lib/foodhub/screens';
 import { listIncidents, runWatch } from '../lib/foodhub/watch/engine';
 import { POST as heartbeatRoute } from '../app/api/foodhub/screens/heartbeat/route';
@@ -317,5 +317,15 @@ describe('screens wall layouts', () => {
     expect(L.parseWall(JSON.stringify({ view: '99', page: -2, order: ['s01', 5], custom: [{ id: 's01', x: 20, y: 0, w: 1, h: 3 }, { id: 'bad' }] })))
       .toEqual({ view: '4', page: 0, order: ['s01'], tab: null, custom: [{ id: 's01', x: 10, y: 0, w: 2, h: 3 }] });
     expect(L.parseWall(JSON.stringify({ view: 'custom', tab: 's03' }))).toMatchObject({ view: 'custom', tab: 's03' });
+  });
+});
+
+describe('wall layout shared with every device', () => {
+  it('saves a cleaned layout with who shared it; nothing shared → null', async () => {
+    expect(await getSharedWall()).toBeNull();
+    const saved = await saveSharedWall({ view: 'custom', order: ['s02', 's01'], custom: [{ id: 's01', x: 30, y: 0, w: 4, h: 4 }], junk: true }, ACTOR);
+    expect(saved).toEqual({ view: 'custom', page: 0, order: ['s02', 's01'], tab: null, custom: [{ id: 's01', x: 8, y: 0, w: 4, h: 4 }] });
+    expect(await getSharedWall()).toMatchObject({ view: 'custom', order: ['s02', 's01'], savedBy: 'Owner' });
+    expect(await saveSharedWall('not json', ACTOR)).toMatchObject({ view: '4', custom: [] });
   });
 });

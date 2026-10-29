@@ -17,9 +17,13 @@ its sign-in loses orders without anyone noticing.
   time** (pages beyond), **tabs** (one big screen, the others as tabs), or **custom** (tap "Arrange", then drag each
   screen anywhere on a 12 × 12 board and resize it from its corner; arrow keys move, Shift + arrows resize). Drag a
   screen's title bar onto another to swap places; double-click it to make it big. **Full screen** hides the console.
-  The view, the order and the board are saved on each device. Each tile shows its channel (switch DoorDash / Uber Eats /
+  The view, the order and the board are saved on each device; **Share layout** makes this device's layout the one every
+  device without its own starts from, and **Shared layout** takes it on any device (`GET/PUT /api/foodhub/screens/layout`). Each tile shows its channel (switch DoorDash / Uber Eats /
   Skip right there: the screen opens that platform's sign-in page), its status, the orders waiting, Reload and
   "Sign-in page".
+- **Relay host address:** put the relay host on a sub-domain of Food Hub's own domain (e.g. `screens.<your Food Hub
+  domain>`): browsers block sign-in cookies inside a frame from another site, and the relay host's own page must allow
+  being framed by Food Hub (`frame-ancestors`).
 - **Set up screens:** creates numbered screens `s01`, `s02`… in one go (e.g. 8 DoorDash, 6 Uber Eats, 4 Skip) for one
   location, each at `<relay host>/sNN/` and opening its platform's sign-in page. The relay host uses the same numbers.
 - **Orders → Clover strip:** above the wall, how each platform's orders reach Clover (the platform's own Clover link, or

@@ -19,6 +19,7 @@ import { getAdapter } from './adapters';
 import { lastOrderTimes } from './order-retry';
 import { cloverReadiness } from './pos/clover';
 import type { ChannelKey } from './types';
+import { parseWall, type WallState } from '../ui/screens-layout';
 import { getRepo } from './repo';
 import { safeEqual } from './session';
 
@@ -376,4 +377,20 @@ export async function orderPaths(): Promise<OrderPath[]> {
     const r = getAdapter(CHANNEL_OF[p]).readiness();
     return { platform: p, mode: r.viaClover ? 'via_clover' : r.configured ? 'direct' : 'none', cloverReady: clover, lastOrderAt: last[CHANNEL_OF[p]] ?? null };
   });
+}
+
+// ---- The wall layout shared by every device (a device's own layout wins once it has one) ----
+
+const WALL_KEY = 'screens:wall:shared';
+
+export async function getSharedWall(): Promise<(WallState & { savedBy?: string; savedAt?: string }) | null> {
+  const v = await getRepo().getKv<{ wall: string; by: string; at: string }>(WALL_KEY).catch(() => null);
+  return v?.wall ? { ...parseWall(v.wall), savedBy: v.by, savedAt: v.at } : null;
+}
+
+export async function saveSharedWall(raw: unknown, actor: Actor): Promise<WallState> {
+  const wall = parseWall(typeof raw === 'string' ? raw : JSON.stringify(raw ?? null));
+  await getRepo().setKv(WALL_KEY, { wall: JSON.stringify(wall), by: actor.name, at: new Date().toISOString() });
+  await logActivity({ actor: actor.name, source: actor.source, kind: 'device', action: 'screens_wall_shared', status: 'success', summary: `Screens wall layout shared with every device (${wall.view})` });
+  return wall;
 }

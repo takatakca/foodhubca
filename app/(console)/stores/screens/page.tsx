@@ -80,7 +80,6 @@ export default function PlatformScreensPage() {
   const [arrange, setArrange] = useState(false);
   const [full, setFull] = useState(false);
   const wallRef = useRef<HTMLDivElement>(null);
-  const areaRef = useRef<HTMLDivElement>(null);
   const [areaH, setAreaH] = useState<number | null>(null);
   const memory = useRef<RingMemory>({});
   const ringRef = useRef(false);
@@ -124,18 +123,14 @@ export default function PlatformScreensPage() {
     return () => { document.removeEventListener('visibilitychange', wake); lock?.release().catch(() => undefined); };
   }, [ring]);
 
-  // The wall fills the window from where it starts (the banners above it change), never less than 480 px.
+  // The wall takes the whole window under its toolbar: it scrolls into view when the view changes, and full screen
+  // hides the console altogether.
   useEffect(() => {
-    const fit = () => {
-      const el = areaRef.current;
-      if (!el) return;
-      const top = el.getBoundingClientRect().top + window.scrollY;
-      setAreaH(Math.max(480, Math.round(window.innerHeight - Math.min(top, window.innerHeight * 0.55) - 12)));
-    };
+    const fit = () => setAreaH(Math.max(480, window.innerHeight - 128)); // the console's top bar (64) + the wall's toolbar
     fit();
     window.addEventListener('resize', fit);
     return () => window.removeEventListener('resize', fit);
-  }, [loaded, err, paths.length, screens.length, agent]);
+  }, []);
   useEffect(() => {
     const on = () => setFull(document.fullscreenElement === wallRef.current);
     document.addEventListener('fullscreenchange', on);
@@ -174,7 +169,12 @@ export default function PlatformScreensPage() {
     catch (e) { fail(e); }
   }
 
-  const order = orderIds(screens.map((s) => s.id), wall.order);
+  // Numbered screens (s01, s02…) in their number order, then the others by name; the owner's own order wins.
+  const natural = screens.slice().sort((a, b) => {
+    const sa = /^s\d{2}$/.test(a.id), sb = /^s\d{2}$/.test(b.id);
+    return sa !== sb ? (sa ? -1 : 1) : sa ? a.id.localeCompare(b.id) : a.name.localeCompare(b.name);
+  });
+  const order = orderIds(natural.map((s) => s.id), wall.order);
   const byId = new Map(screens.map((s) => [s.id, s]));
   const ordered = order.map((id) => byId.get(id)).filter((s): s is Screen => !!s);
   const down = screens.filter((s) => s.status !== 'online' && s.status !== 'never').length;
@@ -185,6 +185,7 @@ export default function PlatformScreensPage() {
   function setView(view: WallView) {
     setArrange(false);
     setWall((w) => ({ ...w, view, page: 0, custom: view === 'custom' && !w.custom.length ? defaultCustom(order) : w.custom }));
+    if (!document.fullscreenElement) wallRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
   const reorder = (from: string, to: string) => setWall((w) => ({ ...w, order: moveId(order, from, to) }));
   const focus = (id: string) => { setArrange(false); setWall((w) => ({ ...w, view: 'tabs', tab: id })); };
@@ -198,7 +199,7 @@ export default function PlatformScreensPage() {
   return (
     <div>
       <PageHeader title={t('Écrans des plateformes', 'Platform screens')}
-        subtitle={t('Tous les écrans de commandes DoorDash, Uber Eats et Skip de toutes les franchises, côte à côte. Ils tournent sur le serveur relais, branché et toujours allumé : plus de tablette qui perd le Wi-Fi. Vous vous connectez une seule fois, dans chaque écran — Food Hub ne voit et ne garde jamais vos mots de passe.', 'Every DoorDash, Uber Eats and Skip order screen of every franchise, side by side. They run on the relay host, wired and always on: no more tablet losing its Wi-Fi. You sign in once, inside each screen — Food Hub never sees or keeps your passwords.')}
+        subtitle={loaded && screens.length > 0 ? undefined : t('Tous les écrans de commandes DoorDash, Uber Eats et Skip de toutes les franchises, côte à côte. Ils tournent sur le serveur relais, branché et toujours allumé : plus de tablette qui perd le Wi-Fi. Vous vous connectez une seule fois, dans chaque écran — Food Hub ne voit et ne garde jamais vos mots de passe.', 'Every DoorDash, Uber Eats and Skip order screen of every franchise, side by side. They run on the relay host, wired and always on: no more tablet losing its Wi-Fi. You sign in once, inside each screen — Food Hub never sees or keeps your passwords.')}
         right={<div className="flex flex-wrap gap-2">
           <Button variant={ring ? 'primary' : 'outline'} onClick={toggleRing} icon={ring ? <Bell className="size-4" /> : <BellOff className="size-4" />}>
             {ring ? t('Sonne sur cet appareil', 'Rings on this device') : t('Sonner sur cet appareil', 'Ring on this device')}
@@ -219,7 +220,7 @@ export default function PlatformScreensPage() {
       {loaded && down > 0 && <Banner tone="stop" className="mb-3">{t(`${down} écran(s) à vérifier : hors ligne, déconnecté(s) ou planté(s). Rechargez, ou reconnectez-vous dans l’écran.`, `${down} screen(s) need attention: offline, signed out or crashed. Reload, or sign in again inside the screen.`)}</Banner>}
       {paths.length > 0 && <OrderPathsStrip paths={paths} t={t} lang={lang} />}
 
-      <div ref={wallRef} className={cn('flex flex-col gap-2', full && 'bg-canvas p-2')}>
+      <div ref={wallRef} className={cn('flex scroll-mt-[72px] flex-col gap-2', full && 'bg-canvas p-2')}>
         <WallToolbar t={t} wall={{ ...wall, view }} count={ordered.length} narrow={narrow} full={full} arrange={arrange} ring={ring}
           onView={setView} onPage={(page) => setWall((w) => ({ ...w, page }))} onFull={toggleFull} onArrange={() => setArrange((a) => !a)} onRing={toggleRing}
           onResetCustom={() => setWall((w) => ({ ...w, custom: defaultCustom(order) }))}
@@ -230,7 +231,7 @@ export default function PlatformScreensPage() {
             body={t('« Préparer les écrans » crée d’un coup les écrans numérotés (ex. 8 DoorDash, 6 Uber Eats, 4 Skip), chacun prêt à se connecter. Le serveur relais : docs/PLATFORM_SCREENS.md.', '“Set up screens” creates the numbered screens in one go (e.g. 8 DoorDash, 6 Uber Eats, 4 Skip), each ready to sign in. The relay host: docs/PLATFORM_SCREENS.md.')}
             action={manage ? <Button onClick={() => setSetup(true)} icon={<Wand2 className="size-4" />}>{t('Préparer les écrans', 'Set up screens')}</Button> : undefined} /></Card>
         ) : (
-          <div ref={areaRef} className="min-h-0" style={narrow ? undefined : { height: full ? 'calc(100vh - 64px)' : areaH ? `${areaH}px` : 'max(480px, calc(100vh - 290px))' }}>
+          <div className="min-h-0" style={narrow ? undefined : { height: full ? 'calc(100vh - 64px)' : areaH ? `${areaH}px` : 'max(480px, calc(100vh - 290px))' }}>
             {view === 'tabs' ? (
               <TabsWall screens={ordered} active={wall.tab} t={t} onTab={(id) => setWall((w) => ({ ...w, tab: id }))} onMove={reorder} tile={tileProps} />
             ) : view === 'custom' ? (

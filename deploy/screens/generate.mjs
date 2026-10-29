@@ -13,10 +13,11 @@ for (let i = 0; i < args.length; i++) {
 const source = positional[0] ?? 'screens.json';
 const out = opts.out || 'docker-compose.yml';
 const envOut = opts.env || '.env.example';
+const androidImage = opts['android-image'] || undefined;
 
 let input;
 try { input = JSON.parse(readFileSync(source, 'utf8')); } catch (e) { console.error(`Cannot read ${source}: ${e instanceof Error ? e.message : e}`); process.exit(2); }
-const r = generate(input, { source });
+const r = generate(input, { source, androidImage });
 if ('errors' in r) { console.error(`${source} is refused:`); for (const e of r.errors) console.error(`  - ${e}`); process.exit(1); }
 writeFileSync(out, r.yaml);
 writeFileSync(envOut, r.env);

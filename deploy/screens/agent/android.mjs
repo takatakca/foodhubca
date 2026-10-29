@@ -10,7 +10,7 @@ import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { ADB_COMMANDS, countNotifications, decideReport, deviceOnline, parseFrontActivity } from './android-lib.mjs';
+import { ADB_COMMANDS, decideReport, deviceOnline, parseCount, parseFrontActivity } from './android-lib.mjs';
 
 const run = promisify(execFile);
 
@@ -25,8 +25,14 @@ function findAdb() {
   return 'adb';
 }
 const ADB = findAdb();
-// A .cmd/.bat shim can only run through the shell; a real binary never needs it.
-const ADB_OPTS = /\.(cmd|bat)$/i.test(ADB) ? { shell: true } : {};
+// A .cmd/.bat shim (Windows) must run through cmd.exe, but WITHOUT shell:true: that would let cmd.exe interpret the
+// `| grep … || true` of the on-device count as a host pipeline. Quote each argument and pass them verbatim instead.
+const IS_SHIM = /\.(cmd|bat)$/i.test(ADB);
+const winQuote = (a) => (/[\s"&|<>^]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a);
+function adbInvocation(args) {
+  if (!IS_SHIM) return [ADB, args, {}];
+  return ['cmd.exe', ['/d', '/s', '/c', `"${[winQuote(ADB), ...args.map(winQuote)].join(' ')}"`], { windowsVerbatimArguments: true }];
+}
 const env = (k, d = '') => (process.env[k] ?? d).trim();
 const FOODHUB_URL = env('FOODHUB_URL').replace(/\/+$/, '');
 const TOKEN = env('FOODHUB_SCREENS_AGENT_TOKEN');
@@ -48,24 +54,26 @@ let autoReloads = 0;
 let badChecks = 0;
 
 async function adb(args, timeout = 8000) {
-  const { stdout } = await run(ADB, ['-s', target, ...args], { ...ADB_OPTS, timeout, maxBuffer: 4 * 1024 * 1024 });
+  const [file, argv, opts] = adbInvocation(['-s', target, ...args]);
+  const { stdout } = await run(file, argv, { ...opts, timeout, maxBuffer: 4 * 1024 * 1024 });
   return stdout;
 }
 
 async function connect() {
-  try { await run(ADB, ['connect', target], { ...ADB_OPTS, timeout: 8000 }); } catch { /* reported as crashed below */ }
+  const [file, argv, opts] = adbInvocation(['connect', target]);
+  try { await run(file, argv, { ...opts, timeout: 8000 }); } catch { /* reported as crashed below */ }
 }
 
 async function inspect() {
-  try {
-    const online = deviceOnline(await adb(ADB_COMMANDS.state).catch(() => ''));
-    if (!online) { await connect(); return { online: false, front: null, notifications: 0 }; }
-    const front = parseFrontActivity(await adb(ADB_COMMANDS.front));
-    const notifications = countNotifications(await adb(ADB_COMMANDS.notifications, 12_000), PACKAGE);
-    return { online: true, front, notifications };
-  } catch (e) {
-    return { online: false, front: null, notifications: 0, error: e instanceof Error ? e.message : String(e) };
-  }
+  const online = deviceOnline(await adb(ADB_COMMANDS.state).catch(() => ''));
+  if (!online) { await connect(); return { online: false, front: null, notifications: 0 }; }
+  let front = null, notifications = NaN;
+  try { front = parseFrontActivity(await adb(ADB_COMMANDS.front)); }
+  catch (e) { return { online: false, front: null, notifications: 0, error: e instanceof Error ? e.message : String(e) }; }
+  // A failed count alone never turns a fine device into "crashed": the report keeps front/online, waiting becomes 0.
+  try { notifications = parseCount(await adb(ADB_COMMANDS.notificationCount(PACKAGE), 12_000)); }
+  catch (e) { console.error('notification count failed:', e instanceof Error ? e.message : e); }
+  return { online: true, front, notifications };
 }
 
 /** Bring the order app back to the front. The only "action" this agent ever takes. */
@@ -75,7 +83,15 @@ async function toFront() {
   catch (e) { console.error('to front failed:', e instanceof Error ? e.message : e); }
 }
 
+let busy = false;
+/** One check at a time: a hung adb must not pile up ticks, duplicate heartbeats or inflate autoReloads. */
 async function tick() {
+  if (busy) return;
+  busy = true;
+  try { await check(); } finally { busy = false; }
+}
+
+async function check() {
   const r = await inspect();
   const report = decideReport({ id: SCREEN_ID, pkg: PACKAGE, online: r.online, front: r.front, notifications: r.notifications, autoReloads });
   badChecks = report.state === 'blank' ? badChecks + 1 : 0;

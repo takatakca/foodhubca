@@ -19,7 +19,7 @@ export function parseFrontActivity(dumpsys) {
   return { package: pkg, activity };
 }
 
-/** Count the notifications posted by one package in `dumpsys notification --noredact` / `dumpsys notification`. */
+/** Count the notifications posted by one package in `dumpsys notification` output (used by tests and as a fallback). */
 export function countNotifications(dumpsys, pkg) {
   const text = String(dumpsys ?? '');
   if (!pkg) return 0;
@@ -27,6 +27,12 @@ export function countNotifications(dumpsys, pkg) {
   // One "NotificationRecord(… pkg=com.x …)" line per notification; group summaries are counted once like any other.
   const records = text.match(new RegExp(`NotificationRecord\\([^\\n]*\\bpkg=${esc}\\b`, 'g')) ?? [];
   return records.length;
+}
+
+/** The output of the on-device count (`grep -c`): a bare integer, or NaN when it is not one. */
+export function parseCount(stdout) {
+  const m = /^\s*(\d+)\s*$/m.exec(String(stdout ?? ''));
+  return m ? Number(m[1]) : NaN;
 }
 
 /** Device state from `adb get-state` / `adb devices` output. */
@@ -54,8 +60,9 @@ export function decideReport({ id, pkg, online, front, notifications, autoReload
 export const ADB_COMMANDS = Object.freeze({
   state: ['get-state'],
   front: ['shell', 'dumpsys', 'activity', 'activities'],
-  notifications: ['shell', 'dumpsys', 'notification'],
-  /** "reload": bring the order app back to the front (launches its main activity; no tap). */
-  toFront: (pkg) => ['shell', 'monkey', '-p', pkg, '-c', 'android.intent.category.LAUNCHER', '1'],
+  /** Counted ON the device: only a number crosses adb, never a notification line. grep -c exits 1 on zero, hence "|| true". */
+  notificationCount: (pkg) => ['shell', `dumpsys notification | grep -c -E '^ +NotificationRecord\\(0x[0-9a-f]+: pkg=${pkg.replace(/\./g, '\\.')} ' || true`],
+  /** "reload": bring the order app back to the front. `am start` of its launcher intent is deterministic and has no side effect (no tap). */
+  toFront: (pkg) => ['shell', 'am', 'start', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.LAUNCHER', '-p', pkg],
   wake: ['shell', 'input', 'keyevent', 'KEYCODE_WAKEUP'],
 });

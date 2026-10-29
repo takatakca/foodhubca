@@ -139,8 +139,11 @@ describe('android.mjs end to end with a fake adb', () => {
     if(a[0]==='connect') out('connected to 127.0.0.1:5555\\n');
     if(a[0]==='get-state') out(st.online?'device\\n':'error: device offline\\n');
     if(a[1]==='dumpsys'&&a[2]==='activity') out(st.front?'  mResumedActivity: ActivityRecord{1 u0 '+st.front+' t1}\\n':'');
-    if(a[1]==='dumpsys'&&a[2]==='notification') out(Array.from({length:st.notifs},(_,i)=>'    NotificationRecord(0x'+i+': pkg=${PKG} user=UserHandle{0} id='+i+')\\n      android.text=String (Order #'+(1000+i)+' for Ana)').join('\\n')+'\\n');
-    if(a[1]==='monkey'||a[1]==='input'){ st.front='${PKG}/.ui.MainActivity'; fs.writeFileSync(${JSON.stringify(stateFile)},JSON.stringify(st)); out(''); }
+    // The count request is "shell dumpsys notification | grep -c ... || true" as ONE string. A real adb binary gets it
+    // whole; through the Windows .cmd shim cmd.exe consumes the pipe, so only "shell dumpsys notification" reaches us.
+    // Either way the answer is a bare number (the exact command string is pinned by the unit test).
+    if(a[0]==='shell'&&a.slice(1).join(' ').startsWith('dumpsys notification')) out(String(st.notifs)+String.fromCharCode(10)); // only a number crosses adb (a real newline: this source is itself inside a template literal)
+    if(a[1]==='am'||a[1]==='input'){ st.front='${PKG}/.ui.MainActivity'; fs.writeFileSync(${JSON.stringify(stateFile)},JSON.stringify(st)); out(''); }
     out('');`;
   const setState = (s: { online: boolean; front: string | null; notifs: number }) => writeFileSync(stateFile, JSON.stringify(s));
 
@@ -185,8 +188,9 @@ describe('android.mjs end to end with a fake adb', () => {
     expect(ok.body.screens[0].app).toBe(PKG);
     const { readFileSync } = await import('node:fs');
     const calls = readFileSync(callsFile, 'utf8');
-    expect(calls).toMatch(/shell monkey -p com\.doordash\.merchant -c android\.intent\.category\.LAUNCHER 1/);
-    expect(calls).not.toMatch(/input (tap|text|swipe)|am start|install|pm clear/);
+    expect(calls).toMatch(/shell am start -a android\.intent\.action\.MAIN -c android\.intent\.category\.LAUNCHER -p com\.doordash\.merchant/);
+    expect(calls).not.toMatch(/input (tap|text|swipe)|monkey|install|pm clear/);
+    expect(calls).not.toMatch(/Order #|Ana/); // no notification text ever crossed adb
   }, 60_000);
 
   it('reports crashed when the device stops answering, and keeps running', async () => {

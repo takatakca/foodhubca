@@ -2,13 +2,17 @@
 // The report carries mode "android", the package in front and a COUNT of notifications, never their text.
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error plain ESM module without types
-import { ADB_COMMANDS, countNotifications, decideReport, deviceOnline, parseFrontActivity } from '../deploy/screens/agent/android-lib.mjs';
+import { ADB_COMMANDS, countNotifications, decideReport, deviceOnline, parseCount, parseFrontActivity } from '../deploy/screens/agent/android-lib.mjs';
 
 const PKG = 'com.doordash.merchant';
+// Shape of `dumpsys activity activities` on Android 14 (no mResumedActivity line any more).
 const activities = (pkg: string, act: string) => `ACTIVITY MANAGER ACTIVITIES (dumpsys activity activities)
 Display #0 (activities from top to bottom):
-  * Task{a1 #12 type=standard A=10123:${pkg}}
-    mResumedActivity: ActivityRecord{3f2 u0 ${pkg}/${act} t12}
+  * Task{a1 #12 type=standard A=10123:${pkg} U=0 visible=true}
+    * Hist  #0: ActivityRecord{3f2 u0 ${pkg}/${act} t12}
+    isSleeping=false
+    topResumedActivity=ActivityRecord{3f2 u0 ${pkg}/${act} t12}
+
   ResumedActivity: ActivityRecord{3f2 u0 ${pkg}/${act} t12}
 `;
 const notif = (entries: Array<[string, string]>) => `NOTIFICATION MANAGER (dumpsys notification)
@@ -24,6 +28,10 @@ describe('parseFrontActivity', () => {
   it('reads the package and activity in front, expanding a relative activity', () => {
     expect(parseFrontActivity(activities(PKG, '.ui.MainActivity'))).toEqual({ package: PKG, activity: `${PKG}.ui.MainActivity` });
     expect(parseFrontActivity(activities('com.android.launcher3', 'com.android.launcher3.Launcher'))).toEqual({ package: 'com.android.launcher3', activity: 'com.android.launcher3.Launcher' });
+  });
+  it('reads the global ResumedActivity line alone, and null for a sleeping device', () => {
+    expect(parseFrontActivity(`  ResumedActivity: ActivityRecord{3f2 u0 ${PKG}/.ui.MainActivity t12}\n`)).toEqual({ package: PKG, activity: `${PKG}.ui.MainActivity` });
+    expect(parseFrontActivity('Display #0 (activities from top to bottom):\n    isSleeping=true\n')).toBeNull();
   });
   it('falls back to mCurrentFocus and returns null on nothing', () => {
     expect(parseFrontActivity('mCurrentFocus=Window{7a u0 com.ubercab.restaurantmanager/com.ubercab.restaurantmanager.RootActivity}')).toEqual({ package: 'com.ubercab.restaurantmanager', activity: 'com.ubercab.restaurantmanager.RootActivity' });
@@ -43,6 +51,15 @@ describe('countNotifications', () => {
   });
   it('does not match a longer package name by prefix', () => {
     expect(countNotifications(notif([['com.doordash.merchantx', 'x']]), PKG)).toBe(0);
+  });
+});
+
+describe('parseCount (on-device grep -c)', () => {
+  it('reads a bare integer and NaN for anything else', () => {
+    expect(parseCount('2\n')).toBe(2);
+    expect(parseCount('  0 \n')).toBe(0);
+    expect(parseCount('')).toBeNaN();
+    expect(parseCount('error: closed')).toBeNaN();
   });
 });
 
@@ -88,12 +105,14 @@ describe('decideReport (heartbeat v2)', () => {
 });
 
 describe('ADB_COMMANDS: the only actions the agent may take', () => {
-  it('reads state, front activity and notifications; "reload" only launches the app; never taps or types text', () => {
+  it('reads state and the front activity; counts notifications ON the device; "reload" = am start of the launcher intent; never taps or types', () => {
     expect(ADB_COMMANDS.state).toEqual(['get-state']);
     expect(ADB_COMMANDS.front[1]).toBe('dumpsys');
-    expect(ADB_COMMANDS.notifications).toEqual(['shell', 'dumpsys', 'notification']);
-    expect(ADB_COMMANDS.toFront(PKG)).toEqual(['shell', 'monkey', '-p', PKG, '-c', 'android.intent.category.LAUNCHER', '1']);
-    const all = JSON.stringify(ADB_COMMANDS) + JSON.stringify(ADB_COMMANDS.toFront(PKG)) + JSON.stringify(ADB_COMMANDS.wake);
-    expect(all).not.toMatch(/\btap\b|\btext\b|swipe|install|uninstall|pm clear|settings put/);
+    const count = ADB_COMMANDS.notificationCount(PKG);
+    expect(count[0]).toBe('shell');
+    expect(count[1]).toMatch(/^dumpsys notification \| grep -c -E '.*pkg=com\\.doordash\\.merchant ' \|\| true$/);
+    expect(ADB_COMMANDS.toFront(PKG)).toEqual(['shell', 'am', 'start', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.LAUNCHER', '-p', PKG]);
+    const all = JSON.stringify(ADB_COMMANDS) + JSON.stringify(ADB_COMMANDS.toFront(PKG)) + JSON.stringify(ADB_COMMANDS.wake) + count.join(' ');
+    expect(all).not.toMatch(/\btap\b|input text|swipe|install|uninstall|pm clear|settings put|monkey/);
   });
 });

@@ -1,3 +1,5 @@
 .env
 profiles/
 screens.json
+adbkey
+adbkey.pub

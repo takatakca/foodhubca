@@ -6,16 +6,23 @@
 // Values that must stay out of git (Food Hub token, view password, screen ids) are read from .env at run time.
 // Guide: docs/PLATFORM_SCREENS_RELAY.md.
 
+// Package names are the platforms' ORDER apps on Google Play (checked 2026-10-29): "DoorDash Order Manager",
+// "Uber Eats Order Manager" (not the Uber "Manager" analytics app), "Skip - Partner".
 export const PLATFORMS = Object.freeze({
-  uber: { label: 'Uber Eats', startUrl: 'https://merchants.ubereats.com/manager/orders', package: 'com.ubercab.restaurantmanager' },
-  doordash: { label: 'DoorDash', startUrl: 'https://order.doordash.com/', package: 'com.doordash.merchant' },
-  skip: { label: 'Skip', startUrl: 'https://partner.skipthedishes.com/', package: 'com.skipthedishes.partner' },
+  uber: { label: 'Uber Eats', startUrl: 'https://merchants.ubereats.com/manager/orders', package: 'com.uber.restaurants' },
+  doordash: { label: 'DoorDash', startUrl: 'https://order.doordash.com/', package: 'com.dd.ddmerchant' },
+  skip: { label: 'Skip', startUrl: 'https://partner.skipthedishes.com/', package: 'ca.skipthedishes.dashboard' },
 });
 export const MODES = Object.freeze(['web', 'android']);
 export const WEB_VIEW_PORT_BASE = 3100;      // host port of screen n's web view = 3100 + n (first screen = 3101)
 export const ANDROID_VIEW_PORT_BASE = 6080;  // host port of Android screen n's web view = 6080 + n
 export const CHROMIUM_IMAGE = 'lscr.io/linuxserver/chromium:latest';
-export const ANDROID_IMAGE = 'budtmo/docker-android:emulator_14.0';
+// The Play Store needs a "google_apis_playstore" system image, which the public budtmo/docker-android images do NOT
+// ship. The relay host builds this image once with Google's own scripts (the owner accepts the Android SDK licence):
+//   github.com/google/android-emulator-container-scripts → emu-docker create <emulator zip> <google_apis_playstore x86_64 33 zip>
+//   docker build -t foodhub/android-playstore:33 <dest>
+// Pass another name with --android-image when the host built it under a different tag.
+export const ANDROID_IMAGE = 'foodhub/android-playstore:33';
 export const MAX_SCREENS = 50;
 
 const ID_RE = /^[A-Za-z][A-Za-z0-9_-]{1,63}$/;
@@ -103,6 +110,7 @@ export function validateScreens(input) {
 export function buildCompose(screens, opts = {}) {
   const tz = opts.timezone ?? 'America/Toronto';
   const services = {};
+  const volumes = {};
   let web = 0, android = 0;
   for (const s of screens) {
     const svc = serviceName(s.id); const envVar = envVarFor(s.id);
@@ -124,20 +132,25 @@ export function buildCompose(screens, opts = {}) {
       };
     } else {
       android++;
+      // Google's emulator image: /dev/kvm only (never privileged), the device's data in a NAMED volume (a bind mount
+      // would hide the image's own files), the adb key shared with the agent (or adbd answers "unauthorized").
+      // ADBKEY is the private adb key, read from the shell: ADBKEY="$(cat adbkey)" docker compose --profile android up -d
       services[svc] = {
-        image: ANDROID_IMAGE, restart: 'unless-stopped', profiles: ['android'], privileged: true, shm_size: '2gb',
+        image: opts.androidImage ?? ANDROID_IMAGE, restart: 'unless-stopped', profiles: ['android'], shm_size: '2gb',
         devices: ['/dev/kvm:/dev/kvm'],
-        environment: { EMULATOR_DEVICE: 'Samsung Galaxy S10', WEB_VNC: 'true', TZ: tz, WEB_VNC_PASSWORD: '${SCREENS_VIEW_PASSWORD}' },
-        volumes: [`./profiles/${svc}:/root/android_emulator`],
-        ports: [`127.0.0.1:${ANDROID_VIEW_PORT_BASE + android}:6080`],
+        environment: ['ADBKEY', `TZ=${tz}`],
+        volumes: [`${svc}-data:/data`],
+        ports: [`127.0.0.1:${ANDROID_VIEW_PORT_BASE + android}:8554`],
       };
+      volumes[`${svc}-data`] = {};
       services[`${svc}-agent`] = {
         build: { context: './agent', dockerfile: 'Dockerfile.android' }, restart: 'unless-stopped', profiles: ['android'], network_mode: `service:${svc}`,
         environment: { ...agentEnv, ANDROID_PACKAGE: s.package, ADB_HOST: '127.0.0.1' },
+        volumes: ['./adbkey:/home/node/.android/adbkey:ro'],
       };
     }
   }
-  return { services, counts: { web, android } };
+  return { services, volumes, counts: { web, android } };
 }
 
 const yamlScalar = (v) => {
@@ -161,7 +174,8 @@ export function toYaml(doc, { source = 'screens.json', screens = [] } = {}) {
     ...screens.map((s) => `#   ${serviceName(s.id)} = ${PLATFORMS[s.platform].label} "${s.name}" (${s.mode}) → .env ${envVarFor(s.id)}`),
     '',
   ].join('\n');
-  return `${head}services:\n${yamlNode(doc.services, 2)}\n`;
+  const vols = Object.keys(doc.volumes ?? {}).length ? `volumes:\n${yamlNode(doc.volumes, 2)}\n` : '';
+  return `${head}services:\n${yamlNode(doc.services, 2)}\n${vols}`;
 }
 
 /** The .env lines a host needs for this list (names only, no values). */

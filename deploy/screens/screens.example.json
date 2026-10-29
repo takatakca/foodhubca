@@ -4,6 +4,6 @@
     { "id": "SCREEN_ID_UBER_1", "platform": "uber", "name": "Uber Eats 1", "startUrl": "https://merchants.ubereats.com/manager/orders", "mode": "web" },
     { "id": "SCREEN_ID_DOORDASH_1", "platform": "doordash", "name": "DoorDash 1", "startUrl": "https://order.doordash.com/", "mode": "web" },
     { "id": "SCREEN_ID_SKIP_1", "platform": "skip", "name": "Skip 1", "startUrl": "https://partner.skipthedishes.com/", "mode": "web" },
-    { "id": "SCREEN_ID_DOORDASH_2", "platform": "doordash", "name": "DoorDash 2 (app)", "mode": "android", "package": "com.doordash.merchant" }
+    { "id": "SCREEN_ID_DOORDASH_2", "platform": "doordash", "name": "DoorDash 2 (app)", "mode": "android", "package": "com.dd.ddmerchant" }
   ]
 }

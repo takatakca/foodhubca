@@ -8,10 +8,13 @@
 // frozen page by itself, and the Watchtower rings (screen → SMS → call) when a screen goes down or asks to sign in again.
 //
 // What the agent reads from each page: its address host and its title (for example "(2) Orders"), nothing else.
-// It never clicks, accepts or reads orders: orders keep reaching Clover through the platform's own path.
+// In Android mode (heartbeat v2) it reads which app is in front and how many notifications the order app shows, never
+// their text. It never clicks, accepts or reads orders: orders keep reaching Clover through the platform's own path.
 import crypto from 'node:crypto';
 import { z } from 'zod';
 import { logActivity, type Actor } from './activity';
+import { isProtectedDoorDashId } from './doordash/guard';
+import { FORBIDDEN_STORE_IDS } from './public-directory';
 import { getRepo } from './repo';
 import { safeEqual } from './session';
 
@@ -28,6 +31,10 @@ export const SCREEN_PLATFORM_LABEL: Record<ScreenPlatform, string> = { ubereats:
 /** What the agent saw on the page: ok, the platform's sign-in page, a crashed / error page, or an empty page. */
 export const SCREEN_STATES = ['ok', 'login', 'crashed', 'blank'] as const;
 export type ScreenState = (typeof SCREEN_STATES)[number];
+
+/** web = the platform's merchant web page in a browser; android = the platform's Android app (heartbeat v2). */
+export const SCREEN_MODES = ['web', 'android'] as const;
+export type ScreenMode = (typeof SCREEN_MODES)[number];
 
 export interface ScreenCommand { kind: 'reload'; at: string; by: string }
 
@@ -53,6 +60,14 @@ export interface PlatformScreen {
   agentVersion?: string | null;
   /** Waiting for the agent's next heartbeat. */
   command?: ScreenCommand | null;
+  /** How the agent runs this screen (heartbeat v2). A v1 agent is web. */
+  mode?: ScreenMode | null;
+  /** Android: the package of the app in front (e.g. the order app). Never any text from the screen. */
+  app?: string | null;
+  /** Since when orders have been waiting on this screen (the count went up from 0, or dropped and stayed above 0). */
+  waitingSince?: string | null;
+  /** The platform's own store ids this screen shows: one account often shows several stores. */
+  storeIds?: string[];
 }
 
 export type ScreenStatus = 'online' | 'login_required' | 'error' | 'offline' | 'never';
@@ -98,21 +113,37 @@ async function save(s: PlatformScreen) {
 const cleanName = (v: unknown, platform: ScreenPlatform) => String(v ?? '').trim().slice(0, 60) || SCREEN_PLATFORM_LABEL[platform];
 const asPlatform = (v: unknown): ScreenPlatform | null => (SCREEN_PLATFORMS as readonly string[]).includes(String(v)) ? (v as ScreenPlatform) : null;
 
-export async function addScreen(input: { name?: unknown; platform?: unknown; locationCode: string; viewUrl?: unknown }, actor: Actor): Promise<PlatformScreen | { error: string }> {
+/** "27870472, 28040070" or ['27870472'] → unique store ids. Store ids only: digits, letters, ':', '_' or '-'. */
+export function cleanStoreIds(v: unknown): { ids: string[] } | { error: string } {
+  const parts = (Array.isArray(v) ? v : String(v ?? '').split(/[\s,;]+/)).map((x) => String(x ?? '').trim()).filter(Boolean);
+  if (parts.length > 30) return { error: '30 magasins au plus par écran. / 30 stores at most per screen.' };
+  const bad = parts.find((x) => !/^[A-Za-z0-9:_-]{1,40}$/.test(x));
+  if (bad) return { error: `Numéro de magasin invalide : ${bad.slice(0, 40)} / Invalid store id.` };
+  return { ids: [...new Set(parts)] };
+}
+
+/** Store ids on this screen that nobody may act on from Food Hub (Po Poulet NDG and every locked DoorDash store). */
+export function protectedStoreIds(s: Pick<PlatformScreen, 'storeIds'>): string[] {
+  return (s.storeIds ?? []).filter((id) => FORBIDDEN_STORE_IDS.has(id) || isProtectedDoorDashId(id));
+}
+
+export async function addScreen(input: { name?: unknown; platform?: unknown; locationCode: string; viewUrl?: unknown; storeIds?: unknown }, actor: Actor): Promise<PlatformScreen | { error: string }> {
   const platform = asPlatform(input.platform);
   if (!platform) return { error: 'Choisissez la plateforme. / Choose the platform.' };
   const url = checkViewUrl(input.viewUrl);
   if ('error' in url) return url;
+  const stores = cleanStoreIds(input.storeIds);
+  if ('error' in stores) return stores;
   const screen: PlatformScreen = {
     id: crypto.randomUUID(), name: cleanName(input.name, platform), platform, locationCode: input.locationCode, viewUrl: url.url,
-    createdBy: actor.name, createdAt: new Date().toISOString(), lastSeenAt: null, state: null,
+    createdBy: actor.name, createdAt: new Date().toISOString(), lastSeenAt: null, state: null, storeIds: stores.ids,
   };
   await save(screen);
   await logActivity({ actor: actor.name, source: actor.source, kind: 'device', action: 'screen_added', status: 'success', locationCode: screen.locationCode, summary: `Platform screen "${screen.name}" (${SCREEN_PLATFORM_LABEL[platform]}) added` });
   return screen;
 }
 
-export async function updateScreen(id: string, patch: { name?: unknown; platform?: unknown; locationCode?: string; viewUrl?: unknown }, actor: Actor): Promise<PlatformScreen | { error: string } | null> {
+export async function updateScreen(id: string, patch: { name?: unknown; platform?: unknown; locationCode?: string; viewUrl?: unknown; storeIds?: unknown }, actor: Actor): Promise<PlatformScreen | { error: string } | null> {
   const s = await getScreen(id);
   if (!s) return null;
   const next = { ...s };
@@ -127,6 +158,11 @@ export async function updateScreen(id: string, patch: { name?: unknown; platform
     const url = checkViewUrl(patch.viewUrl);
     if ('error' in url) return url;
     next.viewUrl = url.url;
+  }
+  if (patch.storeIds !== undefined) {
+    const stores = cleanStoreIds(patch.storeIds);
+    if ('error' in stores) return stores;
+    next.storeIds = stores.ids;
   }
   await save(next);
   await logActivity({ actor: actor.name, source: actor.source, kind: 'device', action: 'screen_updated', status: 'success', locationCode: next.locationCode, summary: `Platform screen "${next.name}" updated` });
@@ -171,6 +207,10 @@ const reportSchema = z.object({
   title: z.string().max(500).optional().nullable(),
   url: z.string().max(2000).optional().nullable(),
   autoReloads: z.number().int().min(0).max(1_000_000).optional().nullable(),
+  // v2 (optional, so a v1 agent keeps working): Android mode, the package in front, and a count of waiting orders.
+  mode: z.enum(SCREEN_MODES).optional().nullable(),
+  app: z.string().max(150).regex(/^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/).optional().nullable(),
+  waiting: z.number().int().min(0).max(999).optional().nullable(),
 });
 export const heartbeatSchema = z.object({
   version: z.string().max(40).optional().nullable(),
@@ -186,6 +226,17 @@ export function titleCount(title: string | null | undefined): number | null {
 
 const hostOf = (url: string | null | undefined) => { try { return url ? new URL(url).hostname : null; } catch { return null; } };
 
+/**
+ * Since when orders wait: set when the count rises from 0, kept while it holds or rises, restarted when it drops but
+ * stays above 0 (someone is answering the screen), cleared at 0.
+ */
+export function nextWaitingSince(prev: Pick<PlatformScreen, 'titleCount' | 'waitingSince'>, count: number | null, now: Date): string | null {
+  if (!count) return null;
+  const before = prev.titleCount ?? 0;
+  if (before <= 0 || count < before || !prev.waitingSince) return now.toISOString();
+  return prev.waitingSince;
+}
+
 /** Save each screen's report and hand back the commands waiting for it (each command is given once). */
 export async function recordHeartbeat(hb: Heartbeat, now = new Date()): Promise<{ commands: Array<{ id: string; kind: ScreenCommand['kind'] }>; unknown: string[] }> {
   const commands: Array<{ id: string; kind: ScreenCommand['kind'] }> = [];
@@ -196,8 +247,11 @@ export async function recordHeartbeat(hb: Heartbeat, now = new Date()): Promise<
     const title = r.title ? r.title.slice(0, 120) : null;
     const wasLogin = s.state === 'login';
     if (s.command) commands.push({ id: s.id, kind: s.command.kind });
+    const mode: ScreenMode = r.mode ?? 'web';
+    const count = titleCount(title) ?? r.waiting ?? null;
     await save({
-      ...s, lastSeenAt: now.toISOString(), state: r.state, pageTitle: title, pageHost: hostOf(r.url), titleCount: titleCount(title),
+      ...s, lastSeenAt: now.toISOString(), state: r.state, pageTitle: title, pageHost: hostOf(r.url), titleCount: count,
+      waitingSince: nextWaitingSince(s, count, now), mode, app: mode === 'android' ? r.app ?? null : null,
       autoReloads: r.autoReloads ?? s.autoReloads ?? null, agentVersion: hb.version ?? s.agentVersion ?? null, command: null,
     });
     if (r.state === 'login' && !wasLogin) {

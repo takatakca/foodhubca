@@ -13,6 +13,16 @@ its sign-in loses orders without anyone noticing.
   and the page title (platforms put the number of waiting orders there, e.g. "(2) Orders"). A blank or crashed page is
   reloaded by itself. During opening hours, a screen that is offline, signed out or crashed opens a **Watchtower
   incident** (`screen_down`: screen beep → SMS → call → owner, like a tablet that is off).
+- **Rings on one device:** Stores → Platform screens → **Ring on this device** turns any tablet or PC at the counter into
+  the screens wall: it rings at every refresh (10 s) while orders wait on any online screen, rings an alarm when a
+  screen drops, stays awake, and shows the waiting count in a banner. The choice is kept on that device.
+- **Nobody answers:** orders waiting on an online screen longer than the Watchtower's "order waiting" delay, during
+  opening hours, open a **`screen_waiting`** incident (critical: beep → SMS → call → owner).
+- **Android mode (heartbeat v2):** a screen can be the platform's Android app (installed by the owner from the Play
+  Store on the relay host) instead of a web page. Its agent reports which app is in front and how many notifications the
+  order app shows (a count, never their text). Relay kit: lane B of `docs/ORDER_SCREENS_RESCUE.md`.
+- **Stores shown:** each screen can list the platform store numbers its account shows. A protected store (Po Poulet NDG,
+  DoorDash 27982486, and every locked DoorDash store) is marked "never act".
 - **Passwords:** Food Hub never asks for, stores or types a platform password. The owner signs in **once, inside the
   screen** (with the SMS code if the platform asks). The browser profile is kept on the relay host's disk, so the
   session survives restarts. Agents (people or AI) never type passwords or codes (CLAUDE.md §4).
@@ -55,12 +65,16 @@ its sign-in loses orders without anyone noticing.
 ## How it works (for developers)
 
 - `lib/foodhub/screens.ts`: screens (`platform_screens` documents), status (`online`, `login_required`, `error`,
-  `offline` after 120 s, `never`), view address check (https, no credentials), agent token check, heartbeat recording,
-  "reload" commands handed to the agent once.
+  `offline` after 120 s, `never`), view address check (https, no credentials), agent token check, heartbeat recording
+  (v1, plus v2's optional `mode` web|android, `app` package, `waiting` count), `waitingSince` (set when orders appear,
+  restarted when one is answered, cleared at 0), store numbers per screen and the protected ones, "reload" commands
+  handed to the agent once (Android: bring the order app back to the front).
+- `lib/ui/screens-ring.ts`: when the screens wall rings (pure, tested).
 - Routes: `GET/POST /api/foodhub/screens` (view / `stores:map`), `PATCH/DELETE /api/foodhub/screens/:id` (`stores:map`),
   `POST /api/foodhub/screens/:id {action:"reload"}` (`orders:act`), `POST /api/foodhub/screens/heartbeat` (public in
   `proxy.ts`; `Authorization: Bearer <token>`).
-- Watchtower: rule `screen_down` in `lib/foodhub/watch/engine.ts`, only during the location's opening hours.
+- Watchtower: rules `screen_down` and `screen_waiting` in `lib/foodhub/watch/engine.ts`, only during the location's
+  opening hours.
 - Page: `app/(console)/stores/screens/page.tsx`. Relay kit: `deploy/screens/` (compose file + `agent/agent.mjs`).
 - Tests: `tests/platform-screens.test.ts`.
 

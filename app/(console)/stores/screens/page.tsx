@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { ExternalLink, Maximize2, Minimize2, MonitorPlay, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Bell, BellOff, ExternalLink, Maximize2, Minimize2, MonitorPlay, Pencil, Plus, RefreshCw, ShieldAlert, Smartphone, Trash2 } from 'lucide-react';
 import { Badge, StatusDot } from '@/components/ui/badge';
 import { Button, IconButton } from '@/components/ui/button';
 import { Banner, Card, EmptyState, PageHeader } from '@/components/ui/card';
@@ -13,10 +13,14 @@ import { StoresTabs } from '../stores-tabs';
 import { ago, api, ApiError } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
+import { playSound, unlockAudio } from '@/lib/ui/sound';
+import { ringDecision, type RingMemory } from '@/lib/ui/screens-ring';
 
 // Stores → Platform screens: the Uber Eats / DoorDash order screens running on the screen relay host (deploy/screens/),
 // live inside Food Hub. The owner signs in to each platform once, inside the screen: Food Hub never asks for or keeps a
 // platform password. Status comes from the relay agent's heartbeat; the Watchtower rings when a screen goes down.
+// "Ring on this device" turns the page into the screens wall: one device at the counter rings while orders wait on any
+// screen and when a screen drops, stays awake, and refreshes every 10 s (docs/ORDER_SCREENS_RESCUE.md, A1).
 
 type Platform = 'ubereats' | 'doordash' | 'skip' | 'other';
 type Status = 'online' | 'login_required' | 'error' | 'offline' | 'never';
@@ -24,8 +28,10 @@ type Screen = {
   id: string; name: string; platform: Platform; locationCode: string; viewUrl: string; createdBy: string; createdAt: string;
   lastSeenAt?: string | null; pageTitle?: string | null; pageHost?: string | null; titleCount?: number | null; autoReloads?: number | null;
   command?: { kind: 'reload'; at: string; by: string } | null; status: Status;
+  mode?: 'web' | 'android' | null; app?: string | null; waitingSince?: string | null; storeIds?: string[]; protectedStoreIds?: string[];
 };
-type Form = { name: string; platform: Platform; locationCode: string; viewUrl: string };
+type Form = { name: string; platform: Platform; locationCode: string; viewUrl: string; storeIds: string };
+const RING_KEY = 'takatak.screens.ring.v1';
 
 const PLATFORMS: Array<{ value: Platform; label: string }> = [
   { value: 'ubereats', label: 'Uber Eats' }, { value: 'doordash', label: 'DoorDash' }, { value: 'skip', label: 'SkipTheDishes' }, { value: 'other', label: 'Autre / Other' },
@@ -43,12 +49,42 @@ export default function PlatformScreensPage() {
   const [edit, setEdit] = useState<Screen | 'new' | null>(null);
   const [remove, setRemove] = useState<Screen | null>(null);
   const [big, setBig] = useState<string | null>(null);
+  const [ring, setRing] = useState(false);
+  const memory = useRef<RingMemory>({});
+  const ringRef = useRef(false);
   const manage = can('stores:map');
 
+  useEffect(() => { try { setRing(localStorage.getItem(RING_KEY) === '1'); } catch { /* private mode */ } }, []);
+  useEffect(() => { ringRef.current = ring; }, [ring]);
+
   const load = useCallback(() => api<{ screens: Screen[]; agentConfigured: boolean }>('/api/foodhub/screens')
-    .then((d) => { setScreens(d.screens); setAgent(d.agentConfigured); setLoaded(true); setErr(''); })
+    .then((d) => {
+      setScreens(d.screens); setAgent(d.agentConfigured); setLoaded(true); setErr('');
+      const r = ringDecision(d.screens, memory.current);
+      memory.current = r.memory;
+      if (ringRef.current && r.tone) playSound(r.tone);
+    })
     .catch((e) => setErr(e instanceof Error ? e.message : String(e))), []);
-  useEffect(() => { load(); const id = setInterval(load, 15_000); return () => clearInterval(id); }, [load]);
+  useEffect(() => { load(); const id = setInterval(load, ring ? 10_000 : 15_000); return () => clearInterval(id); }, [load, ring]);
+
+  // The wall stays awake while it rings (a sleeping screen is a tablet that is off).
+  useEffect(() => {
+    if (!ring) return;
+    let lock: { release: () => Promise<void> } | null = null;
+    const wake = async () => {
+      try { if (document.visibilityState === 'visible' && 'wakeLock' in navigator) lock = await (navigator as unknown as { wakeLock: { request: (t: string) => Promise<{ release: () => Promise<void> }> } }).wakeLock.request('screen'); } catch { /* not allowed */ }
+    };
+    wake();
+    document.addEventListener('visibilitychange', wake);
+    return () => { document.removeEventListener('visibilitychange', wake); lock?.release().catch(() => undefined); };
+  }, [ring]);
+
+  function toggleRing() {
+    const next = !ring;
+    if (next) { unlockAudio(); playSound('soft'); }
+    setRing(next);
+    try { localStorage.setItem(RING_KEY, next ? '1' : '0'); } catch { /* private mode */ }
+  }
 
   async function reload(s: Screen) {
     try { await api(`/api/foodhub/screens/${s.id}`, { method: 'POST', body: JSON.stringify({ action: 'reload' }) }); toast.success(t('Rechargement demandé', 'Reload asked'), t('Le serveur relais recharge l’écran dans 20 s au plus.', 'The relay host reloads the screen within 20 s.')); await load(); }
@@ -61,16 +97,27 @@ export default function PlatformScreensPage() {
   }
 
   const down = screens.filter((s) => s.status !== 'online' && s.status !== 'never').length;
+  const waitingNow = ringDecision(screens, {});
 
   return (
     <div>
       <PageHeader title={t('Écrans des plateformes', 'Platform screens')}
         subtitle={t('Les écrans de commandes Uber Eats, DoorDash et Skip, en direct dans Food Hub. Ils tournent sur le serveur relais, branché et toujours allumé : plus de tablette qui perd le Wi-Fi ou la connexion. Vous vous connectez une seule fois, dans l’écran lui-même — Food Hub ne voit et ne garde jamais vos mots de passe.', 'The Uber Eats, DoorDash and Skip order screens, live inside Food Hub. They run on the relay host, wired and always on: no more tablet losing its Wi-Fi or its sign-in. You sign in once, inside the screen itself — Food Hub never sees or keeps your passwords.')}
-        right={manage ? <Button onClick={() => setEdit('new')} icon={<Plus className="size-4" />}>{t('Ajouter un écran', 'Add a screen')}</Button> : undefined} />
+        right={<div className="flex flex-wrap gap-2">
+          <Button variant={ring ? 'primary' : 'ghost'} onClick={toggleRing} icon={ring ? <Bell className="size-4" /> : <BellOff className="size-4" />}>
+            {ring ? t('Sonne sur cet appareil', 'Rings on this device') : t('Sonner sur cet appareil', 'Ring on this device')}
+          </Button>
+          {manage && <Button onClick={() => setEdit('new')} icon={<Plus className="size-4" />}>{t('Ajouter un écran', 'Add a screen')}</Button>}
+        </div>} />
       <StoresTabs />
       {err && <Banner tone="stop" className="mb-4">{err}</Banner>}
       {loaded && !agent && manage && (
         <Banner tone="warn" className="mb-4">{t('Le serveur relais n’est pas encore branché : réglez FOODHUB_SCREENS_AGENT_TOKEN (24 caractères ou plus) sur Food Hub et sur le serveur relais. Guide : docs/PLATFORM_SCREENS.md.', 'The relay host is not connected yet: set FOODHUB_SCREENS_AGENT_TOKEN (24+ characters) on Food Hub and on the relay host. Guide: docs/PLATFORM_SCREENS.md.')}</Banner>
+      )}
+      {waitingNow.waiting > 0 && (
+        <Banner tone="warn" className={cn('mb-4 text-base', ring && 'animate-pulse')}>
+          <strong>{t(`${waitingNow.waiting} commande(s) en attente`, `${waitingNow.waiting} order(s) waiting`)}</strong> — {waitingNow.waitingOn.join(' · ')}. {t('Acceptez-les dans l’écran de la plateforme.', 'Accept them inside the platform screen.')}
+        </Banner>
       )}
       {loaded && down > 0 && <Banner tone="stop" className="mb-4">{t(`${down} écran(s) à vérifier : hors ligne, déconnecté(s) ou planté(s). Rechargez, ou reconnectez-vous dans l’écran.`, `${down} screen(s) need attention: offline, signed out or crashed. Reload, or sign in again inside the screen.`)}</Banner>}
 
@@ -120,7 +167,16 @@ function ScreenTile({ s, lang, loc, big, manage, canAct, onBig, onReload, onEdit
           <div className="flex flex-wrap items-center gap-2 font-bold text-ink">
             <Badge tone="dark">{platformLabel(s.platform)}</Badge>{s.name}
             {typeof s.titleCount === 'number' && s.titleCount > 0 && <Badge tone="wait">{s.titleCount} {t('en attente', 'waiting')}</Badge>}
+            {s.mode === 'android' && <Badge tone="info" icon={<Smartphone className="size-3" />} title={s.app ?? undefined}>Android</Badge>}
           </div>
+          {!!s.storeIds?.length && (
+            <div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-ink-3">
+              {t('Magasins', 'Stores')} :
+              {s.storeIds.map((id) => s.protectedStoreIds?.includes(id)
+                ? <Badge key={id} tone="stop" icon={<ShieldAlert className="size-3" />} title={t('Protégé : personne n’agit sur ce magasin depuis Food Hub.', 'Protected: nobody acts on this store from Food Hub.')}>{id} · {t('ne jamais toucher', 'never act')}</Badge>
+                : <Badge key={id}>{id}</Badge>)}
+            </div>
+          )}
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-ink-3">
             <StatusDot tone={st.tone} pulse={s.status === 'online'} />{st.text}<span>· {loc}</span>
             {s.pageHost && <span>· {s.pageHost}</span>}
@@ -148,6 +204,7 @@ function ScreenDialog({ screen, locations, onClose, onDone }: { screen: Screen |
   const { t } = useI18n();
   const [f, setF] = useState<Form>(() => ({
     name: screen?.name ?? '', platform: screen?.platform ?? 'ubereats', locationCode: screen?.locationCode ?? locations[0]?.code ?? '', viewUrl: screen?.viewUrl ?? '',
+    storeIds: (screen?.storeIds ?? []).join(', '),
   }));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -177,6 +234,10 @@ function ScreenDialog({ screen, locations, onClose, onDone }: { screen: Screen |
         <Field label={t('Adresse de l’écran (serveur relais)', 'Screen address (relay host)')}
           hint={t('L’adresse https de cet écran sur le serveur relais, ex. https://ecrans.exemple.ca/uber-stleonard/. Jamais de mot de passe dans l’adresse.', 'This screen’s https address on the relay host, e.g. https://screens.example.ca/uber-stleonard/. Never a password in the address.')}>
           <Input value={f.viewUrl} inputMode="url" placeholder="https://" onChange={(e) => set('viewUrl', e.target.value)} />
+        </Field>
+        <Field label={t('Magasins affichés (facultatif)', 'Stores shown (optional)')}
+          hint={t('Les numéros de magasin de la plateforme que ce compte affiche, séparés par des virgules. Un magasin protégé est marqué « ne jamais toucher ».', 'The platform store numbers this account shows, separated by commas. A protected store is marked “never act”.')}>
+          <Input value={f.storeIds} inputMode="numeric" onChange={(e) => set('storeIds', e.target.value)} />
         </Field>
       </div>
     </Modal>

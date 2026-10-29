@@ -44,12 +44,18 @@ title) and opens a Watchtower incident when a screen is down during opening hour
 
 | Lane | Who | Branch | Owns these files | Tasks |
 |---|---|---|---|---|
-| **A: Food Hub side** | Claude cloud session "busy-cannon" | `claude/busy-cannon-5spy86` | `lib/foodhub/screens.ts`, `app/api/foodhub/screens/**`, `app/(console)/stores/screens/**`, screen rules in `lib/foodhub/watch/engine.ts`, `tests/platform-screens.test.ts`, `docs/PLATFORM_SCREENS.md`, this file | A1 screens wall that rings · A2 `screen_waiting` alert · A3 heartbeat v2 (below) · A4 stores covered by each screen (Po Poulet NDG flagged) |
+| **A: Food Hub side** | Claude cloud session "busy-cannon" | `claude/busy-cannon-5spy86` | `lib/foodhub/screens.ts`, `app/api/foodhub/screens/**`, `app/(console)/stores/screens/**`, `lib/ui/screens-ring.ts`, screen rules in `lib/foodhub/watch/*`, `tests/platform-screens.test.ts`, `docs/PLATFORM_SCREENS.md`, this file | A1 screens wall that rings · A2 `screen_waiting` alert · A3 heartbeat v2 (below) · A4 stores covered by each screen (Po Poulet NDG flagged) |
 | **B: relay host side** | second Claude Code session | its own (`feature/screens-relay-kit` from `origin/main` if it has none) | `deploy/screens/**`, new `docs/PLATFORM_SCREENS_RELAY.md` | B1 generator: one list → compose for N screens · B2 Android mode (Play Store app) + `agent/android.mjs` · B3 in-store Windows PC kit (PowerShell) · B4 owner guide |
 | **C: operations** | the owner (or the agent he names per portal) | none | none | reactivate paused stores · sign in once in each screen · auto-accept toggle · Coolify token |
 
 `WORKLOG.md` and `docs/PROGRESS.md`: lane A writes the line for the whole effort; lane B puts its status in its pull
 request and in the issue.
+
+## Lane A status
+
+- 2026-10-29: A1 screens wall that rings (Stores → Platform screens → "Ring on this device"), A2 `screen_waiting`,
+  A3 heartbeat v2 accepted and stored (`mode`, `app`, `waiting`, `waitingSince`), A4 store numbers per screen with the
+  protected ones flagged: **done**, tested (`tests/platform-screens.test.ts`). Lane B can rely on heartbeat v2 now.
 
 ## Contract between lanes: heartbeat v2
 

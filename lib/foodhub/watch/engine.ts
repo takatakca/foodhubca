@@ -296,6 +296,21 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
       detailEn: st === 'offline' && seenMin !== null ? `No signal from the relay host for ${seenMin} min` : sc.pageTitle ?? undefined });
   }
 
+  // Orders waiting on a platform screen (count in the page title, or the Android order app's notification count) for
+  // longer than the "order waiting" delay, during opening hours: nobody is answering that screen. Only an online screen
+  // counts — a screen that is down rings as screen_down instead.
+  for (const sc of screens) {
+    if (!on('screen_waiting') || screenStatus(sc, now) !== 'online' || !sc.titleCount || !sc.waitingSince) continue;
+    const waitedSec = (now - Date.parse(sc.waitingSince)) / 1000;
+    if (!(waitedSec >= s.unacceptedAfterSec)) continue;
+    if (!locationOpen(hours, sc.locationCode, brandsAt(sc.locationCode), now, tz)) continue;
+    const min = Math.max(1, Math.round(waitedSec / 60));
+    out.push({ key: `screen_waiting:${sc.id}`, kind: 'screen_waiting', severity: 'critical', locationCode: sc.locationCode, deviceId: sc.id,
+      title: `${sc.titleCount} commande(s) en attente sur ${SCREEN_PLATFORM_LABEL[sc.platform]} « ${sc.name} » — ${loc(sc.locationCode)}`,
+      titleEn: `${sc.titleCount} order(s) waiting on ${SCREEN_PLATFORM_LABEL[sc.platform]} “${sc.name}” — ${loc(sc.locationCode)}`,
+      detail: `Personne n’a répondu depuis ${min} min`, detailEn: `Nobody has answered for ${min} min` });
+  }
+
   // Silence alarm: a platform that used to send orders has sent none for `silenceAfterMin` of OPENING time — a closed
   // night never counts — over its stores that are taking orders (relay-only stores are not the platform's own link),
   // while one of them is open right now: a webhook or a key is probably broken. Stores without known hours never count.

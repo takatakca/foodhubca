@@ -1,5 +1,12 @@
 # Food Hub: progress log and task board
 
+## 2026-10-29 — Order screens rescue, lane A: one device rings for every platform screen (`claude/busy-cannon-5spy86`)
+
+- Problem: DoorDash / Uber Eats tablets drop their Wi-Fi or sign-in; the platforms pause, then deactivate the stores. Plan and lanes: `docs/ORDER_SCREENS_RESCUE.md` (lane A Food Hub side, lane B relay kit by a second agent, lane C the owner's portal steps; agents coordinate on board #105).
+- Stores → Platform screens → **Ring on this device**: the screens wall rings while orders wait on any online screen and when a screen drops, stays awake, refreshes every 10 s (`lib/ui/screens-ring.ts`).
+- Watchtower **`screen_waiting`**: orders unanswered on a screen past the "order waiting" delay during opening hours → critical incident (beep → SMS → call → owner).
+- Heartbeat v2 (`mode` web|android, `app`, `waiting`), `waitingSince`, store numbers per screen with protected stores (Po Poulet NDG 27982486) marked "never act". Tests: `tests/platform-screens.test.ts`.
+
 ## 2026-10-29 — TAKATAK Suite premium: directory, one frame for the nine apps (`claude/busy-cannon-5spy86`)
 
 - Food Hub keeps the suite directory (`lib/foodhub/suite/directory.ts`): each app announces `<app>.installed` (with its https address) or `<app>.uninstalled` per Clover merchant through `/api/suite/v1/events`; any connected app reads `GET /api/suite/v1/directory?merchant=` (signed) for its Suite page and app switcher. Settings → Connected apps shows how many restaurants have each app.

@@ -1,5 +1,23 @@
 # Food Hub: progress log and task board
 
+## 2026-10-23 — Clover picture register / kiosk: research + architecture (`docs/clover-visual-register-research`)
+
+- New folder `docs/clover-visual-register/` (docs only, no code, no env, no deploy): README (FR then EN one-page
+  summary), RESEARCH_CLOVER_TECH, LEGAL_AND_MARKET (not legal advice + lawyer questions), ARCHITECTURE (mermaid data
+  flow, Food Hub reuse), ROADMAP (P0 / P1 / P2, acceptance checks, App Market checklist), OWNER_DECISIONS (11, FR+EN).
+- Verdict: staff picture register first, as a Kotlin Android APK on the Clover device (web apps cannot be the register
+  screen); French-first kiosk second (Clover Kiosk is English only and not offered in Québec). Blocker to clear before
+  any Québec sale: Revenu Québec SRM / WEB-SRM (two third-party MEV apps for Clover, by Pulsar informatique and
+  15535743 Canada inc., are certified; a register that takes the order is probably part of the SRS). Draft conflict: leave
+  "on2go" (N4NYCJCZ17FF4) to the free ON2GO app, new Android record for the register (decision 2).
+- Fact-check pass (PR #98 review, same day): SRM reading made cautious (RQ puts order entry in the certified SRS, so
+  the register is assumed part of the SRS until RQ says otherwise; MEV vendor questions; A15 receipt check; per-MEV
+  capability table); stray Clover "Sales Tax" step (P0.11) and tax guard; Clover policy limits (name near "Register",
+  no remote JS in a WebView, no in-app ads, quick reference guide, Clover billing for every tier); Law 25 privacy
+  impact assessment (P0.12); Charter, CPA, Competition Act and alcohol citations read on LégisQuébec / Justice Laws;
+  Clover Kiosk sold in Canada except Québec; targetSdk 29. Owner drafts of 2026-10-23 recorded: J0H36VTJBSBBP
+  ("TAKATAK Picture Register" / "Caisse en images TAKATAK", type unset), N4NYCJCZ17FF4 renamed "ON2GO".
+
 ## 2026-10-21 — Simpler sign-in page + « Continuer avec Google » (`feature/login-google-signin`)
 
 - One calm sign-in screen: Food Hub mark, big « Continuer avec Google / Continue with Google » (only when `GOOGLE_OAUTH_CLIENT_ID` is set), the code-by-email/text sign-in as the second option, the owner recovery behind a small link; FR first, EN; 44 px targets; first run, code and recovery steps kept.

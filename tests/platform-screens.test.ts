@@ -3,8 +3,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Actor } from '../lib/foodhub/activity';
 import { allDayWeek, saveHours } from '../lib/foodhub/hours';
 import {
-  addScreen, agentAuthorized, checkViewUrl, cleanStoreIds, getScreen, listScreens, nextWaitingSince, protectedStoreIds, recordHeartbeat, removeScreen,
-  requestReload, SCREEN_OFFLINE_AFTER_MS, screenStatus, titleCount, updateScreen, type PlatformScreen,
+  addScreen, agentAuthorized, allowedScreenUrl, checkViewUrl, cleanStoreIds, getScreen, listScreens, nextWaitingSince, orderPaths, protectedStoreIds,
+  recordHeartbeat, removeScreen, requestOpen, requestReload, SCREEN_OFFLINE_AFTER_MS, screenStartUrl, screenStatus, setupScreens, titleCount, updateScreen,
+  type PlatformScreen,
 } from '../lib/foodhub/screens';
 import { listIncidents, runWatch } from '../lib/foodhub/watch/engine';
 import { POST as heartbeatRoute } from '../app/api/foodhub/screens/heartbeat/route';
@@ -213,5 +214,108 @@ describe('screens wall: when the one device rings', () => {
     expect(r).toMatchObject({ tone: 'order', newlyDown: [] });
     // A count on a screen that is not online is not trusted.
     expect(ringDecision([{ ...b, status: 'login_required' }], {}).waiting).toBe(0);
+  });
+});
+
+describe('numbered screens and the open command (contract v2.1)', () => {
+  it('start pages are the platforms\' own https sites; anything else is never sent', () => {
+    expect(screenStartUrl('doordash', {})).toBe('https://order.doordash.com/');
+    expect(screenStartUrl('ubereats', {})).toBe('https://merchants.ubereats.com/manager/orders');
+    expect(screenStartUrl('skip', {})).toBe('https://restaurants.skipthedishes.com/');
+    expect(screenStartUrl('other', {})).toBeNull();
+    expect(screenStartUrl('skip', { FOODHUB_SCREEN_START_SKIP: 'https://partner.skipthedishes.com/orders' })).toBe('https://partner.skipthedishes.com/orders');
+    expect(screenStartUrl('doordash', { FOODHUB_SCREEN_START_DOORDASH: 'https://evil.example/doordash.com' })).toBeNull();
+    expect(allowedScreenUrl('https://merchant-portal.doordash.com/x')).toBe(true);
+    expect(allowedScreenUrl('http://order.doordash.com/')).toBe(false);
+    expect(allowedScreenUrl('https://doordash.com.evil.example/')).toBe(false);
+    expect(allowedScreenUrl('https://user:pw@order.doordash.com/')).toBe(false);
+  });
+
+  it('sets up s01… with so many DoorDash, Uber Eats and Skip, each opening its sign-in page; a second run keeps them', async () => {
+    const r = await setupScreens({ baseUrl: 'https://screens.example.ca', locationCode: 'NDG_6284', counts: { doordash: 8, ubereats: 6, skip: 4 } }, ACTOR);
+    if ('error' in r) throw new Error(r.error);
+    expect(r.created.map((x) => x.id)).toEqual(Array.from({ length: 18 }, (_, i) => `s${String(i + 1).padStart(2, '0')}`));
+    const s1 = await getScreen('s01');
+    expect(s1).toMatchObject({ platform: 'doordash', name: 'DoorDash 1', viewUrl: 'https://screens.example.ca/s01/' });
+    expect(s1?.command).toMatchObject({ kind: 'open', url: 'https://order.doordash.com/' });
+    expect(await getScreen('s09')).toMatchObject({ platform: 'ubereats', name: 'Uber Eats 1' });
+    expect(await getScreen('s18')).toMatchObject({ platform: 'skip', name: 'SkipTheDishes 4', viewUrl: 'https://screens.example.ca/s18/' });
+    // The agent with SCREEN_ID=s01 gets the open command once, with the URL.
+    const hb = await recordHeartbeat({ screens: [{ id: 's01', state: 'blank' }] });
+    expect(hb).toEqual({ commands: [{ id: 's01', kind: 'open', url: 'https://order.doordash.com/' }], unknown: [] });
+    expect((await recordHeartbeat({ screens: [{ id: 's01', state: 'login' }] })).commands).toEqual([]);
+    const again = await setupScreens({ baseUrl: 'https://screens.example.ca/', locationCode: 'NDG_6284', counts: { doordash: 20 } }, ACTOR);
+    if ('error' in again) throw new Error(again.error);
+    expect(again.kept).toHaveLength(18);
+    expect(again.created.map((x) => x.id)).toEqual(['s19', 's20']);
+    expect(await setupScreens({ baseUrl: 'https://u:p@x.ca', locationCode: 'NDG_6284', counts: { doordash: 1 } }, ACTOR)).toHaveProperty('error');
+    expect(await setupScreens({ baseUrl: 'https://x.ca', locationCode: 'NDG_6284', counts: {} }, ACTOR)).toHaveProperty('error');
+    expect(await setupScreens({ baseUrl: 'https://x.ca', locationCode: 'NDG_6284', counts: { doordash: 40 } }, ACTOR)).toHaveProperty('error');
+  });
+
+  it('switching a screen\'s channel opens the new platform\'s page; "Sign-in page" asks it again', async () => {
+    const s = await newScreen();
+    const u = await updateScreen(s.id, { platform: 'skip' }, ACTOR);
+    expect(u && !('error' in u) && u.command).toMatchObject({ kind: 'open', url: 'https://restaurants.skipthedishes.com/' });
+    await recordHeartbeat({ screens: [{ id: s.id, state: 'ok' }] });
+    const o = await requestOpen(s.id, ACTOR);
+    expect(o && !('error' in o) && o.command?.url).toBe('https://restaurants.skipthedishes.com/');
+    const other = await updateScreen(s.id, { platform: 'other' }, ACTOR);
+    expect(other && !('error' in other) && other.platform).toBe('other');
+    expect(await requestOpen(s.id, ACTOR)).toHaveProperty('error');
+  });
+
+  it('order paths say how each platform\'s orders reach Clover', async () => {
+    const paths = await orderPaths();
+    expect(paths.map((p) => p.platform)).toEqual(['doordash', 'ubereats', 'skip']);
+    for (const p of paths) expect(['via_clover', 'direct', 'none']).toContain(p.mode);
+  });
+});
+
+describe('screens wall layouts', () => {
+  it('grid views, order, pages', async () => {
+    const L = await import('../lib/ui/screens-layout');
+    expect(L.GRID_VIEWS.map((v) => L.gridShape(v))).toEqual([
+      { cols: 1, rows: 1 }, { cols: 2, rows: 1 }, { cols: 2, rows: 2 }, { cols: 4, rows: 2 }, { cols: 4, rows: 3 }, { cols: 4, rows: 4 },
+    ]);
+    const ids = Array.from({ length: 18 }, (_, i) => `s${String(i + 1).padStart(2, '0')}`);
+    expect(L.orderIds(['a', 'b', 'c'], ['c', 'gone', 'a', 'c'])).toEqual(['c', 'a', 'b']);
+    expect(L.moveId(['a', 'b', 'c', 'd'], 'd', 'b')).toEqual(['a', 'd', 'b', 'c']);
+    expect(L.moveId(['a', 'b', 'c', 'd'], 'a', 'c')).toEqual(['b', 'c', 'a', 'd']);
+    expect(L.moveId(['a', 'b'], 'a', 'zz')).toEqual(['a', 'b']);
+    expect(L.pageCount(18, 16)).toBe(2);
+    expect(L.pageSlice(ids, 16, 1)).toEqual(['s17', 's18']);
+    expect(L.pageSlice(ids, 16, 9)).toEqual(['s17', 's18']); // past the end → last page
+    expect(L.pageSlice(ids, 4, -3)).toEqual(['s01', 's02', 's03', 's04']);
+  });
+
+  it('custom board: even first layout, drag and resize stay inside 12 × 12, moved tile comes to the front', async () => {
+    const L = await import('../lib/ui/screens-layout');
+    const ids = Array.from({ length: 18 }, (_, i) => `s${i + 1}`);
+    const board = L.defaultCustom(ids);
+    expect(board).toHaveLength(18);
+    for (const t of board) {
+      expect(t.x + t.w).toBeLessThanOrEqual(12);
+      expect(t.y + t.h).toBeLessThanOrEqual(12);
+      expect(t.w).toBeGreaterThanOrEqual(2);
+    }
+    let tiles = L.changeTile(board, 's1', { dx: 50, dy: -50 });
+    expect(tiles.at(-1)).toMatchObject({ id: 's1', x: 12 - board[0].w, y: 0 });
+    tiles = L.changeTile(tiles, 's1', { dw: -10, dh: 100 });
+    expect(tiles.at(-1)).toMatchObject({ w: 2, h: 12, y: 0 });
+    tiles = L.removeTile(tiles, 's2');
+    expect(tiles.some((t) => t.id === 's2')).toBe(false);
+    tiles = L.addTile(tiles, 's2');
+    expect(tiles.at(-1)).toEqual({ id: 's2', x: 4, y: 4, w: 4, h: 4 });
+    expect(L.addTile(tiles, 's2')).toBe(tiles);
+  });
+
+  it('reads what the device saved, and falls back on anything odd', async () => {
+    const L = await import('../lib/ui/screens-layout');
+    expect(L.parseWall(null)).toEqual(L.DEFAULT_WALL);
+    expect(L.parseWall('{oops')).toEqual(L.DEFAULT_WALL);
+    expect(L.parseWall(JSON.stringify({ view: '99', page: -2, order: ['s01', 5], custom: [{ id: 's01', x: 20, y: 0, w: 1, h: 3 }, { id: 'bad' }] })))
+      .toEqual({ view: '4', page: 0, order: ['s01'], tab: null, custom: [{ id: 's01', x: 10, y: 0, w: 2, h: 3 }] });
+    expect(L.parseWall(JSON.stringify({ view: 'custom', tab: 's03' }))).toMatchObject({ view: 'custom', tab: 's03' });
   });
 });

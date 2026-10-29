@@ -13,6 +13,17 @@ its sign-in loses orders without anyone noticing.
   and the page title (platforms put the number of waiting orders there, e.g. "(2) Orders"). A blank or crashed page is
   reloaded by itself. During opening hours, a screen that is offline, signed out or crashed opens a **Watchtower
   incident** (`screen_down`: screen beep → SMS → call → owner, like a tablet that is off).
+- **The screens wall:** Stores → Platform screens shows every screen side by side: **1, 2, 4, 8, 12 or 16 at a
+  time** (pages beyond), **tabs** (one big screen, the others as tabs), or **custom** (tap "Arrange", then drag each
+  screen anywhere on a 12 × 12 board and resize it from its corner; arrow keys move, Shift + arrows resize). Drag a
+  screen's title bar onto another to swap places; double-click it to make it big. **Full screen** hides the console.
+  The view, the order and the board are saved on each device. Each tile shows its channel (switch DoorDash / Uber Eats /
+  Skip right there: the screen opens that platform's sign-in page), its status, the orders waiting, Reload and
+  "Sign-in page".
+- **Set up screens:** creates numbered screens `s01`, `s02`… in one go (e.g. 8 DoorDash, 6 Uber Eats, 4 Skip) for one
+  location, each at `<relay host>/sNN/` and opening its platform's sign-in page. The relay host uses the same numbers.
+- **Orders → Clover strip:** above the wall, how each platform's orders reach Clover (the platform's own Clover link, or
+  Food Hub's connection, or "screen only") and when the last one came in.
 - **Rings on one device:** Stores → Platform screens → **Ring on this device** turns any tablet or PC at the counter into
   the screens wall: it rings at every refresh (10 s) while orders wait on any online screen, rings an alarm when a
   screen drops, stays awake, and shows the waiting count in a banner. The choice is kept on that device.

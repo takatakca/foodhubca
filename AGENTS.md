@@ -26,4 +26,4 @@ Everything visual or written for TAKATAK follows `BRAND.md` (logo, colours, tagl
 
 ## Continuity documents
 
-Before resuming work, read `docs/AGENT_HANDOFF.md` and `docs/TASK_QUEUE.md` after this file; they do not replace the private task board. Update the handoff and worklog on your branch before stopping. Never publish private operational notes, credentials or the local `private/` folder.
+Before resuming work, read `docs/REGISTRE_TAKATAK.md` (all the work since day 1, and the owner's standing orders of 2026-10-29 in its §0 and in `CLAUDE.md`), then `docs/AGENT_HANDOFF.md` and `docs/TASK_QUEUE.md` after this file; they do not replace the private task board. Update the handoff and worklog on your branch before stopping. Never publish private operational notes, credentials or the local `private/` folder.

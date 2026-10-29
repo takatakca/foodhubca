@@ -40,7 +40,10 @@ Il ne contient aucun secret (dépôt public) : ni mot de passe, ni clé, ni jeto
    facturation GitHub Actions et les vérifications locales du dépôt sont vertes). Jamais de commit direct sur `main`,
    jamais de force-push, jamais d'historique réécrit, jamais d'effacement de travail qu'on n'a pas fait. La PR d'un autre
    agent : la fusionner seulement si elle se fusionne proprement et que les vérifications passent sur le résultat ;
-   sinon laisser une note sur la PR.
+   sinon laisser une note sur la PR. **Attention : fusionner peut mettre en ligne** — Coolify peut déployer `main` à
+   chaque push (`docs/DEPLOYMENT.md` §3 de Food Hub ; les autres sites aussi, voir le fichier principal hébergement).
+   Donc, pour un changement de code, toutes les vérifications du dépôt d'abord (pour Food Hub : build +
+   `verify:foodhub`), et jamais de déploiement à la main.
 8. Notes dans **les deux** : GitHub (tableau #105 + fichiers du dépôt) **et** Google Drive « 00 — Opérations TAKATAK ».
 
 **Règles dures (depuis toujours)**

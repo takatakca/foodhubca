@@ -26,7 +26,10 @@ All agents, wherever they run (Claude Code desktop or cloud, claude.ai, Cursor, 
 5. **Merge your own PR** once its checks are green (CI green, or the only red is the known GitHub Actions billing block
    and the repo's local checks are green). Another agent's PR: merge it only if it merges cleanly and the checks pass on
    the result; otherwise leave a note on it. Still never: a direct commit or push on `main`, a force-push, rewritten
-   history. The owner still deploys.
+   history. **Merging can mean going live:** Coolify may deploy `main` on push (`docs/DEPLOYMENT.md` §3; the image build
+   re-runs audit, typecheck, lint, tests, build and E2E and refuses to publish on a failure). So before merging a code
+   change, run the full checks of §3 below yourself (build + `verify:foodhub` for orders, webhooks, menus, Clover), and
+   never trigger a deploy by hand.
 6. **Copilot:** when it can help solve a problem, turn it on (Copilot review on the PR, or assign Copilot to an issue).
 7. Notes go to **both** GitHub (board + repo files) **and** Google Drive « 00 — Opérations TAKATAK ».
 
@@ -45,7 +48,7 @@ through a pull request; since 2026-10-29 an agent merges its own PR once the che
   3. Before you say "done": you are not on `main`, the checks ran, the work is committed, the branch is pushed, the
      working tree is clean.
   4. Report: branch, SHA, what changed, checks and results, env / migration / deploy notes. Merge the PR yourself once
-     the checks are green (2026-10-29); the owner deploys.
+     the checks are green (2026-10-29); a merge may go live (Coolify deploy on push), never deploy by hand.
 - **Never discard uncommitted work you did not create** (`reset --hard`, `clean -fd`, `checkout -- .`, `restore .`).
   Report it to the owner instead.
 - The owner works in the main checkout (`C:\Users\fansh\Documents\GitHub\foodhubca`, on `main`). **Never commit
@@ -85,8 +88,9 @@ through a pull request; since 2026-10-29 an agent merges its own PR once the che
   - always: `npm run typecheck`, `npm run lint` (0 errors), `npm test`;
   - for anything touching orders, webhooks, menus or Clover, also: `rm -rf .next && npx next build --webpack`, then
     `npm run verify:foodhub` (set `FOODHUB_E2E_MOCK_PORT` / `FOODHUB_E2E_APP_PORT` when 4799/4800 are busy).
-- `main` is deployed by the owner from Coolify (manual Deploy). Never deploy, and never push to `main` (see "Git: main
-  is protected"). Merge your own PR once its checks are green (owner's order 2026-10-29).
+- Never deploy by hand, and never push to `main` (see "Git: main is protected"). Merge your own PR once its checks are
+  green (owner's order 2026-10-29); a merge to `main` may go live through Coolify's deploy on push
+  (`docs/DEPLOYMENT.md` §3), so the full checks come first.
 
 ## 4. Hard rules (owner's orders, never break them)
 - **Po Poulet NDG (DoorDash store 27982486) is never touched.** No publish, no 86, no Menu Request answer, no support

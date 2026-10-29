@@ -17,5 +17,6 @@ New or changed environment variables, SQL migrations, Coolify settings. Write "n
 Order of merge, restart needed, owner actions after deploy. Write "none" if none.
 
 ## Merge
-The author merges once the checks are green (owner's order 2026-10-29); nobody pushes to `main` directly. The owner deploys.
+The author merges once the checks are green (owner's order 2026-10-29); nobody pushes to `main` directly. A merge may go live
+(Coolify deploy on push, `docs/DEPLOYMENT.md` §3): for a code change, the full checks above come first.
 Sign: `— signé : <agent> (<session>) @ <where> · <YYYY-MM-DD HH:MM>`

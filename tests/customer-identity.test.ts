@@ -13,7 +13,7 @@ import { POST as startPost } from '../app/api/foodhub/customers/verify/start/rou
 import { countCustomers, findCustomerByPhone, getCustomer } from '../lib/foodhub/customers/store';
 import { resolveCustomerToken, signCustomerToken, verifyCustomerToken } from '../lib/foodhub/customers/token';
 import { allowedCustomerTenants, customerTenant, tenantDisplayName } from '../lib/foodhub/customers/types';
-import { checkVerification, resetCustomerVerifyLimits, startVerification, verifySmsText } from '../lib/foodhub/customers/verify';
+import { checkVerification, resetCustomerVerifyLimits, startVerification, verifyReadiness, verifySmsText } from '../lib/foodhub/customers/verify';
 import { saveDirectOrder } from '../lib/foodhub/delivery/store';
 import type { DirectOrder } from '../lib/foodhub/delivery/types';
 import { listOutbox } from '../lib/foodhub/notify';
@@ -262,6 +262,25 @@ describe('Twilio Verify provider', () => {
     let last = 0;
     for (let i = 0; i < 5; i++) last = (await check({ tenant: 'pppmtl', phone: '514 555 1234', code: '000000' })).status;
     expect(last).toBe(410);
+  });
+
+  it('uses the Twilio account of the Verify service when TWILIO_VERIFY_ACCOUNT_SID / _AUTH_TOKEN are set', async () => {
+    vi.stubEnv('TWILIO_VERIFY_ACCOUNT_SID', 'AC2');
+    vi.stubEnv('TWILIO_VERIFY_AUTH_TOKEN', 'other-token');
+    try {
+      expect(verifyReadiness()).toEqual({ ok: true, provider: 'twilio_verify' });
+      const s = await start({ tenant: 'pppmtl', phone: '514 555 1234' });
+      expect(s.status).toBe(200);
+      expect(calls.at(-1)!.headers.authorization).toBe(`Basic ${Buffer.from('AC2:other-token').toString('base64')}`);
+      // Only the Verify account is needed: the texting account may be absent.
+      vi.stubEnv('TWILIO_ACCOUNT_SID', ''); vi.stubEnv('TWILIO_AUTH_TOKEN', '');
+      expect(verifyReadiness()).toEqual({ ok: true, provider: 'twilio_verify' });
+      vi.stubEnv('TWILIO_VERIFY_AUTH_TOKEN', '');
+      expect(verifyReadiness().ok).toBe(false);
+    } finally {
+      vi.stubEnv('TWILIO_VERIFY_ACCOUNT_SID', ''); vi.stubEnv('TWILIO_VERIFY_AUTH_TOKEN', '');
+      vi.stubEnv('TWILIO_ACCOUNT_SID', 'AC1'); vi.stubEnv('TWILIO_AUTH_TOKEN', 'tw-token');
+    }
   });
 
   it('Twilio refusing to send more codes becomes a 429 for the website', async () => {

@@ -80,12 +80,21 @@ describe('integration catalogue (lib/foodhub/integrations/catalog.ts)', () => {
     const sections = [...OUTREACH.matchAll(/^### ([A-C]\d)\. /gm)].map((m) => m[1]);
     expect(queue.map((r) => r.outreach).sort()).toEqual([...sections].sort()); // one row per email, none sent yet
     expect(queue.map((r) => r.id)).toEqual(expect.arrayContaining(['uber_eats', 'doordash', 'clover', 'square', 'trexity']));
-    const sent: Integration = { ...INTEGRATIONS.find((r) => r.id === 'square')!, outreachState: 'sent' };
-    const answered: Integration = { ...sent, outreachState: 'answered' };
-    expect(outreachStateOf(sent)).toBe('sent');
-    expect(outreachStateOf(answered)).toBe('answered');
+    const square: Integration = INTEGRATIONS.find((r) => r.id === 'square')!;
+    expect(outreachStateOf(square)).toBe('ready');
+    expect(outreachStateOf(square, { C2: 'sent' })).toBe('sent');
     expect(outreachStateOf(INTEGRATIONS.find((r) => r.id === 'on2go_direct')!)).toBeUndefined();
-    expect(integrationStatus(answered)).toBe('to_request'); // an answer does not change what works
+    expect(integrationStatus(square)).toBe('to_request'); // an answer lives in OUTREACH_PROGRESS, never in the technical state
+    expect(outreachQueue(['uber'], { C2: 'sent' }).map((r) => r.outreach)).toContain('C2'); // sent: still waiting on an answer
+    expect(outreachQueue(['uber'], { C2: 'answered' }).map((r) => r.outreach)).not.toContain('C2');
+  });
+  it('an email shared by two rows has one progress: answered A3 leaves neither SkipTheDishes nor Skip Delivery in the queue', () => {
+    const a3 = INTEGRATIONS.filter((r) => r.outreach === 'A3').map((r) => r.id).sort();
+    expect(a3).toEqual(['skip', 'skip_delivery']);
+    const queue = outreachQueue(['uber'], { A3: 'answered' });
+    expect(queue.some((r) => r.outreach === 'A3')).toBe(false);
+    for (const id of a3) expect(outreachStateOf(INTEGRATIONS.find((r) => r.id === id)!, { A3: 'answered' })).toBe('answered');
+    expect(outreachQueue(['uber'], { A3: 'sent' }).filter((r) => r.outreach === 'A3')).toHaveLength(1);
   });
   it('the summary counts every row once', () => {
     const s = integrationSummary(['uber']);

@@ -6,8 +6,9 @@
 //     (livePlatforms(), the same switch as the public pages), never from this file;
 //   - only 'live' rows may be shown as available on a public page (publicIntegrations());
 //   - `confirmed: false` = the entry point comes from a secondary source: check it on the partner's own site first.
-// When the owner sends an email, set the row's `outreachState` to 'sent', then 'answered' (agents record the answers);
-// never change `status` for that: it says what works, not who we wrote to. Tests:
+// When the owner sends an email, record it in OUTREACH_PROGRESS under its section ('sent', then 'answered'): one entry
+// per email, shared by every row that points to it; never change a row's `status` for that: it says what works, not
+// who we wrote to. Tests:
 // tests/integrations-catalog.test.ts.
 
 import type { ChannelKey } from '../types';
@@ -48,10 +49,8 @@ export interface Integration {
   code?: string;
   /** Official entry point (form, team, program): public information only, never a person's address. */
   entry: string;
-  /** Section of docs/PARTNER_OUTREACH.md holding its ready email (A1 … C7). */
+  /** Section of docs/PARTNER_OUTREACH.md holding its ready email (A1 … C7); its progress is in OUTREACH_PROGRESS. */
   outreach?: string;
-  /** Where that email stands; unset with an `outreach` section = 'ready' (none sent yet on 2026-10-30). */
-  outreachState?: OutreachState;
   /** True when the entry point was read on the partner's own site. */
   confirmed: boolean;
 }
@@ -98,20 +97,26 @@ export function publicIntegrations(live: HubPlatform[] = livePlatforms()): Integ
   return integrationCatalog(live).filter((row) => row.status === 'live');
 }
 
+/** Where each partner email stands, keyed by its docs/PARTNER_OUTREACH.md section. One entry per email, shared by every
+ * row that points to it (A3 serves both SkipTheDishes and Skip Delivery). Missing = 'ready': none sent on 2026-10-30. */
+export const OUTREACH_PROGRESS: Readonly<Record<string, OutreachState>> = {};
+
 /** Where a row's partner email stands (undefined: it has none). */
-export function outreachStateOf(row: Integration): OutreachState | undefined {
-  return row.outreach ? (row.outreachState ?? 'ready') : undefined;
+export function outreachStateOf(row: Integration, progress: Readonly<Record<string, OutreachState>> = OUTREACH_PROGRESS): OutreachState | undefined {
+  return row.outreach ? (progress[row.outreach] ?? 'ready') : undefined;
 }
 
 /** The emails waiting on the owner, one row per email (A1 … C7): still to send ('ready') or awaiting an answer ('sent').
  * Built from outreach progress only, whatever the technical state (a live platform can still have its email to send). */
-export function outreachQueue(live: HubPlatform[] = livePlatforms()): Integration[] {
+export function outreachQueue(
+  live: HubPlatform[] = livePlatforms(),
+  progress: Readonly<Record<string, OutreachState>> = OUTREACH_PROGRESS,
+): Integration[] {
   const seen = new Set<string>();
   return integrationCatalog(live).filter((row) => {
-    const state = outreachStateOf(row);
-    if (!row.outreach || state === 'answered' || seen.has(row.outreach)) return false;
+    if (!row.outreach || seen.has(row.outreach)) return false;
     seen.add(row.outreach);
-    return true;
+    return outreachStateOf(row, progress) !== 'answered';
   });
 }
 

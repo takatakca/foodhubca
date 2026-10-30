@@ -13,8 +13,8 @@ s'intégrer, qu'on veut être partenaires, et voir ce qu'ils disent. » Plan : [
 4. Plusieurs portes d'entrée sont des **formulaires web**, pas des adresses : copier le texte dans le formulaire.
    Les portes marquées *(à confirmer)* viennent d'une source secondaire : vérifier sur le site du partenaire avant.
 5. Après l'envoi : noter la date et la réponse dans le tableau de la fin (ou demander à un agent de le faire) ; l'agent
-   met à jour `outreachState` (`sent`, puis `answered`) de la ligne dans `lib/foodhub/integrations/catalog.ts`, sans
-   toucher à son état technique.
+   inscrit l'avancement dans `OUTREACH_PROGRESS` de `lib/foodhub/integrations/catalog.ts` (une entrée par courriel,
+   par exemple `A3: 'sent'`, puis `'answered'`), sans toucher à l'état technique des lignes.
 
 ## Signature commune (à coller à la fin de chaque courriel)
 

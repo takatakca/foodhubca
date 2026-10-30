@@ -12,7 +12,8 @@
 >   [`PARTNER_OUTREACH.md`](PARTNER_OUTREACH.md) (un courriel prêt par partenaire) ; le code commence dans
 >   `lib/foodhub/integrations/` (catalogue).
 > - **Prochaine étape exacte :** voir la section 9 (cases à cocher). Chaque case dit qui la fait (agent ou propriétaire).
->   Suivi : issue #119. Quand un partenaire répond, mettre à jour sa ligne dans `lib/foodhub/integrations/catalog.ts`.
+>   Suivi : issue #119. Quand un courriel part ou qu'un partenaire répond, l'inscrire dans `OUTREACH_PROGRESS`
+>   (`lib/foodhub/integrations/catalog.ts`, une entrée par courriel).
 
 ## 1. Ce que Deliverect fait, en une phrase
 

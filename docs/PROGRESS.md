@@ -1,5 +1,19 @@
 # Food Hub: progress log and task board
 
+## 2026-10-30 — Plateforme d'intégrations (Canada) : faire ce que fait Deliverect, à notre façon (`docs/integration-platform-canada`, issue #119)
+
+- `docs/INTEGRATION_PLATFORM.md` : ce que Food Hub a déjà, ce qui manque (autres caisses, canaux canadiens,
+  certifications, portail partenaires, SOC 2), la porte d'entrée officielle de chaque partenaire, le modèle d'affaires
+  (prix public par emplacement, commande directe sans commission, livreurs au coût), phases, risques, qui fait quoi.
+- `docs/research/DELIVERECT.md` + `deliverect-ca-integrations.csv` : leurs 131 intégrations canadiennes (lues dans leur
+  plan du site et chaque page), leur processus partenaire et leur API ; prix non publiés.
+- `docs/PARTNER_OUTREACH.md` : 17 courriels prêts (plateformes, livreurs, caisses), chacun ne nomme que son partenaire ;
+  le propriétaire envoie.
+- Code : `lib/foodhub/integrations/catalog.ts` (états réels ; les 3 plateformes suivent `FOODHUB_PUBLIC_LIVE_PLATFORMS`)
+  + `tests/integrations-catalog.test.ts`. Drive : « Plateforme d'intégrations (Canada) — note de reprise ».
+
+— signé : Claude (busy-cannon, Claude Code cloud) @ cloud · 2026-10-30 00:40 (HE)
+
 ## 2026-10-30 — Canada: sales taxes by province, kitchens carry a province (`feature/canada-taxes-provinces`)
 
 - `lib/foodhub/taxes.ts`: the 13 provinces and territories with their 2026 taxes on prepared food (GST, HST, QST, PST, RST; BC's PST does not apply to restaurant meals), per-component rounding to the cent, customer labels FR/EN, province from a code, a name or a postal code, a combined-tax split for reports. `docs/TAXES.md`.

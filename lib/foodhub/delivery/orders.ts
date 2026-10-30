@@ -177,7 +177,10 @@ export async function runDirectAction(orderId: string, action: DirectAction, act
   // "Seen" on the kitchen screen: once, and harmless on a closed order.
   if (action === 'seen') return order.seenAt ? order : addDirectEvent(order, 'seen', 'Seen on the kitchen screen', actor.name, { seenAt: new Date().toISOString(), seenBy: actor.name });
   const closed = order.status === 'completed' || order.status === 'cancelled';
-  if (closed && action !== 'clear_attention') throw new Error(`Order ${order.number} is already ${order.status}.`);
+  // A cancelled Interac order still takes "Transfer received" (flagged as late, never released by itself) and the two
+  // decisions on a late transfer (send to the kitchen anyway, returned by hand).
+  const lateOk = order.status === 'cancelled' && Boolean(order.interac) && (action === 'interac_received' || action === 'interac_release_late' || action === 'interac_refunded');
+  if (closed && action !== 'clear_attention' && !lateOk) throw new Error(`Order ${order.number} is already ${order.status}.`);
   const held = order.status === 'awaiting_payment';
   const interac = Boolean(order.interac);
   // A held order is paid through its link (or its Interac transfer): "Payment taken" or a Clover send now would make a

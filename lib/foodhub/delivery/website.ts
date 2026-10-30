@@ -176,7 +176,7 @@ export async function receiveWebsiteOrder(body: any): Promise<WebsiteOrderResult
   if (paymentRaw === 'interac' && (siteTotal === null || !Number.isFinite(siteTotal))) return refuse(422, 'total is required with payment "interac": the all-in amount the customer saw before checkout.');
   if (siteTotal !== null && strict) {
     if (!Number.isFinite(siteTotal)) return refuse(422, 'total must be a number.');
-    if (Math.abs(siteTotal - ours) > TOTAL_TOLERANCE) return refuse(422, `Total ${siteTotal.toFixed(2)} differs from Food Hub's ${ours.toFixed(2)} (menu prices + delivery fee + fees + GST/QST + tip): the customer must see the real price before checkout.`);
+    if (Math.round(Math.abs(siteTotal - ours) * 100) > Math.round(TOTAL_TOLERANCE * 100)) return refuse(422, `Total ${siteTotal.toFixed(2)} differs from Food Hub's ${ours.toFixed(2)} (menu prices + delivery fee + fees + GST/QST + tip): the customer must see the real price before checkout.`);
   }
 
   let dropoff: DropoffAddress | undefined;

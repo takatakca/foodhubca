@@ -55,6 +55,7 @@ export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onCl
   const act_ = can('orders:act');
   const problems = d ? (lang === 'fr' ? d.problemsFr : d.problems) ?? [] : [];
   const interacLate = o ? o.status === 'cancelled' && interacLatePending(o) : false;
+  const interacCancelled = o ? o.status === 'cancelled' && Boolean(o.interac) && !o.interac?.releasedAt && !interacLate : false;
 
   return (
     <Drawer width="lg" onClose={onClose}
@@ -94,6 +95,11 @@ export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onCl
                 <Button size="xs" variant="go" loading={busy === 'interac_release_late'} onClick={() => act('interac_release_late', {}, t('Envoyée en cuisine', 'Sent to the kitchen'))}>{t('Envoyer en cuisine quand même', 'Send to the kitchen anyway')}</Button>
                 <Button size="xs" variant="outline" loading={busy === 'interac_refunded'} onClick={() => act('interac_refunded', {}, t('Noté : retourné à la main', 'Noted: returned by hand'))}>{t('Argent retourné à la main', 'Money returned by hand')}</Button>
               </span>}
+            </Banner>
+          )}
+          {interacCancelled && o.interac && act_ && (
+            <Banner tone="info" action={<Button size="xs" variant="outline" icon={<Landmark className="size-3.5" />} loading={busy === 'interac_received'} onClick={() => act('interac_received')}>{t('Virement reçu en retard', 'Transfer received late')}</Button>}>
+              {t(`Commande annulée. Si le virement Interac ${o.interac.reference} (${money(o.interac.amount, loc)}) arrive quand même dans le compte, signalez-le ici : rien ne part en cuisine avant qu’une personne décide.`, `Cancelled. If the Interac transfer ${o.interac.reference} (${money(o.interac.amount, loc)}) still arrives in the account, flag it here: nothing goes to the kitchen before a person decides.`)}
             </Banner>
           )}
           {o.status === 'awaiting_payment' && o.interac && (

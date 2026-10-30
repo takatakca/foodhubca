@@ -83,6 +83,7 @@ beforeEach(async () => {
   for (const k of ['FOODHUB_INTERAC_EMAIL', 'FOODHUB_INTERAC_FEE', 'FOODHUB_WEBSITE_TENANT', 'DOORDASH_DRIVE_ENV', 'LIVE_CONNECTORS_GLOBAL_ENABLED']) delete process.env[k];
   Object.assign(process.env, { DOORDASH_DRIVE_DEVELOPER_ID: 'dev-1', DOORDASH_DRIVE_KEY_ID: 'key-1', DOORDASH_DRIVE_SIGNING_SECRET: Buffer.from('drive-secret').toString('base64'), TWILIO_ACCOUNT_SID: 'AC1', TWILIO_AUTH_TOKEN: 'tw', TWILIO_FROM: '+15145550000' });
   h.sms = []; h.chat = []; h.clover = 0; h.cloverFail = false; drive = [];
+  vi.mocked(createDirectOrderInClover).mockClear();
   globalThis.fetch = vi.fn(async (url: any, init: RequestInit = {}) => {
     const u = String(url);
     const body = init.body && typeof init.body === 'string' && init.body.startsWith('{') ? JSON.parse(init.body) : null;
@@ -323,7 +324,9 @@ describe('release exactly once, by a person', () => {
     expect(counter).toMatchObject({ status: 'in_kitchen', payment: 'pay_at_pickup', posOrderId: 'CLV-1' });
     expect(counter.interac!.cancelReason).toBe('pay at the counter');
     expect(h.sms.at(-1)!.body).toMatch(/Paiement au comptoir/);
-    expect((await markInteracReceived(o.id, actor)).state).toBe('already');
+    const after = await markInteracReceived(o.id, actor);
+    expect(after.state).toBe('already');
+    expect(after.message).toMatch(/pays at the counter/);
     expect(h.clover).toBe(1);
     // A delivery cannot: the courier never collects money.
     const d = await placed({ fulfillment: 'delivery', address: DROP });
@@ -419,6 +422,7 @@ describe('settings: the answer never reaches the browser', () => {
     expect(brandInitials('Po Poulet')).toBe('PP');
     expect(brandInitials('PPP Pizzeria')).toBe('PP');
     expect(brandInitials('Ooeuf')).toBe('OOE');
+    await saveDeliverySettings({ interac: { autoDeposit: true } as any });
     expect(interacInstructions(await placed(), 'en')).toMatch(/^Pay order W-\d+ by Interac e-Transfer:\n• Recipient: paiements@example\.test\n• Exact amount: \$45\.10\n• Message: PP-[A-Z2-9]{4}\nSend it before /);
   });
 });

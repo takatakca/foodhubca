@@ -197,8 +197,8 @@ export async function markInteracReceived(orderId: string, actor: Actor, now = D
     if (!o?.interac) throw new Error('This order is not paid by Interac e-Transfer.');
     const i0 = o.interac;
     if (i0.releasedAt || (o.payment === 'paid' && o.status !== 'awaiting_payment')) return { state: 'already', message: 'Already received and sent to the kitchen.', order: o };
-    if (o.status === 'cancelled' || i0.cancelledAt) return flagLateTransfer(o, actor, now);
-    if (o.status !== 'awaiting_payment') return { state: 'already', message: `Order is ${o.status}.`, order: o };
+    if (o.status === 'cancelled') return flagLateTransfer(o, actor, now);
+    if (o.status !== 'awaiting_payment') return { state: 'already', message: `Order is ${o.status}${i0.cancelReason === 'pay at the counter' ? ' (the customer pays at the counter)' : ''}.`, order: o };
     if (claimFresh(i0, now)) return { state: 'pending', message: 'Another request is releasing it.', order: o };
     // Claim, then re-read: if another server wrote its own claim in between, it releases and this one stops.
     const claim = crypto.randomUUID();

@@ -175,7 +175,7 @@ async function renderCard(kits: Record<string, BrandKit>) {
   const { ViewerProvider } = await import('@/components/shell/viewer');
   const { ToastProvider } = await import('@/components/ui/toast');
   const { OrderCard } = await import('@/components/live/order-card');
-  const wrap = (child: ReactNode) => createElement(ToastProvider, null, createElement(ViewerProvider, { viewer: VIEWER as never, catalog: { locations: [{ code: 'NDG_MAIN', name: 'NDG MAIN' }], brands: ['Pizza Test'], brandKits: kits } }, child));
+  const wrap = (child: ReactNode) => createElement(ToastProvider, null, createElement(ViewerProvider, { viewer: VIEWER as never, catalog: { locations: [{ code: 'NDG_MAIN', name: 'NDG MAIN' }], brands: ['Pizza Test'], brandKits: kits } } as unknown as Parameters<typeof ViewerProvider>[0], child));
   return renderToStaticMarkup(wrap(createElement(OrderCard, { o: ORDER as never, onOpen: () => undefined })));
 }
 

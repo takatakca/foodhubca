@@ -113,7 +113,7 @@
 .check { opacity: 0; transform: scale(0.4); animation: tick 6s ease-out infinite; }
 @keyframes tick { 0%, 25% { opacity: 0; transform: scale(0.4); } 33%, 90% { opacity: 1; transform: scale(1); } 100% { opacity: 0; } }
 .soldOutRow { animation: strike 6s ease-in-out infinite; }
-@keyframes strike { 0%, 45% { color: inherit; text-decoration: none; } 55%, 95% { color: #e23b3e; text-decoration: line-through; } 100% { color: inherit; } }
+@keyframes strike { 0%, 45% { color: inherit; text-decoration: none; } 55%, 95% { color: #f05252; text-decoration: line-through; } 100% { color: inherit; } }
 .soldOutTag { opacity: 0; animation: tag 6s ease-in-out infinite; }
 @keyframes tag { 0%, 48% { opacity: 0; } 55%, 95% { opacity: 1; } 100% { opacity: 0; } }
 .wire { stroke-dasharray: 5 7; animation: dash 1.4s linear infinite; }
@@ -129,7 +129,8 @@
 }
 .tabLabel:hover { transform: translateY(-1px); box-shadow: 0 0 0 1px var(--color-electric); color: var(--color-ink); }
 .tabInput:focus-visible + .tabLabel { outline: 3px solid #29c3ff; outline-offset: 2px; }
-.tabInput:checked + .tabLabel { color: #ffffff; background: linear-gradient(135deg, #1565d8, #1f8bff); box-shadow: 0 10px 24px -10px rgb(31 139 255 / 0.8); }
+/* White on #0f4fae → #1565d8 stays above 5.4:1 across the whole gradient (WCAG 1.4.3). */
+.tabInput:checked + .tabLabel { color: #ffffff; background: linear-gradient(135deg, #0f4fae, #1565d8); box-shadow: 0 10px 24px -10px rgb(31 139 255 / 0.8); }
 .panel { display: none; }
 .explorer:has(input[value='orders']:checked) .panel[data-tab='orders'],
 .explorer:has(input[value='kitchen']:checked) .panel[data-tab='kitchen'],
@@ -175,3 +176,30 @@
   .packet { display: none; }
   .device, .stage:hover .device { transform: none; }
 }
+
+/* ---------- the visitor's own stop control (WCAG 2.2.2): checkbox in the hero, scope = the whole landing ---------- */
+.motionToggle { position: relative; }
+.motionOff { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.motionLabel {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; user-select: none;
+  border-radius: 999px; padding: 8px 14px; font-size: 13px; font-weight: 700; color: #f5f8fc;
+  box-shadow: 0 0 0 1px rgb(184 196 211 / 0.4);
+}
+.motionLabel:hover { box-shadow: 0 0 0 1px #ffffff; }
+.motionOff:focus-visible + .motionLabel { outline: 3px solid #29c3ff; outline-offset: 2px; }
+/* Pause bars while the motion runs, a play triangle once it is stopped. */
+.motionIcon { width: 10px; height: 12px; border-left: 3px solid currentColor; border-right: 3px solid currentColor; }
+.motionOff:checked + .motionLabel .motionIcon {
+  width: 0; height: 0; border-right: 0; border-left: 10px solid currentColor; border-top: 6px solid transparent; border-bottom: 6px solid transparent;
+}
+.motionOff:checked + .motionLabel { background: rgb(41 195 255 / 0.16); }
+.motionScope:has(.motionOff:checked) *,
+.motionScope:has(.motionOff:checked) *::before,
+.motionScope:has(.motionOff:checked) *::after { animation: none !important; }
+.motionScope:has(.motionOff:checked) .toast,
+.motionScope:has(.motionOff:checked) .check,
+.motionScope:has(.motionOff:checked) .soldOutTag { opacity: 1; transform: none; }
+.motionScope:has(.motionOff:checked) .packet { display: none; }
+.motionScope:has(.motionOff:checked) .device { transform: none; }
+/* Without :has() the checkbox could not stop anything: do not offer it. */
+@supports not selector(:has(*)) { .motionToggle { display: none; } }

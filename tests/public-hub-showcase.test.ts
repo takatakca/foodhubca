@@ -65,12 +65,43 @@ describe('premium landing showcase (/hub, /en/hub)', () => {
     const before = css.slice(0, css.indexOf('@media (prefers-reduced-motion: reduce)'));
     // The subject of each animated rule: the last class of every comma-separated selector whose block sets `animation:`.
     const animated = [...before.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
-      .filter((m) => /(^|[;\s])animation:/.test(m[2]))
+      .filter((m) => /(^|[;\s])animation:/.test(m[2]) && !/animation:\s*none/.test(m[2]))
       .flatMap((m) => m[1].split(',').map((sel) => [...sel.matchAll(/\.([a-zA-Z]+)/g)].at(-1)?.[1]))
       .filter((c): c is string => Boolean(c));
     expect(animated.length).toBeGreaterThan(10);
     for (const cls of new Set(animated)) expect(reduced, cls).toContain(`.${cls}`);
     expect(reduced).toContain('.packet { display: none; }'); // the SVG packets move with <animateMotion>
+  });
+  it('a visitor can stop every motion (WCAG 2.2.2): a labelled checkbox in the hero, scoped to the landing', () => {
+    for (const lang of LANGS) {
+      const html = render('landing', lang);
+      expect(html).toMatch(/<input [^>]*type="checkbox"[^>]*id="hub-motion-off"/);
+      expect(html).toContain('for="hub-motion-off"');
+      expect(visibleText(html)).toContain(SHOWCASE[lang].motionOff);
+      expect(html).toMatch(/<div lang="[^"]+" class="[^"]*_motionScope_/); // the page root holds the scope
+      expect(render('pricing', lang)).not.toContain('hub-motion-off');
+    }
+    const css = readFileSync('components/public-hub/landing.module.css', 'utf8');
+    expect(css).toContain('.motionScope:has(.motionOff:checked) *,');
+    expect(css).toMatch(/\.motionScope:has\(\.motionOff:checked\) \*::after \{ animation: none !important; \}/);
+    expect(css).toContain('.motionScope:has(.motionOff:checked) .packet { display: none; }'); // SVG <animateMotion> packets
+  });
+  it('no element carries two classes that both set the `animation` shorthand (the later one would cancel the other)', () => {
+    const css = readFileSync('components/public-hub/landing.module.css', 'utf8');
+    const before = css.slice(0, css.indexOf('@media (prefers-reduced-motion: reduce)'));
+    // Classes whose own element animates: the last compound of each selector, pseudo-elements excluded.
+    const own = new Set([...before.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter((m) => /(^|[;\s])animation:/.test(m[2]) && !/animation:\s*none/.test(m[2]))
+      .flatMap((m) => m[1].split(',').map((sel) => sel.trim()).filter((sel) => !sel.includes('::'))
+        .map((sel) => [...(sel.split(/\s+/).at(-1) ?? '').matchAll(/\.([a-zA-Z]+)/g)].at(-1)?.[1]))
+      .filter((c): c is string => Boolean(c)));
+    expect(own.has('orderIn') && own.has('ringing')).toBe(true);
+    for (const lang of LANGS) {
+      for (const [, cls] of render('landing', lang).matchAll(/class="([^"]*)"/g)) {
+        const hits = [...own].filter((c) => new RegExp(`(^|\\s)_${c}_`).test(cls));
+        expect(hits.length, `${lang}: ${cls}`).toBeLessThanOrEqual(1);
+      }
+    }
   });
   it('the demo orders are an illustration hidden from screen readers, and say so', () => {
     for (const lang of LANGS) {

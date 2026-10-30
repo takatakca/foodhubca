@@ -23,6 +23,8 @@ export interface ShowcaseWords {
   connected: string; certifying: string; tgtgCondition: string; otherPos: string; otherPosCta: string;
   facts: Array<{ big: string; small: string }>;
   demoNote: string;
+  /** The pause control of the landing's motion (WCAG 2.2.2). */
+  motionOff: string;
 }
 
 const ORDERS_FR: DemoOrder[] = [
@@ -81,6 +83,7 @@ export const SHOWCASE: Record<Lang, ShowcaseWords> = {
       { big: 'Français et anglais', small: 'pour toute l’équipe' },
     ],
     demoNote: 'Illustration : commandes et prix fictifs.',
+    motionOff: 'Arrêter les animations',
   },
   en: {
     live: 'Live orders', liveSub: 'Every platform, one screen', newOrder: 'New order', accept: 'Accept',
@@ -126,5 +129,6 @@ export const SHOWCASE: Record<Lang, ShowcaseWords> = {
       { big: 'French and English', small: 'for the whole team' },
     ],
     demoNote: 'Illustration: fictional orders and prices.',
+    motionOff: 'Stop the animations',
   },
 };

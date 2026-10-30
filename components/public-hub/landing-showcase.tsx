@@ -12,6 +12,8 @@ import styles from './landing.module.css';
 // Words: lib/foodhub/public-hub-showcase.ts. Tests: tests/public-hub-showcase.test.ts.
 
 const PILL: Record<DemoOrder['platform'], string> = { uber: 'bg-uber', doordash: 'bg-doordash', skip: 'bg-skip' };
+/** Dark text reads on every platform colour (white does not reach 4.5:1 on them). */
+const PILL_TEXT = 'text-[#0b1220]';
 const DELIVERY: Array<{ key: HubPlatform; name: string; color: string }> = [
   { key: 'uber', name: 'Uber Eats', color: 'bg-uber' },
   { key: 'doordash', name: 'DoorDash', color: 'bg-doordash' },
@@ -36,6 +38,20 @@ function Icon({ id, className }: { id: string; className?: string }) {
     <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
       {ICONS[id]}
     </svg>
+  );
+}
+
+/** Pause / stop for every moving part of the landing (WCAG 2.2.2), CSS only: a checkbox inside `landing.motionScope`
+ * (set on the page root by HubPage); `:has(.motionOff:checked)` stops the CSS motion and hides the SVG packets. */
+export function MotionToggle({ lang }: { lang: Lang }) {
+  return (
+    <p className={`${styles.motionToggle} mt-5`}>
+      <input type="checkbox" id="hub-motion-off" className={styles.motionOff} />
+      <label htmlFor="hub-motion-off" className={styles.motionLabel}>
+        <span aria-hidden="true" className={styles.motionIcon} />
+        {SHOWCASE[lang].motionOff}
+      </label>
+    </p>
   );
 }
 
@@ -70,19 +86,21 @@ export function HeroDevice({ lang }: { lang: Lang }) {
               </span>
             </div>
             <div className="space-y-2.5 p-3">
-              <div className={`${styles.orderIn} ${styles.ringing} rounded-xl border-2 border-[#1f8bff] bg-white p-3`}>
-                <div className="flex items-center justify-between gap-2">
-                  <span className={`rounded-md px-2 py-0.5 text-[11px] font-bold text-white ${PILL[first.platform]}`}>{first.label}</span>
-                  <span className="text-[11px] font-bold uppercase tracking-wide text-[#1565d8]">{w.newOrder}</span>
-                </div>
-                <div className="mt-2 flex items-end justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-[15px] font-extrabold text-[#0b1220]">#{first.ref}</p>
-                    <p className="truncate text-[12px] text-[#3d4757]">{first.items}</p>
+              <div className={styles.orderIn}>
+                <div className={`${styles.ringing} rounded-xl border-2 border-[#1f8bff] bg-white p-3`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`rounded-md px-2 py-0.5 text-[11px] font-bold ${PILL_TEXT} ${PILL[first.platform]}`}>{first.label}</span>
+                    <span className="text-[11px] font-bold uppercase tracking-wide text-[#1565d8]">{w.newOrder}</span>
                   </div>
-                  <div className="text-right">
-                    <p className="text-[15px] font-extrabold tabular-nums text-[#0b1220]">{first.total}</p>
-                    <span className={`${styles.acceptBtn} mt-1 inline-flex rounded-lg bg-[#1565d8] px-3 py-1.5 text-[12px] font-extrabold text-white`}>{w.accept}</span>
+                  <div className="mt-2 flex items-end justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[15px] font-extrabold text-[#0b1220]">#{first.ref}</p>
+                      <p className="truncate text-[12px] text-[#3d4757]">{first.items}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[15px] font-extrabold tabular-nums text-[#0b1220]">{first.total}</p>
+                      <span className={`${styles.acceptBtn} mt-1 inline-flex rounded-lg bg-[#1565d8] px-3 py-1.5 text-[12px] font-extrabold text-white`}>{w.accept}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -220,7 +238,7 @@ function ShowcaseCards({ lang }: { lang: Lang }) {
             <ul className="space-y-2">
               {w.orders.map((o, i) => (
                 <li key={o.ref} className={`${styles.slideRow} flex items-center gap-3 rounded-xl bg-[#16294f] px-3 py-2.5 text-white`} style={delay(i * 0.45)}>
-                  <span className={`rounded-md px-2 py-0.5 text-[11px] font-bold ${PILL[o.platform]}`}>{o.label}</span>
+                  <span className={`rounded-md px-2 py-0.5 text-[11px] font-bold ${PILL_TEXT} ${PILL[o.platform]}`}>{o.label}</span>
                   <span className="min-w-0 flex-1 truncate text-[12px] text-silver">{o.items}</span>
                   <span className="text-[12px] font-bold tabular-nums">{`${4 + i * 3}:0${i}`}</span>
                 </li>
@@ -240,7 +258,7 @@ function ShowcaseCards({ lang }: { lang: Lang }) {
               {w.menuItems.map((m, i) => (
                 <li key={m} className={`flex items-center justify-between gap-2 ${i === 2 ? styles.soldOutRow : ''}`}>
                   <span className="truncate">{m}</span>
-                  {i === 2 && <span className={`${styles.soldOutTag} rounded bg-[#e23b3e] px-1.5 text-[10px] font-bold text-white`}>{w.soldOut}</span>}
+                  {i === 2 && <span className={`${styles.soldOutTag} rounded bg-[#bd2427] px-1.5 text-[10px] font-bold text-white`}>{w.soldOut}</span>}
                 </li>
               ))}
             </ul>
@@ -341,7 +359,7 @@ function IntegrationsPanel({ lang, ctx }: { lang: Lang; ctx: HubContext }) {
           <h3 className="text-lg font-extrabold text-ink">{w.posTitle}</h3>
           <p className="mt-1 text-[15px] text-ink-2">{w.posText}</p>
           <div className="mt-5 flex items-center gap-3 rounded-xl border border-line bg-raised p-4">
-            <span aria-hidden="true" className="grid size-10 place-items-center rounded-lg bg-clover text-lg font-black text-white">C</span>
+            <span aria-hidden="true" className="grid size-10 place-items-center rounded-lg bg-[#0b7f48] text-lg font-black text-white">C</span>
             <div>
               <p className="font-extrabold text-ink">Clover</p>
               <p className="text-[13px] text-ink-3">TAKATAK Food Hub</p>

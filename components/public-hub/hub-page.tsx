@@ -8,7 +8,7 @@ import {
   hubRequirements, jsonLdScript, pendingPlatforms, platformList, type HubContext, type HubPageKey,
 } from '@/lib/foodhub/public-hub';
 import { HUB_UI, type Block, type Card } from '@/lib/foodhub/public-hub-content';
-import { HeroDevice, HeroSparkles, LandingShowcase } from './landing-showcase';
+import { HeroDevice, HeroSparkles, LandingShowcase, MotionToggle } from './landing-showcase';
 import landing from './landing.module.css';
 
 // The public ON2GO.ca pages (/hub, /en/hub…): server-rendered, no page-specific client component, no tracker, no
@@ -194,7 +194,7 @@ export function HubPage({ page, lang, ctx }: { page: HubPageKey; lang: Lang; ctx
   const pending = pendingPlatforms(ctx);
   const isLanding = page === 'landing';
   return (
-    <div lang={lang === 'fr' ? 'fr-CA' : 'en-CA'} className="min-h-dvh bg-canvas text-ink">
+    <div lang={lang === 'fr' ? 'fr-CA' : 'en-CA'} className={`min-h-dvh bg-canvas text-ink${isLanding ? ` ${landing.motionScope}` : ''}`}>
       <a href="#contenu" className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-10 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2">{ui.skip}</a>
       <header className="bg-rail text-white">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
@@ -248,6 +248,7 @@ export function HubPage({ page, lang, ctx }: { page: HubPageKey; lang: Lang; ctx
                   {pending.length > 0 && (
                     <p className="mt-1 text-[13px] text-silver">{ui.pending.trim().replace('{platforms}', platformList(pending, lang))}</p>
                   )}
+                  <MotionToggle lang={lang} />
                 </div>
               )}
             </div>

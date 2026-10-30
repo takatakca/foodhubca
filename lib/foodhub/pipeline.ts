@@ -9,6 +9,7 @@ import { allCloverMerchants, cloverAutoPrintEnabled, cloverBaseUrl, cloverExpect
 import { cloverOrderTypeForOrder, cloverTotalGap, describeMappingWarnings, findCloverOrderByTitle, mapOrderLines, platformFoodCents, printKitchenTicket } from './pos/clover-order';
 import { cloverRetryDelaysS, noteLastOrder, scheduleCloverRetry } from './order-retry';
 import { settleInClover } from './clover-settle';
+import { mevOnOrderChange } from './mev/hooks';
 import { closeCancelledCloverOrder } from './pos/clover-books';
 import { doorDashMerchantCancelEnabled } from './adapters/doordash';
 import { relayActions } from './adapters/relay';
@@ -291,6 +292,8 @@ export async function autoAcceptAfterClover(order: StoredOrder, posOrderId?: str
   } else if (accept.ok) {
     current = await patchTimeline(current, { acceptedAt: nowIso(), acceptedBy: 'auto' }, { status: 'accepted', channelError: undefined });
     await repo.addEvent(order.id, 'accepted', { auto: true, response: summarize(accept) });
+    // Accepted = sold: the Revenu Québec invoice follows (Takatak MEV; nothing when MEV is off).
+    await mevOnOrderChange(current);
   } else {
     current = (await repo.updateOrder(order.id, { channelError: accept.message })) ?? current;
     await repo.addEvent(order.id, 'accept_failed', { auto: true, status: accept.status, message: accept.message });
@@ -509,6 +512,7 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
       await repo.addEvent(order.id, sent.ok ? 'report_missing' : 'report_missing_failed', { message: `${what}: ${sent.message}`, by: actor.name });
       await logActivity({ actor: actor.name, source: actor.source, kind: 'order', action, status: sent.ok ? 'success' : 'failed', channel: order.channel, brandName: order.brandName, locationCode: order.locationCode, orderId: order.id,
         summary: `Order adjusted on DoorDash for ${tag}: ${what}${sent.ok ? '' : ` (failed: ${sent.message})`}` });
+      if (sent.ok) await mevOnOrderChange(order);
       return { order: done, result: sent };
     }
     if (order.channel === 'uber_eats') {
@@ -534,6 +538,7 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
     await repo.addEvent(order.id, res.ok ? 'report_missing' : 'report_missing_failed', { message: `${label}: ${res.message}`, by: actor.name });
     await logActivity({ actor: actor.name, source: actor.source, kind: 'order', action, status: res.ok ? 'success' : 'failed', channel: order.channel, brandName: order.brandName, locationCode: order.locationCode, orderId: order.id,
       summary: `Missing items reported to SkipTheDishes for ${tag}: ${label}${res.ok ? '' : ` (failed: ${res.message})`}` });
+    if (res.ok) await mevOnOrderChange(order);
     return { order: updated, result: res };
   }
 
@@ -544,6 +549,7 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
     await repo.addEvent(order.id, res.ok ? 'adjust_price' : 'adjust_price_failed', { message: res.message, amount: opts.adjust.amount, reason: opts.adjust.reason, by: actor.name });
     await logActivity({ actor: actor.name, source: actor.source, kind: 'order', action, status: res.ok ? 'success' : 'failed', channel: order.channel, brandName: order.brandName, locationCode: order.locationCode, orderId: order.id,
       summary: `Price change ${opts.adjust.amount > 0 ? '+' : ''}${opts.adjust.amount} $ (${opts.adjust.reason}) for ${tag}${res.ok ? '' : ` (failed: ${res.message})`}` });
+    if (res.ok) await mevOnOrderChange(order);
     return { order: (await repo.getOrder(order.id)) ?? order, result: res };
   }
 

@@ -1,0 +1,113 @@
+{
+  "$comment": "Food Hub's 18 numbered screens (Stores → Platform screens → Set up screens: 8 DoorDash, 6 Uber Eats, 4 Skip). The ids s01…s18 are the screens' ids in Food Hub, so nothing is copied by hand: copy to screens.json, run node generate.mjs, then route https://<relay>/sNN/ to 127.0.0.1:31NN (s01 → 3101 … s18 → 3118). Never put a user name, password, token or code in this file. Guide: docs/PLATFORM_SCREENS_RELAY.md.",
+  "screens": [
+    {
+      "id": "s01",
+      "platform": "doordash",
+      "name": "DoorDash 1",
+      "mode": "web"
+    },
+    {
+      "id": "s02",
+      "platform": "doordash",
+      "name": "DoorDash 2",
+      "mode": "web"
+    },
+    {
+      "id": "s03",
+      "platform": "doordash",
+      "name": "DoorDash 3",
+      "mode": "web"
+    },
+    {
+      "id": "s04",
+      "platform": "doordash",
+      "name": "DoorDash 4",
+      "mode": "web"
+    },
+    {
+      "id": "s05",
+      "platform": "doordash",
+      "name": "DoorDash 5",
+      "mode": "web"
+    },
+    {
+      "id": "s06",
+      "platform": "doordash",
+      "name": "DoorDash 6",
+      "mode": "web"
+    },
+    {
+      "id": "s07",
+      "platform": "doordash",
+      "name": "DoorDash 7",
+      "mode": "web"
+    },
+    {
+      "id": "s08",
+      "platform": "doordash",
+      "name": "DoorDash 8",
+      "mode": "web"
+    },
+    {
+      "id": "s09",
+      "platform": "uber",
+      "name": "Uber Eats 1",
+      "mode": "web"
+    },
+    {
+      "id": "s10",
+      "platform": "uber",
+      "name": "Uber Eats 2",
+      "mode": "web"
+    },
+    {
+      "id": "s11",
+      "platform": "uber",
+      "name": "Uber Eats 3",
+      "mode": "web"
+    },
+    {
+      "id": "s12",
+      "platform": "uber",
+      "name": "Uber Eats 4",
+      "mode": "web"
+    },
+    {
+      "id": "s13",
+      "platform": "uber",
+      "name": "Uber Eats 5",
+      "mode": "web"
+    },
+    {
+      "id": "s14",
+      "platform": "uber",
+      "name": "Uber Eats 6",
+      "mode": "web"
+    },
+    {
+      "id": "s15",
+      "platform": "skip",
+      "name": "Skip 1",
+      "mode": "web"
+    },
+    {
+      "id": "s16",
+      "platform": "skip",
+      "name": "Skip 2",
+      "mode": "web"
+    },
+    {
+      "id": "s17",
+      "platform": "skip",
+      "name": "Skip 3",
+      "mode": "web"
+    },
+    {
+      "id": "s18",
+      "platform": "skip",
+      "name": "Skip 4",
+      "mode": "web"
+    }
+  ]
+}

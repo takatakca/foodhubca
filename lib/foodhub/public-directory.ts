@@ -18,7 +18,8 @@ import type { HoursConfig, MasterMenu, MenuItem, StoredOrder, WeeklyHours } from
 
 export type Lang = 'fr' | 'en';
 export type Text = Record<Lang, string>;
-export type OrderPlatform = 'clover' | 'ubereats' | 'doordash' | 'skip';
+/** on2go = Food Hub's own ordering page (/commander/<slug>, commission-free, Clover payment); clover = Clover's hosted page. */
+export type OrderPlatform = 'on2go' | 'clover' | 'ubereats' | 'doordash' | 'skip';
 
 export interface SeedOrderLink { platform: 'ubereats' | 'doordash' | 'skip'; storeId?: string; slug?: string; url?: string; live: boolean }
 export interface SeedBrand {
@@ -133,13 +134,25 @@ export interface BuildOptions {
   mediaBase?: string | null;
   /** Clover online ordering page of the merchant, and the kitchens it serves. */
   clover?: { url: string; kitchens: string[] } | null;
+  /** Food Hub's own ordering pages that are live (storefront settings), with the public https base of this Food Hub. */
+  storefront?: { base: string; pages: StorefrontPage[] } | null;
   phone?: string | null;
   trending?: string[];
   source?: 'live' | 'seed';
 }
 
-export const PLATFORM_LABEL: Record<OrderPlatform, string> = { clover: 'Clover', ubereats: 'Uber Eats', doordash: 'DoorDash', skip: 'SkipTheDishes' };
-export const ORDER_PRIORITY: OrderPlatform[] = ['clover', 'ubereats', 'doordash', 'skip'];
+export const PLATFORM_LABEL: Record<OrderPlatform, string> = { on2go: 'ON2GO', clover: 'Clover', ubereats: 'Uber Eats', doordash: 'DoorDash', skip: 'SkipTheDishes' };
+/** Main order button first: our own commission-free page, then Clover's hosted page, then the delivery apps. */
+export const ORDER_PRIORITY: OrderPlatform[] = ['on2go', 'clover', 'ubereats', 'doordash', 'skip'];
+
+/** One live ordering page: the directory brand, its public slug and the directory kitchen it serves. */
+export interface StorefrontPage { brandId: string; slug: string; kitchen: string }
+
+/** The public address of a live ordering page, in the visitor's language (`?lang=en` is how the page switches). */
+export function storefrontUrl(base: string, slug: string, lang: Lang): string {
+  const b = base.replace(/\/+$/, '');
+  return lang === 'en' ? `${b}/commander/${slug}?lang=en` : `${b}/commander/${slug}`;
+}
 
 /** Uber Eats store pages carry the store uuid as 16 bytes in base64url (no padding). */
 export function uuidToBase64Url(uuid: string): string {
@@ -157,6 +170,8 @@ export function storeUrl(link: SeedOrderLink, lang: Lang): string {
 
 /** Only real https pages of the platforms (a typo in the seed must not send visitors elsewhere). */
 const PLATFORM_HOSTS: Record<OrderPlatform, RegExp> = {
+  // Our own page: https on a real host (a local Food Hub while developing), the slug alphabet of the storefront.
+  on2go: /^(https:\/\/[a-z0-9.-]+(:\d{1,5})?|http:\/\/(localhost|127\.0\.0\.1)(:\d{1,5})?)\/commander\/[a-z0-9-]{2,40}(\?lang=en)?$/i,
   clover: /^https:\/\/(www\.)?clover\.com\/online-ordering\/[a-z0-9-]+\/?$/i,
   ubereats: /^https:\/\/www\.ubereats\.com\//,
   doordash: /^https:\/\/www\.doordash\.com\//,
@@ -223,6 +238,12 @@ export function buildPublicDirectory(seed: DirectorySeed = DIRECTORY_SEED, opts:
       if (!kitchen) return [];
       const hours = hoursFor(kitchen, b, opts.hours);
       const order: PublicOrderLink[] = [];
+      // Our own commission-free page first (only the brands the owner switched on, in the kitchen the page serves).
+      for (const p of opts.storefront?.pages ?? []) {
+        if (p.brandId !== b.id || p.kitchen !== kitchen.id) continue;
+        const url = { fr: storefrontUrl(opts.storefront!.base, p.slug, 'fr'), en: storefrontUrl(opts.storefront!.base, p.slug, 'en') };
+        if (isPlatformUrl('on2go', url.fr) && isPlatformUrl('on2go', url.en)) order.push({ platform: 'on2go', label: PLATFORM_LABEL.on2go, url, live: true });
+      }
       if (clover && clover.kitchens.includes(kitchen.id)) order.push({ platform: 'clover', label: PLATFORM_LABEL.clover, url: { fr: clover.url, en: clover.url }, live: true });
       for (const link of k.orderLinks) {
         if (link.storeId && FORBIDDEN_STORE_IDS.has(link.storeId)) continue;
@@ -307,6 +328,24 @@ export function cloverFromEnv(env: Record<string, string | undefined> = process.
 }
 
 const TTL_MS = 5 * 60_000;
+const LIVE_READ_DEADLINE_MS = 2500;
+
+/**
+ * Treat a slow or failing optional database read as unavailable. The public directory must
+ * remain available from its checked-in seed even if Supabase stalls without rejecting.
+ * Promise.race installs a rejection handler on the original read, including late failures.
+ */
+export async function readPublicDirectoryWithin<T>(operation: Promise<T>, deadlineMs = LIVE_READ_DEADLINE_MS): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race<T | null>([
+      operation.catch(() => null),
+      new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), deadlineMs); }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 let cache: { at: number; value: PublicDirectory } | null = null;
 let pending: Promise<PublicDirectory> | null = null;
 
@@ -316,10 +355,12 @@ async function loadLive(now: number): Promise<PublicDirectory> {
   const base = { now, clover: cloverFromEnv(env), phone: (env.FOODHUB_PUBLIC_PHONE || '').trim() || null };
   const mediaBase = publicUrlCheck().url || null;
   // Each part is optional: a database hiccup gives the seed values, never an error page.
-  const [hours, menus, orders] = await Promise.all([
-    repo.getKv<HoursConfig>('hours').catch(() => null),
-    repo.listMenus().catch(() => null),
-    repo.listOrders({ since: new Date(now - 7 * 86400_000).toISOString(), limit: 5000 }).catch(() => null),
+  // The storefront module imports this one (seed brands / kitchens), so it is loaded here on demand, not at the top.
+  const [hours, menus, orders, pages] = await Promise.all([
+    readPublicDirectoryWithin(repo.getKv<HoursConfig>('hours')),
+    readPublicDirectoryWithin(repo.listMenus()),
+    readPublicDirectoryWithin(repo.listOrders({ since: new Date(now - 7 * 86400_000).toISOString(), limit: 5000 })),
+    readPublicDirectoryWithin(import('./storefront/settings').then(async (m) => m.livePublicPages(await m.getStorefrontSettings()))),
   ]);
   const live = Boolean(hours || (menus && menus.length));
   return buildPublicDirectory(DIRECTORY_SEED, {
@@ -327,6 +368,8 @@ async function loadLive(now: number): Promise<PublicDirectory> {
     hours: hours ? { locations: hours.locations ?? {}, brands: hours.brands ?? {}, holidays: hours.holidays ?? [] } : null,
     menuItems: menus ? itemsByCloverId(menus) : null,
     mediaBase,
+    // Our ordering pages need the public https address of this Food Hub (the same one the pages themselves use).
+    storefront: mediaBase && pages && pages.length ? { base: mediaBase, pages } : null,
     trending: orders ? rankTrending(orders) : [],
     source: live ? 'live' : 'seed',
   });

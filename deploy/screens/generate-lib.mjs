@@ -11,7 +11,8 @@
 export const PLATFORMS = Object.freeze({
   uber: { label: 'Uber Eats', startUrl: 'https://merchants.ubereats.com/manager/orders', package: 'com.uber.restaurants' },
   doordash: { label: 'DoorDash', startUrl: 'https://order.doordash.com/', package: 'com.dd.ddmerchant' },
-  skip: { label: 'Skip', startUrl: 'https://partner.skipthedishes.com/', package: 'ca.skipthedishes.dashboard' },
+  // Same start page as Food Hub's (FOODHUB_SCREEN_START_SKIP); Skip's live orders may only be on its Partner app (Android).
+  skip: { label: 'Skip', startUrl: 'https://restaurants.skipthedishes.com/', package: 'ca.skipthedishes.dashboard' },
 });
 export const MODES = Object.freeze(['web', 'android']);
 export const WEB_VIEW_PORT_BASE = 3100;      // host port of screen n's web view = 3100 + n (first screen = 3101)
@@ -23,7 +24,29 @@ export const CHROMIUM_IMAGE = 'lscr.io/linuxserver/chromium:latest';
 //   docker build -t foodhub/android-playstore:33 <dest>
 // Pass another name with --android-image when the host built it under a different tag.
 export const ANDROID_IMAGE = 'foodhub/android-playstore:33';
-export const MAX_SCREENS = 50;
+export const MAX_SCREENS = 99; // e.g. 18 DoorDash + 18 Uber Eats + 18 Skip = 54, one account each
+// Optional built-in https front (--domain ecrans.on2go.ca): Caddy gets and renews the certificate by itself and sends
+// everything to the gateway. Needs the domain's DNS pointing at this host and ports 80/443 free on it.
+export const HTTPS_IMAGE = 'caddy:2.8-alpine';
+const HOST_RE = /^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+
+/** Where the gateway listens on the host: 127.0.0.1, or the Docker bridge address when a Traefik container (Coolify)
+ *  must reach it (setup.sh). Never 0.0.0.0: the screens are not exposed directly. */
+export function checkGatewayHost(ip) {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(String(ip ?? '').trim());
+  if (!m || m.slice(1).some((x) => Number(x) > 255)) return `gateway host must be an IPv4 address, not "${ip}"`;
+  if (m[1] === '0') return 'gateway host 0.0.0.0 would expose the screens: use 127.0.0.1 or the Docker bridge address';
+  return null;
+}
+
+/** "ecrans.on2go.ca" → null (fine); a URL, an IP, a wildcard or a bare word → why it is refused. */
+export function checkDomain(domain) {
+  const d = String(domain ?? '').trim().toLowerCase();
+  if (!d) return 'domain is empty';
+  if (/[/:@*\s]/.test(d)) return `domain must be a host name like ecrans.on2go.ca, not "${d}"`;
+  if (!HOST_RE.test(d)) return `domain must be a host name like ecrans.on2go.ca, not "${d}"`;
+  return null;
+}
 
 const ID_RE = /^[A-Za-z][A-Za-z0-9_-]{1,63}$/;
 const ENV_REF_RE = /^SCREEN_ID_[A-Z0-9_]{1,40}$/;
@@ -36,6 +59,15 @@ const USER_KEY_RE = /^(user(name)?|login|email|e-mail|account|phone|tel)$/i;
 export function serviceName(id) {
   return String(id).replace(/^SCREEN_ID_/, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
+
+/**
+ * Food Hub's numbered screens ("Set up screens": s01, s02…): the id IS the screen's id in Food Hub, so it is written as
+ * is and needs no .env line. Contract v2.1 in docs/ORDER_SCREENS_RESCUE.md.
+ */
+export const SLOT_ID_RE = /^s\d{2}$/;
+
+/** What the agent's SCREEN_ID is set to: the slot id itself, or the .env variable that holds the Food Hub id. */
+export const screenIdValue = (id) => (SLOT_ID_RE.test(id) ? id : `\${${envVarFor(id)}}`);
 
 /** The .env variable that holds this screen's Food Hub id ("SCREEN_ID_UBER_1" stays; "uber-1" → "SCREEN_ID_UBER_1"). */
 export function envVarFor(id) {
@@ -113,8 +145,8 @@ export function buildCompose(screens, opts = {}) {
   const volumes = {};
   let web = 0, android = 0;
   for (const s of screens) {
-    const svc = serviceName(s.id); const envVar = envVarFor(s.id);
-    const agentEnv = { FOODHUB_URL: '${FOODHUB_URL}', FOODHUB_SCREENS_AGENT_TOKEN: '${FOODHUB_SCREENS_AGENT_TOKEN}', SCREEN_ID: `\${${envVar}}` };
+    const svc = serviceName(s.id);
+    const agentEnv = { FOODHUB_URL: '${FOODHUB_URL}', FOODHUB_SCREENS_AGENT_TOKEN: '${FOODHUB_SCREENS_AGENT_TOKEN}', SCREEN_ID: screenIdValue(s.id) };
     if (s.mode === 'web') {
       web++;
       services[svc] = {
@@ -122,9 +154,13 @@ export function buildCompose(screens, opts = {}) {
         environment: {
           PUID: '1000', PGID: '1000', TZ: tz, CUSTOM_USER: '${SCREENS_VIEW_USER}', PASSWORD: '${SCREENS_VIEW_PASSWORD}',
           TITLE: s.name, CHROME_CLI: `--remote-debugging-port=9222 ${s.startUrl}`,
+          // The web view answers under /<screen>/ (e.g. /s01/), so one https address serves every screen:
+          // https://screens.<domain>/s01/ → 127.0.0.1:3101, path kept as is (no prefix stripping).
+          SUBFOLDER: `/${svc}/`,
         },
         volumes: [`./profiles/${svc}:/config`],
-        ports: [`127.0.0.1:${WEB_VIEW_PORT_BASE + web}:3001`],
+        // A numbered screen keeps its number on every host (s19 → 3119), so a list can be split across hosts.
+        ports: [`127.0.0.1:${WEB_VIEW_PORT_BASE + (SLOT_ID_RE.test(s.id) ? Number(s.id.slice(1)) : web)}:3001`],
       };
       services[`${svc}-agent`] = {
         build: './agent', restart: 'unless-stopped', network_mode: `service:${svc}`,
@@ -150,7 +186,30 @@ export function buildCompose(screens, opts = {}) {
       };
     }
   }
-  return { services, volumes, counts: { web, android } };
+  // One address for every web screen: the gateway (gateway/gateway.mjs) routes /sNN/ to each screen with its path kept,
+  // lets only Food Hub frame them (FOODHUB_ORIGIN) and asks the view password once. Point the host's https domain at it.
+  const webScreens = screens.filter((s) => s.mode === 'web').map((s) => serviceName(s.id));
+  if (webScreens.length) {
+    services.gateway = {
+      build: './gateway', restart: 'unless-stopped',
+      environment: {
+        SCREENS: webScreens.join(','), FOODHUB_ORIGIN: '${FOODHUB_ORIGIN}',
+        SCREENS_VIEW_USER: '${SCREENS_VIEW_USER}', SCREENS_VIEW_PASSWORD: '${SCREENS_VIEW_PASSWORD}',
+      },
+      ports: [`${opts.gatewayHost ?? '127.0.0.1'}:${WEB_VIEW_PORT_BASE}:8080`],
+    };
+    if (opts.domain) {
+      services.https = {
+        image: HTTPS_IMAGE, restart: 'unless-stopped', depends_on: ['gateway'],
+        command: ['caddy', 'reverse-proxy', '--from', String(opts.domain).trim().toLowerCase(), '--to', 'gateway:8080'],
+        ports: ['80:80', '443:443', '443:443/udp'],
+        volumes: ['https-data:/data', 'https-config:/config'],
+      };
+      volumes['https-data'] = {};
+      volumes['https-config'] = {};
+    }
+  }
+  return { services, volumes, counts: { web, android }, domain: opts.domain && webScreens.length ? String(opts.domain).trim().toLowerCase() : null };
 }
 
 const yamlScalar = (v) => {
@@ -171,7 +230,10 @@ export function toYaml(doc, { source = 'screens.json', screens = [] } = {}) {
     `# Generated by deploy/screens/generate.mjs from ${source} — do not edit by hand, edit the list and run it again.`,
     `# ${doc.counts.web} web screen(s), ${doc.counts.android} Android screen(s). Values come from .env (never commit it).`,
     '# Android screens are in the compose profile "android": docker compose --profile android up -d (needs a Linux host with KVM).',
-    ...screens.map((s) => `#   ${serviceName(s.id)} = ${PLATFORMS[s.platform].label} "${s.name}" (${s.mode}) → .env ${envVarFor(s.id)}`),
+    doc.domain
+      ? `# HTTPS built in: https://${doc.domain}/ → the gateway (Caddy; certificate automatic once the DNS of ${doc.domain} points here, ports 80/443 open).`
+      : `# One address for all web screens: point the https domain (e.g. https://ecrans.on2go.ca) at the gateway, 127.0.0.1:${WEB_VIEW_PORT_BASE}.`,
+    ...screens.map((s) => `#   ${serviceName(s.id)} = ${PLATFORMS[s.platform].label} "${s.name}" (${s.mode}) → ${SLOT_ID_RE.test(s.id) ? `Food Hub screen ${s.id}` : `.env ${envVarFor(s.id)}`}`),
     '',
   ].join('\n');
   const vols = Object.keys(doc.volumes ?? {}).length ? `volumes:\n${yamlNode(doc.volumes, 2)}\n` : '';
@@ -183,19 +245,46 @@ export function envTemplate(screens) {
   const lines = [
     '# Copy to .env on the relay host (never commit .env). Names only here.',
     'FOODHUB_URL=https://foodhub.on2go.ca',
+    '# Food Hub address(es) allowed to show the screens in a frame (the gateway). Comma-separated https origins.',
+    'FOODHUB_ORIGIN=https://foodhub.on2go.ca',
     '# Same value as FOODHUB_SCREENS_AGENT_TOKEN on Food Hub (Coolify). 24+ random characters: openssl rand -hex 24',
     'FOODHUB_SCREENS_AGENT_TOKEN=',
     '# Web-view sign-in of the relay host itself (not a platform password).',
     'SCREENS_VIEW_USER=',
     'SCREENS_VIEW_PASSWORD=',
-    '# Screen ids shown in Food Hub → Stores → Platform screens → edit (one per screen).',
-    ...screens.map((s) => `${envVarFor(s.id)}=`),
+    ...(screens.some((s) => !SLOT_ID_RE.test(s.id)) ? ['# Screen ids shown in Food Hub → Stores → Platform screens → edit (one per screen).'] : []),
+    ...screens.filter((s) => !SLOT_ID_RE.test(s.id)).map((s) => `${envVarFor(s.id)}=`),
+    ...(screens.some((s) => SLOT_ID_RE.test(s.id)) ? ['# Numbered screens (s01, s02…) use their own id: nothing to fill in for them.'] : []),
   ];
   return lines.join('\n') + '\n';
 }
 
+/**
+ * Keep only the numbered screens in a range, "s19-s36" (one relay host's share of a big list). Other ids are kept.
+ * Returns the list unchanged when the range is empty, or null when it is not a range.
+ */
+export function pickRange(input, range) {
+  const r = String(range ?? '').trim();
+  if (!r) return input;
+  const m = /^s(\d{2})-s(\d{2})$/.exec(r);
+  if (!m || Number(m[1]) > Number(m[2])) return null;
+  const [lo, hi] = [Number(m[1]), Number(m[2])];
+  const list = Array.isArray(input) ? input : input?.screens;
+  if (!Array.isArray(list)) return input;
+  const kept = list.filter((s) => !SLOT_ID_RE.test(String(s?.id ?? '')) || (Number(String(s.id).slice(1)) >= lo && Number(String(s.id).slice(1)) <= hi));
+  return Array.isArray(input) ? kept : { ...input, screens: kept };
+}
+
 /** Validate + build + serialize in one go. Returns { yaml, env, screens, counts } or { errors }. */
 export function generate(input, opts = {}) {
+  if (opts.domain != null && opts.domain !== '') {
+    const bad = checkDomain(opts.domain);
+    if (bad) return { errors: [bad] };
+  }
+  if (opts.gatewayHost != null && opts.gatewayHost !== '') {
+    const bad = checkGatewayHost(opts.gatewayHost);
+    if (bad) return { errors: [bad] };
+  }
   const v = validateScreens(input);
   if ('errors' in v) return v;
   const doc = buildCompose(v.screens, opts);

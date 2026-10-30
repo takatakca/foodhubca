@@ -23,6 +23,7 @@ import { nowIso } from '../config';
 import { applyCourierUpdate, doorDashCourierDetails, doorDashCourierStatus } from '../courier';
 import { isProtectedDoorDashId } from '../doordash/guard';
 import { doorDashSandboxReason } from '../doordash/sandbox';
+import { mevOnOrderChange } from '../mev/hooks';
 import { menuCallbackOutcome } from '../ops';
 import { applyExternalStatus, pipelineOutcomeText, processIncomingOrder } from '../pipeline';
 import { getRepo } from '../repo';
@@ -155,6 +156,8 @@ async function handleAdjustment(body: any): Promise<HandlerOutcome> {
   await repo.addEvent(order.id, 'platform_adjustment', { message: `DoorDash adjusted the order: ${summary}. The Clover ticket is not changed automatically — correct it by hand if the kitchen already printed it.`, source: meta.adjustment_source ?? null, at: meta.adjustment_timestamp ?? null });
   await logActivity({ actor: 'DoorDash', source: 'platform', kind: 'order', action: 'platform_adjustment', status: 'info', channel: 'doordash', brandName: order.brandName, locationCode: order.locationCode, orderId: order.id,
     summary: `DoorDash adjusted #${shortId(order)}: ${summary}` });
+  // A receipt already issued is credited and a corrected one names it (Takatak MEV; nothing when MEV is off).
+  await mevOnOrderChange(order);
   return { result: 'order adjusted', orderId: order.id };
 }
 

@@ -10,14 +10,22 @@
 | Code | `lib/foodhub/public-directory.ts`, route `app/api/public/directory/route.ts`, tests `tests/public-directory.test.ts` |
 | Base data | `data/public/directory-seed.json` (17 brands, 2 kitchens, 10–12 dishes each), built by `scripts/public-directory/build-seed.mts` |
 
+## Availability and isolation
+
+- Only exact, reviewed paths are exempt from the session gate: `/api/public/directory` (this feed) and `/api/public/restaurant-leads` (the on2go.ca form, `docs/RESTAURANT_LEADS.md`). Unknown routes under `/api/public/` remain private by default; `/api/foodhub/orders` and all merchant controls remain protected.
+- Each optional database read (hours, menus, recent orders) has a 2.5-second maximum wait. If a read fails or stalls, the endpoint returns the checked-in seed for that portion rather than waiting indefinitely. The `source` field shows `seed` unless live hours/menu data was obtained.
+- This resilience change does not repair incorrect DNS, a stopped Coolify application, an invalid Supabase key, or enable platform order connectors. Check `/api/release` and `/api/health` separately after deployment.
+
 ## What it contains
 
 - `kitchens[]`: NDG (6280 Av Somerled, H3X 2B6) and Saint-Léonard (5839 Rue Jean-Talon E, H1S 1M4): address, map point,
   weekly hours, `openNow`, `openLate`, phone (only when `FOODHUB_PUBLIC_PHONE` is set), the brands cooked there.
 - `brands[]`: name, other names, categories, cuisine, description and about text (FR + EN), official website (+ `live` when
   the site answers with the brand's own page), colour, `featured`, and per kitchen: hours, open now / late, order links.
-- `order[]` per kitchen: Clover online ordering first (`FOODHUB_PUBLIC_CLOVER_ORDER_URL`), then the delivery apps' public store
-  pages (Uber Eats, DoorDash), live ones first. `live: false` = the store exists but is not visible on the app today.
+- `order[]` per kitchen: Food Hub's own ordering page first (`platform: on2go`, `/commander/<slug>`, `?lang=en` for English:
+  only the brands switched on in Settings → Storefront, in the kitchen the page serves; needs `FOODHUB_PUBLIC_URL`), then
+  Clover online ordering (`FOODHUB_PUBLIC_CLOVER_ORDER_URL`), then the delivery apps' public store pages (Uber Eats,
+  DoorDash), live ones first. `live: false` = the store exists but is not visible on the app today.
 - `dishes[]`: Clover item id, name FR/EN, counter price (CAD), photo (Food Hub media when the master menu has one), `deal`
   (meals to share), `available`.
 - `trending[]`: brand ids ranked by Food Hub orders over 7 days (3 orders minimum). A rank only, never a count.

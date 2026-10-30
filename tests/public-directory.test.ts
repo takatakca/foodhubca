@@ -3,11 +3,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { NextRequest } from 'next/server';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   allowedOrigin, buildPublicDirectory, cloverFromEnv, DIRECTORY_SEED, FORBIDDEN_STORE_IDS, isOpenLate, itemsByCloverId,
-  rankTrending, resetPublicDirectoryCache, storeUrl, uuidToBase64Url,
+  rankTrending, readPublicDirectoryWithin, resetPublicDirectoryCache, storefrontUrl, storeUrl, uuidToBase64Url,
 } from '../lib/foodhub/public-directory';
+import { livePublicPages } from '../lib/foodhub/storefront/settings';
 import { allDayWeek, normalizeWeek } from '../lib/foodhub/hours';
 import type { HoursConfig, MasterMenu, WeeklyHours } from '../lib/foodhub/types';
 
@@ -111,6 +112,40 @@ describe('buildPublicDirectory', () => {
     expect(cloverFromEnv({ FOODHUB_PUBLIC_CLOVER_ORDER_URL: 'https://evil.example/online-ordering/x' })).toBeNull();
   });
 
+  it('our own ordering pages come first, only for the brands switched on, in the kitchen each page serves', () => {
+    const ppp = DIRECTORY_SEED.brands.find((b) => b.id === 'ppp-pizzeria')!;
+    const ndgCode = DIRECTORY_SEED.kitchens.find((k) => k.id === 'ndg')!.foodhubLocationCodes[0];
+    const stlCode = DIRECTORY_SEED.kitchens.find((k) => k.id === 'saint-leonard')!.foodhubLocationCodes[0];
+    const cfg = { payOnline: true, payAtPickup: true, pickupMaxTotal: 150 };
+    const settings = {
+      enabled: true,
+      brands: {
+        [ppp.foodhubBrandNames[0]]: { ...cfg, enabled: true, slug: 'ppp-pizzeria', locationCode: ndgCode },
+        'Pi Pita': { ...cfg, enabled: false, slug: 'pi-pita', locationCode: ndgCode },
+        'Not In The Directory': { ...cfg, enabled: true, slug: 'nope', locationCode: stlCode },
+      },
+    };
+    expect(livePublicPages(settings)).toEqual([{ brandId: 'ppp-pizzeria', slug: 'ppp-pizzeria', kitchen: 'ndg' }]);
+    expect(livePublicPages({ ...settings, enabled: false })).toEqual([]);
+
+    const d = buildPublicDirectory(DIRECTORY_SEED, {
+      now: THU_10PM,
+      clover: cloverFromEnv({ FOODHUB_PUBLIC_CLOVER_ORDER_URL: 'https://www.clover.com/online-ordering/on2go-test' }),
+      storefront: { base: 'https://foodhub.on2go.ca/', pages: livePublicPages(settings) },
+    });
+    expect(d.orderPriority[0]).toBe('on2go');
+    const brand = d.brands.find((b) => b.id === 'ppp-pizzeria')!;
+    const ndg = brand.locations.find((l) => l.kitchen === 'ndg')!;
+    expect(ndg.order[0]).toEqual({ platform: 'on2go', label: 'ON2GO', live: true, url: { fr: 'https://foodhub.on2go.ca/commander/ppp-pizzeria', en: 'https://foodhub.on2go.ca/commander/ppp-pizzeria?lang=en' } });
+    expect(ndg.order[1].platform).toBe('clover');
+    expect(brand.locations.find((l) => l.kitchen === 'saint-leonard')!.order.some((o) => o.platform === 'on2go')).toBe(false);
+    expect(d.brands.find((b) => b.id === 'pi-pita')!.locations.every((l) => !l.order.some((o) => o.platform === 'on2go'))).toBe(true);
+    // A base that is not a real https host (or a bad slug) never reaches the feed.
+    const bad = buildPublicDirectory(DIRECTORY_SEED, { now: THU_10PM, storefront: { base: 'javascript:alert(1)//', pages: [{ brandId: 'ppp-pizzeria', slug: 'ppp-pizzeria', kitchen: 'ndg' }] } });
+    expect(bad.brands.find((b) => b.id === 'ppp-pizzeria')!.locations[0].order.some((o) => o.platform === 'on2go')).toBe(false);
+    expect(storefrontUrl('http://localhost:4800', 'pi-pita', 'en')).toBe('http://localhost:4800/commander/pi-pita?lang=en');
+  });
+
   it('Uber uuid → base64url and DoorDash store pages', () => {
     expect(uuidToBase64Url('627d09f0-8fb4-57f2-8ec1-6a71984ad267')).toBe('Yn0J8I-0V_KOwWpxmErSZw');
     expect(storeUrl({ platform: 'doordash', storeId: '34525477', live: true }, 'fr')).toBe('https://www.doordash.com/fr-CA/store/34525477/');
@@ -144,6 +179,32 @@ describe('trending', () => {
   });
 });
 
+describe('optional live database reads', () => {
+  it('uses fast results and falls back to null on rejection', async () => {
+    expect(await readPublicDirectoryWithin(Promise.resolve('live'), 10)).toBe('live');
+    expect(await readPublicDirectoryWithin(Promise.reject(new Error('database offline')), 10)).toBeNull();
+  });
+
+  it('returns the seed fallback promptly when a database read stalls', async () => {
+    vi.useFakeTimers();
+    try {
+      let finish!: (value: string) => void;
+      const stalled = new Promise<string>((resolve) => { finish = resolve; });
+      const result = readPublicDirectoryWithin(stalled, 2500);
+      await vi.advanceTimersByTimeAsync(2499);
+      let done = false;
+      void result.then(() => { done = true; });
+      await Promise.resolve();
+      expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await result).toBeNull();
+      finish('late database result');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('CORS and the route', () => {
   it('allows on2go.ca, qmaps.ca and localhost only', () => {
     expect(allowedOrigin('https://on2go.ca', '')).toBe('https://on2go.ca');
@@ -159,6 +220,12 @@ describe('CORS and the route', () => {
     process.env.SESSION_SECRET = 's'.repeat(64);
     process.env.DASHBOARD_PASSWORD = 'p'.repeat(16);
     expect((await proxy(new NextRequest('http://hub.local/api/public/directory'))).headers.get('x-middleware-next')).toBe('1');
+    expect((await proxy(new NextRequest('http://hub.local/api/public/internal'))).status).toBe(401);
+    expect((await proxy(new NextRequest('http://hub.local/api/public/directory-private'))).status).toBe(401);
+    // The on2go.ca « Join » form (PR #87) is the other reviewed public route: exact path only.
+    expect((await proxy(new NextRequest('http://hub.local/api/public/restaurant-leads', { method: 'POST' }))).headers.get('x-middleware-next')).toBe('1');
+    expect((await proxy(new NextRequest('http://hub.local/api/public/restaurant-leads', { method: 'OPTIONS' }))).headers.get('x-middleware-next')).toBe('1');
+    expect((await proxy(new NextRequest('http://hub.local/api/public/restaurant-leads/export'))).status).toBe(401);
     const { GET, OPTIONS } = await import('../app/api/public/directory/route');
     const res = await GET(new Request('http://hub.local/api/public/directory', { headers: { origin: 'https://on2go.ca' } }));
     expect(res.status).toBe(200);

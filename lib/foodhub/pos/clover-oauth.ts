@@ -41,7 +41,7 @@ import { emailConfigured, normalizeEmail, postToChat, sendEmail } from '../notif
 import { publicUrlCheck } from '../public-url';
 import { getRepo } from '../repo';
 import { signWelcome, verifyWelcome } from '../session';
-import { cloverApp, cloverAppKeysSet, cloverAppMissing, phoneOwnMerchants, type CloverAppKey } from './clover-apps';
+import { cloverApp, cloverAppKeysSet, cloverAppMissing, isCloverAppKey, phoneOwnMerchants, type CloverAppKey } from './clover-apps';
 import { cloverFetch, type CloverFetchOptions } from './clover-http';
 
 export const CLOVER_CONNECT_CALLBACK = '/api/foodhub/clover-connect/callback';
@@ -567,7 +567,7 @@ export interface CloverWelcome {
 export async function cloverWelcome(ticket: string | null | undefined): Promise<CloverWelcome | null> {
   const p = await verifyWelcome(ticket);
   if (!p?.m) return null;
-  const app: CloverAppKey = p.a === 'phone' ? 'phone' : 'foodhub';
+  const app: CloverAppKey = p.a && isCloverAppKey(p.a) ? p.a : 'foodhub';
   const tag = app === 'foodhub' ? {} : { app };
   const c = (await readAll(app))[p.m];
   if (!c) return { merchantId: p.m, name: null, status: 'gone', profile: null, billing: null, ...tag };

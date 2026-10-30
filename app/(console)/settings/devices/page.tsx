@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { BatteryCharging, BatteryLow, BatteryMedium, Eye, EyeOff, Lock, MonitorSmartphone, Pencil, Plus, Trash2, Volume2, VolumeX } from 'lucide-react';
 import { Badge, StatusDot } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Banner, Card, EmptyState } from '@/components/ui/card';
+import { Banner, Card, EmptyState, SkeletonList } from '@/components/ui/card';
 import { Field, Input, Select } from '@/components/ui/form';
 import { Modal } from '@/components/ui/overlay';
 import { FormDraftNote } from '@/components/ui/save-chip';
@@ -62,23 +62,29 @@ export default function DevicesPage() {
           {t('Cet écran est une tablette de cuisine :', 'This screen is a kitchen tablet:')} <strong>{devices.find((d) => d.id === here)?.name ?? '…'}</strong>
         </Banner>
       )}
-      {loaded && offline > 0 && <Banner tone="warn" className="mb-4">{t(`${offline} tablette(s) hors ligne ou jamais vue(s).`, `${offline} tablet(s) offline or never seen.`)}</Banner>}
+      {loaded && offline > 0 && <Banner tone="warn" className="mb-4">{offline === 1 ? t('1 tablette hors ligne ou jamais vue.', '1 tablet offline or never seen.') : t(`${offline} tablettes hors ligne ou jamais vues.`, `${offline} tablets offline or never seen.`)}</Banner>}
 
-      <div className="space-y-5">
-        {byLoc.map((l) => (
-          <div key={l.code}>
-            <div className="mb-2 flex items-center gap-2 text-sm font-extrabold text-ink">{shortLoc(l.name)}<span className="font-normal text-ink-3">· {l.devices.length} {t('écran(s)', 'screen(s)')}</span></div>
-            {l.devices.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-line-2 px-5 py-6 text-center text-sm text-ink-3">{t('Aucune tablette. Ouvrez Food Hub sur la tablette de cette succursale, connectez-vous, puis « Enregistrer cet écran ».', 'No tablet. Open Food Hub on this location’s tablet, sign in, then “Enrol this screen”.')}</div>
-            ) : (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      {!loaded && !err && <SkeletonList count={3} />}
+      {loaded && devices.length === 0 && (
+        <Card><EmptyState icon={<MonitorSmartphone className="size-6" />} title={t('Aucune tablette enregistrée', 'No tablet enrolled')}
+          body={t('Ouvrez Food Hub sur la tablette de la cuisine, connectez-vous, puis enregistrez-la ici.', 'Open Food Hub on the kitchen tablet, sign in, then enrol it here.')}
+          action={manage && !here ? <Button onClick={() => setEnrol(true)} icon={<Plus className="size-4" />}>{t('Enregistrer cet écran', 'Enrol this screen')}</Button> : undefined} /></Card>
+      )}
+      {loaded && devices.length > 0 && (
+        <div className="space-y-6">
+          {byLoc.filter((l) => l.devices.length > 0).map((l) => (
+            <section key={l.code}>
+              <h2 className="text-heading mb-3 flex items-center gap-2 text-ink">{shortLoc(l.name)}<span className="text-small font-normal text-ink-3">· {l.devices.length === 1 ? t('1 écran', '1 screen') : t(`${l.devices.length} écrans`, `${l.devices.length} screens`)}</span></h2>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {l.devices.map((d) => <DeviceCard key={d.id} d={d} here={d.id === here} manage={manage} lang={lang} onRename={() => setRename(d)} onRemove={() => setRemove(d)} />)}
               </div>
-            )}
-          </div>
-        ))}
-        {loaded && byLoc.length === 0 && <Card><EmptyState icon={<MonitorSmartphone className="size-6" />} title={t('Aucune tablette', 'No tablet')} /></Card>}
-      </div>
+            </section>
+          ))}
+          {byLoc.some((l) => l.devices.length === 0) && (
+            <p className="text-small text-ink-3">{t('Sans tablette :', 'No tablet yet:')} {byLoc.filter((l) => l.devices.length === 0).map((l) => shortLoc(l.name)).join(', ')}</p>
+          )}
+        </div>
+      )}
 
       {enrol && <EnrolDialog locations={locations} onClose={() => setEnrol(false)} onDone={async (name) => { setEnrol(false); toast.success(t('Tablette enregistrée', 'Tablet enrolled'), name); await load(); router.refresh(); }} />}
       {rename && <EditDialog d={rename} locations={locations} onClose={() => setRename(null)} onDone={async (name) => { setRename(null); toast.success(t('Tablette modifiée', 'Tablet updated'), name); await load(); }} />}
@@ -97,13 +103,13 @@ function DeviceCard({ d, here, manage, lang, onRename, onRemove }: { d: Device; 
   const online = d.status === 'online';
   const Battery = d.charging ? BatteryCharging : (d.battery ?? 1) < 0.25 ? BatteryLow : BatteryMedium;
   return (
-    <Card className={cn('p-4', !online && 'border-stop/40')}>
+    <Card className="p-5">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <div className={cn('grid size-10 shrink-0 place-items-center rounded-md', online ? 'bg-go/10 text-go-2' : 'bg-stop/10 text-stop')}><MonitorSmartphone className="size-5" /></div>
           <div className="min-w-0">
             <div className="flex items-center gap-2 truncate font-bold text-ink">{d.name}{here && <Badge tone="info">{t('cet écran', 'this screen')}</Badge>}</div>
-            <div className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-3"><StatusDot tone={online ? 'go' : 'stop'} pulse={online} />{online ? t('En ligne', 'Online') : d.status === 'never' ? t('Jamais vue', 'Never seen') : `${t('Hors ligne', 'Offline')} · ${ago(d.lastSeenAt, lang)}`}</div>
+            <div className="text-small mt-0.5 flex items-center gap-1.5 text-ink-3"><StatusDot tone={online ? 'go' : 'stop'} pulse={online} />{online ? t('En ligne', 'Online') : d.status === 'never' ? t('Jamais vue', 'Never seen') : `${t('Hors ligne', 'Offline')} · ${ago(d.lastSeenAt, lang)}`}</div>
           </div>
         </div>
       </div>
@@ -114,7 +120,7 @@ function DeviceCard({ d, here, manage, lang, onRename, onRemove }: { d: Device; 
         {typeof d.battery === 'number' && <Badge tone={d.battery < 0.2 && !d.charging ? 'stop' : 'neutral'} icon={<Battery className="size-3" />}>{Math.round(d.battery * 100)} %</Badge>}
         {d.signedIn && <Badge tone="dark">{d.signedIn}</Badge>}
       </div>
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-t border-line pt-3 text-[11px] text-ink-3">
+      <div className="text-small mt-3 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-t border-line pt-3 text-ink-3">
         <span>{t('Par', 'By')} {d.enrolledBy} · {new Date(d.enrolledAt).toLocaleDateString(lang === 'fr' ? 'fr-CA' : 'en-CA')}</span>
         {manage && <span className="flex gap-1"><Hint id="devices.edit"><Button variant="ghost" onClick={onRename} icon={<Pencil className="size-4" />}>{t('Modifier', 'Edit')}</Button></Hint><Hint id="devices.remove"><Button variant="ghost" onClick={onRemove} icon={<Trash2 className="size-4" />}>{t('Retirer', 'Remove')}</Button></Hint></span>}
       </div>

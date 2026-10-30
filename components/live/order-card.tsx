@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Countdown, Elapsed, useNow } from '@/components/ui/timer';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { ALLERGY, courierLabel, primaryAction, useOrderActions } from './order-drawer';
+import { orderNumber } from './words';
 import { money, timeOf } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { orderSourceLabel, type StoredOrder } from '@/lib/foodhub/types';
@@ -13,7 +14,10 @@ import { cn } from '@/lib/ui/cn';
 
 export type BoardOrder = StoredOrder & { actions: string[] };
 
-/** One order on the live board / kitchen screen. Click = open; the button does the next step. */
+/**
+ * One order on the live board / kitchen screen. Click = open; the button does the next step. The total sits under the
+ * timer (never cut at the end of the key line), and a late order says it once: by its red border, the timer stays ink.
+ */
 export function OrderCard({ o, onOpen, big }: { o: BoardOrder; onOpen: () => void; big?: boolean }) {
   const { t, loc } = useI18n();
   const { can, locName } = useViewer();
@@ -27,29 +31,33 @@ export function OrderCard({ o, onOpen, big }: { o: BoardOrder; onOpen: () => voi
   const allergy = [o.notes, ...o.lines.map((l) => l.notes)].some((n) => n && ALLERGY.test(n));
   const scheduled = Boolean(tl.fireAt && !tl.firedAt && Date.parse(tl.fireAt) > now);
   return (
-    <div className={cn('group rounded-lg border bg-surface shadow-card transition-all hover:-translate-y-px hover:shadow-pop', o.status === 'new' ? 'border-brand ring-2 ring-brand/20' : late ? 'border-stop/50' : 'border-line')}>
-      <button type="button" onClick={onOpen} className="block w-full p-3.5 text-left">
+    <div className={cn('group rounded-md border bg-surface shadow-card motion-safe:transition-[box-shadow,transform] motion-safe:duration-(--duration-fast) motion-safe:hover:-translate-y-px hover:shadow-pop', o.status === 'new' ? 'border-brand ring-2 ring-brand/20' : late ? 'border-stop/60' : 'border-line')}>
+      <button type="button" onClick={onOpen} className="block w-full rounded-md p-4 text-left">
         <div className="flex items-start gap-2.5">
           <PlatformMark channel={o.channel} size={big ? 'md' : 'sm'} />
           <div className="min-w-0 flex-1">
-            <div className={cn('flex items-baseline gap-2 font-extrabold text-ink', big ? 'text-xl' : 'text-base')}>#{o.displayId || o.externalOrderId.slice(0, 8)}<span className="truncate text-[13px] font-semibold text-ink-3">{o.brandName ?? '—'}</span></div>
-            <div className="truncate text-xs text-ink-3">{o.locationCode ? shortLoc(locName(o.locationCode)) : t('non relié', 'unmapped')} · {items} {t('art.', 'items')} · {money(o.total, loc)}</div>
+            <div className={cn('flex min-w-0 items-baseline gap-2 font-extrabold text-ink', big ? 'text-title' : 'text-body')}><span className="shrink-0">#{orderNumber(o)}</span><span className="text-small truncate font-semibold text-ink-3">{o.brandName ?? '—'}</span></div>
+            <div className="text-small line-clamp-2 text-ink-3">{o.locationCode ? shortLoc(locName(o.locationCode)) : t('non relié', 'unmapped')} · {items} {items > 1 ? t('articles', 'items') : t('article', 'item')}</div>
           </div>
-          <Elapsed since={o.createdAt} warnAt={o.status === 'new' ? 60 : 900} badAt={o.status === 'new' ? 180 : 1500} className="text-sm" />
+          <div className="shrink-0 text-right">
+            {late ? <span className="num text-body block font-bold text-ink"><Elapsed since={o.createdAt} warnAt={Number.POSITIVE_INFINITY} badAt={Number.POSITIVE_INFINITY} className="text-ink" /></span>
+              : <Elapsed since={o.createdAt} warnAt={o.status === 'new' ? 60 : 900} badAt={o.status === 'new' ? 180 : 1500} className="text-body block" />}
+            <span className="num text-small block font-semibold text-ink-2">{money(o.total, loc)}</span>
+          </div>
         </div>
         {big && (
-          <ul className="mt-3 space-y-1">
+          <ul className="mt-3 space-y-1.5">
             {o.lines.slice(0, 8).map((l, i) => (
-              <li key={i} className="text-[15px] leading-snug"><span className="num font-extrabold">{l.quantity}×</span> <span className="font-semibold">{l.name}</span>
-                {l.mapping === 'free' && !o.viaPos && <span className="ml-1.5 inline-flex items-center gap-0.5 rounded bg-wait-soft px-1 align-middle text-[11px] font-bold text-wait-2" title={t('Pas un article de l’inventaire Clover — vérifiez le billet', 'Not a Clover inventory item — check the ticket')}><TriangleAlert className="size-3" />{t('texte libre', 'free text')}</span>}
-                {l.modifiers.length > 0 && <span className="block pl-6 text-[13px] text-ink-2">{l.modifiers.map((m) => m.name).join(', ')}</span>}
-                {l.notes && <span className={cn('ml-6 mt-0.5 inline-block rounded px-1.5 text-[13px] font-bold', ALLERGY.test(l.notes) ? 'bg-stop text-white' : 'bg-wait-soft text-wait-2')}>« {l.notes} »</span>}
+              <li key={i} className="text-title leading-snug"><span className="num font-extrabold">{l.quantity}×</span> <span className="font-bold">{l.name}</span>
+                {l.mapping === 'free' && !o.viaPos && <span className="ml-1.5 inline-flex items-center gap-0.5 rounded bg-wait-soft px-1 align-middle text-micro font-bold text-wait-2" title={t('Pas un article de l’inventaire Clover — vérifiez le billet', 'Not a Clover inventory item — check the ticket')}><TriangleAlert className="size-3" />{t('texte libre', 'free text')}</span>}
+                {l.modifiers.length > 0 && <span className="text-body block pl-8 font-medium text-ink-2">{l.modifiers.map((m) => m.name).join(', ')}</span>}
+                {l.notes && <span className={cn('text-body mt-0.5 ml-8 inline-block rounded px-1.5 font-bold', ALLERGY.test(l.notes) ? 'bg-stop text-white' : 'bg-wait-soft text-wait-2')}>« {l.notes} »</span>}
               </li>
             ))}
-            {o.lines.length > 8 && <li className="text-xs text-ink-3">+{o.lines.length - 8} {t('autres', 'more')}</li>}
+            {o.lines.length > 8 && <li className="text-small text-ink-3">+{o.lines.length - 8} {t('autres', 'more')}</li>}
           </ul>
         )}
-        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+        <div className="mt-3 flex flex-wrap items-center gap-1.5 empty:hidden">
           {o.status === 'accepted' && tl.readyTarget && <Badge tone={late ? 'stop' : 'neutral'} icon={<AlarmClock className="size-3" />}>{timeOf(tl.readyTarget, loc)} · <Countdown to={tl.readyTarget} className="text-inherit" /></Badge>}
           {orderSourceLabel(o.orderSource) && <Badge tone="neutral" title={t('Où le client a commandé', 'Where the customer ordered')}>{orderSourceLabel(o.orderSource)}</Badge>}
           {o.viaPos && <Badge tone="info" title={t('Reçue par l’intégration Clover de la plateforme — Food Hub suit seulement.', 'Received through the platform’s Clover integration — Food Hub only follows it.')}>{t('via Clover', 'via Clover')}</Badge>}
@@ -74,7 +82,7 @@ export function OrderCard({ o, onOpen, big }: { o: BoardOrder; onOpen: () => voi
               <Button variant="go" size={big ? 'lg' : 'sm'} className="flex-1" loading={busy === 'ready'} onClick={() => run(o.id, 'ready')} icon={<PackageCheck className="size-4" />}>{t('Prête', 'Ready')}</Button>
             </div>
           ) : prim === 'dispatch' ? (
-            <Button variant="primary" size={big ? 'lg' : 'sm'} className="w-full" loading={busy === 'dispatch'} onClick={() => run(o.id, 'dispatch')} icon={<Bike className="size-4" />}>{t('Remise au livreur', 'Picked up')}</Button>
+            <Button variant="outline" size={big ? 'lg' : 'sm'} className="w-full" loading={busy === 'dispatch'} onClick={() => run(o.id, 'dispatch')} icon={<Bike className="size-4" />}>{t('Remise au livreur', 'Picked up')}</Button>
           ) : prim === 'complete' ? (
             <Button variant="outline" size="sm" className="w-full" loading={busy === 'complete'} onClick={() => run(o.id, 'complete')} icon={<Check className="size-4" />}>{t('Livrée / terminée', 'Delivered / done')}</Button>
           ) : null}

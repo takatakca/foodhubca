@@ -13,17 +13,21 @@ import { createDirectOrderInClover } from './clover-direct';
 import { tellDriveOrderReady } from './drive-api';
 import { addDirectEvent, getDirectOrder, newId, nextOrderNumber, saveDirectOrder } from './store';
 import type { DirectLine, DirectOrder, DirectSource, DropoffAddress, InteracTransfer, OrderFee, PaymentState } from './types';
+import { DEFAULT_PROVINCE, foodTaxRate, foodTaxes, locationProvince, type Province } from '../taxes';
 
-/** Québec sales taxes on prepared food: GST 5 % + QST 9.975 %. */
-export const QC_TAX_RATE = 0.14975;
+/** Québec sales taxes on prepared food: GST 5 % + QST 9.975 % (the default province; lib/foodhub/taxes.ts has the others). */
+export const QC_TAX_RATE = foodTaxRate('QC');
 
 export const feesTotal = (fees: OrderFee[] | undefined) => round2((fees ?? []).reduce((s, f) => s + (Number(f.amount) || 0), 0));
 
-/** Subtotal, taxes and total. Declared fees (Interac) are taxed like the delivery fee; the tip is not. */
-export function totalsFor(lines: DirectLine[], deliveryFee: number, tip: number, taxable = true, fees: OrderFee[] = []) {
+/**
+ * Subtotal, taxes and total of an order; the taxes follow the kitchen's province (Québec unless told otherwise).
+ * Declared fees (the Interac fee) are taxed like the delivery fee; the tip is not.
+ */
+export function totalsFor(lines: DirectLine[], deliveryFee: number, tip: number, taxable = true, province: Province = DEFAULT_PROVINCE, fees: OrderFee[] = []) {
   const subtotal = round2(lines.reduce((s, l) => s + l.total, 0));
   const feeSum = feesTotal(fees);
-  const tax = taxable ? round2((subtotal + deliveryFee + feeSum) * QC_TAX_RATE) : 0;
+  const tax = taxable ? foodTaxes(province, subtotal + deliveryFee + feeSum).tax : 0;
   return { subtotal, tax, total: round2(subtotal + deliveryFee + feeSum + tax + tip) };
 }
 
@@ -70,11 +74,12 @@ export interface NewDirectOrder {
 export async function createDirectOrder(input: NewDirectOrder, actor: Actor): Promise<DirectOrder> {
   if (!input.lines.length) throw new Error('An order needs at least one item.');
   const catalog = await getCatalog();
-  if (!catalog.locations.some((l) => l.code === input.locationCode)) throw new Error(`Unknown location ${input.locationCode}.`);
+  const location = catalog.locations.find((l) => l.code === input.locationCode);
+  if (!location) throw new Error(`Unknown location ${input.locationCode}.`);
   const deliveryFee = input.fulfillment === 'delivery' ? round2(input.deliveryFee ?? 0) : 0;
   const tip = round2(Math.max(0, input.tip ?? 0));
   const fees = (input.fees ?? []).filter((f) => f.code === 'interac' && Number(f.amount) > 0).map((f) => ({ code: f.code, name: String(f.name || 'Frais Interac e-Transfer').slice(0, 80), amount: round2(Number(f.amount)) }));
-  const totals = input.totals ? { subtotal: round2(input.totals.subtotal), tax: round2(input.totals.tax), total: round2(input.totals.total) } : totalsFor(input.lines, deliveryFee, tip, true, fees);
+  const totals = input.totals ? { subtotal: round2(input.totals.subtotal), tax: round2(input.totals.tax), total: round2(input.totals.total) } : totalsFor(input.lines, deliveryFee, tip, true, locationProvince(location), fees);
   const hold = Boolean(input.holdForPayment || input.interac);
   const prep = await prepFor(input.locationCode);
   const now = Date.now();

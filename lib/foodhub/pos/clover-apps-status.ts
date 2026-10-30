@@ -1,7 +1,7 @@
 // Settings → Clover app → "Clover apps on this server": each of our Clover apps, whether its keys are set, its
 // addresses for the Clover dashboard, its webhook state and which merchants installed it (never tokens or secrets).
 import { publicBaseUrl } from '../config';
-import { cloverApps, cloverPhoneAppEnabled, type CloverAppKey } from './clover-apps';
+import { cloverAppEnabled, cloverApps, cloverPhoneAppEnabled, type CloverAppKey } from './clover-apps';
 import { listCloverConnections } from './clover-oauth';
 import { phoneMinutesSummary, type MinutesSummary, type PHONE_PRICE } from './clover-phone-minutes';
 import { cloverWebhookVerification } from './clover-webhook-gate';
@@ -52,11 +52,11 @@ export interface CloverAppStatus {
 export async function cloverAppsOverview(opts: { showVerification?: boolean } = {}): Promise<CloverAppStatus[]> {
   const base = publicBaseUrl();
   const defs = cloverApps();
-  const lists = await Promise.all(defs.map((d) => (d.key === 'foodhub' || cloverPhoneAppEnabled() ? listCloverConnections(d.key).catch(() => []) : Promise.resolve([]))));
+  const lists = await Promise.all(defs.map((d) => (cloverAppEnabled(d.key) ? listCloverConnections(d.key).catch(() => []) : Promise.resolve([]))));
   const byApp = new Map(defs.map((d, i) => [d.key, new Set(lists[i].map((c) => c.merchantId))]));
   const minutes = cloverPhoneAppEnabled() ? await phoneMinutesSummary().catch(() => null) : null;
   return Promise.all(defs.map(async (d, i) => {
-    const enabled = d.key === 'foodhub' || cloverPhoneAppEnabled();
+    const enabled = cloverAppEnabled(d.key);
     const others = defs.filter((o) => o.key !== d.key).map((o) => byApp.get(o.key) ?? new Set<string>());
     const missing = [d.env.appId, d.env.secret].filter((k) => !String(process.env[k] || '').trim());
     return {

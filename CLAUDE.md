@@ -2,23 +2,53 @@
 
 > **Pour le propriétaire :** chaque robot lit ce fichier en démarrant. Pour en relancer un, dites-lui
 > « lis CLAUDE.md, puis continue la branche `<nom>` ». Le tableau des tâches en direct est `private/TASKS.md` (local,
-> dans le dossier principal ; `docs/PROGRESS.md` en garde l'historique). **Seul le propriétaire touche à `main`.**
+> dans le dossier principal ; `docs/PROGRESS.md` en garde l'historique). **Personne ne pousse sur `main` directement ;
+> chaque agent fusionne sa propre PR quand les vérifications sont vertes (ordre du 2026-10-29).** Tout le travail fait
+> depuis le jour 1 : `docs/REGISTRE_TAKATAK.md`.
+
+
+## 🧭 Agent board: read FIRST (owner's order 2026-10-28)
+
+All agents, wherever they run (Claude Code desktop or cloud, claude.ai, Cursor, subagents), coordinate on **one pinned public issue**: https://github.com/takatakca/foodhubca/issues/105
+1. **Before any job,** read its latest comments. A job claimed or updated there in the last 24 h belongs to that agent: continue from its next step, or pick another job.
+2. **Post** `CLAIM`, then `UPDATE` about every 20 minutes and before long steps, then `PAUSED` or `DONE` when you stop. If a usage limit is near, post `PAUSED` with the exact next step **before** a long step.
+3. **One line per comment:** `STATUS | agent: <name> @ <where it runs> | repo · branch → PR | job | next step`.
+4. **The board is public:** no secrets, codes, signatures, personal or tax data. Notes in `WORKLOG.md` / `HANDOFF.md` / `private/` still apply. The board is what agents in *other* environments can see.
+
+## 🧭 Owner's orders of 2026-10-29 (always, every agent, every TAKATAK repo)
+1. **Read first:** `docs/REGISTRE_TAKATAK.md` (all the work since day 1, repo by repo), the Google Drive folder
+   **« 00 — Opérations TAKATAK »**, then the board above.
+2. **Instant notes at every step, even mid-coding:** CLAIM, UPDATE at each step, PAUSED / DONE. Nobody does the same work
+   twice, and nothing is lost when an agent runs out of credits.
+3. **All your work visible at all times:** push your branch often (WIP included); nothing stays only on your machine.
+4. **Sign everything:** each note, comment, handoff file and Drive note ends with
+   `— signé : <agent> (<session or name>) @ <where> · <YYYY-MM-DD HH:MM>`; commits keep their `Co-Authored-By` line.
+5. **Merge your own PR** once its checks are green (CI green, or the only red is the known GitHub Actions billing block
+   and the repo's local checks are green). Another agent's PR: merge it only if it merges cleanly and the checks pass on
+   the result; otherwise leave a note on it. Still never: a direct commit or push on `main`, a force-push, rewritten
+   history. **Merging can mean going live:** Coolify may deploy `main` on push (`docs/DEPLOYMENT.md` §3; the image build
+   re-runs audit, typecheck, lint, tests, build and E2E and refuses to publish on a failure). So before merging a code
+   change, run the full checks of §3 below yourself (build + `verify:foodhub` for orders, webhooks, menus, Clover), and
+   never trigger a deploy by hand.
+6. **Copilot:** when it can help solve a problem, turn it on (Copilot review on the PR, or assign Copilot to an issue).
+7. Notes go to **both** GitHub (board + repo files) **and** Google Drive « 00 — Opérations TAKATAK ».
 
 Several Claude sessions work on this project at the same time (worktrees under `.claude/worktrees/`). Work was done
 twice, even three times, because sessions did not see each other. These rules stop that.
 
-## Git: main belongs to the owner (owner's order of 2026-10-08; overrides every other rule in this file)
-Nobody but the owner touches `main`, in any TAKATAK repo. Not even a docs-only commit.
-- **Never:** commit on local `main`; `git push origin main` or `HEAD:main`; merge into `main`; rebase, reset or rewrite
-  `main`; force-push.
+## Git: main is protected (owner's order of 2026-10-08, updated 2026-10-29)
+Nobody commits or pushes to `main` directly, in any TAKATAK repo. Not even a docs-only commit. Changes reach `main` only
+through a pull request; since 2026-10-29 an agent merges its own PR once the checks are green (see the orders above).
+- **Never:** commit on local `main`; `git push origin main` or `HEAD:main`; merge into `main` outside a pull request;
+  rebase, reset or rewrite `main`; force-push.
 - **Work flow:**
   1. `git fetch origin`, then `git switch -c <type>/<name> origin/main`. Type: `feature`, `fix`, `refactor`, `docs` or
      `agent`.
   2. Push only that branch: `git push -u origin <type>/<name>`.
   3. Before you say "done": you are not on `main`, the checks ran, the work is committed, the branch is pushed, the
      working tree is clean.
-  4. Report: branch, SHA, what changed, checks and results, env / migration / deploy notes, and "ready for owner
-     review/merge". The owner merges and deploys.
+  4. Report: branch, SHA, what changed, checks and results, env / migration / deploy notes. Merge the PR yourself once
+     the checks are green (2026-10-29); a merge may go live (Coolify deploy on push), never deploy by hand.
 - **Never discard uncommitted work you did not create** (`reset --hard`, `clean -fd`, `checkout -- .`, `restore .`).
   Report it to the owner instead.
 - The owner works in the main checkout (`C:\Users\fansh\Documents\GitHub\foodhubca`, on `main`). **Never commit
@@ -58,8 +88,9 @@ Nobody but the owner touches `main`, in any TAKATAK repo. Not even a docs-only c
   - always: `npm run typecheck`, `npm run lint` (0 errors), `npm test`;
   - for anything touching orders, webhooks, menus or Clover, also: `rm -rf .next && npx next build --webpack`, then
     `npm run verify:foodhub` (set `FOODHUB_E2E_MOCK_PORT` / `FOODHUB_E2E_APP_PORT` when 4799/4800 are busy).
-- `main` is deployed by the owner from Coolify (manual Deploy). Never deploy, and never touch `main` (see "Git: main
-  belongs to the owner"). The owner merges your branch.
+- Never deploy by hand, and never push to `main` (see "Git: main is protected"). Merge your own PR once its checks are
+  green (owner's order 2026-10-29); a merge to `main` may go live through Coolify's deploy on push
+  (`docs/DEPLOYMENT.md` §3), so the full checks come first.
 
 ## 4. Hard rules (owner's orders, never break them)
 - **Po Poulet NDG (DoorDash store 27982486) is never touched.** No publish, no 86, no Menu Request answer, no support
@@ -84,5 +115,5 @@ Nobody but the owner touches `main`, in any TAKATAK repo. Not even a docs-only c
   from without asking.
 - Put the short dated entry (what was done, with commit/PR) in `docs/PROGRESS.md` **on your own branch**, or in the
   pull request text. Never on `main`.
-- Post the same short status on your pull request, and report to the owner as in "Git: main belongs to the owner" (step
-  4: branch, SHA, checks, notes, "ready for owner review/merge").
+- Post the same short status on your pull request and on the board (signed), and report to the owner as in "Git: main
+  is protected" (step 4: branch, SHA, checks, notes; merged or why not).

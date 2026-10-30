@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 // @ts-expect-error no bundled types
 import yaml from 'js-yaml';
 // @ts-expect-error plain ESM module without types
-import { buildCompose, envTemplate, envVarFor, generate, serviceName, toYaml, validateScreens } from '../deploy/screens/generate-lib.mjs';
+import { buildCompose, checkDomain, checkGatewayHost, envTemplate, envVarFor, generate, HTTPS_IMAGE, serviceName, toYaml, validateScreens } from '../deploy/screens/generate-lib.mjs';
 
 const example = () => JSON.parse(readFileSync(path.join(__dirname, '../deploy/screens/screens.example.json'), 'utf8'));
 
@@ -47,7 +47,7 @@ describe('validateScreens', () => {
     expect(errs([{ id: 'a-1', platform: 'uber', name: 'A', colour: 'red' }])).toMatch(/unknown field/);
     expect(errs([])).toMatch(/empty/);
     expect('errors' in validateScreens('nope')).toBe(true);
-    expect('errors' in validateScreens({ screens: Array.from({ length: 51 }, (_, i) => ({ id: `s-${i}`, platform: 'uber', name: `S ${i}` })) })).toBe(true);
+    expect('errors' in validateScreens({ screens: Array.from({ length: 100 }, (_, i) => ({ id: `s-${i}`, platform: 'uber', name: `S ${i}` })) })).toBe(true);
   });
 });
 
@@ -55,15 +55,16 @@ describe('buildCompose', () => {
   const screens = (validateScreens(example()) as { screens: any[] }).screens;
   const doc = buildCompose(screens);
 
-  it('creates one browser + one agent per screen, agents sharing the browser network', () => {
-    expect(Object.keys(doc.services)).toEqual(['uber-1', 'uber-1-agent', 'doordash-1', 'doordash-1-agent', 'skip-1', 'skip-1-agent', 'doordash-2', 'doordash-2-agent']);
+  it('creates one browser + one agent per screen, agents sharing the browser network, and one gateway for the web screens', () => {
+    expect(Object.keys(doc.services)).toEqual(['uber-1', 'uber-1-agent', 'doordash-1', 'doordash-1-agent', 'skip-1', 'skip-1-agent', 'doordash-2', 'doordash-2-agent', 'gateway']);
+    expect(doc.services.gateway.environment).toMatchObject({ SCREENS: 'uber-1,doordash-1,skip-1', FOODHUB_ORIGIN: '${FOODHUB_ORIGIN}' });
     expect(doc.counts).toEqual({ web: 3, android: 1 });
     for (const name of ['uber-1', 'doordash-1', 'skip-1', 'doordash-2']) expect(doc.services[`${name}-agent`].network_mode).toBe(`service:${name}`);
   });
 
   it('gives every screen a unique host port and a unique profile folder', () => {
     const ports = Object.values(doc.services).flatMap((s: any) => s.ports ?? []);
-    expect(ports).toEqual(['127.0.0.1:3101:3001', '127.0.0.1:3102:3001', '127.0.0.1:3103:3001', '127.0.0.1:6081:8554']);
+    expect(ports).toEqual(['127.0.0.1:3101:3001', '127.0.0.1:3102:3001', '127.0.0.1:3103:3001', '127.0.0.1:6081:8554', '127.0.0.1:3100:8080']);
     const volumes = Object.values(doc.services).flatMap((s: any) => s.volumes ?? []);
     expect(new Set(volumes).size).toBe(volumes.length);
     expect(ports.every((p: string) => p.startsWith('127.0.0.1:'))).toBe(true); // never exposed directly
@@ -150,5 +151,50 @@ describe('toYaml / generate', () => {
     // Anchors/aliases are resolved by the parser; our writer never needs them: the document still round-trips.
     expect(yaml.load(toYaml({ services: doc.services, counts: { web: 2, android: 0 } })).services).toEqual(doc.services);
     expect(toYaml({ services: doc.services, counts: { web: 2, android: 0 } })).not.toMatch(/^volumes:/m); // no top-level section when there is nothing to declare (services keep their own volumes:)
+  });
+});
+
+describe('built-in https (--domain)', () => {
+  const list = { screens: [{ id: 's01', platform: 'doordash', name: 'DoorDash 1' }, { id: 's02', platform: 'uber', name: 'Uber Eats 1' }] };
+
+  it('adds one Caddy front for the domain, in front of the gateway, with its certificates in named volumes', () => {
+    const r = generate(list, { domain: 'Ecrans.On2go.ca' });
+    if ('errors' in r) throw new Error(r.errors.join());
+    const doc = yaml.load(r.yaml);
+    expect(doc.services.https).toEqual({
+      image: HTTPS_IMAGE, restart: 'unless-stopped', depends_on: ['gateway'],
+      command: ['caddy', 'reverse-proxy', '--from', 'ecrans.on2go.ca', '--to', 'gateway:8080'],
+      ports: ['80:80', '443:443', '443:443/udp'], volumes: ['https-data:/data', 'https-config:/config'],
+    });
+    expect(Object.keys(doc.volumes)).toEqual(['https-data', 'https-config']);
+    expect(doc.services.gateway.ports).toEqual(['127.0.0.1:3100:8080']); // the gateway itself stays local
+    expect(r.yaml).toContain('# HTTPS built in: https://ecrans.on2go.ca/');
+  });
+
+  it('without a domain, or without web screens, there is no https front', () => {
+    const r = generate(list);
+    expect('errors' in r ? null : yaml.load(r.yaml).services.https).toBeUndefined();
+    const android = buildCompose([{ id: 's01', platform: 'doordash', name: 'D', mode: 'android', startUrl: null, package: 'com.dd.ddmerchant' }], { domain: 'ecrans.on2go.ca' });
+    expect(android.services.https).toBeUndefined();
+  });
+
+  it('refuses anything that is not a plain host name', () => {
+    expect(checkDomain('ecrans2.on2go.ca')).toBeNull();
+    for (const bad of ['', 'https://ecrans.on2go.ca', 'ecrans.on2go.ca/s01', '1.2.3.4', '*.on2go.ca', 'localhost', 'a b.ca', 'ecrans.on2go.ca:443', 'user@ecrans.on2go.ca', '-x.on2go.ca']) {
+      expect(checkDomain(bad), bad).not.toBeNull();
+    }
+    expect(generate(list, { domain: 'https://x.ca' })).toHaveProperty('errors');
+  });
+});
+
+describe('gateway on the Docker bridge (Coolify on the same host)', () => {
+  const list = { screens: [{ id: 's01', platform: 'doordash', name: 'DoorDash 1' }] };
+  it('listens where Traefik can reach it, never on every interface', () => {
+    const r = generate(list, { gatewayHost: '172.17.0.1' });
+    if ('errors' in r) throw new Error(r.errors.join());
+    expect(yaml.load(r.yaml).services.gateway.ports).toEqual(['172.17.0.1:3100:8080']);
+    expect(checkGatewayHost('127.0.0.1')).toBeNull();
+    for (const bad of ['0.0.0.0', '256.1.1.1', 'localhost', '172.17.0', '']) expect(checkGatewayHost(bad), bad).not.toBeNull();
+    expect(generate(list, { gatewayHost: '0.0.0.0' })).toHaveProperty('errors');
   });
 });

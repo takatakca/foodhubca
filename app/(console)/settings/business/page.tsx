@@ -14,15 +14,16 @@ import { Hint } from '@/components/help/hint';
 import { ExtraBrandPriceNotice, useExtraBrandPriceConfirm } from '@/components/billing/extra-brand-price';
 import { useViewer } from '@/components/shell/viewer';
 import { Section, SettingsHead } from '../settings-ui';
+import { PROVINCE_TAXES, PROVINCES } from '@/lib/foodhub/taxes';
 import { api } from '@/lib/ui/api';
 import { sameValue } from '@/lib/ui/autosave-core';
 import { formDraftId, useFormDraft } from '@/lib/ui/use-form-draft';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
 
-type Loc = { code: string; name: string; address: string; city?: string; postalCode?: string; phone?: string | null; active: boolean };
+type Loc = { code: string; name: string; address: string; city?: string; province?: string; postalCode?: string; phone?: string | null; active: boolean };
 type Brand = { name: string; active: boolean };
-type LocForm = { code: string; name: string; address: string; city: string; postalCode: string; phone: string; active: boolean };
+type LocForm = { code: string; name: string; address: string; city: string; province: string; postalCode: string; phone: string; active: boolean };
 /** The location form being opened: new (code typed in the form) or an existing location (code fixed). */
 type LocDraft = { isNew: boolean; form: LocForm };
 const NO_LOC_CHANGE: Partial<LocForm> = {};
@@ -62,7 +63,7 @@ export default function BusinessPage() {
       {err && !loc && <Banner tone="stop" className="mb-4">{err}</Banner>}
 
       <Section icon={<Building2 className="size-5" />} title={`${t('Succursales', 'Locations')} (${locs.filter((l) => l.active).length})`}
-        right={edit ? <Hint id="business.add"><Button size="sm" onClick={() => setLoc({ isNew: true, form: { code: '', name: '', address: '', city: 'Montréal', postalCode: '', phone: '', active: true } })} icon={<Plus className="size-4" />}>{t('Ajouter', 'Add')}</Button></Hint> : undefined}>
+        right={edit ? <Hint id="business.add"><Button size="sm" onClick={() => setLoc({ isNew: true, form: { code: '', name: '', address: '', city: 'Montréal', province: 'QC', postalCode: '', phone: '', active: true } })} icon={<Plus className="size-4" />}>{t('Ajouter', 'Add')}</Button></Hint> : undefined}>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {locs.map((l) => (
             <div key={l.code} className={cn('flex items-start justify-between gap-3 rounded-md border border-line p-4', !l.active && 'opacity-60')}>
@@ -70,11 +71,11 @@ export default function BusinessPage() {
                 <MapPin className="mt-0.5 size-5 shrink-0 text-brand" />
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2 font-bold text-ink">{l.name}{!l.active && <Badge tone="stop">{t('inactive', 'inactive')}</Badge>}</div>
-                  <div className="text-[13px] text-ink-3">{l.address}{l.city ? `, ${l.city}` : ''}{l.postalCode ? ` ${l.postalCode}` : ''}</div>
+                  <div className="text-[13px] text-ink-3">{l.address}{l.city ? `, ${l.city}` : ''}{l.province ? ` (${l.province})` : ''}{l.postalCode ? ` ${l.postalCode}` : ''}</div>
                   <div className="mt-1 flex flex-wrap items-center gap-2"><code className="rounded bg-sunken px-1.5 font-mono text-[11px] text-ink-2">{l.code}</code>{l.phone ? <span className="text-xs text-ink-3">☎ {l.phone}</span> : <span className="text-xs text-wait-2">{t('pas de téléphone de cuisine', 'no kitchen phone')}</span>}</div>
                 </div>
               </div>
-              {edit && <Button size="xs" variant="ghost" onClick={() => setLoc({ isNew: false, form: { code: l.code, name: l.name, address: l.address, city: l.city ?? '', postalCode: l.postalCode ?? '', phone: l.phone ?? '', active: l.active } })}>{t('Modifier', 'Edit')}</Button>}
+              {edit && <Button size="xs" variant="ghost" onClick={() => setLoc({ isNew: false, form: { code: l.code, name: l.name, address: l.address, city: l.city ?? '', province: l.province ?? '', postalCode: l.postalCode ?? '', phone: l.phone ?? '', active: l.active } })}>{t('Modifier', 'Edit')}</Button>}
             </div>
           ))}
         </div>
@@ -134,8 +135,14 @@ function LocationDialog({ draft, onClose, onSaved }: { draft: LocDraft; onClose:
         <Field label={t('Code (A–Z, 0–9, _)', 'Code (A–Z, 0–9, _)')}><Input value={loc.code} disabled={!loc.isNew} onChange={(e) => set({ code: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '') })} placeholder="VERDUN" /></Field>
         <Field label={t('Nom', 'Name')}><Input value={loc.name} onChange={(e) => set({ name: e.target.value })} placeholder="VERDUN — 1234 Wellington" /></Field>
         <Field label={t('Adresse', 'Street address')}><Input value={loc.address} onChange={(e) => set({ address: e.target.value })} /></Field>
-        <div className="grid grid-cols-[1fr_140px] gap-3">
+        <div className="grid grid-cols-[1fr_170px_120px] gap-3">
           <Field label={t('Ville', 'City')}><Input value={loc.city} onChange={(e) => set({ city: e.target.value })} /></Field>
+          <Field label={t('Province', 'Province')} hint={t('Fixe les taxes de vente affichées (TPS + TVQ, TVH…).', 'Sets the sales taxes shown (GST + QST, HST…).')}>
+            <select className="h-9 w-full rounded-md border border-line bg-surface px-2 text-sm" value={loc.province} onChange={(e) => set({ province: e.target.value })} aria-label={t('Province', 'Province')}>
+              <option value="">{t('Selon le code postal', 'From the postal code')}</option>
+              {PROVINCES.map((p) => <option key={p} value={p}>{t(PROVINCE_TAXES[p].name.fr, PROVINCE_TAXES[p].name.en)} ({p})</option>)}
+            </select>
+          </Field>
           <Field label={t('Code postal', 'Postal code')}><Input value={loc.postalCode} onChange={(e) => set({ postalCode: e.target.value.toUpperCase() })} /></Field>
         </div>
         <Field label={t('Téléphone de la cuisine', 'Kitchen phone')} hint={t('Si une tablette s’éteint ou qu’une commande attend, la surveillance appelle ce numéro en premier — comme Uber.', 'If a tablet goes off or an order waits, the watchtower calls this number first — like Uber.')}><Hint id="business.phone"><Input type="tel" inputMode="tel" value={loc.phone} onChange={(e) => set({ phone: e.target.value })} placeholder="514 555-0100" /></Hint></Field>

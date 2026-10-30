@@ -88,6 +88,18 @@ export const PLAYBOOK: Record<IncidentKind, { fr: string; en: string; doFr: stri
     doFr: ['Toucher l’écran pour réactiver le son', 'Remettre TAKATAK au premier plan'],
     doEn: ['Tap the screen to turn sound on', 'Bring TAKATAK back to the front'],
   },
+  screen_down: {
+    fr: 'Un écran de plateforme (Uber Eats, DoorDash…) sur le serveur relais ne répond plus, ou la plateforme demande de se reconnecter. Les commandes de cette plateforme ne sonnent peut-être plus.',
+    en: 'A platform screen (Uber Eats, DoorDash…) on the relay host stopped answering, or the platform asks to sign in again. Orders from that platform may no longer ring.',
+    doFr: ['Ouvrir Magasins → Écrans des plateformes', 'Toucher « Recharger », ou se reconnecter dans l’écran (le propriétaire tape le mot de passe)', 'Si l’écran reste hors ligne : vérifier le serveur relais (internet, alimentation)'],
+    doEn: ['Open Stores → Platform screens', 'Tap “Reload”, or sign in again inside the screen (the owner types the password)', 'If it stays offline: check the relay host (internet, power)'],
+  },
+  screen_waiting: {
+    fr: 'Une ou plusieurs commandes attendent sur un écran de plateforme (Uber Eats, DoorDash…) et personne ne les a acceptées. Sans réponse, la plateforme les annule et met le magasin en pause.',
+    en: 'One or more orders are waiting on a platform screen (Uber Eats, DoorDash…) and nobody has accepted them. Without an answer, the platform cancels them and pauses the store.',
+    doFr: ['Ouvrir Magasins → Écrans des plateformes (ou le mur des écrans)', 'Accepter la commande dans l’écran de la plateforme', 'Si personne n’est en cuisine : mettre le magasin en pause sur la plateforme'],
+    doEn: ['Open Stores → Platform screens (or the screens wall)', 'Accept the order inside the platform screen', 'If nobody is in the kitchen: pause the store on the platform'],
+  },
   cancel_spike: {
     fr: 'Plusieurs annulations dans la dernière heure. Les plateformes baissent le classement des magasins qui annulent souvent.',
     en: 'Several cancellations in the last hour. Platforms rank stores that cancel often lower.',
@@ -105,6 +117,12 @@ export const PLAYBOOK: Record<IncidentKind, { fr: string; en: string; doFr: stri
     en: 'A platform sent a message TAKATAK could not read. It is kept — nothing is lost.',
     doFr: ['Envoyer le message conservé à votre développeur (Réglages → Canaux)'],
     doEn: ['Send the kept message to your developer (Settings → Channels)'],
+  },
+  mev_pending: {
+    fr: 'Takatak MEV n’a pas encore enregistré cette vente : aucune facture n’existe pour elle. La facture doit être remise au client tout de suite après le paiement. Le délai de 48 heures ne vaut que pour une vente déjà enregistrée par Takatak MEV pendant une panne d’Internet, pas pour celle-ci. Un sac parti sans sa facture ne la recevra plus.',
+    en: 'Takatak MEV has not recorded this sale yet: no invoice exists for it. The invoice must be handed to the customer right after payment. The 48-hour delay only applies to a sale Takatak MEV already recorded during an Internet outage, not to this one. A bag that left without its invoice will never get it.',
+    doFr: ['Ouvrir la commande : la raison est écrite sous « Facture (MEV) »', 'Si Takatak MEV est arrêté, le redémarrer tout de suite : la vente part toute seule', 'Garder le sac tant que la facture n’est pas sortie, puis « Imprimer la facture » et la mettre dans le sac', 'Si une personne doit trancher : corriger puis « Renvoyer »'],
+    doEn: ['Open the order: the reason is under “Invoice (MEV)”', 'If Takatak MEV is down, restart it now: the sale goes out by itself', 'Keep the bag until the invoice is out, then “Print the invoice” and put it in the bag', 'If a person must decide: fix it, then “Send again”'],
   },
   platform_silent: {
     fr: 'Aucune commande de cette plateforme depuis des heures alors que ses magasins sont ouverts : le branchement (webhook, clés, magasin désactivé) est peut-être cassé.',

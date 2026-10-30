@@ -128,6 +128,16 @@ export function readTable(fileName: string, bytes: Uint8Array): string[][] {
   return parseCsv(decodeText(bytes));
 }
 
+/**
+ * Uber Eats Manager downloads print two header rows: a row of long descriptions ("Store name as per Uber Eats manager",
+ * "Unique ID to identify the order"…), then the column names (Store Name, Workflow ID, Total payout…). The table is
+ * returned from the row of names, so the description row is never read as the header (nor as a data row).
+ */
+export function withoutDescriptionRow(table: string[][]): string[][] {
+  const named = table.findIndex((r, i) => i < 3 && r.some((c) => /^workflow id$/i.test(c.trim())) && r.some((c) => /^(total payout|order id)$/i.test(c.trim())));
+  return named > 0 ? table.slice(named) : table;
+}
+
 /** Finds the header row: the first row with several non-numeric labels (portals sometimes add title lines). */
 export function splitHeader(table: string[][]): { headers: string[]; rows: string[][]; headerRow: number } {
   const idx = table.findIndex((r) => r.filter((c) => c && !/^[-\d.,$()\s%]+$/.test(c)).length >= 3);
@@ -206,8 +216,9 @@ export function knownMapping(format: FormatKey, headers: string[]): ColumnMappin
       tax: find(headers, ['Tax on Sales']) ?? findAll(headers, ['GST/HST on Sales', 'QST on Sales', 'PST on Sales']),
       commission: findAll(headers, ['Marketplace fee', 'Delivery Network Fee', 'Order Processing Fee']),
       commissionTax: find(headers, ['Tax on Marketplace fee']) ?? findAll(headers, ['GST/HST on Marketplace fee', 'QST on Marketplace fee']),
-      promotions: findAll(headers, ['Promotions on items', 'Tax on Promotions on items', 'Promotions on delivery', 'Tax on Promotions on delivery']),
-      adjustments: findAll(headers, ['Price Adjustments (excluding tax)', 'Tax on Price Adjustments', 'Marketing adjustment']),
+      // Uber Eats Manager prints "Offers on items" / "Delivery Offer Redemptions (incl. tax)" (help.uber.com: "Promotions on …").
+      promotions: findAll(headers, ['Promotions on items', 'Tax on Promotions on items', 'Promotions on delivery', 'Tax on Promotions on delivery', 'Offers on items', 'Tax On Offers on items', 'Delivery Offer Redemptions (incl. tax)']),
+      adjustments: findAll(headers, ['Price Adjustments (excluding tax)', 'Price adjustments (excl. tax)', 'Tax on Price Adjustments', 'Marketing adjustment']),
       otherFees: findAll(headers, ['Other payments']),
       net: find(headers, ['Total payout']),
     };
@@ -247,9 +258,20 @@ export function guessMapping(headers: string[]): ColumnMapping {
   };
 }
 
+/**
+ * Exports print a placeholder where a cell is empty: DoorDash writes the literal text "NULL" in "DoorDash order ID" and
+ * "Merchant delivery ID" on tablet-fee and equipment-rebate rows. Such a cell is no order reference (a fee row must not
+ * become an order called "NULL") and no description.
+ */
+const PLACEHOLDER = /^(null|nil|none|undefined|nan|n\/?a|-+|—)$/i;
+export function isPlaceholder(v: string | null | undefined): boolean {
+  return PLACEHOLDER.test(String(v ?? '').trim());
+}
+
 function pick(row: string[], m: number | number[] | undefined): string {
   if (m === undefined) return '';
-  return Array.isArray(m) ? (m.length ? row[m[0]] ?? '' : '') : row[m] ?? '';
+  const v = Array.isArray(m) ? (m.length ? row[m[0]] ?? '' : '') : row[m] ?? '';
+  return isPlaceholder(v) ? '' : v;
 }
 function sum(row: string[], m: number | number[] | undefined): number {
   if (m === undefined) return 0;
@@ -317,7 +339,7 @@ export function toLines(headers: string[], rows: string[][], mapping: ColumnMapp
 }
 
 export function parseStatement(fileName: string, bytes: Uint8Array, opts: { mapping?: ColumnMapping; channel?: ChannelKey | null } = {}): ParsedStatement {
-  const table = readTable(fileName, bytes);
+  const table = withoutDescriptionRow(readTable(fileName, bytes));
   if (table.length < 2) throw new Error('The file has no data rows.');
   const { headers, rows } = splitHeader(table);
   const det = detectFormat(headers);

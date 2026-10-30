@@ -33,3 +33,8 @@ La demande explicite du propriétaire autorise cette reprise à fusionner la PR 
 ## Décisions en attente
 
 La mise en production intégrale, le lancement Clover App Market, l'ouverture aux nouveaux marchands, les permissions fournisseurs, le basculement `hub.on2go.ca` et le calendrier des paiements nécessitent des preuves et/ou une approbation du propriétaire. Ne pas les interpréter comme réalisées du seul fait que leur code est présent.
+
+
+## Décision UI du 2026-10-16 — thème de cuisine strictement local au parcours
+
+Le thème sombre est propre aux routes `/kitchen` et `/kitchen/*` (y compris verrouillage NIP), appliqué au document pour les dialogues qui utilisent un portail HTML et retiré dès que l'on quitte ce parcours. Le rendu initial utilise le script d'affichage déjà existant : pas de deuxième système d'identité, aucun changement d'accès ni de contenu marchand. La préférence système `prefers-reduced-motion` prévaut pour les animations ; les contrôles cuisine visent un minimum de 48 px. PR #52, à faire réviser et fusionner par le propriétaire.

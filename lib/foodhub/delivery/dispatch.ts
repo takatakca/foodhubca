@@ -12,15 +12,17 @@
 import { logActivity, type Actor } from '../activity';
 import { decideAlcohol } from '../alcohol/rules';
 import { getCatalog } from '../catalog';
+import { locationProvince } from '../taxes';
 import { nowIso, round2 } from '../config';
 import { featureOn } from '../expansion/features';
 import { normalizePhone, postToChat, sendSms } from '../notify';
+import { getRepo } from '../repo';
 import { addressProblems, formatAddress, serviceAreaProblem } from './address';
 import { doorDashDrive } from './doordash-drive';
 import { skipDaas } from './skip-daas';
 import { FLEET_LABELS, type CourierFleet, type DeliveryRequest, type FleetEvent } from './fleet';
 import {
-  addDirectEvent, deliveriesForOrder, findDelivery, getDelivery, getDeliverySettings, getDirectOrder, listDirectOrders, newId, ruleFor, saveDelivery,
+  addDirectEvent, deliveriesForOrder, findDelivery, getDelivery, getDeliverySettings, getDirectOrder, listDirectOrders, newId, ruleFor, saveDelivery, updateDelivery,
 } from './store';
 import { DELIVERY_RANK, TERMINAL, type Delivery, type DeliveryQuote, type DeliverySettings, type DirectOrder, type FleetKey } from './types';
 import { getOwnFleet, ownFleet } from './own-fleet';
@@ -34,6 +36,23 @@ const AUTO_RETRY_MS = 2 * 60_000;
 /** A booked courier clears the dispatch flags, never one it did not raise (a paid-by-link order's release flag). */
 function keptAttention(order: DirectOrder): string | undefined {
   return order.attention && order.paylink?.flag === order.attention ? order.attention : undefined;
+}
+
+const deliveryLocks = (): Map<string, Promise<unknown>> => {
+  const g = globalThis as unknown as { __fhDeliveryLocks?: Map<string, Promise<unknown>> };
+  g.__fhDeliveryLocks ??= new Map();
+  return g.__fhDeliveryLocks;
+};
+
+/**
+ * One change at a time per delivery in this process: courier events (webhooks, refresh, courier taps) and a cancel each
+ * read the delivery and its order, then write them back, so two at once would write an older copy over a newer one.
+ */
+async function withDeliveryLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
+  const prev = deliveryLocks().get(id) ?? Promise.resolve();
+  const run = prev.catch(() => undefined).then(fn);
+  deliveryLocks().set(id, run);
+  try { return await run; } finally { if (deliveryLocks().get(id) === run) deliveryLocks().delete(id); }
 }
 
 export function fleetReadiness() {
@@ -78,7 +97,7 @@ export async function dispatchProblems(order: DirectOrder, settings?: DeliverySe
 export async function buildRequest(order: DirectOrder, deliveryId: string, s: DeliverySettings): Promise<DeliveryRequest> {
   const loc = (await getCatalog()).locations.find((l) => l.code === order.locationCode)!;
   const rule = ruleFor(s, order.locationCode);
-  const pickupParts = { street: loc.address, city: loc.city || 'Montréal', province: 'QC', postalCode: loc.postalCode || '', country: 'CA' };
+  const pickupParts = { street: loc.address, city: loc.city || 'Montréal', province: locationProvince(loc), postalCode: loc.postalCode || '', country: 'CA' };
   const d = order.dropoff!;
   const [given, ...rest] = String(order.customer.name || 'Client').trim().split(/\s+/);
   const tip = order.tip > 0 ? order.tip : s.defaultTip;
@@ -91,7 +110,8 @@ export async function buildRequest(order: DirectOrder, deliveryId: string, s: De
       name: order.customer.name || 'Client', givenName: given, familyName: rest.join(' ') || undefined, address: formatAddress(d), parts: d,
       phone: order.customer.phone || '', email: order.customer.email, instructions: [d.unit ? `Unit / app. ${d.unit}` : '', d.instructions ?? ''].filter(Boolean).join(' — ') || undefined, lat: d.lat, lng: d.lng,
     },
-    orderValue: round2(order.subtotal + order.tax),
+    // Value of the food only — subtotal without taxes, tip or fees (Drive order_value, Uber manifest_total_value, Skip orderValue).
+    orderValue: round2(order.subtotal),
     tip,
     currency: order.currency,
     items: order.lines.map((l) => ({ name: l.name, quantity: l.quantity, price: l.unitPrice, externalId: l.externalId ?? l.posItemRef, description: l.modifiers.map((m) => m.name).join(', ') || undefined })),
@@ -114,7 +134,7 @@ export async function quoteFleets(req: DeliveryRequest, s: DeliverySettings, onl
   return quotes.sort((a, b) => (a.ok === b.ok ? (a.fee ?? 999) - (b.fee ?? 999) || (a.fleet === s.primaryFleet ? -1 : b.fleet === s.primaryFleet ? 1 : 0) : a.ok ? -1 : 1));
 }
 
-export interface DispatchOutcome { ok: boolean; message: string; order: DirectOrder; delivery?: Delivery; quotes?: DeliveryQuote[]; problems?: string[] }
+export interface DispatchOutcome { ok: boolean; message: string; messageFr?: string; order: DirectOrder; delivery?: Delivery; quotes?: DeliveryQuote[]; problems?: string[] }
 
 /** Books a courier for the order. `auto` = the location's auto-dispatch rule (fee limit applies). */
 export async function dispatchOrder(orderId: string, actor: Actor, opts: { fleet?: FleetKey; auto?: boolean; now?: number } = {}): Promise<DispatchOutcome> {
@@ -177,6 +197,17 @@ export async function cancelCourier(orderId: string, actor: Actor, reason: strin
   if (!order) throw new Error('Order not found.');
   const d = await activeDelivery(order);
   if (!d) return { ok: false, message: 'No courier is booked for this order.', order };
+  // Drive's cancel API only works before a Dasher is assigned; after that only DoorDash Support can cancel.
+  if (d.fleet === 'doordash_drive' && DELIVERY_RANK[d.status] >= DELIVERY_RANK.assigned) {
+    const ref = d.supportReference ? ` (support reference ${d.supportReference})` : '';
+    const refFr = d.supportReference ? ` (référence ${d.supportReference})` : '';
+    order = await addDirectEvent(order, 'courier_cancel_failed', `A Dasher is already assigned: only DoorDash Support can cancel now${ref}.`, actor.name);
+    return {
+      ok: false, order, delivery: d,
+      message: `A Dasher is already assigned: DoorDash only cancels through DoorDash Support now — call them with our order ${order.number}${ref}.`,
+      messageFr: `Un livreur est déjà assigné : seul le soutien DoorDash peut annuler maintenant — appelez-les avec la commande ${order.number}${refFr}.`,
+    };
+  }
   const res = await FLEETS[d.fleet].cancel(d.id, d.fleetDeliveryId);
   if (!res.ok) {
     order = await addDirectEvent(order, 'courier_cancel_failed', `${FLEET_LABELS[d.fleet]} did not cancel: ${res.message}`, actor.name);
@@ -184,23 +215,36 @@ export async function cancelCourier(orderId: string, actor: Actor, reason: strin
     return { ok: false, message: res.message, order, delivery: d };
   }
   const at = nowIso();
-  const delivery = await saveDelivery({ ...d, status: 'cancelled', cancelReason: reason, timeline: [...d.timeline, { at, status: 'cancelled', message: `Cancelled by ${actor.name}${reason ? ` — ${reason}` : ''}` }] });
+  // From the delivery as stored now: a courier event that landed during the cancel call keeps its fields.
+  const delivery = await withDeliveryLock(d.id, () => updateDelivery(d, (cur) => ({ ...cur, status: 'cancelled', cancelReason: reason, timeline: [...cur.timeline, { at, status: 'cancelled', message: `Cancelled by ${actor.name}${reason ? ` — ${reason}` : ''}` }] })));
   order = await addDirectEvent(order, 'courier_cancelled', `Courier cancelled${reason ? ` — ${reason}` : ''}`, actor.name);
   await logActivity({ actor: actor.name, source: actor.source, kind: 'order', action: 'courier_cancel', status: 'success', brandName: order.brandName, locationCode: order.locationCode, summary: `${order.number}: courier cancelled on ${FLEET_LABELS[d.fleet]}${reason ? ` — ${reason}` : ''}` });
   return { ok: true, message: 'Courier cancelled.', order, delivery };
 }
 
-/** Text the tracking link once, when a courier is on it. */
+const TRACKING_SMS_CLAIM = (deliveryId: string) => `delivery_tracking_sms:${deliveryId}`;
+
+/**
+ * Text the tracking link once per delivery, when a courier is on it. The text is claimed first (one atomic insert), so
+ * events that arrive together, a fleet's retry or a second server never send it twice. A send that surely failed (Twilio
+ * said no, SMS not set up, connection refused) gives the claim back, so the next courier event tries again. A send whose
+ * answer was lost (timeout, dropped connection) keeps it: Twilio may have sent it, and a second text is worse than none.
+ */
 async function textTracking(order: DirectOrder, d: Delivery): Promise<Delivery> {
   const s = await getDeliverySettings();
   if (!s.smsTracking || d.trackingSmsAt || !d.trackingUrl || !normalizePhone(order.customer.phone)) return d;
+  const repo = getRepo();
+  const claim = TRACKING_SMS_CLAIM(d.id);
+  if (!(await repo.claimKv(claim, { at: nowIso(), orderId: order.id }))) return d; // already texted, or being texted
   const fr = (order.customer.lang ?? 'fr') === 'fr';
   const body = fr
     ? `${order.brandName} : votre commande ${order.number} est prise en charge par un livreur. Suivi : ${d.trackingUrl}${d.dropoffPin ? ` — Code à donner au livreur : ${d.dropoffPin}` : ''}${d.containsAlcohol ? ' — Alcool : pièce d’identité avec photo exigée.' : ''}`
     : `${order.brandName}: a courier has your order ${order.number}. Track it: ${d.trackingUrl}${d.dropoffPin ? ` — Code for the courier: ${d.dropoffPin}` : ''}${d.containsAlcohol ? ' — Alcohol: photo ID required.' : ''}`;
   const r = await sendSms({ to: order.customer.phone!, body }, { purpose: 'delivery_tracking', by: 'Food Hub' });
-  await addDirectEvent(order, r.ok ? 'sms_tracking' : 'sms_failed', r.ok ? 'Tracking link texted to the customer' : `Tracking link not texted: ${r.message}`);
-  return r.ok ? saveDelivery({ ...d, trackingSmsAt: nowIso() }) : d;
+  if (!r.ok && !r.uncertain) await repo.releaseKv(claim);
+  const failed = r.uncertain ? `Tracking link may not have been texted (${r.message}). Not sent again, so the customer never gets it twice.` : `Tracking link not texted: ${r.message}`;
+  await addDirectEvent(order, r.ok ? 'sms_tracking' : 'sms_failed', r.ok ? 'Tracking link texted to the customer' : failed);
+  return r.ok ? updateDelivery(d, (cur) => ({ ...cur, trackingSmsAt: nowIso() })) : d;
 }
 
 const STATUS_TEXT: Record<string, string> = {
@@ -208,10 +252,17 @@ const STATUS_TEXT: Record<string, string> = {
   delivered: 'Delivered', returning: 'Coming back to the kitchen', returned: 'Returned to the kitchen', cancelled: 'Cancelled by the courier service', failed: 'Failed',
 };
 
+type FleetEventResult = { applied: boolean; delivery?: Delivery; reason?: string };
+
 /** A fleet webhook: move the delivery forward (never backwards) and the order with it. */
-export async function applyFleetEvent(ev: FleetEvent): Promise<{ applied: boolean; delivery?: Delivery; reason?: string }> {
-  const found = (await findDelivery(ev.ref)) ?? (ev.fleetDeliveryId ? await findDelivery(ev.fleetDeliveryId) : null);
-  if (!found || found.fleet !== ev.fleet) return { applied: false, reason: 'Unknown delivery' };
+export async function applyFleetEvent(ev: FleetEvent): Promise<FleetEventResult> {
+  const located = (await findDelivery(ev.ref)) ?? (ev.fleetDeliveryId ? await findDelivery(ev.fleetDeliveryId) : null);
+  if (!located || located.fleet !== ev.fleet) return { applied: false, reason: 'Unknown delivery' };
+  // One event at a time per delivery, each applied to the delivery as stored when its turn comes.
+  return withDeliveryLock(located.id, async () => applyToDelivery((await getDelivery(located.id)) ?? located, ev));
+}
+
+async function applyToDelivery(found: Delivery, ev: FleetEvent): Promise<FleetEventResult> {
   let d: Delivery = {
     ...found,
     fee: ev.fee ?? found.fee, trackingUrl: ev.trackingUrl ?? found.trackingUrl, supportReference: ev.supportReference ?? found.supportReference, dropoffPin: ev.dropoffPin ?? found.dropoffPin,

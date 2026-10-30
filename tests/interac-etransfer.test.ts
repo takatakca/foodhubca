@@ -37,6 +37,8 @@ import { INTERAC_ANSWER_MASK } from '../lib/foodhub/delivery/types';
 import { receiveWebsiteOrder } from '../lib/foodhub/delivery/website';
 import { setFeature } from '../lib/foodhub/expansion/features';
 import { tickExpansion } from '../lib/foodhub/expansion/tick';
+import { bumpTokenVersion, upsertVerifiedCustomer } from '../lib/foodhub/customers/store';
+import { signCustomerToken } from '../lib/foodhub/customers/token';
 import { getRepo } from '../lib/foodhub/repo';
 import { sessionKey } from '../lib/foodhub/session';
 import { trackOrder } from '../lib/foodhub/storefront/checkout';
@@ -59,10 +61,10 @@ const MENU: MasterMenu = {
 };
 
 const DROP = { street: '5555 Monkland Ave', unit: '3', city: 'Montréal', province: 'QC', postalCode: 'H4A 1E1', country: 'CA', instructions: 'Code 1234' };
-const FEE = { code: 'interac', name: 'Frais Interac e-Transfer', amount: 5 };
+const FEE = { code: 'interac' as const, name: 'Frais Interac e-Transfer', amount: 5 };
 /** 1 × whole chicken 24.99 + Piri-piri 1.50, 1 × salad 6.00 → subtotal 32.49; fee 5.00; taxes on 37.49 = 5.61; tip 2 → 45.10. */
 const ITEMS = [{ ref: 'i-whole', name: 'Poulet entier', quantity: 1, price: 24.99, options: [{ ref: 'm-piri', name: 'Piri-piri', price: 1.5 }] }, { ref: 'i-salad', name: 'Salade', quantity: 1, price: 6 }];
-const TOTAL = totalsFor([{ name: 'a', quantity: 1, unitPrice: 24.99, total: 26.49, modifiers: [] }, { name: 'b', quantity: 1, unitPrice: 6, total: 6, modifiers: [] }], 0, 2, true, [FEE]).total;
+const TOTAL = totalsFor([{ name: 'a', quantity: 1, unitPrice: 24.99, total: 26.49, modifiers: [] }, { name: 'b', quantity: 1, unitPrice: 6, total: 6, modifiers: [] }], 0, 2, true, 'QC', [FEE]).total;
 
 function payload(extra: Record<string, unknown> = {}) {
   return { id: `W-${crypto.randomUUID().slice(0, 8)}`, brand: 'Po Poulet', location: 'NDG', customer: { name: 'Ana Bel', phone: '514-555-1234', lang: 'fr' }, fulfillment: 'pickup', items: ITEMS, tip: 2, payment: 'interac', fees: [FEE], total: TOTAL, ...extra };
@@ -80,7 +82,7 @@ beforeEach(async () => {
   process.env.FOODHUB_PUBLIC_URL = 'https://hub.example.test';
   process.env.FOODHUB_WEBSITE_ORDER_SECRET = 'web-order-test';
   process.env.SESSION_SECRET = 'interac-test-session-secret-0123456789';
-  for (const k of ['FOODHUB_INTERAC_EMAIL', 'FOODHUB_INTERAC_FEE', 'FOODHUB_WEBSITE_TENANT', 'DOORDASH_DRIVE_ENV', 'LIVE_CONNECTORS_GLOBAL_ENABLED']) delete process.env[k];
+  for (const k of ['FOODHUB_INTERAC_EMAIL', 'FOODHUB_INTERAC_FEE', 'FOODHUB_CUSTOMER_TENANTS', 'DOORDASH_DRIVE_ENV', 'LIVE_CONNECTORS_GLOBAL_ENABLED']) delete process.env[k];
   Object.assign(process.env, { DOORDASH_DRIVE_DEVELOPER_ID: 'dev-1', DOORDASH_DRIVE_KEY_ID: 'key-1', DOORDASH_DRIVE_SIGNING_SECRET: Buffer.from('drive-secret').toString('base64'), TWILIO_ACCOUNT_SID: 'AC1', TWILIO_AUTH_TOKEN: 'tw', TWILIO_FROM: '+15145550000' });
   h.sms = []; h.chat = []; h.clover = 0; h.cloverFail = false; drive = [];
   vi.mocked(createDirectOrderInClover).mockClear();
@@ -128,7 +130,7 @@ describe('fee and prices: what the customer saw is what Food Hub charges', () =>
     const near = await receiveWebsiteOrder(payload({ total: TOTAL - 0.02 }));
     expect(near.ok && near.order.total).toBe(TOTAL);
     // A free option that is not on the menu is a note; a line found by name (no ref) is priced from the menu.
-    const byName = await receiveWebsiteOrder(payload({ items: [{ name: 'Salade', quantity: 2, price: 6, options: [{ name: 'Sans oignons', price: 0 }] }], total: totalsFor([{ name: 's', quantity: 2, unitPrice: 6, total: 12, modifiers: [] }], 0, 2, true, [FEE]).total }));
+    const byName = await receiveWebsiteOrder(payload({ items: [{ name: 'Salade', quantity: 2, price: 6, options: [{ name: 'Sans oignons', price: 0 }] }], total: totalsFor([{ name: 's', quantity: 2, unitPrice: 6, total: 12, modifiers: [] }], 0, 2, true, 'QC', [FEE]).total }));
     expect(byName.ok && byName.order.lines[0]).toMatchObject({ quantity: 2, unitPrice: 6, total: 12, modifiers: [{ name: 'Sans oignons', unitPrice: 0 }] });
     // A linked option carries its Clover modifier id.
     const o = await placed();
@@ -164,26 +166,35 @@ describe('fee and prices: what the customer saw is what Food Hub charges', () =>
   });
 });
 
-describe('customer token (verify-only stand-in for feature/customer-identity)', () => {
-  async function token(customerId: string, tenant: string, exp = Math.floor(Date.now() / 1000) + 3600, version = 1, key?: CryptoKey) {
-    const body = `cust.${customerId}.${tenant}.${exp}.${version}`;
-    const k = key ?? (await sessionKey())!;
-    const sig = Buffer.from(await crypto.subtle.sign('HMAC', k, new TextEncoder().encode(body))).toString('base64url');
-    return `${body}.${sig}`;
+describe('customer token (task 72 module: record, version and brand website checked)', () => {
+  async function forged(customerId: string, tenant: string) {
+    const body = `cust.${customerId}.${tenant}.${Math.floor(Date.now() / 1000) + 3600}.1`;
+    const k = await crypto.subtle.importKey('raw', new TextEncoder().encode('not-the-secret'), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    return `${body}.${Buffer.from(await crypto.subtle.sign('HMAC', k, new TextEncoder().encode(body))).toString('base64url')}`;
   }
 
-  it('links the order to the customer; another tenant → 403; a forged or expired token → 401; no token → no link', async () => {
-    const good = await placed({ customerToken: await token('c_42', 'pppmtl') });
-    expect(good.customer.id).toBe('c_42');
+  it('links the order to the customer and fills what the payload left out; another brand website → 403; forged, expired or logged-out → 401', async () => {
+    expect(await sessionKey()).toBeTruthy();
+    const { customer } = await upsertVerifiedCustomer({ phone: '+15145551234', tenant: 'pppmtl', lang: 'en' });
+    const { token } = await signCustomerToken(customer, 'pppmtl');
+    const good = await placed({ customerToken: token, customer: { phone: '514-555-1234' } });
+    expect(good.customer).toMatchObject({ id: customer.id, phone: '+15145551234', lang: 'en' });
+    expect(h.sms.at(-1)!.body).toMatch(/^Po Poulet: order/);
+    // The payload's own name / language win over the account's.
+    expect((await placed({ customerToken: token })).customer).toMatchObject({ id: customer.id, name: 'Ana Bel', lang: 'fr' });
     expect((await placed()).customer.id).toBeUndefined();
-    expect(await receiveWebsiteOrder(payload({ customerToken: await token('c_42', 'othersite') }))).toMatchObject({ ok: false, status: 403 });
-    process.env.FOODHUB_WEBSITE_TENANT = 'othersite';
-    expect((await placed({ customerToken: await token('c_43', 'othersite') })).customer.id).toBe('c_43');
-    expect((await placed({ tenant: 'pppmtl', customerToken: await token('c_44', 'pppmtl') })).customer.id).toBe('c_44');
-    expect(await receiveWebsiteOrder(payload({ customerToken: await token('c_42', 'pppmtl', Math.floor(Date.now() / 1000) - 10) }))).toMatchObject({ ok: false, status: 401 });
-    const forged = await crypto.subtle.importKey('raw', new TextEncoder().encode('not-the-secret'), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-    expect(await receiveWebsiteOrder(payload({ customerToken: await token('c_42', 'pppmtl', undefined, 1, forged) }))).toMatchObject({ ok: false, status: 401 });
+    expect((await placed({ tenant: 'pppmtl', customerToken: token })).customer.id).toBe(customer.id);
+    // Another brand website: not allowed here (403), or allowed but not the one the payload names (403).
+    expect(await receiveWebsiteOrder(payload({ customerToken: (await signCustomerToken(customer, 'othersite')).token }))).toMatchObject({ ok: false, status: 403 });
+    process.env.FOODHUB_CUSTOMER_TENANTS = 'pppmtl,othersite';
+    expect((await placed({ customerToken: (await signCustomerToken(customer, 'othersite')).token })).customer.id).toBe(customer.id);
+    expect(await receiveWebsiteOrder(payload({ tenant: 'pppmtl', customerToken: (await signCustomerToken(customer, 'othersite')).token }))).toMatchObject({ ok: false, status: 403 });
+    expect(await receiveWebsiteOrder(payload({ tenant: 'nope', customerToken: token }))).toMatchObject({ ok: false, status: 403 });
+    expect(await receiveWebsiteOrder(payload({ customerToken: (await signCustomerToken(customer, 'pppmtl', -10)).token }))).toMatchObject({ ok: false, status: 401 });
+    expect(await receiveWebsiteOrder(payload({ customerToken: await forged(customer.id, 'pppmtl') }))).toMatchObject({ ok: false, status: 401 });
     expect(await receiveWebsiteOrder(payload({ customerToken: 'cust.x' }))).toMatchObject({ ok: false, status: 401 });
+    await bumpTokenVersion(customer.id);
+    expect(await receiveWebsiteOrder(payload({ customerToken: token }))).toMatchObject({ ok: false, status: 401, error: expect.stringMatching(/customerToken/) });
   });
 });
 
@@ -355,7 +366,8 @@ describe('release exactly once, by a person', () => {
     expect(h.clover).toBe(0);
     // Option A: send it to the kitchen anyway (once).
     const sent = await releaseLateInterac(o.id, other);
-    expect(sent).toMatchObject({ status: 'in_kitchen', payment: 'paid', posOrderId: 'CLV-1', attention: undefined });
+    expect(sent).toMatchObject({ status: 'in_kitchen', payment: 'paid', posOrderId: 'CLV-1' });
+    expect(sent.attention).toBeUndefined();
     expect(sent.interac!.lateTransfers![0]).toMatchObject({ releasedAt: expect.any(String), releasedBy: 'Léa' });
     expect(interacLatePending(sent)).toBe(false);
     await expect(releaseLateInterac(o.id, other)).rejects.toThrow(/already sent/);
@@ -376,7 +388,7 @@ describe('release exactly once, by a person', () => {
 describe('delivery: the courier is booked by the dispatch tick once the transfer is confirmed', () => {
   it('nothing while held (whatever "allow unpaid dispatch" says); booked after "Transfer received"', async () => {
     await saveDeliverySettings({ allowUnpaidDispatch: true, locations: { NDG: { enabled: true, autoDispatch: true, leadMinutes: 60, maxDistanceKm: 8, postalPrefixes: [], maxAutoFee: 15 } } });
-    const o = await placed({ fulfillment: 'delivery', address: DROP, deliveryFee: 4.99, total: totalsFor([{ name: 'a', quantity: 1, unitPrice: 24.99, total: 26.49, modifiers: [] }, { name: 'b', quantity: 1, unitPrice: 6, total: 6, modifiers: [] }], 4.99, 2, true, [FEE]).total });
+    const o = await placed({ fulfillment: 'delivery', address: DROP, deliveryFee: 4.99, total: totalsFor([{ name: 'a', quantity: 1, unitPrice: 24.99, total: 26.49, modifiers: [] }, { name: 'b', quantity: 1, unitPrice: 6, total: 6, modifiers: [] }], 4.99, 2, true, 'QC', [FEE]).total });
     expect(o).toMatchObject({ status: 'awaiting_payment', fulfillment: 'delivery', deliveryFee: 4.99 });
     expect(await tickDispatch()).toEqual({ checked: 0, booked: 0 });
     expect(drive).toHaveLength(0);
@@ -387,7 +399,7 @@ describe('delivery: the courier is booked by the dispatch tick once the transfer
     const t = await tickDispatch();
     expect(t.booked).toBe(1);
     expect(drive).toHaveLength(1);
-    expect(drive[0].body).toMatchObject({ pickup_business_name: 'Po Poulet', dropoff_phone_number: '+15145551234', tip: 200, order_value: Math.round((r.order.subtotal + r.order.tax) * 100) });
+    expect(drive[0].body).toMatchObject({ pickup_business_name: 'Po Poulet', dropoff_phone_number: '+15145551234', tip: 200, order_value: Math.round(r.order.subtotal * 100) /* the food only: no taxes, tip or fees */ });
     const after = (await getDirectOrder(o.id))!;
     expect(after.deliveryId).toBeTruthy();
     expect((await tickDispatch()).booked).toBe(0);

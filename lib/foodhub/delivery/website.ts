@@ -8,7 +8,7 @@
 //     payment: "paid" | "pay_at_pickup" | "interac",   // or the older `paid: boolean` (kept as it was)
 //     fees?: [{ code: "interac", name, amount }],       // REQUIRED with payment "interac": the fee the site showed
 //     total?: <what the customer saw, all included>,    // REQUIRED with payment "interac"; checked when given
-//     customerToken?: "cust.…", tenant?: "pppmtl" }     // links the order to the Food Hub customer account
+//     customerToken?: "cust.…", tenant?: "pppmtl" }     // links the order to the Food Hub customer account (customers/token.ts)
 // The same order id twice is answered with the first order (no duplicate). Alcohol is refused unless the alcohol rules
 // allow it on the website (and, for a delivery, through our couriers) — the site should never have sold it.
 //
@@ -20,10 +20,12 @@
 import { decideAlcohol, isAlcoholItem } from '../alcohol/rules';
 import { getCatalog } from '../catalog';
 import { round2, safeEqual } from '../config';
-import { verifyCustomerToken } from '../customers/token';
+import { resolveCustomerToken } from '../customers/token';
+import { customerTenant } from '../customers/types';
 import { getBrandMenu } from '../menu/shared';
 import { normalizePhone } from '../notify';
 import { newTrack, trackPathFor } from '../storefront/checkout';
+import { locationProvince } from '../taxes';
 import type { MasterMenu, MenuItem, MenuModifier } from '../types';
 import { normalizePostal, parseAddressText } from './address';
 import { interacReadiness, newInteracReference, startInterac } from './interac';
@@ -33,8 +35,6 @@ import type { DirectLine, DirectOrder, DropoffAddress, OrderFee, PaymentState } 
 
 /** Tolerance between the site's total and ours (rounding of taxes line by line). */
 export const TOTAL_TOLERANCE = 0.02;
-/** The website tenant a customer token must name when the payload does not say (contract: pppmtl.com). */
-export const DEFAULT_WEBSITE_TENANT = 'pppmtl';
 const INTERAC_FEE_NAME = 'Frais Interac e-Transfer';
 
 export function verifyWebsiteOrder(headers: Headers): boolean {
@@ -142,14 +142,15 @@ export async function receiveWebsiteOrder(body: any): Promise<WebsiteOrderResult
   const interac = paymentRaw === 'interac' ? interacReadiness(settings, location.code) : null;
   if (interac && !interac.ok) return refuse(422, interac.reason ?? 'Interac e-Transfer is not available.');
 
-  // The customer's account (optional): a bad token is refused so the site notices, a token of another site too.
-  let customerId: string | undefined;
+  // The customer's account (optional): the token's signature, expiry, version and brand website are checked by task 72's
+  // module. A bad token is refused (401) so the site notices; a token of another brand website too (403).
+  let account: { id: string; name?: string; email?: string; lang: 'fr' | 'en' } | undefined;
   if (body?.customerToken !== undefined && body?.customerToken !== null && body?.customerToken !== '') {
-    const claims = await verifyCustomerToken(String(body.customerToken));
-    if (!claims) return refuse(401, 'customerToken is invalid or expired.');
-    const tenant = norm(body?.tenant) || norm(process.env.FOODHUB_WEBSITE_TENANT) || DEFAULT_WEBSITE_TENANT;
-    if (claims.tenant !== tenant) return refuse(403, 'customerToken belongs to another site (tenant).');
-    customerId = claims.customerId;
+    const tenant = body?.tenant === undefined || body?.tenant === null || body?.tenant === '' ? null : customerTenant(body.tenant);
+    if (body?.tenant && !tenant) return refuse(403, `Brand website "${String(body.tenant)}" is not allowed here.`);
+    const r = await resolveCustomerToken(String(body.customerToken), { tenant });
+    if (!r.ok) return refuse(r.status, `customerToken: ${r.error}`);
+    account = { id: r.customer.id, name: r.customer.name, email: r.customer.email, lang: r.customer.lang };
   }
 
   const menu = await getBrandMenu(brand.name);
@@ -171,7 +172,7 @@ export async function receiveWebsiteOrder(body: any): Promise<WebsiteOrderResult
   if (!feesChecked.ok) return feesChecked;
   const fees = feesChecked.fees;
   // The all-in total the customer saw must be ours.
-  const ours = totalsFor(lines, deliveryFee, tip, true, fees).total;
+  const ours = totalsFor(lines, deliveryFee, tip, true, locationProvince(location), fees).total;
   const siteTotal = body?.total === undefined || body?.total === null || body?.total === '' ? null : Number(body.total);
   if (paymentRaw === 'interac' && (siteTotal === null || !Number.isFinite(siteTotal))) return refuse(422, 'total is required with payment "interac": the all-in amount the customer saw before checkout.');
   if (siteTotal !== null && strict) {
@@ -186,7 +187,7 @@ export async function receiveWebsiteOrder(body: any): Promise<WebsiteOrderResult
       ? parseAddressText(a, { city: location.city }) ?? undefined
       : a?.street ? { street: String(a.street), unit: a.unit ? String(a.unit) : undefined, city: String(a.city || location.city || ''), province: String(a.province || 'QC'), postalCode: normalizePostal(a.postalCode) ?? String(a.postalCode ?? ''), country: 'CA', instructions: a.instructions ? String(a.instructions).slice(0, 200) : undefined, lat: Number.isFinite(Number(a.lat)) ? Number(a.lat) : undefined, lng: Number.isFinite(Number(a.lng)) ? Number(a.lng) : undefined } : undefined;
   }
-  const lang: 'fr' | 'en' = body?.customer?.lang === 'en' ? 'en' : 'fr';
+  const lang: 'fr' | 'en' = body?.customer?.lang === 'en' ? 'en' : body?.customer?.lang === 'fr' ? 'fr' : account?.lang ?? 'fr';
   const payment: PaymentState = paymentRaw === 'paid' ? 'paid' : fulfillment === 'pickup' ? 'pay_at_pickup' : 'unpaid';
   const now = Date.now();
   const held = interac?.ok
@@ -198,7 +199,10 @@ export async function receiveWebsiteOrder(body: any): Promise<WebsiteOrderResult
     : undefined;
   let order = await createDirectOrder({
     source: 'website', sourceRef: id, brandName: brand.name, locationCode: location.code,
-    customer: { name: body?.customer?.name ? String(body.customer.name).slice(0, 80) : undefined, phone: normalizePhone(body?.customer?.phone) ?? undefined, email: body?.customer?.email ? String(body.customer.email).slice(0, 120) : undefined, lang, ...(customerId ? { id: customerId } : {}) },
+    customer: {
+      name: body?.customer?.name ? String(body.customer.name).slice(0, 80) : account?.name || undefined, phone: normalizePhone(body?.customer?.phone) ?? undefined,
+      email: body?.customer?.email ? String(body.customer.email).slice(0, 120) : account?.email || undefined, lang, ...(account ? { id: account.id } : {}),
+    },
     fulfillment, dropoff, lines, payment, tip, deliveryFee, fees, wantedAt: body?.wantedAt ? String(body.wantedAt) : undefined, confirmBySms: true,
     ...(held ? { interac: held } : {}),
   }, { username: 'website', name: 'Website', source: 'api' });

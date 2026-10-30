@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TAKATAK MEV</string>
+    <string name="intro">After each payment, the Revenu Québec invoice (with its QR code) prints here. Tap a sale for a reprint or a merchant copy.</string>
+    <string name="order_hint">Clover order id</string>
+    <string name="print_invoice">Print the invoice</string>
+    <string name="reprint">Reprint (RPR)</string>
+    <string name="merchant_copy">Merchant copy (DUP)</string>
+    <string name="foodhub_url">Food Hub address</string>
+</resources>

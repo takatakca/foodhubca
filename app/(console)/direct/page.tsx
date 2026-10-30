@@ -11,6 +11,7 @@ import { Segmented } from '@/components/ui/tabs';
 import { Elapsed } from '@/components/ui/timer';
 import { useViewer } from '@/components/shell/viewer';
 import { DirectOrderDrawer, type DirectRow } from '@/components/expansion/direct-order-drawer';
+import { MevBadge } from '@/components/live/mev-panel';
 import { NewDirectOrder } from '@/components/expansion/new-order-modal';
 import { DELIVERY_TONE, DIRECT_TONE, FLEET_NAME, deliveryStatusLabel, directStatusLabel, interacLatePending, paymentBadge, sourceLabel } from '@/components/expansion/labels';
 import { api, money, timeOf } from '@/lib/ui/api';
@@ -104,6 +105,7 @@ export default function DirectPage() {
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-3">
                 <Badge tone={paymentBadge(t, o).tone}>{paymentBadge(t, o).label}</Badge>
+                <MevBadge mev={o.mev} />
                 <span>{t('reçue', 'placed')} {timeOf(o.placedAt, loc)} · <Elapsed since={o.placedAt} /></span>
                 {o.readyAt && !['completed', 'cancelled'].includes(o.status) && <span>{t('prête vers', 'ready at')} {timeOf(o.readyAt, loc)}</span>}
               </div>

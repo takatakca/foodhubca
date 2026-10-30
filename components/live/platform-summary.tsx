@@ -34,12 +34,12 @@ export function PlatformSummary({ cc }: { cc: CommandCenter | null }) {
           const body = <>
             <PlatformMark channel={c.channel} size="md" />
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[15px] font-bold text-ink">{channelName(c.channel)}</span>
-              <span className="block truncate text-xs text-ink-3">{[c.known ? storesText(t, c.known) : null, c.storesMapped ? t(`${c.storesOnline} ouvert${c.storesOnline > 1 ? 's' : ''}`, `${c.storesOnline} open`) : null].filter(Boolean).join(' · ') || t('magasin pas encore relié', 'store not linked yet')}</span>
+              <span className="block truncate text-body font-bold text-ink">{channelName(c.channel)}</span>
+              <span className="block truncate text-small text-ink-3">{[c.known ? storesText(t, c.known) : null, c.storesMapped ? t(`${c.storesOnline} ouvert${c.storesOnline > 1 ? 's' : ''}`, `${c.storesOnline} open`) : null].filter(Boolean).join(' · ') || t('magasin pas encore relié', 'store not linked yet')}</span>
             </span>
             <span className="w-28 text-right">
-              <span className="num block text-[15px] font-extrabold text-ink">{money(c.sales, loc)}</span>
-              <span className="block text-xs text-ink-3">{t(`${c.orders} commande${c.orders > 1 ? 's' : ''}`, `${c.orders} order${c.orders === 1 ? '' : 's'}`)}</span>
+              <span className="num block text-body font-extrabold text-ink">{money(c.sales, loc)}</span>
+              <span className="block text-small text-ink-3">{t(`${c.orders} commande${c.orders > 1 ? 's' : ''}`, `${c.orders} order${c.orders === 1 ? '' : 's'}`)}</span>
             </span>
           </>;
           // A platform with orders but no store this person can pick (a store nobody linked yet): a plain row, since
@@ -51,8 +51,8 @@ export function PlatformSummary({ cc }: { cc: CommandCenter | null }) {
         {inStore > 0 && (
           <div className="flex min-h-16 items-center gap-3 px-5 py-3 sm:gap-4">
             <PlatformMark channel="clover" size="md" />
-            <span className="min-w-0 flex-1"><span className="block text-[15px] font-bold text-ink">{t('En salle (Clover)', 'In store (Clover)')}</span><span className="block text-xs text-ink-3">{t(`${cc?.kpis.inStorePayments ?? 0} paiement(s)`, `${cc?.kpis.inStorePayments ?? 0} payment(s)`)}</span></span>
-            <span className="w-28 text-right"><span className="num block text-[15px] font-extrabold text-ink">{money(inStore, loc)}</span></span>
+            <span className="min-w-0 flex-1"><span className="block text-body font-bold text-ink">{t('En salle (Clover)', 'In store (Clover)')}</span><span className="block text-small text-ink-3">{t(`${cc?.kpis.inStorePayments ?? 0} paiement(s)`, `${cc?.kpis.inStorePayments ?? 0} payment(s)`)}</span></span>
+            <span className="w-28 text-right"><span className="num block text-body font-extrabold text-ink">{money(inStore, loc)}</span></span>
             <span className="size-4 shrink-0" aria-hidden />
           </div>
         )}

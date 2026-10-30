@@ -19,9 +19,10 @@ import { round2 } from '../config';
 import { postToChat, sendSms } from '../notify';
 import { money as textMoney, textTime } from '../phone/style';
 import { prepFor } from '../prep';
+import { DEFAULT_PROVINCE, foodTaxes, type Province } from '../taxes';
 import { createDirectOrderInClover } from './clover-direct';
 import { claimFresh, withOrderLock } from './lock';
-import { confirmToCustomer, QC_TAX_RATE } from './orders';
+import { confirmToCustomer } from './orders';
 import { addDirectEvent, getDeliverySettings, getDirectOrder, listDirectOrders, ruleFor, saveDirectOrder } from './store';
 import type { DeliverySettings, DirectOrder, InteracSettings, InteracTransfer } from './types';
 
@@ -34,9 +35,9 @@ const iso = (ms: number) => new Date(ms).toISOString();
 // ---------------------------------------------------------------------------------------------------------------
 // Settings
 
-/** The fee the website must show before checkout: fee + GST + QST (5.00 → 5.75). */
-export function interacFeeAllIn(fee: number): number {
-  return round2(fee * (1 + QC_TAX_RATE));
+/** The fee the website must show before checkout: fee + the kitchen's taxes (Québec: GST + QST, 5.00 → 5.75). */
+export function interacFeeAllIn(fee: number, province: Province = DEFAULT_PROVINCE): number {
+  return round2(fee + foodTaxes(province, fee).tax);
 }
 
 export function recipientFor(s: InteracSettings, locationCode: string): string {

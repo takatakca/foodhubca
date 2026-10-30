@@ -96,15 +96,38 @@ board and the Overview tile show *couriers vs fees charged* for the day. Nothing
 | DoorDash requirement | What Food Hub sends (lib/foodhub/delivery/doordash-drive.ts) |
 |---|---|
 | Send Dropoff Address | `dropoff_address` — one line with unit, city, province, postal code |
-| Pass Order Value | `order_value` in cents (subtotal + taxes) |
+| Pass Order Value | `order_value` in cents = the food subtotal **without** taxes, tip or fees (DoorDash uses it for refunds if a delivery fails) |
 | Send Pickup Business Name | `pickup_business_name` = the brand (Po Poulet, Pi Pita…) |
 | Create deliveries | `POST /drive/v2/quotes` then `POST /drive/v2/quotes/{id}/accept` (or `POST /drive/v2/deliveries`) |
 | Set up tips | `tip` in cents on every delivery (customer's tip, else the default tip in Settings) |
 | Pickup and dropoff info | `pickup_phone_number`, `pickup_instructions`, `pickup_reference_tag` (our order number), `dropoff_contact_given_name` / `family_name`, `dropoff_phone_number`, `dropoff_instructions` |
 | Item Level Details | `items[]` with name, quantity, price (cents), options as description |
-| Cancel Delivery | `PUT /drive/v2/deliveries/{id}/cancel` (*Cancel the courier*, manager PIN by default) |
+| Cancel Delivery | `PUT /drive/v2/deliveries/{id}/cancel` (*Cancel the courier*, manager PIN by default) — only **before a Dasher is assigned**; after that Food Hub does not call the API and tells staff to call DoorDash Support with the order number and support reference |
 | Delivery status SMS | `dropoff_contact_send_notifications` (setting *Text the tracking link*) |
 | Alcohol | `order_contains.alcohol=true`, `action_if_undeliverable=return_to_pickup`, `contactless_dropoff=false` — the Dasher scans the ID |
+
+### DoorDash Drive — validation checklist (before the production demo)
+
+DoorDash's restaurant guide (developer.doordash.com → Drive → *Build for restaurants*) lists the scenarios to pass in the
+sandbox before asking for a demo. Where each one happens in Food Hub:
+
+| Scenario | Expected | In Food Hub |
+|---|---|---|
+| Create quote | success | *Own orders → Call a courier* (quote step) |
+| Accept quote / create delivery | success | same click; the delivery shows on the order and the kitchen strip |
+| Webhooks (Simulator: created → pickup → dropoff) | `dasher_confirmed`, `dasher_enroute_to_pickup`, `dasher_confirmed_pickup_arrival`, `dasher_picked_up`, `dasher_enroute_to_dropoff`, `dasher_confirmed_dropoff_arrival`, `dasher_dropped_off` received | order timeline moves forward only; delivered → order completed |
+| Cancellation | delivery cancelled, `delivery_cancelled` received | *Cancel the courier* before a Dasher is assigned |
+| Error on quote / create | the error is shown and the order can be fixed and re-sent | the refusal reason shows on the order (FR/EN); fix the address/phone, *Call a courier* again |
+| DoorDash cancels the delivery (Simulator) | customer informed (DoorDash SMS or the merchant) | order flagged *needs attention* + team chat: "call another courier or call the customer"; DoorDash SMS when *Text the tracking link* is on |
+
+Also checked by DoorDash: every time in UTC (we send ISO-8601 UTC), 100 % of the customer's tip in `tip`, and the
+restaurant sees the support reference, our delivery id, the times and the items (order drawer).
+
+**Production access is currently restricted by DoorDash** ("Production access to the Drive API is currently restricted",
+Drive *Get started* and *Get production access* pages, checked 2026-10-10; no timeline given). Sandbox keys still work.
+The path when it opens: *Request Production Access* in the portal (business details, payment method for deliveries,
+terms) → a 30–60 min Zoom demo of one end-to-end sandbox delivery (API logs, UI, items, launch plan) → production key.
+DoorDash's interest form for restricted production access is linked from those pages. Uber Direct stays the fallback.
 
 ### Owner steps — sandbox to production
 

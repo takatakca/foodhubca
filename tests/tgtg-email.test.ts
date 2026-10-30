@@ -9,6 +9,7 @@ import { runOrderAction } from '../lib/foodhub/pipeline';
 import { getRepo } from '../lib/foodhub/repo';
 import { pollTgtgMailbox, type ImapLike } from '../lib/foodhub/tgtg-email/imap';
 import { buildTgtgMailOrder, ingestTgtgMail, isTgtgEmailOrder, retryTgtgMail, resolveWaitingForStore, tgtgMailOrderId } from '../lib/foodhub/tgtg-email/ingest';
+import { tgtgPickupOrderId } from '../lib/foodhub/tgtg-email/ids';
 import { mailFromFields } from '../lib/foodhub/tgtg-email/inbound';
 import { mailFromMime } from '../lib/foodhub/tgtg-email/mime';
 import { codeFrom, dateFrom, htmlToText, mailKind, moneyFrom, parseTgtgMail, senderAllowed, senderVerified, timesFrom, type TgtgMail } from '../lib/foodhub/tgtg-email/parse';
@@ -310,6 +311,20 @@ describe('reservation e-mail → order → Clover → kitchen ticket → tender'
     expect(pay).toHaveLength(1);
     expect(pay[0].body).toMatchObject({ amount: 1198, tender: { id: 'T-TGTG' }, externalPaymentId: 'tg:tgtg-mail-3K7Q9XPT2A' });
     expect(sent('POST', /\/tenders$/)).toHaveLength(0);
+  });
+
+  it('a bag already handed over at the counter with its code (« Sac remis ») is that reservation: a late e-mail is a duplicate, never a second sale', async () => {
+    await mapOoeuf();
+    at('2026-10-16T21:10:00Z');
+    // « Sac remis » with code 3k7q9xpt2a (the order id is the code, as lib/foodhub/tgtg.ts recordBagPickup writes it).
+    const { order: handed } = await getRepo().insertOrderIfNew({ channel: 'tgtg', marketplace: 'tgtg', externalOrderId: tgtgPickupOrderId('3k7q9xpt2a'), displayId: '3K7Q9XPT2A', channelStoreId: 'pickup-NDG_6284', brandName: 'OOeuf', fulfillment: 'pickup', placedAt: new Date().toISOString(), currency: 'CAD', subtotal: 11.98, tax: 0, deliveryFee: 0, tip: 0, discount: 0, total: 11.98, lines: [{ name: 'Surprise Bag', quantity: 2, unitPrice: 5.99, total: 11.98, modifiers: [] }], raw: { source: 'tgtg_pickup', tgtg: { code: '3K7Q9XPT2A' } }, locationCode: 'NDG_6284' });
+    expect(handed.externalOrderId).toBe('tgtg-pickup-3K7Q9XPT2A');
+    const r = await ingestTgtgMail(await fixture('order-en-plain.eml'), 'imap');
+    expect(r).toMatchObject({ status: 'duplicate', orderId: handed.id, code: '3K7Q9XPT2A' });
+    expect(r.reason).toMatch(/Sac remis/);
+    expect(await getRepo().findOrder('tgtg', tgtgMailOrderId('3K7Q9XPT2A'))).toBeNull();
+    expect(sent('POST', /\/atomic_order\/orders$/)).toHaveLength(0);
+    expect(sent('POST', /\/print_event$/)).toHaveLength(0);
   });
 
   it('a reservation far ahead waits for its fire time (pickup − prep) before printing', async () => {

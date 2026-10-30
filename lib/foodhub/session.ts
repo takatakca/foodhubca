@@ -152,9 +152,9 @@ export const verifyDevice = (t: string | null | undefined) => verify<DevicePaylo
  * nothing about any merchant — a merchant ID typed in the address bar reveals nothing.
  * `a` = the Clover app the ticket was issued for when it is not Food Hub ('phone'); a Food Hub ticket has no `a`.
  */
-export interface WelcomePayload { m: string; exp: number; a?: 'phone' }
+export interface WelcomePayload { m: string; exp: number; a?: 'phone' | 'mev' }
 export const WELCOME_TICKET_TTL_S = 7 * 24 * 3600;
-export async function signWelcome(merchantId: string, ttlS = WELCOME_TICKET_TTL_S, app?: 'phone'): Promise<string | null> {
+export async function signWelcome(merchantId: string, ttlS = WELCOME_TICKET_TTL_S, app?: 'phone' | 'mev'): Promise<string | null> {
   const exp = Math.floor(Date.now() / 1000) + ttlS;
   try { return await sign('w', app ? { m: merchantId, exp, a: app } : { m: merchantId, exp }); } catch { return null; }
 }

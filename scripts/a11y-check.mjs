@@ -25,6 +25,8 @@ const APP = `http://127.0.0.1:${APP_PORT}`;
 const MOCK = `http://127.0.0.1:${MOCK_PORT}`;
 const PASSWORD = 'a11y-dashboard-pass';
 const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
+/** Optional: also list axe's best-practice findings (landmarks, heading order…) as notes; they never fail the run. */
+const BEST_PRACTICE = process.env.FOODHUB_A11Y_BEST_PRACTICE === '1';
 /** Optional: a folder where a full-page screenshot of every scan is saved (to see what was checked). */
 const SHOTS = process.env.FOODHUB_A11Y_SCREENSHOTS ? path.resolve(process.env.FOODHUB_A11Y_SCREENSHOTS) : null;
 if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true });
@@ -227,6 +229,10 @@ try {
           console.log(`        ${n.target.join(' ')}${why ? ` — ${why}` : ''}`);
         }
         if (v.nodes.length > 6) console.log(`        … and ${v.nodes.length - 6} more`);
+      }
+      if (BEST_PRACTICE) {
+        const bp = await new AxeBuilder({ page }).withTags(['best-practice']).analyze();
+        for (const v of bp.violations) console.log(`  note  [best practice · ${v.impact}] ${v.id}: ${v.help} (${v.nodes.length}) — ${v.nodes.slice(0, 3).map((n) => n.target.join(' ')).join(' | ')}`);
       }
       results.push({ page: pg.name, viewport: vp.name, counts, failing: failing.length });
       await page.close();

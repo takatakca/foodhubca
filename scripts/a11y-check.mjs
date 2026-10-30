@@ -5,8 +5,10 @@
 // (375×812) and desktop (1280×800) size. Rules: WCAG 2.0 / 2.1, levels A and AA.
 //   - any serious or critical violation → exit 1 (each one printed with the elements it was found on);
 //   - moderate and minor ones are printed, they do not fail the run.
-// Then reduced motion: with prefers-reduced-motion: reduce, no CSS animation may still be running on those pages,
-// except the new-order alert (data-motion="alarm", components/live/incoming.tsx), which must keep ringing.
+// Then reduced motion, asked for both ways (the system's prefers-reduced-motion: reduce, and the console's own
+// "Moins d'animations" setting with system motion left normal), each at phone and desktop size: no CSS animation may
+// still be running on those pages, except the new-order alert's ring (keyframes `ring` on data-motion="alarm",
+// components/live/incoming.tsx), which must keep ringing at desktop size. Any other animation on the alert fails.
 // FOODHUB_A11Y_PAGES=alert,kitchen checks only the page states whose name holds one of those words (quicker while fixing).
 //
 // Needs a build first (`npm run build` or `npx next build --webpack`) and Chromium: `npx playwright install --only-shell chromium`.
@@ -165,7 +167,7 @@ try {
    * A browser context: 'anon', or signed in as the owner (recovery sign-in → HttpOnly session cookie). 'owner' has
    * already met TakTak (the everyday console); 'first' is the owner's very first sign-in, with the welcome dialog open.
    */
-  async function newContext(who, opts) {
+  async function newContext(who, opts, { reduceMotion = false } = {}) {
     const ctx = await browser.newContext({ locale: 'fr-CA', timezoneId: 'America/Toronto', ...opts });
     if (who !== 'anon') {
       const r = await ctx.request.post(`${APP}/api/foodhub/auth/login`, { data: { username: 'owner', password: PASSWORD } });
@@ -173,13 +175,16 @@ try {
     }
     // components/help/help-provider.tsx keeps "welcome seen" per person in localStorage.
     if (who === 'owner') await ctx.addInitScript(() => { try { localStorage.setItem('takatak.help.v1:owner', JSON.stringify({ welcomed: true, seen: [], toursDone: [] })); } catch { /* private mode */ } });
+    // The console's own "Moins d'animations" switch (help drawer): lib/ui/display.tsx keeps it in localStorage and the
+    // boot script turns it into html[data-motion="reduce"] before the page paints.
+    if (reduceMotion) await ctx.addInitScript(() => { try { localStorage.setItem('takatak.display.v1', JSON.stringify({ reduceMotion: true })); } catch { /* private mode */ } });
     return ctx;
   }
   /** One context per kind of visitor, made on first use. */
-  function contexts(opts) {
+  function contexts(opts, extra) {
     const made = {};
     return {
-      for: async (who) => (made[who] ??= await newContext(who, opts)),
+      for: async (who) => (made[who] ??= await newContext(who, opts, extra)),
       close: async () => { for (const c of Object.values(made)) await c.close(); },
     };
   }
@@ -245,27 +250,45 @@ try {
   }
   }
   // ---------------- reduced motion ----------------
-  // With prefers-reduced-motion: reduce, nothing may still animate except the new-order alarm, which must keep ringing on
-  // the alert pages (desktop size: the ring is `sm:animate-ring`): an alarm is not decoration (app/globals.css, the one
-  // exception to the reduced-motion rule). The plain pages are checked before the test order exists, so no alert covers them.
+  // Less motion can be asked for two ways: the system setting (prefers-reduced-motion: reduce) and the console's own
+  // "Moins d'animations" switch (html[data-motion="reduce"], system motion left normal). Each one is checked at phone and
+  // desktop size. Nothing may still animate, except the new-order alarm's ring: keyframes `ring` on the data-motion="alarm"
+  // element, which must keep ringing on the alert pages at desktop size (the ring is `sm:animate-ring`, so phones never
+  // show it, with or without reduced motion): an alarm is not decoration (app/globals.css, the one exception to the
+  // reduced-motion rule). Any other animation on the alarm element (its entrance `rise`, say) fails like any other.
+  // The plain pages are checked before the test order exists, so no alert covers them.
+  const MOTION_MODES = [
+    { name: 'system reduce', opts: { reducedMotion: 'reduce' }, reduceMotion: false },
+    { name: 'console reduce', opts: { reducedMotion: 'no-preference' }, reduceMotion: true },
+  ];
+  const RING_MIN_WIDTH = 640; // Tailwind's `sm` breakpoint (40rem): where sm:animate-ring applies
   const motion = [];
   const motionLines = []; // printed together once both passes are done
   async function motionPass(pages, alertPages) {
-    const vp = VIEWPORTS[1];
-    const ctx = contexts({ viewport: { width: vp.width, height: vp.height }, reducedMotion: 'reduce' });
-    for (const pg of pages) {
-      const page = await open(await ctx.for(pg.who), pg);
-      await page.waitForTimeout(500);
-      const running = await runningAnimations(page);
-      const bad = running.filter((a) => !a.alarm);
-      const alarm = running.length - bad.length;
-      const silenced = alertPages && alarm === 0;
-      motion.push({ page: pg.name, bad: bad.length + (silenced ? 1 : 0), alarm });
-      motionLines.push(`  ${bad.length || silenced ? 'FAIL' : 'PASS'}  ${pg.name}${alarm ? ' (new-order alert still ringing: expected)' : ''}${silenced ? ' — the new-order alert stopped ringing' : ''}`);
-      for (const a of bad.slice(0, 8)) motionLines.push(`        ${a.name} on ${a.desc}`);
-      await page.close();
+    for (const mode of MOTION_MODES) {
+      for (const vp of VIEWPORTS) {
+        const ctx = contexts({ viewport: { width: vp.width, height: vp.height }, ...mode.opts }, { reduceMotion: mode.reduceMotion });
+        const ringExpected = alertPages && vp.width >= RING_MIN_WIDTH;
+        for (const pg of pages) {
+          const page = await open(await ctx.for(pg.who), pg);
+          await page.waitForTimeout(500);
+          const label = `${pg.name} · ${mode.name} · ${vp.name} ${vp.width}×${vp.height}`;
+          if (mode.reduceMotion && (await page.evaluate(() => document.documentElement.getAttribute('data-motion'))) !== 'reduce') {
+            problems.push(`${label}: the console's "reduce motion" setting was not applied (no html[data-motion="reduce"])`);
+          }
+          const running = await runningAnimations(page);
+          const isRing = (a) => a.alarm && a.name === 'ring';
+          const bad = running.filter((a) => !isRing(a));
+          const ringing = running.length - bad.length;
+          const silenced = ringExpected && ringing === 0;
+          motion.push({ page: pg.name, mode: mode.name, viewport: vp.name, bad: bad.length + (silenced ? 1 : 0), ringing });
+          motionLines.push(`  ${bad.length || silenced ? 'FAIL' : 'PASS'}  ${label}${ringing ? ' (new-order alert still ringing: expected)' : ''}${silenced ? ' — the new-order alert stopped ringing' : ''}`);
+          for (const a of bad.slice(0, 8)) motionLines.push(`        ${a.name} on ${a.desc}${a.alarm ? ' (the new-order alert itself: only its ring may run)' : ''}`);
+          await page.close();
+        }
+        await ctx.close();
+      }
     }
-    await ctx.close();
   }
 
   await scanAll(picked(PAGES));
@@ -289,7 +312,7 @@ New DoorDash order on a test store: ${alertUp ? 'received' : `NOT received (stor
     await motionPass(picked(ALERT_PAGES), true);
   }
 
-  console.log('\nReduced motion (prefers-reduced-motion: reduce): no running CSS animation except the new-order alert, which keeps ringing');
+  console.log('\nReduced motion (system prefers-reduced-motion and the console\'s own setting, phone and desktop): no running CSS animation except the new-order alert\'s ring, which keeps ringing at desktop size');
   for (const l of motionLines) console.log(l);
 
   // ---------------- summary ----------------
@@ -301,9 +324,9 @@ New DoorDash order on a test store: ${alertUp ? 'received' : `NOT received (stor
   for (const p of problems) console.log(`  FAIL  ${p}`);
   if (failingScans.length || motionFails.length || problems.length) {
     exitCode = 1;
-    console.log(`\nAccessibility check FAILED: ${failingScans.length} page scan(s) with serious/critical violations, ${motionFails.length} page(s) failing the reduced-motion check, ${problems.length} page problem(s).`);
+    console.log(`\nAccessibility check FAILED: ${failingScans.length} page scan(s) with serious/critical violations, ${motionFails.length} reduced-motion check(s) failing, ${problems.length} page problem(s).`);
   } else {
-    console.log(`\nAccessibility check passed: ${results.length} scans (${results.length / VIEWPORTS.length} page states × ${VIEWPORTS.length} sizes), 0 serious/critical violations; reduced motion respected on ${motion.length} pages.`);
+    console.log(`\nAccessibility check passed: ${results.length} scans (${results.length / VIEWPORTS.length} page states × ${VIEWPORTS.length} sizes), 0 serious/critical violations; reduced motion respected on ${motion.length} page checks (${MOTION_MODES.length} settings × ${VIEWPORTS.length} sizes).`);
   }
   console.log(`(${outside.length} calls answered by the local stand-in; nothing left the machine.)`);
 } catch (e) {

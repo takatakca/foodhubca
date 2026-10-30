@@ -53,14 +53,21 @@
 4. **Fails (exit 1) on any `serious` or `critical` violation**, printing each rule, its help link and the elements it was
    found on. `moderate` ones are printed as notes and do not fail. A page that answers an HTTP error, lands somewhere
    else (a redirect to sign-in), misses the kitchen theme or misses its dialog also fails.
-5. **Reduced motion:** a desktop context with `prefers-reduced-motion: reduce` opens every page again. Any CSS or script
-   animation still running fails, except the new-order alert's ringing frame (`data-motion="alarm"`,
-   `components/live/incoming.tsx`), which **must** still ring on the alert pages. CSS transitions are not counted.
+5. **Reduced motion:** every page is opened again four times: with the system's `prefers-reduced-motion: reduce`, and
+   with the console's own "Moins d'animations" setting (`takatak.display.v1` → `html[data-motion='reduce']`, system
+   motion left normal), each at phone and desktop size. Any CSS or script animation still running fails, except the
+   new-order alert's ring (keyframes `ring` on `data-motion="alarm"`, `components/live/incoming.tsx`), which **must**
+   still ring on the alert pages at desktop size. Any other animation on the alert itself (its entrance `rise`) fails
+   too. CSS transitions are not counted. The console setting must really be applied (`html[data-motion='reduce']`), or
+   the run fails.
 
 The new-order alert is the one looping animation the plan allows (MASTER_PLAN Phase 3 guardrails). `app/globals.css`
-shortens every animation to 1 ms under `prefers-reduced-motion` (and under the console's own "reduce motion" setting,
-`html[data-motion='reduce']`), then gives `[data-motion='alarm']` its 1.4 s infinite ring back. It only animates a
-`box-shadow` halo: no movement, well under three flashes a second.
+shortens every animation to 1 ms × 1 under `prefers-reduced-motion` and under the console's own setting, then, from the
+`sm` width (40rem, where `sm:animate-ring` shows the ring), gives `[data-motion='alarm']` back only the `ring` keyframes
+(`animation-name: ring`, 1.4 s, infinite). The ring only animates a `box-shadow` halo: no movement, no fading, well under
+three flashes a second. On a phone the alert sheet never rings, with or without reduced motion: its only animation is the
+entrance `rise` (it moves and fades), which stays at 1 ms × 1 when less motion is asked for. `npm test` also guards the
+CSS rule (`tests/a11y-reduced-motion-css.test.ts`).
 
 ### How to run it
 
@@ -114,6 +121,14 @@ or minor violation before or after: every finding was **serious**.
 
 Before: 16 of 22 scans failed. After: 22 of 22 pass with no violation at any level. Reduced motion: before, the
 new-order alarm stopped ringing (the 1 ms rule also cut it); after, every page is still and the alarm rings.
+
+Review fix (2026-10-30): the first version of the alarm exception kept *whatever* animation the alert carried looping.
+On a phone with the console's "Moins d'animations" setting on (system motion normal), that was the entrance `rise`: the
+whole sheet, Accepter button included, slid and faded every 1.4 s. The check only tested the system setting at desktop
+size and counted any animation on the alert as the ring, so it passed. Now the exception names `ring` and starts at
+`sm`, and the check runs both settings at both sizes and accepts only `ring`: on the old CSS it fails on
+"console reduce · phone" for both alert pages (`rise on div… the new-order alert itself`); on the fix all 44 reduced-motion
+checks pass.
 
 ### What was fixed
 

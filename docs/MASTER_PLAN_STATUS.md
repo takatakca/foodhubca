@@ -48,7 +48,7 @@ Order screens meanwhile: the wall (#102) and the relay kit (#107) are on main; t
 | P2 View Transitions, exit animations, count-up, vibration | not started | agent |
 | P2 Connections strip | done | add e-mail/SMS + AI status: agent |
 | P2 Go-live stepper ring, celebrations | partial (welcome wizard only) | agent |
-| Guardrails (+25 KB JS, INP < 200 ms), Lighthouse a11y ≥ 95 | a11y: axe WCAG 2.1 AA, 0 violations on 11 page states × phone + desktop, reduced motion asserted, CI step (`npm run verify:a11y`, docs/ACCESSIBILITY.md, branch `feature/a11y-axe-check`); JS size + INP not measured | agent (INP needs the real tablet) |
+| Guardrails (+25 KB JS, INP < 200 ms), Lighthouse a11y ≥ 95 | a11y: axe WCAG 2.1 AA, 0 violations on 11 page states × phone + desktop, reduced motion asserted (system + console setting, phone + desktop), CI step (`npm run verify:a11y`, docs/ACCESSIBILITY.md, branch `feature/a11y-axe-check`); JS size + INP not measured | agent (INP needs the real tablet) |
 
 ## Phase 4: Autopilot
 | Item | Status | Left / who |

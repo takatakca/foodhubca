@@ -286,7 +286,7 @@ Goal: feel premium, alive, easy and smart, with no bare white screens, while kee
 **Acceptance:**
 - Lighthouse accessibility ≥ 95. _(Checked in CI with axe-core, the engine Lighthouse uses: WCAG 2.1 A/AA, key pages at phone and desktop size, `npm run verify:a11y`, [ACCESSIBILITY.md](ACCESSIBILITY.md).)_
 - No bare white page while loading.
-- The reduced-motion setting is respected. _(Asserted by `npm run verify:a11y`: nothing animates except the new-order alarm.)_
+- The reduced-motion setting is respected. _(Asserted by `npm run verify:a11y` for the system setting and the console's own setting, at phone and desktop size: nothing animates except the new-order alarm's ring.)_
 - The kitchen screen stays dark everywhere.
 
 ### Phase 4: Autopilot (runs by itself, AI-assisted, within safe rules)

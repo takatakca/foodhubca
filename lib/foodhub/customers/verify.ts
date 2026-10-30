@@ -1,6 +1,7 @@
 // Phone verification by text for the brand websites (contract § A.1–A.2), two providers behind one interface:
 //   (a) Twilio Verify when TWILIO_VERIFY_SERVICE_SID is set: Twilio makes, texts and checks the code
-//       (POST /v2/Services/{sid}/Verifications, then /VerificationCheck), Basic auth with the existing SID + token;
+//       (POST /v2/Services/{sid}/Verifications, then /VerificationCheck), Basic auth with TWILIO_VERIFY_ACCOUNT_SID /
+//       TWILIO_VERIFY_AUTH_TOKEN when the Verify service lives in another Twilio account, else the existing SID + token;
 //   (b) otherwise Food Hub's own 6-digit code texted with sendSms, kept as an HMAC-SHA256 (session secret) in fh_docs,
 //       10 minutes, 5 tries, then void.
 // Either way the code is never logged, never returned by an API and never stored in clear (the outbox keeps no preview).
@@ -31,10 +32,18 @@ export function verifyProviderKind(env: NodeJS.ProcessEnv = process.env): Verify
 }
 
 /** What a start needs to be able to text at all (for the console readiness line). */
+/** The Twilio account that owns the Verify service: its own SID + token when given, else Food Hub's texting account. */
+export function twilioVerifyCredentials(env: NodeJS.ProcessEnv = process.env): { sid: string; token: string } {
+  const sid = String(env.TWILIO_VERIFY_ACCOUNT_SID ?? '').trim() || String(env.TWILIO_ACCOUNT_SID ?? '').trim();
+  const token = String(env.TWILIO_VERIFY_AUTH_TOKEN ?? '').trim() || String(env.TWILIO_AUTH_TOKEN ?? '').trim();
+  return { sid, token };
+}
+
 export function verifyReadiness(env: NodeJS.ProcessEnv = process.env): { ok: boolean; provider: VerifyProviderKind; reason?: string } {
   const provider = verifyProviderKind(env);
   if (provider === 'twilio_verify') {
-    return env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN ? { ok: true, provider } : { ok: false, provider, reason: 'TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN missing for Twilio Verify.' };
+    const { sid, token } = twilioVerifyCredentials(env);
+    return sid && token ? { ok: true, provider } : { ok: false, provider, reason: 'TWILIO_VERIFY_ACCOUNT_SID / TWILIO_VERIFY_AUTH_TOKEN (or TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN) missing for Twilio Verify.' };
   }
   return smsConfigured() ? { ok: true, provider } : { ok: false, provider, reason: 'SMS is not set up (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM or TWILIO_MESSAGING_SERVICE_SID).' };
 }
@@ -136,7 +145,8 @@ export function parseVerifyInput(body: Record<string, unknown> | null | undefine
 export interface VerifyDeps { fetch?: typeof fetch; now?: number }
 
 function twilioAuthHeader(): string {
-  return `Basic ${Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64')}`;
+  const { sid, token } = twilioVerifyCredentials();
+  return `Basic ${Buffer.from(`${sid}:${token}`).toString('base64')}`;
 }
 function twilioVerifyUrl(path: string): string {
   const base = String(process.env.TWILIO_VERIFY_BASE_URL || TWILIO_VERIFY_URL).replace(/\/+$/, '');

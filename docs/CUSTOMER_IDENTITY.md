@@ -29,6 +29,7 @@ clé : le cellulaire vérifié.
 | --- | --- |
 | `FOODHUB_WEBSITE_ORDER_SECRET` | Déjà là : le secret serveur-à-serveur du site (commandes). Les routes clients l’exigent en `Authorization: Bearer` (401 sinon). Le navigateur ne le voit jamais. |
 | `TWILIO_VERIFY_SERVICE_SID` | Optionnel : un service Twilio Verify (`VA…`). Twilio fabrique, texte et vérifie le code avec `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN`. Vide = Food Hub texte son propre code à 6 chiffres par `TWILIO_FROM` ou le service de messagerie. |
+| `TWILIO_VERIFY_ACCOUNT_SID` / `TWILIO_VERIFY_AUTH_TOKEN` | Optionnels : le compte Twilio qui possède le service Verify, quand ce n'est pas le compte avec lequel Food Hub texte (ex. le compte du numéro unique des marques). Vides = `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN`. |
 | `FOODHUB_CUSTOMER_TENANTS` | Sites autorisés (slugs, virgules). Vide = `pppmtl`. Nom affiché dans le texto : `pppmtl` → « PPP Pizzeria ». |
 | `SESSION_SECRET` | Déjà là : signe les jetons clients (même clé HMAC que les cookies de la console). |
 | `FOODHUB_LOYALTY_URL`, `FOODHUB_GIFTCARDS_URL` | Futurs LOY4LTY / REW4RDS : lus seulement pour l’afficher dans la console. Rien n’est appelé ; l’API répond « pas branché ». |
@@ -97,6 +98,7 @@ number.
 | --- | --- |
 | `FOODHUB_WEBSITE_ORDER_SECRET` | Already there: the website's server-to-server secret (orders). Every customer route requires it as `Authorization: Bearer` (401 otherwise). The browser never sees it. |
 | `TWILIO_VERIFY_SERVICE_SID` | Optional: a Twilio Verify service (`VA…`). Twilio makes, texts and checks the code with `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN`. Empty = Food Hub texts its own 6-digit code through `TWILIO_FROM` or the messaging service. |
+| `TWILIO_VERIFY_ACCOUNT_SID` / `TWILIO_VERIFY_AUTH_TOKEN` | Optional: the Twilio account that owns the Verify service when it is not the account Food Hub texts from (e.g. the brands' single-number account). Empty = `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN`. |
 | `FOODHUB_CUSTOMER_TENANTS` | Allowed websites (slugs, comma-separated). Empty = `pppmtl`. Display name in the text: `pppmtl` → "PPP Pizzeria". |
 | `SESSION_SECRET` | Already there: signs the customer tokens (the same HMAC key as the console cookies). |
 | `FOODHUB_LOYALTY_URL`, `FOODHUB_GIFTCARDS_URL` | Future LOY4LTY / REW4RDS: read only to show it in the console. Nothing is called; the API answers "not connected yet". |

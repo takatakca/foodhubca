@@ -33,7 +33,7 @@ export default function ActivityPage() {
     api<{ entries: ActivityEntry[] }>(`/api/foodhub/activity?${p}`).then((d) => setRows(d.entries)).catch(() => setRows([]));
   }, [query, kind]);
   const shown = useMemo(() => (rows ?? []).filter((e) => !q || `${e.summary} ${e.actor}`.toLowerCase().includes(q.toLowerCase())), [rows, q]);
-  const KINDS = [['', t('Tout', 'All')], ['order', t('Commandes', 'Orders')], ['store_status', t('Magasins', 'Stores')], ['item_availability', t('Épuisés', 'Sold out')], ['menu_publish', t('Menus', 'Menus')], ['approval', t('Approbations NIP', 'PIN approvals')], ['incident', t('Alertes', 'Alerts')], ['login', t('Connexions', 'Sign-ins')], ['users', t('Équipe', 'Team')], ['security', t('Sécurité', 'Security')], ['device', t('Tablettes', 'Tablets')], ['message', t('Messages', 'Messages')]] as const;
+  const KINDS = [['', t('Tout', 'All')], ['order', t('Commandes', 'Orders')], ['store_status', t('Magasins', 'Stores')], ['item_availability', t('Épuisés', 'Sold out')], ['menu_publish', t('Menus', 'Menus')], ['approval', t('Approbations NIP', 'PIN approvals')], ['incident', t('Alertes', 'Alerts')], ['login', t('Connexions', 'Sign-ins')], ['users', t('Équipe', 'Team')], ['security', t('Sécurité', 'Security')], ['device', t('Tablettes', 'Tablets')], ['message', t('Messages', 'Messages')], ['customer', t('Clients', 'Customers')]] as const;
   return (
     <div>
       <PageHeader title={t('Journal d’activité', 'Activity log')} subtitle={t('Qui a fait quoi, quand, où — et si ça a marché. Les actions des plateformes et de l’automatisation aussi.', 'Who did what, when, where — and whether it worked. Platform and automation actions too.')} />

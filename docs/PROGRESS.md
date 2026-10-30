@@ -1,5 +1,12 @@
 # Food Hub: progress log and task board
 
+## 2026-10-29 — Customer accounts for the brand websites, pppmtl first (`feature/customer-identity`)
+
+- Food Hub is the TAKATAK customer authority (contract § A of 2026-10-29 with pppmtl): `lib/foodhub/customers/` — phone verification by text (Twilio Verify when `TWILIO_VERIFY_SERVICE_SID` is set, else Food Hub's own 6-digit code by `sendSms`, HMAC with the session secret, 10 min, 5 tries, then void), one `MasterCustomer` per verified E.164 number created on the spot (race-free: per-phone lock + atomic `claimKv`), signed token `cust.<id>.<tenant>.<exp>.<version>.<sig>` (session secret, 30 days, version checked on every call), `/me` projection (profile, addresses, favourites, recent website orders of that phone, loyalty / gift-card adapters that truthfully answer `connected:false` until LOY4LTY / REW4RDS exist).
+- Routes under `/api/foodhub/customers/`: `verify/start`, `verify/check`, `me` (GET, PATCH, DELETE → anonymised, Loi 25), `me/addresses`, `me/favourites`, `me/logout`; Bearer `FOODHUB_WEBSITE_ORDER_SECRET` first (401), JSON errors, 429 with `retryAfterS`. Limits: 3 starts / phone / 10 min (fh_docs), 60 / website / min, per-address throttle on wrong codes (session.ts). Codes never logged, never returned, never stored in clear; the outbox keeps no preview.
+- Console: Settings → Clients / Customers (read-only: count, last 20 with masked number, verification readiness, customer log); activity kind `customer` (created / verified / deleted) with its filter under Reports → Log.
+- `docs/CUSTOMER_IDENTITY.md` (FR then EN), `.env.example` (`TWILIO_VERIFY_SERVICE_SID`, `FOODHUB_CUSTOMER_TENANTS`, `FOODHUB_LOYALTY_URL`, `FOODHUB_GIFTCARDS_URL`), `tests/customer-identity.test.ts`.
+
 ## 2026-10-21 — Simpler sign-in page + « Continuer avec Google » (`feature/login-google-signin`)
 
 - One calm sign-in screen: Food Hub mark, big « Continuer avec Google / Continue with Google » (only when `GOOGLE_OAUTH_CLIENT_ID` is set), the code-by-email/text sign-in as the second option, the owner recovery behind a small link; FR first, EN; 44 px targets; first run, code and recovery steps kept.

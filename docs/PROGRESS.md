@@ -30,6 +30,91 @@
 
 — signé : Claude Fable 5.1 (session on2go front-page) @ Claude Code desktop · 2026-10-30 04:50
 
+## 2026-10-30 — MEV PR #99 brought up to main 193ae17; MEV is Québec only (`feature/mev-qcmev-integration`, PR #99)
+
+- main 193ae17 merged in (93 commits: premium console #88 #90 #91 #94, #45 #48 #52 #87, platform screens, Canada taxes
+  #121). Conflicts: `package.json` / `package-lock.json` (main's Next 16.4.3 and zod taken), `app/globals.css` and
+  `components/live/order-card.tsx` (main's side; the `.t-mev*` invoice styles kept), `lib/foodhub/watch/types.ts`
+  (main's `screen_down` / `screen_waiting` and `mev_pending` all kept), `scripts/foodhub-e2e.mjs` (main's section 48
+  screens wall kept; the MEV scenarios are now section 49), this file and `WORKLOG.md` (every entry kept once).
+- Kitchens now carry a province (#121). `mevGate` refuses a kitchen whose province is not Québec (`not_quebec`, shown in
+  Settings → MEV invoices): MEV-WEB is Revenu Québec's, so an Ontario or BC kitchen never sends it a sale, even if it is
+  in `FOODHUB_MEV_LOCATIONS` by mistake. Test in `tests/mev-outbox.test.ts`.
+- Checks: typecheck OK, lint 0 errors (1 existing warning), `npm test` 131 files, 1835 passed + 9 skipped, webpack
+  build OK, `verify:foodhub` 628 passed, 0 failed (ports 5631/5632).
+- Still in this PR besides MEV: the parts of release/2026-10-23 (#97) that main did not take one by one (#55 finance
+  skeletons, #93 tracking text once, the release's recon and export fixes). — signé : Claude (session 01QsaHwL) @
+  Claude Code cloud · 2026-10-30 02:50
+
+## 2026-10-27 — MEV stand-in aligned with QCMEV's CONTRACT.md §7 (`feature/mev-qcmev-integration`, PR #99)
+
+- `scripts/e2e/mock-qcmev.mjs` now answers like the real QCMEV (`fix/backend-readiness`): `noTrans` "1", "2"… per
+  device and civil day (opaque), `qcmevTransactionId` unique per transaction (was built from the per-day number and
+  could repeat), `mevTransactionNumber` passed through as MEV-WEB gives it (simulator `SIM` + 9 digits), the reference to
+  the original as the « Réf. : transaction N / du … » **text lines** (credit note, corrected receipt, RPR / DUP), never a
+  mention, and credit notes / copies dated when issued, Montréal time with its offset.
+- Checks: S1 number, S5 MEV number, S6 credit note (mention « NOTE DE CRÉDIT » without the original's number, reference
+  kept) + a new S6 date check; `tests/mev-outbox.test.ts` two expectations. No production code changed.
+- typecheck OK, lint 0 errors, 1702 tests (2 skipped), `next build --webpack` OK, `verify:foodhub` 617/0.
+
+## 2026-10-24 — MEV verification round 2 fixes (`feature/mev-qcmev-integration`, PR #99)
+
+- No 48 hours for a sale QCMEV has not recorded: the 48 h only cover sales the SEV already recorded during a
+  communication problem (`offline_pending`, QCMEV's side). Watchtower: a sale or credit note still in Food Hub's outbox
+  is critical after 1 minute whatever the reason (tender to pick or held for a person: at once); copies warn at 15 min.
+  The alert, the order panel, Settings and the 80 mm ticket now say: no invoice exists yet, keep the bag, restart Takatak
+  MEV; a bag gone without its invoice will not get it.
+- Too Good To Go: the daily bag count is never a sale (`log_order`, nothing sent). Each bag is its own LVT sale printed
+  at pickup: TGTG e-mail orders, or the new « Sac remis » (Money → Too Good To Go, Takatak MEV kitchens only; one order,
+  recorded before the answer, its invoice prints once; reservation code = no second sale). The day screen shows bags
+  with / without their own invoice and flags the gap (activity `tgtg_bags_without_invoice`).
+- « Sac remis » never double: the day's log counts only the bags without their own sale (also when the bag is handed
+  over after the day was logged); the order id is the reservation code (`tgtg-pickup-CODE`), so a TGTG e-mail read later
+  is a `duplicate`; the code is required when TGTG e-mails are read for that kitchen; a paper already printed is not
+  printed again; the pickup list reads again every 10 s until the invoice is out.
+- Tests: tests/mev-outbox.test.ts (alerts 1 min / offline / copy; Sac remis; day count; log remainder; code required),
+  tests/tgtg-email.test.ts (late e-mail after « Sac remis » = duplicate), tests/mev-map.test.ts (log_order; pickup = PAP
+  5,21 + TPS + TVQ = 5,99), verify:foodhub section 48 S7 / S7b / S7c / S7d.
+
+## 2026-10-24 — MEV verification round 1 fixes (`feature/mev-qcmev-integration`, PR #99; QCMEV.CA PR #2)
+
+- Printed once (« Modes d'impression »): each Revenu Québec document (original, then each RPR / DUP) is claimed by the
+  first ticket that prints it (`POST /api/foodhub/mev/orders/{id}/print`, KV); later tickets say « FACTURE DÉJÀ
+  IMPRIMÉE » and point to « Réimprimer (RPR) »; `?autoprint=0` is a preview that prints « APERÇU ».
+- One set of amounts on the paper: with Takatak MEV on, the ticket shows no Food Hub subtotal, taxes, platform fee,
+  courier tip or total, only the SEV invoice. 42 columns fit (2,4 mm font, `white-space: pre`, auto-shrink).
+- `/r/{token}` only for electronic receipts (ELE / PEL): QCMEV's electronic document, QR in the block, the link right
+  under it, « Copie électronique »; no token for paper (PAP) receipts.
+- No invented lines: « ÉCART DE PRIX », « COMMANDE », « Article », « Option » and the surplus « Rabais » are gone; such
+  sales are held for a person (amounts_mismatch / description_missing / no_lines, Watchtower alert, re-mapped on change).
+- Skip: JET Connect's documented examples show item prices before tax, so the tablet path was right and the old
+  tax-included fixture is now held (no « Rabais » = tax). Too Good To Go: prices taxes included → pre-tax worked out;
+  the daily bag log (no per-order feed) is one LVT sale, not printed (NON).
+- Alerts at once for a tender to pick, after 1 min when QCMEV is silent; QCMEV must run next to Food Hub (docs).
+- QCMEV side (same day): mode SEV, Revenu Québec layout, « PROBLÈME DE COMMUNICATION », « Facture corrigée », QR data
+  encrypted with MEV-WEB's certificate, PROD refused until a non-exportable key custody exists.
+
+## 2026-10-24 — Revenu Québec invoices through Takatak MEV (QCMEV), off by default (`feature/mev-qcmev-integration`, stacked on #97)
+
+- Owner's order of 2026-10-24: make QCMEV work with food delivery. Food Hub side of contract `foodhub.sale.v1`
+  (docs/MEV_INTEGRATION.md): `lib/foodhub/mev/` (config, map, client, outbox, hooks, receipt, status), the Clover tender
+  read `lib/foodhub/pos/clover-payments.ts`, owner switch « Factures Revenu Québec (MEV) », Settings → Add-ons → MEV
+  invoices, a badge and a « Facture (MEV) » panel on orders, QCMEV's receipt on the 80 mm ticket (and a new own-order
+  ticket `/ticket/direct/{id}`), the electronic copy `/r/{token}`, a Watchtower incident « Facture Revenu Québec en
+  attente », and `MenuItem.mevTax` in the menu editor.
+- Hooks: `settleInClover` (every platform status change), auto-accept, DoorDash adjustment, Skip final order and tablet
+  route, missing items / price change, Clover's own platform orders, the TGTG bag log (skipped), and
+  `addDirectEvent` (every own-order step). Sale once accepted / paid; credit note when cancelled after the receipt;
+  credit note + corrected receipt when the content changes; nothing when cancelled before it was sent.
+- Off by default on four switches (FOODHUB_MEV, owner switch, FOODHUB_MEV_LOCATIONS, per-kitchen system). With
+  FOODHUB_MEV=off nothing is read or sent. `on` needs QCMEV PROD + certified; `simulator` never sends to PROD.
+- Payloads checked against QCMEV's own validator (worktree `QCMEV.CA-wt/functional-mev`): items = qty × unit with options
+  as their own items, subtotal rule, credit amounts as magnitudes, key characters, ms or s timestamps.
+- Checks: typecheck OK, lint 0 errors, unit tests + 2 new files (mev-map, mev-outbox), webpack build OK, verify:foodhub
+  with the new section 48 (S1–S11 against `scripts/e2e/mock-qcmev.mjs`; zero QCMEV calls before the switch is on).
+- Not done: kitchen-screen auto-print of the invoice block, Phase-2 staff sync to QCMEV users (UTL), anything that
+  needs SW-73 / SW-77 or Revenu Québec's DEV / ESSAI environments. Merge after #97.
+
 ## 2026-10-21 — Demandes de restaurants / Restaurant leads (`feature/restaurant-leads-api`)
 
 - Le formulaire « Rejoindre ON2GO » d’on2go.ca (site statique, dépôt séparé) a maintenant son arrière-boutique : `POST /api/public/restaurant-leads` (JSON, sans connexion, CORS on2go.ca et www.on2go.ca seulement, pot de miel `company` → 202 silencieux, 5 envois / 10 min par IP → 429 + Retry-After, corps ≤ 16 Ko), validation par champ (`errors: { champ: required | invalid | too_long }`), stockage dans `fh_docs` collection `restaurant_leads` (aucune migration), courriel à `FOODHUB_SUPPORT_EMAIL` + réponse automatique FR / EN au restaurant par l’expéditeur habituel (sautés sans fournisseur, jamais une erreur), ligne dans le journal d’activité.
@@ -37,6 +122,7 @@
 - EN: the on2go.ca “Join ON2GO” form posts to `POST /api/public/restaurant-leads` (validation, honeypot, per-IP quota, CORS for on2go.ca only), leads are stored as `restaurant_leads` docs, the owner is emailed and the lead gets an FR / EN auto-reply; Settings → Restaurant leads lists them newest first with status and notes. Contract: `docs/RESTAURANT_LEADS.md`.
 - Code: `lib/foodhub/restaurant-leads.ts`, `app/api/public/restaurant-leads/route.ts`, `app/api/foodhub/restaurant-leads/route.ts`, `app/(console)/settings/leads/page.tsx`, `components/shell/settings-pages.ts` (new page in the « Votre entreprise / Your business » group), tests `tests/restaurant-leads.test.ts` (14).
 - Brought up to main b40e446 (#72 #54 #50 #51 #43 #86 #89): main moved the Settings page list to `components/shell/settings-pages.ts`, so the leads page is listed there (group `business`, permission `admin`).
+
 ## 2026-10-30 — Ordering from ON2GO.ca: checkout and tracking answer the ON2GO origins (`feature/storefront-cross-origin-checkout`)
 
 - `POST /api/storefront/checkout` and `GET /api/storefront/track/<token>` now accept an allowed Origin (allowedOrigin: on2go.ca, www/preview.on2go.ca, qmaps.ca, localhost, `FOODHUB_PUBLIC_CORS_ORIGINS`) with CORS headers and answer the preflight; any other cross-site request stays refused (403 / no CORS). Same-origin behaviour unchanged. With the menu route (already CORS) the whole ordering flow runs on on2go.ca: live menu, cart, checkout (Clover online or counter), tracking page `/suivi/` (on2goca `feature/on2go-order`).
@@ -105,6 +191,7 @@
 - Stores → « Écrans des plateformes / Platform screens »: each platform account runs in an always-on Chromium on a screen relay host (`deploy/screens/`), shown live in Food Hub with status, waiting count from the page title, Reload and full screen. The owner signs in once inside each screen; Food Hub never stores or types a platform password.
 - Relay agent heartbeat `POST /api/foodhub/screens/heartbeat` (public, Bearer `FOODHUB_SCREENS_AGENT_TOKEN`, off until set); blank / crashed pages reloaded by the agent; Watchtower rule `screen_down` (offline, signed out or crashed during opening hours). The agent never clicks or reads orders (platform terms): orders keep entering through the integrations and the Order Relay.
 - Guide `docs/PLATFORM_SCREENS.md`; tests `tests/platform-screens.test.ts`.
+
 ## 2026-10-22 — Premium console: A1 Home / Orders / Alerts (`feature/premium-a1-home-orders`, stacked on A4 #88)
 
 - Scope A1 of the console audit: Home (`app/(console)/overview.tsx`), Orders (board, history, drawer, incoming and
@@ -128,6 +215,7 @@
   verify:foodhub 567/0 on 5121/5122. Before/after screens (Po Poulet masked) in `docs/ux/premium-a1/`.
 - Brought up to the updated A4 shell (82b0ebc, itself on main b40e446): only this file conflicted (all entries kept,
   newest first); no code file is changed on both sides.
+
 ## 2026-10-22 — Premium console: A2 kitchen, menus, sold out, restaurants (`feature/premium-a2-kitchen-menus-stores`, stacked on A4 #88)
 
 - Scope A2 of the console audit: `app/(console)/kitchen/**`, `menu/**`, `stores/**`, the kitchen cards
@@ -168,6 +256,13 @@
   names, guide path and command under « Détails techniques »); Go-live keeps « Optionnel » for optional steps apart
   from « À vérifier »; Section takes `tech` so no <details> sits inside the subtitle <p>. Tests: owner-copy-a3.test.ts.
 
+## 2026-10-22 — Courier tracking text exactly once (`fix/tracking-sms-once`)
+
+- Root cause of the "flaky" own-delivery webhook test was a real race in `lib/foodhub/delivery/dispatch.ts`: each courier event read the delivery, waited for Twilio, then saved its own (old) copy. Two events together (DASHER_CONFIRMED + its retry, or + DASHER_PICKED_UP) both saw "not texted yet" and both texted the customer, and the slower one wrote an older status over the newer one (picked up back to assigned); its order write could also undo "out for delivery".
+- Fix: one change at a time per delivery in the process (webhooks, refresh, courier taps, cancel), each applied to the delivery as stored when its turn comes; the text is claimed first with `repo.claimKv` (atomic insert, holds across servers) and given back with the new `repo.releaseKv` when the send fails; marks and cancels re-read the delivery before saving (`updateDelivery`).
+- Tests: two new cases in `tests/own-delivery.test.ts` (Twilio's answer held while other events arrive; failed send then retry; another server's claim). Both failed on the old code (2–3 texts, status `assigned`), pass now; the file passed 10 runs in a row and 12 runs in parallel.
+- Review follow-up: `sendSms` never throws, so a timeout or dropped connection came back as an ordinary failure and gave the claim back (a second text if Twilio had sent the first). `SendResult` now carries `uncertain` (set unless `neverSent()` in `env-utils.ts` proves the request never left: DNS failure, connection refused); only a sure failure gives the claim back. Two more tests: a lost answer is never resent while a refused connection is retried, and a newer courier event is never undone by an older one in flight (fails when the per-delivery lock is removed).
+
 ## 2026-10-22 — Premium console: A4 shell + design system (`feature/premium-a4-shell`, stacked on #72)
 
 - Scope A4 of the console audit (`private/ux/CONSOLE_AUDIT_2026-10-21.md`): shell, navigation, theme tokens and shared
@@ -188,7 +283,6 @@
 - Brought up to main 47cf850 on 2026-10-29 (screens wall, suite, delivery fixes, registry): `app/globals.css` (both
   reduced-motion blocks and the kitchen 48 px touch rule kept) and this file conflicted; nothing else. — signé : Claude
   (busy-cannon, Claude Code cloud) · 2026-10-29 23:58
-
 
 ## 2026-10-21 — Simpler sign-in page + « Continuer avec Google » (`feature/login-google-signin`)
 
@@ -214,6 +308,7 @@
 - Fits main: #78 badges on the hub pages (and `NEXT_PUBLIC_CLOVER_APPS_LIVE=foodhub` links the listing / publishes the Offer); #75 storefront `/commander/<slug>` and its sitemap stay indexable (no X-Robots-Tag), tracking pages stay noindex, robots.txt lists both sitemaps.
 - Also fixed two merge leftovers already on origin/main: duplicate imports in `lib/foodhub/phone/voice.ts` (main failed typecheck / build and 6 phone test files) and the doubled token sentence in `lib/foodhub/clover-listing.ts`.
 - Checks: typecheck OK, lint 0 errors, 1500 tests (1 skipped; 1 storefront-checkout failure also on origin/main), webpack build OK, verify:foodhub 567/0, built app on :4941: 12 hub pages 200 signed out with one parseable JSON-LD graph each, robots / sitemap / llms.txt OK.
+
 ## 2026-10-17 — Legal pages name and price TAKATAK Phone AI (`fix/legal-takatak-phone-ai`, re-land of #77)
 
 - #77 (2e18d23) merged into `fix/legal-pages-complete` after #66, so it never reached main; cherry-picked here, product renamed « TAKATAK Phone AI » (FR + EN), `phoneFeesText()` aligned with the merged metering (AI time only, order or not, rounded up per call, never the hold or the person after a transfer, ACTIVE subscriptions only).
@@ -231,6 +326,7 @@ Branche `fix/overlay-keyboard-focus-20261016` : focus initial, Tab/Shift+Tab cir
 - Commission-free pickup ordering page per brand at `/commander/<slug>` (FR first, EN with `?lang=en`): live menu of the brand's kitchen (86s, no alcohol, category hours, unpriced dishes hidden), server-priced cart, Duo / Trio / Combo offered once, pay online (Clover Hosted Checkout link opened in the browser) or at the counter, tracking page, SEO (JSON-LD, sitemap), QR / share kit, owner settings at `/settings/storefront`. Orders enter the existing direct-order pipeline as website orders (`sf_` ref). Everything off until the owner turns it on.
 - Review fixes: check-and-take rate limits (address, phone, page, server; parallel-safe, given back when no order is placed), Canada / US phones only (no international or premium texts), unpaid orders capped (25 items, per-brand max 150 $ by default, 40 / h per page, 120 / h per server), last-order cutoff (prep time before closing), same-origin checkout (JSON only, Origin / Sec-Fetch-Site), body streamed and cut at 32 KB, tracking links 7 days and only under their brand, orders by source read from real orders, localized dialog / stepper labels and focus trap.
 - Checks: typecheck OK, lint 0 errors, 1004 tests passed / 1 skipped / 1 known tgtg-email failure (not in this branch), webpack build OK, verify:foodhub 554/0 (ports 5910/5911). Not deployed.
+
 ## 2026-10-16 — Store availability center (task 44b, `feature/store-availability-center`)
 
 - New page `/stores/availability` (URL only; `/stores`, `/stores/hours` and `stores-tabs.tsx` untouched): status now per kitchen / brand / channel with who paused it (TAKATAK, platform, guard, hours), reopens-at (overnight, holidays, DST), tablets online, and a Clover Online Ordering reminder row (no Clover call; no official pause endpoint found in the Clover docs).
@@ -241,6 +337,7 @@ Branche `fix/overlay-keyboard-focus-20261016` : focus initial, Tab/Shift+Tab cir
 - Additive wiring: `tickAvailability` (throttled 30 s, never throws) in cron/watch (new `availability` key), pulse after(), instrumentation timer. Docs: docs/STORE_AVAILABILITY.md.
 - Review fixes: the guard keeps one episode (`attemptedIds`, `pendingIds`): a store a person resumed is never re-paused in the same episode, a brand opening mid-episode is paused after its own grace time, only blocked / failed stores are retried; every locked DoorDash store (built in, `FOODHUB_MENU_LOCKED_STORES`, Stores → Mapping) is left alone; busy-schedule catch-up and removal documented and tested; bilingual route errors (`errorFr`), labelled chip groups, actor names in FR/EN; new `tests/store-availability-history.test.ts`. Shared file: `components/ui/form.tsx` (additive `disabled` prop on `Chips`).
 - Later, in stores-tabs.tsx: `{ href: '/stores/availability', label: t('Disponibilité', 'Availability') }`.
+
 ## 2026-10-17 — TAKATAK Phone gate: review fixes (task 41, PR #61)
 
 - Own merchants: `CLOVER_MERCHANT_ID`, `CLOVER_MERCHANT_TOKENS` keys and `FOODHUB_BILLING_EXEMPT_MERCHANTS` count as ours (not only `PHONE_OWN_MERCHANTS`); readiness shows a per-kitchen app check (stop when refused); refused live calls are logged.
@@ -276,6 +373,7 @@ Branche `fix/overlay-keyboard-focus-20261016` : focus initial, Tab/Shift+Tab cir
 
 - Branch `feature/clover-voice-ai-app` (PR #61). One backend, two Clover App Market apps: TAKATAK Food Hub (unchanged) and the AI phone app, sold separately. New `lib/foodhub/pos/clover-apps.ts` (registry), per-app OAuth in `clover-oauth.ts` (optional app argument, Food Hub default), phone routes `/api/foodhub/clover-connect/phone/{start,callback}` and `/api/foodhub/webhooks/clover/phone` (404 until `CLOVER_PHONE_APP_ID` is set), tokens per (app, merchant), uninstall of one app only, `clover-entitlement.ts` (`voiceAiEntitled`, `recordPhoneOrder`, `appInstalled`, `phoneCloverToken`), Settings → Clover app "Clover apps on this server".
 - Without the new env vars nothing changes. `lib/foodhub/phone/**` not touched: wiring steps in `docs/CLOVER_MULTI_APP.md`. Review fixes (PR #61): live-call check answers within 2.5 s when Clover hangs (failure remembered 2 min); phone billing status in its own per-merchant key and every token-map write serialized (no lost refresh token); charges saved before sending, pending ones settled on the next ACTIVE answer, lost answers never re-sent; Pro tier by Clover subscription ID; Settings section only once the phone app is set, approve/disconnect owner-only and per app; Food Hub keys read raw as before. Checks: typecheck OK, lint 0 errors, 993 tests (1 skipped; 1 Windows-only CRLF failure in tests/tgtg-email.test.ts from main), webpack build OK, e2e 554/0.
+
 ## 2026-10-16 — AI phone disclosure + card redaction (legal review 2a items 3–4, `fix/phone-ai-disclosure`)
 
 - Both assistants now introduce themselves as automated (« Je suis l’assistante automatisée » / "I’m the automated assistant" / "Soy su asistente automatizada"), say the call is transcribed (to take the order / to handle the request) and that 0 reaches a person, one short sentence per part, Québec French first; "virtuel / virtual" wording removed (style.ts selfIntro, twilio.ts GREETING, ivr/engine.ts orderIntro, console intro).
@@ -283,6 +381,7 @@ Branche `fix/overlay-keyboard-focus-20261016` : focus initial, Tab/Shift+Tab cir
 - Ordering line (voice.ts callerTurn + simulator): a card number said or typed is refused like on the ON2GO menu (never stored, never sent to the AI); every stored transcript line goes through `redactCards` (calls.ts say).
 - Review fixes: card numbers read in groups with the punctuation speech recognition adds ("4111, 1111, …", periods, double spaces) are found (ivr/words.ts CARD_RUN, length + Luhn on the digits only); a card typed one key per turn on the ordering line is refused at the 13th key, the keys already noted are scrubbed from the transcript and the AI history, the rest of the card is refused too, 0 still reaches a person; the AI's own words are redacted in the stored AI history (agent.ts storedContent); "English, I want a chicken" (both lines + simulator) hears the notice in the new language before the answer; the Spanish "automatizada / automatizado" follows the Spanish voice, not the French one.
 - Checks: typecheck OK, lint 0 errors, 968 tests passed, 1 skipped; 1 pre-existing local-only failure in tests/tgtg-email.test.ts (Windows autocrlf turns the .eml fixture into CRLF; passes with LF, file untouched here); webpack build OK, verify:foodhub 554/0. Not deployed.
+
 ## 2026-10-16 — ON2GO Hub pages, second review (task 45, `feature/seo-hub-landing`)
 
 - Status wording never ahead of the facts: "L’application sera bientôt offerte sur le Clover App Market" (no more "en
@@ -330,6 +429,7 @@ Branche `fix/overlay-keyboard-focus-20261016` : focus initial, Tab/Shift+Tab cir
 - Owner after merge: redeploy; optional env `FOODHUB_APP_MARKET_URL`, `FOODHUB_PUBLIC_SAME_AS`; Search Console
   URL-prefix property `https://foodhub.on2go.ca/` + sitemap; link the page from LinkedIn / YouTube / on2go.ca only once
   the legal Draft banner is gone (`FOODHUB_LEGAL_APPROVED=true` also adds the legal pages to the sitemap).
+
 ## 2026-10-17 — Legal pages name TAKATAK Phone (`fix/legal-takatak-phone`, stacked on #66)
 
 - The Clover App Market review of the second app, TAKATAK Phone, uses the same `/legal/privacy` and `/legal/terms` URLs. Privacy §1 (FR + EN) now also covers the Clover app « TAKATAK Phone » (automated phone assistant: answers calls, takes orders, texts a Clover payment link; its data = the calls, voicemail and direct orders of §2). Both pages' header and title name both apps.
@@ -357,6 +457,7 @@ Branche `fix/overlay-keyboard-focus-20261016` : focus initial, Tab/Shift+Tab cir
 - The 7 Uber UUIDs in `data/actual/platform-stores-uber.json` are at 5839 Jean-Talon E (Saint-Léonard) in Uber's own records (Uber names them "(Hochelaga)"); production maps them to `NDG_6284`. That mapping was typed by hand in the console, so it lives only in the production `fh_channel_stores` rows: no repo seed or code defaulted Uber stores to NDG.
 - Repo: data file records `SAINT_LEONARD` + Uber's name/address for the 7, plus the 9 live NDG UUIDs as an unmapped reference list (no Po Poulet). Stores → Mapping suggests the recorded kitchen (never a guess from the "(Hochelaga)" name) and warns about a known store mapped elsewhere, with a **Move** button. Production fix = owner steps / SQL in the pull request; production not changed.
 - Checks: typecheck OK, lint 0 errors, 816 tests (1 skipped), webpack build OK, verify 541/0.
+
 ## 2026-10-16 — Menu safety + per-brand menus (task 37, `feature/menu-safety-brand-menus`)
 
 - Clover → platforms: the Clover webhook now obeys `FOODHUB_CLOVER_INVENTORY_SYNC=off` (the polling already did). Locked and "Do not touch" stores are left out BEFORE the fan-out (no call, no Food Hub 86 state). A store follows the Clover merchant set on it under Stores → Mapping, or the default one (`CLOVER_MERCHANT_ID`) when none is set — as before, so nothing changes for today's stores. A location where the stores follow different merchants is not 86'd; one `clover_86_skipped` activity line per out-of-stock says why. An 86 Clover made earlier is always switched back on when Clover restocks, even where no store follows that merchant any more (`clover_86` origin keys).
@@ -367,6 +468,7 @@ Branche `fix/overlay-keyboard-focus-20261016` : focus initial, Tab/Shift+Tab cir
 - Review fixes: a follower with a dish list that stops sharing gets a copy of ITS dishes only (never the whole master menu; no copy at all when its list matches nothing); the "moved to another menu" timer copy keeps only its dishes' timers. A staff 86 reads the dish lists before saving any state. DoorDash Menu Request for a follower whose list matches nothing answers 409 with the reason and logs `menu_pull_refused`. Dish refs longer than 120 characters are refused by the API and dropped when read.
 - Checks: typecheck OK, lint 0 errors, 841 tests passed, 1 skipped (+30 in tests/menu-safety-brand-menus.test.ts), webpack build OK, verify:foodhub 554/0. Not deployed.
 - Owner after merge: nothing required for Clover 86s (stores without a merchant still follow `CLOVER_MERCHANT_ID`); set a merchant under Stores → Mapping only for a store that uses another Clover register. Menu → Shared menu: pick each brand's dishes, then publish those brands.
+
 ## 2026-10-16 — AI phone go-live (task 34, branch `feature/ai-phone-quebec-paylink`)
 
 - Finished the paused WIP (f1402bf) and verified it. Voices and words: Québec French by default (understands France French), North-American English, Latin-American Spanish (Mexican / Cuban words), professional and short. Audit fixes: the keypad menu takes over when the AI fails (never a loop, never "je n'ai pas compris"); the order number, time and payment are always said, even with end_call in the same answer; each kitchen's real hours go to both assistants and hours never set refuse the order (a person takes it); AI authentication / credit failures pause the AI (keypad mode, one team-chat alert); texted links are pages that answer; a voicemail is marked emailed only once sent; FOODHUB_PUBLIC_URL trimmed and Twilio URL errors caught.
@@ -376,11 +478,13 @@ Branche `fix/overlay-keyboard-focus-20261016` : focus initial, Tab/Shift+Tab cir
 - Review fixes (13 findings): a language word inside an order ("French fries", "Spanish rice", "frites à l'anglaise") never switches the language, and keys 2 / 3 switch it only on the greeting; in keypad mode a sentence starting with "no" is routed, only "non merci" / "that's all" alone ends the call; a delivery paid while the kitchen is closed (or for the wrong amount) gets no automatic courier and booking a courier keeps that flag; the courier tip is an untaxed line on Clover's page and the texted total is what Clover charges; merchants without GST / QST rates get no link, and a failed link lets the caller pay at the counter; only credit / billing / model 400s pause the AI, simulator and test calls never touch the breaker; the poller matches our whole mark and never releases a short payment; simulator owner-only with the fictional 555 caller; /p/ rate limit on the proxy's client IP, pruned, and a 10 s check cooldown; stored voices kept when well-formed.
 - Deploy notes (behaviour that changes with no new env var): AI phone orders are refused when a brand's hours were never set (check Settings → Hours for every phone brand before merging, the readiness panel flags it); tickExpansion runs tickIvr even with every expansion switch off; on2go.ca placeholders resolve to https://on2go.ca; the IVR menu and yes/no steps use googlev2_telephony_short; Po Poulet lines outside Saint-Léonard are stripped / disabled; the payment-link release is "exactly once" with ONE Food Hub process (one Coolify container) — add an atomic claim before scaling out.
 - Checks: typecheck OK, lint 0 errors, 849 tests (1 skipped), webpack build OK, verify:foodhub 541/0. Ready for owner review/merge.
+
 ## 2026-10-16 — Too Good To Go order e-mails (task 36)
 
 - Branch `feature/tgtg-email-orders`: TGTG reservation / cancellation e-mails → Food Hub order on the same pipeline (kitchen screen, Clover order type "Too Good To Go", ticket with customer, bags, pickup window and TGTG code, paid with the "Too Good To Go" tender at pickup). Cancel = order cancelled, Clover order flagged "CANCELLED" (never deleted). Idempotent by Message-ID + TGTG code; unreadable e-mails go to an attention list.
 - Sources: read-only IMAP poller (`imapflow`, `mailparser`) on the existing heartbeat, and a token-protected webhook for forwarding services. Feature off unless `TGTG_IMAP_*` or `TGTG_EMAIL_WEBHOOK_SECRET` is set. Owner steps: `docs/TGTG_EMAIL_ORDERS.md`.
 - Review fixes (same day): a code needs a digit and a marker ("Order confirmation" is never a code); only From counts and the mailbox server must show dkim=pass / dmarc=pass; the "Too Good To Go" order type is forced only for e-mail orders; unmapped stores are never sent to Clover (unmap stops routing); one bad e-mail is kept as "error" and never blocks the poller; price paid by priority; cancel flag honours FOODHUB_CLOVER_DELETE_CANCELLED=off and keeps the note; webhook ?token= is opt-in and the 5 MB cap is enforced while reading. Checks: typecheck, lint 0 errors, 846 tests, webpack build, e2e 554/0.
+
 ## 2026-10-16 — DoorDash sandbox-safe mode (task 38, `feature/doordash-sandbox-safe-mode`, PR #56)
 
 - DoorDash opened Marketplace for the org in SANDBOX only. New sandbox-safe mode lets the sandbox webhooks reach production
@@ -407,7 +511,6 @@ Branche `fix/overlay-keyboard-focus-20261016` : focus initial, Tab/Shift+Tab cir
 ## 2026-10-16 — Kitchen UI accessibility and reconciliation
 
 PR #52 (`fix/console-kitchen-a11y`): kitchen tokens on document root and first paint, reduced motion, 48px controls, PIN shake, bilingual loading/error, regression tests. Manually reconciled feature branch with `main` `444e8f2e` to retain merged Clover test-order PR #53 and all its unrelated code. GitHub CI/image pending on latest PR branch, no production rollout/connector toggles. Merge remains owner-only.
-
 
 ## 2026-10-15 — Owner-authorized automatic production activation
 
@@ -705,3 +808,4 @@ piece of work. The plan itself is `docs/MASTER_PLAN.md`. Operations (support, em
 - Redeploy from `main` with the environment variables.
 - Set up the uptime monitor on `/api/health`.
 - Ask DoorDash to configure the Order Cancellation webhook.
+

@@ -134,6 +134,14 @@ function mac(secret: string, ts: string, eventId: string, body: string): string 
   return crypto.createHmac('sha256', secret).update(`${ts}.${eventId}.${body}`).digest('hex');
 }
 
+/**
+ * The same HMAC-SHA256 over "<timestamp>.<event id>.<body>" for another signed integration that has its own key and
+ * headers (Takatak MEV / QCMEV: lib/foodhub/mev/client.ts). Hex digest.
+ */
+export function contractMac(secret: string, ts: string, eventId: string, body: string): string {
+  return mac(secret, ts, eventId, body);
+}
+
 /** Headers for a signed call to (or from) the control plane. */
 export function signContract(body: string, eventId: string, secret: string, now = Date.now()): Record<string, string> {
   const ts = String(Math.floor(now / 1000));

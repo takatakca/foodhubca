@@ -14,7 +14,7 @@
 // column for the same base, so a file that prints both is never counted twice.
 import crypto from 'node:crypto';
 import { platformFromLabel } from '../pos/platform-labels';
-import { detectFormat, parseAmount, parseDate, readTable, splitHeader } from '../recon/statements';
+import { detectFormat, parseAmount, parseDate, readTable, splitHeader, withoutDescriptionRow } from '../recon/statements';
 import { parseScanRows } from './scans';
 import { CLOVER_STRAY_RATE, GST_RATE, QST_RATE, r2, splitQuebecTax, type BankLine, type FinanceLine, type LineType, type Mode, type Platform, type SourceFormat } from './model';
 
@@ -395,10 +395,9 @@ const COMPONENT_KEYS = ['itemSales', 'promotions', 'salesTax', 'tips', 'commissi
 type Comp = Record<(typeof COMPONENT_KEYS)[number], number>;
 
 export function parseFinanceFile(fileName: string, bytes: Uint8Array, opts: { platform?: Platform | null; account?: string } = {}): ParsedFile {
-  const table = readTable(fileName, bytes);
   // Uber Eats Manager downloads print two header rows: long descriptions, then the column names. Use the names.
-  const named = table.findIndex((r, i) => i < 3 && r.some((c) => /^workflow id$/i.test(c.trim())) && r.some((c) => /^(total payout|order id)$/i.test(c.trim())));
-  const { headers, rows } = splitHeader(named > 0 ? table.slice(named) : table);
+  const table = withoutDescriptionRow(readTable(fileName, bytes));
+  const { headers, rows } = splitHeader(table);
   const det = detectFinanceFormat(headers, fileName);
   const platform = opts.platform ?? det.platform;
   const isClover = det.format === 'clover_payments' || det.format === 'clover_orders' || det.format === 'clover_deposits';
@@ -602,6 +601,11 @@ export function parseFinanceFile(fileName: string, bytes: Uint8Array, opts: { pl
     const inHoliday = !!orderDate && orderDate >= GST_HOLIDAY[0] && orderDate <= GST_HOLIDAY[1];
     const qstOnly = level === 'detail' && platform !== 'clover' && (type === 'order' || type === 'cancellation') && c.salesTax > 0 && r2(gst) === 0 && !inHoliday;
     const qstOnlySales = qstOnly ? r2(c.itemSales + c.promotions > 0 ? c.itemSales + c.promotions : c.itemSales) : 0;
+    // A paid sale with no sales tax at all (no GST, no QST, nothing withheld or remitted by the platform), in a file that
+    // prints the sales tax: the platform charged the customer no tax, yet GST + QST (QST only in the GST holiday) are owed.
+    const untaxed = level === 'detail' && platform !== 'clover' && type === 'order' && c.itemSales > 0 && net > 0 && tax.some((x) => x.target === 'salesTax')
+      && r2(c.salesTax) === 0 && !c.taxWithheld && !amt(row, map.infoTaxRemitted);
+    const untaxedSales = untaxed ? r2(c.itemSales + c.promotions > 0 ? c.itemSales + c.promotions : c.itemSales) : 0;
     const line: FinanceLine = {
       key: lineKey(keyParts, n), platform, level, type, status, mode, storeId, storeName,
       brand: '', location: '', kitchen: '', mappedBy: 'none',
@@ -610,6 +614,7 @@ export function parseFinanceFile(fileName: string, bytes: Uint8Array, opts: { pl
       ...c, gst: r2(gst), qst: r2(c.salesTax - r2(gst) - otherTax), otherTax, taxSplitEstimated, net, unexplained,
       infoTaxRemittedByPlatform: amt(row, map.infoTaxRemitted), infoPlatformFundedDiscounts: r2(amt(row, map.infoPlatformDiscounts) + infoDiscountsExtra),
       qstOnlySales, gstNotCharged: r2(qstOnlySales * GST_RATE),
+      untaxedSales, taxNotCharged: r2(untaxedSales * (inHoliday ? QST_RATE : GST_RATE + QST_RATE)),
       printedRate: Number.isFinite(rateNum) ? (Math.abs(rateNum) > 1 ? rateNum / 100 : rateNum) : null,
       description: [statusText, description].filter(Boolean).join(' — ').slice(0, 220), tender,
       inPnl: type !== 'payout' && type !== 'platform_in_clover', orderCount: 0, cancelledCount: 0, notes: [],

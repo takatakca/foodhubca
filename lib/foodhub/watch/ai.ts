@@ -118,6 +118,12 @@ export const PLAYBOOK: Record<IncidentKind, { fr: string; en: string; doFr: stri
     doFr: ['Envoyer le message conservé à votre développeur (Réglages → Canaux)'],
     doEn: ['Send the kept message to your developer (Settings → Channels)'],
   },
+  mev_pending: {
+    fr: 'Takatak MEV n’a pas encore enregistré cette vente : aucune facture n’existe pour elle. La facture doit être remise au client tout de suite après le paiement. Le délai de 48 heures ne vaut que pour une vente déjà enregistrée par Takatak MEV pendant une panne d’Internet, pas pour celle-ci. Un sac parti sans sa facture ne la recevra plus.',
+    en: 'Takatak MEV has not recorded this sale yet: no invoice exists for it. The invoice must be handed to the customer right after payment. The 48-hour delay only applies to a sale Takatak MEV already recorded during an Internet outage, not to this one. A bag that left without its invoice will never get it.',
+    doFr: ['Ouvrir la commande : la raison est écrite sous « Facture (MEV) »', 'Si Takatak MEV est arrêté, le redémarrer tout de suite : la vente part toute seule', 'Garder le sac tant que la facture n’est pas sortie, puis « Imprimer la facture » et la mettre dans le sac', 'Si une personne doit trancher : corriger puis « Renvoyer »'],
+    doEn: ['Open the order: the reason is under “Invoice (MEV)”', 'If Takatak MEV is down, restart it now: the sale goes out by itself', 'Keep the bag until the invoice is out, then “Print the invoice” and put it in the bag', 'If a person must decide: fix it, then “Send again”'],
+  },
   platform_silent: {
     fr: 'Aucune commande de cette plateforme depuis des heures alors que ses magasins sont ouverts : le branchement (webhook, clés, magasin désactivé) est peut-être cassé.',
     en: 'No order from this platform for hours while its stores are open: the connection (webhook, keys, deactivated store) may be broken.',

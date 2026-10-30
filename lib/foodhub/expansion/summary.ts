@@ -15,6 +15,7 @@ import { listProducts, lowStock } from '../retail/catalog';
 import { RETAIL_PLATFORMS } from '../retail/platforms';
 import { startOfLocalDayMs } from '../time';
 import { FEATURE_KEYS, FEATURE_LABELS, getFeatures, type FeatureKey } from './features';
+import { mevChecks } from '../mev/status';
 
 export interface FeatureCheck { ok: boolean; fr: string; en: string; href?: string }
 
@@ -26,6 +27,7 @@ export async function expansionSummary(scope?: string[]) {
     listCalls({ since, limit: 1000 }), getPhoneSettings(), getAlcoholSettings(), listProducts(),
   ]);
   const own = await getOwnFleet();
+  const mev = await mevChecks().catch(() => [] as FeatureCheck[]);
   const onShift = own.couriers.filter((c) => c.active && c.onShift).length;
   const myOrders = orders.filter((o) => inScope(o.locationCode));
   const orderIds = new Set(myOrders.map((o) => o.id));
@@ -64,6 +66,7 @@ export async function expansionSummary(scope?: string[]) {
       { ok: callConfigured(), fr: 'Twilio Voice (numéro et jeton)', en: 'Twilio Voice (number and token)', href: '/settings/expansion/phone' },
       { ok: phone.lines.some((l) => l.enabled), fr: `${phone.lines.filter((l) => l.enabled).length} ligne(s) active(s)`, en: `${phone.lines.filter((l) => l.enabled).length} line(s) on`, href: '/settings/expansion/phone' },
     ],
+    mev,
   };
 
   const courierCost = round2(todayDeliveries.filter((d) => d.status !== 'cancelled').reduce((s, d) => s + (d.fee ?? 0), 0));

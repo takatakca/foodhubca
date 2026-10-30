@@ -16,12 +16,13 @@ import { locationProvince } from '../taxes';
 import { nowIso, round2 } from '../config';
 import { featureOn } from '../expansion/features';
 import { normalizePhone, postToChat, sendSms } from '../notify';
+import { getRepo } from '../repo';
 import { addressProblems, formatAddress, serviceAreaProblem } from './address';
 import { doorDashDrive } from './doordash-drive';
 import { skipDaas } from './skip-daas';
 import { FLEET_LABELS, type CourierFleet, type DeliveryRequest, type FleetEvent } from './fleet';
 import {
-  addDirectEvent, deliveriesForOrder, findDelivery, getDelivery, getDeliverySettings, getDirectOrder, listDirectOrders, newId, ruleFor, saveDelivery,
+  addDirectEvent, deliveriesForOrder, findDelivery, getDelivery, getDeliverySettings, getDirectOrder, listDirectOrders, newId, ruleFor, saveDelivery, updateDelivery,
 } from './store';
 import { DELIVERY_RANK, TERMINAL, type Delivery, type DeliveryQuote, type DeliverySettings, type DirectOrder, type FleetKey } from './types';
 import { getOwnFleet, ownFleet } from './own-fleet';
@@ -35,6 +36,23 @@ const AUTO_RETRY_MS = 2 * 60_000;
 /** A booked courier clears the dispatch flags, never one it did not raise (a paid-by-link order's release flag). */
 function keptAttention(order: DirectOrder): string | undefined {
   return order.attention && order.paylink?.flag === order.attention ? order.attention : undefined;
+}
+
+const deliveryLocks = (): Map<string, Promise<unknown>> => {
+  const g = globalThis as unknown as { __fhDeliveryLocks?: Map<string, Promise<unknown>> };
+  g.__fhDeliveryLocks ??= new Map();
+  return g.__fhDeliveryLocks;
+};
+
+/**
+ * One change at a time per delivery in this process: courier events (webhooks, refresh, courier taps) and a cancel each
+ * read the delivery and its order, then write them back, so two at once would write an older copy over a newer one.
+ */
+async function withDeliveryLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
+  const prev = deliveryLocks().get(id) ?? Promise.resolve();
+  const run = prev.catch(() => undefined).then(fn);
+  deliveryLocks().set(id, run);
+  try { return await run; } finally { if (deliveryLocks().get(id) === run) deliveryLocks().delete(id); }
 }
 
 export function fleetReadiness() {
@@ -197,23 +215,36 @@ export async function cancelCourier(orderId: string, actor: Actor, reason: strin
     return { ok: false, message: res.message, order, delivery: d };
   }
   const at = nowIso();
-  const delivery = await saveDelivery({ ...d, status: 'cancelled', cancelReason: reason, timeline: [...d.timeline, { at, status: 'cancelled', message: `Cancelled by ${actor.name}${reason ? ` — ${reason}` : ''}` }] });
+  // From the delivery as stored now: a courier event that landed during the cancel call keeps its fields.
+  const delivery = await withDeliveryLock(d.id, () => updateDelivery(d, (cur) => ({ ...cur, status: 'cancelled', cancelReason: reason, timeline: [...cur.timeline, { at, status: 'cancelled', message: `Cancelled by ${actor.name}${reason ? ` — ${reason}` : ''}` }] })));
   order = await addDirectEvent(order, 'courier_cancelled', `Courier cancelled${reason ? ` — ${reason}` : ''}`, actor.name);
   await logActivity({ actor: actor.name, source: actor.source, kind: 'order', action: 'courier_cancel', status: 'success', brandName: order.brandName, locationCode: order.locationCode, summary: `${order.number}: courier cancelled on ${FLEET_LABELS[d.fleet]}${reason ? ` — ${reason}` : ''}` });
   return { ok: true, message: 'Courier cancelled.', order, delivery };
 }
 
-/** Text the tracking link once, when a courier is on it. */
+const TRACKING_SMS_CLAIM = (deliveryId: string) => `delivery_tracking_sms:${deliveryId}`;
+
+/**
+ * Text the tracking link once per delivery, when a courier is on it. The text is claimed first (one atomic insert), so
+ * events that arrive together, a fleet's retry or a second server never send it twice. A send that surely failed (Twilio
+ * said no, SMS not set up, connection refused) gives the claim back, so the next courier event tries again. A send whose
+ * answer was lost (timeout, dropped connection) keeps it: Twilio may have sent it, and a second text is worse than none.
+ */
 async function textTracking(order: DirectOrder, d: Delivery): Promise<Delivery> {
   const s = await getDeliverySettings();
   if (!s.smsTracking || d.trackingSmsAt || !d.trackingUrl || !normalizePhone(order.customer.phone)) return d;
+  const repo = getRepo();
+  const claim = TRACKING_SMS_CLAIM(d.id);
+  if (!(await repo.claimKv(claim, { at: nowIso(), orderId: order.id }))) return d; // already texted, or being texted
   const fr = (order.customer.lang ?? 'fr') === 'fr';
   const body = fr
     ? `${order.brandName} : votre commande ${order.number} est prise en charge par un livreur. Suivi : ${d.trackingUrl}${d.dropoffPin ? ` — Code à donner au livreur : ${d.dropoffPin}` : ''}${d.containsAlcohol ? ' — Alcool : pièce d’identité avec photo exigée.' : ''}`
     : `${order.brandName}: a courier has your order ${order.number}. Track it: ${d.trackingUrl}${d.dropoffPin ? ` — Code for the courier: ${d.dropoffPin}` : ''}${d.containsAlcohol ? ' — Alcohol: photo ID required.' : ''}`;
   const r = await sendSms({ to: order.customer.phone!, body }, { purpose: 'delivery_tracking', by: 'Food Hub' });
-  await addDirectEvent(order, r.ok ? 'sms_tracking' : 'sms_failed', r.ok ? 'Tracking link texted to the customer' : `Tracking link not texted: ${r.message}`);
-  return r.ok ? saveDelivery({ ...d, trackingSmsAt: nowIso() }) : d;
+  if (!r.ok && !r.uncertain) await repo.releaseKv(claim);
+  const failed = r.uncertain ? `Tracking link may not have been texted (${r.message}). Not sent again, so the customer never gets it twice.` : `Tracking link not texted: ${r.message}`;
+  await addDirectEvent(order, r.ok ? 'sms_tracking' : 'sms_failed', r.ok ? 'Tracking link texted to the customer' : failed);
+  return r.ok ? updateDelivery(d, (cur) => ({ ...cur, trackingSmsAt: nowIso() })) : d;
 }
 
 const STATUS_TEXT: Record<string, string> = {
@@ -221,10 +252,17 @@ const STATUS_TEXT: Record<string, string> = {
   delivered: 'Delivered', returning: 'Coming back to the kitchen', returned: 'Returned to the kitchen', cancelled: 'Cancelled by the courier service', failed: 'Failed',
 };
 
+type FleetEventResult = { applied: boolean; delivery?: Delivery; reason?: string };
+
 /** A fleet webhook: move the delivery forward (never backwards) and the order with it. */
-export async function applyFleetEvent(ev: FleetEvent): Promise<{ applied: boolean; delivery?: Delivery; reason?: string }> {
-  const found = (await findDelivery(ev.ref)) ?? (ev.fleetDeliveryId ? await findDelivery(ev.fleetDeliveryId) : null);
-  if (!found || found.fleet !== ev.fleet) return { applied: false, reason: 'Unknown delivery' };
+export async function applyFleetEvent(ev: FleetEvent): Promise<FleetEventResult> {
+  const located = (await findDelivery(ev.ref)) ?? (ev.fleetDeliveryId ? await findDelivery(ev.fleetDeliveryId) : null);
+  if (!located || located.fleet !== ev.fleet) return { applied: false, reason: 'Unknown delivery' };
+  // One event at a time per delivery, each applied to the delivery as stored when its turn comes.
+  return withDeliveryLock(located.id, async () => applyToDelivery((await getDelivery(located.id)) ?? located, ev));
+}
+
+async function applyToDelivery(found: Delivery, ev: FleetEvent): Promise<FleetEventResult> {
   let d: Delivery = {
     ...found,
     fee: ev.fee ?? found.fee, trackingUrl: ev.trackingUrl ?? found.trackingUrl, supportReference: ev.supportReference ?? found.supportReference, dropoffPin: ev.dropoffPin ?? found.dropoffPin,

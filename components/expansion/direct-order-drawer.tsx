@@ -9,6 +9,7 @@ import { Field, Input } from '@/components/ui/form';
 import { Drawer, Modal } from '@/components/ui/overlay';
 import { useToast } from '@/components/ui/toast';
 import { useViewer } from '@/components/shell/viewer';
+import { MevBadge, MevPanel } from '@/components/live/mev-panel';
 import type { Delivery, DirectOrder } from '@/lib/foodhub/delivery/types';
 import { api, ApiError, money, timeOf } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
@@ -57,7 +58,7 @@ export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onCl
 
   return (
     <Drawer width="lg" onClose={onClose}
-      title={o ? <span className="flex flex-wrap items-center gap-2"><span className="num">{o.number}</span><Badge tone={DIRECT_TONE[o.status] ?? 'neutral'}>{directStatusLabel(t, o.status)}</Badge></span> : t('Commande', 'Order')}
+      title={o ? <span className="flex flex-wrap items-center gap-2"><span className="num">{o.number}</span><Badge tone={DIRECT_TONE[o.status] ?? 'neutral'}>{directStatusLabel(t, o.status)}</Badge><MevBadge mev={o.mev} /></span> : t('Commande', 'Order')}
       subtitle={o ? `${o.brandName} · ${locName(o.locationCode)} · ${sourceLabel(t, o.source)} · ${timeOf(o.placedAt, loc, true)}` : undefined}
       footer={o && act_ && !closed && o.status === 'awaiting_payment' ? (
         <div className="flex w-full flex-wrap items-center gap-2">
@@ -86,6 +87,7 @@ export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onCl
             </Banner>
           )}
           {o.paylink?.paidAt && <p className="text-xs text-go-2">{t('Payée en ligne (Clover)', 'Paid online (Clover)')} · {timeOf(o.paylink.paidAt, loc)}{o.paylink.printedAt ? ` · ${t('billet imprimé', 'ticket printed')}` : ''}</p>}
+          {o.mev && o.mev.status !== 'skipped' && <MevPanel model="direct" id={o.id} mev={o.mev} onChange={load} />}
           {o.posError && !closed && <Banner tone="stop" action={act_ ? <Button size="xs" loading={busy === 'retry_clover'} icon={<Printer className="size-3.5" />} onClick={() => act('retry_clover')}>{t('Renvoyer à Clover', 'Send to Clover')}</Button> : undefined}>{t('Clover n’a pas reçu la commande : ', 'Clover did not receive the order: ')}{o.posError}</Banner>}
 
           <section className="grid gap-3 sm:grid-cols-2">

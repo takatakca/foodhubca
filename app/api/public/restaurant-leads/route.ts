@@ -5,8 +5,8 @@ import { clientIp } from '@/lib/foodhub/session';
 
 export const dynamic = 'force-dynamic';
 
-// POST /api/public/restaurant-leads: the "Join / get listed" form on ON2GO.ca. No sign-in (proxy.ts lets /api/public/
-// through); CORS for on2go.ca only; JSON in, { ok: true } with 202 out. Contract: docs/RESTAURANT_LEADS.md.
+// POST /api/public/restaurant-leads: the "Join / get listed" form on ON2GO.ca. No sign-in (this exact path is in proxy.ts
+// PUBLIC_PATHS); CORS for on2go.ca only; JSON in, { ok: true } with 202 out. Contract: docs/RESTAURANT_LEADS.md.
 //   202 ok            stored (or silently dropped by the honeypot: a bot learns nothing)
 //   400 ok:false      { errors: { field: 'required' | 'invalid' | 'too_long' } }
 //   413 / 415 / 429   body too large / not JSON / quota spent for this IP (Retry-After in seconds)

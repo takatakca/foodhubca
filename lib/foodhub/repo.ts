@@ -46,6 +46,8 @@ export interface FoodHubRepo {
    * For "do this once" steps that must hold across processes (Clover metered charges).
    */
   claimKv(key: string, value: unknown): Promise<boolean>;
+  /** Gives a claimKv key back (the step it guarded definitely failed), so a later run can claim it again. */
+  releaseKv(key: string): Promise<void>;
   addActivity(entry: ActivityEntry): Promise<void>;
   listActivity(filter?: ActivityFilter): Promise<ActivityEntry[]>;
   listUsers(): Promise<FoodHubUser[]>;
@@ -180,6 +182,7 @@ const memoryRepo: FoodHubRepo = {
     kv.set(key, JSON.parse(JSON.stringify(value)));
     return true;
   },
+  async releaseKv(key) { memState().kv.delete(key); },
   async addActivity(entry) { memState().activity.push({ ...entry, id: entry.id ?? crypto.randomUUID() }); },
   async listActivity(filter = {}) {
     let list = [...memState().activity];
@@ -471,6 +474,9 @@ function supabaseRepo(): FoodHubRepo {
       if (!res.error) return true;
       if ((res.error as { code?: string }).code === '23505') return false; // unique_violation: already claimed
       throw new Error(`Supabase: ${res.error.message}`);
+    },
+    async releaseKv(key) {
+      must(await db.from('fh_kv').delete().eq('key', key));
     },
     async addActivity(e) {
       must(await db.from('fh_activity').insert({

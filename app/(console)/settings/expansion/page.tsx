@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowRight, CircleCheck, CircleDashed, PhoneCall, ShoppingBasket, Truck, Wine } from 'lucide-react';
+import { ArrowRight, CircleCheck, CircleDashed, PhoneCall, ReceiptText, ShoppingBasket, Truck, Wine } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Banner, Skeleton } from '@/components/ui/card';
 import { Switch } from '@/components/ui/form';
@@ -16,8 +16,8 @@ import { cn } from '@/lib/ui/cn';
 import { ExpansionHead } from './expansion-ui';
 import { TechDetails } from '../tech-details';
 
-const ICON = { delivery: Truck, retail: ShoppingBasket, alcohol: Wine, phone: PhoneCall } as const;
-const OPEN: Record<string, string> = { delivery: '/direct', retail: '/menu/retail', alcohol: '/settings/expansion/alcohol', phone: '/direct/calls' };
+const ICON = { delivery: Truck, retail: ShoppingBasket, alcohol: Wine, phone: PhoneCall, mev: ReceiptText } as const;
+const OPEN: Record<string, string> = { delivery: '/direct', retail: '/menu/retail', alcohol: '/settings/expansion/alcohol', phone: '/direct/calls', mev: '/settings/expansion/mev' };
 
 export default function ExpansionPage() {
   const { t, lang } = useI18n();
@@ -42,10 +42,10 @@ export default function ExpansionPage() {
 
   return (
     <div>
-      <ExpansionHead title={t('Expansion', 'Expansion')} intro={t('Quatre nouveaux métiers, chacun derrière son interrupteur. Tout est désactivé au départ ; rien ne part vers une plateforme sans ses clés et son approbation, et l’IA n’approuve, ne rembourse et n’annule jamais rien.', 'Four new lines of business, each behind its own switch. Everything starts off; nothing reaches a platform without its keys and approval, and the AI never approves, refunds or cancels anything.')} />
+      <ExpansionHead title={t('Expansion', 'Expansion')} intro={t('Nouveaux métiers et factures Revenu Québec, chacun derrière son interrupteur. Tout est désactivé au départ ; rien ne part vers une plateforme sans ses clés et son approbation, et l’IA n’approuve, ne rembourse et n’annule jamais rien.', 'New lines of business and Revenu Québec invoices, each behind its own switch. Everything starts off; nothing reaches a platform without its keys and approval, and the AI never approves, refunds or cancels anything.')} />
       {!owner && <Banner tone="info" className="mb-4">{t('Seul le propriétaire peut activer ou désactiver ces fonctions.', 'Only the owner can turn these features on or off.')}</Banner>}
       <div className="grid gap-4 lg:grid-cols-2">
-        {!data && [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-64" />)}
+        {!data && [0, 1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-64" />)}
         {data?.features.map((f) => {
           const Icon = ICON[f.key];
           const done = f.checks.filter((c) => c.ok).length;

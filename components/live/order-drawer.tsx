@@ -14,6 +14,7 @@ import { useToast } from '@/components/ui/toast';
 import { useViewer } from '@/components/shell/viewer';
 import { refreshEverything } from '@/components/live/pulse';
 import { OrderTools } from '@/components/live/order-tools';
+import { MevBadge, MevPanel } from '@/components/live/mev-panel';
 import { orderNumber, plurals } from '@/components/live/words';
 import { api, ApiError, money, timeOf } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
@@ -103,7 +104,7 @@ export function OrderDrawer({ orderId, onClose }: { orderId: string; onClose: ()
   const p = order ? platformOf(order.channel) : null;
   return (
     <Drawer onClose={onClose} width="lg"
-      title={order ? <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1"><PlatformMark channel={order.channel} size="md" /><span className="whitespace-nowrap">#{orderNumber(order)}</span><Badge tone={STATUS_TONE[order.status]}>{statusLabel(t, order.status)}</Badge>{orderSourceLabel(order.orderSource) && <Badge tone="neutral">{orderSourceLabel(order.orderSource)}</Badge>}</span> : t('Commande', 'Order')}
+      title={order ? <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1"><PlatformMark channel={order.channel} size="md" /><span className="whitespace-nowrap">#{orderNumber(order)}</span><Badge tone={STATUS_TONE[order.status]}>{statusLabel(t, order.status)}</Badge>{orderSourceLabel(order.orderSource) && <Badge tone="neutral">{orderSourceLabel(order.orderSource)}</Badge>}<MevBadge mev={order.timeline?.mev} /></span> : t('Commande', 'Order')}
       subtitle={order ? `${p?.label} · ${order.brandName ?? t('Marque ?', 'Brand ?')}` : undefined}
       headerRight={order ? <Link href={`/orders/${order.id}`} className="-my-1.5 flex size-11 shrink-0 items-center justify-center rounded-md text-ink-3 hover:bg-sunken hover:text-ink" aria-label={t('Ouvrir en plein écran', 'Open full page')} title={t('Ouvrir en plein écran', 'Open full page')}><ExternalLink className="size-5" aria-hidden /></Link> : null}>
       {error && <div className="p-5"><Banner tone="stop">{error}</Banner></div>}
@@ -237,6 +238,7 @@ export function OrderDetail({ order, events, onChange, compact }: { order: FullO
           <dt className="font-bold text-ink">{t('Total client', 'Customer total')}</dt><dd className="num text-right font-extrabold text-ink">{money(order.total, loc)}</dd>
         </dl>
       </div>
+      {tl.mev && tl.mev.status !== 'skipped' && <MevPanel model="stored" id={order.id} mev={tl.mev} onChange={() => onChange(null)} />}
       <OrderTools order={order} events={events} />
 
       {/* details */}

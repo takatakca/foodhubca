@@ -114,13 +114,17 @@ export function LinkTabs({ tabs, className, label, selectBelow = 5 }: { tabs: Ar
   );
 }
 
-/** A filter with two to five options (view, period, status): a pill group, never a third level of navigation. */
+/**
+ * A filter with two to six options (view, period, status): a pill group, never a third level of navigation.
+ * On a narrow phone the pills wrap onto a second row: they never shrink (touch-target's 44 px min-width would let
+ * them squeeze until the labels print over each other) and never push the page into a sideways scroll.
+ */
 export function Segmented<K extends string>({ options, value, onChange, className, size = 'md', label }: { options: Array<{ key: K; label: ReactNode }>; value: K; onChange: (k: K) => void; className?: string; size?: 'sm' | 'md'; label?: string }) {
   return (
-    <div className={cn('inline-flex max-w-full rounded-md bg-sunken p-0.5', className)} role="group" aria-label={label}>
+    <div className={cn('inline-flex max-w-full flex-wrap rounded-md bg-sunken p-0.5', className)} role="group" aria-label={label}>
       {options.map((o) => (
         <button key={o.key} type="button" aria-pressed={value === o.key} onClick={() => onChange(o.key)}
-          className={cn('text-small touch-target rounded-[9px] font-semibold whitespace-nowrap transition-colors duration-(--duration-fast)', size === 'sm' ? 'h-8 px-2.5' : 'h-9 px-3', value === o.key ? 'bg-surface text-ink shadow-card' : 'text-ink-3 hover:text-ink')}>
+          className={cn('text-small touch-target shrink-0 rounded-[9px] font-semibold whitespace-nowrap transition-colors duration-(--duration-fast)', size === 'sm' ? 'h-8 px-2.5' : 'h-9 px-3', value === o.key ? 'bg-surface text-ink shadow-card' : 'text-ink-3 hover:text-ink')}>
           {o.label}
         </button>
       ))}

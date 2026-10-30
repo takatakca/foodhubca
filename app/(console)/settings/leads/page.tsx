@@ -10,6 +10,7 @@ import { Segmented } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/toast';
 import { useViewer } from '@/components/shell/viewer';
 import { SettingsHead } from '../settings-ui';
+import { TechDetails } from '../tech-details';
 import { ago, api, timeOf } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
@@ -66,7 +67,7 @@ export default function LeadsPage() {
     <div>
       <SettingsHead title={t('Demandes de restaurants', 'Restaurant leads')} intro={t('Les restaurants qui remplissent le formulaire « Rejoindre ON2GO » sur on2go.ca arrivent ici, la plus récente en premier. Changez le statut au fil des appels et gardez vos notes : rien de tout cela n’est visible du restaurant.', 'Restaurants that fill the “Join ON2GO” form on on2go.ca land here, newest first. Move the status as you call them and keep your notes: none of this is visible to the restaurant.')} />
       {err && <Banner tone="stop" className="mb-4">{err}</Banner>}
-      {loaded && !supportEmail && <Banner tone="warn" className="mb-4">{t('FOODHUB_SUPPORT_EMAIL n’est pas défini : aucune alerte par courriel à l’arrivée d’une demande (la liste ici reste complète).', 'FOODHUB_SUPPORT_EMAIL is not set: no email alert when a lead arrives (this list is still complete).')}</Banner>}
+      {loaded && !supportEmail && <Banner tone="warn" className="mb-4">{t('Aucune adresse courriel de soutien n’est réglée : pas d’alerte par courriel à l’arrivée d’une demande (la liste ici reste complète).', 'No support email address is set: no email alert when a lead arrives (this list is still complete).')}<TechDetails>FOODHUB_SUPPORT_EMAIL</TechDetails></Banner>}
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <div className="relative">
@@ -96,7 +97,7 @@ export default function LeadsPage() {
                       <Badge tone={STATUS_TONE[l.status]}>{statusLabel(l.status)}</Badge>
                       <Badge>{l.lang.toUpperCase()}</Badge>
                     </div>
-                    <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-ink-3">
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-small text-ink-3">
                       <span>{l.contact}</span>
                       <a className="inline-flex min-h-6 items-center gap-1 underline-offset-2 hover:underline" href={`mailto:${l.email}`}><Mail className="size-3" />{l.email}</a>
                       <a className="inline-flex min-h-6 items-center gap-1 underline-offset-2 hover:underline" href={`tel:${l.phone}`}><Phone className="size-3" />{l.phone}</a>
@@ -108,7 +109,7 @@ export default function LeadsPage() {
                     {l.platforms.map((p) => <Badge key={p} tone="neutral">{platformLabel(p)}</Badge>)}
                     {l.brands ? <Badge tone="violet">{l.brands} {t(l.brands > 1 ? 'marques' : 'marque', l.brands > 1 ? 'brands' : 'brand')}</Badge> : null}
                   </div>
-                  <div className="w-36 text-xs text-ink-3" title={timeOf(l.at, lang === 'fr' ? 'fr-CA' : 'en-CA', true)}>{t('Reçue', 'Received')} {ago(l.at, lang)}</div>
+                  <div className="w-36 text-small text-ink-3" title={timeOf(l.at, lang === 'fr' ? 'fr-CA' : 'en-CA', true)}>{t('Reçue', 'Received')} {ago(l.at, lang)}</div>
                   <Select selectSize="sm" aria-label={t('Statut', 'Status')} value={l.status} onChange={(e) => patch(l.id, { status: e.target.value as Status })}>
                     {(['new', 'contacted', 'won', 'lost'] as Status[]).map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
                   </Select>
@@ -133,17 +134,17 @@ function LeadDetails({ lead, onSave }: { lead: Lead; onSave: (notes: string) => 
   const dirty = notes !== lead.notes;
   return (
     <div className="mt-3 grid gap-4 rounded-md bg-sunken p-4 md:grid-cols-2">
-      <div className="text-sm">
-        <h3 className="mb-1 text-[13px] font-semibold text-ink-2">{t('Message du restaurant', 'Message from the restaurant')}</h3>
+      <div className="text-body">
+        <h3 className="mb-1 text-small font-semibold text-ink-2">{t('Message du restaurant', 'Message from the restaurant')}</h3>
         <p className="whitespace-pre-wrap text-ink">{lead.message || <span className="text-ink-3">{t('Aucun message.', 'No message.')}</span>}</p>
-        <p className="mt-3 text-xs text-ink-3">
+        <p className="mt-3 text-small text-ink-3">
           {t('Reçue le', 'Received on')} {timeOf(lead.at, lang === 'fr' ? 'fr-CA' : 'en-CA', true)} · {t('source', 'source')} {lead.source}
           {lead.updatedBy && <> · {t('modifiée par', 'updated by')} {lead.updatedBy} {ago(lead.updatedAt, lang)}</>}
         </p>
       </div>
       <div>
         <label className="flex flex-col gap-1.5">
-          <span className="text-[13px] font-semibold text-ink-2">{t('Notes internes', 'Internal notes')}</span>
+          <span className="text-small font-semibold text-ink-2">{t('Notes internes', 'Internal notes')}</span>
           <Textarea rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={t('Appel du 21 oct. : intéressé par Uber Eats et la commande directe…', 'Call on Oct 21: interested in Uber Eats and direct ordering…')} />
         </label>
         <div className="mt-2 flex justify-end gap-2">

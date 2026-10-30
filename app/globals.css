@@ -237,12 +237,23 @@
 .t-bag-name { font-size: 34px; font-weight: 800; line-height: 1.1; word-break: break-word; }
 .t-bag-code { font-size: 26px; font-weight: 800; letter-spacing: 1px; }
 .t-bag-when { font-size: 18px; font-weight: 700; }
+/* Takatak MEV invoice: QCMEV's 42 columns, never wrapped. The ticket's content box is 64 mm (72 mm − 2 × 4 mm), so one
+   column may take 64 / 42 = 1.52 mm: at 2.4 mm a 0.6-em monospace (Courier New) needs 60.5 mm, Consolas 55.5 mm
+   (measured in Chrome: 42 columns in 240 of the 240 px, no line wrapped). components/live/mev-ticket.tsx shrinks the
+   font further if a printer's font is wider. */
+.t-mev-box { width: 100%; overflow: hidden; font-size: 2.4mm; }
+.t-mev { font-family: 'Courier New', Consolas, 'Liberation Mono', monospace; font-size: 1em; line-height: 1.25; white-space: pre; margin: 0; overflow: hidden; }
+.t-mev-qr { display: block; width: 36mm; height: 36mm; margin: 1mm auto; image-rendering: pixelated; }
+.t-mev-preview-print { display: none; }
 @media print {
   .t-bag { break-before: page; page-break-before: always; }
   @page { size: 80mm auto; margin: 0; }
   body { background: white !important; }
   .no-print { display: none !important; }
   .ticket { border: 0; width: 72mm; }
+  /* A preview (?autoprint=0) never prints the invoice. */
+  .t-mev-preview { display: none !important; }
+  .t-mev-preview-print { display: block; }
 }
 
 /* ------------------------------------------------------------------------------------------------

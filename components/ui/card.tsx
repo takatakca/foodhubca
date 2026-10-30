@@ -101,7 +101,10 @@ export function EmptyState({ icon, title, body, action, secondary, className, co
   );
 }
 
-/** Loading shapes (premium rule 9): the same silhouette as the content that is coming, so nothing jumps. */
+/**
+ * Loading shapes (premium rule 9): the same silhouette as the content that is coming, so nothing jumps. Each block
+ * below says « Chargement… » once to a screen reader (`label`, localized by the page) and hides its shapes.
+ */
 export function Skeleton({ className }: { className?: string }) {
   return <div className={cn('motion-safe:animate-pulse rounded-md bg-sunken', className)} aria-hidden />;
 }
@@ -115,9 +118,10 @@ export function SkeletonText({ lines = 3, className }: { lines?: number; classNa
 }
 
 /** A grid of stat cards, same size as `Stat`. */
-export function SkeletonStats({ count = 4, className }: { count?: number; className?: string }) {
+export function SkeletonStats({ count = 4, className, label }: { count?: number; className?: string; label?: string }) {
   return (
-    <div className={cn('grid grid-cols-2 gap-4 lg:grid-cols-4', className)} role="status" aria-label="Chargement… / Loading…">
+    <div className={cn('grid grid-cols-2 gap-4 lg:grid-cols-4', className)} role="status" aria-busy="true">
+      <SkeletonLabel label={label} />
       {Array.from({ length: count }, (_, i) => (
         <div key={i} className="rounded-md border border-line bg-surface p-5 shadow-card" aria-hidden>
           <Skeleton className="h-3.5 w-24" />
@@ -129,9 +133,10 @@ export function SkeletonStats({ count = 4, className }: { count?: number; classN
 }
 
 /** A table being loaded: a header line and `rows` 44 px rows. */
-export function SkeletonTable({ rows = 5, cols = 4, className }: { rows?: number; cols?: number; className?: string }) {
+export function SkeletonTable({ rows = 5, cols = 4, className, label }: { rows?: number; cols?: number; className?: string; label?: string }) {
   return (
-    <div className={cn('overflow-hidden rounded-md border border-line bg-surface shadow-card', className)} role="status" aria-label="Chargement… / Loading…">
+    <div className={cn('overflow-hidden rounded-md border border-line bg-surface shadow-card', className)} role="status" aria-busy="true">
+      <SkeletonLabel label={label} />
       <div className="flex h-11 items-center gap-6 border-b border-line bg-raised px-4" aria-hidden>
         {Array.from({ length: cols }, (_, i) => <Skeleton key={i} className="h-3 flex-1 bg-line" />)}
       </div>
@@ -144,11 +149,13 @@ export function SkeletonTable({ rows = 5, cols = 4, className }: { rows?: number
   );
 }
 
-/** A list of cards being loaded (orders, stores, brands). */
-export function SkeletonList({ count = 3, className }: { count?: number; className?: string }) {
+/** A list of cards being loaded (orders, stores, brands, team). `count` is kept between 1 and 12. */
+export function SkeletonList({ count = 3, className, label }: { count?: number; className?: string; label?: string }) {
+  const n = Number.isFinite(count) ? Math.max(1, Math.min(12, Math.trunc(count))) : 3;
   return (
-    <div className={cn('space-y-3', className)} role="status" aria-label="Chargement… / Loading…">
-      {Array.from({ length: count }, (_, i) => (
+    <div className={cn('space-y-3', className)} role="status" aria-busy="true">
+      <SkeletonLabel label={label} />
+      {Array.from({ length: n }, (_, i) => (
         <div key={i} className="flex items-center gap-4 rounded-md border border-line bg-surface p-5 shadow-card" aria-hidden>
           <Skeleton className="size-10 shrink-0 rounded-full" />
           <div className="flex-1 space-y-2"><Skeleton className="h-3.5 w-1/3" /><Skeleton className="h-3 w-1/2" /></div>
@@ -157,6 +164,11 @@ export function SkeletonList({ count = 3, className }: { count?: number; classNa
       ))}
     </div>
   );
+}
+
+/** The one thing a screen reader hears from a skeleton block (`TableSkeleton` in table.tsx uses the same words). */
+function SkeletonLabel({ label }: { label?: string }) {
+  return <span className="sr-only">{label ?? 'Chargement… / Loading…'}</span>;
 }
 
 const BANNER = {

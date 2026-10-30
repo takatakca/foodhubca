@@ -19,6 +19,8 @@ import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
+import { createMockQcmev } from './e2e/mock-qcmev.mjs';
+import { runMevScenarios } from './e2e/mev-scenarios.mjs';
 
 // Ports can be moved (FOODHUB_E2E_MOCK_PORT / FOODHUB_E2E_APP_PORT) so two checkouts can verify at the same time.
 const MOCK_PORT = Number(process.env.FOODHUB_E2E_MOCK_PORT) || 4799;
@@ -38,6 +40,9 @@ const CLOVER_APP_TOKEN = 'clover-app-token-e2e';
 const RELAY_SECRET = 'relay-secret-e2e-0123456789abcdef';
 const RELAY_CB_TOKEN = 'relay-callback-token-e2e';
 const DEMO = process.argv.includes('--demo');
+// Takatak MEV (QCMEV) stand-in, mounted under /qcmev on the mock server (scripts/e2e/mock-qcmev.mjs). Throwaway key.
+const MEV_SECRET = crypto.randomBytes(32).toString('hex');
+const mevMock = createMockQcmev({ secret: MEV_SECRET, tenant: 'takatak', locations: ['E2E_MEV'] });
 
 const log = [];
 let cloverSeq = 0;
@@ -119,6 +124,13 @@ const mock = http.createServer(async (req, res) => {
   const send = (status, json) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(json === undefined ? '' : JSON.stringify(json)); };
   const p = url.pathname;
 
+  // ---- Takatak MEV (QCMEV) integration API stand-in ----
+  if (p.startsWith('/qcmev/')) {
+    const hdr = {};
+    for (const [k, v] of Object.entries(req.headers)) hdr[k.toLowerCase()] = Array.isArray(v) ? v[0] : String(v);
+    const r = mevMock.handle(req.method, p.slice('/qcmev'.length), hdr, raw);
+    return send(r.status, r.json);
+  }
   // ---- Uber Reporting API download link (signed S3-style URL in real life) ----
   if (p === '/reports/uber-payment.csv') { res.writeHead(200, { 'content-type': 'text/csv' }); return res.end(uberReportCsv); }
   // ---- Uber Eats ----
@@ -152,7 +164,7 @@ const mock = http.createServer(async (req, res) => {
     const order = p.match(/^\/uber\/v2\/eats\/order\/(.+)$/);
     // "uber-flaky-…" orders: Uber refuses the fetch while uberFetchFails > 0 (webhook inbox retry checks).
     if (order && order[1].startsWith('uber-flaky') && uberFetchFails > 0) { uberFetchFails -= 1; return send(503, { message: 'temporarily unavailable' }); }
-    if (order) return send(200, UBER_ORDER(order[1], order[1].includes('stl') ? 'uber-store-stl' : 'uber-store-uuid-1', order[1].includes('sched') ? 60.4 : 15));
+    if (order) return send(200, UBER_ORDER(order[1], order[1].includes('stl') ? 'uber-store-stl' : order[1].includes('mev') ? 'uber-store-mev' : 'uber-store-uuid-1', order[1].includes('sched') ? 60.4 : 15));
     if (p === '/uber/v1/eats/report' && req.method === 'POST') return send(200, { workflow_id: 'wf-report-1' });
     if (p === '/uber/v1/eats/stores') return send(200, { stores: [{ store_id: 'uber-store-uuid-1', name: 'Po Poulet NDG' }] });
     const st = p.match(/^\/uber\/v1\/eats\/store\/([^/]+)\/status$/);
@@ -400,8 +412,11 @@ const env = {
   DOORDASH_DRIVE_ENV: 'sandbox', DOORDASH_DRIVE_WEBHOOK_SECRET: 'drive-hook-e2e', FOODHUB_WEBSITE_ORDER_SECRET: 'web-order-e2e',
   // Website orders taken by Clover Online Ordering go to this kitchen, under this brand (several kitchens share the merchant).
   FOODHUB_CLOVER_WEBSITE_LOCATION: JSON.stringify({ MAINMERCHANT: 'NDG_6284' }), FOODHUB_CLOVER_WEBSITE_BRAND: 'PPP Pizzeria',
+  // Takatak MEV: configured for the whole run, but the owner switch stays OFF until section 48 (zero calls before it).
+  FOODHUB_MEV: 'simulator', FOODHUB_MEV_URL: `${MOCK}/qcmev`, FOODHUB_MEV_SECRET: MEV_SECRET, FOODHUB_MEV_LOCATIONS: 'E2E_MEV',
+  FOODHUB_MEV_RETRY_S: '1,2', FOODHUB_MEV_OFFLINE_POLL_S: '1',
 };
-for (const k of ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'UBER_ACCESS_TOKEN', 'TGTG_SPEC_CONFIRMED', 'SESSION_SECRET', 'FOODHUB_CLOVER_AUTOPRINT', 'CLOVER_PRINT_DEVICE_ID', 'FOODHUB_SYNC_MIN_INTERVAL_S', 'FOODHUB_CLOVER_RECORD_PAYMENT', 'FOODHUB_CLOVER_ORDER_TYPES', 'FOODHUB_CLOVER_INVENTORY_SYNC', 'FOODHUB_CLOVER_DELETE_CANCELLED', 'FOODHUB_SCHEDULED_AFTER_MIN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'FOODHUB_INSECURE_SHOW_CODES', 'TWILIO_MESSAGING_SERVICE_SID', 'FOODHUB_OWNER_EMAIL', 'FOODHUB_OWNER_PHONE', 'FOODHUB_FEATURE_DELIVERY', 'FOODHUB_FEATURE_RETAIL', 'FOODHUB_FEATURE_ALCOHOL', 'FOODHUB_FEATURE_PHONE', 'UBER_DIRECT_CUSTOMER_ID', 'UBER_DIRECT_CLIENT_ID', 'UBER_DIRECT_CLIENT_SECRET', 'FOODHUB_CLOVER_WEBSITE_ORDERS', 'FOODHUB_CLOVER_WEBSITE_ORDER_TYPES', 'FOODHUB_CLOVER_WEBSITE_POLL_S', 'FOODHUB_CLOVER_WEBSITE_CLOSE_MIN', 'FOODHUB_PUBLIC_HOME', 'FOODHUB_APP_MARKET_URL', 'FOODHUB_APP_MARKET_STATUS', 'FOODHUB_PUBLIC_LIVE_PLATFORMS', 'FOODHUB_PUBLIC_SAME_AS', 'NEXT_PUBLIC_CLOVER_APPS_LIVE']) delete env[k];
+for (const k of ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'UBER_ACCESS_TOKEN', 'TGTG_SPEC_CONFIRMED', 'SESSION_SECRET', 'FOODHUB_CLOVER_AUTOPRINT', 'CLOVER_PRINT_DEVICE_ID', 'FOODHUB_SYNC_MIN_INTERVAL_S', 'FOODHUB_CLOVER_RECORD_PAYMENT', 'FOODHUB_CLOVER_ORDER_TYPES', 'FOODHUB_CLOVER_INVENTORY_SYNC', 'FOODHUB_CLOVER_DELETE_CANCELLED', 'FOODHUB_SCHEDULED_AFTER_MIN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'FOODHUB_INSECURE_SHOW_CODES', 'TWILIO_MESSAGING_SERVICE_SID', 'FOODHUB_OWNER_EMAIL', 'FOODHUB_OWNER_PHONE', 'FOODHUB_FEATURE_DELIVERY', 'FOODHUB_FEATURE_RETAIL', 'FOODHUB_FEATURE_ALCOHOL', 'FOODHUB_FEATURE_PHONE', 'UBER_DIRECT_CUSTOMER_ID', 'UBER_DIRECT_CLIENT_ID', 'UBER_DIRECT_CLIENT_SECRET', 'FOODHUB_CLOVER_WEBSITE_ORDERS', 'FOODHUB_CLOVER_WEBSITE_ORDER_TYPES', 'FOODHUB_CLOVER_WEBSITE_POLL_S', 'FOODHUB_CLOVER_WEBSITE_CLOSE_MIN', 'FOODHUB_PUBLIC_HOME', 'FOODHUB_APP_MARKET_URL', 'FOODHUB_APP_MARKET_STATUS', 'FOODHUB_PUBLIC_LIVE_PLATFORMS', 'FOODHUB_PUBLIC_SAME_AS', 'NEXT_PUBLIC_CLOVER_APPS_LIVE', 'FOODHUB_FEATURE_MEV', 'FOODHUB_MEV_TRIGGER', 'FOODHUB_MEV_CLOVER_NOTE', 'FOODHUB_MEV_SEND_RECEIPT', 'FOODHUB_MEV_USER', 'FOODHUB_MEV_TIMEOUT_MS', 'FOODHUB_TENANT_ID']) delete env[k];
 const app = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '-p', String(APP_PORT), '-H', '127.0.0.1'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
 let appLog = '';
 app.stdout.on('data', (d) => { appLog += d; });
@@ -1610,7 +1625,7 @@ try {
 
   console.log('\n43. Expansion: own-order delivery (DoorDash Drive), website orders, AI phone line, grocery, alcohol');
   const exp0 = (await call('GET', '/api/foodhub/expansion')).json;
-  check('every expansion feature starts OFF', exp0?.features?.length === 4 && exp0.features.every((f) => f.on === false), JSON.stringify(exp0?.features?.map((f) => [f.key, f.on])));
+  check('every expansion feature starts OFF (MEV invoices included)', exp0?.features?.length === 5 && exp0.features.every((f) => f.on === false), JSON.stringify(exp0?.features?.map((f) => [f.key, f.on])));
   // Own orders sit under Orders in the grouped side menu.
   check('Own orders hidden from the side menu while off', !(await call('GET', '/orders')).text.includes('href="/direct"'));
   check('website orders refused while own delivery is off', (await call('POST', '/api/foodhub/webhooks/website-order', { auth: false, headers: { authorization: 'Bearer web-order-e2e' }, body: { id: 'W-0' } })).status === 503);
@@ -1875,6 +1890,8 @@ try {
     check('anti-clickjacking: console pages and sign-in can only be framed by Food Hub and Clover', /frame-ancestors 'self' https:\/\/\*\.clover\.com/.test(await csp('/stores/screens')) && /frame-ancestors/.test(await csp('/login')), await csp('/stores/screens'));
     check('the storefront keeps its own framing rules (embeddable on brand sites)', !/frame-ancestors 'self' https:\/\/\*\.clover/.test(await csp('/commander/')));
   }
+
+  await runMevScenarios({ call, check, waitFor, sleep, findOrder, uberWebhook, skipWebhook, skipOrder, mevMock, secret: MEV_SECRET, localDay, appLog: () => appLog });
 
   await sleep(300);
   // A webhook "kept in the inbox" (section 41: Uber refusing the order fetch on purpose) is handled, not a crash.

@@ -222,6 +222,10 @@ describe('CORS and the route', () => {
     expect((await proxy(new NextRequest('http://hub.local/api/public/directory'))).headers.get('x-middleware-next')).toBe('1');
     expect((await proxy(new NextRequest('http://hub.local/api/public/internal'))).status).toBe(401);
     expect((await proxy(new NextRequest('http://hub.local/api/public/directory-private'))).status).toBe(401);
+    // The on2go.ca « Join » form (PR #87) is the other reviewed public route: exact path only.
+    expect((await proxy(new NextRequest('http://hub.local/api/public/restaurant-leads', { method: 'POST' }))).headers.get('x-middleware-next')).toBe('1');
+    expect((await proxy(new NextRequest('http://hub.local/api/public/restaurant-leads', { method: 'OPTIONS' }))).headers.get('x-middleware-next')).toBe('1');
+    expect((await proxy(new NextRequest('http://hub.local/api/public/restaurant-leads/export'))).status).toBe(401);
     const { GET, OPTIONS } = await import('../app/api/public/directory/route');
     const res = await GET(new Request('http://hub.local/api/public/directory', { headers: { origin: 'https://on2go.ca' } }));
     expect(res.status).toBe(200);

@@ -5,10 +5,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { CloudDownload, FileSpreadsheet, Trash2, UploadCloud } from 'lucide-react';
 import { Badge, PlatformTag } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Banner, Card, CardHeader, EmptyState, Skeleton } from '@/components/ui/card';
+import { Banner, Card, CardHeader, EmptyState } from '@/components/ui/card';
 import { Field, Input, Select } from '@/components/ui/form';
 import { Modal } from '@/components/ui/overlay';
-import { Table, Td, Th, Tr } from '@/components/ui/table';
+import { Table, TableSkeleton, Td, Th, Tr } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { useViewer } from '@/components/shell/viewer';
 import { CH_NAME, MoneyHead, cad } from '../money-ui';
@@ -171,9 +171,9 @@ export default function StatementsPage() {
                 <Td align="right">{edit && <Button size="xs" variant="ghost" onClick={() => setRemoving(i)} icon={<Trash2 className="size-3.5" />}>{t('Retirer', 'Remove')}</Button>}</Td>
               </Tr>
             ))}
-            {imports.length === 0 && <tr><td colSpan={9}>{loaded
-              ? <EmptyState compact title={t('Aucun relevé importé', 'No statement imported')} body={t('Déposez le fichier d’une plateforme dans la zone ci-dessus.', 'Drop a platform file in the area above.')} />
-              : <div className="space-y-2 p-4" aria-busy>{[0, 1, 2].map((i) => <Skeleton key={i} className="h-8" />)}</div>}</td></tr>}
+            {imports.length === 0 && (!loaded ? <TableSkeleton columns={9} label={t('Chargement…', 'Loading…')} /> : <tr><td colSpan={9}>
+              <EmptyState compact title={t('Aucun relevé importé', 'No statement imported')} body={t('Déposez le fichier d’une plateforme dans la zone ci-dessus.', 'Drop a platform file in the area above.')} />
+            </td></tr>)}
           </tbody>
         </Table>
       </Card>

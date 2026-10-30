@@ -6,6 +6,7 @@
 // store grid, payouts or commission checks.
 // A "delivery" is one courier trip for a direct order, booked on an on-demand fleet (DoorDash Drive first, Uber Direct as
 // a comparison quote / fallback). Money is kept in cents on the fleet side and in dollars here, like the rest of Food Hub.
+import type { MevRecord } from '../mev/types';
 import type { OrderLine } from '../types';
 
 /**
@@ -139,6 +140,8 @@ export interface DirectOrder {
   autoDispatch?: { attempts: number; lastAt?: string; stoppedReason?: string };
   /** Paid by a payment link texted to the customer (phone orders): the order is held until paid. */
   paylink?: PayLink;
+  /** Revenu Québec invoice issued by Takatak MEV (QCMEV): the current receipt as QCMEV rendered it (mev/outbox.ts). */
+  mev?: MevRecord;
   events: DirectEvent[];
   createdAt: string;
   updatedAt: string;

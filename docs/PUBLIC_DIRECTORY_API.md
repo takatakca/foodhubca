@@ -12,7 +12,7 @@
 
 ## Availability and isolation
 
-- Only the exact path `/api/public/directory` is exempt from the session gate. Unknown routes under `/api/public/` remain private by default; `/api/foodhub/orders` and all merchant controls remain protected.
+- Only exact, reviewed paths are exempt from the session gate: `/api/public/directory` (this feed) and `/api/public/restaurant-leads` (the on2go.ca form, `docs/RESTAURANT_LEADS.md`). Unknown routes under `/api/public/` remain private by default; `/api/foodhub/orders` and all merchant controls remain protected.
 - Each optional database read (hours, menus, recent orders) has a 2.5-second maximum wait. If a read fails or stalls, the endpoint returns the checked-in seed for that portion rather than waiting indefinitely. The `source` field shows `seed` unless live hours/menu data was obtained.
 - This resilience change does not repair incorrect DNS, a stopped Coolify application, an invalid Supabase key, or enable platform order connectors. Check `/api/release` and `/api/health` separately after deployment.
 

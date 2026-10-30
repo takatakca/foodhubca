@@ -84,6 +84,10 @@ export interface FinanceLine {
   qstOnlySales: number;
   /** GST owed on those sales anyway (5 % of the pre-tax price): not collected, so it comes out of the proceeds. */
   gstNotCharged: number;
+  /** Pre-tax sales on which the platform charged no sales tax at all (no GST, no QST, nothing withheld or remitted for you). */
+  untaxedSales: number;
+  /** GST + QST owed on those sales anyway (QST only during the GST holiday), estimated on top of the pre-tax price. */
+  taxNotCharged: number;
   /** Commission rate printed on the statement (fraction), when given. */
   printedRate: number | null;
   description: string;

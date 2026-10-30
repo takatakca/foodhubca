@@ -53,7 +53,14 @@ export async function addDirectEvent(order: DirectOrder, type: string, message: 
   // Re-read so two writers (courier webhook + a person's click) keep each other's events.
   const cur = (await getDirectOrder(order.id)) ?? order;
   const ev: DirectEvent = { at: nowIso(), type, message, ...(by ? { by } : {}) };
-  return saveDirectOrder({ ...cur, ...patch, events: [...(cur.events ?? []), ev].slice(-200) });
+  const saved = await saveDirectOrder({ ...cur, ...patch, events: [...(cur.events ?? []), ev].slice(-200) });
+  // Every step of an own order passes here: paid, picked up, cancelled → the Revenu Québec invoice follows (Takatak MEV).
+  // Nothing at all when MEV is off; never throws.
+  const { mevMode } = await import('../mev/config');
+  if (mevMode() === 'off') return saved;
+  const { mevOnDirectChange } = await import('../mev/hooks');
+  await mevOnDirectChange(saved);
+  return (await getDirectOrder(saved.id)) ?? saved;
 }
 
 const fleetRefKey = (fleetId: string) => `delivery_fleet_ref:${fleetId}`;
@@ -65,6 +72,11 @@ export async function saveDelivery(d: Delivery): Promise<Delivery> {
   // The fleet's own id (Uber Direct) → ours, so its webhooks find the delivery.
   if (next.fleetDeliveryId && next.fleetDeliveryId !== next.id) await repo.setKv(fleetRefKey(next.fleetDeliveryId), next.id).catch(() => undefined);
   return next;
+}
+
+/** Changes the delivery as stored NOW (re-read), so a writer holding an older copy never undoes another's status, courier or text mark. */
+export async function updateDelivery(d: Delivery, change: (cur: Delivery) => Delivery): Promise<Delivery> {
+  return saveDelivery(change((await getDelivery(d.id)) ?? d));
 }
 
 export async function getDelivery(id: string): Promise<Delivery | null> {

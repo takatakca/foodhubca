@@ -274,8 +274,8 @@ Goal: feel premium, alive, easy and smart, with no bare white screens, while kee
 - A new order "lands" once (scale up plus a brand glow); cards glide New → Cooking → Ready; vibration on Android; a full-width "tap to turn sound on" banner.
 - Numbers count up on the overview. The top bar compacts on scroll. Sticky headers on money tables.
 - Micro-interactions: button press, switch overshoot, sliding segmented pill, copy-to-check.
-- A celebration, once each: Go-live reaches 100%, the first publish, Clover connected.
-- **Guided onboarding:** a Go-live stepper with a progress ring, and a **Connections strip on the Overview** (Clover, Uber, DoorDash, Skip, TGTG, Relay, database, email/SMS, AI), each with a live status dot. (✅ Overview → Connections & sync, #7; e-mail/SMS and AI still to add.)
+- A celebration, once each: Go-live reaches 100%, the first publish, Clover connected. (✅ `feature/golive-ring-connections`: once per device, localStorage.)
+- **Guided onboarding:** a Go-live stepper with a progress ring, and a **Connections strip on the Overview** (Clover, Uber, DoorDash, Skip, TGTG, Relay, database, email/SMS, AI), each with a live status dot. (✅ Overview → Connections & sync, #7; e-mail/SMS, AI, screens relay and TGTG mailbox + the Go-live ring and stepper: `feature/golive-ring-connections`.)
 
 **Guardrails:**
 - Animate only `transform` and `opacity`. UI motion ≤ 200 ms; overlays ≤ 300 ms.

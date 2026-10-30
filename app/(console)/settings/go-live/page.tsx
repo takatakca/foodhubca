@@ -2,18 +2,21 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
-import { CheckCircle2, ChevronRight, CircleDashed, CirclePlus, RefreshCw, TriangleAlert } from 'lucide-react';
+import { Check, CheckCircle2, ChevronRight, CircleDashed, CirclePlus, RefreshCw, TriangleAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Banner, Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { CelebrationBanner, useCelebrateOnce } from '@/components/ui/celebration';
+import { ProgressRing } from '@/components/ui/progress-ring';
 import { TechDetails } from '../tech-details';
 import { plainTitle } from '../tech-text';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { SettingsHead } from '../settings-ui';
 import { api } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
+import { CELEBRATION_KEYS } from '@/lib/ui/celebrate';
 import { cn } from '@/lib/ui/cn';
-import { alertSteps, cloverAppSteps, stepBadge, stepKind, stepTally, stepText, tallyLine, type CloverAppInfo, type Step } from './steps';
+import { alertSteps, cloverAppSteps, goLiveProgress, goLiveStages, stepBadge, stepKind, stepTally, stepText, tallyLine, type CloverAppInfo, type GoLiveStage, type Step } from './steps';
 
 type Readiness = { channel: string; label: string; configured: boolean; canSend: boolean; missing: string[]; viaClover?: boolean };
 /** A mapped store whose orders cannot get into Clover (lib/foodhub/go-live.ts, sent by /api/foodhub/channels). */
@@ -42,6 +45,30 @@ function StepText({ step }: { step: Step }) {
       <div className="text-small mt-0.5 break-words text-ink-3">{plain}</div>
       {tech && <TechDetails>{tech}</TechDetails>}
     </>
+  );
+}
+
+/** One stage per group, in page order: a tap jumps to its list. Wraps on a phone; the word is there for screen readers. */
+function GoLiveStepper({ stages }: { stages: GoLiveStage[] }) {
+  const { t } = useI18n();
+  const word: Record<GoLiveStage['state'], string> = { done: t('prêt', 'ready'), check: t('à vérifier', 'to check'), current: t('en cours', 'in progress'), todo: t('à faire', 'to do') };
+  return (
+    <ol className="mt-5 flex flex-wrap gap-2" aria-label={t('Étapes de la mise en service', 'Go-live stages')}>
+      {stages.map((s, i) => (
+        <li key={s.group}>
+          <a href={`#golive-${i}`} aria-current={s.state === 'current' ? 'step' : undefined}
+            className={cn('text-small flex min-h-11 items-center gap-2 rounded-full border py-1 pr-3 pl-1 font-semibold hover:bg-sunken', s.state === 'current' ? 'border-brand text-ink' : 'border-line text-ink-2')}>
+            <span aria-hidden className={cn('num flex size-7 shrink-0 items-center justify-center rounded-full text-[12px] font-extrabold',
+              s.state === 'done' ? 'bg-go text-white' : s.state === 'check' ? 'bg-wait-soft text-wait-2' : s.state === 'current' ? 'bg-brand text-white' : 'bg-sunken text-ink-3')}>
+              {s.state === 'done' ? <Check className="size-4" strokeWidth={3} /> : s.state === 'check' ? <TriangleAlert className="size-3.5" /> : i + 1}
+            </span>
+            <span>{s.group}</span>
+            {s.counted > 0 && s.state !== 'done' && s.state !== 'check' && <span className="num text-ink-3" aria-hidden>{s.ready}/{s.counted}</span>}
+            <span className="sr-only">: {word[s.state]}{s.counted > 0 && s.state !== 'done' ? t(` (${s.ready} sur ${s.counted})`, ` (${s.ready} of ${s.counted})`) : ''}</span>
+          </a>
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -173,12 +200,17 @@ export default function GoLivePage() {
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }, [locations, locName, loc, t]);
   useEffect(() => { if (can('admin')) load(); }, [load, can]);
+  const progress = goLiveProgress(steps ?? []);
+  // One celebration when nothing is left to do: once per device (lib/ui/celebrate.ts), quiet under reduced motion.
+  const celebrate = useCelebrateOnce(CELEBRATION_KEYS.goLive, Boolean(steps) && progress.complete);
+  const [celebrationClosed, setCelebrationClosed] = useState(false);
 
   if (!can('admin')) return <div><SettingsHead title={t('Mise en service', 'Go-live')} /><Banner tone="info">{t('Réservé au propriétaire.', 'Owner only.')}</Banner></div>;
   const tally = stepTally(steps ?? []);
   const done = tally.done;
   const total = steps?.length ?? 1;
   const groups = steps ? [...new Set(steps.map((s) => s.group))] : [];
+  const left = progress.todo;
 
   return (
     <div>
@@ -188,16 +220,27 @@ export default function GoLivePage() {
       {err && <Banner tone="stop" className="mb-4">{err}</Banner>}
       {steps && (
         <Card className="mb-5 p-5">
-          <div className="flex items-end justify-between gap-3">
-            <div><div className="text-display num text-ink">{done}/{total}</div><div className="text-small text-ink-3">{t('étapes prêtes', 'steps ready')}</div></div>
-            <div className="text-small text-right text-ink-3">{tallyLine(t, tally)}</div>
+          <div className="flex flex-wrap items-center gap-5">
+            <ProgressRing size="lg" value={progress.percent / 100} label={t(`${progress.percent} %`, `${progress.percent}%`)}
+              ariaLabel={t(`Prêt à ${progress.percent} % : ${progress.ready} étape(s) obligatoire(s) faite(s) sur ${progress.counted}`, `${progress.percent}% ready: ${progress.ready} of ${progress.counted} required step(s) done`)} />
+            <div className="min-w-0 flex-1 basis-56">
+              <div className="text-heading text-ink">{progress.complete
+                ? t('Tout est prêt pour ouvrir.', 'Everything is ready to open.')
+                : t(`Encore ${left} étape${left > 1 ? 's' : ''} à faire avant d’ouvrir.`, `${left} step${left === 1 ? '' : 's'} left before opening.`)}</div>
+              <div className="text-small mt-1 text-ink-3">{t(`${done}/${total} étapes prêtes`, `${done}/${total} steps ready`)} · {tallyLine(t, tally)}</div>
+            </div>
           </div>
-          <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-sunken"><div className="h-full rounded-full bg-go transition-all" style={{ width: `${Math.round((done / total) * 100)}%` }} /></div>
+          <GoLiveStepper stages={goLiveStages(steps)} />
         </Card>
       )}
+      {celebrate && !celebrationClosed && (
+        <CelebrationBanner className="mb-5" title={t('Mise en service terminée !', 'Go-live complete!')}
+          body={t('Plus rien à faire : chaque étape obligatoire est prête. Gardez un œil sur les lignes « À vérifier ».', 'Nothing left to do: every required step is ready. Keep an eye on the “To check” lines.')}
+          onClose={() => setCelebrationClosed(true)} closeLabel={t('Fermer', 'Close')} />
+      )}
       {!steps && !err && <div className="h-96 animate-pulse rounded-lg bg-sunken" />}
-      {groups.map((g) => (
-        <div key={g} className="mb-5">
+      {groups.map((g, gi) => (
+        <div key={g} id={`golive-${gi}`} className="mb-5 scroll-mt-24">
           <h2 className="text-heading mb-3 text-ink">{g}</h2>
           <Card>
             <ul className="divide-y divide-line">

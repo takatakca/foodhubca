@@ -381,7 +381,7 @@ describe('release exactly once, by a person', () => {
     expect(counter.fees ?? []).toEqual([]);
     const sent = vi.mocked(createDirectOrderInClover).mock.calls.at(-1)![0] as DirectOrder;
     const cart = buildDirectCloverCart(sent, null);
-    expect(cart.orderCart.lineItems.map((l: { name: string }) => l.name)).not.toContain('Frais Interac e-Transfer');
+    expect((cart.orderCart.lineItems as Array<{ name: string }>).map((l) => l.name)).not.toContain('Frais Interac e-Transfer');
     expect(cart.cents).toBe(2649 + 600);
     expect(cart.orderCart.note).toContain('À PAYER / TO PAY');
     expect(h.sms.at(-1)!.body).toMatch(/total 39,35 \$.*Paiement au comptoir/);

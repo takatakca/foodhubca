@@ -1,7 +1,7 @@
 // MASTER_PLAN Phase 3 P2 leftovers: the Overview's Connections strip shows e-mail, SMS, the AI, the screens relay and the
 // Too Good To Go mailbox (from the environment, owner-only setting names, never values); the Go-live ring and stepper
 // come from the checklist; each celebration fires once per device.
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createElement, type ComponentProps } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { forViewer, serviceHealth, type ServiceHealth } from '../lib/foodhub/connections';
@@ -11,6 +11,7 @@ import { getRepo } from '../lib/foodhub/repo';
 import { CELEBRATION_KEYS, claimCelebration, markCelebrated, type CelebrationStore } from '../lib/ui/celebrate';
 import { ServicesStrip } from '../components/live/services-strip';
 import { ProgressRing } from '../components/ui/progress-ring';
+import { CelebrationBanner } from '../components/ui/celebration';
 import { I18nProvider } from '../lib/i18n/client';
 import { goLiveProgress, goLiveStages, type Step } from '@/app/(console)/settings/go-live/steps';
 
@@ -191,11 +192,33 @@ describe('a celebration fires once per device', () => {
     expect(claimCelebration(CELEBRATION_KEYS.firstPublish, device)).toBe(false);
   });
 
-  it('blocked storage (private mode): still once, remembered for the tab, and nothing throws', () => {
+  it('blocked storage: never celebrated (a page load could not tell it already happened), and nothing throws', () => {
     const blocked: CelebrationStore = { getItem: () => { throw new Error('SecurityError'); }, setItem: () => { throw new Error('SecurityError'); } };
-    expect(claimCelebration('takatak.celebrated.test-blocked', blocked)).toBe(true);
     expect(claimCelebration('takatak.celebrated.test-blocked', blocked)).toBe(false);
-    expect(claimCelebration('takatak.celebrated.test-none', null)).toBe(true);
     expect(claimCelebration('takatak.celebrated.test-none', null)).toBe(false);
+    expect(() => markCelebrated('takatak.celebrated.test-blocked', blocked)).not.toThrow();
+  });
+
+  it('storage that reads but cannot write (full quota): no confetti on every page load', async () => {
+    const full: CelebrationStore = { getItem: () => null, setItem: () => { throw new Error('QuotaExceededError'); } };
+    const silent: CelebrationStore = { getItem: () => null, setItem: () => {} };
+    const loads: boolean[] = [];
+    for (let load = 0; load < 2; load++) {
+      vi.resetModules(); // a fresh page load: nothing kept in module memory
+      const fresh = await import('../lib/ui/celebrate');
+      loads.push(fresh.claimCelebration(fresh.CELEBRATION_KEYS.goLive, full), fresh.claimCelebration(fresh.CELEBRATION_KEYS.goLive, silent));
+    }
+    expect(loads).toEqual([false, false, false, false]);
+  });
+
+  it('the Clover "all set" banner keeps its message on later visits, without the burst', () => {
+    const first = renderToStaticMarkup(createElement(CelebrationBanner, { title: 'Tout est prêt !', body: 'La prochaine commande arrive dans Clover.' }));
+    expect(first).toContain('animate-confetti');
+    expect(first).toContain('animate-pop');
+    const later = renderToStaticMarkup(createElement(CelebrationBanner, { title: 'Tout est prêt !', body: 'La prochaine commande arrive dans Clover.', confetti: false }));
+    expect(later).toContain('Tout est prêt !');
+    expect(later).toContain('role="status"');
+    expect(later).not.toContain('animate-confetti');
+    expect(later).not.toContain('animate-pop');
   });
 });

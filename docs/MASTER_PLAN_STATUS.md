@@ -47,7 +47,7 @@ Order screens meanwhile: the wall (#102) and the relay kit (#107) are on main; t
 | P1 colour (+ logo) per brand, OS dark mode | not started | agent |
 | P2 View Transitions, exit animations, count-up, vibration | not started | agent |
 | P2 Connections strip | done: e-mail, SMS, AI, screens relay, TGTG mailbox added (`feature/golive-ring-connections`) | none |
-| P2 Go-live stepper ring, celebrations | done (`feature/golive-ring-connections`): ring + stepper, one celebration each for Go-live 100 %, first menu publish, Clover connected | none |
+| P2 Go-live stepper ring, celebrations | done (`feature/golive-ring-connections`): ring + stepper, one celebration each for Go-live 100 %, first menu publish, Clover connected, Clover wizard all set (review fixes: the Go-live banner leaves when a step is left again; no storage = no celebration, never one per visit) | none |
 | Guardrails (+25 KB JS, INP < 200 ms), Lighthouse a11y ≥ 95 | not measured | agent (INP needs the real tablet) |
 
 ## Phase 4: Autopilot

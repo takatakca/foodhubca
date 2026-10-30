@@ -65,6 +65,9 @@ export function WelcomeView({ data }: { data: WelcomeData }) {
   // Clover connected: this page is where the Clover app lands once the register is connected. The first time this device
   // sees it, one confetti burst over the status (once per device; not when the "all set" celebration already shows).
   const connectedNow = useCelebrateOnce(CELEBRATION_KEYS.cloverConnected, data.state === 'connected');
+  // All set: every opening of the Clover app lands here, so the "all set" message stays, but its confetti bursts once
+  // per device only (its own moment, after "connected").
+  const allSetNow = useCelebrateOnce(CELEBRATION_KEYS.cloverAllSet, allDone);
   return (
     <div className="grid min-h-dvh grid-cols-1 bg-canvas text-ink lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.25fr)]">
       <Rail t={t} appName={data.appName} />
@@ -82,7 +85,7 @@ export function WelcomeView({ data }: { data: WelcomeData }) {
 
         <div className="relative mx-auto w-full max-w-2xl flex-1 space-y-5 py-8">
           <StatusHero data={data} t={t} confetti={connectedNow && !allDone} />
-          {allDone && <Celebration t={t} />}
+          {allDone && <Celebration t={t} confetti={allSetNow} />}
           {data.merchant && data.state !== 'gone' && <RegisterCard data={data} t={t} lang={lang} />}
           {(!data.app || data.app === 'foodhub') && (data.state === 'connected' || data.state === 'pending') && <Steps data={data} t={t} />}
           {(!data.app || data.app === 'foodhub') && data.state === 'connected' && data.ticket && <TestOrder ticket={data.ticket} t={t} />}
@@ -343,10 +346,13 @@ function Steps({ data, t }: { data: WelcomeData; t: T }) {
   );
 }
 
-/** The wizard's last moment (components/ui/celebration.tsx holds the confetti shared with Go-live and the menus). */
-function Celebration({ t }: { t: T }) {
+/**
+ * The wizard's last moment (components/ui/celebration.tsx holds the confetti shared with Go-live and the menus): the
+ * message on every visit, the burst only the first time on this device.
+ */
+function Celebration({ t, confetti }: { t: T; confetti: boolean }) {
   return (
-    <CelebrationBanner title={t('Tout est prêt !', 'You’re all set!')}
+    <CelebrationBanner confetti={confetti} title={t('Tout est prêt !', 'You’re all set!')}
       body={t('Plateformes branchées, menu importé, cuisine équipée. La prochaine commande arrive directement dans Clover.', 'Platforms connected, menu imported, kitchen equipped. The next order goes straight into Clover.')} />
   );
 }

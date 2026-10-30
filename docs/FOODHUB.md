@@ -168,8 +168,10 @@ Clover too, and the day log is not counted twice.
    rate cards are pre-filled; Skip and TGTG from your contract) and tick *Matches my contract*.
 7. **Settings → Go-live** (`/settings/go-live`) shows what is left, computed from your real configuration: a progress ring
    (the share of the steps « À faire » that are done; « À vérifier » and « Optionnel » never hold it back) and one stage per
-   group. At 100 % it celebrates once per device (confetti, none under reduced motion); so do the first menu publish and
-   the first time the Clover welcome page shows the register connected.
+   group. At 100 % it celebrates once per device (confetti, none under reduced motion), and the banner goes away if a
+   Re-check finds a step left; so do the first menu publish, the first time the Clover welcome page shows the register
+   connected, and its « Tout est prêt » (the message stays on later visits, the confetti does not). A browser that blocks
+   site data gets no celebration at all rather than one on every visit.
 8. Last step: `LIVE_CONNECTORS_GLOBAL_ENABLED=true`. Before that, orders are received and shown,
    but nothing is sent back to the platforms. `SESSION_SECRET` (or `DASHBOARD_PASSWORD`) is required in production.
 

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, CalendarClock, CircleAlert, CircleCheck, Copy, Download, ImageOff, ImageUp, Info, Languages, Link2, Plus, Search, Send, Trash2, TriangleAlert } from 'lucide-react';
 import { Badge, PlatformMark, PlatformTag } from '@/components/ui/badge';
 import { Button, ButtonLink } from '@/components/ui/button';
+import { BrandMark } from '@/components/ui/brand-mark';
 import { Banner, Card, CardHeader, EmptyState, PageHeader, SkeletonList } from '@/components/ui/card';
 import { Checkbox, Field, Input, Select, Switch, Textarea } from '@/components/ui/form';
 import { Modal } from '@/components/ui/overlay';
@@ -21,6 +22,7 @@ import { countEn, countFr, enWord, frWord } from '@/lib/ui/count-label';
 import type { MasterMenu, MenuCategory, MenuItem, MenuModifierGroup } from '@/lib/foodhub/types';
 import { cn } from '@/lib/ui/cn';
 import { UBER_TAX_CLASSES, type UberTaxClass } from '@/lib/foodhub/menu/uber-tax';
+import { brandVars } from '@/lib/foodhub/brand-kit';
 
 type Issue = { level: 'error' | 'warning' | 'tip'; code: string; message: string; ref?: string };
 type Check = { ok: boolean; errors: Issue[]; warnings: Issue[]; tips: Issue[] };
@@ -37,7 +39,7 @@ const uid = (p: string) => `${p}-${Date.now().toString(36)}${Math.random().toStr
 
 export function MenuEditor() {
   const { t, lang, loc } = useI18n();
-  const { brands: catalogBrands, brandsByKitchen, locName } = useViewer();
+  const { brands: catalogBrands, brandsByKitchen, locName, brandKit } = useViewer();
   // The console's scope opens its brand (or the picked kitchen's first brand).
   const { site } = usePulse();
   const scopeBrand = site.brand ?? (site.kitchen ? brandsByKitchen[site.kitchen]?.[0] ?? null : null);
@@ -112,10 +114,16 @@ export function MenuEditor() {
   const hoursCat = menu?.categories.find((c) => c.ref === editHours) ?? null;
   const allBrands = brands.length ? brands : catalogBrands;
   const LANG = { en: 'English', fr: 'Français', both: 'FR / EN' } as Record<string, string>;
+  // Brand kit (docs/BRAND_KIT.md): the open brand's mark (logo or letters on its colour) and a stripe in its colour beside
+  // the title. A brand with no colour and no logo keeps the plain title.
+  const kit = brandKit(brand);
+  const title = kit && brand
+    ? <span style={brandVars(kit)} className={cn('inline-flex items-center gap-3', kit.accent && 'brand-stripe pl-3')}><BrandMark name={brand} kit={kit} size="md" />{t('Menus', 'Menus')}</span>
+    : t('Menus', 'Menus');
 
   return (
     <div>
-      <PageHeader title={t('Menus', 'Menus')} subtitle={t('Un menu par marque : vérifié, puis publié sur Uber Eats, DoorDash et Skip.', 'One menu per brand: checked, then published to Uber Eats, DoorDash and Skip.')}
+      <PageHeader title={title} subtitle={t('Un menu par marque : vérifié, puis publié sur Uber Eats, DoorDash et Skip.', 'One menu per brand: checked, then published to Uber Eats, DoorDash and Skip.')}
         tabs={<MenuTabs className="mb-0" />}
         right={<div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
           <div className="flex items-center gap-2">

@@ -1,0 +1,10 @@
+local.properties
+# Signing keys and their passwords never go in git (docs/KITCHEN_TABLET_APP.md « Signed APK »).
+*.jks
+*.keystore
+keystore.properties
+.gradle/
+.kotlin/
+build/
+app/build/
+dist/

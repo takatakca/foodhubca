@@ -1643,6 +1643,36 @@ try {
   const webTicket = sent('POST', /\/atomic_order\/orders$/).find((e) => String(e.body?.orderCart?.title || '').includes(w1.json?.number));
   check('kitchen ticket in Clover with our number and the delivery address', Boolean(webTicket) && /LIVRAISON: 5555 Av Monkland/.test(webTicket.body.orderCart.note) && webTicket.body.orderCart.lineItems.length === 2, JSON.stringify(webTicket?.body?.orderCart).slice(0, 300));
   check('customer texted the confirmation', sent('POST', /\/Messages\.json$/).some((e) => /W-\d+ reçue/.test(((e) => new URLSearchParams(String(e.body)).get('Body') || '')(e))));
+  // Interac e-Transfer (docs/CLOVER_WEBSITE_ORDERS.md § Interac): the fee is declared before checkout and checked, the order is
+  // HELD (nothing in Clover) until a person presses "Transfer received", then ONE Clover order; Food Hub never reads a bank.
+  const smsBody = (e) => new URLSearchParams(String(e.body)).get('Body') || '';
+  const interacFee = { code: 'interac', name: 'Frais Interac e-Transfer', amount: 5 };
+  // 2 × Poulet Grillé 14.99 (menu price) + fee 5.00 = 34.98, GST 1.75 + QST 3.49 → 40.22, no tip.
+  const interacOrder = { id: 'WEB-1002', brand: 'Po Poulet', location: 'NDG_MAIN', customer: { name: 'Ana Bel', phone: '514-555-1234', lang: 'fr' }, fulfillment: 'pickup', items: [{ name: 'Poulet Grillé', quantity: 2, price: 14.99 }], payment: 'interac', fees: [interacFee], total: 40.22 };
+  const postWeb = (body) => call('POST', '/api/foodhub/webhooks/website-order', { auth: false, headers: { authorization: 'Bearer web-order-e2e' }, body });
+  check('Interac order refused while Interac is off in Settings', (await postWeb(interacOrder)).status === 422);
+  const interacSettings = await call('PUT', '/api/foodhub/delivery/settings', { body: { settings: { interac: { enabled: true, fee: 5, recipientEmail: 'paiements@example.test', autoDeposit: false, question: 'Couleur', answer: 'Rouge', holdMinutes: 45, reminderMinutes: 20 } } } });
+  check('Interac settings saved, the answer comes back masked and the all-in fee is 5.75', interacSettings.json?.settings?.interac?.enabled === true && interacSettings.json.settings.interac.answer === '••••••' && interacSettings.json.interacFeeAllIn === 5.75, JSON.stringify(interacSettings.json?.settings?.interac));
+  check('Interac order refused without its fee line', (await postWeb({ ...interacOrder, fees: [] })).status === 422);
+  check('Interac order refused when the site shows another fee', (await postWeb({ ...interacOrder, fees: [{ ...interacFee, amount: 4 }] })).status === 422);
+  check('Interac order refused when the all-in total differs by more than 2 ¢', (await postWeb({ ...interacOrder, total: 40.5 })).status === 422);
+  check('website order refused when a line is not priced like the menu', (await postWeb({ ...interacOrder, items: [{ name: 'Poulet Grillé', quantity: 2, price: 9.99 }], total: 28.72 })).status === 422);
+  const cloverBeforeInterac = sent('POST', /\/atomic_order\/orders$/).length;
+  const smsBeforeInterac = sent('POST', /\/Messages\.json$/).length;
+  const wi = await postWeb(interacOrder);
+  check('Interac order held: awaiting_payment, instructions returned, no answer field', wi.status === 200 && wi.json?.status === 'awaiting_payment' && wi.json.payment === 'unpaid' && wi.json.total === 40.22 && wi.json.interac?.recipient === 'paiements@example.test' && /^PP-[A-Z2-9]{4}$/.test(wi.json.interac.reference) && wi.json.interac.question === 'Couleur' && !('answer' in wi.json.interac) && /Rouge/.test(wi.json.interac.instructionsFr), JSON.stringify(wi.json).slice(0, 400));
+  check('nothing in Clover while the transfer is not confirmed', sent('POST', /\/atomic_order\/orders$/).length === cloverBeforeInterac);
+  const interacSms = sent('POST', /\/Messages\.json$/).slice(smsBeforeInterac).map(smsBody);
+  check('customer texted the Interac instructions (recipient, exact amount, reference, question + answer)', interacSms.some((b) => /virement Interac à paiements@example\.test — montant exact 40,22 \$, message : PP-/.test(b) && /Couleur — réponse : Rouge/.test(b)), JSON.stringify(interacSms));
+  check('same Interac order again → the same instructions, no second order', (await postWeb(interacOrder)).json?.duplicate === true && sent('POST', /\/atomic_order\/orders$/).length === cloverBeforeInterac);
+  const held = await call('GET', `/api/foodhub/delivery/${wi.json?.id}`);
+  check('the held order shows its Interac block in the console (answer kept out of the API)', held.json?.order?.status === 'awaiting_payment' && held.json.order.interac?.reference === wi.json?.interac?.reference, JSON.stringify(held.json?.order?.interac));
+  const received = await call('POST', `/api/foodhub/delivery/${wi.json?.id}`, { body: { action: 'interac_received' } });
+  check('"Transfer received" → paid by that person, in the kitchen, ONE Clover order marked Interac', received.status === 200 && received.json?.order?.status === 'in_kitchen' && received.json.order.payment === 'paid' && received.json.order.interac?.receivedBy && sent('POST', /\/atomic_order\/orders$/).length === cloverBeforeInterac + 1 && /VIREMENT INTERAC PP-/.test(sent('POST', /\/atomic_order\/orders$/).at(-1)?.body?.orderCart?.note || '') && (sent('POST', /\/atomic_order\/orders$/).at(-1)?.body?.orderCart?.lineItems || []).some((l) => l.name === 'Frais Interac e-Transfer' && l.price === 500), JSON.stringify(received.json?.order?.interac));
+  check('customer texted "virement Interac reçu"', sent('POST', /\/Messages\.json$/).slice(smsBeforeInterac).map(smsBody).some((b) => /virement Interac reçu, merci!/.test(b)));
+  const receivedAgain = await call('POST', `/api/foodhub/delivery/${wi.json?.id}`, { body: { action: 'interac_received' } });
+  check('a second "Transfer received" changes nothing (still one Clover order)', receivedAgain.status === 200 && sent('POST', /\/atomic_order\/orders$/).length === cloverBeforeInterac + 1);
+  await call('PUT', '/api/foodhub/delivery/settings', { body: { settings: { interac: { enabled: false } } } });
   const disp = await call('POST', `/api/foodhub/delivery/${w1.json?.id}`, { body: { action: 'dispatch' } });
   check('Call a courier → DoorDash Drive booked (sandbox)', disp.status === 200 && disp.json?.running?.fleet === 'doordash_drive' && disp.json.running.status === 'created' && disp.json.running.environment === 'sandbox', JSON.stringify(disp.json).slice(0, 300));
   const dq = sent('POST', /\/drive\/v2\/quotes$/)[0]?.body;

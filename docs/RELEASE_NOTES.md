@@ -11,6 +11,9 @@ Short list; details are in each PR and in [MASTER_PLAN.md](MASTER_PLAN.md) § 3b
   #30, #58, #61, #68); signed WhatsApp webhook (#115).
 - **Delivery:** every Uber Eats Marketplace and Uber Direct API (#21), DoorDash Marketplace and Drive (#28, #45), our
   own couriers with a courier page (#34), DoorDash sandbox-safe mode (#56), the tracking text sent once (#93).
+- **Order Relay and shared menus (Phase 0, #5):** Food Hub's own order intake replaces UrbanPiper's (partner
+  statuses only move an order forward, reject is never faked, unusable payloads are kept); one menu can be shared by
+  several brands, with 86s and publishes reaching every sharing brand.
 - **Stores, menus, screens:** store availability centre (#74), menu safety and per-brand dishes on shared menus (#60),
   kitchen order tools (#71), extra-loud alarm (#14), the platform screens wall and relay kit (#102, #107, #109–#112).
 - **Customers:** accounts verified by text and ON2GO sign-in through TAKATAK (#123, #124); restaurant leads from the

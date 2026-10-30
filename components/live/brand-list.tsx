@@ -9,6 +9,7 @@ import { shortLoc, useViewer } from '@/components/shell/viewer';
 import type { BrandOpenState, BrandRow, CellState } from '@/lib/foodhub/scope';
 import { money } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
+import { countEn, countFr } from '@/lib/ui/count-label';
 import type { T } from '@/lib/i18n';
 import { cn } from '@/lib/ui/cn';
 
@@ -23,14 +24,14 @@ export function cellText(t: T, s: CellState) {
 }
 const DOT: Partial<Record<CellState, string>> = { online: 'bg-go', paused: 'bg-wait', deactivated: 'bg-stop', closed: 'bg-ink-4', not_synced: 'bg-line-2', unknown: 'bg-line-2' };
 
-/** One platform: its tag, with a dot for its state (no dot and faded = not connected). */
+/** One platform: its 20 px chip (11 px letters) and a 6 px state dot beside it, never on top (faded, no dot = not connected). */
 export function PlatformStateDot({ channel, state }: { channel: string; state: CellState }) {
   const { t } = useI18n();
   const missing = state === 'missing';
   return (
-    <span className="relative inline-flex" title={`${channel === 'uber_eats' ? 'Uber Eats' : channel === 'doordash' ? 'DoorDash' : channel === 'skip' ? 'SkipTheDishes' : 'Too Good To Go'} · ${cellText(t, state)}`}>
+    <span className="inline-flex items-center gap-1" title={`${channel === 'uber_eats' ? 'Uber Eats' : channel === 'doordash' ? 'DoorDash' : channel === 'skip' ? 'SkipTheDishes' : 'Too Good To Go'} · ${cellText(t, state)}`}>
       <PlatformMark channel={channel} size="xs" className={cn(missing && 'opacity-25 grayscale')} />
-      {!missing && <span className={cn('absolute -right-1 -bottom-1 size-2.5 rounded-full ring-2 ring-surface', DOT[state] ?? 'bg-line-2')} />}
+      <span className={cn('size-1.5 rounded-full', missing ? 'bg-transparent' : DOT[state] ?? 'bg-line-2')} aria-hidden />
     </span>
   );
 }
@@ -38,13 +39,14 @@ export function PlatformStateDot({ channel, state }: { channel: string; state: C
 export function BrandListRow({ row, onOpen, showKitchen }: { row: BrandRow; onOpen: () => void; showKitchen?: boolean }) {
   const { t, loc } = useI18n();
   const { locName } = useViewer();
+  const quiet = (row.state === 'not_connected' || row.state === 'deactivated' || row.state === 'closed') && !row.sales && !row.orders;
   return (
     <button type="button" onClick={onOpen}
       className="group flex min-h-16 w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-raised sm:gap-4 sm:px-5">
       <BrandMark name={row.brandName} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[15px] font-bold text-ink">{row.brandName}</span>
-        <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-3">
+        <span className="block truncate text-body font-bold text-ink">{row.brandName}</span>
+        <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-small text-ink-3">
           <Badge tone={STATE_TONE[row.state]}>{openStateText(t, row.state)}</Badge>
           {showKitchen && <span className="truncate">{shortLoc(locName(row.locationCode))}</span>}
           {row.open > 0 && <span className="font-semibold text-brand">{t(`${row.open} en cours`, `${row.open} in progress`)}</span>}
@@ -54,9 +56,12 @@ export function BrandListRow({ row, onOpen, showKitchen }: { row: BrandRow; onOp
         {/* With a platform picked, a row carries that platform only. */}
         {PLATFORM_ORDER.filter((ch) => ch in row.cells || Object.keys(row.cells).length > 1).map((ch) => <PlatformStateDot key={ch} channel={ch} state={row.cells[ch] ?? 'missing'} />)}
       </span>
+      {/* A brand that is off or not connected and sold nothing shows no "0,00 $ · 0": the column stays for alignment. */}
       <span className="w-24 text-right">
-        <span className="num block text-[15px] font-extrabold text-ink">{money(row.sales, loc)}</span>
-        <span className="block text-xs text-ink-3">{row.orders} {t('commandes', 'orders')}</span>
+        {quiet ? <span className="sr-only">{t('Aucune vente aujourd’hui', 'No sales today')}</span> : <>
+          <span className="num text-body block font-extrabold text-ink">{money(row.sales, loc)}</span>
+          <span className="text-small block text-ink-3">{t(countFr(row.orders, 'commande'), countEn(row.orders, 'order'))}</span>
+        </>}
       </span>
       <ChevronRight className="size-4 shrink-0 text-ink-4 transition-transform group-hover:translate-x-0.5 group-hover:text-ink-2" />
     </button>
@@ -73,9 +78,9 @@ export function PlatformLegend() {
   const { t } = useI18n();
   const items: Array<[string, string]> = [['bg-go', t('en ligne', 'online')], ['bg-wait', t('en pause', 'paused')], ['bg-ink-4', t('fermé', 'closed')], ['bg-stop', t('désactivé', 'deactivated')]];
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-3">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-small text-ink-3">
       {items.map(([c, l]) => <span key={l} className="flex items-center gap-1.5"><span className={cn('size-2.5 rounded-full', c)} />{l}</span>)}
-      <span className="flex items-center gap-1.5"><PlatformMark channel="uber_eats" size="xs" className="size-4 text-[7px] opacity-25 grayscale" />{t('pâle = pas branché', 'faded = not connected')}</span>
+      <span className="flex items-center gap-1.5"><PlatformMark channel="uber_eats" size="xs" className="opacity-25 grayscale" />{t('pâle = pas branché', 'faded = not connected')}</span>
     </div>
   );
 }

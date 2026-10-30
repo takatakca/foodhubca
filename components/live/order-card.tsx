@@ -48,10 +48,10 @@ export function OrderCard({ o, onOpen, big }: { o: BoardOrder; onOpen: () => voi
         {big && (
           <ul className="mt-3 space-y-1.5">
             {o.lines.slice(0, 8).map((l, i) => (
-              <li key={i} className="text-body"><span className="num font-extrabold">{l.quantity}×</span> <span className="font-semibold">{l.name}</span>
-                {l.mapping === 'free' && !o.viaPos && <span className="text-micro ml-1.5 inline-flex items-center gap-0.5 rounded-sm bg-wait-soft px-1.5 align-middle font-bold text-wait-2" title={t('Pas un article de l’inventaire Clover — vérifiez le billet', 'Not a Clover inventory item — check the ticket')}><TriangleAlert className="size-3" />{t('texte libre', 'free text')}</span>}
-                {l.modifiers.length > 0 && <span className="text-small block pl-6 text-ink-2">{l.modifiers.map((m) => m.name).join(', ')}</span>}
-                {l.notes && <span className={cn('text-small mt-0.5 ml-6 inline-block rounded-sm px-1.5 font-bold', ALLERGY.test(l.notes) ? 'bg-stop text-white' : 'bg-wait-soft text-wait-2')}>« {l.notes} »</span>}
+              <li key={i} className="text-title leading-snug"><span className="num font-extrabold">{l.quantity}×</span> <span className="font-bold">{l.name}</span>
+                {l.mapping === 'free' && !o.viaPos && <span className="ml-1.5 inline-flex items-center gap-0.5 rounded bg-wait-soft px-1 align-middle text-micro font-bold text-wait-2" title={t('Pas un article de l’inventaire Clover — vérifiez le billet', 'Not a Clover inventory item — check the ticket')}><TriangleAlert className="size-3" />{t('texte libre', 'free text')}</span>}
+                {l.modifiers.length > 0 && <span className="text-body block pl-8 font-medium text-ink-2">{l.modifiers.map((m) => m.name).join(', ')}</span>}
+                {l.notes && <span className={cn('text-body mt-0.5 ml-8 inline-block rounded px-1.5 font-bold', ALLERGY.test(l.notes) ? 'bg-stop text-white' : 'bg-wait-soft text-wait-2')}>« {l.notes} »</span>}
               </li>
             ))}
             {o.lines.length > 8 && <li className="text-small text-ink-3">+{o.lines.length - 8} {t('autres', 'more')}</li>}
@@ -82,7 +82,7 @@ export function OrderCard({ o, onOpen, big }: { o: BoardOrder; onOpen: () => voi
               <Button variant="go" size={big ? 'lg' : 'sm'} className="flex-1" loading={busy === 'ready'} onClick={() => run(o.id, 'ready')} icon={<PackageCheck className="size-4" />}>{t('Prête', 'Ready')}</Button>
             </div>
           ) : prim === 'dispatch' ? (
-            <Button variant="primary" size={big ? 'lg' : 'sm'} className="w-full" loading={busy === 'dispatch'} onClick={() => run(o.id, 'dispatch')} icon={<Bike className="size-4" />}>{t('Remise au livreur', 'Picked up')}</Button>
+            <Button variant="outline" size={big ? 'lg' : 'sm'} className="w-full" loading={busy === 'dispatch'} onClick={() => run(o.id, 'dispatch')} icon={<Bike className="size-4" />}>{t('Remise au livreur', 'Picked up')}</Button>
           ) : prim === 'complete' ? (
             <Button variant="outline" size="sm" className="w-full" loading={busy === 'complete'} onClick={() => run(o.id, 'complete')} icon={<Check className="size-4" />}>{t('Livrée / terminée', 'Delivered / done')}</Button>
           ) : null}

@@ -61,6 +61,30 @@
   verify:foodhub 567/0 on 5121/5122. Before/after screens (Po Poulet masked) in `docs/ux/premium-a1/`.
 - Brought up to the updated A4 shell (82b0ebc, itself on main b40e446): only this file conflicted (all entries kept,
   newest first); no code file is changed on both sides.
+## 2026-10-22 — Premium console: A2 kitchen, menus, sold out, restaurants (`feature/premium-a2-kitchen-menus-stores`, stacked on A4 #88)
+
+- Scope A2 of the console audit: `app/(console)/kitchen/**`, `menu/**`, `stores/**`, the kitchen cards
+  (`components/live/website-orders.tsx`, `own-orders.tsx`, the `big` branch and hand-off button of `order-card.tsx`) and
+  `components/live/brand-list.tsx`. No change to `components/ui/**` or `app/globals.css`; no route, API or data change.
+- Kitchen: tablet enrolment is a header chip (no 64 px banner); in a ticket the item line is the largest text (22 px), the
+  order id second (17 px); one outline style for every hand-off in the "Prêtes" column; empty columns use `EmptyState`;
+  the board link is a 44 px ghost button; the amber chip fill is one step lighter on the dark screen.
+- Menus: the toolbar keeps brand · save status · Importer · Publier; "Menu partagé", "Publier sur tous les magasins Uber"
+  and the menu languages move to a "Plus d’actions" menu (`components/menu/overflow-menu.tsx`); "Enregistré" is a status
+  with a check, not a grey button; the markup strip becomes the "Prix par plateforme" card
+  (`components/menu/platform-pricing.tsx`); empty menu / options / stores states carry their one action; skeletons.
+- Sold out: eyebrow Menus, H1 « Épuisés » with its count, filters as `Segmented` (no third tab strip), the return label
+  above its chips, empty states with an action.
+- Restaurants: H1 « Restaurants » on every tab, tabs inside the header, new « Disponibilité » tab, « cuisine » for a
+  location everywhere, phone card headers stacked (title, then the two buttons on one row), inner tab strips replaced by
+  `components/stores/section-picker.tsx` (pills, a select on phones), raw platform reasons mapped to owner copy
+  (`components/stores/status-detail.ts`), twin stores read « magasin 2 », mapping tables become cards under 768 px with
+  outline « Relier » and one « Tout relier », Uber tab empty states with « Lire chez Uber », no env var names in copy.
+- Brand list: platform chips 20 px with the state dot beside them, no « 0,00 $ · 0 commande » on brands that are off.
+- Plurals: `lib/ui/count-label.ts` (`countFr` / `countEn`) replaces every « (s) » in the A2 screens.
+- Tests: `tests/premium-a2-kitchen-menus-stores.test.ts` (plurals, status copy, pricing card, overflow menu, section picker).
+- Brought up to the updated A4 shell 82b0ebc (main b40e446: #43, #50, #51, #54, #72, #86, #89): no conflict, only this
+  file is changed on both sides (every entry kept, newest first); the A2 screens and main's changes touch no common file.
 
 ## 2026-10-22 — Premium console: A4 shell + design system (`feature/premium-a4-shell`, stacked on #72)
 

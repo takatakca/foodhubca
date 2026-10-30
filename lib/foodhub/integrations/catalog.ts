@@ -1,11 +1,13 @@
-// Every integration TAKATAK Food Hub has or is asking for, one row per partner: its kind, its real state and its
-// official entry point. Plan: docs/INTEGRATION_PLATFORM.md; the emails: docs/PARTNER_OUTREACH.md (section `outreach`).
+// Every integration TAKATAK Food Hub has or is asking for, one row per partner: its kind, its technical state, the
+// progress of its partner email (two separate things) and its official entry point. Plan: docs/INTEGRATION_PLATFORM.md;
+// the emails: docs/PARTNER_OUTREACH.md (section `outreach`).
 // Pure data + helpers, no I/O. Honesty rules:
 //   - the three hub platforms (Uber Eats, DoorDash, SkipTheDishes) take their state from FOODHUB_PUBLIC_LIVE_PLATFORMS
 //     (livePlatforms(), the same switch as the public pages), never from this file;
 //   - only 'live' rows may be shown as available on a public page (publicIntegrations());
 //   - `confirmed: false` = the entry point comes from a secondary source: check it on the partner's own site first.
-// Update a row when a partner answers (the owner sends the emails; agents record the answers). Tests:
+// When the owner sends an email, set the row's `outreachState` to 'sent', then 'answered' (agents record the answers);
+// never change `status` for that: it says what works, not who we wrote to. Tests:
 // tests/integrations-catalog.test.ts.
 
 import type { ChannelKey } from '../types';
@@ -20,10 +22,17 @@ export type IntegrationStatus =
   | 'certification'
   /** Built and tested; waiting for the partner's production credentials (or behind a Food Hub switch). */
   | 'built'
-  /** First email sent; waiting for the answer. */
-  | 'outreach'
-  /** Email ready in docs/PARTNER_OUTREACH.md, not sent yet. */
+  /** Nothing built yet: we first need the partner's API access (its email is in docs/PARTNER_OUTREACH.md). */
   | 'to_request';
+
+/** Progress of the partner email, independent of the technical state. */
+export type OutreachState =
+  /** Ready in docs/PARTNER_OUTREACH.md, not sent yet. */
+  | 'ready'
+  /** Sent by the owner; waiting for the answer. */
+  | 'sent'
+  /** The partner answered (next step in the tracking table of docs/PARTNER_OUTREACH.md). */
+  | 'answered';
 
 export interface Integration {
   id: string;
@@ -41,6 +50,8 @@ export interface Integration {
   entry: string;
   /** Section of docs/PARTNER_OUTREACH.md holding its ready email (A1 … C7). */
   outreach?: string;
+  /** Where that email stands; unset with an `outreach` section = 'ready' (none sent yet on 2026-10-30). */
+  outreachState?: OutreachState;
   /** True when the entry point was read on the partner's own site. */
   confirmed: boolean;
 }
@@ -87,9 +98,21 @@ export function publicIntegrations(live: HubPlatform[] = livePlatforms()): Integ
   return integrationCatalog(live).filter((row) => row.status === 'live');
 }
 
-/** Rows waiting on the owner: an email to send (to_request) or an answer to chase (outreach). */
+/** Where a row's partner email stands (undefined: it has none). */
+export function outreachStateOf(row: Integration): OutreachState | undefined {
+  return row.outreach ? (row.outreachState ?? 'ready') : undefined;
+}
+
+/** The emails waiting on the owner, one row per email (A1 … C7): still to send ('ready') or awaiting an answer ('sent').
+ * Built from outreach progress only, whatever the technical state (a live platform can still have its email to send). */
 export function outreachQueue(live: HubPlatform[] = livePlatforms()): Integration[] {
-  return integrationCatalog(live).filter((row) => row.status === 'to_request' || row.status === 'outreach');
+  const seen = new Set<string>();
+  return integrationCatalog(live).filter((row) => {
+    const state = outreachStateOf(row);
+    if (!row.outreach || state === 'answered' || seen.has(row.outreach)) return false;
+    seen.add(row.outreach);
+    return true;
+  });
 }
 
 /** How many rows per kind and state (for the plan and the console). */

@@ -13,7 +13,8 @@ s'intégrer, qu'on veut être partenaires, et voir ce qu'ils disent. » Plan : [
 4. Plusieurs portes d'entrée sont des **formulaires web**, pas des adresses : copier le texte dans le formulaire.
    Les portes marquées *(à confirmer)* viennent d'une source secondaire : vérifier sur le site du partenaire avant.
 5. Après l'envoi : noter la date et la réponse dans le tableau de la fin (ou demander à un agent de le faire) ; l'agent
-   met à jour l'état dans `lib/foodhub/integrations/catalog.ts`.
+   met à jour `outreachState` (`sent`, puis `answered`) de la ligne dans `lib/foodhub/integrations/catalog.ts`, sans
+   toucher à son état technique.
 
 ## Signature commune (à coller à la fin de chaque courriel)
 
@@ -26,8 +27,8 @@ TAKATAK Food Hub · [Raison sociale] · Montréal (Québec)
 ## Phrase de présentation commune (déjà incluse dans chaque courriel)
 EN: *TAKATAK Food Hub is a Montréal-built order management hub for restaurants: delivery orders go straight into the
 restaurant's register and kitchen printer, with one master menu, sold-out sync, store status and payout checks. It runs
-in production in our own kitchens in Montréal and is submitted to the Clover App Market. Data stays in Canada
-(Montréal), bilingual French / English.*
+in production in our own kitchens in Montréal and is submitted to the Clover App Market. Its database is hosted in
+Montréal (Canada), and it is bilingual French / English.*
 
 ---
 
@@ -46,7 +47,8 @@ in production in our own kitchens in Montréal and is submitted to the Clover Ap
 >
 > TAKATAK Food Hub is a Montréal-built order management hub for restaurants: delivery orders go straight into the
 > restaurant's register and kitchen printer, with one master menu, sold-out sync, store status and payout checks. It runs
-> in production in our own kitchens in Montréal and is submitted to the Clover App Market. Data stays in Canada.
+> in production in our own kitchens in Montréal and is submitted to the Clover App Market. Its database is hosted in
+> Montréal (Canada).
 >
 > We have implemented the Uber Eats Marketplace APIs end to end (store provisioning, menus, item availability, orders,
 > store status, prep time, reports and webhooks), with automated tests. We would like to:
@@ -165,7 +167,21 @@ in production in our own kitchens in Montréal and is submitted to the Clover Ap
 > [signature]
 
 ### A7. HungryPanda — intégration des commandes
-- **Porte d'entrée :** *à trouver* (page marchands HungryPanda Canada). Même texte que A6 en remplaçant le nom.
+- **Porte d'entrée :** *à trouver* (page marchands ou partenaires de HungryPanda au Canada) : vérifier sur leur site.
+
+**Subject:** HungryPanda — order integration partnership with TAKATAK Food Hub (Canada)
+
+> Hello HungryPanda Partnerships team,
+>
+> TAKATAK Food Hub is a Montréal-built order management hub for restaurants: orders go straight into the restaurant's
+> register and kitchen printer, with one master menu, sold-out sync and store status. It runs in production in our own
+> kitchens in Montréal and is submitted to the Clover App Market.
+>
+> We would like to receive HungryPanda orders in Food Hub for the restaurants that sell on HungryPanda in Canada, with
+> menu and availability sync. Do you offer a merchant or partner API, and who should we contact?
+>
+> Thank you,
+> [signature]
 
 ---
 
@@ -254,7 +270,7 @@ in production in our own kitchens in Montréal and is submitted to the Clover Ap
 >
 > TAKATAK Food Hub is a Montréal-built order management hub for restaurants: delivery and online orders go straight into
 > the register and kitchen printer, with one master menu, sold-out sync, store status and payout checks. It runs in
-> production today and is bilingual French / English, with data in Canada.
+> production today and is bilingual French / English, with its database hosted in Montréal (Canada).
 >
 > We are building our Square integration (Orders, Catalog, Inventory, webhooks) and plan to publish it on the Square App
 > Marketplace in Canada. Could you tell us whether App Partner applications are open, and the review steps and
@@ -274,7 +290,7 @@ in production in our own kitchens in Montréal and is submitted to the Clover Ap
 > TAKATAK Food Hub est une plateforme de gestion des commandes conçue à Montréal : les commandes de livraison et en
 > ligne entrent directement dans la caisse et à l'imprimante de cuisine, avec un menu maître, la synchronisation des
 > ruptures, l'état des magasins et la vérification des versements. Elle tourne en production dans nos cuisines à
-> Montréal, en français et en anglais, avec les données au Canada.
+> Montréal, en français et en anglais, avec sa base de données hébergée à Montréal.
 >
 > Nous souhaitons devenir partenaire d'intégration de Lightspeed Restaurant (K-Series) pour offrir Food Hub aux
 > restaurants qui utilisent votre caisse. Pourriez-vous nous indiquer comment présenter notre demande, les exigences et
@@ -297,7 +313,7 @@ in production in our own kitchens in Montréal and is submitted to the Clover Ap
 >
 > TAKATAK Food Hub is a Montréal-built order management hub for restaurants: delivery and online orders go straight into
 > the POS and kitchen, with one master menu, sold-out sync, store status and payout checks, bilingual French / English
-> with data in Canada.
+> with its database hosted in Montréal (Canada).
 >
 > We are applying to build a generally available integration so restaurants on Toast in Canada can use Food Hub. Our
 > proposed integration: orders into Toast, menu and item availability from Toast, store status, and order status back to
@@ -317,7 +333,7 @@ in production in our own kitchens in Montréal and is submitted to the Clover Ap
 >
 > TAKATAK Food Hub is a Montréal-built order management hub for restaurants: delivery and online orders go straight into
 > the POS and kitchen, with one master menu, sold-out sync, store status and payout checks, bilingual French / English
-> with data in Canada.
+> with its database hosted in Montréal (Canada).
 >
 > We would like to become a TouchBistro integration partner so Canadian restaurants on TouchBistro can use Food Hub.
 > Could you share the partner requirements, the commercial terms and how to obtain API access?
@@ -334,7 +350,7 @@ in production in our own kitchens in Montréal and is submitted to the Clover Ap
 >
 > TAKATAK Food Hub est une plateforme de gestion des commandes conçue à Montréal : les commandes de livraison et en
 > ligne entrent directement dans la caisse et à l'imprimante de cuisine, avec un menu maître, la synchronisation des
-> ruptures et l'état des magasins, en français et en anglais, avec les données au Canada.
+> ruptures et l'état des magasins, en français et en anglais, avec sa base de données hébergée à Montréal.
 >
 > Nous souhaitons intégrer Food Hub à Maître'D et à Veloce pour les restaurants québécois qui utilisent vos caisses.
 > Offrez-vous une API ou un programme de partenaires d'intégration, et qui devrions-nous joindre ?
@@ -353,7 +369,7 @@ in production in our own kitchens in Montréal and is submitted to the Clover Ap
 > Hello Moneris Client Consulting team,
 >
 > TAKATAK Food Hub is a Montréal-built order management hub for restaurants (delivery and online orders into the
-> register and kitchen, menus, sold-out sync, payouts), bilingual French / English with data in Canada. We would like to
+> register and kitchen, menus, sold-out sync, payouts), bilingual French / English, with its database hosted in Montréal (Canada). We would like to
 > integrate with Moneris Go for restaurants using Moneris terminals. Could you share the integration specifications
 > (Cloud / App-to-App) and the partner onboarding steps?
 >

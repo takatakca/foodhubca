@@ -49,8 +49,9 @@ plateforme et chaque caisse) ; (d) un **portail partenaires** et une API publiqu
    (`/hub` existe ; ajouter une page « Partenaires / Developers »).
 2. **Assurance responsabilité civile + cyber** (les plateformes et caisses la demandent souvent avant la production).
 3. **Sécurité** : politique écrite (accès, journalisation, incidents, sauvegardes), chiffrement des jetons (fait), puis
-   **SOC 2 Type I** dans 6 à 12 mois (outils comme Vanta/Drata) ; test d'intrusion annuel. Loi 25 / LPRPDE : données à
-   Montréal (fait), responsable de la protection des renseignements nommé, politique de confidentialité (fait).
+   **SOC 2 Type I** dans 6 à 12 mois (outils comme Vanta/Drata) ; test d'intrusion annuel. Loi 25 / LPRPDE : base de
+   données à Montréal (fait) ; le serveur d'application et plusieurs fournisseurs traitent aux États-Unis (politique de
+   confidentialité §5) : ne jamais écrire « les données restent au Canada » ; responsable de la protection des renseignements nommé, politique de confidentialité (fait).
 4. **Contrats** : chaque programme partenaire a sa licence d'API / NDA à signer (le propriétaire signe, jamais un agent).
 
 ### 3.2 Accès aux API (une demande par partenaire — courriels prêts dans `PARTNER_OUTREACH.md`)
@@ -78,8 +79,9 @@ plateforme et chaque caisse) ; (d) un **portail partenaires** et une API publiqu
 1. **Contrat d'adaptateur caisse (`PosAdapter`)** comme celui des canaux (`ChannelAdapter` existe déjà) : créer la
    commande, la marquer payée, l'annuler, importer le catalogue, recevoir les ruptures, imprimer, connecter / déconnecter.
    Clover l'implémente en premier, **sans changer son comportement** (tests `verify:foodhub` 578/0 doivent rester verts).
-2. **Catalogue d'intégrations** (`lib/foodhub/integrations/catalog.ts`) : chaque partenaire, son type, son état réel
-   (en ligne / certification / demande envoyée / à demander), sa porte d'entrée. Il nourrit la console (Réglages →
+2. **Catalogue d'intégrations** (`lib/foodhub/integrations/catalog.ts`) : chaque partenaire, son type, son état
+   technique réel (en ligne / certification / codé / à demander), **séparément** l'avancement de son courriel (prêt /
+   envoyé / répondu), et sa porte d'entrée. Il nourrit la console (Réglages →
    Plateformes), la page publique (seulement ce qui est **en ligne**, règle des pages publiques) et ce plan.
 3. **Square d'abord** (API ouverte, bac à sable libre) pour prouver le contrat `PosAdapter` sur une 2ᵉ caisse.
 4. **Portail partenaires + API publique** (plus tard) : clés par partenaire, webhooks signés (le bus `/api/suite/v1`

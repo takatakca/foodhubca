@@ -192,7 +192,7 @@ Each phase ends with **acceptance checks**. A phase is done only when all of the
 3. Fix the Go-live checklist — **done** (#7):
    - ✅ The Clover line needs a merchant token or a connected merchant.
    - ✅ A platform arriving on the Relay counts as done.
-4. ✅ Update `docs/ATLAS_PARITY.md`, `docs/RELEASE_NOTES.md` and `docs/INSTALLER_SERVEUR.md` (old zip and folder names) for the Relay and shared menus. **Done (#PRNUM, 2026-10-30).**
+4. ✅ Update `docs/ATLAS_PARITY.md`, `docs/RELEASE_NOTES.md` and `docs/INSTALLER_SERVEUR.md` (old zip and folder names) for the Relay and shared menus. **Done (#131, 2026-10-30).**
 
 **Acceptance:**
 - The live console shows the Relay card and the Shared menu button.

@@ -1,6 +1,6 @@
 # Food Hub: progress log and task board
 
-## 2026-10-30 — Plan documents brought up to date (`docs/master-plan-refresh`, PR #PRNUM)
+## 2026-10-30 — Plan documents brought up to date (`docs/master-plan-refresh`, PR #131)
 
 - `docs/MASTER_PLAN.md`: sections 1–2 rewritten to 2026-10-30; new § 3b « Built since the plan was written » (screens wall + relay kit, customer accounts + ON2GO sign-in, MEV off and not certified, TGTG e-mails, own fleet, province taxes, direct / website orders + Clover checkout, AI phone, WhatsApp, leads API, availability centre, and the three PRs of release #130); new connection-board rows; finished phase items marked ✅ with their PR (phases and locked rules otherwise unchanged); § 5b owner decision on the Deliverect code (no code changed); the Phase 0 / 1 prompts flagged as done.
 - `docs/ATLAS_PARITY.md`: Order Relay and shared menu rows, test count, province taxes, Android tablet app (PR #130). `docs/INSTALLER_SERVEUR.md`: install from Coolify (`main`) or the VPS script with GitHub's `main` zip (the old rc10 zip and folder names are gone), Order Relay, shared menus, TGTG e-mails. `docs/RELEASE_NOTES.md`: one short entry for #8–#124. Docs only.

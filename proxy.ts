@@ -36,6 +36,7 @@ const PUBLIC_PATHS = new Set([
   '/api/health', // uptime monitors: status only without CRON_SECRET or a session (app/api/health/route.ts)
   '/api/release', // deployment proof: public commit SHA only, exact path, no settings or secrets
   '/api/public/restaurant-leads', // the on2go.ca sign-up form: JSON only, honeypot, 5 sends / 10 min per IP, 16 KB body, CORS for on2go.ca only (app/api/public/restaurant-leads/route.ts)
+  '/api/public/on2go/session', // on2go.ca sign-in through TAKATAK: a one-time launch code (90 s) is the credential, exchanged server to server; per-IP limit, CORS for the ON2GO sites only (lib/foodhub/customers/takatak-bridge.ts)
   '/api/public/directory', // ON2GO/QMAPS read-only directory (public facts only, lib/foodhub/public-directory.ts); other /api/public/* stay protected
   '/api/public/restaurant-leads', // on2go.ca « Rejoindre » form: POST + OPTIONS only, JSON, size cap, honeypot, per-IP quota, CORS on2go.ca (lib/foodhub/restaurant-leads.ts)
   '/legal', // the legal pages' index: redirects to /legal/support (app/legal/page.tsx); /legal/* is in PUBLIC_PREFIXES

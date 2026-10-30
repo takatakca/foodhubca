@@ -450,7 +450,9 @@ export const CANCEL_REASON_LABELS: Record<CancelReason, string> = {
 
 export type ActivitySource = 'dashboard' | 'automation' | 'platform' | 'schedule' | 'api';
 export type ActivityKind = 'order' | 'store_status' | 'item_availability' | 'menu_publish' | 'hours' | 'settings' | 'users' | 'login'
-  | 'device' | 'incident' | 'message' | 'approval' | 'security';
+  | 'device' | 'incident' | 'message' | 'approval' | 'security'
+  /** Customer accounts of the brand websites (lib/foodhub/customers): created, verified, deleted. */
+  | 'customer';
 
 export interface ActivityEntry {
   id?: string;

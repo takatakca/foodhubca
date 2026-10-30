@@ -68,7 +68,7 @@ export default function TeamPage() {
       <SettingsHead title={t('Équipe et NIP', 'Team & PINs')} intro={t('Chaque personne se connecte avec son courriel ou son cellulaire (code par texto ou courriel, aucun mot de passe). Le NIP déverrouille les tablettes de cuisine et sert à approuver les actions sensibles. Retirer quelqu’un le déconnecte partout immédiatement.', 'Everyone signs in with their email or cell (code by text or email, no password). The PIN unlocks kitchen tablets and approves sensitive actions. Removing someone signs them out everywhere at once.')}
         right={<Hint id="team.add"><Button onClick={() => setEdit(newDraft())} icon={<UserPlus className="size-4" />}>{t('Ajouter une personne', 'Add a person')}</Button></Hint>} />
       {err && <Banner tone="stop" className="mb-4">{err}</Banner>}
-      {noPin > 0 && <Banner tone="warn" className="mb-4">{t(`${noPin} personne(s) de cuisine sans NIP : elles ne peuvent pas déverrouiller une tablette.`, `${noPin} kitchen person(s) without a PIN: they cannot unlock a tablet.`)}</Banner>}
+      {noPin > 0 && <Banner tone="warn" className="mb-4">{noPin === 1 ? t('1 personne de cuisine sans NIP : elle ne peut pas déverrouiller une tablette.', '1 kitchen person without a PIN: they cannot unlock a tablet.') : t(`${noPin} personnes de cuisine sans NIP : elles ne peuvent pas déverrouiller une tablette.`, `${noPin} kitchen people without a PIN: they cannot unlock a tablet.`)}</Banner>}
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Hint id="team.search"><div className="relative">

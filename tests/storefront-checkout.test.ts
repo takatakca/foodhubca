@@ -38,8 +38,8 @@ import { clearStorefrontCache } from '../lib/foodhub/storefront/catalog';
 import { TRACK_TTL_MS, ordersBySource, placeStorefrontOrder, trackOrder } from '../lib/foodhub/storefront/checkout';
 import { PICKUP_PAGE_LIMIT, reserveCheckout, resetStorefrontRateLimits } from '../lib/foodhub/storefront/rate-limit';
 import { getStorefrontSettings, saveStorefrontSettings } from '../lib/foodhub/storefront/settings';
-import { POST as checkoutRoute } from '../app/api/storefront/checkout/route';
-import { GET as trackRoute } from '../app/api/storefront/track/[token]/route';
+import { OPTIONS as checkoutPreflight, POST as checkoutRoute } from '../app/api/storefront/checkout/route';
+import { GET as trackRoute, OPTIONS as trackPreflight } from '../app/api/storefront/track/[token]/route';
 import { BRAND, LOC, SLUG, at, everyDay, fixtureMenu } from './helpers/storefront-fixture';
 
 const owner = { username: 'owner', name: 'Owner', source: 'dashboard' as const };
@@ -186,6 +186,21 @@ describe('refusals', () => {
       expect((await checkoutRoute(chunked)).status).toBe(413);
       const good = await post({ 'Content-Type': 'application/json; charset=utf-8', Origin: 'https://hub.test', 'Sec-Fetch-Site': 'same-origin' });
       expect(good.status).toBe(200);
+      // ON2GO.ca orders from its own pages: an allowed origin passes (cross-site) and gets CORS headers; the preflight too.
+      const on2go = await post({ 'Content-Type': 'application/json', Origin: 'https://on2go.ca', 'Sec-Fetch-Site': 'cross-site' });
+      expect(on2go.status).toBe(200);
+      expect(on2go.headers.get('access-control-allow-origin')).toBe('https://on2go.ca');
+      const pre = await checkoutPreflight(new Request(url, { method: 'OPTIONS', headers: { Origin: 'https://on2go.ca', 'Access-Control-Request-Method': 'POST' } }));
+      expect(pre.status).toBe(204);
+      expect(pre.headers.get('access-control-allow-origin')).toBe('https://on2go.ca');
+      expect(pre.headers.get('access-control-allow-headers')).toMatch(/content-type/i);
+      const evilPre = await checkoutPreflight(new Request(url, { method: 'OPTIONS', headers: { Origin: 'https://evil.example', 'Access-Control-Request-Method': 'POST' } }));
+      expect(evilPre.headers.get('access-control-allow-origin')).toBeNull();
+      const placed = await on2go.json();
+      const seen = await trackRoute(new Request('https://hub.test/api/storefront/track/' + placed.track, { headers: { Origin: 'https://on2go.ca' } }), { params: Promise.resolve({ token: placed.track }) });
+      expect(seen.status).toBe(200);
+      expect(seen.headers.get('access-control-allow-origin')).toBe('https://on2go.ca');
+      expect((await trackPreflight(new Request('https://hub.test/api/storefront/track/x', { method: 'OPTIONS', headers: { Origin: 'https://on2go.ca' } }))).status).toBe(204);
     } finally {
       vi.mocked(Date.now).mockRestore();
     }

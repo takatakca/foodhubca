@@ -27,6 +27,7 @@ export async function register() {
     const { tickExpansion } = await import('./lib/foodhub/expansion/tick');
     const { tickTgtgEmail } = await import('./lib/foodhub/tgtg-email/imap');
     const { tickAvailability } = await import('./lib/foodhub/store-availability/tick');
+    const { tickSuite } = await import('./lib/foodhub/suite/bus');
     // Order recovery first (Clover retries, interrupted or failed webhooks — also right after a restart), then the Watchtower,
     // then the expansion features (courier auto-dispatch…) after the Watchtower run, never during it.
     const tick = async () => {
@@ -40,6 +41,8 @@ export async function register() {
       await tickTgtgEmail();
       // Store availability center: busy schedule + tablet-off guard (at most every 30 s, never throws).
       await tickAvailability();
+      // TAKATAK Suite apps: order changes → signed events (off until an app is connected, never throws).
+      await tickSuite();
     };
     g.__takatakWatchTimer = setInterval(() => { void tick(); }, Math.max(15, seconds) * 1000);
     g.__takatakWatchTimer.unref?.();

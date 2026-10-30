@@ -8,6 +8,8 @@ import {
   hubRequirements, jsonLdScript, pendingPlatforms, platformList, type HubContext, type HubPageKey,
 } from '@/lib/foodhub/public-hub';
 import { HUB_UI, type Block, type Card } from '@/lib/foodhub/public-hub-content';
+import { HeroDevice, HeroSparkles, LandingShowcase, MotionToggle } from './landing-showcase';
+import landing from './landing.module.css';
 
 // The public ON2GO.ca pages (/hub, /en/hub…): server-rendered, no page-specific client component, no tracker, no
 // session, no database (the root layout still ships its own small boot script and the Next.js runtime).
@@ -190,8 +192,9 @@ export function HubPage({ page, lang, ctx }: { page: HubPageKey; lang: Lang; ctx
   const faq = hubFaq(page, lang, ctx);
   const certification = hubCertificationNote(page, lang, ctx);
   const pending = pendingPlatforms(ctx);
+  const isLanding = page === 'landing';
   return (
-    <div lang={lang === 'fr' ? 'fr-CA' : 'en-CA'} className="min-h-dvh bg-canvas text-ink">
+    <div lang={lang === 'fr' ? 'fr-CA' : 'en-CA'} className={`min-h-dvh bg-canvas text-ink${isLanding ? ` ${landing.motionScope}` : ''}`}>
       <a href="#contenu" className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-10 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2">{ui.skip}</a>
       <header className="bg-rail text-white">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
@@ -208,45 +211,52 @@ export function HubPage({ page, lang, ctx }: { page: HubPageKey; lang: Lang; ctx
       </header>
 
       <main id="contenu">
-        <div className="bg-rail text-white">
-          <div className="mx-auto max-w-6xl px-4 pb-14 pt-10">
-            {page !== 'landing' && (
-              <nav aria-label={ui.breadcrumb} className="mb-4 text-sm text-silver">
-                <a href={home} className="underline underline-offset-2 hover:text-white">{HUB_NAME}</a>
-                <span aria-hidden> › </span>
-                <span aria-current="page">{c.label}</span>
-              </nav>
-            )}
-            <p className="text-[13px] font-bold uppercase tracking-[0.12em] text-cyan">{c.eyebrow}</p>
-            <h1 className="mt-3 max-w-4xl text-3xl font-extrabold leading-tight tracking-tight sm:text-5xl">
-              {c.h1}
-            </h1>
-            {certification && (
-              <p className="mt-4 inline-flex rounded-full bg-wait px-3 py-1 text-sm font-bold text-rail">{certification}</p>
-            )}
-            <p className="mt-5 max-w-3xl text-lg leading-relaxed text-silver">{fillHub(c.lead, lang, ctx)}</p>
-            <div className="mt-7 flex flex-wrap items-center gap-3">
-              <MarketButton lang={lang} ctx={ctx} large />
-              {page !== 'pricing' && (
-                <a href={HUB_PATHS.pricing[lang]} className="inline-flex rounded-md border border-silver/40 px-5 py-3 font-bold text-white hover:border-white">{ui.seePricing}</a>
+        <div className={`bg-rail text-white${isLanding ? ` ${landing.hero}` : ''}`}>
+          {isLanding && <HeroSparkles />}
+          <div className={`mx-auto max-w-6xl px-4 pb-14 pt-10${isLanding ? ' grid grid-cols-1 items-center gap-12 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] lg:pb-24 lg:pt-16' : ''}`}>
+            <div>
+              {page !== 'landing' && (
+                <nav aria-label={ui.breadcrumb} className="mb-4 text-sm text-silver">
+                  <a href={home} className="underline underline-offset-2 hover:text-white">{HUB_NAME}</a>
+                  <span aria-hidden> › </span>
+                  <span aria-current="page">{c.label}</span>
+                </nav>
               )}
-            </div>
-            {page === 'landing' && (
-              <div className="mt-8">
-                <p className="sr-only">{ui.platformsLabel}</p>
-                <ul className="flex flex-wrap gap-2">
-                  {[...PLATFORMS, 'Clover'].map((p) => (
-                    <li key={p} className="rounded-full border border-silver/30 px-3 py-1 text-sm font-semibold text-white">{p}</li>
-                  ))}
-                </ul>
-                <p className="mt-2 text-[13px] text-silver">* {ui.tgtgNote}</p>
-                {pending.length > 0 && (
-                  <p className="mt-1 text-[13px] text-silver">{ui.pending.trim().replace('{platforms}', platformList(pending, lang))}</p>
+              <p className="text-[13px] font-bold uppercase tracking-[0.12em] text-cyan">{c.eyebrow}</p>
+              <h1 className="mt-3 max-w-4xl text-3xl font-extrabold leading-tight tracking-tight sm:text-5xl">
+                {c.h1}
+              </h1>
+              {certification && (
+                <p className="mt-4 inline-flex rounded-full bg-wait px-3 py-1 text-sm font-bold text-rail">{certification}</p>
+              )}
+              <p className="mt-5 max-w-3xl text-lg leading-relaxed text-silver">{fillHub(c.lead, lang, ctx)}</p>
+              <div className="mt-7 flex flex-wrap items-center gap-3">
+                <MarketButton lang={lang} ctx={ctx} large />
+                {page !== 'pricing' && (
+                  <a href={HUB_PATHS.pricing[lang]} className="inline-flex rounded-md border border-silver/40 px-5 py-3 font-bold text-white hover:border-white">{ui.seePricing}</a>
                 )}
               </div>
-            )}
+              {page === 'landing' && (
+                <div className="mt-8">
+                  <p className="sr-only">{ui.platformsLabel}</p>
+                  <ul className="flex flex-wrap gap-2">
+                    {[...PLATFORMS, 'Clover'].map((p) => (
+                      <li key={p} className="rounded-full border border-silver/30 px-3 py-1 text-sm font-semibold text-white">{p}</li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-[13px] text-silver">* {ui.tgtgNote}</p>
+                  {pending.length > 0 && (
+                    <p className="mt-1 text-[13px] text-silver">{ui.pending.trim().replace('{platforms}', platformList(pending, lang))}</p>
+                  )}
+                  <MotionToggle lang={lang} />
+                </div>
+              )}
+            </div>
+            {isLanding && <HeroDevice lang={lang} />}
           </div>
         </div>
+
+        {isLanding && <LandingShowcase lang={lang} ctx={ctx} />}
 
         <div className="mx-auto max-w-6xl px-4">
           {c.blocks.map((b) => <BlockView key={b.id} block={b} lang={lang} ctx={ctx} />)}

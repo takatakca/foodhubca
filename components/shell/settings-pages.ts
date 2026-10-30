@@ -1,7 +1,7 @@
 // The Settings pages, in groups (task 40). Plain data: the Settings hub, the Settings tabs, the menu search and the tests
 // read it. `group`: business (your business), you (for you), addons (extra services), advanced (technician tools: shown
 // in the full view only; every page still opens by its address).
-import { BellRing, Blocks, Building2, Handshake, MonitorSmartphone, PlugZap, Rocket, ShieldCheck, Store, Truck, UserRound, Users } from 'lucide-react';
+import { BellRing, Blocks, Boxes, Building2, Handshake, MonitorSmartphone, PlugZap, Rocket, ShieldCheck, Store, Truck, UserRound, Users } from 'lucide-react';
 
 export type SettingsGroup = 'business' | 'you' | 'addons' | 'advanced';
 
@@ -24,6 +24,7 @@ export const SETTINGS_PAGES = [
   { href: '/settings/leads', group: 'business', icon: Handshake, perm: 'admin', fr: 'Demandes de restaurants', en: 'Restaurant leads', dfr: 'Les restaurants qui veulent rejoindre ON2GO (formulaire on2go.ca) : statut et notes.', den: 'Restaurants asking to join ON2GO (on2go.ca form): status and notes.' },
   { href: '/settings/clover-app', group: 'advanced', icon: Store, perm: 'admin', fr: 'App Clover', en: 'Clover app', dfr: 'Fiche App Market : textes, adresses à copier, soumission, marchands en attente.', den: 'App Market listing: texts, addresses to copy, submission, merchants waiting.' },
   { href: '/settings/expansion', group: 'addons', icon: Blocks, perm: 'view', fr: 'Services en plus', en: 'Add-ons', dfr: 'Livraison, téléphone, épicerie, alcool : interrupteurs et règles.', den: 'Delivery, phone, grocery, alcohol: switches and rules.' },
+  { href: '/settings/suite', group: 'addons', icon: Boxes, perm: 'admin', fr: 'Apps connectées', en: 'Connected apps', dfr: 'Vos apps Clover (C4ISSE, LOY4LTY, TR4CKER…) : branchées ou non, commandes envoyées, échecs.', den: 'Your Clover apps (C4ISSE, LOY4LTY, TR4CKER…): connected or not, orders sent, failures.' },
   { href: '/settings/go-live', group: 'advanced', icon: Rocket, perm: 'admin', fr: 'Mise en service', en: 'Go-live', dfr: 'La liste de ce qui reste avant d’ouvrir les vannes.', den: 'What is left before switching everything on.' },
 ] as const satisfies ReadonlyArray<{ href: string; group: SettingsGroup; icon: unknown; perm: string; fr: string; en: string; dfr: string; den: string }>;
 

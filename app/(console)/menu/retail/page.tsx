@@ -13,6 +13,7 @@ import { useViewer } from '@/components/shell/viewer';
 import type { RetailProduct } from '@/lib/foodhub/retail/catalog';
 import { api, money } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
+import { countEn, countFr } from '@/lib/ui/count-label';
 import { cn } from '@/lib/ui/cn';
 import { MenuTabs } from '../menu-tabs';
 
@@ -61,18 +62,18 @@ export default function RetailPage() {
     if (scan.current) scan.current.value = '';
   }
 
-  if (!on) return <div><PageHeader eyebrow={t('Menus', 'Menus')} title={t('Épicerie et produits', 'Grocery & retail')} /><MenuTabs /><EmptyState icon={<ShoppingBasket className="size-6" />} title={t('Le catalogue épicerie est désactivé', 'The grocery catalogue is turned off')} body={t('Le propriétaire l’active dans Réglages → Expansion.', 'The owner turns it on in Settings → Expansion.')} action={can('admin') ? <ButtonLink href="/settings/expansion">{t('Ouvrir Expansion', 'Open Expansion')}</ButtonLink> : undefined} /></div>;
+  if (!on) return <div><PageHeader eyebrow={t('Menus', 'Menus')} title={t('Épicerie et produits', 'Grocery & retail')} tabs={<MenuTabs className="mb-0" />} /><EmptyState icon={<ShoppingBasket className="size-6" />} title={t('Le catalogue épicerie est désactivé', 'The grocery catalogue is turned off')} body={t('Le propriétaire l’active dans Réglages → Expansion.', 'The owner turns it on in Settings → Expansion.')} action={can('admin') ? <ButtonLink href="/settings/expansion">{t('Ouvrir Expansion', 'Open Expansion')}</ButtonLink> : undefined} /></div>;
 
   return (
     <div>
-      <PageHeader eyebrow={t('Menus', 'Menus')} title={t('Épicerie et produits', 'Grocery & retail')}
-        subtitle={t('Produits emballés et au poids, avec code-barres, unités et inventaire par succursale — reliés aux articles Clover.', 'Packaged and by-weight products with barcodes, units and stock per location — linked to Clover items.')}
+      <PageHeader eyebrow={t('Menus', 'Menus')} title={t('Épicerie et produits', 'Grocery & retail')} tabs={<MenuTabs className="mb-0" />}
+        subtitle={t('Produits emballés et au poids, avec code-barres, unités et inventaire par cuisine, reliés aux articles Clover.', 'Packaged and by-weight products with barcodes, units and stock per kitchen, linked to Clover items.')}
         right={editor ? <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" icon={<Download className="size-4" />} loading={busy === 'import_clover'} onClick={() => post('import_clover', { locationCode: location }).then((r) => r && toast.success(t('Importé de Clover', 'Imported from Clover'), `${r.added} ${t('nouveaux', 'new')} · ${r.updated} ${t('mis à jour', 'updated')}`))}>{t('Importer de Clover', 'Import from Clover')}</Button>
           <Button variant="outline" size="sm" icon={<Upload className="size-4" />} onClick={() => setCsv(true)}>CSV</Button>
           <Button size="sm" icon={<PackagePlus className="size-4" />} onClick={() => setEdit({ soldBy: 'unit', unit: 'each', trackStock: true, taxable: false, active: true, stock: {}, barcodes: [] })}>{t('Produit', 'Product')}</Button>
         </div> : undefined} />
-      <MenuTabs />
+
 
       <Banner tone="info" className="mb-4" action={<Button size="xs" variant="ghost" onClick={() => setPreview(true)}>{t('Voir les envois prévus', 'See planned payloads')}</Button>}>
         {t('DoorDash Marketplace Retail et Uber Eats (épicerie) demandent l’approbation de chaque plateforme : rien n’est envoyé tant qu’elles n’ont pas approuvé.', 'DoorDash Marketplace Retail and Uber Eats (grocery) need each platform’s approval: nothing is sent until they approve.')}
@@ -99,10 +100,10 @@ export default function RetailPage() {
                 return (
                   <Tr key={p.id} className={cn(!p.active && 'opacity-50')}>
                     <Td><button type="button" className="text-left font-semibold hover:underline" onClick={() => setEdit(p)}>{lang === 'fr' && p.nameFr ? p.nameFr : p.name}</button>
-                      <div className="flex flex-wrap items-center gap-1 text-xs text-ink-3">{p.brand && <span>{p.brand}</span>}{p.size && <span>· {p.size}</span>}{p.alcohol && <Badge tone="violet" icon={<Wine className="size-3" />}>{p.alcohol.abv ?? '?'} %</Badge>}{p.posItemRef && <Badge tone="neutral">Clover</Badge>}{p.soldBy === 'weight' && <Badge tone="info">{t('au poids', 'by weight')}</Badge>}</div></Td>
-                    <Td className="num text-xs"><div>{p.sku}</div><div className="text-ink-3">{p.barcodes[0] ?? '—'}</div></Td>
-                    <Td className="text-sm">{p.category}</Td>
-                    <Td align="right" className="num">{money(p.price, loc)}{p.unit !== 'each' ? <span className="text-xs text-ink-3"> / {p.unit}</span> : null}</Td>
+                      <div className="flex flex-wrap items-center gap-1 text-small text-ink-3">{p.brand && <span>{p.brand}</span>}{p.size && <span>· {p.size}</span>}{p.alcohol && <Badge tone="violet" icon={<Wine className="size-3" />}>{p.alcohol.abv ?? '?'} %</Badge>}{p.posItemRef && <Badge tone="neutral">Clover</Badge>}{p.soldBy === 'weight' && <Badge tone="info">{t('au poids', 'by weight')}</Badge>}</div></Td>
+                    <Td className="num text-small"><div>{p.sku}</div><div className="text-ink-3">{p.barcodes[0] ?? '—'}</div></Td>
+                    <Td className="text-body">{p.category}</Td>
+                    <Td align="right" className="num">{money(p.price, loc)}{p.unit !== 'each' ? <span className="text-small text-ink-3"> / {p.unit}</span> : null}</Td>
                     <Td align="right" className={cn('num', low && 'font-bold text-stop', p.trackStock && !qty && 'text-wait-2')}>{p.trackStock ? (qty ?? 0) : '∞'}</Td>
                     {editor && <Td align="right">{p.trackStock && <div className="flex justify-end gap-1">
                       <Button size="xs" variant="ghost" aria-label="-1" disabled={busy === 'stock'} onClick={() => post('stock', { id: p.id, locationCode: location, delta: -1, reason: 'sale / loss' })}><Minus className="size-3.5" /></Button>
@@ -162,7 +163,7 @@ function ProductDrawer({ product, location, editor, onClose, onSaved }: { produc
           <Field label={p.soldBy === 'weight' ? t(`Prix / ${p.unit ?? 'kg'}`, `Price / ${p.unit ?? 'kg'}`) : t('Prix', 'Price')}><Input inputMode="decimal" value={p.price ?? ''} onChange={(e) => set({ price: e.target.value as unknown as number })} /></Field>
         </div>
         <div className="rounded-md border border-line p-3">
-          <div className="mb-2 flex items-center justify-between"><span className="text-[13px] font-semibold">{t('Inventaire par succursale', 'Stock per location')}</span><Checkbox checked={p.trackStock !== false} onChange={(v) => set({ trackStock: v })} label={t('Suivre l’inventaire', 'Track stock')} /></div>
+          <div className="mb-2 flex items-center justify-between"><span className="text-small font-semibold">{t('Inventaire par cuisine', 'Stock per kitchen')}</span><Checkbox checked={p.trackStock !== false} onChange={(v) => set({ trackStock: v })} label={t('Suivre l’inventaire', 'Track stock')} /></div>
           {p.trackStock !== false && <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">{locations.map((l) => <Field key={l.code} label={l.name.split(' — ')[0]}><Input inputMode="decimal" value={p.stock?.[l.code] ?? ''} onChange={(e) => set({ stock: { ...(p.stock ?? {}), [l.code]: e.target.value as unknown as number } })} /></Field>)}<Field label={t('Alerte stock bas à', 'Low stock at')}><Input inputMode="decimal" value={p.lowStockAt ?? ''} onChange={(e) => set({ lowStockAt: e.target.value === '' ? undefined : Number(e.target.value) })} /></Field></div>}
         </div>
         <div className="rounded-md border border-line p-3">
@@ -188,15 +189,15 @@ function CsvImport({ location, onClose, onDone }: { location: string; onClose: (
     try {
       const r = await api<{ products?: number; saved?: number; errors: string[] }>('/api/foodhub/retail', { method: 'POST', json: { action: 'import_csv', csv: text, locationCode: location, dryRun } });
       if (dryRun) setCheck({ products: r.products ?? 0, errors: r.errors });
-      else { toast.success(t(`${r.saved} produit(s) importé(s)`, `${r.saved} product(s) imported`)); onDone(); }
+      else { toast.success(t(countFr(r.saved, 'produit importé', 'produits importés'), `${countEn(r.saved, 'product')} imported`)); onDone(); }
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
   return (
     <Modal size="lg" title={t('Importer un fichier CSV', 'Import a CSV file')} subtitle={t('Colonnes : sku, code-barres, nom, nom_fr, marque, catégorie, prix, unité, format, stock, taxable, alcool (%).', 'Columns: sku, barcode, name, name_fr, brand, category, price, unit, size, stock, taxable, abv (%).')} onClose={onClose}
       footer={<><Button variant="ghost" onClick={onClose}>{t('Annuler', 'Cancel')}</Button><Button variant="outline" loading={busy && !check} disabled={!text.trim()} onClick={() => run(true)}>{t('Vérifier', 'Check')}</Button><Button loading={busy && Boolean(check)} disabled={!check || !check.products} onClick={() => run(false)}>{t('Importer', 'Import')}</Button></>}>
-      <input type="file" accept=".csv,text/csv" className="mb-3 text-sm" onChange={async (e) => { const f = e.target.files?.[0]; if (f) { setText(await f.text()); setCheck(null); } }} />
-      <Textarea rows={8} value={text} onChange={(e) => { setText(e.target.value); setCheck(null); }} placeholder={'sku;code-barres;nom;prix;unité;stock\nB1;036000291452;Bière blonde;3,49;each;24'} className="font-mono text-xs" />
-      {check && <div className="mt-3 space-y-2"><Banner tone={check.errors.length ? 'warn' : 'go'}>{t(`${check.products} produit(s) prêts`, `${check.products} product(s) ready`)}{check.errors.length ? ` · ${check.errors.length} ${t('ligne(s) refusée(s)', 'row(s) refused')}` : ''}</Banner>{check.errors.slice(0, 8).map((e) => <div key={e} className="text-xs text-stop-2">{e}</div>)}</div>}
+      <input type="file" accept=".csv,text/csv" className="mb-3 text-body" onChange={async (e) => { const f = e.target.files?.[0]; if (f) { setText(await f.text()); setCheck(null); } }} />
+      <Textarea rows={8} value={text} onChange={(e) => { setText(e.target.value); setCheck(null); }} placeholder={'sku;code-barres;nom;prix;unité;stock\nB1;036000291452;Bière blonde;3,49;each;24'} className="font-mono text-small" />
+      {check && <div className="mt-3 space-y-2"><Banner tone={check.errors.length ? 'warn' : 'go'}>{t(countFr(check.products, 'produit prêt', 'produits prêts'), `${countEn(check.products, 'product')} ready`)}{check.errors.length ? ` · ${t(countFr(check.errors.length, 'ligne refusée', 'lignes refusées'), `${countEn(check.errors.length, 'row')} refused`)}` : ''}</Banner>{check.errors.slice(0, 8).map((e) => <div key={e} className="text-small text-stop-2">{e}</div>)}</div>}
     </Modal>
   );
 }
@@ -211,11 +212,11 @@ function PlatformPreview({ location, platforms, onClose }: { location: string; p
         {platforms.map((p) => (
           <div key={p.platform} className="rounded-lg border border-line p-4">
             <div className="flex items-center justify-between gap-2"><h3 className="font-extrabold">{p.label}</h3><Badge tone="wait">{t('Approbation requise', 'Needs approval')}</Badge></div>
-            <p className="mt-1 text-[13px] text-ink-3">{lang === 'fr' ? p.noteFr : p.note}</p>
-            <ol className="mt-2 list-decimal space-y-1 pl-5 text-[13px]">{p.steps.map((s, i) => <li key={i}>{lang === 'fr' ? s.fr : s.en}</li>)}</ol>
+            <p className="mt-1 text-small text-ink-3">{lang === 'fr' ? p.noteFr : p.note}</p>
+            <ol className="mt-2 list-decimal space-y-1 pl-5 text-small">{p.steps.map((s, i) => <li key={i}>{lang === 'fr' ? s.fr : s.en}</li>)}</ol>
             {data?.[p.platform] && <>
-              {data[p.platform].leftOut > 0 && <p className="mt-2 text-xs text-wait-2">{t(`${data[p.platform].leftOut} produit(s) laissé(s) de côté (inactifs ou alcool non permis).`, `${data[p.platform].leftOut} product(s) left out (inactive or alcohol not allowed).`)}</p>}
-              <pre className="scrollbar-thin mt-2 max-h-72 overflow-auto rounded-md bg-ink p-3 text-[11px] leading-relaxed text-canvas">{JSON.stringify(data[p.platform].items.slice(0, 3), null, 2)}</pre>
+              {data[p.platform].leftOut > 0 && <p className="mt-2 text-small text-wait-2">{t(`${countFr(data[p.platform].leftOut, 'produit laissé', 'produits laissés')} de côté (inactifs ou alcool non permis).`, `${countEn(data[p.platform].leftOut, 'product')} left out (inactive or alcohol not allowed).`)}</p>}
+              <pre className="scrollbar-thin mt-2 max-h-72 overflow-auto rounded-md bg-ink p-3 text-micro leading-relaxed text-canvas">{JSON.stringify(data[p.platform].items.slice(0, 3), null, 2)}</pre>
             </>}
           </div>
         ))}

@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { ClipboardList } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Banner, Card, EmptyState, PageHeader } from '@/components/ui/card';
+import { Banner, Card, EmptyState, PageHeader, SkeletonStats } from '@/components/ui/card';
 import { Field, Input } from '@/components/ui/form';
 import { FilterBar } from '@/components/ui/filter-bar';
 import { ChartCard, fmtInt, fmtMoney, HBars, StatTile } from '@/components/charts/charts';
@@ -137,14 +137,21 @@ export default function OperationsQualityPage() {
     if (!keys.length && !attention.length) return null;
     return (
       <section className="mb-6">
-        <h2 className="mb-3 text-[17px] font-bold text-ink">{STATUS[status]}</h2>
-        {attention.length > 0 && (
-          <ChartCard className="mb-5" title={t('Magasins à corriger en premier', 'Stores to fix first')} subtitle={t('Le plus loin de l’objectif en premier', 'Furthest from the goal first')} loading={loading}
+        <h2 className="text-heading mb-3 text-ink">{STATUS[status]}</h2>
+        {/* One store to fix reads as a sentence, not as a one-bar chart. */}
+        {attention.length === 1 && (
+          <Card className="mb-6 p-5">
+            <div className="text-heading text-ink">{t('Magasin à corriger en premier', 'Store to fix first')}</div>
+            <p className="text-body mt-1 text-ink-2">{t(`${storeLabel(attention[0].storeId, attention[0].label)} : ${LABEL[attention[0].metric]} à ${pctTxt(attention[0].value)} (objectif ${pctTxt(attention[0].goal)}).`, `${storeLabel(attention[0].storeId, attention[0].label)}: ${LABEL[attention[0].metric]} at ${attention[0].value}% (goal ${attention[0].goal}%).`)}{causeLabel(attention[0].metric, attention[0].cause) ? ` ${causeLabel(attention[0].metric, attention[0].cause)}.` : ''}</p>
+          </Card>
+        )}
+        {attention.length > 1 && (
+          <ChartCard className="mb-6" title={t('Magasins à corriger en premier', 'Stores to fix first')} subtitle={t('Le plus loin de l’objectif en premier', 'Furthest from the goal first')} loading={loading}
             table={{ columns: [t('Magasin', 'Store'), t('Mesure', 'Metric'), '%', t('Objectif', 'Goal'), t('Compté', 'Counted'), t('Sur', 'Out of'), t('Cause', 'Cause')], rows: attention.map((a) => [storeLabel(a.storeId, a.label), LABEL[a.metric], pctTxt(a.value), pctTxt(a.goal), a.numerator, a.denominator, causeLabel(a.metric, a.cause)]), filename: 'takatak-ops-attention' }}>
             <HBars rows={attention.map((a) => ({ label: `${storeLabel(a.storeId, a.label)} · ${LABEL[a.metric]}`, value: a.value, detail: [t(`objectif ${pctTxt(a.goal)}`, `goal ${a.goal}%`), causeLabel(a.metric, a.cause)].filter(Boolean).join(' · ') }))} format={pctTxt} />
           </ChartCard>
         )}
-        {keys.length > 0 && <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">{keys.map(metricCard)}</div>}
+        {keys.length > 0 && <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:[&>*:last-child:nth-child(odd)]:col-span-2">{keys.map(metricCard)}</div>}
       </section>
     );
   };
@@ -156,10 +163,11 @@ export default function OperationsQualityPage() {
       <InsightsTabs />
       <FilterBar filters={filters} set={set} locations={locations} brands={brands} />
       {error && <Banner tone="stop" className="mb-4">{error === 'bad_range' ? t('Période invalide : la date de fin doit suivre la date de début.', 'Invalid period: the end date must come after the start date.') : error}</Banner>}
-      {!data && !error && <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">{[0, 1, 2, 3].map((i) => <div key={i} className="h-48 animate-pulse rounded-lg bg-sunken" />)}</div>}
+      {!data && !error && <SkeletonStats count={4} />}
       {data && (
         <div className={loading ? 'opacity-60 transition-opacity' : ''}>
-          {data.notes.map((n) => <Banner key={n} tone="info" className="mb-3">{NOTE[n] ?? n}</Banner>)}
+          {/* Every note in one banner, so the data is not pushed below a stack of messages. */}
+          {data.notes.length > 0 && <Banner tone="info" className="mb-4">{data.notes.length === 1 ? (NOTE[data.notes[0]] ?? data.notes[0]) : <ul className="list-disc space-y-1 pl-4">{data.notes.map((n) => <li key={n}>{NOTE[n] ?? n}</li>)}</ul>}</Banner>}
           {data.range.truncated && <Banner tone="warn" className="mb-3">{t('Période très chargée : seules les lignes les plus récentes sont comptées. Choisissez une période plus courte.', 'Very busy period: only the newest rows are counted. Pick a shorter period.')}</Banner>}
           {noOrders && <Card className="mb-5"><EmptyState icon={<ClipboardList className="size-6" />} title={t('Aucune commande pour cette période.', 'No orders in this period.')} /></Card>}
           {section('attention')}
@@ -215,8 +223,8 @@ function GoalsForm({ goals, onSaved }: { goals: OpsGoals; onSaved: () => void })
   };
   return (
     <Card className="p-5">
-      <h2 className="text-[15px] font-bold text-ink">{t('Vos objectifs', 'Your goals')}</h2>
-      <p className="mt-0.5 text-[13px] text-ink-3">{t('Le maximum que vous acceptez pour chaque mesure. Seul le propriétaire peut les changer.', 'The most you accept for each metric. Only the owner can change them.')}</p>
+      <h2 className="text-heading text-ink">{t('Vos objectifs', 'Your goals')}</h2>
+      <p className="text-small mt-0.5 text-ink-3">{t('Le maximum que vous acceptez pour chaque mesure. Seul le propriétaire peut les changer.', 'The most you accept for each metric. Only the owner can change them.')}</p>
       <form onSubmit={submit} className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {GOAL_FIELDS.map((k) => (
           <Field key={k} label={LABELS[k]}>

@@ -1,5 +1,12 @@
 # Food Hub: progress log and task board
 
+## 2026-10-30 — Plan documents brought up to date (`docs/master-plan-refresh`, PR #PRNUM)
+
+- `docs/MASTER_PLAN.md`: sections 1–2 rewritten to 2026-10-30; new § 3b « Built since the plan was written » (screens wall + relay kit, customer accounts + ON2GO sign-in, MEV off and not certified, TGTG e-mails, own fleet, province taxes, direct / website orders + Clover checkout, AI phone, WhatsApp, leads API, availability centre, and the three PRs of release #130); new connection-board rows; finished phase items marked ✅ with their PR (phases and locked rules otherwise unchanged); § 5b owner decision on the Deliverect code (no code changed); the Phase 0 / 1 prompts flagged as done.
+- `docs/ATLAS_PARITY.md`: Order Relay and shared menu rows, test count, province taxes, Android tablet app (PR #130). `docs/INSTALLER_SERVEUR.md`: install from Coolify (`main`) or the VPS script with GitHub's `main` zip (the old rc10 zip and folder names are gone), Order Relay, shared menus, TGTG e-mails. `docs/RELEASE_NOTES.md`: one short entry for #8–#124. Docs only.
+
+— signé : Claude Opus 5.5 (master-plan-refresh) @ Claude Code desktop · 2026-10-30 10:10 (HE)
+
 ## 2026-10-30 — on2go.ca browser customer API (`feature/on2go-account-cors`)
 
 - `/api/public/on2go/{verify/start, verify/check, me, logout}`: on2go.ca (static, no website secret) signs customers in by texted code and reads / updates / deletes « Mon compte » from the browser. CORS and preflight for the ON2GO sites only, brand website fixed to `on2go`, only `on2go`-signed customer tokens (`Authorization: Bearer`), per-IP windows on top of task 72's per-phone limits; listed in `proxy.ts`. `lib/foodhub/customers/on2go-public.ts`, `docs/CUSTOMER_IDENTITY.md`, `tests/on2go-public-customers.test.ts`.

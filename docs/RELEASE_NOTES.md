@@ -1,5 +1,32 @@
 # Release notes
 
+## Merged from 2026-10-08 to 2026-10-30 (PRs #8 to #124)
+
+Short list; details are in each PR and in [MASTER_PLAN.md](MASTER_PLAN.md) § 3b.
+
+- **More ways orders arrive:** Too Good To Go order e-mails (#59); website orders paid in Clover on the kitchen tablet
+  (#10, #11); a commission-free ordering page per brand, `/commander/<slug>`, paid by Clover Hosted Checkout or at the
+  counter, listed first on on2go.ca and used by it (#75, #117, #118); AI phone in Québec French, English and Spanish
+  with a payment link by text, brand lines and the ON2GO phone menu, TAKATAK Phone AI as its own Clover app (#17, #18,
+  #30, #58, #61, #68); signed WhatsApp webhook (#115).
+- **Delivery:** every Uber Eats Marketplace and Uber Direct API (#21), DoorDash Marketplace and Drive (#28, #45), our
+  own couriers with a courier page (#34), DoorDash sandbox-safe mode (#56), the tracking text sent once (#93).
+- **Stores, menus, screens:** store availability centre (#74), menu safety and per-brand dishes on shared menus (#60),
+  kitchen order tools (#71), extra-loud alarm (#14), the platform screens wall and relay kit (#102, #107, #109–#112).
+- **Customers:** accounts verified by text and ON2GO sign-in through TAKATAK (#123, #124); restaurant leads from the
+  on2go.ca form (#87); public directory feed (#16).
+- **Money and Québec:** finance importers (#25, #43), Clover billing (#69), taxes by province (#121), Revenu Québec
+  invoices through Takatak MEV, off by default and not certified (#99, #100).
+- **Insights:** reviews hub (#73), sales mix (#64), operations quality (#65), customer insights (#67), client dashboard
+  (#72).
+- **Console and sign-in:** premium console (#88, #90, #91, #94), accessible kitchen theme, dialogs, tabs and loading
+  skeletons (#52, #55, #62, #63), Google sign-in for team members (#86), mail through your own SMTP server (#15), legal
+  pages (#66, #79).
+- **Server:** Coolify builds `main` from the `Dockerfile` with the tests and a health probe, and `npm run verify:live`
+  proves the published commit (#47, #49, #51, #84, #85); Next.js security upgrades (#92, #97).
+- **Waiting in the release PR #130:** Interac e-transfer for website orders, the Android kitchen tablet app with
+  printing, Twilio Verify on its own account.
+
 ## Clover App Market launch (branch clover-marketplace-launch, 2026-10-07)
 
 - **Opening the app from Clover always works**: without a code, Food Hub asks Clover for one (`/oauth/v2/authorize`,

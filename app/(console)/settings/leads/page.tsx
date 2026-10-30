@@ -16,7 +16,7 @@ import { cn } from '@/lib/ui/cn';
 
 type Status = 'new' | 'contacted' | 'won' | 'lost';
 type Lead = {
-  id: string; at: string; restaurant: string; contact: string; email: string; phone: string; city: string; address?: string; website?: string;
+  id: string; at: string; restaurant: string; contact: string; email: string; phone: string; city: string; province?: string; address?: string; website?: string;
   platforms: string[]; brands?: number; message?: string; lang: 'fr' | 'en'; source: string; status: Status; notes: string; updatedAt: string; updatedBy?: string;
 };
 type Filter = 'open' | Status | 'all';
@@ -100,7 +100,7 @@ export default function LeadsPage() {
                       <span>{l.contact}</span>
                       <a className="inline-flex min-h-6 items-center gap-1 underline-offset-2 hover:underline" href={`mailto:${l.email}`}><Mail className="size-3" />{l.email}</a>
                       <a className="inline-flex min-h-6 items-center gap-1 underline-offset-2 hover:underline" href={`tel:${l.phone}`}><Phone className="size-3" />{l.phone}</a>
-                      <span className="inline-flex items-center gap-1"><MapPin className="size-3" />{l.address ? `${l.address}, ` : ''}{l.city}</span>
+                      <span className="inline-flex items-center gap-1"><MapPin className="size-3" />{l.address ? `${l.address}, ` : ''}{l.city}{l.province ? ` · ${l.province}` : ''}</span>
                       {l.website && <a className="inline-flex min-h-6 items-center gap-1 underline-offset-2 hover:underline" href={l.website} target="_blank" rel="noopener noreferrer"><Globe className="size-3" />{l.website.replace(/^https?:\/\//, '')}</a>}
                     </div>
                   </div>

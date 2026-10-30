@@ -122,6 +122,7 @@ Phase 3 adds a **Connections strip on the Overview** so you see all of this at a
 | AI | Yes | `ANTHROPIC_API_KEY` (optional `ANTHROPIC_MODEL`) | Settings → Alerts & watchtower |
 | Security | Yes | `DASHBOARD_PASSWORD`, `SESSION_SECRET`, `FOODHUB_TRUST_PROXY=true` behind Caddy/Traefik | Go-live |
 | Background jobs | Yes | VPS: the cron jobs from `install-vps.sh`. Coolify: `FOODHUB_INTERNAL_SYNC_MIN=5` | Go-live; the stale-sync alert |
+| Revenu Québec invoices (Takatak MEV / QCMEV) | Yes, off by default, simulator only until certified | `FOODHUB_MEV` (off/shadow/simulator/on), `FOODHUB_MEV_URL`, `FOODHUB_MEV_SECRET`, `FOODHUB_MEV_LOCATIONS`; optional `FOODHUB_MEV_TRIGGER`, `FOODHUB_MEV_TIMEOUT_MS`, `FOODHUB_MEV_RETRY_S`, `FOODHUB_MEV_OFFLINE_POLL_S`, `FOODHUB_MEV_USER`, `FOODHUB_MEV_CLOVER_NOTE`, `FOODHUB_MEV_SEND_RECEIPT`, `FOODHUB_FEATURE_MEV`. QCMEV itself (repo QCMEV.CA) on the same Coolify network. See docs/MEV_INTEGRATION.md | Settings → Add-ons → MEV invoices |
 
 ---
 

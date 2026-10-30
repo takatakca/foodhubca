@@ -84,6 +84,10 @@ export interface FinanceLine {
   qstOnlySales: number;
   /** GST owed on those sales anyway (5 % of the pre-tax price): not collected, so it comes out of the proceeds. */
   gstNotCharged: number;
+  /** Pre-tax sales on which the platform charged no sales tax at all (no GST, no QST, nothing withheld or remitted for you). */
+  untaxedSales: number;
+  /** GST + QST owed on those sales anyway (QST only during the GST holiday), estimated on top of the pre-tax price. */
+  taxNotCharged: number;
   /** Commission rate printed on the statement (fraction), when given. */
   printedRate: number | null;
   description: string;
@@ -143,15 +147,17 @@ export type Component = (typeof COMPONENTS)[number];
 
 export const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100 || 0;
 
+import { splitFoodTax } from '../taxes';
+
 export const GST_RATE = 0.05;
 export const QST_RATE = 0.09975;
 /** Clover tax rate "Sales Tax" set as default on the On2GO.CA merchant (Clover stores 14975 = 0.14975 %). */
 export const CLOVER_STRAY_RATE = 0.0014975;
 
-/** Splits a combined GST+QST amount into its two parts (Québec, 5 : 9.975). */
+/** Splits a combined GST+QST amount into its two parts (Québec, 5 : 9.975; lib/foodhub/taxes.ts has every province). */
 export function splitQuebecTax(total: number): { gst: number; qst: number } {
-  const gst = r2((total * GST_RATE) / (GST_RATE + QST_RATE));
-  return { gst, qst: r2(total - gst) };
+  const s = splitFoodTax('QC', total).byCode;
+  return { gst: s.GST ?? 0, qst: s.QST ?? 0 };
 }
 
 /** Kitchens: 6280 + 6284 Somerled are one kitchen (NDG); 5837 + 5839 Jean-Talon E are one (Saint-Léonard); 6241 Boul. Léger (Montréal-Nord) is closed. */

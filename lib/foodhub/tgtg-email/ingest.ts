@@ -12,7 +12,7 @@ import { round2 } from '../config';
 import { applyExternalStatus, processIncomingOrder, resendToClover } from '../pipeline';
 import { getRepo } from '../repo';
 import type { NormalizedOrder } from '../types';
-import { ORDER_ID_PREFIX, isTgtgEmailOrder, tgtgMailOrderId } from './ids';
+import { ORDER_ID_PREFIX, isTgtgEmailOrder, tgtgMailOrderId, tgtgPickupOrderId } from './ids';
 import { addressOf, parseTgtgMail, senderAllowed, senderVerified, type TgtgMail, type TgtgMailParse } from './parse';
 import {
   findMapping, getMailRecord, getTgtgEmailSettings, listMailRecords, mailId, saveMailRecord, storeKey, tgtgEmailStoreId, tgtgUnmappedStoreId,
@@ -156,6 +156,10 @@ export async function ingestTgtgMail(mail: TgtgMail, source: 'imap' | 'webhook',
     // A reservation.
     const existing = await repo.findOrder('tgtg', extId);
     if (existing) return keep('duplicate', { parse, orderId: existing.id, brandName: existing.brandName, locationCode: existing.locationCode, reason: 'same TGTG code already received' });
+    // The bag was already handed over at the counter with this code (« Sac remis »): that is the sale, with its own
+    // invoice. A late e-mail never makes a second sale, ticket or invoice for it.
+    const handedOver = await repo.findOrder('tgtg', tgtgPickupOrderId(code));
+    if (handedOver) return keep('duplicate', { parse, orderId: handedOver.id, brandName: handedOver.brandName, locationCode: handedOver.locationCode, reason: 'bag already handed over at the counter with this code (« Sac remis »)' });
     const endMs = Date.parse(parse.pickupEnd ?? '') || (Date.parse(parse.pickupStart ?? '') + 2 * 3600_000);
     if (Number.isFinite(endMs) && endMs + lateGraceMin() * 60_000 < now) {
       const rec = await keep('too_late', { parse, reason: `read after the pickup window (${parse.pickupLabel ?? '—'}) — not sent to the kitchen; check the TGTG app` });

@@ -1,4 +1,4 @@
-// Expansion features (own-courier delivery, grocery / retail, alcohol, AI phone ordering) — each behind its own switch.
+// Expansion features (own-courier delivery, grocery / retail, alcohol, AI phone ordering, MEV invoices) — each behind its own switch.
 //
 // Every switch is OFF until the owner turns it on in Settings → Expansion (stored in fh_kv, logged). The host can force
 // a feature either way with FOODHUB_FEATURE_<KEY>=on|off (e.g. FOODHUB_FEATURE_PHONE=off to keep the phone agent
@@ -8,7 +8,7 @@
 import { logActivity, type Actor } from '../activity';
 import { getRepo } from '../repo';
 
-export const FEATURE_KEYS = ['delivery', 'retail', 'alcohol', 'phone'] as const;
+export const FEATURE_KEYS = ['delivery', 'retail', 'alcohol', 'phone', 'mev'] as const;
 export type FeatureKey = (typeof FEATURE_KEYS)[number];
 
 export const FEATURE_LABELS: Record<FeatureKey, { fr: string; en: string; dfr: string; den: string }> = {
@@ -31,6 +31,11 @@ export const FEATURE_LABELS: Record<FeatureKey, { fr: string; en: string; dfr: s
     fr: 'Commandes par téléphone (IA)', en: 'AI phone ordering',
     dfr: 'Un agent IA répond, prend la commande dans le menu, confirme le total et l’envoie à Clover. Passe à un humain sur demande.',
     den: 'An AI agent answers, takes the order from the menu, confirms the total and sends it to Clover. Hands off to a person on request.',
+  },
+  mev: {
+    fr: 'Factures Revenu Québec (MEV)', en: 'Revenu Québec invoices (MEV)',
+    dfr: 'Chaque vente devient une facture numérotée et signée par Takatak MEV (QCMEV), avec son code QR. Food Hub ne signe rien et imprime seulement la facture reçue. Chaque cuisine choisit son système.',
+    den: 'Each sale becomes an invoice numbered and signed by Takatak MEV (QCMEV), with its QR code. Food Hub signs nothing and prints only the invoice it receives. Each kitchen picks its system.',
   },
 };
 

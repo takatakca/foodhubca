@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Headset, Languages, Link2, ListTree, Mic, PhoneForwarded, RotateCcw, Save } from 'lucide-react';
-import { Badge, StatusDot } from '@/components/ui/badge';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Banner, Skeleton } from '@/components/ui/card';
 import { Field, Input, Select, Switch, Textarea } from '@/components/ui/form';
@@ -14,7 +14,7 @@ import { voicesFor } from '@/lib/foodhub/phone/voices';
 import { api, ApiError } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { Section } from '../../../settings-ui';
-import { CopyValue, ExpansionHead } from '../../expansion-ui';
+import { CopyValue, ExpansionHead, ReadyItem as Ready } from '../../expansion-ui';
 
 type Readiness = {
   ai: boolean; model: string; sms: boolean; email: boolean; tokenSet: boolean; numbers: string[]; envNumber: boolean; handoff: string | null; emailTo: string | null;
@@ -61,17 +61,17 @@ export default function IvrSettingsPage() {
         intro={t('La ligne principale ON2GO : un accueil enregistré, puis l’IA parle avec le client et l’oriente (commande en ligne, commande Uber Eats / DoorDash / SkipTheDishes, facturation, marchands, livreurs, service à la clientèle, une personne, message vocal). Le clavier reste un plan B : les touches marchent en tout temps, 0 = une personne.', 'The ON2GO main line: a recorded greeting, then the AI talks with the caller and routes the call (online order, Uber Eats / DoorDash / SkipTheDishes order, billing, merchants, couriers, customer service, a person, voicemail). The keypad is the fallback: keys work at any time, 0 = a person.')}
         right={owner && s ? <Button icon={<Save className="size-4" />} loading={busy} onClick={save}>{t('Enregistrer', 'Save')}</Button> : undefined} />
       {!s || !r ? <Skeleton className="h-96" /> : (
-        <fieldset disabled={!owner} className="max-w-5xl">
+        <fieldset disabled={!owner} className="min-w-0 max-w-5xl">
           <Section icon={<Headset className="size-5" />} title={t('Ce qu’il faut', 'What it needs')}>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              <Ready ok={r.envNumber || r.numbers.length > 0} label={r.numbers.length ? `${t('Numéro', 'Number')} ${r.numbers.join(', ')}` : t('FOODHUB_IVR_NUMBER manquant', 'FOODHUB_IVR_NUMBER missing')} />
-              <Ready ok={r.ai} label={r.ai ? `IA · ${r.model}` : t('ANTHROPIC_API_KEY manquante : clavier seulement', 'ANTHROPIC_API_KEY missing: keypad only')} />
-              <Ready ok={r.tokenSet} label={r.tokenSet ? t('Signature Twilio vérifiée', 'Twilio signature checked') : t('TWILIO_AUTH_TOKEN manquant', 'TWILIO_AUTH_TOKEN missing')} />
-              <Ready ok={r.sms} label={r.sms ? t('Textos (liens) prêts', 'Texts (links) ready') : t('Textos : TWILIO_ACCOUNT_SID, _AUTH_TOKEN', 'Texts: TWILIO_ACCOUNT_SID, _AUTH_TOKEN')} />
-              <Ready ok={r.email && Boolean(r.emailTo)} label={r.emailTo ? `${t('Messages vocaux à', 'Voicemails to')} ${r.emailTo}` : t('Courriel des messages : FOODHUB_VOICEMAIL_EMAIL', 'Voicemail email: FOODHUB_VOICEMAIL_EMAIL')} />
+            <div className="grid min-w-0 [&>*]:min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <Ready ok={r.envNumber || r.numbers.length > 0} label={r.numbers.length ? `${t('Numéro', 'Number')} ${r.numbers.join(', ')}` : t('Numéro du menu téléphonique', 'Phone menu number')} tech={r.envNumber || r.numbers.length > 0 ? undefined : 'FOODHUB_IVR_NUMBER'} />
+              <Ready ok={r.ai} label={r.ai ? `${t('Assistant IA', 'AI assistant')} · ${r.model}` : t('Assistant IA (sinon : clavier seulement)', 'AI assistant (otherwise: keypad only)')} tech={r.ai ? undefined : 'ANTHROPIC_API_KEY'} />
+              <Ready ok={r.tokenSet} label={t('Signature Twilio vérifiée', 'Twilio signature checked')} tech={r.tokenSet ? undefined : 'TWILIO_AUTH_TOKEN'} />
+              <Ready ok={r.sms} label={t('Textos (liens)', 'Texts (links)')} tech={r.sms ? undefined : 'TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN'} />
+              <Ready ok={r.email && Boolean(r.emailTo)} label={r.emailTo ? `${t('Messages vocaux à', 'Voicemails to')} ${r.emailTo}` : t('Courriel des messages vocaux', 'Voicemail email')} tech={r.emailTo ? undefined : 'FOODHUB_VOICEMAIL_EMAIL'} />
               <Ready ok={Boolean(r.handoff)} label={r.handoff ? `${t('Une personne', 'A person')} : ${r.handoff}` : t('Pas de numéro « une personne » : message vocal', 'No "person" number: voicemail')} />
             </div>
-            <div className="mt-3 grid gap-2 md:grid-cols-2">
+            <div className="mt-3 grid min-w-0 [&>*]:min-w-0 gap-2 md:grid-cols-2">
               <CopyValue label={t('Twilio → numéro ON2GO → « A call comes in » (Webhook, POST)', 'Twilio → ON2GO number → "A call comes in" (Webhook, POST)')} value={r.voiceUrl} />
               <CopyValue label={t('Twilio → numéro ON2GO → « Call status changes »', 'Twilio → ON2GO number → "Call status changes"')} value={r.statusUrl} />
             </div>
@@ -82,12 +82,12 @@ export default function IvrSettingsPage() {
           </Section>
 
           <Section icon={<Languages className="size-5" />} title={t('Accueil et voix', 'Greeting and voices')} right={<Segmented size="sm" value={lang} onChange={setLang} options={LANGS} />}>
-            <div className="grid gap-3">
+            <div className="grid min-w-0 [&>*]:min-w-0 gap-3">
               <Field label={t('Accueil', 'Greeting')} hint={<span>{t('Le texte du propriétaire est le défaut. « Numéro un au Canada » est une affirmation qu’il faut pouvoir prouver (Loi sur la concurrence). Plus sûr :', 'The owner’s text is the default. "Number one in Canada" is a claim that must be provable (Competition Act). Safer:')} <em>{r.saferGreeting[lang]}</em>{owner && <button type="button" className="ml-2 font-semibold text-info-2 hover:underline" onClick={() => setText('greeting', r.saferGreeting[lang])}>{t('Utiliser', 'Use it')}</button>}</span>}>
                 <Textarea rows={2} value={s.greeting[lang]} onChange={(e) => setText('greeting', e.target.value)} />
               </Field>
               <Field label={t('Phrase marketing (courte, sur la bouffe)', 'Marketing line (short, about the food)')}><Textarea rows={2} value={s.marketing[lang]} onChange={(e) => setText('marketing', e.target.value)} /></Field>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid min-w-0 [&>*]:min-w-0 gap-3 sm:grid-cols-2">
                 <Field label={t('Question de l’IA', 'AI question')}><Input value={s.askHelp[lang]} onChange={(e) => setText('askHelp', e.target.value)} /></Field>
                 <Field label={t('Voix', 'Voice')}><Select value={s.voices[lang]} onChange={(e) => setS({ ...s, voices: { ...s.voices, [lang]: e.target.value } })}>{VOICES[lang].map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}</Select></Field>
                 <Field label={t('Accueil enregistré (MP3, https)', 'Recorded greeting (MP3, https)')} hint={t('Vide = voix neuronale ci-dessus.', 'Empty = the neural voice above.')}><Input value={s.audio.greeting[lang] ?? ''} placeholder="https://…/accueil-fr.mp3" onChange={(e) => setS({ ...s, audio: { ...s.audio, greeting: { ...s.audio.greeting, [lang]: e.target.value } } })} /></Field>
@@ -109,7 +109,7 @@ export default function IvrSettingsPage() {
               {PLATFORM_IDS.map((p) => (
                 <div key={p} className="rounded-md border border-line p-3">
                   <div className="mb-2 font-bold">{PLATFORM_NAME[p]}</div>
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="grid min-w-0 [&>*]:min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                     {LANGS.map((l) => (
                       <Field key={l.key} label={`${t('Ligne', 'Line')} ${l.label}`}><Input type="tel" value={s.platforms[p].phones[l.key] ?? ''} placeholder={t('aucune ligne', 'no line')} onChange={(e) => setS({ ...s, platforms: { ...s.platforms, [p]: { ...s.platforms[p], phones: { ...s.platforms[p].phones, [l.key]: e.target.value } } } })} /></Field>
                     ))}
@@ -122,16 +122,16 @@ export default function IvrSettingsPage() {
           </Section>
 
           <Section icon={<Link2 className="size-5" />} title={t('Liens ON2GO envoyés par texto', 'ON2GO links sent by text')} subtitle={t('Pages à mettre en ligne : ce sont des adresses provisoires tant qu’elles ne le sont pas.', 'Pages to put online: these are placeholders until they are.')}>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid min-w-0 [&>*]:min-w-0 gap-3 sm:grid-cols-2">
               {LINK_KEYS.map((k) => <Field key={k} label={LINK_LABEL[k](t)}><Input value={s.links[k]} onChange={(e) => setS({ ...s, links: { ...s.links, [k]: e.target.value } as Record<LinkKey, string> })} /></Field>)}
             </div>
           </Section>
 
           <Section icon={<Mic className="size-5" />} title={t('Transferts et messages', 'Hand-offs and messages')}>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid min-w-0 [&>*]:min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <Field label={t('Ligne IA qui prend les commandes', 'AI line that takes orders')}><Select value={s.orderLineId} onChange={(e) => setS({ ...s, orderLineId: e.target.value })}><option value="">{t('Automatique', 'Automatic')}</option>{r.lines.map((l) => <option key={l.id} value={l.id}>{l.name}{l.enabled ? '' : ` (${t('éteinte', 'off')})`}</option>)}</Select></Field>
-              <Field label={t('« Parler à quelqu’un » sonne à', '"Talk to someone" rings')} hint={t('Vide = FOODHUB_IVR_HANDOFF_NUMBER, sinon message vocal.', 'Empty = FOODHUB_IVR_HANDOFF_NUMBER, else voicemail.')}><Input type="tel" value={s.handoffNumber} onChange={(e) => setS({ ...s, handoffNumber: e.target.value })} /></Field>
-              <Field label={t('Messages vocaux et billets à', 'Voicemails and tickets to')} hint={t('Vide = FOODHUB_VOICEMAIL_EMAIL.', 'Empty = FOODHUB_VOICEMAIL_EMAIL.')}><Input type="email" value={s.voicemailEmail} onChange={(e) => setS({ ...s, voicemailEmail: e.target.value })} /></Field>
+              <Field label={t('« Parler à quelqu’un » sonne à', '"Talk to someone" rings')} hint={t('Vide = le numéro réglé sur le serveur, sinon message vocal.', 'Empty = the number set on the server, else voicemail.')}><Input type="tel" value={s.handoffNumber} onChange={(e) => setS({ ...s, handoffNumber: e.target.value })} /></Field>
+              <Field label={t('Messages vocaux et billets à', 'Voicemails and tickets to')} hint={t('Vide = l’adresse réglée sur le serveur.', 'Empty = the address set on the server.')}><Input type="email" value={s.voicemailEmail} onChange={(e) => setS({ ...s, voicemailEmail: e.target.value })} /></Field>
               <Field label={t('Attente d’une réponse (s)', 'Wait for an answer (s)')}><Select value={String(s.timeout)} onChange={(e) => setS({ ...s, timeout: Number(e.target.value) })}>{[4, 5, 6, 8, 10].map((x) => <option key={x} value={x}>{x}</option>)}</Select></Field>
               <div className="flex items-end sm:col-span-2"><Switch checked={s.transcribeVoicemail} onChange={(v) => setS({ ...s, transcribeVoicemail: v })} label={t('Transcrire les messages vocaux (fr-CA, en-US, es-US)', 'Transcribe voicemails (fr-CA, en-US, es-US)')} /></div>
             </div>
@@ -167,7 +167,7 @@ function NodeRow({ node, lang, depth, onChange }: { node: IvrNode; lang: IvrLang
           <Badge tone={node.action.kind === 'ai' ? 'brand' : node.action.kind === 'platform' ? 'violet' : 'neutral'}>{t(kind[0], kind[1])}{node.action.kind === 'ai' ? ` · ${node.action.flow}` : node.action.kind === 'platform' && node.action.platform ? ` · ${PLATFORM_NAME[node.action.platform]}` : ''}</Badge>
           <div className="ml-auto"><Switch size="sm" checked={node.enabled} onChange={(v) => onChange(node.id, (n) => ({ ...n, enabled: v }))} label={t('Active', 'On')} /></div>
         </div>
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid min-w-0 [&>*]:min-w-0 gap-2 sm:grid-cols-2">
           <Field label={t('Libellé lu au clavier', 'Label read on the keypad')}><Input value={node.label[lang]} onChange={(e) => onChange(node.id, (n) => ({ ...n, label: { ...n.label, [lang]: e.target.value } }))} /></Field>
           <Field label={t('Phrase d’entrée (facultatif)', 'Intro sentence (optional)')}><Input value={node.prompt[lang] ?? ''} onChange={(e) => onChange(node.id, (n) => ({ ...n, prompt: { ...n.prompt, [lang]: e.target.value } }))} /></Field>
           <Field label={t('Mots à reconnaître', 'Words to recognise')}><Input value={node.hints} onChange={(e) => onChange(node.id, (n) => ({ ...n, hints: e.target.value }))} /></Field>
@@ -179,6 +179,3 @@ function NodeRow({ node, lang, depth, onChange }: { node: IvrNode; lang: IvrLang
   );
 }
 
-function Ready({ ok, label }: { ok: boolean; label: string }) {
-  return <div className="flex items-center gap-2 rounded-md bg-sunken px-3 py-2 text-[13px]"><StatusDot tone={ok ? 'go' : 'wait'} />{label}</div>;
-}

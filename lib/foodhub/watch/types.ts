@@ -14,13 +14,16 @@ export type IncidentKind =
   | 'store_deactivated'  // deactivated by the platform
   | 'device_offline'     // kitchen tablet off / no Wi-Fi during opening hours
   | 'device_muted'       // kitchen tablet sound off or screen hidden
+  | 'screen_down'        // a platform order screen (relay host) is offline or asks to sign in again
+  | 'screen_waiting'     // orders wait on a platform order screen and nobody has answered them
   | 'cancel_spike'       // several cancellations in the last hour at one location
   | 'sync_stale'         // store statuses not refreshed
   | 'webhook_unreadable' // a platform sent something Food Hub could not read
   | 'menu_failed'        // a menu / 86 / pause did not reach a platform
   | 'payout_gap'         // money to recover from the platforms
   | 'customer_issue'     // cancelled by the customer, missing item reported…
-  | 'platform_silent';   // no order from a platform for hours while its stores are open (webhook broken?)
+  | 'platform_silent'    // no order from a platform for hours while its stores are open (webhook broken?)
+  | 'mev_pending';       // a sale Takatak MEV has not recorded (no invoice yet: due right after payment) or a copy waiting
 
 export type Severity = 'critical' | 'warning' | 'info';
 export type IncidentStatus = 'open' | 'acknowledged' | 'snoozed' | 'resolved';
@@ -110,7 +113,7 @@ export interface WatchSettings {
 
 export const INCIDENT_KINDS: IncidentKind[] = [
   'order_unaccepted', 'order_unseen', 'order_late', 'courier_waiting', 'pos_failed', 'store_unmapped', 'store_offline', 'store_deactivated',
-  'device_offline', 'device_muted', 'cancel_spike', 'sync_stale', 'webhook_unreadable', 'menu_failed', 'payout_gap', 'customer_issue', 'platform_silent',
+  'device_offline', 'device_muted', 'screen_down', 'screen_waiting', 'cancel_spike', 'sync_stale', 'webhook_unreadable', 'menu_failed', 'payout_gap', 'customer_issue', 'platform_silent', 'mev_pending',
 ];
 
 export const KIND_LABEL: Record<IncidentKind, { fr: string; en: string }> = {
@@ -124,6 +127,8 @@ export const KIND_LABEL: Record<IncidentKind, { fr: string; en: string }> = {
   store_deactivated: { fr: 'Magasin désactivé', en: 'Store deactivated' },
   device_offline: { fr: 'Tablette éteinte', en: 'Tablet off' },
   device_muted: { fr: 'Tablette sans son', en: 'Tablet muted' },
+  screen_down: { fr: 'Écran de plateforme déconnecté', en: 'Platform screen down' },
+  screen_waiting: { fr: 'Commande en attente sur un écran de plateforme', en: 'Order waiting on a platform screen' },
   cancel_spike: { fr: 'Annulations en hausse', en: 'Cancellation spike' },
   sync_stale: { fr: 'Statuts pas à jour', en: 'Statuses not refreshed' },
   webhook_unreadable: { fr: 'Message illisible d’une plateforme', en: 'Unreadable platform message' },
@@ -131,14 +136,15 @@ export const KIND_LABEL: Record<IncidentKind, { fr: string; en: string }> = {
   payout_gap: { fr: 'Argent à récupérer', en: 'Money to recover' },
   customer_issue: { fr: 'Problème client', en: 'Customer issue' },
   platform_silent: { fr: 'Plateforme silencieuse', en: 'Platform gone quiet' },
+  mev_pending: { fr: 'Facture Revenu Québec en attente', en: 'Revenu Québec invoice waiting' },
 };
 
 const on = (escalate = true): RuleSetting => ({ enabled: true, escalate });
 
 export const DEFAULT_RULES: Record<IncidentKind, RuleSetting> = {
   order_unaccepted: on(), order_unseen: on(), order_late: on(), courier_waiting: on(), pos_failed: on(), store_unmapped: on(),
-  store_offline: on(), store_deactivated: on(), device_offline: on(), device_muted: on(),
-  cancel_spike: on(false), sync_stale: on(), webhook_unreadable: on(false), menu_failed: on(), payout_gap: on(false), customer_issue: on(false), platform_silent: on(),
+  store_offline: on(), store_deactivated: on(), device_offline: on(), device_muted: on(), screen_down: on(), screen_waiting: on(),
+  cancel_spike: on(false), sync_stale: on(), webhook_unreadable: on(false), menu_failed: on(), payout_gap: on(false), customer_issue: on(false), platform_silent: on(), mev_pending: on(),
 };
 
 export const DEFAULT_WATCH: WatchSettings = {

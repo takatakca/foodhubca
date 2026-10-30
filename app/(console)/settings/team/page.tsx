@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { KeyRound, Mail, Phone, Search, UserPlus } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Banner, Card, EmptyState } from '@/components/ui/card';
+import { Banner, Card, EmptyState, SkeletonList } from '@/components/ui/card';
 import { Checkbox, Field, Input, Switch } from '@/components/ui/form';
 import { Modal } from '@/components/ui/overlay';
 import { FormDraftNote } from '@/components/ui/save-chip';
@@ -68,7 +68,7 @@ export default function TeamPage() {
       <SettingsHead title={t('Équipe et NIP', 'Team & PINs')} intro={t('Chaque personne se connecte avec son courriel ou son cellulaire (code par texto ou courriel, aucun mot de passe). Le NIP déverrouille les tablettes de cuisine et sert à approuver les actions sensibles. Retirer quelqu’un le déconnecte partout immédiatement.', 'Everyone signs in with their email or cell (code by text or email, no password). The PIN unlocks kitchen tablets and approves sensitive actions. Removing someone signs them out everywhere at once.')}
         right={<Hint id="team.add"><Button onClick={() => setEdit(newDraft())} icon={<UserPlus className="size-4" />}>{t('Ajouter une personne', 'Add a person')}</Button></Hint>} />
       {err && <Banner tone="stop" className="mb-4">{err}</Banner>}
-      {noPin > 0 && <Banner tone="warn" className="mb-4">{t(`${noPin} personne(s) de cuisine sans NIP : elles ne peuvent pas déverrouiller une tablette.`, `${noPin} kitchen person(s) without a PIN: they cannot unlock a tablet.`)}</Banner>}
+      {noPin > 0 && <Banner tone="warn" className="mb-4">{noPin === 1 ? t('1 personne de cuisine sans NIP : elle ne peut pas déverrouiller une tablette.', '1 kitchen person without a PIN: they cannot unlock a tablet.') : t(`${noPin} personnes de cuisine sans NIP : elles ne peuvent pas déverrouiller une tablette.`, `${noPin} kitchen people without a PIN: they cannot unlock a tablet.`)}</Banner>}
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Hint id="team.search"><div className="relative">
@@ -98,7 +98,7 @@ export default function TeamPage() {
             </li>
           ))}
         </ul>
-        {rows.length === 0 && <EmptyState title={loaded ? t('Personne ici', 'Nobody here') : t('Chargement…', 'Loading…')} body={loaded && show === 'active' && !q ? t('Ajoutez vos gérants et employés. Ils reçoivent un lien de connexion.', 'Add your managers and staff. They receive a sign-in link.') : undefined} />}
+        {rows.length === 0 && (!loaded ? <SkeletonList className="p-4" label={t('Chargement…', 'Loading…')} /> : <EmptyState title={t('Personne ici', 'Nobody here')} body={show === 'active' && !q ? t('Ajoutez vos gérants et employés. Ils reçoivent un lien de connexion.', 'Add your managers and staff. They receive a sign-in link.') : undefined} />)}
       </Card>
 
       {edit && <PersonDialog draft={edit} isOwner={isOwner} locations={locations} viewerLocations={viewer.locations} onClose={() => setEdit(null)} onSaved={(msg) => { toast.success(msg.title, msg.body); setEdit(null); load(); }} />}

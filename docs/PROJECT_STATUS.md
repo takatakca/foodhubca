@@ -12,6 +12,12 @@ La [description actualisée de la PR #49](https://github.com/takatakca/foodhubca
 
 **Portée de la preuve :** ceci est le compte rendu GitHub du propriétaire / opérateur, non un nouvel accès direct au conteneur par cet agent. La certification de commandes, paiement, caisse, imprimante, Twilio et connecteurs live auprès des fournisseurs reste ouverte (issue #46). Les paragraphes historiques plus bas indiquant « déploiement non vérifié » décrivent l'état *avant* cette preuve et ne doivent pas supplanter ce relevé. Le réseau de cet agent est isolé du DNS externe et ne permet pas un nouveau contrôle HTTPS public.
 
+## État au 2026-10-16 — contrôlé dans GitHub
+
+`main` = `444e8f2e60dd73e5eaa90bc4e9f92d05489b38f3` (PR #53 Clover fusionnée). [CI 38845406916](https://github.com/takatakca/foodhubca/actions/runs/38845406916) et [image 38845406823](https://github.com/takatakca/foodhubca/actions/runs/38845406823) **success**. La preuve la plus récente du déploiement public consignée dans [PR #49](https://github.com/takatakca/foodhubca/pull/49) est le SHA `027b602a12da39b1244e17b813bc51a7496a0217` (2026-10-15). Aucune preuve externe nouvelle d'un conteneur exécutant `444e8f2` n'a pu être obtenue par cette session. Les jobs historiques Actions Coolify sont `skipped` ; la livraison native Coolify est documentée, non présumée réussite pour ce SHA.
+
+La [PR #52](https://github.com/takatakca/foodhubca/pull/52) résout la Phase 3 P0 cuisine/chargement/motion sur une branche **non déployée** et désormais sans conflit après rapprochement avec la PR #53. Contrôler les résultats CI les plus récents avant de déclarer prêt. Les paiements, commandes et connecteurs réels Clover/plateformes restent à certifier par essais autorisés.
+
 
 ## Mise à jour du 2026-10-15 — activation en cours
 

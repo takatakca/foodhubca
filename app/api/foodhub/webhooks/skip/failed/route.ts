@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { logActivity } from '@/lib/foodhub/activity';
 import { parseSkipFailedOrder, skipAdapter } from '@/lib/foodhub/adapters/skip';
+import { mevOnOrderChange } from '@/lib/foodhub/mev/hooks';
 import { getRepo } from '@/lib/foodhub/repo';
 import { background, keepUnparsed, parseJson, unauthorized } from '@/lib/foodhub/webhook-utils';
 
@@ -27,6 +28,8 @@ export async function POST(req: NextRequest) {
     const message = `Skip sent this order to the tablet: ${failure}. Make it from the Skip tablet${failure.includes('unknown item') ? ' and fix the item id in Menu Manager' : ''}.`;
     await repo.updateOrder(order.id, { status: 'failed', channelError: message });
     await repo.addEvent(order.id, 'routed_to_skip_tablet', { message, validationError: body.validationError, unknownReference: body.unknownReference, menuId: body.menuId });
+    // Made and sold from the Skip tablet: still a sale for the invoice (Takatak MEV; nothing when MEV is off).
+    await mevOnOrderChange(order);
     if (isNew) {
       await logActivity({ actor: 'SkipTheDishes', source: 'platform', kind: 'order', action: 'skip_backup_flow', status: 'failed', channel: 'skip', brandName: store?.brandName, locationCode: store?.locationCode, orderId: order.id,
         summary: `Skip #${n.displayId || n.externalOrderId.slice(0, 8)} failed validation and went to the Skip tablet — ${failure}` });

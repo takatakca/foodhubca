@@ -53,7 +53,7 @@ describe('windows kit: files and rules (always)', () => {
     const common = read('Screens-Common.ps1');
     const lib = readFileSync(path.join(__dirname, '../deploy/screens/generate-lib.mjs'), 'utf8');
     for (const key of ['pass(word|wd)?', 'pwd', 'secret', 'token', 'api[_-]?key', 'credential', 'otp', '2fa', 'sms[_-]?code', 'cookie', 'session']) expect(common).toContain(key);
-    for (const url of ['https://merchants.ubereats.com/manager/orders', 'https://order.doordash.com/', 'https://partner.skipthedishes.com/']) {
+    for (const url of ['https://merchants.ubereats.com/manager/orders', 'https://order.doordash.com/', 'https://restaurants.skipthedishes.com/']) {
       expect(lib).toContain(url);
       expect(common).toContain(url);
     }

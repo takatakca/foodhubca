@@ -28,6 +28,87 @@ nombre de commandes en attente (le chiffre dans le titre de la page, ou le nombr
 
 ---
 
+## Le plus simple : une seule commande (`setup.sh`)
+
+Sur un serveur Linux avec Docker, dans `deploy/screens/` :
+
+```bash
+./setup.sh --screens 54 --domain ecrans.on2go.ca                    # les 54 écrans sur ce serveur
+./setup.sh --screens 54 --only s19-s36 --domain ecrans2.on2go.ca    # ou : la part de ce serveur (2e de 3)
+./setup.sh                                                          # 18 écrans (8 DoorDash, 6 Uber Eats, 4 Skip)
+```
+
+Le script :
+- prend la liste (18 ou 54 écrans) et génère les écrans, la passerelle et, avec `--domain`, le **HTTPS** : le certificat
+  arrive tout seul dès que le DNS du domaine pointe vers ce serveur et que les ports 80 et 443 sont libres ;
+- si Coolify est sur le même serveur (son Traefik tient les ports 80/443), il ajoute **une route** dans le Traefik de
+  Coolify (un fichier, comme l'installateur de Food Hub) et la passerelle écoute sur l'adresse Docker que Traefik
+  atteint. Lancez-le alors avec `sudo`. Si un autre programme tient ces ports, il le dit ;
+- demande **une fois** le jeton des écrans (`FOODHUB_SCREENS_AGENT_TOKEN` de Coolify), sans l'afficher, et crée un mot
+  de passe de VUE au hasard. Il écrit le tout dans `.env`, lisible par vous seul. Relancé, il ne change rien ;
+- vérifie la mémoire (environ 0,6 Go par écran), démarre tout, attend la passerelle ;
+- **affiche quoi taper dans Food Hub** : « Préparer les écrans » avec les nombres par canal, le numéro de départ et
+  l'adresse, puis `FOODHUB_SCREENS_VIEW_HOSTS`.
+
+`--dry-run` vérifie et écrit les fichiers sans rien démarrer. `--foodhub https://…` si Food Hub a une autre adresse.
+Il ne demande et ne garde **aucun mot de passe de plateforme** : vous vous connectez vous-même dans chaque écran.
+
+## Le plus rapide : les 18 écrans numérotés de Food Hub (s01–s18)
+
+Le mur d'écrans de Food Hub (Magasins → Écrans des plateformes) et ce serveur utilisent **les mêmes numéros** :
+rien à copier à la main.
+
+1. **Jeton** : comme l'étape 1 plus bas (`FOODHUB_SCREENS_AGENT_TOKEN` dans Coolify, même valeur dans `.env` ici).
+2. **Food Hub → Écrans des plateformes → Préparer les écrans** :
+   - choisissez combien de DoorDash, Uber Eats et Skip (ici 8 / 6 / 4 = 18 ; le formulaire propose 18 / 18 / 18 = 54) et
+     la succursale ;
+   - mettez l'adresse du serveur, p. ex. `https://ecrans.on2go.ca/`.
+
+   Food Hub crée s01 à s18, chacun à `https://ecrans.on2go.ca/s01/`… et prêt à ouvrir la page de connexion de son canal.
+3. **Sur le serveur**, dans `deploy/screens/` :
+   ```bash
+   cp screens.18.example.json screens.json   # s01–s08 DoorDash, s09–s14 Uber Eats, s15–s18 Skip
+   node generate.mjs
+   cp .env.example .env && nano .env         # FOODHUB_URL, FOODHUB_ORIGIN, le jeton, un utilisateur/mot de passe pour VOIR les écrans
+   docker compose up -d --build
+   ```
+   Aucune ligne `SCREEN_ID_…` à remplir : chaque écran utilise son numéro.
+4. **Une seule adresse pour les 18 : la passerelle.** `docker compose` démarre aussi une **passerelle** sur
+   `127.0.0.1:3100`. Elle envoie `/s01/` vers l'écran s01, …, `/s18/` vers s18 (chemin gardé). Elle demande une seule
+   fois le mot de passe de VUE (`SCREENS_VIEW_USER` / `SCREENS_VIEW_PASSWORD`) et laisse seulement Food Hub
+   (`FOODHUB_ORIGIN`) afficher les écrans. Un seul domaine, `https://ecrans.on2go.ca`, mène à la passerelle :
+   `./setup.sh --domain ecrans.on2go.ca` s'en occupe (HTTPS intégré, ou une route dans le Traefik de Coolify).
+5. **Pour que les écrans s'affichent DANS Food Hub** :
+   - le serveur doit être sur un **sous-domaine du domaine de Food Hub** : Food Hub sur `foodhub.on2go.ca`, écrans sur
+     `ecrans.on2go.ca`. Sinon, Safari et Chrome bloquent la connexion à l'intérieur du cadre ;
+   - `FOODHUB_ORIGIN=https://foodhub.on2go.ca` dans `.env` (la passerelle s'occupe des en-têtes) ;
+   - dans Food Hub (Coolify) : `FOODHUB_SCREENS_VIEW_HOSTS=ecrans.on2go.ca` (un écran ne peut alors montrer que ce
+     serveur).
+6. **Connectez-vous une fois dans chaque écran**, dans Food Hub. Pour changer le canal d'un écran (DoorDash / Uber Eats /
+   Skip), choisissez-le sur sa tuile : l'écran ouvre la page de connexion du nouveau canal.
+
+**Skip :** ses commandes en direct sont peut-être seulement dans l'app **Skip Partner** (le portail Web sert aux menus et
+à l'historique). Si un écran Skip Web ne montre pas les commandes, faites-le en Android (façon B).
+
+## 54 comptes : 18 DoorDash, 18 Uber Eats, 18 Skip
+
+- **Un écran par compte.** Chaque écran est un navigateur séparé, avec sa propre mémoire. Il se connecte avec **son
+  propre courriel et son propre mot de passe**, tapés par vous dans l'écran, une seule fois. Aucun fichier, ni Food Hub,
+  ni un agent ne garde de mot de passe.
+- **Food Hub** : Écrans des plateformes → **Préparer les écrans**. Par défaut 18 / 18 / 18 = s01 à s54. Ensuite, la vue
+  **Liste** permet de nommer chaque écran (le restaurant), de choisir sa succursale et ses numéros de magasin.
+- **Taille** : compter environ 0,6 Go de mémoire et un demi-vCPU par écran.
+  - **Un gros serveur** (16 vCPU / 64 Go) : `cp screens.54.example.json screens.json && node generate.mjs`, une seule
+    adresse `ecrans.on2go.ca`.
+  - **Trois serveurs de 18** (8 vCPU / 16–24 Go chacun) :
+    - sur le 1er : `node generate.mjs screens.json --only s01-s18` → `ecrans.on2go.ca` ;
+    - sur le 2e : `--only s19-s36` → `ecrans2.on2go.ca` ;
+    - sur le 3e : `--only s37-s54` → `ecrans3.on2go.ca`.
+
+    Dans Food Hub, « Préparer les écrans » une fois par serveur, avec son adresse et son numéro de départ (1, 19, 37).
+    Puis `FOODHUB_SCREENS_VIEW_HOSTS=ecrans.on2go.ca,ecrans2.on2go.ca,ecrans3.on2go.ca`.
+- Les numéros et les ports ne changent jamais d'un serveur à l'autre (s19 = port 3119).
+
 ## A. Serveur Linux avec Docker (30 minutes)
 
 ### 1. Le jeton (5 min)
@@ -160,6 +241,47 @@ and Food Hub watches it every 20 seconds. One device rings when an order is wait
 once, inside each screen.** It stays signed in. Robots never click an order and never read its content: they only
 check that the screen is up, signed in, and how many orders are waiting (the number in the page title, or the count of
 the app's notifications).
+
+## Simplest: one command (`setup.sh`)
+On a Linux server with Docker, in `deploy/screens/`: `./setup.sh --screens 54 --domain ecrans.on2go.ca` (all 54 here),
+or `./setup.sh --screens 54 --only s19-s36 --domain ecrans2.on2go.ca` (this host's share), or `./setup.sh` (18 screens).
+It generates the screens, the gateway and, with `--domain`, built-in **HTTPS** (Caddy; the certificate comes by itself
+once the domain's DNS points here and ports 80/443 are free; with Coolify on the same server it adds one route file to
+Coolify's Traefik, like Food Hub's installer, and the gateway listens on the Docker address Traefik reaches; run it with
+`sudo` then). It asks the screens token once without echo, makes a random view password, writes
+`.env` readable by you only (a second run changes nothing), checks memory (about 0.6 GB per screen), starts everything,
+waits for the gateway, and **prints what to type in Food Hub** (Set up screens: counts per channel, start number,
+address; then `FOODHUB_SCREENS_VIEW_HOSTS`). `--dry-run` writes the files and starts nothing. It never asks for or keeps
+a platform password.
+
+## Fastest: Food Hub's 18 numbered screens (s01–s18)
+Food Hub's screens wall and this host use the same numbers, so nothing is copied by hand.
+1. **Token** as in step 1 below.
+2. Food Hub → Platform screens → **Set up screens**: how many DoorDash / Uber Eats / Skip (here 8 / 6 / 4), the
+   location, the host's address (e.g. `https://screens.on2go.ca/`). It creates s01–s18 at `…/s01/` … `…/s18/`.
+3. On the host: `cp screens.18.example.json screens.json && node generate.mjs`, fill `.env` (no `SCREEN_ID_…` lines
+   needed), `docker compose up -d --build`.
+4. One address for all 18, the **gateway** (started by the same `docker compose`, `127.0.0.1:3100`): it sends `/s01/` to
+   screen s01 … `/s18/` to s18 (path kept), asks the view password once, and lets only Food Hub (`FOODHUB_ORIGIN`) frame
+   the screens. One domain, `https://ecrans.on2go.ca`, leads to it: `./setup.sh --domain ecrans.on2go.ca` handles it
+   (built-in HTTPS, or a route in Coolify's Traefik).
+5. To show them **inside** Food Hub: a **sub-domain of Food Hub's domain** (browsers block the view's sign-in cookie in
+   a frame from another site), `FOODHUB_ORIGIN=https://foodhub.on2go.ca` in `.env`, and in Food Hub
+   `FOODHUB_SCREENS_VIEW_HOSTS=ecrans.on2go.ca`.
+6. Sign in once in each screen. Switch a screen's channel on its tile in Food Hub: it opens that platform's sign-in page.
+
+**Skip:** live orders may only be in the Skip Partner app (the web portal is for menus and history); if a Skip web
+screen shows no orders, run it in Android (B).
+
+## 54 accounts: 18 DoorDash, 18 Uber Eats, 18 Skip
+- One screen per account: a separate browser with its own memory, signed in with **its own email and password**, typed by
+  you inside the screen once. No file, no Food Hub, no agent keeps a password.
+- Food Hub → Platform screens → **Set up screens** (default 18 / 18 / 18 = s01–s54); then the **List** view names each
+  screen, its location and its store numbers.
+- Size: about 0.6 GB of memory and half a vCPU per screen. One big host (16 vCPU / 64 GB): `screens.54.example.json`,
+  one address. Or three hosts of 18 (8 vCPU / 16–24 GB each): `node generate.mjs screens.json --only s01-s18` (then
+  `s19-s36`, `s37-s54`), one address each (`ecrans`, `ecrans2`, `ecrans3.on2go.ca`); in Food Hub, Set up screens once
+  per host with its address and start number (1, 19, 37), and list all three in `FOODHUB_SCREENS_VIEW_HOSTS`.
 
 ## A. Linux server with Docker
 1. **Token:** `openssl rand -hex 24` → in Coolify → Food Hub → `FOODHUB_SCREENS_AGENT_TOKEN` (secret), redeploy.

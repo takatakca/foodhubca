@@ -19,7 +19,7 @@ $script:RequiredEnv = @('FOODHUB_URL', 'FOODHUB_SCREENS_AGENT_TOKEN')
 $script:Platforms = [ordered]@{
   uber     = @{ label = 'Uber Eats'; startUrl = 'https://merchants.ubereats.com/manager/orders' }
   doordash = @{ label = 'DoorDash';  startUrl = 'https://order.doordash.com/' }
-  skip     = @{ label = 'Skip';      startUrl = 'https://partner.skipthedishes.com/' }
+  skip     = @{ label = 'Skip';      startUrl = 'https://restaurants.skipthedishes.com/' }
 }
 # Same rule as generate-lib.mjs: a key or a value that looks like a sign-in secret refuses the whole list.
 $script:SecretKeyRe   = '(pass(word|wd)?|pwd|secret|token|api[_-]?key|credential|otp|2fa|sms[_-]?code|cookie|session)'

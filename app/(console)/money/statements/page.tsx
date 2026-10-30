@@ -5,10 +5,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { CloudDownload, FileSpreadsheet, Trash2, UploadCloud } from 'lucide-react';
 import { Badge, PlatformTag } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Banner, Card, CardHeader } from '@/components/ui/card';
+import { Banner, Card, CardHeader, EmptyState } from '@/components/ui/card';
 import { Field, Input, Select } from '@/components/ui/form';
 import { Modal } from '@/components/ui/overlay';
-import { Table, Td, Th, Tr } from '@/components/ui/table';
+import { Table, TableSkeleton, Td, Th, Tr } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { useViewer } from '@/components/shell/viewer';
 import { CH_NAME, MoneyHead, cad } from '../money-ui';
@@ -109,9 +109,9 @@ export default function StatementsPage() {
 
       <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-[1.4fr_1fr]">
         <Card className="p-5">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <h2 className="text-base font-extrabold">{t('Importer un relevé', 'Import a statement')}</h2>
-            <Select selectSize="sm" className="w-48" value={channel} onChange={(e) => setChannel(e.target.value)} disabled={!edit} aria-label={t('Plateforme', 'Platform')}>
+          <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-heading text-ink">{t('Importer un relevé', 'Import a statement')}</h2>
+            <Select className="w-full sm:w-56" value={channel} onChange={(e) => setChannel(e.target.value)} disabled={!edit} aria-label={t('Plateforme', 'Platform')}>
               <option value="">{t('Détecter automatiquement', 'Detect automatically')}</option>
               {Object.entries(CH_NAME).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </Select>
@@ -171,7 +171,9 @@ export default function StatementsPage() {
                 <Td align="right">{edit && <Button size="xs" variant="ghost" onClick={() => setRemoving(i)} icon={<Trash2 className="size-3.5" />}>{t('Retirer', 'Remove')}</Button>}</Td>
               </Tr>
             ))}
-            {imports.length === 0 && <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-ink-3">{loaded ? t('Aucun relevé importé pour l’instant.', 'No statement imported yet.') : t('Chargement…', 'Loading…')}</td></tr>}
+            {imports.length === 0 && (!loaded ? <TableSkeleton columns={9} label={t('Chargement…', 'Loading…')} /> : <tr><td colSpan={9}>
+              <EmptyState compact title={t('Aucun relevé importé', 'No statement imported')} body={t('Déposez le fichier d’une plateforme dans la zone ci-dessus.', 'Drop a platform file in the area above.')} />
+            </td></tr>)}
           </tbody>
         </Table>
       </Card>

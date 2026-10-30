@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, CalendarClock, CircleAlert, CircleCheck, Copy, Download, ImageOff, ImageUp, Info, Languages, Link2, Plus, Search, Send, Trash2, TriangleAlert } from 'lucide-react';
 import { Badge, PlatformMark, PlatformTag } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Banner, Card, CardHeader, EmptyState, PageHeader } from '@/components/ui/card';
+import { Button, ButtonLink } from '@/components/ui/button';
+import { Banner, Card, CardHeader, EmptyState, PageHeader, SkeletonList } from '@/components/ui/card';
 import { Checkbox, Field, Input, Select, Switch, Textarea } from '@/components/ui/form';
 import { Modal } from '@/components/ui/overlay';
 import { usePulse } from '@/components/live/pulse';
@@ -12,9 +12,12 @@ import { Segmented } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/toast';
 import { fullWeek, WeekEditor, weekProblems, type Week } from '@/components/ui/week-editor';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
+import { OverflowMenu } from '@/components/menu/overflow-menu';
+import { PlatformPricing } from '@/components/menu/platform-pricing';
 import { MenuTabs } from './menu-tabs';
 import { api, ApiError, money, timeOf } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
+import { countEn, countFr, enWord, frWord } from '@/lib/ui/count-label';
 import type { MasterMenu, MenuCategory, MenuItem, MenuModifierGroup } from '@/lib/foodhub/types';
 import { cn } from '@/lib/ui/cn';
 import { UBER_TAX_CLASSES, type UberTaxClass } from '@/lib/foodhub/menu/uber-tax';
@@ -112,22 +115,32 @@ export function MenuEditor() {
 
   return (
     <div>
-      <PageHeader title={t('Menus', 'Menus')} subtitle={t('Un menu maître par marque, ou un seul menu partagé entre vos marques → vérifié → publié sur Uber Eats, DoorDash et Skip avec les heures, fériés et horaires de catégorie.', 'One master menu per brand, or one menu shared by your brands → checked → published to Uber Eats, DoorDash and Skip with hours, holidays and category schedules.')}
-        right={<>
-          <Select className="w-56" value={brand} onChange={(e) => { if (dirty && !window.confirm(t('Abandonner les changements ?', 'Discard changes?'))) return; setBrand(e.target.value); }} aria-label={t('Marque', 'Brand')}>{allBrands.map((b) => <option key={b} value={b}>{sharing[b] ? `${b} → ${sharing[b]}` : b}</option>)}</Select>
-          <Button variant="outline" onClick={() => (dirty ? toast.warn(t('Enregistrez d’abord.', 'Save first.')) : setDialog('share'))} icon={<Link2 className="size-4" />}>{t('Menu partagé', 'Shared menu')}</Button>
-          <Button variant="outline" disabled={Boolean(sharedFrom)} loading={busy === 'import'} onClick={importClover} icon={<Download className="size-4" />}>{t('Importer de Clover', 'Import from Clover')}</Button>
-          <Button variant="primary" disabled={!dirty || Boolean(sharedFrom)} loading={busy === 'save'} onClick={save}>{dirty ? t('Enregistrer', 'Save') : t('Enregistré', 'Saved')}</Button>
-          <Button variant="outline" onClick={() => (dirty ? toast.warn(t('Enregistrez avant de publier.', 'Save before publishing.')) : setDialog('uber'))} icon={<PlatformMark channel="uber_eats" size="xs" />}>{t('Tous les magasins Uber', 'All Uber stores')}</Button>
-          <Button variant="brand" onClick={() => (dirty ? toast.warn(t('Enregistrez avant de publier.', 'Save before publishing.')) : setDialog('publish'))} icon={<Send className="size-4" />}>{t('Publier', 'Publish')}</Button>
-        </>} />
-      <MenuTabs />
+      <PageHeader title={t('Menus', 'Menus')} subtitle={t('Un menu par marque : vérifié, puis publié sur Uber Eats, DoorDash et Skip.', 'One menu per brand: checked, then published to Uber Eats, DoorDash and Skip.')}
+        tabs={<MenuTabs className="mb-0" />}
+        right={<div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+          <div className="flex items-center gap-2">
+            <Select className="min-w-0 flex-1 sm:w-56 sm:flex-none" value={brand} onChange={(e) => { if (dirty && !window.confirm(t('Abandonner les changements ?', 'Discard changes?'))) return; setBrand(e.target.value); }} aria-label={t('Marque', 'Brand')}>{allBrands.map((b) => <option key={b} value={b}>{sharing[b] ? `${b} → ${sharing[b]}` : b}</option>)}</Select>
+            {/* Saved is a status, not a grey button: only unsaved changes show the Save action. */}
+            {!sharedFrom && (dirty
+              ? <Button variant="primary" loading={busy === 'save'} onClick={save}>{t('Enregistrer', 'Save')}</Button>
+              : <span role="status" className="text-small inline-flex h-10 shrink-0 items-center gap-1.5 px-1 font-semibold text-ink-3"><CircleCheck className="size-4 text-go" aria-hidden />{t('Enregistré', 'Saved')}</span>)}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" className="flex-1 sm:flex-none" disabled={Boolean(sharedFrom)} loading={busy === 'import'} onClick={importClover} icon={<Download className="size-4" />}><span className="sm:hidden">{t('Importer', 'Import')}</span><span className="hidden sm:inline">{t('Importer de Clover', 'Import from Clover')}</span></Button>
+            <Button variant="brand" className="flex-1 sm:flex-none" onClick={() => (dirty ? toast.warn(t('Enregistrez avant de publier.', 'Save before publishing.')) : setDialog('publish'))} icon={<Send className="size-4" />}>{t('Publier', 'Publish')}</Button>
+            <OverflowMenu label={t('Plus d’actions', 'More actions')} items={[
+              { key: 'share', icon: <Link2 />, label: t('Menu partagé', 'Shared menu'), hint: t('Un seul menu pour plusieurs marques', 'One menu for several brands'), onSelect: () => (dirty ? toast.warn(t('Enregistrez d’abord.', 'Save first.')) : setDialog('share')) },
+              { key: 'uber', icon: <Send />, label: t('Publier sur tous les magasins Uber', 'Publish to all Uber stores'), hint: t('Aperçu d’abord, rien n’est envoyé sans votre accord', 'Preview first, nothing is sent without your OK'), onSelect: () => (dirty ? toast.warn(t('Enregistrez avant de publier.', 'Save before publishing.')) : setDialog('uber')) },
+              ...(langs ? [{ key: 'langs', icon: <Languages />, label: t('Langues des menus', 'Menu languages'), hint: `Uber ${LANG[langs.uber_eats]} · DoorDash ${LANG[langs.doordash]} · Skip ${LANG[langs.skip]}`, onSelect: () => setDialog('langs') }] : []),
+            ]} />
+          </div>
+        </div>} />
 
       {sharedFrom ? (
         <Banner tone="info" className="mb-4" action={<Button size="xs" variant="outline" onClick={() => setBrand(sharedFrom)}>{t(`Modifier ${sharedFrom}`, `Edit ${sharedFrom}`)}</Button>}>
           {t(`${brand} utilise le menu ${sharedFrom} (articles, prix, options, ruptures). Il est publié sous le nom, les heures et les magasins de ${brand}. Modifiez-le sur ${sharedFrom}.`,
             `${brand} uses the ${sharedFrom} menu (items, prices, options, 86s). It is published under ${brand}’s own name, hours and stores. Edit it on ${sharedFrom}.`)}
-          {menu?.sharedDishes ? ` ${t(`Elle ne montre que ${menu.sharedDishes.shown} plat(s) choisi(s) sous Menu partagé${menu.sharedDishes.missing.length ? ` (${menu.sharedDishes.missing.length} plat(s) choisi(s) ne sont plus dans le menu ${sharedFrom})` : ''}.`, `It shows only the ${menu.sharedDishes.shown} dish(es) picked under Shared menu${menu.sharedDishes.missing.length ? ` (${menu.sharedDishes.missing.length} picked dish(es) are no longer on the ${sharedFrom} menu)` : ''}.`)}` : ''}
+          {menu?.sharedDishes ? ` ${t(`Elle ne montre que ${countFr(menu.sharedDishes.shown, 'plat choisi', 'plats choisis')} sous Menu partagé${menu.sharedDishes.missing.length ? ` (${countFr(menu.sharedDishes.missing.length, 'plat choisi n’est', 'plats choisis ne sont')} plus dans le menu ${sharedFrom})` : ''}.`, `It shows only the ${countEn(menu.sharedDishes.shown, 'dish', 'dishes')} picked under Shared menu${menu.sharedDishes.missing.length ? ` (${countEn(menu.sharedDishes.missing.length, 'picked dish is', 'picked dishes are')} no longer on the ${sharedFrom} menu)` : ''}.`)}` : ''}
         </Banner>
       ) : group.length > 1 && (
         <Banner tone="info" className="mb-4">
@@ -150,46 +163,20 @@ export function MenuEditor() {
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Segmented value={view} onChange={setView} options={[{ key: 'items', label: t(`Articles (${menu?.items.length ?? 0})`, `Items (${menu?.items.length ?? 0})`) }, { key: 'options', label: t(`Options (${menu?.modifierGroups.length ?? 0})`, `Options (${menu?.modifierGroups.length ?? 0})`) }, { key: 'publish', label: t('Publication', 'Publishing') }]} />
-        {menu && (
-          <div className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-surface px-2.5 py-1" title={t('Ajouté à chaque prix (articles et options) sur la plateforme. Le prix de base reste le prix en magasin (Clover). Un prix fixé par article a priorité.', 'Added to every price (items and options) on that platform. The base price stays the in-store (Clover) price. A per-item price always wins.')}>
-            <span className="text-xs font-semibold text-ink-3">{t('Majoration', 'Markup')}</span>
-            {PRICE_CH.map(([k, l]) => (
-              <label key={k} className="flex items-center gap-1 text-xs"><PlatformMark channel={k} size="xs" /><span className="sr-only">{l}</span>
-                <Input inputSize="sm" type="number" step="1" min="-50" max="200" placeholder="0" className="num w-16" aria-label={`${l} %`}
-                  value={menu.channelMarkupPct?.[k as 'uber_eats'] ?? ''}
-                  onChange={(e) => update((m) => { const next = { ...(m.channelMarkupPct || {}) } as Record<string, number>; if (e.target.value === '' || Number(e.target.value) === 0) delete next[k]; else next[k] = Number(e.target.value); return { ...m, channelMarkupPct: next }; })} />%
-              </label>
-            ))}
-            {/* Uber item tax category (tax_label_info): brand default; an item can override it in its dialog. */}
-            <label className="flex items-center gap-1 text-xs" title={t('Catégorie de taxe Uber Eats par défaut des articles et options. Vide = rien envoyé (la configuration de taxes du magasin Uber s’applique).', 'Default Uber Eats tax category of the items and options. Empty = nothing sent (the Uber store tax setup applies).')}>
-              <PlatformMark channel="uber_eats" size="xs" /><span>{t('taxe', 'tax')}</span>
-              <Select selectSize="sm" aria-label={t('Catégorie de taxe Uber', 'Uber tax category')} value={menu.uberTaxClass ?? ''} onChange={(e) => update((m) => ({ ...m, uberTaxClass: e.target.value || undefined }))}>
-                <option value="">—</option>{(Object.keys(UBER_TAX_CLASSES) as UberTaxClass[]).map((k) => <option key={k} value={k}>{lang === 'fr' ? UBER_TAX_CLASSES[k].fr : UBER_TAX_CLASSES[k].en}</option>)}
-              </Select>
-            </label>
-            {/* DoorDash dual pricing: base_price = pickup price. Empty = same as delivery; 0 = in-store price. */}
-            <label className="flex items-center gap-1 text-xs" title={t('Prix pour emporter sur DoorDash : % ajouté au prix en magasin. Vide = même prix que la livraison. 0 = prix en magasin.', 'DoorDash pickup price: % added to the in-store price. Empty = same as delivery. 0 = in-store price.')}>
-              <PlatformMark channel="doordash" size="xs" /><span>{t('emporter', 'pickup')}</span>
-              <Input inputSize="sm" type="number" step="1" min="-50" max="200" placeholder="—" className="num w-16" aria-label={t('DoorDash emporter %', 'DoorDash pickup %')}
-                value={menu.pickupMarkupPct?.doordash ?? ''}
-                onChange={(e) => update((m) => { const next = { ...(m.pickupMarkupPct || {}) }; if (e.target.value === '') delete next.doordash; else next.doordash = Number(e.target.value); return { ...m, pickupMarkupPct: next }; })} />%
-            </label>
-          </div>
-        )}
-        {langs && <button type="button" onClick={() => setDialog('langs')} className="ml-auto flex items-center gap-1.5 text-[13px] text-ink-3 hover:text-ink"><Languages className="size-4" />Uber {LANG[langs.uber_eats]} · DoorDash {LANG[langs.doordash]} · Skip {LANG[langs.skip]}</button>}
       </div>
+      {menu && view === 'items' && <PlatformPricing menu={menu} onChange={update} disabled={Boolean(sharedFrom)} />}
 
-      {!menu && <div className="h-96 animate-pulse rounded-lg bg-sunken" />}
+      {!menu && <SkeletonList count={6} />}
 
       {menu && view === 'items' && (
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-[260px_1fr]">
           <Card className="h-fit p-2">
-            <button type="button" onClick={() => setCat('*')} className={cn('flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm font-semibold', cat === '*' ? 'bg-ink text-canvas' : 'hover:bg-sunken')}>{t('Tout le menu', 'Whole menu')}<span className="num text-xs opacity-70">{menu.items.length}</span></button>
+            <button type="button" onClick={() => setCat('*')} className={cn('flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-body font-semibold', cat === '*' ? 'bg-ink text-canvas' : 'hover:bg-sunken')}>{t('Tout le menu', 'Whole menu')}<span className="num text-small opacity-70">{menu.items.length}</span></button>
             {cats.map((c, idx) => (
               <div key={c.ref} className={cn('group flex items-center gap-1 rounded-md', cat === c.ref ? 'bg-sunken' : 'hover:bg-sunken/60')}>
                 <button type="button" onClick={() => setCat(c.ref)} className="min-w-0 flex-1 px-3 py-2 text-left">
-                  <span className="block truncate text-sm font-semibold">{lang === 'fr' && c.nameFr ? c.nameFr : c.name}</span>
-                  <span className="flex items-center gap-1 text-xs text-ink-3">{menu.items.filter((i) => i.categoryRef === c.ref).length} {t('articles', 'items')}{c.hours && Object.values(c.hours).some((d) => d.length) && <><CalendarClock className="ml-1 size-3" />{t('horaire', 'schedule')}</>}</span>
+                  <span className="block truncate text-body font-semibold">{lang === 'fr' && c.nameFr ? c.nameFr : c.name}</span>
+                  <span className="flex items-center gap-1 text-small text-ink-3">{menu.items.filter((i) => i.categoryRef === c.ref).length} {t('articles', 'items')}{c.hours && Object.values(c.hours).some((d) => d.length) && <><CalendarClock className="ml-1 size-3" />{t('horaire', 'schedule')}</>}</span>
                 </button>
                 <div className="hidden flex-col group-hover:flex">
                   <button type="button" disabled={idx === 0} className="p-0.5 text-ink-3 hover:text-ink disabled:opacity-30" onClick={() => update((m) => { const cs = [...m.categories].sort((a, b) => a.sortOrder - b.sortOrder); [cs[idx - 1], cs[idx]] = [cs[idx], cs[idx - 1]]; return { ...m, categories: cs.map((x, k) => ({ ...x, sortOrder: k })) }; })} aria-label="↑"><ArrowUp className="size-3.5" /></button>
@@ -214,7 +201,8 @@ export function MenuEditor() {
               <Button variant="outline" icon={<Plus className="size-4" />} onClick={() => { if (!menu.categories.length) { setDialog('newcat'); return; } const ref = uid('item'); update((m) => ({ ...m, items: [...m.items, { ref, name: t('Nouvel article', 'New item'), price: 0, categoryRef: cat !== '*' ? cat : m.categories[0].ref, available: true, modifierGroupRefs: [] }] })); setEditItem(ref); }}>{t('Article', 'Item')}</Button>
             </div>
             <Card>
-              {items.length === 0 ? <EmptyState icon={<ImageOff className="size-6" />} title={menu.items.length ? t('Aucun article ici', 'No items here') : t('Menu vide', 'Empty menu')} body={menu.items.length ? undefined : t('« Importer de Clover » apporte articles, prix et options en un clic.', '“Import from Clover” brings items, prices and options in one click.')} /> : (
+              {items.length === 0 ? <EmptyState icon={<ImageOff className="size-6" />} title={menu.items.length ? t('Aucun article ici', 'No items here') : t('Menu vide', 'Empty menu')} body={menu.items.length ? t('Changez de catégorie ou de recherche.', 'Try another category or search.') : t('Clover apporte articles, prix et options en un clic.', 'Clover brings items, prices and options in one click.')}
+                action={menu.items.length ? (q ? <Button variant="outline" onClick={() => setQ('')}>{t('Effacer la recherche', 'Clear the search')}</Button> : undefined) : <Button variant="primary" disabled={Boolean(sharedFrom)} onClick={importClover} icon={<Download className="size-4" />}>{t('Importer de Clover', 'Import from Clover')}</Button>} /> : (
                 <div className="divide-y divide-line">
                   {items.map((i) => {
                     const issues = issuesFor(i.ref);
@@ -223,14 +211,14 @@ export function MenuEditor() {
                         {i.imageUrl ? <img /* eslint-disable-line @next/next/no-img-element -- menu photos come from platform CDNs */ src={i.imageUrl} alt="" className="size-12 shrink-0 rounded-md object-cover" /> : <span className="flex size-12 shrink-0 items-center justify-center rounded-md bg-sunken text-ink-4"><ImageOff className="size-5" /></span>}
                         <button type="button" onClick={() => setEditItem(i.ref)} className="min-w-0 flex-1 text-left">
                           <div className="truncate font-bold">{lang === 'fr' && i.nameFr ? i.nameFr : i.name}</div>
-                          <div className="flex flex-wrap gap-1.5 text-xs text-ink-3">
+                          <div className="flex flex-wrap gap-1.5 text-small text-ink-3">
                             {cat === '*' && <span>{cats.find((c) => c.ref === i.categoryRef)?.name}</span>}
-                            {i.modifierGroupRefs.length > 0 && <span>· {i.modifierGroupRefs.length} {t('groupe(s) d’options', 'option group(s)')}</span>}
+                            {i.modifierGroupRefs.length > 0 && <span>· {t(countFr(i.modifierGroupRefs.length, 'groupe d’options', 'groupes d’options'), countEn(i.modifierGroupRefs.length, 'option group'))}</span>}
                             {!i.posItemRef && <span className="text-wait-2">· {t('pas lié à Clover', 'not linked to Clover')}</span>}
                             {issues[0] && <span className={issues.some((x) => x.level === 'error') ? 'font-semibold text-stop' : 'text-wait-2'}>· {issues[0].message}</span>}
                           </div>
                         </button>
-                        <label className="flex items-center gap-1 text-xs text-ink-3">{t('Prix', 'Price')}<Input inputSize="sm" type="number" step="0.01" min="0" className="num w-24" value={i.price} onChange={(e) => updateItem(i.ref, { price: Number(e.target.value) })} /></label>
+                        <label className="flex items-center gap-1 text-small text-ink-3">{t('Prix', 'Price')}<Input inputSize="sm" type="number" step="0.01" min="0" className="num w-24" value={i.price} onChange={(e) => updateItem(i.ref, { price: Number(e.target.value) })} /></label>
                         <div className="hidden gap-1 xl:flex">{PRICE_CH.map(([k, l]) => (
                           <label key={k} className="flex items-center gap-1" title={`${l}`}><PlatformMark channel={k} size="xs" /><Input inputSize="sm" type="number" step="0.01" min="0" placeholder={menu.channelMarkupPct?.[k as 'uber_eats'] ? withMarkup(i.price, Number(menu.channelMarkupPct[k as 'uber_eats'])).toFixed(2) : '='} className="num w-20" value={i.channelPrices?.[k as 'uber_eats'] ?? ''} onChange={(e) => { const next = { ...(i.channelPrices || {}) } as Record<string, number>; if (e.target.value === '') delete next[k]; else next[k] = Number(e.target.value); updateItem(i.ref, { channelPrices: next }); }} /></label>
                         ))}</div>
@@ -241,7 +229,7 @@ export function MenuEditor() {
                 </div>
               )}
             </Card>
-            <p className="mt-2 text-xs text-ink-4">{t('Prix plateforme vide (=) = prix de base. L’interrupteur retire l’article partout ; pour une rupture à une succursale, utilisez Ruptures (86).', 'Empty platform price (=) = base price. The switch removes the item everywhere; for one location, use the 86 board.')}</p>
+            <p className="mt-2 text-small text-ink-3">{t('Prix plateforme vide (=) = prix de base. L’interrupteur retire l’article partout ; pour une rupture dans une seule cuisine, utilisez Épuisés.', 'Empty platform price (=) = base price. The switch removes the item everywhere; for one kitchen only, use Sold out.')}</p>
           </div>
         </div>
       )}
@@ -257,10 +245,10 @@ export function MenuEditor() {
                   <div className="flex flex-wrap items-center gap-2">
                     <Input inputSize="sm" className="flex-1 font-bold" value={g.name} onChange={(e) => updateGroup(g.ref, { name: e.target.value })} aria-label="Group (EN)" />
                     <Input inputSize="sm" className="w-36" placeholder="Français" value={g.nameFr ?? ''} onChange={(e) => updateGroup(g.ref, { nameFr: e.target.value || undefined })} aria-label="Groupe (FR)" />
-                    <label className="flex items-center gap-1 text-xs text-ink-3">min<Input inputSize="sm" type="number" min={0} className="w-14" value={g.min} onChange={(e) => updateGroup(g.ref, { min: Math.max(0, Number(e.target.value)) })} /></label>
-                    <label className="flex items-center gap-1 text-xs text-ink-3">max<Input inputSize="sm" type="number" min={0} className="w-14" value={g.max} onChange={(e) => updateGroup(g.ref, { max: Math.max(0, Number(e.target.value)) })} /></label>
+                    <label className="flex items-center gap-1 text-small text-ink-3">min<Input inputSize="sm" type="number" min={0} className="w-14" value={g.min} onChange={(e) => updateGroup(g.ref, { min: Math.max(0, Number(e.target.value)) })} /></label>
+                    <label className="flex items-center gap-1 text-small text-ink-3">max<Input inputSize="sm" type="number" min={0} className="w-14" value={g.max} onChange={(e) => updateGroup(g.ref, { max: Math.max(0, Number(e.target.value)) })} /></label>
                   </div>
-                  <div className="mt-1.5 text-xs text-ink-3">{g.min > 0 ? t(`Obligatoire — ${g.min}${g.max > g.min ? `–${g.max}` : ''}`, `Required — pick ${g.min}${g.max > g.min ? `–${g.max}` : ''}`) : t(`Facultatif — jusqu’à ${g.max || '∞'}`, `Optional — up to ${g.max || 'any'}`)} · {t(`utilisé par ${usedBy} article(s)`, `used by ${usedBy} item(s)`)}</div>
+                  <div className="mt-1.5 text-small text-ink-3">{g.min > 0 ? t(`Obligatoire — ${g.min}${g.max > g.min ? `–${g.max}` : ''}`, `Required — pick ${g.min}${g.max > g.min ? `–${g.max}` : ''}`) : t(`Facultatif — jusqu’à ${g.max || '∞'}`, `Optional — up to ${g.max || 'any'}`)} · {t(`utilisé par ${countFr(usedBy, 'article')}`, `used by ${countEn(usedBy, 'item')}`)}</div>
                   <div className="mt-3 space-y-1.5">
                     {g.modifiers.map((md) => (
                       <div key={md.ref} className="flex items-center gap-2">
@@ -279,7 +267,7 @@ export function MenuEditor() {
                 </Card>
               );
             })}
-            {menu.modifierGroups.length === 0 && <Card className="lg:col-span-2"><EmptyState title={t('Aucun groupe d’options', 'No option groups')} body={t('Les options Clover arrivent avec « Importer de Clover ».', 'Clover modifiers come with “Import from Clover”.')} /></Card>}
+            {menu.modifierGroups.length === 0 && <Card className="lg:col-span-2"><EmptyState icon={<Plus />} title={t('Aucun groupe d’options', 'No option groups')} body={t('Les options Clover arrivent avec l’import Clover.', 'Clover modifiers come with the Clover import.')} action={<Button variant="outline" disabled={Boolean(sharedFrom)} onClick={importClover} icon={<Download className="size-4" />}>{t('Importer de Clover', 'Import from Clover')}</Button>} /></Card>}
           </div>
         </div>
       )}
@@ -291,19 +279,19 @@ export function MenuEditor() {
             {stores.map((s) => (
               <div key={s.storeId} className="flex flex-wrap items-center gap-3 px-5 py-3">
                 <PlatformTag channel={s.channel} className="w-40" />
-                <span className="w-32 text-sm text-ink-2">{shortLoc(locName(s.locationCode))}</span>
-                <span className="text-xs text-ink-3">{s.at ? timeOf(s.at, loc, true) : t('jamais', 'never')}</span>
+                <span className="w-32 text-body text-ink-2">{shortLoc(locName(s.locationCode))}</span>
+                <span className="text-small text-ink-3">{s.at ? timeOf(s.at, loc, true) : t('jamais', 'never')}</span>
                 {s.status !== 'never' && <Badge tone={s.status === 'done' ? 'go' : s.status === 'queued' ? 'wait' : 'stop'}>{s.status === 'done' ? t('reçu', 'received') : s.status === 'queued' ? t('en attente de confirmation', 'waiting for confirmation') : t('échec', 'failed')}</Badge>}
-                <span className="min-w-0 flex-1 truncate text-xs text-ink-3">{s.message}</span>
+                <span className="min-w-0 flex-1 truncate text-small text-ink-3">{s.message}</span>
               </div>
             ))}
-            {stores.length === 0 && <div className="px-5 py-6 text-sm text-ink-3">{t('Aucun magasin branché pour cette marque.', 'No store connected for this brand.')}</div>}
+            {stores.length === 0 && <EmptyState compact icon={<Link2 />} title={t('Aucun magasin branché pour cette marque', 'No store connected for this brand')} body={t('Branchez ses magasins Uber Eats, DoorDash ou Skip pour publier ce menu.', 'Connect its Uber Eats, DoorDash or Skip stores to publish this menu.')} action={<ButtonLink href="/stores/mapping" variant="outline">{t('Brancher un magasin', 'Connect a store')}</ButtonLink>} />}
           </div>
           {scheduled.length > 0 && (
             <div className="border-t border-line px-5 py-4">
-              <div className="mb-2 text-sm font-bold">{t('Publications programmées', 'Scheduled publishes')}</div>
+              <div className="mb-2 text-body font-bold">{t('Publications programmées', 'Scheduled publishes')}</div>
               {scheduled.map((s) => (
-                <div key={s.id} className="flex flex-wrap items-center gap-3 py-1.5 text-sm">
+                <div key={s.id} className="flex flex-wrap items-center gap-3 py-1.5 text-body">
                   <span className="font-semibold">{timeOf(s.at, loc, true)}</span>{group.length > 1 && <span className="font-semibold">{s.brand}</span>}<span className="text-ink-3">{s.storeIds?.length ? `${s.storeIds.length} ${t('magasins', 'stores')}` : t('tous', 'all')} · {s.createdBy}</span>
                   <Badge tone={s.status === 'done' ? 'go' : s.status === 'failed' ? 'stop' : s.status === 'cancelled' ? 'neutral' : 'wait'}>{s.status}</Badge>
                   {s.status === 'scheduled' && <Button size="xs" variant="ghost" onClick={async () => { await api(`/api/foodhub/menu/publish?id=${s.id}`, { method: 'DELETE' }).catch(fail); loadStatus(brand); }}>{t('Annuler', 'Cancel')}</Button>}
@@ -339,19 +327,19 @@ function CheckCard({ check, dirty, onFix, hasItem }: { check: Check; dirty: bool
     <Card className="mb-4">
       <button type="button" onClick={() => setOpen(!open)} className="flex w-full flex-wrap items-center gap-3 px-5 py-3 text-left">
         {check.errors.length ? <CircleAlert className="size-5 text-stop" /> : <CircleCheck className="size-5 text-go" />}
-        <span className="font-bold">{check.errors.length ? t(`${check.errors.length} erreur(s) bloquent la publication`, `${check.errors.length} error(s) block publishing`) : t('Prêt à publier', 'Ready to publish')}</span>
-        <Badge tone="wait">{check.warnings.length} {t('avertissement(s)', 'warning(s)')}</Badge>
-        <Badge tone="neutral">{check.tips.length} {t('conseil(s)', 'tip(s)')}</Badge>
-        {dirty && <span className="text-xs text-ink-3">{t('(vérifié sur la version enregistrée)', '(checked on the saved version)')}</span>}
-        <span className="ml-auto text-xs font-semibold text-ink-3">{open ? t('Masquer', 'Hide') : t('Détails', 'Details')}</span>
+        <span className="font-bold">{check.errors.length ? t(`${countFr(check.errors.length, 'erreur bloque', 'erreurs bloquent')} la publication`, `${countEn(check.errors.length, 'error blocks', 'errors block')} publishing`) : t('Prêt à publier', 'Ready to publish')}</span>
+        <Badge tone="wait">{t(countFr(check.warnings.length, 'avertissement'), countEn(check.warnings.length, 'warning'))}</Badge>
+        <Badge tone="neutral">{t(countFr(check.tips.length, 'conseil'), countEn(check.tips.length, 'tip'))}</Badge>
+        {dirty && <span className="text-small text-ink-3">{t('(vérifié sur la version enregistrée)', '(checked on the saved version)')}</span>}
+        <span className="ml-auto text-small font-semibold text-ink-3">{open ? t('Masquer', 'Hide') : t('Détails', 'Details')}</span>
       </button>
       {(open || check.errors.length > 0) && all.length > 0 && (
         <ul className="space-y-1 border-t border-line px-5 py-3">
           {all.map((x, i) => (
-            <li key={i} className={cn('flex items-start gap-2 rounded-md px-2.5 py-1.5 text-sm', x.level === 'error' ? 'bg-stop-soft' : x.level === 'warning' ? 'bg-wait-soft' : 'bg-sunken')}>
+            <li key={i} className={cn('flex items-start gap-2 rounded-md px-2.5 py-1.5 text-body', x.level === 'error' ? 'bg-stop-soft' : x.level === 'warning' ? 'bg-wait-soft' : 'bg-sunken')}>
               {x.level === 'error' ? <CircleAlert className="mt-0.5 size-4 shrink-0 text-stop" /> : x.level === 'warning' ? <TriangleAlert className="mt-0.5 size-4 shrink-0 text-wait-2" /> : <Info className="mt-0.5 size-4 shrink-0 text-ink-3" />}
               <span className="flex-1">{x.message}</span>
-              {x.ref && hasItem(x.ref) && <button type="button" className="text-xs font-bold underline" onClick={() => onFix(x.ref!)}>{t('Corriger', 'Fix')}</button>}
+              {x.ref && hasItem(x.ref) && <button type="button" className="text-small font-bold underline" onClick={() => onFix(x.ref!)}>{t('Corriger', 'Fix')}</button>}
             </li>
           ))}
         </ul>
@@ -397,7 +385,7 @@ function ItemDialog({ item, markup, groups, categories, onChange, onRemove, onCl
           <Field label={t('Photo (URL https, 1200×800 recommandé)', 'Photo (https URL, 1200×800 recommended)')}>
             <div className="flex gap-2">
               <Input className="min-w-0 flex-1" value={item.imageUrl ?? ''} placeholder="https://…" onChange={(e) => onChange({ imageUrl: e.target.value.trim() || undefined })} />
-              <label className={cn('inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-line px-3 text-sm font-semibold text-ink hover:bg-sunken', upload.busy && 'pointer-events-none opacity-60')}>
+              <label className={cn('inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-line px-3 text-body font-semibold text-ink hover:bg-sunken', upload.busy && 'pointer-events-none opacity-60')}>
                 <ImageUp className="size-4" />{upload.busy ? t('Envoi…', 'Uploading…') : t('Téléverser', 'Upload')}
                 <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(e) => { void uploadPhoto(e.target.files?.[0]); e.target.value = ''; }} />
               </label>
@@ -405,12 +393,13 @@ function ItemDialog({ item, markup, groups, categories, onChange, onRemove, onCl
           </Field>
           {upload.msg && <Banner tone={upload.tone === 'stop' ? 'stop' : 'warn'}>{upload.msg}</Banner>}
           {item.imageUrl && <img /* eslint-disable-line @next/next/no-img-element -- menu photos come from platform CDNs */ src={item.imageUrl} alt={item.name} className="max-h-44 w-full rounded-lg object-cover" />}
-          <div><div className="mb-1.5 text-[13px] font-semibold text-ink-2">{t('Étiquettes', 'Dietary tags')}</div><div className="flex flex-wrap gap-x-4 gap-y-2">{TAGS.map(([k, fr, en]) => <Checkbox key={k} checked={(item.tags ?? []).includes(k)} onChange={(c) => onChange({ tags: c ? [...(item.tags ?? []), k] : (item.tags ?? []).filter((x) => x !== k) })} label={lang === 'fr' ? fr : en} />)}</div></div>
+          <div><div className="mb-1.5 text-small font-semibold text-ink-2">{t('Étiquettes', 'Dietary tags')}</div><div className="flex flex-wrap gap-x-4 gap-y-2">{TAGS.map(([k, fr, en]) => <Checkbox key={k} checked={(item.tags ?? []).includes(k)} onChange={(c) => onChange({ tags: c ? [...(item.tags ?? []), k] : (item.tags ?? []).filter((x) => x !== k) })} label={lang === 'fr' ? fr : en} />)}</div></div>
           <Field label={t('Allergènes (séparés par des virgules)', 'Allergens (comma-separated)')}><Input value={allergens} onChange={(e) => setAllergens(e.target.value)} placeholder="arachides, lait, blé" /></Field>
           <Field label={t('Catégorie de taxe Uber Eats', 'Uber Eats tax category')}><Select value={item.uberTaxClass ?? ''} onChange={(e) => onChange({ uberTaxClass: e.target.value || undefined })}><option value="">{t('celle de la marque', 'brand default')}</option>{(Object.keys(UBER_TAX_CLASSES) as UberTaxClass[]).map((k) => <option key={k} value={k}>{lang === 'fr' ? UBER_TAX_CLASSES[k].fr : UBER_TAX_CLASSES[k].en}</option>)}</Select></Field>
+          <Field label={t('Taxes sur la facture (MEV)', 'Taxes on the invoice (MEV)')} hint={t('Repas préparé : TPS + TVQ. Changez seulement pour un produit qui n’est pas taxé de la même façon.', 'Prepared food: GST + QST. Change it only for a product taxed another way.')}><Select value={item.mevTax ?? ''} onChange={(e) => onChange({ mevTax: (e.target.value || undefined) as typeof item.mevTax })}><option value="">{t('TPS + TVQ (par défaut)', 'GST + QST (default)')}</option><option value="F">{t('TPS seulement', 'GST only')}</option><option value="P">{t('TVQ seulement', 'QST only')}</option><option value="NON">{t('Non taxable', 'Not taxable')}</option></Select></Field>
           <Field label="Calories"><Input type="number" min={0} className="w-32" value={item.calories ?? ''} onChange={(e) => onChange({ calories: e.target.value === '' ? undefined : Number(e.target.value) })} /></Field>
-          <div><div className="mb-1.5 text-[13px] font-semibold text-ink-2">{t('Groupes d’options', 'Option groups')}</div><div className="space-y-1.5">{groups.map((g) => <Checkbox key={g.ref} checked={item.modifierGroupRefs.includes(g.ref)} onChange={(c) => onChange({ modifierGroupRefs: c ? [...item.modifierGroupRefs, g.ref] : item.modifierGroupRefs.filter((r) => r !== g.ref) })} label={`${lang === 'fr' && g.nameFr ? g.nameFr : g.name} (${g.modifiers.length}${g.min ? `, ${t('obligatoire', 'required')}` : ''})`} />)}{groups.length === 0 && <span className="text-xs text-ink-3">—</span>}</div></div>
-          <div className="text-xs text-ink-3">Clover : <span className="font-mono">{item.posItemRef || t('non lié — arrive comme ligne libre', 'not linked — arrives as a custom line')}</span></div>
+          <div><div className="mb-1.5 text-small font-semibold text-ink-2">{t('Groupes d’options', 'Option groups')}</div><div className="space-y-1.5">{groups.map((g) => <Checkbox key={g.ref} checked={item.modifierGroupRefs.includes(g.ref)} onChange={(c) => onChange({ modifierGroupRefs: c ? [...item.modifierGroupRefs, g.ref] : item.modifierGroupRefs.filter((r) => r !== g.ref) })} label={`${lang === 'fr' && g.nameFr ? g.nameFr : g.name} (${g.modifiers.length}${g.min ? `, ${t('obligatoire', 'required')}` : ''})`} />)}{groups.length === 0 && <span className="text-small text-ink-3">—</span>}</div></div>
+          <div className="text-small text-ink-3">Clover : <span className="font-mono">{item.posItemRef || t('non lié — arrive comme ligne libre', 'not linked — arrives as a custom line')}</span></div>
         </div>
       </div>
     </Modal>
@@ -458,24 +447,24 @@ function PublishDialog({ brand, group, stores, check, onClose, onDone }: { brand
       const d = await api<{ results?: Array<{ channel: string; result: { ok: boolean; status: string; message: string } }>; scheduled?: { at: string } }>('/api/foodhub/menu/publish', { method: 'POST', json: body });
       if (d.scheduled) toast.success(t('Publication programmée', 'Publish scheduled'), timeOf(d.scheduled.at, loc, true));
       else if (!(d.results ?? []).length) toast.warn(t('Rien n’a été envoyé', 'Nothing was sent'), t('Aucun magasin de cette marque ne peut recevoir un menu.', 'No store of this brand can receive a menu.'));
-      else { const bad = (d.results ?? []).filter((r) => !r.result.ok); if (bad.length) toast.error(t(`${bad.length} plateforme(s) ont refusé`, `${bad.length} platform(s) refused`), bad.map((b) => `${b.channel}: ${b.result.message}`).join('\n')); else toast.success(t('Menu envoyé', 'Menu sent'), t('Skip et DoorDash confirment en arrière-plan.', 'Skip and DoorDash confirm in the background.')); }
+      else { const bad = (d.results ?? []).filter((r) => !r.result.ok); if (bad.length) toast.error(t(`${countFr(bad.length, 'plateforme a', 'plateformes ont')} refusé`, `${countEn(bad.length, 'platform')} refused`), bad.map((b) => `${b.channel}: ${b.result.message}`).join('\n')); else toast.success(t('Menu envoyé', 'Menu sent'), t('Skip et DoorDash confirment en arrière-plan.', 'Skip and DoorDash confirm in the background.')); }
       onDone();
     } catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
   return (
     <Modal title={t(`Publier ${brand}`, `Publish ${brand}`)} size="lg" onClose={onClose}
-      footer={<><Button variant="ghost" onClick={onClose}>{t('Annuler', 'Cancel')}</Button><Button variant="outline" loading={previewing} disabled={!allBrands && !sel.length} onClick={dryRun} icon={<Search className="size-4" />}>{t('Aperçu (rien n’est envoyé)', 'Preview (nothing sent)')}</Button><Button variant="brand" loading={busy} disabled={blocked || (!allBrands && !sel.length) || (when === 'later' && !at)} onClick={go} icon={<Send className="size-4" />}>{when === 'later' ? t('Programmer', 'Schedule') : allBrands ? t(`Publier ${group.length} marques`, `Publish ${group.length} brands`) : t(`Publier sur ${sel.length} magasin(s)`, `Publish to ${sel.length} store(s)`)}</Button></>}>
-      {blocked && <Banner tone="stop" className="mb-3">{t(`Corrigez les ${check!.errors.length} erreur(s) d’abord.`, `Fix the ${check!.errors.length} error(s) first.`)}</Banner>}
+      footer={<><Button variant="ghost" onClick={onClose}>{t('Annuler', 'Cancel')}</Button><Button variant="outline" loading={previewing} disabled={!allBrands && !sel.length} onClick={dryRun} icon={<Search className="size-4" />}>{t('Aperçu (rien n’est envoyé)', 'Preview (nothing sent)')}</Button><Button variant="brand" loading={busy} disabled={blocked || (!allBrands && !sel.length) || (when === 'later' && !at)} onClick={go} icon={<Send className="size-4" />}>{when === 'later' ? t('Programmer', 'Schedule') : allBrands ? t(`Publier ${group.length} marques`, `Publish ${group.length} brands`) : t(`Publier sur ${countFr(sel.length, 'magasin')}`, `Publish to ${countEn(sel.length, 'store')}`)}</Button></>}>
+      {blocked && <Banner tone="stop" className="mb-3">{t(check!.errors.length > 1 ? `Corrigez les ${check!.errors.length} erreurs d’abord.` : 'Corrigez l’erreur d’abord.', check!.errors.length > 1 ? `Fix the ${check!.errors.length} errors first.` : 'Fix the error first.')}</Banner>}
       {group.length > 1 && (
         <div className="mb-3 rounded-lg border border-line bg-raised p-3">
           <Checkbox checked={allBrands} onChange={setAllBrands} label={<span>{t(`Publier pour toutes les marques qui partagent ce menu (${group.length}) : `, `Publish for every brand that shares this menu (${group.length}): `)}<strong>{group.join(', ')}</strong></span>} />
         </div>
       )}
       {!allBrands && <>
-      <div className="mb-2 flex gap-2 text-xs"><button type="button" className="font-semibold underline" onClick={() => setSel(stores.map((s) => s.storeId))}>{t('Tous', 'All')}</button><button type="button" className="font-semibold underline" onClick={() => setSel([])}>{t('Aucun', 'None')}</button><span className="text-ink-3">{sel.length}/{stores.length}</span></div>
+      <div className="mb-2 flex gap-2 text-small"><button type="button" className="font-semibold underline" onClick={() => setSel(stores.map((s) => s.storeId))}>{t('Tous', 'All')}</button><button type="button" className="font-semibold underline" onClick={() => setSel([])}>{t('Aucun', 'None')}</button><span className="text-ink-3">{sel.length}/{stores.length}</span></div>
       <div className="scrollbar-thin max-h-72 divide-y divide-line overflow-y-auto rounded-lg border border-line">
-        {stores.map((s) => <label key={s.storeId} className="flex cursor-pointer items-center gap-3 px-3 py-2"><input type="checkbox" className="size-4" checked={sel.includes(s.storeId)} onChange={(e) => setSel(e.target.checked ? [...sel, s.storeId] : sel.filter((x) => x !== s.storeId))} /><PlatformTag channel={s.channel} className="w-40" /><span className="text-sm text-ink-2">{shortLoc(locName(s.locationCode))}</span></label>)}
-        {stores.length === 0 && <div className="p-4 text-sm text-ink-3">{t('Aucun magasin branché.', 'No store connected.')}</div>}
+        {stores.map((s) => <label key={s.storeId} className="flex cursor-pointer items-center gap-3 px-3 py-2"><input type="checkbox" className="size-4" checked={sel.includes(s.storeId)} onChange={(e) => setSel(e.target.checked ? [...sel, s.storeId] : sel.filter((x) => x !== s.storeId))} /><PlatformTag channel={s.channel} className="w-40" /><span className="text-body text-ink-2">{shortLoc(locName(s.locationCode))}</span></label>)}
+        {stores.length === 0 && <div className="p-4 text-body text-ink-3">{t('Aucun magasin branché.', 'No store connected.')}</div>}
       </div>
       </>}
       <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -517,8 +506,8 @@ function ImportDialog({ brand, hasItems, onClose, onDone }: { brand: string; has
         t(`${r.items} articles · ${r.categories} catégories · ${r.modifierGroups} groupes d’options (${r.requiredGroups} obligatoires)`, `${r.items} items · ${r.categories} categories · ${r.modifierGroups} option groups (${r.requiredGroups} required)`),
         r.skipped.archived || r.skipped.hidden || r.skipped.notInMenu ? t(`Laissés de côté : ${r.skipped.archived} archivés, ${r.skipped.hidden} cachés${r.menu ? `, ${r.skipped.notInMenu} hors du menu « ${r.menu.name} »` : ''}`, `Left out: ${r.skipped.archived} archived, ${r.skipped.hidden} hidden${r.menu ? `, ${r.skipped.notInMenu} not in the "${r.menu.name}" menu` : ''}`) : '',
         ...Object.entries(r.platformPrices ?? {}).map(([p, x]) => `${p}: ${x.markupPct !== null ? `+${x.markupPct} %` : t('prix par article', 'item prices')}${x.overrides ? t(` (${x.overrides} prix propres)`, ` (${x.overrides} own prices)`) : ''}`),
-        r.skipped.excluded ? t(`${r.skipped.excluded} article(s) des catégories employés / promotions en magasin laissés de côté`, `${r.skipped.excluded} item(s) from staff / in-store promotion categories left out`) : '',
-        r.skipped.variablePrice ? t(`${r.skipped.variablePrice} article(s) à prix variable importés indisponibles`, `${r.skipped.variablePrice} variable-price item(s) imported unavailable`) : '',
+        r.skipped.excluded ? t(`${countFr(r.skipped.excluded, 'article')} des catégories employés / promotions en magasin ${frWord(r.skipped.excluded, 'laissé', 'laissés')} de côté`, `${countEn(r.skipped.excluded, 'item')} from staff / in-store promotion categories left out`) : '',
+        r.skipped.variablePrice ? t(`${countFr(r.skipped.variablePrice, 'article')} à prix variable ${frWord(r.skipped.variablePrice, 'importé indisponible', 'importés indisponibles')}`, `${countEn(r.skipped.variablePrice, 'variable-price item')} imported unavailable`) : '',
       ].filter(Boolean).join('\n') : `${d.menu.items.length} ${t('articles', 'items')}`;
       toast.success(t('Importé de Clover — publiez pour l’envoyer', 'Imported from Clover — publish to send it'), lines);
       onDone(d.menu);
@@ -533,23 +522,23 @@ function ImportDialog({ brand, hasItems, onClose, onDone }: { brand: string; has
       {!info ? <div className="h-40 animate-pulse rounded-lg bg-sunken" /> : <div className="space-y-4">
         {info.merchants.length > 1 && <Field label={t('Marchand Clover', 'Clover merchant')}><Select value={mid} onChange={(e) => { setMid(e.target.value); setSource('inventory'); void load(e.target.value); }}>{info.merchants.map((m) => <option key={m.id} value={m.id}>{m.id}{m.isDefault ? ` (${t('par défaut', 'default')})` : ''}{m.locations.length ? ` — ${m.locations.join(', ')}` : ''}</option>)}</Select></Field>}
         <div>
-          <div className="mb-1.5 text-sm font-semibold">{t('Que faut-il importer ?', 'What to import?')}</div>
+          <div className="mb-1.5 text-body font-semibold">{t('Que faut-il importer ?', 'What to import?')}</div>
           <div className="divide-y divide-line rounded-lg border border-line">
             <label className="flex cursor-pointer items-start gap-3 px-3 py-2.5"><input type="radio" className="mt-1" checked={source === 'inventory'} onChange={() => setSource('inventory')} />
-              <span><span className="font-semibold">{t('Tout l’inventaire visible', 'All visible inventory')}</span><span className="block text-xs text-ink-3">{t('Articles non cachés, hors catégories « ARCHIVE ». Prix en magasin ; majorations par plateforme gardées.', 'Items not hidden, outside “ARCHIVE” categories. In-store prices; platform markups kept.')}</span></span></label>
+              <span><span className="font-semibold">{t('Tout l’inventaire visible', 'All visible inventory')}</span><span className="block text-small text-ink-3">{t('Articles non cachés, hors catégories « ARCHIVE ». Prix en magasin ; majorations par plateforme gardées.', 'Items not hidden, outside “ARCHIVE” categories. In-store prices; platform markups kept.')}</span></span></label>
             {info.cloverMenus.menus.map((m) => (
               <label key={m.id} className="flex cursor-pointer items-start gap-3 px-3 py-2.5"><input type="radio" className="mt-1" checked={source === m.id} onChange={() => setSource(m.id)} />
                 <span className="min-w-0"><span className="font-semibold">{m.name}</span>{m.platform && <PlatformMark channel={m.platform} size="xs" className="ml-1.5 inline-flex align-middle" />}
-                  <span className="block text-xs text-ink-3">{[menuType(m.type), m.channel, m.status === 'published' ? t('publié', 'published') : m.status === 'draft' ? t('brouillon', 'draft') : m.status, m.items !== undefined ? t(`${m.items} articles`, `${m.items} items`) : ''].filter(Boolean).join(' · ')}</span></span></label>
+                  <span className="block text-small text-ink-3">{[menuType(m.type), m.channel, m.status === 'published' ? t('publié', 'published') : m.status === 'draft' ? t('brouillon', 'draft') : m.status, m.items !== undefined ? t(`${m.items} articles`, `${m.items} items`) : ''].filter(Boolean).join(' · ')}</span></span></label>
             ))}
           </div>
-          {!info.cloverMenus.ok && <p className="mt-1.5 text-xs text-ink-3">{t('Les menus Clover ne sont pas lisibles avec ce jeton — import de l’inventaire seulement.', 'Clover menus cannot be read with this token — inventory import only.')} <span className="font-mono">{info.cloverMenus.error}</span></p>}
+          {!info.cloverMenus.ok && <p className="mt-1.5 text-small text-ink-3">{t('Les menus Clover ne sont pas lisibles avec ce jeton — import de l’inventaire seulement.', 'Clover menus cannot be read with this token — inventory import only.')} <span className="font-mono">{info.cloverMenus.error}</span></p>}
         </div>
         {chosen && (
           <div>
-            <div className="mb-1.5 text-sm font-semibold">{t('Les prix de ce menu deviennent les prix sur :', 'This menu’s prices become the prices on:')}</div>
+            <div className="mb-1.5 text-body font-semibold">{t('Les prix de ce menu deviennent les prix sur :', 'This menu’s prices become the prices on:')}</div>
             <div className="flex flex-wrap gap-4">{PL.map(([k, l]) => <Checkbox key={k} checked={platforms.includes(k)} onChange={(v) => setPlatforms(v ? [...platforms, k] : platforms.filter((x) => x !== k))} label={l} />)}</div>
-            <p className="mt-1.5 text-xs text-ink-3">{t('Seuls les articles de ce menu sont importés. Si ses prix sont le prix Clover + un même pourcentage (ex. +20 %), Food Hub garde ce pourcentage : un prix changé dans Clover suit tout seul.', 'Only this menu’s items are imported. When its prices are the Clover price + one percentage (e.g. +20%), Food Hub keeps that percentage: a price changed in Clover follows by itself.')}</p>
+            <p className="mt-1.5 text-small text-ink-3">{t('Seuls les articles de ce menu sont importés. Si ses prix sont le prix Clover + un même pourcentage (ex. +20 %), Food Hub garde ce pourcentage : un prix changé dans Clover suit tout seul.', 'Only this menu’s items are imported. When its prices are the Clover price + one percentage (e.g. +20%), Food Hub keeps that percentage: a price changed in Clover follows by itself.')}</p>
           </div>
         )}
       </div>}
@@ -592,8 +581,8 @@ function UberPublishDialog({ onClose, onDone }: { onClose: () => void; onDone: (
       const d = await api<{ results: UberResult[]; sent: number; failed: number; blocked: number; untouched: number }>('/api/foodhub/menu/uber', { method: 'POST', json: { storeIds: sel } });
       setResults(Object.fromEntries(d.results.map((r) => [r.storeId, r.result])));
       // "Sent" only for what Uber answered OK; blocked (safe mode, menu errors) and refused are said as such.
-      if (d.sent && !d.failed && !d.blocked) toast.success(t(`Menu reçu par ${d.sent} magasin(s) Uber`, `Menu received by ${d.sent} Uber store(s)`));
-      else toast.warn(t(`${d.sent} reçu(s) · ${d.failed} refusé(s) · ${d.blocked} non envoyé(s)`, `${d.sent} received · ${d.failed} refused · ${d.blocked} not sent`), t('Le détail est dans la liste.', 'Details are in the list.'));
+      if (d.sent && !d.failed && !d.blocked) toast.success(t(`Menu reçu par ${countFr(d.sent, 'magasin')} Uber`, `Menu received by ${countEn(d.sent, 'Uber store')}`));
+      else toast.warn(t(`${countFr(d.sent, 'reçu')} · ${countFr(d.failed, 'refusé')} · ${d.blocked} non ${frWord(d.blocked, 'envoyé', 'envoyés')}`, `${d.sent} received · ${d.failed} refused · ${d.blocked} not sent`), t('Le détail est dans la liste.', 'Details are in the list.'));
     } catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
   }
   const PROV: Record<UberPlanRow['provisioning'], [string, string, 'go' | 'wait' | 'stop' | 'neutral']> = {
@@ -603,10 +592,10 @@ function UberPublishDialog({ onClose, onDone }: { onClose: () => void; onDone: (
   const rows = plan?.rows ?? [];
   return (
     <Modal title={t('Publier sur tous les magasins Uber Eats', 'Publish to all Uber Eats stores')} subtitle={t('Aperçu : rien n’est envoyé avant le bouton « Publier ».', 'Preview: nothing is sent until you press “Publish”.')} size="xl" onClose={results ? onDone : onClose}
-      footer={results ? <Button onClick={onDone}>{t('Fermer', 'Close')}</Button> : <><Button variant="ghost" onClick={onClose}>{t('Annuler', 'Cancel')}</Button><Button variant="brand" loading={busy === 'publish'} disabled={!sel.length || !plan} onClick={publish} icon={<Send className="size-4" />}>{t(`Publier sur ${sel.length} magasin(s) Uber`, `Publish to ${sel.length} Uber store(s)`)}</Button></>}>
-      {!plan ? <div className="py-8 text-center text-sm text-ink-3">{t('Préparation de l’aperçu…', 'Building the preview…')}</div> : <>
+      footer={results ? <Button onClick={onDone}>{t('Fermer', 'Close')}</Button> : <><Button variant="ghost" onClick={onClose}>{t('Annuler', 'Cancel')}</Button><Button variant="brand" loading={busy === 'publish'} disabled={!sel.length || !plan} onClick={publish} icon={<Send className="size-4" />}>{t(`Publier sur ${countFr(sel.length, 'magasin')} Uber`, `Publish to ${countEn(sel.length, 'Uber store')}`)}</Button></>}>
+      {!plan ? <div className="py-8 text-center text-body text-ink-3">{t('Préparation de l’aperçu…', 'Building the preview…')}</div> : <>
         {!plan.canSend && <Banner tone="warn" className="mb-3">{t('Uber Eats n’est pas encore en direct : la publication sera refusée (« non envoyé ») tant que ceci n’est pas réglé — ', 'Uber Eats is not live yet: publishing is refused (“not sent”) until this is fixed — ')}{plan.note}</Banner>}
-        <div className="mb-3 flex flex-wrap gap-2 text-sm">
+        <div className="mb-3 flex flex-wrap gap-2 text-body">
           <Badge tone="info">{plan.summary.stores} {t('magasins Uber', 'Uber stores')}</Badge>
           <Badge tone="go">{plan.summary.publish} {t('prêts', 'ready')}</Badge>
           {plan.summary.doNotTouch > 0 && <Badge tone="neutral">{plan.summary.doNotTouch} {t('« ne pas toucher »', '“do not touch”')}</Badge>}
@@ -623,26 +612,26 @@ function UberPublishDialog({ onClose, onDone }: { onClose: () => void; onDone: (
               <div key={r.storeId} className="px-3 py-2.5">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
                   <input type="checkbox" className="size-4" aria-label={r.brandName} disabled={r.action !== 'publish' || Boolean(results)} checked={sel.includes(r.storeId)} onChange={(e) => setSel(e.target.checked ? [...sel, r.storeId] : sel.filter((x) => x !== r.storeId))} />
-                  <div className="min-w-40 flex-1"><div className="font-semibold">{r.brandName}</div><div className="text-xs text-ink-3">{shortLoc(locName(r.locationCode))}{r.menuFrom && r.menuFrom !== r.brandName ? ` · ${t('menu de', 'menu from')} ${r.menuFrom}` : ''}</div></div>
+                  <div className="min-w-40 flex-1"><div className="font-semibold">{r.brandName}</div><div className="text-small text-ink-3">{shortLoc(locName(r.locationCode))}{r.menuFrom && r.menuFrom !== r.brandName ? ` · ${t('menu de', 'menu from')} ${r.menuFrom}` : ''}</div></div>
                   <Badge tone={tone}>{t(fr, en)}</Badge>
-                  {r.counts && <span className="text-xs text-ink-2">{r.counts.items} {t('articles', 'items')} · {r.counts.modifierGroups} {t('groupes', 'groups')} · {r.counts.modifierOptions} options{r.counts.suspended ? ` · ${r.counts.suspended} ${t('en rupture', '86’d')}` : ''}</span>}
-                  {r.counts && <span className="text-xs text-ink-2">{r.markupPct ? `+${r.markupPct}%` : t('sans majoration', 'no markup')}{r.samples[0] ? ` (${r.samples[0].name}: ${money(r.samples[0].base, loc)} → ${money(r.samples[0].uber, loc)})` : ''}</span>}
-                  {res ? resultBadge(res) : r.skip === 'do_not_touch' ? <Badge tone="neutral">{t('ne pas toucher', 'do not touch')}</Badge> : errors.length ? <Badge tone="stop">{errors.length} {t('erreur(s)', 'error(s)')}</Badge> : warnings.length ? <Badge tone="wait">{warnings.length} {t('avertissement(s)', 'warning(s)')}</Badge> : <Badge tone="go">{t('prêt', 'ready')}</Badge>}
+                  {r.counts && <span className="text-small text-ink-2">{r.counts.items} {t('articles', 'items')} · {r.counts.modifierGroups} {t('groupes', 'groups')} · {r.counts.modifierOptions} options{r.counts.suspended ? ` · ${r.counts.suspended} ${t('en rupture', '86’d')}` : ''}</span>}
+                  {r.counts && <span className="text-small text-ink-2">{r.markupPct ? `+${r.markupPct}%` : t('sans majoration', 'no markup')}{r.samples[0] ? ` (${r.samples[0].name}: ${money(r.samples[0].base, loc)} → ${money(r.samples[0].uber, loc)})` : ''}</span>}
+                  {res ? resultBadge(res) : r.skip === 'do_not_touch' ? <Badge tone="neutral">{t('ne pas toucher', 'do not touch')}</Badge> : errors.length ? <Badge tone="stop">{t(countFr(errors.length, 'erreur'), countEn(errors.length, 'error'))}</Badge> : warnings.length ? <Badge tone="wait">{t(countFr(warnings.length, 'avertissement'), countEn(warnings.length, 'warning'))}</Badge> : <Badge tone="go">{t('prêt', 'ready')}</Badge>}
                   <span className="ml-auto flex items-center gap-3 whitespace-nowrap">
-                    {!results && <Switch size="sm" checked={r.skip === 'do_not_touch'} disabled={busy === `touch-${r.storeId}`} onChange={(v) => toggleTouch(r, v)} label={<span className="text-xs">{t('Ne pas toucher', 'Do not touch')}</span>} />}
-                    {r.counts && <a className="text-xs font-semibold underline" href={`/api/foodhub/menu/uber?storeId=${encodeURIComponent(r.storeId)}`} target="_blank" rel="noreferrer">JSON</a>}
-                    {r.issues.length > 0 && <button type="button" className="text-xs font-semibold underline" onClick={() => setOpen(open === r.storeId ? null : r.storeId)}>{open === r.storeId ? t('Masquer', 'Hide') : t('Détails', 'Details')}</button>}
+                    {!results && <Switch size="sm" checked={r.skip === 'do_not_touch'} disabled={busy === `touch-${r.storeId}`} onChange={(v) => toggleTouch(r, v)} label={<span className="text-small">{t('Ne pas toucher', 'Do not touch')}</span>} />}
+                    {r.counts && <a className="text-small font-semibold underline" href={`/api/foodhub/menu/uber?storeId=${encodeURIComponent(r.storeId)}`} target="_blank" rel="noreferrer">JSON</a>}
+                    {r.issues.length > 0 && <button type="button" className="text-small font-semibold underline" onClick={() => setOpen(open === r.storeId ? null : r.storeId)}>{open === r.storeId ? t('Masquer', 'Hide') : t('Détails', 'Details')}</button>}
                   </span>
                 </div>
-                {res && !res.ok && <div className="mt-1 text-xs text-stop-2">{res.message}</div>}
+                {res && !res.ok && <div className="mt-1 text-small text-stop-2">{res.message}</div>}
                 {open === r.storeId && (
-                  <ul className="mt-2 space-y-1">{r.issues.map((x, i) => <li key={i} className={cn('rounded-md px-2.5 py-1 text-xs', x.level === 'error' ? 'bg-stop-soft' : x.level === 'warning' ? 'bg-wait-soft' : 'bg-sunken')}>{x.message}</li>)}</ul>
+                  <ul className="mt-2 space-y-1">{r.issues.map((x, i) => <li key={i} className={cn('rounded-md px-2.5 py-1 text-small', x.level === 'error' ? 'bg-stop-soft' : x.level === 'warning' ? 'bg-wait-soft' : 'bg-sunken')}>{x.message}</li>)}</ul>
                 )}
               </div>
             );
           })}
         </div>
-        <p className="mt-3 text-xs text-ink-3">{t('Chaque magasin reçoit le menu de sa marque (le menu partagé si elle le suit), ses heures et ses fériés, en français et en anglais. « Ne pas toucher » : Food Hub n’envoie jamais de menu ni de rupture à ce magasin ; les commandes et la pause continuent.', 'Each store gets its brand’s menu (the shared menu when the brand follows it), its hours and holidays, in French and English. “Do not touch”: Food Hub never sends this store a menu or an 86; orders and pause keep working.')}</p>
+        <p className="mt-3 text-small text-ink-3">{t('Chaque magasin reçoit le menu de sa marque (le menu partagé si elle le suit), ses heures et ses fériés, en français et en anglais. « Ne pas toucher » : Food Hub n’envoie jamais de menu ni de rupture à ce magasin ; les commandes et la pause continuent.', 'Each store gets its brand’s menu (the shared menu when the brand follows it), its hours and holidays, in French and English. “Do not touch”: Food Hub never sends this store a menu or an 86; orders and pause keep working.')}</p>
       </>}
     </Modal>
   );
@@ -668,40 +657,40 @@ function PublishPreview({ rows }: { rows: PreviewRow[] }) {
   const list = (items: Array<{ name: string }>, n = 6) => `${items.slice(0, n).map((i) => i.name).join(', ')}${items.length > n ? '…' : ''}`;
   return (
     <div className="mt-5 border-t border-line pt-4">
-      <div className="mb-2 text-sm font-bold">{t(`Aperçu — ${rows.length} magasin(s), rien n’a été envoyé`, `Preview — ${rows.length} store(s), nothing was sent`)}</div>
+      <div className="mb-2 text-body font-bold">{t(`Aperçu — ${countFr(rows.length, 'magasin')}, rien n’a été envoyé`, `Preview — ${countEn(rows.length, 'store')}, nothing was sent`)}</div>
       <div className="scrollbar-thin max-h-96 space-y-2 overflow-y-auto">
         {rows.map((r) => {
           const [fr, en, tone] = sendLabel[r.send];
           const d = r.diff;
           return (
-            <div key={r.storeId} className="rounded-lg border border-line p-3 text-[13px]">
+            <div key={r.storeId} className="rounded-lg border border-line p-3 text-small">
               <div className="flex flex-wrap items-center gap-2">
                 <PlatformMark channel={r.channel} size="xs" /><span className="font-bold">{r.brandName}</span><span className="text-ink-3">· {shortLoc(locName(r.locationCode))}</span>
                 <Badge tone={tone} className="ml-auto">{t(fr, en)}</Badge>
               </div>
-              {r.reason && r.send !== 'yes' && <div className="mt-1 text-xs text-ink-3">{t(r.reasonFr ?? r.reason, r.reason)}</div>}
-              {r.send !== 'locked' && <div className="mt-1.5 text-xs text-ink-2">
+              {r.reason && r.send !== 'yes' && <div className="mt-1 text-small text-ink-3">{t(r.reasonFr ?? r.reason, r.reason)}</div>}
+              {r.send !== 'locked' && <div className="mt-1.5 text-small text-ink-2">
                 {t(`${r.counts.categories} catégories · ${r.counts.available} articles en vente${r.counts.unavailable ? ` (${r.counts.unavailable} en rupture)` : ''} · ${r.counts.options} options`, `${r.counts.categories} categories · ${r.counts.available} items on sale${r.counts.unavailable ? ` (${r.counts.unavailable} 86'd)` : ''} · ${r.counts.options} options`)}
-                {' · '}{r.hoursSet ? t('heures du magasin', 'store hours') : t('aucune heure (24/7)', 'no hours (24/7)')}{r.holidays ? ` · ${t(`${r.holidays} férié(s)`, `${r.holidays} holiday(s)`)}` : ''} · {LANG_LABEL[r.language] ?? r.language}
+                {' · '}{r.hoursSet ? t('heures du magasin', 'store hours') : t('aucune heure (24/7)', 'no hours (24/7)')}{r.holidays ? ` · ${t(countFr(r.holidays, 'férié'), countEn(r.holidays, 'holiday'))}` : ''} · {LANG_LABEL[r.language] ?? r.language}
               </div>}
-              {r.send !== 'locked' && r.sample.length > 0 && <div className="mt-1 text-xs text-ink-3">{r.sample.map((s) => `${s.name} ${money(s.price, loc)}`).join(' · ')}</div>}
-              {r.send === 'yes' && <div className="mt-1.5 text-xs">
+              {r.send !== 'locked' && r.sample.length > 0 && <div className="mt-1 text-small text-ink-3">{r.sample.map((s) => `${s.name} ${money(s.price, loc)}`).join(' · ')}</div>}
+              {r.send === 'yes' && <div className="mt-1.5 text-small">
                 {!d ? <span className="text-ink-3">{t('Jamais publié depuis Food Hub : tout le menu sera envoyé.', 'Never published from Food Hub: the whole menu is sent.')}</span>
                   : d.same ? <span className="text-go-2">{t('Aucun changement depuis la dernière publication.', 'No change since the last publish.')}</span>
                     : <ul className="space-y-0.5">
-                      {d.added.length > 0 && <li><strong className="text-go-2">+{d.added.length}</strong> {t('nouveau(x) :', 'new:')} {list(d.added)}</li>}
-                      {d.removed.length > 0 && <li><strong className="text-stop">−{d.removed.length}</strong> {t('retiré(s) :', 'removed:')} {list(d.removed)}</li>}
-                      {d.repriced.length > 0 && <li><strong>{d.repriced.length}</strong> {t('prix changé(s) :', 'price change(s):')} {d.repriced.slice(0, 5).map((x) => `${x.name} ${money(x.from, loc)} → ${money(x.to, loc)}`).join(', ')}{d.repriced.length > 5 ? '…' : ''}</li>}
+                      {d.added.length > 0 && <li><strong className="text-go-2">+{d.added.length}</strong> {t(`${frWord(d.added.length, 'nouveau', 'nouveaux')} :`, 'new:')} {list(d.added)}</li>}
+                      {d.removed.length > 0 && <li><strong className="text-stop">−{d.removed.length}</strong> {t(`${frWord(d.removed.length, 'retiré', 'retirés')} :`, 'removed:')} {list(d.removed)}</li>}
+                      {d.repriced.length > 0 && <li><strong>{d.repriced.length}</strong> {t(`prix ${frWord(d.repriced.length, 'changé', 'changés')} :`, `${enWord(d.repriced.length, 'price change')}:`)} {d.repriced.slice(0, 5).map((x) => `${x.name} ${money(x.from, loc)} → ${money(x.to, loc)}`).join(', ')}{d.repriced.length > 5 ? '…' : ''}</li>}
                       {d.turnedOff.length > 0 && <li><strong className="text-wait-2">{d.turnedOff.length}</strong> {t('en rupture :', '86\'d:')} {list(d.turnedOff)}</li>}
                       {d.turnedOn.length > 0 && <li><strong className="text-go-2">{d.turnedOn.length}</strong> {t('de retour :', 'back on:')} {list(d.turnedOn)}</li>}
-                      {d.renamed.length > 0 && <li><strong>{d.renamed.length}</strong> {t('renommé(s)', 'renamed')}: {d.renamed.slice(0, 3).map((x) => `${x.from} → ${x.to}`).join(', ')}</li>}
+                      {d.renamed.length > 0 && <li><strong>{d.renamed.length}</strong> {t(frWord(d.renamed.length, 'renommé', 'renommés'), 'renamed')}: {d.renamed.slice(0, 3).map((x) => `${x.from} → ${x.to}`).join(', ')}</li>}
                     </ul>}
-                {r.lastPublishedAt && <div className="mt-0.5 text-[11px] text-ink-4">{t('Dernière publication :', 'Last publish:')} {new Date(r.lastPublishedAt).toLocaleString(loc, { dateStyle: 'medium', timeStyle: 'short' })}</div>}
+                {r.lastPublishedAt && <div className="mt-0.5 text-micro text-ink-4">{t('Dernière publication :', 'Last publish:')} {new Date(r.lastPublishedAt).toLocaleString(loc, { dateStyle: 'medium', timeStyle: 'short' })}</div>}
               </div>}
             </div>
           );
         })}
-        {rows.length === 0 && <div className="text-sm text-ink-3">{t('Aucun magasin ne recevrait ce menu.', 'No store would receive this menu.')}</div>}
+        {rows.length === 0 && <div className="text-body text-ink-3">{t('Aucun magasin ne recevrait ce menu.', 'No store would receive this menu.')}</div>}
       </div>
     </div>
   );
@@ -749,17 +738,17 @@ function ShareDialog({ brand, brands, sharing, onSaved, onClose }: { brand: stri
     <Modal title={t('Menu partagé entre marques', 'Menu shared across brands')} size="lg" onClose={onClose}
       footer={<><Button variant="ghost" onClick={onClose}>{t('Annuler', 'Cancel')}</Button><Button loading={busy} onClick={save}>{t('Enregistrer', 'Save')}</Button></>}>
       <div className="space-y-4">
-        <p className="text-sm text-ink-2">{t('Un seul menu pour plusieurs marques, comme l’agrégateur de menus d’UrbanPiper : il se modifie, s’importe de Clover et se met en rupture sur une marque, puis chaque marque le publie sous son propre nom, avec ses heures et ses magasins.',
+        <p className="text-body text-ink-2">{t('Un seul menu pour plusieurs marques, comme l’agrégateur de menus d’UrbanPiper : il se modifie, s’importe de Clover et se met en rupture sur une marque, puis chaque marque le publie sous son propre nom, avec ses heures et ses magasins.',
           'One menu for several brands, like UrbanPiper’s Menu Aggregator: it is edited, imported from Clover and 86’d on one brand, and every brand publishes it under its own name, hours and stores.')}</p>
         <Field label={t('Menu à utiliser (la marque où il se modifie)', 'Menu to use (the brand where it is edited)')}>
           <Select value={source} onChange={(e) => { setSource(e.target.value); setUsers(followersOf(e.target.value)); }}>{brands.filter((b) => !sharing[b]).map((b) => <option key={b} value={b}>{b}</option>)}</Select>
         </Field>
         <div>
-          <div className="mb-2 flex items-center gap-3 text-[13px] font-semibold">{t('Marques qui utilisent ce menu', 'Brands that use this menu')}
-            <button type="button" className="text-xs font-semibold underline" onClick={() => setUsers(others)}>{t('Toutes', 'All')}</button>
-            <button type="button" className="text-xs font-semibold underline" onClick={() => setUsers([])}>{t('Aucune', 'None')}</button>
+          <div className="mb-2 flex items-center gap-3 text-small font-semibold">{t('Marques qui utilisent ce menu', 'Brands that use this menu')}
+            <button type="button" className="text-small font-semibold underline" onClick={() => setUsers(others)}>{t('Toutes', 'All')}</button>
+            <button type="button" className="text-small font-semibold underline" onClick={() => setUsers([])}>{t('Aucune', 'None')}</button>
           </div>
-          {dishesError && <p role="alert" className="mb-2 text-xs text-stop">{t('Les plats choisis par marque n’ont pas pu être lus : ils restent tels quels. Fermez et rouvrez pour les modifier.', 'The dishes picked per brand could not be read: they stay as they are. Close and reopen to change them.')}</p>}
+          {dishesError && <p role="alert" className="mb-2 text-small text-stop">{t('Les plats choisis par marque n’ont pas pu être lus : ils restent tels quels. Fermez et rouvrez pour les modifier.', 'The dishes picked per brand could not be read: they stay as they are. Close and reopen to change them.')}</p>}
           <div className="scrollbar-thin max-h-72 divide-y divide-line overflow-y-auto rounded-lg border border-line">
             {others.map((b) => {
               const leads = followersOf(b).length > 0;
@@ -771,8 +760,8 @@ function ShareDialog({ brand, brands, sharing, onSaved, onClose }: { brand: stri
                     <Checkbox checked={using} disabled={leads} onChange={(v) => setUsers(v ? [...users, b] : users.filter((x) => x !== b))}
                       label={<span>{b}{sharing[b] && sharing[b] !== source ? <span className="text-ink-3"> · {t(`utilise ${sharing[b]}`, `uses ${sharing[b]}`)}</span> : null}{leads ? <span className="text-ink-3"> · {t('d’autres marques utilisent son menu', 'other brands use its menu')}</span> : null}</span>} />
                     {using && dishes && (
-                      <button type="button" className="min-h-11 text-xs font-semibold underline" aria-expanded={picking === b} onClick={() => setPicking(picking === b ? null : b)}>
-                        {picked.length ? t(`${resolved(picked).length} plat(s) choisis`, `${resolved(picked).length} dish(es) picked`) : t('Tous les plats', 'Every dish')}
+                      <button type="button" className="min-h-11 text-small font-semibold underline" aria-expanded={picking === b} onClick={() => setPicking(picking === b ? null : b)}>
+                        {picked.length ? t(countFr(resolved(picked).length, 'plat choisi', 'plats choisis'), `${countEn(resolved(picked).length, 'dish', 'dishes')} picked`) : t('Tous les plats', 'Every dish')}
                       </button>
                     )}
                   </div>
@@ -780,10 +769,10 @@ function ShareDialog({ brand, brands, sharing, onSaved, onClose }: { brand: stri
                 </div>
               );
             })}
-            {others.length === 0 && <div className="p-4 text-sm text-ink-3">{t('Aucune autre marque.', 'No other brand.')}</div>}
+            {others.length === 0 && <div className="p-4 text-body text-ink-3">{t('Aucune autre marque.', 'No other brand.')}</div>}
           </div>
-          <p className="mt-2 text-xs text-ink-3">{t('Le menu propre d’une marque n’est pas effacé : il revient (avec les ruptures en cours) si elle cesse de partager ; sans menu propre, elle reçoit une copie du menu partagé. Publiez ensuite les marques changées pour envoyer leur menu aux plateformes.', 'A brand’s own menu is not deleted: it comes back (with the current 86s) if the brand stops sharing; a brand without one gets a copy of the shared menu. Publish the changed brands afterwards to send their menu to the platforms.')}</p>
-          <p className="mt-1 text-xs text-ink-3">{t('Plats d’une marque : elle ne montre que les plats choisis du menu partagé, avec leurs groupes d’options (Duo, Trio, Combo…). Une nouvelle importation Clover du menu partagé met à jour les plats de chaque marque.', 'A brand’s dishes: it shows only the picked dishes of the shared menu, with their option groups (Duo, Trio, Combo…). A new Clover import of the shared menu refreshes every brand’s dishes.')}</p>
+          <p className="mt-2 text-small text-ink-3">{t('Le menu propre d’une marque n’est pas effacé : il revient (avec les ruptures en cours) si elle cesse de partager ; sans menu propre, elle reçoit une copie du menu partagé. Publiez ensuite les marques changées pour envoyer leur menu aux plateformes.', 'A brand’s own menu is not deleted: it comes back (with the current 86s) if the brand stops sharing; a brand without one gets a copy of the shared menu. Publish the changed brands afterwards to send their menu to the platforms.')}</p>
+          <p className="mt-1 text-small text-ink-3">{t('Plats d’une marque : elle ne montre que les plats choisis du menu partagé, avec leurs groupes d’options (Duo, Trio, Combo…). Une nouvelle importation Clover du menu partagé met à jour les plats de chaque marque.', 'A brand’s dishes: it shows only the picked dishes of the shared menu, with their option groups (Duo, Trio, Combo…). A new Clover import of the shared menu refreshes every brand’s dishes.')}</p>
         </div>
       </div>
     </Modal>
@@ -794,7 +783,7 @@ function ShareDialog({ brand, brands, sharing, onSaved, onClose }: { brand: stri
 function DishPicker({ menu, value, onChange }: { menu: MasterMenu | null; value: string[]; onChange: (refs: string[]) => void }) {
   const { t } = useI18n();
   const [q, setQ] = useState('');
-  if (!menu) return <div className="mt-2 text-xs text-ink-3">{t('Chargement du menu…', 'Loading the menu…')}</div>;
+  if (!menu) return <div className="mt-2 text-small text-ink-3">{t('Chargement du menu…', 'Loading the menu…')}</div>;
   const chosen = new Set(value);
   const isChosen = (i: MasterMenu['items'][number]) => chosen.has(i.ref) || (i.posItemRef !== undefined && chosen.has(i.posItemRef));
   // Picks no longer on the menu (a re-import changed their refs): listed so they can be removed, never counted.
@@ -812,23 +801,23 @@ function DishPicker({ menu, value, onChange }: { menu: MasterMenu | null; value:
     <div className="mt-2 rounded-lg border border-line bg-raised p-2">
       <div className="mb-2 flex flex-wrap items-center gap-3">
         <Input className="w-full sm:w-56" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('Chercher un plat', 'Find a dish')} aria-label={t('Chercher un plat', 'Find a dish')} />
-        <button type="button" className="min-h-11 text-xs font-semibold underline" onClick={() => onChange([])}>{t('Tous les plats', 'Every dish')}</button>
-        <span className="text-xs text-ink-3">{value.length ? t(`${live.length} plat(s) · ${groups.size} groupe(s) d’options suivent`, `${live.length} dish(es) · ${groups.size} option group(s) come along`) : t('Aucun choix = tous les plats', 'Nothing picked = every dish')}</span>
+        <button type="button" className="min-h-11 text-small font-semibold underline" onClick={() => onChange([])}>{t('Tous les plats', 'Every dish')}</button>
+        <span className="text-small text-ink-3">{value.length ? t(`${countFr(live.length, 'plat')} · ${countFr(groups.size, 'groupe d’options suit', 'groupes d’options suivent')}`, `${countEn(live.length, 'dish', 'dishes')} · ${countEn(groups.size, 'option group comes', 'option groups come')} along`) : t('Aucun choix = tous les plats', 'Nothing picked = every dish')}</span>
       </div>
       {missing.length > 0 && (
-        <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-wait-2">
-          <span>{t(`${missing.length} plat(s) choisi(s) ne sont plus dans ce menu : ${missing.join(', ')}`, `${missing.length} picked dish(es) are no longer on this menu: ${missing.join(', ')}`)}</span>
+        <div className="mb-2 flex flex-wrap items-center gap-2 text-small text-wait-2">
+          <span>{t(`${countFr(missing.length, 'plat choisi n’est', 'plats choisis ne sont')} plus dans ce menu : ${missing.join(', ')}`, `${countEn(missing.length, 'picked dish is', 'picked dishes are')} no longer on this menu: ${missing.join(', ')}`)}</span>
           <button type="button" className="min-h-11 font-semibold underline" onClick={() => onChange(value.filter((r) => !missing.includes(r)))}>{t('Les retirer', 'Remove them')}</button>
         </div>
       )}
       <div className="scrollbar-thin max-h-60 overflow-y-auto">
         {cats.map(({ c, items }) => (
           <div key={c.ref} className="py-1">
-            <div className="px-1 text-[11px] font-semibold uppercase text-ink-3">{c.nameFr || c.name}</div>
+            <div className="px-1 text-micro font-semibold uppercase text-ink-3">{c.nameFr || c.name}</div>
             {items.map((i) => <div key={i.ref} className="px-1"><Checkbox checked={isChosen(i)} onChange={(v) => toggle(i, v)} label={<span>{i.nameFr || i.name} <span className="text-ink-3">· {money(i.price)}</span></span>} /></div>)}
           </div>
         ))}
-        {cats.length === 0 && <div className="p-2 text-xs text-ink-3">{t('Aucun plat.', 'No dish.')}</div>}
+        {cats.length === 0 && <div className="p-2 text-small text-ink-3">{t('Aucun plat.', 'No dish.')}</div>}
       </div>
     </div>
   );
@@ -848,7 +837,7 @@ function LangDialog({ value, onSaved, onClose }: { value: Langs; onSaved: (l: La
             <Select value={v[k]} onChange={(e) => setV({ ...v, [k]: e.target.value })}>{opts.map(([a, b]) => <option key={a} value={a}>{b}</option>)}</Select>
           </Field>
         ))}
-        <p className="text-xs text-ink-3">{t('« Français / English » affiche les deux : « Poulet grillé / Grilled chicken ».', '“Français / English” shows both: “Poulet grillé / Grilled chicken”.')}</p>
+        <p className="text-small text-ink-3">{t('« Français / English » affiche les deux : « Poulet grillé / Grilled chicken ».', '“Français / English” shows both: “Poulet grillé / Grilled chicken”.')}</p>
       </div>
     </Modal>
   );
@@ -866,7 +855,7 @@ function NewCategory({ onAdd, onClose, copyFrom, onCopy }: { onAdd: (name: strin
         <Field label="Nom (français)"><Input value={nameFr} onChange={(e) => setNameFr(e.target.value)} /></Field>
         {copyFrom.length > 0 && (
           <div className="rounded-lg border border-line bg-raised p-3">
-            <div className="mb-2 text-[13px] font-semibold">{t('Ou copier tout le menu d’une autre marque', 'Or copy a whole menu from another brand')}</div>
+            <div className="mb-2 text-small font-semibold">{t('Ou copier tout le menu d’une autre marque', 'Or copy a whole menu from another brand')}</div>
             <div className="flex gap-2"><Select selectSize="sm" value={src} onChange={(e) => setSrc(e.target.value)}>{copyFrom.map((b) => <option key={b}>{b}</option>)}</Select><Button size="sm" variant="outline" onClick={() => onCopy(src)} icon={<Copy className="size-4" />}>{t('Copier', 'Copy')}</Button></div>
           </div>
         )}

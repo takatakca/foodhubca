@@ -42,7 +42,7 @@ export interface WorkbookInput {
 
 type NumField = 'orderCount' | 'cancelledCount' | 'itemSales' | 'promotions' | 'gst' | 'qst' | 'otherTax' | 'tips' | 'commission' | 'commissionTax'
   | 'marketing' | 'fees' | 'errorCharges' | 'refunds' | 'adjustments' | 'other' | 'taxWithheld' | 'unexplained' | 'net' | 'infoTaxRemittedByPlatform'
-  | 'qstOnlySales' | 'gstNotCharged';
+  | 'qstOnlySales' | 'gstNotCharged' | 'untaxedSales' | 'taxNotCharged';
 
 interface LineCol { key: string; h: string; w: number; s?: StyleKey; get: (l: FinanceLine) => Cell['v'] }
 const LINE_COLS: LineCol[] = [
@@ -91,6 +91,8 @@ const LINE_COLS: LineCol[] = [
   { key: 'infoPlatformFundedDiscounts', h: 'Platform-funded discounts (info)', w: 11, s: 'money', get: (l) => l.infoPlatformFundedDiscounts },
   { key: 'qstOnlySales', h: 'Sales taxed QST only (no GST charged)', w: 11, s: 'money', get: (l) => l.qstOnlySales },
   { key: 'gstNotCharged', h: 'GST owed but not charged (est. 5 %)', w: 11, s: 'money', get: (l) => l.gstNotCharged },
+  { key: 'untaxedSales', h: 'Sales with no tax charged at all', w: 11, s: 'money', get: (l) => l.untaxedSales },
+  { key: 'taxNotCharged', h: 'GST + QST owed but not charged (est. 14.975 %)', w: 11, s: 'money', get: (l) => l.taxNotCharged },
   { key: 'printedRate', h: 'Printed commission rate', w: 9, s: 'pct', get: (l) => l.printedRate },
   { key: 'source', h: 'Source file', w: 30, get: (l) => l.source },
   { key: 'row', h: 'Row', w: 6, s: 'int', get: (l) => l.row },
@@ -331,8 +333,8 @@ export function buildFinanceWorkbook(input: WorkbookInput): { bytes: Uint8Array;
     const taxPlatforms = platforms;
     const head = ['Month', ...taxPlatforms.flatMap((p) => [`${PLATFORM_LABEL[p]} GST collected`, `${PLATFORM_LABEL[p]} QST collected`]), 'Total GST collected', 'Total QST collected',
       'Clover stray "Sales Tax" collected', 'GST paid on platform fees (ITC, est.)', 'QST paid on platform fees (ITR, est.)', 'Tax the platforms say they remitted (info)',
-      'Sales the platform taxed QST only (no GST charged)', 'GST owed on them anyway (est. 5 %)'];
-    const rows: Row[] = [[T('GST / QST summary (for the accountant — verify before filing)')], [T('Collected = tax on sales passed to you by the platform / charged in Clover. Paid on fees = the platforms\' GST/QST on commission and fees, split 5 : 9.975 when the statement gives one total. Requires the platforms\' tax invoices to claim. Last two columns: orders where the platform charged the customer QST only outside the GST holiday (Dec 14, 2024 → Feb 15, 2025) — the GST is still owed on those sales.', 'caption')], [], hdr(head)];
+      'Sales the platform taxed QST only (no GST charged)', 'GST owed on them anyway (est. 5 %)', 'Sales with no tax charged at all', 'GST + QST owed on them anyway (est.)'];
+    const rows: Row[] = [[T('GST / QST summary (for the accountant — verify before filing)')], [T('Collected = tax on sales passed to you by the platform / charged in Clover. Paid on fees = the platforms\' GST/QST on commission and fees, split 5 : 9.975 when the statement gives one total. Requires the platforms\' tax invoices to claim. Last two columns: orders where the platform charged the customer QST only outside the GST holiday (Dec 14, 2024 → Feb 15, 2025) — the GST is still owed on those sales. Then: orders on which the platform charged no sales tax at all — the GST and QST (QST only during the holiday) are still owed on those sales.', 'caption')], [], hdr(head)];
     const startRow = rows.length + 1;
     for (const m of months) {
       const rn = rows.length + 1;
@@ -354,6 +356,8 @@ export function buildFinanceWorkbook(input: WorkbookInput): { bytes: Uint8Array;
       cells.push(sm.cell('infoTaxRemittedByPlatform', [mc]));
       cells.push(sm.cell('qstOnlySales', [mc]));
       cells.push(sm.cell('gstNotCharged', [mc]));
+      cells.push(sm.cell('untaxedSales', [mc]));
+      cells.push(sm.cell('taxNotCharged', [mc]));
       rows.push([{ v: monthSerial(m), s: 'month' }, ...cells]);
     }
     if (months.length) {

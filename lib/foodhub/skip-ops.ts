@@ -13,6 +13,7 @@ import {
 import { nowIso, result } from './config';
 import { effectiveHours, getHours } from './hours';
 import { isMenuLocked } from './menu/lock';
+import { mevOnOrderChange } from './mev/hooks';
 import { getRepo } from './repo';
 import { foodhubTimeZone } from './time';
 import type { ChannelResult, ChannelStore, NormalizedOrder } from './types';
@@ -60,6 +61,7 @@ export async function handleSkipFinalOrder(final: NormalizedOrder): Promise<{ ap
     await repo.updateOrder(order.id, { subtotal: final.subtotal, tax: final.tax, deliveryFee: final.deliveryFee, tip: final.tip, discount: final.discount, total: final.total });
     await logActivity({ actor: 'SkipTheDishes', source: 'platform', kind: 'order', action: 'skip_final_picked', status: 'info', channel: 'skip', brandName: order.brandName, locationCode: order.locationCode, orderId: order.id,
       summary: `Skip #${order.displayId || order.externalOrderId.slice(0, 8)}: ${summary}` });
+    await mevOnOrderChange(order);
   }
   return { applied: moneyChanged, message: summary };
 }

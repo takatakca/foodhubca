@@ -6,6 +6,9 @@
 //  - "phone"   — the AI phone app (default name "TAKATAK Phone AI"): answers calls, takes the order, texts a Clover pay
 //    link. Optional: until CLOVER_PHONE_APP_ID and CLOVER_PHONE_APP_SECRET are set it does not exist (its routes
 //    answer 404, it is never listed as configured) and the server behaves exactly as before.
+//  - "mev"     — TAKATAK MEV (Revenu Québec invoices for the sales rung up on the Clover register, through Takatak MEV /
+//    QCMEV; its device app prints the invoice with its QR code). Optional the same way: nothing exists until
+//    CLOVER_MEV_APP_ID is set. App events (install, uninstall) and Orders events (paid, refunded) only.
 //
 // Clover has no "app B needs app A" setting: each app works alone. When a merchant installs both, the two
 // connections share the merchant ID, so the phone uses Food Hub's menu, stores and order list (docs/CLOVER_MULTI_APP.md).
@@ -13,8 +16,8 @@
 // tokens are only ever used for that app's features (the phone app never unlocks Food Hub features).
 import { missingEnv } from '../env-utils';
 
-export type CloverAppKey = 'foodhub' | 'phone';
-export const CLOVER_APP_KEYS: readonly CloverAppKey[] = ['foodhub', 'phone'];
+export type CloverAppKey = 'foodhub' | 'phone' | 'mev';
+export const CLOVER_APP_KEYS: readonly CloverAppKey[] = ['foodhub', 'phone', 'mev'];
 
 export interface CloverAppDef {
   key: CloverAppKey;
@@ -69,6 +72,20 @@ const DEFS: Record<CloverAppKey, Omit<CloverAppDef, 'appId' | 'secret' | 'webhoo
     webhookPath: '/api/foodhub/webhooks/clover/phone',
     events: ['app'],
   },
+  mev: {
+    key: 'mev',
+    defaultName: 'TAKATAK MEV',
+    nameEnv: 'CLOVER_MEV_APP_NAME',
+    env: { appId: 'CLOVER_MEV_APP_ID', secret: 'CLOVER_MEV_APP_SECRET', webhookAuth: 'CLOVER_MEV_WEBHOOK_AUTH' },
+    tokenStoreKey: 'clover_oauth_merchants:mev',
+    verifyKey: 'clover_webhook_verification:mev',
+    startPath: '/api/foodhub/clover-connect/mev/start',
+    callbackPath: '/api/foodhub/clover-connect/mev/callback',
+    webhookPath: '/api/foodhub/webhooks/clover/mev',
+    // Orders: the register sales it invoices. A merchant with Food Hub too gets them on both webhooks: the register
+    // record is one per Clover order, so the second read changes nothing.
+    events: ['app', 'orders'],
+  },
 };
 
 /** The app's definition, read from the environment now (env changes apply without a restart in tests). */
@@ -110,6 +127,16 @@ export function cloverAppMissing(key: CloverAppKey = 'foodhub'): string[] {
  */
 export function cloverPhoneAppEnabled(): boolean {
   return Boolean(env(DEFS.phone.env.appId));
+}
+
+/** TAKATAK MEV exists on this server once CLOVER_MEV_APP_ID is set (until then its routes answer 404). */
+export function cloverMevAppEnabled(): boolean {
+  return Boolean(env(DEFS.mev.env.appId));
+}
+
+/** Whether an app exists on this server: Food Hub always; the optional apps once their App ID is set. */
+export function cloverAppEnabled(key: CloverAppKey): boolean {
+  return key === 'foodhub' || Boolean(env(DEFS[key].env.appId));
 }
 
 /** Every app known to this server with its configuration (the phone app is listed even when not set, as "not set"). */

@@ -220,3 +220,44 @@ the default merchant).
 - CAD billing for Canadian prices; available free-trial lengths; production address of the billing check.
 - The backend serves one restaurant group: outside merchants stay "pending" until the owner approves them. A space per
   merchant is needed before selling to strangers.
+
+## TAKATAK MEV (third app, optional)
+
+Revenu Québec invoices for the sales **rung up on the restaurant's Clover register**, numbered and signed by Takatak MEV
+(QCMEV), printed with their QR code by the TAKATAK MEV app on the Clover device (`apps/clover-mev-android`). The
+invoicing rules are in docs/MEV_INTEGRATION.md § 10; this section is the Clover app plumbing.
+
+| | |
+|---|---|
+| Registry key | `mev` (`lib/foodhub/pos/clover-apps.ts`), default name « TAKATAK MEV » (`CLOVER_MEV_APP_NAME`) |
+| Keys | `CLOVER_MEV_APP_ID`, `CLOVER_MEV_APP_SECRET`, `CLOVER_MEV_WEBHOOK_AUTH`. Without the App ID every route answers 404 |
+| OAuth | `/api/foodhub/clover-connect/mev/start` and `/callback` (Alternate Launch Path); tokens in `clover_oauth_merchants:mev`, stamped with the App ID |
+| Webhook | `/api/foodhub/webhooks/clover/mev`: **App** events (install / uninstall) and **Orders** events (the register sales) |
+| Device app | `/api/foodhub/mev/clover-device/receipt` · `/print` · `/copy`: the merchant's own Clover token from the device, checked with Clover (`lib/foodhub/mev/clover-device.ts`) |
+| Welcome page | The merchant's own set-up: its private kitchen code, the 3 steps in Takatak MEV, live readiness and a « Vérifier maintenant » button (`POST /api/foodhub/mev/clover-merchant`, the signed TAKATAK MEV welcome ticket is the credential). A merchant that is a Food Hub kitchen sees « nothing to do » instead. No Food Hub steps, no test order |
+
+- A merchant installs TAKATAK MEV from the App Market → waits for the owner's approval (Settings → Clover app), like
+  the phone app. Pending installs never get invoices and the device endpoint refuses them (403).
+- Register sales are read with Food Hub's token when the merchant has Food Hub, else with TAKATAK MEV's own token.
+  Both webhooks may deliver the same order: one record per Clover order, the second read changes nothing.
+- **Self-serve onboarding** (`lib/foodhub/mev/clover-merchants.ts`). Each merchant is its own Revenu Québec file, and
+  it types its fiscal identity itself, in its own Takatak MEV account — never in Food Hub, never by the TAKATAK team:
+  1. Install approved → the welcome page gives the merchant its own kitchen code `CLV_` + 16 random characters (80
+     bits), shown only with its signed ticket, so no other Takatak MEV account can guess and claim its sales.
+  2. « Ouvrir Takatak MEV » (`FOODHUB_MEV_DASHBOARD_URL` + `/register?tenant=…&fh=CLV_…`): sign-up (business, NEQ,
+     TPS / TVQ, first admin) → Appareils: its Clover register with the file number and authorization code Revenu Québec
+     gave it → Paramètres: the certificate → Appareils → Cuisines Food Hub: the code is already filled in.
+  3. Food Hub turns the merchant on when QCMEV's `/health` says that location is linked, its device enrolled, its
+     certificate valid and FOODHUB-AUTO registered — at the « Vérifier maintenant » button or within a minute (the
+     register tick). From then on the merchant's code counts as an allowed location with system of record « qcmev »
+     (`mevGate`); every other switch of docs/MEV_INTEGRATION.md § 2 still applies. Register sales rung up before that are
+     not invoiced by Food Hub (the merchant had no SEV yet; the activity log says so once an hour).
+  - A merchant that is already a Food Hub kitchen (its stores use that Clover merchant) has nothing to set up: its
+    kitchen numbers its register sales, as before (`FOODHUB_MEV_REGISTER_LOCATION` when it has several kitchens).
+  - Isolation: a merchant sees only its own set-up (ticket) and its own invoices (device endpoint, its own Clover
+    token); in QCMEV each merchant is its own operator. The owner's Food Hub console sees every merchant's MEV jobs, as
+    the operator of the service.
+  - Until `FOODHUB_MEV=on` (QCMEV in PROD and certified), the welcome page says every invoice is a test.
+- Price, listing text and screenshots: not set (owner decision). Revenu Québec's written answer on the certified scope
+  comes first (docs/MEV_INTEGRATION.md § 10, « Before any real restaurant »).
+

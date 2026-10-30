@@ -156,7 +156,7 @@ par le pont de takatak-v1 (contrat C3, takatak-v1 `docs/ON2GO_MASTER_API.md`) :
    `on2go` (toujours permise).
 
 Refus : code mal formé 400 ; code expiré ou déjà utilisé 401 ; compte TAKATAK sans cellulaire vérifié 409 ; trop
-d'essais 429 ; TAKATAK injoignable ou non configuré 503. Variables : `TAKATAK_API_URL` (https),
+d'essais 429 ; TAKATAK injoignable ou non configuré 503. Variables : `TAKATAK_CONTROL_PLANE_URL` (https, déjà utilisée),
 `TAKATAK_ON2GO_SERVICE_TOKEN`. Code : `lib/foodhub/customers/takatak-bridge.ts`, route
 `app/api/public/on2go/session/route.ts`, tests `tests/takatak-bridge.test.ts`.
 

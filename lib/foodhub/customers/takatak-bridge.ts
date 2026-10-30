@@ -16,14 +16,14 @@ export const BRIDGE_IP_LIMIT = { max: 10, windowMs: 10 * 60_000 };
 
 export interface TakatakBridgeConfig { baseUrl: string; serviceToken: string }
 
-/** TAKATAK_API_URL (https; localhost only outside production) + TAKATAK_ON2GO_SERVICE_TOKEN (≥ 32 characters). */
+/** TAKATAK_CONTROL_PLANE_URL (takatak-v1's base URL, already used by tenant.ts; https, localhost only outside production) + TAKATAK_ON2GO_SERVICE_TOKEN (≥ 32 characters). */
 export function takatakBridgeConfig(env: NodeJS.ProcessEnv = process.env): { ok: true; config: TakatakBridgeConfig } | { ok: false; reason: string } {
-  const raw = String(env.TAKATAK_API_URL ?? '').trim().replace(/\/+$/, '');
+  const raw = String(env.TAKATAK_CONTROL_PLANE_URL ?? '').trim().replace(/\/+$/, '');
   const token = String(env.TAKATAK_ON2GO_SERVICE_TOKEN ?? '').trim();
   let url: URL | null = null;
   try { url = raw ? new URL(raw) : null; } catch { url = null; }
   const local = url?.protocol === 'http:' && /^(localhost|127\.0\.0\.1)$/.test(url.hostname) && env.NODE_ENV !== 'production';
-  if (!url || (url.protocol !== 'https:' && !local)) return { ok: false, reason: 'Set TAKATAK_API_URL (https) to enable sign-in with TAKATAK.' };
+  if (!url || (url.protocol !== 'https:' && !local)) return { ok: false, reason: 'Set TAKATAK_CONTROL_PLANE_URL (https) to enable sign-in with TAKATAK.' };
   if (token.length < 32) return { ok: false, reason: 'Set TAKATAK_ON2GO_SERVICE_TOKEN (32+ characters, the same value as in takatak-v1).' };
   return { ok: true, config: { baseUrl: url.origin + url.pathname.replace(/\/+$/, ''), serviceToken: token } };
 }

@@ -33,7 +33,7 @@ beforeEach(() => {
   process.env.FOODHUB_FORCE_MEMORY = 'true';
   (globalThis as unknown as { __foodhubMem?: unknown }).__foodhubMem = undefined;
   vi.stubEnv('SESSION_SECRET', 'bridge-test-secret-0123456789-abcdefghijklmnop');
-  vi.stubEnv('TAKATAK_API_URL', 'https://takatak.example.test/');
+  vi.stubEnv('TAKATAK_CONTROL_PLANE_URL', 'https://takatak.example.test/');
   vi.stubEnv('TAKATAK_ON2GO_SERVICE_TOKEN', TOKEN);
   vi.stubEnv('FOODHUB_CUSTOMER_TENANTS', '');
   resetBridgeLimits();
@@ -52,11 +52,11 @@ afterEach(() => {
 
 describe('configuration', () => {
   it('needs an https TAKATAK URL and a 32+ character service token', () => {
-    expect(takatakBridgeConfig({ TAKATAK_API_URL: 'https://t.example/', TAKATAK_ON2GO_SERVICE_TOKEN: TOKEN } as NodeJS.ProcessEnv)).toEqual({ ok: true, config: { baseUrl: 'https://t.example', serviceToken: TOKEN } });
-    expect(takatakBridgeConfig({ TAKATAK_API_URL: 'http://t.example', TAKATAK_ON2GO_SERVICE_TOKEN: TOKEN } as NodeJS.ProcessEnv).ok).toBe(false);
-    expect(takatakBridgeConfig({ TAKATAK_API_URL: 'http://localhost:3000', TAKATAK_ON2GO_SERVICE_TOKEN: TOKEN, NODE_ENV: 'development' } as NodeJS.ProcessEnv).ok).toBe(true);
-    expect(takatakBridgeConfig({ TAKATAK_API_URL: 'http://localhost:3000', TAKATAK_ON2GO_SERVICE_TOKEN: TOKEN, NODE_ENV: 'production' } as NodeJS.ProcessEnv).ok).toBe(false);
-    expect(takatakBridgeConfig({ TAKATAK_API_URL: 'https://t.example', TAKATAK_ON2GO_SERVICE_TOKEN: 'short' } as NodeJS.ProcessEnv).ok).toBe(false);
+    expect(takatakBridgeConfig({ TAKATAK_CONTROL_PLANE_URL: 'https://t.example/', TAKATAK_ON2GO_SERVICE_TOKEN: TOKEN } as unknown as NodeJS.ProcessEnv)).toEqual({ ok: true, config: { baseUrl: 'https://t.example', serviceToken: TOKEN } });
+    expect(takatakBridgeConfig({ TAKATAK_CONTROL_PLANE_URL: 'http://t.example', TAKATAK_ON2GO_SERVICE_TOKEN: TOKEN } as unknown as NodeJS.ProcessEnv).ok).toBe(false);
+    expect(takatakBridgeConfig({ TAKATAK_CONTROL_PLANE_URL: 'http://localhost:3000', TAKATAK_ON2GO_SERVICE_TOKEN: TOKEN, NODE_ENV: 'development' } as unknown as NodeJS.ProcessEnv).ok).toBe(true);
+    expect(takatakBridgeConfig({ TAKATAK_CONTROL_PLANE_URL: 'http://localhost:3000', TAKATAK_ON2GO_SERVICE_TOKEN: TOKEN, NODE_ENV: 'production' } as unknown as NodeJS.ProcessEnv).ok).toBe(false);
+    expect(takatakBridgeConfig({ TAKATAK_CONTROL_PLANE_URL: 'https://t.example', TAKATAK_ON2GO_SERVICE_TOKEN: 'short' } as unknown as NodeJS.ProcessEnv).ok).toBe(false);
   });
 });
 

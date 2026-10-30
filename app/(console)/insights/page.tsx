@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Download, Link2 } from 'lucide-react';
 import { Hint } from '@/components/help/hint';
 import { Button, buttonClass } from '@/components/ui/button';
-import { Banner, PageHeader } from '@/components/ui/card';
+import { Banner, PageHeader, SkeletonStats } from '@/components/ui/card';
 import { FilterBar } from '@/components/ui/filter-bar';
 import { Segmented } from '@/components/ui/tabs';
 import { ChartCard, Columns, CompareLine, compactMoney, fmtInt, fmtMoney, HBars, Heatmap, LineLegend, StatTile, VIZ } from '@/components/charts/charts';
@@ -34,9 +34,12 @@ export default function InsightsPage() {
     return () => { alive = false; };
   }, [query]);
   const fmtDay = (iso: string) => new Date(iso).toLocaleDateString(loc, { month: 'short', day: 'numeric' });
+  const pct = (n: number) => new Intl.NumberFormat(loc, { style: 'percent', maximumFractionDigits: 2 }).format(n / 100);
   const mins = (n: number) => (n >= 120 ? `${(n / 60).toFixed(1)} h` : `${Math.round(n)} min`);
   const points = useMemo(() => (data?.daily ?? []).map((d) => ({ label: d.date, cur: metric === 'sales' ? d.sales : d.orders, prev: metric === 'sales' ? d.prevSales : d.prevOrders })), [data, metric]);
   const k = data?.kpis;
+  // "No previous period" is about the period (did it have any order, kept or cancelled?), never about one stat.
+  const hadPrev = Boolean(k && k.orders.previous + k.lostOrders.previous > 0);
   const table = (rows: Group[], name: string) => ({ columns: [name, t('Ventes', 'Sales'), t('Commandes', 'Orders'), t('Panier', 'Avg'), '%', t('vs préc. %', 'vs prev %'), t('Annulées', 'Cancelled'), t('Perdu', 'Lost')], rows: rows.map((g) => [g.label, fmtMoney(g.sales), g.orders, fmtMoney(g.aov), `${g.share}%`, `${g.change > 0 ? '+' : ''}${g.change}%`, g.lostOrders, fmtMoney(g.lostRevenue)]), filename: `takatak-${name}` });
   const bars = (rows: Group[]) => rows.map((g) => ({ label: g.label, value: g.sales, detail: `${g.orders} ${t('commandes', 'orders')} · ${g.share}% · ${g.change > 0 ? '+' : ''}${g.change}%` }));
   const WHO: Record<string, string> = { store: t('Vous (magasin)', 'You (store)'), platform: t('Plateforme', 'Platform'), customer: t('Client', 'Customer'), unknown: t('Non précisé', 'Not reported') };
@@ -49,18 +52,19 @@ export default function InsightsPage() {
       <InsightsTabs />
       <Hint id="insights.period"><FilterBar filters={filters} set={set} locations={locations} brands={brands} /></Hint>
       {error && <Banner tone="stop" className="mb-4">{error}</Banner>}
-      {!data && !error && <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">{[0, 1, 2, 3].map((i) => <div key={i} className="h-28 animate-pulse rounded-lg bg-sunken" />)}</div>}
+      {!data && !error && <SkeletonStats count={8} />}
       {data && k && (
         <div className={loading ? 'opacity-60 transition-opacity' : ''}>
-          <Hint id="insights.kpis"><div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatTile hero label={t('Ventes', 'Sales')} value={fmtMoney(k.sales.value)} change={k.sales.change} previous={fmtMoney(k.sales.previous)} />
-            <StatTile label={t('Commandes', 'Orders')} value={fmtInt(k.orders.value)} change={k.orders.change} previous={fmtInt(k.orders.previous)} />
-            <StatTile label={t('Panier moyen', 'Average order')} value={fmtMoney(k.aov.value)} change={k.aov.change} previous={fmtMoney(k.aov.previous)} />
-            <StatTile label={t('Ventes perdues (annulées)', 'Lost sales (cancelled)')} value={fmtMoney(k.lostRevenue.value)} change={k.lostRevenue.change} previous={fmtMoney(k.lostRevenue.previous)} upIsGood={false} note={`${k.lostOrders.value} ${t('commandes', 'orders')} · ${k.cancelRate.value}%`} />
-            <StatTile label={t('Temps pour accepter', 'Time to accept')} value={mins(k.avgAcceptMin.value)} change={k.avgAcceptMin.change} previous={mins(k.avgAcceptMin.previous)} upIsGood={false} note={`${k.autoAcceptRate.value}% ${t('automatique', 'automatic')}`} />
-            <StatTile label={t('Temps de préparation', 'Prep time')} value={k.avgPrepMin.value ? mins(k.avgPrepMin.value) : '—'} change={k.avgPrepMin.value ? k.avgPrepMin.change : undefined} previous={mins(k.avgPrepMin.previous)} upIsGood={false} note={t('acceptée → prête', 'accepted → ready')} />
-            <StatTile label={t('Magasins ouverts (heures)', 'Store uptime (open hours)')} value={`${data.uptime.overallPct}%`} note={`${mins(data.uptime.offlineMinutes)} ${t('hors ligne', 'offline')}`} />
-            <StatTile label={t('Reçues dans Clover', 'Reached Clover')} value={`${k.cloverRate.value}%`} change={k.cloverRate.change} previous={`${k.cloverRate.previous}%`} />
+          {/* 4 + 4 tiles: no orphan; one dark hero (sales). A previous period with nothing in it is said in words. */}
+          <Hint id="insights.kpis"><div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <StatTile hero label={t('Ventes', 'Sales')} value={fmtMoney(k.sales.value)} change={k.sales.change} previous={fmtMoney(k.sales.previous)} hasPrevious={hadPrev} fromZero={!k.sales.previous} />
+            <StatTile label={t('Commandes', 'Orders')} value={fmtInt(k.orders.value)} change={k.orders.change} previous={fmtInt(k.orders.previous)} hasPrevious={hadPrev} fromZero={!k.orders.previous} />
+            <StatTile label={t('Panier moyen', 'Average order')} value={fmtMoney(k.aov.value)} change={k.aov.change} previous={fmtMoney(k.aov.previous)} hasPrevious={hadPrev} fromZero={!k.aov.previous} />
+            <StatTile label={t('Ventes perdues (annulées)', 'Lost sales (cancelled)')} value={fmtMoney(k.lostRevenue.value)} change={k.lostRevenue.change} previous={fmtMoney(k.lostRevenue.previous)} hasPrevious={hadPrev} fromZero={!k.lostRevenue.previous} upIsGood={false} note={`${fmtInt(k.lostOrders.value)} ${t('commandes', 'orders')} · ${pct(k.cancelRate.value)}`} />
+            <StatTile label={t('Temps pour accepter', 'Time to accept')} value={mins(k.avgAcceptMin.value)} change={k.avgAcceptMin.change} previous={mins(k.avgAcceptMin.previous)} hasPrevious={hadPrev} fromZero={!k.avgAcceptMin.previous} upIsGood={false} note={`${pct(k.autoAcceptRate.value)} ${t('automatique', 'automatic')}`} />
+            <StatTile label={t('Temps de préparation', 'Prep time')} value={k.avgPrepMin.value ? mins(k.avgPrepMin.value) : '—'} change={k.avgPrepMin.value ? k.avgPrepMin.change : undefined} previous={mins(k.avgPrepMin.previous)} hasPrevious={hadPrev} fromZero={!k.avgPrepMin.previous} upIsGood={false} note={t('acceptée → prête', 'accepted → ready')} />
+            <StatTile label={t('Temps en ligne', 'Time online')} value={pct(data.uptime.overallPct)} note={`${mins(data.uptime.offlineMinutes)} ${t('hors ligne pendant les heures d’ouverture', 'offline during opening hours')}`} />
+            <StatTile label={t('Reçues dans Clover', 'Reached Clover')} value={pct(k.cloverRate.value)} change={k.cloverRate.change} previous={pct(k.cloverRate.previous)} hasPrevious={hadPrev} fromZero={!k.cloverRate.previous} />
           </div></Hint>
           <ChartCard className="mb-5" title={metric === 'sales' ? t('Ventes par jour', 'Sales per day') : t('Commandes par jour', 'Orders per day')} subtitle={`${fmtDay(data.range.from)} – ${fmtDay(new Date(Date.parse(data.range.to) - 1).toISOString())}`}
             legend={<><LineLegend items={[{ label: t('Cette période', 'This period'), color: VIZ.series }, { label: t('Période précédente', 'Previous period'), color: VIZ.compare, dash: true }]} /><Hint id="insights.metric"><Segmented size="sm" value={metric} onChange={setMetric} options={[{ key: 'sales', label: t('Ventes', 'Sales') }, { key: 'orders', label: t('Commandes', 'Orders') }]} /></Hint></>}

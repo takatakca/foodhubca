@@ -14,6 +14,7 @@ import { api } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
 import { ExpansionHead } from './expansion-ui';
+import { TechDetails } from '../tech-details';
 
 const ICON = { delivery: Truck, retail: ShoppingBasket, alcohol: Wine, phone: PhoneCall } as const;
 const OPEN: Record<string, string> = { delivery: '/direct', retail: '/menu/retail', alcohol: '/settings/expansion/alcohol', phone: '/direct/calls' };
@@ -49,30 +50,29 @@ export default function ExpansionPage() {
           const Icon = ICON[f.key];
           const done = f.checks.filter((c) => c.ok).length;
           return (
-            <section key={f.key} className={cn('flex flex-col rounded-xl border bg-surface p-5 shadow-card', f.on ? 'border-go/40' : 'border-line')}>
-              <div className="flex items-start gap-4">
-                <div className={cn('grid size-12 shrink-0 place-items-center rounded-lg', f.on ? 'bg-go-soft text-go-2' : 'bg-sunken text-ink-3')}><Icon className="size-6" /></div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-extrabold">{lang === 'fr' ? f.label.fr : f.label.en}</h2>{f.source === 'env' && <Badge tone="info">{t('fixé par le serveur', 'set by the server')}</Badge>}</div>
-                  <p className="mt-1 text-[13px] leading-relaxed text-ink-3">{lang === 'fr' ? f.label.dfr : f.label.den}</p>
-                </div>
+            <section key={f.key} className="flex min-w-0 flex-col rounded-md border border-line bg-surface p-5 shadow-card">
+              {/* Icon + title + switch on one row, the description under it at full width (no squeezed column on a phone). */}
+              <div className="flex items-center gap-3">
+                <div className={cn('grid size-11 shrink-0 place-items-center rounded-md', f.on ? 'bg-go-soft text-go-2' : 'bg-sunken text-ink-3')}><Icon className="size-5" aria-hidden /></div>
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2"><h2 className="text-heading min-w-0 break-words text-ink">{lang === 'fr' ? f.label.fr : f.label.en}</h2>{f.source === 'env' && <Badge tone="info">{t('fixé par le serveur', 'set by the server')}</Badge>}</div>
                 <Switch checked={f.on} disabled={!owner || f.source === 'env' || busy === f.key} onChange={(v) => toggle(f.key, v)} label={<span className="sr-only">{lang === 'fr' ? f.label.fr : f.label.en}</span>} />
               </div>
-              <div className="mt-4 flex-1 space-y-1.5">
+              <p className="text-small mt-3 text-ink-3">{lang === 'fr' ? f.label.dfr : f.label.den}</p>
+              <div className="mt-4 flex-1">
                 {f.checks.map((c, i) => {
-                  const body = <span className="flex items-start gap-2 text-[13px]">{c.ok ? <CircleCheck className="mt-0.5 size-4 shrink-0 text-go" /> : <CircleDashed className="mt-0.5 size-4 shrink-0 text-ink-4" />}<span className={c.ok ? 'text-ink-2' : 'text-ink-3'}>{lang === 'fr' ? c.fr : c.en}</span></span>;
-                  return c.href ? <Link key={i} href={c.href} className="block rounded px-1 py-0.5 hover:bg-sunken">{body}</Link> : <div key={i} className="px-1 py-0.5">{body}</div>;
+                  const body = <span className="text-small flex items-start gap-2">{c.ok ? <CircleCheck className="mt-0.5 size-4 shrink-0 text-go" aria-hidden /> : <CircleDashed className="mt-0.5 size-4 shrink-0 text-ink-3" aria-hidden />}<span className={cn('min-w-0 break-words', c.ok ? 'text-ink-2' : 'text-ink-3')}>{lang === 'fr' ? c.fr : c.en}<span className="sr-only"> — {c.ok ? t('prêt', 'ready') : t('à faire', 'to do')}</span></span></span>;
+                  return c.href ? <Link key={i} href={c.href} className="flex min-h-11 items-center rounded-md px-2 hover:bg-sunken">{body}</Link> : <div key={i} className="flex min-h-11 items-center px-2">{body}</div>;
                 })}
               </div>
-              <div className="mt-4 flex items-center justify-between border-t border-line pt-3 text-xs text-ink-3">
-                <span>{done}/{f.checks.length} {t('prêt', 'ready')}{f.on && f.at ? ` · ${t('activé par', 'turned on by')} ${f.by}` : ''}</span>
-                {f.on && <Link href={OPEN[f.key]} className="flex items-center gap-1 font-bold text-ink hover:underline">{t('Ouvrir', 'Open')}<ArrowRight className="size-3.5" /></Link>}
+              <div className="text-small mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3 text-ink-3">
+                <span className="flex flex-wrap items-center gap-2"><Badge tone={f.on ? 'go' : 'neutral'}>{f.on ? t('Activé', 'On') : t('Éteint', 'Off')}</Badge>{done}/{f.checks.length} {t('prêts', 'ready')}{f.on && f.at ? ` · ${t('activé par', 'turned on by')} ${f.by}` : ''}</span>
+                {f.on && <Link href={OPEN[f.key]} className="inline-flex min-h-11 items-center gap-1 rounded-md px-2 font-bold text-ink hover:underline">{t('Ouvrir', 'Open')}<ArrowRight className="size-4" aria-hidden /></Link>}
               </div>
             </section>
           );
         })}
       </div>
-      <p className="mt-5 text-xs text-ink-4">{t('Étapes pour le propriétaire et ce que chaque plateforme doit approuver : docs/EXPANSION_FEATURES.md.', 'Owner steps and what each platform must approve: docs/EXPANSION_FEATURES.md.')}</p>
+      <TechDetails className="mt-6" label={t('Étapes du propriétaire et approbations des plateformes', 'Owner steps and platform approvals')}>docs/EXPANSION_FEATURES.md</TechDetails>
     </div>
   );
 }

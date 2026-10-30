@@ -63,6 +63,32 @@ export type Unmatched = { id: string; channel: string; ref: string | null; kind:
 export type ChannelSummary = { channel: string; label: string; orders: number; sales: number; expected: number; paid: number; diff: number; missingMoney: number; counts: Record<ReconStatus, number>; otherCharges: number; unknownOrders: number; coveredUntil: string | null; planConfirmed: boolean };
 export type Recon = { orders: OrderRecon[]; unmatched: Unmatched[]; other: Unmatched[]; channels: ChannelSummary[]; totals: { orders: number; expected: number; paid: number; diff: number; missingMoney: number; unknownOrders: number; otherCharges: number }; imports: number; generatedAt: string };
 
+/** "1 commande" / "3 commandes": a real plural, never "commande(s)". */
+export function plural(t: T, n: number, fr: [string, string], en: [string, string]) {
+  return t(`${n} ${n === 1 ? fr[0] : fr[1]}`, `${n} ${n === 1 ? en[0] : en[1]}`);
+}
+
+/**
+ * The calm card beside « Argent à récupérer » when nothing is owed. Green « Tout est réglé » means every order of the
+ * period was checked against a statement and nothing is missing. Until then it stays neutral and says why: no
+ * statement imported, orders no statement covers yet, or orders whose payout is not due yet (status "pending": the
+ * platform's payout delay, about 10 days for Uber Eats and DoorDash, 14 for Skip, so the last days of any period).
+ */
+export function settledCard(t: T, r: Pick<Recon, 'orders' | 'imports'>): { settled: boolean; title: string; body: string } {
+  if (!r.imports) return { settled: false, title: t('Pas encore vérifié', 'Not checked yet'), body: t('Importez un relevé pour vérifier cette période.', 'Import a statement to check this period.') };
+  const notCovered = r.orders.filter((o) => o.status === 'not_covered').length;
+  const pending = r.orders.filter((o) => o.status === 'pending').length;
+  if (notCovered || pending) {
+    const body = [
+      notCovered ? plural(t, notCovered, ['commande pas encore couverte par un relevé.', 'commandes pas encore couvertes par un relevé.'], ['order not covered by a statement yet.', 'orders not covered by a statement yet.']) : '',
+      pending ? plural(t, pending, ['commande attend son versement, pas encore dû.', 'commandes attendent leur versement, pas encore dû.'], ['order is waiting for its payout, not due yet.', 'orders are waiting for their payout, not due yet.']) : '',
+    ].filter(Boolean).join(' ');
+    return { settled: false, title: notCovered ? t('Rien à récupérer pour l’instant', 'Nothing to recover so far') : t('Versements pas encore dus', 'Payouts not due yet'), body };
+  }
+  if (!r.orders.length) return { settled: false, title: t('Aucune commande', 'No orders'), body: t('Aucune commande dans cette période : rien à vérifier.', 'No order in this period: nothing to check.') };
+  return { settled: true, title: t('Tout est réglé', 'All settled'), body: t('Chaque commande de cette période a été comparée à un relevé : aucun argent à récupérer.', 'Every order in this period was checked against a statement: no money to recover.') };
+}
+
 export function toRecover(r: Pick<OrderRecon, 'status' | 'diff' | 'expected'> & { caseStatus?: CaseStatus | null }) {
   if (r.caseStatus && ['recovered', 'written_off', 'ignored'].includes(r.caseStatus)) return 0;
   if (r.status === 'missing') return r.expected.net;

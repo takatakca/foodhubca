@@ -56,7 +56,7 @@ export default function CouriersPage() {
       {!s ? <Skeleton className="h-96" /> : (
         <div className="max-w-5xl">
           <Section icon={<Bike className="size-5" />} title={t('La flotte', 'The fleet')}>
-            <fieldset disabled={!owner} className="grid gap-3 sm:grid-cols-2">
+            <fieldset disabled={!owner} className="min-w-0 grid min-w-0 [&>*]:min-w-0 gap-3 sm:grid-cols-2">
               <Switch checked={s.enabled} onChange={(v) => setS({ ...s, enabled: v })} label={t('Offrir nos livreurs à la répartition', 'Offer our couriers to dispatch')} description={t('Éteint : rien ne change, seuls Drive / Uber Direct sont demandés.', 'Off: nothing changes, only Drive / Uber Direct are asked.')} />
               <Field label={t('Coût d’une course pour nous ($)', 'What one delivery costs us ($)')} hint={t('Paie par course, essence… Comparé au prix de Drive / Uber Direct.', 'Pay per delivery, gas… Compared with the Drive / Uber Direct price.')}><Input inputMode="decimal" value={String(s.costPerDelivery)} onChange={(e) => setS({ ...s, costPerDelivery: Number(e.target.value.replace(',', '.')) || 0 })} /></Field>
             </fieldset>
@@ -67,7 +67,7 @@ export default function CouriersPage() {
             {!s.couriers.length && <Banner tone="info">{t('Aucun livreur. Ajoutez-en un, enregistrez, puis « Nouveau lien » et envoyez-le-lui par texto.', 'No courier yet. Add one, save, then "New link" and text it to him.')}</Banner>}
             <div className="space-y-3">
               {s.couriers.map((c, i) => (
-                <fieldset key={c.id ?? `new-${i}`} disabled={!owner} className="rounded-md border border-line p-4">
+                <fieldset key={c.id ?? `new-${i}`} disabled={!owner} className="min-w-0 rounded-md border border-line p-4">
                   <div className="mb-3 flex flex-wrap items-center gap-2">
                     <StatusDot tone={c.active && c.onShift ? 'go' : 'neutral'} />
                     <span className="font-bold">{c.name || t('Nouveau livreur', 'New courier')}</span>
@@ -80,7 +80,7 @@ export default function CouriersPage() {
                       <IconButton label={t('Retirer', 'Remove')} size="sm" onClick={() => setS({ ...s, couriers: s.couriers.filter((_, idx) => idx !== i) })}><Trash2 className="size-4" /></IconButton>
                     </div>
                   </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid min-w-0 [&>*]:min-w-0 gap-3 sm:grid-cols-2">
                     <Field label={t('Nom', 'Name')}><Input value={c.name ?? ''} onChange={(e) => setRow(i, { name: e.target.value })} /></Field>
                     <Field label={t('Téléphone', 'Phone')}><Input type="tel" value={c.phone ?? ''} onChange={(e) => setRow(i, { phone: e.target.value })} placeholder="+1514…" /></Field>
                   </div>

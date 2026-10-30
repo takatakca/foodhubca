@@ -47,10 +47,10 @@ export function CancelAlarm() {
   return (
     <div className="fixed inset-0 z-[95] flex items-center justify-center bg-stop/85 p-4 backdrop-blur-sm motion-safe:animate-fade" onPointerDown={() => unlockAudio()} role="alertdialog" aria-modal="true">
       <div className="w-full max-w-xl overflow-hidden rounded-2xl bg-surface shadow-pop motion-safe:animate-rise">
-        <div className="flex items-center gap-4 bg-stop px-6 py-5 text-white">
+        <div className="flex items-center gap-4 bg-stop-fill px-6 py-5 text-on-stop">
           <div className="grid size-14 shrink-0 place-items-center rounded-full bg-white/15"><Ban className="size-8" /></div>
           <div className="min-w-0">
-            <div className="text-small font-bold tracking-[0.16em] uppercase opacity-90">{t('Commande annulée', 'Order cancelled')} {who}</div>
+            <div className="text-small font-bold tracking-[0.16em] uppercase">{t('Commande annulée', 'Order cancelled')} {who}</div>
             <div className="text-display">#{c.displayId}</div>
           </div>
         </div>

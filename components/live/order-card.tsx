@@ -60,7 +60,7 @@ export function OrderCard({ o, onOpen, big }: { o: BoardOrder; onOpen: () => voi
               <li key={i} className="text-title leading-snug"><span className="num font-extrabold">{l.quantity}×</span> <span className="font-bold">{l.name}</span>
                 {l.mapping === 'free' && !o.viaPos && <span className="ml-1.5 inline-flex items-center gap-0.5 rounded bg-wait-soft px-1 align-middle text-micro font-bold text-wait-2" title={t('Pas un article de l’inventaire Clover — vérifiez le billet', 'Not a Clover inventory item — check the ticket')}><TriangleAlert className="size-3" />{t('texte libre', 'free text')}</span>}
                 {l.modifiers.length > 0 && <span className="text-body block pl-8 font-medium text-ink-2">{l.modifiers.map((m) => m.name).join(', ')}</span>}
-                {l.notes && <span className={cn('text-body mt-0.5 ml-8 inline-block rounded px-1.5 font-bold', ALLERGY.test(l.notes) ? 'bg-stop text-white' : 'bg-wait-soft text-wait-2')}>« {l.notes} »</span>}
+                {l.notes && <span className={cn('text-body mt-0.5 ml-8 inline-block rounded px-1.5 font-bold', ALLERGY.test(l.notes) ? 'bg-stop-fill text-on-stop' : 'bg-wait-soft text-wait-2')}>« {l.notes} »</span>}
               </li>
             ))}
             {o.lines.length > 8 && <li className="text-small text-ink-3">+{o.lines.length - 8} {t('autres', 'more')}</li>}

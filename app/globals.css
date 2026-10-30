@@ -38,11 +38,24 @@
   --color-go-2: #0b7f48;
   --color-go-soft: #e6f6ed;
   --color-wait: #d99a00;
-  --color-wait-2: #a87500;
+  /* #8a6500: 4.9:1 on wait-soft (was #a87500, 3.7:1: amber badge text failed WCAG AA, docs/ACCESSIBILITY.md). */
+  --color-wait-2: #8a6500;
   --color-wait-soft: #fff5d6;
   --color-stop: #e23b3e;
   --color-stop-2: #bd2427;
   --color-stop-soft: #fdeceb;
+  /* Filled controls with text (Button brand / go / danger, PIN OK, red alert bands): the fill and the text on it,
+     each pair >= 4.5:1 (WCAG AA). Status dots and bars keep --color-go / --color-stop. The kitchen theme turns the
+     text dark on its bright fills. */
+  --color-on-brand: #ffffff;
+  --color-go-fill: #0b7f48;
+  --color-go-fill-hover: #096b3c;
+  --color-on-go: #ffffff;
+  --color-stop-fill: #ca2e31;
+  --color-stop-fill-hover: #bd2427;
+  --color-on-stop: #ffffff;
+  /* Dark text on bright fills that stay the same in both themes (platform tags, amber and blue count badges). */
+  --color-on-bright: #0b1220;
   --color-info: #2f6fed;
   --color-info-2: #1f56c7;
   --color-info-soft: #eaf1fe;
@@ -127,6 +140,14 @@
   --color-stop: #f05252;
   --color-stop-2: #fca5a5;
   --color-stop-soft: #3a1415;
+  /* White text on these bright fills is only 2.3-3.5:1: buttons and red bands carry dark text here (5.7-8.7:1). */
+  --color-on-brand: #050a17;
+  --color-go-fill: #22c55e;
+  --color-go-fill-hover: #86efac;
+  --color-on-go: #050a17;
+  --color-stop-fill: #f05252;
+  --color-stop-fill-hover: #fca5a5;
+  --color-on-stop: #050a17;
   --color-info: #5b9bff;
   --color-info-2: #a9c8ff;
   --color-info-soft: #13213e;

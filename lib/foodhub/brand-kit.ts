@@ -87,12 +87,13 @@ export function onAccentColor(hex: string): '#000000' | '#ffffff' {
 
 /**
  * The console's status colours (app/globals.css `--color-go/wait/stop` and their `-2` shades on the white console, and
- * the kitchen theme's `--color-go/wait/stop`). Green = accepted / ready, amber = waiting / to check, red = late or a
+ * the kitchen theme's `--color-go/wait/stop`). The button fills (`--color-go-fill`, `--color-stop-fill`) sit between a
+ * status colour and its -2 shade, so the look-alike check below already covers them. Green = accepted / ready, amber = waiting / to check, red = late or a
  * problem. A brand stripe in one of these reads as a status (a red stripe makes an on-time order look late).
  */
 export const STATUS_COLOURS = {
   go: ['#0e9f5a', '#0b7f48', '#22c55e'],
-  wait: ['#d99a00', '#a87500', '#f5b800'],
+  wait: ['#d99a00', '#8a6500', '#f5b800'],
   stop: ['#e23b3e', '#bd2427', '#f05252'],
 } as const;
 export type StatusTone = keyof typeof STATUS_COLOURS;

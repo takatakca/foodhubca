@@ -18,7 +18,7 @@ export function EscalationLevels({ level, resolved, className }: { level: number
   return (
     <ol className={cn('flex flex-wrap items-center gap-1', className)} aria-label={t(`Escalade : étape ${Math.min(level, 3) + 1} sur 4`, `Escalation: step ${Math.min(level, 3) + 1} of 4`)}>
       {levels.map((l, k) => (
-        <li key={l} className={cn('text-micro inline-flex h-5 items-center rounded-full px-2 font-bold', k <= reached ? (k === 0 ? 'bg-ink text-canvas' : 'bg-stop text-white') : 'bg-sunken text-ink-3')}>
+        <li key={l} className={cn('text-micro inline-flex h-5 items-center rounded-full px-2 font-bold', k <= reached ? (k === 0 ? 'bg-ink text-canvas' : 'bg-stop-fill text-on-stop') : 'bg-sunken text-ink-3')}>
           {l}
         </li>
       ))}

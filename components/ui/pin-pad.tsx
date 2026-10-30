@@ -39,7 +39,7 @@ export function PinPad({ onDone, length = 4, maxLength = 6, busy, error, dark }:
         {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => <button key={d} type="button" className={key} onClick={() => press(d)} disabled={busy}>{d}</button>)}
         <button type="button" className={cn(key, 'text-base')} onClick={back} aria-label="Effacer / Delete"><Delete className="size-6" /></button>
         <button type="button" className={key} onClick={() => press('0')} disabled={busy}>0</button>
-        <button type="button" className={cn(key, pin.length >= length ? 'bg-go text-white hover:bg-go-2' : 'opacity-40')} disabled={busy || pin.length < length} onClick={() => onDone(pin)} aria-label="OK">✓</button>
+        <button type="button" className={cn(key, pin.length >= length ? 'bg-go-fill text-on-go hover:bg-go-fill-hover' : 'opacity-40')} disabled={busy || pin.length < length} onClick={() => onDone(pin)} aria-label="OK">✓</button>
       </div>
     </div>
   );

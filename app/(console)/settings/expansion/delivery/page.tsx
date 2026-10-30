@@ -9,6 +9,7 @@ import { Field, Input, Select, Switch } from '@/components/ui/form';
 import { useToast } from '@/components/ui/toast';
 import { useViewer } from '@/components/shell/viewer';
 import { DEFAULT_INTERAC_SETTINGS, DEFAULT_UBER_DIRECT_OPTIONS, INTERAC_ANSWER_MASK, type DeliverySettings, type InteracSettings, type LocationDeliveryRule, type UberDirectOptions as UberOpts } from '@/lib/foodhub/delivery/types';
+import { foodTaxes } from '@/lib/foodhub/taxes';
 import { api, ApiError } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { Section } from '../../settings-ui';
@@ -19,8 +20,11 @@ type Fleet = { fleet: string; label: string; configured: boolean; canSend: boole
 type Resp = { settings: DeliverySettings; fleets: Fleet[]; baseUrl: string; interacFeeAllIn?: number; secrets: { driveWebhook: string; websiteOrder: string } | null };
 const uberOpts = (s: DeliverySettings): UberOpts => ({ ...DEFAULT_UBER_DIRECT_OPTIONS, ...(s.uberDirect ?? {}) });
 const interacOf = (s: DeliverySettings): InteracSettings => ({ ...DEFAULT_INTERAC_SETTINGS, ...(s.interac ?? {}) });
-/** The fee the website must show: GST 5 % + QST 9.975 % on top (5.00 → 5.75). */
-const feeAllIn = (fee: unknown) => { const n = Number(fee); return Number.isFinite(n) ? Math.round(n * 114.975) / 100 : 0; };
+/**
+ * The fee the website must show: GST 5 % + QST 9.975 %, each rounded on its own — exactly how Food Hub charges it
+ * (interacFeeAllIn / foodTaxes), so the hint never differs from the order total by a cent (2.50 → 2.88, not 2.87).
+ */
+const feeAllIn = (fee: unknown) => { const n = Number(fee); return Number.isFinite(n) && n >= 0 ? Math.round((n + foodTaxes('QC', n).tax) * 100) / 100 : 0; };
 const DEFAULT_RULE: LocationDeliveryRule = { enabled: false, autoDispatch: false, leadMinutes: 10, maxDistanceKm: 8, postalPrefixes: [], maxAutoFee: 15 };
 
 export default function DeliverySettingsPage() {

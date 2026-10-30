@@ -64,9 +64,9 @@ export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onCl
       subtitle={o ? `${o.brandName} · ${locName(o.locationCode)} · ${sourceLabel(t, o.source)} · ${timeOf(o.placedAt, loc, true)}` : undefined}
       footer={o && act_ && !closed && o.status === 'awaiting_payment' && o.interac ? (
         <div className="flex w-full flex-wrap items-center gap-2">
-          <Button variant="go" icon={<Landmark className="size-4" />} loading={busy === 'interac_received'} onClick={() => act('interac_received')}>{t('Virement reçu', 'Transfer received')}</Button>
-          <Button variant="soft" icon={<Send className="size-4" />} loading={busy === 'interac_resend'} onClick={() => act('interac_resend', {}, t('Instructions textées de nouveau', 'Instructions texted again'))}>{t('Renvoyer les instructions', 'Text the instructions again')}</Button>
-          {o.fulfillment === 'pickup' && <Button variant="outline" icon={<Banknote className="size-4" />} loading={busy === 'pay_at_counter'} onClick={() => act('pay_at_counter', {}, t('Envoyée en cuisine — paiement au comptoir', 'Sent to the kitchen — pay at the counter'))}>{t('Payer au comptoir', 'Pay at the counter')}</Button>}
+          <Button variant="go" icon={<Landmark className="size-4" />} loading={busy === 'interac_received'} onClick={() => act('interac_received')}>{o.interac.receivedAt ? t('Terminer l’envoi en cuisine', 'Finish sending to the kitchen') : t('Virement reçu', 'Transfer received')}</Button>
+          {!o.interac.receivedAt && <Button variant="soft" icon={<Send className="size-4" />} loading={busy === 'interac_resend'} onClick={() => act('interac_resend', {}, t('Instructions textées de nouveau', 'Instructions texted again'))}>{t('Renvoyer les instructions', 'Text the instructions again')}</Button>}
+          {o.fulfillment === 'pickup' && !o.interac.receivedAt && <Button variant="outline" icon={<Banknote className="size-4" />} loading={busy === 'pay_at_counter'} onClick={() => act('pay_at_counter', {}, t('Envoyée en cuisine — paiement au comptoir', 'Sent to the kitchen — pay at the counter'))}>{t('Payer au comptoir', 'Pay at the counter')}</Button>}
           <Button variant="ghost" className="ml-auto text-stop" icon={<X className="size-4" />} onClick={() => setCancelling('order')}>{t('Annuler la commande', 'Cancel order')}</Button>
         </div>
       ) : o && act_ && !closed && o.status === 'awaiting_payment' ? (

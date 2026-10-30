@@ -46,7 +46,10 @@ export interface InteracTransfer {
   autoDeposit: boolean;
   /** Security question when auto-deposit is off (texted with its answer). */
   question?: string;
-  /** The answer: texted to the customer, masked in the outbox preview, never logged, never in an API answer. */
+  /**
+   * The answer: texted to the customer (and in the website's instructions text), masked in the outbox preview, never
+   * logged, and dropped from every console API answer by publicDirectOrder (store.ts).
+   */
   answer?: string;
   lang: 'fr' | 'en';
   createdAt: string;
@@ -56,12 +59,20 @@ export interface InteracTransfer {
   smsAt?: string;
   smsError?: string;
   remindedAt?: string;
-  /** A person confirmed the transfer (the only way an Interac order is released). */
+  /**
+   * A person confirmed the transfer (the only way an Interac order is released). Set while the order is still held
+   * (receivedAt without releasedAt) = a release in progress or interrupted: never cancelled by the expiry, resumed by
+   * the next "Transfer received" (no second "paid", no second Clover order).
+   */
   receivedAt?: string;
   receivedBy?: string;
   /** Release lock (claim + re-read): only one request releases the order. */
   releaseClaim?: string;
   releaseClaimAt?: string;
+  /** Written just before the Clover call: a resumed release that finds it without a Clover id asks a person to check Clover. */
+  cloverSentAt?: string;
+  /** The expiry tick found a release that stopped half-way and flagged it for a person (once). */
+  releaseStalledAt?: string;
   releasedAt?: string;
   cancelledAt?: string;
   cancelReason?: string;

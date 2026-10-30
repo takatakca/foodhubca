@@ -176,6 +176,17 @@ export function maskDeliverySettings(s: DeliverySettings): DeliverySettings {
   return { ...s, interac: { ...s.interac, answer: s.interac.answer ? INTERAC_ANSWER_MASK : '' } };
 }
 
+/**
+ * A direct order as an API returns it to the console: the Interac security answer is dropped (it is texted to the
+ * customer only; any signed-in role, even read-only, can read the orders board). Every route that sends a whole
+ * DirectOrder to a browser passes it through here.
+ */
+export function publicDirectOrder<T extends DirectOrder>(o: T): T {
+  if (!o.interac || !('answer' in o.interac)) return o;
+  const { answer: _answer, ...interac } = o.interac;
+  return { ...o, interac };
+}
+
 function cleanUberDirect(raw: Partial<UberDirectOptions> | undefined): UberDirectOptions {
   const o = { ...DEFAULT_UBER_DIRECT_OPTIONS, ...(raw ?? {}) };
   const proof = (['none', 'picture', 'signature', 'pincode'] as const).includes(o.proof) ? o.proof : DEFAULT_UBER_DIRECT_OPTIONS.proof;

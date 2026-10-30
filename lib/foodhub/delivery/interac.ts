@@ -9,6 +9,9 @@
 //   → "Virement reçu / Transfer received" pressed in the Direct orders drawer → markInteracReceived():
 //       one release (in-process lock + claim written and re-read, lock.ts), payment 'paid' + who confirmed it FIRST, then
 //       the Clover order (clover-direct.ts prints it once), 'in_kitchen', "virement reçu" text, ready time from now.
+//       A release that stops after "paid" (restart, error) is never cancelled by the expiry: the tick flags it, and the
+//       next "Transfer received" resumes it (no second "paid"; Clover again only if the first call never started).
+//   → "Pay at the counter" (pickup): the Interac fee and its taxes come off the order before it goes to Clover.
 //   → never confirmed: one reminder, then cancelled with a courtesy text (a transfer already sent is returned by a person).
 //   → "Received" after the cancel / expiry: NOT released — flagged for a person (send to the kitchen anyway, or note
 //     that the money was returned by hand). Food Hub never reads a bank account and never refunds by itself.
@@ -19,10 +22,10 @@ import { round2 } from '../config';
 import { postToChat, sendSms } from '../notify';
 import { money as textMoney, textTime } from '../phone/style';
 import { prepFor } from '../prep';
-import { DEFAULT_PROVINCE, foodTaxes, type Province } from '../taxes';
+import { DEFAULT_PROVINCE, foodTaxes, locationProvince, type Province } from '../taxes';
 import { createDirectOrderInClover } from './clover-direct';
 import { claimFresh, withOrderLock } from './lock';
-import { confirmToCustomer } from './orders';
+import { confirmToCustomer, feesTotal, totalsFor } from './orders';
 import { addDirectEvent, getDeliverySettings, getDirectOrder, listDirectOrders, ruleFor, saveDirectOrder } from './store';
 import type { DeliverySettings, DirectOrder, InteracSettings, InteracTransfer } from './types';
 
@@ -178,6 +181,7 @@ export async function startInterac(order: DirectOrder, opts: { by?: string } = {
 export async function resendInterac(orderId: string, actor: Actor): Promise<DirectOrder> {
   const o = await getDirectOrder(orderId);
   if (!o?.interac || o.status !== 'awaiting_payment') throw new Error('This order is not waiting for an Interac e-Transfer.');
+  if (o.interac.receivedAt) throw new Error(STOPPED_HALF_WAY(o));
   const sms = await textCustomer(o, INTERAC_SMS.instructions(o, o.interac, o.interac.lang), 'interac_resend');
   if (!sms.ok) throw new Error(`The text was not sent: ${sms.message}`);
   return addDirectEvent(o, 'interac_sent', 'Interac instructions texted again', actor.name);
@@ -188,16 +192,25 @@ export async function resendInterac(orderId: string, actor: Actor): Promise<Dire
 
 export type InteracReceivedResult = { state: 'released' | 'already' | 'pending' | 'late'; message: string; order: DirectOrder };
 
+/** The money was confirmed received but the release stopped before the kitchen (a restart, an error). */
+const STOPPED_HALF_WAY = (o: DirectOrder) => `The Interac e-Transfer of ${o.number} was already confirmed received${o.interac?.receivedBy ? ` by ${o.interac.receivedBy}` : ''}: press "Transfer received" to finish sending it to the kitchen.`;
+
+/** A held order whose transfer a person already confirmed: its release is running, or stopped half-way. */
+export const interacReleaseStarted = (o: Pick<DirectOrder, 'status' | 'interac'>): boolean => o.status === 'awaiting_payment' && Boolean(o.interac?.receivedAt) && !o.interac?.releasedAt;
+
 /**
- * A person pressed "Transfer received". Held → released once. Cancelled / expired → flagged as a late transfer (a
- * person decides: releaseLateInterac or markLateInteracRefunded), never released here. Already released → nothing.
+ * A person pressed "Transfer received". Held → released once. Held with the transfer already confirmed (a release that
+ * stopped half-way) → the release resumes where it stopped. Cancelled / expired → flagged as a late transfer (a person
+ * decides: releaseLateInterac or markLateInteracRefunded), never released here. Already released → nothing.
  */
 export async function markInteracReceived(orderId: string, actor: Actor, now = Date.now()): Promise<InteracReceivedResult> {
   return withOrderLock(orderId, async () => {
     let o = await getDirectOrder(orderId);
     if (!o?.interac) throw new Error('This order is not paid by Interac e-Transfer.');
     const i0 = o.interac;
-    if (i0.releasedAt || (o.payment === 'paid' && o.status !== 'awaiting_payment')) return { state: 'already', message: 'Already received and sent to the kitchen.', order: o };
+    if (i0.releasedAt) return { state: 'already', message: 'Already received and sent to the kitchen.', order: o };
+    // A cancelled order is never "already sent" unless it was released: a transfer on it is flagged for a person (even
+    // one confirmed before the cancel — cancelHeldInterac flags that one itself).
     if (o.status === 'cancelled') return flagLateTransfer(o, actor, now);
     if (o.status !== 'awaiting_payment') return { state: 'already', message: `Order is ${o.status}${i0.cancelReason === 'pay at the counter' ? ' (the customer pays at the counter)' : ''}.`, order: o };
     if (claimFresh(i0, now)) return { state: 'pending', message: 'Another request is releasing it.', order: o };
@@ -210,20 +223,38 @@ export async function markInteracReceived(orderId: string, actor: Actor, now = D
   });
 }
 
-/** Under the lock, claim held. payment 'paid' + who confirmed it FIRST, then Clover (one order = the ticket), then the kitchen. */
+/**
+ * Under the lock, claim held. payment 'paid' + who confirmed it FIRST, then Clover (one order = the ticket), then the
+ * kitchen. A release that stopped half-way (payment 'paid' + receivedAt saved, still held) resumes here: step 1 is not
+ * repeated, and Clover is called again only when the first call never started (cloverSentAt unset); otherwise a person
+ * checks Clover before "Send to Clover", so a crash never prints a second ticket by itself.
+ */
 async function releaseInteracOrder(o: DirectOrder, actor: Actor, now: number, how: 'received' | 'late'): Promise<InteracReceivedResult> {
   const i = o.interac!;
   const amount = (i.amount ?? o.total).toFixed(2);
-  // 1) Paid, by whom: from here a crash leaves a paid order with "Send to Clover", never a second "received".
-  o = await addDirectEvent(o, 'paid', `Interac e-Transfer ${i.reference} received — ${amount} $ (confirmed by ${actor.name}${how === 'late' ? ', after the cancel' : ''})`, actor.name, {
-    payment: 'paid', interac: { ...i, receivedAt: iso(now), receivedBy: actor.name },
-  });
+  const resumed = Boolean(i.receivedAt) && o.payment === 'paid';
+  // 1) Paid, by whom. From here the order is never cancelled by the expiry (interacReleaseStarted) and the next
+  //    "Transfer received" resumes the release instead of starting over.
+  o = resumed
+    ? await addDirectEvent(o, 'interac_resumed', `Release resumed by ${actor.name} (transfer ${i.reference} confirmed by ${i.receivedBy ?? 'a person'} earlier; it had stopped before the kitchen)`, actor.name)
+    : await addDirectEvent(o, 'paid', `Interac e-Transfer ${i.reference} received — ${amount} $ (confirmed by ${actor.name}${how === 'late' ? ', after the cancel' : ''})`, actor.name, {
+      payment: 'paid', interac: { ...i, receivedAt: iso(now), receivedBy: actor.name },
+    });
   // 2) One Clover order: the kitchen ticket (printed once by clover-direct). An order already in Clover is never sent again.
   if (!o.posOrderId) {
-    const pos = await createDirectOrderInClover(o);
-    o = pos.ok
-      ? await addDirectEvent(o, 'pos_injected', `Created in Clover (${pos.posOrderId})${pos.printed ? ` — ${pos.printed}` : ''}`, undefined, { posOrderId: pos.posOrderId, posError: undefined })
-      : await addDirectEvent(o, pos.skipped ? 'pos_skipped' : 'pos_failed', pos.error, undefined, { posError: pos.skipped ? undefined : pos.error });
+    if (resumed && o.interac!.cloverSentAt) {
+      // The first Clover call started and its answer was never saved: Clover may already hold the ticket. A person checks.
+      if (!o.posError) {
+        const why = `Sending ${o.number} to Clover was interrupted: check Clover for ${o.number} first, and press "Send to Clover" only if it is not there (no second ticket).`;
+        o = await addDirectEvent(o, 'pos_failed', why, undefined, { posError: why });
+      }
+    } else {
+      o = await saveDirectOrder({ ...o, interac: { ...o.interac!, cloverSentAt: iso(now) } });
+      const pos = await createDirectOrderInClover(o);
+      o = pos.ok
+        ? await addDirectEvent(o, 'pos_injected', `Created in Clover (${pos.posOrderId})${pos.printed ? ` — ${pos.printed}` : ''}`, undefined, { posOrderId: pos.posOrderId, posError: undefined })
+        : await addDirectEvent(o, pos.skipped ? 'pos_skipped' : 'pos_failed', pos.error, undefined, { posError: pos.skipped ? undefined : pos.error });
+    }
   }
   // 3) In the kitchen (Clover refused → 'new' with the "Send to Clover" button, like every direct order); ready time from now.
   const prep = await prepFor(o.locationCode);
@@ -243,8 +274,8 @@ async function releaseInteracOrder(o: DirectOrder, actor: Actor, now: number, ho
     o = await addDirectEvent(o, sms.ok ? 'sms_confirmation' : 'sms_failed', sms.ok ? 'Transfer confirmation texted' : `Transfer confirmation not texted: ${sms.message}`, SYSTEM);
   }
   await logActivity({ actor: actor.name, source: actor.source, kind: 'order', action: 'interac_received', status: 'success', brandName: o.brandName, locationCode: o.locationCode,
-    summary: `${o.number} Interac e-Transfer ${i.reference} received (${amount} $) confirmed by ${actor.name}${how === 'late' ? ' after the cancel' : ''} — ${o.fulfillment === 'delivery' ? 'courier next' : 'kitchen ticket'}` });
-  return { state: 'released', message: 'Transfer received — sent to the kitchen.', order: o };
+    summary: `${o.number} Interac e-Transfer ${i.reference} received (${amount} $) confirmed by ${resumed ? `${i.receivedBy ?? 'a person'} (release resumed by ${actor.name})` : actor.name}${how === 'late' ? ' after the cancel' : ''} — ${o.fulfillment === 'delivery' ? 'courier next' : 'kitchen ticket'}` });
+  return { state: 'released', message: resumed ? 'Release resumed — sent to the kitchen.' : 'Transfer received — sent to the kitchen.', order: o };
 }
 
 /** "Received" on a cancelled / expired order: flagged once; a person decides. Never printed, never refunded here. */
@@ -306,7 +337,23 @@ export async function cancelHeldInterac(orderId: string, reason: string, by = SY
     if (!o) throw new Error('Order not found.');
     // A release that just finished (or is running) wins: a received order is never cancelled here.
     if (o.status !== 'awaiting_payment' || !o.interac || claimFresh(o.interac)) return { o, done: false };
-    return { o: await addDirectEvent(o, 'cancelled', reason, by, { status: 'cancelled', attention: undefined, interac: { ...o.interac, cancelledAt: new Date().toISOString(), cancelReason: reason } }), done: true };
+    const i = o.interac;
+    if (i.receivedAt) {
+      // The transfer was confirmed received and the release stopped half-way. The expiry never cancels it (tickInterac
+      // flags it for a person instead). A PERSON may still cancel it: the money stays flagged until a person decides —
+      // send it to the kitchen anyway (releaseLateInterac resumes the release), or return it by hand. Never refunded here.
+      if (opts.expired) return { o, done: false };
+      const amount = (i.amount ?? o.total).toFixed(2);
+      const flag = `Virement Interac ${i.reference} confirmé reçu (${amount} $) puis commande annulée — une personne décide : envoyer en cuisine quand même, ou retourner l’argent à la main.${o.posOrderId ? ` La commande Clover ${o.posOrderId} existe déjà : annulez-la dans Clover si besoin.` : ''} Food Hub ne rembourse jamais tout seul.`;
+      return {
+        o: await addDirectEvent(o, 'cancelled', `${reason} — the Interac e-Transfer ${i.reference} (${amount} $) was already confirmed received: flagged for a person (send to the kitchen anyway, or return the money by hand)`, by, {
+          status: 'cancelled', attention: flag,
+          interac: { ...i, cancelledAt: new Date().toISOString(), cancelReason: reason, releaseClaim: undefined, releaseClaimAt: undefined, lateTransfers: [...(i.lateTransfers ?? []), { at: i.receivedAt, by: i.receivedBy ?? by }] },
+        }),
+        done: true,
+      };
+    }
+    return { o: await addDirectEvent(o, 'cancelled', reason, by, { status: 'cancelled', attention: undefined, interac: { ...i, cancelledAt: new Date().toISOString(), cancelReason: reason } }), done: true };
   });
   if (!r.done) return r.o;
   let next = r.o;
@@ -317,15 +364,24 @@ export async function cancelHeldInterac(orderId: string, reason: string, by = SY
   return next;
 }
 
-/** Pickup only: the customer pays at the counter instead. The transfer is not expected any more; the order goes to Clover and the kitchen now. */
+/**
+ * Pickup only: the customer pays at the counter instead. The transfer is not expected any more, so the Interac fee
+ * (and its taxes) comes off the order: Clover, the confirmation text and the invoice carry the price without it. The
+ * order then goes to Clover and the kitchen. A transfer already confirmed received cannot switch (finish its release).
+ */
 export async function interacPayAtCounter(orderId: string, actor: Actor): Promise<DirectOrder> {
   const converted = await withOrderLock(orderId, async () => {
     const cur = await getDirectOrder(orderId);
     if (!cur?.interac || cur.status !== 'awaiting_payment') throw new Error('This order is not waiting for an Interac e-Transfer.');
     if (cur.fulfillment !== 'pickup') throw new Error('A delivery is paid before the courier leaves: text the instructions again, or cancel.');
     if (claimFresh(cur.interac)) return null;
-    return addDirectEvent(cur, 'pay_at_counter', 'The customer pays at the counter (Interac e-Transfer no longer expected)', actor.name, {
-      status: 'new', payment: 'pay_at_pickup', interac: { ...cur.interac, cancelledAt: new Date().toISOString(), cancelReason: 'pay at the counter' },
+    if (cur.interac.receivedAt) throw new Error(STOPPED_HALF_WAY(cur));
+    const fee = feesTotal(cur.fees);
+    const loc = (await getCatalog()).locations.find((l) => l.code === cur.locationCode);
+    const t = totalsFor(cur.lines, cur.deliveryFee, cur.tip, true, loc ? locationProvince(loc) : DEFAULT_PROVINCE);
+    return addDirectEvent(cur, 'pay_at_counter', `The customer pays at the counter (Interac e-Transfer no longer expected)${fee > 0 ? ` — Interac fee ${fee.toFixed(2)} $ removed, total ${t.total.toFixed(2)} $ (was ${cur.total.toFixed(2)} $)` : ''}`, actor.name, {
+      status: 'new', payment: 'pay_at_pickup', fees: undefined, subtotal: t.subtotal, tax: t.tax, total: t.total,
+      interac: { ...cur.interac, cancelledAt: new Date().toISOString(), cancelReason: 'pay at the counter' },
     });
   });
   if (!converted) return (await getDirectOrder(orderId))!;
@@ -338,6 +394,18 @@ export async function interacPayAtCounter(orderId: string, actor: Actor): Promis
   return (await getDirectOrder(next.id)) ?? next;
 }
 
+/** A release that stopped after "paid" (still held, claim stale): one flag for a person, once. Never cancelled. */
+async function flagStalledRelease(orderId: string, now: number): Promise<void> {
+  const flagged = await withOrderLock(orderId, async () => {
+    const cur = await getDirectOrder(orderId);
+    if (!cur?.interac || !interacReleaseStarted(cur) || cur.interac.releaseStalledAt || claimFresh(cur.interac, now)) return null;
+    const i = cur.interac;
+    const flag = `Virement Interac ${i.reference} confirmé reçu${i.receivedBy ? ` par ${i.receivedBy}` : ''}, mais l’envoi en cuisine s’est arrêté — appuyez sur « Virement reçu » pour le terminer (pas de deuxième billet).`;
+    return addDirectEvent(cur, 'interac_stalled', `The release stopped after the transfer was confirmed (${i.receivedBy ?? 'a person'}): flagged for a person — press "Transfer received" to finish it`, SYSTEM, { attention: flag, interac: { ...i, releaseStalledAt: iso(now) } });
+  });
+  if (flagged) await postToChat({ title: `⚠️ ${flagged.number}: Interac transfer confirmed, kitchen not reached — press "Transfer received" again`, text: flagged.attention ?? '', severity: 'warning' }, { purpose: 'interac_stalled', orderId: flagged.id }).catch(() => undefined);
+}
+
 /** Background (expansion tick, with own delivery on): the one reminder, then the expiry of held Interac orders. */
 export async function tickInterac(now = Date.now()): Promise<{ checked: number; cancelled: number; reminded: number }> {
   const out = { checked: 0, cancelled: 0, reminded: 0 };
@@ -346,6 +414,12 @@ export async function tickInterac(now = Date.now()): Promise<{ checked: number; 
     try {
       out.checked++;
       const i = o.interac!;
+      if (i.receivedAt) {
+        // Confirmed received by a person, release not finished: never reminded, never cancelled. Stopped half-way (claim
+        // gone stale: a restart, an error) → flagged once for a person, who presses "Transfer received" to finish it.
+        if (!i.releaseStalledAt && !claimFresh(i, now)) await flagStalledRelease(o.id, now);
+        continue;
+      }
       if (now >= Date.parse(i.expiresAt)) {
         await cancelHeldInterac(o.id, 'Interac e-Transfer not confirmed in time — cancelled', SYSTEM, { expired: true });
         out.cancelled++;
@@ -356,7 +430,7 @@ export async function tickInterac(now = Date.now()): Promise<{ checked: number; 
         const sms = await textCustomer(o, INTERAC_SMS.reminder(o, i, left, i.lang), 'interac_reminder');
         await withOrderLock(o.id, async () => {
           const cur = await getDirectOrder(o.id);
-          if (cur?.interac && cur.status === 'awaiting_payment') await addDirectEvent(cur, sms.ok ? 'interac_reminder' : 'sms_failed', sms.ok ? 'Interac reminder texted' : `Reminder not texted: ${sms.message}`, SYSTEM, { interac: { ...cur.interac, remindedAt: iso(now) } });
+          if (cur?.interac && cur.status === 'awaiting_payment' && !cur.interac.receivedAt) await addDirectEvent(cur, sms.ok ? 'interac_reminder' : 'sms_failed', sms.ok ? 'Interac reminder texted' : `Reminder not texted: ${sms.message}`, SYSTEM, { interac: { ...cur.interac, remindedAt: iso(now) } });
         });
         if (sms.ok) out.reminded++;
       }

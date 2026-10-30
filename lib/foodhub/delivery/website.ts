@@ -13,8 +13,9 @@
 // allow it on the website (and, for a delivery, through our couriers) — the site should never have sold it.
 //
 // Price rule (Québec: the price the customer commits to is all-inclusive and shown BEFORE checkout). With `payment`
-// (the 2026-10-29 contract) Food Hub re-prices every line from the brand menu — a line or a paid option it cannot find
-// on the menu, or whose price differs from the menu, is refused (422) — adds the declared fees and GST + QST, and refuses
+// (the 2026-10-29 contract) Food Hub re-prices every line from the brand menu — a line, or an option with any non-zero
+// price (paid or negative), it cannot find on the menu, or whose price differs from the menu, is refused (422); the
+// line keeps the menu item's own name — adds the declared fees and GST + QST, and refuses
 // the order when its total differs from the site's `total` by more than $0.02. The older `paid: boolean` payloads are
 // taken as before (no re-pricing), so today's site keeps working unchanged.
 import { decideAlcohol, isAlcoholItem } from '../alcohol/rules';
@@ -91,13 +92,17 @@ function buildLines(items: any[], menu: MasterMenu | null, brandName: string, st
       const mod = strict && menu && m ? findModifier(menu, m, oRef, oName) : undefined;
       if (strict) {
         if (mod && !same(oPrice, round2(mod.price))) return refuse(422, `Option "${mod.name}" of "${m!.name}": the site charged ${oPrice.toFixed(2)} but the menu price is ${round2(mod.price).toFixed(2)}.`);
-        // A free option that is not on the menu is a note ("no onions"); a paid one must be confirmed by the menu.
-        if (!mod && oPrice > 0) return refuse(422, `Option "${oName}" of "${m!.name}" is not on the menu: its price (${oPrice.toFixed(2)}) cannot be confirmed.`);
+        // A free option that is not on the menu is a note ("no onions"); any other price — paid, or negative (a
+        // "discount" the menu does not know) — must be confirmed by the menu.
+        if (!mod && oPrice !== 0) return refuse(422, `Option "${oName}" of "${m!.name}" is not on the menu: its price (${oPrice.toFixed(2)}) cannot be confirmed.`);
       }
       modifiers.push({ name: mod?.name ? String(mod.nameFr || mod.name).slice(0, 80) : oName, quantity: oQty, unitPrice: mod ? round2(mod.price) : oPrice, ...(mod?.posModifierRef ? { posModifierRef: mod.posModifierRef } : {}) });
     }
+    // Strict: the line is the menu item that set its price — its own name on the kitchen ticket and in Clover, never the
+    // site's text (a cheap item's ref carrying an expensive dish's name would be cooked at the cheap price).
+    const lineName = strict ? String(m!.nameFr || m!.name) : name || m?.name || 'Item';
     lines.push({
-      externalId: ref || undefined, ...(m?.posItemRef ? { posItemRef: m.posItemRef } : {}), name: (name || m?.name || 'Item').slice(0, 120),
+      externalId: ref || undefined, ...(m?.posItemRef ? { posItemRef: m.posItemRef } : {}), name: lineName.slice(0, 120),
       quantity, unitPrice, total: lineTotal(unitPrice, quantity, modifiers), notes: it?.notes ? String(it.notes).slice(0, 200) : undefined, modifiers,
       ...(it?.alcohol === true || (m && isAlcoholItem(m)) ? { alcohol: true } : {}),
     });

@@ -167,7 +167,8 @@ export async function trackOrder(token: string, opts: { slug?: string; now?: num
     const hit = await brandForSlug(opts.slug);
     if (!hit || hit.brandName !== o.brandName) return null;
   }
-  const i = o.status === 'awaiting_payment' && o.interac ? o.interac : null;
+  // What to send, only while the transfer is still expected (not once a person confirmed it arrived).
+  const i = o.status === 'awaiting_payment' && o.interac && !o.interac.receivedAt ? o.interac : null;
   return {
     number: o.number, status: o.status, brand: seedBrandOf(o.brandName)?.name ?? o.brandName, readyAt: o.status === 'cancelled' || o.status === 'awaiting_payment' ? null : o.readyAt ?? null,
     ...(i ? { interac: { recipient: i.recipient, amount: i.amount, reference: i.reference, ...(i.autoDeposit || !i.question ? {} : { question: i.question }), autoDeposit: i.autoDeposit, expiresAt: i.expiresAt } } : {}),

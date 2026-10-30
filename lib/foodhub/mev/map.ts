@@ -282,9 +282,20 @@ export function directChannel(o: Pick<DirectOrder, 'source' | 'sourceRef'>): Mev
   return 'manual';
 }
 
-/** Paid online before the kitchen: paylink, our website marked paid, Clover Online Ordering. */
-export function paidOnline(o: Pick<DirectOrder, 'paylink' | 'source' | 'payment' | 'events'>): boolean {
+/** Paid by Interac e-Transfer before the kitchen: a person confirmed the transfer arrived (delivery/interac.ts). */
+export function interacPaid(o: Pick<DirectOrder, 'interac' | 'payment'>): boolean {
+  return Boolean(o.interac?.receivedAt) && o.payment === 'paid';
+}
+
+/** The restaurant's own declared fees (the Interac e-Transfer fee), before tax, in cents. */
+export function directFeeCents(o: Pick<DirectOrder, 'fees'>): number {
+  return (o.fees ?? []).reduce((s, f) => s + Math.max(0, cents(Number(f.amount) || 0)), 0);
+}
+
+/** Paid online before the kitchen: paylink, our website marked paid, Clover Online Ordering, an Interac e-Transfer. */
+export function paidOnline(o: Pick<DirectOrder, 'paylink' | 'source' | 'payment' | 'events'> & Partial<Pick<DirectOrder, 'interac'>>): boolean {
   if (o.paylink?.paidAt) return true;
+  if (interacPaid(o)) return true;
   if (o.payment !== 'paid') return false;
   if (o.source === 'clover_online') return true;
   // Website / storefront orders that arrived already paid (no "Payment taken" by a person).
@@ -315,13 +326,21 @@ export function toMevSaleFromDirect(o: DirectOrder, ctx: MapCtx & { dryRun?: boo
   const b = checkLines(mapLines(o.lines, ctx, (l) => Boolean((l as { alcohol?: boolean }).alcohol)), cents(o.subtotal));
   if ('review' in b) return { ok: false, reason: b.review, detail: b.detail };
   const deliveryCents = o.fulfillment === 'delivery' ? Math.max(0, cents(o.deliveryFee)) : 0;
+  // The restaurant's own declared fee (Interac e-Transfer) is taxed and paid by the customer: part of avantTax (QCMEV
+  // adds the service fee for every service type), so the invoice total is what the customer paid.
+  const serviceFeeCents = directFeeCents(o);
   // The tax the customer was charged (Food Hub / Clover computed it); the split follows the base when it agrees.
-  const money = amountsFor({ lines: b.lines, deliveryCents, serviceFeeCents: 0, discountCents: 0, tipCents: Math.max(0, cents(o.tip)), platformTaxCents: cents(o.tax) });
+  const money = amountsFor({ lines: b.lines, deliveryCents, serviceFeeCents, discountCents: 0, tipCents: Math.max(0, cents(o.tip)), platformTaxCents: cents(o.tax) });
   if (b.rounded) money.flags.subtotalRounded = true;
   let mode: MevPayMode | null;
   let collectedBy: FoodHubSaleV1['payment']['collectedBy'];
+  let reference = o.paylink?.paymentId;
   if (money.amounts.totalCents === 0) { mode = 'AUC'; collectedBy = 'clover_tender'; }
   else if (o.paylink?.paidAt) { mode = 'CRE'; collectedBy = 'paylink'; }
+  // Interac e-Transfer: a bank transfer, not a card → « Autre » (AUT), collected by the restaurant itself before the
+  // kitchen. The foodhub.sale.v1 contract has no Interac value for collectedBy: 'paylink' (= paid to the restaurant
+  // online, outside the register) is the closest; the transfer's reference identifies it.
+  else if (interacPaid(o)) { mode = 'AUT'; collectedBy = 'paylink'; reference = o.interac!.reference; }
   else if (online) { mode = 'CRE'; collectedBy = o.source === 'clover_online' ? 'clover_tender' : 'paylink'; }
   else { mode = ctx.tender ?? null; collectedBy = mode === 'ARG' ? 'cash' : 'clover_tender'; }
   // A pay-at-pickup order whose tender is unknown waits (never "INC"): a person picks it, or Clover's payment is read.
@@ -336,10 +355,10 @@ export function toMevSaleFromDirect(o: DirectOrder, ctx: MapCtx & { dryRun?: boo
     source: { model: 'direct', channel, orderId: o.id, externalOrderId: o.sourceRef ?? o.id, displayId: o.number, ...(o.posOrderId ? { posOrderId: o.posOrderId } : {}), brand: o.brandName },
     serviceType, ecommerce: online, user: { ...AUTO_USER },
     lines: b.lines,
-    fees: { deliveryCents, serviceFeeCents: 0 },
+    fees: { deliveryCents, serviceFeeCents },
     discountCents: 0,
     amounts: money.amounts,
-    payment: { mode, collectedBy, ...(o.paylink?.paymentId ? { reference: o.paylink.paymentId.slice(0, 40) } : {}) },
+    payment: { mode, collectedBy, ...(reference ? { reference: reference.slice(0, 40) } : {}) },
     // Paper with the order; an electronic copy too when the customer ordered online with a contact (SMS / e-mail).
     receipt: contact ? { format: 'PEL', deliver: o.customer.email ? 'email' : 'sms' } : { format: 'PAP', deliver: 'print' },
     ...(ctx.referenceSaleKey ? { referenceSaleKey: ctx.referenceSaleKey } : {}),

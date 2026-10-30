@@ -187,7 +187,8 @@ sa propre fiche.
 ### 4.4 Ce qu'ils annoncent et que Food Hub n'a pas (encore)
 
 - Plusieurs caisses (section 4).
-- Avis et notes dans le tableau de bord, options imbriquées / combos (voir `ATLAS_PARITY.md`, « Not built »).
+- Options imbriquées / combos (voir `ATLAS_PARITY.md`, « Not built yet »). Les avis et notes existent déjà
+  (`/insights/reviews`, [`../REVIEWS_HUB.md`](../REVIEWS_HUB.md)).
 - Témoignages et logos de clients sur la page publique.
 - Plateformes hors Canada : hors de notre marché.
 

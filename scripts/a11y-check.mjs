@@ -293,7 +293,7 @@ New DoorDash order on a test store: ${alertUp ? 'received' : `NOT received (stor
   for (const p of problems) console.log(`  FAIL  ${p}`);
   if (failingScans.length || motionFails.length || problems.length) {
     exitCode = 1;
-    console.log(`\nAccessibility check FAILED: ${failingScans.length} page scan(s) with serious/critical violations, ${motionFails.length} page(s) still animating with reduced motion, ${problems.length} page problem(s).`);
+    console.log(`\nAccessibility check FAILED: ${failingScans.length} page scan(s) with serious/critical violations, ${motionFails.length} page(s) failing the reduced-motion check, ${problems.length} page problem(s).`);
   } else {
     console.log(`\nAccessibility check passed: ${results.length} scans (${results.length / VIEWPORTS.length} page states × ${VIEWPORTS.length} sizes), 0 serious/critical violations; reduced motion respected on ${motion.length} pages.`);
   }

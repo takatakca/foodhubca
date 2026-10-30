@@ -12,6 +12,7 @@
 >   [`PARTNER_OUTREACH.md`](PARTNER_OUTREACH.md) (un courriel prêt par partenaire) ; le code commence dans
 >   `lib/foodhub/integrations/` (catalogue).
 > - **Prochaine étape exacte :** voir la section 9 (cases à cocher). Chaque case dit qui la fait (agent ou propriétaire).
+>   Suivi : issue #119. Quand un partenaire répond, mettre à jour sa ligne dans `lib/foodhub/integrations/catalog.ts`.
 
 ## 1. Ce que Deliverect fait, en une phrase
 
@@ -140,9 +141,10 @@ Outreach emails, one per partner and each naming only that partner, are in `PART
 
 ## 9. Prochaines étapes (cocher en avançant, signer chaque ligne)
 - [x] Plan, modèle d'affaires, liste des portes d'entrée (ce fichier) — busy-cannon, 2026-10-29
-- [ ] Inventaire Deliverect complet + leurs prix → `research/DELIVERECT.md` — busy-cannon (en cours)
-- [ ] Courriels prêts, un par partenaire → `PARTNER_OUTREACH.md` — busy-cannon (en cours)
-- [ ] Catalogue `lib/foodhub/integrations/catalog.ts` + tests — busy-cannon (en cours)
+- [x] Inventaire Deliverect complet (131 intégrations canadiennes ; prix non publiés) → `research/DELIVERECT.md` — busy-cannon
+- [x] 17 courriels prêts, un par partenaire → `PARTNER_OUTREACH.md` — busy-cannon
+- [x] Catalogue `lib/foodhub/integrations/catalog.ts` + `tests/integrations-catalog.test.ts` (états réels, un courriel par ligne, règle « chaque plateforme n'entend parler que d'elle-même » vérifiée) — busy-cannon
+- [ ] Afficher le catalogue dans la console (Réglages → Plateformes) — agent libre
 - [ ] Propriétaire : approuver les prix de la section 4
 - [ ] Propriétaire : envoyer les courriels ; noter chaque réponse dans le catalogue (agent)
 - [ ] Contrat `PosAdapter` + Clover derrière, sans changement de comportement — agent libre

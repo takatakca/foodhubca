@@ -1,5 +1,19 @@
 # Food Hub: progress log and task board
 
+## 2026-10-30 — Plateforme d'intégrations (Canada) : faire ce que fait Deliverect, à notre façon (`docs/integration-platform-canada`, issue #119)
+
+- `docs/INTEGRATION_PLATFORM.md` : ce que Food Hub a déjà, ce qui manque (autres caisses, canaux canadiens,
+  certifications, portail partenaires, SOC 2), la porte d'entrée officielle de chaque partenaire, le modèle d'affaires
+  (prix public par emplacement, commande directe sans commission, livreurs au coût), phases, risques, qui fait quoi.
+- `docs/research/DELIVERECT.md` + `deliverect-ca-integrations.csv` : leurs 131 intégrations canadiennes (lues dans leur
+  plan du site et chaque page), leur processus partenaire et leur API ; prix non publiés.
+- `docs/PARTNER_OUTREACH.md` : 17 courriels prêts (plateformes, livreurs, caisses), chacun ne nomme que son partenaire ;
+  le propriétaire envoie.
+- Code : `lib/foodhub/integrations/catalog.ts` (états réels ; les 3 plateformes suivent `FOODHUB_PUBLIC_LIVE_PLATFORMS`)
+  + `tests/integrations-catalog.test.ts`. Drive : « Plateforme d'intégrations (Canada) — note de reprise ».
+
+— signé : Claude (busy-cannon, Claude Code cloud) @ cloud · 2026-10-30 00:40 (HE)
+
 ## 2026-10-30 — Public directory feed carries our own ordering page first (`feature/public-directory-storefront-link`)
 
 - ON2GO.ca (the consumer app, owner's direction of 2026-10-29: Canada only, Québec first, Clover + takatak-v1 backend) sends customers to Food Hub's commission-free page before Clover's hosted page and the delivery apps. The feed adds `platform: on2go` (`/commander/<slug>`, `?lang=en`) for the brands switched on in Settings → Storefront, in the kitchen each page serves (`livePublicPages()` in `lib/foodhub/storefront/settings.ts`, loaded on demand by the feed under the 2.5 s live-read deadline; base = `FOODHUB_PUBLIC_URL`). Seed export unchanged. Test + `docs/PUBLIC_DIRECTORY_API.md`.

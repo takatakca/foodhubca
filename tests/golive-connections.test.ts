@@ -2,7 +2,7 @@
 // Too Good To Go mailbox (from the environment, owner-only setting names, never values); the Go-live ring and stepper
 // come from the checklist; each celebration fires once per device.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createElement } from 'react';
+import { createElement, type ComponentProps } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { forViewer, serviceHealth, type ServiceHealth } from '../lib/foodhub/connections';
 import { buildHealth } from '../lib/foodhub/health';
@@ -99,7 +99,7 @@ describe('Connections strip: screens relay and Too Good To Go mailbox, only once
   it('the strip renders every row with its state word (English and French)', () => {
     env({ RESEND_API_KEY: 'resend-test', AUTH_EMAIL_FROM: 'codes@example.test', FOODHUB_SCREENS_AGENT_TOKEN: 'relay-token-long-enough-for-tests-0001', TGTG_EMAIL_WEBHOOK_SECRET: 'hook' });
     const services = serviceHealth({ now, screens: [] });
-    const en = renderToStaticMarkup(createElement(I18nProvider, { lang: 'en', children: createElement(ServicesStrip, { services }) }));
+    const en = renderToStaticMarkup(createElement(I18nProvider, { lang: 'en' } as ComponentProps<typeof I18nProvider>, createElement(ServicesStrip, { services })));
     for (const name of ['E-mail', 'SMS &amp; calls', 'AI (Claude)', 'Screens relay', 'Too Good To Go e-mails']) expect(en).toContain(name);
     expect(en).toContain('ready'); expect(en).toContain('not set up'); expect(en).toContain('needs a look');
     expect(en).toContain('ANTHROPIC_API_KEY'); // the owner's copy carries the names

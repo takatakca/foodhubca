@@ -13,13 +13,15 @@ import { createDirectOrderInClover } from './clover-direct';
 import { tellDriveOrderReady } from './drive-api';
 import { addDirectEvent, getDirectOrder, newId, nextOrderNumber, saveDirectOrder } from './store';
 import type { DirectLine, DirectOrder, DirectSource, DropoffAddress, PaymentState } from './types';
+import { DEFAULT_PROVINCE, foodTaxRate, foodTaxes, locationProvince, type Province } from '../taxes';
 
-/** Québec sales taxes on prepared food: GST 5 % + QST 9.975 %. */
-export const QC_TAX_RATE = 0.14975;
+/** Québec sales taxes on prepared food: GST 5 % + QST 9.975 % (the default province; lib/foodhub/taxes.ts has the others). */
+export const QC_TAX_RATE = foodTaxRate('QC');
 
-export function totalsFor(lines: DirectLine[], deliveryFee: number, tip: number, taxable = true) {
+/** Subtotal, taxes and total of an order; the taxes follow the kitchen's province (Québec unless told otherwise). */
+export function totalsFor(lines: DirectLine[], deliveryFee: number, tip: number, taxable = true, province: Province = DEFAULT_PROVINCE) {
   const subtotal = round2(lines.reduce((s, l) => s + l.total, 0));
-  const tax = taxable ? round2((subtotal + deliveryFee) * QC_TAX_RATE) : 0;
+  const tax = taxable ? foodTaxes(province, subtotal + deliveryFee).tax : 0;
   return { subtotal, tax, total: round2(subtotal + deliveryFee + tax + tip) };
 }
 
@@ -59,10 +61,11 @@ export interface NewDirectOrder {
 export async function createDirectOrder(input: NewDirectOrder, actor: Actor): Promise<DirectOrder> {
   if (!input.lines.length) throw new Error('An order needs at least one item.');
   const catalog = await getCatalog();
-  if (!catalog.locations.some((l) => l.code === input.locationCode)) throw new Error(`Unknown location ${input.locationCode}.`);
+  const location = catalog.locations.find((l) => l.code === input.locationCode);
+  if (!location) throw new Error(`Unknown location ${input.locationCode}.`);
   const deliveryFee = input.fulfillment === 'delivery' ? round2(input.deliveryFee ?? 0) : 0;
   const tip = round2(Math.max(0, input.tip ?? 0));
-  const totals = input.totals ? { subtotal: round2(input.totals.subtotal), tax: round2(input.totals.tax), total: round2(input.totals.total) } : totalsFor(input.lines, deliveryFee, tip);
+  const totals = input.totals ? { subtotal: round2(input.totals.subtotal), tax: round2(input.totals.tax), total: round2(input.totals.total) } : totalsFor(input.lines, deliveryFee, tip, true, locationProvince(location));
   const prep = await prepFor(input.locationCode);
   const now = Date.now();
   // A scheduled delivery leaves the kitchen about 20 minutes before the time the customer asked for.

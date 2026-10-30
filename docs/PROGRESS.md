@@ -1,5 +1,13 @@
 # Food Hub: progress log and task board
 
+## 2026-10-30 — Canada: sales taxes by province, kitchens carry a province (`feature/canada-taxes-provinces`)
+
+- `lib/foodhub/taxes.ts`: the 13 provinces and territories with their 2026 taxes on prepared food (GST, HST, QST, PST, RST; BC's PST does not apply to restaurant meals), per-component rounding to the cent, customer labels FR/EN, province from a code, a name or a postal code, a combined-tax split for reports. `docs/TAXES.md`.
+- Kitchens: new *Province* field (Settings → Business; empty = from the postal code, else Québec). Direct-order totals (`totalsFor`), the storefront (public menu carries `taxes { province, rate, label }`, the cart shows them, `priceCart` uses them), delivery pickup addresses (DoorDash Drive, Uber Direct, Skip, own couriers) and the finance Québec split all read the same table. Phone AI stays Québec by default.
+- Tests: `tests/taxes.test.ts` (rates, rounding, labels, split, parsing, public menu per province).
+
+— signé : Claude Fable 5.1 (session on2go front-page) @ Claude Code desktop · 2026-10-30 05:30
+
 ## 2026-10-30 — Restaurant leads API live for the on2go.ca sign-up form, with the province (`feature/restaurant-leads-api`, PR #87)
 
 - The branch of 2026-10-21 (public `POST /api/public/restaurant-leads`, storage, owner email + FR/EN auto-reply, Settings → Demandes de restaurants) is brought up to main and merged. New: optional `province` (Canadian postal code; the « , QC » on2go.ca writes into the city for older servers is dropped when it repeats the province), shown in the console and the owner email. Fix: the route is listed in `proxy.ts` PUBLIC_PATHS; without it every POST from on2go.ca got the sign-in redirect.

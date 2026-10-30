@@ -14,6 +14,13 @@
 
 — signé : Claude (busy-cannon, Claude Code cloud) @ cloud · 2026-10-30 00:40 (HE)
 
+## 2026-10-30 — Ordering from ON2GO.ca: checkout and tracking answer the ON2GO origins (`feature/storefront-cross-origin-checkout`)
+
+- `POST /api/storefront/checkout` and `GET /api/storefront/track/<token>` now accept an allowed Origin (allowedOrigin: on2go.ca, www/preview.on2go.ca, qmaps.ca, localhost, `FOODHUB_PUBLIC_CORS_ORIGINS`) with CORS headers and answer the preflight; any other cross-site request stays refused (403 / no CORS). Same-origin behaviour unchanged. With the menu route (already CORS) the whole ordering flow runs on on2go.ca: live menu, cart, checkout (Clover online or counter), tracking page `/suivi/` (on2goca `feature/on2go-order`).
+- Checks: typecheck, lint 0 errors, build, verify:foodhub 578/0; vitest: the checkout route tests extended (allowed origin passes with CORS, evil origin refused, preflights); 3 Windows-only failures (screens relay PowerShell / file mode) and one timing-flaky own-delivery test that passes alone.
+
+— signé : Claude Fable 5.1 (session on2go front-page) @ Claude Code desktop · 2026-10-30 03:05
+
 ## 2026-10-30 — Public directory feed carries our own ordering page first (`feature/public-directory-storefront-link`)
 
 - ON2GO.ca (the consumer app, owner's direction of 2026-10-29: Canada only, Québec first, Clover + takatak-v1 backend) sends customers to Food Hub's commission-free page before Clover's hosted page and the delivery apps. The feed adds `platform: on2go` (`/commander/<slug>`, `?lang=en`) for the brands switched on in Settings → Storefront, in the kitchen each page serves (`livePublicPages()` in `lib/foodhub/storefront/settings.ts`, loaded on demand by the feed under the 2.5 s live-read deadline; base = `FOODHUB_PUBLIC_URL`). Seed export unchanged. Test + `docs/PUBLIC_DIRECTORY_API.md`.

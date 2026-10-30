@@ -106,7 +106,7 @@ export function priceCart(menu: Pick<SellableMenu, 'menu' | 'source'>, cart: Pic
       total: lineTotal(unitPrice, line.qty, modifiers), ...(line.notes ? { notes: line.notes } : {}), modifiers,
     });
   }
-  return { ok: true, lines, ...totalsFor(lines, 0, 0) };
+  return { ok: true, lines, ...totalsFor(lines, 0, 0, true, menu.menu.taxes.province) };
 }
 
 // North American Numbering Plan areas outside Canada and the United States (Caribbean and Atlantic countries, billed as

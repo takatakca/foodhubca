@@ -31,6 +31,7 @@ const PUBLIC_PREFIXES = [
 const PUBLIC_PATHS = new Set([
   '/api/health', // uptime monitors: status only without CRON_SECRET or a session (app/api/health/route.ts)
   '/api/release', // deployment proof: public commit SHA only, exact path, no settings or secrets
+  '/api/public/restaurant-leads', // the on2go.ca sign-up form: JSON only, honeypot, 5 sends / 10 min per IP, 16 KB body, CORS for on2go.ca only (app/api/public/restaurant-leads/route.ts)
   '/api/public/directory', // ON2GO/QMAPS read-only directory (public facts only, lib/foodhub/public-directory.ts); other /api/public/* stay protected
   '/legal', // the legal pages' index: redirects to /legal/support (app/legal/page.tsx); /legal/* is in PUBLIC_PREFIXES
   '/courier', '/api/courier', // our couriers' page: the personal signed link (Bearer) is the credential (lib/foodhub/delivery/courier-app.ts)

@@ -143,15 +143,17 @@ export type Component = (typeof COMPONENTS)[number];
 
 export const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100 || 0;
 
+import { splitFoodTax } from '../taxes';
+
 export const GST_RATE = 0.05;
 export const QST_RATE = 0.09975;
 /** Clover tax rate "Sales Tax" set as default on the On2GO.CA merchant (Clover stores 14975 = 0.14975 %). */
 export const CLOVER_STRAY_RATE = 0.0014975;
 
-/** Splits a combined GST+QST amount into its two parts (Québec, 5 : 9.975). */
+/** Splits a combined GST+QST amount into its two parts (Québec, 5 : 9.975; lib/foodhub/taxes.ts has every province). */
 export function splitQuebecTax(total: number): { gst: number; qst: number } {
-  const gst = r2((total * GST_RATE) / (GST_RATE + QST_RATE));
-  return { gst, qst: r2(total - gst) };
+  const s = splitFoodTax('QC', total).byCode;
+  return { gst: s.GST ?? 0, qst: s.QST ?? 0 };
 }
 
 /** Kitchens: 6280 + 6284 Somerled are one kitchen (NDG); 5837 + 5839 Jean-Talon E are one (Saint-Léonard); 6241 Boul. Léger (Montréal-Nord) is closed. */

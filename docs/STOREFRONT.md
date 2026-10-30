@@ -87,3 +87,11 @@ Le feed annuaire porte la page (`platform: on2go`) dès qu'une marque est allum�
 
 ON2GO.ca (the consumer directory) orders without leaving its site through the same three routes; CORS for the ON2GO
 origins only, preflight answered, relative paths prefixed on the ON2GO side.
+
+## Taxes par province · Taxes by province (2026-10-30)
+
+Le menu public porte `taxes { province, rate, label }` : la province de la cuisine (Réglages → Entreprise, ou son code
+postal), le taux combiné sur la nourriture préparée et le libellé de la ligne (« Taxes (TPS + TVQ) », « Taxes (TVH) »…).
+Le panier l'affiche avant que le serveur ne chiffre ; `priceCart` et `totalsFor` chiffrent avec la même table
+(`docs/TAXES.md`). The public menu carries the kitchen's province taxes; the cart shows that rate and label, and the
+server prices with the same table.

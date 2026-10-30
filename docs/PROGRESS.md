@@ -14,6 +14,29 @@
 
 — signé : Claude (busy-cannon, Claude Code cloud) @ cloud · 2026-10-30 00:40 (HE)
 
+## 2026-10-30 — Canada: sales taxes by province, kitchens carry a province (`feature/canada-taxes-provinces`)
+
+- `lib/foodhub/taxes.ts`: the 13 provinces and territories with their 2026 taxes on prepared food (GST, HST, QST, PST, RST; BC's PST does not apply to restaurant meals), per-component rounding to the cent, customer labels FR/EN, province from a code, a name or a postal code, a combined-tax split for reports. `docs/TAXES.md`.
+- Kitchens: new *Province* field (Settings → Business; empty = from the postal code, else Québec). Direct-order totals (`totalsFor`), the storefront (public menu carries `taxes { province, rate, label }`, the cart shows them, `priceCart` uses them), delivery pickup addresses (DoorDash Drive, Uber Direct, Skip, own couriers) and the finance Québec split all read the same table. Phone AI stays Québec by default.
+- Tests: `tests/taxes.test.ts` (rates, rounding, labels, split, parsing, public menu per province).
+
+— signé : Claude Fable 5.1 (session on2go front-page) @ Claude Code desktop · 2026-10-30 05:30
+
+## 2026-10-30 — Restaurant leads API live for the on2go.ca sign-up form, with the province (`feature/restaurant-leads-api`, PR #87)
+
+- The branch of 2026-10-21 (public `POST /api/public/restaurant-leads`, storage, owner email + FR/EN auto-reply, Settings → Demandes de restaurants) is brought up to main and merged. New: optional `province` (Canadian postal code; the « , QC » on2go.ca writes into the city for older servers is dropped when it repeats the province), shown in the console and the owner email. Fix: the route is listed in `proxy.ts` PUBLIC_PATHS; without it every POST from on2go.ca got the sign-in redirect.
+- Consumer side: on2goca PR #19 (province select on the form, official platform marks, no emoji, promo cards) is live.
+- Checks: typecheck, lint 0 errors, 1739 tests passed (1 pre-existing Windows file-mode failure in `tests/screens-relay-setup.test.ts`), webpack build, verify:foodhub 578/0.
+
+— signé : Claude Fable 5.1 (session on2go front-page) @ Claude Code desktop · 2026-10-30 04:50
+
+## 2026-10-21 — Demandes de restaurants / Restaurant leads (`feature/restaurant-leads-api`)
+
+- Le formulaire « Rejoindre ON2GO » d’on2go.ca (site statique, dépôt séparé) a maintenant son arrière-boutique : `POST /api/public/restaurant-leads` (JSON, sans connexion, CORS on2go.ca et www.on2go.ca seulement, pot de miel `company` → 202 silencieux, 5 envois / 10 min par IP → 429 + Retry-After, corps ≤ 16 Ko), validation par champ (`errors: { champ: required | invalid | too_long }`), stockage dans `fh_docs` collection `restaurant_leads` (aucune migration), courriel à `FOODHUB_SUPPORT_EMAIL` + réponse automatique FR / EN au restaurant par l’expéditeur habituel (sautés sans fournisseur, jamais une erreur), ligne dans le journal d’activité.
+- Console : **Réglages → Demandes de restaurants** (propriétaire seulement) : plus récente en premier, filtres à suivre / nouvelle / contactée / gagnée / perdue, recherche, statut par liste déroulante, détails et notes internes (`GET/POST /api/foodhub/restaurant-leads`, permission `admin`).
+- EN: the on2go.ca “Join ON2GO” form posts to `POST /api/public/restaurant-leads` (validation, honeypot, per-IP quota, CORS for on2go.ca only), leads are stored as `restaurant_leads` docs, the owner is emailed and the lead gets an FR / EN auto-reply; Settings → Restaurant leads lists them newest first with status and notes. Contract: `docs/RESTAURANT_LEADS.md`.
+- Code: `lib/foodhub/restaurant-leads.ts`, `app/api/public/restaurant-leads/route.ts`, `app/api/foodhub/restaurant-leads/route.ts`, `app/(console)/settings/leads/page.tsx`, `components/shell/settings-pages.ts` (new page in the « Votre entreprise / Your business » group), tests `tests/restaurant-leads.test.ts` (14).
+- Brought up to main b40e446 (#72 #54 #50 #51 #43 #86 #89): main moved the Settings page list to `components/shell/settings-pages.ts`, so the leads page is listed there (group `business`, permission `admin`).
 ## 2026-10-30 — Ordering from ON2GO.ca: checkout and tracking answer the ON2GO origins (`feature/storefront-cross-origin-checkout`)
 
 - `POST /api/storefront/checkout` and `GET /api/storefront/track/<token>` now accept an allowed Origin (allowedOrigin: on2go.ca, www/preview.on2go.ca, qmaps.ca, localhost, `FOODHUB_PUBLIC_CORS_ORIGINS`) with CORS headers and answer the preflight; any other cross-site request stays refused (403 / no CORS). Same-origin behaviour unchanged. With the menu route (already CORS) the whole ordering flow runs on on2go.ca: live menu, cart, checkout (Clover online or counter), tracking page `/suivi/` (on2goca `feature/on2go-order`).

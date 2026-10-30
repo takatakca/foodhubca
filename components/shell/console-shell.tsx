@@ -7,7 +7,7 @@ import { BellRing, ChevronsLeft, ChevronsRight, CircleHelp, Globe, Lock, LogOut,
 import { ConfirmProvider } from '@/components/ui/confirm';
 import { CoachMark, Hint } from '@/components/help/hint';
 import { HelpDrawer } from '@/components/help/help-drawer';
-import { HelpProvider } from '@/components/help/help-provider';
+import { HelpProvider, useHelp } from '@/components/help/help-provider';
 import { TakTakButton } from '@/components/help/taktak-button';
 import { Tour } from '@/components/help/tour';
 import { Welcome } from '@/components/help/welcome';
@@ -48,7 +48,6 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
               <CancelAlarm />
               <CommandPalette />
               {viewer.device && <DeviceHeartbeat />}
-              <TakTakButton />
               <HelpDrawer />
               <CoachMark />
               <Tour />
@@ -62,6 +61,7 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
 }
 
 const openHelp = () => window.dispatchEvent(new Event('takatak:help'));
+const SHEET_TILE = 'text-small flex min-h-20 flex-col items-center justify-center gap-1.5 rounded-md bg-sunken p-3 text-center font-semibold text-ink';
 
 /**
  * The product's mark on navy. The default product keeps the GROUPE TAKATAK lockup (BRAND.md): a white T in a glowing
@@ -72,13 +72,13 @@ function Logo({ compact }: { compact?: boolean }) {
   const letter = product.isDefault ? 'T' : (product.name.trim()[0] ?? 'F').toUpperCase();
   return (
     <span className="flex items-center gap-2.5">
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-electric text-[15px] font-black text-white shadow-[0_0_18px_rgb(31_139_255/0.55)]">{letter}</span>
+      <span className="text-body flex size-9 shrink-0 items-center justify-center rounded-full bg-electric font-black text-white shadow-[0_0_18px_rgb(31_139_255/0.55)]">{letter}</span>
       {!compact && (product.isDefault ? (
         <span className="leading-none">
-          <span className="block text-[15px] font-extrabold tracking-[0.16em] text-[#f5f8fc]">TAKATAK</span>
-          <span className="mt-1 block text-[10px] font-bold tracking-[0.28em] text-cyan">FOOD HUB</span>
+          <span className="text-body block font-extrabold tracking-[0.16em] text-[#f5f8fc]">TAKATAK</span>
+          <span className="text-micro mt-1 block font-bold tracking-[0.28em] text-cyan">FOOD HUB</span>
         </span>
-      ) : <span className="truncate text-[15px] font-extrabold tracking-[0.04em] text-[#f5f8fc]">{product.name}</span>)}
+      ) : <span className="text-body truncate font-extrabold tracking-[0.04em] text-[#f5f8fc]">{product.name}</span>)}
     </span>
   );
 }
@@ -113,6 +113,8 @@ function Frame({ children }: { children: ReactNode }) {
   const kitchen = isKitchenRoute(pathname);
   const mobile = mobileNav(full, who, visible);
   const inBar = new Set(mobile.map((n) => n.href));
+  // "Plus" lights up when the current page is reachable from the sheet only.
+  const moreActive = !more && pathname !== '/' && !mobile.some((n) => (n.href === '/menu/86' ? pathname === '/menu/86' : navActive(n, pathname)));
 
   return (
     <div className={cn('min-h-dvh', kitchen && 'theme-kitchen bg-canvas text-ink')}>
@@ -123,17 +125,17 @@ function Frame({ children }: { children: ReactNode }) {
         </nav>
         <div className="space-y-1 border-t border-white/10 p-3">
           {full && (
-            <button type="button" onClick={() => setCopilot(true)} className={cn('flex h-11 w-full items-center gap-3 rounded-lg px-3 text-sm font-semibold text-white/75 hover:bg-white/[0.08] hover:text-white', collapsed && 'justify-center px-0')}>
-              <Sparkles className="size-[18px] text-electric" />{!collapsed && t('Copilote', 'Co-pilot')}
+            <button type="button" onClick={() => setCopilot(true)} title={collapsed ? t('Copilote', 'Co-pilot') : undefined} className={cn('text-body flex h-11 w-full items-center gap-3 rounded-lg px-3 font-semibold text-white/75 hover:bg-white/[0.08] hover:text-white', collapsed && 'justify-center px-0')}>
+              <Sparkles className="size-5 text-electric" aria-hidden />{!collapsed && t('Copilote', 'Co-pilot')}
             </button>
           )}
           <Hint id="shell.help">
-            <button type="button" onClick={openHelp} title={collapsed ? t('Aide', 'Help') : undefined} className={cn('flex h-11 w-full items-center gap-3 rounded-lg px-3 text-sm font-semibold text-white/75 hover:bg-white/[0.08] hover:text-white', collapsed && 'justify-center px-0')}>
-              <CircleHelp className="size-[18px] text-white/60" />{!collapsed && t('Aide', 'Help')}
+            <button type="button" onClick={openHelp} title={collapsed ? t('Aide', 'Help') : undefined} className={cn('text-body flex h-11 w-full items-center gap-3 rounded-lg px-3 font-semibold text-white/75 hover:bg-white/[0.08] hover:text-white', collapsed && 'justify-center px-0')}>
+              <CircleHelp className="size-5 text-white/60" aria-hidden />{!collapsed && t('Aide', 'Help')}
             </button>
           </Hint>
-          <button type="button" onClick={toggle} className={cn('flex h-10 w-full items-center gap-3 rounded-lg px-3 text-[13px] text-white/50 hover:bg-white/[0.08] hover:text-white', collapsed && 'justify-center px-0')} aria-label={collapsed ? t('Agrandir le menu', 'Expand menu') : t('Réduire le menu', 'Collapse menu')}>
-            {collapsed ? <ChevronsRight className="size-4" /> : <><ChevronsLeft className="size-4" />{t('Réduire', 'Collapse')}</>}
+          <button type="button" onClick={toggle} className={cn('text-small flex h-10 w-full items-center gap-3 rounded-lg px-3 text-white/50 hover:bg-white/[0.08] hover:text-white', collapsed && 'justify-center px-0')} aria-label={collapsed ? t('Agrandir le menu', 'Expand menu') : t('Réduire le menu', 'Collapse menu')}>
+            {collapsed ? <ChevronsRight className="size-4" aria-hidden /> : <><ChevronsLeft className="size-4" aria-hidden />{t('Réduire', 'Collapse')}</>}
           </button>
         </div>
       </aside>
@@ -141,39 +143,45 @@ function Frame({ children }: { children: ReactNode }) {
       <div className={cn('flex min-h-dvh flex-col transition-[padding] duration-200', collapsed ? 'lg:pl-[76px]' : 'lg:pl-64')}>
         <Topbar />
         <StatusBanners />
-        <main className={cn('mx-auto w-full flex-1 px-4 pt-6 pb-28 sm:px-6 lg:px-8 lg:pb-24', kitchen ? 'max-w-none' : 'max-w-[1320px]')}>
+        <main className={cn('mx-auto w-full flex-1 px-4 pt-6 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:px-6 lg:px-8 lg:pb-10', kitchen ? 'max-w-none' : 'max-w-[1320px]')}>
           <ErrorBoundary resetKey={pathname} name={pathname}>{children}</ErrorBoundary>
         </main>
       </div>
 
-      {/* mobile bottom bar: 4 slots, then "Plus" */}
+      {/* Phone bottom bar: 4 destinations, then "Plus" (premium rule 10). 64 px tall, 11 px labels, 44 px targets. */}
       <nav className="safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 backdrop-blur lg:hidden" aria-label={t('Menu', 'Menu')}>
         <div className="grid" style={{ gridTemplateColumns: `repeat(${mobile.length + 1},1fr)` }}>
           {mobile.map((n) => <MobileLink key={n.href} item={n} />)}
-          <button type="button" onClick={() => setMore(true)} className="flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-semibold text-ink-3"><MenuIcon className="size-5" />{t('Plus', 'More')}</button>
+          <button type="button" onClick={() => setMore(true)} aria-expanded={more} aria-haspopup="dialog"
+            className={cn('text-micro relative flex h-16 flex-col items-center justify-center gap-1 font-semibold', moreActive ? 'text-ink' : 'text-ink-3')}>
+            {moreActive && <span className="absolute top-0 h-0.5 w-8 rounded-b-full bg-brand" aria-hidden />}
+            <MenuIcon className={cn('size-5', moreActive && 'text-brand')} aria-hidden />{t('Plus', 'More')}
+          </button>
         </div>
       </nav>
       {more && (
-        <div className="fixed inset-0 z-50 bg-rail/50 lg:hidden" onClick={() => setMore(false)}>
-          <div ref={moreRef} tabIndex={-1} className="safe-bottom absolute inset-x-0 bottom-0 max-h-[85dvh] overflow-y-auto rounded-t-2xl bg-surface p-4 outline-none animate-rise" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={t('Plus', 'More')}>
-            <div className="mb-3 flex items-center justify-between"><span className="font-extrabold tracking-[0.14em]">{product.shortName}</span><button type="button" onClick={() => setMore(false)} className="flex size-11 items-center justify-center" aria-label={t('Fermer', 'Close')}><X className="size-5" /></button></div>
+        <div className="fixed inset-0 z-50 bg-rail/50 motion-safe:animate-fade lg:hidden" onClick={() => setMore(false)}>
+          {/* The sheet lists only what the bar does not: the other destinations, each group's sections, help, display and sign-out. */}
+          <div ref={moreRef} tabIndex={-1} className="safe-bottom absolute inset-x-0 bottom-0 max-h-[85dvh] overflow-y-auto rounded-t-2xl bg-surface p-4 outline-none motion-safe:animate-rise" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={t('Plus', 'More')}>
+            <div className="mb-3 flex items-center justify-between"><span className="eyebrow text-ink">{product.shortName}</span><button type="button" onClick={() => setMore(false)} className="-mr-2 flex size-11 items-center justify-center rounded-md text-ink-3 hover:bg-sunken hover:text-ink" aria-label={t('Fermer', 'Close')}><X className="size-5" aria-hidden /></button></div>
             <div className="grid grid-cols-3 gap-2">
-              {items.filter((n) => full || !inBar.has(n.href)).map((n) => <Link key={n.href} href={href(n.href)} className="flex min-h-20 flex-col items-center justify-center gap-1.5 rounded-xl bg-sunken p-3 text-center text-xs font-semibold"><n.icon className="size-5" />{n.label(t)}</Link>)}
-              {visible(ALERTS) && !inBar.has(ALERTS.href) && <Link href={href(ALERTS.href)} className="flex min-h-20 flex-col items-center justify-center gap-1.5 rounded-xl bg-sunken p-3 text-center text-xs font-semibold"><BellRing className="size-5" />{ALERTS.label(t)}</Link>}
-              <button type="button" onClick={() => { setMore(false); openHelp(); }} className="flex min-h-20 flex-col items-center justify-center gap-1.5 rounded-xl bg-sunken p-3 text-xs font-semibold"><CircleHelp className="size-5" />{t('Aide', 'Help')}</button>
-              {full && <button type="button" onClick={() => { setMore(false); setCopilot(true); }} className="flex min-h-20 flex-col items-center justify-center gap-1.5 rounded-xl bg-brand-soft p-3 text-xs font-semibold text-brand-2"><Sparkles className="size-5" />{t('Copilote', 'Co-pilot')}</button>}
+              {items.filter((n) => !inBar.has(n.href)).map((n) => <Link key={n.href} href={href(n.href)} aria-current={navActive(n, pathname) ? 'page' : undefined} className={cn(SHEET_TILE, navActive(n, pathname) && 'bg-brand-soft text-brand-2')}><n.icon className="size-5" aria-hidden />{n.label(t)}</Link>)}
+              {visible(ALERTS) && !inBar.has(ALERTS.href) && <Link href={href(ALERTS.href)} aria-current={pathname.startsWith('/alerts') ? 'page' : undefined} className={cn(SHEET_TILE, pathname.startsWith('/alerts') && 'bg-brand-soft text-brand-2')}><BellRing className="size-5" aria-hidden />{ALERTS.label(t)}</Link>}
+              <button type="button" onClick={() => { setMore(false); openHelp(); }} className={SHEET_TILE}><CircleHelp className="size-5" aria-hidden />{t('Aide', 'Help')}</button>
+              {full && <button type="button" onClick={() => { setMore(false); setCopilot(true); }} className={SHEET_TILE}><Sparkles className="size-5 text-brand" aria-hidden />{t('Copilote', 'Co-pilot')}</button>}
             </div>
             {items.some((n) => (n.children ?? []).filter(visible).length > 1) && (
-              <div className="mt-4 space-y-3">
+              <div className="mt-5 space-y-4">
                 {items.filter((n) => (n.children ?? []).filter(visible).length > 1).map((n) => (
                   <div key={n.href}>
-                    <div className="mb-1.5 text-[11px] font-bold tracking-[0.12em] text-ink-3 uppercase">{n.label(t)}</div>
-                    <div className="flex flex-wrap gap-2">{(n.children ?? []).filter(visible).map((c) => <Link key={c.href} href={href(c.href)} className="flex h-11 items-center rounded-lg border border-line px-3 text-sm font-semibold">{c.label(t)}</Link>)}</div>
+                    <div className="eyebrow mb-2 text-ink-3">{n.label(t)}</div>
+                    <div className="flex flex-wrap gap-2">{(n.children ?? []).filter(visible).map((c) => <Link key={c.href} href={href(c.href)} aria-current={childActive(c, pathname) ? 'page' : undefined} className={cn('text-body flex h-11 items-center rounded-md border border-line px-3 font-semibold', childActive(c, pathname) ? 'border-ink bg-ink text-canvas' : 'bg-surface text-ink')}>{c.label(t)}</Link>)}</div>
                   </div>
                 ))}
               </div>
             )}
-            <div className="mt-4 space-y-2 border-t border-line pt-4"><DisplayControls /><div className="-mx-3"><FullViewSwitch /></div></div>
+            <div className="mt-5 space-y-2 border-t border-line pt-4"><DisplayControls /><div className="-mx-3"><FullViewSwitch /></div></div>
+            <div className="mt-2 border-t border-line pt-2"><SignOutButton className="-mx-3 w-[calc(100%+1.5rem)]" /></div>
           </div>
         </div>
       )}
@@ -192,6 +200,8 @@ function useBadge(kind?: NavItem['badge']): { n: number; tone: 'brand' | 'stop' 
 }
 
 const BADGE_BG = { stop: 'bg-stop', wait: 'bg-wait', brand: 'bg-electric' } as const;
+/** Small badges (bell, bottom bar) stop at "9+": a growing red number is noise (A4 #6); the rail keeps the full count. */
+const capCount = (n: number) => (n > 9 ? '9+' : String(n));
 
 /** One group of the rail: its page, and its sub-pages underneath while it is open. */
 function NavGroup({ item, collapsed, visible }: { item: NavItem; collapsed: boolean; visible: (n: Pick<NavItem, 'perm' | 'allLocations' | 'features'>) => boolean }) {
@@ -204,19 +214,19 @@ function NavGroup({ item, collapsed, visible }: { item: NavItem; collapsed: bool
   return (
     <div>
       <Link href={href(item.href)} title={collapsed ? item.label(t) : undefined} aria-current={on && path === item.href ? 'page' : undefined}
-        className={cn('relative flex h-11 items-center gap-3 rounded-lg px-3 text-[14px] font-semibold transition-colors', on ? 'bg-white/[0.09] text-white' : 'text-white/65 hover:bg-white/[0.06] hover:text-white', collapsed && 'justify-center px-0')}>
+        className={cn('text-body relative flex h-11 items-center gap-3 rounded-lg px-3 font-semibold transition-colors duration-(--duration-fast)', on ? 'bg-white/[0.09] text-white' : 'text-white/65 hover:bg-white/[0.06] hover:text-white', collapsed && 'justify-center px-0')}>
         {on && <span className="absolute top-2 bottom-2 left-0 w-[3px] rounded-r-full bg-electric" aria-hidden />}
-        <item.icon className={cn('size-[19px] shrink-0', on ? 'text-electric' : 'text-white/55')} />
+        <item.icon className={cn('size-5 shrink-0', on ? 'text-electric' : 'text-white/55')} aria-hidden />
         {!collapsed && <span className="flex-1 truncate">{item.label(t)}</span>}
         {b && (collapsed
           ? <span className={cn('absolute top-2 right-3 size-2.5 rounded-full', BADGE_BG[b.tone])} />
-          : <span className={cn('num min-w-6 rounded-full px-1.5 text-center text-[11px] leading-5 font-bold text-white', BADGE_BG[b.tone])}>{b.n}</span>)}
+          : <span className={cn('num text-micro min-w-6 rounded-full px-1.5 text-center leading-5 font-bold text-white', BADGE_BG[b.tone])}>{b.n}</span>)}
       </Link>
       {on && !collapsed && kids.length > 1 && (
         <div className="mt-0.5 mb-1.5 ml-[22px] space-y-0.5 border-l border-white/10 pl-3">
           {kids.map((c) => {
             const here = childActive(c, path);
-            return <Link key={c.href} href={href(c.href)} aria-current={here ? 'page' : undefined} className={cn('flex h-9 items-center rounded-md px-2.5 text-[13px] font-medium', here ? 'text-white' : 'text-white/55 hover:text-white')}>{c.label(t)}</Link>;
+            return <Link key={c.href} href={href(c.href)} aria-current={here ? 'page' : undefined} className={cn('text-small flex h-9 items-center rounded-md px-2.5 font-medium', here ? 'text-white' : 'text-white/55 hover:text-white')}>{c.label(t)}</Link>;
           })}
         </div>
       )}
@@ -233,9 +243,10 @@ function MobileLink({ item }: { item: NavItem }) {
   const b = useBadge(item.badge);
   const label = item.href === '/kitchen' ? t('Cuisine', 'Kitchen') : item.label(t);
   return (
-    <Link href={href(item.href)} className={cn('relative flex h-16 min-w-0 flex-col items-center justify-center gap-1 px-1 text-[11px] font-semibold', on ? 'text-ink' : 'text-ink-3')}>
-      <item.icon className={cn('size-5', on && 'text-brand')} /><span className="max-w-full truncate">{label}</span>
-      {b && <span className={cn('num absolute top-2 right-[calc(50%-20px)] min-w-4 rounded-full px-1 text-[10px] leading-4 font-bold text-white', b.tone === 'stop' ? 'bg-stop' : b.tone === 'wait' ? 'bg-wait' : 'bg-brand')}>{b.n}</span>}
+    <Link href={href(item.href)} aria-current={on ? 'page' : undefined} className={cn('text-micro relative flex h-16 min-w-0 flex-col items-center justify-center gap-1 px-1 font-semibold', on ? 'text-ink' : 'text-ink-3')}>
+      {on && <span className="absolute top-0 h-0.5 w-8 rounded-b-full bg-brand" aria-hidden />}
+      <item.icon className={cn('size-5', on && 'text-brand')} aria-hidden /><span className="max-w-full truncate">{label}</span>
+      {b && <span className={cn('num text-micro absolute top-1.5 right-[calc(50%-22px)] flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 font-bold text-white', b.tone === 'stop' ? 'bg-stop' : b.tone === 'wait' ? 'bg-wait' : 'bg-brand')} aria-label={String(b.n)}>{capCount(b.n)}</span>}
     </Link>
   );
 }
@@ -247,10 +258,10 @@ function AlertsBell() {
   const path = usePathname();
   const b = useBadge('alerts');
   return (
-    <Link href={href('/alerts')} aria-label={b ? t(`Alertes : ${b.n} ouverte(s)`, `Alerts: ${b.n} open`) : t('Alertes', 'Alerts')}
-      className={cn('relative flex size-11 items-center justify-center rounded-lg hover:bg-sunken', path.startsWith('/alerts') ? 'text-brand' : 'text-ink-2')}>
-      <BellRing className="size-5" />
-      {b && <span className={cn('num absolute top-1.5 right-1 min-w-[18px] rounded-full px-1 text-center text-[10px] leading-[18px] font-bold text-white', b.tone === 'stop' ? 'bg-stop' : 'bg-wait')}>{b.n > 99 ? '99+' : b.n}</span>}
+    <Link href={href('/alerts')} aria-label={b ? t(b.n > 1 ? `Alertes : ${b.n} ouvertes` : 'Alertes : 1 ouverte', b.n > 1 ? `Alerts: ${b.n} open` : 'Alerts: 1 open') : t('Alertes', 'Alerts')}
+      title={t('Alertes', 'Alerts')} className={cn('relative flex size-11 items-center justify-center rounded-lg hover:bg-sunken', path.startsWith('/alerts') ? 'text-brand' : 'text-ink-2')}>
+      <BellRing className="size-5" aria-hidden />
+      {b && <span className={cn('num text-micro absolute top-1.5 right-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 font-bold text-white', b.tone === 'stop' ? 'bg-stop' : 'bg-wait')} aria-hidden>{capCount(b.n)}</span>}
     </Link>
   );
 }
@@ -260,6 +271,7 @@ function Topbar() {
   const { viewer, full } = useViewer();
   const product = useProduct();
   const href = useScopeHref();
+  const help = useHelp();
   const [sound, setSound] = useState(false);
   useEffect(() => { const i = setInterval(() => setSound(audioReady()), 1000); return () => clearInterval(i); }, []);
   // The full view and kitchen tablets keep today's bar (text size button on it); the simple view moves it to the avatar menu.
@@ -267,24 +279,25 @@ function Topbar() {
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-canvas/90 backdrop-blur-md">
       <div className="flex h-16 items-center gap-2 px-3 sm:px-6 lg:px-8">
-        <Link href={href('/')} className="mr-0.5 hidden sm:block lg:hidden" aria-label={product.fullName}><span className="flex size-9 items-center justify-center rounded-full bg-rail text-[15px] font-black text-white"><span className="flex size-7 items-center justify-center rounded-full bg-electric">{product.isDefault ? 'T' : (product.name.trim()[0] ?? 'F').toUpperCase()}</span></span></Link>
+        <Link href={href('/')} className="mr-0.5 hidden sm:block lg:hidden" aria-label={product.fullName}><span className="text-body flex size-9 items-center justify-center rounded-full bg-rail font-black text-white"><span className="flex size-7 items-center justify-center rounded-full bg-electric">{product.isDefault ? 'T' : (product.name.trim()[0] ?? 'F').toUpperCase()}</span></span></Link>
         <Hint id="shell.scope"><ScopeSwitcher /></Hint>
         <Hint id="shell.search">
           <button type="button" onClick={() => window.dispatchEvent(new Event('takatak:palette'))}
-            className="ml-2 hidden h-10 min-w-0 flex-1 items-center gap-2 rounded-lg border border-line bg-surface px-3 text-sm text-ink-3 hover:border-line-2 md:flex md:max-w-xs">
-            <Search className="size-4" /><span className="truncate">{t('Chercher une commande, une page…', 'Search an order, a page…')}</span><span className="ml-auto flex gap-1"><Kbd>⌘</Kbd><Kbd>K</Kbd></span>
+            className="text-small ml-2 hidden h-10 min-w-0 flex-1 items-center gap-2 rounded-lg border border-line bg-surface px-3 text-ink-3 hover:border-line-2 md:flex md:max-w-xs">
+            <Search className="size-4" aria-hidden /><span className="truncate">{t('Chercher une commande, une page…', 'Search an order, a page…')}</span><span className="ml-auto flex gap-1"><Kbd>⌘</Kbd><Kbd>K</Kbd></span>
           </button>
         </Hint>
         <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
-          <button type="button" onClick={() => window.dispatchEvent(new Event('takatak:palette'))} className="flex size-11 items-center justify-center rounded-lg text-ink-2 hover:bg-sunken md:hidden" aria-label={t('Chercher', 'Search')}><Search className="size-5" /></button>
+          <button type="button" onClick={() => window.dispatchEvent(new Event('takatak:palette'))} className="flex size-11 items-center justify-center rounded-lg text-ink-2 hover:bg-sunken md:hidden" aria-label={t('Chercher', 'Search')}><Search className="size-5" aria-hidden /></button>
           <AlertsBell />
           <Hint id="shell.sound">
-          <button type="button" onClick={() => { unlockAudio(); playSound('soft'); setSound(true); }} className={cn('flex size-11 items-center justify-center rounded-lg hover:bg-sunken', sound ? 'text-ink-2' : 'text-wait-2')} aria-label={t('Son', 'Sound')} title={sound ? t('Son actif', 'Sound on') : t('Touchez pour activer le son', 'Tap to turn sound on')}>
-            {sound ? <Volume2 className="size-5" /> : <VolumeX className="size-5" />}
+          <button type="button" onClick={() => { unlockAudio(); playSound('soft'); setSound(true); }} className={cn('hidden size-11 items-center justify-center rounded-lg hover:bg-sunken sm:flex', sound ? 'text-ink-2' : 'text-wait-2')} aria-label={t('Son', 'Sound')} title={sound ? t('Son actif', 'Sound on') : t('Touchez pour activer le son', 'Tap to turn sound on')}>
+            {sound ? <Volume2 className="size-5" aria-hidden /> : <VolumeX className="size-5" aria-hidden />}
           </button>
           </Hint>
           {textSizeInBar && <TextSizeButton />}
-          <button type="button" onClick={() => setLang(lang === 'fr' ? 'en' : 'fr')} className="hidden h-11 items-center gap-1 rounded-lg px-2 text-[13px] font-bold text-ink-2 hover:bg-sunken hover:text-ink sm:flex" aria-label="Langue / Language"><Globe className="size-4" />{lang === 'fr' ? 'EN' : 'FR'}</button>
+          <button type="button" onClick={() => setLang(lang === 'fr' ? 'en' : 'fr')} className="text-small hidden h-11 items-center gap-1 rounded-lg px-2 font-bold text-ink-2 hover:bg-sunken hover:text-ink sm:flex" aria-label="Langue / Language" title={lang === 'fr' ? 'Switch to English' : 'Passer en français'}><Globe className="size-4" aria-hidden />{lang === 'fr' ? 'EN' : 'FR'}</button>
+          {!help.tour && <TakTakButton />}
           <UserMenu />
         </div>
       </div>
@@ -300,18 +313,18 @@ function DisplayControls() {
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
-        <span className="flex w-28 shrink-0 items-center gap-1.5 text-[13px] font-semibold text-ink-3"><Globe className="size-4" />{t('Langue', 'Language')}</span>
+        <span className="text-small flex w-28 shrink-0 items-center gap-1.5 font-semibold text-ink-3"><Globe className="size-4" aria-hidden />{t('Langue', 'Language')}</span>
         <div className="inline-flex rounded-md bg-sunken p-0.5" role="group" aria-label={t('Langue', 'Language')}>
           {(['fr', 'en'] as const).map((l) => (
-            <button key={l} type="button" aria-pressed={lang === l} onClick={() => setLang(l)} className={cn('h-9 min-w-11 rounded-[9px] px-2.5 text-[13px] font-bold', lang === l ? 'bg-surface text-ink shadow-card' : 'text-ink-3 hover:text-ink')}>{l === 'fr' ? 'FR' : 'EN'}</button>
+            <button key={l} type="button" aria-pressed={lang === l} onClick={() => setLang(l)} className={cn('text-small h-9 min-w-11 rounded-[9px] px-2.5 font-bold', lang === l ? 'bg-surface text-ink shadow-card' : 'text-ink-3 hover:text-ink')}>{l === 'fr' ? 'FR' : 'EN'}</button>
           ))}
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <span className="flex w-28 shrink-0 items-center gap-1.5 text-[13px] font-semibold text-ink-3"><SlidersHorizontal className="size-4" />{t('Taille du texte', 'Text size')}</span>
+        <span className="text-small flex w-28 shrink-0 items-center gap-1.5 font-semibold text-ink-3"><SlidersHorizontal className="size-4" aria-hidden />{t('Taille du texte', 'Text size')}</span>
         <div className="inline-flex rounded-md bg-sunken p-0.5" role="group" aria-label={t('Taille du texte', 'Text size')}>
           {sizes.map(([k, l]) => (
-            <button key={k} type="button" aria-pressed={display.text === k} onClick={() => setDisplay({ text: k })} className={cn('h-9 min-w-11 rounded-[9px] px-2.5 text-[13px] font-extrabold', display.text === k ? 'bg-surface text-ink shadow-card' : 'text-ink-3 hover:text-ink')}>{l}</button>
+            <button key={k} type="button" aria-pressed={display.text === k} onClick={() => setDisplay({ text: k })} className={cn('text-small h-9 min-w-11 rounded-[9px] px-2.5 font-extrabold', display.text === k ? 'bg-surface text-ink shadow-card' : 'text-ink-3 hover:text-ink')}>{l}</button>
           ))}
         </div>
       </div>
@@ -326,8 +339,8 @@ function FullViewSwitch() {
   if (!canFull) return null;
   return (
     <Hint id="shell.view">
-      <button type="button" role="switch" aria-checked={full} onClick={() => setFull(!full)} className="flex min-h-11 w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm hover:bg-sunken">
-        <span className="min-w-0 flex-1"><span className="block font-semibold text-ink">{t('Vue complète', 'Full view')}</span><span className="block text-xs text-ink-3">{t('Outils avancés', 'Advanced tools')}</span></span>
+      <button type="button" role="switch" aria-checked={full} onClick={() => setFull(!full)} className="flex min-h-11 w-full items-center gap-3 rounded-md px-3 py-2 text-left text-body hover:bg-sunken">
+        <span className="min-w-0 flex-1"><span className="text-body block font-semibold text-ink">{t('Vue complète', 'Full view')}</span><span className="text-small block text-ink-3">{t('Outils avancés', 'Advanced tools')}</span></span>
         {/* Off: outlined track and a grey knob (both well above 3:1 on the white menu); on: blue track, white knob. */}
         <span className={cn('relative h-6 w-10 shrink-0 rounded-full border-2 transition-colors', full ? 'border-brand bg-brand' : 'border-ink-3 bg-surface')} aria-hidden>
           <span className={cn('absolute top-[2px] size-4 rounded-full shadow transition-[left]', full ? 'left-[18px] bg-white' : 'left-[2px] bg-ink-3')} />
@@ -335,6 +348,26 @@ function FullViewSwitch() {
       </button>
     </Hint>
   );
+}
+
+function useSignOut() {
+  const { viewer } = useViewer();
+  return useCallback(async () => {
+    // Drafts belong to the person: never left behind on a shared tablet.
+    try { clearAllDrafts(window.localStorage, viewer.username); } catch { /* ignore */ }
+    const r = await api<{ next: string }>('/api/foodhub/auth/logout', { method: 'POST' }).catch(() => ({ next: '/login' }));
+    window.location.href = r.next;
+  }, [viewer.username]);
+}
+
+/** "Se déconnecter", or "Verrouiller la tablette" on a kitchen tablet (avatar menu and the phone's "Plus" sheet). */
+function SignOutButton({ className }: { className?: string }) {
+  const { viewer } = useViewer();
+  const { t } = useI18n();
+  const signOut = useSignOut();
+  return viewer.device
+    ? <button type="button" onClick={signOut} className={cn('text-body flex min-h-11 w-full items-center gap-2 rounded-md px-3 py-2 font-semibold text-ink hover:bg-sunken', className)}><Lock className="size-4" aria-hidden />{t('Verrouiller la tablette', 'Lock the tablet')}</button>
+    : <button type="button" onClick={signOut} className={cn('text-body flex min-h-11 w-full items-center gap-2 rounded-md px-3 py-2 text-ink hover:bg-sunken', className)}><LogOut className="size-4" aria-hidden />{t('Se déconnecter', 'Sign out')}</button>;
 }
 
 function UserMenu() {
@@ -345,28 +378,20 @@ function UserMenu() {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => { const c = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); }; document.addEventListener('mousedown', c); return () => document.removeEventListener('mousedown', c); }, []);
   useEffect(() => { if (!open) return; const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k); }, [open]);
-  const signOut = useCallback(async () => {
-    // Drafts belong to the person: never left behind on a shared tablet.
-    try { clearAllDrafts(window.localStorage, viewer.username); } catch { /* ignore */ }
-    const r = await api<{ next: string }>('/api/foodhub/auth/logout', { method: 'POST' }).catch(() => ({ next: '/login' }));
-    window.location.href = r.next;
-  }, [viewer.username]);
   const initials = viewer.name.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
   return (
     <div className="relative" ref={ref}>
-      <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="flex size-10 items-center justify-center rounded-full bg-ink text-[13px] font-extrabold text-canvas" aria-label={viewer.name}>{initials}</button>
+      <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-haspopup="menu" title={viewer.name} className="text-small flex size-10 items-center justify-center rounded-full bg-ink font-extrabold text-canvas" aria-label={t(`Compte : ${viewer.name}`, `Account: ${viewer.name}`)}>{initials}</button>
       {open && (
-        <div className="absolute top-12 right-0 z-50 w-[min(18rem,calc(100vw-1.5rem))] rounded-lg border border-line bg-surface p-1.5 shadow-pop animate-rise">
+        <div className="absolute top-12 right-0 z-50 w-[min(18rem,calc(100vw-1.5rem))] rounded-lg border border-line bg-surface p-1.5 shadow-pop motion-safe:animate-rise">
           <div className="px-3 py-2">
-            <div className="truncate font-bold text-ink">{viewer.name}</div>
-            <div className="text-xs text-ink-3">{roleLabel(t, viewer.role)}{viewer.device ? ` · ${viewer.device.name}` : ''}</div>
+            <div className="text-body truncate font-bold text-ink">{viewer.name}</div>
+            <div className="text-small text-ink-3">{roleLabel(t, viewer.role)}{viewer.device ? ` · ${viewer.device.name}` : ''}</div>
           </div>
           <div className="border-y border-line px-3 py-3"><DisplayControls /></div>
           <FullViewSwitch />
-          {!viewer.builtin && <button type="button" onClick={() => { setOpen(false); router.push('/settings/profile'); }} className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-sunken"><UserRound className="size-4" />{t('Mon profil', 'My profile')}</button>}
-          {viewer.device
-            ? <button type="button" onClick={signOut} className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold hover:bg-sunken"><Lock className="size-4" />{t('Verrouiller la tablette', 'Lock the tablet')}</button>
-            : <button type="button" onClick={signOut} className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-sunken"><LogOut className="size-4" />{t('Se déconnecter', 'Sign out')}</button>}
+          {!viewer.builtin && <button type="button" onClick={() => { setOpen(false); router.push('/settings/profile'); }} className="text-body flex min-h-11 w-full items-center gap-2 rounded-md px-3 py-2 text-ink hover:bg-sunken"><UserRound className="size-4" aria-hidden />{t('Mon profil', 'My profile')}</button>}
+          <SignOutButton />
         </div>
       )}
     </div>
@@ -381,9 +406,9 @@ function StatusBanners() {
   const [netOk, setNetOk] = useState(true);
   useEffect(() => { const u = () => setNetOk(navigator.onLine); u(); window.addEventListener('online', u); window.addEventListener('offline', u); return () => { window.removeEventListener('online', u); window.removeEventListener('offline', u); }; }, []);
   const bars: ReactNode[] = [];
-  if (netOk && online && healthNow === 'stale') bars.push(<Bar key="stale" tone="wait" icon={<WifiOff className="size-4" />}>{t('Les données ne se rafraîchissent plus — reconnexion… Les commandes continuent sur les tablettes des plateformes et dans Clover.', 'Data is not refreshing — reconnecting… Orders keep arriving on the platform tablets and in Clover.')}</Bar>);
-  if (!netOk || !online) bars.push(<Bar key="off" tone="stop" icon={<WifiOff className="size-4" />}>{t('Pas de connexion — les commandes continuent sur les tablettes des plateformes et dans Clover. Reconnexion automatique…', 'No connection — orders keep coming on the platform tablets and in Clover. Reconnecting…')}</Bar>);
-  if (pulse?.devices.offline) bars.push(<Bar key="dev" tone="wait" href="/alerts">{t(`${pulse.devices.offline} tablette(s) de cuisine hors ligne`, `${pulse.devices.offline} kitchen tablet(s) offline`)}</Bar>);
+  if (netOk && online && healthNow === 'stale') bars.push(<Bar key="stale" tone="wait" icon={<WifiOff className="size-4" aria-hidden />}>{t('Les données ne se rafraîchissent plus — reconnexion… Les commandes continuent sur les tablettes des plateformes et dans Clover.', 'Data is not refreshing — reconnecting… Orders keep arriving on the platform tablets and in Clover.')}</Bar>);
+  if (!netOk || !online) bars.push(<Bar key="off" tone="stop" icon={<WifiOff className="size-4" aria-hidden />}>{t('Pas de connexion — les commandes continuent sur les tablettes des plateformes et dans Clover. Reconnexion automatique…', 'No connection — orders keep coming on the platform tablets and in Clover. Reconnecting…')}</Bar>);
+  if (pulse?.devices.offline) bars.push(<Bar key="dev" tone="wait" href="/alerts">{t(pulse.devices.offline > 1 ? `${pulse.devices.offline} tablettes de cuisine hors ligne` : '1 tablette de cuisine hors ligne', pulse.devices.offline > 1 ? `${pulse.devices.offline} kitchen tablets offline` : '1 kitchen tablet offline')}</Bar>);
   if (pulse && !pulse.live && can('admin')) {
     bars.push(full
       ? <Bar key="live" tone="wait" href="/settings/channels">{t('Mode sécurité : rien n’est envoyé aux plateformes (LIVE_CONNECTORS_GLOBAL_ENABLED=false).', 'Safe mode: nothing is sent to the platforms (LIVE_CONNECTORS_GLOBAL_ENABLED=false).')}</Bar>
@@ -393,16 +418,33 @@ function StatusBanners() {
   // The owner always sees that data is not kept (lost on a restart), in plain words in the simple view.
   if (pulse?.mode === 'memory' && can('admin')) {
     bars.push(full
-      ? <Bar key="mem" tone="info">{t('Mode démo : Supabase n’est pas branché, les données sont en mémoire.', 'Demo mode: Supabase is not connected, data lives in memory.')}</Bar>
-      : <Bar key="mem" tone="info">{t('Données temporaires : la base de données n’est pas branchée, rien n’est gardé après un redémarrage.', 'Temporary data: the database is not connected, nothing is kept after a restart.')}</Bar>);
+      ? <Bar key="mem" tone="info" dismissKey="memory">{t('Mode démo : Supabase n’est pas branché, les données sont en mémoire.', 'Demo mode: Supabase is not connected, data lives in memory.')}</Bar>
+      : <Bar key="mem" tone="info" dismissKey="memory">{t('Données temporaires : la base de données n’est pas branchée, rien n’est gardé après un redémarrage.', 'Temporary data: the database is not connected, nothing is kept after a restart.')}</Bar>);
   }
   if (!bars.length) return null;
   return <div className="space-y-px">{bars}</div>;
 }
 
-function Bar({ tone, children, href, icon }: { tone: 'stop' | 'wait' | 'info'; children: ReactNode; href?: string; icon?: ReactNode }) {
-  const cls = cn('flex items-center justify-center gap-2 px-4 py-2 text-center text-[13px] font-semibold', tone === 'stop' ? 'bg-stop text-white' : tone === 'wait' ? 'bg-wait-soft text-wait-2' : 'bg-info-soft text-info-2');
-  return href ? <Link href={href} className={cls}>{icon}{children} →</Link> : <div className={cls}>{icon}{children}</div>;
+const BAR_KEY = 'takatak.bar.';
+/**
+ * A full-width band under the top bar. Red and amber ones stay (a connection or a safe-mode problem); a blue one
+ * (demo data) can be put away for this session, so it is not a permanent band on every page (A4 #5).
+ */
+function Bar({ tone, children, href, icon, dismissKey }: { tone: 'stop' | 'wait' | 'info'; children: ReactNode; href?: string; icon?: ReactNode; dismissKey?: string }) {
+  const { t } = useI18n();
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => { if (!dismissKey) return; try { setHidden(sessionStorage.getItem(BAR_KEY + dismissKey) === '1'); } catch { /* ignore */ } }, [dismissKey]);
+  if (hidden) return null;
+  const dismiss = () => { setHidden(true); try { sessionStorage.setItem(BAR_KEY + dismissKey, '1'); } catch { /* ignore */ } };
+  const cls = cn('text-small flex min-h-9 flex-1 items-center justify-center gap-2 px-4 py-1.5 text-center font-semibold', tone === 'stop' ? 'bg-stop text-white' : tone === 'wait' ? 'bg-wait-soft text-wait-2' : 'bg-info-soft text-info-2');
+  const body = href ? <Link href={href} className={cls}>{icon}{children} →</Link> : <div className={cls}>{icon}{children}</div>;
+  if (!dismissKey) return body;
+  return (
+    <div className="flex items-stretch bg-info-soft">
+      {body}
+      <button type="button" onClick={dismiss} className="flex w-11 shrink-0 items-center justify-center text-info-2 hover:bg-info/10" aria-label={t('Masquer pour cette session', 'Hide for this session')}><X className="size-4" aria-hidden /></button>
+    </div>
+  );
 }
 
 /** A → A+ → A++ for this screen (kitchen tablets start at A+). */
@@ -412,7 +454,7 @@ function TextSizeButton() {
   const label = display.text === 'md' ? 'A' : display.text === 'lg' ? 'A+' : 'A++';
   return (
     <Hint id="shell.textsize">
-      <button type="button" onClick={() => setDisplay({ text: nextTextSize(display.text) })} className="hidden h-10 min-w-10 items-center sm:flex justify-center rounded-md px-2 text-[15px] font-extrabold text-ink-3 hover:bg-sunken hover:text-ink"
+      <button type="button" onClick={() => setDisplay({ text: nextTextSize(display.text) })} className="text-body hidden h-11 min-w-11 items-center justify-center rounded-lg px-2 font-extrabold text-ink-3 hover:bg-sunken hover:text-ink sm:flex"
         aria-label={t(`Taille du texte : ${label}`, `Text size: ${label}`)} title={t('Taille du texte', 'Text size')}>{label}</button>
     </Hint>
   );

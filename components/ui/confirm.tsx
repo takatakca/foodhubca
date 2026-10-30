@@ -31,7 +31,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             <Button variant="ghost" size="lg" onClick={() => close(false)}>{pending.cancelLabel ?? t('Annuler', 'Cancel')}</Button>
             <Button variant={pending.tone === 'danger' ? 'danger' : 'primary'} size="lg" autoFocus onClick={() => close(true)}>{pending.confirmLabel ?? t('Continuer', 'Continue')}</Button>
           </>}>
-          {pending.body ? <div className="text-[15px] leading-relaxed text-ink-2">{pending.body}</div> : null}
+          {pending.body ? <div className="text-body leading-relaxed text-ink-2">{pending.body}</div> : null}
         </Modal>
       )}
     </ConfirmCtx.Provider>

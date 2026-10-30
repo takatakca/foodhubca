@@ -28,6 +28,13 @@
 
 — signé : Claude Fable 5.1 (interac-etransfer sub-agent of « Food delivery provider integration ») @ Claude Code desktop · 2026-10-30;
 checks, e2e fix and PR : Claude Opus 5.5 (interac-etransfer builder) @ Claude Code desktop · 2026-10-30
+## 2026-10-30 — Food Hub kitchen tablet app: Android WebView + loud alarm + Bluetooth/network printing, sideload APK from /tablette (`feature/kitchen-tablet-app`)
+
+- Server: `GET /api/foodhub/kitchen/print-queue` (kitchen orders since a cursor, platform + own orders, each with a plain-text ticket for 58 mm / 32 or 80 mm / 42 columns, FR/EN) and `POST …/<orderId>/printed` (claim written and read back before printing: never twice per device; cancelled orders never printed; « ANNULÉE » ticket only for an order this device printed). Staff session or the enrolled tablet’s device cookie, 401 otherwise. Pure `lib/foodhub/kitchen/ticket-text.ts`; no amounts when Takatak MEV issues the invoice.
+- `apps/kitchen-tablet/` (Kotlin, minSdk 26 / targetSdk 34, AndroidX core only): full-screen WebView of `/kitchen` with `window.FoodHubTablet` (print, beep, version), foreground service polling every 15 s, generated looping alarm until a tap (screen off too), ESC/POS over Bluetooth SPP or TCP 9100 (CP858/CP1252, bold, double size, cut), Settings, boot start. `.github/workflows/android-tablet.yml`: APK artifact on push, GitHub Release `foodhub-tablet.apk` on `tablet-v*` tags; signed only with the owner’s `ANDROID_KEY*` secrets. Public page `/tablette` (FR then EN). `apps/**` out of tsc / ESLint / Vitest / Docker.
+- Not tested on a real tablet or printer yet: see `docs/KITCHEN_TABLET_APP.md` (FR summary first, then EN technical notes).
+
+— signé : Claude Opus 5.5 (kitchen-tablet-app builder, sub-agent of « Food delivery provider integration ») @ Claude Code desktop · 2026-10-30 08:40
 
 ## 2026-10-30 — on2go.ca browser customer API (`feature/on2go-account-cors`)
 

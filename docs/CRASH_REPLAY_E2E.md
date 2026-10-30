@@ -1,8 +1,9 @@
 # Crash replay check: kill the server mid-order (Phase 1 acceptance)
 
 > **Pour le propriétaire :** ce test prouve qu'une commande n'est jamais perdue quand le serveur s'arrête net. Il reçoit
-> une commande Uber Eats, coupe le serveur au milieu du traitement, le redémarre, puis vérifie qu'il y a exactement une
-> commande, un ticket Clover et une impression. Il tourne tout seul dans GitHub (Food Hub CI → « Crash replay »). Rien à
+> une commande Uber Eats, coupe le serveur juste après l'avoir enregistrée et avant de la traiter, le redémarre, puis
+> vérifie qu'il y a exactement une commande, un ticket Clover et une impression. Un arrêt en plein milieu du traitement
+> est couvert par les tests unitaires, pas par ce test. Il tourne tout seul dans GitHub (Food Hub CI → « Crash replay »). Rien à
 > faire de votre côté.
 
 MASTER PLAN Phase 1 acceptance: *"Killing the server between receiving an order and processing it loses nothing; the
@@ -27,7 +28,7 @@ pair a Supabase project runs, set up the way Supabase sets it up:
 
 ## What it does
 
-1. **Killed mid-processing.** A signed Uber Eats `orders.notification` arrives. Food Hub saves it in the webhook inbox
+1. **Killed after the inbox save, before processing.** A signed Uber Eats `orders.notification` arrives. Food Hub saves it in the webhook inbox
    (`fh_docs`, collection `webhook_inbox`) and answers 200. The test-only delay hook holds the entry in `processing`. The
    check sends SIGKILL to the server's process group (`taskkill /F /T` on Windows): no shutdown hook, no `after()`
    callback finishes. Checked at that moment: the entry is `processing`, no order row, no Clover order, no ticket.
@@ -61,6 +62,11 @@ They act **only** when `FOODHUB_E2E=1` **and** the run-time `NODE_ENV` is `test`
 
 Keep `FOODHUB_E2E_INBOX_STUCK_MS` above the time one entry takes to process, or a sweep could start a second copy of an
 entry that is still running (the same reason the real value is 2 minutes).
+
+A future kill point **after the order row is stored** needs `FOODHUB_E2E_INBOX_STUCK_MS` above `RESUME_AFTER_MS`
+(90 s, `lib/foodhub/pipeline.ts`). With the 3 s this check uses, the replay would find the row too young for
+`neverSentToClover`, log `duplicate_delivery`, mark the entry `done`, and the order would never reach Clover. Production
+is safe: its 2-minute stuck time is longer than 90 s.
 
 ## Run it yourself
 

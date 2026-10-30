@@ -32,12 +32,24 @@ describe('test-only hooks guard', () => {
     expect(e2eHooksAllowed({ FOODHUB_E2E: 'true', NODE_ENV: 'test' })).toBe(false);
   });
 
-  it('production refuses the values (one warning per variable), test mode reads and caps them', () => {
+  it('production refuses the values with exactly one warning per variable', async () => {
+    // A fresh copy of the module, so its "already warned" list is empty whatever ran before in this file.
+    vi.resetModules();
+    const fresh = await import('../lib/foodhub/e2e-hooks');
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const prod = { FOODHUB_E2E: '1', NODE_ENV: 'production', FOODHUB_E2E_PROCESS_DELAY_MS: '60000' };
-    expect(e2eHookMs('FOODHUB_E2E_PROCESS_DELAY_MS', { max: 120_000 }, prod)).toBeNull();
-    expect(e2eHookMs('FOODHUB_E2E_PROCESS_DELAY_MS', { max: 120_000 }, prod)).toBeNull();
-    expect(warn.mock.calls.filter((c) => String(c[0]).includes('FOODHUB_E2E_PROCESS_DELAY_MS ignored')).length).toBeLessThanOrEqual(1);
+    const warnings = (name: string) => warn.mock.calls.filter((c) => String(c[0]).includes(`${name} ignored`)).length;
+    const prod = { FOODHUB_E2E: '1', NODE_ENV: 'production', FOODHUB_E2E_PROCESS_DELAY_MS: '60000', FOODHUB_E2E_INBOX_STUCK_MS: '3000' };
+    expect(fresh.e2eHookMs('FOODHUB_E2E_PROCESS_DELAY_MS', { max: 120_000 }, prod)).toBeNull();
+    expect(fresh.e2eHookMs('FOODHUB_E2E_PROCESS_DELAY_MS', { max: 120_000 }, prod)).toBeNull();
+    expect(warnings('FOODHUB_E2E_PROCESS_DELAY_MS')).toBe(1);
+    expect(warnings('FOODHUB_E2E_INBOX_STUCK_MS')).toBe(0);
+    expect(fresh.e2eHookMs('FOODHUB_E2E_INBOX_STUCK_MS', { min: 1000, max: 120_000 }, prod)).toBeNull();
+    expect(fresh.e2eHookMs('FOODHUB_E2E_INBOX_STUCK_MS', { min: 1000, max: 120_000 }, { ...prod, NODE_ENV: undefined })).toBeNull();
+    expect(warnings('FOODHUB_E2E_INBOX_STUCK_MS')).toBe(1);
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  it('test mode reads and caps the values', () => {
     const test = { FOODHUB_E2E: '1', NODE_ENV: 'test', FOODHUB_E2E_PROCESS_DELAY_MS: '999999', FOODHUB_E2E_INBOX_STUCK_MS: '200' };
     expect(e2eHookMs('FOODHUB_E2E_PROCESS_DELAY_MS', { max: 120_000 }, test)).toBe(120_000);
     expect(e2eHookMs('FOODHUB_E2E_INBOX_STUCK_MS', { min: 1000, max: 120_000 }, test)).toBeNull(); // below the minimum

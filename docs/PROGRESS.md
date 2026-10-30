@@ -17,8 +17,8 @@
 - Test-only hooks `lib/foodhub/e2e-hooks.ts`: `FOODHUB_E2E_PROCESS_DELAY_MS` (hold an entry after "processing") and
   `FOODHUB_E2E_INBOX_STUCK_MS` (3 s instead of 2 min in the check), honoured only with `FOODHUB_E2E=1` and a run-time
   `NODE_ENV` of test/development (read through a computed key: `next build` inlines the literal), refused with one
-  warning otherwise. `lib/foodhub/inbox.ts` reads the stuck time through `stuckMs()`. `tests/e2e-hooks.test.ts` (6):
-  production ignores both, the inbox keeps its 2-minute rule and never waits.
+  warning otherwise. `lib/foodhub/inbox.ts` reads the stuck time through `stuckMs()`. `tests/e2e-hooks.test.ts` (7):
+  production ignores both with exactly one warning per variable, the inbox keeps its 2-minute rule and never waits.
 - `scripts/e2e/platform-mock.mjs`: the simulated platforms + HTTP helpers moved out of `scripts/foodhub-e2e.mjs`
   unchanged (the 3 values a check flips live on `mockState`), shared by both scripts. verify:foodhub check lines in CI are
   identical to PR #130's run on 599be91 (697 lines, 643 passed, 0 failed).
@@ -29,6 +29,12 @@
   file mode on NTFS, Windows-only, file untouched) · `rm -rf .next && npx next build --webpack` exit 0 · `verify:foodhub`
   (ports 4977/4978) 643 passed, 0 failed · `verify:crash` locally: SKIP (no database). CI run 41085220156 on 96a50ef:
   verify (unit tests, build, verify:foodhub 643/0) green, Crash replay (real Postgres) green 25/25.
+- Independent review (0 blocker, 0 major, 2 minor), both fixed: (1) the MASTER_PLAN_STATUS row said "killed
+  mid-processing"; it now names the two kill points the check covers (after the inbox save and before processing; after
+  processing) and says a stop in the middle of the pipeline is unit-tested only. `docs/CRASH_REPLAY_E2E.md` adds that a
+  future kill point after the order row is stored needs `FOODHUB_E2E_INBOX_STUCK_MS` above `RESUME_AFTER_MS` (90 s);
+  (2) the "one warning per variable" test used `toBeLessThanOrEqual(1)` (passed with no warning at all): it now loads a
+  fresh module and asserts exactly 1 warning per variable (checked: removing the `console.warn` makes it fail).
 - No migration, no production env, no deploy change.
 
 ## 2026-10-30 — Interac e-Transfer for website orders, held until a person confirms (`feature/interac-etransfer`)

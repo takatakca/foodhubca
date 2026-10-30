@@ -244,7 +244,32 @@ try {
     await ctx.close();
   }
   }
+  // ---------------- reduced motion ----------------
+  // With prefers-reduced-motion: reduce, nothing may still animate except the new-order alarm, which must keep ringing on
+  // the alert pages (desktop size: the ring is `sm:animate-ring`): an alarm is not decoration (app/globals.css, the one
+  // exception to the reduced-motion rule). The plain pages are checked before the test order exists, so no alert covers them.
+  const motion = [];
+  const motionLines = []; // printed together once both passes are done
+  async function motionPass(pages, alertPages) {
+    const vp = VIEWPORTS[1];
+    const ctx = contexts({ viewport: { width: vp.width, height: vp.height }, reducedMotion: 'reduce' });
+    for (const pg of pages) {
+      const page = await open(await ctx.for(pg.who), pg);
+      await page.waitForTimeout(500);
+      const running = await runningAnimations(page);
+      const bad = running.filter((a) => !a.alarm);
+      const alarm = running.length - bad.length;
+      const silenced = alertPages && alarm === 0;
+      motion.push({ page: pg.name, bad: bad.length + (silenced ? 1 : 0), alarm });
+      motionLines.push(`  ${bad.length || silenced ? 'FAIL' : 'PASS'}  ${pg.name}${alarm ? ' (new-order alert still ringing: expected)' : ''}${silenced ? ' — the new-order alert stopped ringing' : ''}`);
+      for (const a of bad.slice(0, 8)) motionLines.push(`        ${a.name} on ${a.desc}`);
+      await page.close();
+    }
+    await ctx.close();
+  }
+
   await scanAll(picked(PAGES));
+  await motionPass(picked(PAGES), false);
 
   // ---------------- a new platform order: the alert pops up over the console ----------------
   // A made-up DoorDash store of the test brand (never a real store id), then one order on it. Clover is the local
@@ -259,30 +284,13 @@ New DoorDash order on a test store: ${alertUp ? 'received' : `NOT received (stor
     { name: 'New-order alert · kitchen', path: '/kitchen', who: 'owner', kitchen: true, dialog: true },
     { name: 'New-order alert · orders board', path: '/orders', who: 'owner', dialog: true },
   ];
-  if (alertUp) await scanAll(picked(ALERT_PAGES));
-
-  // ---------------- reduced motion ----------------
-  console.log('\nReduced motion (prefers-reduced-motion: reduce): no running CSS animation except the new-order alert, which keeps ringing');
-  const motion = [];
-  {
-    const vp = VIEWPORTS[1];
-    const ctx = contexts({ viewport: { width: vp.width, height: vp.height }, reducedMotion: 'reduce' });
-    for (const pg of picked(alertUp ? [...PAGES, ...ALERT_PAGES] : PAGES)) {
-      const page = await open(await ctx.for(pg.who), pg);
-      await page.waitForTimeout(500);
-      const running = await runningAnimations(page);
-      const bad = running.filter((a) => !a.alarm);
-      const alarm = running.length - bad.length;
-      // On the new-order alert (desktop size: the ring is `sm:animate-ring`) the alarm itself must still ring: an alarm is
-      // not decoration (app/globals.css, the one exception to the reduced-motion rule).
-      const silenced = ALERT_PAGES.includes(pg) && alarm === 0;
-      motion.push({ page: pg.name, bad: bad.length + (silenced ? 1 : 0), alarm });
-      console.log(`  ${bad.length || silenced ? 'FAIL' : 'PASS'}  ${pg.name}${alarm ? ' (new-order alert still ringing: expected)' : ''}${silenced ? ' — the new-order alert stopped ringing' : ''}`);
-      for (const a of bad.slice(0, 8)) console.log(`        ${a.name} on ${a.desc}`);
-      await page.close();
-    }
-    await ctx.close();
+  if (alertUp) {
+    await scanAll(picked(ALERT_PAGES));
+    await motionPass(picked(ALERT_PAGES), true);
   }
+
+  console.log('\nReduced motion (prefers-reduced-motion: reduce): no running CSS animation except the new-order alert, which keeps ringing');
+  for (const l of motionLines) console.log(l);
 
   // ---------------- summary ----------------
   console.log('\nSummary (violations = axe rules broken on the page; WCAG 2.1 A/AA)');

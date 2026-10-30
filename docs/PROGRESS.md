@@ -1,5 +1,36 @@
 # Food Hub: progress log and task board
 
+## 2026-10-30 — Crash replay on a real Postgres: kill the server mid-order, the order is replayed exactly once (`test/crash-replay-postgres`)
+
+- MASTER PLAN Phase 1 acceptance ("killing the server between receiving an order and processing it loses nothing; the
+  order is replayed") is now proven in CI: job **Crash replay (real Postgres)** in `.github/workflows/ci.yml` —
+  `postgres:16` service, Supabase roles first (`scripts/e2e/supabase-roles.sql`: anon, authenticated, service_role with
+  BYPASSRLS, authenticator LOGIN, Supabase default grants), then `supabase/INSTALL_ALL.sql` unchanged, then
+  `postgrest/postgrest:v12.2.3` with a random JWT secret per run; the service_role JWT is made with `node:crypto`
+  (`scripts/e2e/postgrest.mjs service-jwt`) and a tiny proxy strips `/rest/v1` for supabase-js. About 2 minutes.
+- `npm run verify:crash` (`scripts/foodhub-crash-e2e.mjs`), 25 checks: (1) a signed Uber Eats order webhook gets its 200,
+  the entry is held in "processing" by the test delay hook, the server's process group gets SIGKILL (`taskkill /F /T`
+  on Windows), nothing reached the kitchen; restart on the same database → the restarted server's own recovery timer
+  replays it: exactly ONE order row (accepted), ONE Clover order, ONE kitchen ticket, ONE Uber accept, no
+  `duplicate_delivery`, no unique-key error; (2) an order processed live, then kill + restart → nothing processed again.
+  Without a database it prints SKIP and exits 0 (no Docker on the owner PC).
+- Test-only hooks `lib/foodhub/e2e-hooks.ts`: `FOODHUB_E2E_PROCESS_DELAY_MS` (hold an entry after "processing") and
+  `FOODHUB_E2E_INBOX_STUCK_MS` (3 s instead of 2 min in the check), honoured only with `FOODHUB_E2E=1` and a run-time
+  `NODE_ENV` of test/development (read through a computed key: `next build` inlines the literal), refused with one
+  warning otherwise. `lib/foodhub/inbox.ts` reads the stuck time through `stuckMs()`. `tests/e2e-hooks.test.ts` (6):
+  production ignores both, the inbox keeps its 2-minute rule and never waits.
+- `scripts/e2e/platform-mock.mjs`: the simulated platforms + HTTP helpers moved out of `scripts/foodhub-e2e.mjs`
+  unchanged (the 3 values a check flips live on `mockState`), shared by both scripts. verify:foodhub check lines in CI are
+  identical to PR #130's run on 599be91 (697 lines, 643 passed, 0 failed).
+- `ci.yml` also runs on pushes to `test/**`. Docs: `docs/CRASH_REPLAY_E2E.md`; `docs/MASTER_PLAN_STATUS.md` Phase 1
+  acceptance and next step 9 marked done.
+- Checks (owner PC, Windows, 2026-10-30): `npm run typecheck` 0 errors · `npm run lint` 0 errors (1 old warning,
+  settings/devices/page.tsx) · `npm test` 2016 passed, 1 failed, 6 skipped — the 1 is `tests/screens-relay-setup` (POSIX
+  file mode on NTFS, Windows-only, file untouched) · `rm -rf .next && npx next build --webpack` exit 0 · `verify:foodhub`
+  (ports 4977/4978) 643 passed, 0 failed · `verify:crash` locally: SKIP (no database). CI run 41085220156 on 96a50ef:
+  verify (unit tests, build, verify:foodhub 643/0) green, Crash replay (real Postgres) green 25/25.
+- No migration, no production env, no deploy change.
+
 ## 2026-10-30 — Interac e-Transfer for website orders, held until a person confirms (`feature/interac-etransfer`)
 
 - Website order contract (section B): `payment: "paid" | "pay_at_pickup" | "interac"`, `fees[]` (the Interac fee, required and

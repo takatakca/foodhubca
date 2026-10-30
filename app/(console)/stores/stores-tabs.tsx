@@ -6,7 +6,8 @@ import { useI18n } from '@/lib/i18n/client';
 
 /**
  * Restaurants sections. One vocabulary (A2): a *marque* is a restaurant brand, a *cuisine* is a location, a *magasin* is
- * that brand on one platform at one cuisine. The full view adds the connections and the Uber Eats tools.
+ * that brand on one platform at one cuisine. Platform screens sit with the stores; the full view adds the connections
+ * and the Uber Eats tools.
  */
 export function StoresTabs({ className }: { className?: string }) {
   const { t } = useI18n();
@@ -16,6 +17,7 @@ export function StoresTabs({ className }: { className?: string }) {
     { href: '/stores/availability', label: t('Disponibilité', 'Availability') },
     { href: '/stores/list', label: t('Magasins des plateformes', 'Platform stores') },
     ...(can('menu:edit') ? [{ href: '/stores/hours', label: t('Heures d’ouverture', 'Opening hours') }] : []),
+    { href: '/stores/screens', label: t('Écrans des plateformes', 'Platform screens') },
     ...(full && can('stores:map') ? [{ href: '/stores/mapping', label: t('Branchements', 'Connections') }] : []),
     ...(full && can('stores:map') ? [{ href: '/stores/uber', label: 'Uber Eats' }] : []),
   ]} />;

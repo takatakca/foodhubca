@@ -54,6 +54,10 @@ Faire valider, avec une personne habilitée : sign-in OTP, PIN gérant/tablette,
 
 Ne jamais activer l'acceptation automatisée si Clover n'a pas confirmé la réception. Maintenir les tablettes fournisseur de secours jusqu'à certification. En cas d'échec de release/health ou de traitement de commandes, restaurer **la version et les données réellement sauvegardées**, en assurant l'absence de doubles webhooks/cron. Inscrire timestamp + SHA + résultat PASS/FAIL/BLOCKED + preuve dans [issue #46](https://github.com/takatakca/foodhubca/issues/46).
 
+## 2026-10-16 — état de la livraison des corrections cuisine
+
+La branche de travail `fix/console-kitchen-a11y` et la [PR #52](https://github.com/takatakca/foodhubca/pull/52) ne sont **pas en production**. Le déploiement natif Coolify réussi consigné dans la PR #49 correspond au commit antérieur `027b602a12da39b1244e17b813bc51a7496a0217`. L'actuel `main` `444e8f2e60dd73e5eaa90bc4e9f92d05489b38f3` est vert dans CI+image, mais pas confirmé sur `/api/release` depuis la vérification externe du 2026-10-16. La fusion et publication sont réservées au propriétaire. Pas de nouveau conteneur, cron, webhook, secret ni restauration exécuté dans cette reprise. Contrôle après publication : `npm run verify:live -- --url https://foodhub.on2go.ca/ --sha SHA40`, santé HTTP 200/base `ok`, annuaire/CORS 200, authentification et commandes 401 sans session, puis contrôle manuel du thème sur tablette.
+
 ## Vérification périodique de la version publiée (opt-in)
 
 Le workflow `.github/workflows/verify-production.yml` vérifie **en lecture seule** la version publique et la sécurité des endpoints. Dans **Actions → Verify Food Hub production release → Run workflow**, sélectionner `main` pour lancer immédiatement une vérification sans déployer. Les exécutions automatiques (toutes les 6 heures) sont désactivées par défaut : renseigner la variable de dépôt `FOODHUB_PRODUCTION_VERIFY_ENABLED=true` uniquement quand l'exploitation souhaite la surveillance. Aucun secret ni token Coolify n'est utilisé. Les runners GitHub peuvent rester bloqués par la facturation ; dans ce cas utiliser la commande locale.

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlarmClock, Bike, Check, ChevronRight, Eye, MapPin, Printer, Volume2, X } from 'lucide-react';
+import { AlarmClock, Bike, Check, ChevronRight, Eye, MapPin, Printer, StickyNote, TriangleAlert, Volume2, X } from 'lucide-react';
 import { Badge, PlatformMark, platformOf } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Chips } from '@/components/ui/form';
@@ -124,68 +124,69 @@ export function IncomingOrders() {
   const waited = (now - Date.parse(order.createdAt)) / 1000;
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-stretch justify-center bg-ink/70 backdrop-blur-sm animate-fade sm:items-center sm:p-6" onPointerDown={() => unlockAudio()}>
-      <div className={cn('relative flex max-h-dvh w-full max-w-3xl flex-col overflow-hidden bg-surface shadow-pop animate-rise sm:max-h-[94dvh] sm:rounded-2xl', isNew && 'sm:animate-ring')}>
+    <div className="fixed inset-0 z-[90] flex items-end justify-center bg-ink/70 backdrop-blur-sm motion-safe:animate-fade sm:items-center sm:p-6" onPointerDown={() => unlockAudio()}>
+      {/* Phone: a bottom sheet as tall as its content (one short order no longer pushes the buttons to the bottom). */}
+      <div className={cn('relative flex max-h-dvh w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl bg-surface shadow-pop motion-safe:animate-rise sm:max-h-[94dvh] sm:rounded-2xl', isNew && 'sm:animate-ring')}>
         {/* header */}
         <div className={cn('flex items-center gap-4 px-5 py-4 text-white sm:px-6', p.color)}>
           <PlatformMark channel={order.channel} size="lg" className="bg-white/20" />
           <div className="min-w-0 flex-1">
-            <div className="text-xs font-bold tracking-[0.14em] uppercase opacity-90">{isNew ? t('Nouvelle commande', 'New order') : t('Acceptée automatiquement — à voir', 'Auto-accepted — please look')}</div>
-            <div className="flex flex-wrap items-baseline gap-x-3 text-2xl font-extrabold sm:text-3xl">#{order.displayId}<span className="text-base font-semibold opacity-90">{p.label}</span></div>
+            <div className="eyebrow opacity-90">{isNew ? t('Nouvelle commande', 'New order') : t('Acceptée automatiquement — à voir', 'Auto-accepted — please look')}</div>
+            <div className="flex flex-wrap items-baseline gap-x-3 text-title sm:text-display">#{order.displayId}<span className="text-body font-semibold opacity-90">{p.label}</span></div>
           </div>
           {queue.length > 1 && <Badge tone="dark" className="bg-black/30 text-white">{Math.min(index, queue.length - 1) + 1} / {queue.length}</Badge>}
         </div>
 
-        <div className="scrollbar-thin flex-1 overflow-y-auto">
+        <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto">
           {/* who / where / how long */}
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-line px-5 py-3 sm:px-6">
             <div className="min-w-0">
-              <div className="text-lg font-extrabold text-ink">{order.brandName ?? t('Marque inconnue', 'Unknown brand')}</div>
-              <div className="flex items-center gap-1.5 text-sm text-ink-3"><MapPin className="size-3.5" />{order.locationCode ? shortLoc(locName(order.locationCode)) : t('magasin non relié', 'store not mapped')} · {order.fulfillment === 'pickup' ? t('pour emporter', 'pickup') : t('livraison', 'delivery')} · {items} {t('art.', 'items')}</div>
+              <div className="text-heading font-extrabold text-ink">{order.brandName ?? t('Marque inconnue', 'Unknown brand')}</div>
+              <div className="flex items-center gap-1.5 text-body text-ink-3"><MapPin className="size-3.5" />{order.locationCode ? shortLoc(locName(order.locationCode)) : t('magasin non relié', 'store not mapped')} · {order.fulfillment === 'pickup' ? t('pour emporter', 'pickup') : t('livraison', 'delivery')} · {items} {items > 1 ? t('articles', 'items') : t('article', 'item')}</div>
             </div>
             <div className="ml-auto flex items-center gap-4">
-              <div className="text-right"><div className="text-xs text-ink-3">{t('Total client', 'Customer total')}</div><div className="num text-xl font-extrabold">{money(order.total, loc)}</div></div>
+              <div className="text-right"><div className="text-small text-ink-3">{t('Total client', 'Customer total')}</div><div className="num text-title font-extrabold">{money(order.total, loc)}</div></div>
               {isNew && order.deadlineAt ? (
                 <CountdownRing from={order.createdAt} to={order.deadlineAt} size={84}>
-                  <span className="num text-lg font-extrabold">{fmtDuration((Date.parse(order.deadlineAt) - now) / 1000)}</span>
-                  <span className="text-[10px] text-ink-3">{t('pour répondre', 'to answer')}</span>
+                  <span className="num text-heading font-extrabold">{fmtDuration((Date.parse(order.deadlineAt) - now) / 1000)}</span>
+                  <span className="text-micro text-ink-3">{t('pour répondre', 'to answer')}</span>
                 </CountdownRing>
               ) : (
-                <div className="text-right"><div className="text-xs text-ink-3">{t('Attend depuis', 'Waiting')}</div><Elapsed since={order.createdAt} warnAt={90} badAt={180} className="text-xl" /></div>
+                <div className="text-right"><div className="text-small text-ink-3">{t('Attend depuis', 'Waiting')}</div><Elapsed since={order.createdAt} warnAt={90} badAt={180} className="text-title" /></div>
               )}
             </div>
           </div>
 
-          {allergy && <div className="mx-5 mt-4 rounded-lg bg-stop px-4 py-3 text-base font-extrabold text-white sm:mx-6">⚠ {t('ALLERGIE — lisez les notes', 'ALLERGY — read the notes')}</div>}
-          {order.posError && <div className="mx-5 mt-4 rounded-lg bg-stop-soft px-4 py-3 text-sm font-semibold text-stop-2 sm:mx-6">{t('Clover n’a pas reçu cette commande — elle ne s’imprimera pas.', 'Clover did not get this order — it will not print.')}</div>}
-          {order.courier && <div className="mx-5 mt-4 flex items-center gap-2 rounded-lg bg-info-soft px-4 py-2.5 text-sm font-semibold text-info-2 sm:mx-6"><Bike className="size-4" />{courierLabel(t, order.courier.status)}{order.courier.name ? ` · ${order.courier.name}` : ''}</div>}
+          {allergy && <div role="alert" className="text-body mx-5 mt-4 flex items-center gap-2 rounded-md bg-stop px-4 py-3 font-extrabold text-white sm:mx-6"><TriangleAlert className="size-5 shrink-0" aria-hidden />{t('ALLERGIE — lisez les notes', 'ALLERGY — read the notes')}</div>}
+          {order.posError && <div className="mx-5 mt-4 rounded-md bg-stop-soft px-4 py-3 text-body font-semibold text-stop-2 sm:mx-6">{t('Clover n’a pas reçu cette commande — elle ne s’imprimera pas.', 'Clover did not get this order — it will not print.')}</div>}
+          {order.courier && <div className="mx-5 mt-4 flex items-center gap-2 rounded-md bg-info-soft px-4 py-2.5 text-body font-semibold text-info-2 sm:mx-6"><Bike className="size-4" />{courierLabel(t, order.courier.status)}{order.courier.name ? ` · ${order.courier.name}` : ''}</div>}
 
           {/* items */}
           <ul className="divide-y divide-line px-5 py-2 sm:px-6">
             {order.lines.map((l, i) => (
               <li key={i} className="flex gap-3 py-3">
-                <span className="num flex size-10 shrink-0 items-center justify-center rounded-lg bg-ink text-lg font-extrabold text-canvas">{l.quantity}</span>
+                <span className="num flex size-10 shrink-0 items-center justify-center rounded-md bg-ink text-heading font-extrabold text-canvas">{l.quantity}</span>
                 <div className="min-w-0 flex-1">
-                  <div className="text-lg leading-snug font-bold text-ink">{l.name}</div>
-                  {l.modifiers.map((m, j) => <div key={j} className="text-[15px] text-ink-2">+ {m.quantity > 1 ? `${m.quantity}× ` : ''}{m.name}</div>)}
-                  {l.notes && <div className={cn('mt-1 inline-block rounded-md px-2 py-1 text-sm font-bold', ALLERGY.test(l.notes) ? 'bg-stop text-white' : 'bg-wait-soft text-wait-2')}>« {l.notes} »</div>}
+                  <div className="text-heading text-ink">{l.name}</div>
+                  {l.modifiers.map((m, j) => <div key={j} className="text-body text-ink-2">+ {m.quantity > 1 ? `${m.quantity}× ` : ''}{m.name}</div>)}
+                  {l.notes && <div className={cn('mt-1 inline-block rounded-md px-2 py-1 text-body font-bold', ALLERGY.test(l.notes) ? 'bg-stop text-white' : 'bg-wait-soft text-wait-2')}>« {l.notes} »</div>}
                 </div>
               </li>
             ))}
           </ul>
-          {order.notes && <div className={cn('mx-5 mb-4 rounded-lg px-4 py-3 text-[15px] font-bold sm:mx-6', ALLERGY.test(order.notes) ? 'bg-stop text-white' : 'bg-wait-soft text-wait-2')}>📝 {order.notes}</div>}
+          {order.notes && <div className={cn('mx-5 mb-4 rounded-md px-4 py-3 text-body font-bold sm:mx-6', ALLERGY.test(order.notes) ? 'bg-stop text-white' : 'bg-wait-soft text-wait-2')}><StickyNote className="mr-1.5 inline size-4 align-[-2px]" aria-label={t('Note', 'Note')} />{order.notes}</div>}
         </div>
 
         {/* actions */}
         <div className="safe-bottom border-t border-line bg-raised px-5 py-4 sm:px-6">
           {isNew && (
             <div className="mb-3 flex flex-wrap items-center gap-2">
-              <span className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-3"><AlarmClock className="size-4" />{t('Prête dans', 'Ready in')}</span>
+              <span className="flex items-center gap-1.5 text-small font-semibold text-ink-3"><AlarmClock className="size-4" />{t('Prête dans', 'Ready in')}</span>
               <Chips size="sm" value={minutes} onChange={(v) => setPrep(v)} options={PREP.map((m) => ({ value: m, label: `${m} min` }))} />
             </div>
           )}
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Button variant="go" size="xl" className="flex-1 text-xl" loading={busy === 'accept' || busy === 'ack'} onClick={accept} icon={isNew ? <Check className="size-7" /> : <Eye className="size-7" />}>
+            <Button variant="go" size="xl" className="flex-1 text-title" loading={busy === 'accept' || busy === 'ack'} onClick={accept} icon={isNew ? <Check className="size-7" /> : <Eye className="size-7" />}>
               {isNew ? <span>{t('Accepter', 'Accept')} <span className="font-semibold opacity-90">· {minutes} min</span></span> : t('Vu — en préparation', 'Seen — cooking it')}
             </Button>
             {isNew && order.actions.includes('deny') && (
@@ -194,14 +195,14 @@ export function IncomingOrders() {
               </Button>
             )}
           </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px]">
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-small">
             <Button variant="ghost" size="sm" onClick={later} icon={<AlarmClock className="size-4" />}>{t('Plus tard (1 min)', 'Later (1 min)')}</Button>
-            <a className="inline-flex h-8 items-center gap-1.5 rounded-sm px-3 font-semibold text-ink-2 hover:bg-sunken" href={`/ticket/${order.id}`} target="_blank" rel="noreferrer"><Printer className="size-4" />{t('Billet', 'Ticket')}</a>
-            {!audioReady() && settings.sound && <button type="button" onClick={() => { unlockAudio(); playSound('soft'); }} className="inline-flex h-8 items-center gap-1.5 rounded-sm bg-wait-soft px-3 font-semibold text-wait-2"><Volume2 className="size-4" />{t('Activer le son', 'Turn sound on')}</button>}
+            <a className="touch-target inline-flex h-8 items-center gap-1.5 rounded-sm px-3 font-semibold text-ink-2 hover:bg-sunken" href={`/ticket/${order.id}`} target="_blank" rel="noreferrer"><Printer className="size-4" />{t('Billet', 'Ticket')}</a>
+            {!audioReady() && settings.sound && <button type="button" onClick={() => { unlockAudio(); playSound('soft'); }} className="touch-target inline-flex h-8 items-center gap-1.5 rounded-sm bg-wait-soft px-3 font-semibold text-wait-2"><Volume2 className="size-4" />{t('Activer le son', 'Turn sound on')}</button>}
             <span className="ml-auto text-ink-3">{waited > 60 ? `${t('en attente depuis', 'waiting for')} ${fmtDuration(waited)}` : ''}</span>
             {queue.length > 1 && <Button variant="outline" size="sm" onClick={() => setIndex((i) => (i + 1) % queue.length)} icon={<ChevronRight className="size-4" />}>{t('Suivante', 'Next')}</Button>}
           </div>
-          {viewer.device && <div className="mt-1 text-[11px] text-ink-4">{t('Entrée = accepter · Échap = plus tard', 'Enter = accept · Esc = later')}</div>}
+          {viewer.device && <div className="mt-1 text-micro text-ink-3">{t('Entrée = accepter · Échap = plus tard', 'Enter = accept · Esc = later')}</div>}
         </div>
       </div>
       {rejecting && (

@@ -299,6 +299,28 @@ html[data-motion='reduce'] *, html[data-motion='reduce'] *::before, html[data-mo
   .table-cards td[data-primary] { justify-content: flex-start; text-align: left; font-weight: 700; }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  /* OS accessibility preferences are honoured without changing screen settings. */
+  html *, html *::before, html *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Kitchen touch controls and portaled dialogs: 48px minimum, even in compact mode. */
+html.theme-kitchen :is(button, a[role='button'], select, input:not([type='checkbox']):not([type='radio']):not([type='range'])) {
+  min-height: 48px;
+}
+
+/* Invalid PIN feedback; short, non-looping and disabled by reduced motion above. */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+
 /* Undo toast countdown, help coach marks, guided tour, TakTak the mascot. */
 @keyframes toast-countdown { from { width: 100%; } to { width: 0%; } }
 @keyframes taktak-spin { 0% { transform: rotate(0deg) scale(1); } 40% { transform: rotate(200deg) scale(1.08); } 100% { transform: rotate(360deg) scale(1); } }

@@ -16,9 +16,18 @@
   question/answer masked, hold / reminder minutes; env `FOODHUB_INTERAC_EMAIL` / `FOODHUB_INTERAC_FEE`). Tracking page shows the
   held state and the instructions. Docs: `docs/CLOVER_WEBSITE_ORDERS.md` § Interac e-Transfer. Tests `tests/interac-etransfer.test.ts`.
 - Brought up to main 820ef0a (task 72 customers, Canada taxes by province: `totalsFor` takes the kitchen's province AND the
-  declared fees, the fee taxed like the delivery fee).
+  declared fees, the fee taxed like the delivery fee), then f023fc7 (#115 WhatsApp, #124 on2go customer API; only this file
+  conflicted).
+- e2e Interac scenario (`scripts/foodhub-e2e.mjs`) fixed: it used 14.99 while the menu is 15.99 after « Use Clover price », so
+  the held order was refused and the refusal checks passed for the wrong reason; each refusal now checks its own message.
+- Checks on 07a24b1 (owner PC, Windows), 2026-10-30: `npm run typecheck` 0 errors · `npm run lint` 0 errors (1 old warning,
+  settings/devices/page.tsx) · `npm test` 1917 passed, 5 failed, 6 skipped (138 files) — the 5 are `tests/screens-relay-setup`
+  / `screens-relay-windows` only (POSIX file mode 600 on NTFS, PowerShell dry runs over 20 s), files this branch does not touch;
+  `tests/interac-etransfer.test.ts` 19/19 · `rm -rf .next && npx next build --webpack` compiled, exit 0 ·
+  `verify:foodhub` (ports 4899/4900) 642 passed, 0 failed.
 
-— signé : Claude Fable 5.1 (interac-etransfer sub-agent of « Food delivery provider integration ») @ Claude Code desktop · 2026-10-30
+— signé : Claude Fable 5.1 (interac-etransfer sub-agent of « Food delivery provider integration ») @ Claude Code desktop · 2026-10-30;
+checks, e2e fix and PR : Claude Opus 5.5 (interac-etransfer builder) @ Claude Code desktop · 2026-10-30
 
 ## 2026-10-30 — on2go.ca browser customer API (`feature/on2go-account-cors`)
 

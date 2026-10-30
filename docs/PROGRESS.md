@@ -1,5 +1,13 @@
 # Food Hub: progress log and task board
 
+## 2026-10-30 — Restaurant leads API live for the on2go.ca sign-up form, with the province (`feature/restaurant-leads-api`, PR #87)
+
+- The branch of 2026-10-21 (public `POST /api/public/restaurant-leads`, storage, owner email + FR/EN auto-reply, Settings → Demandes de restaurants) is brought up to main and merged. New: optional `province` (Canadian postal code; the « , QC » on2go.ca writes into the city for older servers is dropped when it repeats the province), shown in the console and the owner email. Fix: the route is listed in `proxy.ts` PUBLIC_PATHS; without it every POST from on2go.ca got the sign-in redirect.
+- Consumer side: on2goca PR #19 (province select on the form, official platform marks, no emoji, promo cards) is live.
+- Checks: typecheck, lint 0 errors, 1739 tests passed (1 pre-existing Windows file-mode failure in `tests/screens-relay-setup.test.ts`), webpack build, verify:foodhub 578/0.
+
+— signé : Claude Fable 5.1 (session on2go front-page) @ Claude Code desktop · 2026-10-30 04:50
+
 ## 2026-10-21 — Demandes de restaurants / Restaurant leads (`feature/restaurant-leads-api`)
 
 - Le formulaire « Rejoindre ON2GO » d’on2go.ca (site statique, dépôt séparé) a maintenant son arrière-boutique : `POST /api/public/restaurant-leads` (JSON, sans connexion, CORS on2go.ca et www.on2go.ca seulement, pot de miel `company` → 202 silencieux, 5 envois / 10 min par IP → 429 + Retry-After, corps ≤ 16 Ko), validation par champ (`errors: { champ: required | invalid | too_long }`), stockage dans `fh_docs` collection `restaurant_leads` (aucune migration), courriel à `FOODHUB_SUPPORT_EMAIL` + réponse automatique FR / EN au restaurant par l’expéditeur habituel (sautés sans fournisseur, jamais une erreur), ligne dans le journal d’activité.

@@ -48,6 +48,10 @@ checks, e2e fix and PR : Claude Opus 5.5 (interac-etransfer builder) @ Claude Co
 — signé : Claude Opus 5.5 (kitchen-tablet-app builder, sub-agent of « Food delivery provider integration ») @ Claude Code desktop · 2026-10-30 08:40
 checks, e2e fix and PR : Claude Opus 5.5 (interac-etransfer builder) @ Claude Code desktop · 2026-10-30; review fixes : Claude Opus 5.5
 (interac-etransfer fixer) @ Claude Code desktop · 2026-10-30
+## 2026-10-30 — Plan documents brought up to date (`docs/master-plan-refresh`, PR #131)
+- `docs/MASTER_PLAN.md`: sections 1–2 rewritten to 2026-10-30; new § 3b « Built since the plan was written » (screens wall + relay kit, customer accounts + ON2GO sign-in, MEV off and not certified, TGTG e-mails, own fleet, province taxes, direct / website orders + Clover checkout, AI phone, WhatsApp, leads API, availability centre, and the three PRs of release #130); new connection-board rows; finished phase items marked ✅ with their PR (phases and locked rules otherwise unchanged); § 5b owner decision on the Deliverect code (no code changed); the Phase 0 / 1 prompts flagged as done.
+- `docs/ATLAS_PARITY.md`: Order Relay and shared menu rows, test count, province taxes, Android tablet app (PR #130). `docs/INSTALLER_SERVEUR.md`: install from Coolify (`main`) or the VPS script with GitHub's `main` zip (the old rc10 zip and folder names are gone), Order Relay, shared menus, TGTG e-mails. `docs/RELEASE_NOTES.md`: one short entry for #8–#124. Docs only.
+— signé : Claude Opus 5.5 (master-plan-refresh) @ Claude Code desktop · 2026-10-30 10:10 (HE)
 
 ## 2026-10-30 — on2go.ca browser customer API (`feature/on2go-account-cors`)
 

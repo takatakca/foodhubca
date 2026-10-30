@@ -5,8 +5,9 @@
 > (console blanche et écran cuisine sombre). La couleur apparaît comme une **bande** à gauche des cartes de commande,
 > dans la fenêtre de nouvelle commande, dans l’en-tête du menu et sur les lignes de marque de l’accueil ; le logo
 > remplace les deux lettres de la marque. Le texte posé sur la couleur est noir ou blanc, choisi pour un contraste d’au
-> moins 4,5:1 (WCAG AA). Une couleur trop pâle sur fond blanc affiche un avertissement. **Une marque sans couleur ni
-> logo garde exactement son look actuel.** Utilisez votre vrai logo : jamais une image générée par IA.
+> moins 4,5:1 (WCAG AA). Une couleur trop pâle sur fond blanc affiche un avertissement, tout comme une couleur proche
+> du vert, du jaune ambré ou du rouge des statuts (une bande rouge ferait croire à une commande en retard). **Une marque
+> sans couleur ni logo garde exactement son look actuel.** Utilisez votre vrai logo : jamais une image générée par IA.
 
 MASTER_PLAN Phase 3 P1 ("a colour per brand, and an optional logo") and the start of the Phase 5 brand kits.
 
@@ -21,7 +22,10 @@ Settings → Business → Brands → **Look** (button on each brand chip, owner 
 - **Preview:** a small order card on the white console and on the dark kitchen screen, the text colour chosen for the
   accent with its contrast ratio, and warnings:
   - too light on white (stripe under 3:1 against white, WCAG 1.4.11): "pick a darker shade";
-  - too dark on the kitchen screen (under 3:1 against the kitchen card colour): informational, the name stays readable.
+  - too dark on the kitchen screen (under 3:1 against the kitchen card colour): informational, the name stays readable;
+  - looks like a status colour (CIEDE2000 distance under 12 to the green, amber or red of `app/globals.css`, white
+    console and kitchen theme): "the stripe could be read as a status". A warning, not a refusal: a real restaurant may
+    have a red logo.
 
 Turning a brand off or on keeps its colour and logo.
 
@@ -29,7 +33,7 @@ Turning a brand off or on keeps its colour and logo.
 
 | Surface | What changes when the brand has a kit |
 |---|---|
-| Order cards (live board, kitchen screen) | 4 px stripe in the accent on the card's left edge; the logo beside the brand name |
+| Order cards (live board, kitchen screen): platform, website (Clover Online Ordering) and own-delivery orders | 4 px stripe in the accent on the card's left edge; the logo beside the brand name; a late card with a stripe also gets a red ring, so "late" stays visible whatever the colour |
 | New-order pop-up | stripe beside the brand name, and the brand mark (logo, or initials on the accent) |
 | Menu header (Menus → editor) | stripe and brand mark beside the "Menus" title for the open brand |
 | Overview brand rows | inset stripe on the row's left edge; the brand mark shows the logo or the accent |
@@ -66,4 +70,6 @@ A brand without a colour and without a logo renders exactly as before: no `style
 
 `tests/brand-kit.test.ts`: colour and logo validation (bad hex, `javascript:`, `data:`, `http:` refused, on the helpers
 and through `POST /api/foodhub/catalog`), the contrast helper (AA reached for every accent), the default look unchanged
-(BrandMark and order card markup), and `--brand-accent` present on an order card.
+(BrandMark, platform, website and own-delivery order card markup), `--brand-accent` and the stripe on all three
+kinds of order card, the red ring on a late card with a stripe, the status look-alike check (CIEDE2000 reference values,
+the status colours read from `app/globals.css`), and the colour field's label and description wiring.

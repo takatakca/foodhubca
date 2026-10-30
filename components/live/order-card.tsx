@@ -16,6 +16,9 @@ import { cn } from '@/lib/ui/cn';
 
 export type BoardOrder = StoredOrder & { actions: string[] };
 
+/** Added to a late card that carries a brand stripe (the stripe covers the left edge of its red border). */
+export const LATE_RING = 'ring-2 ring-stop/40';
+
 /**
  * One order on the live board / kitchen screen. Click = open; the button does the next step. The total sits under the
  * timer (never cut at the end of the key line), and a late order says it once: by its red border, the timer stays ink.
@@ -33,10 +36,11 @@ export function OrderCard({ o, onOpen, big }: { o: BoardOrder; onOpen: () => voi
   const allergy = [o.notes, ...o.lines.map((l) => l.notes)].some((n) => n && ALLERGY.test(n));
   const scheduled = Boolean(tl.fireAt && !tl.firedAt && Date.parse(tl.fireAt) > now);
   // Brand kit (docs/BRAND_KIT.md): the brand's colour is a stripe on the card's left edge, its logo sits by its name.
-  // No colour and no logo: no style, no extra class, the card looks exactly as before.
+  // No colour and no logo: no style, no extra class, the card looks exactly as before. The stripe takes the left edge,
+  // so a late card with a stripe also gets a red ring: "late" stays visible whatever the brand colour.
   const kit = brandKit(o.brandName);
   return (
-    <div style={brandVars(kit)} className={cn('group rounded-md border bg-surface shadow-card motion-safe:transition-[box-shadow,transform] motion-safe:duration-(--duration-fast) motion-safe:hover:-translate-y-px hover:shadow-pop', o.status === 'new' ? 'border-brand ring-2 ring-brand/20' : late ? 'border-stop/60' : 'border-line', kit?.accent && 'brand-stripe')}>
+    <div style={brandVars(kit)} className={cn('group rounded-md border bg-surface shadow-card motion-safe:transition-[box-shadow,transform] motion-safe:duration-(--duration-fast) motion-safe:hover:-translate-y-px hover:shadow-pop', o.status === 'new' ? 'border-brand ring-2 ring-brand/20' : late ? cn('border-stop/60', kit?.accent && LATE_RING) : 'border-line', kit?.accent && 'brand-stripe')}>
       <button type="button" onClick={onOpen} className="block w-full rounded-md p-4 text-left">
         <div className="flex items-start gap-2.5">
           <PlatformMark channel={o.channel} size={big ? 'md' : 'sm'} />

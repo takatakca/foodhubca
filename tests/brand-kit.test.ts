@@ -4,8 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
-  ACCENT_RE, accentReport, brandKitOf, brandKitsOf, brandVars, contrastRatio, kitFor, LOGO_MAX_LENGTH, MEDIA_LOGO_RE,
-  onAccentColor, parseAccent, parseLogo, TEXT_MIN_CONTRAST, type BrandKit,
+  ACCENT_RE, accentReport, brandKitOf, brandKitsOf, brandVars, contrastRatio, deltaE2000, kitFor, LOGO_MAX_LENGTH, MEDIA_LOGO_RE,
+  onAccentColor, parseAccent, parseLogo, STATUS_COLOURS, statusLookalike, TEXT_MIN_CONTRAST, type BrandKit, type StatusTone,
 } from '@/lib/foodhub/brand-kit';
 import { MEDIA_NAME_RE } from '@/lib/foodhub/media';
 
@@ -99,6 +99,38 @@ describe('contrast helper (WCAG)', () => {
   });
 });
 
+describe('status colours (green, amber, red mean a status)', () => {
+  it('CIEDE2000 matches the published reference values (Sharma, Wu & Dalal 2005)', () => {
+    expect(deltaE2000([50, 2.6772, -79.7751], [50, 0, -82.7485])).toBeCloseTo(2.0425, 4);
+    expect(deltaE2000([50, 0, 0], [50, -1, 2])).toBeCloseTo(2.3669, 4);
+    expect(deltaE2000([50, 2.5, 0], [73, 25, -18])).toBeCloseTo(27.1492, 4);
+    expect(deltaE2000([60.2574, -34.0099, 36.2677], [60.4626, -34.1751, 39.4387])).toBeCloseTo(1.2644, 4);
+  });
+  it('the status colours are the ones app/globals.css defines (white console and kitchen theme)', async () => {
+    const fs = await import('node:fs/promises');
+    const css = await fs.readFile('app/globals.css', 'utf8');
+    const decl = (name: string) => [...css.matchAll(new RegExp(`--color-${name}:\\s*(#[0-9a-f]{6});`, 'gi'))].map((m) => m[1].toLowerCase());
+    for (const tone of Object.keys(STATUS_COLOURS) as StatusTone[]) {
+      expect(decl(tone).length, tone).toBe(2);
+      expect(new Set(STATUS_COLOURS[tone]), tone).toEqual(new Set([...decl(tone), decl(`${tone}-2`)[0]]));
+    }
+  });
+  it('flags the exact status colours and their look-alikes, with a warning in the report', () => {
+    for (const tone of Object.keys(STATUS_COLOURS) as StatusTone[]) for (const c of STATUS_COLOURS[tone]) expect(statusLookalike(c), c).toBe(tone);
+    for (const red of ['#ff0000', '#d32f2f', '#c8102e', '#b71c1c']) expect(statusLookalike(red), red).toBe('stop');
+    expect(statusLookalike('#ffc107')).toBe('wait');
+    expect(statusLookalike('#4caf50')).toBe('go');
+    expect(accentReport('#e23b3e')).toMatchObject({ looksLikeStatus: 'stop', tooLightOnWhite: false });
+    expect(accentReport('#0e9f5a').looksLikeStatus).toBe('go');
+  });
+  it('leaves brand colours alone: the BrandMark palette, blues, teals, pinks, browns, black and white', () => {
+    // components/ui/brand-mark.tsx HUES (chosen to avoid green, amber and red).
+    for (const c of ['#1565d8', '#5b4fe0', '#8b3fd9', '#0e7c86', '#0b84b8', '#475569', '#c2367a', '#7a5a3a', '#334e9e', '#a1477d']) expect(statusLookalike(c), c).toBeNull();
+    for (const c of ['#e91e63', '#009688', '#795548', '#000000', '#ffffff']) expect(statusLookalike(c), c).toBeNull();
+    expect(accentReport('#1565d8').looksLikeStatus).toBeNull();
+  });
+});
+
 describe('the kit sent to the console', () => {
   it('re-checks stored values: anything that is not #rrggbb / https / media never reaches a style', () => {
     expect(brandKitOf({})).toBeNull();
@@ -171,13 +203,33 @@ const ORDER = {
   status: 'accepted', timeline: { seenAt: '2026-10-30T12:01:00Z' }, actions: [],
 };
 
-async function renderCard(kits: Record<string, BrandKit>) {
+async function renderIn(kits: Record<string, BrandKit>, child: ReactNode) {
   const { ViewerProvider } = await import('@/components/shell/viewer');
   const { ToastProvider } = await import('@/components/ui/toast');
-  const { OrderCard } = await import('@/components/live/order-card');
-  const wrap = (child: ReactNode) => createElement(ToastProvider, null, createElement(ViewerProvider, { viewer: VIEWER as never, catalog: { locations: [{ code: 'NDG_MAIN', name: 'NDG MAIN' }], brands: ['Pizza Test'], brandKits: kits } } as unknown as Parameters<typeof ViewerProvider>[0], child));
-  return renderToStaticMarkup(wrap(createElement(OrderCard, { o: ORDER as never, onOpen: () => undefined })));
+  return renderToStaticMarkup(createElement(ToastProvider, null, createElement(ViewerProvider, { viewer: VIEWER as never, catalog: { locations: [{ code: 'NDG_MAIN', name: 'NDG MAIN' }], brands: ['Pizza Test'], brandKits: kits } } as unknown as Parameters<typeof ViewerProvider>[0], child)));
 }
+
+async function renderCard(kits: Record<string, BrandKit>, order: object = ORDER) {
+  const { OrderCard } = await import('@/components/live/order-card');
+  return renderIn(kits, createElement(OrderCard, { o: order as never, onOpen: () => undefined }));
+}
+
+// A website order taken by Clover Online Ordering and an own-delivery order: they sit in the same kitchen columns.
+const DIRECT = {
+  id: 'd1', number: 'W-101', source: 'clover_online', brandName: 'Pizza Test', locationCode: 'NDG_MAIN', customer: { name: 'Client' },
+  fulfillment: 'pickup', lines: [{ name: 'Poutine', quantity: 1, modifiers: [] }], subtotal: 10, tax: 1.5, deliveryFee: 0, tip: 0,
+  total: 11.5, currency: 'CAD', payment: 'paid', status: 'in_kitchen', containsAlcohol: false, placedAt: '2026-10-30T12:00:00Z',
+  readyAt: '2999-01-01T00:00:00Z', seenAt: '2026-10-30T12:01:00Z',
+};
+const PAST = '2026-10-30T12:05:00Z';
+async function renderDirect(which: 'website' | 'own', kits: Record<string, BrandKit>, order: object = DIRECT) {
+  const { WebsiteOrderCard } = await import('@/components/live/website-orders');
+  const { OwnOrderCard } = await import('@/components/live/own-orders');
+  const Card = which === 'website' ? WebsiteOrderCard : OwnOrderCard;
+  const o = which === 'own' ? { ...order, source: 'phone_ai' } : order;
+  return renderIn(kits, createElement(Card, { o: o as never }));
+}
+const rootOf = (html: string) => html.slice(0, html.indexOf('>') + 1);
 
 describe('rendering', () => {
   it('BrandMark without a kit is exactly the mark from before brand kits', async () => {
@@ -213,6 +265,59 @@ describe('rendering', () => {
     expect(root).toContain('style="--brand-accent:#c2367a;--brand-on-accent:#ffffff"');
     expect(root).toContain('brand-stripe');
     expect(html).toContain(`src="${MEDIA}"`);
+  });
+
+  it('a late card with a stripe keeps a red ring (the stripe covers the left edge of the red border)', async () => {
+    const late = { ...ORDER, timeline: { seenAt: '2026-10-30T12:01:00Z', readyTarget: PAST } };
+    const green = rootOf(await renderCard({ 'Pizza Test': { accent: '#0e9f5a', onAccent: '#000000' } }, late));
+    expect(green).toContain('brand-stripe');
+    expect(green).toContain('border-stop/60');
+    expect(green).toContain('ring-2 ring-stop/40');
+    // Without a kit the late card is exactly as before: red border, no ring added.
+    const plain = rootOf(await renderCard({}, late));
+    expect(plain).toContain('border-stop/60');
+    expect(plain).not.toContain('ring-stop');
+    expect(plain).not.toContain('brand-stripe');
+  });
+
+  for (const which of ['website', 'own'] as const) {
+    it(`${which === 'website' ? 'a website (Clover Online Ordering)' : 'an own-delivery'} order card: unchanged without a kit, stripe and logo with one`, async () => {
+      const plain = await renderDirect(which, {});
+      expect(rootOf(plain)).toBe('<div class="rounded-lg border bg-surface shadow-card border-line">');
+      expect(plain).not.toContain('--brand-accent');
+      expect(plain).not.toContain('<img');
+      const kit = { 'Pizza Test': { accent: '#1565d8', onAccent: '#ffffff' as const, logo: MEDIA } };
+      const html = await renderDirect(which, kit);
+      expect(rootOf(html)).toContain('style="--brand-accent:#1565d8;--brand-on-accent:#ffffff"');
+      expect(rootOf(html)).toContain('brand-stripe');
+      expect(html).toContain(`src="${MEDIA}"`);
+      const late = rootOf(await renderDirect(which, kit, { ...DIRECT, readyAt: PAST }));
+      expect(late).toContain('border-stop/50');
+      expect(late).toContain('ring-2 ring-stop/40');
+      expect(rootOf(await renderDirect(which, {}, { ...DIRECT, readyAt: PAST }))).toBe('<div class="rounded-lg border bg-surface shadow-card border-stop/50">');
+    });
+  }
+
+  it('the brand colour field: the label names the typed #RRGGBB box and the hint / error is tied to it', async () => {
+    const { AccentField } = await import('@/app/(console)/settings/business/brand-kit-dialog');
+    for (const ok of [true, false]) {
+      const html = renderToStaticMarkup(createElement(AccentField, { value: ok ? '#1565d8' : '#12', ok, pickerValue: '#1565d8', onChange: () => undefined }));
+      const labelFor = /<label for="([^"]+)"/.exec(html)?.[1] ?? '';
+      expect(labelFor).not.toBe('');
+      const text = html.split('<input').map((t) => `<input${t.slice(0, t.indexOf('>') + 1)}`).find((t) => t.includes(`id="${labelFor}"`)) ?? '';
+      expect(text).toContain('placeholder="#1565D8"');
+      const describedBy = /aria-describedby="([^"]+)"/.exec(text)?.[1] ?? '';
+      expect(describedBy).not.toBe('');
+      const at = html.indexOf(`<span id="${describedBy}"`);
+      expect(at).toBeGreaterThan(-1);
+      const msgTag = html.slice(at, html.indexOf('>', at));
+      expect(text.includes('aria-invalid="true"')).toBe(!ok);
+      expect(msgTag.includes('role="alert"')).toBe(!ok);
+      // The picker keeps its own name and sits outside the label (clicking the label goes to the typed box).
+      expect(html).toMatch(/<input type="color" aria-label="[^"]+"/);
+      const label = html.slice(html.indexOf('<label'), html.indexOf('</label>'));
+      expect(label).not.toContain('<input');
+    }
   });
 
   it('the stripe is a border, never a background behind text (the kitchen theme stays readable)', async () => {

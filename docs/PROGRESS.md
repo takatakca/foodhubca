@@ -3,6 +3,7 @@
 ## 2026-10-30 — Brand kit: accent colour + logo per brand (`feature/brand-colours`)
 
 - MASTER_PLAN Phase 3 P1 « une couleur par marque (et un logo) » + start of Phase 5 brand kits. `BrandDef.accent` (`#rrggbb`) and `BrandDef.logo` (https or `/media/<name>`), validated server side in `saveBrand` (`lib/foodhub/brand-kit.ts`) and again on the way to the console. Editor: Settings → Business → Brands → Apparence / Look (live preview on light and kitchen-dark, black/white text at WCAG AA, too-light warning, logo upload to the media library). `--brand-accent` / `--brand-on-accent` on order cards, the new-order pop-up, the menu header and the overview brand rows; stripe/badge only (kitchen stays readable); no colour and no logo = exactly today's look. `docs/BRAND_KIT.md`, `tests/brand-kit.test.ts`.
+- Review fixes (3 minor): the website (Clover Online Ordering) and own-delivery cards on the kitchen screen now get the same stripe and logo as platform cards; a late card with a stripe also gets a red ring; the editor warns when the colour looks like a status green / amber / red (CIEDE2000 under 12, `statusLookalike`); the typed `#RRGGBB` box has its own label and its hint / error is tied to it (`AccentField`). 8 new tests.
 
 — signé : Claude Opus 5.5 (brand-colours sub-agent) @ Claude Code desktop · 2026-10-30
 

@@ -353,7 +353,8 @@ html.theme-kitchen :is(button, a[role='button'], select, input:not([type='checkb
    (black or white, whichever reads at 4.5:1 or more on it). The classes below are only added when a brand has a
    colour, so a brand without one looks exactly as before. The accent is a stripe, a border or a small badge, never a
    large background behind running text: the dark kitchen screen stays readable. Nothing here animates.
-   Unlayered on purpose: the stripe wins over a card's status border colour on its left edge only.
+   Unlayered on purpose: the stripe wins over a card's status border colour on its left edge only, so a late card with
+   a stripe also gets a red ring (LATE_RING in components/live/order-card.tsx).
 ------------------------------------------------------------------------------------------------- */
 .brand-stripe { border-left: 4px solid var(--brand-accent); }
 .brand-stripe-inset { box-shadow: inset 4px 0 0 var(--brand-accent); }

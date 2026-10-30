@@ -1,16 +1,17 @@
 'use client';
 
 // Business → Brands → "Couleur et logo": one brand's kit (docs/BRAND_KIT.md). Live preview on the white console and on
-// the dark kitchen screen, the text colour picked for the accent (black or white, WCAG AA 4.5:1) and a warning when the
-// colour is too light to be seen on white. The server checks everything again (lib/foodhub/brand-kit.ts).
-import { useState } from 'react';
+// the dark kitchen screen, the text colour picked for the accent (black or white, WCAG AA 4.5:1), a warning when the
+// colour is too light to be seen on white, and one when it looks like a status colour (green, amber, red). The server
+// checks everything again (lib/foodhub/brand-kit.ts).
+import { useId, useState } from 'react';
 import { ImageUp } from 'lucide-react';
 import { BrandMark } from '@/components/ui/brand-mark';
 import { Button } from '@/components/ui/button';
 import { Banner } from '@/components/ui/card';
 import { Field, Input } from '@/components/ui/form';
 import { Modal } from '@/components/ui/overlay';
-import { ACCENT_RE, accentReport, brandKitOf, brandVars, parseLogo, type BrandKit } from '@/lib/foodhub/brand-kit';
+import { ACCENT_RE, accentReport, brandKitOf, brandVars, parseLogo, type BrandKit, type StatusTone } from '@/lib/foodhub/brand-kit';
 import { api } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
@@ -60,14 +61,7 @@ export function BrandKitDialog({ brand, onClose, onSaved }: { brand: BrandRecord
       footer={<><Button variant="ghost" onClick={onClose}>{t('Annuler', 'Cancel')}</Button><Button loading={busy} disabled={!accentOk || !logoCheck.ok || uploading} onClick={save}>{t('Enregistrer', 'Save')}</Button></>}>
       <div className="grid gap-5 md:grid-cols-2">
         <div className="grid content-start gap-4">
-          <Field label={t('Couleur de la marque', 'Brand colour')} error={accentOk ? undefined : t('Écrivez la couleur sous la forme #RRGGBB (ex. #1565D8).', 'Write the colour as #RRGGBB (e.g. #1565D8).')}
-            hint={t('Vide = pas de couleur : la marque garde son look actuel.', 'Empty = no colour: the brand keeps its current look.')}>
-            <span className="flex items-center gap-2">
-              <input type="color" aria-label={t('Choisir la couleur', 'Pick the colour')} value={kit?.accent ?? '#1565d8'} onChange={(e) => setAccent(e.target.value)} className="h-10 w-12 shrink-0 cursor-pointer rounded-md border border-line bg-surface p-1" />
-              <Input value={accent} invalid={!accentOk} maxLength={7} spellCheck={false} placeholder="#1565D8" onChange={(e) => setAccent(e.target.value)} className="font-mono" />
-              {accent && <Button size="sm" variant="ghost" onClick={() => setAccent('')}>{t('Retirer', 'Remove')}</Button>}
-            </span>
-          </Field>
+          <AccentField value={accent} ok={accentOk} pickerValue={kit?.accent ?? '#1565d8'} onChange={setAccent} />
           <Field label={t('Logo', 'Logo')} error={logoCheck.ok ? undefined : t('Collez une adresse https:// ou téléversez un fichier.', 'Paste an https:// address or upload a file.')}
             hint={t('Votre vrai logo (jamais une image générée par IA). PNG, JPG ou WebP, 5 Mo au plus. Un fichier téléversé est servi par Food Hub.', 'Your real logo (never an AI-generated image). PNG, JPG or WebP, 5 MB at most. An uploaded file is served by Food Hub.')}>
             <Input value={logo} invalid={!logoCheck.ok} maxLength={500} spellCheck={false} inputMode="url" placeholder="https://…/logo.png" onChange={(e) => setLogo(e.target.value)} />
@@ -92,13 +86,48 @@ export function BrandKitDialog({ brand, onClose, onSaved }: { brand: BrandRecord
             </p>
           )}
           {report?.tooLightOnWhite && <Banner tone="warn">{t(`Couleur trop pâle sur fond blanc (${num(report.onWhite)}) : la bande et le badge se verront mal dans la console. Choisissez une teinte plus foncée.`, `Colour too light on white (${num(report.onWhite)}): the stripe and the badge will be hard to see in the console. Pick a darker shade.`)}</Banner>}
-          {report?.tooDarkOnKitchen && <Banner tone="info">{t(`Sur l’écran sombre de la cuisine, cette couleur se voit peu (${num(report.onKitchen)}). Le nom de la marque reste lisible.`, `On the dark kitchen screen this colour shows little (${num(report.onKitchen)}). The brand name stays readable.`)}</Banner>}
+          {report?.looksLikeStatus && <StatusWarning tone={report.looksLikeStatus} />}
+          {report?.tooDarkOnKitchen &&<Banner tone="info">{t(`Sur l’écran sombre de la cuisine, cette couleur se voit peu (${num(report.onKitchen)}). Le nom de la marque reste lisible.`, `On the dark kitchen screen this colour shows little (${num(report.onKitchen)}). The brand name stays readable.`)}</Banner>}
           {!kit && <p className="text-small text-ink-3">{t('Sans couleur ni logo, la marque garde son look actuel partout.', 'With no colour and no logo, the brand keeps its current look everywhere.')}</p>}
         </div>
       </div>
       {err && <Banner tone="stop" className="mt-4">{err}</Banner>}
     </Modal>
   );
+}
+
+/**
+ * The colour field. The visible label names the typed #RRGGBB box (htmlFor), and the hint or the error is tied to it
+ * (aria-describedby); the colour picker beside it keeps its own name. Clicking the label goes to the typed box.
+ */
+export function AccentField({ value, ok, pickerValue, onChange }: { value: string; ok: boolean; pickerValue: string; onChange: (v: string) => void }) {
+  const { t } = useI18n();
+  const id = useId();
+  const msgId = `${id}-msg`;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label htmlFor={id} className="text-small font-semibold text-ink-2">{t('Couleur de la marque', 'Brand colour')}</label>
+      <span className="flex items-center gap-2">
+        <input type="color" aria-label={t('Choisir la couleur', 'Pick the colour')} value={pickerValue} onChange={(e) => onChange(e.target.value)} className="h-10 w-12 shrink-0 cursor-pointer rounded-md border border-line bg-surface p-1" />
+        <Input id={id} aria-describedby={msgId} value={value} invalid={!ok} maxLength={7} spellCheck={false} autoComplete="off" placeholder="#1565D8" onChange={(e) => onChange(e.target.value)} className="font-mono" />
+        {value && <Button size="sm" variant="ghost" onClick={() => onChange('')}>{t('Retirer', 'Remove')}</Button>}
+      </span>
+      {ok
+        ? <span id={msgId} className="text-small text-ink-3">{t('Vide = pas de couleur : la marque garde son look actuel.', 'Empty = no colour: the brand keeps its current look.')}</span>
+        : <span id={msgId} className="text-small font-medium text-stop" role="alert">{t('Écrivez la couleur sous la forme #RRGGBB (ex. #1565D8).', 'Write the colour as #RRGGBB (e.g. #1565D8).')}</span>}
+    </div>
+  );
+}
+
+/** The colour is close to a status colour: say which one and what it means on the cards. Saving stays allowed. */
+export function StatusWarning({ tone }: { tone: StatusTone }) {
+  const { t } = useI18n();
+  const text = {
+    stop: t('Cette couleur ressemble au rouge qui signale une commande en retard ou un problème : la bande pourrait faire croire qu’une commande est en retard. Choisissez une autre teinte si votre marque le permet.', 'This colour looks like the red that marks a late order or a problem: the stripe could make an order look late. Pick another shade if your brand allows it.'),
+    wait: t('Cette couleur ressemble au jaune ambré qui signale une commande qui attend ou à vérifier : la bande pourrait se lire comme un statut. Choisissez une autre teinte si votre marque le permet.', 'This colour looks like the amber that marks an order waiting or to check: the stripe could be read as a status. Pick another shade if your brand allows it.'),
+    go: t('Cette couleur ressemble au vert qui signale une commande acceptée ou prête : la bande pourrait se lire comme un statut. Choisissez une autre teinte si votre marque le permet.', 'This colour looks like the green that marks an accepted or ready order: the stripe could be read as a status. Pick another shade if your brand allows it.'),
+  }[tone];
+  return <Banner tone="warn">{text}</Banner>;
 }
 
 /** A small order card as the board shows it: stripe in the accent, the brand's mark, its name on a badge. */

@@ -1,5 +1,13 @@
 # Food Hub: progress log and task board
 
+## 2026-10-30 — Settings → Autopilot, MASTER_PLAN Phase 4.1 + 4.2 (`feature/autopilot`)
+
+- New page Réglages → Pour vous → **Pilote automatique** (`/settings/autopilot`): every automation with its switch (or where its switch lives), its rule in plain words (FR / EN), last run, what it did last, and an undo where one exists. The existing ones (tablet-off guard, Clover auto-retry, timed re-opens, timed 86 re-enables, scheduled publishes, auto-close, unmapped-store hint, Clover inventory, Skip holidays, daily reconciliation) are read from where they keep their state, never copied.
+- Three new automations, **OFF by default**, switched only by a manager of every location or the owner (`/api/foodhub/autopilot`, switches in the repo kv): re-publish 10 min after « Use Clover price » or saved hours (reuses `menu/schedule.ts`, one publish per brand, never a brand whose stores are all protected, cancellable); retry refused menu / 86 / pause sends at most 3 times (2, 10, 30 min) then a Watchtower incident, only where no retry exists; weekly Uber payment report Monday 06:00 (reuses `requestUberPaymentReport`). Every action logged with the actor « Autopilot ».
+- With every new switch off Food Hub behaves as before. Docs: `docs/AUTOPILOT.md`. Tests: `tests/autopilot.test.ts`.
+
+— signé : Claude Opus 5.5 (autopilot builder) @ Claude Code desktop · 2026-10-30
+
 ## 2026-10-30 — on2go.ca browser customer API (`feature/on2go-account-cors`)
 
 - `/api/public/on2go/{verify/start, verify/check, me, logout}`: on2go.ca (static, no website secret) signs customers in by texted code and reads / updates / deletes « Mon compte » from the browser. CORS and preflight for the ON2GO sites only, brand website fixed to `on2go`, only `on2go`-signed customer tokens (`Authorization: Bearer`), per-IP windows on top of task 72's per-phone limits; listed in `proxy.ts`. `lib/foodhub/customers/on2go-public.ts`, `docs/CUSTOMER_IDENTITY.md`, `tests/on2go-public-customers.test.ts`.

@@ -66,3 +66,11 @@ dependencies {
     // Real org.json in JVM unit tests (Android's is a stub there).
     testImplementation("org.json:json:20240303")
 }
+
+// Each unit test's name and result in the CI log (proof the JVM tests ran, not just compiled).
+tasks.withType<Test>().configureEach {
+    testLogging {
+        events("passed", "skipped", "failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+}

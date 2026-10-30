@@ -79,10 +79,7 @@ class OrderWatchService : Service() {
         super.onCreate()
         prefs = Prefs(this)
         createChannels()
-        ServiceCompat.startForeground(
-            this, ID_WATCH, watchNotification(getString(R.string.watch_starting)),
-            if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0,
-        )
+        goForeground(getString(R.string.watch_starting))
         acquireLocks()
         // After a (re)start the first poll uses the server's default window (15 minutes): no pile of old tickets in the
         // morning, and the claims already made stop any reprint.
@@ -91,11 +88,20 @@ class OrderWatchService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Every startForegroundService() call is answered with startForeground(), even when already running.
+        goForeground(status.ifBlank { getString(R.string.watch_starting) })
         when (intent?.action) {
             ACTION_STOP_ALARM -> stopAlarm(this)
             ACTION_POLL_NOW -> poller?.execute { safePoll() }
         }
         return START_STICKY
+    }
+
+    private fun goForeground(text: String) {
+        ServiceCompat.startForeground(
+            this, ID_WATCH, watchNotification(text),
+            if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0,
+        )
     }
 
     override fun onDestroy() {

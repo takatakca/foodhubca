@@ -1,5 +1,12 @@
 # Food Hub: progress log and task board
 
+## 2026-10-30 — Customer identity (task 72) + ON2GO sign-in through TAKATAK (`feature/on2go-customer-bridge`)
+
+- Task 72's work (customer accounts verified by text, signed customer token, `/api/foodhub/customers/*`, Settings → Clients) was left uncommitted when its agent stopped on 2026-10-29; saved as WIP on `feature/customer-identity` (5615971), brought up to main, its 16 tests green.
+- New: `POST /api/public/on2go/session` exchanges a takatak-v1 launch code (contract C3) with `TAKATAK_ON2GO_SERVICE_TOKEN`, finds or creates the customer on the verified phone (`takatakIdentityId` kept), and returns a signed customer token for the `on2go` brand website (always allowed). Public in `proxy.ts`, CORS for the ON2GO sites only, 10 tries / 10 min per IP. `docs/CUSTOMER_IDENTITY.md` § ON2GO; `tests/takatak-bridge.test.ts`.
+
+— signé : Claude Opus 5.5 (session on2go front-page) @ Claude Code desktop · 2026-10-30 08:00
+
 ## 2026-10-29 — Customer accounts for the brand websites, pppmtl first (`feature/customer-identity`)
 
 - Food Hub is the TAKATAK customer authority (contract § A of 2026-10-29 with pppmtl): `lib/foodhub/customers/` — phone verification by text (Twilio Verify when `TWILIO_VERIFY_SERVICE_SID` is set, else Food Hub's own 6-digit code by `sendSms`, HMAC with the session secret, 10 min, 5 tries, then void), one `MasterCustomer` per verified E.164 number created on the spot (race-free: per-phone lock + atomic `claimKv`), signed token `cust.<id>.<tenant>.<exp>.<version>.<sig>` (session secret, 30 days, version checked on every call), `/me` projection (profile, addresses, favourites, recent website orders of that phone, loyalty / gift-card adapters that truthfully answer `connected:false` until LOY4LTY / REW4RDS exist).

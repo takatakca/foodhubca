@@ -140,3 +140,30 @@ secret. The version is compared with the record on every call: logout or delete 
 - `lib/foodhub/customers/adapters.ts` — LOY4LTY / REW4RDS stubs (truthful `connected:false`).
 - `app/api/foodhub/customers/**` — the routes; `app/api/foodhub/customers/admin` + `app/(console)/settings/customers` — the console screen.
 - `tests/customer-identity.test.ts`.
+
+## ON2GO : connexion par TAKATAK · ON2GO: sign-in through TAKATAK (2026-10-30)
+
+on2go.ca est un site statique : il n'a pas de serveur pour garder le secret des sites de marque. Il connecte ses clients
+par le pont de takatak-v1 (contrat C3, takatak-v1 `docs/ON2GO_MASTER_API.md`) :
+
+1. Le client, connecté sur TAKATAK, ouvre « ON2GO » : takatak-v1 l'envoie sur on2go.ca avec un code à usage unique
+   (`?code=`, 90 s).
+2. on2go.ca envoie `POST /api/public/on2go/session` `{ "code" }` à Food Hub (CORS : sites ON2GO seulement ; public dans
+   `proxy.ts` ; 10 essais / 10 min par IP).
+3. Food Hub échange le code chez takatak-v1 avec `TAKATAK_ON2GO_SERVICE_TOKEN`, reçoit l'identité (téléphone vérifié),
+   crée ou retrouve le client **sur ce téléphone** (le même dossier que la connexion par texto), garde
+   `takatakIdentityId`, et répond `{ ok, token, expiresAt, customer, created }` : un jeton client signé pour la marque
+   `on2go` (toujours permise).
+
+Refus : code mal formé 400 ; code expiré ou déjà utilisé 401 ; compte TAKATAK sans cellulaire vérifié 409 ; trop
+d'essais 429 ; TAKATAK injoignable ou non configuré 503. Variables : `TAKATAK_API_URL` (https),
+`TAKATAK_ON2GO_SERVICE_TOKEN`. Code : `lib/foodhub/customers/takatak-bridge.ts`, route
+`app/api/public/on2go/session/route.ts`, tests `tests/takatak-bridge.test.ts`.
+
+Reste à faire : les routes `/me/*` demandent le secret des sites de marque ; on2go.ca (navigateur) a besoin d'une
+variante CORS qui n'accepte que le jeton client `on2go` — prochaine étape.
+
+on2go.ca has no server to hold the website secret, so it signs customers in through takatak-v1's launch bridge: the
+browser posts the one-time code to `POST /api/public/on2go/session`; Food Hub exchanges it with its service token,
+keys the customer on the verified phone, and returns a signed `on2go` customer token. Next: a CORS variant of `/me/*`
+that accepts only an `on2go` customer token.

@@ -46,6 +46,8 @@ export interface MasterCustomer {
   favourites: string[];
   /** Set by DELETE /me: the record is anonymised and kept only as an id + dates. */
   deletedAt?: string;
+  /** takatak-v1 MasterIdentity id, set when the customer signed in through TAKATAK (takatak-bridge.ts). */
+  takatakIdentityId?: string;
 }
 
 /** What the website receives (contract § A.2): never tenants, token version or consent internals. */
@@ -68,7 +70,10 @@ export function toPublicCustomer(c: MasterCustomer): PublicCustomer {
 }
 
 /** Display name of each brand website, used in the SMS ("Votre code PPP Pizzeria : …"). */
-export const CUSTOMER_TENANT_NAMES: Record<string, string> = { pppmtl: 'PPP Pizzeria' };
+export const CUSTOMER_TENANT_NAMES: Record<string, string> = { pppmtl: 'PPP Pizzeria', on2go: 'ON2GO' };
+
+/** on2go.ca: the consumer app. Always allowed (our own site); it signs in through TAKATAK (takatak-bridge.ts) or by text. */
+export const ON2GO_TENANT = 'on2go';
 
 export const DEFAULT_CUSTOMER_TENANTS = ['pppmtl'];
 const TENANT_SLUG = /^[a-z0-9][a-z0-9-]{1,39}$/;
@@ -76,7 +81,7 @@ const TENANT_SLUG = /^[a-z0-9][a-z0-9-]{1,39}$/;
 /** Brand websites allowed to call this API: FOODHUB_CUSTOMER_TENANTS (comma-separated slugs), default "pppmtl". */
 export function allowedCustomerTenants(env: NodeJS.ProcessEnv = process.env): string[] {
   const raw = String(env.FOODHUB_CUSTOMER_TENANTS ?? '').split(',').map((s) => s.trim().toLowerCase()).filter((s) => TENANT_SLUG.test(s));
-  return raw.length ? [...new Set(raw)] : [...DEFAULT_CUSTOMER_TENANTS];
+  return [...new Set([...(raw.length ? raw : DEFAULT_CUSTOMER_TENANTS), ON2GO_TENANT])];
 }
 
 /** The tenant slug of a request body, or null when it is not an allowed brand website. */

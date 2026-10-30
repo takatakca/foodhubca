@@ -47,8 +47,9 @@ export async function updateCustomer(id: string, patch: (cur: MasterCustomer) =>
  * After a successful code check: the customer behind that number, created on the spot the first time. Also records
  * the brand website in tenants[], the language chosen on the site, and the verification time.
  */
-export async function upsertVerifiedCustomer(input: { phone: string; tenant: string; lang?: CustomerLang }): Promise<{ customer: MasterCustomer; created: boolean }> {
+export async function upsertVerifiedCustomer(input: { phone: string; tenant: string; lang?: CustomerLang; via?: 'text' | 'takatak' }): Promise<{ customer: MasterCustomer; created: boolean }> {
   const { phone, tenant } = input;
+  const how = input.via === 'takatak' ? 'through TAKATAK' : 'by text';
   return withKeyLock(`cust_phone:${phoneKey(phone)}`, async () => {
     const repo = getRepo();
     const at = nowIso();
@@ -56,7 +57,7 @@ export async function upsertVerifiedCustomer(input: { phone: string; tenant: str
     if (existing) {
       const next: MasterCustomer = { ...existing, verifiedAt: at, lang: input.lang ?? existing.lang, tenants: existing.tenants.includes(tenant) ? existing.tenants : [...existing.tenants, tenant] };
       await saveCustomer(next);
-      await logActivity({ actor: tenant, source: 'api', kind: 'customer', action: 'customer_verified', status: 'success', summary: `Customer ${maskContact(phone)} verified by text on ${tenant}` });
+      await logActivity({ actor: tenant, source: 'api', kind: 'customer', action: 'customer_verified', status: 'success', summary: `Customer ${maskContact(phone)} verified ${how} on ${tenant}` });
       return { customer: next, created: false };
     }
     const fresh: MasterCustomer = {
@@ -76,7 +77,7 @@ export async function upsertVerifiedCustomer(input: { phone: string; tenant: str
       await repo.setKv(key, { id: fresh.id }).catch(() => undefined);
     }
     await saveCustomer(fresh);
-    await logActivity({ actor: tenant, source: 'api', kind: 'customer', action: 'customer_created', status: 'success', summary: `Customer account created for ${maskContact(phone)} (verified by text on ${tenant})` });
+    await logActivity({ actor: tenant, source: 'api', kind: 'customer', action: 'customer_created', status: 'success', summary: `Customer account created for ${maskContact(phone)} (verified ${how} on ${tenant})` });
     return { customer: fresh, created: true };
   });
 }

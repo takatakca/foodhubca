@@ -155,11 +155,11 @@ describe('verify start / check with Food Hub’s own texted code', () => {
   it('English text, display names of other websites, FOODHUB_CUSTOMER_TENANTS allow-list', async () => {
     expect(verifySmsText('123456', 'pppmtl', 'en')).toBe('Your PPP Pizzeria code: 123456 (valid 10 min). Do not share it.');
     expect(tenantDisplayName('gateau-montreal')).toBe('Gateau Montreal');
-    expect(allowedCustomerTenants()).toEqual(['pppmtl']);
+    expect(allowedCustomerTenants()).toEqual(['pppmtl', 'on2go']);
     expect(customerTenant('gateau')).toBeNull();
     expect((await start({ tenant: 'gateau', phone: '514 555 1234' })).status).toBe(403);
     vi.stubEnv('FOODHUB_CUSTOMER_TENANTS', 'pppmtl, gateau,Bad Slug!');
-    expect(allowedCustomerTenants()).toEqual(['pppmtl', 'gateau']);
+    expect(allowedCustomerTenants()).toEqual(['pppmtl', 'gateau', 'on2go']);
     expect((await start({ tenant: 'gateau', phone: '514 555 1234', lang: 'en' })).status).toBe(200);
     expect(smsCalls()[0].form.get('Body')).toMatch(/^Your Gateau code: \d{6} \(valid 10 min\)\. Do not share it\.$/);
   });
@@ -427,7 +427,7 @@ describe('console: Settings → Customers', () => {
     const j = await r.json();
     expect(j.count).toEqual({ total: 1, deleted: 0 });
     expect(j.verify).toMatchObject({ ok: true, provider: 'Food Hub SMS code' });
-    expect(j.tenants).toEqual([{ slug: 'pppmtl', name: 'PPP Pizzeria' }]);
+    expect(j.tenants).toEqual([{ slug: 'pppmtl', name: 'PPP Pizzeria' }, { slug: 'on2go', name: 'ON2GO' }]);
     expect(j.recent).toHaveLength(1);
     expect(j.recent[0]).toMatchObject({ id: customer.id, name: 'Ana Bel', lang: 'fr', tenants: ['pppmtl'], addresses: 0, favourites: 0 });
     expect(j.recent[0].phone).toMatch(/^\+1•+1234$/);

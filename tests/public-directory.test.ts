@@ -6,8 +6,9 @@ import { NextRequest } from 'next/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   allowedOrigin, buildPublicDirectory, cloverFromEnv, DIRECTORY_SEED, FORBIDDEN_STORE_IDS, isOpenLate, itemsByCloverId,
-  rankTrending, readPublicDirectoryWithin, resetPublicDirectoryCache, storeUrl, uuidToBase64Url,
+  rankTrending, readPublicDirectoryWithin, resetPublicDirectoryCache, storefrontUrl, storeUrl, uuidToBase64Url,
 } from '../lib/foodhub/public-directory';
+import { livePublicPages } from '../lib/foodhub/storefront/settings';
 import { allDayWeek, normalizeWeek } from '../lib/foodhub/hours';
 import type { HoursConfig, MasterMenu, WeeklyHours } from '../lib/foodhub/types';
 
@@ -109,6 +110,40 @@ describe('buildPublicDirectory', () => {
       expect(live).toEqual([...live].sort((x, y) => Number(y) - Number(x)));
     }
     expect(cloverFromEnv({ FOODHUB_PUBLIC_CLOVER_ORDER_URL: 'https://evil.example/online-ordering/x' })).toBeNull();
+  });
+
+  it('our own ordering pages come first, only for the brands switched on, in the kitchen each page serves', () => {
+    const ppp = DIRECTORY_SEED.brands.find((b) => b.id === 'ppp-pizzeria')!;
+    const ndgCode = DIRECTORY_SEED.kitchens.find((k) => k.id === 'ndg')!.foodhubLocationCodes[0];
+    const stlCode = DIRECTORY_SEED.kitchens.find((k) => k.id === 'saint-leonard')!.foodhubLocationCodes[0];
+    const cfg = { payOnline: true, payAtPickup: true, pickupMaxTotal: 150 };
+    const settings = {
+      enabled: true,
+      brands: {
+        [ppp.foodhubBrandNames[0]]: { ...cfg, enabled: true, slug: 'ppp-pizzeria', locationCode: ndgCode },
+        'Pi Pita': { ...cfg, enabled: false, slug: 'pi-pita', locationCode: ndgCode },
+        'Not In The Directory': { ...cfg, enabled: true, slug: 'nope', locationCode: stlCode },
+      },
+    };
+    expect(livePublicPages(settings)).toEqual([{ brandId: 'ppp-pizzeria', slug: 'ppp-pizzeria', kitchen: 'ndg' }]);
+    expect(livePublicPages({ ...settings, enabled: false })).toEqual([]);
+
+    const d = buildPublicDirectory(DIRECTORY_SEED, {
+      now: THU_10PM,
+      clover: cloverFromEnv({ FOODHUB_PUBLIC_CLOVER_ORDER_URL: 'https://www.clover.com/online-ordering/on2go-test' }),
+      storefront: { base: 'https://foodhub.on2go.ca/', pages: livePublicPages(settings) },
+    });
+    expect(d.orderPriority[0]).toBe('on2go');
+    const brand = d.brands.find((b) => b.id === 'ppp-pizzeria')!;
+    const ndg = brand.locations.find((l) => l.kitchen === 'ndg')!;
+    expect(ndg.order[0]).toEqual({ platform: 'on2go', label: 'ON2GO', live: true, url: { fr: 'https://foodhub.on2go.ca/commander/ppp-pizzeria', en: 'https://foodhub.on2go.ca/commander/ppp-pizzeria?lang=en' } });
+    expect(ndg.order[1].platform).toBe('clover');
+    expect(brand.locations.find((l) => l.kitchen === 'saint-leonard')!.order.some((o) => o.platform === 'on2go')).toBe(false);
+    expect(d.brands.find((b) => b.id === 'pi-pita')!.locations.every((l) => !l.order.some((o) => o.platform === 'on2go'))).toBe(true);
+    // A base that is not a real https host (or a bad slug) never reaches the feed.
+    const bad = buildPublicDirectory(DIRECTORY_SEED, { now: THU_10PM, storefront: { base: 'javascript:alert(1)//', pages: [{ brandId: 'ppp-pizzeria', slug: 'ppp-pizzeria', kitchen: 'ndg' }] } });
+    expect(bad.brands.find((b) => b.id === 'ppp-pizzeria')!.locations[0].order.some((o) => o.platform === 'on2go')).toBe(false);
+    expect(storefrontUrl('http://localhost:4800', 'pi-pita', 'en')).toBe('http://localhost:4800/commander/pi-pita?lang=en');
   });
 
   it('Uber uuid → base64url and DoorDash store pages', () => {

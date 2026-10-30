@@ -61,6 +61,19 @@ describe('parseLead (validation)', () => {
     if (ok.kind === 'ok') expect(ok.lead.contact).toBe('Mimi T');
   });
 
+  it('province: optional two-letter code, upper-cased, the « , QC » suffix of the city dropped when it repeats it', () => {
+    const none = parseLead(valid());
+    if (none.kind === 'ok') expect(none.lead.province).toBeUndefined();
+    const r = parseLead({ ...valid(), city: 'Montréal, qc', province: 'qc' });
+    expect(r.kind).toBe('ok');
+    if (r.kind === 'ok') { expect(r.lead.province).toBe('QC'); expect(r.lead.city).toBe('Montréal'); }
+    const keep = parseLead({ ...valid(), city: 'Gatineau, ON', province: 'QC' });
+    if (keep.kind === 'ok') expect(keep.lead.city).toBe('Gatineau, ON');
+    const bad = parseLead({ ...valid(), province: 'XX' });
+    expect(bad.kind).toBe('invalid');
+    if (bad.kind === 'invalid') expect(bad.errors).toEqual({ province: 'invalid' });
+  });
+
   it('single-line fields lose their line breaks (no second email header); restaurant, contact and city refuse links', () => {
     const ok = parseLead({ ...valid(), restaurant: 'Chez\r\nBcc: victim@example.com', city: 'Mont\nréal', message: 'ligne 1\r\nligne 2' });
     expect(ok.kind).toBe('ok');

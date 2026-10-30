@@ -12,7 +12,6 @@ type Picks = Record<string, Record<string, number>>;
 interface Line { key: string; ref: string; qty: number; picks: Picks; notes?: string }
 interface Last { track: string; number: string; at: number }
 
-const TAX = 0.14975;
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const L = (x: { name: string; nameFr?: string }, lang: SfLang) => (lang === 'fr' ? x.nameFr || x.name : x.name);
 const D = (x: { description?: string; descriptionFr?: string }, lang: SfLang) => (lang === 'fr' ? x.descriptionFr || x.description : x.description);
@@ -67,7 +66,7 @@ export default function OrderClient({ menu, lang, src }: { menu: PublicMenu; lan
 
   const lines = cart.map((l) => ({ l, item: items.get(l.ref)! })).filter((x) => x.item);
   const subtotal = r2(lines.reduce((s, { l, item }) => s + unitPrice(item, l.picks) * l.qty, 0));
-  const tax = r2(subtotal * TAX);
+  const tax = r2(subtotal * menu.taxes.rate);
   const total = r2(subtotal + tax);
   const nItems = lines.reduce((s, { l }) => s + l.qty, 0);
 
@@ -283,7 +282,7 @@ export default function OrderClient({ menu, lang, src }: { menu: PublicMenu; lan
             <>
               <dl className="mt-4 grid grid-cols-[1fr_auto] gap-y-1 text-[15px]">
                 <dt className="sf-muted">{t.subtotal}</dt><dd>{priceLabel(subtotal, lang)}</dd>
-                <dt className="sf-muted">{t.taxes}</dt><dd>{priceLabel(tax, lang)}</dd>
+                <dt className="sf-muted">{menu.taxes.label[lang]}</dt><dd>{priceLabel(tax, lang)}</dd>
                 <dt className="font-extrabold">{t.total}</dt><dd className="font-extrabold">{priceLabel(total, lang)}</dd>
               </dl>
               <form className="mt-5 grid gap-3" onSubmit={(e) => { e.preventDefault(); if (formOk && !busy) void submit(pay); }}>

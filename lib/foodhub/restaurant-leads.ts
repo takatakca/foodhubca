@@ -20,6 +20,10 @@ export const LEAD_STATUSES = ['new', 'contacted', 'won', 'lost'] as const;
 export type LeadStatus = (typeof LEAD_STATUSES)[number];
 export type LeadLang = 'fr' | 'en';
 
+/** Canada only (owner's direction of 2026-10-29): the 13 provinces and territories, by postal code. */
+export const LEAD_PROVINCES = ['QC', 'ON', 'BC', 'AB', 'MB', 'SK', 'NS', 'NB', 'NL', 'PE', 'YT', 'NT', 'NU'] as const;
+export type LeadProvince = (typeof LEAD_PROVINCES)[number];
+
 /** What the public form sends (after validation). */
 export interface LeadInput {
   restaurant: string;
@@ -27,6 +31,8 @@ export interface LeadInput {
   email: string;
   phone: string;
   city: string;
+  /** Canadian province or territory, two-letter postal code (QC, ON…). Optional: older forms never sent it. */
+  province?: LeadProvince;
   address?: string;
   website?: string;
   platforms: LeadPlatform[];
@@ -127,7 +133,16 @@ export function parseLead(body: unknown): LeadParse {
 
   const restaurant = required('restaurant');
   const contact = required('contact');
-  const city = required('city');
+  let city = required('city');
+  // Province: optional, a postal code. on2go.ca also writes it inside the city (« Montréal, QC ») for older servers:
+  // that suffix is dropped when it repeats the province, so the console and the emails read « Montréal · QC ».
+  let province: LeadProvince | undefined;
+  if (b.province !== undefined && b.province !== null && b.province !== '') {
+    const p = line(b.province, 4).toUpperCase();
+    if ((LEAD_PROVINCES as readonly string[]).includes(p)) province = p as LeadProvince;
+    else errors.province = 'invalid';
+  }
+  if (province && city.toUpperCase().endsWith(`, ${province}`)) city = city.slice(0, -4).trim();
   const address = optional('address');
   const message = optional('message');
   let website = optional('website');
@@ -166,7 +181,7 @@ export function parseLead(body: unknown): LeadParse {
   if (source.length > LEAD_LIMITS.source) errors.source = 'too_long';
 
   if (Object.keys(errors).length) return { kind: 'invalid', errors };
-  return { kind: 'ok', lead: { restaurant, contact, email: email!, phone: phone!, city, address, website, platforms, brands, message, lang, source } };
+  return { kind: 'ok', lead: { restaurant, contact, email: email!, phone: phone!, city, province, address, website, platforms, brands, message, lang, source } };
 }
 
 // ---------------------------------------------------------------------------
@@ -230,7 +245,7 @@ export function leadNotificationText(lead: RestaurantLead): { subject: string; t
     `Contact : ${lead.contact}`,
     `Courriel : ${lead.email}`,
     `Téléphone : ${lead.phone}`,
-    `Ville : ${lead.city}`,
+    `Ville : ${lead.city}${lead.province ? ` (${lead.province})` : ''}`,
     lead.address ? `Adresse : ${lead.address}` : null,
     lead.website ? `Site web : ${lead.website}` : null,
     `Plateformes : ${platforms}`,

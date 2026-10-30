@@ -28,6 +28,7 @@ const APP_PORT = Number(process.env.FOODHUB_E2E_APP_PORT) || 4800;
 const APP = `http://127.0.0.1:${APP_PORT}`;
 const MOCK = `http://127.0.0.1:${MOCK_PORT}`;
 const PASSWORD = 'e2e-dashboard-pass';
+const SCREENS_TOKEN = 'screens-agent-e2e-token-0123456789';
 const UBER_SECRET = 'uber-client-secret-e2e';
 const DD_SECRET_B64 = Buffer.from('doordash-signing-secret-e2e-32bytes!').toString('base64');
 const DRIVE_SECRET_B64 = Buffer.from('doordash-drive-secret-e2e-32bytes!!').toString('base64');
@@ -394,6 +395,7 @@ const env = {
   TGTG_WEBHOOK_SECRET: 'tgtg-hook-e2e',
   TGTG_EMAIL_WEBHOOK_SECRET: 'tgtg-mail-e2e',
   SKIP_ONBOARDING_HMAC_SECRET: 'skip-onboard-e2e', DELIVERECT_WEBHOOK_SECRET: 'dlv-hook-e2e', DELIVERECT_TGTG_CHANNEL_IDS: '777',
+  FOODHUB_SCREENS_AGENT_TOKEN: SCREENS_TOKEN,
   FOODHUB_RELAY_SECRET: RELAY_SECRET, FOODHUB_RELAY_CHANNELS: 'tgtg', FOODHUB_RELAY_CALLBACK_URL: `${MOCK}/relay/callback`, FOODHUB_RELAY_CALLBACK_TOKEN: RELAY_CB_TOKEN,
   CLOVER_BASE_URL: `${MOCK}/clover`, CLOVER_MERCHANT_ID: 'MAINMERCHANT', CLOVER_ACCESS_TOKEN: CLOVER_TOKEN,
   CLOVER_MERCHANT_TOKENS: JSON.stringify({ FAILMERCHANT: 'x' }), CLOVER_WEBHOOK_AUTH: 'clover-auth-e2e',
@@ -1189,7 +1191,7 @@ try {
   check('app icon served without sign-in', (await call('GET', '/icons/icon-192.png', { auth: false })).status === 200);
 
   console.log('\n35. Every screen renders');
-  const screens = ['/', '/orders', `/orders/${o8?.id}`, `/ticket/${o8?.id}`, '/kitchen', '/stores', '/stores/list', '/stores/hours', '/stores/mapping', '/menu', '/menu/86', '/alerts',
+  const screens = ['/', '/orders', `/orders/${o8?.id}`, `/ticket/${o8?.id}`, '/kitchen', '/stores', '/stores/list', '/stores/hours', '/stores/mapping', '/stores/screens', '/menu', '/menu/86', '/alerts',
     '/insights', '/insights/reports', '/insights/activity', '/money', '/money/reconciliation', '/money/disputes', '/money/payouts', '/money/ledger', '/money/statements', '/money/fees', '/money/tgtg',
     '/settings', '/settings/profile', '/settings/team', '/settings/devices', '/settings/security', '/settings/alerts', '/settings/channels', '/settings/business', '/settings/go-live'];
   const rendered = await Promise.all(screens.map((s2) => call('GET', s2)));
@@ -1861,6 +1863,32 @@ try {
     check('e-mail without a code → attention list (never dropped)', bad.json?.status === 'attention' && panel.json?.attention?.some((m) => m.subject === 'New order - OOEUF NDG E2E'), bad.text.slice(0, 200));
     check('Settings panel: last e-mails listed, mailbox not configured (IMAP off)', panel.status === 200 && panel.json?.recent?.length >= 3 && panel.json?.readiness?.imapConfigured === false && panel.json?.readiness?.webhookConfigured === true);
     check('Settings panel needs a sign-in', (await call('GET', '/api/foodhub/tgtg-email', { auth: false })).status === 401);
+  }
+
+  console.log('\n48. Platform screens wall: numbered screens, sign-in page command, shared layout (docs/ORDER_SCREENS_RESCUE.md)');
+  {
+    const agent = (screens, token = SCREENS_TOKEN) => call('POST', '/api/foodhub/screens/heartbeat', { auth: false, headers: { authorization: `Bearer ${token}` }, body: { version: 'e2e', screens } });
+    const setup = await call('POST', '/api/foodhub/screens/setup', { body: { baseUrl: 'https://screens.e2e.test', locationCode: 'NDG_6284', counts: { doordash: 2, ubereats: 1, skip: 1 } } });
+    check('Set up screens: s01–s04 created (2 DoorDash, 1 Uber Eats, 1 Skip)', setup.status === 200 && setup.json?.created === 4, setup.text.slice(0, 200));
+    check('setting up screens needs a sign-in', (await call('POST', '/api/foodhub/screens/setup', { auth: false, body: {} })).status === 401);
+    check('relay heartbeat refuses a wrong token', (await agent([{ id: 's01', state: 'blank' }], 'wrong-token-wrong-token-wrong')).status === 401);
+    const first = await agent([{ id: 's01', state: 'blank' }, { id: 's03', state: 'blank' }, { id: 's04', state: 'blank' }, { id: 's99', state: 'ok' }]);
+    const cmd = (id) => first.json?.commands?.find((c) => c.id === id);
+    check('each new screen is sent to its platform\'s sign-in page once', cmd('s01')?.kind === 'open' && cmd('s01').url === 'https://order.doordash.com/' && cmd('s03')?.url === 'https://merchants.ubereats.com/manager/orders' && cmd('s04')?.url === 'https://restaurants.skipthedishes.com/' && first.json?.unknown?.includes('s99'), first.text.slice(0, 300));
+    check('the command is handed over once', ((await agent([{ id: 's01', state: 'login' }])).json?.commands ?? []).length === 0);
+    const sw = await call('PATCH', '/api/foodhub/screens/s02', { body: { platform: 'skip' } });
+    const after = await agent([{ id: 's02', state: 'ok', title: '(2) Orders' }]);
+    check('switching a screen to Skip sends it to Skip\'s page', sw.status === 200 && after.json?.commands?.[0]?.kind === 'open' && /skipthedishes\.com/.test(after.json.commands[0].url), after.text.slice(0, 200));
+    const list = await call('GET', '/api/foodhub/screens');
+    const s02 = list.json?.screens?.find((x) => x.id === 's02');
+    check('the wall lists the screens with status, waiting count and the orders → Clover paths', s02?.status === 'online' && s02.titleCount === 2 && list.json?.screens?.find((x) => x.id === 's01')?.status === 'login_required' && list.json?.orderPaths?.length === 3, JSON.stringify(s02)?.slice(0, 200));
+    const put = await call('PUT', '/api/foodhub/screens/layout', { body: { wall: { view: '24', order: ['s04', 's01'], custom: [] } } });
+    const got = await call('GET', '/api/foodhub/screens/layout');
+    check('wall layout shared with every device', put.status === 200 && got.json?.wall?.view === '24' && got.json.wall.order[0] === 's04', got.text.slice(0, 200));
+    check('sharing a layout needs a sign-in', (await call('PUT', '/api/foodhub/screens/layout', { auth: false, body: { wall: {} } })).status === 401);
+    const csp = async (path) => (await fetch(`${APP}${path}`, { headers: { authorization: basic }, redirect: 'manual' })).headers.get('content-security-policy') || '';
+    check('anti-clickjacking: console pages and sign-in can only be framed by Food Hub and Clover', /frame-ancestors 'self' https:\/\/\*\.clover\.com/.test(await csp('/stores/screens')) && /frame-ancestors/.test(await csp('/login')), await csp('/stores/screens'));
+    check('the storefront keeps its own framing rules (embeddable on brand sites)', !/frame-ancestors 'self' https:\/\/\*\.clover/.test(await csp('/commander/')));
   }
 
   await runMevScenarios({ call, check, waitFor, sleep, findOrder, uberWebhook, skipWebhook, skipOrder, mevMock, secret: MEV_SECRET, localDay, appLog: () => appLog });

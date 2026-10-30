@@ -36,4 +36,4 @@ Statuts : DONE = preuve GitHub ; REVIEW = branche/PR à valider ; BLOCKED = inte
 
 ## Discipline
 
-Avant de coder : vérifier `main`, PR, commits, `WORKLOG.md` et le tableau local s'il est accessible ; ne pas reprendre une tâche active sur une autre branche. Mettre à jour `docs/AGENT_HANDOFF.md` et `WORKLOG.md` avant de rendre la main. Pas de fusion automatique de `main` : `CLAUDE.md` réserve cette action au propriétaire.
+Avant de coder : vérifier `main`, PR, commits, `WORKLOG.md` et le tableau local s'il est accessible ; ne pas reprendre une tâche active sur une autre branche. Mettre à jour `docs/AGENT_HANDOFF.md` et `WORKLOG.md` avant de rendre la main. Fusion : depuis le 2026-10-29, chaque agent fusionne sa propre PR quand les vérifications sont vertes (`CLAUDE.md`, ordres du propriétaire) ; jamais de push direct sur `main`. Une fusion peut mettre en ligne (déploiement Coolify au push, `docs/DEPLOYMENT.md` §3) : vérifications complètes d'abord. Lire `docs/REGISTRE_TAKATAK.md` avant de commencer.

@@ -20,6 +20,7 @@ import { getBrandMenu } from '../menu/shared';
 import { menuForLocation } from '../ops';
 import { FORBIDDEN_STORE_IDS } from '../public-directory';
 import { getRepo } from '../repo';
+import { foodTaxLabel, foodTaxRate, locationProvince, parseProvince, type Province } from '../taxes';
 import { foodhubTimeZone } from '../time';
 import type { ChannelStore, HoursConfig, MasterMenu, MenuItem, MenuModifier, MenuModifierGroup, WeeklyHours } from '../types';
 import { brandForSlug, brandLive, seedBrandOf, seedKitchenOf, type StorefrontBrand } from './settings';
@@ -50,6 +51,8 @@ export interface PublicMenu {
   slug: string;
   brand: { name: string; color: string; cuisine: { fr: string[]; en: string[] }; description: { fr: string; en: string } | null };
   location: { name: { fr: string; en: string }; street: string; city: string; region: string; postalCode: string; geo: { lat: number; lng: number } | null };
+  /** Sales taxes of the kitchen's province on prepared food: the rate the cart shows before the server prices it, and the receipt line's label. */
+  taxes: { province: Province; rate: number; label: { fr: string; en: string } };
   state: PublicState;
   pay: { online: boolean; atPickup: boolean };
   note: { fr?: string; en?: string };
@@ -165,7 +168,7 @@ export function pausedByStores(stores: ChannelStore[], brandName: string, locati
 /** Builds the menu as the customer sees it (pure: every input passed in). */
 export function buildPublicMenu(input: {
   slug: string; brandName: string; cfg: StorefrontBrand; brandActive: boolean; menu: MasterMenu | null; hours: HoursConfig; stores: ChannelStore[];
-  location: { name?: string; address?: string; city?: string; postalCode?: string } | null; now: number; payOnlineReady?: boolean;
+  location: { name?: string; address?: string; city?: string; province?: string; postalCode?: string } | null; now: number; payOnlineReady?: boolean;
 }): { menu: PublicMenu; source: MasterMenu } {
   const { slug, brandName, cfg, now } = input;
   const loc = cfg.locationCode;
@@ -184,6 +187,7 @@ export function buildPublicMenu(input: {
   }).filter((c) => c.items.length > 0);
   const seed = seedBrandOf(brandName);
   const kitchen = seedKitchenOf(loc);
+  const province = parseProvince(kitchen?.address.region) ?? locationProvince(input.location);
   const state = openState(input.hours, brandName, loc, now);
   const paused = !input.brandActive || !cfg.enabled || pausedByStores(input.stores, brandName, loc, now);
   return {
@@ -194,8 +198,9 @@ export function buildPublicMenu(input: {
       location: {
         name: kitchen?.name ?? { fr: input.location?.name ?? loc, en: input.location?.name ?? loc },
         street: kitchen?.address.street ?? input.location?.address ?? '', city: kitchen?.address.city ?? input.location?.city ?? '',
-        region: kitchen?.address.region ?? 'QC', postalCode: kitchen?.address.postalCode ?? input.location?.postalCode ?? '', geo: kitchen?.geo ?? null,
+        region: province, postalCode: kitchen?.address.postalCode ?? input.location?.postalCode ?? '', geo: kitchen?.geo ?? null,
       },
+      taxes: { province, rate: foodTaxRate(province), label: { fr: foodTaxLabel(province, 'fr'), en: foodTaxLabel(province, 'en') } },
       state: { ...state, paused },
       pay: { online: cfg.payOnline && input.payOnlineReady !== false, atPickup: cfg.payAtPickup },
       note: { ...(cfg.noteFr ? { fr: cfg.noteFr } : {}), ...(cfg.noteEn ? { en: cfg.noteEn } : {}) },

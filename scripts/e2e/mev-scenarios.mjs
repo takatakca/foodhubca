@@ -38,7 +38,7 @@ export async function runMevScenarios(h) {
   const directMev = async (id) => (await call('GET', `/api/foodhub/delivery/${id}`)).json?.order?.mev;
   const report = { at: new Date().toISOString(), scenarios: {} };
 
-  console.log('\n48. Revenu Québec invoices through Takatak MEV (QCMEV stand-in)');
+  console.log('\n49. Revenu Québec invoices through Takatak MEV (QCMEV stand-in)');
   check('MEV switch OFF for the whole run so far: zero calls to Takatak MEV', st.calls.length === 0, `${st.calls.length} call(s)`);
   const s0 = (await call('GET', '/api/foodhub/mev')).json;
   check('MEV status: simulator mode, address and key set, the key value is never shown', s0?.readiness?.mode === 'simulator' && s0.readiness.urlSet && s0.readiness.secretSet && !JSON.stringify(s0).includes(secret), JSON.stringify(s0?.readiness));

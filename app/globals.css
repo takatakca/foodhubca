@@ -287,19 +287,11 @@ html[data-density='compact'] { --row-py: 0.5rem; }
 html[data-density='comfortable'] { --row-py: 0.75rem; }
 
 html[data-motion='reduce'] *, html[data-motion='reduce'] *::before, html[data-motion='reduce'] *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
-/* Premium rule 7 + the system's « reduce motion » (#52): entrance animations stop, every other animation and transition
-   is cut to 1 ms and smooth scrolling stops, without touching the screen's own settings. The incoming-order ring
-   (animate-ring, also sm:animate-ring) is the one exception: it is an alarm, so it keeps pulsing; the in-app « reduce
-   motion » setting (data-motion, above) still shortens it. */
+/* Premium rule 7: every entrance animation is motion-safe. The incoming-order ring (animate-ring) is the one
+   exception: it is an alarm, so it keeps pulsing; the system setting still shortens it. */
 @media (prefers-reduced-motion: reduce) {
   .taktak-spin, .taktak-bob, .taktak-wave, .animate-rise, .animate-fade, .animate-slide-in, .animate-pulse-soft, .animate-pop, .animate-confetti, .animate-flow { animation: none !important; }
   .animate-pulse, .animate-bounce, .animate-ping { animation: none !important; }
-  html *:not([class*='animate-ring']), html *::before, html *::after {
-    animation-duration: 1ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 1ms !important;
-  }
-  html, html * { scroll-behavior: auto !important; }
 }
 
 /* ------------------------------------------------------------------------------------------------
@@ -316,6 +308,16 @@ html[data-motion='reduce'] *, html[data-motion='reduce'] *::before, html[data-mo
   .table-cards td[data-label]::before { content: attr(data-label); flex: 0 0 auto; color: var(--color-ink-3); font-size: calc(13px * var(--ts)); font-weight: 600; text-align: left; }
   .table-cards td:not([data-label]) { justify-content: flex-end; }
   .table-cards td[data-primary] { justify-content: flex-start; text-align: left; font-weight: 700; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* OS accessibility preferences are honoured without changing screen settings. */
+  html *, html *::before, html *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Kitchen touch controls and portaled dialogs: 48px minimum, even in compact mode. */

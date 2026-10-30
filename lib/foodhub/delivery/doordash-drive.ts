@@ -19,6 +19,7 @@ import { checkSharedSecret, fromCents, liveConnectorsGloballyEnabled, missingEnv
 import { normalizePhone } from '../notify';
 import { getRepo } from '../repo';
 import { formatAddress } from './address';
+import { locationProvince } from '../taxes';
 import { blocked, type AddressParts, type CourierFleet, type DeliveryRequest, type FleetEvent, type FleetResult } from './fleet';
 import type { CourierPosition, DeliveryProof, DeliveryQuote, DeliveryStatus } from './types';
 
@@ -161,7 +162,7 @@ export async function registerDriveStores(kitchens: DriveKitchen[], businessName
     if (!k.address?.trim()) { rows.push({ locationCode: k.code, ok: false, message: 'Kitchen address missing (Settings → Business).' }); continue; }
     const storeId = driveStoreId(k.code);
     const phone = normalizePhone(k.phone ?? '') ?? undefined;
-    const fields = { name: k.name, address: formatAddress({ street: k.address, city: k.city || 'Montréal', province: 'QC', postalCode: k.postalCode || '', country: 'CA' }), ...(phone ? { phone_number: phone } : {}) };
+    const fields = { name: k.name, address: formatAddress({ street: k.address, city: k.city || 'Montréal', province: locationProvince(k), postalCode: k.postalCode || '', country: 'CA' }), ...(phone ? { phone_number: phone } : {}) };
     const found = await call('GET', `${storesPath}/${encodeURIComponent(storeId)}`);
     const res = found.ok ? await call('PATCH', `${storesPath}/${encodeURIComponent(storeId)}`, fields)
       : found.status === 404 ? await call('POST', storesPath, { external_store_id: storeId, ...fields }) : found;

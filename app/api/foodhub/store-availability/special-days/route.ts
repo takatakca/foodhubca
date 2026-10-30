@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { inScope, withPerm } from '@/lib/foodhub/auth';
+import { afterHoursSaved } from '@/lib/foodhub/autopilot';
 import { getCatalog } from '@/lib/foodhub/catalog';
 import { getHours, localDate } from '@/lib/foodhub/hours';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
@@ -43,7 +44,10 @@ export const POST = withPerm('menu:edit', async (req, _ctx, actor) => {
       if (!slots.success) return fail('slots: 1 to 6 slots of { open, close } (HH:MM), or closed: true', 400, { errorFr: 'Heures spéciales : 1 à 6 créneaux (ouverture, fermeture en HH:MM), ou « Fermé »' });
       how = { slots: slots.data.map(({ open, close }) => ({ open, close })) };
     }
+    const before = await getHours();
     const r = await addSpecialDays(ids, Number(b.year), how, codes, actor);
+    // Settings → Autopilot « Republier 10 min après un changement » (does nothing while that switch is off).
+    if (r.added.length) await afterHoursSaved(before, r.hours, actor);
     return ok({ added: r.added, skipped: r.skipped, publishAt: '/stores/hours' });
   } catch (e) {
     const { error, errorFr } = errorFields(e);

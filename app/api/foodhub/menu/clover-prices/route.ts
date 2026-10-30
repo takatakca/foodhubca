@@ -1,4 +1,5 @@
 import { withPerm } from '@/lib/foodhub/auth';
+import { afterCloverPriceUsed } from '@/lib/foodhub/autopilot';
 import { listCloverPriceChanges, resolveCloverPriceChange } from '@/lib/foodhub/clover-sync';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
 
@@ -11,6 +12,9 @@ export const GET = withPerm('view', async (req) => ok({ changes: await listClove
 export const POST = withPerm('menu:edit', async (req, _ctx, actor) => {
   const b = await readJson(req);
   if (!b.brand || !b.ref) return fail('brand and ref are required');
-  if (!(await resolveCloverPriceChange(String(b.brand), String(b.ref), b.accept !== false, actor))) return fail('No pending Clover price change for that item.', 404);
-  return ok();
+  const accept = b.accept !== false;
+  if (!(await resolveCloverPriceChange(String(b.brand), String(b.ref), accept, actor))) return fail('No pending Clover price change for that item.', 404);
+  // Settings → Autopilot « Republier 10 min après un changement » (does nothing while that switch is off).
+  const autopilot = accept ? await afterCloverPriceUsed(String(b.brand), actor) : [];
+  return ok(autopilot.length ? { autopilot } : {});
 });

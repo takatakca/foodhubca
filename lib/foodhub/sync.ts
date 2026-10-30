@@ -19,6 +19,7 @@ import { CHANNEL_LABELS } from './config';
 import { pollCloverInventory } from './clover-sync';
 import { settleInClover } from './clover-settle';
 import { dailyReconciliation } from './recon/automation';
+import { runAutopilot } from './autopilot';
 import { runDuePublishes } from './menu/schedule';
 import { fireDueScheduled } from './scheduling';
 import { applyHolidayClosures, reenableExpiredItems, reopenExpiredPauses } from './ops';
@@ -249,6 +250,9 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
     const scheduledFired = await fireDueScheduled().catch(() => 0);
     const inv = await pollCloverInventory().catch((e) => ({ turnedOff: 0, turnedOn: 0, priceChanges: 0, errors: [String(e?.message ?? e)] }));
     const recon = await dailyReconciliation().catch(() => null);
+    // Settings → Autopilot: remembers what the housekeeping above did, then runs the new automations that are switched
+    // on (all OFF by default: with every switch off it only reads its switches).
+    await runAutopilot({ sync: { reopened: reopened.length, itemsReenabled, scheduledPublishes, autoCompleted, holidayClosures, recon, cloverInventory: inv } }).catch(() => null);
     // Clover extra-brand billing (off unless FOODHUB_CLOVER_METERED_ENABLED=true; at most once an hour).
     await tickExtraBrandBilling().catch((e) => console.error('[foodhub] extra-brand billing failed', e instanceof Error ? e.message : e));
     const stores = await repo.listStores();

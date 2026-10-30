@@ -12,6 +12,7 @@ import { deadlineFor } from '../deadline';
 import { inboxSummary } from '../inbox';
 import { effectiveHours, getHours, holidaysFor, isOpenAt, localDate, openIntervals } from '../hours';
 import { DEVICE_OFFLINE_AFTER_MS, listDevices } from '../identity/devices';
+import { listScreens, SCREEN_PLATFORM_LABEL, screenStatus } from '../screens';
 import { aiConfigured, maskContact, normalizePhone, placeCall, postToChat, sendSms } from '../notify';
 import { listCases, RECOVERABLE } from '../recon/engine';
 import { getRepo } from '../repo';
@@ -145,9 +146,9 @@ function coveredMinutes(spans: Array<[number, number]>): number {
 async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
   const repo = getRepo();
   const tz = foodhubTimeZone();
-  const [catalog, hours, orders, stores, devices, jobs, sync] = await Promise.all([
+  const [catalog, hours, orders, stores, devices, jobs, sync, screens] = await Promise.all([
     getCatalog(), getHours(), repo.listOrders({ since: new Date(now - 24 * 3600_000).toISOString(), limit: 3000 }),
-    repo.listStores(), listDevices(), repo.listJobs(200), repo.getKv<{ at: string }>('sync:last').catch(() => null),
+    repo.listStores(), listDevices(), repo.listJobs(200), repo.getKv<{ at: string }>('sync:last').catch(() => null), listScreens().catch(() => []),
   ]);
   const loc = (code?: string | null) => (code ? catalog.locations.find((l) => l.code === code)?.name ?? code : 'magasin non relié');
   const brandsAt = (code: string) => [...new Set(stores.filter((x) => x.locationCode === code).map((x) => x.brandName))];
@@ -276,6 +277,38 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
       out.push({ ...base, key: `device_muted:${d.id}`, kind: 'device_muted', severity: 'warning',
         title: `Tablette « ${d.name} » ${d.soundOn === false ? 'sans son' : 'écran caché'} — ${loc(d.locationCode)}`, titleEn: `Tablet “${d.name}” ${d.soundOn === false ? 'muted' : 'screen hidden'} — ${loc(d.locationCode)}` });
     }
+  }
+
+  // Platform screens on the relay host (lib/foodhub/screens.ts): during opening hours, a screen that stopped reporting,
+  // shows its sign-in page or a crashed page rings like a tablet that is off. A screen never set up (no heartbeat yet) waits.
+  for (const sc of screens) {
+    const st = screenStatus(sc, now);
+    if (!on('screen_down') || st === 'online' || st === 'never') continue;
+    if (!locationOpen(hours, sc.locationCode, brandsAt(sc.locationCode), now, tz)) continue;
+    const label = `${SCREEN_PLATFORM_LABEL[sc.platform]} « ${sc.name} »`;
+    const labelEn = `${SCREEN_PLATFORM_LABEL[sc.platform]} “${sc.name}”`;
+    const seenMin = sc.lastSeenAt ? Math.round((now - Date.parse(sc.lastSeenAt)) / 60000) : null;
+    const why = st === 'login_required' ? { fr: 'demande de se reconnecter', en: 'asks to sign in again' }
+      : st === 'error' ? { fr: 'page plantée ou vide', en: 'page crashed or blank' } : { fr: 'hors ligne', en: 'offline' };
+    out.push({ key: `screen_down:${sc.id}`, kind: 'screen_down', severity: st === 'offline' && (seenMin ?? 0) < 5 ? 'warning' : 'critical', locationCode: sc.locationCode, deviceId: sc.id,
+      title: `Écran ${label} ${why.fr} — ${loc(sc.locationCode)}`, titleEn: `Screen ${labelEn} ${why.en} — ${loc(sc.locationCode)}`,
+      detail: st === 'offline' && seenMin !== null ? `Aucun signal du serveur relais depuis ${seenMin} min` : sc.pageTitle ?? undefined,
+      detailEn: st === 'offline' && seenMin !== null ? `No signal from the relay host for ${seenMin} min` : sc.pageTitle ?? undefined });
+  }
+
+  // Orders waiting on a platform screen (count in the page title, or the Android order app's notification count) for
+  // longer than the "order waiting" delay, during opening hours: nobody is answering that screen. Only an online screen
+  // counts — a screen that is down rings as screen_down instead.
+  for (const sc of screens) {
+    if (!on('screen_waiting') || screenStatus(sc, now) !== 'online' || !sc.titleCount || !sc.waitingSince) continue;
+    const waitedSec = (now - Date.parse(sc.waitingSince)) / 1000;
+    if (!(waitedSec >= s.unacceptedAfterSec)) continue;
+    if (!locationOpen(hours, sc.locationCode, brandsAt(sc.locationCode), now, tz)) continue;
+    const min = Math.max(1, Math.round(waitedSec / 60));
+    out.push({ key: `screen_waiting:${sc.id}`, kind: 'screen_waiting', severity: 'critical', locationCode: sc.locationCode, deviceId: sc.id,
+      title: `${sc.titleCount} commande(s) en attente sur ${SCREEN_PLATFORM_LABEL[sc.platform]} « ${sc.name} » — ${loc(sc.locationCode)}`,
+      titleEn: `${sc.titleCount} order(s) waiting on ${SCREEN_PLATFORM_LABEL[sc.platform]} “${sc.name}” — ${loc(sc.locationCode)}`,
+      detail: `Personne n’a répondu depuis ${min} min`, detailEn: `Nobody has answered for ${min} min` });
   }
 
   // Silence alarm: a platform that used to send orders has sent none for `silenceAfterMin` of OPENING time — a closed

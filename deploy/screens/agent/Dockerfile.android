@@ -1,0 +1,7 @@
+# Android-mode agent: Node 22 + the adb client only (the emulator lives in the screen's own container).
+FROM node:22-alpine
+RUN apk add --no-cache android-tools
+WORKDIR /agent
+COPY android-lib.mjs android.mjs commands.mjs ./
+USER node
+CMD ["node", "android.mjs"]

@@ -1,0 +1,59 @@
+# Food Hub screen relay host: one always-on browser per platform account, viewable inside Food Hub
+# (Stores → Platform screens). Guide: docs/PLATFORM_SCREENS.md. Values come from .env (never commit it).
+#
+# Per screen: a Chromium with a web view (KasmVNC, port 3001) and a persistent profile (signed in once, stays signed in),
+# plus a small agent that shares its network and reports to Food Hub. Copy a pair of services for each extra screen.
+x-chromium: &chromium
+  image: lscr.io/linuxserver/chromium:latest
+  restart: unless-stopped
+  shm_size: "1gb"
+  security_opt: [seccomp:unconfined]
+x-agent: &agent
+  build: ./agent
+  restart: unless-stopped
+  environment: &agent-env
+    FOODHUB_URL: ${FOODHUB_URL}
+    FOODHUB_SCREENS_AGENT_TOKEN: ${FOODHUB_SCREENS_AGENT_TOKEN}
+
+services:
+  uber-1:
+    <<: *chromium
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: America/Toronto
+      CUSTOM_USER: ${SCREENS_VIEW_USER}
+      PASSWORD: ${SCREENS_VIEW_PASSWORD}
+      TITLE: Uber Eats 1
+      SUBFOLDER: /uber-1/
+      CHROME_CLI: --remote-debugging-port=9222 https://merchants.ubereats.com/manager/orders
+    volumes: ["./profiles/uber-1:/config"]
+    ports: ["127.0.0.1:3101:3001"]
+  uber-1-agent:
+    <<: *agent
+    network_mode: "service:uber-1"
+    environment:
+      <<: *agent-env
+      SCREEN_ID: ${SCREEN_ID_UBER_1}
+      SCREEN_START_URL: https://merchants.ubereats.com/manager/orders
+
+  doordash-1:
+    <<: *chromium
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: America/Toronto
+      CUSTOM_USER: ${SCREENS_VIEW_USER}
+      PASSWORD: ${SCREENS_VIEW_PASSWORD}
+      TITLE: DoorDash 1
+      SUBFOLDER: /doordash-1/
+      CHROME_CLI: --remote-debugging-port=9222 https://order.doordash.com/
+    volumes: ["./profiles/doordash-1:/config"]
+    ports: ["127.0.0.1:3102:3001"]
+  doordash-1-agent:
+    <<: *agent
+    network_mode: "service:doordash-1"
+    environment:
+      <<: *agent-env
+      SCREEN_ID: ${SCREEN_ID_DOORDASH_1}
+      SCREEN_START_URL: https://order.doordash.com/

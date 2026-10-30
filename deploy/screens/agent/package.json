@@ -1,0 +1,10 @@
+{
+  "name": "foodhub-screen-agent",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Watchdog for one platform screen on the Food Hub screen relay host: reports state to Food Hub, reloads a frozen page.",
+  "main": "agent.mjs",
+  "scripts": { "start": "node agent.mjs" },
+  "dependencies": { "playwright-core": "1.56.1" }
+}

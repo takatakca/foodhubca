@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { basicOwner, clientIp, DEVICE_COOKIE, ownerSessionVersion, readCookie, sessionSecretSource, verifyDevice, verifySession } from './lib/foodhub/session';
+import { framePolicyFor } from './lib/foodhub/frame-policy';
 import { HUB_HOME, isIndexablePath, isPublicSitePath, PUBLIC_LANG_HEADER, PUBLIC_PAGE_CACHE, publicHomeEnabled, publicSiteLang } from './lib/foodhub/public-site';
 
 // Sign-in gate for the whole console and its APIs.
@@ -18,6 +19,8 @@ const PUBLIC_PREFIXES = [
   '/api/foodhub/clover-connect/test-order', // welcome-ticket credential (signed, one merchant, its own register)
   '/api/foodhub/clover-connect/phone/callback', // AI phone Clover app's OAuth callback (same rule as Food Hub's; 404 until its App ID is set)
   '/api/foodhub/auth/', '/api/foodhub/devices/heartbeat',
+  '/api/foodhub/screens/heartbeat', // screen relay agent: Bearer FOODHUB_SCREENS_AGENT_TOKEN is the credential (lib/foodhub/screens.ts)
+  '/api/suite/', // TAKATAK Suite apps: each call is signed with that app's own secret (lib/foodhub/suite/auth.ts)
   '/api/auth/google/', // "Continue with Google": the state + PKCE cookie and Google's verified id_token are the credential (lib/foodhub/identity/google.ts)
   // No blanket /api/public/ exemption: only explicitly reviewed read-only routes are public (PUBLIC_PATHS below).
   '/p/', // payment links texted to customers: the secret token is the credential (app/p/[token]/route.ts, delivery/paylink.ts)
@@ -29,6 +32,7 @@ const PUBLIC_PREFIXES = [
 const PUBLIC_PATHS = new Set([
   '/api/health', // uptime monitors: status only without CRON_SECRET or a session (app/api/health/route.ts)
   '/api/release', // deployment proof: public commit SHA only, exact path, no settings or secrets
+  '/api/public/restaurant-leads', // the on2go.ca sign-up form: JSON only, honeypot, 5 sends / 10 min per IP, 16 KB body, CORS for on2go.ca only (app/api/public/restaurant-leads/route.ts)
   '/api/public/directory', // ON2GO/QMAPS read-only directory (public facts only, lib/foodhub/public-directory.ts); other /api/public/* stay protected
   '/api/public/restaurant-leads', // on2go.ca « Rejoindre » form: POST + OPTIONS only, JSON, size cap, honeypot, per-IP quota, CORS on2go.ca (lib/foodhub/restaurant-leads.ts)
   '/legal', // the legal pages' index: redirects to /legal/support (app/legal/page.tsx); /legal/* is in PUBLIC_PREFIXES
@@ -40,6 +44,9 @@ const PUBLIC_PATHS = new Set([
 export async function proxy(req: NextRequest) {
   const res = await gate(req);
   if (!isIndexablePath(req.nextUrl.pathname)) res.headers.set('X-Robots-Tag', 'noindex');
+  // Anti-clickjacking: the console and its sign-in pages only inside Food Hub itself or Clover (lib/foodhub/frame-policy.ts).
+  const frame = framePolicyFor(req.nextUrl.pathname);
+  if (frame && !res.headers.has('Content-Security-Policy')) res.headers.set('Content-Security-Policy', frame);
   return res;
 }
 

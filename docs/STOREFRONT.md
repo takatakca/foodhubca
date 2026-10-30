@@ -75,3 +75,23 @@ et dans l’annuaire public sera ajouté par les branches qui possèdent ces fic
 `lib/foodhub/storefront/*` (settings, catalog, cart, checkout, rate-limit, seo, qr, i18n), `app/commander/*`,
 `app/api/storefront/*` (public), `app/api/foodhub/storefront/settings` (connecté), `app/(console)/settings/storefront`.
 Ajouts : `proxy.ts` (une ligne publique), `delivery/paylink.ts` (`notify: 'none'`, `needSms: false`).
+
+## Commander depuis ON2GO.ca · Ordering from ON2GO.ca (2026-10-30)
+
+ON2GO.ca (annuaire grand public) commande sans quitter son site : il lit le menu (`GET /api/storefront/menu/<slug>`),
+envoie la commande (`POST /api/storefront/checkout`) et suit la commande (`GET /api/storefront/track/<token>`). Ces trois
+routes répondent avec des en-têtes CORS aux origines ON2GO seulement (`allowedOrigin` de `lib/foodhub/public-directory.ts`,
+plus `FOODHUB_PUBLIC_CORS_ORIGINS`) et au préalable (OPTIONS) ; toute autre origine reste refusée. Les réponses gardent des
+chemins relatifs (`/p/<token>`, `/commander/<slug>/suivi/<token>`) : ON2GO les préfixe avec `NEXT_PUBLIC_FOODHUB_URL`.
+Le feed annuaire porte la page (`platform: on2go`) dès qu'une marque est allumée ici.
+
+ON2GO.ca (the consumer directory) orders without leaving its site through the same three routes; CORS for the ON2GO
+origins only, preflight answered, relative paths prefixed on the ON2GO side.
+
+## Taxes par province · Taxes by province (2026-10-30)
+
+Le menu public porte `taxes { province, rate, label }` : la province de la cuisine (Réglages → Entreprise, ou son code
+postal), le taux combiné sur la nourriture préparée et le libellé de la ligne (« Taxes (TPS + TVQ) », « Taxes (TVH) »…).
+Le panier l'affiche avant que le serveur ne chiffre ; `priceCart` et `totalsFor` chiffrent avec la même table
+(`docs/TAXES.md`). The public menu carries the kitchen's province taxes; the cart shows that rate and label, and the
+server prices with the same table.

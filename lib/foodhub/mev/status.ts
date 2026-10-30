@@ -38,6 +38,7 @@ const WHY: Record<string, [string, string]> = {
   sev_clover_app: ['facturée par l’app MEV de Clover', 'invoiced by the Clover MEV app'],
   not_configured: ['adresse ou clé de Takatak MEV manquante', 'Takatak MEV address or key missing'],
   no_location: ['cuisine inconnue', 'unknown kitchen'],
+  not_quebec: ['cuisine hors Québec (MEV est pour le Québec seulement)', 'kitchen outside Québec (MEV is for Québec only)'],
 };
 
 export async function mevStatus() {

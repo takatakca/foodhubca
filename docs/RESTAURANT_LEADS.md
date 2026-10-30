@@ -29,6 +29,7 @@ leads** (owner only): status `new → contacted → won / lost` plus private not
   "email": "mimi@example.com",
   "phone": "514 555 0199",
   "city": "Montréal",
+  "province": "QC",
   "address": "123 rue Test",
   "website": "chezmimi.example",
   "platforms": ["uber", "direct"],
@@ -46,7 +47,8 @@ leads** (owner only): status `new → contacted → won / lost` plus private not
 | `contact` | yes | 2–80 characters (person’s name); no link |
 | `email` | yes | valid address, ≤ 254; stored lower-case |
 | `phone` | yes | North-American number (10 digits, or `+` and 8–15 digits), ≤ 30 characters as typed; stored as E.164 |
-| `city` | yes | 2–80 characters; no link |
+| `city` | yes | 2–80 characters; no link. A trailing « , QC » is dropped when it repeats `province` |
+| `province` | no | Canadian province or territory postal code (`QC`, `ON`, `BC`, `AB`, `MB`, `SK`, `NS`, `NB`, `NL`, `PE`, `YT`, `NT`, `NU`); any other value → `invalid` |
 | `address` | no | ≤ 200 |
 | `website` | no | ≤ 200; `https://` is added when the scheme is missing; must be http(s) with a dotted host |
 | `platforms` | yes (may be empty) | array of `uber`, `doordash`, `skip`, `tgtg`, `direct`, `phone`; unknown values are dropped; anything that is not an array → `invalid` |

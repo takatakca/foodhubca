@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error -- plain ESM helper shared with the e2e harness (no type declarations)
 import { createMockQcmev, mockQcmevFetch } from '../scripts/e2e/mock-qcmev.mjs';
+import { saveLocation } from '../lib/foodhub/catalog';
 import { settleInClover } from '../lib/foodhub/clover-settle';
 import { addDirectEvent, saveDirectOrder } from '../lib/foodhub/delivery/store';
 import type { DirectOrder } from '../lib/foodhub/delivery/types';
@@ -90,6 +91,10 @@ describe('off by default', () => {
     await setSevOfRecord('E2E_A', 'clover_app', ACTOR);
     expect(await mevGate('E2E_A')).toEqual({ active: false, reason: 'sev_clover_app' });
     await setSevOfRecord('E2E_A', 'qcmev', ACTOR);
+    expect(await mevGate('E2E_A')).toEqual({ active: true, mode: 'simulator' });
+    await saveLocation({ code: 'E2E_A', name: 'E2E Toronto', address: '1 King St W', province: 'ON', active: true });
+    expect(await mevGate('E2E_A')).toEqual({ active: false, reason: 'not_quebec' }); // MEV-WEB is Québec's only
+    await saveLocation({ code: 'E2E_A', name: 'E2E Montréal', address: '1 rue Ste-Catherine', postalCode: 'H2X 1Y1', active: true });
     expect(await mevGate('E2E_A')).toEqual({ active: true, mode: 'simulator' });
     await accept(await platformOrder({ locationCode: 'E2E_B' })); // E2E_B: system none
     expect(mock.state.calls.length).toBe(0);

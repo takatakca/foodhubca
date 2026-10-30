@@ -12,6 +12,7 @@
 import { logActivity, type Actor } from '../activity';
 import { decideAlcohol } from '../alcohol/rules';
 import { getCatalog } from '../catalog';
+import { locationProvince } from '../taxes';
 import { nowIso, round2 } from '../config';
 import { featureOn } from '../expansion/features';
 import { normalizePhone, postToChat, sendSms } from '../notify';
@@ -96,7 +97,7 @@ export async function dispatchProblems(order: DirectOrder, settings?: DeliverySe
 export async function buildRequest(order: DirectOrder, deliveryId: string, s: DeliverySettings): Promise<DeliveryRequest> {
   const loc = (await getCatalog()).locations.find((l) => l.code === order.locationCode)!;
   const rule = ruleFor(s, order.locationCode);
-  const pickupParts = { street: loc.address, city: loc.city || 'Montréal', province: 'QC', postalCode: loc.postalCode || '', country: 'CA' };
+  const pickupParts = { street: loc.address, city: loc.city || 'Montréal', province: locationProvince(loc), postalCode: loc.postalCode || '', country: 'CA' };
   const d = order.dropoff!;
   const [given, ...rest] = String(order.customer.name || 'Client').trim().split(/\s+/);
   const tip = order.tip > 0 ? order.tip : s.defaultTip;

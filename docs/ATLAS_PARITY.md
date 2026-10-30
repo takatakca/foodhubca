@@ -68,7 +68,7 @@ Legend: **Done** = built and covered by the end-to-end test (`npm run verify:foo
 | Operations | Time to accept, auto-accept rate, prep time, orders reaching Clover | Done |
 | Store uptime during opening hours | From every status change Food Hub records | Done |
 | New vs returning customers | Only when the platform shares a customer id | Partial |
-| Ratings & reviews | — | Not built |
+| Ratings & reviews | Average rating, 1–5 star breakdown, 7 / 30 / 90-day trend, reviews waiting for a reply, themes, reply drafts (never posted by Food Hub); file and DoorDash imports — `/insights/reviews`, [REVIEWS_HUB.md](REVIEWS_HUB.md) | Done |
 | Payouts & commissions | Expected payout per order (your commission plan + tax on fees), statements (Uber Reporting API, DoorDash / Skip / TGTG files), missing / short-paid / error charges / refunds, dispute cases, bank deposits, internal ledger with GST/QST | Done (statements from DoorDash, Skip, TGTG are imported by you) |
 
 Every chart has a table view and CSV download; filters live in the link (Copy link).
@@ -88,7 +88,7 @@ Report — **Done** (`/insights/reports`; email through SMTP or Resend).
 | Activity log | Who paused, 86'd, published, changed hours/users, signed in, approved with a PIN — and the platform result | Done |
 | Login | Passwordless: 6-digit code or one-tap link by email or SMS; kitchen tablets with staff PINs | Done |
 | Manager approval | Staff need a manager PIN to reject, cancel, refund, pause, change a price or text a customer (configurable per action) | Done (beyond Atlas) |
-| Single sign-on (Google / Microsoft) | — | Not built |
+| Single sign-on (Google / Microsoft) | « Continuer avec Google » for existing team members only, same session and roles — [GOOGLE_SIGNIN.md](GOOGLE_SIGNIN.md) | Google: Done (when `GOOGLE_OAUTH_CLIENT_ID` is set) · Microsoft: Not built |
 
 ## Kitchen device
 
@@ -108,7 +108,7 @@ Report — **Done** (`/insights/reports`; email through SMTP or Resend).
 
 ## Not built yet
 
-Combos / nested options · ratings & reviews · single sign-on (Google / Microsoft).
+Combos / nested options · Microsoft sign-in.
 
 Own-courier dispatch for our own orders (DoorDash Drive / Uber Direct), AI phone ordering, a grocery catalogue and
 alcohol rules are built behind switches (sandbox) — see [EXPANSION_FEATURES.md](EXPANSION_FEATURES.md).

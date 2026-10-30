@@ -10,8 +10,10 @@
 // A sale is sent for a kitchen only when ALL of these say yes. "on" is refused unless QCMEV's /health says PROD and
 // certified; "simulator" is refused when QCMEV says PROD (test sales never reach a production SEV).
 import { logActivity, type Actor } from '../activity';
+import { getCatalog } from '../catalog';
 import { featureOn } from '../expansion/features';
 import { getRepo } from '../repo';
+import { locationProvince } from '../taxes';
 import type { MevMode, MevTrigger, SevOfRecord } from './types';
 
 const MODES: readonly MevMode[] = ['off', 'shadow', 'simulator', 'on'];
@@ -103,7 +105,7 @@ export async function setSevOfRecord(locationCode: string, sev: SevOfRecord, act
 
 export type MevGate =
   | { active: true; mode: Exclude<MevMode, 'off'> }
-  | { active: false; reason: 'mode_off' | 'switch_off' | 'not_allowlisted' | 'sev_none' | 'sev_clover_app' | 'no_location' | 'not_configured' };
+  | { active: false; reason: 'mode_off' | 'switch_off' | 'not_allowlisted' | 'sev_none' | 'sev_clover_app' | 'no_location' | 'not_quebec' | 'not_configured' };
 
 /** Cheap when off: FOODHUB_MEV=off answers without any read. */
 export async function mevGate(locationCode: string | null | undefined, opts: { settings?: MevSettings } = {}): Promise<MevGate> {
@@ -115,6 +117,9 @@ export async function mevGate(locationCode: string | null | undefined, opts: { s
   const sev = sevOfRecord(opts.settings ?? (await getMevSettings()), locationCode);
   if (sev === 'clover_app') return { active: false, reason: 'sev_clover_app' };
   if (sev !== 'qcmev') return { active: false, reason: 'sev_none' };
+  // MEV-WEB is Revenu Québec's: a kitchen in another province never sends it a sale, even when listed by mistake.
+  const kitchen = (await getCatalog().catch(() => null))?.locations.find((l) => l.code === locationCode);
+  if (kitchen && locationProvince(kitchen) !== 'QC') return { active: false, reason: 'not_quebec' };
   if (mode !== 'shadow' && (!mevUrl() || !mevSecret())) return { active: false, reason: 'not_configured' };
   return { active: true, mode };
 }

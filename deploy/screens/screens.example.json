@@ -1,0 +1,9 @@
+{
+  "$comment": "One line per platform screen. Copy to screens.json (ignored by git) and run: node generate.mjs. Never put a user name, password, token or code in this file: the generator refuses it. The owner signs in inside each screen himself.",
+  "screens": [
+    { "id": "SCREEN_ID_UBER_1", "platform": "uber", "name": "Uber Eats 1", "startUrl": "https://merchants.ubereats.com/manager/orders", "mode": "web" },
+    { "id": "SCREEN_ID_DOORDASH_1", "platform": "doordash", "name": "DoorDash 1", "startUrl": "https://order.doordash.com/", "mode": "web" },
+    { "id": "SCREEN_ID_SKIP_1", "platform": "skip", "name": "Skip 1", "startUrl": "https://restaurants.skipthedishes.com/", "mode": "web" },
+    { "id": "SCREEN_ID_DOORDASH_2", "platform": "doordash", "name": "DoorDash 2 (app)", "mode": "android", "package": "com.dd.ddmerchant" }
+  ]
+}

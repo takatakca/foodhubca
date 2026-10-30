@@ -34,7 +34,7 @@ export default function AutopilotPage() {
     setBusy(id);
     try {
       await api('/api/foodhub/autopilot', { method: 'PUT', json: { id, on } });
-      toast.success(on ? t('Activée — chaque geste est écrit au journal sous « Autopilot »', 'On — every action is logged as “Autopilot”') : t('Arrêtée — Food Hub refait comme avant', 'Off — Food Hub works as before'));
+      toast.success(on ? t('Activée — chaque geste est écrit au journal sous « Autopilot »', 'On — every action is logged as “Autopilot”') : t('Arrêtée — ce qu’elle avait prévu est annulé ; Food Hub refait comme avant', 'Off — what it had planned is cancelled; Food Hub works as before'));
       await load();
     } catch (e) {
       toast.error(t('Pas changé', 'Not changed'), errText(e, lang));

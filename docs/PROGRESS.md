@@ -1,5 +1,13 @@
 # Food Hub: progress log and task board
 
+## 2026-10-30 — Autopilot review fixes (`feature/autopilot`, PR #133)
+
+- Retries: a waiting chain is re-checked against the switch-on time and the 2-hour window before every send, and dropped when more than 15 min overdue (an open-ended pause is never sent days late); turning the switch off ends every waiting chain; a DoorDash « show / hide menu » is never retried (a publish would show a hidden menu); a person's « Arrêter » that lands mid-heartbeat is kept.
+- Re-publish: turning the switch off cancels the publishes it planned, and `runDuePublishes` never runs an Autopilot entry while the switch is off or while a person's publish for the same brand waits; it holds back (logged) when a person already planned a publish for the brand. Rule text says it sends the saved menu as it is.
+- 8 new regression tests in `tests/autopilot.test.ts` (each failed before the fix).
+
+— signé : Claude Opus 5.5 (autopilot fixer) @ Claude Code desktop · 2026-10-30
+
 ## 2026-10-30 — Settings → Autopilot, MASTER_PLAN Phase 4.1 + 4.2 (`feature/autopilot`)
 
 - New page Réglages → Pour vous → **Pilote automatique** (`/settings/autopilot`): every automation with its switch (or where its switch lives), its rule in plain words (FR / EN), last run, what it did last, and an undo where one exists. The existing ones (tablet-off guard, Clover auto-retry, timed re-opens, timed 86 re-enables, scheduled publishes, auto-close, unmapped-store hint, Clover inventory, Skip holidays, daily reconciliation) are read from where they keep their state, never copied.

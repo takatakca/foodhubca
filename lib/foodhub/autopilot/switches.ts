@@ -43,14 +43,34 @@ export async function isSwitchOn(id: NewAutomationId): Promise<boolean> {
 
 /**
  * Turns one new automation on or off (the caller checked the role) and logs who did it. The current switches are read
- * without swallowing errors, so a store that cannot be read is never overwritten with only this switch.
+ * without swallowing errors, so a store that cannot be read is never overwritten with only this switch. Asking for the
+ * state it already has changes nothing (the switch-on time, which bounds the retries, stays).
+ *
+ * OFF means nothing more happens: the retries still waiting end, the re-publishes still planned are cancelled. (Second
+ * guards: the retry heartbeat drops a chain older than the switch-on time, and the scheduled publishes never run an
+ * Autopilot entry while its switch is off.)
  */
 export async function setSwitch(id: NewAutomationId, on: boolean, actor: Actor): Promise<SwitchState> {
   const repo = getRepo();
   const all = clean(await repo.getKv<Switches>(AUTOPILOT_SWITCHES_KEY));
-  const state: SwitchState = { on, at: nowIso(), by: actor.name };
-  await repo.setKv(AUTOPILOT_SWITCHES_KEY, { ...all, [id]: state });
-  await logActivity({ actor: actor.name, source: actor.source, kind: 'settings', action: 'autopilot_switch', status: 'success',
-    summary: `Autopilot: “${NAMES[id]}” switched ${on ? 'ON' : 'OFF'}`, detail: { automation: id, on } });
+  const prev = all[id];
+  let state: SwitchState;
+  if (prev && prev.on === on) {
+    state = prev;
+  } else {
+    state = { on, at: nowIso(), by: actor.name };
+    await repo.setKv(AUTOPILOT_SWITCHES_KEY, { ...all, [id]: state });
+    await logActivity({ actor: actor.name, source: actor.source, kind: 'settings', action: 'autopilot_switch', status: 'success',
+      summary: `Autopilot: “${NAMES[id]}” switched ${on ? 'ON' : 'OFF'}`, detail: { automation: id, on } });
+  }
+  if (!on) {
+    try {
+      // Loaded on demand: republish.ts reads this module's isSwitchOn.
+      if (id === 'retry_failed_jobs') await (await import('./retry')).endWaitingRetries(actor);
+      if (id === 'republish_after_change') await (await import('./republish')).cancelPendingRepublishes(actor);
+    } catch (e) {
+      console.error(`[foodhub] autopilot clean-up after "${id}" off failed`, e instanceof Error ? e.message : e);
+    }
+  }
   return state;
 }

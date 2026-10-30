@@ -11,11 +11,15 @@
 - **Trois nouveautés, arrêtées par défaut :**
   1. **Republier 10 min après un changement** : après « Prendre le prix Clover » ou après l'enregistrement des heures,
      le menu de la marque est publié 10 minutes plus tard. Plusieurs changements = une seule publication (au plus
-     30 minutes après le premier). Jamais une marque dont tous les magasins sont protégés ; les magasins protégés sont
-     laissés de côté. Annulable sur la page tant que la publication n'a pas commencé.
+     30 minutes après le premier). Elle envoie le **menu enregistré tel quel** : tout changement déjà enregistré part
+     avec. Si une personne a déjà prévu une publication pour la marque, elle attend celle-là. Jamais une marque dont
+     tous les magasins sont protégés ; les magasins protégés sont laissés de côté. Annulable sur la page tant que la
+     publication n'a pas commencé ; **arrêter l'interrupteur annule ce qui était prévu**.
   2. **Réessayer les envois refusés** : une publication, un 86 ou une pause **refusé** par une plateforme est renvoyé
      au plus 3 fois (après 2, 10 puis 30 min), puis une alerte s'ouvre dans la surveillance. Seulement ce qui n'a pas
-     déjà son propre nouvel essai. Un changement fait entre-temps par une personne gagne toujours. Arrêtable sur la page.
+     déjà son propre nouvel essai, et jamais « afficher / cacher le menu » DoorDash. Un essai en retard de plus de
+     15 min ou plus vieux que 2 heures n'est jamais envoyé ; **arrêter l'interrupteur arrête les essais en attente**.
+     Un changement fait entre-temps par une personne gagne toujours. Arrêtable sur la page.
   3. **Rapport de paiement Uber chaque semaine** : le lundi à 6 h (heure de Montréal), Food Hub demande à Uber le
      rapport de paiement de la semaine d'avant ; il est importé dès qu'Uber l'envoie. Lecture seulement.
 - **Journal :** chaque geste des nouveautés est écrit au journal d'activité avec l'acteur **« Autopilot »** (source
@@ -79,7 +83,12 @@ something; their behaviour is untouched.
   the first. It runs through `runDuePublishes` like any scheduled publish and logs as « Autopilot ».
 - Never: a brand whose stores are all protected (`isLockedStore` + `menuChangesRefused`: Po Poulet NDG by id or DoorDash
   number, a locked menu, « Do not touch »); a brand with no master menu or an empty shared dish list.
-- Undo: « Annuler » on the page (`cancelScheduled`).
+- It publishes the brand's **saved** menu as it is (`publishMenu` reads it at run time), so every saved, unpublished
+  change goes out too. So it holds back (outcome `held`, logged) when a person already has a publish waiting for that
+  brand, and `runDuePublishes` cancels an Autopilot entry that comes due while a person's publish for the brand waits.
+- Undo: « Annuler » on the page (`cancelScheduled`). Switching it **off** cancels every Autopilot entry not started yet
+  and clears `autopilot_republish_v1` (`cancelPendingRepublishes`); as a second guard `runDuePublishes` cancels, never
+  runs, an Autopilot entry while the switch is off.
 
 **Retry refused sends** (`lib/foodhub/autopilot/retry.ts`)
 - Picks up jobs with status `error` (a platform refusal; `blocked` = never sent, not retried) of kind `menu_push`,
@@ -89,9 +98,16 @@ something; their behaviour is untouched.
 - At most 3 retries, 2, 10 then 30 minutes apart, 5 sends per heartbeat, through the same fan-out as a click
   (`publishMenu`, `setItemAvailability`, `setStoresOnline` with actor « Autopilot »). The jobs Autopilot writes are
   remembered so they are never taken for a new refusal.
-- Not sent again when: the store is protected, removed or a relay store; a newer action on the same store (and the
-  same items for an 86) exists; the 86 or pause end time is over; the store is already paused; the 86 state in Food
-  Hub no longer matches. A blocked answer (live connector off) ends the chain.
+- Never picked up: a DoorDash « show / hide menu » (`menu_push` carrying `menuActive`, Settings → DoorDash API): a
+  publish would send the menu visible, the opposite of a refused « hide ».
+- Not sent again when: the refusal is older than the switch-on time or 2 hours (checked before every retry, so a chain
+  from an earlier « on » or from before a long break in the sync is dropped); the retry is more than 15 minutes
+  overdue; the store is protected, removed or a relay store; a newer action on the same store (and the same items for
+  an 86) exists; the 86 or pause end time is over; the store is already paused; the 86 state in Food Hub no longer
+  matches. A blocked answer (live connector off) ends the chain.
+- Switching it **off** ends every waiting chain (`endWaitingRetries`, logged). A person's « Arrêter » wins even when it
+  lands while a heartbeat is sending: the chain is re-read before each send and the heartbeat saves over a fresh read.
+  Asking for a switch state it already has keeps the original switch-on time.
 - After the third refusal: a Watchtower incident (`menu_failed`, key `autopilot_retry:<job id>`) until a later send to
   that store works, a person stops it on the page, or 6 hours pass.
 
@@ -112,6 +128,8 @@ off it reads its switches and stops. The re-publish needs no heartbeat: it is sc
 
 `tests/autopilot.test.ts`: every switch off = nothing runs and nothing is written; a switch persists in the repo kv
 across a module reload; only a manager of every location or the owner can switch; re-publish (one entry, coalesced,
-unprotected stores only, runs as Autopilot, cancel); retries (2 / 10 / 30 min, 3 at most, incident, success stops,
-a newer person action wins, protected / guard / blocked / before-switch refusals never retried, stop); the weekly
+unprotected stores only, runs as Autopilot, cancel, switch off cancels and never runs, a person's planned publish
+wins); retries (2 / 10 / 30 min, 3 at most, incident, success stops, a newer person action wins, protected / guard /
+blocked / before-switch refusals never retried, stop, switch off ends waiting chains, old / overdue chains dropped,
+DoorDash hide-menu never retried, a stop landing mid-heartbeat is kept); the weekly
 window and its tries; the page renders every automation with rule, state, last run and what it did, in both languages.

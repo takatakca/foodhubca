@@ -12,6 +12,8 @@ const h = vi.hoisted(() => ({
   queue: {} as Record<string, ChannelResult['status'][]>,
   def: 'done' as ChannelResult['status'],
   reportOk: false,
+  /** Runs while a platform call is in flight (a person's click landing at that very moment). */
+  onSend: null as null | (() => Promise<void>),
 }));
 const answer = (channel: ChannelKey, status: ChannelResult['status']): ChannelResult =>
   ({ channel, ok: status === 'done' || status === 'queued', status, message: status === 'error' ? 'HTTP 500 refused by the platform' : status === 'blocked' ? 'Live connector off — not sent' : 'ok' });
@@ -23,7 +25,7 @@ vi.mock('../lib/foodhub/adapters', async (orig) => {
     ...real.ADAPTERS[channel],
     publishMenu: async (store: ChannelStore) => { h.calls.push({ what: 'publish', id: store.id }); return answer(channel, next(`publish:${store.id}`)); },
     setItemAvailability: async (store: ChannelStore, _refs: string[], available: boolean) => { h.calls.push({ what: 'item', id: store.id, available }); return answer(channel, next(`item:${store.id}`)); },
-    setStoreOnline: async (store: ChannelStore, online: boolean) => { h.calls.push({ what: 'store', id: store.id, online }); return answer(channel, next(`store:${store.id}`)); },
+    setStoreOnline: async (store: ChannelStore, online: boolean) => { h.calls.push({ what: 'store', id: store.id, online }); if (h.onSend) await h.onSend(); return answer(channel, next(`store:${store.id}`)); },
   });
   return { ...real, getAdapter: (key: string) => fake(key as ChannelKey) };
 });
@@ -41,7 +43,8 @@ import { AUTOPILOT_RUNS_KEY, getRuns } from '../lib/foodhub/autopilot/runs';
 import { AUTOPILOT_SWITCHES_KEY, getSwitches, isSwitchOn } from '../lib/foodhub/autopilot/switches';
 import { tickUberWeekly, uberWeekWindow, UBER_WEEKLY_KEY } from '../lib/foodhub/autopilot/uber-weekly';
 import { getHours } from '../lib/foodhub/hours';
-import { listScheduled, runDuePublishes } from '../lib/foodhub/menu/schedule';
+import { setDoorDashMenuActive } from '../lib/foodhub/doordash/stores';
+import { cancelScheduled, listScheduled, runDuePublishes, schedulePublish } from '../lib/foodhub/menu/schedule';
 import { offRefsAt, publishMenu, setItemAvailability, setStoresOnline } from '../lib/foodhub/ops';
 import { FORBIDDEN_STORE_IDS } from '../lib/foodhub/public-directory';
 import { getRepo } from '../lib/foodhub/repo';
@@ -101,7 +104,7 @@ beforeEach(async () => {
   delete process.env.FOODHUB_MENU_LOCKED_STORES;
   (globalThis as any).__foodhubMem = undefined;
   (globalThis as any).__foodhubAutopilotTick = false;
-  h.calls.length = 0; h.queue = {}; h.def = 'done'; h.reportOk = false;
+  h.calls.length = 0; h.queue = {}; h.def = 'done'; h.reportOk = false; h.onSend = null;
   const repo = getRepo();
   await repo.saveMenu(menuOf('Alpha'));
   await repo.saveMenu(menuOf('Beta'));
@@ -262,6 +265,42 @@ describe('re-publish 10 min after a change', () => {
     expect((await getRepo().getMenu('Beta'))!.items[0].price).toBe(13);
     expect(await listScheduled('Beta')).toEqual([]);
   });
+
+  it('turning the switch off cancels the publishes it planned; an Autopilot publish never runs while the switch is off', async () => {
+    await afterCloverPriceUsed('Alpha', PERSON);
+    const [entry] = await listScheduled('Alpha');
+    await setSwitch('republish_after_change', false, PERSON);
+    expect((await listScheduled('Alpha'))[0].status).toBe('cancelled');
+    expect(await pendingRepublishes()).toEqual([]);
+    expect(await getRepo().getKv(REPUBLISH_KEY)).toEqual({});
+    expect(await runDuePublishes(Date.parse(entry.at) + 1000)).toBe(0);
+    expect(h.calls).toEqual([]);
+    // Second guard: an Autopilot entry still waiting while the switch is off (a cleanup that failed) is cancelled when
+    // it comes due, never published.
+    await setSwitch('republish_after_change', true, PERSON);
+    await afterCloverPriceUsed('Alpha', PERSON);
+    const second = (await listScheduled('Alpha')).find((s) => s.status === 'scheduled')!;
+    await getRepo().setKv(AUTOPILOT_SWITCHES_KEY, { republish_after_change: { on: false, at: new Date().toISOString(), by: 'Mona' } });
+    expect(await runDuePublishes(Date.parse(second.at) + 1000)).toBe(0);
+    expect(h.calls).toEqual([]);
+    expect((await listScheduled('Alpha')).find((s) => s.id === second.id)).toMatchObject({ status: 'cancelled', result: expect.stringMatching(/switched off/) });
+    expect((await getRepo().listActivity({ limit: 100 })).some((e) => e.action === 'publish')).toBe(false);
+  });
+
+  it('a publish a person planned for the brand wins: Autopilot never sends saved changes before it', async () => {
+    const monday = await schedulePublish({ brand: 'Alpha', at: new Date(Date.now() + 3 * 86400_000).toISOString() }, PERSON);
+    expect(await afterCloverPriceUsed('Alpha', PERSON)).toEqual([expect.objectContaining({ brand: 'Alpha', outcome: 'held' })]);
+    expect((await listScheduled('Alpha')).map((s) => s.id)).toEqual([monday.id]);
+    expect((await autopilotLog()).find((e) => e.action === 'autopilot_republish_skipped')?.summary).toMatch(/Mona already planned a publish/);
+    // Autopilot planned first, the person planned after: Autopilot's is cancelled when it comes due.
+    await cancelScheduled(monday.id, PERSON);
+    expect(await afterCloverPriceUsed('Alpha', PERSON)).toEqual([expect.objectContaining({ brand: 'Alpha', outcome: 'scheduled' })]);
+    const auto = (await listScheduled('Alpha')).find((s) => s.status === 'scheduled' && s.by === 'autopilot')!;
+    await schedulePublish({ brand: 'Alpha', at: new Date(Date.now() + 3 * 86400_000).toISOString() }, PERSON);
+    expect(await runDuePublishes(Date.parse(auto.at) + 1000)).toBe(0);
+    expect(h.calls).toEqual([]);
+    expect((await listScheduled('Alpha')).find((s) => s.id === auto.id)).toMatchObject({ status: 'cancelled', result: expect.stringMatching(/planned by Mona/) });
+  });
 });
 
 describe('retry refused sends', () => {
@@ -365,6 +404,110 @@ describe('retry refused sends', () => {
     await runAutopilot({ now: now + 11 * MIN });
     expect(h.calls).toEqual([]);
     expect((await getRepo().listActivity({ limit: 100 })).some((e) => e.action === 'autopilot_retry_stopped' && e.actor === 'max')).toBe(true);
+  });
+
+  it('turning the switch off ends the waiting retries: an open-ended pause is never sent days later', async () => {
+    h.def = 'error';
+    await setStoresOnline([ids.alphaUber], false, { actor: PERSON }); // a pause with no end time, refused
+    const failed = (await getRepo().listJobs(5))[0];
+    await runAutopilot({ now: Date.now() + MIN }); // planned: retry 1 at +2 min
+    expect((await getChains())[failed.id]).toMatchObject({ status: 'waiting', attempts: 0 });
+    await setSwitch('retry_failed_jobs', false, PERSON);
+    expect((await getChains())[failed.id]).toMatchObject({ status: 'stopped', note: expect.stringMatching(/turned off/) });
+    expect((await autopilotLog()).some((e) => e.action === 'autopilot_retry_ended' && /turned off by Mona/.test(e.summary))).toBe(true);
+    await pause();
+    await setSwitch('retry_failed_jobs', true, PERSON);
+    h.def = 'done'; h.calls.length = 0;
+    await runAutopilot({ now: Date.now() + 2 * 86400_000 });
+    expect(h.calls).toEqual([]);
+  });
+
+  it('a waiting retry from before the switch was last turned on is dropped, never sent', async () => {
+    h.def = 'error';
+    await setStoresOnline([ids.alphaUber], false, { actor: PERSON });
+    const t0 = Date.now();
+    await runAutopilot({ now: t0 + MIN });
+    const id = Object.keys(await getChains())[0];
+    // Off and on again without the clean-up (an older build, a failed write): the switch time moved past the refusal.
+    await getRepo().setKv(AUTOPILOT_SWITCHES_KEY, { retry_failed_jobs: { on: true, at: new Date(t0 + 90_000).toISOString(), by: 'Mona' } });
+    h.def = 'done'; h.calls.length = 0;
+    await runAutopilot({ now: t0 + 2 * MIN + 1000 });
+    expect(h.calls).toEqual([]);
+    expect((await getChains())[id]).toMatchObject({ status: 'skipped', note: expect.stringMatching(/too old/) });
+  });
+
+  it('a break in the sync: a retry older than 2 hours or long overdue is dropped, never sent late', async () => {
+    h.def = 'error';
+    await setStoresOnline([ids.alphaUber], false, { actor: PERSON });
+    await setStoresOnline([ids.alphaSkip], false, { actor: PERSON });
+    const t0 = Date.now();
+    await runAutopilot({ now: t0 + MIN });
+    const [uber, skip] = Object.values(await getChains()).sort((a, b) => a.failedAt.localeCompare(b.failedAt));
+    expect([uber.storeId, skip.storeId]).toEqual([ids.alphaUber, ids.alphaSkip]);
+    h.def = 'done'; h.calls.length = 0;
+    // Retry 1 was due at +2 min; the next heartbeat comes 20 minutes late.
+    await runAutopilot({ now: t0 + 22 * MIN });
+    expect(h.calls).toEqual([]);
+    expect((await getChains())[uber.id]).toMatchObject({ status: 'skipped', note: expect.stringMatching(/too late/) });
+    expect((await getChains())[skip.id]).toMatchObject({ status: 'skipped', note: expect.stringMatching(/too late/) });
+    // A whole day without a sync: the same.
+    h.queue[`store:${ids.alphaUber}`] = ['error'];
+    await setStoresOnline([ids.alphaUber], false, { untilMs: t0 + 2 * 86400_000, actor: PERSON });
+    const later = (await getRepo().listJobs(5))[0];
+    await runAutopilot({ now: Date.now() + MIN });
+    expect((await getChains())[later.id]).toMatchObject({ status: 'waiting' });
+    await runAutopilot({ now: Date.now() + 26 * 3600_000 });
+    expect(h.calls.filter((c) => c.what === 'store').length).toBe(1); // only the person's own click
+    expect((await getChains())[later.id]).toMatchObject({ status: 'skipped', note: expect.stringMatching(/too old/) });
+  });
+
+  it('a refused DoorDash « hide menu » is never re-sent as a publish (that would show the menu again)', async () => {
+    await store('alphaDd', 'Alpha', 'doordash', 'dd-alpha-visible');
+    h.queue[`publish:${ids.alphaDd}`] = ['error'];
+    expect((await setDoorDashMenuActive((await getRepo().getStore(ids.alphaDd))!, false, PERSON)).ok).toBe(false);
+    expect((await getRepo().listJobs(5))[0]).toMatchObject({ kind: 'menu_push', status: 'error', request: expect.objectContaining({ menuActive: false }) });
+    h.calls.length = 0;
+    await runAutopilot({ now: Date.now() + 2 * MIN + 1000 });
+    await runAutopilot({ now: Date.now() + 13 * MIN });
+    expect(h.calls).toEqual([]);
+    expect(await getChains()).toEqual({});
+  });
+
+  it('a person’s « Arrêter » that lands while a retry is on its way is kept: nothing more is sent', async () => {
+    h.def = 'error';
+    await setStoresOnline([ids.alphaUber], false, { untilMs: Date.now() + 90 * MIN, actor: PERSON });
+    const failed = (await getRepo().listJobs(5))[0];
+    let now = Date.now() + 2 * MIN + 1000;
+    await runAutopilot({ now }); // retry 1, refused
+    expect((await getChains())[failed.id]).toMatchObject({ status: 'waiting', attempts: 1 });
+    // Retry 2 is on its way when the manager clicks « Arrêter » (on Supabase each request reads its own fresh copy).
+    h.onSend = async () => {
+      h.onSend = null;
+      const fresh = structuredClone((await getRepo().getKv<Record<string, Record<string, unknown>>>(RETRY_KEY))!);
+      fresh[failed.id] = { ...fresh[failed.id], status: 'stopped', nextAt: null, stoppedBy: 'max', note: 'stopped by max' };
+      await getRepo().setKv(RETRY_KEY, fresh);
+    };
+    now += 10 * MIN + 1000;
+    await runAutopilot({ now });
+    expect((await getChains())[failed.id]).toMatchObject({ status: 'stopped', stoppedBy: 'max' });
+    const sent = sendsTo(ids.alphaUber).length;
+    await runAutopilot({ now: now + 31 * MIN });
+    expect(sendsTo(ids.alphaUber).length).toBe(sent);
+  });
+
+  it('a stop that lands during another retry of the same heartbeat is seen before that chain is sent', async () => {
+    h.def = 'error';
+    await setStoresOnline([ids.alphaUber], false, { untilMs: Date.now() + 90 * MIN, actor: PERSON });
+    await pause();
+    await setStoresOnline([ids.alphaSkip], false, { untilMs: Date.now() + 90 * MIN, actor: PERSON });
+    const t0 = Date.now();
+    await runAutopilot({ now: t0 + MIN });
+    const [, second] = Object.values(await getChains()).sort((a, b) => a.failedAt.localeCompare(b.failedAt));
+    h.onSend = async () => { h.onSend = null; await stopRetry(second.id, PERSON); };
+    h.calls.length = 0;
+    await runAutopilot({ now: t0 + 2 * MIN + 1000 });
+    expect(h.calls.map((c) => c.id)).toEqual([ids.alphaUber]);
+    expect((await getChains())[second.id]).toMatchObject({ status: 'stopped' });
   });
 });
 

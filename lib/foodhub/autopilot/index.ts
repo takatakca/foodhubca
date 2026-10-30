@@ -141,8 +141,8 @@ export async function listAutomations(now = Date.now()): Promise<AutomationView[
     {
       id: 'republish_after_change', isNew: true, ...here('republish_after_change'),
       fr: 'Republier 10 min après un changement', en: 'Re-publish 10 min after a change',
-      ruleFr: 'Après « Prendre le prix Clover » ou après l’enregistrement des heures d’ouverture, publie le menu de la marque 10 minutes plus tard. Plusieurs changements de suite donnent une seule publication. Jamais une marque dont tous les magasins sont protégés ; les magasins protégés sont laissés de côté.',
-      ruleEn: 'After “Use Clover price” or after the opening hours are saved, publishes the brand’s menu 10 minutes later. Several changes in a row give one publish. Never a brand whose stores are all protected; protected stores are left out.',
+      ruleFr: 'Après « Prendre le prix Clover » ou après l’enregistrement des heures d’ouverture, publie le menu de la marque 10 minutes plus tard. Plusieurs changements de suite donnent une seule publication. Elle envoie le menu enregistré tel quel : tout changement déjà enregistré part avec. Si une personne a déjà prévu une publication pour la marque, elle attend celle-là. L’arrêter annule ce qui était prévu. Jamais une marque dont tous les magasins sont protégés ; les magasins protégés sont laissés de côté.',
+      ruleEn: 'After “Use Clover price” or after the opening hours are saved, publishes the brand’s menu 10 minutes later. Several changes in a row give one publish. It sends the saved menu as it is: every change already saved goes out too. If a person already planned a publish for the brand, it waits for that one. Turning it off cancels what was planned. Never a brand whose stores are all protected; protected stores are left out.',
       ...onOff(sw('republish_after_change')?.on === true),
       lastRunAt: runs.republish_after_change?.at ?? null, lastDid: runs.republish_after_change ?? null,
       pending: republishes.map((p) => ({ id: p.scheduledId, kind: 'cancel_publish' as const, fr: `${p.brand} · publication à ${hhmm(p.at)}`, en: `${p.brand} · publish at ${hhmm(p.at)}`, at: p.at })),
@@ -150,8 +150,8 @@ export async function listAutomations(now = Date.now()): Promise<AutomationView[
     {
       id: 'retry_failed_jobs', isNew: true, ...here('retry_failed_jobs'),
       fr: 'Réessayer les envois refusés', en: 'Retry refused sends',
-      ruleFr: 'Une publication de menu, un 86 ou une pause refusé par une plateforme est renvoyé au plus 3 fois (après 2, 10 puis 30 min), puis une alerte s’ouvre. Seulement ce qui n’a pas déjà son propre nouvel essai. Jamais un magasin protégé ; un changement fait entre-temps par une personne gagne toujours.',
-      ruleEn: 'A menu publish, an 86 or a pause refused by a platform is sent again at most 3 times (after 2, 10 then 30 min), then an alert opens. Only what has no retry of its own already. Never a protected store; a change a person made in the meantime always wins.',
+      ruleFr: 'Une publication de menu, un 86 ou une pause refusé par une plateforme est renvoyé au plus 3 fois (après 2, 10 puis 30 min), puis une alerte s’ouvre. Seulement ce qui n’a pas déjà son propre nouvel essai, et jamais « afficher / cacher le menu » DoorDash. Un essai en retard de plus de 15 min, ou plus vieux que 2 heures, n’est jamais envoyé ; l’arrêter arrête les essais en attente. Jamais un magasin protégé ; un changement fait entre-temps par une personne gagne toujours.',
+      ruleEn: 'A menu publish, an 86 or a pause refused by a platform is sent again at most 3 times (after 2, 10 then 30 min), then an alert opens. Only what has no retry of its own already, and never a DoorDash “show / hide menu”. A retry more than 15 min late, or older than 2 hours, is never sent; turning it off stops the waiting retries. Never a protected store; a change a person made in the meantime always wins.',
       ...onOff(sw('retry_failed_jobs')?.on === true),
       lastRunAt: sw('retry_failed_jobs')?.on ? tickLast?.at ?? null : runs.retry_failed_jobs?.at ?? null, lastDid: runs.retry_failed_jobs ?? null,
       pending: chains.map((c) => ({

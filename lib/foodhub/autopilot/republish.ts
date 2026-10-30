@@ -3,6 +3,11 @@
 // per brand, moved back on every new change (never more than 30 minutes after the first one), so several saves give
 // one publish. Only the brand's stores an automation may touch are listed: a brand whose stores are all protected
 // (Po Poulet NDG, a locked menu, "Do not touch") is never scheduled. A person can cancel it until it starts.
+//
+// It publishes the brand's SAVED menu as it is, so every saved change goes out with it. That is why it holds back when
+// a person already planned a publish for that brand (changes saved for a later date stay for that date), and why
+// turning the switch off cancels what it planned (setSwitch → cancelPendingRepublishes; menu/schedule.ts also refuses
+// to run an Autopilot entry while the switch is off, or while a person's publish for the brand is waiting).
 import { AUTOPILOT_ACTOR, logActivity, type Actor } from '../activity';
 import { cancelScheduled, listScheduled, postponeScheduled, schedulePublish } from '../menu/schedule';
 import { menuChangesRefused } from '../menu/lock';
@@ -26,7 +31,8 @@ type PendingMap = Record<string, Pending>;
 
 export interface RepublishOutcome {
   brand: string;
-  outcome: 'scheduled' | 'moved' | 'protected' | 'no_stores' | 'no_menu' | 'error';
+  /** held = a person already planned a publish for this brand: Autopilot does not publish before it. */
+  outcome: 'scheduled' | 'moved' | 'held' | 'protected' | 'no_stores' | 'no_menu' | 'error';
   at?: string;
   scheduledId?: string;
 }
@@ -38,6 +44,10 @@ const REASON: Record<RepublishReason, { fr: string; en: string }> = {
 
 function hhmm(ms: number): string {
   return new Intl.DateTimeFormat('fr-CA', { timeZone: foodhubTimeZone(), hour: '2-digit', minute: '2-digit' }).format(new Date(ms));
+}
+
+function dayHhmm(ms: number): string {
+  return new Intl.DateTimeFormat('fr-CA', { timeZone: foodhubTimeZone(), day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(ms));
 }
 
 /** A store an automation may publish to: not protected (built-in lock, locked menu, "Do not touch", forbidden DoorDash). */
@@ -106,8 +116,16 @@ export async function queueRepublish(brands: string[], reason: RepublishReason, 
           summary: `Autopilot: no publish scheduled for ${brand} after ${why.en} — ${empty}` });
         continue;
       }
+      const planned = await listScheduled(brand);
+      const theirs = planned.find((s) => s.status === 'scheduled' && s.by !== 'autopilot');
+      if (theirs) {
+        out.push({ brand, outcome: 'held', at: theirs.at, scheduledId: theirs.id });
+        await logActivity({ actor: AUTOPILOT_ACTOR.name, source: AUTOPILOT_ACTOR.source, kind: 'menu_publish', action: 'autopilot_republish_skipped', status: 'info', brandName: brand,
+          summary: `Autopilot: no publish scheduled for ${brand} after ${why.en} — ${theirs.createdBy} already planned a publish on ${dayHhmm(Date.parse(theirs.at))}; every saved change goes out then (publish now from Menus if it cannot wait)` });
+        continue;
+      }
       const cur = pending[brand];
-      const waiting = cur ? (await listScheduled(brand)).find((s) => s.id === cur.scheduledId && s.status === 'scheduled') : undefined;
+      const waiting = cur ? planned.find((s) => s.id === cur.scheduledId && s.status === 'scheduled') : undefined;
       if (cur && waiting) {
         const at = Math.max(Date.parse(waiting.at), Math.min(now + REPUBLISH_DELAY_MS, Date.parse(cur.firstAt) + REPUBLISH_MAX_WAIT_MS));
         const moved = await postponeScheduled(waiting.id, new Date(at).toISOString());
@@ -124,7 +142,7 @@ export async function queueRepublish(brands: string[], reason: RepublishReason, 
       out.push({ brand, outcome: 'scheduled', at: entry.at, scheduledId: entry.id });
       const skipped = stores.length - allowed.length;
       await logActivity({ actor: AUTOPILOT_ACTOR.name, source: AUTOPILOT_ACTOR.source, kind: 'menu_publish', action: 'autopilot_republish_planned', status: 'queued', brandName: brand,
-        summary: `Autopilot: ${brand} menu will be published at ${hhmm(Date.parse(entry.at))} on ${allowed.length} store(s) after ${why.en} by ${by.name}${skipped ? ` (${skipped} protected store(s) left out)` : ''} — cancel it in Settings → Autopilot`,
+        summary: `Autopilot: ${brand} menu will be published at ${hhmm(Date.parse(entry.at))} on ${allowed.length} store(s) after ${why.en} by ${by.name}${skipped ? ` (${skipped} protected store(s) left out)` : ''} — the saved menu as it is, so every saved change goes out; cancel it in Settings → Autopilot`,
         detail: { scheduledId: entry.id, reason, storeIds: allowed.map((s) => s.id) } });
     } catch (e) {
       out.push({ brand, outcome: 'error' });
@@ -138,10 +156,26 @@ export async function queueRepublish(brands: string[], reason: RepublishReason, 
     await noteRun('republish_after_change', { status: 'info',
       fr: `Publication prévue à ${hhmm(at)} (${why.fr}) : ${planned.map((o) => o.brand).join(', ')}`,
       en: `Publish planned at ${hhmm(at)} (${why.en}): ${planned.map((o) => o.brand).join(', ')}` });
+  } else if (out.some((o) => o.outcome === 'held')) {
+    const held = out.filter((o) => o.outcome === 'held').map((o) => o.brand).join(', ');
+    await noteRun('republish_after_change', { status: 'info', fr: `Rien de prévu : une personne a déjà prévu une publication (${held})`, en: `Nothing planned: a person already planned a publish (${held})` });
   } else if (out.some((o) => o.outcome === 'protected')) {
     await noteRun('republish_after_change', { status: 'info', fr: 'Rien de prévu : tous les magasins de la marque sont protégés', en: 'Nothing planned: every store of the brand is protected' });
   }
   return out;
+}
+
+/**
+ * "Re-publish 10 min after a change" was turned off: every Autopilot publish not started yet is cancelled (as the person
+ * who turned it off) and the pending list is cleared. Called by switches.ts setSwitch. Returns how many were cancelled.
+ */
+export async function cancelPendingRepublishes(actor: Actor): Promise<number> {
+  const waiting = (await listScheduled()).filter((s) => s.status === 'scheduled' && s.by === 'autopilot');
+  let n = 0;
+  for (const s of waiting) if (await cancelScheduled(s.id, actor)) n++;
+  if (n || Object.keys(await readPending()).length) await getRepo().setKv(REPUBLISH_KEY, {});
+  if (n) await noteRun('republish_after_change', { status: 'info', fr: `Arrêtée par ${actor.name} : ${n} publication(s) prévue(s) annulée(s)`, en: `Turned off by ${actor.name}: ${n} planned publish(es) cancelled` });
+  return n;
 }
 
 /** The re-publishes still waiting (the page shows them with « Annuler »). */

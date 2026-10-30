@@ -2,6 +2,7 @@
 // Food Hub publishes at that time (sync engine / cron) and logs the result. Can be cancelled.
 import crypto from 'node:crypto';
 import { AUTOPILOT_ACTOR, logActivity, SCHEDULE_ACTOR, type Actor } from '../activity';
+import { isSwitchOn } from '../autopilot/switches';
 import { publishMenu } from '../ops';
 import { getRepo } from '../repo';
 import type { ChannelKey } from '../types';
@@ -94,8 +95,22 @@ export async function runDuePublishes(now = Date.now()): Promise<number> {
     const who = x.by === 'autopilot' ? AUTOPILOT_ACTOR : SCHEDULE_ACTOR;
     await logActivity({ actor: who.name, source: who.source, kind: 'menu_publish', action: 'scheduled_publish', status: 'failed', brandName: x.brand, summary: `Scheduled menu publish for ${x.brand} was interrupted — publish again` });
   }
-  const due = all.filter((x) => x.status === 'scheduled' && Date.parse(x.at) <= now);
-  if (!due.length) { if (stale) await saveAll(all); return 0; }
+  let due = all.filter((x) => x.status === 'scheduled' && Date.parse(x.at) <= now);
+  // An Autopilot re-publish runs only while its switch is on, and never before a publish a person planned for the same
+  // brand (that one sends every saved change at the time the person chose). Cancelled, never published.
+  let held = 0;
+  if (due.some((x) => x.by === 'autopilot')) {
+    const on = await isSwitchOn('republish_after_change');
+    for (const d of due.filter((x) => x.by === 'autopilot')) {
+      const theirs = all.find((x) => x.status === 'scheduled' && x.by !== 'autopilot' && x.brand === d.brand);
+      if (on && !theirs) continue;
+      d.status = 'cancelled'; held++;
+      d.result = on ? `Not published: a publish planned by ${theirs!.createdBy} is waiting for this brand.` : 'Not published: “Re-publish 10 min after a change” is switched off.';
+      await logActivity({ actor: AUTOPILOT_ACTOR.name, source: AUTOPILOT_ACTOR.source, kind: 'menu_publish', action: 'cancel_scheduled_publish', status: 'info', brandName: d.brand, summary: `Autopilot: ${d.brand} menu publish cancelled — ${d.result}` });
+    }
+    if (held) due = due.filter((x) => x.status === 'scheduled');
+  }
+  if (!due.length) { if (stale || held) await saveAll(all); return 0; }
   // Claim as "running" first so two concurrent syncs cannot both publish; the real outcome is written per entry below.
   for (const d of due) { d.status = 'running'; d.startedAt = new Date(now).toISOString(); }
   await saveAll(all);

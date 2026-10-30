@@ -4,12 +4,19 @@
 //
 // Only where nothing retries today: store resumes after a timed pause already retry (ops.reopenExpiredPauses), the
 // tablet-off guard retries its own pauses, holiday closures are re-applied on every sync, Clover orders have their own
-// retry. So: publishes, 86 / back in stock, and pauses made by a person or by another rule.
+// retry. So: publishes, 86 / back in stock, and pauses made by a person or by another rule. A DoorDash "show / hide
+// menu" (Settings → DoorDash API, a menu_push carrying menuActive) is NOT a publish and is never retried: a publish
+// would send the menu visible, the opposite of a refused "hide".
 //
 // Safe by construction:
-//   - only failures that happened after the switch was turned on, and in the last 2 hours;
+//   - only failures that happened after the switch was turned on, and in the last 2 hours — checked when a refusal is
+//     picked up AND again before every retry, so a chain from an earlier "on" or from before a long break in the sync
+//     is dropped, never sent late; a retry more than 15 minutes overdue is dropped too;
+//   - turning the switch off ends every waiting chain (switches.ts → endWaitingRetries);
 //   - a protected store (Po Poulet NDG, a locked menu, "Do not touch", a forbidden DoorDash store) is never retried;
 //   - a newer action on the same store (a person's click, another rule) wins: the old one is never sent again;
+//   - a person's « Arrêter » wins, even when it lands while a heartbeat is sending (re-read before each send and
+//     before saving);
 //   - an 86 / pause whose end time is over, or whose state in Food Hub no longer matches, is not sent again;
 //   - every send goes through the same fan-out as a click (ops.ts), logged with the actor "Autopilot".
 import { AUTOPILOT_ACTOR, logActivity, type Actor } from '../activity';
@@ -28,6 +35,8 @@ export const RETRY_KEY = 'autopilot_retries_v1';
 /** Minutes before the 1st, 2nd and 3rd retry. */
 export const RETRY_DELAYS_MIN = [2, 10, 30] as const;
 export const RETRY_LOOKBACK_MS = 2 * 3600_000;
+/** A retry this late (the sync stopped for a while) is dropped, not sent: the moment for it has passed. */
+export const RETRY_OVERDUE_MS = 15 * 60_000;
 /** A gave-up chain keeps its incident open this long, unless a later send to that store worked or a person stopped it. */
 export const RETRY_INCIDENT_MS = 6 * 3600_000;
 const MAX_SENDS_PER_TICK = 5;
@@ -66,8 +75,10 @@ function hhmm(ms: number): string {
   return new Intl.DateTimeFormat('fr-CA', { timeZone: foodhubTimeZone(), hour: '2-digit', minute: '2-digit' }).format(new Date(ms));
 }
 
+/** A copy of the stored chains (never the stored object itself: what is changed is saved on purpose, never by accident). */
 export async function getChains(): Promise<Chains> {
-  return (await getRepo().getKv<Chains>(RETRY_KEY).catch(() => null)) ?? {};
+  const stored = await getRepo().getKv<Chains>(RETRY_KEY).catch(() => null);
+  return stored ? structuredClone(stored) : {};
 }
 
 const refsOf = (r: Record<string, unknown>) => [...((r.itemRefs as string[] | undefined) ?? []), ...((r.modifierRefs as string[] | undefined) ?? [])].map(String);
@@ -81,6 +92,9 @@ export function retryableJob(j: FoodHubJob, sinceMs: number): boolean {
   if (!(Date.parse(j.createdAt) >= sinceMs)) return false;
   const r = j.request ?? {};
   if (typeof r.storeId !== 'string' || !r.storeId || r.locked === true) return false;
+  // A DoorDash « show / hide menu » (doordash/stores.ts setDoorDashMenuActive): resending it as a publish would show a
+  // menu a person asked to hide. Left to the person.
+  if (j.kind === 'menu_push') return typeof r.menuActive !== 'boolean';
   if (j.kind === 'store_toggle') return r.online === false && r.reason !== GUARD_REASON && r.reason !== HOLIDAY_REASON;
   if (j.kind === 'item_toggle') return refsOf(r).length > 0 && typeof r.available === 'boolean';
   return true;
@@ -117,8 +131,13 @@ function end(c: RetryChain, status: RetryChain['status'], note: string, now: num
   c.status = status; c.nextAt = null; c.note = note; c.endedAt = new Date(now).toISOString();
 }
 
-/** Why this chain must not be sent again right now (null = send it). */
-async function stopReason(c: RetryChain, store: ChannelStore | null, jobs: FoodHubJob[], now: number): Promise<{ status: RetryChain['status']; note: string } | null> {
+/**
+ * Why this chain must not be sent again right now (null = send it). `since` = the switch-on time or 2 hours ago,
+ * whichever is later: a chain from before it (an earlier "on", a long break in the sync) is never sent late.
+ */
+async function stopReason(c: RetryChain, store: ChannelStore | null, jobs: FoodHubJob[], now: number, since: number): Promise<{ status: RetryChain['status']; note: string } | null> {
+  if (!(Date.parse(c.failedAt) >= since)) return { status: 'skipped', note: 'too old: refused before the switch was last turned on, or more than 2 hours ago' };
+  if (c.nextAt && now - Date.parse(c.nextAt) > RETRY_OVERDUE_MS) return { status: 'skipped', note: `too late: the retry was due at ${hhmm(Date.parse(c.nextAt))} (the sync was not running)` };
   if (!store) return { status: 'skipped', note: 'store removed' };
   if (isRelayStore(store)) return { status: 'skipped', note: 'relay store (orders only)' };
   // Protected stores are never paused, published or 86'd by an automation (store-availability/common.ts, menu/lock.ts).
@@ -193,12 +212,15 @@ export async function tickRetries(now: number, switchOnAt: string): Promise<Retr
       changed = true;
       const store = await repo.getStore(c.storeId);
       const w = what(c);
-      const stop = await stopReason(c, store, jobs, now);
+      const stop = await stopReason(c, store, jobs, now, since);
       if (stop) {
         end(c, stop.status, stop.note, now); out.ended++;
         await log(c, 'autopilot_retry_ended', 'info', `${w.en} for ${where(c)} not sent again — ${stop.note}`);
         continue;
       }
+      // A person may have clicked « Arrêter » while this heartbeat was busy with another send: theirs wins.
+      const latest = (await getChains())[c.id];
+      if (latest && latest.status !== 'waiting') { Object.assign(c, latest); continue; }
       budget--;
       const started = new Date().toISOString();
       let ok = false; let blocked = false; let message = '';
@@ -235,7 +257,17 @@ export async function tickRetries(now: number, switchOnAt: string): Promise<Retr
     const keep = Object.values(chains).filter((c) => c.status === 'waiting' || now - Date.parse(c.endedAt ?? c.failedAt) < KEEP_MS)
       .sort((a, b) => b.failedAt.localeCompare(a.failedAt)).slice(0, KEEP_MAX);
     if (keep.length !== Object.keys(chains).length) changed = true;
-    if (changed) await repo.setKv(RETRY_KEY, Object.fromEntries(keep.map((c) => [c.id, c])));
+    if (changed) {
+      // Saved over a fresh read: a stop (or a switch-off) written while this heartbeat was sending is kept, with the
+      // jobs this heartbeat wrote remembered on it (never taken for a new refusal).
+      const stored = await getChains();
+      const merged: Chains = {};
+      for (const c of keep) {
+        const s = stored[c.id];
+        merged[c.id] = s && s.status === 'stopped' ? { ...s, attempts: Math.max(s.attempts, c.attempts), childJobIds: [...new Set([...s.childJobIds, ...c.childJobIds])] } : c;
+      }
+      await repo.setKv(RETRY_KEY, merged);
+    }
   } catch (e) {
     console.error('[foodhub] autopilot retries failed', e instanceof Error ? e.message : e);
   }
@@ -261,6 +293,20 @@ export async function stopRetry(id: string, actor: Actor, now = Date.now()): Pro
   await logActivity({ actor: actor.name, source: actor.source, kind: activityKind(c.kind), action: 'autopilot_retry_stopped', status: 'info', channel: c.channel, brandName: c.brandName, locationCode: c.locationCode, storeId: c.storeId,
     summary: `${actor.name} stopped Autopilot's retries: ${w.en} for ${where(c)}`, detail: { retryOf: c.id } });
   return c;
+}
+
+/**
+ * "Retry refused sends" was turned off: every waiting chain ends (nothing more is sent, even if the switch comes back
+ * on later). Called by switches.ts setSwitch. Returns how many ended.
+ */
+export async function endWaitingRetries(actor: Actor, now = Date.now()): Promise<number> {
+  const chains = await getChains();
+  const waiting = Object.values(chains).filter((c) => c.status === 'waiting');
+  if (!waiting.length) return 0;
+  for (const c of waiting) { end(c, 'stopped', `switch turned off by ${actor.name}`, now); c.stoppedBy = actor.name; }
+  await getRepo().setKv(RETRY_KEY, chains);
+  for (const c of waiting) await log(c, 'autopilot_retry_ended', 'info', `${what(c).en} for ${where(c)} not sent again — “Retry refused sends” was turned off by ${actor.name}`);
+  return waiting.length;
 }
 
 /** Watchtower: one incident per chain that gave up (menu_failed), until a later send to that store works or a person stops it. */

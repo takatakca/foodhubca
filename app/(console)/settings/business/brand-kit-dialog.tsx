@@ -87,7 +87,7 @@ export function BrandKitDialog({ brand, onClose, onSaved }: { brand: BrandRecord
           )}
           {report?.tooLightOnWhite && <Banner tone="warn">{t(`Couleur trop pâle sur fond blanc (${num(report.onWhite)}) : la bande et le badge se verront mal dans la console. Choisissez une teinte plus foncée.`, `Colour too light on white (${num(report.onWhite)}): the stripe and the badge will be hard to see in the console. Pick a darker shade.`)}</Banner>}
           {report?.looksLikeStatus && <StatusWarning tone={report.looksLikeStatus} />}
-          {report?.tooDarkOnKitchen &&<Banner tone="info">{t(`Sur l’écran sombre de la cuisine, cette couleur se voit peu (${num(report.onKitchen)}). Le nom de la marque reste lisible.`, `On the dark kitchen screen this colour shows little (${num(report.onKitchen)}). The brand name stays readable.`)}</Banner>}
+          {report?.tooDarkOnKitchen && <Banner tone="info">{t(`Sur l’écran sombre de la cuisine, cette couleur se voit peu (${num(report.onKitchen)}). Le nom de la marque reste lisible.`, `On the dark kitchen screen this colour shows little (${num(report.onKitchen)}). The brand name stays readable.`)}</Banner>}
           {!kit && <p className="text-small text-ink-3">{t('Sans couleur ni logo, la marque garde son look actuel partout.', 'With no colour and no logo, the brand keeps its current look everywhere.')}</p>}
         </div>
       </div>

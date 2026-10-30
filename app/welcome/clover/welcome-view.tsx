@@ -4,11 +4,14 @@ import Link from 'next/link';
 import { useState, type ReactNode } from 'react';
 import {
   ArrowRight, Check, CircleAlert, ExternalLink, Globe, Hourglass, Layers, Loader2, Lock, Mail, MonitorSmartphone,
-  PartyPopper, Phone, PlugZap, Printer, Receipt, ShieldCheck, Store, Tablet, Tags, UtensilsCrossed, X,
+  Phone, PlugZap, Printer, Receipt, ShieldCheck, Store, Tablet, Tags, UtensilsCrossed, X,
 } from 'lucide-react';
 import { TakatakMark } from '@/components/brand/takatak-mark';
 import { buttonClass } from '@/components/ui/button';
+import { CelebrationBanner, Confetti, useCelebrateOnce } from '@/components/ui/celebration';
+import { ProgressRing } from '@/components/ui/progress-ring';
 import { useI18n } from '@/lib/i18n/client';
+import { CELEBRATION_KEYS } from '@/lib/ui/celebrate';
 import { cn } from '@/lib/ui/cn';
 import type { MevMerchantSetup } from '@/lib/foodhub/mev/clover-merchants';
 import type { CloverBilling, CloverMerchantProfile } from '@/lib/foodhub/pos/clover-oauth';
@@ -59,6 +62,9 @@ const STEP_ORDER: OnboardingKey[] = ['platforms', 'menu', 'kitchen'];
 export function WelcomeView({ data }: { data: WelcomeData }) {
   const { t, lang, setLang } = useI18n();
   const allDone = data.state === 'connected' && Boolean(data.steps?.length) && data.steps!.every((s) => s.done);
+  // Clover connected: this page is where the Clover app lands once the register is connected. The first time this device
+  // sees it, one confetti burst over the status (once per device; not when the "all set" celebration already shows).
+  const connectedNow = useCelebrateOnce(CELEBRATION_KEYS.cloverConnected, data.state === 'connected');
   return (
     <div className="grid min-h-dvh grid-cols-1 bg-canvas text-ink lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.25fr)]">
       <Rail t={t} appName={data.appName} />
@@ -75,7 +81,7 @@ export function WelcomeView({ data }: { data: WelcomeData }) {
         </header>
 
         <div className="relative mx-auto w-full max-w-2xl flex-1 space-y-5 py-8">
-          <StatusHero data={data} t={t} />
+          <StatusHero data={data} t={t} confetti={connectedNow && !allDone} />
           {allDone && <Celebration t={t} />}
           {data.merchant && data.state !== 'gone' && <RegisterCard data={data} t={t} lang={lang} />}
           {(!data.app || data.app === 'foodhub') && (data.state === 'connected' || data.state === 'pending') && <Steps data={data} t={t} />}
@@ -155,7 +161,7 @@ function FlowLine() {
 
 /* ---------------------------------------------------------------- status */
 
-function StatusHero({ data, t }: { data: WelcomeData; t: T }) {
+function StatusHero({ data, t, confetti }: { data: WelcomeData; t: T; confetti?: boolean }) {
   const who = data.merchant?.name || null;
   const where = [data.merchant?.city, data.merchant?.region].filter(Boolean).join(', ');
   const tone = {
@@ -189,8 +195,9 @@ function StatusHero({ data, t }: { data: WelcomeData; t: T }) {
   }[data.state];
 
   return (
-    <section className="motion-safe:animate-rise rounded-2xl border border-line bg-surface p-6 shadow-card sm:p-7">
-      <div className="flex items-start gap-4">
+    <section className="relative overflow-hidden motion-safe:animate-rise rounded-2xl border border-line bg-surface p-6 shadow-card sm:p-7">
+      {confetti && <Confetti />}
+      <div className="relative flex items-start gap-4">
         <span className={cn('flex size-14 shrink-0 items-center justify-center rounded-full motion-safe:animate-pop', tone.ring)}>{tone.icon}</span>
         <div className="min-w-0">
           {(who || where) && <div className="mb-1 truncate text-[13px] font-semibold text-ink-3">{[who, where].filter(Boolean).join(' · ')}</div>}
@@ -304,7 +311,7 @@ function Steps({ data, t }: { data: WelcomeData; t: T }) {
           <div className="text-xs font-bold tracking-[0.12em] text-brand uppercase">{t('Mise en route', 'Getting started')}</div>
           <h3 className="mt-1 text-lg font-extrabold">{t('3 étapes et vos commandes arrivent dans Clover', '3 steps and your orders reach Clover')}</h3>
         </div>
-        {live && <ProgressRing done={done} total={live.length} t={t} />}
+        {live && <ProgressRing value={live.length ? done / live.length : 0} label={`${done}/${live.length}`} ariaLabel={t(`${done} étape(s) sur ${live.length}`, `${done} of ${live.length} step(s)`)} />}
       </div>
       <ol className="mt-4 space-y-2">
         {STEP_ORDER.map((key, i) => {
@@ -336,40 +343,11 @@ function Steps({ data, t }: { data: WelcomeData; t: T }) {
   );
 }
 
-function ProgressRing({ done, total, t }: { done: number; total: number; t: T }) {
-  const r = 20;
-  const c = 2 * Math.PI * r;
-  const pct = total ? done / total : 0;
-  return (
-    <div className="relative size-14 shrink-0" role="img" aria-label={t(`${done} étape(s) sur ${total}`, `${done} of ${total} step(s)`)}>
-      <svg viewBox="0 0 48 48" className="size-14 -rotate-90">
-        <circle cx="24" cy="24" r={r} fill="none" strokeWidth="5" className="stroke-sunken" />
-        <circle cx="24" cy="24" r={r} fill="none" strokeWidth="5" strokeLinecap="round" className="stroke-go transition-[stroke-dashoffset] duration-500" strokeDasharray={c} strokeDashoffset={c * (1 - pct)} />
-      </svg>
-      <span className="num absolute inset-0 flex items-center justify-center text-[13px] font-extrabold">{done}/{total}</span>
-    </div>
-  );
-}
-
-const CONFETTI_COLORS = ['bg-brand', 'bg-go', 'bg-info', 'bg-wait', 'bg-violet', 'bg-clover'];
-
+/** The wizard's last moment (components/ui/celebration.tsx holds the confetti shared with Go-live and the menus). */
 function Celebration({ t }: { t: T }) {
   return (
-    <section className="relative overflow-hidden rounded-2xl bg-rail p-6 text-white shadow-pop" role="status">
-      <div className="pointer-events-none absolute inset-0" aria-hidden>
-        {Array.from({ length: 28 }, (_, i) => (
-          <span key={i} className={cn('absolute top-0 h-2.5 w-1.5 rounded-[2px] opacity-0 motion-safe:animate-confetti', CONFETTI_COLORS[i % CONFETTI_COLORS.length])}
-            style={{ left: `${(i * 37) % 100}%`, animationDelay: `${(i % 7) * 70}ms`, ['--r' as string]: `${(i * 53) % 360}deg`, ['--x' as string]: `${((i * 29) % 60) - 30}px` }} />
-        ))}
-      </div>
-      <div className="relative flex items-center gap-4">
-        <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-brand motion-safe:animate-pop"><PartyPopper className="size-6" /></span>
-        <div>
-          <div className="text-xl font-extrabold">{t('Tout est prêt !', 'You’re all set!')}</div>
-          <div className="text-[14px] text-white/70">{t('Plateformes branchées, menu importé, cuisine équipée. La prochaine commande arrive directement dans Clover.', 'Platforms connected, menu imported, kitchen equipped. The next order goes straight into Clover.')}</div>
-        </div>
-      </div>
-    </section>
+    <CelebrationBanner title={t('Tout est prêt !', 'You’re all set!')}
+      body={t('Plateformes branchées, menu importé, cuisine équipée. La prochaine commande arrive directement dans Clover.', 'Platforms connected, menu imported, kitchen equipped. The next order goes straight into Clover.')} />
   );
 }
 

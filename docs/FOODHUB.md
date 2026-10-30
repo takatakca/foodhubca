@@ -166,7 +166,10 @@ Clover too, and the day log is not counted twice.
    translation), DoorDash / Skip English or French.
 6. **Payouts & Money → Commission Plans** → check your plan per app (Uber Eats and DoorDash
    rate cards are pre-filled; Skip and TGTG from your contract) and tick *Matches my contract*.
-7. **Settings → Go-live** (`/settings/go-live`) shows what is left, computed from your real configuration.
+7. **Settings → Go-live** (`/settings/go-live`) shows what is left, computed from your real configuration: a progress ring
+   (the share of the steps « À faire » that are done; « À vérifier » and « Optionnel » never hold it back) and one stage per
+   group. At 100 % it celebrates once per device (confetti, none under reduced motion); so do the first menu publish and
+   the first time the Clover welcome page shows the register connected.
 8. Last step: `LIVE_CONNECTORS_GLOBAL_ENABLED=true`. Before that, orders are received and shown,
    but nothing is sent back to the platforms. `SESSION_SECRET` (or `DASHBOARD_PASSWORD`) is required in production.
 
@@ -251,7 +254,7 @@ Finance covers every location's money, so it is only for logins that see all loc
 
 | Screen | Use it for |
 |---|---|
-| **Overview** `/` | What needs you now, sales today (delivery + in-store), platforms, kitchens and tablets, store health (brand × location), sales by hour, top brands. |
+| **Overview** `/` | What needs you now, sales today (delivery + in-store), platforms, kitchens and tablets, store health (brand × location), sales by hour, top brands. *More numbers → Connections & sync* (full view): platforms, Clover, database, sync, Watchtower, then e-mail, SMS & calls, AI and, once set up, the screens relay and the Too Good To Go mailbox, each with a live dot (the owner also sees which setting names are missing, never their values; these rows never change `/api/health`). |
 | **Kitchen** `/kitchen` | Big cards for the line: Seen, Ready, +5 min, busy mode, full screen. |
 | **Alerts** `/alerts` | Watchtower incidents with their escalation steps, explanation, *I'm on it* / *Fixed* / *Snooze*, text the customer; message log. |
 | Orders `/orders` | Live board New → Preparing → Ready → Out (+ Scheduled), and History. Reject / cancel with a reason. |

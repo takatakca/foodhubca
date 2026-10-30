@@ -53,64 +53,66 @@ export function HeroSparkles() {
 export function HeroDevice({ lang }: { lang: Lang }) {
   const w = SHOWCASE[lang];
   const [first, ...rest] = w.orders;
-  const chipPos = ['-left-3 top-6 sm:-left-8', '-right-2 top-1/3 sm:-right-6', 'left-6 -bottom-4'];
+  const chipPos = ['-left-2 -top-6 sm:-left-10', '-right-2 bottom-12 sm:-right-10', 'left-4 -bottom-6'];
   return (
-    <figure className={`${styles.stage} relative mx-auto w-full max-w-[460px]`}>
-      <div aria-hidden="true" className={styles.device}>
-        <div className={styles.screen}>
-          <div className="flex items-center justify-between border-b border-[#e3e7ee] bg-white px-4 py-3">
-            <div>
-              <p className="text-[13px] font-extrabold text-[#0b1220]">{w.live}</p>
-              <p className="text-[11px] text-[#5c6677]">{w.liveSub}</p>
-            </div>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-[#e6f6ed] px-2.5 py-1 text-[11px] font-bold text-[#0b7f48]">
-              <span className="relative flex size-2"><span className="absolute inline-flex size-full animate-ping rounded-full bg-[#0e9f5a] opacity-60 motion-reduce:animate-none" /><span className="relative inline-flex size-2 rounded-full bg-[#0e9f5a]" /></span>
-              {lang === 'fr' ? 'En direct' : 'Live'}
-            </span>
-          </div>
-          <div className="space-y-2.5 p-3">
-            <div className={`${styles.orderIn} ${styles.ringing} rounded-xl border-2 border-[#1f8bff] bg-white p-3`}>
-              <div className="flex items-center justify-between gap-2">
-                <span className={`rounded-md px-2 py-0.5 text-[11px] font-bold text-white ${PILL[first.platform]}`}>{first.label}</span>
-                <span className="text-[11px] font-bold uppercase tracking-wide text-[#1565d8]">{w.newOrder}</span>
+    <figure className={`${styles.stage} mx-auto w-full max-w-[460px]`}>
+      <div className="relative">
+        <div aria-hidden="true" className={styles.device}>
+          <div className={styles.screen}>
+            <div className="flex items-center justify-between border-b border-[#e3e7ee] bg-white px-4 py-3">
+              <div>
+                <p className="text-[13px] font-extrabold text-[#0b1220]">{w.live}</p>
+                <p className="text-[11px] text-[#5c6677]">{w.liveSub}</p>
               </div>
-              <div className="mt-2 flex items-end justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-[15px] font-extrabold text-[#0b1220]">#{first.ref}</p>
-                  <p className="truncate text-[12px] text-[#3d4757]">{first.items}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-[15px] font-extrabold tabular-nums text-[#0b1220]">{first.total}</p>
-                  <span className={`${styles.acceptBtn} mt-1 inline-flex rounded-lg bg-[#1565d8] px-3 py-1.5 text-[12px] font-extrabold text-white`}>{w.accept}</span>
-                </div>
-              </div>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#e6f6ed] px-2.5 py-1 text-[11px] font-bold text-[#0b7f48]">
+                <span className="relative flex size-2"><span className="absolute inline-flex size-full animate-ping rounded-full bg-[#0e9f5a] opacity-60 motion-reduce:animate-none" /><span className="relative inline-flex size-2 rounded-full bg-[#0e9f5a]" /></span>
+                {lang === 'fr' ? 'En direct' : 'Live'}
+              </span>
             </div>
-            {rest.map((o, i) => (
-              <div key={o.ref} className={`${styles.slideRow} flex items-center justify-between gap-2 rounded-xl border border-[#e3e7ee] bg-white px-3 py-2.5`} style={delay(0.4 + i * 0.3)}>
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className={`h-8 w-1.5 shrink-0 rounded-full ${PILL[o.platform]}`} />
+            <div className="space-y-2.5 p-3">
+              <div className={`${styles.orderIn} ${styles.ringing} rounded-xl border-2 border-[#1f8bff] bg-white p-3`}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`rounded-md px-2 py-0.5 text-[11px] font-bold text-white ${PILL[first.platform]}`}>{first.label}</span>
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-[#1565d8]">{w.newOrder}</span>
+                </div>
+                <div className="mt-2 flex items-end justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-[13px] font-bold text-[#0b1220]">{o.label} · #{o.ref}</p>
-                    <p className="truncate text-[11px] text-[#5c6677]">{o.items}</p>
+                    <p className="text-[15px] font-extrabold text-[#0b1220]">#{first.ref}</p>
+                    <p className="truncate text-[12px] text-[#3d4757]">{first.items}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[15px] font-extrabold tabular-nums text-[#0b1220]">{first.total}</p>
+                    <span className={`${styles.acceptBtn} mt-1 inline-flex rounded-lg bg-[#1565d8] px-3 py-1.5 text-[12px] font-extrabold text-white`}>{w.accept}</span>
                   </div>
                 </div>
-                <span className="shrink-0 rounded-full bg-[#eceff5] px-2 py-0.5 text-[11px] font-bold text-[#3d4757]">{o.state}</span>
               </div>
-            ))}
-            <div className={`${styles.toast} flex items-center gap-2 rounded-xl bg-[#060d1f] px-3 py-2.5 text-[12px] font-semibold text-white`}>
-              <span className="grid size-5 place-items-center rounded-full bg-[#0e9f5a] text-[11px]">✓</span>
-              <span>{w.sentToClover} · {w.printed}</span>
+              {rest.map((o, i) => (
+                <div key={o.ref} className={`${styles.slideRow} flex items-center justify-between gap-2 rounded-xl border border-[#e3e7ee] bg-white px-3 py-2.5`} style={delay(0.4 + i * 0.3)}>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className={`h-8 w-1.5 shrink-0 rounded-full ${PILL[o.platform]}`} />
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-bold text-[#0b1220]">{o.label} · #{o.ref}</p>
+                      <p className="truncate text-[11px] text-[#5c6677]">{o.items}</p>
+                    </div>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-[#eceff5] px-2 py-0.5 text-[11px] font-bold text-[#3d4757]">{o.state}</span>
+                </div>
+              ))}
+              <div className={`${styles.toast} flex items-center gap-2 rounded-xl bg-[#060d1f] px-3 py-2.5 text-[12px] font-semibold text-white`}>
+                <span className="grid size-5 place-items-center rounded-full bg-[#0e9f5a] text-[11px]">✓</span>
+                <span>{w.sentToClover} · {w.printed}</span>
+              </div>
             </div>
+            <span className={styles.glare} />
           </div>
-          <span className={styles.glare} />
         </div>
+        {w.chips.map((c, i) => (
+          <span key={c} aria-hidden="true" className={`${styles.floatChip} ${chipPos[i]}`} style={delay(i * 1.2)}>
+            <span className="text-cyan">◆</span>{c}
+          </span>
+        ))}
       </div>
-      {w.chips.map((c, i) => (
-        <span key={c} aria-hidden="true" className={`${styles.floatChip} ${chipPos[i]}`} style={delay(i * 1.2)}>
-          <span className="text-cyan">◆</span>{c}
-        </span>
-      ))}
-      <figcaption className="mt-6 text-center text-[12px] text-silver">{w.demoNote}</figcaption>
+      <figcaption className="mt-12 text-right text-[12px] text-silver">{w.demoNote}</figcaption>
     </figure>
   );
 }
@@ -129,10 +131,10 @@ function BrainSection({ lang }: { lang: Lang }) {
   ];
   const inPath = (y: number) => `M150 ${y} C 220 ${y}, 230 210, 262 210`;
   const backPath = (y: number) => `M150 ${y + 10} C 225 ${y + 10}, 235 222, 262 222`;
-  const outPath = (y: number) => `M338 210 C 380 210, 390 ${y}, 450 ${y}`;
+  const outPath = (y: number) => `M338 210 C 380 210, 385 ${y}, 440 ${y}`;
   return (
     <section aria-labelledby="cerveau-title" className="relative overflow-hidden bg-rail text-white">
-      <div className="mx-auto grid max-w-6xl items-center gap-10 px-4 py-16 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+      <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-10 px-4 py-16 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
         <div className={styles.reveal}>
           <p className="text-[13px] font-bold uppercase tracking-[0.12em] text-cyan">{w.brainEyebrow}</p>
           <h2 id="cerveau-title" className="mt-3 text-3xl font-extrabold tracking-tight sm:text-4xl">{w.brainTitle}</h2>
@@ -191,10 +193,10 @@ function BrainSection({ lang }: { lang: Lang }) {
           ))}
           {right.map((n) => (
             <g key={`m-${n.name}`} className={styles.node}>
-              <rect x="450" y={n.y - 28} width="136" height="56" rx="14" fill="#0b1b3d" stroke={n.color} strokeWidth="1.5" />
-              <circle cx="472" cy={n.y} r="7" fill={n.color} />
-              <text x="486" y={n.y - 2} fill="#ffffff" fontSize="14" fontWeight="800">{n.name}</text>
-              <text x="486" y={n.y + 14} fill="#b8c4d3" fontSize="10.5">{n.sub}</text>
+              <rect x="440" y={n.y - 28} width="156" height="56" rx="14" fill="#0b1b3d" stroke={n.color} strokeWidth="1.5" />
+              <circle cx="460" cy={n.y} r="7" fill={n.color} />
+              <text x="474" y={n.y - 2} fill="#ffffff" fontSize="14" fontWeight="800">{n.name}</text>
+              <text x="474" y={n.y + 14} fill="#b8c4d3" fontSize="10.5">{n.sub}</text>
             </g>
           ))}
         </svg>
@@ -207,7 +209,7 @@ function BrainSection({ lang }: { lang: Lang }) {
 function ShowcaseCards({ lang }: { lang: Lang }) {
   const w = SHOWCASE[lang];
   return (
-    <div className="grid gap-6 py-14 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-6 py-14 lg:grid-cols-2">
       <article className={`${styles.glow} ${styles.reveal} rounded-2xl border border-line bg-surface p-6 shadow-card`}>
         <div aria-hidden="true" className={styles.tablet}>
           <div className="rounded-2xl bg-[#0b1220] p-3">
@@ -286,7 +288,7 @@ function FeatureExplorer({ lang }: { lang: Lang }) {
           </div>
         </fieldset>
         {w.features.map((f) => (
-          <div key={f.id} data-tab={f.id} className={`${styles.panel} mt-6 items-center gap-8 rounded-2xl border border-line bg-surface p-6 shadow-card md:grid-cols-[auto_minmax(0,1fr)] md:p-8`}>
+          <div key={f.id} data-tab={f.id} className={`${styles.panel} mt-6 grid-cols-1 items-center gap-8 rounded-2xl border border-line bg-surface p-6 shadow-card md:grid-cols-[auto_minmax(0,1fr)] md:p-8`}>
             <div className={`${styles.bigIcon} mx-auto md:mx-0`}><Icon id={f.id} className="size-16" /></div>
             <div>
               <h3 className="text-2xl font-extrabold tracking-tight text-ink">{f.title}</h3>
@@ -315,11 +317,11 @@ function IntegrationsPanel({ lang, ctx }: { lang: Lang; ctx: HubContext }) {
   return (
     <section id={lang === 'fr' ? 'branchements' : 'connections'} aria-labelledby="branchements-title" className="border-t border-line py-14">
       <h2 id="branchements-title" className="text-3xl font-extrabold tracking-tight text-ink">{w.integrationsTitle}</h2>
-      <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+      <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <div className={`${styles.glow} rounded-2xl border border-line bg-surface p-6 shadow-card`}>
           <h3 className="text-lg font-extrabold text-ink">{w.deliveryTitle}</h3>
           <p className="mt-1 text-[15px] text-ink-2">{w.deliveryText}</p>
-          <ul className="mt-5 grid gap-3 sm:grid-cols-3">
+          <ul className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
             {DELIVERY.map((p) => {
               const live = !pending.includes(p.key);
               return (
@@ -359,7 +361,7 @@ function FactsBand({ lang }: { lang: Lang }) {
   const w = SHOWCASE[lang];
   return (
     <div className="py-4">
-      <dl className="grid gap-4 rounded-2xl bg-gradient-to-br from-rail via-rail-2 to-rail p-6 text-white sm:grid-cols-2 lg:grid-cols-4 lg:p-8">
+      <dl className="grid grid-cols-1 gap-4 rounded-2xl bg-gradient-to-br from-rail via-rail-2 to-rail p-6 text-white sm:grid-cols-2 lg:grid-cols-4 lg:p-8">
         {w.facts.map((f) => (
           <div key={f.big} className={`${styles.fact} flex flex-col-reverse gap-1 pb-2`}>
             <dt className="text-[14px] text-silver">{f.small}</dt>

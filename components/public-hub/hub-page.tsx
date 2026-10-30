@@ -213,7 +213,7 @@ export function HubPage({ page, lang, ctx }: { page: HubPageKey; lang: Lang; ctx
       <main id="contenu">
         <div className={`bg-rail text-white${isLanding ? ` ${landing.hero}` : ''}`}>
           {isLanding && <HeroSparkles />}
-          <div className={`mx-auto max-w-6xl px-4 pb-14 pt-10${isLanding ? ' grid items-center gap-12 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] lg:pb-24 lg:pt-16' : ''}`}>
+          <div className={`mx-auto max-w-6xl px-4 pb-14 pt-10${isLanding ? ' grid grid-cols-1 items-center gap-12 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] lg:pb-24 lg:pt-16' : ''}`}>
             <div>
               {page !== 'landing' && (
                 <nav aria-label={ui.breadcrumb} className="mb-4 text-sm text-silver">

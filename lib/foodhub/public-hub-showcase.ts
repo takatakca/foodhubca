@@ -57,7 +57,7 @@ export const SHOWCASE: Record<Lang, ShowcaseWords> = {
     menuTitle: 'Un menu, partout',
     menuText: 'Un menu maître publié sur Uber Eats, DoorDash et SkipTheDishes, avec une majoration par plateforme. Un article en rupture dans Clover est retiré de toutes les plateformes en quelques secondes.',
     menuMaster: 'Menu maître', menuItems: ['Shawarma poulet', 'Poutine classique', 'Pizza moyenne', 'Baklava'], soldOut: 'Rupture', synced: 'Synchronisé',
-    explorerEyebrow: 'Ce que fait Food Hub', explorerTitle: 'Cliquez sur une fonction',
+    explorerEyebrow: 'Ce que fait TAKATAK Food Hub', explorerTitle: 'Cliquez sur une fonction',
     explorerLead: 'Huit outils, un seul écran. Chacun fonctionne avec votre caisse Clover et vos propres comptes marchands.',
     features: [
       { id: 'orders', tab: 'Commandes', title: 'Toutes vos commandes de livraison au même endroit', text: 'Les commandes Uber Eats, DoorDash et SkipTheDishes arrivent avec une alerte sonore, s’acceptent en un geste et entrent dans Clover. Une fois sorties, elles sont enregistrées payées avec un mode de paiement par plateforme, pour que la fermeture de caisse soit juste.', points: ['Alerte sonore', 'Acceptation en un geste', 'Type de commande par plateforme dans Clover'] },
@@ -71,7 +71,7 @@ export const SHOWCASE: Record<Lang, ShowcaseWords> = {
     ],
     integrationsTitle: 'Branché sur ce que vous utilisez déjà',
     deliveryTitle: 'Plateformes de livraison', deliveryText: 'Vos propres comptes marchands, reliés directement : aucun agrégateur entre vous et les plateformes.',
-    posTitle: 'Caisse', posText: 'Food Hub est une application Clover : les commandes entrent dans votre caisse et sortent à votre imprimante de commandes.',
+    posTitle: 'Caisse', posText: 'TAKATAK Food Hub est une application Clover : les commandes entrent dans votre caisse et sortent à votre imprimante de commandes.',
     connected: 'Disponible', certifying: 'Certification en cours', tgtgCondition: 'lorsque votre compte offre un flux de commandes',
     otherPos: 'Vous utilisez une autre caisse ?', otherPosCta: 'Écrivez-nous',
     facts: [
@@ -102,7 +102,7 @@ export const SHOWCASE: Record<Lang, ShowcaseWords> = {
     menuTitle: 'One menu, everywhere',
     menuText: 'One master menu published to Uber Eats, DoorDash and SkipTheDishes, with a markup per platform. An item out of stock in Clover is taken off every platform within seconds.',
     menuMaster: 'Master menu', menuItems: ['Chicken shawarma', 'Classic poutine', 'Medium pizza', 'Baklava'], soldOut: 'Sold out', synced: 'Synced',
-    explorerEyebrow: 'What Food Hub does', explorerTitle: 'Click a feature',
+    explorerEyebrow: 'What TAKATAK Food Hub does', explorerTitle: 'Click a feature',
     explorerLead: 'Eight tools, one screen. Each works with your Clover register and your own merchant accounts.',
     features: [
       { id: 'orders', tab: 'Orders', title: 'All your delivery orders in one place', text: 'Uber Eats, DoorDash and SkipTheDishes orders arrive with a sound alert, are accepted in one tap and go into Clover. Once they leave, they are recorded as paid with a tender per platform, so your Clover closeout is right.', points: ['Sound alert', 'One-tap accept', 'Order type per platform in Clover'] },
@@ -116,7 +116,7 @@ export const SHOWCASE: Record<Lang, ShowcaseWords> = {
     ],
     integrationsTitle: 'Connected to what you already use',
     deliveryTitle: 'Delivery platforms', deliveryText: 'Your own merchant accounts, connected directly: no aggregator between you and the platforms.',
-    posTitle: 'Register', posText: 'Food Hub is a Clover app: orders go into your register and out of your order printer.',
+    posTitle: 'Register', posText: 'TAKATAK Food Hub is a Clover app: orders go into your register and out of your order printer.',
     connected: 'Available', certifying: 'Certification in progress', tgtgCondition: 'when your account offers an order feed',
     otherPos: 'Using another register?', otherPosCta: 'Write to us',
     facts: [

@@ -339,7 +339,12 @@ html[data-motion='reduce'] *, html[data-motion='reduce'] *::before, html[data-mo
     transition-duration: 1ms !important;
     scroll-behavior: auto !important;
   }
+  /* …except the new-order alarm (data-motion="alarm", components/live/incoming.tsx): a soft halo, no movement, the one
+     looping animation the plan allows. Checked by npm run verify:a11y (docs/ACCESSIBILITY.md). */
+  html [data-motion='alarm'] { animation-duration: 1.4s !important; animation-iteration-count: infinite !important; }
 }
+/* Same exception for the console's own "reduce motion" setting (html[data-motion='reduce'] above). */
+html[data-motion='reduce'] [data-motion='alarm'] { animation-duration: 1.4s !important; animation-iteration-count: infinite !important; }
 
 /* Kitchen touch controls and portaled dialogs: 48px minimum, even in compact mode. */
 html.theme-kitchen :is(button, a[role='button'], select, input:not([type='checkbox']):not([type='radio']):not([type='range'])) {

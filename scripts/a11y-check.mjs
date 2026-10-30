@@ -6,7 +6,8 @@
 //   - any serious or critical violation → exit 1 (each one printed with the elements it was found on);
 //   - moderate and minor ones are printed, they do not fail the run.
 // Then reduced motion: with prefers-reduced-motion: reduce, no CSS animation may still be running on those pages,
-// except the new-order alert (data-motion="alarm", components/live/incoming.tsx).
+// except the new-order alert (data-motion="alarm", components/live/incoming.tsx), which must keep ringing.
+// FOODHUB_A11Y_PAGES=alert,kitchen checks only the page states whose name holds one of those words (quicker while fixing).
 //
 // Needs a build first (`npm run build` or `npx next build --webpack`) and Chromium: `npx playwright install --only-shell chromium`.
 // Ports: FOODHUB_A11Y_MOCK_PORT / FOODHUB_A11Y_APP_PORT (default 4797 / 4798; else FOODHUB_E2E_MOCK_PORT / _APP_PORT).
@@ -27,6 +28,9 @@ const PASSWORD = 'a11y-dashboard-pass';
 const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 /** Optional: also list axe's best-practice findings (landmarks, heading order…) as notes; they never fail the run. */
 const BEST_PRACTICE = process.env.FOODHUB_A11Y_BEST_PRACTICE === '1';
+/** Optional: only the page states whose name contains one of these words (comma-separated), e.g. "alert,kitchen". */
+const ONLY = (process.env.FOODHUB_A11Y_PAGES || '').split(',').map((w) => w.trim().toLowerCase()).filter(Boolean);
+const picked = (pages) => (ONLY.length ? pages.filter((pg) => ONLY.some((w) => pg.name.toLowerCase().includes(w))) : pages);
 /** Optional: a folder where a full-page screenshot of every scan is saved (to see what was checked). */
 const SHOTS = process.env.FOODHUB_A11Y_SCREENSHOTS ? path.resolve(process.env.FOODHUB_A11Y_SCREENSHOTS) : null;
 if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true });
@@ -193,7 +197,7 @@ try {
     if (!res || res.status() >= 400) problems.push(`${pg.name}: HTTP ${res?.status()}`);
     else if (landed !== pg.path) problems.push(`${pg.name}: landed on ${landed} instead of ${pg.path}`);
     if (pg.kitchen && !(await page.evaluate(() => document.documentElement.classList.contains('theme-kitchen')))) problems.push(`${pg.name}: the kitchen theme is not applied`);
-    if (pg.dialog && !(await page.getByRole('dialog').first().isVisible().catch(() => false))) problems.push(`${pg.name}: no dialog open`);
+    if (pg.dialog && !(await page.locator('[role="dialog"], [role="alertdialog"]').first().isVisible().catch(() => false))) problems.push(`${pg.name}: no dialog open`);
     return page;
   }
   /** CSS / script animations still running (transitions excluded), and whether each one is the new-order alert. */
@@ -240,7 +244,7 @@ try {
     await ctx.close();
   }
   }
-  await scanAll(PAGES);
+  await scanAll(picked(PAGES));
 
   // ---------------- a new platform order: the alert pops up over the console ----------------
   // A made-up DoorDash store of the test brand (never a real store id), then one order on it. Clover is the local
@@ -255,21 +259,25 @@ New DoorDash order on a test store: ${alertUp ? 'received' : `NOT received (stor
     { name: 'New-order alert · kitchen', path: '/kitchen', who: 'owner', kitchen: true, dialog: true },
     { name: 'New-order alert · orders board', path: '/orders', who: 'owner', dialog: true },
   ];
-  if (alertUp) await scanAll(ALERT_PAGES);
+  if (alertUp) await scanAll(picked(ALERT_PAGES));
 
   // ---------------- reduced motion ----------------
-  console.log('\nReduced motion (prefers-reduced-motion: reduce): no running CSS animation except the new-order alert');
+  console.log('\nReduced motion (prefers-reduced-motion: reduce): no running CSS animation except the new-order alert, which keeps ringing');
   const motion = [];
   {
     const vp = VIEWPORTS[1];
     const ctx = contexts({ viewport: { width: vp.width, height: vp.height }, reducedMotion: 'reduce' });
-    for (const pg of alertUp ? [...PAGES, ...ALERT_PAGES] : PAGES) {
+    for (const pg of picked(alertUp ? [...PAGES, ...ALERT_PAGES] : PAGES)) {
       const page = await open(await ctx.for(pg.who), pg);
       await page.waitForTimeout(500);
       const running = await runningAnimations(page);
       const bad = running.filter((a) => !a.alarm);
-      motion.push({ page: pg.name, bad: bad.length, alarm: running.length - bad.length });
-      console.log(`  ${bad.length ? 'FAIL' : 'PASS'}  ${pg.name}${running.length - bad.length ? ` (new-order alert running: allowed)` : ''}`);
+      const alarm = running.length - bad.length;
+      // On the new-order alert (desktop size: the ring is `sm:animate-ring`) the alarm itself must still ring: an alarm is
+      // not decoration (app/globals.css, the one exception to the reduced-motion rule).
+      const silenced = ALERT_PAGES.includes(pg) && alarm === 0;
+      motion.push({ page: pg.name, bad: bad.length + (silenced ? 1 : 0), alarm });
+      console.log(`  ${bad.length || silenced ? 'FAIL' : 'PASS'}  ${pg.name}${alarm ? ' (new-order alert still ringing: expected)' : ''}${silenced ? ' — the new-order alert stopped ringing' : ''}`);
       for (const a of bad.slice(0, 8)) console.log(`        ${a.name} on ${a.desc}`);
       await page.close();
     }

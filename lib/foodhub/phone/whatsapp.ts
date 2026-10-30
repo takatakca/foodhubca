@@ -4,6 +4,8 @@
 //   - Opt-out: STOP / ARRÊT blocks the sender (START / REPRENDRE lifts it); a blocked sender gets no reply.
 //   - Brand routing: the first message gets a numbered menu of the brands (FOODHUB_BRAND_PHONES); the choice is
 //     remembered per customer under a hash of the number (no phone number, no name stored).
+//   - Welcome: the customer is greeted by the first name of his WhatsApp profile (ProfileName, cleaned, never stored),
+//     then gets the options of the chosen brand (order, track, menu, hours, a person). Links come from FOODHUB_BRAND_LINKS.
 // Replies are TwiML <Message>: they answer the customer's own message, inside the 24 h window, so no template is needed.
 import crypto from 'node:crypto';
 import { getRepo } from '../repo';
@@ -25,7 +27,8 @@ const mem = (): Mem => {
 };
 export function resetWhatsAppState(): void { mem().hits.clear(); mem().seen.clear(); }
 
-type Customer = { brand?: string; optedOut?: boolean };
+type Step = 'order' | 'track' | 'person';
+type Customer = { brand?: string; optedOut?: boolean; step?: Step };
 const idFor = (phone: string) => crypto.createHash('sha256').update(`whatsapp|${phone}`).digest('hex').slice(0, 32);
 
 /** Distinct brand names, in the order of FOODHUB_BRAND_PHONES. */
@@ -63,10 +66,57 @@ export function firstSeen(sid: string, now = Date.now()): boolean {
 
 const STOP = /^\s*(stop|stopall|unsubscribe|cancel|end|quit|arr[êe]t|arreter|arrêter)\s*[.!]?\s*$/i;
 const START = /^\s*(start|unstop|reprendre|oui|yes)\s*[.!]?\s*$/i;
-const CHANGE = /^\s*(menu|marque|brand|changer|change|0)\s*$/i;
+const CHANGE = /^\s*(marque|brand|changer|change|0)\s*$/i;
+const OPTIONS = /^\s*(menu|options?|aide|help|bonjour|allo|allô|salut|hello|hi|hey)\s*[.!]?\s*$/i;
 
-function menuText(brands: string[]): string {
-  return `Bonjour ! Pour quelle marque voulez-vous nous écrire ?\nHello! Which brand are you writing to?\n${brands.map((b, i) => `${i + 1}. ${b}`).join('\n')}\n\nRépondez par le numéro / Reply with the number.`;
+/** First name from the WhatsApp profile: letters only, at most 30 characters, nothing that looks like a link. */
+export function waFirstName(profile: string | null): string {
+  const clean = (profile ?? '').normalize('NFC').replace(/https?:\/\/\S+|www\.\S+|\S+@\S+/gi, ' ').replace(/[^\p{L}\p{M}' -]/gu, ' ').trim();
+  const first = clean.split(/\s+/)[0] ?? '';
+  return first.length >= 2 ? first.slice(0, 30) : '';
+}
+
+const hello = (name: string) => (name ? `Bonjour ${name} ! / Hi ${name}!` : 'Bonjour ! / Hi!');
+
+function menuText(brands: string[], name = ''): string {
+  return `${hello(name)}\nBienvenue. Pour quelle marque voulez-vous nous écrire ?\nWelcome. Which brand are you writing to?\n${brands.map((b, i) => `${i + 1}. ${b}`).join('\n')}\n\nRépondez par le numéro / Reply with the number.`;
+}
+
+/** Per-brand links: FOODHUB_BRAND_LINKS = {"Brand": {"order": "https://…", "menu": "https://…", "hours": "…"}}. https only. */
+type BrandLinks = { order?: string; menu?: string; hours?: string };
+export function brandLinks(brand: string): BrandLinks {
+  try {
+    const all = JSON.parse(process.env.FOODHUB_BRAND_LINKS || '{}') as Record<string, BrandLinks>;
+    const raw = all?.[brand] ?? {};
+    const ok = (v?: string) => (typeof v === 'string' && /^https:\/\/[^\s<>"]+$/.test(v) ? v : undefined);
+    return { order: ok(raw.order), menu: ok(raw.menu), hours: typeof raw.hours === 'string' ? raw.hours.slice(0, 300) : undefined };
+  } catch {
+    return {};
+  }
+}
+
+export function optionsText(brand: string, name = ''): string {
+  return `${hello(name)}\n${brand} : que voulez-vous faire ? / What would you like to do?\n1. Commander / Order\n2. Suivre ma commande / Track my order\n3. Menu et prix / Menu & prices\n4. Heures et adresse / Hours & address\n5. Parler à une personne / Talk to a person\n0. Changer de marque / Change brand`;
+}
+
+function optionAnswer(brand: string, option: number): { text: string; step?: Step } | null {
+  const l = brandLinks(brand);
+  switch (option) {
+    case 1:
+      return { step: 'order', text: l.order
+        ? `${brand} : commandez ici ${l.order}\nOu écrivez votre commande et votre adresse (ou « pour emporter »), une personne confirme le prix et l'heure.\nOr write your order and address here.`
+        : `${brand} : écrivez votre commande et votre adresse (ou « pour emporter »). Une personne confirme le prix et l'heure.\nWrite your order and address (or "pickup"); a team member confirms price and time.` };
+    case 2:
+      return { step: 'track', text: `${brand} : envoyez votre numéro de commande (ou le nom au dossier), nous vérifions où elle en est.\nSend your order number and we'll check on it.` };
+    case 3:
+      return { text: l.menu ? `${brand} : le menu et les prix sont ici ${l.menu}` : `${brand} : une personne vous envoie le menu et les prix sous peu.\nA team member will send you the menu shortly.` };
+    case 4:
+      return { text: l.hours ? `${brand} : ${l.hours}` : `${brand} : une personne vous confirme les heures et l'adresse sous peu.\nA team member will confirm hours and address shortly.` };
+    case 5:
+      return { step: 'person', text: `${brand} : une personne vous répond ici dès que possible. Écrivez votre question.\nA team member will reply here. Write your question.` };
+    default:
+      return null;
+  }
 }
 
 function pickBrand(body: string, brands: string[]): string | null {
@@ -103,14 +153,21 @@ export async function handleWhatsApp(params: URLSearchParams): Promise<Response>
     await save(cur);
   }
   const brands = waBrands();
-  if (!brands.length) return message('Merci de votre message. Une personne vous répondra bientôt.\nThanks for your message. A team member will reply soon.');
+  const name = waFirstName(params.get('ProfileName'));
+  if (!brands.length) return message(`${hello(name)}\nMerci de votre message. Une personne vous répondra bientôt.\nThanks for your message. A team member will reply soon.`);
   if (CHANGE.test(body) || !cur.brand || !brands.includes(cur.brand)) {
     const choice = CHANGE.test(body) ? null : pickBrand(body, brands);
-    if (!choice) { await save({ ...cur, brand: undefined }); return message(menuText(brands)); }
-    await save({ ...cur, brand: choice });
-    return message(`${choice} : merci ! Écrivez votre commande ou votre question, nous vous répondons ici. (« menu » pour changer de marque)\nThanks! Write your order or question here. (“menu” to change brand)`);
+    if (!choice) { await save({ ...cur, brand: undefined, step: undefined }); return message(menuText(brands, name)); }
+    await save({ ...cur, brand: choice, step: undefined });
+    return message(optionsText(choice, name));
   }
-  return message(`${cur.brand} : message reçu, une personne vous répond bientôt. (« menu » pour changer de marque)\nMessage received, a team member will reply soon.`);
+  if (OPTIONS.test(body)) { await save({ ...cur, step: undefined }); return message(optionsText(cur.brand, name)); }
+  const opt = /^\s*([1-5])\s*$/.exec(body);
+  if (opt) {
+    const a = optionAnswer(cur.brand, Number(opt[1]));
+    if (a) { await save({ ...cur, step: a.step }); return message(a.text); }
+  }
+  return message(`${cur.brand} : message reçu, une personne vous répond bientôt. (« menu » pour les options, « 0 » pour changer de marque)\nMessage received, a team member will reply soon.`);
 }
 
 /** Route wrapper: signature first (403 otherwise), then the handler; any failure answers an empty TwiML. */

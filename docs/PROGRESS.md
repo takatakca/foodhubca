@@ -25,9 +25,20 @@
   / `screens-relay-windows` only (POSIX file mode 600 on NTFS, PowerShell dry runs over 20 s), files this branch does not touch;
   `tests/interac-etransfer.test.ts` 19/19 · `rm -rf .next && npx next build --webpack` compiled, exit 0 ·
   `verify:foodhub` (ports 4899/4900) 642 passed, 0 failed.
+- Adversarial review fixes (717428a, 44d815d, 15dd6e6): « Payer au comptoir » takes the Interac fee + its taxes off (Clover,
+  text, invoice); a release that stops after "paid" is never cancelled by the expiry (flagged once, the next « Virement reçu »
+  resumes it: no second "paid", Clover again only if its first call never started, else a person checks Clover); a person
+  cancelling it flags the paid transfer (kitchen anyway / returned by hand); `publicDirectOrder()` keeps the security answer
+  out of the orders board, order detail and action answers; strict re-pricing refuses an unknown option with any non-zero
+  price (negative too) and keeps the menu item's own name on the line; MEV: the fee is the sale's service fee, a confirmed
+  transfer is AUT + e-commerce + its reference (no `tender_unknown`); the settings fee hint rounds GST and QST separately.
+  Checks on 15dd6e6: typecheck 0 · lint 0 errors (1 old warning) · `npm test` 1929 passed, 2 failed (screens-relay Windows-only,
+  untouched), 6 skipped; `tests/interac-etransfer.test.ts` 27/27, `tests/mev-map.test.ts` 30/30 · `next build --webpack` exit 0
+  · `verify:foodhub` 4899/4900 643 passed, 0 failed.
 
 — signé : Claude Fable 5.1 (interac-etransfer sub-agent of « Food delivery provider integration ») @ Claude Code desktop · 2026-10-30;
-checks, e2e fix and PR : Claude Opus 5.5 (interac-etransfer builder) @ Claude Code desktop · 2026-10-30
+checks, e2e fix and PR : Claude Opus 5.5 (interac-etransfer builder) @ Claude Code desktop · 2026-10-30; review fixes : Claude Opus 5.5
+(interac-etransfer fixer) @ Claude Code desktop · 2026-10-30
 
 ## 2026-10-30 — on2go.ca browser customer API (`feature/on2go-account-cors`)
 

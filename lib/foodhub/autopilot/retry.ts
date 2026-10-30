@@ -175,8 +175,15 @@ export async function tickRetries(now: number, switchOnAt: string): Promise<Retr
         request: j.request, failedAt: j.createdAt, lastError: errorOf(j), attempts: 0,
         nextAt: new Date(Date.parse(j.createdAt) + RETRY_DELAYS_MIN[0] * 60_000).toISOString(), status: 'waiting', childJobIds: [],
       };
-      chains[j.id] = c; changed = true; out.planned++;
+      chains[j.id] = c; changed = true;
       const w = what(c);
+      if (isRelayStore(store) || isLockedStore(store) || (c.kind !== 'store_toggle' && menuChangesRefused(store))) {
+        // Remembered (so it is not looked at again), never sent.
+        end(c, 'skipped', 'protected store — never touched by an automation', now); out.ended++;
+        await log(c, 'autopilot_retry_ended', 'info', `${w.en} refused for ${where(c)} — not retried: protected store, never touched by an automation`);
+        continue;
+      }
+      out.planned++;
       await log(c, 'autopilot_retry_planned', 'queued', `${w.en} refused for ${where(c)} (${c.lastError}) — retry 1/3 at ${hhmm(Date.parse(c.nextAt!))}`);
     }
     const due = Object.values(chains).filter((c) => c.status === 'waiting' && c.nextAt && Date.parse(c.nextAt) <= now).sort((a, b) => a.nextAt!.localeCompare(b.nextAt!));

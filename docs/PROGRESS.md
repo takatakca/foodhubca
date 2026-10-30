@@ -1,5 +1,31 @@
 # Food Hub: progress log and task board
 
+## 2026-10-30 — Automated accessibility check (axe, WCAG 2.1 AA) on key pages + fixes (`feature/a11y-axe-check`)
+
+- MASTER PLAN Phase 3 acceptance "Lighthouse accessibility ≥ 95" had no tooling. `npm run verify:a11y`
+  (`scripts/a11y-check.mjs`) starts the built app like `scripts/foodhub-e2e.mjs` (memory mode, local stand-ins, owner
+  sign-in; that script is unchanged), seeds the demo brand Pi Pita, and runs axe-core (WCAG 2.1 A/AA) with Playwright at
+  375×812 and 1280×800 on: sign-in, `/tablette`, `/commander/pi-pita`, welcome dialog, overview, orders board, kitchen
+  (dark theme asserted), Go-live, Settings → Autopilot, and the new-order alert (kitchen + orders board, from a test
+  DoorDash order on a made-up store). Serious/critical → exit 1; moderate printed.
+- Reduced motion: with `prefers-reduced-motion: reduce` nothing animates except the new-order alarm, which must keep
+  ringing. `app/globals.css` gives `[data-motion='alarm']` its ring back (the 1 ms rule had silenced it).
+- Fixes (no layout change; only colours that failed): `--color-go-fill` / `--color-stop-fill` / `--color-on-*` tokens for
+  filled controls (dark text on the kitchen's bright fills), `--color-wait-2` #8a6500, `PLATFORM[...].on` for platform
+  tags, badge text, sign-in footnote, "Refuser" and the cancellation line in `text-stop-2`; logo link and language button
+  names carry their visible text; new-order and cancellation pop-ups are named alert dialogs.
+- Before (base 599be91): 16 of 22 scans with serious violations (colour contrast, label in name). After: 0 violations at
+  any level on 22 scans. Table per page in `docs/ACCESSIBILITY.md`.
+- CI (`.github/workflows/ci.yml`): Playwright Chromium headless shell cached per version, `npm run verify:a11y` after the
+  build (8 min limit); Food Hub verification still runs if it fails; PRs into `release/**` run CI.
+- devDependencies pinned: `playwright` 1.64.1 (2026-10-14), `@axe-core/playwright` 4.14.0 (2026-10-15).
+- Checks (owner PC, Windows): `npm run typecheck` 0 errors · `npm run lint` 0 errors (1 old warning, settings/devices) ·
+  `npm test` 2010 passed, 1 failed (`tests/screens-relay-setup`, Windows-only, untouched), 6 skipped ·
+  `rm -rf .next && npx next build --webpack` exit 0 · `npm run verify:a11y` passed (22 scans, 11/11 reduced motion) ·
+  `verify:foodhub` (5911/5912) 643 passed, 0 failed.
+
+— signé : Claude Opus 5.5 (a11y-axe builder, sub-agent of « Food delivery provider integration ») @ Claude Code desktop · 2026-10-30
+
 ## 2026-10-30 — Interac e-Transfer for website orders, held until a person confirms (`feature/interac-etransfer`)
 
 - Website order contract (section B): `payment: "paid" | "pay_at_pickup" | "interac"`, `fees[]` (the Interac fee, required and

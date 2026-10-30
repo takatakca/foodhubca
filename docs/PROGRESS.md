@@ -1,5 +1,11 @@
 # Food Hub: progress log and task board
 
+## 2026-10-30 — on2go.ca browser customer API (`feature/on2go-account-cors`)
+
+- `/api/public/on2go/{verify/start, verify/check, me, logout}`: on2go.ca (static, no website secret) signs customers in by texted code and reads / updates / deletes « Mon compte » from the browser. CORS and preflight for the ON2GO sites only, brand website fixed to `on2go`, only `on2go`-signed customer tokens (`Authorization: Bearer`), per-IP windows on top of task 72's per-phone limits; listed in `proxy.ts`. `lib/foodhub/customers/on2go-public.ts`, `docs/CUSTOMER_IDENTITY.md`, `tests/on2go-public-customers.test.ts`.
+
+— signé : Claude Opus 5.5 (session on2go front-page) @ Claude Code desktop · 2026-10-30 09:00
+
 ## 2026-10-30 — Customer identity (task 72) + ON2GO sign-in through TAKATAK (`feature/on2go-customer-bridge`)
 
 - Task 72's work (customer accounts verified by text, signed customer token, `/api/foodhub/customers/*`, Settings → Clients) was left uncommitted when its agent stopped on 2026-10-29; saved as WIP on `feature/customer-identity` (5615971), brought up to main, its 16 tests green.

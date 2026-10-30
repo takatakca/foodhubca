@@ -22,8 +22,10 @@
   weekly hours, `openNow`, `openLate`, phone (only when `FOODHUB_PUBLIC_PHONE` is set), the brands cooked there.
 - `brands[]`: name, other names, categories, cuisine, description and about text (FR + EN), official website (+ `live` when
   the site answers with the brand's own page), colour, `featured`, and per kitchen: hours, open now / late, order links.
-- `order[]` per kitchen: Clover online ordering first (`FOODHUB_PUBLIC_CLOVER_ORDER_URL`), then the delivery apps' public store
-  pages (Uber Eats, DoorDash), live ones first. `live: false` = the store exists but is not visible on the app today.
+- `order[]` per kitchen: Food Hub's own ordering page first (`platform: on2go`, `/commander/<slug>`, `?lang=en` for English:
+  only the brands switched on in Settings → Storefront, in the kitchen the page serves; needs `FOODHUB_PUBLIC_URL`), then
+  Clover online ordering (`FOODHUB_PUBLIC_CLOVER_ORDER_URL`), then the delivery apps' public store pages (Uber Eats,
+  DoorDash), live ones first. `live: false` = the store exists but is not visible on the app today.
 - `dishes[]`: Clover item id, name FR/EN, counter price (CAD), photo (Food Hub media when the master menu has one), `deal`
   (meals to share), `available`.
 - `trending[]`: brand ids ranked by Food Hub orders over 7 days (3 orders minimum). A rank only, never a count.

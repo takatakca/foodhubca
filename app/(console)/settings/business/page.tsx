@@ -95,7 +95,7 @@ export default function BusinessPage() {
               <span key={b.name} className={cn('inline-flex items-center gap-2 rounded-full border py-1 pr-1 pl-3 text-[13px] font-semibold', b.active ? 'border-line-2 bg-surface text-ink' : 'border-dashed border-line-2 bg-raised text-ink-3 line-through', kit && 'pl-1')}>
                 {kit && <BrandMark name={b.name} kit={kit} size="xs" className="rounded-full" />}
                 {b.name}
-                {edit && <button type="button" onClick={() => setKitFor(b)} aria-label={t(`Couleur et logo de ${b.name}`, `Colour and logo of ${b.name}`)} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold text-ink-3 no-underline hover:bg-sunken hover:text-ink"><Palette className="size-3.5" aria-hidden />{t('Apparence', 'Look')}</button>}
+                {edit && <button type="button" onClick={() => setKitFor(b)} aria-label={t(`Apparence de ${b.name} (couleur et logo)`, `Look of ${b.name} (colour and logo)`)} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold text-ink-3 no-underline hover:bg-sunken hover:text-ink"><Palette className="size-3.5" aria-hidden />{t('Apparence', 'Look')}</button>}
                 {edit && <button type="button" onClick={() => saveBrand(b.name, !b.active)} className="rounded-full px-2 py-0.5 text-[11px] font-bold text-ink-3 no-underline hover:bg-sunken hover:text-ink">{b.active ? t('Désactiver', 'Deactivate') : t('Réactiver', 'Activate')}</button>}
               </span>
             );

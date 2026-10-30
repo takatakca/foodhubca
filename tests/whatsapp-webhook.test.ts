@@ -33,10 +33,39 @@ describe('WhatsApp webhook', () => {
     const menu = await say('Bonjour');
     expect(menu).toContain('1. OOeuf');
     expect(menu).toContain('2. Pi Pita');
-    expect(await say('2')).toContain('Pi Pita : merci');
+    const opts = await say('2');
+    expect(opts).toContain('Pi Pita : que voulez-vous faire');
+    expect(opts).toContain('1. Commander');
+    expect(opts).toContain('0. Changer de marque');
     const next = await say('une pizza svp');
     expect(next).toContain('Pi Pita : message reçu');
-    expect(await say('menu')).toContain('1. OOeuf');
+    expect(await say('menu')).toContain('Pi Pita : que voulez-vous faire');
+    expect(await say('0')).toContain('1. OOeuf');
+  });
+  it('greets the customer by the first name of his WhatsApp profile, cleaned and never stored', async () => {
+    expect(await say('allo', { ProfileName: 'Marie-Ève Tremblay' })).toContain('Bonjour Marie-Ève !');
+    expect(await say('1', { ProfileName: 'Marie-Ève Tremblay' })).toContain('Bonjour Marie-Ève !');
+    const docs = JSON.stringify([...(globalThis as any).__foodhubMem.docs.get('wa_customers')!.values()]);
+    expect(docs).not.toContain('Marie');
+    resetWhatsAppState();
+    const odd = await say('allo', { ProfileName: '<b>http://evil.example</b>', From: 'whatsapp:+15145556666' });
+    expect(odd).toContain('Bonjour ! / Hi!');
+    expect(odd).not.toContain('evil');
+    expect(odd).not.toContain('<b>');
+  });
+  it('answers each option, with the brand links when they are set', async () => {
+    process.env.FOODHUB_BRAND_LINKS = JSON.stringify({ 'Pi Pita': { order: 'https://on2go.ca/pi-pita', menu: 'https://on2go.ca/pi-pita#menu', hours: '11 h à 23 h, 7 jours' }, OOeuf: { order: 'javascript:alert(1)' } });
+    await say('allo');
+    await say('2');
+    expect(await say('1')).toContain('https://on2go.ca/pi-pita');
+    expect(await say('2')).toContain('numéro de commande');
+    expect(await say('3')).toContain('https://on2go.ca/pi-pita#menu');
+    expect(await say('4')).toContain('11 h à 23 h');
+    expect(await say('5')).toContain('une personne vous répond');
+    await say('0');
+    await say('1');
+    expect(await say('1')).not.toContain('javascript');
+    delete process.env.FOODHUB_BRAND_LINKS;
   });
   it('stores no phone number', async () => {
     await say('Bonjour');

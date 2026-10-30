@@ -173,7 +173,7 @@ export function LoginView({ next, error, firstRun, recovery, needsKey, googleEna
       </main>
 
       <footer className="relative mx-auto w-full max-w-md px-5 pb-6">
-        <p className="text-center text-xs text-ink-4">{t('Tablette de cuisine ? Un gérant l’enregistre une fois dans Réglages → Tablettes, puis l’équipe entre avec son NIP.', 'Kitchen tablet? A manager enrols it once in Settings → Tablets, then the team unlocks it with their PIN.')}</p>
+        <p className="text-center text-xs text-ink-3">{t('Tablette de cuisine ? Un gérant l’enregistre une fois dans Réglages → Tablettes, puis l’équipe entre avec son NIP.', 'Kitchen tablet? A manager enrols it once in Settings → Tablets, then the team unlocks it with their PIN.')}</p>
         <CloverAppBadges apps={cloverApps} lang={lang} variant="compact" className="mt-4 justify-center" />
       </footer>
     </div>

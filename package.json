@@ -16,6 +16,7 @@
     "verify:foodhub": "node scripts/foodhub-e2e.mjs",
     "verify:crash": "node scripts/foodhub-crash-e2e.mjs",
     "demo:foodhub": "node scripts/foodhub-e2e.mjs --demo",
+    "verify:a11y": "node scripts/a11y-check.mjs",
     "verify:live": "node scripts/verify-live.mjs"
   },
   "dependencies": {
@@ -39,6 +40,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
     "@types/mailparser": "3.9.0",
     "@types/node": "^26.1.0",
     "@types/nodemailer": "^8.0.2",
@@ -46,6 +48,7 @@
     "@types/react-dom": "^19.2.3",
     "eslint": "^9.39.4",
     "eslint-config-next": "^16.4.3",
+    "playwright": "1.64.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
   },

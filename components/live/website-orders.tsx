@@ -77,13 +77,13 @@ export function WebsiteOrderCard({ o, big, onChanged }: { o: DirectOrder; big?: 
             {o.lines.slice(0, 8).map((l, i) => (
               <li key={i} className="text-title leading-snug"><span className="num font-extrabold">{l.quantity}×</span> <span className="font-bold">{l.name}</span>
                 {l.modifiers.length > 0 && <span className="text-body block pl-8 font-medium text-ink-2">{l.modifiers.map((m) => m.name).join(', ')}</span>}
-                {l.notes && <span className={cn('text-body mt-0.5 ml-8 inline-block rounded px-1.5 font-bold', ALLERGY.test(l.notes) ? 'bg-stop text-white' : 'bg-wait-soft text-wait-2')}>« {l.notes} »</span>}
+                {l.notes && <span className={cn('text-body mt-0.5 ml-8 inline-block rounded px-1.5 font-bold', ALLERGY.test(l.notes) ? 'bg-stop-fill text-on-stop' : 'bg-wait-soft text-wait-2')}>« {l.notes} »</span>}
               </li>
             ))}
             {o.lines.length > 8 && <li className="text-small text-ink-3">+{o.lines.length - 8} {t('autres', 'more')}</li>}
           </ul>
         )}
-        {o.notes && big && <p className={cn('mt-2 rounded px-2 py-1 text-small font-semibold', ALLERGY.test(o.notes) ? 'bg-stop text-white' : 'bg-sunken text-ink-2')}>« {o.notes} »</p>}
+        {o.notes && big && <p className={cn('mt-2 rounded px-2 py-1 text-small font-semibold', ALLERGY.test(o.notes) ? 'bg-stop-fill text-on-stop' : 'bg-sunken text-ink-2')}>« {o.notes} »</p>}
         <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
           <Badge tone="go" icon={<Check className="size-3" />} title={t('Clover a accepté, encaissé et imprimé la commande. Food Hub la suit seulement.', 'Clover accepted, charged and printed the order. Food Hub only follows it.')}>{t('Acceptée dans Clover', 'Accepted in Clover')}</Badge>
           {o.posPrintedAt

@@ -48,7 +48,7 @@ Order screens meanwhile: the wall (#102) and the relay kit (#107) are on main; t
 | P2 View Transitions, exit animations, count-up, vibration | not started | agent |
 | P2 Connections strip | done | add e-mail/SMS + AI status: agent |
 | P2 Go-live stepper ring, celebrations | partial (welcome wizard only) | agent |
-| Guardrails (+25 KB JS, INP < 200 ms), Lighthouse a11y ≥ 95 | not measured | agent (INP needs the real tablet) |
+| Guardrails (+25 KB JS, INP < 200 ms), Lighthouse a11y ≥ 95 | a11y: axe WCAG 2.1 AA, 0 violations on 11 page states × phone + desktop, reduced motion asserted (system + console setting, phone + desktop), CI step (`npm run verify:a11y`, docs/ACCESSIBILITY.md, branch `feature/a11y-axe-check`); JS size + INP not measured | agent (INP needs the real tablet) |
 
 ## Phase 4: Autopilot
 | Item | Status | Left / who |
@@ -84,7 +84,7 @@ exists on main but contradicts the no-aggregator rule (2026-10-16): keep it dorm
 3. **Owner:** chase DoorDash production, Uber production, Skip key, Clover review.
 4. **Owner:** decide on Deliverect.
 5. Agent: refresh ATLAS_PARITY, INSTALLER_SERVEUR and MASTER_PLAN sections 1–2.
-6. Agent: Lighthouse / axe ≥ 95 locally, then a CI check.
+6. Agent: Lighthouse / axe ≥ 95 locally, then a CI check. (Done on `feature/a11y-axe-check`: `npm run verify:a11y` + CI step.)
 7. Agent: brand colour + logo on each brand (`--brand-accent`).
 8. Agent: Settings → Autopilot around the automations that already exist.
 9. ~~Agent: e2e that kills the server mid-order (exactly once).~~ Done: `npm run verify:crash` in CI (`test/crash-replay-postgres`): kill after the inbox save and after processing; mid-pipeline stops stay unit-tested.

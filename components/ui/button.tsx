@@ -9,7 +9,8 @@ import { cn } from '@/lib/ui/cn';
  * One button set (premium rule 5). On a screen: one `primary` (ink) for the page's action; `brand` (blue) only to
  * publish or connect to a platform; `go` (green) only on Accepter / Prête; `danger` for a destructive confirm;
  * everything else `outline` or `ghost`. A disabled filled button turns to sunken grey with readable text (4.9:1),
- * never to a washed-out ink at 45 % (2.6:1).
+ * never to a washed-out ink at 45 % (2.6:1). Filled colours use the -fill / on- tokens (app/globals.css): white text
+ * on the console, dark text on the kitchen's bright fills, every pair >= 4.5:1.
  */
 export type ButtonVariant = 'primary' | 'brand' | 'go' | 'danger' | 'outline' | 'ghost' | 'soft' | 'link';
 export type ButtonSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
@@ -17,9 +18,9 @@ export type ButtonSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
 const FILLED_OFF = 'disabled:bg-sunken disabled:text-ink-3 disabled:shadow-none';
 const VARIANT: Record<ButtonVariant, string> = {
   primary: cn('bg-ink text-canvas hover:bg-ink/90 shadow-card', FILLED_OFF),
-  brand: cn('bg-brand text-white hover:bg-brand-2 shadow-card', FILLED_OFF),
-  go: cn('bg-go text-white hover:bg-go-2 shadow-card', FILLED_OFF),
-  danger: cn('bg-stop text-white hover:bg-stop-2 shadow-card', FILLED_OFF),
+  brand: cn('bg-brand text-on-brand hover:bg-brand-2 shadow-card', FILLED_OFF),
+  go: cn('bg-go-fill text-on-go hover:bg-go-fill-hover shadow-card', FILLED_OFF),
+  danger: cn('bg-stop-fill text-on-stop hover:bg-stop-fill-hover shadow-card', FILLED_OFF),
   outline: 'bg-surface text-ink border border-line-2 hover:bg-raised hover:border-ink-4 disabled:border-line disabled:text-ink-3 disabled:bg-surface',
   ghost: 'text-ink-2 hover:bg-sunken hover:text-ink disabled:text-ink-4 disabled:bg-transparent',
   soft: 'bg-sunken text-ink hover:bg-line disabled:text-ink-3',

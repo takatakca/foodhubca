@@ -4,7 +4,8 @@ on:
   push:
     branches: [main, "develop/**", "claude/**", "test/**"]
   pull_request:
-    branches: [main, "develop/**"]
+    # release/**: the owner's release branches collect several PRs before one review (e.g. release/2026-10-30).
+    branches: [main, "develop/**", "release/**"]
 
 permissions:
   contents: read
@@ -36,8 +37,31 @@ jobs:
       - name: Unit tests
         run: npm test
       - name: Build
+        id: build
         run: npm run build
+      # Accessibility (MASTER PLAN Phase 3, docs/ACCESSIBILITY.md): axe-core, WCAG 2.1 A/AA, phone + desktop, reduced
+      # motion. Chromium's headless shell only, cached per Playwright version; the system libraries come from apt.
+      - name: Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Cache Chromium for Playwright
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-shell-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      - name: Install Chromium (headless shell) and its system libraries
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps --only-shell chromium
+      - name: Chromium system libraries (browser restored from the cache)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+      - name: Accessibility check (axe-core, WCAG 2.1 AA)
+        timeout-minutes: 8
+        run: npm run verify:a11y
       - name: Food Hub verification
+        # Runs even when the accessibility check failed: the two report different things.
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: npm run verify:foodhub
         env:
           LIVE_CONNECTORS_GLOBAL_ENABLED: "false"

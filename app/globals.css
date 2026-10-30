@@ -38,11 +38,24 @@
   --color-go-2: #0b7f48;
   --color-go-soft: #e6f6ed;
   --color-wait: #d99a00;
-  --color-wait-2: #a87500;
+  /* #8a6500: 4.9:1 on wait-soft (was #a87500, 3.7:1: amber badge text failed WCAG AA, docs/ACCESSIBILITY.md). */
+  --color-wait-2: #8a6500;
   --color-wait-soft: #fff5d6;
   --color-stop: #e23b3e;
   --color-stop-2: #bd2427;
   --color-stop-soft: #fdeceb;
+  /* Filled controls with text (Button brand / go / danger, PIN OK, red alert bands): the fill and the text on it,
+     each pair >= 4.5:1 (WCAG AA). Status dots and bars keep --color-go / --color-stop. The kitchen theme turns the
+     text dark on its bright fills. */
+  --color-on-brand: #ffffff;
+  --color-go-fill: #0b7f48;
+  --color-go-fill-hover: #096b3c;
+  --color-on-go: #ffffff;
+  --color-stop-fill: #ca2e31;
+  --color-stop-fill-hover: #bd2427;
+  --color-on-stop: #ffffff;
+  /* Dark text on bright fills that stay the same in both themes (platform tags, amber and blue count badges). */
+  --color-on-bright: #0b1220;
   --color-info: #2f6fed;
   --color-info-2: #1f56c7;
   --color-info-soft: #eaf1fe;
@@ -127,6 +140,14 @@
   --color-stop: #f05252;
   --color-stop-2: #fca5a5;
   --color-stop-soft: #3a1415;
+  /* White text on these bright fills is only 2.3-3.5:1: buttons and red bands carry dark text here (5.7-8.7:1). */
+  --color-on-brand: #050a17;
+  --color-go-fill: #22c55e;
+  --color-go-fill-hover: #86efac;
+  --color-on-go: #050a17;
+  --color-stop-fill: #f05252;
+  --color-stop-fill-hover: #fca5a5;
+  --color-on-stop: #050a17;
   --color-info: #5b9bff;
   --color-info-2: #a9c8ff;
   --color-info-soft: #13213e;
@@ -288,7 +309,7 @@ html[data-density='comfortable'] { --row-py: 0.75rem; }
 
 html[data-motion='reduce'] *, html[data-motion='reduce'] *::before, html[data-motion='reduce'] *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
 /* Premium rule 7: every entrance animation is motion-safe. The incoming-order ring (animate-ring) is the one
-   exception: it is an alarm, so it keeps pulsing; the system setting still shortens it. */
+   exception: it is an alarm, so it keeps pulsing (from the sm width, see the data-motion='alarm' rules below). */
 @media (prefers-reduced-motion: reduce) {
   .taktak-spin, .taktak-bob, .taktak-wave, .animate-rise, .animate-fade, .animate-slide-in, .animate-pulse-soft, .animate-pop, .animate-confetti, .animate-flow { animation: none !important; }
   .animate-pulse, .animate-bounce, .animate-ping { animation: none !important; }
@@ -318,6 +339,18 @@ html[data-motion='reduce'] *, html[data-motion='reduce'] *::before, html[data-mo
     transition-duration: 1ms !important;
     scroll-behavior: auto !important;
   }
+}
+/* …except the new-order alarm's ring (data-motion="alarm", components/live/incoming.tsx): a soft box-shadow halo, no
+   movement, the one looping animation the plan allows. Only the `ring` keyframes are given back, and only from the `sm`
+   width (40rem) where `sm:animate-ring` shows it: on a phone the alert sheet's entrance (`rise`, which moves and fades)
+   is the only animation it carries, so it must stay at 1 ms × 1 like everything else, never loop. Same for the system
+   setting and for the console's own "reduce motion" setting (html[data-motion='reduce'] above). Checked at phone and
+   desktop size, both settings, by npm run verify:a11y (docs/ACCESSIBILITY.md). */
+@media (prefers-reduced-motion: reduce) and (min-width: 40rem) {
+  html [data-motion='alarm'] { animation-name: ring !important; animation-duration: 1.4s !important; animation-iteration-count: infinite !important; }
+}
+@media (min-width: 40rem) {
+  html[data-motion='reduce'] [data-motion='alarm'] { animation-name: ring !important; animation-duration: 1.4s !important; animation-iteration-count: infinite !important; }
 }
 
 /* Kitchen touch controls and portaled dialogs: 48px minimum, even in compact mode. */

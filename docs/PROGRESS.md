@@ -36,6 +36,44 @@
   (2) the "one warning per variable" test used `toBeLessThanOrEqual(1)` (passed with no warning at all): it now loads a
   fresh module and asserts exactly 1 warning per variable (checked: removing the `console.warn` makes it fail).
 - No migration, no production env, no deploy change.
+## 2026-10-30 — Review fix: reduced-motion alarm exception keeps only the ring (`feature/a11y-axe-check`, PR #136)
+- Review finding (major, confirmed): with the console’s own "Moins d’animations" setting on a phone (system motion normal),
+  the alarm exception made whatever animation the new-order sheet carried loop; below 640 px that is its entrance `rise`,
+  so the whole sheet slid and faded every 1.4 s. Fix (`app/globals.css`): the exception sets `animation-name: ring` and
+  only applies from 40rem (`sm`, where `sm:animate-ring` shows the ring), for the system and the console setting.
+- Review finding (minor, fixed): `npm run verify:a11y` counted any animation on the alarm as the ring and only tested the
+  system setting at desktop size. It now runs both settings (system `prefers-reduced-motion`; console `takatak.display.v1`
+  → `html[data-motion=reduce]`, checked to be applied) at phone and desktop size, and accepts only keyframes `ring` on
+  the alarm (required at desktop size on the alert pages). On the old build it fails: `rise` on the alert, console reduce,
+  phone, both alert pages. Quick guard in `npm test`: `tests/a11y-reduced-motion-css.test.ts` (fails on the old CSS).
+- Checks (owner PC, Windows): typecheck 0 errors · lint 0 errors (1 old warning, settings/devices) · `npm test` 2011
+  passed, 3 failed (`tests/screens-relay-setup` + `tests/screens-relay-windows`, Windows-only, untouched; the two windows
+  ones pass alone) · `rm -rf .next && npx next build --webpack` exit 0 · `verify:a11y` passed (22 scans 0 violations,
+  reduced motion 44/44) · `verify:foodhub` (5941/5942) 643 passed, 0 failed.
+— signé : Claude Opus 5.5 (a11y-axe fixer, sub-agent of « Food delivery provider integration ») @ Claude Code desktop · 2026-10-30
+## 2026-10-30 — Automated accessibility check (axe, WCAG 2.1 AA) on key pages + fixes (`feature/a11y-axe-check`)
+- MASTER PLAN Phase 3 acceptance "Lighthouse accessibility ≥ 95" had no tooling. `npm run verify:a11y`
+  (`scripts/a11y-check.mjs`) starts the built app like `scripts/foodhub-e2e.mjs` (memory mode, local stand-ins, owner
+  sign-in; that script is unchanged), seeds the demo brand Pi Pita, and runs axe-core (WCAG 2.1 A/AA) with Playwright at
+  375×812 and 1280×800 on: sign-in, `/tablette`, `/commander/pi-pita`, welcome dialog, overview, orders board, kitchen
+  (dark theme asserted), Go-live, Settings → Autopilot, and the new-order alert (kitchen + orders board, from a test
+  DoorDash order on a made-up store). Serious/critical → exit 1; moderate printed.
+- Reduced motion: with `prefers-reduced-motion: reduce` nothing animates except the new-order alarm, which must keep
+  ringing. `app/globals.css` gives `[data-motion='alarm']` its ring back (the 1 ms rule had silenced it).
+- Fixes (no layout change; only colours that failed): `--color-go-fill` / `--color-stop-fill` / `--color-on-*` tokens for
+  filled controls (dark text on the kitchen's bright fills), `--color-wait-2` #8a6500, `PLATFORM[...].on` for platform
+  tags, badge text, sign-in footnote, "Refuser" and the cancellation line in `text-stop-2`; logo link and language button
+  names carry their visible text; new-order and cancellation pop-ups are named alert dialogs.
+- Before (base 599be91): 16 of 22 scans with serious violations (colour contrast, label in name). After: 0 violations at
+  any level on 22 scans. Table per page in `docs/ACCESSIBILITY.md`.
+- CI (`.github/workflows/ci.yml`): Playwright Chromium headless shell cached per version, `npm run verify:a11y` after the
+  build (8 min limit); Food Hub verification still runs if it fails; PRs into `release/**` run CI.
+- devDependencies pinned: `playwright` 1.64.1 (2026-10-14), `@axe-core/playwright` 4.14.0 (2026-10-15).
+- Checks (owner PC, Windows): `npm run typecheck` 0 errors · `npm run lint` 0 errors (1 old warning, settings/devices) ·
+  `npm test` 2010 passed, 1 failed (`tests/screens-relay-setup`, Windows-only, untouched), 6 skipped ·
+  `rm -rf .next && npx next build --webpack` exit 0 · `npm run verify:a11y` passed (22 scans, 11/11 reduced motion) ·
+  `verify:foodhub` (5911/5912) 643 passed, 0 failed.
+— signé : Claude Opus 5.5 (a11y-axe builder, sub-agent of « Food delivery provider integration ») @ Claude Code desktop · 2026-10-30
 
 ## 2026-10-30 — Interac e-Transfer for website orders, held until a person confirms (`feature/interac-etransfer`)
 

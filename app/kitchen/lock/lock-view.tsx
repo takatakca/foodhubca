@@ -56,12 +56,12 @@ export function KitchenLock({ next }: { next: string }) {
       </header>
 
       {cancelled > 0 && (
-        <div className="mx-6 mb-3 flex items-center justify-center gap-3 rounded-xl bg-stop px-5 py-4 text-lg font-extrabold text-white animate-pulse-soft">
+        <div className="mx-6 mb-3 flex items-center justify-center gap-3 rounded-xl bg-stop-fill px-5 py-4 text-lg font-extrabold text-on-stop animate-pulse-soft">
           <Ban className="size-6" />{t(`${cancelled} commande(s) ANNULÉE(S) — entrez votre NIP pour voir laquelle`, `${cancelled} order(s) CANCELLED — enter your PIN to see which`)}
         </div>
       )}
       {waiting > 0 && (
-        <div className="mx-6 flex items-center justify-center gap-3 rounded-xl bg-brand px-5 py-4 text-lg font-extrabold text-white animate-pulse-soft">
+        <div className="mx-6 flex items-center justify-center gap-3 rounded-xl bg-brand px-5 py-4 text-lg font-extrabold text-on-brand animate-pulse-soft">
           <BellRing className="size-6" />{t(`${waiting} commande(s) attendent — entrez votre NIP`, `${waiting} order(s) waiting — enter your PIN`)}
         </div>
       )}

@@ -6,13 +6,15 @@
 import crypto from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const h = vi.hoisted(() => ({ sms: [] as Array<{ to: string; body: string; preview?: string; purpose: string }>, chat: [] as string[], clover: 0, cloverFail: false }));
+const h = vi.hoisted(() => ({ sms: [] as Array<{ to: string; body: string; preview?: string; purpose: string }>, chat: [] as string[], clover: 0, cloverFail: false, cloverThrow: false }));
 
 vi.mock('../lib/foodhub/delivery/clover-direct', async (orig) => ({
   ...(await orig<typeof import('../lib/foodhub/delivery/clover-direct')>()),
   createDirectOrderInClover: vi.fn(async () => {
     h.clover++;
     await new Promise((r) => setTimeout(r, 5));
+    // The process dies (or the call throws) while Clover is being asked: nothing after this line runs.
+    if (h.cloverThrow) throw new Error('socket hang up');
     return h.cloverFail ? { ok: false, error: 'Clover returned HTTP 500: boom' } : { ok: true, posOrderId: `CLV-${h.clover}`, merchantId: 'MID-TEST', printed: 'printed' };
   }),
 }));
@@ -28,12 +30,15 @@ import { saveLocation } from '../lib/foodhub/catalog';
 import { buildDirectCloverCart, createDirectOrderInClover } from '../lib/foodhub/delivery/clover-direct';
 import { tickDispatch } from '../lib/foodhub/delivery/dispatch';
 import {
-  INTERAC_SMS, brandInitials, interacFeeAllIn, interacInstructions, interacLatePending, interacReadiness, interacSummary, markInteracReceived, markLateInteracRefunded,
-  releaseLateInterac, tickInterac,
+  INTERAC_SMS, brandInitials, cancelHeldInterac, interacFeeAllIn, interacInstructions, interacLatePending, interacReadiness, interacReleaseStarted, interacSummary, markInteracReceived,
+  markLateInteracRefunded, releaseLateInterac, tickInterac,
 } from '../lib/foodhub/delivery/interac';
 import { runDirectAction, totalsFor } from '../lib/foodhub/delivery/orders';
-import { cleanInterac, getDeliverySettings, getDirectOrder, maskDeliverySettings, saveDeliverySettings } from '../lib/foodhub/delivery/store';
-import { INTERAC_ANSWER_MASK } from '../lib/foodhub/delivery/types';
+import { cleanInterac, getDeliverySettings, getDirectOrder, maskDeliverySettings, publicDirectOrder, saveDeliverySettings, saveDirectOrder } from '../lib/foodhub/delivery/store';
+import { INTERAC_ANSWER_MASK, type DirectOrder } from '../lib/foodhub/delivery/types';
+import { hashPassword } from '../lib/foodhub/auth';
+import { GET as boardGet } from '../app/api/foodhub/delivery/route';
+import { GET as detailGet, POST as detailPost } from '../app/api/foodhub/delivery/[id]/route';
 import { receiveWebsiteOrder } from '../lib/foodhub/delivery/website';
 import { setFeature } from '../lib/foodhub/expansion/features';
 import { tickExpansion } from '../lib/foodhub/expansion/tick';
@@ -84,7 +89,7 @@ beforeEach(async () => {
   process.env.SESSION_SECRET = 'interac-test-session-secret-0123456789';
   for (const k of ['FOODHUB_INTERAC_EMAIL', 'FOODHUB_INTERAC_FEE', 'FOODHUB_CUSTOMER_TENANTS', 'DOORDASH_DRIVE_ENV', 'LIVE_CONNECTORS_GLOBAL_ENABLED']) delete process.env[k];
   Object.assign(process.env, { DOORDASH_DRIVE_DEVELOPER_ID: 'dev-1', DOORDASH_DRIVE_KEY_ID: 'key-1', DOORDASH_DRIVE_SIGNING_SECRET: Buffer.from('drive-secret').toString('base64'), TWILIO_ACCOUNT_SID: 'AC1', TWILIO_AUTH_TOKEN: 'tw', TWILIO_FROM: '+15145550000' });
-  h.sms = []; h.chat = []; h.clover = 0; h.cloverFail = false; drive = [];
+  h.sms = []; h.chat = []; h.clover = 0; h.cloverFail = false; h.cloverThrow = false; drive = [];
   vi.mocked(createDirectOrderInClover).mockClear();
   globalThis.fetch = vi.fn(async (url: any, init: RequestInit = {}) => {
     const u = String(url);
@@ -105,6 +110,8 @@ describe('fee and prices: what the customer saw is what Food Hub charges', () =>
   it('the all-in fee the site must show is the fee plus GST and QST', () => {
     expect(interacFeeAllIn(5)).toBe(5.75);
     expect(interacFeeAllIn(0)).toBe(0);
+    // GST and QST rounded one by one (what the settings screen now shows too): 2.50 → 0.13 + 0.25 → 2.88, not 2.87.
+    expect(interacFeeAllIn(2.5)).toBe(2.88);
     expect(TOTAL).toBe(45.1);
   });
 
@@ -135,6 +142,23 @@ describe('fee and prices: what the customer saw is what Food Hub charges', () =>
     // A linked option carries its Clover modifier id.
     const o = await placed();
     expect(o.lines[0]).toMatchObject({ posItemRef: 'CLV-WHOLE', unitPrice: 24.99, total: 26.49, modifiers: [{ name: 'Piri-piri', unitPrice: 1.5, posModifierRef: 'CMOD-PIRI' }] });
+  });
+
+  it('review: a negative option not on the menu is refused (no discount the menu does not know)', async () => {
+    const r = await receiveWebsiteOrder(payload({ items: [{ ref: 'i-whole', name: 'Poulet entier', quantity: 1, price: 24.99, options: [{ name: 'Rabais', price: -20 }] }], total: totalsFor([{ name: 'a', quantity: 1, unitPrice: 24.99, total: 4.99, modifiers: [] }], 0, 2, true, 'QC', [FEE]).total }));
+    expect(r).toMatchObject({ ok: false, status: 422, error: expect.stringMatching(/Option "Rabais" of "Whole chicken" is not on the menu: its price \(-20\.00\) cannot be confirmed/) });
+    expect(h.clover).toBe(0);
+  });
+
+  it('review: the line keeps the name of the menu item that set its price, never the site text (kitchen ticket and Clover)', async () => {
+    const r = await receiveWebsiteOrder(payload({ payment: 'paid', fees: undefined, items: [{ ref: 'i-salad', name: 'Poulet entier', quantity: 1, price: 6 }], total: totalsFor([{ name: 's', quantity: 1, unitPrice: 6, total: 6, modifiers: [] }], 0, 2).total }));
+    expect(r.ok && r.order.lines[0]).toMatchObject({ name: 'Salade', unitPrice: 6, total: 6 });
+    const sent = vi.mocked(createDirectOrderInClover).mock.calls.at(-1)![0] as DirectOrder;
+    expect(buildDirectCloverCart(sent, null).orderCart.lineItems).toEqual([expect.objectContaining({ name: 'Salade', price: 600 })]);
+    expect(JSON.stringify(buildDirectCloverCart(sent, null))).not.toContain('Poulet entier');
+    // The older payloads (no `payment`) keep the site's text as before.
+    const legacy = await receiveWebsiteOrder({ id: 'W-legacy-name', brand: 'Po Poulet', location: 'NDG', customer: { phone: '514-555-1234' }, fulfillment: 'pickup', items: [{ ref: 'i-salad', name: 'Salade maison', quantity: 1, price: 6 }], paid: true });
+    expect(legacy.ok && legacy.order.lines[0].name).toBe('Salade maison');
   });
 
   it('Interac off, or no recipient e-mail for the kitchen → 422; the env fallback counts', async () => {
@@ -347,6 +371,24 @@ describe('release exactly once, by a person', () => {
     await expect(runDirectAction(legacy.ok ? legacy.order.id : '', 'interac_received', actor)).rejects.toThrow(/not paid by Interac/);
   });
 
+  it('review: "Pay at the counter" takes the Interac fee and its taxes off — Clover, the confirmation text and the order carry the lower total', async () => {
+    const o = await placed();
+    expect(o.total).toBe(45.1);
+    const counter = await runDirectAction(o.id, 'pay_at_counter', actor);
+    const without = totalsFor(o.lines, 0, 2, true, 'QC');
+    expect(without.total).toBe(39.35); // 32.49 + GST 1.62 + QST 3.24 + tip 2
+    expect(counter).toMatchObject({ status: 'in_kitchen', payment: 'pay_at_pickup', subtotal: 32.49, tax: without.tax, total: 39.35 });
+    expect(counter.fees ?? []).toEqual([]);
+    const sent = vi.mocked(createDirectOrderInClover).mock.calls.at(-1)![0] as DirectOrder;
+    const cart = buildDirectCloverCart(sent, null);
+    expect(cart.orderCart.lineItems.map((l: { name: string }) => l.name)).not.toContain('Frais Interac e-Transfer');
+    expect(cart.cents).toBe(2649 + 600);
+    expect(cart.orderCart.note).toContain('À PAYER / TO PAY');
+    expect(h.sms.at(-1)!.body).toMatch(/total 39,35 \$.*Paiement au comptoir/);
+    expect(h.sms.at(-1)!.body).not.toContain('45,10');
+    expect(counter.events.find((e) => e.type === 'pay_at_counter')!.message).toMatch(/Interac fee 5\.00 \$ removed, total 39\.35 \$ \(was 45\.10 \$\)/);
+  });
+
   it('received AFTER the expiry: never released by itself — flagged once for a person, who sends it to the kitchen anyway or notes the refund by hand', async () => {
     const o = await placed();
     await tickInterac(Date.parse(o.interac!.createdAt) + 46 * 60_000);
@@ -455,5 +497,126 @@ describe('the webhook route', () => {
     const bad = await post(payload({ fees: [] }));
     expect(bad.status).toBe(422);
     expect((await bad.json()).error).toMatch(/needs the fee line/);
+  });
+});
+
+describe('review: a release that stops after "paid" is never cancelled, and resumes once', () => {
+  /** The state a release leaves when it dies after step 1 (payment + who saved, still held, claim never cleared). */
+  async function halfReleased(o: DirectOrder, claimAgoMs: number, extra: Partial<NonNullable<DirectOrder['interac']>> = {}) {
+    const cur = (await getDirectOrder(o.id))!;
+    const at = new Date(Date.now() - claimAgoMs).toISOString();
+    return saveDirectOrder({ ...cur, payment: 'paid', events: [...cur.events, { at, type: 'paid', message: 'Interac e-Transfer received', by: 'Marc' }], interac: { ...cur.interac!, receivedAt: at, receivedBy: 'Marc', releaseClaim: 'dead-claim', releaseClaimAt: at, ...extra } });
+  }
+
+  it('the expiry flags it once for a person (no cancel, no "cancelled" text); "Transfer received" resumes it: one "paid", one Clover order, in the kitchen', async () => {
+    const o = await placed();
+    await halfReleased(o, 10 * 60_000);
+    expect(interacReleaseStarted((await getDirectOrder(o.id))!)).toBe(true);
+    const smsBefore = h.sms.length;
+    const late = Date.parse(o.interac!.expiresAt) + 60_000;
+    expect(await tickInterac(late)).toEqual({ checked: 1, cancelled: 0, reminded: 0 });
+    const flagged = (await getDirectOrder(o.id))!;
+    expect(flagged).toMatchObject({ status: 'awaiting_payment', payment: 'paid' });
+    expect(flagged.attention).toMatch(/confirmé reçu par Marc, mais l’envoi en cuisine s’est arrêté/);
+    expect(flagged.interac!.releaseStalledAt).toBeTruthy();
+    expect(h.chat.filter((c) => /kitchen not reached/.test(c))).toHaveLength(1);
+    expect(h.sms.length).toBe(smsBefore); // no reminder, no "annulée"
+    // Flagged once; the expiry (also called directly) never cancels it.
+    await tickInterac(late + 60_000);
+    expect(h.chat.filter((c) => /kitchen not reached/.test(c))).toHaveLength(1);
+    expect((await cancelHeldInterac(o.id, 'expired', undefined, { expired: true })).status).toBe('awaiting_payment');
+    // Held buttons that would contradict "paid" refuse; "Transfer received" finishes it.
+    await expect(runDirectAction(o.id, 'interac_resend', actor)).rejects.toThrow(/already confirmed received by Marc/);
+    await expect(runDirectAction(o.id, 'pay_at_counter', actor)).rejects.toThrow(/already confirmed received by Marc/);
+    const r = await markInteracReceived(o.id, other);
+    expect(r).toMatchObject({ state: 'released', message: expect.stringMatching(/resumed/) });
+    expect(r.order).toMatchObject({ status: 'in_kitchen', payment: 'paid', posOrderId: 'CLV-1' });
+    expect(r.order.attention).toBeUndefined();
+    expect(r.order.interac).toMatchObject({ receivedBy: 'Marc', releasedAt: expect.any(String) });
+    expect(r.order.interac!.releaseClaim).toBeUndefined();
+    expect(r.order.events.filter((e) => e.type === 'paid')).toHaveLength(1);
+    expect(r.order.events.find((e) => e.type === 'interac_resumed')!.message).toMatch(/resumed by Léa .* confirmed by Marc/);
+    expect(h.clover).toBe(1);
+    expect((await markInteracReceived(o.id, actor)).state).toBe('already');
+    expect(h.clover).toBe(1);
+  });
+
+  it('while its claim is fresh (a release running): a second press waits, nothing is cancelled', async () => {
+    const o = await placed();
+    await halfReleased(o, 30_000);
+    expect((await markInteracReceived(o.id, other)).state).toBe('pending');
+    expect((await runDirectAction(o.id, 'cancel', other)).status).toBe('awaiting_payment');
+    expect(h.clover).toBe(0);
+  });
+
+  it('the Clover call died half-way: the resumed release does not call Clover again — a person checks Clover, then "Send to Clover"', async () => {
+    const o = await placed();
+    h.cloverThrow = true;
+    await expect(markInteracReceived(o.id, actor)).rejects.toThrow(/socket hang up/);
+    h.cloverThrow = false;
+    const half = (await getDirectOrder(o.id))!;
+    expect(half).toMatchObject({ status: 'awaiting_payment', payment: 'paid' });
+    expect(half.interac!.cloverSentAt).toBeTruthy();
+    expect(h.clover).toBe(1);
+    // Within the claim's 2 minutes the press waits; after it, the release resumes without a second Clover call.
+    expect((await markInteracReceived(o.id, other)).state).toBe('pending');
+    const r = await markInteracReceived(o.id, other, Date.now() + 3 * 60_000);
+    expect(r.state).toBe('released');
+    expect(r.order).toMatchObject({ status: 'new', payment: 'paid', posError: expect.stringMatching(/interrupted: check Clover for W-\d+ first/) });
+    expect(h.clover).toBe(1);
+    expect(r.order.events.filter((e) => e.type === 'paid')).toHaveLength(1);
+    const sent = await runDirectAction(o.id, 'retry_clover', other);
+    expect(sent).toMatchObject({ status: 'in_kitchen', posOrderId: 'CLV-2', posError: undefined });
+    expect(h.clover).toBe(2);
+  });
+
+  it('a person cancels it anyway: the paid transfer is flagged (never "already sent"), then sent to the kitchen once or returned by hand', async () => {
+    const o = await placed();
+    await halfReleased(o, 10 * 60_000);
+    const c = await runDirectAction(o.id, 'cancel', other, { reason: 'customer called' });
+    expect(c).toMatchObject({ status: 'cancelled', payment: 'paid' });
+    expect(c.attention).toMatch(/confirmé reçu .* puis commande annulée — une personne décide/);
+    expect(interacLatePending(c)).toBe(true);
+    expect(c.interac!.lateTransfers).toEqual([{ at: c.interac!.receivedAt, by: 'Marc' }]);
+    const again = await markInteracReceived(o.id, actor);
+    expect(again.state).toBe('late');
+    expect(again.message).not.toMatch(/sent to the kitchen/);
+    const sent = await releaseLateInterac(o.id, actor);
+    expect(sent).toMatchObject({ status: 'in_kitchen', payment: 'paid', posOrderId: 'CLV-1' });
+    expect(sent.attention).toBeUndefined();
+    expect(sent.events.filter((e) => e.type === 'paid')).toHaveLength(1);
+    expect(interacLatePending(sent)).toBe(false);
+    expect(h.clover).toBe(1);
+    // The other choice, on another order: returned by hand, nothing printed.
+    const p = await placed();
+    await halfReleased(p, 10 * 60_000);
+    await runDirectAction(p.id, 'cancel', other);
+    await expect(markLateInteracRefunded(p.id, other)).resolves.toMatchObject({ status: 'cancelled', attention: undefined });
+    expect(h.clover).toBe(1);
+  });
+});
+
+describe('review: the security answer never leaves the server through the console API', () => {
+  const hdr = (who: string) => ({ authorization: `Basic ${Buffer.from(who).toString('base64')}`, 'content-type': 'application/json' });
+
+  it('orders board, order detail and an action answer carry no answer — even for a read-only role', async () => {
+    await getRepo().saveUser({ username: 'ana', name: 'Analyst', role: 'analyst', locations: [], passwordHash: hashPassword('analyst-pass-1'), active: true } as any);
+    await getRepo().saveUser({ username: 'mgr2', name: 'Manager', role: 'manager', locations: [], passwordHash: hashPassword('manager-pass-1'), active: true } as any);
+    await saveDeliverySettings({ interac: { autoDeposit: false, question: 'Couleur du camion', answer: 'Turquoise-42' } as any });
+    const o = await placed();
+    expect((await getDirectOrder(o.id))!.interac!.answer).toBe('Turquoise-42'); // kept server-side for the texts
+    const board = await boardGet(new Request('http://hub.local/api/foodhub/delivery?days=2', { headers: hdr('ana:analyst-pass-1') }), {} as never);
+    expect(board.status).toBe(200);
+    const boardJson = await board.json();
+    expect(boardJson.orders.find((x: DirectOrder) => x.id === o.id).interac).toMatchObject({ question: 'Couleur du camion', reference: o.interac!.reference });
+    expect(JSON.stringify(boardJson)).not.toContain('Turquoise-42');
+    const detail = await detailGet(new Request(`http://hub.local/api/foodhub/delivery/${o.id}`, { headers: hdr('ana:analyst-pass-1') }), { params: Promise.resolve({ id: o.id }) });
+    expect(detail.status).toBe(200);
+    expect(JSON.stringify(await detail.json())).not.toContain('Turquoise-42');
+    const action = await detailPost(new Request(`http://hub.local/api/foodhub/delivery/${o.id}`, { method: 'POST', headers: hdr('mgr2:manager-pass-1'), body: JSON.stringify({ action: 'interac_resend' }) }), { params: Promise.resolve({ id: o.id }) });
+    expect(action.status).toBe(200);
+    expect(JSON.stringify(await action.json())).not.toContain('Turquoise-42');
+    expect(h.sms.at(-1)!.body).toContain('réponse : Turquoise-42'); // the customer still gets it
+    expect(publicDirectOrder(o).interac).not.toHaveProperty('answer');
   });
 });

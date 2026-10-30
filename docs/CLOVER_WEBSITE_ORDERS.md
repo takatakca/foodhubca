@@ -214,6 +214,17 @@ Use the Dashboard or the Ecommerce API", Orders FAQ), so a Food Hub "cancel" wou
   ("si vous l'avez envoyé, une personne de notre équipe vous le retourne"). « Virement reçu » pressed after that is NOT
   released: the order is flagged **« reçu après l'annulation — une personne décide »** with two buttons: *Envoyer en cuisine
   quand même* (release, once) or *Argent retourné à la main* (you returned it from the bank app; Food Hub only notes it).
+- **« Payer au comptoir »** (pickup only): the Interac fee and its taxes come off the order (45,10 $ → 39,35 $ in the tests);
+  Clover, the confirmation text and the invoice carry the price without it.
+- A release that stops half-way after « Virement reçu » (a restart, an error) is **never cancelled** by the timer: the order
+  gets a flag *« confirmé reçu … l'envoi en cuisine s'est arrêté »* and the button becomes **« Terminer l'envoi en
+  cuisine »**, which resumes it (no second "paid"; if the Clover call was cut mid-way, a person checks Clover before
+  *Renvoyer à Clover*, so no second ticket).
+- Strict re-pricing (payloads with `payment`): an option the menu does not know is accepted only at 0,00 $ (a note such as
+  "sans oignons"; a negative "discount" is refused), and each line keeps the **menu item's own name** on the ticket.
+- The security answer is never sent to the console (orders board, order screen, actions); it is only texted to the customer
+  and put in the website's instructions text. Revenu Québec (MEV): the Interac fee is the sale's service fee, paid « Autre »
+  (AUT), e-commerce, with the transfer reference.
 - What never happens: no bank account is read, no auto-deposit check, no refund by Food Hub, no release without a person.
 
 **Owner steps**

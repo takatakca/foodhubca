@@ -19,7 +19,7 @@ export const PASSWORD = 'e2e-dashboard-pass';
 export const SCREENS_TOKEN = 'screens-agent-e2e-token-0123456789';
 export const UBER_SECRET = 'uber-client-secret-e2e';
 export const DD_SECRET_B64 = Buffer.from('doordash-signing-secret-e2e-32bytes!').toString('base64');
-export const DRIVE_SECRET_B64 = Buffer.from('doordash-drive-secret-e2e-32bytes!!').toString('base64');
+const DRIVE_SECRET_B64 = Buffer.from('doordash-drive-secret-e2e-32bytes!!').toString('base64');
 export const JET_API_KEY = 'jet-api-key-e2e';
 export const SKIP_HMAC = 'skip-hmac-secret-e2e';
 export const SKIP_NOTIFY_KEY = 'skip-notify-key-e2e';
@@ -51,7 +51,7 @@ const cloverRefunds = [{ id: 'r1', amount: 200, payment: { order: { id: 'INSTORE
 export const cloverTenders = [{ id: 'T-CASH', label: 'Cash' }];
 export const cloverOrderTypes = [{ id: 'OT-DINE', label: 'Dine In' }];
 export const cloverOrderTotals = new Map(); // Clover order id → total (cents)
-const cloverAtomicTitles = new Map(); // Clover order id → title Food Hub gave it
+export const cloverAtomicTitles = new Map(); // Clover order id → title Food Hub gave it
 /** Values a check changes on purpose (an importer cannot reassign an imported binding, so they live on one object). */
 export const mockState = {
   cloverAtomicMode: 'ok', // 'down' = Clover answers 503 to new orders (automatic retry checks)

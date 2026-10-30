@@ -18,10 +18,10 @@ import { spawn } from 'node:child_process';
 import { runMevScenarios } from './e2e/mev-scenarios.mjs';
 // Simulated platforms + HTTP helpers, shared with verify:crash (scripts/foodhub-crash-e2e.mjs).
 import {
-  MOCK_PORT, APP_PORT, APP, MOCK, PASSWORD, SCREENS_TOKEN, UBER_SECRET, DD_SECRET_B64, DRIVE_SECRET_B64, JET_API_KEY,
+  MOCK_PORT, APP_PORT, APP, MOCK, PASSWORD, SCREENS_TOKEN, UBER_SECRET, DD_SECRET_B64, JET_API_KEY,
   SKIP_HMAC, SKIP_NOTIFY_KEY, CLOVER_TOKEN, CLOVER_APP_TOKEN, RELAY_SECRET, RELAY_CB_TOKEN, MEV_SECRET, mevMock, log,
   uberStatus, ddDetails, knownUberStores, uberPosData, uberCreated, cloverPayments, cloverTenders, cloverOrderTypes,
-  cloverOrderTotals, cloverNativeOrders, cloverTagLinks, cloverItems, mock, basic, call, TZ, localDay, localHour,
+  cloverOrderTotals, cloverAtomicTitles, cloverNativeOrders, cloverTagLinks, cloverItems, mock, basic, call, TZ, localDay, localHour,
   sleep, waitFor, sent, expectedDeadlineMs, findOrder, jetHash, skipWebhook, skipOrder, uberSigned, uberWebhook,
   relayHook, relayOrder, relayStatus, mockState, appEnv,
 } from './e2e/platform-mock.mjs';

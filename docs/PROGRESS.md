@@ -1,5 +1,13 @@
 # Food Hub: progress log and task board
 
+## 2026-10-30 — Public directory feed carries our own ordering page first (`feature/public-directory-storefront-link`)
+
+- ON2GO.ca (the consumer app, owner's direction of 2026-10-29: Canada only, Québec first, Clover + takatak-v1 backend) sends customers to Food Hub's commission-free page before Clover's hosted page and the delivery apps. The feed adds `platform: on2go` (`/commander/<slug>`, `?lang=en`) for the brands switched on in Settings → Storefront, in the kitchen each page serves (`livePublicPages()` in `lib/foodhub/storefront/settings.ts`, loaded on demand by the feed under the 2.5 s live-read deadline; base = `FOODHUB_PUBLIC_URL`). Seed export unchanged. Test + `docs/PUBLIC_DIRECTORY_API.md`.
+- Consumer side: on2goca PR #13 (front page → sign-in, merged by the owner) and PR #16 (side menu parent → sub-parent → child, lighter home, « Commander direct · sans commission » first, `docs/ON2GO_APP_BLUEPRINT.md` with the 9 work slices) are merged.
+- Checks: typecheck OK, lint 0 errors, 1724 tests passed (1 pre-existing Windows file-mode failure in `tests/screens-relay-setup.test.ts`), build + verify:foodhub reported on PR #117.
+
+— signé : Claude Fable 5.1 (session on2go front-page) @ Claude Code desktop · 2026-10-30 00:25
+
 ## 2026-10-30 — Page publique premium /hub + recherche Ordermark + console premium fusionnée (`claude/busy-cannon-5spy86`)
 
 - `/hub` et `/en/hub` (demande du propriétaire du 2026-10-29 : « des images, de l'animation, du clic ») : appareil animé

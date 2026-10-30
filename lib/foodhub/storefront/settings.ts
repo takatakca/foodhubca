@@ -11,7 +11,7 @@
 import { z } from 'zod';
 import { logActivity, type Actor } from '../activity';
 import { getCatalog, type Catalog } from '../catalog';
-import { DIRECTORY_SEED } from '../public-directory';
+import { DIRECTORY_SEED, type StorefrontPage } from '../public-directory';
 import { getRepo } from '../repo';
 
 const KEY = 'storefront_settings_v1';
@@ -129,6 +129,22 @@ export async function brandForSlug(slug: string): Promise<{ brandName: string; c
 /** Is the page of this brand live (master switch on and brand on)? */
 export function brandLive(settings: StorefrontSettings, cfg: StorefrontBrand | undefined): boolean {
   return storefrontSwitch(settings).on && Boolean(cfg?.enabled);
+}
+
+/**
+ * The live pages as the public directory feed (ON2GO.ca) lists them: directory brand id, public slug and the directory
+ * kitchen of the page's location. Pure; brands unknown to the directory are left out. Sorted for a stable feed.
+ */
+export function livePublicPages(settings: StorefrontSettings): StorefrontPage[] {
+  const out: StorefrontPage[] = [];
+  for (const [brandName, cfg] of Object.entries(settings.brands)) {
+    if (!brandLive(settings, cfg)) continue;
+    const brand = seedBrandOf(brandName);
+    const kitchen = seedKitchenOf(cfg.locationCode);
+    if (!brand || !kitchen) continue;
+    out.push({ brandId: brand.id, slug: cfg.slug, kitchen: kitchen.id });
+  }
+  return out.sort((a, b) => a.brandId.localeCompare(b.brandId) || a.kitchen.localeCompare(b.kitchen));
 }
 
 const brandSchema = z.object({

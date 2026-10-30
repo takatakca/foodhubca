@@ -331,6 +331,10 @@ describe('website orders', () => {
     const b = await receiveWebsiteOrder(payload);
     expect(a.ok && b.ok && a.order.id === b.order.id && b.duplicate).toBe(true);
     if (a.ok) expect(a.order).toMatchObject({ source: 'website', payment: 'paid', subtotal: 25, dropoff: { postalCode: 'H4A 1E1' } });
+    // The same id sent twice at the same time (a retry while the first request still runs): one order, the second is a duplicate.
+    const [c, d] = await Promise.all([receiveWebsiteOrder({ ...payload, id: 'W-79' }), receiveWebsiteOrder({ ...payload, id: 'W-79' })]);
+    expect(c.ok && d.ok && c.order.id === d.order.id).toBe(true);
+    expect([c, d].filter((r) => r.ok && r.duplicate)).toHaveLength(1);
     const beer = await receiveWebsiteOrder({ ...payload, id: 'W-78', items: [{ name: 'Bière', quantity: 1, price: 7, alcohol: true }] });
     expect(beer).toMatchObject({ ok: false, status: 422 });
   });

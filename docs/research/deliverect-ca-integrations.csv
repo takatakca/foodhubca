@@ -1,0 +1,132 @@
+slug,name,categories,supported_in
+abcpos,ABCPOS,POS systems,CA US
+adyen,Adyen,Payment and Gift Cards,AU BE CA FR DE HK IT CO MX AE NL FI PT SG ES CH US XX GB
+airwallex,Airwallex,Payment and Gift Cards,AU CA FR XX HK NL SG GB US
+aloha-cloud,Aloha Cloud,POS systems,AU BE CA FR DE HK IT MX AE NL FI PT SG ES CH GB US XX
+apptology-inc,Apptology Inc,POS systems,CA AE US
+armpos,ArmPOS,"POS systems; KDS, inventory & reporting; On-site ordering",AU CA US
+ask-arthur,Ask Arthur,AI voice ordering; AI integrations,AU CA MX ES GB US
+auphan,Auphan,POS systems,CA HK SG US
+bbot,Bbot,3rd-party marketplace,CA GB US
+best-pos,Best POS,POS systems,CA
+bite-kiosk,Bite Kiosk,On-site ordering; Kiosk,CA US
+biteberry,BiteBerry,Online ordering,CA GB US
+cashdrop,Cashdrop,POS systems,CA US
+caviar-pos,Caviar POS,POS systems,CA US
+clover,Clover,POS systems,CA DE NL GB US
+cluster,Cluster,POS systems,CA
+como,Como,Online ordering; Loyalty & CRM,AU BE CA FR DE IT MX AE NL FI ES CH GB US
+comtech,Comtech,POS systems,CA US
+converse-now,ConverseNow,AI voice ordering,AU CA MX GB US
+crave-interactive-ltd,Crave Interactive Ltd,On-site ordering; Online ordering,AU CA MX FI GB US
+curbngo,Curbngo,POS systems,CA US
+datacandy,DataCandy,Loyalty & CRM,CA US
+debittechpos,DebittechPOS,POS systems,CA US
+di-develop,Di Develop,Online ordering,CA
+dizlog,DizLog,"POS systems; 3rd-party marketplace; Online ordering; KDS, inventory & reporting; Loyalty & CRM",AU BE CA FR DE IT MX AE NL FI SG ES CH GB US
+doordash,DoorDash,3rd-party marketplace; Retail,AU CA US
+doordash-drive,DoorDash Drive,3rd-party dispatch,AU CA HK US
+easy-pos,Easy POS,POS systems,CA US XX
+ecard-systems,eCard Systems,Loyalty & CRM,CA US
+epos-now,Epos Now,POS systems,AU BE CA FR DE MX NL PT ES CH GB US
+eva,EVA,3rd-party dispatch,CA CO US
+facebook,Facebook,Social media,AU BE CA FR DE XX HK IT CO MX AE NL FI PT SG ES CH GB US
+fantuan-delivery,FANTUAN Delivery,3rd-party marketplace,AU CA XX GB US
+flipdish,Flipdish,Online ordering; On-site ordering,AU BE CA FR DE IT MX AE NL ES GB US
+focuspos,FocusPOS,POS systems,AU BE CA FR DE HK IT CO MX AE NL FI PT SG ES CH GB US
+foodhub,Foodhub,3rd-party marketplace; Online ordering,AU CA MX ES GB US
+freedompay,FreedomPay,Payment and Gift Cards,CA AE ES US
+future-ordering,Future Ordering,Online ordering; Kiosk,AU BE CA FR DE IT MX AE NL FI ES CH GB US
+givex,Givex,POS systems,AU CA HK MX SG US
+go-livro,GoLivro,3rd-party dispatch,CA
+grubbrr,Grubbrr,POS systems,CA US
+hantepay,HantePay,POS systems,CA US
+hippos,Hippos,POS systems,AU CA FR MX CH GB US
+hungrypanda,HungryPanda,3rd-party marketplace,AU CA FR SG GB US
+icrtouch,ICRTouch,POS systems,AU BE CA NL FI GB
+instagram,Instagram,Social media,AU BE CA FR DE XX HK IT CO MX AE NL FI PT SG ES CH GB US
+jeavensoft,Jeavensoft,POS systems,CA
+jet-go,JET GO,3rd-party dispatch,AU BE CA DE IT NL ES CH GB XX
+leat,Leat,Loyalty & CRM,AU BE CA FR DE IT MX AE NL FI ES CH GB US
+lightspeed,Lightspeed,POS systems,AU BE CA FR DE IT MX NL FI ES CH GB US XX
+limerr-technologies,Limerr Technologies,"POS systems; Online ordering; Loyalty & CRM; KDS, inventory & reporting; On-site ordering",AU BE CA FR DE IT MX AE NL FI ES CH GB US
+lineskip,LineSkip,POS systems,CA US
+linga-pos,Linga POS,POS systems,CA AE GB US
+loungeup,LoungeUp by D-Edge,Online ordering,AU BE CA FR DE IT CO MX AE NL FI ES CH GB US
+ls-central-by-ls-retail,LS Central by LS Retail,"POS systems; 3rd-party dispatch; KDS, inventory & reporting",AU CA MX GB US
+maitre-d,Maitre'D,POS systems,AU CA FR SG GB
+mealeo,Mealeo,3rd-party marketplace,CA US
+mealsy,Mealsy,POS systems,CA
+menudelite,MenuDelite,Online ordering; On-site ordering,CA XX AE US
+menusifu,MenuSifu,POS systems,CA MX US
+menuu,MENUU,Online ordering,AU BE CA FR DE IT CO MX AE NL PT ES GB US XX
+micros-res-3700,Micros RES 3700,POS systems,AU BE CA FR DE HK IT CO MX AE NL FI PT SG ES CH GB US XX
+micros-simphony,Micros Simphony,POS systems,AU CA FR DE MX AE ES GB US
+my-digi-menu,My Digi Menu,On-site ordering,AU BE CA FR DE XX IT MX AE NL FI US
+n8n,n8n,AI integrations,AU CA DE XX AE NL FI GB US
+ncc,NCC,POS systems,CA US
+nextgenkitchens,NextGenKitchens,Online ordering; POS systems,CA US
+nown,Nōwn,POS systems,CA US
+onship,OnShip,3rd-party marketplace,CA
+opentable,Get all your menus integrated to OpenTable,"KDS, inventory & reporting",AU CA FR DE IT MX AE NL ES GB US
+ordering,Ordering,Online ordering; On-site ordering; 3rd-party marketplace,AU BE CA FR DE IT CO MX AE NL FI ES CH GB US
+ordermonkey,Ordermonkey,Online ordering; On-site ordering; Loyalty & CRM; Kiosk,CA DE CH XX
+par-tech-pixel-point,PAR Tech - Pixel Point,POS systems; Retail,CA MX GB US
+partech-brink,ParTech Brink,POS systems,CA US
+pattern,Pattern,Online ordering; On-site ordering; Loyalty & CRM,AU BE CA FR DE IT AE NL FI ES CH GB US
+pikapoint,PikaPoint,Online ordering,CA
+plento,Plento,Online ordering; POS systems,CA US
+popmenu,Popmenu,Online ordering,CA GB US
+prepitapp,Prepitapp,3rd-party marketplace,CA US
+Profitek,Profitek,POS systems,CA US
+pye,PYE,Kiosk; On-site ordering,AU BE CA FR DE IT MX AE NL ES CH GB US
+qikserve,Qikserve,Online ordering; Kiosk; On-site ordering,AU CA FR DE AE NL FI GB US
+quickpos,QuickPOS,POS systems,CA US
+ranger,Ranger,POS systems,CA US
+relayfy,Relayfy,Online ordering; On-site ordering,CA
+ritual,Ritual,3rd-party marketplace; On-site ordering; Online ordering,AU CA DE NL GB US
+rocketbox,RocketBox,"KDS, inventory & reporting",AU BE CA FR DE IT CO MX AE NL PT ES GB US XX
+rushable,Rushable INC,Online ordering,CA MX US
+sadie,Sadie,AI voice ordering; AI integrations,AU CA FR DE GB US
+servy,Servy,Online ordering; On-site ordering,AU BE CA FR DE IT MX AE NL ES CH GB US XX
+sevenrooms,SevenRooms,Online ordering; On-site ordering,CA HK SG GB US
+shiji-group,Shiji Group,POS systems,AU BE CA FR DE HK MX AE NL SG ES GB US
+shipday,Shipday,3rd-party dispatch,AU BE CA FR DE IT MX AE NL FI ES CH GB US
+silverware-pos,Silverware POS,POS systems,CA US
+skip,Skip,3rd-party marketplace,CA
+smarttab,Smarttab,POS systems,CA US
+smooth-commerce,Smooth Commerce,3rd-party marketplace; Online ordering,AU CA GB US
+sociavore,Sociavore,On-site ordering; Online ordering,CA US
+soundhound,SoundHound,AI voice ordering; AI integrations,CA US
+spoonity,Spoonity,Loyalty & CRM,CA CO MX GB US
+square,Square POS,POS systems,AU CA FR SG ES GB US XX
+starrtec-solutions,Starrtec Solutions,POS systems,AU BE CA FR DE XX MX AE NL FI ES CH GB US
+stripe,Stripe,Payment and Gift Cards,AU BE CA FR DE HK FI XX IT MX AE NL PT SG ES CH GB US
+suppli,Suppli,3rd-party marketplace; Online ordering,CA
+swype2go,Swype2go,Online ordering,CA XX
+swypepos,SwypePOS,POS systems,CA US
+table-service,Table Service,3rd-party marketplace; Online ordering; On-site ordering,AU BE CA FR DE MX AE NL FI ES CH GB US
+tablevibe,Tablevibe,Online ordering,AU CA NL SG US XX
+task,TASK,POS systems,AU CA US XX
+tastyfuture,TastyFuture,POS systems,CA US
+techserve-pos,TechServe POS,POS systems,CA
+techtris-development,Techtris Development,Online ordering,AU CA MX AE GB US
+thanx,Thanx,Loyalty & CRM,CA US
+tickncook,TicknCook,Online ordering,AU BE CA FR DE XX MX NL ES CH GB US
+toast,Toast,POS systems,CA US XX
+too-good-to-go,GET ORDERS FROM TOO GOOD TO GO’S SURPLUS FOOD MARKETPLACE  INTEGRATED INTO YOUR POS,Online ordering,AU CA DE NL FI PT ES CH GB US XX
+tookan-by-jungleworks,Tookan by Jungleworks,3rd-party dispatch,AU BE CA FR DE IT MX AE NL PT ES CH GB US
+topserve,TopServe,3rd-party marketplace; On-site ordering,CA US XX
+touchbistro,TouchBistro,POS systems,AU BE CA FR DE MX NL CH GB US XX
+tutti-delivery,Tutti Delivery,3rd-party marketplace,CA
+uber-direct,Uber Direct,3rd-party dispatch,AU CA FR DE XX HK AE PT ES GB US
+uber-eats,Uber Eats,3rd-party marketplace; Retail,AU BE CA FR DE CO MX NL FI PT ES CH GB US XX
+unplug-dining,unPLUG Dining,Online ordering,CA US
+veloce,Veloce,POS systems,CA
+virnika,Virnika,Online ordering; AI voice ordering; AI integrations,CA US
+visual-touch,Visual Touch POS,POS systems,CA XX US
+voiceplug,VOICEplug,AI voice ordering; AI integrations,AU CA AE ES CH GB US
+vromo,Vromo,3rd-party dispatch,AU CA DE PT ES GB US
+whatsapp,WhatsApp,Social media,AU BE CA FR DE XX HK IT CO MX AE NL FI PT SG ES CH GB US
+xenial-cloud,Xenial-Cloud,POS systems,AU BE CA FR DE HK IT CO MX AE NL FI PT SG ES CH GB US XX
+xperio,Xperio,POS systems,CA

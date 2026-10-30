@@ -160,10 +160,25 @@ d'essais 429 ; TAKATAK injoignable ou non configuré 503. Variables : `TAKATAK_C
 `TAKATAK_ON2GO_SERVICE_TOKEN`. Code : `lib/foodhub/customers/takatak-bridge.ts`, route
 `app/api/public/on2go/session/route.ts`, tests `tests/takatak-bridge.test.ts`.
 
-Reste à faire : les routes `/me/*` demandent le secret des sites de marque ; on2go.ca (navigateur) a besoin d'une
-variante CORS qui n'accepte que le jeton client `on2go` — prochaine étape.
+### API du navigateur d'on2go.ca · on2go.ca browser API (2026-10-30)
+
+on2go.ca n'a pas le secret des sites de marque ; ces routes le remplacent par : CORS et préalable pour les sites ON2GO
+seulement, marque fixée à `on2go` (jamais lue dans la requête), jeton client dans `Authorization: Bearer cust.…` accepté
+seulement s'il a été signé pour `on2go`, fenêtres par IP en plus des limites par téléphone (`lib/foodhub/customers/on2go-public.ts`).
+
+| Route | Corps / en-tête | Réponse |
+|---|---|---|
+| `POST /api/public/on2go/verify/start` | `{ phone, lang? }` | `{ ok, expiresInS, channel }` · 422 · 429 `{ retryAfterS }` (6 / 10 min par IP) |
+| `POST /api/public/on2go/verify/check` | `{ phone, code }` | `{ ok, token, expiresAt, customer, created }` · 401 `{ attemptsLeft }` · 410 · 429 (20 / 10 min par IP) |
+| `POST /api/public/on2go/session` | `{ code }` (lancement TAKATAK) | même réponse que `verify/check` |
+| `GET /api/public/on2go/me` | `Authorization: Bearer <jeton on2go>` | profil, adresses, favoris, fidélité, cartes-cadeaux, commandes |
+| `PATCH /api/public/on2go/me` | `{ name?, email?, lang?, marketingConsent? }` | `{ ok, customer }` |
+| `DELETE /api/public/on2go/me` | — | Loi 25 : dossier anonymisé, tous les jetons annulés |
+| `POST /api/public/on2go/logout` | — | `{ ok }` : tous les jetons du client annulés |
+
+Un jeton d'un autre site de marque (pppmtl…) est refusé (403). Tests : `tests/on2go-public-customers.test.ts`.
 
 on2go.ca has no server to hold the website secret, so it signs customers in through takatak-v1's launch bridge: the
 browser posts the one-time code to `POST /api/public/on2go/session`; Food Hub exchanges it with its service token,
-keys the customer on the verified phone, and returns a signed `on2go` customer token. Next: a CORS variant of `/me/*`
-that accepts only an `on2go` customer token.
+keys the customer on the verified phone, and returns a signed `on2go` customer token. The browser API above (texted code, TAKATAK session, account,
+logout, delete) accepts only `on2go` customer tokens, CORS for the ON2GO sites only.

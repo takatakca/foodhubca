@@ -23,7 +23,7 @@ entry 2026-10-23): re-confirm before acting. Agents: update this file when you f
 | Save webhook before 200 + Replay | done (`webhook-utils.ts`, `inbox.ts`, `recovery.ts`) | — |
 | `/api/health` | done | outside uptime monitor that texts the owner: **owner** (5-min check on `/api/health`) |
 | Texts for `menu_failed` / `sync_stale`, silence alarm, unmapped store, Clover auto-retry, e2e for Relay + shared menu | done | — |
-| Acceptance: kill the server mid-order, nothing lost | partial (unit tests only) | agent: e2e that kills the process |
+| Acceptance: kill the server mid-order, nothing lost | done for the window the acceptance names: CI job "Crash replay (real Postgres)", `npm run verify:crash` on postgres:16 + PostgREST kills the server after the webhook is saved and before processing (replayed exactly once), then after processing (not replayed). A stop in the middle of the pipeline (order row stored, or Clover order / ticket made) is covered by unit tests only (`resumeUnsentOrder`, Clover lost answer), not by this check ([CRASH_REPLAY_E2E.md](CRASH_REPLAY_E2E.md), branch `test/crash-replay-postgres`) | — |
 | Acceptance: scheduler stops → owner texted in 15 min | partial | the outside monitor (**owner**) |
 
 ## Phase 2: connections and approvals (waits on platforms)
@@ -87,5 +87,5 @@ exists on main but contradicts the no-aggregator rule (2026-10-16): keep it dorm
 6. Agent: Lighthouse / axe ≥ 95 locally, then a CI check.
 7. Agent: brand colour + logo on each brand (`--brand-accent`).
 8. Agent: Settings → Autopilot around the automations that already exist.
-9. Agent: e2e that kills the server mid-order (exactly once).
+9. ~~Agent: e2e that kills the server mid-order (exactly once).~~ Done: `npm run verify:crash` in CI (`test/crash-replay-postgres`): kill after the inbox save and after processing; mid-pipeline stops stay unit-tested.
 10. Agent: Connections strip shows e-mail/SMS and AI; Go-live stepper ring.

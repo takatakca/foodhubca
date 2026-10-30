@@ -2,7 +2,7 @@ name: Food Hub CI
 
 on:
   push:
-    branches: [main, "develop/**", "claude/**"]
+    branches: [main, "develop/**", "claude/**", "test/**"]
   pull_request:
     branches: [main, "develop/**"]
 
@@ -41,3 +41,73 @@ jobs:
         run: npm run verify:foodhub
         env:
           LIVE_CONNECTORS_GLOBAL_ENABLED: "false"
+
+  # MASTER PLAN Phase 1 acceptance: kill the server between receiving an order and processing it → nothing is lost,
+  # the order is replayed exactly once. Needs a real database (memory mode forgets everything on a restart): postgres:16
+  # + PostgREST, the pair Supabase runs, set up the way a Supabase project is. docs/CRASH_REPLAY_E2E.md
+  crash-replay:
+    name: Crash replay (real Postgres)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+      POSTGREST_IMAGE: postgrest/postgrest:v12.2.3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Database — Supabase roles, then the Food Hub schema (supabase/INSTALL_ALL.sql)
+        run: |
+          authpw=$(node -e "process.stdout.write(require('node:crypto').randomBytes(24).toString('hex'))")
+          echo "::add-mask::$authpw"
+          echo "PGRST_AUTH_PW=$authpw" >> "$GITHUB_ENV"
+          psql_() { if command -v psql >/dev/null; then psql "$@"; else docker run --rm --network host -e PGHOST -e PGPORT -e PGUSER -e PGPASSWORD -e PGDATABASE -v "$PWD:/w" -w /w postgres:16 psql "$@"; fi; }
+          psql_ -v ON_ERROR_STOP=1 -v authenticator_password="$authpw" -f scripts/e2e/supabase-roles.sql
+          psql_ -v ON_ERROR_STOP=1 -f supabase/INSTALL_ALL.sql
+          psql_ -c '\dt public.*'
+      - name: PostgREST (random JWT secret for this run) + service_role key
+        run: |
+          secret=$(node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('hex'))")
+          echo "::add-mask::$secret"
+          docker run -d --name postgrest --network host \
+            -e PGRST_DB_URI="postgres://authenticator:${PGRST_AUTH_PW}@127.0.0.1:5432/postgres" \
+            -e PGRST_DB_SCHEMAS=public -e PGRST_DB_ANON_ROLE=anon -e PGRST_JWT_SECRET="$secret" -e PGRST_SERVER_PORT=3000 \
+            "$POSTGREST_IMAGE"
+          key=$(PGRST_JWT_SECRET="$secret" node scripts/e2e/postgrest.mjs service-jwt)
+          echo "::add-mask::$key"
+          echo "FOODHUB_CRASH_POSTGREST_URL=http://127.0.0.1:3000" >> "$GITHUB_ENV"
+          echo "FOODHUB_CRASH_SERVICE_KEY=$key" >> "$GITHUB_ENV"
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null -H "Authorization: Bearer $key" "http://127.0.0.1:3000/fh_orders?select=id&limit=1"; then echo "PostgREST ready"; exit 0; fi
+            sleep 1
+          done
+          echo "PostgREST did not come up"; docker logs postgrest; exit 1
+      - name: Crash replay check (npm run verify:crash)
+        run: npm run verify:crash
+      - name: PostgREST log
+        if: failure()
+        run: docker logs postgrest 2>&1 | tail -100

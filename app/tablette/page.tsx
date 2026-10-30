@@ -61,7 +61,7 @@ export default async function TablettePage() {
             <li>Autorisez les notifications et, pour une imprimante Bluetooth, les <i>Appareils à proximité</i>.</li>
             <li>Connectez-vous avec le code de la tablette : une tablette enregistrée montre l’écran NIP — touchez votre nom et entrez votre NIP. Nouvelle tablette : un gérant se connecte une fois et l’enregistre dans Réglages → Tablettes. (La connexion Google ne marche pas dans l’application : utilisez le code reçu par courriel ou texto.)</li>
             <li>Jumelez l’imprimante dans les réglages Bluetooth d’Android (allumez-la, touchez son nom ; le code de jumelage est dans son manuel, souvent 0000 ou 1234).</li>
-            <li>Dans l’application, touchez ⚙ (coin en haut à droite) : <b>Imprimante</b> → Bluetooth → choisissez-la (ou Réseau : son adresse IP, port 9100), papier <b>58</b> ou <b>80 mm</b>, puis <b>Enregistrer</b> et <b>Impression test</b>.</li>
+            <li>Dans l’application, touchez ⚙ (coin en bas à droite) : <b>Imprimante</b> → Bluetooth → choisissez-la (ou Réseau : son adresse IP, port 9100), papier <b>58</b> ou <b>80 mm</b>, puis <b>Enregistrer</b> et <b>Impression test</b>.</li>
             <li>Laissez la tablette branchée et touchez <b>Optimisation de la batterie</b> dans les réglages de l’application pour la désactiver : la tablette continue d’écouter les commandes écran éteint.</li>
           </ol>
           <p className="rounded-xl border border-line bg-surface p-4">
@@ -88,7 +88,7 @@ export default async function TablettePage() {
             <li>Allow notifications and, for a Bluetooth printer, <i>Nearby devices</i>.</li>
             <li>Sign in with the tablet code: an enrolled tablet shows the PIN screen — tap your name and enter your PIN. New tablet: a manager signs in once and enrols it in Settings → Tablets. (Google sign-in does not work inside the app: use the code sent by email or text.)</li>
             <li>Pair the printer in Android’s Bluetooth settings (turn it on, tap its name; the pairing code is in its manual, often 0000 or 1234).</li>
-            <li>In the app, tap ⚙ (top right corner): <b>Printer</b> → Bluetooth → pick it (or Network: its IP address, port 9100), paper <b>58</b> or <b>80 mm</b>, then <b>Save</b> and <b>Test print</b>.</li>
+            <li>In the app, tap ⚙ (bottom right corner): <b>Printer</b> → Bluetooth → pick it (or Network: its IP address, port 9100), paper <b>58</b> or <b>80 mm</b>, then <b>Save</b> and <b>Test print</b>.</li>
             <li>Keep the tablet plugged in and tap <b>Battery optimisation</b> in the app settings to turn it off: the tablet keeps listening for orders with the screen off.</li>
           </ol>
           <p className="rounded-xl border border-line bg-surface p-4">

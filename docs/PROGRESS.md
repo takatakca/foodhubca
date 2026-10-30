@@ -1,5 +1,11 @@
 # Food Hub: progress log and task board
 
+## 2026-10-30 — Brand kit: accent colour + logo per brand (`feature/brand-colours`)
+
+- MASTER_PLAN Phase 3 P1 « une couleur par marque (et un logo) » + start of Phase 5 brand kits. `BrandDef.accent` (`#rrggbb`) and `BrandDef.logo` (https or `/media/<name>`), validated server side in `saveBrand` (`lib/foodhub/brand-kit.ts`) and again on the way to the console. Editor: Settings → Business → Brands → Apparence / Look (live preview on light and kitchen-dark, black/white text at WCAG AA, too-light warning, logo upload to the media library). `--brand-accent` / `--brand-on-accent` on order cards, the new-order pop-up, the menu header and the overview brand rows; stripe/badge only (kitchen stays readable); no colour and no logo = exactly today's look. `docs/BRAND_KIT.md`, `tests/brand-kit.test.ts`.
+
+— signé : Claude Opus 5.5 (brand-colours sub-agent) @ Claude Code desktop · 2026-10-30
+
 ## 2026-10-30 — on2go.ca browser customer API (`feature/on2go-account-cors`)
 
 - `/api/public/on2go/{verify/start, verify/check, me, logout}`: on2go.ca (static, no website secret) signs customers in by texted code and reads / updates / deletes « Mon compte » from the browser. CORS and preflight for the ON2GO sites only, brand website fixed to `on2go`, only `on2go`-signed customer tokens (`Authorization: Bearer`), per-IP windows on top of task 72's per-phone limits; listed in `proxy.ts`. `lib/foodhub/customers/on2go-public.ts`, `docs/CUSTOMER_IDENTITY.md`, `tests/on2go-public-customers.test.ts`.

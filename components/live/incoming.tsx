@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlarmClock, Bike, Check, ChevronRight, Eye, MapPin, Printer, StickyNote, TriangleAlert, Volume2, X } from 'lucide-react';
 import { Badge, PlatformMark, platformOf } from '@/components/ui/badge';
+import { BrandMark } from '@/components/ui/brand-mark';
 import { Button } from '@/components/ui/button';
 import { Chips } from '@/components/ui/form';
 import { ReasonDialog } from '@/components/ui/reason-dialog';
@@ -14,6 +15,7 @@ import { audioReady, loopSound, playSound, setLoud, setVolume, unlockAudio } fro
 import { money } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import type { LiveOrder } from '@/lib/foodhub/pulse';
+import { brandVars } from '@/lib/foodhub/brand-kit';
 import { cn } from '@/lib/ui/cn';
 
 // ---------- per-screen alert settings (kitchen tablet vs office PC) ----------
@@ -42,7 +44,7 @@ const PREP = [10, 15, 20, 25, 30, 45];
  */
 export function IncomingOrders() {
   const { pulse } = usePulse();
-  const { can, viewer, locName } = useViewer();
+  const { can, viewer, locName, brandKit } = useViewer();
   const { t, lang, loc } = useI18n();
   const settings = useAlertSettings();
   const [snoozed, setSnoozed] = useState<Record<string, number>>({});
@@ -122,6 +124,9 @@ export function IncomingOrders() {
   const items = order.lines.reduce((s, l) => s + l.quantity, 0);
   const minutes = prep ?? kitchenMin;
   const waited = (now - Date.parse(order.createdAt)) / 1000;
+  // Brand kit (docs/BRAND_KIT.md): a stripe in the brand's colour beside its name, and its mark (logo or letters on its
+  // colour). The platform keeps the header colour. No colour and no logo: exactly as before.
+  const kit = brandKit(order.brandName);
 
   return (
     <div className="fixed inset-0 z-[90] flex items-end justify-center bg-ink/70 backdrop-blur-sm motion-safe:animate-fade sm:items-center sm:p-6" onPointerDown={() => unlockAudio()}>
@@ -140,8 +145,8 @@ export function IncomingOrders() {
         <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto">
           {/* who / where / how long */}
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-line px-5 py-3 sm:px-6">
-            <div className="min-w-0">
-              <div className="text-heading font-extrabold text-ink">{order.brandName ?? t('Marque inconnue', 'Unknown brand')}</div>
+            <div style={brandVars(kit)} className={cn('min-w-0', kit?.accent && 'brand-stripe pl-3')}>
+              <div className={cn('text-heading font-extrabold text-ink', kit && 'flex items-center gap-2')}>{kit && order.brandName && <BrandMark name={order.brandName} kit={kit} size="xs" />}{order.brandName ?? t('Marque inconnue', 'Unknown brand')}</div>
               <div className="flex items-center gap-1.5 text-body text-ink-3"><MapPin className="size-3.5" />{order.locationCode ? shortLoc(locName(order.locationCode)) : t('magasin non relié', 'store not mapped')} · {order.fulfillment === 'pickup' ? t('pour emporter', 'pickup') : t('livraison', 'delivery')} · {items} {items > 1 ? t('articles', 'items') : t('article', 'item')}</div>
             </div>
             <div className="ml-auto flex items-center gap-4">

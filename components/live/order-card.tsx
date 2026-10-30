@@ -2,6 +2,7 @@
 
 import { AlarmClock, Bike, CalendarClock, Check, Eye, PackageCheck, TriangleAlert } from 'lucide-react';
 import { Badge, PlatformMark } from '@/components/ui/badge';
+import { BrandMark } from '@/components/ui/brand-mark';
 import { Button } from '@/components/ui/button';
 import { Countdown, Elapsed, useNow } from '@/components/ui/timer';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
@@ -10,6 +11,7 @@ import { orderNumber } from './words';
 import { money, timeOf } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { orderSourceLabel, type StoredOrder } from '@/lib/foodhub/types';
+import { brandVars } from '@/lib/foodhub/brand-kit';
 import { cn } from '@/lib/ui/cn';
 
 export type BoardOrder = StoredOrder & { actions: string[] };
@@ -20,7 +22,7 @@ export type BoardOrder = StoredOrder & { actions: string[] };
  */
 export function OrderCard({ o, onOpen, big }: { o: BoardOrder; onOpen: () => void; big?: boolean }) {
   const { t, loc } = useI18n();
-  const { can, locName } = useViewer();
+  const { can, locName, brandKit } = useViewer();
   const { run, busy } = useOrderActions();
   const tl = o.timeline ?? {};
   const prim = primaryAction(o);
@@ -30,13 +32,16 @@ export function OrderCard({ o, onOpen, big }: { o: BoardOrder; onOpen: () => voi
   const unseen = o.status === 'accepted' && !tl.seenAt;
   const allergy = [o.notes, ...o.lines.map((l) => l.notes)].some((n) => n && ALLERGY.test(n));
   const scheduled = Boolean(tl.fireAt && !tl.firedAt && Date.parse(tl.fireAt) > now);
+  // Brand kit (docs/BRAND_KIT.md): the brand's colour is a stripe on the card's left edge, its logo sits by its name.
+  // No colour and no logo: no style, no extra class, the card looks exactly as before.
+  const kit = brandKit(o.brandName);
   return (
-    <div className={cn('group rounded-md border bg-surface shadow-card motion-safe:transition-[box-shadow,transform] motion-safe:duration-(--duration-fast) motion-safe:hover:-translate-y-px hover:shadow-pop', o.status === 'new' ? 'border-brand ring-2 ring-brand/20' : late ? 'border-stop/60' : 'border-line')}>
+    <div style={brandVars(kit)} className={cn('group rounded-md border bg-surface shadow-card motion-safe:transition-[box-shadow,transform] motion-safe:duration-(--duration-fast) motion-safe:hover:-translate-y-px hover:shadow-pop', o.status === 'new' ? 'border-brand ring-2 ring-brand/20' : late ? 'border-stop/60' : 'border-line', kit?.accent && 'brand-stripe')}>
       <button type="button" onClick={onOpen} className="block w-full rounded-md p-4 text-left">
         <div className="flex items-start gap-2.5">
           <PlatformMark channel={o.channel} size={big ? 'md' : 'sm'} />
           <div className="min-w-0 flex-1">
-            <div className={cn('flex min-w-0 items-baseline gap-2 font-extrabold text-ink', big ? 'text-title' : 'text-body')}><span className="shrink-0">#{orderNumber(o)}</span><span className="text-small truncate font-semibold text-ink-3">{o.brandName ?? '—'}</span></div>
+            <div className={cn('flex min-w-0 items-baseline gap-2 font-extrabold text-ink', big ? 'text-title' : 'text-body')}><span className="shrink-0">#{orderNumber(o)}</span>{kit?.logo && o.brandName && <BrandMark name={o.brandName} kit={kit} size="xs" className="self-center" />}<span className="text-small truncate font-semibold text-ink-3">{o.brandName ?? '—'}</span></div>
             <div className="text-small line-clamp-2 text-ink-3">{o.locationCode ? shortLoc(locName(o.locationCode)) : t('non relié', 'unmapped')} · {items} {items > 1 ? t('articles', 'items') : t('article', 'item')}</div>
           </div>
           <div className="shrink-0 text-right">

@@ -7,6 +7,7 @@ import { Badge, PlatformMark, type Tone } from '@/components/ui/badge';
 import { BrandMark } from '@/components/ui/brand-mark';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import type { BrandOpenState, BrandRow, CellState } from '@/lib/foodhub/scope';
+import { brandVars } from '@/lib/foodhub/brand-kit';
 import { money } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { countEn, countFr } from '@/lib/ui/count-label';
@@ -38,11 +39,13 @@ export function PlatformStateDot({ channel, state }: { channel: string; state: C
 
 export function BrandListRow({ row, onOpen, showKitchen }: { row: BrandRow; onOpen: () => void; showKitchen?: boolean }) {
   const { t, loc } = useI18n();
-  const { locName } = useViewer();
+  const { locName, brandKit } = useViewer();
   const quiet = (row.state === 'not_connected' || row.state === 'deactivated' || row.state === 'closed') && !row.sales && !row.orders;
+  // Brand kit (docs/BRAND_KIT.md): a stripe in the brand's colour on the row's left edge; the mark shows its logo or colour.
+  const kit = brandKit(row.brandName);
   return (
-    <button type="button" onClick={onOpen}
-      className="group flex min-h-16 w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-raised sm:gap-4 sm:px-5">
+    <button type="button" onClick={onOpen} style={brandVars(kit)}
+      className={cn('group flex min-h-16 w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-raised sm:gap-4 sm:px-5', kit?.accent && 'brand-stripe-inset')}>
       <BrandMark name={row.brandName} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-body font-bold text-ink">{row.brandName}</span>

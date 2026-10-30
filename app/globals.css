@@ -346,3 +346,14 @@ html.theme-kitchen :is(button, a[role='button'], select, input:not([type='checkb
 .taktak-eye { animation: taktak-blink 4.5s infinite; transform-origin: center; transform-box: fill-box; }
 .taktak-antenna { animation: taktak-glow 1.6s ease-in-out infinite; }
 .help-target-pulse { animation: help-pulse 1.2s ease-out 3; border-radius: 10px; }
+
+/* ------------------------------------------------------------------------------------------------
+   Brand kit (docs/BRAND_KIT.md, MASTER_PLAN Phase 3 P1). A brand's own colour reaches an element as two CSS variables
+   set by the server (lib/foodhub/brand-kit.ts brandVars: validated #rrggbb only): --brand-accent, and --brand-on-accent
+   (black or white, whichever reads at 4.5:1 or more on it). The classes below are only added when a brand has a
+   colour, so a brand without one looks exactly as before. The accent is a stripe, a border or a small badge, never a
+   large background behind running text: the dark kitchen screen stays readable. Nothing here animates.
+   Unlayered on purpose: the stripe wins over a card's status border colour on its left edge only.
+------------------------------------------------------------------------------------------------- */
+.brand-stripe { border-left: 4px solid var(--brand-accent); }
+.brand-stripe-inset { box-shadow: inset 4px 0 0 var(--brand-accent); }

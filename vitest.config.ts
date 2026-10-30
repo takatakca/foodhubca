@@ -6,5 +6,5 @@ import { defineConfig } from 'vitest/config';
 // parallel: 20 s keeps that from failing a test that passes in a fraction of a second on its own.
 export default defineConfig({
   resolve: { alias: { '@': path.resolve(__dirname) } },
-  test: { environment: 'node', include: ['tests/**/*.test.{ts,mjs}'], testTimeout: 20_000 },
+  test: { environment: 'node', include: ['tests/**/*.test.{ts,mjs}'], exclude: ['**/node_modules/**', 'apps/**'], testTimeout: 20_000 },
 });

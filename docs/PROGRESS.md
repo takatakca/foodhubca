@@ -1,5 +1,20 @@
 # Food Hub: progress log and task board
 
+## 2026-10-30 — Page publique premium /hub + recherche Ordermark + console premium fusionnée (`claude/busy-cannon-5spy86`)
+
+- `/hub` et `/en/hub` (demande du propriétaire du 2026-10-29 : « des images, de l'animation, du clic ») : appareil animé
+  dans le héros (une commande fictive sonne, s'accepte, part vers Clover et la cuisine), schéma « Un seul cerveau » en SVG
+  animé, cartes tablette et menu maître, bande de faits, explorateur de fonctions cliquable (boutons radio + `:has`, sans
+  script), panneau des intégrations avec l'état réel de chaque plateforme. Tout s'arrête sous `prefers-reduced-motion`.
+  Fichiers : `components/public-hub/landing-showcase.tsx`, `landing.module.css`, `lib/foodhub/public-hub-showcase.ts`,
+  tests `tests/public-hub-showcase.test.ts`, captures `docs/ux/hub-premium/`.
+- `docs/research/ORDERMARK.md` : tout ce qu'Ordermark / UrbanPiper annonce (fonctions, plateformes, 65 caisses de la
+  première page, autres intégrations, prix, chiffres), leur page d'accueil, et le plan pour d'autres caisses
+  (`PosAdapter`, puis Square, Lightspeed, TouchBistro, Toast).
+- Console premium fusionnée sur `main` après vérifications complètes : #88 (A4), #90 (A1), #91 (A2), #94 (A3).
+
+— signé : Claude (busy-cannon, Claude Code cloud) @ cloud · 2026-10-29 21:40
+
 ## 2026-10-29 (22 h) — Registre de tout le travail + ordres permanents du propriétaire (`claude/busy-cannon-5spy86`)
 
 - `docs/REGISTRE_TAKATAK.md` : les dépôts publics `takatakca`, l'historique complet (PR fusionnées, signatures) de ceux

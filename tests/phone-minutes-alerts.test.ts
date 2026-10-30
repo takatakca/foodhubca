@@ -274,7 +274,9 @@ describe('low credit: one ping, not a stream', () => {
   });
 
   it('nobody took the alert (chat down, no email): tried again on a later failure, at most every 10 minutes', async () => {
-    const t0 = Date.now();
+    // One send claim per 10-minute window (credit-alert.ts RETRY_MS): start 1 s into a window, so t0 and t0 + 1 s share
+    // it whatever the clock says (a t0 in a window's last second made the CI run fail).
+    const t0 = Math.floor(Date.now() / 600_000) * 600_000 + 1000;
     chatStatus = 500;
     expect(await noteLowCredit('twilio', 'HTTP 400 code 21606', t0)).toBe(false);
     expect(await noteLowCredit('twilio', 'HTTP 400 code 21606', t0 + 1000)).toBe(false);

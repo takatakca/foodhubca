@@ -1,5 +1,22 @@
 # Food Hub: progress log and task board
 
+## 2026-10-30 — Security: nodemailer / mailparser addressparser advisories cleared (`fix/nodemailer-addressparser-advisory`)
+
+- Defensive audit of Food Hub + QCMEV (owner asked « no one can hack us? »). No committed secrets, no unauthenticated
+  admin route, storefront re-prices server side, 66 HMAC/signature checks, sign-in throttled, QCMEV refuses to start on
+  a weak secret and refuses PROD without an HSM key + certification number. Production `npm audit`: QCMEV 0; Food Hub
+  had 1 moderate (nodemailer / mailparser).
+- Fix: `mailparser` 3.9.32 → 3.14.1 (advisory's recommended version, not a major bump) and `nodemailer` `^10.0.16` →
+  `^10.1.6`, which npm dedupes to a single top-level 10.3.1 (the nested 10.0.13 under mailparser is gone). Clears
+  GHSA-8c8m-p3m8-cjg8, GHSA-m943-m63m-w62w and GHSA-85x2-q946-cp5h (crafted recipient addresses mis-split by
+  addressparser so mail reaches an address the header does not name). Outbound email only.
+- Lockfile touches mailparser, nodemailer and mailparser's own sub-deps only; no other production package moved.
+- Checks: `npm run typecheck` OK, `npm run lint` 0 errors (1 pre-existing warning), `npm test` 1861 passed + 11
+  skipped, `npx next build --webpack` OK. `npm audit --omit=dev`: 0 vulnerabilities. The remaining full-audit items are
+  dev-only (vitest/vite/braces) and never reach the running server.
+- Out of scope by owner's instruction: the public-repo private-data cleanup (QCMEV `docs/revenu-quebec/`) — the owner
+  will do that themselves. — signé : Claude (session 01QsaHwL) @ Claude Code cloud · 2026-10-30 03:25
+
 ## 2026-10-30 — Plateforme d'intégrations (Canada) : faire ce que fait Deliverect, à notre façon (`docs/integration-platform-canada`, issue #119)
 
 - `docs/INTEGRATION_PLATFORM.md` : ce que Food Hub a déjà, ce qui manque (autres caisses, canaux canadiens,

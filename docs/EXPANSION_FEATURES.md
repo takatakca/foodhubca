@@ -157,11 +157,17 @@ Authorization: Bearer <FOODHUB_WEBSITE_ORDER_SECRET>      (Settings → Expansio
   "fulfillment": "delivery",           // or "pickup"
   "address": { "street": "5555 av. Monkland", "unit": "3", "city": "Montréal", "postalCode": "H4A 1E1", "instructions": "Code 1234" },
   "items": [{ "ref": "<menu item ref>", "name": "Poulet entier", "quantity": 1, "price": 24.99, "options": [{ "name": "Piri-piri", "price": 0 }] }],
-  "tip": 3, "deliveryFee": 4.99, "paid": true, "wantedAt": "2026-10-08T23:00:00Z"
+  "tip": 3, "deliveryFee": 4.99, "paid": true, "wantedAt": "2026-10-08T23:00:00Z",
+  // 2026-10-29 contract (instead of "paid"): "payment": "paid" | "pay_at_pickup" | "interac",
+  //   "fees": [{ "code": "interac", "name": "Frais Interac e-Transfer", "amount": 5.00 }]  (required with "interac"),
+  //   "total": 45.10 (all included, as shown before checkout), "customerToken": "cust.…", "tenant": "pppmtl"
 }
-→ { "ok": true, "number": "W-1044", "id": "dir_…", "total": 38.21, "duplicate": false }
+→ { "ok": true, "number": "W-1044", "id": "dir_…", "total": 38.21, "duplicate": false, "status": "in_kitchen", "payment": "paid" }
 ```
-Alcohol in a website order is refused (422) unless the alcohol rules allow the *website* channel (and, for a delivery, *own delivery*).
+With `payment` given, every line is re-priced from the brand menu and the total is checked (±$0.02): a price Food Hub cannot
+confirm is refused (422). `payment: "interac"`: the order is held until a person presses « Virement reçu » — see
+`docs/CLOVER_WEBSITE_ORDERS.md` § Interac e-Transfer. Alcohol in a website order is refused (422) unless the alcohol rules
+allow the *website* channel (and, for a delivery, *own delivery*).
 
 ---
 

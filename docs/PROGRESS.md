@@ -1,5 +1,21 @@
 # Food Hub: progress log and task board
 
+## 2026-10-29 — Interac e-Transfer for website orders, held until a person confirms (`feature/interac-etransfer`)
+
+- Website order contract (section B): `payment: "paid" | "pay_at_pickup" | "interac"`, `fees[]` (the Interac fee, required and
+  checked against the setting), `total` (re-priced from the brand menu + fees + GST/QST ± $0.02, else 422), `customerToken`
+  (verified: wrong tenant 403, bad 401; `lib/foodhub/customers/token.ts` is a verify-only stand-in replaced by
+  `feature/customer-identity`). Older `paid: boolean` payloads unchanged.
+- `lib/foodhub/delivery/interac.ts`: `interac` block next to `paylink` (status `awaiting_payment`), instructions texted (FR/EN,
+  recipient, exact amount, reference `PP-7K3Q`, question/answer when auto-deposit is off, deadline), one reminder, expiry →
+  cancelled with a courtesy text; « Virement reçu » (drawer + `POST /api/foodhub/delivery/<id>` action `interac_received`) releases
+  exactly once (lock + claim, `lib/foodhub/delivery/lock.ts` shared with paylink.ts): paid by that person, one Clover order =
+  the ticket, `in_kitchen`, courier by the dispatch tick; received after the cancel → flagged for a person (release anyway /
+  returned by hand). Food Hub never reads a bank, never refunds.
+- Settings → Expansion → Delivery → « Paiements — virement Interac » (fee, all-in shown, e-mail per kitchen, auto-deposit,
+  question/answer masked, hold / reminder minutes; env `FOODHUB_INTERAC_EMAIL` / `FOODHUB_INTERAC_FEE`). Tracking page shows the
+  held state and the instructions. Docs: `docs/CLOVER_WEBSITE_ORDERS.md` § Interac e-Transfer. Tests `tests/interac-etransfer.test.ts`.
+
 ## 2026-10-21 — Simpler sign-in page + « Continuer avec Google » (`feature/login-google-signin`)
 
 - One calm sign-in screen: Food Hub mark, big « Continuer avec Google / Continue with Google » (only when `GOOGLE_OAUTH_CLIENT_ID` is set), the code-by-email/text sign-in as the second option, the owner recovery behind a small link; FR first, EN; 44 px targets; first run, code and recovery steps kept.

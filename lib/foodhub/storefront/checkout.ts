@@ -25,7 +25,7 @@ import { SRC_RE, cartSchema, cleanCustomer, priceCart } from './cart';
 import { loadSellableMenu } from './catalog';
 import { priceLabel, sfLang, sfText } from './i18n';
 import { reserveCheckout } from './rate-limit';
-import { brandForSlug, seedBrandOf } from './settings';
+import { brandForSlug, getStorefrontSettings, seedBrandOf } from './settings';
 
 export const STOREFRONT_ACTOR: Actor = { username: 'storefront', name: 'Commander direct', source: 'api' };
 export const ORDER_NOTE = 'Commande en ligne (Commander direct)';
@@ -68,10 +68,16 @@ export async function ordersBySource(days = 7, now = Date.now()): Promise<Array<
     .sort((a, b) => b.orders - a.orders || a.brand.localeCompare(b.brand));
 }
 
-async function newTrack(orderId: string, now: number): Promise<string> {
+export async function newTrack(orderId: string, now: number): Promise<string> {
   const token = crypto.randomBytes(18).toString('base64url');
   await getRepo().setKv(trackKey(token), { orderId, at: now } satisfies TrackRecord);
   return token;
+}
+
+/** The tracking path of a brand's order (its ordering page slug), or null when the brand has no page. */
+export async function trackPathFor(brandName: string, token: string): Promise<string | null> {
+  const slug = (await getStorefrontSettings()).brands[brandName]?.slug;
+  return slug ? `/commander/${slug}/suivi/${token}` : null;
 }
 
 /** Places a pickup order from the ordering page. `ip` = clientIp(headers). */
@@ -139,7 +145,11 @@ export async function placeStorefrontOrder(body: unknown, ip: string, now = Date
   return { ok: true, status: 200, number: order.number, track, trackUrl: `/commander/${cart.slug}/suivi/${track}`, ...(payUrl ? { payUrl } : {}), total: order.total };
 }
 
-export interface TrackView { number: string; status: DirectOrder['status']; brand: string; readyAt: string | null }
+export interface TrackView {
+  number: string; status: DirectOrder['status']; brand: string; readyAt: string | null;
+  /** Held for an Interac e-Transfer: what to send (never the security answer — it was texted). */
+  interac?: { recipient: string; amount: number; reference: string; question?: string; autoDeposit: boolean; expiresAt: string } | null;
+}
 
 /**
  * What the tracking page shows: order number, status, brand and ready time. Never the customer, the lines or the money.
@@ -157,5 +167,9 @@ export async function trackOrder(token: string, opts: { slug?: string; now?: num
     const hit = await brandForSlug(opts.slug);
     if (!hit || hit.brandName !== o.brandName) return null;
   }
-  return { number: o.number, status: o.status, brand: seedBrandOf(o.brandName)?.name ?? o.brandName, readyAt: o.status === 'cancelled' || o.status === 'awaiting_payment' ? null : o.readyAt ?? null };
+  const i = o.status === 'awaiting_payment' && o.interac ? o.interac : null;
+  return {
+    number: o.number, status: o.status, brand: seedBrandOf(o.brandName)?.name ?? o.brandName, readyAt: o.status === 'cancelled' || o.status === 'awaiting_payment' ? null : o.readyAt ?? null,
+    ...(i ? { interac: { recipient: i.recipient, amount: i.amount, reference: i.reference, ...(i.autoDeposit || !i.question ? {} : { question: i.question }), autoDeposit: i.autoDeposit, expiresAt: i.expiresAt } } : {}),
+  };
 }

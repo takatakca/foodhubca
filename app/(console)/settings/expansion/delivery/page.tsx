@@ -1,22 +1,25 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Eye, MapPin, Save, Truck } from 'lucide-react';
+import { Eye, Landmark, MapPin, Save, Truck } from 'lucide-react';
 import { Badge, StatusDot } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Banner, Skeleton } from '@/components/ui/card';
 import { Field, Input, Select, Switch } from '@/components/ui/form';
 import { useToast } from '@/components/ui/toast';
 import { useViewer } from '@/components/shell/viewer';
-import { DEFAULT_UBER_DIRECT_OPTIONS, type DeliverySettings, type LocationDeliveryRule, type UberDirectOptions as UberOpts } from '@/lib/foodhub/delivery/types';
+import { DEFAULT_INTERAC_SETTINGS, DEFAULT_UBER_DIRECT_OPTIONS, INTERAC_ANSWER_MASK, type DeliverySettings, type InteracSettings, type LocationDeliveryRule, type UberDirectOptions as UberOpts } from '@/lib/foodhub/delivery/types';
 import { api, ApiError } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { Section } from '../../settings-ui';
 import { CopyValue, ExpansionHead } from '../expansion-ui';
 
 type Fleet = { fleet: string; label: string; configured: boolean; canSend: boolean; environment: 'sandbox' | 'production'; missing: string[]; note: string; noteFr: string; webhookPath: string };
-type Resp = { settings: DeliverySettings; fleets: Fleet[]; baseUrl: string; secrets: { driveWebhook: string; websiteOrder: string } | null };
+type Resp = { settings: DeliverySettings; fleets: Fleet[]; baseUrl: string; interacFeeAllIn?: number; secrets: { driveWebhook: string; websiteOrder: string } | null };
 const uberOpts = (s: DeliverySettings): UberOpts => ({ ...DEFAULT_UBER_DIRECT_OPTIONS, ...(s.uberDirect ?? {}) });
+const interacOf = (s: DeliverySettings): InteracSettings => ({ ...DEFAULT_INTERAC_SETTINGS, ...(s.interac ?? {}) });
+/** The fee the website must show: GST 5 % + QST 9.975 % on top (5.00 → 5.75). */
+const feeAllIn = (fee: unknown) => { const n = Number(fee); return Number.isFinite(n) ? Math.round(n * 114.975) / 100 : 0; };
 const DEFAULT_RULE: LocationDeliveryRule = { enabled: false, autoDispatch: false, leadMinutes: 10, maxDistanceKm: 8, postalPrefixes: [], maxAutoFee: 15 };
 
 export default function DeliverySettingsPage() {
@@ -144,11 +147,34 @@ export default function DeliverySettingsPage() {
             </div>
           </Section>
 
+          <Section icon={<Landmark className="size-5" />} title={t('Paiements — virement Interac', 'Payments — Interac e-Transfer')} subtitle={t('Le site web propose « payer par virement Interac » : la commande est retenue jusqu’à ce qu’une personne confirme ici que le virement est arrivé dans le compte. Food Hub ne lit jamais le compte bancaire et ne rembourse jamais tout seul.', 'The website offers "pay by Interac e-Transfer": the order is held until a person confirms here that the transfer arrived in the account. Food Hub never reads the bank account and never refunds by itself.')}>
+            {(() => { const i = interacOf(s); const setI = (p: Partial<InteracSettings>) => setS({ ...s, interac: { ...i, ...p } }); return (
+              <fieldset disabled={!edit} className="grid gap-4 md:grid-cols-2">
+                <Switch checked={i.enabled} onChange={(v) => setI({ enabled: v })} label={t('Accepter le virement Interac sur le site web', 'Accept Interac e-Transfer on the website')} description={t('Chaque commande affiche les frais avant la commande (règle québécoise du prix tout compris).', 'Every order shows the fee before checkout (Québec all-inclusive price rule).')} />
+                <Field label={t('Frais Interac avant taxes ($)', 'Interac fee before taxes ($)')} hint={t(`Taxé comme des frais de service (TPS + TVQ) : le site doit afficher ${feeAllIn(i.fee).toFixed(2).replace('.', ',')} $ tout compris.`, `Taxed like a service charge (GST + QST): the site must show $${feeAllIn(i.fee).toFixed(2)} all in.`)}><Input inputMode="decimal" value={i.fee} onChange={(e) => setI({ fee: e.target.value as unknown as number })} /></Field>
+                <Field label={t('Courriel Interac (toutes les cuisines)', 'Interac e-mail (every kitchen)')} hint={t('Repli : la variable FOODHUB_INTERAC_EMAIL du serveur.', 'Fallback: the server variable FOODHUB_INTERAC_EMAIL.')}><Input type="email" value={i.recipientEmail} onChange={(e) => setI({ recipientEmail: e.target.value })} placeholder="paiements@…" /></Field>
+                <Field label={t('Minutes avant annulation', 'Minutes before the cancel')} hint={t('Sans confirmation à temps, la commande est annulée et le client prévenu ; un virement arrivé en retard est signalé à une personne.', 'Not confirmed in time: the order is cancelled and the customer told; a late transfer is flagged for a person.')}><Input inputMode="numeric" value={i.holdMinutes} onChange={(e) => setI({ holdMinutes: e.target.value as unknown as number })} /></Field>
+                <Field label={t('Rappel texté après (minutes, 0 = aucun)', 'Reminder text after (minutes, 0 = none)')}><Input inputMode="numeric" value={i.reminderMinutes} onChange={(e) => setI({ reminderMinutes: e.target.value as unknown as number })} /></Field>
+                <Switch checked={i.autoDeposit} onChange={(v) => setI({ autoDeposit: v })} label={t('Dépôt automatique activé sur le compte', 'Auto-deposit is on for the account')} description={t('Sinon, la question de sécurité et sa réponse sont textées au client.', 'Otherwise the security question and its answer are texted to the customer.')} />
+                {!i.autoDeposit && <>
+                  <Field label={t('Question de sécurité', 'Security question')}><Input value={i.question} onChange={(e) => setI({ question: e.target.value })} /></Field>
+                  <Field label={t('Réponse', 'Answer')} hint={i.answer === INTERAC_ANSWER_MASK ? t('Une réponse est enregistrée ; tapez-en une nouvelle pour la remplacer. Elle n’est jamais affichée ici.', 'An answer is saved; type a new one to replace it. It is never shown here.') : t('Textée au client seulement ; jamais affichée ni journalisée.', 'Texted to the customer only; never shown or logged.')}><Input type="password" autoComplete="off" value={i.answer} onChange={(e) => setI({ answer: e.target.value })} /></Field>
+                </>}
+                <div className="md:col-span-2">
+                  <div className="mb-1 text-[13px] font-semibold text-ink-2">{t('Courriel Interac par cuisine (vide = le courriel ci-dessus)', 'Interac e-mail per kitchen (empty = the e-mail above)')}</div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {locations.map((l) => <Field key={l.code} label={l.name}><Input type="email" value={i.recipients[l.code] ?? ''} onChange={(e) => { const recipients = { ...i.recipients }; if (e.target.value.trim()) recipients[l.code] = e.target.value; else delete recipients[l.code]; setI({ recipients }); }} placeholder={i.recipientEmail || '—'} /></Field>)}
+                  </div>
+                </div>
+              </fieldset>
+            ); })()}
+          </Section>
+
           <Section title={t('Commandes du site web', 'Website orders')} subtitle={t('Votre site envoie chaque commande à Food Hub (même circuit : Clover, texto, livreur).', 'Your website sends each order to Food Hub (same path: Clover, text, courier).')}>
             <div className="space-y-2">
               <CopyValue label="POST" value={`${data.baseUrl}/api/foodhub/webhooks/website-order`} />
               {data.secrets ? <CopyValue label="Authorization: Bearer" value={data.secrets.websiteOrder || t('(non généré)', '(not generated)')} /> : can('admin') && <Button size="xs" variant="ghost" icon={<Eye className="size-3.5" />} onClick={() => load(true)}>{t('Afficher le jeton', 'Show the token')}</Button>}
-              <p className="text-xs text-ink-3">{t('Format : docs/EXPANSION_FEATURES.md (section Site web).', 'Format: docs/EXPANSION_FEATURES.md (Website section).')}</p>
+              <p className="text-xs text-ink-3">{t('Format : docs/EXPANSION_FEATURES.md (section Site web) ; virement Interac : docs/CLOVER_WEBSITE_ORDERS.md.', 'Format: docs/EXPANSION_FEATURES.md (Website section); Interac e-Transfer: docs/CLOVER_WEBSITE_ORDERS.md.')}</p>
             </div>
           </Section>
         </div>

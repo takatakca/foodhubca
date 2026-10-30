@@ -7,7 +7,8 @@ plugins {
 //   FOODHUB_TABLET_VERSION       versionName, e.g. 1.0.0 (tag tablet-v1.0.0)
 //   FOODHUB_TABLET_VERSION_CODE  versionCode, always rising (the workflow's run number)
 //   ANDROID_KEYSTORE_FILE, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
-//     the owner's release key (never in git). Without it the workflow builds the debug APK instead.
+//     the owner's release key (never in git). Without it the release build is signed with this machine's debug key
+//     (still a release build: not debuggable, so `adb run-as` cannot copy the app's cookies off a kitchen tablet).
 fun envOrProp(name: String): String? =
     (System.getenv(name) ?: project.findProperty(name) as String?)?.takeIf { it.isNotBlank() }
 val releaseKeystore = envOrProp("ANDROID_KEYSTORE_FILE")
@@ -42,7 +43,8 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.findByName("release")
+            isDebuggable = false
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
     compileOptions {

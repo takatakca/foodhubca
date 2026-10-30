@@ -7,7 +7,8 @@ name: Android kitchen tablet
 #     foodhub-tablet.apk — the file the /tablette page links to.
 # Signing: with the four repository secrets ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and
 # ANDROID_KEY_PASSWORD, the release build is signed with the owner's key (updates install over the previous version).
-# Without them the debug build is published: it installs fine, but each new version must be installed after
+# Without them the same release build is signed with the runner's own debug key: never android:debuggable (no
+# `adb run-as` copy of a kitchen tablet's cookies), it installs fine, but each new version must be installed after
 # uninstalling the old one (every runner makes its own debug key). No keystore is ever generated or committed here.
 
 on:
@@ -86,7 +87,7 @@ jobs:
             echo "Release build, signed with the owner's key."
           else
             echo "signed=0" >> "$GITHUB_OUTPUT"
-            echo "No ANDROID_KEYSTORE_BASE64 secret: debug build (uninstall the old version before installing a new one)."
+            echo "No ANDROID_KEYSTORE_BASE64 secret: release build signed with the runner's debug key (uninstall the old version before installing a new one)."
           fi
 
       - name: Unit tests and APK
@@ -100,12 +101,17 @@ jobs:
         run: |
           set -eu
           chmod +x gradlew
-          if [ "${{ steps.sign.outputs.signed }}" = "1" ]; then
-            task=assembleRelease; apk=app/build/outputs/apk/release/app-release.apk
-          else
-            task=assembleDebug; apk=app/build/outputs/apk/debug/app-debug.apk
+          # Always the release build type (not debuggable); app/build.gradle.kts signs it with the owner's key when the
+          # secrets are there, with the runner's debug key otherwise.
+          ./gradlew --no-daemon --stacktrace testDebugUnitTest assembleRelease
+          apk=app/build/outputs/apk/release/app-release.apk
+          # Proof in the log: the published APK is not debuggable.
+          aapt="$(ls "${ANDROID_HOME:-/nonexistent}"/build-tools/*/aapt 2>/dev/null | sort -V | tail -1 || true)"
+          if [ -n "$aapt" ]; then
+            badging="$("$aapt" dump badging "$apk")"
+            case "$badging" in *application-debuggable*) echo "::error::The APK is debuggable"; exit 1 ;; esac
+            echo "APK is not debuggable (aapt dump badging)."
           fi
-          ./gradlew --no-daemon --stacktrace testDebugUnitTest "$task"
           mkdir -p dist
           cp "$apk" dist/foodhub-tablet.apk
           (cd dist && sha256sum foodhub-tablet.apk > foodhub-tablet.apk.sha256)
@@ -144,4 +150,4 @@ jobs:
           body: |
             Application tablette cuisine Food Hub · Food Hub kitchen tablet app — ${{ steps.v.outputs.name }}
             Installer / Install: https://foodhub.on2go.ca/tablette
-            Signature: ${{ steps.sign.outputs.signed == '1' && 'release key' || 'debug build (uninstall the previous version first)' }}
+            Signature: ${{ steps.sign.outputs.signed == '1' && 'release key' || 'build key of this run, not the release key (uninstall the previous version first)' }}

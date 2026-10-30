@@ -2,10 +2,10 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { GET } from '../app/api/foodhub/kitchen/print-queue/route';
 import { POST } from '../app/api/foodhub/kitchen/print-queue/[orderId]/printed/route';
 import { sessionCookieFor } from '../lib/foodhub/auth';
-import { saveDirectOrder } from '../lib/foodhub/delivery/store';
+import { addDirectEvent, getDirectOrder, saveDirectOrder } from '../lib/foodhub/delivery/store';
 import type { DirectOrder } from '../lib/foodhub/delivery/types';
 import { enrollDevice } from '../lib/foodhub/identity/devices';
-import { buildPrintQueue, claimTabletPrint, parseSince } from '../lib/foodhub/kitchen/print-queue';
+import { buildPrintQueue, claimTabletPrint, directKitchenAt, kitchenPrintKey, parseSince } from '../lib/foodhub/kitchen/print-queue';
 import { getRepo } from '../lib/foodhub/repo';
 import type { NormalizedOrder, StoredOrder } from '../lib/foodhub/types';
 
@@ -133,6 +133,34 @@ describe('kitchen print queue: since cursor', () => {
     expect(q.items.every((i) => i.source === 'direct' && i.kind === 'order')).toBe(true);
     expect(q.items.find((i) => i.orderId === phone.id)!.ticket).toContain('TÉLÉPHONE');
   });
+
+  it('own order held for payment then switched to « pay at the counter »: counts from the switch, not its creation', async () => {
+    // The order payAtCounter (delivery/paylink.ts) leaves behind: created 5 min ago, held, then converted now —
+    // status 'new', paylink stopped, no releasedAt (that field means "paid").
+    const held = await addDirect({ number: 'T-7', status: 'awaiting_payment', payment: 'pay_at_pickup', createdAt: ago(5), placedAt: ago(5), updatedAt: ago(5),
+      events: [{ at: ago(5), type: 'awaiting_payment', message: 'Held' }], paylink: { token: 't', expiresAt: ago(-10) } as any });
+    const since = new Date(Date.now() - 135_000).toISOString(); // the app's cursor: last server time − 120 s, one poll ago
+    expect((await buildPrintQueue({ location: 'NDG', since })).items).toEqual([]);
+    await addDirectEvent(held, 'pay_at_counter', 'The customer pays at the counter (payment link stopped)', 'Owner', {
+      status: 'new', paylink: { ...held.paylink!, cancelledAt: new Date().toISOString(), cancelReason: 'pay at the counter' },
+    });
+    const q = await buildPrintQueue({ location: 'NDG', since });
+    expect(q.items.map((i) => i.orderId)).toEqual([held.id]);
+    expect(Date.parse(q.items[0].at)).toBeGreaterThan(Date.now() - 10_000);
+    // Then sent to Clover (status in_kitchen): still the same kitchen time.
+    expect(directKitchenAt({ ...(await getDirectOrder(held.id))!, status: 'in_kitchen' })).toBe(q.items[0].at);
+  });
+
+  it('a platform order imported from Clover\'s own integration counts from its import, not from Clover\'s creation time', async () => {
+    const via = await addOrder({ createdAt: ago(4), placedAt: ago(4), displayId: 'VIA', viaPos: 'clover' });
+    await getRepo().patchOrder(via.id, { acceptedAt: ago(4), acceptedBy: 'clover', seenAt: new Date().toISOString(), seenBy: 'Clover' }, { status: 'accepted' });
+    const since = new Date(Date.now() - 135_000).toISOString();
+    expect((await buildPrintQueue({ location: 'NDG', since })).items.map((i) => i.orderId)).toEqual([via.id]);
+    // A normal platform order keeps its arrival time (seenAt there is when a person looked at it).
+    const plain = await addOrder({ createdAt: ago(4), displayId: 'PLAIN' });
+    await getRepo().patchOrder(plain.id, { seenAt: new Date().toISOString(), seenBy: 'Cook' }, { status: 'accepted' });
+    expect((await buildPrintQueue({ location: 'NDG', since })).items.map((i) => i.orderId)).toEqual([via.id]);
+  });
 });
 
 describe('kitchen print queue: never twice, cancelled never printed', () => {
@@ -154,6 +182,35 @@ describe('kitchen print queue: never twice, cancelled never printed', () => {
     const race = await Promise.all([1, 2, 3].map(() => claimTabletPrint({ orderId: o2.id, deviceId: DEVICE, location: 'NDG', by: 'test' })));
     expect(race.filter((r) => r.claimed)).toHaveLength(1);
     expect((await getRepo().listEvents(o.id)).some((e) => e.type === 'tablet_printed')).toBe(true);
+  });
+
+  it('a reinstalled app (new device id) is told what this kitchen already printed, and a lost claim answer reads printed: true', async () => {
+    const orders = await Promise.all([1, 2, 3].map((n) => addOrder({ displayId: `R${n}` })));
+    const d = await addDirect({ number: 'T-50' });
+    for (const o of orders) expect(await claimTabletPrint({ orderId: o.id, deviceId: 'tab-oldinstall0001', location: 'NDG', by: 't' })).toMatchObject({ claimed: true });
+    expect(await claimTabletPrint({ orderId: d.id, deviceId: 'tab-oldinstall0001', location: 'NDG', by: 't', source: 'direct' })).toMatchObject({ claimed: true });
+    const unprinted = await addOrder({ displayId: 'GAP' }); // arrived while the app was being reinstalled
+
+    // New install: fresh cursor (server default), new device id.
+    const q = await buildPrintQueue({ location: 'NDG', since: null, deviceId: 'tab-newinstall0002' });
+    const byId = new Map(q.items.map((i) => [i.orderId, i]));
+    for (const o of [...orders, d]) expect(byId.get(o.id)).toMatchObject({ printed: false, printedElsewhere: true });
+    expect(byId.get(unprinted.id)).toMatchObject({ printed: false, printedElsewhere: false });
+    // The old device itself: printed, not "elsewhere".
+    const old = await buildPrintQueue({ location: 'NDG', deviceId: 'tab-oldinstall0001' });
+    expect(old.items.find((i) => i.orderId === orders[0].id)).toMatchObject({ printed: true, printedElsewhere: false });
+    // No device id: nothing to say.
+    expect((await buildPrintQueue({ location: 'NDG' })).items[0]).toMatchObject({ printed: null, printedElsewhere: null });
+
+    // Lost answer: the claim went through but the app never heard it. The retry is refused, and the queue says
+    // printed: true for this device — the app's cue to print it now (QueueLogic.plan RECOVER), never to drop it.
+    expect(await claimTabletPrint({ orderId: unprinted.id, deviceId: 'tab-newinstall0002', location: 'NDG', by: 't' })).toMatchObject({ claimed: true });
+    expect(await claimTabletPrint({ orderId: unprinted.id, deviceId: 'tab-newinstall0002', location: 'NDG', by: 't' })).toMatchObject({ claimed: false, reason: 'already_printed' });
+    const after = await buildPrintQueue({ location: 'NDG', deviceId: 'tab-newinstall0002' });
+    expect(after.items.find((i) => i.orderId === unprinted.id)).toMatchObject({ printed: true, printedElsewhere: false });
+    // The kitchen-wide mark keeps the first tablet.
+    expect(await getRepo().getKv(kitchenPrintKey('order', 'platform', unprinted.id))).toMatchObject({ deviceId: 'tab-newinstall0002' });
+    expect(await getRepo().getKv(kitchenPrintKey('order', 'platform', orders[0].id))).toMatchObject({ deviceId: 'tab-oldinstall0001' });
   });
 
   it('refuses a bad device id, an unknown order and another kitchen\'s order', async () => {

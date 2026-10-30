@@ -88,19 +88,26 @@ object EscPosPrinter {
         )
         var last: Exception? = null
         for (make in makers) {
-            var socket: BluetoothSocket? = null
-            try {
-                val s = make(device)
-                socket = s
-                s.connect()
-                writeChunks(s.outputStream, bytes)
+            val socket: BluetoothSocket = try {
+                make(device).also { s ->
+                    try { s.connect() } catch (e: Exception) { runCatching { s.close() }; throw e }
+                }
+            } catch (e: Exception) {
+                // Only a failed connection moves on to the next socket type: nothing was sent yet.
+                last = e
+                continue
+            }
+            // Connected: from here a failure ends the job (the ticket stays waiting and is retried whole later). Sending
+            // it again on another socket type now would print a cut slip plus a full one.
+            return try {
+                writeChunks(socket.outputStream, bytes)
                 // RFCOMM buffers: closing at once can cut the end of the ticket on some printers.
                 Thread.sleep(500L + bytes.size / 8)
-                return Outcome.Ok
+                Outcome.Ok
             } catch (e: Exception) {
-                last = e
+                Outcome.Failed("Bluetooth: ${e.message ?: "sending failed"}")
             } finally {
-                runCatching { socket?.close() }
+                runCatching { socket.close() }
             }
         }
         return Outcome.Failed("Bluetooth: ${last?.message ?: "connection failed"}")

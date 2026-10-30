@@ -46,8 +46,10 @@ pas ESC/POS (étiquettes, AirPrint).
 automatiques ; l’APK est compilé et ses tests unitaires (encodage ESC/POS, son, logique de la file) passent dans GitHub
 Actions.
 
-**Mises à jour.** Sans clé de signature, chaque version est signée par une clé de débogage différente : il faut
-**désinstaller l’ancienne version avant d’installer la nouvelle** (et refaire les réglages). Avec les quatre secrets
+**Mises à jour.** Sans clé de signature, chaque version est signée par une clé différente (celle de la machine de
+GitHub qui la compile) : il faut **désinstaller l’ancienne version avant d’installer la nouvelle** (et refaire les
+réglages). Après une réinstallation, la tablette **ne réimprime pas** ce que la cuisine a déjà imprimé et ne resonne
+pas pour ces commandes ; elle imprime seulement celles arrivées pendant la réinstallation. Avec les quatre secrets
 ci-dessous, les mises à jour s’installent par-dessus.
 
 **À faire par le propriétaire :** fusionner la PR ; publier une version (Actions → « Android kitchen tablet » → *Run
@@ -84,15 +86,19 @@ see the Android project, and the Android workflow does not run Food Hub's.
 - **location:** optional for an enrolled tablet, a PIN session on one, or a one-kitchen person; otherwise 400
   `{ needLocation: true }`.
 - **since:** ISO date; default 15 minutes back, clamped to [now − 24 h, now]. An order counts from when it reached the
-  kitchen: platform orders from `timeline.firedAt` (scheduled) or `createdAt`; own orders from `paylink.releasedAt`
-  (paid by link) or `createdAt`. Orders are read from the last 24 h (platform) / 12 h (own orders, as the kitchen
-  screen) and filtered on that time.
+  kitchen: platform orders from `timeline.firedAt` (scheduled) or `createdAt` — orders from Clover's own DoorDash /
+  Uber integration (`viaPos`) from their import into Food Hub (`timeline.seenAt`, set by the 5-minute Clover import);
+  own orders from when they left the payment hold (`paylink.releasedAt` when paid by link, the `pay_at_counter` event /
+  `paylink.cancelledAt` when switched to « pay at the counter ») or `createdAt`. Orders are read from the last 24 h
+  (platform) / 12 h (own orders, as the kitchen screen) and filtered on that time.
 - **Which orders:** platform orders `new` / `accepted` not waiting for their fire time; own orders from the kitchen
   screen's sources (`phone_ai`, `phone`, `website`, `manual`) in `new` / `in_kitchen` (not `awaiting_payment`; Clover
   Online Ordering orders print through Clover). With `device`, each item carries `printed` (this device already
-  claimed it), and cancelled orders this device printed come back as `kind: 'cancel'` items with an « ANNULÉE » ticket.
+  claimed it) and `printedElsewhere` (not this device, but another tablet of the kitchen printed it — the app reads it
+  only on its first run after an install or a data wipe), and cancelled orders this device printed come back as
+  `kind: 'cancel'` items with an « ANNULÉE » ticket.
 - **Answer:** `{ location, since, serverTime, width, lang, items: [{ id, orderId, source, kind, channel, number,
-  brandName, locationCode, createdAt, at, printed, ticket }] }`, oldest first, at most 50.
+  brandName, locationCode, createdAt, at, printed, printedElsewhere, ticket }] }`, oldest first, at most 50.
 
 `POST /api/foodhub/kitchen/print-queue/<orderId>/printed` `{ deviceId, source?, kind?, location? }`
 
@@ -100,9 +106,14 @@ see the Android project, and the Android workflow does not run Food Hub's.
   key in Supabase), then read back; only the caller whose random nonce comes back gets `{ claimed: true }`. Anything
   else → `{ claimed: false, reason }`: `already_printed`, `cancelled` (never printed), `not_cancelled` /
   `not_printed_here` (cancel tickets), `not_for_kitchen`, `conflict`. Unknown order or another kitchen → 404.
+- A won claim also inserts the kitchen-wide mark `tablet_print_any:<kind>:<source>:<orderId>` (first tablet wins;
+  never read by the claim itself) — the source of `printedElsewhere`.
+- A retry after a lost answer gets `already_printed`; the queue then says `printed: true` for this device, and the app
+  prints a ticket it claimed but never wrote down as handled (step `RECOVER` below).
 - Platform orders get an order event `tablet_printed` / `tablet_cancel_printed`. `timeline.printedAt` (Clover's print
   status) is untouched.
-- One claim row per order per device stays in `fh_kv` (small; a cleanup can come later).
+- One claim row per order per device (plus one kitchen-wide mark per order) stays in `fh_kv` (small; a cleanup can
+  come later).
 
 ### Ticket text format
 
@@ -123,18 +134,24 @@ carries **no amount** (the SEV's invoice is the only paper with amounts — same
   in the browser. JS bridge `window.FoodHubTablet`: `print(text)` (same ticket format; only on Food Hub's own origin),
   `beep()`, `version()`. A tap anywhere stops the alarm; a red banner says why it rings. ⚙ bottom right → Settings.
 - **OrderWatchService:** foreground service (type `dataSync`), partial wake lock + Wi-Fi lock, polls every 15 s with
-  the WebView cookies (`CookieManager`, read on the main thread). For each fresh item: claim → print on the printer
-  thread → ring. Auto-print off or no printer: ring only. Cursor = last `serverTime` − 120 s, advanced only when every
-  item was handled; reset to the server default (15 min) when the service starts. Claimed but unprinted tickets are
-  kept (SharedPreferences) and retried each poll for 2 h. Boot / app update restart it (`BootReceiver`, Settings
-  switch).
+  the WebView cookies (`CookieManager`, read on the main thread). Each item not yet handled gets one step
+  (`QueueLogic.plan`, JVM-tested): `CLAIM` (claim → print → ring), `RECOVER` (the queue says `printed` for this
+  device but the app never wrote it down — lost claim answer or app killed — print and ring, no new claim), `RING`
+  (auto-print off or no printer), `SILENT` (first run after an install / data wipe and `printedElsewhere`: nothing),
+  `CANCEL_UNPRINTED` (cancelled while its ticket still waited for the printer: that ticket is dropped, ring, no slip).
+  A won claim is written to the waiting list (`Prefs.pending`, SharedPreferences `commit()`) and to `seen` BEFORE it
+  goes to the printer, and leaves the list only once printed; the printer thread drains the list oldest first,
+  stops at the first failure, gives up after 2 h. Cursor = last `serverTime` − 120 s, advanced only when every item was
+  handled; reset to the server default (15 min) when the service starts. Boot / app update restart it
+  (`BootReceiver`, Settings switch).
 - **Alarm:** two-tone pattern (988 / 1319 Hz, like the kitchen screen) generated as 16-bit PCM (`Tone`), looped with a
   static `AudioTrack` on `USAGE_ALARM`, alarm volume raised to the maximum while it rings (option), vibration; the
   high-priority notification has a full-screen intent (wakes the screen) and a « Arrêter la sonnerie » action.
 - **Printing:** `EscPos` (pure, JVM-tested) → `ESC @`, `ESC t 19` (CP858) / `ESC t 16` (CP1252) / `ESC t 0` (ASCII,
   accents removed), `ESC a 1` centre, `ESC E 1` bold, `GS ! 0x11` double size, `ESC d 4` feed, `GS V 66 0` partial cut.
   `EscPosPrinter`: Bluetooth Classic SPP `00001101-0000-1000-8000-00805F9B34FB` (secure, then insecure, then channel 1)
-  or TCP 9100, 512-byte chunks, one job at a time.
+  or TCP 9100, 512-byte chunks, one job at a time. The next Bluetooth socket type is tried only when `connect()`
+  failed; once connected, a send error ends the job (the ticket stays waiting and is printed whole later).
 - **Permissions:** INTERNET, FOREGROUND_SERVICE + FOREGROUND_SERVICE_DATA_SYNC, WAKE_LOCK, RECEIVE_BOOT_COMPLETED,
   VIBRATE, POST_NOTIFICATIONS (asked on 13+), USE_FULL_SCREEN_INTENT, REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
   BLUETOOTH_CONNECT (asked on 12+; BLUETOOTH / BLUETOOTH_ADMIN up to 11).
@@ -142,19 +159,25 @@ carries **no amount** (the SEV's invoice is the only paper with amounts — same
 
 ### Build and release
 
-- Local (needs JDK 17 + Android SDK 34): `cd apps/kitchen-tablet && ./gradlew testDebugUnitTest assembleDebug`.
+- Local (needs JDK 17 + Android SDK 34): `cd apps/kitchen-tablet && ./gradlew testDebugUnitTest assembleRelease`.
 - CI: push to `feature/kitchen-tablet-app` / `main` touching the app → tests + APK artifact
   (`foodhub-tablet-<version>`). Tag `tablet-v<version>` or *Run workflow* with a version → GitHub Release
   `tablet-v<version>` with `foodhub-tablet.apk` (+ `.sha256`), marked latest.
 - **Signed APK:** add repository secrets `ANDROID_KEYSTORE_BASE64` (the `.jks` in base64), `ANDROID_KEYSTORE_PASSWORD`,
-  `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`; the workflow then builds `assembleRelease` signed with it. Keep the key
-  in the password manager: losing it means uninstalling on every tablet once. Without the secrets: debug APK.
+  `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`; the release build is then signed with it. Keep the key in the password
+  manager: losing it means uninstalling on every tablet once. Without the secrets: the same release build (never
+  `android:debuggable`, checked with `aapt` in CI — no `adb run-as` copy of a tablet's cookies) signed with the
+  runner's own debug key, so each update needs an uninstall first.
 - `/tablette` links to the newest `tablet-v*` release asset (GitHub API, cached 10 min); fallback
   `releases/latest/download/foodhub-tablet.apk`; `FOODHUB_TABLET_APK_URL` (https) overrides both.
 
 ### Known limits
 
 - Scheduled platform orders placed more than 24 h before their fire time are not seen by the queue (rare).
-- Several tablets in one kitchen each print their own copy (claims are per device).
+- Several tablets in one kitchen each print their own copy (claims are per device). After a reinstall, the first run
+  skips what another tablet of the kitchen already printed; in a kitchen whose previous install only rang (no
+  printer), the orders of the last 15 minutes ring once more.
+- A reinstall needs a new sign-in: the device cookie lives in the app's data with the device id, so the server-side
+  device id would not survive a reinstall either (that is why the kitchen-wide mark is used, not the enrolled id).
 - `window.print()` inside the WebView does nothing (Android WebView); the app prints through its own queue.
 - Tablets without Google Play still need Android 8+ and Chrome's WebView.

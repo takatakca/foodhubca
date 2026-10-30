@@ -129,14 +129,15 @@ const appEvent = (appId: string, mid: string, type: 'CREATE' | 'UPDATE' | 'DELET
 describe('without the phone app env, everything behaves as before', () => {
   it('lists Food Hub as the only enabled app, the phone app as not set', async () => {
     expect(cloverPhoneAppEnabled()).toBe(false);
-    expect(cloverApps().map((a) => a.key)).toEqual(['foodhub', 'phone']);
+    expect(cloverApps().map((a) => a.key)).toEqual(['foodhub', 'phone', 'mev']);
     expect(cloverApp('foodhub')).toMatchObject({ name: 'TAKATAK Food Hub', appId: FH_APP, tokenStoreKey: 'clover_oauth_merchants', verifyKey: 'clover_webhook_verification' });
     expect(cloverApp('phone')).toMatchObject({ name: 'TAKATAK Phone AI', appId: null, events: ['app'] });
     expect(cloverAppByAppId(FH_APP)).toBe('foodhub');
     expect(cloverAppByAppId(PH_APP)).toBe(null);
     expect(cloverAppReadiness()).toMatchObject({ configured: true, appId: FH_APP, launchPath: '/api/foodhub/clover-connect/callback', webhookUrl: 'https://foodhub.example/api/foodhub/webhooks/clover' });
     const overview = await cloverAppsOverview();
-    expect(overview.map((a) => [a.key, a.enabled, a.configured])).toEqual([['foodhub', true, true], ['phone', false, false]]);
+    expect(overview.map((a) => [a.key, a.enabled, a.configured])).toEqual([['foodhub', true, true], ['phone', false, false], ['mev', false, false]]);
+    expect(overview[2].missing).toEqual(['CLOVER_MEV_APP_ID', 'CLOVER_MEV_APP_SECRET']);
     expect(overview[1].missing).toEqual(['CLOVER_PHONE_APP_ID', 'CLOVER_PHONE_APP_SECRET']);
   });
 
@@ -294,7 +295,8 @@ describe('phone webhook (own verification, own auth, App events only)', () => {
   it('uninstalling the phone app removes only the phone tokens; Food Hub keeps working', async () => {
     await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID });
     await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID, app: 'phone' });
-    expect((await cloverAppsOverview()).every((a) => a.installs[0]?.bothApps)).toBe(true);
+    // Both installed apps (TAKATAK MEV is not set in this test) show the merchant as in another app too.
+    expect((await cloverAppsOverview()).filter((a) => a.enabled).every((a) => a.installs[0]?.bothApps)).toBe(true);
     const r = await phoneWebhook(req(url, { method: 'POST', body: JSON.stringify(appEvent(PH_APP, MID, 'DELETE')), headers: { 'x-clover-auth': 'phone-hook-auth' } }));
     expect(r.status).toBe(200);
     await tick(); await tick();

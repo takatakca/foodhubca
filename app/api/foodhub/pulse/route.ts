@@ -2,6 +2,7 @@ import { after } from 'next/server';
 import { withPerm } from '@/lib/foodhub/auth';
 import { tickExpansion } from '@/lib/foodhub/expansion/tick';
 import { tickCloverWebsiteOrders } from '@/lib/foodhub/pos/clover-website-orders';
+import { tickCloverRegister } from '@/lib/foodhub/mev/clover-register';
 import { tickTgtgEmail } from '@/lib/foodhub/tgtg-email/imap';
 import { tickAvailability } from '@/lib/foodhub/store-availability/tick';
 import { ok } from '@/lib/foodhub/http';
@@ -25,6 +26,8 @@ export const GET = withPerm('view', async (req, _ctx, actor) => {
     await runWatch({ trigger: 'pulse' }).catch(() => undefined);
     await tickExpansion();
     await tickCloverWebsiteOrders();
+    // Clover register sales → Takatak MEV invoices (FOODHUB_MEV_CLOVER_REGISTER=on only; throttled catch-up poll).
+    await tickCloverRegister();
     // Too Good To Go order e-mails (throttled to TGTG_IMAP_POLL_S; nothing when no mailbox is configured).
     await tickTgtgEmail();
     // Store availability center: busy schedule + tablet-off guard (at most every 30 s, never throws).

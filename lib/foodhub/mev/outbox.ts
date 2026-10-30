@@ -17,7 +17,7 @@ import { tenantId } from '../tenant';
 import { fetchMevHealth, mevRequest, type MevHealth, type MevOutcome } from './client';
 import { healthRefusal, mevMode, mevRetryDelaysS } from './config';
 import { sha256 } from './map';
-import type { FoodHubCreditV1, FoodHubSaleV1, MevJob, MevOrderStatus, MevReceipt, MevRecord } from './types';
+import type { FoodHubCreditV1, FoodHubSaleV1, MevJob, MevOrderModel, MevOrderStatus, MevReceipt, MevRecord } from './types';
 
 export const MEV_OUTBOX = 'mev_outbox';
 export const CLAIM_MS = 90_000;
@@ -125,6 +125,18 @@ export async function syncOrderMev(ref: MevJob['order'], baseKey: string): Promi
     await noteCloverInvoice(o.posOrderId && !o.viaPos ? { mid: (await repo.findStore(o.channel, o.channelStoreId))?.cloverMerchantId ?? null, posOrderId: o.posOrderId, notes: o.notes } : null, rec, o.timeline?.mev);
     return rec;
   }
+  if (ref.model === 'pos') {
+    const { getRegisterSale, saveRegisterSale } = await import('./clover-register');
+    const r = await getRegisterSale(ref.id);
+    if (!r) return null;
+    const rec = recordFromJobs(jobs, r.mev);
+    if (!rec) return null;
+    if (!rec.token && ['accepted', 'offline'].includes(rec.status) && isElectronic(rec)) rec.token = await newReceiptToken(ref);
+    const cur = (await getRegisterSale(ref.id)) ?? r;
+    await saveRegisterSale({ ...cur, mev: rec });
+    await noteCloverInvoice({ mid: r.merchantId, posOrderId: r.cloverOrderId }, rec, r.mev);
+    return rec;
+  }
   const { getDirectOrder, saveDirectOrder } = await import('../delivery/store');
   const d = await getDirectOrder(ref.id);
   if (!d) return null;
@@ -156,9 +168,9 @@ async function newReceiptToken(ref: MevJob['order']): Promise<string> {
 }
 
 /** The order behind a public receipt link (null = unknown token). */
-export async function orderRefForToken(token: string): Promise<{ model: 'stored' | 'direct'; id: string } | null> {
+export async function orderRefForToken(token: string): Promise<{ model: MevOrderModel; id: string } | null> {
   if (!/^[A-Za-z0-9_-]{20,40}$/.test(token)) return null;
-  return getRepo().getKv<{ model: 'stored' | 'direct'; id: string }>(RECEIPT_KV(token)).catch(() => null);
+  return getRepo().getKv<{ model: MevOrderModel; id: string }>(RECEIPT_KV(token)).catch(() => null);
 }
 
 /** Opt-in (FOODHUB_MEV_CLOVER_NOTE=on): the Clover order note says where the invoice is. Text only — Clover's REST API cannot print a QR. */

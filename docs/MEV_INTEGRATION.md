@@ -219,3 +219,53 @@ DEV and ESSAI environments with the partner credentials, on the QCMEV side.
    « Takatak MEV » for the kitchen, then « Vérifier Takatak MEV ».
 4. Production only after Revenu Québec certifies the product: QCMEV in PROD with its certification number, then
    `FOODHUB_MEV=on`.
+
+## 10. Clover register sales (`FOODHUB_MEV_CLOVER_REGISTER=on`)
+
+What staff ring up **on the restaurant's own Clover register** gets its Revenu Québec invoice from Takatak MEV too, through
+the same outbox, keys and reconciliation as every other sale (`lib/foodhub/mev/clover-register.ts`). Off by default;
+on, it still needs every switch of § 2 for the kitchen.
+
+- **Which Clover orders.** Only the ones nothing else in Food Hub invoices: not Food Hub's own (platform orders it pushed
+  to Clover, its phone / website orders, known Clover ids and titles), not a delivery platform's, not an online order
+  (Clover Online Ordering type, the brand website's « Site web » mark). What is left was rung up at the register.
+- **When.** Once Clover says the order is paid (an open tab is not a sale). Whole order refunded, voided or deleted →
+  full credit note. Items refunded in Clover → credit note + corrected receipt naming the original. Refunded by an
+  amount only → the old receipt is credited and the corrected one **waits for a person** (it would have to invent which
+  items).
+- **Sources.** The Clover webhook's Orders events (the Food Hub app's webhook already receives them) and a catch-up
+  poll of orders modified since the last run, every `FOODHUB_MEV_CLOVER_REGISTER_POLL_S` (60 s), from the live pulse
+  and the cron. One record per Clover order (`mev_pos:<id>`): a sale is found again after a missed webhook, never twice.
+- **Kitchen.** The kitchen whose stores use that Clover merchant; when one merchant serves several kitchens,
+  `FOODHUB_MEV_REGISTER_LOCATION` must name it (one code, or JSON per merchant). A merchant that is not a Food Hub
+  kitchen (TAKATAK MEV from the App Market) uses its own `CLV_…` code once it set itself up in Takatak MEV
+  (docs/CLOVER_MULTI_APP.md § TAKATAK MEV, `lib/foodhub/mev/clover-merchants.ts`). Food Hub never guesses the SEV
+  device: without a place, nothing is invoiced and the activity log says so (`mev_register_unplaced`, at most once an
+  hour).
+- **Catch-up poll on a busy merchant.** Orders are read oldest change first (`orderBy=modifiedTime ASC`; unsorted when
+  Clover refuses the sort); a run that reaches its page limit (10 × 100 orders) resumes after the last order it read,
+  never past one it did not read.
+- **Mapping** (`toMevSaleFromRegister`, model `pos`, channel `clover_pos` — QCMEV's CONTRACT.md accepts both).
+  - The Clover lines are the items (refunded lines left out; options as their own items; tax codes from the menu's
+    `mevTax`, FP by default).
+  - Money from Clover's payments minus its refunds, in cents: `amount` (taxes included, no tip), `taxAmount`,
+    `tipAmount`. Pre-tax = amount − tax.
+  - Items − pre-tax within 2 cents: the items are the receipt. More, with a Clover discount on the order or a line:
+    that difference is the restaurant's discount. Anything else waits for a person (`amounts_mismatch`).
+  - TPS + TVQ of the receipt must equal Clover's tax within 1 cent; otherwise a tax rate in Clover is wrong (the stray
+    « Sales Tax » found on our own merchants is the known case) and the sale **waits for a person**: never sent with a
+    tax the customer was not charged.
+  - Tender from Clover: cash `ARG` (collected `cash`), debit `DEB`, credit `CRE`, gift card `CPR`, several `MIX`, a tender
+    Clover names otherwise `AUT`, $0 `AUC`. Tip → `pourb`. Service: `TBL` when the order type says table
+    (`FOODHUB_MEV_REGISTER_TABLE_TYPES` to name yours), else `CMP`. Paper receipt (`PAP`), printed at the register.
+  - A Clover service charge comes as a percentage, not an amount: such a sale waits for a person.
+- **Not a Food Hub order.** The record is read only by the MEV pipeline: never on the kitchen screen, the courier
+  dispatch or Food Hub's sales reports (Clover already counts these sales).
+- **To verify on a real Clover sandbox before use:** that a refund's `amount` excludes its tip like a payment's, the
+  exact tender labels of each merchant, and that the Orders webhook fires on payment and refund.
+- **Printing the invoice at the register:** Clover's REST API cannot print a QR code. The invoice text and QR are on the
+  record (`mev`) for the TAKATAK MEV app on the Clover device to print; until that app is installed, the Clover order
+  note can say where the invoice is (`FOODHUB_MEV_CLOVER_NOTE=on`).
+- **Before any real restaurant:** this changes what Takatak MEV records, so it belongs in the certified scope (owner
+  decision 6 in docs/clover-visual-register/OWNER_DECISIONS.md on the research branch; Revenu Québec's written answer).
+

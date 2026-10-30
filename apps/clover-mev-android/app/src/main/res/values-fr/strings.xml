@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TAKATAK MEV</string>
+    <string name="intro">Après chaque paiement, la facture Revenu Québec (avec son code QR) s’imprime ici. Touchez une vente pour une reproduction ou une copie du commerçant.</string>
+    <string name="order_hint">N° de commande Clover</string>
+    <string name="print_invoice">Imprimer la facture</string>
+    <string name="reprint">Reproduction (RPR)</string>
+    <string name="merchant_copy">Copie du commerçant (DUP)</string>
+    <string name="foodhub_url">Adresse de Food Hub</string>
+</resources>

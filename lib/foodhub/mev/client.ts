@@ -117,7 +117,8 @@ export async function fetchMevHealth(tenant: string): Promise<{ health: MevHealt
     const res = await fetch(`${base}${MEV_API_PREFIX}/health`, { headers: signMev('', eventId, eventId, tenant, secret), signal: controller.signal, cache: 'no-store' });
     const j = await res.json().catch(() => null) as Record<string, any> | null;
     if (!res.ok || !j) return { health: null, error: `QCMEV /health HTTP ${res.status}` };
-    const locs = Array.isArray(j.locations) ? j.locations.slice(0, 50).map((l: any) => ({ locationId: String(l?.locationId ?? '').slice(0, 30), deviceReady: l?.deviceReady === true, certReady: l?.certReady === true, usersReady: l?.usersReady === true })) : [];
+    // One line per linked location: every Food Hub kitchen and every App Market merchant (clover-merchants.ts).
+    const locs = Array.isArray(j.locations) ? j.locations.slice(0, 5000).map((l: any) => ({ locationId: String(l?.locationId ?? '').slice(0, 30), deviceReady: l?.deviceReady === true, certReady: l?.certReady === true, usersReady: l?.usersReady === true })) : [];
     return { health: { environment: String(j.environment ?? '').slice(0, 12), certified: j.certified === true, certificateValidUntil: j.certificateValidUntil ? String(j.certificateValidUntil).slice(0, 40) : null, mevReachable: j.mevReachable === true, queueDepth: Number(j.queueDepth) || 0, oldestQueuedAt: j.oldestQueuedAt ? String(j.oldestQueuedAt).slice(0, 40) : null, locations: locs } };
   } catch (e) {
     return { health: null, error: (e as { name?: string })?.name === 'AbortError' ? 'QCMEV /health timed out' : 'QCMEV unreachable' };

@@ -1,0 +1,8 @@
+local.properties
+# Release keystores and their passwords never go in git (README « Release APK »).
+*.jks
+*.keystore
+keystore.properties
+.gradle/
+build/
+app/build/

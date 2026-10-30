@@ -14,6 +14,7 @@ import { getCatalog } from '../catalog';
 import { featureOn } from '../expansion/features';
 import { getRepo } from '../repo';
 import { locationProvince } from '../taxes';
+import { isActiveMerchantLocation } from './clover-merchants';
 import type { MevMode, MevTrigger, SevOfRecord } from './types';
 
 const MODES: readonly MevMode[] = ['off', 'shadow', 'simulator', 'on'];
@@ -112,9 +113,12 @@ export async function mevGate(locationCode: string | null | undefined, opts: { s
   const mode = mevMode();
   if (mode === 'off') return { active: false, reason: 'mode_off' };
   if (!locationCode) return { active: false, reason: 'no_location' };
-  if (!mevLocations().includes(locationCode)) return { active: false, reason: 'not_allowlisted' };
+  // A TAKATAK MEV App Market merchant set up in Takatak MEV (clover-merchants.ts) stands in for the allowlist and the
+  // system of record: its own location exists only for its Takatak MEV invoices.
+  const appMarket = !mevLocations().includes(locationCode) && (await isActiveMerchantLocation(locationCode).catch(() => false));
+  if (!appMarket && !mevLocations().includes(locationCode)) return { active: false, reason: 'not_allowlisted' };
   if (!(await featureOn('mev').catch(() => false))) return { active: false, reason: 'switch_off' };
-  const sev = sevOfRecord(opts.settings ?? (await getMevSettings()), locationCode);
+  const sev = appMarket ? 'qcmev' : sevOfRecord(opts.settings ?? (await getMevSettings()), locationCode);
   if (sev === 'clover_app') return { active: false, reason: 'sev_clover_app' };
   if (sev !== 'qcmev') return { active: false, reason: 'sev_none' };
   // MEV-WEB is Revenu Québec's: a kitchen in another province never sends it a sale, even when listed by mistake.

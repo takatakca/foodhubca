@@ -71,7 +71,7 @@ function pollMs(): number {
 }
 
 /** A setting given either as one value for every merchant, or as JSON { "<merchant id>": value, "*": default }. */
-function perMerchant(envKey: string, mid: string): string | undefined {
+export function perMerchant(envKey: string, mid: string): string | undefined {
   const raw = String(process.env[envKey] ?? '').trim();
   if (!raw) return undefined;
   if (!raw.startsWith('{')) return raw;
@@ -86,7 +86,7 @@ function perMerchant(envKey: string, mid: string): string | undefined {
 
 // ---------------------------------------------------------------- recognising a website order
 
-const ONLINE_TYPE = /online|en\s*ligne|\bweb\b|site\s*web|website/i;
+export const ONLINE_TYPE = /online|en\s*ligne|\bweb\b|site\s*web|website/i;
 
 function pinnedTypes(): string[] {
   return String(process.env.FOODHUB_CLOVER_WEBSITE_ORDER_TYPES || '').split(/[,;\n]+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
@@ -205,7 +205,7 @@ export function cloverLines(co: any): DirectLine[] {
 
 // ---------------------------------------------------------------- Clover reads
 
-async function cloverGet(mid: string, token: string, path: string, qs: Record<string, string> = {}): Promise<{ status: number; json: any }> {
+export async function cloverGet(mid: string, token: string, path: string, qs: Record<string, string> = {}): Promise<{ status: number; json: any }> {
   const q = new URLSearchParams(qs);
   const res = await cloverFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}/${path}${q.toString() ? `?${q}` : ''}`, {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
@@ -214,7 +214,7 @@ async function cloverGet(mid: string, token: string, path: string, qs: Record<st
   return { status: res.status, json };
 }
 
-async function labelMaps(mid: string, token: string): Promise<{ orderTypes: Map<string, string>; tenders: Map<string, string> }> {
+export async function labelMaps(mid: string, token: string): Promise<{ orderTypes: Map<string, string>; tenders: Map<string, string> }> {
   const read = async (path: 'order_types' | 'tenders') => {
     const m = new Map<string, string>();
     const r = await cloverGet(mid, token, path, { limit: '200' }).catch(() => null);
@@ -239,7 +239,7 @@ async function cloverOrder(mid: string, token: string, id: string): Promise<any 
 }
 
 /** Clover ids of the orders Food Hub created itself (platform orders, our own phone / website orders). */
-async function knownFoodHubCloverIds(sinceMs: number): Promise<Set<string>> {
+export async function knownFoodHubCloverIds(sinceMs: number): Promise<Set<string>> {
   const since = new Date(sinceMs - 3 * 86400_000).toISOString();
   const [stored, direct] = await Promise.all([
     getRepo().listOrders({ since, limit: 5000 }).catch(() => []),

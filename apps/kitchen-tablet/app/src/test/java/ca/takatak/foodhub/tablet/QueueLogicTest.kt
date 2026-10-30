@@ -8,12 +8,53 @@ import org.junit.Test
 import kotlin.math.abs
 
 class QueueLogicTest {
-    private fun item(id: String, printed: Boolean? = false) = QueueItem(id, id, "platform", "order", "#$id", null, printed, "@@HBC #$id")
+    private fun item(id: String, printed: Boolean? = false, elsewhere: Boolean? = false, kind: String = "order") =
+        QueueItem("platform:$id:$kind", id, "platform", kind, "#$id", null, printed, "@@HBC #$id", elsewhere)
+
+    private fun steps(plan: List<Planned>) = plan.map { it.item.orderId + "/" + it.item.kind + "=" + it.step }
 
     @Test
-    fun freshSkipsPrintedAndSeen() {
-        val items = listOf(item("a"), item("b", printed = true), item("c"), item("d", printed = null))
-        assertEquals(listOf("a", "d"), QueueLogic.fresh(items, setOf("c")).map { it.id })
+    fun planClaimsNewTicketsAndSkipsSeenAndWaiting() {
+        val items = listOf(item("a"), item("b"), item("c", printed = null))
+        val plan = QueueLogic.plan(items, seen = setOf("platform:b:order"), pendingIds = setOf("platform:c:order"), print = true, firstRun = false)
+        assertEquals(listOf("a/order=CLAIM"), steps(plan))
+    }
+
+    @Test
+    fun lostClaimAnswerIsPrintedNotDropped() {
+        // Claimed by this tablet (printed = true) but never written down here: the answer was lost, or the app died.
+        val plan = QueueLogic.plan(listOf(item("a", printed = true), item("b", printed = true)), seen = setOf("platform:b:order"), pendingIds = emptySet(), print = true, firstRun = false)
+        assertEquals(listOf("a/order=RECOVER"), steps(plan))
+    }
+
+    @Test
+    fun reinstallDoesNotReprintWhatTheKitchenAlreadyPrinted() {
+        val items = listOf(item("old1", elsewhere = true), item("old2", elsewhere = true), item("gap", elsewhere = false))
+        // First run after an install: what the previous install printed is skipped (no ticket, no alarm); the order that
+        // arrived during the reinstall is printed.
+        assertEquals(listOf("old1/order=SILENT", "old2/order=SILENT", "gap/order=CLAIM"), steps(QueueLogic.plan(items, emptySet(), emptySet(), print = true, firstRun = true)))
+        assertEquals(listOf("old1/order=SILENT", "old2/order=SILENT", "gap/order=RING"), steps(QueueLogic.plan(items, emptySet(), emptySet(), print = false, firstRun = true)))
+        // Afterwards each tablet prints its own copy again.
+        assertEquals(listOf("old1/order=CLAIM", "old2/order=CLAIM", "gap/order=CLAIM"), steps(QueueLogic.plan(items, emptySet(), emptySet(), print = true, firstRun = false)))
+    }
+
+    @Test
+    fun ringOnlyWithoutPrinter() {
+        val plan = QueueLogic.plan(listOf(item("a"), item("b", printed = true)), emptySet(), emptySet(), print = false, firstRun = false)
+        assertEquals(listOf("a/order=RING", "b/order=RING"), steps(plan))
+    }
+
+    @Test
+    fun cancelledWhileWaitingForThePrinterIsNeverPrinted() {
+        val waiting = setOf("platform:a:order", "platform:b:order")
+        val items = listOf(item("a", printed = true), item("a", kind = "cancel"), item("c"), item("c", kind = "cancel"))
+        val plan = QueueLogic.plan(items, seen = setOf("platform:c:order"), pendingIds = waiting, print = true, firstRun = false)
+        // a: its ticket never printed → drop it, ring, no « ANNULÉE » slip. c: printed earlier → the slip is claimed.
+        assertEquals(listOf("a/cancel=CANCEL_UNPRINTED", "c/cancel=CLAIM"), steps(plan))
+        assertEquals(setOf("platform:a:order"), QueueLogic.cancelledPending(items, waiting))
+        // Its own cancel slip, if it was waiting too, goes with it.
+        assertEquals(setOf("platform:a:order", "platform:a:cancel"), QueueLogic.cancelledPending(items, waiting + "platform:a:cancel"))
+        assertEquals("direct:42:order", QueueLogic.orderTicketId("direct:42:cancel"))
     }
 
     @Test

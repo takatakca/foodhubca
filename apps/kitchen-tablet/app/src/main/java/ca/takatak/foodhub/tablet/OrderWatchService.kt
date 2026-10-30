@@ -32,7 +32,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Foreground service that listens for orders even with the screen off: every 15 s it reads Food Hub's print queue
  * with the WebView's cookies, claims each new ticket (POST …/printed: written and read back on the server, so never
  * twice), prints it on the tablet's printer, and rings the loud alarm until someone taps the screen.
- * A ticket claimed but not printed (printer off, no paper) is kept and retried at every poll for 2 hours.
+ * A won claim is written to the waiting list (Prefs.pending, on disk) BEFORE it goes to the printer and leaves it
+ * only once printed: a printer error or the app being killed never loses a ticket; it is retried for 2 hours.
+ * A claim whose answer was lost is printed at the next poll (QueueLogic.plan, step RECOVER).
  */
 class OrderWatchService : Service() {
 
@@ -71,7 +73,7 @@ class OrderWatchService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private val main = Handler(Looper.getMainLooper())
-    private val retrying = AtomicBoolean(false)
+    private val draining = AtomicBoolean(false)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -82,7 +84,7 @@ class OrderWatchService : Service() {
         goForeground(getString(R.string.watch_starting))
         acquireLocks()
         // After a (re)start the first poll uses the server's default window (15 minutes): no pile of old tickets in the
-        // morning, and the claims already made stop any reprint.
+        // morning, and the claims already made stop any reprint (after a reinstall: printedElsewhere, Prefs.firstRun).
         prefs.since = null
         poller = Executors.newSingleThreadScheduledExecutor().also { it.scheduleWithFixedDelay({ safePoll() }, 1, POLL_SECONDS, TimeUnit.SECONDS) }
     }
@@ -116,12 +118,13 @@ class OrderWatchService : Service() {
 
     private fun safePoll() {
         try { poll() } catch (e: Throwable) { setStatus(getString(R.string.status_offline, e.message ?: e.javaClass.simpleName)) }
+        // Waiting tickets go to the printer even when Food Hub cannot be reached.
+        drainPending()
     }
 
     private fun poll() {
         val origin = prefs.origin() ?: return setStatus(getString(R.string.status_bad_url))
         val api = FoodHubApi(origin, { cookieFor(origin) }, "FoodHubTablet/${BuildConfig.VERSION_NAME} (Android ${Build.VERSION.RELEASE})")
-        retryPending()
         val queue = try {
             api.queue(prefs.since, prefs.location, prefs.deviceId, prefs.paper, prefs.ticketLang)
         } catch (e: FoodHubApi.ApiError) {
@@ -132,28 +135,34 @@ class OrderWatchService : Service() {
                 else -> "HTTP ${e.status} : ${e.message}"
             })
         }
-        val seen = prefs.seen
-        val fresh = QueueLogic.fresh(queue.items, seen.toSet())
-        val print = QueueLogic.shouldPrint(prefs.autoPrint, prefs.printerType)
-        val handled = mutableListOf<String>()
+        val pendingIds = prefs.pending.map { it.id }.toSet()
+        val firstRun = prefs.firstRun
+        val plan = QueueLogic.plan(queue.items, prefs.seen.toSet(), pendingIds, QueueLogic.shouldPrint(prefs.autoPrint, prefs.printerType), firstRun)
+        // A cancelled order whose ticket still waits for the printer (no paper, printer off): never print it now.
+        val dropped = QueueLogic.cancelledPending(queue.items, pendingIds)
+        if (dropped.isNotEmpty()) prefs.updatePending { list -> list.filter { it.id !in dropped } }
         val ring = mutableListOf<QueueItem>()
         var allHandled = true
-        for (item in fresh) {
-            if (!print) { handled += item.id; ring += item; continue }
-            val claim = try {
-                api.claim(item, prefs.deviceId, prefs.location)
-            } catch (e: FoodHubApi.ApiError) {
-                if (e.status == 404 || e.status == 400) { handled += item.id } else { allHandled = false } // network: retried next poll
-                continue
-            }
-            handled += item.id
-            if (claim.claimed) {
-                ring += item
-                printClaimed(item)
+        for ((item, step) in plan) {
+            when (step) {
+                Step.SILENT -> prefs.markSeen(item.id)
+                Step.RING, Step.CANCEL_UNPRINTED -> { prefs.markSeen(item.id); ring += item }
+                Step.RECOVER -> { toPrinter(item); ring += item }
+                Step.CLAIM -> {
+                    val claim = try {
+                        api.claim(item, prefs.deviceId, prefs.location)
+                    } catch (e: FoodHubApi.ApiError) {
+                        // 404 / 400: not for this tablet. Otherwise (no answer, 5xx): asked again next poll — and if the
+                        // claim did go through, the queue then says printed and the ticket is printed (RECOVER).
+                        if (e.status == 404 || e.status == 400) prefs.markSeen(item.id) else allHandled = false
+                        continue
+                    }
+                    if (claim.claimed) { toPrinter(item); ring += item } else prefs.markSeen(item.id)
+                }
             }
         }
-        if (handled.isNotEmpty()) prefs.seen = QueueLogic.remember(seen, handled)
         prefs.since = QueueLogic.nextSince(prefs.since, queue.serverTime, allHandled)
+        if (firstRun && allHandled) prefs.firstRun = false
         if (ring.isNotEmpty()) announce(ring)
         setStatus(getString(R.string.status_ok, LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss")), queue.location ?: "?", ring.size))
     }
@@ -172,39 +181,47 @@ class OrderWatchService : Service() {
 
     // ------------------------------------------------------------------ printing
 
-    private fun printClaimed(item: QueueItem) {
-        EscPosPrinter.submit(this, item.ticket) { out ->
-            if (out is EscPosPrinter.Outcome.Failed) {
-                // Claimed on the server, so never fetched again: keep it here and retry it.
-                prefs.pending = prefs.pending + PendingTicket(item.id, item.number, item.ticket, System.currentTimeMillis(), 1)
-                printerProblem(out.message)
-            }
-        }
+    /**
+     * A ticket this tablet claimed: written down (waiting list + seen, on disk) BEFORE it goes to the printer, so a
+     * printer error or the app being killed in between never loses it, and it is never claimed or recovered twice.
+     */
+    private fun toPrinter(item: QueueItem) {
+        prefs.updatePending { list -> if (list.any { it.id == item.id }) list else list + PendingTicket(item.id, item.number, item.ticket, System.currentTimeMillis(), 0) }
+        prefs.markSeen(item.id)
+        drainPending()
     }
 
-    /** Retries the tickets that did not print, oldest first, on the printer thread (one batch at a time). */
-    private fun retryPending() {
-        if (prefs.pending.isEmpty() || !retrying.compareAndSet(false, true)) return
+    /**
+     * Prints the waiting tickets, oldest first, one at a time on the printer thread. A ticket leaves the list only once
+     * printed; the first failure stops the run (printer still down: next poll). One run at a time.
+     */
+    private fun drainPending() {
+        if (prefs.pending.isEmpty() || !draining.compareAndSet(false, true)) return
         EscPosPrinter.onPrinterThread(this) { app ->
+            var failed = false
             try {
-                for (p in prefs.pending) {
+                while (true) {
+                    val p = prefs.pending.firstOrNull() ?: break
                     if (System.currentTimeMillis() - p.since > PENDING_MAX_MS) {
-                        prefs.pending = prefs.pending.filter { it.id != p.id }
+                        prefs.updatePending { list -> list.filter { it.id != p.id } }
                         notifyPrinter(getString(R.string.printer_gave_up, p.number))
                         continue
                     }
                     val out = EscPosPrinter.printNow(app, p.ticket)
                     if (out is EscPosPrinter.Outcome.Failed) {
-                        prefs.pending = prefs.pending.map { if (it.id == p.id) it.copy(attempts = it.attempts + 1) else it }
+                        prefs.updatePending { list -> list.map { if (it.id == p.id) it.copy(attempts = it.attempts + 1) else it } }
                         printerProblem(out.message)
-                        break // still down: try again at the next poll
+                        failed = true
+                        break
                     }
-                    prefs.pending = prefs.pending.filter { it.id != p.id }
+                    prefs.updatePending { list -> list.filter { it.id != p.id } }
                 }
                 if (prefs.pending.isEmpty()) runCatching { NotificationManagerCompat.from(app).cancel(ID_PRINTER) }
             } finally {
-                retrying.set(false)
+                draining.set(false)
             }
+            // A ticket added between the last check and the end of this run: print it now, not in 15 s.
+            if (!failed && prefs.pending.isNotEmpty()) drainPending()
         }
     }
 

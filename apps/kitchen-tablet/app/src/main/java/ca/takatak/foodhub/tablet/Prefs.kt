@@ -75,24 +75,41 @@ class Prefs(context: Context) {
         get() = if (sp.getString("ticket_lang", "fr") == "en") "en" else "fr"
         set(v) = sp.edit().putString("ticket_lang", if (v == "en") "en" else "fr").apply()
 
-    /** This install's id for the print claims ("printed on this device"). Made once. */
+    /**
+     * This install's id for the print claims ("printed on this device"). Made once; making it also opens the first run
+     * ([firstRun]): a new install, or the app's data wiped.
+     */
     val deviceId: String
-        get() {
-            sp.getString("device_id", null)?.let { return it }
-            val id = "tab-" + UUID.randomUUID().toString().replace("-", "").take(20)
-            sp.edit().putString("device_id", id).apply()
-            return id
+        get() = synchronized(LOCK) {
+            sp.getString("device_id", null) ?: ("tab-" + UUID.randomUUID().toString().replace("-", "").take(20)).also { id ->
+                sp.edit().putString("device_id", id).putBoolean("first_run", true).commit()
+            }
         }
 
+    /**
+     * True from a new install (or a data wipe) until the first poll whose tickets were all handled. Meanwhile, what
+     * another tablet of this kitchen already printed (the previous install) is neither printed nor rung again.
+     */
+    var firstRun: Boolean
+        get() = deviceId.isNotEmpty() && sp.getBoolean("first_run", false) // reading deviceId first makes it on a new install
+        set(v) { sp.edit().putBoolean("first_run", v).commit() }
+
+    // since / seen / pending are written with commit(), not apply(): they are what keeps a ticket from printing twice
+    // (or not at all) when Android kills the app, so they must be on disk before the next step.
     var since: String?
         get() = sp.getString("since", null)
-        set(v) = sp.edit().putString("since", v).apply()
+        set(v) { sp.edit().putString("since", v).commit() }
 
     var seen: List<String>
         get() = (sp.getString("seen", "") ?: "").split('\n').filter { it.isNotBlank() }
-        set(v) = sp.edit().putString("seen", v.joinToString("\n")).apply()
+        set(v) { sp.edit().putString("seen", v.joinToString("\n")).commit() }
 
-    var pending: List<PendingTicket>
+    /** Adds ids to the seen list, kept bounded (QueueLogic.remember). */
+    fun markSeen(vararg ids: String) {
+        synchronized(LOCK) { seen = QueueLogic.remember(seen, ids.toList()) }
+    }
+
+    val pending: List<PendingTicket>
         get() = try {
             val arr = JSONArray(sp.getString("pending", "[]") ?: "[]")
             (0 until arr.length()).map { i ->
@@ -100,11 +117,20 @@ class Prefs(context: Context) {
                 PendingTicket(o.getString("id"), o.optString("number"), o.getString("ticket"), o.optLong("since"), o.optInt("attempts"))
             }
         } catch (e: Exception) { emptyList() }
-        set(v) {
+
+    /** The only way to change the waiting tickets: the watch loop and the printer thread both do, one at a time. */
+    fun updatePending(change: (List<PendingTicket>) -> List<PendingTicket>) {
+        synchronized(LOCK) {
             val arr = JSONArray()
-            v.forEach { arr.put(JSONObject().put("id", it.id).put("number", it.number).put("ticket", it.ticket).put("since", it.since).put("attempts", it.attempts)) }
-            sp.edit().putString("pending", arr.toString()).apply()
+            change(pending).forEach { arr.put(JSONObject().put("id", it.id).put("number", it.number).put("ticket", it.ticket).put("since", it.since).put("attempts", it.attempts)) }
+            sp.edit().putString("pending", arr.toString()).commit()
         }
+    }
+
+    private companion object {
+        /** One lock for every Prefs instance (they share the same file). */
+        val LOCK = Any()
+    }
 
     fun origin(): String? = QueueLogic.originOf(kitchenUrl)
     fun width(): Int = if (paper == 58) 32 else 42

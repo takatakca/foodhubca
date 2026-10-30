@@ -36,6 +36,7 @@ class FoodHubApi(private val origin: String, private val cookie: () -> String?, 
                 id = o.getString("id"), orderId = o.getString("orderId"), source = o.optString("source", "platform"), kind = o.optString("kind", "order"),
                 number = o.optString("number"), brandName = if (o.isNull("brandName")) null else o.optString("brandName"),
                 printed = if (o.isNull("printed")) null else o.optBoolean("printed"), ticket = o.optString("ticket"),
+                printedElsewhere = if (!o.has("printedElsewhere") || o.isNull("printedElsewhere")) null else o.optBoolean("printedElsewhere"),
             )
         }
         return Queue(items, json.optString("serverTime").ifBlank { null }, json.optString("location").ifBlank { null })

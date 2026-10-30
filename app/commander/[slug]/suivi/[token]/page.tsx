@@ -45,6 +45,18 @@ export default async function TrackPage({ params, searchParams }: Props) {
           <p className="text-3xl font-extrabold tracking-tight">{view.number}</p>
           <p role="status" className="mt-4 text-xl font-extrabold">{t.status[view.status] ?? view.status}</p>
           {view.readyAt && !done && <p className="mt-1 sf-muted">{t.readyAround(clockLabel(Date.parse(view.readyAt), lang))}</p>}
+          {view.interac && (
+            <section className="mt-4 rounded-lg border border-[var(--sf-line)] p-4" aria-label={t.interac.title}>
+              <h2 className="font-extrabold">{t.interac.title}</h2>
+              <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+                <dt className="sf-muted">{t.interac.recipient}</dt><dd className="font-semibold break-all">{view.interac.recipient}</dd>
+                <dt className="sf-muted">{t.interac.amount}</dt><dd className="font-semibold">{lang === 'fr' ? `${view.interac.amount.toFixed(2).replace('.', ',')} $` : `$${view.interac.amount.toFixed(2)}`}</dd>
+                <dt className="sf-muted">{t.interac.message}</dt><dd className="font-semibold">{view.interac.reference}</dd>
+                {view.interac.question && <><dt className="sf-muted">{t.interac.question}</dt><dd className="font-semibold">{view.interac.question} <span className="sf-muted font-normal">— {t.interac.answerByText}</span></dd></>}
+              </dl>
+              <p className="mt-3 text-sm">{t.interac.before(clockLabel(Date.parse(view.interac.expiresAt), lang))} {t.interac.then}</p>
+            </section>
+          )}
           {view.status !== 'cancelled' && view.status !== 'awaiting_payment' && (
             <ol className="mt-5 grid grid-cols-4 gap-2" aria-hidden>
               {STEPS.map((s, i) => <li key={s} className={`h-2 rounded-full ${i <= reached ? 'bg-[var(--sf-accent)]' : 'bg-[var(--sf-sunken)]'}`} />)}

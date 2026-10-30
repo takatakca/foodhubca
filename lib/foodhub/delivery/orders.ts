@@ -12,17 +12,23 @@ import { cloverOnlineBlockedReason } from '../pos/clover-website-orders';
 import { createDirectOrderInClover } from './clover-direct';
 import { tellDriveOrderReady } from './drive-api';
 import { addDirectEvent, getDirectOrder, newId, nextOrderNumber, saveDirectOrder } from './store';
-import type { DirectLine, DirectOrder, DirectSource, DropoffAddress, PaymentState } from './types';
+import type { DirectLine, DirectOrder, DirectSource, DropoffAddress, InteracTransfer, OrderFee, PaymentState } from './types';
 import { DEFAULT_PROVINCE, foodTaxRate, foodTaxes, locationProvince, type Province } from '../taxes';
 
 /** Québec sales taxes on prepared food: GST 5 % + QST 9.975 % (the default province; lib/foodhub/taxes.ts has the others). */
 export const QC_TAX_RATE = foodTaxRate('QC');
 
-/** Subtotal, taxes and total of an order; the taxes follow the kitchen's province (Québec unless told otherwise). */
-export function totalsFor(lines: DirectLine[], deliveryFee: number, tip: number, taxable = true, province: Province = DEFAULT_PROVINCE) {
+export const feesTotal = (fees: OrderFee[] | undefined) => round2((fees ?? []).reduce((s, f) => s + (Number(f.amount) || 0), 0));
+
+/**
+ * Subtotal, taxes and total of an order; the taxes follow the kitchen's province (Québec unless told otherwise).
+ * Declared fees (the Interac fee) are taxed like the delivery fee; the tip is not.
+ */
+export function totalsFor(lines: DirectLine[], deliveryFee: number, tip: number, taxable = true, province: Province = DEFAULT_PROVINCE, fees: OrderFee[] = []) {
   const subtotal = round2(lines.reduce((s, l) => s + l.total, 0));
-  const tax = taxable ? foodTaxes(province, subtotal + deliveryFee).tax : 0;
-  return { subtotal, tax, total: round2(subtotal + deliveryFee + tax + tip) };
+  const feeSum = feesTotal(fees);
+  const tax = taxable ? foodTaxes(province, subtotal + deliveryFee + feeSum).tax : 0;
+  return { subtotal, tax, total: round2(subtotal + deliveryFee + feeSum + tax + tip) };
 }
 
 export function lineTotal(unitPrice: number, quantity: number, modifiers: DirectLine['modifiers']): number {
@@ -42,6 +48,8 @@ export interface NewDirectOrder {
   payment: PaymentState;
   tip?: number;
   deliveryFee?: number;
+  /** Declared fees the customer saw before checkout (the Interac fee). */
+  fees?: OrderFee[];
   /** Customer wants it at (scheduled). */
   wantedAt?: string;
   /** Amounts from the source when it computed them itself (a Clover order): kept as they are. */
@@ -56,6 +64,11 @@ export interface NewDirectOrder {
    * the kitchen, no confirmation text, no courier — until the payment is confirmed.
    */
   holdForPayment?: boolean;
+  /**
+   * Held for an Interac e-Transfer (delivery/interac.ts): saved 'awaiting_payment' with this block (its `amount` is the
+   * order total computed here). Released only by a person's "Transfer received".
+   */
+  interac?: Omit<InteracTransfer, 'amount'>;
 }
 
 export async function createDirectOrder(input: NewDirectOrder, actor: Actor): Promise<DirectOrder> {
@@ -65,7 +78,9 @@ export async function createDirectOrder(input: NewDirectOrder, actor: Actor): Pr
   if (!location) throw new Error(`Unknown location ${input.locationCode}.`);
   const deliveryFee = input.fulfillment === 'delivery' ? round2(input.deliveryFee ?? 0) : 0;
   const tip = round2(Math.max(0, input.tip ?? 0));
-  const totals = input.totals ? { subtotal: round2(input.totals.subtotal), tax: round2(input.totals.tax), total: round2(input.totals.total) } : totalsFor(input.lines, deliveryFee, tip, true, locationProvince(location));
+  const fees = (input.fees ?? []).filter((f) => f.code === 'interac' && Number(f.amount) > 0).map((f) => ({ code: f.code, name: String(f.name || 'Frais Interac e-Transfer').slice(0, 80), amount: round2(Number(f.amount)) }));
+  const totals = input.totals ? { subtotal: round2(input.totals.subtotal), tax: round2(input.totals.tax), total: round2(input.totals.total) } : totalsFor(input.lines, deliveryFee, tip, true, locationProvince(location), fees);
+  const hold = Boolean(input.holdForPayment || input.interac);
   const prep = await prepFor(input.locationCode);
   const now = Date.now();
   // A scheduled delivery leaves the kitchen about 20 minutes before the time the customer asked for.
@@ -88,9 +103,10 @@ export async function createDirectOrder(input: NewDirectOrder, actor: Actor): Pr
     ...totals,
     deliveryFee,
     tip,
+    ...(fees.length ? { fees } : {}),
     currency: process.env.FOODHUB_CURRENCY || 'CAD',
-    payment: input.holdForPayment ? 'unpaid' : input.payment,
-    status: input.holdForPayment ? 'awaiting_payment' : 'new',
+    payment: hold ? 'unpaid' : input.payment,
+    status: hold ? 'awaiting_payment' : 'new',
     notes: input.notes,
     containsAlcohol: input.lines.some((l) => l.alcohol),
     placedAt: at,
@@ -98,17 +114,20 @@ export async function createDirectOrder(input: NewDirectOrder, actor: Actor): Pr
     ...(input.wantedAt ? { wantedAt: input.wantedAt } : {}),
     ...(input.posOrderId ? { posOrderId: input.posOrderId } : {}),
     ...(input.attention ? { attention: input.attention } : {}),
+    ...(input.interac ? { interac: { ...input.interac, amount: totals.total } } : {}),
     events: [{ at, type: 'received', message: `${SOURCE_LABEL[input.source]} — ${input.fulfillment === 'delivery' ? 'delivery' : 'pickup'}, ${totals.total.toFixed(2)} $`, by: actor.name }],
     createdAt: at,
     updatedAt: at,
   };
   order = await saveDirectOrder(order);
 
-  if (input.holdForPayment) {
-    // Held: the Clover order (and the kitchen ticket) comes from the paid Hosted Checkout session — never from here.
-    order = await addDirectEvent(order, 'awaiting_payment', 'Held until the payment link is paid (not sent to the kitchen yet)', actor.name);
+  if (hold) {
+    // Held: the Clover order (and the kitchen ticket) comes from the paid Hosted Checkout session, or from a person's
+    // "Transfer received" (Interac) — never from here.
+    const why = input.interac ? 'the Interac e-Transfer is confirmed by a person' : 'the payment link is paid';
+    order = await addDirectEvent(order, 'awaiting_payment', `Held until ${why} (not sent to the kitchen yet)`, actor.name);
     await logActivity({ actor: actor.name, source: actor.source, kind: 'order', action: 'direct_order', status: 'success', brandName: order.brandName, locationCode: order.locationCode,
-      summary: `${SOURCE_LABEL[order.source]} order ${order.number} (${order.brandName}) — ${order.fulfillment}, ${order.total.toFixed(2)} $ — waiting for the payment link` });
+      summary: `${SOURCE_LABEL[order.source]} order ${order.number} (${order.brandName}) — ${order.fulfillment}, ${order.total.toFixed(2)} $ — waiting for ${input.interac ? 'the Interac e-Transfer' : 'the payment link'}` });
     return order;
   }
 
@@ -149,7 +168,9 @@ export async function confirmToCustomer(order: DirectOrder): Promise<void> {
   await addDirectEvent(order, r.ok ? 'sms_confirmation' : 'sms_failed', r.ok ? 'Confirmation texted to the customer' : `Confirmation not texted: ${r.message}`);
 }
 
-export type DirectAction = 'seen' | 'ready' | 'picked_up' | 'complete' | 'cancel' | 'mark_paid' | 'retry_clover' | 'clear_attention' | 'resend_paylink' | 'pay_at_counter';
+export type DirectAction = 'seen' | 'ready' | 'picked_up' | 'complete' | 'cancel' | 'mark_paid' | 'retry_clover' | 'clear_attention' | 'resend_paylink' | 'pay_at_counter'
+  | 'interac_received' | 'interac_resend' | 'interac_release_late' | 'interac_refunded';
+export const INTERAC_ACTIONS: DirectAction[] = ['interac_received', 'interac_resend', 'interac_release_late', 'interac_refunded'];
 
 /** Moves a direct order along. Courier side effects (cancel the courier) are in dispatch.ts. */
 export async function runDirectAction(orderId: string, action: DirectAction, actor: Actor, opts: { reason?: string } = {}): Promise<DirectOrder> {
@@ -161,13 +182,18 @@ export async function runDirectAction(orderId: string, action: DirectAction, act
   // "Seen" on the kitchen screen: once, and harmless on a closed order.
   if (action === 'seen') return order.seenAt ? order : addDirectEvent(order, 'seen', 'Seen on the kitchen screen', actor.name, { seenAt: new Date().toISOString(), seenBy: actor.name });
   const closed = order.status === 'completed' || order.status === 'cancelled';
-  if (closed && action !== 'clear_attention') throw new Error(`Order ${order.number} is already ${order.status}.`);
+  // A cancelled Interac order still takes "Transfer received" (flagged as late, never released by itself) and the two
+  // decisions on a late transfer (send to the kitchen anyway, returned by hand).
+  const lateOk = order.status === 'cancelled' && Boolean(order.interac) && (action === 'interac_received' || action === 'interac_release_late' || action === 'interac_refunded');
+  if (closed && action !== 'clear_attention' && !lateOk) throw new Error(`Order ${order.number} is already ${order.status}.`);
   const held = order.status === 'awaiting_payment';
-  // A held order is paid through its link: "Payment taken" or a Clover send now would make a second Clover order (and a
-  // second ticket) when the link is paid. "Pay at the counter" converts it properly.
-  if (held && (action === 'mark_paid' || action === 'retry_clover')) throw new Error(`Order ${order.number} waits for its payment link: use "Pay at the counter" (pickup) or cancel it.`);
+  const interac = Boolean(order.interac);
+  // A held order is paid through its link (or its Interac transfer): "Payment taken" or a Clover send now would make a
+  // second Clover order (and a second ticket) when it is released. "Pay at the counter" converts it properly.
+  if (held && (action === 'mark_paid' || action === 'retry_clover')) throw new Error(interac ? `Order ${order.number} waits for its Interac e-Transfer: press "Transfer received", "Pay at the counter" (pickup) or cancel it.` : `Order ${order.number} waits for its payment link: use "Pay at the counter" (pickup) or cancel it.`);
   if (held && (action === 'ready' || action === 'picked_up' || action === 'complete')) throw new Error(`Order ${order.number} is not paid yet: it has not gone to the kitchen.`);
-  if (!held && (action === 'resend_paylink' || action === 'pay_at_counter')) throw new Error(`Order ${order.number} is not waiting for a payment link.`);
+  if (!held && (action === 'resend_paylink' || action === 'pay_at_counter' || action === 'interac_resend')) throw new Error(`Order ${order.number} is not waiting for a payment.`);
+  if (INTERAC_ACTIONS.includes(action) && !interac) throw new Error(`Order ${order.number} is not paid by Interac e-Transfer.`);
   let next: DirectOrder;
   switch (action) {
     case 'resend_paylink': {
@@ -177,7 +203,28 @@ export async function runDirectAction(orderId: string, action: DirectAction, act
     }
     case 'pay_at_counter': {
       const { payAtCounter } = await import('./paylink');
-      next = await payAtCounter(order.id, actor);
+      const { interacPayAtCounter } = await import('./interac');
+      next = interac ? await interacPayAtCounter(order.id, actor) : await payAtCounter(order.id, actor);
+      break;
+    }
+    case 'interac_received': {
+      const { markInteracReceived } = await import('./interac');
+      next = (await markInteracReceived(order.id, actor)).order;
+      break;
+    }
+    case 'interac_resend': {
+      const { resendInterac } = await import('./interac');
+      next = await resendInterac(order.id, actor);
+      break;
+    }
+    case 'interac_release_late': {
+      const { releaseLateInterac } = await import('./interac');
+      next = await releaseLateInterac(order.id, actor);
+      break;
+    }
+    case 'interac_refunded': {
+      const { markLateInteracRefunded } = await import('./interac');
+      next = await markLateInteracRefunded(order.id, actor);
       break;
     }
     case 'ready':
@@ -193,6 +240,12 @@ export async function runDirectAction(orderId: string, action: DirectAction, act
       next = await addDirectEvent(order, 'completed', 'Completed', actor.name, { status: 'completed', attention: undefined });
       break;
     case 'cancel':
+      if (held && interac) {
+        // The customer is told the order is cancelled and that a transfer already sent is returned by a person.
+        const { cancelHeldInterac } = await import('./interac');
+        next = await cancelHeldInterac(order.id, `Cancelled${opts.reason ? ` — ${opts.reason}` : ''}`, actor.name);
+        break;
+      }
       if (held) {
         // The link stops working at once; the customer is told nothing was charged.
         const { cancelHeldOrder } = await import('./paylink');

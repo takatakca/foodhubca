@@ -1,5 +1,34 @@
 # Food Hub: progress log and task board
 
+## 2026-10-30 — Interac e-Transfer for website orders, held until a person confirms (`feature/interac-etransfer`)
+
+- Website order contract (section B): `payment: "paid" | "pay_at_pickup" | "interac"`, `fees[]` (the Interac fee, required and
+  checked against the setting), `total` (re-priced from the brand menu + fees + GST/QST ± $0.02, else 422), `customerToken`
+  (task 72's `resolveCustomerToken`: bad or expired 401, another brand website 403; the order carries `customer.id`, and the
+  account's name / e-mail / language fill what the payload left out). Older `paid: boolean` payloads unchanged.
+- `lib/foodhub/delivery/interac.ts`: `interac` block next to `paylink` (status `awaiting_payment`), instructions texted (FR/EN,
+  recipient, exact amount, reference `PP-7K3Q`, question/answer when auto-deposit is off, deadline), one reminder, expiry →
+  cancelled with a courtesy text; « Virement reçu » (drawer + `POST /api/foodhub/delivery/<id>` action `interac_received`) releases
+  exactly once (lock + claim, `lib/foodhub/delivery/lock.ts` shared with paylink.ts): paid by that person, one Clover order =
+  the ticket, `in_kitchen`, courier by the dispatch tick; received after the cancel → flagged for a person (release anyway /
+  returned by hand). Food Hub never reads a bank, never refunds.
+- Settings → Expansion → Delivery → « Paiements — virement Interac » (fee, all-in shown, e-mail per kitchen, auto-deposit,
+  question/answer masked, hold / reminder minutes; env `FOODHUB_INTERAC_EMAIL` / `FOODHUB_INTERAC_FEE`). Tracking page shows the
+  held state and the instructions. Docs: `docs/CLOVER_WEBSITE_ORDERS.md` § Interac e-Transfer. Tests `tests/interac-etransfer.test.ts`.
+- Brought up to main 820ef0a (task 72 customers, Canada taxes by province: `totalsFor` takes the kitchen's province AND the
+  declared fees, the fee taxed like the delivery fee), then f023fc7 (#115 WhatsApp, #124 on2go customer API; only this file
+  conflicted).
+- e2e Interac scenario (`scripts/foodhub-e2e.mjs`) fixed: it used 14.99 while the menu is 15.99 after « Use Clover price », so
+  the held order was refused and the refusal checks passed for the wrong reason; each refusal now checks its own message.
+- Checks on 07a24b1 (owner PC, Windows), 2026-10-30: `npm run typecheck` 0 errors · `npm run lint` 0 errors (1 old warning,
+  settings/devices/page.tsx) · `npm test` 1917 passed, 5 failed, 6 skipped (138 files) — the 5 are `tests/screens-relay-setup`
+  / `screens-relay-windows` only (POSIX file mode 600 on NTFS, PowerShell dry runs over 20 s), files this branch does not touch;
+  `tests/interac-etransfer.test.ts` 19/19 · `rm -rf .next && npx next build --webpack` compiled, exit 0 ·
+  `verify:foodhub` (ports 4899/4900) 642 passed, 0 failed.
+
+— signé : Claude Fable 5.1 (interac-etransfer sub-agent of « Food delivery provider integration ») @ Claude Code desktop · 2026-10-30;
+checks, e2e fix and PR : Claude Opus 5.5 (interac-etransfer builder) @ Claude Code desktop · 2026-10-30
+
 ## 2026-10-30 — on2go.ca browser customer API (`feature/on2go-account-cors`)
 
 - `/api/public/on2go/{verify/start, verify/check, me, logout}`: on2go.ca (static, no website secret) signs customers in by texted code and reads / updates / deletes « Mon compte » from the browser. CORS and preflight for the ON2GO sites only, brand website fixed to `on2go`, only `on2go`-signed customer tokens (`Authorization: Bearer`), per-IP windows on top of task 72's per-phone limits; listed in `proxy.ts`. `lib/foodhub/customers/on2go-public.ts`, `docs/CUSTOMER_IDENTITY.md`, `tests/on2go-public-customers.test.ts`.

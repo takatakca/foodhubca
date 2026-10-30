@@ -5,6 +5,8 @@
 //     minutes left pending (only with FOODHUB_PHONE_METERED_ENABLED=true; see pos/clover-phone-minutes.ts)
 //   - ON2GO menu (on by default, whatever the switches): calls that lost their callback, voicemails still to email (retried)
 //   - payment links (only with a Clover ecommerce key): ask Clover about held orders, one reminder, expiry
+//   - Interac e-Transfers (own delivery on): one reminder, then the expiry of held website orders (a person confirms
+//     the transfer; nothing here reads a bank)
 // Every part is skipped while its feature switch is off. Never throws.
 import { getRepo } from '../repo';
 import { getFeatures } from './features';
@@ -13,7 +15,7 @@ const LAST = 'expansion_tick_last';
 const CLOVER_LAST = 'expansion_clover_delivery_last';
 const MINUTES_LAST = 'expansion_phone_minutes_last';
 
-type TickOut = { ran: boolean; minutesReported?: number; booked?: number; cloverImported?: number; callsClosed?: number; voicemailsEmailed?: number; paylinks?: { checked: number; released: number; cancelled: number; reminded: number } };
+type TickOut = { ran: boolean; minutesReported?: number; booked?: number; cloverImported?: number; callsClosed?: number; voicemailsEmailed?: number; paylinks?: { checked: number; released: number; cancelled: number; reminded: number }; interac?: { checked: number; cancelled: number; reminded: number } };
 
 export async function tickExpansion(now = Date.now()): Promise<TickOut> {
   const repo = getRepo();
@@ -41,6 +43,8 @@ export async function tickExpansion(now = Date.now()): Promise<TickOut> {
         for (const mid of await allCloverMerchants((await repo.listStores()).map((s) => s.cloverMerchantId))) n += (await importCloverDeliveryOrders(mid, now)).imported;
         out.cloverImported = n;
       }
+      const { tickInterac } = await import('../delivery/interac');
+      out.interac = await tickInterac(now);
       const { tickDispatch } = await import('../delivery/dispatch');
       out.booked = (await tickDispatch(now)).booked;
     }

@@ -1643,6 +1643,44 @@ try {
   const webTicket = sent('POST', /\/atomic_order\/orders$/).find((e) => String(e.body?.orderCart?.title || '').includes(w1.json?.number));
   check('kitchen ticket in Clover with our number and the delivery address', Boolean(webTicket) && /LIVRAISON: 5555 Av Monkland/.test(webTicket.body.orderCart.note) && webTicket.body.orderCart.lineItems.length === 2, JSON.stringify(webTicket?.body?.orderCart).slice(0, 300));
   check('customer texted the confirmation', sent('POST', /\/Messages\.json$/).some((e) => /W-\d+ reçue/.test(((e) => new URLSearchParams(String(e.body)).get('Body') || '')(e))));
+  // Interac e-Transfer (docs/CLOVER_WEBSITE_ORDERS.md § Interac): the fee is declared before checkout and checked, the order is
+  // HELD (nothing in Clover) until a person presses "Transfer received", then ONE Clover order; Food Hub never reads a bank.
+  const smsBody = (e) => new URLSearchParams(String(e.body)).get('Body') || '';
+  const interacFee = { code: 'interac', name: 'Frais Interac e-Transfer', amount: 5 };
+  // 2 × Poulet Grillé 15.99 (the menu price since "Use Clover price" above) + fee 5.00 = 36.98, GST 1.85 + QST 3.69 → 42.52, no tip.
+  const interacOrder = { id: 'WEB-1002', brand: 'Po Poulet', location: 'NDG_MAIN', customer: { name: 'Ana Bel', phone: '514-555-1234', lang: 'fr' }, fulfillment: 'pickup', items: [{ name: 'Poulet Grillé', quantity: 2, price: 15.99 }], payment: 'interac', fees: [interacFee], total: 42.52 };
+  const postWeb = (body) => call('POST', '/api/foodhub/webhooks/website-order', { auth: false, headers: { authorization: 'Bearer web-order-e2e' }, body });
+  const interacOff = await postWeb(interacOrder);
+  check('Interac order refused while Interac is off in Settings', interacOff.status === 422 && /turned off/.test(String(interacOff.json?.error || '')), JSON.stringify(interacOff.json));
+  const interacSettings = await call('PUT', '/api/foodhub/delivery/settings', { body: { settings: { interac: { enabled: true, fee: 5, recipientEmail: 'paiements@example.test', autoDeposit: false, question: 'Couleur', answer: 'Rouge', holdMinutes: 45, reminderMinutes: 20 } } } });
+  check('Interac settings saved, the answer comes back masked and the all-in fee is 5.75', interacSettings.json?.settings?.interac?.enabled === true && interacSettings.json.settings.interac.answer === '••••••' && interacSettings.json.interacFeeAllIn === 5.75, JSON.stringify(interacSettings.json?.settings?.interac));
+  const refusedFor = (r, re) => r.status === 422 && re.test(String(r.json?.error || ''));
+  const noFee = await postWeb({ ...interacOrder, fees: [] });
+  check('Interac order refused without its fee line', refusedFor(noFee, /needs the fee line/), JSON.stringify(noFee.json));
+  const otherFee = await postWeb({ ...interacOrder, fees: [{ ...interacFee, amount: 4 }] });
+  check('Interac order refused when the site shows another fee', refusedFor(otherFee, /Interac fee 4\.00 differs/), JSON.stringify(otherFee.json));
+  const offTotal = await postWeb({ ...interacOrder, total: 42.55 });
+  check('Interac order refused when the all-in total differs by more than 2 ¢', refusedFor(offTotal, /Total 42\.55 differs from Food Hub's 42\.52/), JSON.stringify(offTotal.json));
+  const offPrice = await postWeb({ ...interacOrder, items: [{ name: 'Poulet Grillé', quantity: 2, price: 9.99 }], total: 28.72 });
+  check('website order refused when a line is not priced like the menu', refusedFor(offPrice, /the site charged 9\.99 but the menu price is 15\.99/), JSON.stringify(offPrice.json));
+  const cloverBeforeInterac = sent('POST', /\/atomic_order\/orders$/).length;
+  const smsBeforeInterac = sent('POST', /\/Messages\.json$/).length;
+  const wi = await postWeb(interacOrder);
+  check('Interac order held: awaiting_payment, instructions returned, no answer field', wi.status === 200 && wi.json?.status === 'awaiting_payment' && wi.json.payment === 'unpaid' && wi.json.total === 42.52 && wi.json.interac?.recipient === 'paiements@example.test' && /^PP-[A-Z2-9]{4}$/.test(wi.json.interac.reference) && wi.json.interac.question === 'Couleur' && !('answer' in wi.json.interac) && /Rouge/.test(wi.json.interac.instructionsFr), JSON.stringify(wi.json).slice(0, 400));
+  check('nothing in Clover while the transfer is not confirmed', sent('POST', /\/atomic_order\/orders$/).length === cloverBeforeInterac);
+  const interacSms = sent('POST', /\/Messages\.json$/).slice(smsBeforeInterac).map(smsBody);
+  check('customer texted the Interac instructions (recipient, exact amount, reference, question + answer)', interacSms.some((b) => /virement Interac à paiements@example\.test — montant exact 42,52 \$, message : PP-/.test(b) && /Couleur — réponse : Rouge/.test(b)), JSON.stringify(interacSms));
+  check('same Interac order again → the same instructions, no second order', (await postWeb(interacOrder)).json?.duplicate === true && sent('POST', /\/atomic_order\/orders$/).length === cloverBeforeInterac);
+  const held = await call('GET', `/api/foodhub/delivery/${wi.json?.id}`);
+  check('the held order shows its Interac block in the console (answer kept out of the API)', held.json?.order?.status === 'awaiting_payment' && held.json.order.interac?.reference === wi.json?.interac?.reference && held.json.order.interac.question === 'Couleur' && !('answer' in held.json.order.interac) && !JSON.stringify(held.json).includes('Rouge'), JSON.stringify(held.json?.order?.interac));
+  const board = await call('GET', '/api/foodhub/delivery?days=2');
+  check('the orders board never carries the Interac answer', board.status === 200 && (board.json?.orders || []).some((x) => x.id === wi.json?.id) && !JSON.stringify(board.json).includes('Rouge'));
+  const received = await call('POST', `/api/foodhub/delivery/${wi.json?.id}`, { body: { action: 'interac_received' } });
+  check('"Transfer received" → paid by that person, in the kitchen, ONE Clover order marked Interac', received.status === 200 && received.json?.order?.status === 'in_kitchen' && received.json.order.payment === 'paid' && received.json.order.interac?.receivedBy && sent('POST', /\/atomic_order\/orders$/).length === cloverBeforeInterac + 1 && /VIREMENT INTERAC PP-/.test(sent('POST', /\/atomic_order\/orders$/).at(-1)?.body?.orderCart?.note || '') && (sent('POST', /\/atomic_order\/orders$/).at(-1)?.body?.orderCart?.lineItems || []).some((l) => l.name === 'Frais Interac e-Transfer' && l.price === 500), JSON.stringify(received.json?.order?.interac));
+  check('customer texted "virement Interac reçu"', sent('POST', /\/Messages\.json$/).slice(smsBeforeInterac).map(smsBody).some((b) => /virement Interac reçu, merci!/.test(b)));
+  const receivedAgain = await call('POST', `/api/foodhub/delivery/${wi.json?.id}`, { body: { action: 'interac_received' } });
+  check('a second "Transfer received" changes nothing (still one Clover order)', receivedAgain.status === 200 && sent('POST', /\/atomic_order\/orders$/).length === cloverBeforeInterac + 1);
+  await call('PUT', '/api/foodhub/delivery/settings', { body: { settings: { interac: { enabled: false } } } });
   const disp = await call('POST', `/api/foodhub/delivery/${w1.json?.id}`, { body: { action: 'dispatch' } });
   check('Call a courier → DoorDash Drive booked (sandbox)', disp.status === 200 && disp.json?.running?.fleet === 'doordash_drive' && disp.json.running.status === 'created' && disp.json.running.environment === 'sandbox', JSON.stringify(disp.json).slice(0, 300));
   const dq = sent('POST', /\/drive\/v2\/quotes$/)[0]?.body;

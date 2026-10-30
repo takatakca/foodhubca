@@ -30,6 +30,7 @@ import { locationProvince } from '../taxes';
 import type { MasterMenu, MenuItem, MenuModifier } from '../types';
 import { normalizePostal, parseAddressText } from './address';
 import { interacReadiness, newInteracReference, startInterac } from './interac';
+import { withOrderLock } from './lock';
 import { createDirectOrder, lineTotal, totalsFor } from './orders';
 import { findDirectOrderBySource, getDeliverySettings } from './store';
 import type { DirectLine, DirectOrder, DropoffAddress, OrderFee, PaymentState } from './types';
@@ -127,9 +128,19 @@ function checkFees(raw: unknown, payment: string, interacFee: number): { ok: tru
   return { ok: true, fees };
 }
 
+/**
+ * One website order per website id, even when the site sends the same id twice at the same time (a retry after a
+ * timeout while the first request is still running): requests with the same id run one after the other, so the second
+ * finds the first order and answers duplicate (same instructions, no second hold, no second text). Same single-process
+ * scope as lock.ts.
+ */
 export async function receiveWebsiteOrder(body: any): Promise<WebsiteOrderResult> {
   const id = String(body?.id ?? '').trim();
   if (!id) return refuse(400, 'id is required.');
+  return withOrderLock(`website-source:${id}`, () => receiveWebsiteOrderOnce(body, id));
+}
+
+async function receiveWebsiteOrderOnce(body: any, id: string): Promise<WebsiteOrderResult> {
   const existing = await findDirectOrderBySource('website', id);
   if (existing) return { ok: true, order: existing, duplicate: true };
   const catalog = await getCatalog();

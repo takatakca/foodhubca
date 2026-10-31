@@ -1,5 +1,30 @@
 # Food Hub: progress log and task board
 
+## 2026-10-31 — Food Hub Assistant: page summaries, next steps, chat over every channel, one-tap approval cards (`feature/assistant`)
+
+- Owner's ask: an assistant "as powerful as" the DoorDash Merchant Portal Assistant, for every channel at once. The old
+  explain-only Copilot drawer is now the **Food Hub Assistant** (`components/shell/copilot.tsx` keeps its export, the
+  shell is unchanged): left-docked non-modal panel, Start new chat / All chats / Collapse / Close, "Ask anything…",
+  voice (Web Speech API, fr-CA default, en-CA), rotating prompt chips, first-load intro, footer "Uses AI, may contain
+  inaccuracies", FR then EN, keyboard + screen reader, reduced motion, kitchen dark theme (no summary on the kitchen).
+- **Page awareness:** each page → server snapshot (route + numbers from buildPulse, menus/86, stores, 7-day sales mix,
+  reviews, disputes, Autopilot) → summary + « Que voulez-vous faire ensuite ? » with 3–4 numbered steps, and signals
+  (cancel spike, late / waiting orders, store paused / deactivated, tablet off, critical alerts, many 86, menu errors,
+  unanswered reviews, money owed) with « Examiner » / "Investigate this". Floating nudge component ready
+  (`components/assistant/nudges.tsx`), mounting it in the shell is left to the shell's owner.
+- **Claude** (`ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` default `claude-sonnet-5-5`, `FOODHUB_ASSISTANT_EFFORT`): streaming
+  manual tool loop, frozen cached system prompt, append-only history per person (repo kv), refusal fallback. 10 READ
+  tools over Uber Eats, DoorDash, Skip, TGTG, website, phone and Clover (sales, top items, order issues, missed orders,
+  store status + downtime, reviews, payouts + money to recover, incidents, Autopilot, menu search); 5 PROPOSE tools
+  (price on chosen platforms, 86 / back, pause / resume N min, prep time / busy, campaign draft) that only create cards.
+- **Approve** runs the existing gated route in-process as the signed-in person (role, kitchens, manager-PIN 428 flow,
+  menu locks, live switch), from the stored card, author only, once, 24 h; logged "Assistant (approved by <person>)".
+  Po Poulet NDG (DoorDash 27982486) refused before the card and again at Approve. No key → built-in answers and steps.
+- Tests: `tests/assistant.test.ts`, `tests/assistant-chat.test.ts` (29). Docs: `docs/ASSISTANT.md`.
+- Checks (owner PC, Windows, 2026-10-31): typecheck 0 errors · lint 0 errors (1 old warning) · `npm test` 2065 passed,
+  4 failed (known Windows-only screens-relay files, untouched), 6 skipped · `rm -rf .next && npx next build --webpack`
+  exit 0 · verify:foodhub (ports 5931/5932) 644 passed, 0 failed.
+
 ## 2026-10-30 — Crash replay on a real Postgres: kill the server mid-order, the order is replayed exactly once (`test/crash-replay-postgres`)
 
 - MASTER PLAN Phase 1 acceptance ("killing the server between receiving an order and processing it loses nothing; the

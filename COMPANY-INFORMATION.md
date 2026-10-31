@@ -29,6 +29,7 @@ Dernière mise à jour : 2026-10-30 (ordre de Matt, 22:30 EDT : « mettre avec l
 | Téléphone — TOUS les restaurants | **+1 450-999-4999** |
 | Heures — restaurants | **11:00 – 23:00**, tous les jours |
 | **EXCEPTION — PPP NDG (6280 av. Somerled)** | **16:00 – 3:00, tous les jours** — ne JAMAIS appliquer le 11:00–23:00 à cet emplacement |
+| **EXCEPTION — NDG (6280 av. Somerled) : BIN MOLLE & BIN DURE, Bolon Café, Gâteaux Montréal, Nutri Shake, O'OEUFS Express** | **16:00 – 3:00, tous les jours** — confirmé par Matt le 2026-10-31 ; ne pas appliquer le 11:00–23:00 à ces marques à NDG |
 | Emplacements des restaurants | NDG : 6280 av. Somerled, Montréal QC H3X 2B6 (O'Crêpe : 6284) · Saint-Léonard : 5839 rue Jean-Talon E, Montréal · Hochelaga : 3583 rue Sainte-Catherine E, Montréal QC H1W 2E6 |
 
 Aucun mot de passe, aucun code, aucun numéro de compte dans ce fichier — les secrets vivent au coffre sécurisé, jamais dans GitHub ni Drive en clair.
@@ -71,7 +72,7 @@ Comptes de secteur pour les plateformes (ex. DoorDash) : Montréal — 6280.ca@g
 3. Menu = **catalogue maître v3 seulement**, partout (Clover, Uber Eats, DoorDash, site) ; prix affiche en succursale, livraison × 1,20, DoorDash ramassage × 1,15.
 4. Photos officielles : Clover et sites = exports Canva finis (jaune + titre) ; DoorDash = photos plaines du propriétaire, référence Po Poulet NDG (magasin 27982486).
 5. Alerte fraude « appel en cours » sur les pages sensibles de chaque site (paquet prêt : 18/18).
-6. Même description SEO canonique, même téléphone (450-999-4999), mêmes heures (11:00–23:00, **sauf exception documentée d'un emplacement — ex. PPP NDG 16:00–3:00**) et mêmes adresses sur toutes les plateformes ; aucun « 24/7 » dans les noms. **RÈGLE (Matt, 2026-10-31) : avant de saisir une donnée, lis la donnée réelle de l'emplacement et saisis-la au complet — la grille donne le format, jamais les faits ; en cas de conflit, STOP et demande à Matt.**
+6. Même description SEO canonique, même téléphone (450-999-4999), mêmes heures (11:00–23:00, **sauf exception documentée d'un emplacement — ex. PPP NDG et les cinq marques NDG listées plus haut : 16:00–3:00**) et mêmes adresses sur toutes les plateformes ; aucun « 24/7 » dans les noms. **RÈGLE (Matt, 2026-10-31) : avant de saisir une donnée, lis la donnée réelle de l'emplacement et saisis-la au complet — la grille donne le format, jamais les faits ; en cas de conflit, STOP et demande à Matt.**
 7. Profils complets au même standard commercial : Google Business, Facebook, Instagram, TikTok, YouTube, Merchant Center, Clover, Uber Eats, DoorDash, annuaires.
 8. Dossier Google Drive par franchise, tenu à jour à l'instant où le travail est fait.
 

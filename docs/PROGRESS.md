@@ -1,5 +1,21 @@
 # Food Hub: progress log and task board
 
+## 2026-10-31 — Promo reels: a script that films the real console from the local demo build (`chore/promo-reels`)
+
+- `node scripts/promo-reels.mjs` (+ `scripts/promo-reels-shots.mjs`, docs/PROMO_REELS.md): starts the built app like
+  `scripts/a11y-check.mjs` (memory mode, every platform / Clover / e-mail / SMS / relay host on a local stand-in), seeds
+  made-up data only (first name + initial, 555-01xx numbers, `.test` e-mails, `demo-` store ids, invented dishes),
+  signs in as the demo owner with a one-time code, then records 11 shots with Playwright `recordVideo` (1080×1920,
+  plus 1920×1080 for kitchen, screens wall, orders board, overview); ffmpeg trims to 10/15/20 s, H.264 30 fps, no audio,
+  poster PNG. Output: `private/video/reels/` (git-ignored), never posted or uploaded.
+- Guards: browser limited to 127.0.0.1; on-screen text read every 0.4 s, a take is refused on Po Poulet, a real store
+  id from data/actual, a non-555 phone number or a real mail domain; the ordering page's pickup street line and the
+  deactivated Po Poulet chip are blurred at capture. Two shots stage one line because the demo has no database (go-live
+  "database" step, Connections "database" line), said in REELS.md and docs.
+- No app code changed. Checks: typecheck OK, lint 0 errors (1 existing warning), tests 2037 passed / 3 failed — the 3
+  are `tests/screens-relay-*.test.ts` on this Windows PC (2 timeouts under load that pass alone; the `.env` 600 mode
+  check, which NTFS cannot honour), unrelated to this branch.
+
 ## 2026-10-30 — Crash replay on a real Postgres: kill the server mid-order, the order is replayed exactly once (`test/crash-replay-postgres`)
 
 - MASTER PLAN Phase 1 acceptance ("killing the server between receiving an order and processing it loses nothing; the

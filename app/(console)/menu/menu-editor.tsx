@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, CalendarClock, CircleAlert, CircleCheck, Copy, Download, ImageOff, ImageUp, Info, Languages, Link2, Plus, Search, Send, Trash2, TriangleAlert } from 'lucide-react';
 import { Badge, PlatformMark, PlatformTag } from '@/components/ui/badge';
 import { Button, ButtonLink } from '@/components/ui/button';
+import { BrandMark } from '@/components/ui/brand-mark';
 import { Banner, Card, CardHeader, EmptyState, PageHeader, SkeletonList } from '@/components/ui/card';
+import { CelebrationBanner } from '@/components/ui/celebration';
 import { Checkbox, Field, Input, Select, Switch, Textarea } from '@/components/ui/form';
 import { Modal } from '@/components/ui/overlay';
 import { usePulse } from '@/components/live/pulse';
@@ -16,11 +18,13 @@ import { OverflowMenu } from '@/components/menu/overflow-menu';
 import { PlatformPricing } from '@/components/menu/platform-pricing';
 import { MenuTabs } from './menu-tabs';
 import { api, ApiError, money, timeOf } from '@/lib/ui/api';
+import { CELEBRATION_KEYS, claimCelebration, markCelebrated } from '@/lib/ui/celebrate';
 import { useI18n } from '@/lib/i18n/client';
 import { countEn, countFr, enWord, frWord } from '@/lib/ui/count-label';
 import type { MasterMenu, MenuCategory, MenuItem, MenuModifierGroup } from '@/lib/foodhub/types';
 import { cn } from '@/lib/ui/cn';
 import { UBER_TAX_CLASSES, type UberTaxClass } from '@/lib/foodhub/menu/uber-tax';
+import { brandVars } from '@/lib/foodhub/brand-kit';
 
 type Issue = { level: 'error' | 'warning' | 'tip'; code: string; message: string; ref?: string };
 type Check = { ok: boolean; errors: Issue[]; warnings: Issue[]; tips: Issue[] };
@@ -37,7 +41,7 @@ const uid = (p: string) => `${p}-${Date.now().toString(36)}${Math.random().toStr
 
 export function MenuEditor() {
   const { t, lang, loc } = useI18n();
-  const { brands: catalogBrands, brandsByKitchen, locName } = useViewer();
+  const { brands: catalogBrands, brandsByKitchen, locName, brandKit } = useViewer();
   // The console's scope opens its brand (or the picked kitchen's first brand).
   const { site } = usePulse();
   const scopeBrand = site.brand ?? (site.kitchen ? brandsByKitchen[site.kitchen]?.[0] ?? null : null);
@@ -62,6 +66,7 @@ export function MenuEditor() {
   const [sharing, setSharing] = useState<Record<string, string>>({});
   const [sharedFrom, setSharedFrom] = useState<string | null>(null);
   const [group, setGroup] = useState<string[]>([]);
+  const [firstPublish, setFirstPublish] = useState(false);
 
   const loadBrands = useCallback(() => api<{ brands: string[]; sharing?: Record<string, string> }>('/api/foodhub/menu').then((d) => { setBrands(d.brands); setSharing(d.sharing ?? {}); setBrand((b) => b || (scopeBrand && d.brands.includes(scopeBrand) ? scopeBrand : '') || d.brands[0] || ''); }).catch((e) => toast.error(e.message)), [toast, scopeBrand]);
   useEffect(() => { loadBrands(); }, [loadBrands]);
@@ -112,10 +117,16 @@ export function MenuEditor() {
   const hoursCat = menu?.categories.find((c) => c.ref === editHours) ?? null;
   const allBrands = brands.length ? brands : catalogBrands;
   const LANG = { en: 'English', fr: 'Français', both: 'FR / EN' } as Record<string, string>;
+  // Brand kit (docs/BRAND_KIT.md): the open brand's mark (logo or letters on its colour) and a stripe in its colour beside
+  // the title. A brand with no colour and no logo keeps the plain title.
+  const kit = brandKit(brand);
+  const title = kit && brand
+    ? <span style={brandVars(kit)} className={cn('inline-flex items-center gap-3', kit.accent && 'brand-stripe pl-3')}><BrandMark name={brand} kit={kit} size="md" />{t('Menus', 'Menus')}</span>
+    : t('Menus', 'Menus');
 
   return (
     <div>
-      <PageHeader title={t('Menus', 'Menus')} subtitle={t('Un menu par marque : vérifié, puis publié sur Uber Eats, DoorDash et Skip.', 'One menu per brand: checked, then published to Uber Eats, DoorDash and Skip.')}
+      <PageHeader title={title} subtitle={t('Un menu par marque : vérifié, puis publié sur Uber Eats, DoorDash et Skip.', 'One menu per brand: checked, then published to Uber Eats, DoorDash and Skip.')}
         tabs={<MenuTabs className="mb-0" />}
         right={<div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
           <div className="flex items-center gap-2">
@@ -135,6 +146,12 @@ export function MenuEditor() {
             ]} />
           </div>
         </div>} />
+
+      {firstPublish && (
+        <CelebrationBanner className="mb-4" title={t('Premier menu publié !', 'First menu published!')}
+          body={t('Les plateformes l’ont reçu ; certaines confirment en arrière-plan (onglet Publication).', 'The platforms received it; some confirm in the background (Publishing tab).')}
+          onClose={() => setFirstPublish(false)} closeLabel={t('Fermer', 'Close')} />
+      )}
 
       {sharedFrom ? (
         <Banner tone="info" className="mb-4" action={<Button size="xs" variant="outline" onClick={() => setBrand(sharedFrom)}>{t(`Modifier ${sharedFrom}`, `Edit ${sharedFrom}`)}</Button>}>
@@ -306,7 +323,12 @@ export function MenuEditor() {
       {hoursCat && <CategoryHours category={hoursCat} onSave={(h) => { update((m) => ({ ...m, categories: m.categories.map((c) => (c.ref === hoursCat.ref ? { ...c, hours: h as MenuCategory['hours'] } : c)) })); setEditHours(null); }} onClose={() => setEditHours(null)} />}
       {dialog === 'share' && <ShareDialog brand={sharedFrom ?? brand} brands={allBrands} sharing={sharing} onClose={() => setDialog(null)} onSaved={(next, publish) => { setSharing(next); setDialog(null); load(brand).catch(fail); loadBrands(); toast.success(t('Menus partagés enregistrés', 'Shared menus saved'), publish.length ? t(`Publiez ${publish.join(', ')} : leurs plateformes montrent encore l’ancien menu.`, `Publish ${publish.join(', ')}: their platforms still show the previous menu.`) : undefined); }} />}
       {dialog === 'import' && <ImportDialog brand={brand} hasItems={Boolean(menu?.items.length)} onClose={() => setDialog(null)} onDone={(m) => { setMenu(m); setDirty(false); setDialog(null); loadStatus(brand); }} />}
-      {dialog === 'publish' && menu && <PublishDialog brand={brand} group={group} stores={stores} check={check} onClose={() => setDialog(null)} onDone={() => { setDialog(null); loadStatus(brand); setView('publish'); }} />}
+      {dialog === 'publish' && menu && <PublishDialog brand={brand} group={group} stores={stores} check={check} onClose={() => setDialog(null)} onDone={(sent) => {
+        setDialog(null); loadStatus(brand); setView('publish');
+        // The first menu publish is celebrated once per device; a menu already published before ends that moment.
+        if (sent === 'first' && claimCelebration(CELEBRATION_KEYS.firstPublish)) setFirstPublish(true);
+        else if (sent === 'again') markCelebrated(CELEBRATION_KEYS.firstPublish);
+      }} />}
       {dialog === 'uber' && <UberPublishDialog onClose={() => setDialog(null)} onDone={() => { setDialog(null); loadStatus(brand); setView('publish'); }} />}
       {dialog === 'langs' && langs && <LangDialog value={langs} onClose={() => setDialog(null)} onSaved={(l) => { setLangs(l); setDialog(null); toast.success(t('Langues enregistrées — publiez pour les appliquer.', 'Languages saved — publish to apply them.')); }} />}
       {dialog === 'newcat' && <NewCategory onClose={() => setDialog(null)} onAdd={(name, nameFr) => { const ref = uid('cat'); update((m) => ({ ...m, categories: [...m.categories, { ref, name, nameFr: nameFr || undefined, sortOrder: m.categories.length }] })); setCat(ref); setDialog(null); }} copyFrom={allBrands.filter((b) => b !== brand)} onCopy={async (src) => {
@@ -419,7 +441,8 @@ function CategoryHours({ category, onSave, onClose }: { category: MenuCategory; 
   );
 }
 
-function PublishDialog({ brand, group, stores, check, onClose, onDone }: { brand: string; group: string[]; stores: StoreStatus[]; check: Check | null; onClose: () => void; onDone: () => void }) {
+/** `sent`: every platform took the menu, for the first time ("first") or not ("again"); nothing when it was not sent. */
+function PublishDialog({ brand, group, stores, check, onClose, onDone }: { brand: string; group: string[]; stores: StoreStatus[]; check: Check | null; onClose: () => void; onDone: (sent?: 'first' | 'again') => void }) {
   const { t, loc } = useI18n();
   const { locName } = useViewer();
   const toast = useToast();
@@ -447,7 +470,16 @@ function PublishDialog({ brand, group, stores, check, onClose, onDone }: { brand
       const d = await api<{ results?: Array<{ channel: string; result: { ok: boolean; status: string; message: string } }>; scheduled?: { at: string } }>('/api/foodhub/menu/publish', { method: 'POST', json: body });
       if (d.scheduled) toast.success(t('Publication programmée', 'Publish scheduled'), timeOf(d.scheduled.at, loc, true));
       else if (!(d.results ?? []).length) toast.warn(t('Rien n’a été envoyé', 'Nothing was sent'), t('Aucun magasin de cette marque ne peut recevoir un menu.', 'No store of this brand can receive a menu.'));
-      else { const bad = (d.results ?? []).filter((r) => !r.result.ok); if (bad.length) toast.error(t(`${countFr(bad.length, 'plateforme a', 'plateformes ont')} refusé`, `${countEn(bad.length, 'platform')} refused`), bad.map((b) => `${b.channel}: ${b.result.message}`).join('\n')); else toast.success(t('Menu envoyé', 'Menu sent'), t('Skip et DoorDash confirment en arrière-plan.', 'Skip and DoorDash confirm in the background.')); }
+      else {
+        const bad = (d.results ?? []).filter((r) => !r.result.ok);
+        if (bad.length) toast.error(t(`${countFr(bad.length, 'plateforme a', 'plateformes ont')} refusé`, `${countEn(bad.length, 'platform')} refused`), bad.map((b) => `${b.channel}: ${b.result.message}`).join('\n'));
+        else {
+          toast.success(t('Menu envoyé', 'Menu sent'), t('Skip et DoorDash confirment en arrière-plan.', 'Skip and DoorDash confirm in the background.'));
+          // Every platform took it: the first publish when none of these stores had ever received a menu.
+          onDone(stores.some((s) => s.status === 'done' || s.status === 'queued') ? 'again' : 'first');
+          return;
+        }
+      }
       onDone();
     } catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }

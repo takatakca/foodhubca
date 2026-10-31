@@ -1,5 +1,154 @@
 # Food Hub: progress log and task board
 
+## 2026-10-30 — Crash replay on a real Postgres: kill the server mid-order, the order is replayed exactly once (`test/crash-replay-postgres`)
+
+- MASTER PLAN Phase 1 acceptance ("killing the server between receiving an order and processing it loses nothing; the
+  order is replayed") is now proven in CI: job **Crash replay (real Postgres)** in `.github/workflows/ci.yml` —
+  `postgres:16` service, Supabase roles first (`scripts/e2e/supabase-roles.sql`: anon, authenticated, service_role with
+  BYPASSRLS, authenticator LOGIN, Supabase default grants), then `supabase/INSTALL_ALL.sql` unchanged, then
+  `postgrest/postgrest:v12.2.3` with a random JWT secret per run; the service_role JWT is made with `node:crypto`
+  (`scripts/e2e/postgrest.mjs service-jwt`) and a tiny proxy strips `/rest/v1` for supabase-js. About 2 minutes.
+- `npm run verify:crash` (`scripts/foodhub-crash-e2e.mjs`), 25 checks: (1) a signed Uber Eats order webhook gets its 200,
+  the entry is held in "processing" by the test delay hook, the server's process group gets SIGKILL (`taskkill /F /T`
+  on Windows), nothing reached the kitchen; restart on the same database → the restarted server's own recovery timer
+  replays it: exactly ONE order row (accepted), ONE Clover order, ONE kitchen ticket, ONE Uber accept, no
+  `duplicate_delivery`, no unique-key error; (2) an order processed live, then kill + restart → nothing processed again.
+  Without a database it prints SKIP and exits 0 (no Docker on the owner PC).
+- Test-only hooks `lib/foodhub/e2e-hooks.ts`: `FOODHUB_E2E_PROCESS_DELAY_MS` (hold an entry after "processing") and
+  `FOODHUB_E2E_INBOX_STUCK_MS` (3 s instead of 2 min in the check), honoured only with `FOODHUB_E2E=1` and a run-time
+  `NODE_ENV` of test/development (read through a computed key: `next build` inlines the literal), refused with one
+  warning otherwise. `lib/foodhub/inbox.ts` reads the stuck time through `stuckMs()`. `tests/e2e-hooks.test.ts` (7):
+  production ignores both with exactly one warning per variable, the inbox keeps its 2-minute rule and never waits.
+- `scripts/e2e/platform-mock.mjs`: the simulated platforms + HTTP helpers moved out of `scripts/foodhub-e2e.mjs`
+  unchanged (the 3 values a check flips live on `mockState`), shared by both scripts. verify:foodhub check lines in CI are
+  identical to PR #130's run on 599be91 (697 lines, 643 passed, 0 failed).
+- `ci.yml` also runs on pushes to `test/**`. Docs: `docs/CRASH_REPLAY_E2E.md`; `docs/MASTER_PLAN_STATUS.md` Phase 1
+  acceptance and next step 9 marked done.
+- Checks (owner PC, Windows, 2026-10-30): `npm run typecheck` 0 errors · `npm run lint` 0 errors (1 old warning,
+  settings/devices/page.tsx) · `npm test` 2016 passed, 1 failed, 6 skipped — the 1 is `tests/screens-relay-setup` (POSIX
+  file mode on NTFS, Windows-only, file untouched) · `rm -rf .next && npx next build --webpack` exit 0 · `verify:foodhub`
+  (ports 4977/4978) 643 passed, 0 failed · `verify:crash` locally: SKIP (no database). CI run 41085220156 on 96a50ef:
+  verify (unit tests, build, verify:foodhub 643/0) green, Crash replay (real Postgres) green 25/25.
+- Independent review (0 blocker, 0 major, 2 minor), both fixed: (1) the MASTER_PLAN_STATUS row said "killed
+  mid-processing"; it now names the two kill points the check covers (after the inbox save and before processing; after
+  processing) and says a stop in the middle of the pipeline is unit-tested only. `docs/CRASH_REPLAY_E2E.md` adds that a
+  future kill point after the order row is stored needs `FOODHUB_E2E_INBOX_STUCK_MS` above `RESUME_AFTER_MS` (90 s);
+  (2) the "one warning per variable" test used `toBeLessThanOrEqual(1)` (passed with no warning at all): it now loads a
+  fresh module and asserts exactly 1 warning per variable (checked: removing the `console.warn` makes it fail).
+- No migration, no production env, no deploy change.
+## 2026-10-30 — Review fix: reduced-motion alarm exception keeps only the ring (`feature/a11y-axe-check`, PR #136)
+- Review finding (major, confirmed): with the console’s own "Moins d’animations" setting on a phone (system motion normal),
+  the alarm exception made whatever animation the new-order sheet carried loop; below 640 px that is its entrance `rise`,
+  so the whole sheet slid and faded every 1.4 s. Fix (`app/globals.css`): the exception sets `animation-name: ring` and
+  only applies from 40rem (`sm`, where `sm:animate-ring` shows the ring), for the system and the console setting.
+- Review finding (minor, fixed): `npm run verify:a11y` counted any animation on the alarm as the ring and only tested the
+  system setting at desktop size. It now runs both settings (system `prefers-reduced-motion`; console `takatak.display.v1`
+  → `html[data-motion=reduce]`, checked to be applied) at phone and desktop size, and accepts only keyframes `ring` on
+  the alarm (required at desktop size on the alert pages). On the old build it fails: `rise` on the alert, console reduce,
+  phone, both alert pages. Quick guard in `npm test`: `tests/a11y-reduced-motion-css.test.ts` (fails on the old CSS).
+- Checks (owner PC, Windows): typecheck 0 errors · lint 0 errors (1 old warning, settings/devices) · `npm test` 2011
+  passed, 3 failed (`tests/screens-relay-setup` + `tests/screens-relay-windows`, Windows-only, untouched; the two windows
+  ones pass alone) · `rm -rf .next && npx next build --webpack` exit 0 · `verify:a11y` passed (22 scans 0 violations,
+  reduced motion 44/44) · `verify:foodhub` (5941/5942) 643 passed, 0 failed.
+— signé : Claude Opus 5.5 (a11y-axe fixer, sub-agent of « Food delivery provider integration ») @ Claude Code desktop · 2026-10-30
+## 2026-10-30 — Automated accessibility check (axe, WCAG 2.1 AA) on key pages + fixes (`feature/a11y-axe-check`)
+- MASTER PLAN Phase 3 acceptance "Lighthouse accessibility ≥ 95" had no tooling. `npm run verify:a11y`
+  (`scripts/a11y-check.mjs`) starts the built app like `scripts/foodhub-e2e.mjs` (memory mode, local stand-ins, owner
+  sign-in; that script is unchanged), seeds the demo brand Pi Pita, and runs axe-core (WCAG 2.1 A/AA) with Playwright at
+  375×812 and 1280×800 on: sign-in, `/tablette`, `/commander/pi-pita`, welcome dialog, overview, orders board, kitchen
+  (dark theme asserted), Go-live, Settings → Autopilot, and the new-order alert (kitchen + orders board, from a test
+  DoorDash order on a made-up store). Serious/critical → exit 1; moderate printed.
+- Reduced motion: with `prefers-reduced-motion: reduce` nothing animates except the new-order alarm, which must keep
+  ringing. `app/globals.css` gives `[data-motion='alarm']` its ring back (the 1 ms rule had silenced it).
+- Fixes (no layout change; only colours that failed): `--color-go-fill` / `--color-stop-fill` / `--color-on-*` tokens for
+  filled controls (dark text on the kitchen's bright fills), `--color-wait-2` #8a6500, `PLATFORM[...].on` for platform
+  tags, badge text, sign-in footnote, "Refuser" and the cancellation line in `text-stop-2`; logo link and language button
+  names carry their visible text; new-order and cancellation pop-ups are named alert dialogs.
+- Before (base 599be91): 16 of 22 scans with serious violations (colour contrast, label in name). After: 0 violations at
+  any level on 22 scans. Table per page in `docs/ACCESSIBILITY.md`.
+- CI (`.github/workflows/ci.yml`): Playwright Chromium headless shell cached per version, `npm run verify:a11y` after the
+  build (8 min limit); Food Hub verification still runs if it fails; PRs into `release/**` run CI.
+- devDependencies pinned: `playwright` 1.64.1 (2026-10-14), `@axe-core/playwright` 4.14.0 (2026-10-15).
+- Checks (owner PC, Windows): `npm run typecheck` 0 errors · `npm run lint` 0 errors (1 old warning, settings/devices) ·
+  `npm test` 2010 passed, 1 failed (`tests/screens-relay-setup`, Windows-only, untouched), 6 skipped ·
+  `rm -rf .next && npx next build --webpack` exit 0 · `npm run verify:a11y` passed (22 scans, 11/11 reduced motion) ·
+  `verify:foodhub` (5911/5912) 643 passed, 0 failed.
+— signé : Claude Opus 5.5 (a11y-axe builder, sub-agent of « Food delivery provider integration ») @ Claude Code desktop · 2026-10-30
+
+## 2026-10-30 — Go-live progress ring + one celebration; Connections strip shows e-mail/SMS, AI, screens relay, Too Good To Go mailbox (`feature/golive-ring-connections`)
+- MASTER_PLAN Phase 3 P2 leftovers. `lib/foodhub/connections.ts`: e-mail, SMS & calls, AI rows always, plus the screens relay and the Too Good To Go mailbox once set up, each from the readiness function its settings page already uses (ok / warn / off). `/api/health` carries them as `services` (detailed answer only; never part of the status or the HTTP code); the names of missing settings go to a signed-in owner only, never any value. Overview → Connections & sync: « Messages et outils » row, one live dot each (`components/live/services-strip.tsx`).
+- Settings → Go-live: a progress ring (share of the « À faire » steps done; « À vérifier » and « Optionnel » never hold it back) and a stepper by group; at 100 % one celebration per device. The ring is the Clover welcome wizard's, moved to `components/ui/progress-ring.tsx` (static: no stroke transition); the confetti moved to `components/ui/celebration.tsx` (one shot, nothing moves under reduced motion); `lib/ui/celebrate.ts` remembers each moment in localStorage (wrapped; no celebration at all when storage is blocked).
+- Natural hooks found, so also celebrated once per device: the first menu publish (publish dialog: every platform took it and no store had a menu before) and Clover connected (the welcome page the Clover app lands on).
+- `tests/golive-connections.test.ts` (env-mocked rows, owner-only names, ring percentage from the checklist, once-only celebration); e2e check on `/api/health` services; `docs/FOODHUB.md` Go-live step.
+- Review fixes (PR #135, 3 minors): `useCelebrateOnce` is true only while the moment lasts, so the Go-live banner « Plus rien à faire » leaves when a Re-check finds a step left, and does not come back on the same page; `lib/ui/celebrate.ts` no longer falls back to tab memory (it reset on every page load): a device that cannot remember a moment (blocked site data, full quota, a store that drops writes) is never celebrated; the Clover welcome « Tout est prêt » keeps its message on every visit but bursts once per device (its own key, `CelebrationBanner confetti={false}` on later visits). Tests: `tests/celebrate-once-hook.test.ts` (hook run with a tiny node runner: 100 % → Re-check → back, later visit, blocked storage) + 3 cases in `tests/golive-connections.test.ts`; all fail on 0fb68fe.
+— signé : Claude Opus 5.5 (golive-connections, sub-agent of "Food delivery provider integration") @ Claude Code desktop · 2026-10-30
+## 2026-10-30 — Interac e-Transfer for website orders, held until a person confirms (`feature/interac-etransfer`)
+
+- Website order contract (section B): `payment: "paid" | "pay_at_pickup" | "interac"`, `fees[]` (the Interac fee, required and
+  checked against the setting), `total` (re-priced from the brand menu + fees + GST/QST ± $0.02, else 422), `customerToken`
+  (task 72's `resolveCustomerToken`: bad or expired 401, another brand website 403; the order carries `customer.id`, and the
+  account's name / e-mail / language fill what the payload left out). Older `paid: boolean` payloads unchanged.
+- `lib/foodhub/delivery/interac.ts`: `interac` block next to `paylink` (status `awaiting_payment`), instructions texted (FR/EN,
+  recipient, exact amount, reference `PP-7K3Q`, question/answer when auto-deposit is off, deadline), one reminder, expiry →
+  cancelled with a courtesy text; « Virement reçu » (drawer + `POST /api/foodhub/delivery/<id>` action `interac_received`) releases
+  exactly once (lock + claim, `lib/foodhub/delivery/lock.ts` shared with paylink.ts): paid by that person, one Clover order =
+  the ticket, `in_kitchen`, courier by the dispatch tick; received after the cancel → flagged for a person (release anyway /
+  returned by hand). Food Hub never reads a bank, never refunds.
+- Settings → Expansion → Delivery → « Paiements — virement Interac » (fee, all-in shown, e-mail per kitchen, auto-deposit,
+  question/answer masked, hold / reminder minutes; env `FOODHUB_INTERAC_EMAIL` / `FOODHUB_INTERAC_FEE`). Tracking page shows the
+  held state and the instructions. Docs: `docs/CLOVER_WEBSITE_ORDERS.md` § Interac e-Transfer. Tests `tests/interac-etransfer.test.ts`.
+- Brought up to main 820ef0a (task 72 customers, Canada taxes by province: `totalsFor` takes the kitchen's province AND the
+  declared fees, the fee taxed like the delivery fee), then f023fc7 (#115 WhatsApp, #124 on2go customer API; only this file
+  conflicted).
+- e2e Interac scenario (`scripts/foodhub-e2e.mjs`) fixed: it used 14.99 while the menu is 15.99 after « Use Clover price », so
+  the held order was refused and the refusal checks passed for the wrong reason; each refusal now checks its own message.
+- Checks on 07a24b1 (owner PC, Windows), 2026-10-30: `npm run typecheck` 0 errors · `npm run lint` 0 errors (1 old warning,
+  settings/devices/page.tsx) · `npm test` 1917 passed, 5 failed, 6 skipped (138 files) — the 5 are `tests/screens-relay-setup`
+  / `screens-relay-windows` only (POSIX file mode 600 on NTFS, PowerShell dry runs over 20 s), files this branch does not touch;
+  `tests/interac-etransfer.test.ts` 19/19 · `rm -rf .next && npx next build --webpack` compiled, exit 0 ·
+  `verify:foodhub` (ports 4899/4900) 642 passed, 0 failed.
+- Adversarial review fixes (717428a, 44d815d, 15dd6e6): « Payer au comptoir » takes the Interac fee + its taxes off (Clover,
+  text, invoice); a release that stops after "paid" is never cancelled by the expiry (flagged once, the next « Virement reçu »
+  resumes it: no second "paid", Clover again only if its first call never started, else a person checks Clover); a person
+  cancelling it flags the paid transfer (kitchen anyway / returned by hand); `publicDirectOrder()` keeps the security answer
+  out of the orders board, order detail and action answers; strict re-pricing refuses an unknown option with any non-zero
+  price (negative too) and keeps the menu item's own name on the line; MEV: the fee is the sale's service fee, a confirmed
+  transfer is AUT + e-commerce + its reference (no `tender_unknown`); the settings fee hint rounds GST and QST separately.
+  Checks on 15dd6e6: typecheck 0 · lint 0 errors (1 old warning) · `npm test` 1929 passed, 2 failed (screens-relay Windows-only,
+  untouched), 6 skipped; `tests/interac-etransfer.test.ts` 27/27, `tests/mev-map.test.ts` 30/30 · `next build --webpack` exit 0
+  · `verify:foodhub` 4899/4900 643 passed, 0 failed.
+
+— signé : Claude Fable 5.1 (interac-etransfer sub-agent of « Food delivery provider integration ») @ Claude Code desktop · 2026-10-30;
+checks, e2e fix and PR : Claude Opus 5.5 (interac-etransfer builder) @ Claude Code desktop · 2026-10-30
+## 2026-10-30 — Food Hub kitchen tablet app: Android WebView + loud alarm + Bluetooth/network printing, sideload APK from /tablette (`feature/kitchen-tablet-app`)
+
+- Server: `GET /api/foodhub/kitchen/print-queue` (kitchen orders since a cursor, platform + own orders, each with a plain-text ticket for 58 mm / 32 or 80 mm / 42 columns, FR/EN) and `POST …/<orderId>/printed` (claim written and read back before printing: never twice per device; cancelled orders never printed; « ANNULÉE » ticket only for an order this device printed). Staff session or the enrolled tablet’s device cookie, 401 otherwise. Pure `lib/foodhub/kitchen/ticket-text.ts`; no amounts when Takatak MEV issues the invoice.
+- `apps/kitchen-tablet/` (Kotlin, minSdk 26 / targetSdk 34, AndroidX core only): full-screen WebView of `/kitchen` with `window.FoodHubTablet` (print, beep, version), foreground service polling every 15 s, generated looping alarm until a tap (screen off too), ESC/POS over Bluetooth SPP or TCP 9100 (CP858/CP1252, bold, double size, cut), Settings, boot start. `.github/workflows/android-tablet.yml`: APK artifact on push, GitHub Release `foodhub-tablet.apk` on `tablet-v*` tags; signed only with the owner’s `ANDROID_KEY*` secrets. Public page `/tablette` (FR then EN). `apps/**` out of tsc / ESLint / Vitest / Docker.
+- Not tested on a real tablet or printer yet: see `docs/KITCHEN_TABLET_APP.md` (FR summary first, then EN technical notes).
+- Review fixes (PR #129): no reprint after a reinstall (kitchen-wide mark → `printedElsewhere`, skipped on the app's first run); a claim whose answer was lost is printed (`printed` for this device, not handled → `RECOVER`); won claims go to the on-disk waiting list before printing; « pay at the counter » own orders and Clover-imported (`viaPos`) platform orders count from when they really reached the kitchen; a waiting ticket of a cancelled order is dropped; Bluetooth never resends after a partial write; the published APK is never debuggable.
+
+— signé : Claude Opus 5.5 (kitchen-tablet-app builder, sub-agent of « Food delivery provider integration ») @ Claude Code desktop · 2026-10-30 08:40
+checks, e2e fix and PR : Claude Opus 5.5 (interac-etransfer builder) @ Claude Code desktop · 2026-10-30; review fixes : Claude Opus 5.5
+(interac-etransfer fixer) @ Claude Code desktop · 2026-10-30
+## 2026-10-30 — Plan documents brought up to date (`docs/master-plan-refresh`, PR #131)
+- `docs/MASTER_PLAN.md`: sections 1–2 rewritten to 2026-10-30; new § 3b « Built since the plan was written » (screens wall + relay kit, customer accounts + ON2GO sign-in, MEV off and not certified, TGTG e-mails, own fleet, province taxes, direct / website orders + Clover checkout, AI phone, WhatsApp, leads API, availability centre, and the three PRs of release #130); new connection-board rows; finished phase items marked ✅ with their PR (phases and locked rules otherwise unchanged); § 5b owner decision on the Deliverect code (no code changed); the Phase 0 / 1 prompts flagged as done.
+- `docs/ATLAS_PARITY.md`: Order Relay and shared menu rows, test count, province taxes, Android tablet app (PR #130). `docs/INSTALLER_SERVEUR.md`: install from Coolify (`main`) or the VPS script with GitHub's `main` zip (the old rc10 zip and folder names are gone), Order Relay, shared menus, TGTG e-mails. `docs/RELEASE_NOTES.md`: one short entry for #8–#124. Docs only.
+— signé : Claude Opus 5.5 (master-plan-refresh) @ Claude Code desktop · 2026-10-30 10:10 (HE)
+## 2026-10-30 — Brand kit: accent colour + logo per brand (`feature/brand-colours`)
+- MASTER_PLAN Phase 3 P1 « une couleur par marque (et un logo) » + start of Phase 5 brand kits. `BrandDef.accent` (`#rrggbb`) and `BrandDef.logo` (https or `/media/<name>`), validated server side in `saveBrand` (`lib/foodhub/brand-kit.ts`) and again on the way to the console. Editor: Settings → Business → Brands → Apparence / Look (live preview on light and kitchen-dark, black/white text at WCAG AA, too-light warning, logo upload to the media library). `--brand-accent` / `--brand-on-accent` on order cards, the new-order pop-up, the menu header and the overview brand rows; stripe/badge only (kitchen stays readable); no colour and no logo = exactly today's look. `docs/BRAND_KIT.md`, `tests/brand-kit.test.ts`.
+- Review fixes (3 minor): the website (Clover Online Ordering) and own-delivery cards on the kitchen screen now get the same stripe and logo as platform cards; a late card with a stripe also gets a red ring; the editor warns when the colour looks like a status green / amber / red (CIEDE2000 under 12, `statusLookalike`); the typed `#RRGGBB` box has its own label and its hint / error is tied to it (`AccentField`). 8 new tests.
+— signé : Claude Opus 5.5 (brand-colours sub-agent) @ Claude Code desktop · 2026-10-30
+## 2026-10-30 — Autopilot review fixes (`feature/autopilot`, PR #133)
+- Retries: a waiting chain is re-checked against the switch-on time and the 2-hour window before every send, and dropped when more than 15 min overdue (an open-ended pause is never sent days late); turning the switch off ends every waiting chain; a DoorDash « show / hide menu » is never retried (a publish would show a hidden menu); a person's « Arrêter » that lands mid-heartbeat is kept.
+- Re-publish: turning the switch off cancels the publishes it planned, and `runDuePublishes` never runs an Autopilot entry while the switch is off or while a person's publish for the same brand waits; it holds back (logged) when a person already planned a publish for the brand. Rule text says it sends the saved menu as it is.
+- 8 new regression tests in `tests/autopilot.test.ts` (each failed before the fix).
+— signé : Claude Opus 5.5 (autopilot fixer) @ Claude Code desktop · 2026-10-30
+## 2026-10-30 — Settings → Autopilot, MASTER_PLAN Phase 4.1 + 4.2 (`feature/autopilot`)
+- New page Réglages → Pour vous → **Pilote automatique** (`/settings/autopilot`): every automation with its switch (or where its switch lives), its rule in plain words (FR / EN), last run, what it did last, and an undo where one exists. The existing ones (tablet-off guard, Clover auto-retry, timed re-opens, timed 86 re-enables, scheduled publishes, auto-close, unmapped-store hint, Clover inventory, Skip holidays, daily reconciliation) are read from where they keep their state, never copied.
+- Three new automations, **OFF by default**, switched only by a manager of every location or the owner (`/api/foodhub/autopilot`, switches in the repo kv): re-publish 10 min after « Use Clover price » or saved hours (reuses `menu/schedule.ts`, one publish per brand, never a brand whose stores are all protected, cancellable); retry refused menu / 86 / pause sends at most 3 times (2, 10, 30 min) then a Watchtower incident, only where no retry exists; weekly Uber payment report Monday 06:00 (reuses `requestUberPaymentReport`). Every action logged with the actor « Autopilot ».
+- With every new switch off Food Hub behaves as before. Docs: `docs/AUTOPILOT.md`. Tests: `tests/autopilot.test.ts`.
+— signé : Claude Opus 5.5 (autopilot builder) @ Claude Code desktop · 2026-10-30
+
 ## 2026-10-30 — on2go.ca browser customer API (`feature/on2go-account-cors`)
 
 - `/api/public/on2go/{verify/start, verify/check, me, logout}`: on2go.ca (static, no website secret) signs customers in by texted code and reads / updates / deletes « Mon compte » from the browser. CORS and preflight for the ON2GO sites only, brand website fixed to `on2go`, only `on2go`-signed customer tokens (`Authorization: Bearer`), per-IP windows on top of task 72's per-phone limits; listed in `proxy.ts`. `lib/foodhub/customers/on2go-public.ts`, `docs/CUSTOMER_IDENTITY.md`, `tests/on2go-public-customers.test.ts`.

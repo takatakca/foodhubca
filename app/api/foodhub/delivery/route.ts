@@ -4,7 +4,7 @@ import { dispatchProblems, fleetReadiness } from '@/lib/foodhub/delivery/dispatc
 import { createDirectOrder, lineTotal } from '@/lib/foodhub/delivery/orders';
 import { cancelHeldOrder, paylinkReadiness, startPayLink } from '@/lib/foodhub/delivery/paylink';
 import { getPhoneSettings } from '@/lib/foodhub/phone/settings';
-import { getDeliverySettings, listDeliveries, listDirectOrders } from '@/lib/foodhub/delivery/store';
+import { getDeliverySettings, listDeliveries, listDirectOrders, publicDirectOrder } from '@/lib/foodhub/delivery/store';
 import type { DirectLine } from '@/lib/foodhub/delivery/types';
 import { requireFeature } from '@/lib/foodhub/expansion/features';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
@@ -24,7 +24,8 @@ export const GET = withPerm('view', async (req, _ctx, actor) => {
   ]);
   const byId = new Map(deliveries.map((d) => [d.id, d]));
   return ok({
-    orders: orders.filter((o) => inScope(actor, o.locationCode)).map((o) => ({ ...o, delivery: o.deliveryId ? byId.get(o.deliveryId) ?? null : null })),
+    // The Interac security answer never leaves the server (publicDirectOrder): even a read-only role reads this board.
+    orders: orders.filter((o) => inScope(actor, o.locationCode)).map((o) => ({ ...publicDirectOrder(o), delivery: o.deliveryId ? byId.get(o.deliveryId) ?? null : null })),
     fleets: fleetReadiness(),
     settings: { primaryFleet: settings.primaryFleet, compareQuotes: settings.compareQuotes, customerFee: settings.customerFee, defaultTip: settings.defaultTip },
   });
@@ -72,8 +73,8 @@ export const POST = withPerm('orders:act', async (req, _ctx, actor) => {
       await cancelHeldOrder(order.id, `Payment link not created: ${r.error}`, actor.name, { text: false });
       return fail(`The payment link could not be created: ${r.error} — the order was not kept.`, 409);
     }
-    return ok({ order: r.order, problems: [], problemsFr: [] });
+    return ok({ order: publicDirectOrder(r.order), problems: [], problemsFr: [] });
   }
   const delivery = fulfillment === 'delivery';
-  return ok({ order, problems: delivery ? await dispatchProblems(order) : [], problemsFr: delivery ? await dispatchProblems(order, undefined, undefined, 'fr') : [] });
+  return ok({ order: publicDirectOrder(order), problems: delivery ? await dispatchProblems(order) : [], problemsFr: delivery ? await dispatchProblems(order, undefined, undefined, 'fr') : [] });
 });

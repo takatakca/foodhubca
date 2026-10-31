@@ -363,6 +363,12 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
     const what = [...new Set(failed.map((j) => `${CHANNEL_LABELS[j.channel as keyof typeof CHANNEL_LABELS] ?? j.channel} ${j.kind.replace(/_/g, ' ')}`))].join(', ');
     out.push({ key: 'menu_failed', kind: 'menu_failed', severity: 'warning', title: `${failed.length} action(s) refusée(s) par une plateforme`, titleEn: `${failed.length} action(s) refused by a platform`, detail: what, detailEn: what });
   }
+  // Settings → Autopilot "Retry refused sends": a send still refused after its 3 retries (nothing while the switch was
+  // never on: no retry chain exists).
+  if (on('menu_failed')) {
+    const { retryIncidentDetections } = await import('../autopilot/retry');
+    out.push(...(await retryIncidentDetections(now, jobs).catch(() => [])));
+  }
   if (on('payout_gap')) {
     const cases = (await listCases({ status: ['open'] }).catch(() => [])).filter((c) => RECOVERABLE.includes(c.type));
     const owed = Math.round(cases.reduce((a, c) => a + c.amount, 0) * 100) / 100;

@@ -1,5 +1,6 @@
 // French / English labels and colours shared by the expansion screens (own orders, couriers, calls, retail).
 import type { Tone } from '@/components/ui/badge';
+import type { DirectOrder } from '@/lib/foodhub/delivery/types';
 import type { T } from '@/lib/i18n';
 
 export function directStatusLabel(t: T, s: string) {
@@ -31,6 +32,19 @@ export function paymentLabel(t: T, s: string) {
 }
 export const PAYMENT_TONE: Record<string, Tone> = { paid: 'go', pay_at_pickup: 'neutral', unpaid: 'wait' };
 
+/** The payment badge of an order: an Interac e-Transfer order says so (expected while held, received once a person confirmed it). */
+export function paymentBadge(t: T, o: Pick<DirectOrder, 'payment' | 'status' | 'interac' | 'paylink'>): { label: string; tone: Tone } {
+  if (o.interac && o.status === 'awaiting_payment') return { label: t('Virement Interac attendu', 'Interac e-Transfer expected'), tone: 'violet' };
+  if (o.interac?.receivedAt && o.payment === 'paid') return { label: t('Payée — virement Interac', 'Paid — Interac e-Transfer'), tone: 'go' };
+  if (o.paylink && o.status === 'awaiting_payment') return { label: paymentLabel(t, 'link'), tone: 'violet' };
+  return { label: paymentLabel(t, o.payment), tone: PAYMENT_TONE[o.payment] ?? 'neutral' };
+}
+
+/** A cancelled order whose Interac transfer arrived late and nobody has dealt with yet (send to the kitchen anyway, or refund by hand). */
+export function interacLatePending(o: Pick<DirectOrder, 'interac'>): boolean {
+  return (o.interac?.lateTransfers ?? []).some((l) => !l.releasedAt && !l.refundedAt);
+}
+
 export const FLEET_NAME: Record<string, string> = { doordash_drive: 'DoorDash Drive', uber_direct: 'Uber Direct', skip_daas: 'Skip Delivery', own_fleet: 'Nos livreurs' };
 
 export function callStatusLabel(t: T, s: string) {
@@ -54,5 +68,7 @@ export function eventLabel(t: T, type: string) {
     paylink_opened: t('Page de paiement ouverte', 'Payment page opened'), paylink_session: t('Nouvelle page de paiement', 'New payment page'), paylink_reminder: t('Rappel de paiement texté', 'Payment reminder texted'),
     paylink_released: t('Envoyée en cuisine (payée)', 'Sent to the kitchen (paid)'), paylink_declined: t('Carte refusée', 'Card declined'), paylink_extra_payment: t('Paiement en trop — à rembourser', 'Extra payment — refund it'),
     paylink_kitchen_closed: t('Payée, cuisine fermée', 'Paid, kitchen closed'), print_failed: t('Billet non imprimé', 'Ticket not printed'), pay_at_counter: t('Paiement au comptoir', 'Pay at the counter'), sms_cancelled: t('Annulation textée', 'Cancellation texted'),
+    interac_created: t('Virement Interac demandé', 'Interac e-Transfer requested'), interac_sent: t('Instructions Interac textées', 'Interac instructions texted'), interac_reminder: t('Rappel Interac texté', 'Interac reminder texted'),
+    interac_released: t('Envoyée en cuisine (virement reçu)', 'Sent to the kitchen (transfer received)'), interac_late: t('Virement reçu après l’annulation', 'Transfer received after the cancel'), interac_refunded: t('Virement retourné à la main', 'Transfer returned by hand'),
   } as Record<string, string>)[type] ?? type.replace(/_/g, ' ');
 }

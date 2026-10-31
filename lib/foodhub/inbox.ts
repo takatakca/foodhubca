@@ -21,6 +21,7 @@ import crypto from 'node:crypto';
 import { logActivity, type Actor } from './activity';
 import { CHANNEL_LABELS, nowIso } from './config';
 import { deadlineFor, ORDER_DEADLINE_MIN } from './deadline';
+import { e2eHookMs } from './e2e-hooks';
 import { getRepo } from './repo';
 import type { ChannelKey, NormalizedOrder } from './types';
 
@@ -59,6 +60,10 @@ function retryDelaysS(): number[] {
 }
 /** An entry still "received" / "processing" after this long was interrupted (server stopped): process it again. */
 const STUCK_MS = 2 * 60_000;
+/** STUCK_MS, or FOODHUB_E2E_INBOX_STUCK_MS in the crash-replay check only (e2e-hooks.ts: refused outside FOODHUB_E2E=1 + NODE_ENV test). */
+function stuckMs(): number {
+  return e2eHookMs('FOODHUB_E2E_INBOX_STUCK_MS', { min: 1000, max: STUCK_MS }) ?? STUCK_MS;
+}
 const KEEP_DONE_DAYS = 14;
 /** Tries before an entry that keeps being interrupted (the server stops each time) is handed to a person. */
 export const MAX_RECOVERY_ATTEMPTS = 5;
@@ -196,6 +201,10 @@ export async function runInboxEntry(id: string, opts: { now?: number; replayBy?:
   }
   const started: InboxEntry = { ...entry, status: 'processing', attempts: entry.attempts + 1, updatedAt: new Date(now).toISOString() };
   await save(started);
+  // TEST-ONLY (npm run verify:crash): hold here so the check can kill the server mid-processing. 0 everywhere else —
+  // e2e-hooks.ts refuses it outside FOODHUB_E2E=1 + NODE_ENV test/development.
+  const holdMs = e2eHookMs('FOODHUB_E2E_PROCESS_DELAY_MS', { max: 120_000 });
+  if (holdMs) await new Promise((resolve) => setTimeout(resolve, holdMs));
   try {
     const out = await (await handlerFor(entry.kind, entry.sandbox))(entry.body);
     const done: InboxEntry = { ...started, status: 'done', nextAt: null, lastError: null, result: out.result, orderId: out.orderId ?? entry.orderId ?? null, updatedAt: nowIso() };
@@ -229,7 +238,8 @@ export async function sweepInbox(opts: { now?: number; limit?: number } = {}): P
   const now = opts.now ?? Date.now();
   const repo = getRepo();
   const open = (await repo.listDocs<InboxEntry>(INBOX, { keys: ['received', 'processing', 'failed'], limit: 500 })).map((d) => d.data);
-  const due = open.filter((e) => (e.status === 'failed' ? Boolean(e.nextAt) && Date.parse(e.nextAt!) <= now : now - Date.parse(e.updatedAt) >= STUCK_MS))
+  const stuck = stuckMs();
+  const due = open.filter((e) => (e.status === 'failed' ? Boolean(e.nextAt) && Date.parse(e.nextAt!) <= now : now - Date.parse(e.updatedAt) >= stuck))
     .sort((a, b) => a.receivedAt.localeCompare(b.receivedAt))
     .slice(0, opts.limit ?? 20);
   const out: InboxSweep = { processed: 0, failed: 0 };
@@ -264,7 +274,8 @@ export async function inboxSummary(opts: { now?: number; withBodies?: boolean; l
     open = open.filter((e) => visibleTo(e, opts.locations, where));
   }
   const recent = (await repo.listDocs<InboxEntry>(INBOX, { since: new Date(now - 86400_000).toISOString(), limit: 1 })).map((d) => d.data);
-  const stuck = open.filter((e) => e.status !== 'failed' && now - Date.parse(e.updatedAt) >= STUCK_MS).length;
+  const stuckAfter = stuckMs();
+  const stuck = open.filter((e) => e.status !== 'failed' && now - Date.parse(e.updatedAt) >= stuckAfter).length;
   const failed = open.filter((e) => e.status === 'failed');
   return {
     received: open.filter((e) => e.status !== 'failed').length,
@@ -287,6 +298,6 @@ export async function replayInboxEntry(id: string, actor: Actor & { locations?: 
   if (!e) return null;
   // A manager limited to some locations replays only their locations' entries (same rule as the list).
   if (!(await inboxVisibleTo(e, actor.locations))) return null;
-  if (e.status === 'processing' && Date.now() - Date.parse(e.updatedAt) < STUCK_MS) return e;
+  if (e.status === 'processing' && Date.now() - Date.parse(e.updatedAt) < stuckMs()) return e;
   return runInboxEntry(id, { replayBy: actor.name });
 }

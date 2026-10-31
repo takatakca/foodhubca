@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useMemo, type ReactNode } from 
 import { useRouter } from 'next/navigation';
 import type { Viewer } from '@/lib/foodhub/viewer';
 import type { StorePoint } from '@/lib/foodhub/scope';
+import { kitFor, type BrandKit } from '@/lib/foodhub/brand-kit';
 import { canUseFullView, viewCookie, type ViewMode } from '@/lib/ui/view-mode';
 
 export type CatalogLite = {
@@ -12,6 +13,8 @@ export type CatalogLite = {
   channels?: string[];
   /** One point per platform store (brand × location × platform), for counts only. */
   stores?: StorePoint[];
+  /** Brand kits (docs/BRAND_KIT.md): validated colour and logo per brand name, set by the server. */
+  brandKits?: Record<string, BrandKit>;
 };
 type Ctx = {
   viewer: Viewer; can: (perm: string) => boolean; allLocations: boolean; locations: CatalogLite['locations']; brands: string[];
@@ -26,6 +29,8 @@ type Ctx = {
   canFull: boolean;
   /** Switch the view: writes the fh_view cookie and redraws the page from the server (no flash). */
   setFull: (on: boolean) => void;
+  /** A brand's colour and logo, or null (the brand looks as it always did). */
+  brandKit: (name?: string | null) => BrandKit | null;
 };
 
 const ViewerCtx = createContext<Ctx | null>(null);
@@ -41,10 +46,11 @@ export function ViewerProvider({ viewer, catalog, features = [], mode = 'simple'
     document.cookie = viewCookie(on ? 'full' : 'simple', window.location.protocol === 'https:');
     router.refresh();
   }, [router]);
+  const brandKit = useCallback((name?: string | null) => kitFor(catalog.brandKits, name), [catalog]);
   const value = useMemo(() => ({
     viewer, can, allLocations: viewer.locations.length === 0, locations: catalog.locations, brands: catalog.brands, brandsByKitchen: catalog.brandsByKitchen ?? {},
-    channels: catalog.channels ?? EMPTY, stores: catalog.stores ?? EMPTY, locName, features, full: canFull && mode === 'full', canFull, setFull,
-  }), [viewer, can, catalog, locName, features, canFull, mode, setFull]);
+    channels: catalog.channels ?? EMPTY, stores: catalog.stores ?? EMPTY, locName, features, full: canFull && mode === 'full', canFull, setFull, brandKit,
+  }), [viewer, can, catalog, locName, features, canFull, mode, setFull, brandKit]);
   return <ViewerCtx.Provider value={value}>{children}</ViewerCtx.Provider>;
 }
 
@@ -52,6 +58,11 @@ export function useViewer(): Ctx {
   const c = useContext(ViewerCtx);
   if (!c) throw new Error('useViewer outside ViewerProvider');
   return c;
+}
+
+/** A brand's kit anywhere (null outside the console, or for a brand with no colour or logo). */
+export function useBrandKit(name?: string | null): BrandKit | null {
+  return useContext(ViewerCtx)?.brandKit(name) ?? null;
 }
 
 /** Short location label: "NDG MAIN — 6280 Somerled" → "NDG MAIN". */

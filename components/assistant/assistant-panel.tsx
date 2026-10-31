@@ -191,9 +191,14 @@ export function AssistantPanel({ onClose }: { onClose: () => void }) {
         if (!body?.ok || !body.brief) return;
         setAi(Boolean(body.aiConfigured));
         const item: Item = { kind: 'brief', key: `b-${pathname}-${Date.now()}`, route: pathname, brief: body.brief, title: { fr: body.snapshot?.titleFr ?? '', en: body.snapshot?.titleEn ?? '' } };
+        // First summary of this chat: on top (even when a question went out meanwhile). Same page as the latest summary:
+        // refreshed in place. A new page: posted after the conversation so far, like a new message.
         setItems((cur) => {
-          const last = cur[cur.length - 1];
-          if (last?.kind === 'brief') return [...cur.slice(0, -1), item];
+          let last = -1;
+          for (let i = cur.length - 1; i >= 0; i--) if (cur[i].kind === 'brief') { last = i; break; }
+          if (last === -1) return [item, ...cur];
+          const prev = cur[last];
+          if (prev.kind === 'brief' && prev.route === pathname) return cur.map((x, i) => (i === last ? item : x));
           return [...cur, item];
         });
       } catch { /* the summary is a bonus: the chat still works */ }
@@ -241,14 +246,16 @@ export function AssistantPanel({ onClose }: { onClose: () => void }) {
     }
   }, [fr, lang, pathname, patchMsg, t]);
 
-  // A question from a nudge or another screen (openAssistant): asked as soon as the panel is here.
+  // A question from a nudge or another screen (openAssistant): asked as soon as the panel is here, with the page the
+  // person is on at that moment (askRef always holds the latest `ask`).
+  const askRef = useRef(ask);
+  useEffect(() => { askRef.current = ask; }, [ask]);
   useEffect(() => {
     const pending = takePendingQuestion();
-    if (pending) void ask(pending);
-    const onAsk = (e: Event) => { takePendingQuestion(); const qq = (e as CustomEvent<{ question?: string }>).detail?.question; if (qq) void ask(qq); };
+    if (pending) void askRef.current(pending);
+    const onAsk = (e: Event) => { takePendingQuestion(); const qq = (e as CustomEvent<{ question?: string }>).detail?.question; if (qq) void askRef.current(qq); };
     window.addEventListener(ASK_EVENT, onAsk);
     return () => window.removeEventListener(ASK_EVENT, onAsk);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- read once on mount; `ask` reads fresh values through refs
   }, []);
 
   const voice = useVoiceInput({ onText: (text, final) => { setQ(text); if (final && text) inputRef.current?.focus(); } });

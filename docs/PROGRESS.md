@@ -12,6 +12,12 @@
   id from data/actual, a non-555 phone number or a real mail domain; the ordering page's pickup street line and the
   deactivated Po Poulet chip are blurred at capture. Two shots stage one line because the demo has no database (go-live
   "database" step, Connections "database" line), said in REELS.md and docs.
+- Update (owner: many 5–8 s cuts, message "Fais-le toi-même avec notre système — fini les maux de tête et l'argent perdu"):
+  `CUTS` + `--cuts-only` cut 22 moments of 5–8 s (vertical) and 10 square 1080×1080 versions out of the clips; names
+  `<NNN>-<theme>-<seconds>s-<vertical|square|landscape>.mp4`, 001–011 clips, 101–122 cuts, `clips.json` index. Video
+  frames are now full size (one Chromium per scale with `--force-device-scale-factor`; the emulated scale alone gave a
+  three-quarter picture). Relay tiles show no platform name. Library: 47 MP4 + 47 posters; REELS.md has FR/EN captions
+  (no platform or competitor named) and a 5–8 s Runway prompt per clip, plus a 33-day posting plan for TAK.
 - No app code changed. Checks: typecheck OK, lint 0 errors (1 existing warning), tests 2037 passed / 3 failed — the 3
   are `tests/screens-relay-*.test.ts` on this Windows PC (2 timeouts under load that pass alone; the `.env` 600 mode
   check, which NTFS cannot honour), unrelated to this branch.

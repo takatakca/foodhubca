@@ -5,12 +5,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { chromium } from 'playwright';
 
 /** Viewports: CSS size × device scale = the video size, so text stays sharp. */
 const VIEW = {
   vertical: { viewport: { width: 810, height: 1440 }, deviceScaleFactor: 4 / 3, size: { width: 1080, height: 1920 } },
   landscape: { viewport: { width: 1440, height: 810 }, deviceScaleFactor: 4 / 3, size: { width: 1920, height: 1080 } },
-  phone: { viewport: { width: 432, height: 768 }, deviceScaleFactor: 2.5, size: { width: 1080, height: 1920 }, isMobile: true, hasTouch: true },
+  // Phone layout by width only: Chromium's mobile emulation sends screencast frames at CSS size (a 432×768 picture in
+  // the corner of the video), so isMobile stays off and the page is drawn at 2.5× like the other views.
+  phone: { viewport: { width: 432, height: 768 }, deviceScaleFactor: 2.5, size: { width: 1080, height: 1920 } },
 };
 
 // ---------------- page helpers (run inside the recorded page) ----------------
@@ -81,7 +84,7 @@ function helpers(page, ctx) {
 export const SHOTS = [
   {
     key: 'kitchen-new-order', n: 1, seconds: 15, views: ['vertical', 'landscape'], path: '/kitchen', poster: 5.5,
-    what: 'Kitchen screen: a new DoorDash order lands, the full-screen alert rings, one tap accepts it with a prep time.',
+    what: 'Kitchen screen: a new delivery order lands, the full-screen alert rings, one tap accepts it with a prep time.',
     async play(h, view) {
       const store = view === 'landscape' ? ['uber_eats', 'demo-uber-ppp-live', 'PPP Pizzeria'] : ['doordash', 'demo-dd-pipita-live', 'Pi Pita'];
       const before = Date.now();
@@ -101,7 +104,7 @@ export const SHOTS = [
   },
   {
     key: 'screens-wall', n: 2, seconds: 20, views: ['vertical', 'landscape'], path: '/stores/screens', poster: 13,
-    what: 'Stores → Platform screens: every Uber Eats, DoorDash and Skip order screen on one wall, 4, 8 then 16 at a time; screens with waiting orders glow.',
+    what: 'Stores → Platform screens: every delivery order screen of every restaurant on one wall, 4, 8 then 16 at a time; screens with waiting orders glow.',
     async play(h) {
       h.mark();
       await h.wait(2200);
@@ -266,6 +269,75 @@ export const SHOTS = [
   },
 ];
 
+// ---------------- short cuts (5–8 s) ----------------
+// Moments cut out of the recorded clips: `from` = the shot key, `start` / `seconds` inside that clip (its timeline above).
+// Vertical 1080×1920 always; `square` adds a 1080×1080 version, cropped from the vertical clip at `y` or from the
+// landscape clip at `x`. After a re-recording, look at the cuts once: the timelines are steady, not frame-exact.
+export const CUTS = [
+  { n: 101, key: 'new-order-lands', from: 'kitchen-new-order', start: 0.6, seconds: 6, square: { y: 300 }, what: 'Calm kitchen board, then a new order lands: the full-screen alert rings with its countdown.' },
+  { n: 102, key: 'one-tap-accept', from: 'kitchen-new-order', start: 6.2, seconds: 6, square: { y: 300 }, what: 'Prep time 20 min, one tap on Accepter, the order joins À préparer.' },
+  { n: 103, key: 'kitchen-board', from: 'kitchen-new-order', start: 10, seconds: 5, what: 'The kitchen board scrolls: cooking, ready for the courier.' },
+  { n: 104, key: 'screens-wall-opens', from: 'screens-wall', start: 0.4, seconds: 6, what: 'The platform screens page: orders waiting, then the wall in 4 views.' },
+  { n: 105, key: 'screens-wall-8-to-16', from: 'screens-wall', start: 9.8, seconds: 8, square: { y: 380 }, what: 'The wall goes from 8 to 16 screens; the screens with an order waiting glow orange.' },
+  { n: 106, key: 'orders-filter', from: 'orders-board', start: 3.6, seconds: 6, what: 'Orders board: filter Prêtes, back to Toutes.' },
+  { n: 107, key: 'order-details', from: 'orders-board', start: 9, seconds: 6, square: { y: 150 }, what: 'One tap on an order: items, prep time, Clover reprint, history in the side panel.' },
+  { n: 108, key: 'go-live-complete', from: 'go-live-ring', start: 0.4, seconds: 6, square: { y: 120 }, what: 'Go-live: the ring at 100 %, every stage green, the celebration with confetti.' },
+  { n: 109, key: 'go-live-steps', from: 'go-live-ring', start: 6, seconds: 7, what: 'Scroll through the go-live steps, all checked.' },
+  { n: 110, key: 'autopilot-switch-on', from: 'autopilot', start: 0.5, seconds: 6, square: { y: 260 }, what: 'Autopilot: one switch on, the toast says it is written to the activity log.' },
+  { n: 111, key: 'autopilot-rules', from: 'autopilot', start: 7, seconds: 7, what: 'What Food Hub already does on its own, each rule in plain words with its last run.' },
+  { n: 112, key: 'brand-colour-pick', from: 'brand-kit', start: 3, seconds: 8, square: { y: 420 }, what: 'Brand kit: a colour is typed and the order card preview turns purple, in the console and on the kitchen screen.' },
+  { n: 113, key: 'brand-colour-saved', from: 'brand-kit', start: 10, seconds: 5, what: 'Enregistrer: the colour is saved for the brand.' },
+  { n: 114, key: 'kitchen-brand-stripes', from: 'brand-colours-kitchen', start: 0, seconds: 6, square: { y: 120 }, what: 'Kitchen screen: every brand has its own colour stripe.' },
+  { n: 115, key: 'ordering-page-menu', from: 'ordering-page', start: 0, seconds: 5, what: 'The restaurant’s own ordering page on a phone: open now, the menu.' },
+  { n: 116, key: 'make-it-a-meal', from: 'ordering-page', start: 3, seconds: 6, square: { y: 840 }, what: 'Pita shish taouk, make it a meal (Trio), add to cart.' },
+  { n: 117, key: 'cart-ready', from: 'ordering-page', start: 8.5, seconds: 6, what: 'The cart: total with taxes, pay at the counter.' },
+  { n: 118, key: 'tablet-app', from: 'kitchen-tablet-app', start: 0, seconds: 6, what: 'The kitchen tablet app page: download, always on, rings loud, prints the ticket.' },
+  { n: 119, key: 'day-at-a-glance', from: 'overview-connections', start: 0, seconds: 6, what: 'Overview: sales, orders, prep time, stores open, orders in progress.' },
+  { n: 120, key: 'all-connected', from: 'overview-connections', start: 8, seconds: 7, square: { y: 600 }, what: 'Sales by hour, top brands, then the Connections strip: everything connected.' },
+  { n: 121, key: 'sales-trends', from: 'sales-insights', start: 0, seconds: 7, what: 'Sales and trends: sales, orders, average basket, time to accept, uptime, received in Clover.' },
+  { n: 122, key: 'sales-by-brand', from: 'sales-insights', start: 7.5, seconds: 7, what: 'By platform, by location, by brand, busy hours, best sellers.' },
+];
+
+/** Cuts the moments out of the recorded clips (vertical, plus square where asked) with a poster each. */
+export function makeCuts({ FF, ffmpeg, OUT, only = [] }) {
+  const pad = (n) => String(n).padStart(3, '0');
+  const enc = ['-an', '-c:v', 'libx264', '-preset', 'slow', '-crf', '16', '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-movflags', '+faststart'];
+  let count = 0;
+  for (const c of CUTS) {
+    if (only.length && !only.includes(c.from)) continue;
+    const shot = SHOTS.find((s) => s.key === c.from);
+    const src = (orient) => path.join(OUT, `${pad(shot.n)}-${shot.key}-${shot.seconds}s-${orient}.mp4`);
+    if (!fs.existsSync(src('vertical'))) { console.log(`  cut ${pad(c.n)}-${c.key}: no ${path.basename(src('vertical'))}, skipped`); continue; }
+    const base = `${pad(c.n)}-${c.key}-${c.seconds}s`;
+    const mid = (c.seconds / 2).toFixed(2);
+    ffmpeg(FF, ['-ss', String(c.start), '-i', src('vertical'), '-t', String(c.seconds), '-vf', 'fps=30', ...enc, path.join(OUT, `${base}-vertical.mp4`)]);
+    ffmpeg(FF, ['-ss', mid, '-i', path.join(OUT, `${base}-vertical.mp4`), '-frames:v', '1', path.join(OUT, `${base}-vertical.png`)]);
+    count += 1;
+    if (c.square) {
+      const from = c.square.landscape ? src('landscape') : src('vertical');
+      if (!fs.existsSync(from)) { console.log(`  cut ${base}-square: no ${path.basename(from)}, skipped`); continue; }
+      const crop = c.square.landscape ? `crop=1080:1080:${c.square.x}:0` : `crop=1080:1080:0:${c.square.y}`;
+      ffmpeg(FF, ['-ss', String(c.start), '-i', from, '-t', String(c.seconds), '-vf', `${crop},fps=30`, ...enc, path.join(OUT, `${base}-square.mp4`)]);
+      ffmpeg(FF, ['-ss', mid, '-i', path.join(OUT, `${base}-square.mp4`), '-frames:v', '1', path.join(OUT, `${base}-square.png`)]);
+      count += 1;
+    }
+  }
+  console.log(`  ${count} short cut(s) written`);
+}
+
+/** clips.json: every clip and cut in the folder, with what it shows (read by REELS.md writers and the owner). */
+export function writeIndex(OUT) {
+  const rows = fs.readdirSync(OUT).map((file) => /^(\d{3})-(.+)-(\d+)s-(vertical|square|landscape)\.mp4$/.exec(file)).filter(Boolean).sort((a, b) => a[0].localeCompare(b[0])).map((m) => {
+    const n = Number(m[1]);
+    const shot = SHOTS.find((s) => s.key === m[2] && s.n === n);
+    const cut = CUTS.find((c) => c.key === m[2] && c.n === n);
+    const poster = m[0].replace(/\.mp4$/, '.png');
+    return { file: m[0], poster: fs.existsSync(path.join(OUT, poster)) ? poster : null, seconds: Number(m[3]), orientation: m[4], kind: cut ? 'cut' : 'clip', key: m[2], from: cut?.from ?? null, start: cut?.start ?? null, what: (cut ?? shot)?.what ?? null, staged: (shot ?? SHOTS.find((s) => s.key === cut?.from))?.staged ?? null };
+  });
+  fs.writeFileSync(path.join(OUT, 'clips.json'), JSON.stringify(rows, null, 2));
+  return rows;
+}
+
 /** Every coach-mark id of the console (lib/help/content.ts), so none pops up during a take. */
 const HELP_TIPS = (() => {
   try { return [...fs.readFileSync('lib/help/content.ts', 'utf8').matchAll(/^ {2}'([a-z0-9.-]+)': \{$/gm)].map((m) => m[1]); } catch { return []; }
@@ -285,6 +357,14 @@ export async function runShots(ctx) {
   const rawDir = path.join(OUT, '_raw');
   fs.mkdirSync(rawDir, { recursive: true });
   const state = await signIn(browser);
+  // Playwright's video is a screencast at CSS size: with an emulated device scale only, a 810×1440 page fills three
+  // quarters of a 1080×1920 video. A browser whose own scale is forced to the same factor gives full-size, sharp frames,
+  // so there is one browser per scale (4/3 for the console views, 2.5 for the phone).
+  const browsers = new Map();
+  const browserFor = async (dsf) => {
+    if (!browsers.has(dsf)) browsers.set(dsf, await chromium.launch({ args: [`--force-device-scale-factor=${dsf}`] }));
+    return browsers.get(dsf);
+  };
   const shots = SHOTS.filter((s) => !ONLY.length || ONLY.includes(s.key));
   const made = [];
   const problems = [];
@@ -292,7 +372,7 @@ export async function runShots(ctx) {
     for (const view of shot.views) {
       if (VERTICAL_ONLY && view === 'landscape') continue;
       const orient = view === 'landscape' ? 'landscape' : 'vertical';
-      const name = `${String(shot.n).padStart(2, '0')}-${shot.key}-${shot.seconds}s-${orient}`;
+      const name = `${String(shot.n).padStart(3, '0')}-${shot.key}-${shot.seconds}s-${orient}`;
       process.stdout.write(`  ${name} … `);
       try {
         const r = await take(shot, view, name);
@@ -305,8 +385,10 @@ export async function runShots(ctx) {
       await settle();
     }
   }
+  for (const b of browsers.values()) await b.close().catch(() => {});
   if (!KEEP_RAW) fs.rmSync(rawDir, { recursive: true, force: true });
-  fs.writeFileSync(path.join(OUT, 'clips.json'), JSON.stringify(made.map((m) => ({ file: path.basename(m.file), poster: path.basename(m.poster), seconds: m.shot.seconds, orientation: m.orient, key: m.shot.key, what: m.shot.what, staged: m.shot.staged ?? null })), null, 2));
+  if (!ctx.NO_CUTS) makeCuts({ FF, ffmpeg, OUT, only: shots.map((s) => s.key) });
+  writeIndex(OUT);
   console.log(`\n${made.length} clip(s) in ${OUT}${problems.length ? `; ${problems.length} failed:\n  ${problems.join('\n  ')}` : ''}`);
   return problems.length ? 1 : 0;
 
@@ -321,7 +403,7 @@ export async function runShots(ctx) {
 
   async function take(shot, view, name) {
     const v = VIEW[view];
-    const context = await browser.newContext({
+    const context = await (await browserFor(v.deviceScaleFactor)).newContext({
       viewport: v.viewport, deviceScaleFactor: v.deviceScaleFactor, isMobile: v.isMobile ?? false, hasTouch: v.hasTouch ?? false,
       locale: 'fr-CA', timezoneId: TZ, storageState: shot.public ? undefined : state, colorScheme: 'light', reducedMotion: 'no-preference',
       recordVideo: { dir: rawDir, size: v.size },

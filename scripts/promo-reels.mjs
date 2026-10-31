@@ -17,6 +17,9 @@
 //   --out      output folder (default private/video/reels, git-ignored)
 //   --serve    seed, print the address and keep running (to look around); no recording
 //   --keep-raw keep the raw .webm takes next to the clips
+//   --no-cuts  record only, do not cut the 5–8 s moments (CUTS in promo-reels-shots.mjs)
+//   --cuts-only  no server, no recording: cut the 5–8 s moments again from the clips already in --out
+// Names: <NNN>-<theme>-<seconds>s-<vertical|square|landscape>.mp4 (001–0xx clips, 101+ short cuts) + a poster .png each.
 // Ports: FOODHUB_REELS_MOCK_PORT / FOODHUB_REELS_APP_PORT (default 5901 / 5902).
 // ffmpeg: FFMPEG=<path>, else `ffmpeg` on PATH, else the ffmpeg-static package if it is installed (npm i --no-save ffmpeg-static@5.2.0).
 // Chromium: `npx playwright install --only-shell chromium` once.
@@ -41,6 +44,15 @@ const ONLY = (opt('only') || '').split(',').map((s) => s.trim()).filter(Boolean)
 const SERVE = flag('serve');
 const KEEP_RAW = flag('keep-raw');
 const VERTICAL_ONLY = flag('vertical-only');
+const NO_CUTS = flag('no-cuts');
+if (flag('cuts-only')) {
+  const ff = resolveFfmpeg();
+  if (!ff) { console.error('ffmpeg not found: set FFMPEG=<path>, put ffmpeg on PATH, or `npm i --no-save ffmpeg-static@5.2.0`.'); process.exit(1); }
+  const { makeCuts, writeIndex } = await import('./promo-reels-shots.mjs');
+  makeCuts({ FF: ff, ffmpeg, OUT, only: ONLY });
+  console.log(`${writeIndex(OUT).length} file(s) listed in ${path.join(OUT, 'clips.json')}`);
+  process.exit(0);
+}
 /**
  * The demo clock: a fixed-offset zone where it is about FOODHUB_REELS_HOUR (default 18 h, dinner service) right now, so the
  * kitchen clock and the order times show a normal service hour whatever time the recording runs. App and browser share it.
@@ -152,8 +164,10 @@ const cloverPayments = [
   { id: 'dp3', amount: 3220, tipAmount: 450, taxAmount: 419, result: 'SUCCESS', order: { id: 'DEMO-INSTORE-3' } },
 ];
 const PLATFORM_COLOR = { doordash: '#eb1700', ubereats: '#06c167', skip: '#f36d00', other: '#7a869a' };
-const PLATFORM_NAME = { doordash: 'DoorDash', ubereats: 'Uber Eats', skip: 'SkipTheDishes', other: 'Autre' };
-/** The relay host's remote screen, as a neutral placeholder: the real wall shows each platform's own order page here. */
+/**
+ * The relay host's remote screen, as a neutral placeholder (a coloured dot, the slot, a clock): the real wall shows each
+ * platform's own order page here. No platform screen and no platform name is ever filmed inside a tile.
+ */
 function relayPage(slot, platform) {
   const c = PLATFORM_COLOR[platform] ?? '#7a869a';
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${slot}</title>
@@ -162,7 +176,7 @@ function relayPage(slot, platform) {
 .c{text-align:center}.dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:${c};margin-right:6px;box-shadow:0 0 12px ${c}}
 .s{font-size:clamp(22px,7vw,64px);font-weight:800;letter-spacing:-.02em}.p{opacity:.85;margin-top:4px;font-size:clamp(11px,2.6vw,18px)}
 .k{margin-top:10px;font:500 clamp(10px,2vw,14px) ui-monospace,Consolas,monospace;opacity:.6}.d{position:absolute;right:8px;bottom:6px;font-size:10px;opacity:.45;letter-spacing:.08em}</style></head>
-<body><div class="w"><div class="c"><div class="p"><span class="dot"></span>${PLATFORM_NAME[platform] ?? platform}</div><div class="s">${slot.toUpperCase()}</div><div class="p">Écran de commandes · Order screen</div><div class="k" id="k"></div></div></div><div class="d">DÉMO</div>
+<body><div class="w"><div class="c"><div class="p"><span class="dot"></span>Tablette de commandes</div><div class="s">${slot.toUpperCase()}</div><div class="p">Order screen</div><div class="k" id="k"></div></div></div><div class="d">DÉMO</div>
 <script>const k=document.getElementById('k');const f=()=>{k.textContent=new Date().toLocaleTimeString('fr-CA',{hour:'2-digit',minute:'2-digit',second:'2-digit'})};f();setInterval(f,1000)</script></body></html>`;
 }
 const relayPlatform = new Map(); // slot → platform (filled after the screens are set up)
@@ -366,7 +380,10 @@ async function seed() {
     must(await call('POST', '/api/foodhub/catalog', { body: { location: { code: l.code, name: l.name, address: '', city: l.city ?? 'Montréal', province: 'QC', postalCode: '', phone: `+1514555011${i}`, active: true } } }), `location ${l.code}`);
   }
   const week = Object.fromEntries(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map((d) => [d, [{ open: '11:00', close: '23:30' }]]));
-  must(await call('PUT', '/api/foodhub/hours', { body: { hours: { locations: Object.fromEntries(cat.locations.map((l) => [l.code, week])), brands: {}, holidays: [] } } }), 'hours');
+  // Pi Pita (the ordering page) has no closing time in the demo: the page's "Ferme à …" label is drawn in the browser in
+  // Montréal time, which would not match the demo clock's zone. It simply reads "Ouvert".
+  const allDay = Object.fromEntries(Object.keys(week).map((d) => [d, [{ open: '00:00', close: '23:59' }]]));
+  must(await call('PUT', '/api/foodhub/hours', { body: { hours: { locations: Object.fromEntries(cat.locations.map((l) => [l.code, week])), brands: { 'Pi Pita': allDay }, holidays: [] } } }), 'hours');
   // A small Clover-linked menu per demo brand (made-up dishes), so every order line is matched to a Clover item.
   for (const [brand, dishes] of Object.entries(DISHES)) {
     if (brand === 'Pi Pita') continue;
@@ -461,7 +478,7 @@ try {
   } else {
     const { runShots } = await import('./promo-reels-shots.mjs');
     browser = await chromium.launch();
-    exitCode = await runShots({ browser, APP, OUT, ONLY, KEEP_RAW, VERTICAL_ONLY, FF, ffmpeg, forbiddenIn, sendOrder, act, call, sleep, waitFor, slug, TZ, signIn });
+    exitCode = await runShots({ browser, APP, OUT, ONLY, KEEP_RAW, VERTICAL_ONLY, NO_CUTS, FF, ffmpeg, forbiddenIn, sendOrder, act, call, sleep, waitFor, slug, TZ, signIn });
   }
 } catch (e) {
   exitCode = 1;

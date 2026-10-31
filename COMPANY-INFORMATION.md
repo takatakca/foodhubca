@@ -12,7 +12,7 @@ Ce fichier est la source canonique « Company Information » du groupe. Il est d
 
 **Source unique (ordre de Matt, 2026-10-31)** : l'INDEX B du fichier maître « 00 » reste l'index de coordination (missions, étampes, index des dépôts et des clients), mais les **DONNÉES d'entreprise officielles vivent ICI**, dans ce fichier maître unique. Aucune deuxième version des données d'entreprise ne doit être maintenue ailleurs : en cas de divergence entre une copie et ce fichier, ce fichier tranche et l'autre copie se corrige.
 
-Dernière mise à jour : 2026-10-31 — **v3** (ordre de Matt, 03:17 EDT : « combiner les deux en un pis faire un master fichier bien identifié » — fusion des informations d'entreprise en UN seul fichier maître ; ajout de la règle des années d'établissement). Historique : v2 — 2026-10-31 (exception PPP NDG 16:00–3:00 + règle « lire avant de saisir ») ; v1 — 2026-10-30 (ordre de Matt, 22:30 EDT : « mettre avec leur adresse courriel tous les noms avec tout, dans le GitHub, partout »).
+Dernière mise à jour : 2026-10-31 — **v3** (ordre de Matt, 03:17 EDT : « combiner les deux en un pis faire un master fichier bien identifié » — fusion des informations d'entreprise en UN seul fichier maître ; ajout de la règle des années d'établissement) ; **amendement du 2026-10-31 (soir)** : section « Numéros fiscaux » ajoutée (TPS/TVQ fournis par Matt). Historique : v2 — 2026-10-31 (exception PPP NDG 16:00–3:00 + règle « lire avant de saisir ») ; v1 — 2026-10-30 (ordre de Matt, 22:30 EDT : « mettre avec leur adresse courriel tous les noms avec tout, dans le GitHub, partout »).
 
 ---
 
@@ -39,6 +39,18 @@ Dernière mise à jour : 2026-10-31 — **v3** (ordre de Matt, 03:17 EDT : « co
 | Emplacements des restaurants | NDG : 6280 av. Somerled, Montréal QC H3X 2B6 (O'Crêpe : 6284) · Saint-Léonard : 5839 rue Jean-Talon E, Montréal · Hochelaga : 3583 rue Sainte-Catherine E, Montréal QC H1W 2E6 |
 
 Aucun mot de passe, aucun code, aucun numéro de compte dans ce fichier — les secrets vivent au coffre sécurisé, jamais dans GitHub ni Drive en clair.
+
+---
+
+## Numéros fiscaux (ajout 2026-10-31, donnés par Matt)
+
+| Élément | Information |
+|---|---|
+| TPS / GST | 714505302 RT0001 |
+| TVQ / QST | 1228709740 TQ0001 |
+| Adresse au dossier fiscal | 6241 boul. Léger, Montréal (Québec) H1G 6K8 |
+
+L'**adresse au dossier fiscal** (6241 boul. Léger) est celle inscrite aux dossiers de taxes de la compagnie ; elle est **distincte** du siège et établissement principal au REQ (5837 rue Jean-Talon E, Montréal (Québec) H1S 1M4 — voir le tableau « La compagnie » ci-dessus). Ne pas confondre les deux adresses.
 
 ---
 

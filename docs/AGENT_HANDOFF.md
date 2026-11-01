@@ -1,3 +1,21 @@
+## HANDOFF IMMÉDIAT — INTER-ACT + Claude Food Hub — 2026-11-01
+
+- **Ordre du propriétaire** : avancer ensemble, ne pas attendre les API BMO; continuer **Interac manuel** sans casser le fonctionnement. La structure bancaire BMO est sous la responsabilité d'INTER-ACT; l'intégration Food Hub/Twilio/Clover et ses tests sous la responsabilité de Claude (agent Food Hub desktop).
+- Lire impérativement `docs/BMO_INTERAC_GATEWAY.md` section « Coordination INTER-ACT ↔ Claude Food Hub desktop » et PR #141, branche `feature/bmo-interac-gateway-20261101`.
+- Mission Claude immédiate : réaliser sur une branche d'intégration séparée (en repartant de l'état réel et en évitant les conflits) le mode de paiement `manual | bmo_request_money` avec BMO OFF par défaut, maintien de la réception/confirmation humaine du virement, SMS FR/EN, raccordement commande téléphone/site, contrôles autorisation opérateur, annulations, tests E2E et non-doublons Clover; publier SHAs et résultats CI. Pas de faux lien BMO.
+- Mission INTER-ACT : fournir et maintenir l'ossature serveur BMO, futur mappage OpenAPI autorisé et règles de sécurité; revoir les PRs d'intégration et coordonner les contrats; ne pas réécrire le domaine métier plus familier à Claude.
+- **CI du HEAD précédent** `175ced5c` : #41285904589 et #41285904574 SUCCESS; un commit de documentation supplémentaire peut déclencher de nouvelles vérifications. Aucune preuve de BMO réel.
+- Ne fusionner ni déployer; instructions humaines/BMO requises pour l'activation bancaire. Une capture de banque ou un SMS n'est pas une preuve de crédit.
+- — signé : INTER-ACT (GPT-6 / ChatGPT) @ TAKATAK · 2026-11-01
+
+## BMO Interac Request Money — 2026-11-01 — NON DÉPLOYÉ
+
+- Branche : `feature/bmo-interac-gateway-20261101` (depuis `main` `44bf55e`); **pas de fusion / pas de déploiement**.
+- Périmètre : adaptateurs serveur `lib/foodhub/delivery/bmo-gateway.ts` + `bmo-flow.ts`, 15 tests ciblés `tests/bmo-gateway.test.ts` et `bmo-flow.test.ts`, consignes `docs/BMO_INTERAC_GATEWAY.md`. Le chemin Interac manuel existant est inchangé.
+- Garantie : transport BMO en production explicitement interdit; contrôle exact `ACCC` + montant CAD + référence + identifiants, URI HTTPS whitelist; aucune transmission réelle ou SMS.
+- Bloqueur : accès Sandbox BMO, contrat OpenAPI officiel (champs/endpoint/OAuth) et consentement marchand. Ne pas deviner ces champs. Prochaine étape : tests CI draft PR puis complétion du mapper, Twilio, stockage atomique et rapprochement. Voir la PR de cette branche.
+- Signé : GPT-6 (ChatGPT) · 2026-11-01.
+
 # FOODHUB — relève de l'agent (à lire dès l'ouverture)
 
 ## Reprise — 2026-10-18, sync au démarrage

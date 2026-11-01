@@ -1,3 +1,9 @@
+## 2026-11-01 — BMO Interac Request Money (sandbox-only)
+
+- **FH-BMO-001 / REVIEW** : branche `feature/bmo-interac-gateway-20261101` : transport BMO sandbox, garde de règlement `ACCC`, tests, documentation; aucune route bancaire en production ni déploiement.
+- **FH-BMO-002 / BLOCKED** : attendre l'accès BMO developer + schéma OpenAPI versionné pour Request Money et Get Request Payment, OAuth, établissement autorisé par commerçant. Ensuite coder le mapping réel, SMS Twilio, paiement par téléphone et rapprochement atomique.
+- Détails `docs/BMO_INTERAC_GATEWAY.md`; signé GPT-6 (ChatGPT) 2026-11-01.
+
 # FOODHUB — file de tâches coordonnée
 
 ## 2026-10-16 — suite UX clavier, tâche indépendante

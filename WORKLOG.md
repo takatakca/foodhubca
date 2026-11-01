@@ -1,4 +1,7 @@
+- 2026-11-01 | GPT-6 (ChatGPT) | feature/bmo-interac-gateway-20261101 → draft PR | sandbox foundation, NOT DEPLOYED | BMO Interac gateway transport, strict ACCC matching, SMS URL validation, fifteen isolated regression cases and mock orchestration, approval checklist | next: run PR CI, obtain BMO approved OpenAPI/consent, implement real mapper; no merge/deploy — signé : GPT-6 (ChatGPT) · 2026-11-01
 # Work log
+2026-11-01 | INTER-ACT (ChatGPT) | feature/bmo-interac-gateway-20261101 -> PR #141 | review | Payment module validation and tests updated; see docs/BMO_SECURITY_REVIEW.md | next: CI, Claude review; no merge or deployment. — signed INTER-ACT
+2026-11-01 | INTER-ACT (GPT-6, ChatGPT) | feature/bmo-interac-gateway-20261101 → draft PR #141 | collaboration handoff, no deploy | bank-side backend belongs to INTER-ACT; Food Hub desktop Claude takes manual Interac now + phone/web + Twilio + Clover integration and tests, BMO opt-in OFF until approved; docs/BMO_INTERAC_GATEWAY.md | next: Claude acknowledges/pushes separate integration branch & reports SHAs; INTER-ACT reviews banking adapter and security — signé : INTER-ACT (ChatGPT) · 2026-11-01
 
 Newest first, one line per piece of work. Rule: `AGENTS.md` › Work log rule.
 Format: `YYYY-MM-DD | agent | branch → PR | status | what | next step`

@@ -1,3 +1,4 @@
+- 2026-11-01 | GPT-6 (ChatGPT) | feature/bmo-interac-gateway-20261101 → draft PR | sandbox foundation, NOT DEPLOYED | BMO Interac gateway transport, strict ACCC matching, SMS URL validation, ten isolated regression cases, approval checklist | next: run PR CI, obtain BMO approved OpenAPI/consent, implement real mapper; no merge/deploy — signé : GPT-6 (ChatGPT) · 2026-11-01
 # Work log
 
 Newest first, one line per piece of work. Rule: `AGENTS.md` › Work log rule.

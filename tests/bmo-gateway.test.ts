@@ -93,6 +93,7 @@ describe('BMO sandbox HTTP transport', () => {
     const network = vi.fn();
     await expect(bmoRequest(config, 'GET', '//evil.test/', undefined, network as typeof fetch)).rejects.toThrow();
     await expect(bmoRequest(config, 'POST', '/pay?secret=1', {}, network as typeof fetch)).rejects.toThrow();
+    await expect(bmoRequest(config, 'POST', '/pay/../other', {}, network as typeof fetch)).rejects.toThrow();
     await expect(bmoRequest({ ...config, baseUrl: 'http://sandbox.bmo.example' }, 'GET', '/x', undefined, network as typeof fetch)).rejects.toThrow();
     await expect(bmoRequest(config, 'GET', '/x', {}, network as typeof fetch)).rejects.toThrow();
     expect(network).not.toHaveBeenCalled();

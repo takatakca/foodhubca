@@ -20,6 +20,8 @@ export interface BmoFlowRecord extends BmoOrderFingerprint {
   state: BmoFlowState;
   bankPaymentId?: string;
   paymentUrl?: string;
+  /** Bank-observed ACCC proof; immutable once paid_verified. No user-supplied evidence. */
+  settlementEvidence?: BmoStatusObservation;
 }
 export interface BmoFlowStore {
   insertIfAbsent(record: BmoFlowRecord): Promise<boolean>; // atomic unique (merchantKey, orderId)
@@ -132,8 +134,10 @@ export async function reconcileBmoCheckout(
   if (saved.amountCents !== order.amountCents || saved.messageId !== bmoMessageId(order))
     throw new Error('BMO checkout order fingerprint mismatch');
   if (saved.state === 'paid_verified') {
-    // Never trust an internally corrupted paid flag without the bank transaction binding.
-    return { verifiedPaid: Boolean(saved.bankPaymentId?.trim()), record: saved };
+    const proof = saved.settlementEvidence;
+    const verified = Boolean(proof && saved.bankPaymentId === proof.providerPaymentId &&
+      bmoMayRelease(order, saved.messageId, proof));
+    return { verifiedPaid: verified, record: saved };
   }
   // A late transfer after cancellation/rejection requires manual investigation;
   // never transition a terminal failed/voided order into an automatic kitchen release.
@@ -147,7 +151,10 @@ export async function reconcileBmoCheckout(
     : bmoStatus(observed.statusCode) === 'cancelled' ? 'cancelled'
     : saved.state;
   if (nextState === saved.state) return { verifiedPaid: false, record: saved };
-  const updated: BmoFlowRecord = { ...saved, state: nextState };
+  const updated: BmoFlowRecord = {
+    ...saved, state: nextState,
+    ...(verified ? { settlementEvidence: { ...observed } } : {}),
+  };
   if (!await deps.store.compareAndSwap(saved, updated)) {
     const current = await deps.store.read(...keyFor(order));
     if (!current) throw new Error('BMO settlement changed during reconciliation');

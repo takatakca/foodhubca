@@ -49,6 +49,9 @@ export async function beginBmoCheckout(
   order: BmoOrderFingerprint, deps: BmoFlowDependencies,
 ): Promise<BmoFlowRecord> {
   assertBmoOrder(order);
+  // Refuse the checkout before touching BMO if no trusted delivery destination exists.
+  if (!Array.isArray(deps.allowedPaymentHosts) || deps.allowedPaymentHosts.length === 0)
+    throw new Error('Approved BMO payment hostnames required before checkout');
   const messageId = bmoMessageId(order);
   const record: BmoFlowRecord = { ...order, messageId, state: 'reserved' };
   const reserved = await deps.store.insertIfAbsent(record);
@@ -85,19 +88,74 @@ export async function sendBmoCheckoutSms(
   customerLanguage: 'fr' | 'en',
   deps: BmoFlowDependencies,
 ): Promise<BmoFlowRecord> {
+  assertBmoOrder(order);
+  // Prevent malformed recipient addresses and language fallback at the Twilio boundary.
+  if (typeof customerPhone !== 'string' || !/^\+[1-9][0-9]{7,14}$/.test(customerPhone))
+    throw new Error('Customer phone must be a valid E.164 address');
+  if (customerLanguage !== 'fr' && customerLanguage !== 'en')
+    throw new Error('Unsupported BMO SMS language');
   const record = await deps.store.read(...keyFor(order));
-  if (!record || record.state !== 'link_ready' || !record.paymentUrl)
+  if (!record || record.state !== 'link_ready' || !record.paymentUrl || !record.bankPaymentId)
     throw new Error('BMO link is not ready or was already sent');
   if (record.amountCents !== order.amountCents || record.messageId !== bmoMessageId(order))
     throw new Error('BMO SMS order fingerprint mismatch');
-  bmoPaymentLink(record.paymentUrl, deps.allowedPaymentHosts); // revalidate persisted URL before any SMS
+  const verifiedUrl = bmoPaymentLink(record.paymentUrl, deps.allowedPaymentHosts); // revalidate stored link
   const claimed: BmoFlowRecord = { ...record, state: 'sms_sending' };
   if (!await deps.store.compareAndSwap(record, claimed))
     throw new Error('BMO SMS has already been claimed');
   const amount = (record.amountCents / 100).toFixed(2);
   const message = customerLanguage === 'fr'
-    ? 'Paiement sécurisé Interac pour la commande ' + record.orderId + ' : ' + amount + ' $ CAD. ' + record.paymentUrl
-    : 'Secure Interac payment for order ' + record.orderId + ': CAD $' + amount + '. ' + record.paymentUrl;
+    ? 'Paiement sécurisé Interac pour la commande ' + record.orderId + ' : ' + amount + ' $ CAD. ' + verifiedUrl
+    : 'Secure Interac payment for order ' + record.orderId + ': CAD 
+  try {
+    await deps.sms.send(customerPhone, message);
+    const sent: BmoFlowRecord = { ...claimed, state: 'sms_sent' };
+    if (!await deps.store.compareAndSwap(claimed, sent))
+      throw new Error('SMS claim changed');
+    return sent;
+  } catch {
+    await deps.store.compareAndSwap(claimed, { ...claimed, state: 'sms_uncertain' });
+    throw new Error('BMO SMS outcome uncertain; human review before resending');
+  }
+}
+
+/**
+ * Poll authenticated BMO status. Returns evidence for an eventual kitchen
+ * release, but does NOT itself create a Clover order or mark an order paid.
+ */
+export async function reconcileBmoCheckout(
+  order: BmoOrderFingerprint, deps: BmoFlowDependencies,
+): Promise<{ verifiedPaid: boolean; record: BmoFlowRecord }> {
+  assertBmoOrder(order);
+  const saved = await deps.store.read(...keyFor(order));
+  if (!saved) throw new Error('Unknown BMO checkout order');
+  if (saved.amountCents !== order.amountCents || saved.messageId !== bmoMessageId(order))
+    throw new Error('BMO checkout order fingerprint mismatch');
+  if (saved.state === 'paid_verified') {
+    // Never trust an internally corrupted paid flag without the bank transaction binding.
+    return { verifiedPaid: Boolean(saved.bankPaymentId?.trim()), record: saved };
+  }
+  // A late transfer after cancellation/rejection requires manual investigation;
+  // never transition a terminal failed/voided order into an automatic kitchen release.
+  if (saved.state === 'cancelled' || saved.state === 'rejected')
+    return { verifiedPaid: false, record: saved };
+  const observed = await deps.bank.getRequestStatus(saved); // approved BMO auth is required in the bank adapter
+  const verified = bmoMayRelease(order, saved.messageId, observed)
+    && saved.bankPaymentId === observed.providerPaymentId;
+  const nextState: BmoFlowState = verified ? 'paid_verified'
+    : bmoStatus(observed.statusCode) === 'rejected' ? 'rejected'
+    : bmoStatus(observed.statusCode) === 'cancelled' ? 'cancelled'
+    : saved.state;
+  if (nextState === saved.state) return { verifiedPaid: false, record: saved };
+  const updated: BmoFlowRecord = { ...saved, state: nextState };
+  if (!await deps.store.compareAndSwap(saved, updated)) {
+    const current = await deps.store.read(...keyFor(order));
+    if (!current) throw new Error('BMO settlement changed during reconciliation');
+    return { verifiedPaid: false, record: current }; // caller must reconcile the winning change
+  }
+  return { verifiedPaid: verified, record: updated };
+}
+ + amount + '. ' + verifiedUrl;
   try {
     await deps.sms.send(customerPhone, message);
     const sent: BmoFlowRecord = { ...claimed, state: 'sms_sent' };

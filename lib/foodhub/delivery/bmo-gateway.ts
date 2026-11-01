@@ -69,7 +69,7 @@ function safeEndpoint(baseUrl: string, path: string): string {
   const base = new URL(baseUrl);
   if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash || base.port)
     throw new Error('BMO API base URL must be a clean HTTPS origin');
-  if (!path.startsWith('/') || path.startsWith('//') || /[\\?#]/.test(path) || /%2f|%5c|%2e/i.test(path))
+  if (!path.startsWith('/') || path.startsWith('//') || /[\\?#]/.test(path) || /%2f|%5c|%2e/i.test(path) || path.split('/').some((segment) => segment === '.' || segment === '..'))
     throw new Error('Invalid BMO API endpoint');
   const url = new URL(path, base);
   if (url.origin !== base.origin) throw new Error('Off-origin BMO API URL');

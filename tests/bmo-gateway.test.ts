@@ -12,6 +12,7 @@ const complete: BmoStatusObservation = {
 };
 const config = {
   environment: 'sandbox' as const, baseUrl: 'https://sandbox.bmo.example',
+  allowedApiOrigins: ['https://sandbox.bmo.example'],
   apiKey: 'test-key', accessToken: 'test-oauth',
 };
 
@@ -79,14 +80,14 @@ describe('BMO sandbox HTTP transport', () => {
     const h = request.headers as Record<string, string>;
     expect(h.Authorization).toBe('Bearer test-oauth');
     expect(h['x-api-key']).toBe('test-key');
-    expect(h['x-fapi-financial-id']).toBe('001');
+    expect(h['x-fapi-financial-id']).toBeUndefined(); // no unverified bank header
     expect(h['x-request-id']).toBeTruthy();
     expect(h['x-fapi-interaction-id']).toBeTruthy();
   });
   it('refuses production without ever calling a network adapter', async () => {
     const network = vi.fn();
     await expect(bmoRequest({ ...config, environment: 'production' }, 'POST', '/pay', {}, network as typeof fetch))
-      .rejects.toThrow('Production');
+      .rejects.toThrow('production');
     expect(network).not.toHaveBeenCalled();
   });
   it('refuses off-origin paths, insecure origins and GET bodies', async () => {
@@ -109,8 +110,57 @@ describe('BMO sandbox HTTP transport', () => {
   it('fails closed on HTTP errors or malformed provider response', async () => {
     const badStatus = vi.fn(async () => new Response('bad', { status: 503 }));
     await expect(bmoRequest(config, 'POST', '/x', {}, badStatus as typeof fetch)).rejects.toThrow('HTTP 503');
-    const badBody = vi.fn(async () => new Response('not-json', { status: 200 }));
+    const badBody = vi.fn(async () => new Response('not-json', { status: 200, headers: { 'content-type': 'application/json' } }));
     await expect(bmoRequest(config, 'GET', '/x', undefined, badBody as typeof fetch)).rejects.toThrow('Invalid BMO JSON');
   });
 });
-// — signé : GPT-6 (ChatGPT) · 2026-11-01
+
+describe('BMO bank-grade hostile-input protections', () => {
+  it('never sends bearer credentials to an unpinned API destination', async () => {
+    const network = vi.fn();
+    await expect(bmoRequest({ ...config, baseUrl: 'https://attacker.test' }, 'POST', '/pay', {}, network as typeof fetch))
+      .rejects.toThrow('Unapproved BMO API origin');
+    await expect(bmoRequest({ ...config, allowedApiOrigins: [] }, 'POST', '/pay', {}, network as typeof fetch))
+      .rejects.toThrow('allowlist');
+    await expect(bmoRequest({ ...config, allowedApiOrigins: ['https://sandbox.bmo.example.evil.test'] }, 'POST', '/pay', {}, network as typeof fetch))
+      .rejects.toThrow('Unapproved');
+    await expect(bmoRequest({ ...config, baseUrl: 'https://sandbox.bmo.example/pay' }, 'POST', '/pay', {}, network as typeof fetch))
+      .rejects.toThrow('clean HTTPS');
+    await expect(bmoRequest({ ...config, baseUrl: 'https://sandbox.bmo.example@attacker.test' }, 'POST', '/pay', {}, network as typeof fetch))
+      .rejects.toThrow('Unapproved');
+    expect(network).not.toHaveBeenCalled();
+  });
+  it('rejects unknown environment values, unsafe headers and traversal paths without networking', async () => {
+    const network = vi.fn();
+    await expect(bmoRequest({ ...config, environment: 'prod' as 'sandbox' }, 'POST', '/pay', {}, network as typeof fetch))
+      .rejects.toThrow('disabled');
+    await expect(bmoRequest({ ...config, accessToken: 'abc\r\nx-injected: x' }, 'POST', '/pay', {}, network as typeof fetch))
+      .rejects.toThrow('BMO OAuth token');
+    await expect(bmoRequest(config, 'POST', '/pay/%2e%2e/x', {}, network as typeof fetch)).rejects.toThrow();
+    await expect(bmoRequest(config, 'POST', '/pay\\evil', {}, network as typeof fetch)).rejects.toThrow();
+    expect(network).not.toHaveBeenCalled();
+  });
+  it('rejects CRLF in order references or payment links and changes identity on amount changes', () => {
+    expect(bmoMessageId({ ...order, amountCents: order.amountCents + 1 })).not.toBe(msg);
+    for (const bad of ['order\nPAY TO ATTACKER', '../order', 'a'.repeat(65), 'order code']) {
+      expect(() => bmoMessageId({ ...order, orderId: bad })).toThrow();
+    }
+    for (const badLink of [
+      'https://approved-payments.example/pay\nPAY TO ATTACKER',
+      'https://approved-payments.example/pay\r\n',
+      'https://approved-payments.example/pay/' + 'a'.repeat(2048),
+    ]) expect(() => bmoPaymentLink(badLink, ['approved-payments.example'])).toThrow();
+  });
+  it('enforces a bounded JSON response and rejects fake JSON content types', async () => {
+    const huge = new Response(JSON.stringify({ data: 'x'.repeat(130_000) }), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    });
+    await expect(bmoRequest(config, 'GET', '/status', undefined,
+      vi.fn(async () => huge) as typeof fetch)).rejects.toThrow('too large');
+    await expect(bmoRequest(config, 'GET', '/status', undefined,
+      vi.fn(async () => new Response('<html>login</html>', {
+        status: 200, headers: { 'content-type': 'text/html' },
+      })) as typeof fetch)).rejects.toThrow('response type');
+  });
+});
+// — signé : INTER-ACT (ChatGPT) · 2026-11-01

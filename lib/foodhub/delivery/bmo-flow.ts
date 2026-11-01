@@ -108,7 +108,7 @@ export async function sendBmoCheckoutSms(
   const amount = (record.amountCents / 100).toFixed(2);
   const message = customerLanguage === 'fr'
     ? 'Paiement sécurisé Interac pour la commande ' + record.orderId + ' : ' + amount + ' $ CAD. ' + verifiedUrl
-    : 'Secure Interac payment for order ' + record.orderId + ': CAD 
+    : 'Secure Interac payment for order ' + record.orderId + ': CAD $' + amount + '. ' + verifiedUrl;
   try {
     await deps.sms.send(customerPhone, message);
     const sent: BmoFlowRecord = { ...claimed, state: 'sms_sent' };
@@ -159,47 +159,6 @@ export async function reconcileBmoCheckout(
     const current = await deps.store.read(...keyFor(order));
     if (!current) throw new Error('BMO settlement changed during reconciliation');
     return { verifiedPaid: false, record: current }; // caller must reconcile the winning change
-  }
-  return { verifiedPaid: verified, record: updated };
-}
- + amount + '. ' + verifiedUrl;
-  try {
-    await deps.sms.send(customerPhone, message);
-    const sent: BmoFlowRecord = { ...claimed, state: 'sms_sent' };
-    if (!await deps.store.compareAndSwap(claimed, sent))
-      throw new Error('SMS claim changed');
-    return sent;
-  } catch {
-    await deps.store.compareAndSwap(claimed, { ...claimed, state: 'sms_uncertain' });
-    throw new Error('BMO SMS outcome uncertain; human review before resending');
-  }
-}
-
-/**
- * Poll authenticated BMO status. Returns evidence for an eventual kitchen
- * release, but does NOT itself create a Clover order or mark an order paid.
- */
-export async function reconcileBmoCheckout(
-  order: BmoOrderFingerprint, deps: BmoFlowDependencies,
-): Promise<{ verifiedPaid: boolean; record: BmoFlowRecord }> {
-  const saved = await deps.store.read(...keyFor(order));
-  if (!saved) throw new Error('Unknown BMO checkout order');
-  if (saved.amountCents !== order.amountCents || saved.messageId !== bmoMessageId(order))
-    throw new Error('BMO checkout order fingerprint mismatch');
-  if (saved.state === 'paid_verified') return { verifiedPaid: true, record: saved };
-  const observed = await deps.bank.getRequestStatus(saved); // approved BMO auth is required in the bank adapter
-  const verified = bmoMayRelease(order, saved.messageId, observed)
-    && saved.bankPaymentId === observed.providerPaymentId;
-  const nextState: BmoFlowState = verified ? 'paid_verified'
-    : bmoStatus(observed.statusCode) === 'rejected' ? 'rejected'
-    : bmoStatus(observed.statusCode) === 'cancelled' ? 'cancelled'
-    : saved.state;
-  if (nextState === saved.state) return { verifiedPaid: false, record: saved };
-  const updated: BmoFlowRecord = { ...saved, state: nextState };
-  if (!await deps.store.compareAndSwap(saved, updated)) {
-    const current = await deps.store.read(...keyFor(order));
-    if (!current) throw new Error('BMO settlement changed during reconciliation');
-    return { verifiedPaid: current.state === 'paid_verified', record: current };
   }
   return { verifiedPaid: verified, record: updated };
 }

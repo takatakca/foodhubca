@@ -88,6 +88,9 @@ export async function sendBmoCheckoutSms(
   const record = await deps.store.read(...keyFor(order));
   if (!record || record.state !== 'link_ready' || !record.paymentUrl)
     throw new Error('BMO link is not ready or was already sent');
+  if (record.amountCents !== order.amountCents || record.messageId !== bmoMessageId(order))
+    throw new Error('BMO SMS order fingerprint mismatch');
+  bmoPaymentLink(record.paymentUrl, deps.allowedPaymentHosts); // revalidate persisted URL before any SMS
   const claimed: BmoFlowRecord = { ...record, state: 'sms_sending' };
   if (!await deps.store.compareAndSwap(record, claimed))
     throw new Error('BMO SMS has already been claimed');

@@ -95,6 +95,15 @@ describe('BMO sandbox order/SMS flow', () => {
     await beginBmoCheckout(order, h.deps);
     expect(h.requestMoney).toHaveBeenCalledTimes(1);
   });
+  it('refuses a poisoned stored fulfillment URL before Twilio sends any text', async () => {
+    const h = harness();
+    await beginBmoCheckout(order, h.deps);
+    const k = order.merchantKey + '|' + order.orderId;
+    const original = h.rows.get(k)!;
+    h.rows.set(k, { ...original, paymentUrl: 'https://attacker.test/pay' });
+    await expect(sendBmoCheckoutSms(order, '+15145550000', 'fr', h.deps)).rejects.toThrow('Unapproved');
+    expect(h.send).not.toHaveBeenCalled();
+  });
   it('marks SMS outcome uncertain instead of resending automatically', async () => {
     const h = harness();
     await beginBmoCheckout(order, h.deps);

@@ -1,7 +1,7 @@
 ## BMO Interac Request Money — 2026-11-01 — NON DÉPLOYÉ
 
 - Branche : `feature/bmo-interac-gateway-20261101` (depuis `main` `44bf55e`); **pas de fusion / pas de déploiement**.
-- Périmètre : adaptateur serveur `lib/foodhub/delivery/bmo-gateway.ts`, 10 tests ciblés `tests/bmo-gateway.test.ts`, consignes `docs/BMO_INTERAC_GATEWAY.md`. Le chemin Interac manuel existant est inchangé.
+- Périmètre : adaptateurs serveur `lib/foodhub/delivery/bmo-gateway.ts` + `bmo-flow.ts`, 15 tests ciblés `tests/bmo-gateway.test.ts` et `bmo-flow.test.ts`, consignes `docs/BMO_INTERAC_GATEWAY.md`. Le chemin Interac manuel existant est inchangé.
 - Garantie : transport BMO en production explicitement interdit; contrôle exact `ACCC` + montant CAD + référence + identifiants, URI HTTPS whitelist; aucune transmission réelle ou SMS.
 - Bloqueur : accès Sandbox BMO, contrat OpenAPI officiel (champs/endpoint/OAuth) et consentement marchand. Ne pas deviner ces champs. Prochaine étape : tests CI draft PR puis complétion du mapper, Twilio, stockage atomique et rapprochement. Voir la PR de cette branche.
 - Signé : GPT-6 (ChatGPT) · 2026-11-01.

@@ -1,12 +1,12 @@
 # BMO Instant Payments / Interac Request Money — Food Hub (NON DEPLOYED)
 
-Status 2026-11-01: **sandbox-only gateway foundation and 10 regression tests committed**.
+Status 2026-11-01: **sandbox-only gateway transport, order/SMS orchestration and 15 regression tests committed**.
 No live request, SMS, bank transfer, consent, kitchen release, or deployment was executed.
 
 ## Existing product (do not break)
 - `lib/foodhub/delivery/interac.ts` already supports manual Interac e-Transfer website checkout, hold/expiry, one SMS reminder, manual receipt confirmation and once-only Clover release.
 - `lib/foodhub/delivery/paylink.ts` supports Clover secure card links for phone orders. Do not rename those existing methods.
-- The new BMO module in `lib/foodhub/delivery/bmo-gateway.ts` is separate and **not wired into checkout or Twilio**. This prevents premature payment activation during BMO approval.
+- The new BMO modules `lib/foodhub/delivery/bmo-gateway.ts` and `lib/foodhub/delivery/bmo-flow.ts` are separate and **not wired into checkout or Twilio**. This prevents premature payment activation during BMO approval.
 - BMO's **Instant Payments - CA 4.3.1** product lists operations for request creation, status inquiry and cancellation (EMTCreditorPaymentActivationRequest, EMTGetRequestForPaymentTransaction, Cancellation). Those are BMO's operation names, **not verified HTTP route paths**.
 
 ## Technical safety boundary already coded
@@ -15,7 +15,7 @@ No live request, SMS, bank transfer, consent, kitchen release, or deployment was
 - Only `ACCC` (Accepted Credit Completed) plus matching message ID, order reference, CAD amount and provider transaction ID can satisfy the settlement guard. `ACTC`, `ACSP`, `ACSC`, `RJCT`, `CANC` and unknown never unlock the kitchen.
 - Fulfillment URLs must be HTTPS and match a supplied exact hostname allowlist. Do not text untrusted links.
 - Sandbox/preproduction only. All production transport calls fail closed, regardless of environment credentials.
-- API request timeout, no automatic POST retry, no secret-containing provider error echo, no redirect, no client-side access to OAuth tokens.
+- API request timeout, no automatic POST retry, no secret-containing provider error echo, no redirect, no client-side access to OAuth tokens.\n- Sandbox flow uses an injected bank API, SMS transport and persistent-store interface: atomic insert and compare-and-swap, bank link saved before SMS, SMS claim recorded before sending, and matching settled status reconciled without automatically releasing a kitchen ticket.
 - Never store tokens, bank account numbers or personal information in this public repository, worklog, PR, issue board or Drive note.
 
 ## BMO approval and exact contract needed (blocking)
@@ -40,7 +40,7 @@ No live request, SMS, bank transfer, consent, kitchen release, or deployment was
 - https://developer.bmo.com/api/commercial/faq
 
 ## Test and handoff
-- Targeted tests: `tests/bmo-gateway.test.ts`.
+- Targeted tests: `tests/bmo-gateway.test.ts` (10) and `tests/bmo-flow.test.ts` (5).
 - PR CI on GitHub tests code on an isolated runner; its PR image workflow does not publish or deploy (production Coolify workflow is disabled and push-to-main is forbidden in this task).
 - Do not merge this PR until BMO contract integration and owner acceptance. No production deploy.
 

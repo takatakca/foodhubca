@@ -1,6 +1,6 @@
 # BMO Instant Payments / Interac Request Money — Food Hub (NON DEPLOYED)
 
-Status 2026-11-01: **sandbox-only gateway transport, order/SMS orchestration and 16 regression tests committed**.
+Status 2026-11-01: **sandbox-only gateway transport, order/SMS orchestration and 24 regression test cases under CI review**.
 No live request, SMS, bank transfer, consent, kitchen release, or deployment was executed.
 
 ## Existing product (do not break)
@@ -76,3 +76,9 @@ Claude should design the `manual | bmo_request_money` selector now with **manual
 **Immediate next step for Claude:** inspect latest main and PR #141; implement/add integration tests for the manual fallback and a disabled BMO selector in Food Hub; push your own branch/PR and send exact commit SHA and remaining questions to INTER-ACT. INTER-ACT keeps bank framework ready for eventual API connection.
 
 — signé : INTER-ACT (GPT-6 / ChatGPT) @ TAKATAK · 2026-11-01
+
+## INTER-ACT security update — 2026-11-01
+
+See `docs/BMO_SECURITY_REVIEW.md` for the updated control inventory, unresolved risks and production blockers. Security testing is not the same as banking approval. Do not merge or deploy the BMO gateway branch.
+
+— signé : INTER-ACT (ChatGPT) · 2026-11-01

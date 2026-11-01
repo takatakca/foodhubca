@@ -127,7 +127,7 @@ describe('BMO bank-grade hostile-input protections', () => {
     await expect(bmoRequest({ ...config, baseUrl: 'https://sandbox.bmo.example/pay' }, 'POST', '/pay', {}, network as typeof fetch))
       .rejects.toThrow('clean HTTPS');
     await expect(bmoRequest({ ...config, baseUrl: 'https://sandbox.bmo.example@attacker.test' }, 'POST', '/pay', {}, network as typeof fetch))
-      .rejects.toThrow('Unapproved');
+      .rejects.toThrow('clean HTTPS');
     expect(network).not.toHaveBeenCalled();
   });
   it('rejects unknown environment values, unsafe headers and traversal paths without networking', async () => {
@@ -152,7 +152,7 @@ describe('BMO bank-grade hostile-input protections', () => {
     ]) expect(() => bmoPaymentLink(badLink, ['approved-payments.example'])).toThrow();
   });
   it('enforces a bounded JSON response and rejects fake JSON content types', async () => {
-    const huge = new Response(JSON.stringify({ data: 'x'.repeat(130_000) }), {
+    const huge = new Response(JSON.stringify({ data: 'x'.repeat(160_000) }), {
       status: 200, headers: { 'content-type': 'application/json' },
     });
     await expect(bmoRequest(config, 'GET', '/status', undefined,

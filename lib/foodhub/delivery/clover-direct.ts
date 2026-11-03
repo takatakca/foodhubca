@@ -58,7 +58,7 @@ export async function orderTypeId(mid: string, token: string, fulfillment: Direc
 
 export type CloverDirectResult = { ok: true; posOrderId: string; merchantId: string; printed?: string } | { ok: false; skipped?: boolean; error: string };
 
-type DirectCartOrder = Pick<DirectOrder, 'source' | 'number' | 'brandName' | 'lines' | 'deliveryFee' | 'customer' | 'fulfillment' | 'dropoff' | 'containsAlcohol' | 'payment' | 'notes'>;
+type DirectCartOrder = Pick<DirectOrder, 'source' | 'number' | 'brandName' | 'lines' | 'deliveryFee' | 'customer' | 'fulfillment' | 'dropoff' | 'containsAlcohol' | 'payment' | 'notes'> & Partial<Pick<DirectOrder, 'fees' | 'interac'>>;
 
 /**
  * The atomic-order body of a direct order. One Clover line per unit: an inventory item carries its linked options as
@@ -84,13 +84,16 @@ export function buildDirectCloverCart(order: DirectCartOrder, typeId: string | n
   }
   // A delivery fee charged to the customer is a line of its own, so the Clover total matches what we said on the phone.
   if (order.deliveryFee > 0) { lineItems.push({ name: 'Livraison / Delivery', price: toCents(order.deliveryFee) }); cents += toCents(order.deliveryFee); }
+  // A declared fee (Interac) is a line of its own too, so the Clover total is the all-in price the customer saw.
+  for (const f of order.fees ?? []) if (f.amount > 0) { lineItems.push({ name: f.name.slice(0, 127), price: toCents(f.amount) }); cents += toCents(f.amount); }
   const who = [order.customer.name, order.customer.phone].filter(Boolean).join(' · ');
   const where = order.fulfillment === 'delivery' && order.dropoff ? `LIVRAISON: ${order.dropoff.street}${order.dropoff.unit ? ` #${order.dropoff.unit}` : ''}, ${order.dropoff.postalCode}` : 'POUR EMPORTER / PICKUP';
+  const paidHow = order.payment !== 'paid' ? 'À PAYER / TO PAY' : order.interac?.receivedAt ? `PAYÉ — VIREMENT INTERAC ${order.interac.reference} / PAID — INTERAC E-TRANSFER` : 'PAYÉ / PAID';
   return {
     cents,
     orderCart: {
       title: `${ICON[order.source]} ${order.number} · ${order.brandName}`.slice(0, 127),
-      note: [where, who, order.containsAlcohol ? '🔞 ID 18+' : '', order.payment === 'paid' ? 'PAYÉ / PAID' : 'À PAYER / TO PAY', order.notes ?? ''].filter(Boolean).join(' | ').slice(0, 255),
+      note: [where, who, order.containsAlcohol ? '🔞 ID 18+' : '', paidHow, order.notes ?? ''].filter(Boolean).join(' | ').slice(0, 255),
       lineItems,
       ...(typeId ? { orderType: { id: typeId } } : {}),
     },

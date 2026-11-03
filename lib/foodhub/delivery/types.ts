@@ -23,6 +23,66 @@ export type DirectStatus = 'awaiting_payment' | 'new' | 'in_kitchen' | 'ready' |
 /** How the customer pays. Couriers never collect money: a delivery waits until the order is paid (or the owner allows unpaid dispatch). */
 export type PaymentState = 'paid' | 'pay_at_pickup' | 'unpaid';
 
+/**
+ * A fee the customer was shown BEFORE checkout (Québec: the price they commit to is all-inclusive), e.g. the Interac
+ * e-Transfer fee. Taxed GST + QST like the delivery fee. Food Hub refuses an order whose declared fee is not its own.
+ */
+export interface OrderFee { code: 'interac'; name: string; amount: number }
+
+/**
+ * An order paid by Interac e-Transfer (website orders, delivery/interac.ts). Modelled NEXT TO `paylink` rather than as a
+ * new PaymentState: the order is HELD exactly like a payment-link order (status 'awaiting_payment', payment 'unpaid'), so
+ * every screen, dispatch rule, tick and tracking page that already knows a held order works unchanged, and the release
+ * copies paylink.ts' discipline (one lock, a claim written and re-read, one Clover order = one ticket). The difference:
+ * nobody reads a bank — a PERSON presses "Virement reçu / Transfer received"; a late or second transfer is only flagged.
+ */
+export interface InteracTransfer {
+  /** Short reference the customer writes in the transfer's message field, e.g. "PPP-7K3Q". */
+  reference: string;
+  /** Exact amount to send: the order total, fee and taxes included. */
+  amount: number;
+  /** The restaurant's Interac e-mail for that kitchen (Settings → Expansion → Delivery → Paiements). */
+  recipient: string;
+  autoDeposit: boolean;
+  /** Security question when auto-deposit is off (texted with its answer). */
+  question?: string;
+  /**
+   * The answer: texted to the customer (and in the website's instructions text), masked in the outbox preview, never
+   * logged, and dropped from every console API answer by publicDirectOrder (store.ts).
+   */
+  answer?: string;
+  lang: 'fr' | 'en';
+  createdAt: string;
+  /** Not confirmed by then → cancelled at the next tick, courtesy text. */
+  expiresAt: string;
+  reminderMin: number;
+  smsAt?: string;
+  smsError?: string;
+  remindedAt?: string;
+  /**
+   * A person confirmed the transfer (the only way an Interac order is released). Set while the order is still held
+   * (receivedAt without releasedAt) = a release in progress or interrupted: never cancelled by the expiry, resumed by
+   * the next "Transfer received" (no second "paid", no second Clover order).
+   */
+  receivedAt?: string;
+  receivedBy?: string;
+  /** Release lock (claim + re-read): only one request releases the order. */
+  releaseClaim?: string;
+  releaseClaimAt?: string;
+  /** Written just before the Clover call: a resumed release that finds it without a Clover id asks a person to check Clover. */
+  cloverSentAt?: string;
+  /** The expiry tick found a release that stopped half-way and flagged it for a person (once). */
+  releaseStalledAt?: string;
+  releasedAt?: string;
+  cancelledAt?: string;
+  cancelReason?: string;
+  /**
+   * "Received" pressed AFTER the cancel / expiry: never released by itself — a person decides (send to the kitchen
+   * anyway, or return the money by hand; Food Hub never refunds).
+   */
+  lateTransfers?: Array<{ at: string; by: string; releasedAt?: string; releasedBy?: string; refundedAt?: string; refundedBy?: string }>;
+}
+
 export interface DropoffAddress {
   street: string;
   unit?: string;
@@ -102,7 +162,8 @@ export interface DirectOrder {
   sourceRef?: string;
   brandName: string;
   locationCode: string;
-  customer: { name?: string; phone?: string; email?: string; lang?: 'fr' | 'en' | 'es' };
+  /** `id` = the Food Hub customer account (customers/token.ts) the website order was placed with, when its token verified. */
+  customer: { name?: string; phone?: string; email?: string; lang?: 'fr' | 'en' | 'es'; id?: string };
   fulfillment: 'pickup' | 'delivery';
   dropoff?: DropoffAddress;
   lines: DirectLine[];
@@ -112,6 +173,8 @@ export interface DirectOrder {
   deliveryFee: number;
   /** Courier tip paid by the customer (passed to the courier in full). */
   tip: number;
+  /** Declared fees the customer saw before checkout (Interac e-Transfer fee). Taxed; in the Clover order as their own lines. */
+  fees?: OrderFee[];
   total: number;
   currency: string;
   payment: PaymentState;
@@ -140,6 +203,8 @@ export interface DirectOrder {
   autoDispatch?: { attempts: number; lastAt?: string; stoppedReason?: string };
   /** Paid by a payment link texted to the customer (phone orders): the order is held until paid. */
   paylink?: PayLink;
+  /** Paid by Interac e-Transfer (website orders): held until a person confirms the transfer. */
+  interac?: InteracTransfer;
   /** Revenu Québec invoice issued by Takatak MEV (QCMEV): the current receipt as QCMEV rendered it (mev/outbox.ts). */
   mev?: MevRecord;
   events: DirectEvent[];
@@ -260,9 +325,38 @@ export interface DeliverySettings {
   readCloverDeliveryOrders: boolean;
   /** Uber Direct options (Create Delivery fields). */
   uberDirect: UberDirectOptions;
+  /** Interac e-Transfer for website orders (held until a person confirms the transfer). */
+  interac: InteracSettings;
   locations: Record<string, LocationDeliveryRule>;
   updatedAt?: string;
 }
+
+/**
+ * Interac e-Transfer settings. Food Hub never reads a bank account: these only say what the customer is told (where to
+ * send, how much, the question) and how long the kitchen waits for a person to confirm.
+ */
+export interface InteracSettings {
+  enabled: boolean;
+  /** Fee before taxes (dollars), taxed GST 5 % + QST 9.975 % like a service charge; the site must show the all-in fee. */
+  fee: number;
+  /** Recipient e-mail for every kitchen (fallback: FOODHUB_INTERAC_EMAIL), unless `recipients` names one for a kitchen. */
+  recipientEmail: string;
+  /** Recipient e-mail per location code. */
+  recipients: Record<string, string>;
+  /** Auto-deposit on the recipient account (no question); off → `question` + `answer` are texted to the customer. */
+  autoDeposit: boolean;
+  question: string;
+  /** Stored here, returned MASKED by the settings API (INTERAC_ANSWER_MASK), texted to the customer only. */
+  answer: string;
+  /** Minutes the order stays held before it is cancelled (a person may still confirm a late transfer by hand). */
+  holdMinutes: number;
+  /** Minutes after the order before the one reminder text (0 = none). */
+  reminderMinutes: number;
+}
+
+/** What the settings API shows instead of the stored answer; sent back unchanged, it keeps the stored answer. */
+export const INTERAC_ANSWER_MASK = '••••••';
+export const DEFAULT_INTERAC_SETTINGS: InteracSettings = { enabled: false, fee: 5, recipientEmail: '', recipients: {}, autoDeposit: true, question: '', answer: '', holdMinutes: 45, reminderMinutes: 20 };
 
 /**
  * Uber Direct Create Delivery options (developer.uber.com/docs/deliveries/api-reference/daas):
@@ -283,5 +377,5 @@ export const DEFAULT_RULE: LocationDeliveryRule = {
 
 export const DEFAULT_DELIVERY_SETTINGS: DeliverySettings = {
   primaryFleet: 'doordash_drive', compareQuotes: true, defaultTip: 3, customerFee: 4.99, smsTracking: true,
-  allowUnpaidDispatch: false, undeliverable: 'return_to_pickup', readCloverDeliveryOrders: true, uberDirect: DEFAULT_UBER_DIRECT_OPTIONS, locations: {},
+  allowUnpaidDispatch: false, undeliverable: 'return_to_pickup', readCloverDeliveryOrders: true, uberDirect: DEFAULT_UBER_DIRECT_OPTIONS, interac: DEFAULT_INTERAC_SETTINGS, locations: {},
 };

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Banknote, Bike, Check, CreditCard, ExternalLink, MapPin, Pencil, Phone, Printer, RefreshCw, Send, Store, TriangleAlert, Truck, Wine, X } from 'lucide-react';
+import { Banknote, Bike, Check, CreditCard, ExternalLink, Landmark, MapPin, Pencil, Phone, Printer, RefreshCw, Send, Store, TriangleAlert, Truck, Wine, X } from 'lucide-react';
 import { Badge, StatusDot } from '@/components/ui/badge';
 import { Banner } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,7 +14,7 @@ import type { Delivery, DirectOrder } from '@/lib/foodhub/delivery/types';
 import { api, ApiError, money, timeOf } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
-import { DELIVERY_TONE, DIRECT_TONE, FLEET_NAME, PAYMENT_TONE, deliveryStatusLabel, directStatusLabel, eventLabel, paymentLabel, sourceLabel } from './labels';
+import { DELIVERY_TONE, DIRECT_TONE, FLEET_NAME, deliveryStatusLabel, directStatusLabel, eventLabel, interacLatePending, paymentBadge, sourceLabel } from './labels';
 
 export type DirectRow = DirectOrder & { delivery: Delivery | null };
 type Detail = { order: DirectOrder; deliveries: Delivery[]; problems: string[]; problemsFr: string[]; running: Delivery | null };
@@ -55,12 +55,21 @@ export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onCl
   const last = d?.deliveries.at(-1) ?? null;
   const act_ = can('orders:act');
   const problems = d ? (lang === 'fr' ? d.problemsFr : d.problems) ?? [] : [];
+  const interacLate = o ? o.status === 'cancelled' && interacLatePending(o) : false;
+  const interacCancelled = o ? o.status === 'cancelled' && Boolean(o.interac) && !o.interac?.releasedAt && !interacLate : false;
 
   return (
     <Drawer width="lg" onClose={onClose}
       title={o ? <span className="flex flex-wrap items-center gap-2"><span className="num">{o.number}</span><Badge tone={DIRECT_TONE[o.status] ?? 'neutral'}>{directStatusLabel(t, o.status)}</Badge><MevBadge mev={o.mev} /></span> : t('Commande', 'Order')}
       subtitle={o ? `${o.brandName} · ${locName(o.locationCode)} · ${sourceLabel(t, o.source)} · ${timeOf(o.placedAt, loc, true)}` : undefined}
-      footer={o && act_ && !closed && o.status === 'awaiting_payment' ? (
+      footer={o && act_ && !closed && o.status === 'awaiting_payment' && o.interac ? (
+        <div className="flex w-full flex-wrap items-center gap-2">
+          <Button variant="go" icon={<Landmark className="size-4" />} loading={busy === 'interac_received'} onClick={() => act('interac_received')}>{o.interac.receivedAt ? t('Terminer l’envoi en cuisine', 'Finish sending to the kitchen') : t('Virement reçu', 'Transfer received')}</Button>
+          {!o.interac.receivedAt && <Button variant="soft" icon={<Send className="size-4" />} loading={busy === 'interac_resend'} onClick={() => act('interac_resend', {}, t('Instructions textées de nouveau', 'Instructions texted again'))}>{t('Renvoyer les instructions', 'Text the instructions again')}</Button>}
+          {o.fulfillment === 'pickup' && !o.interac.receivedAt && <Button variant="outline" icon={<Banknote className="size-4" />} loading={busy === 'pay_at_counter'} onClick={() => act('pay_at_counter', {}, t('Envoyée en cuisine — paiement au comptoir', 'Sent to the kitchen — pay at the counter'))}>{t('Payer au comptoir', 'Pay at the counter')}</Button>}
+          <Button variant="ghost" className="ml-auto text-stop" icon={<X className="size-4" />} onClick={() => setCancelling('order')}>{t('Annuler la commande', 'Cancel order')}</Button>
+        </div>
+      ) : o && act_ && !closed && o.status === 'awaiting_payment' ? (
         <div className="flex w-full flex-wrap items-center gap-2">
           <Button variant="soft" icon={<Send className="size-4" />} loading={busy === 'resend_paylink'} onClick={() => act('resend_paylink', {}, t('Lien texté de nouveau', 'Link texted again'))}>{t('Renvoyer le lien de paiement', 'Text the payment link again')}</Button>
           {o.fulfillment === 'pickup' && <Button variant="outline" icon={<Banknote className="size-4" />} loading={busy === 'pay_at_counter'} onClick={() => act('pay_at_counter', {}, t('Envoyée en cuisine — paiement au comptoir', 'Sent to the kitchen — pay at the counter'))}>{t('Payer au comptoir', 'Pay at the counter')}</Button>}
@@ -80,6 +89,27 @@ export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onCl
           {o.attention && !closed && (
             <Banner tone="warn" action={act_ ? <Button size="xs" variant="ghost" loading={busy === 'clear_attention'} onClick={() => act('clear_attention', {}, t('Marquée vérifiée', 'Marked as checked'))}>{t('C’est réglé', 'Done')}</Button> : undefined}>{o.attention}</Banner>
           )}
+          {interacLate && o.interac && (
+            <Banner tone="warn">
+              <span className="flex items-center gap-1.5"><Landmark className="size-4" />{t(`Virement Interac ${o.interac.reference} reçu après l’annulation (${money(o.interac.amount, loc)}) — une personne décide. Food Hub ne rembourse jamais tout seul.`, `Interac transfer ${o.interac.reference} received after the cancel (${money(o.interac.amount, loc)}) — a person decides. Food Hub never refunds by itself.`)}</span>
+              {act_ && <span className="mt-2 flex flex-wrap gap-2">
+                <Button size="xs" variant="go" loading={busy === 'interac_release_late'} onClick={() => act('interac_release_late', {}, t('Envoyée en cuisine', 'Sent to the kitchen'))}>{t('Envoyer en cuisine quand même', 'Send to the kitchen anyway')}</Button>
+                <Button size="xs" variant="outline" loading={busy === 'interac_refunded'} onClick={() => act('interac_refunded', {}, t('Noté : retourné à la main', 'Noted: returned by hand'))}>{t('Argent retourné à la main', 'Money returned by hand')}</Button>
+              </span>}
+            </Banner>
+          )}
+          {interacCancelled && o.interac && act_ && (
+            <Banner tone="info" action={<Button size="xs" variant="outline" icon={<Landmark className="size-3.5" />} loading={busy === 'interac_received'} onClick={() => act('interac_received')}>{t('Virement reçu en retard', 'Transfer received late')}</Button>}>
+              {t(`Commande annulée. Si le virement Interac ${o.interac.reference} (${money(o.interac.amount, loc)}) arrive quand même dans le compte, signalez-le ici : rien ne part en cuisine avant qu’une personne décide.`, `Cancelled. If the Interac transfer ${o.interac.reference} (${money(o.interac.amount, loc)}) still arrives in the account, flag it here: nothing goes to the kitchen before a person decides.`)}
+            </Banner>
+          )}
+          {o.status === 'awaiting_payment' && o.interac && (
+            <Banner tone="info">
+              <span className="flex items-center gap-1.5"><Landmark className="size-4" />{t('En attente du virement Interac — rien n’est envoyé en cuisine (ni livreur) avant qu’une personne confirme la réception dans son compte.', 'Waiting for the Interac e-Transfer — nothing goes to the kitchen (or a courier) before a person confirms it arrived in the account.')}</span>
+              <span className="mt-1 block text-xs">{t('Montant exact', 'Exact amount')} <strong className="num">{money(o.interac.amount, loc)}</strong> · {t('message', 'message')} <strong className="num">{o.interac.reference}</strong> · {t('à', 'to')} {o.interac.recipient}{o.interac.autoDeposit ? '' : ` · ${t('question de sécurité textée', 'security question texted')}`}</span>
+              <span className="mt-1 block text-xs">{t('Valide jusqu’à', 'Valid until')} {timeOf(o.interac.expiresAt, loc)}{o.interac.smsAt ? ` · ${t('instructions textées', 'instructions texted')} ${timeOf(o.interac.smsAt, loc)}` : o.interac.smsError ? ` · ${t('texto non envoyé', 'text not sent')}: ${o.interac.smsError}` : ''}{o.interac.remindedAt ? ` · ${t('rappel envoyé', 'reminder sent')}` : ''}</span>
+            </Banner>
+          )}
           {o.status === 'awaiting_payment' && o.paylink && (
             <Banner tone="info">
               <span className="flex items-center gap-1.5"><CreditCard className="size-4" />{t('En attente du paiement par lien — rien n’est envoyé en cuisine (ni livreur) avant le paiement.', 'Waiting for the payment link — nothing goes to the kitchen (or a courier) before it is paid.')}</span>
@@ -87,6 +117,7 @@ export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onCl
             </Banner>
           )}
           {o.paylink?.paidAt && <p className="text-xs text-go-2">{t('Payée en ligne (Clover)', 'Paid online (Clover)')} · {timeOf(o.paylink.paidAt, loc)}{o.paylink.printedAt ? ` · ${t('billet imprimé', 'ticket printed')}` : ''}</p>}
+          {o.interac?.receivedAt && <p className="text-xs text-go-2">{t('Virement Interac reçu', 'Interac e-Transfer received')} {o.interac.reference} · {timeOf(o.interac.receivedAt, loc)}{o.interac.receivedBy ? ` · ${o.interac.receivedBy}` : ''}</p>}
           {o.mev && o.mev.status !== 'skipped' && <MevPanel model="direct" id={o.id} mev={o.mev} onChange={load} />}
           {o.posError && !closed && <Banner tone="stop" action={act_ ? <Button size="xs" loading={busy === 'retry_clover'} icon={<Printer className="size-3.5" />} onClick={() => act('retry_clover')}>{t('Renvoyer à Clover', 'Send to Clover')}</Button> : undefined}>{t('Clover n’a pas reçu la commande : ', 'Clover did not receive the order: ')}{o.posError}</Banner>}
 
@@ -95,7 +126,7 @@ export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onCl
               <div className="mb-1 text-xs font-bold tracking-wide text-ink-3 uppercase">{t('Client', 'Customer')}</div>
               <div className="font-bold">{o.customer.name || '—'}</div>
               {o.customer.phone ? <a href={`tel:${o.customer.phone}`} className="mt-0.5 flex items-center gap-1.5 text-sm text-info-2 hover:underline"><Phone className="size-3.5" />{o.customer.phone}</a> : <div className="text-sm text-wait-2">{t('Pas de téléphone', 'No phone')}</div>}
-              <div className="mt-2 flex flex-wrap gap-1.5"><Badge tone={PAYMENT_TONE[o.payment] ?? 'neutral'}>{paymentLabel(t, o.payment)}</Badge>{o.containsAlcohol && <Badge tone="violet" icon={<Wine className="size-3" />}>{t('Alcool — ID 18+', 'Alcohol — ID 18+')}</Badge>}</div>
+              <div className="mt-2 flex flex-wrap gap-1.5"><Badge tone={paymentBadge(t, o).tone}>{paymentBadge(t, o).label}</Badge>{o.containsAlcohol && <Badge tone="violet" icon={<Wine className="size-3" />}>{t('Alcool — ID 18+', 'Alcohol — ID 18+')}</Badge>}</div>
             </div>
             <div className="rounded-md border border-line p-3">
               <div className="mb-1 flex items-center justify-between text-xs font-bold tracking-wide text-ink-3 uppercase">
@@ -170,6 +201,7 @@ export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onCl
               <div className="space-y-0.5 bg-raised px-3 py-2 text-[13px]">
                 <Row label={t('Sous-total', 'Subtotal')} value={money(o.subtotal, loc)} />
                 {o.deliveryFee > 0 && <Row label={t('Livraison', 'Delivery')} value={money(o.deliveryFee, loc)} />}
+                {(o.fees ?? []).map((f) => <Row key={f.code} label={f.name} value={money(f.amount, loc)} />)}
                 <Row label={t('Taxes', 'Taxes')} value={money(o.tax, loc)} />
                 {o.tip > 0 && <Row label={t('Pourboire livreur', 'Courier tip')} value={money(o.tip, loc)} />}
                 <Row label={<strong>Total</strong>} value={<strong>{money(o.total, loc)}</strong>} />
@@ -198,7 +230,9 @@ export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onCl
         <Modal size="sm" title={cancelling === 'order' ? t(`Annuler ${o.number} ?`, `Cancel ${o.number}?`) : t('Annuler le livreur ?', 'Cancel the courier?')} onClose={() => setCancelling(null)}
           footer={<><Button variant="ghost" onClick={() => setCancelling(null)}>{t('Garder', 'Keep')}</Button><Button variant="danger" loading={busy === 'cancel' || busy === 'cancel_courier'} onClick={async () => { const what = cancelling; setCancelling(null); await act(what === 'order' ? 'cancel' : 'cancel_courier', { reason: what === 'order' ? 'Cancelled from Food Hub' : 'Cancelled from Food Hub' }); }}>{t('Annuler', 'Cancel')}</Button></>}>
           <p className="text-sm text-ink-2">{cancelling === 'order'
-            ? t('Le livreur réservé est annulé aussi. Si le client a déjà payé, remboursez-le dans Clover — Food Hub ne rembourse jamais tout seul.', 'A booked courier is cancelled too. If the customer already paid, refund them in Clover — Food Hub never refunds by itself.')
+            ? o.interac
+              ? t('Le client est prévenu. S’il a déjà envoyé le virement Interac, une personne le lui retourne depuis le compte — Food Hub ne rembourse jamais tout seul.', 'The customer is told. If they already sent the Interac e-Transfer, a person returns it from the account — Food Hub never refunds by itself.')
+              : t('Le livreur réservé est annulé aussi. Si le client a déjà payé, remboursez-le dans Clover — Food Hub ne rembourse jamais tout seul.', 'A booked courier is cancelled too. If the customer already paid, refund them in Clover — Food Hub never refunds by itself.')
             : t('Le service de livraison peut facturer des frais si le livreur est déjà en route.', 'The courier service may charge a fee once the courier is on the way.')}</p>
         </Modal>
       )}

@@ -3,6 +3,7 @@
 //     session secret that just changed) and « Optionnel » (warn + optional: nothing breaks without it, e.g. the team
 //     chat or the AI explanations). An optional step keeps that word in view even when its text is all setting names.
 //   - The sentences with a setting name or a command fold under « Détails techniques » (tech-text.ts splitTech).
+//   - The progress ring and the stepper (goLiveProgress, goLiveStages) count what is left « À faire »: 100 % = nothing.
 import type { T } from '@/lib/i18n';
 import { PUBLIC_URL_PROBLEM_TEXT, type PublicUrlProblem } from '@/lib/foodhub/public-url';
 import { plainTitle, splitTech } from '../tech-text';
@@ -28,6 +29,38 @@ export function stepTally(steps: Array<Pick<Step, 'state' | 'optional'>>): Recor
   const out: Record<StepKind, number> = { done: 0, todo: 0, check: 0, optional: 0 };
   for (const s of steps) out[stepKind(s)] += 1;
   return out;
+}
+
+export type GoLiveProgress = { percent: number; ready: number; counted: number; todo: number; complete: boolean };
+
+/**
+ * The Go-live ring (Phase 3 P2): of the steps that must be done, the share that is done. A step « À vérifier » or
+ * « Optionnel » never holds the ring back (nothing breaks without it) and counts once it is done. 100 % means nothing
+ * is left « À faire », and only then: 99.6 % shows 99 %.
+ */
+export function goLiveProgress(steps: Array<Pick<Step, 'state'>>): GoLiveProgress {
+  const counted = steps.filter((s) => s.state !== 'warn');
+  const ready = counted.filter((s) => s.state === 'done').length;
+  const todo = counted.length - ready;
+  const complete = counted.length > 0 && todo === 0;
+  const percent = complete ? 100 : counted.length ? Math.floor((ready / counted.length) * 100) : 0;
+  return { percent, ready, counted: counted.length, todo, complete };
+}
+
+/** done: all ready · check: nothing to do, something to look at · current: the first group with something to do. */
+export type GoLiveStage = { group: string; state: 'done' | 'check' | 'current' | 'todo'; ready: number; counted: number };
+
+/** The stepper above the list: one stage per group, in page order. */
+export function goLiveStages(steps: Array<Pick<Step, 'group' | 'state' | 'optional'>>): GoLiveStage[] {
+  let seenCurrent = false;
+  return [...new Set(steps.map((s) => s.group))].map((group) => {
+    const mine = steps.filter((s) => s.group === group);
+    const p = goLiveProgress(mine);
+    let state: GoLiveStage['state'];
+    if (p.todo) { state = seenCurrent ? 'todo' : 'current'; seenCurrent = true; }
+    else state = mine.some((s) => stepKind(s) === 'check') ? 'check' : 'done';
+    return { group, state, ready: p.ready, counted: p.counted };
+  });
 }
 
 /** "3 à faire · 1 à vérifier · 2 optionnels": the counter above the list. */

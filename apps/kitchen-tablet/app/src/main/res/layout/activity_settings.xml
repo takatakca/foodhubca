@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView style="@style/Label" android:text="@string/label_url" />
+        <EditText
+            android:id="@+id/url"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="textUri"
+            android:importantForAutofill="no"
+            android:hint="@string/default_url_hint" />
+
+        <TextView style="@style/Label" android:text="@string/label_location" />
+        <EditText
+            android:id="@+id/location"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="textCapCharacters"
+            android:importantForAutofill="no"
+            android:hint="@string/location_hint" />
+
+        <TextView style="@style/Label" android:text="@string/label_printer" />
+        <RadioGroup
+            android:id="@+id/printer_type"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+            <RadioButton android:id="@+id/printer_none" style="@style/Choice" android:text="@string/printer_none" />
+            <RadioButton android:id="@+id/printer_bt" style="@style/Choice" android:text="@string/printer_bt" />
+            <RadioButton android:id="@+id/printer_net" style="@style/Choice" android:text="@string/printer_net" />
+        </RadioGroup>
+        <TextView style="@style/Help" android:text="@string/help_clover" />
+
+        <LinearLayout
+            android:id="@+id/bt_group"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+            <TextView style="@style/Label" android:text="@string/label_bt_device" />
+            <Spinner
+                android:id="@+id/bt_device"
+                android:layout_width="match_parent"
+                android:layout_height="56dp" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+                <Button android:id="@+id/bt_refresh" style="@style/SmallButton" android:text="@string/bt_refresh" />
+                <Button android:id="@+id/bt_settings" style="@style/SmallButton" android:text="@string/bt_settings" />
+            </LinearLayout>
+            <TextView style="@style/Help" android:text="@string/help_bt" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/net_group"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+            <TextView style="@style/Label" android:text="@string/label_host" />
+            <EditText
+                android:id="@+id/host"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="text"
+                android:importantForAutofill="no"
+                android:hint="@string/host_hint" />
+            <TextView style="@style/Label" android:text="@string/label_port" />
+            <EditText
+                android:id="@+id/port"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="number"
+                android:importantForAutofill="no"
+                android:hint="@string/port_hint" />
+        </LinearLayout>
+
+        <TextView style="@style/Label" android:text="@string/label_paper" />
+        <RadioGroup
+            android:id="@+id/paper"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+            <RadioButton android:id="@+id/paper_58" style="@style/Choice" android:layout_width="0dp" android:layout_weight="1" android:text="@string/paper_58" />
+            <RadioButton android:id="@+id/paper_80" style="@style/Choice" android:layout_width="0dp" android:layout_weight="1" android:text="@string/paper_80" />
+        </RadioGroup>
+
+        <TextView style="@style/Label" android:text="@string/label_code_page" />
+        <Spinner
+            android:id="@+id/code_page"
+            android:layout_width="match_parent"
+            android:layout_height="56dp" />
+
+        <TextView style="@style/Label" android:text="@string/label_ticket_lang" />
+        <RadioGroup
+            android:id="@+id/ticket_lang"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+            <RadioButton android:id="@+id/lang_fr" style="@style/Choice" android:layout_width="0dp" android:layout_weight="1" android:text="@string/lang_fr" />
+            <RadioButton android:id="@+id/lang_en" style="@style/Choice" android:layout_width="0dp" android:layout_weight="1" android:text="@string/lang_en" />
+        </RadioGroup>
+
+        <Switch android:id="@+id/auto_print" style="@style/Toggle" android:text="@string/auto_print" />
+        <Switch android:id="@+id/sound" style="@style/Toggle" android:text="@string/sound" />
+        <Switch android:id="@+id/max_volume" style="@style/Toggle" android:text="@string/max_volume" />
+        <Switch android:id="@+id/boot" style="@style/Toggle" android:text="@string/boot" />
+
+        <Button android:id="@+id/save" style="@style/BigButton" android:text="@string/save" />
+        <Button android:id="@+id/test_print" style="@style/BigButton" android:text="@string/test_print" />
+        <Button android:id="@+id/test_alarm" style="@style/BigButton" android:text="@string/test_alarm" />
+        <Button android:id="@+id/battery" style="@style/BigButton" android:text="@string/battery" />
+        <Button android:id="@+id/back" style="@style/BigButton" android:text="@string/back" />
+
+        <TextView style="@style/Label" android:text="@string/status_label" />
+        <TextView
+            android:id="@+id/status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textIsSelectable="true"
+            android:textSize="16sp" />
+        <TextView
+            android:id="@+id/version"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:textIsSelectable="true"
+            android:textSize="14sp" />
+    </LinearLayout>
+</ScrollView>

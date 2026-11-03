@@ -31,7 +31,7 @@ export function SaveChip({ autosave, undo, className }: { autosave: Pick<Autosav
     case 'offline':
       chip = <span className={cn(base, 'bg-stop-soft text-stop-2')} role="status"><CloudOff className="size-4" />{t('Hors ligne — gardé ici, envoyé au retour du réseau', 'Offline — kept here, sent when the network is back')}</span>; break;
     case 'error':
-      chip = <button type="button" onClick={() => void saveNow()} className={cn(base, 'bg-stop text-white hover:bg-stop-2')} title={error ?? ''}><RotateCcw className="size-4" />{t('Pas enregistré — Réessayer', 'Not saved — Retry')}</button>; break;
+      chip = <button type="button" onClick={() => void saveNow()} className={cn(base, 'bg-stop-fill text-on-stop hover:bg-stop-fill-hover')} title={error ?? ''}><RotateCcw className="size-4" />{t('Pas enregistré — Réessayer', 'Not saved — Retry')}</button>; break;
     case 'cancelled':
       chip = <button type="button" onClick={() => void saveNow()} className={cn(base, 'bg-ink text-canvas hover:bg-ink/90')}><X className="size-4" />{t('NIP annulé — Enregistrer', 'PIN cancelled — Save')}</button>; break;
     case 'saved':

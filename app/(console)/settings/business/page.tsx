@@ -2,8 +2,9 @@
 
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
-import { Building2, MapPin, Plus, Tag } from 'lucide-react';
+import { Building2, MapPin, Palette, Plus, Tag } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { BrandMark } from '@/components/ui/brand-mark';
 import { Button } from '@/components/ui/button';
 import { Banner } from '@/components/ui/card';
 import { Field, Input, Switch } from '@/components/ui/form';
@@ -14,6 +15,8 @@ import { Hint } from '@/components/help/hint';
 import { ExtraBrandPriceNotice, useExtraBrandPriceConfirm } from '@/components/billing/extra-brand-price';
 import { useViewer } from '@/components/shell/viewer';
 import { Section, SettingsHead } from '../settings-ui';
+import { BrandKitDialog, type BrandRecord } from './brand-kit-dialog';
+import { brandKitOf } from '@/lib/foodhub/brand-kit';
 import { PROVINCE_TAXES, PROVINCES } from '@/lib/foodhub/taxes';
 import { api } from '@/lib/ui/api';
 import { sameValue } from '@/lib/ui/autosave-core';
@@ -22,7 +25,7 @@ import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
 
 type Loc = { code: string; name: string; address: string; city?: string; province?: string; postalCode?: string; phone?: string | null; active: boolean };
-type Brand = { name: string; active: boolean };
+type Brand = BrandRecord;
 type LocForm = { code: string; name: string; address: string; city: string; province: string; postalCode: string; phone: string; active: boolean };
 /** The location form being opened: new (code typed in the form) or an existing location (code fixed). */
 type LocDraft = { isNew: boolean; form: LocForm };
@@ -38,6 +41,7 @@ export default function BusinessPage() {
   const [brands, setBrands] = useState<Brand[]>([]);
   const [loc, setLoc] = useState<LocDraft | null>(null);
   const [newBrand, setNewBrand] = useState('');
+  const [kitFor, setKitFor] = useState<Brand | null>(null);
   const checkPrice = useExtraBrandPriceConfirm();
   const [err, setErr] = useState('');
 
@@ -85,16 +89,22 @@ export default function BusinessPage() {
         right={edit ? <Hint id="business.brand"><form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); const n = newBrand.trim(); if (n) void checkPrice({ brandName: n }).then((yes) => { if (yes) saveBrand(n, true); }); }}><Input inputSize="sm" className="w-48" placeholder={t('Nouvelle marque', 'New brand')} value={newBrand} onChange={(e) => setNewBrand(e.target.value)} /><Button size="sm" type="submit" disabled={!newBrand.trim()} icon={<Plus className="size-4" />}>{t('Ajouter', 'Add')}</Button></form></Hint> : undefined}>
         {edit && newBrand.trim() && !brands.some((b) => b.name === newBrand.trim()) && <ExtraBrandPriceNotice className="mb-3" brandName={newBrand} />}
         <Hint id="business.brands"><div className="flex flex-wrap gap-2">
-          {brands.map((b) => (
-            <span key={b.name} className={cn('inline-flex items-center gap-2 rounded-full border py-1 pr-1 pl-3 text-[13px] font-semibold', b.active ? 'border-line-2 bg-surface text-ink' : 'border-dashed border-line-2 bg-raised text-ink-3 line-through')}>
-              {b.name}
-              {edit && <button type="button" onClick={() => saveBrand(b.name, !b.active)} className="rounded-full px-2 py-0.5 text-[11px] font-bold text-ink-3 no-underline hover:bg-sunken hover:text-ink">{b.active ? t('Désactiver', 'Deactivate') : t('Réactiver', 'Activate')}</button>}
-            </span>
-          ))}
+          {brands.map((b) => {
+            const kit = brandKitOf(b);
+            return (
+              <span key={b.name} className={cn('inline-flex items-center gap-2 rounded-full border py-1 pr-1 pl-3 text-[13px] font-semibold', b.active ? 'border-line-2 bg-surface text-ink' : 'border-dashed border-line-2 bg-raised text-ink-3 line-through', kit && 'pl-1')}>
+                {kit && <BrandMark name={b.name} kit={kit} size="xs" className="rounded-full" />}
+                {b.name}
+                {edit && <button type="button" onClick={() => setKitFor(b)} aria-label={t(`Apparence de ${b.name} (couleur et logo)`, `Look of ${b.name} (colour and logo)`)} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold text-ink-3 no-underline hover:bg-sunken hover:text-ink"><Palette className="size-3.5" aria-hidden />{t('Apparence', 'Look')}</button>}
+                {edit && <button type="button" onClick={() => saveBrand(b.name, !b.active)} className="rounded-full px-2 py-0.5 text-[11px] font-bold text-ink-3 no-underline hover:bg-sunken hover:text-ink">{b.active ? t('Désactiver', 'Deactivate') : t('Réactiver', 'Activate')}</button>}
+              </span>
+            );
+          })}
         </div></Hint>
       </Section>
 
       {loc && <LocationDialog draft={loc} onClose={() => setLoc(null)} onSaved={async (code) => { toast.success(t('Succursale enregistrée', 'Location saved'), code); setLoc(null); await load(); router.refresh(); }} />}
+      {kitFor && <BrandKitDialog brand={kitFor} onClose={() => setKitFor(null)} onSaved={async () => { toast.success(t('Couleur et logo enregistrés', 'Colour and logo saved'), kitFor.name); setKitFor(null); await load(); router.refresh(); }} />}
       </div>
     </div>
   );

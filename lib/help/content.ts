@@ -597,6 +597,13 @@ export const PAGES: PageHelp[] = [
     tips: [['Testez un texto et un appel avant le premier service.', 'Test a text and a call before your first service.'], ['Vos propres alertes (texto, appel, heures calmes) sont dans Mon profil.', 'Your own alerts (text, call, quiet hours) are in My profile.'], ['Le bip et le plein écran des nouvelles commandes se règlent par tablette, dans « Cet écran ».', 'The new-order beep and full-screen pop-up are set per tablet, under “This screen”.']],
   },
   {
+    match: '/settings/autopilot',
+    title: ['Pilote automatique', 'Autopilot'],
+    intro: ['Tout ce que Food Hub fait tout seul : la règle en mots simples, le dernier passage et ce qu’il a fait. Les nouveautés restent arrêtées tant qu’un gérant ou le propriétaire ne les active pas.', 'Everything Food Hub does by itself: the rule in plain words, the last run and what it did. The new ones stay off until a manager or the owner turns them on.'],
+    steps: [],
+    tips: [['Chaque geste du pilote automatique est écrit au journal d’activité sous « Autopilot ».', 'Every Autopilot action is written to the activity log as “Autopilot”.'], ['Une publication prévue ou un nouvel essai peut être annulé ici tant qu’il n’a pas commencé.', 'A planned publish or a retry can be cancelled here until it starts.']],
+  },
+  {
     match: '/settings/team',
     title: ['Équipe et NIP', 'Team & PINs'],
     intro: ['Qui a accès, à quelles succursales, avec quel rôle et quel NIP. Chacun se connecte par courriel ou cellulaire ; le NIP sert aux tablettes.', 'Who has access, to which locations, with which role and PIN. Everyone signs in by email or cell; the PIN is for tablets.'],

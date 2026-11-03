@@ -13,7 +13,7 @@ import { useViewer } from '@/components/shell/viewer';
 import { DirectOrderDrawer, type DirectRow } from '@/components/expansion/direct-order-drawer';
 import { MevBadge } from '@/components/live/mev-panel';
 import { NewDirectOrder } from '@/components/expansion/new-order-modal';
-import { DELIVERY_TONE, DIRECT_TONE, FLEET_NAME, PAYMENT_TONE, deliveryStatusLabel, directStatusLabel, paymentLabel, sourceLabel } from '@/components/expansion/labels';
+import { DELIVERY_TONE, DIRECT_TONE, FLEET_NAME, deliveryStatusLabel, directStatusLabel, interacLatePending, paymentBadge, sourceLabel } from '@/components/expansion/labels';
 import { api, money, timeOf } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
@@ -23,8 +23,10 @@ type Fleet = { fleet: string; label: string; configured: boolean; canSend: boole
 type Board = { orders: DirectRow[]; fleets: Fleet[]; settings: { customerFee: number } };
 type Filter = 'todo' | 'road' | 'done' | 'all';
 
-/** "To do" on the board: held orders waiting for their payment link are listed too (resend, pay at the counter, cancel). */
+/** "To do" on the board: held orders waiting for their payment link or Interac transfer are listed too (resend, pay at the counter, cancel). */
 const OPEN = ['awaiting_payment', 'new', 'in_kitchen', 'ready'];
+/** Needs a person: a flag on an open order, or an Interac transfer that arrived after the cancel (release anyway, or refund by hand). */
+const needsPerson = (o: DirectRow) => Boolean((o.attention && !['completed', 'cancelled'].includes(o.status)) || (o.status === 'cancelled' && interacLatePending(o)));
 
 export default function DirectPage() {
   const { t, loc } = useI18n();
@@ -43,11 +45,11 @@ export default function DirectPage() {
 
   const orders = useMemo(() => data?.orders ?? [], [data]);
   const shown = useMemo(() => orders.filter((o) => filter === 'all'
-    || (filter === 'todo' && (OPEN.includes(o.status) || (o.attention && !['completed', 'cancelled'].includes(o.status))))
+    || (filter === 'todo' && (OPEN.includes(o.status) || needsPerson(o)))
     || (filter === 'road' && o.status === 'out_for_delivery')
     || (filter === 'done' && ['completed', 'cancelled'].includes(o.status))), [orders, filter]);
   const today = orders.filter((o) => new Date(o.createdAt).toDateString() === new Date().toDateString() && o.status !== 'cancelled');
-  const attention = orders.filter((o) => o.attention && !['completed', 'cancelled'].includes(o.status)).length;
+  const attention = orders.filter(needsPerson).length;
   const courierCost = today.reduce((s, o) => s + (o.delivery && o.delivery.status !== 'cancelled' ? o.delivery.fee ?? 0 : 0), 0);
   const feesCharged = today.reduce((s, o) => s + (o.fulfillment === 'delivery' ? o.deliveryFee : 0), 0);
   const drive = data?.fleets.find((f) => f.fleet === 'doordash_drive');
@@ -74,7 +76,7 @@ export default function DirectPage() {
 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <Segmented<Filter> value={filter} onChange={setFilter} options={[
-          { key: 'todo', label: `${t('À faire', 'To do')} (${orders.filter((o) => OPEN.includes(o.status) || (o.attention && !['completed', 'cancelled'].includes(o.status))).length})` },
+          { key: 'todo', label: `${t('À faire', 'To do')} (${orders.filter((o) => OPEN.includes(o.status) || needsPerson(o)).length})` },
           { key: 'road', label: t('En livraison', 'Out for delivery') },
           { key: 'done', label: t('Terminées', 'Done') },
           { key: 'all', label: t('Toutes', 'All') },
@@ -88,7 +90,7 @@ export default function DirectPage() {
         {shown.map((o) => {
           const d = o.delivery;
           return (
-            <button key={o.id} type="button" onClick={() => setOpen(o.id)} className={cn('group flex flex-col rounded-lg border bg-surface p-4 text-left shadow-card transition-all hover:-translate-y-0.5 hover:shadow-pop', o.attention && !['completed', 'cancelled'].includes(o.status) ? 'border-wait/60' : 'border-line')}>
+            <button key={o.id} type="button" onClick={() => setOpen(o.id)} className={cn('group flex flex-col rounded-lg border bg-surface p-4 text-left shadow-card transition-all hover:-translate-y-0.5 hover:shadow-pop', needsPerson(o) ? 'border-wait/60' : 'border-line')}>
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2"><span className="num text-lg font-extrabold">{o.number}</span><Badge tone="neutral">{sourceLabel(t, o.source)}</Badge>{o.containsAlcohol && <Badge tone="violet" icon={<Wine className="size-3" />}>18+</Badge>}</div>
@@ -102,7 +104,7 @@ export default function DirectPage() {
                 <span className="ml-auto num">{money(o.total, loc)}</span>
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-3">
-                <Badge tone={PAYMENT_TONE[o.payment] ?? 'neutral'}>{paymentLabel(t, o.payment)}</Badge>
+                <Badge tone={paymentBadge(t, o).tone}>{paymentBadge(t, o).label}</Badge>
                 <MevBadge mev={o.mev} />
                 <span>{t('reçue', 'placed')} {timeOf(o.placedAt, loc)} · <Elapsed since={o.placedAt} /></span>
                 {o.readyAt && !['completed', 'cancelled'].includes(o.status) && <span>{t('prête vers', 'ready at')} {timeOf(o.readyAt, loc)}</span>}
@@ -113,7 +115,7 @@ export default function DirectPage() {
                     : <><StatusDot tone="neutral" /><span className="text-ink-3">{t('Pas encore de livreur', 'No courier yet')}</span></>}
                 </div>
               )}
-              {o.attention && !['completed', 'cancelled'].includes(o.status) && <div className="mt-2 flex items-start gap-1.5 text-xs font-semibold text-wait-2"><TriangleAlert className="mt-px size-3.5 shrink-0" /><span className="line-clamp-2">{o.attention}</span></div>}
+              {needsPerson(o) && <div className="mt-2 flex items-start gap-1.5 text-xs font-semibold text-wait-2"><TriangleAlert className="mt-px size-3.5 shrink-0" /><span className="line-clamp-2">{o.attention ?? t('Virement Interac reçu après l’annulation — une personne décide', 'Interac transfer received after the cancel — a person decides')}</span></div>}
             </button>
           );
         })}

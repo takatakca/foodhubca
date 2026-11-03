@@ -243,6 +243,25 @@ describe('own orders', () => {
     expect(toMevSaleFromDirect(direct({ status: 'cancelled' }), CTX)).toEqual({ ok: false, reason: 'cancelled_before_sale' });
     expect(toMevSaleFromDirect(direct({ status: 'in_kitchen' }), CTX)).toEqual({ ok: false, reason: 'not_final' });
   });
+  it('Interac e-Transfer confirmed by a person: the fee is the restaurant’s service fee (taxed, in the total), AUT, e-commerce, never tender_unknown', () => {
+    // 24.97 of food + 5.00 Interac fee = 29.97; GST 1.50 + QST 2.99 = 4.49; tip 2.00 → the customer sent 36.46.
+    const interac = { reference: 'PP-7K3Q', amount: 36.46, recipient: 'paiements@example.test', autoDeposit: true, lang: 'fr' as const, createdAt: AT, expiresAt: AT, reminderMin: 20, receivedAt: '2026-10-24T16:05:00.000Z', receivedBy: 'Marc', releasedAt: '2026-10-24T16:05:01.000Z' };
+    const o = direct({
+      source: 'website', sourceRef: 'W-1001', payment: 'paid', status: 'in_kitchen', fees: [{ code: 'interac', name: 'Frais Interac e-Transfer', amount: 5 }], tax: 4.49, tip: 2, total: 36.46, interac,
+      customer: { name: 'Client', phone: '+15140000000' }, events: [{ at: AT, type: 'received', message: 'Website' }, { at: '2026-10-24T16:05:00.000Z', type: 'paid', message: 'Interac e-Transfer PP-7K3Q received', by: 'Marc' }],
+    });
+    const s = sale(toMevSaleFromDirect(o, CTX)); // no tender given: an Interac order never waits for one
+    expect(qcmevAccepts(s)).toEqual([]);
+    expect(s).toMatchObject({ serviceType: 'CMP', ecommerce: true, fees: { deliveryCents: 0, serviceFeeCents: 500 }, payment: { mode: 'AUT', collectedBy: 'paylink', reference: 'PP-7K3Q' } });
+    expect(s.amounts).toMatchObject({ subtotalCents: 2497 + 500, gstCents: 150, qstCents: 299, tipCents: 200 });
+    expect(s.amounts.totalCents + s.amounts.tipCents).toBe(3646);
+    expect(s.flags?.taxGap).toBeUndefined();
+    expect(s.occurredAt).toBe('2026-10-24T12:05:00-04:00');
+    // Switched to "pay at the counter" (fee taken off): the tender comes from the counter as for every pickup.
+    const counter = direct({ source: 'website', sourceRef: 'W-1002', payment: 'pay_at_pickup', interac: { ...interac, receivedAt: undefined, receivedBy: undefined, releasedAt: undefined, cancelReason: 'pay at the counter' } });
+    expect(toMevSaleFromDirect(counter, CTX)).toEqual({ ok: false, reason: 'tender_unknown' });
+    expect(sale(toMevSaleFromDirect(counter, { ...CTX, tender: 'DEB' })).fees.serviceFeeCents).toBe(0);
+  });
 });
 
 describe('keys, hashes, credit notes, prints', () => {

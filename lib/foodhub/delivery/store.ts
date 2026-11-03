@@ -3,8 +3,8 @@ import crypto from 'node:crypto';
 import { nowIso, round2 } from '../config';
 import { getRepo } from '../repo';
 import {
-  DEFAULT_DELIVERY_SETTINGS, DEFAULT_RULE, DEFAULT_UBER_DIRECT_OPTIONS, type Delivery, type DeliverySettings, type DirectEvent, type DirectOrder, type DirectSource, type LocationDeliveryRule,
-  type UberDirectOptions,
+  DEFAULT_DELIVERY_SETTINGS, DEFAULT_INTERAC_SETTINGS, DEFAULT_RULE, DEFAULT_UBER_DIRECT_OPTIONS, INTERAC_ANSWER_MASK, type Delivery, type DeliverySettings, type DirectEvent, type DirectOrder, type DirectSource,
+  type InteracSettings, type LocationDeliveryRule, type UberDirectOptions,
 } from './types';
 
 export const DIRECT_ORDERS = 'direct_orders';
@@ -138,9 +138,53 @@ export function cleanSettings(raw: Partial<DeliverySettings> | null | undefined)
     undeliverable: s.undeliverable === 'dispose' ? 'dispose' : 'return_to_pickup',
     readCloverDeliveryOrders: Boolean(s.readCloverDeliveryOrders),
     uberDirect: cleanUberDirect(s.uberDirect),
+    interac: cleanInterac(s.interac),
     locations,
     updatedAt: s.updatedAt,
   };
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const cleanEmail = (v: unknown) => { const e = String(v ?? '').trim().toLowerCase().slice(0, 120); return EMAIL_RE.test(e) ? e : ''; };
+
+/**
+ * Interac settings. Env fallbacks (optional): FOODHUB_INTERAC_EMAIL when no recipient is saved, FOODHUB_INTERAC_FEE
+ * when no fee is saved. The answer is stored as given (trimmed); the settings screen sends the mask back, which
+ * saveDeliverySettings turns into "keep the stored answer".
+ */
+export function cleanInterac(raw: Partial<InteracSettings> | undefined): InteracSettings {
+  const envFee = Number(process.env.FOODHUB_INTERAC_FEE);
+  const def = { ...DEFAULT_INTERAC_SETTINGS, fee: Number.isFinite(envFee) && envFee >= 0 ? round2(envFee) : DEFAULT_INTERAC_SETTINGS.fee, recipientEmail: cleanEmail(process.env.FOODHUB_INTERAC_EMAIL) };
+  const r = { ...def, ...(raw ?? {}) };
+  const recipients: Record<string, string> = {};
+  for (const [code, email] of Object.entries(r.recipients ?? {})) { const e = cleanEmail(email); if (/^[A-Z0-9_]{2,30}$/.test(code) && e) recipients[code] = e; }
+  return {
+    enabled: Boolean(r.enabled),
+    fee: round2(num(r.fee, def.fee, 0, 100)),
+    recipientEmail: cleanEmail(r.recipientEmail) || def.recipientEmail,
+    recipients,
+    autoDeposit: r.autoDeposit !== false,
+    question: String(r.question ?? '').trim().slice(0, 120),
+    answer: String(r.answer ?? '').trim().slice(0, 80),
+    holdMinutes: Math.round(num(r.holdMinutes, def.holdMinutes, 10, 240)),
+    reminderMinutes: Math.round(num(r.reminderMinutes, def.reminderMinutes, 0, 240)),
+  };
+}
+
+/** The settings as the API returns them: the Interac answer is masked (set) or empty (not set) — never the answer. */
+export function maskDeliverySettings(s: DeliverySettings): DeliverySettings {
+  return { ...s, interac: { ...s.interac, answer: s.interac.answer ? INTERAC_ANSWER_MASK : '' } };
+}
+
+/**
+ * A direct order as an API returns it to the console: the Interac security answer is dropped (it is texted to the
+ * customer only; any signed-in role, even read-only, can read the orders board). Every route that sends a whole
+ * DirectOrder to a browser passes it through here.
+ */
+export function publicDirectOrder<T extends DirectOrder>(o: T): T {
+  if (!o.interac || !('answer' in o.interac)) return o;
+  const { answer: _answer, ...interac } = o.interac;
+  return { ...o, interac };
 }
 
 function cleanUberDirect(raw: Partial<UberDirectOptions> | undefined): UberDirectOptions {
@@ -157,7 +201,9 @@ export async function getDeliverySettings(): Promise<DeliverySettings> {
 
 export async function saveDeliverySettings(patch: Partial<DeliverySettings>): Promise<DeliverySettings> {
   const cur = await getDeliverySettings();
-  const next = cleanSettings({ ...cur, ...patch, locations: { ...cur.locations, ...(patch.locations ?? {}) }, updatedAt: nowIso() });
+  // The screen sends the mask back: the stored answer stays. An empty answer clears it.
+  const interacPatch = patch.interac ? { ...patch.interac, ...(patch.interac.answer === INTERAC_ANSWER_MASK ? { answer: cur.interac.answer } : {}) } : {};
+  const next = cleanSettings({ ...cur, ...patch, interac: { ...cur.interac, ...interacPatch }, locations: { ...cur.locations, ...(patch.locations ?? {}) }, updatedAt: nowIso() });
   await getRepo().setKv(SETTINGS_KEY, next);
   return next;
 }

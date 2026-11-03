@@ -14,6 +14,7 @@ import { CompareLine, HBars, LineLegend, VIZ } from '@/components/charts/charts'
 import { usePulse, useRefreshOn, useScopeHref } from '@/components/live/pulse';
 import { useScopedIncidents } from '@/components/live/scoped-incidents';
 import { PlatformSummary } from '@/components/live/platform-summary';
+import { ServicesStrip, type ServiceRow } from '@/components/live/services-strip';
 import { BrandList, cellText, PLATFORM_ORDER, PlatformLegend, PlatformStateDot } from '@/components/live/brand-list';
 import { ExpansionTiles } from '@/components/expansion/overview-tiles';
 import { GettingStarted } from '@/components/home/getting-started';
@@ -340,6 +341,8 @@ type Health = {
   status: 'ok' | 'degraded' | 'down'; at: string;
   checks: Record<string, { status: CheckStatus; detail: string; detailFr: string; at?: string | null }>;
   platforms: Array<{ channel: string; label: string; mode: 'direct' | 'via_clover' | 'inbound' | 'not_connected'; live: boolean; stores: number; lastOrderAt: string | null }>;
+  /** E-mail, SMS, AI, screens relay, Too Good To Go mailbox (lib/foodhub/connections.ts); never part of the status. */
+  services?: ServiceRow[];
 };
 const TONE: Record<CheckStatus, 'go' | 'wait' | 'stop'> = { ok: 'go', warn: 'wait', down: 'stop' };
 
@@ -366,7 +369,7 @@ function Connections() {
   return (
     <Card>
       <CardHeader title={t('Connexions et synchro', 'Connections & sync')} icon={<Activity className="size-5" />}
-        subtitle={t('Plateformes, Clover, réception des commandes et surveillance — mis à jour toutes les 30 s.', 'Platforms, Clover, order intake and supervision — refreshed every 30 s.')}
+        subtitle={t('Plateformes, Clover, réception des commandes, surveillance, courriel, SMS et IA — mis à jour toutes les 30 s.', 'Platforms, Clover, order intake, supervision, e-mail, SMS and AI — refreshed every 30 s.')}
         right={<span className="text-small flex items-center gap-2 font-semibold"><StatusDot tone={overall[1]} pulse={overall[1] === 'stop'} />{overall[0]}</span>} />
       {/* min-w-0: the long check texts truncate instead of widening their column and squeezing the platform tiles. */}
       <div className="grid grid-cols-1 gap-0 border-t border-line lg:grid-cols-[1.25fr_1fr]">
@@ -394,6 +397,7 @@ function Connections() {
           {!h && <li className="p-4"><Skeleton className="h-24" /></li>}
         </ul>
       </div>
+      <ServicesStrip services={h?.services ?? []} />
     </Card>
   );
 }

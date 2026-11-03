@@ -8,19 +8,24 @@
 //   inbox      — no webhook stuck or failing
 //   clover     — Clover configured, its merchants answered the last sync, no order Clover still does not have
 //   console    — the screens open: proxy.ts locks them all when live without DASHBOARD_PASSWORD, or with no session secret
+// Beside the checks, `services` (connections.ts): e-mail, SMS, the AI, the screens relay and the Too Good To Go mailbox.
+// They never change the status below; the Overview shows them and the public answer never carries them.
 // Status: "down" (HTTP 503) when an order could be missed or nobody would be alerted; "degraded" (200) for a warning.
 // The public answer (anyone can call it) is computed at most once per HEALTH_CACHE_MS on Supabase, callers in flight
 // share it, and every database read is time-bounded — a burst of requests never becomes a burst of reads.
 import { CHANNEL_KEYS, getAdapter } from './adapters';
 import { CHANNEL_LABELS } from './config';
+import { screensRelayWanted, serviceHealth, tgtgMailWanted, type ServiceHealth } from './connections';
 import { liveConnectorsGloballyEnabled } from './env-utils';
 import { inboxSummary } from './inbox';
 import { lastOrderTimes } from './order-retry';
 import { cloverReadiness } from './pos/clover';
 import { lastRecoveryRun } from './recovery';
 import { getRepo } from './repo';
+import { listScreens } from './screens';
 import { sessionSecretSource } from './session';
 import { lastSyncAt } from './sync';
+import { getMailboxStatus, getTgtgEmailSettings } from './tgtg-email/settings';
 import type { ChannelKey } from './types';
 
 export type CheckStatus = 'ok' | 'warn' | 'down';
@@ -31,6 +36,8 @@ export interface HealthReport {
   at: string;
   checks: Record<'database' | 'sync' | 'watchtower' | 'recovery' | 'inbox' | 'clover' | 'console', HealthCheck>;
   platforms: PlatformHealth[];
+  /** E-mail, SMS, AI, screens relay, Too Good To Go mailbox: shown on the Overview, never part of the status. */
+  services: ServiceHealth[];
   version?: string;
 }
 
@@ -177,6 +184,14 @@ export async function buildHealth(opts: { now?: number; uptimeSec?: number } = {
     return { channel: ch, label: CHANNEL_LABELS[ch], mode, live: r.canSend, stores: stores.filter((s) => s.channel === ch).length, lastOrderAt: last[ch] ?? null };
   });
 
+  // Only what is set up is read: no screen list without the relay token, no mailbox state without the mailbox.
+  const [screens, mailbox, tgtg] = await Promise.all([
+    screensRelayWanted() ? read(() => listScreens(), []) : Promise.resolve([]),
+    tgtgMailWanted() ? read(() => getMailboxStatus(), null) : Promise.resolve(null),
+    tgtgMailWanted() ? read(() => getTgtgEmailSettings(), null) : Promise.resolve(null),
+  ]);
+  const services = serviceHealth({ screens, mailbox, tgtgEnabled: tgtg?.enabled, now });
+
   const all = Object.values(checks).map((c) => c.status);
   const status = all.includes('down') ? 'down' : all.includes('warn') ? 'degraded' : 'ok';
   if (status === 'down') {
@@ -188,6 +203,7 @@ export async function buildHealth(opts: { now?: number; uptimeSec?: number } = {
     at: new Date(now).toISOString(),
     checks,
     platforms,
+    services,
     version: process.env.npm_package_version,
   };
 }

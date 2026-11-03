@@ -29,6 +29,7 @@ import { prepFor } from '../prep';
 import { getRepo } from '../repo';
 import { createDirectOrderInClover, explicitMerchantFor, kitchenHasNoRegister, orderTypeId } from './clover-direct';
 import { MAX_AUTO_ATTEMPTS } from './dispatch';
+import { claimFresh, withOrderLock as withLock } from './lock';
 import { confirmToCustomer } from './orders';
 import { addDirectEvent, getDeliverySettings, getDirectOrder, listDirectOrders, ruleFor, saveDirectOrder } from './store';
 import type { DirectOrder, PayLink } from './types';
@@ -37,7 +38,6 @@ type Lang = PayLink['lang'];
 const CLOVER_SESSION_MS = 15 * 60_000;
 const REUSE_SESSION_MS = 13 * 60_000;
 const POLL_MS = 20_000;
-const CLAIM_STALE_MS = 2 * 60_000;
 const SYSTEM = 'Payment link';
 const PRINT_FLAG = 'Ticket non imprimé — réimprimez-le dans Clover (la commande est payée).';
 
@@ -236,31 +236,7 @@ export async function openPayLink(token: string, now = Date.now()): Promise<{ ok
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Release — exactly once
-
-const locks = (): Map<string, Promise<unknown>> => {
-  const g = globalThis as unknown as { __fhPaylinkLocks?: Map<string, Promise<unknown>> };
-  g.__fhPaylinkLocks ??= new Map();
-  return g.__fhPaylinkLocks;
-};
-
-/**
- * One release at a time per order in this process. SINGLE INSTANCE: the claim written and re-read below narrows the
- * window between two server processes but is not an atomic compare-and-set (saveDirectOrder overwrites). "Exactly once"
- * (one print, one courier) holds with ONE Food Hub process, which is how it is deployed (one Coolify container). Before
- * running several instances, add an atomic claim to the repo (INSERT … ON CONFLICT DO NOTHING on paylink_release:<id>).
- */
-async function withLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
-  const prev = locks().get(id) ?? Promise.resolve();
-  const run = prev.catch(() => undefined).then(fn);
-  locks().set(id, run);
-  try { return await run; } finally { if (locks().get(id) === run) locks().delete(id); }
-}
-
-/** A release is running (its claim is younger than CLAIM_STALE_MS). */
-function claimFresh(pl: PayLink | undefined, now = Date.now()): boolean {
-  return Boolean(pl?.releaseClaim && pl.releaseClaimAt && now - Date.parse(pl.releaseClaimAt) < CLAIM_STALE_MS);
-}
+// Release — exactly once (one release at a time per order: lock.ts, shared with the Interac e-Transfer)
 
 export interface PaymentEvidence { paymentId: string; cloverOrderId?: string; amountCents?: number; via: 'webhook' | 'poller' | 'page' | 'phone' | 'clover_event' }
 export type ReleaseResult = { state: 'released' | 'already' | 'pending' | 'late' | 'extra' | 'declined' | 'retry' | 'unknown'; message: string; order?: DirectOrder };

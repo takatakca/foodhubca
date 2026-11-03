@@ -72,7 +72,7 @@ function Logo({ compact }: { compact?: boolean }) {
   const letter = product.isDefault ? 'T' : (product.name.trim()[0] ?? 'F').toUpperCase();
   return (
     <span className="flex items-center gap-2.5">
-      <span className="text-body flex size-9 shrink-0 items-center justify-center rounded-full bg-electric font-black text-white shadow-[0_0_18px_rgb(31_139_255/0.55)]">{letter}</span>
+      <span aria-hidden className="text-body flex size-9 shrink-0 items-center justify-center rounded-full bg-electric font-black text-white shadow-[0_0_18px_rgb(31_139_255/0.55)]">{letter}</span>
       {!compact && (product.isDefault ? (
         <span className="leading-none">
           <span className="text-body block font-extrabold tracking-[0.16em] text-[#f5f8fc]">TAKATAK</span>
@@ -119,7 +119,8 @@ function Frame({ children }: { children: ReactNode }) {
   return (
     <div className={cn('min-h-dvh', kitchen && 'theme-kitchen bg-canvas text-ink')}>
       <aside className={cn('fixed inset-y-0 left-0 z-40 hidden flex-col bg-rail text-white transition-[width] duration-200 lg:flex', collapsed ? 'w-[76px]' : 'w-64')}>
-        <Link href={href('/')} className={cn('flex h-16 items-center px-5', collapsed && 'justify-center px-0')} aria-label={product.fullName}><Logo compact={collapsed} /></Link>
+        {/* Expanded, the link reads its visible words (WCAG 2.5.3 label in name); collapsed, only the letter shows: then the label. */}
+        <Link href={href('/')} className={cn('flex h-16 items-center px-5', collapsed && 'justify-center px-0')} aria-label={collapsed ? product.fullName : undefined}><Logo compact={collapsed} /></Link>
         <nav className="scrollbar-thin flex-1 space-y-1 overflow-y-auto px-3 py-3" aria-label={t('Menu principal', 'Main menu')}>
           {items.map((n) => <NavGroup key={n.href} item={n} collapsed={collapsed} visible={visible} />)}
         </nav>
@@ -199,7 +200,9 @@ function useBadge(kind?: NavItem['badge']): { n: number; tone: 'brand' | 'stop' 
   return null;
 }
 
-const BADGE_BG = { stop: 'bg-stop', wait: 'bg-wait', brand: 'bg-electric' } as const;
+const BADGE_BG = { stop: 'bg-stop-fill', wait: 'bg-wait', brand: 'bg-electric' } as const;
+/** The count on each badge colour, ≥ 4.5:1 (white on amber or electric blue is 2.5–3.4:1). */
+const BADGE_TEXT = { stop: 'text-on-stop', wait: 'text-on-bright', brand: 'text-on-bright' } as const;
 /** Small badges (bell, bottom bar) stop at "9+": a growing red number is noise (A4 #6); the rail keeps the full count. */
 const capCount = (n: number) => (n > 9 ? '9+' : String(n));
 
@@ -220,7 +223,7 @@ function NavGroup({ item, collapsed, visible }: { item: NavItem; collapsed: bool
         {!collapsed && <span className="flex-1 truncate">{item.label(t)}</span>}
         {b && (collapsed
           ? <span className={cn('absolute top-2 right-3 size-2.5 rounded-full', BADGE_BG[b.tone])} />
-          : <span className={cn('num text-micro min-w-6 rounded-full px-1.5 text-center leading-5 font-bold text-white', BADGE_BG[b.tone])}>{b.n}</span>)}
+          : <span className={cn('num text-micro min-w-6 rounded-full px-1.5 text-center leading-5 font-bold', BADGE_BG[b.tone], BADGE_TEXT[b.tone])}>{b.n}</span>)}
       </Link>
       {on && !collapsed && kids.length > 1 && (
         <div className="mt-0.5 mb-1.5 ml-[22px] space-y-0.5 border-l border-white/10 pl-3">
@@ -246,7 +249,7 @@ function MobileLink({ item }: { item: NavItem }) {
     <Link href={href(item.href)} aria-current={on ? 'page' : undefined} className={cn('text-micro relative flex h-16 min-w-0 flex-col items-center justify-center gap-1 px-1 font-semibold', on ? 'text-ink' : 'text-ink-3')}>
       {on && <span className="absolute top-0 h-0.5 w-8 rounded-b-full bg-brand" aria-hidden />}
       <item.icon className={cn('size-5', on && 'text-brand')} aria-hidden /><span className="max-w-full truncate">{label}</span>
-      {b && <span className={cn('num text-micro absolute top-1.5 right-[calc(50%-22px)] flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 font-bold text-white', b.tone === 'stop' ? 'bg-stop' : b.tone === 'wait' ? 'bg-wait' : 'bg-brand')} aria-label={String(b.n)}>{capCount(b.n)}</span>}
+      {b && <span className={cn('num text-micro absolute top-1.5 right-[calc(50%-22px)] flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 font-bold', b.tone === 'stop' ? 'bg-stop-fill text-on-stop' : b.tone === 'wait' ? 'bg-wait text-on-bright' : 'bg-brand text-on-brand')} aria-label={String(b.n)}>{capCount(b.n)}</span>}
     </Link>
   );
 }
@@ -261,7 +264,7 @@ function AlertsBell() {
     <Link href={href('/alerts')} aria-label={b ? t(b.n > 1 ? `Alertes : ${b.n} ouvertes` : 'Alertes : 1 ouverte', b.n > 1 ? `Alerts: ${b.n} open` : 'Alerts: 1 open') : t('Alertes', 'Alerts')}
       title={t('Alertes', 'Alerts')} className={cn('relative flex size-11 items-center justify-center rounded-lg hover:bg-sunken', path.startsWith('/alerts') ? 'text-brand' : 'text-ink-2')}>
       <BellRing className="size-5" aria-hidden />
-      {b && <span className={cn('num text-micro absolute top-1.5 right-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 font-bold text-white', b.tone === 'stop' ? 'bg-stop' : 'bg-wait')} aria-hidden>{capCount(b.n)}</span>}
+      {b && <span className={cn('num text-micro absolute top-1.5 right-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 font-bold', b.tone === 'stop' ? 'bg-stop-fill text-on-stop' : 'bg-wait text-on-bright')} aria-hidden>{capCount(b.n)}</span>}
     </Link>
   );
 }
@@ -296,7 +299,7 @@ function Topbar() {
           </button>
           </Hint>
           {textSizeInBar && <TextSizeButton />}
-          <button type="button" onClick={() => setLang(lang === 'fr' ? 'en' : 'fr')} className="text-small hidden h-11 items-center gap-1 rounded-lg px-2 font-bold text-ink-2 hover:bg-sunken hover:text-ink sm:flex" aria-label="Langue / Language" title={lang === 'fr' ? 'Switch to English' : 'Passer en français'}><Globe className="size-4" aria-hidden />{lang === 'fr' ? 'EN' : 'FR'}</button>
+          <button type="button" onClick={() => setLang(lang === 'fr' ? 'en' : 'fr')} className="text-small hidden h-11 items-center gap-1 rounded-lg px-2 font-bold text-ink-2 hover:bg-sunken hover:text-ink sm:flex" aria-label={`${lang === 'fr' ? 'EN' : 'FR'} — Langue / Language`} title={lang === 'fr' ? 'Switch to English' : 'Passer en français'}><Globe className="size-4" aria-hidden />{lang === 'fr' ? 'EN' : 'FR'}</button>
           {!help.tour && <TakTakButton />}
           <UserMenu />
         </div>
@@ -436,7 +439,7 @@ function Bar({ tone, children, href, icon, dismissKey }: { tone: 'stop' | 'wait'
   useEffect(() => { if (!dismissKey) return; try { setHidden(sessionStorage.getItem(BAR_KEY + dismissKey) === '1'); } catch { /* ignore */ } }, [dismissKey]);
   if (hidden) return null;
   const dismiss = () => { setHidden(true); try { sessionStorage.setItem(BAR_KEY + dismissKey, '1'); } catch { /* ignore */ } };
-  const cls = cn('text-small flex min-h-9 flex-1 items-center justify-center gap-2 px-4 py-1.5 text-center font-semibold', tone === 'stop' ? 'bg-stop text-white' : tone === 'wait' ? 'bg-wait-soft text-wait-2' : 'bg-info-soft text-info-2');
+  const cls = cn('text-small flex min-h-9 flex-1 items-center justify-center gap-2 px-4 py-1.5 text-center font-semibold', tone === 'stop' ? 'bg-stop-fill text-on-stop' : tone === 'wait' ? 'bg-wait-soft text-wait-2' : 'bg-info-soft text-info-2');
   const body = href ? <Link href={href} className={cls}>{icon}{children} →</Link> : <div className={cls}>{icon}{children}</div>;
   if (!dismissKey) return body;
   return (

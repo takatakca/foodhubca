@@ -5,6 +5,7 @@ import { parseProvince } from './taxes';
 import rawBrands from '../../data/actual/brands.json';
 import rawLocations from '../../data/actual/locations.json';
 import { getRepo } from './repo';
+import { parseAccent, parseLogo } from './brand-kit';
 
 export interface LocationDef {
   code: string;
@@ -24,7 +25,14 @@ export interface BrandDef {
   name: string;
   active: boolean;
   seed?: boolean;
+  /** Brand kit (docs/BRAND_KIT.md): the brand's accent colour, `#rrggbb` (lib/foodhub/brand-kit.ts parseAccent). */
+  accent?: string;
+  /** The brand's real logo: an https address or a media library photo (`/media/<name>`). Never an AI-generated image. */
+  logo?: string;
 }
+
+/** A brand being saved. `accent` / `logo`: left out = keep what is saved; '' or null = remove it. */
+export type BrandInput = { name: string; active: boolean; accent?: string | null; logo?: string | null };
 
 export interface Catalog {
   locations: LocationDef[];
@@ -73,15 +81,26 @@ export async function saveLocation(def: LocationDef): Promise<Catalog> {
   return getCatalog();
 }
 
-export async function saveBrand(def: BrandDef): Promise<Catalog> {
+export async function saveBrand(def: BrandInput): Promise<Catalog> {
   const name = def.name?.trim();
   if (!name) throw new Error('Brand name is required.');
   // Brand lists travel as comma-separated query strings (?brands=a,b) — a comma would split the brand in two.
   if (name.includes(',')) throw new Error('Brand name cannot contain a comma (,).');
   if (NOT_BRANDS.has(name)) throw new Error(`${name} is a sales channel, not a brand.`);
+  // Brand kit: checked before anything is written (a refused colour or logo saves nothing).
+  const accent = def.accent === undefined ? undefined : parseAccent(def.accent);
+  if (accent && !accent.ok) throw new Error(accent.error);
+  const logo = def.logo === undefined ? undefined : parseLogo(def.logo);
+  if (logo && !logo.ok) throw new Error(logo.error);
   const stored = (await getRepo().getKv<Partial<Catalog>>(KEY)) ?? {};
+  const prev = (stored.brands ?? []).find((b) => b.name === name);
   const list = (stored.brands ?? []).filter((b) => b.name !== name);
-  list.push({ name, active: def.active !== false });
+  // Turning a brand off or on (no accent / logo sent) keeps its colour and logo.
+  const prevAccent = parseAccent(prev?.accent);
+  const prevLogo = parseLogo(prev?.logo);
+  const keptAccent = accent ? accent.value : prevAccent.ok ? prevAccent.value : null;
+  const keptLogo = logo ? logo.value : prevLogo.ok ? prevLogo.value : null;
+  list.push({ name, active: def.active !== false, ...(keptAccent ? { accent: keptAccent } : {}), ...(keptLogo ? { logo: keptLogo } : {}) });
   await getRepo().setKv(KEY, { ...stored, brands: list });
   return getCatalog();
 }

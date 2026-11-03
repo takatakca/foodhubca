@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlarmClock, Bike, Check, ChevronRight, Eye, MapPin, Printer, StickyNote, TriangleAlert, Volume2, X } from 'lucide-react';
 import { Badge, PlatformMark, platformOf } from '@/components/ui/badge';
+import { BrandMark } from '@/components/ui/brand-mark';
 import { Button } from '@/components/ui/button';
 import { Chips } from '@/components/ui/form';
 import { ReasonDialog } from '@/components/ui/reason-dialog';
@@ -14,6 +15,7 @@ import { audioReady, loopSound, playSound, setLoud, setVolume, unlockAudio } fro
 import { money } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import type { LiveOrder } from '@/lib/foodhub/pulse';
+import { brandVars } from '@/lib/foodhub/brand-kit';
 import { cn } from '@/lib/ui/cn';
 
 // ---------- per-screen alert settings (kitchen tablet vs office PC) ----------
@@ -42,7 +44,7 @@ const PREP = [10, 15, 20, 25, 30, 45];
  */
 export function IncomingOrders() {
   const { pulse } = usePulse();
-  const { can, viewer, locName } = useViewer();
+  const { can, viewer, locName, brandKit } = useViewer();
   const { t, lang, loc } = useI18n();
   const settings = useAlertSettings();
   const [snoozed, setSnoozed] = useState<Record<string, number>>({});
@@ -122,17 +124,23 @@ export function IncomingOrders() {
   const items = order.lines.reduce((s, l) => s + l.quantity, 0);
   const minutes = prep ?? kitchenMin;
   const waited = (now - Date.parse(order.createdAt)) / 1000;
+  // Brand kit (docs/BRAND_KIT.md): a stripe in the brand's colour beside its name, and its mark (logo or letters on its
+  // colour). The platform keeps the header colour. No colour and no logo: exactly as before.
+  const kit = brandKit(order.brandName);
 
   return (
     <div className="fixed inset-0 z-[90] flex items-end justify-center bg-ink/70 backdrop-blur-sm motion-safe:animate-fade sm:items-center sm:p-6" onPointerDown={() => unlockAudio()}>
       {/* Phone: a bottom sheet as tall as its content (one short order no longer pushes the buttons to the bottom). */}
-      <div className={cn('relative flex max-h-dvh w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl bg-surface shadow-pop motion-safe:animate-rise sm:max-h-[94dvh] sm:rounded-2xl', isNew && 'sm:animate-ring')}>
-        {/* header */}
-        <div className={cn('flex items-center gap-4 px-5 py-4 text-white sm:px-6', p.color)}>
-          <PlatformMark channel={order.channel} size="lg" className="bg-white/20" />
-          <div className="min-w-0 flex-1">
-            <div className="eyebrow opacity-90">{isNew ? t('Nouvelle commande', 'New order') : t('Acceptée automatiquement — à voir', 'Auto-accepted — please look')}</div>
-            <div className="flex flex-wrap items-baseline gap-x-3 text-title sm:text-display">#{order.displayId}<span className="text-body font-semibold opacity-90">{p.label}</span></div>
+      {/* An alert dialog (screen readers announce it and keep to it). Its ringing frame is the new-order alarm: the one
+          animation kept when the system asks for reduced motion (data-motion="alarm", npm run verify:a11y). */}
+      <div role="alertdialog" aria-modal="true" aria-labelledby="fh-incoming-title" data-motion={isNew ? 'alarm' : undefined}
+        className={cn('relative flex max-h-dvh w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl bg-surface shadow-pop motion-safe:animate-rise sm:max-h-[94dvh] sm:rounded-2xl', isNew && 'sm:animate-ring')}>
+        {/* header: the platform's colour, with the text colour that stays readable on it (PLATFORM.on, ≥ 4.5:1) */}
+        <div className={cn('flex items-center gap-4 px-5 py-4 sm:px-6', p.color, p.on)}>
+          <PlatformMark channel={order.channel} size="lg" className={p.on === 'text-white' ? 'bg-black/20' : 'bg-white/25'} />
+          <div id="fh-incoming-title" className="min-w-0 flex-1">
+            <div className="eyebrow">{isNew ? t('Nouvelle commande', 'New order') : t('Acceptée automatiquement — à voir', 'Auto-accepted — please look')}</div>
+            <div className="flex flex-wrap items-baseline gap-x-3 text-title sm:text-display">#{order.displayId}<span className="text-body font-semibold">{p.label}</span></div>
           </div>
           {queue.length > 1 && <Badge tone="dark" className="bg-black/30 text-white">{Math.min(index, queue.length - 1) + 1} / {queue.length}</Badge>}
         </div>
@@ -140,8 +148,8 @@ export function IncomingOrders() {
         <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto">
           {/* who / where / how long */}
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-line px-5 py-3 sm:px-6">
-            <div className="min-w-0">
-              <div className="text-heading font-extrabold text-ink">{order.brandName ?? t('Marque inconnue', 'Unknown brand')}</div>
+            <div style={brandVars(kit)} className={cn('min-w-0', kit?.accent && 'brand-stripe pl-3')}>
+              <div className={cn('text-heading font-extrabold text-ink', kit && 'flex items-center gap-2')}>{kit && order.brandName && <BrandMark name={order.brandName} kit={kit} size="xs" />}{order.brandName ?? t('Marque inconnue', 'Unknown brand')}</div>
               <div className="flex items-center gap-1.5 text-body text-ink-3"><MapPin className="size-3.5" />{order.locationCode ? shortLoc(locName(order.locationCode)) : t('magasin non relié', 'store not mapped')} · {order.fulfillment === 'pickup' ? t('pour emporter', 'pickup') : t('livraison', 'delivery')} · {items} {items > 1 ? t('articles', 'items') : t('article', 'item')}</div>
             </div>
             <div className="ml-auto flex items-center gap-4">
@@ -157,7 +165,7 @@ export function IncomingOrders() {
             </div>
           </div>
 
-          {allergy && <div role="alert" className="text-body mx-5 mt-4 flex items-center gap-2 rounded-md bg-stop px-4 py-3 font-extrabold text-white sm:mx-6"><TriangleAlert className="size-5 shrink-0" aria-hidden />{t('ALLERGIE — lisez les notes', 'ALLERGY — read the notes')}</div>}
+          {allergy && <div role="alert" className="text-body mx-5 mt-4 flex items-center gap-2 rounded-md bg-stop-fill px-4 py-3 font-extrabold text-on-stop sm:mx-6"><TriangleAlert className="size-5 shrink-0" aria-hidden />{t('ALLERGIE — lisez les notes', 'ALLERGY — read the notes')}</div>}
           {order.posError && <div className="mx-5 mt-4 rounded-md bg-stop-soft px-4 py-3 text-body font-semibold text-stop-2 sm:mx-6">{t('Clover n’a pas reçu cette commande — elle ne s’imprimera pas.', 'Clover did not get this order — it will not print.')}</div>}
           {order.courier && <div className="mx-5 mt-4 flex items-center gap-2 rounded-md bg-info-soft px-4 py-2.5 text-body font-semibold text-info-2 sm:mx-6"><Bike className="size-4" />{courierLabel(t, order.courier.status)}{order.courier.name ? ` · ${order.courier.name}` : ''}</div>}
 
@@ -169,12 +177,12 @@ export function IncomingOrders() {
                 <div className="min-w-0 flex-1">
                   <div className="text-heading text-ink">{l.name}</div>
                   {l.modifiers.map((m, j) => <div key={j} className="text-body text-ink-2">+ {m.quantity > 1 ? `${m.quantity}× ` : ''}{m.name}</div>)}
-                  {l.notes && <div className={cn('mt-1 inline-block rounded-md px-2 py-1 text-body font-bold', ALLERGY.test(l.notes) ? 'bg-stop text-white' : 'bg-wait-soft text-wait-2')}>« {l.notes} »</div>}
+                  {l.notes && <div className={cn('mt-1 inline-block rounded-md px-2 py-1 text-body font-bold', ALLERGY.test(l.notes) ? 'bg-stop-fill text-on-stop' : 'bg-wait-soft text-wait-2')}>« {l.notes} »</div>}
                 </div>
               </li>
             ))}
           </ul>
-          {order.notes && <div className={cn('mx-5 mb-4 rounded-md px-4 py-3 text-body font-bold sm:mx-6', ALLERGY.test(order.notes) ? 'bg-stop text-white' : 'bg-wait-soft text-wait-2')}><StickyNote className="mr-1.5 inline size-4 align-[-2px]" aria-label={t('Note', 'Note')} />{order.notes}</div>}
+          {order.notes && <div className={cn('mx-5 mb-4 rounded-md px-4 py-3 text-body font-bold sm:mx-6', ALLERGY.test(order.notes) ? 'bg-stop-fill text-on-stop' : 'bg-wait-soft text-wait-2')}><StickyNote className="mr-1.5 inline size-4 align-[-2px]" aria-label={t('Note', 'Note')} />{order.notes}</div>}
         </div>
 
         {/* actions */}
@@ -187,10 +195,10 @@ export function IncomingOrders() {
           )}
           <div className="flex flex-col gap-2 sm:flex-row">
             <Button variant="go" size="xl" className="flex-1 text-title" loading={busy === 'accept' || busy === 'ack'} onClick={accept} icon={isNew ? <Check className="size-7" /> : <Eye className="size-7" />}>
-              {isNew ? <span>{t('Accepter', 'Accept')} <span className="font-semibold opacity-90">· {minutes} min</span></span> : t('Vu — en préparation', 'Seen — cooking it')}
+              {isNew ? <span>{t('Accepter', 'Accept')} <span className="font-semibold">· {minutes} min</span></span> : t('Vu — en préparation', 'Seen — cooking it')}
             </Button>
             {isNew && order.actions.includes('deny') && (
-              <Button variant="outline" size="xl" className="text-stop sm:w-44" onClick={() => skipTablet ? run(order.id, 'deny', { reason: 'Handled on Skip tablet' }).then((r) => r && close(order.id)) : setRejecting(true)} icon={<X className="size-6" />}>
+              <Button variant="outline" size="xl" className="text-stop-2 sm:w-44" onClick={() => skipTablet ? run(order.id, 'deny', { reason: 'Handled on Skip tablet' }).then((r) => r && close(order.id)) : setRejecting(true)} icon={<X className="size-6" />}>
                 {skipTablet ? t('Tablette Skip', 'Skip tablet') : t('Refuser', 'Reject')}
               </Button>
             )}

@@ -1,7 +1,7 @@
 // The Settings pages, in groups (task 40). Plain data: the Settings hub, the Settings tabs, the menu search and the tests
 // read it. `group`: business (your business), you (for you), addons (extra services), advanced (technician tools: shown
 // in the full view only; every page still opens by its address).
-import { BellRing, Blocks, Boxes, Building2, Handshake, MonitorSmartphone, PlugZap, Rocket, ShieldCheck, Store, Truck, UserRound, Users } from 'lucide-react';
+import { BellRing, Blocks, Bot, Boxes, Building2, Contact, Handshake, MonitorSmartphone, PlugZap, Rocket, ShieldCheck, Store, Truck, UserRound, Users } from 'lucide-react';
 
 export type SettingsGroup = 'business' | 'you' | 'addons' | 'advanced';
 
@@ -18,9 +18,11 @@ export const SETTINGS_PAGES = [
   { href: '/settings/devices', group: 'business', icon: MonitorSmartphone, perm: 'view', fr: 'Tablettes', en: 'Tablets', dfr: 'Les écrans de cuisine : en ligne, son, batterie. Enregistrer ou retirer.', den: 'Kitchen screens: online, sound, battery. Enrol or remove.' },
   { href: '/settings/security', group: 'you', icon: ShieldCheck, perm: 'view', fr: 'NIP gérant', en: 'Manager PIN', dfr: 'Quelles actions demandent le NIP d’un gérant : refuser, annuler, rembourser, fermer…', den: 'Which actions need a manager PIN: reject, cancel, refund, pause…' },
   { href: '/settings/alerts', group: 'you', icon: BellRing, perm: 'view', fr: 'Alertes', en: 'Alerts', dfr: 'Quand vous texter ou vous appeler. Heures calmes, qui prévenir en premier.', den: 'When to text or call you. Quiet hours, who to tell first.' },
+  { href: '/settings/autopilot', group: 'you', icon: Bot, perm: 'view', fr: 'Pilote automatique', en: 'Autopilot', dfr: 'Ce que Food Hub fait tout seul : interrupteur, règle, dernier passage et journal.', den: 'What Food Hub does by itself: switch, rule, last run and log.' },
   { href: '/settings/channels', group: 'advanced', icon: PlugZap, perm: 'stores:map', fr: 'Plateformes et Clover', en: 'Platforms & Clover', dfr: 'Adresses webhook, secrets à donner aux plateformes, état des branchements.', den: 'Webhook URLs, secrets to give the platforms, connection status.' },
   { href: '/settings/doordash', group: 'advanced', icon: Truck, perm: 'stores:map', fr: 'DoorDash (API)', en: 'DoorDash (API)', dfr: 'Toutes les API DoorDash : lectures en direct, épuisés, heures, rapports, épicerie, Drive, publicité.', den: 'Every DoorDash API: live reads, sold out, hours, reports, retail, Drive, ads.' },
   { href: '/settings/business', group: 'business', icon: Building2, perm: 'view', fr: 'Entreprise', en: 'Business', dfr: 'Vos succursales et vos marques.', den: 'Your locations and your brands.' },
+  { href: '/settings/customers', group: 'addons', icon: Contact, perm: 'analytics:view', fr: 'Clients', en: 'Customers', dfr: 'Les comptes clients des sites des marques, vérifiés par texto : nombre, derniers inscrits, journal.', den: 'The brand websites’ customer accounts, verified by text: count, latest, log.' },
   { href: '/settings/leads', group: 'business', icon: Handshake, perm: 'admin', fr: 'Demandes de restaurants', en: 'Restaurant leads', dfr: 'Les restaurants qui veulent rejoindre ON2GO (formulaire on2go.ca) : statut et notes.', den: 'Restaurants asking to join ON2GO (on2go.ca form): status and notes.' },
   { href: '/settings/clover-app', group: 'advanced', icon: Store, perm: 'admin', fr: 'App Clover', en: 'Clover app', dfr: 'Fiche App Market : textes, adresses à copier, soumission, marchands en attente.', den: 'App Market listing: texts, addresses to copy, submission, merchants waiting.' },
   { href: '/settings/expansion', group: 'addons', icon: Blocks, perm: 'view', fr: 'Services en plus', en: 'Add-ons', dfr: 'Livraison, téléphone, épicerie, alcool : interrupteurs et règles.', den: 'Delivery, phone, grocery, alcohol: switches and rules.' },

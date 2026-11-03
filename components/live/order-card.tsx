@@ -2,6 +2,7 @@
 
 import { AlarmClock, Bike, CalendarClock, Check, Eye, PackageCheck, TriangleAlert } from 'lucide-react';
 import { Badge, PlatformMark } from '@/components/ui/badge';
+import { BrandMark } from '@/components/ui/brand-mark';
 import { Button } from '@/components/ui/button';
 import { Countdown, Elapsed, useNow } from '@/components/ui/timer';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
@@ -10,9 +11,13 @@ import { orderNumber } from './words';
 import { money, timeOf } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { orderSourceLabel, type StoredOrder } from '@/lib/foodhub/types';
+import { brandVars } from '@/lib/foodhub/brand-kit';
 import { cn } from '@/lib/ui/cn';
 
 export type BoardOrder = StoredOrder & { actions: string[] };
+
+/** Added to a late card that carries a brand stripe (the stripe covers the left edge of its red border). */
+export const LATE_RING = 'ring-2 ring-stop/40';
 
 /**
  * One order on the live board / kitchen screen. Click = open; the button does the next step. The total sits under the
@@ -20,7 +25,7 @@ export type BoardOrder = StoredOrder & { actions: string[] };
  */
 export function OrderCard({ o, onOpen, big }: { o: BoardOrder; onOpen: () => void; big?: boolean }) {
   const { t, loc } = useI18n();
-  const { can, locName } = useViewer();
+  const { can, locName, brandKit } = useViewer();
   const { run, busy } = useOrderActions();
   const tl = o.timeline ?? {};
   const prim = primaryAction(o);
@@ -30,13 +35,17 @@ export function OrderCard({ o, onOpen, big }: { o: BoardOrder; onOpen: () => voi
   const unseen = o.status === 'accepted' && !tl.seenAt;
   const allergy = [o.notes, ...o.lines.map((l) => l.notes)].some((n) => n && ALLERGY.test(n));
   const scheduled = Boolean(tl.fireAt && !tl.firedAt && Date.parse(tl.fireAt) > now);
+  // Brand kit (docs/BRAND_KIT.md): the brand's colour is a stripe on the card's left edge, its logo sits by its name.
+  // No colour and no logo: no style, no extra class, the card looks exactly as before. The stripe takes the left edge,
+  // so a late card with a stripe also gets a red ring: "late" stays visible whatever the brand colour.
+  const kit = brandKit(o.brandName);
   return (
-    <div className={cn('group rounded-md border bg-surface shadow-card motion-safe:transition-[box-shadow,transform] motion-safe:duration-(--duration-fast) motion-safe:hover:-translate-y-px hover:shadow-pop', o.status === 'new' ? 'border-brand ring-2 ring-brand/20' : late ? 'border-stop/60' : 'border-line')}>
+    <div style={brandVars(kit)} className={cn('group rounded-md border bg-surface shadow-card motion-safe:transition-[box-shadow,transform] motion-safe:duration-(--duration-fast) motion-safe:hover:-translate-y-px hover:shadow-pop', o.status === 'new' ? 'border-brand ring-2 ring-brand/20' : late ? cn('border-stop/60', kit?.accent && LATE_RING) : 'border-line', kit?.accent && 'brand-stripe')}>
       <button type="button" onClick={onOpen} className="block w-full rounded-md p-4 text-left">
         <div className="flex items-start gap-2.5">
           <PlatformMark channel={o.channel} size={big ? 'md' : 'sm'} />
           <div className="min-w-0 flex-1">
-            <div className={cn('flex min-w-0 items-baseline gap-2 font-extrabold text-ink', big ? 'text-title' : 'text-body')}><span className="shrink-0">#{orderNumber(o)}</span><span className="text-small truncate font-semibold text-ink-3">{o.brandName ?? '—'}</span></div>
+            <div className={cn('flex min-w-0 items-baseline gap-2 font-extrabold text-ink', big ? 'text-title' : 'text-body')}><span className="shrink-0">#{orderNumber(o)}</span>{kit?.logo && o.brandName && <BrandMark name={o.brandName} kit={kit} size="xs" className="self-center" />}<span className="text-small truncate font-semibold text-ink-3">{o.brandName ?? '—'}</span></div>
             <div className="text-small line-clamp-2 text-ink-3">{o.locationCode ? shortLoc(locName(o.locationCode)) : t('non relié', 'unmapped')} · {items} {items > 1 ? t('articles', 'items') : t('article', 'item')}</div>
           </div>
           <div className="shrink-0 text-right">
@@ -51,7 +60,7 @@ export function OrderCard({ o, onOpen, big }: { o: BoardOrder; onOpen: () => voi
               <li key={i} className="text-title leading-snug"><span className="num font-extrabold">{l.quantity}×</span> <span className="font-bold">{l.name}</span>
                 {l.mapping === 'free' && !o.viaPos && <span className="ml-1.5 inline-flex items-center gap-0.5 rounded bg-wait-soft px-1 align-middle text-micro font-bold text-wait-2" title={t('Pas un article de l’inventaire Clover — vérifiez le billet', 'Not a Clover inventory item — check the ticket')}><TriangleAlert className="size-3" />{t('texte libre', 'free text')}</span>}
                 {l.modifiers.length > 0 && <span className="text-body block pl-8 font-medium text-ink-2">{l.modifiers.map((m) => m.name).join(', ')}</span>}
-                {l.notes && <span className={cn('text-body mt-0.5 ml-8 inline-block rounded px-1.5 font-bold', ALLERGY.test(l.notes) ? 'bg-stop text-white' : 'bg-wait-soft text-wait-2')}>« {l.notes} »</span>}
+                {l.notes && <span className={cn('text-body mt-0.5 ml-8 inline-block rounded px-1.5 font-bold', ALLERGY.test(l.notes) ? 'bg-stop-fill text-on-stop' : 'bg-wait-soft text-wait-2')}>« {l.notes} »</span>}
               </li>
             ))}
             {o.lines.length > 8 && <li className="text-small text-ink-3">+{o.lines.length - 8} {t('autres', 'more')}</li>}

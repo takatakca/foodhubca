@@ -1,5 +1,6 @@
 // Who is looking at a page (server components). Same rules as getActor() for API routes.
 import { cookies, headers } from 'next/headers';
+import { brandKitsOf } from './brand-kit';
 import { getCatalog } from './catalog';
 import { getDevice } from './identity/devices';
 import { getRepo } from './repo';
@@ -69,5 +70,6 @@ export async function viewerCatalog(v: Viewer) {
     if (!visible.has(s.location_code) || !known.has(s.brand_name) || ddMapped.has(`${s.brand_name}|${s.location_code}`)) continue;
     points.push({ brandName: s.brand_name, locationCode: s.location_code, channel: 'doordash' });
   }
-  return { locations, brands, brandsByKitchen, channels: channelsOf(points), stores: points };
+  // Each brand's colour and logo (docs/BRAND_KIT.md), validated again on the way out; brands without one are left out.
+  return { locations, brands, brandsByKitchen, channels: channelsOf(points), stores: points, brandKits: brandKitsOf(c.brands) };
 }

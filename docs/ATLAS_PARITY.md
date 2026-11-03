@@ -4,14 +4,18 @@ Atlas is UrbanPiper's restaurant dashboard (Ordermark is part of UrbanPiper). Th
 TAKATAK Food Hub does for each Atlas module, where to find it, and what is **not** built.
 TAKATAK talks to the platforms **directly** — there is no aggregator and no monthly fee.
 
-Legend: **Done** = built and covered by the end-to-end test (`npm run verify:foodhub`, 382 checks) ·
+_Updated 2026-10-30: the Order Relay and shared menus added, test count and the newer modules brought up to date._
+
+Legend: **Done** = built and covered by the end-to-end test (`npm run verify:foodhub`: 628 checks on `main` on
+2026-10-30, 643 with the release PR #130) ·
 **Platform limit** = the platform's API does not allow it · **Not built** = missing today.
 
 ## Orders
 
 | Atlas | TAKATAK | Where | Status |
 |---|---|---|---|
-| One order feed for every app | Uber Eats, DoorDash, SkipTheDishes, Too Good To Go in one list | Command Center, Order Board | Done |
+| One order feed for every app | Uber Eats, DoorDash, SkipTheDishes, Too Good To Go (order e-mails, #59), Order Relay partners, and your own ordering pages, website and phone orders in one list | Command Center, Order Board | Done |
+| Partner order feed (UrbanPiper « Order Relay ») | **Food Hub Order Relay**: a partner posts its orders and status changes to one secret address, in UrbanPiper's Order Relay format; each order goes through the normal pipeline (Clover ticket, kitchen screen, alerts, money checks). Statuses only move an order forward, a payload it cannot read is kept, and accept / ready / reject go back to the partner's callback when one is set. Stores are mapped as `relay:<id>` and receive orders only — [ORDER_RELAY.md](ORDER_RELAY.md) | Settings → Platforms & Clover → Food Hub Order Relay | Done (#5) |
 | Auto-accept / manual accept | Per store; never accepts an order Clover did not receive | Stores → Auto-accept | Done |
 | Reject with a reason | Standard reasons mapped to each platform's own codes | Reject button → reason dialog | Done |
 | Order states (placed → acknowledged → food ready → dispatched → completed / cancelled) | New → Preparing → Ready → Picked up → Completed / Cancelled | Order Board (5 columns) | Done |
@@ -40,11 +44,12 @@ Legend: **Done** = built and covered by the end-to-end test (`npm run verify:foo
 | Publish status per store | Last publish time and result per platform/location | Publish status | Done |
 | Timing groups (breakfast, lunch) | Category schedules, intersected with store hours | Categories → Schedule | Done |
 | Copy a menu to another brand | Copies categories, items, options | Copy from brand… | Done |
+| One menu for several brands | **Shared menu**: brands follow one brand's menu (items, prices, options, 86s) and are published under their own name, hours and stores; each follower can show only the dishes picked for it (#60); one 86 reaches every sharing brand's stores; publish every sharing brand at once. Price markups belong to the shared menu (no per-brand price yet) | Menus → Shared menu | Done (#5, #60) |
 | Item / option availability (86) | Per location or all locations, timed (comes back by itself), bulk select | 86 Board | Done |
 | Menu in French + English | French names for items, categories, options; Uber Eats gets “Français / English” in one text (Uber shows one translation), DoorDash / Skip English or French (your choice) | Menu Manager → Languages | Done |
 | Inventory sync from POS | Out of stock in Clover → 86 everywhere, back by itself; Clover price changes flagged with one-click update | Menu Manager, 86 Board | Done |
 | Combos / nested options | One level of options | — | Not built |
-| Taxes & charges per platform | Each platform applies its own tax settings | — | Platform side |
+| Taxes & charges per platform | Each platform applies its own tax settings. Your own orders (ordering pages, website, phone) use the kitchen's province: 13 provinces and territories — [TAXES.md](TAXES.md) | Settings → Business | Platform side · Done for your own orders (#121) |
 
 ## Stores
 
@@ -94,7 +99,7 @@ Report — **Done** (`/insights/reports`; email through SMTP or Resend).
 
 | Atlas | TAKATAK | Status |
 |---|---|---|
-| Tablet app for the kitchen | Installable app (Add to Home Screen): full screen, screen kept awake, offline warning, sound alerts, PIN screen | Done (web app — no app-store install) |
+| Tablet app for the kitchen | Installable app (Add to Home Screen): full screen, screen kept awake, offline warning, sound alerts, PIN screen. An Android app with Bluetooth / network ticket printing and a loud alert (APK from `/tablette`) is in the release PR #130 | Done (web app — no app-store install) · Android app: PR #130 |
 | "Your tablet is off" | Heartbeat every 30 s; off / muted during opening hours → the kitchen phone rings, managers are texted then called | Done |
 
 ## Watchtower (beyond Atlas)
@@ -110,9 +115,12 @@ Report — **Done** (`/insights/reports`; email through SMTP or Resend).
 
 Combos / nested options · Microsoft sign-in.
 
-Own-courier dispatch for our own orders (DoorDash Drive / Uber Direct), AI phone ordering, a grocery catalogue and
-alcohol rules are built behind switches (sandbox) — see [EXPANSION_FEATURES.md](EXPANSION_FEATURES.md).
+Own-courier dispatch for our own orders (DoorDash Drive, Uber Direct and our own couriers), AI phone ordering, a
+grocery catalogue and alcohol rules are built behind switches — see [EXPANSION_FEATURES.md](EXPANSION_FEATURES.md).
+Everything else built since 2026-10-07 (ordering pages, customer accounts, platform screens, MEV invoices, store
+availability, WhatsApp…) is listed in [MASTER_PLAN.md](MASTER_PLAN.md) § 3b.
 
 ## Not in scope (Atlas add-ons)
 
-Promotions / ads manager, loyalty, native app-store app. (Customer texts and a French / English interface are now built.)
+Promotions / ads manager, loyalty, native app-store app. (Customer texts, customer accounts and a French / English
+interface are now built.)

@@ -190,3 +190,62 @@ Use the Dashboard or the Ecommerce API", Orders FAQ), so a Food Hub "cancel" wou
 - Clover App Market listing (`docs/CLOVER_APP_LISTING.md`, Clover Marketplace session): the webhook list gains
   **Orders**, and the Orders permission reason can add "website orders from Clover Online Ordering shown on the kitchen
   screen (read-only)". Left to that session.
+
+## Interac e-Transfer (website orders, 2026-10-29)
+
+> **Pour le propriétaire :** le site web propose « payer par virement Interac » avec des frais de 5 $ affichés avant la
+> commande. La commande est **retenue** dans Food Hub (Nos commandes → la commande, « Virement Interac attendu ») jusqu'à ce
+> que VOUS confirmiez, dans votre compte bancaire, que le virement est arrivé, puis que vous appuyiez sur **« Virement reçu »**.
+> Food Hub ne lit jamais le compte bancaire et ne rembourse jamais tout seul.
+
+**What Food Hub does** (`lib/foodhub/delivery/interac.ts`, `lib/foodhub/delivery/website.ts`):
+- The site POSTs the order with `payment: "interac"`, the fee line `fees: [{ code: "interac", name: "Frais Interac e-Transfer",
+  amount: 5.00 }]` and `total` (the all-in amount the customer saw). Food Hub re-prices every line from the brand menu, checks
+  the fee against its own setting, adds GST + QST (the fee is taxed like a service charge) and refuses (422) a total more than
+  $0.02 away: the customer can never be charged a price the site did not show (Québec all-inclusive price rule).
+- The order is **held** (`awaiting_payment`, payment `unpaid`): not in Clover, not on the kitchen screen, no courier. The customer
+  is texted the instructions — recipient e-mail, exact amount, a short reference (`PP-7K3Q`) for the transfer's message field,
+  the security question and answer when auto-deposit is off, and the deadline. The site gets the same instructions back
+  (`interac.instructionsFr` / `instructionsEn`) and a tracking link.
+- **« Virement reçu / Transfer received »** (Direct orders drawer, logged with the person's name) releases the order **exactly
+  once**: paid by that person, one Clover order (the kitchen ticket, printed once), `in_kitchen`, confirmation text; for a
+  delivery the courier is then booked by the usual dispatch rule. A second press changes nothing.
+- Not confirmed in time (setting, default 45 min): one reminder (default after 20 min), then **cancelled** with a courtesy text
+  ("si vous l'avez envoyé, une personne de notre équipe vous le retourne"). « Virement reçu » pressed after that is NOT
+  released: the order is flagged **« reçu après l'annulation — une personne décide »** with two buttons: *Envoyer en cuisine
+  quand même* (release, once) or *Argent retourné à la main* (you returned it from the bank app; Food Hub only notes it).
+- **« Payer au comptoir »** (pickup only): the Interac fee and its taxes come off the order (45,10 $ → 39,35 $ in the tests);
+  Clover, the confirmation text and the invoice carry the price without it.
+- A release that stops half-way after « Virement reçu » (a restart, an error) is **never cancelled** by the timer: the order
+  gets a flag *« confirmé reçu … l'envoi en cuisine s'est arrêté »* and the button becomes **« Terminer l'envoi en
+  cuisine »**, which resumes it (no second "paid"; if the Clover call was cut mid-way, a person checks Clover before
+  *Renvoyer à Clover*, so no second ticket).
+- Strict re-pricing (payloads with `payment`): an option the menu does not know is accepted only at 0,00 $ (a note such as
+  "sans oignons"; a negative "discount" is refused), and each line keeps the **menu item's own name** on the ticket.
+- The security answer is never sent to the console (orders board, order screen, actions); it is only texted to the customer
+  and put in the website's instructions text. Revenu Québec (MEV): the Interac fee is the sale's service fee, paid « Autre »
+  (AUT), e-commerce, with the transfer reference.
+- What never happens: no bank account is read, no auto-deposit check, no refund by Food Hub, no release without a person.
+
+**Owner steps**
+1. Settings → Expansion → Delivery → **Paiements — virement Interac**: switch on, fee before taxes (default 5.00 → the site
+   must show **5,75 $** all in), the Interac e-mail (one for every kitchen, or one per kitchen), auto-deposit on/off (off →
+   question + answer; the answer is texted to the customer only and comes back masked on this screen), minutes before the
+   cancel (45), reminder (20). Env fallbacks: `FOODHUB_INTERAC_EMAIL`, `FOODHUB_INTERAC_FEE`.
+2. When a transfer shows up in the bank account, find the order by its **reference** (the transfer's message) or amount in
+   Nos commandes → « Virement Interac attendu », open it and press **« Virement reçu »**. That is the only step that sends it
+   to the kitchen.
+3. A transfer that arrives after the order was cancelled: the order shows the yellow flag — decide (kitchen anyway, or
+   return the money by hand), then press the matching button.
+
+**Payload additions** (section B of the shared contract; the older `paid: boolean` payloads keep working unchanged):
+```
+{ …, "payment": "interac",                                  // or "paid" | "pay_at_pickup"
+  "fees": [{ "code": "interac", "name": "Frais Interac e-Transfer", "amount": 5.00 }],
+  "total": 45.10,                                            // all included, as shown before checkout
+  "customerToken": "cust.…", "tenant": "pppmtl" }            // optional: links the order to the customer account
+→ { "ok": true, "number": "W-1044", "id": "dir_…", "total": 45.10, "status": "awaiting_payment", "payment": "unpaid",
+    "interac": { "recipient", "amount", "reference", "question"?, "autoDeposit", "expiresAt", "instructionsFr", "instructionsEn" },
+    "trackUrl": "https://…/commander/<slug>/suivi/<token>" }
+```
+Tests: `tests/interac-etransfer.test.ts`.

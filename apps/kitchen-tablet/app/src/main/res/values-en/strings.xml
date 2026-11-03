@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Food Hub Kitchen</string>
+    <string name="settings_title">Settings</string>
+    <string name="alarm_banner">NEW ORDER — tap the screen to stop the alarm</string>
+    <string name="offline">No connection to Food Hub. Trying again in 10 seconds (tap to retry).\n\n%1$s</string>
+
+    <string name="watch_title">Food Hub is listening for orders</string>
+    <string name="watch_starting">Starting…</string>
+    <string name="channel_watch">Order listening</string>
+    <string name="channel_orders">New orders (alarm)</string>
+    <string name="channel_printer">Printer</string>
+    <string name="new_order_one">New order %1$s</string>
+    <string name="new_orders_many">%1$d new orders</string>
+    <string name="cancelled_order">CANCELLED %1$s — do not cook</string>
+    <string name="stop_alarm">Stop the alarm</string>
+    <string name="printer_failed_title">Ticket not printed</string>
+    <string name="printer_failed_text">%1$d ticket(s) waiting — check the printer (%2$s)</string>
+    <string name="printer_gave_up">Ticket %1$s dropped after 2 h: see the kitchen screen</string>
+
+    <string name="status_ok">%1$s · kitchen %2$s · %3$d new</string>
+    <string name="status_signed_out">Signed out: sign in inside the app (PIN screen or the code you received)</string>
+    <string name="status_need_location">Choose the kitchen in Settings</string>
+    <string name="status_offline">No connection: %1$s</string>
+    <string name="status_bad_url">Food Hub address not valid (https:// only): fix it in Settings</string>
+
+    <string name="label_url">Kitchen screen address</string>
+    <string name="label_location">Kitchen code (blank = the enrolled tablet’s own)</string>
+    <string name="location_hint">e.g. NDG</string>
+    <string name="label_printer">Printer</string>
+    <string name="printer_none">None (Clover prints)</string>
+    <string name="printer_bt">Bluetooth</string>
+    <string name="printer_net">Network (IP address)</string>
+    <string name="help_clover">A Clover printer already prints here? Choose “None” or turn auto-print off: the tablet still rings.</string>
+    <string name="label_bt_device">Paired Bluetooth printer</string>
+    <string name="bt_refresh">Refresh</string>
+    <string name="bt_settings">Bluetooth settings</string>
+    <string name="bt_none_paired">No paired printer (or permission refused)</string>
+    <string name="help_bt">Pair the printer in Android’s Bluetooth settings first. Bluetooth “Classic” (SPP) only: Bluetooth-LE-only printers do not work.</string>
+    <string name="label_host">Printer IP address</string>
+    <string name="host_hint">e.g. 192.168.1.50</string>
+    <string name="label_port">Port</string>
+    <string name="label_paper">Paper</string>
+    <string name="paper_58">58 mm (32 columns)</string>
+    <string name="paper_80">80 mm (42 columns)</string>
+    <string name="label_code_page">Accents (printer code page)</string>
+    <string-array name="code_pages">
+        <item>CP858 (recommended)</item>
+        <item>CP1252</item>
+        <item>No accents</item>
+    </string-array>
+    <string name="label_ticket_lang">Ticket language</string>
+    <string name="auto_print">Print every new order automatically</string>
+    <string name="sound">Loud alarm on every new order</string>
+    <string name="max_volume">Full volume while the alarm rings</string>
+    <string name="boot">Start with the tablet</string>
+    <string name="save">Save</string>
+    <string name="test_print">Test print</string>
+    <string name="test_alarm">Test the alarm (5 s)</string>
+    <string name="battery">Battery optimisation (turn it off)</string>
+    <string name="back">Back to the kitchen</string>
+    <string name="saved">Saved</string>
+    <string name="test_print_ok">Sent to the printer</string>
+    <string name="test_print_failed">Could not print: %1$s</string>
+    <string name="bad_url">Enter a valid https:// address</string>
+    <string name="status_label">Status</string>
+    <string name="pending_count">Tickets waiting to print: %1$d</string>
+    <string name="version_line">Version %1$s · device %2$s</string>
+    <string name="test_ticket_title">Test print</string>
+    <string name="test_ticket_bold">Bold text</string>
+</resources>

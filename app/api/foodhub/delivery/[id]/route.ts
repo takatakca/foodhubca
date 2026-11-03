@@ -2,7 +2,7 @@ import { approvalGate, inScope, withPerm } from '@/lib/foodhub/auth';
 import { normalizePostal } from '@/lib/foodhub/delivery/address';
 import { activeDelivery, cancelCourier, dispatchOrder, dispatchProblems, refreshDelivery } from '@/lib/foodhub/delivery/dispatch';
 import { runDirectAction, updateDirectOrder, type DirectAction } from '@/lib/foodhub/delivery/orders';
-import { deliveriesForOrder, getDirectOrder } from '@/lib/foodhub/delivery/store';
+import { deliveriesForOrder, getDirectOrder, publicDirectOrder } from '@/lib/foodhub/delivery/store';
 import type { FleetKey } from '@/lib/foodhub/delivery/types';
 import { updateUberDirectDelivery, uberDirectProofOfDelivery } from '@/lib/foodhub/delivery/uber-direct';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
@@ -20,7 +20,8 @@ async function detail(id: string) {
   const deliveries = (await deliveriesForOrder(id)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const delivery = order.fulfillment === 'delivery';
   return {
-    order, deliveries, running: await activeDelivery(order),
+    // GET and every POST action answer through here: the Interac security answer never leaves the server.
+    order: publicDirectOrder(order), deliveries, running: await activeDelivery(order),
     problems: delivery ? await dispatchProblems(order) : [], problemsFr: delivery ? await dispatchProblems(order, undefined, undefined, 'fr') : [],
   };
 }
@@ -31,7 +32,7 @@ export const GET = withPerm<Ctx>('view', async (_req, ctx, actor) => {
   return ok(d);
 });
 
-const DIRECT: DirectAction[] = ['seen', 'ready', 'picked_up', 'complete', 'cancel', 'mark_paid', 'retry_clover', 'clear_attention', 'resend_paylink', 'pay_at_counter'];
+const DIRECT: DirectAction[] = ['seen', 'ready', 'picked_up', 'complete', 'cancel', 'mark_paid', 'retry_clover', 'clear_attention', 'resend_paylink', 'pay_at_counter', 'interac_received', 'interac_resend', 'interac_release_late', 'interac_refunded'];
 
 export const POST = withPerm<Ctx>('orders:act', async (req, ctx, actor) => {
   const id = (await ctx.params).id;

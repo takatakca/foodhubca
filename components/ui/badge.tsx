@@ -28,14 +28,16 @@ export function StatusDot({ tone = 'neutral', pulse, className }: { tone?: Tone;
   );
 }
 
-// Platform tags: a coloured square with initials (never the platforms' logos).
-export const PLATFORM: Record<string, { label: string; short: string; color: string; text: string }> = {
-  uber_eats: { label: 'Uber Eats', short: 'UE', color: 'bg-uber', text: 'text-uber' },
-  doordash: { label: 'DoorDash', short: 'DD', color: 'bg-doordash', text: 'text-doordash' },
-  skip: { label: 'SkipTheDishes', short: 'SK', color: 'bg-skip', text: 'text-skip' },
-  tgtg: { label: 'Too Good To Go', short: 'TG', color: 'bg-tgtg', text: 'text-tgtg' },
-  clover: { label: 'Clover', short: 'CL', color: 'bg-clover', text: 'text-clover' },
-  other: { label: 'Other', short: '•', color: 'bg-ink-3', text: 'text-ink-3' },
+// Platform tags: a coloured square with initials (never the platforms' logos). `on` = the text on that colour, >= 4.5:1
+// (WCAG AA): white only where it passes (Too Good To Go teal 5.9, grey 5.8); dark ink on Uber green 7.9, DoorDash red
+// 5.1, Skip orange 6.9 and Clover green 5.2 (white was 2.4–3.7).
+export const PLATFORM: Record<string, { label: string; short: string; color: string; text: string; on: string }> = {
+  uber_eats: { label: 'Uber Eats', short: 'UE', color: 'bg-uber', text: 'text-uber', on: 'text-on-bright' },
+  doordash: { label: 'DoorDash', short: 'DD', color: 'bg-doordash', text: 'text-doordash', on: 'text-on-bright' },
+  skip: { label: 'SkipTheDishes', short: 'SK', color: 'bg-skip', text: 'text-skip', on: 'text-on-bright' },
+  tgtg: { label: 'Too Good To Go', short: 'TG', color: 'bg-tgtg', text: 'text-tgtg', on: 'text-white' },
+  clover: { label: 'Clover', short: 'CL', color: 'bg-clover', text: 'text-clover', on: 'text-on-bright' },
+  other: { label: 'Other', short: '•', color: 'bg-ink-3', text: 'text-ink-3', on: 'text-white' },
 };
 export function platformOf(key?: string | null) { return PLATFORM[key ?? 'other'] ?? PLATFORM.other; }
 
@@ -43,7 +45,7 @@ export function platformOf(key?: string | null) { return PLATFORM[key ?? 'other'
 export function PlatformMark({ channel, size = 'md', className }: { channel: string; size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl'; className?: string }) {
   const p = platformOf(channel);
   const dim = { xs: 'size-5 text-micro rounded-[5px]', sm: 'size-6 text-micro rounded-[6px]', md: 'size-8 text-small rounded-sm', lg: 'size-11 text-body rounded-md', xl: 'size-16 text-title rounded-lg' }[size];
-  return <span className={cn('inline-flex shrink-0 items-center justify-center font-extrabold tracking-tight text-white', p.color, dim, className)} title={p.label} aria-label={p.label}>{p.short}</span>;
+  return <span className={cn('inline-flex shrink-0 items-center justify-center font-extrabold tracking-tight', p.color, p.on, dim, className)} title={p.label} aria-label={p.label}>{p.short}</span>;
 }
 
 export function PlatformTag({ channel, className }: { channel: string; className?: string }) {

@@ -8,3 +8,5 @@ data/media
 private/
 tsconfig.tsbuildinfo
 *.zip
+# Device apps (Android projects, built by their own GitHub workflows): never part of the Food Hub image.
+apps

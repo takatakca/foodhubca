@@ -29,3 +29,5 @@ export interface Actor {
 
 export const SYSTEM_ACTOR: Actor = { username: 'system', name: AUTOMATION, source: 'automation' };
 export const SCHEDULE_ACTOR: Actor = { username: 'schedule', name: 'Scheduled task', source: 'schedule' };
+/** Settings → Autopilot (lib/foodhub/autopilot): every action of its switchable automations is logged under this name. */
+export const AUTOPILOT_ACTOR: Actor = { username: 'autopilot', name: 'Autopilot', source: 'automation' };

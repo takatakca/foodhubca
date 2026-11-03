@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Français par défaut ; anglais dans values-en. Apostrophes typographiques (’) : pas d’échappement. -->
+<resources>
+    <string name="app_name">Food Hub Cuisine</string>
+    <string name="settings_title">Réglages</string>
+    <string name="alarm_banner">NOUVELLE COMMANDE — touchez l’écran pour arrêter la sonnerie</string>
+    <string name="offline">Pas de connexion à Food Hub. Nouvel essai dans 10 secondes (touchez pour réessayer).\n\n%1$s</string>
+
+    <string name="watch_title">Food Hub écoute les commandes</string>
+    <string name="watch_starting">Démarrage…</string>
+    <string name="channel_watch">Écoute des commandes</string>
+    <string name="channel_orders">Nouvelles commandes (alarme)</string>
+    <string name="channel_printer">Imprimante</string>
+    <string name="new_order_one">Nouvelle commande %1$s</string>
+    <string name="new_orders_many">%1$d nouvelles commandes</string>
+    <string name="cancelled_order">ANNULÉE %1$s — ne pas préparer</string>
+    <string name="stop_alarm">Arrêter la sonnerie</string>
+    <string name="printer_failed_title">Billet non imprimé</string>
+    <string name="printer_failed_text">%1$d billet(s) en attente — vérifiez l’imprimante (%2$s)</string>
+    <string name="printer_gave_up">Billet %1$s abandonné après 2 h : voyez l’écran cuisine</string>
+
+    <string name="status_ok">%1$s · cuisine %2$s · %3$d nouveau(x)</string>
+    <string name="status_signed_out">Déconnecté : connectez-vous dans l’application (écran NIP ou code reçu)</string>
+    <string name="status_need_location">Choisissez la succursale dans Réglages</string>
+    <string name="status_offline">Pas de connexion : %1$s</string>
+    <string name="status_bad_url">Adresse Food Hub invalide (https:// seulement) : corrigez-la dans Réglages</string>
+
+    <string name="label_url">Adresse de l’écran cuisine</string>
+    <string name="default_url_hint" translatable="false">https://foodhub.on2go.ca/kitchen</string>
+    <string name="label_location">Code de la succursale (vide = celle de la tablette enregistrée)</string>
+    <string name="location_hint">ex. NDG</string>
+    <string name="label_printer">Imprimante</string>
+    <string name="printer_none">Aucune (Clover imprime)</string>
+    <string name="printer_bt">Bluetooth</string>
+    <string name="printer_net">Réseau (adresse IP)</string>
+    <string name="help_clover">Une imprimante Clover imprime déjà ici ? Choisissez « Aucune » ou désactivez l’impression automatique : la tablette sonne quand même.</string>
+    <string name="label_bt_device">Imprimante Bluetooth jumelée</string>
+    <string name="bt_refresh">Actualiser</string>
+    <string name="bt_settings">Réglages Bluetooth</string>
+    <string name="bt_none_paired">Aucune imprimante jumelée (ou permission refusée)</string>
+    <string name="help_bt">Jumelez d’abord l’imprimante dans les réglages Bluetooth d’Android. Bluetooth « classique » (SPP) seulement : les imprimantes Bluetooth LE seulement ne marchent pas.</string>
+    <string name="label_host">Adresse IP de l’imprimante</string>
+    <string name="host_hint">ex. 192.168.1.50</string>
+    <string name="label_port">Port</string>
+    <string name="port_hint" translatable="false">9100</string>
+    <string name="label_paper">Papier</string>
+    <string name="paper_58">58 mm (32 colonnes)</string>
+    <string name="paper_80">80 mm (42 colonnes)</string>
+    <string name="label_code_page">Accents (table de caractères de l’imprimante)</string>
+    <string-array name="code_pages">
+        <item>CP858 (recommandé)</item>
+        <item>CP1252</item>
+        <item>Sans accents</item>
+    </string-array>
+    <string name="label_ticket_lang">Langue des billets</string>
+    <string name="lang_fr" translatable="false">Français</string>
+    <string name="lang_en" translatable="false">English</string>
+    <string name="auto_print">Imprimer chaque nouvelle commande automatiquement</string>
+    <string name="sound">Sonnerie forte à chaque nouvelle commande</string>
+    <string name="max_volume">Volume au maximum pendant la sonnerie</string>
+    <string name="boot">Démarrer avec la tablette</string>
+    <string name="save">Enregistrer</string>
+    <string name="test_print">Impression test</string>
+    <string name="test_alarm">Tester la sonnerie (5 s)</string>
+    <string name="battery">Optimisation de la batterie (à désactiver)</string>
+    <string name="back">Retour à la cuisine</string>
+    <string name="saved">Enregistré</string>
+    <string name="test_print_ok">Envoyé à l’imprimante</string>
+    <string name="test_print_failed">Impression impossible : %1$s</string>
+    <string name="bad_url">Entrez une adresse https:// valide</string>
+    <string name="status_label">État</string>
+    <string name="pending_count">Billets en attente d’impression : %1$d</string>
+    <string name="version_line">Version %1$s · appareil %2$s</string>
+    <string name="test_ticket_title">Test d’impression</string>
+    <string name="test_ticket_bold">Texte en gras</string>
+</resources>

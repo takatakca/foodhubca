@@ -14,10 +14,10 @@ describe('A1 parts: Alerts and order filters', () => {
     expect(open).toContain('aria-label="Escalade : étape 2 sur 4"');
     expect(open.match(/<li /g)).toHaveLength(4);
     expect(open.match(/bg-ink text-canvas/g)).toHaveLength(1);
-    expect(open.match(/bg-stop text-white/g)).toHaveLength(1);
+    expect(open.match(/bg-stop-fill text-on-stop/g)).toHaveLength(1); // red step, text >= 4.5:1 in both themes
     expect(open).not.toMatch(/text-\[1[01]px\]/);
     const done = html(createElement(EscalationLevels, { level: 3, resolved: true }));
-    expect(done).not.toContain('bg-stop text-white');
+    expect(done).not.toContain('bg-stop-fill text-on-stop');
   });
 
   it('shows the alert channels as one status line with a link to their settings', () => {

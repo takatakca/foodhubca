@@ -7,7 +7,7 @@ import { HUB_HOME, isIndexablePath, isPublicSitePath, PUBLIC_LANG_HEADER, PUBLIC
 //  - Platform webhooks stay public (each verifies its own signature / token); cron uses CRON_SECRET;
 //    the Uber OAuth callback uses its single-use state; the Clover app callback needs the app secret to be of any use.
 //  - Sign-in endpoints are public (they check codes, links and PINs themselves, throttled per client). The kitchen
-//    tablet heartbeat is public too: its signed device cookie is the credential.
+//    tablet heartbeat and the tablet app's print queue are public too: the signed device cookie (or a session) is the credential.
 //  - Everyone else needs a signed session cookie, or "Authorization: Basic" for scripts (owner password, or — on
 //    /api/foodhub/* only — a team member's own password, re-verified by each route via getActor/withPerm).
 //  - When live connectors are ON, a DASHBOARD_PASSWORD is mandatory: a live console can accept orders and pause
@@ -22,6 +22,7 @@ const PUBLIC_PREFIXES = [
   '/api/foodhub/mev/clover-device/', // TAKATAK MEV device app: the merchant's own Clover token is the credential, checked with Clover (mev/clover-device.ts)
   '/api/foodhub/mev/clover-merchant', // TAKATAK MEV welcome page "check my set-up": the signed TAKATAK MEV welcome ticket is the credential (mev/clover-merchants.ts)
   '/api/foodhub/auth/', '/api/foodhub/devices/heartbeat',
+  '/api/foodhub/kitchen/print-queue', // tablet app print queue: the route itself needs a staff session or an enrolled tablet's signed device cookie, 401 otherwise (lib/foodhub/kitchen/print-queue.ts)
   '/api/foodhub/screens/heartbeat', // screen relay agent: Bearer FOODHUB_SCREENS_AGENT_TOKEN is the credential (lib/foodhub/screens.ts)
   '/api/suite/', // TAKATAK Suite apps: each call is signed with that app's own secret (lib/foodhub/suite/auth.ts)
   '/api/auth/google/', // "Continue with Google": the state + PKCE cookie and Google's verified id_token are the credential (lib/foodhub/identity/google.ts)
@@ -36,9 +37,14 @@ const PUBLIC_PATHS = new Set([
   '/api/health', // uptime monitors: status only without CRON_SECRET or a session (app/api/health/route.ts)
   '/api/release', // deployment proof: public commit SHA only, exact path, no settings or secrets
   '/api/public/restaurant-leads', // the on2go.ca sign-up form: JSON only, honeypot, 5 sends / 10 min per IP, 16 KB body, CORS for on2go.ca only (app/api/public/restaurant-leads/route.ts)
+  // on2go.ca's browser-safe customer API: CORS for the ON2GO sites only, brand website fixed to on2go, on2go-signed customer
+  // tokens only, per-IP windows on top of the per-phone limits (lib/foodhub/customers/on2go-public.ts)
+  '/api/public/on2go/verify/start', '/api/public/on2go/verify/check', '/api/public/on2go/me', '/api/public/on2go/logout',
+  '/api/public/on2go/session', // on2go.ca sign-in through TAKATAK: a one-time launch code (90 s) is the credential, exchanged server to server; per-IP limit, CORS for the ON2GO sites only (lib/foodhub/customers/takatak-bridge.ts)
   '/api/public/directory', // ON2GO/QMAPS read-only directory (public facts only, lib/foodhub/public-directory.ts); other /api/public/* stay protected
   '/api/public/restaurant-leads', // on2go.ca « Rejoindre » form: POST + OPTIONS only, JSON, size cap, honeypot, per-IP quota, CORS on2go.ca (lib/foodhub/restaurant-leads.ts)
   '/legal', // the legal pages' index: redirects to /legal/support (app/legal/page.tsx); /legal/* is in PUBLIC_PREFIXES
+  '/tablette', // download page of the kitchen tablet app: public facts only (APK link, install steps), no order data (app/tablette/page.tsx)
   '/courier', '/api/courier', // our couriers' page: the personal signed link (Bearer) is the credential (lib/foodhub/delivery/courier-app.ts)
 ]);
 

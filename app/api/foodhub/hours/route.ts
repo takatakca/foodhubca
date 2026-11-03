@@ -1,5 +1,6 @@
 import { logActivity } from '@/lib/foodhub/activity';
 import { withPerm } from '@/lib/foodhub/auth';
+import { afterHoursSaved } from '@/lib/foodhub/autopilot';
 import { getHours, saveHours } from '@/lib/foodhub/hours';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
 import type { HoursConfig } from '@/lib/foodhub/types';
@@ -14,6 +15,7 @@ export const PUT = withPerm('menu:edit', async (req, _ctx, actor) => {
   const cfg = b.hours as HoursConfig | undefined;
   if (!cfg || typeof cfg !== 'object') return fail('hours is required');
   let saved: HoursConfig;
+  const before = await getHours();
   try {
     saved = await saveHours({ locations: cfg.locations ?? {}, brands: cfg.brands ?? {}, holidays: Array.isArray(cfg.holidays) ? cfg.holidays : [] });
   } catch (e) {
@@ -21,5 +23,7 @@ export const PUT = withPerm('menu:edit', async (req, _ctx, actor) => {
   }
   await logActivity({ actor: actor.name, source: actor.source, kind: 'hours', action: 'hours_saved', status: 'success',
     summary: `Store hours saved: ${Object.keys(saved.locations).length} location(s), ${Object.keys(saved.brands).length} brand override(s), ${saved.holidays.length} holiday(s)` });
+  // Settings → Autopilot « Republier 10 min après un changement » (does nothing while that switch is off).
+  await afterHoursSaved(before, saved, actor);
   return ok({ hours: saved });
 });

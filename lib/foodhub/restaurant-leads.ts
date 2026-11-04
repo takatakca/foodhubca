@@ -12,17 +12,13 @@
 import crypto from 'node:crypto';
 import { normalizeEmail, normalizePhone, sendEmail } from './notify';
 import { getRepo, type Doc } from './repo';
+import { LEAD_LIMITS, LEAD_PLATFORMS, LEAD_PROVINCES, type LeadPlatform, type LeadProvince } from './restaurant-lead-fields';
+export { LEAD_LIMITS, LEAD_MAX_BODY_BYTES, LEAD_PLATFORMS, LEAD_PROVINCES, type LeadPlatform, type LeadProvince } from './restaurant-lead-fields';
 
 export const LEADS = 'restaurant_leads';
-export const LEAD_PLATFORMS = ['uber', 'doordash', 'skip', 'tgtg', 'direct', 'phone'] as const;
-export type LeadPlatform = (typeof LEAD_PLATFORMS)[number];
 export const LEAD_STATUSES = ['new', 'contacted', 'won', 'lost'] as const;
 export type LeadStatus = (typeof LEAD_STATUSES)[number];
 export type LeadLang = 'fr' | 'en';
-
-/** Canada only (owner's direction of 2026-10-29): the 13 provinces and territories, by postal code. */
-export const LEAD_PROVINCES = ['QC', 'ON', 'BC', 'AB', 'MB', 'SK', 'NS', 'NB', 'NL', 'PE', 'YT', 'NT', 'NU'] as const;
-export type LeadProvince = (typeof LEAD_PROVINCES)[number];
 
 /** What the public form sends (after validation). */
 export interface LeadInput {
@@ -99,9 +95,6 @@ export function resetLeadRateLimit(): void { hits.clear(); }
 // ---------------------------------------------------------------------------
 // Validation. Errors are keyed by field, in English (the static site shows its own FR/EN texts per key).
 // ---------------------------------------------------------------------------
-export const LEAD_LIMITS = { restaurant: 120, contact: 80, email: 254, phone: 30, city: 80, address: 200, website: 200, message: 2000, source: 40 } as const;
-export const LEAD_MAX_BODY_BYTES = 16_000;
-
 export type LeadParse = { kind: 'ok'; lead: LeadInput } | { kind: 'honeypot' } | { kind: 'invalid'; errors: Record<string, string> };
 
 // Every text field loses its control characters; single-line fields (everything but the message) also lose their line
@@ -150,7 +143,7 @@ export function parseLead(body: unknown): LeadParse {
     const w = /^[a-z][a-z0-9+.-]*:\/\//i.test(website) ? website : `https://${website}`;
     try {
       const u = new URL(w);
-      if (!/^https?:$/.test(u.protocol) || !u.hostname.includes('.')) errors.website = 'invalid';
+      if (!/^https?:$/.test(u.protocol) || !u.hostname.includes('.') || u.username || u.password) errors.website = 'invalid';
       else website = u.toString().replace(/\/$/, '');
     } catch { errors.website = 'invalid'; }
   }
@@ -191,8 +184,8 @@ function toDoc(lead: RestaurantLead): Doc<RestaurantLead> {
   return { id: lead.id, at: lead.at, key: lead.status, data: lead };
 }
 
-export async function saveLead(input: LeadInput, now = new Date().toISOString()): Promise<RestaurantLead> {
-  const lead: RestaurantLead = { ...input, id: crypto.randomUUID(), at: now, status: 'new', notes: '', updatedAt: now };
+export async function saveLead(input: LeadInput, now = new Date().toISOString(), id: string = crypto.randomUUID()): Promise<RestaurantLead> {
+  const lead: RestaurantLead = { ...input, id, at: now, status: 'new', notes: '', updatedAt: now };
   await getRepo().putDocs<RestaurantLead>(LEADS, [toDoc(lead)]);
   return lead;
 }
@@ -255,36 +248,38 @@ export function leadNotificationText(lead: RestaurantLead): { subject: string; t
     '',
     `Reçue le ${lead.at} — à suivre dans Food Hub → Réglages → Demandes de restaurants.`,
   ].filter((l): l is string => l !== null);
-  return { subject: `[ON2GO] Demande de restaurant — ${lead.restaurant} (${lead.city})`, text: lines.join('\n') };
+  return { subject: `[${lead.source === 'foodhub' ? 'Food Hub' : 'ON2GO'}] Demande de restaurant — ${lead.restaurant} (${lead.city})`, text: lines.join('\n') };
 }
 
 export function leadAutoReplyText(lead: RestaurantLead): { subject: string; text: string } {
+  const foodHub = lead.source === 'foodhub';
+  const product = foodHub ? 'Food Hub' : 'ON2GO';
   if (lead.lang === 'en') {
     return {
-      subject: `ON2GO — we received your request for ${lead.restaurant}`,
+      subject: `${product} — we received your request for ${lead.restaurant}`,
       text: [
         `Hello ${lead.contact},`,
         '',
-        `Thank you for your interest in ON2GO. We received your request to list ${lead.restaurant} (${lead.city}).`,
-        'A member of our team will get back to you within two business days to go over the next steps.',
+        foodHub ? `We received your request to discuss the setup for ${lead.restaurant} (${lead.city}).` : `Thank you for your interest in ON2GO. We received your request to list ${lead.restaurant} (${lead.city}).`,
+        'Our team will review your request and contact you about the next steps.',
         '',
         'If anything changes in the meantime, simply reply to this email.',
         '',
-        'ON2GO — Montréal',
+        `${product} · GROUPE TAKATAK — Montréal`,
       ].join('\n'),
     };
   }
   return {
-    subject: `ON2GO — nous avons bien reçu votre demande pour ${lead.restaurant}`,
+    subject: `${product} — nous avons bien reçu votre demande pour ${lead.restaurant}`,
     text: [
       `Bonjour ${lead.contact},`,
       '',
-      `Merci de votre intérêt pour ON2GO. Nous avons bien reçu votre demande pour inscrire ${lead.restaurant} (${lead.city}).`,
-      'Un membre de notre équipe vous recontactera d’ici deux jours ouvrables pour voir les prochaines étapes avec vous.',
+      foodHub ? `Nous avons reçu votre demande pour discuter de la configuration de ${lead.restaurant} (${lead.city}).` : `Merci de votre intérêt pour ON2GO. Nous avons bien reçu votre demande pour inscrire ${lead.restaurant} (${lead.city}).`,
+      'Notre équipe examinera votre demande et vous contactera pour les prochaines étapes.',
       '',
       'Si quelque chose change d’ici là, répondez simplement à ce courriel.',
       '',
-      'ON2GO — Montréal',
+      `${product} · GROUPE TAKATAK — Montréal`,
     ].join('\n'),
   };
 }
@@ -298,7 +293,7 @@ export async function notifyLead(lead: RestaurantLead): Promise<LeadMailResult> 
   const reply = leadAutoReplyText(lead);
   const send = async (toAddress: string, m: { subject: string; text: string }, purpose: string): Promise<{ ok: boolean; skipped?: boolean; message: string }> => {
     try {
-      const r = await sendEmail({ to: toAddress, ...m }, { purpose, by: 'on2go.ca' });
+      const r = await sendEmail({ to: toAddress, ...m }, { purpose, by: lead.source === 'foodhub' ? 'Food Hub' : 'on2go.ca' });
       return { ok: r.ok, skipped: r.skipped, message: r.message };
     } catch (e) {
       return { ok: false, message: e instanceof Error ? e.message : String(e) };

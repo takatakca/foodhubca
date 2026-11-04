@@ -1,0 +1,29 @@
+{
+  "ok": true,
+  "database": "actual local PostgreSQL/PostgREST",
+  "checksPassed": 12,
+  "checks": [
+    "one atomic winner from competing document updates",
+    "stale saved-list revision returns conflict",
+    "explicit fresh merge preserves both device changes",
+    "PostgreSQL JSONB key ordering preserves address revision",
+    "profile changes preserve saved lists",
+    "conditional phone-claim replacement rejects stale owner",
+    "stale profile cannot resurrect anonymised record",
+    "verification after deletion creates a new identity",
+    "maximum valid Unicode addresses and fifty favourites remain editable without oversized URLs",
+    "a stale row version fails even when the original JSON is restored",
+    "microsecond observed timestamps advance strictly despite a lagging clock",
+    "conditional updates never reinsert a deleted row"
+  ],
+  "sizeProof": {
+    "addressBodyBytes": 7511,
+    "favouritesBodyBytes": 6252,
+    "perListLimitBytes": 8192,
+    "favourites": 50,
+    "addresses": 5
+  },
+  "maximumConditionalUrlBytes": 157,
+  "externalTexts": 0,
+  "productionVerified": false
+}

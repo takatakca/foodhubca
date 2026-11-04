@@ -29,17 +29,24 @@ export async function findCustomerByPhone(phone: string): Promise<MasterCustomer
   return docs.map((d) => d.data).find((c) => c.phone === phone && !c.deletedAt) ?? null;
 }
 
+/** Initial verified-record creation and isolated fixtures. Existing customer mutations use updateCustomer. */
 export async function saveCustomer(c: MasterCustomer): Promise<MasterCustomer> {
   await getRepo().putDocs<MasterCustomer>(CUSTOMERS, [{ id: c.id, key: c.deletedAt ? 'deleted' : phoneKey(c.phone), at: c.createdAt, data: c }]);
   return c;
 }
 
-/** Re-read, patch, write under the customer's lock (two website calls never overwrite each other's fields). */
+/** The local lock limits contention; the conditional database write also protects independent workers. */
 export async function updateCustomer(id: string, patch: (cur: MasterCustomer) => MasterCustomer): Promise<MasterCustomer | null> {
   return withKeyLock(`cust_id:${id}`, async () => {
-    const cur = await getCustomer(id);
-    if (!cur || cur.deletedAt) return null;
-    return saveCustomer(patch(cur));
+    const repo = getRepo();
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const stored = await repo.getDoc<MasterCustomer>(CUSTOMERS, id);
+      if (!stored || stored.data.deletedAt) return null;
+      const next = patch(JSON.parse(JSON.stringify(stored.data)) as MasterCustomer);
+      if (next.id !== id) throw new Error('Customer identity cannot change.');
+      if (await repo.compareAndSwapDoc(CUSTOMERS, stored, { id, key: next.deletedAt ? 'deleted' : phoneKey(next.phone), at: next.createdAt, data: next })) return next;
+    }
+    throw new Error('Customer changed during the update. Please try again.');
   });
 }
 
@@ -55,8 +62,8 @@ export async function upsertVerifiedCustomer(input: { phone: string; tenant: str
     const at = nowIso();
     const existing = await findCustomerByPhone(phone);
     if (existing) {
-      const next: MasterCustomer = { ...existing, verifiedAt: at, lang: input.lang ?? existing.lang, tenants: existing.tenants.includes(tenant) ? existing.tenants : [...existing.tenants, tenant] };
-      await saveCustomer(next);
+      const next = await updateCustomer(existing.id, (cur) => ({ ...cur, verifiedAt: at, lang: input.lang ?? cur.lang, tenants: cur.tenants.includes(tenant) ? cur.tenants : [...cur.tenants, tenant] }));
+      if (!next) throw new Error('Customer changed during verification. Please try again.');
       await logActivity({ actor: tenant, source: 'api', kind: 'customer', action: 'customer_verified', status: 'success', summary: `Customer ${maskContact(phone)} verified ${how} on ${tenant}` });
       return { customer: next, created: false };
     }
@@ -65,17 +72,22 @@ export async function upsertVerifiedCustomer(input: { phone: string; tenant: str
     };
     // Cross-container race: the first claim wins; a loser takes the winner's record (or a stale pointer to a deleted one).
     const key = claimKey(phone);
-    const won = await repo.claimKv(key, { id: fresh.id }).catch(() => true);
-    if (!won) {
-      const other = await repo.getKv<{ id?: string }>(key).catch(() => null);
+    let won = await repo.claimKv(key, { id: fresh.id });
+    for (let attempt = 0; !won && attempt < 8; attempt++) {
+      const other = await repo.getKv<{ id?: string | null }>(key);
+      if (!other || (other.id !== null && typeof other.id !== 'string')) throw new Error('Customer verification is temporarily unavailable.');
       const theirs = other?.id ? await getCustomer(other.id) : null;
       if (theirs && !theirs.deletedAt && theirs.phone === phone) {
-        const next: MasterCustomer = { ...theirs, verifiedAt: at, lang: input.lang ?? theirs.lang, tenants: theirs.tenants.includes(tenant) ? theirs.tenants : [...theirs.tenants, tenant] };
-        await saveCustomer(next);
+        const next = await updateCustomer(theirs.id, (cur) => ({ ...cur, verifiedAt: at, lang: input.lang ?? cur.lang, tenants: cur.tenants.includes(tenant) ? cur.tenants : [...cur.tenants, tenant] }));
+        if (!next) throw new Error('Customer changed during verification. Please try again.');
         return { customer: next, created: false };
       }
-      await repo.setKv(key, { id: fresh.id }).catch(() => undefined);
+      // A winner may still be writing its record. Never steal that claim or create a second identity.
+      if (other.id && !theirs) throw new Error('Customer verification is in progress. Please try again.');
+      if (theirs && !theirs.deletedAt) throw new Error('Customer verification needs review.');
+      won = await repo.compareAndSwapKv(key, other, { id: fresh.id });
     }
+    if (!won) throw new Error('Customer changed during verification. Please try again.');
     await saveCustomer(fresh);
     await logActivity({ actor: tenant, source: 'api', kind: 'customer', action: 'customer_created', status: 'success', summary: `Customer account created for ${maskContact(phone)} (verified ${how} on ${tenant})` });
     return { customer: fresh, created: true };
@@ -93,19 +105,20 @@ export async function bumpTokenVersion(id: string): Promise<MasterCustomer | nul
  * The same number verifying again later starts a brand-new record.
  */
 export async function anonymiseCustomer(id: string, by = 'customer'): Promise<MasterCustomer | null> {
-  return withKeyLock(`cust_id:${id}`, async () => {
-    const cur = await getCustomer(id);
-    if (!cur || cur.deletedAt) return null;
+  let phone = '';
+  const gone = await updateCustomer(id, (cur) => {
+    phone = cur.phone;
     const at = nowIso();
-    const gone: MasterCustomer = {
+    return {
       id: cur.id, phone: '', tenants: cur.tenants, lang: cur.lang, marketingConsent: false, createdAt: cur.createdAt, verifiedAt: cur.verifiedAt,
       tokenVersion: cur.tokenVersion + 1, addresses: [], favourites: [], deletedAt: at,
     };
-    await saveCustomer(gone);
-    await getRepo().setKv(claimKey(cur.phone), { id: null }).catch(() => undefined);
-    await logActivity({ actor: by, source: 'api', kind: 'customer', action: 'customer_deleted', status: 'success', summary: `Customer ${maskContact(cur.phone)} deleted their account (record anonymised)` });
-    return gone;
   });
+  if (!gone) return null;
+  // A newer verification may already own this number. Do not clear its claim.
+  await getRepo().compareAndSwapKv(claimKey(phone), { id: gone.id }, { id: null });
+  await logActivity({ actor: by, source: 'api', kind: 'customer', action: 'customer_deleted', status: 'success', summary: `Customer ${maskContact(phone)} deleted their account (record anonymised)` });
+  return gone;
 }
 
 /** Newest first (by creation). Deleted records are left out unless asked. */

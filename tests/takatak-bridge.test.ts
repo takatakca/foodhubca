@@ -3,7 +3,9 @@
 // public route answers the ON2GO sites only.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OPTIONS, POST } from '../app/api/public/on2go/session/route';
-import { findCustomerByPhone, getCustomer } from '../lib/foodhub/customers/store';
+import { CUSTOMERS, findCustomerByPhone, getCustomer, upsertVerifiedCustomer } from '../lib/foodhub/customers/store';
+import { getRepo } from '../lib/foodhub/repo';
+import type { MasterCustomer } from '../lib/foodhub/customers/types';
 import {
   allowBridgeAttempt,
   BRIDGE_IP_LIMIT,
@@ -47,7 +49,43 @@ beforeEach(() => {
 
 afterEach(() => {
   globalThis.fetch = realFetch;
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
+});
+
+describe('TAKATAK hydration uses current customer data', () => {
+  it('preserves another worker’s saved lists and explicit profile fields during hydration', async () => {
+    await upsertVerifiedCustomer({ phone: PHONE, tenant: 'on2go' });
+    const repo = getRepo(); const original = repo.compareAndSwapDoc.bind(repo); let raced = false;
+    vi.spyOn(repo, 'compareAndSwapDoc').mockImplementation(async (collection, expected, next) => {
+      if (!raced && collection === CUSTOMERS && (next.data as MasterCustomer).takatakIdentityId === IDENTITY) {
+        raced = true;
+        await repo.putDocs(collection, [{ ...expected, data: { ...(expected.data as MasterCustomer), name: 'Chosen name', email: 'chosen@example.test', favourites: ['other-device'] } }]);
+        return false;
+      }
+      return original(collection, expected, next);
+    });
+    const result = await signInWithTakatak({ code: CODE }, 'hydration-race');
+    expect(raced).toBe(true);
+    expect(result).toMatchObject({ ok: true, customer: { name: 'Chosen name', email: 'chosen@example.test' } });
+    expect(await findCustomerByPhone(PHONE)).toMatchObject({ takatakIdentityId: IDENTITY, favourites: ['other-device'], name: 'Chosen name' });
+  });
+  it('does not resurrect or issue an active record after deletion wins during hydration', async () => {
+    const { customer } = await upsertVerifiedCustomer({ phone: PHONE, tenant: 'on2go' });
+    const repo = getRepo(); const original = repo.compareAndSwapDoc.bind(repo); let raced = false;
+    vi.spyOn(repo, 'compareAndSwapDoc').mockImplementation(async (collection, expected, next) => {
+      if (!raced && collection === CUSTOMERS && (next.data as MasterCustomer).takatakIdentityId === IDENTITY) {
+        raced = true; const current = expected.data as MasterCustomer;
+        await repo.putDocs(collection, [{ ...expected, key: 'deleted', data: { ...current, phone: '', deletedAt: new Date().toISOString(), tokenVersion: current.tokenVersion + 1, addresses: [], favourites: [] } }]);
+        return false;
+      }
+      return original(collection, expected, next);
+    });
+    expect(await signInWithTakatak({ code: CODE }, 'hydration-delete')).toMatchObject({ ok: false, status: 409 });
+    expect(raced).toBe(true);
+    expect(await getCustomer(customer.id)).toMatchObject({ phone: '', deletedAt: expect.any(String) });
+    expect((await getCustomer(customer.id))?.takatakIdentityId).toBeUndefined();
+  });
 });
 
 describe('configuration', () => {

@@ -42,10 +42,19 @@ let warnedBase = false;
  * localhost default, or a typo) would make every canonical, hreflang, sitemap entry and JSON-LD @id point elsewhere and
  * get the pages dropped: it falls back to HUB_PRODUCTION_BASE and logs a warning once. */
 export function hubBase(base = publicBaseUrl(), nodeEnv: string | undefined = process.env.NODE_ENV): string {
-  if (nodeEnv !== 'production' || /^https:\/\/[^/\s]+$/i.test(base)) return base;
+  if (nodeEnv !== 'production') return base;
+  try {
+    const url = new URL(base);
+    const hostname = url.hostname.toLowerCase().replace(/\.$/, '');
+    const labels = hostname.split('.');
+    const publicHostname = hostname.length <= 253 && labels.length > 1 && !hostname.endsWith('.localhost')
+      && labels.every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(label)) && /^[a-z]/i.test(labels.at(-1)!);
+    if (url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash && url.pathname === '/'
+      && publicHostname) { url.hostname = hostname; return url.origin; }
+  } catch { /* unusable canonical origin */ }
   if (!warnedBase) {
     warnedBase = true;
-    console.warn(`[public-hub] FOODHUB_PUBLIC_URL is "${base}" in production: the public pages use ${HUB_PRODUCTION_BASE} instead.`);
+    console.warn(`[public-hub] FOODHUB_PUBLIC_URL is not a public HTTPS origin in production: the public pages use ${HUB_PRODUCTION_BASE} instead.`);
   }
   return HUB_PRODUCTION_BASE;
 }
@@ -78,7 +87,7 @@ export function hubMarketUrl(live: readonly CloverAppListing[] = liveCloverApps(
 
 /** Phone AI is a separate product: Food Hub's listing URL never authorizes a phone installation or Offer. */
 export function hubPageMarketUrl(page: HubPageKey, ctx: Pick<HubContext, 'appMarketUrl' | 'cloverApps'>): string | null {
-  if (page === 'help') return null;
+  if (page === 'help' || page === 'contact') return null;
   if (page !== 'phone') return ctx.appMarketUrl;
   const phone = ctx.cloverApps?.find((app) => app.key === 'phone');
   return phone ? cloverAppMarketUrl(phone.appId) : null;

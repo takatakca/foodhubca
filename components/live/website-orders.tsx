@@ -85,7 +85,7 @@ export function WebsiteOrderCard({ o, big, onChanged }: { o: DirectOrder; big?: 
         )}
         {o.notes && big && <p className={cn('mt-2 rounded px-2 py-1 text-small font-semibold', ALLERGY.test(o.notes) ? 'bg-stop-fill text-on-stop' : 'bg-sunken text-ink-2')}>« {o.notes} »</p>}
         <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-          <Badge tone="go" icon={<Check className="size-3" />} title={t('Clover a accepté, encaissé et imprimé la commande. Food Hub la suit seulement.', 'Clover accepted, charged and printed the order. Food Hub only follows it.')}>{t('Acceptée dans Clover', 'Accepted in Clover')}</Badge>
+          <Badge tone="go" icon={<Check className="size-3" />} title={t('Clover a créé cette commande. Vérifiez ci-dessous le paiement et l’impression.', 'Clover created this order. Check its payment and print status below.')}>{t('Acceptée dans Clover', 'Accepted in Clover')}</Badge>
           {o.posPrintedAt
             ? <Badge tone="info" icon={<Printer className="size-3" />}>{t('Imprimée par Clover', 'Printed by Clover')}</Badge>
             : <Badge tone="neutral" icon={<Printer className="size-3" />} title={t('Clover ne l’a pas encore marquée imprimée. Food Hub n’imprime jamais ces commandes : vérifiez l’imprimante Clover ou le KDS.', 'Clover has not marked it printed yet. Food Hub never prints these orders: check the Clover printer or KDS.')}>{t('Impression Clover en attente', 'Clover print pending')}</Badge>}

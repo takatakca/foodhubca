@@ -1,0 +1,20 @@
+{
+  "passed": 12,
+  "results": [
+    "contact fr/1440: accessible labels, no overflow, zero WCAG A/AA violations and locale-matched diner link",
+    "contact fr/390: accessible labels, no overflow, zero WCAG A/AA violations and locale-matched diner link",
+    "contact en/1440: accessible labels, no overflow, zero WCAG A/AA violations and locale-matched diner link",
+    "contact en/390: accessible labels, no overflow, zero WCAG A/AA violations and locale-matched diner link",
+    "lost response preserves exact request/key, locks edits, confirms only on valid acknowledgement and persists no contact details",
+    "server field errors retain input, restore editing and focus a labelled French error",
+    "rate response honors Retry-After and re-enables the intact form",
+    "202 without a valid JSON acknowledgement never claims receipt",
+    "503 without a valid JSON acknowledgement never claims receipt",
+    "Phone AI inquiry context remains visible and selected across the language switch",
+    "without JavaScript, the email fallback remains usable and the form cannot submit the wrong media type",
+    "the secure nonce fallback works in browsers without crypto.randomUUID"
+  ],
+  "pageErrors": [],
+  "transport": "client error/acknowledgement fixtures only; no real leads/emails",
+  "productionVerified": false
+}

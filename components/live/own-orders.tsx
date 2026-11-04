@@ -95,7 +95,7 @@ export function OwnOrderCard({ o, big, onChanged }: { o: DirectOrder; big?: bool
         <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
           {o.posOrderId
             ? <Badge tone="info" icon={<Printer className="size-3" />}>{t('Dans Clover', 'In Clover')}</Badge>
-            : <Badge tone={o.posError ? 'stop' : 'neutral'} icon={<Printer className="size-3" />} title={o.posError}>{o.posError ? t('Pas dans Clover', 'Not in Clover') : t('Food Hub seulement', 'Food Hub only')}</Badge>}
+            : <Badge tone={o.posError ? 'stop' : 'neutral'} icon={<Printer className="size-3" />} title={o.posError}>{o.posError ? t('Clover à vérifier', 'Check Clover') : t('Food Hub seulement', 'Food Hub only')}</Badge>}
           {cooking && o.readyAt && <Badge tone={late ? 'stop' : 'neutral'}>{timeOf(o.readyAt, loc)} · <Countdown to={o.readyAt} className="text-inherit" /></Badge>}
           <Badge tone="neutral" icon={o.fulfillment === 'delivery' ? <Bike className="size-3" /> : undefined}>{o.fulfillment === 'delivery' ? t('Livraison', 'Delivery') : t('Pour emporter', 'Pickup')}</Badge>
           {o.payment !== 'paid' && <Badge tone="wait">{o.fulfillment === 'pickup' ? t('À payer au comptoir', 'Pay at the counter') : t('Paiement à prendre', 'Payment to take')}</Badge>}

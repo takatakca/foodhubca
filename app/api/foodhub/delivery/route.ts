@@ -1,10 +1,11 @@
-import { inScope, withPerm } from '@/lib/foodhub/auth';
+import { inScope, scopeFilter, withPerm } from '@/lib/foodhub/auth';
+import { boardDeliveries, listDirectOrderBoard } from '@/lib/foodhub/delivery/board';
 import { normalizePostal } from '@/lib/foodhub/delivery/address';
 import { dispatchProblems, fleetReadiness } from '@/lib/foodhub/delivery/dispatch';
 import { createDirectOrder, lineTotal } from '@/lib/foodhub/delivery/orders';
 import { cancelHeldOrder, paylinkReadiness, startPayLink } from '@/lib/foodhub/delivery/paylink';
 import { getPhoneSettings } from '@/lib/foodhub/phone/settings';
-import { getDeliverySettings, listDeliveries, listDirectOrders, publicDirectOrder } from '@/lib/foodhub/delivery/store';
+import { getDeliverySettings, publicDirectOrder } from '@/lib/foodhub/delivery/store';
 import type { DirectLine } from '@/lib/foodhub/delivery/types';
 import { requireFeature } from '@/lib/foodhub/expansion/features';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
@@ -15,17 +16,21 @@ export const maxDuration = 30;
 
 // Own orders board: direct orders of the last days (phone, Clover delivery, website, typed in) with their courier.
 export const GET = withPerm('view', async (req, _ctx, actor) => {
-  const days = Math.min(30, Math.max(1, Number(new URL(req.url).searchParams.get('days')) || 2));
+  const query = new URL(req.url).searchParams;
+  const days = Math.min(30, Math.max(1, Math.floor(Number(query.get('days'))) || 2));
   const since = new Date(Date.now() - days * 86400_000).toISOString();
-  const [orders, deliveries, settings] = await Promise.all([
-    listDirectOrders({ since, limit: 1000 }),
-    listDeliveries({ since: new Date(Date.parse(since) - 86400_000).toISOString(), limit: 2000 }),
+  const requested = (query.get('locations') || '').split(',').map((code) => code.trim()).filter(Boolean);
+  const brandName = query.get('brand')?.trim() || undefined;
+  if (brandName && brandName.length > 200) return fail('Invalid brand filter.');
+  const [board, settings] = await Promise.all([
+    listDirectOrderBoard({ since, locationCodes: scopeFilter(actor, requested), brandName }),
     getDeliverySettings(),
   ]);
-  const byId = new Map(deliveries.map((d) => [d.id, d]));
+  const byOrder = await boardDeliveries(board.orders);
   return ok({
     // The Interac security answer never leaves the server (publicDirectOrder): even a read-only role reads this board.
-    orders: orders.filter((o) => inScope(actor, o.locationCode)).map((o) => ({ ...publicDirectOrder(o), delivery: o.deliveryId ? byId.get(o.deliveryId) ?? null : null })),
+    orders: board.orders.filter((o) => inScope(actor, o.locationCode)).map((o) => ({ ...publicDirectOrder(o), delivery: byOrder.get(o.id) ?? null })),
+    coverage: board.coverage,
     fleets: fleetReadiness(),
     settings: { primaryFleet: settings.primaryFleet, compareQuotes: settings.compareQuotes, customerFee: settings.customerFee, defaultTip: settings.defaultTip },
   });

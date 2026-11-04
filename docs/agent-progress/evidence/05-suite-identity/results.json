@@ -1,0 +1,145 @@
+{
+  "scope": "isolated local sources and mocked Clover transport",
+  "sharedSha256": {
+    "lib/clover/oauth.ts": "16222085c48db4a1aae2b02aab360da297769db22b980f8b85c3a937eac44f15",
+    "tests/kit.test.ts": "0bc382092e5dfae0af2a59691e0bace7a415640c14915f5415870958fae2c703",
+    "tests/helpers.ts": "fa4f834bb9826a5328912b0a148ef14c47ae3906f1f719980de7173f79fcdee7",
+    "docs/SUITE_KIT.md": "5a49ef6c3b53db32ccfccc753066ec570def43676ed0eef6202cbb0eec9d4664"
+  },
+  "results": [
+    {
+      "repo": "M4RKETING",
+      "branch": "feature/foodhub-campaign-workflows",
+      "commit": "12d071c2f5130be88f56677c2f34f84b1fc3744c",
+      "testsPassed": 73,
+      "typecheck": true,
+      "normalProductionBuild": true,
+      "transport": "mocked Clover",
+      "cleanTree": true,
+      "verifiedSource": "12d071c2f5130be88f56677c2f34f84b1fc3744c",
+      "publishedHead": "88f5837a2fa7ab420fc37727ea354e2912cd8b53",
+      "publishedHeadScope": "Documentation-only final campaign proof; runtime verifiedSource remains unchanged."
+    },
+    {
+      "repo": "C4ISSE",
+      "branch": "fix/clover-merchant-identity",
+      "commit": "7c87e7baded41f1e54297e70d7676da52b2434d8",
+      "testsPassed": 52,
+      "typecheck": true,
+      "normalProductionBuild": true,
+      "transport": "mocked Clover",
+      "cleanTree": true,
+      "verifiedSource": "7c87e7baded41f1e54297e70d7676da52b2434d8"
+    },
+    {
+      "repo": "LOY4LTY",
+      "branch": "fix/clover-merchant-identity",
+      "commit": "a87ba776c482b3220144ccca449f6040182a8550",
+      "testsPassed": 60,
+      "typecheck": true,
+      "normalProductionBuild": true,
+      "transport": "mocked Clover",
+      "cleanTree": true,
+      "verifiedSource": "a87ba776c482b3220144ccca449f6040182a8550"
+    },
+    {
+      "repo": "REW4RD",
+      "branch": "fix/clover-merchant-identity",
+      "commit": "7650721a01e09dee876c82c1b1c6d23683fc2cce",
+      "testsPassed": 59,
+      "typecheck": true,
+      "normalProductionBuild": true,
+      "transport": "mocked Clover",
+      "cleanTree": true,
+      "verifiedSource": "7650721a01e09dee876c82c1b1c6d23683fc2cce"
+    },
+    {
+      "repo": "4CCOUNTING",
+      "branch": "fix/clover-merchant-identity",
+      "commit": "25a2018fef837a32bd04f08bef00d47ad5882088",
+      "testsPassed": 52,
+      "typecheck": true,
+      "normalProductionBuild": true,
+      "transport": "mocked Clover",
+      "cleanTree": true,
+      "verifiedSource": "25a2018fef837a32bd04f08bef00d47ad5882088"
+    },
+    {
+      "repo": "CH4T",
+      "branch": "fix/clover-merchant-identity",
+      "commit": "a82ec6c6ce5dc4cc5be2943a26dffa640ec1d6e2",
+      "testsPassed": 52,
+      "typecheck": true,
+      "normalProductionBuild": true,
+      "transport": "mocked Clover",
+      "cleanTree": true,
+      "verifiedSource": "a82ec6c6ce5dc4cc5be2943a26dffa640ec1d6e2"
+    },
+    {
+      "repo": "ST4FF",
+      "branch": "fix/clover-merchant-identity",
+      "commit": "41165a63d6b2de01fabd2b0be236dadddc2931ac",
+      "testsPassed": 52,
+      "typecheck": true,
+      "normalProductionBuild": true,
+      "transport": "mocked Clover",
+      "cleanTree": true,
+      "verifiedSource": "41165a63d6b2de01fabd2b0be236dadddc2931ac"
+    },
+    {
+      "repo": "T4CTILE",
+      "branch": "fix/clover-merchant-identity",
+      "commit": "a51ed6ef8a444e311dcf3b371f0c64175dcc5567",
+      "testsPassed": 52,
+      "typecheck": true,
+      "normalProductionBuild": true,
+      "transport": "mocked Clover",
+      "cleanTree": true,
+      "verifiedSource": "a51ed6ef8a444e311dcf3b371f0c64175dcc5567"
+    },
+    {
+      "repo": "TR4CKER",
+      "branch": "fix/clover-merchant-identity",
+      "commit": "5b6f3999a39cf1b2be4680e19682ec30de40de4a",
+      "testsPassed": 53,
+      "typecheck": true,
+      "normalProductionBuild": true,
+      "transport": "mocked Clover",
+      "cleanTree": true,
+      "verifiedSource": "5b6f3999a39cf1b2be4680e19682ec30de40de4a"
+    }
+  ],
+  "liveCloverVerified": false,
+  "productionVerified": false,
+  "testsPassedTotal": 505,
+  "sharedChangedFilesMatchAllNine": true,
+  "sameCommitMessageAllNine": true,
+  "m4Snapshot": "read-only detached snapshot of combinedcampaignbranch12d071c; normal build/test ran in primaryM4checkout",
+  "originalBalanceBranchesPreserved": [
+    {
+      "repo": "LOY4LTY",
+      "originalBalanceBranch": "feature/customer-balance-bridge",
+      "preservedHead": "65b77a203c619be42167b493923bed1f7837c830",
+      "clean": true
+    },
+    {
+      "repo": "REW4RD",
+      "originalBalanceBranch": "feature/customer-balance-bridge",
+      "preservedHead": "1c2cb0b92a3b8650c70b02ef4d87b2aa1a3d5a6f",
+      "clean": true
+    }
+  ],
+  "allNineRemoteHeadsVerified": true,
+  "documentedChecksumRecipeExecuted": true,
+  "publication": {
+    "scope": "Reviewable sanitized copy of the local nine-app identity matrix; no new execution or production claim.",
+    "sourceReportSha256": "ebd1af86f62b0ed9aed8e9b0a4f450457477068ae2699fd43dd7c72396064832",
+    "sourceChecksumReportSha256": "f2967c16aae55f22742a3fa69e6bd4c57415124a00cdb114c02616ebab8d9788",
+    "omittedFields": [
+      "results[].buildLog",
+      "results[].checkLog",
+      "reviewWorkspace"
+    ],
+    "commitSemantics": "commit and verifiedSource identify the tested code; publishedHead may identify later documentation-only publication."
+  }
+}

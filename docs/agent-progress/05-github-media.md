@@ -3,9 +3,80 @@
 Updated: 2026-11-04, Codex cloud. Review branch: `feature/foodhub-media-production` (publication coordinated by the parent agent; this worker does not switch or commit the shared checkout).
 
 
+## Shared Clover installation identity across nine apps
+
+The continued cross-repository review found that installation needed a verified merchant identity before credentials
+or billing could be saved. The common OAuth path now requires the authoritative Clover merchant response to match
+the requested installation identity. Unavailable, malformed and mismatched replies leave installed records unchanged.
+The same four changed shared files have matching SHA256 values in all nine reviewed sources, and the documented
+checksum recipe was executed. The recorded verification commits were pushed and verified; M4RKETING then added documentation-only head `88f5837`
+with runtime source still `12d071c`. No main merge or live Clover installation is implied.
+
+| Repository | Current reviewed branch | Verified code commit | Passing unit tests |
+| --- | --- | --- | ---: |
+| M4RKETING | [feature/foodhub-campaign-workflows](https://github.com/takatakca/M4RKETING/tree/feature/foodhub-campaign-workflows) | `12d071c` |73 |
+| C4ISSE | [fix/clover-merchant-identity](https://github.com/takatakca/C4ISSE/tree/fix/clover-merchant-identity) | `7c87e7b` |52 |
+| LOY4LTY | [fix/clover-merchant-identity](https://github.com/takatakca/LOY4LTY/tree/fix/clover-merchant-identity) | `a87ba77` |60 |
+| REW4RD | [fix/clover-merchant-identity](https://github.com/takatakca/REW4RD/tree/fix/clover-merchant-identity) | `7650721` |59 |
+| 4CCOUNTING | [fix/clover-merchant-identity](https://github.com/takatakca/4CCOUNTING/tree/fix/clover-merchant-identity) | `25a2018` |52 |
+| CH4T | [fix/clover-merchant-identity](https://github.com/takatakca/CH4T/tree/fix/clover-merchant-identity) | `a82ec6c` |52 |
+| ST4FF | [fix/clover-merchant-identity](https://github.com/takatakca/ST4FF/tree/fix/clover-merchant-identity) | `41165a6` |52 |
+| T4CTILE | [fix/clover-merchant-identity](https://github.com/takatakca/T4CTILE/tree/fix/clover-merchant-identity) | `a51ed6e` |52 |
+| TR4CKER | [fix/clover-merchant-identity](https://github.com/takatakca/TR4CKER/tree/fix/clover-merchant-identity) | `5b6f399` |53 |
+
+Every row passed TypeScript and its normal production build with mocked Clover transport. Each app includes 21 shared
+identity regressions; the numbers above also include its existing app-specific tests. The original LOY4LTY/REW4RD
+balance-only branches are preserved at `65b77a2` / `1c2cb0b`; the newer guard branches carry that work alongside the
+shared installation safeguard. The separately rerun signed-suite source-contract checker reports 9/9 pairs; those
+in-process delivery/replay/body/query/identity/expiry checks have a separate scope from real OAuth authorization.
+
+Evidence: [nine-app verification matrix](evidence/05-suite-identity/results.json) and [shared-file checksums](evidence/05-suite-identity/shared-checksums.json). The published copies retain the verified code commits and omit irrelevant absolute execution paths. They describe local sources and mocked transport, not production configuration. Review the
+coordinated integration and the intended companion branch set before the normal PR/native deployment path.
+
+## Merchant campaign review and consent workflow
+
+[M4RKETING's workflow](https://github.com/takatakca/M4RKETING/blob/feature/foodhub-campaign-workflows/docs/CAMPAIGN_WORKFLOW.md)
+now connects a merchant-owned draft to a current Clover offer/segment preview, an approval of that exact version and
+a real downloadable CSV of currently consenting contacts. Roles and merchant boundaries are enforced. An edit clears
+approval; an old preview/export is refused. Consent is re-read at export, and a concurrent campaign edit during the
+provider audience read prevents contact details leaving the route. Unknown Clover data fails closed.
+
+The latest coordinator rerun passed nine checks on disposable real PostgreSQL, using three fresh app processes with
+two running simultaneously. It exercised the actual merchant UI, admin/manager boundaries, an approved CSV download,
+consent withdrawal, restart/JSONB ordering, a locked-row edit race and an edit during the audience lookup. The [final nine-check workflow proof](https://github.com/takatakca/M4RKETING/blob/feature/foodhub-campaign-workflows/docs/proofs/campaign-workflow-2026-11-04/results.json), build `b2siEtry9F116sazCYQai`, records zero page errors, provider writes or external messages. Documentation head `88f5837` publishes that result and its [source provenance](https://github.com/takatakca/M4RKETING/blob/feature/foodhub-campaign-workflows/docs/proofs/campaign-workflow-2026-11-04/provenance.json), identifying runtime commit `12d071c`. Its combined campaign/identity source passes 73 tests, TypeScript and production build as recorded in the shared-kit matrix.
+
+Clover traffic in these checks stays on an isolated loopback receiver. No campaign messages were sent, discounts
+published or production provider accounts changed. Installed suite transport, automatic campaign triggers, delivery
+and live merchant authorization are separate acceptance steps.
+
+## V1 build continuity with the original fonts
+
+The [local-font review branch](https://github.com/takatakca/takatak-v1/tree/feature/cloud-local-fonts), `8072f39`, replaces
+remote font-build fetches with integrity-locked local Fontsource assets for Geist, Geist Mono, Inter, Montserrat and
+Instrument Serif. All six emitted WOFF2 files match their installed package bytes and cover the tested Canadian
+French accented letters plus Œ/œ. The five original licenses remain available. The current loader/lockfile hashes
+still match the recorded proof; its Git metadata correctly identifies the pre-commit base `b853bb6` with tracked
+changes rather than pretending it was already the later commit.
+
+The real production build, TypeScript, source/module checks, access/auth/identity suites,11 SEO checks and theme check
+passed. Three actual local browser states cover English desktop, French mobile and the French OAuth notice, loading
+all five families and the serif styles with zero page errors or external font requests. Only the intended website
+and OAuth families preload. [Proof and captures](https://github.com/takatakca/takatak-v1/blob/feature/cloud-local-fonts/docs/proofs/2026-11-04/local-fonts/README.md).
+
+This cloud's official Prisma bootstrap supplies genuine schema-specific types only. The module audit explicitly
+skips its normal generated checksum stamp; database queries/migrations, authenticated provider behavior, CI, merge
+and production are not certified. The font change closes the earlier remote-font build failure without claiming
+those remaining runtime requirements are complete.
+
+The earlier control-plane, balance and media deliveries below retain their original scopes. Current Food Hub
+customer-write/public-page changes are still under the coordinator's final combined checks; historical aggregate
+counts below are not a new release result.
+
+— signé : Codex, documentation continuation @ Codex cloud · 2026-11-04
+
 ## Continued delivery — durable TAKATAK control-plane transport
 
-The missing production callers of the old tenant foundations have been replaced with a wire-compatible client and a background observer/outbox under `lib/foodhub/control-plane/`. The unchanged V1 source was audited and exercised directly in contract tests. It uses the dedicated `TAKATAK_FOODHUB_API_KEY` Bearer credential, **not** historical HMAC headers or the old `TAKATAK_ON2GO_HUB_KEY`. V1 remains read-only because another agent owns its active work.
+The missing production callers of the old tenant foundations have been replaced with a wire-compatible client and a background observer/outbox under `lib/foodhub/control-plane/`. The unchanged V1 source was audited and exercised directly in contract tests. It uses the dedicated `TAKATAK_FOODHUB_API_KEY` Bearer credential, **not** historical HMAC headers or the old `TAKATAK_ON2GO_HUB_KEY`. That control-plane implementation did not edit V1 business handlers; the later font-only build work is recorded separately above.
 
 - Configuration requires an explicit instance ID and existing source/master-merchant/location mapping. A current C4 response must match the expected master UUID before events are sent. No identity resolution/creation or browser mapping override is available. Changed mappings hold old pending events for administrator review.
 - C4 returns source-synchronized merchant/subscription metadata. The owner status widget labels the last reported plan/check; it does not invent feature rights, Stripe authority or billing gates. The existing `admin` permission protects the status route. No endpoint, keys, mapping IDs or raw event payloads are returned.
@@ -61,8 +132,8 @@ No application deployment, social upload, provider login, Canva write, Runway ca
 
 — Codex, Agent 5 @ cloud · 2026-11-04
 
-## Coordinator verification — final combined candidate
+## Earlier combined candidate — before this continuation
 
-The combined candidate passed 2,272 unit tests (22 skipped), production webpack build/TypeScript, lint with zero errors/one existing warning, 644 simulated acceptance checks and 25 real PostgreSQL crash checks. Thirteen built ON2GO/Food Hub browser checks passed on real PostgreSQL, including response-loss recovery and simultaneous checkout through two real servers. Nine sibling suite pairs passed. These checks use isolated provider/SMS receivers; no live deployment or real merchant-session certification is implied. See [current delivery record](../RESTAURANT_PLATFORM_DELIVERY.md).
+The earlier published integration candidate (`1df1415`) passed 2,272 unit tests (22 skipped), production webpack build/TypeScript, lint with zero errors/one existing warning, 644 simulated acceptance checks and 25 real PostgreSQL crash checks. Thirteen built ON2GO/Food Hub browser checks passed on real PostgreSQL, including response-loss recovery and simultaneous checkout through two real servers. Nine sibling suite pairs passed. These checks use isolated provider/SMS receivers; no live deployment or real merchant-session certification is implied. See [current delivery record](../RESTAURANT_PLATFORM_DELIVERY.md).
 
 — signé : Codex, coordinator @ Codex cloud · 2026-11-04

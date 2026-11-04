@@ -1,0 +1,20 @@
+{
+  "recordedAt": "2026-11-04T14:34:02.666660-05:00",
+  "foodHubBuildId": "WHYKkT8XwBpUKH0pcsZQL",
+  "scope": "actual local production-built public UI, client error/acknowledgement fixtures; every write mocked or blocked",
+  "runtimeSourceSha256": {
+    "components/public-hub/restaurant-contact-form.tsx": "01c62d5a8837efb58085859d446c28ba24281abc40fa50d95ecfd66705e371c7",
+    "components/public-hub/restaurant-contact.tsx": "18eccdfce76a342cb631c2765c2705fa2e150837f42904b65f06881ff10cd75e",
+    "components/public-hub/restaurant-contact.module.css": "ce059780654d706ab885ce32ae5bc5e28c164e901994be599e67d8525185034d",
+    "components/public-hub/restaurant-shell.tsx": "e15d0000a17ce70c9890fbd4a65882a19d79005cacf584e2fffa5339cb58412d",
+    "lib/foodhub/public-hub.ts": "af55f72be6ca39682760f053c807966f06dae8da62f0ef2c1e5352af7461c48f"
+  },
+  "browserChecks": 12,
+  "wcagScans": 4,
+  "wcagViolations": 0,
+  "pageErrors": [],
+  "productionVerified": false,
+  "actualBackendStorageProvenByThisArtifact": false,
+  "notes": "The12-case run passed, but additional repeated navigation found an unresolved hydration issue. No React warning/error is suppressed. Backend PostgreSQL proof is separate.",
+  "additionalStressStatus": "Under investigation: intermittent React418 on repeated Phone AI query/language navigation, including after the hydration readiness marker."
+}

@@ -25,9 +25,9 @@ export const HUB_TAGLINE: Record<Lang, string> = {
   en: 'Food Hub brings order, menu and location management together, with workspaces for Uber Eats, DoorDash and SkipTheDishes.',
 };
 
-export type HubPageKey = 'landing' | 'pricing' | 'uber' | 'doordash' | 'skip' | 'kitchen' | 'phone' | 'help';
+export type HubPageKey = 'landing' | 'pricing' | 'uber' | 'doordash' | 'skip' | 'kitchen' | 'phone' | 'help' | 'contact';
 
-export const HUB_PAGE_KEYS: HubPageKey[] = ['landing', 'pricing', 'uber', 'doordash', 'skip', 'kitchen', 'phone', 'help'];
+export const HUB_PAGE_KEYS: HubPageKey[] = ['landing', 'pricing', 'uber', 'doordash', 'skip', 'kitchen', 'phone', 'help', 'contact'];
 
 export const HUB_PATHS: Record<HubPageKey, Record<Lang, string>> = {
   landing: { fr: '/hub', en: '/en/hub' },
@@ -38,6 +38,7 @@ export const HUB_PATHS: Record<HubPageKey, Record<Lang, string>> = {
   kitchen: { fr: '/hub/ecran-de-cuisine-clover', en: '/en/hub/clover-kitchen-display' },
   phone: { fr: '/hub/telephone-ia-restaurant', en: '/en/hub/ai-phone-for-restaurants' },
   help: { fr: '/hub/aide', en: '/en/hub/help' },
+  contact: { fr: '/hub/contact', en: '/en/hub/contact' },
 };
 
 export interface Card { title: string; text: string }
@@ -288,6 +289,30 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
         { q: 'Is TAKATAK Phone AI included in Food Hub?', a: 'No. It is a separate Clover app with its own trial, subscription and per-AI-minute charges.' },
         { q: 'Can a caller reach my team during the call?', a: 'Yes. Callers can press 0 to speak with a person. The restaurant’s transfer number is configured and tested before activation.' },
         { q: 'What happens before phone service is activated?', a: 'The line, menu, hours, Clover flow and staff hand-off are configured and verified with a test call. An available App Market listing does not mean that your line is already active.' },
+      ],
+    },
+  },
+  contact: {
+    fr: {
+      title: 'Parlons de votre restaurant | Food Hub',
+      description: 'Présentez votre restaurant, vos marques et vos plateformes. Notre équipe vous accompagne pour préparer une configuration Food Hub adaptée à vos opérations.',
+      label: 'Contact', eyebrow: 'VOTRE RESTAURANT, VOTRE CONFIGURATION', h1: 'Parlons de votre restaurant.',
+      lead: 'Votre équipe, vos établissements, vos façons de travailler. Donnez-nous quelques repères pour préparer la suite avec vous.',
+      blocks: [{ kind: 'text', id: 'demande', title: 'Présentez-nous votre projet.', paragraphs: ['Votre demande sert uniquement à préparer cet échange. Ne transmettez aucun mot de passe, code de connexion ou renseignement de paiement.'] }],
+      faq: [
+        { q: 'Que se passe-t-il après l’envoi?', a: 'Votre demande est enregistrée dans Food Hub. Notre équipe pourra vous contacter avec les coordonnées fournies pour examiner votre configuration et les prochaines étapes.' },
+        { q: 'Est-ce une installation ou un abonnement?', a: 'Non. Ce formulaire ouvre une discussion. Il n’active aucun compte marchand et ne souscrit aucun abonnement. Les installations, les accès et la facturation Clover se vérifient séparément.' },
+      ],
+    },
+    en: {
+      title: 'Let’s talk about your restaurant | Food Hub',
+      description: 'Tell us about your restaurant, brands and platforms. Our team can help you prepare a Food Hub setup that fits the way your restaurant operates.',
+      label: 'Contact', eyebrow: 'YOUR RESTAURANT, YOUR SETUP', h1: 'Let’s talk about your restaurant.',
+      lead: 'Your team, your locations, your way of working. Give us a few details so we can prepare the next steps with you.',
+      blocks: [{ kind: 'text', id: 'demande', title: 'Tell us about your plans.', paragraphs: ['Your request is used only to prepare this conversation. Do not send passwords, sign-in codes or payment information.'] }],
+      faq: [
+        { q: 'What happens after I send the form?', a: 'Your request is saved in Food Hub. Our team can use the contact details you provide to review your setup and the next steps with you.' },
+        { q: 'Does this install an app or start a subscription?', a: 'No. This form starts a conversation. It does not activate a merchant account or start a subscription. Installation, access and Clover billing are reviewed separately.' },
       ],
     },
   },

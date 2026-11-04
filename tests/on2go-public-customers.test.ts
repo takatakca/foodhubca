@@ -99,6 +99,35 @@ describe('texted-code sign-in from on2go.ca', () => {
 });
 
 describe('Mon compte from on2go.ca', () => {
+  it('refuses a stale device list and allows a fresh explicit merge without losing either saved restaurant', async () => {
+    const { token } = await signIn();
+    const initial = await read(meGet(req('/me', { method: 'GET', token })));
+    expect(initial.favouritesRevision).toMatch(/^[a-f0-9]{64}$/);
+    expect(initial.addressesRevision).toMatch(/^[a-f0-9]{64}$/);
+    const first = await read(favouritesPut(req('/me/favourites', { method: 'PUT', token, body: { favourites: ['first-device'], expectedRevision: initial.favouritesRevision } })));
+    expect(first.status).toBe(200);
+    const stale = await read(favouritesPut(req('/me/favourites', { method: 'PUT', token, body: { favourites: ['second-device'], expectedRevision: initial.favouritesRevision } })));
+    expect(stale).toMatchObject({ status: 409, error: 'collection_changed', favourites: ['first-device'], favouritesRevision: first.favouritesRevision });
+    const merged = await read(favouritesPut(req('/me/favourites', { method: 'PUT', token, body: { favourites: [...stale.favourites, 'second-device'], expectedRevision: stale.favouritesRevision } })));
+    expect(merged).toMatchObject({ status: 200, favourites: ['first-device', 'second-device'] });
+    for (const expectedRevision of [null, 10, 'wrong']) {
+      expect((await read(favouritesPut(req('/me/favourites', { method: 'PUT', token, body: { favourites: [], expectedRevision } })))).status).toBe(422);
+    }
+    expect((await read(meGet(req('/me', { method: 'GET', token })))).favourites).toEqual(['first-device', 'second-device']);
+  });
+  it('uses separate collection revisions so an address change cannot be overwritten by a stale device', async () => {
+    const { token } = await signIn();
+    const initial = await read(meGet(req('/me', { method: 'GET', token })));
+    const address = { street: '123 rue Exemple', city: 'Montréal', province: 'QC', postalCode: 'H4A1E1' };
+    const changed = await read(addressesPut(req('/me/addresses', { method: 'PUT', token, body: { addresses: [address], expectedRevision: initial.addressesRevision } })));
+    expect(changed.status).toBe(200);
+    expect((await read(addressesPut(req('/me/addresses', { method: 'PUT', token, body: { addresses: [], expectedRevision: initial.addressesRevision } })))).status).toBe(409);
+    const saved = await read(favouritesPut(req('/me/favourites', { method: 'PUT', token, body: { favourites: ['restaurant'], expectedRevision: initial.favouritesRevision } })));
+    expect(saved.status).toBe(200);
+    const current = await read(meGet(req('/me', { method: 'GET', token })));
+    expect(current.addressesRevision).toBe(changed.addressesRevision);
+    expect(current.addresses).toHaveLength(1);
+  });
   it('persists structured addresses and restaurant favourites across sessions without changing another customer', async () => {
     const { token } = await signIn();
     const address = { label: 'Maison', street: '123 rue Exemple', unit: '2', city: 'Montréal', province: 'QC', postalCode: 'H4A1E1', instructions: 'Sonnez' };

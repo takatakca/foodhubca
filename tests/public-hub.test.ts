@@ -240,7 +240,7 @@ describe('page content', () => {
       expect(text).toContain('Clover');
       expect(text).toContain(lang === 'fr' ? 'Configuration requise' : 'Setup required');
       expect(text).toContain(lang === 'fr' ? 'autorisations des plateformes' : 'authorization from the relevant platforms');
-      expect(html).toContain('href="https://on2go.ca/"');
+      expect(html).toContain(`href="${lang === 'en' ? 'https://on2go.ca/en/' : 'https://on2go.ca/'}"`);
       expect(html).toContain(`href="${HUB_PATHS.pricing[lang]}"`);
       expect(text).not.toMatch(/within seconds|en quelques secondes|one brain|un seul cerveau/i);
     }
@@ -413,6 +413,18 @@ describe('structured data', () => {
     expect(hubBase('https://foodhub.on2go.ca', 'production')).toBe('https://foodhub.on2go.ca');
     expect(hubBase('https://staging.example.com', 'production')).toBe('https://staging.example.com');
     expect(hubBase('http://localhost:3000', 'development')).toBe('http://localhost:3000');
+  });
+  it('rejects credentials, queries, fragments and subpaths before producing public canonical URLs', () => {
+    for (const base of ['https://user:secret@example.com', 'https://example.com?source=wrong', 'https://example.com#fragment',
+      'https://example.com/hub', 'https://localhost', 'https://localhost.', 'https://demo.localhost', 'https://bad..example',
+      'https://-bad.example', 'https://bad-.example', 'https://127.0.0.1:3000', 'https://192.168.1.20', 'https://[::1]', 'https://#']) {
+      const safe = hubBase(base, 'production');
+      expect(safe).toBe(HUB_PRODUCTION_BASE);
+      expect(hubMetadata('landing', 'en', { base: safe }).alternates?.canonical).toBe(`${HUB_PRODUCTION_BASE}/en/hub`);
+      expect(JSON.stringify(hubJsonLd('landing', 'en', ctx({ base: safe })))).not.toMatch(/user:secret|source=wrong|#fragment/);
+    }
+    expect(hubBase('https://FOODHUB.EXAMPLE.COM:443/', 'production')).toBe('https://foodhub.example.com');
+    expect(hubBase('https://foodhub.example.com.', 'production')).toBe('https://foodhub.example.com');
   });
   it('escapes the script content and parses addresses safely', () => {
     expect(jsonLdScript({ a: '</script><b>&' })).toBe('{"a":"\\u003c/script\\u003e\\u003cb\\u003e\\u0026"}');

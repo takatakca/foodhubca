@@ -5,9 +5,9 @@
 // for the "on2go" brand website. The launch code is the only credential the browser holds: one use, 90 seconds.
 import { logActivity } from '../activity';
 import { normalizePhone } from '../notify';
-import { saveCustomer, upsertVerifiedCustomer } from './store';
+import { updateCustomer, upsertVerifiedCustomer } from './store';
 import { signCustomerToken } from './token';
-import { ON2GO_TENANT, toPublicCustomer, type CustomerLang, type MasterCustomer, type PublicCustomer } from './types';
+import { ON2GO_TENANT, toPublicCustomer, type CustomerLang, type PublicCustomer } from './types';
 
 export const TAKATAK_EXCHANGE_PATH = '/api/experiences/on2go/exchange';
 export const TAKATAK_TIMEOUT_MS = 8_000;
@@ -115,13 +115,15 @@ export async function signInWithTakatak(body: Record<string, unknown> | null | u
   if (!s.phone) return { ok: false, status: 409, error: 'Add and verify a cell number on your TAKATAK account, then open ON2GO again.' };
 
   const { customer, created } = await upsertVerifiedCustomer({ phone: s.phone, tenant: ON2GO_TENANT, lang: langOf(s.locale, 'fr'), via: 'takatak' });
-  let rec: MasterCustomer = customer;
-  const patch: Partial<MasterCustomer> = {};
-  if (rec.takatakIdentityId !== s.identityId) patch.takatakIdentityId = s.identityId;
-  if (!rec.name && s.displayName) patch.name = s.displayName;
-  if (!rec.email && s.email) patch.email = s.email;
-  if (Object.keys(patch).length) rec = await saveCustomer({ ...rec, ...patch });
-  if (patch.takatakIdentityId && customer.takatakIdentityId && customer.takatakIdentityId !== s.identityId) {
+  let previousIdentity: string | undefined;
+  const rec = await updateCustomer(customer.id, (cur) => {
+    previousIdentity = cur.takatakIdentityId;
+    return { ...cur, takatakIdentityId: s.identityId,
+      ...(!cur.name && s.displayName ? { name: s.displayName } : {}),
+      ...(!cur.email && s.email ? { email: s.email } : {}) };
+  });
+  if (!rec) return { ok: false, status: 409, error: 'Your customer account changed during sign-in. Open ON2GO again from TAKATAK.' };
+  if (previousIdentity && previousIdentity !== s.identityId) {
     await logActivity({ actor: ON2GO_TENANT, source: 'api', kind: 'customer', action: 'customer_takatak_relinked', status: 'info', summary: `Customer ${rec.id} now linked to another TAKATAK identity (same verified phone)` });
   }
   const { token, expiresAt } = await signCustomerToken(rec, ON2GO_TENANT);

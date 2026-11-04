@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { logActivity } from '@/lib/foodhub/activity';
-import { allowLead, LEAD_MAX_BODY_BYTES, LEAD_RATE_WINDOW_MS, leadCorsHeaders, notifyLead, parseLead, saveLead } from '@/lib/foodhub/restaurant-leads';
+import { LEAD_MAX_BODY_BYTES, LEAD_RATE_WINDOW_MS, leadCorsHeaders, notifyLead, parseLead } from '@/lib/foodhub/restaurant-leads';
+import { submitRestaurantLead } from '@/lib/foodhub/restaurant-lead-submission';
 import { clientIp } from '@/lib/foodhub/session';
 
 export const dynamic = 'force-dynamic';
@@ -16,10 +17,24 @@ function headers(req: Request, extra: Record<string, string> = {}): Record<strin
 const reply = (req: Request, status: number, body: Record<string, unknown>, extra?: Record<string, string>) => NextResponse.json(body, { status, headers: headers(req, extra) });
 
 export async function POST(req: Request) {
-  const type = req.headers.get('content-type') || '';
-  if (!/application\/json/i.test(type)) return reply(req, 415, { ok: false, error: 'Send JSON (Content-Type: application/json).' });
-  const raw = await req.text().catch(() => '');
-  if (Buffer.byteLength(raw, 'utf8') > LEAD_MAX_BODY_BYTES) return reply(req, 413, { ok: false, error: 'Too large.' });
+  const type = (req.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  if (type !== 'application/json') return reply(req, 415, { ok: false, error: 'Send JSON (Content-Type: application/json).' });
+  if (Number(req.headers.get('content-length') || 0) > LEAD_MAX_BODY_BYTES) return reply(req, 413, { ok: false, error: 'Too large.' });
+  let raw = '';
+  if (req.body) {
+    const reader = req.body.getReader();
+    const chunks: Uint8Array[] = []; let bytes = 0;
+    try {
+      for (;;) {
+        const next = await reader.read(); if (next.done) break;
+        bytes += next.value.byteLength;
+        if (bytes > LEAD_MAX_BODY_BYTES) { await reader.cancel().catch(() => undefined); return reply(req, 413, { ok: false, error: 'Too large.' }); }
+        chunks.push(next.value);
+      }
+      raw = Buffer.concat(chunks).toString('utf8');
+    } catch { return reply(req, 400, { ok: false, errors: { body: 'invalid' } }); }
+    finally { reader.releaseLock(); }
+  }
   let body: unknown;
   try { body = JSON.parse(raw); } catch { return reply(req, 400, { ok: false, errors: { body: 'invalid' } }); }
 
@@ -27,17 +42,27 @@ export async function POST(req: Request) {
   if (parsed.kind === 'honeypot') return reply(req, 202, { ok: true });
   if (parsed.kind === 'invalid') return reply(req, 400, { ok: false, errors: parsed.errors });
 
-  if (!allowLead(clientIp(req.headers))) {
+  const submission = await submitRestaurantLead(parsed.lead, req.headers.get('idempotency-key'), clientIp(req.headers));
+  if (submission.kind === 'invalid_key') return reply(req, 400, { ok: false, errors: { request: 'invalid' } });
+  if (submission.kind === 'rate') {
     return reply(req, 429, { ok: false, error: 'Too many requests. Please try again in a few minutes.' }, { 'Retry-After': String(LEAD_RATE_WINDOW_MS / 1000) });
   }
 
-  const lead = await saveLead(parsed.lead);
-  const mail = await notifyLead(lead);
-  await logActivity({
-    actor: 'on2go.ca', source: 'api', kind: 'message', action: 'restaurant-lead', status: 'info',
-    summary: `Nouvelle demande de restaurant : ${lead.restaurant} (${lead.city})`,
-    detail: { leadId: lead.id, platforms: lead.platforms, lang: lead.lang, supportMail: mail.support?.ok ?? null, replyMail: mail.reply.ok },
-  });
+  if (submission.kind === 'conflict' || submission.kind === 'pending') return reply(req, 409, { ok: false, error: submission.kind === 'conflict' ? 'request_changed' : 'request_pending' }, { 'Retry-After': '5' });
+  if (submission.kind === 'unavailable') return reply(req, 503, { ok: false, error: 'unavailable' });
+  if (submission.kind !== 'accepted') return reply(req, 503, { ok: false, error: 'unavailable' });
+  const lead = submission.lead;
+  if (lead) {
+    // Storage is the acceptance boundary. Optional mail/activity failures must not invite another lead submission.
+    try {
+      const mail = await notifyLead(lead);
+      await logActivity({
+        actor: lead.source === 'foodhub' ? 'Food Hub' : 'on2go.ca', source: 'api', kind: 'message', action: 'restaurant-lead', status: 'info',
+        summary: `Nouvelle demande de restaurant : ${lead.restaurant} (${lead.city})`,
+        detail: { leadId: lead.id, platforms: lead.platforms, lang: lead.lang, supportMail: mail.support?.ok ?? null, replyMail: mail.reply.ok },
+      });
+    } catch { /* the stored request remains available in the owner inbox */ }
+  }
   return reply(req, 202, { ok: true });
 }
 

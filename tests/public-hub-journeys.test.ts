@@ -21,7 +21,7 @@ describe('complete public restaurant journeys', () => {
       expect(html).toContain('Food Hub');
       expect(html).not.toContain('hub-motion-off');
       for (const [, id] of html.matchAll(/href="#([^"]+)"/g)) expect(html, `${page}/${lang}: ${id}`).toContain(`id="${id}"`);
-      for (const [, href] of html.matchAll(/href="((?:\/en)?\/hub(?:\/[^"#]*)?)(?:#[^"]*)?"/g)) expect(hubPageAt(href), `${page}/${lang}: ${href}`).not.toBeNull();
+      for (const [, href] of html.matchAll(/href="((?:\/en)?\/hub(?:\/[^"#]*)?)(?:#[^"]*)?"/g)) expect(hubPageAt(href.split('?')[0]), `${page}/${lang}: ${href}`).not.toBeNull();
     }
   });
 
@@ -50,7 +50,7 @@ describe('complete public restaurant journeys', () => {
         expect(phoneHero).toMatch(/>Install TAKATAK Phone AI/);
         expect(phoneHero).toContain(`href="${phoneUrl}"`);
       } else {
-        expect(phoneHero).toMatch(/href="mailto:support@takatak.ca"[^>]*>Discuss my phone service/);
+        expect(phoneHero).toMatch(/href="\/en\/hub\/contact\?interest=phone"[^>]*>Discuss my phone service/);
         expect(phoneHero).not.toContain('>Install TAKATAK Phone AI');
       }
       const phoneApp = appOf('phone', ctx);
@@ -70,7 +70,7 @@ describe('complete public restaurant journeys', () => {
   it('does not reuse an explicit Food Hub listing URL as a Phone AI installation', () => {
     const ctx = context({ appMarketUrl: 'https://www.clover.com/appmarket/apps/FOODHUB-ONLY', marketStatus: 'live', supportEmail: 'help@example.com' });
     const html = hero(render('phone', 'fr', ctx));
-    expect(html).toMatch(/href="mailto:help@example.com"[^>]*>Parler de mon service téléphonique/);
+    expect(html).toMatch(/href="\/hub\/contact\?interest=phone"[^>]*>Parler de mon service téléphonique/);
     expect(html).not.toContain('FOODHUB-ONLY');
     expect(appOf('phone', ctx).offers).toBeUndefined();
   });

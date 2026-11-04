@@ -5,6 +5,7 @@ import type { DirectOrder } from '../delivery/types';
 import { payLinkState } from '../delivery/paylink';
 import { giftCardsFor, loyaltyFor, type GiftCardsInfo, type LoyaltyInfo } from './adapters';
 import { toPublicCustomer, type CustomerAddress, type CustomerPreferences, type MasterCustomer, type PublicCustomer } from './types';
+import { collectionRevision } from './collections';
 
 export const ME_ORDERS_MAX = 20;
 /** How far back the order list looks (the newest 500 direct orders of every source). */
@@ -35,6 +36,8 @@ export interface MeView {
   preferences: CustomerPreferences;
   addresses: CustomerAddress[];
   favourites: string[];
+  addressesRevision: string;
+  favouritesRevision: string;
   loyalty: LoyaltyInfo;
   giftCards: GiftCardsInfo;
   orders: MeOrder[];
@@ -64,5 +67,6 @@ export async function websiteOrdersFor(phone: string, limit = ME_ORDERS_MAX): Pr
 export async function buildMe(customer: MasterCustomer, tenant: string): Promise<MeView> {
   const [loyalty, giftCards, orders] = await Promise.all([loyaltyFor(customer, tenant), giftCardsFor(customer, tenant), websiteOrdersFor(customer.phone)]);
   const publicCustomer = toPublicCustomer(customer);
-  return { customer: publicCustomer, preferences: publicCustomer.preferences, addresses: customer.addresses, favourites: customer.favourites, loyalty, giftCards, orders };
+  return { customer: publicCustomer, preferences: publicCustomer.preferences, addresses: customer.addresses, favourites: customer.favourites,
+    addressesRevision: collectionRevision(customer.addresses), favouritesRevision: collectionRevision(customer.favourites), loyalty, giftCards, orders };
 }

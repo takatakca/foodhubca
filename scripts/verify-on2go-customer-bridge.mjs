@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { chromium, expect } from 'playwright/test';
 import { startRestProxy } from './e2e/postgrest.mjs';
 import { runNativeOrderingJourney, runOrderingJourney } from './e2e/on2go-ordering-journey.mjs';
+import { runPublicContactJourney } from './e2e/public-contact-journey.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const on2go = path.resolve(process.env.ON2GO_WORKSPACE_ROOT || path.join(root, '../on2goca'));
@@ -79,6 +80,8 @@ let rest;
 let orderingProof;
 let nativeOrderingProof;
 let parallelOrderingProof;
+let customerConcurrencyProof;
+let contactProof;
 let counterBarrierArmed = false;
 const counterWaiters = [];
 try {
@@ -103,6 +106,16 @@ try {
     } : {}),
   };
   let app = start(root, ['node_modules/next/dist/bin/next', 'start', '-p', String(hubPort), '-H', '127.0.0.1'], hubEnvironment);
+  async function restartFoodHub() {
+    const exited = new Promise((resolve) => app.once('exit', resolve)); app.kill('SIGTERM'); await exited;
+    app = start(root, ['node_modules/next/dist/bin/next', 'start', '-p', String(hubPort), '-H', '127.0.0.1'], hubEnvironment);
+    for (let i = 0; i < 120; i++) {
+      assert(app.exitCode === null, 'Restarted Food Hub exited.');
+      try { if ((await fetch(`${hub}/hub`)).ok) return; } catch { /* starting */ }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    throw new Error('Restarted Food Hub did not become ready.');
+  }
   start(on2go, ['scripts/serve.mjs', 'out', String(sitePort)]);
   for (const url of [`${hub}/hub`, `${site}/connexion/`]) {
     let ready = false;
@@ -257,9 +270,34 @@ try {
         assert.equal(cloverOrders, 4); assert.equal(kitchenTickets, 4);
         parallelOrderingProof = { foodHubProcesses: 2, database: 'real-postgres', synchronizedCounterReads: 2, ordersAdded: 2, uniqueNumbers: 2 };
         passed('two actual Food Hub processes sharing Postgres allocate different order numbers even when both counter reads return before either can write');
+        // The native ordering journey navigates `page` to Food Hub. Read the
+        // customer session from the second browser, which remains on ON2GO.
+        const token = await otherPage.evaluate(() => JSON.parse(localStorage.getItem('on2go_customer_v1')).token);
+        for (const field of ['favourites', 'addresses']) {
+          const original = await me(otherPage); const revisionField = field === 'favourites' ? 'favouritesRevision' : 'addressesRevision';
+          assert.match(original[revisionField], /^[a-f0-9]{64}$/);
+          const additions = field === 'favourites' ? ['parallel-favourite-a', 'parallel-favourite-b']
+            : [0, 1].map((i) => ({ street: `${200 + i} rue Exemple`, city: 'Montréal', province: 'QC', postalCode: 'H4A 1E1' }));
+          const writes = await Promise.all([hub, `http://127.0.0.1:${peerPort}`].map(async (base, i) => {
+            const response = await fetch(`${base}/api/public/on2go/me/${field}`, { method: 'PUT', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+              body: JSON.stringify({ [field]: [...original[field], additions[i]], expectedRevision: original[revisionField] }) });
+            return { status: response.status, body: await response.json(), index: i };
+          }));
+          assert.deepEqual(writes.map((r) => r.status).sort(), [200, 409], 'One device must receive an explicit conflict, never overwrite the other.');
+          const conflict = writes.find((r) => r.status === 409); assert.equal(conflict.body.error, 'collection_changed');
+          const current = await me(otherPage); assert.equal(current[field].length, original[field].length + 1);
+          const merged = await fetch(`${hub}/api/public/on2go/me/${field}`, { method: 'PUT', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+            body: JSON.stringify({ [field]: [...current[field], additions[conflict.index]], expectedRevision: current[revisionField] }) });
+          assert(merged.ok); const saved = await merged.json(); assert.equal(saved[field].length, original[field].length + 2);
+          assert.equal((await me(otherPage))[revisionField], saved[revisionField], 'PostgreSQL JSONB key ordering must not alter a revision.');
+        }
+        customerConcurrencyProof = { actualProcesses: 2, database: 'real-postgres', collections: ['favourites', 'addresses'], concurrentResults: [200, 409], explicitMergePreservesBoth: true };
+        passed('two real Food Hub processes refuse stale saved-list writes and preserve both device changes after explicit fresh revision retry');
         const exited = new Promise((resolve) => peer.once('exit', resolve)); peer.kill('SIGTERM'); await exited;
       }
     }
+    if (process.env.ON2GO_BRIDGE_CONTACT === 'true') contactProof = await runPublicContactJourney({ page, admin, publicBase: 'https://foodhub.on2go.ca', apiBase: hub,
+      restartFoodHub: rest ? restartFoodHub : undefined, passed, output });
     await admin.close();
   }
   if (rest) {
@@ -276,7 +314,8 @@ try {
     assert(ready, 'Food Hub must restart on the same database.');
     const restored = await me(otherPage);
     assert.equal(restored.addresses[0].street, '123 rue Exemple');
-    assert.equal(restored.favourites.length, 1);
+    assert.equal(restored.favourites.length, customerConcurrencyProof ? 3 : 1);
+    assert.equal(restored.addresses.length, customerConcurrencyProof ? 3 : 1);
     assert.deepEqual(restored.preferences, { orderUpdates: !nativeOrderingProof, offersSms: false, offersEmail: true });
     await otherPage.reload({ waitUntil: 'networkidle' });
     await expect(otherPage.getByLabel('Offres et nouveautés par courriel', { exact: true })).toBeChecked();
@@ -291,7 +330,7 @@ try {
     await otherPage.screenshot({ path: path.join(output, 'account-persistence-desktop.png'), fullPage: true });
     await otherPage.setViewportSize({ width: 390, height: 844 });
     await otherPage.screenshot({ path: path.join(output, 'account-persistence-mobile.png'), fullPage: true });
-    fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify({ mode: 'local-built-apps-with-isolated-sms', database: rest ? 'local-postgres-postgrest' : 'ephemeral-memory', durablePersistenceVerified: Boolean(rest), passed: results.length, results, network, orderingProof, nativeOrderingProof, parallelOrderingProof, cloverOrders, kitchenTickets, externalTexts: 0, deploymentVerified: false }, null, 2));
+    fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify({ mode: 'local-built-apps-with-isolated-sms', database: rest ? 'local-postgres-postgrest' : 'ephemeral-memory', durablePersistenceVerified: Boolean(rest), passed: results.length, results, network, orderingProof, nativeOrderingProof, parallelOrderingProof, customerConcurrencyProof, contactProof, cloverOrders, kitchenTickets, externalTexts: 0, deploymentVerified: false }, null, 2));
   }
   console.log(`${results.length} cross-repository browser checks passed; no real texts or deployed services used.`);
 } catch (error) {

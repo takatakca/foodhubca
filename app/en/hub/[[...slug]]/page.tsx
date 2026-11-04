@@ -7,15 +7,15 @@ import { hubContext, hubMetadata, hubPageForSlug } from '@/lib/foodhub/public-hu
 // Rendered per request: the App Market link and the base URL are server variables (no rebuild to change them).
 export const dynamic = 'force-dynamic';
 
-type Props = { params: Promise<{ slug?: string[] }> };
+type Props = { params: Promise<{ slug?: string[] }>; searchParams?: Promise<Record<string, string | string[] | undefined>> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const key = hubPageForSlug('en', (await params).slug);
   return key ? hubMetadata(key, 'en') : { robots: { index: false } };
 }
 
-export default async function Page({ params }: Props) {
+export default async function Page({ params, searchParams }: Props) {
   const key = hubPageForSlug('en', (await params).slug);
   if (!key) notFound();
-  return <HubPage page={key} lang="en" ctx={hubContext()} />;
+  return <HubPage page={key} lang="en" ctx={hubContext()} contactInterest={key === 'contact' && (await searchParams)?.interest === 'phone' ? 'phone' : undefined} />;
 }

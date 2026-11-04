@@ -1,0 +1,20 @@
+{
+  "addressCount": 5,
+  "favouritesCount": 50,
+  "addressBodyBytes": 7511,
+  "favouritesBodyBytes": 6252,
+  "perListLimitBytes": 8192,
+  "customerJsonBytes": 13804,
+  "conditionalWrites": [
+    {
+      "urlBytes": 28585,
+      "httpStatus": 431
+    }
+  ],
+  "casResult": null,
+  "errorName": "Error",
+  "rowUnchanged": true,
+  "actualLocalPostgres": true,
+  "credentialsPrinted": false,
+  "productionVerified": false
+}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Banknote, Bike, Check, CreditCard, ExternalLink, Landmark, MapPin, Pencil, Phone, Printer, RefreshCw, Send, Store, TriangleAlert, Truck, Wine, X } from 'lucide-react';
 import { Badge, StatusDot } from '@/components/ui/badge';
 import { Banner } from '@/components/ui/card';
@@ -14,12 +14,17 @@ import type { Delivery, DirectOrder } from '@/lib/foodhub/delivery/types';
 import { api, ApiError, money, timeOf } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
-import { DELIVERY_TONE, DIRECT_TONE, FLEET_NAME, deliveryStatusLabel, directStatusLabel, eventLabel, interacLatePending, paymentBadge, sourceLabel } from './labels';
+import { DELIVERY_TONE, DIRECT_TONE, FLEET_NAME, deliveryStatusLabel, directOrderStatusLabel, eventLabel, interacLatePending, paymentBadge, sourceLabel } from './labels';
+import { directOrderReview } from '@/lib/foodhub/delivery/operator-state';
 
 export type DirectRow = DirectOrder & { delivery: Delivery | null };
 type Detail = { order: DirectOrder; deliveries: Delivery[]; problems: string[]; problemsFr: string[]; running: Delivery | null };
 
 export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onClose: () => void; onChanged: () => void }) {
+  return <DirectOrderDetail key={id} id={id} onClose={onClose} onChanged={onChanged} />;
+}
+
+function DirectOrderDetail({ id, onClose, onChanged }: { id: string; onClose: () => void; onChanged: () => void }) {
   const { t, loc, lang } = useI18n();
   const { can, locName } = useViewer();
   const toast = useToast();
@@ -27,29 +32,55 @@ export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onCl
   const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [cancelling, setCancelling] = useState<'order' | 'courier' | null>(null);
+  const current = useRef(true);
+  const generation = useRef(0);
+  const acting = useRef(false);
+  useEffect(() => { current.current = true; return () => { current.current = false; }; }, []);
 
-  const load = useCallback(() => api<Detail>(`/api/foodhub/delivery/${id}`).then(setD).catch((e) => toast.error(e instanceof Error ? e.message : String(e))), [id, toast]);
+  const load = useCallback(async () => {
+    if (acting.current) return;
+    const request = ++generation.current;
+    try {
+      const detail = await api<Detail>(`/api/foodhub/delivery/${id}`);
+      if (current.current && request === generation.current && detail.order.id === id) setD(detail);
+    } catch (e) {
+      if (current.current && request === generation.current) toast.error(e instanceof Error ? e.message : String(e));
+    }
+  }, [id, toast]);
   useEffect(() => { load(); const i = setInterval(load, 15_000); return () => clearInterval(i); }, [load]);
 
   async function act(action: string, extra: Record<string, unknown> = {}, okText?: string) {
+    if (acting.current) return;
+    acting.current = true;
+    generation.current++;
     setBusy(action);
+    let reload = false;
     try {
       const r = await api<Detail & { message: string }>(`/api/foodhub/delivery/${id}`, { method: 'POST', json: { action, ...extra } });
+      if (!current.current || r.order.id !== id) return;
       setD(r);
-      toast.success(okText ?? r.message);
+      if (directOrderReview(r.order).blockPaymentActions) toast.warn(t('Paiement à vérifier avant de reprendre', 'Check the payment before continuing'), r.order.attention);
+      else if (action === 'retry_clover' && r.order.posError) toast.warn(t('Vérifiez Clover avant de reprendre', 'Check Clover before continuing'), r.order.posError);
+      else if (action === 'retry_clover' && r.order.attention) toast.warn(t('La commande reste à vérifier', 'Order still needs attention'), r.order.attention);
+      else toast.success(okText ?? r.message);
       onChanged();
     } catch (e) {
+      if (!current.current) return;
       if (e instanceof ApiError && e.status === 499) return;
       const list = e instanceof ApiError ? (lang === 'fr' ? e.body.problemsFr : e.body.problems) : null;
       const problems = Array.isArray(list) ? (list as string[]) : [];
       // The French reasons when the screen is in French; the server's own message otherwise.
       if (problems.length) toast.error(problems[0], problems.slice(1).join(' · ') || undefined);
       else toast.error(e instanceof Error ? e.message : String(e));
-      load();
-    } finally { setBusy(null); }
+      reload = true;
+    } finally {
+      acting.current = false;
+      if (current.current) { setBusy(null); if (reload) void load(); }
+    }
   }
 
   const o = d?.order;
+  const review = o ? directOrderReview(o) : null;
   const closed = o ? ['completed', 'cancelled'].includes(o.status) : true;
   const running = d?.running ?? null;
   const last = d?.deliveries.at(-1) ?? null;
@@ -60,36 +91,46 @@ export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onCl
 
   return (
     <Drawer width="lg" onClose={onClose}
-      title={o ? <span className="flex flex-wrap items-center gap-2"><span className="num">{o.number}</span><Badge tone={DIRECT_TONE[o.status] ?? 'neutral'}>{directStatusLabel(t, o.status)}</Badge><MevBadge mev={o.mev} /></span> : t('Commande', 'Order')}
+      title={o ? <span className="flex flex-wrap items-center gap-2"><span className="num">{o.number}</span><Badge tone={review?.cardReview ? 'wait' : DIRECT_TONE[o.status] ?? 'neutral'}>{directOrderStatusLabel(t, o)}</Badge><MevBadge mev={o.mev} /></span> : t('Commande', 'Order')}
       subtitle={o ? `${o.brandName} · ${locName(o.locationCode)} · ${sourceLabel(t, o.source)} · ${timeOf(o.placedAt, loc, true)}` : undefined}
-      footer={o && act_ && !closed && o.status === 'awaiting_payment' && o.interac ? (
+      footer={o && review?.blockPaymentActions ? <p className="text-sm font-semibold text-wait-2">{t('Vérifiez le paiement et la commande d’origine dans Clover. Ne percevez pas un deuxième paiement et ne réimprimez pas sans vérifier le billet.', 'Check the payment and original order in Clover. Do not collect another payment or reprint without checking the ticket.')}</p> : o && act_ && !closed && o.status === 'awaiting_payment' && o.interac ? (
         <div className="flex w-full flex-wrap items-center gap-2">
           <Button variant="go" icon={<Landmark className="size-4" />} loading={busy === 'interac_received'} onClick={() => act('interac_received')}>{o.interac.receivedAt ? t('Terminer l’envoi en cuisine', 'Finish sending to the kitchen') : t('Virement reçu', 'Transfer received')}</Button>
           {!o.interac.receivedAt && <Button variant="soft" icon={<Send className="size-4" />} loading={busy === 'interac_resend'} onClick={() => act('interac_resend', {}, t('Instructions textées de nouveau', 'Instructions texted again'))}>{t('Renvoyer les instructions', 'Text the instructions again')}</Button>}
           {o.fulfillment === 'pickup' && !o.interac.receivedAt && <Button variant="outline" icon={<Banknote className="size-4" />} loading={busy === 'pay_at_counter'} onClick={() => act('pay_at_counter', {}, t('Envoyée en cuisine — paiement au comptoir', 'Sent to the kitchen — pay at the counter'))}>{t('Payer au comptoir', 'Pay at the counter')}</Button>}
-          <Button variant="ghost" className="ml-auto text-stop" icon={<X className="size-4" />} onClick={() => setCancelling('order')}>{t('Annuler la commande', 'Cancel order')}</Button>
+          <Button variant="ghost" className="ml-auto text-stop-2" icon={<X className="size-4" />} onClick={() => setCancelling('order')}>{t('Annuler la commande', 'Cancel order')}</Button>
         </div>
       ) : o && act_ && !closed && o.status === 'awaiting_payment' ? (
         <div className="flex w-full flex-wrap items-center gap-2">
           <Button variant="soft" icon={<Send className="size-4" />} loading={busy === 'resend_paylink'} onClick={() => act('resend_paylink', {}, t('Lien texté de nouveau', 'Link texted again'))}>{t('Renvoyer le lien de paiement', 'Text the payment link again')}</Button>
           {o.fulfillment === 'pickup' && <Button variant="outline" icon={<Banknote className="size-4" />} loading={busy === 'pay_at_counter'} onClick={() => act('pay_at_counter', {}, t('Envoyée en cuisine — paiement au comptoir', 'Sent to the kitchen — pay at the counter'))}>{t('Payer au comptoir', 'Pay at the counter')}</Button>}
-          <Button variant="ghost" className="ml-auto text-stop" icon={<X className="size-4" />} onClick={() => setCancelling('order')}>{t('Annuler la commande', 'Cancel order')}</Button>
+          <Button variant="ghost" className="ml-auto text-stop-2" icon={<X className="size-4" />} onClick={() => setCancelling('order')}>{t('Annuler la commande', 'Cancel order')}</Button>
         </div>
       ) : o && act_ && !closed ? (
         <div className="flex w-full flex-wrap items-center gap-2">
           {o.payment !== 'paid' && <Button variant="soft" icon={<Banknote className="size-4" />} loading={busy === 'mark_paid'} onClick={() => act('mark_paid', {}, t('Paiement noté', 'Payment noted'))}>{t('Paiement encaissé', 'Payment taken')}</Button>}
           {o.fulfillment === 'pickup' && <Button variant="go" icon={<Store className="size-4" />} loading={busy === 'picked_up'} onClick={() => act('picked_up')}>{t('Récupérée par le client', 'Picked up by customer')}</Button>}
           {o.status !== 'ready' && o.status !== 'out_for_delivery' && <Button variant="outline" icon={<Check className="size-4" />} loading={busy === 'ready'} onClick={() => act('ready')}>{t('Prête', 'Ready')}</Button>}
-          <Button variant="ghost" className="ml-auto text-stop" icon={<X className="size-4" />} onClick={() => setCancelling('order')}>{t('Annuler la commande', 'Cancel order')}</Button>
+          <Button variant="ghost" className="ml-auto text-stop-2" icon={<X className="size-4" />} onClick={() => setCancelling('order')}>{t('Annuler la commande', 'Cancel order')}</Button>
         </div>
       ) : undefined}>
       {!o && <div className="space-y-3 p-5"><div className="h-24 animate-pulse rounded-md bg-sunken" /><div className="h-40 animate-pulse rounded-md bg-sunken" /></div>}
       {o && (
         <div className="space-y-5 p-5">
-          {o.attention && !closed && (
-            <Banner tone="warn" action={act_ ? <Button size="xs" variant="ghost" loading={busy === 'clear_attention'} onClick={() => act('clear_attention', {}, t('Marquée vérifiée', 'Marked as checked'))}>{t('C’est réglé', 'Done')}</Button> : undefined}>{o.attention}</Banner>
+          {review?.cardReview && (
+            <Banner tone="warn">
+              {review.extraCardPayment
+                ? t('Un paiement tardif ou supplémentaire a été enregistré. Vérifiez la vente et tout remboursement dans Clover. Food Hub ne rembourse pas automatiquement.', 'A late or extra payment was recorded. Check the sale and any refund in Clover. Food Hub does not refund automatically.')
+                : t('Le paiement nécessite une vérification dans Clover avant toute nouvelle perception, préparation ou impression.', 'The payment needs checking in Clover before another charge, preparation or print.')}
+            </Banner>
           )}
-          {interacLate && o.interac && (
+          {review?.cardReleasePending && !review.cardReview && (
+            <Banner tone="warn">{t('Le paiement est enregistré, mais l’envoi en cuisine reste à confirmer. Vérifiez la commande et le billet dans Clover avant de reprendre. Ne demandez pas un deuxième paiement.', 'Payment is recorded, but kitchen release is unconfirmed. Check the order and ticket in Clover before continuing. Do not collect another payment.')}</Banner>
+          )}
+          {o.attention && (
+            <Banner tone="warn" action={act_ && !review?.blockPaymentActions ? <Button size="xs" variant="ghost" loading={busy === 'clear_attention'} onClick={() => act('clear_attention', {}, t('Marquée vérifiée', 'Marked as checked'))}>{t('C’est réglé', 'Done')}</Button> : undefined}>{o.attention}</Banner>
+          )}
+          {interacLate && o.interac && !review?.blockPaymentActions && (
             <Banner tone="warn">
               <span className="flex items-center gap-1.5"><Landmark className="size-4" />{t(`Virement Interac ${o.interac.reference} reçu après l’annulation (${money(o.interac.amount, loc)}) — une personne décide. Food Hub ne rembourse jamais tout seul.`, `Interac transfer ${o.interac.reference} received after the cancel (${money(o.interac.amount, loc)}) — a person decides. Food Hub never refunds by itself.`)}</span>
               {act_ && <span className="mt-2 flex flex-wrap gap-2">
@@ -98,19 +139,19 @@ export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onCl
               </span>}
             </Banner>
           )}
-          {interacCancelled && o.interac && act_ && (
+          {interacCancelled && o.interac && act_ && !review?.blockPaymentActions && (
             <Banner tone="info" action={<Button size="xs" variant="outline" icon={<Landmark className="size-3.5" />} loading={busy === 'interac_received'} onClick={() => act('interac_received')}>{t('Virement reçu en retard', 'Transfer received late')}</Button>}>
               {t(`Commande annulée. Si le virement Interac ${o.interac.reference} (${money(o.interac.amount, loc)}) arrive quand même dans le compte, signalez-le ici : rien ne part en cuisine avant qu’une personne décide.`, `Cancelled. If the Interac transfer ${o.interac.reference} (${money(o.interac.amount, loc)}) still arrives in the account, flag it here: nothing goes to the kitchen before a person decides.`)}
             </Banner>
           )}
-          {o.status === 'awaiting_payment' && o.interac && (
+          {o.status === 'awaiting_payment' && o.interac && !review?.blockPaymentActions && (
             <Banner tone="info">
-              <span className="flex items-center gap-1.5"><Landmark className="size-4" />{t('En attente du virement Interac — rien n’est envoyé en cuisine (ni livreur) avant qu’une personne confirme la réception dans son compte.', 'Waiting for the Interac e-Transfer — nothing goes to the kitchen (or a courier) before a person confirms it arrived in the account.')}</span>
+              <span className="flex items-center gap-1.5"><Landmark className="size-4" />{o.interac.receivedAt ? t('Virement Interac enregistré — l’envoi en cuisine reste à confirmer. Vérifiez la commande avant de terminer l’envoi.', 'Interac transfer recorded — kitchen release is unconfirmed. Check the order before finishing the release.') : t('En attente du virement Interac — rien n’est envoyé en cuisine (ni livreur) avant qu’une personne confirme la réception dans son compte.', 'Waiting for the Interac e-Transfer — nothing goes to the kitchen (or a courier) before a person confirms it arrived in the account.')}</span>
               <span className="mt-1 block text-xs">{t('Montant exact', 'Exact amount')} <strong className="num">{money(o.interac.amount, loc)}</strong> · {t('message', 'message')} <strong className="num">{o.interac.reference}</strong> · {t('à', 'to')} {o.interac.recipient}{o.interac.autoDeposit ? '' : ` · ${t('question de sécurité textée', 'security question texted')}`}</span>
               <span className="mt-1 block text-xs">{t('Valide jusqu’à', 'Valid until')} {timeOf(o.interac.expiresAt, loc)}{o.interac.smsAt ? ` · ${t('instructions textées', 'instructions texted')} ${timeOf(o.interac.smsAt, loc)}` : o.interac.smsError ? ` · ${t('texto non envoyé', 'text not sent')}: ${o.interac.smsError}` : ''}{o.interac.remindedAt ? ` · ${t('rappel envoyé', 'reminder sent')}` : ''}</span>
             </Banner>
           )}
-          {o.status === 'awaiting_payment' && o.paylink && (
+          {o.status === 'awaiting_payment' && o.paylink && !review?.blockPaymentActions && (
             <Banner tone="info">
               <span className="flex items-center gap-1.5"><CreditCard className="size-4" />{t('En attente du paiement par lien — rien n’est envoyé en cuisine (ni livreur) avant le paiement.', 'Waiting for the payment link — nothing goes to the kitchen (or a courier) before it is paid.')}</span>
               <span className="mt-1 block text-xs">{t('Lien valide jusqu’à', 'Link valid until')} {timeOf(o.paylink.expiresAt, loc)}{o.paylink.smsAt ? ` · ${t('texté', 'texted')} ${timeOf(o.paylink.smsAt, loc)}` : o.paylink.smsError ? ` · ${t('texto non envoyé', 'text not sent')}: ${o.paylink.smsError}` : ''}{o.paylink.openedAt ? ` · ${t('page ouverte', 'page opened')}` : ''}{o.paylink.declinedAt ? ` · ${t('carte refusée une fois', 'a card was declined')}` : ''}</span>
@@ -119,7 +160,7 @@ export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onCl
           {o.paylink?.paidAt && <p className="text-xs text-go-2">{t('Payée en ligne (Clover)', 'Paid online (Clover)')} · {timeOf(o.paylink.paidAt, loc)}{o.paylink.printedAt ? ` · ${t('billet imprimé', 'ticket printed')}` : ''}</p>}
           {o.interac?.receivedAt && <p className="text-xs text-go-2">{t('Virement Interac reçu', 'Interac e-Transfer received')} {o.interac.reference} · {timeOf(o.interac.receivedAt, loc)}{o.interac.receivedBy ? ` · ${o.interac.receivedBy}` : ''}</p>}
           {o.mev && o.mev.status !== 'skipped' && <MevPanel model="direct" id={o.id} mev={o.mev} onChange={load} />}
-          {o.posError && !closed && <Banner tone="stop" action={act_ ? <Button size="xs" loading={busy === 'retry_clover'} icon={<Printer className="size-3.5" />} onClick={() => act('retry_clover')}>{t('Renvoyer à Clover', 'Send to Clover')}</Button> : undefined}>{t('Clover n’a pas reçu la commande : ', 'Clover did not receive the order: ')}{o.posError}</Banner>}
+          {o.posError && <Banner tone="stop" action={act_ && !closed && !review?.blockPaymentActions ? <Button size="xs" loading={busy === 'retry_clover'} icon={<Printer className="size-3.5" />} onClick={() => act('retry_clover')}>{t('Vérifier / réessayer Clover', 'Check / retry Clover')}</Button> : undefined}>{t('Statut Clover à vérifier : ', 'Clover status needs checking: ')}{o.posError}<span className="mt-1 block text-xs">{t('Un résultat inconnu ne prouve pas que la commande est absente de Clover. Vérifiez la caisse et le billet ; un envoi incertain reste bloqué.', 'An unknown result does not prove the order is absent from Clover. Check the register and ticket; an uncertain send remains blocked.')}</span></Banner>}
 
           <section className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-md border border-line p-3">
@@ -131,12 +172,12 @@ export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onCl
             <div className="rounded-md border border-line p-3">
               <div className="mb-1 flex items-center justify-between text-xs font-bold tracking-wide text-ink-3 uppercase">
                 {o.fulfillment === 'delivery' ? t('Livraison', 'Delivery') : t('Pour emporter', 'Pickup')}
-                {o.fulfillment === 'delivery' && act_ && !closed && !running && <button type="button" onClick={() => setEditing(true)} className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-bold text-ink-2 normal-case hover:bg-sunken"><Pencil className="size-3" />{t('Modifier', 'Edit')}</button>}
+                {o.fulfillment === 'delivery' && act_ && !closed && !running && !review?.blockPaymentActions && <button type="button" onClick={() => setEditing(true)} className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-bold text-ink-2 normal-case hover:bg-sunken"><Pencil className="size-3" />{t('Modifier', 'Edit')}</button>}
               </div>
               {o.fulfillment === 'delivery' ? (o.dropoff
                 ? <div className="flex gap-1.5 text-sm"><MapPin className="mt-0.5 size-4 shrink-0 text-brand" /><div>{o.dropoff.street}{o.dropoff.unit ? `, #${o.dropoff.unit}` : ''}<br />{o.dropoff.city} {o.dropoff.postalCode}{o.dropoff.instructions ? <div className="mt-1 text-xs text-ink-3">{o.dropoff.instructions}</div> : null}</div></div>
                 : <div className="text-sm text-wait-2">{t('Adresse manquante', 'Address missing')}</div>)
-                : <div className="text-sm">{o.readyAt ? `${t('Prête vers', 'Ready at')} ${timeOf(o.readyAt, loc)}` : '—'}</div>}
+                : <div className="text-sm">{o.readyAt && o.status !== 'awaiting_payment' && !review?.cardReview ? `${t('Prête vers', 'Ready at')} ${timeOf(o.readyAt, loc)}` : '—'}</div>}
               {o.wantedAt && <div className="mt-1 text-xs font-semibold text-info-2">{t('Demandée pour', 'Wanted at')} {timeOf(o.wantedAt, loc)}</div>}
             </div>
           </section>
@@ -178,8 +219,8 @@ export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onCl
                 )}
                 {act_ && !closed && (
                   <div className="flex flex-wrap gap-2">
-                    {!running && <Button icon={<Truck className="size-4" />} loading={busy === 'dispatch'} disabled={problems.length > 0} onClick={() => act('dispatch')}>{t('Appeler un livreur', 'Call a courier')}</Button>}
-                    {running && <Button variant="outline" className="text-stop" icon={<X className="size-4" />} onClick={() => setCancelling('courier')}>{t('Annuler le livreur', 'Cancel the courier')}</Button>}
+                    {!running && <Button icon={<Truck className="size-4" />} loading={busy === 'dispatch'} disabled={problems.length > 0 || review?.blockPaymentActions} onClick={() => act('dispatch')}>{t('Appeler un livreur', 'Call a courier')}</Button>}
+                    {running && <Button variant="outline" className="text-stop-2" icon={<X className="size-4" />} onClick={() => setCancelling('courier')}>{t('Annuler le livreur', 'Cancel the courier')}</Button>}
                   </div>
                 )}
               </div>
@@ -208,7 +249,7 @@ export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onCl
               </div>
             </div>
             {o.notes && <p className="mt-2 text-xs text-ink-3">{o.notes}</p>}
-            {o.posOrderId && <p className="mt-1 text-xs text-ink-4">Clover {o.posOrderId}</p>}
+            {o.posOrderId && <p className="mt-1 text-xs text-ink-3">Clover {o.posOrderId}</p>}
           </section>
 
           <section>
@@ -217,7 +258,7 @@ export function DirectOrderDrawer({ id, onClose, onChanged }: { id: string; onCl
               {[...o.events].reverse().map((e, i) => (
                 <li key={i} className="text-[13px]">
                   <span className={cn('absolute -left-[5px] mt-1.5 size-2.5 rounded-full', /fail|refus|cancel/.test(e.type) ? 'bg-stop' : /delivered|paid|completed|booked/.test(e.type) ? 'bg-go' : 'bg-line-2')} />
-                  <div className="flex flex-wrap items-baseline gap-x-2"><span className="font-semibold">{eventLabel(t, e.type)}</span><span className="text-xs text-ink-4">{timeOf(e.at, loc)}{e.by ? ` · ${e.by}` : ''}</span></div>
+                  <div className="flex flex-wrap items-baseline gap-x-2"><span className="font-semibold">{eventLabel(t, e.type)}</span><span className="text-xs text-ink-3">{timeOf(e.at, loc)}{e.by ? ` · ${e.by}` : ''}</span></div>
                   <div className="text-xs text-ink-3">{e.message}</div>
                 </li>
               ))}

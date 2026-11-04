@@ -21,8 +21,7 @@ below belong to the earlier integration candidate and must not be reused as the 
 | Reproducible master-site presentation | [V1 local-font proof](https://github.com/takatakca/takatak-v1/blob/feature/cloud-local-fonts/docs/proofs/2026-11-04/local-fonts/README.md), branch head `8072f39`: production build and three desktop/mobile/OAuth states load the original five font families from six local assets; Canadian French glyphs and original licenses are verified. Current source hashes match the recorded font proof. | No external font requests or page errors occurred in the local browser proof. Database runtime, migrations, authenticated provider flows, CI and production release remain unverified; the cloud's Prisma bootstrap is types-only. |
 
 The M4RKETING final rerun is recorded locally at `platform-review/m4-campaign-final-proof/results.json` (nine checks,
-build `b2siEtry9F116sazCYQai`). The branch’s final proof is now published at documentation head `88f5837`, with verified runtime source `12d071c` recorded in its provenance. The suite
-identity matrix is `platform-review/suite-kit-merchant-identity-results.json`; V1's published proof records its source
+build `b2siEtry9F116sazCYQai`). The branch’s final proof is now published at documentation head `88f5837`, with verified runtime source `12d071c` recorded in its provenance. The [published suite identity matrix](https://github.com/takatakca/foodhubca/blob/feature/foodhub-media-production/docs/agent-progress/evidence/05-suite-identity/results.json) retains the code verification commits; V1's published proof records its source
 hashes and its pre-commit base. These are distinct records with distinct scopes. No totals from them certify the
 currently served public domains or replace the coordinator's final combined gate.
 

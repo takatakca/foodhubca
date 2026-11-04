@@ -4,10 +4,48 @@ import { nowIso } from './config';
 import type { ActivityEntry, ActivityKind, ChannelKey, ChannelStore, FoodHubJob, FoodHubUser, MasterMenu, NormalizedOrder, OrderEvent, OrderStatus, OrderTimeline, StoredOrder } from './types';
 
 export interface OrderFilter { limit?: number; statuses?: OrderStatus[]; since?: string; until?: string; locationCodes?: string[]; channels?: string[]; brands?: string[] }
+/** Internal background cursor: stable ordering includes id when several orders share an update timestamp. */
+export interface OrderChangeCursor { at: string; id: string }
+export interface OrderChangeFilter { since: string; through?: string; after?: OrderChangeCursor; limit?: number }
 export interface ActivityFilter { limit?: number; since?: string; until?: string; kinds?: ActivityKind[]; locationCodes?: string[] }
 /** Generic document store (payout lines, statement imports, reconciliation cases, ledger approvals…). */
 export interface Doc<T = Record<string, unknown>> { id: string; key?: string | null; at?: string | null; data: T }
-export interface DocFilter { since?: string; until?: string; keys?: string[]; limit?: number }
+export type DocDataMatch = string | number | boolean | null | { [key: string]: DocDataMatch };
+export interface DocFilter { since?: string; until?: string; keys?: string[]; limit?: number; dataEquals?: { [key: string]: DocDataMatch } }
+
+/** Internal JSON containment with exact leaf values; never forward an untrusted HTTP filter object here. */
+function exactDataFilter(filter: DocFilter): { [key: string]: DocDataMatch } {
+  if (filter.dataEquals === undefined) return {};
+  let fields = 0;
+  const valid = (value: unknown, depth: number): boolean => {
+    if (value === null || typeof value === 'boolean') return true;
+    if (typeof value === 'string') return value.length <= 2048;
+    if (typeof value === 'number') return Number.isFinite(value);
+    if (!value || typeof value !== 'object' || Array.isArray(value) || depth > 4
+      || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
+    return Object.entries(value).every(([key, nested]) => ++fields <= 32 && /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(key)
+      && !['__proto__', 'constructor', 'prototype'].includes(key) && valid(nested, depth + 1));
+  };
+  if (!filter.dataEquals || typeof filter.dataEquals !== 'object' || Array.isArray(filter.dataEquals) || !valid(filter.dataEquals, 0)) throw new Error('Invalid exact document filter');
+  return filter.dataEquals;
+}
+
+/** Matches PostgreSQL jsonb containment: nested objects may have extra fields; leaves use strict equality. */
+function matchesExactData(actual: unknown, expected: { [key: string]: DocDataMatch }): boolean {
+  return !!actual && typeof actual === 'object' && !Array.isArray(actual) && Object.entries(expected).every(([key, value]) => {
+    if (!Object.prototype.hasOwnProperty.call(actual, key)) return false;
+    const found = (actual as Record<string, unknown>)[key];
+    return value !== null && typeof value === 'object' ? matchesExactData(found, value) : found === value;
+  });
+}
+
+function changeFilter(filter: OrderChangeFilter): { since: string; through?: string; after?: OrderChangeCursor; limit: number } {
+  const stamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)$/;
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!stamp.test(filter.since) || !Number.isFinite(Date.parse(filter.since)) || (filter.through && (!stamp.test(filter.through) || !Number.isFinite(Date.parse(filter.through))))
+    || (filter.after && (!stamp.test(filter.after.at) || !Number.isFinite(Date.parse(filter.after.at)) || !uuid.test(filter.after.id)))) throw new Error('Invalid order change cursor');
+  return { ...filter, limit: Math.max(1, Math.min(500, Math.floor(filter.limit ?? 100) || 100)) };
+}
 
 export interface FoodHubRepo {
   mode: 'supabase' | 'memory';
@@ -22,6 +60,7 @@ export interface FoodHubRepo {
    */
   patchOrder(id: string, timeline: OrderTimeline, extra?: Partial<StoredOrder>): Promise<StoredOrder | null>;
   listOrders(filter?: OrderFilter): Promise<StoredOrder[]>;
+  listChangedOrders(filter: OrderChangeFilter): Promise<StoredOrder[]>;
   addEvent(orderId: string, type: string, detail?: Record<string, unknown>): Promise<void>;
   listEvents(orderId: string): Promise<OrderEvent[]>;
   listStores(channel?: ChannelKey): Promise<ChannelStore[]>;
@@ -123,6 +162,13 @@ const memoryRepo: FoodHubRepo = {
     if (filter.brands?.length) list = list.filter((o) => o.brandName && filter.brands!.includes(o.brandName));
     return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, filter.limit ?? 200);
   },
+  async listChangedOrders(input) {
+    const filter = changeFilter(input);
+    return [...memState().orders.values()]
+      .filter((o) => o.updatedAt >= filter.since && (!filter.through || o.updatedAt <= filter.through) && (!filter.after || o.updatedAt > filter.after.at || (o.updatedAt === filter.after.at && o.id > filter.after.id)))
+      .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt) || a.id.localeCompare(b.id)).slice(0, filter.limit)
+      .map((o) => JSON.parse(JSON.stringify(o)) as StoredOrder);
+  },
   async addEvent(orderId, type, detail = {}) {
     memState().events.push({ id: crypto.randomUUID(), orderId, type, detail, at: nowIso() });
   },
@@ -203,11 +249,13 @@ const memoryRepo: FoodHubRepo = {
     st.docs.set(collection, col);
   },
   async listDocs<T>(collection: string, filter: DocFilter = {}) {
+    const exact = exactDataFilter(filter);
     const col = memState().docs?.get(collection);
     let list = col ? [...col.values()] as Doc<T>[] : [];
     if (filter.since) list = list.filter((d) => (d.at ?? '') >= filter.since!);
     if (filter.until) list = list.filter((d) => (d.at ?? '') < filter.until!);
     if (filter.keys?.length) list = list.filter((d) => d.key && filter.keys!.includes(d.key));
+    if (Object.keys(exact).length) list = list.filter((d) => matchesExactData(d.data, exact));
     list.sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''));
     return list.slice(0, filter.limit ?? 100_000);
   },
@@ -402,6 +450,13 @@ function supabaseRepo(): FoodHubRepo {
       }
       return out;
     },
+    async listChangedOrders(input) {
+      const filter = changeFilter(input);
+      let q = db.from('fh_orders').select('*').gte('updated_at', filter.since).order('updated_at', { ascending: true }).order('id', { ascending: true }).limit(filter.limit);
+      if (filter.through) q = q.lte('updated_at', filter.through);
+      if (filter.after) q = q.or(`updated_at.gt.${filter.after.at},and(updated_at.eq.${filter.after.at},id.gt.${filter.after.id})`);
+      return ((must(await q) ?? []) as Row[]).map(rowToOrder);
+    },
     async addEvent(orderId, type, detail = {}) {
       must(await db.from('fh_order_events').insert({ order_id: orderId, type, detail }));
     },
@@ -514,6 +569,7 @@ function supabaseRepo(): FoodHubRepo {
       }
     },
     async listDocs<T>(collection: string, filter: DocFilter = {}) {
+      const exact = exactDataFilter(filter);
       const limit = filter.limit ?? 100_000;
       const out: Doc<T>[] = [];
       const keys = filter.keys?.length ? filter.keys : null;
@@ -523,6 +579,7 @@ function supabaseRepo(): FoodHubRepo {
         if (filter.since) q = q.gte('at', filter.since);
         if (filter.until) q = q.lt('at', filter.until);
         if (keys) q = q.in('key', keys.slice(0, 500));
+        if (Object.keys(exact).length) q = q.contains('data', exact);
         const rows = (must(await q) ?? []) as Row[];
         out.push(...rows.map((r) => ({ id: r.id, key: r.key, at: r.at, data: r.data as T })));
         if (rows.length < to - from + 1) break;

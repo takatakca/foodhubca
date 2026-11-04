@@ -31,7 +31,7 @@ vi.mock('../lib/foodhub/delivery/paylink', async (orig) => {
 });
 
 import { saveHours } from '../lib/foodhub/hours';
-import { getDirectOrder, listDirectOrders } from '../lib/foodhub/delivery/store';
+import { getDirectOrder, listDirectOrders, saveDirectOrder } from '../lib/foodhub/delivery/store';
 import { cancelHeldOrder, startPayLink } from '../lib/foodhub/delivery/paylink';
 import { getRepo } from '../lib/foodhub/repo';
 import { clearStorefrontCache } from '../lib/foodhub/storefront/catalog';
@@ -393,6 +393,27 @@ describe('orders through the direct-order pipeline', () => {
 });
 
 describe('tracking', () => {
+  it.each([
+    ['review', 'awaiting_payment'], ['paid', 'awaiting_payment'], ['review', 'in_kitchen'], ['late', 'cancelled'],
+  ] as const)('never requests a second transfer for %s/%s payment evidence', async (state, status) => {
+    await setup();
+    const placed = await placeStorefrontOrder(cart(), 'ip-mixed-payment', NOW);
+    if (!placed.ok) throw new Error(placed.error);
+    const order = (await listDirectOrders({ limit: 1 }))[0];
+    const at = new Date().toISOString();
+    await saveDirectOrder({ ...order, status, readyAt: at,
+      paylink: { token: 'TESTTOKEN0123456789abcdef', merchantId: 'MID-TEST', marker: `Réf. ${order.id}`, lang: 'en', createdAt: at,
+        expiresAt: new Date(Date.now() + 600000).toISOString(), reminderMin: 0, sessions: [], expectedCents: 1725,
+        ...(state === 'review' ? { flag: 'Paiement à vérifier : interrupted' } : state === 'late' ? { extraPayments: ['LATE-PAYMENT'] } : { paidAt: at, paymentId: 'PAID-TEST' }) },
+      interac: { reference: 'TEST-TRANSFER', amount: 17.25, recipient: 'restaurant@example.test', autoDeposit: true, lang: 'en', createdAt: at,
+        expiresAt: new Date(Date.now() + 600000).toISOString(), reminderMin: 0 },
+    });
+    const view = await trackOrder(placed.track);
+    expect(view).toMatchObject(state === 'paid' ? { paymentReceived: true } : { paymentReview: true });
+    expect(view?.interac).toBeUndefined();
+    expect(view?.payUrl).toBeUndefined();
+    expect(view?.readyAt).toBeNull();
+  });
   it('returns number, status, brand and ready time only — never the customer', async () => {
     await setup();
     const r = await placeStorefrontOrder(cart(), 'ip-1', NOW);

@@ -255,9 +255,12 @@ describe('terms and support', () => {
 });
 
 describe('env-driven details and the draft banner', () => {
-  it('company, address, officer, email and phone come from the environment (nothing hard-coded in the pages)', () => {
+  it('keeps configured legal details and uses the verified public email when support is unset', () => {
     const bare = text(PrivacyPage) + text(TermsPage) + text(SupportPage);
-    expect(bare).toContain('[courriel à compléter — FOODHUB_SUPPORT_EMAIL]');
+    for (const Page of [PrivacyPage, TermsPage, SupportPage]) {
+      expect(text(Page)).toContain('support@takatak.ca');
+      expect(text(Page)).not.toMatch(/FOODHUB_SUPPORT_(EMAIL|PHONE)|courriel à compléter|email to be completed/);
+    }
     expect(text(SupportPage)).toContain('support@takatak.ca');
     expect(text(SupportPage)).not.toMatch(/FOODHUB_SUPPORT_(EMAIL|PHONE)|same business day|jour ouvrable même/);
     expect(bare).not.toMatch(/\+?1?[ -]?\d{3}[ -]\d{3}[ -]\d{4}/); // no phone number unless FOODHUB_SUPPORT_PHONE is set

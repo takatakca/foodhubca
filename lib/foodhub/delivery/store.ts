@@ -17,10 +17,21 @@ const PREFIX: Record<DirectSource, string> = { phone: 'T', phone_ai: 'IA', clove
 /** Short number said on the phone and printed on the ticket: T-1042, IA-1043, C-1044… */
 export async function nextOrderNumber(source: DirectSource): Promise<string> {
   const repo = getRepo();
-  const cur = (await repo.getKv<number>(SEQ_KEY).catch(() => null)) ?? 1000;
-  const next = cur + 1;
-  await repo.setKv(SEQ_KEY, next).catch(() => undefined);
-  return `${PREFIX[source]}-${next}`;
+  const stored = await repo.getKv<number>(SEQ_KEY);
+  if (stored !== null && (!Number.isSafeInteger(stored) || stored < 1000)) throw new Error('Direct order sequence is invalid; check the stored counter.');
+  const current = stored ?? 1000;
+  // The counter is only a starting hint. Atomic INSERT claims prevent two workers
+  // from issuing the same number even when their counter writes arrive out of order.
+  for (let next = current + 1; next <= current + 10_000 && Number.isSafeInteger(next); next++) {
+    if (!await repo.claimKv(`direct_order_number:${next}`, { source, at: nowIso() })) continue;
+    const number = `${PREFIX[source]}-${next}`;
+    // Older issued numbers predate the claim ledger. Never reuse one after an old
+    // counter write failed. Keep that reservation and try the following number.
+    if ((await repo.listDocs<DirectOrder>(DIRECT_ORDERS, { dataEquals: { number }, limit: 1 })).length) continue;
+    await repo.setKv(SEQ_KEY, next);
+    return number;
+  }
+  throw new Error('Direct order number could not be reserved; check the sequence.');
 }
 
 export function newId(prefix: string): string {

@@ -18,8 +18,8 @@ export async function runOrderingJourney({ page, passed, readOrders, modifyMenu,
   await page.locator('#commander .ord-add:not(:disabled)').first().click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
-  await dialog.getByLabel(/^(Régulier|Regular)(\s|$)/i).check();
-  await dialog.getByLabel(/^(Fromage|Cheese)(\s|$)/i).check();
+  await dialog.getByLabel(/^(Régulier|Regular)\b/i).check();
+  await dialog.getByLabel(/^(Fromage|Cheese)\b/i).check();
   await dialog.getByRole('button', { name: /^Ajouter ·/ }).click();
   await expect(page.locator('.ord-lines')).toContainText(/Fromage|Cheese/);
   await page.getByRole('button', { name: 'Passer la commande', exact: true }).click();
@@ -54,7 +54,9 @@ export async function runOrderingJourney({ page, passed, readOrders, modifyMenu,
   const sent = (await placement).postDataJSON();
   await expect(page.getByRole('button', { name: 'Réessayer la même demande', exact: true })).toBeVisible();
   await expect.poll(async () => (await readOrders()).length).toBe(baseline + 1);
-  const saved = await page.evaluate(() => JSON.parse(sessionStorage.getItem('on2go_pending_pi-pita_v1')));
+  const pendingSlot = await page.locator('.checkout-review').getAttribute('data-pending-key');
+  assert(pendingSlot?.startsWith('on2go_pending_v2_'), 'Pending storage must identify the active owner.');
+  const saved = await page.evaluate((key) => JSON.parse(sessionStorage.getItem(key)), pendingSlot);
   assert.deepEqual(saved.request, sent, 'The exact approved request must be retained, including its key.');
   assert.equal(sent.quoteId, changedQuote.quote.quoteId);
   assert.match(sent.idempotencyKey, /^[A-Za-z0-9_-]{16,128}$/);
@@ -67,7 +69,7 @@ export async function runOrderingJourney({ page, passed, readOrders, modifyMenu,
   await page.waitForURL((url) => url.pathname === '/suivi/');
   await expect(page.locator('.track-status')).toBeVisible();
   assert.equal((await readOrders()).length, baseline + 1, 'Retry must return the existing order.');
-  assert.equal(await page.evaluate(() => sessionStorage.getItem('on2go_pending_pi-pita_v1')), null);
+  assert.equal(await page.evaluate((key) => sessionStorage.getItem(key), pendingSlot), null);
   passed('dropped real checkout response survives reload, replays the same request/key and resolves to one persisted order with actual tracking');
   if (output) {
     await page.screenshot({ path: path.join(output, 'ordering-tracking-desktop.png'), fullPage: true });
@@ -84,8 +86,8 @@ export async function runNativeOrderingJourney({ page, passed, readOrders, dropN
   await page.goto(`${origin}/commander/${slug}?lang=fr&src=instagram`, { waitUntil: 'networkidle' });
   await page.locator('main section li button:not(:disabled)').first().click();
   const item = page.getByRole('dialog');
-  await item.getByLabel(/^(Régulier|Regular)(\s|$)/i).check();
-  await item.getByLabel(/^(Fromage|Cheese)(\s|$)/i).check();
+  await item.getByLabel(/^(Régulier|Regular)\b/i).check();
+  await item.getByLabel(/^(Fromage|Cheese)\b/i).check();
   await item.getByRole('button', { name: /^Ajouter/ }).click();
   const decline = page.getByRole('button', { name: 'Non merci', exact: true });
   if (await decline.isVisible()) await decline.click();

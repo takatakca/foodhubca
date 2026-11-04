@@ -24,7 +24,7 @@ import { phoneReadiness } from '../lib/foodhub/phone/readiness';
 import { readTwiml, simulateCall } from '../lib/foodhub/phone/sim/driver';
 import { simulateTurn } from '../lib/foodhub/phone/voice';
 import { verifyTwilio } from '../lib/foodhub/phone/twilio';
-import { buildCheckoutRequest, checkoutTotalCents, clearTaxCache, cloverSignatureHeader, hasMarker } from '../lib/foodhub/pos/clover-checkout';
+import { buildCheckoutRequest, checkoutTotalCents, clearTaxCache, cloverSignatureHeader, hasMarker, payMarker } from '../lib/foodhub/pos/clover-checkout';
 import { hashPassword } from '../lib/foodhub/auth';
 import { tickDispatch } from '../lib/foodhub/delivery/dispatch';
 import { saveDeliverySettings, saveDirectOrder } from '../lib/foodhub/delivery/store';
@@ -139,7 +139,8 @@ describe('Clover payment link: held until paid, released exactly once', () => {
     expect(sms).toHaveLength(1);
     expect(sms[0].body).toContain(`https://hub.test/p/${token}`);
     expect(sms[0].body).toMatch(/Po Poulet : commande .+, total 23,00 \$\. Payez en toute sécurité avec Clover/);
-    expect(checkouts[0].shoppingCart.lineItems[0]).toMatchObject({ price: 2000, unitQty: 1, note: `Réf. ${o.number}` });
+    expect(checkouts[0].shoppingCart.lineItems[0]).toMatchObject({ price: 2000, unitQty: 1, note: r.order.paylink!.marker });
+    expect(r.order.paylink!.marker).toBe(payMarker(o.number, o.id));
     expect(checkouts[0].shoppingCart.lineItems[0].taxRates.map((x: any) => x.rate)).toEqual([500_000, 997_500]);
     expect(r.order.paylink!.expectedCents).toBe(2300);
     const outbox = JSON.stringify(await getRepo().listDocs('fh_outbox' as any, { limit: 50 }).catch(() => []));
@@ -180,7 +181,7 @@ describe('Clover payment link: held until paid, released exactly once', () => {
     const o = await heldOrder();
     const r = await startPayLink(o, { lang: 'en', expiryMin: 30, reminderMin: 10 });
     if (!r.ok) throw new Error(r.error);
-    paidOrders = [{ id: 'CLV-POLL', lineItems: { elements: [{ note: `Réf. ${o.number}` }] }, payments: { elements: [{ id: 'PAYPOLL', result: 'SUCCESS', amount: 2300 }] } }];
+    paidOrders = [{ id: 'CLV-POLL', lineItems: { elements: [{ note: r.order.paylink!.marker }] }, payments: { elements: [{ id: 'PAYPOLL', result: 'SUCCESS', amount: 2300 }] } }];
     const out = await tickPaylinks(Date.now() + 25_000);
     expect(out.released).toBe(1);
     const paid = (await getDirectOrder(o.id))!;
@@ -202,7 +203,8 @@ describe('Clover payment link: held until paid, released exactly once', () => {
     expect(out.cancelled).toBe(1);
     const gone = (await getDirectOrder(o.id))!;
     expect(gone.status).toBe('cancelled');
-    expect(sms.at(-1)!.body).toMatch(/No se le cobró nada/);
+    expect(sms.at(-1)!.body).toMatch(/contacte al restaurante para verificarlo/);
+    expect(sms.at(-1)!.body).not.toMatch(/No se le cobró nada/);
     await hcoWebhook(webhook({ type: 'PAYMENT', status: 'APPROVED', id: 'LATE1', merchantId: MID, data: 'SESS1' }));
     const late = (await getDirectOrder(o.id))!;
     expect(late.status).toBe('cancelled');
@@ -328,7 +330,7 @@ describe('Clover direct order: modifications, the kitchen printer, kitchens with
     expect(atomic[0].orderCart.lineItems[0].modifications[0].modifier.id).toBe('CMOD-DUO-7UP');
     process.env.FOODHUB_CLOVER_NO_REGISTER = 'HOCHELAGA, SAINT_LEONARD';
     expect(kitchenHasNoRegister('saint_leonard')).toBe(true);
-    const skipped = await createDirectOrderInClover(order());
+    const skipped = await createDirectOrderInClover({ ...order(), id: 'fresh-no-register' });
     expect(skipped).toMatchObject({ ok: false, skipped: true });
     expect(atomic).toHaveLength(1);
     delete process.env.FOODHUB_CLOVER_NO_REGISTER;
@@ -506,7 +508,7 @@ describe('review fixes: payment link edge cases', () => {
     const r = await startPayLink(o, { lang: 'en', expiryMin: 30, reminderMin: 10 });
     if (!r.ok) throw new Error(r.error);
     const due = r.order.paylink!.expectedCents;
-    paidOrders = [{ id: 'CLV-SHORT', lineItems: { elements: [{ note: `Réf. ${o.number}` }] }, payments: { elements: [{ id: 'PAYSHORT', result: 'SUCCESS', amount: due - 500 }] } }];
+    paidOrders = [{ id: 'CLV-SHORT', lineItems: { elements: [{ note: r.order.paylink!.marker }] }, payments: { elements: [{ id: 'PAYSHORT', result: 'SUCCESS', amount: due - 500 }] } }];
     const out = await tickPaylinks(Date.now() + 25_000);
     expect(out.released).toBe(0);
     const held = (await getDirectOrder(o.id))!;

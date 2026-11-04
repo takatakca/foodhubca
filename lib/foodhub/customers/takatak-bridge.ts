@@ -57,7 +57,7 @@ export function parseTakatakSession(body: unknown): TakatakSession | null {
 export type ExchangeResult = { ok: true; session: TakatakSession } | { ok: false; status: number; error: string };
 
 /** One POST to takatak-v1 with the service token. A refused code is 401; TAKATAK unreachable or misconfigured is 503. */
-export async function exchangeLaunchCode(code: string, deps: { fetch?: typeof fetch; env?: NodeJS.ProcessEnv } = {}): Promise<ExchangeResult> {
+export async function exchangeLaunchCode(code: string, deps: { fetch?: typeof fetch; env?: NodeJS.ProcessEnv; now?: number } = {}): Promise<ExchangeResult> {
   const cfg = takatakBridgeConfig(deps.env);
   if (!cfg.ok) return { ok: false, status: 503, error: cfg.reason };
   const f = deps.fetch ?? fetch;
@@ -69,6 +69,7 @@ export async function exchangeLaunchCode(code: string, deps: { fetch?: typeof fe
       body: JSON.stringify({ code: code.trim() }),
       signal: AbortSignal.timeout(TAKATAK_TIMEOUT_MS),
       cache: 'no-store',
+      redirect: 'error',
     });
   } catch {
     return { ok: false, status: 503, error: 'TAKATAK could not be reached. Try again in a moment.' };
@@ -76,6 +77,9 @@ export async function exchangeLaunchCode(code: string, deps: { fetch?: typeof fe
   if (res.status === 403 || res.status === 400 || res.status === 404) return { ok: false, status: 401, error: 'This sign-in link expired or was already used. Open ON2GO again from TAKATAK.' };
   if (!res.ok) return { ok: false, status: 503, error: 'TAKATAK could not open the session. Try again in a moment.' };
   const session = parseTakatakSession(await res.json().catch(() => null));
+  if (session && Date.parse(session.expiresAt) <= (deps.now ?? Date.now())) return {
+    ok: false, status: 401, error: 'This TAKATAK session expired. Open ON2GO again from TAKATAK.',
+  };
   return session ? { ok: true, session } : { ok: false, status: 503, error: 'TAKATAK answered something Food Hub does not understand.' };
 }
 

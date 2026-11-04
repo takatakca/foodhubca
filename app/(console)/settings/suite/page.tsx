@@ -8,6 +8,7 @@ import { SettingsHead } from '../settings-ui';
 import { api } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
+import { ControlPlaneCard } from './control-plane-card';
 
 // Settings → Connected apps (the TAKATAK Suite): the Clover App Market apps (C4ISSE, T4CTILE, 4CCOUNTING…) that work alone and together.
 // Each app is connected by two server variables (docs/TAKATAK_SUITE.md); this page only shows the state, never a secret.
@@ -27,9 +28,10 @@ export default function SuitePage() {
     <div>
       <SettingsHead title={t('Apps connectées', 'Connected apps')}
         intro={t('Vos apps Clover App Market. Chacune fonctionne seule chez un marchand ; branchées ici, elles reçoivent les commandes de Food Hub en direct et se parlent entre elles. Aucune donnée client nominative n’est envoyée.', 'Your Clover App Market apps. Each one works alone at a merchant; connected here, they get Food Hub’s orders live and talk to each other. No named customer data is sent.')} />
+      <ControlPlaneCard />
       {err && <Banner tone="stop" className="mb-4">{err}</Banner>}
       {apps && connected === 0 && <Banner tone="info" className="mb-4">{t('Aucune app branchée. Pour en brancher une : FOODHUB_SUITE_<APP>_URL et FOODHUB_SUITE_<APP>_SECRET dans Coolify (guide : docs/TAKATAK_SUITE.md).', 'No app connected. To connect one: FOODHUB_SUITE_<APP>_URL and FOODHUB_SUITE_<APP>_SECRET in Coolify (guide: docs/TAKATAK_SUITE.md).')}</Banner>}
-      {apps && connected > 0 && !keys && <Banner tone="warn" className="mb-4">{t('FOODHUB_SUITE_CUSTOMER_SALT n’est pas réglé : les apps ne reçoivent pas de clé client, donc la fidélité ne peut pas reconnaître un client d’une commande à l’autre.', 'FOODHUB_SUITE_CUSTOMER_SALT is not set: apps get no customer key, so loyalty cannot recognise a customer from one order to the next.')}</Banner>}
+      {apps && connected > 0 && !keys && <Banner tone="warn" className="mb-4">{t('FOODHUB_SUITE_CUSTOMER_SALT n’est pas réglé : les événements de commandes ne contiennent pas de clé client pseudonyme. La lecture des soldes de fidélité utilise une connexion distincte pour les clients vérifiés.', 'FOODHUB_SUITE_CUSTOMER_SALT is not set: order events contain no pseudonymous customer key. Loyalty balance reads use a separate connection for verified customers.')}</Banner>}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {!apps && Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-36" />)}
         {apps?.map((a) => (

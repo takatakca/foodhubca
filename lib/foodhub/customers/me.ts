@@ -22,6 +22,8 @@ export interface MeOrder {
   currency: string;
   payment: DirectOrder['payment'];
   payUrl?: string;
+  paymentReview?: boolean;
+  paymentReceived?: boolean;
   items: Array<{ ref?: string; name: string; quantity: number; unitPrice: number; total: number; modifiers: Array<{ name: string; quantity: number; unitPrice: number }> }>;
   status: DirectOrder['status'];
   brand: string;
@@ -49,7 +51,9 @@ export async function websiteOrdersFor(phone: string, limit = ME_ORDERS_MAX): Pr
     .map((o) => ({
       id: o.id, number: o.number, at: o.placedAt || o.createdAt, total: o.total, status: o.status, brand: o.brandName, fulfillment: o.fulfillment,
       subtotal: o.subtotal, tax: o.tax, tip: o.tip, deliveryFee: o.deliveryFee, currency: o.currency, payment: o.payment,
-      ...(o.status === 'awaiting_payment' && payLinkState(o) === 'pending' ? { payUrl: `/p/${o.paylink!.token}` } : {}),
+      ...(o.status === 'awaiting_payment' && !o.paylink?.extraPayments?.length && payLinkState(o) === 'pending' ? { payUrl: `/p/${o.paylink!.token}` } : {}),
+      ...(o.paylink && (payLinkState(o) === 'review' || o.paylink.extraPayments?.length) ? { paymentReview: true } : {}),
+      ...(o.paylink && payLinkState(o) === 'paid' ? { paymentReceived: true } : {}),
       items: o.lines.map((line) => ({
         ...(line.externalId ? { ref: line.externalId } : {}), name: line.name, quantity: line.quantity, unitPrice: line.unitPrice, total: line.total,
         modifiers: line.modifiers.map((option) => ({ name: option.name, quantity: option.quantity, unitPrice: option.unitPrice })),

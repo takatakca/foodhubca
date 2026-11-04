@@ -1,0 +1,441 @@
+{
+  "base": "http://127.0.0.1:4809",
+  "checkedAt": "2026-11-04T08:22:56.698Z",
+  "results": [
+    {
+      "key": "landing",
+      "lang": "fr",
+      "width": 1440,
+      "path": "/hub",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "landing",
+      "lang": "fr",
+      "width": 390,
+      "path": "/hub",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "landing",
+      "lang": "en",
+      "width": 1440,
+      "path": "/en/hub",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "landing",
+      "lang": "en",
+      "width": 390,
+      "path": "/en/hub",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "pricing",
+      "lang": "fr",
+      "width": 1440,
+      "path": "/hub/tarifs",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "pricing",
+      "lang": "fr",
+      "width": 390,
+      "path": "/hub/tarifs",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "pricing",
+      "lang": "en",
+      "width": 1440,
+      "path": "/en/hub/pricing",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "pricing",
+      "lang": "en",
+      "width": 390,
+      "path": "/en/hub/pricing",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "uber",
+      "lang": "fr",
+      "width": 1440,
+      "path": "/hub/integrations/uber-eats-clover",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "uber",
+      "lang": "fr",
+      "width": 390,
+      "path": "/hub/integrations/uber-eats-clover",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "uber",
+      "lang": "en",
+      "width": 1440,
+      "path": "/en/hub/integrations/uber-eats-clover",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "uber",
+      "lang": "en",
+      "width": 390,
+      "path": "/en/hub/integrations/uber-eats-clover",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "doordash",
+      "lang": "fr",
+      "width": 1440,
+      "path": "/hub/integrations/doordash-clover",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "doordash",
+      "lang": "fr",
+      "width": 390,
+      "path": "/hub/integrations/doordash-clover",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "doordash",
+      "lang": "en",
+      "width": 1440,
+      "path": "/en/hub/integrations/doordash-clover",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "doordash",
+      "lang": "en",
+      "width": 390,
+      "path": "/en/hub/integrations/doordash-clover",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "skip",
+      "lang": "fr",
+      "width": 1440,
+      "path": "/hub/integrations/skipthedishes-clover",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "skip",
+      "lang": "fr",
+      "width": 390,
+      "path": "/hub/integrations/skipthedishes-clover",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "skip",
+      "lang": "en",
+      "width": 1440,
+      "path": "/en/hub/integrations/skipthedishes-clover",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "skip",
+      "lang": "en",
+      "width": 390,
+      "path": "/en/hub/integrations/skipthedishes-clover",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "kitchen",
+      "lang": "fr",
+      "width": 1440,
+      "path": "/hub/ecran-de-cuisine-clover",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "kitchen",
+      "lang": "fr",
+      "width": 390,
+      "path": "/hub/ecran-de-cuisine-clover",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "kitchen",
+      "lang": "en",
+      "width": 1440,
+      "path": "/en/hub/clover-kitchen-display",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "kitchen",
+      "lang": "en",
+      "width": 390,
+      "path": "/en/hub/clover-kitchen-display",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "phone",
+      "lang": "fr",
+      "width": 1440,
+      "path": "/hub/telephone-ia-restaurant",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "phone",
+      "lang": "fr",
+      "width": 390,
+      "path": "/hub/telephone-ia-restaurant",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "phone",
+      "lang": "en",
+      "width": 1440,
+      "path": "/en/hub/ai-phone-for-restaurants",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "phone",
+      "lang": "en",
+      "width": 390,
+      "path": "/en/hub/ai-phone-for-restaurants",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "help",
+      "lang": "fr",
+      "width": 1440,
+      "path": "/hub/aide",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "help",
+      "lang": "fr",
+      "width": 390,
+      "path": "/hub/aide",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "help",
+      "lang": "en",
+      "width": 1440,
+      "path": "/en/hub/help",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    },
+    {
+      "key": "help",
+      "lang": "en",
+      "width": 390,
+      "path": "/en/hub/help",
+      "http": 200,
+      "overflow": 0,
+      "errors": [],
+      "failedAssets": [],
+      "violations": []
+    }
+  ],
+  "links": [
+    {
+      "path": "/en/hub",
+      "status": 200
+    },
+    {
+      "path": "/en/hub/ai-phone-for-restaurants",
+      "status": 200
+    },
+    {
+      "path": "/en/hub/clover-kitchen-display",
+      "status": 200
+    },
+    {
+      "path": "/en/hub/help",
+      "status": 200
+    },
+    {
+      "path": "/en/hub/integrations/doordash-clover",
+      "status": 200
+    },
+    {
+      "path": "/en/hub/integrations/skipthedishes-clover",
+      "status": 200
+    },
+    {
+      "path": "/en/hub/integrations/uber-eats-clover",
+      "status": 200
+    },
+    {
+      "path": "/en/hub/pricing",
+      "status": 200
+    },
+    {
+      "path": "/hub",
+      "status": 200
+    },
+    {
+      "path": "/hub/aide",
+      "status": 200
+    },
+    {
+      "path": "/hub/ecran-de-cuisine-clover",
+      "status": 200
+    },
+    {
+      "path": "/hub/integrations/doordash-clover",
+      "status": 200
+    },
+    {
+      "path": "/hub/integrations/skipthedishes-clover",
+      "status": 200
+    },
+    {
+      "path": "/hub/integrations/uber-eats-clover",
+      "status": 200
+    },
+    {
+      "path": "/hub/tarifs",
+      "status": 200
+    },
+    {
+      "path": "/hub/telephone-ia-restaurant",
+      "status": 200
+    },
+    {
+      "path": "/legal/privacy",
+      "status": 200
+    },
+    {
+      "path": "/legal/support",
+      "status": 200
+    },
+    {
+      "path": "/legal/terms",
+      "status": 200
+    },
+    {
+      "path": "/login",
+      "status": 200
+    }
+  ],
+  "findingCount": 0
+}

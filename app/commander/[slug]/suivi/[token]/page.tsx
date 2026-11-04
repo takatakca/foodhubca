@@ -32,6 +32,7 @@ export default async function TrackPage({ params, searchParams }: Props) {
   }
   const reached = STEPS.indexOf(view.status as (typeof STEPS)[number]);
   const done = view.status === 'completed' || view.status === 'cancelled';
+  const paymentHold = view.paymentReview || (view.paymentReceived && view.status === 'awaiting_payment');
   return (
     <main className="mx-auto max-w-lg px-4 py-8" lang={lang === 'fr' ? 'fr-CA' : 'en-CA'} style={{ ['--sf-accent' as string]: color }}>
       {!done && <AutoRefresh seconds={15} />}
@@ -43,10 +44,14 @@ export default async function TrackPage({ params, searchParams }: Props) {
         <div className="p-5">
           <p className="text-sm sf-muted">{t.number}</p>
           <p className="text-3xl font-extrabold tracking-tight">{view.number}</p>
-          <p role="status" className="mt-4 text-xl font-extrabold">{t.status[view.status] ?? view.status}</p>
-          {view.payUrl && <a href={view.payUrl} className="sf-btn mt-4 w-full sf-accent-bg">{lang === 'fr' ? 'Reprendre le paiement' : 'Resume payment'}</a>}
-          {view.readyAt && !done && <p className="mt-1 sf-muted">{t.readyAround(clockLabel(Date.parse(view.readyAt), lang))}</p>}
-          {view.interac && (
+          <p role="status" className="mt-4 text-xl font-extrabold">{view.paymentReview
+            ? lang === 'fr' ? 'Le restaurant vérifie cette commande. Ne payez pas de nouveau.' : 'The restaurant is reviewing this order. Do not pay again.'
+            : view.status === 'awaiting_payment' && view.paymentReceived
+              ? lang === 'fr' ? 'Paiement reçu. En attente de la confirmation du restaurant.' : 'Payment received. Waiting for the restaurant’s confirmation.'
+              : t.status[view.status] ?? view.status}</p>
+          {view.payUrl && !view.paymentReview && !view.paymentReceived && <a href={view.payUrl} className="sf-btn mt-4 w-full sf-accent-bg">{lang === 'fr' ? 'Reprendre le paiement' : 'Resume payment'}</a>}
+          {view.readyAt && !done && !paymentHold && <p className="mt-1 sf-muted">{t.readyAround(clockLabel(Date.parse(view.readyAt), lang))}</p>}
+          {view.interac && !view.paymentReview && !view.paymentReceived && (
             <section className="mt-4 rounded-lg border border-[var(--sf-line)] p-4" aria-label={t.interac.title}>
               <h2 className="font-extrabold">{t.interac.title}</h2>
               <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
@@ -58,7 +63,7 @@ export default async function TrackPage({ params, searchParams }: Props) {
               <p className="mt-3 text-sm">{t.interac.before(clockLabel(Date.parse(view.interac.expiresAt), lang))} {t.interac.then}</p>
             </section>
           )}
-          {view.status !== 'cancelled' && view.status !== 'awaiting_payment' && (
+          {view.status !== 'cancelled' && view.status !== 'awaiting_payment' && !paymentHold && (
             <ol className="mt-5 grid grid-cols-4 gap-2" aria-hidden>
               {STEPS.map((s, i) => <li key={s} className={`h-2 rounded-full ${i <= reached ? 'bg-[var(--sf-accent)]' : 'bg-[var(--sf-sunken)]'}`} />)}
             </ol>

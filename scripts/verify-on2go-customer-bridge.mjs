@@ -11,7 +11,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { chromium, expect } from 'playwright/test';
 import { startRestProxy } from './e2e/postgrest.mjs';
-import { runOrderingJourney } from './e2e/on2go-ordering-journey.mjs';
+import { runNativeOrderingJourney, runOrderingJourney } from './e2e/on2go-ordering-journey.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const on2go = path.resolve(process.env.ON2GO_WORKSPACE_ROOT || path.join(root, '../on2goca'));
@@ -31,19 +31,20 @@ if (database) {
 if (output) fs.mkdirSync(output, { recursive: true });
 assert(fs.existsSync(path.join(root, '.next/BUILD_ID')), 'Build Food Hub first.');
 assert(fs.existsSync(path.join(on2go, 'out/connexion/index.html')), 'Build/export ON2GO first.');
-const phone = '+15145559911';
+const phone = process.env.ON2GO_BRIDGE_PHONE || '+15145559911';
 let smsCode;
 let texts = 0;
 let verificationTexts = 0;
 let cloverOrders = 0;
 let kitchenTickets = 0;
+const transportRun = crypto.randomBytes(5).toString('hex');
 const sms = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   if (url.pathname.startsWith('/clover/')) {
     let raw = ''; for await (const chunk of req) raw += chunk;
     let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch { /* response below */ }
     let answer = {};
-    if (url.pathname.endsWith('/atomic_order/orders') && req.method === 'POST') { cloverOrders++; assert(body.orderCart?.lineItems?.length); answer = { id: `LOCAL-CLOVER-${cloverOrders}` }; }
+    if (url.pathname.endsWith('/atomic_order/orders') && req.method === 'POST') { cloverOrders++; assert(body.orderCart?.lineItems?.length); answer = { id: `LOCAL-CLOVER-${transportRun}-${cloverOrders}` }; }
     else if (url.pathname.endsWith('/print_event') && req.method === 'POST') { kitchenTickets++; answer = { id: `LOCAL-TICKET-${kitchenTickets}` }; }
     else if (url.pathname.endsWith('/devices')) answer = { elements: [{ id: 'LOCAL-PRINTER' }] };
     else if (url.pathname.endsWith('/order_types')) answer = { elements: [] };
@@ -76,8 +77,19 @@ const passed = (name) => { results.push(name); console.log(`PASS ${name}`); };
 let browser;
 let rest;
 let orderingProof;
+let nativeOrderingProof;
+let parallelOrderingProof;
+let counterBarrierArmed = false;
+const counterWaiters = [];
 try {
-  if (database) rest = await startRestProxy({ target: database, port: Number(process.env.ON2GO_BRIDGE_REST_PROXY_PORT || 4893) });
+  if (database) rest = await startRestProxy({ target: database, port: Number(process.env.ON2GO_BRIDGE_REST_PROXY_PORT || 4893), responseBarrier: {
+    match: (value, method) => counterBarrierArmed && method === 'GET' && new URL(value, 'http://localhost').searchParams.get('key') === 'eq.direct_order_seq',
+    wait: () => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Two real counter reads did not arrive')), 10000);
+      counterWaiters.push(() => { clearTimeout(timer); resolve(); });
+      if (counterWaiters.length === 2) { counterBarrierArmed = false; for (const waiter of counterWaiters.splice(0)) waiter(); }
+    }),
+  } });
   const hubEnvironment = {
     ...(rest ? { NEXT_PUBLIC_SUPABASE_URL: rest.url, SUPABASE_SERVICE_ROLE_KEY: databaseKey } : { FOODHUB_FORCE_MEMORY: 'true' }),
     FOODHUB_PUBLIC_URL: 'https://foodhub.on2go.ca',
@@ -209,6 +221,45 @@ try {
     assert.equal(receipt.items[0].total, 17);
     assert.equal(receipt.items[0].modifiers[1]?.name || receipt.items[0].modifiers[0]?.name, 'Cheese');
     passed('the retry produces exactly one actual local Clover call, one kitchen ticket and one authenticated receipt with server totals');
+    if (process.env.ON2GO_BRIDGE_NATIVE !== 'false') {
+      await page.goto('https://on2go.ca/compte/preferences/', { waitUntil: 'networkidle' });
+      await page.getByLabel('Textos sur ma commande en cours (reçue, prête, en route)', { exact: true }).uncheck();
+      await expect.poll(async () => (await me(page)).preferences.orderUpdates).toBe(false);
+      await put('/api/foodhub/storefront/settings', { enabled: true, brands: { 'Pi Pita': { slug: 'pi-pita-custom', enabled: true, locationCode: 'NDG_MAIN', payOnline: false, payAtPickup: true, pickupMaxTotal: 200 } } });
+      nativeOrderingProof = await runNativeOrderingJourney({ page, passed, readOrders, phone, output, slug: 'pi-pita-custom', dropNextCheckoutResponse: () => { dropCheckout = true; } });
+      assert.equal(cloverOrders, 2, 'Two separately confirmed orders, one Clover call per order.');
+      assert.equal(kitchenTickets, 2, 'One printed ticket per confirmed order.');
+      assert.equal(texts, 3, 'Opted-out native order must not send another optional confirmation text.');
+      const nativeOrder = (await readOrders()).find((order) => order.customer?.phone === phone && order.notes?.includes('instagram'));
+      assert(nativeOrder?.events.some((event) => event.type === 'sms_skipped'));
+      assert(!nativeOrder.events.some((event) => event.type === 'sms_confirmation'));
+      passed('ON2GO order-update opt-out is honored by native Food Hub checkout without suppressing the actual order or falsely logging a sent text');
+      if (rest && process.env.ON2GO_BRIDGE_PARALLEL === 'true') {
+        const peerPort = Number(process.env.ON2GO_BRIDGE_PEER_PORT || 4895);
+        const peer = start(root, ['node_modules/next/dist/bin/next', 'start', '-p', String(peerPort), '-H', '127.0.0.1'], hubEnvironment);
+        let ready = false;
+        for (let i = 0; i < 120; i++) {
+          assert(peer.exitCode === null);
+          try { if ((await fetch(`http://127.0.0.1:${peerPort}/hub`)).ok) { ready = true; break; } } catch { /* starting */ }
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+        assert(ready, 'Second actual Food Hub process must start.');
+        const before = (await readOrders()).length;
+        counterBarrierArmed = true;
+        const payload = (suffix) => ({ slug: 'pi-pita-custom', lang: 'en', pay: 'pickup', idempotencyKey: crypto.randomUUID(), customer: { name: `Concurrent Guest ${suffix}`, phone: `+1514555012${suffix}` }, lines: [{ ref: 'pita-local', qty: 1, options: [{ group: 'size', ref: 'regular' }] }] });
+        const responses = await Promise.all([hub, `http://127.0.0.1:${peerPort}`].map(async (base, i) => {
+          const response = await fetch(`${base}/api/storefront/checkout`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload(i)) });
+          const body = await response.json(); assert(response.ok && body.ok, `Parallel checkout must succeed: ${body.error || response.status}`); return body;
+        }));
+        assert(!counterBarrierArmed, 'Both real database counter reads must reach the scheduling barrier.');
+        assert.notEqual(responses[0].number, responses[1].number, 'Distinct concurrent orders may never share the displayed/payment reference number.');
+        assert.equal((await readOrders()).length, before + 2);
+        assert.equal(cloverOrders, 4); assert.equal(kitchenTickets, 4);
+        parallelOrderingProof = { foodHubProcesses: 2, database: 'real-postgres', synchronizedCounterReads: 2, ordersAdded: 2, uniqueNumbers: 2 };
+        passed('two actual Food Hub processes sharing Postgres allocate different order numbers even when both counter reads return before either can write');
+        const exited = new Promise((resolve) => peer.once('exit', resolve)); peer.kill('SIGTERM'); await exited;
+      }
+    }
     await admin.close();
   }
   if (rest) {
@@ -226,13 +277,13 @@ try {
     const restored = await me(otherPage);
     assert.equal(restored.addresses[0].street, '123 rue Exemple');
     assert.equal(restored.favourites.length, 1);
-    assert.deepEqual(restored.preferences, { orderUpdates: true, offersSms: false, offersEmail: true });
+    assert.deepEqual(restored.preferences, { orderUpdates: !nativeOrderingProof, offersSms: false, offersEmail: true });
     await otherPage.reload({ waitUntil: 'networkidle' });
     await expect(otherPage.getByLabel('Offres et nouveautés par courriel', { exact: true })).toBeChecked();
     passed('account data and the existing customer token survive a real Food Hub process restart on Postgres');
   }
   assert.equal(verificationTexts, 2, 'Only two local verification texts should be sent.');
-  assert.equal(texts, ordering ? 3 : 2, 'Only verification texts and one order confirmation should be sent.');
+  assert.equal(texts, ordering ? parallelOrderingProof ? 5 : 3 : 2, 'Only verification texts and opted-in order confirmations should be sent.');
   assert(network.some((r) => r.path.endsWith('/me/addresses') && r.method === 'PUT' && r.status === 200));
   assert(network.some((r) => r.path.endsWith('/me/favourites') && r.method === 'PUT' && r.status === 200));
   assert(!network.some((r) => r.path.startsWith('/api/public/on2go/') && r.status >= 400), 'No account request may silently fail.');
@@ -240,7 +291,7 @@ try {
     await otherPage.screenshot({ path: path.join(output, 'account-persistence-desktop.png'), fullPage: true });
     await otherPage.setViewportSize({ width: 390, height: 844 });
     await otherPage.screenshot({ path: path.join(output, 'account-persistence-mobile.png'), fullPage: true });
-    fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify({ mode: 'local-built-apps-with-isolated-sms', database: rest ? 'local-postgres-postgrest' : 'ephemeral-memory', durablePersistenceVerified: Boolean(rest), passed: results.length, results, network, orderingProof, cloverOrders, kitchenTickets, externalTexts: 0, deploymentVerified: false }, null, 2));
+    fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify({ mode: 'local-built-apps-with-isolated-sms', database: rest ? 'local-postgres-postgrest' : 'ephemeral-memory', durablePersistenceVerified: Boolean(rest), passed: results.length, results, network, orderingProof, nativeOrderingProof, parallelOrderingProof, cloverOrders, kitchenTickets, externalTexts: 0, deploymentVerified: false }, null, 2));
   }
   console.log(`${results.length} cross-repository browser checks passed; no real texts or deployed services used.`);
 } catch (error) {

@@ -22,7 +22,7 @@ export function serviceRoleJwt(secret, { ttlS = 6 * 3600, now = Date.now() } = {
 }
 
 /** Listens on 127.0.0.1:`port` and forwards /rest/v1/* to `target` (PostgREST root) without the prefix. */
-export function startRestProxy({ target, port }) {
+export function startRestProxy({ target, port, responseBarrier }) {
   const to = new URL(target);
   const server = http.createServer((req, res) => {
     const m = /^\/rest\/v1(\/.*)?$/.exec(req.url.split('?')[0]);
@@ -30,6 +30,20 @@ export function startRestProxy({ target, port }) {
     const rest = req.url.slice('/rest/v1'.length) || '/';
     const headers = { ...req.headers, host: to.host };
     const up = http.request({ hostname: to.hostname, port: to.port || 80, method: req.method, path: `${to.pathname.replace(/\/$/, '')}${rest.startsWith('/') ? rest : `/${rest}`}`, headers }, (r) => {
+      if (responseBarrier?.match(rest, req.method)) {
+        // Test-only scheduling barrier: keep the real database response unchanged,
+        // but deliver selected simultaneous reads only after both have completed.
+        const chunks = [];
+        r.on('data', (chunk) => chunks.push(chunk));
+        r.on('end', async () => {
+          try {
+            await responseBarrier.wait();
+            res.writeHead(r.statusCode || 502, r.headers);
+            res.end(Buffer.concat(chunks));
+          } catch { res.writeHead(502, { 'content-type': 'application/json' }).end('{"message":"Local test response barrier failed"}'); }
+        });
+        return;
+      }
       res.writeHead(r.statusCode || 502, r.headers);
       r.pipe(res);
     });

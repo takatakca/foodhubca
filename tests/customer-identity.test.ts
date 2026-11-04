@@ -350,6 +350,11 @@ describe('GET /me', () => {
     expect((await me(token)).orders[0]).not.toHaveProperty('payUrl');
     await saveDirectOrder({ ...order, paylink: { ...order.paylink!, expiresAt: new Date(Date.now() - 1).toISOString() } });
     expect((await me(token)).orders[0]).not.toHaveProperty('payUrl');
+    await saveDirectOrder({ ...order, status: 'cancelled', paylink: { ...order.paylink!, extraPayments: ['PRIVATE-late-payment'] } });
+    const late = (await me(token)).orders[0];
+    expect(late).toMatchObject({ status: 'cancelled', paymentReview: true });
+    expect(late).not.toHaveProperty('payUrl');
+    expect(JSON.stringify(late)).not.toContain('PRIVATE-late-payment');
   });
   it('projects the profile, that number’s website orders (newest first, max 20) and the truthful adapters', async () => {
     const { token } = await signIn();

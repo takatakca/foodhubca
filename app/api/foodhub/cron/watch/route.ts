@@ -10,6 +10,7 @@ import { tickCloverRegister } from '@/lib/foodhub/mev/clover-register';
 import { tickTgtgEmail } from '@/lib/foodhub/tgtg-email/imap';
 import { tickAvailability } from '@/lib/foodhub/store-availability/tick';
 import { tickSuite } from '@/lib/foodhub/suite/bus';
+import { tickControlPlane } from '@/lib/foodhub/control-plane/outbox';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -39,5 +40,6 @@ export const GET = guard(async (req: NextRequest) => {
   const availability = await tickAvailability();
   // TAKATAK Suite apps: order changes → signed events (off until an app is connected, never throws).
   const suite = await tickSuite();
-  return ok({ report, reopened: reopened.length, recovery, expansion, websiteOrders, registerSales, tgtgEmails, availability, suite });
+  const controlPlane = await tickControlPlane().catch(() => ({ skipped: 'reporting_unavailable' }));
+  return ok({ report, reopened: reopened.length, recovery, expansion, websiteOrders, registerSales, tgtgEmails, availability, suite, controlPlane });
 });

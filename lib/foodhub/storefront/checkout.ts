@@ -204,6 +204,8 @@ export interface TrackView {
   interac?: { recipient: string; amount: number; reference: string; question?: string; autoDeposit: boolean; expiresAt: string } | null;
   /** Resume the existing unpaid order; never create a second order to retry payment. */
   payUrl?: string;
+  paymentReview?: boolean;
+  paymentReceived?: boolean;
 }
 
 /**
@@ -223,10 +225,15 @@ export async function trackOrder(token: string, opts: { slug?: string; now?: num
     if (!hit || hit.brandName !== o.brandName) return null;
   }
   // What to send, only while the transfer is still expected (not once a person confirmed it arrived).
-  const i = o.status === 'awaiting_payment' && o.interac && !o.interac.receivedAt ? o.interac : null;
+  const paymentState = o.paylink ? payLinkState(o, now) : null;
+  const paymentReview = paymentState === 'review' || Boolean(o.paylink?.extraPayments?.length);
+  const paymentReceived = paymentState === 'paid';
+  const i = !paymentReview && !paymentReceived && o.status === 'awaiting_payment' && o.interac && !o.interac.receivedAt ? o.interac : null;
   return {
-    number: o.number, status: o.status, brand: seedBrandOf(o.brandName)?.name ?? o.brandName, readyAt: o.status === 'cancelled' || o.status === 'awaiting_payment' ? null : o.readyAt ?? null,
-    ...(o.status === 'awaiting_payment' && payLinkState(o, now) === 'pending' ? { payUrl: `/p/${o.paylink!.token}` } : {}),
+    number: o.number, status: o.status, brand: seedBrandOf(o.brandName)?.name ?? o.brandName, readyAt: paymentReview || o.status === 'cancelled' || o.status === 'awaiting_payment' ? null : o.readyAt ?? null,
+    ...(!paymentReview && o.status === 'awaiting_payment' && paymentState === 'pending' ? { payUrl: `/p/${o.paylink!.token}` } : {}),
+    ...(paymentReview ? { paymentReview: true } : {}),
+    ...(paymentReceived ? { paymentReceived: true } : {}),
     ...(i ? { interac: { recipient: i.recipient, amount: i.amount, reference: i.reference, ...(i.autoDeposit || !i.question ? {} : { question: i.question }), autoDeposit: i.autoDeposit, expiresAt: i.expiresAt } } : {}),
   };
 }

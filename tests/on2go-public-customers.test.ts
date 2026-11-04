@@ -3,6 +3,8 @@
 // CORS for the ON2GO sites only, per-IP windows, and the proxy letting the routes through. Twilio is a fake fetch.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { POST as logoutPost } from '../app/api/public/on2go/logout/route';
+import { PUT as addressesPut, OPTIONS as addressesOptions } from '../app/api/public/on2go/me/addresses/route';
+import { PUT as favouritesPut, OPTIONS as favouritesOptions } from '../app/api/public/on2go/me/favourites/route';
 import { DELETE as meDelete, GET as meGet, OPTIONS as meOptions, PATCH as mePatch } from '../app/api/public/on2go/me/route';
 import { POST as checkPost } from '../app/api/public/on2go/verify/check/route';
 import { POST as startPost } from '../app/api/public/on2go/verify/start/route';
@@ -97,6 +99,68 @@ describe('texted-code sign-in from on2go.ca', () => {
 });
 
 describe('Mon compte from on2go.ca', () => {
+  it('persists structured addresses and restaurant favourites across sessions without changing another customer', async () => {
+    const { token } = await signIn();
+    const address = { label: 'Maison', street: '123 rue Exemple', unit: '2', city: 'Montréal', province: 'QC', postalCode: 'H4A1E1', instructions: 'Sonnez' };
+    expect(await read(addressesPut(req('/me/addresses', { method: 'PUT', token, body: { addresses: [address] } })))).toMatchObject({ status: 200, cors: ON2GO, addresses: [{ ...address, postalCode: 'H4A 1E1' }] });
+    expect(await read(favouritesPut(req('/me/favourites', { method: 'PUT', token, body: { favourites: ['ppp-pizzeria', 'demo-restaurant', 'ppp-pizzeria'] } })))).toMatchObject({ status: 200, favourites: ['ppp-pizzeria', 'demo-restaurant'] });
+    const sameCustomer = await findCustomerByPhone(PHONE);
+    const secondSession = await signCustomerToken(sameCustomer!, 'on2go');
+    const me = await read(meGet(req('/me', { method: 'GET', token: secondSession.token })));
+    expect(me.addresses).toEqual([{ ...address, postalCode: 'H4A 1E1' }]);
+    expect(me.favourites).toEqual(['ppp-pizzeria', 'demo-restaurant']);
+    const other = await upsertVerifiedCustomer({ phone: '+15145559901', tenant: 'on2go' });
+    const otherToken = await signCustomerToken(other.customer, 'on2go');
+    expect(await read(meGet(req('/me', { method: 'GET', token: otherToken.token })))).toMatchObject({ addresses: [], favourites: [] });
+  });
+
+  it('keeps channel preferences separate, merges partial updates, and rejects invalid consent without partial writes', async () => {
+    const { token } = await signIn();
+    expect(await read(meGet(req('/me', { method: 'GET', token })))).toMatchObject({ preferences: { orderUpdates: true, offersSms: false, offersEmail: false } });
+    expect(await read(mePatch(req('/me', { method: 'PATCH', token, body: { preferences: { offersEmail: true } } })))).toMatchObject({ status: 200, customer: { marketingConsent: false, preferences: { orderUpdates: true, offersSms: false, offersEmail: true } } });
+    await mePatch(req('/me', { method: 'PATCH', token, body: { preferences: { orderUpdates: false } } }));
+    const invalid = await read(mePatch(req('/me', { method: 'PATCH', token, body: { name: 'Must not save', preferences: { offersSms: 'true' } } })));
+    expect(invalid.status).toBe(422);
+    const unknown = await read(mePatch(req('/me', { method: 'PATCH', token, body: { preferences: { allMarketing: true } } })));
+    expect(unknown.status).toBe(422);
+    const me = await read(meGet(req('/me', { method: 'GET', token })));
+    expect(me.preferences).toEqual({ orderUpdates: false, offersSms: false, offersEmail: true });
+    expect(me.customer.name).toBeUndefined();
+  });
+
+  it('rejects malformed, excessive and unauthorised saved data before mutation', async () => {
+    const { token } = await signIn();
+    for (const [path, handler, body] of [
+      ['/me/addresses', addressesPut, { addresses: [{ street: '123 rue Exemple', city: 'Montréal', postalCode: 'invalid' }] }],
+      ['/me/favourites', favouritesPut, { favourites: Array.from({ length: 51 }, (_, i) => `restaurant-${i}`) }],
+    ] as const) {
+      expect((await read(handler(req(path, { method: 'PUT', token, body })))).status).toBe(422);
+      expect((await read(handler(req(path, { method: 'PUT', body })))).status).toBe(401);
+      expect(await read(handler(req(path, { method: 'PUT', token, body, origin: 'https://evil.example' })))).toMatchObject({ status: 403, cors: null });
+    }
+    expect((await read(favouritesPut(req('/me/favourites', { method: 'PUT', token, body: { favourites: ['x'.repeat(9000)] } })))).status).toBe(400);
+    const ppp = await upsertVerifiedCustomer({ phone: '+15145559902', tenant: 'pppmtl' });
+    const wrongTenant = await signCustomerToken(ppp.customer, 'pppmtl');
+    expect((await read(favouritesPut(req('/me/favourites', { method: 'PUT', token: wrongTenant.token, body: { favourites: ['restaurant'] } })))).status).toBe(403);
+    expect(await read(meGet(req('/me', { method: 'GET', token })))).toMatchObject({ addresses: [], favourites: [] });
+    await meDelete(req('/me', { method: 'DELETE', token }));
+    expect((await read(addressesPut(req('/me/addresses', { method: 'PUT', token, body: { addresses: [] } })))).status).toBe(401);
+  });
+
+  it('allows complete bounded saved lists and PUT preflights without enabling another origin', async () => {
+    const { token } = await signIn();
+    const favourites = Array.from({ length: 50 }, (_, i) => `${i}-${'restaurant'.repeat(10)}`);
+    const response = await favouritesPut(req('/me/favourites', { method: 'PUT', token, body: { favourites } }));
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect((await read(response)).favourites).toEqual(favourites);
+    for (const options of [addressesOptions, favouritesOptions]) {
+      const allowed = options(new Request('https://hub.example.test/api/public/on2go/me/addresses', { method: 'OPTIONS', headers: { origin: 'https://preview.on2go.ca' } }));
+      expect(allowed.headers.get('access-control-allow-origin')).toBe('https://preview.on2go.ca');
+      expect(allowed.headers.get('access-control-allow-methods')).toBe('PUT, OPTIONS');
+      const denied = options(new Request('https://hub.example.test/api/public/on2go/me/addresses', { method: 'OPTIONS', headers: { origin: 'https://evil.example' } }));
+      expect(denied.headers.get('access-control-allow-origin')).toBeNull();
+    }
+  });
   it('reads, updates and signs out with the on2go token in Authorization', async () => {
     const { token } = await signIn();
     const me = await read(meGet(req('/me', { method: 'GET', token })));
@@ -128,13 +192,15 @@ describe('Mon compte from on2go.ca', () => {
     expect(evil.headers.get('access-control-allow-origin')).toBeNull();
   });
 
-  it('the proxy lets the four routes through without a console session', async () => {
+  it('the proxy lets only the supported customer routes through without a console session', async () => {
     const { proxy } = await import('../proxy');
     const { NextRequest } = await import('next/server');
     vi.stubEnv('DASHBOARD_PASSWORD', 'Owner-pass-123');
-    for (const p of ['/verify/start', '/verify/check', '/me', '/logout']) {
+    for (const p of ['/verify/start', '/verify/check', '/me', '/me/addresses', '/me/favourites', '/logout']) {
       const res = await proxy(new NextRequest(`https://hub.example.test/api/public/on2go${p}`, { method: 'POST' }));
       expect(res.headers.get('x-middleware-next'), p).toBe('1');
     }
+    const unknown = await proxy(new NextRequest('https://hub.example.test/api/public/on2go/me/admin', { method: 'POST' }));
+    expect(unknown.headers.get('x-middleware-next')).not.toBe('1');
   });
 });

@@ -1,0 +1,53 @@
+{
+  "results": [
+    {
+      "name": "54 synthetic session records added only to empty local safe-mode review instance",
+      "passed": true
+    },
+    {
+      "name": "New Home priorities, quick actions, AOV and cancellation KPIs render in authenticated workspace",
+      "passed": true
+    },
+    {
+      "name": "Final rendered workspace counts say listed stores without claiming API mapping",
+      "passed": true
+    },
+    {
+      "name": "Final rendered monitoring empty state makes no all-systems-ready claim",
+      "passed": true
+    },
+    {
+      "name": "Owner quick-action links preserve selected DoorDash workspace",
+      "passed": true
+    },
+    {
+      "name": "Cancellation KPI opens actual cancelled-order request and selection without dropping provider scope",
+      "passed": true
+    },
+    {
+      "name": "Session overview uses existing authorized records and separates online observations from API/printing acceptance",
+      "passed": true
+    },
+    {
+      "name": "Existing-PC read-only guidance is accessible and requests no credentials",
+      "passed": true
+    },
+    {
+      "name": "Readiness panel fits 1440px and has zero serious/critical axe violations",
+      "passed": true
+    },
+    {
+      "name": "Readiness panel fits 375px and has zero serious/critical axe violations",
+      "passed": true
+    },
+    {
+      "name": "Home priorities and quick actions fit mobile and have zero serious/critical axe violations",
+      "passed": true
+    },
+    {
+      "name": "Authenticated browser journey completed without page errors",
+      "passed": true
+    }
+  ],
+  "pageErrors": []
+}

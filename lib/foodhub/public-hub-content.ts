@@ -21,8 +21,8 @@ const en$ = (n: number) => formatCadLabel(n, 'en');
 /** The hub's own one-line pitch (under the landing H1, SoftwareApplication description, llms.txt). Too Good To Go is
  * left out: it is only ever named with its condition. */
 export const HUB_TAGLINE: Record<Lang, string> = {
-  fr: 'Uber Eats, DoorDash et SkipTheDishes directement dans votre caisse Clover : un seul écran, des menus et des ruptures synchronisés, des versements vérifiés.',
-  en: 'Uber Eats, DoorDash and SkipTheDishes straight into your Clover register: one screen, synced menus and sold-out items, verified payouts.',
+  fr: 'Food Hub réunit les outils de gestion de vos commandes, menus et établissements, avec des espaces pour Uber Eats, DoorDash et SkipTheDishes.',
+  en: 'Food Hub brings order, menu and location management together, with workspaces for Uber Eats, DoorDash and SkipTheDishes.',
 };
 
 export type HubPageKey = 'landing' | 'pricing' | 'uber' | 'doordash' | 'skip' | 'kitchen' | 'phone';
@@ -115,16 +115,6 @@ const FAQ_PRICE: Record<Lang, Faq> = {
   en: { q: 'How much does ON2GO.ca cost?', a: `${TRIAL_DAYS}-day free trial, then ${en$(STANDARD_MONTHLY_CAD)} a month per app. Your first brand is included; each extra brand costs ${en$(EXTRA_BRAND_PLATFORM_CAD)} a month for each platform it is connected to. Clover bills the subscription.` },
 };
 
-const FAQ_CARDS: Record<Lang, Faq> = {
-  fr: { q: 'ON2GO.ca traite-t-il des paiements par carte ?', a: 'Non. Les clients paient sur la plateforme de livraison. ON2GO.ca enregistre seulement la commande comme payée dans Clover, avec un mode de paiement au nom de la plateforme, pour que la fermeture de caisse soit juste.' },
-  en: { q: 'Does ON2GO.ca process card payments?', a: 'No. Customers pay on the delivery platform. ON2GO.ca only records the order as paid in Clover, with a tender named after the platform, so your closeout is right.' },
-};
-
-const FAQ_APPROVAL: Record<Lang, Faq> = {
-  fr: { q: 'Pourquoi une approbation avant la première commande ?', a: 'Pour éviter qu’une commande parte vers la mauvaise caisse. Notre équipe vérifie que chaque magasin de livraison est relié au bon établissement Clover avant d’ouvrir le flux.' },
-  en: { q: 'Why an approval before the first order?', a: 'So that no order ever goes to the wrong register. Our team checks that each delivery store is linked to the right Clover location before the flow is opened.' },
-};
-
 function integration(lang: Lang, p: { name: string; key: HubPlatform }): Pick<HubPageContent, 'eyebrow' | 'h1' | 'label' | 'platform'> {
   return lang === 'fr'
     ? { platform: p.key, label: `${p.name} et Clover`, eyebrow: `Intégration ${p.name} · Clover`, h1: `Les commandes ${p.name} directement dans votre caisse Clover` }
@@ -134,11 +124,11 @@ function integration(lang: Lang, p: { name: string; key: HubPlatform }): Pick<Hu
 export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
   landing: {
     fr: {
-      title: 'Uber Eats et DoorDash dans Clover | ON2GO.ca',
-      description: 'ON2GO.ca envoie les commandes des applis de livraison dans Clover, avec écran de cuisine et menus par marque. Conçu à Montréal.',
+      title: 'Food Hub pour restaurants | ON2GO.ca',
+      description: 'Vos commandes, menus et établissements dans un même espace. Découvrez Food Hub pour Uber Eats, DoorDash, SkipTheDishes et Clover.',
       label: 'Accueil',
-      eyebrow: 'Pour les restaurants qui utilisent Clover, au Canada',
-      h1: 'Vos commandes Uber Eats, DoorDash et SkipTheDishes directement dans votre caisse Clover',
+      eyebrow: 'Pour les restaurateurs',
+      h1: 'Vos plateformes de livraison. Un seul espace de travail.',
       lead: HUB_TAGLINE.fr,
       blocks: [
         { kind: 'benefits', id: 'avantages', title: 'Ce qui change dans votre cuisine' },
@@ -150,20 +140,20 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
         { kind: 'pricing', id: 'tarifs', title: 'Tarifs' },
       ],
       faq: [
-        { q: 'Faut-il un agrégateur de livraison ?', a: 'Non. ON2GO.ca se branche directement aux plateformes de livraison et à votre caisse Clover, sans intermédiaire entre les deux.' },
-        { q: 'Quelles plateformes sont prises en charge ?', a: 'Uber Eats, DoorDash et SkipTheDishes, ainsi que Too Good To Go lorsque votre compte offre un flux de commandes.{pending}' },
-        { q: 'Quel matériel Clover faut-il ?', a: 'Un forfait Clover qui comprend l’inventaire et les commandes, et un appareil Clover avec une imprimante de commandes.' },
-        FAQ_CARDS.fr,
-        FAQ_APPROVAL.fr,
-        { q: 'L’application est-elle en français ?', a: 'Oui. Toute l’interface est en français et en anglais, et chaque membre de l’équipe choisit sa langue.' },
+        { q: 'Puis-je conserver mes comptes de livraison ?', a: 'Oui. Vous utilisez vos propres comptes marchands. Chaque compte est associé à votre marque et au bon établissement dans Food Hub.' },
+        { q: 'Une tablette remplace-t-elle une connexion API ?', a: 'Non. Le mur d’écrans affiche des sessions marchandes hébergées sur votre ordinateur ou votre serveur; vous vous y connectez vous-même. Une connexion API échange des données avec une plateforme et nécessite ses autorisations. Afficher un écran ne l’active pas.' },
+        { q: 'Puis-je gérer plusieurs marques ou établissements ?', a: 'Oui. Food Hub permet de choisir une marque, un établissement ou une plateforme pour adapter la vue. Les frais pour marques supplémentaires sont indiqués dans les tarifs.' },
+        { q: 'De quoi ai-je besoin pour utiliser Clover ?', a: 'D’un compte Clover avec les fonctions d’inventaire et de commandes, d’appareils compatibles avec votre configuration et d’un compte Food Hub approuvé. Les préalables sont vérifiés avant d’activer les flux.' },
+        { q: 'Qui traite les paiements des commandes de livraison ?', a: 'Les commandes des plateformes restent payées sur ces plateformes. Food Hub peut enregistrer leur mode de paiement dans Clover pour faciliter le suivi; il ne prélève pas un nouveau paiement par carte pour ces commandes.' },
+        { q: 'Puis-je travailler en français et en anglais ?', a: 'Oui. L’interface Food Hub est offerte dans les deux langues. Les écrans des plateformes conservent leurs propres options de langue.' },
       ],
     },
     en: {
-      title: 'Uber Eats & DoorDash orders in Clover | ON2GO.ca',
-      description: 'ON2GO.ca sends delivery app orders into Clover, with a kitchen screen and menus per brand. Built in Montréal for restaurants.',
+      title: 'Food Hub for restaurants | ON2GO.ca',
+      description: 'Bring orders, menus and locations into one workspace. Explore Food Hub for Uber Eats, DoorDash, SkipTheDishes and Clover.',
       label: 'Home',
-      eyebrow: 'For restaurants on Clover, in Canada',
-      h1: 'Your Uber Eats, DoorDash and SkipTheDishes orders straight into your Clover register',
+      eyebrow: 'For restaurant operators',
+      h1: 'Your delivery platforms. One workspace.',
       lead: HUB_TAGLINE.en,
       blocks: [
         { kind: 'benefits', id: 'benefits', title: 'What changes in your kitchen' },
@@ -175,12 +165,12 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
         { kind: 'pricing', id: 'pricing', title: 'Pricing' },
       ],
       faq: [
-        { q: 'Do I need a delivery aggregator?', a: 'No. ON2GO.ca connects straight to the delivery platforms and to your Clover register, with nothing in between.' },
-        { q: 'Which platforms are supported?', a: 'Uber Eats, DoorDash and SkipTheDishes, plus Too Good To Go when your account offers an order feed.{pending}' },
-        { q: 'What Clover hardware do I need?', a: 'A Clover plan that includes Inventory and Orders, and a Clover device with an order printer.' },
-        FAQ_CARDS.en,
-        FAQ_APPROVAL.en,
-        { q: 'Is the app in French?', a: 'Yes. The whole interface is in French and English, and each team member picks their language.' },
+        { q: 'Can I keep my delivery accounts?', a: 'Yes. You use your own merchant accounts. Each account is matched to your brand and the correct location in Food Hub.' },
+        { q: 'Does a tablet replace an API connection?', a: 'No. The tablet wall displays merchant sessions hosted on your computer or server; you sign in yourself. An API connection exchanges data with a platform and requires its authorization. Displaying a screen does not enable it.' },
+        { q: 'Can I manage several brands or locations?', a: 'Yes. Food Hub lets you select a brand, location or platform to adjust your view. Additional-brand charges are shown in the pricing.' },
+        { q: 'What do I need to use Clover?', a: 'A Clover account with inventory and order features, devices compatible with your setup and an approved Food Hub account. Requirements are reviewed before enabling order flows.' },
+        { q: 'Who processes delivery order payments?', a: 'Platform orders remain paid through those platforms. Food Hub can record their payment method in Clover for tracking; it does not take a new card payment for those orders.' },
+        { q: 'Can I work in French and English?', a: 'Yes. The Food Hub interface is available in both languages. Platform screens keep their own language options.' },
       ],
     },
   },

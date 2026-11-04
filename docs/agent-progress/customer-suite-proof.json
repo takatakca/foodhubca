@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "database": "PostgreSQL 16",
+  "appSchemas": 2,
+  "actualHttpApps": 2,
+  "realProcessRestarts": 2,
+  "liveAdapterAssertions": 12,
+  "checks": [
+    "actual Food Hub adapters -> signed HTTP app routes -> PostgreSQL balances",
+    "loy4lty: tenant/merchant refusal, expired signature, replay persisted after real process restart, unchanged business records",
+    "rew4rd: tenant/merchant refusal, expired signature, replay persisted after real process restart, unchanged business records",
+    "all live adapter assertions repeated after both real app restarts"
+  ],
+  "productionAccess": false,
+  "limits": "Synthetic installed merchant/member/card fixtures. Food Hub verified-customer store in the consumer test uses memory; the two suite app ledgers and replay records use real PostgreSQL. No Clover OAuth, payment, redemption or production deployment certification."
+}

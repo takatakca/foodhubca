@@ -3,7 +3,7 @@ import { createServiceClient, hasSupabaseEnv } from '../supabase/server';
 import { nowIso } from './config';
 import type { ActivityEntry, ActivityKind, ChannelKey, ChannelStore, FoodHubJob, FoodHubUser, MasterMenu, NormalizedOrder, OrderEvent, OrderStatus, OrderTimeline, StoredOrder } from './types';
 
-export interface OrderFilter { limit?: number; statuses?: OrderStatus[]; since?: string; until?: string; locationCodes?: string[] }
+export interface OrderFilter { limit?: number; statuses?: OrderStatus[]; since?: string; until?: string; locationCodes?: string[]; channels?: string[]; brands?: string[] }
 export interface ActivityFilter { limit?: number; since?: string; until?: string; kinds?: ActivityKind[]; locationCodes?: string[] }
 /** Generic document store (payout lines, statement imports, reconciliation cases, ledger approvals…). */
 export interface Doc<T = Record<string, unknown>> { id: string; key?: string | null; at?: string | null; data: T }
@@ -119,6 +119,8 @@ const memoryRepo: FoodHubRepo = {
     if (filter.since) list = list.filter((o) => o.createdAt >= filter.since!);
     if (filter.until) list = list.filter((o) => o.createdAt < filter.until!);
     if (filter.locationCodes?.length) list = list.filter((o) => o.locationCode && filter.locationCodes!.includes(o.locationCode));
+    if (filter.channels?.length) list = list.filter((o) => filter.channels!.includes(o.channel));
+    if (filter.brands?.length) list = list.filter((o) => o.brandName && filter.brands!.includes(o.brandName));
     return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, filter.limit ?? 200);
   },
   async addEvent(orderId, type, detail = {}) {
@@ -392,6 +394,8 @@ function supabaseRepo(): FoodHubRepo {
         if (filter.since) q = q.gte('created_at', filter.since);
         if (filter.until) q = q.lt('created_at', filter.until);
         if (filter.locationCodes?.length) q = q.in('location_code', filter.locationCodes);
+        if (filter.channels?.length) q = q.in('channel', filter.channels);
+        if (filter.brands?.length) q = q.in('brand_name', filter.brands);
         const rows = (must(await q) ?? []) as Row[];
         out.push(...rows.map(rowToOrder));
         if (rows.length < to - from + 1) break;

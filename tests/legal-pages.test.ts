@@ -258,7 +258,8 @@ describe('env-driven details and the draft banner', () => {
   it('company, address, officer, email and phone come from the environment (nothing hard-coded in the pages)', () => {
     const bare = text(PrivacyPage) + text(TermsPage) + text(SupportPage);
     expect(bare).toContain('[courriel à compléter — FOODHUB_SUPPORT_EMAIL]');
-    expect(bare).toContain('[à compléter — FOODHUB_SUPPORT_PHONE]');
+    expect(text(SupportPage)).toContain('support@takatak.ca');
+    expect(text(SupportPage)).not.toMatch(/FOODHUB_SUPPORT_(EMAIL|PHONE)|same business day|jour ouvrable même/);
     expect(bare).not.toMatch(/\+?1?[ -]?\d{3}[ -]\d{3}[ -]\d{4}/); // no phone number unless FOODHUB_SUPPORT_PHONE is set
     process.env.FOODHUB_LEGAL_COMPANY = 'Example Co';
     process.env.FOODHUB_LEGAL_ADDRESS = '1 Test Street, Testville';
@@ -269,6 +270,8 @@ describe('env-driven details and the draft banner', () => {
     const t = text(PrivacyPage);
     for (const s of ['Example Co', '1 Test Street, Testville', 'help@example.test', '+1 555-010-0000', 'Test Officer', '2030-01-02']) expect(t).toContain(s);
     expect(text(SupportPage)).toContain('+1 555-010-0000');
+    expect(text(SupportPage)).toContain('help@example.test');
+    expect(text(SupportPage)).not.toContain('support@takatak.ca');
   });
   it('shows the draft banner unless FOODHUB_LEGAL_APPROVED is exactly "true"', () => {
     const layout = () => LegalLayout({ children: createElement('p', null, 'body') });

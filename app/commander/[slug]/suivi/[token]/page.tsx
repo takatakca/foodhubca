@@ -44,6 +44,7 @@ export default async function TrackPage({ params, searchParams }: Props) {
           <p className="text-sm sf-muted">{t.number}</p>
           <p className="text-3xl font-extrabold tracking-tight">{view.number}</p>
           <p role="status" className="mt-4 text-xl font-extrabold">{t.status[view.status] ?? view.status}</p>
+          {view.payUrl && <a href={view.payUrl} className="sf-btn mt-4 w-full sf-accent-bg">{lang === 'fr' ? 'Reprendre le paiement' : 'Resume payment'}</a>}
           {view.readyAt && !done && <p className="mt-1 sf-muted">{t.readyAround(clockLabel(Date.parse(view.readyAt), lang))}</p>}
           {view.interac && (
             <section className="mt-4 rounded-lg border border-[var(--sf-line)] p-4" aria-label={t.interac.title}>

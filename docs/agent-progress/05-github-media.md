@@ -1,6 +1,21 @@
-# Agent 5 — GitHub requirements and product media
+# Agent 5 — GitHub, product media and customer app integration
 
 Updated: 2026-11-04, Codex cloud. Review branch: `feature/foodhub-media-production` (publication coordinated by the parent agent; this worker does not switch or commit the shared checkout).
+
+
+## Continued delivery — verified loyalty and gift-card balances
+
+The stale Food Hub adapters claimed the suite apps did not exist. The actual LOY4LTY membership and REW4RD card stores were audited, then connected through new read-only signed app routes and Food Hub adapters. The shared nine-app kit and all enrollment/earning/issuance/redemption/payment semantics remain unchanged.
+
+- [LOY4LTY feature branch](https://github.com/takatakca/LOY4LTY/tree/feature/customer-balance-bridge), head `65b77a2`: typecheck, 39 tests and production build passed.
+- [REW4RD feature branch](https://github.com/takatakca/REW4RD/tree/feature/customer-balance-bridge), head `1c2cb0b`: typecheck, 38 tests and production build passed.
+- Food Hub adapters re-read the live verified customer, token version and website tenant; derive the existing merchant-scoped pseudonym; sign the server-only request; validate context/nonce/financial data; return only points or masked card suffix/balance and safe program metadata. A missing membership or unavailable service is not converted to zero.
+- Both servers require an explicit website-to-one-merchant mapping and a matching per-app suite key. The app requires an active installed merchant. Independent programs are never pooled. No browser phone/reference/merchant override, bearer card code/hash or cross-merchant card data is accepted/exposed.
+- Requests/responses are bounded; redirects are refused; requests expire and have durable replay protection. Production reads require PostgreSQL. Truncated scans fail closed. Current scaling limit is fewer than 10,000 records per mapped merchant and at most 100 linked cards.
+- [Contract and configuration](../CUSTOMER_SUITE_BALANCES.md); [sanitized proof](customer-suite-proof.json). `node scripts/verify-customer-suite.cjs` reproduced 12 live assertions around two actual app servers, two real PostgreSQL schemas and two process restarts, plus active scope/replay/business-record checks. Authenticated ON2GO `/me` uses token context and ignores query overrides. Food Hub's customer fixture store was memory; app ledgers/replay records were real PostgreSQL. No actual Clover OAuth, payment or production deployment certification is implied.
+- The reproducible runner uses an explicit fixture environment allowlist for app/test children; it excludes inherited application/provider credentials, preserves required proxy/CA runtime settings, and cleans its own local services/container. Final hardened run passed.
+
+Deployment still requires the reviewed Food Hub/app branches, actual server URLs/keys, explicit authorized mappings, PostgreSQL and installed merchant records. These are implemented and locally verified connections, not an assertion that production is configured. No source branch was merged to main or deployed by this worker.
 
 ## Completed
 

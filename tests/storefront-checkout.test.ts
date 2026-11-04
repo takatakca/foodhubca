@@ -36,6 +36,8 @@ import { cancelHeldOrder, startPayLink } from '../lib/foodhub/delivery/paylink';
 import { getRepo } from '../lib/foodhub/repo';
 import { clearStorefrontCache } from '../lib/foodhub/storefront/catalog';
 import { TRACK_TTL_MS, ordersBySource, placeStorefrontOrder, trackOrder } from '../lib/foodhub/storefront/checkout';
+import { quoteStorefrontCart } from '../lib/foodhub/storefront/quote';
+import { OPTIONS as quotePreflight, POST as quoteRoute } from '../app/api/storefront/quote/route';
 import { PICKUP_PAGE_LIMIT, reserveCheckout, resetStorefrontRateLimits } from '../lib/foodhub/storefront/rate-limit';
 import { getStorefrontSettings, saveStorefrontSettings } from '../lib/foodhub/storefront/settings';
 import { OPTIONS as checkoutPreflight, POST as checkoutRoute } from '../app/api/storefront/checkout/route';
@@ -69,6 +71,131 @@ beforeEach(async () => {
   clearStorefrontCache();
   await getRepo().saveMenu(fixtureMenu());
   await saveHours({ locations: { [LOC]: everyDay('11:00', '23:00') }, brands: {}, holidays: [] });
+});
+
+describe('server-reviewed checkout and safe retries', () => {
+  const key = 'test-attempt-0000000000000001';
+
+  it('quotes current server prices, choices and Canadian taxes without placing or texting an order', async () => {
+    await setup();
+    const quote = await quoteStorefrontCart(cart(), NOW);
+    expect(quote).toMatchObject({ ok: true, status: 200, subtotal: 15, tax: 2.25, total: 17.25, taxes: { province: 'QC' } });
+    if (!quote.ok) throw new Error(quote.error);
+    expect(quote.quoteId).toMatch(/^[a-f0-9]{64}$/);
+    expect(quote.lines[0]).toMatchObject({ ref: 'i-pita', qty: 1, name: 'Pita au poulet', unitPrice: 12.5, total: 15 });
+    expect(quote.lines[0].options).toEqual(expect.arrayContaining([expect.objectContaining({ ref: 'd-pepsi', qty: 1, unitPrice: 2.5 })]));
+    expect(await listDirectOrders({ limit: 10 })).toEqual([]);
+    expect(h.clover).toEqual([]); expect(h.sms).toEqual([]);
+    expect(startPayLink).not.toHaveBeenCalled();
+  });
+
+  it('requires a new explicit review after a price change and creates nothing on mismatch', async () => {
+    await setup();
+    const initial = await quoteStorefrontCart(cart(), NOW);
+    if (!initial.ok) throw new Error(initial.error);
+    const menu = fixtureMenu();
+    menu.items.find((item) => item.ref === 'i-pita')!.price = 14;
+    await getRepo().saveMenu(menu); clearStorefrontCache();
+    const mismatch = await placeStorefrontOrder(cart({ idempotencyKey: key, quoteId: initial.quoteId }), 'ip-review', NOW);
+    expect(mismatch).toMatchObject({ ok: false, status: 409, reason: 'quote_changed', quote: { subtotal: 16.5, total: 18.98 } });
+    expect(await listDirectOrders({ limit: 10 })).toHaveLength(0);
+    expect(h.clover).toHaveLength(0); expect(h.sms).toHaveLength(0);
+    if (mismatch.ok || !mismatch.quote) throw new Error('Expected updated quote');
+    expect(mismatch.quote.quoteId).not.toBe(initial.quoteId);
+    const accepted = await placeStorefrontOrder(cart({ idempotencyKey: key, quoteId: mismatch.quote.quoteId }), 'ip-review', NOW);
+    expect(accepted).toMatchObject({ ok: true, total: mismatch.quote.total });
+  });
+
+  it('coalesces parallel retries and replays the same receipt after closure without extra texts, charges or rate slots', async () => {
+    await setup();
+    const payload = cart({ idempotencyKey: key });
+    const results = await Promise.all(Array.from({ length: 8 }, () => placeStorefrontOrder(payload, 'ip-retry', NOW)));
+    expect(results.every((result) => result.ok)).toBe(true);
+    for (const result of results) expect(result).toEqual(results[0]);
+    expect(await listDirectOrders({ limit: 10 })).toHaveLength(1);
+    expect(h.clover).toHaveLength(1); expect(h.sms).toHaveLength(1);
+    expect(await placeStorefrontOrder(payload, 'ip-retry', at(23, 30))).toEqual(results[0]);
+    for (const suffix of ['2', '3']) expect((await placeStorefrontOrder(cart({ idempotencyKey: key + suffix }), 'ip-retry', NOW)).ok).toBe(true);
+    expect(await placeStorefrontOrder(cart({ idempotencyKey: key + '4' }), 'ip-retry', NOW)).toMatchObject({ status: 429 });
+  });
+
+  it('refuses key reuse for changed customer/payment/cart without exposing the old receipt', async () => {
+    await setup();
+    await placeStorefrontOrder(cart({ idempotencyKey: key }), 'ip-conflict', NOW);
+    for (const change of [{ pay: 'online' }, { customer: { name: 'Other', phone: '5145550188' } }, { lines: [{ ref: 'i-juice', qty: 1 }] }]) {
+      const conflict = await placeStorefrontOrder(cart({ ...change, idempotencyKey: key }), 'ip-conflict', NOW);
+      expect(conflict).toMatchObject({ ok: false, status: 409, reason: 'idempotency_conflict' });
+      expect(conflict).not.toHaveProperty('track'); expect(conflict).not.toHaveProperty('payUrl');
+    }
+    expect(await listDirectOrders({ limit: 10 })).toHaveLength(1);
+    expect(h.clover).toHaveLength(1); expect(h.sms).toHaveLength(1);
+    expect(await placeStorefrontOrder(cart({ idempotencyKey: 'short' }), 'ip-conflict', NOW)).toMatchObject({ status: 400 });
+  });
+
+  it('recovers a saved pickup order when the receipt write was interrupted, without replaying Clover/SMS', async () => {
+    await setup();
+    const repo = getRepo();
+    const realSet = repo.setKv.bind(repo);
+    const fail = vi.spyOn(repo, 'setKv').mockImplementation(async (name, value) => {
+      if (name.startsWith('sf_checkout:')) throw new Error('simulated interrupted receipt write');
+      return realSet(name, value);
+    });
+    const payload = cart({ idempotencyKey: key });
+    await expect(placeStorefrontOrder(payload, 'ip-interrupt', NOW)).rejects.toThrow('interrupted receipt');
+    fail.mockRestore();
+    expect(await placeStorefrontOrder(payload, 'ip-interrupt', NOW + 1000)).toMatchObject({ status: 409, reason: 'in_progress' });
+    const recovered = await placeStorefrontOrder(payload, 'ip-interrupt', NOW + 120_001);
+    expect(recovered).toMatchObject({ ok: true });
+    expect(await listDirectOrders({ limit: 10 })).toHaveLength(1);
+    expect(h.clover).toHaveLength(1); expect(h.sms).toHaveLength(1);
+    expect(await placeStorefrontOrder(payload, 'ip-interrupt', NOW + 120_002)).toEqual(recovered);
+  });
+
+  it('does not turn a pending durable claim without a known order into a second attempt', async () => {
+    await setup();
+    const repo = getRepo();
+    const realClaim = repo.claimKv.bind(repo);
+    const claim = vi.spyOn(repo, 'claimKv').mockImplementation(async (name, value) => {
+      if (!name.startsWith('sf_checkout:')) return realClaim(name, value);
+      await realClaim(name, value); return false; // another process already owns this attempt
+    });
+    const payload = cart({ idempotencyKey: key });
+    expect(await placeStorefrontOrder(payload, 'ip-pending', NOW)).toMatchObject({ reason: 'in_progress' });
+    claim.mockRestore();
+    expect(await placeStorefrontOrder(payload, 'ip-pending', NOW + 120_001)).toMatchObject({ reason: 'review_required' });
+    expect(await listDirectOrders({ limit: 10 })).toHaveLength(0);
+    expect(h.clover).toHaveLength(0); expect(h.sms).toHaveLength(0);
+  });
+
+  it('keeps an issued tracking link valid when its restaurant changes the published page slug', async () => {
+    await setup();
+    const placed = await placeStorefrontOrder(cart({ idempotencyKey: key }), 'ip-slug', NOW);
+    if (!placed.ok) throw new Error(placed.error);
+    const settings = await getStorefrontSettings();
+    await saveStorefrontSettings({ enabled: true, brands: { [BRAND]: { ...settings.brands[BRAND], slug: 'pi-pita-custom' } } }, owner);
+    clearStorefrontCache();
+    expect(await trackOrder(placed.track, { slug: SLUG })).toMatchObject({ number: placed.number });
+    expect(await trackOrder(placed.track, { slug: 'pi-pita-custom' })).toMatchObject({ number: placed.number });
+    expect(await trackOrder(placed.track, { slug: 'another-restaurant' })).toBeNull();
+    expect(await placeStorefrontOrder(cart({ idempotencyKey: key }), 'ip-slug', NOW + 1)).toEqual(placed);
+  });
+
+  it('applies the checkout transport protections to quote: JSON, origin, streaming cap and CORS', async () => {
+    await setup();
+    vi.spyOn(Date, 'now').mockReturnValue(NOW);
+    try {
+      const req = (headers: Record<string, string>, body = JSON.stringify(cart())) => new Request('https://hub.test/api/storefront/quote', { method: 'POST', headers, body });
+      expect((await quoteRoute(req({ 'content-type': 'text/plain' }))).status).toBe(415);
+      expect((await quoteRoute(req({ 'content-type': 'application/json', origin: 'https://evil.example' }))).status).toBe(403);
+      expect((await quoteRoute(req({ 'content-type': 'application/json' }, JSON.stringify({ pad: 'x'.repeat(33 * 1024) })))).status).toBe(413);
+      const good = await quoteRoute(req({ 'content-type': 'application/json', origin: 'https://on2go.ca', 'sec-fetch-site': 'cross-site' }));
+      expect(good.status).toBe(200); expect(good.headers.get('access-control-allow-origin')).toBe('https://on2go.ca');
+      expect(good.headers.get('cache-control')).toBe('no-store');
+      const preflight = await quotePreflight(new Request('https://hub.test/api/storefront/quote', { method: 'OPTIONS', headers: { origin: 'https://on2go.ca' } }));
+      expect(preflight.headers.get('access-control-allow-methods')).toContain('POST');
+      expect(await listDirectOrders({ limit: 10 })).toHaveLength(0);
+    } finally { vi.mocked(Date.now).mockRestore(); }
+  });
 });
 
 describe('refusals', () => {

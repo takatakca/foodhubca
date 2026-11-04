@@ -1,6 +1,5 @@
 import Image from 'next/image';
 import { ArrowRight, ArrowUpRight, Check, ChefHat, Layers3, LayoutDashboard, ListChecks, MonitorPlay, ReceiptText } from 'lucide-react';
-import { publicSupportHref } from '@/lib/foodhub/public-support';
 import { EXTRA_BRAND_PLATFORM_CAD, formatCadLabel, STANDARD_MONTHLY_CAD, TRIAL_DAYS, type Lang } from '@/lib/foodhub/pricing';
 import { HUB_PATHS, hubFaq, type HubContext } from '@/lib/foodhub/public-hub';
 import { RESTAURANT_COPY } from './restaurant-copy';
@@ -13,7 +12,7 @@ const FEATURE_ICONS = [ChefHat, ListChecks, Layers3, ReceiptText];
 /** Public merchant landing. Server-rendered; no session, form submission, tracker or page-specific client script. */
 export function RestaurantLanding({ lang, ctx }: { lang: Lang; ctx: HubContext }) {
   const w = RESTAURANT_COPY[lang];
-  const contact = publicSupportHref(ctx.supportEmail);
+  const contact = HUB_PATHS.contact[lang];
   const primary = ctx.appMarketUrl ?? contact;
   const action = ctx.appMarketUrl ? w.install : w.contact;
   const faq = hubFaq('landing', lang, ctx);

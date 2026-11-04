@@ -124,8 +124,21 @@ export async function sendSms(input: { to: string; body: string; /** Our own Twi
   const to = normalizePhone(input.to);
   const simulated = to ? dry('sms', to, input.body, meta) : null;
   if (simulated) return simulated;
+  let preference: SendResult | undefined;
+  // These optional progress texts are separate from sign-in/payment/security messages
+  // and from marketing consent. Use the actual customer record, never a caller flag.
+  if (to && (meta.purpose === 'direct_order_confirmation' || meta.purpose === 'delivery_tracking')) {
+    try {
+      const { findCustomerByPhone } = await import('../customers/store');
+      const customer = await findCustomerByPhone(to);
+      if (customer?.preferences?.orderUpdates === false) preference = { ok: true, skipped: true, channel: 'sms', message: 'Order update texts disabled by the customer.' };
+    } catch {
+      preference = { ok: false, skipped: true, channel: 'sms', message: 'Order update preference could not be checked; text not sent.' };
+    }
+  }
   let r: SendResult;
-  if (!to) r = { ok: false, channel: 'sms', message: 'Invalid phone number.' };
+  if (preference) r = preference;
+  else if (!to) r = { ok: false, channel: 'sms', message: 'Invalid phone number.' };
   else if (!smsConfigured()) r = { ok: false, skipped: true, channel: 'sms', message: 'SMS is not set up (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM).' };
   else {
     const form = new URLSearchParams({ To: to, Body: input.body.slice(0, 1500) });

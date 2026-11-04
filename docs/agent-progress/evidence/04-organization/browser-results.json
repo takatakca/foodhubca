@@ -1,0 +1,81 @@
+{
+  "ok": true,
+  "observedAt": "2026-11-04T08:53:41.535Z",
+  "origin": "isolated local review server",
+  "data": "synthetic fixtures only",
+  "providerActions": false,
+  "authenticatedAccountWrites": "isolated staff/catalog fixtures only",
+  "results": [
+    {
+      "name": "bounded synthetic fixture ready; no provider calls or invitations"
+    },
+    {
+      "name": "org-review-group authorized API and rendered scope",
+      "brands": 2,
+      "locations": 2,
+      "mappedStores": 3
+    },
+    {
+      "name": "org-review-east authorized API and rendered scope",
+      "brands": 2,
+      "locations": 1,
+      "mappedStores": 2
+    },
+    {
+      "name": "org-review-west authorized API and rendered scope",
+      "brands": 1,
+      "locations": 1,
+      "mappedStores": 1
+    },
+    {
+      "name": "fr 1440px group hierarchy, actual refresh request, drilldown and overflow",
+      "horizontalOverflow": false,
+      "pageErrors": []
+    },
+    {
+      "name": "fr 1440px WCAG",
+      "state": "pass",
+      "axeViolations": []
+    },
+    {
+      "name": "fr 390px group hierarchy, actual refresh request, drilldown and overflow",
+      "horizontalOverflow": false,
+      "pageErrors": []
+    },
+    {
+      "name": "fr 390px WCAG",
+      "state": "pass",
+      "axeViolations": []
+    },
+    {
+      "name": "en 1440px group hierarchy, actual refresh request, drilldown and overflow",
+      "horizontalOverflow": false,
+      "pageErrors": []
+    },
+    {
+      "name": "en 1440px WCAG",
+      "state": "pass",
+      "axeViolations": []
+    },
+    {
+      "name": "en 390px group hierarchy, actual refresh request, drilldown and overflow",
+      "horizontalOverflow": false,
+      "pageErrors": []
+    },
+    {
+      "name": "en 390px WCAG",
+      "state": "pass",
+      "axeViolations": []
+    },
+    {
+      "name": "anonymous organization API remains denied"
+    }
+  ],
+  "buildId": "0fQBhYVkXl3hhV1oRcpYo",
+  "buildScope": "Actual combined local organization/navigation/avatar build; not production, and not the separately uncompiled later control-plane changes.",
+  "organizationSourceSha256": {
+    "lib/foodhub/organization-view.ts": "0ec4860fb7a500cdf88f422e50d6e58d39b30edff63d51be4bf1586b91a32559",
+    "app/api/foodhub/organization/route.ts": "e67e4be58fa1e2c1423fef48dae1766d466d6355689779e3159b91ad06c612dc",
+    "app/(console)/organization/page.tsx": "0c68c1ab1f53dcff5392bff35413be8f4b0cec560a2250deaff7a383f43513a6"
+  }
+}

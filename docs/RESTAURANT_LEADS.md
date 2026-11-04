@@ -1,3 +1,15 @@
+## Food Hub native enquiry continuation — November 4, 2026
+
+The same pipeline also receives the native Food Hub forms at `/hub/contact` and `/en/hub/contact`. Product enquiries use `source:"foodhub"`; ON2GO listings keep `source:"on2go.ca"`. Both appear in the existing owner-only inbox, identified by source and filterable without changing permissions. The form requests a reply about the enquiry; it does not subscribe the contact to marketing.
+
+Food Hub sends an optional `Idempotency-Key` header (16–128 ASCII letters/digits/underscore/hyphen). The server claims a hashed key and normalized payload fingerprint in existing `fh_kv`, reserves the lead UUID and writes the existing `restaurant_leads` document. An identical replay with a stored lead returns202 without a second row, notification or quota charge. Changed data with the same key returns409 `request_changed`; an unfinished claim without a confirmed lead returns409 `request_pending`, never a new unverified write. Storage failure returns503 `unavailable`. A crashed pre-storage attempt needs manual contact; there is no automatic claim reset. Keys/claims are retained; no new table or mandatory migration is needed.
+
+The form retains only its nonce in tab session storage, never contact data. An uncertain network/server response keeps the exact body/key in component memory and prevents edits during that retry. Reload does not restore personal form values. A server400 restores editing and field errors;429 honors Retry-After. Receipt requires202 with JSON `{ok:true}`. Optional notification/activity failure after a confirmed stored lead does not turn it into a failed submission. The receipt confirms storage, not delivery of email or a response deadline.
+
+A production instance without durable repository storage returns503 rather than accepting a request that would disappear on restart. Test-mode memory fixtures remain available. JSON media type is checked exactly; undeclared streaming bodies stop at16000bytes. Honeypot behavior and the ON2GO cross-origin allowlist remain unchanged. `Idempotency-Key` is currently used by the same-origin Food Hub form; the older ON2GO form requires no new header or CORS change. Food Hub optional auto-replies name its enquiry correctly, and unsupported two-business-day promises have been removed from both products.
+
+Local verification: 102 focused tests passed and scoped lint is clean. The coordinated pruned production image (`12dc660c05c08aecbd683f9bc90e5c476274b8e1`) built successfully. Its unmodified native public UI passed 32 browser checks, including four FR/EN viewport/WCAG A/AA scans with zero violations and 20 repeated Phone AI/query/language journeys, with zero uncaught page errors. An earlier host build's intermittent React #418 was investigated and did not reproduce on this final image; no source fix is claimed. Actual PostgreSQL lost-response/restart and single owner-inbox lead evidence is recorded separately by the coordinator. No real contact email or live production submission was performed by these checks. See [browser results](agent-progress/evidence/02-marketing/contact/results.json) and [image/source provenance](agent-progress/evidence/02-marketing/contact/provenance.json).
+
 # Demandes de restaurants / Restaurant leads (ON2GO.ca → Food Hub)
 
 Le formulaire « Rejoindre ON2GO / Être inscrit » du site statique on2go.ca (dépôt séparé) envoie ses réponses à Food Hub.
@@ -50,7 +62,7 @@ leads** (owner only): status `new → contacted → won / lost` plus private not
 | `city` | yes | 2–80 characters; no link. A trailing « , QC » is dropped when it repeats `province` |
 | `province` | no | Canadian province or territory postal code (`QC`, `ON`, `BC`, `AB`, `MB`, `SK`, `NS`, `NB`, `NL`, `PE`, `YT`, `NT`, `NU`); any other value → `invalid` |
 | `address` | no | ≤ 200 |
-| `website` | no | ≤ 200; `https://` is added when the scheme is missing; must be http(s) with a dotted host |
+| `website` | no | ≤ 200; `https://` is added when the scheme is missing; must be http(s) with a dotted host and no URL username/password |
 | `platforms` | yes (may be empty) | array of `uber`, `doordash`, `skip`, `tgtg`, `direct`, `phone`; unknown values are dropped; anything that is not an array → `invalid` |
 | `brands` | no | integer 1–50 (how many brands / menus the restaurant runs) |
 | `message` | no | ≤ 2000 |
@@ -71,7 +83,9 @@ Nothing is ever HTML-rendered from the request.
 | `400` | `{ "ok": false, "errors": { "<field>": "required" \| "invalid" \| "too_long" } }` | validation; `{ "body": "invalid" }` for malformed JSON |
 | `413` | `{ "ok": false, "error": "Too large." }` | body over 16 000 bytes |
 | `415` | `{ "ok": false, "error": "…" }` | `Content-Type` is not `application/json` |
+| `409` | `{ "ok": false, "error": "request_changed" \| "request_pending" }` | the idempotency key identifies different data or an attempt whose storage outcome is unconfirmed |
 | `429` | `{ "ok": false, "error": "Too many requests…" }` + `Retry-After` | quota spent for this IP |
+| `503` | `{ "ok": false, "error": "unavailable" }` | durable storage is unavailable or production storage is nondurable |
 
 Every answer carries `Cache-Control: no-store`, `X-Content-Type-Options: nosniff` and, for an allowed origin,
 `Access-Control-Allow-Origin` + `Vary: Origin`.

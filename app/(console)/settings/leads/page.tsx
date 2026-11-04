@@ -35,6 +35,7 @@ export default function LeadsPage() {
   const [err, setErr] = useState('');
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<Filter>('open');
+  const [source, setSource] = useState<'all' | 'foodhub' | 'on2go.ca'>('all');
   const [open, setOpen] = useState<string | null>(null);
 
   const load = useCallback(() => api<{ leads: Lead[]; supportEmail: string | null }>('/api/foodhub/restaurant-leads').then((d) => { setLeads(d.leads); setSupportEmail(d.supportEmail); setLoaded(true); setErr(''); }).catch((e) => setErr(e instanceof Error ? e.message : String(e))), []);
@@ -48,9 +49,10 @@ export default function LeadsPage() {
     const s = q.trim().toLowerCase();
     return leads
       .filter((l) => (filter === 'all' ? true : filter === 'open' ? l.status === 'new' || l.status === 'contacted' : l.status === filter))
-      .filter((l) => !s || `${l.restaurant} ${l.contact} ${l.email} ${l.phone} ${l.city} ${l.notes}`.toLowerCase().includes(s))
+      .filter((l) => source === 'all' || l.source === source)
+      .filter((l) => !s || `${l.restaurant} ${l.contact} ${l.email} ${l.phone} ${l.city} ${l.notes} ${l.source}`.toLowerCase().includes(s))
       .sort((a, b) => b.at.localeCompare(a.at));
-  }, [leads, q, filter]);
+  }, [leads, q, filter, source]);
 
   async function patch(id: string, p: { status?: Status; notes?: string }) {
     try {
@@ -65,7 +67,7 @@ export default function LeadsPage() {
 
   return (
     <div>
-      <SettingsHead title={t('Demandes de restaurants', 'Restaurant leads')} intro={t('Les restaurants qui remplissent le formulaire « Rejoindre ON2GO » sur on2go.ca arrivent ici, la plus récente en premier. Changez le statut au fil des appels et gardez vos notes : rien de tout cela n’est visible du restaurant.', 'Restaurants that fill the “Join ON2GO” form on on2go.ca land here, newest first. Move the status as you call them and keep your notes: none of this is visible to the restaurant.')} />
+      <SettingsHead title={t('Demandes de restaurants', 'Restaurant leads')} intro={t('Les demandes de configuration Food Hub et d’inscription ON2GO arrivent ici, les plus récentes en premier. La source distingue les deux parcours. Suivez les échanges, le statut et vos notes internes.', 'Food Hub setup enquiries and ON2GO listing requests arrive here, newest first. The source identifies each journey. Track conversations, status and your internal notes.')} />
       {err && <Banner tone="stop" className="mb-4">{err}</Banner>}
       {loaded && !supportEmail && <Banner tone="warn" className="mb-4">{t('Aucune adresse courriel de soutien n’est réglée : pas d’alerte par courriel à l’arrivée d’une demande (la liste ici reste complète).', 'No support email address is set: no email alert when a lead arrives (this list is still complete).')}<TechDetails>FOODHUB_SUPPORT_EMAIL</TechDetails></Banner>}
 
@@ -74,6 +76,11 @@ export default function LeadsPage() {
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-ink-3" />
           <Input inputSize="sm" type="search" className="w-64 pl-8" aria-label={t('Chercher une demande', 'Search leads')} placeholder={t('Restaurant, contact, ville, note', 'Restaurant, contact, city, note')} value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
+        <Select selectSize="sm" aria-label={t('Source de la demande', 'Request source')} value={source} onChange={(e) => setSource(e.target.value as typeof source)}>
+          <option value="all">{t('Toutes les sources', 'All sources')}</option>
+          <option value="foodhub">Food Hub</option>
+          <option value="on2go.ca">ON2GO</option>
+        </Select>
         <Segmented size="sm" value={filter} onChange={setFilter} options={[
           { key: 'open', label: `${t('À suivre', 'To follow')} (${count('new') + count('contacted')})` },
           { key: 'new', label: `${statusLabel('new')} (${count('new')})` },
@@ -96,6 +103,7 @@ export default function LeadsPage() {
                       {l.restaurant}
                       <Badge tone={STATUS_TONE[l.status]}>{statusLabel(l.status)}</Badge>
                       <Badge>{l.lang.toUpperCase()}</Badge>
+                      <Badge tone="neutral">{l.source === 'foodhub' ? 'Food Hub' : l.source === 'on2go.ca' ? 'ON2GO' : t('Autre source', 'Other source')}</Badge>
                     </div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-small text-ink-3">
                       <span>{l.contact}</span>
@@ -120,7 +128,7 @@ export default function LeadsPage() {
             );
           })}
         </ul>
-        {rows.length === 0 && <EmptyState title={loaded ? t('Aucune demande ici', 'No leads here') : t('Chargement…', 'Loading…')} body={loaded && filter === 'open' && !q ? t('Les demandes envoyées depuis on2go.ca apparaîtront ici dès leur arrivée.', 'Requests sent from on2go.ca will show up here as soon as they arrive.') : undefined} />}
+        {rows.length === 0 && <EmptyState title={loaded ? t('Aucune demande ici', 'No leads here') : t('Chargement…', 'Loading…')} body={loaded && filter === 'open' && !q ? t('Les demandes Food Hub et ON2GO correspondant aux filtres apparaîtront ici dès leur arrivée.', 'Food Hub and ON2GO requests matching your filters will appear here as they arrive.') : undefined} />}
       </Card>
     </div>
   );

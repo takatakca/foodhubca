@@ -1,3 +1,13 @@
+## 2026-11-04 — continued integration and financial/privacy regression review
+
+Work continued beyond the first public-site milestone. Current source covers server quote/retry recovery, optional confirmation SMS preferences, scoped Orders filters/disputes, authorized organization views, read-only LOY4LTY/REW4RD balances and the actual V1 Bearer/outbox contract. The five workstreams remain on the branches linked in [the agent index](agent-progress/README.md); the integration checkout stays on `feature/restaurant-experience`.
+
+Adversarial tests reproduced legacy failures in order reference allocation, payment ownership/release and uncertain Clover creation/printing. Fixes now preserve uncertain outcomes for operator review and suppress duplicate-payment/preparation instructions. ON2GO account isolation and pending-checkout ownership are being verified independently. Final coordinated checks passed: 2,272 unit/22 skipped, production build/typecheck, lint0errors/1existingwarning, 644 simulated E2E, 25 real PostgreSQL crash checks, 13 built ON2GO/FoodHub PostgreSQL checks including simultaneous allocation through two processes, and nine suite pairs. ON2GO companion `16085aeeebae9b3913f3eda1bb84a55d9135b7b9` passed100tests/type/build/site +25privacy/payment +4ordering browser checks; use [delivery/acceptance](RESTAURANT_PLATFORM_DELIVERY.md) for current evidence and limitations, rather than historical counts below.
+
+Observed `origin/main` is `dccd068417674265d8e133c5aaee0ace7a7496e4` (PR #142 merged the earlier unified workspace branch). That source advancement does not establish the current public release. GitHub API/live-site HTTPS remains proxy-blocked and the saved network draft is not applied to this runtime. No production publication or PC/Drive/Canva/Runway access is claimed. Continue the checked PR/native Coolify route; never push main or deploy by hand.
+
+— signé : Codex @ Codex cloud · 2026-11-04
+
 ## 2026-11-04 — five independent agent branches and restaurant experience
 
 Owner requested five individually followable branches. See [agent index](agent-progress/README.md) and [delivery/acceptance](RESTAURANT_PLATFORM_DELIVERY.md). Public merchant marketing now uses real photography, concise FR/EN and real local product films; dashboard adds observed session readiness, actionable existing alerts, scoped quick actions and metrics; ON2GO companion fixes actual contract mismatches and recoverable errors. Food Hub adds browser-safe saved-address/favourite routes and independent preferences. Existing PC profiles were not changed.

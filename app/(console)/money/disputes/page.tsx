@@ -2,6 +2,7 @@
 
 // Disputes — every missing order, short payment, error charge and refund, from "to check" to "recovered".
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
 import { Download } from 'lucide-react';
 import { PlatformTag } from '@/components/ui/badge';
@@ -20,7 +21,7 @@ import { CH_NAME, CaseBadge, MoneyHead, RECOVERABLE, cad, caseLabel, type CaseSt
 import { api, ApiError, dayOf, downloadCsv } from '@/lib/ui/api';
 import { formDraftId, useFormDraft } from '@/lib/ui/use-form-draft';
 import { useFinanceRead } from '@/lib/ui/use-finance-read';
-import { usePulse } from '@/components/live/pulse';
+import { usePulse, useScopeHref } from '@/components/live/pulse';
 import { useI18n } from '@/lib/i18n/client';
 import type { T } from '@/lib/i18n';
 
@@ -36,7 +37,12 @@ export default function DisputesPage() {
   const { t, loc } = useI18n();
   const { can, locName } = useViewer();
   const toast = useToast();
-  const [tab, setTab] = useState<Tab>('active');
+  const router = useRouter();
+  const params = useSearchParams();
+  const focusedOrder = params.get('order');
+  const href = useScopeHref();
+  // An exact-order link includes closed/recovered cases too. Never claim “no dispute” just because To do is empty.
+  const [tab, setTab] = useState<Tab>(() => focusedOrder ? 'all' : 'active');
   const [channel, setChannel] = useState('');
   const [edit, setEdit] = useState<Case | null>(null);
 
@@ -45,10 +51,16 @@ export default function DisputesPage() {
   if (site.channel || channel) query.set('channels', site.channel || channel);
   if (site.kitchen) query.set('locations', site.kitchen);
   if (site.brand) query.set('brands', site.brand);
+  if (focusedOrder) query.set('order', focusedOrder);
   const key = query.toString();
   const read = useCallback(() => api<{ cases: Case[] }>(`/api/foodhub/recon/cases?${key}`), [key]);
   const { data, err, loaded, load } = useFinanceRead(key, read);
-  const cases = useMemo(() => data?.cases ?? [], [data]);
+  const cases = useMemo(() => (data?.cases ?? []).filter((c) => !focusedOrder || c.orderId === focusedOrder), [data, focusedOrder]);
+  const clearOrder = () => {
+    const next = new URLSearchParams(window.location.search);
+    next.delete('order');
+    router.replace(`/money/disputes${next.size ? `?${next}` : ''}`, { scroll: false });
+  };
 
   const statuses = TAB_STATUSES[tab];
   const rows = useMemo(() => cases.filter((c) => (!statuses.length || statuses.includes(c.status)) && (!(site.channel || channel) || c.channel === (site.channel || channel))).sort((a, b) => b.amount - a.amount), [cases, statuses, channel, site.channel]);
@@ -74,7 +86,8 @@ export default function DisputesPage() {
   return (
     <div>
       <MoneyHead title={t('Litiges', 'Disputes')} intro={t('Les problèmes trouvés dans les paiements s’ouvrent ici tout seuls et se ferment tout seuls quand un relevé suivant paie la commande. Notez ce que vous avez contesté et ce qui est revenu — vos décisions ne sont jamais écrasées.', 'Problems found in the payouts open here by themselves and close by themselves when a later statement pays the order. Record what you disputed and what came back — your decisions are never overwritten.')} />
-      {err && <Banner tone="stop" className="mb-4">{err}</Banner>}
+      {focusedOrder && <Banner tone="info" className="mb-4" action={<Button variant="outline" size="sm" onClick={clearOrder}>{t('Voir tous les dossiers de cette sélection', 'See all cases in this selection')}</Button>}>{t('Litiges pour la commande sélectionnée. Les montants ci-dessous concernent uniquement ces dossiers.', 'Disputes for the selected order. Amounts below cover these cases only.')} <Link href={href(`/orders?view=history&open=${encodeURIComponent(focusedOrder)}`)} className="font-semibold underline">{t('Revoir la commande', 'Review order')}</Link></Banner>}
+      {err && <Banner tone="stop" className="mb-4" action={<Button variant="outline" size="sm" onClick={load}>{t('Réessayer', 'Retry')}</Button>}>{err}</Banner>}
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
         <StatTile hero label={t('À récupérer — pas encore contesté', 'To recover — not disputed yet')} value={cad(sum((c) => owed(c) && c.status === 'open'), loc)} note={`${cases.filter((c) => owed(c) && c.status === 'open').length} ${t('dossier(s) à contester', 'case(s) to dispute')}`} />
         <StatTile label={t('Contesté, en attente', 'Disputed, waiting')} value={cad(sum((c) => owed(c) && c.status === 'disputed'), loc)} note={`${cases.filter((c) => owed(c) && c.status === 'disputed').length} ${t('dossier(s)', 'case(s)')}`} />
@@ -117,7 +130,7 @@ export default function DisputesPage() {
                   : <Button size="md" variant="outline" onClick={() => setEdit(c)}>{t('Historique', 'History')}</Button>}</Td>
               </Tr>
             ))}
-            {rows.length === 0 && (!loaded ? <TableSkeleton columns={9} label={t('Chargement…', 'Loading…')} /> : <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-ink-3">{tab === 'active' ? t('Rien à contester. Les nouveaux problèmes apparaissent ici après chaque import de relevé et chaque jour.', 'Nothing to dispute right now. New problems appear here after each statement import and every day.') : t('Aucun dossier ici.', 'No case here.')}</td></tr>)}
+            {rows.length === 0 && (!loaded ? <TableSkeleton columns={9} label={t('Chargement…', 'Loading…')} /> : <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-ink-3">{err ? t('Les dossiers n’ont pas pu être chargés. Réessayez ci-dessus.', 'Cases could not be loaded. Retry above.') : focusedOrder ? t('Aucun dossier correspondant à cette commande et à cette sélection.', 'No case matches this order and selection.') : tab === 'active' ? t('Rien à contester. Les nouveaux problèmes apparaissent ici après chaque import de relevé et chaque jour.', 'Nothing to dispute right now. New problems appear here after each statement import and every day.') : t('Aucun dossier ici.', 'No case here.')}</td></tr>)}
           </tbody>
         </Table>
       </Card>

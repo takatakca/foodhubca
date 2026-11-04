@@ -1,0 +1,50 @@
+{
+  "date": "2026-11-04",
+  "scope": "local combined review candidate",
+  "foodHubBuildId": "cBSQT-Mzg0bETsKtUyfZf",
+  "on2goCommit": "16085aeeebae9b3913f3eda1bb84a55d9135b7b9",
+  "unit": {
+    "passed": 2272,
+    "skipped": 22
+  },
+  "productionBuild": true,
+  "typecheck": true,
+  "lint": {
+    "errors": 0,
+    "existingWarnings": 1
+  },
+  "simulatedAcceptance": {
+    "passed": 644,
+    "failed": 0
+  },
+  "postgresCrash": {
+    "passed": 25,
+    "failed": 0
+  },
+  "postgresBuiltBrowser": {
+    "passed": 13,
+    "serversInConcurrencyProof": 2
+  },
+  "siblingContractPairs": {
+    "passed": 9
+  },
+  "audit": {
+    "highSeverityGatePassed": true,
+    "moderateAdvisories": 2
+  },
+  "runtimeSourceSha256": {
+    "lib/foodhub/control-plane/outbox.ts": "d260106a34b2639026a533a8a0d2db5b93db041159f1f9d4d6a34d9487b70d45",
+    "lib/foodhub/control-plane/config.ts": "c00322737cbfcdcdc94200b4a2eb57c0eed02ee8b9812017721a4929f4751ae2",
+    "lib/foodhub/control-plane/status.ts": "8f1075612d00857d0a4ca7b781f563e34bc97ed9944fb78f6baca69944e2369c",
+    "lib/foodhub/control-plane/client.ts": "03542ef650e8d77908223c42ff7d7fbb679f44b047f8ec2932d5951c4203048e",
+    "lib/foodhub/delivery/store.ts": "9c8d7f9dbe210a0810573d43bc77a1ca10de83931263c39883d8d6d0c36733ae",
+    "lib/foodhub/delivery/paylink.ts": "dec35762ad5bc5c31b2b07118862593892bc22d7cb5a0d6bf4b902e455e07ed7",
+    "lib/foodhub/delivery/clover-direct.ts": "e1388caa24b83fa58b2857940622da9e10db84cda1a95f34f8c0eaefb7185a2c",
+    "lib/foodhub/customers/me.ts": "2b7dc7c0a2cdddf71f20b1f92f92c2a6b9b84b71f46d12e404a34531b4fb696f",
+    "lib/foodhub/storefront/checkout.ts": "45a0972d567110dfbc4f4b5bdff301c162f83c6c52d447997d689c84124f8e65",
+    "app/p/[token]/route.ts": "3d50973534920489cf887288db67c19f5382c02c110294aba971384aa8331f92"
+  },
+  "productionVerified": false,
+  "realProviderSessionsVerified": false,
+  "notes": "Provider/SMS/HTTP receivers are isolated stand-ins. Windows-specific/live integration checks remain skipped or separate. Applied live network access is unavailable."
+}

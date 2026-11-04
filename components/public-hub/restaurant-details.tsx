@@ -9,7 +9,7 @@ import { RestaurantShell } from './restaurant-shell';
 import shared from './restaurant-landing.module.css';
 import styles from './restaurant-details.module.css';
 
-type DetailPage = Exclude<HubPageKey, 'landing'>;
+type DetailPage = Exclude<HubPageKey, 'landing' | 'contact'>;
 const contactHref = (ctx: HubContext) => publicSupportHref(ctx.supportEmail);
 
 function Plan({ phone, lang, ctx }: { phone: boolean; lang: Lang; ctx: HubContext }) {
@@ -33,7 +33,7 @@ function Plan({ phone, lang, ctx }: { phone: boolean; lang: Lang; ctx: HubContex
         </>}
       </ul>
       <div className={styles.planExtra}><b>+ {formatCadLabel(phone ? PHONE_MINUTE_CAD : EXTRA_BRAND_PLATFORM_CAD, lang)}</b><p>{phone ? (fr ? 'par minute d’IA, arrondie par appel. Consultez la définition des minutes.' : 'per AI minute, rounded per call. See how minutes are defined.') : w.extra}</p></div>
-      <a className={shared.primary} href={url ?? contactHref(ctx)}>{url ? (fr ? `Installer ${name}` : `Install ${name}`) : phone ? (fr ? 'Parler de mon service téléphonique' : 'Discuss my phone service') : w.contact}<ArrowUpRight size={18} aria-hidden /></a>
+      <a className={shared.primary} href={url ?? `${HUB_PATHS.contact[lang]}${phone ? '?interest=phone' : ''}`}>{url ? (fr ? `Installer ${name}` : `Install ${name}`) : phone ? (fr ? 'Parler de mon service téléphonique' : 'Discuss my phone service') : w.contact}<ArrowUpRight size={18} aria-hidden /></a>
       <p className={styles.planStatus}>{url ? (fr ? 'Installation sur le Clover App Market.' : 'Install through the Clover App Market.') : (!phone && ctx.marketStatus === 'soon') ? w.soon : (fr ? `${name} : fiche en révision chez Clover.` : `${name}: listing under review by Clover.`)}</p>
       <p className={styles.planTerms}>{fr ? 'Canada seulement. Taxes en sus. Essai, abonnement et frais supplémentaires facturés par Clover. Prix en vigueur dans la fiche App Market à l’installation.' : 'Canada only. Plus applicable taxes. Trial, subscription and additional charges are managed by Clover. Current prices appear in the App Market listing at installation.'}</p>
       {phone && <a className={shared.textLink} href={`${HUB_PATHS.phone[lang]}#minutes`}>{fr ? 'Comment les minutes sont comptées' : 'How minutes are counted'}<ArrowRight size={15} aria-hidden /></a>}
@@ -74,7 +74,7 @@ export function RestaurantDetails({ page, lang, ctx }: { page: DetailPage; lang:
   const c = HUB_CONTENT[page][lang];
   const w = RESTAURANT_COPY[lang];
   const market = hubPageMarketUrl(page, ctx);
-  const primary = market ?? contactHref(ctx);
+  const primary = market ?? (page === 'help' ? contactHref(ctx) : `${HUB_PATHS.contact[lang]}${page === 'phone' ? '?interest=phone' : ''}`);
   const action = market ? (page === 'phone' ? (fr ? `Installer ${PHONE_APP_NAME}` : `Install ${PHONE_APP_NAME}`) : w.install) : page === 'help' ? (fr ? 'Contacter le soutien' : 'Contact support') : page === 'phone' ? (fr ? 'Parler de mon service téléphonique' : 'Discuss my phone service') : w.contact;
   const faq = hubFaq(page, lang, ctx);
   return <RestaurantShell page={page} lang={lang} ctx={ctx}>
@@ -84,6 +84,6 @@ export function RestaurantDetails({ page, lang, ctx }: { page: DetailPage; lang:
       {c.blocks.map((block) => <DetailBlock key={block.id} block={block} lang={lang} ctx={ctx} />)}
       <section className={`${styles.block} ${styles.faq}`} aria-labelledby="faq-title"><div><p className={shared.eyebrow}>{fr ? 'LES RÉPONSES UTILES' : 'USEFUL ANSWERS'}</p><h2 id="faq-title">{fr ? 'Avant de continuer.' : 'Before you continue.'}</h2></div><div className={shared.questions}>{faq.map((question) => <details key={question.q}><summary>{question.q}<span aria-hidden>+</span></summary><p>{question.a}</p></details>)}</div></section>
     </div>
-    <section className={shared.final} aria-labelledby="contact-title"><div><p className={shared.eyebrow}>{fr ? 'VOTRE RESTAURANT, VOTRE CONFIGURATION' : 'YOUR RESTAURANT, YOUR SETUP'}</p><h2 id="contact-title">{fr ? 'Parlons de vos\nopérations.' : 'Let’s talk about\nyour operation.'}</h2></div><div><p>{page === 'phone' ? (fr ? 'Votre ligne, votre menu, votre équipe. Faisons le point sur les préalables et le parcours téléphonique.' : 'Your line, your menu, your team. Let’s review the requirements and phone-ordering flow.') : w.finalText}</p><a className={shared.primary} href={contactHref(ctx)}>{page === 'help' ? (fr ? 'Contacter le soutien' : 'Contact support') : w.contact}<ArrowUpRight size={18} aria-hidden /></a></div></section>
+    <section className={shared.final} aria-labelledby="contact-title"><div><p className={shared.eyebrow}>{fr ? 'VOTRE RESTAURANT, VOTRE CONFIGURATION' : 'YOUR RESTAURANT, YOUR SETUP'}</p><h2 id="contact-title">{fr ? 'Parlons de vos\nopérations.' : 'Let’s talk about\nyour operation.'}</h2></div><div><p>{page === 'phone' ? (fr ? 'Votre ligne, votre menu, votre équipe. Faisons le point sur les préalables et le parcours téléphonique.' : 'Your line, your menu, your team. Let’s review the requirements and phone-ordering flow.') : w.finalText}</p><a className={shared.primary} href={page === 'help' ? contactHref(ctx) : `${HUB_PATHS.contact[lang]}${page === 'phone' ? '?interest=phone' : ''}`}>{page === 'help' ? (fr ? 'Contacter le soutien' : 'Contact support') : w.contact}<ArrowUpRight size={18} aria-hidden /></a></div></section>
   </RestaurantShell>;
 }

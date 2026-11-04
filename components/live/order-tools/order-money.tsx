@@ -10,6 +10,8 @@ import { api, dayOf, money } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import type { T } from '@/lib/i18n';
 import type { OrderMoney as Money } from '@/lib/foodhub/order-tools/order-money';
+import { scopeHref } from '@/lib/foodhub/scope';
+import type { StoredOrder } from '@/lib/foodhub/types';
 
 const STATUS: Record<string, [string, string, Tone]> = {
   matched: ['Payée comme prévu', 'Paid as expected', 'go'],
@@ -29,9 +31,10 @@ const CASE: Record<string, [string, string]> = {
  * The money of this order, read-only and on demand: expected, paid, gap, error charges, adjustments, dispute case.
  * Hidden without "analytics:view". Never submits or approves anything — disputes are filed by the owner in each portal.
  */
-export function OrderMoney({ orderId }: { orderId: string }) {
+export function OrderMoney({ order }: { order: Pick<StoredOrder, 'id' | 'channel' | 'locationCode' | 'brandName'> }) {
+  const orderId = order.id;
   const { t, lang, loc } = useI18n();
-  const { can } = useViewer();
+  const { can, allLocations } = useViewer();
   const [m, setM] = useState<Money | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -48,7 +51,7 @@ export function OrderMoney({ orderId }: { orderId: string }) {
     return (
       <div>
         <Button variant="outline" loading={busy} onClick={load} icon={<CircleDollarSign className="size-4" />}>{t('Voir l’argent de cette commande', 'See this order’s money')}</Button>
-        {err && <p className="text-small mt-2 text-stop-2">{err}</p>}
+        {err && <p role="alert" className="text-small mt-2 text-stop-2">{err}</p>}
       </div>
     );
   }
@@ -75,9 +78,9 @@ export function OrderMoney({ orderId }: { orderId: string }) {
         {m.payoutDate && <><dt className="text-ink-3">{t('Versement', 'Payout')}</dt><dd className="text-right">{dayOf(m.payoutDate, loc)}</dd></>}
       </dl>
       {m.case && <p className="mt-2 text-ink-2">{caseLine(t, lang, m.case, loc)}</p>}
-      <Link href="/money/disputes" className="mt-3 inline-flex min-h-12 items-center gap-1.5 font-semibold text-ink underline-offset-4 hover:underline">
-        <ExternalLink className="size-4" />{t('Litiges et réclamations', 'Disputes and claims')}
-      </Link>
+      {m.case && allLocations && <Link href={scopeHref(`/money/disputes?order=${encodeURIComponent(orderId)}`, { kitchen: order.locationCode ?? null, brand: order.brandName ?? null, channel: order.channel })} className="mt-3 inline-flex min-h-12 items-center gap-1.5 font-semibold text-ink underline-offset-4 hover:underline">
+        <ExternalLink className="size-4" />{t('Voir les litiges de cette commande', 'View this order’s disputes')}
+      </Link>}
       <p className="text-xs text-ink-4">{t('Lecture seule. Les réclamations se soumettent par le propriétaire dans le portail de chaque plateforme.', 'Read-only. Claims are submitted by the owner in each platform’s portal.')}</p>
     </div>
   );

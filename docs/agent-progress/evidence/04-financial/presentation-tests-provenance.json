@@ -1,0 +1,14 @@
+{
+  "recordedAt": "2026-11-04 09:27 UTC",
+  "executedBy": "coordinator",
+  "sourceLog": "/workspace/setup/logs/platform-wave-final-projections.log",
+  "sha256": "29fa01ee2b042f81dd8603809b5f4aae84c3dd0c7a22b030859dc9b83072f0cc",
+  "result": {
+    "filesPassed": 4,
+    "testsPassed": 62
+  },
+  "scope": "Isolated customer identity/payment presentation regressions; final combined build and real provider acceptance not established by this log.",
+  "publishedArtifact": "presentation-tests.txt",
+  "publishedSha256": "97bef6b1d8c22cf777d2261286ad56fb5cace2623446ad595d0d49e7e8a29557",
+  "formatting": "Published text trims trailing blank lines; sourceLog SHA256 identifies the original coordinator log."
+}

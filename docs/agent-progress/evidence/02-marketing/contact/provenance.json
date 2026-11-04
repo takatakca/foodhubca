@@ -1,0 +1,31 @@
+{
+  "recordedAt": "2026-11-04T15:25:06.580781-05:00",
+  "sourceCommit": "12dc660c05c08aecbd683f9bc90e5c476274b8e1",
+  "imageTag": "foodhub-review:12dc660",
+  "imageId": "sha256:b3f83baec1d042fe4a0268e7031063e290fd831f3d6feab0d326b2b6e506a1d2",
+  "foodHubBuildId": "yhf2mGUexeH-1RWM0dX4e",
+  "runtimeKind": "docker-pruned-runtime",
+  "scope": "actual immutable local pruned production image; client error/acknowledgement fixtures; every write mocked or blocked",
+  "ingress": "fixed-target streaming loopback proxy preserving response headers/body bytes; no HTML or JavaScript rewriting",
+  "runtimeSourceSha256": {
+    "components/public-hub/restaurant-contact-form.tsx": "01c62d5a8837efb58085859d446c28ba24281abc40fa50d95ecfd66705e371c7",
+    "components/public-hub/restaurant-contact.tsx": "18eccdfce76a342cb631c2765c2705fa2e150837f42904b65f06881ff10cd75e",
+    "components/public-hub/restaurant-contact.module.css": "ce059780654d706ab885ce32ae5bc5e28c164e901994be599e67d8525185034d",
+    "components/public-hub/restaurant-shell.tsx": "e15d0000a17ce70c9890fbd4a65882a19d79005cacf584e2fffa5339cb58412d",
+    "lib/foodhub/public-hub.ts": "af55f72be6ca39682760f053c807966f06dae8da62f0ef2c1e5352af7461c48f"
+  },
+  "browserChecks": 32,
+  "repeatedPhoneJourneys": 20,
+  "wcagScans": 4,
+  "wcagViolations": 0,
+  "pageErrors": [],
+  "applicationJavaScript": "unmodified server assets",
+  "productionVerified": false,
+  "actualBackendStorageProvenByThisArtifact": false,
+  "notes": "All 32 final checks passed with a strict uncaught-page-error gate. Actual PostgreSQL lost-response/restart and owner-inbox proof is recorded separately by the coordinator; this browser fixture matrix sends no real leads or email.",
+  "earlierHostDiagnostic": {
+    "observation": "An earlier host review build intermittently raised React #418 on repeated Phone AI/query/language navigation.",
+    "investigation": "No exact development diff was reproduced. Diagnostic instrumentation was removed and does not count as acceptance.",
+    "finalImageResult": "The final immutable image passed all 20 unmodified Phone AI/query/language repetitions without a page error. No source fix for the earlier intermittent warning is claimed."
+  }
+}

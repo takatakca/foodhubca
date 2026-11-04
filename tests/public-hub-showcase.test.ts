@@ -23,7 +23,7 @@ describe('restaurant merchant landing (/hub and /en/hub)', () => {
       for (const id of ['contenu', 'fonctionnement', 'integrations', 'tarifs']) expect(html).toContain(`id="${id}"`);
       for (const anchor of ['#contenu', '#fonctionnement', '#integrations', '#tarifs']) expect(html).toContain(`href="${anchor}"`);
       expect(text).toContain(w.hero); expect(text).toContain(w.heroAccent);
-      expect(text).toContain(w.diner); expect(html).toContain('href="https://on2go.ca/"');
+      expect(text).toContain(w.diner); expect(html).toContain(`href="${lang === 'en' ? 'https://on2go.ca/en/' : 'https://on2go.ca/'}"`);
       expect(html).toContain(`href="${HUB_PATHS.landing[lang === 'fr' ? 'en' : 'fr']}"`);
       expect(html).toContain('href="/login"');
       for (const path of ['/legal/support', '/legal/privacy', '/legal/terms']) expect(html).toContain(`href="${path}"`);
@@ -33,12 +33,12 @@ describe('restaurant merchant landing (/hub and /en/hub)', () => {
   it('offers an actionable contact CTA while marketplace installation is unavailable', () => {
     for (const marketStatus of ['review', 'soon'] as const) {
       const html = render('fr', ctx({ marketStatus }));
-      expect(html).toMatch(/href="mailto:support@takatak.ca"[^>]*>Parler de mon restaurant/);
+      expect(html).toMatch(/href="\/hub\/contact"[^>]*>Parler de mon restaurant/);
       expect(html).not.toMatch(/<span[^>]*>Installer avec Clover/);
       expect(html).not.toContain('data-clover-badges');
     }
     const email = render('en', ctx({ supportEmail: 'support@example.com' }));
-    expect(email).toMatch(/href="mailto:support@example.com"[^>]*>Talk about my restaurant/);
+    expect(email).toMatch(/href="\/en\/hub\/contact"[^>]*>Talk about my restaurant/);
     const market = 'https://www.clover.com/appmarket/apps/ABC123';
     const live = render('en', ctx({ appMarketUrl: market, marketStatus: 'live' }));
     expect(live).toMatch(/href="https:\/\/www.clover.com\/appmarket\/apps\/ABC123"[^>]*>Install with Clover/);

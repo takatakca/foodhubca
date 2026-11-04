@@ -38,6 +38,10 @@ export const cartSchema = z.object({
   lang: z.enum(['fr', 'en']).default('fr'),
   /** How the customer chose to pay: online now (Clover) or at the counter. */
   pay: z.enum(['online', 'pickup']).default('pickup'),
+  /** Server-reviewed cart fingerprint; prices are still recomputed at placement. */
+  quoteId: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  /** A browser-generated random attempt key, reused after an uncertain response. */
+  idempotencyKey: z.string().regex(/^[A-Za-z0-9_-]{16,128}$/).optional(),
   src: z.unknown().optional().transform(cleanSrc),
   /** Honeypot: a hidden field people never fill. */
   website: z.string().max(0).optional(),

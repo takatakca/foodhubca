@@ -2,6 +2,24 @@
 
 Branch: `feature/foodhub-restaurant-marketing`. This log records this agent's work and verification; branch publication is coordinated without switching the shared integration checkout.
 
+## 2026-11-04 — native Food Hub contact and owner follow-up
+
+The public-site continuation found two concrete routing/configuration defects: English diner links returned visitors to the French ON2GO homepage, and the production canonical guard accepted malformed hosts, URL credentials, queries or fragments. The diner CTA now follows the page language. Public canonical origins now require a valid DNS hostname and a root HTTPS URL, normalize its host, and fall back without logging a potentially sensitive invalid value.
+
+Food Hub now has native bilingual `/hub/contact` and `/en/hub/contact` enquiries. Sales CTAs lead to the form while copyable support email remains available; actual configured Clover install links keep precedence. Phone AI requests retain the separate product context and selected phone channel through the language switch. Contact pages share the reviewed public shell, canonical/hreflang, sitemap and FAQ data.
+
+The form posts to the existing restaurant-lead pipeline and owner inbox: shared field limits, Canadian province codes, honeypot, IP quota and strict streaming JSON bound. It shows field errors, retains values, honors Retry-After and acknowledges only a valid HTTP202/JSON response. A tab-local nonce contains no contact details; an uncertain outcome freezes the original body/key for a safe retry. Optional durable idempotency prevents a lost acknowledgement from creating another lead or email. Unknown pre-storage attempts remain pending for manual contact; the app never invents successful delivery. A nondurable production instance returns503 with an email fallback. Legacy cross-origin ON2GO requests keep their existing contract. Website URLs containing a username/password are rejected before storage or optional email.
+
+The owner inbox now identifies Food Hub enquiries separately from ON2GO listings, with a source filter and the same owner-only permission. Source-aware optional email copy no longer mislabels Food Hub as an ON2GO listing or promises an unsupported reply deadline. Form submission requests contact about this enquiry; it does not create promotional consent.
+
+Source is frozen at `12dc660c05c08aecbd683f9bc90e5c476274b8e1`. **102 focused tests passed**, including public journeys, legacy leads, contact idempotency/storage errors and legal rendering; scoped ESLint and whitespace checks pass. The coordinated pruned production image built successfully. Final actual-browser verification against that immutable image passed **32 checks with zero page errors** using unmodified application JavaScript: four FR/EN desktop/mobile layouts, four WCAG A/AA scans with zero violations, exact-body/key recovery, focused field errors, Retry-After, malformed acknowledgements, preserved Phone AI context, no-JS email fallback, secure nonce fallback and **20 repeated Phone AI/query/language journeys**. Real PostgreSQL lost-response/restart and single owner-inbox lead proof is recorded separately by the coordinator. [French desktop](evidence/02-marketing/contact/contact-fr-1440.png) · [French mobile](evidence/02-marketing/contact/contact-fr-390.png) · [English desktop](evidence/02-marketing/contact/contact-en-1440.png) · [English mobile](evidence/02-marketing/contact/contact-en-390.png) · [32 browser results](evidence/02-marketing/contact/results.json) · [Image/source provenance](evidence/02-marketing/contact/provenance.json) · [Actual release response](evidence/02-marketing/contact/release.json).
+
+An earlier host review build intermittently raised React #418 during repeated Phone AI/query/language navigation. Development diagnosis did not reproduce an exact mismatch; temporary browser instrumentation was removed and is excluded from acceptance. The final immutable image did not reproduce the warning in its 20 repeated journeys. No source fix for the earlier intermittent warning is claimed, and the final harness retains its strict uncaught-page-error gate.
+
+The real-API browser helper is `scripts/e2e/public-contact-journey.mjs`; the client error/acknowledgement and four-viewport accessibility script is `scripts/verify-public-contact.mjs`. No live submission, external email or production release is claimed.
+
+— signé : Codex, agent 2 @ Codex cloud · 2026-11-04
+
 ## 2026-11-04 — all public restaurant journeys verified
 
 Pricing, delivery-platform/Clover integrations, kitchen display, Phone AI and bilingual help now share the reviewed Food Hub editorial experience. The former subpages used inconsistent software naming and overstated unverified provider access. The Phone AI installation and structured Offer also reused Food Hub eligibility; they are now independent.

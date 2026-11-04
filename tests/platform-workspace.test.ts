@@ -52,10 +52,11 @@ describe('workspace controls', () => {
     expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);
     expect(html).toContain('aria-label="Workspace"');
     for (const w of WORKSPACES) expect(html).toContain(w.label);
-    expect(html).toContain('0 stores in this view');
+    expect(html).toContain('0 mapped stores in this view');
     expect(html).toContain('Virtual tablets');
     expect(html).toContain('/stores/screens?channel=skip');
     expect(html).not.toMatch(/connected|password|official partner|disabled=/i);
+    expect(html).toContain('This selection changes your Food Hub view.');
     expect(html).toContain('grid-cols-2');
   });
 
@@ -73,6 +74,6 @@ describe('workspace controls', () => {
     expect(onPick.mock.calls).toEqual([[undefined], ['uber_eats'], ['doordash'], ['skip']]);
     const html = renderToStaticMarkup(tree);
     expect(html).toContain('Tablettes virtuelles');
-    expect(html).toContain('1 magasin dans cette vue');
+    expect(html).toContain('1 magasin associé dans cette vue');
   });
 });

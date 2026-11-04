@@ -37,9 +37,10 @@ export function WorkspaceControls({ site, stores, onPick, screensHref, t }: {
           <MonitorPlay className="size-4" aria-hidden />{t('Tablettes virtuelles', 'Virtual tablets')}
         </Link>
         <span className="text-small text-ink-3" role="status">
-          {selected?.label ?? 'Food Hub'} · {t(`${n} magasin${n === 1 ? '' : 's'} dans cette vue`, `${n} store${n === 1 ? '' : 's'} in this view`)}
+          {selected?.label ?? 'Food Hub'} · {t(`${n} magasin${n === 1 ? '' : 's'} associé${n === 1 ? '' : 's'} dans cette vue`, `${n} mapped store${n === 1 ? '' : 's'} in this view`)}
         </span>
       </div>
+      <p className="mt-1 text-small text-ink-3">{t('La sélection change la vue Food Hub. Vos connexions aux plateformes se gèrent dans les tablettes virtuelles.', 'This selection changes your Food Hub view. Manage platform sign-ins in Virtual tablets.')}</p>
     </div>
   );
 }

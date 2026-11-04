@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "database": "PostgreSQL 16 + PostgREST 12.2.3",
+  "freshApplicationProcesses": 2,
+  "receiver": "isolated HTTP wire stand-in",
+  "receivedUniqueEvents": 2,
+  "eventRequests": 3,
+  "identicalLostAcknowledgementReplay": true,
+  "checks": [
+    "nested JSON containment applied before limit",
+    "timestamp/id pagination with PostgREST UTC cursor",
+    "durable observation cursor and frozen event body survive process restart",
+    "local ready/printed transition works after reporting failure",
+    "actual completion creates one fulfillment count",
+    "no customer or financial fields sent"
+  ],
+  "productionAccess": false,
+  "limits": "Actual Food Hub repository/outbox modules use durable PostgreSQL. HTTP receiver is a fixture, not a production V1 deployment; unchanged actual V1 handlers are exercised separately by control-plane.test.ts. No live merchant connection, identity writes, billing or provider transaction is certified."
+}

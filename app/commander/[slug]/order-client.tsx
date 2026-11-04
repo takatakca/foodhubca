@@ -8,6 +8,9 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNod
 import type { PublicCategory, PublicGroup, PublicItem, PublicMenu } from '@/lib/foodhub/storefront/catalog';
 import { clockLabel, opensLabel, priceLabel, sfText, type SfLang } from '@/lib/foodhub/storefront/i18n';
 
+import { CheckoutReview } from './checkout-review';
+import { parseCart, readPendingCheckout, type Cart, type CheckoutOutcome, type PendingCheckout } from './checkout-browser';
+
 type Picks = Record<string, Record<string, number>>;
 interface Line { key: string; ref: string; qty: number; picks: Picks; notes?: string }
 interface Last { track: string; number: string; at: number }
@@ -35,6 +38,19 @@ function groupOk(g: PublicGroup, picks: Picks): boolean {
   return n >= g.min && n <= g.max;
 }
 
+/** Validate persisted native choices through the same bounded public cart contract. */
+function browserCart(slug: string, value: unknown): Cart {
+  if (!Array.isArray(value)) return { slug, lines: [] };
+  const lines = value.map((line: Line) => {
+    if (!line || !line.picks || typeof line.picks !== 'object' || Array.isArray(line.picks)) return null;
+    try { return { id: line.key, ref: line.ref, qty: line.qty, notes: line.notes, options: Object.entries(line.picks).flatMap(([group, options]) => Object.entries(options).map(([ref, qty]) => ({ group, ref, qty }))) }; } catch { return null; }
+  });
+  return parseCart(slug, { slug, lines });
+}
+function nativeLines(cart: Cart): Line[] {
+  return cart.lines.map((line) => ({ key: line.id, ref: line.ref, qty: line.qty, ...(line.notes ? { notes: line.notes } : {}), picks: line.options.reduce<Picks>((picks, option) => { picks[option.group] ??= {}; picks[option.group][option.ref] = option.qty ?? 1; return picks; }, {}) }));
+}
+
 export default function OrderClient({ menu, lang, src }: { menu: PublicMenu; lang: SfLang; src: string | null }) {
   const t = sfText(lang);
   const slug = menu.slug;
@@ -44,11 +60,11 @@ export default function OrderClient({ menu, lang, src }: { menu: PublicMenu; lan
   const [sheet, setSheet] = useState<{ item: PublicItem; picks: Picks; qty: number; notes: string } | null>(null);
   const [meal, setMeal] = useState<{ lineKey: string; item: PublicItem; group: PublicGroup | null; picks: Record<string, number> } | null>(null);
   const [drawer, setDrawer] = useState(false);
-  const [form, setForm] = useState({ name: '', phone: '', email: '', website: '' });
-  const [pay, setPay] = useState<'online' | 'pickup'>(menu.pay.online ? 'online' : 'pickup');
-  const [busy, setBusy] = useState(false);
+  const [recovery, setRecovery] = useState<PendingCheckout | null>(null);
+  const [hasPending, setHasPending] = useState(false);
+  const pendingChanged = useCallback((value: boolean) => { setHasPending(value); if (!value) setRecovery(null); }, []);
   const [error, setError] = useState('');
-  const [fallback, setFallback] = useState(false);
+  const [needsRefresh, setNeedsRefresh] = useState(false);
   const [last, setLast] = useState<Last | null>(null);
   const loaded = useRef(false);
 
@@ -57,9 +73,10 @@ export default function OrderClient({ menu, lang, src }: { menu: PublicMenu; lan
   // Per-browser conveniences: the cart survives a reload; the last order links to its tracking page.
   useEffect(() => {
     const saved = store<Line[]>(`sf_cart:${slug}`);
-    if (Array.isArray(saved)) setCart(saved.filter((l) => items.has(l.ref)).slice(0, 30));
+    if (Array.isArray(saved)) setCart(nativeLines(browserCart(slug, saved)).filter((l) => items.has(l.ref)));
+    try { const pending = readPendingCheckout(window.sessionStorage, slug); if (pending) { setRecovery(pending); setHasPending(true); setDrawer(true); setCart(nativeLines(parseCart(slug, { slug, lines: pending.request.lines }))); } } catch { /* private mode */ }
     const l = store<Last>(`sf_last:${slug}`);
-    if (l && Date.now() - l.at < 12 * 3600_000) setLast(l);
+    if (l && typeof l.track === 'string' && /^[A-Za-z0-9_-]{20,64}$/.test(l.track) && typeof l.number === 'string' && Number.isFinite(l.at) && Date.now() - l.at < 12 * 3600_000) setLast(l);
     loaded.current = true;
   }, [slug, items]);
   useEffect(() => { if (loaded.current) keep(`sf_cart:${slug}`, cart.length ? cart : null); }, [cart, slug]);
@@ -72,7 +89,7 @@ export default function OrderClient({ menu, lang, src }: { menu: PublicMenu; lan
 
   const openItem = (item: PublicItem) => {
     const c = catOf.get(item.ref);
-    if (!canOrder || (c && !c.available)) return;
+    if (hasPending || !canOrder || (c && !c.available)) return;
     setSheet({ item, picks: {}, qty: 1, notes: '' });
   };
 
@@ -101,32 +118,14 @@ export default function OrderClient({ menu, lang, src }: { menu: PublicMenu; lan
     setMeal(null);
   };
 
-  const change = (key: string, d: number) => setCart((c) => c.flatMap((l) => (l.key !== key ? [l] : l.qty + d <= 0 ? [] : [{ ...l, qty: Math.min(20, l.qty + d) }])));
+  const change = (key: string, d: number) => { if (hasPending) return; setCart((c) => c.flatMap((l) => (l.key !== key ? [l] : l.qty + d <= 0 ? [] : [{ ...l, qty: Math.min(20, l.qty + d) }]))); };
 
-  const submit = useCallback(async (how: 'online' | 'pickup') => {
-    setBusy(true); setError(''); setFallback(false);
-    try {
-      const body = {
-        slug, lang, pay: how, ...(src ? { src } : {}), website: form.website,
-        customer: { name: form.name, phone: form.phone, ...(form.email.trim() ? { email: form.email.trim() } : {}) },
-        lines: cart.map((l) => ({ ref: l.ref, qty: l.qty, ...(l.notes ? { notes: l.notes } : {}), options: Object.entries(l.picks).flatMap(([group, opts]) => Object.entries(opts).map(([ref, qty]) => ({ group, ref, qty }))) })),
-      };
-      const res = await fetch('/api/storefront/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), cache: 'no-store' });
-      const out = await res.json().catch(() => ({}));
-      if (!res.ok || !out.ok) {
-        setError(out.error || t.errors.generic);
-        if (out.fallback === 'pay_at_pickup') setFallback(true);
-        return;
-      }
-      const l: Last = { track: out.track, number: out.number, at: Date.now() };
-      keep(`sf_last:${slug}`, l);
-      keep(`sf_cart:${slug}`, null);
-      setCart([]);
-      window.location.href = out.payUrl || `${out.trackUrl}${lang === 'en' ? '?lang=en' : ''}`;
-    } catch {
-      setError(t.errors.generic);
-    } finally { setBusy(false); }
-  }, [cart, form, lang, slug, src, t]);
+  const confirmed = useCallback((out: Extract<CheckoutOutcome, { ok: true }>) => {
+    keep(`sf_last:${slug}`, { track: out.track, number: out.number, at: Date.now() } satisfies Last);
+    keep(`sf_cart:${slug}`, null);
+    setCart([]);
+    window.location.href = out.payUrl || `${out.trackUrl}${lang === 'en' ? '?lang=en' : ''}`;
+  }, [slug, lang]);
 
   const st = menu.state;
   const now = Date.parse(menu.generatedAt); // the instant the server built this menu (pure render)
@@ -134,7 +133,6 @@ export default function OrderClient({ menu, lang, src }: { menu: PublicMenu; lan
     : !st.hoursKnown ? t.noHours : st.nextOpenAt ? `${t.closed} · ${opensLabel(Date.parse(st.nextOpenAt), now, lang)}` : t.closed;
   const other = lang === 'fr' ? 'en' : 'fr';
   const langHref = `/commander/${slug}?${new URLSearchParams({ ...(other === 'en' ? { lang: 'en' } : {}), ...(src ? { src } : {}) }).toString()}`;
-  const formOk = form.name.trim().length > 0 && form.phone.replace(/\D/g, '').length >= 10 && lines.length > 0;
   const note = lang === 'fr' ? menu.note.fr : menu.note.en || menu.note.fr;
 
   return (
@@ -175,7 +173,7 @@ export default function OrderClient({ menu, lang, src }: { menu: PublicMenu; lan
             </h2>
             <ul className="mt-3 grid gap-3">
               {c.items.map((i) => {
-                const off = !canOrder || !c.available;
+                const off = hasPending || !canOrder || !c.available;
                 return (
                   <li key={i.ref}>
                     <button type="button" onClick={() => openItem(i)} disabled={off} aria-disabled={off}
@@ -199,7 +197,7 @@ export default function OrderClient({ menu, lang, src }: { menu: PublicMenu; lan
         <p className="mt-10 text-center text-xs sf-muted">{t.poweredBy} {t.alcoholNote}</p>
       </main>
 
-      {nItems > 0 && !drawer && (
+      {(nItems > 0 || hasPending) && !drawer && (
         <div className="fixed inset-x-0 bottom-0 z-20 border-t border-[var(--sf-line)] bg-[var(--sf-surface)] p-3">
           <button type="button" onClick={() => setDrawer(true)} className="sf-btn sf-accent-bg mx-auto flex w-full max-w-3xl justify-between">
             <span>{t.viewCart} · {nItems}</span><span>{priceLabel(subtotal, lang)}</span>
@@ -261,7 +259,7 @@ export default function OrderClient({ menu, lang, src }: { menu: PublicMenu; lan
 
       {drawer && (
         <Sheet onClose={() => setDrawer(false)} title={t.cart} closeLabel={t.close}>
-          {!lines.length && <p className="sf-muted">{t.emptyCart}</p>}
+          {!lines.length && !hasPending && <p className="sf-muted">{t.emptyCart}</p>}
           <ul className="grid gap-3">
             {lines.map(({ l, item }) => {
               const opts = item.groups.flatMap((g) => g.options.filter((o) => l.picks[g.ref]?.[o.ref]).map((o) => L(o, lang)));
@@ -271,42 +269,25 @@ export default function OrderClient({ menu, lang, src }: { menu: PublicMenu; lan
                     <div className="font-extrabold">{L(item, lang)}</div>
                     {opts.length > 0 && <div className="text-sm sf-muted">{opts.join(', ')}</div>}
                     {l.notes && <div className="text-sm sf-muted">« {l.notes} »</div>}
-                    <div className="mt-2"><Stepper value={l.qty} onChange={(q) => change(l.key, q - l.qty)} allowZero labels={{ less: t.decrease, more: t.increase }} /></div>
+                    <div className="mt-2"><Stepper disabled={hasPending} value={l.qty} onChange={(q) => change(l.key, q - l.qty)} allowZero labels={{ less: t.decrease, more: t.increase }} /></div>
                   </div>
                   <div className="shrink-0 font-bold">{priceLabel(r2(unitPrice(item, l.picks) * l.qty), lang)}</div>
                 </li>
               );
             })}
           </ul>
-          {lines.length > 0 && (
+          {(lines.length > 0 || hasPending) && (
             <>
               <dl className="mt-4 grid grid-cols-[1fr_auto] gap-y-1 text-[15px]">
                 <dt className="sf-muted">{t.subtotal}</dt><dd>{priceLabel(subtotal, lang)}</dd>
                 <dt className="sf-muted">{menu.taxes.label[lang]}</dt><dd>{priceLabel(tax, lang)}</dd>
-                <dt className="font-extrabold">{t.total}</dt><dd className="font-extrabold">{priceLabel(total, lang)}</dd>
+                <dt className="font-extrabold">{lang === 'fr' ? 'Total estimé' : 'Estimated total'}</dt><dd className="font-extrabold">{priceLabel(total, lang)}</dd>
               </dl>
-              <form className="mt-5 grid gap-3" onSubmit={(e) => { e.preventDefault(); if (formOk && !busy) void submit(pay); }}>
-                <h3 className="text-lg font-extrabold">{t.yourInfo}</h3>
-                <label className="text-sm font-bold">{t.name}<input className="sf-input mt-1" autoComplete="name" required maxLength={60} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
-                <label className="text-sm font-bold">{t.phone}<input className="sf-input mt-1" type="tel" inputMode="tel" autoComplete="tel" required maxLength={30} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /><span className="mt-1 block text-xs font-normal sf-muted">{t.phoneHint}</span></label>
-                <label className="text-sm font-bold">{t.email}<input className="sf-input mt-1" type="email" autoComplete="email" maxLength={120} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label>
-                {/* Honeypot: hidden from people, filled by bots. */}
-                <div aria-hidden="true" style={{ position: 'absolute', left: '-10000px', width: 1, height: 1, overflow: 'hidden' }}>
-                  <label>Website<input tabIndex={-1} autoComplete="off" value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value })} name="website" /></label>
-                </div>
-                <fieldset className="grid gap-2">
-                  <legend className="mb-1 text-lg font-extrabold">{t.payment}</legend>
-                  {menu.pay.online && <PayChoice checked={pay === 'online'} onChange={() => setPay('online')} label={t.payOnline} />}
-                  {menu.pay.atPickup && <PayChoice checked={pay === 'pickup'} onChange={() => setPay('pickup')} label={t.payAtPickup} />}
-                </fieldset>
-                {error && <p role="alert" className="rounded-lg bg-[var(--sf-warn-soft)] px-3 py-2 text-sm font-bold text-[var(--sf-warn)]">{error}</p>}
-                {fallback && menu.pay.atPickup && (
-                  <button type="button" className="sf-btn w-full border-2 border-[var(--sf-accent)]" disabled={busy || !formOk} onClick={() => { setPay('pickup'); void submit('pickup'); }}>{t.tryPayAtPickup}</button>
-                )}
-                <button type="submit" className="sf-btn sf-accent-bg w-full" disabled={busy || !formOk || !canOrder || (!menu.pay.online && !menu.pay.atPickup)}>
-                  {busy ? t.placing : pay === 'online' ? t.placeAndPay : t.placeOrder}
-                </button>
-              </form>
+              {error && <p role="alert" className="mt-4 rounded-lg bg-[var(--sf-warn-soft)] px-3 py-2 text-sm font-bold text-[var(--sf-warn)]">{error}</p>}
+              {needsRefresh && <button type="button" className="sf-btn mt-3 w-full border border-[var(--sf-line)]" onClick={() => window.location.reload()}>{lang === 'fr' ? 'Actualiser le menu' : 'Refresh menu'}</button>}
+              <div className="mt-5"><CheckoutReview cart={browserCart(slug, cart)} menu={menu} lang={lang} src={src} recovery={recovery}
+                onBack={() => setDrawer(false)} onSuccess={confirmed} onPendingChange={pendingChanged}
+                onRefreshMenu={() => setNeedsRefresh(true)} onInvalidLine={(_line, message) => setError(message)} /></div>
             </>
           )}
         </Sheet>
@@ -395,21 +376,12 @@ function GroupPicker({ g, lang, picked, onToggle, title }: { g: PublicGroup; lan
   );
 }
 
-function Stepper({ value, onChange, allowZero, labels }: { value: number; onChange: (v: number) => void; allowZero?: boolean; labels: { less: string; more: string } }) {
+function Stepper({ value, onChange, allowZero, disabled = false, labels }: { value: number; onChange: (v: number) => void; allowZero?: boolean; disabled?: boolean; labels: { less: string; more: string } }) {
   return (
     <div className="inline-flex items-center rounded-xl border border-[var(--sf-line)]">
-      <button type="button" aria-label={labels.less} className="grid size-12 place-items-center text-xl font-bold" disabled={!allowZero && value <= 1} onClick={() => onChange(Math.max(allowZero ? 0 : 1, value - 1))}>−</button>
+      <button type="button" aria-label={labels.less} className="grid size-12 place-items-center text-xl font-bold" disabled={disabled || (!allowZero && value <= 1)} onClick={() => onChange(Math.max(allowZero ? 0 : 1, value - 1))}>−</button>
       <span className="w-8 text-center font-extrabold" aria-live="polite">{value}</span>
-      <button type="button" aria-label={labels.more} className="grid size-12 place-items-center text-xl font-bold" disabled={value >= 20} onClick={() => onChange(Math.min(20, value + 1))}>+</button>
+      <button type="button" aria-label={labels.more} className="grid size-12 place-items-center text-xl font-bold" disabled={disabled || value >= 20} onClick={() => onChange(Math.min(20, value + 1))}>+</button>
     </div>
-  );
-}
-
-function PayChoice({ checked, onChange, label }: { checked: boolean; onChange: () => void; label: string }) {
-  return (
-    <label className={`flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border px-4 ${checked ? 'border-[var(--sf-accent)] bg-[var(--sf-sunken)]' : 'border-[var(--sf-line)]'}`}>
-      <input type="radio" name="pay" checked={checked} onChange={onChange} className="size-5 accent-[var(--sf-accent)]" />
-      <span className="font-semibold">{label}</span>
-    </label>
   );
 }

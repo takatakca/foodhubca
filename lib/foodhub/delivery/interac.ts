@@ -241,19 +241,23 @@ async function releaseInteracOrder(o: DirectOrder, actor: Actor, now: number, ho
       payment: 'paid', interac: { ...i, receivedAt: iso(now), receivedBy: actor.name },
     });
   // 2) One Clover order: the kitchen ticket (printed once by clover-direct). An order already in Clover is never sent again.
+  let cloverReview: string | undefined;
   if (!o.posOrderId) {
     if (resumed && o.interac!.cloverSentAt) {
+      cloverReview = o.posError;
       // The first Clover call started and its answer was never saved: Clover may already hold the ticket. A person checks.
       if (!o.posError) {
         const why = `Sending ${o.number} to Clover was interrupted: check Clover for ${o.number} first, and press "Send to Clover" only if it is not there (no second ticket).`;
         o = await addDirectEvent(o, 'pos_failed', why, undefined, { posError: why });
+        cloverReview = why;
       }
     } else {
       o = await saveDirectOrder({ ...o, interac: { ...o.interac!, cloverSentAt: iso(now) } });
       const pos = await createDirectOrderInClover(o);
+      cloverReview = pos.ok ? pos.printReview : pos.uncertain ? pos.error : undefined;
       o = pos.ok
-        ? await addDirectEvent(o, 'pos_injected', `Created in Clover (${pos.posOrderId})${pos.printed ? ` — ${pos.printed}` : ''}`, undefined, { posOrderId: pos.posOrderId, posError: undefined })
-        : await addDirectEvent(o, pos.skipped ? 'pos_skipped' : 'pos_failed', pos.error, undefined, { posError: pos.skipped ? undefined : pos.error });
+        ? await addDirectEvent(o, 'pos_injected', `Created in Clover (${pos.posOrderId})${pos.printed ? ` — ${pos.printed}` : ''}`, undefined, { posOrderId: pos.posOrderId, posMerchantId: pos.merchantId, posError: undefined, ...(cloverReview ? { attention: cloverReview } : {}) })
+        : await addDirectEvent(o, pos.skipped ? 'pos_skipped' : 'pos_failed', pos.error, undefined, { posError: pos.skipped ? undefined : pos.error, ...(cloverReview ? { attention: cloverReview } : {}) });
     }
   }
   // 3) In the kitchen (Clover refused → 'new' with the "Send to Clover" button, like every direct order); ready time from now.
@@ -265,7 +269,7 @@ async function releaseInteracOrder(o: DirectOrder, actor: Actor, now: number, ho
   const late = (o.interac!.lateTransfers ?? []).map((l) => (!l.releasedAt && !l.refundedAt ? { ...l, releasedAt: iso(now), releasedBy: actor.name } : l));
   o = await addDirectEvent(o, 'interac_released', `Released to the kitchen${how === 'late' ? ' by a person, after the cancel' : ''}${o.posError ? ' — Clover refused the order (send it again)' : ''}`, actor.name, {
     status: o.posError || !o.posOrderId ? 'new' : 'in_kitchen', readyAt: iso(readyMs),
-    attention: needCourier ? 'Virement reçu — appelez un livreur (envoi automatique éteint pour cette cuisine).' : undefined,
+    attention: cloverReview ?? (needCourier ? 'Virement reçu — appelez un livreur (envoi automatique éteint pour cette cuisine).' : undefined),
     interac: { ...o.interac!, releasedAt: iso(now), releaseClaim: undefined, releaseClaimAt: undefined, ...(late.length ? { lateTransfers: late } : {}) },
   });
   // 4) The customer.
@@ -388,8 +392,8 @@ export async function interacPayAtCounter(orderId: string, actor: Actor): Promis
   let next = converted;
   const pos = await createDirectOrderInClover(next);
   next = pos.ok
-    ? await addDirectEvent(next, 'pos_injected', `Created in Clover (${pos.posOrderId})${pos.printed ? ` — ${pos.printed}` : ''}`, undefined, { posOrderId: pos.posOrderId, posError: undefined, status: 'in_kitchen' })
-    : await addDirectEvent(next, pos.skipped ? 'pos_skipped' : 'pos_failed', pos.error, undefined, { posError: pos.skipped ? undefined : pos.error });
+    ? await addDirectEvent(next, 'pos_injected', `Created in Clover (${pos.posOrderId})${pos.printed ? ` — ${pos.printed}` : ''}`, undefined, { posOrderId: pos.posOrderId, posMerchantId: pos.merchantId, posError: undefined, status: 'in_kitchen', ...(pos.printReview ? { attention: pos.printReview } : {}) })
+    : await addDirectEvent(next, pos.skipped ? 'pos_skipped' : 'pos_failed', pos.error, undefined, { posError: pos.skipped ? undefined : pos.error, ...(pos.uncertain ? { attention: pos.error } : {}) });
   if (next.customer.phone) await confirmToCustomer(next);
   return (await getDirectOrder(next.id)) ?? next;
 }

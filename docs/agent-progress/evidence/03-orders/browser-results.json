@@ -1,0 +1,77 @@
+{
+  "results": [
+    {
+      "name": "Four synthetic provider-labelled relay records enter actual local authenticated order/repository routes; API writes remain disabled",
+      "passed": true
+    },
+    {
+      "name": "Actual API ANDs recorded issue, completion, unreported courier, provider, brand and restaurant scope",
+      "passed": true
+    },
+    {
+      "name": "Copied URL and reload retain issue/outcome/courier filters and render only the real matching record",
+      "passed": true
+    },
+    {
+      "name": "One-click Uber/DoorDash/Skip switching retains investigation filters and displays only each actual local provider record",
+      "passed": true
+    },
+    {
+      "name": "A delayed old-order response cannot replace a newly selected order drawer",
+      "passed": true
+    },
+    {
+      "name": "Downloaded CSV matches filtered records and includes recorded issues/outcome/courier data",
+      "passed": true
+    },
+    {
+      "name": "Completed order does not masquerade as a reported delivery",
+      "passed": true
+    },
+    {
+      "name": "External URL search reset and browser Back restore the matching input and actual server results",
+      "passed": true
+    },
+    {
+      "name": "Five zero-delay search strings stay responsive and exact server search survives URL reload",
+      "passed": true
+    },
+    {
+      "name": "Clearing order filters preserves workspace/date and cancellation attribution comes from received partner updates",
+      "passed": true
+    },
+    {
+      "name": "Invalid shared filter cannot silently broaden selection and recovers without dropping scope",
+      "passed": true
+    },
+    {
+      "name": "Injected temporary read failure shows a recoverable error, and Retry returns actual scoped records",
+      "passed": true
+    },
+    {
+      "name": "Real imported synthetic payout/case appears in on-demand order detail and exact-order link includes recovered cases with scope",
+      "passed": true
+    },
+    {
+      "name": "Dispute view returns to exact order while retaining workspace selection",
+      "passed": true
+    },
+    {
+      "name": "Three direct scoped order deep-link loads render the actual drawer without hydration errors",
+      "passed": true
+    },
+    {
+      "name": "Authenticated real-data Orders filters fit 1440px with no serious/critical axe violations",
+      "passed": true
+    },
+    {
+      "name": "Authenticated real-data Orders filters fit 375px with no serious/critical axe violations",
+      "passed": true
+    },
+    {
+      "name": "No browser page errors",
+      "passed": true
+    }
+  ],
+  "pageErrors": []
+}

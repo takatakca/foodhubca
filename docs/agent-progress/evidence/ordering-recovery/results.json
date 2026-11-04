@@ -1,0 +1,254 @@
+{
+  "mode": "local-built-apps-with-isolated-sms",
+  "database": "local-postgres-postgrest",
+  "durablePersistenceVerified": true,
+  "passed": 13,
+  "results": [
+    "actual ON2GO SMS form signs in through the actual Food Hub verification routes",
+    "restaurant saved in ON2GO persists to Food Hub, through CORS and the customer token",
+    "structured Canadian address saves from the form with server-normalized postal code",
+    "email preference persists independently while SMS marketing remains off",
+    "a second empty browser signs in again and recovers server-side account data",
+    "actual ON2GO modifier/cart form obtains a real server-priced quote and Canadian taxes before placement",
+    "a real menu-price change is refused before ordering and ON2GO requires explicit confirmation of the new total",
+    "dropped real checkout response survives reload, replays the same request/key and resolves to one persisted order with actual tracking",
+    "the retry produces exactly one actual local Clover call, one kitchen ticket and one authenticated receipt with server totals",
+    "native Food Hub storefront obtains a real quote and recovers the exact attributed request after a dropped response/reload without a second order",
+    "ON2GO order-update opt-out is honored by native Food Hub checkout without suppressing the actual order or falsely logging a sent text",
+    "two actual Food Hub processes sharing Postgres allocate different order numbers even when both counter reads return before either can write",
+    "account data and the existing customer token survive a real Food Hub process restart on Postgres"
+  ],
+  "network": [
+    {
+      "path": "/api/public/on2go/verify/start",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/verify/check",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me/favourites",
+      "method": "PUT",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me/addresses",
+      "method": "PUT",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "PATCH",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/verify/start",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/verify/check",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/storefront/menu/pi-pita",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/storefront/quote",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/storefront/checkout",
+      "method": "POST",
+      "status": 409
+    },
+    {
+      "path": "/api/storefront/checkout",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/storefront/menu/pi-pita",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/storefront/checkout",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/storefront/track/[token]",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "PATCH",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/storefront/quote",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/storefront/checkout",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/storefront/checkout",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    }
+  ],
+  "orderingProof": {
+    "oldTotal": 15.53,
+    "confirmedTotal": 19.55,
+    "ordersAdded": 1
+  },
+  "nativeOrderingProof": {
+    "total": 19.55,
+    "ordersAdded": 1
+  },
+  "parallelOrderingProof": {
+    "foodHubProcesses": 2,
+    "database": "real-postgres",
+    "synchronizedCounterReads": 2,
+    "ordersAdded": 2,
+    "uniqueNumbers": 2
+  },
+  "cloverOrders": 4,
+  "kitchenTickets": 4,
+  "externalTexts": 0,
+  "deploymentVerified": false,
+  "provenance": {
+    "scope": "actual local built ON2GO and Food Hub, synthetic people/orders, isolated Clover/SMS",
+    "on2goCommit": "16085aeeebae9b3913f3eda1bb84a55d9135b7b9",
+    "foodHubBuildId": "cBSQT-Mzg0bETsKtUyfZf",
+    "productionVerified": false
+  }
+}

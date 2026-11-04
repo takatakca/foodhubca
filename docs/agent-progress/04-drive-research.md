@@ -1,10 +1,37 @@
 # Agent 04 — Drive requirements and organization foundation
 
-**Branch:** `docs/drive-project-evidence` · **Agent:** Codex `drive_research` · **Date:** 2026-11-04 UTC.
+**Branch:** `docs/drive-project-evidence` · **Agent:** Codex `drive_research` · **Date:** 2026-11-04.
 
 **Current result:** recovered requirements now drive an implemented, authorized organization API/page and a proxy-aware public deployment verifier, with 41 focused tests passing and 13 actual-browser check groups passing on the coordinator’s combined navigation/avatar build. [Organization gap map and code](organization-gap-map.md) · [Requirements evidence](drive-requirements-evidence.md) · [Observed public preflight](evidence/04-readiness/public-preflight.json). **Live Google Drive inspection remains blocked in this cloud session.** No Drive file, deployment configuration or production account was changed by this agent.
 
 The coordinator publishes this agent's files to its individual branch. The shared coding checkout was not switched or committed by this agent. This page records the work so the owner can inspect its scope and progress separately from the other four agents.
+
+## Continuation — verified repository evidence, not new Drive access
+
+The latest completed source work extends the recovered requirements without claiming access to the owner's live
+Drive, PC, Canva or Runway accounts. The five workstream links remain in [the branch index](README.md). The
+coordinator is still checking the newer Food Hub customer-write and public-page changes; earlier combined counts
+below belong to the earlier integration candidate and must not be reused as the result of the current source.
+
+| Requirement followed through | Source and verification now available | Limit of that evidence |
+| --- | --- | --- |
+| A working diner account/order path | [ON2GO continuation](https://github.com/takatakca/on2goca/blob/feature/on2go-customer-experience/docs/agent-progress/01-on2go.md), source `237a025`: owned saved-list reads, optional revision conflicts, address/default preservation, channel consent, owner hydration/drafts, tracking language continuity and storage/cancellation-safe sign-in. Its local export passed 120 unit tests and type/build/site gates, plus 22 collection,5 sign-in,25 privacy/financial and4 ordering browser cases. | The frontend browser replies are isolated fixtures. The coordinator separately owns current Food Hub/PostgreSQL acceptance and deployed revision checks. Cross-device collection protection needs the new backend; no durable offline account-write outbox is claimed. |
+| Actual campaign review and current consent | [M4RKETING campaign workflow](https://github.com/takatakca/M4RKETING/blob/feature/foodhub-campaign-workflows/docs/CAMPAIGN_WORKFLOW.md): merchant-owned draft/preview, human approval, current-consent CSV export, approval invalidation after edits and database concurrency protection. The coordinator's final rerun passed nine browser/PostgreSQL checks with two simultaneous app processes and a restart. | Clover is an isolated HTTP fixture; no messages, discounts or live provider configuration were written. Suite installation is separate from automatic campaign triggers or delivery. |
+| Correct merchant identity across the app family | The current nine-branch [shared-kit verification](05-github-media.md#shared-clover-installation-identity-across-nine-apps) requires a matching authoritative Clover merchant identity before billing or credential installation. All nine branch test/type/build gates passed; the shared four-file checksums match. | These are local sources and mocked Clover responses. They do not prove a real merchant authorized each deployed app. |
+| Reproducible master-site presentation | [V1 local-font proof](https://github.com/takatakca/takatak-v1/blob/feature/cloud-local-fonts/docs/proofs/2026-11-04/local-fonts/README.md), branch head `8072f39`: production build and three desktop/mobile/OAuth states load the original five font families from six local assets; Canadian French glyphs and original licenses are verified. Current source hashes match the recorded font proof. | No external font requests or page errors occurred in the local browser proof. Database runtime, migrations, authenticated provider flows, CI and production release remain unverified; the cloud's Prisma bootstrap is types-only. |
+
+The M4RKETING final rerun is recorded locally at `platform-review/m4-campaign-final-proof/results.json` (nine checks,
+build `b2siEtry9F116sazCYQai`). The branch’s final proof is now published at documentation head `88f5837`, with verified runtime source `12d071c` recorded in its provenance. The suite
+identity matrix is `platform-review/suite-kit-merchant-identity-results.json`; V1's published proof records its source
+hashes and its pre-commit base. These are distinct records with distinct scopes. No totals from them certify the
+currently served public domains or replace the coordinator's final combined gate.
+
+Drive originals remain the next requirements authority to reconcile once a callable, authorized connector is
+available. Existing PC profiles and the previous installation must still be preserved; no source/build result here
+establishes54 signed-in native provider sessions. The finished local screen/photo films remain different evidence
+from inaccessible older PC recordings or a connected Canva/Runway production pipeline.
+
+— signé : Codex, documentation continuation @ Codex cloud · 2026-11-04
 
 ## Chronological discussion and progress
 
@@ -79,8 +106,8 @@ Review images: [FR desktop](evidence/04-organization/fr-1440.png) · [FR mobile]
 
 Later review: [customer payment-state findings and legal contact validation](04-customer-payment-review.md). These later source changes require their own final combined-build gate.
 
-## Coordinator verification — final combined candidate
+## Earlier combined candidate — before this continuation
 
-The combined candidate passed 2,272 unit tests (22 skipped), production webpack build/TypeScript, lint with zero errors/one existing warning, 644 simulated acceptance checks and 25 real PostgreSQL crash checks. Thirteen built ON2GO/Food Hub browser checks passed on real PostgreSQL, including response-loss recovery and simultaneous checkout through two real servers. Nine sibling suite pairs passed. These checks use isolated provider/SMS receivers; no live deployment or real merchant-session certification is implied. See [current delivery record](../RESTAURANT_PLATFORM_DELIVERY.md).
+The earlier published integration candidate (`1df1415`) passed 2,272 unit tests (22 skipped), production webpack build/TypeScript, lint with zero errors/one existing warning, 644 simulated acceptance checks and 25 real PostgreSQL crash checks. Thirteen built ON2GO/Food Hub browser checks passed on real PostgreSQL, including response-loss recovery and simultaneous checkout through two real servers. Nine sibling suite pairs passed. These checks use isolated provider/SMS receivers; no live deployment or real merchant-session certification is implied. See [current delivery record](../RESTAURANT_PLATFORM_DELIVERY.md).
 
 — signé : Codex, coordinator @ Codex cloud · 2026-11-04

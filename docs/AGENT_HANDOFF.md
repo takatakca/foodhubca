@@ -1,3 +1,13 @@
+## 2026-11-04 — five independent agent branches and restaurant experience
+
+Owner requested five individually followable branches. See [agent index](agent-progress/README.md) and [delivery/acceptance](RESTAURANT_PLATFORM_DELIVERY.md). Public merchant marketing now uses real photography, concise FR/EN and real local product films; dashboard adds observed session readiness, actionable existing alerts, scoped quick actions and metrics; ON2GO companion fixes actual contract mismatches and recoverable errors. Food Hub adds browser-safe saved-address/favourite routes and independent preferences. Existing PC profiles were not changed.
+
+Verification: full Food Hub unit suite2091passed/12skipped; final visual/copy corrections63focusedpass and production rebuild/typecheckpass; lint0errors/1existingwarning. Simulated platform E2E644/0; real local Postgres crash recovery25/0; real built ON2GO-to-FoodHub browser6/0 with second-browser and process-restart persistence;9/9 suite source contracts;15 workspace browser checks; public marketing8 viewport states/8media checks/2axe scans0violations; authenticated dashboard12browser checks. All external services in these tests are local stand-ins. [Customer bridge result](agent-progress/evidence/customer-bridge/results.json).
+
+Four actual FR/EN landscape/square films, posters and captions are versioned with provenance. Five branches are based on the prior unified-workspace review baseline, not current main alone. No PR or deployment is claimed. Main is unchanged. Live Drive/Canva/Runway/Coolify/PC access remains unavailable; direct live HTTPS is proxy-blocked. Saved network additions require environment-settings review/publication before runtime use. Missing source work is explicitly listed in the delivery doc and agent audits.
+
+Next: use the five branch logs to review each agent; obtain legitimate same-session Drive and Coolify access, apply the network draft, inspect the native app controller/current served SHA, deploy the reviewed backend before the ON2GO companion, then verify actual service transactions and existing-PC status. Do not reinstall or manufacture proof from old installation notes.
+
 ## 2026-11-04 — unified platform workspaces and existing-PC continuity
 
 Validated implementation commit: `2adf4147ee545991b7ac3954f4df2f74de8eef7d`, branch `feature/unified-platform-workspaces`. Source is ready for review; main/deployment and the owner's PC were not modified. GitHub API access was denied; the public board was read through all HTML timeline pages (360 items,354 comments). Drive/other-chat history and live PC access are unavailable here.

@@ -32,7 +32,7 @@ clé : le cellulaire vérifié.
 | `TWILIO_VERIFY_ACCOUNT_SID` / `TWILIO_VERIFY_AUTH_TOKEN` | Optionnels : le compte Twilio qui possède le service Verify, quand ce n'est pas le compte avec lequel Food Hub texte (ex. le compte du numéro unique des marques). Vides = `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN`. |
 | `FOODHUB_CUSTOMER_TENANTS` | Sites autorisés (slugs, virgules). Vide = `pppmtl`. Nom affiché dans le texto : `pppmtl` → « PPP Pizzeria ». |
 | `SESSION_SECRET` | Déjà là : signe les jetons clients (même clé HMAC que les cookies de la console). |
-| `FOODHUB_LOYALTY_URL`, `FOODHUB_GIFTCARDS_URL` | Futurs LOY4LTY / REW4RDS : lus seulement pour l’afficher dans la console. Rien n’est appelé ; l’API répond « pas branché ». |
+| `FOODHUB_LOYALTY_URL`, `FOODHUB_GIFTCARDS_URL` | Noms historiques : insuffisants seuls. Le pont signé est maintenant implémenté avec les URL/clés suite et le mapping explicite `FOODHUB_CUSTOMER_SUITE_MERCHANTS` ; voir [CUSTOMER_SUITE_BALANCES.md](CUSTOMER_SUITE_BALANCES.md). |
 
 ## Comment pppmtl l’appelle (contrat du 2026-10-29, § A)
 
@@ -101,7 +101,7 @@ number.
 | `TWILIO_VERIFY_ACCOUNT_SID` / `TWILIO_VERIFY_AUTH_TOKEN` | Optional: the Twilio account that owns the Verify service when it is not the account Food Hub texts from (e.g. the brands' single-number account). Empty = `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN`. |
 | `FOODHUB_CUSTOMER_TENANTS` | Allowed websites (slugs, comma-separated). Empty = `pppmtl`. Display name in the text: `pppmtl` → "PPP Pizzeria". |
 | `SESSION_SECRET` | Already there: signs the customer tokens (the same HMAC key as the console cookies). |
-| `FOODHUB_LOYALTY_URL`, `FOODHUB_GIFTCARDS_URL` | Future LOY4LTY / REW4RDS: read only to show it in the console. Nothing is called; the API answers "not connected yet". |
+| `FOODHUB_LOYALTY_URL`, `FOODHUB_GIFTCARDS_URL` | Historical names, insufficient alone. The signed bridge is now implemented using suite URL/keys and explicit `FOODHUB_CUSTOMER_SUITE_MERCHANTS`; see [CUSTOMER_SUITE_BALANCES.md](CUSTOMER_SUITE_BALANCES.md). |
 
 ## How pppmtl calls it (contract of 2026-10-29, § A)
 

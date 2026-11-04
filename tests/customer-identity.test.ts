@@ -128,7 +128,8 @@ describe('verify start / check with Food Hub’s own texted code', () => {
     expect(c.created).toBe(true);
     expect(c.customer).toMatchObject({ phone: PHONE, lang: 'fr', marketingConsent: false });
     expect(c.customer.id).toMatch(/^cus_/);
-    expect(Object.keys(c.customer).sort()).toEqual(['createdAt', 'id', 'lang', 'marketingConsent', 'phone', 'verifiedAt']);
+    expect(Object.keys(c.customer).sort()).toEqual(['createdAt', 'id', 'lang', 'marketingConsent', 'phone', 'preferences', 'verifiedAt']);
+    expect(c.customer.preferences).toEqual({ orderUpdates: true, offersSms: false, offersEmail: false });
     const expMs = Date.parse(c.expiresAt) - Date.now();
     expect(expMs).toBeGreaterThan(29 * 86400_000);
     expect(expMs).toBeLessThanOrEqual(30 * 86400_000);
@@ -332,6 +333,24 @@ describe('customer token', () => {
 });
 
 describe('GET /me', () => {
+  it('returns the verified customer’s receipt lines and only their active payment-resume link, without Clover internals', async () => {
+    const { token } = await signIn();
+    const order = websiteOrder({
+      id: 'own-receipt', status: 'awaiting_payment', payment: 'unpaid',
+      lines: [{ externalId: 'pita-ref', posItemRef: 'PRIVATE-CLOVER-ITEM', name: 'Pita', quantity: 2, unitPrice: 9, total: 20, modifiers: [{ externalId: 'cheese', posModifierRef: 'PRIVATE-CLOVER-MODIFIER', name: 'Fromage', quantity: 1, unitPrice: 1 }] }],
+      paylink: { token: 'customer-owned-payment-token', merchantId: 'PRIVATE-MERCHANT', marker: 'private-marker', lang: 'fr', createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(), reminderMin: 0, sessions: [], expectedCents: 2300 },
+    });
+    await saveDirectOrder(order);
+    await saveDirectOrder(websiteOrder({ id: 'someone-else', customer: { phone: '+15145550188' }, paylink: { ...order.paylink!, token: 'another-customers-token' } }));
+    const response = await me(token);
+    expect(response.orders).toHaveLength(1);
+    expect(response.orders[0]).toMatchObject({ payment: 'unpaid', subtotal: 20, tax: 3, currency: 'CAD', payUrl: '/p/customer-owned-payment-token', items: [{ ref: 'pita-ref', name: 'Pita', quantity: 2, unitPrice: 9, total: 20, modifiers: [{ name: 'Fromage', quantity: 1, unitPrice: 1 }] }] });
+    expect(JSON.stringify(response.orders)).not.toMatch(/PRIVATE-|merchantId|posItemRef|posModifierRef|another-customers-token|private-marker/);
+    await saveDirectOrder({ ...order, status: 'in_kitchen', payment: 'paid' });
+    expect((await me(token)).orders[0]).not.toHaveProperty('payUrl');
+    await saveDirectOrder({ ...order, paylink: { ...order.paylink!, expiresAt: new Date(Date.now() - 1).toISOString() } });
+    expect((await me(token)).orders[0]).not.toHaveProperty('payUrl');
+  });
   it('projects the profile, that number’s website orders (newest first, max 20) and the truthful adapters', async () => {
     const { token } = await signIn();
     await saveDirectOrder(websiteOrder({ id: 'w1', number: 'W-1001', placedAt: '2026-10-01T12:00:00.000Z', createdAt: '2026-10-01T12:00:00.000Z' }));
@@ -346,8 +365,8 @@ describe('GET /me', () => {
     expect(r.loyalty).toEqual({ connected: false, reason: 'LOY4LTY not connected yet' });
     expect(r.giftCards).toEqual({ connected: false, reason: 'REW4RDS not connected yet' });
     expect(r.orders).toEqual([
-      { id: 'w2', number: 'W-1002', at: '2026-10-03T12:00:00.000Z', total: 41.5, status: 'in_kitchen', brand: 'PPP Pizzeria', fulfillment: 'delivery' },
-      { id: 'w1', number: 'W-1001', at: '2026-10-01T12:00:00.000Z', total: 23, status: 'completed', brand: 'PPP Pizzeria', fulfillment: 'pickup' },
+      { id: 'w2', number: 'W-1002', at: '2026-10-03T12:00:00.000Z', total: 41.5, status: 'in_kitchen', brand: 'PPP Pizzeria', fulfillment: 'delivery', subtotal: 20, tax: 3, tip: 0, deliveryFee: 0, currency: 'CAD', payment: 'paid', items: [] },
+      { id: 'w1', number: 'W-1001', at: '2026-10-01T12:00:00.000Z', total: 23, status: 'completed', brand: 'PPP Pizzeria', fulfillment: 'pickup', subtotal: 20, tax: 3, tip: 0, deliveryFee: 0, currency: 'CAD', payment: 'paid', items: [] },
     ]);
     expect(JSON.stringify(r)).not.toMatch(/tokenVersion|tenants/);
     for (let i = 0; i < 25; i++) await saveDirectOrder(websiteOrder({ id: `m${i}`, number: `W-2${String(i).padStart(3, '0')}`, createdAt: `2026-11-01T12:${String(i).padStart(2, '0')}:00.000Z`, placedAt: `2026-11-01T12:${String(i).padStart(2, '0')}:00.000Z` }));

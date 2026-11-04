@@ -1,0 +1,143 @@
+{
+  "mode": "local-built-apps-with-isolated-sms",
+  "database": "local-postgres-postgrest",
+  "durablePersistenceVerified": true,
+  "passed": 6,
+  "results": [
+    "actual ON2GO SMS form signs in through the actual Food Hub verification routes",
+    "restaurant saved in ON2GO persists to Food Hub, through CORS and the customer token",
+    "structured Canadian address saves from the form with server-normalized postal code",
+    "email preference persists independently while SMS marketing remains off",
+    "a second empty browser signs in again and recovers server-side account data",
+    "account data and the existing customer token survive a real Food Hub process restart on Postgres"
+  ],
+  "network": [
+    {
+      "path": "/api/public/on2go/verify/start",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/verify/check",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me/favourites",
+      "method": "PUT",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me/addresses",
+      "method": "PUT",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "PATCH",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/verify/start",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/verify/check",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    }
+  ],
+  "externalTexts": 0,
+  "deploymentVerified": false
+}

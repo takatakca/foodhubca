@@ -14,7 +14,7 @@ const M = 'GET, PATCH, DELETE';
 export const GET = on2goRoute(M, async (req) => {
   const who = await on2goCustomer(req);
   if (!who.ok) return on2goJson(req, M, { ok: false, error: who.error }, who.status);
-  return on2goJson(req, M, { ok: true, ...(await buildMe(who.customer)) });
+  return on2goJson(req, M, { ok: true, ...(await buildMe(who.customer, who.tenant)) });
 });
 
 export const PATCH = on2goRoute(M, async (req) => {

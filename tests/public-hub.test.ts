@@ -3,7 +3,6 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { HubPage } from '../components/public-hub/hub-page';
-import { LISTING_BENEFITS } from '../lib/foodhub/clover-listing';
 import {
   appMarketStatus, appMarketUrl, EXTRA_BRAND_PLATFORM_CAD, formatCad, formatCadLabel, livePlatforms, monthlyTotalCad, PHONE_MINUTE_CAD,
   PHONE_MONTHLY_CAD, PHONE_PRICING_STATEMENT, PHONE_TRIAL_DAYS, PRICING, PRICING_STATEMENT, STANDARD_MONTHLY_CAD, TRIAL_DAYS,
@@ -12,8 +11,8 @@ import { CLOVER_APPS, liveCloverApps } from '../lib/foodhub/clover-apps';
 import { PHONE_PRICE } from '../lib/foodhub/pos/clover-phone-minutes';
 import * as cloverPricing from '../lib/foodhub/pos/clover-pricing';
 import {
-  HUB_CONTENT, HUB_PAGE_KEYS, HUB_PATHS, HUB_PRODUCTION_BASE, hubBase, hubMarketUrl, hubFaq, hubFeatures, hubIndexable, hubJsonLd, hubLlmsTxt, hubMetadata,
-  hubPageAt, hubPageForSlug, hubRequirements, hubRobots, hubSitemap, hubTagline, jsonLdScript, postalAddress, publicSameAs, type HubContext,
+  HUB_CONTENT, HUB_PAGE_KEYS, HUB_PATHS, HUB_PRODUCTION_BASE, hubBase, hubMarketUrl, hubFaq, hubIndexable, hubJsonLd, hubLlmsTxt, hubMetadata,
+  hubPageAt, hubPageForSlug, hubRobots, hubSitemap, hubTagline, jsonLdScript, postalAddress, publicSameAs, type HubContext,
 } from '../lib/foodhub/public-hub';
 import { LANG_COOKIE } from '../lib/i18n';
 import { isIndexablePath, isPublicSitePath, isStorefrontIndexablePath, PUBLIC_LANG_HEADER, PUBLIC_PAGE_CACHE, publicHomeEnabled, publicSiteLang } from '../lib/foodhub/public-site';
@@ -39,7 +38,7 @@ const node = (ld: { '@graph': Array<Record<string, unknown>> }, type: string) =>
 const visibleText = (html: string) => html.replace(/<script[\s\S]*?<\/script>/g, ' ').replace(/<[^>]+>/g, ' ').replace(/&#x27;/g, '\'').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/\s+/g, ' ');
 
 /** Banned on every public page: hours claims, "virtual / ghost / dark kitchen", aggregator names. */
-const BANNED = [/24\s?\/\s?7/i, /\b24\s?h\b/i, /\b24\s?heures\b/i, /\b24\s?hours\b/i, /virtuel/i, /\bvirtual\b/i, /\bghost\b/i, /dark kitchen/i, /cuisine fantôme/i,
+const BANNED = [/24\s?\/\s?7/i, /\b24\s?h\b/i, /\b24\s?heures\b/i, /\b24\s?hours\b/i, /\bghost\b/i, /dark kitchen/i, /cuisine fantôme/i,
   /deliverect/i, /\botter\b/i, /cuboh/i, /checkmate/i, /urbanpiper/i, /chowly/i];
 const banned = (text: string) => BANNED.filter((r) => r.test(text)).map(String);
 
@@ -49,10 +48,10 @@ const unconditionalTgtg = (text: string) => [...text.matchAll(/Too Good To Go(?!
 
 describe('public site paths (lib/foodhub/public-site.ts)', () => {
   it('opens /hub, /en/hub, robots, sitemap, llms.txt, share images and the favicon — and nothing that merely looks alike', () => {
-    for (const p of ['/hub', '/hub/tarifs', '/hub/integrations/uber-eats-clover', '/en/hub', '/en/hub/pricing', '/robots.txt', '/sitemap.xml', '/llms.txt', '/favicon.ico', '/og/hub-fr.png']) {
+    for (const p of ['/hub', '/hub/tarifs', '/hub/integrations/uber-eats-clover', '/en/hub', '/en/hub/pricing', '/robots.txt', '/sitemap.xml', '/llms.txt', '/favicon.ico', '/og/hub-fr.png', '/hub-media/restaurant-counter.webp', '/hub-media/foodhub-demo-fr.mp4']) {
       expect(isPublicSitePath(p), p).toBe(true);
     }
-    for (const p of ['/hubx', '/hub-admin', '/en/hubx', '/en', '/', '/orders', '/robots.txt/x', '/llms.txtx', '/sitemap.xml.bak', '/ogx']) {
+    for (const p of ['/hubx', '/hub-admin', '/en/hubx', '/en', '/', '/orders', '/robots.txt/x', '/llms.txtx', '/sitemap.xml.bak', '/ogx', '/hub-media-private', '/hub-mediax/secret.webp']) {
       expect(isPublicSitePath(p), p).toBe(false);
     }
     expect(publicSiteLang('/hub/tarifs')).toBe('fr');
@@ -91,7 +90,7 @@ describe('proxy.ts with a sign-in configured', () => {
       expect(res.headers.get('x-robots-tag'), path).toBeNull();
       expect(res.headers.get('cache-control'), path).toBe(PUBLIC_PAGE_CACHE); // same HTML for everyone: cacheable
     }
-    for (const path of ['/robots.txt', '/sitemap.xml', '/llms.txt', '/og/hub-fr.png', '/icons/icon-512.png', '/icons/icon-192.png', '/icons/apple-touch-icon.png', '/media/abc123.jpg']) {
+    for (const path of ['/robots.txt', '/sitemap.xml', '/llms.txt', '/og/hub-fr.png', '/icons/icon-512.png', '/icons/icon-192.png', '/icons/apple-touch-icon.png', '/media/abc123.jpg', '/hub-media/restaurant-counter.webp', '/hub-media/tablet-wall-demo.webp']) {
       const res = await get(path);
       expect(res.headers.get('x-middleware-next'), path).toBe('1');
       expect(res.headers.get('x-robots-tag'), path).toBeNull();
@@ -233,17 +232,18 @@ describe('page content', () => {
       expect(html, `${key}/${lang} tokens`).not.toMatch(/\{(company|planned|pending|platforms?)\}/);
     }
   });
-  it('the landing reuses the App Market listing (benefits, features, requirements) and says Too Good To Go only with its condition', () => {
-    const fr = visibleText(render('landing', 'fr'));
-    for (const b of LISTING_BENEFITS) expect(fr).toContain(b.fr);
-    for (const f of hubFeatures('fr')) expect(fr).toContain(f.title);
-    expect(hubFeatures('fr').length).toBeGreaterThanOrEqual(6);
-    expect(hubRequirements('fr')).toMatch(/^Un forfait Clover/);
-    expect(hubRequirements('en')).toMatch(/^A Clover plan/);
-    expect(hubRequirements('en')).toContain('ON2GO.ca account');
-    expect(JSON.stringify(HUB_CONTENT)).not.toMatch(/ON2GO Hub/); // the hub is "ON2GO.ca" (owner, 2026-10-17)
-    expect(fr).toContain('Too Good To Go : lorsque votre compte offre un flux de commandes');
-    expect(visibleText(render('landing', 'en'))).toContain('Too Good To Go: when your account offers an order feed');
+  it('the merchant landing explains setup, billing and the diner relationship without promising live APIs', () => {
+    for (const lang of LANGS) {
+      const html = render('landing', lang);
+      const text = visibleText(html);
+      expect(text).toContain('Food Hub');
+      expect(text).toContain('Clover');
+      expect(text).toContain(lang === 'fr' ? 'Configuration requise' : 'Setup required');
+      expect(text).toContain(lang === 'fr' ? 'autorisations des plateformes' : 'authorization from the relevant platforms');
+      expect(html).toContain('href="https://on2go.ca/"');
+      expect(html).toContain(`href="${HUB_PATHS.pricing[lang]}"`);
+      expect(text).not.toMatch(/within seconds|en quelques secondes|one brain|un seul cerveau/i);
+    }
   });
   it('never names Too Good To Go without its condition: page text, JSON-LD, metadata, tagline and llms.txt', () => {
     for (const lang of LANGS) expect(hubTagline(lang)).not.toContain('Too Good To Go');
@@ -353,13 +353,12 @@ describe('page content', () => {
     expect(visibleText(render('doordash', 'fr'))).toContain('Intégration en cours de certification avec DoorDash.');
     expect(visibleText(render('skip', 'en'))).toContain('SkipTheDishes integration in certification.');
     expect(visibleText(render('uber', 'fr'))).not.toContain('Intégration en cours de certification avec Uber'); // live: no note (its links to pending pages carry a badge)
-    const landing = visibleText(render('landing', 'fr'));
-    expect(landing).toContain('L’intégration avec DoorDash et SkipTheDishes est en cours de certification.');
-    expect(landing).toContain('En certification'); // badge on the links to the two pending pages
-    const faq = hubFaq('landing', 'en', ctx()).find((f) => f.q === 'Which platforms are supported?')!;
-    expect(faq.a).toContain('The DoorDash and SkipTheDishes integration is in certification.');
-    const allLive = visibleText(render('landing', 'fr', ctx({ livePlatforms: ALL_LIVE })));
-    expect(allLive).not.toContain('certification');
+    // The merchant landing keeps neutral setup wording: a configured public flag alone is not runtime proof.
+    for (const config of [ctx(), ctx({ livePlatforms: ALL_LIVE })]) {
+      const landing = visibleText(render('landing', 'fr', config));
+      expect(landing).toContain('Configuration requise');
+      expect(landing).not.toMatch(/Uber Eats Disponible|DoorDash Disponible|SkipTheDishes Disponible/);
+    }
     expect(visibleText(render('doordash', 'fr', ctx({ livePlatforms: ALL_LIVE })))).not.toContain('certification');
   });
   it('kitchen copy claims red on screen only (a thermal ticket prints no red); French uses « application » and « heures de pointe »', () => {

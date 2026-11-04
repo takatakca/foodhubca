@@ -1,138 +1,124 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { HubPage } from '../components/public-hub/hub-page';
-import { LISTING_BENEFITS, LISTING_DESCRIPTION } from '../lib/foodhub/clover-listing';
-import type { HubContext, HubPageKey } from '../lib/foodhub/public-hub';
-import { SHOWCASE } from '../lib/foodhub/public-hub-showcase';
-
-// The premium visuals of the public landing (components/public-hub/landing-showcase.tsx): honest words, real states,
-// no page script, every motion stoppable. The general public-page rules live in tests/public-hub.test.ts.
+import { RESTAURANT_COPY } from '../components/public-hub/restaurant-copy';
+import { EXTRA_BRAND_PLATFORM_CAD, formatCadLabel, STANDARD_MONTHLY_CAD, TRIAL_DAYS } from '../lib/foodhub/pricing';
+import { HUB_PATHS, hubFaq, type HubContext } from '../lib/foodhub/public-hub';
 
 const LANGS = ['fr', 'en'] as const;
 const ctx = (over: Partial<HubContext> = {}): HubContext => ({
   base: 'https://foodhub.on2go.ca', appMarketUrl: null, sameAs: [], supportEmail: null, company: 'Quadro Holdings LTEE',
   address: '6280, av. Somerled, Montréal (Québec) H3X 2B6, Canada', marketStatus: 'review', livePlatforms: ['uber'], ...over,
 });
-const render = (page: HubPageKey, lang: 'fr' | 'en', c = ctx()) => renderToStaticMarkup(createElement(HubPage, { page, lang, ctx: c }));
-const visibleText = (html: string) => html.replace(/<script[\s\S]*?<\/script>/g, ' ').replace(/<[^>]+>/g, ' ').replace(/&#x27;/g, '\'').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/\s+/g, ' ');
-const BANNED = [/24\s?\/\s?7/i, /\b24\s?h\b/i, /virtuel/i, /\bvirtual\b/i, /\bghost\b/i, /dark kitchen/i, /cuisine fantôme/i, /futuris/i,
-  /deliverect/i, /\botter\b/i, /cuboh/i, /checkmate/i, /urbanpiper/i, /chowly/i, /ordermark/i, /bientôt|coming soon|prévu|planned/i];
+const render = (lang: 'fr' | 'en', c = ctx()) => renderToStaticMarkup(createElement(HubPage, { page: 'landing', lang, ctx: c }));
+const textOf = (html: string) => html.replace(/<script[\s\S]*?<\/script>/g, ' ').replace(/<[^>]+>/g, ' ').replace(/&#x27;/g, "'").replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/\s+/g, ' ');
 
-describe('premium landing showcase (/hub, /en/hub)', () => {
-  it('renders on the landing only, with every section, and adds no script', () => {
+describe('restaurant merchant landing (/hub and /en/hub)', () => {
+  it('gives both languages a complete merchant page, anchor navigation and a separate diner destination', () => {
     for (const lang of LANGS) {
-      const w = SHOWCASE[lang];
-      const html = render('landing', lang);
-      const text = visibleText(html);
-      for (const s of [w.brainTitle, w.tabletTitle, w.menuTitle, w.explorerTitle, w.integrationsTitle, w.demoNote]) expect(text, s).toContain(s);
-      for (const f of w.features) { expect(text).toContain(f.title); expect(text).toContain(f.text); }
-      for (const f of w.facts) expect(text).toContain(f.big);
+      const html = render(lang); const text = textOf(html); const w = RESTAURANT_COPY[lang];
+      expect(html.match(/<h1[\s>]/g)).toHaveLength(1);
+      for (const id of ['contenu', 'fonctionnement', 'integrations', 'tarifs']) expect(html).toContain(`id="${id}"`);
+      for (const anchor of ['#contenu', '#fonctionnement', '#integrations', '#tarifs']) expect(html).toContain(`href="${anchor}"`);
+      expect(text).toContain(w.hero); expect(text).toContain(w.heroAccent);
+      expect(text).toContain(w.diner); expect(html).toContain('href="https://on2go.ca/"');
+      expect(html).toContain(`href="${HUB_PATHS.landing[lang === 'fr' ? 'en' : 'fr']}"`);
+      expect(html).toContain('href="/login"');
+      for (const path of ['/legal/support', '/legal/privacy', '/legal/terms']) expect(html).toContain(`href="${path}"`);
+    }
+  });
+
+  it('offers an actionable contact CTA while marketplace installation is unavailable', () => {
+    for (const marketStatus of ['review', 'soon'] as const) {
+      const html = render('fr', ctx({ marketStatus }));
+      expect(html).toMatch(/href="\/legal\/support"[^>]*>Parler de mon restaurant/);
+      expect(html).not.toMatch(/<span[^>]*>Installer avec Clover/);
+      expect(html).not.toContain('data-clover-badges');
+    }
+    const email = render('en', ctx({ supportEmail: 'support@example.com' }));
+    expect(email).toMatch(/href="mailto:support@example.com"[^>]*>Talk about my restaurant/);
+    const market = 'https://www.clover.com/appmarket/apps/ABC123';
+    const live = render('en', ctx({ appMarketUrl: market, marketStatus: 'live' }));
+    expect(live).toMatch(/href="https:\/\/www.clover.com\/appmarket\/apps\/ABC123"[^>]*>Install with Clover/);
+    expect(textOf(live)).not.toContain(RESTAURANT_COPY.en.review);
+  });
+
+  it('shows neutral setup requirements even when all public provider flags are on', () => {
+    for (const lang of LANGS) {
+      const html = render(lang, ctx({ livePlatforms: ['uber', 'doordash', 'skip'] }));
+      const text = textOf(html);
+      expect(text.match(new RegExp(RESTAURANT_COPY[lang].setupRequired, 'g'))).toHaveLength(3);
+      expect(text).toContain(RESTAURANT_COPY[lang].availability);
+      expect(text).not.toMatch(/Uber Eats (Available|Disponible)|DoorDash (Available|Disponible)|SkipTheDishes (Available|Disponible)/);
+    }
+  });
+
+  it('distinguishes manual hosted sessions from an authorized API connection', () => {
+    for (const lang of LANGS) {
+      const text = textOf(render(lang)); const w = RESTAURANT_COPY[lang];
+      expect(text).toContain(w.tabletPrivacy); expect(text).toContain(w.tabletSetup); expect(text).toContain(w.tabletCaption);
+      expect(text).toContain(lang === 'fr' ? 'Afficher un écran ne l’active pas.' : 'Displaying a screen does not enable it.');
+      expect(text).not.toMatch(/54 (live|active)|54 (actifs|en direct)|18 (live|active)/i);
+      expect(render(lang)).not.toContain('<iframe');
+    }
+  });
+
+  it('uses public, documented real photographs and an explicitly labelled actual sandbox capture', () => {
+    for (const path of ['restaurant-counter.webp', 'tablet-wall-demo.webp']) {
+      expect(existsSync(`public/hub-media/${path}`), path).toBe(true);
+      expect(render('fr')).toContain(encodeURIComponent(`/hub-media/${path}`));
+    }
+    const credits = readFileSync('public/hub-media/CREDITS.md', 'utf8');
+    expect(credits).toContain('Unsplash License'); expect(credits).toContain('not real provider sessions');
+    expect(render('en')).not.toMatch(/data:image|<canvas|<svg[^>]*>.*animateMotion/);
+  });
+
+  it('preserves the pricing source, independent phone product and billing disclosure', () => {
+    for (const lang of LANGS) {
+      const html = render(lang); const text = textOf(html);
+      expect(text).toContain(formatCadLabel(STANDARD_MONTHLY_CAD, lang));
+      expect(text).toContain(formatCadLabel(EXTRA_BRAND_PLATFORM_CAD, lang));
+      expect(text).toContain(`${TRIAL_DAYS} ${RESTAURANT_COPY[lang].trial}`);
+      expect(text).toContain(RESTAURANT_COPY[lang].tax);
+      expect(text).toContain(RESTAURANT_COPY[lang].phoneText);
+      expect(html).toContain(`href="${HUB_PATHS.phone[lang]}"`);
+      const ld = JSON.parse(html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)![1]);
+      expect(ld['@graph'].find((node: { '@type': string }) => node['@type'] === 'SoftwareApplication').offers).toBeUndefined();
+    }
+  });
+
+  it('keeps structured FAQ answers equal to the readable native disclosure content', () => {
+    for (const lang of LANGS) {
+      const html = render(lang); const text = textOf(html);
+      for (const f of hubFaq('landing', lang, ctx())) { expect(text).toContain(f.q); expect(text).toContain(f.a); }
+      expect(html.match(/<details/g)?.length).toBe(hubFaq('landing', lang, ctx()).length + 2); // mobile menu + film description
       expect(html).not.toMatch(/<script(?! type="application\/ld\+json")/);
-      expect(html).toContain('id="integrations"'); // the nav link target still exists
-      expect(text).not.toContain(w.brainTitle.repeat(2));
-      const other = render('pricing', lang);
-      expect(visibleText(other)).not.toContain(w.brainTitle);
-      expect(other).not.toContain('hub-feature');
     }
   });
-  it('the words carry none of the banned claims or names', () => {
+
+  it('offers the language-matched real walkthrough with native controls, captions and a readable description', () => {
     for (const lang of LANGS) {
-      const all = JSON.stringify(SHOWCASE[lang]);
-      expect(BANNED.filter((r) => r.test(all)).map(String), lang).toEqual([]);
-      expect(BANNED.filter((r) => r.test(visibleText(render('landing', lang)))).map(String), lang).toEqual([]);
+      const html = render(lang);
+      expect(html).toMatch(/<video[^>]*controls[^>]*preload="none"/);
+      expect(html).not.toMatch(/<video[^>]*autoPlay|<video[^>]*autoplay/);
+      expect(html).toContain(`src="/hub-media/foodhub-product-demo-${lang}.mp4"`);
+      expect(html).toContain(`src="/hub-media/foodhub-product-demo-${lang}.vtt"`);
+      expect(textOf(html)).toContain(RESTAURANT_COPY[lang].videoCaption);
+      expect(textOf(html)).toContain(RESTAURANT_COPY[lang].videoTranscript);
     }
   });
-  it('the feature explorer is CSS-only tabs: one radio per feature, the first checked, each label tied to its input', () => {
-    const html = render('landing', 'fr');
-    const radios = (html.match(/<input [^>]*>/g) ?? []).filter((i) => i.includes('type="radio"') && i.includes('name="hub-feature"'));
-    expect(radios).toHaveLength(SHOWCASE.fr.features.length);
-    expect(radios.filter((r) => r.includes('checked'))).toHaveLength(1);
-    expect(radios[0]).toContain('checked');
-    for (const f of SHOWCASE.fr.features) {
-      expect(html).toContain(`id="hub-feature-${f.id}"`);
-      expect(html).toContain(`for="hub-feature-${f.id}"`);
-      expect(html).toContain(`data-tab="${f.id}"`);
-    }
-    const css = readFileSync('components/public-hub/landing.module.css', 'utf8');
-    for (const f of SHOWCASE.fr.features) expect(css, f.id).toContain(`input[value='${f.id}']:checked`);
-    expect(css).toContain('@supports not selector(:has(*))'); // older browsers see every panel
-  });
-  it('every motion stops under prefers-reduced-motion', () => {
-    const css = readFileSync('components/public-hub/landing.module.css', 'utf8');
-    const reduced = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'));
-    const before = css.slice(0, css.indexOf('@media (prefers-reduced-motion: reduce)'));
-    // The subject of each animated rule: the last class of every comma-separated selector whose block sets `animation:`.
-    const animated = [...before.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
-      .filter((m) => /(^|[;\s])animation:/.test(m[2]) && !/animation:\s*none/.test(m[2]))
-      .flatMap((m) => m[1].split(',').map((sel) => [...sel.matchAll(/\.([a-zA-Z]+)/g)].at(-1)?.[1]))
-      .filter((c): c is string => Boolean(c));
-    expect(animated.length).toBeGreaterThan(10);
-    for (const cls of new Set(animated)) expect(reduced, cls).toContain(`.${cls}`);
-    expect(reduced).toContain('.packet { display: none; }'); // the SVG packets move with <animateMotion>
-  });
-  it('a visitor can stop every motion (WCAG 2.2.2): a labelled checkbox in the hero, scoped to the landing', () => {
+
+  it('retires the animated brain/sparkles presentation and honors reduced motion', () => {
+    const css = readFileSync('components/public-hub/restaurant-landing.module.css', 'utf8');
+    expect(css).toContain('@media (prefers-reduced-motion: reduce)');
     for (const lang of LANGS) {
-      const html = render('landing', lang);
-      expect(html).toMatch(/<input [^>]*type="checkbox"[^>]*id="hub-motion-off"/);
-      expect(html).toContain('for="hub-motion-off"');
-      expect(visibleText(html)).toContain(SHOWCASE[lang].motionOff);
-      expect(html).toMatch(/<div lang="[^"]+" class="[^"]*_motionScope_/); // the page root holds the scope
-      expect(render('pricing', lang)).not.toContain('hub-motion-off');
+      const html = render(lang); const text = textOf(html);
+      expect(html).not.toContain('hub-motion-off'); expect(html).not.toContain('hub-feature');
+      expect(text).not.toMatch(/one brain|un seul cerveau|click a feature|cliquez sur une fonction|within seconds|en quelques secondes/i);
+      const subpage = renderToStaticMarkup(createElement(HubPage, { page: 'pricing', lang, ctx: ctx() }));
+      expect(textOf(subpage)).not.toContain(RESTAURANT_COPY[lang].hero);
     }
-    const css = readFileSync('components/public-hub/landing.module.css', 'utf8');
-    expect(css).toContain('.motionScope:has(.motionOff:checked) *,');
-    expect(css).toMatch(/\.motionScope:has\(\.motionOff:checked\) \*::after \{ animation: none !important; \}/);
-    expect(css).toContain('.motionScope:has(.motionOff:checked) .packet { display: none; }'); // SVG <animateMotion> packets
-  });
-  it('no element carries two classes that both set the `animation` shorthand (the later one would cancel the other)', () => {
-    const css = readFileSync('components/public-hub/landing.module.css', 'utf8');
-    const before = css.slice(0, css.indexOf('@media (prefers-reduced-motion: reduce)'));
-    // Classes whose own element animates: the last compound of each selector, pseudo-elements excluded.
-    const own = new Set([...before.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
-      .filter((m) => /(^|[;\s])animation:/.test(m[2]) && !/animation:\s*none/.test(m[2]))
-      .flatMap((m) => m[1].split(',').map((sel) => sel.trim()).filter((sel) => !sel.includes('::'))
-        .map((sel) => [...(sel.split(/\s+/).at(-1) ?? '').matchAll(/\.([a-zA-Z]+)/g)].at(-1)?.[1]))
-      .filter((c): c is string => Boolean(c)));
-    expect(own.has('orderIn') && own.has('ringing')).toBe(true);
-    for (const lang of LANGS) {
-      for (const [, cls] of render('landing', lang).matchAll(/class="([^"]*)"/g)) {
-        const hits = [...own].filter((c) => new RegExp(`(^|\\s)_${c}_`).test(cls));
-        expect(hits.length, `${lang}: ${cls}`).toBeLessThanOrEqual(1);
-      }
-    }
-  });
-  it('the demo orders are an illustration hidden from screen readers, and say so', () => {
-    for (const lang of LANGS) {
-      const html = render('landing', lang);
-      for (const o of SHOWCASE[lang].orders) {
-        const at = html.indexOf(`#${o.ref}`);
-        expect(at, o.ref).toBeGreaterThan(-1);
-        expect(html.lastIndexOf('aria-hidden="true"', at)).toBeGreaterThan(-1);
-      }
-      expect(visibleText(html)).toContain(SHOWCASE[lang].demoNote);
-    }
-  });
-  it('platform states are real: « in certification » until approved, nothing about certification once all are live', () => {
-    const fr = visibleText(render('landing', 'fr'));
-    expect(fr).toContain('Uber Eats Disponible');
-    expect(fr).toContain('DoorDash Certification en cours');
-    expect(fr).toContain('SkipTheDishes Certification en cours');
-    const allLive = visibleText(render('landing', 'en', ctx({ livePlatforms: ['uber', 'doordash', 'skip'] })));
-    expect(allLive).toContain('DoorDash Available');
-    expect(allLive).not.toMatch(/certification/i);
-    expect(fr).toContain('Too Good To Go : lorsque votre compte offre un flux de commandes.');
-  });
-  it('« another register? » writes to support: the email when set, else the support page', () => {
-    expect(render('landing', 'fr')).not.toContain('mailto:');
-    expect(render('landing', 'fr')).toContain('href="/legal/support"');
-    expect(render('landing', 'en', ctx({ supportEmail: 'support@example.com' }))).toContain('href="mailto:support@example.com"');
-  });
-  it('the claims come from the Clover listing (seconds for sold-out items, payouts checked, Clover order types)', () => {
-    const listing = [LISTING_DESCRIPTION, ...LISTING_BENEFITS].map((b) => `${b.fr} ${b.en}`).join(' ').toLowerCase();
-    expect(listing).toMatch(/quelques secondes|within seconds/);
-    expect(listing).toMatch(/paiement|payout/);
-    expect(listing).toContain('order type per platform');
   });
 });

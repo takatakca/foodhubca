@@ -8,7 +8,7 @@ The form retains only its nonce in tab session storage, never contact data. An u
 
 A production instance without durable repository storage returns503 rather than accepting a request that would disappear on restart. Test-mode memory fixtures remain available. JSON media type is checked exactly; undeclared streaming bodies stop at16000bytes. Honeypot behavior and the ON2GO cross-origin allowlist remain unchanged. `Idempotency-Key` is currently used by the same-origin Food Hub form; the older ON2GO form requires no new header or CORS change. Food Hub optional auto-replies name its enquiry correctly, and unsupported two-business-day promises have been removed from both products.
 
-Local verification:102 focused tests passed and scoped lint is clean. The coordinated production build passed. The native public UI passed12browser checks includingfourFR/EN viewport/WCAG A/AA scans withzero violations andzero pageerrors. Actual PostgreSQL writer/restart evidence is recorded separately by the coordinator. No real contact email or live production submission was performed by these checks.
+Local verification: 102 focused tests passed and scoped lint is clean. The coordinated pruned production image (`12dc660c05c08aecbd683f9bc90e5c476274b8e1`) built successfully. Its unmodified native public UI passed 32 browser checks, including four FR/EN viewport/WCAG A/AA scans with zero violations and 20 repeated Phone AI/query/language journeys, with zero uncaught page errors. An earlier host build's intermittent React #418 was investigated and did not reproduce on this final image; no source fix is claimed. Actual PostgreSQL lost-response/restart and single owner-inbox lead evidence is recorded separately by the coordinator. No real contact email or live production submission was performed by these checks. See [browser results](agent-progress/evidence/02-marketing/contact/results.json) and [image/source provenance](agent-progress/evidence/02-marketing/contact/provenance.json).
 
 # Demandes de restaurants / Restaurant leads (ON2GO.ca → Food Hub)
 
@@ -83,7 +83,9 @@ Nothing is ever HTML-rendered from the request.
 | `400` | `{ "ok": false, "errors": { "<field>": "required" \| "invalid" \| "too_long" } }` | validation; `{ "body": "invalid" }` for malformed JSON |
 | `413` | `{ "ok": false, "error": "Too large." }` | body over 16 000 bytes |
 | `415` | `{ "ok": false, "error": "…" }` | `Content-Type` is not `application/json` |
+| `409` | `{ "ok": false, "error": "request_changed" \| "request_pending" }` | the idempotency key identifies different data or an attempt whose storage outcome is unconfirmed |
 | `429` | `{ "ok": false, "error": "Too many requests…" }` + `Retry-After` | quota spent for this IP |
+| `503` | `{ "ok": false, "error": "unavailable" }` | durable storage is unavailable or production storage is nondurable |
 
 Every answer carries `Cache-Control: no-store`, `X-Content-Type-Options: nosniff` and, for an allowed origin,
 `Access-Control-Allow-Origin` + `Vary: Origin`.

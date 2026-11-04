@@ -1,0 +1,1717 @@
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 4.43kB done
+#1 DONE 0.0s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1
+#2 DONE 0.7s
+
+#3 docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#3 CACHED
+
+#4 [internal] load metadata for docker.io/library/node:22-bookworm-slim
+#4 DONE 0.0s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 249B done
+#5 DONE 0.0s
+
+#6 [dependencies 1/4] FROM docker.io/library/node:22-bookworm-slim
+#6 DONE 0.0s
+
+#7 [internal] load build context
+#7 transferring context: 2.79MB 0.2s done
+#7 DONE 0.3s
+
+#8 [dependencies 3/4] COPY package.json package-lock.json ./
+#8 CACHED
+
+#9 [dependencies 2/4] WORKDIR /app
+#9 CACHED
+
+#10 [dependencies 4/4] RUN --mount=type=secret,id=proxy_ca     if [ -r /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi;     npm ci --no-audit --no-fund --loglevel=error
+#10 CACHED
+
+#11 [app 1/5] COPY . .
+#11 DONE 28.9s
+
+#12 [app 2/5] RUN node -e 'if (!/^[0-9a-f]{40}$/i.test(process.env.FOODHUB_RELEASE_SHA || "")) process.exit(1)'
+#12 DONE 5.2s
+
+#13 [app 3/5] RUN --mount=type=secret,id=proxy_ca     set -eu; fh_audit_ca="";     if [ -r /run/secrets/proxy_ca ]; then fh_audit_ca=/run/secrets/proxy_ca; fi;     env -i PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" HOME="$HOME" NEXT_TELEMETRY_DISABLED=1     HTTP_PROXY="${HTTP_PROXY:-}" HTTPS_PROXY="${HTTPS_PROXY:-}" NO_PROXY="${NO_PROXY:-}"     http_proxy="${http_proxy:-}" https_proxy="${https_proxy:-}" no_proxy="${no_proxy:-}"     NODE_EXTRA_CA_CERTS="$fh_audit_ca" npm run audit:prod  && env -i PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" HOME="$HOME" NEXT_TELEMETRY_DISABLED=1 npm run check  && env -i PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" HOME="$HOME" NEXT_TELEMETRY_DISABLED=1 npm run build  && env -i PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" HOME="$HOME" NEXT_TELEMETRY_DISABLED=1     FOODHUB_INTERNAL_SYNC_MIN=0 FOODHUB_E2E_MOCK_PORT=18090 FOODHUB_E2E_APP_PORT=18091 npm run verify:foodhub
+#13 24.24
+#13 24.24 > takatak-accounting-control-tower@1.5.9 audit:prod
+#13 24.24 > npm audit --omit=dev --audit-level=high
+#13 24.24
+#13 25.65 found 0 vulnerabilities
+#13 26.31
+#13 26.31 > takatak-accounting-control-tower@1.5.9 check
+#13 26.31 > npm run typecheck && npm run lint && npm test
+#13 26.31
+#13 26.58
+#13 26.58 > takatak-accounting-control-tower@1.5.9 typecheck
+#13 26.58 > tsc --noEmit -p .
+#13 26.58
+#13 79.79
+#13 79.79 > takatak-accounting-control-tower@1.5.9 lint
+#13 79.79 > eslint .
+#13 79.79
+#13 162.3
+#13 162.3 /app/app/(console)/settings/devices/page.tsx
+#13 162.3   47:158  warning  Do not use `window.location.href` to navigate to internal Next.js pages. Use `redirect()` in the render phase, or `useRouter().push()` in Client Components' event handlers instead. See: https://nextjs.org/docs/messages/no-location-assign-relative-destination  @next/next/no-location-assign-relative-destination
+#13 162.3
+#13 162.3 ✖ 1 problem (0 errors, 1 warning)
+#13 162.3
+#13 162.8
+#13 162.8 > takatak-accounting-control-tower@1.5.9 test
+#13 162.8 > vitest run
+#13 162.8
+#13 163.5
+#13 163.5  RUN  v4.1.9 /app
+#13 163.5
+#13 168.7  ✓ tests/doordash-stores-retail-drive.test.ts (32 tests) 432ms
+#13 169.1  ✓ tests/clover-multi-app.test.ts (46 tests) 917ms
+#13 169.1      ✓ a hung billing_info answers within the budget from the grace rules, and Clover is not asked again for a while  372ms
+#13 169.2  ✓ tests/tgtg-email.test.ts (37 tests) 1078ms
+#13 169.2      ✓ reads an English plain-text reservation  341ms
+#13 170.8  ✓ tests/interac-etransfer.test.ts (27 tests) 1938ms
+#13 170.8      ✓ the expansion tick runs the Interac check with own delivery on  1028ms
+#13 170.8      ✓ orders board, order detail and an action answer carry no answer — even for a read-only role  394ms
+#13 171.0  ✓ tests/tgtg-deliverect.test.ts (29 tests) 700ms
+#13 171.3 stderr | tests/ivr.test.ts > TAKATAK Phone on the ON2GO menu, and the empty answers of the status steps > "place an order" for a kitchen without the phone app: a person takes the order (voicemail when nobody), never the AI
+#13 171.3 [foodhub] TAKATAK Phone AI not active for kitchen NDG (not_installed) (merchant TESTMERCHIVR1): call handed to a person
+#13 171.3
+#13 171.7  ✓ tests/ai-phone-paylink.test.ts (34 tests) 999ms
+#13 171.7      ✓ the call simulator is owner-only and never uses a caller number typed in  345ms
+#13 172.3 stderr | tests/ivr.test.ts > TAKATAK Phone on the ON2GO menu, and the empty answers of the status steps > "place an order" with Clover hanging: the app check waits 1 s at most (the menu's AI turn already used time)
+#13 172.3 [foodhub] TAKATAK Phone AI not active for kitchen NDG (clover_unreachable) (merchant TESTMERCHIVR1): call handed to a person
+#13 172.3
+#13 172.3  ✓ tests/ivr.test.ts (71 tests) 2157ms
+#13 172.3      ✓ an AI error falls back to the keyword router once (no loop back into the AI): link by text, then a message  489ms
+#13 172.3      ✓ "place an order" with Clover hanging: the app check waits 1 s at most (the menu's AI turn already used time)  1085ms
+#13 172.4 stderr | tests/clover-billing.test.ts > review fixes: never billed twice, never billed from defaults, only the Standard tier > a failed catalog read records no count (never one from defaults); last month still goes out; the dry run still works
+#13 172.4 [foodhub] extra-brand billing: count skipped this run catalog read failed
+#13 172.4
+#13 172.4 stderr | tests/clover-billing.test.ts > review fixes: never billed twice, never billed from defaults, only the Standard tier > a failed main-brand read records no count, and setting a main brand never wipes the other merchants’ marks
+#13 172.4 [foodhub] extra-brand billing: count skipped this run marks read failed
+#13 172.4
+#13 172.4  ✓ tests/clover-billing.test.ts (39 tests) 228ms
+#13 172.6  ✓ tests/menu-safety-brand-menus.test.ts (30 tests) 706ms
+#13 174.1  ✓ tests/direct-payment-safety.test.ts (33 tests) 427ms
+#13 174.4 stderr | tests/doordash-sandbox.test.ts > the sandbox decision is taken when the webhook arrives (inbox tag) > control: a REAL DoorDash order past the answer window is still handed to a person
+#13 174.4 [foodhub] doordash webhook dd-real-1 kept in the inbox for a person: not processed within DoorDash's 3-minute answer window — DoorDash may have cancelled it or sent it to its tablet; check there before replaying
+#13 174.4
+#13 174.5  ✓ tests/doordash-sandbox.test.ts (36 tests) 445ms
+#13 175.3 stderr | tests/public-hub.test.ts > structured data > in production, a base that is not https falls back to the real address (never localhost in canonicals or the sitemap)
+#13 175.3 [public-hub] FOODHUB_PUBLIC_URL is not a public HTTPS origin in production: the public pages use https://foodhub.on2go.ca instead.
+#13 175.3
+#13 175.5  ✓ tests/public-hub.test.ts (35 tests) 1132ms
+#13 175.5      ✓ renders one H1, the FAQ, the legal links and no banned words, in both languages (no page-specific client component or tracker)  352ms
+#13 175.9  ✓ tests/mev-outbox.test.ts (28 tests) 649ms
+#13 176.0  ✓ tests/customer-identity.test.ts (18 tests) 442ms
+#13 176.7  ✓ tests/certification-backlog.test.ts (26 tests) 740ms
+#13 178.7  ✓ tests/scope.test.ts (37 tests) 274ms
+#13 180.4  ✓ tests/doordash-orders-webhooks.test.ts (30 tests) 221ms
+#13 181.1  ✓ tests/sales-mix.test.ts (30 tests) 3104ms
+#13 181.1      ✓ builds 20 000 orders in well under the route time limit  2062ms
+#13 182.1 stderr | tests/reconcile-pr6.test.ts > webhook inbox: never a late ticket, never a 503 copy, a person after repeated stops > an order past its platform answer window is not processed automatically — a person can still replay it
+#13 182.1 [foodhub] uber_eats webhook uber-late-1 kept in the inbox for a person: not processed within Uber Eats's 11.5-minute answer window — Uber Eats may have cancelled it or sent it to its tablet; check there before replaying
+#13 182.1
+#13 182.2 stderr | tests/reconcile-pr6.test.ts > webhook inbox: never a late ticket, never a 503 copy, a person after repeated stops > an order with no platform window (relay / Too Good To Go) stops after FOODHUB_INBOX_MAX_AGE_MIN (30 by default)
+#13 182.2 [foodhub] tgtg webhook tgtg-old-1 kept in the inbox for a person: not processed within 30 minutes — check with Too Good To Go that the order still stands before replaying
+#13 182.2
+#13 182.2 stderr | tests/reconcile-pr6.test.ts > webhook inbox: never a late ticket, never a 503 copy, a person after repeated stops > an entry interrupted 5 times is handed to a person instead of being run again
+#13 182.2 [foodhub] doordash webhook dd-1 kept in the inbox for a person: still not processed after 5 tries (the last one was interrupted: the server stopped)
+#13 182.2
+#13 182.2 stderr | tests/reconcile-pr6.test.ts > webhook inbox: never a late ticket, never a 503 copy, a person after repeated stops > a write that landed but answered with an error: the route answers 503 and that copy is marked refused
+#13 182.2 [foodhub] could not save the skip webhook before answering: Error: statement timeout
+#13 182.2     at Object.<anonymous> (/app/tests/reconcile-pr6.test.ts:172:134)
+#13 182.2     at processTicksAndRejections (node:internal/process/task_queues:103:5)
+#13 182.2
+#13 182.4 stderr | tests/reconcile-pr6.test.ts > /api/health: cheap, time-bounded, honest in production > memory mode on a production server is "down" (orders would vanish at the next restart)
+#13 182.4 [foodhub] health down: database,console
+#13 182.4
+#13 182.4 stderr | tests/reconcile-pr6.test.ts > /api/health: cheap, time-bounded, honest in production > memory mode on a production server is "down" (orders would vanish at the next restart)
+#13 182.4 [foodhub] health down: watchtower,console
+#13 182.4
+#13 182.4 stderr | tests/reconcile-pr6.test.ts > /api/health: cheap, time-bounded, honest in production > a locked console is "down": live without DASHBOARD_PASSWORD, or no session secret at all
+#13 182.4 [foodhub] health down: watchtower,console
+#13 182.4
+#13 182.4 stderr | tests/reconcile-pr6.test.ts > /api/health: cheap, time-bounded, honest in production > a locked console is "down": live without DASHBOARD_PASSWORD, or no session secret at all
+#13 182.4 [foodhub] health down: watchtower
+#13 182.4
+#13 182.4 stderr | tests/reconcile-pr6.test.ts > /api/health: cheap, time-bounded, honest in production > a locked console is "down": live without DASHBOARD_PASSWORD, or no session secret at all
+#13 182.4 [foodhub] health down: database,console
+#13 182.4
+#13 182.4 stderr | tests/reconcile-pr6.test.ts > /api/health: cheap, time-bounded, honest in production > sync age: down only when a regular sync was promised and stopped; a new server gets time for its first sync
+#13 182.4 [foodhub] health down: database,console
+#13 182.4
+#13 182.4 stderr | tests/reconcile-pr6.test.ts > /api/health: cheap, time-bounded, honest in production > sync age: down only when a regular sync was promised and stopped; a new server gets time for its first sync
+#13 182.4 [foodhub] health down: database,sync,watchtower,console
+#13 182.4
+#13 182.4 stderr | tests/reconcile-pr6.test.ts > /api/health: cheap, time-bounded, honest in production > sync age: down only when a regular sync was promised and stopped; a new server gets time for its first sync
+#13 182.4 [foodhub] health down: database,watchtower,console
+#13 182.4
+#13 182.4 stderr | tests/reconcile-pr6.test.ts > /api/health: cheap, time-bounded, honest in production > sync age: down only when a regular sync was promised and stopped; a new server gets time for its first sync
+#13 182.4 [foodhub] health down: database,watchtower,console
+#13 182.4
+#13 182.4 stderr | tests/reconcile-pr6.test.ts > /api/health: cheap, time-bounded, honest in production > sync age: down only when a regular sync was promised and stopped; a new server gets time for its first sync
+#13 182.4 [foodhub] health down: database,sync,watchtower,console
+#13 182.4
+#13 182.4 stderr | tests/reconcile-pr6.test.ts > /api/health: cheap, time-bounded, honest in production > sync age: down only when a regular sync was promised and stopped; a new server gets time for its first sync
+#13 182.4 [foodhub] health down: database,console
+#13 182.4
+#13 182.4 stderr | tests/reconcile-pr6.test.ts > /api/health: cheap, time-bounded, honest in production > callers in flight share one computation; memory mode is never reused once done
+#13 182.4 [foodhub] health down: watchtower,console
+#13 182.4
+#13 182.4 stderr | tests/reconcile-pr6.test.ts > /api/health: cheap, time-bounded, honest in production > a database that does not answer makes the check "down" within 4 s instead of hanging the monitor
+#13 182.4 [foodhub] health down: watchtower
+#13 182.4
+#13 182.6 stderr | tests/ops-quality.test.ts > route access > a manager sees only their locations; goals are owner-only; a database failure is a generic 500
+#13 182.6 [foodhub] PUT /api/foodhub/ops-quality/goals error: Error: Supabase: relation "fh_kv" does not exist
+#13 182.6     at Object.repo.setKv (/app/tests/ops-quality.test.ts:354:40)
+#13 182.6     at saveOpsGoals (/app/lib/foodhub/ops-quality.ts:76:19)
+#13 182.6     at processTicksAndRejections (node:internal/process/task_queues:103:5)
+#13 182.6     at /app/app/api/foodhub/ops-quality/goals/route.ts:11:78
+#13 182.6     at Module.<anonymous> (/app/lib/foodhub/auth.ts:128:14)
+#13 182.6     at /app/tests/ops-quality.test.ts:356:21
+#13 182.6     at file:///app/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+#13 182.6
+#13 182.7  ✓ tests/ops-quality.test.ts (16 tests) 1795ms
+#13 182.7      ✓ a manager sees only their locations; goals are owner-only; a database failure is a generic 500  657ms
+#13 183.3  ✓ tests/autopilot.test.ts (26 tests) 8901ms
+#13 183.3      ✓ lists every automation; only a manager of every location or the owner can switch a new one  943ms
+#13 183.3      ✓ never schedules a brand whose stores are all protected (Po Poulet NDG, a locked menu)  1281ms
+#13 183.3      ✓ the hours route and the Clover price route both trigger it  722ms
+#13 183.3      ✓ turning the switch off cancels the publishes it planned; an Autopilot publish never runs while the switch is off  596ms
+#13 183.3      ✓ a publish a person planned for the brand wins: Autopilot never sends saved changes before it  369ms
+#13 183.3      ✓ never retries a protected store, a guard pause, a blocked send, or a refusal from before the switch was on  353ms
+#13 183.6 stderr | tests/mev-register.test.ts > register sales through QCMEV (outbox, stand-in QCMEV, fake Clover) > a busy merchant: a poll that hits its page limit resumes after the last order it read, never skipping one
+#13 183.6 [foodhub] Clover register poll MIDREGISTER1 more than 2 orders changed; the rest on the next run
+#13 183.6
+#13 183.6 stderr | tests/mev-register.test.ts > register sales through QCMEV (outbox, stand-in QCMEV, fake Clover) > a busy merchant: a poll that hits its page limit resumes after the last order it read, never skipping one
+#13 183.6 [foodhub] Clover register poll MIDREGISTER1 more than 2 orders changed; the rest on the next run
+#13 183.6
+#13 183.6 stderr | tests/mev-register.test.ts > register sales through QCMEV (outbox, stand-in QCMEV, fake Clover) > a busy merchant: a poll that hits its page limit resumes after the last order it read, never skipping one
+#13 183.6 [foodhub] Clover register poll MIDREGISTER1 more than 2 orders changed; the rest on the next run
+#13 183.6
+#13 183.6 stderr | tests/mev-register.test.ts > register sales through QCMEV (outbox, stand-in QCMEV, fake Clover) > a busy merchant: a poll that hits its page limit resumes after the last order it read, never skipping one
+#13 183.6 [foodhub] Clover register poll MIDREGISTER1 more than 2 orders changed; the rest on the next run
+#13 183.6
+#13 183.7  ✓ tests/storefront-checkout.test.ts (26 tests) 3567ms
+#13 183.7      ✓ coalesces parallel retries and replays the same receipt after closure without extra texts, charges or rate slots  303ms
+#13 183.7      ✓ rate limits: 3 orders per 30 min per phone, 5 per 10 min per address  464ms
+#13 183.7      ✓ rate limits hold under parallel requests: 10 at once from one address → 5 pass; from one phone → 3 pass  845ms
+#13 184.0  ✓ tests/skip-logistics-daas.test.ts (16 tests) 108ms
+#13 184.0  ✓ tests/mev-register.test.ts (26 tests) 557ms
+#13 184.7  ✓ tests/skip-api-coverage.test.ts (25 tests) 71ms
+#13 185.1 stderr | tests/phone-app-gate.test.ts > live call: gated > not installed for the kitchen's merchant: handed to the line's person with a short message, never hung up, no AI minute
+#13 185.1 [foodhub] TAKATAK Phone AI not active for kitchen NDG (not_installed) (merchant TESTMERCH0021): call handed to a person
+#13 185.1
+#13 185.1 stderr | tests/phone-app-gate.test.ts > live call: gated > no hand-off number on the line: the kitchen's own phone rings
+#13 185.1 [foodhub] TAKATAK Phone AI not active for kitchen NDG (not_installed) (merchant TESTMERCH0021): call handed to a person
+#13 185.1
+#13 185.1 stderr | tests/phone-app-gate.test.ts > live call: gated > past the grace (lapsed, suspended, Clover down too long): a person takes the call
+#13 185.1 [foodhub] TAKATAK Phone AI not active for kitchen NDG (lapsed) (merchant TESTMERCH0021): call handed to a person
+#13 185.1
+#13 185.1 stderr | tests/phone-app-gate.test.ts > live call: gated > past the grace (lapsed, suspended, Clover down too long): a person takes the call
+#13 185.1 [foodhub] TAKATAK Phone AI not active for kitchen NDG (suspended) (merchant TESTMERCH0021): call handed to a person
+#13 185.1
+#13 185.1 stderr | tests/phone-app-gate.test.ts > live call: gated > past the grace (lapsed, suspended, Clover down too long): a person takes the call
+#13 185.1 [foodhub] TAKATAK Phone AI not active for kitchen NDG (clover_unreachable) (merchant TESTMERCH0021): call handed to a person
+#13 185.1
+#13 185.1 stderr | tests/phone-app-gate.test.ts > live call: gated > past the grace (lapsed, suspended, Clover down too long): a person takes the call
+#13 185.1 [foodhub] TAKATAK Phone AI not active for kitchen NDG (pending_approval) (merchant TESTMERCH0021): call handed to a person
+#13 185.1
+#13 185.1 stderr | tests/phone-app-gate.test.ts > live call: gated > a line with several kitchens: every kitchen must have the app (the caller may pick any of them)
+#13 185.1 [foodhub] TAKATAK Phone AI not active for kitchen SAINT_LEONARD (inactive) (merchant TESTMERCH0022): call handed to a person
+#13 185.1
+#13 185.1 stderr | tests/phone-app-gate.test.ts > live call: gated > a refused call on a line with no hand-off number and no kitchen phone: ON2GO voicemail, never just hung up
+#13 185.1 [foodhub] TAKATAK Phone AI not active for kitchen NDG (not_installed) (merchant TESTMERCH0021): call handed to a person
+#13 185.1
+#13 185.1 stderr | tests/phone-app-gate.test.ts > live call: gated > a refused call on a line with no hand-off number and no kitchen phone: ON2GO voicemail, never just hung up
+#13 185.1 [foodhub] TAKATAK Phone AI not active for kitchen NDG (not_installed) (merchant TESTMERCH0021): call handed to a person
+#13 185.1
+#13 185.1 stderr | tests/phone-app-gate.test.ts > live call: gated > the hand-off person does not answer: ON2GO voicemail takes a message
+#13 185.1 [foodhub] TAKATAK Phone AI not active for kitchen NDG (not_installed) (merchant TESTMERCH0021): call handed to a person
+#13 185.1
+#13 185.4  ✓ tests/phone-app-gate.test.ts (28 tests) 377ms
+#13 185.8  ✓ tests/own-delivery.test.ts (16 tests) 1041ms
+#13 185.8  ✓ tests/platform-screens.test.ts (29 tests) 182ms
+#13 186.2  ✓ tests/mev-map.test.ts (30 tests) 160ms
+#13 186.4 stderr | tests/reconcile-pr6.test.ts > /api/health: cheap, time-bounded, honest in production > a database that does not answer makes the check "down" within 4 s instead of hanging the monitor
+#13 186.4 [foodhub] health: database check failed — no answer after 4000 ms
+#13 186.4
+#13 186.4 stderr | tests/reconcile-pr6.test.ts > /api/health: cheap, time-bounded, honest in production > a database that does not answer makes the check "down" within 4 s instead of hanging the monitor
+#13 186.4 [foodhub] health down: database,watchtower,console
+#13 186.4
+#13 186.5 stderr | tests/reconcile-pr6.test.ts > Watchtower > a webhook waiting for a person (here a late order) shows as an incident, not only in the log
+#13 186.5 [foodhub] uber_eats webhook uber-late-watch kept in the inbox for a person: not processed within Uber Eats's 11.5-minute answer window — Uber Eats may have cancelled it or sent it to its tablet; check there before replaying
+#13 186.5
+#13 186.5  ✓ tests/reconcile-pr6.test.ts (28 tests) 4364ms
+#13 186.5      ✓ a database that does not answer makes the check "down" within 4 s instead of hanging the monitor  4017ms
+#13 186.7  ✓ tests/uber-api-coverage.test.ts (17 tests) 111ms
+#13 186.8 stderr | tests/uber-final.test.ts > webhook inbox (saved before the 200, replayed if unfinished) > route: saved before the 200, processed after; a store that cannot be saved gets 503 so Uber retries
+#13 186.8 [foodhub] could not save the uber_eats webhook before answering: Error: db down
+#13 186.8     at /app/tests/uber-final.test.ts:208:70
+#13 186.8     at file:///app/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+#13 186.8
+#13 186.8 stderr | tests/uber-final.test.ts > webhook inbox (saved before the 200, replayed if unfinished) > a failed processing is kept and retried by itself; after the last automatic try it waits for Replay and alerts
+#13 186.8 [foodhub] uber_eats webhook o-fail kept in the inbox (try 1, next at 2026-11-04T20:05:09.365Z): Uber order fetch failed: HTTP 500
+#13 186.8
+#13 186.8 stderr | tests/uber-final.test.ts > webhook inbox (saved before the 200, replayed if unfinished) > a failed processing is kept and retried by itself; after the last automatic try it waits for Replay and alerts
+#13 186.8 [foodhub] uber_eats webhook o-fail kept in the inbox (try 2, next at 2026-11-04T20:06:39.372Z): Uber order fetch failed: HTTP 500
+#13 186.8
+#13 186.8 stderr | tests/uber-final.test.ts > webhook inbox (saved before the 200, replayed if unfinished) > a failed processing is kept and retried by itself; after the last automatic try it waits for Replay and alerts
+#13 186.8 [foodhub] uber_eats webhook o-fail kept in the inbox (try 3, waits for Replay): Uber order fetch failed: HTTP 500
+#13 186.8
+#13 186.9  ✓ tests/uber-final.test.ts (22 tests) 251ms
+#13 187.7  ✓ tests/clover-app.test.ts (24 tests) 159ms
+#13 187.9  ✓ tests/phone-agent.test.ts (16 tests) 775ms
+#13 187.9  ✓ tests/final-menu-catalog-hours.test.ts (15 tests) 699ms
+#13 188.0  ✓ tests/customer-insights.test.ts (21 tests) 660ms
+#13 188.0      ✓ (18) a role without analytics:view gets 403; a kitchen-scoped user only sees its own kitchen  359ms
+#13 188.9  ✓ tests/final-adapters-menu.test.ts (22 tests) 115ms
+#13 189.4  ✓ tests/legal-pages.test.ts (23 tests) 359ms
+#13 189.6  ✓ tests/release-2026-10-23-fixes.test.ts (13 tests) 303ms
+#13 190.0  ✓ tests/uber-api-full.test.ts (9 tests) 87ms
+#13 190.0  ✓ tests/brand-kit.test.ts (27 tests) 1936ms
+#13 190.0      ✓ an order card of a brand without a kit looks exactly as before (no style, no stripe)  1198ms
+#13 190.5  ✓ tests/doordash-core.test.ts (23 tests) 88ms
+#13 190.5  ✓ tests/clover-website-orders.test.ts (15 tests) 120ms
+#13 190.8  ✓ tests/phone-minutes-alerts.test.ts (15 tests) 247ms
+#13 191.4  ✓ tests/kitchen-print-queue.test.ts (14 tests) 207ms
+#13 191.4  ✓ tests/finance.test.ts (22 tests) 268ms
+#13 192.0  ✓ tests/phone-kitchens.test.ts (10 tests) 876ms
+#13 192.0      ✓ asks which kitchen first, then takes the order on that kitchen’s menu and sends it there  321ms
+#13 192.3  ✓ tests/brand-phone-lines.test.ts (20 tests) 153ms
+#13 192.3  ✓ tests/on2go-public-customers.test.ts (13 tests) 313ms
+#13 193.4  ✓ tests/reviews-import.test.ts (19 tests) 181ms
+#13 193.4  ✓ tests/control-plane.test.ts (14 tests | 1 skipped) 243ms
+#13 194.1  ✓ tests/downtime-guard.test.ts (15 tests) 556ms
+#13 194.9  ✓ tests/final-reports.test.ts (16 tests) 421ms
+#13 195.2  ✓ tests/public-directory.test.ts (17 tests | 1 skipped) 1096ms
+#13 195.3 stderr | tests/order-path.test.ts > webhook inbox — saved before the answer, never lost > Uber refuses the order fetch → failed, retried by itself after 30 s → order arrives
+#13 195.3 [foodhub] uber_eats webhook uber-inbox-2 kept in the inbox (try 1, next at 2026-11-04T20:05:17.854Z): Uber order fetch failed: HTTP 503
+#13 195.3
+#13 195.3 stderr | tests/order-path.test.ts > webhook inbox — saved before the answer, never lost > after the automatic tries it waits for a person; Replay processes it, and a second Replay never duplicates the order
+#13 195.3 [foodhub] uber_eats webhook uber-inbox-3 kept in the inbox (try 1, next at 2026-11-04T20:05:17.860Z): Uber order fetch failed: HTTP 503
+#13 195.3
+#13 195.3 stderr | tests/order-path.test.ts > webhook inbox — saved before the answer, never lost > after the automatic tries it waits for a person; Replay processes it, and a second Replay never duplicates the order
+#13 195.3 [foodhub] uber_eats webhook uber-inbox-3 kept in the inbox (try 2, next at 2026-11-04T20:06:47.860Z): Uber order fetch failed: HTTP 503
+#13 195.3
+#13 195.3 stderr | tests/order-path.test.ts > webhook inbox — saved before the answer, never lost > after the automatic tries it waits for a person; Replay processes it, and a second Replay never duplicates the order
+#13 195.3 [foodhub] uber_eats webhook uber-inbox-3 kept in the inbox (try 3, waits for Replay): Uber order fetch failed: HTTP 503
+#13 195.3
+#13 195.3  ✓ tests/order-path.test.ts (10 tests) 234ms
+#13 196.0  ✓ tests/email-smtp.test.ts (22 tests) 816ms
+#13 196.0      ✓ reports go out by SMTP with the file attached, using AUTH_EMAIL_FROM when REPORT_EMAIL_FROM is not set  521ms
+#13 196.5  ✓ tests/screens-relay-windows.test.ts (11 tests | 5 skipped) 133ms
+#13 197.1  ✓ tests/rc9.test.ts (24 tests) 127ms
+#13 197.5 stderr | tests/golive-connections.test.ts > /api/health carries the services without changing the status; names for the owner only > buildHealth: services beside the checks, never inside them
+#13 197.5 [foodhub] health down: watchtower
+#13 197.5
+#13 197.5 stderr | tests/golive-connections.test.ts > /api/health carries the services without changing the status; names for the owner only > buildHealth: services beside the checks, never inside them
+#13 197.5 [foodhub] health down: watchtower
+#13 197.5
+#13 197.5 stderr | tests/golive-connections.test.ts > /api/health carries the services without changing the status; names for the owner only > owner: the names of missing settings; manager and cron secret: the states only; public: nothing
+#13 197.5 [foodhub] health down: watchtower
+#13 197.5
+#13 197.8 stderr | tests/golive-connections.test.ts > /api/health carries the services without changing the status; names for the owner only > owner: the names of missing settings; manager and cron secret: the states only; public: nothing
+#13 197.8 [foodhub] health down: watchtower
+#13 197.8
+#13 197.8 stderr | tests/golive-connections.test.ts > /api/health carries the services without changing the status; names for the owner only > owner: the names of missing settings; manager and cron secret: the states only; public: nothing
+#13 197.8 [foodhub] health down: watchtower
+#13 197.8
+#13 197.9 stderr | tests/golive-connections.test.ts > /api/health carries the services without changing the status; names for the owner only > owner: the names of missing settings; manager and cron secret: the states only; public: nothing
+#13 197.9 [foodhub] health down: watchtower
+#13 197.9
+#13 197.9  ✓ tests/golive-connections.test.ts (16 tests) 553ms
+#13 197.9      ✓ owner: the names of missing settings; manager and cron secret: the states only; public: nothing  397ms
+#13 198.0  ✓ tests/rc10.test.ts (12 tests) 891ms
+#13 198.0      ✓ opens one incident for a waiting order, updates it on the next run, resolves it when accepted  451ms
+#13 198.6  ✓ tests/google-signin.test.ts (9 tests) 354ms
+#13 199.2  ✓ tests/verify-platform-readiness.test.mjs (31 tests) 174ms
+#13 199.9  ✓ tests/store-availability-api.test.ts (10 tests) 6141ms
+#13 199.9      ✓ needs a sign-in and follows the location scope  588ms
+#13 199.9      ✓ permissions, scope, validation  806ms
+#13 199.9      ✓ asks for a manager PIN when the busy-mode approval rule says so  658ms
+#13 199.9      ✓ OFF by default; stores:map needed; scope; validation  758ms
+#13 199.9      ✓ lists the presets; adding needs menu:edit and your own kitchens  1383ms
+#13 199.9      ✓ says when the period has more lines than one read (truncated)  397ms
+#13 199.9      ✓ API: scope, channel check, CSV download  674ms
+#13 200.3  ✓ tests/restaurant-leads.test.ts (15 tests) 184ms
+#13 201.0  ✓ tests/order-tools-kitchen-status.test.ts (19 tests) 84ms
+#13 201.3  ✓ tests/takatak-bridge.test.ts (12 tests) 113ms
+#13 201.4  ✓ tests/order-tools-api.test.ts (12 tests) 2845ms
+#13 201.4      ✓ a hand-made pause of the protected DoorDash store pauses nothing and makes no call  549ms
+#13 201.4      ✓ a pause needs minutes 1–1440 and one of the sheet’s reasons (400 otherwise, nothing sent)  531ms
+#13 201.4      ✓ keeps the manager PIN rule for a pause (operator without PIN → 428), checks the kitchen scope and the permission  333ms
+#13 201.5  ✓ tests/direct-order-board.test.ts (10 tests) 2457ms
+#13 201.5      ✓ pushes actor/location scope before the result limit despite newer foreign-location saturation  538ms
+#13 201.5      ✓ restores the exact old attached courier and refuses a mismatched stored delivery reference  429ms
+#13 201.5      ✓ reports a clipped review scan even when none of the scanned historical flags remain unresolved  426ms
+#13 202.0  ✓ tests/screens-relay-generate.test.ts (18 tests) 114ms
+#13 202.0  ✓ tests/reviews-drafts.test.ts (13 tests) 332ms
+#13 203.0  ✓ tests/takatak-suite.test.ts (10 tests) 608ms
+#13 203.0      ✓ refuses unsigned reads and bad merchant IDs; drops unsafe addresses  473ms
+#13 203.2  ✓ tests/shared-menu.test.ts (13 tests) 1098ms
+#13 203.2      ✓ edits and Clover imports are refused on a follower; GET shows where its menu comes from  903ms
+#13 204.2  ✓ tests/platform-fixes.test.ts (12 tests) 460ms
+#13 204.5 stderr | tests/final-auth-gate.test.ts > withPerm error handling > keeps validation messages (400) and hides infrastructure errors (500)
+#13 204.5 [foodhub] api error: Error: Supabase: permission denied for table x
+#13 204.5     at /app/tests/final-auth-gate.test.ts:198:32
+#13 204.5     at file:///app/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+#13 204.5
+#13 204.5 stderr | tests/final-auth-gate.test.ts > withPerm error handling > keeps validation messages (400) and hides infrastructure errors (500)
+#13 204.5 [foodhub] GET /api/foodhub/x error: Error: Supabase: PGRST301 JWT expired
+#13 204.5     at /app/tests/final-auth-gate.test.ts:201:56
+#13 204.5     at /app/lib/foodhub/auth.ts:128:20
+#13 204.5     at /app/tests/final-auth-gate.test.ts:202:17
+#13 204.5     at file:///app/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+#13 204.5
+#13 204.5  ✓ tests/final-auth-gate.test.ts (16 tests) 1265ms
+#13 204.5      ✓ Basic auth: owner, team member, throttle and one activity-log line per minute per IP  503ms
+#13 205.2  ✓ tests/relay.test.ts (13 tests) 121ms
+#13 205.2  ✓ tests/clover-order.test.ts (13 tests) 29ms
+#13 205.4  ✓ tests/storefront-catalog.test.ts (11 tests) 781ms
+#13 206.1  ✓ tests/menu-import-preview.test.ts (5 tests | 1 skipped) 46ms
+#13 206.3  ✓ tests/owner-copy-a3.test.ts (14 tests) 117ms
+#13 206.8  ✓ tests/reviews-doordash.test.ts (11 tests) 62ms
+#13 206.9  ✓ tests/own-fleet.test.ts (8 tests) 119ms
+#13 207.8  ✓ tests/foodhub.test.ts (17 tests) 63ms
+#13 207.8  ✓ tests/atlas-parity.test.ts (18 tests) 390ms
+#13 208.4  ✓ tests/reviews-model.test.ts (15 tests) 209ms
+#13 208.6 stderr | tests/public-contact.test.ts > bilingual native merchant contact > preserves acceptance after an optional post-storage activity failure
+#13 208.6 [foodhub] activity log failed: Error: isolated activity failure
+#13 208.6     at /app/tests/public-contact.test.ts:81:58
+#13 208.6     at file:///app/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11
+#13 208.6     at file:///app/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26
+#13 208.6     at file:///app/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20
+#13 208.6     at new Promise (<anonymous>)
+#13 208.6     at runWithCancel (file:///app/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)
+#13 208.6     at file:///app/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20
+#13 208.6     at new Promise (<anonymous>)
+#13 208.6     at runWithTimeout (file:///app/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)
+#13 208.6     at file:///app/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64
+#13 208.6
+#13 208.7  ✓ tests/public-contact.test.ts (14 tests) 179ms
+#13 209.6  ✓ tests/expansion-rules.test.ts (13 tests) 55ms
+#13 210.1  ✓ tests/store-availability-board.test.ts (8 tests) 531ms
+#13 210.3  ✓ tests/reviews-api.test.ts (9 tests) 4701ms
+#13 210.3      ✓ needs a sign-in and analytics:view  564ms
+#13 210.3      ✓ a person limited to one kitchen sees only that kitchen; filters apply  541ms
+#13 210.3      ✓ needs menu:edit and the review in the person’s kitchens  523ms
+#13 210.3      ✓ multipart upload: preview with ?dryRun=1, then saved; kitchen outside the scope refused  496ms
+#13 210.3      ✓ DoorDash: all-kitchens people only; missing credentials are a clean refusal, nothing sent  864ms
+#13 210.3      ✓ batch drafts: only the person’s unanswered reviews without a draft  409ms
+#13 210.3      ✓ save: the edited draft is stored when it passes the guard, refused (422, French reasons) when it does not  551ms
+#13 210.3      ✓ DoorDash report list: refused to a person limited to some kitchens  315ms
+#13 210.3      ✓ import: a body announced over the limit, or base64 over the limit, is refused before it is read  433ms
+#13 210.3  ✓ tests/busy-schedule.test.ts (11 tests) 124ms
+#13 210.6  ✓ tests/order-tools-courier.test.ts (14 tests) 18ms
+#13 210.8  ✓ tests/direct-clover-safety.test.ts (9 tests) 74ms
+#13 210.9  ✓ tests/clover-platform-orders.test.ts (7 tests) 58ms
+#13 211.6  ✓ tests/statement-provider-validation.test.ts (8 tests) 211ms
+#13 211.6  ✓ tests/menu-lock.test.ts (8 tests) 189ms
+#13 211.6  ✓ tests/final-review.test.ts (12 tests) 38ms
+#13 212.0  ✓ tests/console-nav.test.ts (11 tests) 47ms
+#13 212.1  ✓ tests/clover-tenders.test.ts (11 tests) 76ms
+#13 212.5  ✓ tests/screens-scope.test.ts (8 tests) 74ms
+#13 212.8 stderr | tests/organization-view.test.ts > organization GET contract > fails a storage read instead of presenting a successful empty organization
+#13 212.8 [foodhub] GET /api/foodhub/organization error: Error: Supabase: database unavailable
+#13 212.8     at Object.listStores (/app/tests/organization-view.test.ts:90:62)
+#13 212.8     at /app/app/api/foodhub/organization/route.ts:15:81
+#13 212.8     at /app/lib/foodhub/auth.ts:128:20
+#13 212.8     at processTicksAndRejections (node:internal/process/task_queues:103:5)
+#13 212.8     at /app/tests/organization-view.test.ts:118:13
+#13 212.8     at file:///app/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+#13 212.8
+#13 212.8  ✓ tests/organization-view.test.ts (10 tests) 345ms
+#13 213.1  ✓ tests/clover-marketplace.test.ts (9 tests) 302ms
+#13 213.3  ✓ tests/kitchen-ticket-text.test.ts (12 tests) 51ms
+#13 213.7  ✓ tests/integrations-catalog.test.ts (12 tests) 21ms
+#13 213.8  ✓ tests/storefront-cart.test.ts (7 tests) 404ms
+#13 214.4  ✓ tests/finance-workspace.test.ts (4 tests) 107ms
+#13 214.7  ✓ tests/public-hub-showcase.test.ts (9 tests) 383ms
+#13 214.8  ✓ tests/customer-concurrency.test.ts (10 tests) 50ms
+#13 215.8  ✓ tests/public-hub-journeys.test.ts (6 tests) 454ms
+#13 216.1  ✓ tests/customer-suite-balances.test.ts (6 tests) 3564ms
+#13 216.1      ✓ refuses foreign response context, excess body, failed service and timeout without fabricating zero  3507ms
+#13 216.8  ✓ tests/order-tools-line-refs.test.ts (10 tests) 135ms
+#13 217.0  ✓ tests/storefront-qr.test.ts (8 tests) 101ms
+#13 217.4  ✓ tests/screens-relay-gateway.test.ts (7 tests) 208ms
+#13 217.5  ✓ tests/clover-discount.test.ts (11 tests) 78ms
+#13 217.6  ✓ tests/screens-relay-setup.test.ts (6 tests) 2644ms
+#13 217.6      ✓ 54 screens split over hosts: this host s19–s36, https for its domain, what to type in Food Hub  324ms
+#13 217.6      ✓ writes .env once: private (600), the token, a random view password; a second run changes nothing  514ms
+#13 217.6      ✓ ports 80/443 taken by something unknown: no built-in https, says where to route the domain  840ms
+#13 217.6      ✓ Coolify on the same server: one route file in its Traefik, gateway on the Docker bridge, started  446ms
+#13 217.8  ✓ tests/screens-relay-android.test.ts (13 tests) 12ms
+#13 217.9  ↓ tests/control-plane-live.test.ts (4 tests | 4 skipped)
+#13 218.1  ✓ tests/tenant.test.ts (8 tests) 78ms
+#13 218.7  ✓ tests/paylink-notify.test.ts (4 tests) 122ms
+#13 219.7  ✓ tests/e2e-hooks.test.ts (7 tests) 1258ms
+#13 219.7      ✓ production ignores FOODHUB_E2E_INBOX_STUCK_MS: an unprocessed entry still waits the full 2 minutes  840ms
+#13 219.7      ✓ the crash check holds a "processing" entry for the delay before processing it  405ms
+#13 219.9  ✓ tests/order-issue-filters-api.test.ts (13 tests) 1976ms
+#13 219.9      ✓ ANDs filters on the server and retains kitchen/provider/brand restrictions without returning raw payloads  403ms
+#13 219.9      ✓ cancellation source and unknown courier remain explicit, not inferred from completed orders  762ms
+#13 219.9  ✓ tests/screens-relay-commands.test.ts (7 tests) 20ms
+#13 220.2  ✓ tests/direct-order-operator-state.test.ts (16 tests) 16ms
+#13 220.7  ✓ tests/storefront-seo.test.ts (6 tests) 321ms
+#13 220.8 stderr | tests/health-silence.test.ts > /api/health > nothing has run yet: the Watchtower is "down" (nobody would be alerted) → 503; memory mode is a warning
+#13 220.8 [foodhub] health down: watchtower
+#13 220.8
+#13 220.8 stderr | tests/health-silence.test.ts > /api/health > nothing has run yet: the Watchtower is "down" (nobody would be alerted) → 503; memory mode is a warning
+#13 220.8 [foodhub] health down: watchtower
+#13 220.8
+#13 220.8 stderr | tests/health-silence.test.ts > /api/health > an open order Clover never got (automatic retries used up) makes it "down"
+#13 220.8 [foodhub] health down: clover
+#13 220.8
+#13 220.9  ✓ tests/health-silence.test.ts (5 tests) 91ms
+#13 220.9  ✓ tests/screens-readiness.test.ts (9 tests) 82ms
+#13 221.2  ↓ tests/direct-order-board-live.test.ts (2 tests | 2 skipped)
+#13 221.3  ✓ tests/order-tools-money.test.ts (7 tests) 26ms
+#13 221.4  ✓ tests/uber-store-kitchens.test.ts (5 tests) 31ms
+#13 221.6  ✓ tests/verify-live.test.mjs (9 tests) 75ms
+#13 221.6  ✓ tests/direct-order-doc-filter.test.ts (6 tests) 26ms
+#13 222.1  ✓ tests/taxes.test.ts (8 tests) 434ms
+#13 222.1      ✓ a Québec seed kitchen shows TPS + TVQ; a kitchen outside the seed follows its province or postal code  424ms
+#13 222.1  ✓ tests/reviews-summary.test.ts (5 tests) 47ms
+#13 222.2  ✓ tests/store-availability-next-open.test.ts (11 tests) 247ms
+#13 222.6  ↓ tests/mev-qcmev-live.test.ts (2 tests | 2 skipped)
+#13 222.7  ✓ tests/platform-workspace.test.ts (4 tests) 47ms
+#13 223.0  ✓ tests/order-issue-filters.test.ts (7 tests) 10ms
+#13 223.2  ✓ tests/premium-a2-kitchen-menus-stores.test.ts (9 tests) 93ms
+#13 223.4  ✓ tests/activity-text.test.ts (8 tests) 35ms
+#13 223.4  ✓ tests/clover-app-badges.test.ts (5 tests) 85ms
+#13 223.7  ✓ tests/api-coverage-docs.test.ts (4 tests) 14ms
+#13 223.8  ✓ tests/special-days.test.ts (3 tests) 42ms
+#13 224.2  ✓ tests/payment-review-page.test.ts (13 tests) 65ms
+#13 224.2  ✓ tests/home-operations.test.ts (7 tests) 141ms
+#13 224.3  ✓ tests/store-availability-history.test.ts (3 tests) 16ms
+#13 224.4  ✓ tests/fluent-core.test.ts (7 tests) 10ms
+#13 224.8  ✓ tests/fluent-help.test.ts (6 tests) 135ms
+#13 225.0  ✓ tests/storefront-browser.test.ts (4 tests) 20ms
+#13 225.1  ↓ tests/customer-suite-live.test.ts (6 tests | 6 skipped)
+#13 225.4  ✓ tests/celebrate-once-hook.test.ts (3 tests) 7ms
+#13 225.7  ✓ tests/phone-hours.test.ts (5 tests) 253ms
+#13 225.8  ✓ tests/customer-notification-preferences.test.ts (4 tests) 38ms
+#13 225.9  ✓ tests/whatsapp-webhook.test.ts (6 tests) 130ms
+#13 226.1  ✓ tests/media.test.ts (3 tests) 19ms
+#13 226.3  ✓ tests/tech-text.test.ts (6 tests) 10ms
+#13 226.6  ✓ tests/clover-merchant-id.test.ts (3 tests) 55ms
+#13 226.9  ✓ tests/order-dispute-links.test.ts (4 tests) 354ms
+#13 226.9  ✓ tests/screens-setup.test.ts (5 tests) 22ms
+#13 227.2  ✓ tests/product-name.test.ts (4 tests) 9ms
+#13 227.2  ✓ tests/a11y-reduced-motion-css.test.ts (3 tests) 47ms
+#13 227.5  ✓ tests/order-tools-quick-86.test.ts (7 tests) 35ms
+#13 227.7  ✓ tests/live-a1-parts.test.ts (3 tests) 79ms
+#13 227.7  ✓ tests/loading-skeletons.test.ts (5 tests) 48ms
+#13 227.7  ✓ tests/platform-workspace-scope.test.ts (7 tests) 20ms
+#13 228.0  ✓ tests/live-words.test.ts (3 tests) 53ms
+#13 228.2  ✓ tests/legal-public-contact.test.ts (6 tests) 62ms
+#13 228.2  ✓ tests/storefront-tracking-payment-state.test.ts (5 tests) 73ms
+#13 228.3  ✓ tests/order-tools-outcome.test.ts (3 tests) 9ms
+#13 228.4  ✓ tests/overlay-focus.test.ts (5 tests) 6ms
+#13 228.6  ✓ tests/recon-promotions.test.ts (5 tests) 9ms
+#13 228.6  ✓ tests/view-mode.test.ts (3 tests) 5ms
+#13 228.7  ✓ tests/i18n-server-lang.test.ts (3 tests) 41ms
+#13 228.9  ✓ tests/release.test.ts (3 tests) 38ms
+#13 229.1  ✓ tests/order-repo-scope.test.ts (1 test) 51ms
+#13 229.2  ✓ tests/clover-check.test.ts (4 tests) 8ms
+#13 229.2  ✓ tests/runtime-secrets.test.ts (1 test) 8ms
+#13 229.4  ✓ tests/display-kitchen-boot.test.ts (2 tests) 13ms
+#13 229.4  ✓ tests/tab-keyboard.test.ts (5 tests) 8ms
+#13 229.5  ✓ tests/frame-policy.test.ts (2 tests) 10ms
+#13 229.6  ✓ tests/kitchen-theme.test.ts (2 tests) 5ms
+#13 255.2  ✓ tests/screens-relay-agent-e2e.test.ts (7 tests | 3 skipped) 51348ms
+#13 255.2      ✓ reports heartbeat v2: mode android, app = package in front, waiting = notification COUNT, no text  966ms
+#13 255.2      ✓ reports login when the sign-in activity is in front, blank when another app is  20377ms
+#13 255.2      ✓ "reload" from Food Hub brings the app back to the front and nothing else is ever tapped  19816ms
+#13 255.2      ✓ reports crashed when the device stops answering, and keeps running  10148ms
+#13 255.2
+#13 255.2  Test Files  174 passed | 4 skipped (178)
+#13 255.2       Tests  2332 passed | 25 skipped (2357)
+#13 255.2    Start at  20:04:16
+#13 255.2    Duration  91.68s (transform 31.44s, setup 0ms, import 97.40s, tests 142.53s, environment 88ms)
+#13 255.2
+#13 255.8
+#13 255.8 > takatak-accounting-control-tower@1.5.9 build
+#13 255.8 > next build
+#13 255.8
+#13 256.8 ▲ Next.js 16.4.3 (Turbopack)
+#13 257.1 ✓ Running next.config.mjs took 236ms
+#13 257.2 - Experiments (use with caution):
+#13 257.2   · serverActions
+#13 257.2
+#13 257.4   Creating an optimized production build ...
+#13 303.6 ✓ Compiled successfully in 46s
+#13 303.7   Running TypeScript ...
+#13 313.7 ✓ Finished writing to filesystem cache in 10.0s
+#13 365.1   Finished TypeScript in 61s ...
+#13 365.1   Collecting page data using 4 workers ...
+#13 368.4   Generating static pages using 4 workers (0/2) ...
+#13 368.7 ✓ Generating static pages using 4 workers (2/2) in 243ms
+#13 368.7   Finalizing page optimization ...
+#13 368.7 Turbopack build encountered 3 warnings:
+#13 368.7 ./lib/foodhub/media.ts:83:22
+#13 368.7 Warning: Dynamic filesystem access causes tracing of the whole project
+#13 368.7   81 | export async function readImage(name: string): Promise<Buffer | null> {
+#13 368.7   82 |   if (!MEDIA_NAME_RE.test(name)) return null;
+#13 368.7 > 83 |   try { return await fs.readFile(path.join(mediaDir(), name)); } catch { return null; }
+#13 368.7      |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#13 368.7   84 | }
+#13 368.7   85 |
+#13 368.7
+#13 368.7 Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+#13 368.7 This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+#13 368.7 This can slow down deployments or lead to failures when size limits are exceeded.
+#13 368.7 To resolve this, you can
+#13 368.7 - make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+#13 368.7 - only use them in development, or
+#13 368.7 - opt out by adding an ignore comment to the highlighted call: fs.readFile(/*turbopackIgnore: true*/ ...), or
+#13 368.7 - remove them.
+#13 368.7
+#13 368.7 Import trace:
+#13 368.7   App Route:
+#13 368.7     ./lib/foodhub/media.ts
+#13 368.7     ./app/media/[name]/route.ts
+#13 368.7
+#13 368.7
+#13 368.7 ./lib/foodhub/media.ts:73:22
+#13 368.7 Warning: Dynamic filesystem access causes tracing of the whole project
+#13 368.7   71 |   const dir = mediaDir();
+#13 368.7   72 |   await fs.mkdir(dir, { recursive: true });
+#13 368.7 > 73 |   await fs.writeFile(path.join(dir, name), buf);
+#13 368.7      |                      ^^^^^^^^^^^^^^^^^^^^
+#13 368.7   74 |   const small = info.width > 0 && (info.width < 600 || info.height < 400);
+#13 368.7   75 |   return {
+#13 368.7   76 |     ok: true, name, url: `${publicBaseUrl()}/media/${name}`, width: info.width, height: in...
+#13 368.7
+#13 368.7 Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+#13 368.7 This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+#13 368.7 This can slow down deployments or lead to failures when size limits are exceeded.
+#13 368.7 To resolve this, you can
+#13 368.7 - make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+#13 368.7 - only use them in development, or
+#13 368.7 - opt out by adding an ignore comment to the highlighted call: path.join(/*turbopackIgnore: true*/ ...), or
+#13 368.7 - remove them.
+#13 368.7
+#13 368.7 Import trace:
+#13 368.7   App Route:
+#13 368.7     ./lib/foodhub/media.ts
+#13 368.7     ./app/media/[name]/route.ts
+#13 368.7
+#13 368.7
+#13 368.7 ./lib/foodhub/media.ts:83:34
+#13 368.7 Warning: Dynamic filesystem access causes tracing of the whole project
+#13 368.7   81 | export async function readImage(name: string): Promise<Buffer | null> {
+#13 368.7   82 |   if (!MEDIA_NAME_RE.test(name)) return null;
+#13 368.7 > 83 |   try { return await fs.readFile(path.join(mediaDir(), name)); } catch { return null; }
+#13 368.7      |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#13 368.7   84 | }
+#13 368.7   85 |
+#13 368.7
+#13 368.7 Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+#13 368.7 This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+#13 368.7 This can slow down deployments or lead to failures when size limits are exceeded.
+#13 368.7 To resolve this, you can
+#13 368.7 - make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+#13 368.7 - only use them in development, or
+#13 368.7 - opt out by adding an ignore comment to the highlighted call: path.join(/*turbopackIgnore: true*/ ...), or
+#13 368.7 - remove them.
+#13 368.7
+#13 368.7 Import trace:
+#13 368.7   App Route:
+#13 368.7     ./lib/foodhub/media.ts
+#13 368.7     ./app/media/[name]/route.ts
+#13 368.7
+#13 368.7
+#13 368.8
+#13 368.8 Route (app)
+#13 368.8 ┌ ƒ /
+#13 368.8 ├ ƒ /_not-found
+#13 368.8 ├ ƒ /alerts
+#13 368.8 ├ ƒ /api/auth/google/callback
+#13 368.8 ├ ƒ /api/auth/google/start
+#13 368.8 ├ ƒ /api/courier
+#13 368.8 ├ ƒ /api/foodhub/activity
+#13 368.8 ├ ƒ /api/foodhub/alcohol
+#13 368.8 ├ ƒ /api/foodhub/analytics
+#13 368.8 ├ ƒ /api/foodhub/auth/link
+#13 368.8 ├ ƒ /api/foodhub/auth/login
+#13 368.8 ├ ƒ /api/foodhub/auth/logout
+#13 368.8 ├ ƒ /api/foodhub/auth/me
+#13 368.8 ├ ƒ /api/foodhub/auth/my-pin
+#13 368.8 ├ ƒ /api/foodhub/auth/pin
+#13 368.8 ├ ƒ /api/foodhub/auth/setup
+#13 368.8 ├ ƒ /api/foodhub/auth/start
+#13 368.8 ├ ƒ /api/foodhub/auth/verify
+#13 368.8 ├ ƒ /api/foodhub/autopilot
+#13 368.8 ├ ƒ /api/foodhub/availability
+#13 368.8 ├ ƒ /api/foodhub/catalog
+#13 368.8 ├ ƒ /api/foodhub/channels
+#13 368.8 ├ ƒ /api/foodhub/client-report
+#13 368.8 ├ ƒ /api/foodhub/clover-billing
+#13 368.8 ├ ƒ /api/foodhub/clover-billing/quote
+#13 368.8 ├ ƒ /api/foodhub/clover-connect/callback
+#13 368.8 ├ ƒ /api/foodhub/clover-connect/merchants
+#13 368.8 ├ ƒ /api/foodhub/clover-connect/mev/callback
+#13 368.8 ├ ƒ /api/foodhub/clover-connect/mev/start
+#13 368.8 ├ ƒ /api/foodhub/clover-connect/owner-test-order
+#13 368.8 ├ ƒ /api/foodhub/clover-connect/phone/callback
+#13 368.8 ├ ƒ /api/foodhub/clover-connect/phone/start
+#13 368.8 ├ ƒ /api/foodhub/clover-connect/start
+#13 368.8 ├ ƒ /api/foodhub/clover-connect/test-order
+#13 368.8 ├ ƒ /api/foodhub/clover-labels
+#13 368.8 ├ ƒ /api/foodhub/command
+#13 368.8 ├ ƒ /api/foodhub/control-plane
+#13 368.8 ├ ƒ /api/foodhub/copilot
+#13 368.8 ├ ƒ /api/foodhub/couriers
+#13 368.8 ├ ƒ /api/foodhub/cron/clover-billing
+#13 368.8 ├ ƒ /api/foodhub/cron/reopen
+#13 368.8 ├ ƒ /api/foodhub/cron/reports
+#13 368.8 ├ ƒ /api/foodhub/cron/sync
+#13 368.8 ├ ƒ /api/foodhub/cron/tgtg-bags
+#13 368.8 ├ ƒ /api/foodhub/cron/watch
+#13 368.8 ├ ƒ /api/foodhub/customer-insights
+#13 368.8 ├ ƒ /api/foodhub/customers/admin
+#13 368.8 ├ ƒ /api/foodhub/customers/me
+#13 368.8 ├ ƒ /api/foodhub/customers/me/addresses
+#13 368.8 ├ ƒ /api/foodhub/customers/me/favourites
+#13 368.8 ├ ƒ /api/foodhub/customers/me/logout
+#13 368.8 ├ ƒ /api/foodhub/customers/verify/check
+#13 368.8 ├ ƒ /api/foodhub/customers/verify/start
+#13 368.8 ├ ƒ /api/foodhub/deliverect
+#13 368.8 ├ ƒ /api/foodhub/delivery
+#13 368.8 ├ ƒ /api/foodhub/delivery/[id]
+#13 368.8 ├ ƒ /api/foodhub/delivery/active
+#13 368.8 ├ ƒ /api/foodhub/delivery/drive-stores
+#13 368.8 ├ ƒ /api/foodhub/delivery/kitchen
+#13 368.8 ├ ƒ /api/foodhub/delivery/settings
+#13 368.8 ├ ƒ /api/foodhub/devices
+#13 368.8 ├ ƒ /api/foodhub/devices/[id]
+#13 368.8 ├ ƒ /api/foodhub/devices/heartbeat
+#13 368.8 ├ ƒ /api/foodhub/doordash
+#13 368.8 ├ ƒ /api/foodhub/doordash/sandbox
+#13 368.8 ├ ƒ /api/foodhub/expansion
+#13 368.8 ├ ƒ /api/foodhub/hours
+#13 368.8 ├ ƒ /api/foodhub/inbox
+#13 368.8 ├ ƒ /api/foodhub/incidents
+#13 368.8 ├ ƒ /api/foodhub/kitchen/print-queue
+#13 368.8 ├ ƒ /api/foodhub/kitchen/print-queue/[orderId]/printed
+#13 368.8 ├ ƒ /api/foodhub/media
+#13 368.8 ├ ƒ /api/foodhub/menu
+#13 368.8 ├ ƒ /api/foodhub/menu/clover-prices
+#13 368.8 ├ ƒ /api/foodhub/menu/import
+#13 368.8 ├ ƒ /api/foodhub/menu/languages
+#13 368.8 ├ ƒ /api/foodhub/menu/publish
+#13 368.8 ├ ƒ /api/foodhub/menu/sharing
+#13 368.8 ├ ƒ /api/foodhub/menu/uber
+#13 368.8 ├ ƒ /api/foodhub/messages
+#13 368.8 ├ ƒ /api/foodhub/mev
+#13 368.8 ├ ƒ /api/foodhub/mev/clover-device/copy
+#13 368.8 ├ ƒ /api/foodhub/mev/clover-device/print
+#13 368.8 ├ ƒ /api/foodhub/mev/clover-device/receipt
+#13 368.8 ├ ƒ /api/foodhub/mev/clover-merchant
+#13 368.8 ├ ƒ /api/foodhub/mev/orders/[id]
+#13 368.8 ├ ƒ /api/foodhub/mev/orders/[id]/print
+#13 368.8 ├ ƒ /api/foodhub/ops-quality
+#13 368.8 ├ ƒ /api/foodhub/ops-quality/goals
+#13 368.8 ├ ƒ /api/foodhub/order-tools/[id]/line-refs
+#13 368.8 ├ ƒ /api/foodhub/order-tools/[id]/money
+#13 368.8 ├ ƒ /api/foodhub/order-tools/kitchen
+#13 368.8 ├ ƒ /api/foodhub/order-tools/kitchen/status
+#13 368.8 ├ ƒ /api/foodhub/orders
+#13 368.8 ├ ƒ /api/foodhub/orders/[id]
+#13 368.8 ├ ƒ /api/foodhub/orders/[id]/contact
+#13 368.8 ├ ƒ /api/foodhub/organization
+#13 368.8 ├ ƒ /api/foodhub/phone
+#13 368.8 ├ ƒ /api/foodhub/phone/calls
+#13 368.8 ├ ƒ /api/foodhub/phone/ivr
+#13 368.8 ├ ƒ /api/foodhub/phone/ivr/calls
+#13 368.8 ├ ƒ /api/foodhub/phone/ivr/recording
+#13 368.8 ├ ƒ /api/foodhub/phone/readiness
+#13 368.8 ├ ƒ /api/foodhub/phone/sim
+#13 368.8 ├ ƒ /api/foodhub/phone/simulate
+#13 368.8 ├ ƒ /api/foodhub/prep
+#13 368.8 ├ ƒ /api/foodhub/pulse
+#13 368.8 ├ ƒ /api/foodhub/recon
+#13 368.8 ├ ƒ /api/foodhub/recon/cases
+#13 368.8 ├ ƒ /api/foodhub/recon/fees
+#13 368.8 ├ ƒ /api/foodhub/recon/imports
+#13 368.8 ├ ƒ /api/foodhub/recon/ledger
+#13 368.8 ├ ƒ /api/foodhub/recon/payouts
+#13 368.8 ├ ƒ /api/foodhub/recon/run
+#13 368.8 ├ ƒ /api/foodhub/recon/uber-report
+#13 368.8 ├ ƒ /api/foodhub/reports
+#13 368.8 ├ ƒ /api/foodhub/reports/[key]
+#13 368.8 ├ ƒ /api/foodhub/reports/email
+#13 368.8 ├ ƒ /api/foodhub/reports/schedules
+#13 368.8 ├ ƒ /api/foodhub/restaurant-leads
+#13 368.8 ├ ƒ /api/foodhub/retail
+#13 368.8 ├ ƒ /api/foodhub/reviews
+#13 368.8 ├ ƒ /api/foodhub/reviews/[id]
+#13 368.8 ├ ƒ /api/foodhub/reviews/doordash
+#13 368.8 ├ ƒ /api/foodhub/reviews/drafts
+#13 368.8 ├ ƒ /api/foodhub/reviews/import
+#13 368.8 ├ ƒ /api/foodhub/sales-mix
+#13 368.8 ├ ƒ /api/foodhub/screens
+#13 368.8 ├ ƒ /api/foodhub/screens/[id]
+#13 368.8 ├ ƒ /api/foodhub/screens/heartbeat
+#13 368.8 ├ ƒ /api/foodhub/screens/layout
+#13 368.8 ├ ƒ /api/foodhub/screens/setup
+#13 368.8 ├ ƒ /api/foodhub/security
+#13 368.8 ├ ƒ /api/foodhub/skip/catalogue
+#13 368.8 ├ ƒ /api/foodhub/skip/daas
+#13 368.8 ├ ƒ /api/foodhub/skip/logistics
+#13 368.8 ├ ƒ /api/foodhub/skip/modification
+#13 368.8 ├ ƒ /api/foodhub/skip/onboarding
+#13 368.8 ├ ƒ /api/foodhub/skip/service-times
+#13 368.8 ├ ƒ /api/foodhub/store-availability
+#13 368.8 ├ ƒ /api/foodhub/store-availability/busy-schedule
+#13 368.8 ├ ƒ /api/foodhub/store-availability/guard
+#13 368.8 ├ ƒ /api/foodhub/store-availability/history
+#13 368.8 ├ ƒ /api/foodhub/store-availability/special-days
+#13 368.8 ├ ƒ /api/foodhub/storefront/settings
+#13 368.8 ├ ƒ /api/foodhub/stores
+#13 368.8 ├ ƒ /api/foodhub/stores/discover
+#13 368.8 ├ ƒ /api/foodhub/stores/known
+#13 368.8 ├ ƒ /api/foodhub/stores/status
+#13 368.8 ├ ƒ /api/foodhub/suite
+#13 368.8 ├ ƒ /api/foodhub/sync
+#13 368.8 ├ ƒ /api/foodhub/tgtg
+#13 368.8 ├ ƒ /api/foodhub/tgtg-email
+#13 368.8 ├ ƒ /api/foodhub/uber-connect/activate
+#13 368.8 ├ ƒ /api/foodhub/uber-connect/callback
+#13 368.8 ├ ƒ /api/foodhub/uber-connect/check
+#13 368.8 ├ ƒ /api/foodhub/uber-connect/disconnect
+#13 368.8 ├ ƒ /api/foodhub/uber-connect/session
+#13 368.8 ├ ƒ /api/foodhub/uber-connect/start
+#13 368.8 ├ ƒ /api/foodhub/uber-direct
+#13 368.8 ├ ƒ /api/foodhub/uber-orders/[id]
+#13 368.8 ├ ƒ /api/foodhub/uber-tools
+#13 368.8 ├ ƒ /api/foodhub/users
+#13 368.8 ├ ƒ /api/foodhub/voice/[step]
+#13 368.8 ├ ƒ /api/foodhub/watch/run
+#13 368.8 ├ ƒ /api/foodhub/watch/settings
+#13 368.8 ├ ƒ /api/foodhub/watch/test
+#13 368.8 ├ ƒ /api/foodhub/webhooks/clover
+#13 368.8 ├ ƒ /api/foodhub/webhooks/clover-checkout
+#13 368.8 ├ ƒ /api/foodhub/webhooks/clover/mev
+#13 368.8 ├ ƒ /api/foodhub/webhooks/clover/phone
+#13 368.8 ├ ƒ /api/foodhub/webhooks/deliverect/[...kind]
+#13 368.8 ├ ƒ /api/foodhub/webhooks/doordash
+#13 368.8 ├ ƒ /api/foodhub/webhooks/doordash-drive
+#13 368.8 ├ ƒ /api/foodhub/webhooks/doordash/[locationId]
+#13 368.8 ├ ƒ /api/foodhub/webhooks/doordash/item-polling/[locationId]
+#13 368.8 ├ ƒ /api/foodhub/webhooks/doordash/orderCartValidation
+#13 368.8 ├ ƒ /api/foodhub/webhooks/doordash/retail/inventory/[storeLocationId]
+#13 368.8 ├ ƒ /api/foodhub/webhooks/doordash/retail/store-hours/[storeLocationId]
+#13 368.8 ├ ƒ /api/foodhub/webhooks/ivr
+#13 368.8 ├ ƒ /api/foodhub/webhooks/ivr/[step]
+#13 368.8 ├ ƒ /api/foodhub/webhooks/relay
+#13 368.8 ├ ƒ /api/foodhub/webhooks/skip-daas
+#13 368.8 ├ ƒ /api/foodhub/webhooks/skip/cancel
+#13 368.8 ├ ƒ /api/foodhub/webhooks/skip/driver
+#13 368.8 ├ ƒ /api/foodhub/webhooks/skip/failed
+#13 368.8 ├ ƒ /api/foodhub/webhooks/skip/final
+#13 368.8 ├ ƒ /api/foodhub/webhooks/skip/menu-status
+#13 368.8 ├ ƒ /api/foodhub/webhooks/skip/modification
+#13 368.8 ├ ƒ /api/foodhub/webhooks/skip/offline
+#13 368.8 ├ ƒ /api/foodhub/webhooks/skip/onboarding
+#13 368.8 ├ ƒ /api/foodhub/webhooks/skip/order-time
+#13 368.8 ├ ƒ /api/foodhub/webhooks/skip/orders
+#13 368.8 ├ ƒ /api/foodhub/webhooks/tgtg
+#13 368.8 ├ ƒ /api/foodhub/webhooks/tgtg-email
+#13 368.8 ├ ƒ /api/foodhub/webhooks/uber-direct
+#13 368.8 ├ ƒ /api/foodhub/webhooks/uber-eats
+#13 368.8 ├ ƒ /api/foodhub/webhooks/voice
+#13 368.8 ├ ƒ /api/foodhub/webhooks/voice/dial-done
+#13 368.8 ├ ƒ /api/foodhub/webhooks/voice/status
+#13 368.8 ├ ƒ /api/foodhub/webhooks/voice/turn
+#13 368.8 ├ ƒ /api/foodhub/webhooks/voice/wait
+#13 368.8 ├ ƒ /api/foodhub/webhooks/website-order
+#13 368.8 ├ ƒ /api/foodhub/webhooks/whatsapp
+#13 368.8 ├ ƒ /api/foodhub/website-orders
+#13 368.8 ├ ƒ /api/foodhub/website-orders/[id]
+#13 368.8 ├ ƒ /api/health
+#13 368.8 ├ ƒ /api/public/directory
+#13 368.8 ├ ƒ /api/public/on2go/logout
+#13 368.8 ├ ƒ /api/public/on2go/me
+#13 368.8 ├ ƒ /api/public/on2go/me/addresses
+#13 368.8 ├ ƒ /api/public/on2go/me/favourites
+#13 368.8 ├ ƒ /api/public/on2go/session
+#13 368.8 ├ ƒ /api/public/on2go/verify/check
+#13 368.8 ├ ƒ /api/public/on2go/verify/start
+#13 368.8 ├ ƒ /api/public/restaurant-leads
+#13 368.8 ├ ƒ /api/release
+#13 368.8 ├ ƒ /api/storefront/checkout
+#13 368.8 ├ ƒ /api/storefront/menu/[slug]
+#13 368.8 ├ ƒ /api/storefront/quote
+#13 368.8 ├ ƒ /api/storefront/track/[token]
+#13 368.8 ├ ƒ /api/suite/v1/directory
+#13 368.8 ├ ƒ /api/suite/v1/events
+#13 368.8 ├ ƒ /api/suite/v1/orders
+#13 368.8 ├ ƒ /api/suite/v1/ping
+#13 368.8 ├ ƒ /commander/[slug]
+#13 368.8 ├ ƒ /commander/[slug]/qr.svg
+#13 368.8 ├ ƒ /commander/[slug]/suivi/[token]
+#13 368.8 ├ ƒ /commander/sitemap.xml
+#13 368.8 ├ ƒ /courier
+#13 368.8 ├ ƒ /direct
+#13 368.8 ├ ƒ /direct/calls
+#13 368.8 ├ ƒ /direct/ivr
+#13 368.8 ├ ƒ /en/hub/[[...slug]]
+#13 368.8 ├ ƒ /hub/[[...slug]]
+#13 368.8 ├ ƒ /insights
+#13 368.8 ├ ƒ /insights/activity
+#13 368.8 ├ ƒ /insights/customers
+#13 368.8 ├ ƒ /insights/operations
+#13 368.8 ├ ƒ /insights/reports
+#13 368.8 ├ ƒ /insights/reviews
+#13 368.8 ├ ƒ /insights/sales
+#13 368.8 ├ ƒ /kitchen
+#13 368.8 ├ ƒ /kitchen/lock
+#13 368.8 ├ ƒ /legal
+#13 368.8 ├ ƒ /legal/privacy
+#13 368.8 ├ ƒ /legal/support
+#13 368.8 ├ ƒ /legal/terms
+#13 368.8 ├ ƒ /llms.txt
+#13 368.8 ├ ƒ /login
+#13 368.8 ├ ƒ /manifest.webmanifest
+#13 368.8 ├ ƒ /media/[name]
+#13 368.8 ├ ƒ /menu
+#13 368.8 ├ ƒ /menu/86
+#13 368.8 ├ ƒ /menu/retail
+#13 368.8 ├ ƒ /money
+#13 368.8 ├ ƒ /money/disputes
+#13 368.8 ├ ƒ /money/fees
+#13 368.8 ├ ƒ /money/ledger
+#13 368.8 ├ ƒ /money/payouts
+#13 368.8 ├ ƒ /money/reconciliation
+#13 368.8 ├ ƒ /money/statements
+#13 368.8 ├ ƒ /money/tgtg
+#13 368.8 ├ ƒ /orders
+#13 368.8 ├ ƒ /orders/[id]
+#13 368.8 ├ ƒ /organization
+#13 368.8 ├ ƒ /p/[token]
+#13 368.8 ├ ƒ /r/[token]
+#13 368.8 ├ ƒ /robots.txt
+#13 368.8 ├ ƒ /settings
+#13 368.8 ├ ƒ /settings/alerts
+#13 368.8 ├ ƒ /settings/autopilot
+#13 368.8 ├ ƒ /settings/business
+#13 368.8 ├ ƒ /settings/channels
+#13 368.8 ├ ƒ /settings/clover-app
+#13 368.8 ├ ƒ /settings/customers
+#13 368.8 ├ ƒ /settings/devices
+#13 368.8 ├ ƒ /settings/doordash
+#13 368.8 ├ ƒ /settings/expansion
+#13 368.8 ├ ƒ /settings/expansion/alcohol
+#13 368.8 ├ ƒ /settings/expansion/couriers
+#13 368.8 ├ ƒ /settings/expansion/delivery
+#13 368.8 ├ ƒ /settings/expansion/mev
+#13 368.8 ├ ƒ /settings/expansion/phone
+#13 368.8 ├ ƒ /settings/expansion/phone/ivr
+#13 368.8 ├ ƒ /settings/go-live
+#13 368.8 ├ ƒ /settings/leads
+#13 368.8 ├ ƒ /settings/profile
+#13 368.8 ├ ƒ /settings/security
+#13 368.8 ├ ƒ /settings/storefront
+#13 368.8 ├ ƒ /settings/suite
+#13 368.8 ├ ƒ /settings/team
+#13 368.8 ├ ƒ /sitemap.xml
+#13 368.8 ├ ƒ /stores
+#13 368.8 ├ ƒ /stores/availability
+#13 368.8 ├ ƒ /stores/hours
+#13 368.8 ├ ƒ /stores/list
+#13 368.8 ├ ƒ /stores/mapping
+#13 368.8 ├ ƒ /stores/screens
+#13 368.8 ├ ƒ /stores/uber
+#13 368.8 ├ ƒ /tablette
+#13 368.8 ├ ƒ /ticket/[id]
+#13 368.8 ├ ƒ /ticket/direct/[id]
+#13 368.8 └ ƒ /welcome/clover
+#13 368.8
+#13 368.8
+#13 368.8 ƒ Proxy (Middleware)
+#13 368.8
+#13 368.8 ƒ  (Dynamic)  server-rendered on demand
+#13 368.8
+#13 369.4
+#13 369.4 > takatak-accounting-control-tower@1.5.9 verify:foodhub
+#13 369.4 > node scripts/foodhub-e2e.mjs
+#13 369.4
+#13 374.3
+#13 374.3 1. Security
+#13 376.8   PASS  bare address without sign-in → public ON2GO Hub page (FOODHUB_PUBLIC_HOME default)
+#13 376.8   PASS  Command Center without sign-in → login page
+#13 377.2   PASS  public ON2GO Hub pages open without sign-in, language fixed by the path
+#13 377.3   PASS  public pages are indexable, the console is not
+#13 377.4   PASS  public pages carry no X-Robots-Tag header
+#13 377.4   PASS  public pages are cacheable (public, s-maxage)
+#13 377.4   PASS  the /hub canonical is absolute https on FOODHUB_PUBLIC_URL
+#13 377.4   PASS  "/" with tracking parameters lands on /hub (query kept), not on /login
+#13 377.6   PASS  pending provider page stays noindex; configured public page is indexable; both disclose activation requirements
+#13 377.6   PASS  draft legal pages are noindex (follow) until approved
+#13 377.7   PASS  robots.txt, sitemap.xml and Food Hub llms.txt are public
+#13 377.7   PASS  /hubx is not public
+#13 377.7   PASS  Organization logo is public and indexable
+#13 377.7   PASS  API without sign-in → 401 JSON
+#13 377.8   PASS  login page is public
+#13 378.0   PASS  console opens with the owner recovery password
+#13 378.1   PASS  Money section at /money
+#13 378.2   PASS  a malformed sign-in gets a clean error, never a stack trace
+#13 378.2   PASS  Uber webhook accepts the dashboard Signing Key (Basic HMAC)
+#13 378.3   PASS  Uber webhook rejects a bad signature
+#13 378.3   PASS  DoorDash webhook rejects a wrong token
+#13 378.3   PASS  Skip order webhook rejects a forged JET hash
+#13 378.3   PASS  Skip notification rejects a wrong API key
+#13 378.4   PASS  TGTG webhook rejects a wrong token
+#13 378.4   PASS  scheduled sync rejects a missing CRON_SECRET
+#13 378.5   PASS  screen supervisor: a problem on a screen is reported and stored, never silent
+#13 378.5   PASS  screen supervisor refuses unknown report kinds
+#13 378.5   PASS  screen supervisor needs a signed-in person
+#13 378.5   PASS  the owner sees recent screen problems
+#13 378.5
+#13 378.5 2. Channels (all direct — no aggregator)
+#13 378.5   PASS  Uber Eats, DoorDash, SkipTheDishes report LIVE
+#13 378.5   PASS  Too Good To Go stays inbound-only (no public API)
+#13 378.5   PASS  no UrbanPiper channel anywhere
+#13 378.5   PASS  Clover reported connected
+#13 378.5   PASS  Skip shows its 10 webhook URLs on your public domain (incl. driver status, backup flow, final order, modification, order time, onboarding)
+#13 378.5   PASS  Clover webhook URL shown, auth code set
+#13 378.5   PASS  webhook secrets hidden by default
+#13 378.5   PASS  "Show secrets" reveals the values to give Skip / DoorDash
+#13 378.5   PASS  platform API keys are never revealed
+#13 378.5
+#13 378.5 3. Store mapping
+#13 378.7   PASS  7 store mappings saved
+#13 378.7   PASS  your 7 Uber Eats store UUIDs are pre-loaded with their brand, waiting for a location
+#13 378.7   PASS  Uber store discovery returns the provisioned store
+#13 378.7
+#13 378.7 3b. Connect Uber Eats stores (self-serve activation, no aggregator)
+#13 378.8   PASS  "Connect Uber Eats stores" sends the owner to Uber login
+#13 378.8   PASS  callback with a forged state is refused
+#13 378.8   PASS  Uber callback exchanges the code and lists your stores
+#13 378.8   PASS  callback link cannot be replayed
+#13 378.8   PASS  brand + location suggested from Uber name/address
+#13 378.8   PASS  merchant token never sent to the browser
+#13 378.8   PASS  the store still on UrbanPiper is shown before activating (pos_data.order_manager_client_id)
+#13 378.8   PASS  Clover merchants offered for each store (ids only, no token)
+#13 378.9   PASS  both stores activated (POST pos_data with the merchant token)
+#13 378.9   PASS  pos_data body: integrator ids, no manual acceptance, courier webhooks on, webhooks_version unset (v2 order payload)
+#13 378.9   PASS  order webhooks switched on after activation (PATCH pos_data integration_enabled with the app token)
+#13 378.9   PASS  activation reads back who gets the orders: Food Hub for one, still UrbanPiper for the other (said plainly)
+#13 378.9   PASS  activated store keeps its Clover register and the order-manager state
+#13 378.9   PASS  "Check with Uber" sees the store move to Food Hub once UrbanPiper lets go
+#13 378.9   PASS  "Check with Uber" reports stores Uber does not know for this app (no guess)
+#13 378.9   PASS  activated stores mapped automatically
+#13 378.9   PASS  merchant token discarded after activation
+#13 378.9
+#13 378.9 4. Menu: import from Clover
+#13 379.0   PASS  imported 2 visible items, 2 categories, 1 modifier group
+#13 379.0   PASS  menu saves with per-platform prices
+#13 379.0
+#13 379.0 5. Menu: publish to every platform
+#13 379.1   PASS  Uber done, DoorDash queued, Skip queued, TGTG honestly blocked
+#13 379.1   PASS  Uber menu uses the Uber price in cents + modifier items
+#13 379.1   PASS  DoorDash menu JWT-signed, with store + provider type
+#13 379.1   PASS  DoorDash Menu Status webhook accepted
+#13 379.1   PASS  DoorDash Menu Request (menu pull) answers { store, menus: [menu + open_hours + special_hours] }
+#13 379.1   PASS  DoorDash menu pull refuses a wrong token and an unmapped location
+#13 379.1   PASS  DoorDash menu job closed + menu id kept for next update
+#13 379.1   PASS  Skip menu pushed to JET Connect with X-Flyt-Api-Key
+#13 379.1   PASS  Skip menu: Skip price in cents, PLUs, pick rules, callback URL
+#13 379.1   PASS  Skip menu-status callback accepted
+#13 379.2   PASS  Skip menu job marked done by the callback
+#13 379.2
+#13 379.2 5b. Menu: publish to all Uber Eats stores (dry run, Do not touch)
+#13 379.2   PASS  mark the Saint-Léonard Uber store "Do not touch"
+#13 379.2   PASS  dry run lists every Uber store and calls nothing on Uber
+#13 379.2   PASS  dry run: NDG ready with counts, Saint-Léonard "do not touch", brands without a menu blocked
+#13 379.2   PASS  dry run shows the Uber price next to the Clover price
+#13 379.2   PASS  "View JSON" returns the exact Uber body (one translation per text, tax_info on items)
+#13 379.2   PASS  publish to all Uber stores: only the ready store is sent, never the "do not touch" one
+#13 379.3   PASS  a normal brand publish leaves the "do not touch" store alone too
+#13 379.3
+#13 379.3 6. Uber Eats order (signed webhook → Clover → accept)
+#13 379.3   PASS  signed Uber webhook accepted
+#13 380.0   PASS  Uber order fetched, parsed, accepted
+#13 380.0   PASS  order created in Clover with the inventory item and its real Clover modification (Piri-piri +1.00)
+#13 380.0   PASS  Uber accept carries the Clover order id
+#13 380.8   PASS  duplicate webhook does not create a second Clover order
+#13 381.3   PASS  a re-delivered event (same event_id) is not even fetched again (webhook inbox)
+#13 381.3   PASS  delivery.state_changed (order id in meta.order_id, as documented) accepted
+#13 381.3   PASS  courier "at the store" reaches the order
+#13 381.3
+#13 381.3 7. DoorDash order (JWT)
+#13 381.3   PASS  DoorDash order webhook answered 202 (confirmed later, only once Clover has it)
+#13 381.5   PASS  DoorDash order confirmed (order_status success)
+#13 381.5   PASS  Ready → DoorDash order_ready_for_pickup
+#13 381.5
+#13 381.5 8. SkipTheDishes order — direct JET Connect
+#13 381.6   PASS  signed Skip order answered 202 (async, as JET requires)
+#13 381.7   PASS  Skip order parsed (cents → $), mapped, accepted
+#13 381.7   PASS  Skip order in Clover: 3 lines (2× Frites), Skip price + the modifier as a Clover modification
+#13 381.7   PASS  JET told sent-to-pos-success with the transmissionId
+#13 382.6   PASS  Skip re-delivery does not duplicate the Clover order
+#13 382.6
+#13 382.6 9. Skip manual store + Skip cancel notification
+#13 382.8   PASS  auto-accept OFF: order waits in New (already in Clover)
+#13 382.8   PASS  Command Center queue shows it with the 5-minute Skip deadline (from when it was placed)
+#13 382.8   PASS  manual Accept → sent-to-pos-success
+#13 382.8   PASS  Skip cancel notification accepted
+#13 382.8   PASS  order cancelled from Skip
+#13 382.8
+#13 382.8 10. Clover down — never accept what the kitchen did not get
+#13 383.0   PASS  Skip: Clover failure → sent-to-pos-failed (Skip tablet backup flow)
+#13 383.2   PASS  Uber: Clover failure → NOT accepted, waits for staff
+#13 383.2
+#13 383.2 11. 86 an item on every platform
+#13 383.2   PASS  86 sent to Uber, DoorDash, Skip
+#13 383.2   PASS  Uber item suspended
+#13 383.2   PASS  DoorDash item deactivated (PUT items/status)
+#13 383.2   PASS  Skip item-availability UNAVAILABLE with nextAvailableAt
+#13 383.2   PASS  86 state saved for the location
+#13 383.2
+#13 383.2 12. Pause and resume a location
+#13 383.3   PASS  pause sent to all 3 platforms
+#13 383.3   PASS  Uber store PAUSED with paused_until (no milliseconds) on /v1/eats/store/{id}/status
+#13 383.3   PASS  DoorDash deactivated with end_time
+#13 383.3   PASS  Skip offline with local onlineAt (YYYY-MM-DD HH:MM:SS)
+#13 383.3   PASS  resume sent to all 3 platforms
+#13 383.3
+#13 383.3 13. Too Good To Go (inbound only)
+#13 383.5   PASS  TGTG bag order received, in Clover; accept logged as "nothing sent" (no fake API call)
+#13 383.5   PASS  unknown payload kept, not lost
+#13 383.5
+#13 383.5 14. Automatic sync: platform status + Clover in-store sales
+#13 383.5   PASS  Skip "restaurant offline" notification accepted
+#13 384.2   PASS  sync ran and polled every Uber + DoorDash store
+#13 384.2   PASS  Uber OUT_OF_MENU_HOURS → closed (Z rule)
+#13 384.2   PASS  DoorDash current_deactivations → deactivated
+#13 384.2   PASS  Uber store missing on Uber (404) → unknown with the error, not deactivated
+#13 384.2   PASS  Skip state comes from its offline notification
+#13 384.2   PASS  Clover in-store = payments − refunds, delivery orders excluded ($35.00)
+#13 384.2   PASS  Clover queried from local midnight (createdTime filter)
+#13 384.2   PASS  Clover outage reported per merchant, not hidden
+#13 384.2   PASS  DoorDash store now marked offline in Food Hub
+#13 384.2   PASS  second sync within 60 s is rate-limited
+#13 384.3   PASS  scheduled sync (CRON_SECRET) runs
+#13 384.3
+#13 384.3 15. One-screen Command Center
+#13 384.3   PASS  delivery sales = every order except cancelled
+#13 384.3   PASS  total = delivery + Clover in-store
+#13 384.3   PASS  sales by hour adds up
+#13 384.3   PASS  per-platform tiles: Uber 2 orders, DoorDash 1, Skip 2 (excl. cancelled), TGTG 1
+#13 384.3   PASS  matrix Po Poulet · NDG: Uber closed, DoorDash deactivated, Skip paused, TGTG open
+#13 384.3   PASS  matrix includes your 43 screenshot DoorDash stores (faded)
+#13 384.3   PASS  alert: Clover did not receive the Uber order (critical)
+#13 384.3   PASS  alert: DoorDash store DEACTIVATED (critical)
+#13 384.3   PASS  alert: Skip order on the Skip tablet
+#13 384.3   PASS  alert: Skip paused by the platform
+#13 384.3   PASS  alert: missing required services (Uber / Skip)
+#13 384.3   PASS  alert: Clover merchant outage
+#13 384.3   PASS  alert: unreadable webhook kept
+#13 384.3   PASS  critical alerts listed first
+#13 384.3   PASS  a store missing on Uber gives one clear alert (not two)
+#13 384.3   PASS  Uber order with Clover failure is in the queue with its 11.5-min deadline
+#13 384.3   PASS  "Send to Clover" retries honestly (still down → not ok)
+#13 384.4   PASS  Reject from the queue → Uber deny_pos_order, order cancelled
+#13 384.4   PASS  handled order leaves the queue and its critical alert clears
+#13 384.4
+#13 384.4 16. Users, roles and location scope
+#13 384.5   PASS  owner creates a store operator limited to HOCHELAGA (no hash returned)
+#13 384.5   PASS  a too-short password is refused
+#13 384.6   PASS  wrong password refused
+#13 384.8   PASS  operator signs in (HttpOnly session cookie)
+#13 384.8   PASS  session carries role + locations
+#13 384.9   PASS  operator only sees HOCHELAGA orders
+#13 384.9   PASS  operator cannot open another location's order
+#13 384.9   PASS  operator cannot pause NDG stores
+#13 385.0   PASS  operator cannot publish menus, manage users, see analytics or reveal secrets
+#13 385.0   PASS  operator Command Center shows HOCHELAGA only
+#13 385.1   PASS  operator menu hides Money, Insights and admin pages
+#13 385.1   PASS  pages without a session go to /login?next=…
+#13 385.1   PASS  a forged session cookie is refused
+#13 385.1
+#13 385.1 17. Store hours + holidays → every platform
+#13 385.2   PASS  impossible hours refused (400)
+#13 385.2   PASS  hours saved; overnight Friday split into Fri 11:00–23:59 + Sat 00:00–02:00
+#13 385.4   PASS  publish with hours accepted by every platform
+#13 385.4   PASS  Uber menu hours: Mon 11:00–22:00, Sunday closed
+#13 385.4   PASS  Uber holiday-hours: closed day = 00:00–00:00 + short day 12:00–16:00 (NDG only)
+#13 385.4   PASS  DoorDash open_hours in HH:MM:SS, Sunday (closed) omitted
+#13 385.4   PASS  DoorDash special_hours: closed day (full-day 00:00:00–23:59:59) + special hours
+#13 385.4   PASS  DoorDash menu update uses the menu id it was given (PATCH)
+#13 385.4   PASS  Skip menu availability per day ("11:00 - 22:00")
+#13 385.5   PASS  closed holiday today → Skip HOCHELAGA taken offline until midnight (Skip has no holiday API)
+#13 385.6   PASS  holiday closure is applied once per day
+#13 385.6
+#13 385.6 18. Category schedule (e.g. lunch only)
+#13 385.6   PASS  category schedule + item details saved
+#13 385.6   PASS  Uber: lunch category in its own menu, 11:00–14:00 (inside store hours)
+#13 385.6   PASS  Uber item: description with tags + allergens, calories as energy_interval (E5)
+#13 385.6   PASS  DoorDash: scheduled items carry item_special_hours (lunch ∩ store hours = 11:00–14:00)
+#13 385.6   PASS  Skip: lunch category published as a second menu with its own hours
+#13 385.6
+#13 385.6 19. Menu check blocks a broken publish
+#13 385.7   PASS  publish refused (422) with the reasons
+#13 385.7   PASS  nothing was sent to any platform
+#13 385.7   PASS  menu check lists errors, warnings and tips + per-store publish status
+#13 385.7   PASS  menu fixed → check passes again
+#13 385.7
+#13 385.7 19b. Platform markup (in-store price stays in Clover, +20 % on DoorDash)
+#13 385.7   PASS  a markup outside -50..200 % is refused
+#13 385.7   PASS  DoorDash +20 % saved on the menu
+#13 385.8   PASS  DoorDash item price = in-store price × 1.20
+#13 385.8   PASS  DoorDash modifier price marked up too (1.00 $ → 1.20 $)
+#13 385.8   PASS  Uber keeps its own per-item price (no markup set for Uber)
+#13 385.8   PASS  markup removed again
+#13 385.8
+#13 385.8 20. Scheduled publish
+#13 385.8   PASS  a time in the past is refused
+#13 385.8   PASS  publish scheduled for later (nothing sent now)
+#13 385.9   PASS  scheduled publish listed
+#13 385.9   PASS  scheduled publish cancelled
+#13 385.9
+#13 385.9 21. 86 a modifier (sauce) everywhere
+#13 385.9   PASS  modifier 86 accepted by Uber, DoorDash, Skip
+#13 385.9   PASS  DoorDash: PUT item_options/status
+#13 385.9   PASS  Uber: modifier item suspended (mod:mod-1)
+#13 385.9   PASS  Skip: item-availability by PLU
+#13 385.9   PASS  timed 86 stored with its end time
+#13 385.9   PASS  modifier back on
+#13 385.9
+#13 385.9 22. Kitchen: busy mode, prep time, courier pickup, cancel reasons, Clover printing
+#13 385.9   PASS  busy mode on for NDG (30 min)
+#13 386.0   PASS  Command Center kitchen strip shows 30 min at NDG
+#13 386.1   PASS  DoorDash confirmation carries prep_time ≈ now + 30 min (busy)
+#13 386.1   PASS  timeline: auto-accepted with a ready-by target
+#13 386.2   PASS  kitchen ticket printed on Clover automatically
+#13 386.2   PASS  DoorDash order: no API cancel offered (portal only), Ready + Reprint offered
+#13 386.2   PASS  Reprint → another Clover print_event
+#13 386.3   PASS  courier pickup → "Picked up" with timestamps
+#13 386.3   PASS  completed with timestamp
+#13 386.3   PASS  a completed order cannot go back to ready
+#13 386.4   PASS  Uber accepted order offers Cancel with the standard reasons
+#13 386.4   PASS  Cancel → Uber /cancel with OUT_OF_ITEMS + details
+#13 386.4   PASS  timeline: cancelled by the store after accepting, reason kept
+#13 386.5   PASS  busy mode off → back to normal prep time
+#13 386.5
+#13 386.5 23. Reports: CSV, Excel, email, schedules
+#13 386.5   PASS  7 standard reports, email configured
+#13 386.5   PASS  Order Transactions CSV: Excel-ready (BOM), one row per order
+#13 386.5   PASS  Status Transitions as a real Excel file
+#13 386.6   PASS  preview: first rows + total count
+#13 386.6   PASS  Store Action Report has the 86 and the pause with who did it
+#13 386.6   PASS  "Email now" → Resend with the Excel attached
+#13 386.6   PASS  daily report schedule saved
+#13 386.6   PASS  report cron sends due schedules (after 8:00 → sent)
+#13 386.7   PASS  report cron never sends the same period twice
+#13 386.7   PASS  report cron rejects a missing CRON_SECRET
+#13 386.7   PASS  schedule removed
+#13 386.7
+#13 386.7 24. Analytics
+#13 386.7   PASS  orders + sales match the order list
+#13 386.7   PASS  platform, brand and location breakdowns add up
+#13 386.7   PASS  heatmap counts every order once
+#13 386.7   PASS  cancellations split by who / stage / reason
+#13 386.7   PASS  time to accept, prep time, Clover rate measured
+#13 386.7   PASS  store uptime computed against opening hours
+#13 386.7   PASS  compared with the previous period
+#13 386.7   PASS  analytics range is validated
+#13 386.7
+#13 386.7 25. Activity log (Store Action Report)
+#13 386.8   PASS  records orders, pauses, 86, menus, hours, users and sign-ins
+#13 386.8   PASS  platform-side changes are logged too (store went offline on DoorDash)
+#13 386.8   PASS  a page with a bogus Basic header is sent to sign-in (never passes the gate unverified)
+#13 386.8   PASS  /api/foodhub/* with a bogus Basic header → 401
+#13 386.8   PASS  failed sign-in is logged
+#13 386.8   PASS  activity filter by type
+#13 386.8
+#13 386.8 26. Brands & locations
+#13 386.8   PASS  new location added
+#13 386.8   PASS  bad location code refused
+#13 386.8   PASS  Too Good To Go cannot be added as a brand
+#13 386.8   PASS  new location appears on the Command Center
+#13 386.9   PASS  deactivated user is signed out immediately
+#13 386.9
+#13 386.9 27. Clover bookkeeping: order types, paid when the order leaves the kitchen, cancelled orders removed
+#13 386.9   PASS  one Clover order type per platform, created once
+#13 386.9   PASS  every delivery order in Clover carries its platform order type
+#13 386.9   PASS  picked-up DoorDash order recorded as paid in Clover with the "DoorDash" tender
+#13 386.9   PASS  Food Hub keeps the Clover payment id on the order
+#13 386.9   PASS  orders still in the kitchen are not paid yet (they can still be cancelled)
+#13 386.9   PASS  Uber order cancelled after accepting → removed from the Clover register
+#13 386.9   PASS  Skip order cancelled by Skip → removed from Clover too
+#13 386.9   PASS  Uber order completed → paid in Clover with the "Uber Eats" tender
+#13 386.9   PASS  each tender created once and reused
+#13 387.0   PASS  Clover in-store sales still exclude delivery orders paid with platform tenders ($35.00)
+#13 387.0
+#13 387.0 28. Clover → every platform: out of stock, back in stock, price change
+#13 387.0   PASS  Clover webhook verification handshake accepted
+#13 387.0   PASS  verification code shown to the owner on Channels
+#13 387.0   PASS  Clover event with a wrong X-Clover-Auth refused
+#13 387.0   PASS  Clover inventory event accepted
+#13 387.2   PASS  unavailable in Clover → 86 on Uber, DoorDash and Skip
+#13 387.4   PASS  back in stock in Clover → back on everywhere
+#13 387.4   PASS  an 86 made by staff in Food Hub is never undone by Clover
+#13 387.4   PASS  price changed in Clover → flagged with both prices
+#13 387.4   PASS  Command Center shows the Clover price change
+#13 387.4   PASS  "Use Clover price" updates the master menu
+#13 387.4
+#13 387.4 29. Couriers, Skip missing items, Skip backup flow
+#13 387.5   PASS  accepted Skip order offers "Report missing item"
+#13 387.5   PASS  missing Frites reported to Skip (JET modification: PLU + quantity)
+#13 387.5   PASS  Skip driver status answered 200 with the same payload (JET rule)
+#13 387.5   PASS  courier "at the store" shown on the order
+#13 387.7   PASS  driver on its way → "Picked up" and paid in Clover with the "SkipTheDishes" tender
+#13 387.7   PASS  DoorDash dasher assigned: name, phone and car on the order
+#13 387.7   PASS  Command Center shows "courier arriving" on the order card
+#13 387.9   PASS  DoorDash promotion sent to Clover as an order discount (−350 cents, Clover total = lines − promotion); orders without one carry none
+#13 387.9   PASS  DoorDash Dasher Status (documented shape: dasher_status arrived_at_store) → courier at the store
+#13 387.9   PASS  DoorDash cancellation found by client_order_id (our merchant_supplied_id) → cancelled and removed from Clover
+#13 387.9   PASS  Skip "failed order for backup flow" recorded: on the Skip tablet, NDG, $12.99
+#13 387.9
+#13 387.9 30. Scheduled orders: accepted now, cooked at the right time
+#13 388.2   PASS  scheduled order accepted on Uber right away and sent to Clover
+#13 388.2   PASS  due time and kitchen fire time (due − prep) kept on the order
+#13 388.2   PASS  Clover order marked ⏰ SCHEDULED
+#13 388.2   PASS  kitchen ticket not printed yet
+#13 388.2   PASS  Command Center: waiting in the Scheduled lane
+#13 413.6   PASS  at fire time the sync prints the kitchen ticket
+#13 413.7
+#13 413.7 31. Payouts & reconciliation — where is my money
+#13 413.7   PASS  every accepted order has an expected payout (25% Uber Plus + 14.975% tax on the commission)
+#13 413.7   PASS  before any statement nothing is called missing
+#13 413.7   PASS  Uber payment report requested from the Reporting API for the mapped Uber stores
+#13 413.9   PASS  Uber sends the report → downloaded and imported by itself
+#13 413.9   PASS  report request marked imported
+#13 413.9   PASS  DoorDash transactions CSV recognised and imported
+#13 413.9   PASS  unknown statement layout → asks which column is which, with a good guess
+#13 413.9   PASS  columns confirmed → Skip statement imported
+#13 414.0   PASS  same layout next time → columns remembered; the same lines are never counted twice
+#13 414.0   PASS  Uber order paid as expected → matched
+#13 414.0   PASS  DoorDash paid $4.00 less → short-paid −$4.00
+#13 414.0   PASS  DoorDash order paid in full → matched
+#13 414.0   PASS  Skip error charge (matched by the short order number) → flagged −$6.00
+#13 414.0   PASS  paid order Food Hub never received → flagged (missed webhook / unmapped store)
+#13 414.0   PASS  ads and tablet fees kept apart as other charges
+#13 414.0   PASS  orders not on a statement yet stay "not due yet"
+#13 414.0   PASS  money to recover = $4.00 + $6.00
+#13 414.0   PASS  dispute cases opened by themselves: short-paid, error charge, unknown order
+#13 414.0   PASS  case disputed, with the platform case number and a note
+#13 414.0   PASS  case recovered — a re-check never overwrites the owner’s decision
+#13 414.0   PASS  recovered money is no longer counted as "to recover" ($6.00 left)
+#13 414.0   PASS  Command Center: $6.00 to recover, unknown paid orders mentioned separately (not counted as money lost)
+#13 414.1   PASS  payouts grouped per platform payout
+#13 414.1   PASS  bank deposit entered; the $1.00 gap is flagged on the ledger entry
+#13 414.1   PASS  every ledger entry balances (debit = credit)
+#13 414.1   PASS  Uber entry: bank, sales, GST + QST payable, commission, ITC + ITR, ads
+#13 414.1   PASS  owner approves the Uber entry (nothing is posted anywhere)
+#13 414.1   PASS  ledger CSV for the accountant
+#13 414.1   PASS  commission plans start from the published Canadian rate cards
+#13 414.1   PASS  impossible commission refused
+#13 414.1   PASS  plans confirmed as matching the contract
+#13 414.3   PASS  a manager limited to one location cannot see payouts (they cover every location)
+#13 414.3
+#13 414.3 32. Too Good To Go daily bags
+#13 414.4   PASS  bag log → a Too Good To Go sale for that day (9 × $5.99 = $53.91)
+#13 414.4   PASS  TGTG orders already came by webhook today → logged, not counted twice
+#13 414.4   PASS  more bags sold than offered is refused
+#13 414.4   PASS  bag days listed
+#13 414.4
+#13 414.4 33. French menus (Quebec)
+#13 414.4   PASS  French names saved on the master menu
+#13 414.4   PASS  DoorDash menu language set to French (Uber stays French / English)
+#13 414.4   PASS  Uber Eats gets French and English in ONE translation (Uber shows only one)
+#13 414.4   PASS  DoorDash gets the French names
+#13 414.4   PASS  Skip stays in English (its setting)
+#13 414.4
+#13 414.4 34. Uber store disconnected, installable kitchen app
+#13 414.4   PASS  Uber "store deprovisioned" → critical alert on the Command Center
+#13 414.6   PASS  store reconnected → the alert clears
+#13 414.6   PASS  kitchen tablet app installable: public manifest, standalone, icons
+#13 414.6   PASS  service worker is public and never caches live data (/api)
+#13 414.6   PASS  app icon served without sign-in
+#13 414.6
+#13 414.6 35. Every screen renders
+#13 415.7   PASS  33 screens return 200
+#13 415.7   PASS  old bookmarks lead to the new pages
+#13 415.7
+#13 415.7 36. RC10 — sign-in by code, kitchen tablets, staff PINs, manager approvals, cancellation alarm, Watchtower
+#13 415.7   PASS  first-run owner setup is closed once accounts exist
+#13 415.7   PASS  manager added with email + cell + PIN; invitation emailed; no PIN or hash returned
+#13 415.7   PASS  kitchen staff added with a PIN only (no email, no password)
+#13 415.7   PASS  a trivial PIN (1234) is refused
+#13 415.8   PASS  the same PIN cannot belong to two people
+#13 415.8   PASS  sign-in code emailed from the sign-in address; masked on screen; never in the API answer (production)
+#13 415.8   PASS  wrong code refused
+#13 415.8   PASS  right code → 14-day HttpOnly session
+#13 415.8   PASS  a code works only once
+#13 415.8   PASS  Nadia is a HOCHELAGA manager with a PIN
+#13 416.0   PASS  unknown email: same answer, nothing sent (nobody can probe who has access)
+#13 416.1   PASS  sign-in requests are rate-limited (5 per 15 min per contact)
+#13 416.1   PASS  code by SMS (Twilio) with the one-tap link and the auto-fill line (@domain #code)
+#13 416.1   PASS  one-tap link signs in and opens the page asked for
+#13 416.1   PASS  the link works only once
+#13 416.1   PASS  message log keeps masked numbers and never the sign-in codes
+#13 416.1   PASS  manager enrols the HOCHELAGA tablet (1-year signed device cookie)
+#13 416.1   PASS  a manager cannot enrol a tablet for another kitchen
+#13 416.1   PASS  the tablet opens the PIN screen, not the email sign-in
+#13 416.2   PASS  PIN screen loads on the tablet
+#13 416.2   PASS  PIN screen lists HOCHELAGA people with a PIN — no contact details
+#13 416.2   PASS  PIN screen refused on a normal browser
+#13 416.2   PASS  tablet heartbeat: counts orders waiting and orders cancelled by the customer
+#13 416.2   PASS  wrong PIN refused on the tablet
+#13 416.2   PASS  Léo unlocks with his PIN (14-hour session tied to the tablet)
+#13 416.2   PASS  staff session knows its tablet and kitchen
+#13 416.3   PASS  tablet listed online with battery and who is signed in
+#13 416.3   PASS  order cancelled by the customer → red alarm on the HOCHELAGA tablet
+#13 416.4   PASS  "Got it" clears the alarm on every screen (logged)
+#13 416.6   PASS  live pulse: new order pops up on the HOCHELAGA tablet with its Skip deadline (and only HOCHELAGA)
+#13 416.6   PASS  staff reject → 428: manager PIN needed
+#13 416.6   PASS  staff cannot approve with their own PIN
+#13 416.6   PASS  Nadia’s PIN approves: Skip order handed back to the Skip tablet, approver kept on the order
+#13 416.6   PASS  activity log: "Nadia approved … for Léo"
+#13 416.7   PASS  a store-cancelled order does not ring the cancellation alarm
+#13 416.7   PASS  staff pausing a store also needs a manager
+#13 416.7   PASS  staff cannot touch money at all (no permission)
+#13 416.7   PASS  owner changes the PIN rules (unknown values ignored)
+#13 416.7   PASS  a manager cannot change the PIN rules
+#13 416.7   PASS  Watchtower cron refuses a missing secret
+#13 416.7   PASS  alert rules saved (thresholds clamped, support line normalised)
+#13 438.0   PASS  order waiting 20 s → Watchtower incident with a plain explanation (rules, no AI key)
+#13 438.0   PASS  incident posted to the team chat
+#13 438.0   PASS  incident shows on every screen of that kitchen (pulse)
+#13 438.0   PASS  "I’m on it" stops the escalation
+#13 438.2   PASS  order accepted → incident closes by itself
+#13 438.2   PASS  "+5 min" now needs a manager (rule changed by the owner)
+#13 438.2   PASS  approved "+5 min" moves the kitchen timer
+#13 438.2   PASS  "Text me a test" goes out through Twilio
+#13 438.3   PASS  "Call me": Twilio voice call reading the alert twice in French
+#13 438.3   PASS  "Test chat" reaches the team chat
+#13 438.3   PASS  you can't take someone else's PIN
+#13 438.3   PASS  profile: language and alert choices saved
+#13 438.3   PASS  copilot answers without an AI key (built-in rules)
+#13 438.4   PASS  lost tablet removed → its staff session and PIN screen stop at once
+#13 438.4   PASS  removing a person signs them out everywhere
+#13 438.4
+#13 438.4 37. Clover App Market app — launch, connect a merchant, welcome wizard, test order, keep tokens server-side, uninstall
+#13 438.4   PASS  "Connect a Clover merchant" sends the owner to Clover with the Food Hub callback
+#13 438.4   PASS  starting a Clover connection needs sign-in
+#13 438.4   PASS  a refused Clover code shows an error, no connection
+#13 438.4   PASS  a code for another Clover app is refused
+#13 438.4   PASS  opened from Clover without a code → sent to Clover’s authorize page with a signed launch state
+#13 438.4   PASS  back from Clover still without a code → an error page, never a loop
+#13 438.4   PASS  unknown merchant opening the app from Clover waits for the owner (signed welcome link)
+#13 438.5   PASS  welcome page opens without sign-in, says it is waiting for approval, pre-filled from the merchant’s Clover
+#13 438.5   PASS  welcome page with a forged ticket shows no merchant data
+#13 438.5   PASS  a pending merchant cannot send a test order to its register
+#13 438.5   PASS  Channels shows it as pending; it is not used for orders or sync yet
+#13 438.5   PASS  only the owner can approve a Clover merchant
+#13 438.5   PASS  owner approves it
+#13 438.5   PASS  the same welcome link now says connected and offers the 3 set-up steps and the test order
+#13 438.6   PASS  test order: created in the merchant’s Clover, printed, paid — each step confirmed by Clover
+#13 438.6   PASS  the test order never enters Food Hub (no kitchen, no analytics)
+#13 438.6   PASS  test order needs a valid ticket and a JSON body
+#13 438.6   PASS  Channels lists the approved merchant with its Clover name
+#13 438.6   PASS  Channels gives the privacy, terms and support URLs for the Clover listing
+#13 438.6   PASS  privacy, terms and support pages are public, in French and English
+#13 438.6   PASS  Clover app tokens and secret are never sent to the browser
+#13 438.6   PASS  merchant list API works and hides tokens
+#13 438.6   PASS  Clover app uninstall (A:<appId> DELETE) refused without X-Clover-Auth
+#13 438.6   PASS  merchant that uninstalls the app is disconnected
+#13 438.6
+#13 438.6 38. DoorDash orders received through Clover's own DoorDash integration (read-only)
+#13 438.7   PASS  sync reads the DoorDash order Clover received by itself
+#13 438.7   PASS  …and it is never counted as an in-store sale ($35.00)
+#13 438.7   PASS  it shows in Food Hub as a DoorDash order "via Clover", already in the kitchen
+#13 438.7   PASS  read-only: no accept / reject / cancel / resend — only Ready, Completed, Reprint
+#13 438.7   PASS  refused: cancel is not possible on a via-Clover order
+#13 438.7   PASS  completed in Food Hub only: no Clover payment recorded, not sent to Clover again
+#13 438.8   PASS  read only once (next sync adds nothing)
+#13 438.8
+#13 438.8 39. Menu photo upload (served publicly for the delivery apps)
+#13 438.8   PASS  photo uploaded → public URL on Food Hub
+#13 438.8   PASS  photo served without sign-in (Uber / DoorDash / Skip download it)
+#13 438.8   PASS  menu photo has no X-Robots-Tag (on2go.ca dish photos stay eligible for image search)
+#13 438.8   PASS  a file that is not a photo is refused
+#13 438.8   PASS  upload needs sign-in
+#13 438.8   PASS  no path tricks on the public photo route
+#13 438.8
+#13 438.8 40. Clover kitchen printing check (items without a printer label)
+#13 438.8   PASS  lists the items no printer label covers (hidden items ignored)
+#13 438.8   PASS  a label without a printer cannot be used
+#13 438.9   PASS  owner adds the kitchen label in Clover (links only)
+#13 438.9   PASS  re-check: every item now prints in the kitchen
+#13 438.9   PASS  unknown merchant refused
+#13 438.9   PASS  Clover tax check flags "Sales Tax" 0.14975 % (should be 14.975 %), read-only
+#13 438.9
+#13 438.9 41. Clover backend — delivery / pickup types, free-text lines, automatic retries, webhook inbox, menu lock, Clover menus, dry run, health
+#13 439.1   PASS  pickup → the merchant’s "Online Order Pick Up" order type; the kitchen note says who and how
+#13 439.1   PASS  a line Clover does not know goes as a flagged free-text line, never dropped
+#13 439.1   PASS  the pickup tip is the restaurant’s: recorded on the Clover payment
+#13 439.2   PASS  delivery → the merchant’s "Online Order Delivery" order type
+#13 439.4   PASS  Clover down: the order waits (never confirmed on DoorDash) and a retry is scheduled
+#13 441.4   PASS  Clover back: the automatic retry puts it in Clover once, prints it, then DoorDash is confirmed once
+#13 441.4   PASS  the order page says it was retried and recovered
+#13 441.4   PASS  Uber webhook still answered 200 while Uber refuses the order fetch (saved first)
+#13 441.6   PASS  the failed webhook is in the inbox with its error and the next automatic try
+#13 443.5   PASS  …and the next try gets the order: in Clover and accepted on Uber
+#13 450.9   PASS  after the automatic tries it waits for a person ("Needs replay"), counted on /api/health
+#13 451.0   PASS  Replay processes it: the order arrives, in Clover and accepted
+#13 451.0   PASS  replaying again never creates a second order
+#13 451.0   PASS  Po Poulet NDG on DoorDash (store 27982486) is menu-locked for good
+#13 451.0   PASS  the lock cannot be lifted from the console
+#13 451.1   PASS  …nor by clearing its DoorDash store number or removing the mapping
+#13 451.1   PASS  the Menu editor lists the merchant’s Clover menus; the DoorDash one is recognised
+#13 451.1   PASS  import from the DoorDash menu: its 3 items, +20 % detected (no per-item price needed), photo kept
+#13 451.1   PASS  other platforms keep their own prices (Uber 16.49 on the grilled chicken)
+#13 451.1   PASS  dry run: the locked store would get nothing; the Uber store gets the new salad
+#13 451.1   PASS  dry run sends nothing to any platform
+#13 451.2   PASS  real publish: every other store gets the menu, the locked store is reported "not sent"
+#13 451.2   PASS  an 86 at that kitchen never reaches the locked store
+#13 451.2   PASS  DoorDash Menu Request for the locked store is refused (DoorDash keeps its menu)
+#13 451.2   PASS  /api/health is public and only says each check’s status
+#13 451.2   PASS  with the cron secret: each platform and its last order, the Watchtower alive
+#13 451.2   PASS  the Overview reads the same health (session)
+#13 451.2   PASS  with the cron secret: the e-mail, SMS and AI rows, never the names of missing settings (owner only)
+#13 451.2   PASS  a production build on the in-memory store says so: database "down" (503); the screens open
+#13 451.2   PASS  no secret, store, brand, merchant or address in the public answer
+#13 451.3   PASS  only the exact path is public (/api/health/x and /api/healthz need sign-in)
+#13 451.3
+#13 451.3 42. Uber Eats: orders whose webhook never arrived (missed-order check)
+#13 451.4   PASS  sync finds the order no webhook announced and processes it (Clover first, then accept)
+#13 452.0   PASS  missed-order check skips stores not confirmed as Food Hub’s, orders past the 11.5-min window and orders the webhook may still bring
+#13 452.0
+#13 452.0 42b. Order Relay (partner feed → Clover → kitchen), one menu for two brands, late orders never cooked by themselves
+#13 452.0   PASS  relay refuses a wrong or a missing token (401)
+#13 452.0   PASS  Channels shows the relay address with its token hidden, callback set, TGTG only
+#13 452.0   PASS  partner store mapped as "relay:<partner store id>"
+#13 452.1   PASS  TGTG order pushed to the relay → saved before the 200, Food Hub reference returned
+#13 452.2   PASS  read as Too Good To Go, routed by its "relay:" mapping to Po Poulet · NDG, one Clover order (2 × 5.99 $), accepted
+#13 452.2   PASS  accept posted to the partner callback ("Acknowledged", bearer token) — only after Clover had the order
+#13 453.1   PASS  the same relay order delivered twice → one order, one Clover order, one "Acknowledged"
+#13 453.2   PASS  partner status "Cancelled" → order cancelled, removed from Clover, nothing posted back for it
+#13 453.6   PASS  a relay cancel that arrives before its order waits for it: the order arrives cancelled, nothing goes to Clover or the partner
+#13 453.6   PASS  Poulet Poulet mapped on Uber Eats and DoorDash at NDG
+#13 453.6   PASS  sharing saved: Poulet Poulet uses the Po Poulet menu
+#13 453.6   PASS  GET menu?brand=Poulet Poulet → sharedFrom Po Poulet, the same items under its own name
+#13 453.6   PASS  saving a menu for the follower is refused (409): the shared menu is edited on Po Poulet
+#13 453.7   PASS  publishing the follower goes to its own stores only, under its own name
+#13 453.7   PASS  an 86 on the follower reaches the NDG stores of both brands
+#13 453.7   PASS  the 86 is saved once, on the shared menu (both brands show it)
+#13 453.8   PASS  back on from Po Poulet → back on for both brands
+#13 453.8   PASS  a DoorDash order received past its answer window is kept for a person: no order, nothing in Clover
+#13 453.8   PASS  …and a person can still replay it
+#13 453.8
+#13 453.8 43. Expansion: own-order delivery (DoorDash Drive), website orders, AI phone line, grocery, alcohol
+#13 453.9   PASS  every expansion feature starts OFF (MEV invoices included)
+#13 453.9   PASS  Own orders hidden from the side menu while off
+#13 453.9   PASS  website orders refused while own delivery is off
+#13 454.0   PASS  owner turns own delivery on
+#13 454.0   PASS  Own orders now in the side menu
+#13 454.0   PASS  delivery rule saved for NDG
+#13 454.0   PASS  website order refused with a wrong token
+#13 454.0   PASS  website order received
+#13 454.0   PASS  same website order again → no duplicate
+#13 454.0   PASS  kitchen ticket in Clover with our number and the delivery address
+#13 454.0   PASS  customer texted the confirmation
+#13 454.1   PASS  Interac order refused while Interac is off in Settings
+#13 454.1   PASS  Interac settings saved, the answer comes back masked and the all-in fee is 5.75
+#13 454.1   PASS  Interac order refused without its fee line
+#13 454.1   PASS  Interac order refused when the site shows another fee
+#13 454.1   PASS  Interac order refused when the all-in total differs by more than 2 ¢
+#13 454.1   PASS  website order refused when a line is not priced like the menu
+#13 454.1   PASS  Interac order held: awaiting_payment, instructions returned, no answer field
+#13 454.1   PASS  nothing in Clover while the transfer is not confirmed
+#13 454.1   PASS  customer texted the Interac instructions (recipient, exact amount, reference, question + answer)
+#13 454.1   PASS  same Interac order again → the same instructions, no second order
+#13 454.1   PASS  the held order shows its Interac block in the console (answer kept out of the API)
+#13 454.1   PASS  the orders board never carries the Interac answer
+#13 454.2   PASS  "Transfer received" → paid by that person, in the kitchen, ONE Clover order marked Interac
+#13 454.2   PASS  customer texted "virement Interac reçu"
+#13 454.2   PASS  a second "Transfer received" changes nothing (still one Clover order)
+#13 454.2   PASS  Call a courier → DoorDash Drive booked (sandbox)
+#13 454.2   PASS  Drive quote carries every required field (address, value, business name, tip, items, instructions)
+#13 454.2   PASS  quote accepted by our delivery id
+#13 454.2   PASS  Drive webhook with a wrong token → 401
+#13 454.2   PASS  Dasher assigned (webhook)
+#13 454.2   PASS  order shows the courier, and the tracking link is texted once
+#13 454.2   PASS  kitchen strip lists it
+#13 454.2   PASS  delivered → order completed
+#13 454.3   PASS  an unpaid delivery waits: couriers never collect money
+#13 454.3   PASS  Payment taken → courier booked
+#13 454.3   PASS  cancelling the order cancels the courier first
+#13 454.3   PASS  a Po Poulet phone line at NDG is refused (owner lock)
+#13 454.4   PASS  phone line saved
+#13 454.4   PASS  voice webhook refuses an unsigned call
+#13 454.4   PASS  without an AI key the call is handed to the kitchen phone (TwiML Dial)
+#13 454.4   PASS  call logged with its reason
+#13 454.5   PASS  grocery product saved (barcode check digit verified)
+#13 454.5   PASS  a wrong barcode is refused
+#13 454.5   PASS  scanner lookup by barcode
+#13 454.5   PASS  DoorDash / Uber grocery payloads built, marked "needs platform approval", nothing sent
+#13 454.5   PASS  alcohol closed on every channel until a permit is checked
+#13 454.5   PASS  opening a channel without a checked permit is refused
+#13 454.5
+#13 454.5 44. Website orders through Clover Online Ordering — Clover keeps control, the kitchen screen mirrors them
+#13 454.6   PASS  sync reads the website order Clover Online Ordering took (and only that one)
+#13 454.6   PASS  kitchen screen: "Website / Clover Online", accepted in Clover, printed by Clover, in the pinned kitchen
+#13 454.6   PASS  no second ticket: Food Hub created nothing in Clover and printed nothing
+#13 454.6   PASS  an in-store order of the same Clover is not a website order
+#13 454.6   PASS  not a platform order (order board and payout checks untouched)
+#13 454.6   PASS  cancel from Food Hub refused: "do it in Clover"
+#13 454.6   PASS  the own-orders API refuses it too (no resend, no courier, no refund)
+#13 454.6   PASS  Clover Orders event refused without X-Clover-Auth
+#13 454.6   PASS  Clover Orders event (CREATE) accepted
+#13 454.8   PASS  …and the website order is on the kitchen screen right away
+#13 454.8   PASS  "Ready" on the kitchen screen is local: nothing written to Clover
+#13 454.8   PASS  Clover Orders event for a website order paid with Clover Hosted Checkout accepted
+#13 455.0   PASS  …recognised by its "Site web" title: on the kitchen screen, paid, named, and Food Hub prints nothing
+#13 455.0   PASS  Clover Orders event (UPDATE) accepted
+#13 455.2   PASS  refunded in Clover → cancelled on the kitchen screen (Clover is the source of truth)
+#13 455.3   PASS  the poller meets the webhook's orders: never shown twice
+#13 455.3
+#13 455.3 45. Skip (all JET Connect notifications) and Too Good To Go (Deliverect + feed): API coverage
+#13 455.3   PASS  Skip cancel notification is answered with the same payload
+#13 455.3   PASS  Skip temporarily-offline notification is answered with the same payload
+#13 455.3   PASS  Skip order answered 202 with { OrderId }
+#13 455.5   PASS  and the first total is the customer total (26.47)
+#13 455.5   PASS  Final Picked Order refused without a signature
+#13 455.5   PASS  Final Picked Order accepted ({ OrderId })
+#13 455.6   PASS  Final Picked Order: the order now holds the real total, the lines stay as cooked
+#13 455.6   PASS  Skip modification callback (failure) accepted and echoed
+#13 455.6   PASS  the failure is on the order history
+#13 455.6   PASS  Skip order-time notification accepted
+#13 455.6   PASS  onboarding notification refused with a wrong signature
+#13 455.6   PASS  onboarding notification accepted when signed
+#13 455.6   PASS  onboarding session kept with the next step in words
+#13 455.6   PASS  service times preview lists the mapped Skip stores (nothing is sent)
+#13 455.6   PASS  delivery-pool operations can be previewed (the dry run builds the request)
+#13 455.6   PASS  catalogue check refuses an empty menu list
+#13 455.7   PASS  Deliverect webhook refused without the token
+#13 455.7   PASS  Deliverect register: every webhook address on the public domain
+#13 455.7   PASS  Deliverect Too Good To Go order acknowledged with 200
+#13 456.0   PASS  in Clover for the kitchen; accept says "nothing sent to Deliverect" (no keys) instead of faking it
+#13 456.0   PASS  an order of another Deliverect channel is kept, not taken
+#13 456.1   PASS  a channel CANCEL (status 100) cancels the order
+#13 456.5   PASS  Deliverect sync-floors and sync-tables answered
+#13 456.5   PASS  Deliverect console endpoint lists the registered location and the 29 operations
+#13 456.8   PASS  TGTG "collected" confirms the pickup (completed); "no-show" completes and is flagged
+#13 456.8   PASS  bag-count cron refuses a missing secret
+#13 456.9   PASS  end of day: the feed counts reach the bag log
+#13 456.9
+#13 456.9 46. Owner test order on a register connected with an API token (Settings → Clover app)
+#13 456.9   PASS  owner: TEST order created, printed and paid on the API-token register, each step confirmed by Clover
+#13 456.9   PASS  owner test order needs a sign-in (no public access)
+#13 456.9   PASS  a register Food Hub cannot reach is refused, nothing sent
+#13 456.9   PASS  Settings → Clover app: API-token register listed and "tested end to end" recorded
+#13 456.9   PASS  the public welcome endpoint still needs a valid ticket
+#13 456.9
+#13 456.9 47. Too Good To Go order e-mails (forwarding webhook) → kitchen + Clover
+#13 457.0   PASS  Settings → Platforms: TGTG store name mapped to OOeuf @ NDG 6284
+#13 457.0   PASS  Po Poulet cannot be mapped outside Saint-Léonard
+#13 457.0   PASS  TGTG e-mail webhook refuses a wrong token
+#13 457.2   PASS  forged Too Good To Go From (no DKIM / DMARC pass) → attention, nothing sent to Clover
+#13 457.2   PASS  reservation e-mail → order created
+#13 457.2   PASS  Clover order: title with the TGTG code, order type "Too Good To Go", one line per bag with the customer
+#13 457.2   PASS  kitchen ticket printed once
+#13 457.2   PASS  same e-mail again → duplicate, no second Clover order
+#13 457.2   PASS  cancellation e-mail → order cancelled
+#13 457.2   PASS  Clover order flagged CANCELLED, never deleted
+#13 457.3   PASS  e-mail without a code → attention list (never dropped)
+#13 457.3   PASS  Settings panel: last e-mails listed, mailbox not configured (IMAP off)
+#13 457.3   PASS  Settings panel needs a sign-in
+#13 457.3
+#13 457.3 48. Platform screens wall: numbered screens, sign-in page command, shared layout (docs/ORDER_SCREENS_RESCUE.md)
+#13 457.3   PASS  Set up screens: s01–s04 created (2 DoorDash, 1 Uber Eats, 1 Skip)
+#13 457.3   PASS  setting up screens needs a sign-in
+#13 457.3   PASS  relay heartbeat refuses a wrong token
+#13 457.3   PASS  each new screen is sent to its platform's sign-in page once
+#13 457.3   PASS  the command is handed over once
+#13 457.3   PASS  switching a screen to Skip sends it to Skip's page
+#13 457.3   PASS  the wall lists the screens with status, waiting count and the orders → Clover paths
+#13 457.4   PASS  wall layout shared with every device
+#13 457.4   PASS  sharing a layout needs a sign-in
+#13 457.4   PASS  anti-clickjacking: console pages and sign-in can only be framed by Food Hub and Clover
+#13 457.4   PASS  the storefront keeps its own framing rules (embeddable on brand sites)
+#13 457.4
+#13 457.4 49. Revenu Québec invoices through Takatak MEV (QCMEV stand-in)
+#13 457.4   PASS  MEV switch OFF for the whole run so far: zero calls to Takatak MEV
+#13 457.4   PASS  MEV status: simulator mode, address and key set, the key value is never shown
+#13 457.4   PASS  the MEV owner switch is listed on Expansion, OFF
+#13 457.5   PASS  test kitchen E2E_MEV with Uber, DoorDash and Skip stores
+#13 457.5   PASS  not active yet: the owner switch is off
+#13 457.5   PASS  owner sets « Takatak MEV » for the kitchen
+#13 457.5   PASS  the invoicing system cannot be changed without signing in
+#13 457.5   PASS  owner turns the MEV switch on
+#13 457.5   PASS  Takatak MEV /health read (signed): SIMULATOR, kitchen active
+#13 457.5   PASS  S1 Uber webhook accepted
+#13 457.7   PASS  S1 Uber → one LVT sale, no courier tip, no platform fees
+#13 457.7   PASS  S1 receipt on the order: number, QR image, platform mention
+#13 457.7   PASS  S1 kitchen ticket page answers
+#13 457.7   PASS  S1 a paper receipt for the bag (PAP) has no public electronic copy (no token)
+#13 457.9   PASS  P1 the original invoice (FAC) is granted to one ticket only; the second open is refused with the time it printed
+#13 457.9   PASS  P1 nothing to print for a copy that was never asked (RPR)
+#13 457.9   PASS  a wrong receipt token → 404
+#13 458.7   PASS  S8 the same Uber order three times → one transaction
+#13 458.9   PASS  S2 DoorDash pickup: restaurant-funded promotion as the discount, LVT
+#13 459.0   PASS  S2 adjustment → full credit note of the first receipt + a corrected receipt that names it
+#13 459.2   PASS  S3 Skip tablet order (tax 0 in the feed) → tax computed from the base
+#13 459.2   PASS  S4 picked up, Clover payment unreadable → the invoice waits for the tender (never sent as INC)
+#13 459.4   PASS  S4 Takatak MEV stopped: the invoice waits in the outbox (pending), nothing lost
+#13 460.7   PASS  S4 back up → sent with the same key and event id, one transaction: CMP, ARG, pourb 2,00 $
+#13 460.8   PASS  S5 website delivery paid online → LVR, e-commerce, card, the delivery fee is the restaurant’s
+#13 460.8   PASS  S5 MEV-WEB down → offline receipt with its number and a local QR; processing time and MEV number read « PROBLÈME DE COMMUNICATION »
+#13 462.1   PASS  S5 MEV-WEB back → the same receipt gets its MEV number (batch flush)
+#13 462.1   PASS  E1 PEL: /r/<token> shows the electronic invoice: QR in the block, « Consulter la transaction en ligne » right under it, « Copie électronique », no [CODE QR] text
+#13 462.3   PASS  P1 own order: the paper original prints once too
+#13 462.6   PASS  S6 cancelled after acceptance → full credit note, negative amounts, names the original
+#13 462.6   PASS  S6 the credit note dates itself when issued (Montréal time), not at the original's time
+#13 462.6   PASS  S6 Skip (JET prices before tax): items 26,47 $ + taxes 3,96 $, no « Rabais »
+#13 462.8   PASS  S6b lines that do not add up → held for a person (amounts_mismatch); nothing sent, no invented line or « Rabais »
+#13 463.3   PASS  S7 Too Good To Go daily bag count → not a sale (log_order): nothing reaches Takatak MEV
+#13 463.4   PASS  S7b « Sac remis » → one LVT sale, printed (PAP), issued before the answer; 5,99 $ taxes included = 5,21 $ + TPS + TVQ
+#13 463.4   PASS  S7c the day: 1 bag with its own invoice, 2 flagged without one; Takatak MEV kitchen named
+#13 463.4   PASS  S7d the day’s log counts only the bags without their own sale: 3 sold − 1 « Sac remis » = 2 (reports never count a bag twice)
+#13 463.6   PASS  S10 a $0 order → AUC
+#13 463.7   PASS  S11 merchant copy (DUP) and reprint (RPR) transmitted; the copy says « COPIE DU COMMERÇANT / NE PAS REMETTRE AU CLIENT »
+#13 463.9   PASS  P1 the reproduction (RPR) Takatak MEV transmitted prints once as well
+#13 463.9   PASS  every sale: apresTax = avantTax + TPS + TVQ to the cent; TPS and TVQ rounded one by one
+#13 463.9   PASS  pourb only on the phone pickup (S4): never on a platform order
+#13 463.9   PASS  service types: LVT for platforms, CMP for the phone pickup, LVR for our delivery
+#13 463.9   PASS  noTrans unique per device and civil day
+#13 463.9   PASS  S9 datTrans is a Montréal local date and time with its -04:00 / -05:00 offset (the 23:30 edge is unit-tested)
+#13 463.9   PASS  every signature is 88 characters, verifies (ECDSA P-256) and chains; the first preced is 88 "="
+#13 463.9   PASS  replaying a sale returns the same receipt; the same key with another body → 409
+#13 463.9   PASS  no secret, key or identity number in the logs, the API answers or the payloads
+#13 463.9   PASS  counts: 9 receipts, 2 credit notes, 2 copies, 1 held for a person
+#13 464.6   PASS  MEV switched off again → an accepted order makes no call
+#13 464.9   PASS  no background job crashed during the whole run
+#13 464.9
+#13 464.9 644 passed, 0 failed
+#13 DONE 465.0s
+
+#14 [app 4/5] RUN --mount=type=secret,id=proxy_ca     if [ -r /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi;     npm prune --omit=dev --no-audit --no-fund --loglevel=error
+#14 28.36
+#14 28.36 up to date in 2s
+#14 DONE 28.4s
+
+#15 [app 5/5] RUN set -eu;     env -i PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" HOME="$HOME" NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=18092       FOODHUB_FORCE_MEMORY=true LIVE_CONNECTORS_GLOBAL_ENABLED=false FOODHUB_INTERNAL_SYNC_MIN=0       FOODHUB_WATCH_INTERVAL_S=0 SESSION_SECRET=isolated-build-smoke-session-key DASHBOARD_PASSWORD=isolated-build-only       FOODHUB_RELEASE_SHA="12dc660c05c08aecbd683f9bc90e5c476274b8e1" node node_modules/next/dist/bin/next start -p 18092 -H 127.0.0.1 >/tmp/foodhub-build-smoke.log 2>&1 &     fh_probe_pid=$!; trap 'kill "$fh_probe_pid" 2>/dev/null || true' EXIT;     node -e 'for(let i=0;i<45;i++){try{if((await fetch("http://127.0.0.1:18092/api/release")).status===200)process.exit(0)}catch{}await new Promise(r=>setTimeout(r,1000))}process.exit(1)' --input-type=module;     env -i PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" HOME="$HOME" PORT=18092 FOODHUB_FORCE_MEMORY=true LIVE_CONNECTORS_GLOBAL_ENABLED=false       FOODHUB_INTERNAL_SYNC_MIN=0 FOODHUB_RELEASE_SHA="12dc660c05c08aecbd683f9bc90e5c476274b8e1" node scripts/check-runtime.mjs --build-smoke
+#15 21.31 PASS Food Hub 12dc660c05c08aecbd683f9bc90e5c476274b8e1: release, health, public directory, login and protected orders
+#15 DONE 21.4s
+
+#16 exporting to image
+#16 exporting layers
+#16 exporting layers 10.6s done
+#16 writing image sha256:b3f83baec1d042fe4a0268e7031063e290fd831f3d6feab0d326b2b6e506a1d2 done
+#16 naming to docker.io/library/foodhub-review:12dc660 done
+#16 DONE 10.7s

@@ -1,0 +1,18 @@
+{
+  "originalOwnedPostgresRemoved": true,
+  "originalOwnedRestRemoved": true,
+  "originalOwnedNetworkRemoved": true,
+  "privateTestEnvironmentRemoved": true,
+  "oldPrivateReviewConfigRemoved": true,
+  "operatorRuntimeCleanup": "separately verified in operator runtime proof",
+  "ownedReviewPortsClosed": {
+    "4809": true,
+    "4891": true,
+    "4892": true,
+    "4893": true,
+    "4895": true,
+    "4896": true
+  },
+  "evidenceAndImagesRetained": true,
+  "productionDataTouched": false
+}

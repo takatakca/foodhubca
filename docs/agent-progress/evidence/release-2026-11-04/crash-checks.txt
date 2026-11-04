@@ -1,0 +1,37 @@
+
+> takatak-accounting-control-tower@1.5.9 verify:crash
+> node scripts/foodhub-crash-e2e.mjs
+
+
+0. Food Hub on a real Postgres (postgres + PostgREST, the pair Supabase runs)
+  PASS  PostgREST answers with the service_role key and the Food Hub schema is installed
+  PASS  the built app starts on the database
+  PASS  the app writes to Postgres, not to memory (store mapping row in fh_channel_stores)
+
+1. Server killed between the 200 and the end of processing → the order is replayed exactly once
+  PASS  Uber got its 200 (the webhook was saved in the inbox before the answer)
+  PASS  the server was killed while the entry was "processing" (test delay hook)
+  PASS  the server is really gone
+  PASS  the saved webhook survived the kill (still "processing", never finished)
+  PASS  nothing reached the kitchen before the kill: no order row, no Clover order, no ticket
+  PASS  restarted on the same database
+  PASS  the recovery runner processed the saved webhook after the restart (2nd try, done, linked to its order)
+  PASS  …run by the restarted server's own timer (no person, no platform re-delivery)
+  PASS  exactly ONE order row, accepted
+  PASS  exactly ONE Clover order, the one on the order row
+  PASS  exactly ONE kitchen ticket printed, for that Clover order
+  PASS  accepted on Uber exactly once, with the Clover order id
+  PASS  no duplicate: no "duplicate_delivery" event, no unique-key error in the logs
+
+2. Server killed after processing finished → nothing is processed again
+  PASS  started again on the database
+  PASS  Uber got its 200 and the order was processed live (done after one try)
+  PASS  one order row, one Clover order, one ticket, one Uber accept before the kill
+  PASS  the server is really gone
+  PASS  restarted on the same database
+  PASS  the recovery runner ran (twice) after the restart, past the "interrupted" time
+  PASS  the finished entry was not processed again (still done, one try, untouched)
+  PASS  still exactly ONE order row, ONE Clover order, ONE ticket, ONE Uber accept
+  PASS  no background job crashed in any of the four boots
+
+25 passed, 0 failed

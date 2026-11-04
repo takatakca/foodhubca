@@ -1,0 +1,211 @@
+{
+  "reviewOnly": true,
+  "database": "local-postgres-postgrest",
+  "api": [
+    {
+      "path": "/api/public/on2go/verify/start",
+      "method": "POST",
+      "probe": false,
+      "phase": "signin",
+      "startedMs": 3886,
+      "status": 200,
+      "finishedMs": 4032,
+      "elapsedMs": 146,
+      "ok": true,
+      "errorPresent": false
+    },
+    {
+      "path": "/api/public/on2go/verify/check",
+      "method": "POST",
+      "probe": false,
+      "phase": "signin",
+      "startedMs": 4100,
+      "status": 200,
+      "finishedMs": 4169,
+      "elapsedMs": 69,
+      "ok": true,
+      "errorPresent": false
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "probe": false,
+      "phase": "save",
+      "startedMs": 5379,
+      "status": 200,
+      "finishedMs": 5457,
+      "elapsedMs": 78,
+      "ok": true,
+      "errorPresent": false,
+      "favouritesCount": 0,
+      "revisionValid": true
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "probe": true,
+      "phase": "observation",
+      "startedMs": 5402,
+      "status": 200,
+      "finishedMs": 5466,
+      "elapsedMs": 64,
+      "ok": true,
+      "errorPresent": false,
+      "favouritesCount": 0,
+      "revisionValid": true
+    },
+    {
+      "path": "/api/public/on2go/me/favourites",
+      "method": "PUT",
+      "probe": false,
+      "phase": "observation",
+      "startedMs": 5471,
+      "status": 200,
+      "finishedMs": 5515,
+      "elapsedMs": 44,
+      "ok": true,
+      "errorPresent": false,
+      "favouritesCount": 1,
+      "revisionValid": true
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "probe": true,
+      "phase": "observation",
+      "startedMs": 5752,
+      "status": 200,
+      "finishedMs": 5797,
+      "elapsedMs": 45,
+      "ok": true,
+      "errorPresent": false,
+      "favouritesCount": 1,
+      "revisionValid": true
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "probe": true,
+      "phase": "final-read",
+      "startedMs": 5841,
+      "status": 200,
+      "finishedMs": 5905,
+      "elapsedMs": 64,
+      "ok": true,
+      "errorPresent": false,
+      "favouritesCount": 1,
+      "revisionValid": true
+    }
+  ],
+  "pageErrors": [],
+  "failedRequests": [],
+  "clickState": [
+    {
+      "at": 1159.8000000044703,
+      "trusted": true,
+      "disabled": false,
+      "busy": "false",
+      "pressed": "false",
+      "reactBound": true,
+      "storedSessionPresent": true
+    }
+  ],
+  "samples": [
+    {
+      "elapsedSinceClickMs": 133,
+      "profile": {
+        "status": 200,
+        "ok": true,
+        "ownerMatches": true,
+        "favouritesCount": 0,
+        "favouritesValid": true,
+        "favouritesRevisionSupplied": true,
+        "favouritesRevisionValid": true
+      },
+      "button": {
+        "at": 1281.4000000059605,
+        "disabled": true,
+        "busy": "true",
+        "pressed": "false",
+        "reactBound": true,
+        "storedSessionPresent": true
+      }
+    },
+    {
+      "elapsedSinceClickMs": 461,
+      "profile": {
+        "status": 200,
+        "ok": true,
+        "ownerMatches": true,
+        "favouritesCount": 1,
+        "favouritesValid": true,
+        "favouritesRevisionSupplied": true,
+        "favouritesRevisionValid": true
+      },
+      "button": {
+        "at": 1597.6000000014901,
+        "disabled": false,
+        "busy": "false",
+        "pressed": "true",
+        "reactBound": true,
+        "storedSessionPresent": true
+      }
+    }
+  ],
+  "externalRequestsBlocked": 0,
+  "externalTexts": 0,
+  "deploymentVerified": false,
+  "signInCompletedMs": 4206,
+  "baselineSkipped": true,
+  "beforeClick": {
+    "at": 1123.9000000059605,
+    "disabled": false,
+    "busy": "false",
+    "pressed": "false",
+    "reactBound": true,
+    "storedSessionPresent": true
+  },
+  "clickStartedMs": 5341,
+  "clickReturnedMs": 5383,
+  "afterClick": {
+    "at": 1182.9000000059605,
+    "disabled": true,
+    "busy": "true",
+    "pressed": "false",
+    "reactBound": true,
+    "storedSessionPresent": true
+  },
+  "after": {
+    "elapsedSinceClickMs": 461,
+    "profile": {
+      "status": 200,
+      "ok": true,
+      "ownerMatches": true,
+      "favouritesCount": 1,
+      "favouritesValid": true,
+      "favouritesRevisionSupplied": true,
+      "favouritesRevisionValid": true
+    },
+    "button": {
+      "at": 1597.6000000014901,
+      "disabled": false,
+      "busy": "false",
+      "pressed": "true",
+      "reactBound": true,
+      "storedSessionPresent": true
+    }
+  },
+  "final": {
+    "status": 200,
+    "ok": true,
+    "ownerMatches": true,
+    "favouritesCount": 1,
+    "favouritesValid": true,
+    "favouritesRevisionSupplied": true,
+    "favouritesRevisionValid": true
+  },
+  "visibleSyncNotice": [],
+  "savePutAccepted": true,
+  "firstClickConfirmed": true,
+  "finishedMs": 5922
+}

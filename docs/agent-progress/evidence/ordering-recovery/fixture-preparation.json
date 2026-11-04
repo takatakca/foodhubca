@@ -1,0 +1,7 @@
+{
+  "priorCompletedSyntheticCrashOrdersRemoved": 2,
+  "scope": "owned disposable PostgreSQL only",
+  "purpose": "isolate merchant enquiry UI from earlier crash-test incoming-order alerts",
+  "appSourceChanged": false,
+  "productionAccess": false
+}

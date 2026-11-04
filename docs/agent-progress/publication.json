@@ -1,0 +1,48 @@
+{
+  "date": "2026-11-04",
+  "coordinatorBranch": "feature/restaurant-experience",
+  "verifiedRuntimeSource": "12dc660c05c08aecbd683f9bc90e5c476274b8e1",
+  "runtimeSourcePublished": true,
+  "coordinatorTip": "read current branch ref; later evidence-only commits can advance it",
+  "observedMain": "dccd068417674265d8e133c5aaee0ace7a7496e4",
+  "workers": {
+    "marketing": {
+      "repository": "takatakca/foodhubca",
+      "branch": "feature/foodhub-restaurant-marketing",
+      "localHead": "07b892053e760150db555390d1d1cc92d92f2828",
+      "remoteHead": "07b892053e760150db555390d1d1cc92d92f2828",
+      "remoteVerified": true
+    },
+    "dashboard": {
+      "repository": "takatakca/foodhubca",
+      "branch": "feature/foodhub-operator-dashboard",
+      "localHead": "0a9abd3f91b3aa5f2374336b9abddb701057b6ea",
+      "remoteHead": "0a9abd3f91b3aa5f2374336b9abddb701057b6ea",
+      "remoteVerified": true
+    },
+    "research": {
+      "repository": "takatakca/foodhubca",
+      "branch": "docs/drive-project-evidence",
+      "localHead": "07d5c74ff45ea0eb659212362286881ef24eb2f4",
+      "remoteHead": "07d5c74ff45ea0eb659212362286881ef24eb2f4",
+      "remoteVerified": true
+    },
+    "media_suite": {
+      "repository": "takatakca/foodhubca",
+      "branch": "feature/foodhub-media-production",
+      "localHead": "e69890b6925426e4e3a7c09ed7b05d3a8f4fceca",
+      "remoteHead": "e69890b6925426e4e3a7c09ed7b05d3a8f4fceca",
+      "remoteVerified": true
+    },
+    "on2go": {
+      "repository": "takatakca/on2goca",
+      "branch": "feature/on2go-customer-experience",
+      "localHead": "237a0258f6df0263a30c33c12f09ca740d1cfc41",
+      "remoteHead": "237a0258f6df0263a30c33c12f09ca740d1cfc41",
+      "remoteVerified": true
+    }
+  },
+  "gitTransportRecovered": true,
+  "githubApiAccessible": false,
+  "productionVerified": false
+}

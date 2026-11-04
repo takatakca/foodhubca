@@ -1,11 +1,14 @@
 {
   "date": "2026-11-04",
-  "scope": "local combined review candidate",
-  "foodHubBuildId": "cBSQT-Mzg0bETsKtUyfZf",
-  "on2goCommit": "16085aeeebae9b3913f3eda1bb84a55d9135b7b9",
+  "scope": "Local combined source and actual pruned-image review; external receivers are isolated stand-ins",
+  "sourceCommit": "12dc660c05c08aecbd683f9bc90e5c476274b8e1",
+  "foodHubBuildId": "yhf2mGUexeH-1RWM0dX4e",
+  "on2goCommit": "237a0258f6df0263a30c33c12f09ca740d1cfc41",
   "unit": {
-    "passed": 2272,
-    "skipped": 22
+    "passed": 2332,
+    "skipped": 25,
+    "filesPassed": 174,
+    "filesSkipped": 4
   },
   "productionBuild": true,
   "typecheck": true,
@@ -13,38 +16,157 @@
     "errors": 0,
     "existingWarnings": 1
   },
+  "audit": {
+    "scope": "production dependencies",
+    "vulnerabilities": 0
+  },
   "simulatedAcceptance": {
     "passed": 644,
     "failed": 0
   },
   "postgresCrash": {
     "passed": 25,
-    "failed": 0
+    "failed": 0,
+    "compiledBuildOrigin": "same Docker image output"
   },
   "postgresBuiltBrowser": {
-    "passed": 13,
-    "serversInConcurrencyProof": 2
+    "passed": 15,
+    "serversInConcurrencyProof": 2,
+    "compiledBuildOrigin": "same Docker image output",
+    "realContactInboxRestart": true
+  },
+  "customerConcurrencyPostgres": {
+    "passed": 12,
+    "maximumCasUrlBytes": 157,
+    "oldOversizedCasUrlBytes": 28585,
+    "newSchemaRequired": false
+  },
+  "operator": {
+    "browserPassed": 27,
+    "axeScans": 8,
+    "axeViolations": 0,
+    "pageErrors": 0,
+    "actualPostgresCases": 2,
+    "deliveriesLoaded": 500,
+    "batchRequests": 6,
+    "maxRequestTargetBytes": 3562
+  },
+  "contact": {
+    "browserPassed": 32,
+    "repeatedPhoneLanguageJourneys": 20,
+    "axeScans": 4,
+    "axeViolations": 0,
+    "pageErrors": 0,
+    "applicationJavaScript": "unmodified image assets"
+  },
+  "on2go": {
+    "unitPassed": 120,
+    "exportedEntries": 107,
+    "siteCheckPages": 100,
+    "fixtureBrowserCases": 56
   },
   "siblingContractPairs": {
     "passed": 9
   },
-  "audit": {
-    "highSeverityGatePassed": true,
-    "moderateAdvisories": 2
+  "cloverSuite": {
+    "apps": 9,
+    "unitPassed": 505,
+    "typecheckAll": true,
+    "normalProductionBuildAll": true,
+    "verifiedSources": "evidence/05-suite-identity/results.json"
+  },
+  "campaign": {
+    "postgresBrowserPassed": 9,
+    "sourceCommit": "12d071c2f5130be88f56677c2f34f84b1fc3744c",
+    "publishedDocumentationHead": "88f5837"
+  },
+  "v1LocalFonts": {
+    "sourceCommit": "8072f39cdd965bc6a03f7ed468066ae202a9db0f",
+    "productionBuild": true,
+    "staticPages": 105,
+    "fontByteMatches": 6,
+    "licensesServed": 5,
+    "browserStates": 3,
+    "databaseRuntimeVerified": false
+  },
+  "docker": {
+    "imageId": "sha256:b3f83baec1d042fe4a0268e7031063e290fd831f3d6feab0d326b2b6e506a1d2",
+    "tag": "foodhub-review:12dc660",
+    "pruned": true,
+    "buildSmokePassed": true,
+    "strictDatabaseRuntimePassed": true,
+    "appNetworkInternal": true,
+    "genuineWatchAndRecoveryExecution": true,
+    "providerTraffic": "none; ingress fixed to internal app"
+  },
+  "mergeCompatibility": {
+    "observedMain": "dccd068417674265d8e133c5aaee0ace7a7496e4",
+    "candidateSource": "12dc660c05c08aecbd683f9bc90e5c476274b8e1",
+    "candidateTree": "265b2ba8d89060aede82fc6fd577157c8866a497",
+    "prospectiveMergeTree": "265b2ba8d89060aede82fc6fd577157c8866a497",
+    "cleanMerge": true,
+    "sameTreeAsCandidate": true,
+    "workingTreeUnchanged": true,
+    "mainUpdated": false
   },
   "runtimeSourceSha256": {
     "lib/foodhub/control-plane/outbox.ts": "d260106a34b2639026a533a8a0d2db5b93db041159f1f9d4d6a34d9487b70d45",
     "lib/foodhub/control-plane/config.ts": "c00322737cbfcdcdc94200b4a2eb57c0eed02ee8b9812017721a4929f4751ae2",
     "lib/foodhub/control-plane/status.ts": "8f1075612d00857d0a4ca7b781f563e34bc97ed9944fb78f6baca69944e2369c",
     "lib/foodhub/control-plane/client.ts": "03542ef650e8d77908223c42ff7d7fbb679f44b047f8ec2932d5951c4203048e",
-    "lib/foodhub/delivery/store.ts": "9c8d7f9dbe210a0810573d43bc77a1ca10de83931263c39883d8d6d0c36733ae",
+    "lib/foodhub/delivery/store.ts": "529b585f5d79bc1b1c92252cf381d4b1bb748451b785b51782a297d5930a9635",
     "lib/foodhub/delivery/paylink.ts": "dec35762ad5bc5c31b2b07118862593892bc22d7cb5a0d6bf4b902e455e07ed7",
     "lib/foodhub/delivery/clover-direct.ts": "e1388caa24b83fa58b2857940622da9e10db84cda1a95f34f8c0eaefb7185a2c",
-    "lib/foodhub/customers/me.ts": "2b7dc7c0a2cdddf71f20b1f92f92c2a6b9b84b71f46d12e404a34531b4fb696f",
+    "lib/foodhub/customers/me.ts": "1673f97c3474ffafca3df04a15047aae5ac409f0ecd0fc5ae9a42ee66819667f",
     "lib/foodhub/storefront/checkout.ts": "45a0972d567110dfbc4f4b5bdff301c162f83c6c52d447997d689c84124f8e65",
-    "app/p/[token]/route.ts": "3d50973534920489cf887288db67c19f5382c02c110294aba971384aa8331f92"
+    "app/p/[token]/route.ts": "3d50973534920489cf887288db67c19f5382c02c110294aba971384aa8331f92",
+    "lib/foodhub/repo.ts": "bd484080c3381173da539fd3bd4cb46c438e491cdb12d1112a698f69085bb972",
+    "lib/foodhub/customers/store.ts": "097dd1317954111cdd71c21a2de02b4e4e02ad2640fbed61a884d055fe67c017",
+    "lib/foodhub/customers/collections.ts": "3ac257b468cfaf70bacccc71d3c396f54dc8a0fdca6cc424a382c622ba52a90c",
+    "lib/foodhub/customers/takatak-bridge.ts": "245850cc20681cd10980e35e071eadaa1e2e7b90813e98b5ddb0c344abb23d85",
+    "lib/foodhub/delivery/board.ts": "dd2ef31d1776548b3d1a8f85c6423dc05eda0e5099288668dac168674fee4c1b",
+    "lib/foodhub/delivery/operator-state.ts": "2ec33a9600f6109b3afd2936f99b8bca824ae9381d4219d5541ed6877c69fe5c",
+    "lib/foodhub/restaurant-lead-submission.ts": "2ae21d299c1b0f231e2636d57836414e70c00297710b0f179911e94712b84e29",
+    "components/public-hub/restaurant-contact-form.tsx": "01c62d5a8837efb58085859d446c28ba24281abc40fa50d95ecfd66705e371c7",
+    "app/api/public/restaurant-leads/route.ts": "5f2f7517e0931242796c795a3b66a092d2b9c5a782a52a87a6c67c96f4f3d08f",
+    "Dockerfile": "c25262afb338312680745f1415a498e95fb6c3142acbedff7baf27dcf954b847",
+    "package-lock.json": "4e99c6aa9b67cbd2feda2ec8a2417be1c6cb2940b01c1375b2840e18e41d00a7"
+  },
+  "transcriptSha256": {
+    "build-origin.json": "4855bed3d0d24250b66e55854b806b2926795ce8d7111ba9012ef1d1523e36fc",
+    "crash-checks.txt": "04e5d5ff4e350e6dbc2377458e98435f01d17ecc006ac644bf7d28ed2324ea8c",
+    "docker-checks.txt": "a59b52e539da97ba16cd4b497e5dfda925e65f5118e7c708c9b43c22a04d4bbe",
+    "merge-proof.json": "7c63876a3bced8a0d47c6d904b2fdf182b8c512085be32c80e185c28ab7ca309",
+    "cleanup.json": "8336ff97978ce43e3bf0666536fc60965083b7c222545b01ac7ce352fd287da5"
   },
   "productionVerified": false,
   "realProviderSessionsVerified": false,
-  "notes": "Provider/SMS/HTTP receivers are isolated stand-ins. Windows-specific/live integration checks remain skipped or separate. Applied live network access is unavailable."
+  "externalMessages": 0,
+  "notes": [
+    "Windows/explicit live-fixture unit gates remain skipped; the two scoped board PostgreSQL cases ran separately.",
+    "Earlier host-only intermittent React hydration warning did not recur in final unmodified-image32 groups/20 repeated journeys; no source fix is claimed.",
+    "A first coupled run timed out during environment startup load. Two isolated real saved-favourite diagnostics and the unchanged final15-check runner passed; no application or timeout change was made.",
+    "Earlier synthetic crash orders were cleaned before merchant-inbox UI verification to isolate unrelated incoming alerts.",
+    "Git read/push recovered after transient401/502 and runtime reconnection; API/live-domain policy remains unapplied."
+  ],
+  "fixtureCleanup": {
+    "originalOwnedPostgresRemoved": true,
+    "originalOwnedRestRemoved": true,
+    "originalOwnedNetworkRemoved": true,
+    "privateTestEnvironmentRemoved": true,
+    "oldPrivateReviewConfigRemoved": true,
+    "operatorRuntimeCleanup": "separately verified in operator runtime proof",
+    "ownedReviewPortsClosed": {
+      "4809": true,
+      "4891": true,
+      "4892": true,
+      "4893": true,
+      "4895": true,
+      "4896": true
+    },
+    "evidenceAndImagesRetained": true,
+    "productionDataTouched": false
+  },
+  "transcriptNormalization": "ANSI color removed and trailing whitespace trimmed; substantive lines retained",
+  "publication": "publication.json records verified worker remote heads; runtime source12dc660 is published"
 }

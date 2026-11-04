@@ -1,0 +1,10 @@
+{
+  "observedMain": "dccd068417674265d8e133c5aaee0ace7a7496e4",
+  "candidateSource": "12dc660c05c08aecbd683f9bc90e5c476274b8e1",
+  "candidateTree": "265b2ba8d89060aede82fc6fd577157c8866a497",
+  "prospectiveMergeTree": "265b2ba8d89060aede82fc6fd577157c8866a497",
+  "cleanMerge": true,
+  "sameTreeAsCandidate": true,
+  "workingTreeUnchanged": true,
+  "mainUpdated": false
+}

@@ -1,0 +1,64 @@
+{
+  "runtimeKind": "docker-pruned-runtime",
+  "foodHubBuildId": "yhf2mGUexeH-1RWM0dX4e",
+  "scope": "actual authenticated pruned local image; synthetic intercepted direct-order rows",
+  "standardTags": [
+    "wcag2a",
+    "wcag2aa",
+    "wcag21a",
+    "wcag21aa"
+  ],
+  "scannedRegion": "order dialog",
+  "scans": [
+    {
+      "language": "en",
+      "viewportWidth": 1440,
+      "orderFixture": "FX-LATE",
+      "violations": 0
+    },
+    {
+      "language": "en",
+      "viewportWidth": 1440,
+      "orderFixture": "FX-PRINT",
+      "violations": 0
+    },
+    {
+      "language": "en",
+      "viewportWidth": 375,
+      "orderFixture": "FX-LATE",
+      "violations": 0
+    },
+    {
+      "language": "en",
+      "viewportWidth": 375,
+      "orderFixture": "FX-PRINT",
+      "violations": 0
+    },
+    {
+      "language": "fr",
+      "viewportWidth": 1440,
+      "orderFixture": "FX-LATE",
+      "violations": 0
+    },
+    {
+      "language": "fr",
+      "viewportWidth": 1440,
+      "orderFixture": "FX-PRINT",
+      "violations": 0
+    },
+    {
+      "language": "fr",
+      "viewportWidth": 375,
+      "orderFixture": "FX-LATE",
+      "violations": 0
+    },
+    {
+      "language": "fr",
+      "viewportWidth": 375,
+      "orderFixture": "FX-PRINT",
+      "violations": 0
+    }
+  ],
+  "totalViolations": 0,
+  "productionVerified": false
+}

@@ -1,0 +1,10 @@
+{
+  "sourceCommit": "12dc660c05c08aecbd683f9bc90e5c476274b8e1",
+  "runtimeSourceSha256": {
+    "lib/foodhub/repo.ts": "bd484080c3381173da539fd3bd4cb46c438e491cdb12d1112a698f69085bb972",
+    "lib/foodhub/customers/store.ts": "097dd1317954111cdd71c21a2de02b4e4e02ad2640fbed61a884d055fe67c017",
+    "lib/foodhub/customers/takatak-bridge.ts": "245850cc20681cd10980e35e071eadaa1e2e7b90813e98b5ddb0c344abb23d85",
+    "lib/foodhub/customers/collections.ts": "3ac257b468cfaf70bacccc71d3c396f54dc8a0fdca6cc424a382c622ba52a90c"
+  },
+  "scope": "Direct source/PostgreSQL proof; separate compiled-image browser proof in ordering-recovery"
+}

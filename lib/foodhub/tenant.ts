@@ -1,18 +1,9 @@
-// The merchant (tenant) this ON2GO Hub instance serves, and the contracts with the TAKATAK control plane
-// (docs/ON2GO_HUB_ECOSYSTEM.md § 4). Foundation only: nothing here changes how Food Hub behaves today.
-//
-//   H4-a (first): one instance per merchant → ONE tenant id for the whole instance, read from FOODHUB_TENANT_ID
-//                 (default "takatak", the owner's own group). It is exposed in the detailed /api/health and goes on every
-//                 usage event sent to TAKATAK.
-//   H4-b (later): the same id becomes the default value of a tenant_id column on every fh_* table, scoped from the
-//                 request context (never from a client parameter), RLS as the second defence. Nothing existing moves.
-//
-// Contracts with takatak-v1 (no shared database; takatak-v1 owns tenants, plans, Stripe and entitlements):
-//   C4 entitlements — ON2GO Hub reads what its merchant's plan allows (cached). Unset control plane = everything allowed
-//      (the owner's single-tenant install). A billing problem may block adding features, NEVER an order (locked rule).
-//   C5 usage events — counts only (orders, calls, deliveries), no name, phone or address, idempotent by event_id.
-//   Signing: HMAC-SHA256 over "<timestamp>.<event id>.<body>" with a key for ON2GO Hub only (never a key shared with another
-//   product), 5-minute replay window — the pattern of takatak-v1's signed integrations.
+// Instance identity and historical contract helpers (docs/ON2GO_HUB_ECOSYSTEM.md § 4).
+// Actual V1 transport lives in control-plane/: scoped Bearer authentication, explicit existing-merchant mappings,
+// source-reported subscription metadata and immutable UUID event bodies. V1 does not verify these HMAC headers or
+// supply feature/limit gates. The legacy entitlement/usage helpers below remain available to existing integrations;
+// they are not used to send V1 events, authorize a merchant, bill a customer or gate live orders/printing.
+// One instance has one FOODHUB_TENANT_ID; there is no claim of multi-tenant row isolation in the existing fh_* tables.
 import crypto from 'node:crypto';
 
 export const DEFAULT_TENANT_ID = 'takatak';
@@ -50,15 +41,20 @@ export function isOwnerTenant(env: NodeJS.ProcessEnv = process.env): boolean {
 export interface ControlPlane {
   /** TAKATAK base URL (e.g. https://takatak.ca), from TAKATAK_CONTROL_PLANE_URL. */
   url: string | null;
-  /** The ON2GO Hub service key for that control plane is set (TAKATAK_ON2GO_HUB_KEY); its value is never shown. */
+  /** The actual V1 foodhub-scoped Bearer key is set (TAKATAK_FOODHUB_API_KEY); its value is never shown. */
   keySet: boolean;
   configured: boolean;
 }
 
 export function controlPlane(env: NodeJS.ProcessEnv = process.env): ControlPlane {
   const raw = String(env.TAKATAK_CONTROL_PLANE_URL ?? '').trim().replace(/\/+$/, '');
-  const url = /^https:\/\/[a-z0-9.-]+(:\d+)?(\/[\w./-]*)?$/i.test(raw) ? raw : null;
-  const keySet = Boolean(env.TAKATAK_ON2GO_HUB_KEY);
+  let url: string | null = null;
+  try {
+    const u = new URL(raw);
+    if (!u.username && !u.password && !u.search && !u.hash && ['', '/'].includes(u.pathname)
+      && (u.protocol === 'https:' || (u.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(u.hostname)))) url = u.origin;
+  } catch { /* unconfigured */ }
+  const keySet = String(env.TAKATAK_FOODHUB_API_KEY ?? '').trim().length >= 32;
   return { url, keySet, configured: Boolean(url && keySet) };
 }
 
@@ -116,8 +112,8 @@ export interface UsageEvent {
 const COUNT_KEY = /^[a-z][a-z0-9_]{0,39}$/;
 
 /**
- * A usage event for TAKATAK. `key` makes it idempotent (the same key gives the same event_id: a retry is never billed
- * twice). Only whole, non-negative counts with simple names pass.
+ * Historical local usage shape, not the V1 wire format. `key` deterministically identifies the local event.
+ * Only whole, non-negative counts with simple names pass. This helper does not implement billing.
  */
 export function usageEvent(type: UsageEventType, key: string, counts: Record<string, number>, occurredAt = new Date().toISOString(), tenant = tenantId()): UsageEvent {
   const clean: Record<string, number> = {};
@@ -142,7 +138,7 @@ export function contractMac(secret: string, ts: string, eventId: string, body: s
   return mac(secret, ts, eventId, body);
 }
 
-/** Headers for a signed call to (or from) the control plane. */
+/** Historical integration-signature helper; actual V1 routes authenticate scoped Bearer credentials. */
 export function signContract(body: string, eventId: string, secret: string, now = Date.now()): Record<string, string> {
   const ts = String(Math.floor(now / 1000));
   return {

@@ -35,7 +35,7 @@ export async function POST(req: Request) {
 
   if (event.status === 'APPROVED' && event.paymentId) {
     // Replays are harmless (the release is idempotent); this key only saves work.
-    const key = `hco_evt:${event.paymentId}:APPROVED`;
+    const key = `hco_evt:${orderId}:${event.paymentId}:APPROVED`;
     if (await getRepo().getKv<string>(key).catch(() => null)) return Response.json({ received: true, duplicate: true });
     const r = await releasePaidOrder(orderId, { paymentId: event.paymentId, via: 'webhook' });
     if (r.state === 'retry' || r.state === 'pending') return new Response('Payment not readable yet', { status: 503, headers: { 'Retry-After': '30' } });

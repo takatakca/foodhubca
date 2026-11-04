@@ -135,8 +135,8 @@ export async function createDirectOrder(input: NewDirectOrder, actor: Actor): Pr
   if (!order.posOrderId) {
     const pos = await createDirectOrderInClover(order);
     order = pos.ok
-      ? await addDirectEvent(order, 'pos_injected', `Created in Clover (${pos.posOrderId})${pos.printed ? ` — ${pos.printed}` : ''}`, undefined, { posOrderId: pos.posOrderId, posError: undefined, status: 'in_kitchen' })
-      : await addDirectEvent(order, pos.skipped ? 'pos_skipped' : 'pos_failed', pos.error, undefined, { posError: pos.skipped ? undefined : pos.error });
+      ? await addDirectEvent(order, 'pos_injected', `Created in Clover (${pos.posOrderId})${pos.printed ? ` — ${pos.printed}` : ''}`, undefined, { posOrderId: pos.posOrderId, posMerchantId: pos.merchantId, posError: undefined, status: 'in_kitchen', ...(pos.printReview ? { attention: pos.printReview } : {}) })
+      : await addDirectEvent(order, pos.skipped ? 'pos_skipped' : 'pos_failed', pos.error, undefined, { posError: pos.skipped ? undefined : pos.error, ...(pos.uncertain ? { attention: pos.error } : {}) });
   } else {
     order = await addDirectEvent(order, 'pos_injected', `Already in Clover (${order.posOrderId})`, undefined, { status: 'in_kitchen' });
   }
@@ -164,8 +164,8 @@ export function confirmationText(o: DirectOrder): string {
 }
 
 export async function confirmToCustomer(order: DirectOrder): Promise<void> {
-  const r = await sendSms({ to: order.customer.phone!, body: confirmationText(order) }, { purpose: 'direct_order_confirmation', by: 'Food Hub' });
-  await addDirectEvent(order, r.ok ? 'sms_confirmation' : 'sms_failed', r.ok ? 'Confirmation texted to the customer' : `Confirmation not texted: ${r.message}`);
+  const r = await sendSms({ to: order.customer.phone!, body: confirmationText(order) }, { purpose: 'direct_order_confirmation', orderId: order.id, by: 'Food Hub' });
+  await addDirectEvent(order, r.ok && r.skipped ? 'sms_skipped' : r.ok ? 'sms_confirmation' : 'sms_failed', r.ok && !r.skipped ? 'Confirmation texted to the customer' : `Confirmation not texted: ${r.message}`);
 }
 
 export type DirectAction = 'seen' | 'ready' | 'picked_up' | 'complete' | 'cancel' | 'mark_paid' | 'retry_clover' | 'clear_attention' | 'resend_paylink' | 'pay_at_counter'
@@ -261,8 +261,8 @@ export async function runDirectAction(orderId: string, action: DirectAction, act
       if (order.posOrderId) throw new Error('This order is already in Clover.');
       const pos = await createDirectOrderInClover(order);
       next = pos.ok
-        ? await addDirectEvent(order, 'pos_injected', `Created in Clover (${pos.posOrderId})`, actor.name, { posOrderId: pos.posOrderId, posError: undefined, status: order.status === 'new' ? 'in_kitchen' : order.status })
-        : await addDirectEvent(order, 'pos_failed', pos.error, actor.name, { posError: pos.error });
+        ? await addDirectEvent(order, 'pos_injected', `Created in Clover (${pos.posOrderId})`, actor.name, { posOrderId: pos.posOrderId, posMerchantId: pos.merchantId, posError: undefined, status: order.status === 'new' ? 'in_kitchen' : order.status, ...(pos.printReview ? { attention: pos.printReview } : {}) })
+        : await addDirectEvent(order, 'pos_failed', pos.error, actor.name, { posError: pos.error, ...(pos.uncertain ? { attention: pos.error } : {}) });
       break;
     }
     case 'clear_attention':

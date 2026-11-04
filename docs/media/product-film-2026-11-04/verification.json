@@ -1,0 +1,160 @@
+{
+  "videos": [
+    {
+      "file": "foodhub-product-demo-en-landscape.mp4",
+      "width": 1920,
+      "height": 1080,
+      "seconds": 30,
+      "fps": 30,
+      "codec": "H.264",
+      "audio": false,
+      "bytes": 1507688,
+      "sha256": "56b10f38e0d8064305b1e35f5b4bb7da878fa42025ca639ff7c1c40efae0b56b"
+    },
+    {
+      "file": "foodhub-product-demo-en-square.mp4",
+      "width": 1080,
+      "height": 1080,
+      "seconds": 30,
+      "fps": 30,
+      "codec": "H.264",
+      "audio": false,
+      "bytes": 1203874,
+      "sha256": "b0d2449cb93380fb11b6cc49a760cea13179e8230336eced735f16e8f12566aa"
+    },
+    {
+      "file": "foodhub-product-demo-fr-landscape.mp4",
+      "width": 1920,
+      "height": 1080,
+      "seconds": 30,
+      "fps": 30,
+      "codec": "H.264",
+      "audio": false,
+      "bytes": 1607312,
+      "sha256": "4c32de312c3c1510e471aacb2e3d289865f10823fb0805ed897dd0bc7d430056"
+    },
+    {
+      "file": "foodhub-product-demo-fr-square.mp4",
+      "width": 1080,
+      "height": 1080,
+      "seconds": 30,
+      "fps": 30,
+      "codec": "H.264",
+      "audio": false,
+      "bytes": 1240653,
+      "sha256": "d2b611707c1014cd13f5e20fea5073f4d3b26dc6a4caa258260f9d9c2da7ae23"
+    }
+  ],
+  "ocr": {
+    "sample_seconds": 2,
+    "frames": 60,
+    "currency_candidates": [
+      {
+        "frame": "foodhub-product-demo-en-landscape-10.jpg",
+        "matches": [
+          "$1"
+        ],
+        "classification": "false_positive_relay_screen_id",
+        "review": "Tablet-wall frames: the actual relay identifier S10 was read as $10; adjoining S09/S10 text also produced a 9 $ match. These are screen IDs, not prices."
+      },
+      {
+        "frame": "foodhub-product-demo-en-landscape-11.jpg",
+        "matches": [
+          "$1"
+        ],
+        "classification": "false_positive_relay_screen_id",
+        "review": "Tablet-wall frames: the actual relay identifier S10 was read as $10; adjoining S09/S10 text also produced a 9 $ match. These are screen IDs, not prices."
+      },
+      {
+        "frame": "foodhub-product-demo-en-landscape-12.jpg",
+        "matches": [
+          "$1"
+        ],
+        "classification": "false_positive_relay_screen_id",
+        "review": "Tablet-wall frames: the actual relay identifier S10 was read as $10; adjoining S09/S10 text also produced a 9 $ match. These are screen IDs, not prices."
+      },
+      {
+        "frame": "foodhub-product-demo-en-landscape-13.jpg",
+        "matches": [
+          "$1"
+        ],
+        "classification": "false_positive_relay_screen_id",
+        "review": "Tablet-wall frames: the actual relay identifier S10 was read as $10; adjoining S09/S10 text also produced a 9 $ match. These are screen IDs, not prices."
+      },
+      {
+        "frame": "foodhub-product-demo-en-square-10.jpg",
+        "matches": [
+          "9 $"
+        ],
+        "classification": "false_positive_relay_screen_id",
+        "review": "Tablet-wall frames: the actual relay identifier S10 was read as $10; adjoining S09/S10 text also produced a 9 $ match. These are screen IDs, not prices."
+      },
+      {
+        "frame": "foodhub-product-demo-en-square-11.jpg",
+        "matches": [
+          "9 $"
+        ],
+        "classification": "false_positive_relay_screen_id",
+        "review": "Tablet-wall frames: the actual relay identifier S10 was read as $10; adjoining S09/S10 text also produced a 9 $ match. These are screen IDs, not prices."
+      },
+      {
+        "frame": "foodhub-product-demo-en-square-12.jpg",
+        "matches": [
+          "9 $"
+        ],
+        "classification": "false_positive_relay_screen_id",
+        "review": "Tablet-wall frames: the actual relay identifier S10 was read as $10; adjoining S09/S10 text also produced a 9 $ match. These are screen IDs, not prices."
+      },
+      {
+        "frame": "foodhub-product-demo-en-square-13.jpg",
+        "matches": [
+          "9 $"
+        ],
+        "classification": "false_positive_relay_screen_id",
+        "review": "Tablet-wall frames: the actual relay identifier S10 was read as $10; adjoining S09/S10 text also produced a 9 $ match. These are screen IDs, not prices."
+      },
+      {
+        "frame": "foodhub-product-demo-fr-landscape-10.jpg",
+        "matches": [
+          "$1"
+        ],
+        "classification": "false_positive_relay_screen_id",
+        "review": "Tablet-wall frames: the actual relay identifier S10 was read as $10; adjoining S09/S10 text also produced a 9 $ match. These are screen IDs, not prices."
+      },
+      {
+        "frame": "foodhub-product-demo-fr-landscape-12.jpg",
+        "matches": [
+          "$1"
+        ],
+        "classification": "false_positive_relay_screen_id",
+        "review": "Tablet-wall frames: the actual relay identifier S10 was read as $10; adjoining S09/S10 text also produced a 9 $ match. These are screen IDs, not prices."
+      }
+    ],
+    "limitation": "OCR sampled every two seconds (60 representative frames across four films); it does not establish exhaustive frame-by-frame compliance. Capture redaction and visual review remain primary controls.",
+    "candidate_frames_reviewed": 10,
+    "unresolved_currency_candidates": 0,
+    "result": "60 sampled frames; ten OCR candidates manually reviewed as relay screen IDs, no unredacted currency value identified in this sample. Not exhaustive frame-by-frame proof."
+  },
+  "captions": {
+    "foodhub-product-demo-en.vtt": {
+      "cues": 5,
+      "valid_header": true,
+      "ends_at_seconds": 30
+    },
+    "foodhub-product-demo-fr.vtt": {
+      "cues": 5,
+      "valid_header": true,
+      "ends_at_seconds": 30
+    }
+  },
+  "countdown": {
+    "displayed_timer": "11:23",
+    "displayed_seconds": 683,
+    "remaining_ms_exact": null,
+    "positive_ring_observed": true,
+    "source_deadline_minutes": 11.5,
+    "source": "lib/foodhub/deadline.ts and components/ui/timer.tsx",
+    "evidence": "Full-resolution FR/EN kitchen posters show a green countdown ring and 11:23 remaining. The recorder creates a new synthetic Uber order inside the shot with placed_at equal to current time. No API timestamp snapshot was retained; exact remaining milliseconds are therefore not claimed. No minus sign or overdue/red state is observed.",
+    "not_a_production_order": true
+  }
+}

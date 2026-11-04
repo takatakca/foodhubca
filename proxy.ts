@@ -40,6 +40,7 @@ const PUBLIC_PATHS = new Set([
   // on2go.ca's browser-safe customer API: CORS for the ON2GO sites only, brand website fixed to on2go, on2go-signed customer
   // tokens only, per-IP windows on top of the per-phone limits (lib/foodhub/customers/on2go-public.ts)
   '/api/public/on2go/verify/start', '/api/public/on2go/verify/check', '/api/public/on2go/me', '/api/public/on2go/logout',
+  '/api/public/on2go/me/addresses', '/api/public/on2go/me/favourites',
   '/api/public/on2go/session', // on2go.ca sign-in through TAKATAK: a one-time launch code (90 s) is the credential, exchanged server to server; per-IP limit, CORS for the ON2GO sites only (lib/foodhub/customers/takatak-bridge.ts)
   '/api/public/directory', // ON2GO/QMAPS read-only directory (public facts only, lib/foodhub/public-directory.ts); other /api/public/* stay protected
   '/api/public/restaurant-leads', // on2go.ca « Rejoindre » form: POST + OPTIONS only, JSON, size cap, honeypot, per-IP quota, CORS on2go.ca (lib/foodhub/restaurant-leads.ts)

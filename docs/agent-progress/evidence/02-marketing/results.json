@@ -1,0 +1,145 @@
+{
+  "base": "http://127.0.0.1:4809",
+  "results": [
+    {
+      "lang": "fr",
+      "width": 1440,
+      "status": 200,
+      "overflow": {
+        "viewport": 1440,
+        "document": 1440
+      },
+      "pageErrors": 0,
+      "violations": []
+    },
+    {
+      "lang": "fr",
+      "width": 768,
+      "status": 200,
+      "overflow": {
+        "viewport": 768,
+        "document": 768
+      },
+      "pageErrors": 0,
+      "violations": []
+    },
+    {
+      "lang": "fr",
+      "width": 390,
+      "status": 200,
+      "overflow": {
+        "viewport": 390,
+        "document": 390
+      },
+      "pageErrors": 0,
+      "violations": []
+    },
+    {
+      "lang": "fr",
+      "width": 360,
+      "status": 200,
+      "overflow": {
+        "viewport": 360,
+        "document": 360
+      },
+      "pageErrors": 0,
+      "violations": []
+    },
+    {
+      "lang": "en",
+      "width": 1440,
+      "status": 200,
+      "overflow": {
+        "viewport": 1440,
+        "document": 1440
+      },
+      "pageErrors": 0,
+      "violations": []
+    },
+    {
+      "lang": "en",
+      "width": 768,
+      "status": 200,
+      "overflow": {
+        "viewport": 768,
+        "document": 768
+      },
+      "pageErrors": 0,
+      "violations": []
+    },
+    {
+      "lang": "en",
+      "width": 390,
+      "status": 200,
+      "overflow": {
+        "viewport": 390,
+        "document": 390
+      },
+      "pageErrors": 0,
+      "violations": []
+    },
+    {
+      "lang": "en",
+      "width": 360,
+      "status": 200,
+      "overflow": {
+        "viewport": 360,
+        "document": 360
+      },
+      "pageErrors": 0,
+      "violations": []
+    }
+  ],
+  "media": [
+    {
+      "path": "/hub-media/foodhub-product-demo-fr.jpg",
+      "status": 200,
+      "type": "image/jpeg"
+    },
+    {
+      "path": "/hub-media/foodhub-product-demo-fr.mp4",
+      "status": 206,
+      "type": "video/mp4"
+    },
+    {
+      "path": "/hub-media/foodhub-product-demo-fr.vtt",
+      "status": 200,
+      "type": "text/vtt; charset=UTF-8"
+    },
+    {
+      "lang": "fr",
+      "metadata": {
+        "duration": 30,
+        "width": 1920,
+        "height": 1080,
+        "controls": true,
+        "autoplay": false
+      }
+    },
+    {
+      "path": "/hub-media/foodhub-product-demo-en.jpg",
+      "status": 200,
+      "type": "image/jpeg"
+    },
+    {
+      "path": "/hub-media/foodhub-product-demo-en.mp4",
+      "status": 206,
+      "type": "video/mp4"
+    },
+    {
+      "path": "/hub-media/foodhub-product-demo-en.vtt",
+      "status": 200,
+      "type": "text/vtt; charset=UTF-8"
+    },
+    {
+      "lang": "en",
+      "metadata": {
+        "duration": 30,
+        "width": 1920,
+        "height": 1080,
+        "controls": true,
+        "autoplay": false
+      }
+    }
+  ]
+}

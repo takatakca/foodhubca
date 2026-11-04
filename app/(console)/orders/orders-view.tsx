@@ -11,7 +11,7 @@ import { Hint } from '@/components/help/hint';
 import { Badge, PlatformMark, PlatformTag } from '@/components/ui/badge';
 import { MevBadge } from '@/components/live/mev-panel';
 import { Button, ButtonLink } from '@/components/ui/button';
-import { Card, EmptyState, PageHeader, Skeleton, SkeletonList, SkeletonTable } from '@/components/ui/card';
+import { Banner, Card, EmptyState, PageHeader, Skeleton, SkeletonList, SkeletonTable } from '@/components/ui/card';
 import { FilterBar } from '@/components/ui/filter-bar';
 import { Input, Select } from '@/components/ui/form';
 import { Tabs } from '@/components/ui/tabs';
@@ -32,6 +32,7 @@ import { useFinanceRead } from '@/lib/ui/use-finance-read';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
 import { channelName } from '@/lib/foodhub/scope';
+import { COURIER_FILTERS, ISSUE_FILTERS, OUTCOME_FILTERS, ORDER_STATUSES, courierFilterLabel, issueLabel, orderCourier, orderIssues, orderOutcome, outcomeLabel, parseOrderFilters, withOrderFilters, type OrderFilters } from '@/lib/foodhub/orders/issues';
 
 type View = 'active' | 'scheduled' | 'history';
 const viewOf = (v: string | null): View => (v === 'history' ? 'history' : v === 'scheduled' ? 'scheduled' : 'active');
@@ -83,7 +84,7 @@ export function OrdersView() {
           {t('Vos commandes site web et téléphone sont dans Commandes directes', 'Your website and phone orders are in Direct orders')}<ArrowRight className="ml-auto size-4 shrink-0" />
         </Link>
       )}
-      {open && <OrderDrawer orderId={open} onClose={() => setOpen(null)} />}
+      {open && <OrderDrawer key={open} orderId={open} onClose={() => setOpen(null)} />}
     </div>
   );
 }
@@ -164,6 +165,7 @@ function LiveBoard({ orders, onOpen }: { orders: BoardOrder[] | null; onOpen: (i
   useEffect(() => { setSound(audioReady()); const i = setInterval(() => setSound(audioReady()), 2000); return () => clearInterval(i); }, []);
   const lane = (k: string) => (orders ?? []).filter((o) => o.status === k).sort((a, b) => (a.timeline?.readyTarget ?? a.createdAt).localeCompare(b.timeline?.readyTarget ?? b.createdAt));
   const late = (orders ?? []).filter((o) => o.status === 'accepted' && o.timeline?.readyTarget && Date.parse(o.timeline.readyTarget) < now).length;
+  const withIssues = (orders ?? []).filter((o) => orderIssues(o).length > 0);
   const narrowed = Boolean(site.brand || site.channel);
   const lateWords = plurals(late, ['en retard', 'en retard'], ['late', 'late']);
   // A kitchen tablet never leaves its location: there the button widens to every brand and platform of that location.
@@ -211,6 +213,7 @@ function LiveBoard({ orders, onOpen }: { orders: BoardOrder[] | null; onOpen: (i
   return (
     <div>
       {filters}
+      {withIssues.length > 0 && <Banner tone="warn" className="mb-4" action={<Button variant="outline" size="sm" onClick={() => onOpen(withIssues[0].id)}>{t('Vérifier une commande', 'Review an order')}</Button>}><strong>{t(`${withIssues.length} commande(s) active(s) avec un problème signalé dans cette sélection.`, `${withIssues.length} active order(s) with a recorded issue in this selection.`)}</strong> {t('Ouvrez la commande pour voir les détails et les actions disponibles.', 'Open the order to see details and available actions.')}</Banner>}
       {/* Big screen, every step: the four lanes. */}
       {!status && (
         <div className="hidden grid-cols-4 gap-4 xl:grid">
@@ -250,79 +253,114 @@ function Scheduled({ orders, onOpen }: { orders: BoardOrder[] | null; onOpen: (i
 }
 
 type Row = BoardOrder & { actions: string[] };
+type HistoryResult = { orders: Row[]; coverage?: { scanLimitReached: boolean; resultLimitReached: boolean } };
 
 function History({ onOpen }: { onOpen: (id: string) => void }) {
   const { t, loc } = useI18n();
   const { locations, brands, locName } = useViewer();
-  const { site, setSite, scope, brands: brandScope, channels: channelScope } = usePulse();
+  const { site, scope, brands: brandScope, channels: channelScope } = usePulse();
+  const params = useSearchParams();
+  const router = useRouter();
   const href = useScopeHref();
   // No brand or platform picker of its own here (the chips change the console's scope): old `?channels=` links are ignored.
   const { filters, set, query } = useFilters('today', scope, brandScope, channelScope, { scopeOnly: true });
-  const requestedStatus = useSearchParams()?.get('status') ?? '';
-  // A cancellation KPI or a bookmarked history link opens the requested status without broadening the platform scope.
-  const [status, setStatus] = useState(() => ['new', 'accepted', 'ready', 'dispatched', 'completed', 'cancelled', 'failed'].includes(requestedStatus) ? requestedStatus : '');
-  const [q, setQ] = useState('');
+  const status = params.get('status') ?? '';
+  const q = params.get('q') ?? '';
+  const [searchText, setSearchText] = useState(q);
+  useEffect(() => { setSearchText(q); }, [q]);
+  const selection = useMemo(() => {
+    try {
+      if (status && !ORDER_STATUSES.includes(status as typeof ORDER_STATUSES[number])) throw new Error('Invalid status filter.');
+      return { filters: parseOrderFilters(params), error: '' };
+    } catch (e) { return { filters: { issue: '', outcome: '', courier: '' } as OrderFilters, error: e instanceof Error ? e.message : String(e) }; }
+  }, [params, status]);
+  const { issue, outcome, courier } = selection.filters;
+  const update = (patch: Parameters<typeof withOrderFilters>[1]) => {
+    const next = withOrderFilters(window.location.search, patch);
+    router.replace(`/orders${next ? `?${next}` : ''}`, { scroll: false });
+    setLimit(200);
+  };
   const [limit, setLimit] = useState(200);
   const read = useCallback(async () => {
+    if (selection.error) throw new Error(selection.error);
     const p = new URLSearchParams(query);
     p.set('limit', '3000');
     if (status) p.set('status', status);
-    return (await api<{ orders: Row[] }>(`/api/foodhub/orders?${p}`)).orders;
-  }, [query, status]);
-  const historyKey = JSON.stringify([query, status]);
-  const { data, loaded } = useFinanceRead(historyKey, read);
-  // Match the existing empty-on-error behavior, with no stale rows during a scope/period change.
-  const rows = useMemo(() => loaded ? data ?? [] : null, [loaded, data]);
-  const shown = useMemo(() => {
-    const s = q.trim().toLowerCase().replace(/^#/, '');
-    return (rows ?? []).filter((o) => !s || [o.displayId, o.externalOrderId, o.customerName, o.posOrderId, o.brandName].some((v) => v && String(v).toLowerCase().includes(s)));
-  }, [rows, q]);
+    if (issue) p.set('issue', issue);
+    if (outcome) p.set('outcome', outcome);
+    if (courier) p.set('courier', courier);
+    if (q.trim()) p.set('q', q.trim());
+    return api<HistoryResult>(`/api/foodhub/orders?${p}`);
+  }, [query, status, issue, outcome, courier, q, selection.error]);
+  const historyKey = JSON.stringify([query, status, issue, outcome, courier, q, selection.error]);
+  const { data, loaded, err, load } = useFinanceRead(historyKey, read);
+  const rows = useMemo(() => loaded && !err ? data?.orders ?? [] : null, [loaded, data, err]);
+  const shown = rows ?? [];
   const counted = shown.filter((o) => o.status !== 'cancelled');
   const sales = counted.reduce((a, o) => a + Number(o.total || 0), 0);
-  const anyFilter = Boolean(status || q.trim() || site.kitchen || site.brand || site.channel);
+  const anyFilter = Boolean(status || q.trim() || issue || outcome || courier || selection.error);
   // The file name never carries a brand: it may be sent to an accountant who sees every brand.
   function csv() {
     downloadCsv(`commandes-${filters.from}-${filters.to}`, [
-      ['Date', 'Heure', 'Plateforme', 'No', 'Marque', 'Succursale', 'Client', 'Statut', 'Mode', 'Sous-total', 'Taxes', 'Pourboire', 'Total', 'Clover'],
-      ...shown.map((o) => [o.createdAt.slice(0, 10), timeOf(o.createdAt, loc), o.channel, o.displayId || o.externalOrderId, o.brandName ?? '', o.locationCode ?? '', o.customerName ?? '', o.status, o.fulfillment, o.subtotal, o.tax, o.tip, o.total, o.posOrderId ?? '']),
+      ['Date', 'Heure', 'Plateforme', 'No', 'Marque', 'Succursale', 'Client', 'Statut', 'Issue', 'Problèmes signalés', 'Livreur', 'Mode', 'Sous-total', 'Taxes', 'Pourboire', 'Total', 'Clover'],
+      ...shown.map((o) => [o.createdAt.slice(0, 10), timeOf(o.createdAt, loc), o.channel, o.displayId || o.externalOrderId, o.brandName ?? '', o.locationCode ?? '', o.customerName ?? '', o.status, orderOutcome(o), orderIssues(o).join(', '), orderCourier(o), o.fulfillment, o.subtotal, o.tax, o.tip, o.total, o.posOrderId ?? '']),
     ]);
   }
-  const clearAll = () => { setStatus(''); setQ(''); setSite({ kitchen: null, brand: null, channel: undefined }); };
+  const clearAll = () => update({ status: '', q: '', issue: '', outcome: '', courier: '' });
   // Filters on, for the phone's "Filtres" button: the period when not today, the status, the console scope.
-  const activeFilters = [filters.preset !== 'today', Boolean(status), Boolean(site.kitchen), Boolean(site.brand), Boolean(site.channel)].filter(Boolean).length;
-  const search = (cls: string) => <div className={cn('relative', cls)}><Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-ink-3" aria-hidden /><Input inputSize="sm" className="h-11 w-full pl-8 sm:h-9 md:w-56" aria-label={t('Chercher une commande', 'Search an order')} placeholder={t('No, client, Clover…', '#, customer, Clover…')} value={q} onChange={(e) => setQ(e.target.value)} /></div>;
+  const activeFilters = [filters.preset !== 'today', Boolean(status), Boolean(issue), Boolean(outcome), Boolean(courier), Boolean(q.trim()), Boolean(site.kitchen), Boolean(site.brand), Boolean(site.channel)].filter(Boolean).length;
+  const search = (cls: string) => <div className={cn('relative', cls)}><Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-ink-3" aria-hidden /><Input inputSize="sm" className="h-11 w-full pl-8 sm:h-9 md:w-56" aria-label={t('Chercher une commande', 'Search an order')} placeholder={t('No, client, Clover…', '#, customer, Clover…')} value={searchText} onChange={(e) => {
+    const value = e.target.value;
+    setSearchText(value);
+    const next = withOrderFilters(window.location.search, { q: value });
+    window.history.replaceState(null, '', `/orders${next ? `?${next}` : ''}`);
+    setLimit(200);
+  }} /></div>;
   const counts = plurals(counted.length, ['commande'], ['order']);
   const cancelledWords = plurals(shown.length - counted.length, ['annulée'], ['cancelled', 'cancelled']);
   const extra: ReactNode = (
     <>
       <ScopeChips className="contents" />
-      <Select selectSize="sm" value={status} onChange={(e) => setStatus(e.target.value)} className="h-11 w-auto font-semibold sm:h-9" aria-label={t('Statut', 'Status')}>
+      <Select selectSize="sm" value={status} onChange={(e) => update({ status: e.target.value })} className="h-11 w-auto font-semibold sm:h-9" aria-label={t('Statut', 'Status')}>
         <option value="">{t('Tous les statuts', 'All statuses')}</option>
         {['new', 'accepted', 'ready', 'dispatched', 'completed', 'cancelled', 'failed'].map((s) => <option key={s} value={s}>{statusLabel(t, s)}</option>)}
       </Select>
+      <Select selectSize="sm" value={issue} onChange={(e) => update({ issue: e.target.value as OrderFilters['issue'] })} className="h-11 max-w-full font-semibold sm:h-9" aria-label={t('Problème signalé', 'Recorded issue')}>
+        {ISSUE_FILTERS.map((v) => <option key={v} value={v}>{issueLabel(t, v)}</option>)}
+      </Select>
+      <Select selectSize="sm" value={outcome} onChange={(e) => update({ outcome: e.target.value as OrderFilters['outcome'] })} className="h-11 max-w-full font-semibold sm:h-9" aria-label={t('Issue de la commande', 'Order outcome')}>
+        {OUTCOME_FILTERS.map((v) => <option key={v} value={v}>{outcomeLabel(t, v)}</option>)}
+      </Select>
+      <Select selectSize="sm" value={courier} onChange={(e) => update({ courier: e.target.value as OrderFilters['courier'] })} className="h-11 max-w-full font-semibold sm:h-9" aria-label={t('État du livreur', 'Courier state')}>
+        {COURIER_FILTERS.map((v) => <option key={v} value={v}>{courierFilterLabel(t, v)}</option>)}
+      </Select>
       {search('hidden md:block')}
       <Button variant="outline" size="sm" className="h-11 sm:h-9" onClick={csv} disabled={!shown.length} icon={<Download className="size-4" />}>{t('Exporter (CSV)', 'Export (CSV)')}</Button>
+      {anyFilter && <Button variant="ghost" size="sm" className="h-11 sm:h-9" onClick={clearAll}>{t('Effacer les filtres de commandes', 'Clear order filters')}</Button>}
     </>
   );
   return (
     <div>
       <Hint id="orders.filters"><CollapsibleFilters active={activeFilters} lead={search('w-full')}><FilterBar filters={filters} set={set} locations={locations} brands={brands} showBrands={false} showChannels={false} extra={extra} /></CollapsibleFilters></Hint>
-      <div className="text-body mb-3 flex flex-wrap gap-x-4 gap-y-1" aria-live="polite">{rows === null ? <Skeleton className="h-5 w-56" /> : <><span className="font-semibold text-ink">{t(counts[0], counts[1])}</span><span><strong className="num">{money(sales, loc)}</strong> <span className="text-ink-3">{t('ventes', 'sales')}</span></span><span className="text-ink-3">{t(cancelledWords[0], cancelledWords[1])}</span></>}</div>
+      {(data?.coverage?.scanLimitReached || data?.coverage?.resultLimitReached) && <Banner tone="warn" className="mb-4">{data.coverage.scanLimitReached && <>{t('Filtres appliqués aux 5 000 commandes les plus récentes de cette sélection. Réduisez la période pour tout vérifier.', 'Filters cover the latest 5,000 orders in this selection. Shorten the period to check every order.')} </>}{data.coverage.resultLimitReached && t('Les résultats et le CSV sont limités aux 3 000 premières commandes correspondantes. Réduisez la période ou ajoutez un filtre.', 'Results and CSV cover the first 3,000 matching orders. Shorten the period or add a filter.')}</Banner>}
+      <p className="text-small mb-3 text-ink-3">{t('Les problèmes et livreurs reflètent les mises à jour reçues. « Terminée » ne confirme pas la livraison au client.', 'Issues and courier states reflect received updates. “Completed” does not confirm delivery to the customer.')}</p>
+      <div className="text-body mb-3 flex flex-wrap gap-x-4 gap-y-1" aria-live="polite">{err ? null : rows === null ? <Skeleton className="h-5 w-56" /> : <><span className="font-semibold text-ink">{t(counts[0], counts[1])} {t('affichée(s)', 'shown')}</span><span><strong className="num">{money(sales, loc)}</strong> <span className="text-ink-3">{t('ventes affichées', 'shown sales')}</span></span><span className="text-ink-3">{t(cancelledWords[0], cancelledWords[1])}</span></>}</div>
       <Card>
-        {rows === null ? <SkeletonTable rows={6} cols={6} className="border-0 shadow-none" />
+        {err ? <EmptyState title={t('Impossible de charger ces commandes.', 'Could not load these orders.')} body={err} action={<div className="flex flex-wrap justify-center gap-2"><Button variant="primary" onClick={load}>{t('Réessayer', 'Retry')}</Button>{anyFilter && <Button variant="outline" onClick={clearAll}>{t('Effacer les filtres de commandes', 'Clear order filters')}</Button>}</div>} />
+          : rows === null ? <SkeletonTable rows={6} cols={6} className="border-0 shadow-none" />
           : shown.length === 0 ? (
-            <EmptyState icon={<Inbox className="size-6" />} title={t('Aucune commande pour cette période.', 'No orders for this period.')}
+            <EmptyState icon={<Inbox className="size-6" />} title={anyFilter ? t('Aucune commande ne correspond à ces filtres.', 'No orders match these filters.') : t('Aucune commande pour cette période.', 'No orders for this period.')}
               body={<>{t('Il manque une commande ?', 'Missing an order?')} <Link href={href('/alerts')} className="font-semibold text-brand hover:underline">{t('Regardez les Alertes.', 'Check the Alerts.')}</Link></>}
               action={<div className="flex flex-wrap justify-center gap-2">
                 {filters.preset !== '7d' && <Button variant="primary" size="lg" onClick={() => set({ preset: '7d' })}>{t('Voir les 7 derniers jours', 'See the last 7 days')}</Button>}
-                {anyFilter && <Button variant="outline" size="lg" onClick={clearAll}>{t('Effacer les filtres', 'Clear the filters')}</Button>}
+                {anyFilter && <Button variant="outline" size="lg" onClick={clearAll}>{t('Effacer les filtres de commandes', 'Clear order filters')}</Button>}
               </div>} />
           ) : (
             <>
               {/* From md up: the table. */}
               <div className="hidden md:block">
                 <Table>
-                  <thead><tr><Th>{t('Heure', 'Time')}</Th><Th>{t('Plateforme', 'Platform')}</Th><Th>No</Th><Th>{t('Marque', 'Brand')}</Th><Th>{t('Succursale', 'Location')}</Th><Th>{t('Client', 'Customer')}</Th><Th>{t('Statut', 'Status')}</Th><Th align="right">Total</Th></tr></thead>
+                  <thead><tr><Th>{t('Heure', 'Time')}</Th><Th>{t('Plateforme', 'Platform')}</Th><Th>No</Th><Th>{t('Marque', 'Brand')}</Th><Th>{t('Succursale', 'Location')}</Th><Th>{t('Client', 'Customer')}</Th><Th>{t('Statut · issue', 'Status · outcome')}</Th><Th>{t('Problèmes signalés', 'Recorded issues')}</Th><Th>{t('Livreur', 'Courier')}</Th><Th align="right">Total</Th></tr></thead>
                   <tbody>
                     {shown.slice(0, limit).map((o) => (
                       <Tr key={o.id} className="cursor-pointer" onClick={() => onOpen(o.id)}>
@@ -333,7 +371,9 @@ function History({ onOpen }: { onOpen: (id: string) => void }) {
                         <Td>{o.brandName ?? '—'}</Td>
                         <Td className="text-ink-2">{o.locationCode ? shortLoc(locName(o.locationCode)) : '—'}</Td>
                         <Td className={o.customerName ? 'text-ink-2' : 'text-ink-3'}>{o.customerName || t('Client inconnu', 'Unknown customer')}</Td>
-                        <Td><span className="flex flex-wrap items-center gap-1"><Badge tone={STATUS_TONE[o.status]}>{statusLabel(t, o.status)}</Badge><MevBadge mev={o.timeline?.mev} /></span></Td>
+                        <Td><span className="flex flex-wrap items-center gap-1"><Badge tone={STATUS_TONE[o.status]}>{statusLabel(t, o.status)}</Badge><MevBadge mev={o.timeline?.mev} /></span>{o.status === 'cancelled' && <span className="text-small block text-ink-3">{outcomeLabel(t, orderOutcome(o))}</span>}</Td>
+                        <Td><IssueBadges order={o} /></Td>
+                        <Td className="text-ink-2">{courierFilterLabel(t, orderCourier(o))}</Td>
                         <Td align="right" className={cn('font-semibold', o.status === 'cancelled' && 'text-ink-3 line-through')}>{money(o.total, loc)}</Td>
                       </Tr>
                     ))}
@@ -349,6 +389,9 @@ function History({ onOpen }: { onOpen: (id: string) => void }) {
                       <span className="min-w-0 flex-1">
                         <span className="flex min-w-0 items-baseline gap-2"><span className="shrink-0 font-extrabold whitespace-nowrap">#{orderNumber(o)}</span><span className="text-small truncate text-ink-3">{o.brandName ?? '—'}</span></span>
                         <span className="text-small block text-ink-3">{timeOf(o.createdAt, loc, filters.from !== filters.to)}</span>
+                        <span className="text-small mt-1 block text-ink-3">{courierFilterLabel(t, orderCourier(o))}</span>
+                        {o.status === 'cancelled' && <span className="text-small block text-ink-3">{outcomeLabel(t, orderOutcome(o))}</span>}
+                        <span className="mt-1 block"><IssueBadges order={o} /></span>
                       </span>
                       <span className="text-right">
                         <span className={cn('num text-body block font-bold', o.status === 'cancelled' && 'text-ink-3 line-through')}>{money(o.total, loc)}</span>
@@ -365,4 +408,10 @@ function History({ onOpen }: { onOpen: (id: string) => void }) {
       </Card>
     </div>
   );
+}
+
+function IssueBadges({ order }: { order: Row }) {
+  const { t } = useI18n();
+  const issues = orderIssues(order);
+  return issues.length ? <span className="flex flex-wrap gap-1">{issues.map((issue) => <Badge key={issue} tone="wait">{issueLabel(t, issue)}</Badge>)}</span> : <span className="text-small text-ink-3">{t('Aucun signalé', 'None recorded')}</span>;
 }

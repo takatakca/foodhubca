@@ -3,7 +3,7 @@
 import { listDirectOrders } from '../delivery/store';
 import type { DirectOrder } from '../delivery/types';
 import { giftCardsFor, loyaltyFor, type GiftCardsInfo, type LoyaltyInfo } from './adapters';
-import { toPublicCustomer, type CustomerAddress, type MasterCustomer, type PublicCustomer } from './types';
+import { toPublicCustomer, type CustomerAddress, type CustomerPreferences, type MasterCustomer, type PublicCustomer } from './types';
 
 export const ME_ORDERS_MAX = 20;
 /** How far back the order list looks (the newest 500 direct orders of every source). */
@@ -21,6 +21,7 @@ export interface MeOrder {
 
 export interface MeView {
   customer: PublicCustomer;
+  preferences: CustomerPreferences;
   addresses: CustomerAddress[];
   favourites: string[];
   loyalty: LoyaltyInfo;
@@ -41,5 +42,6 @@ export async function websiteOrdersFor(phone: string, limit = ME_ORDERS_MAX): Pr
 
 export async function buildMe(customer: MasterCustomer): Promise<MeView> {
   const [loyalty, giftCards, orders] = await Promise.all([loyaltyFor(customer.phone), giftCardsFor(customer.phone), websiteOrdersFor(customer.phone)]);
-  return { customer: toPublicCustomer(customer), addresses: customer.addresses, favourites: customer.favourites, loyalty, giftCards, orders };
+  const publicCustomer = toPublicCustomer(customer);
+  return { customer: publicCustomer, preferences: publicCustomer.preferences, addresses: customer.addresses, favourites: customer.favourites, loyalty, giftCards, orders };
 }

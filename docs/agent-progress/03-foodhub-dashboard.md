@@ -3,6 +3,20 @@
 Updated: 2026-11-04 02:01 EST
 Branch for this work: `feature/foodhub-operator-dashboard` (published/coordinated by the primary agent; no shared-checkout branch switches).
 
+## Active continuation — Orders issue investigation
+
+2026-11-04: resumed the documented Orders issue/outcome/courier requirement from comment 6542710915. Implementing validated URL filters against existing recorded order facts, server scope-before-limit support, explicit bounded-result coverage, recoverable read failures and exact-order payout/dispute navigation. Existing chronology, modifiers, courier updates and order-money calculations are retained. Targeted route/permission/model tests and an authenticated desktop/mobile browser check are in progress; this continuation is not yet marked verified.
+
+Implemented source for this continuation:
+
+- History filters cover recorded Clover/platform/print/mapping/missing-item issues; actual cancellation attribution, completion and Skip-tablet outcomes; and reported courier states. An absent courier report is distinct from an explicit unassignment or reported delivery. “Completed” does not assert customer delivery.
+- Filters, order search and status survive a copied URL/reload. Clearing order filters retains the selected provider, brand, restaurant and date range. The matching rows and their CSV expose the same issue/outcome/courier facts.
+- The server validates these filters, intersects authorized locations, and applies provider/brand selection in the repository query before limits. Derived filters inspect at most 5,000 scoped candidates; scan and 3,000-result limits are explicitly disclosed in History. These displayed-result totals never replace global dashboard KPIs.
+- Active orders now have a scoped recorded-issue banner that opens an actual affected order. History read failures show retry rather than an empty success state.
+- The existing per-order read-only expected/paid/gap/payout detail is preserved. A real dispute case links to that exact order and its provider/restaurant/brand, including recovered/closed cases. A restricted-location viewer keeps access to their authorized order-money detail but is not linked into the all-location finance area. Case query/filtering does not modify cases or submit a claim.
+
+Source validation: 59 tests passed across nine focused suites, including actual authenticated route handlers, authorization, old matching records beyond a requested result limit, explicit scan truncation, Supabase query scope and existing Home/workspace behavior. Lint passed for the modified source/tests, and the latest combined typecheck passed. Search keeps an immediate local input draft while persisting its URL, and both scan/result limits are disclosed if they apply together. Rebuilt-app desktop/mobile acceptance is next.
+
 ## Sources and requirements
 
 Read the repository agent instructions, master plan/status, existing dashboard/session code, and the retrieved public coordination board, including its paginated middle. Requirements include:
@@ -48,7 +62,7 @@ The earlier unified-workspaces work provides provider selection/navigation, shar
 
 The final rebuilt listed-store and monitoring-empty wording is verified in the actual application. The authenticated desktop/mobile readiness, quick-action and cancellation-history journey also passed again. Preserve existing accounts and platform sessions while continuing the wider provider acceptance work.
 
-The owner's current Windows PC installation and real provider sessions cannot be verified from this Linux cloud. A live provider order reaching Clover and printing remains a separate acceptance check. Full organisation hierarchy/payout-tree parity, measured Opportunities and independent issue/outcome/courier filter UX are not marked complete here. No fabricated AI recommendations or unsupported provider actions were introduced.
+The owner's current Windows PC installation and real provider sessions cannot be verified from this Linux cloud. A live provider order reaching Clover and printing remains a separate acceptance check. Full organisation hierarchy/payout-tree parity and measured Opportunities are not marked complete here. The new independent recorded-issue/outcome/courier investigation UX is undergoing the continuation checks above. No fabricated AI recommendations or unsupported provider actions were introduced.
 
 — Signed: Codex, agent 3 (authenticated dashboard), cloud workspace · 2026-11-04 02:01 EST
 

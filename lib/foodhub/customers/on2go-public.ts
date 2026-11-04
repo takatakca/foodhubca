@@ -54,12 +54,12 @@ export function originRefused(req: Request, methods: string): Response | null {
   return origin && !allowedOrigin(origin) ? on2goJson(req, methods, { ok: false, error: 'Origin not allowed.' }, 403) : null;
 }
 
-/** The JSON body (2 KB at most), {} when empty, undefined when it is not a JSON object. */
-export async function readSmallJson(req: Request): Promise<Record<string, unknown> | undefined> {
-  if (Number(req.headers.get('content-length') ?? '0') > 2048) return undefined;
+/** A bounded JSON object (2 KB by default, 8 KB for saved lists), {} when empty. */
+export async function readSmallJson(req: Request, maxBytes = 2048): Promise<Record<string, unknown> | undefined> {
+  if (Number(req.headers.get('content-length') ?? '0') > maxBytes) return undefined;
   try {
     const text = await req.text();
-    if (text.length > 2048) return undefined;
+    if (new TextEncoder().encode(text).byteLength > maxBytes) return undefined;
     const v = text ? JSON.parse(text) : {};
     return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined;
   } catch {

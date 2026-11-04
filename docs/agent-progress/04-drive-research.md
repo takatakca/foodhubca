@@ -1,0 +1,63 @@
+# Agent 04 — Google Drive requirements research
+
+**Branch:** `docs/drive-project-evidence` · **Agent:** Codex `drive_research` · **Date:** 2026-11-04 UTC.
+
+**Current result:** requirements recovered from dated GitHub copies and the public coordination board, with exact source links and a Food Hub production-access appendix. **Live Google Drive inspection remains blocked in this cloud session.** No Drive file, application source, deployment configuration or production account was changed by this agent.
+
+The coordinator publishes this agent's files to its individual branch. The shared coding checkout was not switched or committed by this agent. This page records the work so the owner can inspect its scope and progress separately from the other four agents.
+
+## Chronological discussion and progress
+
+| Date / stage | Request or discussion | Work performed and result |
+| --- | --- | --- |
+| 2026-11-04 · assignment | Owner requested a dedicated Drive agent to recover Food Hub, Clover, restaurant, ON2GO and media requirements. | Accepted the research-only role. Read applicable repository instructions and distinguished the owner's current request from historical agent coordination instructions. No external message was sent. |
+| 2026-11-04 · access discovery | Older notes said Drive, Canva and Runway were already connected. | Searched all currently callable tool names/descriptions for Drive, Google, search, ChatGPT, Canva, Runway and file access. No applicable connector was exposed. Managed environment status showed no configured application secrets/runtime bindings/outbound identities. The only Google credential-file reference led to an empty JSON object, not usable Drive authorization. No credential value was printed. |
+| 2026-11-04 · original-link checks | Determine whether existing document links could be read directly without a connector. | Requested the known hosting MAIN Google Doc text export and the Operations Drive folder. Both failed at the environment proxy with CONNECT403 / HTTP000. These failures are not Drive permission or missing-file responses. No bypass was attempted. |
+| 2026-11-04 · repository discovery | Continue useful research while direct Drive access is unavailable. | Inventoried visible Markdown across all 22 selected repositories, excluding private folders, dependencies and generated builds. Found 37 matching documents; recorded paths, repository revisions, hashes and reference line numbers locally. This is a keyword discovery inventory, not a claim to have read every repository line. |
+| 2026-11-04 · historical access reconciliation | Explain the difference between the owner's existing connections and current agent access. | Read V1's October29 KLEAN connector inventory: another environment listed335 Operations Drive items and connected Drive/Canva/Runway services. Reported this distinction to the coordinator: historical account connections and product integrations do not automatically expose tools or credentials to the current cloud session. |
+| 2026-11-04 · requirement extraction | Link Food Hub, Clover, ON2GO, restaurant operations and media briefs. | Read the Food Hub registry, ecosystem map, integration plan, master-plan status, copied image/video mandate and Clover video pack; ON2GO blueprint/image library; V1 media/key-store notes; knowledgeAI ingestion policy; Skip reference; and relevant entries in the 354-comment public board snapshot. Extracted dated requirements and explicit evidence limits. |
+| 2026-11-04 · implementation handoffs | Feed confirmed requirements to the agents building the platform. | Sent the ON2GO agent the real-photo/clean-front/Canada/QC-first/seed-disclosure rules; sent marketing the official Canva-asset distinction and retired-gold correction; sent the dashboard agent54-session, provider-workspace, home-attention, order-detail and organization requirements. The coordinator received access findings, exact source links and media completion limits. |
+| 2026-11-04 · first deliverable | Produce a durable, inspectable audit rather than a connector-status statement. | Wrote the [requirements and evidence report](drive-requirements-evidence.md), including known Drive links, a 22-row requirements matrix, conflicting historical directions and minimum legitimate access needed. No live Drive search was claimed. |
+| 2026-11-04 · production research | Coordinator requested the exact existing Food Hub release target and dependencies for new ON2GO account routes. | Identified Coolify application `1ijktzayh4dbcnn37igo8ktv`, native GitHub App controller, `/Dockerfile`, port 3000, build-time `SOURCE_COMMIT`, health command and media persistence. Distinguished the existing native controller from disabled historical Actions deployment. Added backend-first deployment and acceptance instructions to the [production appendix](drive-requirements-evidence.md#production-access-appendix-food-hub-and-on2go-saved-account-rollout). |
+| 2026-11-04 · backend cross-check | Review the coordinator's new public saved-data routes against the recovered contract. | Read the new addresses/favourites handlers and preferences changes without editing them. At that snapshot, routes consistently used ON2GO tenant tokens, bounded JSON, existing validation/customer update paths and no-store CORS responses. Preferences kept separate choices and did not silently alter legacy consent. Deletion reconstructs an anonymized record and drops preferences. No blocking issue was found in this limited read-only review; durable persistence and served-revision acceptance remain unverified. |
+| 2026-11-04 06:46 UTC · individual publication preparation | Owner requested a separate visible branch and progress discussion for each of five agents. | Created this individual chronological log and copied the sanitized audit into `docs/agent-progress/drive-requirements-evidence.md`. Corrected source links for repository browsing. Coordinator handles isolated commit/push; this agent did not switch the shared branch or commit another agent's files. |
+
+## Confirmed project requirements
+
+- **Distinct roles:** ON2GO is customer discovery/ordering/account; Food Hub is restaurant operations; Clover is POS/payment; TAKATAK V1 is master identity, merchant accounts, plans and B2B billing. Separate repositories communicate through documented APIs/signatures, not shared database writes.
+- **Reliable operations:** one ingestion path per store; 54 manually authenticated independent sessions, 18 each for DoorDash/Uber/Skip; reuse the existing PC profiles/session IDs and provider assignments; distinguish configured records from running signed-in sessions.
+- **Dashboard scope:** familiar provider workspaces, global authorized attention, useful operational metrics and honest empty states, richer issue/order details, organization→brand→location scope and finance isolation. The [dated requirement matrix](drive-requirements-evidence.md#confirmed-requirements-to-implement-and-verify) links each source.
+- **Public presentation:** real Clover food photography for ON2GO, no invented ratings/distances/delivery promises, snapshot disclosure while data is seeded, actual logos, simple front page and hierarchical navigation. Food Hub's marketing must explain the merchant workflow with truthful integration readiness.
+- **Media:** genuine sandbox app recordings; Runway for atmosphere rather than fabricated UI; current blue/navy brand; actual MP4/poster/subtitle outputs and source credits. A script, created folder or local edit does not prove connected-provider production or Drive delivery.
+- **Production:** verify exact deployed revisions, healthy durable backend, correct CORS/auth and real user flows. Branch pushes and local test results do not prove what the public domains currently serve.
+
+## Conflicts and their resolutions
+
+| Historical conflict or ambiguous claim | Evidence-based resolution |
+| --- | --- |
+| Old Clover film pack says black/gold; current brand says electric blue/navy. | V1 `docs/media/VIDEO_PLAN.md` explicitly says to reuse the existing pack while replacing retired gold with the current brand. |
+| Official product imagery mandates finished Canva exports; later ON2GO mandate says real Clover food photos. | Keep surface/date scope explicit: official product/listing merchandising assets are the finished Canva exports; ON2GO's later specific site rule selects real Clover photos. Context photography is not proof that missing official exports were recovered. |
+| Old inventory says Drive/Canva/Runway connected; current tools expose none. | Both can be true in different environments. Current discovery and failed proxy requests establish this session's limitation; historical status is preserved as provenance. |
+| Canva folders existed, therefore assets were delivered. | ON2GO's image-library note says 22 folders were created but filing failed. Folder creation does not prove named, organized uploads or Drive synchronization. |
+| Prior reel library was completed, therefore Runway was used or videos are available here. | Public October31 completion note says 47 MP4 + 47 posters stayed in the owner's private PC output; demo data only, no platform screens, Runway not called. Do not redo or claim those private outputs without checking the PC. |
+| HTTP200 or a successful image build means current production is fixed. | Deployment evidence requires the expected complete SHA and healthy application/backend, followed by the relevant user-flow acceptance. Existing historical proof is dated and cannot establish today's release. |
+
+## Source entry points
+
+These are source documents actually read as repository files or public board notes; they are not a claim to have opened their current Drive originals.
+
+- [Food Hub registry](../REGISTRE_TAKATAK.md), [ecosystem map](../FOOD_ECOSYSTEM_MAP.md), [integration plan](../INTEGRATION_PLATFORM.md), [master-plan status](../MASTER_PLAN_STATUS.md), [deployment guide](../DEPLOYMENT.md).
+- [Image/video start document](<../00 — COMMENCE ICI — IMAGES ET VIDÉOS — SUIS-MOI.md>), [Tools TAKATAK](<../2026-10-28 18-23 — Tools TAKATAK — tableau de bord.md>), [Clover video pack](<../2026-10-28 18-23 — Pack vidéos Marketplace Clover — scripts storyboards prompts Runway.md>), [current brand](../../BRAND.md).
+- [ON2GO blueprint](https://github.com/takatakca/on2goca/blob/main/docs/ON2GO_APP_BLUEPRINT.md), [image library](https://github.com/takatakca/on2goca/blob/main/docs/IMAGE_LIBRARY.md).
+- [Historical connector/Drive inventory](https://github.com/takatakca/takatak-v1/blob/main/docs/KLEAN-CONNECTORS-INVENTORY-2026-10-29.md), [current media plan](https://github.com/takatakca/takatak-v1/blob/main/docs/media/VIDEO_PLAN.md), [raw-recording requirements](https://github.com/takatakca/takatak-v1/blob/main/docs/media/RAW_MATERIAL_REQUEST.md), [knowledge ingestion rules](https://github.com/takatakca/knowledgeAI/blob/main/docs/03-INGESTION-POLICY.md).
+- [54-session request](https://github.com/takatakca/foodhubca/issues/105#issuecomment-6507103682), [54-session source completion](https://github.com/takatakca/foodhubca/issues/105#issuecomment-6507462334), [ON2GO owner brief](https://github.com/takatakca/foodhubca/issues/105#issuecomment-6513027239), [Canva filing limitation](https://github.com/takatakca/foodhubca/issues/105#issuecomment-6514024041), [47-reel completion scope](https://github.com/takatakca/foodhubca/issues/105#issuecomment-6542603627), [round-two dashboard scope](https://github.com/takatakca/foodhubca/issues/105#issuecomment-6542616510).
+
+## Remaining access and next step
+
+Read the current Operations/PPP Drive originals through an authorized **callable read-only Drive/Docs connector in this same session**. Direct shared exports additionally need permitted network access; allowing a host alone does not authenticate private Drive. User-provided project exports can supply a snapshot but cannot establish a current full Drive search.
+
+First originals to reconcile: full current registry, hosting MAIN, latest PC relay status, restaurant closing checklist, final approved logo/product files, Canva filing state and latest media-account readiness. Preserve newer completed work if those originals establish it. No absent-cloud-file conclusion should become “the owner never installed it.”
+
+This agent's research and local read-only source review are complete. Live Drive search, Drive synchronization, live control-plane verification and production acceptance remain explicitly pending access. The coordinator can continue code/media work independently and request another review when needed.
+
+— signed: Codex (`drive_research`) @ Codex cloud · 2026-11-04 06:46 UTC

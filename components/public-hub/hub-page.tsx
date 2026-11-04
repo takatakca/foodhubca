@@ -5,17 +5,14 @@ import { LEGAL_PATHS } from '@/lib/foodhub/legal';
 import { EXTRA_BRAND_PLATFORM_CAD, formatCadLabel, PHONE_APP_NAME, PHONE_PRICING_STATEMENT, STANDARD_MONTHLY_CAD, TRIAL_DAYS, type Lang } from '@/lib/foodhub/pricing';
 import {
   fillHub, HUB_CONTENT, HUB_NAME, HUB_PATHS, hubBenefits, hubCertificationNote, hubFaq, hubFeatures, hubIndexable, hubJsonLd,
-  hubRequirements, jsonLdScript, pendingPlatforms, platformList, type HubContext, type HubPageKey,
+  hubRequirements, jsonLdScript, type HubContext, type HubPageKey,
 } from '@/lib/foodhub/public-hub';
 import { HUB_UI, type Block, type Card } from '@/lib/foodhub/public-hub-content';
-import { HeroDevice, HeroSparkles, LandingShowcase, MotionToggle } from './landing-showcase';
-import landing from './landing.module.css';
+import { RestaurantLanding } from './restaurant-landing';
 
 // The public ON2GO.ca pages (/hub, /en/hub…): server-rendered, no page-specific client component, no tracker, no
 // session, no database (the root layout still ships its own small boot script and the Next.js runtime).
 // Everything from the environment arrives in `ctx` (hubContext()), so this component renders the same in tests.
-
-const PLATFORMS = ['Uber Eats', 'DoorDash', 'SkipTheDishes', 'Too Good To Go*'];
 
 function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
@@ -185,16 +182,18 @@ function ContactLine({ lang, ctx }: { lang: Lang; ctx: HubContext }) {
 }
 
 export function HubPage({ page, lang, ctx }: { page: HubPageKey; lang: Lang; ctx: HubContext }) {
+  return page === 'landing' ? <RestaurantLanding lang={lang} ctx={ctx} /> : <HubDetailsPage page={page} lang={lang} ctx={ctx} />;
+}
+
+function HubDetailsPage({ page, lang, ctx }: { page: HubPageKey; lang: Lang; ctx: HubContext }) {
   const c = HUB_CONTENT[page][lang];
   const ui = HUB_UI[lang];
   const other: Lang = lang === 'fr' ? 'en' : 'fr';
   const home = HUB_PATHS.landing[lang];
   const faq = hubFaq(page, lang, ctx);
   const certification = hubCertificationNote(page, lang, ctx);
-  const pending = pendingPlatforms(ctx);
-  const isLanding = page === 'landing';
   return (
-    <div lang={lang === 'fr' ? 'fr-CA' : 'en-CA'} className={`min-h-dvh bg-canvas text-ink${isLanding ? ` ${landing.motionScope}` : ''}`}>
+    <div lang={lang === 'fr' ? 'fr-CA' : 'en-CA'} className="min-h-dvh bg-canvas text-ink">
       <a href="#contenu" className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-10 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2">{ui.skip}</a>
       <header className="bg-rail text-white">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
@@ -211,9 +210,8 @@ export function HubPage({ page, lang, ctx }: { page: HubPageKey; lang: Lang; ctx
       </header>
 
       <main id="contenu">
-        <div className={`bg-rail text-white${isLanding ? ` ${landing.hero}` : ''}`}>
-          {isLanding && <HeroSparkles />}
-          <div className={`mx-auto max-w-6xl px-4 pb-14 pt-10${isLanding ? ' grid grid-cols-1 items-center gap-12 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] lg:pb-24 lg:pt-16' : ''}`}>
+        <div className="bg-rail text-white">
+          <div className="mx-auto max-w-6xl px-4 pb-14 pt-10">
             <div>
               {page !== 'landing' && (
                 <nav aria-label={ui.breadcrumb} className="mb-4 text-sm text-silver">
@@ -236,27 +234,9 @@ export function HubPage({ page, lang, ctx }: { page: HubPageKey; lang: Lang; ctx
                   <a href={HUB_PATHS.pricing[lang]} className="inline-flex rounded-md border border-silver/40 px-5 py-3 font-bold text-white hover:border-white">{ui.seePricing}</a>
                 )}
               </div>
-              {page === 'landing' && (
-                <div className="mt-8">
-                  <p className="sr-only">{ui.platformsLabel}</p>
-                  <ul className="flex flex-wrap gap-2">
-                    {[...PLATFORMS, 'Clover'].map((p) => (
-                      <li key={p} className="rounded-full border border-silver/30 px-3 py-1 text-sm font-semibold text-white">{p}</li>
-                    ))}
-                  </ul>
-                  <p className="mt-2 text-[13px] text-silver">* {ui.tgtgNote}</p>
-                  {pending.length > 0 && (
-                    <p className="mt-1 text-[13px] text-silver">{ui.pending.trim().replace('{platforms}', platformList(pending, lang))}</p>
-                  )}
-                  <MotionToggle lang={lang} />
-                </div>
-              )}
             </div>
-            {isLanding && <HeroDevice lang={lang} />}
           </div>
         </div>
-
-        {isLanding && <LandingShowcase lang={lang} ctx={ctx} />}
 
         <div className="mx-auto max-w-6xl px-4">
           {c.blocks.map((b) => <BlockView key={b.id} block={b} lang={lang} ctx={ctx} />)}

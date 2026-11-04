@@ -9,13 +9,17 @@ Updated: 2026-11-04, Codex cloud. Review branch: `feature/foodhub-media-producti
 - Identified 167 existing ON2GO dish-photo files, 17 logo previews and five explicitly licensed Unsplash context photos in the TAKATAK website repository. Distinguished restaurant-menu photos from the separate ChatGPT image library. The official brand-master PNG files are absent from the knowledge repository's brand folder.
 - Recorded six actual local Food Hub clips with synthetic data: kitchen/new order, order board and the tablet wall, in vertical and landscape. The recorder handled 238 external-service calls through localhost stand-ins, with no production credentials, external platform sessions or account writes.
 - Re-recorded final French landscape scenes with capture-only blur of fictional currency amounts, following the existing no-prices media requirement. The real application code and API values were not changed. Original synthetic-data recordings remain internal review evidence.
-- Rendered two finished 30-second French edits: 1920×1080 landscape and 1080×1080 square. Both combine existing restaurant photography, genuine local product footage, current blue/navy typography, explicit local-demo wording, and a clear Food Hub / TAKATAK closing card. Both are silent, with no unlicensed music or artificial voice.
+- Rendered four finished 30-second French/English edits: 1920×1080 landscape and 1080×1080 square in each language. They combine existing restaurant photography, genuine language-matched local product footage, current blue/navy typography, explicit local-demo wording, and a clear Food Hub / TAKATAK closing card. They are silent, with no unlicensed music or artificial voice.
 
-## In progress
+## Final package and verification
 
-- English recordings use the app's actual English language cookie and translated controls. Kitchen and tablet-wall scenes have succeeded; the order-board scene is recording.
-- English landscape/square edits, FR/EN subtitle files, native WebVTT captions, poster review and output verification follow the English capture pass.
-- The parent agent and the public-page agent will place reviewed final films and posters in the public media directory. Outputs currently live outside the application checkout; no public asset publication is claimed in this progress note.
+- English recordings use the app's actual English language cookie and translated controls. Kitchen, tablet wall and order board have succeeded. A recorder-only selector issue was corrected by scoping status filters to the actual Status group. All capture services are stopped; other agents can build.
+- Finished films, four steady-frame posters, FR/EN SRT and native WebVTT tracks, provenance, the expected historical 47-clip filename inventory, and SHA/property verification are versioned under [docs/media/product-film-2026-11-04](../media/product-film-2026-11-04/README.md).
+- Verified all four outputs: H.264, 30 fps, exactly 30.000 seconds, correct landscape/square dimensions and no audio stream. Both caption tracks have five timed cues ending at 30 seconds. Posters and representative product frames were visually reviewed.
+- OCR sampled 60 frames, one every two seconds across the four films. Ten currency candidates were reviewed as relay IDs (`S10` read as `$10`, including adjacency to `S09`), with no unredacted currency value identified in the sample. This is not exhaustive frame-by-frame proof.
+- The new-order poster shows a positive green `11:23` countdown, consistent with the actual app's 11.5-minute Uber response window and a fresh synthetic order created inside the shot. Exact API remaining milliseconds were not retained and are not claimed.
+- A portable renderer and documented input/output contract are available at `scripts/media/render-product-film.py` and `scripts/media/README.md`.
+- The public-page agent has copied the reviewed landscape edits, refreshed posters and captions into the landing page's public media directory. The parent agent coordinates Git publication and the release; a live deployment is not claimed here.
 
 ## Remaining external dependencies
 

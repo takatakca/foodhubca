@@ -8,6 +8,7 @@
 //   - A kitchen with no Clover register (FOODHUB_CLOVER_NO_REGISTER=HOCHELAGA,...) never gets a Clover order: the order
 //     stays on Food Hub's kitchen screen (never printed on another kitchen's register).
 import { timedFetch, toCents } from '../config';
+import { neverSent } from '../env-utils';
 import { cloverAutoPrintEnabled, cloverBaseUrl, cloverInjectionEnabled, cloverToken, defaultCloverMerchant } from '../pos/clover';
 import { printKitchenTicket } from '../pos/clover-order';
 import { getRepo } from '../repo';
@@ -56,7 +57,19 @@ export async function orderTypeId(mid: string, token: string, fulfillment: Direc
   }
 }
 
-export type CloverDirectResult = { ok: true; posOrderId: string; merchantId: string; printed?: string } | { ok: false; skipped?: boolean; error: string };
+export type CloverDirectResult = { ok: true; posOrderId: string; merchantId: string; printed?: string; printReview?: string } | { ok: false; skipped?: boolean; uncertain?: boolean; error: string };
+type CloverAttempt = { state: 'sending' | 'created'; merchantId: string; at: string; posOrderId?: string; printState?: 'off' | 'pending' | 'sent' | 'review'; printMessage?: string };
+const UNKNOWN_SEND = 'Résultat de l’envoi Clover inconnu — vérifiez la caisse avant de reprendre. Aucun nouvel envoi automatique.';
+const UNKNOWN_PRINT = 'Résultat de l’impression Clover inconnu — vérifiez le billet avant de réimprimer.';
+
+function existingAttempt(attempt: CloverAttempt | null): CloverDirectResult {
+  if (attempt?.state === 'created' && attempt.posOrderId && attempt.merchantId) return {
+    ok: true, posOrderId: attempt.posOrderId, merchantId: attempt.merchantId,
+    ...(attempt.printMessage ? { printed: attempt.printMessage } : {}),
+    ...(!['sent', 'off'].includes(attempt.printState ?? '') ? { printReview: attempt.printMessage || UNKNOWN_PRINT } : {}),
+  };
+  return { ok: false, uncertain: true, error: UNKNOWN_SEND };
+}
 
 type DirectCartOrder = Pick<DirectOrder, 'source' | 'number' | 'brandName' | 'lines' | 'deliveryFee' | 'customer' | 'fulfillment' | 'dropoff' | 'containsAlcohol' | 'payment' | 'notes'> & Partial<Pick<DirectOrder, 'fees' | 'interac'>>;
 
@@ -103,6 +116,14 @@ export function buildDirectCloverCart(order: DirectCartOrder, typeId: string | n
 export async function createDirectOrderInClover(order: DirectOrder, opts: { print?: boolean } = {}): Promise<CloverDirectResult> {
   // A Clover online order is already in Clover (Clover printed it and sent it to its KDS): never sent a second time.
   if (order.source === 'clover_online') return { ok: false, skipped: true, error: 'Clover online order: it is already in Clover — never sent again.' };
+  const repo = getRepo();
+  const key = `direct_clover:${order.id}`;
+  // A replay precedes current connection/configuration guards: an existing order
+  // does not cease to exist because its merchant was disconnected afterwards.
+  try {
+    const previous = await repo.getKv<CloverAttempt>(key);
+    if (previous) return existingAttempt(previous);
+  } catch { return { ok: false, uncertain: true, error: 'Clover send history could not be checked. Sending is paused; review the original attempt before retrying.' }; }
   if (!cloverInjectionEnabled()) return { ok: false, skipped: true, error: 'Clover injection is turned off (FOODHUB_POS_INJECTION=off).' };
   if (!order.lines.length) return { ok: false, error: 'The order has no items.' };
   if (kitchenHasNoRegister(order.locationCode)) return { ok: false, skipped: true, error: `${order.locationCode} has no Clover register (FOODHUB_CLOVER_NO_REGISTER): the order stays on Food Hub's kitchen screen.` };
@@ -113,22 +134,47 @@ export async function createDirectOrderInClover(order: DirectOrder, opts: { prin
 
   const typeId = await orderTypeId(mid, token, order.fulfillment, order.source);
   const body = { orderCart: buildDirectCloverCart(order, typeId).orderCart };
+  const attempt: CloverAttempt = { state: 'sending', merchantId: mid, at: new Date().toISOString() };
+  try {
+    if (!await repo.claimKv(key, attempt)) return existingAttempt(await repo.getKv<CloverAttempt>(key));
+  } catch { return { ok: false, uncertain: true, error: 'Clover send could not be durably reserved. Sending is paused; review before retrying.' }; }
+  let id: string;
   try {
     const res = await timedFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}/atomic_order/orders`, {
       method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body),
     });
     const text = await res.text();
-    if (!res.ok) return { ok: false, error: `Clover returned HTTP ${res.status}: ${text.slice(0, 300)}` };
-    const id = text ? JSON.parse(text)?.id : null;
-    if (!id) return { ok: false, error: 'Clover response did not include an order id.' };
-    let printed: string | undefined;
-    if (opts.print !== false && cloverAutoPrintEnabled()) {
-      // That kitchen's printer (CLOVER_PRINT_DEVICES "MID|LOCATION"), else the merchant's default.
-      const p = await printKitchenTicket(String(id), mid, order.locationCode);
-      printed = p.message;
+    let parsed: { id?: unknown; error?: unknown; message?: unknown } | null = null;
+    try { parsed = text ? JSON.parse(text) : null; } catch { /* unknown provider outcome */ }
+    if (!res.ok) {
+      const refused = [400, 401, 403, 404, 405, 415, 422, 429].includes(res.status) && parsed && typeof parsed === 'object' && (parsed.error || parsed.message);
+      if (refused) {
+        await repo.releaseKv(key);
+        return { ok: false, error: `Clover refused the order (HTTP ${res.status}): ${text.slice(0, 300)}` };
+      }
+      return { ok: false, uncertain: true, error: `${UNKNOWN_SEND} (HTTP ${res.status})` };
     }
-    return { ok: true, posOrderId: String(id), merchantId: mid, printed };
+    if (!parsed?.id || typeof parsed.id !== 'string') return { ok: false, uncertain: true, error: UNKNOWN_SEND };
+    id = parsed.id;
   } catch (e) {
-    return { ok: false, error: `Clover network error: ${e instanceof Error ? e.message : String(e)}` };
+    if (neverSent(e)) { await repo.releaseKv(key); return { ok: false, error: 'Clover was not reachable; the request was not sent.' }; }
+    return { ok: false, uncertain: true, error: UNKNOWN_SEND };
+  }
+  const created: CloverAttempt = { ...attempt, state: 'created', posOrderId: id };
+  // This durable id precedes every print and caller write. Losing the final Food
+  // Hub order update cannot turn its Retry button into a second atomic POST.
+  try { await repo.setKv(key, created); } catch { return { ok: false, uncertain: true, error: `${UNKNOWN_SEND} Clover returned an id, but it could not be saved.` }; }
+  if (opts.print === false || !cloverAutoPrintEnabled()) {
+    try { await repo.setKv(key, { ...created, printState: 'off' }); } catch { return { ok: true, posOrderId: id, merchantId: mid, printReview: UNKNOWN_PRINT }; }
+    return { ok: true, posOrderId: id, merchantId: mid };
+  }
+  try {
+    await repo.setKv(key, { ...created, printState: 'pending' });
+    const print = await printKitchenTicket(id, mid, order.locationCode);
+    const result: CloverAttempt = { ...created, printState: print.ok ? 'sent' : 'review', printMessage: print.message };
+    await repo.setKv(key, result);
+    return { ok: true, posOrderId: id, merchantId: mid, printed: print.message, ...(!print.ok ? { printReview: print.message || UNKNOWN_PRINT } : {}) };
+  } catch {
+    return { ok: true, posOrderId: id, merchantId: mid, printReview: UNKNOWN_PRINT };
   }
 }

@@ -46,6 +46,8 @@ export function OrdersView() {
   const href = useScopeHref();
   const view = viewOf(params.get('view'));
   const open = params.get('open');
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
   const { orders, at } = useBoardOrderState();
   const now = useNow(5_000);
   const isScheduled = useCallback((o: BoardOrder) => Boolean(o.timeline?.fireAt && !o.timeline.firedAt && Date.parse(o.timeline.fireAt) > now && ['new', 'accepted'].includes(o.status)), [now]);
@@ -84,7 +86,7 @@ export function OrdersView() {
           {t('Vos commandes site web et téléphone sont dans Commandes directes', 'Your website and phone orders are in Direct orders')}<ArrowRight className="ml-auto size-4 shrink-0" />
         </Link>
       )}
-      {open && <OrderDrawer key={open} orderId={open} onClose={() => setOpen(null)} />}
+      {mounted && open && <OrderDrawer key={open} orderId={open} onClose={() => setOpen(null)} />}
     </div>
   );
 }
@@ -260,14 +262,20 @@ function History({ onOpen }: { onOpen: (id: string) => void }) {
   const { locations, brands, locName } = useViewer();
   const { site, scope, brands: brandScope, channels: channelScope } = usePulse();
   const params = useSearchParams();
-  const router = useRouter();
   const href = useScopeHref();
   // No brand or platform picker of its own here (the chips change the console's scope): old `?channels=` links are ignored.
   const { filters, set, query } = useFilters('today', scope, brandScope, channelScope, { scopeOnly: true });
   const status = params.get('status') ?? '';
   const q = params.get('q') ?? '';
   const [searchText, setSearchText] = useState(q);
-  useEffect(() => { setSearchText(q); }, [q]);
+  const editingSearch = useRef(false);
+  // Next's URL notification may lag the keystroke. Never replace an active draft with that older notification.
+  useEffect(() => { if (!editingSearch.current && q === (new URLSearchParams(window.location.search).get('q') ?? '')) setSearchText(q); }, [q]);
+  useEffect(() => {
+    const back = () => { editingSearch.current = false; setSearchText(new URLSearchParams(window.location.search).get('q') ?? ''); };
+    window.addEventListener('popstate', back);
+    return () => window.removeEventListener('popstate', back);
+  }, []);
   const selection = useMemo(() => {
     try {
       if (status && !ORDER_STATUSES.includes(status as typeof ORDER_STATUSES[number])) throw new Error('Invalid status filter.');
@@ -277,7 +285,8 @@ function History({ onOpen }: { onOpen: (id: string) => void }) {
   const { issue, outcome, courier } = selection.filters;
   const update = (patch: Parameters<typeof withOrderFilters>[1]) => {
     const next = withOrderFilters(window.location.search, patch);
-    router.replace(`/orders${next ? `?${next}` : ''}`, { scroll: false });
+    window.history.replaceState(null, '', `/orders${next ? `?${next}` : ''}`);
+    if (patch.q !== undefined) { editingSearch.current = false; setSearchText(patch.q); }
     setLimit(200);
   };
   const [limit, setLimit] = useState(200);
@@ -309,14 +318,15 @@ function History({ onOpen }: { onOpen: (id: string) => void }) {
   const clearAll = () => update({ status: '', q: '', issue: '', outcome: '', courier: '' });
   // Filters on, for the phone's "Filtres" button: the period when not today, the status, the console scope.
   const activeFilters = [filters.preset !== 'today', Boolean(status), Boolean(issue), Boolean(outcome), Boolean(courier), Boolean(q.trim()), Boolean(site.kitchen), Boolean(site.brand), Boolean(site.channel)].filter(Boolean).length;
-  const search = (cls: string) => <div className={cn('relative', cls)}><Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-ink-3" aria-hidden /><Input inputSize="sm" className="h-11 w-full pl-8 sm:h-9 md:w-56" aria-label={t('Chercher une commande', 'Search an order')} placeholder={t('No, client, Clover…', '#, customer, Clover…')} value={searchText} onChange={(e) => {
+  const search = (cls: string) => <div className={cn('relative', cls)}><Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-ink-3" aria-hidden /><Input inputSize="sm" className="h-11 w-full pl-8 sm:h-9 md:w-56" aria-label={t('Chercher une commande', 'Search an order')} placeholder={t('No, client, Clover…', '#, customer, Clover…')} value={searchText} onFocus={() => { editingSearch.current = true; }} onBlur={() => { editingSearch.current = false; setSearchText(new URLSearchParams(window.location.search).get('q') ?? ''); }} onChange={(e) => {
+    editingSearch.current = true;
     const value = e.target.value;
     setSearchText(value);
     const next = withOrderFilters(window.location.search, { q: value });
     window.history.replaceState(null, '', `/orders${next ? `?${next}` : ''}`);
     setLimit(200);
   }} /></div>;
-  const counts = plurals(counted.length, ['commande'], ['order']);
+  const counts = plurals(shown.length, ['commande'], ['order']);
   const cancelledWords = plurals(shown.length - counted.length, ['annulée'], ['cancelled', 'cancelled']);
   const extra: ReactNode = (
     <>
@@ -325,13 +335,13 @@ function History({ onOpen }: { onOpen: (id: string) => void }) {
         <option value="">{t('Tous les statuts', 'All statuses')}</option>
         {['new', 'accepted', 'ready', 'dispatched', 'completed', 'cancelled', 'failed'].map((s) => <option key={s} value={s}>{statusLabel(t, s)}</option>)}
       </Select>
-      <Select selectSize="sm" value={issue} onChange={(e) => update({ issue: e.target.value as OrderFilters['issue'] })} className="h-11 max-w-full font-semibold sm:h-9" aria-label={t('Problème signalé', 'Recorded issue')}>
+      <Select selectSize="sm" value={issue} onChange={(e) => update({ issue: e.target.value as OrderFilters['issue'] })} className="h-11 w-auto max-w-full font-semibold sm:h-9" aria-label={t('Problème signalé', 'Recorded issue')}>
         {ISSUE_FILTERS.map((v) => <option key={v} value={v}>{issueLabel(t, v)}</option>)}
       </Select>
-      <Select selectSize="sm" value={outcome} onChange={(e) => update({ outcome: e.target.value as OrderFilters['outcome'] })} className="h-11 max-w-full font-semibold sm:h-9" aria-label={t('Issue de la commande', 'Order outcome')}>
+      <Select selectSize="sm" value={outcome} onChange={(e) => update({ outcome: e.target.value as OrderFilters['outcome'] })} className="h-11 w-auto max-w-full font-semibold sm:h-9" aria-label={t('Issue de la commande', 'Order outcome')}>
         {OUTCOME_FILTERS.map((v) => <option key={v} value={v}>{outcomeLabel(t, v)}</option>)}
       </Select>
-      <Select selectSize="sm" value={courier} onChange={(e) => update({ courier: e.target.value as OrderFilters['courier'] })} className="h-11 max-w-full font-semibold sm:h-9" aria-label={t('État du livreur', 'Courier state')}>
+      <Select selectSize="sm" value={courier} onChange={(e) => update({ courier: e.target.value as OrderFilters['courier'] })} className="h-11 w-auto max-w-full font-semibold sm:h-9" aria-label={t('État du livreur', 'Courier state')}>
         {COURIER_FILTERS.map((v) => <option key={v} value={v}>{courierFilterLabel(t, v)}</option>)}
       </Select>
       {search('hidden md:block')}
@@ -367,7 +377,7 @@ function History({ onOpen }: { onOpen: (id: string) => void }) {
                         <Td className="whitespace-nowrap text-ink-2">{timeOf(o.createdAt, loc, filters.from !== filters.to)}</Td>
                         <Td><PlatformTag channel={o.channel} /></Td>
                         {/* The order number is a real button: keyboard users open the order with Tab + Enter. */}
-                        <Td className="font-bold"><button type="button" onClick={(e) => { e.stopPropagation(); onOpen(o.id); }} className="-mx-1 rounded px-1 font-bold hover:underline">#{orderNumber(o)}</button></Td>
+                        <Td className="font-bold whitespace-nowrap"><button type="button" onClick={(e) => { e.stopPropagation(); onOpen(o.id); }} className="-mx-1 rounded px-1 font-bold hover:underline">#{orderNumber(o)}</button></Td>
                         <Td>{o.brandName ?? '—'}</Td>
                         <Td className="text-ink-2">{o.locationCode ? shortLoc(locName(o.locationCode)) : '—'}</Td>
                         <Td className={o.customerName ? 'text-ink-2' : 'text-ink-3'}>{o.customerName || t('Client inconnu', 'Unknown customer')}</Td>

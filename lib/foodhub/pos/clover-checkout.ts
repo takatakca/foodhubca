@@ -122,24 +122,24 @@ export function splitName(full: string | null | undefined): { firstName?: string
   return { firstName: cut(first, 60), ...(rest.length ? { lastName: cut(rest.join(' '), 60) } : {}) };
 }
 
-/** Our mark on the first line of a session ("Réf. IA-1043"): how the poller finds the Clover order when a webhook is lost. */
-export const payMarker = (number: string) => `Réf. ${number}`;
+/** New marks bind the immutable order id. The one-argument form reads existing legacy links only. */
+export const payMarker = (number: string, orderId?: string) => `Réf. ${orderId || number}`;
 
-/** The whole mark, not a prefix: "Réf. IA-104" never matches "Réf. IA-1043". */
+/** Only the producer-owned prefix. Customer notes later in a line cannot name another order's payment. */
 export function hasMarker(note: string, marker: string): boolean {
-  return new RegExp(`${marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}_-])`, 'u').test(note);
+  return new RegExp(`^${marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}_-])`, 'u').test(note);
 }
 
 /**
  * The Hosted Checkout body for a held order. Every line carries the GST / QST rates; the delivery fee is a line of its
  * own (taxed, like in Food Hub's totals). Only first name, last name and phone go to Clover (no email on phone orders).
  */
-export function buildCheckoutRequest(order: Pick<DirectOrder, 'number' | 'lines' | 'deliveryFee' | 'customer'> & { tip?: number }, taxRates: CloverTaxRate[], urls: HostedCheckoutRequest['redirectUrls']): HostedCheckoutRequest {
+export function buildCheckoutRequest(order: Pick<DirectOrder, 'number' | 'lines' | 'deliveryFee' | 'customer'> & { id?: string; tip?: number }, taxRates: CloverTaxRate[], urls: HostedCheckoutRequest['redirectUrls'], marker = payMarker(order.number, order.id)): HostedCheckoutRequest {
   const phone = String(order.customer.phone ?? '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
   const rates = taxRates.map((r) => ({ ...(r.id ? { id: r.id } : {}), name: r.name, rate: r.rate }));
   const lineItems: HostedCheckoutLineItem[] = order.lines.map((l, i) => {
     const mods = l.modifiers.reduce((s, m) => s + m.unitPrice * (m.quantity || 1), 0);
-    const note = [i === 0 ? payMarker(order.number) : '', ...l.modifiers.map((m) => `${(m.quantity || 1) > 1 ? `${m.quantity}x ` : ''}${m.name}`), l.notes ? `Note: ${l.notes}` : '', l.alcohol ? 'ALCOOL — ID 18+' : ''].filter(Boolean).join(' · ');
+    const note = [i === 0 ? marker : '', ...l.modifiers.map((m) => `${(m.quantity || 1) > 1 ? `${m.quantity}x ` : ''}${m.name}`), l.notes ? `Note: ${l.notes}` : '', l.alcohol ? 'ALCOOL — ID 18+' : ''].filter(Boolean).join(' · ');
     return { name: cut(l.name, 127), price: toCents(l.unitPrice + mods), unitQty: Math.max(1, Math.round(l.quantity || 1)), ...(note ? { note: cut(note, 255) } : {}), ...(rates.length ? { taxRates: rates } : {}) };
   });
   if (order.deliveryFee > 0) lineItems.push({ name: 'Livraison / Delivery', price: toCents(order.deliveryFee), unitQty: 1, ...(rates.length ? { taxRates: rates } : {}) });
@@ -263,8 +263,10 @@ export async function findPaidByMarker(mid: string, marker: string, sinceMs: num
     const rows: any[] = (await res.json())?.elements ?? [];
     const out: PaidCloverOrder[] = [];
     for (const o of rows) {
+      // Clover's expanded line order is not an identity. Only our leading mark
+      // can match, whichever position the provider returns that first line in.
       const notes: string[] = (o?.lineItems?.elements ?? []).map((li: any) => String(li?.note ?? ''));
-      if (!notes.some((n) => hasMarker(n, marker))) continue;
+      if (!notes.some((note) => hasMarker(note, marker))) continue;
       for (const p of o?.payments?.elements ?? []) {
         if (String(p?.result ?? '').toUpperCase() === 'SUCCESS' && p?.id) out.push({ paymentId: String(p.id), cloverOrderId: String(o.id), amountCents: Number(p.amount) || 0, result: 'SUCCESS' });
       }

@@ -1,0 +1,26 @@
+{
+  "scope": "authenticated actual built UI with synthetic intercepted direct-order responses; isolated local owner feature switch",
+  "observations": [
+    {
+      "case": "late-card-visible-in-default-todo",
+      "actual": 0
+    },
+    {
+      "case": "extra-card-visible-in-default-todo",
+      "actual": 0
+    },
+    {
+      "case": "no-courier-claim-while-uber-can-send",
+      "actual": 1
+    },
+    {
+      "case": "paid-held-offers-counter-payment",
+      "actual": 1
+    },
+    {
+      "case": "paid-held-waiting-payment-copy",
+      "actual": 1
+    }
+  ],
+  "productionVerified": false
+}

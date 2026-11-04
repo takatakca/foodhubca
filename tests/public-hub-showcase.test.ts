@@ -33,7 +33,7 @@ describe('restaurant merchant landing (/hub and /en/hub)', () => {
   it('offers an actionable contact CTA while marketplace installation is unavailable', () => {
     for (const marketStatus of ['review', 'soon'] as const) {
       const html = render('fr', ctx({ marketStatus }));
-      expect(html).toMatch(/href="\/legal\/support"[^>]*>Parler de mon restaurant/);
+      expect(html).toMatch(/href="mailto:support@takatak.ca"[^>]*>Parler de mon restaurant/);
       expect(html).not.toMatch(/<span[^>]*>Installer avec Clover/);
       expect(html).not.toContain('data-clover-badges');
     }

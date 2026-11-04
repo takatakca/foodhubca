@@ -58,7 +58,8 @@ export const POST = withPerm<Ctx>('orders:act', async (req, ctx, actor) => {
     if (!r.ok) return fail(r.message, 409, { problems: [r.message], problemsFr: [r.messageFr ?? r.message] });
     message = r.message;
   } else if (action === 'refresh') {
-    if (order.deliveryId) await refreshDelivery(order.deliveryId);
+    const running = await activeDelivery(order);
+    if (running) await refreshDelivery(running.id);
   } else if (action === 'proof' || action === 'courier_note') {
     // Uber Direct only: the delivery photo / signature (Proof of Delivery), or a new note for the courier (Update Delivery).
     const uber = (await deliveriesForOrder(id)).filter((d) => d.fleet === 'uber_direct' && d.fleetDeliveryId).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];

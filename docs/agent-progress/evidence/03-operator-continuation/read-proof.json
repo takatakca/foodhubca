@@ -1,0 +1,78 @@
+{
+  "scope": "isolated PostgreSQL/PostgREST read-only operator proof with synthetic records",
+  "scopedReadTests": {
+    "passed": 2,
+    "executedBy": "operator continuation agent; rerun on final frozen source after the coordinator\u2019s earlier pass",
+    "cases": [
+      "JSON presence/location/id predicates across 1000 rows",
+      "older scoped orders and exact old courier ownership"
+    ],
+    "sourceCommit": "12dc660c05c08aecbd683f9bc90e5c476274b8e1",
+    "repeatedTestsAreNotAdditionalUniqueCases": true
+  },
+  "deliveryBatching": {
+    "before": {
+      "count": 500,
+      "found": null,
+      "error": {
+        "name": "Error",
+        "message": "Supabase: "
+      },
+      "reads": [
+        {
+          "requestTargetBytes": 19631,
+          "status": 431
+        }
+      ],
+      "scope": "actual FoodHub modules and disposable loopback PostgreSQL/PostgREST; synthetic courier records only",
+      "productionAccess": false
+    },
+    "after": {
+      "count": 500,
+      "found": 500,
+      "error": null,
+      "reads": [
+        {
+          "requestTargetBytes": 3562,
+          "status": 200
+        },
+        {
+          "requestTargetBytes": 3562,
+          "status": 200
+        },
+        {
+          "requestTargetBytes": 3562,
+          "status": 200
+        },
+        {
+          "requestTargetBytes": 3562,
+          "status": 200
+        },
+        {
+          "requestTargetBytes": 3562,
+          "status": 200
+        },
+        {
+          "requestTargetBytes": 2470,
+          "status": 200
+        }
+      ],
+      "scope": "actual FoodHub modules and disposable loopback PostgreSQL/PostgREST; synthetic courier records only",
+      "productionAccess": false
+    },
+    "beforeSourceSha256": {
+      "lib/foodhub/delivery/board.ts": "dd2ef31d1776548b3d1a8f85c6423dc05eda0e5099288668dac168674fee4c1b",
+      "lib/foodhub/delivery/store.ts": "529b585f5d79bc1b1c92252cf381d4b1bb748451b785b51782a297d5930a9635",
+      "lib/foodhub/delivery/dispatch.ts": "83553b9c837816d704f97c4489cc06fdc686026a161e6d7dfcd95546c5913058",
+      "lib/foodhub/repo.ts": "336de26ede0b8b1e68163ec28eab34ebf57169f9e509acaba36d0b2518277443"
+    }
+  },
+  "sourceSha256": {
+    "lib/foodhub/delivery/board.ts": "dd2ef31d1776548b3d1a8f85c6423dc05eda0e5099288668dac168674fee4c1b",
+    "lib/foodhub/delivery/store.ts": "529b585f5d79bc1b1c92252cf381d4b1bb748451b785b51782a297d5930a9635",
+    "lib/foodhub/delivery/dispatch.ts": "83553b9c837816d704f97c4489cc06fdc686026a161e6d7dfcd95546c5913058",
+    "lib/foodhub/repo.ts": "bd484080c3381173da539fd3bd4cb46c438e491cdb12d1112a698f69085bb972"
+  },
+  "productionVerified": false,
+  "sourceCommit": "12dc660c05c08aecbd683f9bc90e5c476274b8e1"
+}

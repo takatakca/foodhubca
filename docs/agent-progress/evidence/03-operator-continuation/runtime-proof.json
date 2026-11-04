@@ -1,0 +1,59 @@
+{
+  "runtimeKind": "docker-pruned-runtime",
+  "imageId": "sha256:b3f83baec1d042fe4a0268e7031063e290fd831f3d6feab0d326b2b6e506a1d2",
+  "sourceCommit": "12dc660c05c08aecbd683f9bc90e5c476274b8e1",
+  "foodHubBuildId": "yhf2mGUexeH-1RWM0dX4e",
+  "runtimeSourceSha256": {
+    "app/(console)/direct/page.tsx": "50f4d1d1bc6ba83007b18f399264f48631f39942f987d30c01cc1b27bc06e8fc",
+    "components/expansion/direct-order-drawer.tsx": "5f0ea3fb63d924866d81a034e1f1b1eafa1aca89ae1f891c81267cc7dc062ebb",
+    "components/expansion/labels.ts": "a136511ee163ea424e095c43d83eca7ebf34ce8d262e6c805678eae6251202aa",
+    "components/live/own-orders.tsx": "bf95b5e3a124e37b629792e57867de8dbdbf8729efae7e593523ec5188e81a8d",
+    "lib/foodhub/delivery/operator-state.ts": "2ec33a9600f6109b3afd2936f99b8bca824ae9381d4219d5541ed6877c69fe5c",
+    "lib/foodhub/delivery/board.ts": "dd2ef31d1776548b3d1a8f85c6423dc05eda0e5099288668dac168674fee4c1b",
+    "lib/foodhub/delivery/store.ts": "529b585f5d79bc1b1c92252cf381d4b1bb748451b785b51782a297d5930a9635",
+    "lib/foodhub/delivery/dispatch.ts": "83553b9c837816d704f97c4489cc06fdc686026a161e6d7dfcd95546c5913058",
+    "app/api/foodhub/delivery/route.ts": "096e56eb4a372a30be3d16d880d09f4ede110ccee3d29d516e87871a1852ce56",
+    "app/api/foodhub/delivery/[id]/route.ts": "22ff63535d60ddb126534d2b933fbfeff01e5ad0a395103eae68c3c0ebb86c9a",
+    "app/api/foodhub/delivery/active/route.ts": "85bcc11fdfc8c3e7807ce395c5335dfd87f65be8b558198ced93835df57556f0",
+    "lib/foodhub/repo.ts": "bd484080c3381173da539fd3bd4cb46c438e491cdb12d1112a698f69085bb972"
+  },
+  "strictRuntimeCheck": "passed",
+  "database": "ok",
+  "appNetworkInternal": true,
+  "hostBinding": "127.0.0.1:4809",
+  "liveConnectorsEnabled": false,
+  "ingress": "owned fixed-target Node reverse proxy on fixture + internal bridges; app and DB adapter internal-only",
+  "watchIntervalSeconds": 0,
+  "internalSyncMinutes": 0,
+  "scope": "actual pruned image and isolated PostgreSQL/PostgREST; synthetic data only",
+  "productionVerified": false,
+  "actualRunnerExecution": {
+    "watchRun": {
+      "at": "2026-11-04T20:19:03.174Z",
+      "trigger": "manual",
+      "ran": true,
+      "detections": 5,
+      "opened": 5,
+      "updated": 0,
+      "resolved": 0,
+      "escalated": 0,
+      "open": 5
+    },
+    "pulseStatus": 200,
+    "execution": "actual authenticated watch/run followed by actual pulse after-hook recovery; no heartbeat records fabricated",
+    "scope": "disposable synthetic database, no provider credentials, connectors disabled, app internal-only"
+  },
+  "runnerErrorsObservedAfterExecution": 0,
+  "finalRuntimeCheckBeforeCleanup": {
+    "passed": true,
+    "exitCode": 0,
+    "output": "PASS Food Hub 12dc660c05c08aecbd683f9bc90e5c476274b8e1: release, health, public directory, login and protected orders"
+  },
+  "cleanup": {
+    "ownedProofContainersRemaining": 0,
+    "ownedInternalNetworkRemoved": true,
+    "extraPostgrestAttachmentRemoved": true,
+    "privateAppCredentialsAndConfigRemoved": true,
+    "originalPostgresAndPostgrestStillRunning": true
+  }
+}

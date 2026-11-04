@@ -1,0 +1,134 @@
+{
+  "scope": "authenticated actual built UI with synthetic intercepted direct-order responses; isolated local owner feature switch",
+  "baseline": false,
+  "foodHubBuildId": "yhf2mGUexeH-1RWM0dX4e",
+  "runtimeKind": "docker-pruned-runtime",
+  "worktreeSourceSha256": {
+    "app/(console)/direct/page.tsx": "50f4d1d1bc6ba83007b18f399264f48631f39942f987d30c01cc1b27bc06e8fc",
+    "components/expansion/direct-order-drawer.tsx": "5f0ea3fb63d924866d81a034e1f1b1eafa1aca89ae1f891c81267cc7dc062ebb",
+    "components/expansion/labels.ts": "a136511ee163ea424e095c43d83eca7ebf34ce8d262e6c805678eae6251202aa",
+    "components/live/own-orders.tsx": "bf95b5e3a124e37b629792e57867de8dbdbf8729efae7e593523ec5188e81a8d",
+    "lib/foodhub/delivery/operator-state.ts": "2ec33a9600f6109b3afd2936f99b8bca824ae9381d4219d5541ed6877c69fe5c",
+    "lib/foodhub/delivery/board.ts": "dd2ef31d1776548b3d1a8f85c6423dc05eda0e5099288668dac168674fee4c1b",
+    "lib/foodhub/delivery/store.ts": "529b585f5d79bc1b1c92252cf381d4b1bb748451b785b51782a297d5930a9635",
+    "lib/foodhub/delivery/dispatch.ts": "83553b9c837816d704f97c4489cc06fdc686026a161e6d7dfcd95546c5913058",
+    "app/api/foodhub/delivery/route.ts": "096e56eb4a372a30be3d16d880d09f4ede110ccee3d29d516e87871a1852ce56",
+    "app/api/foodhub/delivery/[id]/route.ts": "22ff63535d60ddb126534d2b933fbfeff01e5ad0a395103eae68c3c0ebb86c9a",
+    "app/api/foodhub/delivery/active/route.ts": "85bcc11fdfc8c3e7807ce395c5335dfd87f65be8b558198ced93835df57556f0",
+    "lib/foodhub/repo.ts": "bd484080c3381173da539fd3bd4cb46c438e491cdb12d1112a698f69085bb972"
+  },
+  "limits": "This browser transport supplies synthetic direct-order rows and clears unrelated concurrent synthetic incoming/cancellation alarm fixtures from passed-through pulse responses. The actual pulse and its supported runner after-hooks still execute. Global alarm behavior is not certified by this journey. Drawer scans wait for actual finite entrance animations to finish under default motion; navigation waits for rendered content rather than polling network-idle. Delivery batching is verified separately through actual source modules and loopback PostgreSQL/PostgREST. Production/provider access is not certified.",
+  "results": [
+    {
+      "name": "late and extra card payments remain visible in default To do after cancellation/completion",
+      "passed": true
+    },
+    {
+      "name": "Uber request eligibility prevents a false all-courier outage while DoorDash is unavailable",
+      "passed": true
+    },
+    {
+      "name": "paid-held order displays received/unconfirmed, without another collection, resend, cancellation or false payment wait",
+      "passed": true
+    },
+    {
+      "name": "payment review prevents incompatible payment and generic clear-attention controls",
+      "passed": true
+    },
+    {
+      "name": "closed late/extra card orders retain the recorded financial notice without a false one-click refund resolution",
+      "passed": true
+    },
+    {
+      "name": "ordinary unpaid link controls remain available",
+      "passed": true
+    },
+    {
+      "name": "normal paid/released order preserves preparation and pickup controls",
+      "passed": true
+    },
+    {
+      "name": "received Interac keeps its existing finish-release action and truthful received copy",
+      "passed": true
+    },
+    {
+      "name": "unknown Clover outcome uses neutral copy and an unchanged guarded retry does not emit a false success toast",
+      "passed": true
+    },
+    {
+      "name": "known Clover creation with a remaining print notice is reported as attention, not a failed creation or a clear success",
+      "passed": true
+    },
+    {
+      "name": "counter conversion held by provider verification does not claim that the order was sent to the kitchen",
+      "passed": true
+    },
+    {
+      "name": "old detail response cannot replace a newly selected order or expose its actions",
+      "passed": true
+    },
+    {
+      "name": "a polling response captured before a completed action cannot regress the order to its older stage",
+      "passed": true
+    },
+    {
+      "name": "configured credentials with writes disabled still show request unavailability",
+      "passed": true
+    },
+    {
+      "name": "no configured courier route produces the same accurate unavailability notice",
+      "passed": true
+    },
+    {
+      "name": "partial coverage has an explicit limit notice, displayed-count label and an honest empty result",
+      "passed": true
+    },
+    {
+      "name": "a temporary read failure exposes Retry and then recovers the actual board",
+      "passed": true
+    },
+    {
+      "name": "restaurant/brand changes reach the board read and a late previous-kitchen response stays hidden",
+      "passed": true
+    },
+    {
+      "name": "en 1440px FX-LATE drawer has no horizontal overflow or serious/critical WCAG findings",
+      "passed": true
+    },
+    {
+      "name": "en 1440px FX-PRINT drawer has no horizontal overflow or serious/critical WCAG findings",
+      "passed": true
+    },
+    {
+      "name": "en 375px FX-LATE drawer has no horizontal overflow or serious/critical WCAG findings",
+      "passed": true
+    },
+    {
+      "name": "en 375px FX-PRINT drawer has no horizontal overflow or serious/critical WCAG findings",
+      "passed": true
+    },
+    {
+      "name": "fr 1440px FX-LATE drawer has no horizontal overflow or serious/critical WCAG findings",
+      "passed": true
+    },
+    {
+      "name": "fr 1440px FX-PRINT drawer has no horizontal overflow or serious/critical WCAG findings",
+      "passed": true
+    },
+    {
+      "name": "fr 375px FX-LATE drawer has no horizontal overflow or serious/critical WCAG findings",
+      "passed": true
+    },
+    {
+      "name": "fr 375px FX-PRINT drawer has no horizontal overflow or serious/critical WCAG findings",
+      "passed": true
+    },
+    {
+      "name": "no browser page errors in the reviewed journey",
+      "passed": true
+    }
+  ],
+  "observations": [],
+  "pageErrors": [],
+  "productionVerified": false
+}

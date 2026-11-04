@@ -2,6 +2,7 @@
 import type { Tone } from '@/components/ui/badge';
 import type { DirectOrder } from '@/lib/foodhub/delivery/types';
 import type { T } from '@/lib/i18n';
+import { directOrderReview } from '@/lib/foodhub/delivery/operator-state';
 
 export function directStatusLabel(t: T, s: string) {
   return ({
@@ -11,6 +12,13 @@ export function directStatusLabel(t: T, s: string) {
   } as Record<string, string>)[s] ?? s;
 }
 export const DIRECT_TONE: Record<string, Tone> = { awaiting_payment: 'violet', new: 'brand', in_kitchen: 'wait', ready: 'go', out_for_delivery: 'info', completed: 'neutral', cancelled: 'stop' };
+
+export function directOrderStatusLabel(t: T, o: Pick<DirectOrder, 'status' | 'payment' | 'interac' | 'paylink'>) {
+  const review = directOrderReview(o);
+  if (review.cardReview && !['completed', 'cancelled'].includes(o.status)) return t('Paiement à vérifier', 'Payment needs review');
+  if (review.cardReleasePending || review.transferReleasePending) return t('Paiement reçu', 'Payment received');
+  return directStatusLabel(t, o.status);
+}
 
 export function deliveryStatusLabel(t: T, s: string) {
   return ({
@@ -34,6 +42,9 @@ export const PAYMENT_TONE: Record<string, Tone> = { paid: 'go', pay_at_pickup: '
 
 /** The payment badge of an order: an Interac e-Transfer order says so (expected while held, received once a person confirmed it). */
 export function paymentBadge(t: T, o: Pick<DirectOrder, 'payment' | 'status' | 'interac' | 'paylink'>): { label: string; tone: Tone } {
+  const review = directOrderReview(o);
+  if (review.cardReview) return { label: t('Paiement à vérifier', 'Payment needs review'), tone: 'wait' };
+  if (review.cardReleasePending || review.transferReleasePending) return { label: t('Paiement reçu · envoi à confirmer', 'Payment received · release unconfirmed'), tone: 'wait' };
   if (o.interac && o.status === 'awaiting_payment') return { label: t('Virement Interac attendu', 'Interac e-Transfer expected'), tone: 'violet' };
   if (o.interac?.receivedAt && o.payment === 'paid') return { label: t('Payée — virement Interac', 'Paid — Interac e-Transfer'), tone: 'go' };
   if (o.paylink && o.status === 'awaiting_payment') return { label: paymentLabel(t, 'link'), tone: 'violet' };

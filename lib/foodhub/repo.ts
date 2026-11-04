@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { createServiceClient, hasSupabaseEnv } from '../supabase/server';
 import { nowIso } from './config';
 import type { ActivityEntry, ActivityKind, ChannelKey, ChannelStore, FoodHubJob, FoodHubUser, MasterMenu, NormalizedOrder, OrderEvent, OrderStatus, OrderTimeline, StoredOrder } from './types';
@@ -9,9 +10,55 @@ export interface OrderChangeCursor { at: string; id: string }
 export interface OrderChangeFilter { since: string; through?: string; after?: OrderChangeCursor; limit?: number }
 export interface ActivityFilter { limit?: number; since?: string; until?: string; kinds?: ActivityKind[]; locationCodes?: string[] }
 /** Generic document store (payout lines, statement imports, reconciliation cases, ledger approvals…). */
-export interface Doc<T = Record<string, unknown>> { id: string; key?: string | null; at?: string | null; data: T }
+export interface Doc<T = Record<string, unknown>> { id: string; key?: string | null; at?: string | null; data: T; /** Internal observed row version; never part of customer data. */ updatedAt?: string }
+export interface DocReadOptions { /** Include the internal row version for a subsequent conditional update. */ withVersion?: boolean }
+
+function nextDocumentVersion(previous?: string): string {
+  const observed = previous === undefined ? -Infinity : Date.parse(previous);
+  if (previous !== undefined && !Number.isFinite(observed)) throw new Error('Invalid observed document version.');
+  // PostgreSQL may return microseconds and another worker's clock may be ahead.
+  // Advancing at least one millisecond from the parsed value is strictly newer.
+  return new Date(Math.max(Date.now(), observed + 1)).toISOString();
+}
 export type DocDataMatch = string | number | boolean | null | { [key: string]: DocDataMatch };
-export interface DocFilter { since?: string; until?: string; keys?: string[]; limit?: number; dataEquals?: { [key: string]: DocDataMatch } }
+export const DOC_REVIEW_PATHS = ['attention', 'paylink.flag', 'paylink.extraPayments', 'interac.lateTransfers'] as const;
+export interface DocFilter {
+  since?: string; until?: string; keys?: string[]; ids?: string[]; limit?: number; dataEquals?: { [key: string]: DocDataMatch };
+  /** Internal direct-order scope, applied before pagination. An empty explicit list matches nothing. */
+  dataLocationCodes?: string[];
+  /** A bounded exception scan: any non-null value on these fixed internal review paths. */
+  dataAnyPresent?: Array<typeof DOC_REVIEW_PATHS[number]>;
+}
+
+function docLocationFilter(filter: DocFilter): string[] | undefined {
+  const values = filter.dataLocationCodes;
+  if (values === undefined) return undefined;
+  if (!Array.isArray(values) || values.length > 500 || values.some((value) => typeof value !== 'string' || !value || value.length > 200 || /[\u0000-\u001f\u007f]/.test(value))) throw new Error('Invalid document location filter');
+  return [...new Set(values)];
+}
+
+function docIdsFilter(filter: DocFilter): string[] | undefined {
+  const values = filter.ids;
+  if (values === undefined) return undefined;
+  if (!Array.isArray(values) || values.length > 500 || values.some((value) => typeof value !== 'string' || !value || value.length > 200 || /[\u0000-\u001f\u007f]/.test(value))) throw new Error('Invalid document id filter');
+  return [...new Set(values)];
+}
+
+function docPresentFilter(filter: DocFilter): Array<typeof DOC_REVIEW_PATHS[number]> {
+  const paths = filter.dataAnyPresent;
+  if (paths === undefined) return [];
+  if (!Array.isArray(paths) || paths.length > DOC_REVIEW_PATHS.length || paths.some((p) => !DOC_REVIEW_PATHS.includes(p))) throw new Error('Invalid document review filter');
+  return [...new Set(paths)];
+}
+
+function dataAtPath(data: unknown, path: string): unknown {
+  return path.split('.').reduce<unknown>((value, field) => value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>)[field] : undefined, data);
+}
+
+function docJsonPath(path: string): string {
+  const fields = path.split('.');
+  return `data${fields.slice(0, -1).map((field) => `->${field}`).join('')}->>${fields.at(-1)}`;
+}
 
 /** Internal JSON containment with exact leaf values; never forward an untrusted HTTP filter object here. */
 function exactDataFilter(filter: DocFilter): { [key: string]: DocDataMatch } {
@@ -85,6 +132,8 @@ export interface FoodHubRepo {
    * For "do this once" steps that must hold across processes (Clover metered charges).
    */
   claimKv(key: string, value: unknown): Promise<boolean>;
+  /** Conditional replacement of an existing value; an absent or changed row never matches. */
+  compareAndSwapKv(key: string, expected: unknown, value: unknown): Promise<boolean>;
   /** Gives a claimKv key back (the step it guarded definitely failed), so a later run can claim it again. */
   releaseKv(key: string): Promise<void>;
   addActivity(entry: ActivityEntry): Promise<void>;
@@ -93,8 +142,10 @@ export interface FoodHubRepo {
   getUser(username: string): Promise<FoodHubUser | null>;
   saveUser(user: Omit<FoodHubUser, 'id' | 'createdAt'> & { id?: string; createdAt?: string }): Promise<FoodHubUser>;
   putDocs<T>(collection: string, docs: Doc<T>[]): Promise<void>;
+  /** Conditional replacement by getDoc(..., { withVersion: true }); never inserts an absent row. */
+  compareAndSwapDoc<T>(collection: string, expected: Doc<T>, next: Doc<T>): Promise<boolean>;
   listDocs<T>(collection: string, filter?: DocFilter): Promise<Doc<T>[]>;
-  getDoc<T>(collection: string, id: string): Promise<Doc<T> | null>;
+  getDoc<T>(collection: string, id: string, options?: DocReadOptions): Promise<Doc<T> | null>;
   deleteDocs(collection: string, ids: string[]): Promise<void>;
 }
 
@@ -113,6 +164,7 @@ type MemState = {
   activity: ActivityEntry[];
   users: Map<string, FoodHubUser>;
   docs: Map<string, Map<string, Doc<any>>>;
+  docVersionAt?: string;
 };
 
 function memState(): MemState {
@@ -230,6 +282,12 @@ const memoryRepo: FoodHubRepo = {
     kv.set(key, JSON.parse(JSON.stringify(value)));
     return true;
   },
+  async compareAndSwapKv(key, expected, value) {
+    const kv = memState().kv;
+    if (!kv.has(key) || !isDeepStrictEqual(kv.get(key), JSON.parse(JSON.stringify(expected)))) return false;
+    kv.set(key, JSON.parse(JSON.stringify(value)));
+    return true;
+  },
   async releaseKv(key) { memState().kv.delete(key); },
   async addActivity(entry) { memState().activity.push({ ...entry, id: entry.id ?? crypto.randomUUID() }); },
   async listActivity(filter = {}) {
@@ -245,21 +303,52 @@ const memoryRepo: FoodHubRepo = {
     const st = memState();
     if (!st.docs) st.docs = new Map();
     const col = st.docs.get(collection) ?? new Map();
-    for (const d of docs) col.set(d.id, JSON.parse(JSON.stringify(d)));
+    for (const d of docs) {
+      st.docVersionAt = nextDocumentVersion(st.docVersionAt);
+      col.set(d.id, { ...JSON.parse(JSON.stringify(d)), updatedAt: st.docVersionAt });
+    }
     st.docs.set(collection, col);
+  },
+  async compareAndSwapDoc(collection, expected, next) {
+    if (expected.id !== next.id) throw new Error('Document identity cannot change.');
+    if (typeof expected.updatedAt !== 'string') throw new Error('An observed document version is required.');
+    const st = memState();
+    const col = st.docs?.get(collection);
+    const current = col?.get(expected.id);
+    if (!current || current.updatedAt !== expected.updatedAt) return false;
+    st.docVersionAt = nextDocumentVersion(st.docVersionAt);
+    col!.set(next.id, { ...JSON.parse(JSON.stringify(next)), updatedAt: st.docVersionAt });
+    return true;
   },
   async listDocs<T>(collection: string, filter: DocFilter = {}) {
     const exact = exactDataFilter(filter);
+    const locations = docLocationFilter(filter);
+    const ids = docIdsFilter(filter);
+    const present = docPresentFilter(filter);
+    if (locations?.length === 0 || ids?.length === 0) return [];
     const col = memState().docs?.get(collection);
     let list = col ? [...col.values()] as Doc<T>[] : [];
     if (filter.since) list = list.filter((d) => (d.at ?? '') >= filter.since!);
     if (filter.until) list = list.filter((d) => (d.at ?? '') < filter.until!);
     if (filter.keys?.length) list = list.filter((d) => d.key && filter.keys!.includes(d.key));
+    if (ids) list = list.filter((d) => ids.includes(d.id));
     if (Object.keys(exact).length) list = list.filter((d) => matchesExactData(d.data, exact));
+    if (locations) list = list.filter((d) => locations.includes(String(dataAtPath(d.data, 'locationCode') ?? '')));
+    if (present.length) list = list.filter((d) => present.some((p) => { const value = dataAtPath(d.data, p); return value !== null && value !== undefined; }));
     list.sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''));
-    return list.slice(0, filter.limit ?? 100_000);
+    return list.slice(0, filter.limit ?? 100_000).map((doc) => {
+      const snapshot = JSON.parse(JSON.stringify(doc)) as Doc<T>;
+      delete snapshot.updatedAt;
+      return snapshot;
+    });
   },
-  async getDoc<T>(collection: string, id: string) { return (memState().docs?.get(collection)?.get(id) as Doc<T> | undefined) ?? null; },
+  async getDoc<T>(collection: string, id: string, options: DocReadOptions = {}) {
+    const doc = memState().docs?.get(collection)?.get(id);
+    if (!doc) return null;
+    const snapshot = JSON.parse(JSON.stringify(doc)) as Doc<T>;
+    if (!options.withVersion) delete snapshot.updatedAt;
+    return snapshot;
+  },
   async deleteDocs(collection, ids) { const col = memState().docs?.get(collection); for (const id of ids) col?.delete(id); },
   async getUser(username) { return memState().users.get(username.toLowerCase()) ?? null; },
   async saveUser(user) {
@@ -534,6 +623,10 @@ function supabaseRepo(): FoodHubRepo {
       if ((res.error as { code?: string }).code === '23505') return false; // unique_violation: already claimed
       throw new Error(`Supabase: ${res.error.message}`);
     },
+    async compareAndSwapKv(key, expected, value) {
+      const rows = must(await db.from('fh_kv').update({ value, updated_at: nowIso() }).eq('key', key).eq('value', JSON.stringify(expected)).select('key'));
+      return rows?.length === 1;
+    },
     async releaseKv(key) {
       must(await db.from('fh_kv').delete().eq('key', key));
     },
@@ -568,8 +661,19 @@ function supabaseRepo(): FoodHubRepo {
         must(await db.from('fh_docs').upsert(rows, { onConflict: 'collection,id' }));
       }
     },
+    async compareAndSwapDoc(collection, expected, next) {
+      if (expected.id !== next.id) throw new Error('Document identity cannot change.');
+      if (typeof expected.updatedAt !== 'string') throw new Error('An observed document version is required.');
+      const rows = must(await db.from('fh_docs').update({ key: next.key ?? null, at: next.at ?? null, data: next.data, updated_at: nextDocumentVersion(expected.updatedAt) })
+        .eq('collection', collection).eq('id', expected.id).eq('updated_at', expected.updatedAt).select('id'));
+      return rows?.length === 1;
+    },
     async listDocs<T>(collection: string, filter: DocFilter = {}) {
       const exact = exactDataFilter(filter);
+      const locations = docLocationFilter(filter);
+      const ids = docIdsFilter(filter);
+      const present = docPresentFilter(filter);
+      if (locations?.length === 0 || ids?.length === 0) return [];
       const limit = filter.limit ?? 100_000;
       const out: Doc<T>[] = [];
       const keys = filter.keys?.length ? filter.keys : null;
@@ -579,16 +683,19 @@ function supabaseRepo(): FoodHubRepo {
         if (filter.since) q = q.gte('at', filter.since);
         if (filter.until) q = q.lt('at', filter.until);
         if (keys) q = q.in('key', keys.slice(0, 500));
+        if (ids) q = q.in('id', ids);
         if (Object.keys(exact).length) q = q.contains('data', exact);
+        if (locations) q = q.in('data->>locationCode', locations);
+        if (present.length) q = q.or(present.map((p) => `${docJsonPath(p)}.not.is.null`).join(','));
         const rows = (must(await q) ?? []) as Row[];
         out.push(...rows.map((r) => ({ id: r.id, key: r.key, at: r.at, data: r.data as T })));
         if (rows.length < to - from + 1) break;
       }
       return out;
     },
-    async getDoc<T>(collection: string, id: string) {
-      const r = must(await db.from('fh_docs').select('id,key,at,data').eq('collection', collection).eq('id', id).maybeSingle());
-      return r ? { id: r.id, key: r.key, at: r.at, data: r.data as T } : null;
+    async getDoc<T>(collection: string, id: string, options: DocReadOptions = {}) {
+      const r = must(await db.from('fh_docs').select('id,key,at,data,updated_at').eq('collection', collection).eq('id', id).maybeSingle());
+      return r ? { id: r.id, key: r.key, at: r.at, data: r.data as T, ...(options.withVersion ? { updatedAt: r.updated_at } : {}) } : null;
     },
     async deleteDocs(collection, ids) {
       for (let i = 0; i < ids.length; i += 500) must(await db.from('fh_docs').delete().eq('collection', collection).in('id', ids.slice(i, i + 500)));

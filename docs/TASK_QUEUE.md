@@ -1,3 +1,9 @@
+## 2026-11-04 — continued platform implementation / integration checks running
+
+Current source extends the earlier review with server-priced checkout/recovery, scoped Orders filters, authorized organization views, signed customer balances and durable V1 reporting. Financial uncertainty and account-switching regressions passed the final coordinated gates: 2,272 unit/22 skipped, production build/typecheck, 644 simulated E2E, 25 PostgreSQL crash checks and 13 cross-repository PostgreSQL browser checks. The last includes distinct simultaneous orders through two actual server processes. See [current acceptance status](RESTAURANT_PLATFORM_DELIVERY.md); do not treat old source-gap lists or the first public-site milestone as current completion. Source review is independent from production acceptance, which requires applied network access and actual provider/PC verification.
+
+— signé : Codex @ Codex cloud · 2026-11-04
+
 ## 2026-11-04 — restaurant experience review and live acceptance
 
 Five separately pushed agent branches: [progress index](agent-progress/README.md). Source/media and local checks are complete for this slice; production and the remaining source gaps are explicit in [delivery/acceptance](RESTAURANT_PLATFORM_DELIVERY.md). Next: connect legitimate Drive/Coolify access, apply saved network domains, verify native deployment/release, deploy backend before ON2GO, and certify controlled real provider/Clover/PC flows.

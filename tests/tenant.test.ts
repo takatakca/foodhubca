@@ -19,8 +19,8 @@ describe('tenant id', () => {
   });
 
   it('needs an https control plane URL and its own key', () => {
-    expect(controlPlane({ TAKATAK_CONTROL_PLANE_URL: 'http://takatak.ca', TAKATAK_ON2GO_HUB_KEY: 'k' } as any).configured).toBe(false);
-    expect(controlPlane({ TAKATAK_CONTROL_PLANE_URL: 'https://takatak.ca/', TAKATAK_ON2GO_HUB_KEY: 'k' } as any)).toEqual({ url: 'https://takatak.ca', keySet: true, configured: true });
+    expect(controlPlane({ TAKATAK_CONTROL_PLANE_URL: 'http://takatak.ca', TAKATAK_FOODHUB_API_KEY: 'k'.repeat(32) } as any).configured).toBe(false);
+    expect(controlPlane({ TAKATAK_CONTROL_PLANE_URL: 'https://takatak.ca/', TAKATAK_FOODHUB_API_KEY: 'k'.repeat(32) } as any)).toEqual({ url: 'https://takatak.ca', keySet: true, configured: true });
     expect(controlPlane({ TAKATAK_CONTROL_PLANE_URL: 'https://takatak.ca' } as any).configured).toBe(false);
   });
 });

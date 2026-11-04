@@ -1,7 +1,7 @@
 // The public ON2GO.ca site on foodhub.on2go.ca (spec: private SEO plan § 8): metadata, structured data (JSON-LD),
 // sitemap entries and llms.txt for the pages in app/hub and app/en/hub. The words live in public-hub-content.ts; the
-// product facts come from the Clover App Market listing (clover-listing.ts) and the prices from pricing.ts, so the
-// site, the listing and the structured data never drift apart.
+// public product copy describes configured workflows; prices come from pricing.ts. The protected marketplace
+// listing remains separate. A public configuration flag does not prove runtime activation.
 //
 // Environment (all optional, read at request time):
 //   FOODHUB_APP_MARKET_URL   the listing's public address once Clover approves it (https://…clover.com/…). Empty =
@@ -16,11 +16,11 @@
 //                            so canonicals, the sitemap and the JSON-LD never point at localhost.
 
 import type { Metadata } from 'next';
-import { LISTING_BENEFITS, LISTING_DESCRIPTION } from './clover-listing';
+import { LISTING_DESCRIPTION } from './clover-listing';
 import { legalInfo, LEGAL_PATHS } from './legal';
 import {
   appMarketStatus, appMarketUrl, HUB_PLATFORMS, livePlatforms, PHONE_APP_NAME, PHONE_PRICING_STATEMENT, PRICING, PRICING_STATEMENT,
-  STANDARD_MONTHLY_CAD, type AppMarketStatus, type HubPlatform, type Lang,
+  PHONE_MINUTE_CAD, PHONE_MONTHLY_CAD, STANDARD_MONTHLY_CAD, type AppMarketStatus, type HubPlatform, type Lang,
 } from './pricing';
 import { CLOVER_APPS, cloverAppMarketUrl, liveCloverApps, type CloverAppListing } from './clover-apps';
 import { CLOVER_APP_NAME } from './product';
@@ -29,7 +29,7 @@ import { publicBaseUrl } from './config';
 
 export { HUB_CONTENT, HUB_PAGE_KEYS, HUB_PATHS, type HubPageKey };
 
-export const HUB_NAME = 'ON2GO.ca';
+export const HUB_NAME = 'Food Hub';
 /** The Clover App Market name, protected (renaming it needs a new Clover review). */
 export const HUB_ALT_NAME = CLOVER_APP_NAME;
 export const OG_IMAGE: Record<Lang, string> = { fr: '/og/hub-fr.png', en: '/og/hub-en.png' };
@@ -74,6 +74,14 @@ export function hubMarketUrl(live: readonly CloverAppListing[] = liveCloverApps(
   if (own) return own;
   const foodHub = live.find((a) => a.key === 'foodhub') ?? null;
   return foodHub ? cloverAppMarketUrl(foodHub.appId) : null;
+}
+
+/** Phone AI is a separate product: Food Hub's listing URL never authorizes a phone installation or Offer. */
+export function hubPageMarketUrl(page: HubPageKey, ctx: Pick<HubContext, 'appMarketUrl' | 'cloverApps'>): string | null {
+  if (page === 'help') return null;
+  if (page !== 'phone') return ctx.appMarketUrl;
+  const phone = ctx.cloverApps?.find((app) => app.key === 'phone');
+  return phone ? cloverAppMarketUrl(phone.appId) : null;
 }
 
 export { CLOVER_APPS };
@@ -160,19 +168,23 @@ export function hubPageForSlug(lang: Lang, slug: string[] | undefined): HubPageK
 
 /** The hub's own tagline (not the listing's: that one names Too Good To Go without its condition). */
 export const hubTagline = (lang: Lang) => HUB_TAGLINE[lang];
-export const hubBenefits = (lang: Lang) => LISTING_BENEFITS.map((b) => b[lang]);
+export const hubBenefits = (lang: Lang) => hubFeatures(lang).map((feature) => feature.title);
 
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-/** The listing description's "• Title: text" bullets, as cards. */
+/** Public feature descriptions avoid unconditional claims from the older protected marketplace listing. */
 export function hubFeatures(lang: Lang): Card[] {
-  return LISTING_DESCRIPTION[lang].split('\n')
-    .filter((l) => l.startsWith('• '))
-    .map((l) => {
-      const body = l.slice(2);
-      const m = body.match(/^([^:]+?)\s?:\s(.*)$/);
-      return m ? { title: m[1].trim(), text: capital(m[2].trim()) } : { title: '', text: body };
-    });
+  return lang === 'fr' ? [
+    { title: 'Commandes et cuisine', text: 'Suivi des commandes reçues, de leur préparation et des notes des clients sur les flux configurés.' },
+    { title: 'Menus et disponibilité', text: 'Préparation du menu maître, prix par plateforme et suivi des publications et des articles indisponibles.' },
+    { title: 'Marques et établissements', text: 'Espaces de travail par plateforme, marque et établissement; écrans marchands hébergés séparément.' },
+    { title: 'Relevés et versements', text: 'Comparaison des relevés disponibles aux commandes et examen des écarts, sans approbation automatique.' },
+  ] : [
+    { title: 'Orders and kitchen', text: 'Track received orders, preparation and customer notes across configured flows.' },
+    { title: 'Menus and availability', text: 'Prepare a master menu, set platform prices and review publications and unavailable items.' },
+    { title: 'Brands and locations', text: 'Workspaces by platform, brand and location; separately hosted merchant screens.' },
+    { title: 'Statements and payouts', text: 'Compare available statements with orders and review differences, without automatic approval.' },
+  ];
 }
 
 /** The listing's requirements sentence, without its "Requirements:" lead. */
@@ -240,9 +252,10 @@ export function hubJsonLd(key: HubPageKey, lang: Lang, ctx: HubContext): Record<
   const url = hubUrl(ctx.base, key, lang);
   const home = hubUrl(ctx.base, 'landing', 'fr');
   const orgId = `${ctx.base}/hub#organization`;
-  const appId = `${ctx.base}/hub#software`;
+  const phone = key === 'phone';
+  const appId = `${ctx.base}/hub#${phone ? 'phone-ai' : 'software'}`;
   const org: Record<string, unknown> = {
-    '@type': 'Organization', '@id': orgId, name: HUB_NAME, alternateName: [HUB_ALT_NAME], legalName: ctx.company,
+    '@type': 'Organization', '@id': orgId, name: 'GROUPE TAKATAK', alternateName: ['TAKATAK'], legalName: ctx.company,
     url: home, logo: `${ctx.base}/icons/icon-512.png`, address: postalAddress(ctx.address),
     areaServed: { '@type': 'Country', name: 'Canada' },
   };
@@ -251,17 +264,21 @@ export function hubJsonLd(key: HubPageKey, lang: Lang, ctx: HubContext): Record<
   if (ctx.sameAs.length) org.sameAs = ctx.sameAs;
 
   const app: Record<string, unknown> = {
-    '@type': 'SoftwareApplication', '@id': appId, name: HUB_NAME, alternateName: HUB_ALT_NAME,
+    '@type': 'SoftwareApplication', '@id': appId, name: phone ? PHONE_APP_NAME : HUB_NAME, alternateName: phone ? 'Phone AI' : HUB_ALT_NAME,
     applicationCategory: 'BusinessApplication', operatingSystem: 'Clover', inLanguage: ['fr-CA', 'en-CA'],
-    description: hubTagline(lang), url: home, publisher: { '@id': orgId },
-    featureList: hubBenefits(lang),
+    description: phone ? c.lead : hubTagline(lang), url: phone ? hubUrl(ctx.base, 'phone', 'fr') : home, publisher: { '@id': orgId },
+    featureList: phone ? c.blocks.flatMap((block) => block.kind === 'cards' ? block.cards.map((card) => card.title) : []) : hubBenefits(lang),
   };
-  if (ctx.appMarketUrl) {
-    const price = STANDARD_MONTHLY_CAD.toFixed(2);
+  const marketUrl = hubPageMarketUrl(key, ctx);
+  if (marketUrl) {
+    const price = (phone ? PHONE_MONTHLY_CAD : STANDARD_MONTHLY_CAD).toFixed(2);
     app.offers = {
-      '@type': 'Offer', url: ctx.appMarketUrl, price, priceCurrency: PRICING.currency, availability: 'https://schema.org/InStock',
-      eligibleRegion: { '@type': 'Country', name: 'Canada', identifier: PRICING.country }, description: PRICING_STATEMENT[lang],
-      priceSpecification: { '@type': 'UnitPriceSpecification', price, priceCurrency: PRICING.currency, billingDuration: 'P1M', unitCode: 'MON' },
+      '@type': 'Offer', url: marketUrl, price, priceCurrency: PRICING.currency, availability: 'https://schema.org/InStock',
+      eligibleRegion: { '@type': 'Country', name: 'Canada', identifier: PRICING.country }, description: phone ? PHONE_PRICING_STATEMENT[lang] : PRICING_STATEMENT[lang],
+      priceSpecification: phone ? [
+        { '@type': 'UnitPriceSpecification', price, priceCurrency: PRICING.currency, billingDuration: 'P1M', unitCode: 'MON' },
+        { '@type': 'UnitPriceSpecification', price: PHONE_MINUTE_CAD.toFixed(2), priceCurrency: PRICING.currency, unitText: 'AI minute', unitCode: 'MIN' },
+      ] : { '@type': 'UnitPriceSpecification', price, priceCurrency: PRICING.currency, billingDuration: 'P1M', unitCode: 'MON' },
     };
   }
 
@@ -338,7 +355,8 @@ export function hubLlmsTxt(ctx: HubContext = hubContext(), legalApproved = legal
     const ui = HUB_UI[lang];
     const market = ctx.appMarketUrl
       ? `${ui.marketLive}${colon(lang)}${ctx.appMarketUrl}`
-      : (ctx.marketStatus === 'review' ? ui.marketReviewNote : ui.marketSoonNote);
+      : `${HUB_ALT_NAME}${colon(lang)}${ctx.marketStatus === 'review' ? ui.marketReview : ui.marketSoon}`;
+    const phoneMarket = hubPageMarketUrl('phone', ctx);
     const pending = pendingPlatforms(ctx);
     const lines = [
       fr ? '## Français' : '## English',
@@ -346,8 +364,8 @@ export function hubLlmsTxt(ctx: HubContext = hubContext(), legalApproved = legal
       `> ${hubTagline(lang)}`,
       '',
       fr
-        ? `${HUB_NAME} (nom sur le Clover App Market : ${HUB_ALT_NAME}) est une application pour restaurants qui utilisent Clover, au Canada. Elle reçoit les commandes des plateformes de livraison par l’API de chaque plateforme, sans agrégateur, et les met dans la caisse Clover. Conçue à Montréal par ${ctx.company}, utilisée dans les restaurants ON2GO (https://on2go.ca/).`
-        : `${HUB_NAME} (Clover App Market name: ${HUB_ALT_NAME}) is an app for restaurants that use Clover, in Canada. It receives delivery platform orders through each platform’s own API, with no aggregator, and puts them in the Clover register. Built in Montréal by ${ctx.company}, used in the ON2GO restaurants (https://on2go.ca/).`,
+        ? `${HUB_NAME} (nom sur le Clover App Market : ${HUB_ALT_NAME}) est une application pour restaurants qui utilisent Clover, au Canada. Ses outils couvrent les commandes, les menus, les établissements et les relevés. Les connexions nécessitent des accès autorisés et une configuration vérifiée. Conçue à Montréal par ${ctx.company}. ON2GO.ca (https://on2go.ca/) est le site destiné aux clients qui commandent un repas.`
+        : `${HUB_NAME} (Clover App Market name: ${HUB_ALT_NAME}) is an app for restaurants that use Clover, in Canada. Its tools cover orders, menus, locations and statements. Connections require authorized access and verified setup. Built in Montréal by ${ctx.company}. ON2GO.ca (https://on2go.ca/) is the diner-facing food-ordering site.`,
       '',
       fr ? '### Fonctions' : '### Features',
       ...hubFeatures(lang).map((f) => `- ${f.title}${colon(lang)}${f.text}`),
@@ -361,8 +379,11 @@ export function hubLlmsTxt(ctx: HubContext = hubContext(), legalApproved = legal
       PRICING_STATEMENT[lang],
       market,
       fr
-        ? `${PHONE_APP_NAME} (téléphone IA) : application Clover distincte, un assistant automatisé qui répond aux appels du restaurant, prend les commandes et texte au client un lien de paiement Clover. ${PHONE_PRICING_STATEMENT.fr}`
-        : `${PHONE_APP_NAME} (AI phone): a separate Clover app, an automated assistant that answers the restaurant’s calls, takes orders and texts the customer a Clover payment link. ${PHONE_PRICING_STATEMENT.en}`,
+        ? `${PHONE_APP_NAME} (téléphone IA) : application Clover distincte pour les commandes par téléphone. Son activation nécessite une ligne, un menu, une connexion Clover, un transfert vers le personnel et un appel test. ${PHONE_PRICING_STATEMENT.fr}`
+        : `${PHONE_APP_NAME} (AI phone): a separate Clover app for phone orders. Activation requires a phone line, menu, Clover connection, staff transfer route and test call. ${PHONE_PRICING_STATEMENT.en}`,
+      phoneMarket
+        ? `${PHONE_APP_NAME}${colon(lang)}${ui.marketLive}${colon(lang)}${phoneMarket}`
+        : `${PHONE_APP_NAME}${colon(lang)}${ui.marketReview}`,
       '',
       fr ? '### Pages' : '### Pages',
       ...HUB_PAGE_KEYS.filter((k) => hubIndexable(k, ctx)).map((k) => `- [${HUB_CONTENT[k][lang].label}](${hubUrl(ctx.base, k, lang)})`),

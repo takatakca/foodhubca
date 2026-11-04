@@ -63,7 +63,7 @@ export function fleetReadiness() {
 export async function activeDelivery(order: DirectOrder): Promise<Delivery | null> {
   if (!order.deliveryId) return null;
   const d = await getDelivery(order.deliveryId);
-  return d && !TERMINAL.includes(d.status) ? d : null;
+  return d?.orderId === order.id && !TERMINAL.includes(d.status) ? d : null;
 }
 
 /** Why a courier cannot be sent for this order right now (empty = it can) — in English (logs, flags) or French (screens). */

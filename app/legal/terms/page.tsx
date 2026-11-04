@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { feesText, legalInfo, LEGAL_PATHS, phoneFeesText, TOKEN_DELETION } from '@/lib/foodhub/legal';
+import { publicSupportEmail } from '@/lib/foodhub/public-support';
 import { Divider, H1, H2, LangBlock, LangSwitch, P, UL } from '../prose';
 
 export const dynamic = 'force-dynamic';
@@ -12,8 +13,8 @@ export default function TermsPage() {
   const i = legalInfo();
   const fees = feesText(i.pricing);
   const phoneFees = phoneFeesText(i.phonePricing);
-  const contactFr = i.supportEmail ?? '[courriel à compléter — FOODHUB_SUPPORT_EMAIL]';
-  const contactEn = i.supportEmail ?? '[email to be completed — FOODHUB_SUPPORT_EMAIL]';
+  const contactFr = publicSupportEmail(i.supportEmail);
+  const contactEn = contactFr;
   return (
     <article>
       <H1>Conditions d’utilisation · Terms of use</H1>

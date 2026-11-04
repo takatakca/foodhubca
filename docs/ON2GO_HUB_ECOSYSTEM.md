@@ -352,6 +352,8 @@ accueil en français, « For English, press 2 » → chaque phrase → Claude (o
 
 ## 10. Où lire ensuite
 
+- Mise à jour C4/C5 du 2026-11-04 : [contrat réel, configuration et boîte d’envoi durable](CONTROL_PLANE.md). Le transport V1 utilise la clé Bearer Food Hub dédiée ; les anciennes descriptions HMAC/entitlements ci-dessus sont des fondations historiques, pas le contrat V1 actif.
+
 - `docs/MASTER_PLAN.md` (règles verrouillées § 6), `docs/EXPANSION_FEATURES.md` (livraison, retail, alcool, téléphone).
 - `docs/PUBLIC_DIRECTORY_API.md`, `docs/UX_CONSOLE.md`.
 - takatak-v1 : `docs/TAKATAK_V1_TENANT_ISOLATION_AUDIT.md`, `docs/TAKATAK_ADS_FOUNDATION.md`.

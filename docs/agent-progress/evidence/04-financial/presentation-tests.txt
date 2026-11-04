@@ -1,0 +1,8 @@
+
+ RUN  v4.1.9 /workspace/foodhubca
+
+
+ Test Files  4 passed (4)
+      Tests  62 passed (62)
+   Start at  09:24:09
+   Duration  8.90s (transform 7.19s, setup 0ms, import 11.36s, tests 4.20s, environment 0ms)

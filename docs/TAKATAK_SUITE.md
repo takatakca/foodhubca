@@ -135,3 +135,8 @@ export const sign = (secret, payload) => { const t = Math.floor(Date.now() / 100
 events), `directory.ts` (which restaurant has which app), routes `app/api/suite/v1/{ping,orders,events,directory}`, `app/api/foodhub/suite` (admin), page Settings → Connected apps,
 tick in `instrumentation.ts` and `/api/foodhub/cron/watch`. The bus only reads orders: it never changes one and never
 blocks the order pipeline.
+
+
+## Verified customer balance reads (2026-11-04)
+
+LOY4LTY and REW4RD now expose read-only app-specific signed customer balance routes. Food Hub derives the existing merchant-scoped `customerRef` only from a live verified customer and token website tenant, with an explicit website-to-one-merchant mapping configured on both sides. This does not join the different salted platform `customerKey`, enroll anyone, expose card bearer codes, pool programs or add redemption/payment operations. See [CUSTOMER_SUITE_BALANCES.md](CUSTOMER_SUITE_BALANCES.md) for configuration, bounded scans, replay/persistence safeguards and the reproducible real HTTP/PostgreSQL restart proof. Shared kit files remain unchanged.

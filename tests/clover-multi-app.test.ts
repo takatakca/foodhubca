@@ -426,12 +426,49 @@ describe('live-call check never hangs on Clover', () => {
     process.env.CONNECTOR_NETWORK_TIMEOUT_MS = '400';
     await finishCloverConnect({ code: 'GOOD-CODE', merchantId: MID, app: 'phone' });
     refreshHang = true;
+    vi.useFakeTimers();
     const nearExpiry = Date.now() + (1800 - 60) * 1000; // token within the 5-minute refresh margin
-    const t0 = Date.now();
-    expect(await voiceAiEntitled(MID, 'call', { now: nearExpiry, budgetMs: 150 })).toMatchObject({ ok: true, reason: 'clover_unreachable_grace' });
-    expect(Date.now() - t0).toBeLessThan(380); // returned before the refresh's own network timeout
-    await new Promise((r) => setTimeout(r, 600)); // the refresh times out on its own, in the background
-    expect((await readCloverBillingState(MID, 'phone')).checkFailedAt).toBeTruthy();
+    const fetchClover = globalThis.fetch;
+    const refresh = { signal: undefined as AbortSignal | undefined, settled: false };
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const isRefresh = String(input).endsWith('/oauth/v2/refresh');
+      if (isRefresh) refresh.signal = init?.signal ?? undefined;
+      try { return await fetchClover(input, init); }
+      finally { if (isRefresh) refresh.settled = true; }
+    });
+    const writes = vi.spyOn(getRepo(), 'setKv');
+    const billingWrites = () => writes.mock.calls.filter(([key]) => key === `clover_phone_billing:${MID}`);
+    const n0 = billingCalls();
+    try {
+      let answered = false;
+      const entitlement = voiceAiEntitled(MID, 'call', { now: nearExpiry, budgetMs: 150 })
+        .then((result) => { answered = true; return result; });
+      await vi.advanceTimersByTimeAsync(0); // start the real refresh path before advancing either deadline
+      expect(refresh.signal).toBeDefined();
+      await vi.advanceTimersByTimeAsync(149);
+      expect(answered).toBe(false);
+      expect(refresh.signal?.aborted).toBe(false);
+      expect(refresh.settled).toBe(false);
+      expect(billingWrites()).toHaveLength(0);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(answered).toBe(true);
+      expect(await entitlement).toMatchObject({ ok: true, reason: 'clover_unreachable_grace' });
+      expect(refresh.signal?.aborted).toBe(false);
+      expect(refresh.settled).toBe(false);
+      expect(billingWrites()).toHaveLength(1); // the budget records a failed check while refresh continues
+
+      await vi.advanceTimersByTimeAsync(249);
+      expect(refresh.signal?.aborted).toBe(false);
+      expect(refresh.settled).toBe(false);
+      expect(billingWrites()).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1); // only the refresh's own 400 ms network deadline aborts it
+      expect(refresh.signal?.aborted).toBe(true);
+      expect(refresh.settled).toBe(true);
+      expect(billingWrites()).toHaveLength(2); // the background refresh failure also finishes its state update
+      expect((await readCloverBillingState(MID, 'phone')).checkFailedAt).toBeTruthy();
+      expect(billingCalls()).toBe(n0);
+    } finally { writes.mockRestore(); }
   });
 
   it('a refused refresh is logged once per window, not on every call', async () => {

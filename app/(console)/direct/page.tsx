@@ -10,37 +10,47 @@ import { Banner, Card, EmptyState, PageHeader, Skeleton, Stat } from '@/componen
 import { Segmented } from '@/components/ui/tabs';
 import { Elapsed } from '@/components/ui/timer';
 import { useViewer } from '@/components/shell/viewer';
+import { usePulse } from '@/components/live/pulse';
 import { DirectOrderDrawer, type DirectRow } from '@/components/expansion/direct-order-drawer';
 import { MevBadge } from '@/components/live/mev-panel';
 import { NewDirectOrder } from '@/components/expansion/new-order-modal';
-import { DELIVERY_TONE, DIRECT_TONE, FLEET_NAME, deliveryStatusLabel, directStatusLabel, interacLatePending, paymentBadge, sourceLabel } from '@/components/expansion/labels';
+import { DELIVERY_TONE, DIRECT_TONE, FLEET_NAME, deliveryStatusLabel, directOrderStatusLabel, paymentBadge, sourceLabel } from '@/components/expansion/labels';
+import { directOrderReview, hasCourierRequestRoute } from '@/lib/foodhub/delivery/operator-state';
 import { api, money, timeOf } from '@/lib/ui/api';
+import { useFinanceRead } from '@/lib/ui/use-finance-read';
+import type { DirectBoardCoverage } from '@/lib/foodhub/delivery/board';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
 import { DirectTabs } from './direct-tabs';
 
 type Fleet = { fleet: string; label: string; configured: boolean; canSend: boolean; environment: 'sandbox' | 'production'; note: string; noteFr: string };
-type Board = { orders: DirectRow[]; fleets: Fleet[]; settings: { customerFee: number } };
+type Board = { orders: DirectRow[]; fleets: Fleet[]; settings: { customerFee: number }; coverage?: DirectBoardCoverage };
 type Filter = 'todo' | 'road' | 'done' | 'all';
 
 /** "To do" on the board: held orders waiting for their payment link or Interac transfer are listed too (resend, pay at the counter, cancel). */
 const OPEN = ['awaiting_payment', 'new', 'in_kitchen', 'ready'];
-/** Needs a person: a flag on an open order, or an Interac transfer that arrived after the cancel (release anyway, or refund by hand). */
-const needsPerson = (o: DirectRow) => Boolean((o.attention && !['completed', 'cancelled'].includes(o.status)) || (o.status === 'cancelled' && interacLatePending(o)));
+/** Unresolved recorded payments remain visible even after an order is cancelled or completed. */
+const needsPerson = (o: DirectRow) => directOrderReview(o).needsPerson;
 
 export default function DirectPage() {
   const { t, loc } = useI18n();
   const { features, can, locName } = useViewer();
+  const { scope, brands } = usePulse();
   const router = useRouter();
-  const [data, setData] = useState<Board | null>(null);
-  const [err, setErr] = useState('');
   const [filter, setFilter] = useState<Filter>('todo');
   const [open, setOpen] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const on = features.includes('delivery');
-
-  const load = useCallback(() => api<Board>('/api/foodhub/delivery').then((d) => { setData(d); setErr(''); }).catch((e) => setErr(e instanceof Error ? e.message : String(e))), []);
-  useEffect(() => { if (!on) return; load(); const i = setInterval(load, 15_000); return () => clearInterval(i); }, [load, on]);
+  const locationKey = scope.join(',');
+  const brandName = brands[0] ?? '';
+  const read = useCallback(() => {
+    const query = new URLSearchParams();
+    if (locationKey) query.set('locations', locationKey);
+    if (brandName) query.set('brand', brandName);
+    return on ? api<Board>(`/api/foodhub/delivery${query.size ? `?${query}` : ''}`) : Promise.resolve(null);
+  }, [locationKey, brandName, on]);
+  const { data, err, load } = useFinanceRead<Board | null>(JSON.stringify([on, locationKey, brandName]), read);
+  useEffect(() => { if (!on) return; const i = setInterval(load, 15_000); return () => clearInterval(i); }, [load, on]);
   useEffect(() => { if (!on && features.includes('phone')) router.replace('/direct/calls'); }, [on, features, router]);
 
   const orders = useMemo(() => data?.orders ?? [], [data]);
@@ -63,12 +73,13 @@ export default function DirectPage() {
         right={can('orders:act') ? <Button icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>{t('Nouvelle commande', 'New order')}</Button> : undefined} />
       <DirectTabs />
 
-      {data && !drive?.configured && <Banner tone="warn" className="mb-4" action={can('stores:map') ? <ButtonLink size="sm" href="/settings/expansion/delivery">{t('Brancher', 'Connect')}</ButtonLink> : undefined}>{t('DoorDash Drive n’est pas branché : les commandes arrivent, mais aucun livreur ne peut être demandé.', 'DoorDash Drive is not connected: orders arrive, but no courier can be requested.')}</Banner>}
+      {data && !hasCourierRequestRoute(data.fleets) && <Banner tone="warn" className="mb-4" action={can('stores:map') ? <ButtonLink size="sm" href="/settings/expansion/delivery">{t('Vérifier les services', 'Check services')}</ButtonLink> : undefined}>{t('Aucun service de livraison configuré n’autorise actuellement les demandes. Les commandes restent visibles ; vérifiez les services et leurs autorisations dans les réglages.', 'No configured delivery service currently allows requests. Orders remain visible; check services and their permissions in settings.')}</Banner>}
       {drive?.configured && drive.environment === 'sandbox' && <Banner tone="info" className="mb-4">{t('Bac à sable DoorDash Drive : les livraisons sont des essais, aucun vrai livreur ne se déplace.', 'DoorDash Drive sandbox: deliveries are tests, no real courier comes.')}</Banner>}
-      {err && <Banner tone="stop" className="mb-4">{err}</Banner>}
+      {err && <Banner tone="stop" className="mb-4" action={<Button size="sm" variant="outline" onClick={load}>{t('Réessayer', 'Retry')}</Button>}>{err}</Banner>}
+      {data?.coverage?.partial && <Banner tone="warn" className="mb-4">{t('Liste partielle : les compteurs portent sur les commandes affichées. Les limites de lecture peuvent masquer d’autres commandes ou vérifications plus anciennes.', 'Partial list: counts cover the displayed orders. Read limits may hide additional orders or older reviews.')}<span className="mt-1 block text-xs">{t(`Limites : ${data.coverage.recentLimit} commandes récentes, ${data.coverage.activePerStatusLimit} commandes actives par étape, ${data.coverage.reviewScanLimit} dossiers avec un signalement, ${data.coverage.resultLimit} résultats affichés.`, `Limits: ${data.coverage.recentLimit} recent orders, ${data.coverage.activePerStatusLimit} active orders per stage, ${data.coverage.reviewScanLimit} flagged records, ${data.coverage.resultLimit} displayed results.`)}</span></Banner>}
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label={t('Commandes aujourd’hui', 'Orders today')} value={data ? String(today.length) : '—'} note={data ? money(today.reduce((s, o) => s + o.total, 0), loc) : ''} icon={<ShoppingBag className="size-4" />} />
+        <Stat label={data?.coverage?.partial ? t('Commandes affichées aujourd’hui', 'Displayed orders today') : t('Commandes aujourd’hui', 'Orders today')} value={data ? String(today.length) : '—'} note={data ? money(today.reduce((s, o) => s + o.total, 0), loc) : ''} icon={<ShoppingBag className="size-4" />} />
         <Stat label={t('Sur la route', 'On the road')} value={data ? String(orders.filter((o) => o.status === 'out_for_delivery').length) : '—'} icon={<Bike className="size-4" />} tone="brand" />
         <Stat label={t('À vérifier', 'Needs a person')} value={data ? String(attention) : '—'} icon={<TriangleAlert className="size-4" />} tone={attention ? 'wait' : undefined} />
         <Stat label={t('Livreurs vs frais facturés', 'Couriers vs fees charged')} value={data ? money(courierCost, loc) : '—'} note={data ? `${t('frais clients', 'customer fees')} ${money(feesCharged, loc)}` : ''} icon={<Truck className="size-4" />} />
@@ -83,12 +94,14 @@ export default function DirectPage() {
         ]} />
         <span className="text-xs text-ink-3">{t('Mise à jour toutes les 15 s', 'Refreshes every 15 s')}</span>
       </div>
+      {data?.coverage && <p className="mb-3 text-xs text-ink-3">{t('Historique récent depuis', 'Recent history since')} {timeOf(data.coverage.recentSince, loc, true)}. {t('Les commandes actives et les vérifications signalées peuvent être plus anciennes.', 'Active orders and recorded reviews may be older.')}</p>}
 
       {!data && !err && <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-40" />)}</div>}
-      {data && !shown.length && <Card><EmptyState icon={<PackageCheck className="size-6" />} title={filter === 'todo' ? t('Rien à faire', 'Nothing to do') : t('Aucune commande', 'No orders')} body={t('Les commandes par téléphone, sur le site web et les commandes Clover « Livraison » apparaissent ici.', 'Phone, website and Clover "Delivery" orders show up here.')} /></Card>}
+      {data && !shown.length && <Card><EmptyState icon={<PackageCheck className="size-6" />} title={data.coverage?.partial ? t('Aucune commande correspondante dans cette liste partielle', 'No matching orders in this partial list') : filter === 'todo' ? t('Rien à faire', 'Nothing to do') : t('Aucune commande', 'No orders')} body={t('Les commandes par téléphone, sur le site web et les commandes Clover « Livraison » apparaissent ici.', 'Phone, website and Clover "Delivery" orders show up here.')} /></Card>}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {shown.map((o) => {
           const d = o.delivery;
+          const review = directOrderReview(o);
           return (
             <button key={o.id} type="button" onClick={() => setOpen(o.id)} className={cn('group flex flex-col rounded-lg border bg-surface p-4 text-left shadow-card transition-all hover:-translate-y-0.5 hover:shadow-pop', needsPerson(o) ? 'border-wait/60' : 'border-line')}>
               <div className="flex items-start justify-between gap-2">
@@ -96,7 +109,7 @@ export default function DirectPage() {
                   <div className="flex flex-wrap items-center gap-2"><span className="num text-lg font-extrabold">{o.number}</span><Badge tone="neutral">{sourceLabel(t, o.source)}</Badge>{o.containsAlcohol && <Badge tone="violet" icon={<Wine className="size-3" />}>18+</Badge>}</div>
                   <div className="truncate text-[13px] text-ink-3">{o.brandName} · {locName(o.locationCode)}</div>
                 </div>
-                <Badge tone={DIRECT_TONE[o.status] ?? 'neutral'}>{directStatusLabel(t, o.status)}</Badge>
+                <Badge tone={review.cardReview ? 'wait' : DIRECT_TONE[o.status] ?? 'neutral'}>{directOrderStatusLabel(t, o)}</Badge>
               </div>
               <div className="mt-3 flex items-center gap-2 text-sm font-semibold text-ink">
                 {o.fulfillment === 'delivery' ? <Truck className="size-4 text-brand" /> : <Store className="size-4 text-ink-3" />}
@@ -107,7 +120,7 @@ export default function DirectPage() {
                 <Badge tone={paymentBadge(t, o).tone}>{paymentBadge(t, o).label}</Badge>
                 <MevBadge mev={o.mev} />
                 <span>{t('reçue', 'placed')} {timeOf(o.placedAt, loc)} · <Elapsed since={o.placedAt} /></span>
-                {o.readyAt && !['completed', 'cancelled'].includes(o.status) && <span>{t('prête vers', 'ready at')} {timeOf(o.readyAt, loc)}</span>}
+                {o.readyAt && !['completed', 'cancelled', 'awaiting_payment'].includes(o.status) && !review.cardReview && <span>{t('prête vers', 'ready at')} {timeOf(o.readyAt, loc)}</span>}
               </div>
               {o.fulfillment === 'delivery' && (
                 <div className="mt-3 flex items-center gap-2 rounded-md bg-sunken px-3 py-2 text-[13px]">
@@ -115,7 +128,7 @@ export default function DirectPage() {
                     : <><StatusDot tone="neutral" /><span className="text-ink-3">{t('Pas encore de livreur', 'No courier yet')}</span></>}
                 </div>
               )}
-              {needsPerson(o) && <div className="mt-2 flex items-start gap-1.5 text-xs font-semibold text-wait-2"><TriangleAlert className="mt-px size-3.5 shrink-0" /><span className="line-clamp-2">{o.attention ?? t('Virement Interac reçu après l’annulation — une personne décide', 'Interac transfer received after the cancel — a person decides')}</span></div>}
+              {needsPerson(o) && <div className="mt-2 flex items-start gap-1.5 text-xs font-semibold text-wait-2"><TriangleAlert className="mt-px size-3.5 shrink-0" /><span className="line-clamp-2">{o.attention ?? (review.cardReview ? t('Vérifiez le paiement dans Clover avant de reprendre.', 'Check the payment in Clover before continuing.') : review.cardReleasePending || review.transferReleasePending ? t('Paiement enregistré — vérifiez l’envoi en cuisine avant de reprendre.', 'Payment recorded — check the kitchen release before continuing.') : t('Virement Interac reçu après l’annulation — une personne décide', 'Interac transfer received after the cancel — a person decides'))}</span></div>}
             </button>
           );
         })}

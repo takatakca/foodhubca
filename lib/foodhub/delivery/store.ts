@@ -55,9 +55,8 @@ export async function findDirectOrderBySource(source: DirectSource, sourceRef: s
 }
 
 export async function listDirectOrders(opts: { since?: string; limit?: number; locationCodes?: string[] } = {}): Promise<DirectOrder[]> {
-  const docs = await getRepo().listDocs<DirectOrder>(DIRECT_ORDERS, { since: opts.since, limit: opts.limit ?? 500 });
-  const list = docs.map((d) => d.data);
-  return opts.locationCodes?.length ? list.filter((o) => opts.locationCodes!.includes(o.locationCode)) : list;
+  const docs = await getRepo().listDocs<DirectOrder>(DIRECT_ORDERS, { since: opts.since, limit: opts.limit ?? 500, ...(opts.locationCodes?.length ? { dataLocationCodes: opts.locationCodes } : {}) });
+  return docs.map((d) => d.data);
 }
 
 export async function addDirectEvent(order: DirectOrder, type: string, message: string, by?: string, patch: Partial<DirectOrder> = {}): Promise<DirectOrder> {

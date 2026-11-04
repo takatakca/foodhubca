@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 export const GET = customerRoute(async (req) => {
   const who = await requireCustomer(req);
   if (!who.ok) return jsonFail(who.error, who.status);
-  return jsonOk(await buildMe(who.customer) as unknown as Record<string, unknown>);
+  return jsonOk(await buildMe(who.customer, who.tenant) as unknown as Record<string, unknown>);
 });
 
 // Contract § A.4 — PATCH { name?, email?, lang?, marketingConsent? } → { ok, customer }.

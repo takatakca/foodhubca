@@ -11,6 +11,7 @@ export interface OrderChangeFilter { since: string; through?: string; after?: Or
 export interface ActivityFilter { limit?: number; since?: string; until?: string; kinds?: ActivityKind[]; locationCodes?: string[] }
 /** Generic document store (payout lines, statement imports, reconciliation cases, ledger approvals…). */
 export interface Doc<T = Record<string, unknown>> { id: string; key?: string | null; at?: string | null; data: T; /** Internal observed row version; never part of customer data. */ updatedAt?: string }
+export interface DocReadOptions { /** Include the internal row version for a subsequent conditional update. */ withVersion?: boolean }
 
 function nextDocumentVersion(previous?: string): string {
   const observed = previous === undefined ? -Infinity : Date.parse(previous);
@@ -141,10 +142,10 @@ export interface FoodHubRepo {
   getUser(username: string): Promise<FoodHubUser | null>;
   saveUser(user: Omit<FoodHubUser, 'id' | 'createdAt'> & { id?: string; createdAt?: string }): Promise<FoodHubUser>;
   putDocs<T>(collection: string, docs: Doc<T>[]): Promise<void>;
-  /** Conditional replacement by the row version observed through getDoc; never inserts an absent row. */
+  /** Conditional replacement by getDoc(..., { withVersion: true }); never inserts an absent row. */
   compareAndSwapDoc<T>(collection: string, expected: Doc<T>, next: Doc<T>): Promise<boolean>;
   listDocs<T>(collection: string, filter?: DocFilter): Promise<Doc<T>[]>;
-  getDoc<T>(collection: string, id: string): Promise<Doc<T> | null>;
+  getDoc<T>(collection: string, id: string, options?: DocReadOptions): Promise<Doc<T> | null>;
   deleteDocs(collection: string, ids: string[]): Promise<void>;
 }
 
@@ -310,12 +311,11 @@ const memoryRepo: FoodHubRepo = {
   },
   async compareAndSwapDoc(collection, expected, next) {
     if (expected.id !== next.id) throw new Error('Document identity cannot change.');
+    if (typeof expected.updatedAt !== 'string') throw new Error('An observed document version is required.');
     const st = memState();
     const col = st.docs?.get(collection);
     const current = col?.get(expected.id);
-    if (!current || (expected.updatedAt !== undefined
-      ? current.updatedAt !== expected.updatedAt
-      : !isDeepStrictEqual(current.data, JSON.parse(JSON.stringify(expected.data))))) return false;
+    if (!current || current.updatedAt !== expected.updatedAt) return false;
     st.docVersionAt = nextDocumentVersion(st.docVersionAt);
     col!.set(next.id, { ...JSON.parse(JSON.stringify(next)), updatedAt: st.docVersionAt });
     return true;
@@ -342,9 +342,12 @@ const memoryRepo: FoodHubRepo = {
       return snapshot;
     });
   },
-  async getDoc<T>(collection: string, id: string) {
+  async getDoc<T>(collection: string, id: string, options: DocReadOptions = {}) {
     const doc = memState().docs?.get(collection)?.get(id);
-    return doc ? JSON.parse(JSON.stringify(doc)) as Doc<T> : null;
+    if (!doc) return null;
+    const snapshot = JSON.parse(JSON.stringify(doc)) as Doc<T>;
+    if (!options.withVersion) delete snapshot.updatedAt;
+    return snapshot;
   },
   async deleteDocs(collection, ids) { const col = memState().docs?.get(collection); for (const id of ids) col?.delete(id); },
   async getUser(username) { return memState().users.get(username.toLowerCase()) ?? null; },
@@ -690,9 +693,9 @@ function supabaseRepo(): FoodHubRepo {
       }
       return out;
     },
-    async getDoc<T>(collection: string, id: string) {
+    async getDoc<T>(collection: string, id: string, options: DocReadOptions = {}) {
       const r = must(await db.from('fh_docs').select('id,key,at,data,updated_at').eq('collection', collection).eq('id', id).maybeSingle());
-      return r ? { id: r.id, key: r.key, at: r.at, data: r.data as T, updatedAt: r.updated_at } : null;
+      return r ? { id: r.id, key: r.key, at: r.at, data: r.data as T, ...(options.withVersion ? { updatedAt: r.updated_at } : {}) } : null;
     },
     async deleteDocs(collection, ids) {
       for (let i = 0; i < ids.length; i += 500) must(await db.from('fh_docs').delete().eq('collection', collection).in('id', ids.slice(i, i + 500)));

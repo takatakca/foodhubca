@@ -15,20 +15,30 @@ describe('durable customer update contract', () => {
   it('rejects an observed stale version even after another worker restores the same JSON data', async () => {
     const repo = getRepo();
     await repo.putDocs('cas-version', [{ id: 'x', data: { value: 'original' } }]);
-    const before = (await repo.getDoc('cas-version', 'x'))!;
+    const before = (await repo.getDoc('cas-version', 'x', { withVersion: true }))!;
     expect(before.updatedAt).toEqual(expect.any(String));
     expect(await repo.compareAndSwapDoc('cas-version', before, { ...before, data: { value: 'temporary' } })).toBe(true);
-    const middle = (await repo.getDoc('cas-version', 'x'))!;
+    const middle = (await repo.getDoc('cas-version', 'x', { withVersion: true }))!;
     expect(await repo.compareAndSwapDoc('cas-version', middle, { ...middle, data: before.data })).toBe(true);
     expect(await repo.compareAndSwapDoc('cas-version', before, { ...before, data: { stale: true } })).toBe(false);
     expect((await repo.getDoc('cas-version', 'x'))?.data).toEqual(before.data);
     expect((await repo.listDocs('cas-version'))[0]).not.toHaveProperty('updatedAt');
   });
-  it('uses JSON object semantics for memory CAS and collection revisions, preserving array order', async () => {
+  it('preserves legacy document shapes by default and requires an explicit observed version for CAS', async () => {
     const repo = getRepo();
-    await repo.putDocs('cas-test', [{ id: 'x', data: { a: 1, b: { x: 2, y: 3 } } }]);
-    expect(await repo.compareAndSwapDoc('cas-test', { id: 'x', data: { b: { y: 3, x: 2 }, a: 1 } }, { id: 'x', data: { result: true } })).toBe(true);
-    expect(await repo.compareAndSwapDoc('cas-test', { id: 'missing', data: {} }, { id: 'missing', data: {} })).toBe(false);
+    const original = { id: 'x', data: { a: 1, b: { x: 2, y: 3 } } };
+    await repo.putDocs('cas-test', [original]);
+    expect(await repo.getDoc('cas-test', 'x')).toEqual(original);
+    expect(await repo.getDoc('cas-test', 'x', { withVersion: false })).toEqual(original);
+    expect(await repo.listDocs('cas-test')).toEqual([original]);
+    await expect(repo.compareAndSwapDoc('cas-test', original, { ...original, data: { ...original.data, a: 2 } })).rejects.toThrow('An observed document version is required.');
+    const observed = (await repo.getDoc('cas-test', 'x', { withVersion: true }))!;
+    expect(observed).toEqual({ ...original, updatedAt: expect.any(String) });
+    expect(await repo.compareAndSwapDoc('cas-test', observed, { id: 'x', data: { result: true } })).toBe(true);
+    expect(await repo.compareAndSwapDoc('cas-test', { ...observed, id: 'missing' }, { id: 'missing', data: {} })).toBe(false);
+  });
+  it('uses JSON object semantics for phone-claim CAS and collection revisions, preserving array order', async () => {
+    const repo = getRepo();
     await repo.setKv('claim-test', { a: 1, b: 2 });
     expect(await repo.compareAndSwapKv('claim-test', { b: 2, a: 1 }, { id: 'winner' })).toBe(true);
     expect(await repo.compareAndSwapKv('claim-test', { a: 1, b: 2 }, { id: 'loser' })).toBe(false);

@@ -2,7 +2,7 @@
   "mode": "local-built-apps-with-isolated-sms",
   "database": "local-postgres-postgrest",
   "durablePersistenceVerified": true,
-  "passed": 13,
+  "passed": 15,
   "results": [
     "actual ON2GO SMS form signs in through the actual Food Hub verification routes",
     "restaurant saved in ON2GO persists to Food Hub, through CORS and the customer token",
@@ -16,6 +16,8 @@
     "native Food Hub storefront obtains a real quote and recovers the exact attributed request after a dropped response/reload without a second order",
     "ON2GO order-update opt-out is honored by native Food Hub checkout without suppressing the actual order or falsely logging a sent text",
     "two actual Food Hub processes sharing Postgres allocate different order numbers even when both counter reads return before either can write",
+    "two real Food Hub processes refuse stale saved-list writes and preserve both device changes after explicit fresh revision retry",
+    "actual Food Hub contact form recovers a lost response with the same body/key, one durable owner-inbox request and correct source/language",
     "account data and the existing customer token survive a real Food Hub process restart on Postgres"
   ],
   "network": [
@@ -35,8 +37,18 @@
       "status": 200
     },
     {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
       "path": "/api/public/on2go/me/favourites",
       "method": "PUT",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
       "status": 200
     },
     {
@@ -160,7 +172,7 @@
       "status": 200
     },
     {
-      "path": "/api/storefront/track/[token]",
+      "path": "/api/storefront/track/rvO0QgrWRblZzGbHSkeXY3Sw",
       "method": "GET",
       "status": 200
     },
@@ -223,6 +235,36 @@
       "path": "/api/public/on2go/me",
       "method": "GET",
       "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/public/on2go/me",
+      "method": "GET",
+      "status": 200
     }
   ],
   "orderingProof": {
@@ -241,14 +283,30 @@
     "ordersAdded": 2,
     "uniqueNumbers": 2
   },
+  "customerConcurrencyProof": {
+    "actualProcesses": 2,
+    "database": "real-postgres",
+    "collections": [
+      "favourites",
+      "addresses"
+    ],
+    "concurrentResults": [
+      200,
+      409
+    ],
+    "explicitMergePreservesBoth": true
+  },
+  "contactProof": {
+    "realApi": true,
+    "leadCount": 1,
+    "attempts": 2,
+    "identicalReplay": true,
+    "processRestart": true,
+    "ownerOnlyInbox": true,
+    "externalMailClaimed": false
+  },
   "cloverOrders": 4,
   "kitchenTickets": 4,
   "externalTexts": 0,
-  "deploymentVerified": false,
-  "provenance": {
-    "scope": "actual local built ON2GO and Food Hub, synthetic people/orders, isolated Clover/SMS",
-    "on2goCommit": "16085aeeebae9b3913f3eda1bb84a55d9135b7b9",
-    "foodHubBuildId": "cBSQT-Mzg0bETsKtUyfZf",
-    "productionVerified": false
-  }
+  "deploymentVerified": false
 }

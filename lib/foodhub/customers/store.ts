@@ -40,7 +40,7 @@ export async function updateCustomer(id: string, patch: (cur: MasterCustomer) =>
   return withKeyLock(`cust_id:${id}`, async () => {
     const repo = getRepo();
     for (let attempt = 0; attempt < 8; attempt++) {
-      const stored = await repo.getDoc<MasterCustomer>(CUSTOMERS, id);
+      const stored = await repo.getDoc<MasterCustomer>(CUSTOMERS, id, { withVersion: true });
       if (!stored || stored.data.deletedAt) return null;
       const next = patch(JSON.parse(JSON.stringify(stored.data)) as MasterCustomer);
       if (next.id !== id) throw new Error('Customer identity cannot change.');

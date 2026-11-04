@@ -44,7 +44,7 @@ async function run() {
   const { validateAddresses, validateFavourites } = require('../lib/foodhub/customers/profile.ts');
   const repo = getRepo(); assert.equal(repo.mode, 'supabase');
   const { customer } = await upsertVerifiedCustomer({ phone: '+15145550143', tenant: 'on2go' });
-  const stored = await repo.getDoc(CUSTOMERS, customer.id); assert(stored);
+  const stored = await repo.getDoc(CUSTOMERS, customer.id, { withVersion: true }); assert(stored);
   const results = await Promise.all(['A', 'B'].map((name) => repo.compareAndSwapDoc(CUSTOMERS, stored, { ...stored, data: { ...stored.data, name: `Synthetic device ${name}` } })));
   assert.deepEqual(results.sort(), [false, true]);
   const current = await getCustomer(customer.id);
@@ -70,7 +70,7 @@ async function run() {
   await repo.setKv(claim, { a: 1, b: 2 });
   assert(await repo.compareAndSwapKv(claim, { b: 2, a: 1 }, { id: 'new-owner' }));
   assert.equal(await repo.compareAndSwapKv(claim, { a: 1, b: 2 }, { id: 'stale-owner' }), false);
-  const beforeDelete = await repo.getDoc(CUSTOMERS, customer.id);
+  const beforeDelete = await repo.getDoc(CUSTOMERS, customer.id, { withVersion: true });
   await anonymiseCustomer(customer.id, 'Synthetic proof');
   assert.equal(await repo.compareAndSwapDoc(CUSTOMERS, beforeDelete, { ...beforeDelete, data: { ...beforeDelete.data, name: 'Must not reappear' } }), false);
   assert((await getCustomer(customer.id)).deletedAt);
@@ -97,9 +97,13 @@ async function run() {
     assert.equal(maximum.favourites.length, 50); assert.equal(maximum.addresses.length, 5);
 
     // Identical JSON after two intervening writes must not revive an old row version.
-    const observed = await repo.getDoc(CUSTOMERS, sizeId); assert(observed.updatedAt);
+    const observed = await repo.getDoc(CUSTOMERS, sizeId, { withVersion: true }); assert(observed.updatedAt);
+    assert.deepEqual(await repo.getDoc(CUSTOMERS, sizeId), { id: observed.id, key: observed.key, at: observed.at, data: observed.data });
+    assert.deepEqual(await repo.getDoc(CUSTOMERS, sizeId, { withVersion: false }), { id: observed.id, key: observed.key, at: observed.at, data: observed.data });
+    assert(!(await repo.listDocs(CUSTOMERS, { ids: [sizeId] }))[0].updatedAt);
+    await assert.rejects(repo.compareAndSwapDoc(CUSTOMERS, await repo.getDoc(CUSTOMERS, sizeId), observed), /An observed document version is required/);
     assert(await repo.compareAndSwapDoc(CUSTOMERS, observed, { ...observed, data: { ...observed.data, name: 'Temporary value' } }));
-    const temporary = await repo.getDoc(CUSTOMERS, sizeId);
+    const temporary = await repo.getDoc(CUSTOMERS, sizeId, { withVersion: true });
     assert(await repo.compareAndSwapDoc(CUSTOMERS, temporary, { ...temporary, data: observed.data }));
     assert.equal(await repo.compareAndSwapDoc(CUSTOMERS, observed, { ...observed, data: { ...observed.data, name: 'Stale edit' } }), false);
     assert.deepEqual((await repo.getDoc(CUSTOMERS, sizeId)).data, observed.data);
@@ -110,9 +114,9 @@ async function run() {
     const future = new Date(Date.now() + 60_000).toISOString().replace(/\.\d{3}Z$/, '.123456Z');
     const fixture = await supabaseAdmin().from('fh_docs').update({ updated_at: future }).eq('collection', CUSTOMERS).eq('id', sizeId);
     assert.ifError(fixture.error);
-    const precise = await repo.getDoc(CUSTOMERS, sizeId); assert(/\.\d{6}/.test(precise.updatedAt));
+    const precise = await repo.getDoc(CUSTOMERS, sizeId, { withVersion: true }); assert(/\.\d{6}/.test(precise.updatedAt));
     assert(await repo.compareAndSwapDoc(CUSTOMERS, precise, { ...precise, data: { ...precise.data, name: 'After precise version' } }));
-    const newer = await repo.getDoc(CUSTOMERS, sizeId);
+    const newer = await repo.getDoc(CUSTOMERS, sizeId, { withVersion: true });
     const micros = (stamp) => BigInt(Date.parse(stamp)) * 1000n + BigInt((stamp.match(/\.(\d+)/)?.[1] ?? '').padEnd(6, '0').slice(3, 6));
     assert(micros(newer.updatedAt) > micros(precise.updatedAt));
     await repo.deleteDocs(CUSTOMERS, [sizeId]);

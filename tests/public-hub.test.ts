@@ -196,7 +196,7 @@ describe('metadata', () => {
     for (const key of HUB_PAGE_KEYS) for (const lang of LANGS) {
       const c = HUB_CONTENT[key][lang];
       expect(c.title.length, c.title).toBeLessThanOrEqual(60);
-      expect(c.title, c.title).toMatch(/ON2GO.ca/);
+      expect(c.title, c.title).toMatch(/Food Hub/);
       expect(c.description.length, c.description).toBeLessThanOrEqual(155);
       expect(c.description.length, c.description).toBeGreaterThanOrEqual(70);
       titles.add(c.title); descriptions.add(c.description);
@@ -208,7 +208,7 @@ describe('metadata', () => {
       expect(m.robots, `${key}/${lang}`).toEqual({ index: !PENDING_KEYS.includes(key), follow: true });
       expect(hubMetadata(key, lang, { base: BASE, livePlatforms: ALL_LIVE }).robots).toEqual({ index: true, follow: true });
       const alt = (m.openGraph as { images: Array<{ alt: string }> }).images[0].alt;
-      expect(alt).toBe(`ON2GO.ca${lang === 'fr' ? ' : ' : ': '}${c.label}`);
+      expect(alt).toBe(`Food Hub${lang === 'fr' ? ' : ' : ': '}${c.label}`);
     }
     expect(titles.size).toBe(HUB_PAGE_KEYS.length * 2);
     expect(descriptions.size).toBe(HUB_PAGE_KEYS.length * 2);
@@ -263,7 +263,7 @@ describe('page content', () => {
         expect(seen.get(f.q), `${lang}: "${f.q}" on ${seen.get(f.q)} and ${key}`).toBeUndefined();
         seen.set(f.q, key);
       }
-      expect(seen.get(lang === 'fr' ? 'Combien coûte ON2GO.ca ?' : 'How much does ON2GO.ca cost?')).toBe('pricing');
+      expect(seen.get(lang === 'fr' ? 'Que comprend le forfait Food Hub?' : 'What does the Food Hub plan include?')).toBe('pricing');
     }
   });
   it('the nav "Integrations" link goes to the landing’s integrations block, which exists', () => {
@@ -281,7 +281,7 @@ describe('page content', () => {
     for (const lang of LANGS) {
       const text = visibleText(render('phone', lang));
       expect(text).not.toMatch(/répond à chaque appel|answers every call|Plus d’appel manqué|no more missed calls/i);
-      expect(text).not.toMatch(/bientôt|coming soon|prévu|planned|en préparation|in the works/i);
+      expect(text).not.toMatch(/tarif prévu|planned pricing|answers every call|répond à chaque appel/i);
       expect(text).toContain('TAKATAK Phone AI');
       expect(text).toContain(lang === 'fr' ? 'faire le 0 pour parler à une personne' : 'press 0 to speak with a person');
       expect(text).toContain(lang === 'fr' ? 'assistant automatisé' : 'automated assistant');
@@ -290,45 +290,32 @@ describe('page content', () => {
     }
     expect(visibleText(render('landing', 'fr'))).toContain('Téléphone IA : TAKATAK Phone AI');
   });
-  it('prices come from pricing.ts and never say "planned"; the App Market link turns the badge into "available"', () => {
-    for (const key of HUB_PAGE_KEYS) for (const lang of LANGS) {
-      const text = visibleText(render(key, lang));
-      expect(text, `${key}/${lang}`).not.toMatch(/tarif prévu|planned launch|planned pricing/i);
+  it('keeps price units, billing examples, separate apps and token deletion truthful', () => {
+    for (const lang of LANGS) {
+      const text = visibleText(render('pricing', lang));
+      for (const amount of [STANDARD_MONTHLY_CAD, EXTRA_BRAND_PLATFORM_CAD, monthlyTotalCad(3), monthlyTotalCad(1), PHONE_MINUTE_CAD]) expect(text).toContain(formatCadLabel(amount, lang));
+      expect(text).toContain('TAKATAK Food Hub');
+      expect(text).toContain('TAKATAK Phone AI');
+      expect(text).toContain(lang === 'fr' ? 'facturés par Clover' : 'managed by Clover');
+      expect(text).toContain(lang === 'fr' ? 'par plateforme connectée' : 'per connected platform');
+      expect(text).not.toMatch(/you pay.*nothing else|vous payez.*rien d’autre|tarif prévu|planned pricing|deleted at once|supprimés aussitôt/i);
     }
-    const fr = visibleText(render('pricing', 'fr'));
-    expect(fr).toContain(formatCadLabel(STANDARD_MONTHLY_CAD, 'fr'));
-    expect(fr).toContain(`+${formatCadLabel(EXTRA_BRAND_PLATFORM_CAD, 'fr')}`);
-    expect(fr).toContain(String(TRIAL_DAYS));
-    expect(fr).toContain(`TAKATAK Phone AI : ${PHONE_PRICING_STATEMENT.fr}`);
-    expect(fr).toContain('Soumise au Clover App Market : en révision');
-    expect(fr).not.toContain('Disponible sur le Clover App Market');
-    const price = hubFaq('pricing', 'fr', ctx()).find((f) => f.q === 'Combien coûte ON2GO.ca ?')!;
-    expect(price.a).toContain(`Essai gratuit de ${TRIAL_DAYS} jours, puis 50 $ CA par mois par application.`);
-    expect(price.a).toContain(formatCadLabel(EXTRA_BRAND_PLATFORM_CAD, 'fr'));
-    expect(fr).toContain(formatCadLabel(monthlyTotalCad(3), 'fr'));
-    expect(fr).toContain(formatCadLabel(monthlyTotalCad(1), 'fr'));
     const en = visibleText(render('pricing', 'en'));
-    expect(en).toContain(`TAKATAK Phone AI : ${PHONE_PRICING_STATEMENT.en}`); // visibleText() puts a space after </b>
-    expect(hubFaq('pricing', 'en', ctx())[0].a).toContain('14-day free trial, then CAD $50 a month per app.');
+    expect(en).toContain('Clover access tokens are deleted when Clover notifies us that the app was uninstalled, or on request');
     const url = 'https://www.clover.com/appmarket/apps/ABC123';
-    const live = render('pricing', 'en', ctx({ appMarketUrl: url, marketStatus: 'live' }));
-    expect(visibleText(live)).toContain('Available on the Clover App Market');
-    expect(live).toContain(`href="${url}"`);
-    // The Stop answer uses the legal pages' token wording (no "at once" promise).
-    expect(en).toContain('your Clover access tokens are deleted when Clover notifies us that the app was uninstalled, or on request');
-    expect(en).not.toMatch(/deleted at once|supprimés aussitôt/);
+    expect(render('pricing', 'en', ctx({ appMarketUrl: url, marketStatus: 'live' }))).toContain(`href="${url}"`);
   });
-  it('says "under review" by default (both apps submitted on 2026-10-17); "coming soon" only with FOODHUB_APP_MARKET_STATUS=soon', () => {
+  it('distinguishes listing availability from activation and keeps contact actions useful', () => {
     expect(appMarketStatus(null, undefined)).toBe('review');
     expect(appMarketStatus(null, '')).toBe('review');
     expect(appMarketStatus(null, ' Soon ')).toBe('soon');
     expect(appMarketStatus('https://www.clover.com/appmarket/apps/ABC123', 'soon')).toBe('live');
-    expect(visibleText(render('pricing', 'fr'))).toContain('Les deux applications sont soumises au Clover App Market et en révision chez Clover.');
-    expect(visibleText(render('pricing', 'en'))).toContain('Both apps are submitted to the Clover App Market and under review by Clover.');
+    expect(visibleText(render('pricing', 'fr'))).toContain('TAKATAK Food Hub : fiche en révision chez Clover.');
+    expect(visibleText(render('pricing', 'en'))).toContain('TAKATAK Phone AI: listing under review by Clover.');
     expect(visibleText(render('landing', 'en'))).toContain('Submitted to the Clover App Market: under review');
-    expect(visibleText(render('pricing', 'fr', ctx({ marketStatus: 'soon' })))).toContain('Les applications seront bientôt offertes sur le Clover App Market.');
-    expect(hubLlmsTxt(ctx())).toContain('Both apps are submitted to the Clover App Market and under review by Clover.');
-    expect(hubLlmsTxt(ctx({ marketStatus: 'soon' }))).not.toMatch(/en révision|under review/i);
+    expect(visibleText(render('pricing', 'fr', ctx({ marketStatus: 'soon' })))).toContain('Installation publique non disponible pour le moment.');
+    expect(hubLlmsTxt(ctx())).toContain('TAKATAK Food Hub: Submitted to the Clover App Market: under review');
+    expect(hubLlmsTxt(ctx())).toContain('TAKATAK Phone AI: Submitted to the Clover App Market: under review');
   });
   it('the App Market link and the badges follow NEXT_PUBLIC_CLOVER_APPS_LIVE (#78) unless FOODHUB_APP_MARKET_URL is set', () => {
     expect(hubMarketUrl([], '')).toBeNull();
@@ -338,21 +325,20 @@ describe('page content', () => {
     expect(hubMarketUrl(liveCloverApps('foodhub'), 'https://www.clover.com/appmarket/apps/OWN')).toBe('https://www.clover.com/appmarket/apps/OWN');
     expect(render('landing', 'fr')).not.toContain('data-clover-badges');
     const withBadges = render('pricing', 'fr', ctx({ cloverApps: liveCloverApps('foodhub,phone') }));
-    expect(withBadges).toContain('data-clover-badges="block"');
     expect(withBadges).toContain('data-clover-badges="compact"');
     expect(withBadges).toContain('apps/20FK28P20HJC6');
     expect(withBadges).not.toMatch(/<script(?! type="application\/ld\+json")/);
   });
-  it('DoorDash and SkipTheDishes show « in certification » until FOODHUB_PUBLIC_LIVE_PLATFORMS lists them', () => {
+  it('keeps platform SEO gates while public copy requires verified setup', () => {
     expect(livePlatforms(undefined)).toEqual(['uber']);
     expect(livePlatforms('uber, doordash')).toEqual(['uber', 'doordash']);
     expect(livePlatforms('skip,nope')).toEqual(['skip']);
     expect(hubIndexable('doordash', ctx())).toBe(false);
     expect(hubIndexable('uber', ctx())).toBe(true);
     expect(hubIndexable('landing', ctx())).toBe(true);
-    expect(visibleText(render('doordash', 'fr'))).toContain('Intégration en cours de certification avec DoorDash.');
-    expect(visibleText(render('skip', 'en'))).toContain('SkipTheDishes integration in certification.');
-    expect(visibleText(render('uber', 'fr'))).not.toContain('Intégration en cours de certification avec Uber'); // live: no note (its links to pending pages carry a badge)
+    expect(visibleText(render('doordash', 'fr'))).toContain('Accès autorisés et configuration vérifiée avant l’activation.');
+    expect(visibleText(render('skip', 'en'))).toContain('Authorized access and verified setup before activation.');
+    expect(visibleText(render('uber', 'fr'))).toContain('Accès autorisés et configuration vérifiée avant l’activation.');
     // The merchant landing keeps neutral setup wording: a configured public flag alone is not runtime proof.
     for (const config of [ctx(), ctx({ livePlatforms: ALL_LIVE })]) {
       const landing = visibleText(render('landing', 'fr', config));
@@ -363,20 +349,21 @@ describe('page content', () => {
   });
   it('kitchen copy claims red on screen only (a thermal ticket prints no red); French uses « application » and « heures de pointe »', () => {
     expect(visibleText(render('kitchen', 'fr'))).toContain('ressortent en rouge à l’écran et sont imprimées sur le billet');
-    expect(visibleText(render('kitchen', 'en'))).toContain('stand out in red on screen and are printed on the ticket');
+    expect(visibleText(render('kitchen', 'en'))).toContain('stand out in red on screen and are printed on the kitchen ticket');
     for (const key of HUB_PAGE_KEYS) {
       const fr = visibleText(render(key, 'fr')) + JSON.stringify(HUB_CONTENT[key].fr);
       expect(fr, key).not.toMatch(/\bpar app\b|une seule app\b|\brush\b|sur l’écran comme sur le billet/i);
     }
-    expect(visibleText(render('pricing', 'en'))).toContain('days of free trial');
+    expect(visibleText(render('pricing', 'en'))).toContain('days to try it free');
     expect(PRICING_STATEMENT.fr).toContain('15 $ CA par plateforme par mois pour chaque marque supplémentaire');
     expect(PRICING_STATEMENT.fr).toContain('Taxes en sus');
     expect(PRICING_STATEMENT.en).toContain('extra brand CAD $15 per platform per month');
     expect(PRICING_STATEMENT.en).toContain('Plus applicable taxes');
   });
-  it('shows the support email only when it is set', () => {
-    expect(render('landing', 'fr')).not.toContain('mailto:');
+  it('uses the public group contact unless a configured Food Hub email takes precedence', () => {
+    expect(render('landing', 'fr')).toContain('mailto:support@takatak.ca');
     expect(render('landing', 'fr', ctx({ supportEmail: 'support@example.com' }))).toContain('mailto:support@example.com');
+    expect(render('landing', 'fr', ctx({ supportEmail: 'support@example.com' }))).not.toContain('mailto:support@takatak.ca');
   });
 });
 
@@ -387,20 +374,20 @@ describe('structured data', () => {
       const ld = ldOf(html);
       expect(ld['@graph'].map((n) => n['@type'])).toEqual(expect.arrayContaining(['Organization', 'SoftwareApplication', 'WebPage', 'FAQPage']));
       const org = node(ld, 'Organization')!;
-      expect(org).toMatchObject({ name: 'ON2GO.ca', alternateName: ['TAKATAK Food Hub'], legalName: 'Quadro Holdings LTEE' });
+      expect(org).toMatchObject({ name: 'GROUPE TAKATAK', alternateName: ['TAKATAK'], legalName: 'Quadro Holdings LTEE' });
       expect(org.address).toEqual({ '@type': 'PostalAddress', streetAddress: '6280, av. Somerled', addressLocality: 'Montréal', addressRegion: 'QC', postalCode: 'H3X 2B6', addressCountry: 'CA' });
       expect(org.email).toBeUndefined();
       expect(org.sameAs).toBeUndefined();
       const app = node(ld, 'SoftwareApplication')!;
-      expect(app).toMatchObject({ name: 'ON2GO.ca', alternateName: 'TAKATAK Food Hub', applicationCategory: 'BusinessApplication', operatingSystem: 'Clover' });
+      expect(app).toMatchObject({ name: key === 'phone' ? 'TAKATAK Phone AI' : 'Food Hub', alternateName: key === 'phone' ? 'Phone AI' : 'TAKATAK Food Hub', applicationCategory: 'BusinessApplication', operatingSystem: 'Clover' });
       expect(app.offers).toBeUndefined();
       const faq = node(ld, 'FAQPage')! as { mainEntity: Array<{ name: string; acceptedAnswer: { text: string } }> };
       expect(faq.mainEntity.map((q) => q.name)).toEqual(hubFaq(key, lang, ctx()).map((f) => f.q));
       // One entity, one url: the shared nodes point at the French landing on every page; the WebPage has its own url.
       expect(org.url, `${key}/${lang}`).toBe(`${BASE}/hub`);
-      expect(app.url, `${key}/${lang}`).toBe(`${BASE}/hub`);
+      expect(app.url, `${key}/${lang}`).toBe(key === 'phone' ? `${BASE}${HUB_PATHS.phone.fr}` : `${BASE}/hub`);
       expect(node(ld, 'WebPage')!.url).toBe(`${BASE}${HUB_PATHS[key][lang]}`);
-      expect(app.description).toBe(hubTagline(lang));
+      expect(app.description).toBe(key === 'phone' ? HUB_CONTENT.phone[lang].lead : hubTagline(lang));
       const text = visibleText(html);
       for (const q of faq.mainEntity) expect(text).toContain(q.acceptedAnswer.text);
       expect(Boolean(node(ld, 'BreadcrumbList'))).toBe(key !== 'landing');
@@ -486,20 +473,20 @@ describe('robots.txt, sitemap.xml and llms.txt', () => {
     expect(text.indexOf('## Français')).toBeLessThan(text.indexOf('## English'));
     expect(text).toContain(PRICING_STATEMENT.fr);
     expect(text).toContain(PRICING_STATEMENT.en);
-    expect(text).toContain('Les deux applications sont soumises au Clover App Market et en révision chez Clover.');
+    expect(text).toContain('TAKATAK Food Hub : Soumise au Clover App Market : en révision');
     expect(text).not.toMatch(/prévu|planned|bientôt|coming soon/i);
     expect(text).toContain(`TAKATAK Phone AI (téléphone IA) : application Clover distincte`);
     expect(text).toContain(PHONE_PRICING_STATEMENT.en);
     expect(text).not.toContain('/integrations/doordash-clover'); // pending integrations are not promoted
-    expect(text).toContain('L’intégration avec DoorDash et SkipTheDishes est en cours de certification.');
+    expect(text).toContain('Connexions DoorDash et SkipTheDishes : activation selon les accès autorisés.');
     expect(text).toContain(`${BASE}/hub/tarifs`);
     expect(text).toContain('TAKATAK Food Hub');
-    expect(text).toContain('# ON2GO.ca');
+    expect(text).toContain('# Food Hub');
     expect(text).not.toMatch(/@[a-z0-9-]+\.[a-z]/i); // no email unless FOODHUB_SUPPORT_EMAIL is set
     expect(hubLlmsTxt(ctx({ supportEmail: 'support@example.com' }))).toContain('Contact : support@example.com');
     expect(banned(text)).toEqual([]);
-    expect(text).toMatch(/^- Commandes : /m); // French typography: " : "
-    expect(text).toMatch(/^- Orders: /m);
+    expect(text).toMatch(/^- Commandes et cuisine : /m); // French typography: " : "
+    expect(text).toMatch(/^- Orders and kitchen: /m);
     expect(text).not.toContain('/legal/'); // the legal pages wait for their approval
     expect(hubLlmsTxt(ctx(), true)).toContain(`${BASE}/legal/terms`);
     const live = hubLlmsTxt(ctx({ appMarketUrl: 'https://www.clover.com/appmarket/apps/ABC123' }));

@@ -128,7 +128,8 @@ describe('verify start / check with Food Hub’s own texted code', () => {
     expect(c.created).toBe(true);
     expect(c.customer).toMatchObject({ phone: PHONE, lang: 'fr', marketingConsent: false });
     expect(c.customer.id).toMatch(/^cus_/);
-    expect(Object.keys(c.customer).sort()).toEqual(['createdAt', 'id', 'lang', 'marketingConsent', 'phone', 'verifiedAt']);
+    expect(Object.keys(c.customer).sort()).toEqual(['createdAt', 'id', 'lang', 'marketingConsent', 'phone', 'preferences', 'verifiedAt']);
+    expect(c.customer.preferences).toEqual({ orderUpdates: true, offersSms: false, offersEmail: false });
     const expMs = Date.parse(c.expiresAt) - Date.now();
     expect(expMs).toBeGreaterThan(29 * 86400_000);
     expect(expMs).toBeLessThanOrEqual(30 * 86400_000);

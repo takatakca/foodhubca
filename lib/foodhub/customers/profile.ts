@@ -3,7 +3,7 @@
 import { normalizePostal } from '../delivery/address';
 import { normalizeEmail } from '../notify';
 import { cleanAddress } from './store';
-import type { CustomerAddress, MasterCustomer } from './types';
+import { DEFAULT_CUSTOMER_PREFERENCES, type CustomerAddress, type CustomerPreferences, type MasterCustomer } from './types';
 
 export const ADDRESSES_MAX = 5;
 export const FAVOURITES_MAX = 50;
@@ -12,7 +12,7 @@ export const NAME_MAX = 80;
 export type Invalid = { ok: false; status: 422; error: string };
 const bad = (error: string): Invalid => ({ ok: false, status: 422, error });
 
-export type ProfilePatch = Partial<Pick<MasterCustomer, 'name' | 'email' | 'lang' | 'marketingConsent'>> & { clearName?: boolean; clearEmail?: boolean };
+export type ProfilePatch = Partial<Pick<MasterCustomer, 'name' | 'email' | 'lang' | 'marketingConsent'>> & { preferences?: Partial<CustomerPreferences>; clearName?: boolean; clearEmail?: boolean };
 
 /** PATCH /me: name (1–80 chars, null clears), email (valid, null clears), lang (fr | en), marketingConsent (boolean). */
 export function validateProfilePatch(body: Record<string, unknown> | null | undefined): { ok: true; patch: ProfilePatch } | Invalid {
@@ -43,6 +43,17 @@ export function validateProfilePatch(body: Record<string, unknown> | null | unde
     if (typeof body.marketingConsent !== 'boolean') return bad('marketingConsent must be true or false.');
     patch.marketingConsent = body.marketingConsent;
   }
+  if ('preferences' in body) {
+    const raw = body.preferences;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return bad('preferences must be a JSON object.');
+    const preferences: Partial<CustomerPreferences> = {};
+    for (const [key, value] of Object.entries(raw)) {
+      if (key !== 'orderUpdates' && key !== 'offersSms' && key !== 'offersEmail') return bad(`Unknown preference: ${key}.`);
+      if (typeof value !== 'boolean') return bad(`${key} must be true or false.`);
+      preferences[key] = value;
+    }
+    patch.preferences = preferences;
+  }
   return { ok: true, patch };
 }
 
@@ -52,6 +63,7 @@ export function applyProfilePatch(c: MasterCustomer, p: ProfilePatch): MasterCus
   if (p.clearEmail) delete next.email; else if (p.email !== undefined) next.email = p.email;
   if (p.lang) next.lang = p.lang;
   if (p.marketingConsent !== undefined) next.marketingConsent = p.marketingConsent;
+  if (p.preferences) next.preferences = { ...DEFAULT_CUSTOMER_PREFERENCES, ...c.preferences, ...p.preferences };
   return next;
 }
 

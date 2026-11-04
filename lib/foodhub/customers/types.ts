@@ -12,6 +12,15 @@
 
 export type CustomerLang = 'fr' | 'en';
 
+/** Separate choices: consenting to one marketing channel never opts into another. */
+export interface CustomerPreferences {
+  orderUpdates: boolean;
+  offersSms: boolean;
+  offersEmail: boolean;
+}
+
+export const DEFAULT_CUSTOMER_PREFERENCES: CustomerPreferences = { orderUpdates: true, offersSms: false, offersEmail: false };
+
 export interface CustomerAddress {
   /** "Maison", "Bureau"… */
   label?: string;
@@ -36,6 +45,7 @@ export interface MasterCustomer {
   email?: string;
   lang: CustomerLang;
   marketingConsent: boolean;
+  preferences?: CustomerPreferences;
   createdAt: string;
   /** Last successful code check. */
   verifiedAt: string;
@@ -58,6 +68,7 @@ export interface PublicCustomer {
   email?: string;
   lang: CustomerLang;
   marketingConsent: boolean;
+  preferences: CustomerPreferences;
   createdAt: string;
   verifiedAt: string;
 }
@@ -65,7 +76,7 @@ export interface PublicCustomer {
 export function toPublicCustomer(c: MasterCustomer): PublicCustomer {
   return {
     id: c.id, phone: c.phone, ...(c.name ? { name: c.name } : {}), ...(c.email ? { email: c.email } : {}), lang: c.lang,
-    marketingConsent: c.marketingConsent, createdAt: c.createdAt, verifiedAt: c.verifiedAt,
+    marketingConsent: c.marketingConsent, preferences: { ...DEFAULT_CUSTOMER_PREFERENCES, ...c.preferences }, createdAt: c.createdAt, verifiedAt: c.verifiedAt,
   };
 }
 

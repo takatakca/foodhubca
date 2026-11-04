@@ -2,6 +2,18 @@
 
 Branch: `feature/foodhub-restaurant-marketing`. This log records this agent's work and verification; branch publication is coordinated without switching the shared integration checkout.
 
+## 2026-11-04 — active: complete public restaurant journeys
+
+Extending the reviewed landing experience to pricing, delivery-platform/Clover integration pages, kitchen display, Phone AI and a bilingual help page. The legacy subpages still use ON2GO.ca as the software name, generic cards and inactive marketplace-status controls. Their copy also overstates unverified provider access. A separate functional gap was found: Phone AI reuses the Food Hub installation URL and structured Offer, which can send a visitor to the wrong application.
+
+Implemented the shared editorial shell across all eight page families, including the new `/hub/aide` and `/en/hub/help` routes. Rewrote provider, kitchen and Phone AI copy around configured workflows and actual access/setup/test requirements. Pricing presents Food Hub and Phone AI separately, with their correct billing units. Phone AI install links and structured Offers now require the Phone AI live listing; Food Hub availability cannot activate them. Software metadata consistently names Food Hub, the publisher GROUPE TAKATAK, and the separate protected Clover app names. Existing URLs and provider noindex gates remain intact.
+
+Verification so far: **72/72** focused public-page/journey/legal tests pass, TypeScript and scoped lint pass, and source is frozen for the coordinated production build. Regressions cover all four Food Hub/Phone AI availability combinations, same-page language twins, valid local anchors, help route discovery, distinct plan units and the complete legal minute-counting definition. A browser check is prepared for all 32 bilingual desktop/mobile page states, 32 accessibility scans and the linked public destinations. Next: review the fresh production build in the browser and correct any actual issues. No production deployment or provider approval is implied.
+
+The two public-page assertions in `scripts/foodhub-e2e.mjs` were updated with the coordinator's approval: preserve the pending-provider noindex/configured-page indexable distinction while checking the actual activation disclosure, and verify the Food Hub identity in `llms.txt`. No other E2E behavior changed.
+
+Additional journey review found that `/legal/support` exposed configuration placeholders and an unsupported default response-time promise when contact settings were absent. With coordinator approval, marketing/help CTAs and support presentation now use the group's published `support@takatak.ca` address as a fallback, with configured Food Hub email precedence. The public footer shows a copyable address; an unconfigured phone is omitted. Raw environment placeholders and the same-day response promise were removed from the support page. The central legal identity, country, pricing and privacy disclosures were preserved. This provides a usable contact route without claiming that a message was sent or delivered.
+
 ## 2026-11-04 — final source, media and browser review complete
 
 The target is `/hub` in Canadian French and `/en/hub` in English. Sources: current `BRAND.md`, public-hub pricing/legal/SEO code, the GitHub agent board, the existing image/video brief, ON2GO image-library rules, and the recovered media requirements. Food Hub addresses restaurant operators; ON2GO serves diners.

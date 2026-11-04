@@ -258,7 +258,9 @@ function History({ onOpen }: { onOpen: (id: string) => void }) {
   const href = useScopeHref();
   // No brand or platform picker of its own here (the chips change the console's scope): old `?channels=` links are ignored.
   const { filters, set, query } = useFilters('today', scope, brandScope, channelScope, { scopeOnly: true });
-  const [status, setStatus] = useState('');
+  const requestedStatus = useSearchParams()?.get('status') ?? '';
+  // A cancellation KPI or a bookmarked history link opens the requested status without broadening the platform scope.
+  const [status, setStatus] = useState(() => ['new', 'accepted', 'ready', 'dispatched', 'completed', 'cancelled', 'failed'].includes(requestedStatus) ? requestedStatus : '');
   const [q, setQ] = useState('');
   const [limit, setLimit] = useState(200);
   const read = useCallback(async () => {

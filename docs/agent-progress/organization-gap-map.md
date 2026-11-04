@@ -30,7 +30,7 @@ No SQL schema, identity, billing, provider connection or customer order path was
 
 ## Remaining implementation gaps and exact next contracts
 
-Agent 05 is separately implementing the client-side C4/source-metadata and immutable C5 outbox adapter. Its later uncompiled changes are outside this organization browser gate. V1 company linkage, billing authority and receiver-side merchant/tenant authorization still require their own contracts; the table distinguishes those from local client guardrails.
+Agent 05 has now implemented the client-side C4/source-metadata reader and immutable C5 outbox in the current worktree. Agent04 read-only reviewed config/client/outbox/status and the actual V1 handlers; no additional concrete safety blocker was found in the inspected byte-freezing, namespace, scope and cursor behavior. Its later code and owner-run persistence proofs are outside the earlier organization browser gate. V1 company linkage, billing authority and receiver-side merchant/tenant authorization still require their own contracts; the table distinguishes those from local client guardrails.
 
 | Gap | Concrete next implementation and validation |
 | --- | --- |
@@ -55,3 +55,13 @@ Current source reveals two concrete release gates: missing/invalid build-time `S
 Adversarial review: no organization authorization/provenance blocker found. Three diagnostic/lifecycle findings were fixed before the final source freeze: seven-check health validation, curl URL-glob prevention and suppression of intentional-navigation abort noise. The two focused suites pass 41/41 tests; scoped lint is clean. An earlier workspace typecheck passed; the final repeat encountered missing generated `.next/types` files while shared build artifacts were being regenerated, so the coordinated post-build typecheck remains the final gate. Final actual-browser acceptance now passes 13/13 check groups on the fresh combined organization/navigation/avatar build: all four FR/EN desktop/mobile WCAG scans have zero violations; restricted users, refresh, drilldown and overflow checks pass. It does not certify production or later uncompiled control-plane changes.
 
 — signed: Codex (`drive_research`, agent 04) @ Codex cloud · 2026-11-04 UTC
+
+## Current control-plane source status
+
+`lib/foodhub/control-plane/{config,client,outbox,status}.ts` now implement application-scoped Bearer transport with explicit instance/merchant/location mappings; C4 observes existing SourceMerchant metadata; C5 sends allowlisted order counts using stable UUIDv5 IDs and immutable raw JSON bytes. Canonical mismatch holds the observer cursor. Production memory storage is refused. The observer samples latest persisted order state after its monitoring start, rather than providing a transactional event journal.
+
+The restricted status model explicitly reports `featureGates: not_implemented`. C4 source subscription metadata still does not link a V1 Client or authorize Stripe entitlements. V1 receiver authorization remains application/source scoped rather than independently merchant/tenant scoped; configured client bindings are guardrails, not a new receiver isolation guarantee. No V1 schema or identity-resolver change was made by this workstream.
+
+`tenant.controlPlane()` now checks the actual `TAKATAK_FOODHUB_API_KEY` and safe URL. Organization readiness calls that transport-presence helper; the new administrator status additionally validates mappings, durable storage and actual observations. These are distinct readiness levels. Organization external Client linkage remains unlinked regardless of source-metadata observation.
+
+Later [customer-payment review/contact fixes](04-customer-payment-review.md) also remain separately gated from the earlier organization browser proof.

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { legalInfo, TOKEN_DELETION } from '@/lib/foodhub/legal';
+import { publicSupportEmail } from '@/lib/foodhub/public-support';
 import { Divider, H1, H2, LangBlock, LangSwitch, P, UL } from '../prose';
 
 export const dynamic = 'force-dynamic';
@@ -11,8 +12,8 @@ export const metadata: Metadata = { title: 'Politique de confidentialité · Pri
 // the Clover App Market. Company, address, phone, email and officer come from FOODHUB_* env (lib/foodhub/legal.ts).
 export default function PrivacyPage() {
   const i = legalInfo();
-  const contactFr = i.supportEmail ?? '[courriel à compléter — FOODHUB_SUPPORT_EMAIL]';
-  const contactEn = i.supportEmail ?? '[email to be completed — FOODHUB_SUPPORT_EMAIL]';
+  const contactFr = publicSupportEmail(i.supportEmail);
+  const contactEn = contactFr;
   const officerFr = i.privacyOfficer || `la personne ayant la plus haute autorité au sein de ${i.company}`;
   const officerEn = i.privacyOfficer || `the person with the highest authority within ${i.company}`;
   return (

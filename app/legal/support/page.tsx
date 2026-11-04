@@ -4,6 +4,7 @@ import { feesText, legalInfo, LEGAL_PATHS, phoneFeesText, TOKEN_DELETION } from 
 import { Divider, Faq, H1, H2, LangBlock, LangSwitch, P, UL } from '../prose';
 import { CloverAppBadges } from '@/components/clover-app-badges';
 import { liveCloverApps } from '@/lib/foodhub/clover-apps';
+import { publicSupportEmail } from '@/lib/foodhub/public-support';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Soutien · Support — TAKATAK Food Hub · TAKATAK Phone AI' };
@@ -14,7 +15,7 @@ export default function SupportPage() {
   const i = legalInfo();
   const fees = feesText(i.pricing);
   const phoneFees = phoneFeesText(i.phonePricing);
-  const email = i.supportEmail;
+  const email = publicSupportEmail(i.supportEmail);
   const phone = i.supportPhone;
   const tel = phone ? `tel:${phone.replace(/[^\d+]/g, '')}` : null;
   return (
@@ -27,9 +28,9 @@ export default function SupportPage() {
         <CloverAppBadges apps={liveCloverApps()} lang="fr" />
         <H2>Nous joindre</H2>
         <UL>
-          <li>Courriel : {email ? <a className="underline" href={`mailto:${email}`}>{email}</a> : '[à compléter — FOODHUB_SUPPORT_EMAIL]'}</li>
-          <li>Téléphone : {phone && tel ? <a className="underline" href={tel}>{phone}</a> : '[à compléter — FOODHUB_SUPPORT_PHONE]'}</li>
-          <li>Heures : {i.supportHours.fr}. Réponse en français ou en anglais, en général le jour ouvrable même.</li>
+          <li>Courriel : <a className="underline" href={`mailto:${email}`}>{email}</a></li>
+          {phone && tel && <li>Téléphone : <a className="underline" href={tel}>{phone}</a></li>}
+          <li>Heures : {i.supportHours.fr}. Soutien en français et en anglais.</li>
           <li>Pour une commande en cours, utilisez la tablette de la plateforme en attendant notre réponse.</li>
         </UL>
         <H2>Ce qu’il faut nous dire</H2>
@@ -69,9 +70,9 @@ export default function SupportPage() {
         <CloverAppBadges apps={liveCloverApps()} lang="en" />
         <H2>Contact us</H2>
         <UL>
-          <li>Email: {email ? <a className="underline" href={`mailto:${email}`}>{email}</a> : '[to be completed — FOODHUB_SUPPORT_EMAIL]'}</li>
-          <li>Phone: {phone && tel ? <a className="underline" href={tel}>{phone}</a> : '[to be completed — FOODHUB_SUPPORT_PHONE]'}</li>
-          <li>Hours: {i.supportHours.en}. We answer in French or English, usually the same business day.</li>
+          <li>Email: <a className="underline" href={`mailto:${email}`}>{email}</a></li>
+          {phone && tel && <li>Phone: <a className="underline" href={tel}>{phone}</a></li>}
+          <li>Hours: {i.supportHours.en}. Support in French and English.</li>
           <li>For an order in progress, use the platform’s tablet while you wait for our answer.</li>
         </UL>
         <H2>What to tell us</H2>

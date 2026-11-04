@@ -10,6 +10,7 @@
 // the owner picks once per file shape — Food Hub remembers it.
 import crypto from 'node:crypto';
 import { strFromU8, unzipSync } from 'fflate';
+import { CHANNEL_LABELS } from '../config';
 import type { ChannelKey } from '../types';
 
 export type LineKind = 'order' | 'refund' | 'adjustment' | 'error_charge' | 'promotion' | 'ads' | 'fee' | 'other';
@@ -343,6 +344,9 @@ export function parseStatement(fileName: string, bytes: Uint8Array, opts: { mapp
   if (table.length < 2) throw new Error('The file has no data rows.');
   const { headers, rows } = splitHeader(table);
   const det = detectFormat(headers);
+  if (opts.channel && det.channel && opts.channel !== det.channel) {
+    throw new Error(`This statement is from ${CHANNEL_LABELS[det.channel]}, but ${CHANNEL_LABELS[opts.channel]} was selected. Select ${CHANNEL_LABELS[det.channel]} or upload a ${CHANNEL_LABELS[opts.channel]} statement.`);
+  }
   const mapping = opts.mapping && Object.keys(opts.mapping).length ? opts.mapping : det.format === 'generic' ? guessMapping(headers) : knownMapping(det.format, headers);
   const lines = toLines(headers, rows, mapping, det.format);
   return { format: det.format, channel: opts.channel ?? det.channel, headers, mapping, lines, skipped: rows.length - lines.length, sample: rows.slice(0, 5) };

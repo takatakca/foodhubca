@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Download, Printer, ReceiptText, ShoppingBag } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Button, ButtonLink } from '@/components/ui/button';
 import { Banner, Card, CardHeader } from '@/components/ui/card';
 import { Field, Input, Select } from '@/components/ui/form';
 import { FormDraftNote } from '@/components/ui/save-chip';
@@ -19,6 +19,7 @@ import { StatTile, fmtInt } from '@/components/charts/charts';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { Hint } from '@/components/help/hint';
 import { MoneyHead, cad } from '../money-ui';
+import { usePulse, useScopeHref } from '@/components/live/pulse';
 import { api, ApiError, dayOf, downloadCsv, ymd } from '@/lib/ui/api';
 import { formDraftId, useFormDraft } from '@/lib/ui/use-form-draft';
 import { useI18n } from '@/lib/i18n/client';
@@ -43,6 +44,9 @@ const DAY_KEYS = Object.keys(NO_DAY_CHANGE) as Array<keyof DayFields>;
 export default function TgtgPage() {
   const { t, loc } = useI18n();
   const { viewer, can, locations, locName } = useViewer();
+  const { site } = usePulse();
+  const scopeHref = useScopeHref();
+  const otherWorkspace = !!site.channel && site.channel !== 'tgtg';
   const toast = useToast();
   const [days, setDays] = useState<BagDay[]>([]);
   const [mevOn, setMevOn] = useState<Record<string, boolean>>({});
@@ -57,10 +61,11 @@ export default function TgtgPage() {
 
   const codes = locations.map((l) => l.code).join(',');
   const load = useCallback(() => {
+    if (otherWorkspace) return Promise.resolve();
     const from = new Date(); from.setDate(from.getDate() - 60);
     return api<{ days: BagDay[]; mev?: Record<string, boolean>; pickups?: BagPickup[]; codeRequired?: Record<string, boolean> }>(`/api/foodhub/tgtg?from=${ymd(from)}&locations=${encodeURIComponent(codes)}`)
       .then((d) => { setDays(d.days); setMevOn(d.mev ?? {}); setPickups(d.pickups ?? []); setCodeRequired(d.codeRequired ?? {}); setLoaded(true); }).catch((e) => setErr(e instanceof Error ? e.message : String(e)));
-  }, [codes]);
+  }, [codes, otherWorkspace]);
   useEffect(() => { load(); }, [load]);
   // A bag handed over whose invoice is not out yet: read again every 10 s, so « Imprimer la facture » shows as soon as
   // Takatak MEV issues it (the customer is waiting for it).
@@ -114,9 +119,12 @@ export default function TgtgPage() {
   const sales = last7.filter((d) => !d.feedOrders).reduce((s, d) => s + d.bagsSold * d.pricePerBag, 0);
   const total = form.bagsSold !== '' && form.pricePerBag !== '' ? Number(form.bagsSold) * Number(form.pricePerBag) : null;
 
+  if (otherWorkspace) return <div><MoneyHead title="Too Good To Go" intro={t('Le journal de sacs appartient à Too Good To Go.', 'The bag log belongs to Too Good To Go.')} /><Banner tone="info" action={<ButtonLink href={scopeHref('/money')} variant="outline">{t('Voir les paiements de cette plateforme', 'View this platform’s payments')}</ButtonLink>}>{t('Ouvrez l’espace Food Hub ou Too Good To Go pour accéder à ce journal.', 'Open the Food Hub or Too Good To Go workspace to access this log.')}</Banner></div>;
+
   return (
     <div>
       <MoneyHead title="Too Good To Go" intro={t('Too Good To Go n’a pas d’API magasin publique — les quantités se règlent dans l’app TGTG Store. Entrez les sacs du jour ici (10 secondes à la fermeture) et ils comptent dans les ventes, les analyses, les rapports et la vérification des paiements. Si des commandes TGTG arrivent déjà par une intégration, rien n’est compté deux fois.', 'Too Good To Go has no public store API — bag quantities are set in the TGTG Store app. Enter each day’s bags here (10 seconds at closing) and they count in sales, analytics, reports and payout checks. If TGTG orders already arrive through an integration, nothing is counted twice.')} />
+      {(site.brand || site.kitchen) && <Banner tone="info" className="mb-4">{t('Ce journal utilise la succursale choisie dans le formulaire ci-dessous et regroupe toutes ses marques.', 'This log uses the location selected in the form below and includes all of its brands.')}</Banner>}
       {err && <Banner tone="stop" className="mb-4">{err}</Banner>}
 
       <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">

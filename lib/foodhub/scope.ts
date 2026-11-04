@@ -14,6 +14,8 @@ export const CHANNEL_PARAM = 'channel';
 
 /** The platforms, in the order every screen lists them. */
 export const CHANNEL_ORDER = ['uber_eats', 'doordash', 'skip', 'tgtg'] as const;
+/** Workspaces also open before API stores are mapped, for setup and manual tablet sessions. */
+export const WORKSPACE_CHANNELS = ['uber_eats', 'doordash', 'skip'] as const;
 const CHANNEL_NAMES: Record<string, string> = { uber_eats: 'Uber Eats', doordash: 'DoorDash', skip: 'Skip', tgtg: 'Too Good To Go' };
 /** A platform's short name on screen ("Skip" for SkipTheDishes). Platform names are never translated. */
 export function channelName(channel: string): string {
@@ -47,6 +49,8 @@ export interface ScopeCatalog {
   channels?: string[];
   /** Every store the person can see (counts). Absent = a platform is never dropped for having no store. */
   stores?: StorePoint[];
+  /** Explicitly selectable workspaces even without mapped stores. Does not grant API/location access. */
+  workspaceChannels?: readonly string[];
 }
 
 const clean = (v: string | null | undefined) => {
@@ -67,8 +71,8 @@ export function parseScope(query: string | URLSearchParams, catalog?: ScopeCatal
 
 /**
  * Keeps only a kitchen the person can see, a brand that exists (and is sold in that kitchen, when one is picked), and a
- * known platform the person has stores on — with at least one store for the picked kitchen and brand, so a page is never
- * empty because of the platform.
+ * known platform the person has stores on. Explicit workspace channels remain selectable with no mapped stores,
+ * for manual tablet sessions and onboarding; other consumers retain the nonempty-store requirement.
  */
 export function validScope(scope: Partial<Scope> | null | undefined, catalog?: ScopeCatalog): Scope {
   let kitchen = clean(scope?.kitchen ?? null);
@@ -82,8 +86,9 @@ export function validScope(scope: Partial<Scope> | null | undefined, catalog?: S
     // A brand not sold in the picked kitchen: keep the kitchen, drop the brand (never show an empty brand page).
     if (!sold.includes(brand)) brand = null;
   }
-  if (channel && catalog.channels && !catalog.channels.includes(channel)) channel = null;
-  if (channel && catalog.stores && countStores(catalog, { kitchen, brand, channel }) === 0) channel = null;
+  const workspace = channel && (WORKSPACE_CHANNELS as readonly string[]).includes(channel) && catalog.workspaceChannels?.includes(channel);
+  if (channel && !workspace && catalog.channels && !catalog.channels.includes(channel)) channel = null;
+  if (channel && !workspace && catalog.stores && countStores(catalog, { kitchen, brand, channel }) === 0) channel = null;
   return make(kitchen, brand, channel);
 }
 

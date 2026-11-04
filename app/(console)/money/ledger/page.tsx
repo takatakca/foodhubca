@@ -2,7 +2,7 @@
 
 // Internal ledger — one balanced journal entry per payout, drafted automatically, approved by the owner.
 // Approval only marks an entry as reviewed: nothing is posted to QuickBooks or anywhere else.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { CheckCircle2, Download, XCircle } from 'lucide-react';
 import { Badge, PlatformTag } from '@/components/ui/badge';
 import { Button, ButtonLink } from '@/components/ui/button';
@@ -15,6 +15,8 @@ import { useToast } from '@/components/ui/toast';
 import { useViewer } from '@/components/shell/viewer';
 import { MoneyHead, cad } from '../money-ui';
 import { api, ApiError, dayOf } from '@/lib/ui/api';
+import { useFinanceRead } from '@/lib/ui/use-finance-read';
+import { usePulse } from '@/components/live/pulse';
 import { useFilters } from '@/lib/ui/range';
 import { useI18n } from '@/lib/i18n/client';
 
@@ -26,16 +28,15 @@ export default function LedgerPage() {
   const { t, loc } = useI18n();
   const { can, locations } = useViewer();
   const toast = useToast();
-  const { filters, set, query } = useFilters('last_month');
-  const [entries, setEntries] = useState<Entry[]>([]);
+  const { channels, site } = usePulse();
+  const { filters, set, query } = useFilters('last_month', [], [], channels);
   const [tab, setTab] = useState<Tab>('draft');
-  const [err, setErr] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Entry | null>(null);
-  const [loaded, setLoaded] = useState(false);
 
-  const load = useCallback(() => api<{ entries: Entry[] }>(`/api/foodhub/recon/ledger?${query}`).then((d) => { setEntries(d.entries); setErr(''); setLoaded(true); }).catch((e) => setErr(e instanceof Error ? e.message : String(e))), [query]);
-  useEffect(() => { load(); }, [load]);
+  const read = useCallback(() => api<{ entries: Entry[] }>(`/api/foodhub/recon/ledger?${query}`), [query]);
+  const { data, err, loaded, load } = useFinanceRead(query, read);
+  const entries = useMemo(() => data?.entries ?? [], [data]);
 
   const rows = useMemo(() => entries.filter((e) => tab === 'all' || e.status === tab), [entries, tab]);
   const byAccount = useMemo(() => {
@@ -55,6 +56,7 @@ export default function LedgerPage() {
     <div>
       <MoneyHead title={t('Grand livre interne', 'Internal ledger')} intro={t('Le grand livre interne TAKATAK : une écriture par paiement — dépôt bancaire, ventes livraison, TPS et TVQ perçues, commissions, taxes sur frais (CTI/RTI), promotions, remboursements et autres frais. Les écritures restent des brouillons jusqu’à votre approbation. Rien n’est envoyé à QuickBooks ni ailleurs ; téléchargez le CSV pour votre comptable.', 'The TAKATAK internal ledger: one journal entry per payout — bank deposit, delivery sales, GST and QST collected, commissions, tax on fees (input tax credits), promotions, refunds and other charges. Entries are drafts until you approve them. Nothing is posted to QuickBooks or anywhere else; download the CSV for your accountant.')}
         right={<a href={csvHref} className="inline-flex h-9 items-center gap-2 rounded-md border border-line-2 bg-surface px-3 text-[13px] font-semibold text-ink hover:border-ink-4"><Download className="size-4" />CSV</a>} />
+      {(site.brand || site.kitchen) && <Banner tone="info" className="mb-4">{t('Les paiements et écritures regroupent toutes les marques et succursales de la plateforme choisie. Ils ne sont pas divisés par restaurant.', 'Payouts and ledger entries include every brand and location for the selected platform. They are not split by restaurant.')}</Banner>}
       {err && <Banner tone="stop" className="mb-4">{err}</Banner>}
       <FilterBar filters={filters} set={set} locations={locations} showLocations={false} showBrands={false} presets={['7d', '30d', 'month', 'last_month', 'custom']} />
       <Tabs className="mb-4" value={tab} onChange={setTab} tabs={[
@@ -103,7 +105,7 @@ export default function LedgerPage() {
         </Card>
       )}
 
-      {confirm && (
+      {confirm && (!site.channel || confirm.channel === site.channel) && (
         <Modal size="sm" title={t('Approuver malgré les avertissements ?', 'Approve despite the warnings?')} onClose={() => setConfirm(null)}
           footer={<><Button variant="ghost" onClick={() => setConfirm(null)}>{t('Annuler', 'Cancel')}</Button><Button onClick={() => approve(confirm)}>{t('Approuver quand même', 'Approve anyway')}</Button></>}>
           <div className="space-y-2">{confirm.warnings.map((w, i) => <Banner key={i} tone="warn">{w}</Banner>)}</div>

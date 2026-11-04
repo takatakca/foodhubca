@@ -1,3 +1,9 @@
+## 2026-11-04 — FH-PLATFORM-WORKSPACES / REVIEW
+
+Source commit `2adf4147ee545991b7ac3954f4df2f74de8eef7d` on `feature/unified-platform-workspaces`: provider workspace navigation, scoped 54-tablet wall and finance, existing-session-aware preparation, Windows 99-slot capacity, safe statement provider/mapping checks. Verified: 2,072 unit tests passed (12 skipped), 644 simulated E2E checks, 15 browser checks, production build, and 9/9 sibling suite contracts. Owner reviews the branch; runtime next step is read-only status of the already-reported PC installation, preserving its existing profiles/IDs/configuration. See [EXISTING_PC_RELAY.md](EXISTING_PC_RELAY.md). Live PC/Drive unavailable in this cloud; do not restart from a new-host installation assumption.
+
+— signé : Codex @ Codex cloud · 2026-11-04
+
 # FOODHUB — file de tâches coordonnée
 
 ## 2026-10-16 — suite UX clavier, tâche indépendante

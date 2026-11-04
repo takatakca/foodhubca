@@ -19,6 +19,8 @@ import { api } from '@/lib/ui/api';
 import { cn } from '@/lib/ui/cn';
 import { useAutosave } from '@/lib/ui/use-autosave';
 import { useUndo } from '@/lib/ui/use-undo';
+import { usePulse } from '@/components/live/pulse';
+import { inScope } from '@/lib/foodhub/scope';
 import { useI18n } from '@/lib/i18n/client';
 
 /** A number field as typed: '' = emptied while typing (never saved as 0 by accident — validate() holds the save). */
@@ -40,6 +42,7 @@ const opt = (v: Num | undefined) => (v === '' ? undefined : v);
 export default function FeesPage() {
   const { t, loc } = useI18n();
   const { viewer, can, locName } = useViewer();
+  const { site } = usePulse();
   const toast = useToast();
   const edit = can('finance:edit');
   const [fees, setFees] = useState<Fees | null>(null);
@@ -53,6 +56,8 @@ export default function FeesPage() {
 
   const storeLabel = (id: string) => { const s = stores.find((x) => x.id === id); return s ? `${s.brandName} · ${shortLoc(locName(s.locationCode))}` : id; };
   const storeChannel = (id: string) => stores.find((x) => x.id === id)?.channel ?? '';
+  const storeVisible = (id: string) => { const store = stores.find((s) => s.id === id); return store ? inScope(store, site) : !site.channel && !site.brand && !site.kitchen; };
+  const visibleOverrides = Object.entries(fees?.stores ?? {}).filter(([id]) => storeVisible(id));
 
   // What is wrong with one platform's plan: shown under the field and in the save chip; the save waits until it is fixed.
   const planErrors = (p: Plan): Partial<Record<NumKey, string>> => {
@@ -125,10 +130,11 @@ export default function FeesPage() {
       {autosave.draftRestored && <DraftRestoredBanner onDiscard={autosave.discardDraft} />}
       {autosave.problems.length > 0 && <Banner tone="warn" className="mb-4">{autosave.problems.slice(0, 4).join(' · ')}</Banner>}
       {autosave.status === 'error' && autosave.error && <Banner tone="stop" className="mb-4">{autosave.error}</Banner>}
+      {(site.brand || site.kitchen) && <Banner tone="info" className="mb-4">{t('Les plans de plateforme s’appliquent à toutes leurs marques et succursales. Les exceptions magasin suivent la sélection ci-dessus. La tolérance reste commune à toutes les plateformes.', 'Platform plans apply to all of their brands and locations. Store overrides follow the selection above. Matching tolerance remains shared across all platforms.')}</Banner>}
       {err && <Banner tone="stop" className="mb-4">{err}</Banner>}
 
       <div className="mb-5 grid grid-cols-1 gap-4 xl:grid-cols-2">
-        {Object.entries(fees.channels).map(([ch, p]) => {
+        {Object.entries(fees.channels).filter(([ch]) => !site.channel || ch === site.channel).map(([ch, p]) => {
           const preset = presets[ch]?.find((x) => x.plan === p.plan);
           const pe = edit ? planErrors(p) : {};
           return (
@@ -164,7 +170,7 @@ export default function FeesPage() {
         <Table>
           <thead><tr><Th>{t('Magasin', 'Store')}</Th><Th>{t('Nom du plan', 'Plan name')}</Th><Th>{t('Livraison %', 'Delivery %')}</Th><Th>{t('À emporter %', 'Pickup %')}</Th><Th /></tr></thead>
           <tbody>
-            {Object.entries(fees.stores).map(([id, o]) => (
+            {visibleOverrides.map(([id, o]) => (
               <Tr key={id}>
                 <Td><div className="flex items-center gap-2"><PlatformTag channel={storeChannel(id)} /><span className="text-ink-2">{storeLabel(id)}</span></div></Td>
                 <Td><Input inputSize="sm" className="w-32" maxLength={40} value={o.plan ?? ''} disabled={!edit} onChange={(e) => setStore(id, { plan: e.target.value })} placeholder="ex. Plus" /></Td>
@@ -173,22 +179,22 @@ export default function FeesPage() {
                 <Td align="right">{edit && <Button size="xs" variant="ghost" onClick={() => removeStore(id)} icon={<Trash2 className="size-3.5" />}>{t('Retirer', 'Remove')}</Button>}</Td>
               </Tr>
             ))}
-            {Object.keys(fees.stores).length === 0 && <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-ink-3">{t('Chaque magasin utilise le plan de sa plateforme.', 'Every store uses its platform plan.')}</td></tr>}
+            {visibleOverrides.length === 0 && <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-ink-3">{t('Chaque magasin utilise le plan de sa plateforme.', 'Every store uses its platform plan.')}</td></tr>}
           </tbody>
         </Table>
         {edit && (
           <Hint id="fees.stores"><div className="flex flex-wrap items-center gap-2 border-t border-line p-4">
             <Select selectSize="sm" className="max-w-md" value={addFor} onChange={(e) => setAddFor(e.target.value)} aria-label={t('Magasin', 'Store')}>
               <option value="">{t('Ajouter un magasin…', 'Add a store…')}</option>
-              {stores.filter((s) => !fees.stores[s.id]).sort((a, b) => `${a.channel}${storeLabel(a.id)}`.localeCompare(`${b.channel}${storeLabel(b.id)}`)).map((s) => <option key={s.id} value={s.id}>{CH_NAME[s.channel] ?? s.channel} · {storeLabel(s.id)}</option>)}
+              {stores.filter((s) => inScope(s, site) && !fees.stores[s.id]).sort((a, b) => `${a.channel}${storeLabel(a.id)}`.localeCompare(`${b.channel}${storeLabel(b.id)}`)).map((s) => <option key={s.id} value={s.id}>{CH_NAME[s.channel] ?? s.channel} · {storeLabel(s.id)}</option>)}
             </Select>
-            <Button size="sm" variant="outline" disabled={!addFor} icon={<Plus className="size-4" />} onClick={() => { const base = fees.channels[storeChannel(addFor)]; setStore(addFor, { plan: base?.plan, deliveryPct: opt(base?.deliveryPct), pickupPct: opt(base?.pickupPct) }); setAddFor(''); }}>{t('Ajouter', 'Add')}</Button>
+            <Button size="sm" variant="outline" disabled={!addFor || !storeVisible(addFor)} icon={<Plus className="size-4" />} onClick={() => { const base = fees.channels[storeChannel(addFor)]; setStore(addFor, { plan: base?.plan, deliveryPct: opt(base?.deliveryPct), pickupPct: opt(base?.pickupPct) }); setAddFor(''); }}>{t('Ajouter', 'Add')}</Button>
           </div></Hint>
         )}
       </Card>
 
       <Card className="p-5">
-        <h2 className="mb-2 text-base font-extrabold">{t('Tolérance', 'Matching tolerance')}</h2>
+        <h2 className="mb-2 text-base font-extrabold">{t('Tolérance — toutes les plateformes', 'Matching tolerance — all platforms')}</h2>
         <div className="flex flex-wrap items-center gap-2 text-sm text-ink-2">
           {t('Un paiement à moins de', 'A payout within')}
           <Hint id="fees.tolerance"><Input inputSize="sm" className={cn('w-24', edit && bad(fees.tolerance, 0, 5) && 'border-stop')} aria-invalid={edit && bad(fees.tolerance, 0, 5)} aria-label={t('Tolérance ($)', 'Tolerance ($)')} type="number" inputMode="decimal" min={0} max={5} step={0.01} value={fees.tolerance} disabled={!edit} onChange={(e) => { const v = num(e.target.value); patch((f) => ({ ...f, tolerance: v })); }} /></Hint>

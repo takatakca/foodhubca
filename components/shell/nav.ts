@@ -81,8 +81,43 @@ const NAV_FLOOR: NavItem[] = [HOME_SIMPLE, KITCHEN, ORDERS_FLOOR, MENUS, RESTAUR
 type Who = { device?: unknown; role?: string };
 const onTheFloor = (who: Who) => Boolean(who.device) || who.role === 'operator';
 
+/** Familiar platform workflows using Food Hub's own pages and permission checks. */
+export function platformNav(channel?: string): NavItem[] | null {
+  const home: NavItem = { ...HOME_SIMPLE, label: (t) => t('Vue d’ensemble', 'Overview') };
+  const orders: NavItem = { ...NAV[1], match: undefined, children: [{ href: '/orders', label: (t) => t('Commandes', 'Orders'), perm: 'view' }] };
+  const stores: NavItem = { ...RESTAURANTS, children: [
+    { href: '/stores', label: (t) => t('Statut des restaurants', 'Store status'), perm: 'view', exact: true },
+    { href: '/stores/hours', label: (t) => t('Heures d’ouverture', 'Business hours'), perm: 'menu:edit' },
+    { href: '/stores/screens', label: (t) => t('Tablettes virtuelles', 'Virtual tablets'), perm: 'view' },
+  ] };
+  const money: NavItem = { href: '/money', icon: ReceiptText, label: (t) => t('Finances', 'Financials'), perm: 'analytics:view', allLocations: true,
+    children: [
+      { href: '/money', label: (t) => t('Résumé', 'Summary'), perm: 'analytics:view', allLocations: true, exact: true },
+      { href: '/money/payouts', label: (t) => t('Versements', 'Payouts'), perm: 'analytics:view', allLocations: true },
+      { href: '/money/statements', label: (t) => t('Relevés', 'Statements'), perm: 'analytics:view', allLocations: true },
+      { href: '/money/disputes', label: (t) => t('Litiges', 'Disputes'), perm: 'analytics:view', allLocations: true },
+    ] };
+  const performance: NavItem = { href: '/insights', icon: ChartNoAxesCombined, label: (t) => t('Performance', 'Performance'), perm: 'analytics:view',
+    children: [
+      { href: '/insights', label: (t) => t('Ventes', 'Sales'), perm: 'analytics:view', exact: true },
+      { href: '/insights/operations', label: (t) => t('Opérations', 'Operations'), perm: 'analytics:view' },
+      { href: '/insights/reviews', label: (t) => t('Avis clients', 'Customer reviews'), perm: 'analytics:view' },
+    ] };
+  if (channel === 'doordash') return [home, orders, MENUS, stores, performance, money, SETTINGS];
+  if (channel === 'uber_eats') return [home, orders, { ...MENUS, label: (t) => t('Menu', 'Menu') }, performance,
+    { ...money, label: (t) => t('Paiements', 'Payments') }, stores, SETTINGS];
+  if (channel === 'skip') return [HOME_SIMPLE, orders, { ...MENUS, label: (t) => t('Menu', 'Menu') }, stores,
+    { ...performance, label: (t) => t('Analyses', 'Analytics') }, { ...money, label: (t) => t('Revenus', 'Earnings') }, SETTINGS];
+  return null;
+}
+
 /** The rail for this person: the full view's menu, or the simple one (kitchen screen on top for operators and tablets). */
-export function navFor(full: boolean, who: Who): NavItem[] {
+export function navFor(full: boolean, who: Who, channel?: string): NavItem[] {
+  // Operators and enrolled kitchen tablets always keep their kitchen workflow.
+  if (!onTheFloor(who)) {
+    const platform = platformNav(channel);
+    if (platform) return platform;
+  }
   if (full) return NAV;
   return onTheFloor(who) ? NAV_FLOOR : NAV_SIMPLE;
 }
@@ -91,7 +126,9 @@ export function navFor(full: boolean, who: Who): NavItem[] {
  * The phone's bottom bar (4 slots, then "Plus"): the full view keeps today's bar; the simple view takes the first 4
  * allowed of Home, Orders, Sold out, Restaurants, Reports; operators and tablets get Orders, Kitchen, Sold out, Restaurants.
  */
-export function mobileNav(full: boolean, who: Who, visible: (n: Pick<NavItem, 'perm' | 'allLocations' | 'features'>) => boolean): NavItem[] {
+export function mobileNav(full: boolean, who: Who, visible: (n: Pick<NavItem, 'perm' | 'allLocations' | 'features'>) => boolean, channel?: string): NavItem[] {
+  const platform = !onTheFloor(who) ? platformNav(channel) : null;
+  if (platform) return [...platform.slice(0, 3), ALERTS].filter(visible);
   if (full) return [NAV[0], NAV[1], NAV[2], ALERTS].filter(visible);
   const list = onTheFloor(who) ? [ORDERS_FLOOR, KITCHEN, SOLD_OUT, RESTAURANTS] : [HOME_SIMPLE, ORDERS_SIMPLE, SOLD_OUT, RESTAURANTS, REPORTS_SIMPLE];
   return list.filter(visible).slice(0, 4);

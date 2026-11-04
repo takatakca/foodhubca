@@ -47,13 +47,23 @@ export type ImportOutcome =
 
 export async function importStatement(input: { fileName: string; bytes: Uint8Array; channel?: ChannelKey | null; mapping?: ColumnMapping; actor: Actor; source?: StatementImport['source'] }): Promise<ImportOutcome> {
   const repo = getRepo();
-  // A mapping the owner confirmed for this file shape is reused automatically.
-  let mapping = input.mapping;
+  // Generic header shapes can be shared by several providers. An unselected provider is remembered only when unambiguous.
+  let mapping = input.mapping && Object.keys(input.mapping).length ? input.mapping : undefined;
   let parsed = parseStatement(input.fileName, input.bytes, { mapping, channel: input.channel });
   const sig = headerSignature(parsed.headers);
   if (!mapping && parsed.format === 'generic') {
-    const saved = await repo.getDoc<{ mapping: ColumnMapping; channel: ChannelKey }>(COL.mappings, sig);
-    if (saved) { mapping = saved.data.mapping; parsed = parseStatement(input.fileName, input.bytes, { mapping, channel: input.channel ?? saved.data.channel }); }
+    type SavedMapping = { mapping: ColumnMapping; channel: ChannelKey };
+    const providers = input.channel ? [input.channel] : Object.keys(CHANNEL_LABELS) as ChannelKey[];
+    const [legacy, ...scoped] = await Promise.all([
+      repo.getDoc<SavedMapping>(COL.mappings, sig),
+      ...providers.map((ch) => repo.getDoc<SavedMapping>(COL.mappings, `${sig}:${ch}`)),
+    ]);
+    const confirmed = new Map<ChannelKey, Doc<SavedMapping>>();
+    if (legacy && providers.includes(legacy.data.channel)) confirmed.set(legacy.data.channel, legacy);
+    // Scoped columns take precedence over compatible legacy columns, without changing the legacy record.
+    scoped.forEach((doc, i) => { if (doc && doc.data.channel === providers[i]) confirmed.set(doc.data.channel, doc); });
+    const saved = input.channel ? confirmed.get(input.channel) : confirmed.size === 1 ? confirmed.values().next().value : undefined;
+    if (saved) { mapping = saved.data.mapping; parsed = parseStatement(input.fileName, input.bytes, { mapping, channel: saved.data.channel }); }
   }
   const channel = parsed.channel;
   const orderCol = parsed.mapping.orderRef;
@@ -65,7 +75,7 @@ export async function importStatement(input: { fileName: string; bytes: Uint8Arr
     };
   }
   if (!channel) throw new Error('Choose the platform for this statement.');
-  if (parsed.format === 'generic') await repo.putDocs(COL.mappings, [{ id: sig, at: nowIso(), data: { mapping: parsed.mapping, channel } }]);
+  if (parsed.format === 'generic') await repo.putDocs(COL.mappings, [{ id: `${sig}:${channel}`, at: nowIso(), data: { mapping: parsed.mapping, channel } }]);
 
   const importId = crypto.randomUUID();
   const occurrences = new Map<string, number>();
@@ -270,7 +280,7 @@ async function coverage(): Promise<Record<string, Array<[string, string]>>> {
   return out;
 }
 
-export async function reconcile(q: { from: string; to: string; channels?: ChannelKey[]; locationCodes?: string[]; now?: number }): Promise<ReconResult> {
+export async function reconcile(q: { from: string; to: string; channels?: ChannelKey[]; locationCodes?: string[]; brands?: string[]; now?: number }): Promise<ReconResult> {
   const repo = getRepo();
   const now = q.now ?? Date.now();
   const fromMs = Date.parse(q.from); const toMs = Date.parse(q.to);
@@ -308,7 +318,9 @@ export async function reconcile(q: { from: string; to: string; channels?: Channe
     const mine = [o.channelStoreId, st?.id, st?.brandName, o.brandName].map(refKey).filter(Boolean) as string[];
     return mine.some((m) => sref === m || sref.includes(m));
   };
-  const scope = orders.filter((x) => inScope(x.channel) && x.status !== 'new');
+  const scope = orders.filter((x) => inScope(x.channel) && x.status !== 'new' && (!q.brands?.length || !!x.brandName && q.brands.includes(x.brandName)));
+  // Statement-only lines have no reliable brand/location assignment. Never count another restaurant's fees in a narrowed order view.
+  const restaurantScoped = !!(q.brands?.length || q.locationCodes?.length);
   const assigned = new Map<string, PayoutLine[]>();
   // A line is indexed under both its refs (order id + workflow id); when they normalise to the same key it appears twice — count it once.
   const take = (o: StoredOrder, ls: PayoutLine[]) => { const free = [...new Map(ls.filter((l) => !used.has(l.id)).map((l) => [l.id, l])).values()]; if (free.length) { assigned.set(o.id, free); free.forEach((l) => used.add(l.id)); } };
@@ -366,7 +378,7 @@ export async function reconcile(q: { from: string; to: string; channels?: Channe
   const inRange = (l: PayoutLine) => { const d = (l.orderDate ?? l.payoutDate)?.slice(0, 10); return !d || (d >= fromD && d <= toD); };
   const unmatched: UnmatchedLine[] = []; const other: UnmatchedLine[] = [];
   for (const l of lines) {
-    if (used.has(l.id) || !inRange(l)) continue;
+    if (restaurantScoped || used.has(l.id) || !inRange(l)) continue;
     const keys = [refKey(l.orderRef), refKey(l.orderRef2)].filter(Boolean).map((k) => `${l.channel}|${k}`);
     const view = { id: l.id, channel: l.channel, ref: l.orderRef ?? l.orderRef2, kind: l.kind, description: l.description, orderDate: l.orderDate, payoutDate: l.payoutDate, net: l.net };
     if (!keys.length) other.push(view);
@@ -396,7 +408,7 @@ export async function reconcile(q: { from: string; to: string; channels?: Channe
       orders: rows.length, expected: r2(channels.reduce((s, c) => s + c.expected, 0)), paid: r2(channels.reduce((s, c) => s + c.paid, 0)), diff: r2(channels.reduce((s, c) => s + c.diff, 0)),
       missingMoney: r2(channels.reduce((s, c) => s + c.missingMoney, 0)), unknownOrders: unmatched.length, otherCharges: r2(other.reduce((s, l) => s + l.net, 0)),
     },
-    imports: Object.values(cover).reduce((s, v) => s + v.length, 0),
+    imports: Object.entries(cover).filter(([ch]) => inScope(ch as ChannelKey)).reduce((s, [, v]) => s + v.length, 0),
   };
 }
 
@@ -516,9 +528,11 @@ export async function syncCases(result: ReconResult, actor: Actor = { username: 
   return { opened, closed };
 }
 
-export async function listCases(filter: { status?: CaseStatus[]; channels?: ChannelKey[] } = {}): Promise<ReconCase[]> {
+export async function listCases(filter: { status?: CaseStatus[]; channels?: ChannelKey[]; locationCodes?: string[]; brands?: string[] } = {}): Promise<ReconCase[]> {
   const all = (await getRepo().listDocs<ReconCase>(COL.cases, {})).map((d) => d.data);
-  return all.filter((c) => (!filter.status?.length || filter.status.includes(c.status)) && (!filter.channels?.length || filter.channels.includes(c.channel)))
+  return all.filter((c) => (!filter.status?.length || filter.status.includes(c.status)) && (!filter.channels?.length || filter.channels.includes(c.channel))
+    && (!filter.locationCodes?.length || !!c.locationCode && filter.locationCodes.includes(c.locationCode))
+    && (!filter.brands?.length || !!c.brandName && filter.brands.includes(c.brandName)))
     .sort((a, b) => (a.status === b.status ? b.amount - a.amount : ['open', 'disputed'].indexOf(a.status) === -1 ? 1 : -1));
 }
 

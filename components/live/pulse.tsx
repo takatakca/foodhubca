@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { usePathname, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/ui/api';
 import type { Pulse } from '@/lib/foodhub/pulse';
-import { alarmLocations, ALL_RESTAURANTS, BRAND_PARAM, CHANNEL_PARAM, KITCHEN_PARAM, readRemembered, resolveScope, sameScope, scopeBrands, scopeChannels, scopeHref, scopeLocations, validScope, withScopeQuery, type Scope } from '@/lib/foodhub/scope';
+import { alarmLocations, ALL_RESTAURANTS, BRAND_PARAM, CHANNEL_PARAM, KITCHEN_PARAM, WORKSPACE_CHANNELS, readRemembered, resolveScope, sameScope, scopeBrands, scopeChannels, scopeHref, scopeLocations, validScope, withScopeQuery, type Scope } from '@/lib/foodhub/scope';
 import { useViewer } from '@/components/shell/viewer';
 
 type Ctx = {
@@ -47,7 +47,7 @@ export function PulseProvider({ children, fixedScope }: { children: ReactNode; f
   const params = useSearchParams();
   const pathname = usePathname();
   const deviceKitchen = fixedScope?.[0] ?? null;
-  const catalog = useMemo(() => ({ kitchens: locations.map((l) => l.code), brands: allBrands, brandsByKitchen, channels: allChannels, stores }), [locations, allBrands, brandsByKitchen, allChannels, stores]);
+  const catalog = useMemo(() => ({ kitchens: locations.map((l) => l.code), brands: allBrands, brandsByKitchen, channels: allChannels, stores, workspaceChannels: WORKSPACE_CHANNELS }), [locations, allBrands, brandsByKitchen, allChannels, stores]);
   const [pulse, setPulse] = useState<Pulse | null>(null);
   const [online, setOnline] = useState(true);
   const [site, setSiteState] = useState<Scope>(() => (deviceKitchen ? { kitchen: deviceKitchen, brand: null } : ALL_RESTAURANTS));

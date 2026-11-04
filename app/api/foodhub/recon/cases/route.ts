@@ -13,7 +13,9 @@ export const GET = withFinance('analytics:view', async (req) => {
   const q = new URL(req.url).searchParams;
   const status = (q.get('status') || '').split(',').filter((s) => STATUSES.includes(s as CaseStatus)) as CaseStatus[];
   const channels = (q.get('channels') || '').split(',').filter(isChannelKey) as ChannelKey[];
-  return ok({ cases: await listCases({ status, channels }) });
+  const locationCodes = (q.get('locations') || '').split(',').filter(Boolean);
+  const brands = (q.get('brands') || '').split(',').map((s) => s.trim()).filter(Boolean);
+  return ok({ cases: await listCases({ status, channels, locationCodes, brands }) });
 });
 
 // { id, status?, note?, platformCaseId?, recoveredAmount? }

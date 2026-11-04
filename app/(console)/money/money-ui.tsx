@@ -5,12 +5,14 @@ import { Badge, type Tone } from '@/components/ui/badge';
 import { PageHeader } from '@/components/ui/card';
 import { LinkTabs } from '@/components/ui/tabs';
 import { useI18n } from '@/lib/i18n/client';
+import { usePulse } from '@/components/live/pulse';
 import type { T } from '@/lib/i18n';
 
 export const CH_NAME: Record<string, string> = { uber_eats: 'Uber Eats', doordash: 'DoorDash', skip: 'SkipTheDishes', tgtg: 'Too Good To Go' };
 
 export function MoneyHead({ title, intro, right }: { title: string; intro: ReactNode; right?: ReactNode }) {
   const { t } = useI18n();
+  const { site } = usePulse();
   return (
     <>
       <PageHeader eyebrow={t('Argent', 'Money')} title={title} subtitle={intro} right={right} />
@@ -22,7 +24,7 @@ export function MoneyHead({ title, intro, right }: { title: string; intro: React
         { href: '/money/ledger', label: t('Grand livre', 'Ledger') },
         { href: '/money/statements', label: t('Relevés', 'Statements') },
         { href: '/money/fees', label: t('Commissions', 'Commissions') },
-        { href: '/money/tgtg', label: 'Too Good To Go' },
+        ...(!site.channel || site.channel === 'tgtg' ? [{ href: '/money/tgtg', label: 'Too Good To Go' }] : []),
       ]} />
     </>
   );

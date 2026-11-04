@@ -28,6 +28,7 @@ import { CommandPalette } from './command-palette';
 import { ALERTS, childActive, mobileNav, navActive, navFor, navVisible, type NavItem } from './nav';
 import { CopilotDrawer } from './copilot';
 import { ScopeSwitcher } from './scope-switcher';
+import { PlatformWorkspace } from './platform-workspace';
 import { useViewer } from './viewer';
 import { audioReady, playSound, unlockAudio } from '@/lib/ui/sound';
 import { api } from '@/lib/ui/api';
@@ -89,6 +90,7 @@ function Frame({ children }: { children: ReactNode }) {
   const product = useProduct();
   const pathname = usePathname();
   const href = useScopeHref();
+  const { site } = usePulse();
   const [collapsed, setCollapsed] = useState(false);
   const [copilot, setCopilot] = useState(false);
   const [more, setMore] = useState(false);
@@ -108,10 +110,10 @@ function Frame({ children }: { children: ReactNode }) {
   }, []);
   const visible = (n: Pick<NavItem, 'perm' | 'allLocations' | 'features'>) => navVisible(n, can, allLocations, features);
   const who = { device: viewer.device, role: viewer.role };
-  const items = navFor(full, who).filter(visible);
+  const items = navFor(full, who, site.channel).filter(visible);
   const toggle = () => { setCollapsed((c) => { try { localStorage.setItem('takatak.rail', c ? '0' : '1'); } catch { /* ignore */ } return !c; }); };
   const kitchen = isKitchenRoute(pathname);
-  const mobile = mobileNav(full, who, visible);
+  const mobile = mobileNav(full, who, visible, site.channel);
   const inBar = new Set(mobile.map((n) => n.href));
   // "Plus" lights up when the current page is reachable from the sheet only.
   const moreActive = !more && pathname !== '/' && !mobile.some((n) => (n.href === '/menu/86' ? pathname === '/menu/86' : navActive(n, pathname)));
@@ -304,6 +306,7 @@ function Topbar() {
           <UserMenu />
         </div>
       </div>
+      <PlatformWorkspace />
     </header>
   );
 }

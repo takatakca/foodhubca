@@ -4,7 +4,7 @@
 // filter chips change the console's scope (location, brand, platform), like the header picker. The kitchen screen keeps
 // its own data (`useBoardOrders({ allBrands: true })`: its whole location, every brand, every platform).
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AlarmClock, ArrowRight, CalendarClock, ChefHat, Download, Inbox, Search, Volume2 } from 'lucide-react';
 import { Hint } from '@/components/help/hint';
@@ -28,8 +28,10 @@ import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { api, downloadCsv, money, timeOf } from '@/lib/ui/api';
 import { audioReady, playSound, unlockAudio } from '@/lib/ui/sound';
 import { useFilters } from '@/lib/ui/range';
+import { useFinanceRead } from '@/lib/ui/use-finance-read';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
+import { channelName } from '@/lib/foodhub/scope';
 
 type View = 'active' | 'scheduled' | 'history';
 const viewOf = (v: string | null): View => (v === 'history' ? 'history' : v === 'scheduled' ? 'scheduled' : 'active');
@@ -37,6 +39,7 @@ const viewOf = (v: string | null): View => (v === 'history' ? 'history' : v === 
 export function OrdersView() {
   const { t } = useI18n();
   const { features } = useViewer();
+  const { site } = usePulse();
   const router = useRouter();
   const params = useSearchParams();
   const href = useScopeHref();
@@ -63,7 +66,7 @@ export function OrdersView() {
   return (
     <div>
       <PageHeader title={t('Commandes', 'Orders')}
-        subtitle={<>{t('Toutes vos plateformes, en direct.', 'All your platforms, live.')}{ago !== null && <span className="text-ink-3"> · {t(`mis à jour il y a ${ago} s`, `updated ${ago} s ago`)}</span>}</>}
+        subtitle={<>{site.channel ? t(`Commandes ${channelName(site.channel)} dans Food Hub.`, `${channelName(site.channel)} orders in Food Hub.`) : t('Toutes vos plateformes réunies.', 'All your platforms together.')}{ago !== null && <span className="text-ink-3"> · {t(`mis à jour il y a ${ago} s`, `updated ${ago} s ago`)}</span>}</>}
         right={<ButtonLink href={href('/kitchen')} variant="outline" size="lg" icon={<ChefHat className="size-4" />}>{t('Écran cuisine', 'Kitchen screen')}</ButtonLink>} />
       <Hint id="orders.view">
         <Tabs className="mb-4" value={view} onChange={setView} tabs={[
@@ -98,9 +101,13 @@ function useBoardOrderState({ allBrands = false }: { allBrands?: boolean } = {})
   // The kitchen screen (allBrands): its whole location, every brand and every platform, whatever the console shows.
   const brandKey = allBrands ? '' : brands.join(',');
   const channelKey = allBrands ? '' : channels.join(',');
-  const [state, setState] = useState<{ orders: BoardOrder[] | null; at: number | null }>({ orders: null, at: null });
+  const key = JSON.stringify([scope, brandKey, channelKey, allBrands]);
+  const sequence = useRef(0);
+  const invalidate = useCallback(() => { sequence.current++; }, []);
+  const [state, setState] = useState<{ key: string; orders: BoardOrder[]; at: number } | null>(null);
   const sig = pulse ? JSON.stringify([pulse.orders, pulse.incoming.map((o) => o.id + o.status)]) : '';
   const load = useCallback(async () => {
+    const request = ++sequence.current;
     const since = new Date(Date.now() - 48 * 3600_000).toISOString();
     const q = new URLSearchParams({ status: 'new,accepted,ready,dispatched', since, limit: '400' });
     if (scope.length) q.set('locations', scope.join(','));
@@ -113,12 +120,13 @@ function useBoardOrderState({ allBrands = false }: { allBrands?: boolean } = {})
     if (!d) return;
     const now = Date.now();
     const orders = allBrands ? d.orders : d.orders.filter((o) => o.createdAt >= since || Boolean(['new', 'accepted'].includes(o.status) && o.timeline?.fireAt && !o.timeline.firedAt && Date.parse(o.timeline.fireAt) > now));
-    setState({ orders, at: now });
-  }, [scope, brandKey, channelKey, allBrands]);
-  useEffect(() => { load(); }, [load, sig]);
+    if (request === sequence.current) setState({ key, orders, at: now });
+  }, [scope, brandKey, channelKey, allBrands, key]);
+  useEffect(() => { load(); return invalidate; }, [load, sig, invalidate]);
   useEffect(() => { const i = setInterval(load, 15_000); return () => clearInterval(i); }, [load]);
   useRefreshOn(load);
-  return state;
+  // Keep current-scope cards on a transient polling error, but never retain another scope's cards.
+  return state?.key === key ? state : { orders: null, at: null };
 }
 
 /** `allBrands`: the kitchen screen shows every brand and platform of its kitchen, whatever the console is looking at. */
@@ -252,17 +260,17 @@ function History({ onOpen }: { onOpen: (id: string) => void }) {
   const { filters, set, query } = useFilters('today', scope, brandScope, channelScope, { scopeOnly: true });
   const [status, setStatus] = useState('');
   const [q, setQ] = useState('');
-  const [rows, setRows] = useState<Row[] | null>(null);
   const [limit, setLimit] = useState(200);
-  useEffect(() => {
-    let alive = true;
-    setRows(null);
+  const read = useCallback(async () => {
     const p = new URLSearchParams(query);
     p.set('limit', '3000');
     if (status) p.set('status', status);
-    api<{ orders: Row[] }>(`/api/foodhub/orders?${p}`).then((d) => alive && setRows(d.orders)).catch(() => alive && setRows([]));
-    return () => { alive = false; };
+    return (await api<{ orders: Row[] }>(`/api/foodhub/orders?${p}`)).orders;
   }, [query, status]);
+  const historyKey = JSON.stringify([query, status]);
+  const { data, loaded } = useFinanceRead(historyKey, read);
+  // Match the existing empty-on-error behavior, with no stale rows during a scope/period change.
+  const rows = useMemo(() => loaded ? data ?? [] : null, [loaded, data]);
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase().replace(/^#/, '');
     return (rows ?? []).filter((o) => !s || [o.displayId, o.externalOrderId, o.customerName, o.posOrderId, o.brandName].some((v) => v && String(v).toLowerCase().includes(s)));

@@ -13,7 +13,7 @@ $script:KitDir = $PSScriptRoot
 $script:TaskName = 'FoodHub Screens'
 $script:DefaultPortBase = 9222
 $script:LogRotateBytes = 5MB
-$script:MaxScreens = 50
+$script:MaxScreens = 99 # Same slot capacity as Food Hub and the relay generator; actual capacity depends on this PC.
 $script:RequiredEnv = @('FOODHUB_URL', 'FOODHUB_SCREENS_AGENT_TOKEN')
 # Same table as deploy/screens/generate-lib.mjs (PLATFORMS): default order page per platform.
 $script:Platforms = [ordered]@{

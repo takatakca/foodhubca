@@ -15,7 +15,9 @@ export const GET = withFinance('analytics:view', async (req) => {
   const channels = (q.get('channels') || '').split(',').filter(isChannelKey) as ChannelKey[];
   const locationCodes = (q.get('locations') || '').split(',').filter(Boolean);
   const brands = (q.get('brands') || '').split(',').map((s) => s.trim()).filter(Boolean);
-  return ok({ cases: await listCases({ status, channels, locationCodes, brands }) });
+  const orderId = q.get('order');
+  const cases = await listCases({ status, channels, locationCodes, brands });
+  return ok({ cases: orderId ? cases.filter((c) => c.orderId === orderId) : cases });
 });
 
 // { id, status?, note?, platformCaseId?, recoveredAmount? }

@@ -1,0 +1,59 @@
+{
+  "ok": false,
+  "scope": "public_release_and_unauthenticated_contracts",
+  "targets": {
+    "foodhubUrl": "https://foodhub.on2go.ca",
+    "foodhubSha": "dccd068417674265d8e133c5aaee0ace7a7496e4",
+    "on2goUrls": [
+      "https://on2go.ca",
+      "https://www.on2go.ca",
+      "https://preview.on2go.ca"
+    ],
+    "on2goSha": "0ed02d401c6727a880ea3f8a8c0e492c7b50be3f"
+  },
+  "checks": [
+    {
+      "target": "https://foodhub.on2go.ca",
+      "check": "foodhub_release",
+      "path": "/api/release",
+      "method": "GET",
+      "state": "blocked",
+      "code": "proxy_blocked",
+      "message": "The configured proxy rejected the HTTPS CONNECT tunnel. The origin was not observed."
+    },
+    {
+      "target": "https://on2go.ca",
+      "check": "on2go_release",
+      "path": "/release.txt",
+      "method": "GET",
+      "state": "blocked",
+      "code": "proxy_blocked",
+      "message": "The configured proxy rejected the HTTPS CONNECT tunnel. The origin was not observed."
+    },
+    {
+      "target": "https://www.on2go.ca",
+      "check": "on2go_release",
+      "path": "/release.txt",
+      "method": "GET",
+      "state": "blocked",
+      "code": "proxy_blocked",
+      "message": "The configured proxy rejected the HTTPS CONNECT tunnel. The origin was not observed."
+    },
+    {
+      "target": "https://preview.on2go.ca",
+      "check": "on2go_release",
+      "path": "/release.txt",
+      "method": "GET",
+      "state": "blocked",
+      "code": "proxy_blocked",
+      "message": "The configured proxy rejected the HTTPS CONNECT tunnel. The origin was not observed."
+    }
+  ],
+  "limitations": [
+    "Authenticated customer saves, persistence and provider order acceptance are not tested.",
+    "Native Coolify webhook history/configuration requires separate authorized control-plane access.",
+    "A transport block is not evidence that either public site is down."
+  ],
+  "observedAt": "2026-11-04T08:04:56.009261+00:00",
+  "expectedRevisionSource": "Fresh git ls-remote origin refs/heads/main on each repository; proxy-blocked HTTP state is unobserved."
+}

@@ -387,7 +387,7 @@ function UserMenu() {
   const initials = viewer.name.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
   return (
     <div className="relative" ref={ref}>
-      <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-haspopup="menu" title={viewer.name} className="text-small flex size-10 items-center justify-center rounded-full bg-ink font-extrabold text-canvas" aria-label={t(`Compte : ${viewer.name}`, `Account: ${viewer.name}`)}>{initials}</button>
+      <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-haspopup="menu" title={viewer.name} className="text-small flex size-10 items-center justify-center rounded-full bg-ink font-extrabold text-canvas" aria-label={t(`Compte : ${viewer.name} — ${initials}`, `Account: ${viewer.name} — ${initials}`)}>{initials}</button>
       {open && (
         <div className="absolute top-12 right-0 z-50 w-[min(18rem,calc(100vw-1.5rem))] rounded-lg border border-line bg-surface p-1.5 shadow-pop motion-safe:animate-rise">
           <div className="px-3 py-2">

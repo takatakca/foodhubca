@@ -1,26 +1,39 @@
+# syntax=docker/dockerfile:1
 # TAKATAK Food Hub — container image for Coolify / any Docker host.
 # Keys are given as environment variables by the host (never baked into the image). SOURCE_COMMIT is only a public
 # release marker: the Supabase URL (NEXT_PUBLIC_SUPABASE_URL or SUPABASE_URL) is read when the server runs, not when
 # the image is built (lib/supabase/server.ts), and webhook secrets are generated once and kept in the database when
 # the host does not set them (lib/foodhub/runtime-secrets.ts). SESSION_SECRET is never generated: set it once in the
 # host's environment (without it the sign-in key is derived from DASHBOARD_PASSWORD).
-FROM node:22-bookworm-slim
-ARG SOURCE_COMMIT=""
+FROM node:22-bookworm-slim AS dependencies
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
+COPY package.json package-lock.json ./
+# Optional build-only CA for HTTPS proxies. The mount and path never enter the final image.
+RUN --mount=type=secret,id=proxy_ca \
+    if [ -r /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
+    npm ci --no-audit --no-fund --loglevel=error
+FROM dependencies AS app
+ARG SOURCE_COMMIT=""
 ENV FOODHUB_RELEASE_SHA=${SOURCE_COMMIT}
 LABEL org.opencontainers.image.revision="${SOURCE_COMMIT}"
-COPY package.json package-lock.json ./
-RUN npm ci --no-audit --no-fund --loglevel=error
 COPY . .
 # Release checks run on Contabo as well as CI. No host/runtime credentials enter tests or builds.
 RUN node -e 'if (!/^[0-9a-f]{40}$/i.test(process.env.FOODHUB_RELEASE_SHA || "")) process.exit(1)'
-RUN env -i PATH="$PATH" HOME="$HOME" NEXT_TELEMETRY_DISABLED=1 npm run audit:prod \
+RUN --mount=type=secret,id=proxy_ca \
+    set -eu; fh_audit_ca=""; \
+    if [ -r /run/secrets/proxy_ca ]; then fh_audit_ca=/run/secrets/proxy_ca; fi; \
+    env -i PATH="$PATH" HOME="$HOME" NEXT_TELEMETRY_DISABLED=1 \
+    HTTP_PROXY="${HTTP_PROXY:-}" HTTPS_PROXY="${HTTPS_PROXY:-}" NO_PROXY="${NO_PROXY:-}" \
+    http_proxy="${http_proxy:-}" https_proxy="${https_proxy:-}" no_proxy="${no_proxy:-}" \
+    NODE_EXTRA_CA_CERTS="$fh_audit_ca" npm run audit:prod \
  && env -i PATH="$PATH" HOME="$HOME" NEXT_TELEMETRY_DISABLED=1 npm run check \
  && env -i PATH="$PATH" HOME="$HOME" NEXT_TELEMETRY_DISABLED=1 npm run build \
  && env -i PATH="$PATH" HOME="$HOME" NEXT_TELEMETRY_DISABLED=1 \
     FOODHUB_INTERNAL_SYNC_MIN=0 FOODHUB_E2E_MOCK_PORT=18090 FOODHUB_E2E_APP_PORT=18091 npm run verify:foodhub
-RUN npm prune --omit=dev --no-audit --no-fund --loglevel=error
+RUN --mount=type=secret,id=proxy_ca \
+    if [ -r /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
+    npm prune --omit=dev --no-audit --no-fund --loglevel=error
 # Start the final, pruned runtime without production credentials or remote data. Only this build probe permits
 # the expected database-free 503; the real Docker healthcheck below requires health200 and database=ok.
 RUN set -eu; \

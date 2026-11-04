@@ -1,7 +1,25 @@
 # Agent 3 — Food Hub authenticated dashboard
 
-Updated: 2026-11-04 02:01 EST
+Updated: 2026-11-04 04:22 EST
 Branch for this work: `feature/foodhub-operator-dashboard` (published/coordinated by the primary agent; no shared-checkout branch switches).
+
+## Completed continuation — Orders issue investigation
+
+2026-11-04: completed the documented Orders issue/outcome/courier continuation from comment 6542710915: validated URL filters against existing recorded order facts, server scope-before-limit support, explicit bounded-result coverage, recoverable read failures and exact-order payout/dispute navigation. Existing chronology, modifiers, courier updates and order-money calculations are retained. Source tests and final rebuilt authenticated desktop/mobile browser checks passed.
+
+Implemented source for this continuation:
+
+- History filters cover recorded Clover/platform/print/mapping/missing-item issues; actual cancellation attribution, completion and Skip-tablet outcomes; and reported courier states. An absent courier report is distinct from an explicit unassignment or reported delivery. “Completed” does not assert customer delivery.
+- Filters, order search and status survive a copied URL/reload. Clearing order filters retains the selected provider, brand, restaurant and date range. The matching rows and their CSV expose the same issue/outcome/courier facts.
+- The server validates these filters, intersects authorized locations, and applies provider/brand selection in the repository query before limits. Derived filters inspect at most 5,000 scoped candidates; scan and 3,000-result limits are explicitly disclosed in History. These displayed-result totals never replace global dashboard KPIs.
+- Active orders now have a scoped recorded-issue banner that opens an actual affected order. History read failures show retry rather than an empty success state.
+- The existing per-order read-only expected/paid/gap/payout detail is preserved. A real dispute case links to that exact order and its provider/restaurant/brand, including recovered/closed cases. A restricted-location viewer keeps access to their authorized order-money detail but is not linked into the all-location finance area. Case query/filtering does not modify cases or submit a claim.
+
+Source validation: 59 tests passed across nine focused suites, including actual authenticated route handlers, authorization, old matching records beyond a requested result limit, explicit scan truncation, Supabase query scope and existing Home/workspace behavior. Lint passed for the modified source/tests, and combined typecheck/build passed. The four new investigation suites passed again (25 tests) after the final displayed-count fix. These totals overlap. Search keeps an immediate local input draft while persisting its URL, and both scan/result limits are disclosed if they apply together.
+
+The first actual browser pass used stored synthetic orders delivered through the local relay, plus a synthetic statement imported through the real reconciliation routes. It exposed delayed-URL search races and a reproducible hydration error on scoped order deep links. Those defects are fixed: filter updates preserve the current URL synchronously, an active search draft resists old notifications, Back/external updates restore the input, and the drawer waits for client mount. The drawer also remounts by selected order identity so an old response cannot replace another order. Desktop filters are compact and order numbers stay on one line. The displayed order count now includes cancelled rows while sales still exclude their value.
+
+Final rebuilt browser acceptance: **18/18 passed**, with zero browser page errors. Verified five zero-delay search strings; copied URL/reload; external URL search reset and browser Back while focused; immediate clear → outcome change; one cancelled row correctly counted as one displayed order; all three provider workspace switches; delayed old-order response isolation; three direct scoped order links with no hydration error; matching CSV; recorded cancellation attribution; invalid-filter recovery; injected temporary failure followed by a real successful Retry; real local statement import → reconciliation case → recovered-case detail → exact order navigation; desktop 1440 px/mobile 375 px layout without page overflow; and zero serious/critical axe violations in both Orders main regions. Both screenshots were visually reviewed. The review server had API writes disabled and used only disposable in-memory synthetic fixtures. No provider sessions or Windows profiles were touched.
 
 ## Sources and requirements
 
@@ -13,6 +31,23 @@ Read the repository agent instructions, master plan/status, existing dashboard/s
 - [Order filters/timeline/options/payment context](https://github.com/takatakca/foodhubca/issues/105#issuecomment-6542710915).
 
 Google Drive and earlier ChatGPT histories were not available through a connector in this session. No claim is made that those sources were read. Private portal captures are not copied into this public progress note.
+
+## Financial safety continuation — source and focused tests complete
+
+The coordinator requested adversarial review of the real checkout/payment path after the Orders dashboard was verified. Reproductions exposed unsafe concurrent display-number allocation, ambiguous legacy payment references, payment reuse between orders, interrupted payment/print handling and unsafe direct-Clover retries. The source fixes now use:
+
+- Atomic durable number reservations and strict storage failures; existing issued numbers are checked before reuse.
+- Immutable order-bound payment references, exact merchant/reference matching for existing links, and persistent payment ownership. Ambiguous references are held for review without selecting a first order.
+- A durable release lease across workers. Uncertain interrupted work is held for review, and paid evidence cannot be automatically cancelled or converted into another payment request.
+- Explicit print-review evidence after an interrupted print claim, without blindly printing again.
+- A durable direct-Clover attempt/result record. A known Clover id is saved before printing; unknown POST outcomes cannot produce a second order through Retry. Validated refusals and proven pre-send failures remain retryable.
+- Payment status lookup distinguishes an unreadable provider response from a confirmed empty result. Unknown expiry and underpayments require review; cancellation messages no longer promise that no charge occurred.
+
+The coordinator owns the public review-state pages/account/tracking notices and the two-process real-PostgreSQL acceptance. This agent owns the financial source guards and focused regression tests. Existing external payments are never refunded automatically. All regression provider calls are simulated; no real Clover order, payment, text or printer action was performed in this cloud review.
+
+Final focused financial validation: **136 tests passed across seven suites**, covering 33 payment-safety tests, nine direct-Clover retry tests, existing phone/payment flows, checkout, Interac and customer notification preferences. Targeted ESLint and owned-file whitespace checks passed. Actual signed callback tests cover distinct merchants with the same payment id; provider responses, payment/print interruptions and database faults are simulated without external actions. The coordinator is completing whole-branch build/checks and the shared-database cross-worker proof before publication. These suite totals overlap with earlier runs and must not be added as unique totals.
+
+Financial source is frozen. It depends on the shared repository's exact nested JSON filtering before limits; that foundation is coordinated with agent 5. The final public payment/account/tracking review notices are coordinated by the primary agent. The earlier 18-check authenticated dashboard browser result remains a separate verified UI journey, not evidence of a live provider payment or printer.
 
 ## Already implemented before this branch
 
@@ -48,10 +83,18 @@ The earlier unified-workspaces work provides provider selection/navigation, shar
 
 The final rebuilt listed-store and monitoring-empty wording is verified in the actual application. The authenticated desktop/mobile readiness, quick-action and cancellation-history journey also passed again. Preserve existing accounts and platform sessions while continuing the wider provider acceptance work.
 
-The owner's current Windows PC installation and real provider sessions cannot be verified from this Linux cloud. A live provider order reaching Clover and printing remains a separate acceptance check. Full organisation hierarchy/payout-tree parity, measured Opportunities and independent issue/outcome/courier filter UX are not marked complete here. No fabricated AI recommendations or unsupported provider actions were introduced.
+The owner's current Windows PC installation and real provider sessions cannot be verified from this Linux cloud. A live provider order reaching Clover and printing remains a separate acceptance check. Full organisation hierarchy/payout-tree parity and measured Opportunities are not marked complete here. Independent recorded-issue/outcome/courier investigation is implemented and passed the continuation checks above; it uses bounded order reads with visible coverage limits. No fabricated AI recommendations or unsupported provider actions were introduced.
 
 — Signed: Codex, agent 3 (authenticated dashboard), cloud workspace · 2026-11-04 02:01 EST
 
 ## Published browser evidence
 
 [Desktop Home](evidence/03-dashboard/home-desktop.png) · [Mobile Home](evidence/03-dashboard/home-mobile.png) · [Desktop session status](evidence/03-dashboard/readiness-1440.png) · [Mobile session status](evidence/03-dashboard/readiness-375.png) · [12-check results](evidence/03-dashboard/browser-results.json). All data and relay records are synthetic, in an isolated local review instance.
+
+[Desktop Orders](evidence/03-orders/history-1440.png) · [Mobile Orders](evidence/03-orders/history-375.png) · [18-check Orders results](evidence/03-orders/browser-results.json). These records were created through the actual local relay/order routes; the payout/case journey used an actual import/reconciliation of a synthetic statement. All 18 checks passed with zero page errors. No provider accounts, real customer data or secret review-server configuration are included.
+
+## Coordinator verification — final combined candidate
+
+The combined candidate passed 2,272 unit tests (22 skipped), production webpack build/TypeScript, lint with zero errors/one existing warning, 644 simulated acceptance checks and 25 real PostgreSQL crash checks. Thirteen built ON2GO/Food Hub browser checks passed on real PostgreSQL, including response-loss recovery and simultaneous checkout through two real servers. Nine sibling suite pairs passed. These checks use isolated provider/SMS receivers; no live deployment or real merchant-session certification is implied. See [current delivery record](../RESTAURANT_PLATFORM_DELIVERY.md).
+
+— signé : Codex, coordinator @ Codex cloud · 2026-11-04

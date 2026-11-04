@@ -16,7 +16,7 @@ export function OrderTools({ order, events }: { order: StoredOrder; events?: Ord
     <div className="space-y-2">
       <CourierWatch order={order} events={events} />
       <Quick86 order={order} />
-      <OrderMoney orderId={order.id} />
+      <OrderMoney key={order.id} order={order} />
     </div>
   );
 }

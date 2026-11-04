@@ -1,0 +1,58 @@
+{
+  "lib/clover/oauth.ts": {
+    "sha256": "16222085c48db4a1aae2b02aab360da297769db22b980f8b85c3a937eac44f15",
+    "repositories": [
+      "C4ISSE",
+      "T4CTILE",
+      "4CCOUNTING",
+      "TR4CKER",
+      "ST4FF",
+      "M4RKETING",
+      "LOY4LTY",
+      "REW4RD",
+      "CH4T"
+    ]
+  },
+  "tests/kit.test.ts": {
+    "sha256": "0bc382092e5dfae0af2a59691e0bace7a415640c14915f5415870958fae2c703",
+    "repositories": [
+      "C4ISSE",
+      "T4CTILE",
+      "4CCOUNTING",
+      "TR4CKER",
+      "ST4FF",
+      "M4RKETING",
+      "LOY4LTY",
+      "REW4RD",
+      "CH4T"
+    ]
+  },
+  "tests/helpers.ts": {
+    "sha256": "fa4f834bb9826a5328912b0a148ef14c47ae3906f1f719980de7173f79fcdee7",
+    "repositories": [
+      "C4ISSE",
+      "T4CTILE",
+      "4CCOUNTING",
+      "TR4CKER",
+      "ST4FF",
+      "M4RKETING",
+      "LOY4LTY",
+      "REW4RD",
+      "CH4T"
+    ]
+  },
+  "docs/SUITE_KIT.md": {
+    "sha256": "5a49ef6c3b53db32ccfccc753066ec570def43676ed0eef6202cbb0eec9d4664",
+    "repositories": [
+      "C4ISSE",
+      "T4CTILE",
+      "4CCOUNTING",
+      "TR4CKER",
+      "ST4FF",
+      "M4RKETING",
+      "LOY4LTY",
+      "REW4RD",
+      "CH4T"
+    ]
+  }
+}

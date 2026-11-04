@@ -1,11 +1,11 @@
 import Image from 'next/image';
-import { ArrowRight, ArrowUpRight, Check, ChefHat, Layers3, LayoutDashboard, ListChecks, Menu, MonitorPlay, ReceiptText } from 'lucide-react';
-import { CloverAppBadges } from '@/components/clover-app-badges';
-import { LEGAL_PATHS } from '@/lib/foodhub/legal';
+import { ArrowRight, ArrowUpRight, Check, ChefHat, Layers3, LayoutDashboard, ListChecks, MonitorPlay, ReceiptText } from 'lucide-react';
+import { publicSupportHref } from '@/lib/foodhub/public-support';
 import { EXTRA_BRAND_PLATFORM_CAD, formatCadLabel, STANDARD_MONTHLY_CAD, TRIAL_DAYS, type Lang } from '@/lib/foodhub/pricing';
-import { HUB_PATHS, hubFaq, hubJsonLd, jsonLdScript, type HubContext } from '@/lib/foodhub/public-hub';
+import { HUB_PATHS, hubFaq, type HubContext } from '@/lib/foodhub/public-hub';
 import { RESTAURANT_COPY } from './restaurant-copy';
 import styles from './restaurant-landing.module.css';
+import { RestaurantShell } from './restaurant-shell';
 
 const PROVIDERS = ['Uber Eats', 'DoorDash', 'SkipTheDishes'];
 const FEATURE_ICONS = [ChefHat, ListChecks, Layers3, ReceiptText];
@@ -13,38 +13,13 @@ const FEATURE_ICONS = [ChefHat, ListChecks, Layers3, ReceiptText];
 /** Public merchant landing. Server-rendered; no session, form submission, tracker or page-specific client script. */
 export function RestaurantLanding({ lang, ctx }: { lang: Lang; ctx: HubContext }) {
   const w = RESTAURANT_COPY[lang];
-  const contact = ctx.supportEmail ? `mailto:${ctx.supportEmail}` : LEGAL_PATHS.support;
+  const contact = publicSupportHref(ctx.supportEmail);
   const primary = ctx.appMarketUrl ?? contact;
   const action = ctx.appMarketUrl ? w.install : w.contact;
-  const other = lang === 'fr' ? 'en' : 'fr';
-  const home = HUB_PATHS.landing[lang];
   const faq = hubFaq('landing', lang, ctx);
   const status = ctx.appMarketUrl ? w.live : ctx.marketStatus === 'review' ? w.review : w.soon;
-  const links = [{ href: '#fonctionnement', label: w.how }, { href: '#integrations', label: w.platforms }, { href: '#tarifs', label: w.pricing }];
   return (
-    <div lang={lang === 'fr' ? 'fr-CA' : 'en-CA'} className={styles.page}>
-      <a href="#contenu" className={styles.skip}>{w.skip}</a>
-      <header className={styles.header}>
-        <div className={styles.headerInner}>
-          <a className={styles.wordmark} href={home}>
-            <span>Food Hub<span className={styles.wordmarkDot}>.</span></span>
-            <small>{w.endorsement}</small>
-          </a>
-          <nav className={styles.desktopNav} aria-label={w.nav}>
-            {links.map((link) => <a key={link.href} href={link.href}>{link.label}</a>)}
-          </nav>
-          <div className={styles.headerActions}>
-            <a className={styles.language} href={HUB_PATHS.landing[other]} hrefLang={other === 'fr' ? 'fr-CA' : 'en-CA'} lang={other}>{w.language}</a>
-            <a href="/login" rel="nofollow" className={styles.login}>{w.login}<ArrowUpRight size={15} aria-hidden /></a>
-            <details className={styles.mobileMenu}>
-              <summary aria-label={w.menu}><Menu size={21} aria-hidden /></summary>
-              <nav aria-label={w.nav}>{links.map((link) => <a key={link.href} href={link.href}>{link.label}</a>)}</nav>
-            </details>
-          </div>
-        </div>
-      </header>
-
-      <main id="contenu">
+    <RestaurantShell page="landing" lang={lang} ctx={ctx}>
         <section className={styles.hero} aria-labelledby="hero-title">
           <div className={styles.heroCopy}>
             <p className={styles.eyebrow}><span className={styles.eyebrowLine} />{w.eyebrow}</p>
@@ -119,11 +94,6 @@ export function RestaurantLanding({ lang, ctx }: { lang: Lang; ctx: HubContext }
 
         <section className={styles.final} aria-labelledby="contact-title"><div><p className={styles.eyebrow}>{w.finalLabel}</p><h2 id="contact-title">{w.finalTitle}</h2></div><div><p>{w.finalText}</p><a className={styles.primary} href={contact}>{w.contact}<ArrowUpRight size={18} aria-hidden /></a></div></section>
 
-        <aside className={styles.diner}><p>{w.diner}</p><a href="https://on2go.ca/">{w.dinerLink}<ArrowUpRight size={17} aria-hidden /></a></aside>
-      </main>
-
-      <footer className={styles.footer}><div className={styles.footerTop}><a className={styles.wordmark} href={home}><span>Food Hub<span className={styles.wordmarkDot}>.</span></span><small>{w.endorsement}</small></a><nav aria-label={w.support}><a href={LEGAL_PATHS.support}>{w.support}</a><a href={LEGAL_PATHS.privacy}>{w.privacy}</a><a href={LEGAL_PATHS.terms}>{w.terms}</a></nav></div><div className={styles.footerBottom}><p>{w.footerLine} {ctx.company}.<br />© {new Date().getFullYear()} {ctx.company} · {ctx.address}</p><p>{w.trademark}</p></div>{ctx.supportEmail && <a href={contact} className={styles.supportEmail}>{ctx.supportEmail}</a>}<CloverAppBadges apps={ctx.cloverApps ?? []} lang={lang} variant="compact" className={styles.cloverBadges} /></footer>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(hubJsonLd('landing', lang, ctx)) }} />
-    </div>
+    </RestaurantShell>
   );
 }

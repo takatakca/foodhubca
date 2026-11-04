@@ -26,7 +26,7 @@ let answer: { status: number; body: unknown } = { status: 200, body: {} };
 
 const session = (over: Record<string, unknown> = {}) => ({
   ok: true,
-  session: { active: true, identityId: IDENTITY, displayName: 'Marie Tremblay', phone: PHONE, email: 'marie@example.com', locale: 'fr-CA', product: 'on2go', entitlement: 'on2go_customer', expiresAt: '2026-10-30T12:10:00.000Z', ...over },
+  session: { active: true, identityId: IDENTITY, displayName: 'Marie Tremblay', phone: PHONE, email: 'marie@example.com', locale: 'fr-CA', product: 'on2go', entitlement: 'on2go_customer', expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(), ...over },
 });
 
 beforeEach(() => {
@@ -87,6 +87,31 @@ describe('the TAKATAK session answer', () => {
 });
 
 describe('signing in with TAKATAK', () => {
+  it('refuses expired or boundary-expiring upstream sessions before creating a customer or issuing a new token', async () => {
+    const now = Date.now();
+    for (const expiresAt of ['2000-01-01T00:00:00.000Z', new Date(now).toISOString()]) {
+      answer = { status: 200, body: session({ active: true, expiresAt }) };
+      const result = await signInWithTakatak({ code: CODE }, 'expired-session', { now });
+      expect(result).toMatchObject({ ok: false, status: 401 });
+      expect(result).not.toHaveProperty('token');
+      expect(await findCustomerByPhone(PHONE)).toBeNull();
+    }
+    answer = { status: 200, body: session({ expiresAt: new Date(now + 60_000).toISOString() }) };
+    expect(await signInWithTakatak({ code: CODE }, 'valid-session', { now })).toMatchObject({ ok: true });
+  });
+
+  it('checks the response-time expiry after the remote exchange completes', async () => {
+    const initial = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(initial);
+    try {
+      const result = await signInWithTakatak({ code: CODE }, 'slow-exchange', { fetch: async () => {
+        clock.mockReturnValue(initial + 1000);
+        return new Response(JSON.stringify(session({ expiresAt: new Date(initial + 500).toISOString() })), { status: 200 });
+      } });
+      expect(result).toMatchObject({ ok: false, status: 401 });
+      expect(await findCustomerByPhone(PHONE)).toBeNull();
+    } finally { clock.mockRestore(); }
+  });
   it('creates the customer on the verified phone, links the TAKATAK identity, and signs an "on2go" token', async () => {
     const r = await signInWithTakatak({ code: CODE }, '1.1.1.1');
     expect(r.ok).toBe(true);

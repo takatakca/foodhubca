@@ -67,13 +67,13 @@ try {
       check('"/" with tracking parameters lands on /hub (query kept), not on /login', [302, 307].includes(q.status) && to.pathname === '/hub' && to.search === '?utm_source=x&fbclid=y', `${q.status} ${q.location}`); }
     { const dd = await call('GET', '/hub/integrations/doordash-clover', { auth: false });
       const uber = await call('GET', '/hub/integrations/uber-eats-clover', { auth: false });
-      check('integration in certification (DoorDash) is noindex, a live one (Uber Eats) is indexable', dd.status === 200 && /<meta name="robots" content="noindex, follow"/.test(dd.text) && dd.text.includes('en cours de certification') && uber.status === 200 && !/noindex/.test(uber.text), `${dd.status} ${uber.status}`); }
+      check('pending provider page stays noindex; configured public page is indexable; both disclose activation requirements', dd.status === 200 && /<meta name="robots" content="noindex, follow"/.test(dd.text) && dd.text.includes('configuration vérifiée avant l’activation') && uber.status === 200 && !/noindex/.test(uber.text) && uber.text.includes('configuration vérifiée avant l’activation'), `${dd.status} ${uber.status}`); }
     { const legal = await call('GET', '/legal/terms', { auth: false });
       check('draft legal pages are noindex (follow) until approved', legal.status === 200 && /<meta name="robots" content="noindex, follow"/.test(legal.text), String(legal.status)); }
     const robots = await call('GET', '/robots.txt', { auth: false });
     const map = await call('GET', '/sitemap.xml', { auth: false });
     const llms = await call('GET', '/llms.txt', { auth: false });
-    check('robots.txt, sitemap.xml and llms.txt are public', robots.status === 200 && /Disallow: \/api\//.test(robots.text) && map.status === 200 && map.text.includes('/hub/tarifs') && llms.status === 200 && llms.text.includes('# ON2GO.ca'), `${robots.status} ${map.status} ${llms.status}`);
+    check('robots.txt, sitemap.xml and Food Hub llms.txt are public', robots.status === 200 && /Disallow: \/api\//.test(robots.text) && map.status === 200 && map.text.includes('/hub/tarifs') && llms.status === 200 && llms.text.includes('# Food Hub'), `${robots.status} ${map.status} ${llms.status}`);
     check('/hubx is not public', [302, 307].includes((await call('GET', '/hubx', { auth: false, redirect: 'manual' })).status));
     const logo = await fetch(`${APP}/icons/icon-512.png`);
     check('Organization logo is public and indexable', logo.status === 200 && logo.headers.get('x-robots-tag') === null, `${logo.status} ${logo.headers.get('x-robots-tag')}`); }

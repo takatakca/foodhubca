@@ -1,0 +1,54 @@
+[
+  {
+    "file": "foodhub-product-demo-fr-landscape.mp4",
+    "poster": "foodhub-product-demo-fr-landscape.jpg",
+    "language": "fr",
+    "shape": "landscape",
+    "seconds": 30,
+    "audio": "silent",
+    "provenance": "actual local UI, synthetic records; existing restaurant Clover-menu photo assets; no Runway generation",
+    "captions_srt": "foodhub-product-demo-fr.srt",
+    "captions_vtt": "foodhub-product-demo-fr.vtt",
+    "currency_redaction": "Capture-only CSS blur; no application UI/data substitution",
+    "ui_language": "fr"
+  },
+  {
+    "file": "foodhub-product-demo-fr-square.mp4",
+    "poster": "foodhub-product-demo-fr-square.jpg",
+    "language": "fr",
+    "shape": "square",
+    "seconds": 30,
+    "audio": "silent",
+    "provenance": "actual local UI, synthetic records; existing restaurant Clover-menu photo assets; no Runway generation",
+    "captions_srt": "foodhub-product-demo-fr.srt",
+    "captions_vtt": "foodhub-product-demo-fr.vtt",
+    "currency_redaction": "Capture-only CSS blur; no application UI/data substitution",
+    "ui_language": "fr"
+  },
+  {
+    "file": "foodhub-product-demo-en-landscape.mp4",
+    "poster": "foodhub-product-demo-en-landscape.jpg",
+    "language": "en",
+    "shape": "landscape",
+    "seconds": 30,
+    "audio": "silent",
+    "provenance": "actual local UI, synthetic records; existing restaurant Clover-menu photo assets; no Runway generation",
+    "captions_srt": "foodhub-product-demo-en.srt",
+    "captions_vtt": "foodhub-product-demo-en.vtt",
+    "currency_redaction": "Capture-only CSS blur; no application UI/data substitution",
+    "ui_language": "en"
+  },
+  {
+    "file": "foodhub-product-demo-en-square.mp4",
+    "poster": "foodhub-product-demo-en-square.jpg",
+    "language": "en",
+    "shape": "square",
+    "seconds": 30,
+    "audio": "silent",
+    "provenance": "actual local UI, synthetic records; existing restaurant Clover-menu photo assets; no Runway generation",
+    "captions_srt": "foodhub-product-demo-en.srt",
+    "captions_vtt": "foodhub-product-demo-en.vtt",
+    "currency_redaction": "Capture-only CSS blur; no application UI/data substitution",
+    "ui_language": "en"
+  }
+]

@@ -18,6 +18,8 @@ import { ServicesStrip, type ServiceRow } from '@/components/live/services-strip
 import { BrandList, cellText, PLATFORM_ORDER, PlatformLegend, PlatformStateDot } from '@/components/live/brand-list';
 import { ExpansionTiles } from '@/components/expansion/overview-tiles';
 import { GettingStarted } from '@/components/home/getting-started';
+import { OperationsOverview } from '@/components/home/operations-overview';
+import { cancellationRate } from '@/lib/ui/home-operations';
 import { BrandMark } from '@/components/ui/brand-mark';
 import { useScopeLabel } from '@/components/shell/scope-switcher';
 import { plurals } from '@/components/live/words';
@@ -64,6 +66,7 @@ export function Overview({ steps }: { steps?: OnboardingStep[] | null }) {
   useEffect(() => { const tick = () => setHour(new Date().getHours()); tick(); const i = setInterval(tick, 60_000); return () => clearInterval(i); }, []);
   const hello = hour === null ? t('Bonjour', 'Hello') : hour < 12 ? t('Bonjour', 'Good morning') : hour < 18 ? t('Bon après-midi', 'Good afternoon') : t('Bonsoir', 'Good evening');
   const k = cc?.kpis;
+  const cancelledShare = k ? cancellationRate(k.deliveryOrders, k.cancelled) : null;
   const narrowed = Boolean(cc?.brandScoped || cc?.channelScoped);
   const sales = k ? (narrowed ? k.deliverySales : k.combinedSales) : null;
   const vs = k && k.yesterdaySameTime ? Math.round(((k.deliverySales - k.yesterdaySameTime) / k.yesterdaySameTime) * 1000) / 10 : null;
@@ -84,18 +87,17 @@ export function Overview({ steps }: { steps?: OnboardingStep[] | null }) {
         </div>
         {(pulse?.live || (full && pulse)) && (
           <span className={cn('text-small flex h-9 items-center gap-2 rounded-full border px-3 font-semibold', pulse?.live ? 'border-go/25 bg-go-soft text-go-2' : 'border-wait/30 bg-wait-soft text-wait-2')}>
-            <StatusDot tone={pulse?.live ? 'go' : 'wait'} pulse={pulse?.live} />{pulse?.live ? t('En direct avec les plateformes', 'Live with the platforms') : t('Mode sécurité : rien n’est envoyé', 'Safe mode: nothing is sent')}
+            <StatusDot tone={pulse?.live ? 'go' : 'wait'} pulse={pulse?.live} />{pulse?.live ? t('Écritures API activées', 'API writes enabled') : t('Mode sûr · écritures API désactivées', 'Safe mode · API writes off')}
           </span>
         )}
       </div>
 
-      {failed && !cc && <Banner tone="stop">{t('Le tableau de bord ne répond pas. Vérifiez la connexion Internet : on réessaie tout seul toutes les 20 secondes. Les commandes continuent d’arriver sur les tablettes et dans Clover.', 'The dashboard is not answering. Check the Internet connection: it retries by itself every 20 seconds. Orders keep arriving on the tablets and in Clover.')}</Banner>}
+      {failed && !cc && <Banner tone="stop">{t('Le tableau de bord ne répond pas. Vérifiez la connexion Internet : on réessaie tout seul toutes les 20 secondes. Vérifiez vos tablettes de plateforme et Clover pour confirmer la réception des commandes.', 'The dashboard is not answering. Check the Internet connection: it retries by itself every 20 seconds. Check your platform tablets and Clover to confirm orders are arriving.')}</Banner>}
 
       <GettingStarted steps={steps} />
 
-      {/* The four numbers of the scope */}
-      {/* Four columns only from xl: at lg the rail is open and a card would be too narrow for "12 345 $". */}
-      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+      {/* Today's recorded metrics for the current scope. */}
+      <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
         <Kpi icon={<Wallet className="size-4" />} label={salesLabel} value={sales === null ? null : moneyShort(sales, loc)} exact={sales === null ? undefined : money(sales, loc)} href={href('/orders?view=history')}
           note={<>
             {vs !== null ? <span className={cn('inline-flex items-center gap-1 font-semibold', vs >= 0 ? 'text-go-2' : 'text-stop-2')}>{vs >= 0 ? <TrendingUp className="size-4" aria-hidden /> : <TrendingDown className="size-4" aria-hidden />}{vs > 0 ? '+' : ''}{vs}% {t('vs hier', 'vs yesterday')}</span> : k ? t('rien hier à la même heure', 'nothing yesterday at this time') : null}
@@ -111,8 +113,13 @@ export function Overview({ steps }: { steps?: OnboardingStep[] | null }) {
             {t('ouverts', 'open')}
             {(k.storesPaused > 0 || k.storesDeactivated > 0) && <span className="font-semibold text-ink-2"> · <span aria-hidden className="mr-1 inline-block size-2 rounded-full bg-wait align-middle" />{[k.storesPaused ? t(`${k.storesPaused} en pause`, `${k.storesPaused} paused`) : '', k.storesDeactivated ? t(`${k.storesDeactivated} désactivé${k.storesDeactivated > 1 ? 's' : ''}`, `${k.storesDeactivated} deactivated`) : ''].filter(Boolean).join(' · ')}</span>}
           </> : t('aucun magasin branché', 'no store connected')) : null} />
+        <Kpi icon={<Wallet className="size-4" />} label={t('Panier moyen', 'Average order value')} value={k ? (k.deliveryOrders ? moneyShort(k.avgTicket, loc) : '—') : null}
+          exact={k?.deliveryOrders ? money(k.avgTicket, loc) : undefined} href={href('/orders?view=history')} note={t('commandes enregistrées, hors annulations', 'recorded orders, excluding cancellations')} />
+        <Kpi icon={<Receipt className="size-4" />} label={t('Annulations', 'Cancellation rate')} value={!k ? null : cancelledShare === null ? '—' : `${cancelledShare}%`}
+          href={href('/orders?view=history&status=cancelled')} note={k ? t(`${k.cancelled} annulée(s) sur ${k.deliveryOrders + k.cancelled} commande(s) enregistrée(s) aujourd’hui`, `${k.cancelled} cancelled of ${k.deliveryOrders + k.cancelled} orders recorded today`) : null} />
       </div>
 
+      <OperationsOverview alerts={cc?.alerts ?? null} can={can} href={href} t={t} />
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_1.45fr]">
         <ToDo />
         <LiveOrders cc={cc} />
@@ -198,7 +205,7 @@ function ToDo() {
   const critical = (list ?? []).some((i) => i.severity === 'critical');
   return (
     <Card>
-      <CardHeader title={<span className="flex items-center gap-2">{t('À faire', 'To do')}{list && list.length > 0 && <span className={cn('num text-small rounded-full px-2 leading-5 font-bold', critical ? 'bg-stop-2 text-white' : 'bg-wait text-rail')}>{list.length > 9 ? '9+' : list.length}</span>}</span>}
+      <CardHeader title={<span className="flex items-center gap-2">{t('Alertes de surveillance', 'Monitoring alerts')}{list && list.length > 0 && <span className={cn('num text-small rounded-full px-2 leading-5 font-bold', critical ? 'bg-stop-2 text-white' : 'bg-wait text-rail')}>{list.length > 9 ? '9+' : list.length}</span>}</span>}
         subtitle={filtered ? t(`Filtré : ${label.words}`, `Filtered: ${label.words}`) : undefined}
         icon={<BellRing className="size-5" />} right={<Link href={href('/alerts')} className="text-small flex h-11 items-center gap-1 rounded-md px-2 font-semibold text-brand hover:bg-brand-soft">{t('Tout voir', 'See all')}<ArrowRight className="size-4" aria-hidden /></Link>} />
       <div className="divide-y divide-line border-t border-line">
@@ -210,7 +217,7 @@ function ToDo() {
             <ChevronRight className="size-4 text-ink-4" aria-hidden />
           </Link>
         ))}
-        {list && list.length === 0 && <div className="text-body flex items-center gap-3 px-5 py-8 text-ink-3"><CircleCheck className="size-5 text-go" aria-hidden />{t('Tout roule. Rien à faire.', 'All good. Nothing to do.')}</div>}
+        {list && list.length === 0 && <div className="text-body flex items-center gap-3 px-5 py-8 text-ink-3"><CircleCheck className="size-5 text-go" aria-hidden />{t('Aucune alerte de surveillance ouverte dans cette vue.', 'No open monitoring alerts in this view.')}</div>}
         {!list && <div className="space-y-2 p-5"><Skeleton className="h-10" /><Skeleton className="h-10" /><Skeleton className="h-10" /></div>}
       </div>
     </Card>
@@ -366,7 +373,7 @@ function Connections() {
   const NAMES: Record<string, [string, string]> = { database: ['Base de données', 'Database'], sync: ['Synchro', 'Sync'], watchtower: ['Watchtower', 'Watchtower'], recovery: ['Reprise des commandes', 'Order recovery'], inbox: ['Webhooks', 'Webhooks'], clover: ['Clover', 'Clover'], console: ['Écrans et connexion', 'Screens & sign-in'] };
   const mode = (p: Health['platforms'][number]): [string, 'go' | 'wait' | 'stop' | 'info'] => p.mode === 'via_clover' ? [t('par Clover', 'via Clover'), 'info']
     : p.mode === 'not_connected' ? [t('à brancher', 'to connect'), 'stop'] : p.mode === 'inbound' ? [t('réception', 'inbound'), 'info'] : p.live ? [t('en direct', 'live'), 'go'] : [t('prêt, pas en direct', 'ready, not live'), 'wait'];
-  const overall: [string, 'go' | 'wait' | 'stop'] = !h ? [t('Vérification…', 'Checking…'), 'wait'] : h.status === 'ok' ? [t('Tout est branché', 'Everything connected'), 'go'] : h.status === 'degraded' ? [t('À surveiller', 'Needs a look'), 'wait'] : [t('Problème — des commandes peuvent être manquées', 'Problem — orders could be missed'), 'stop'];
+  const overall: [string, 'go' | 'wait' | 'stop'] = !h ? [t('Vérification…', 'Checking…'), 'wait'] : h.status === 'ok' ? [t('Contrôles Food Hub au vert', 'Food Hub checks healthy'), 'go'] : h.status === 'degraded' ? [t('À surveiller', 'Needs a look'), 'wait'] : [t('Problème — des commandes peuvent être manquées', 'Problem — orders could be missed'), 'stop'];
   return (
     <Card>
       <CardHeader title={t('Connexions et synchro', 'Connections & sync')} icon={<Activity className="size-5" />}

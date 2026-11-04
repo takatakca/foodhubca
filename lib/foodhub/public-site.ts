@@ -22,7 +22,7 @@ export function publicSiteLang(pathname: string): PublicLang | null {
 
 /** Reachable without a sign-in. "/hubx" or "/hub-admin" are not: the match is exact or on "/hub/". */
 export function isPublicSitePath(pathname: string): boolean {
-  return publicSiteLang(pathname) !== null || PUBLIC_SITE_FILES.has(pathname) || pathname.startsWith('/og/');
+  return publicSiteLang(pathname) !== null || PUBLIC_SITE_FILES.has(pathname) || pathname.startsWith('/og/') || pathname.startsWith('/hub-media/');
 }
 
 /** A storefront ordering page or its sitemap (/commander/<slug>, /commander/sitemap.xml: lib/foodhub/storefront/seo.ts),

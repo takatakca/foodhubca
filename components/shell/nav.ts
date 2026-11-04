@@ -29,7 +29,10 @@ export const NAV: NavItem[] = [
   { href: '/kitchen', icon: ChefHat, label: (t) => t('Écran cuisine', 'Kitchen screen'), perm: 'view' },
   // Menus and Restaurants keep their sub-pages as tabs on the page (86 board, hours, platform links).
   { href: '/menu', icon: UtensilsCrossed, label: (t) => t('Menus', 'Menus'), perm: 'items:toggle' },
-  { href: '/stores', icon: Store, label: (t) => t('Restaurants', 'Restaurants'), perm: 'view', badge: 'stores' },
+  { href: '/stores', icon: Store, label: (t) => t('Restaurants', 'Restaurants'), perm: 'view', badge: 'stores', match: ['/organization'], children: [
+    { href: '/stores', label: (t) => t('Vue des restaurants', 'Restaurant overview'), perm: 'view' },
+    { href: '/organization', label: (t) => t('Organisation', 'Organization'), perm: 'view' },
+  ] },
   {
     href: '/insights', icon: ChartNoAxesCombined, label: (t) => t('Rapports', 'Reports'), perm: 'analytics:view', match: ['/money'],
     children: [
@@ -61,7 +64,10 @@ const ORDERS_SIMPLE: NavItem = {
   ],
 };
 const MENUS: NavItem = { href: '/menu', icon: UtensilsCrossed, label: (t) => t('Menus', 'Menus'), perm: 'items:toggle' };
-const RESTAURANTS: NavItem = { href: '/stores', icon: Store, label: (t) => t('Restaurants', 'Restaurants'), perm: 'view', badge: 'stores' };
+const RESTAURANTS: NavItem = { href: '/stores', icon: Store, label: (t) => t('Restaurants', 'Restaurants'), perm: 'view', badge: 'stores', match: ['/organization'], children: [
+  { href: '/stores', label: (t) => t('Vue des restaurants', 'Restaurant overview'), perm: 'view' },
+  { href: '/organization', label: (t) => t('Organisation', 'Organization'), perm: 'view' },
+] };
 const REPORTS_SIMPLE: NavItem = {
   href: '/insights', icon: ChartNoAxesCombined, label: (t) => t('Rapports', 'Reports'), perm: 'analytics:view', match: ['/money'],
   children: [

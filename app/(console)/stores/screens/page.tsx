@@ -14,6 +14,7 @@ import { useToast } from '@/components/ui/toast';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { usePulse } from '@/components/live/pulse';
 import { StoresTabs } from '../stores-tabs';
+import { ScreenReadinessPanel } from '@/components/live/screen-readiness';
 import { ago, api, ApiError } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
@@ -67,8 +68,8 @@ function useNarrow() {
 
 export default function PlatformScreensPage() {
   const { t, lang } = useI18n();
-  const { can, locations, locName } = useViewer();
-  const { site, setSite } = usePulse();
+  const { can, locations, locName, viewer } = useViewer();
+  const { site, setSite, pulse } = usePulse();
   const toast = useToast();
   const narrow = useNarrow();
   const [screens, setScreens] = useState<Screen[]>([]);
@@ -237,7 +238,7 @@ export default function PlatformScreensPage() {
   return (
     <div>
       <PageHeader title={t('Écrans des plateformes', 'Platform screens')}
-        subtitle={loaded && screens.length > 0 ? undefined : t('Tous les écrans de commandes DoorDash, Uber Eats et Skip de toutes les franchises, côte à côte. Ils tournent sur le serveur relais, branché et toujours allumé : plus de tablette qui perd le Wi-Fi. Vous vous connectez une seule fois, dans chaque écran — Food Hub ne voit et ne garde jamais vos mots de passe.', 'Every DoorDash, Uber Eats and Skip order screen of every franchise, side by side. They run on the relay host, wired and always on: no more tablet losing its Wi-Fi. You sign in once, inside each screen — Food Hub never sees or keeps your passwords.')}
+        subtitle={t('Un compte par écran DoorDash, Uber Eats ou Skip. Gardez vos sessions existantes sur le PC et connectez-vous vous-même dans chaque écran.', 'One account per DoorDash, Uber Eats or Skip screen. Keep your existing PC sessions and sign in yourself inside each screen.')}
         right={<div className="flex flex-wrap gap-2">
           <Button variant={ring ? 'primary' : 'outline'} onClick={toggleRing} icon={ring ? <Bell className="size-4" /> : <BellOff className="size-4" />}>
             {ring ? t('Sonne sur cet appareil', 'Rings on this device') : t('Sonner sur cet appareil', 'Ring on this device')}
@@ -246,10 +247,12 @@ export default function PlatformScreensPage() {
           {manage && <Button onClick={() => setEdit('new')} icon={<Plus className="size-4" />}>{t('Ajouter un écran', 'Add a screen')}</Button>}
         </div>} />
       <StoresTabs />
-      {err && <Banner tone="stop" className="mb-3">{err}</Banner>}
-      {loaded && !agent && manage && (
-        <Banner tone="warn" className="mb-3">{t('Le serveur relais n’est pas encore branché : réglez FOODHUB_SCREENS_AGENT_TOKEN (24 caractères ou plus) sur Food Hub et sur le serveur relais. Guide : docs/PLATFORM_SCREENS.md.', 'The relay host is not connected yet: set FOODHUB_SCREENS_AGENT_TOKEN (24+ characters) on Food Hub and on the relay host. Guide: docs/PLATFORM_SCREENS.md.')}</Banner>
-      )}
+      {err && <Banner tone="stop" className="mb-3" action={<Button variant="outline" onClick={load} icon={<RefreshCw className="size-4" />}>{t('Réessayer', 'Retry')}</Button>}>
+        {err}{loaded && <span className="block text-small">{t('Les derniers états reçus restent affichés ; ils peuvent avoir changé.', 'The last reported states remain visible; they may have changed.')}</span>}
+      </Banner>}
+      {!loaded && !err && <Card className="mb-4 p-5"><p role="status" className="text-sm text-ink-2">{t('Chargement de vos comptes et des derniers signaux…', 'Loading your accounts and their latest reports…')}</p></Card>}
+      {loaded && <ScreenReadinessPanel screens={screens} paths={paths} site={site} live={pulse?.live ?? null} relayConfigured={agent} manage={manage} lang={lang}
+        onShow={viewer.device ? undefined : (channel) => setSite({ channel })} t={t} />}
       {waitingNow.waiting > 0 && (
         <Banner tone="warn" className={cn('mb-3 text-base', ring && 'animate-pulse')}>
           <strong>{t(`${waitingNow.waiting} commande(s) en attente`, `${waitingNow.waiting} order(s) waiting`)}</strong> —{' '}
@@ -259,7 +262,6 @@ export default function PlatformScreensPage() {
         </Banner>
       )}
       {loaded && down > 0 && <Banner tone="stop" className="mb-3">{t(`${down} écran(s) à vérifier : hors ligne, déconnecté(s) ou planté(s). Rechargez, ou reconnectez-vous dans l’écran.`, `${down} screen(s) need attention: offline, signed out or crashed. Reload, or sign in again inside the screen.`)}</Banner>}
-      {paths.length > 0 && <OrderPathsStrip paths={paths} t={t} lang={lang} />}
       {loaded && screens.length > 0 && (
         <p className="mb-3 text-sm text-ink-2" role="status">
           {t(`${ordered.length} écran(s) affiché(s) sur ${screens.length}.`, `${ordered.length} of ${screens.length} screens shown.`)}{' '}
@@ -276,7 +278,7 @@ export default function PlatformScreensPage() {
           onShare={manage ? shareLayout : undefined} onUseShared={useSharedLayout} />
         {loaded && screens.length === 0 ? (
           <Card><EmptyState icon={<MonitorPlay className="size-6" />} title={t('Aucun écran', 'No screen')}
-            body={t('« Préparer les écrans » crée d’un coup les écrans numérotés (ex. 18 DoorDash, 18 Uber Eats, 18 Skip), chacun prêt à se connecter. Le serveur relais : docs/PLATFORM_SCREENS.md.', '“Set up screens” creates the numbered screens in one go (e.g. 18 DoorDash, 18 Uber Eats, 18 Skip), each ready to sign in. The relay host: docs/PLATFORM_SCREENS.md.')}
+            body={t('Aucun compte n’est enregistré dans cette instance. S’ils fonctionnent déjà sur votre PC, vérifiez d’abord l’installation existante ci-dessus. Préparez seulement les comptes manquants, sans remplacer leurs profils.', 'No accounts are registered in this instance. If they already work on your PC, check the existing installation above first. Set up only missing accounts, keeping their profiles.')}
             action={manage ? <Button onClick={() => setSetup(true)} icon={<Wand2 className="size-4" />}>{t('Préparer les écrans', 'Set up screens')}</Button> : undefined} /></Card>
         ) : loaded && ordered.length === 0 ? (
           <Card><EmptyState icon={<MonitorPlay className="size-6" />} title={t('Aucun écran dans cette vue', 'No screens in this view')}
@@ -309,29 +311,6 @@ export default function PlatformScreensPage() {
           <p className="text-sm text-ink-2"><strong className="text-ink">{remove.name}</strong> · {platformLabel(remove.platform)}. {t('Il disparaît de Food Hub et la surveillance ne le suit plus. L’écran continue de tourner sur le serveur relais.', 'It leaves Food Hub and the watchtower stops following it. The screen keeps running on the relay host.')}</p>
         </Modal>
       )}
-    </div>
-  );
-}
-
-// ---- How each platform's orders reach Clover (the screens never carry orders) ----
-
-function OrderPathsStrip({ paths, t, lang }: { paths: OrderPath[]; t: T; lang: 'fr' | 'en' }) {
-  const text = (p: OrderPath) => p.mode === 'via_clover' ? t('commandes → Clover par le lien de la plateforme', 'orders → Clover through the platform’s link')
-    : p.mode === 'direct' ? (p.cloverReady ? t('commandes → Food Hub → Clover', 'orders → Food Hub → Clover') : t('commandes → Food Hub (Clover pas branché)', 'orders → Food Hub (Clover not connected)'))
-    : t('écran seulement : le ticket sort de la tablette ou de l’imprimante', 'screen only: the ticket comes from the tablet or printer');
-  return (
-    <div className="mb-3 flex gap-2 overflow-x-auto pb-1 text-xs sm:flex-wrap sm:overflow-visible">
-      {paths.map((p) => {
-        const ok = p.mode === 'via_clover' || (p.mode === 'direct' && p.cloverReady);
-        return (
-          <span key={p.platform} className={cn('inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1', ok ? 'border-go/30 bg-go-soft text-go-2' : 'border-wait/30 bg-wait-soft text-wait-2')}
-            title={p.lastOrderAt ? `${t('Dernière commande', 'Last order')} ${ago(p.lastOrderAt, lang)}` : undefined}>
-            <span className={cn('size-2 rounded-full', PLATFORM_DOT[p.platform])} />
-            <strong>{platformLabel(p.platform)}</strong> {text(p)}
-            {p.lastOrderAt && <span className="opacity-75">· {ago(p.lastOrderAt, lang)}</span>}
-          </span>
-        );
-      })}
     </div>
   );
 }

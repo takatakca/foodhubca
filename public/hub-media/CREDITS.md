@@ -1,0 +1,10 @@
+# Food Hub editorial media
+
+These are public, nonprivate marketing assets. They are not approved Clover App Market listing exports or official food-product catalog cards.
+
+- `restaurant-counter.webp`: unaltered licensed Unsplash context photograph, reused from `takatak-v1/public/photos/commerce-cafe.webp`. Source: https://images.unsplash.com/photo-1551529563-fce9529e67ac. Unsplash License: https://unsplash.com/license. The person pictured is not represented as TAKATAK staff, a customer, or an endorser.
+- `tablet-wall-demo.webp`: actual Food Hub sandbox capture recorded on 2026-11-04 using the existing PR #140 walkthrough recorder. Source capture: `002-screens-wall-20s-landscape.png`. It shows local simulated relay screens, not real provider sessions or proof of provider API authorization. Resized to 1440 px, WebP; original 1920 × 1080. The page labels this limitation explicitly. No real customer data or passwords.
+- `tablet-wall-demo-en.webp`: matching English-language actual sandbox capture from the same recorder, English capture set. Same simulated-relay limitations and 1440 px WebP format.
+- `foodhub-product-demo-fr.mp4` and `foodhub-product-demo-en.mp4`, their `.jpg` posters and `.vtt` captions: 30-second silent product films, recorded and edited on 2026-11-04. Actual, language-matched sandbox kitchen/order-board/tablet-wall captures, with fictional order data and local simulated relay screens. Provider authorization and real merchant sessions are not demonstrated. Currency amounts in the videos were blurred for the media brief; source application data was not changed. The films use a genuine restaurant-menu photograph for the food opener, not generated food imagery. Captions are also burned into the films, and readable descriptions are provided on the page.
+
+Official brand image masters are not present in `knowledgeAI/brand`; the page uses a plain product wordmark rather than inventing a logo. No generated food photography or fabricated merchant endorsements are included.

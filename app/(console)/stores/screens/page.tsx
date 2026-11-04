@@ -12,12 +12,15 @@ import { Field, Input, Select } from '@/components/ui/form';
 import { Modal } from '@/components/ui/overlay';
 import { useToast } from '@/components/ui/toast';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
+import { usePulse } from '@/components/live/pulse';
 import { StoresTabs } from '../stores-tabs';
 import { ago, api, ApiError } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
 import { playSound, unlockAudio } from '@/lib/ui/sound';
 import { ringDecision, type RingMemory } from '@/lib/ui/screens-ring';
+import { missingScreenCounts, nextScreenNumber } from '@/lib/ui/screens-setup';
+import { resetVisibleScreenTiles, revealScreenScope, screenInScope, screenWallState } from '@/lib/ui/screens-scope';
 import {
   addTile, BOARD, changeTile, clampPage, clampTile, defaultCustom, DEFAULT_WALL, gridShape, moveId, orderIds, pageCount, pageOf, pageSlice, parseWall,
   removeTile, type CustomTile, type GridView, type WallState, type WallView,
@@ -50,12 +53,6 @@ const PLATFORMS: Array<{ value: Platform; label: string }> = [
 const platformLabel = (p: Platform) => PLATFORMS.find((x) => x.value === p)?.label ?? p;
 const PLATFORM_DOT: Record<Platform, string> = { doordash: 'bg-[#eb1700]', ubereats: 'bg-[#06c167]', skip: 'bg-[#f36d00]', other: 'bg-ink-3' };
 
-/** The first free numbered screen after the highest one (s01 when none exists). */
-function nextSlot(screens: Array<{ id: string }>) {
-  const nums = screens.map((s) => /^s(\d{2})$/.exec(s.id)?.[1]).filter(Boolean).map(Number);
-  return nums.length ? Math.min(99, Math.max(...nums) + 1) : 1;
-}
-
 function useNarrow() {
   const [narrow, setNarrow] = useState(false);
   useEffect(() => {
@@ -71,6 +68,7 @@ function useNarrow() {
 export default function PlatformScreensPage() {
   const { t, lang } = useI18n();
   const { can, locations, locName } = useViewer();
+  const { site, setSite } = usePulse();
   const toast = useToast();
   const narrow = useNarrow();
   const [screens, setScreens] = useState<Screen[]>([]);
@@ -199,27 +197,36 @@ export default function PlatformScreensPage() {
   });
   const order = orderIds(natural.map((s) => s.id), wall.order);
   const byId = new Map(screens.map((s) => [s.id, s]));
-  const ordered = order.map((id) => byId.get(id)).filter((s): s is Screen => !!s);
+  const allOrdered = order.map((id) => byId.get(id)).filter((s): s is Screen => !!s);
+  const { visible: ordered, ring: waitingNow } = screenWallState(allOrdered, site, {});
+  const visibleOrder = ordered.map((s) => s.id);
   const down = screens.filter((s) => s.status !== 'online' && s.status !== 'never').length;
-  const waitingNow = ringDecision(screens, {});
 
   // A phone shows one screen at a time (with pages) or the tabs.
   const view: WallView = narrow && wall.view !== '1' && wall.view !== 'tabs' && wall.view !== 'list' ? '1' : wall.view;
   function setView(view: WallView) {
     setArrange(false);
-    setWall((w) => ({ ...w, view, page: 0, custom: view === 'custom' && !w.custom.length ? defaultCustom(order) : w.custom }));
+    setWall((w) => ({ ...w, view, page: 0, custom: view === 'custom' && !w.custom.length ? defaultCustom(visibleOrder) : w.custom }));
     if (!document.fullscreenElement) wallRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
   const reorder = (from: string, to: string) => setWall((w) => ({ ...w, order: moveId(order, from, to) }));
   const focus = (id: string) => { setArrange(false); setWall((w) => ({ ...w, view: 'tabs', tab: id })); };
   /** Show a screen where the owner is: its page in a grid view, its tab, or big when it is not on the custom board. */
   const reveal = (id: string) => {
+    const screen = byId.get(id);
+    if (!screen) return;
+    if (!screenInScope(screen, site)) {
+      setSite(revealScreenScope(screen));
+      focus(id);
+      wallRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
     const per = Number(view);
-    if (Number.isFinite(per) && per > 0) setWall((w) => ({ ...w, page: pageOf(order, id, per) }));
+    if (Number.isFinite(per) && per > 0) setWall((w) => ({ ...w, page: pageOf(visibleOrder, id, per) }));
     else if (view === 'tabs' || !wall.custom.some((x) => x.id === id)) focus(id);
     wallRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
-  const waitingScreens = ordered.filter((s) => s.status === 'online' && (s.titleCount ?? 0) > 0);
+  const waitingScreens = allOrdered.filter((s) => s.status === 'online' && (s.titleCount ?? 0) > 0);
 
   const tileProps = (s: Screen) => ({
     s, lang, loc: shortLoc(locName(s.locationCode)), manage, canAct,
@@ -253,11 +260,17 @@ export default function PlatformScreensPage() {
       )}
       {loaded && down > 0 && <Banner tone="stop" className="mb-3">{t(`${down} écran(s) à vérifier : hors ligne, déconnecté(s) ou planté(s). Rechargez, ou reconnectez-vous dans l’écran.`, `${down} screen(s) need attention: offline, signed out or crashed. Reload, or sign in again inside the screen.`)}</Banner>}
       {paths.length > 0 && <OrderPathsStrip paths={paths} t={t} lang={lang} />}
+      {loaded && screens.length > 0 && (
+        <p className="mb-3 text-sm text-ink-2" role="status">
+          {t(`${ordered.length} écran(s) affiché(s) sur ${screens.length}.`, `${ordered.length} of ${screens.length} screens shown.`)}{' '}
+          {t('La sonnerie surveille tous vos écrans, même ceux des autres plateformes. Un compte peut couvrir plusieurs marques.', 'Ringing monitors all your screens, including other platforms. One account can cover several brands.')}
+        </p>
+      )}
 
       <div ref={wallRef} className={cn('flex scroll-mt-[72px] flex-col gap-2', full && 'bg-canvas p-2')}>
         <WallToolbar t={t} wall={{ ...wall, view }} count={ordered.length} narrow={narrow} full={full} arrange={arrange} ring={ring}
           onView={setView} onPage={(page) => setWall((w) => ({ ...w, page }))} onFull={toggleFull} onArrange={() => setArrange((a) => !a)} onRing={toggleRing}
-          onResetCustom={() => setWall((w) => ({ ...w, custom: defaultCustom(order) }))}
+          onResetCustom={() => setWall((w) => ({ ...w, custom: resetVisibleScreenTiles(w.custom, visibleOrder) }))}
           unplaced={wall.view === 'custom' ? ordered.filter((s) => !wall.custom.some((x) => x.id === s.id)) : []}
           onPlace={(id) => setWall((w) => ({ ...w, custom: addTile(w.custom, id) }))}
           onShare={manage ? shareLayout : undefined} onUseShared={useSharedLayout} />
@@ -265,6 +278,10 @@ export default function PlatformScreensPage() {
           <Card><EmptyState icon={<MonitorPlay className="size-6" />} title={t('Aucun écran', 'No screen')}
             body={t('« Préparer les écrans » crée d’un coup les écrans numérotés (ex. 18 DoorDash, 18 Uber Eats, 18 Skip), chacun prêt à se connecter. Le serveur relais : docs/PLATFORM_SCREENS.md.', '“Set up screens” creates the numbered screens in one go (e.g. 18 DoorDash, 18 Uber Eats, 18 Skip), each ready to sign in. The relay host: docs/PLATFORM_SCREENS.md.')}
             action={manage ? <Button onClick={() => setSetup(true)} icon={<Wand2 className="size-4" />}>{t('Préparer les écrans', 'Set up screens')}</Button> : undefined} /></Card>
+        ) : loaded && ordered.length === 0 ? (
+          <Card><EmptyState icon={<MonitorPlay className="size-6" />} title={t('Aucun écran dans cette vue', 'No screens in this view')}
+            body={t('Choisissez une autre plateforme ou succursale pour afficher ses écrans.', 'Choose another platform or location to show its screens.')}
+            action={<Button variant="outline" onClick={() => setSite({ kitchen: null, brand: null, channel: undefined })}>{t('Voir tous les écrans', 'Show all screens')}</Button>} /></Card>
         ) : (
           <div className="min-h-0" style={narrow ? undefined : { height: full ? 'calc(100vh - 64px)' : areaH ? `${areaH}px` : 'max(480px, calc(100vh - 290px))' }}>
             {view === 'list' ? (
@@ -284,7 +301,7 @@ export default function PlatformScreensPage() {
 
       {edit && <ScreenDialog screen={edit === 'new' ? null : edit} locations={locations} onClose={() => setEdit(null)}
         onDone={async (name) => { setEdit(null); toast.success(t('Écran enregistré', 'Screen saved'), name); await load(); }} />}
-      {setup && <SetupDialog locations={locations} existing={screens.length} nextSlot={nextSlot(screens)} onClose={() => setSetup(false)}
+      {setup && <SetupDialog locations={locations} existing={screens} nextSlot={nextScreenNumber(screens)} onClose={() => setSetup(false)}
         onDone={async (n) => { setSetup(false); toast.success(t('Écrans prêts', 'Screens ready'), t(`${n} écran(s) créé(s), chacun ouvre sa page de connexion.`, `${n} screen(s) created, each opens its sign-in page.`)); await load(); }} />}
       {remove && (
         <Modal size="sm" title={t('Retirer cet écran ?', 'Remove this screen?')} onClose={() => setRemove(null)}
@@ -665,12 +682,12 @@ function TileButton({ label, onClick, disabled, children }: { label: string; onC
 
 const MAX_SLOTS = 99;
 
-function SetupDialog({ locations, existing, nextSlot, onClose, onDone }: { locations: Array<{ code: string; name: string }>; existing: number; nextSlot: number; onClose: () => void; onDone: (n: number) => void }) {
+function SetupDialog({ locations, existing, nextSlot, onClose, onDone }: { locations: Array<{ code: string; name: string }>; existing: Array<{ platform: string }>; nextSlot: number; onClose: () => void; onDone: (n: number) => void }) {
   const { t } = useI18n();
   const [baseUrl, setBaseUrl] = useState('');
   const [locationCode, setLocation] = useState(locations[0]?.code ?? '');
-  // One account per screen: 18 DoorDash + 18 Uber Eats + 18 Skip by default (owner's 54 accounts).
-  const [counts, setCounts] = useState({ doordash: 18, ubereats: 18, skip: 18 });
+  // Keep the existing PC's accounts and profile numbers; propose only the missing ones toward 18 per provider.
+  const [counts, setCounts] = useState(() => missingScreenCounts(existing));
   const [start, setStart] = useState(nextSlot);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -692,7 +709,7 @@ function SetupDialog({ locations, existing, nextSlot, onClose, onDone }: { locat
       <div className="space-y-3">
         {err && <Banner tone="stop">{err}</Banner>}
         <p className="text-sm text-ink-2">{t('Crée les écrans numérotés s01, s02… Chacun ouvre la page de connexion de son canal sur le serveur relais : vous vous connectez ensuite une fois dans chaque écran. Le serveur relais utilise les mêmes numéros (docs/ORDER_SCREENS_RESCUE.md).', 'Creates the numbered screens s01, s02… Each opens its channel’s sign-in page on the relay host: you then sign in once in each screen. The relay host uses the same numbers (docs/ORDER_SCREENS_RESCUE.md).')}</p>
-        {existing > 0 && <Banner tone="info">{t('Les numéros qui existent déjà sont gardés tels quels ; seuls les nouveaux sont créés.', 'Numbers that already exist are kept as they are; only new ones are created.')}</Banner>}
+        {existing.length > 0 && <Banner tone="info">{t(`${existing.length} écran(s) déjà enregistré(s). Les nombres ci-dessous complètent 18 comptes par plateforme ; ils peuvent être ajustés. Les écrans et connexions existants sont conservés.`, `${existing.length} screen(s) already registered. The counts below fill the gaps toward 18 accounts per platform; you can adjust them. Existing screens and sign-ins are preserved.`)}</Banner>}
         <div className="grid grid-cols-3 gap-2">
           {(['doordash', 'ubereats', 'skip'] as const).map((p) => (
             <Field key={p} label={<span className="inline-flex items-center gap-1.5"><span className={cn('size-2 rounded-full', PLATFORM_DOT[p])} />{platformLabel(p)}</span>}>

@@ -1,3 +1,4 @@
+- 2026-11-04 | Codex (unified-platform-workspaces) @ Codex cloud | feature/unified-platform-workspaces → PR pending | active | Provider workspaces, manual tablet-wall scope, finance scope and cross-repository contract verification; GitHub API/board currently inaccessible (proxy 403), Drive/ChatGPT-history connectors unavailable | next: finish local checks, preserve honest API/manual/readiness states, publish review branch if access permits. — signé : Codex @ Codex cloud · 2026-11-04
 # Work log
 
 Newest first, one line per piece of work. Rule: `AGENTS.md` › Work log rule.

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { CheckCircle2, FileUp, RefreshCw } from 'lucide-react';
 import { Hint } from '@/components/help/hint';
 import { PlatformTag } from '@/components/ui/badge';
@@ -15,6 +15,7 @@ import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { usePulse } from '@/components/live/pulse';
 import { CaseBadge, MoneyHead, PROBLEM, RECOVERABLE, ReconBadge, cad, plural, reconLabel, settledCard, signed, toRecover, type Recon, type ReconStatus } from './money-ui';
 import { api, ApiError, dayOf } from '@/lib/ui/api';
+import { useFinanceRead } from '@/lib/ui/use-finance-read';
 import { useFilters } from '@/lib/ui/range';
 import { useI18n } from '@/lib/i18n/client';
 
@@ -22,23 +23,20 @@ export default function MoneyOverview() {
   const { t, loc } = useI18n();
   const { locations, locName, can } = useViewer();
   const toast = useToast();
-  const { scope } = usePulse();
-  const { filters, set, query } = useFilters('30d', scope);
-  const [data, setData] = useState<Recon | null>(null);
-  const [cases, setCases] = useState<{ count: number; amount: number } | null>(null);
-  const [err, setErr] = useState('');
+  const { scope, brands, channels, site } = usePulse();
+  const { filters, set, query } = useFilters('30d', scope, brands, channels);
   const [busy, setBusy] = useState(false);
-  const load = useCallback(async () => {
-    try {
-      const [r, c] = await Promise.all([api<Recon>(`/api/foodhub/recon?${query}`), api<{ cases: Array<{ amount: number; type: string }> }>('/api/foodhub/recon/cases?status=open,disputed')]);
-      const owed = c.cases.filter((x) => RECOVERABLE.includes(x.type));
-      setData(r); setCases({ count: owed.length, amount: owed.reduce((s, x) => s + x.amount, 0) }); setErr('');
-    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+  const read = useCallback(async () => {
+    const [recon, c] = await Promise.all([api<Recon>(`/api/foodhub/recon?${query}`), api<{ cases: Array<{ amount: number; type: string }> }>(`/api/foodhub/recon/cases?status=open,disputed&${query}`)]);
+    const owed = c.cases.filter((x) => RECOVERABLE.includes(x.type));
+    return { recon, cases: { count: owed.length, amount: owed.reduce((s, x) => s + x.amount, 0) } };
   }, [query]);
-  useEffect(() => { load(); }, [load]);
+  const { data: response, err, load } = useFinanceRead(query, read);
+  const data = response?.recon ?? null;
+  const cases = response?.cases ?? null;
   async function recheck() {
     setBusy(true);
-    try { const r = await api<{ opened: number; closed: number }>('/api/foodhub/recon/run', { method: 'POST' }); toast.success(t('90 derniers jours revérifiés', 'Last 90 days re-checked'), `${plural(t, r.opened, ['nouveau problème', 'nouveaux problèmes'], ['new problem', 'new problems'])} · ${plural(t, r.closed, ['réglé', 'réglés'], ['fixed', 'fixed'])}`); await load(); }
+    try { const r = await api<{ opened: number; closed: number }>('/api/foodhub/recon/run', { method: 'POST' }); toast.success(t('Toutes les plateformes et succursales : 90 jours revérifiés', 'All platforms and locations: last 90 days re-checked'), `${plural(t, r.opened, ['nouveau problème', 'nouveaux problèmes'], ['new problem', 'new problems'])} · ${plural(t, r.closed, ['réglé', 'réglés'], ['fixed', 'fixed'])}`); await load(); }
     catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
   const problems = useMemo(() => (data?.orders ?? []).filter((o) => PROBLEM.includes(o.status)).sort((a, b) => toRecover(b) - toRecover(a)), [data]);
@@ -49,7 +47,8 @@ export default function MoneyOverview() {
   return (
     <div>
       <MoneyHead title={t('Où est mon argent ?', 'Where is my money?')} intro={t('Chaque commande est comparée à votre plan de commission et à ce que les relevés ont vraiment payé. Commandes absentes, paiements en moins, frais d’erreur et remboursements deviennent des litiges automatiquement. Rien n’est approuvé ni publié à votre place.', 'Every order is checked against your commission plan and against what the statements really paid. Missing orders, short payments, error charges and refunds become dispute cases automatically. Nothing is approved or posted for you.')}
-        right={<><ButtonLink href="/money/statements" variant="outline" icon={<FileUp className="size-4" />}>{t('Importer un relevé', 'Import a statement')}</ButtonLink>{can('finance:edit') && <Button loading={busy} onClick={recheck} icon={<RefreshCw className="size-4" />}>{t('Revérifier', 'Re-check')}</Button>}</>} />
+        right={<><ButtonLink href="/money/statements" variant="outline" icon={<FileUp className="size-4" />}>{t('Importer un relevé', 'Import a statement')}</ButtonLink>{can('finance:edit') && <Button loading={busy} onClick={recheck} icon={<RefreshCw className="size-4" />}>{t('Revérifier toutes les plateformes', 'Re-check all platforms')}</Button>}</>} />
+      {(site.brand || site.kitchen) && <Banner tone="info" className="mb-4">{t('Les commandes suivent votre restaurant. Les frais et commandes non jumelés des relevés sont exclus : consultez tous les restaurants pour les vérifier.', 'Orders follow your restaurant selection. Unmatched statement charges and orders are excluded; select all restaurants to review them.')}</Banner>}
       {err && <Banner tone="stop" className="mb-4">{err}</Banner>}
       <Hint id="money.period"><FilterBar filters={filters} set={set} locations={locations} showBrands={false} presets={['yesterday', '7d', '30d', 'month', 'last_month', 'custom']} /></Hint>
       {data && data.imports === 0 && <Banner tone="info" className="mb-4" action={<ButtonLink href="/money/statements" variant="outline" size="md" className="shrink-0">{t('Importer', 'Import')}</ButtonLink>}>{t('Aucun relevé importé : les montants attendus sont calculés, mais rien ne peut être marqué absent ou payé en moins avant un import.', 'No statement imported: expected payouts are calculated, but nothing can be marked missing or short-paid until you import one.')}</Banner>}

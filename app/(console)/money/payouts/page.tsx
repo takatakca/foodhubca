@@ -1,7 +1,7 @@
 'use client';
 
 // Payouts & deposits — each platform payout from its statement, next to what reached the bank.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { CheckCircle2, Download, XCircle } from 'lucide-react';
 import { PlatformTag } from '@/components/ui/badge';
 import { Button, ButtonLink } from '@/components/ui/button';
@@ -18,6 +18,8 @@ import { Hint } from '@/components/help/hint';
 import { useOptionalHelp } from '@/components/help/help-provider';
 import { CH_NAME, MoneyHead, cad, signed } from '../money-ui';
 import { api, ApiError, dayOf, downloadCsv, ymd } from '@/lib/ui/api';
+import { useFinanceRead } from '@/lib/ui/use-finance-read';
+import { usePulse } from '@/components/live/pulse';
 import { useFilters } from '@/lib/ui/range';
 import { formDraftId, useFormDraft } from '@/lib/ui/use-form-draft';
 import { useI18n } from '@/lib/i18n/client';
@@ -31,14 +33,13 @@ export default function PayoutsPage() {
   const { t, loc } = useI18n();
   const { can, locations } = useViewer();
   const toast = useToast();
-  const { filters, set, query } = useFilters('last_month');
-  const [rows, setRows] = useState<Batch[]>([]);
-  const [err, setErr] = useState('');
+  const { channels, site } = usePulse();
+  const { filters, set, query } = useFilters('last_month', [], [], channels);
   const [dep, setDep] = useState<Batch | null>(null);
-  const [loaded, setLoaded] = useState(false);
 
-  const load = useCallback(() => api<{ payouts: Batch[] }>(`/api/foodhub/recon/payouts?${query}`).then((d) => { setRows(d.payouts); setErr(''); setLoaded(true); }).catch((e) => setErr(e instanceof Error ? e.message : String(e))), [query]);
-  useEffect(() => { load(); }, [load]);
+  const read = useCallback(() => api<{ payouts: Batch[] }>(`/api/foodhub/recon/payouts?${query}`), [query]);
+  const { data, err, loaded, load } = useFinanceRead(query, read);
+  const rows = useMemo(() => data?.payouts ?? [], [data]);
 
   const tot = useMemo(() => ({
     net: rows.reduce((s, b) => s + b.net, 0),
@@ -58,6 +59,7 @@ export default function PayoutsPage() {
   return (
     <div>
       <MoneyHead title={t('Paiements et dépôts', 'Payouts & deposits')} intro={t('Chaque paiement tel que le relevé de la plateforme le décrit — ventes, commission, taxes sur frais, promotions, remboursements — et le montant arrivé dans votre compte de banque. Entrez le dépôt de votre relevé bancaire pour boucler la boucle.', 'Each payout as the platform statement describes it — sales, commission, tax on fees, promotions, refunds — and the amount that actually reached your bank account. Enter the deposit from your bank statement to close the loop.')} />
+      {(site.brand || site.kitchen) && <Banner tone="info" className="mb-4">{t('Les paiements et écritures regroupent toutes les marques et succursales de la plateforme choisie. Ils ne sont pas divisés par restaurant.', 'Payouts and ledger entries include every brand and location for the selected platform. They are not split by restaurant.')}</Banner>}
       {err && <Banner tone="stop" className="mb-4">{err}</Banner>}
       <FilterBar filters={filters} set={set} locations={locations} showLocations={false} showBrands={false} presets={['7d', '30d', 'month', 'last_month', 'custom']} extra={<Hint id="payouts.csv"><Button size="sm" variant="outline" onClick={exportCsv} disabled={!rows.length} icon={<Download className="size-4" />}>CSV</Button></Hint>} />
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -107,7 +109,7 @@ export default function PayoutsPage() {
         <p className="border-t border-line px-4 py-3 text-xs leading-relaxed text-ink-3">{t('Ventes + taxes − commission et ses taxes + tout le reste = net payé. « Tout le reste » = promotions, ajustements, remboursements, frais d’erreur, pubs et autres frais (le CSV les détaille). « Net seulement » veut dire que le relevé n’avait pas de détail — importez le rapport détaillé pour le répartir.', 'Food sales + tax − commission and its tax + everything else = net paid. “Everything else” is promotions, adjustments, refunds, error charges, ads and other fees (the CSV has each one). “Net only” means the statement had no breakdown — import the detailed report to split it.')}</p>
       </Card>
 
-      {dep && <DepositDialog key={dep.key} b={dep} onClose={() => setDep(null)} onSaved={() => { toast.success(t('Dépôt enregistré', 'Deposit saved')); setDep(null); load(); }} />}
+      {dep && (!site.channel || dep.channel === site.channel) && <DepositDialog key={dep.key} b={dep} onClose={() => setDep(null)} onSaved={() => { toast.success(t('Dépôt enregistré', 'Deposit saved')); setDep(null); load(); }} />}
     </div>
   );
 }
@@ -130,8 +132,8 @@ function DepositDialog({ b, onClose, onSaved }: { b: Batch; onClose: () => void;
   const v: DepFields = { amount: f.value.amount ?? cur.amount, date: f.value.date ?? cur.date, note: f.value.note ?? cur.note };
   const dirty = DEP_KEYS.some((k) => v[k] !== cur[k]);
   const put = (k: keyof DepFields, x: string) => f.set((p) => ({ ...p, [k]: x === cur[k] ? null : x }));
-  const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
   const gap = Number(v.amount) - b.net;
   const ready = v.amount.trim() !== '' && Number.isFinite(Number(v.amount)) && /^\d{4}-\d{2}-\d{2}$/.test(v.date);
   /** X, backdrop, Esc or Cancel: nothing is sent; what was typed waits for the next opening. */

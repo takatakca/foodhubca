@@ -1,7 +1,7 @@
 'use client';
 
 // Statements — import the payout reports each platform gives you (CSV or Excel), or let Uber send its own.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { CloudDownload, FileSpreadsheet, Trash2, UploadCloud } from 'lucide-react';
 import { Badge, PlatformTag } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,8 @@ import { useToast } from '@/components/ui/toast';
 import { useViewer } from '@/components/shell/viewer';
 import { CH_NAME, MoneyHead, cad } from '../money-ui';
 import { api, ApiError, dayOf, toBase64, ymd } from '@/lib/ui/api';
+import { useFinanceRead } from '@/lib/ui/use-finance-read';
+import { usePulse } from '@/components/live/pulse';
 import { useI18n } from '@/lib/i18n/client';
 import type { T } from '@/lib/i18n';
 import { cn } from '@/lib/ui/cn';
@@ -35,35 +37,34 @@ export default function StatementsPage() {
   const { can } = useViewer();
   const toast = useToast();
   const edit = can('finance:edit');
-  const [imports, setImports] = useState<Imp[]>([]);
-  const [fields, setFields] = useState<Record<string, string>>({});
-  const [requests, setRequests] = useState<UberReq[]>([]);
-  const [loaded, setLoaded] = useState(false);
-  const [err, setErr] = useState('');
+  const { site } = usePulse();
+  const selectedChannel = site.channel || '';
+  const key = new URLSearchParams(selectedChannel ? { channels: selectedChannel } : {}).toString();
   const [channel, setChannel] = useState('');
   const [busy, setBusy] = useState(false);
   const [drag, setDrag] = useState(false);
-  const [ask, setAsk] = useState<{ file: File; base64: string; data: Ask } | null>(null);
+  const [ask, setAsk] = useState<{ file: File; base64: string; data: Ask; workspace: string } | null>(null);
   const [removing, setRemoving] = useState<Imp | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [uber, setUber] = useState(() => { const to = new Date(); const from = new Date(to); from.setDate(to.getDate() - 7); return { from: ymd(from), to: ymd(to) }; });
 
-  const load = useCallback(async () => {
-    try {
-      const [i, u] = await Promise.all([
-        api<{ imports: Imp[]; fields: Record<string, string> }>('/api/foodhub/recon/imports'),
-        api<{ requests: UberReq[] }>('/api/foodhub/recon/uber-report'),
-      ]);
-      setImports(i.imports.sort((a, b) => b.importedAt.localeCompare(a.importedAt))); setFields(i.fields); setRequests(u.requests.sort((a, b) => b.at.localeCompare(a.at))); setErr(''); setLoaded(true);
-    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
-  }, []);
-  useEffect(() => { load(); }, [load]);
+  const read = useCallback(async () => {
+    const [i, u] = await Promise.all([
+      api<{ imports: Imp[]; fields: Record<string, string> }>(`/api/foodhub/recon/imports?${key}`),
+      !selectedChannel || selectedChannel === 'uber_eats' ? api<{ requests: UberReq[] }>('/api/foodhub/recon/uber-report') : Promise.resolve({ requests: [] as UberReq[] }),
+    ]);
+    return { imports: i.imports.sort((a, b) => b.importedAt.localeCompare(a.importedAt)), fields: i.fields, requests: u.requests.sort((a, b) => b.at.localeCompare(a.at)) };
+  }, [key, selectedChannel]);
+  const { data, err, loaded, load } = useFinanceRead(key, read);
+  const imports = useMemo(() => data?.imports ?? [], [data]);
+  const fields = data?.fields ?? {};
+  const requests = data?.requests ?? [];
 
   async function send(file: File, base64: string, extra: { channel?: string; mapping?: Mapping } = {}) {
     setBusy(true);
     try {
-      const r = await api<{ imported: boolean; import?: Imp; cases?: { opened: number; closed: number } } & Partial<Ask>>('/api/foodhub/recon/imports', { method: 'POST', json: { fileName: file.name, contentBase64: base64, channel: extra.channel ?? (channel || undefined), mapping: extra.mapping } });
-      if (!r.imported) { setAsk({ file, base64, data: r as Ask }); return; }
+      const r = await api<{ imported: boolean; import?: Imp; cases?: { opened: number; closed: number } } & Partial<Ask>>('/api/foodhub/recon/imports', { method: 'POST', json: { fileName: file.name, contentBase64: base64, channel: extra.channel ?? (selectedChannel || channel || undefined), mapping: extra.mapping } });
+      if (!r.imported) { setAsk({ file, base64, data: r as Ask, workspace: key }); return; }
       setAsk(null);
       const i = r.import!;
       toast.success(`${CH_NAME[i.channel] ?? i.channel} — ${i.lines} ${t('ligne(s) lue(s)', 'line(s) read')}, ${i.newLines} ${t('nouvelle(s)', 'new')}`,
@@ -105,13 +106,14 @@ export default function StatementsPage() {
   return (
     <div>
       <MoneyHead title={t('Relevés', 'Statements')} intro={t('Importez les relevés de paiement de chaque plateforme. Une même ligne importée deux fois n’est comptée qu’une fois : les fichiers qui se chevauchent ne posent aucun problème. Chaque import revérifie vos commandes et ouvre ou ferme les litiges.', 'Import the payout statements each platform gives you. The same line imported twice is only counted once, so overlapping files are safe. Every import re-checks your orders and opens or closes dispute cases.')} />
+      {(site.brand || site.kitchen) && <Banner tone="info" className="mb-4">{t('Les relevés importés couvrent toutes les marques et succursales de la plateforme choisie.', 'Imported statements cover every brand and location for the selected platform.')}</Banner>}
       {err && <Banner tone="stop" className="mb-4">{err}</Banner>}
 
       <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-[1.4fr_1fr]">
         <Card className="p-5">
           <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-heading text-ink">{t('Importer un relevé', 'Import a statement')}</h2>
-            <Select className="w-full sm:w-56" value={channel} onChange={(e) => setChannel(e.target.value)} disabled={!edit} aria-label={t('Plateforme', 'Platform')}>
+            <Select className="w-full sm:w-56" value={selectedChannel || channel} onChange={(e) => setChannel(e.target.value)} disabled={!edit || !!selectedChannel} aria-label={t('Plateforme', 'Platform')}>
               <option value="">{t('Détecter automatiquement', 'Detect automatically')}</option>
               {Object.entries(CH_NAME).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </Select>
@@ -129,7 +131,7 @@ export default function StatementsPage() {
           <p className="mt-3 text-xs text-ink-3">{t('« Détails des paiements » Uber Eats et les exports de transactions DoorDash sont reconnus automatiquement ; tout autre fichier vous demande une fois quelle colonne est laquelle.', 'Uber Eats “Payment details” and DoorDash transaction exports are recognised automatically; any other file asks you once which column is which.')}</p>
         </Card>
 
-        <Card className="p-5">
+        {(!selectedChannel || selectedChannel === 'uber_eats') && <Card className="p-5">
           <div className="mb-2 flex items-center gap-2"><PlatformTag channel="uber_eats" /><h2 className="text-base font-extrabold">{t('Demander à Uber Eats', 'Request from Uber Eats')}</h2></div>
           <p className="mb-3 text-[13px] text-ink-2">{t('L’API Reporting d’Uber prépare le rapport « Détails des paiements » de tous vos magasins Uber Eats et l’envoie à Food Hub, qui l’importe tout seul. Il faut la permission', 'Uber’s Reporting API builds the Payment details report for all your Uber Eats stores and sends it to Food Hub, which imports it by itself. Needs the')} <code className="rounded bg-sunken px-1 text-xs">eats.report</code>{t('.', ' scope.')}</p>
           <div className="flex flex-wrap items-end gap-2">
@@ -150,7 +152,7 @@ export default function StatementsPage() {
               ))}
             </ul>
           )}
-        </Card>
+        </Card>}
       </div>
 
       <Card className="mb-5">
@@ -181,13 +183,13 @@ export default function StatementsPage() {
       <Card className="p-5">
         <h2 className="mb-3 text-base font-extrabold">{t('Où télécharger chaque relevé', 'Where to download each statement')}</h2>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {where.map(([ch, d]) => <div key={ch} className="rounded-lg border border-line bg-raised p-3.5"><PlatformTag channel={ch} /><p className="mt-2 text-[13px] leading-relaxed text-ink-2">{d}</p></div>)}
+          {where.filter(([ch]) => !selectedChannel || ch === selectedChannel).map(([ch, d]) => <div key={ch} className="rounded-lg border border-line bg-raised p-3.5"><PlatformTag channel={ch} /><p className="mt-2 text-[13px] leading-relaxed text-ink-2">{d}</p></div>)}
         </div>
         <p className="mt-3 text-xs text-ink-3">{t('Les noms de menus changent de temps en temps — cherchez « paiements », « versements », « relevés » ou « finances », et choisissez l’export CSV / Excel avec une ligne par commande.', 'Menu names in the platform portals change from time to time — look for “payments”, “payouts”, “statements” or “financials”, and choose the CSV / Excel export with one line per order.')}</p>
       </Card>
 
-      {ask && <MappingDialog ask={ask.data} fileName={ask.file.name} fields={fields} defaultChannel={channel} busy={busy} onClose={() => setAsk(null)} onSubmit={(ch, m) => send(ask.file, ask.base64, { channel: ch, mapping: m })} />}
-      {removing && (
+      {ask && ask.workspace === key && <MappingDialog ask={ask.data} fileName={ask.file.name} fields={fields} defaultChannel={selectedChannel || channel} busy={busy} onClose={() => setAsk(null)} onSubmit={(ch, m) => send(ask.file, ask.base64, { channel: ch, mapping: m })} />}
+      {removing && (!selectedChannel || removing.channel === selectedChannel) && (
         <Modal size="sm" title={t('Retirer ce relevé ?', 'Remove this statement?')} onClose={() => setRemoving(null)}
           footer={<><Button variant="ghost" onClick={() => setRemoving(null)}>{t('Annuler', 'Cancel')}</Button><Button variant="danger" onClick={() => remove(removing)}>{t('Retirer', 'Remove')}</Button></>}>
           <p className="text-sm text-ink-2"><strong className="text-ink">{removing.fileName}</strong> — {removing.lines} {t('ligne(s). Les commandes seront revérifiées sans lui.', 'line(s). Orders will be re-checked without it.')}</p>

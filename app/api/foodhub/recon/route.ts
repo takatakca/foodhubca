@@ -14,5 +14,6 @@ export const GET = withFinance('analytics:view', async (req) => {
   const range = parseRange(q, 30);
   const channels = (q.get('channels') || '').split(',').filter(isChannelKey) as ChannelKey[];
   const locationCodes = (q.get('locations') || '').split(',').filter(Boolean);
-  return ok({ ...(await reconcile({ ...range, channels, locationCodes })) });
+  const brands = (q.get('brands') || '').split(',').map((s) => s.trim()).filter(Boolean);
+  return ok({ ...(await reconcile({ ...range, channels, locationCodes, brands })) });
 });

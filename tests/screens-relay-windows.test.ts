@@ -61,6 +61,21 @@ describe('windows kit: files and rules (always)', () => {
     expect(common).toMatch(/LogRotateBytes = 5MB/);
   });
 
+  it('supports the 54-account manifest under the same screen capacity as Food Hub and the relay generator', () => {
+    const common = withoutComments(read('Screens-Common.ps1'));
+    const windowsLimit = Number(/\$script:MaxScreens\s*=\s*(\d+)/.exec(common)?.[1]);
+    const generator = readFileSync(path.join(__dirname, '../deploy/screens/generate-lib.mjs'), 'utf8');
+    const hub = readFileSync(path.join(__dirname, '../lib/foodhub/screens.ts'), 'utf8');
+    const generatorLimit = Number(/export const MAX_SCREENS\s*=\s*(\d+)/.exec(generator)?.[1]);
+    const hubLimit = Number(/export const MAX_SLOTS\s*=\s*(\d+)/.exec(hub)?.[1]);
+    const manifest = JSON.parse(readFileSync(path.join(__dirname, '../deploy/screens/screens.54.example.json'), 'utf8'));
+    expect(manifest.screens).toHaveLength(54);
+    expect(windowsLimit).toBe(generatorLimit);
+    expect(windowsLimit).toBe(hubLimit);
+    expect(windowsLimit).toBeGreaterThanOrEqual(manifest.screens.length);
+    expect(common).toMatch(/\$list\.Count -gt \$script:MaxScreens/);
+  });
+
   it('starts Chrome with its own profile, debugging port, window and start URL (no --restore-last-session: see the comment there), never the token on a command line', () => {
     const start = read('Start-Screens.ps1');
     for (const flag of ['--user-data-dir=', '--remote-debugging-port=', '--no-first-run', '--disable-session-crashed-bubble', '--window-position=', '--window-size=', '[string]$Screen.startUrl']) expect(start).toContain(flag);
@@ -94,6 +109,28 @@ describe('windows kit: files and rules (always)', () => {
 });
 
 describe('windows kit: PowerShell parse and dry runs (when powershell is on PATH)', () => {
+  itPs('accepts all 54 account profiles without writing and refuses more than 99', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'foodhub-screens-capacity-'));
+    const target = path.join(root, 'profiles');
+    try {
+      const manifest = path.join(__dirname, '../deploy/screens/screens.54.example.json');
+      const allowed = runScript('Install-Screens.ps1', ['-DryRun', '-AsJson', '-ScreensFile', manifest, '-Root', target]);
+      expect(allowed.status, allowed.out).toBe(0);
+      const plan = JSON.parse(allowed.out.slice(allowed.out.indexOf('{')));
+      expect(plan.screens).toHaveLength(54);
+      expect(new Set(plan.screens.map((screen: { profileDir: string }) => screen.profileDir)).size).toBe(54);
+      expect(new Set(plan.screens.map((screen: { port: number }) => screen.port)).size).toBe(54);
+      expect(existsSync(target)).toBe(false);
+
+      const tooMany = path.join(root, 'too-many.json');
+      writeFileSync(tooMany, JSON.stringify({ screens: Array.from({ length: 100 }, (_, i) => ({ id: `screen-${i + 1}`, name: `Screen ${i + 1}`, platform: 'uber', mode: 'web' })) }));
+      const refused = runScript('Install-Screens.ps1', ['-DryRun', '-AsJson', '-ScreensFile', tooMany, '-Root', target]);
+      expect(refused.status, refused.out).toBe(1);
+      expect(refused.out).toContain('at most 99 screens per PC');
+      expect(existsSync(target)).toBe(false);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   itPs('every script parses with 0 errors ([Parser]::ParseFile)', () => {
     const cmd = [
       '$bad = 0;',

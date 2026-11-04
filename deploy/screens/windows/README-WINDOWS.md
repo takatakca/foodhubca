@@ -28,6 +28,13 @@ Les quatre scripts (dossier `deploy\screens\windows\`) :
 Fichiers sur le PC : `%LOCALAPPDATA%\FoodHubScreens\<id>\profile` (la mémoire de Chrome), `…\<id>\screen.json` (la
 configuration, sans secret), `…\logs\<id>.log` (le journal, tourné à 5 Mo), `…\kit.json` (où sont les scripts).
 
+**Déjà installé sur ce PC ?** Vérifiez d’abord avec `Status-Screens.ps1 -AsJson`, dans le dossier indiqué par
+`kit.json` (`kitDir`). Le dossier racine peut être remplacé par `FOODHUB_SCREENS_ROOT` ou le paramètre `-Root`.
+Ne relancez pas l’installation pour vérifier l’état : elle réécrit les configurations et la liste des écrans à démarrer,
+même si elle conserve les profils et leurs connexions. Ne supprimez ni ne remplacez les dossiers `profile`.
+La liste accepte jusqu’à 99 écrans, dont 18 DoorDash + 18 Uber Eats + 18 Skip ; ce plafond ne garantit pas que le PC
+dispose de la mémoire nécessaire pour les faire tourner tous à la fois.
+
 ## Les 10 étapes (environ 20 minutes)
 
 1. **Node 22.** Installez la version LTS depuis nodejs.org (suivant, suivant, terminer). Chrome ou Edge est déjà là.
@@ -129,6 +136,12 @@ The four scripts (folder `deploy\screens\windows\`):
 
 Files on the PC: `%LOCALAPPDATA%\FoodHubScreens\<id>\profile` (Chrome's memory), `…\<id>\screen.json` (the config,
 no secret), `…\logs\<id>.log` (the log, rotated at 5 MB), `…\kit.json` (where the scripts are).
+
+**Already installed on this PC?** Check first with `Status-Screens.ps1 -AsJson` from the folder named by `kit.json`
+(`kitDir`). The root can be overridden by `FOODHUB_SCREENS_ROOT` or `-Root`. Do not rerun the installer to check status:
+it rewrites configurations and the startup screen list, although it preserves profiles and their sign-ins. Do not
+delete or replace the `profile` folders. Lists support up to 99 screens, including 18 DoorDash + 18 Uber Eats + 18 Skip;
+this limit does not guarantee enough PC memory to run them all at once.
 
 ## The 10 steps (about 20 minutes)
 

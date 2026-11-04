@@ -16,6 +16,7 @@ import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { usePulse } from '@/components/live/pulse';
 import { CH_NAME, CaseBadge, MoneyHead, PROBLEM, ReconBadge, cad, reconLabel, signed, toRecover, type OrderRecon, type Recon, type ReconStatus, type Unmatched } from '../money-ui';
 import { api, dayOf, downloadCsv } from '@/lib/ui/api';
+import { useFinanceRead } from '@/lib/ui/use-finance-read';
 import { useFilters } from '@/lib/ui/range';
 import { useI18n } from '@/lib/i18n/client';
 import type { T } from '@/lib/i18n';
@@ -28,18 +29,16 @@ const PAGE = 300;
 export default function ReconciliationPage() {
   const { t, loc } = useI18n();
   const { locations, locName } = useViewer();
-  const { scope } = usePulse();
-  const { filters, set, query } = useFilters('30d', scope);
+  const { scope, brands, channels, site } = usePulse();
+  const { filters, set, query } = useFilters('30d', scope, brands, channels);
   const [view, setView] = useState<View>('problems');
   const [search, setSearch] = useState('');
-  const [data, setData] = useState<Recon | null>(null);
-  const [err, setErr] = useState('');
   const [open, setOpen] = useState<string | null>(null);
   const [limit, setLimit] = useState(PAGE);
 
   useEffect(() => { const v = new URLSearchParams(window.location.search).get('view') as View | null; if (v && ['problems', 'all', 'matched', 'waiting', 'statement'].includes(v)) setView(v); }, []);
-  const load = useCallback(() => api<Recon>(`/api/foodhub/recon?${query}`).then((d) => { setData(d); setErr(''); }).catch((e) => setErr(e instanceof Error ? e.message : String(e))), [query]);
-  useEffect(() => { load(); }, [load]);
+  const read = useCallback(() => api<Recon>(`/api/foodhub/recon?${query}`), [query]);
+  const { data, err } = useFinanceRead(query, read);
   useEffect(() => { setLimit(PAGE); }, [view, search, query]);
 
   const rows = useMemo(() => {
@@ -61,6 +60,7 @@ export default function ReconciliationPage() {
   return (
     <div>
       <MoneyHead title={t('Commandes vs paiements', 'Orders vs payouts')} intro={t('Chaque commande acceptée avec son paiement attendu (prix client − commission − taxes sur commission) à côté de ce que le relevé de la plateforme a payé. Cliquez une commande pour voir le calcul.', 'Each accepted order with its expected payout (customer price − commission − tax on commission) next to what the platform statement paid. Click an order to see the calculation.')} />
+      {(site.brand || site.kitchen) && <Banner tone="info" className="mb-4">{t('Les lignes de relevé non jumelées à une commande du restaurant sont exclues de cette vue. Consultez tous les restaurants pour les vérifier.', 'Statement lines not matched to a restaurant order are excluded from this view. Select all restaurants to review them.')}</Banner>}
       {err && <Banner tone="stop" className="mb-4">{err}</Banner>}
       <FilterBar filters={filters} set={set} locations={locations} showBrands={false} presets={['yesterday', '7d', '30d', 'month', 'last_month', 'custom']} extra={<>
         <div className="relative">

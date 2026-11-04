@@ -26,6 +26,7 @@ import type { CommandCenter } from '@/lib/foodhub/command';
 import type { OnboardingStep } from '@/lib/foodhub/onboarding';
 import { brandRows, channelName, type CellState } from '@/lib/foodhub/scope';
 import { api, money, moneyShort } from '@/lib/ui/api';
+import { useFinanceRead } from '@/lib/ui/use-finance-read';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
 
@@ -40,8 +41,6 @@ export function Overview({ steps }: { steps?: OnboardingStep[] | null }) {
   const { pulse, site, setSite, scope, brands, channels } = usePulse();
   const href = useScopeHref();
   const label = useScopeLabel();
-  const [cc, setCc] = useState<CommandCenter | null>(null);
-  const [failed, setFailed] = useState(false);
   const [details, setDetails] = useState(false);
   const query = useMemo(() => {
     const q = new URLSearchParams();
@@ -50,10 +49,12 @@ export function Overview({ steps }: { steps?: OnboardingStep[] | null }) {
     if (channels.length) q.set('channels', channels.join(','));
     return q.toString();
   }, [scope, brands, channels]);
-  const load = useCallback(() => api<CommandCenter>(`/api/foodhub/command${query ? `?${query}` : ''}`).then((d) => { setCc(d); setFailed(false); }).catch(() => setFailed(true)), [query]);
-  // A new scope: show the loading state rather than the previous scope's numbers.
-  useEffect(() => { setCc(null); }, [query]);
-  useEffect(() => { load(); const i = setInterval(load, 20_000); return () => clearInterval(i); }, [load]);
+  const read = useCallback(() => api<CommandCenter>(`/api/foodhub/command${query ? `?${query}` : ''}`), [query]);
+  // Results are keyed during render: a new platform cannot show the previous platform's numbers,
+  // even before effects run, and late requests from that platform cannot replace the current response.
+  const { data: cc, err, load } = useFinanceRead(query, read);
+  const failed = Boolean(err);
+  useEffect(() => { const i = setInterval(load, 20_000); return () => clearInterval(i); }, [load]);
   useRefreshOn(load);
   const sig = pulse ? `${pulse.orders.today}|${pulse.orders.cancelled}|${pulse.stores.online}|${pulse.orders.open}` : '';
   useEffect(() => { if (sig) load(); }, [sig, load]);

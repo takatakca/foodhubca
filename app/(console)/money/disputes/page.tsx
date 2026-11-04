@@ -2,7 +2,7 @@
 
 // Disputes — every missing order, short payment, error charge and refund, from "to check" to "recovered".
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Download } from 'lucide-react';
 import { PlatformTag } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -19,6 +19,8 @@ import { Hint } from '@/components/help/hint';
 import { CH_NAME, CaseBadge, MoneyHead, RECOVERABLE, cad, caseLabel, type CaseStatus } from '../money-ui';
 import { api, ApiError, dayOf, downloadCsv } from '@/lib/ui/api';
 import { formDraftId, useFormDraft } from '@/lib/ui/use-form-draft';
+import { useFinanceRead } from '@/lib/ui/use-finance-read';
+import { usePulse } from '@/components/live/pulse';
 import { useI18n } from '@/lib/i18n/client';
 import type { T } from '@/lib/i18n';
 
@@ -34,18 +36,22 @@ export default function DisputesPage() {
   const { t, loc } = useI18n();
   const { can, locName } = useViewer();
   const toast = useToast();
-  const [cases, setCases] = useState<Case[]>([]);
-  const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState<Tab>('active');
   const [channel, setChannel] = useState('');
-  const [err, setErr] = useState('');
   const [edit, setEdit] = useState<Case | null>(null);
 
-  const load = useCallback(() => api<{ cases: Case[] }>('/api/foodhub/recon/cases').then((d) => { setCases(d.cases); setErr(''); setLoaded(true); }).catch((e) => setErr(e instanceof Error ? e.message : String(e))), []);
-  useEffect(() => { load(); }, [load]);
+  const { site } = usePulse();
+  const query = new URLSearchParams();
+  if (site.channel || channel) query.set('channels', site.channel || channel);
+  if (site.kitchen) query.set('locations', site.kitchen);
+  if (site.brand) query.set('brands', site.brand);
+  const key = query.toString();
+  const read = useCallback(() => api<{ cases: Case[] }>(`/api/foodhub/recon/cases?${key}`), [key]);
+  const { data, err, loaded, load } = useFinanceRead(key, read);
+  const cases = useMemo(() => data?.cases ?? [], [data]);
 
   const statuses = TAB_STATUSES[tab];
-  const rows = useMemo(() => cases.filter((c) => (!statuses.length || statuses.includes(c.status)) && (!channel || c.channel === channel)).sort((a, b) => b.amount - a.amount), [cases, statuses, channel]);
+  const rows = useMemo(() => cases.filter((c) => (!statuses.length || statuses.includes(c.status)) && (!(site.channel || channel) || c.channel === (site.channel || channel))).sort((a, b) => b.amount - a.amount), [cases, statuses, channel, site.channel]);
   const sum = (f: (c: Case) => boolean, v: (c: Case) => number = (c) => c.amount) => cases.filter(f).reduce((s, c) => s + v(c), 0);
   const owed = (c: Case) => RECOVERABLE.includes(c.type);
   const unknownOpen = cases.filter((c) => c.type === 'unknown_order' && c.status === 'open').length;
@@ -84,7 +90,7 @@ export default function DisputesPage() {
           { key: 'all', label: t('Tous', 'All'), count: loaded ? countOf('all') : null },
         ]} /></Hint>
         <div className="flex items-center gap-2">
-          <Select selectSize="sm" value={channel} onChange={(e) => setChannel(e.target.value)} aria-label={t('Plateforme', 'Platform')} className="w-44">
+          <Select selectSize="sm" value={site.channel || channel} disabled={!!site.channel} onChange={(e) => setChannel(e.target.value)} aria-label={t('Plateforme', 'Platform')} className="w-44">
             <option value="">{t('Toutes les plateformes', 'All platforms')}</option>
             {Object.entries(CH_NAME).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
           </Select>
@@ -119,12 +125,12 @@ export default function DisputesPage() {
       <Hint id="disputes.how"><Card className="p-5">
         <h2 className="mb-3 text-base font-extrabold">{t('Comment contester', 'How to dispute')}</h2>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {how.map(([ch, d]) => <div key={ch} className="rounded-lg border border-line bg-raised p-3.5"><PlatformTag channel={ch} /><p className="mt-2 text-[13px] leading-relaxed text-ink-2">{d}</p></div>)}
+          {how.filter(([ch]) => !site.channel || ch === site.channel).map(([ch, d]) => <div key={ch} className="rounded-lg border border-line bg-raised p-3.5"><PlatformTag channel={ch} /><p className="mt-2 text-[13px] leading-relaxed text-ink-2">{d}</p></div>)}
         </div>
         <p className="mt-3 text-xs text-ink-3">{t('Contestez vite — les plateformes n’acceptent les litiges que pour un temps limité après la commande. Inscrivez le no de dossier de la plateforme ici pour que tout le monde puisse suivre.', 'Dispute quickly — platforms only accept disputes for a limited time after the order. Write the platform case number here so anyone can follow up.')}</p>
       </Card></Hint>
 
-      {edit && <CaseDialog key={edit.id} c={edit} canEdit={can('finance:edit')} onClose={() => setEdit(null)} onSaved={() => { toast.success(t(`Dossier #${edit.ref} enregistré`, `Case #${edit.ref} saved`)); setEdit(null); load(); }} />}
+      {edit && (!site.channel || edit.channel === site.channel) && (!site.brand || edit.brandName === site.brand) && (!site.kitchen || edit.locationCode === site.kitchen) && <CaseDialog key={edit.id} c={edit} canEdit={can('finance:edit')} onClose={() => setEdit(null)} onSaved={() => { toast.success(t(`Dossier #${edit.ref} enregistré`, `Case #${edit.ref} saved`)); setEdit(null); load(); }} />}
     </div>
   );
 }

@@ -10,10 +10,10 @@ import type { ChannelKey } from '@/lib/foodhub/types';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-export const GET = withFinance('analytics:view', async () => ok({
-  imports: (await listImports()).map((d) => d.data),
-  fields: FIELD_LABELS,
-}));
+export const GET = withFinance('analytics:view', async (req) => {
+  const channels = (new URL(req.url).searchParams.get('channels') || '').split(',').filter(isChannelKey);
+  return ok({ imports: (await listImports()).map((d) => d.data).filter((i) => !channels.length || channels.includes(i.channel)), fields: FIELD_LABELS });
+});
 
 // { fileName, contentBase64, channel?, mapping? } — CSV or .xlsx exported from the platform portal.
 export const POST = withFinance('finance:edit', async (req, _ctx, actor) => {

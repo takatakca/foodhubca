@@ -1,6 +1,6 @@
 # Agent 3 — Food Hub authenticated dashboard
 
-Updated: 2026-11-04 01:47 EST
+Updated: 2026-11-04 02:01 EST
 Branch for this work: `feature/foodhub-operator-dashboard` (published/coordinated by the primary agent; no shared-checkout branch switches).
 
 ## Sources and requirements
@@ -24,7 +24,7 @@ The earlier unified-workspaces work provides provider selection/navigation, shar
 - Configured API routes, current API-write setting and recorded orders are displayed separately. Online browser reports do not claim API approval, order intake or successful printing.
 - Existing-PC guidance inside the authenticated screen view starts with read-only status and preserves browser profiles. No PC reinstallation, profile inspection, account login or reset was performed.
 - Loading, retry and last-reported-state messages make missing/stale screen observations explicit.
-- Workspace counts identify mapped stores rather than implying that they count authenticated provider sessions.
+- Workspace counts identify listed stores rather than implying authenticated sessions or API mapping. The catalog includes historical reference stores, so this count must not claim API readiness.
 - Home now surfaces existing scoped Command Center observations as actionable Needs attention, while retaining ongoing Watchtower incidents and alarms separately.
 - Quick-action links follow roles and retain provider/restaurant selection.
 - Dedicated average-order-value and cancellation-rate tiles use existing scoped KPIs. Cancellation rate uses cancelled / (noncancelled + cancelled), and no recorded orders produces an unknown rate rather than a fabricated 0% success indicator.
@@ -37,12 +37,21 @@ The earlier unified-workspaces work provides provider selection/navigation, shar
 - Home operations, screen readiness and workspace focused suites: 20 passing tests.
 - Targeted ESLint checks for every modified dashboard/helper/test file: passed.
 - These suite totals overlap and must not be added together as a unique-test count.
-- Global build/typecheck and browser acceptance are coordinated by the primary agent. This note will be updated with actual browser results after the new build is available.
+- Primary-agent combined validation reported: 2,091 tests passed / 12 skipped, typecheck/build passed, lint only the pre-existing devices warning. This is coordinated whole-branch evidence, not a separate run by this agent.
+- Agent 3 final authenticated browser review against the rebuilt application on the local safe-mode memory instance: 12 checks passed, with no browser page errors. Verified Home priorities/KPIs, scoped quick links, an actual cancelled-order API request retaining the provider scope, registered-session counts from authorized API data, and read-only PC guidance.
+- Readiness panel checked at desktop 1440 px and mobile 375 px: no horizontal page overflow; zero serious/critical axe WCAG violations. The mobile Home main region also had zero serious/critical axe violations.
+- The local review instance had no registered screens, so the browser check added 54 synthetic session records only to that empty memory instance. No provider accounts were used, no existing records were overwritten, and no Windows PC commands were run.
+- Visual review caught two wording defects: historical catalog entries were being described as mapped stores, and an empty monitoring list said everything was fine while separate priority issues remained. Both were corrected; 20 focused tests passed again. The final build passed, and the fresh browser run verified both corrected labels in the actual rendered application. The twelve passing browser checks include these final-copy regressions.
+- Screenshots and browser output remain outside the public checkout in the private cloud review workspace; no private provider screenshots or credentials were committed.
 
 ## Remaining gaps and next action
 
-Run authenticated desktop/mobile browser acceptance against the rebuilt application, including provider flipping, the 54-session list, hidden waiting-screen alarms, truthful readiness text, quick-action links and cancellation history. Preserve existing accounts and platform sessions.
+The final rebuilt listed-store and monitoring-empty wording is verified in the actual application. The authenticated desktop/mobile readiness, quick-action and cancellation-history journey also passed again. Preserve existing accounts and platform sessions while continuing the wider provider acceptance work.
 
 The owner's current Windows PC installation and real provider sessions cannot be verified from this Linux cloud. A live provider order reaching Clover and printing remains a separate acceptance check. Full organisation hierarchy/payout-tree parity, measured Opportunities and independent issue/outcome/courier filter UX are not marked complete here. No fabricated AI recommendations or unsupported provider actions were introduced.
 
-— Signed: Codex, agent 3 (authenticated dashboard), cloud workspace · 2026-11-04 01:47 EST
+— Signed: Codex, agent 3 (authenticated dashboard), cloud workspace · 2026-11-04 02:01 EST
+
+## Published browser evidence
+
+[Desktop Home](evidence/03-dashboard/home-desktop.png) · [Mobile Home](evidence/03-dashboard/home-mobile.png) · [Desktop session status](evidence/03-dashboard/readiness-1440.png) · [Mobile session status](evidence/03-dashboard/readiness-375.png) · [12-check results](evidence/03-dashboard/browser-results.json). All data and relay records are synthetic, in an isolated local review instance.

@@ -217,7 +217,7 @@ function ToDo() {
             <ChevronRight className="size-4 text-ink-4" aria-hidden />
           </Link>
         ))}
-        {list && list.length === 0 && <div className="text-body flex items-center gap-3 px-5 py-8 text-ink-3"><CircleCheck className="size-5 text-go" aria-hidden />{t('Tout roule. Rien à faire.', 'All good. Nothing to do.')}</div>}
+        {list && list.length === 0 && <div className="text-body flex items-center gap-3 px-5 py-8 text-ink-3"><CircleCheck className="size-5 text-go" aria-hidden />{t('Aucune alerte de surveillance ouverte dans cette vue.', 'No open monitoring alerts in this view.')}</div>}
         {!list && <div className="space-y-2 p-5"><Skeleton className="h-10" /><Skeleton className="h-10" /><Skeleton className="h-10" /></div>}
       </div>
     </Card>

@@ -1,7 +1,8 @@
 // Clover follows each delivery order to the end (what UrbanPiper's POS integration does):
 //   order arrives      → created in Clover (open, platform order type, kitchen ticket)
 //   leaves the kitchen → recorded as PAID with the platform tender ("Uber Eats", "DoorDash"…) — picked up,
-//                        completed, delivered, or auto-completed
+//                        completed, delivered, or auto-completed (an order entered by hand from a platform screen:
+//                        as soon as it is accepted)
 //   cancelled before   → removed from the Clover register (or renamed "CANCELLED" if Clover refuses)
 // Payments cannot be deleted or refunded through Clover's REST API, so they are only recorded once the
 // order can no longer be cancelled by the restaurant — that keeps Clover's sales equal to the real sales.
@@ -34,7 +35,11 @@ async function settleCloverOnly(order: StoredOrder | null): Promise<StoredOrder 
   const repo = getRepo();
   const tag = `${CHANNEL_LABELS[order.channel]} #${order.displayId || order.externalOrderId.slice(0, 8)}`;
   try {
-    if ((order.status === 'dispatched' || order.status === 'completed') && !order.timeline?.posPaymentId) {
+    // Entered by hand from a platform screen: the platform already charged the customer and the order was accepted on its
+    // screen, so it is paid as soon as it is accepted (the owner's "send it to Clover as paid already").
+    const leftKitchen = order.status === 'dispatched' || order.status === 'completed';
+    const paidOnAccept = order.viaHub === 'screen' && (order.status === 'accepted' || order.status === 'ready');
+    if ((leftKitchen || paidOnAccept) && !order.timeline?.posPaymentId) {
       const store = await repo.findStore(order.channel, order.channelStoreId);
       const r = await recordCloverPayment(order, store?.cloverMerchantId);
       if (r.ok) {

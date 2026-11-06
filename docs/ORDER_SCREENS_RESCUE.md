@@ -24,7 +24,7 @@ title) and opens a Watchtower incident when a screen is down during opening hour
 | Ring on one device | Screens wall in Food Hub rings when any screen has orders waiting (lane A) |
 | Nobody accepts → escalate | Watchtower `screen_waiting`: orders waiting too long during opening hours → beep → SMS → call → owner (lane A) |
 | Auto-accept | A toggle inside each platform app; the owner sets it in the screen. **Only with a kitchen ticket path** (Clover link or a printer), or accepted orders get cooked by nobody |
-| Orders into Clover / reprint | Unchanged and official: the platform's own Clover link (`FOODHUB_VIA_CLOVER`) or the platform API. Screens are never scraped for orders (platform terms, account suspension risk) |
+| Orders into Clover / reprint | The platform's own Clover link (`FOODHUB_VIA_CLOVER`) or the platform API; until then, the **Clover** button on each screen tile (a person types the order: Clover order, paid with the platform tender, printed; decision 1 below, built 2026-11-05). Screens are never scraped for orders (platform terms, account suspension risk) |
 | Printer | The tablet's printer stays the fallback. A cloud screen cannot reach a store printer; the kitchen ticket comes from Clover |
 
 ## Hard rules for every agent (people or AI)
@@ -187,7 +187,8 @@ You join the TAKATAK Food Hub "order screens rescue" as LANE B (relay host side)
 
 ## Owner decisions waiting (nothing built for these yet)
 
-1. **"Re-enter in Clover" from a screen** (the owner's "recreate / reprint"): for a platform with no Clover link, a quick
+1. **BUILT 2026-11-05 (`feature/clover-reentry`; owner: "none of them" print on Clover by themselves, so Uber Eats,
+   DoorDash and Skip all get it).** **"Re-enter in Clover" from a screen** (the owner's "recreate / reprint"): for a platform with no Clover link, a quick
    form on the screen's tile (platform order code, items from the menu, note) that creates the Clover order and the
    kitchen ticket through Food Hub's normal pipeline, marked as entered by hand, with no call back to the platform.
    Risk: a double order if that platform's own Clover link is also on (rule: one path per order). Build only once the

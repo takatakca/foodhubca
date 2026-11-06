@@ -148,8 +148,11 @@ export interface NormalizedOrder {
   /**
    * 'relay' = received on the Food Hub Order Relay (a partner pushes the order: TGTG feed, website…).
    * Runs the normal pipeline (Clover ticket, kitchen); accept / ready / reject go back to the relay callback.
+   * 'screen' = entered by hand by the staff from a platform screen (Stores → Platform screens → "Enter in Clover"):
+   * the order was accepted on the platform's own screen, so Food Hub accepts it and records it as PAID in Clover right
+   * away (platform tender), and never calls the platform about it (no accept, ready, cancel or adjust).
    */
-  viaHub?: 'relay';
+  viaHub?: 'relay' | 'screen';
   /** The sender's own order id, used for status callbacks. */
   hubOrderId?: string;
   /** Lines / options that reached Clover as free text (not linked to the Clover inventory). */

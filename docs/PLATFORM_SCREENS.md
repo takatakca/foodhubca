@@ -45,10 +45,19 @@ its sign-in loses orders without anyone noticing.
 - **Passwords:** Food Hub never asks for, stores or types a platform password. The owner signs in **once, inside the
   screen** (with the SMS code if the platform asks). The browser profile is kept on the relay host's disk, so the
   session survives restarts. Agents (people or AI) never type passwords or codes (CLAUDE.md §4).
-- **Is not an order integration.** The agent never clicks, accepts or reads orders. Orders reach Clover the way they
-  do today. Reading orders off the screen and injecting them would break the platforms' merchant terms and could get
-  the accounts suspended; the real integrations (Uber Eats API, DoorDash Drive/Marketplace, Skip/JET Connect, the
-  Order Relay) stay the way orders enter Food Hub.
+- **Is not an order integration.** The agent never clicks, accepts or reads orders. Reading orders off the screen
+  and injecting them would break the platforms' merchant terms and could get the accounts suspended; the real
+  integrations (Uber Eats API, DoorDash Drive/Marketplace, Skip/JET Connect, the Order Relay) stay the way orders enter
+  Food Hub automatically.
+- **"Clover" button on each tile (Enter in Clover):** a person types the order the screen shows (platform order
+  number, customer first name, dishes from the brand's menu at the platform's price, options, notes, or a dish not in
+  the menu with the price the screen shows). Food Hub creates the Clover order through the normal pipeline, accepts it,
+  records it as **paid** with the platform tender ("Uber Eats", "DoorDash", "Skip": the register asks for no payment)
+  and prints the kitchen ticket, headed `DOORDASH #A1B2C3 | MARIE | ENTRÉE À LA MAIN / ENTERED BY HAND`. The platform
+  is never called about it (`viaHub: 'screen'`): accept, ready and cancel happen inside the platform screen; Cancel in
+  Food Hub only closes it in Clover (already paid → flagged "refund in Clover"). The same order number twice never
+  makes a second order or ticket. Refused for a platform linked through Clover (`FOODHUB_VIA_CLOVER`) and for
+  protected stores. Code: `lib/foodhub/screen-entry.ts`, `POST /api/foodhub/screens/:id/entry` (`orders:act`).
 - **Po Poulet NDG (DoorDash 27982486):** if a DoorDash screen shows that store, nobody acts on it from Food Hub.
 
 ## Setup (owner, about 30 minutes)

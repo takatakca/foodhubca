@@ -1,5 +1,21 @@
 # Food Hub: progress log and task board
 
+## 2026-11-05 — Platform screens: "Clover" button — a screen's order typed in, paid in Clover, printed (`feature/clover-reentry`)
+
+- Owner: platform orders must ring and print on Clover, already paid, with the platform's name and the order's details;
+  none of Uber Eats, DoorDash or Skip prints on Clover by itself. Until the platforms approve Food Hub's APIs, a person
+  types the order from the screen (the screens are never read by software: platform terms).
+- Each screen tile gets a **Clover** button → form: store (brand), platform order number, customer first name,
+  delivery / pickup, dishes from the brand's menu at the platform's price (markup and per-item overrides), options,
+  per-dish and order notes, or a dish not in the menu with the price the screen shows.
+- `lib/foodhub/screen-entry.ts` + `GET/POST /api/foodhub/screens/:id/entry` (`orders:act`, location scope): the normal
+  pipeline creates the Clover order (lines linked to the Clover inventory, platform order type), accepts it, records it
+  **paid at once** with the platform tender, prints the ticket. New `viaHub: 'screen'`: the platform is never called
+  (accept / ready / cancel are no-ops toward it; cancel closes the Clover copy, already paid → "refund in Clover" alert).
+  Same order number twice → 409, nothing printed twice. Refused: platform linked through Clover, protected stores
+  (Po Poulet NDG), other-platform screens. Docs: PLATFORM_SCREENS.md, ORDER_SCREENS_RESCUE.md (decision 1 built).
+- Tests: `tests/screen-entry.test.ts` (10).
+
 ## 2026-10-30 — Security: nodemailer / mailparser addressparser advisories cleared (`fix/nodemailer-addressparser-advisory`)
 
 - Defensive audit of Food Hub + QCMEV (owner asked « no one can hack us? »). No committed secrets, no unauthenticated

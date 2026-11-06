@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import {
   Bell, BellOff, Columns2, ExternalLink, Expand, GripVertical, LayoutGrid, LogIn, Maximize2, MonitorPlay, Move, Pencil, Plus, RefreshCw,
-  Download, List, RotateCcw, Save, Share2, ShieldAlert, Shrink, Smartphone, Square, Trash2, Wand2, X,
+  Download, List, Minus, Receipt, RotateCcw, Save, Search, Share2, ShieldAlert, Shrink, Smartphone, Square, Trash2, Wand2, X,
 } from 'lucide-react';
 import { Badge, StatusDot } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -79,6 +79,7 @@ export default function PlatformScreensPage() {
   const [edit, setEdit] = useState<Screen | 'new' | null>(null);
   const [setup, setSetup] = useState(false);
   const [remove, setRemove] = useState<Screen | null>(null);
+  const [entry, setEntry] = useState<Screen | null>(null);
   const [ring, setRing] = useState(false);
   const [wall, setWall] = useState<WallState>(DEFAULT_WALL);
   const [arrange, setArrange] = useState(false);
@@ -231,7 +232,7 @@ export default function PlatformScreensPage() {
   const tileProps = (s: Screen) => ({
     s, lang, loc: shortLoc(locName(s.locationCode)), manage, canAct,
     onReload: () => command(s, 'reload'), onOpen: () => command(s, 'open'), onPlatform: (p: Platform) => changePlatform(s, p),
-    onFocus: () => focus(s.id), onEdit: () => setEdit(s), onRemove: () => setRemove(s),
+    onFocus: () => focus(s.id), onEdit: () => setEdit(s), onRemove: () => setRemove(s), onEnter: () => setEntry(s),
   });
 
   return (
@@ -303,6 +304,8 @@ export default function PlatformScreensPage() {
         onDone={async (name) => { setEdit(null); toast.success(t('Écran enregistré', 'Screen saved'), name); await load(); }} />}
       {setup && <SetupDialog locations={locations} existing={screens} nextSlot={nextScreenNumber(screens)} onClose={() => setSetup(false)}
         onDone={async (n) => { setSetup(false); toast.success(t('Écrans prêts', 'Screens ready'), t(`${n} écran(s) créé(s), chacun ouvre sa page de connexion.`, `${n} screen(s) created, each opens its sign-in page.`)); await load(); }} />}
+      {entry && <EntryDialog screen={entry} onClose={() => setEntry(null)}
+        onDone={(title, body) => { setEntry(null); toast.success(title, body); }} />}
       {remove && (
         <Modal size="sm" title={t('Retirer cet écran ?', 'Remove this screen?')} onClose={() => setRemove(null)}
           footer={<><Button variant="ghost" size="lg" onClick={() => setRemove(null)}>{t('Annuler', 'Cancel')}</Button><Button variant="danger" size="lg" onClick={() => doRemove(remove)}>{t('Retirer', 'Remove')}</Button></>}>
@@ -612,9 +615,11 @@ type TileProps = {
   s: Screen; lang: 'fr' | 'en'; loc: string; manage: boolean; canAct: boolean; compact: boolean;
   header?: Record<string, unknown>;
   onReload: () => void; onOpen: () => void; onPlatform: (p: Platform) => void; onFocus: () => void; onEdit: () => void; onRemove: () => void;
+  /** "Enter in Clover": type the order this screen shows → Clover order, paid with the platform tender, printed. */
+  onEnter: () => void;
 };
 
-function ScreenTile({ s, lang, loc, manage, canAct, compact, header, onReload, onOpen, onPlatform, onFocus, onEdit, onRemove }: TileProps) {
+function ScreenTile({ s, lang, loc, manage, canAct, compact, header, onReload, onOpen, onPlatform, onFocus, onEdit, onRemove, onEnter }: TileProps) {
   const { t } = useI18n();
   const tone = statusTone(s.status);
   const waiting = s.status === 'online' && (s.titleCount ?? 0) > 0 ? s.titleCount ?? 0 : 0;
@@ -637,6 +642,10 @@ function ScreenTile({ s, lang, loc, manage, canAct, compact, header, onReload, o
           <StatusDot tone={tone} pulse={s.status === 'online'} />{!compact && <span className="whitespace-nowrap">{statusText(s, t, lang)}</span>}
         </span>
         <span className="inline-flex shrink-0">
+          {canAct && s.platform !== 'other' && (compact
+            ? <TileButton label={t('Entrer dans Clover', 'Enter in Clover')} onClick={onEnter}><Receipt className="size-3.5" /></TileButton>
+            : <button type="button" onClick={onEnter} onDoubleClick={(e) => e.stopPropagation()} title={t('Taper la commande de cet écran : elle part dans Clover, payée, et s’imprime', 'Type this screen’s order: it goes to Clover, paid, and prints')}
+                className="mr-1 inline-flex h-7 items-center gap-1 rounded-sm bg-brand px-2 text-xs font-bold text-white hover:opacity-90"><Receipt className="size-3.5" />Clover</button>)}
           {canAct && <TileButton label={t('Recharger', 'Reload')} onClick={onReload} disabled={!!s.command}><RefreshCw className="size-3.5" /></TileButton>}
           {canAct && !compact && s.platform !== 'other' && <TileButton label={t('Page de connexion', 'Sign-in page')} onClick={onOpen} disabled={!!s.command}><LogIn className="size-3.5" /></TileButton>}
           <TileButton label={t('Agrandir', 'Make big')} onClick={onFocus}><Maximize2 className="size-3.5" /></TileButton>
@@ -773,6 +782,179 @@ function ScreenDialog({ screen, locations, onClose, onDone }: { screen: Screen |
           hint={t('Les numéros de magasin de la plateforme que ce compte affiche, séparés par des virgules. Un magasin protégé est marqué « protégé ».', 'The platform store numbers this account shows, separated by commas. A protected store is marked “protected”.')}>
           <Input value={f.storeIds} inputMode="numeric" onChange={(e) => set('storeIds', e.target.value)} />
         </Field>
+      </div>
+    </Modal>
+  );
+}
+
+// ---- "Enter in Clover": the order this screen shows, typed in a few taps (lib/foodhub/screen-entry.ts) ----
+
+type EntryItem = { ref: string; name: string; price: number; available: boolean; options: Array<{ group: string; ref: string; name: string; price: number }> };
+type EntryStore = { channelStoreId: string; brandName: string; menu: Array<{ category: string; items: EntryItem[] }> };
+type CartLine = { key: number; ref?: string; name: string; unitPrice: number; quantity: number; note: string; options: EntryItem['options']; picked: string[] };
+const money = (n: number) => `${n.toFixed(2)} $`;
+
+function EntryDialog({ screen, onClose, onDone }: { screen: Screen; onClose: () => void; onDone: (title: string, body: string) => void }) {
+  const { t } = useI18n();
+  const [opts, setOpts] = useState<{ blocked: string | null; stores: EntryStore[] } | null>(null);
+  const [storeId, setStoreId] = useState('');
+  const [code, setCode] = useState('');
+  const [customer, setCustomer] = useState('');
+  const [fulfillment, setFulfillment] = useState<'delivery' | 'pickup'>('delivery');
+  const [note, setNote] = useState('');
+  const [search, setSearch] = useState('');
+  const [cart, setCart] = useState<CartLine[]>([]);
+  const [freeName, setFreeName] = useState('');
+  const [freePrice, setFreePrice] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const nextKey = useRef(1);
+  const label = platformLabel(screen.platform);
+
+  useEffect(() => {
+    api<{ blocked: string | null; stores: EntryStore[] }>(`/api/foodhub/screens/${screen.id}/entry`)
+      .then((d) => { setOpts(d); if (d.stores.length === 1) setStoreId(d.stores[0].channelStoreId); })
+      .catch((e) => setErr(e instanceof Error ? e.message : String(e)));
+  }, [screen.id]);
+
+  const store = opts?.stores.find((s) => s.channelStoreId === storeId) ?? null;
+  const q = search.trim().toLowerCase();
+  const menu = (store?.menu ?? []).map((c) => ({ ...c, items: q ? c.items.filter((i) => i.name.toLowerCase().includes(q)) : c.items })).filter((c) => c.items.length);
+  const lineTotal = (l: CartLine) => (l.unitPrice + l.options.filter((o) => l.picked.includes(o.ref)).reduce((s, o) => s + o.price, 0)) * l.quantity;
+  const subtotal = cart.reduce((s, l) => s + lineTotal(l), 0);
+  const patch = (key: number, p: Partial<CartLine>) => setCart((c) => c.map((l) => (l.key === key ? { ...l, ...p } : l)));
+  const drop = (key: number) => setCart((c) => c.filter((x) => x.key !== key));
+  const add = (i: EntryItem) => setCart((c) => [...c, { key: nextKey.current++, ref: i.ref, name: i.name, unitPrice: i.price, quantity: 1, note: '', options: i.options, picked: [] }]);
+  const addFree = () => {
+    const price = Number(freePrice.replace(',', '.'));
+    if (!freeName.trim() || !Number.isFinite(price) || price < 0) return;
+    setCart((c) => [...c, { key: nextKey.current++, name: freeName.trim(), unitPrice: Math.round(price * 100) / 100, quantity: 1, note: '', options: [], picked: [] }]);
+    setFreeName(''); setFreePrice('');
+  };
+
+  async function go() {
+    setBusy(true); setErr('');
+    try {
+      const r = await api<{ message: string; inClover: boolean; paid: boolean }>(`/api/foodhub/screens/${screen.id}/entry`, {
+        method: 'POST',
+        body: JSON.stringify({
+          channelStoreId: storeId || undefined, orderCode: code, customerName: customer || undefined, fulfillment, note: note || undefined,
+          lines: cart.map((l) => ({
+            ...(l.ref ? { ref: l.ref } : { name: l.name, unitPrice: l.unitPrice }), quantity: l.quantity, note: l.note || undefined,
+            modifiers: l.picked.map((ref) => ({ ref, quantity: 1 })),
+          })),
+        }),
+      });
+      onDone(r.inClover && r.paid ? t('Dans Clover, payée', 'In Clover, paid') : t('À vérifier', 'Check it'), r.message);
+    } catch (e) { if (!(e instanceof ApiError && e.status === 499)) setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  }
+
+  const ready = Boolean(store && code.trim().length >= 3 && cart.length);
+  return (
+    <Modal size="xl" title={`${t('Entrer dans Clover', 'Enter in Clover')} · ${label}`} subtitle={screen.name} onClose={onClose}
+      footer={<>
+        <span className="mr-auto text-sm text-ink-2">{t('Sous-total', 'Subtotal')} <strong className="text-ink">{money(subtotal)}</strong> + {t('taxes', 'taxes')}</span>
+        <Button variant="ghost" size="lg" onClick={onClose}>{t('Annuler', 'Cancel')}</Button>
+        <Button size="lg" loading={busy} disabled={!ready} onClick={go} icon={<Receipt className="size-4" />}>{t('Envoyer à Clover (payée)', 'Send to Clover (paid)')}</Button>
+      </>}>
+      <div className="space-y-3">
+        <p className="text-sm text-ink-2">{t(
+          `Tapez la commande que montre l’écran ${label}. Elle part dans Clover aux prix ${label}, déjà PAYÉE par « ${label} » (la caisse ne demande rien), et le billet s’imprime. ${label} n’en sait rien : acceptez, préparez et annulez dans l’écran.`,
+          `Type the order the ${label} screen shows. It goes to Clover at ${label} prices, already PAID by “${label}” (the register asks for nothing), and the ticket prints. ${label} is not told: accept, prepare and cancel inside the screen.`)}</p>
+        {err && <Banner tone="stop">{err}</Banner>}
+        {!opts && !err && <p className="text-sm text-ink-3">{t('Chargement…', 'Loading…')}</p>}
+        {opts?.blocked && <Banner tone="warn">{opts.blocked}</Banner>}
+        {opts && !opts.blocked && (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <Field label={t('Magasin (marque)', 'Store (brand)')} required>
+                <Select value={storeId} onChange={(e) => { setStoreId(e.target.value); setCart([]); }}>
+                  {opts.stores.length > 1 && <option value="">{t('Choisir…', 'Choose…')}</option>}
+                  {opts.stores.map((s) => <option key={s.channelStoreId} value={s.channelStoreId}>{s.brandName}</option>)}
+                </Select>
+              </Field>
+              <Field label={t('N° de commande', 'Order number')} hint={t('Comme sur l’écran', 'As on the screen')} required>
+                <Input value={code} maxLength={40} autoFocus onChange={(e) => setCode(e.target.value)} placeholder="#A1B2C3" />
+              </Field>
+              <Field label={t('Prénom du client', 'Customer first name')}>
+                <Input value={customer} maxLength={40} onChange={(e) => setCustomer(e.target.value)} />
+              </Field>
+              <Field label={t('Type', 'Type')}>
+                <Select value={fulfillment} onChange={(e) => setFulfillment(e.target.value as 'delivery' | 'pickup')}>
+                  <option value="delivery">{t('Livraison', 'Delivery')}</option>
+                  <option value="pickup">{t('Pour emporter', 'Pickup')}</option>
+                </Select>
+              </Field>
+            </div>
+            {store && (
+              <div className="grid gap-3 lg:grid-cols-2">
+                <div className="min-w-0">
+                  <div className="relative mb-2">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-ink-3" aria-hidden />
+                    <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('Chercher un plat', 'Find a dish')} aria-label={t('Chercher un plat', 'Find a dish')} className="pl-8" />
+                  </div>
+                  <div className="max-h-[50vh] overflow-y-auto rounded-md border border-line">
+                    {menu.length === 0 && <p className="p-3 text-sm text-ink-3">{store.menu.length ? t('Aucun plat trouvé.', 'No dish found.') : t('Pas de menu pour cette marque : ajoutez les plats à la main ci-dessous.', 'No menu for this brand: add the dishes by hand below.')}</p>}
+                    {menu.map((c) => (
+                      <div key={c.category}>
+                        <div className="sticky top-0 bg-sunken px-3 py-1 text-xs font-bold uppercase text-ink-2">{c.category}</div>
+                        {c.items.map((i) => (
+                          <button key={i.ref} type="button" onClick={() => add(i)} className="flex w-full items-center gap-2 border-t border-line px-3 py-2 text-left text-sm hover:bg-sunken">
+                            <Plus className="size-4 shrink-0 text-ink-3" aria-hidden />
+                            <span className="min-w-0 flex-1 truncate">{i.name}{!i.available && <span className="ml-1 text-xs text-ink-3">({t('épuisé', 'sold out')})</span>}</span>
+                            <span className="shrink-0 tabular-nums text-ink-2">{money(i.price)}</span>
+                          </button>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-2 flex gap-2">
+                    <Input value={freeName} maxLength={80} onChange={(e) => setFreeName(e.target.value)} placeholder={t('Plat absent du menu', 'Dish not in the menu')} aria-label={t('Plat absent du menu', 'Dish not in the menu')} />
+                    <Input value={freePrice} inputMode="decimal" onChange={(e) => setFreePrice(e.target.value)} placeholder="0.00" aria-label={t('Prix', 'Price')} className="w-24" />
+                    <Button variant="outline" onClick={addFree} disabled={!freeName.trim() || !freePrice.trim()}>{t('Ajouter', 'Add')}</Button>
+                  </div>
+                </div>
+                <div className="min-w-0">
+                  <div className="mb-2 text-sm font-semibold text-ink-2">{t('Commande', 'Order')} ({cart.reduce((s, l) => s + l.quantity, 0)})</div>
+                  {cart.length === 0 && <p className="rounded-md border border-dashed border-line p-3 text-sm text-ink-3">{t('Touchez les plats à gauche.', 'Tap the dishes on the left.')}</p>}
+                  <ul className="space-y-2">
+                    {cart.map((l) => (
+                      <li key={l.key} className="rounded-md border border-line p-2">
+                        <div className="flex items-center gap-2">
+                          <button type="button" aria-label={t('Moins', 'Less')} className="inline-flex size-7 items-center justify-center rounded-sm border border-line" onClick={() => (l.quantity > 1 ? patch(l.key, { quantity: l.quantity - 1 }) : drop(l.key))}><Minus className="size-3.5" /></button>
+                          <span className="w-6 text-center font-bold tabular-nums">{l.quantity}</span>
+                          <button type="button" aria-label={t('Plus', 'More')} className="inline-flex size-7 items-center justify-center rounded-sm border border-line" onClick={() => patch(l.key, { quantity: Math.min(50, l.quantity + 1) })}><Plus className="size-3.5" /></button>
+                          <span className="min-w-0 flex-1 truncate text-sm font-semibold">{l.name}</span>
+                          <span className="shrink-0 text-sm tabular-nums">{money(lineTotal(l))}</span>
+                          <button type="button" aria-label={t('Retirer', 'Remove')} className="inline-flex size-7 items-center justify-center rounded-sm text-ink-3 hover:text-stop" onClick={() => drop(l.key)}><X className="size-3.5" /></button>
+                        </div>
+                        {l.options.length > 0 && (
+                          <div className="mt-1.5 flex flex-wrap gap-1.5">
+                            {l.options.map((o) => {
+                              const on = l.picked.includes(o.ref);
+                              return (
+                                <button key={o.ref} type="button" aria-pressed={on} title={o.group}
+                                  onClick={() => patch(l.key, { picked: on ? l.picked.filter((r) => r !== o.ref) : [...l.picked, o.ref] })}
+                                  className={cn('rounded-full border px-2 py-0.5 text-xs', on ? 'border-brand bg-brand text-white' : 'border-line text-ink-2 hover:bg-sunken')}>
+                                  {o.name}{o.price > 0 ? ` +${money(o.price)}` : ''}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                        <Input value={l.note} maxLength={120} onChange={(e) => patch(l.key, { note: e.target.value })} placeholder={t('Note pour ce plat (sans oignon…)', 'Note for this dish (no onion…)')} aria-label={t('Note pour ce plat', 'Note for this dish')} className="mt-1.5 h-8 text-sm" />
+                      </li>
+                    ))}
+                  </ul>
+                  <Field label={t('Note de la commande', 'Order note')} className="mt-2">
+                    <Input value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} placeholder={t('Ex. sans ustensiles', 'E.g. no cutlery')} />
+                  </Field>
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </Modal>
   );

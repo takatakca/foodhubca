@@ -56,8 +56,24 @@ async function autoPrint(order: StoredOrder, merchantId?: string | null): Promis
 }
 
 /** Where an order's platform actions go: the platform's own API, or the relay callback for orders that came through it. */
-function actionsFor(order: { channel: ChannelKey; viaHub?: 'relay' }): Pick<ChannelAdapter, 'acceptOrder' | 'denyOrder' | 'markReady' | 'cancelOrder'> {
+function actionsFor(order: { channel: ChannelKey; viaHub?: 'relay' | 'screen' }): Pick<ChannelAdapter, 'acceptOrder' | 'denyOrder' | 'markReady' | 'cancelOrder'> {
+  if (order.viaHub === 'screen') return screenActions(order.channel);
   return order.viaHub === 'relay' ? relayActions : getAdapter(order.channel);
+}
+
+/**
+ * Orders entered by hand from a platform screen: the platform knows nothing of Food Hub for them, so every action stays
+ * in Food Hub and Clover. Accept / ready / cancel are done by the staff inside the platform's own screen.
+ */
+export function screenActions(channel: ChannelKey): Pick<ChannelAdapter, 'acceptOrder' | 'denyOrder' | 'markReady' | 'cancelOrder'> {
+  const label = CHANNEL_LABELS[channel];
+  const done = (fr: string, en: string): ChannelResult => ({ channel, ok: true, status: 'skipped', message: `${en} · ${fr}` });
+  return {
+    acceptOrder: async () => done(`Entrée à la main depuis l’écran ${label} : rien n’est envoyé à ${label}.`, `Entered by hand from the ${label} screen: nothing is sent to ${label}.`),
+    markReady: async () => done(`Marquée prête dans Food Hub ; faites-le aussi dans l’écran ${label}.`, `Marked ready in Food Hub; do it in the ${label} screen too.`),
+    denyOrder: async () => done(`Annulée dans Food Hub ; annulez-la aussi dans l’écran ${label}.`, `Cancelled in Food Hub; cancel it in the ${label} screen too.`),
+    cancelOrder: async () => done(`Annulée dans Food Hub ; annulez-la aussi dans l’écran ${label}.`, `Cancelled in Food Hub; cancel it in the ${label} screen too.`),
+  };
 }
 
 /**
@@ -150,7 +166,10 @@ export async function processIncomingOrder(n: NormalizedOrder, opts: { holdClove
   else if (opts.holdClover) await repo.addEvent(order.id, 'needs_attention', { reason: `Not sent to Clover, not accepted automatically: ${opts.holdClover}` });
   const posBlocksAccept = !pos.ok && !pos.skipped;
   let accept: ChannelResult | undefined;
-  if (store?.autoAccept && !posBlocksAccept && !opts.holdClover) {
+  // Entered by hand from a platform screen: already accepted on that screen, so it is accepted (and paid in Clover) as
+  // soon as Clover has it — never before (posBlocksAccept), and only for a mapped store.
+  const acceptNow = Boolean(store) && (store?.autoAccept || n.viaHub === 'screen');
+  if (acceptNow && !posBlocksAccept && !opts.holdClover) {
     const r = await autoAcceptAfterClover(current, pos.ok ? pos.posOrderId : undefined);
     current = r.order;
     accept = r.accept;
@@ -292,8 +311,10 @@ export async function autoAcceptAfterClover(order: StoredOrder, posOrderId?: str
   } else if (accept.ok) {
     current = await patchTimeline(current, { acceptedAt: nowIso(), acceptedBy: 'auto' }, { status: 'accepted', channelError: undefined });
     await repo.addEvent(order.id, 'accepted', { auto: true, response: summarize(accept) });
-    // Accepted = sold: the Revenu Québec invoice follows (Takatak MEV; nothing when MEV is off).
-    await mevOnOrderChange(current);
+    // Accepted = sold: the Revenu Québec invoice follows (Takatak MEV; nothing when MEV is off). An order entered by hand
+    // from a platform screen is also recorded as paid in Clover now (settleInClover runs the MEV hook itself).
+    if (current.viaHub === 'screen') current = (await settleInClover(current)) ?? current;
+    else await mevOnOrderChange(current);
   } else {
     current = (await repo.updateOrder(order.id, { channelError: accept.message })) ?? current;
     await repo.addEvent(order.id, 'accept_failed', { auto: true, status: accept.status, message: accept.message });
@@ -424,7 +445,8 @@ export function allowedActions(order: StoredOrder): OrderAction[] {
   // Uber Eats lets a store cancel an accepted order by API; DoorDash too once it allowlisted the integration. Skip (and
   // DoorDash otherwise) cancellations are done in their merchant portal / tablet and arrive back here through webhooks.
   // DoorDash only when DoorDash allowlisted merchant cancellations for this integration (DOORDASH_MERCHANT_CANCEL=true).
-  const canCancel = order.channel === 'uber_eats' || (order.channel === 'doordash' && !order.viaHub && doorDashMerchantCancelEnabled());
+  // An order entered by hand from a screen is cancelled in Food Hub and Clover only (the staff cancels it on the platform screen).
+  const canCancel = order.viaHub === 'screen' || order.channel === 'uber_eats' || (order.channel === 'doordash' && !order.viaHub && doorDashMerchantCancelEnabled());
   if (order.status === 'accepted') a.push('ready', ...(canCancel ? (['cancel'] as const) : []));
   if (order.status === 'ready') a.push('dispatch', 'complete', ...(canCancel ? (['cancel'] as const) : []));
   if (order.status === 'dispatched') a.push('complete');

@@ -1,5 +1,19 @@
 # Food Hub: progress log and task board
 
+## 2026-11-05 — DoorDash store list: the 5 missing businesses (24 stores) added (`fix/doordash-store-list`)
+
+- Read in the DoorDash merchant portal (owner signed in himself, read-only): the group has 19 businesses; 5 had no store
+  in `data/actual/platform-stores-doordash.json`: Dejeuner & Dinner (6), Pita Libanais (5), Poulet Poulet (4),
+  Po Poulet — business "Po Poulet Montréal", not the protected Po Poulet NDG business — (5), Crèmerie Bin Molle Bin Dure,
+  2nd business (4). Kitchen from the address: 6280 Somerled → NDG_MAIN, 6284 → NDG_6284, 3583 Sainte-Catherine E →
+  HOCHELAGA, 5837/5839 Jean-Talon E → SAINT_LEONARD.
+- Statuses as the portal shows them: 19 inactive, 4 "Operations suspended", 1 active (closed). "Operations suspended"
+  now shows as **paused** on the store grid (was unknown).
+- Three store names point to another kitchen than their address (two "HOCHELAGA" chicken stores at 5839 Jean-Talon,
+  one "ST LÉONARD" ice-cream store at 6280 Somerled): filed by address; the owner confirms.
+- The DoorDash portal shows "Your payout failed — incorrect or missing bank info" (not touched: owner).
+- Test: `tests/scope.test.ts` (19 businesses; paused / closed / deactivated cells).
+
 ## 2026-11-05 — Platform screens: "Clover" button — a screen's order typed in, paid in Clover, printed (`feature/clover-reentry`)
 
 - Owner: platform orders must ring and print on Clover, already paid, with the platform's name and the order's details;

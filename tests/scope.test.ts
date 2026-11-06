@@ -456,4 +456,16 @@ describe('the dashboard for a platform scope', () => {
     }
     expect(requiredChannels([])).toEqual(['uber_eats', 'doordash', 'skip']);
   });
+
+  it('the owner’s DoorDash list covers the 19 businesses of the group; "Operations suspended" shows as paused', () => {
+    const seed = ownerSeedStores({} as unknown as NodeJS.ProcessEnv);
+    // Read in the DoorDash portal on 2026-11-05: 19 businesses (5 were missing before: 24 stores).
+    expect(new Set(seed.map((s) => (s as unknown as { external_business_id: string }).external_business_id)).size).toBe(19);
+    const cell = (brand: string, loc: string) => buildMatrix([]).find((r) => r.brandName === brand && r.locationCode === loc)?.cells.doordash;
+    // Pita Libanais at 6280 Somerled: one store "Operations suspended", the others inactive → the best is paused.
+    expect(cell('Pita Libanais', 'NDG_MAIN')).toMatchObject({ state: 'paused', source: 'screenshot', stores: 3 });
+    // Po Poulet 24/7 at 5839 Jean-Talon: active, closed now.
+    expect(cell('Po Poulet', 'SAINT_LEONARD')).toMatchObject({ state: 'closed', source: 'screenshot' });
+    expect(cell('Dejeuner & Dinner', 'HOCHELAGA')).toMatchObject({ state: 'deactivated', stores: 3 });
+  });
 });

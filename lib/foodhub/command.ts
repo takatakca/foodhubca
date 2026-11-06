@@ -81,7 +81,8 @@ function storeState(s: ChannelStore): { state: CellState; detail?: string; until
 }
 
 function seedState(rows: SeedStore[]): CellState {
-  const states = rows.map<CellState>((r) => (r.activation_status === 'deactivated' ? 'deactivated' : r.open_status === 'closed' ? 'closed' : r.open_status === 'open' ? 'online' : 'unknown'));
+  // "Operations suspended" in the DoorDash portal: the store exists but takes no orders until DoorDash lifts it → paused.
+  const states = rows.map<CellState>((r) => (r.activation_status === 'deactivated' ? 'deactivated' : r.open_status === 'suspended' ? 'paused' : r.open_status === 'closed' ? 'closed' : r.open_status === 'open' ? 'online' : 'unknown'));
   return states.sort((a, b) => STATE_RANK[b] - STATE_RANK[a])[0] ?? 'missing';
 }
 

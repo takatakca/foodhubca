@@ -334,16 +334,15 @@ function maybeInClover(order: StoredOrder): boolean {
  *  3. injects, then reads the order again: a copy someone else put in Clover meanwhile wins (ours is removed), and an
  *     order the platform cancelled meanwhile gets no kitchen ticket (removed from Clover); otherwise records and prints.
  * Never into a guessed register: a store nobody mapped waits when there are several Clover merchants. One send per
- * order at a time on this server (the button, the timer and the cron can meet). Accepting is the caller's decision.
+ * order at a time on any server (the button, the timer and the cron can meet — on several servers at once, so the
+ * guard is a claim in the database, not only this process's memory). Accepting is the caller's decision.
  */
 export async function resendToClover(order: StoredOrder, opts: { manual?: boolean; by?: string; attempt?: number } = {}): Promise<{ order: StoredOrder; pos: InjectResult; store: ChannelStore | null }> {
-  const busy = cloverSending();
-  if (busy.has(order.id)) return { order, pos: { ok: false, skipped: true, error: 'Food Hub is already sending this order to Clover — check again in a few seconds.' }, store: null };
-  busy.add(order.id);
+  if (!(await claimCloverSending(order.id))) return { order, pos: { ok: false, skipped: true, error: 'Food Hub is already sending this order to Clover — check again in a few seconds.' }, store: null };
   try {
     return await resendNow(order, opts);
   } finally {
-    busy.delete(order.id);
+    await releaseCloverSending(order.id);
   }
 }
 
@@ -352,9 +351,41 @@ function cloverSending(): Set<string> {
   return (g.__foodhubCloverSending ??= new Set<string>());
 }
 
-/** True while this server is sending that order to Clover (the retry runner leaves it alone). */
-export function isSendingToClover(orderId: string): boolean {
-  return cloverSending().has(orderId);
+/** The cross-server claim on "this order is being sent to Clover" (fh_kv): one send per order across every server. */
+export const cloverSendingClaimKey = (orderId: string) => `clover_sending:${orderId}`;
+
+/** A send claim older than this belongs to a server that stopped mid-send (a Clover order POST takes seconds):
+ * the next sender takes it over — the same stuck-claim window as the metered phone minutes (clover-phone-minutes.ts). */
+const CLOVER_SEND_CLAIM_STUCK_MS = 10 * 60_000;
+
+async function claimCloverSending(orderId: string): Promise<boolean> {
+  if (cloverSending().has(orderId)) return false;
+  const repo = getRepo();
+  const key = cloverSendingClaimKey(orderId);
+  // The claim store itself failing must not stop sends: fall back to this process's guard alone (as before this fix).
+  if (await repo.claimKv(key, { at: nowIso() }).catch(() => true)) { cloverSending().add(orderId); return true; }
+  const held = await repo.getKv<{ at?: string }>(key).catch(() => null);
+  const at = held?.at ? Date.parse(held.at) : NaN;
+  if (Number.isFinite(at) && Date.now() - at > CLOVER_SEND_CLAIM_STUCK_MS) {
+    await repo.releaseKv(key).catch(() => undefined);
+    if (await repo.claimKv(key, { at: nowIso() }).catch(() => true)) { cloverSending().add(orderId); return true; }
+  }
+  return false;
+}
+
+async function releaseCloverSending(orderId: string): Promise<void> {
+  cloverSending().delete(orderId);
+  await getRepo().releaseKv(cloverSendingClaimKey(orderId)).catch(() => undefined);
+}
+
+/** True while any server is sending that order to Clover (the retry runner leaves it alone). A claim left by a
+ * server that stopped mid-send stops counting once it is older than the stuck-claim window. */
+export async function isSendingToClover(orderId: string): Promise<boolean> {
+  if (cloverSending().has(orderId)) return true;
+  const held = await getRepo().getKv<{ at?: string }>(cloverSendingClaimKey(orderId)).catch(() => null);
+  if (!held) return false;
+  const at = held.at ? Date.parse(held.at) : NaN;
+  return !Number.isFinite(at) || Date.now() - at <= CLOVER_SEND_CLAIM_STUCK_MS;
 }
 
 async function resendNow(order: StoredOrder, opts: { manual?: boolean; by?: string; attempt?: number }): Promise<{ order: StoredOrder; pos: InjectResult; store: ChannelStore | null }> {

@@ -36,7 +36,7 @@ export async function runCloverRetries(opts: { now?: number; trigger?: string } 
   // Waiting, or accepted on the platform's side (the kitchen still needs it) — never one a person accepted here.
   const waiting = (await repo.listOrders({ statuses: ['new', 'accepted'], limit: 500 })).filter((o) => !o.posOrderId && o.timeline?.posRetry?.nextAt && Date.parse(o.timeline.posRetry.nextAt) <= now);
   for (const o of waiting) {
-    if (isSendingToClover(o.id)) continue; // a person's "Send to Clover" (or another run) is on it right now
+    if (await isSendingToClover(o.id)) continue; // a person's "Send to Clover" (or another run, on any server) is on it right now
     const fresh = await repo.getOrder(o.id);
     const pr = fresh?.timeline?.posRetry;
     if (!fresh || !pr?.nextAt || Date.parse(pr.nextAt) > now) continue;

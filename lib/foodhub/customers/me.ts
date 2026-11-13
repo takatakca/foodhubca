@@ -6,8 +6,12 @@ import { giftCardsFor, loyaltyFor, type GiftCardsInfo, type LoyaltyInfo } from '
 import { toPublicCustomer, type CustomerAddress, type MasterCustomer, type PublicCustomer } from './types';
 
 export const ME_ORDERS_MAX = 20;
-/** How far back the order list looks (the newest 500 direct orders of every source). */
-const ORDERS_SCAN = 500;
+/**
+ * How far back the order list looks. The scan starts at the newest 500 direct orders and widens
+ * (2 000, then 10 000) until the customer's page is full or the data runs out: the history must
+ * never silently empty just because other customers ordered more recently.
+ */
+const ORDERS_SCAN_STEPS = [500, 2_000, 10_000];
 
 export interface MeOrder {
   id: string;
@@ -31,9 +35,13 @@ export interface MeView {
 /** Website orders placed with this phone, newest first. Phone / Clover / manual orders are not the website's business. */
 export async function websiteOrdersFor(phone: string, limit = ME_ORDERS_MAX): Promise<MeOrder[]> {
   if (!phone) return [];
-  const all = await listDirectOrders({ limit: ORDERS_SCAN });
-  return all
-    .filter((o) => o.source === 'website' && o.customer?.phone === phone)
+  let matches: DirectOrder[] = [];
+  for (const scan of ORDERS_SCAN_STEPS) {
+    const all = await listDirectOrders({ limit: scan });
+    matches = all.filter((o) => o.source === 'website' && o.customer?.phone === phone);
+    if (matches.length >= limit || all.length < scan) break;
+  }
+  return matches
     .sort((a, b) => (b.placedAt || b.createdAt).localeCompare(a.placedAt || a.createdAt))
     .slice(0, limit)
     .map((o) => ({ id: o.id, number: o.number, at: o.placedAt || o.createdAt, total: o.total, status: o.status, brand: o.brandName, fulfillment: o.fulfillment }));

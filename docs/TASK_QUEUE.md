@@ -1,3 +1,14 @@
+## Relève 2026-11-13 — état réel du tableau (audit TAKATAK, vérifié en direct)
+
+Le tableau du 2026-10-14 ci-dessous est **historique** ; voici l'état vérifié de chaque item au 2026-11-13 :
+
+- **FH-001 DONE** — PR #48 fusionnée. **FH-002 DONE** — PR #49/#51 fusionnées. **FH-003 DONE** — DNS résolu : `foodhub.on2go.ca` en ligne, `/api/release` et `/api/health` répondent (vérifié 2026-11-13). **FH-004 DONE** — déploiement natif Coolify actif au push de `main`. **FH-005 DONE** — SHA servi == `main` vérifié le 2026-11-13 (`14039c5`, puis `d38ab8a` après PR #145).
+- **FH-006 / FH-007 BLOCKED (inchangés)** — certification des commandes réelles : approbations production Uber/DoorDash et clé Skip JET toujours manquantes ; issue #46.
+- **FH-008 DONE** — PR #45 dans `main`. **FH-009 DONE** — PR #43 dans `main`. **FH-010 NEXT** — surveillance de l'issue #46, inchangé. **FH-011 BLOCKED** — apps en révision chez Clover depuis le 2026-10-17. **FH-012 NEXT** — inchangé. **FH-013 PARTIEL** — on2go.ca en ligne ; la CI du dépôt `on2goca` échoue sur `main` (cause à établir). **FH-014 NEXT** — inchangé. **FH-015 DONE** — PR #51 fusionnée. **FH-016 DONE** — PR #52 fusionnée. **FH-PLATFORM-WORKSPACES DONE** — PR #142 fusionnée (workspaces + mur 54 tablettes dans `main`).
+- **Nouveaux items (audit du 2026-11-13)** : **FH-017 DONE** — bug historique client « 500 commandes » corrigé (PR #145). **FH-018 NEXT** — kiosque/T4CTILE : construire le vrai parcours (le prototype HTML est simulé). **FH-019 NEXT** — fidélité/cartes-cadeaux : brancher les adaptateurs (stub `connected: false`). **FH-020 NEXT** — remboursement Clover : aucun appel API n'existe, documenter le manuel ou construire. **FH-021 NEXT** — paramètres d'argent à vérifier : fenêtre de contestation Skip « UNCERTAIN » (7 j), taux Skip/TGTG « Contract » à saisir, taxe parasite Clover 0,14975 %. **FH-022 NEXT** — facturation Clover : le mesurage 15 $/marque extra est codé mais éteint (`FOODHUB_CLOVER_METERED_ENABLED` + `CLOVER_METERED_EXTRA_BRAND_ID`) ; décision d'activation après dry-run. **FH-023 BLOCKED (propriétaire)** — relais `ecrans.on2go.ca` + connexions uniques des 18 écrans sur le PC existant.
+
+---
+
 ## 2026-11-04 — FH-PLATFORM-WORKSPACES / REVIEW
 
 Source commit `2adf4147ee545991b7ac3954f4df2f74de8eef7d` on `feature/unified-platform-workspaces`: provider workspace navigation, scoped 54-tablet wall and finance, existing-session-aware preparation, Windows 99-slot capacity, safe statement provider/mapping checks. Verified: 2,072 unit tests passed (12 skipped), 644 simulated E2E checks, 15 browser checks, production build, and 9/9 sibling suite contracts. Owner reviews the branch; runtime next step is read-only status of the already-reported PC installation, preserving its existing profiles/IDs/configuration. See [EXISTING_PC_RELAY.md](EXISTING_PC_RELAY.md). Live PC/Drive unavailable in this cloud; do not restart from a new-host installation assumption.

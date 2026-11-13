@@ -1,4 +1,4 @@
-# TAKATAK Food Hub — RC10
+# TAKATAK Food Hub — version 1.5.9
 
 Your own direct connection to **Uber Eats, DoorDash, SkipTheDishes, Too Good To Go and Clover** —
 no UrbanPiper, no aggregator, no monthly integration fee — with a kitchen-first console in French and English.
@@ -36,7 +36,7 @@ npm run dev       # http://localhost:3000 → "Create the owner account" with yo
 ```
 
 Database: paste `supabase/INSTALL_ALL.sql` into the Supabase SQL editor and click Run once
-(it includes the RC10 changes; regenerate with `npm run sql:install`). Without Supabase the app runs in demo memory mode.
+(it includes the current changes; regenerate with `npm run sql:install`). Without Supabase the app runs in demo memory mode.
 
 **Your own server (Contabo VPS):** `sudo bash deploy/install-vps.sh foodhub.takatak.ca` installs everything with HTTPS and the 24/7 Watchtower — step by step in French: [docs/INSTALLER_SERVEUR.md](docs/INSTALLER_SERVEUR.md).
 
@@ -49,8 +49,8 @@ Keys only through `npm run setup` or the hosting environment variables — never
 ## Proof
 
 ```bash
-npm run check                              # typecheck + lint + 285 unit tests
-npm run build && npm run verify:foodhub    # 409 end-to-end checks against simulated Uber Eats, DoorDash,
+npm run check                              # typecheck + lint + 2 086 unit tests (vérifié 2026-11-13)
+npm run build && npm run verify:foodhub    # 644 end-to-end checks against simulated Uber Eats, DoorDash,
                                            # Skip (JET Connect), Clover, Resend, Twilio and a team chat
 npm run demo:foodhub                       # same, then keeps running with a simulated order every 40 s
 npm run audit:prod                         # production dependencies carry no high/critical advisory

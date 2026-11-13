@@ -1,5 +1,59 @@
 # FOODHUB / ON2GO Hub — état vérifiable du projet
 
+Dernière actualisation : **2026-11-13** (reprise TAKATAK — audit complet, 5 registres section par section).
+Dépôt : `takatakca/foodhubca`, branche de publication `main`.
+Source de vérité : les commits, PR, exécutions Actions et l'issue #46 de GitHub, plus les vérifications en direct du site.
+Ce document **n'est pas une preuve de fonctionnement en production** : il distingue ce qui est vérifié en direct, ce qui n'est prouvé qu'en tests simulés, et ce qui reste bloqué chez les tiers.
+
+## État confirmé (vérifié le 2026-11-13)
+
+| Domaine | Résultat vérifié | Preuve / limite |
+|---|---|---|
+| Source | `main` = `d38ab8a` (fusion PR #145) ; avant elle, `14039c5` | GitHub, 2026-11-13 |
+| Site en ligne | `foodhub.on2go.ca` répond ; `/api/health` = ok (database, sync, watchtower, recovery, inbox, clover, console) | GET directs, 2026-11-13 08:10 UTC |
+| SHA servi | `14039c5` == `main` au moment du contrôle (02:28 EST) ; déploiement de `d38ab8a` déclenché à la fusion de la PR #145, à re-contrôler via `/api/release` | `/api/release` (no-store) |
+| Livraison automatique | **Activée** : webhook natif Coolify au push de `main` (les anciennes lignes « non activée / DNS à résoudre » sont historiques et fausses) | Déploiements constatés 2026-10-15 → aujourd'hui |
+| Tests | Suite locale complète : **2 086 réussis, 12 ignorés, 0 échec** (154 fichiers) ; typecheck propre | `npm test` + `npm run typecheck`, 2026-11-13 |
+| CI sur PR #145 | Revue automatisée « Low Risk » ; état de fusion GitHub « clean » | PR #145 |
+| PR anciennes | #43 (finance) et #45 (DoorDash Drive) : code **déjà dans `main`** ; #44 et #39 : PR de journal/docs figées depuis le 2026-10-10, ouvertes mais sans contenu à intégrer | `git log` vérifié une à une (audit 2026-11-13) |
+| Bug « Mon compte » | Historique client vide au-delà de 500 commandes : **corrigé** (PR #145, balayage 500 → 2 000 → 10 000, test de régression) | `lib/foodhub/customers/me.ts`, `tests/customers-me.test.ts` |
+
+## Application existante — à conserver
+
+Next.js 16 / React 19 / TypeScript ; interface marchand et cuisine FR/EN, commandes et retransmissions, intégrations directes Uber Eats, DoorDash, Skip, TGTG, Clover, Watchtower, finance, annuaire public pour ON2GO et QMAPS, voix et livraison optionnelles. Voir `README.md` et `docs/ON2GO_HUB_ECOSYSTEM.md`. Le code et les tests automatisés ne prouvent pas que chaque fournisseur a approuvé ses accès ou que les commandes réelles aboutissent.
+
+## Non certifié — les vrais blocages (inchangés, honnêtes)
+
+- **Commandes réelles de bout en bout** : aucune plateforme n'a porté de trafic réel. Verrou global `LIVE_CONNECTORS_GLOBAL_ENABLED` toujours à `false` (règle : ne l'activer que checklist + tests réels verts). Certification : issue #46 (FH-006/FH-007).
+- **Uber Eats** : accès production non accordé (scopes `eats.order`, `eats.store`, `eats.store.status.write`, `eats.pos_provisioning`) ; l'ancien intégrateur tient encore les magasins comme `order_manager`.
+- **DoorDash** : intégration ouverte en sandbox seulement ; `DOORDASH_PROVIDER_TYPE` + identifiants production jamais émis.
+- **SkipTheDishes** : 60/60 opérations JET Connect codées ; `SKIP_JET_API_KEY` jamais émise.
+- **Clover** : apps en révision au Marketplace depuis le 2026-10-17 ; aucun marchand réel exercé. Facturation : mesurage 15 $/marque extra codé et testé mais **éteint par défaut** ; un abonnement Food Hub échu ne bloque rien.
+- **Remboursement Clover par API** : absent — annulation après paiement = remboursement manuel dans l'app Clover (alerte dans Food Hub).
+- **Kiosque / T4CTILE** : prototype HTML statique hors dépôt, fin de parcours simulée — à construire.
+- **Fidélité / cartes-cadeaux** : adaptateurs en stub honnête (`connected: false`) — parcours absent.
+- **18 écrans de commandes** (8 DoorDash, 6 Uber, 4 Skip) : aucune preuve qu'ils tournent sur le PC du propriétaire depuis les dry-runs du 2026-10-29 ; relais `ecrans.on2go.ca` à provisionner + connexions uniques = gestes du propriétaire.
+- **Finance A–Z** : pipeline réel mais CLI hors ligne alimenté à la main ; la finance intégrée (recon) lit bien les commandes sauvegardées.
+
+## Règles et limites connues
+
+- L'instance Food Hub actuelle n'est pas un SaaS multi-tenant partagé dont l'isolation est entièrement certifiée. TAKATAK conserve l'identité et les comptes maîtres ; l'isolation par entreprise et les droits produits sont des exigences pour l'expansion.
+- Po Poulet NDG, magasin DoorDash 27982486 : aucune action sortante ni lien.
+- Ne jamais accepter une commande plateforme avant confirmation de la réception par Clover selon les règles actuelles ; pas de faux statut « envoyé ».
+- Ne pas activer `LIVE_CONNECTORS_GLOBAL_ENABLED=true` tant que la checklist et les tests réels ne sont pas verts.
+- Aucun secret, numéro privé, paiement ou donnée client dans Git ou dans ces documents.
+
+## Où reprendre
+
+Lire `AGENTS.md`, `CLAUDE.md`, `docs/AGENT_HANDOFF.md` puis `docs/TASK_QUEUE.md` (relève du 2026-11-13 en tête). Le détail des blocages de production est dans `docs/DEPLOYMENT.md` et l'issue #46. Les décisions à préserver sont dans `docs/DECISIONS.md` et `docs/LOCKED_DECISIONS.md`. L'audit complet du 2026-11-13 (5 registres + plan maître) vit dans le dossier de reprise TAKATAK « Food Hub » (Drive) et l'espace de travail de l'agence.
+
+
+---
+
+# Historique — états antérieurs conservés pour trace (supplantés par l’état du 2026-11-13 ci-dessus)
+
+# FOODHUB / ON2GO Hub — état vérifiable du projet
+
 ## Reprise 2026-10-16 — navigation clavier des onglets (non publié)
 
 Sur la branche `fix/console-tabs-keyboard-20261016` (créée à partir de `main` `12ba64d9f6941698118533d40d3f381ff709065c`), les onglets horizontaux de la console respectent maintenant le focus roving ARIA : seul l'onglet choisi est accessible avec Tab, flèche droite/gauche et Début/Fin sélectionnent et focalisent le bon onglet. Leurs événements `onChange` existants sont conservés, sans modification de données ni routes. Tests de navigation et cas invalides ajoutés dans `tests/tab-keyboard.test.ts`. CI, image Docker, revue navigateur et fusion propriétaire à contrôler ; aucune livraison de cette branche.

@@ -601,37 +601,73 @@ const lockKey = (app: CloverAppKey, merchantId: string) => `${app}:${merchantId}
 const REFRESH_FAIL_LOG_MS = 10 * 60_000;
 const refreshFailLogged = new Map<string, number>();
 
+/** The cross-server claim on "this (app, merchant) is being refreshed" (fh_kv). Refresh tokens are single-use:
+ * two servers refreshing at once with the same token would burn it — one gets the new pair, the other fails and
+ * the merchant can fall to needsReconnect. The in-process `inflight` map above only ever guarded one server. */
+export const cloverRefreshClaimKey = (app: CloverAppKey, merchantId: string) => `clover_refresh_claim:${app}:${merchantId}`;
+
+/** A refresh claim older than this belongs to a server that stopped mid-refresh (the refresh POST + the save of
+ * the new tokens take seconds): the next refresh takes it over — the same stuck-claim window as the metered
+ * phone minutes (clover-phone-minutes.ts). */
+const REFRESH_CLAIM_STUCK_MS = 10 * 60_000;
+
+async function claimRefresh(app: CloverAppKey, merchantId: string): Promise<boolean> {
+  const repo = getRepo();
+  const key = cloverRefreshClaimKey(app, merchantId);
+  // The claim store itself failing must not stop refreshes: fall back to this process's guard alone (as before).
+  if (await repo.claimKv(key, { at: nowIso() }).catch(() => true)) return true;
+  const held = await repo.getKv<{ at?: string }>(key).catch(() => null);
+  const at = held?.at ? Date.parse(held.at) : NaN;
+  if (Number.isFinite(at) && Date.now() - at > REFRESH_CLAIM_STUCK_MS) {
+    await repo.releaseKv(key).catch(() => undefined);
+    return repo.claimKv(key, { at: nowIso() }).catch(() => true);
+  }
+  return false;
+}
+
 async function refresh(c: CloverConnection, app: CloverAppKey = 'foodhub'): Promise<string | null> {
   if (!c.refreshToken) return null;
-  // A refresh is never cut short: Clover may already have used up the single-use refresh token, and the answer
-  // carries the only copy of the new one. A caller with a time budget stops waiting instead (clover-entitlement.ts).
-  const r = await postJson('/oauth/v2/refresh', { client_id: cloverApp(app).appId || '', refresh_token: c.refreshToken });
-  if (!r.ok || !r.json.access_token) {
-    // Food Hub logs every failure, as before; a sold app (asked on every live call) at most once per window.
-    const key = lockKey(app, c.merchantId);
-    const last = app === 'foodhub' ? 0 : refreshFailLogged.get(key) ?? 0;
-    if (Date.now() - last >= REFRESH_FAIL_LOG_MS) {
-      refreshFailLogged.set(key, Date.now());
-      await logActivity({ actor: 'Clover', source: 'automation', kind: 'settings', action: 'clover_refresh_failed', status: 'failed',
-        summary: `Clover token refresh failed for merchant ${c.name || c.merchantId}${app === 'foodhub' ? '' : ` (${cloverApp(app).name})`} (HTTP ${r.status}). Reconnect it in Settings → Platforms & Clover.` });
-    }
-    return null;
+  if (!(await claimRefresh(app, c.merchantId))) {
+    // Another server is refreshing this merchant right now and saves the new pair when it finishes: hand back
+    // the tokens it already saved when they are fresh, else nothing — the caller falls back exactly as for a
+    // failed refresh and the next call reads the saved pair. Never a second refresh POST with the same token.
+    const cur = await readCloverConnection(c.merchantId, app).catch(() => null);
+    const nowS = Math.floor(Date.now() / 1000);
+    return cur && (cur.accessTokenExpiration ?? 0) - nowS > REFRESH_MARGIN_S ? cur.accessToken : null;
   }
-  refreshFailLogged.delete(lockKey(app, c.merchantId));
-  const tokens = r.json;
-  await updateAll(app, (all) => {
-    const cur = all[c.merchantId] ?? c;
-    all[c.merchantId] = {
-      ...cur,
-      accessToken: tokens.access_token!,
-      accessTokenExpiration: tokens.access_token_expiration ?? null,
-      refreshToken: tokens.refresh_token ?? cur.refreshToken ?? null,
-      refreshTokenExpiration: tokens.refresh_token_expiration ?? cur.refreshTokenExpiration ?? null,
-      refreshedAt: nowIso(),
-    };
-    return { write: true, result: null };
-  });
-  return tokens.access_token!;
+  try {
+    // A refresh is never cut short: Clover may already have used up the single-use refresh token, and the answer
+    // carries the only copy of the new one. A caller with a time budget stops waiting instead (clover-entitlement.ts).
+    const r = await postJson('/oauth/v2/refresh', { client_id: cloverApp(app).appId || '', refresh_token: c.refreshToken });
+    if (!r.ok || !r.json.access_token) {
+      // Food Hub logs every failure, as before; a sold app (asked on every live call) at most once per window.
+      const key = lockKey(app, c.merchantId);
+      const last = app === 'foodhub' ? 0 : refreshFailLogged.get(key) ?? 0;
+      if (Date.now() - last >= REFRESH_FAIL_LOG_MS) {
+        refreshFailLogged.set(key, Date.now());
+        await logActivity({ actor: 'Clover', source: 'automation', kind: 'settings', action: 'clover_refresh_failed', status: 'failed',
+          summary: `Clover token refresh failed for merchant ${c.name || c.merchantId}${app === 'foodhub' ? '' : ` (${cloverApp(app).name})`} (HTTP ${r.status}). Reconnect it in Settings → Platforms & Clover.` });
+      }
+      return null;
+    }
+    refreshFailLogged.delete(lockKey(app, c.merchantId));
+    const tokens = r.json;
+    await updateAll(app, (all) => {
+      const cur = all[c.merchantId] ?? c;
+      all[c.merchantId] = {
+        ...cur,
+        accessToken: tokens.access_token!,
+        accessTokenExpiration: tokens.access_token_expiration ?? null,
+        refreshToken: tokens.refresh_token ?? cur.refreshToken ?? null,
+        refreshTokenExpiration: tokens.refresh_token_expiration ?? cur.refreshTokenExpiration ?? null,
+        refreshedAt: nowIso(),
+      };
+      return { write: true, result: null };
+    });
+    return tokens.access_token!;
+  } finally {
+    await getRepo().releaseKv(cloverRefreshClaimKey(app, c.merchantId)).catch(() => undefined);
+  }
 }
 
 /** Access token for a merchant connected through the Clover app (refreshed when close to expiry). */

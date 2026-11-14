@@ -6,7 +6,7 @@
 // Nothing here logs or returns the password, and nothing throws: callers get a result they can show.
 // Keep this file free of repo / database imports: both notify/index.ts and reports.ts depend on it.
 import { createTransport } from 'nodemailer';
-import { timedFetch } from '../env-utils';
+import { neverSent, timedFetch } from '../env-utils';
 
 export type EmailProvider = 'smtp' | 'resend';
 /** 'auth' = sign-in codes, invitations, alerts (AUTH_EMAIL_FROM first); 'report' = scheduled / manual reports (REPORT_EMAIL_FROM first). */
@@ -17,7 +17,11 @@ export const SMTP_TIMEOUT_MS = 10_000;
 export interface SmtpSettings { host: string; port: number; secure: boolean; user: string; pass: string; servername?: string }
 export interface MailAttachment { filename: string; content: Uint8Array | Buffer }
 export interface MailMessage { to: string[]; subject: string; text: string; html?: string; attachments?: MailAttachment[] }
-export interface MailFailure { kind: 'config' | 'http' | 'network' | 'smtp'; status?: number; detail: string }
+export interface MailFailure {
+  kind: 'config' | 'http' | 'network' | 'smtp'; status?: number; detail: string;
+  /** Resend may have taken it (a 5xx, or its answer was lost): never resend blindly. Not set for SMTP. */
+  uncertain?: boolean;
+}
 export type MailResult =
   | { ok: true; provider: EmailProvider; ref?: string }
   | { ok: false; provider: EmailProvider | null; failure: MailFailure };
@@ -119,11 +123,11 @@ async function sendResend(from: string, m: MailMessage): Promise<MailResult> {
     try { json = JSON.parse(raw); } catch { /* not JSON */ }
     if (!res.ok) {
       // Resend answers { name, message } ("The gmail.com domain is not verified", "Invalid `to` field"): that is what the operator needs to see.
-      return { ok: false, provider: 'resend', failure: { kind: 'http', status: res.status, detail: oneLine(typeof json?.message === 'string' ? json.message : raw) } };
+      return { ok: false, provider: 'resend', failure: { kind: 'http', status: res.status, detail: oneLine(typeof json?.message === 'string' ? json.message : raw), ...(res.status >= 500 ? { uncertain: true } : {}) } };
     }
     return { ok: true, provider: 'resend', ref: typeof json?.id === 'string' ? json.id : undefined };
   } catch (e) {
-    return { ok: false, provider: 'resend', failure: { kind: 'network', detail: e instanceof Error ? e.message : String(e) } };
+    return { ok: false, provider: 'resend', failure: { kind: 'network', detail: e instanceof Error ? e.message : String(e), ...(neverSent(e) ? {} : { uncertain: true }) } };
   }
 }
 

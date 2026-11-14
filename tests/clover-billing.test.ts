@@ -450,6 +450,10 @@ describe('review fixes: never billed twice, never billed from defaults, only the
     expect(meteredOutcome({ error: netError('ECONNRESET') })).toMatchObject({ uncertain: true, reason: 'econnreset' });
     expect(meteredOutcome({ error: new TypeError('fetch failed') })).toMatchObject({ uncertain: true, reason: 'network' });
     expect(meteredOutcome({ error: netError('ECONNREFUSED') })).toMatchObject({ uncertain: false, reason: 'econnrefused' });
+    // The shared env-utils neverSent set: a bad URL or a connect timeout never reached Clover either.
+    for (const code of ['ENOTFOUND', 'EAI_AGAIN', 'ERR_INVALID_URL', 'UND_ERR_CONNECT_TIMEOUT']) {
+      expect(meteredOutcome({ error: netError(code) })).toMatchObject({ ok: false, uncertain: false, reason: code.toLowerCase() });
+    }
   });
 
   it('a thrown "fetch failed" (socket reset after sending) is uncertain and never sent again', async () => {

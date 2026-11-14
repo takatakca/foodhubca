@@ -45,6 +45,7 @@ export function eventLabel(t: T, type: string) {
   return ({
     received: t('Reçue', 'Received'), pos_injected: t('Envoyée à Clover', 'Sent to Clover'), pos_failed: t('Clover a refusé', 'Clover refused'), pos_skipped: t('Clover non branché', 'Clover not connected'),
     sms_confirmation: t('Confirmation textée', 'Confirmation texted'), sms_tracking: t('Lien de suivi texté', 'Tracking link texted'), sms_failed: t('Texto non envoyé', 'Text not sent'),
+    sms_uncertain: t('Texto peut-être envoyé', 'Text may have been sent'),
     courier_booked: t('Livreur réservé', 'Courier booked'), courier_failed: t('Service de livraison a refusé', 'Courier service refused'), quote_failed: t('Pas de prix', 'No price'),
     courier_cancelled: t('Livreur annulé', 'Courier cancelled'), courier_cancel_failed: t('Annulation refusée', 'Cancel refused'), courier_picked_up: t('Récupérée par le livreur', 'Picked up by the courier'),
     delivered: t('Livrée', 'Delivered'), auto_dispatch: t('Envoi automatique', 'Auto-dispatch'), auto_dispatch_stopped: t('Envoi automatique arrêté', 'Auto-dispatch stopped'), dispatch_waiting: t('En attente', 'Waiting'),

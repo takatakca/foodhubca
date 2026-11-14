@@ -182,7 +182,8 @@ describe('DoorDash Drive webhooks', () => {
       const res = await mock(url, init);
       if (!String(url).includes('/Messages.json') || !failNext) return res;
       failNext = false;
-      return new Response(JSON.stringify({ message: 'Service unavailable' }), { status: 503, headers: { 'content-type': 'application/json' } });
+      // A 4xx: Twilio refused it, nothing was sent.
+      return new Response(JSON.stringify({ code: 21211, message: "The 'To' number is not a valid phone number." }), { status: 400, headers: { 'content-type': 'application/json' } });
     }) as typeof fetch;
     const ev = (ref: string, status: 'assigned' | 'at_pickup' | 'picked_up', event: string) => ({ fleet: 'doordash_drive' as const, ref, status, event, at: new Date().toISOString() });
     const o = await order();
@@ -226,8 +227,8 @@ describe('DoorDash Drive webhooks', () => {
     await applyFleetEvent(ev(d.id, 'picked_up', 'DASHER_PICKED_UP'));
     expect(texts()).toHaveLength(1);
     const events = (await getDirectOrder(o.id))!.events;
-    expect(events.filter((e) => e.type === 'sms_failed').map((e) => e.message)).toEqual([expect.stringMatching(/may not have been texted .*aborted.*Not sent again/)]);
-    expect(events.some((e) => e.type === 'sms_tracking')).toBe(false);
+    expect(events.filter((e) => e.type === 'sms_uncertain').map((e) => e.message)).toEqual([expect.stringMatching(/may not have been texted .*aborted.*Not sent again/)]);
+    expect(events.some((e) => e.type === 'sms_tracking' || e.type === 'sms_failed')).toBe(false);
     expect((await getDelivery(d.id))!.status).toBe('picked_up');
 
     next = 'refused';
@@ -239,6 +240,35 @@ describe('DoorDash Drive webhooks', () => {
     await applyFleetEvent(ev(d2.id, 'picked_up', 'DASHER_PICKED_UP'));
     expect(texts()).toHaveLength(2);
     expect((await getDelivery(d2.id))!.trackingSmsAt).toEqual(expect.any(String));
+  });
+
+  it('a Twilio 5xx (its server, or a 502/503/504 from its edge) may have sent the text: never sent again', async () => {
+    const mock = globalThis.fetch;
+    let status = 0;
+    globalThis.fetch = (async (url: any, init?: RequestInit) => {
+      const res = await mock(url, init);
+      if (!String(url).includes('/Messages.json') || !status) return res;
+      const s = status;
+      status = 0;
+      return new Response(JSON.stringify({ message: 'Bad Gateway' }), { status: s, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    const ev = (ref: string, st: 'assigned' | 'at_pickup' | 'picked_up', event: string) => ({ fleet: 'doordash_drive' as const, ref, status: st, event, at: new Date().toISOString() });
+    for (const s of [500, 502, 503, 504]) {
+      const before = texts().length;
+      status = s;
+      const o = await order();
+      const d = (await dispatchOrder(o.id, actor)).delivery!;
+      await applyFleetEvent(ev(d.id, 'assigned', 'DASHER_CONFIRMED'));
+      await applyFleetEvent(ev(d.id, 'at_pickup', 'DASHER_CONFIRMED_PICKUP_ARRIVAL'));
+      await applyFleetEvent(ev(d.id, 'picked_up', 'DASHER_PICKED_UP'));
+      expect(texts().length - before).toBe(1);
+      const after = (await getDelivery(d.id))!;
+      expect(after.status).toBe('picked_up');
+      expect(after.trackingSmsAt).toBeUndefined();
+      const events = (await getDirectOrder(o.id))!.events;
+      expect(events.filter((e) => e.type === 'sms_uncertain').map((e) => e.message)).toEqual([expect.stringContaining(`Twilio HTTP ${s}: Bad Gateway`)]);
+      expect(events.some((e) => e.type === 'sms_failed' || e.type === 'sms_tracking')).toBe(false);
+    }
   });
 
   it('one courier event at a time per delivery: an older event still in flight never undoes a newer one', async () => {

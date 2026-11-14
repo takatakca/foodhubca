@@ -92,7 +92,7 @@ export async function sendEmail(input: { to: string; subject: string; text: stri
     if (m.ok) r = { ok: true, channel: 'email', message: 'Sent', ref: m.ref };
     else {
       const f = m.failure;
-      r = { ok: false, channel: 'email', message: f.kind === 'http' ? `Resend HTTP ${f.status}: ${f.detail}`.trim() : f.kind === 'smtp' ? `SMTP error: ${f.detail}` : f.kind === 'network' ? `Network error: ${f.detail}` : f.detail };
+      r = { ok: false, channel: 'email', message: f.kind === 'http' ? `Resend HTTP ${f.status}: ${f.detail}`.trim() : f.kind === 'smtp' ? `SMTP error: ${f.detail}` : f.kind === 'network' ? `Network error: ${f.detail}` : f.detail, ...(f.uncertain ? { uncertain: true } : {}) };
     }
   }
   await record({ channel: 'email', to: to ? maskEmail(to) : String(input.to).slice(0, 3), purpose: meta.purpose, ok: r.ok, skipped: r.skipped, message: r.message, ref: r.ref, incidentId: meta.incidentId, orderId: meta.orderId, by: meta.by, preview: meta.secret ? undefined : input.subject });
@@ -120,6 +120,14 @@ function networkFailure(channel: MessageChannel, e: unknown): SendResult {
   return { ok: false, channel, message: `Network error: ${e instanceof Error ? e.message : String(e)}`, ...(neverSent(e) ? {} : { uncertain: true }) };
 }
 
+/**
+ * Twilio answered with an error. A 4xx is a refusal (nothing sent). A 5xx (its server, or a 502/503/504 from its edge)
+ * may come after Twilio queued the message or the call: uncertain, like a Clover 5xx (pos/clover.ts).
+ */
+function twilioFailure(channel: MessageChannel, status: number, body: { message?: unknown } | null): SendResult {
+  return { ok: false, channel, message: `Twilio HTTP ${status}: ${body?.message ?? ''}`.trim(), ...(status >= 500 ? { uncertain: true } : {}) };
+}
+
 export async function sendSms(input: { to: string; body: string; /** Our own Twilio number to send from (e.g. the number the customer called); default TWILIO_FROM / the messaging service. */ from?: string }, meta: Meta): Promise<SendResult> {
   const to = normalizePhone(input.to);
   const simulated = to ? dry('sms', to, input.body, meta) : null;
@@ -136,7 +144,7 @@ export async function sendSms(input: { to: string; body: string; /** Our own Twi
     try {
       const res = await timedFetch(twilioUrl('Messages.json'), { method: 'POST', headers: { Authorization: twilioAuth(), 'Content-Type': 'application/x-www-form-urlencoded' }, body: form.toString() });
       const body = await res.json().catch(() => ({}));
-      r = res.ok ? { ok: true, channel: 'sms', message: 'Sent', ref: body?.sid } : { ok: false, channel: 'sms', message: `Twilio HTTP ${res.status}: ${body?.message ?? ''}`.trim() };
+      r = res.ok ? { ok: true, channel: 'sms', message: 'Sent', ref: body?.sid } : twilioFailure('sms', res.status, body);
       await twilioCredit(res.ok, res.status, body);
     } catch (e) {
       r = networkFailure('sms', e);
@@ -166,7 +174,7 @@ export async function placeCall(input: { to: string; say: string; lang?: 'fr' | 
         body: new URLSearchParams({ To: to, From: process.env.TWILIO_FROM!, Twiml: twiml }).toString(),
       });
       const body = await res.json().catch(() => ({}));
-      r = res.ok ? { ok: true, channel: 'call', message: 'Calling', ref: body?.sid } : { ok: false, channel: 'call', message: `Twilio HTTP ${res.status}: ${body?.message ?? ''}`.trim() };
+      r = res.ok ? { ok: true, channel: 'call', message: 'Calling', ref: body?.sid } : twilioFailure('call', res.status, body);
       await twilioCredit(res.ok, res.status, body);
     } catch (e) {
       r = networkFailure('call', e);

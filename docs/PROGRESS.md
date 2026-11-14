@@ -1,5 +1,13 @@
 # Food Hub: progress log and task board
 
+## 2026-10-23 — Tracking text follow-ups to PR #93 (`fix/tracking-sms-followups`, stacked on `fix/tracking-sms-once`)
+
+- A Twilio 5xx (its server, or a 502/503/504 from its edge) is now `uncertain` for texts and calls, like a Clover 5xx in `pos/clover.ts` and the metered POSTs: the tracking-text claim is kept, so a later courier event never texts the customer a second time. A 4xx is still a refusal (claim given back, tried again).
+- One list of "the request never left" errors: `neverSent()` + `networkErrorCode()` in `lib/foodhub/env-utils.ts`, now used by notify, `pos/clover-phone-minutes.ts` (same behaviour) and `pos/clover-extra-brands.ts` (which gains `ERR_INVALID_URL` and `UND_ERR_CONNECT_TIMEOUT`: tried again instead of "uncertain").
+- Direct-order drawer: an uncertain tracking text is logged as `sms_uncertain` and shows « Texto peut-être envoyé / Text may have been sent » with a neutral dot, not the red « Texto non envoyé ».
+- `sendEmail` (Resend) sets `uncertain` on a lost answer or a 5xx too; no caller reads it yet. SMTP failures stay unclassified.
+- Tests: `tests/never-sent.test.ts` (new), Twilio 500/502/503/504 case in `tests/own-delivery.test.ts` (2 texts before the fix, 1 after; PR #93's "definite failure" case now uses a Twilio 400), new codes in `tests/clover-billing.test.ts`, Resend cases in `tests/email-smtp.test.ts`.
+
 ## 2026-10-22 — Courier tracking text exactly once (`fix/tracking-sms-once`)
 
 - Root cause of the "flaky" own-delivery webhook test was a real race in `lib/foodhub/delivery/dispatch.ts`: each courier event read the delivery, waited for Twilio, then saved its own (old) copy. Two events together (DASHER_CONFIRMED + its retry, or + DASHER_PICKED_UP) both saw "not texted yet" and both texted the customer, and the slower one wrote an older status over the newer one (picked up back to assigned); its order write could also undo "out for delivery".

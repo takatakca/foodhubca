@@ -204,19 +204,22 @@ Finance covers every location's money, so it is only for logins that see all loc
 
 | Address | What | Sign-in |
 | --- | --- | --- |
-| `/hub`, `/en/hub` | ON2GO.ca landing (French first, English twin) | none |
+| `/hub`, `/en/hub` | TAKATAK Food Hub landing (French first, English twin), built around real console stills | none |
 | `/hub/tarifs`, `/en/hub/pricing` | Pricing: 14-day free trial, then CAD $50/month per app; TAKATAK Food Hub extra brand CAD $15 per platform per month; TAKATAK Phone AI + CAD $0.25 per AI minute; plus taxes, billed by Clover (`lib/foodhub/pricing.ts`, numbers from `pos/clover-pricing.ts`) | none |
 | `/hub/integrations/{uber-eats,doordash,skipthedishes}-clover` (+ `/en/…`) | One page per platform integration; noindex and out of the sitemap / llms.txt until the platform is in `FOODHUB_PUBLIC_LIVE_PLATFORMS` | none |
 | `/hub/ecran-de-cuisine-clover`, `/en/hub/clover-kitchen-display` | Kitchen display | none |
 | `/hub/telephone-ia-restaurant`, `/en/hub/ai-phone-for-restaurants` | TAKATAK Phone AI, the separate Clover app (automated assistant, press 0, its own price) | none |
 | `/robots.txt`, `/sitemap.xml`, `/llms.txt`, `/og/*`, `/favicon.ico` | Crawlers, AI assistants, share images | none |
+| `/hub-media/*` | The landing's console stills (WebP, `scripts/hub-shots.mjs` → `scripts/hub-media.mjs`): indexable, cached a day | none |
 | `/legal/*` | Privacy, terms, support: `noindex, follow` while drafts; indexable, in the sitemap and llms.txt once `FOODHUB_LEGAL_APPROVED=true` | none |
 | `/icons/*` | App icons; the Organization logo (`icon-512.png`) must be indexable | none |
 | `/media/*` | Menu photos (also shown on on2go.ca through the directory feed): indexable, so they can appear in image search | none |
 | `/commander/<slug>`, `/commander/sitemap.xml` | Storefront ordering pages (docs/STOREFRONT.md): indexable, listed in robots.txt with their own sitemap; `/commander/<slug>/suivi/…` stays noindex | none |
 
-- Name: the hub is "ON2GO.ca" (owner, 2026-10-17); the Clover App Market names stay "TAKATAK Food Hub" and
-  "TAKATAK Phone AI". Words: `lib/foodhub/public-hub-content.ts`; product facts reused from the Clover App Market listing
+- Name: the public site says **TAKATAK Food Hub**, its Clover App Market name (owner's positioning of 2026-11-09,
+  `docs/POSITIONNEMENT_ON2GO_FOODHUB.md`, which replaces the "ON2GO.ca" name of 2026-10-17): On2GO is only the local
+  restaurant directory Food Hub connects to. The phone app stays "TAKATAK Phone AI". Words: `lib/foodhub/public-hub-content.ts`
+  and the landing tour `lib/foodhub/public-hub-tour.ts` (every sentence matches its still or the listing); product facts reused from the Clover App Market listing
   (`lib/foodhub/clover-listing.ts`). Only shipped features; no hours claims, no aggregator names (`tests/public-hub.test.ts`).
   Prices are built from `lib/foodhub/pricing.ts`, the legal name from `FOODHUB_LEGAL_COMPANY`. Too Good To Go is only
   named with its condition ("when your account offers an order feed"), never in the tagline. Each shared FAQ question

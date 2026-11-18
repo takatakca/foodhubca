@@ -49,10 +49,10 @@ const unconditionalTgtg = (text: string) => [...text.matchAll(/Too Good To Go(?!
 
 describe('public site paths (lib/foodhub/public-site.ts)', () => {
   it('opens /hub, /en/hub, robots, sitemap, llms.txt, share images and the favicon — and nothing that merely looks alike', () => {
-    for (const p of ['/hub', '/hub/tarifs', '/hub/integrations/uber-eats-clover', '/en/hub', '/en/hub/pricing', '/robots.txt', '/sitemap.xml', '/llms.txt', '/favicon.ico', '/og/hub-fr.png']) {
+    for (const p of ['/hub', '/hub/tarifs', '/hub/integrations/uber-eats-clover', '/en/hub', '/en/hub/pricing', '/robots.txt', '/sitemap.xml', '/llms.txt', '/favicon.ico', '/og/hub-fr.png', '/hub-media/orders-fr-1280.webp']) {
       expect(isPublicSitePath(p), p).toBe(true);
     }
-    for (const p of ['/hubx', '/hub-admin', '/en/hubx', '/en', '/', '/orders', '/robots.txt/x', '/llms.txtx', '/sitemap.xml.bak', '/ogx']) {
+    for (const p of ['/hubx', '/hub-admin', '/en/hubx', '/en', '/', '/orders', '/robots.txt/x', '/llms.txtx', '/sitemap.xml.bak', '/ogx', '/hub-mediax/a.webp']) {
       expect(isPublicSitePath(p), p).toBe(false);
     }
     expect(publicSiteLang('/hub/tarifs')).toBe('fr');
@@ -91,7 +91,7 @@ describe('proxy.ts with a sign-in configured', () => {
       expect(res.headers.get('x-robots-tag'), path).toBeNull();
       expect(res.headers.get('cache-control'), path).toBe(PUBLIC_PAGE_CACHE); // same HTML for everyone: cacheable
     }
-    for (const path of ['/robots.txt', '/sitemap.xml', '/llms.txt', '/og/hub-fr.png', '/icons/icon-512.png', '/icons/icon-192.png', '/icons/apple-touch-icon.png', '/media/abc123.jpg']) {
+    for (const path of ['/robots.txt', '/sitemap.xml', '/llms.txt', '/og/hub-fr.png', '/hub-media/kitchen-en-768.webp', '/icons/icon-512.png', '/icons/icon-192.png', '/icons/apple-touch-icon.png', '/media/abc123.jpg']) {
       const res = await get(path);
       expect(res.headers.get('x-middleware-next'), path).toBe('1');
       expect(res.headers.get('x-robots-tag'), path).toBeNull();

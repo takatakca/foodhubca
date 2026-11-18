@@ -335,7 +335,7 @@ export function hubRobots(base = hubBase()) {
   return {
     rules: [{
       userAgent: '*',
-      allow: ['/hub', '/en/hub', '/legal/', '/commander/', '/llms.txt', '/og/', '/icons/'],
+      allow: ['/hub', '/en/hub', '/legal/', '/commander/', '/llms.txt', '/og/', '/hub-media/', '/icons/'],
       disallow: ['/api/'],
     }],
     // The storefront ordering pages have their own sitemap (app/commander/sitemap.xml, lib/foodhub/storefront/seo.ts).

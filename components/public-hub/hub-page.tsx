@@ -44,7 +44,7 @@ function MarketButton({ lang, ctx, large }: { lang: Lang; ctx: HubContext; large
   const pad = large ? 'px-5 py-3 text-base' : 'px-4 py-2 text-sm';
   if (ctx.appMarketUrl) {
     return (
-      <a href={ctx.appMarketUrl} rel="noopener" className={`inline-flex items-center rounded-md bg-brand font-bold text-white hover:bg-brand-2 ${pad}`}>
+      <a href={ctx.appMarketUrl} rel="noopener" className={`inline-flex items-center rounded-md bg-brand font-bold text-on-brand hover:bg-brand-2 ${pad}`}>
         {ui.marketCta}
       </a>
     );
@@ -72,7 +72,7 @@ function Ctas({ lang, ctx, page, center }: { lang: Lang; ctx: HubContext; page: 
       <div className={`mt-8 flex flex-wrap items-center gap-3 ${center ? 'justify-center' : ''}`}>
         {ctx.appMarketUrl
           ? <MarketButton lang={lang} ctx={ctx} large />
-          : <a href={demoHref(lang, ctx)} className="inline-flex rounded-md bg-electric px-5 py-3 text-base font-bold text-white shadow-[0_8px_30px_-8px_rgb(31_139_255/0.8)] hover:bg-brand">{ui.demoCta}</a>}
+          : <a href={demoHref(lang, ctx)} className="inline-flex rounded-md bg-brand px-5 py-3 text-base font-bold text-on-brand shadow-[0_8px_30px_-8px_rgb(31_139_255/0.8)] hover:bg-brand-2">{ui.demoCta}</a>}
         {page !== 'pricing'
           ? <a href={HUB_PATHS.pricing[lang]} className={secondary}>{ui.seePricing}</a>
           : ctx.appMarketUrl && <a href={demoHref(lang, ctx)} className={secondary}>{ui.demoCta}</a>}
@@ -113,7 +113,7 @@ function PricingBlock({ lang, ctx }: { lang: Lang; ctx: HubContext }) {
       <div className="mt-5 flex flex-wrap items-center gap-3">
         {ctx.appMarketUrl
           ? <MarketButton lang={lang} ctx={ctx} />
-          : <a href={demoHref(lang, ctx)} className="inline-flex items-center rounded-md bg-brand px-4 py-2 text-sm font-bold text-white hover:bg-brand-2">{ui.demoCta}</a>}
+          : <a href={demoHref(lang, ctx)} className="inline-flex items-center rounded-md bg-brand px-4 py-2 text-sm font-bold text-on-brand hover:bg-brand-2">{ui.demoCta}</a>}
         {!ctx.appMarketUrl && <span className="text-sm text-ink-3">{ctx.marketStatus === 'review' ? ui.marketReviewNote : ui.marketSoonNote}</span>}
       </div>
     </div>
@@ -227,7 +227,7 @@ export function HubPage({ page, lang, ctx }: { page: HubPageKey; lang: Lang; ctx
   const isLanding = page === 'landing';
   return (
     <div lang={lang === 'fr' ? 'fr-CA' : 'en-CA'} className="min-h-dvh bg-canvas text-ink">
-      <a href="#contenu" className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-10 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2">{ui.skip}</a>
+      <a href="#contenu" className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-30 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2">{ui.skip}</a>
       <header className="z-20 border-b border-white/10 bg-rail/95 text-white backdrop-blur sm:sticky sm:top-0">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
           <a href={home} className="flex items-center gap-2 text-lg font-extrabold tracking-tight">

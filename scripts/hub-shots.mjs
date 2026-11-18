@@ -3,7 +3,7 @@
 // node scripts/hub-media.mjs <out> turns them into the WebP files of public/hub-media/.
 // Run: node scripts/hub-shots.mjs <out folder>   (REELS_APP, REELS_PASSWORD and REELS_DD_HOOK override the demo values)
 // Guards: only 127.0.0.1 is reachable, and a shot is refused when its text shows a protected or real-looking value
-// (Po Poulet, its store id, a personal address or a non-555 Montréal phone number).
+// (Po Poulet, its store id, an email address or any North American phone number outside the fictional 555 exchange).
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -11,10 +11,14 @@ import { createRequire } from 'node:module';
 const require = createRequire(`${process.cwd()}/package.json`);
 const { chromium } = require('playwright');
 
-const APP = process.env.REELS_APP || 'http://127.0.0.1:5912';
+// Same default as the demo server (scripts/promo-reels.mjs: FOODHUB_REELS_APP_PORT, default 5902).
+const APP = process.env.REELS_APP || `http://127.0.0.1:${Number(process.env.FOODHUB_REELS_APP_PORT) || 5902}`;
+// The demo password and the fake webhook go to APP through ctx.request, which the browser route guard does not see:
+// refuse any target that is not this machine before anything is sent.
+if (!['127.0.0.1', 'localhost', '[::1]'].includes(new URL(APP).hostname)) throw new Error(`REELS_APP must be a local address, not ${APP}`);
 const OUT = process.argv[2];
 fs.mkdirSync(OUT, { recursive: true });
-const FORBIDDEN = [/po\s*poulet/i, /popoulet/i, /27982486/, /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i, /\+?1?\s*\(?514\)?[\s-]?(?!555)\d{3}[\s-]?\d{4}/];
+const FORBIDDEN = [/po\s*poulet/i, /popoulet/i, /27982486/, /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i, /(?<!\d)(?:\+?1[\s.-]?)?\(?[2-9]\d{2}\)?[\s.-]?(?!555)[2-9]\d{2}[\s.-]?\d{4}(?!\d)/];
 
 const browser = await chromium.launch({ executablePath: process.env.PW_CHROMIUM || '/opt/pw-browsers/chromium' });
 

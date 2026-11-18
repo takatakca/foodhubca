@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { parseSkipOrder, skipAdapter } from '@/lib/foodhub/adapters/skip';
 import { handleSkipFinalOrder } from '@/lib/foodhub/skip-ops';
 import { background, keepUnparsed, parseJson, unauthorized } from '@/lib/foodhub/webhook-utils';
+import { readTextOr413 } from '@/lib/foodhub/http';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -9,7 +10,9 @@ export const maxDuration = 60;
 // JET Connect "Final Picked Order": for brands that may amend an order (items out of stock), JET sends a copy of the
 // order in its final state once it was delivered. Switched on by the Skip brand manager. Food Hub keeps the real total.
 export async function POST(req: NextRequest) {
-  const raw = await req.text();
+  const read = await readTextOr413(req);
+  if ('response' in read) return read.response;
+  const raw = read.text;
   if (!skipAdapter.verifyWebhook(req.headers, raw)) return unauthorized('skip');
   const body = parseJson(raw);
   if (body === undefined) return NextResponse.json({ errorMessage: 'Invalid JSON' }, { status: 400 });

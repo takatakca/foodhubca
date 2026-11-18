@@ -3,6 +3,7 @@ import { doorDashAdapter } from '@/lib/foodhub/adapters/doordash';
 import { cartValidationResponse } from '@/lib/foodhub/doordash/ocv';
 import { verifyDoorDashSandboxWebhook } from '@/lib/foodhub/doordash/sandbox';
 import { parseJson, unauthorized } from '@/lib/foodhub/webhook-utils';
+import { readTextOr413 } from '@/lib/foodhub/http';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,7 +14,9 @@ export const dynamic = 'force-dynamic';
 // allows; nothing is stored and nothing is sent to DoorDash. A protected or unknown store gets 409 / 404, which makes
 // DoorDash skip the check for that cart. The same payload posted to /api/foodhub/webhooks/doordash is answered too.
 export async function POST(req: NextRequest) {
-  const raw = await req.text();
+  const read = await readTextOr413(req);
+  if ('response' in read) return read.response;
+  const raw = read.text;
   const productionAuth = doorDashAdapter.verifyWebhook(req.headers, raw);
   const sandboxAuth = !productionAuth && verifyDoorDashSandboxWebhook(req.headers);
   if (!productionAuth && !sandboxAuth) return unauthorized('doordash');

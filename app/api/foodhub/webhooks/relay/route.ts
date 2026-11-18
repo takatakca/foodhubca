@@ -3,6 +3,7 @@ import { parseRelayOrder, parseRelayStatus, relayStatusApplies, relayTargetStatu
 import { acceptNeedsClover, applyExternalStatus } from '@/lib/foodhub/pipeline';
 import { applyTgtgEvent, tgtgEventKind } from '@/lib/foodhub/tgtg-feed';
 import { getRepo } from '@/lib/foodhub/repo';
+import { readTextOr413 } from '@/lib/foodhub/http';
 import { background, keepUnparsed, parseJson, queueOrder, retryLater } from '@/lib/foodhub/webhook-utils';
 
 export const dynamic = 'force-dynamic';
@@ -16,7 +17,9 @@ export const maxDuration = 60;
 export async function POST(req: NextRequest) {
   const url = new URL(req.url);
   if (!verifyRelayWebhook(req.headers, url)) return NextResponse.json({ ok: false, error: 'Webhook token check failed for the Food Hub relay.' }, { status: 401 });
-  const body = parseJson(await req.text());
+  const read = await readTextOr413(req);
+  if ('response' in read) return read.response;
+  const body = parseJson(read.text);
   if (body === undefined) return NextResponse.json({ ok: false }, { status: 400 });
 
   if (body?.order?.details) {

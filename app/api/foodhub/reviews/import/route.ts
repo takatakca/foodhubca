@@ -1,5 +1,5 @@
 import { withPerm } from '@/lib/foodhub/auth';
-import { fail, ok } from '@/lib/foodhub/http';
+import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { IMPORT_ERRORS, importReviews, MAX_IMPORT_BYTES, type ReviewMapping } from '@/lib/foodhub/reviews/import';
 
 export const dynamic = 'force-dynamic';
@@ -29,7 +29,7 @@ export const POST = withPerm('menu:edit', async (req, _ctx, actor) => {
     fileName = file.name; bytes = new Uint8Array(await file.arrayBuffer());
     fields = Object.fromEntries([...form.entries()].filter(([k, v]) => k !== 'file' && typeof v === 'string'));
   } else {
-    const b = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    const b = (await readJson(req)) as Record<string, unknown>;
     if (!b.fileName || !b.contentBase64) return fail('Choose a file.', 400, { errorFr: 'Choisissez un fichier.' });
     const base64 = String(b.contentBase64);
     if (base64.length > MAX_BASE64_CHARS) return tooLarge();

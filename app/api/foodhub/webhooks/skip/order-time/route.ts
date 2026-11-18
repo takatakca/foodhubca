@@ -3,6 +3,7 @@ import { skipAdapter } from '@/lib/foodhub/adapters/skip';
 import { parseSkipOrderTime } from '@/lib/foodhub/adapters/skip-api';
 import { handleSkipOrderTime } from '@/lib/foodhub/skip-ops';
 import { background, parseJson, unauthorized } from '@/lib/foodhub/webhook-utils';
+import { readTextOr413 } from '@/lib/foodhub/http';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -10,7 +11,9 @@ export const maxDuration = 60;
 // JET "Order time updated": { restaurantId, serviceType: Delivery|Collection, dayOfWeek, lowerBoundMinutes, upperBoundMinutes }.
 // Kept on the store (meta.skipOrderTimes) so the screen can show the preparation window Skip promises customers.
 export async function POST(req: NextRequest) {
-  const raw = await req.text();
+  const read = await readTextOr413(req);
+  if ('response' in read) return read.response;
+  const raw = read.text;
   if (!skipAdapter.verifyWebhook(req.headers, raw)) return unauthorized('skip');
   const body = parseJson(raw);
   const n = parseSkipOrderTime(body);

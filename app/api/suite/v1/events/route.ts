@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { fail, ok } from '@/lib/foodhub/http';
+import { fail, ok, BodyTooLargeError, readText } from '@/lib/foodhub/http';
 import { authenticateApp } from '@/lib/foodhub/suite/auth';
 import { receiveAppEvent } from '@/lib/foodhub/suite/bus';
 
@@ -15,8 +15,11 @@ const schema = z.object({
 // POST /api/suite/v1/events — a suite app tells the others something ("loy4lty.points_awarded", "rew4rd.redeemed"…).
 // The type must start with the app's own key. Food Hub logs it and passes it on as `app.event` (each event id once).
 export async function POST(req: Request) {
-  const body = await req.text();
-  if (body.length > MAX_BYTES) return fail('Event too large (64 KB max)', 413);
+  let body: string;
+  try { body = await readText(req, MAX_BYTES); } catch (error) {
+    if (error instanceof BodyTooLargeError) return fail('Event too large (64 KB max)', 413);
+    throw error;
+  }
   const a = authenticateApp(req, body);
   if ('error' in a) return fail(a.error, a.status);
   let json: unknown;

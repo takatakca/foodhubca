@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { logActivity } from '@/lib/foodhub/activity';
 import { allowLead, LEAD_MAX_BODY_BYTES, LEAD_RATE_WINDOW_MS, leadCorsHeaders, notifyLead, parseLead, saveLead } from '@/lib/foodhub/restaurant-leads';
 import { clientIp } from '@/lib/foodhub/session';
+import { BodyTooLargeError, readText } from '@/lib/foodhub/http';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,8 +19,11 @@ const reply = (req: Request, status: number, body: Record<string, unknown>, extr
 export async function POST(req: Request) {
   const type = req.headers.get('content-type') || '';
   if (!/application\/json/i.test(type)) return reply(req, 415, { ok: false, error: 'Send JSON (Content-Type: application/json).' });
-  const raw = await req.text().catch(() => '');
-  if (Buffer.byteLength(raw, 'utf8') > LEAD_MAX_BODY_BYTES) return reply(req, 413, { ok: false, error: 'Too large.' });
+  // Reading stops at the cap (it used to read the whole body, then check its size).
+  let raw = '';
+  try { raw = await readText(req, LEAD_MAX_BODY_BYTES); } catch (error) {
+    if (error instanceof BodyTooLargeError) return reply(req, 413, { ok: false, error: 'Too large.' });
+  }
   let body: unknown;
   try { body = JSON.parse(raw); } catch { return reply(req, 400, { ok: false, errors: { body: 'invalid' } }); }
 

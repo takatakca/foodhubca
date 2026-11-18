@@ -9,6 +9,7 @@ import { background, parseJson } from '../webhook-utils';
 import { applyFleetEvent, FLEETS } from './dispatch';
 import type { FleetKey } from './types';
 import { uberDirectRefund } from './uber-direct';
+import { readTextOr413 } from '../http';
 
 export const DELIVERY_WEBHOOKS = 'delivery_webhooks';
 
@@ -18,7 +19,9 @@ async function keep(fleet: FleetKey, body: unknown, reason: string): Promise<voi
 }
 
 export async function handleFleetWebhook(fleet: FleetKey, req: Request): Promise<Response> {
-  const raw = await req.text();
+  const read = await readTextOr413(req);
+  if ('response' in read) return read.response;
+  const raw = read.text;
   const adapter = FLEETS[fleet];
   if (!adapter.verifyWebhook(req.headers, raw)) return NextResponse.json({ ok: false, error: `${adapter.label} webhook check failed.` }, { status: 401 });
   const body = parseJson(raw);

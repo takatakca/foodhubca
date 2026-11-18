@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { skipAdapter } from '@/lib/foodhub/adapters/skip';
 import { handleSkipMenuStatus } from '@/lib/foodhub/ops';
 import { background, keepUnparsed, parseJson, unauthorized } from '@/lib/foodhub/webhook-utils';
+import { readTextOr413 } from '@/lib/foodhub/http';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -9,7 +10,9 @@ export const maxDuration = 60;
 // callback_url sent with every Skip menu push: JET reports whether the menu was published.
 // Only an explicit success/failure for an identified restaurant closes a queued push; anything else is kept, not guessed.
 export async function POST(req: NextRequest) {
-  const raw = await req.text();
+  const read = await readTextOr413(req);
+  if ('response' in read) return read.response;
+  const raw = read.text;
   if (!skipAdapter.verifyWebhook(req.headers, raw)) return unauthorized('skip');
   const body = parseJson(raw);
   if (body === undefined) {

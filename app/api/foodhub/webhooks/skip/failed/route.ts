@@ -4,6 +4,7 @@ import { parseSkipFailedOrder, skipAdapter } from '@/lib/foodhub/adapters/skip';
 import { mevOnOrderChange } from '@/lib/foodhub/mev/hooks';
 import { getRepo } from '@/lib/foodhub/repo';
 import { background, keepUnparsed, parseJson, unauthorized } from '@/lib/foodhub/webhook-utils';
+import { readTextOr413 } from '@/lib/foodhub/http';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -12,7 +13,9 @@ export const maxDuration = 60;
 // reference) and went straight to the Skip tablet. Food Hub records it so it is never invisible:
 // it shows on the Command Center as "on the Skip tablet" and counts in sales and reconciliation.
 export async function POST(req: NextRequest) {
-  const raw = await req.text();
+  const read = await readTextOr413(req);
+  if ('response' in read) return read.response;
+  const raw = read.text;
   if (!skipAdapter.verifyWebhook(req.headers, raw)) return unauthorized('skip');
   const body = parseJson(raw);
   const parsed = parseSkipFailedOrder(body);

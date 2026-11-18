@@ -63,9 +63,9 @@ export default function PayoutsPage() {
       {err && <Banner tone="stop" className="mb-4">{err}</Banner>}
       <FilterBar filters={filters} set={set} locations={locations} showLocations={false} showBrands={false} presets={['7d', '30d', 'month', 'last_month', 'custom']} extra={<Hint id="payouts.csv"><Button size="sm" variant="outline" onClick={exportCsv} disabled={!rows.length} icon={<Download className="size-4" />}>CSV</Button></Hint>} />
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatTile hero label={t('Payé (relevés)', 'Paid out (statements)')} value={cad(tot.net, loc)} note={`${fmtInt(rows.length)} ${t('paiement(s)', 'payout(s)')}`} />
+        <StatTile hero label={t('Payé (relevés)', 'Paid out (statements)')} value={cad(tot.net, loc)} note={`${fmtInt(rows.length, loc)} ${t('paiement(s)', 'payout(s)')}`} />
         <StatTile label={t('Arrivé à la banque', 'Reached the bank')} value={cad(tot.deposited, loc)} note={`${tot.waiting} ${t('paiement(s) sans dépôt entré', 'payout(s) without a deposit entered')}`} />
-        <Hint id="payouts.gaps"><StatTile label={t('Dépôts différents', 'Deposits that differ')} value={fmtInt(tot.gaps.length)} note={tot.gaps.length ? signed(tot.gaps.reduce((s, b) => s + (b.gap ?? 0), 0), loc) : t('aucun', 'none')} /></Hint>
+        <Hint id="payouts.gaps"><StatTile label={t('Dépôts différents', 'Deposits that differ')} value={fmtInt(tot.gaps.length, loc)} note={tot.gaps.length ? signed(tot.gaps.reduce((s, b) => s + (b.gap ?? 0), 0), loc) : t('aucun', 'none')} /></Hint>
         <StatTile label={t('Commission + taxes sur frais', 'Commission + tax on fees')} value={cad(tot.fees, loc)} note={t('les taxes sur frais sont récupérables (CTI / RTI)', 'tax on fees is recoverable (ITC / ITR)')} />
       </div>
 

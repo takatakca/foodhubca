@@ -6,7 +6,7 @@ import { ButtonLink } from '@/components/ui/button';
 import { Banner, Card, EmptyState, PageHeader, SkeletonStats } from '@/components/ui/card';
 import { FilterBar } from '@/components/ui/filter-bar';
 import { Segmented } from '@/components/ui/tabs';
-import { ChartCard, fmtInt, fmtMoney, HBars, StatTile } from '@/components/charts/charts';
+import { ChartCard, fmtInt, fmtMoney, fmtPct, HBars, StatTile } from '@/components/charts/charts';
 import { usePulse } from '@/components/live/pulse';
 import { useViewer } from '@/components/shell/viewer';
 import { InsightsTabs } from '../insights-tabs';
@@ -51,7 +51,7 @@ export default function CustomersInsightsPage() {
   const tierOne = (k: CustomerTier) => ({ new: t('Nouveau', 'New'), occasional: t('Occasionnel', 'Occasional'), frequent: t('Fidèle', 'Frequent') }[k]);
   const chanLabel = (key: string, label: string) => (key === 'direct' ? t('Commandes directes', 'Direct orders') : label);
   const brandLabel = (b: { brand: string; unmapped: boolean }) => (b.unmapped ? t('Magasin non relié', 'Unmapped store') : b.brand);
-  const pctTxt = (n: number) => t(`${n} %`, `${n}%`);
+  const pctTxt = (n: number) => fmtPct(n, loc);
   const shown = (direct || (filters.channels.length ? 'exclude' : 'include')) as DirectMode;
   const tierNote: Record<CustomerTier, string> = {
     new: t('Aucune commande dans les 180 jours avant la période.', 'No order in the 180 days before the period.'),
@@ -80,7 +80,7 @@ export default function CustomersInsightsPage() {
       {data && data.totals.customers > 1 && (
         <div className={loading ? 'opacity-60 transition-opacity' : ''}>
           <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <StatTile hero label={t('Clients identifiés', 'Identified customers')} value={fmtInt(data.totals.customers, loc)} note={t(`${data.totals.coveragePct} % des commandes`, `${data.totals.coveragePct}% of orders`)} />
+            <StatTile hero label={t('Clients identifiés', 'Identified customers')} value={fmtInt(data.totals.customers, loc)} note={t(`${pctTxt(data.totals.coveragePct)} des commandes`, `${pctTxt(data.totals.coveragePct)} of orders`)} />
             <StatTile label={t('Taux de retour', 'Repeat rate')} value={pctTxt(data.repeatRate)} />
             <StatTile label={t('Clients multi-marques', 'Multi-brand customers')} value={fmtInt(data.multiBrand.customers, loc)} note={`${pctTxt(data.multiBrand.pct)} · ${fmtMoney(data.multiBrand.sales, loc)}`} />
             <StatTile label={t('À reconquérir (90 j)', 'Lapsed (90 days)')} value={fmtInt(data.lapsed.customers, loc)} note={fmtMoney(data.lapsed.salesBefore, loc)} />
@@ -96,7 +96,7 @@ export default function CustomersInsightsPage() {
                     <Card key={k} className="p-4">
                       <div className="text-sm font-semibold text-ink">{tierLabel(k)}</div>
                       <div className="mt-1 text-2xl font-semibold tabular-nums text-ink">{fmtInt(s.customers, loc)}</div>
-                      <div className="mt-1 text-xs text-ink-3">{t(`${s.pctSales} % des ventes · panier moyen ${fmtMoney(s.aov, loc)}`, `${s.pctSales}% of sales · average order ${fmtMoney(s.aov, loc)}`)}</div>
+                      <div className="mt-1 text-xs text-ink-3">{t(`${pctTxt(s.pctSales)} des ventes · panier moyen ${fmtMoney(s.aov, loc)}`, `${pctTxt(s.pctSales)} of sales · average order ${fmtMoney(s.aov, loc)}`)}</div>
                       <p className="mt-2 text-xs text-ink-3">{tierNote[k]}</p>
                     </Card>
                   );
@@ -105,16 +105,16 @@ export default function CustomersInsightsPage() {
               <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
                 <ChartCard title={t('Par plateforme', 'By platform')}
                   table={{ columns: [t('Plateforme', 'Platform'), t('Commandes', 'Orders'), t('Identifiées', 'Identified'), '%', t('Clients', 'Customers'), t('Nouveaux', 'New'), t('Occasionnels', 'Occasional'), t('Fidèles', 'Frequent'), t('Ventes', 'Sales')], rows: data.byChannel.map((c) => [chanLabel(c.key, c.label), c.orders, c.identifiedOrders, pctTxt(c.coveragePct), c.customers, c.new, c.occasional, c.frequent, fmtMoney(c.sales, loc)]), filename: 'takatak-customers-platform' }}>
-                  <HBars rows={data.byChannel.map((c) => ({ label: chanLabel(c.key, c.label), value: c.customers, detail: `${t(`${c.new} nouv. · ${c.occasional} occ. · ${c.frequent} fid.`, `${c.new} new · ${c.occasional} occ. · ${c.frequent} freq.`)} · ${t('identifiées', 'identified')} ${pctTxt(c.coveragePct)}` }))} format={fmtInt} />
+                  <HBars rows={data.byChannel.map((c) => ({ label: chanLabel(c.key, c.label), value: c.customers, detail: `${t(`${c.new} nouv. · ${c.occasional} occ. · ${c.frequent} fid.`, `${c.new} new · ${c.occasional} occ. · ${c.frequent} freq.`)} · ${t('identifiées', 'identified')} ${pctTxt(c.coveragePct)}` }))} format={(n: number) => fmtInt(n, loc)} />
                 </ChartCard>
                 <ChartCard title={t('Par marque', 'By brand')}
                   table={{ columns: [t('Marque', 'Brand'), t('Clients', 'Customers'), t('Nouveaux', 'New'), t('Occasionnels', 'Occasional'), t('Fidèles', 'Frequent'), t('Taux de retour', 'Repeat rate'), t('Ventes', 'Sales')], rows: data.byBrand.map((b) => [brandLabel(b), b.customers, b.new, b.occasional, b.frequent, pctTxt(b.repeatRate), fmtMoney(b.sales, loc)]), filename: 'takatak-customers-brand' }}>
-                  <HBars rows={data.byBrand.map((b) => ({ label: brandLabel(b), value: b.customers, detail: `${t('retour', 'repeat')} ${pctTxt(b.repeatRate)}` }))} format={fmtInt} />
+                  <HBars rows={data.byBrand.map((b) => ({ label: brandLabel(b), value: b.customers, detail: `${t('retour', 'repeat')} ${pctTxt(b.repeatRate)}` }))} format={(n: number) => fmtInt(n, loc)} />
                 </ChartCard>
               </div>
               <ChartCard className="mb-5" title={t('Meilleurs clients (anonymisés)', 'Top customers (anonymized)')}
                 table={{ columns: [t('Code', 'Code'), t('Type', 'Type'), t('Commandes', 'Orders'), t('Ventes', 'Sales'), t('Panier', 'Avg'), t('Première', 'First'), t('Dernière', 'Last'), t('Plateformes', 'Platforms'), t('Marques', 'Brands')], rows: data.top.map((c) => [c.id, tierOne(c.tier), c.orders, fmtMoney(c.sales, loc), fmtMoney(c.aov, loc), c.firstOrder, c.lastOrder, c.channels.map((k) => (k === 'direct' ? t('Directes', 'Direct') : data.byChannel.find((r) => r.key === k)?.label ?? k)).join(', '), c.brands.join(', ')]), filename: 'takatak-top-customers' }}>
-                <HBars rows={data.top.slice(0, 10).map((c) => ({ label: `${c.id} · ${tierOne(c.tier)}`, value: c.sales, detail: `${c.orders} ${t('cmd', 'orders')} · ${c.brands.length === 1 ? t('1 marque', '1 brand') : t(`${c.brands.length} marques`, `${c.brands.length} brands`)}` }))} format={fmtMoney} />
+                <HBars rows={data.top.slice(0, 10).map((c) => ({ label: `${c.id} · ${tierOne(c.tier)}`, value: c.sales, detail: `${c.orders} ${t('cmd', 'orders')} · ${c.brands.length === 1 ? t('1 marque', '1 brand') : t(`${c.brands.length} marques`, `${c.brands.length} brands`)}` }))} format={(n: number) => fmtMoney(n, loc)} />
               </ChartCard>
             </>
           )}

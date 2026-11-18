@@ -80,7 +80,7 @@ export default function DisputesPage() {
         <StatTile label={t('Contesté, en attente', 'Disputed, waiting')} value={cad(sum((c) => owed(c) && c.status === 'disputed'), loc)} note={`${cases.filter((c) => owed(c) && c.status === 'disputed').length} ${t('dossier(s)', 'case(s)')}`} />
         <StatTile label={t('Récupéré', 'Recovered')} value={cad(sum((c) => c.status === 'recovered', (c) => c.recoveredAmount ?? c.amount), loc)} note={`${cases.filter((c) => c.status === 'recovered').length} ${t('dossier(s)', 'case(s)')} · ${cad(sum((c) => c.status === 'resolved'), loc)} ${t('réglés par des paiements', 'fixed by later payouts')}`} />
         <StatTile label={t('Radié', 'Written off')} value={cad(sum((c) => c.status === 'written_off'), loc)} />
-        <StatTile label={t('Payées mais absentes de Food Hub', 'Paid orders not in Food Hub')} value={fmtInt(unknownOpen)} note={t('pas de l’argent perdu — webhook manqué ou magasin non jumelé', 'not money lost — missed webhook or unmapped store')} />
+        <StatTile label={t('Payées mais absentes de Food Hub', 'Paid orders not in Food Hub')} value={fmtInt(unknownOpen, loc)} note={t('pas de l’argent perdu — webhook manqué ou magasin non jumelé', 'not money lost — missed webhook or unmapped store')} />
       </div>
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <Hint id="disputes.tabs"><Tabs value={tab} onChange={setTab} className="flex-1" tabs={[

@@ -28,6 +28,11 @@ export function compactMoney(n: number, loc = 'fr-CA') {
 /** Money in the UI's language: "906,38 $" in French, "$906.38" in English; no cents from 1 000 $ up. */
 export const fmtMoney = (n: number, loc = 'fr-CA') => new Intl.NumberFormat(loc, { style: 'currency', currency: 'CAD', currencyDisplay: 'narrowSymbol', maximumFractionDigits: Math.abs(n) >= 1000 ? 0 : 2 }).format(n);
 export const fmtInt = (n: number, loc = 'fr-CA') => new Intl.NumberFormat(loc).format(Math.round(n));
+/** A percentage given in points (69.97 = 69.97 %): "69,97 %" in French, "69.97%" in English; `signed` adds "+" / "−". */
+export function fmtPct(points: number, loc = 'fr-CA', signed = false) {
+  const s = new Intl.NumberFormat(loc, { style: 'percent', maximumFractionDigits: 2, signDisplay: signed ? 'exceptZero' : 'auto' }).format(points / 100);
+  return s.replace(/^-/, '−');
+}
 /** A signed change in the UI's locale: "+4,4 %" in French, "+4.4%" in English (one format per language, never mixed). */
 export function fmtChange(change: number, loc = 'fr-CA') {
   const s = new Intl.NumberFormat(loc, { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1, signDisplay: 'exceptZero' }).format(change / 100);

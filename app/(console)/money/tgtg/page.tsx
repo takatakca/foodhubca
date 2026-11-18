@@ -128,9 +128,9 @@ export default function TgtgPage() {
       {err && <Banner tone="stop" className="mb-4">{err}</Banner>}
 
       <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StatTile hero label={t('Sacs vendus — 7 derniers jours', 'Bags sold — last 7 days')} value={fmtInt(sold)} note={offered ? `${Math.round((sold / offered) * 100)} % ${t('de', 'of')} ${fmtInt(offered)} ${t('offerts', 'offered')}` : t('aucune journée entrée', 'no day logged yet')} />
+        <StatTile hero label={t('Sacs vendus — 7 derniers jours', 'Bags sold — last 7 days')} value={fmtInt(sold, loc)} note={offered ? `${Math.round((sold / offered) * 100)} % ${t('de', 'of')} ${fmtInt(offered, loc)} ${t('offerts', 'offered')}` : t('aucune journée entrée', 'no day logged yet')} />
         <StatTile label={t('Ventes TGTG — 7 derniers jours', 'TGTG sales — last 7 days')} value={cad(sales, loc)} note={t('prix client, avant les frais TGTG', 'customer price, before TGTG’s fee')} />
-        <StatTile label={t('Sacs invendus — 7 derniers jours', 'Unsold bags — last 7 days')} value={fmtInt(Math.max(0, offered - sold))} note={t('nourriture non sauvée', 'food that was not rescued')} />
+        <StatTile label={t('Sacs invendus — 7 derniers jours', 'Unsold bags — last 7 days')} value={fmtInt(Math.max(0, offered - sold), loc)} note={t('nourriture non sauvée', 'food that was not rescued')} />
       </div>
 
       {mevOn[pick.locationCode] && (

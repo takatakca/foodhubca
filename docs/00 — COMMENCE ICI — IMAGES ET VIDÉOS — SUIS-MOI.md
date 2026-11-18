@@ -18,7 +18,7 @@
 6. **DÉPOSE** le film fini dans le Drive, dossier de la compagnie concernée (pointeurs ci-dessous), dans les formats du pack : `video-16x9.mp4`, `video-1x1.mp4`, `vignette-16x9.png`, `vignette-1x1.png`, `sous-titres-fr.srt`, `sous-titres-en.srt`.
 7. **METS À JOUR** le registre du travail fait et le journal du jour à l'instant où le film est déposé — un travail non consigné n'existe pas.
 
-**Connexion :** toutes les IA de la chaîne se connectent avec **le compte Google takatak.ca@gmail.com** (sessions TAKATAK). Les comptes et leurs statuts sont dans le registre des comptes IA (pointeur ci-dessous) — noms et statuts seulement, jamais de valeur d'identifiant dans un document, un courriel ou un commit.
+**Connexion :** toutes les IA de la chaîne se connectent avec **le compte Google maître de TAKATAK** (adresse dans le registre privé, jamais dans ce dépôt public) (sessions TAKATAK). Les comptes et leurs statuts sont dans le registre des comptes IA (pointeur ci-dessous) — noms et statuts seulement, jamais de valeur d'identifiant dans un document, un courriel ou un commit.
 
 **Standard — LUXE + FONCTIONNEL, sans exception :**
 

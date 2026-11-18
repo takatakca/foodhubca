@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { ArrowLeft, Ban, BellRing, Lock } from 'lucide-react';
 import { PinPad } from '@/components/ui/pin-pad';
 import { DeviceHeartbeat } from '@/components/live/device-heartbeat';
@@ -9,6 +9,8 @@ import { loopSound, unlockAudio } from '@/lib/ui/sound';
 import { api } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
+
+const noSubscribe = () => () => {};
 
 type Person = { username: string; name: string; role: string };
 type Info = { device: { id: string; name: string; locationCode: string }; people: Person[]; locked: number };
@@ -41,8 +43,11 @@ export function KitchenLock({ next }: { next: string }) {
     catch (e) { setPinErr(e instanceof Error ? e.message : String(e)); setBusy(false); }
   }
 
-  const time = new Date(now).toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' });
-  const date = new Date(now).toLocaleDateString(loc, { weekday: 'long', day: 'numeric', month: 'long' });
+  // The clock shows the tablet's own time: the server renders a placeholder (its time zone and second would differ, a
+  // hydration error), and the first render on the tablet keeps it; the time appears right after.
+  const onTablet = useSyncExternalStore(noSubscribe, () => true, () => false);
+  const time = onTablet ? new Date(now).toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' }) : '--:--';
+  const date = onTablet ? new Date(now).toLocaleDateString(loc, { weekday: 'long', day: 'numeric', month: 'long' }) : ' ';
 
   return (
     <div className="theme-kitchen flex min-h-dvh flex-col bg-canvas text-ink" onPointerDown={() => unlockAudio()}>

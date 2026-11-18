@@ -19,7 +19,7 @@ const METRICS: OpsMetricKey[] = ['missingIncorrect', 'lateReady', 'avoidableCanc
 const GOAL_FIELDS: Array<keyof OpsGoals> = ['missingIncorrectPct', 'lateReadyPct', 'avoidableCancelPct', 'downtimePct', 'lateGraceMin'];
 
 export default function OperationsQualityPage() {
-  const { t, lang } = useI18n();
+  const { t, lang, loc } = useI18n();
   const { locations, brands, can } = useViewer();
   const { scope, brands: brandScope } = usePulse();
   const { filters, set, query } = useFilters('30d', scope, brandScope);
@@ -69,18 +69,18 @@ export default function OperationsQualityPage() {
   const STATUS: Record<OpsStatus, string> = { attention: t('À surveiller', 'Needs attention'), on_track: t('Dans les objectifs', 'On track'), no_data: t('Pas assez de données', 'Not enough data') };
   const causeLabel = (k: OpsMetricKey, c?: string) => (!c ? '' : k === 'downtime' ? DOWN_CAUSE[c] ?? c : k === 'avoidableCancel' ? CANCEL_CAUSE[c] ?? c : MISSING_CAUSE[c] ?? c);
   const countTxt = (k: OpsMetricKey, m: { numerator: number; denominator: number }) => (k === 'downtime'
-    ? t(`${fmtInt(m.numerator)} min hors ligne sur ${fmtInt(m.denominator)} min ouvertes`, `${fmtInt(m.numerator)} min offline of ${fmtInt(m.denominator)} open min`)
-    : t(`${fmtInt(m.numerator)} sur ${fmtInt(m.denominator)} commandes`, `${fmtInt(m.numerator)} of ${fmtInt(m.denominator)} orders`));
+    ? t(`${fmtInt(m.numerator, loc)} min hors ligne sur ${fmtInt(m.denominator, loc)} min ouvertes`, `${fmtInt(m.numerator, loc)} min offline of ${fmtInt(m.denominator, loc)} open min`)
+    : t(`${fmtInt(m.numerator, loc)} sur ${fmtInt(m.denominator, loc)} commandes`, `${fmtInt(m.numerator, loc)} of ${fmtInt(m.denominator, loc)} orders`));
 
   const extraLine = (k: OpsMetricKey, m: OpsMetric): string => {
     const e = m.extra as Record<string, any>;
-    if (k === 'missingIncorrect') return t(`${e.reportedByKitchen} signalées par la cuisine · ${e.errorCharged} avec frais d’erreur (${fmtMoney(e.errorChargeAmount)})`, `${e.reportedByKitchen} reported by the kitchen · ${e.errorCharged} with an error charge (${fmtMoney(e.errorChargeAmount)})`);
+    if (k === 'missingIncorrect') return t(`${e.reportedByKitchen} signalées par la cuisine · ${e.errorCharged} avec frais d’erreur (${fmtMoney(e.errorChargeAmount, loc)})`, `${e.reportedByKitchen} reported by the kitchen · ${e.errorCharged} with an error charge (${fmtMoney(e.errorChargeAmount, loc)})`);
     if (k === 'lateReady') return [t(`${pctTxt(e.notMarkedReadyPct)} jamais marquées prêtes`, `${e.notMarkedReadyPct}% never marked ready`), e.avgMinutesLate ? t(`retard moyen ${e.avgMinutesLate} min`, `average ${e.avgMinutesLate} min late`) : ''].filter(Boolean).join(' · ');
     if (k === 'avoidableCancel') {
       const by = Object.entries(e.byCause as Record<string, number>).filter(([, n]) => n > 0).map(([c, n]) => t(`${CANCEL_CAUSE[c] ?? c} : ${n}`, `${CANCEL_CAUSE[c] ?? c}: ${n}`)).join(' · ');
-      return [by, e.lostSales ? t(`ventes perdues ${fmtMoney(e.lostSales)}`, `lost sales ${fmtMoney(e.lostSales)}`) : ''].filter(Boolean).join(' · ');
+      return [by, e.lostSales ? t(`ventes perdues ${fmtMoney(e.lostSales, loc)}`, `lost sales ${fmtMoney(e.lostSales, loc)}`) : ''].filter(Boolean).join(' · ');
     }
-    return Object.entries(e.byCause as Record<string, number>).filter(([, n]) => n > 0).map(([c, n]) => t(`${DOWN_CAUSE[c] ?? c} : ${fmtInt(n)} min`, `${DOWN_CAUSE[c] ?? c}: ${fmtInt(n)} min`)).join(' · ');
+    return Object.entries(e.byCause as Record<string, number>).filter(([, n]) => n > 0).map(([c, n]) => t(`${DOWN_CAUSE[c] ?? c} : ${fmtInt(n, loc)} min`, `${DOWN_CAUSE[c] ?? c}: ${fmtInt(n, loc)} min`)).join(' · ');
   };
 
   // Change vs the previous period, in points; up is bad for all four metrics. Hidden when that period had too little data.

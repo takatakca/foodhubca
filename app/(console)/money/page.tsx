@@ -67,7 +67,7 @@ export default function MoneyOverview() {
             <StatTile label={t('Payé par les plateformes', 'Paid by the platforms')} value={cad(data.totals.paid, loc)} />
             <StatTile label={t('Attendu pour ces commandes', 'Expected for those orders')} value={cad(data.totals.expected, loc)} />
             <Hint id="money.diff"><StatTile label={t('Écart', 'Difference')} value={signed(data.totals.diff, loc)} note={t('payé − attendu', 'paid − expected')} /></Hint>
-            <Hint id="money.unknown"><StatTile label={t('Payées mais inconnues', 'Paid but unknown')} value={fmtInt(data.totals.unknownOrders)} note={t('webhook manqué ou magasin non branché', 'missed webhook or unmapped store')} /></Hint>
+            <Hint id="money.unknown"><StatTile label={t('Payées mais inconnues', 'Paid but unknown')} value={fmtInt(data.totals.unknownOrders, loc)} note={t('webhook manqué ou magasin non branché', 'missed webhook or unmapped store')} /></Hint>
             <StatTile label={t('Autres frais et crédits', 'Other charges & credits')} value={signed(data.totals.otherCharges, loc)} note={t('pubs, tablettes, ajustements', 'ads, tablets, adjustments')} />
           </div>
           <Card className="mb-5">
@@ -76,7 +76,7 @@ export default function MoneyOverview() {
               <thead><tr><Th>{t('Plateforme', 'Platform')}</Th><Th align="right">{t('Cmd', 'Orders')}</Th><Th align="right">{t('Ventes', 'Sales')}</Th><Th align="right">{t('Attendu', 'Expected')}</Th><Th align="right">{t('Payé', 'Paid')}</Th><Th align="right">{t('Écart', 'Diff.')}</Th><Th align="right">{t('À récupérer', 'To recover')}</Th><Th>{t('Relevés jusqu’au', 'Statements to')}</Th><Th>{t('Plan', 'Plan')}</Th></tr></thead>
               <tbody>{data.channels.map((c) => (
                 <Tr key={c.channel}>
-                  <Td><PlatformTag channel={c.channel} /></Td><Td align="right">{fmtInt(c.orders)}</Td><Td align="right">{cad(c.sales, loc)}</Td><Td align="right">{cad(c.expected, loc)}</Td><Td align="right">{cad(c.paid, loc)}</Td><Td align="right">{signed(c.diff, loc)}</Td>
+                  <Td><PlatformTag channel={c.channel} /></Td><Td align="right">{fmtInt(c.orders, loc)}</Td><Td align="right">{cad(c.sales, loc)}</Td><Td align="right">{cad(c.expected, loc)}</Td><Td align="right">{cad(c.paid, loc)}</Td><Td align="right">{signed(c.diff, loc)}</Td>
                   <Td align="right" className={c.missingMoney ? 'font-bold text-stop' : ''}>{cad(c.missingMoney, loc)}</Td>
                   <Td className="text-ink-3">{c.coveredUntil ? dayOf(c.coveredUntil, loc) : t('aucun', 'none')}</Td>
                   <Td>{c.planConfirmed ? <span className="font-semibold text-go-2">✓</span> : <Link href="/money/fees" className="font-semibold text-wait-2 underline">{t('à confirmer', 'confirm')}</Link>}</Td>
@@ -86,7 +86,7 @@ export default function MoneyOverview() {
           </Card>
           <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
             <ChartCard title={t('À récupérer par plateforme', 'To recover by platform')} table={{ columns: [t('Plateforme', 'Platform'), '$', ''], rows: recoverRows.map((r) => [r.label, r.value.toFixed(2), r.detail]), filename: 'money-to-recover' }}><HBars rows={recoverRows} format={(n) => cad(n, loc)} empty={t('Rien à récupérer. 👍', 'Nothing to recover. 👍')} /></ChartCard>
-            <ChartCard title={t('Commandes par statut de paiement', 'Orders by payout status')} table={{ columns: [t('Statut', 'Status'), t('Commandes', 'Orders')], rows: statusRows.map((r) => [r.label, r.value]), filename: 'payout-status' }}><HBars rows={statusRows} format={fmtInt} /></ChartCard>
+            <ChartCard title={t('Commandes par statut de paiement', 'Orders by payout status')} table={{ columns: [t('Statut', 'Status'), t('Commandes', 'Orders')], rows: statusRows.map((r) => [r.label, r.value]), filename: 'payout-status' }}><HBars rows={statusRows} format={(n: number) => fmtInt(n, loc)} /></ChartCard>
           </div>
           <Card>
             <CardHeader title={t('Plus gros problèmes', 'Biggest problems')} right={<><ButtonLink href="/money/reconciliation" variant="ghost" size="sm">{t('Toutes les commandes', 'All orders')} →</ButtonLink><ButtonLink href="/money/disputes" variant="ghost" size="sm">{t('Litiges', 'Disputes')}{cases ? ` (${cases.count})` : ''} →</ButtonLink></>} />

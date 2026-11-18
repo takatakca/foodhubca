@@ -6,7 +6,7 @@
 // hover + keyboard tooltips that never gate (every chart has a table view), text in ink colors only.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { downloadCsv } from '@/lib/ui/api';
-import { useI18n, useT } from '@/lib/i18n/client';
+import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
 
 export const VIZ = {
@@ -15,15 +15,24 @@ export const VIZ = {
   ramp: ['#cde2fb', '#b7d3f6', '#9ec5f4', '#86b6ef', '#6da7ec', '#5598e7', '#3987e5', '#2a78d6', '#256abf', '#1c5cab', '#184f95', '#104281', '#0d366b'],
 };
 
-export function compactMoney(n: number) {
+/** Money in the UI's language, short: "1,2 k$" / "906 $" in French, "$1.2K" / "$906" in English (never mixed). */
+export function compactMoney(n: number, loc = 'fr-CA') {
+  const en = loc.startsWith('en');
   const a = Math.abs(n);
-  if (a >= 1_000_000) return `${(n / 1_000_000).toFixed(1)} M$`;
-  if (a >= 10_000) return `${Math.round(n / 1000)} k$`;
-  if (a >= 1000) return `${(n / 1000).toFixed(1)} k$`;
-  return `${Math.round(n)} $`;
+  const sign = n < 0 ? '−' : '';
+  const num = (v: number, d: number) => new Intl.NumberFormat(loc, { minimumFractionDigits: d, maximumFractionDigits: d }).format(v);
+  const [value, digits, unit] = a >= 1_000_000 ? [a / 1_000_000, 1, 'M'] : a >= 10_000 ? [a / 1000, 0, 'k'] : a >= 1000 ? [a / 1000, 1, 'k'] : [a, 0, ''];
+  if (en) return `${sign}$${num(value, digits)}${unit.toUpperCase()}`;
+  return `${sign}${num(value, digits)} ${unit}$`;
 }
-export const fmtMoney = (n: number) => new Intl.NumberFormat('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: Math.abs(n) >= 1000 ? 0 : 2 }).format(n);
-export const fmtInt = (n: number) => new Intl.NumberFormat('fr-CA').format(Math.round(n));
+/** Money in the UI's language: "906,38 $" in French, "$906.38" in English; no cents from 1 000 $ up. */
+export const fmtMoney = (n: number, loc = 'fr-CA') => new Intl.NumberFormat(loc, { style: 'currency', currency: 'CAD', currencyDisplay: 'narrowSymbol', maximumFractionDigits: Math.abs(n) >= 1000 ? 0 : 2 }).format(n);
+export const fmtInt = (n: number, loc = 'fr-CA') => new Intl.NumberFormat(loc).format(Math.round(n));
+/** A percentage given in points (69.97 = 69.97 %): "69,97 %" in French, "69.97%" in English; `signed` adds "+" / "−". */
+export function fmtPct(points: number, loc = 'fr-CA', signed = false) {
+  const s = new Intl.NumberFormat(loc, { style: 'percent', maximumFractionDigits: 2, signDisplay: signed ? 'exceptZero' : 'auto' }).format(points / 100);
+  return s.replace(/^-/, '−');
+}
 /** A signed change in the UI's locale: "+4,4 %" in French, "+4.4%" in English (one format per language, never mixed). */
 export function fmtChange(change: number, loc = 'fr-CA') {
   const s = new Intl.NumberFormat(loc, { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1, signDisplay: 'exceptZero' }).format(change / 100);
@@ -89,7 +98,7 @@ export function ChartCard({ title, subtitle, legend, table, children, loading, c
   table: { columns: string[]; rows: Array<Array<string | number>>; filename: string };
   children: ReactNode;
 }) {
-  const t = useT();
+  const { t, loc } = useI18n();
   const [view, setView] = useState<'chart' | 'table'>('chart');
   return (
     <section className={cn('rounded-lg border border-line bg-surface p-5 shadow-card transition-opacity', loading && 'opacity-55', className)}>
@@ -115,7 +124,7 @@ export function ChartCard({ title, subtitle, legend, table, children, loading, c
             <table className="w-full text-sm">
               <thead><tr>{table.columns.map((c) => <th key={c} className="sticky top-0 border-b border-line bg-raised px-3 py-2 text-left text-xs font-semibold text-ink-3">{c}</th>)}</tr></thead>
               <tbody>
-                {table.rows.map((r, i) => <tr key={i}>{r.map((v, j) => <td key={j} className={cn('border-b border-line px-3 py-1.5', typeof v === 'number' && 'num text-right')}>{typeof v === 'number' ? fmtInt(v) : v}</td>)}</tr>)}
+                {table.rows.map((r, i) => <tr key={i}>{r.map((v, j) => <td key={j} className={cn('border-b border-line px-3 py-1.5', typeof v === 'number' && 'num text-right')}>{typeof v === 'number' ? fmtInt(v, loc) : v}</td>)}</tr>)}
                 {table.rows.length === 0 && <tr><td colSpan={table.columns.length} className="px-3 py-3 text-ink-3">{t('Aucune donnée.', 'No data.')}</td></tr>}
               </tbody>
             </table>
@@ -261,13 +270,14 @@ const DOW = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 
 /** Day-of-week x hour heatmap on the sequential blue ramp (light = few orders, dark = many). */
 export function Heatmap({ grid }: { grid: number[][] }) {
+  const { loc } = useI18n();
   const [tip, setTip] = useState<Tip>(null);
   const box = useRef<HTMLDivElement>(null);
   const max = Math.max(0, ...grid.flat());
   const color = (v: number) => (v <= 0 ? VIZ.none : VIZ.ramp[Math.min(VIZ.ramp.length - 1, Math.floor((v / max) * (VIZ.ramp.length - 1)))]);
   const show = (d: number, h: number, el: HTMLElement) => {
     const b = box.current?.getBoundingClientRect(); const e = el.getBoundingClientRect();
-    setTip({ x: Math.max(0, Math.min((b ? e.left - b.left : 0) - 60, (b?.width ?? 400) - 180)), y: (b ? e.top - b.top : 0) + 22, title: `${DOW[d]} ${String(h).padStart(2, '0')}:00–${String(h).padStart(2, '0')}:59`, rows: [{ value: fmtInt(grid[d][h]), label: 'cmd' }] });
+    setTip({ x: Math.max(0, Math.min((b ? e.left - b.left : 0) - 60, (b?.width ?? 400) - 180)), y: (b ? e.top - b.top : 0) + 22, title: `${DOW[d]} ${String(h).padStart(2, '0')}:00–${String(h).padStart(2, '0')}:59`, rows: [{ value: fmtInt(grid[d][h], loc), label: 'cmd' }] });
   };
   const legend = useMemo(() => [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(f * max)), [max]);
   return (
@@ -288,7 +298,7 @@ export function Heatmap({ grid }: { grid: number[][] }) {
       <div className="viz-heat-legend small">
         <span>−</span>
         {legend.map((v, i) => <span key={i} className="viz-heat-swatch" style={{ background: color(v) }} title={`${v} orders`} />)}
-        <span>+ (max {fmtInt(max)})</span>
+        <span>+ (max {fmtInt(max, loc)})</span>
       </div>
       <Tooltip tip={tip} />
     </div>

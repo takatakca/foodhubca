@@ -356,14 +356,16 @@ function FullViewSwitch() {
   );
 }
 
-function useSignOut() {
+/** Signs the person out (the avatar menu, and "Lock" on Settings → Devices): their drafts are cleared, then a full page
+ * load to where the server says (the PIN screen on a kitchen tablet), so no state of theirs stays in memory. */
+export function useSignOut(fallback = '/login') {
   const { viewer } = useViewer();
   return useCallback(async () => {
     // Drafts belong to the person: never left behind on a shared tablet.
     try { clearAllDrafts(window.localStorage, viewer.username); } catch { /* ignore */ }
-    const r = await api<{ next: string }>('/api/foodhub/auth/logout', { method: 'POST' }).catch(() => ({ next: '/login' }));
-    window.location.href = r.next;
-  }, [viewer.username]);
+    const r = await api<{ next: string }>('/api/foodhub/auth/logout', { method: 'POST' }).catch(() => ({ next: fallback }));
+    window.location.assign(r.next || fallback);
+  }, [viewer.username, fallback]);
 }
 
 /** "Se déconnecter", or "Verrouiller la tablette" on a kitchen tablet (avatar menu and the phone's "Plus" sheet). */

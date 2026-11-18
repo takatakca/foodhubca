@@ -1,5 +1,25 @@
 # Food Hub: progress log and task board
 
+## 2026-11-18 — Full diagnostic, batch 1: security, English Reports, kitchen lock, privacy (`claude/busy-cannon-5spy86`)
+
+- Owner (2026-11-18): "full diagnostic … fix all the issues". Method: `npm audit`, lint, typecheck, all tests,
+  `verify:foodhub`, open issues/PRs, the task queue, then a **browser crawl of all 64 console pages in French and
+  English** on the demo build (owner session): HTTP status, crashes, page errors, 5xx, mixed number formats.
+- Crawl result before fixes: 0 HTTP errors, 0 crashes, 0 failed requests. Found: English Reports showed French money
+  ("857,02 $"), French Reports showed raw "69.97%", `/kitchen/lock` threw React hydration error #418 on every load.
+- Fixed: chart kit formatters take the console locale (`fmtMoney`, `fmtInt`, `compactMoney`, new `fmtPct`); every
+  call, every formatter passed by reference and every raw percentage on Today / Sales / Customers / Operations / Money.
+  Lock-screen clock rendered client side. "Lock" on Settings → Devices uses the shell's sign-out (clears drafts).
+  Next 16.4.6 + eslint-config-next 16.4.6 + vitest 4.1.12 + dev-tool advisories: `npm audit` 14 → 0 (npm 10's
+  `npm audit fix` crashes on the vitest peer set; npm 11 resolved it; the lockfile installs cleanly with npm 10).
+  `vitest.config.mts`. Lint 1 warning → 0. Owner's sign-in address removed from three public docs.
+- After: crawl clean in both languages (only the expected 403 "not a kitchen tablet" on `/kitchen/lock`), 2 096 tests,
+  `next build` first try (no more security stop), `verify:foodhub` all passed.
+- Not code (owner): Clover default "Sales Tax" 0.14975 % to remove in the Clover dashboard (already flagged per
+  order); brand addresses in COMPANY-INFORMATION.md are public business contacts (decide if they stay).
+
+— signé : Claude (busy-cannon, Claude Code cloud) @ cloud · 2026-11-18
+
 ## 2026-11-18 — Public site v2: TAKATAK Food Hub, real console stills, SEO (`claude/busy-cannon-5spy86`)
 
 - Owner (2026-11-18): the public site must be professional and sellable. Live /hub still said "ON2GO.ca" (and its share

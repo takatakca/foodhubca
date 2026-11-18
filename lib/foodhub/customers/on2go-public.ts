@@ -9,6 +9,7 @@ import { allowedOrigin } from '../public-directory';
 import { clientIp } from '../session';
 import { resolveCustomerToken, type CustomerResolve } from './token';
 import { ON2GO_TENANT } from './types';
+import { readText } from '../http';
 
 export const ON2GO_PUBLIC_LIMITS = {
   /** Texts asked from one IP (each also counts against the phone's 3 per 10 min). */
@@ -58,8 +59,7 @@ export function originRefused(req: Request, methods: string): Response | null {
 export async function readSmallJson(req: Request): Promise<Record<string, unknown> | undefined> {
   if (Number(req.headers.get('content-length') ?? '0') > 2048) return undefined;
   try {
-    const text = await req.text();
-    if (text.length > 2048) return undefined;
+    const text = await readText(req, 2048); // stops reading past 2 KB, even without a Content-Length
     const v = text ? JSON.parse(text) : {};
     return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined;
   } catch {

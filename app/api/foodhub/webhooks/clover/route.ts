@@ -5,6 +5,7 @@ import { cloverWebhookGate } from '@/lib/foodhub/pos/clover-webhook-gate';
 import { handleCloverOrderEvents } from '@/lib/foodhub/pos/clover-website-orders';
 import { handleCloverRegisterEvents } from '@/lib/foodhub/mev/clover-register';
 import { background, parseJson } from '@/lib/foodhub/webhook-utils';
+import { readTextOr413 } from '@/lib/foodhub/http';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -21,7 +22,9 @@ export const maxDuration = 60;
 //     paid → invoice, refunded / deleted → credit note. See docs/MEV_INTEGRATION.md § Clover register.
 // The AI phone app has its own webhook (./phone/route.ts, App events only): see docs/CLOVER_MULTI_APP.md.
 export async function POST(req: NextRequest) {
-  const raw = await req.text();
+  const read = await readTextOr413(req);
+  if ('response' in read) return read.response;
+  const raw = read.text;
   const body = parseJson(raw);
   if (body === undefined) return NextResponse.json({ ok: false }, { status: 400 });
   const gate = await cloverWebhookGate('foodhub', body, req.headers.get('x-clover-auth'));

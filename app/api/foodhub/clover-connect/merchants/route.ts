@@ -1,5 +1,5 @@
 import { withPerm } from '@/lib/foodhub/auth';
-import { fail, ok } from '@/lib/foodhub/http';
+import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { isCloverAppKey, type CloverAppKey } from '@/lib/foodhub/pos/clover-apps';
 import { approveCloverMerchant, cloverAppReadiness, disconnectCloverMerchant, listCloverConnections } from '@/lib/foodhub/pos/clover-oauth';
 
@@ -20,7 +20,7 @@ export const GET = withPerm('stores:map', async (req) => {
 
 // Owner approves a merchant that installed an app from Clover: { merchantId, app? }.
 export const POST = withPerm('admin', async (req, _ctx, actor) => {
-  const body = (await req.json().catch(() => ({}))) as { merchantId?: string; app?: string };
+  const body = (await readJson(req)) as { merchantId?: string; app?: string };
   const mid = String(body.merchantId || '').trim();
   const app = appOf(body.app);
   if (!mid) return fail('merchantId is required.');
@@ -30,7 +30,7 @@ export const POST = withPerm('admin', async (req, _ctx, actor) => {
 
 // Owner disconnects a merchant from one app (the other app's connection is kept): { merchantId, app? }.
 export const DELETE = withPerm('admin', async (req, _ctx, actor) => {
-  const body = (await req.json().catch(() => ({}))) as { merchantId?: string; app?: string };
+  const body = (await readJson(req)) as { merchantId?: string; app?: string };
   const mid = String(body.merchantId || '').trim();
   const app = appOf(body.app);
   if (!mid) return fail('merchantId is required.');

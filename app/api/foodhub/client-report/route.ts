@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { z } from 'zod';
 import { logActivity } from '@/lib/foodhub/activity';
 import { withPerm } from '@/lib/foodhub/auth';
-import { fail, ok } from '@/lib/foodhub/http';
+import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { getRepo } from '@/lib/foodhub/repo';
 import { can } from '@/lib/foodhub/session';
 
@@ -24,7 +24,7 @@ const issue = z.object({
 const body = z.object({ screen: z.string().max(120).optional(), note: z.string().max(500).optional(), issues: z.array(issue).max(50).default([]) });
 
 export const POST = withPerm('view', async (req, _ctx, actor) => {
-  const parsed = body.safeParse(await req.json().catch(() => ({})));
+  const parsed = body.safeParse(await readJson(req));
   if (!parsed.success) return fail('Invalid report');
   const { screen, note, issues } = parsed.data;
   if (!issues.length && !note) return ok({ stored: 0 });

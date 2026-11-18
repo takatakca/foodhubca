@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { skipAdapter } from '@/lib/foodhub/adapters/skip';
 import { applyExternalStatus } from '@/lib/foodhub/pipeline';
 import { background, parseJson, unauthorized } from '@/lib/foodhub/webhook-utils';
+import { readTextOr413 } from '@/lib/foodhub/http';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -9,7 +10,9 @@ export const maxDuration = 60;
 // JET Connect "Cancel Order Notification": { orderID, reason: { code }, happenedAt }
 // JET expects 200 and the same payload back as the acknowledgement (a non-2xx is retried up to 5 times).
 export async function POST(req: NextRequest) {
-  const raw = await req.text();
+  const read = await readTextOr413(req);
+  if ('response' in read) return read.response;
+  const raw = read.text;
   if (!skipAdapter.verifyWebhook(req.headers, raw)) return unauthorized('skip');
   const body = parseJson(raw);
   if (!body?.orderID) return NextResponse.json({ error: 'orderID missing' }, { status: 400 });

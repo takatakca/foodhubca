@@ -4,6 +4,7 @@ import { SANDBOX_AUTH_REASON, doorDashSandboxReason, verifyDoorDashSandboxWebhoo
 import { cartValidationResponse } from '@/lib/foodhub/doordash/ocv';
 import { classifyDoorDash, isCartValidation } from '@/lib/foodhub/webhooks/doordash';
 import { background, keepUnparsed, parseJson, retryLater, saveThenProcess, unauthorized } from '@/lib/foodhub/webhook-utils';
+import { readTextOr413 } from '@/lib/foodhub/http';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -21,7 +22,9 @@ export const maxDuration = 60;
 // shapes Food Hub does not know are kept under Channels → Unparsed payloads (200, so DoorDash does not retry —
 // 202 when it may be an order). Only invalid JSON gets 400; a database that cannot be written gets 503 (resend).
 export async function POST(req: NextRequest) {
-  const raw = await req.text();
+  const read = await readTextOr413(req);
+  if ('response' in read) return read.response;
+  const raw = read.text;
   // The production secret first; the sandbox secret only when it did not match (it can never equal it).
   const productionAuth = doorDashAdapter.verifyWebhook(req.headers, raw);
   const sandboxAuth = !productionAuth && verifyDoorDashSandboxWebhook(req.headers);

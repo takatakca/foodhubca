@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { withPerm } from '@/lib/foodhub/auth';
-import { fail } from '@/lib/foodhub/http';
+import { fail, readJson } from '@/lib/foodhub/http';
 import { sendCloverTestOrder } from '@/lib/foodhub/pos/clover-test-order';
 
 export const dynamic = 'force-dynamic';
@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 // register Food Hub can reach: approved through the Clover app, or connected with an API token in the environment
 // (CLOVER_ACCESS_TOKEN / CLOVER_MERCHANT_TOKENS). Not under the public /clover-connect/test-order prefix (proxy.ts).
 export const POST = withPerm('admin', async (req, _ctx, actor) => {
-  const body = (await req.json().catch(() => ({}))) as { merchantId?: string };
+  const body = (await readJson(req)) as { merchantId?: string };
   const mid = String(body.merchantId || '').trim();
   if (!/^[A-Z0-9]{8,20}$/i.test(mid)) return fail('merchantId is required.');
   const r = await sendCloverTestOrder(mid, Date.now(), { tokenMerchant: true, actor: actor.name || actor.username });

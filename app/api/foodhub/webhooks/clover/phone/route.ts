@@ -3,6 +3,7 @@ import { cloverPhoneAppEnabled } from '@/lib/foodhub/pos/clover-apps';
 import { handleCloverAppEvents } from '@/lib/foodhub/pos/clover-oauth';
 import { cloverWebhookGate } from '@/lib/foodhub/pos/clover-webhook-gate';
 import { background, parseJson } from '@/lib/foodhub/webhook-utils';
+import { readTextOr413 } from '@/lib/foodhub/http';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -16,7 +17,9 @@ export const maxDuration = 60;
 //  - Uninstall removes only the phone app's tokens; Food Hub is not touched.
 export async function POST(req: NextRequest) {
   if (!cloverPhoneAppEnabled()) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
-  const raw = await req.text();
+  const read = await readTextOr413(req);
+  if ('response' in read) return read.response;
+  const raw = read.text;
   const body = parseJson(raw);
   if (body === undefined) return NextResponse.json({ ok: false }, { status: 400 });
   const gate = await cloverWebhookGate('phone', body, req.headers.get('x-clover-auth'));

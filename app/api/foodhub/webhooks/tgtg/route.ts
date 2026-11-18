@@ -3,6 +3,7 @@ import { parseGenericOrder, tgtgAdapter } from '@/lib/foodhub/adapters/partner';
 import { getRepo } from '@/lib/foodhub/repo';
 import { applyBagCountEvent, applyTgtgEvent, parseTgtgEvent } from '@/lib/foodhub/tgtg-feed';
 import { background, keepUnparsed, parseJson, queueOrder, retryLater, unauthorized } from '@/lib/foodhub/webhook-utils';
+import { readTextOr413 } from '@/lib/foodhub/http';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -14,7 +15,9 @@ export const maxDuration = 60;
 //   bag_count  → a day summary: bags offered / sold / collected → the bag log
 // Unknown shapes are kept under Channels → Unparsed payloads, never lost.
 export async function POST(req: Request) {
-  const raw = await req.text();
+  const read = await readTextOr413(req);
+  if ('response' in read) return read.response;
+  const raw = read.text;
   if (!tgtgAdapter.verifyWebhook(req.headers, raw)) return unauthorized('tgtg');
   const body = parseJson(raw);
   if (body === undefined) return NextResponse.json({ ok: false }, { status: 400 });

@@ -1,6 +1,7 @@
 import { notePaymentDeclined, LAST_WEBHOOK_KEY, orderIdForSession, releasePaidOrder } from '@/lib/foodhub/delivery/paylink';
 import { ecommMerchants, hcoWebhookSecret, parseHostedCheckoutEvent, verifyCloverSignature } from '@/lib/foodhub/pos/clover-checkout';
 import { getRepo } from '@/lib/foodhub/repo';
+import { readTextOr413 } from '@/lib/foodhub/http';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -17,7 +18,9 @@ const MAX_BODY = 64 * 1024;
 export async function POST(req: Request) {
   const len = Number(req.headers.get('content-length') || 0);
   if (len > MAX_BODY) return new Response('Payload too large', { status: 413 });
-  const raw = await req.text();
+  const read = await readTextOr413(req, MAX_BODY);
+  if ('response' in read) return read.response;
+  const raw = read.text;
   if (raw.length > MAX_BODY) return new Response('Payload too large', { status: 413 });
   const signature = req.headers.get('clover-signature');
   const check = verifyCloverSignature(raw, signature, hcoWebhookSecret());

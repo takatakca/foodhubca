@@ -12,6 +12,7 @@ import type { PhoneLang } from './calls';
 import type { PhoneSettings } from './settings';
 import { ORDER_NOTICE, selfIntro, speakable, type Persona } from './style';
 import { DEFAULT_VOICES, FALLBACK_VOICES, sayLanguage, speechPlan, type ListenKind } from './voices';
+import { readText } from '../http';
 
 export const VOICE_PATH = '/api/foodhub/webhooks/voice';
 
@@ -113,7 +114,8 @@ export function dialXml(number: string, callerId: string, action: string, timeou
 
 /** Form body of a Twilio request as URLSearchParams (Twilio posts application/x-www-form-urlencoded). */
 export async function readForm(req: Request): Promise<URLSearchParams> {
-  const text = await req.text();
+  // Twilio's forms weigh a few kilobytes: past 256 KB the form is empty, so its signature check fails.
+  const text = await readText(req, 256 * 1024).catch(() => '');
   return new URLSearchParams(text);
 }
 

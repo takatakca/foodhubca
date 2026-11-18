@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { skipAdapter } from '@/lib/foodhub/adapters/skip';
 import { handleSkipModificationCallback } from '@/lib/foodhub/skip-ops';
 import { background, keepUnparsed, parseJson, unauthorized } from '@/lib/foodhub/webhook-utils';
+import { readTextOr413 } from '@/lib/foodhub/http';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -10,7 +11,9 @@ export const maxDuration = 60;
 //   { orderId, type: "success" }  or  { orderId, type: "failure", errors: [{ errorCode, … }] }
 // A failure raises an alert on the order: the customer was not given the change.
 export async function POST(req: NextRequest) {
-  const raw = await req.text();
+  const read = await readTextOr413(req);
+  if ('response' in read) return read.response;
+  const raw = read.text;
   if (!skipAdapter.verifyWebhook(req.headers, raw)) return unauthorized('skip');
   const body = parseJson(raw);
   if (body === undefined) return NextResponse.json({ message: 'Invalid JSON' }, { status: 400 });

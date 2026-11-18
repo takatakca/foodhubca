@@ -3,6 +3,7 @@ import { uberEatsAdapter } from '@/lib/foodhub/adapters/uber-eats';
 import { runUberWebhook } from '@/lib/foodhub/adapters/uber-events';
 import { saveUberWebhook } from '@/lib/foodhub/adapters/uber-inbox';
 import { parseJson, retryLater, unauthorized } from '@/lib/foodhub/webhook-utils';
+import { readTextOr413 } from '@/lib/foodhub/http';
 
 export const dynamic = 'force-dynamic';
 // The deferred work (Uber fetch + Clover + accept) runs in after(): give it the same budget as the cron routes.
@@ -18,7 +19,9 @@ export const maxDuration = 60;
 // it again (30 s, 2 min), and the owner can Replay it. The same event delivered again is not processed twice.
 // If the inbox cannot be written, Uber gets a 503 and sends the event again.
 export async function POST(req: NextRequest) {
-  const raw = await req.text();
+  const read = await readTextOr413(req);
+  if ('response' in read) return read.response;
+  const raw = read.text;
   if (!uberEatsAdapter.verifyWebhook(req.headers, raw)) return unauthorized('uber_eats');
   const body = parseJson(raw);
   if (body === undefined || body === null || typeof body !== 'object') return NextResponse.json({ ok: false }, { status: 400 });

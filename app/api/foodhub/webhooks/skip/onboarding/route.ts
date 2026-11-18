@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { parseSkipOnboardingNotice, verifySkipOnboardingSignature } from '@/lib/foodhub/adapters/skip-api';
 import { recordSkipOnboarding } from '@/lib/foodhub/skip-ops';
 import { background, keepUnparsed, parseJson, unauthorized } from '@/lib/foodhub/webhook-utils';
+import { readTextOr413 } from '@/lib/foodhub/http';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -10,7 +11,9 @@ export const maxDuration = 60;
 // Signed: X-Webhook-Signature = sha256=<hex HMAC-SHA256(SKIP_ONBOARDING_HMAC_SECRET, X-Webhook-Timestamp + "\n" + body)>,
 // and older than 5 minutes is refused. JET does not retry, so the notification is kept as soon as it is accepted.
 export async function POST(req: NextRequest) {
-  const raw = await req.text();
+  const read = await readTextOr413(req);
+  if ('response' in read) return read.response;
+  const raw = read.text;
   if (!verifySkipOnboardingSignature(req.headers, raw)) return unauthorized('skip');
   const body = parseJson(raw);
   const notice = parseSkipOnboardingNotice(body);

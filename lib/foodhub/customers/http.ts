@@ -6,6 +6,7 @@ import { verifyWebsiteOrder } from '../delivery/website';
 import { clientIp } from '../session';
 import { resolveCustomerToken, type CustomerResolve } from './token';
 import { customerTenant } from './types';
+import { readText } from '../http';
 
 export const CUSTOMER_TOKEN_HEADER = 'x-customer-token';
 /** Optional: the website says which brand it is; a token of another brand is then refused (403). */
@@ -29,7 +30,7 @@ export function requireWebsiteSecret(req: Request): Response | null {
 /** The JSON body, {} when empty, undefined when it is not JSON. */
 export async function readBody(req: Request): Promise<Record<string, unknown> | undefined> {
   try {
-    const text = await req.text();
+    const text = await readText(req); // capped: over BODY_MAX_BYTES lands in the catch below
     const v = text ? JSON.parse(text) : {};
     return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined;
   } catch {

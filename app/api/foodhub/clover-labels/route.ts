@@ -1,5 +1,5 @@
 import { withPerm } from '@/lib/foodhub/auth';
-import { fail, ok } from '@/lib/foodhub/http';
+import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { allCloverMerchants } from '@/lib/foodhub/pos/clover';
 import { assignCloverLabel, cloverLabelReport, cloverTaxCheck } from '@/lib/foodhub/pos/clover-labels';
 import { getRepo } from '@/lib/foodhub/repo';
@@ -23,7 +23,7 @@ export const GET = withPerm('stores:map', async (req) => {
 
 // Owner adds a kitchen printer label to items: { merchantId, tagId, itemIds } or { merchantId, tagId, all: true }.
 export const POST = withPerm('admin', async (req, _ctx, actor) => {
-  const body = (await req.json().catch(() => ({}))) as { merchantId?: string; tagId?: string; itemIds?: string[]; all?: boolean };
+  const body = (await readJson(req)) as { merchantId?: string; tagId?: string; itemIds?: string[]; all?: boolean };
   const mid = String(body.merchantId || '');
   if (!(await merchants()).includes(mid)) return fail('Unknown Clover merchant.', 404);
   const report = await cloverLabelReport(mid);

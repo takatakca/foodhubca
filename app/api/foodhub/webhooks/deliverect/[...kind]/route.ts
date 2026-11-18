@@ -5,6 +5,7 @@ import {
   handleDeliverectReporting, handleDeliverectRetailEvent, handleDeliverectStoreStatus, keepDeliverectEvent, pushDeliverectProducts, validateDeliverectCart,
 } from '@/lib/foodhub/deliverect-ops';
 import { getRepo } from '@/lib/foodhub/repo';
+import { readTextOr413 } from '@/lib/foodhub/http';
 import { background, keepUnparsed, parseJson, queueOrder, retryLater } from '@/lib/foodhub/webhook-utils';
 
 export const dynamic = 'force-dynamic';
@@ -25,7 +26,12 @@ const deny = () => NextResponse.json({ ok: false, error: 'Deliverect webhook che
 async function handle(req: NextRequest, ctx: Ctx, method: 'GET' | 'POST'): Promise<Response> {
   const kind = (await ctx.params).kind.join('/');
   const url = new URL(req.url);
-  const raw = method === 'GET' ? '' : await req.text();
+  let raw = '';
+  if (method !== 'GET') {
+    const read = await readTextOr413(req);
+    if ('response' in read) return read.response;
+    raw = read.text;
+  }
   const body = method === 'GET' ? undefined : parseJson(raw);
   if (!verifyDeliverectWebhook(req.headers, raw, url, body)) return deny();
   if (method === 'POST' && body === undefined) return ok({ ok: false, error: 'Invalid JSON' }, 400);

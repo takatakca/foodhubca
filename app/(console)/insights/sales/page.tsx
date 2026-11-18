@@ -53,7 +53,7 @@ function SalesHeatmap({ grid, days, format, title, unit }: { grid: number[][]; d
 }
 
 export default function SalesMixPage() {
-  const { t, lang } = useI18n();
+  const { t, lang, loc } = useI18n();
   const { locations, brands } = useViewer();
   const { scope, brands: brandScope } = usePulse();
   const { filters, set, query } = useFilters('7d', scope, brandScope);
@@ -84,7 +84,7 @@ export default function SalesMixPage() {
   );
   const groupTable = (rows: MixGroupRow[], name: string, filename: string) => ({
     columns: [name, t('Ventes', 'Sales'), t('Commandes', 'Orders'), t('Panier', 'Avg'), '%', t('vs préc. %', 'vs prev %'), t('Annulées', 'Cancelled'), t('Perdu', 'Lost')],
-    rows: rows.map((g) => [label(g), fmtMoney(g.sales), g.orders, fmtMoney(g.aov), `${g.share}%`, vs(g.change), g.lostOrders, fmtMoney(g.lostSales)]),
+    rows: rows.map((g) => [label(g), fmtMoney(g.sales, loc), g.orders, fmtMoney(g.aov, loc), `${g.share}%`, vs(g.change), g.lostOrders, fmtMoney(g.lostSales, loc)]),
     filename,
   });
   const groupBars = (rows: MixGroupRow[]) => rows.map((g) => ({ label: label(g), value: g.sales, detail: `${g.orders} ${t('cmd', 'orders')} · ${g.share}%${cmp ? ` · ${signed(g.change)}` : ''}` }));
@@ -120,11 +120,11 @@ export default function SalesMixPage() {
       {data && k && !empty && (
         <div className={loading ? 'opacity-60 transition-opacity' : ''}>
           <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-3">
-            <StatTile hero wide label={t('Ventes', 'Sales')} value={fmtMoney(k.sales)} change={cmp ? k.salesChange : undefined} previous={cmp ? fmtMoney(k.prevSales) : undefined} hasPrevious={hadPrev} fromZero={!k.prevSales} />
-            <StatTile label={t('Commandes', 'Orders')} value={fmtInt(k.orders)} change={cmp ? k.ordersChange : undefined} previous={cmp ? fmtInt(k.prevOrders) : undefined} hasPrevious={hadPrev} fromZero={!k.prevOrders} />
-            <StatTile label={t('Panier moyen', 'Average order')} value={fmtMoney(k.aov)} />
-            <StatTile label={t('Articles vendus', 'Items sold')} value={fmtInt(k.itemsSold)} />
-            <StatTile label={t('Ventes perdues', 'Lost sales')} value={fmtMoney(k.lostSales)} change={cmp ? k.lostSalesChange : undefined} previous={cmp ? fmtMoney(k.prevLostSales) : undefined} hasPrevious={hadPrev} fromZero={!k.prevLostSales} upIsGood={false} note={k.lostOrders === 1 ? t('1 commande annulée', '1 cancelled order') : t(`${k.lostOrders} commandes annulées`, `${k.lostOrders} cancelled orders`)} />
+            <StatTile hero wide label={t('Ventes', 'Sales')} value={fmtMoney(k.sales, loc)} change={cmp ? k.salesChange : undefined} previous={cmp ? fmtMoney(k.prevSales, loc) : undefined} hasPrevious={hadPrev} fromZero={!k.prevSales} />
+            <StatTile label={t('Commandes', 'Orders')} value={fmtInt(k.orders, loc)} change={cmp ? k.ordersChange : undefined} previous={cmp ? fmtInt(k.prevOrders, loc) : undefined} hasPrevious={hadPrev} fromZero={!k.prevOrders} />
+            <StatTile label={t('Panier moyen', 'Average order')} value={fmtMoney(k.aov, loc)} />
+            <StatTile label={t('Articles vendus', 'Items sold')} value={fmtInt(k.itemsSold, loc)} />
+            <StatTile label={t('Ventes perdues', 'Lost sales')} value={fmtMoney(k.lostSales, loc)} change={cmp ? k.lostSalesChange : undefined} previous={cmp ? fmtMoney(k.prevLostSales, loc) : undefined} hasPrevious={hadPrev} fromZero={!k.prevLostSales} upIsGood={false} note={k.lostOrders === 1 ? t('1 commande annulée', '1 cancelled order') : t(`${k.lostOrders} commandes annulées`, `${k.lostOrders} cancelled orders`)} />
           </div>
 
           <Card className="mb-5 p-5">
@@ -160,10 +160,10 @@ export default function SalesMixPage() {
                         <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-ink">{i.name}</span>{i.popular && <Badge tone="brand">{t('Populaire', 'Popular')}</Badge>}</div>
                         <div className="text-xs text-ink-3">{i.brand}{i.lostQty > 0 ? ` · ${i.lostQty} ${t('annulé(s)', 'cancelled')}` : ''}</div>
                       </td>
-                      <td className="num py-2 pr-3 text-right">{fmtInt(i.qty)}</td>
-                      <td className="num py-2 pr-3 text-right">{fmtMoney(i.sales)}</td>
+                      <td className="num py-2 pr-3 text-right">{fmtInt(i.qty, loc)}</td>
+                      <td className="num py-2 pr-3 text-right">{fmtMoney(i.sales, loc)}</td>
                       <td className="num py-2 pr-3 text-right">{i.share}%</td>
-                      <td className="num py-2 pr-3 text-right">{fmtMoney(i.avgPrice)}</td>
+                      <td className="num py-2 pr-3 text-right">{fmtMoney(i.avgPrice, loc)}</td>
                       <td className={`num py-2 pr-3 text-right ${cmp && i.change > 0 ? 'text-go-2' : cmp && i.change < 0 ? 'text-stop-2' : 'text-ink-3'}`}>{vs(i.change)}</td>
                       {sourcesInItems.map((s) => <td key={s} className="num py-2 pr-3 text-right">{i.bySource[s] ?? 0}</td>)}
                     </tr>
@@ -178,12 +178,12 @@ export default function SalesMixPage() {
 
           <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
             <ChartCard title={t('Par heure', 'By hour')} subtitle={t('Ventes selon l’heure de la commande (heure locale)', 'Sales by order time (local time)')} legend={exportLinks('hours')}
-              table={{ columns: [t('Heure', 'Hour'), t('Commandes', 'Orders'), t('Ventes', 'Sales'), t('Panier', 'Avg')], rows: data.byHour.map((h) => [`${h.hour}h`, h.orders, fmtMoney(h.sales), fmtMoney(h.aov)]), filename: 'takatak-sales-by-hour' }}>
+              table={{ columns: [t('Heure', 'Hour'), t('Commandes', 'Orders'), t('Ventes', 'Sales'), t('Panier', 'Avg')], rows: data.byHour.map((h) => [`${h.hour}h`, h.orders, fmtMoney(h.sales, loc), fmtMoney(h.aov, loc)]), filename: 'takatak-sales-by-hour' }}>
               <Columns rows={data.byHour.map((h) => ({ label: `${h.hour}h`, value: h.sales }))} format={fmtMoney} />
             </ChartCard>
             <ChartCard title={t('Par jour de la semaine', 'By day of the week')} subtitle={t('Ventes et moyenne par jour', 'Sales and average per day')} legend={exportLinks('weekdays')}
-              table={{ columns: [t('Jour', 'Day'), t('Commandes', 'Orders'), t('Ventes', 'Sales'), t('Jours', 'Days'), t('Moyenne par jour', 'Average per day')], rows: data.byWeekday.map((d) => [days[d.dow], d.orders, fmtMoney(d.sales), d.days, fmtMoney(d.avgSalesPerDay)]), filename: 'takatak-sales-by-weekday' }}>
-              <HBars rows={data.byWeekday.map((d) => ({ label: days[d.dow], value: d.sales, detail: `${d.orders} ${t('cmd', 'orders')} · ${fmtMoney(d.avgSalesPerDay)} ${t('moyenne par jour', 'average per day')}` }))} format={fmtMoney} />
+              table={{ columns: [t('Jour', 'Day'), t('Commandes', 'Orders'), t('Ventes', 'Sales'), t('Jours', 'Days'), t('Moyenne par jour', 'Average per day')], rows: data.byWeekday.map((d) => [days[d.dow], d.orders, fmtMoney(d.sales, loc), d.days, fmtMoney(d.avgSalesPerDay, loc)]), filename: 'takatak-sales-by-weekday' }}>
+              <HBars rows={data.byWeekday.map((d) => ({ label: days[d.dow], value: d.sales, detail: `${d.orders} ${t('cmd', 'orders')} · ${fmtMoney(d.avgSalesPerDay, loc)} ${t('moyenne par jour', 'average per day')}` }))} format={fmtMoney} />
             </ChartCard>
           </div>
 

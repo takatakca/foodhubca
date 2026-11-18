@@ -28,7 +28,7 @@ Dernière mise à jour : 2026-10-31 — **v3** (ordre de Matt, 03:17 EDT : « co
 | Président | Pierre Lévesque (depuis 2024-10-01) |
 | Décideur (opérations, comptes plateformes) | Matthew Wallace Barnard |
 | Activités | Restaurants (CAE 9212, 9213) |
-| Courriel maître du groupe | takatak.ca@gmail.com |
+| Courriel maître du groupe | dans le registre privé des comptes (jamais dans ce dépôt public) |
 | Téléphone — Groupe TAKATAK (agence) | +1 514-825-2825 |
 | Téléphone — TOUS les restaurants | **+1 450-999-4999** |
 | Heures — restaurants | **11:00 – 23:00**, tous les jours |

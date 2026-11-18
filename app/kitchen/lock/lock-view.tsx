@@ -50,8 +50,9 @@ export function KitchenLock({ next }: { next: string }) {
       <header className="flex items-center justify-between px-6 py-5">
         <div className="flex items-center gap-2.5"><span className="flex size-9 items-center justify-center rounded-md bg-brand text-base font-black text-white">T</span><span className="font-extrabold tracking-[0.14em]">TAKATAK</span></div>
         <div className="text-right">
-          <div className="num text-3xl font-extrabold">{time}</div>
-          <div className="text-sm text-ink-3 capitalize">{date}</div>
+          {/* A live clock: the server renders its own time zone and second, the tablet its own; the tablet's wins. */}
+          <div className="num text-3xl font-extrabold" suppressHydrationWarning>{time}</div>
+          <div className="text-sm text-ink-3 capitalize" suppressHydrationWarning>{date}</div>
         </div>
       </header>
 

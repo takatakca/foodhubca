@@ -11,6 +11,7 @@ import { Modal } from '@/components/ui/overlay';
 import { FormDraftNote } from '@/components/ui/save-chip';
 import { useToast } from '@/components/ui/toast';
 import { Hint } from '@/components/help/hint';
+import { useSignOut } from '@/components/shell/console-shell';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { SettingsHead } from '../settings-ui';
 import { ago, api, ApiError } from '@/lib/ui/api';
@@ -43,9 +44,8 @@ export default function DevicesPage() {
   const offline = devices.filter((d) => d.status !== 'online').length;
   const manage = can('stores:map');
 
-  async function lockNow() {
-    try { const r = await api<{ next: string }>('/api/foodhub/auth/logout', { method: 'POST' }); window.location.href = r.next || '/kitchen/lock'; } catch { window.location.href = '/kitchen/lock'; }
-  }
+  // "Lock" is a sign-out on this tablet: the same one as the avatar menu, so the person's drafts are cleared too.
+  const lockNow = useSignOut('/kitchen/lock');
   async function doRemove(d: Device) {
     setRemove(null);
     try { await api(`/api/foodhub/devices/${d.id}`, { method: 'DELETE' }); toast.success(t('Tablette retirée', 'Tablet removed'), d.name); await load(); if (d.id === here) router.refresh(); }

@@ -8,10 +8,10 @@ import {
   hubRequirements, jsonLdScript, pendingPlatforms, platformList, type HubContext, type HubPageKey,
 } from '@/lib/foodhub/public-hub';
 import { HUB_UI, type Block, type Card } from '@/lib/foodhub/public-hub-content';
-import { HeroDevice, HeroSparkles, LandingShowcase, MotionToggle } from './landing-showcase';
+import { HeroShot, LandingTour } from './landing-tour';
 import landing from './landing.module.css';
 
-// The public ON2GO.ca pages (/hub, /en/hub…): server-rendered, no page-specific client component, no tracker, no
+// The public TAKATAK Food Hub pages (/hub, /en/hub…): server-rendered, no page-specific client component, no tracker, no
 // session, no database (the root layout still ships its own small boot script and the Next.js runtime).
 // Everything from the environment arrives in `ctx` (hubContext()), so this component renders the same in tests.
 
@@ -44,7 +44,7 @@ function MarketButton({ lang, ctx, large }: { lang: Lang; ctx: HubContext; large
   const pad = large ? 'px-5 py-3 text-base' : 'px-4 py-2 text-sm';
   if (ctx.appMarketUrl) {
     return (
-      <a href={ctx.appMarketUrl} rel="noopener" className={`inline-flex items-center rounded-md bg-brand font-bold text-white hover:bg-brand-2 ${pad}`}>
+      <a href={ctx.appMarketUrl} rel="noopener" className={`inline-flex items-center rounded-md bg-brand font-bold text-on-brand hover:bg-brand-2 ${pad}`}>
         {ui.marketCta}
       </a>
     );
@@ -53,6 +53,36 @@ function MarketButton({ lang, ctx, large }: { lang: Lang; ctx: HubContext; large
     <span className={`inline-flex items-center rounded-md border border-line-2 bg-raised font-bold text-ink ${pad}`}>
       {ctx.marketStatus === 'review' ? ui.marketReview : ui.marketSoon}
     </span>
+  );
+}
+
+/** Where "ask for a demo" goes: a pre-filled email when the support address is set, else the support page. */
+function demoHref(lang: Lang, ctx: HubContext): string {
+  if (!ctx.supportEmail) return LEGAL_PATHS.support;
+  return `mailto:${ctx.supportEmail}?subject=${encodeURIComponent(HUB_UI[lang].demoSubject)}`;
+}
+
+/** The hero and closing buttons: the App Market listing once it is live; until then, a demo request (a real link,
+ * never a button that does nothing) with the review status written under it. */
+function Ctas({ lang, ctx, page, center }: { lang: Lang; ctx: HubContext; page: HubPageKey; center?: boolean }) {
+  const ui = HUB_UI[lang];
+  const secondary = 'inline-flex rounded-md border border-silver/40 px-5 py-3 font-bold text-white hover:border-white';
+  return (
+    <>
+      <div className={`mt-8 flex flex-wrap items-center gap-3 ${center ? 'justify-center' : ''}`}>
+        {ctx.appMarketUrl
+          ? <MarketButton lang={lang} ctx={ctx} large />
+          : <a href={demoHref(lang, ctx)} className="inline-flex rounded-md bg-brand px-5 py-3 text-base font-bold text-on-brand shadow-[0_8px_30px_-8px_rgb(31_139_255/0.8)] hover:bg-brand-2">{ui.demoCta}</a>}
+        {page !== 'pricing'
+          ? <a href={HUB_PATHS.pricing[lang]} className={secondary}>{ui.seePricing}</a>
+          : ctx.appMarketUrl && <a href={demoHref(lang, ctx)} className={secondary}>{ui.demoCta}</a>}
+      </div>
+      {!ctx.appMarketUrl && (
+        <p className={`mt-3 flex items-center gap-2 text-[13px] font-semibold text-silver ${center ? 'justify-center' : ''}`}>
+          <span aria-hidden className="size-2 rounded-full bg-wait" />{ctx.marketStatus === 'review' ? ui.marketReview : ui.marketSoon}
+        </p>
+      )}
+    </>
   );
 }
 
@@ -81,7 +111,9 @@ function PricingBlock({ lang, ctx }: { lang: Lang; ctx: HubContext }) {
       <p className="mt-3 text-[15px] text-ink-2"><b className="text-ink">{PHONE_APP_NAME}</b>{lang === 'fr' ? ' : ' : ': '}{PHONE_PRICING_STATEMENT[lang]}</p>
       <CloverAppBadges apps={ctx.cloverApps ?? []} lang={lang} />
       <div className="mt-5 flex flex-wrap items-center gap-3">
-        <MarketButton lang={lang} ctx={ctx} />
+        {ctx.appMarketUrl
+          ? <MarketButton lang={lang} ctx={ctx} />
+          : <a href={demoHref(lang, ctx)} className="inline-flex items-center rounded-md bg-brand px-4 py-2 text-sm font-bold text-on-brand hover:bg-brand-2">{ui.demoCta}</a>}
         {!ctx.appMarketUrl && <span className="text-sm text-ink-3">{ctx.marketStatus === 'review' ? ui.marketReviewNote : ui.marketSoonNote}</span>}
       </div>
     </div>
@@ -194,15 +226,16 @@ export function HubPage({ page, lang, ctx }: { page: HubPageKey; lang: Lang; ctx
   const pending = pendingPlatforms(ctx);
   const isLanding = page === 'landing';
   return (
-    <div lang={lang === 'fr' ? 'fr-CA' : 'en-CA'} className={`min-h-dvh bg-canvas text-ink${isLanding ? ` ${landing.motionScope}` : ''}`}>
-      <a href="#contenu" className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-10 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2">{ui.skip}</a>
-      <header className="bg-rail text-white">
+    <div lang={lang === 'fr' ? 'fr-CA' : 'en-CA'} className="min-h-dvh bg-canvas text-ink">
+      <a href="#contenu" className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-30 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2">{ui.skip}</a>
+      <header className="z-20 border-b border-white/10 bg-rail/95 text-white backdrop-blur sm:sticky sm:top-0">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
           <a href={home} className="flex items-center gap-2 text-lg font-extrabold tracking-tight">
-            <TakatakMark size="sm" />{HUB_NAME}
+            <TakatakMark size="sm" /><span>TAKATAK <span className="font-semibold text-silver">Food Hub</span></span>
           </a>
           <nav aria-label={ui.nav} className="flex flex-wrap items-center gap-4 text-sm font-semibold text-silver">
-            <a href={`${home}#integrations`} className="hover:text-white">{ui.integrations}</a>
+            <a href={`${home}#${lang === 'fr' ? 'produit' : 'product'}`} className="hidden hover:text-white sm:inline">{ui.product}</a>
+            <a href={`${home}#integrations`} className="hidden hover:text-white sm:inline">{ui.integrations}</a>
             <a href={HUB_PATHS.pricing[lang]} className="hover:text-white">{ui.pricing}</a>
             <a href={HUB_PATHS[page][other]} hrefLang={other === 'fr' ? 'fr-CA' : 'en-CA'} lang={other === 'fr' ? 'fr-CA' : 'en-CA'} className="hover:text-white">{ui.otherLang}</a>
             <a href="/login" rel="nofollow" className="rounded-md border border-silver/40 px-3 py-1.5 text-white hover:border-white">{ui.signIn}</a>
@@ -211,10 +244,9 @@ export function HubPage({ page, lang, ctx }: { page: HubPageKey; lang: Lang; ctx
       </header>
 
       <main id="contenu">
-        <div className={`bg-rail text-white${isLanding ? ` ${landing.hero}` : ''}`}>
-          {isLanding && <HeroSparkles />}
-          <div className={`mx-auto max-w-6xl px-4 pb-14 pt-10${isLanding ? ' grid grid-cols-1 items-center gap-12 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] lg:pb-24 lg:pt-16' : ''}`}>
-            <div>
+        <div className={isLanding ? landing.hero : 'bg-rail text-white'}>
+          <div className={`mx-auto max-w-6xl px-4 text-white ${isLanding ? 'pb-16 pt-14 sm:pb-20 sm:pt-20' : 'pb-14 pt-10'}`}>
+            <div className={isLanding ? 'mx-auto max-w-4xl text-center' : ''}>
               {page !== 'landing' && (
                 <nav aria-label={ui.breadcrumb} className="mb-4 text-sm text-silver">
                   <a href={home} className="underline underline-offset-2 hover:text-white">{HUB_NAME}</a>
@@ -223,40 +255,34 @@ export function HubPage({ page, lang, ctx }: { page: HubPageKey; lang: Lang; ctx
                 </nav>
               )}
               <p className="text-[13px] font-bold uppercase tracking-[0.12em] text-cyan">{c.eyebrow}</p>
-              <h1 className="mt-3 max-w-4xl text-3xl font-extrabold leading-tight tracking-tight sm:text-5xl">
+              <h1 className={`mt-3 font-extrabold leading-[1.08] tracking-tight ${isLanding ? 'text-4xl sm:text-6xl' : 'max-w-4xl text-3xl sm:text-5xl'}`}>
                 {c.h1}
               </h1>
               {certification && (
                 <p className="mt-4 inline-flex rounded-full bg-wait px-3 py-1 text-sm font-bold text-rail">{certification}</p>
               )}
-              <p className="mt-5 max-w-3xl text-lg leading-relaxed text-silver">{fillHub(c.lead, lang, ctx)}</p>
-              <div className="mt-7 flex flex-wrap items-center gap-3">
-                <MarketButton lang={lang} ctx={ctx} large />
-                {page !== 'pricing' && (
-                  <a href={HUB_PATHS.pricing[lang]} className="inline-flex rounded-md border border-silver/40 px-5 py-3 font-bold text-white hover:border-white">{ui.seePricing}</a>
-                )}
-              </div>
+              <p className={`mt-5 text-lg leading-relaxed text-silver ${isLanding ? 'mx-auto max-w-2xl sm:text-xl' : 'max-w-3xl'}`}>{fillHub(c.lead, lang, ctx)}</p>
+              <Ctas lang={lang} ctx={ctx} page={page} center={isLanding} />
               {page === 'landing' && (
                 <div className="mt-8">
                   <p className="sr-only">{ui.platformsLabel}</p>
-                  <ul className="flex flex-wrap gap-2">
+                  <ul className="flex flex-wrap justify-center gap-2">
                     {[...PLATFORMS, 'Clover'].map((p) => (
-                      <li key={p} className="rounded-full border border-silver/30 px-3 py-1 text-sm font-semibold text-white">{p}</li>
+                      <li key={p} className="rounded-full border border-silver/30 bg-white/5 px-3 py-1 text-sm font-semibold text-white">{p}</li>
                     ))}
                   </ul>
                   <p className="mt-2 text-[13px] text-silver">* {ui.tgtgNote}</p>
                   {pending.length > 0 && (
                     <p className="mt-1 text-[13px] text-silver">{ui.pending.trim().replace('{platforms}', platformList(pending, lang))}</p>
                   )}
-                  <MotionToggle lang={lang} />
                 </div>
               )}
             </div>
-            {isLanding && <HeroDevice lang={lang} />}
+            {isLanding && <HeroShot lang={lang} />}
           </div>
         </div>
 
-        {isLanding && <LandingShowcase lang={lang} ctx={ctx} />}
+        {isLanding && <LandingTour lang={lang} />}
 
         <div className="mx-auto max-w-6xl px-4">
           {c.blocks.map((b) => <BlockView key={b.id} block={b} lang={lang} ctx={ctx} />)}
@@ -274,12 +300,10 @@ export function HubPage({ page, lang, ctx }: { page: HubPageKey; lang: Lang; ctx
             </Section>
           )}
 
-          <section aria-labelledby="cta-title" className="my-12 rounded-xl bg-rail px-6 py-10 text-white">
-            <h2 id="cta-title" className="text-2xl font-extrabold tracking-tight">{ui.ctaTitle}</h2>
-            <div className="mt-5 flex flex-wrap gap-3">
-              <MarketButton lang={lang} ctx={ctx} large />
-              <a href="/login" rel="nofollow" className="inline-flex rounded-md border border-silver/40 px-5 py-3 font-bold text-white hover:border-white">{ui.signIn}</a>
-            </div>
+          <section aria-labelledby="cta-title" className={`my-16 overflow-hidden rounded-2xl px-6 py-12 text-center text-white sm:px-12 ${landing.hero}`}>
+            <h2 id="cta-title" className="mx-auto max-w-2xl text-3xl font-extrabold tracking-tight">{ui.ctaTitle}</h2>
+            <p className="mx-auto mt-3 max-w-xl text-silver">{ui.ctaLead}</p>
+            <Ctas lang={lang} ctx={ctx} page={page} center />
           </section>
         </div>
       </main>
@@ -288,7 +312,7 @@ export function HubPage({ page, lang, ctx }: { page: HubPageKey; lang: Lang; ctx
         <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-8 text-[13px] text-ink-3 sm:flex-row sm:flex-wrap sm:justify-between">
           <div>
             <p className="font-bold text-ink">{HUB_NAME}</p>
-            <p>{ui.listingName} {ui.madeIn}</p>
+            <p>{ui.madeIn} {ui.footerOn2go} <a href="https://on2go.ca/" className="underline underline-offset-2 hover:text-ink">on2go.ca</a></p>
             <p>© {new Date().getFullYear()} {ctx.company} · {ctx.address}</p>
             {ctx.supportEmail && <p><a href={`mailto:${ctx.supportEmail}`} className="underline underline-offset-2">{ctx.supportEmail}</a></p>}
             <CloverAppBadges apps={ctx.cloverApps ?? []} lang={lang} variant="compact" className="mt-3" />

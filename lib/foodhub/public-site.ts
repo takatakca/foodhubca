@@ -1,5 +1,5 @@
 // The public, indexable part of foodhub.on2go.ca: the ON2GO.ca pages (/hub in French, /en/hub in English), robots.txt,
-// sitemap.xml, llms.txt, the share images (/og/) and the favicon. Everything else stays behind the sign-in (proxy.ts)
+// sitemap.xml, llms.txt, the share images (/og/), the landing's console stills (/hub-media/) and the favicon. Everything else stays behind the sign-in (proxy.ts)
 // and carries "X-Robots-Tag: noindex" so the console never lands in a search engine, even through a stray link.
 // No imports: proxy.ts loads this file on every request.
 
@@ -22,7 +22,7 @@ export function publicSiteLang(pathname: string): PublicLang | null {
 
 /** Reachable without a sign-in. "/hubx" or "/hub-admin" are not: the match is exact or on "/hub/". */
 export function isPublicSitePath(pathname: string): boolean {
-  return publicSiteLang(pathname) !== null || PUBLIC_SITE_FILES.has(pathname) || pathname.startsWith('/og/');
+  return publicSiteLang(pathname) !== null || PUBLIC_SITE_FILES.has(pathname) || pathname.startsWith('/og/') || pathname.startsWith('/hub-media/');
 }
 
 /** A storefront ordering page or its sitemap (/commander/<slug>, /commander/sitemap.xml: lib/foodhub/storefront/seo.ts),

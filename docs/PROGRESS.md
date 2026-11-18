@@ -1,5 +1,29 @@
 # Food Hub: progress log and task board
 
+## 2026-11-18 — Public site v2: TAKATAK Food Hub, real console stills, SEO (`claude/busy-cannon-5spy86`)
+
+- Owner (2026-11-18): the public site must be professional and sellable. Live /hub still said "ON2GO.ca" (and its share
+  image "ON2GO Hub"); its hero was a drawn mockup and several sections said the same thing twice.
+- **Brand** per docs/POSITIONNEMENT_ON2GO_FOODHUB.md (2026-11-09, replaces the "ON2GO.ca" name of 2026-10-17): every
+  public page, title, FAQ, JSON-LD and llms.txt says **TAKATAK Food Hub**; On2GO appears only as the local restaurant
+  directory Food Hub connects to (Montréal section, footer, a landing FAQ). Titles end with "| TAKATAK Food Hub" (≤ 60).
+- **Landing** rebuilt around real stills of the console (local demo build, fictional data, Po Poulet off):
+  orders board (hero), kitchen screen + new-order pop-up, Today, Sales and trends, the pickup ordering page.
+  Words: `lib/foodhub/public-hub-tour.ts`; component: `components/public-hub/landing-tour.tsx`. Removed: the drawn
+  device, sparkles, motion toggle and the duplicate showcase sections (`landing-showcase.tsx`, `public-hub-showcase.ts`).
+- **Calls to action**: until the App Market link is set, "Demander une démo" opens a pre-filled email to the support
+  address (support page when none); the review status sits under it. Never a button that does nothing.
+- **SEO**: new descriptions (FR-CA / EN-CA) with the three platforms; SoftwareApplication gets `screenshot`
+  ImageObjects; Organization is TAKATAK; new share images (`scripts/hub-og.mjs` → public/og/hub-{fr,en}.png);
+  `/hub-media/` is public, indexable, in robots.txt, cached a day (next.config.mjs headers).
+- Stills pipeline: `scripts/hub-shots.mjs` (needs the promo-reels demo server, PR #140) → `scripts/hub-media.mjs`
+  (WebP 1280/768, ~800 KB for all 22 files) → `public/hub-media/`.
+- Tests: `tests/public-hub.test.ts` (rebrand, screenshots in JSON-LD, /hub-media public), new
+  `tests/public-hub-tour.test.ts` (files on disk, alts, sizes, lazy/eager, banned words, static CSS).
+- Seen while capturing (not fixed here): on /insights in English, money shows French formatting ("829,25 $").
+
+— signé : Claude (busy-cannon, Claude Code cloud) @ cloud · 2026-11-18
+
 ## 2026-11-05 — DoorDash store list: the 5 missing businesses (24 stores) added (`fix/doordash-store-list`)
 
 - Read in the DoorDash merchant portal (owner signed in himself, read-only): the group has 19 businesses; 5 had no store

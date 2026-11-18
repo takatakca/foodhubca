@@ -49,10 +49,10 @@ const unconditionalTgtg = (text: string) => [...text.matchAll(/Too Good To Go(?!
 
 describe('public site paths (lib/foodhub/public-site.ts)', () => {
   it('opens /hub, /en/hub, robots, sitemap, llms.txt, share images and the favicon — and nothing that merely looks alike', () => {
-    for (const p of ['/hub', '/hub/tarifs', '/hub/integrations/uber-eats-clover', '/en/hub', '/en/hub/pricing', '/robots.txt', '/sitemap.xml', '/llms.txt', '/favicon.ico', '/og/hub-fr.png']) {
+    for (const p of ['/hub', '/hub/tarifs', '/hub/integrations/uber-eats-clover', '/en/hub', '/en/hub/pricing', '/robots.txt', '/sitemap.xml', '/llms.txt', '/favicon.ico', '/og/hub-fr.png', '/hub-media/orders-fr-1280.webp']) {
       expect(isPublicSitePath(p), p).toBe(true);
     }
-    for (const p of ['/hubx', '/hub-admin', '/en/hubx', '/en', '/', '/orders', '/robots.txt/x', '/llms.txtx', '/sitemap.xml.bak', '/ogx']) {
+    for (const p of ['/hubx', '/hub-admin', '/en/hubx', '/en', '/', '/orders', '/robots.txt/x', '/llms.txtx', '/sitemap.xml.bak', '/ogx', '/hub-mediax/a.webp']) {
       expect(isPublicSitePath(p), p).toBe(false);
     }
     expect(publicSiteLang('/hub/tarifs')).toBe('fr');
@@ -91,7 +91,7 @@ describe('proxy.ts with a sign-in configured', () => {
       expect(res.headers.get('x-robots-tag'), path).toBeNull();
       expect(res.headers.get('cache-control'), path).toBe(PUBLIC_PAGE_CACHE); // same HTML for everyone: cacheable
     }
-    for (const path of ['/robots.txt', '/sitemap.xml', '/llms.txt', '/og/hub-fr.png', '/icons/icon-512.png', '/icons/icon-192.png', '/icons/apple-touch-icon.png', '/media/abc123.jpg']) {
+    for (const path of ['/robots.txt', '/sitemap.xml', '/llms.txt', '/og/hub-fr.png', '/hub-media/kitchen-en-768.webp', '/icons/icon-512.png', '/icons/icon-192.png', '/icons/apple-touch-icon.png', '/media/abc123.jpg']) {
       const res = await get(path);
       expect(res.headers.get('x-middleware-next'), path).toBe('1');
       expect(res.headers.get('x-robots-tag'), path).toBeNull();
@@ -197,7 +197,7 @@ describe('metadata', () => {
     for (const key of HUB_PAGE_KEYS) for (const lang of LANGS) {
       const c = HUB_CONTENT[key][lang];
       expect(c.title.length, c.title).toBeLessThanOrEqual(60);
-      expect(c.title, c.title).toMatch(/ON2GO.ca/);
+      expect(c.title, c.title).toMatch(/TAKATAK Food Hub$/);
       expect(c.description.length, c.description).toBeLessThanOrEqual(155);
       expect(c.description.length, c.description).toBeGreaterThanOrEqual(70);
       titles.add(c.title); descriptions.add(c.description);
@@ -209,7 +209,7 @@ describe('metadata', () => {
       expect(m.robots, `${key}/${lang}`).toEqual({ index: !PENDING_KEYS.includes(key), follow: true });
       expect(hubMetadata(key, lang, { base: BASE, livePlatforms: ALL_LIVE }).robots).toEqual({ index: true, follow: true });
       const alt = (m.openGraph as { images: Array<{ alt: string }> }).images[0].alt;
-      expect(alt).toBe(`ON2GO.ca${lang === 'fr' ? ' : ' : ': '}${c.label}`);
+      expect(alt).toBe(`TAKATAK Food Hub${lang === 'fr' ? ' : ' : ': '}${c.label}`);
     }
     expect(titles.size).toBe(HUB_PAGE_KEYS.length * 2);
     expect(descriptions.size).toBe(HUB_PAGE_KEYS.length * 2);
@@ -240,8 +240,10 @@ describe('page content', () => {
     expect(hubFeatures('fr').length).toBeGreaterThanOrEqual(6);
     expect(hubRequirements('fr')).toMatch(/^Un forfait Clover/);
     expect(hubRequirements('en')).toMatch(/^A Clover plan/);
-    expect(hubRequirements('en')).toContain('ON2GO.ca account');
-    expect(JSON.stringify(HUB_CONTENT)).not.toMatch(/ON2GO Hub/); // the hub is "ON2GO.ca" (owner, 2026-10-17)
+    expect(hubRequirements('en')).toContain('TAKATAK Food Hub account');
+    // The product is TAKATAK Food Hub; On2GO is only the directory it connects to (owner, 2026-11-09,
+    // docs/POSITIONNEMENT_ON2GO_FOODHUB.md). It replaces the "ON2GO.ca" name of 2026-10-17.
+    expect(JSON.stringify(HUB_CONTENT)).not.toMatch(/ON2GO Hub|ON2GO\.ca|restaurants ON2GO|ON2GO restaurants/);
     expect(fr).toContain('Too Good To Go : lorsque votre compte offre un flux de commandes');
     expect(visibleText(render('landing', 'en'))).toContain('Too Good To Go: when your account offers an order feed');
   });
@@ -263,7 +265,7 @@ describe('page content', () => {
         expect(seen.get(f.q), `${lang}: "${f.q}" on ${seen.get(f.q)} and ${key}`).toBeUndefined();
         seen.set(f.q, key);
       }
-      expect(seen.get(lang === 'fr' ? 'Combien coûte ON2GO.ca ?' : 'How much does ON2GO.ca cost?')).toBe('pricing');
+      expect(seen.get(lang === 'fr' ? 'Combien coûte TAKATAK Food Hub ?' : 'How much does TAKATAK Food Hub cost?')).toBe('pricing');
     }
   });
   it('the nav "Integrations" link goes to the landing’s integrations block, which exists', () => {
@@ -302,7 +304,7 @@ describe('page content', () => {
     expect(fr).toContain(`TAKATAK Phone AI : ${PHONE_PRICING_STATEMENT.fr}`);
     expect(fr).toContain('Soumise au Clover App Market : en révision');
     expect(fr).not.toContain('Disponible sur le Clover App Market');
-    const price = hubFaq('pricing', 'fr', ctx()).find((f) => f.q === 'Combien coûte ON2GO.ca ?')!;
+    const price = hubFaq('pricing', 'fr', ctx()).find((f) => f.q === 'Combien coûte TAKATAK Food Hub ?')!;
     expect(price.a).toContain(`Essai gratuit de ${TRIAL_DAYS} jours, puis 50 $ CA par mois par application.`);
     expect(price.a).toContain(formatCadLabel(EXTRA_BRAND_PLATFORM_CAD, 'fr'));
     expect(fr).toContain(formatCadLabel(monthlyTotalCad(3), 'fr'));
@@ -388,12 +390,15 @@ describe('structured data', () => {
       const ld = ldOf(html);
       expect(ld['@graph'].map((n) => n['@type'])).toEqual(expect.arrayContaining(['Organization', 'SoftwareApplication', 'WebPage', 'FAQPage']));
       const org = node(ld, 'Organization')!;
-      expect(org).toMatchObject({ name: 'ON2GO.ca', alternateName: ['TAKATAK Food Hub'], legalName: 'Quadro Holdings LTEE' });
+      expect(org).toMatchObject({ name: 'TAKATAK', legalName: 'Quadro Holdings LTEE' });
       expect(org.address).toEqual({ '@type': 'PostalAddress', streetAddress: '6280, av. Somerled', addressLocality: 'Montréal', addressRegion: 'QC', postalCode: 'H3X 2B6', addressCountry: 'CA' });
       expect(org.email).toBeUndefined();
       expect(org.sameAs).toBeUndefined();
       const app = node(ld, 'SoftwareApplication')!;
-      expect(app).toMatchObject({ name: 'ON2GO.ca', alternateName: 'TAKATAK Food Hub', applicationCategory: 'BusinessApplication', operatingSystem: 'Clover' });
+      expect(app).toMatchObject({ name: 'TAKATAK Food Hub', alternateName: 'Food Hub', applicationCategory: 'BusinessApplication', operatingSystem: 'Clover' });
+      const shots = app.screenshot as Array<{ url: string; width: number; height: number; caption: string }>;
+      expect(shots.length).toBeGreaterThanOrEqual(4);
+      for (const sh of shots) { expect(sh.url).toMatch(new RegExp(`^${BASE}/hub-media/[a-z-]+-${lang}-\\d+\\.webp$`)); expect(sh.caption.length).toBeGreaterThan(20); }
       expect(app.offers).toBeUndefined();
       const faq = node(ld, 'FAQPage')! as { mainEntity: Array<{ name: string; acceptedAnswer: { text: string } }> };
       expect(faq.mainEntity.map((q) => q.name)).toEqual(hubFaq(key, lang, ctx()).map((f) => f.q));
@@ -495,7 +500,9 @@ describe('robots.txt, sitemap.xml and llms.txt', () => {
     expect(text).toContain('L’intégration avec DoorDash et SkipTheDishes est en cours de certification.');
     expect(text).toContain(`${BASE}/hub/tarifs`);
     expect(text).toContain('TAKATAK Food Hub');
-    expect(text).toContain('# ON2GO.ca');
+    expect(text).toContain('# TAKATAK Food Hub');
+    expect(text).toContain('On2GO (https://on2go.ca/)');
+    expect(text).not.toContain('ON2GO.ca');
     expect(text).not.toMatch(/@[a-z0-9-]+\.[a-z]/i); // no email unless FOODHUB_SUPPORT_EMAIL is set
     expect(hubLlmsTxt(ctx({ supportEmail: 'support@example.com' }))).toContain('Contact : support@example.com');
     expect(banned(text)).toEqual([]);

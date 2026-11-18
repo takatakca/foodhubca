@@ -1,4 +1,4 @@
-// The public ON2GO.ca site on foodhub.on2go.ca (spec: private SEO plan § 8): metadata, structured data (JSON-LD),
+// The public TAKATAK Food Hub site on foodhub.on2go.ca (spec: private SEO plan § 8): metadata, structured data (JSON-LD),
 // sitemap entries and llms.txt for the pages in app/hub and app/en/hub. The words live in public-hub-content.ts; the
 // product facts come from the Clover App Market listing (clover-listing.ts) and the prices from pricing.ts, so the
 // site, the listing and the structured data never drift apart.
@@ -26,12 +26,20 @@ import { CLOVER_APPS, cloverAppMarketUrl, liveCloverApps, type CloverAppListing 
 import { CLOVER_APP_NAME } from './product';
 import { HUB_CONTENT, HUB_PAGE_KEYS, HUB_PATHS, HUB_TAGLINE, HUB_UI, PLATFORM_NAME, type Card, type Faq, type HubPageKey } from './public-hub-content';
 import { publicBaseUrl } from './config';
+import { HUB_SHOTS, shotSrc, TOUR, type ShotKey } from './public-hub-tour';
+
+/** The stills listed as the app's screenshots in the structured data. */
+const TOUR_SCREENSHOTS: ShotKey[] = ['orders', 'kitchen', 'today', 'reports'];
 
 export { HUB_CONTENT, HUB_PAGE_KEYS, HUB_PATHS, type HubPageKey };
 
-export const HUB_NAME = 'ON2GO.ca';
-/** The Clover App Market name, protected (renaming it needs a new Clover review). */
-export const HUB_ALT_NAME = CLOVER_APP_NAME;
+/** The product's public name: the Clover App Market name (owner's positioning of 2026-11-09,
+ * docs/POSITIONNEMENT_ON2GO_FOODHUB.md: Food Hub is the integrations app, On2GO only the directory it connects to). */
+export const HUB_NAME = CLOVER_APP_NAME;
+/** Its short name, as the team says it. */
+export const HUB_ALT_NAME = 'Food Hub';
+/** The company behind it (the Organization in the structured data; the legal name comes from FOODHUB_LEGAL_COMPANY). */
+export const HUB_ORG_NAME = 'TAKATAK';
 export const OG_IMAGE: Record<Lang, string> = { fr: '/og/hub-fr.png', en: '/og/hub-en.png' };
 export const LOCALE: Record<Lang, string> = { fr: 'fr-CA', en: 'en-CA' };
 /** The production address of the public site: the canonical base whenever FOODHUB_PUBLIC_URL is unusable in production. */
@@ -242,7 +250,7 @@ export function hubJsonLd(key: HubPageKey, lang: Lang, ctx: HubContext): Record<
   const orgId = `${ctx.base}/hub#organization`;
   const appId = `${ctx.base}/hub#software`;
   const org: Record<string, unknown> = {
-    '@type': 'Organization', '@id': orgId, name: HUB_NAME, alternateName: [HUB_ALT_NAME], legalName: ctx.company,
+    '@type': 'Organization', '@id': orgId, name: HUB_ORG_NAME, legalName: ctx.company,
     url: home, logo: `${ctx.base}/icons/icon-512.png`, address: postalAddress(ctx.address),
     areaServed: { '@type': 'Country', name: 'Canada' },
   };
@@ -255,6 +263,10 @@ export function hubJsonLd(key: HubPageKey, lang: Lang, ctx: HubContext): Record<
     applicationCategory: 'BusinessApplication', operatingSystem: 'Clover', inLanguage: ['fr-CA', 'en-CA'],
     description: hubTagline(lang), url: home, publisher: { '@id': orgId },
     featureList: hubBenefits(lang),
+    screenshot: TOUR_SCREENSHOTS.map((k) => ({
+      '@type': 'ImageObject', url: `${ctx.base}${shotSrc(k, lang, HUB_SHOTS[k].widths[0])}`, width: HUB_SHOTS[k].width, height: HUB_SHOTS[k].height,
+      caption: k === 'orders' ? TOUR[lang].heroAlt : TOUR[lang].sections.find((sec) => sec.shot === k)!.alt,
+    })),
   };
   if (ctx.appMarketUrl) {
     const price = STANDARD_MONTHLY_CAD.toFixed(2);
@@ -323,7 +335,7 @@ export function hubRobots(base = hubBase()) {
   return {
     rules: [{
       userAgent: '*',
-      allow: ['/hub', '/en/hub', '/legal/', '/commander/', '/llms.txt', '/og/', '/icons/'],
+      allow: ['/hub', '/en/hub', '/legal/', '/commander/', '/llms.txt', '/og/', '/hub-media/', '/icons/'],
       disallow: ['/api/'],
     }],
     // The storefront ordering pages have their own sitemap (app/commander/sitemap.xml, lib/foodhub/storefront/seo.ts).
@@ -346,8 +358,8 @@ export function hubLlmsTxt(ctx: HubContext = hubContext(), legalApproved = legal
       `> ${hubTagline(lang)}`,
       '',
       fr
-        ? `${HUB_NAME} (nom sur le Clover App Market : ${HUB_ALT_NAME}) est une application pour restaurants qui utilisent Clover, au Canada. Elle reçoit les commandes des plateformes de livraison par l’API de chaque plateforme, sans agrégateur, et les met dans la caisse Clover. Conçue à Montréal par ${ctx.company}, utilisée dans les restaurants ON2GO (https://on2go.ca/).`
-        : `${HUB_NAME} (Clover App Market name: ${HUB_ALT_NAME}) is an app for restaurants that use Clover, in Canada. It receives delivery platform orders through each platform’s own API, with no aggregator, and puts them in the Clover register. Built in Montréal by ${ctx.company}, used in the ON2GO restaurants (https://on2go.ca/).`,
+        ? `${HUB_NAME} (même nom sur le Clover App Market) est une application pour restaurants qui utilisent Clover, au Canada. Elle reçoit les commandes des plateformes de livraison par l’API de chaque plateforme, sans agrégateur, et les met dans la caisse Clover. Conçue à Montréal par ${ctx.company}, utilisée chaque jour dans ses propres cuisines. Elle se connecte à On2GO (https://on2go.ca/), l’annuaire local de restaurants : un projet distinct.`
+        : `${HUB_NAME} (same name on the Clover App Market) is an app for restaurants that use Clover, in Canada. It receives delivery platform orders through each platform’s own API, with no aggregator, and puts them in the Clover register. Built in Montréal by ${ctx.company}, used every day in its own kitchens. It connects to On2GO (https://on2go.ca/), the local restaurant directory: a separate project.`,
       '',
       fr ? '### Fonctions' : '### Features',
       ...hubFeatures(lang).map((f) => `- ${f.title}${colon(lang)}${f.text}`),

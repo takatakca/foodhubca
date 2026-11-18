@@ -48,12 +48,12 @@ const ids = {};
 try {
   console.log('\n1. Security');
   const anon = await call('GET', '/', { auth: false, redirect: 'manual' });
-  check('bare address without sign-in → public ON2GO Hub page (FOODHUB_PUBLIC_HOME default)', [302, 307].includes(anon.status) && new URL(anon.location || '/', APP).pathname === '/hub', `${anon.status} ${anon.location}`);
+  check('bare address without sign-in → public TAKATAK Food Hub page (FOODHUB_PUBLIC_HOME default)', [302, 307].includes(anon.status) && new URL(anon.location || '/', APP).pathname === '/hub', `${anon.status} ${anon.location}`);
   { const page = await call('GET', '/orders', { auth: false, redirect: 'manual' });
     check('Command Center without sign-in → login page', [302, 307].includes(page.status) && /\/login/.test(page.location || ''), `${page.status} ${page.location}`); }
   { const fr = await call('GET', '/hub', { auth: false, headers: { cookie: 'fh_lang=en' } });
     const en = await call('GET', '/en/hub/pricing', { auth: false });
-    check('public ON2GO Hub pages open without sign-in, language fixed by the path', fr.status === 200 && fr.text.includes('<html lang="fr-CA"') && fr.text.includes('application/ld+json') && en.status === 200 && en.text.includes('<html lang="en-CA"'), `${fr.status} ${en.status}`);
+    check('public TAKATAK Food Hub pages open without sign-in, language fixed by the path', fr.status === 200 && fr.text.includes('<html lang="fr-CA"') && fr.text.includes('application/ld+json') && en.status === 200 && en.text.includes('<html lang="en-CA"'), `${fr.status} ${en.status}`);
     const login = await fetch(`${APP}/login`);
     check('public pages are indexable, the console is not', !/noindex/.test(fr.text) && login.headers.get('x-robots-tag') === 'noindex', String(login.headers.get('x-robots-tag')));
     { const hubFr = await fetch(`${APP}/hub`); const hubEn = await fetch(`${APP}/en/hub/pricing`);
@@ -73,7 +73,7 @@ try {
     const robots = await call('GET', '/robots.txt', { auth: false });
     const map = await call('GET', '/sitemap.xml', { auth: false });
     const llms = await call('GET', '/llms.txt', { auth: false });
-    check('robots.txt, sitemap.xml and llms.txt are public', robots.status === 200 && /Disallow: \/api\//.test(robots.text) && map.status === 200 && map.text.includes('/hub/tarifs') && llms.status === 200 && llms.text.includes('# ON2GO.ca'), `${robots.status} ${map.status} ${llms.status}`);
+    check('robots.txt, sitemap.xml and llms.txt are public', robots.status === 200 && /Disallow: \/api\//.test(robots.text) && map.status === 200 && map.text.includes('/hub/tarifs') && llms.status === 200 && llms.text.includes('# TAKATAK Food Hub'), `${robots.status} ${map.status} ${llms.status}`);
     check('/hubx is not public', [302, 307].includes((await call('GET', '/hubx', { auth: false, redirect: 'manual' })).status));
     const logo = await fetch(`${APP}/icons/icon-512.png`);
     check('Organization logo is public and indexable', logo.status === 200 && logo.headers.get('x-robots-tag') === null, `${logo.status} ${logo.headers.get('x-robots-tag')}`); }

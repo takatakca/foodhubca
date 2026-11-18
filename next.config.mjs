@@ -21,5 +21,10 @@ const nextConfig = {
     ];
     return map.map(([source, destination]) => ({ source, destination, permanent: false }));
   },
+  // The public landing's console stills (public/hub-media/, scripts/hub-media.mjs): a day in the browser, a week stale
+  // while it revalidates. A new still gets a new file name when its picture changes a lot.
+  async headers() {
+    return [{ source: '/hub-media/:file*', headers: [{ key: 'Cache-Control', value: 'public, max-age=86400, stale-while-revalidate=604800' }] }];
+  },
 };
 export default nextConfig;

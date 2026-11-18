@@ -35,32 +35,39 @@ export class BodyTooLargeError extends Error {
 }
 
 /** The body as text, like req.text() (same UTF-8 decoding, so signatures over the raw text still match), but refused
- * past `maxBytes`: first by its declared Content-Length, then while it streams (a body without one, or that lies). */
+ * past `maxBytes`: first by its declared Content-Length, then while it streams (a body without one, or that lies).
+ * Bytes are copied into one buffer that doubles as needed (never past `maxBytes`), so a body sent in many tiny chunks
+ * costs no more memory than its size: keeping each chunk would add an object per chunk, before any signature check. */
 export async function readText(req: Request, maxBytes = BODY_MAX_BYTES): Promise<string> {
   const declared = Number(req.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > maxBytes) throw new BodyTooLargeError(maxBytes);
   if (!req.body) return '';
   const reader = req.body.getReader();
-  const chunks: Uint8Array[] = [];
+  // Start small (a declared size is a hint, not a promise: never reserve megabytes for bytes that may not come).
+  let buf = new Uint8Array(Math.min(maxBytes, declared > 0 ? Math.min(declared, 64 * 1024) : 16 * 1024));
   let size = 0;
   try {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
-      size += value.byteLength;
-      if (size > maxBytes) {
+      if (size + value.byteLength > maxBytes) {
         await reader.cancel().catch(() => undefined);
         throw new BodyTooLargeError(maxBytes);
       }
-      chunks.push(value);
+      if (size + value.byteLength > buf.byteLength) {
+        let next = Math.max(buf.byteLength * 2, 16 * 1024);
+        while (next < size + value.byteLength) next *= 2;
+        const grown = new Uint8Array(Math.min(next, maxBytes));
+        grown.set(buf.subarray(0, size));
+        buf = grown;
+      }
+      buf.set(value, size);
+      size += value.byteLength;
     }
   } finally {
     reader.releaseLock();
   }
-  const all = new Uint8Array(size);
-  let at = 0;
-  for (const c of chunks) { all.set(c, at); at += c.byteLength; }
-  return new TextDecoder().decode(all);
+  return new TextDecoder().decode(buf.subarray(0, size));
 }
 
 /** readText for a route: the text, or a 413 answer to return as is. */

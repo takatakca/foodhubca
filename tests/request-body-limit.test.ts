@@ -25,6 +25,20 @@ describe('bounded request bodies (lib/foodhub/http.ts)', () => {
     await expect(readText(post(stream([1024, 1024]) as unknown as BodyInit), 2000)).rejects.toBeInstanceOf(BodyTooLargeError);
     expect(await readText(post(stream([1000, 1000]) as unknown as BodyInit), 2000)).toHaveLength(2000); // exactly the cap is fine
   });
+  it('many tiny chunks, a character split across chunks and a Content-Length that lies all read right', async () => {
+    const tiny = new ReadableStream<Uint8Array>({ start(c) { for (let i = 0; i < 20_000; i++) c.enqueue(new Uint8Array([0x61])); c.close(); } });
+    expect(await readText(post(tiny as unknown as BodyInit))).toBe('a'.repeat(20_000));
+    const e = new TextEncoder().encode('crêpe'); // "ê" is two bytes: cut it in half
+    const split = new ReadableStream<Uint8Array>({ start(c) { c.enqueue(e.subarray(0, 3)); c.enqueue(e.subarray(3)); c.close(); } });
+    expect(await readText(post(split as unknown as BodyInit))).toBe('crêpe');
+    // declares 10 bytes, sends 100 000: still read (the buffer grows), and still refused past the cap
+    const liar = () => new ReadableStream<Uint8Array>({ start(c) { c.enqueue(new Uint8Array(100_000).fill(0x62)); c.close(); } });
+    expect(await readText(new Request(URL_, { method: 'POST', body: liar(), headers: { 'content-length': '10' }, duplex: 'half' } as RequestInit & { duplex: 'half' }))).toHaveLength(100_000);
+    await expect(readText(new Request(URL_, { method: 'POST', body: liar(), duplex: 'half' } as RequestInit & { duplex: 'half' }), 50_000)).rejects.toBeInstanceOf(BodyTooLargeError);
+  });
+  it('a route with its own smaller cap passes it to the reader (Clover checkout: 64 KB, not 8 MiB)', () => {
+    expect(readFileSync('app/api/foodhub/webhooks/clover-checkout/route.ts', 'utf8')).toMatch(/readTextOr413\(req, MAX_BODY\)/);
+  });
   it('readTextOr413 answers 413 with no-store, and hands back the text otherwise', async () => {
     const big = await readTextOr413(post('x'.repeat(50)), 10);
     expect('response' in big && big.response.status).toBe(413);

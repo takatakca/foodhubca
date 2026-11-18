@@ -18,7 +18,7 @@ const MAX_BODY = 64 * 1024;
 export async function POST(req: Request) {
   const len = Number(req.headers.get('content-length') || 0);
   if (len > MAX_BODY) return new Response('Payload too large', { status: 413 });
-  const read = await readTextOr413(req);
+  const read = await readTextOr413(req, MAX_BODY);
   if ('response' in read) return read.response;
   const raw = read.text;
   if (raw.length > MAX_BODY) return new Response('Payload too large', { status: 413 });

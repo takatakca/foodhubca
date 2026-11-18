@@ -1,4 +1,4 @@
-// Words of the public ON2GO.ca pages (/hub in French, /en/hub in English). French first (Québec), English twin.
+// Words of the public TAKATAK Food Hub pages (/hub in French, /en/hub in English). French first (Québec), English twin.
 // Rules: only features that ship today are claimed (the Clover App Market listing in clover-listing.ts is the source,
 // reused word for word where it fits); Too Good To Go only "when your account offers an order feed"; the AI phone is
 // TAKATAK Phone AI, a separate Clover app (submitted to the Clover App Market with TAKATAK Food Hub on 2026-10-17);
@@ -101,23 +101,25 @@ const PHONE_PRICE_TEXT: Record<Lang, string> = {
 
 const MONTREAL: Record<Lang, string[]> = {
   fr: [
-    'ON2GO.ca est conçu à Montréal par {company} et sert chaque jour dans nos propres restaurants ON2GO, à Notre-Dame-de-Grâce et à Saint-Léonard. Chaque fonction est née d’un vrai problème de cuisine : trop de tablettes, des menus qui ne concordent plus, des versements difficiles à vérifier.',
+    'TAKATAK Food Hub est conçu à Montréal par {company} et sert chaque jour dans nos propres cuisines, à Notre-Dame-de-Grâce et à Saint-Léonard. Chaque fonction est née d’un vrai problème de cuisine : trop de tablettes, des menus qui ne concordent plus, des versements difficiles à vérifier.',
+    'Food Hub se connecte à On2GO, l’annuaire local de restaurants : chaque restaurant inscrit y a sa page et sa visibilité. Les deux projets sont distincts et se présentent ensemble.',
     'Le service et l’interface sont en français et en anglais.',
   ],
   en: [
-    'ON2GO.ca is built in Montréal by {company} and runs every day in our own ON2GO restaurants, in Notre-Dame-de-Grâce and Saint-Léonard. Each feature comes from a real kitchen problem: too many tablets, menus that drift apart, payouts that are hard to check.',
+    'TAKATAK Food Hub is built in Montréal by {company} and runs every day in our own kitchens, in Notre-Dame-de-Grâce and Saint-Léonard. Each feature comes from a real kitchen problem: too many tablets, menus that drift apart, payouts that are hard to check.',
+    'Food Hub connects to On2GO, the local restaurant directory: every listed restaurant gets its own page and visibility there. The two projects are separate and are presented together.',
     'Service and interface are in French and English.',
   ],
 };
 
 const FAQ_PRICE: Record<Lang, Faq> = {
-  fr: { q: 'Combien coûte ON2GO.ca ?', a: `Essai gratuit de ${TRIAL_DAYS} jours, puis ${fr$(STANDARD_MONTHLY_CAD)} par mois par application. Votre première marque est incluse ; chaque marque supplémentaire coûte ${fr$(EXTRA_BRAND_PLATFORM_CAD)} par mois pour chaque plateforme où elle est branchée. Clover facture l’abonnement.` },
-  en: { q: 'How much does ON2GO.ca cost?', a: `${TRIAL_DAYS}-day free trial, then ${en$(STANDARD_MONTHLY_CAD)} a month per app. Your first brand is included; each extra brand costs ${en$(EXTRA_BRAND_PLATFORM_CAD)} a month for each platform it is connected to. Clover bills the subscription.` },
+  fr: { q: 'Combien coûte TAKATAK Food Hub ?', a: `Essai gratuit de ${TRIAL_DAYS} jours, puis ${fr$(STANDARD_MONTHLY_CAD)} par mois par application. Votre première marque est incluse ; chaque marque supplémentaire coûte ${fr$(EXTRA_BRAND_PLATFORM_CAD)} par mois pour chaque plateforme où elle est branchée. Clover facture l’abonnement.` },
+  en: { q: 'How much does TAKATAK Food Hub cost?', a: `${TRIAL_DAYS}-day free trial, then ${en$(STANDARD_MONTHLY_CAD)} a month per app. Your first brand is included; each extra brand costs ${en$(EXTRA_BRAND_PLATFORM_CAD)} a month for each platform it is connected to. Clover bills the subscription.` },
 };
 
 const FAQ_CARDS: Record<Lang, Faq> = {
-  fr: { q: 'ON2GO.ca traite-t-il des paiements par carte ?', a: 'Non. Les clients paient sur la plateforme de livraison. ON2GO.ca enregistre seulement la commande comme payée dans Clover, avec un mode de paiement au nom de la plateforme, pour que la fermeture de caisse soit juste.' },
-  en: { q: 'Does ON2GO.ca process card payments?', a: 'No. Customers pay on the delivery platform. ON2GO.ca only records the order as paid in Clover, with a tender named after the platform, so your closeout is right.' },
+  fr: { q: 'TAKATAK Food Hub traite-t-il des paiements par carte ?', a: 'Non. Les clients paient sur la plateforme de livraison. TAKATAK Food Hub enregistre seulement la commande comme payée dans Clover, avec un mode de paiement au nom de la plateforme, pour que la fermeture de caisse soit juste.' },
+  en: { q: 'Does TAKATAK Food Hub process card payments?', a: 'No. Customers pay on the delivery platform. TAKATAK Food Hub only records the order as paid in Clover, with a tender named after the platform, so your closeout is right.' },
 };
 
 const FAQ_APPROVAL: Record<Lang, Faq> = {
@@ -134,60 +136,60 @@ function integration(lang: Lang, p: { name: string; key: HubPlatform }): Pick<Hu
 export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
   landing: {
     fr: {
-      title: 'Uber Eats et DoorDash dans Clover | ON2GO.ca',
-      description: 'ON2GO.ca envoie les commandes des applis de livraison dans Clover, avec écran de cuisine et menus par marque. Conçu à Montréal.',
+      title: 'Uber Eats et DoorDash dans Clover | TAKATAK Food Hub',
+      description: 'Uber Eats, DoorDash et SkipTheDishes dans votre caisse Clover : un seul écran, écran de cuisine, menus et ruptures synchronisés. Conçu à Montréal.',
       label: 'Accueil',
       eyebrow: 'Pour les restaurants qui utilisent Clover, au Canada',
-      h1: 'Vos commandes Uber Eats, DoorDash et SkipTheDishes directement dans votre caisse Clover',
+      h1: 'Uber Eats, DoorDash et SkipTheDishes, directement dans votre caisse Clover',
       lead: HUB_TAGLINE.fr,
       blocks: [
-        { kind: 'benefits', id: 'avantages', title: 'Ce qui change dans votre cuisine' },
-        { kind: 'steps', id: 'comment', title: 'Comment ça marche', steps: STEPS.fr },
-        { kind: 'features', id: 'fonctions', title: 'Tout ce que fait ON2GO.ca', intro: 'Les mêmes fonctions que dans notre fiche du Clover App Market, sans agrégateur entre vous et les plateformes.', extra: [MULTI_BRAND.fr, PHONE_CARD.fr] },
+        { kind: 'steps', id: 'comment', title: 'En service en trois étapes', steps: STEPS.fr },
+        { kind: 'features', id: 'fonctions', title: 'Toutes les fonctions', intro: 'Les mêmes fonctions que dans notre fiche du Clover App Market, sans agrégateur entre vous et les plateformes.', extra: [MULTI_BRAND.fr, PHONE_CARD.fr] },
         { kind: 'links', id: 'integrations', title: 'Intégrations et outils', pages: ['uber', 'doordash', 'skip', 'kitchen', 'phone'] },
         { kind: 'requirements', id: 'prealables', title: 'Ce qu’il vous faut' },
-        { kind: 'text', id: 'montreal', title: 'Conçu et utilisé à Montréal', paragraphs: MONTREAL.fr },
+        { kind: 'text', id: 'montreal', title: 'Conçu à Montréal, relié à On2GO', paragraphs: MONTREAL.fr },
         { kind: 'pricing', id: 'tarifs', title: 'Tarifs' },
       ],
       faq: [
-        { q: 'Faut-il un agrégateur de livraison ?', a: 'Non. ON2GO.ca se branche directement aux plateformes de livraison et à votre caisse Clover, sans intermédiaire entre les deux.' },
+        { q: 'Faut-il un agrégateur de livraison ?', a: 'Non. TAKATAK Food Hub se branche directement aux plateformes de livraison et à votre caisse Clover, sans intermédiaire entre les deux.' },
         { q: 'Quelles plateformes sont prises en charge ?', a: 'Uber Eats, DoorDash et SkipTheDishes, ainsi que Too Good To Go lorsque votre compte offre un flux de commandes.{pending}' },
         { q: 'Quel matériel Clover faut-il ?', a: 'Un forfait Clover qui comprend l’inventaire et les commandes, et un appareil Clover avec une imprimante de commandes.' },
         FAQ_CARDS.fr,
         FAQ_APPROVAL.fr,
         { q: 'L’application est-elle en français ?', a: 'Oui. Toute l’interface est en français et en anglais, et chaque membre de l’équipe choisit sa langue.' },
+        { q: 'Quel est le lien entre TAKATAK Food Hub et On2GO ?', a: 'Ce sont deux projets distincts. TAKATAK Food Hub relie les plateformes de livraison et votre caisse Clover ; On2GO (on2go.ca) est l’annuaire local de restaurants, où chaque restaurant inscrit a sa page et sa visibilité. Food Hub se connecte à On2GO.' },
       ],
     },
     en: {
-      title: 'Uber Eats & DoorDash orders in Clover | ON2GO.ca',
-      description: 'ON2GO.ca sends delivery app orders into Clover, with a kitchen screen and menus per brand. Built in Montréal for restaurants.',
+      title: 'Uber Eats & DoorDash orders in Clover | TAKATAK Food Hub',
+      description: 'Uber Eats, DoorDash and SkipTheDishes orders in your Clover register: one screen, a kitchen display, synced menus and sold-out items. Built in Montréal.',
       label: 'Home',
       eyebrow: 'For restaurants on Clover, in Canada',
-      h1: 'Your Uber Eats, DoorDash and SkipTheDishes orders straight into your Clover register',
+      h1: 'Uber Eats, DoorDash and SkipTheDishes, straight into your Clover register',
       lead: HUB_TAGLINE.en,
       blocks: [
-        { kind: 'benefits', id: 'benefits', title: 'What changes in your kitchen' },
-        { kind: 'steps', id: 'how', title: 'How it works', steps: STEPS.en },
-        { kind: 'features', id: 'features', title: 'Everything ON2GO.ca does', intro: 'The same features as our Clover App Market listing, with no aggregator between you and the platforms.', extra: [MULTI_BRAND.en, PHONE_CARD.en] },
+        { kind: 'steps', id: 'how', title: 'Up and running in three steps', steps: STEPS.en },
+        { kind: 'features', id: 'features', title: 'Every feature', intro: 'The same features as our Clover App Market listing, with no aggregator between you and the platforms.', extra: [MULTI_BRAND.en, PHONE_CARD.en] },
         { kind: 'links', id: 'integrations', title: 'Integrations and tools', pages: ['uber', 'doordash', 'skip', 'kitchen', 'phone'] },
         { kind: 'requirements', id: 'requirements', title: 'What you need' },
-        { kind: 'text', id: 'montreal', title: 'Built and used in Montréal', paragraphs: MONTREAL.en },
+        { kind: 'text', id: 'montreal', title: 'Built in Montréal, connected to On2GO', paragraphs: MONTREAL.en },
         { kind: 'pricing', id: 'pricing', title: 'Pricing' },
       ],
       faq: [
-        { q: 'Do I need a delivery aggregator?', a: 'No. ON2GO.ca connects straight to the delivery platforms and to your Clover register, with nothing in between.' },
+        { q: 'Do I need a delivery aggregator?', a: 'No. TAKATAK Food Hub connects straight to the delivery platforms and to your Clover register, with nothing in between.' },
         { q: 'Which platforms are supported?', a: 'Uber Eats, DoorDash and SkipTheDishes, plus Too Good To Go when your account offers an order feed.{pending}' },
         { q: 'What Clover hardware do I need?', a: 'A Clover plan that includes Inventory and Orders, and a Clover device with an order printer.' },
         FAQ_CARDS.en,
         FAQ_APPROVAL.en,
         { q: 'Is the app in French?', a: 'Yes. The whole interface is in French and English, and each team member picks their language.' },
+        { q: 'How do TAKATAK Food Hub and On2GO relate?', a: 'They are two separate projects. TAKATAK Food Hub connects the delivery platforms to your Clover register; On2GO (on2go.ca) is the local restaurant directory, where every listed restaurant gets its own page and visibility. Food Hub connects to On2GO.' },
       ],
     },
   },
 
   pricing: {
     fr: {
-      title: `Tarifs ON2GO.ca : essai gratuit de ${TRIAL_DAYS} jours`,
+      title: `Tarifs : essai gratuit de ${TRIAL_DAYS} jours | TAKATAK Food Hub`,
       description: `Essai gratuit de ${TRIAL_DAYS} jours, puis ${fr$(STANDARD_MONTHLY_CAD)}/mois par application et ${fr$(EXTRA_BRAND_PLATFORM_CAD)}/mois par marque supplémentaire par plateforme. Taxes en sus. Facturé par Clover.`,
       label: 'Tarifs',
       eyebrow: 'Tarifs',
@@ -216,7 +218,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
       ],
     },
     en: {
-      title: `ON2GO.ca pricing: ${TRIAL_DAYS}-day free trial`,
+      title: `Pricing: ${TRIAL_DAYS}-day free trial | TAKATAK Food Hub`,
       description: `${TRIAL_DAYS}-day free trial, then ${en$(STANDARD_MONTHLY_CAD)}/month per app and ${en$(EXTRA_BRAND_PLATFORM_CAD)}/month per extra brand per platform, plus taxes, billed by Clover.`,
       label: 'Pricing',
       eyebrow: 'Pricing',
@@ -249,7 +251,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
   uber: {
     fr: {
       ...integration('fr', { name: 'Uber Eats', key: 'uber' }),
-      title: 'Intégration Uber Eats et Clover | ON2GO.ca',
+      title: 'Intégration Uber Eats et Clover | TAKATAK Food Hub',
       description: 'Recevez les commandes Uber Eats dans Clover : billet imprimé, menu publié, ruptures synchronisées et versements Uber Eats vérifiés.',
       lead: 'Chaque commande Uber Eats est créée dans Clover avec le type de commande « Uber Eats », imprimée à la cuisine, puis enregistrée payée quand le livreur part.',
       blocks: [
@@ -261,7 +263,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
           { title: 'Versements vérifiés', text: 'Chaque versement Uber Eats est comparé aux commandes : frais, remboursements, ajustements et argent manquant sont signalés.' },
         ] },
         { kind: 'steps', id: 'brancher', title: 'Brancher Uber Eats', steps: [
-          { title: 'Connexion Uber Eats', text: 'Dans ON2GO.ca, le bouton de connexion Uber Eats ouvre la page de connexion d’Uber : vous autorisez l’accès avec votre compte marchand.' },
+          { title: 'Connexion Uber Eats', text: 'Dans TAKATAK Food Hub, le bouton de connexion Uber Eats ouvre la page de connexion d’Uber : vous autorisez l’accès avec votre compte marchand.' },
           { title: 'Choix des magasins', text: 'Vos magasins Uber Eats s’affichent ; pour chacun, choisissez la marque et l’établissement Clover.' },
           { title: 'Approbation', text: 'Notre équipe vérifie le jumelage, puis les commandes Uber Eats arrivent dans Clover.' },
         ] },
@@ -270,12 +272,12 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
       faq: [
         { q: 'Mes prix Uber Eats peuvent-ils être différents de ceux du comptoir ?', a: 'Oui, si vous le choisissez : une majoration en % par plateforme s’applique au menu publié. Sans majoration, ce sont les prix de votre menu maître.' },
         { q: 'Que se passe-t-il si un article manque ?', a: 'Marquez-le en rupture dans Clover : il est retiré d’Uber Eats en quelques secondes et remis en vente d’un clic.' },
-        { q: 'Comment savoir si Uber Eats m’a tout payé ?', a: 'Chaque versement Uber Eats est comparé aux commandes reçues : les frais, les remboursements, les ajustements et l’argent manquant sont signalés dans ON2GO.ca.' },
+        { q: 'Comment savoir si Uber Eats m’a tout payé ?', a: 'Chaque versement Uber Eats est comparé aux commandes reçues : les frais, les remboursements, les ajustements et l’argent manquant sont signalés dans TAKATAK Food Hub.' },
       ],
     },
     en: {
       ...integration('en', { name: 'Uber Eats', key: 'uber' }),
-      title: 'Uber Eats Clover integration | ON2GO.ca',
+      title: 'Uber Eats Clover integration | TAKATAK Food Hub',
       description: 'Get Uber Eats orders in Clover: kitchen ticket printed, menu published, sold-out items synced and Uber Eats payouts checked.',
       lead: 'Each Uber Eats order is created in Clover with the “Uber Eats” order type, printed in the kitchen, then recorded as paid when the courier leaves.',
       blocks: [
@@ -287,7 +289,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
           { title: 'Checked payouts', text: 'Each Uber Eats payout is checked against your orders: fees, refunds, adjustments and missing money are flagged.' },
         ] },
         { kind: 'steps', id: 'connect', title: 'Connect Uber Eats', steps: [
-          { title: 'Uber Eats sign-in', text: 'In ON2GO.ca, the Uber Eats connect button opens Uber’s sign-in page: you allow access with your merchant account.' },
+          { title: 'Uber Eats sign-in', text: 'In TAKATAK Food Hub, the Uber Eats connect button opens Uber’s sign-in page: you allow access with your merchant account.' },
           { title: 'Pick your stores', text: 'Your Uber Eats stores are listed; for each one, pick the brand and the Clover location.' },
           { title: 'Approval', text: 'Our team checks the match, then Uber Eats orders flow into Clover.' },
         ] },
@@ -296,7 +298,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
       faq: [
         { q: 'Can my Uber Eats prices differ from in-store prices?', a: 'Yes, if you choose: a % markup per platform applies to the published menu. Without one, your master menu prices are used.' },
         { q: 'What happens when an item runs out?', a: 'Mark it out of stock in Clover: it comes off Uber Eats within seconds and goes back on sale in one click.' },
-        { q: 'How do I know Uber Eats paid me in full?', a: 'Each Uber Eats payout is checked against the orders you received: fees, refunds, adjustments and missing money are flagged in ON2GO.ca.' },
+        { q: 'How do I know Uber Eats paid me in full?', a: 'Each Uber Eats payout is checked against the orders you received: fees, refunds, adjustments and missing money are flagged in TAKATAK Food Hub.' },
       ],
     },
   },
@@ -304,52 +306,52 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
   doordash: {
     fr: {
       ...integration('fr', { name: 'DoorDash', key: 'doordash' }),
-      title: 'Intégration DoorDash et Clover | ON2GO.ca',
+      title: 'Intégration DoorDash et Clover | TAKATAK Food Hub',
       description: 'Les commandes DoorDash arrivent dans Clover et à l’imprimante de cuisine. Menu maître, ruptures et versements DoorDash suivis au même endroit.',
       lead: 'Fini la tablette DoorDash à surveiller à côté de la caisse : chaque commande DoorDash devient une commande Clover, avec son type « DoorDash » et son billet de cuisine.',
       blocks: [
         { kind: 'cards', id: 'fonctions', title: 'Ce que fait l’intégration', cards: [
           { title: 'Commandes dans Clover', text: 'Articles, modificateurs, notes et allergies arrivent dans Clover avec le type de commande « DoorDash », et le billet sort à la cuisine.' },
-          { title: 'Menu lu par DoorDash', text: 'DoorDash lit votre menu maître dans ON2GO.ca : prix, options, heures et une majoration en % propre à DoorDash si vous la voulez.' },
+          { title: 'Menu lu par DoorDash', text: 'DoorDash lit votre menu maître dans TAKATAK Food Hub : prix, options, heures et une majoration en % propre à DoorDash si vous la voulez.' },
           { title: 'Ruptures', text: 'Un article en rupture dans Clover est retiré de DoorDash, puis remis en vente partout d’un clic.' },
           { title: 'Paiement et fermeture', text: 'À la sortie, la commande est enregistrée payée avec le mode de paiement « DoorDash » : chaque plateforme a sa ligne dans la fermeture de caisse.' },
           { title: 'Versements vérifiés', text: 'Les versements DoorDash sont comparés aux commandes ; les écarts sont signalés, et rien n’est approuvé à votre place.' },
         ] },
         { kind: 'steps', id: 'brancher', title: 'Brancher DoorDash', steps: [
           { title: 'Votre magasin DoorDash', text: 'Vous gardez votre propre compte marchand DoorDash. L’intégration est activée pour votre magasin avec DoorDash.' },
-          { title: 'Jumelage', text: 'Dans ON2GO.ca, le magasin DoorDash est relié à sa marque et à son établissement Clover.' },
+          { title: 'Jumelage', text: 'Dans TAKATAK Food Hub, le magasin DoorDash est relié à sa marque et à son établissement Clover.' },
           { title: 'Approbation', text: 'Notre équipe vérifie le jumelage avant que la première commande DoorDash soit envoyée à votre caisse.' },
         ] },
         { kind: 'links', id: 'autres', title: 'Autres intégrations', pages: ['uber', 'skip', 'kitchen'] },
       ],
       faq: [
-        { q: 'Dois-je changer de compte DoorDash ?', a: 'Non. Vous gardez votre compte marchand DoorDash ; ON2GO.ca s’y relie pour recevoir les commandes et fournir le menu.' },
+        { q: 'Dois-je changer de compte DoorDash ?', a: 'Non. Vous gardez votre compte marchand DoorDash ; TAKATAK Food Hub s’y relie pour recevoir les commandes et fournir le menu.' },
         { q: 'Les allergies sont-elles visibles à la cuisine ?', a: 'Oui. Les notes et les allergies sont imprimées sur le billet et affichées en rouge sur l’écran de cuisine.' },
         { q: 'Que devient la tablette DoorDash ?', a: 'Les commandes DoorDash arrivent dans Clover, à l’imprimante et sur l’écran de cuisine, avec celles des autres plateformes : vous n’avez plus à surveiller une tablette à part pour les recevoir.' },
       ],
     },
     en: {
       ...integration('en', { name: 'DoorDash', key: 'doordash' }),
-      title: 'DoorDash Clover integration | ON2GO.ca',
+      title: 'DoorDash Clover integration | TAKATAK Food Hub',
       description: 'DoorDash orders land in Clover and on the kitchen printer. Master menu, sold-out items and DoorDash payouts tracked in one place.',
       lead: 'No more DoorDash tablet to watch next to the register: each DoorDash order becomes a Clover order, with its “DoorDash” order type and its kitchen ticket.',
       blocks: [
         { kind: 'cards', id: 'features', title: 'What the integration does', cards: [
           { title: 'Orders in Clover', text: 'Items, modifiers, notes and allergies reach Clover with the “DoorDash” order type, and the ticket prints in the kitchen.' },
-          { title: 'Menu read by DoorDash', text: 'DoorDash reads your master menu from ON2GO.ca: prices, options, hours and a % markup for DoorDash only if you want one.' },
+          { title: 'Menu read by DoorDash', text: 'DoorDash reads your master menu from TAKATAK Food Hub: prices, options, hours and a % markup for DoorDash only if you want one.' },
           { title: 'Sold out', text: 'An item out of stock in Clover comes off DoorDash, then goes back on sale everywhere in one click.' },
           { title: 'Paid and closed out', text: 'When it leaves, the order is recorded as paid with the “DoorDash” tender: each platform has its own line in your closeout.' },
           { title: 'Checked payouts', text: 'DoorDash payouts are checked against your orders; gaps are flagged, and nothing is approved for you.' },
         ] },
         { kind: 'steps', id: 'connect', title: 'Connect DoorDash', steps: [
           { title: 'Your DoorDash store', text: 'You keep your own DoorDash merchant account. The integration is turned on for your store with DoorDash.' },
-          { title: 'Matching', text: 'In ON2GO.ca, the DoorDash store is linked to its brand and its Clover location.' },
+          { title: 'Matching', text: 'In TAKATAK Food Hub, the DoorDash store is linked to its brand and its Clover location.' },
           { title: 'Approval', text: 'Our team checks the match before the first DoorDash order is sent to your register.' },
         ] },
         { kind: 'links', id: 'more', title: 'Other integrations', pages: ['uber', 'skip', 'kitchen'] },
       ],
       faq: [
-        { q: 'Do I need a new DoorDash account?', a: 'No. You keep your DoorDash merchant account; ON2GO.ca links to it to receive orders and provide the menu.' },
+        { q: 'Do I need a new DoorDash account?', a: 'No. You keep your DoorDash merchant account; TAKATAK Food Hub links to it to receive orders and provide the menu.' },
         { q: 'Does the kitchen see allergies?', a: 'Yes. Notes and allergies are printed on the ticket and shown in red on the kitchen screen.' },
         { q: 'What about the DoorDash tablet?', a: 'DoorDash orders reach Clover, the printer and the kitchen display along with the other platforms, so you no longer watch a separate tablet to receive them.' },
       ],
@@ -359,7 +361,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
   skip: {
     fr: {
       ...integration('fr', { name: 'SkipTheDishes', key: 'skip' }),
-      title: 'Intégration SkipTheDishes et Clover | ON2GO.ca',
+      title: 'Intégration SkipTheDishes et Clover | TAKATAK Food Hub',
       description: 'Branchez SkipTheDishes à Clover : commandes créées et imprimées, acceptation automatique ou manuelle, menu et ruptures synchronisés.',
       lead: 'Les commandes SkipTheDishes rejoignent celles des autres plateformes dans votre caisse Clover, avec le type de commande « SkipTheDishes » et le billet à la cuisine.',
       blocks: [
@@ -385,7 +387,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
     },
     en: {
       ...integration('en', { name: 'SkipTheDishes', key: 'skip' }),
-      title: 'SkipTheDishes Clover integration | ON2GO.ca',
+      title: 'SkipTheDishes Clover integration | TAKATAK Food Hub',
       description: 'Connect SkipTheDishes to Clover: orders created and printed, automatic or manual accept, menu and sold-out items kept in sync.',
       lead: 'SkipTheDishes orders join the other platforms in your Clover register, with the “SkipTheDishes” order type and the ticket in the kitchen.',
       blocks: [
@@ -413,7 +415,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
 
   kitchen: {
     fr: {
-      title: 'Écran de cuisine pour Clover | ON2GO.ca',
+      title: 'Écran de cuisine pour Clover | TAKATAK Food Hub',
       description: 'Un écran de cuisine pour toutes vos commandes de livraison : à préparer, prêtes, livreur en route, allergies en rouge et minuteries.',
       label: 'Écran de cuisine',
       eyebrow: 'Écran de cuisine · Clover',
@@ -440,7 +442,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
       ],
     },
     en: {
-      title: 'Clover kitchen display for delivery | ON2GO.ca',
+      title: 'Clover kitchen display for delivery | TAKATAK Food Hub',
       description: 'One kitchen display for all your delivery orders: to cook, ready, courier arriving, allergies in red and timers. Works with Clover.',
       label: 'Kitchen display',
       eyebrow: 'Kitchen display · Clover',
@@ -470,7 +472,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
 
   phone: {
     fr: {
-      title: 'Téléphone IA pour restaurant et Clover | ON2GO.ca',
+      title: 'Téléphone IA pour restaurant et Clover | TAKATAK Food Hub',
       description: `${PHONE_APP_NAME} : un assistant automatisé répond aux appels de votre restaurant, prend la commande et l’envoie à Clover.`,
       label: 'Téléphone IA',
       eyebrow: `${PHONE_APP_NAME} · application Clover distincte`,
@@ -487,7 +489,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
           `${PHONE_APP_NAME} est une application distincte sur le Clover App Market, avec son propre essai gratuit et son propre abonnement. Offerte au Canada seulement.`,
           PHONE_PRICE_TEXT.fr,
         ] },
-        { kind: 'links', id: 'disponible', title: 'Aussi sur ON2GO.ca', pages: ['landing', 'kitchen', 'pricing'] },
+        { kind: 'links', id: 'disponible', title: 'Aussi sur TAKATAK Food Hub', pages: ['landing', 'kitchen', 'pricing'] },
       ],
       faq: [
         { q: 'Le téléphone IA est-il inclus dans TAKATAK Food Hub ?', a: `Non. ${PHONE_APP_NAME} est une application distincte, avec son propre essai gratuit et son propre abonnement Clover.` },
@@ -496,7 +498,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
       ],
     },
     en: {
-      title: 'AI phone ordering for Clover restaurants | ON2GO.ca',
+      title: 'AI phone ordering for Clover restaurants | TAKATAK Food Hub',
       description: `${PHONE_APP_NAME}: an automated assistant answers your restaurant’s calls, takes the order and sends it to Clover. A separate Clover app.`,
       label: 'AI phone',
       eyebrow: `${PHONE_APP_NAME} · a separate Clover app`,
@@ -513,7 +515,7 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
           `${PHONE_APP_NAME} is a separate app on the Clover App Market, with its own free trial and its own subscription. Offered in Canada only.`,
           PHONE_PRICE_TEXT.en,
         ] },
-        { kind: 'links', id: 'available', title: 'Also on ON2GO.ca', pages: ['landing', 'kitchen', 'pricing'] },
+        { kind: 'links', id: 'available', title: 'Also on TAKATAK Food Hub', pages: ['landing', 'kitchen', 'pricing'] },
       ],
       faq: [
         { q: 'Is the AI phone part of TAKATAK Food Hub?', a: `No. ${PHONE_APP_NAME} is a separate app, with its own free trial and its own Clover subscription.` },
@@ -532,6 +534,7 @@ export const HUB_UI: Record<Lang, Record<string, string>> = {
     otherLang: 'English',
     pricing: 'Tarifs',
     integrations: 'Intégrations',
+    product: 'Le produit',
     home: 'Accueil',
     marketSoon: 'Bientôt sur le Clover App Market',
     marketReview: 'Soumise au Clover App Market : en révision',
@@ -569,6 +572,7 @@ export const HUB_UI: Record<Lang, Record<string, string>> = {
     otherLang: 'Français',
     pricing: 'Pricing',
     integrations: 'Integrations',
+    product: 'Product',
     home: 'Home',
     marketSoon: 'Coming soon to the Clover App Market',
     marketReview: 'Submitted to the Clover App Market: under review',

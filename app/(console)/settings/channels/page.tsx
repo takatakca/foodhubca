@@ -314,7 +314,12 @@ export default function ChannelsSettingsPage() {
                 <Badge tone={tone}>{label}</Badge>
               </div>
               <p className="mt-2 text-[13px] leading-relaxed text-ink-3">{t(c.noteFr ?? c.note, c.note)}</p>
-              {c.missing.length > 0 && <p className="mt-2 text-xs text-ink-3">{t('Manque :', 'Missing:')} {c.missing.map((m) => <code key={m} className="mr-1 rounded bg-sunken px-1 font-mono">{m}</code>)}</p>}
+              {c.missing.length > 0 && (
+                <p className="mt-2 flex flex-wrap items-baseline gap-1 text-xs text-ink-3">
+                  <span>{t('Manque :', 'Missing:')}</span>
+                  {c.missing.map((m) => <code key={m} className="max-w-full rounded bg-sunken px-1 font-mono wrap-anywhere">{m}</code>)}
+                </p>
+              )}
               <UrlRow label={c.extraWebhooks.length ? t('Webhook des commandes', 'Order webhook URL') : t('Adresse webhook', 'Webhook URL')} value={c.webhookUrl} />
               {c.extraWebhooks.map((w) => <UrlRow key={w.url} label={w.label} value={w.url} />)}
               {c.handoff.map((h) => (

@@ -11,6 +11,14 @@ function openHub(path) {
   return window.loadURL(lastHubUrl).catch(() => {});
 }
 
+function retryHub() {
+  if (!isOffline && window.webContents.getURL() === lastHubUrl) {
+    window.webContents.reloadIgnoringCache();
+    return;
+  }
+  return openHub(lastHubUrl);
+}
+
 function setMenu(fr) {
   const nav = [
     [fr ? 'Accueil' : 'Home', '/'],
@@ -25,7 +33,7 @@ function setMenu(fr) {
       submenu: [
         ...items,
         { type: 'separator' },
-        { label: fr ? 'Réessayer la connexion' : 'Retry connection', accelerator: 'CmdOrCtrl+R', click: () => openHub(lastHubUrl) },
+        { label: fr ? 'Réessayer la connexion' : 'Retry connection', accelerator: 'CmdOrCtrl+R', click: retryHub },
         { label: fr ? 'Ouvrir dans le navigateur' : 'Open in browser', click: () => shell.openExternal(lastHubUrl).catch(() => {}) },
         { role: 'quit', label: fr ? 'Quitter' : 'Quit' },
       ],
@@ -62,8 +70,12 @@ function createWindow() {
       if (event.isMainFrame && !isHubUrl(event.url)) event.preventDefault();
     });
   }
-  contents.on('did-navigate', (_event, url) => {
+  const rememberHubUrl = (url) => {
     if (isHubUrl(url)) lastHubUrl = url;
+  };
+  contents.on('did-navigate', (_event, url) => rememberHubUrl(url));
+  contents.on('did-navigate-in-page', (_event, url, isMainFrame) => {
+    if (isMainFrame) rememberHubUrl(url);
   });
   contents.on('did-fail-load', (_event, code, _description, url, isMainFrame) => {
     if (code === -3 || !isMainFrame || isOffline || !isHubUrl(url)) return;

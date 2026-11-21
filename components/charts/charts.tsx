@@ -150,7 +150,7 @@ export function CompareLine({ points, format, axisFormat, curLabel, prevLabel, h
   curLabel: string; prevLabel: string; height?: number;
 }) {
   const { ref, w } = useWidth<HTMLDivElement>();
-  const [idx, setIdx] = useState<number | null>(null);
+  const [selected, setIdx] = useState<number | null>(null);
   const m = { l: 52, r: 56, t: 12, b: 26 };
   const iw = w - m.l - m.r; const ih = height - m.t - m.b;
   const max = Math.max(1, ...points.flatMap((p) => [p.cur, p.prev]));
@@ -161,10 +161,11 @@ export function CompareLine({ points, format, axisFormat, curLabel, prevLabel, h
   const path = (key: 'cur' | 'prev') => points.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p[key]).toFixed(1)}`).join('');
   const labelEvery = Math.max(1, Math.ceil(points.length / Math.max(2, Math.floor(iw / 70))));
   const last = points.length - 1;
+  const idx = selected !== null && selected >= 0 && selected <= last ? selected : null;
 
   function pick(clientX: number, rect: DOMRect) {
-    if (!points.length) return;
-    const rel = clientX - rect.left - m.l;
+    if (!points.length || !rect.width) return;
+    const rel = ((clientX - rect.left) * w) / rect.width - m.l;
     const i = points.length <= 1 ? 0 : Math.round((rel / iw) * (points.length - 1));
     setIdx(Math.max(0, Math.min(points.length - 1, i)));
   }
@@ -175,11 +176,11 @@ export function CompareLine({ points, format, axisFormat, curLabel, prevLabel, h
 
   return (
     <div ref={ref} className="viz-wrap" style={{ height }}>
-      <svg width={w} height={height} role="img" aria-label={`${curLabel} vs ${prevLabel}`} tabIndex={0}
+      <svg width="100%" height={height} viewBox={`0 0 ${w} ${height}`} preserveAspectRatio="none" role="img" aria-label={`${curLabel} vs ${prevLabel}`} tabIndex={0}
         onPointerMove={(e) => pick(e.clientX, (e.currentTarget as SVGSVGElement).getBoundingClientRect())}
         onPointerLeave={() => setIdx(null)}
         onFocus={() => setIdx(last >= 0 ? last : null)} onBlur={() => setIdx(null)}
-        onKeyDown={(e) => { if (e.key === 'ArrowLeft') setIdx((i) => Math.max(0, (i ?? last) - 1)); if (e.key === 'ArrowRight') setIdx((i) => Math.min(last, (i ?? 0) + 1)); }}>
+        onKeyDown={(e) => { if (last < 0) return; if (e.key === 'ArrowLeft') setIdx((i) => Math.max(0, (i ?? last) - 1)); if (e.key === 'ArrowRight') setIdx((i) => Math.min(last, (i ?? 0) + 1)); }}>
         {ticks.map((t) => (
           <g key={t}>
             <line x1={m.l} x2={w - m.r} y1={y(t)} y2={y(t)} stroke={t === 0 ? VIZ.base : VIZ.grid} strokeWidth={1} />

@@ -1,3 +1,9 @@
+## 2026-11-21 — Navigation mobile de la vitrine
+
+Les liens Produit et Intégrations sont visibles sur mobile en français et en anglais. La navigation prévoit des cibles tactiles de 44 px et les sections ont une marge de défilement sous l’en-tête fixe. Après fusion, vérifier les deux ancres à 375 px et le SHA servi sur `/api/release`.
+
+— signé : Codex @ cloud · 2026-11-21
+
 ## 2026-11-21 — Vitrine Food Hub FR/EN
 
 Branche `feat/public-landing-refresh`. La refonte cible `foodhub.on2go.ca/hub` et `/en/hub`. La version compilée a passé les quatre essais Chromium (375 et 1 440 px), avec vérification des métadonnées, des liens, des captures, de la FAQ, des en-têtes et de l’absence de cookies ou de requêtes tierces. Après fusion, comparer `/api/release` au SHA de `main` et refaire les contrôles publics.

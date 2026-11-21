@@ -24,7 +24,16 @@ const nextConfig = {
   // The public landing's console stills (public/hub-media/, scripts/hub-media.mjs): a day in the browser, a week stale
   // while it revalidates. A new still gets a new file name when its picture changes a lot.
   async headers() {
-    return [{ source: '/hub-media/:file*', headers: [{ key: 'Cache-Control', value: 'public, max-age=86400, stale-while-revalidate=604800' }] }];
+    const publicHubHeaders = [
+      { key: 'Content-Security-Policy', value: "base-uri 'self'; object-src 'none'; frame-ancestors 'none'" },
+      { key: 'X-Content-Type-Options', value: 'nosniff' },
+      { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+    ];
+    return [
+      { source: '/hub/:slug*', headers: publicHubHeaders },
+      { source: '/en/hub/:slug*', headers: publicHubHeaders },
+      { source: '/hub-media/:file*', headers: [{ key: 'Cache-Control', value: 'public, max-age=86400, stale-while-revalidate=604800' }] },
+    ];
   },
 };
 export default nextConfig;

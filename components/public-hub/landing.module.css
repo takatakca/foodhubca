@@ -22,8 +22,22 @@
 }
 .hero > * { position: relative; z-index: 1; }
 
-.heroShot { margin: 3rem auto 0; max-width: 68rem; }
-@media (min-width: 1024px) { .heroShot { margin-top: 4rem; } }
+.heroLayout {
+  display: grid;
+  align-items: center;
+  gap: clamp(2rem, 4vw, 4rem);
+  padding-block: clamp(2.75rem, 7vw, 6rem);
+}
+.heroCopy { min-width: 0; }
+.heroTitle {
+  font-size: clamp(2.125rem, 4.6vw, 3.8rem);
+  text-wrap: balance;
+}
+.heroShot { min-width: 0; margin: 0; }
+@media (min-width: 960px) {
+  .heroLayout { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); }
+}
+
 
 /* A console still in a window. */
 .window {

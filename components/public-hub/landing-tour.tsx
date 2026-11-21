@@ -45,13 +45,13 @@ const ADDRESS: Record<ShotKey, string> = {
   kitchen: 'foodhub.on2go.ca/kitchen', newOrder: 'foodhub.on2go.ca/kitchen', phone: 'foodhub.on2go.ca/commander',
 };
 
-/** The orders board under the landing's hero text. */
+/** The orders board featured in the landing hero. */
 export function HeroShot({ lang }: { lang: Lang }) {
   const w = TOUR[lang];
   return (
     <figure className={s.heroShot}>
       <Window address={ADDRESS.orders}>
-        <Shot shot="orders" lang={lang} alt={w.heroAlt} sizes="(min-width: 1120px) 1088px, calc(100vw - 32px)" eager className={s.img} />
+        <Shot shot="orders" lang={lang} alt={w.heroAlt} sizes="(min-width: 1152px) 580px, (min-width: 960px) 51vw, calc(100vw - 32px)" eager className={s.img} />
       </Window>
       <figcaption className="mt-3 text-center text-[13px] text-silver">{w.demoNote}</figcaption>
     </figure>

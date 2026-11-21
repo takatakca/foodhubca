@@ -140,8 +140,8 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
       description: 'Uber Eats, DoorDash et SkipTheDishes dans votre caisse Clover : un seul écran, écran de cuisine, menus et ruptures synchronisés. Conçu à Montréal.',
       label: 'Accueil',
       eyebrow: 'Pour les restaurants qui utilisent Clover, au Canada',
-      h1: 'Uber Eats, DoorDash et SkipTheDishes, directement dans votre caisse Clover',
-      lead: 'Un seul écran pour toutes vos plateformes, des menus et des ruptures synchronisés, et chaque versement comparé à vos commandes. Conçu à Montréal, utilisé chaque jour dans nos propres cuisines.',
+      h1: 'Vos commandes de livraison, réunies dans Clover',
+      lead: 'Centralisez les commandes de livraison, synchronisez vos menus et vérifiez vos versements. Conçu à Montréal et utilisé chaque jour dans nos cuisines.',
       blocks: [
         { kind: 'steps', id: 'comment', title: 'En service en trois étapes', steps: STEPS.fr },
         { kind: 'features', id: 'fonctions', title: 'Toutes les fonctions', intro: 'Les mêmes fonctions que dans notre fiche du Clover App Market, sans agrégateur entre vous et les plateformes.', extra: [MULTI_BRAND.fr, PHONE_CARD.fr] },
@@ -165,8 +165,8 @@ export const HUB_CONTENT: Record<HubPageKey, Record<Lang, HubPageContent>> = {
       description: 'Uber Eats, DoorDash and SkipTheDishes orders in your Clover register: one screen, a kitchen display, synced menus and sold-out items. Built in Montréal.',
       label: 'Home',
       eyebrow: 'For restaurants on Clover, in Canada',
-      h1: 'Uber Eats, DoorDash and SkipTheDishes, straight into your Clover register',
-      lead: 'One screen for every platform, synced menus and sold-out items, and every payout checked against your orders. Built in Montréal, used every day in our own kitchens.',
+      h1: 'Your delivery orders, together in Clover',
+      lead: 'Manage delivery orders in one place, sync your menus, and check your payouts. Built in Montréal and used daily in our own kitchens.',
       blocks: [
         { kind: 'steps', id: 'how', title: 'Up and running in three steps', steps: STEPS.en },
         { kind: 'features', id: 'features', title: 'Every feature', intro: 'The same features as our Clover App Market listing, with no aggregator between you and the platforms.', extra: [MULTI_BRAND.en, PHONE_CARD.en] },

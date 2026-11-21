@@ -19,7 +19,7 @@ const PLATFORMS = ['Uber Eats', 'DoorDash', 'SkipTheDishes', 'Too Good To Go*'];
 
 function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
-    <section id={id} aria-labelledby={`${id}-title`} className="scroll-mt-6 border-t border-line py-12">
+    <section id={id} aria-labelledby={`${id}-title`} className="scroll-mt-6 border-t border-line py-12 sm:scroll-mt-24">
       <h2 id={`${id}-title`} className="text-2xl font-extrabold tracking-tight text-ink">{title}</h2>
       {children}
     </section>
@@ -233,12 +233,12 @@ export function HubPage({ page, lang, ctx }: { page: HubPageKey; lang: Lang; ctx
           <a href={home} className="flex items-center gap-2 text-lg font-extrabold tracking-tight">
             <TakatakMark size="sm" /><span>TAKATAK <span className="font-semibold text-silver">Food Hub</span></span>
           </a>
-          <nav aria-label={ui.nav} className="flex flex-wrap items-center gap-4 text-sm font-semibold text-silver">
-            <a href={`${home}#${lang === 'fr' ? 'produit' : 'product'}`} className="hidden hover:text-white sm:inline">{ui.product}</a>
-            <a href={`${home}#integrations`} className="hidden hover:text-white sm:inline">{ui.integrations}</a>
-            <a href={HUB_PATHS.pricing[lang]} className="hover:text-white">{ui.pricing}</a>
-            <a href={HUB_PATHS[page][other]} hrefLang={other === 'fr' ? 'fr-CA' : 'en-CA'} lang={other === 'fr' ? 'fr-CA' : 'en-CA'} className="hover:text-white">{ui.otherLang}</a>
-            <a href="/login" rel="nofollow" className="rounded-md border border-silver/40 px-3 py-1.5 text-white hover:border-white">{ui.signIn}</a>
+          <nav aria-label={ui.nav} className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm font-semibold text-silver">
+            <a href={`${home}#${lang === 'fr' ? 'produit' : 'product'}`} className="inline-flex min-h-11 items-center hover:text-white">{ui.product}</a>
+            <a href={`${home}#integrations`} className="inline-flex min-h-11 items-center hover:text-white">{ui.integrations}</a>
+            <a href={HUB_PATHS.pricing[lang]} className="inline-flex min-h-11 items-center hover:text-white">{ui.pricing}</a>
+            <a href={HUB_PATHS[page][other]} hrefLang={other === 'fr' ? 'fr-CA' : 'en-CA'} lang={other === 'fr' ? 'fr-CA' : 'en-CA'} className="inline-flex min-h-11 items-center hover:text-white">{ui.otherLang}</a>
+            <a href="/login" rel="nofollow" className="inline-flex min-h-11 items-center rounded-md border border-silver/40 px-3 text-white hover:border-white">{ui.signIn}</a>
           </nav>
         </div>
       </header>

@@ -431,7 +431,7 @@ function StatusBanners() {
 }
 
 function Bar({ tone, children, href, icon }: { tone: 'stop' | 'wait'; children: ReactNode; href?: string; icon?: ReactNode }) {
-  const cls = cn('text-small flex min-h-9 flex-1 items-center justify-center gap-2 px-4 py-1.5 text-center font-semibold', tone === 'stop' ? 'bg-stop-fill text-on-stop' : 'bg-wait-soft text-wait-2');
+  const cls = cn('text-small flex min-h-9 flex-1 items-center justify-center gap-2 px-4 py-1.5 text-center font-semibold wrap-anywhere', tone === 'stop' ? 'bg-stop-fill text-on-stop' : 'bg-wait-soft text-wait-2');
   if (href) return <Link href={href} className={cls}>{icon}{children} →</Link>;
   return <div className={cls}>{icon}{children}</div>;
 }

@@ -245,8 +245,8 @@ export function HubPage({ page, lang, ctx }: { page: HubPageKey; lang: Lang; ctx
 
       <main id="contenu">
         <div className={isLanding ? landing.hero : 'bg-rail text-white'}>
-          <div className={`mx-auto max-w-6xl px-4 text-white ${isLanding ? 'pb-16 pt-14 sm:pb-20 sm:pt-20' : 'pb-14 pt-10'}`}>
-            <div className={isLanding ? 'mx-auto max-w-4xl text-center' : ''}>
+          <div className={`mx-auto max-w-6xl px-4 text-white ${isLanding ? landing.heroLayout : 'pb-14 pt-10'}`}>
+            <div className={isLanding ? landing.heroCopy : ''}>
               {page !== 'landing' && (
                 <nav aria-label={ui.breadcrumb} className="mb-4 text-sm text-silver">
                   <a href={home} className="underline underline-offset-2 hover:text-white">{HUB_NAME}</a>
@@ -255,18 +255,18 @@ export function HubPage({ page, lang, ctx }: { page: HubPageKey; lang: Lang; ctx
                 </nav>
               )}
               <p className="text-[13px] font-bold uppercase tracking-[0.12em] text-cyan">{c.eyebrow}</p>
-              <h1 className={`mt-3 font-extrabold leading-[1.08] tracking-tight ${isLanding ? 'text-4xl sm:text-6xl' : 'max-w-4xl text-3xl sm:text-5xl'}`}>
+              <h1 className={`mt-3 font-extrabold leading-[1.08] tracking-tight ${isLanding ? landing.heroTitle : 'max-w-4xl text-3xl sm:text-5xl'}`}>
                 {c.h1}
               </h1>
               {certification && (
                 <p className="mt-4 inline-flex rounded-full bg-wait px-3 py-1 text-sm font-bold text-rail">{certification}</p>
               )}
-              <p className={`mt-5 text-lg leading-relaxed text-silver ${isLanding ? 'mx-auto max-w-2xl sm:text-xl' : 'max-w-3xl'}`}>{fillHub(c.lead, lang, ctx)}</p>
-              <Ctas lang={lang} ctx={ctx} page={page} center={isLanding} />
+              <p className={`mt-5 text-lg leading-relaxed text-silver ${isLanding ? 'max-w-xl sm:text-xl' : 'max-w-3xl'}`}>{fillHub(c.lead, lang, ctx)}</p>
+              <Ctas lang={lang} ctx={ctx} page={page} />
               {page === 'landing' && (
                 <div className="mt-8">
                   <p className="sr-only">{ui.platformsLabel}</p>
-                  <ul className="flex flex-wrap justify-center gap-2">
+                  <ul className="flex flex-wrap gap-2">
                     {[...PLATFORMS, 'Clover'].map((p) => (
                       <li key={p} className="rounded-full border border-silver/30 bg-white/5 px-3 py-1 text-sm font-semibold text-white">{p}</li>
                     ))}

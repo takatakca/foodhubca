@@ -1,3 +1,9 @@
+## 2026-11-21 — Vitrine Food Hub FR/EN
+
+Branche `feat/public-landing-refresh`. La refonte cible `foodhub.on2go.ca/hub` et `/en/hub`. La version compilée a passé les quatre essais Chromium (375 et 1 440 px), avec vérification des métadonnées, des liens, des captures, de la FAQ, des en-têtes et de l’absence de cookies ou de requêtes tierces. Après fusion, comparer `/api/release` au SHA de `main` et refaire les contrôles publics.
+
+— signé : Codex @ cloud · 2026-11-21
+
 ## 2026-11-04 — unified platform workspaces and existing-PC continuity
 
 Validated implementation commit: `2adf4147ee545991b7ac3954f4df2f74de8eef7d`, branch `feature/unified-platform-workspaces`. Source is ready for review; main/deployment and the owner's PC were not modified. GitHub API access was denied; the public board was read through all HTML timeline pages (360 items,354 comments). Drive/other-chat history and live PC access are unavailable here.

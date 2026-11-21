@@ -1,0 +1,17 @@
+{
+  "name": "on2go-hub-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "productName": "ON2GO Hub",
+  "description": "TAKATAK's desktop workstation for ON2GO Hub",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test navigation.test.cjs",
+    "package:windows": "electron-packager . ON2GO-Hub --platform=win32 --arch=x64 --out=dist --overwrite --asar --prune=true --ignore=^/dist --ignore=navigation.test.cjs"
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "electron": "45.4.1"
+  }
+}

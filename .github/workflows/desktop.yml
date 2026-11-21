@@ -1,0 +1,50 @@
+name: ON2GO Hub Desktop
+
+on:
+  pull_request:
+    paths: ['apps/desktop/**', '.github/workflows/desktop.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run package:windows
+      - name: Check that the packaged app opens a window
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path 'dist/ON2GO-Hub-win32-x64/ON2GO-Hub.exe').Path
+          $profile = Join-Path $env:RUNNER_TEMP 'on2go-hub-smoke'
+          $process = Start-Process -FilePath $exe -ArgumentList "--user-data-dir=`"$profile`"" -PassThru
+          try {
+            for ($i = 0; $i -lt 30; $i++) {
+              Start-Sleep -Seconds 1
+              $process.Refresh()
+              if ($process.HasExited) { throw 'ON2GO Hub exited during startup' }
+              if ($process.MainWindowHandle -ne 0) { return }
+            }
+            throw 'ON2GO Hub did not open a window'
+          } finally {
+            if (!$process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ON2GO-Hub-Windows-x64-development
+          path: apps/desktop/dist/ON2GO-Hub-win32-x64/
+          if-no-files-found: error
+          retention-days: 14

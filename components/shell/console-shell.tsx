@@ -423,36 +423,17 @@ function StatusBanners() {
       // Mise en service explains it and can be opened by URL in either view (owner only).
       : <Bar key="live" tone="wait" href="/settings/go-live">{t('Pas encore en direct : rien n’est envoyé aux plateformes. Votre technicien l’active dans Mise en service.', 'Not live yet: nothing is sent to the platforms. Your technician turns it on in Go-live.')}</Bar>);
   }
-  // The owner always sees that data is not kept (lost on a restart), in plain words in the simple view.
-  if (pulse?.mode === 'memory' && can('admin')) {
-    bars.push(full
-      ? <Bar key="mem" tone="info" dismissKey="memory">{t('Mode démo : Supabase n’est pas branché, les données sont en mémoire.', 'Demo mode: Supabase is not connected, data lives in memory.')}</Bar>
-      : <Bar key="mem" tone="info" dismissKey="memory">{t('Données temporaires : la base de données n’est pas branchée, rien n’est gardé après un redémarrage.', 'Temporary data: the database is not connected, nothing is kept after a restart.')}</Bar>);
+  if (pulse?.mode === 'memory') {
+    bars.push(<Bar key="mem" tone="wait">{t('Mode test · Données temporaires. Les changements sont perdus au redémarrage.', 'Test mode · Temporary data. Changes are lost on restart.')}</Bar>);
   }
   if (!bars.length) return null;
   return <div className="space-y-px">{bars}</div>;
 }
 
-const BAR_KEY = 'takatak.bar.';
-/**
- * A full-width band under the top bar. Red and amber ones stay (a connection or a safe-mode problem); a blue one
- * (demo data) can be put away for this session, so it is not a permanent band on every page (A4 #5).
- */
-function Bar({ tone, children, href, icon, dismissKey }: { tone: 'stop' | 'wait' | 'info'; children: ReactNode; href?: string; icon?: ReactNode; dismissKey?: string }) {
-  const { t } = useI18n();
-  const [hidden, setHidden] = useState(false);
-  useEffect(() => { if (!dismissKey) return; try { setHidden(sessionStorage.getItem(BAR_KEY + dismissKey) === '1'); } catch { /* ignore */ } }, [dismissKey]);
-  if (hidden) return null;
-  const dismiss = () => { setHidden(true); try { sessionStorage.setItem(BAR_KEY + dismissKey, '1'); } catch { /* ignore */ } };
-  const cls = cn('text-small flex min-h-9 flex-1 items-center justify-center gap-2 px-4 py-1.5 text-center font-semibold', tone === 'stop' ? 'bg-stop-fill text-on-stop' : tone === 'wait' ? 'bg-wait-soft text-wait-2' : 'bg-info-soft text-info-2');
-  const body = href ? <Link href={href} className={cls}>{icon}{children} →</Link> : <div className={cls}>{icon}{children}</div>;
-  if (!dismissKey) return body;
-  return (
-    <div className="flex items-stretch bg-info-soft">
-      {body}
-      <button type="button" onClick={dismiss} className="flex w-11 shrink-0 items-center justify-center text-info-2 hover:bg-info/10" aria-label={t('Masquer pour cette session', 'Hide for this session')}><X className="size-4" aria-hidden /></button>
-    </div>
-  );
+function Bar({ tone, children, href, icon }: { tone: 'stop' | 'wait'; children: ReactNode; href?: string; icon?: ReactNode }) {
+  const cls = cn('text-small flex min-h-9 flex-1 items-center justify-center gap-2 px-4 py-1.5 text-center font-semibold', tone === 'stop' ? 'bg-stop-fill text-on-stop' : 'bg-wait-soft text-wait-2');
+  if (href) return <Link href={href} className={cls}>{icon}{children} →</Link>;
+  return <div className={cls}>{icon}{children}</div>;
 }
 
 /** A → A+ → A++ for this screen (kitchen tablets start at A+). */

@@ -62,17 +62,20 @@ export async function verifyLiveDeployment({ url, sha = '', fetchImpl = fetch, a
     }
   };
 
-  // The marker must match the precise build, not just a successful DNS or reverse proxy response.
-  const releaseResponse = await request('/api/release');
-  requireStatus(releaseResponse, 200, '/api/release');
-  const release = await readJson(releaseResponse, '/api/release');
-  if (release.app !== 'foodhub' || release.ok !== true ||
-      typeof release.sha !== 'string' || !/^[0-9a-f]{40}$/i.test(release.sha)) {
-    throw new Error('/api/release did not prove a complete Food Hub commit');
-  }
-  if (release.sha.toLowerCase() !== sha.toLowerCase()) {
-    throw new Error('/api/release is on a different SHA: ' + release.sha.slice(0, 7));
-  }
+  const verifyRelease = async () => {
+    const response = await request('/api/release');
+    requireStatus(response, 200, '/api/release');
+    const release = await readJson(response, '/api/release');
+    if (release?.app !== 'foodhub' || release.ok !== true ||
+        typeof release.sha !== 'string' || !/^[0-9a-f]{40}$/i.test(release.sha)) {
+      throw new Error('/api/release did not prove a complete Food Hub commit');
+    }
+    if (release.sha.toLowerCase() !== sha.toLowerCase()) {
+      throw new Error('/api/release is on a different SHA: ' + release.sha.slice(0, 7));
+    }
+    return release.sha;
+  };
+  const releaseSha = await verifyRelease();
 
   const directoryResponse = await request('/api/public/directory', { Origin: 'https://on2go.ca' });
   requireStatus(directoryResponse, 200, '/api/public/directory');
@@ -108,11 +111,14 @@ export async function verifyLiveDeployment({ url, sha = '', fetchImpl = fetch, a
   const privateResponse = await request('/api/foodhub/orders');
   requireStatus(privateResponse, 401, '/api/foodhub/orders');
 
+  // The reverse proxy may switch versions while the other endpoints are being checked.
+  await verifyRelease();
+
   return {
-    sha: release.sha,
+    sha: releaseSha,
     origin: base.origin,
     checks: [
-      '/api/release: exact deployed SHA',
+      '/api/release: exact deployed SHA before and after endpoint checks',
       '/api/public/directory: public brands, kitchens and ON2GO CORS',
       '/api/health: healthy',
       '/login: available',

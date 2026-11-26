@@ -8,6 +8,7 @@ export const WATCH_BACKGROUND_COMPLETION_KEY = 'watch:last-background-completion
 export interface WatchBackgroundCompletion {
   at: string;
   trigger: 'timer' | 'cron';
+  sha?: string;
 }
 
 export type IncidentKind =

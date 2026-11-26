@@ -15,6 +15,7 @@ import { DEVICE_OFFLINE_AFTER_MS, listDevices } from '../identity/devices';
 import { listScreens, SCREEN_PLATFORM_LABEL, screenStatus } from '../screens';
 import { aiConfigured, callConfigured, maskContact, normalizePhone, placeCall, postToChat, sendSms } from '../notify';
 import { listCases, RECOVERABLE } from '../recon/engine';
+import { releaseSha, validatedReleaseSha } from '../release';
 import { getRepo } from '../repo';
 import { isWaitingScheduled } from '../scheduling';
 import { foodhubTimeZone, localParts } from '../time';
@@ -637,7 +638,8 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
     }
     report.open = [...live.values(), ...fresh].filter((i) => i.status === 'open' || i.status === 'acknowledged').length;
     if (report.trigger === 'timer' || report.trigger === 'cron') {
-      const completion: WatchBackgroundCompletion = { at: new Date().toISOString(), trigger: report.trigger };
+      const sha = validatedReleaseSha(releaseSha());
+      const completion: WatchBackgroundCompletion = { at: new Date().toISOString(), trigger: report.trigger, ...(sha ? { sha } : {}) };
       // Diagnostic only. The existing watch:last marker still controls throttling and liveness.
       await repo.setKv(WATCH_BACKGROUND_COMPLETION_KEY, completion).catch(() => undefined);
     }

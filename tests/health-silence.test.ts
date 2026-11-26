@@ -10,9 +10,12 @@ import { listIncidents, runWatch, saveWatchSettings } from '../lib/foodhub/watch
 import { WATCH_BACKGROUND_COMPLETION_KEY } from '../lib/foodhub/watch/types';
 
 const saved: Record<string, string | undefined> = {};
+const OLD_RELEASE = 'a'.repeat(40);
+const NEXT_RELEASE = 'b'.repeat(40);
 const ENV: Record<string, string | undefined> = {
   FOODHUB_FORCE_MEMORY: 'true', CRON_SECRET: 'cron-test', UBER_CLIENT_ID: 'uber-id', UBER_CLIENT_SECRET: 'uber-secret',
   CLOVER_MERCHANT_ID: undefined, CLOVER_ACCESS_TOKEN: undefined, CLOVER_CLIENT_ID: undefined, DASHBOARD_PASSWORD: 'Owner-pass-123',
+  FOODHUB_RELEASE_SHA: undefined, SOURCE_COMMIT: undefined, GITHUB_SHA: undefined, COOLIFY_COMMIT_SHA: undefined,
 };
 beforeEach(() => {
   for (const [k, v] of Object.entries(ENV)) { saved[k] = process.env[k]; if (v === undefined) delete process.env[k]; else process.env[k] = v; }
@@ -86,6 +89,13 @@ describe('/api/health', () => {
       const body = await response.json();
       expect(body.checks.watchtower.lastBackgroundCompletion).toEqual({ at, trigger: 'timer' });
     }
+    await repo.setKv(WATCH_BACKGROUND_COMPLETION_KEY, { at, trigger: 'cron', sha: NEXT_RELEASE, internal: 'do not expose' });
+    for (const authorization of [admin, 'Bearer cron-test']) {
+      expect((await (await request(authorization)).json()).checks.watchtower.lastBackgroundCompletion).toEqual({ at, trigger: 'cron', sha: NEXT_RELEASE });
+    }
+    expect((await (await request()).json()).checks.watchtower).toEqual(expect.any(String));
+    await repo.setKv(WATCH_BACKGROUND_COMPLETION_KEY, { at, trigger: 'cron', sha: 'short-sha' });
+    expect((await (await request(admin)).json()).checks.watchtower.lastBackgroundCompletion).toEqual({ at, trigger: 'cron' });
     await repo.setKv(WATCH_BACKGROUND_COMPLETION_KEY, { at, trigger: 'pulse' });
     expect((await (await request(admin)).json()).checks.watchtower.lastBackgroundCompletion).toBeNull();
   });
@@ -130,6 +140,23 @@ describe('Watchtower background completion', () => {
     await saveWatchSettings({ enabled: false }, { username: 'test-owner', name: 'Test owner', source: 'dashboard' });
     expect((await runAt('timer', 60_000)).ran).toBe(false);
     expect(await completion()).toEqual({ at: stamp(0), trigger: 'timer' });
+  });
+
+  it('attributes completed background runs to the release that executed them', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    process.env.SOURCE_COMMIT = NEXT_RELEASE;
+    process.env.FOODHUB_RELEASE_SHA = ` ${OLD_RELEASE} `;
+    expect((await runAt('timer', 0)).ran).toBe(true);
+    expect(await completion()).toEqual({ at: stamp(0), trigger: 'timer', sha: OLD_RELEASE });
+
+    delete process.env.FOODHUB_RELEASE_SHA;
+    expect((await runAt('cron', 30_000)).ran).toBe(true);
+    expect(await completion()).toEqual({ at: stamp(30_000), trigger: 'cron', sha: NEXT_RELEASE });
+
+    // A malformed higher-priority value cannot be replaced by a different SHA here.
+    process.env.FOODHUB_RELEASE_SHA = 'not-a-full-sha';
+    expect((await runAt('timer', 60_000)).ran).toBe(true);
+    expect(await completion()).toEqual({ at: stamp(60_000), trigger: 'timer' });
   });
 });
 

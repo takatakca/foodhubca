@@ -51,7 +51,7 @@ async function rest(query) {
 }
 const q = encodeURIComponent;
 const inboxEntry = async (id) => (await rest(`fh_docs?collection=eq.webhook_inbox&id=eq.${q(id)}&select=key,data`))[0]?.data ?? null;
-const orderRows = (externalId) => rest(`fh_orders?channel=eq.uber_eats&external_order_id=eq.${q(externalId)}&select=id,status,pos_order_id`);
+const orderRows = (externalId) => rest(`fh_orders?channel=eq.uber_eats&external_order_id=eq.${q(externalId)}&select=id,status,pos_order_id,timeline`);
 const orderEvents = (orderId) => rest(`fh_order_events?order_id=eq.${q(orderId)}&select=type`);
 const kv = async (key) => (await rest(`fh_kv?key=eq.${q(key)}&select=value`))[0]?.value ?? null;
 
@@ -140,6 +140,7 @@ try {
   const posId = rows1[0]?.pos_order_id;
   check('exactly ONE order row, accepted', rows1.length === 1 && rows1[0].status === 'accepted' && rows1[0].id === replayed?.orderId, JSON.stringify(rows1));
   check('exactly ONE Clover order, the one on the order row', cloverOrders(mark1).length === 1 && !!posId && posId.startsWith('CLV'), JSON.stringify({ clover: cloverOrders(mark1).length, posId }));
+  check('the confirmed Clover merchant is stored with the recovered order in Postgres', !!posId && rows1[0]?.timeline?.posMerchantId === baseEnv.CLOVER_MERCHANT_ID);
   check('exactly ONE kitchen ticket printed, for that Clover order', prints(mark1).length === 1 && prints(mark1)[0].body?.orderRef?.id === posId, JSON.stringify(prints(mark1).map((p) => p.body?.orderRef?.id)));
   check('accepted on Uber exactly once, with the Clover order id', uberAccepts(mark1, mid).length === 1 && uberAccepts(mark1, mid)[0].body?.external_reference_id === posId);
   const events1 = rows1[0] ? await orderEvents(rows1[0].id) : [];

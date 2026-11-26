@@ -324,6 +324,20 @@ describe('Clover retry guards', () => {
     expect((await getRepo().listEvents(o.id)).map((e) => e.type)).toContain('pos_duplicate');
   });
 
+  it('removes the extra copy from the sending register when another register already confirmed the same POS ID', async () => {
+    process.env.CLOVER_MERCHANT_TOKENS = JSON.stringify({ [MID]: 'clover-token', [MID2]: 'clover-token-2' });
+    const o = await waiting('uber-guard-cross-register');
+    duringAtomic = async () => {
+      await getRepo().updateOrder(o.id, { posOrderId: 'CLV1', timeline: { posMerchantId: MID2 } });
+    };
+
+    const result = await resendToClover(o);
+
+    expect(result.order).toMatchObject({ posOrderId: 'CLV1', timeline: { posMerchantId: MID2 } });
+    expect(sent('DELETE', /\/orders\/CLV1$/)).toEqual([{ method: 'DELETE', path: `/v3/merchants/${MID}/orders/CLV1`, body: null }]);
+    expect(sent('POST', /print_event/)).toHaveLength(0);
+  });
+
   it('cancelled by the platform while Clover was called: no kitchen ticket, removed from Clover', async () => {
     const o = await waiting('uber-guard-3');
     duringAtomic = async () => { await getRepo().updateOrder(o.id, { status: 'cancelled' }); };

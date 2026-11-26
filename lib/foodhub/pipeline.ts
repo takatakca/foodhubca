@@ -440,9 +440,12 @@ async function resendNow(order: StoredOrder, opts: { manual?: boolean; by?: stri
     // Read again: another server or a person may have put it in Clover meanwhile, or the platform cancelled it.
     const latest = (await repo.getOrder(order.id)) ?? current;
     if (latest.posOrderId) {
-      if (latest.posOrderId !== pos.posOrderId && !pos.adopted) {
+      const keptMerchant = latest.timeline?.posMerchantId;
+      const differentRegister = Boolean(keptMerchant && pos.merchantId && keptMerchant !== pos.merchantId);
+      if (!pos.adopted && (latest.posOrderId !== pos.posOrderId || differentRegister)) {
         // Theirs is kept; this second copy is removed so Clover never has the order twice.
-        const r = await closeCancelledCloverOrder({ ...latest, posOrderId: pos.posOrderId }, store?.cloverMerchantId);
+        const extra = { ...latest, posOrderId: pos.posOrderId, timeline: { ...latest.timeline, posMerchantId: pos.merchantId } };
+        const r = await closeCancelledCloverOrder(extra, pos.merchantId ?? store?.cloverMerchantId);
         await repo.addEvent(order.id, 'pos_duplicate', { posOrderId: pos.posOrderId, kept: latest.posOrderId, ...tag,
           message: r.ok ? `Reached Clover just after another send (${latest.posOrderId}) — this extra copy was removed.` : `Reached Clover just after another send (${latest.posOrderId}) — remove the extra copy ${pos.posOrderId} in Clover: ${r.message}` });
         if (!r.ok) {

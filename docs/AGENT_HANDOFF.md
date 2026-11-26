@@ -6,6 +6,8 @@ La cuisine enregistrée sur la commande peut marquer la remise au livreur et la 
 
 L’impression à l’arrivée, le déclenchement planifié et la réimpression utilisent aussi la caisse confirmée. Une caisse devenue inaccessible produit une erreur d’impression sur la commande. Les essais sur `cdde075` couvrent ces trois parcours avec des réponses Clover simulées, ainsi que la réimpression d’une commande historique. Les 193 tests ciblés, TypeScript et ESLint réussissent.
 
+L’annulation et la relève vers la tablette Skip ferment la commande sur la caisse qui l’a confirmée. Si cette caisse diffère de la caisse configurée, Food Hub y vérifie l’identifiant et le titre avant de demander une modification. Lors d’un envoi concurrent, la copie excédentaire est retirée de la caisse qui l’a créée. Une même référence sur deux caisses distingue toujours deux copies lorsque les deux caisses sont confirmées. Les 117 tests ciblés utilisent des réponses Clover simulées.
+
 — signé : Codex @ cloud · 2026-11-26
 
 ## 2026-11-26 — Changement de plateforme du relais et annulation Clover

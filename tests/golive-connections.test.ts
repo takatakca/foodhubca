@@ -13,7 +13,7 @@ import { ServicesStrip } from '../components/live/services-strip';
 import { ProgressRing } from '../components/ui/progress-ring';
 import { CelebrationBanner } from '../components/ui/celebration';
 import { I18nProvider } from '../lib/i18n/client';
-import { goLiveProgress, goLiveStages, type Step } from '@/app/(console)/settings/go-live/steps';
+import { goLiveProgress, goLiveStages, relayGoLiveSteps, type RelayGoLiveInput, type Step } from '@/app/(console)/settings/go-live/steps';
 
 const KEYS = [
   'SMTP_HOST', 'SMTP_USER', 'SMTP_PASS', 'SMTP_PORT', 'RESEND_API_KEY', 'AUTH_EMAIL_FROM', 'REPORT_EMAIL_FROM',
@@ -167,6 +167,65 @@ describe('Go-live ring and stepper, from the checklist', () => {
     expect(html).toContain('aria-label="Prêt à 100 %"');
     expect(html).toContain('stroke-dashoffset="0"');
     expect(renderToStaticMarkup(createElement(ProgressRing, { value: 0, label: '0/3', ariaLabel: '0 sur 3' }))).not.toContain('stroke-go');
+  });
+});
+
+describe('Go-live screen relay and alert routing review', () => {
+  type Screen = NonNullable<RelayGoLiveInput['relay']>['screens'][number];
+  const activeRule = { enabled: true, escalate: true };
+  const watch = { enabled: true, sharedPhoneConfigured: false, callConfigured: true, rules: { screen_down: activeRule, screen_waiting: activeRule } };
+  const screen = (platform: Screen['platform'], locationCode: string, status: Screen['status'] = 'online'): Screen => ({ platform, locationCode, status });
+  const input: RelayGoLiveInput = {
+    relay: { agentConfigured: true, screens: [screen('doordash', 'NDG')] }, watch, kitchenPhoneLocations: ['NDG'],
+  };
+  const locations: Record<string, string> = { NDG: 'NDG', SAINT: 'Saint-Léonard', PRIVATE: 'Other scope' };
+  const locName = (code: string) => locations[code] ?? code;
+  const en = (fr: string, english: string) => english || fr;
+  const fr = (french: string) => french;
+  const steps = (patch: Partial<RelayGoLiveInput> = {}) => relayGoLiveSteps({ ...input, ...patch }, en, locName);
+
+  it('distinguishes unavailable relay data, an unconfigured token and an empty scoped screen list', () => {
+    const relay = (value: RelayGoLiveInput['relay']) => steps({ relay: value })[0];
+    expect(relay(null)).toMatchObject({ state: 'warn', optional: true, href: '/stores/screens', body: 'Relay status unavailable.' });
+    expect(relay({ agentConfigured: false, screens: [] }).body).toContain('relay token');
+    expect(relay({ agentConfigured: true, screens: [] }).body).toContain('No relay screens enrolled');
+    const checks = steps({ relay: null, watch: null });
+    expect(checks[1]).toMatchObject({ state: 'warn', optional: true, href: '/settings/alerts', body: 'Call settings unavailable.' });
+    expect(goLiveProgress([{ state: 'done' }, ...checks])).toMatchObject({ percent: 100, todo: 0 });
+  });
+
+  it('reports online coverage and separates each reason an enrolled screen needs attention', () => {
+    const screens = [
+      screen('ubereats', 'NDG'), screen('ubereats', 'NDG', 'never'), screen('doordash', 'NDG', 'offline'),
+      screen('skip', 'NDG', 'login_required'), screen('skip', 'NDG', 'error'),
+    ];
+    const [relay] = steps({ relay: { agentConfigured: true, screens } });
+    expect(relay.state).toBe('warn');
+    for (const phrase of ['1 of 5 online.', 'Uber Eats 1/2', 'DoorDash 0/1', 'SkipTheDishes 0/2', '1 awaiting first heartbeat', '1 offline', '1 with sign-in required', '1 with an error']) {
+      expect(relay.body).toContain(phrase);
+    }
+    const [fresh] = relayGoLiveSteps(input, fr, locName);
+    expect(fresh).toMatchObject({ state: 'done', body: '1 sur 1 en ligne. DoorDash 1/1' });
+  });
+
+  it('guides the viewer to disabled rules, missing Twilio or an unconfigured relay', () => {
+    const calls = (check: RelayGoLiveInput['watch']) => steps({ watch: check })[1];
+    expect(calls({ ...watch, enabled: false })).toMatchObject({ state: 'warn', href: '/settings/alerts', body: 'Turn on Watchtower to monitor the screens.' });
+    expect(calls({ ...watch, rules: { screen_down: { ...activeRule, escalate: false }, screen_waiting: activeRule } }).body).toContain('calls for screen outages');
+    expect(calls({ ...watch, rules: { screen_down: activeRule } }).body).toContain('calls for waiting orders');
+    expect(calls({ ...watch, callConfigured: false }).body).toContain('Set up Twilio');
+    expect(steps({ relay: { agentConfigured: false, screens: [] } })[1]).toMatchObject({ state: 'warn', href: '/stores/screens' });
+  });
+
+  it('uses a shared line first, or checks the phone of each distinct enrolled kitchen', () => {
+    const screens = [screen('ubereats', 'NDG'), screen('doordash', 'SAINT'), screen('skip', 'SAINT', 'never')];
+    const relay = { agentConfigured: true, screens };
+    expect(steps({ relay, kitchenPhoneLocations: ['NDG', 'PRIVATE'] })[1]).toMatchObject({ state: 'warn', href: '/settings/business', body: 'Add a kitchen phone for Saint-Léonard.' });
+    expect(steps({ relay, kitchenPhoneLocations: ['NDG', 'SAINT'] })[1]).toMatchObject({ state: 'done', body: 'Every kitchen with one of these screens has a phone configured for alerts.' });
+
+    const shared = relayGoLiveSteps({ relay, watch: { ...watch, sharedPhoneConfigured: true }, kitchenPhoneLocations: [] }, fr, locName);
+    expect(shared[0].state).toBe('warn');
+    expect(shared[1]).toMatchObject({ state: 'done', href: '/settings/alerts', body: 'La ligne partagée est configurée pour les alertes de ces écrans.' });
   });
 });
 

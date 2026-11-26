@@ -26,7 +26,7 @@ type ChannelsData = {
   mode: string; liveEnabled: boolean; dashboardProtected: boolean;
   clover: { configured: boolean; appConfigured?: boolean; tokenMerchants?: number; missing: string[]; webhookAuthSet?: boolean; verification?: { code: string } | null; app?: CloverAppInfo };
   channels: Readiness[]; relay?: { channels: string[] };
-  goLive?: { clover: { injectionEnabled: boolean; unreachableStores: CloverStoreProblem[] }; sessionSecret: SessionSecretInfo };
+  goLive?: { clover: { injectionEnabled: boolean; unreachableStores: CloverStoreProblem[]; defaultRoutedStores?: Store[] }; sessionSecret: SessionSecretInfo };
 };
 /** A SESSION_SECRET that changed less than this long ago is pointed out (everyone, tablets included, had to sign in again). */
 const SECRET_CHANGE_WARN_MS = 7 * 86400_000;
@@ -111,12 +111,26 @@ function cloverStep(ch: ChannelsData, t: (fr: string, en: string) => string, loc
   return {
     group: t('Plateformes', 'Platforms'), key: 'clover', state: done ? 'done' : 'todo', title: 'Clover',
     body: done
-      ? (active ? t(`Les commandes vont dans la caisse (${active} marchand(s) branché(s) par l’app).`, `Orders go into the register (${active} merchant(s) connected through the app).`) : t('Les commandes vont dans la caisse.', 'Orders go into the register.'))
+      ? (active ? t(`Accès Clover configuré. Marchands branchés par l’app (${active}).`, `Clover access is configured. Merchants connected through the app (${active}).`) : t('Les identifiants Clover sont configurés.', 'Clover credentials are configured.'))
       : appKeys
         ? t('Les clés de l’app sont en place, mais aucun marchand Clover n’est branché : « Brancher un marchand Clover », ou ouvrez l’app depuis Clover.', 'The app keys are in, but no Clover merchant is connected: “Connect a Clover merchant”, or open the app from Clover.')
         : `${t('Manque :', 'Missing:')} ${ch.clover.missing.join(', ')}`,
     href: '/settings/channels', cta: t('Brancher', 'Connect'),
   };
+}
+
+function cloverDefaultSteps(ch: ChannelsData, t: (fr: string, en: string) => string, locName: (code: string) => string): Step[] {
+  const stores = ch.goLive?.clover.defaultRoutedStores ?? [];
+  if (!stores.length) return [];
+  const label = (channel: string) => ch.channels.find((c) => c.channel === channel)?.label ?? channel;
+  const list = stores.slice(0, 4).map((store) => `${store.brandName} · ${shortLoc(locName(store.locationCode))} · ${label(store.channel)}`).join(', ');
+  const overflow = stores.length > 4 ? ` (+${stores.length - 4})` : '';
+  return [{
+    group: t('Plateformes', 'Platforms'), key: 'clover-default', state: 'warn',
+    title: t('Caisse Clover par défaut', 'Default Clover register'),
+    body: `${t('Vérifiez que la caisse par défaut dessert les cuisines de ces liaisons.', 'Check that the default register serves the kitchens in these mappings.')} ${list}${overflow}`,
+    href: '/stores/mapping', cta: t('Vérifier les liaisons', 'Review mappings'),
+  }];
 }
 
 /** SESSION_SECRET: required (set, long), and stable — a recent change is pointed out. */
@@ -183,6 +197,7 @@ export default function GoLivePage() {
         { group: t('Cuisine', 'Kitchen'), key: 'tablets', state: locNoTablet.length ? 'todo' : tabletsOff ? 'warn' : 'done', title: t('Une tablette par cuisine', 'A tablet per kitchen'), body: locNoTablet.length ? `${t('Sans tablette :', 'No tablet:')} ${list(locNoTablet)}` : tabletsOff ? t(`${tabletsOff} tablette(s) hors ligne en ce moment.`, `${tabletsOff} tablet(s) offline right now.`) : t('Toutes en ligne.', 'All online.'), href: '/settings/devices', cta: t('Tablettes', 'Tablets') },
         { group: t('Cuisine', 'Kitchen'), key: 'kphone', state: noPhone.length ? 'warn' : 'done', title: t('Téléphone de chaque cuisine', 'Each kitchen’s phone'), body: noPhone.length ? `${t('La surveillance ne peut pas appeler :', 'The watchtower cannot call:')} ${list(noPhone)}` : t('La surveillance appelle la cuisine en premier, comme Uber.', 'The watchtower calls the kitchen first, like Uber.'), href: '/settings/business', cta: t('Ajouter', 'Add') },
         cloverStep(ch, t, locName),
+        ...cloverDefaultSteps(ch, t, locName),
         ...(['uber_eats', 'doordash', 'skip'] as const).map((k): Step => {
           const r = ready(k);
           const n = byCh(k);

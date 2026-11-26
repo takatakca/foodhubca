@@ -4,6 +4,8 @@ Mise en service distingue les liaisons directes, le relais de commandes, DoorDas
 
 Les téléphones de cuisine suivent la même validation que les appels Watchtower. Quand aucune destination utilisable n’est configurée pour le relais, les réglages indiquent où ajouter un téléphone. Une saisie invalide dans Entreprise est refusée avant sauvegarde. Une modification qui omet le téléphone le conserve. Vider volontairement le champ le retire. Les preuves de commande, d’impression et d’appel restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
 
+La couverture des tablettes vérifie au moins une tablette en ligne par cuisine active du périmètre. Un appareil hors ligne dans une cuisine désactivée et une tablette de secours hors ligne ne bloquent pas cette couverture. Le guide indique les cuisines actives sans tablette ou sans tablette en ligne. Il affiche l’absence de cuisine active quand le périmètre est vide.
+
 — signé : Codex @ cloud · 2026-11-26
 
 ## 2026-11-26 — Numéro de commande saisi à partir d’un écran

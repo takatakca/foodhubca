@@ -6,6 +6,7 @@
 //   - The progress ring and the stepper (goLiveProgress, goLiveStages) count what is left « À faire »: 100 % = nothing.
 import type { T } from '@/lib/i18n';
 import type { GoLiveFacts } from '@/lib/foodhub/go-live';
+import type { DeviceStatus } from '@/lib/foodhub/identity/devices';
 import { isRelayKitchenStore } from '@/lib/foodhub/order-tools/kitchen-status';
 import { normalizePhone } from '@/lib/foodhub/phone-number';
 import { PUBLIC_URL_PROBLEM_TEXT, type PublicUrlProblem } from '@/lib/foodhub/public-url';
@@ -129,6 +130,40 @@ export function goLiveKitchenCoverage(
     kitchenPhoneLocations: [...phoneCodes],
     missingPhoneLocations: kitchens.filter(({ code }) => !phoneCodes.has(code)).map(({ code, name }) => ({ code, name })),
   };
+}
+
+export type GoLiveTablet = { locationCode: string; status: DeviceStatus };
+
+export function nativeTabletGoLiveStep(
+  activeLocations: ReadonlySet<string>, devices: ReadonlyArray<GoLiveTablet>, t: T, locName: (code: string) => string,
+): Step {
+  const base = {
+    group: t('Cuisine', 'Kitchen'), key: 'tablets', title: t('Une tablette par cuisine', 'A tablet per kitchen'),
+    href: '/settings/devices', cta: t('Tablettes', 'Tablets'),
+  };
+  if (!activeLocations.size) {
+    return { ...base, state: 'warn', body: t('Aucune cuisine active dans votre périmètre.', 'No active kitchens in your scope.'), href: '/settings/business', cta: t('Cuisines', 'Kitchens') };
+  }
+
+  const paired = new Set<string>();
+  const online = new Set<string>();
+  for (const { locationCode, status } of devices) {
+    if (status === 'revoked' || !activeLocations.has(locationCode)) continue;
+    paired.add(locationCode);
+    if (status === 'online') online.add(locationCode);
+  }
+  const kitchens = [...activeLocations];
+  const missing = kitchens.filter((code) => !paired.has(code));
+  if (missing.length) {
+    const names = missing.map(locName).join(', ');
+    return { ...base, state: 'todo', body: t(`Jumelez une tablette pour ${names}.`, `Pair a tablet for ${names}.`) };
+  }
+  const offline = kitchens.filter((code) => !online.has(code));
+  if (offline.length) {
+    const names = offline.map(locName).join(', ');
+    return { ...base, state: 'warn', body: t(`Aucune tablette en ligne pour ${names}.`, `No tablet online for ${names}.`) };
+  }
+  return { ...base, state: 'done', body: t('Chaque cuisine active a une tablette en ligne.', 'Every active kitchen has a tablet online.') };
 }
 
 function relayScreenStep(relay: RelayGoLiveInput['relay'], t: T): Step {

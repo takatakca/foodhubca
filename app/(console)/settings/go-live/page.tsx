@@ -19,9 +19,9 @@ import { CELEBRATION_KEYS } from '@/lib/ui/celebrate';
 import { cn } from '@/lib/ui/cn';
 import type { GoLiveFacts } from '@/lib/foodhub/go-live';
 import {
-  alertSteps, cloverAppSteps, goLiveKitchenCoverage, goLiveProgress, goLiveStages, platformGoLiveStep, relayGoLiveSteps,
+  alertSteps, cloverAppSteps, goLiveKitchenCoverage, goLiveProgress, goLiveStages, nativeTabletGoLiveStep, platformGoLiveStep, relayGoLiveSteps,
   stepBadge, stepKind, stepTally, stepText, tallyLine,
-  type CloverAppInfo, type GoLiveStage, type PlatformGoLiveInput, type RelayGoLiveInput, type Step,
+  type CloverAppInfo, type GoLiveStage, type GoLiveTablet, type PlatformGoLiveInput, type RelayGoLiveInput, type Step,
 } from './steps';
 
 type Readiness = NonNullable<PlatformGoLiveInput['readiness']> & { channel: string };
@@ -43,7 +43,6 @@ const SECRET_CHANGE_WARN_MS = 7 * 86400_000;
 type Notify = { email: boolean; sms: boolean; call: boolean; chat: boolean; ai: boolean };
 type WatchGoLive = { channels: Notify; settings?: Pick<WatchSettings, 'enabled' | 'rules'>; screenAlertPhoneConfigured?: boolean };
 type User = { username: string; name: string; role: string; locations: string[]; email: string | null; phone: string | null; active: boolean; hasPin: boolean };
-type Device = { id: string; locationCode: string; status: string };
 type Store = { channel: string; brandName: string; locationCode: string; channelStoreId?: string };
 type Fees = { confirmed: Record<string, boolean> };
 
@@ -179,7 +178,7 @@ export default function GoLivePage() {
         api<ChannelsData>('/api/foodhub/channels'),
         api<WatchGoLive>('/api/foodhub/watch/settings'),
         api<{ users: User[] }>('/api/foodhub/users'),
-        api<{ devices: Device[] }>('/api/foodhub/devices'),
+        api<{ devices: GoLiveTablet[] }>('/api/foodhub/devices'),
         api<{ stores: Store[] }>('/api/foodhub/stores'),
         api<{ fees: Fees }>('/api/foodhub/recon/fees').catch((): { fees: Fees } => ({ fees: { confirmed: {} } })),
         api<{ locations: Array<{ code: string; name: string; phone?: string | null; active: boolean }> }>('/api/foodhub/catalog'),
@@ -192,12 +191,11 @@ export default function GoLivePage() {
       const users = u.users.filter((x) => x.active);
       const owner = users.some((x) => x.role === 'owner' && (x.email || x.phone));
       const locNoManager = locations.filter((l) => !users.some((x) => (x.role === 'manager' || x.role === 'owner') && x.phone && x.hasPin && (!x.locations.length || x.locations.includes(l.code))));
-      const locNoTablet = locations.filter((l) => !d.devices.some((x) => x.locationCode === l.code));
-      const tabletsOff = d.devices.filter((x) => x.status !== 'online').length;
       const staffNoPin = users.filter((x) => x.role === 'operator' && !x.hasPin).length;
       const ready = (k: string) => ch.channels.find((x) => x.channel === k);
       const unconfirmed = ['uber_eats', 'doordash', 'skip'].filter((k) => !f.fees.confirmed[k]);
       const list = (xs: Array<{ name: string }>) => xs.map((l) => shortLoc(l.name)).join(', ');
+      const shortName = (code: string) => shortLoc(locName(code));
       const relayChecks = relayGoLiveSteps({
         relay: scopedRelay,
         watch: w.settings ? {
@@ -205,7 +203,7 @@ export default function GoLivePage() {
           sharedPhoneConfigured: w.screenAlertPhoneConfigured === true,
         } : null,
         kitchenPhoneLocations,
-      }, t, (code) => shortLoc(locName(code)));
+      }, t, shortName);
 
       const out: Step[] = [
         { group: t('Fondations', 'Foundations'), key: 'db', state: ch.mode === 'memory' ? 'todo' : 'done', title: t('Base de données Supabase', 'Supabase database'), body: ch.mode === 'memory' ? t('Mode démo : rien n’est gardé au redémarrage. Lancez npm run setup avec l’URL et la clé Supabase, puis exécutez INSTALL_ALL.sql.', 'Demo mode: nothing is kept across restarts. Run npm run setup with the Supabase URL and key, then run INSTALL_ALL.sql.') : t('Branchée.', 'Connected.'), href: '/settings/channels', cta: t('Voir', 'See') },
@@ -215,7 +213,7 @@ export default function GoLivePage() {
         { group: t('Équipe', 'Team'), key: 'owner', state: owner ? 'done' : 'todo', title: t('Votre compte propriétaire', 'Your owner account'), body: owner ? t('Connexion par code, sans mot de passe.', 'Code sign-in, no password.') : t('Créez votre compte avec votre courriel ou cellulaire, puis ne gardez le mot de passe que pour le secours.', 'Create your account with your email or cell, then keep the password for recovery only.'), href: '/settings/team', cta: t('Ajouter', 'Add') },
         { group: t('Équipe', 'Team'), key: 'managers', state: locNoManager.length ? 'todo' : 'done', title: t('Un gérant joignable par succursale', 'A reachable manager per location'), body: locNoManager.length ? `${t('Sans gérant avec cellulaire et NIP :', 'No manager with cell and PIN:')} ${list(locNoManager)}` : t('Chaque succursale a un gérant avec cellulaire et NIP.', 'Every location has a manager with a cell and a PIN.'), href: '/settings/team', cta: t('Équipe', 'Team') },
         { group: t('Équipe', 'Team'), key: 'pins', state: staffNoPin ? 'warn' : 'done', title: t('NIP des employés', 'Staff PINs'), body: staffNoPin ? t(`${staffNoPin} employé(s) sans NIP — ils ne peuvent pas déverrouiller une tablette.`, `${staffNoPin} staff without a PIN — they cannot unlock a tablet.`) : t('Tous les employés ont un NIP.', 'All staff have a PIN.'), href: '/settings/team', cta: t('Équipe', 'Team') },
-        { group: t('Cuisine', 'Kitchen'), key: 'tablets', state: locNoTablet.length ? 'todo' : tabletsOff ? 'warn' : 'done', title: t('Une tablette par cuisine', 'A tablet per kitchen'), body: locNoTablet.length ? `${t('Sans tablette :', 'No tablet:')} ${list(locNoTablet)}` : tabletsOff ? t(`${tabletsOff} tablette(s) hors ligne en ce moment.`, `${tabletsOff} tablet(s) offline right now.`) : t('Toutes en ligne.', 'All online.'), href: '/settings/devices', cta: t('Tablettes', 'Tablets') },
+        nativeTabletGoLiveStep(activeLocations, d.devices, t, shortName),
         { group: t('Cuisine', 'Kitchen'), key: 'kphone', state: !kitchenCount || noPhone.length ? 'warn' : 'done', title: t('Téléphone de chaque cuisine', 'Each kitchen’s phone'), body: !kitchenCount
           ? t('Aucune cuisine active dans votre périmètre.', 'No active kitchens in your scope.')
           : noPhone.length ? t(`Téléphone de cuisine à vérifier pour ${list(noPhone)}.`, `Check the kitchen phone for ${list(noPhone)}.`)

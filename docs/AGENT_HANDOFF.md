@@ -1,3 +1,9 @@
+## 2026-11-26 — Numéro de relève ajouté pendant un incident d’écran
+
+Watchtower garde le premier appel en attente quand aucun numéro de relève ni de cuisine n’est disponible au premier palier. Si un numéro devient disponible pendant que l’incident reste ouvert, Watchtower peut demander l’appel au prochain passage. Une réservation en base limite cette demande à une fois par incident. La situation se vérifie dans Alertes et le journal des messages. Les essais sur les téléphones de relève restent suivis dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Vérifier un passage Watchtower en arrière-plan
 
 Dans la réponse détaillée de `GET /api/health`, `checks.watchtower.lastBackgroundCompletion` donne l’heure et le déclencheur du dernier passage achevé par minuterie ou cron. Ce contrôle complète l’horodatage de démarrage. La réception réelle des commandes et des appels reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

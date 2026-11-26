@@ -450,14 +450,31 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
     step('call', `${label} (${maskContact(destination)})`, result.ok, result.message);
   };
 
-  if (i.level < 1 && elapsed >= s.smsAfterMin) {
-    i.level = 1; changed = true;
+  const firstStageDue = elapsed >= s.smsAfterMin;
+  const smsDue = firstStageDue && i.level < 1;
+  if (firstStageDue && (smsDue || i.screenFirstCallPending)) {
+    const screenAlert = SHARED_PHONE_KINDS.includes(i.kind);
     const kitchen = i.locationCode ? kitchenPhones.get(i.locationCode) : undefined;
-    const shared = SHARED_PHONE_KINDS.includes(i.kind) ? s.screenAlertPhone : null;
+    const shared = screenAlert ? s.screenAlertPhone : null;
     const firstPhone = shared ?? kitchen;
     if (firstPhone && KITCHEN_KINDS.includes(i.kind)) {
-      await call(firstPhone, shared ? 'screen hotline' : i.locationCode ?? 'kitchen', 'fr', shared ? 'alert_shared_screen' : 'alert_kitchen');
+      // Keep the claim across ticks and restarts, including when Twilio's reply is uncertain.
+      const claimed = screenAlert
+        ? await getRepo().claimKv(`watch:first-screen-call:${i.id}`, { at: new Date(now).toISOString() }).catch(() => null)
+        : true;
+      if (claimed === null) {
+        if (!i.screenFirstCallPending) { i.screenFirstCallPending = true; changed = true; }
+      } else {
+        if (i.screenFirstCallPending) { delete i.screenFirstCallPending; changed = true; }
+        if (claimed) await call(firstPhone, shared ? 'screen hotline' : i.locationCode ?? 'kitchen', 'fr', shared ? 'alert_shared_screen' : 'alert_kitchen');
+        else called.add(normalizePhone(firstPhone) ?? firstPhone);
+      }
+    } else if (screenAlert && smsDue) {
+      i.screenFirstCallPending = true;
     }
+  }
+  if (smsDue) {
+    i.level = 1; changed = true;
     const to = recipients(users, i, ['manager'], 'sms');
     const list = to.length ? to : recipients(users, i, ['owner'], 'sms');
     for (const u of list) {

@@ -9,8 +9,9 @@ import { saveLocation } from '../lib/foodhub/catalog';
 import { allDayWeek, saveHours } from '../lib/foodhub/hours';
 import type { OutboxEntry } from '../lib/foodhub/notify';
 import type { CallStatus } from '../lib/foodhub/notify/call-status';
+import { getRepo } from '../lib/foodhub/repo';
 import { addScreen, getScreen, type Heartbeat, type ScreenPlatform } from '../lib/foodhub/screens';
-import { getIncident, listIncidents, saveWatchSettings, type WatchReport } from '../lib/foodhub/watch/engine';
+import { INCIDENTS, actOnIncident, getIncident, listIncidents, saveWatchSettings, type WatchReport } from '../lib/foodhub/watch/engine';
 
 const BASE = 'https://hub.example.test/api/foodhub';
 const RELAY_TOKEN = 'test-relay-token-for-alert-delivery';
@@ -102,6 +103,101 @@ describe('Screen relay alerts without a console open', () => {
     { platform, kind: 'screen_waiting', detectedAt: 2 },
     { platform, kind: 'screen_down', detectedAt: 6 },
   ]);
+
+  const offlineScreen = { platform: 'skip' as const, kind: 'screen_down', detectedAt: 6 };
+
+  async function openScreenIncident({ platform, kind, detectedAt }: typeof scenarios[number], kitchenPhone: string | null = null) {
+    await saveLocation({ code: KITCHEN, name: 'Test kitchen', address: '', active: true, phone: kitchenPhone });
+    await saveHours({ locations: { [KITCHEN]: allDayWeek() }, brands: {}, holidays: [] });
+    await saveWatchSettings({ enabled: true, screenAlertPhone: null, smsAfterMin: 1, unacceptedAfterSec: 60, postToChat: false, aiExplain: false }, OWNER);
+    const screen = await addScreen({ name: 'Test platform screen', platform, locationCode: KITCHEN, viewUrl: 'https://relay.example.test/s01/' }, OWNER);
+    if ('error' in screen) throw new Error(screen.error);
+    const screenId = screen.id;
+
+    const waiting = kind === 'screen_waiting';
+    await reportScreen(screenId, platform, 0);
+    if (waiting) {
+      advanceTo(1);
+      await reportScreen(screenId, platform, 2);
+    }
+    async function tick(offset: number) {
+      advanceTo(detectedAt + offset);
+      if (waiting) await reportScreen(screenId, platform, 2);
+      return runCron();
+    }
+    expect(await tick(0)).toMatchObject({ opened: 1, escalated: 0 });
+    const opened = await listIncidents({ status: ['open'] });
+    expect(opened).toHaveLength(1);
+    const [incident] = opened;
+    expect(incident).toMatchObject({ kind, severity: 'critical', deviceId: screenId, level: 0 });
+    return { incident, tick };
+  }
+
+  it.each(scenarios)('sends the first $platform $kind call once when a shared number is saved after the SMS stage', async (scenario) => {
+    const { incident, tick } = await openScreenIncident(scenario);
+    expect(await tick(1)).toMatchObject({ opened: 0, escalated: 1 });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await readOutbox()).toEqual([]);
+    const waitingSteps = (await getIncident(incident.id))?.steps.filter((step) => step.kind === 'sms');
+    expect(waitingSteps).toHaveLength(1);
+
+    await saveWatchSettings({ screenAlertPhone: SHARED_PHONE }, OWNER);
+    fetchMock.mockResolvedValueOnce(Response.json({ sid: CALL_SID, status: 'queued' }, { status: 201 }));
+    expect(await tick(2)).toMatchObject({ opened: 0, escalated: 1 });
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(`${CALLS}.json`, expect.objectContaining({ method: 'POST' }));
+    expect(new URLSearchParams(String(fetchMock.mock.calls[0][1]?.body)).get('To')).toBe(SHARED_PHONE);
+
+    expect(await tick(3)).toMatchObject({ opened: 0, escalated: 0 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(await readOutbox()).toMatchObject([{ incidentId: incident.id, purpose: 'alert_shared_screen', ok: true, ref: CALL_SID }]);
+    const updated = await getIncident(incident.id);
+    expect(updated?.level).toBe(1);
+    expect(updated?.steps.filter((step) => step.kind === 'sms')).toEqual(waitingSteps);
+  });
+
+  it('keeps the first call completed at the kitchen number when a shared number is saved later', async () => {
+    const { incident, tick } = await openScreenIncident(offlineScreen, KITCHEN_PHONE);
+    fetchMock.mockResolvedValueOnce(Response.json({ sid: CALL_SID, status: 'queued' }, { status: 201 }));
+    expect(await tick(1)).toMatchObject({ escalated: 1 });
+    expect(new URLSearchParams(String(fetchMock.mock.calls[0][1]?.body)).get('To')).toBe(KITCHEN_PHONE);
+
+    await saveWatchSettings({ screenAlertPhone: SHARED_PHONE }, OWNER);
+    expect(await tick(2)).toMatchObject({ opened: 0, escalated: 0 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(await readOutbox()).toMatchObject([{ incidentId: incident.id, purpose: 'alert_kitchen', ok: true, ref: CALL_SID }]);
+  });
+
+  it('does not redial when the first call was sent but the stored incident still shows it as pending', async () => {
+    const { incident, tick } = await openScreenIncident(offlineScreen);
+    expect(await tick(1)).toMatchObject({ escalated: 1 });
+    const pending = structuredClone(await getIncident(incident.id));
+    if (!pending) throw new Error('Expected an open screen incident');
+    expect(pending.screenFirstCallPending).toBe(true);
+
+    await saveWatchSettings({ screenAlertPhone: SHARED_PHONE }, OWNER);
+    fetchMock.mockResolvedValueOnce(Response.json({ sid: CALL_SID, status: 'queued' }, { status: 201 }));
+    expect(await tick(2)).toMatchObject({ escalated: 1 });
+
+    // Simulate interruption after the call claim and outbox were saved, before the incident update was durable.
+    await getRepo().putDocs(INCIDENTS, [{ id: pending.id, key: pending.key, at: pending.openedAt, data: pending }]);
+    expect((await getIncident(incident.id))?.screenFirstCallPending).toBe(true);
+    await tick(3);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect((await getIncident(incident.id))?.screenFirstCallPending).toBeUndefined();
+    expect(await readOutbox()).toMatchObject([{ incidentId: incident.id, purpose: 'alert_shared_screen', ok: true, ref: CALL_SID }]);
+  });
+
+  it('leaves an acknowledged screen incident quiet when a shared number is saved later', async () => {
+    const { incident, tick } = await openScreenIncident(offlineScreen);
+    expect(await tick(1)).toMatchObject({ escalated: 1 });
+    await actOnIncident(incident.id, 'ack', OWNER);
+    await saveWatchSettings({ screenAlertPhone: SHARED_PHONE }, OWNER);
+
+    expect(await tick(2)).toMatchObject({ opened: 0, escalated: 0 });
+    expect(await getIncident(incident.id)).toMatchObject({ status: 'acknowledged' });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await readOutbox()).toEqual([]);
+  });
 
   it.each(scenarios)('routes $platform $kind to the shared phone and reads its recorded call status', async ({ platform, kind, detectedAt }) => {
     await saveLocation({ code: KITCHEN, name: 'Test kitchen', address: '', active: true, phone: KITCHEN_PHONE });

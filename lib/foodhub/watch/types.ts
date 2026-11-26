@@ -73,6 +73,8 @@ export interface Incident {
   snoozedUntil?: string | null;
   /** Escalation level reached: 0 screen, 1 SMS, 2 call, 3 owner. */
   level: number;
+  /** The first screen call is still due and has not been claimed for sending. */
+  screenFirstCallPending?: true;
   steps: IncidentStep[];
   /** Plain-language explanation and what to do (rule text, or Claude when ANTHROPIC_API_KEY is set). */
   explanation?: string | null;

@@ -13,7 +13,7 @@ import { inboxSummary } from '../inbox';
 import { effectiveHours, getHours, holidaysFor, isOpenAt, localDate, openIntervals } from '../hours';
 import { DEVICE_OFFLINE_AFTER_MS, listDevices } from '../identity/devices';
 import { listScreens, SCREEN_PLATFORM_LABEL, screenStatus } from '../screens';
-import { aiConfigured, maskContact, normalizePhone, placeCall, postToChat, sendSms } from '../notify';
+import { aiConfigured, callConfigured, maskContact, normalizePhone, placeCall, postToChat, sendSms } from '../notify';
 import { listCases, RECOVERABLE } from '../recon/engine';
 import { getRepo } from '../repo';
 import { isWaitingScheduled } from '../scheduling';
@@ -429,6 +429,15 @@ function callText(i: Incident, lang: 'fr' | 'en') {
 /** Incidents the kitchen itself can fix: the kitchen phone rings first (like Uber calling the restaurant). */
 const SHARED_PHONE_KINDS: IncidentKind[] = ['device_offline', 'screen_down', 'screen_waiting'];
 const KITCHEN_KINDS: IncidentKind[] = ['order_unaccepted', 'order_unseen', 'device_offline', 'device_muted', 'screen_down', 'screen_waiting', 'courier_waiting', 'pos_failed'];
+const FIRST_SCREEN_CALL_NEEDS_VOICE = 'Premier appel en attente de la configuration de Twilio Voice. / First call pending until Twilio Voice is configured.';
+
+/** The first destination for an incident that can be handled by the kitchen. */
+export function firstAlertCallTarget(kind: IncidentKind, sharedPhone: string | null, kitchenPhone?: string): { to: string; purpose: 'alert_shared_screen' | 'alert_kitchen' } | null {
+  if (!KITCHEN_KINDS.includes(kind)) return null;
+  const shared = SHARED_PHONE_KINDS.includes(kind) ? sharedPhone : null;
+  const to = shared ?? kitchenPhone;
+  return to ? { to, purpose: shared ? 'alert_shared_screen' : 'alert_kitchen' } : null;
+}
 
 async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now: number, quiet: boolean, kitchenPhones: Map<string, string> = new Map()): Promise<boolean> {
   if (i.status !== 'open') return false;
@@ -437,7 +446,10 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
   if (quiet && i.severity !== 'critical') return false;
   const elapsed = (now - Date.parse(i.openedAt)) / 60000;
   let changed = false;
-  const step = (kind: Incident['steps'][number]['kind'], to: string, ok: boolean, message: string) => { i.steps.push({ at: new Date(now).toISOString(), kind, to, ok, message }); changed = true; };
+  const step = (kind: Incident['steps'][number]['kind'], to: string, ok: boolean, message: string, uncertain?: boolean) => {
+    i.steps.push({ at: new Date(now).toISOString(), kind, to, ok, message, ...(uncertain ? { uncertain } : {}) });
+    changed = true;
+  };
 
   // A delayed tick can make several escalation stages due at once. One phone
   // can be listed in multiple roles; later ticks can still escalate normally.
@@ -447,17 +459,38 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
     if (called.has(destination)) return;
     called.add(destination);
     const result = await placeCall({ to: destination, say: callText(i, lang), lang }, { purpose, incidentId: i.id });
-    step('call', `${label} (${maskContact(destination)})`, result.ok, result.message);
+    step('call', `${label} (${maskContact(destination)})`, result.ok, result.message, result.uncertain);
   };
 
-  if (i.level < 1 && elapsed >= s.smsAfterMin) {
-    i.level = 1; changed = true;
+  const firstStageDue = elapsed >= s.smsAfterMin;
+  const smsDue = firstStageDue && i.level < 1;
+  if (firstStageDue && (smsDue || i.screenFirstCallPending)) {
+    const screenAlert = SHARED_PHONE_KINDS.includes(i.kind);
     const kitchen = i.locationCode ? kitchenPhones.get(i.locationCode) : undefined;
-    const shared = SHARED_PHONE_KINDS.includes(i.kind) ? s.screenAlertPhone : null;
-    const firstPhone = shared ?? kitchen;
-    if (firstPhone && KITCHEN_KINDS.includes(i.kind)) {
-      await call(firstPhone, shared ? 'screen hotline' : i.locationCode ?? 'kitchen', 'fr', shared ? 'alert_shared_screen' : 'alert_kitchen');
+    const target = firstAlertCallTarget(i.kind, s.screenAlertPhone, kitchen);
+    const waitingForVoice = screenAlert && Boolean(target) && !callConfigured();
+    if (target && !waitingForVoice) {
+      // Keep the claim across ticks and restarts, including when Twilio's reply is uncertain.
+      const claimed = screenAlert
+        ? await getRepo().claimKv(`watch:first-screen-call:${i.id}`, { at: new Date(now).toISOString() }).catch(() => null)
+        : true;
+      if (claimed === null) {
+        if (!i.screenFirstCallPending) { i.screenFirstCallPending = true; changed = true; }
+      } else {
+        if (i.screenFirstCallPending) { delete i.screenFirstCallPending; changed = true; }
+        if (claimed) await call(target.to, target.purpose === 'alert_shared_screen' ? 'screen hotline' : i.locationCode ?? 'kitchen', 'fr', target.purpose);
+        else called.add(normalizePhone(target.to) ?? target.to);
+      }
+    } else if (screenAlert) {
+      if (!i.screenFirstCallPending) { i.screenFirstCallPending = true; changed = true; }
+      if (waitingForVoice && !i.steps.some((entry) => entry.kind === 'note' && entry.message === FIRST_SCREEN_CALL_NEEDS_VOICE)) {
+        i.steps.push({ at: new Date(now).toISOString(), kind: 'note', by: 'Watchtower', message: FIRST_SCREEN_CALL_NEEDS_VOICE });
+        changed = true;
+      }
     }
+  }
+  if (smsDue) {
+    i.level = 1; changed = true;
     const to = recipients(users, i, ['manager'], 'sms');
     const list = to.length ? to : recipients(users, i, ['owner'], 'sms');
     for (const u of list) {
@@ -521,7 +554,17 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
 
     for (const d of detections) {
       seen.add(d.key);
-      const cur = live.get(d.key) ?? recentlyResolved.get(d.key);
+      let cur = live.get(d.key) ?? recentlyResolved.get(d.key);
+      if (cur && d.deviceId && (cur.locationCode ?? null) !== (d.locationCode ?? null)) {
+        // The device ID stays the same after a move, but its alert history and phone belong to the original kitchen.
+        if (cur.status !== 'resolved') {
+          Object.assign(cur, { status: 'resolved', resolvedAt: iso, resolvedBy: 'Watchtower', updatedAt: iso });
+          cur.steps.push({ at: iso, kind: 'resolved', by: 'Watchtower', message: 'Appareil réaffecté à une autre cuisine. / Device reassigned to another kitchen.' });
+          dirty.set(cur.id, cur);
+          report.resolved++;
+        }
+        cur = undefined;
+      }
       if (cur) {
         const up = SEV[d.severity] > SEV[cur.severity];
         const reopened = cur.status === 'resolved';

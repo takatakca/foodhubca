@@ -15,8 +15,8 @@ import { cloverFetch } from './clover-http';
 import { getRepo } from '../repo';
 import { screenEntryStoreRef } from '../screen-entry-id';
 import type { ChannelKey, StoredOrder } from '../types';
-import { cloverBaseUrl, cloverToken } from './clover';
-import { cloverTipCents } from './clover-order';
+import { cloverBaseUrl, cloverToken, defaultCloverMerchant } from './clover';
+import { cloverOrderTitle, cloverTipCents } from './clover-order';
 
 const KV = 'clover_refs';
 type Refs = Record<string, { tenders?: Record<string, string>; orderTypes?: Record<string, string> }>;
@@ -189,29 +189,41 @@ const SHORT: Record<ChannelKey, string> = { uber_eats: 'ue', doordash: 'dd', ski
 export async function closeCancelledCloverOrder(order: StoredOrder, mid: string | null | undefined, opts: { flagOnly?: boolean } = {}): Promise<{ ok: boolean; skipped?: boolean; message: string }> {
   // The owner's switch for touching Clover on cancellations covers the flag too (FOODHUB_CLOVER_DELETE_CANCELLED=off).
   if (!cloverDeleteCancelledEnabled()) return { ok: false, skipped: true, message: opts.flagOnly ? 'Flagging cancelled orders in Clover is off (FOODHUB_CLOVER_DELETE_CANCELLED=off).' : 'Removing cancelled orders from Clover is off (FOODHUB_CLOVER_DELETE_CANCELLED=off).' };
-  const merchant = mid || process.env.CLOVER_MERCHANT_ID;
-  if (!merchant || !order.posOrderId) return { ok: false, skipped: true, message: 'Order is not in Clover.' };
+  if (!order.posOrderId) return { ok: false, skipped: true, message: 'Order is not in Clover.' };
+  const configuredMerchant = mid || process.env.CLOVER_MERCHANT_ID;
+  const merchant = configuredMerchant || (await defaultCloverMerchant());
+  if (!merchant) return { ok: false, skipped: true, message: 'Order is not in Clover.' };
   try {
     const path = `/orders/${encodeURIComponent(order.posOrderId)}`;
+    const tag = `CANCELLED — ${platformLabel(order.channel)} #${order.displayId || order.externalOrderId.slice(0, 8)}`.slice(0, 127);
+    // The OAuth default may have changed since creation. Verify the POS order before touching the inferred register.
+    const verified = configuredMerchant ? null : await cloverJson(merchant, path);
+    if (verified) {
+      const title = String(verified.json?.title ?? '').trim().toLowerCase();
+      const activeTitle = cloverOrderTitle(order, title.startsWith('⏰') ? '⏰ ' : '').trim().toLowerCase();
+      const alreadyFlagged = title === tag.trim().toLowerCase();
+      if (!verified.ok || String(verified.json?.id ?? '') !== order.posOrderId || (title !== activeTitle && !alreadyFlagged)) {
+        return { ok: false, message: 'Could not confirm this order on the default Clover register. Check its register before closing it.' };
+      }
+      if (alreadyFlagged) return { ok: true, message: 'Order already flagged “CANCELLED” in Clover.' };
+    }
     if (opts.flagOnly) {
       // Kept in Clover for the record (Too Good To Go e-mail orders): renamed "CANCELLED", never deleted, never charged.
       // The CANCELLED words go in front of the note Clover already has (TGTG code, customer, bags, pickup window), which
       // is kept as far as Clover's 255 characters allow. The order stays open and unpaid in Clover (no void without a
       // delete): it shows in Clover's open orders under its CANCELLED title.
-      const tag = `CANCELLED — ${platformLabel(order.channel)} #${order.displayId || order.externalOrderId.slice(0, 8)}`;
       const cancelNote = 'ANNULÉE / CANCELLED by the customer on Too Good To Go — do not make, do not hand over, do not charge.';
-      const current = await cloverJson(merchant, path);
+      const current = verified ?? await cloverJson(merchant, path);
       const prev = current.ok && typeof current.json?.note === 'string' ? String(current.json.note).trim() : '';
       const note = (prev && !prev.startsWith('ANNULÉE / CANCELLED') ? `${cancelNote} | ${prev}` : cancelNote).slice(0, 255);
-      const upd = await cloverJson(merchant, path, { method: 'POST', body: JSON.stringify({ title: tag.slice(0, 127), note }) });
+      const upd = await cloverJson(merchant, path, { method: 'POST', body: JSON.stringify({ title: tag, note }) });
       return upd.ok
         ? { ok: true, message: 'Flagged “CANCELLED” in Clover (kept for the record, not deleted; it stays open and unpaid).' }
         : { ok: false, message: `Clover HTTP ${upd.status}: mark it cancelled in the Clover Orders app.` };
     }
     const del = await cloverJson(merchant, path, { method: 'DELETE' });
     if (del.ok) return { ok: true, message: 'Cancelled order removed from the Clover register.' };
-    const tag = `CANCELLED — ${platformLabel(order.channel)} #${order.displayId || order.externalOrderId.slice(0, 8)}`;
-    const upd = await cloverJson(merchant, path, { method: 'POST', body: JSON.stringify({ title: tag.slice(0, 127), note: 'Cancelled on the delivery platform — do not make, do not charge.' }) });
+    const upd = await cloverJson(merchant, path, { method: 'POST', body: JSON.stringify({ title: tag, note: 'Cancelled on the delivery platform — do not make, do not charge.' }) });
     return upd.ok
       ? { ok: true, message: `Clover refused the delete (HTTP ${del.status}) — the order was renamed “CANCELLED”.` }
       : { ok: false, message: `Clover HTTP ${del.status} / ${upd.status}: delete it from the Clover Orders app.` };

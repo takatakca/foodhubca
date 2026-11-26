@@ -93,6 +93,38 @@ it('holds an unmapped marketplace order with two linked kitchens sharing one Clo
   expect(requested('POST', `/merchants/${MERCHANT}/print_event`)).toHaveLength(1);
 });
 
+it('keeps the first kitchen assignment on a held order when its mapping moves before a retry', async () => {
+  await mapStore('fixture-shop-a', FIRST_KITCHEN);
+  await mapStore('fixture-shop-b', SECOND_KITCHEN);
+  const received = await processIncomingOrder(newOrder('store-assigned-before-retry'));
+  expect(received.pos).toMatchObject({ ok: false, error: expect.stringMatching(/several mapped kitchens/i) });
+  expect(received.order.locationCode).toBeUndefined();
+  expect(fetchMock).not.toHaveBeenCalled();
+  const unassignedOrder = structuredClone(received.order);
+
+  await mapStore(NEW_STORE, FIRST_KITCHEN);
+  const respond = fetchMock.getMockImplementation();
+  if (!respond) throw new Error('Expected Clover fixture');
+  fetchMock.mockImplementation(async (input, init) => {
+    if (new URL(String(input)).pathname.endsWith('/atomic_order/orders')) return Response.json({}, { status: 503 });
+    return respond(input, init);
+  });
+  const firstSend = await resendToClover(unassignedOrder, { manual: true });
+  expect(firstSend.pos).toMatchObject({ ok: false, uncertain: true });
+  expect(firstSend.order.locationCode).toBe(FIRST_KITCHEN);
+  expect(requested('POST', `/merchants/${MERCHANT}/atomic_order/orders`)).toHaveLength(1);
+
+  await mapStore(NEW_STORE, SECOND_KITCHEN);
+  fetchMock.mockClear();
+  const held = await resendToClover(unassignedOrder, { manual: true });
+  expect(held).toMatchObject({
+    mappingChanged: true,
+    pos: { ok: false, error: expect.stringMatching(/different kitchen/i) },
+    order: { locationCode: FIRST_KITCHEN, timeline: { posRetry: { nextAt: null, uncertain: true } } },
+  });
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
 it.each([0, 1])('preserves the default Clover path with %i linked kitchens', async (kitchenCount) => {
   if (kitchenCount) {
     await mapStore('fixture-shop-a', FIRST_KITCHEN);

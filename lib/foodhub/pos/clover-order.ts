@@ -18,7 +18,7 @@
 import { MARKETPLACE_LABELS, toCents } from '../config';
 import { screenEntryStoreRef } from '../screen-entry-id';
 import { cloverFetch } from './clover-http';
-import type { ChannelKey, MasterMenu, MenuItem, MenuModifier, OrderLine, OrderMappingWarning, OrderModifier, StoredOrder } from '../types';
+import type { ChannelKey, ChannelStore, MasterMenu, MenuItem, MenuModifier, OrderLine, OrderMappingWarning, OrderModifier, StoredOrder } from '../types';
 import { orderSourceLabel } from '../types';
 import { customerContact } from '../watch/customer';
 import { cloverOrderTypeFor, cloverOrderTypesEnabled } from './clover-books';
@@ -316,6 +316,13 @@ export async function printCloverOrderOn(posOrderId: string, merchantId: string,
     return { ok: false, message: `Clover print error: ${error instanceof Error ? error.message : String(error)}` };
   }
 }
+
+/** An order already assigned to a kitchen must stay there if the store moves. */
+export function cloverKitchenChanged(order: Pick<StoredOrder, 'locationCode'>, store: Pick<ChannelStore, 'locationCode'> | null): boolean {
+  return Boolean(store && order.locationCode && order.locationCode !== store.locationCode);
+}
+
+export const CLOVER_REPRINT_KITCHEN_CHANGED = 'This store is now mapped to a different kitchen. Review the order and store mapping before reprinting.';
 
 /** The kitchen ticket for an order: that kitchen's printer when one is set for its location, else the merchant's. */
 export async function printKitchenTicket(posOrderId: string, merchantId: string | null | undefined, locationCode?: string | null): Promise<{ ok: boolean; message: string; printEventId?: string }> {

@@ -6,8 +6,9 @@
 // released when the guarded step ends, and taken over once it is older than the 10-minute stuck window.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseUberOrder } from '../lib/foodhub/adapters/uber-eats';
-import { cloverSendingClaimKey, isSendingToClover, resendToClover } from '../lib/foodhub/pipeline';
+import { cloverSendingClaimKey, isSendingToClover, processIncomingOrder, resendToClover } from '../lib/foodhub/pipeline';
 import { _resetOrderTypeCache } from '../lib/foodhub/pos/clover-order';
+import { runCloverRetries } from '../lib/foodhub/recovery';
 import { cloverOAuthToken, cloverRefreshClaimKey, finishCloverConnect } from '../lib/foodhub/pos/clover-oauth';
 import { getRepo } from '../lib/foodhub/repo';
 import type { MasterMenu, StoredOrder } from '../lib/foodhub/types';
@@ -23,6 +24,7 @@ const agoIso = (ms: number) => new Date(Date.now() - ms).toISOString();
 // ---------------------------------------------------------------------------
 
 const MID = 'TESTMERCH0001';
+const MOVED_MID = 'TESTMERCH0002';
 type Call = { method: string; path: string; body: any };
 let calls: Call[] = [];
 let cloverOrders: Array<{ id: string; title: string; total: number; createdTime: number }> = [];
@@ -86,6 +88,15 @@ async function waitingOrder(id: string): Promise<StoredOrder> {
   const n = { ...parseUberOrder(uberDetails(id))!, channelStoreId: 'ue-popoulet-ndg' };
   const { order } = await getRepo().insertOrderIfNew({ ...n, brandName: 'Po Poulet', locationCode: 'NDG_6284' });
   return (await getRepo().updateOrder(order.id, { posError: 'register offline' }))!;
+}
+
+async function moveMappedKitchen() {
+  process.env.CLOVER_MERCHANT_TOKENS = JSON.stringify({ [MOVED_MID]: 'test-destination-token' });
+  const repo = getRepo();
+  const store = await repo.findStore('uber_eats', 'ue-popoulet-ndg');
+  if (!store) throw new Error('Missing test mapping');
+  await repo.updateStore(store.id, { locationCode: 'OTHER', brandName: 'Test destination', cloverMerchantId: MOVED_MID });
+  return store;
 }
 
 describe('FH-024 — the Clover send lock lives in the database (pipeline.ts)', () => {
@@ -163,6 +174,81 @@ describe('FH-024 — the Clover send lock lives in the database (pipeline.ts)', 
     expect(a.pos.ok).toBe(true);
     expect(b.pos).toMatchObject({ ok: false, skipped: true });
     expect(sent('POST', /atomic_order/)).toHaveLength(1);
+  });
+
+  it('holds a manual resend at the saved kitchen even if the last provider result was uncertain', async () => {
+    const repo = getRepo();
+    const order = await waitingOrder('manual-after-move');
+    const networkFailure = (await repo.updateOrder(order.id, { posError: 'Clover network error: timed out' }))!;
+    const original = await moveMappedKitchen();
+
+    const held = await resendToClover(networkFailure, { manual: true, by: 'test operator' });
+    expect(calls).toEqual([]);
+    expect(held.pos).toMatchObject({ ok: false, error: expect.stringContaining('different kitchen') });
+    expect(held.order).toMatchObject({ locationCode: original.locationCode, brandName: original.brandName, status: 'new', posError: expect.stringContaining('different kitchen') });
+    expect(held.order.posOrderId).toBeUndefined();
+    expect(held.order.timeline?.posRetry).toMatchObject({ nextAt: null, uncertain: true });
+    expect(await repo.listEvents(order.id)).toContainEqual(expect.objectContaining({ type: 'needs_attention' }));
+    expect(await repo.getKv(cloverSendingClaimKey(order.id))).toBeNull();
+
+    await repo.updateStore(original.id, { locationCode: original.locationCode, brandName: original.brandName, cloverMerchantId: original.cloverMerchantId });
+    const sentAgain = await resendToClover(held.order, { manual: true });
+    expect(sentAgain.order).toMatchObject({ posOrderId: 'CLV1', locationCode: original.locationCode });
+    expect(sent('GET', /\/orders$/).map((call) => call.path)).toEqual([`/v3/merchants/${MID}/orders`]);
+    expect(sent('POST', /atomic_order/).map((call) => call.path)).toEqual([`/v3/merchants/${MID}/atomic_order/orders`]);
+  });
+
+  it('stops an automatic retry after a kitchen move and does not schedule a later attempt', async () => {
+    const repo = getRepo();
+    const order = await waitingOrder('retry-after-move');
+    await repo.patchOrder(order.id, { posRetry: { attempts: 0, nextAt: agoIso(1_000), uncertain: true } });
+    await moveMappedKitchen();
+
+    expect(await runCloverRetries()).toMatchObject({ due: 1, recovered: 0, failed: 1, gaveUp: 1 });
+    expect(await runCloverRetries({ now: Date.now() + 120_000 })).toMatchObject({ due: 0, recovered: 0 });
+    expect(calls).toEqual([]);
+    expect(await repo.getOrder(order.id)).toMatchObject({
+      locationCode: order.locationCode, brandName: order.brandName,
+      posError: expect.stringContaining('different kitchen'), timeline: { posRetry: { attempts: 0, nextAt: null, uncertain: true } },
+    });
+    expect((await repo.listEvents(order.id)).filter((e) => e.type === 'needs_attention')).toHaveLength(1);
+  });
+
+  it('holds an interrupted delivery at its original kitchen', async () => {
+    const repo = getRepo();
+    const incoming = parseUberOrder(uberDetails('resume-after-move'))!;
+    const { order } = await repo.insertOrderIfNew({ ...incoming, createdAt: agoIso(100_000), locationCode: 'NDG_6284', brandName: 'Po Poulet' });
+    await moveMappedKitchen();
+
+    const held = await processIncomingOrder(incoming);
+    expect(held).toMatchObject({ resumed: true, pos: { ok: false } });
+    expect(held.order).toMatchObject({ locationCode: order.locationCode, brandName: order.brandName, status: 'new', timeline: { posRetry: { nextAt: null } } });
+    expect(calls).toEqual([]);
+    expect((await repo.listEvents(order.id)).map((e) => e.type)).toContain('needs_attention');
+  });
+
+  it('checks the saved kitchen even if the retry started with an older unassigned copy', async () => {
+    const repo = getRepo();
+    const incoming = parseUberOrder(uberDetails('mapped-before-claim'))!;
+    const { order } = await repo.insertOrderIfNew(incoming);
+    await repo.updateOrder(order.id, { locationCode: 'NDG_6284', brandName: 'Po Poulet' });
+    await moveMappedKitchen();
+
+    const held = await resendToClover(order, { manual: true });
+    expect(held.pos).toMatchObject({ ok: false, error: expect.stringContaining('different kitchen') });
+    expect(held.order).toMatchObject({ locationCode: 'NDG_6284', brandName: 'Po Poulet' });
+    expect(calls).toEqual([]);
+  });
+
+  it('allows an order received before its store was mapped to gain a kitchen on resend', async () => {
+    const repo = getRepo();
+    const incoming = parseUberOrder(uberDetails('mapped-after-arrival'))!;
+    const { order } = await repo.insertOrderIfNew(incoming);
+    await moveMappedKitchen();
+
+    const sentToKitchen = await resendToClover(order, { manual: true });
+    expect(sentToKitchen.order).toMatchObject({ locationCode: 'OTHER', brandName: 'Test destination', posOrderId: 'CLV1' });
+    expect(sent('POST', /atomic_order/).map((call) => call.path)).toEqual([`/v3/merchants/${MOVED_MID}/atomic_order/orders`]);
   });
 });
 

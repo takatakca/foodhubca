@@ -13,7 +13,7 @@ import { allDayWeek, saveHours } from '../lib/foodhub/hours';
 import { getInboxEntry, INBOX, inboxSummary, MAX_RECOVERY_ATTEMPTS, receiveWebhook, refuseInboxEntry, replayInboxEntry, runInboxEntry, sweepInbox, type InboxEntry } from '../lib/foodhub/inbox';
 import { cloverRetryOpen, noteLastOrder } from '../lib/foodhub/order-retry';
 import { _resetOrderTypeCache, cloverOrderTitle, printKitchenTicket } from '../lib/foodhub/pos/clover-order';
-import { processIncomingOrder, resendToClover } from '../lib/foodhub/pipeline';
+import { applyExternalStatus, processIncomingOrder, resendToClover } from '../lib/foodhub/pipeline';
 import { cloverRetryTooLate, runCloverRetries } from '../lib/foodhub/recovery';
 import { getRepo } from '../lib/foodhub/repo';
 import type { MasterMenu, NormalizedOrder, StoredOrder } from '../lib/foodhub/types';
@@ -31,7 +31,7 @@ type Call = { method: string; path: string; body: any };
 let calls: Call[] = [];
 let cloverOrders: Array<{ id: string; title: string; total: number; createdTime: number }> = [];
 /** Runs while Clover is creating an order (a person's send or a platform cancel landing meanwhile). */
-let duringAtomic: (() => Promise<void>) | null = null;
+let duringAtomic: (() => Promise<Response | void>) | null = null;
 let seq = 0;
 
 const json = (j: unknown, status = 200) => new Response(JSON.stringify(j), { status, headers: { 'Content-Type': 'application/json' } });
@@ -52,7 +52,8 @@ function mockPlatforms() {
       if (p.endsWith('/atomic_order/orders')) {
         const id = `CLV${++seq}`;
         cloverOrders.push({ id, title: body.orderCart.title, total: 1999, createdTime: Date.now() });
-        if (duringAtomic) await duringAtomic();
+        const reply = await duringAtomic?.();
+        if (reply) return reply;
         return json({ id, total: 1999 });
       }
       if (/\/orders$/.test(p) && method === 'GET') return json({ elements: cloverOrders.map((o) => ({ ...o })) });
@@ -294,6 +295,42 @@ describe('Clover kitchen printing uses the register that received the order', ()
     expect(sent('POST', /atomic_order/)).toMatchObject([{ path: `/v3/merchants/${MID2}/atomic_order/orders` }]);
     expect(sent('POST', /print_event$/)).toEqual([{ method: 'POST', path: `/v3/merchants/${MID2}/print_event`, body: { orderRef: { id: 'CLV1' } } }]);
     expect(outcome.order).toMatchObject({ posOrderId: 'CLV1', timeline: { posMerchantId: MID2, printedAt: expect.any(String) } });
+  });
+});
+
+describe('cancellation during the first Clover send', () => {
+  it.each([true, false])('closes the late Clover receipt without printing when auto-accept is %s', async (autoAccept) => {
+    const repo = getRepo();
+    const n = await uberOrder('uber-cancel-during-first-send');
+    const mapping = (await repo.findStore(n.channel, n.channelStoreId))!;
+    await repo.upsertStore({ ...mapping, autoAccept });
+    duringAtomic = async () => { await applyExternalStatus(n.channel, n.externalOrderId, 'cancelled'); };
+
+    const outcome = await processIncomingOrder(n);
+
+    expect(outcome.order).toMatchObject({ status: 'cancelled', posOrderId: 'CLV1', timeline: { posMerchantId: MID, posClosedAt: expect.any(String) } });
+    expect(sent('DELETE', /\/orders\/CLV1$/)).toHaveLength(1);
+    expect(sent('POST', /print_event|\/accept/)).toHaveLength(0);
+  });
+
+  it('does not request Skip tablet fallback after a cancellation during a failed Clover send', async () => {
+    const repo = getRepo();
+    const n = { ...(await uberOrder('skip-cancel-during-first-send')), channel: 'skip' as const, marketplace: 'skip' as const };
+    await repo.upsertStore({ channel: n.channel, channelStoreId: n.channelStoreId, brandName: 'Po Poulet', locationCode: 'NDG_6284', cloverMerchantId: MID, autoAccept: true, online: true, meta: {} });
+    duringAtomic = async () => {
+      await applyExternalStatus(n.channel, n.externalOrderId, 'cancelled');
+      return json({ error: 'Clover temporarily unavailable' }, 503);
+    };
+
+    const outcome = await processIncomingOrder(n);
+
+    expect(outcome.order.status).toBe('cancelled');
+    expect(outcome.pos?.ok).toBe(false);
+    const events = (await repo.listEvents(outcome.order.id)).map((event) => event.type);
+    expect(events).toContain('pos_failed');
+    expect(events).not.toContain('routed_to_skip_tablet');
+    expect(events).not.toContain('routed_to_skip_tablet_failed');
+    expect(sent('POST', /print_event|sent-to-pos/)).toHaveLength(0);
   });
 });
 

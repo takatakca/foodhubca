@@ -22,6 +22,7 @@ import { api, ApiError, ago, timeOf } from '@/lib/ui/api';
 import { useI18n, useProduct } from '@/lib/i18n/client';
 import type { Incident } from '@/lib/foodhub/watch/types';
 import type { OutboxEntry } from '@/lib/foodhub/notify';
+import { watchtowerCallSid, type CallStatus } from '@/lib/foodhub/notify/call-status';
 import { cn } from '@/lib/ui/cn';
 
 type Channels = AlertChannels;
@@ -30,7 +31,8 @@ const SEV = { critical: 'bg-stop', warning: 'bg-wait', info: 'bg-info' } as cons
 export function AlertsView() {
   const { t, loc } = useI18n();
   const product = useProduct();
-  const { can, full } = useViewer();
+  const { can, allLocations, full, viewer } = useViewer();
+  const canCheckCalls = allLocations && can('admin') && !viewer.device;
   const { setSite } = usePulse();
   const label = useScopeLabel();
   const params = useSearchParams();
@@ -88,13 +90,52 @@ export function AlertsView() {
                 <span className="text-small w-36 truncate font-mono">{m.to}</span>
                 <span className="text-small text-ink-3">{m.purpose}</span>
                 <span className="min-w-0 flex-1 truncate text-ink-2">{m.preview ?? '—'}</span>
-                <Badge tone={m.ok ? 'go' : m.skipped ? 'neutral' : 'stop'} title={m.message}>{m.ok ? t('envoyé', 'sent') : m.skipped ? t('non branché', 'not set up') : t('échec', 'failed')}</Badge>
+                <Badge tone={m.ok ? (m.channel === 'call' ? 'neutral' : 'go') : m.skipped ? 'neutral' : 'stop'} title={m.message}>{m.ok ? (m.channel === 'call' ? t('Appel demandé', 'Call requested') : t('envoyé', 'sent')) : m.skipped ? t('non branché', 'not set up') : t('échec', 'failed')}</Badge>
+                {canCheckCalls && watchtowerCallSid(m) && <CallStatusCheck id={m.id} />}
               </div>
             ))}
             {messages.length === 0 && <EmptyState icon={<Send className="size-6" />} title={t('Aucun message envoyé', 'No message sent')} body={t('Les codes de connexion ne sont jamais conservés ici.', 'Sign-in codes are never kept here.')} action={<ButtonLink href="/settings/channels" variant="outline" size="lg">{t('Voir les canaux', 'See the channels')}</ButtonLink>} />}
           </div>
         </Card>
       )}
+    </div>
+  );
+}
+
+const CALL_STATUS_LABELS: Record<CallStatus, [fr: string, en: string]> = {
+  queued: ['En file d’attente', 'Queued'],
+  ringing: ['Sonnerie en cours', 'Ringing'],
+  'in-progress': ['Appel en cours', 'Call in progress'],
+  completed: ['Appel terminé · réponse humaine non vérifiée', 'Call completed · human answer unverified'],
+  busy: ['Ligne occupée', 'Busy'],
+  failed: ['Échec de l’appel', 'Call failed'],
+  'no-answer': ['Sans réponse', 'No answer'],
+  canceled: ['Appel annulé', 'Call canceled'],
+};
+
+function CallStatusCheck({ id }: { id: string }) {
+  const { t } = useI18n();
+  const [status, setStatus] = useState<CallStatus | 'unavailable' | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function check() {
+    setBusy(true);
+    try {
+      const result = await api<{ status: CallStatus }>(`/api/foodhub/messages/call-status?id=${encodeURIComponent(id)}`);
+      setStatus(result.status);
+    } catch {
+      setStatus('unavailable');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button variant="outline" size="sm" loading={busy} onClick={check}>{t('Vérifier l’appel', 'Check call status')}</Button>
+      <span role="status" className="text-small text-ink-3">
+        {status === 'unavailable' ? t('État indisponible', 'Status unavailable') : status ? t(...CALL_STATUS_LABELS[status]) : null}
+      </span>
     </div>
   );
 }

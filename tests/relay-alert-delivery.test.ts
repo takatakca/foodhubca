@@ -10,7 +10,7 @@ import { allDayWeek, saveHours } from '../lib/foodhub/hours';
 import type { OutboxEntry } from '../lib/foodhub/notify';
 import type { CallStatus } from '../lib/foodhub/notify/call-status';
 import { getRepo } from '../lib/foodhub/repo';
-import { addScreen, getScreen, type Heartbeat, type ScreenPlatform } from '../lib/foodhub/screens';
+import { addScreen, getScreen, updateScreen, type Heartbeat, type ScreenPlatform } from '../lib/foodhub/screens';
 import { INCIDENTS, actOnIncident, getIncident, listIncidents, saveWatchSettings, type WatchReport } from '../lib/foodhub/watch/engine';
 
 const BASE = 'https://hub.example.test/api/foodhub';
@@ -291,5 +291,44 @@ describe('Screen relay alerts without a console open', () => {
     expect(await runCron()).toMatchObject({ resolved: 1, escalated: 0 });
     expect(await getIncident(incident.id)).toMatchObject({ status: 'resolved', resolvedBy: 'auto' });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('calls for an unavailable screen when a lost switch reply leaves the old provider open', async () => {
+    await saveLocation({ code: KITCHEN, name: 'Test kitchen', address: '', active: true, phone: KITCHEN_PHONE });
+    await saveHours({ locations: { [KITCHEN]: allDayWeek() }, brands: {}, holidays: [] });
+    await saveWatchSettings({ enabled: true, screenAlertPhone: SHARED_PHONE, smsAfterMin: 1, unacceptedAfterSec: 60, postToChat: false, aiExplain: false }, OWNER);
+    const screen = await addScreen({ name: 'Test platform screen', platform: 'doordash', locationCode: KITCHEN, viewUrl: 'https://relay.example.test/s01/' }, OWNER);
+    if ('error' in screen) throw new Error(screen.error);
+    const oldBeat = { id: screen.id, state: 'ok' as const, title: '(2) Orders', url: 'https://order.doordash.com/' };
+    expect((await relayRequest(oldBeat)).status).toBe(200);
+    expect(await runCron()).toMatchObject({ opened: 0, escalated: 0 });
+
+    advanceTo(1);
+    await updateScreen(screen.id, { platform: 'ubereats' }, OWNER);
+    const lostReply = await relayRequest(oldBeat);
+    expect(await lostReply.json()).toMatchObject({ commands: [{ id: screen.id, kind: 'open' }] });
+
+    advanceTo(2);
+    expect((await relayRequest(oldBeat)).status).toBe(200);
+    expect(await runCron()).toMatchObject({ opened: 1, escalated: 0 });
+    const incidents = await listIncidents({ status: ['open'] });
+    expect(incidents).toHaveLength(1);
+    expect(incidents[0]).toMatchObject({ kind: 'screen_down', deviceId: screen.id, locationCode: KITCHEN });
+
+    advanceTo(3);
+    expect((await relayRequest(oldBeat)).status).toBe(200);
+    fetchMock.mockResolvedValueOnce(Response.json({ sid: CALL_SID, status: 'queued' }, { status: 201 }));
+    expect(await runCron()).toMatchObject({ opened: 0, escalated: 1 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const request = fetchMock.mock.calls[0];
+    expect(request[0]).toBe(`${CALLS}.json`);
+    expect(new URLSearchParams(String(request[1]?.body)).get('To')).toBe(SHARED_PHONE);
+    expect(await readOutbox()).toMatchObject([{ purpose: 'alert_shared_screen', incidentId: incidents[0].id }]);
+
+    advanceTo(4);
+    const current = { id: screen.id, state: 'ok' as const, title: 'Orders', url: 'https://merchants.ubereats.com/manager/orders' };
+    expect((await relayRequest(current)).status).toBe(200);
+    expect(await runCron()).toMatchObject({ resolved: 1, escalated: 0 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

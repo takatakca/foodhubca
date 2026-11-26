@@ -90,6 +90,7 @@ its sign-in loses orders without anyone noticing.
 | Relay host `.env` | `FOODHUB_SCREENS_AGENT_TOKEN` | Same value as on Food Hub. |
 | Relay host `.env` | `SCREENS_VIEW_USER` / `SCREENS_VIEW_PASSWORD` | Sign-in of the relay host's web view (not a platform password). |
 | Relay host `.env` | `SCREEN_ID_*` | The ids of the screens added in Food Hub. |
+| Agent | `SCREEN_START_URL` | The same merchant order page URL used to launch this browser profile. |
 | Agent | `HEARTBEAT_SECONDS` | Default 20. |
 
 ## How it works (for developers)
@@ -106,12 +107,13 @@ its sign-in loses orders without anyone noticing.
 - Watchtower: rules `screen_down` and `screen_waiting` in `lib/foodhub/watch/engine.ts`, only during the location's
   opening hours.
 - Page: `app/(console)/stores/screens/page.tsx`. Relay kit: `deploy/screens/` (compose file + `agent/agent.mjs`).
+- The web agent checks the configured merchant tab or a recognised sign-in redirect. An internal Chrome tab or an unrelated origin reports the screen as unavailable. A console `open` command selects a new target for the current agent process. Set the launcher URL for a provider change that should carry over to the next start.
 - Tests: `tests/platform-screens.test.ts`.
 
 ## Windows instead of Docker
 
 Run Chrome once per screen with its own profile and debugging port, e.g.
 `chrome.exe --user-data-dir=C:\screens\uber-1 --remote-debugging-port=9222 https://merchants.ubereats.com/manager/orders`,
-run `deploy/screens/agent/agent.mjs` with Node 22 for each (`CDP_URL=http://127.0.0.1:9222`, other settings as above),
+run `deploy/screens/agent/agent.mjs` with Node 22 for each (`CDP_URL=http://127.0.0.1:9222`, `SCREEN_START_URL` set to the browser's merchant order URL),
 and expose the desktop to Food Hub with Apache Guacamole (RDP → https web view). Docker on Linux is simpler and cheaper;
 use Windows only if the platform's app is Windows-only.

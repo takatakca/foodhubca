@@ -5,10 +5,11 @@
 //  - android.mjs: a fake `adb` on PATH (deterministic) → heartbeat v2 (mode, app, waiting count), "login" and "blank"
 //    decisions, and "reload" = bring the app to the front, nothing else.
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { BrowserContext, Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const AGENT_DIR = path.resolve(__dirname, '../deploy/screens/agent');
@@ -16,11 +17,12 @@ const TOKEN = 'test-token-' + 'x'.repeat(24);
 const win = process.platform === 'win32';
 
 type Beat = { headers: Record<string, string | string[] | undefined>; body: any };
+type Command = { id: string; kind: 'reload' } | { id: string; kind: 'open'; url: string };
 
 /** A fake Food Hub: records heartbeats, answers with the commands queued for a screen. */
 function fakeFoodHub() {
   const beats: Beat[] = [];
-  const queue: Array<{ id: string; kind: 'reload' }> = [];
+  const queue: Command[] = [];
   const server = createServer((req, res) => {
     let raw = '';
     req.on('data', (c) => { raw += c; });
@@ -70,20 +72,30 @@ const haveAgentDeps = existsSync(path.join(AGENT_DIR, 'node_modules', 'playwrigh
 let launchRefused = '';
 describe.skipIf(!chromePath || !haveAgentDeps)('agent.mjs (web) end to end', () => {
   const hub = fakeFoodHub(); const site = fakePlatform();
-  let browser: { close(): Promise<void> } | null = null; let agent: ChildProcess | null = null;
+  let browser: BrowserContext; let agent: ChildProcess | null = null;
+  let newTab: Page; let unrelated: Page; let orderPage: Page;
   const logs: string[] = []; let cdpPort = 0; let sitePort = 0; let hubPort = 0;
   const profile = mkdtempSync(path.join(tmpdir(), 'fh-screen-'));
+  const login = 'https://auth.uber.com/v2/';
+  const uberOrders = 'https://merchants.ubereats.com/manager/orders';
 
   beforeAll(async () => {
     sitePort = await site.listen(); hubPort = await hub.listen();
     cdpPort = 9300 + Math.floor(Math.random() * 300);
     const { chromium } = await import(/* @vite-ignore */ path.join(AGENT_DIR, 'node_modules', 'playwright-core', 'index.mjs'));
     let ctx;
-    try { ctx = await chromium.launchPersistentContext(profile, { executablePath: chromePath, headless: true, args: [`--remote-debugging-port=${cdpPort}`, '--no-sandbox'] }); }
+    try { ctx = await chromium.launchPersistentContext(profile, { executablePath: chromePath, headless: true, args: [`--remote-debugging-port=${cdpPort}`, '--no-sandbox', '--disable-background-networking', '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1'] }); }
     catch (e) { launchRefused = e instanceof Error ? e.message.split('\n')[0] : String(e); console.warn('web agent e2e skipped: browser launch refused here —', launchRefused); return; }
     browser = ctx;
-    const page = ctx.pages()[0] ?? (await ctx.newPage());
-    await page.goto(`http://127.0.0.1:${sitePort}/orders`);
+    await browser.route('**/*', (route) => {
+      const url = route.request().url();
+      if (url === login) return route.fulfill({ contentType: 'text/html', body: '<title>Sign in</title>' });
+      if (url === uberOrders) return route.fulfill({ contentType: 'text/html', body: '<title>Orders</title>' });
+      if (url === `http://127.0.0.1:${hubPort}/other`) return route.fulfill({ contentType: 'text/html', body: '<title>(9) Unrelated</title>' });
+      return url.startsWith(`http://127.0.0.1:${sitePort}/`) ? route.continue() : route.abort();
+    });
+    newTab = browser.pages()[0] ?? (await browser.newPage());
+    await newTab.goto('chrome://newtab/');
     agent = spawn(process.execPath, ['agent.mjs'], {
       cwd: AGENT_DIR,
       env: { ...process.env, FOODHUB_URL: `http://127.0.0.1:${hubPort}`, FOODHUB_SCREENS_AGENT_TOKEN: TOKEN, SCREEN_ID: 'SCREEN_ID_TEST_1', SCREEN_START_URL: `http://127.0.0.1:${sitePort}/orders`, CDP_URL: `http://127.0.0.1:${cdpPort}`, HEARTBEAT_SECONDS: '10' },
@@ -91,16 +103,31 @@ describe.skipIf(!chromePath || !haveAgentDeps)('agent.mjs (web) end to end', () 
     });
     logsOf(agent, logs);
   }, 40_000);
-  afterAll(async () => { kill(agent); await browser?.close().catch(() => {}); hub.server.close(); site.server.close(); });
+  afterAll(async () => { kill(agent); await browser?.close().catch(() => {}); hub.server.close(); site.server.close(); rmSync(profile, { force: true, recursive: true }); });
 
-  it('reports ok with the page title and address, with the bearer token', async ({ skip }) => {
+  it('reports an internal browser tab as unavailable without navigating it', async ({ skip }) => {
     if (launchRefused) skip();
+    const b = await hub.waitFor(() => true);
+    expect(b.body.screens[0]).toMatchObject({ id: 'SCREEN_ID_TEST_1', state: 'blank', title: null, url: null, autoReloads: 0 });
+    expect(browser.pages()).toEqual([newTab]);
+    expect(newTab.url()).toMatch(/^chrome:/);
+  });
+
+  it('reports the configured order tab and ignores the other tabs', async ({ skip }) => {
+    if (launchRefused) skip();
+    await newTab.goto(`http://127.0.0.1:${hubPort}/other`);
+    unrelated = newTab;
+    const lastBeat = hub.beats.length;
+    const blank = await hub.waitFor((x) => hub.beats.indexOf(x) >= lastBeat, 20_000);
+    expect(blank.body.screens[0]).toMatchObject({ state: 'blank', title: null, url: null, autoReloads: 0 });
+    orderPage = await browser.newPage();
+    await orderPage.goto(`http://127.0.0.1:${sitePort}/orders`);
     const b = await hub.waitFor((x) => x.body.screens?.[0]?.state === 'ok', 25_000);
     const s = b.body.screens[0];
     expect(s).toMatchObject({ id: 'SCREEN_ID_TEST_1', state: 'ok', title: '(2) Orders', autoReloads: 0 });
     expect(s.url).toContain(`127.0.0.1:${sitePort}/orders`);
     expect(b.body.version).toMatch(/^agent-/);
-  }, 30_000);
+  }, 50_000);
 
   it('honours a "reload" command from Food Hub (page reloaded, not navigated elsewhere)', async ({ skip }) => {
     if (launchRefused) skip();
@@ -112,6 +139,21 @@ describe.skipIf(!chromePath || !haveAgentDeps)('agent.mjs (web) end to end', () 
     expect(after.body.screens[0].url).toContain('/orders');
     expect(after.body.screens[0].state).toBe('ok');
   }, 60_000);
+
+  it('switches to the provider sign-in, then reports the provider’s idle merchant page', async ({ skip }) => {
+    if (launchRefused) skip();
+    // When only an unrelated tab remains, an authorized open creates the provider tab in this profile.
+    await orderPage.close();
+    hub.queue.push({ id: 'SCREEN_ID_TEST_1', kind: 'open', url: login });
+    const signedOut = await hub.waitFor((x) => x.body.screens[0].state === 'login', 30_000);
+    expect(signedOut.body.screens[0]).toMatchObject({ url: login, title: 'Sign in' });
+    expect(unrelated.url()).toBe(`http://127.0.0.1:${hubPort}/other`);
+    const providerPage = browser.pages().find((p) => p.url() === login);
+    expect(providerPage).toBeDefined();
+    await providerPage!.goto(uberOrders);
+    const idle = await hub.waitFor((x) => x.body.screens[0].url === uberOrders, 20_000);
+    expect(idle.body.screens[0]).toMatchObject({ state: 'ok', title: 'Orders', url: uberOrders });
+  }, 55_000);
 
   it('never types, clicks or reads orders: the log holds no page text and no secret', ({ skip }) => {
     if (launchRefused) skip();

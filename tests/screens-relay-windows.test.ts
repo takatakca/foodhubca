@@ -5,7 +5,7 @@
 // ports and profile folders from the example list, skips the Android screen, writes nothing, and refuses a list that
 // carries a secret, like deploy/screens/generate.mjs does.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -87,6 +87,17 @@ describe('windows kit: files and rules (always)', () => {
     expect(start).toMatch(/IntervalSeconds = 30/);
   });
 
+  it('passes the resolved installation root to both sign-in launchers', () => {
+    const install = withoutComments(read('Install-Screens.ps1'));
+    const common = withoutComments(read('Screens-Common.ps1'));
+    expect(install).toContain('Register-StartupTask -StartScript $startScript -Root $root');
+    expect(common).toContain('$cmd = Get-StartCommand -StartScript $StartScript -Root $Root');
+    expect(common).toContain("' -Root ' + (ConvertTo-Argument $Root)");
+    expect(common).toContain('$startup = Get-StartCommand -StartScript $StartScript -Root $Root -StartupFolder');
+    expect(common).toContain(`$command = "& '$scriptPath' -Root '$rootPath'"`);
+    expect(common).toContain("$startup.file + ' ' + $startup.arguments");
+  });
+
   it('README: French first, then English; the 10 steps, the sign-in, Guacamole, the sign-in-page case', () => {
     const readme = read('README-WINDOWS.md');
     const fr = readme.indexOf('# Écrans de commande sur le PC Windows');
@@ -146,8 +157,9 @@ describe('windows kit: PowerShell parse and dry runs (when powershell is on PATH
   });
 
   itPs('Install-Screens.ps1 -DryRun plans unique ports and folders from the example, skips Android, writes nothing', () => {
-    const root = mkdtempSync(path.join(tmpdir(), 'foodhub-screens-'));
-    const target = path.join(root, 'nope');
+    // TEMP can use an 8.3 alias on Windows; PowerShell expands it when resolving -Root.
+    const root = mkdtempSync(path.join(realpathSync.native(tmpdir()), 'foodhub-screens-'));
+    const target = path.join(root, 'Food Hub Profiles');
     try {
       const r = runScript('Install-Screens.ps1', ['-DryRun', '-AsJson', '-ScreensFile', EXAMPLE, '-EnvFile', path.join(root, 'missing.env'), '-Root', target]);
       expect(r.status, r.out).toBe(0);
@@ -164,9 +176,41 @@ describe('windows kit: PowerShell parse and dry runs (when powershell is on PATH
       for (const s of plan.screens) expect(s.profileDir.toLowerCase()).toContain(target.toLowerCase());
       expect(plan.envMissing).toEqual(['FOODHUB_URL', 'FOODHUB_SCREENS_AGENT_TOKEN']);
       expect(String(plan.task.method)).toMatch(/dry run/);
+      expect(plan.task.registered).toBe(false);
+      expect(plan.task.command).toContain(` -Root "${target}"`);
       expect(existsSync(target)).toBe(false); // nothing written
       expect(r.out).not.toMatch(/Register-ScheduledTask|npm install/);
     } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  itPs('the Startup-folder fallback preserves the custom root without registering a task', () => {
+    const folder = mkdtempSync(path.join(tmpdir(), 'foodhub-startup-'));
+    const root = path.join(folder, "Food Hub d'accueil & %TEMP% Été");
+    const script = path.join(folder, 'Start Screens fixture.ps1');
+    const fallback = path.join(folder, 'FoodHub Screens.cmd');
+    const quote = (value: string) => `'${value.replaceAll("'", "''")}'`;
+    const powershell = (...args: string[]) => spawnSync(ps!, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', ...args], { encoding: 'utf8', timeout: 30_000 });
+    try {
+      writeFileSync(script, 'param([string]$Root)\n[Console]::WriteLine([Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($Root)))\n');
+      const arrange = [
+        `. ${quote(path.join(KIT, 'Screens-Common.ps1'))}`,
+        "function New-ScheduledTaskAction { throw 'Forced fallback in test' }",
+        "function Register-ScheduledTask { throw 'Task registration is disabled in this test' }",
+        `function Get-StartupCmdPath { return ${quote(fallback)} }`,
+        `Register-StartupTask -StartScript ${quote(script)} -Root ${quote(root)} -WorkingDirectory ${quote(folder)} | ConvertTo-Json`,
+      ].join('\n');
+      const rendered = powershell('-EncodedCommand', Buffer.from(arrange, 'utf16le').toString('base64'));
+      expect(rendered.status, rendered.stdout + rendered.stderr).toBe(0);
+      expect(JSON.parse(rendered.stdout)).toMatchObject({ method: 'startupFolder', path: fallback });
+      const launcher = readFileSync(fallback, 'ascii');
+      expect(launcher).not.toContain('%TEMP%');
+      const encoded = /-EncodedCommand ([A-Za-z0-9+/=]+)/.exec(launcher)?.[1];
+      expect(encoded).toBeTruthy();
+      const started = powershell('-EncodedCommand', encoded!);
+      expect(started.status, started.stdout + started.stderr).toBe(0);
+      expect(Buffer.from(started.stdout.trim(), 'base64').toString('utf16le')).toBe(root);
+      expect(existsSync(root)).toBe(false);
+    } finally { rmSync(folder, { recursive: true, force: true }); }
   });
 
   itPs('a list that carries a secret is refused with exit 1, before anything is planned', () => {

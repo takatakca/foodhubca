@@ -6,6 +6,18 @@ Un changement d’identifiant marchand écarte les preuves de l’ancienne liais
 
 — signé : Codex @ cloud · 2026-11-26
 
+## 2026-11-26 — Alertes d’un écran réaffecté
+
+Si un écran ou une tablette change de cuisine pendant un incident, Watchtower clôture l’incident dans la cuisine d’origine et ouvre l’alerte dans la cuisine qui reçoit l’appareil si le problème persiste. Les appels et l’historique suivent le périmètre de chaque incident. Le changement de cuisine d’une tablette exige une destination active et autorisée. La livraison aux téléphones et aux appareils réels reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+Sur `cdde075`, les 148 essais ciblés couvrent les cinq scénarios simulés de réaffectation ainsi que les contrôles de plateforme du relais et des annulations Clover. TypeScript et ESLint réussissent.
+
+Sur `a1e0841`, les 185 essais ciblés couvrent la réaffectation avec les contrôles de destination partagée et de simulation téléphonique de #173.
+
+La répétition sur l’arbre de #175 `6d2ff10` a passé 224 essais ciblés. Un scénario simulé vérifie que le premier appel encore en attente dans l’ancienne cuisine est clos lors du déplacement et que la nouvelle cuisine reçoit un seul appel quand Twilio Voice devient disponible.
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Numéro de relève ajouté pendant un incident d’écran
 
 Watchtower garde le premier appel en attente quand aucun numéro de relève ni de cuisine n’est disponible au premier palier. Si un numéro devient disponible pendant que l’incident reste ouvert, Watchtower peut demander l’appel au prochain passage. Une réservation en base limite cette demande à une fois par incident. La situation se vérifie dans Alertes et le journal des messages. Les essais sur les téléphones de relève restent suivis dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

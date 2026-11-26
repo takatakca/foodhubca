@@ -31,8 +31,9 @@ const OPEN_ORDER: StoredOrder['status'][] = ['new', 'accepted', 'ready', 'dispat
 
 // ---------- settings ----------
 
-export async function getWatchSettings(): Promise<WatchSettings> {
-  const stored = (await getRepo().getKv<Partial<WatchSettings>>(SETTINGS_KEY).catch(() => null)) ?? {};
+export async function getWatchSettings(opts: { strict?: boolean } = {}): Promise<WatchSettings> {
+  const read = getRepo().getKv<Partial<WatchSettings>>(SETTINGS_KEY);
+  const stored = (await (opts.strict ? read : read.catch(() => null))) ?? {};
   const rules = { ...DEFAULT_RULES };
   for (const k of INCIDENT_KINDS) if (stored.rules?.[k]) rules[k] = { ...DEFAULT_RULES[k], ...stored.rules[k] };
   return {
@@ -45,8 +46,12 @@ export async function getWatchSettings(): Promise<WatchSettings> {
 const clampN = (v: unknown, lo: number, hi: number, def: number) => { const n = Number(v); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, Math.round(n))) : def; };
 const hhmm = (v: unknown, def: string) => (typeof v === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(v) ? v : def);
 
+export class WatchSettingsReadError extends Error {}
+
 export async function saveWatchSettings(patch: Partial<WatchSettings>, actor: Actor): Promise<WatchSettings> {
-  const cur = await getWatchSettings();
+  const cur = await getWatchSettings({ strict: true }).catch((cause) => {
+    throw new WatchSettingsReadError('Saved alert settings unavailable.', { cause });
+  });
   const rules = { ...cur.rules };
   for (const k of INCIDENT_KINDS) {
     const r = patch.rules?.[k];
@@ -447,6 +452,9 @@ const SHARED_PHONE_KINDS: IncidentKind[] = ['device_offline', 'screen_down', 'sc
 const KITCHEN_KINDS: IncidentKind[] = ['order_unaccepted', 'order_unseen', 'device_offline', 'device_muted', 'screen_down', 'screen_waiting', 'courier_waiting', 'pos_failed'];
 const FIRST_SCREEN_CALL_NEEDS_VOICE = 'Premier appel en attente de la configuration de Twilio Voice. / First call pending until Twilio Voice is configured.';
 const FIRST_SCREEN_CALL_RESERVED = 'Premier appel déjà réservé. Vérifiez le journal des messages pour connaître le résultat. / First call already reserved. Check the message log for its outcome.';
+const FIRST_SCREEN_CALL_RECEIPT_UNAVAILABLE = 'Destination du premier appel réservé à vérifier au prochain passage. / Reserved first-call destination will be checked on the next pass.';
+type FirstScreenCallReservation = { at: string; destinationFingerprint?: string };
+const firstScreenCallFingerprint = (destination: string) => crypto.createHash('sha256').update(destination).digest('hex');
 
 /** The first destination for an incident that can be handled by the kitchen. */
 export function firstAlertCallTarget(kind: IncidentKind, sharedPhone: string | null, kitchenPhone?: string): { to: string; purpose: 'alert_shared_screen' | 'alert_kitchen' } | null {
@@ -522,9 +530,10 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
   // A delayed tick can make several escalation stages due at once. One phone
   // can be listed in multiple roles; later ticks can still escalate normally.
   const called = new Set<string>();
+  let reservedFirstDestination: string | undefined;
   const call = async (to: string, label: string, lang: 'fr' | 'en', purpose: string) => {
     const destination = normalizePhone(to) ?? to;
-    if (called.has(destination)) return true;
+    if (called.has(destination) || (reservedFirstDestination && firstScreenCallFingerprint(destination) === reservedFirstDestination)) return true;
     if (!(await mayNotify())) return false;
     called.add(destination);
     const result = await placeCall({ to: destination, say: callText(i, lang), lang }, { purpose, incidentId: i.id });
@@ -561,21 +570,28 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
       const waitingForVoice = screenAlert && Boolean(target) && !callConfigured();
       if (target && !waitingForVoice) {
         // Keep the claim across ticks and restarts, including when Twilio's reply is uncertain.
+        const destination = normalizePhone(target.to) ?? target.to;
+        const destinationFingerprint = firstScreenCallFingerprint(destination);
+        const firstCallKey = `watch:first-screen-call:${i.id}`;
+        const repo = getRepo();
         const claimed = screenAlert
-          ? await getRepo().claimKv(`watch:first-screen-call:${i.id}`, { at: new Date(now).toISOString() }).catch(() => null)
+          ? await repo.claimKv(firstCallKey, { at: new Date(now).toISOString(), destinationFingerprint }).catch(() => null)
           : true;
-        if (claimed === null) {
+        const receipt = claimed === false ? await repo.getKv<FirstScreenCallReservation>(firstCallKey).catch(() => null) : undefined;
+        if (claimed === null || receipt === null) {
           if (!i.screenFirstCallPending) { i.screenFirstCallPending = true; changed = true; }
+          if (receipt === null) {
+            note(FIRST_SCREEN_CALL_RECEIPT_UNAVAILABLE);
+            return changed;
+          }
         } else {
           if (i.screenFirstCallPending) { delete i.screenFirstCallPending; changed = true; }
           if (claimed) {
-            if (!(await call(target.to, target.purpose === 'alert_shared_screen' ? 'screen hotline' : i.locationCode ?? 'kitchen', 'fr', target.purpose))) return changed;
+            if (!(await call(destination, target.purpose === 'alert_shared_screen' ? 'screen hotline' : i.locationCode ?? 'kitchen', 'fr', target.purpose))) return changed;
           } else {
-            called.add(normalizePhone(target.to) ?? target.to);
-            if (!i.steps.some((entry) => entry.kind === 'note' && entry.message === FIRST_SCREEN_CALL_RESERVED)) {
-              i.steps.push({ at: new Date(now).toISOString(), kind: 'note', by: 'Watchtower', message: FIRST_SCREEN_CALL_RESERVED });
-              changed = true;
-            }
+            // Earlier claims did not record a destination. They still block a first-call replay.
+            reservedFirstDestination = receipt?.destinationFingerprint;
+            note(FIRST_SCREEN_CALL_RESERVED);
           }
         }
       } else if (screenAlert) {
@@ -654,7 +670,7 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
   const now = opts.now ?? Date.now();
   const repo = getRepo();
   const empty = (ran: boolean): WatchReport => ({ at: new Date(now).toISOString(), trigger: opts.trigger ?? 'manual', ran, detections: 0, opened: 0, updated: 0, resolved: 0, escalated: 0, open: 0 });
-  const s = await getWatchSettings();
+  const s = await getWatchSettings({ strict: true });
   if (!s.enabled) return empty(false);
   const last = await repo.getKv<{ at: string }>(LAST_KEY).catch(() => null);
   if (!opts.force && last && now - Date.parse(last.at) < 20_000) return empty(false);

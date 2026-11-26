@@ -1,3 +1,11 @@
+## 2026-11-26 — Réglages indisponibles et reprise du premier appel
+
+Si la lecture des réglages échoue, Watchtower suspend le passage avant la création d’un incident, le marqueur de réussite et les envois. Une modification partielle ne remplace plus les réglages enregistrés dans ce cas. L’API de réglages répond `503`. Une installation sans réglages enregistrés conserve ses valeurs par défaut.
+
+La réservation du premier appel enregistre une empreinte normalisée de la destination. Au passage suivant, la relève conserve la réservation initiale et permet un appel d’un palier suivant vers un autre numéro. Une ancienne réservation reste valable sans faire passer le numéro actuellement affiché pour celui qui a été appelé. Un reçu temporairement illisible est revérifié au passage suivant.
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Réservation de chaque palier de relève
 
 Deux processus Watchtower peuvent lire la même occurrence alors que le premier vient d’écrire sa révision et attend le fournisseur simulé. Une réservation durable par palier empêche un second envoi pour cette occurrence. Le processus qui observe un palier déjà réservé attend la fin de son envoi ou consigne un résultat non confirmé après deux minutes. Une réservation ambiguë ne déclenche aucun rappel automatique pour le palier concerné. Les paliers ultérieurs reprennent selon les règles existantes.

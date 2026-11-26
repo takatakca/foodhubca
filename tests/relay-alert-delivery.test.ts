@@ -5,6 +5,7 @@ import { POST as incidentAction } from '../app/api/foodhub/incidents/route';
 import { GET as callStatus } from '../app/api/foodhub/messages/call-status/route';
 import { GET as messages } from '../app/api/foodhub/messages/route';
 import { POST as heartbeat } from '../app/api/foodhub/screens/heartbeat/route';
+import { GET as watchSettingsRead, PUT as watchSettingsWrite } from '../app/api/foodhub/watch/settings/route';
 import type { Actor } from '../lib/foodhub/activity';
 import { hashPassword } from '../lib/foodhub/auth';
 import { saveLocation } from '../lib/foodhub/catalog';
@@ -15,7 +16,7 @@ import type { CallStatus } from '../lib/foodhub/notify/call-status';
 import { getRepo, type Doc } from '../lib/foodhub/repo';
 import { addScreen, getScreen, updateScreen, type Heartbeat, type ScreenPlatform } from '../lib/foodhub/screens';
 import { INCIDENTS, actOnIncident, getIncident, listIncidents, runWatch, saveWatchSettings, type WatchReport } from '../lib/foodhub/watch/engine';
-import type { Incident } from '../lib/foodhub/watch/types';
+import { WATCH_BACKGROUND_COMPLETION_KEY, type Incident } from '../lib/foodhub/watch/types';
 
 const BASE = 'https://hub.example.test/api/foodhub';
 const RELAY_TOKEN = 'test-relay-token-for-alert-delivery';
@@ -127,6 +128,77 @@ describe('Screen relay alerts without a console open', () => {
     return screen.id;
   }
 
+  it('leaves disabled Watchtower and its prior markers untouched when the settings read fails', async () => {
+    await prepareZeroMinuteScreenCall();
+    await saveLocation({ code: KITCHEN, name: 'Test kitchen', address: '', active: true, phone: KITCHEN_PHONE });
+    await saveWatchSettings({ enabled: false, screenAlertPhone: SHARED_PHONE }, OWNER);
+    const repo = getRepo();
+    const prior = { at: new Date(START).toISOString(), trigger: 'timer' };
+    await repo.setKv('watch:last', prior);
+    await repo.setKv(WATCH_BACKGROUND_COMPLETION_KEY, prior);
+
+    const getKv = repo.getKv.bind(repo);
+    const read = vi.spyOn(repo, 'getKv').mockImplementation(async (key) => {
+      if (key === 'watch:settings') throw new Error('Synthetic settings read failure');
+      return getKv(key);
+    });
+    try {
+      expect((await cronRequest()).status).toBe(500);
+      advanceTo(8);
+      await expect(runWatch({ trigger: 'timer' })).rejects.toThrow('Synthetic settings read failure');
+    } finally {
+      read.mockRestore();
+    }
+    expect(await getKv('watch:last')).toEqual(prior);
+    expect(await getKv(WATCH_BACKGROUND_COMPLETION_KEY)).toEqual(prior);
+    expect(await getKv('watch:settings')).toMatchObject({ enabled: false, screenAlertPhone: SHARED_PHONE });
+    expect(await listIncidents()).toEqual([]);
+    expect(await readOutbox()).toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('returns unavailable without displaying defaults or overwriting saved settings on read failure', async () => {
+    await saveWatchSettings({ enabled: false, screenAlertPhone: SHARED_PHONE }, OWNER);
+    const repo = getRepo();
+    const getKv = repo.getKv.bind(repo);
+    const persisted = await getKv('watch:settings');
+    const read = vi.spyOn(repo, 'getKv').mockImplementation(async (key) => {
+      if (key === 'watch:settings') throw new Error('Synthetic settings read failure');
+      return getKv(key);
+    });
+    const request = ownerRequest('watch/settings');
+    try {
+      for (const response of [await watchSettingsRead(request, undefined), await watchSettingsWrite(new Request(request, {
+        method: 'PUT', body: JSON.stringify({ settings: { smsAfterMin: 4 } }),
+      }), undefined)]) {
+        expect(response.status).toBe(503);
+        expect(await response.json()).not.toHaveProperty('settings');
+      }
+    } finally {
+      read.mockRestore();
+    }
+    expect(await getKv('watch:settings')).toEqual(persisted);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('continues to use defaults when no settings have ever been saved', async () => {
+    const repo = getRepo();
+    expect(await repo.getKv('watch:settings')).toBeNull();
+    const request = ownerRequest('watch/settings');
+    const read = await watchSettingsRead(request, undefined);
+    expect(read.status).toBe(200);
+    expect(await read.json()).toMatchObject({ settings: { enabled: true, smsAfterMin: 2, screenAlertPhone: null } });
+
+    expect(await runCron()).toMatchObject({ opened: 0, escalated: 0 });
+    expect(await repo.getKv(WATCH_BACKGROUND_COMPLETION_KEY)).toMatchObject({ trigger: 'cron' });
+    const saved = await watchSettingsWrite(new Request(request, {
+      method: 'PUT', body: JSON.stringify({ settings: { smsAfterMin: 4 } }),
+    }), undefined);
+    expect(saved.status).toBe(200);
+    expect(await repo.getKv('watch:settings')).toMatchObject({ enabled: true, smsAfterMin: 4, screenAlertPhone: null });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('does not redial a zero-minute screen call after interruption saving its incident', async () => {
     await prepareZeroMinuteScreenCall();
     fetchMock.mockImplementation(async () => Response.json({ sid: CALL_SID, status: 'queued' }, { status: 201 }));
@@ -177,6 +249,80 @@ describe('Screen relay alerts without a console open', () => {
     expect(evidence.map((entry) => entry.incidentId)).toEqual([evidence[0]?.incidentId]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(await listIncidents({ status: ['open'] })).toHaveLength(1);
+  });
+
+  it.each([
+    { scenario: 'a changed line matches the manager', nextLine: KITCHEN_PHONE, managerPhone: KITCHEN_PHONE, recipient: KITCHEN_PHONE },
+    { scenario: 'the same destination has different formatting', nextLine: '514.555.0124', managerPhone: '(514) 555-0124', recipient: null },
+    { scenario: 'a changed line leaves the original number with the manager', nextLine: KITCHEN_PHONE, managerPhone: SHARED_PHONE, recipient: null },
+    { scenario: 'the first provider outcome was uncertain', nextLine: KITCHEN_PHONE, managerPhone: KITCHEN_PHONE, recipient: KITCHEN_PHONE, uncertain: true },
+    { scenario: 'the historical claim has no destination', nextLine: KITCHEN_PHONE, managerPhone: KITCHEN_PHONE, recipient: KITCHEN_PHONE, legacy: true },
+    { scenario: 'the claim receipt is briefly inaccessible', nextLine: KITCHEN_PHONE, managerPhone: KITCHEN_PHONE, recipient: KITCHEN_PHONE, readError: true },
+  ])('uses the recorded first-call destination when $scenario', async ({ nextLine, managerPhone, recipient, uncertain, legacy, readError }) => {
+    await prepareZeroMinuteScreenCall();
+    await saveWatchSettings({ screenAlertPhone: null, callAfterMin: 2, ownerAfterMin: 3 }, OWNER);
+    const repo = getRepo();
+    await repo.saveUser({ username: 'manager', name: 'On duty manager', role: 'manager', locations: [KITCHEN], phone: managerPhone, active: true, prefs: { alertSms: false } });
+    const destinations: string[] = [];
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = new URL(String(input));
+      expect(url.origin).toBe(TWILIO_BASE);
+      expect(url.pathname).toMatch(/Calls\.json$/);
+      destinations.push(new URLSearchParams(String(init?.body)).get('To') ?? '');
+      const sid = uncertain && destinations.length === 1 ? undefined : `CA${destinations.length.toString(16).padStart(32, '0')}`;
+      return Response.json({ sid, status: 'queued' }, { status: 201 });
+    });
+    await runCron();
+    const [incident] = await listIncidents({ status: ['open'] });
+    expect(incident).toMatchObject({ level: 1, screenFirstCallPending: true });
+
+    advanceTo(7);
+    await saveWatchSettings({ screenAlertPhone: SHARED_PHONE }, OWNER);
+    const replaceDoc = repo.replaceDocIfRevision.bind(repo);
+    const save = vi.spyOn(repo, 'replaceDocIfRevision').mockImplementation(async (collection, doc, expected) => {
+      if (collection === INCIDENTS && doc.id === incident.id && (doc.data as Incident).steps.some((entry) => entry.kind === 'call')) {
+        throw new Error('Synthetic crash before saving the first-call outcome to the incident');
+      }
+      return replaceDoc(collection, doc, expected);
+    });
+    try {
+      expect((await cronRequest()).status).toBe(500);
+    } finally {
+      save.mockRestore();
+    }
+    expect(destinations).toEqual([SHARED_PHONE]);
+    expect(await getIncident(incident.id)).toMatchObject({ level: 1, screenFirstCallPending: true });
+    const firstCallKey = `watch:first-screen-call:${incident.id}`;
+    const receipt = await repo.getKv(firstCallKey);
+    expect(receipt).toMatchObject({ destinationFingerprint: expect.stringMatching(/^[\da-f]{64}$/) });
+    expect(JSON.stringify(receipt)).not.toContain(SHARED_PHONE);
+    if (legacy) await repo.setKv(firstCallKey, { at: new Date().toISOString() });
+
+    advanceTo(8);
+    await saveWatchSettings({ screenAlertPhone: nextLine }, OWNER);
+    if (readError) {
+      const getKv = repo.getKv.bind(repo);
+      const read = vi.spyOn(repo, 'getKv').mockImplementation(async (key) => {
+        if (key === firstCallKey) throw new Error('Synthetic first-call receipt lookup failure');
+        return getKv(key);
+      });
+      try {
+        await runCron();
+        expect(destinations).toEqual([SHARED_PHONE]);
+        expect(await getIncident(incident.id)).toMatchObject({ level: 1, screenFirstCallPending: true });
+      } finally {
+        read.mockRestore();
+      }
+      advanceTo(8.5);
+    }
+    await runCron();
+    const outbox = (await readOutbox()).filter((entry) => entry.channel === 'call' && entry.incidentId === incident.id);
+    const firstCalls = outbox.filter((entry) => entry.purpose === 'alert_shared_screen');
+    expect(firstCalls).toHaveLength(1);
+    expect(Boolean(firstCalls[0]?.uncertain)).toBe(Boolean(uncertain));
+    expect(outbox.filter((entry) => entry.purpose === 'alert')).toHaveLength(recipient ? 1 : 0);
+    expect(destinations).toEqual(recipient ? [SHARED_PHONE, recipient] : [SHARED_PHONE]);
+    expect(await getIncident(incident.id)).toMatchObject({ level: 2 });
   });
 
   it.each([

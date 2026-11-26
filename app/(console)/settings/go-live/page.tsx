@@ -14,9 +14,10 @@ import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { SettingsHead } from '../settings-ui';
 import { api } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
+import type { WatchSettings } from '@/lib/foodhub/watch/types';
 import { CELEBRATION_KEYS } from '@/lib/ui/celebrate';
 import { cn } from '@/lib/ui/cn';
-import { alertSteps, cloverAppSteps, goLiveProgress, goLiveStages, stepBadge, stepKind, stepTally, stepText, tallyLine, type CloverAppInfo, type GoLiveStage, type Step } from './steps';
+import { alertSteps, cloverAppSteps, goLiveProgress, goLiveStages, relayGoLiveSteps, stepBadge, stepKind, stepTally, stepText, tallyLine, type CloverAppInfo, type GoLiveStage, type RelayGoLiveInput, type Step } from './steps';
 
 type Readiness = { channel: string; label: string; configured: boolean; canSend: boolean; missing: string[]; viaClover?: boolean };
 /** A mapped store whose orders cannot get into Clover (lib/foodhub/go-live.ts, sent by /api/foodhub/channels). */
@@ -31,6 +32,7 @@ type ChannelsData = {
 /** A SESSION_SECRET that changed less than this long ago is pointed out (everyone, tablets included, had to sign in again). */
 const SECRET_CHANGE_WARN_MS = 7 * 86400_000;
 type Notify = { email: boolean; sms: boolean; call: boolean; chat: boolean; ai: boolean };
+type WatchGoLive = { channels: Notify; settings?: Pick<WatchSettings, 'enabled' | 'rules'>; screenAlertPhoneConfigured?: boolean };
 type User = { username: string; name: string; role: string; locations: string[]; email: string | null; phone: string | null; active: boolean; hasPin: boolean };
 type Device = { id: string; locationCode: string; status: string };
 type Store = { channel: string; brandName: string; locationCode: string };
@@ -164,15 +166,16 @@ export default function GoLivePage() {
   const load = useCallback(async () => {
     setBusy(true);
     try {
-      const [ch, w, u, d, s, f, cat, ck] = await Promise.all([
+      const [ch, w, u, d, s, f, cat, ck, relay] = await Promise.all([
         api<ChannelsData>('/api/foodhub/channels'),
-        api<{ channels: Notify }>('/api/foodhub/watch/settings'),
+        api<WatchGoLive>('/api/foodhub/watch/settings'),
         api<{ users: User[] }>('/api/foodhub/users'),
         api<{ devices: Device[] }>('/api/foodhub/devices'),
         api<{ stores: Store[] }>('/api/foodhub/stores'),
         api<{ fees: Fees }>('/api/foodhub/recon/fees').catch((): { fees: Fees } => ({ fees: { confirmed: {} } })),
         api<{ locations: Array<{ code: string; name: string; phone?: string | null; active: boolean }> }>('/api/foodhub/catalog'),
         api<CloverCheck>('/api/foodhub/clover-labels').catch((): CloverCheck => ({ report: null })),
+        api<RelayGoLiveInput['relay']>('/api/foodhub/screens').catch(() => null),
       ]);
       const noPhone = cat.locations.filter((l) => l.active && !l.phone);
       const users = u.users.filter((x) => x.active);
@@ -185,6 +188,14 @@ export default function GoLivePage() {
       const ready = (k: string) => ch.channels.find((x) => x.channel === k);
       const unconfirmed = ['uber_eats', 'doordash', 'skip'].filter((k) => !f.fees.confirmed[k]);
       const list = (xs: Array<{ name: string }>) => xs.map((l) => shortLoc(l.name)).join(', ');
+      const relayChecks = relayGoLiveSteps({
+        relay,
+        watch: w.settings ? {
+          enabled: w.settings.enabled, rules: w.settings.rules, callConfigured: w.channels.call,
+          sharedPhoneConfigured: w.screenAlertPhoneConfigured === true,
+        } : null,
+        kitchenPhoneLocations: cat.locations.filter((l) => l.phone).map((l) => l.code),
+      }, t, (code) => shortLoc(locName(code)));
 
       const out: Step[] = [
         { group: t('Fondations', 'Foundations'), key: 'db', state: ch.mode === 'memory' ? 'todo' : 'done', title: t('Base de données Supabase', 'Supabase database'), body: ch.mode === 'memory' ? t('Mode démo : rien n’est gardé au redémarrage. Lancez npm run setup avec l’URL et la clé Supabase, puis exécutez INSTALL_ALL.sql.', 'Demo mode: nothing is kept across restarts. Run npm run setup with the Supabase URL and key, then run INSTALL_ALL.sql.') : t('Branchée.', 'Connected.'), href: '/settings/channels', cta: t('Voir', 'See') },
@@ -196,6 +207,7 @@ export default function GoLivePage() {
         { group: t('Équipe', 'Team'), key: 'pins', state: staffNoPin ? 'warn' : 'done', title: t('NIP des employés', 'Staff PINs'), body: staffNoPin ? t(`${staffNoPin} employé(s) sans NIP — ils ne peuvent pas déverrouiller une tablette.`, `${staffNoPin} staff without a PIN — they cannot unlock a tablet.`) : t('Tous les employés ont un NIP.', 'All staff have a PIN.'), href: '/settings/team', cta: t('Équipe', 'Team') },
         { group: t('Cuisine', 'Kitchen'), key: 'tablets', state: locNoTablet.length ? 'todo' : tabletsOff ? 'warn' : 'done', title: t('Une tablette par cuisine', 'A tablet per kitchen'), body: locNoTablet.length ? `${t('Sans tablette :', 'No tablet:')} ${list(locNoTablet)}` : tabletsOff ? t(`${tabletsOff} tablette(s) hors ligne en ce moment.`, `${tabletsOff} tablet(s) offline right now.`) : t('Toutes en ligne.', 'All online.'), href: '/settings/devices', cta: t('Tablettes', 'Tablets') },
         { group: t('Cuisine', 'Kitchen'), key: 'kphone', state: noPhone.length ? 'warn' : 'done', title: t('Téléphone de chaque cuisine', 'Each kitchen’s phone'), body: noPhone.length ? `${t('La surveillance ne peut pas appeler :', 'The watchtower cannot call:')} ${list(noPhone)}` : t('La surveillance appelle la cuisine en premier, comme Uber.', 'The watchtower calls the kitchen first, like Uber.'), href: '/settings/business', cta: t('Ajouter', 'Add') },
+        ...relayChecks,
         cloverStep(ch, t, locName),
         ...cloverDefaultSteps(ch, t, locName),
         ...(['uber_eats', 'doordash', 'skip'] as const).map((k): Step => {

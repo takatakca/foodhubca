@@ -1,3 +1,9 @@
+## 2026-11-26 — Cuisine des commandes importées depuis Clover OAuth
+
+Une commande native de plateforme importée depuis l’unique compte Clover OAuth peut rejoindre sa cuisine sans identifiant Clover global si la liaison est sans ambiguïté. Les liaisons Clover explicites et le compte global configuré gardent leur priorité. Une liaison protégée sans attribution explicite ne reçoit pas de nouvelle attribution par défaut et reste prise en compte dans la recherche des correspondances. Les essais simulés couvrent la visibilité dans le tableau authentifié de la bonne cuisine, la présence de deux comptes OAuth et les protections. La réception réelle reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Numéro de commande saisi à partir d’un écran
 
 La saisie manuelle distingue désormais deux commandes qui portent le même numéro affiché dans deux magasins. Saisir deux fois le même numéro pour le même magasin reste un doublon, même depuis un autre écran ou si la première saisie date d’une version antérieure. Clover utilise une référence de magasin dans le titre de reprise des nouvelles commandes pour retrouver la bonne commande quand plusieurs magasins partagent une caisse. L’import reconnaît ce titre sans écarter une commande native de Clover qui porte le même numéro. Le numéro affiché reste celui de la plateforme. Les preuves de réception physique restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

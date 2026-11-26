@@ -416,7 +416,7 @@ function callText(i: Incident, lang: 'fr' | 'en') {
 }
 
 /** Incidents the kitchen itself can fix: the kitchen phone rings first (like Uber calling the restaurant). */
-const KITCHEN_KINDS: IncidentKind[] = ['order_unaccepted', 'order_unseen', 'device_offline', 'device_muted', 'courier_waiting', 'pos_failed'];
+const KITCHEN_KINDS: IncidentKind[] = ['order_unaccepted', 'order_unseen', 'device_offline', 'device_muted', 'screen_down', 'screen_waiting', 'courier_waiting', 'pos_failed'];
 
 async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now: number, quiet: boolean, kitchenPhones: Map<string, string> = new Map()): Promise<boolean> {
   if (i.status !== 'open') return false;

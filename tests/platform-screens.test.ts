@@ -1,5 +1,7 @@
 // Platform screens: the relay host's Uber Eats / DoorDash order screens inside Food Hub (docs/PLATFORM_SCREENS.md).
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { saveLocation } from '../lib/foodhub/catalog';
+import * as notify from '../lib/foodhub/notify';
 import type { Actor } from '../lib/foodhub/activity';
 import { allDayWeek, saveHours } from '../lib/foodhub/hours';
 import {
@@ -197,6 +199,37 @@ describe('Watchtower: orders waiting on a screen (screen_waiting)', () => {
     expect(await waitingFor(20)).toHaveLength(0);
     expect(await waitingFor(600, { count: 0 })).toHaveLength(0);
     expect(await waitingFor(600, { closed: true })).toHaveLength(0);
+  });
+});
+
+describe('Watchtower: calls the kitchen for platform screen incidents', () => {
+  const cases = (['doordash', 'ubereats', 'skip'] as const).flatMap((platform) => [
+    { platform, waiting: false }, { platform, waiting: true },
+  ]);
+  it.each(cases)('calls once for $platform (waiting: $waiting)', async ({ platform, waiting }) => {
+    const phone = '+15145550123';
+    const placeCall = vi.spyOn(notify, 'placeCall').mockResolvedValue({ ok: true, channel: 'call', message: 'Test call' });
+    try {
+      const locationCode = 'NDG_6284';
+      await saveLocation({ code: locationCode, name: 'Test kitchen', address: '', active: true, phone });
+      await saveHours({ locations: { [locationCode]: allDayWeek() }, brands: {}, holidays: [] });
+      const screen = await addScreen({ name: 'Test platform screen', platform, locationCode, viewUrl: 'https://screens.example.ca/test/' }, ACTOR);
+      if ('error' in screen) throw new Error(screen.error);
+      const now = Date.parse('2026-11-26T17:00:00Z');
+      const report = { screens: [{ id: screen.id, state: 'ok' as const, waiting: waiting ? 2 : 0 }] };
+      await recordHeartbeat(report, new Date(now - 6 * 60_000));
+      if (waiting) await recordHeartbeat(report, new Date(now));
+      await runWatch({ force: true, now });
+      expect(placeCall).not.toHaveBeenCalled();
+      for (const minutes of [2, 3]) {
+        const time = now + minutes * 60_000;
+        if (waiting) await recordHeartbeat(report, new Date(time));
+        await runWatch({ force: true, now: time });
+      }
+      expect(placeCall).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ to: phone }), expect.objectContaining({ purpose: 'alert_kitchen' }));
+    } finally {
+      placeCall.mockRestore();
+    }
   });
 });
 

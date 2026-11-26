@@ -6,7 +6,15 @@ L’acceptation automatique d’une commande Skip directe exige une référence 
 
 La reprise sur `2313f4f` a passé 195 essais ciblés, dont la simulation des appels, l’accusé Skip et le maintien des commandes sans liaison au tableau.
 
+Sur `4003e5b`, 201 essais ciblés ont couvert ces scénarios et les nouveaux contrôles d’impression Clover de #169.
+
 — signé : Codex (automatisation) @ cloud · 2026-11-26
+
+## 2026-11-26 — Impression Clover et démarrage du relais Windows
+
+L’impression de cuisine utilise la caisse résolue par la même règle que la création dans Clover. Le marchand explicite et le défaut configuré ont priorité, puis le compte OAuth unique approuvé. Le kit Windows conserve son dossier d’installation dans la tâche planifiée et dans le raccourci de démarrage. La relève du poste existant et les essais marchands restent suivis dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
 
 ## 2026-11-26 — Vérifications du relais dans Mise en service
 

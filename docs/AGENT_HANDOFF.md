@@ -1,3 +1,11 @@
+## 2026-11-26 — Relève des écrans et confirmation Skip
+
+Dans Réglages → Alertes, « Simuler la relève des écrans » vérifie les deux règles et le numéro commun enregistré, affiché masqué. La simulation reproduit la sélection du premier appel. L’indication de configuration Twilio est distincte. La réception sur un téléphone fait partie des essais marchands dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+L’acceptation automatique d’une commande Skip directe exige une référence Clover avant le succès JET. Lorsqu’une commande prévue en acceptation automatique ne parvient pas à Clover, Food Hub demande la relève vers la tablette et attend l’accusé Skip avant d’afficher le transfert.
+
+— signé : Codex (automatisation) @ cloud · 2026-11-26
+
 ## 2026-11-26 — Vérifier un passage Watchtower en arrière-plan
 
 Dans la réponse détaillée de `GET /api/health`, `checks.watchtower.lastBackgroundCompletion` donne l’heure et le déclencheur du dernier passage achevé par minuterie ou cron. Ce contrôle complète l’horodatage de démarrage. La réception réelle des commandes et des appels reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

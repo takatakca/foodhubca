@@ -8,6 +8,34 @@ La reprise sur `2313f4f` a passé 195 essais ciblés, dont la simulation des app
 
 Sur `4003e5b`, 201 essais ciblés ont couvert ces scénarios et les nouveaux contrôles d’impression Clover de #169.
 
+Sur `cdde075`, 206 essais ciblés ont couvert ces parcours avec la validation des signaux du relais et de la caisse avant annulation Clover.
+
+— signé : Codex (automatisation) @ cloud · 2026-11-26
+
+## 2026-11-26 — Changement de plateforme du relais et annulation Clover
+
+Un écran déjà vu passe à indisponible quand sa plateforme change. Food Hub écarte l’état et le nombre de commandes d’un domaine marchand ou d’une application Android reconnus comme appartenant à une autre plateforme. Watchtower peut signaler l’écran indisponible, même si le relais continue d’envoyer les signaux de l’ancienne plateforme. Si la réponse d’ouverture se perd, la commande « Page de connexion » crée une nouvelle demande.
+
+L’annulation suit la caisse explicite, puis la caisse configurée, puis l’unique caisse OAuth approuvée. Dans ce dernier cas, Clover doit renvoyer la référence et le titre attendus avant que Food Hub retire ou marque la commande. Le contrôle de réception réelle reste dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+La reprise sur `394ecff` a passé 185 essais ciblés, dont la vérification des signaux web et Android, des alertes Watchtower et des réponses Clover simulées.
+
+La reprise sur `2313f4f` conserve les mêmes changements et les tests de préparation du relais de #168. TypeScript et 124 tests ciblés réussissent, dont les signaux de relais sous Chromium sur une plateforme simulée.
+
+La reprise sur `4003e5b` conserve aussi l’impression Clover et le dossier de démarrage du relais Windows de #169. TypeScript, ESLint sur les fichiers TypeScript concernés et 181 tests ciblés réussissent. Les scénarios du relais web ont utilisé Chromium avec un serveur Food Hub simulé. Les six tests PowerShell exigent Windows.
+
+— signé : Codex (automatisation) @ cloud · 2026-11-26
+
+## 2026-11-26 — Attribution des commandes Uber et onglet du relais web
+
+La checklist Uber direct demande un contrôle fournisseur enregistré pour le compte lié, avec Food Hub comme gestionnaire et les webhooks actifs. Une ancienne vérification sans compte identifié doit être refaite dans Restaurants → Liaisons. L’essai de réception en cuisine reste suivi dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+Le relais web reconnaît la page marchand et les pages de connexion prises en charge. Un onglet interne de Chrome ou une page sur un autre site déclenche un statut indisponible. Pour l’installation manuelle, utiliser la même adresse marchand pour Chrome et `SCREEN_START_URL`. La vérification sur le poste existant reste ouverte.
+
+La reprise sur `394ecff` a passé 195 essais ciblés, dont la sélection des onglets dans Chromium local et les réponses OAuth simulées.
+
+Après la fusion de #168 sur `2313f4f`, le contrôle conjoint de la checklist, du relais et d’Uber a passé 199 essais ciblés et la vérification TypeScript.
+
 — signé : Codex (automatisation) @ cloud · 2026-11-26
 
 ## 2026-11-26 — Impression Clover et démarrage du relais Windows

@@ -1,3 +1,11 @@
+## 2026-11-26 — Numéro de commande saisi à partir d’un écran
+
+La saisie manuelle distingue désormais deux commandes qui portent le même numéro affiché dans deux magasins. Saisir deux fois le même numéro pour le même magasin reste un doublon, même depuis un autre écran ou si la première saisie date d’une version antérieure. Clover utilise une référence de magasin dans le titre de reprise des nouvelles commandes pour retrouver la bonne commande quand plusieurs magasins partagent une caisse. L’import reconnaît ce titre sans écarter une commande native de Clover qui porte le même numéro. Le numéro affiché reste celui de la plateforme. Les preuves de réception physique restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+Le paiement Clover d’une nouvelle saisie utilise une référence stable de 32 caractères dérivée de l’identifiant complet de la commande, qui inclut la référence du magasin. Les essais simulés couvrent deux magasins partageant une caisse avec le même numéro long, une nouvelle tentative et la compatibilité des références de paiement antérieures.
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Contrôle manuel d’une liaison Uber Eats
 
 « Vérifier avec Uber » consulte les liaisons accessibles au compte en utilisant un jeton OAuth distinct avec la portée `eats.store`. Si `UBER_OAUTH_SCOPE` est renseignée, elle doit inclure cette portée. Un jeton statique `UBER_ACCESS_TOKEN` reste prioritaire. L’autorisation de l’application en production et la réception réelle restent à vérifier auprès d’Uber. [Suivi marchand](https://github.com/takatakca/foodhubca/issues/46#issuecomment-7194255617) · [Référence Uber](https://developer.uber.com/docs/eats/references/api/v1/get-eats-stores-storeid-posdata)

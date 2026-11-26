@@ -17,10 +17,11 @@ import { logActivity } from '../activity';
 import { CHANNEL_LABELS, CHANNEL_MARKETPLACE, fromCents, nowIso } from '../config';
 import { cloverFetch } from './clover-http';
 import { getRepo } from '../repo';
+import { screenEntryStoreRef } from '../screen-entry-id';
 import type { ChannelKey, NormalizedOrder, OrderLine } from '../types';
 import { cloverBaseUrl, cloverToken } from './clover';
 import { isPlatformTender, platformFromLabel } from './platform-labels';
-import { normName } from './clover-order';
+import { cloverOrderTitle, normName, normalizeCloverOrderTitle } from './clover-order';
 import { noteLastOrder } from '../order-retry';
 import { mevOnOrderChange } from '../mev/hooks';
 
@@ -108,11 +109,19 @@ export async function importCloverPlatformOrders(mid: string, opts: { now?: numb
   const since = Math.max((await repo.getKv<number>(SINCE_KEY(mid))) ?? 0, now - FIRST_LOOKBACK_MS);
   if (since >= until) return out;
 
-  // Food Hub's own orders: their Clover ids, and "<platform>|<order #>" (the title Food Hub gives the Clover order),
-  // so an order Food Hub created — even one whose Clover id was never saved (time-out) — is never read back.
+  // Match our full scoped screen title when the Clover ID was lost. Older orders still use platform and visible code.
   const recent = await repo.listOrders({ since: new Date(since - 3 * 24 * 3600_000).toISOString(), limit: 5000 });
   const known = opts.knownPosOrderIds ?? new Set(recent.map((o) => o.posOrderId).filter(Boolean) as string[]);
-  const ownTitles = new Set(recent.filter((o) => !o.viaPos).map((o) => `${o.channel}|${String(o.displayId || o.externalOrderId.slice(0, 8)).toLowerCase()}`));
+  const ownScreenTitles = new Set<string>();
+  const ownOrderCodes = new Set<string>();
+  for (const order of recent) {
+    if (order.viaPos) continue;
+    if (order.viaHub === 'screen' && screenEntryStoreRef(order.externalOrderId)) {
+      ownScreenTitles.add(normalizeCloverOrderTitle(cloverOrderTitle(order)));
+    } else {
+      ownOrderCodes.add(`${order.channel}|${(order.displayId || order.externalOrderId.slice(0, 8)).toLowerCase()}`);
+    }
+  }
   try {
     const [orderTypes, tenders] = await Promise.all([labelMap(mid, token, 'order_types'), labelMap(mid, token, 'tenders')]);
     const stores = await repo.listStores();
@@ -135,7 +144,7 @@ export async function importCloverPlatformOrders(mid: string, opts: { now?: numb
         const channel = detectPlatform(co, orderTypes, tenders);
         if (!channel) continue; // an in-store order
         const titleId = String(co?.title ?? '').replace(/^[^#]*#\s*/, '').trim().toLowerCase();
-        if (titleId && ownTitles.has(`${channel}|${titleId}`)) continue; // created by Food Hub itself
+        if (ownScreenTitles.has(normalizeCloverOrderTitle(co?.title)) || (titleId && ownOrderCodes.has(`${channel}|${titleId}`))) continue;
         // The brand: the only store of that platform on this merchant, or the brand named in the Clover title / note.
         // Several candidates and no name → brand left unknown rather than guessed (never filed under the wrong brand).
         const candidates = storesHere.filter((s) => s.channel === channel);

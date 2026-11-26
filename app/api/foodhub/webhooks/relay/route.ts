@@ -47,21 +47,21 @@ export async function POST(req: NextRequest) {
         if (k === 'collected' || k === 'no_show') { await applyTgtgEvent({ kind: k, orderId: status.externalOrderId, word: status.state, reason: status.message }); return; }
       }
       const order = await getRepo().findOrder(status.channel, status.externalOrderId);
-      if (!order) {
-        // The order may still be in the webhook inbox (server stopped before processing it): a cancel waits for it and
-        // stops its Clover ticket on arrival, like a platform cancel that beats the order. Anything else is kept.
-        if (relayTargetStatus(status.state) === 'cancelled') {
-          const state = /cancel|fail/i.test(status.state) ? status.state : 'cancelled';
-          return void (await applyExternalStatus(status.channel, status.externalOrderId, state, { reason: status.message, source: 'relay', partnerState: status.state }));
-        }
+      const cancelsOrder = relayTargetStatus(status.state) === 'cancelled';
+      // The order may still be in the webhook inbox: a cancellation waits for it and stops its Clover ticket on arrival.
+      if (!order && !cancelsOrder) {
         return keepUnparsed(status.channel, body, 'Relay status for an order Food Hub does not have (yet)', status.externalOrderId);
       }
       // Forward-only: a late or repeated delivery never moves an order back or reopens a closed one.
-      if (!relayStatusApplies(order, status.state, { needsClover: acceptNeedsClover(order) })) {
+      if (order && !relayStatusApplies(order, status.state, { needsClover: acceptNeedsClover(order) })) {
         await getRepo().addEvent(order.id, 'platform_status_ignored', { state: status.state, reason: status.message, source: 'relay', note: `Not applied: the order is already ${order.status}.` });
         return;
       }
-      return applyExternalStatus(status.channel, status.externalOrderId, status.state, { reason: status.message, source: 'relay' });
+      // The shared status handler knows cancellation and failure terms. Normalize partner rejections on both paths.
+      const state = cancelsOrder && !/cancel|fail/i.test(status.state) ? 'cancelled' : status.state;
+      return applyExternalStatus(status.channel, status.externalOrderId, state, {
+        reason: status.message, source: 'relay', ...(cancelsOrder ? { partnerState: status.state } : {}),
+      });
     }, { channel: status.channel, body, reference: status.externalOrderId, kind: 'order' });
     return NextResponse.json({ ok: true });
   }

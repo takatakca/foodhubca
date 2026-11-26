@@ -1,3 +1,11 @@
+## 2026-11-26 — Préférences du propriétaire et preuve d’appel
+
+Au palier urgent, le profil du propriétaire choisit l’appel et le SMS indépendamment. Les personnes en garde et autorisées pour la cuisine gardent leur périmètre. La réservation du palier et l’acquittement continuent de limiter les envois.
+
+Un appel accepté peut perdre la confirmation d’écriture de son reçu. La relève retente l’écriture du même reçu une fois avec le même identifiant. Si les deux écritures restent non confirmées, l’historique signale que la demande a été acceptée et que le reçu peut manquer. Une vérification d’état ne crée aucun nouvel appel. Les appels effectivement reçus restent suivis dans [la checklist marchande](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Réglages indisponibles et reprise du premier appel
 
 Si la lecture des réglages échoue, Watchtower suspend le passage avant la création d’un incident, le marqueur de réussite et les envois. Une modification partielle ne remplace plus les réglages enregistrés dans ce cas. L’API de réglages répond `503`. Une installation sans réglages enregistrés conserve ses valeurs par défaut.

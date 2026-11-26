@@ -251,6 +251,53 @@ describe('Screen relay alerts without a console open', () => {
     expect(await listIncidents({ status: ['open'] })).toHaveLength(1);
   });
 
+  it('calls the owner who opted into urgent voice and opted out of SMS', async () => {
+    await prepareZeroMinuteScreenCall();
+    await saveWatchSettings({ callAfterMin: 1, ownerAfterMin: 2 }, OWNER);
+    const managerPhone = '+15145550126';
+    const callOnlyPhone = '+15145550127';
+    const smsOnlyPhone = '+15145550128';
+    const offDutyPhone = '+15145550129';
+    const otherKitchenPhone = '+15145550130';
+    const repo = getRepo();
+    await repo.saveUser({ username: 'manager', name: 'Manager', role: 'manager', locations: [KITCHEN], active: true, phone: managerPhone });
+    await repo.saveUser({ username: 'voice-owner', name: 'Voice only owner', role: 'owner', locations: [KITCHEN], active: true,
+      phone: callOnlyPhone, prefs: { onDuty: true, alertSms: false, alertCall: true } });
+    await repo.saveUser({ username: 'sms-owner', name: 'SMS only owner', role: 'owner', locations: [KITCHEN], active: true,
+      phone: smsOnlyPhone, prefs: { onDuty: true, alertSms: true, alertCall: false } });
+    await repo.saveUser({ username: 'off-duty-owner', name: 'Off duty owner', role: 'owner', locations: [KITCHEN], active: true,
+      phone: offDutyPhone, prefs: { onDuty: false, alertSms: true, alertCall: true } });
+    await repo.saveUser({ username: 'other-kitchen-owner', name: 'Other kitchen owner', role: 'owner', locations: ['OTHER_KITCHEN'], active: true,
+      phone: otherKitchenPhone, prefs: { onDuty: true, alertSms: true, alertCall: true } });
+    const sent: { channel: 'call' | 'sms'; to: string | null }[] = [];
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = new URL(String(input));
+      expect(url.origin).toBe(TWILIO_BASE);
+      expect(url.pathname).toMatch(/\/(Calls|Messages)\.json$/);
+      const channel = url.pathname.endsWith('Calls.json') ? 'call' : 'sms';
+      sent.push({ channel, to: new URLSearchParams(String(init?.body)).get('To') });
+      return Response.json({ sid: channel === 'call' ? CALL_SID : 'SMsimulated' }, { status: 201 });
+    });
+
+    await runCron();
+    const [incident] = await listIncidents({ status: ['open'] });
+    advanceTo(7);
+    await runCron();
+    expect(sent).toContainEqual({ channel: 'call', to: managerPhone });
+    expect(await getIncident(incident.id)).toMatchObject({ level: 2 });
+    const mark = sent.length;
+    advanceTo(8);
+    await runCron();
+    const ownerLevel = (await getIncident(incident.id))?.level;
+    const ownerMessages = (await readOutbox()).filter((entry) => entry.incidentId === incident.id && entry.purpose === 'alert_owner');
+    advanceTo(9);
+    await runCron();
+    const observed = { messages: sent.slice(mark).sort((a, b) => a.channel.localeCompare(b.channel)), ownerLevel,
+      outbox: ownerMessages.map((entry) => entry.channel).sort() };
+    expect(observed).toEqual({ messages: [{ channel: 'call', to: callOnlyPhone }, { channel: 'sms', to: smsOnlyPhone }], ownerLevel: 3,
+      outbox: ['call', 'sms'] });
+  });
+
   it.each([
     { scenario: 'a changed line matches the manager', nextLine: KITCHEN_PHONE, managerPhone: KITCHEN_PHONE, recipient: KITCHEN_PHONE },
     { scenario: 'the same destination has different formatting', nextLine: '514.555.0124', managerPhone: '(514) 555-0124', recipient: null },

@@ -427,11 +427,11 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
 
 // ---------- escalation ----------
 
-function recipients(users: FoodHubUser[], i: Incident, roles: Array<FoodHubUser['role']>, kind: 'sms' | 'call') {
+function recipients(users: FoodHubUser[], i: Incident, roles: Array<FoodHubUser['role']>, kind?: 'sms' | 'call') {
   return users.filter((u) => u.active && u.phone && roles.includes(u.role)
     && (!i.locationCode || !u.locations?.length || u.locations.includes(i.locationCode))
     && u.prefs?.onDuty !== false
-    && (kind === 'sms' ? u.prefs?.alertSms !== false : u.prefs?.alertCall !== false));
+    && (!kind || (kind === 'sms' ? u.prefs?.alertSms !== false : u.prefs?.alertCall !== false)));
 }
 
 function smsText(i: Incident, lang: 'fr' | 'en') {
@@ -636,11 +636,14 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
       if (permission === 'defer') return changed;
       advance(3, permission);
       if (permission !== 'dispatch') return changed;
-      for (const u of recipients(users, i, ['owner'], 'sms')) {
-        if (!(await mayNotify())) return changed;
-        const r = await sendSms({ to: u.phone!, body: `${smsText(i, u.prefs?.lang ?? 'fr')}\n(${Math.round(elapsed)} min sans réponse / no answer)` }, { purpose: 'alert_owner', incidentId: i.id });
-        step('owner', `${u.name} (${maskContact(u.phone!)})`, r.ok, r.message);
-        if (u.prefs?.alertCall !== false && !(await call(u.phone!, u.name, u.prefs?.lang ?? 'fr', 'alert_owner'))) return changed;
+      for (const u of recipients(users, i, ['owner'])) {
+        const lang = u.prefs?.lang ?? 'fr';
+        if (u.prefs?.alertSms !== false) {
+          if (!(await mayNotify())) return changed;
+          const r = await sendSms({ to: u.phone!, body: `${smsText(i, lang)}\n(${Math.round(elapsed)} min sans réponse / no answer)` }, { purpose: 'alert_owner', incidentId: i.id });
+          step('owner', `${u.name} (${maskContact(u.phone!)})`, r.ok, r.message);
+        }
+        if (u.prefs?.alertCall !== false && !(await call(u.phone!, u.name, lang, 'alert_owner'))) return changed;
       }
       for (const p of s.supportPhones) {
         if (!(await call(p, 'support', 'fr', 'alert_support'))) return changed;

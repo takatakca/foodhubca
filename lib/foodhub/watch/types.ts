@@ -3,6 +3,13 @@
 //   on screen (beep) → SMS to the manager on duty → phone call → the owner.
 // It never accepts, cancels, refunds or changes anything by itself (AI = supervisor only).
 
+export const WATCH_BACKGROUND_COMPLETION_KEY = 'watch:last-background-completion';
+
+export interface WatchBackgroundCompletion {
+  at: string;
+  trigger: 'timer' | 'cron';
+}
+
 export type IncidentKind =
   | 'order_unaccepted'   // a new order is waiting and the platform deadline is coming
   | 'order_unseen'       // auto-accepted, but nobody looked at the kitchen screen

@@ -18,7 +18,7 @@ export async function GET(req: Request) {
   const cron = Boolean(process.env.CRON_SECRET) && safeEqual(bearer, process.env.CRON_SECRET!);
   const actor = cron ? null : await getActor(req).catch(() => null);
   const detailed = cron || Boolean(actor);
-  const h = await (detailed ? buildHealth() : cachedHealth()).catch((error) => {
+  const h = await (detailed ? buildHealth({ includeWatchBackgroundCompletion: true }) : cachedHealth()).catch((error) => {
     console.error('[foodhub] health check crashed —', error instanceof Error ? error.message : error);
     return { status: 'down' as const, at: new Date().toISOString() };
   });

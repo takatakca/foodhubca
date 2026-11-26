@@ -27,6 +27,7 @@ import { sessionSecretSource } from './session';
 import { lastSyncAt } from './sync';
 import { getMailboxStatus, getTgtgEmailSettings } from './tgtg-email/settings';
 import type { ChannelKey } from './types';
+import { WATCH_BACKGROUND_COMPLETION_KEY, type WatchBackgroundCompletion } from './watch/types';
 
 export type CheckStatus = 'ok' | 'warn' | 'down';
 export interface HealthCheck { status: CheckStatus; detail: string; detailFr: string; at?: string | null; ageS?: number | null }
@@ -34,7 +35,9 @@ export interface PlatformHealth { channel: ChannelKey; label: string; mode: 'dir
 export interface HealthReport {
   status: 'ok' | 'degraded' | 'down';
   at: string;
-  checks: Record<'database' | 'sync' | 'watchtower' | 'recovery' | 'inbox' | 'clover' | 'console', HealthCheck>;
+  checks: Record<'database' | 'sync' | 'recovery' | 'inbox' | 'clover' | 'console', HealthCheck> & {
+    watchtower: HealthCheck & { lastBackgroundCompletion?: WatchBackgroundCompletion | null };
+  };
   platforms: PlatformHealth[];
   /** E-mail, SMS, AI, screens relay, Too Good To Go mailbox: shown on the Overview, never part of the status. */
   services: ServiceHealth[];
@@ -87,7 +90,7 @@ export function cachedHealth(): Promise<HealthReport> {
   return p;
 }
 
-export async function buildHealth(opts: { now?: number; uptimeSec?: number } = {}): Promise<HealthReport> {
+export async function buildHealth(opts: { now?: number; uptimeSec?: number; includeWatchBackgroundCompletion?: boolean } = {}): Promise<HealthReport> {
   const now = opts.now ?? Date.now();
   const repo = getRepo();
   const checks = {} as HealthReport['checks'];
@@ -115,12 +118,13 @@ export async function buildHealth(opts: { now?: number; uptimeSec?: number } = {
 
   // A database that did not answer is not asked again for each check below.
   const read = <T,>(p: () => Promise<T>, fallback: T): Promise<T> => (dbDown ? Promise.resolve(fallback) : within(p()).catch(() => fallback));
-  const [sync, watch, recovery, stores, last] = await Promise.all([
+  const [sync, watch, recovery, stores, last, watchBackground] = await Promise.all([
     read(() => lastSyncAt(), null),
     read(() => repo.getKv<{ at: string }>('watch:last'), null),
     read(() => lastRecoveryRun(), null),
     read(() => repo.listStores(), []),
     read(() => lastOrderTimes(), {} as Partial<Record<ChannelKey, string>>),
+    opts.includeWatchBackgroundCompletion ? read(() => repo.getKv<WatchBackgroundCompletion>(WATCH_BACKGROUND_COMPLETION_KEY), null) : undefined,
   ]);
 
   const syncAge = age(sync?.at, now);
@@ -146,6 +150,12 @@ export async function buildHealth(opts: { now?: number; uptimeSec?: number } = {
   checks.watchtower = watchAge === null
     ? { status: watchStarting ? 'warn' : 'down', detail: watchStarting ? 'The Watchtower is starting.' : 'The Watchtower never ran: nobody would be alerted.', detailFr: watchStarting ? 'Le Watchtower démarre.' : 'Le Watchtower n’a jamais roulé : personne ne serait alerté.', at: null, ageS: null }
     : { status: watchAge <= 5 * 60 ? 'ok' : watchAge <= 15 * 60 ? 'warn' : 'down', detail: `Watchtower ran ${mins(watchAge)} ago.`, detailFr: `Le Watchtower a roulé il y a ${mins(watchAge)}.`, at: watch!.at, ageS: watchAge };
+  if (opts.includeWatchBackgroundCompletion) {
+    const timestamp = typeof watchBackground?.at === 'string' ? Date.parse(watchBackground.at) : NaN;
+    const trigger = watchBackground?.trigger;
+    checks.watchtower.lastBackgroundCompletion = Number.isFinite(timestamp) && (trigger === 'timer' || trigger === 'cron')
+      ? { at: new Date(timestamp).toISOString(), trigger } : null;
+  }
 
   const recAge = age(recovery?.at, now);
   checks.recovery = recAge === null

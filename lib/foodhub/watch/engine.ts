@@ -21,7 +21,7 @@ import { foodhubTimeZone, localParts } from '../time';
 import type { ChannelKey, ChannelStore, FoodHubUser, HoursConfig, PlatformStatus, StoredOrder } from '../types';
 import { explainIncident, PLAYBOOK } from './ai';
 import { customerContact, lateMessage } from './customer';
-import { DEFAULT_RULES, DEFAULT_WATCH, INCIDENT_KINDS, KIND_LABEL, type Incident, type IncidentKind, type IncidentStatus, type Severity, type WatchSettings } from './types';
+import { DEFAULT_RULES, DEFAULT_WATCH, INCIDENT_KINDS, KIND_LABEL, WATCH_BACKGROUND_COMPLETION_KEY, type Incident, type IncidentKind, type IncidentStatus, type Severity, type WatchBackgroundCompletion, type WatchSettings } from './types';
 
 export const INCIDENTS = 'incidents';
 const SETTINGS_KEY = 'watch:settings';
@@ -593,6 +593,11 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
       await logActivity({ actor: 'Watchtower', source: 'automation', kind: 'incident', action: i.kind, status: 'info', locationCode: i.locationCode, brandName: i.brandName, orderId: i.orderId, summary: i.titleEn });
     }
     report.open = [...live.values(), ...fresh].filter((i) => i.status === 'open' || i.status === 'acknowledged').length;
+    if (report.trigger === 'timer' || report.trigger === 'cron') {
+      const completion: WatchBackgroundCompletion = { at: new Date().toISOString(), trigger: report.trigger };
+      // Diagnostic only. The existing watch:last marker still controls throttling and liveness.
+      await repo.setKv(WATCH_BACKGROUND_COMPLETION_KEY, completion).catch(() => undefined);
+    }
     return report;
   } finally {
     g.__takatakWatchRunning = 0;

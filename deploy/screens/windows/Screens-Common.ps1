@@ -435,8 +435,17 @@ function Get-LastLogLine {
 # ---------------------------------------------------------------- start at sign-in (no admin)
 
 function Get-StartCommand {
-  param([string]$StartScript)
-  return @{ file = 'powershell.exe'; arguments = ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ' + (ConvertTo-Argument $StartScript)) }
+  param([string]$StartScript, [string]$Root, [switch]$StartupFolder)
+  $options = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden'
+  if ($StartupFolder) {
+    # Keep the ASCII .cmd from interpreting path characters or losing non-ASCII names.
+    $scriptPath = $StartScript.Replace("'", "''")
+    $rootPath = $Root.Replace("'", "''")
+    $command = "& '$scriptPath' -Root '$rootPath'"
+    $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($command))
+    return @{ file = 'powershell.exe'; arguments = ($options + ' -EncodedCommand ' + $encoded) }
+  }
+  return @{ file = 'powershell.exe'; arguments = ($options + ' -File ' + (ConvertTo-Argument $StartScript) + ' -Root ' + (ConvertTo-Argument $Root)) }
 }
 
 function Get-StartupCmdPath {
@@ -446,8 +455,8 @@ function Get-StartupCmdPath {
 function Register-StartupTask {
   # Scheduled Task "FoodHub Screens" at sign-in of the current user (no admin). If the Task Scheduler refuses, a .cmd
   # in the user's Startup folder does the same job.
-  param([string]$StartScript, [string]$WorkingDirectory, [switch]$DryRun)
-  $cmd = Get-StartCommand $StartScript
+  param([string]$StartScript, [string]$Root, [string]$WorkingDirectory, [switch]$DryRun)
+  $cmd = Get-StartCommand -StartScript $StartScript -Root $Root
   $user = $env:USERDOMAIN + '\' + $env:USERNAME
   $result = [ordered]@{ name = $script:TaskName; method = 'scheduledTask'; user = $user; command = ($cmd.file + ' ' + $cmd.arguments); registered = $false }
   if ($DryRun) { $result.method = 'scheduledTask (dry run: not registered)'; return $result }
@@ -466,7 +475,8 @@ function Register-StartupTask {
     $result.method = 'startupFolder'
     $result.fallbackReason = $_.Exception.Message
     $cmdFile = Get-StartupCmdPath
-    $content = "@echo off`r`nrem Food Hub order screens (deploy/screens/windows/README-WINDOWS.md). Written because the Scheduled Task could not be registered.`r`nstart """" /min " + $cmd.file + ' ' + $cmd.arguments + "`r`n"
+    $startup = Get-StartCommand -StartScript $StartScript -Root $Root -StartupFolder
+    $content = "@echo off`r`nrem Food Hub order screens (deploy/screens/windows/README-WINDOWS.md). Written because the Scheduled Task could not be registered.`r`nstart """" /min " + $startup.file + ' ' + $startup.arguments + "`r`n"
     [System.IO.File]::WriteAllText($cmdFile, $content, [System.Text.Encoding]::ASCII)
     $result.path = $cmdFile
     $result.registered = $true

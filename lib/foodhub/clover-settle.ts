@@ -47,7 +47,7 @@ async function settleCloverOnly(order: StoredOrder | null): Promise<StoredOrder 
         await repo.addEvent(order.id, 'pos_payment_failed', { error });
         return patch(order, { posPaymentError: error });
       }
-      const r = await recordCloverPayment(order, store?.cloverMerchantId);
+      const r = await recordCloverPayment(order, order.timeline?.posMerchantId ?? store?.cloverMerchantId);
       if (r.ok) {
         await repo.addEvent(order.id, 'pos_paid', { message: `Recorded as paid in Clover (${r.amount.toFixed(2)} $, ${CHANNEL_LABELS[order.channel]} tender)`, paymentId: r.paymentId });
         return patch(order, { posPaymentId: r.paymentId, posPaymentError: undefined });

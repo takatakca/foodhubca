@@ -36,6 +36,8 @@ export interface OrderTimeline {
   firedAt?: string;
   /** Courier / driver as reported by the platform. */
   courier?: CourierInfo;
+  /** Clover merchant that returned or already held this order when its POS order ID was linked. */
+  posMerchantId?: string;
   /** Clover: payment recorded with the platform tender (when the order leaves the kitchen). */
   posPaymentId?: string;
   posPaymentError?: string;

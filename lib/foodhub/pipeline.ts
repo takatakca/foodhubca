@@ -280,13 +280,17 @@ export async function sendToClover(order: StoredOrder, store: ChannelStore | nul
   return injectOrder(order, store?.cloverMerchantId, { orderTypeId });
 }
 
+function linkCloverOrder(order: StoredOrder, pos: Extract<InjectResult, { ok: true }>): Promise<StoredOrder> {
+  return patchTimeline(order, { posMerchantId: pos.merchantId }, { posOrderId: pos.posOrderId, posError: undefined });
+}
+
 /**
  * Clover confirmed the order: keep its id, say how the lines were linked, flag a Clover total that differs from what
  * the platform charged (usually a Clover tax setting — flagged, never changed), then print the kitchen ticket.
  */
 export async function recordCloverSuccess(order: StoredOrder, store: ChannelStore | null, pos: Extract<InjectResult, { ok: true }>, extra: Record<string, unknown> = {}): Promise<StoredOrder> {
   const repo = getRepo();
-  let current = (await repo.updateOrder(order.id, { posOrderId: pos.posOrderId, posError: undefined })) ?? order;
+  let current = await linkCloverOrder(order, pos);
   if (current.timeline?.posRetry) current = await patchTimeline(current, { posRetry: { ...current.timeline.posRetry, nextAt: null, doneAt: nowIso() } });
   await repo.addEvent(order.id, pos.adopted ? 'pos_adopted' : 'pos_injected', {
     posOrderId: pos.posOrderId, ...extra,
@@ -426,8 +430,10 @@ async function resendNow(order: StoredOrder, opts: { manual?: boolean; by?: stri
   } else if (maybeInClover(current)) {
     const mid = store?.cloverMerchantId || (await defaultCloverMerchant());
     const token = mid ? await cloverToken(mid).catch(() => null) : null;
-    const hit = mid && token ? await findCloverOrderByTitle(mid, token, cloverBaseUrl(), current, Date.parse(current.createdAt) - 5 * 60_000).catch(() => null) : null;
-    if (hit) pos = { ok: true, posOrderId: hit.id, adopted: true, ...(hit.totalCents !== undefined ? { totalCents: hit.totalCents } : {}) };
+    if (mid && token) {
+      const hit = await findCloverOrderByTitle(mid, token, cloverBaseUrl(), current, Date.parse(current.createdAt) - 5 * 60_000).catch(() => null);
+      if (hit) pos = { ok: true, posOrderId: hit.id, merchantId: mid, adopted: true, ...(hit.totalCents !== undefined ? { totalCents: hit.totalCents } : {}) };
+    }
   }
   pos ??= await sendToClover(current, store);
   if (pos.ok) {
@@ -448,7 +454,7 @@ async function resendNow(order: StoredOrder, opts: { manual?: boolean; by?: stri
     }
     if (latest.status === 'cancelled') {
       // No kitchen ticket for a cancelled order: keep the Clover id for the record, then remove it from Clover.
-      const kept = (await repo.updateOrder(order.id, { posOrderId: pos.posOrderId, posError: undefined })) ?? { ...latest, posOrderId: pos.posOrderId };
+      const kept = await linkCloverOrder(latest, pos);
       await repo.addEvent(order.id, pos.adopted ? 'pos_adopted' : 'pos_injected', { posOrderId: pos.posOrderId, ...tag, note: 'The platform cancelled the order meanwhile — no kitchen ticket; removed from Clover.' });
       return { order: (await settleInClover(kept)) ?? kept, pos, store };
     }

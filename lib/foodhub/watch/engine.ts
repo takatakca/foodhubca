@@ -35,7 +35,11 @@ export async function getWatchSettings(): Promise<WatchSettings> {
   const stored = (await getRepo().getKv<Partial<WatchSettings>>(SETTINGS_KEY).catch(() => null)) ?? {};
   const rules = { ...DEFAULT_RULES };
   for (const k of INCIDENT_KINDS) if (stored.rules?.[k]) rules[k] = { ...DEFAULT_RULES[k], ...stored.rules[k] };
-  return { ...DEFAULT_WATCH, ...stored, rules, supportPhones: Array.isArray(stored.supportPhones) ? stored.supportPhones : [] };
+  return {
+    ...DEFAULT_WATCH, ...stored, rules,
+    supportPhones: Array.isArray(stored.supportPhones) ? stored.supportPhones : [],
+    screenAlertPhone: typeof stored.screenAlertPhone === 'string' ? normalizePhone(stored.screenAlertPhone) : null,
+  };
 }
 
 const clampN = (v: unknown, lo: number, hi: number, def: number) => { const n = Number(v); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, Math.round(n))) : def; };
@@ -47,6 +51,12 @@ export async function saveWatchSettings(patch: Partial<WatchSettings>, actor: Ac
   for (const k of INCIDENT_KINDS) {
     const r = patch.rules?.[k];
     if (r) rules[k] = { enabled: r.enabled !== false, escalate: r.escalate !== false };
+  }
+  const phone = patch.screenAlertPhone;
+  let screenAlertPhone = cur.screenAlertPhone;
+  if (phone !== undefined) {
+    screenAlertPhone = typeof phone === 'string' ? normalizePhone(phone) : null;
+    if (phone !== null && !screenAlertPhone) throw new Error('Enter a valid screen alert phone number or clear the field.');
   }
   const next: WatchSettings = {
     ...cur,
@@ -65,6 +75,7 @@ export async function saveWatchSettings(patch: Partial<WatchSettings>, actor: Ac
     aiExplain: patch.aiExplain ?? cur.aiExplain,
     autoTextLateCustomers: patch.autoTextLateCustomers ?? cur.autoTextLateCustomers,
     supportPhones: Array.isArray(patch.supportPhones) ? patch.supportPhones.map((p) => normalizePhone(p)).filter((p): p is string => Boolean(p)).slice(0, 5) : cur.supportPhones,
+    screenAlertPhone,
     rules,
     updatedAt: new Date().toISOString(),
     updatedBy: actor.name,
@@ -416,6 +427,7 @@ function callText(i: Incident, lang: 'fr' | 'en') {
 }
 
 /** Incidents the kitchen itself can fix: the kitchen phone rings first (like Uber calling the restaurant). */
+const SHARED_PHONE_KINDS: IncidentKind[] = ['device_offline', 'screen_down', 'screen_waiting'];
 const KITCHEN_KINDS: IncidentKind[] = ['order_unaccepted', 'order_unseen', 'device_offline', 'device_muted', 'screen_down', 'screen_waiting', 'courier_waiting', 'pos_failed'];
 
 async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now: number, quiet: boolean, kitchenPhones: Map<string, string> = new Map()): Promise<boolean> {
@@ -430,9 +442,11 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
   if (i.level < 1 && elapsed >= s.smsAfterMin) {
     i.level = 1; changed = true;
     const kitchen = i.locationCode ? kitchenPhones.get(i.locationCode) : undefined;
-    if (kitchen && KITCHEN_KINDS.includes(i.kind)) {
-      const r = await placeCall({ to: kitchen, say: callText(i, 'fr'), lang: 'fr' }, { purpose: 'alert_kitchen', incidentId: i.id });
-      step('call', `${i.locationCode} (${maskContact(kitchen)})`, r.ok, r.message);
+    const shared = SHARED_PHONE_KINDS.includes(i.kind) ? s.screenAlertPhone : null;
+    const firstPhone = shared ?? kitchen;
+    if (firstPhone && KITCHEN_KINDS.includes(i.kind)) {
+      const r = await placeCall({ to: firstPhone, say: callText(i, 'fr'), lang: 'fr' }, { purpose: shared ? 'alert_shared_screen' : 'alert_kitchen', incidentId: i.id });
+      step('call', `${shared ? 'screen hotline' : i.locationCode} (${maskContact(firstPhone)})`, r.ok, r.message);
     }
     const to = recipients(users, i, ['manager'], 'sms');
     const list = to.length ? to : recipients(users, i, ['owner'], 'sms');

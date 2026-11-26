@@ -2,14 +2,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { saveLocation } from '../lib/foodhub/catalog';
 import * as notify from '../lib/foodhub/notify';
+import { hashPassword } from '../lib/foodhub/auth';
+import { GET as watchSettingsRoute } from '../app/api/foodhub/watch/settings/route';
 import type { Actor } from '../lib/foodhub/activity';
+import { DEVICES, type Device } from '../lib/foodhub/identity/devices';
+import { getRepo } from '../lib/foodhub/repo';
 import { allDayWeek, saveHours } from '../lib/foodhub/hours';
 import {
   addScreen, agentAuthorized, allowedScreenUrl, checkViewUrl, cleanStoreIds, getScreen, listScreens, nextWaitingSince, orderPaths, protectedStoreIds,
   recordHeartbeat, removeScreen, requestOpen, requestReload, SCREEN_OFFLINE_AFTER_MS, screenStartUrl, screenStatus, setupScreens, titleCount, updateScreen,
   getSharedWall, saveSharedWall, viewHosts, type PlatformScreen,
 } from '../lib/foodhub/screens';
-import { listIncidents, runWatch } from '../lib/foodhub/watch/engine';
+import { getWatchSettings, listIncidents, runWatch, saveWatchSettings } from '../lib/foodhub/watch/engine';
 import { POST as heartbeatRoute } from '../app/api/foodhub/screens/heartbeat/route';
 
 const ACTOR: Actor = { username: 'owner', name: 'Owner', source: 'dashboard' };
@@ -202,16 +206,17 @@ describe('Watchtower: orders waiting on a screen (screen_waiting)', () => {
   });
 });
 
-describe('Watchtower: calls the kitchen for platform screen incidents', () => {
-  const cases = (['doordash', 'ubereats', 'skip'] as const).flatMap((platform) => [
-    { platform, waiting: false }, { platform, waiting: true },
-  ]);
-  it.each(cases)('calls once for $platform (waiting: $waiting)', async ({ platform, waiting }) => {
+describe('Watchtower: calls a configured phone for screen and tablet incidents', () => {
+  const sharedPhone = '+15145550124';
+  const cases = (['doordash', 'ubereats', 'skip'] as const).flatMap((platform) =>
+    [false, true].flatMap((waiting) => [false, true].map((shared) => ({ platform, waiting, shared }))));
+  it.each(cases)('calls once for $platform (waiting: $waiting, shared: $shared)', async ({ platform, waiting, shared }) => {
     const phone = '+15145550123';
     const placeCall = vi.spyOn(notify, 'placeCall').mockResolvedValue({ ok: true, channel: 'call', message: 'Test call' });
     try {
       const locationCode = 'NDG_6284';
       await saveLocation({ code: locationCode, name: 'Test kitchen', address: '', active: true, phone });
+      if (shared) await saveWatchSettings({ screenAlertPhone: sharedPhone }, ACTOR);
       await saveHours({ locations: { [locationCode]: allDayWeek() }, brands: {}, holidays: [] });
       const screen = await addScreen({ name: 'Test platform screen', platform, locationCode, viewUrl: 'https://screens.example.ca/test/' }, ACTOR);
       if ('error' in screen) throw new Error(screen.error);
@@ -226,9 +231,54 @@ describe('Watchtower: calls the kitchen for platform screen incidents', () => {
         if (waiting) await recordHeartbeat(report, new Date(time));
         await runWatch({ force: true, now: time });
       }
-      expect(placeCall).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ to: phone }), expect.objectContaining({ purpose: 'alert_kitchen' }));
+      expect(placeCall).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ to: shared ? sharedPhone : phone }), expect.objectContaining({ purpose: shared ? 'alert_shared_screen' : 'alert_kitchen' }));
     } finally {
       placeCall.mockRestore();
+    }
+  });
+
+  it('calls the same destination for an offline kitchen tablet with no kitchen number', async () => {
+    const placeCall = vi.spyOn(notify, 'placeCall').mockResolvedValue({ ok: true, channel: 'call', message: 'Test call' });
+    try {
+      const locationCode = 'NDG_6284';
+      await saveLocation({ code: locationCode, name: 'Test kitchen', address: '', active: true });
+      await saveHours({ locations: { [locationCode]: allDayWeek() }, brands: {}, holidays: [] });
+      await saveWatchSettings({ screenAlertPhone: sharedPhone }, ACTOR);
+      const now = Date.parse('2026-11-26T17:00:00Z');
+      const lastSeenAt = new Date(now - 6 * 60_000).toISOString();
+      const tablet: Device = { id: 'test-tablet', name: 'Test tablet', locationCode, enrolledBy: ACTOR.name, enrolledAt: lastSeenAt, lastSeenAt };
+      await getRepo().putDocs<Device>(DEVICES, [{ id: tablet.id, key: locationCode, at: lastSeenAt, data: tablet }]);
+      await runWatch({ force: true, now });
+      await runWatch({ force: true, now: now + 2 * 60_000 });
+      expect(placeCall).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ to: sharedPhone }), expect.objectContaining({ purpose: 'alert_shared_screen' }));
+    } finally {
+      placeCall.mockRestore();
+    }
+  });
+
+  it('normalizes the saved number and keeps it until explicitly cleared', async () => {
+    expect((await getWatchSettings()).screenAlertPhone).toBeNull();
+    await saveWatchSettings({ screenAlertPhone: '514 555-0124' }, ACTOR);
+    await expect(saveWatchSettings({ screenAlertPhone: 'invalid' }, ACTOR)).rejects.toThrow('Enter a valid screen alert phone number');
+    await saveWatchSettings({ enabled: false }, ACTOR);
+    expect((await getWatchSettings()).screenAlertPhone).toBe(sharedPhone);
+    await saveWatchSettings({ screenAlertPhone: null }, ACTOR);
+    expect((await getWatchSettings()).screenAlertPhone).toBeNull();
+  });
+
+  it('returns the shared destination only to an admin', async () => {
+    await saveWatchSettings({ screenAlertPhone: sharedPhone }, ACTOR);
+    const password = 'local-alert-settings-test';
+    const passwordHash = hashPassword(password);
+    for (const role of ['owner', 'operator'] as const) {
+      const username = `alert-test-${role}`;
+      await getRepo().saveUser({ username, name: 'Alert settings test', role, locations: [], active: true, passwordHash });
+      const req = new Request('http://hub.local/api/foodhub/watch/settings', {
+        headers: { authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}` },
+      });
+      const res = await watchSettingsRoute(req, {});
+      expect(res.status).toBe(200);
+      expect((await res.json()).settings.screenAlertPhone).toBe(role === 'owner' ? sharedPhone : null);
     }
   });
 });

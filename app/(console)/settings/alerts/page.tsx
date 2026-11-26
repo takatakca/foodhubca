@@ -26,6 +26,7 @@ type RuleSetting = { enabled: boolean; escalate: boolean };
 type Watch = {
   enabled: boolean; smsAfterMin: number; callAfterMin: number; ownerAfterMin: number; unacceptedAfterSec: number; unseenAfterSec: number; lateAfterMin: number; courierWaitMin: number; silenceAfterMin: number;
   quietFrom: string; quietTo: string; postToChat: boolean; aiExplain: boolean; autoTextLateCustomers: boolean; supportPhones: string[]; rules: Record<string, RuleSetting>; updatedAt?: string; updatedBy?: string;
+  screenAlertPhone?: string | null;
 };
 /** The document this screen edits (it saves by itself): the rules, without who changed them and when. */
 type Rules = Omit<Watch, 'updatedAt' | 'updatedBy'>;
@@ -67,6 +68,8 @@ export default function AlertSettingsPage() {
   // A number typed but not added yet is kept on this device (reload, crash) until "Add".
   const newPhone = useFormDraft(formDraftId('alert-phone'), viewer.username, '', { enabled: edit });
   const [phoneErr, setPhoneErr] = useState('');
+  const screenPhoneError = t('Vérifiez le numéro commun des alertes d’écran.', 'Check the shared screen alert number.');
+  const screenPhoneInvalid = Boolean(w?.screenAlertPhone && !e164(w.screenAlertPhone));
 
   const validate = useCallback((r: Rules) => {
     const names: Record<NumKey, [string, string]> = { smsAfterMin: ['Texto', 'Text'], callAfterMin: ['Appel', 'Call'], ownerAfterMin: ['Propriétaire', 'Owner'], unacceptedAfterSec: ['Non acceptée', 'Not accepted'], unseenAfterSec: ['Pas vue', 'Not seen'], lateAfterMin: ['En retard', 'Late'], courierWaitMin: ['Livreur', 'Courier'], silenceAfterMin: ['Plateforme silencieuse', 'Platform quiet'] };
@@ -80,17 +83,19 @@ export default function AlertSettingsPage() {
     if (!HHMM.test(r.quietFrom) || !HHMM.test(r.quietTo)) out.push(t('Heures calmes : choisissez les deux heures', 'Quiet hours: pick both times'));
     if (r.supportPhones.length > MAX_PHONES) out.push(t(`${MAX_PHONES} numéros au maximum`, `${MAX_PHONES} numbers at most`));
     for (const p of r.supportPhones) if (!e164(p)) out.push(t(`Numéro à vérifier : ${p}`, `Check this number: ${p}`));
+    if (r.screenAlertPhone && !e164(r.screenAlertPhone)) out.push(screenPhoneError);
     return out;
-  }, [t]);
+  }, [screenPhoneError, t]);
   // The rules save by themselves (no Save button): kept on this screen at once, sent 1.2 s after the last change.
   const autosave = useAutosave<Rules>({
     formKey: 'alert-rules', user: viewer.username, value: w, enabled: edit, validate,
     save: async (r) => {
-      const d = await api<{ settings: Watch }>('/api/foodhub/watch/settings', { method: 'PUT', json: { settings: r } });
+      const settings = { ...r, screenAlertPhone: r.screenAlertPhone ? e164(r.screenAlertPhone) : r.screenAlertPhone };
+      const d = await api<{ settings: Watch }>('/api/foodhub/watch/settings', { method: 'PUT', json: { settings } });
       setChanged({ at: d.settings.updatedAt, by: d.settings.updatedBy });
       return rulesOf(d.settings);
     },
-    onRestore: (r) => setW(r),
+    onRestore: (r) => setW((cur) => (cur && r.screenAlertPhone === undefined ? { ...r, screenAlertPhone: cur.screenAlertPhone } : r)),
     onSaved: (r) => setW(r),
   });
   const undo = useUndo<Rules>(w, (r) => setW(r), { enabled: edit });
@@ -195,6 +200,18 @@ export default function AlertSettingsPage() {
                 </li>
               ))}
             </ol></Hint>
+            {edit && (
+              <Field
+                className="mt-4 max-w-md"
+                label={t('Numéro commun pour les alertes d’écran', 'Shared phone for screen alerts')}
+                hint={t('Premier appel si une tablette de cuisine est hors ligne, si un écran de plateforme est indisponible ou si des commandes y attendent. Laissez vide pour appeler le numéro de chaque cuisine.', 'First call when a kitchen tablet is offline, a platform screen is unavailable, or platform orders are waiting on screen. Leave blank to call each kitchen’s phone.')}
+                error={screenPhoneInvalid ? screenPhoneError : undefined}
+              >
+                <Input type="tel" inputMode="tel" autoComplete="off" maxLength={40} placeholder="514 555-0123"
+                  value={w.screenAlertPhone ?? ''} invalid={screenPhoneInvalid}
+                  onChange={(e) => set({ screenAlertPhone: e.target.value.trim() ? e.target.value : null })} />
+              </Field>
+            )}
             <Hint id="alerts.phones"><div className="mt-4">
               <div className="text-[13px] font-semibold text-ink-2">{t('Numéros qui reçoivent toutes les urgences (soutien, agent en direct)', 'Numbers that get every critical alert (support, live agent)')}</div>
               <div className="mt-1.5 flex flex-wrap items-center gap-2">

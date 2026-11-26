@@ -106,6 +106,8 @@ export interface WatchSettings {
   autoTextLateCustomers: boolean;
   /** Extra numbers that get every critical alert (support line / live agent), E.164. */
   supportPhones: string[];
+  /** Optional shared destination for tablet and platform screen incidents, E.164. */
+  screenAlertPhone: string | null;
   rules: Record<IncidentKind, RuleSetting>;
   updatedAt?: string;
   updatedBy?: string;
@@ -163,5 +165,6 @@ export const DEFAULT_WATCH: WatchSettings = {
   aiExplain: true,
   autoTextLateCustomers: false,
   supportPhones: [],
+  screenAlertPhone: null,
   rules: DEFAULT_RULES,
 };

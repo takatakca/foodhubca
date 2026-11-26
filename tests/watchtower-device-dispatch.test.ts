@@ -179,3 +179,31 @@ it('still notifies the manager about an unseen order during the catalog read fai
   expect(report).toMatchObject({ escalated: 1, resolved: 0 });
   expect(await listOutbox()).toContainEqual(expect.objectContaining({ incidentId: incident.id, purpose: 'alert', channel: 'sms', ok: true }));
 });
+
+it('leaves a later incident unclaimed when its kitchen is deactivated during another call', async () => {
+  const laterKitchen = { ...KITCHEN, code: 'TEST_Z_LATER_KITCHEN' };
+  await saveLocation(laterKitchen);
+  await enrollDevice({ name: 'First kitchen tablet', locationCode: KITCHEN.code }, OWNER);
+  await enrollDevice({ name: 'Later kitchen tablet', locationCode: laterKitchen.code }, OWNER);
+  at(6);
+  expect(await runCron()).toMatchObject({ opened: 2, escalated: 0 });
+  const incidents = (await listIncidents()).filter((item) => item.kind === 'device_offline');
+  const first = incidents.find((item) => item.locationCode === KITCHEN.code);
+  const later = incidents.find((item) => item.locationCode === laterKitchen.code);
+  if (!first || !later) throw new Error('Missing tablet fixture incident');
+  const respond = provider.getMockImplementation();
+  if (!respond) throw new Error('Missing mock provider');
+  provider.mockImplementationOnce(async (...args) => {
+    expect(String(args[0])).toMatch(/Calls\.json$/);
+    await saveLocation({ ...laterKitchen, active: false });
+    return respond(...args);
+  });
+  at(7);
+  await runCron();
+
+  const receipts = await listOutbox();
+  expect(receipts).toContainEqual(expect.objectContaining({ incidentId: first.id, channel: 'call', ok: true }));
+  expect(receipts.filter((entry) => entry.incidentId === later.id)).toEqual([]);
+  expect(await getRepo().getKv(`watch:first-screen-call:${later.id}`)).toBeNull();
+  expect(await getRepo().getKv(`watch:screen-stage:${later.id}:1`)).toBeNull();
+});

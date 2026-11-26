@@ -7,7 +7,7 @@ import { getAdapter } from '../adapters';
 import { isRelayStore } from '../adapters/relay';
 import { CHANNEL_LABELS, publicBaseUrl } from '../config';
 import { lastOrderTimes } from '../order-retry';
-import { getCatalog, seedCatalog } from '../catalog';
+import { getCatalog } from '../catalog';
 import { deadlineFor } from '../deadline';
 import { inboxSummary } from '../inbox';
 import { effectiveHours, getHours, holidaysFor, isOpenAt, localDate, openIntervals } from '../hours';
@@ -446,12 +446,25 @@ export function firstAlertCallTarget(kind: IncidentKind, sharedPhone: string | n
   return to ? { to, purpose: shared ? 'alert_shared_screen' : 'alert_kitchen' } : null;
 }
 
-async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now: number, quiet: boolean, kitchenPhones: Map<string, string> = new Map()): Promise<boolean> {
+async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now: number, quiet: boolean, ordinaryKitchenPhone: (code: string) => Promise<string | undefined>): Promise<boolean> {
   if (i.status !== 'open') return false;
   const rule = s.rules[i.kind] ?? { enabled: true, escalate: false };
   if (!rule.escalate || i.severity === 'info') return false;
   if (quiet && i.severity !== 'critical') return false;
   const elapsed = (now - Date.parse(i.openedAt)) / 60000;
+  const firstStageDue = elapsed >= s.smsAfterMin;
+  const smsDue = firstStageDue && i.level < 1;
+  const firstCallDue = firstStageDue && (smsDue || i.screenFirstCallPending);
+  const managerCallDue = i.severity === 'critical' && i.level < 2 && elapsed >= s.callAfterMin;
+  const ownerStageDue = i.severity === 'critical' && i.level < 3 && elapsed >= s.ownerAfterMin;
+  if (!firstCallDue && !managerCallDue && !ownerStageDue) return false;
+
+  // Check each device incident before claiming or sending anything. An earlier incident may have spent time awaiting the provider.
+  const deviceAlert = isScreenDeviceIncident(i.kind);
+  const dispatchCatalog = deviceAlert ? await getCatalog({ strict: true }).catch(() => null) : null;
+  const deviceLocation = dispatchCatalog?.locations.find((location) => location.code === i.locationCode);
+  if (deviceAlert && (!dispatchCatalog || deviceLocation?.active === false)) return false;
+
   let changed = false;
   const step = (kind: Incident['steps'][number]['kind'], to: string, ok: boolean, message: string, uncertain?: boolean) => {
     i.steps.push({ at: new Date(now).toISOString(), kind, to, ok, message, ...(uncertain ? { uncertain } : {}) });
@@ -469,11 +482,9 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
     step('call', `${label} (${maskContact(destination)})`, result.ok, result.message, result.uncertain);
   };
 
-  const firstStageDue = elapsed >= s.smsAfterMin;
-  const smsDue = firstStageDue && i.level < 1;
-  if (firstStageDue && (smsDue || i.screenFirstCallPending)) {
+  if (firstCallDue) {
     const screenAlert = SHARED_PHONE_KINDS.includes(i.kind);
-    const kitchen = i.locationCode ? kitchenPhones.get(i.locationCode) : undefined;
+    const kitchen = deviceAlert ? deviceLocation?.phone ?? undefined : i.locationCode ? await ordinaryKitchenPhone(i.locationCode) : undefined;
     const target = firstAlertCallTarget(i.kind, s.screenAlertPhone, kitchen);
     const waitingForVoice = screenAlert && Boolean(target) && !callConfigured();
     if (target && !waitingForVoice) {
@@ -512,14 +523,14 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
     }
     if (!list.length) step('sms', '—', false, 'Aucun gérant de garde avec un cellulaire. / No manager on duty with a phone.');
   }
-  if (i.level < 2 && elapsed >= s.callAfterMin && i.severity === 'critical') {
+  if (managerCallDue) {
     i.level = 2; changed = true;
     const to = recipients(users, i, ['manager'], 'call');
     for (const u of (to.length ? to : recipients(users, i, ['owner'], 'call')).slice(0, 2)) {
       await call(u.phone!, u.name, u.prefs?.lang ?? 'fr', 'alert');
     }
   }
-  if (i.level < 3 && elapsed >= s.ownerAfterMin && i.severity === 'critical') {
+  if (ownerStageDue) {
     i.level = 3; changed = true;
     for (const u of recipients(users, i, ['owner'], 'sms')) {
       const r = await sendSms({ to: u.phone!, body: `${smsText(i, u.prefs?.lang ?? 'fr')}\n(${Math.round(elapsed)} min sans réponse / no answer)` }, { purpose: 'alert_owner', incidentId: i.id });
@@ -635,15 +646,14 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
 
     const quiet = inQuietHours(s, now, foodhubTimeZone());
     const users = await repo.listUsers();
-    const dispatchCatalog = await getCatalog({ strict: true }).catch(() => null);
-    const kitchenPhones = new Map((dispatchCatalog ?? seedCatalog()).locations.filter((l) => l.phone).map((l) => [l.code, l.phone!] as const));
-    const inactiveDispatchLocations = new Set(dispatchCatalog?.locations.filter(({ active }) => active === false).map(({ code }) => code));
-    // A kitchen may be deactivated after detection. Skip device dispatch on an unreadable catalog too, and keep the incident for the next tick.
-    const mayEscalate = (i: Incident) => !isScreenDeviceIncident(i.kind)
-      || (dispatchCatalog !== null && !inactiveDispatchLocations.has(i.locationCode ?? ''));
-    for (const i of dirty.values()) if (mayEscalate(i) && await escalate(i, s, users, now, quiet, kitchenPhones)) report.escalated++;
+    let ordinaryCatalog: ReturnType<typeof getCatalog> | undefined;
+    const ordinaryKitchenPhone = async (code: string) => {
+      ordinaryCatalog ??= getCatalog();
+      return (await ordinaryCatalog).locations.find((location) => location.code === code)?.phone ?? undefined;
+    };
+    for (const i of dirty.values()) if (await escalate(i, s, users, now, quiet, ordinaryKitchenPhone)) report.escalated++;
     // Open incidents not touched this run can still need the next escalation step.
-    for (const i of live.values()) if (!dirty.has(i.id) && mayEscalate(i) && (await escalate(i, s, users, now, quiet, kitchenPhones))) dirty.set(i.id, i);
+    for (const i of live.values()) if (!dirty.has(i.id) && (await escalate(i, s, users, now, quiet, ordinaryKitchenPhone))) dirty.set(i.id, i);
 
     for (const i of dirty.values()) await saveIncident(i);
     for (const i of fresh.filter((x) => x.severity === 'critical')) {

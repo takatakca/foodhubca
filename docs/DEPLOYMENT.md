@@ -44,7 +44,7 @@ npm ci
 npm run verify:live -- --url https://foodhub.on2go.ca/ --sha FULL_40_CHARACTER_DEPLOYED_COMMIT_SHA
 ```
 
-Le script vérifie le SHA Git de `/api/release`, l'annuaire public avec CORS ON2GO, `/api/health` = 200, `/login` = 200 et **401** sur `/api/foodhub/orders` sans authentification. Il retourne un code d'échec en cas de différence. Aucune clé n'est nécessaire et aucun POST ni action marchand n'est effectué. Comparer le SHA à l'image effectivement choisie, pas simplement au dernier commit de la branche locale.
+Le script vérifie le SHA Git de `/api/release`, l'annuaire public avec CORS ON2GO, `/api/health` = 200 et base `ok`, `/login` = 200 et **401** sur `/api/foodhub/orders` sans authentification. Il affiche aussi l'état global `ok` ou `degraded` : un résultat `degraded` reste un avertissement à examiner, même si ce contrôle de disponibilité passe. Il retourne un code d'échec en cas de différence. Aucune clé n'est nécessaire et aucun POST ni action marchand n'est effectué. Comparer le SHA à l'image effectivement choisie, pas simplement au dernier commit de la branche locale.
 
 La CI d'image accepte volontairement `/api/health` 503 lorsque la base est absente dans un conteneur de test ; **la production doit répondre 200**. Les tests simulés et `verify:live` ne remplacent pas un vrai test de commande.
 
@@ -73,4 +73,3 @@ npm run verify:live -- --url https://foodhub.on2go.ca/ --sha FULL_40_CHARACTER_E
 La [description actualisée de la PR #49](https://github.com/takatakca/foodhubca/pull/49) consigne une **publication native Coolify réussie** après la fusion : déploiement [aq1pgwnyhwlebyteeqyhrmlr](https://coolify.takatak.ca/project/ci7kj4c0vvthwhqpvebogolb/environment/theoc1ynrzvwglqhyowcikka/application/1ijktzayh4dbcnn37igo8ktv/deployment/aq1pgwnyhwlebyteeqyhrmlr), statut `Webhook / Success`, mise à jour glissante terminée à 12:47:48 UTC. SHA rapporté à `/api/release` : `027b602a12da39b1244e17b813bc51a7496a0217` (même que `main` relevé). Les contrôles HTTPS rapportent annuaire/CORS public OK, santé HTTP 200 + base OK, login 200, commandes anonymes 401. Docker : 807 tests unitaires réussis (2 ignorés) et 536 E2E simulés réussis ; rollback et médias conservés.
 
 **Portée de la preuve :** ceci est le compte rendu GitHub du propriétaire / opérateur, non un nouvel accès direct au conteneur par cet agent. La certification de commandes, paiement, caisse, imprimante, Twilio et connecteurs live auprès des fournisseurs reste ouverte (issue #46). Les paragraphes historiques plus bas indiquant « déploiement non vérifié » décrivent l'état *avant* cette preuve et ne doivent pas supplanter ce relevé. Le réseau de cet agent est isolé du DNS externe et ne permet pas un nouveau contrôle HTTPS public.
-

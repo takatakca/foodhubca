@@ -256,6 +256,31 @@ describe('Watchtower: calls a configured phone for screen and tablet incidents',
     }
   });
 
+  it('calls each phone once when several escalation steps become due together', async () => {
+    const placeCall = vi.spyOn(notify, 'placeCall').mockResolvedValue({ ok: true, channel: 'call', message: 'Test call' });
+    const sendSms = vi.spyOn(notify, 'sendSms').mockResolvedValue({ ok: true, channel: 'sms', message: 'Test text' });
+    try {
+      const locationCode = 'NDG_6284';
+      const distinctPhone = '+15145550125';
+      await saveHours({ locations: { [locationCode]: allDayWeek() }, brands: {}, holidays: [] });
+      await saveWatchSettings({ screenAlertPhone: sharedPhone, supportPhones: [sharedPhone] }, ACTOR);
+      await getRepo().saveUser({ username: 'same-phone-owner', name: 'Owner', role: 'owner', active: true, locations: [], phone: '514 555-0124' });
+      await getRepo().saveUser({ username: 'second-phone-manager', name: 'Manager', role: 'manager', active: true, locations: [], phone: distinctPhone });
+      const screen = await addScreen({ name: 'Test screen', platform: 'doordash', locationCode, viewUrl: 'https://screens.example.ca/test/' }, ACTOR);
+      if ('error' in screen) throw new Error(screen.error);
+      const now = Date.parse('2026-11-26T17:00:00Z');
+      await recordHeartbeat({ screens: [{ id: screen.id, state: 'ok' }] }, new Date(now - 6 * 60_000));
+      await runWatch({ force: true, now });
+      await runWatch({ force: true, now: now + 10 * 60_000 });
+      expect(placeCall.mock.calls.map(([call]) => call.to)).toEqual([sharedPhone, distinctPhone]);
+      await runWatch({ force: true, now: now + 11 * 60_000 });
+      expect(placeCall).toHaveBeenCalledTimes(2);
+    } finally {
+      placeCall.mockRestore();
+      sendSms.mockRestore();
+    }
+  });
+
   it('normalizes the saved number and keeps it until explicitly cleared', async () => {
     expect((await getWatchSettings()).screenAlertPhone).toBeNull();
     await saveWatchSettings({ screenAlertPhone: '514 555-0124' }, ACTOR);

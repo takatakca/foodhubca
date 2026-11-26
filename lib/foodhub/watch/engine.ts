@@ -439,14 +439,24 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
   let changed = false;
   const step = (kind: Incident['steps'][number]['kind'], to: string, ok: boolean, message: string) => { i.steps.push({ at: new Date(now).toISOString(), kind, to, ok, message }); changed = true; };
 
+  // A delayed tick can make several escalation stages due at once. One phone
+  // can be listed in multiple roles; later ticks can still escalate normally.
+  const called = new Set<string>();
+  const call = async (to: string, label: string, lang: 'fr' | 'en', purpose: string) => {
+    const destination = normalizePhone(to) ?? to;
+    if (called.has(destination)) return;
+    called.add(destination);
+    const result = await placeCall({ to: destination, say: callText(i, lang), lang }, { purpose, incidentId: i.id });
+    step('call', `${label} (${maskContact(destination)})`, result.ok, result.message);
+  };
+
   if (i.level < 1 && elapsed >= s.smsAfterMin) {
     i.level = 1; changed = true;
     const kitchen = i.locationCode ? kitchenPhones.get(i.locationCode) : undefined;
     const shared = SHARED_PHONE_KINDS.includes(i.kind) ? s.screenAlertPhone : null;
     const firstPhone = shared ?? kitchen;
     if (firstPhone && KITCHEN_KINDS.includes(i.kind)) {
-      const r = await placeCall({ to: firstPhone, say: callText(i, 'fr'), lang: 'fr' }, { purpose: shared ? 'alert_shared_screen' : 'alert_kitchen', incidentId: i.id });
-      step('call', `${shared ? 'screen hotline' : i.locationCode} (${maskContact(firstPhone)})`, r.ok, r.message);
+      await call(firstPhone, shared ? 'screen hotline' : i.locationCode ?? 'kitchen', 'fr', shared ? 'alert_shared_screen' : 'alert_kitchen');
     }
     const to = recipients(users, i, ['manager'], 'sms');
     const list = to.length ? to : recipients(users, i, ['owner'], 'sms');
@@ -466,8 +476,7 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
     i.level = 2; changed = true;
     const to = recipients(users, i, ['manager'], 'call');
     for (const u of (to.length ? to : recipients(users, i, ['owner'], 'call')).slice(0, 2)) {
-      const r = await placeCall({ to: u.phone!, say: callText(i, u.prefs?.lang ?? 'fr'), lang: u.prefs?.lang ?? 'fr' }, { purpose: 'alert', incidentId: i.id });
-      step('call', `${u.name} (${maskContact(u.phone!)})`, r.ok, r.message);
+      await call(u.phone!, u.name, u.prefs?.lang ?? 'fr', 'alert');
     }
   }
   if (i.level < 3 && elapsed >= s.ownerAfterMin && i.severity === 'critical') {
@@ -475,15 +484,9 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
     for (const u of recipients(users, i, ['owner'], 'sms')) {
       const r = await sendSms({ to: u.phone!, body: `${smsText(i, u.prefs?.lang ?? 'fr')}\n(${Math.round(elapsed)} min sans réponse / no answer)` }, { purpose: 'alert_owner', incidentId: i.id });
       step('owner', `${u.name} (${maskContact(u.phone!)})`, r.ok, r.message);
-      if (u.prefs?.alertCall !== false) {
-        const c = await placeCall({ to: u.phone!, say: callText(i, u.prefs?.lang ?? 'fr'), lang: u.prefs?.lang ?? 'fr' }, { purpose: 'alert_owner', incidentId: i.id });
-        step('call', `${u.name} (${maskContact(u.phone!)})`, c.ok, c.message);
-      }
+      if (u.prefs?.alertCall !== false) await call(u.phone!, u.name, u.prefs?.lang ?? 'fr', 'alert_owner');
     }
-    for (const p of s.supportPhones) {
-      const c = await placeCall({ to: p, say: callText(i, 'fr'), lang: 'fr' }, { purpose: 'alert_support', incidentId: i.id });
-      step('call', `support (${maskContact(p)})`, c.ok, c.message);
-    }
+    for (const p of s.supportPhones) await call(p, 'support', 'fr', 'alert_support');
   }
   return changed;
 }

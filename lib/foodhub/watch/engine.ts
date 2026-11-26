@@ -31,8 +31,9 @@ const OPEN_ORDER: StoredOrder['status'][] = ['new', 'accepted', 'ready', 'dispat
 
 // ---------- settings ----------
 
-export async function getWatchSettings(): Promise<WatchSettings> {
-  const stored = (await getRepo().getKv<Partial<WatchSettings>>(SETTINGS_KEY).catch(() => null)) ?? {};
+export async function getWatchSettings(opts: { strict?: boolean } = {}): Promise<WatchSettings> {
+  const read = getRepo().getKv<Partial<WatchSettings>>(SETTINGS_KEY);
+  const stored = (await (opts.strict ? read : read.catch(() => null))) ?? {};
   const rules = { ...DEFAULT_RULES };
   for (const k of INCIDENT_KINDS) if (stored.rules?.[k]) rules[k] = { ...DEFAULT_RULES[k], ...stored.rules[k] };
   return {

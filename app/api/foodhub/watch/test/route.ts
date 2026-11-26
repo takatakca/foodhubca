@@ -24,7 +24,8 @@ function simulateCall(kind: KitchenCallPreviewCheck['kind'], settings: WatchSett
 
 const preview = withPerm('admin', async (req, _ctx, actor) => {
   if (actor.locations.length || actor.deviceId) return fail('This check requires account-wide access.', 403);
-  const settings = await getWatchSettings();
+  const settings = await getWatchSettings({ strict: true }).catch(() => null);
+  if (!settings) return fail('Could not load the saved alert settings.', 503);
   const locationCode = new URL(req.url).searchParams.get('locationCode');
   if (locationCode !== null) {
     const catalog = await getCatalog({ strict: true }).catch(() => null);

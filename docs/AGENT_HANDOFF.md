@@ -2,7 +2,15 @@
 
 Le premier appel de relève et le texto aux gérants peuvent être planifiés à zéro minute après l’ouverture de l’alerte. Watchtower continue d’appliquer les seuils de détection, les règles d’escalade et les heures calmes. Chromium a vérifié en français sur mobile et en anglais sur ordinateur la sauvegarde de zéro, sa conservation après rechargement, la modification du numéro commun et la simulation sans appel. La réception réelle reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
 
-La simulation peut utiliser une cuisine sélectionnée. Elle indique la destination masquée du premier appel pour la tablette hors ligne, l’écran indisponible et les commandes qui attendent. Watchtower privilégie le numéro commun enregistré, puis le téléphone de la cuisine. Les états de configuration sont affichés sans création d’incident et sans envoi.
+La simulation peut utiliser une cuisine sélectionnée. Elle indique la destination masquée du premier appel pour la tablette hors ligne, l’écran indisponible et les commandes qui attendent. Watchtower privilégie le numéro commun enregistré, puis le téléphone de la cuisine. Les états de configuration sont affichés sans création d’incident et sans envoi. Si les réglages ou le catalogue sont indisponibles, la simulation signale l’erreur de lecture.
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Numéro de commande saisi à partir d’un écran
+
+La saisie manuelle distingue désormais deux commandes qui portent le même numéro affiché dans deux magasins. Saisir deux fois le même numéro pour le même magasin reste un doublon, même depuis un autre écran ou si la première saisie date d’une version antérieure. Clover utilise une référence de magasin dans le titre de reprise des nouvelles commandes pour retrouver la bonne commande quand plusieurs magasins partagent une caisse. L’import reconnaît ce titre sans écarter une commande native de Clover qui porte le même numéro. Le numéro affiché reste celui de la plateforme. Les preuves de réception physique restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+Le paiement Clover d’une nouvelle saisie utilise une référence stable de 32 caractères dérivée de l’identifiant complet de la commande, qui inclut la référence du magasin. Les essais simulés couvrent deux magasins partageant une caisse avec le même numéro long, une nouvelle tentative et la compatibilité des références de paiement antérieures.
 
 — signé : Codex @ cloud · 2026-11-26
 

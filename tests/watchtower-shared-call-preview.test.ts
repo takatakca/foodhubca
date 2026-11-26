@@ -227,4 +227,26 @@ describe('Kitchen call preview', () => {
       lookup.mockRestore();
     }
   });
+
+  it('does not report a destination when saved watch settings cannot be read', async () => {
+    await saveKitchen(KITCHEN);
+    await saveWatchSettings({ screenAlertPhone: SHARED }, OWNER);
+    const repo = getRepo();
+    const read = repo.getKv.bind(repo);
+    const lookup = vi.spyOn(repo, 'getKv').mockImplementation(async (key) => {
+      if (key === 'watch:settings') throw new Error('Synthetic alert settings unavailable');
+      return read(key);
+    });
+    try {
+      for (const code of [undefined, 'TEST']) {
+        const response = await preview(undefined, code);
+        expect(response.status).toBe(503);
+        expect(await response.json()).toEqual({ ok: false, error: 'Could not load the saved alert settings.' });
+      }
+      expect(await listOutbox()).toEqual([]);
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      lookup.mockRestore();
+    }
+  });
 });

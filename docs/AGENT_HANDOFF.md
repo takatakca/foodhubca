@@ -4,7 +4,18 @@ La checklist Uber direct demande un contrôle fournisseur enregistré pour le co
 
 Le relais web reconnaît la page marchand et les pages de connexion prises en charge. Un onglet interne de Chrome ou une page sur un autre site déclenche un statut indisponible. Pour l’installation manuelle, utiliser la même adresse marchand pour Chrome et `SCREEN_START_URL`. La vérification sur le poste existant reste ouverte.
 
+La reprise sur `394ecff` a passé 195 essais ciblés, dont la sélection des onglets dans Chromium local et les réponses OAuth simulées.
+
 — signé : Codex (automatisation) @ cloud · 2026-11-26
+
+## 2026-11-26 — Commandes sans liaison et caisse Clover partagée
+
+Lorsque plusieurs cuisines ont des liaisons et qu’une seule caisse Clover est configurée, une commande sans liaison ni cuisine enregistrée reste au tableau sans être envoyée à la caisse. Ce contrôle s’applique à l’arrivée et aux relances. Confirmer la cuisine dans Restaurants → Liaisons, puis utiliser « Envoyer à Clover » sur la commande. Une relance vérifie aussi l’existence d’une commande Clover après une réponse incertaine. Les essais marchands en cuisine restent suivis dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+## 2026-11-26 — Refus de portée Uber pendant la synchronisation
+
+Quand le jeton OAuth Uber renvoie HTTP 400 `invalid_scope` après le parcours habituel de demande, la synchronisation signale ce refus pour Uber et laisse les autres vérifications de statut Uber en attente jusqu’au prochain passage. Le dernier état des magasins reste disponible. Les autres plateformes continuent leur vérification. La portée accordée à l’application en production et les essais marchands restent suivis dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46#issuecomment-7194255617).
+
+— signé : Codex @ cloud · 2026-11-26
 
 ## 2026-11-26 — Vérifier un passage Watchtower en arrière-plan
 

@@ -25,6 +25,7 @@ const base = uberApiBase;
 // in the database (fh_kv, server-only), shared by every instance and restart, instead of one new token per cold start.
 // While a request is pending its promise is shared, so concurrent callers make ONE token call.
 type TokenKind = 'orders' | 'report' | 'poll';
+class UberOAuthScopeRefusedError extends Error {}
 type TokenCache = { value: string; expiresAt: number; fp: string } | null;
 const tokens: Record<TokenKind, { cached: TokenCache; inflight: Promise<string> | null }> = { orders: { cached: null, inflight: null }, report: { cached: null, inflight: null }, poll: { cached: null, inflight: null } };
 const TOKEN_KV = (kind: TokenKind) => `uber:token:${kind}`;
@@ -54,13 +55,16 @@ async function fetchClientToken(kind: TokenKind): Promise<string> {
     }
     if (!res.ok) {
       // Uber answers { error, error_description } (invalid_scope, invalid_client…): that is what the owner needs to see.
-      const detail = await res.json().then((j: any) => [j?.error, j?.error_description].filter(Boolean).join(' — ')).catch(() => '');
+      const payload = await res.json().catch(() => null);
+      const detail = [payload?.error, payload?.error_description].filter(Boolean).join(' — ');
       const why = detail ? ` (${String(detail).slice(0, 200)})` : '';
-      throw new Error(kind === 'report'
+      const message = kind === 'report'
         ? `Uber Reporting token refused: HTTP ${res.status}${why} — ask Uber to add the eats.report scope to your app.`
         : kind === 'poll'
           ? `Uber order-list token refused: HTTP ${res.status}${why} — ask Uber to add the eats.store.orders.read scope (used to catch orders whose webhook never arrived).`
-          : `Uber OAuth token refused: HTTP ${res.status}${why}${res.status === 429 ? ' — Uber allows 100 token requests per hour; Food Hub keeps one token for 30 days, so this clears by itself.' : ''}${/scope/i.test(detail) ? ` — UBER_OAUTH_SCOPE must list only scopes Uber granted to your app (now: ${process.env.UBER_OAUTH_SCOPE || 'eats.order eats.store eats.store.status.write'}).` : ''}`);
+          : `Uber OAuth token refused: HTTP ${res.status}${why}${res.status === 429 ? ' — Uber allows 100 token requests per hour; Food Hub keeps one token for 30 days, so this clears by itself.' : ''}${/scope/i.test(detail) ? ` — UBER_OAUTH_SCOPE must list only scopes Uber granted to your app (now: ${process.env.UBER_OAUTH_SCOPE || 'eats.order eats.store eats.store.status.write'}).` : ''}`;
+      if (kind === 'orders' && res.status === 400 && payload?.error === 'invalid_scope') throw new UberOAuthScopeRefusedError(message);
+      throw new Error(message);
     }
     const json = await res.json();
     if (!json.access_token) throw new Error('Uber OAuth response had no access_token.');
@@ -361,7 +365,7 @@ export function normalizeUberStatus(body: any): { state: PlatformState; detail?:
 }
 
 /** Read-only status check (GET /v1/eats/store/{store_id}/status). Runs whenever credentials exist — see LOCKED_DECISIONS (it changes nothing on Uber). */
-export async function fetchUberStoreStatus(storeId: string): Promise<{ ok: boolean; state: PlatformState; detail?: string; until?: string | null; error?: string }> {
+export async function fetchUberStoreStatus(storeId: string): Promise<{ ok: boolean; state: PlatformState; detail?: string; until?: string | null; error?: string; oauthScopeRefused?: true }> {
   if (!readiness().configured) return { ok: false, state: 'unknown', error: 'Uber Eats credentials missing' };
   try {
     const res = await uberFetch(`${base()}/v1/eats/store/${encodeURIComponent(storeId)}/status`);
@@ -369,7 +373,7 @@ export async function fetchUberStoreStatus(storeId: string): Promise<{ ok: boole
     if (!res.ok) return { ok: false, state: 'unknown', error: `Uber status HTTP ${res.status}` };
     return { ok: true, ...normalizeUberStatus(await res.json()) };
   } catch (error) {
-    return { ok: false, state: 'unknown', error: error instanceof Error ? error.message : String(error) };
+    return { ok: false, state: 'unknown', error: error instanceof Error ? error.message : String(error), ...(error instanceof UberOAuthScopeRefusedError ? { oauthScopeRefused: true } : {}) };
   }
 }
 

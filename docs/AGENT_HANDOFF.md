@@ -1,3 +1,9 @@
+## 2026-11-26 — Commandes sans liaison et caisse Clover partagée
+
+Lorsque plusieurs cuisines ont des liaisons et qu’une seule caisse Clover est configurée, une commande sans liaison ni cuisine enregistrée reste au tableau sans être envoyée à la caisse. Ce contrôle s’applique à l’arrivée et aux relances. Confirmer la cuisine dans Restaurants → Liaisons, puis utiliser « Envoyer à Clover » sur la commande. Une relance vérifie aussi l’existence d’une commande Clover après une réponse incertaine. Les essais marchands en cuisine restent suivis dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Vérifier un passage Watchtower en arrière-plan
 
 Dans la réponse détaillée de `GET /api/health`, `checks.watchtower.lastBackgroundCompletion` donne l’heure et le déclencheur du dernier passage achevé par minuterie ou cron. Ce contrôle complète l’horodatage de démarrage. La réception réelle des commandes et des appels reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

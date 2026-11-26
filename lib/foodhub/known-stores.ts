@@ -3,6 +3,7 @@
 import rawUber from '../../data/actual/platform-stores-uber.json';
 import { fetchUberStoreDetails, uberEatsAdapter } from './adapters/uber-eats';
 import { suggestMapping } from './adapters/uber-provision';
+import { inScope, type AuthUser } from './auth';
 import { getRepo } from './repo';
 
 export interface KnownStore {
@@ -25,6 +26,16 @@ export interface KnownStore {
 export const KNOWN_UBER_KITCHENS: ReadonlyMap<string, string> = new Map(
   (rawUber.stores as Array<{ store_id: string; location_code?: string }>).filter((s) => s.location_code).map((s) => [s.store_id, s.location_code!]),
 );
+
+/** A scoped manager can see an Uber store only through its mapping or recorded kitchen.
+ * If the mapping, recorded kitchen or provider address disagree, the manager needs all of the known locations.
+ */
+export function uberStoreInScope(actor: AuthUser, storeId: string, mappedLocation?: string, addressLocation?: string | null): boolean {
+  const recordedLocation = KNOWN_UBER_KITCHENS.get(storeId);
+  return inScope(actor, mappedLocation ?? recordedLocation)
+    && (!recordedLocation || inScope(actor, recordedLocation))
+    && (!addressLocation || inScope(actor, addressLocation));
+}
 
 export async function knownStores(): Promise<KnownStore[]> {
   const mapped = new Map((await getRepo().listStores('uber_eats')).map((s) => [s.channelStoreId, s]));

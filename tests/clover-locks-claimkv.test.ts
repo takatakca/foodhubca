@@ -227,6 +227,19 @@ describe('FH-024 — the Clover send lock lives in the database (pipeline.ts)', 
     expect((await repo.listEvents(order.id)).map((e) => e.type)).toContain('needs_attention');
   });
 
+  it('checks the saved kitchen even if the retry started with an older unassigned copy', async () => {
+    const repo = getRepo();
+    const incoming = parseUberOrder(uberDetails('mapped-before-claim'))!;
+    const { order } = await repo.insertOrderIfNew(incoming);
+    await repo.updateOrder(order.id, { locationCode: 'NDG_6284', brandName: 'Po Poulet' });
+    await moveMappedKitchen();
+
+    const held = await resendToClover(order, { manual: true });
+    expect(held.pos).toMatchObject({ ok: false, error: expect.stringContaining('different kitchen') });
+    expect(held.order).toMatchObject({ locationCode: 'NDG_6284', brandName: 'Po Poulet' });
+    expect(calls).toEqual([]);
+  });
+
   it('allows an order received before its store was mapped to gain a kitchen on resend', async () => {
     const repo = getRepo();
     const incoming = parseUberOrder(uberDetails('mapped-after-arrival'))!;

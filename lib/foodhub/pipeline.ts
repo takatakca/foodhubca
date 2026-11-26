@@ -6,7 +6,7 @@ import { logActivity, type Actor } from './activity';
 import { getAdapter } from './adapters';
 import { CHANNEL_LABELS, nowIso } from './config';
 import { allCloverMerchants, cloverAutoPrintEnabled, cloverBaseUrl, cloverExpected, cloverToken, defaultCloverMerchant, injectOrder, type InjectResult } from './pos/clover';
-import { cloverOrderTypeForOrder, cloverTotalGap, describeMappingWarnings, findCloverOrderByTitle, mapOrderLines, platformFoodCents, printKitchenTicket } from './pos/clover-order';
+import { cloverKitchenChanged, cloverOrderTypeForOrder, cloverTotalGap, describeMappingWarnings, findCloverOrderByTitle, mapOrderLines, platformFoodCents, printKitchenTicket } from './pos/clover-order';
 import { cloverRetryDelaysS, noteLastOrder, scheduleCloverRetry } from './order-retry';
 import { settleInClover } from './clover-settle';
 import { mevOnOrderChange } from './mev/hooks';
@@ -328,10 +328,6 @@ function maybeInClover(order: StoredOrder): boolean {
   return Boolean(order.timeline?.posRetry?.uncertain) || /network error|timed out|aborted|HTTP 5\d\d|did not include an order id/i.test(order.posError ?? '');
 }
 
-function cloverKitchenChanged(order: Pick<StoredOrder, 'locationCode'>, store: Pick<ChannelStore, 'locationCode'> | null): boolean {
-  return Boolean(store && order.locationCode && order.locationCode !== store.locationCode);
-}
-
 type CloverResendOutcome = { order: StoredOrder; pos: InjectResult; store: ChannelStore | null; mappingChanged?: true };
 
 /**
@@ -347,7 +343,8 @@ type CloverResendOutcome = { order: StoredOrder; pos: InjectResult; store: Chann
 export async function resendToClover(order: StoredOrder, opts: { manual?: boolean; by?: string; attempt?: number } = {}): Promise<CloverResendOutcome> {
   if (!(await claimCloverSending(order.id))) return { order, pos: { ok: false, skipped: true, error: 'Food Hub is already sending this order to Clover — check again in a few seconds.' }, store: null };
   try {
-    return await resendNow(order, opts);
+    const current = (await getRepo().getOrder(order.id)) ?? order;
+    return await resendNow(current, opts);
   } finally {
     await releaseCloverSending(order.id);
   }
@@ -623,9 +620,11 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
   }
 
   if (action === 'retry_pos' || action === 'print') {
-    const store = await repo.findStore(order.channel, order.channelStoreId);
     if (action === 'print') {
-      const p = await printKitchenTicket(order.posOrderId!, store?.cloverMerchantId, order.locationCode);
+      const store = await repo.findStore(order.channel, order.channelStoreId);
+      const p = cloverKitchenChanged(order, store)
+        ? { ok: false, message: 'This store is now mapped to a different kitchen. Review the order and store mapping before reprinting.' }
+        : await printKitchenTicket(order.posOrderId!, store?.cloverMerchantId, order.locationCode);
       await repo.addEvent(order.id, p.ok ? 'printed' : 'print_failed', { message: p.message, manual: true, by: actor.name });
       const updated = await patchTimeline(order, p.ok ? { printedAt: nowIso(), printError: undefined } : { printError: p.message });
       await log(p.ok ? 'success' : 'failed', p.message);

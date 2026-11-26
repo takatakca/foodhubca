@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { settleInClover } from '../lib/foodhub/clover-settle';
 import { processIncomingOrder } from '../lib/foodhub/pipeline';
 import { closeCancelledCloverOrder } from '../lib/foodhub/pos/clover-books';
+import { cloverOrderTitle } from '../lib/foodhub/pos/clover-order';
 import { testOrder } from '../lib/foodhub/pos/clover-test-order';
 import { getRepo } from '../lib/foodhub/repo';
 
@@ -38,13 +39,17 @@ beforeEach(async () => {
   vi.stubEnv('FOODHUB_MEV', 'off');
   (globalThis as { __foodhubMem?: unknown }).__foodhubMem = undefined;
   await getRepo().setKv('clover_oauth_merchants', { [OAUTH]: rememberMerchant(OAUTH, 'active'), [PENDING]: rememberMerchant(PENDING, 'pending') });
+  let title = cloverOrderTitle(testOrder());
   fetchMock.mockReset().mockImplementation(async (input, init) => {
     const url = new URL(String(input));
     if (url.origin !== BASE) throw new Error('Unexpected provider request');
     const method = init?.method ?? 'GET';
-    if (method === 'POST' && url.pathname.endsWith('/atomic_order/orders')) return Response.json({ id: POS_ID });
+    if (method === 'POST' && url.pathname.endsWith('/atomic_order/orders')) {
+      title = JSON.parse(String(init?.body)).orderCart.title;
+      return Response.json({ id: POS_ID });
+    }
     if (method === 'DELETE' && url.pathname.endsWith(`/orders/${POS_ID}`)) return new Response(null, { status: 204 });
-    if (['GET', 'POST'].includes(method) && url.pathname.endsWith(`/orders/${POS_ID}`)) return Response.json({ id: POS_ID, note: 'Synthetic pickup note' });
+    if (['GET', 'POST'].includes(method) && url.pathname.endsWith(`/orders/${POS_ID}`)) return Response.json({ id: POS_ID, title, note: 'Synthetic pickup note' });
     throw new Error('Unexpected Clover request');
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -80,16 +85,34 @@ describe('Clover cancellation uses the order’s selected register', () => {
     await settleInClover(settled);
     expect(requests()).toEqual([
       { path: `/v3/merchants/${selected}/atomic_order/orders`, method: 'POST' },
+      ...(selected === OAUTH ? [{ path: orderPath(selected), method: 'GET' }] : []),
       { path: orderPath(selected), method: 'DELETE' },
     ]);
   });
 
   it('retains the flag-only path and never deletes the order', async () => {
-    const order = { ...testOrder(), posOrderId: POS_ID, channel: 'tgtg' as const };
+    const order = { ...testOrder(), posOrderId: POS_ID, channel: 'tgtg' as const, marketplace: 'tgtg' as const };
+    fetchMock.mockResolvedValueOnce(Response.json({ id: POS_ID, title: cloverOrderTitle(order), note: 'Synthetic pickup note' }));
     expect(await closeCancelledCloverOrder(order, null, { flagOnly: true })).toMatchObject({ ok: true });
     expect(requests()).toEqual([{ path: orderPath(OAUTH), method: 'GET' }, { path: orderPath(OAUTH), method: 'POST' }]);
     const body = JSON.parse(String(fetchMock.mock.calls[1][1]?.body));
     expect(body).toMatchObject({ title: expect.stringMatching(/^CANCELLED/), note: expect.stringContaining('Synthetic pickup note') });
+  });
+
+  it('leaves an order alone when an inferred OAuth register cannot confirm its identity', async () => {
+    const order = { ...testOrder(), posOrderId: POS_ID };
+    fetchMock.mockResolvedValueOnce(Response.json({ id: POS_ID, title: 'Unrelated order' }));
+    expect(await closeCancelledCloverOrder(order, null)).toMatchObject({
+      ok: false, message: expect.stringContaining('Could not confirm this order'),
+    });
+    expect(requests()).toEqual([{ path: orderPath(OAUTH), method: 'GET' }]);
+  });
+
+  it('recognizes previously flagged cancellations after a lost response', async () => {
+    const order = { ...testOrder(), posOrderId: POS_ID };
+    fetchMock.mockResolvedValueOnce(Response.json({ id: POS_ID, title: `CANCELLED — ${cloverOrderTitle(order)}` }));
+    expect(await closeCancelledCloverOrder(order, null)).toMatchObject({ ok: true });
+    expect(requests()).toEqual([{ path: orderPath(OAUTH), method: 'GET' }]);
   });
 
   it('does not touch Clover while cancellation is off, even with an approved fallback', async () => {

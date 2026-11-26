@@ -1,3 +1,11 @@
+## 2026-11-26 — Changement de plateforme du relais et annulation Clover
+
+Un écran déjà vu passe à indisponible quand sa plateforme change. Food Hub écarte l’état et le nombre de commandes d’un domaine marchand ou d’une application Android reconnus comme appartenant à une autre plateforme. Watchtower peut signaler l’écran indisponible, même si le relais continue d’envoyer les signaux de l’ancienne plateforme. Si la réponse d’ouverture se perd, la commande « Page de connexion » crée une nouvelle demande.
+
+L’annulation suit la caisse explicite, puis la caisse configurée, puis l’unique caisse OAuth approuvée. Dans ce dernier cas, Clover doit renvoyer la référence et le titre attendus avant que Food Hub retire ou marque la commande. Le contrôle de réception réelle reste dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex (automatisation) @ cloud · 2026-11-26
+
 ## 2026-11-26 — Vérifier un passage Watchtower en arrière-plan
 
 Dans la réponse détaillée de `GET /api/health`, `checks.watchtower.lastBackgroundCompletion` donne l’heure et le déclencheur du dernier passage achevé par minuterie ou cron. Ce contrôle complète l’horodatage de démarrage. La réception réelle des commandes et des appels reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

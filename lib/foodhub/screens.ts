@@ -55,12 +55,20 @@ const START_ENV: Record<ScreenPlatform, string> = {
   doordash: 'FOODHUB_SCREEN_START_DOORDASH', ubereats: 'FOODHUB_SCREEN_START_UBEREATS', skip: 'FOODHUB_SCREEN_START_SKIP', other: 'FOODHUB_SCREEN_START_OTHER',
 };
 /** A screen is only ever sent to the platforms' own sites (the relay agent checks the same list). */
-export const SCREEN_ALLOWED_HOSTS = ['doordash.com', 'ubereats.com', 'uber.com', 'skipthedishes.com'] as const;
+const PLATFORM_BY_HOST = {
+  'doordash.com': 'doordash', 'ubereats.com': 'ubereats', 'uber.com': 'ubereats', 'skipthedishes.com': 'skip',
+} as const;
+export const SCREEN_ALLOWED_HOSTS = Object.keys(PLATFORM_BY_HOST) as ReadonlyArray<keyof typeof PLATFORM_BY_HOST>;
+
+function platformFromHost(host: string | null | undefined): ScreenPlatform | undefined {
+  const suffix = SCREEN_ALLOWED_HOSTS.find((domain) => host === domain || host?.endsWith(`.${domain}`));
+  return suffix && PLATFORM_BY_HOST[suffix];
+}
 
 export function allowedScreenUrl(raw: string | null | undefined): boolean {
   try {
     const u = new URL(String(raw ?? ''));
-    return u.protocol === 'https:' && !u.username && !u.password && SCREEN_ALLOWED_HOSTS.some((h) => u.hostname === h || u.hostname.endsWith(`.${h}`));
+    return u.protocol === 'https:' && !u.username && !u.password && Boolean(platformFromHost(u.hostname));
   } catch { return false; }
 }
 
@@ -107,6 +115,20 @@ export interface PlatformScreen {
   storeIds?: string[];
 }
 
+// Merchant packages shipped by the Android relay kit. Missing or unknown identities remain compatible with older agents.
+const PLATFORM_BY_ORDER_APP = new Map<string, ScreenPlatform>([
+  ['com.dd.ddmerchant', 'doordash'], ['com.uber.restaurants', 'ubereats'], ['ca.skipthedishes.dashboard', 'skip'],
+]);
+const EMPTY_MERCHANT_SIGNAL = { pageTitle: null, pageHost: null, titleCount: null, waitingSince: null, app: null } as const;
+
+function omitForeignSignal(screen: PlatformScreen): PlatformScreen {
+  if (screen.platform === 'other') return screen;
+  const reported = screen.mode === 'android'
+    ? PLATFORM_BY_ORDER_APP.get(screen.app ?? '')
+    : platformFromHost(screen.pageHost?.replace(/\.$/, ''));
+  return reported && reported !== screen.platform ? { ...screen, ...EMPTY_MERCHANT_SIGNAL, state: 'blank' } : screen;
+}
+
 export type ScreenStatus = 'online' | 'login_required' | 'error' | 'offline' | 'never';
 
 export function screenStatus(s: PlatformScreen, now = Date.now()): ScreenStatus {
@@ -148,12 +170,13 @@ export function viewHosts(env: Record<string, string | undefined> = process.env)
 }
 
 export async function listScreens(): Promise<PlatformScreen[]> {
-  return (await getRepo().listDocs<PlatformScreen>(SCREENS, { limit: 200 })).map((d) => d.data)
+  return (await getRepo().listDocs<PlatformScreen>(SCREENS, { limit: 200 })).map((d) => omitForeignSignal(d.data))
     .sort((a, b) => (a.locationCode + a.platform + a.name).localeCompare(b.locationCode + b.platform + b.name));
 }
 
 export async function getScreen(id: string): Promise<PlatformScreen | null> {
-  return (await getRepo().getDoc<PlatformScreen>(SCREENS, id))?.data ?? null;
+  const screen = (await getRepo().getDoc<PlatformScreen>(SCREENS, id))?.data;
+  return screen ? omitForeignSignal(screen) : null;
 }
 
 async function save(s: PlatformScreen) {
@@ -201,10 +224,14 @@ export async function updateScreen(id: string, patch: { name?: unknown; platform
   if (patch.platform !== undefined) {
     const p = asPlatform(patch.platform);
     if (!p) return { error: 'Choisissez la plateforme. / Choose the platform.' };
-    // A new channel: the relay host opens that platform's page (its sign-in page) on the next heartbeat.
-    const url = p !== s.platform ? screenStartUrl(p) : null;
-    if (url) next.command = { kind: 'open', url, at: new Date().toISOString(), by: actor.name };
-    next.platform = p;
+    if (p !== s.platform) {
+      // Only a heartbeat after the switch can establish readiness for the new channel.
+      const url = screenStartUrl(p);
+      Object.assign(next, EMPTY_MERCHANT_SIGNAL);
+      next.platform = p;
+      next.state = next.lastSeenAt ? 'blank' : null;
+      next.command = url ? { kind: 'open', url, at: new Date().toISOString(), by: actor.name } : null;
+    }
   }
   if (patch.name !== undefined) next.name = cleanName(patch.name, next.platform);
   if (patch.locationCode) next.locationCode = patch.locationCode;
@@ -364,12 +391,12 @@ export async function recordHeartbeat(hb: Heartbeat, now = new Date()): Promise<
     else if (s.command?.kind === 'reload') commands.push({ id: s.id, kind: 'reload' });
     const mode: ScreenMode = r.mode ?? 'web';
     const count = titleCount(title) ?? r.waiting ?? null;
-    await save({
+    const next = await save(omitForeignSignal({
       ...s, lastSeenAt: now.toISOString(), state: r.state, pageTitle: title, pageHost: hostOf(r.url), titleCount: count,
       waitingSince: nextWaitingSince(s, count, now), mode, app: mode === 'android' ? r.app ?? null : null,
       autoReloads: r.autoReloads ?? s.autoReloads ?? null, agentVersion: hb.version ?? s.agentVersion ?? null, command: null,
-    });
-    if (r.state === 'login' && !wasLogin) {
+    }));
+    if (next.state === 'login' && !wasLogin) {
       await logActivity({ actor: 'Screen relay', source: 'automation', kind: 'device', action: 'screen_signed_out', status: 'failed', locationCode: s.locationCode, summary: `Platform screen "${s.name}" asks to sign in again` });
     }
   }

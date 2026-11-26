@@ -1,14 +1,35 @@
-import { enableUberIntegration, fetchUberPosData, uberEatsAdapter } from '@/lib/foodhub/adapters/uber-eats';
+import { enableUberIntegration, fetchUberPosData, uberEatsAdapter, type UberPosState } from '@/lib/foodhub/adapters/uber-eats';
+import { UBER_LINK_STATUS_FIELDS, uberPosForStore } from '@/lib/foodhub/adapters/uber-link';
 import { activationMessage } from '@/lib/foodhub/adapters/uber-provision';
 import { isRelayStore } from '@/lib/foodhub/adapters/relay';
 import { logActivity } from '@/lib/foodhub/activity';
 import { inScope, withPerm } from '@/lib/foodhub/auth';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
-import { getRepo } from '@/lib/foodhub/repo';
-import type { ChannelResult } from '@/lib/foodhub/types';
+import { getRepo, type FoodHubRepo } from '@/lib/foodhub/repo';
+import type { ChannelResult, ChannelStore } from '@/lib/foodhub/types';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
+
+async function currentMapping(repo: FoodHubRepo, checked: ChannelStore): Promise<ChannelStore | null> {
+  const current = await repo.getStore(checked.id);
+  if (!current || current.channel !== checked.channel || current.channelStoreId !== checked.channelStoreId
+    || current.locationCode !== checked.locationCode) return null;
+  return UBER_LINK_STATUS_FIELDS.every((key) => current.meta[key] === checked.meta[key]) ? current : null;
+}
+
+async function saveCheckedState(repo: FoodHubRepo, checked: ChannelStore, state: UberPosState): Promise<UberPosState | null> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const current = await currentMapping(repo, checked);
+    if (!current) return null;
+    const saved = uberPosForStore(current);
+    if (saved?.checkedAt && saved.checkedAt > state.checkedAt) return saved;
+    if (await repo.updateStore(current.id, { meta: { ...current.meta, uberPos: state } }, current)) return state;
+  }
+  return null;
+}
+
+const mappingChanged = { ok: false, error: 'The Uber mapping or connection changed while it was being checked. Check it again.' };
 
 // "Check with Uber": reads each mapped Uber store's pos_data — who receives its orders now (Food Hub, pending, or still
 // UrbanPiper) and whether the order webhooks are on. Read-only, so it runs as soon as the Uber keys exist.
@@ -27,10 +48,15 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
     let read = await fetchUberPosData(s.channelStoreId, { inspection: !enableWebhooks });
     let enabled: ChannelResult | null = null;
     if (enableWebhooks && read.ok && read.state?.integrationEnabled === false) {
-      enabled = await enableUberIntegration(s.channelStoreId);
-      if (enabled.ok) read = await fetchUberPosData(s.channelStoreId);
+      if (await currentMapping(repo, s)) {
+        enabled = await enableUberIntegration(s.channelStoreId);
+        if (enabled.ok) read = await fetchUberPosData(s.channelStoreId);
+      } else read = mappingChanged;
     }
-    if (read.ok && read.state) await repo.updateStore(s.id, { meta: { ...s.meta, uberPos: read.state } });
+    if (read.ok && read.state) {
+      const saved = await saveCheckedState(repo, s, read.state);
+      read = saved ? { ...read, state: saved } : mappingChanged;
+    }
     rows.push({
       storeId: s.id, ok: read.ok, orderManager: read.state?.orderManager ?? null, integrationEnabled: read.state?.integrationEnabled ?? null,
       message: read.ok ? activationMessage({ result: { channel: 'uber_eats', ok: true, status: 'done', message: 'OK' }, enabled, pos: read.state ?? null })

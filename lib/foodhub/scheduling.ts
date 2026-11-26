@@ -4,7 +4,7 @@
 import { logActivity } from './activity';
 import { CHANNEL_LABELS, nowIso } from './config';
 import { cloverAutoPrintEnabled } from './pos/clover';
-import { printKitchenTicket } from './pos/clover-order';
+import { CLOVER_REPRINT_KITCHEN_CHANGED, cloverKitchenChanged, printKitchenTicket } from './pos/clover-order';
 import { getRepo } from './repo';
 import { localTimeLabel } from './time';
 import type { NormalizedOrder, StoredOrder } from './types';
@@ -44,27 +44,37 @@ export async function fireDueScheduled(now = Date.now()): Promise<number> {
     const dueLabel = localTimeLabel(o.timeline!.scheduledFor ?? o.timeline!.fireAt!);
     let printedAt: string | undefined;
     let printError: string | undefined;
+    const autoPrint = cloverAutoPrintEnabled();
+    const mappingChanged = Boolean(o.posOrderId) && autoPrint && cloverKitchenChanged(o, store);
     const attempts = (o.timeline?.printAttempts ?? 0) + 1;
-    if (o.posOrderId && cloverAutoPrintEnabled()) {
+    if (mappingChanged) {
+      printError = CLOVER_REPRINT_KITCHEN_CHANGED;
+      await repo.addEvent(o.id, 'print_failed', { message: printError });
+    } else if (o.posOrderId && autoPrint) {
       const p = await printKitchenTicket(o.posOrderId, store?.cloverMerchantId, o.locationCode);
       await repo.addEvent(o.id, p.ok ? 'printed' : 'print_failed', { message: `${p.message} (scheduled order — fire time, attempt ${attempts})` });
       if (p.ok) printedAt = nowIso(); else printError = p.message;
     } else if (!o.posOrderId) {
       printError = 'order is not in Clover — use "Send to Clover", then Reprint';
     }
-    if (printError && o.posOrderId && attempts < MAX_FIRE_PRINT_ATTEMPTS) {
+    if (printError && !mappingChanged && o.posOrderId && attempts < MAX_FIRE_PRINT_ATTEMPTS) {
       // Ticket did not print: keep the order in the Scheduled lane (firedAt unset) and retry on the next sync.
       await repo.patchOrder(o.id, { printError, printAttempts: attempts });
       await logActivity({ actor: 'TAKATAK automation', source: 'automation', kind: 'order', action: 'scheduled_fire', status: 'failed', channel: o.channel, brandName: o.brandName, locationCode: o.locationCode, orderId: o.id,
         summary: `Scheduled ${tag}: kitchen ticket did NOT print (${printError}) — retry ${attempts}/${MAX_FIRE_PRINT_ATTEMPTS} on the next sync (due ${dueLabel})` });
       continue;
     }
-    await repo.patchOrder(o.id, { firedAt: nowIso(), printAttempts: attempts, ...(printedAt ? { printedAt, printError: undefined } : printError ? { printError } : {}) });
-    await repo.addEvent(o.id, 'fired', { message: printError ? 'Scheduled order released to the kitchen lane — ticket NOT printed, use Reprint' : 'Scheduled order sent to the kitchen' });
+    await repo.patchOrder(o.id, { firedAt: nowIso(), ...(!mappingChanged ? { printAttempts: attempts } : {}), ...(printedAt ? { printedAt, printError: undefined } : printError ? { printError } : {}) });
+    const firedMessage = mappingChanged
+      ? 'Scheduled order released to the original kitchen lane for review.'
+      : printError ? 'Scheduled order released to the kitchen lane — ticket NOT printed, use Reprint' : 'Scheduled order sent to the kitchen';
+    await repo.addEvent(o.id, 'fired', { message: firedMessage });
+    const summary = mappingChanged
+      ? `Scheduled ${tag}: ${printError} (due ${dueLabel})`
+      : printError ? `Scheduled ${tag}: kitchen ticket did NOT print after ${attempts} attempts (${printError}) — press Reprint (due ${dueLabel})`
+        : `Scheduled ${tag} sent to the kitchen (due ${dueLabel})`;
     await logActivity({ actor: 'TAKATAK automation', source: 'automation', kind: 'order', action: 'scheduled_fire', status: printError ? 'failed' : 'info', channel: o.channel, brandName: o.brandName, locationCode: o.locationCode, orderId: o.id,
-      summary: printError
-        ? `Scheduled ${tag}: kitchen ticket did NOT print after ${attempts} attempts (${printError}) — press Reprint (due ${dueLabel})`
-        : `Scheduled ${tag} sent to the kitchen (due ${dueLabel})` });
+      summary });
     fired++;
   }
   return fired;

@@ -454,7 +454,14 @@ export function uberOrderManager(pos: any, clientId = process.env.UBER_CLIENT_ID
   return pos.is_order_manager_pending ? 'pending' : 'unknown';
 }
 
-export interface UberPosState { orderManager: UberOrderManager; integrationEnabled: boolean | null; orderManagerClientId: string | null; checkedAt: string }
+export interface UberPosState {
+  /** Missing on older saved checks. */
+  storeId?: string;
+  orderManager: UberOrderManager;
+  integrationEnabled: boolean | null;
+  orderManagerClientId: string | null;
+  checkedAt: string;
+}
 
 /** Read this app's pos_data. Manual inspection can use its own scope outside the activation flow. */
 export async function fetchUberPosData(storeId: string, { inspection = false }: { inspection?: boolean } = {}): Promise<{ ok: boolean; state?: UberPosState; raw?: unknown; error?: string; httpStatus?: number }> {
@@ -464,7 +471,7 @@ export async function fetchUberPosData(storeId: string, { inspection = false }: 
     if (!res.ok) return { ok: false, httpStatus: res.status, error: `Uber pos_data HTTP ${res.status}` };
     const raw = await res.json();
     const enabled = raw?.integration_enabled ?? raw?.pos_integration_enabled;
-    return { ok: true, raw, state: { orderManager: uberOrderManager(raw), integrationEnabled: typeof enabled === 'boolean' ? enabled : null, orderManagerClientId: raw?.order_manager_client_id ? String(raw.order_manager_client_id) : null, checkedAt: new Date().toISOString() } };
+    return { ok: true, raw, state: { storeId, orderManager: uberOrderManager(raw), integrationEnabled: typeof enabled === 'boolean' ? enabled : null, orderManagerClientId: raw?.order_manager_client_id ? String(raw.order_manager_client_id) : null, checkedAt: new Date().toISOString() } };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }

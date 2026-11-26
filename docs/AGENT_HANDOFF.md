@@ -2,7 +2,81 @@
 
 « Vérifier avec Uber » consulte les liaisons accessibles au compte en utilisant un jeton OAuth distinct avec la portée `eats.store`. Si `UBER_OAUTH_SCOPE` est renseignée, elle doit inclure cette portée. Un jeton statique `UBER_ACCESS_TOKEN` reste prioritaire. L’autorisation de l’application en production et la réception réelle restent à vérifier auprès d’Uber. [Suivi marchand](https://github.com/takatakca/foodhubca/issues/46#issuecomment-7194255617) · [Référence Uber](https://developer.uber.com/docs/eats/references/api/v1/get-eats-stores-storeid-posdata)
 
+Un changement d’identifiant marchand écarte les preuves de l’ancienne liaison tout en conservant les protections locales. Une réponse reçue après un déplacement ou une déconnexion invite à relancer la vérification. Une modification des réglages du même magasin peut coexister avec le résultat. Les essais utilisent des réponses Uber et Supabase simulées.
+
 — signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Numéro de relève ajouté pendant un incident d’écran
+
+Watchtower garde le premier appel en attente quand aucun numéro de relève ni de cuisine n’est disponible au premier palier. Si un numéro devient disponible pendant que l’incident reste ouvert, Watchtower peut demander l’appel au prochain passage. Une réservation en base limite cette demande à une fois par incident. La situation se vérifie dans Alertes et le journal des messages. Les essais sur les téléphones de relève restent suivis dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+Si le numéro est déjà configuré et que la configuration de Twilio Voice est incomplète, Watchtower consigne le report dans l’incident sans consommer la réservation du premier appel. Le premier passage suivant la configuration peut demander l’appel si l’incident est encore ouvert. Les tests de cron simulés couvrent un écran hors ligne et une commande en attente, ainsi que l’absence de renvoi après la première demande. Le lot local passe 142 tests ciblés, TypeScript et ESLint.
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Relances et impressions Clover après déplacement d’une liaison
+
+Quand la cuisine de la liaison a changé depuis la réception, les relances et impressions Clover sont bloquées et signalées. Une commande planifiée arrivée à son heure de préparation est affichée avec l’erreur d’impression dans sa cuisine d’origine. Avant de relancer, vérifier la liaison et la commande dans la caisse appropriée. Une commande qui attend sa première liaison peut toujours être acheminée une fois la cuisine attribuée. La preuve de livraison en cuisine reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+La reprise sur `2313f4f` a vérifié la première liaison d’une commande retenue, puis le déplacement de cette liaison après une réponse Clover incertaine. La relance conserve la première cuisine et attend la vérification de la liaison avant de contacter Clover.
+
+La répétition sur l’arbre de #173 `ab73a76` a passé 208 essais ciblés. Ils couvrent la relance Clover après une réponse incertaine, la confirmation Skip après réception et les accès aux commandes et à la vitrine.
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Relève des écrans et confirmation Skip
+
+Dans Réglages → Alertes, « Simuler la relève des écrans » vérifie les deux règles et le numéro commun enregistré, affiché masqué. La simulation reproduit la sélection du premier appel. L’indication de configuration Twilio est distincte. La réception sur un téléphone fait partie des essais marchands dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+L’acceptation automatique d’une commande Skip directe exige une référence Clover avant le succès JET. Lorsqu’une commande prévue en acceptation automatique ne parvient pas à Clover, Food Hub demande la relève vers la tablette et attend l’accusé Skip avant d’afficher le transfert.
+
+La reprise sur `2313f4f` a passé 195 essais ciblés, dont la simulation des appels, l’accusé Skip et le maintien des commandes sans liaison au tableau.
+
+Sur `4003e5b`, 201 essais ciblés ont couvert ces scénarios et les nouveaux contrôles d’impression Clover de #169.
+
+Sur `cdde075`, 206 essais ciblés ont couvert ces parcours avec la validation des signaux du relais et de la caisse avant annulation Clover.
+
+Sur `da2d047`, les 236 essais ciblés couvrent aussi l’association des sessions Skip et la conservation d’un résultat d’appel non confirmé à côté de la simulation.
+
+— signé : Codex (automatisation) @ cloud · 2026-11-26
+
+## 2026-11-26 — Réponse téléphonique et session d’intégration Skip
+
+Watchtower affiche « Résultat de l’appel non confirmé » si la réponse Twilio ne contient pas de référence d’appel valide ou si la demande se termine avec un résultat réseau incertain. Les anciens messages au statut positif sans référence valide portent aussi cet avis. L’état fournisseur reste consultable pour un appel identifié, et la réception sur le téléphone est suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+Une notification Skip conserve sa session fournisseur et sa progression. Les demandes de lancement restent en attente d’une association vérifiée. La configuration explicite demande la session et le code POS confirmés pour le même établissement.
+
+Sur `4003e5b`, 194 essais ciblés ont validé les réponses Twilio et Skip simulées et l’impression Clover. Le lot Linux a ignoré les six essais natifs du relais Windows.
+
+Sur `0edc9c8`, TypeScript et 237 essais ciblés ont validé ensemble les réponses Twilio et Skip simulées, l’attribution Uber et le relais web sous Chromium local. Les six essais natifs PowerShell nécessitent Windows.
+
+— signé : Codex (automatisation) @ cloud · 2026-11-26
+
+## 2026-11-26 — Changement de plateforme du relais et annulation Clover
+
+Un écran déjà vu passe à indisponible quand sa plateforme change. Food Hub écarte l’état et le nombre de commandes d’un domaine marchand ou d’une application Android reconnus comme appartenant à une autre plateforme. Watchtower peut signaler l’écran indisponible, même si le relais continue d’envoyer les signaux de l’ancienne plateforme. Si la réponse d’ouverture se perd, la commande « Page de connexion » crée une nouvelle demande.
+
+L’annulation suit la caisse explicite, puis la caisse configurée, puis l’unique caisse OAuth approuvée. Dans ce dernier cas, Clover doit renvoyer la référence et le titre attendus avant que Food Hub retire ou marque la commande. Le contrôle de réception réelle reste dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+La reprise sur `394ecff` a passé 185 essais ciblés, dont la vérification des signaux web et Android, des alertes Watchtower et des réponses Clover simulées.
+
+La reprise sur `2313f4f` conserve les mêmes changements et les tests de préparation du relais de #168. TypeScript et 124 tests ciblés réussissent, dont les signaux de relais sous Chromium sur une plateforme simulée.
+
+La reprise sur `4003e5b` conserve aussi l’impression Clover et le dossier de démarrage du relais Windows de #169. TypeScript, ESLint sur les fichiers TypeScript concernés et 181 tests ciblés réussissent. Les scénarios du relais web ont utilisé Chromium avec un serveur Food Hub simulé. Les six tests PowerShell exigent Windows.
+
+— signé : Codex (automatisation) @ cloud · 2026-11-26
+
+## 2026-11-26 — Attribution des commandes Uber et onglet du relais web
+
+La checklist Uber direct demande un contrôle fournisseur enregistré pour le compte lié, avec Food Hub comme gestionnaire et les webhooks actifs. Une ancienne vérification sans compte identifié doit être refaite dans Restaurants → Liaisons. L’essai de réception en cuisine reste suivi dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+Le relais web reconnaît la page marchand et les pages de connexion prises en charge. Un onglet interne de Chrome ou une page sur un autre site déclenche un statut indisponible. Pour l’installation manuelle, utiliser la même adresse marchand pour Chrome et `SCREEN_START_URL`. La vérification sur le poste existant reste ouverte.
+
+La reprise sur `394ecff` a passé 195 essais ciblés, dont la sélection des onglets dans Chromium local et les réponses OAuth simulées.
+
+Après la fusion de #168 sur `2313f4f`, le contrôle conjoint de la checklist, du relais et d’Uber a passé 199 essais ciblés et la vérification TypeScript.
+
+— signé : Codex (automatisation) @ cloud · 2026-11-26
 
 ## 2026-11-26 — Impression Clover et démarrage du relais Windows
 

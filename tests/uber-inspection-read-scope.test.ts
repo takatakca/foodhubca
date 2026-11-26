@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { POST as saveMapping } from '../app/api/foodhub/stores/route';
 import { POST } from '../app/api/foodhub/uber-connect/check/route';
-import { fetchUberPosData, fetchUberStoreStatus, forgetUberTokenMemory, uberAccessToken } from '../lib/foodhub/adapters/uber-eats';
+import { pushPrepTimeToUber } from '../lib/foodhub/adapters/uber-api';
+import { fetchUberPosData, fetchUberStoreStatus, forgetUberTokenMemory, uberAccessToken, uberEatsAdapter } from '../lib/foodhub/adapters/uber-eats';
+import { recoverMissedUberOrders } from '../lib/foodhub/adapters/uber-events';
 import { hashPassword } from '../lib/foodhub/auth';
+import { saveBrand, saveLocation } from '../lib/foodhub/catalog';
 import { getRepo } from '../lib/foodhub/repo';
 
 const AUTH = 'https://auth.uber.example.test';
@@ -19,13 +23,18 @@ let allowOrderToken: boolean;
 let allowStoreToken: boolean;
 let refusedReads: number;
 let integrationEnabled: boolean;
+let duringPosRead: (() => Promise<void>) | undefined;
 
-function check(body: Record<string, unknown> = {}, username: string | null = 'test-manager') {
+function request(path: string, body: Record<string, unknown>, username: string | null = 'test-manager') {
   const headers = new Headers({ 'content-type': 'application/json' });
   if (username) headers.set('authorization', `Basic ${Buffer.from(`${username}:${PASSWORD}`).toString('base64')}`);
-  return POST(new Request('http://hub.example.test/api/foodhub/uber-connect/check', {
+  return new Request(`http://hub.example.test/api/foodhub/${path}`, {
     method: 'POST', headers, body: JSON.stringify(body),
-  }), {});
+  });
+}
+
+function check(body: Record<string, unknown> = {}, username?: string | null) {
+  return POST(request('uber-connect/check', body, username), {});
 }
 
 async function mapStore(channelStoreId: string, locationCode: string) {
@@ -48,6 +57,7 @@ beforeEach(async () => {
   allowOrderToken = false;
   allowStoreToken = true;
   integrationEnabled = false;
+  duringPosRead = undefined;
   refusedReads = 0;
   fetchMock.mockReset().mockImplementation(async (input, init) => {
     const url = new URL(String(input));
@@ -64,6 +74,7 @@ beforeEach(async () => {
     if (url.origin === API && url.pathname === POS_PATH) {
       posRequests.push({ path: url.pathname, method, bearer: new Headers(init?.headers).get('authorization') });
       if (method === 'GET') {
+        await duringPosRead?.();
         if (refusedReads > 0) {
           refusedReads--;
           return new Response(null, { status: 401 });
@@ -80,6 +91,8 @@ beforeEach(async () => {
   vi.stubGlobal('fetch', fetchMock);
   const passwordHash = hashPassword(PASSWORD);
   await getRepo().saveUser({ username: 'test-manager', name: 'Test manager', active: true, role: 'manager', locations: ['ORIGINAL'], passwordHash });
+  await saveLocation({ code: 'ORIGINAL', name: 'Test location', address: '', active: true });
+  await saveBrand({ name: 'Test brand', active: true });
   await mapStore(STORE, 'ORIGINAL');
 });
 
@@ -90,6 +103,97 @@ afterEach(() => {
 });
 
 describe('manual Uber store inspection', () => {
+  it('clears the former Uber identity evidence on a remap and retains the row protections', async () => {
+    const repo = getRepo();
+    const mapped = (await repo.findStore('uber_eats', STORE))!;
+    const protectedMeta = { menuLocked: true, doNotTouch: true, localNote: 'Synthetic note' };
+    const uberMeta = {
+      uberPos: { storeId: STORE, orderManager: 'foodhub', integrationEnabled: true },
+      provisioned: true, awaitingProvision: false, provisionedAt: '2026-11-25T13:00:00Z',
+      provisionChangedAt: '2026-11-25T13:00:00Z', menuRefreshRequested: '2026-11-25T13:00:00Z',
+      uberDisconnectedAt: '2026-11-24T13:00:00Z',
+    };
+    await repo.updateStore(mapped.id, { meta: { ...protectedMeta, ...uberMeta } });
+    const fields = { id: mapped.id, channel: mapped.channel, brandName: mapped.brandName, locationCode: mapped.locationCode };
+    expect((await saveMapping(request('stores', { ...fields, channelStoreId: STORE }), {})).status).toBe(200);
+    expect((await repo.getStore(mapped.id))?.meta).toEqual({ ...protectedMeta, ...uberMeta });
+
+    const replacement = 'synthetic-replacement-store';
+    expect((await saveMapping(request('stores', { ...fields, channelStoreId: replacement }), {})).status).toBe(200);
+    expect(await repo.getStore(mapped.id)).toMatchObject({ channelStoreId: replacement });
+    expect((await repo.getStore(mapped.id))?.meta).toEqual(protectedMeta);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('discards the delayed read when the original mapping is replaced', async () => {
+    const repo = getRepo();
+    const mapped = (await repo.findStore('uber_eats', STORE))!;
+    const replacement = 'synthetic-replacement-store';
+    duringPosRead = async () => {
+      await repo.updateStore(mapped.id, { channelStoreId: replacement, meta: { menuLocked: true } });
+    };
+
+    const row = (await (await check()).json()).rows[0];
+
+    expect(row).toMatchObject({ storeId: mapped.id, ok: false, orderManager: null, integrationEnabled: null });
+    expect(await repo.getStore(mapped.id)).toMatchObject({ channelStoreId: replacement, meta: { menuLocked: true } });
+    expect((await repo.getStore(mapped.id))?.meta.uberPos).toBeUndefined();
+    expect(posRequests.map(({ method }) => method)).toEqual(['GET']);
+  });
+
+  it('retains a concurrent protection change on the same mapping', async () => {
+    const repo = getRepo();
+    const mapped = (await repo.findStore('uber_eats', STORE))!;
+    duringPosRead = async () => {
+      await repo.updateStore(mapped.id, { meta: { menuLocked: true } });
+    };
+
+    expect((await (await check()).json()).rows[0]).toMatchObject({ ok: true, orderManager: 'foodhub' });
+    expect((await repo.getStore(mapped.id))?.meta).toMatchObject({ menuLocked: true, uberPos: { storeId: STORE, orderManager: 'foodhub' } });
+  });
+
+  it('merges the current protection when a write races with another mapping edit', async () => {
+    const repo = getRepo();
+    const mapped = (await repo.findStore('uber_eats', STORE))!;
+    const update = repo.updateStore.bind(repo);
+    const race = vi.spyOn(repo, 'updateStore').mockImplementationOnce(async (id, patch, expected) => {
+      await update(id, { meta: { doNotTouch: true } });
+      return update(id, patch, expected);
+    });
+    try {
+      expect((await (await check()).json()).rows[0]).toMatchObject({ ok: true, orderManager: 'foodhub' });
+      expect(race).toHaveBeenCalledTimes(2);
+      expect((await repo.getStore(mapped.id))?.meta).toMatchObject({ doNotTouch: true, uberPos: { storeId: STORE } });
+    } finally {
+      race.mockRestore();
+    }
+  });
+
+  it('leaves a concurrent disconnect untouched and does not enable webhooks', async () => {
+    vi.stubEnv('LIVE_CONNECTORS_GLOBAL_ENABLED', 'true');
+    allowOrderToken = true;
+    const repo = getRepo();
+    const mapped = (await repo.findStore('uber_eats', STORE))!;
+    const meta = { provisioned: false, uberDisconnectedAt: '2026-11-26T14:00:00Z' };
+    duringPosRead = async () => { await repo.updateStore(mapped.id, { meta }); };
+
+    expect((await (await check({ enable: true })).json()).rows[0]).toMatchObject({ ok: false, orderManager: null });
+    expect((await repo.getStore(mapped.id))?.meta).toEqual(meta);
+    expect(posRequests.map(({ method }) => method)).toEqual(['GET']);
+  });
+
+  it('does not use an explicit older Uber identity for prep time or missing-order recovery', async () => {
+    vi.stubEnv('LIVE_CONNECTORS_GLOBAL_ENABLED', 'true');
+    expect(uberEatsAdapter.readiness().canSend).toBe(true);
+    const repo = getRepo();
+    const mapped = (await repo.findStore('uber_eats', STORE))!;
+    await repo.updateStore(mapped.id, { meta: { uberPos: { storeId: 'synthetic-former-store', orderManager: 'foodhub' } } });
+
+    expect(await pushPrepTimeToUber(mapped.locationCode, 20)).toEqual([]);
+    expect(await recoverMissedUberOrders()).toEqual({ recovered: 0 });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('uses just eats.store, only for the authorized direct mapping, with the live switch off', async () => {
     vi.stubEnv('UBER_OAUTH_SCOPE', ORDER_SCOPES);
     const other = await mapStore('synthetic-other-store', 'OTHER');
@@ -171,5 +275,28 @@ describe('manual Uber store inspection', () => {
     expect(posRequests.map(({ method, bearer }) => [method, bearer])).toEqual([
       ['GET', 'Bearer order-token'], ['PATCH', 'Bearer order-token'], ['GET', 'Bearer order-token'],
     ]);
+  });
+
+  it('sends the mapping snapshot filters with the conditional database update', async () => {
+    vi.stubEnv('FOODHUB_FORCE_MEMORY', 'false');
+    vi.stubEnv('SUPABASE_URL', 'https://db.example.test');
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'synthetic-service-key');
+    const expected = {
+      channel: 'uber_eats' as const, channelStoreId: STORE, locationCode: 'ORIGINAL',
+      updatedAt: '2026-11-26T14:00:00Z', meta: { doNotTouch: true, localNote: 'A, B (synthetic) ' },
+    };
+    fetchMock.mockImplementationOnce(async (input, init) => {
+      const url = new URL(String(input));
+      expect(url.origin + url.pathname).toBe('https://db.example.test/rest/v1/fh_channel_stores');
+      expect(init?.method).toBe('PATCH');
+      expect(Object.fromEntries(url.searchParams)).toMatchObject({
+        id: 'eq.synthetic-row', channel: 'eq.uber_eats', channel_store_id: `eq.${STORE}`,
+        location_code: 'eq.ORIGINAL', updated_at: `eq.${expected.updatedAt}`, meta: `eq.${JSON.stringify(expected.meta)}`,
+      });
+      return Response.json([]);
+    });
+
+    expect(await getRepo().updateStore('synthetic-row', { meta: { ...expected.meta, uberPos: { storeId: STORE } } }, expected)).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

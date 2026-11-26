@@ -107,7 +107,7 @@ export interface SkipOnboardingSession {
   stage: SkipOnboardingNotice['stage'];
   lastEvent: SkipOnboardingNotice['eventType'];
   nextStep: string;
-  /** Our POS location id (set when the session could be tied to a start made here). */
+  /** Our POS location id, when the provider session has an existing association. */
   posLocationId?: string;
   market?: string;
   jetLocationId?: string;
@@ -125,7 +125,7 @@ export async function listSkipOnboarding(): Promise<{ sessions: SkipOnboardingSe
   return { sessions, pending };
 }
 
-/** Start onboarding of one JET location. The call is remembered so the session id that comes back can be tied to it. */
+/** Start onboarding of one JET location and keep the accepted request for operator review. */
 export async function startSkipOnboarding(input: { market: string; jetLocationId: string; posLocationId?: string }, actor: Actor): Promise<ChannelResult> {
   const res = await onboardSkipLocation(input.market, input.jetLocationId);
   if (res.ok) {
@@ -150,18 +150,13 @@ export async function goLiveSkipOnboarding(posLocationId: string, actor: Actor):
   return res;
 }
 
-/** Keeps a signed onboarding notification: the session, where it stands, and what to do next. Best-effort ones are not retried by JET, so nothing is dropped. */
+/** Keep the provider session and status from a signed onboarding notification. */
 export async function recordSkipOnboarding(n: SkipOnboardingNotice): Promise<SkipOnboardingSession> {
   const repo = getRepo();
   const prev = (await repo.getDoc<SkipOnboardingSession>(SKIP_ONBOARDING, n.sessionId))?.data;
   const at = nowIso();
-  let tie: Pick<SkipOnboardingSession, 'posLocationId' | 'market' | 'jetLocationId'> = prev ? { posLocationId: prev.posLocationId, market: prev.market, jetLocationId: prev.jetLocationId } : {};
-  if (!prev) {
-    // A new session while exactly one start from here is waiting (last 48 h): it is that one.
-    const pending = ((await repo.getKv<PendingStart[]>(PENDING_KEY)) ?? []).filter((p) => Date.now() - Date.parse(p.at) < 48 * 3600_000);
-    if (pending.length === 1) tie = { posLocationId: pending[0].posLocationId, market: pending[0].market, jetLocationId: pending[0].jetLocationId };
-    if (pending.length === 1) await repo.setKv(PENDING_KEY, []);
-  }
+  // Notices have a session id but no documented JET location id to match to a pending start.
+  const tie = prev ? { posLocationId: prev.posLocationId, market: prev.market, jetLocationId: prev.jetLocationId } : {};
   const session: SkipOnboardingSession = {
     sessionId: n.sessionId, stage: n.stage, lastEvent: n.eventType, nextStep: skipOnboardingNextStep(n), ...tie, restaurant: n.restaurant ?? prev?.restaurant,
     history: [...(prev?.history ?? []), { at, eventType: n.eventType, stage: n.stage, referenceId: n.referenceId }].slice(-20), updatedAt: at,

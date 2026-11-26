@@ -40,6 +40,7 @@ export interface IncidentStep {
   kind: 'opened' | 'screen' | 'sms' | 'call' | 'chat' | 'email' | 'owner' | 'ack' | 'snooze' | 'resolved' | 'reopened' | 'note' | 'customer_sms' | 'ai';
   to?: string;
   ok?: boolean;
+  uncertain?: boolean;
   by?: string;
   message?: string;
 }
@@ -73,6 +74,8 @@ export interface Incident {
   snoozedUntil?: string | null;
   /** Escalation level reached: 0 screen, 1 SMS, 2 call, 3 owner. */
   level: number;
+  /** The first screen call is still due and has not been claimed for sending. */
+  screenFirstCallPending?: true;
   steps: IncidentStep[];
   /** Plain-language explanation and what to do (rule text, or Claude when ANTHROPIC_API_KEY is set). */
   explanation?: string | null;
@@ -87,6 +90,17 @@ export interface RuleSetting {
   enabled: boolean;
   /** Escalate by SMS / call / owner (otherwise screen + chat only). */
   escalate: boolean;
+}
+
+export interface SharedScreenCallPreviewCheck {
+  kind: 'screen_down' | 'screen_waiting';
+  state: 'watch-off' | 'rule-off' | 'missing-number' | 'simulated';
+  destination: string | null;
+}
+
+export interface SharedScreenCallPreview {
+  callConfigured: boolean;
+  checks: SharedScreenCallPreviewCheck[];
 }
 
 export interface WatchSettings {

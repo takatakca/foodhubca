@@ -1,3 +1,11 @@
+## 2026-11-26 — Vérifications du relais dans Mise en service
+
+Les avis du relais et des appels utilisent les écrans du périmètre autorisé. Ils montrent l’état des signaux et le type de destination configuré, avec un lien vers les réglages concernés. Les preuves de réception réelle sont suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+Le workflow « Verify Food Hub production release » conserve le message et le résumé d’un écart de SHA, tout en gardant un résultat en échec pour une publication encore à confirmer.
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Vérifier un passage Watchtower en arrière-plan
 
 Dans la réponse détaillée de `GET /api/health`, `checks.watchtower.lastBackgroundCompletion` donne l’heure et le déclencheur du dernier passage achevé par minuterie ou cron. Ce contrôle complète l’horodatage de démarrage. La réception réelle des commandes et des appels reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

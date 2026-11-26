@@ -281,6 +281,20 @@ describe('Clover kitchen printing uses the register that received the order', ()
     expect(await printKitchenTicket('test-existing-order', null, locationCode)).toMatchObject({ ok: false, message: 'No Clover merchant configured.' });
     expect(sent('POST', /print_event$/)).toEqual([]);
   });
+
+  it('prints at the confirmed OAuth merchant if a second merchant is approved during creation', async () => {
+    delete process.env.CLOVER_MERCHANT_ID;
+    delete process.env.CLOVER_ACCESS_TOKEN;
+    const repo = getRepo();
+    await approvedAndPending();
+    await repo.upsertStore({ channel: 'uber_eats', channelStoreId: 'ue-popoulet-ndg', brandName: menu.brandName, locationCode, cloverMerchantId: null, autoAccept: true, online: true, meta: {} });
+    duringAtomic = () => repo.setKv('clover_oauth_merchants', { [MID2]: appMerchant(MID2, 'active'), [MID]: appMerchant(MID, 'active') });
+
+    const outcome = await processIncomingOrder(await uberOrder('uber-clover-print-oauth-change'));
+    expect(sent('POST', /atomic_order/)).toMatchObject([{ path: `/v3/merchants/${MID2}/atomic_order/orders` }]);
+    expect(sent('POST', /print_event$/)).toEqual([{ method: 'POST', path: `/v3/merchants/${MID2}/print_event`, body: { orderRef: { id: 'CLV1' } } }]);
+    expect(outcome.order).toMatchObject({ posOrderId: 'CLV1', timeline: { posMerchantId: MID2, printedAt: expect.any(String) } });
+  });
 });
 
 describe('Clover retry guards', () => {

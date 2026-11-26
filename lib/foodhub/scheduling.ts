@@ -46,7 +46,7 @@ export async function fireDueScheduled(now = Date.now()): Promise<number> {
     let printError: string | undefined;
     const attempts = (o.timeline?.printAttempts ?? 0) + 1;
     if (o.posOrderId && cloverAutoPrintEnabled()) {
-      const p = await printKitchenTicket(o.posOrderId, store?.cloverMerchantId, o.locationCode);
+      const p = await printKitchenTicket(o.posOrderId, o.timeline?.posMerchantId ?? store?.cloverMerchantId, o.locationCode);
       await repo.addEvent(o.id, p.ok ? 'printed' : 'print_failed', { message: `${p.message} (scheduled order — fire time, attempt ${attempts})` });
       if (p.ok) printedAt = nowIso(); else printError = p.message;
     } else if (!o.posOrderId) {

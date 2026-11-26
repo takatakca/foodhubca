@@ -49,7 +49,7 @@ async function autoPrint(order: StoredOrder, merchantId?: string | null): Promis
   if (!order.posOrderId || !cloverAutoPrintEnabled()) return order;
   // Scheduled orders print at their fire time (see scheduling.ts), not when they arrive.
   if (isWaitingScheduled(order)) return order;
-  const p = await printKitchenTicket(order.posOrderId, merchantId, order.locationCode);
+  const p = await printKitchenTicket(order.posOrderId, order.timeline?.posMerchantId ?? merchantId, order.locationCode);
   await getRepo().addEvent(order.id, p.ok ? 'printed' : 'print_failed', { message: p.message, printEventId: p.printEventId });
   // printError is what the board/alerts key on ("Ticket not printed" + Reprint); a successful print clears it.
   return patchTimeline(order, p.ok ? { printedAt: nowIso(), printError: undefined } : { printError: p.message });
@@ -638,7 +638,7 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
   if (action === 'retry_pos' || action === 'print') {
     const store = await repo.findStore(order.channel, order.channelStoreId);
     if (action === 'print') {
-      const p = await printKitchenTicket(order.posOrderId!, store?.cloverMerchantId, order.locationCode);
+      const p = await printKitchenTicket(order.posOrderId!, order.timeline?.posMerchantId ?? store?.cloverMerchantId, order.locationCode);
       await repo.addEvent(order.id, p.ok ? 'printed' : 'print_failed', { message: p.message, manual: true, by: actor.name });
       const updated = await patchTimeline(order, p.ok ? { printedAt: nowIso(), printError: undefined } : { printError: p.message });
       await log(p.ok ? 'success' : 'failed', p.message);

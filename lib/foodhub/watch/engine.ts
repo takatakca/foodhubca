@@ -7,7 +7,7 @@ import { getAdapter } from '../adapters';
 import { isRelayStore } from '../adapters/relay';
 import { CHANNEL_LABELS, publicBaseUrl } from '../config';
 import { lastOrderTimes } from '../order-retry';
-import { getCatalog } from '../catalog';
+import { getCatalog, seedCatalog } from '../catalog';
 import { deadlineFor } from '../deadline';
 import { inboxSummary } from '../inbox';
 import { effectiveHours, getHours, holidaysFor, isOpenAt, localDate, openIntervals } from '../hours';
@@ -154,13 +154,15 @@ function coveredMinutes(spans: Array<[number, number]>): number {
   return total / 60000;
 }
 
-async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
+async function detect(s: WatchSettings, now: number): Promise<{ detections: Detection[]; inactiveLocations: Set<string> }> {
   const repo = getRepo();
   const tz = foodhubTimeZone();
   const [catalog, hours, orders, stores, devices, jobs, sync, screens] = await Promise.all([
-    getCatalog(), getHours(), repo.listOrders({ since: new Date(now - 24 * 3600_000).toISOString(), limit: 3000 }),
+    getCatalog({ strict: true }), getHours(), repo.listOrders({ since: new Date(now - 24 * 3600_000).toISOString(), limit: 3000 }),
     repo.listStores(), listDevices(), repo.listJobs(200), repo.getKv<{ at: string }>('sync:last').catch(() => null), listScreens().catch(() => []),
   ]);
+  // Existing bindings in unknown kitchens retain the opening-hours fallback. Only an explicit inactive flag stops monitoring.
+  const inactiveLocations = new Set(catalog.locations.filter(({ active }) => active === false).map(({ code }) => code));
   const loc = (code?: string | null) => (code ? catalog.locations.find((l) => l.code === code)?.name ?? code : 'magasin non relié');
   const brandsAt = (code: string) => [...new Set(stores.filter((x) => x.locationCode === code).map((x) => x.brandName))];
   const out: Detection[] = [];
@@ -274,7 +276,8 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
     }
   }
 
-  for (const d of devices.filter((x) => !x.revoked)) {
+  for (const d of devices) {
+    if (d.revoked || inactiveLocations.has(d.locationCode)) continue;
     const open = locationOpen(hours, d.locationCode, brandsAt(d.locationCode), now, tz);
     if (!open) continue;
     const seenAgo = d.lastSeenAt ? now - Date.parse(d.lastSeenAt) : Infinity;
@@ -295,7 +298,7 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
   for (const sc of screens) {
     const st = screenStatus(sc, now);
     if (!on('screen_down') || st === 'online' || st === 'never') continue;
-    if (!locationOpen(hours, sc.locationCode, brandsAt(sc.locationCode), now, tz)) continue;
+    if (inactiveLocations.has(sc.locationCode) || !locationOpen(hours, sc.locationCode, brandsAt(sc.locationCode), now, tz)) continue;
     const label = `${SCREEN_PLATFORM_LABEL[sc.platform]} « ${sc.name} »`;
     const labelEn = `${SCREEN_PLATFORM_LABEL[sc.platform]} “${sc.name}”`;
     const seenMin = sc.lastSeenAt ? Math.round((now - Date.parse(sc.lastSeenAt)) / 60000) : null;
@@ -314,7 +317,7 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
     if (!on('screen_waiting') || screenStatus(sc, now) !== 'online' || !sc.titleCount || !sc.waitingSince) continue;
     const waitedSec = (now - Date.parse(sc.waitingSince)) / 1000;
     if (!(waitedSec >= s.unacceptedAfterSec)) continue;
-    if (!locationOpen(hours, sc.locationCode, brandsAt(sc.locationCode), now, tz)) continue;
+    if (inactiveLocations.has(sc.locationCode) || !locationOpen(hours, sc.locationCode, brandsAt(sc.locationCode), now, tz)) continue;
     const min = Math.max(1, Math.round(waitedSec / 60));
     out.push({ key: `screen_waiting:${sc.id}`, kind: 'screen_waiting', severity: 'critical', locationCode: sc.locationCode, deviceId: sc.id,
       title: `${sc.titleCount} commande(s) en attente sur ${SCREEN_PLATFORM_LABEL[sc.platform]} « ${sc.name} » — ${loc(sc.locationCode)}`,
@@ -401,7 +404,7 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
         detail: `${j.lastError ?? j.wait ?? ''}`.slice(0, 200) || undefined, detailEn: `${j.lastError ?? j.wait ?? ''}`.slice(0, 200) || undefined });
     }
   }
-  return out;
+  return { detections: out, inactiveLocations };
 }
 
 // ---------- escalation ----------
@@ -430,6 +433,10 @@ function callText(i: Incident, lang: 'fr' | 'en') {
 const SHARED_PHONE_KINDS: IncidentKind[] = ['device_offline', 'screen_down', 'screen_waiting'];
 const KITCHEN_KINDS: IncidentKind[] = ['order_unaccepted', 'order_unseen', 'device_offline', 'device_muted', 'screen_down', 'screen_waiting', 'courier_waiting', 'pos_failed'];
 const FIRST_SCREEN_CALL_NEEDS_VOICE = 'Premier appel en attente de la configuration de Twilio Voice. / First call pending until Twilio Voice is configured.';
+
+function isScreenDeviceIncident(kind: IncidentKind): boolean {
+  return kind === 'device_muted' || SHARED_PHONE_KINDS.includes(kind);
+}
 
 /** The first destination for an incident that can be handled by the kitchen. */
 export function firstAlertCallTarget(kind: IncidentKind, sharedPhone: string | null, kitchenPhone?: string): { to: string; purpose: 'alert_shared_screen' | 'alert_kitchen' } | null {
@@ -542,7 +549,7 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
   try {
     await repo.setKv(LAST_KEY, { at: new Date(now).toISOString() });
     const report = empty(true);
-    const detections = await detect(s, now);
+    const { detections, inactiveLocations } = await detect(s, now);
     report.detections = detections.length;
     const all = (await repo.listDocs<Incident>(INCIDENTS, { since: new Date(now - 3 * 86400_000).toISOString(), limit: 2000 })).map((d) => d.data);
     const live = new Map(all.filter((i) => i.status !== 'resolved').map((i) => [i.key, i]));
@@ -593,7 +600,9 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
     for (const i of live.values()) {
       if (seen.has(i.key)) continue;
       Object.assign(i, { status: 'resolved', resolvedAt: iso, resolvedBy: 'auto', updatedAt: iso });
-      i.steps.push({ at: iso, kind: 'resolved', by: 'auto', message: 'Réglé / Fixed' });
+      const disabledKitchen = i.locationCode && isScreenDeviceIncident(i.kind) && inactiveLocations.has(i.locationCode);
+      const message = disabledKitchen ? 'Surveillance arrêtée pour cette cuisine désactivée. / Monitoring stopped for this inactive kitchen.' : 'Réglé / Fixed';
+      i.steps.push({ at: iso, kind: 'resolved', by: 'auto', message });
       dirty.set(i.id, i);
       report.resolved++;
     }
@@ -626,10 +635,15 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
 
     const quiet = inQuietHours(s, now, foodhubTimeZone());
     const users = await repo.listUsers();
-    const kitchenPhones = new Map((await getCatalog()).locations.filter((l) => l.phone).map((l) => [l.code, l.phone!] as const));
-    for (const i of dirty.values()) if (await escalate(i, s, users, now, quiet, kitchenPhones)) report.escalated++;
+    const dispatchCatalog = await getCatalog({ strict: true }).catch(() => null);
+    const kitchenPhones = new Map((dispatchCatalog ?? seedCatalog()).locations.filter((l) => l.phone).map((l) => [l.code, l.phone!] as const));
+    const inactiveDispatchLocations = new Set(dispatchCatalog?.locations.filter(({ active }) => active === false).map(({ code }) => code));
+    // A kitchen may be deactivated after detection. Skip device dispatch on an unreadable catalog too, and keep the incident for the next tick.
+    const mayEscalate = (i: Incident) => !isScreenDeviceIncident(i.kind)
+      || (dispatchCatalog !== null && !inactiveDispatchLocations.has(i.locationCode ?? ''));
+    for (const i of dirty.values()) if (mayEscalate(i) && await escalate(i, s, users, now, quiet, kitchenPhones)) report.escalated++;
     // Open incidents not touched this run can still need the next escalation step.
-    for (const i of live.values()) if (!dirty.has(i.id) && (await escalate(i, s, users, now, quiet, kitchenPhones))) dirty.set(i.id, i);
+    for (const i of live.values()) if (!dirty.has(i.id) && mayEscalate(i) && (await escalate(i, s, users, now, quiet, kitchenPhones))) dirty.set(i.id, i);
 
     for (const i of dirty.values()) await saveIncident(i);
     for (const i of fresh.filter((x) => x.severity === 'critical')) {

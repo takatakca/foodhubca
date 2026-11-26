@@ -1,3 +1,11 @@
+## 2026-11-26 — Surveillance des cuisines désactivées
+
+Watchtower cesse de détecter les alertes de tablette et de relais pour une cuisine désactivée dans le catalogue. Les appareils restent jumelés et la surveillance reprend à la réactivation. L’historique d’un incident déjà ouvert précise le motif de fermeture. Avant la relève téléphonique, une lecture récente du catalogue reporte la relève des appareils dont la cuisine est devenue inactive ou dont l’état ne peut être lu. Un ancien jumelage vers une cuisine absente d’un catalogue accessible garde son comportement.
+
+Les essais signés couvrent les quatre types d’alerte de tablette et de relais, la réactivation, l’indisponibilité du catalogue et un changement entre la détection et la relève. Les preuves de réception sur appareil et téléphone sont suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Numéro de commande saisi à partir d’un écran
 
 La saisie manuelle distingue désormais deux commandes qui portent le même numéro affiché dans deux magasins. Saisir deux fois le même numéro pour le même magasin reste un doublon, même depuis un autre écran ou si la première saisie date d’une version antérieure. Clover utilise une référence de magasin dans le titre de reprise des nouvelles commandes pour retrouver la bonne commande quand plusieurs magasins partagent une caisse. L’import reconnaît ce titre sans écarter une commande native de Clover qui porte le même numéro. Le numéro affiché reste celui de la plateforme. Les preuves de réception physique restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

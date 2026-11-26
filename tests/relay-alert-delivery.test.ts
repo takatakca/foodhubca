@@ -187,6 +187,24 @@ describe('Screen relay alerts without a console open', () => {
     expect(await readOutbox()).toMatchObject([{ incidentId: incident.id, purpose: 'alert_shared_screen', ok: true, ref: CALL_SID }]);
   });
 
+  it('keeps the first call pending until its database claim can be stored', async () => {
+    const { incident, tick } = await openScreenIncident(offlineScreen);
+    await saveWatchSettings({ screenAlertPhone: SHARED_PHONE }, OWNER);
+    const claim = vi.spyOn(getRepo(), 'claimKv').mockRejectedValueOnce(new Error('Temporary database failure'));
+    try {
+      expect(await tick(1)).toMatchObject({ escalated: 1 });
+      expect(await getIncident(incident.id)).toMatchObject({ level: 1, screenFirstCallPending: true });
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      fetchMock.mockResolvedValueOnce(Response.json({ sid: CALL_SID, status: 'queued' }, { status: 201 }));
+      expect(await tick(2)).toMatchObject({ escalated: 1 });
+      expect((await getIncident(incident.id))?.screenFirstCallPending).toBeUndefined();
+      expect(await readOutbox()).toMatchObject([{ incidentId: incident.id, purpose: 'alert_shared_screen', ok: true, ref: CALL_SID }]);
+    } finally {
+      claim.mockRestore();
+    }
+  });
+
   it('leaves an acknowledged screen incident quiet when a shared number is saved later', async () => {
     const { incident, tick } = await openScreenIncident(offlineScreen);
     expect(await tick(1)).toMatchObject({ escalated: 1 });

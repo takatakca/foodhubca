@@ -9,9 +9,11 @@
 //   POST     /v3/merchants/{mId}/orders/{orderId}/payments
 //            { amount, taxAmount, tipAmount, tender: { id }, externalPaymentId, result: "SUCCESS" }
 //            ("references external tenders and logs them for bookkeeping purposes")
+import { createHash } from 'node:crypto';
 import { CHANNEL_LABELS, toCents } from '../config';
 import { cloverFetch } from './clover-http';
 import { getRepo } from '../repo';
+import { screenEntryStoreRef } from '../screen-entry-id';
 import type { ChannelKey, StoredOrder } from '../types';
 import { cloverBaseUrl, cloverToken } from './clover';
 import { cloverTipCents } from './clover-order';
@@ -218,9 +220,16 @@ export async function closeCancelledCloverOrder(order: StoredOrder, mid: string 
   }
 }
 
-/** Short, unique reference stored on the Clover payment (platform + order id), max 32 chars. */
-export function externalPaymentId(order: Pick<StoredOrder, 'channel' | 'externalOrderId'>) {
-  return `${SHORT[order.channel]}:${order.externalOrderId.slice(-28)}`;
+/** Short reference stored on the Clover payment (platform + order id), max 32 chars. */
+export function externalPaymentId(order: Pick<StoredOrder, 'channel' | 'externalOrderId' | 'viaHub'>) {
+  const channel = SHORT[order.channel];
+  const id = order.externalOrderId;
+  if (order.viaHub === 'screen' && screenEntryStoreRef(id)) {
+    // Keep the store and the whole order code in the hash. The suffix on the channel keeps references separate from older entries.
+    const reference = createHash('sha256').update(id).digest('hex').slice(0, 28);
+    return `${channel}s:${reference}`;
+  }
+  return `${channel}:${id.slice(-28)}`;
 }
 
 /** Labels used for platform tenders — payments with these tenders are delivery sales, never in-store. */

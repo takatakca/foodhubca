@@ -12,7 +12,7 @@ import { buildHealth, cachedHealth, syncMaxAgeMin } from '../lib/foodhub/health'
 import { allDayWeek, saveHours } from '../lib/foodhub/hours';
 import { getInboxEntry, INBOX, inboxSummary, MAX_RECOVERY_ATTEMPTS, receiveWebhook, refuseInboxEntry, replayInboxEntry, runInboxEntry, sweepInbox, type InboxEntry } from '../lib/foodhub/inbox';
 import { cloverRetryOpen, noteLastOrder } from '../lib/foodhub/order-retry';
-import { _resetOrderTypeCache, cloverOrderTitle } from '../lib/foodhub/pos/clover-order';
+import { _resetOrderTypeCache, cloverOrderTitle, printKitchenTicket } from '../lib/foodhub/pos/clover-order';
 import { importCloverPlatformOrders } from '../lib/foodhub/pos/clover-platform-orders';
 import { processIncomingOrder, resendToClover } from '../lib/foodhub/pipeline';
 import { cloverRetryTooLate, runCloverRetries } from '../lib/foodhub/recovery';
@@ -93,7 +93,8 @@ const ENV: Record<string, string> = {
   FOODHUB_RELAY_SECRET: 'relay-secret-token-1234567890', FOODHUB_RELAY_CHANNELS: 'skip,tgtg',
 };
 const CLEARED = ['CLOVER_MERCHANT_TOKENS', 'FOODHUB_POS_INJECTION', 'FOODHUB_CLOVER_RETRY_S', 'FOODHUB_INBOX_MAX_AGE_MIN', 'FOODHUB_VIA_CLOVER', 'CLOVER_CLIENT_ID',
-  'FOODHUB_HEALTH_SYNC_MAX_MIN', 'FOODHUB_INTERNAL_SYNC_MIN', 'VERCEL', 'SESSION_SECRET', 'DASHBOARD_PASSWORD', 'FOODHUB_RELAY_CALLBACK_URL'];
+  'FOODHUB_HEALTH_SYNC_MAX_MIN', 'FOODHUB_INTERNAL_SYNC_MIN', 'VERCEL', 'SESSION_SECRET', 'DASHBOARD_PASSWORD', 'FOODHUB_RELAY_CALLBACK_URL',
+  'CLOVER_PRINT_DEVICE_ID', 'CLOVER_PRINT_DEVICES', 'FOODHUB_CLOVER_AUTOPRINT'];
 const saved: Record<string, string | undefined> = {};
 
 beforeEach(async () => {
@@ -228,6 +229,58 @@ describe('an order stored before a server stop is finished, not answered "duplic
     await storedOnly('uber-resume-3', 0.5);
     expect((await processIncomingOrder(await uberOrder('uber-resume-3'))).duplicate).toBe(true);
     expect(calls.filter((c) => /clover/.test(c.path) || /atomic/.test(c.path))).toHaveLength(0);
+  });
+});
+
+describe('Clover kitchen printing uses the register that received the order', () => {
+  const locationCode = 'NDG_6284';
+  const explicitMerchant = 'TESTMERCH0004';
+  const appMerchant = (merchantId: string, status: 'active' | 'pending') => ({
+    merchantId, status, accessToken: 'test-app-token', connectedAt: ago(10), accessTokenExpiration: Math.floor(Date.now() / 1000) + 3600,
+  });
+  const approvedAndPending = () => getRepo().setKv('clover_oauth_merchants', {
+    [MID2]: appMerchant(MID2, 'active'), TESTMERCH0003: appMerchant('TESTMERCH0003', 'pending'),
+  });
+
+  it.each([
+    { choice: 'OAuth with a kitchen printer', envDefault: false, explicit: null, selected: MID2, printer: 'KITCHEN-TEST', autoPrint: true },
+    { choice: 'OAuth with the register default printer', envDefault: false, explicit: null, selected: MID2, printer: null, autoPrint: true },
+    { choice: 'the environment default ahead of OAuth', envDefault: true, explicit: null, selected: MID, printer: 'KITCHEN-TEST', autoPrint: true },
+    { choice: 'an explicit register ahead of the environment default and OAuth', envDefault: true, explicit: explicitMerchant, selected: explicitMerchant, printer: 'KITCHEN-TEST', autoPrint: true },
+    { choice: 'OAuth while auto-print is off', envDefault: false, explicit: null, selected: MID2, printer: 'KITCHEN-TEST', autoPrint: false },
+  ])('uses $choice and keeps the order and ticket together', async ({ envDefault, explicit, selected, printer, autoPrint }) => {
+    if (!envDefault) {
+      delete process.env.CLOVER_MERCHANT_ID;
+      delete process.env.CLOVER_ACCESS_TOKEN;
+    }
+    if (explicit) process.env.CLOVER_MERCHANT_TOKENS = JSON.stringify({ [explicit]: 'test-explicit-token' });
+    if (!autoPrint) process.env.FOODHUB_CLOVER_AUTOPRINT = 'off';
+    if (printer) process.env.CLOVER_PRINT_DEVICES = JSON.stringify({ [selected]: 'REGISTER-TEST', [`${selected}|${locationCode}`]: printer });
+    await approvedAndPending();
+    const repo = getRepo();
+    await repo.saveMenu({ ...menu, posMerchantId: selected });
+    await repo.upsertStore({ channel: 'uber_eats', channelStoreId: 'ue-popoulet-ndg', brandName: menu.brandName, locationCode, cloverMerchantId: explicit, autoAccept: true, online: true, meta: {} });
+
+    const outcome = await processIncomingOrder(await uberOrder('uber-clover-print-1'));
+    const register = `/v3/merchants/${selected}`;
+    const orderRef = { id: outcome.order.posOrderId };
+    expect(outcome.order).toMatchObject({ status: 'accepted', posOrderId: 'CLV1' });
+    expect(sent('POST', /atomic_order/)).toMatchObject([{ path: `${register}/atomic_order/orders` }]);
+    if (autoPrint) {
+      const prints = sent('POST', /print_event$/);
+      expect(prints).toEqual([{ method: 'POST', path: `${register}/print_event`, body: { orderRef, ...(printer ? { deviceRef: { id: printer } } : {}) } }]);
+      expect(outcome.order.timeline?.printedAt).toBeTruthy();
+      expect(outcome.order.timeline?.printError).toBeUndefined();
+    } else {
+      expect(sent('POST', /print_event$/)).toEqual([]);
+    }
+  });
+
+  it('does not guess a register for a ticket when two OAuth merchants are approved and no default is configured', async () => {
+    delete process.env.CLOVER_MERCHANT_ID;
+    await getRepo().setKv('clover_oauth_merchants', { [MID]: appMerchant(MID, 'active'), [MID2]: appMerchant(MID2, 'active') });
+    expect(await printKitchenTicket('test-existing-order', null, locationCode)).toMatchObject({ ok: false, message: 'No Clover merchant configured.' });
+    expect(sent('POST', /print_event$/)).toEqual([]);
   });
 });
 

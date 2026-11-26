@@ -1,3 +1,9 @@
+## 2026-11-26 — Alertes d’un écran réaffecté
+
+Si un écran ou une tablette change de cuisine pendant un incident, Watchtower clôture l’incident dans la cuisine d’origine et ouvre l’alerte dans la cuisine qui reçoit l’appareil si le problème persiste. Les appels et l’historique suivent le périmètre de chaque incident. Le changement de cuisine d’une tablette exige une destination active et autorisée. La livraison aux téléphones et aux appareils réels reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Vérifier un passage Watchtower en arrière-plan
 
 Dans la réponse détaillée de `GET /api/health`, `checks.watchtower.lastBackgroundCompletion` donne l’heure et le déclencheur du dernier passage achevé par minuterie ou cron. Ce contrôle complète l’horodatage de démarrage. La réception réelle des commandes et des appels reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

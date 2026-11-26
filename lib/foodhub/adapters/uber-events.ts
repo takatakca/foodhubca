@@ -9,8 +9,8 @@ import { applyExternalStatus, pipelineOutcomeText, processIncomingOrder } from '
 import { handleUberReportWebhook } from '../recon/automation';
 import { getRepo } from '../repo';
 import type { ChannelStore, PlatformStatus } from '../types';
-import type { UberPosState } from './uber-eats';
 import { listUberCanceledOrders } from './uber-api';
+import { uberPosForStore } from './uber-link';
 import { keepUnparsed, uberDeliveryStatus } from '../webhook-utils';
 import { enableUberIntegration, fetchUberOrder, fetchUberPosData, listUberCreatedOrders, parseUberOrder, uberApiBase, uberEatsAdapter } from './uber-eats';
 
@@ -194,7 +194,7 @@ export async function runUberWebhook(id: string): Promise<boolean> {
 export async function recoverMissedUberOrders(now = Date.now()): Promise<{ recovered: number; cancelled?: number; error?: string }> {
   if (!uberEatsAdapter.readiness().canSend) return { recovered: 0 };
   const repo = getRepo();
-  const stores = (await repo.listStores('uber_eats')).filter((s) => (s.meta?.uberPos as UberPosState | undefined)?.orderManager === 'foodhub');
+  const stores = (await repo.listStores('uber_eats')).filter((s) => uberPosForStore(s)?.orderManager === 'foodhub');
   let recovered = 0;
   let error: string | undefined;
   for (const s of stores) {
@@ -226,7 +226,7 @@ export async function recoverMissedUberOrders(now = Date.now()): Promise<{ recov
 export async function recoverMissedUberCancellations(now = Date.now(), managed?: ChannelStore[]): Promise<number> {
   if (!uberEatsAdapter.readiness().canSend) return 0;
   const repo = getRepo();
-  const stores = managed ?? (await repo.listStores('uber_eats')).filter((s) => (s.meta?.uberPos as UberPosState | undefined)?.orderManager === 'foodhub');
+  const stores = managed ?? (await repo.listStores('uber_eats')).filter((s) => uberPosForStore(s)?.orderManager === 'foodhub');
   const open = (await repo.listOrders({ statuses: ['new', 'accepted', 'ready'], since: new Date(now - 3 * 3600_000).toISOString(), limit: 500 }))
     .filter((o) => o.channel === 'uber_eats' && !o.viaHub && !o.viaPos);
   let cancelled = 0;

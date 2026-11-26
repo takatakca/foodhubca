@@ -16,8 +16,9 @@
 // { modifier: { id }, name, amount } ("If you pass both name and amount values, these override default modifiers set
 // in the merchant's inventory"). Tax rates come from each inventory item and cannot be overridden on an atomic order.
 import { MARKETPLACE_LABELS, toCents } from '../config';
+import { screenEntryStoreRef } from '../screen-entry-id';
 import { cloverFetch } from './clover-http';
-import type { ChannelKey, MasterMenu, MenuItem, MenuModifier, OrderLine, OrderMappingWarning, OrderModifier, StoredOrder } from '../types';
+import type { ChannelKey, ChannelStore, MasterMenu, MenuItem, MenuModifier, OrderLine, OrderMappingWarning, OrderModifier, StoredOrder } from '../types';
 import { orderSourceLabel } from '../types';
 import { customerContact } from '../watch/customer';
 import { cloverOrderTypeFor, cloverOrderTypesEnabled } from './clover-books';
@@ -222,10 +223,17 @@ export function buildCloverOrderCart(order: StoredOrder, opts: { orderTypeId?: s
   };
 }
 
-/** "<Platform> #<short id>" — also how Food Hub recognises its own orders when it reads Clover back. */
-export function cloverOrderTitle(order: Pick<StoredOrder, 'marketplace' | 'displayId' | 'externalOrderId'>, prefix = ''): string {
+type CloverOrderTitleFields = Pick<StoredOrder, 'marketplace' | 'displayId' | 'externalOrderId' | 'viaHub'>;
+
+/** Keep a distinct recovery title for each store when screen orders share a display code. */
+export function cloverOrderTitle(order: CloverOrderTitleFields, prefix = ''): string {
   const label = MARKETPLACE_LABELS[order.marketplace] || order.marketplace;
-  return `${prefix}${label} #${order.displayId || order.externalOrderId.slice(0, 8)}`.slice(0, 127);
+  const storeRef = order.viaHub === 'screen' ? screenEntryStoreRef(order.externalOrderId) : undefined;
+  return `${prefix}${label}${storeRef ? ` [${storeRef}]` : ''} #${order.displayId || order.externalOrderId.slice(0, 8)}`.slice(0, 127);
+}
+
+export function normalizeCloverOrderTitle(title: unknown): string {
+  return String(title ?? '').replace(/^⏰\s*/, '').trim().toLowerCase();
 }
 
 // ---------------------------------------------------------------- totals and tips
@@ -264,13 +272,13 @@ export function cloverTipCents(order: Pick<StoredOrder, 'tip' | 'fulfillment' | 
  * An order Food Hub may already have created in Clover (the answer was lost: time-out, 5xx): looked up by its title
  * among the orders created since `sinceMs`, so a retry adopts it instead of printing a second kitchen ticket.
  */
-export async function findCloverOrderByTitle(mid: string, token: string, base: string, order: Pick<StoredOrder, 'marketplace' | 'displayId' | 'externalOrderId'>, sinceMs: number): Promise<{ id: string; totalCents?: number } | null> {
-  const want = cloverOrderTitle(order).toLowerCase();
+export async function findCloverOrderByTitle(mid: string, token: string, base: string, order: CloverOrderTitleFields, sinceMs: number): Promise<{ id: string; totalCents?: number } | null> {
+  const want = normalizeCloverOrderTitle(cloverOrderTitle(order));
   const qs = new URLSearchParams({ filter: `createdTime>=${Math.floor(sinceMs)}`, limit: '100' });
   const res = await cloverFetch(`${base}/v3/merchants/${encodeURIComponent(mid)}/orders?${qs}`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
   if (!res.ok) throw new Error(`Clover orders HTTP ${res.status}`);
   const rows: any[] = (await res.json())?.elements ?? [];
-  const hit = rows.find((o) => String(o?.title ?? '').replace(/^⏰\s*/, '').trim().toLowerCase() === want && !/^cancel/i.test(String(o?.title ?? '')));
+  const hit = rows.find((o) => normalizeCloverOrderTitle(o?.title) === want && !/^cancel/i.test(String(o?.title ?? '')));
   if (!hit?.id) return null;
   const total = Number(hit.total);
   return { id: String(hit.id), ...(Number.isFinite(total) ? { totalCents: total } : {}) };
@@ -308,6 +316,13 @@ export async function printCloverOrderOn(posOrderId: string, merchantId: string,
     return { ok: false, message: `Clover print error: ${error instanceof Error ? error.message : String(error)}` };
   }
 }
+
+/** An order already assigned to a kitchen must stay there if the store moves. */
+export function cloverKitchenChanged(order: Pick<StoredOrder, 'locationCode'>, store: Pick<ChannelStore, 'locationCode'> | null): boolean {
+  return Boolean(store && order.locationCode && order.locationCode !== store.locationCode);
+}
+
+export const CLOVER_REPRINT_KITCHEN_CHANGED = 'This store is now mapped to a different kitchen. Review the order and store mapping before reprinting.';
 
 /** The kitchen ticket for an order: that kitchen's printer when one is set for its location, else the merchant's. */
 export async function printKitchenTicket(posOrderId: string, merchantId: string | null | undefined, locationCode?: string | null): Promise<{ ok: boolean; message: string; printEventId?: string }> {

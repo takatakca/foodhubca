@@ -6,6 +6,8 @@
 //    at each deploy (everyone signed out each time, kitchen tablets included). How the secret is made is not decided
 //    here (runtime-secrets.ts, the setup wizard).
 import { createHash } from 'node:crypto';
+import { isRelayStore } from './adapters/relay';
+import type { UberPosState } from './adapters/uber-eats';
 import { isViaClover } from './adapters/via-clover';
 import { inScope, type AuthUser } from './auth';
 import { cloverInjectionEnabled, cloverTokenFor, defaultCloverMerchant } from './pos/clover';
@@ -36,6 +38,8 @@ export interface CloverStoreProblem extends CloverStoreRoute { merchantId: strin
 
 export interface GoLiveFacts {
   clover: { injectionEnabled: boolean; unreachableStores: CloverStoreProblem[]; defaultRoutedStores: CloverStoreRoute[] };
+  /** Last recorded Uber confirmation for direct mappings in this viewer's locations. */
+  uberDirect: { confirmed: number; mapped: number } | null;
   sessionSecret: SessionSecretCheck;
 }
 
@@ -43,17 +47,18 @@ export interface GoLiveFacts {
  * Resolve a mapped store as injectOrder does: its merchant, else the default. Check local credentials and describe
  * working fallback routes separately so the kitchen can verify the destination. Via-Clover stores already get orders.
  */
-async function cloverRoutingFacts(actor: AuthUser, injectionEnabled: boolean): Promise<GoLiveFacts['clover']> {
+async function cloverRoutingFacts(scopedStores: Promise<ChannelStore[] | null>, injectionEnabled: boolean): Promise<GoLiveFacts['clover']> {
   const unreachableStores: CloverStoreProblem[] = [];
   const defaultRoutedStores: CloverStoreRoute[] = [];
   const facts = { injectionEnabled, unreachableStores, defaultRoutedStores };
   if (!injectionEnabled) return facts;
   const [stores, connections, fallback] = await Promise.all([
-    getRepo().listStores(), listCloverConnections().catch(() => []), defaultCloverMerchant().catch(() => null),
+    scopedStores, listCloverConnections().catch(() => []), defaultCloverMerchant().catch(() => null),
   ]);
+  if (!stores) return facts;
   const app = new Map(connections.map((c) => [c.merchantId, c]));
   for (const s of stores) {
-    if (!inScope(actor, s.locationCode) || isViaClover(s.channel)) continue;
+    if (isViaClover(s.channel)) continue;
     const mid = s.cloverMerchantId || fallback;
     const c = mid ? app.get(mid) : undefined;
     const reason = !mid ? 'no_merchant' : cloverTokenFor(mid) ? null : !c || c.status === 'pending' ? 'no_token' : c.needsReconnect ? 'reconnect' : null;
@@ -62,6 +67,29 @@ async function cloverRoutingFacts(actor: AuthUser, injectionEnabled: boolean): P
     else if (!s.cloverMerchantId) defaultRoutedStores.push(store);
   }
   return facts;
+}
+
+const storedTimestamp = (value: unknown) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value) ? Date.parse(value) : NaN;
+
+function uberDirectFacts(stores: ChannelStore[]): NonNullable<GoLiveFacts['uberDirect']> {
+  let mapped = 0;
+  let confirmed = 0;
+  for (const store of stores) {
+    if (store.channel !== 'uber_eats' || isRelayStore(store)) continue;
+    mapped++;
+    const meta = store.meta;
+    const pos = meta?.uberPos as Partial<UberPosState> | undefined;
+    const checkedAt = storedTimestamp(pos?.checkedAt);
+    // An edited mapping can keep old metadata, or an in-flight check can finish after the edit.
+    if (pos?.storeId !== store.channelStoreId || pos.orderManager !== 'foodhub' || pos.integrationEnabled !== true || !Number.isFinite(checkedAt)) continue;
+
+    // A successful provision event records provisionChangedAt after the provider check it stored alongside it.
+    // Only compare disconnects so the fresh check from that same successful event still counts.
+    const disconnects = [storedTimestamp(meta?.uberDisconnectedAt), meta?.provisioned === false ? storedTimestamp(meta.provisionChangedAt) : NaN].filter(Number.isFinite);
+    if (disconnects.some((at) => checkedAt <= at) || (meta?.provisioned === false && !disconnects.length)) continue;
+    confirmed++;
+  }
+  return { confirmed, mapped };
 }
 
 type Seen = { fp: string; since: string; changedAt?: string | null };
@@ -88,9 +116,14 @@ export async function sessionSecretCheck(now = new Date()): Promise<SessionSecre
 
 export async function goLiveFacts(actor: AuthUser, now = new Date()): Promise<GoLiveFacts> {
   const injectionEnabled = cloverInjectionEnabled();
-  const [clover, sessionSecret] = await Promise.all([
-    cloverRoutingFacts(actor, injectionEnabled).catch(() => ({ injectionEnabled, unreachableStores: [], defaultRoutedStores: [] })),
+  const uberViaClover = isViaClover('uber_eats');
+  const scopedStores = injectionEnabled || !uberViaClover
+    ? getRepo().listStores().then((stores) => stores.filter((store) => inScope(actor, store.locationCode))).catch(() => null)
+    : Promise.resolve(null);
+  const [clover, sessionSecret, stores] = await Promise.all([
+    cloverRoutingFacts(scopedStores, injectionEnabled).catch(() => ({ injectionEnabled, unreachableStores: [], defaultRoutedStores: [] })),
     sessionSecretCheck(now),
+    scopedStores,
   ]);
-  return { clover, sessionSecret };
+  return { clover, uberDirect: !uberViaClover && stores ? uberDirectFacts(stores) : null, sessionSecret };
 }

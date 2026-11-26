@@ -143,7 +143,7 @@ if (-not $DryRun) {
 
 $task = $null
 if (-not $NoTask) {
-  $task = Register-StartupTask -StartScript $startScript -WorkingDirectory $PSScriptRoot -DryRun:$DryRun
+  $task = Register-StartupTask -StartScript $startScript -Root $root -WorkingDirectory $PSScriptRoot -DryRun:$DryRun
   if ($task.registered) {
     Say ("OK    start at sign-in: " + $task.method + " -> " + $task.command)
     if ($task.Contains('fallbackReason')) { Say ("      (Task Scheduler refused: " + $task.fallbackReason + "; wrote " + $task.path + ")") }

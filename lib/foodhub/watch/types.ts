@@ -40,6 +40,7 @@ export interface IncidentStep {
   kind: 'opened' | 'screen' | 'sms' | 'call' | 'chat' | 'email' | 'owner' | 'ack' | 'snooze' | 'resolved' | 'reopened' | 'note' | 'customer_sms' | 'ai';
   to?: string;
   ok?: boolean;
+  uncertain?: boolean;
   by?: string;
   message?: string;
 }

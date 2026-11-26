@@ -150,7 +150,7 @@ describe('Watchtower call status', () => {
     expect((await request()).status).toBe(404);
     for (const patch of [
       { ref: `${SID}/recordings` }, { ref: 'simulated' }, { purpose: 'unrelated' },
-      { channel: 'sms' as const }, { incidentId: undefined }, { skipped: true }, { ok: false },
+      { channel: 'sms' as const }, { incidentId: undefined }, { skipped: true }, { ok: false }, { uncertain: true },
     ]) {
       await saveAlertCall(patch);
       expect((await request()).status).toBe(404);

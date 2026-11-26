@@ -170,7 +170,7 @@ export async function placeCall(input: { to: string; say: string; lang?: 'fr' | 
       if (!res.ok) r = { ok: false, channel: 'call', message: `Twilio HTTP ${res.status}: ${body?.message ?? ''}`.trim() };
       else if (isTwilioCallSid(body?.sid)) r = { ok: true, channel: 'call', message: 'Calling', ref: body.sid };
       else r = { ok: false, channel: 'call', message: 'Twilio did not confirm the call reference.', uncertain: true };
-      await twilioCredit(res.ok, res.status, body);
+      await twilioCredit(r.ok, res.status, body);
     } catch (e) {
       r = networkFailure('call', e);
     }

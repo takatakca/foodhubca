@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { incidentStepText, orderNumber, plural, plurals } from '@/components/live/words';
+import { incidentStepText, orderNumber, outboxStatus, plural, plurals } from '@/components/live/words';
 
 describe('A1 wording helpers', () => {
   it('writes proper plurals in French and English, never "(s)"', () => {
@@ -34,5 +34,15 @@ describe('A1 wording helpers', () => {
     expect(incidentStepText('fr', 'Twilio HTTP 401: Authenticate')).toBe('Le service de textos et d’appels a répondu par une erreur (401).');
     expect(incidentStepText('fr', 'Chat webhook HTTP 500')).toContain('clavardage');
     expect(incidentStepText('fr', 'Something else')).toBe('Something else');
+  });
+
+  it('distinguishes an unconfirmed call from a provider receipt or a known failure', () => {
+    const fr = (french: string) => french;
+    const en = (_french: string, english: string) => english;
+    expect(outboxStatus(fr, { channel: 'call', ok: false, uncertain: true })).toEqual({ tone: 'wait', word: 'Résultat de l’appel non confirmé' });
+    expect(outboxStatus(en, { channel: 'call', ok: true, ref: 'old-missing-receipt' })).toEqual({ tone: 'wait', word: 'Call outcome unconfirmed' });
+    expect(outboxStatus(en, { channel: 'call', ok: true, ref: `CA${'1'.repeat(32)}` })).toEqual({ tone: 'neutral', word: 'Call requested' });
+    expect(outboxStatus(fr, { channel: 'call', ok: false })).toEqual({ tone: 'stop', word: 'échec' });
+    expect(outboxStatus(en, { channel: 'sms', ok: true })).toEqual({ tone: 'go', word: 'sent' });
   });
 });

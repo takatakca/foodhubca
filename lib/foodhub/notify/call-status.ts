@@ -11,7 +11,7 @@ export function isTwilioCallSid(value: unknown): value is string {
 
 /** Accept only a provider reference recorded for a Watchtower call. */
 export function watchtowerCallSid(entry: OutboxEntry): string | null {
-  return entry.channel === 'call' && entry.ok && !entry.skipped && entry.incidentId && WATCHTOWER_CALL_PURPOSES.has(entry.purpose)
+  return entry.channel === 'call' && entry.ok && !entry.skipped && !entry.uncertain && entry.incidentId && WATCHTOWER_CALL_PURPOSES.has(entry.purpose)
     && isTwilioCallSid(entry.ref)
     ? entry.ref : null;
 }

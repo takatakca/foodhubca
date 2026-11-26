@@ -1,3 +1,11 @@
+## 2026-11-26 — Réponse téléphonique et session d’intégration Skip
+
+Watchtower affiche « Résultat de l’appel non confirmé » si la réponse Twilio ne contient pas de référence d’appel valide ou si la demande se termine avec un résultat réseau incertain. Les anciens messages au statut positif sans référence valide portent aussi cet avis. L’état fournisseur reste consultable pour un appel identifié, et la réception sur le téléphone est suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+Une notification Skip conserve sa session fournisseur et sa progression. Les demandes de lancement restent en attente d’une association vérifiée. La configuration explicite demande la session et le code POS confirmés pour le même établissement.
+
+— signé : Codex (automatisation) @ cloud · 2026-11-26
+
 ## 2026-11-26 — Vérifier un passage Watchtower en arrière-plan
 
 Dans la réponse détaillée de `GET /api/health`, `checks.watchtower.lastBackgroundCompletion` donne l’heure et le déclencheur du dernier passage achevé par minuterie ou cron. Ce contrôle complète l’horodatage de démarrage. La réception réelle des commandes et des appels reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

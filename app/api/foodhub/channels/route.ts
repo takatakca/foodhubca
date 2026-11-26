@@ -72,7 +72,7 @@ export const GET = withPerm('stores:map', async (req, _ctx, actor) => {
     },
     jobs: jobs.filter((j) => j.kind !== 'webhook_unparsed'),
     unparsed: jobs.filter((j) => j.kind === 'webhook_unparsed'),
-    // Settings → Go-live: local Clover routing checks and session-secret status.
+    // Settings → Go-live: local Clover routing, saved Uber activation evidence and session-secret status.
     goLive: await goLiveFacts(actor),
   });
 });

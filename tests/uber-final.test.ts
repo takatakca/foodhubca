@@ -252,7 +252,7 @@ describe('documented event payloads', () => {
     mockFetch((c) => appToken(c) ?? (c.method === 'PATCH' ? ((enabled = true), { status: 204 }) : c.url.endsWith('/pos_data') ? { status: 200, body: { order_manager_client_id: 'uber-id', integration_enabled: enabled } } : { status: 204 }));
     await handleUberEvent({ event_type: 'store.provisioned', store_id: 'uber-ndg', perform_refresh_menu: true });
     const s = await repo.findStore('uber_eats', 'uber-ndg');
-    expect(s?.meta).toMatchObject({ provisioned: true, awaitingProvision: false, uberPos: { orderManager: 'foodhub', integrationEnabled: true } });
+    expect(s?.meta).toMatchObject({ provisioned: true, awaitingProvision: false, uberPos: { storeId: 'uber-ndg', orderManager: 'foodhub', integrationEnabled: true } });
     expect(s?.meta.menuRefreshRequested).toBeTruthy();
     expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
     expect(calls.some((c) => c.method === 'PUT')).toBe(false); // the menu is never pushed blindly

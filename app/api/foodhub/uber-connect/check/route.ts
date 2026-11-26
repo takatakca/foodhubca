@@ -15,17 +15,18 @@ export const maxDuration = 120;
 // { enable: true } also switches the order webhooks on where they are off (a change on Uber: needs the live switch).
 export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
   const b = await readJson(req);
+  const enableWebhooks = b.enable === true;
   const r = uberEatsAdapter.readiness();
   if (!r.configured) return fail(r.note, 409);
-  if (b.enable === true && !r.canSend) return fail(`Switching the order webhooks on changes your Uber stores, so it needs the live switch: ${r.note}`, 409);
+  if (enableWebhooks && !r.canSend) return fail(`Switching the order webhooks on changes your Uber stores, so it needs the live switch: ${r.note}`, 409);
   const repo = getRepo();
   const ids: string[] | null = Array.isArray(b.storeIds) && b.storeIds.length ? b.storeIds.map(String) : null;
   const stores = (await repo.listStores('uber_eats')).filter((s) => !isRelayStore(s) && inScope(actor, s.locationCode) && (!ids || ids.includes(s.id)));
   const rows: Array<{ storeId: string; ok: boolean; orderManager: string | null; integrationEnabled: boolean | null; message: string }> = [];
   for (const s of stores) {
-    let read = await fetchUberPosData(s.channelStoreId);
+    let read = await fetchUberPosData(s.channelStoreId, { inspection: !enableWebhooks });
     let enabled: ChannelResult | null = null;
-    if (b.enable === true && read.ok && read.state?.integrationEnabled === false) {
+    if (enableWebhooks && read.ok && read.state?.integrationEnabled === false) {
       enabled = await enableUberIntegration(s.channelStoreId);
       if (enabled.ok) read = await fetchUberPosData(s.channelStoreId);
     }
@@ -38,6 +39,6 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
   }
   const mine = rows.filter((x) => x.orderManager === 'foodhub').length;
   await logActivity({ actor: actor.name, source: actor.source, kind: 'settings', action: 'uber_check', status: 'info', channel: 'uber_eats',
-    summary: `Checked ${rows.length} Uber Eats store(s) with Uber: ${mine} send their orders to Food Hub${b.enable === true ? ' (order webhooks switched on where they were off)' : ''}` });
+    summary: `Checked ${rows.length} Uber Eats store(s) with Uber: ${mine} send their orders to Food Hub${enableWebhooks ? ' (order webhooks switched on where they were off)' : ''}` });
   return ok({ rows });
 });

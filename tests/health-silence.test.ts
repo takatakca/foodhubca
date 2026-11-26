@@ -1,11 +1,13 @@
 // /api/health for an outside uptime monitor and the Overview, and the silence alarm: a platform that used to send
 // orders goes quiet for hours while its stores are open.
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { GET as healthRoute } from '../app/api/health/route';
 import { allDayWeek, saveHours } from '../lib/foodhub/hours';
 import { buildHealth } from '../lib/foodhub/health';
 import { noteLastOrder } from '../lib/foodhub/order-retry';
 import { getRepo } from '../lib/foodhub/repo';
-import { listIncidents, runWatch } from '../lib/foodhub/watch/engine';
+import { listIncidents, runWatch, saveWatchSettings } from '../lib/foodhub/watch/engine';
+import { WATCH_BACKGROUND_COMPLETION_KEY } from '../lib/foodhub/watch/types';
 
 const saved: Record<string, string | undefined> = {};
 const ENV: Record<string, string | undefined> = {
@@ -16,7 +18,11 @@ beforeEach(() => {
   for (const [k, v] of Object.entries(ENV)) { saved[k] = process.env[k]; if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   (globalThis as any).__foodhubMem = undefined;
 });
-afterEach(() => { for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } });
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+  for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+});
 
 describe('/api/health', () => {
   it('nothing has run yet: the Watchtower is "down" (nobody would be alerted) → 503; memory mode is a warning', async () => {
@@ -25,8 +31,7 @@ describe('/api/health', () => {
     expect(h.checks.watchtower.status).toBe('down');
     expect(h.checks.database.status).toBe('warn');
     expect(h.checks.clover.status).toBe('warn');
-    const { GET } = await import('../app/api/health/route');
-    const res = await GET(new Request('http://hub.local/api/health'));
+    const res = await healthRoute(new Request('http://hub.local/api/health'));
     expect(res.status).toBe(503);
     const body = await res.json();
     // The public answer names each check's status, nothing else.
@@ -45,8 +50,7 @@ describe('/api/health', () => {
     expect(h.status).toBe('degraded'); // memory mode + no Clover in this test
     expect([h.checks.watchtower.status, h.checks.sync.status, h.checks.recovery.status, h.checks.inbox.status]).toEqual(['ok', 'ok', 'ok', 'ok']);
     expect(h.platforms.find((p) => p.channel === 'uber_eats')).toMatchObject({ mode: 'direct', lastOrderAt: new Date(now - 3600_000).toISOString() });
-    const { GET } = await import('../app/api/health/route');
-    const res = await GET(new Request('http://hub.local/api/health', { headers: { authorization: 'Bearer cron-test' } }));
+    const res = await healthRoute(new Request('http://hub.local/api/health', { headers: { authorization: 'Bearer cron-test' } }));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.platforms).toHaveLength(4);
@@ -62,6 +66,70 @@ describe('/api/health', () => {
     const h = await buildHealth();
     expect(h.checks.clover.status).toBe('down');
     expect(h.status).toBe('down');
+  });
+
+  it('shows allowlisted background completion only in the authenticated health detail', async () => {
+    const repo = getRepo();
+    const at = new Date().toISOString();
+    const request = (authorization?: string) => healthRoute(new Request('http://hub.local/api/health', { headers: authorization ? { authorization } : undefined }));
+    const admin = `Basic ${Buffer.from('owner:Owner-pass-123').toString('base64')}`;
+    expect((await (await request(admin)).json()).checks.watchtower.lastBackgroundCompletion).toBeNull();
+    await repo.setKv(WATCH_BACKGROUND_COMPLETION_KEY, { at, trigger: 'timer', internal: 'should not be returned' });
+    const getKv = vi.spyOn(repo, 'getKv');
+    const publicHealth = await (await request()).json();
+    expect(Object.keys(publicHealth).sort()).toEqual(['at', 'checks', 'ok', 'status']);
+    expect(typeof publicHealth.checks.watchtower).toBe('string');
+    expect(getKv).not.toHaveBeenCalledWith(WATCH_BACKGROUND_COMPLETION_KEY);
+    for (const authorization of [admin, 'Bearer cron-test']) {
+      const response = await request(authorization);
+      expect(response.headers.get('Cache-Control')).toBe('no-store');
+      const body = await response.json();
+      expect(body.checks.watchtower.lastBackgroundCompletion).toEqual({ at, trigger: 'timer' });
+    }
+    await repo.setKv(WATCH_BACKGROUND_COMPLETION_KEY, { at, trigger: 'pulse' });
+    expect((await (await request(admin)).json()).checks.watchtower.lastBackgroundCompletion).toBeNull();
+  });
+});
+
+describe('Watchtower background completion', () => {
+  const start = Date.parse('2026-11-26T17:00:00.000Z');
+  const stamp = (offset: number) => new Date(start + offset).toISOString();
+  const completion = () => getRepo().getKv(WATCH_BACKGROUND_COMPLETION_KEY);
+  const runAt = (trigger: string, offset: number) => {
+    vi.setSystemTime(start + offset);
+    return runWatch({ trigger });
+  };
+
+  it('keeps the completion marker separate from manual and pulse heartbeats and throttle skips', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    expect((await runAt('manual', 0)).ran).toBe(true);
+    expect(await completion()).toBeNull();
+    expect((await runAt('timer', 30_000)).ran).toBe(true);
+    expect(await completion()).toEqual({ at: stamp(30_000), trigger: 'timer' });
+    expect((await runAt('cron', 40_000)).ran).toBe(false);
+    expect((await runAt('pulse', 60_000)).ran).toBe(true);
+    expect(await getRepo().getKv('watch:last')).toEqual({ at: stamp(60_000) });
+    expect(await completion()).toEqual({ at: stamp(30_000), trigger: 'timer' });
+
+    vi.spyOn(getRepo(), 'listUsers').mockImplementationOnce(async () => {
+      vi.setSystemTime(start + 92_000);
+      return [];
+    });
+    expect((await runAt('cron', 90_000)).ran).toBe(true);
+    expect(await getRepo().getKv('watch:last')).toEqual({ at: stamp(90_000) });
+    expect(await completion()).toEqual({ at: stamp(92_000), trigger: 'cron' });
+  });
+
+  it('retains previous completion if a background run fails or Watchtower is disabled', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    expect((await runAt('timer', 0)).ran).toBe(true);
+    vi.spyOn(getRepo(), 'listUsers').mockRejectedValueOnce(new Error('test incident handling error'));
+    await expect(runAt('cron', 30_000)).rejects.toThrow('test incident handling error');
+    expect(await getRepo().getKv('watch:last')).toEqual({ at: stamp(30_000) });
+    expect(await completion()).toEqual({ at: stamp(0), trigger: 'timer' });
+    await saveWatchSettings({ enabled: false }, { username: 'test-owner', name: 'Test owner', source: 'dashboard' });
+    expect((await runAt('timer', 60_000)).ran).toBe(false);
+    expect(await completion()).toEqual({ at: stamp(0), trigger: 'timer' });
   });
 });
 

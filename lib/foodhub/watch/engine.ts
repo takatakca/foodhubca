@@ -445,7 +445,10 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
   if (quiet && i.severity !== 'critical') return false;
   const elapsed = (now - Date.parse(i.openedAt)) / 60000;
   let changed = false;
-  const step = (kind: Incident['steps'][number]['kind'], to: string, ok: boolean, message: string) => { i.steps.push({ at: new Date(now).toISOString(), kind, to, ok, message }); changed = true; };
+  const step = (kind: Incident['steps'][number]['kind'], to: string, ok: boolean, message: string, uncertain?: boolean) => {
+    i.steps.push({ at: new Date(now).toISOString(), kind, to, ok, message, ...(uncertain ? { uncertain } : {}) });
+    changed = true;
+  };
 
   // A delayed tick can make several escalation stages due at once. One phone
   // can be listed in multiple roles; later ticks can still escalate normally.
@@ -455,7 +458,7 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
     if (called.has(destination)) return;
     called.add(destination);
     const result = await placeCall({ to: destination, say: callText(i, lang), lang }, { purpose, incidentId: i.id });
-    step('call', `${label} (${maskContact(destination)})`, result.ok, result.message);
+    step('call', `${label} (${maskContact(destination)})`, result.ok, result.message, result.uncertain);
   };
 
   if (i.level < 1 && elapsed >= s.smsAfterMin) {

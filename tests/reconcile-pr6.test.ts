@@ -13,6 +13,7 @@ import { allDayWeek, saveHours } from '../lib/foodhub/hours';
 import { getInboxEntry, INBOX, inboxSummary, MAX_RECOVERY_ATTEMPTS, receiveWebhook, refuseInboxEntry, replayInboxEntry, runInboxEntry, sweepInbox, type InboxEntry } from '../lib/foodhub/inbox';
 import { cloverRetryOpen, noteLastOrder } from '../lib/foodhub/order-retry';
 import { _resetOrderTypeCache, cloverOrderTitle } from '../lib/foodhub/pos/clover-order';
+import { importCloverPlatformOrders } from '../lib/foodhub/pos/clover-platform-orders';
 import { processIncomingOrder, resendToClover } from '../lib/foodhub/pipeline';
 import { cloverRetryTooLate, runCloverRetries } from '../lib/foodhub/recovery';
 import { getRepo } from '../lib/foodhub/repo';
@@ -292,6 +293,74 @@ describe('Clover retry guards', () => {
     expect(cloverRetryOpen({ status: 'accepted', timeline: { acceptedBy: 'owner' } })).toBe(false);
     expect(cloverRetryOpen({ status: 'new', viaPos: 'clover', timeline: {} })).toBe(false);
     expect(cloverRetryOpen({ status: 'cancelled', timeline: {} })).toBe(false);
+  });
+});
+
+describe('Clover recovery for orders entered from a platform screen', () => {
+  const code = 'AA123';
+  const storeRefs = ['a'.repeat(24), 'b'.repeat(24)];
+
+  async function waitingScreenOrder(index: number, externalOrderId = `screen-${storeRefs[index]}:${code}`): Promise<StoredOrder> {
+    const channelStoreId = `test-doordash-${index}`;
+    const locationCode = index === 0 ? 'NDG_6284' : 'SAINT_LEONARD';
+    const repo = getRepo();
+    await repo.upsertStore({ channel: 'doordash', channelStoreId, brandName: 'Po Poulet', locationCode, cloverMerchantId: MID, autoAccept: false, online: true, meta: {} });
+    const { order } = await repo.insertOrderIfNew({
+      ...await uberOrder('screen-order-fixture'), channel: 'doordash', marketplace: 'doordash',
+      viaHub: 'screen', externalOrderId, displayId: code,
+      channelStoreId, locationCode, brandName: 'Po Poulet',
+    });
+    return (await repo.updateOrder(order.id, { posError: 'Clover returned HTTP 503' }))!;
+  }
+
+  function existingCloverOrder(id: string, title: string) {
+    cloverOrders.push({ id, title, total: 1999, createdTime: Date.now() - 3 * 60_000 });
+  }
+
+  it('sends store B to the shared register when only store A has a saved Clover order with the same code', async () => {
+    const storeA = await waitingScreenOrder(0);
+    const storeB = await waitingScreenOrder(1);
+    existingCloverOrder('CLOVER-A', cloverOrderTitle(storeA));
+
+    const retried = await resendToClover(storeB);
+    expect(retried.pos).toMatchObject({ ok: true, posOrderId: 'CLV1' });
+    expect(sent('GET', /\/orders$/).map((c) => c.path)).toEqual([`/v3/merchants/${MID}/orders`]);
+    const created = sent('POST', /\/atomic_order\/orders$/);
+    expect(created).toHaveLength(1);
+    expect(created[0].path).toBe(`/v3/merchants/${MID}/atomic_order/orders`);
+    expect(created[0].body.orderCart.title).toBe(`DoorDash [${storeRefs[1]}] #${code}`);
+  });
+
+  it('adopts store B’s existing Clover order before creating another copy', async () => {
+    const storeA = await waitingScreenOrder(0);
+    const storeB = await waitingScreenOrder(1);
+    existingCloverOrder('CLOVER-A', cloverOrderTitle(storeA));
+    existingCloverOrder('CLOVER-B', `⏰ DoorDash [${storeRefs[1]}] #${code}`);
+
+    const retried = await resendToClover(storeB);
+    expect(retried.pos).toMatchObject({ ok: true, posOrderId: 'CLOVER-B', adopted: true });
+    expect((await getRepo().getOrder(storeB.id))?.posOrderId).toBe('CLOVER-B');
+    expect(sent('POST', /\/atomic_order\/orders$/)).toHaveLength(0);
+  });
+
+  it('preserves the title and lookup for an existing unscoped screen entry', async () => {
+    const legacy = await waitingScreenOrder(0, `screen-${code}`);
+    expect(cloverOrderTitle(legacy)).toBe(`DoorDash #${code}`);
+    existingCloverOrder('CLOVER-LEGACY', `DoorDash #${code}`);
+    expect((await resendToClover(legacy)).pos).toMatchObject({ ok: true, posOrderId: 'CLOVER-LEGACY', adopted: true });
+    expect(sent('POST', /\/atomic_order\/orders$/)).toHaveLength(0);
+  });
+
+  it('excludes Food Hub’s own scoped title and imports a native order with the same visible code', async () => {
+    vi.stubEnv('FOODHUB_CLOVER_PLATFORM_ORDERS', undefined);
+    vi.stubEnv('FOODHUB_MEV', 'off');
+    await waitingScreenOrder(0);
+    existingCloverOrder('CLOVER-SCOPED', `DoorDash [${storeRefs[0]}] #${code}`);
+    existingCloverOrder('CLOVER-NATIVE', `DoorDash #${code}`);
+
+    expect(await importCloverPlatformOrders(MID)).toMatchObject({ imported: 1, posOrderIds: ['CLOVER-NATIVE'] });
+    expect(await getRepo().findOrder('doordash', 'clover-CLOVER-SCOPED')).toBeNull();
+    expect(await getRepo().findOrder('doordash', 'clover-CLOVER-NATIVE')).toMatchObject({ viaPos: 'clover', displayId: code });
   });
 });
 

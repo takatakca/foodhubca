@@ -13,7 +13,7 @@ import { CHANNEL_LABELS, toCents } from '../config';
 import { cloverFetch } from './clover-http';
 import { getRepo } from '../repo';
 import type { ChannelKey, StoredOrder } from '../types';
-import { cloverBaseUrl, cloverToken } from './clover';
+import { cloverBaseUrl, cloverToken, defaultCloverMerchant } from './clover';
 import { cloverTipCents } from './clover-order';
 
 const KV = 'clover_refs';
@@ -187,8 +187,9 @@ const SHORT: Record<ChannelKey, string> = { uber_eats: 'ue', doordash: 'dd', ski
 export async function closeCancelledCloverOrder(order: StoredOrder, mid: string | null | undefined, opts: { flagOnly?: boolean } = {}): Promise<{ ok: boolean; skipped?: boolean; message: string }> {
   // The owner's switch for touching Clover on cancellations covers the flag too (FOODHUB_CLOVER_DELETE_CANCELLED=off).
   if (!cloverDeleteCancelledEnabled()) return { ok: false, skipped: true, message: opts.flagOnly ? 'Flagging cancelled orders in Clover is off (FOODHUB_CLOVER_DELETE_CANCELLED=off).' : 'Removing cancelled orders from Clover is off (FOODHUB_CLOVER_DELETE_CANCELLED=off).' };
-  const merchant = mid || process.env.CLOVER_MERCHANT_ID;
-  if (!merchant || !order.posOrderId) return { ok: false, skipped: true, message: 'Order is not in Clover.' };
+  if (!order.posOrderId) return { ok: false, skipped: true, message: 'Order is not in Clover.' };
+  const merchant = mid || (await defaultCloverMerchant());
+  if (!merchant) return { ok: false, skipped: true, message: 'Order is not in Clover.' };
   try {
     const path = `/orders/${encodeURIComponent(order.posOrderId)}`;
     if (opts.flagOnly) {

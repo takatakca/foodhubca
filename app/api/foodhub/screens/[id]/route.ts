@@ -44,8 +44,6 @@ export const POST = withPerm<Ctx>('orders:act', async (req, ctx, actor) => {
 
 export const DELETE = withPerm<Ctx>('stores:map', async (_req, ctx, actor) => {
   const { id } = await ctx.params;
-  const s = await getScreen(id);
-  if (!s || !inScope(actor, s.locationCode)) return fail('Screen not found', 404);
-  await removeScreen(id, actor);
-  return ok();
+  const removed = await removeScreen(id, actor, (locationCode) => inScope(actor, locationCode));
+  return removed ? ok() : fail('Screen not found', 404);
 });

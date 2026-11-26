@@ -12,7 +12,7 @@ import { allDayWeek, saveHours } from '../lib/foodhub/hours';
 import { enrollDevice, getDevice, heartbeat as tabletHeartbeat } from '../lib/foodhub/identity/devices';
 import { listOutbox } from '../lib/foodhub/notify';
 import { getRepo } from '../lib/foodhub/repo';
-import { addScreen, getScreen, SCREENS, type AgentCommand, type Heartbeat } from '../lib/foodhub/screens';
+import { addScreen, getScreen, requestReload, SCREENS, type AgentCommand, type Heartbeat } from '../lib/foodhub/screens';
 import { INCIDENTS, actOnIncident, getIncident, saveWatchSettings, type WatchReport } from '../lib/foodhub/watch/engine';
 import type { Incident } from '../lib/foodhub/watch/types';
 
@@ -185,6 +185,41 @@ it('hands one queued command to only one of two heartbeats reading the same scre
     reader.mockRestore();
   }
   expect((await getScreen(screen.id))?.command).toBeNull();
+});
+
+it('returns saved commands for the batch when another screen repeatedly conflicts', async () => {
+  const add = async (slot: string) => {
+    const screen = await addScreen({ name: slot, platform: 'skip', locationCode: ORIGINAL.code, viewUrl: `https://relay.example.test/${slot}/` }, OWNER);
+    if ('error' in screen) throw new Error(screen.error);
+    await requestReload(screen.id, OWNER);
+    return screen.id;
+  };
+  const first = await add('s01');
+  const contended = await add('s02');
+  const repo = getRepo();
+  const replace = repo.replaceDocIfRevision.bind(repo);
+  let conflicts = 0;
+  const update = vi.spyOn(repo, 'replaceDocIfRevision').mockImplementation(async (collection, doc, revision) => {
+    if (collection === SCREENS && doc.id === contended) {
+      conflicts++;
+      return false;
+    }
+    return replace(collection, doc, revision);
+  });
+  try {
+    const response = await heartbeat(new Request(`${BASE}/screens/heartbeat`, {
+      method: 'POST', headers: { authorization: `Bearer ${RELAY_TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ screens: [first, contended].map((id) => ({ id, state: 'ok' })) }),
+    }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ commands: [{ id: first, kind: 'reload' }], unknown: [] });
+  } finally {
+    update.mockRestore();
+  }
+  expect(conflicts).toBe(3);
+  expect((await getScreen(first))?.command).toBeNull();
+  expect(await getScreen(contended)).toMatchObject({ lastSeenAt: null, command: { kind: 'reload' } });
+  expect(await relayReport({ id: contended, state: 'ok' })).toMatchObject({ commands: [{ id: contended, kind: 'reload' }] });
 });
 
 const scenarios = [

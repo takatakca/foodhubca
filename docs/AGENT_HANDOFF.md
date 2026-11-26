@@ -2,6 +2,8 @@
 
 Les écritures concurrentes d’un écran vérifient la révision enregistrée. Un signal qui a déjà lu l’ancienne affectation et la voit changer pendant l’écriture est écarté. Un nouveau signal valide remet l’instruction en attente une seule fois et alimente la relève de la cuisine actuelle. L’ancien format d’écran reste compatible. Les scénarios simulés utilisent les requêtes d’administration et de relais ainsi que le passage Watchtower signé.
 
+Lors d’un signal groupé, si la sauvegarde d’un écran reste en conflit, ses instructions attendent le passage suivant. Le relais reçoit les instructions déjà récupérées pour les autres écrans. La suppression vérifie la portée de la cuisine et la version de la fiche cible afin de protéger un écran réaffecté ou recréé.
+
 Le lien d’alerte recherche l’incident autorisé directement par son identifiant dans la fenêtre de recherche prévue. Quand l’incident est déjà résolu, le lien ouvre l’onglet Réglées. Les vérifications d’accès, les filtres et les choix d’onglet restent appliqués. La preuve sur un écran et un téléphone réels est suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
 
 — signé : Codex @ cloud · 2026-11-26

@@ -190,6 +190,8 @@ function screenDocument(s: PlatformScreen) {
   return { id: s.id, key: s.locationCode, at: s.createdAt, data: { ...s, revision: crypto.randomUUID() } };
 }
 
+class ScreenWriteConflict extends Error {}
+
 async function changeScreen(id: string, edit: (s: PlatformScreen) => PlatformScreen | { error: string } | null) {
   const repo = getRepo();
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -201,7 +203,7 @@ async function changeScreen(id: string, edit: (s: PlatformScreen) => PlatformScr
     if (screen === previous) return { previous, screen, changed: false };
     if (await repo.replaceDocIfRevision(SCREENS, screenDocument(screen), stored.revision)) return { previous, screen, changed: true };
   }
-  throw new Error('Platform screen changed while saving. Try again.');
+  throw new ScreenWriteConflict('Platform screen changed while saving. Try again.');
 }
 
 const cleanName = (v: unknown, platform: ScreenPlatform) => String(v ?? '').trim().slice(0, 60) || SCREEN_PLATFORM_LABEL[platform];
@@ -273,10 +275,12 @@ export async function updateScreen(id: string, patch: { name?: unknown; platform
   return screen;
 }
 
-export async function removeScreen(id: string, actor: Actor): Promise<boolean> {
-  const s = await getScreen(id);
-  if (!s) return false;
-  await getRepo().deleteDocs(SCREENS, [id]);
+export async function removeScreen(id: string, actor: Actor, inScope: ScreenScope): Promise<boolean> {
+  const repo = getRepo();
+  const doc = await repo.getDoc<StoredScreen>(SCREENS, id);
+  if (!doc || !inScope(doc.data.locationCode)) return false;
+  if (!(await repo.deleteDocIfRevision(SCREENS, doc))) return false;
+  const s = doc.data;
   await logActivity({ actor: actor.name, source: actor.source, kind: 'device', action: 'screen_removed', status: 'success', locationCode: s.locationCode, summary: `Platform screen "${s.name}" removed` });
   return true;
 }
@@ -430,7 +434,12 @@ export async function recordHeartbeat(hb: Heartbeat, now = new Date()): Promise<
         waitingSince: nextWaitingSince(s, count, now), mode, app: mode === 'android' ? r.app ?? null : null,
         autoReloads: r.autoReloads ?? s.autoReloads ?? null, agentVersion: hb.version ?? s.agentVersion ?? null, command: null,
       });
+    }).catch((error: unknown) => {
+      if (!(error instanceof ScreenWriteConflict)) throw error;
+      // Leave this screen for the next heartbeat and return commands already claimed for other screens.
+      return undefined;
     });
+    if (saved === undefined) continue;
     if (!saved || 'error' in saved) { unknown.push(r.id); continue; }
     if (!saved.changed) continue;
     const { previous, screen } = saved;

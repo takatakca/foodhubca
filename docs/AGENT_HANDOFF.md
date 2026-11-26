@@ -1,3 +1,11 @@
+## 2026-11-26 — Arrivée des commandes Uber Eats par Clover
+
+Quand Uber Eats est configuré via Clover, Food Hub conserve les nouvelles notifications Uber directes et les commandes directes ou relayées encore en file pour vérification. La reprise manuelle applique la même règle. La récupération ne consulte plus les nouvelles commandes côté Uber. L’import natif lit les commandes chez Clover, et les annulations et états des commandes directes déjà reçues continuent d’être traités.
+
+Les essais signés couvrent les notifications ordinaires et planifiées, les entrées déjà normalisées, la reprise, l’import natif Clover et les annulations antérieures. Les preuves de réception réelle restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Numéro de commande saisi à partir d’un écran
 
 La saisie manuelle distingue désormais deux commandes qui portent le même numéro affiché dans deux magasins. Saisir deux fois le même numéro pour le même magasin reste un doublon, même depuis un autre écran ou si la première saisie date d’une version antérieure. Clover utilise une référence de magasin dans le titre de reprise des nouvelles commandes pour retrouver la bonne commande quand plusieurs magasins partagent une caisse. L’import reconnaît ce titre sans écarter une commande native de Clover qui porte le même numéro. Le numéro affiché reste celui de la plateforme. Les preuves de réception physique restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

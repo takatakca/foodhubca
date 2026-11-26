@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { getRepo } from '../repo';
 import { dryRun, recordDry } from '../dry-run';
 import { neverSent, timedFetch } from '../env-utils';
+import { isCallStatus, watchtowerCallSid, type CallStatus } from './call-status';
 import { emailConfigured, emailFrom, emailProvider, emailSetupMessage, sendMail } from './email';
 
 // The shared email helpers live in ./email; re-exported so existing imports from '../notify' keep working.
@@ -194,6 +195,27 @@ export async function postToChat(input: { title: string; text?: string; severity
   }
   await record({ channel: 'chat', to: 'team chat', purpose: meta.purpose, ok: r.ok, skipped: r.skipped, message: r.message, incidentId: meta.incidentId, orderId: meta.orderId, by: meta.by, preview: input.title });
   return r;
+}
+
+/** Read the status of a call already recorded by Watchtower. Only the provider status leaves this module. */
+export async function lookupWatchtowerCall(id: string): Promise<{ status: CallStatus } | { error: 'not_found' | 'not_configured' | 'unavailable' }> {
+  const entry = await getRepo().getDoc<OutboxEntry>(OUTBOX, id);
+  const sid = entry ? watchtowerCallSid(entry.data) : null;
+  if (!sid) return { error: 'not_found' };
+  if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) return { error: 'not_configured' };
+
+  try {
+    const response = await timedFetch(twilioUrl(`Calls/${sid}.json`), {
+      method: 'GET',
+      headers: { Authorization: twilioAuth() },
+      redirect: 'error',
+    });
+    if (response.ok) {
+      const call = await response.json();
+      if (call?.sid === sid && isCallStatus(call.status)) return { status: call.status };
+    }
+  } catch { /* Timeout, network errors and malformed responses all have the same public result. */ }
+  return { error: 'unavailable' };
 }
 
 export async function listOutbox(limit = 200): Promise<OutboxEntry[]> {

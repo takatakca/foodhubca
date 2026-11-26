@@ -103,6 +103,17 @@ export interface SharedScreenCallPreview {
   checks: SharedScreenCallPreviewCheck[];
 }
 
+export interface KitchenCallPreviewCheck extends Omit<SharedScreenCallPreviewCheck, 'kind'> {
+  kind: SharedScreenCallPreviewCheck['kind'] | 'device_offline';
+  source: 'shared' | 'kitchen' | null;
+}
+
+export interface KitchenCallPreview {
+  callConfigured: boolean;
+  locationCode: string;
+  checks: KitchenCallPreviewCheck[];
+}
+
 export interface WatchSettings {
   enabled: boolean;
   /** Minutes after opening before each escalation step (an acknowledged incident stops escalating). */

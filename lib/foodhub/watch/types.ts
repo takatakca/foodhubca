@@ -40,6 +40,7 @@ export interface IncidentStep {
   kind: 'opened' | 'screen' | 'sms' | 'call' | 'chat' | 'email' | 'owner' | 'ack' | 'snooze' | 'resolved' | 'reopened' | 'note' | 'customer_sms' | 'ai';
   to?: string;
   ok?: boolean;
+  uncertain?: boolean;
   by?: string;
   message?: string;
 }
@@ -89,6 +90,17 @@ export interface RuleSetting {
   enabled: boolean;
   /** Escalate by SMS / call / owner (otherwise screen + chat only). */
   escalate: boolean;
+}
+
+export interface SharedScreenCallPreviewCheck {
+  kind: 'screen_down' | 'screen_waiting';
+  state: 'watch-off' | 'rule-off' | 'missing-number' | 'simulated';
+  destination: string | null;
+}
+
+export interface SharedScreenCallPreview {
+  callConfigured: boolean;
+  checks: SharedScreenCallPreviewCheck[];
 }
 
 export interface WatchSettings {

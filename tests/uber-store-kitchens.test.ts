@@ -1,10 +1,14 @@
 // The 7 Uber store UUIDs the owner gave on 2026-10-04 are all at 5839 Rue Jean-Talon E (Saint-Léonard) in Uber's own
 // records, though Uber names most of them "(Hochelaga)". Production had them mapped to NDG_6284. Food Hub now
 // suggests their real kitchen, and flags (with a one-click move) any of them mapped elsewhere.
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import rawUber from '../data/actual/platform-stores-uber.json';
 import rawLocations from '../data/actual/locations.json';
 import { POST } from '../app/api/foodhub/stores/route';
+import { GET as listKnown } from '../app/api/foodhub/stores/known/route';
+import { POST as discover } from '../app/api/foodhub/stores/discover/route';
+import * as uber from '../lib/foodhub/adapters/uber-eats';
+import { hashPassword } from '../lib/foodhub/auth';
 import { suggestMapping } from '../lib/foodhub/adapters/uber-provision';
 import { KNOWN_UBER_KITCHENS, knownStores } from '../lib/foodhub/known-stores';
 import { getRepo } from '../lib/foodhub/repo';
@@ -29,6 +33,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  vi.restoreAllMocks();
 });
 
 const ctx = { params: Promise.resolve({}) } as any;
@@ -79,5 +84,74 @@ describe('Stores → Mapping: known Uber stores', () => {
     expect(store).toMatchObject({ id: wrong.mapped!.id, locationCode: 'SAINT_LEONARD', brandName: 'PPP Pizzeria', cloverMerchantId: 'TESTMERCH0002', autoAccept: false });
     expect(store?.meta?.menuLocked).toBe(true);
     expect((await knownStores()).some((k) => k.locationMismatch)).toBe(false);
+  });
+});
+
+describe('scope of merchant inventory route results', () => {
+  const managerPassword = 'Test-manager-123';
+
+  async function manager(username: string, locations: string[]) {
+    await getRepo().saveUser({
+      username, name: 'Test manager', role: 'manager', locations, active: true,
+      passwordHash: hashPassword(managerPassword),
+    });
+  }
+
+  function inventoryRequest(endpoint: 'known' | 'discover', username = 'owner') {
+    const password = username === 'owner' ? 'Owner-pass-123' : managerPassword;
+    const headers = {
+      authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`,
+      'content-type': 'application/json',
+    };
+    return new Request(`http://hub.local/api/foodhub/stores/${endpoint}`, endpoint === 'known'
+      ? { headers }
+      : { headers, method: 'POST', body: JSON.stringify({ channel: 'uber_eats' }) });
+  }
+
+  async function linkStore(channelStoreId: string, locationCode: string) {
+    expect((await save({ channel: 'uber_eats', channelStoreId, brandName: 'PPP Pizzeria', locationCode })).status).toBe(200);
+  }
+
+  it('shows known stores only at the recorded kitchen and hides conflicting mappings from single-kitchen managers', async () => {
+    const [conflicting] = KNOWN_UBER_KITCHENS.keys();
+    await linkStore(conflicting, 'NDG_6284');
+    await manager('saint-manager', ['SAINT_LEONARD']);
+    await manager('ndg-manager', ['NDG_6284']);
+
+    const owner = await listKnown(inventoryRequest('known'), ctx);
+    expect(owner.status).toBe(200);
+    expect((await owner.json()).stores).toHaveLength(7);
+    const saint = await listKnown(inventoryRequest('known', 'saint-manager'), ctx);
+    expect(saint.status).toBe(200);
+    expect((await saint.json()).stores).toHaveLength(6);
+    const ndg = await listKnown(inventoryRequest('known', 'ndg-manager'), ctx);
+    expect(ndg.status).toBe(200);
+    expect(await ndg.json()).toMatchObject({ stores: [] });
+  });
+
+  it('keeps discovery complete for unscoped users and withholds unknown and conflicting stores from a scoped manager', async () => {
+    const [conflicting, recorded] = KNOWN_UBER_KITCHENS.keys();
+    const ndgAddress = rawLocations.find((loc) => loc.code === 'NDG_6284')!.address_line_1;
+    const stores = [
+      { id: 'test-mapped-uber-store', name: 'Mapped store' },
+      { id: 'test-unmapped-uber-store', name: 'Unmapped store' },
+      { id: conflicting, name: 'Conflicting mapping' },
+      { id: recorded, name: 'Recorded kitchen' },
+      { id: 'test-moved-uber-store', name: 'Address conflicts with mapping', address: ndgAddress },
+    ];
+    const readiness = uber.uberEatsAdapter.readiness();
+    vi.spyOn(uber.uberEatsAdapter, 'readiness').mockReturnValue({ ...readiness, canSend: true });
+    vi.spyOn(uber, 'discoverUberStores').mockResolvedValue(stores);
+    await linkStore('test-mapped-uber-store', 'SAINT_LEONARD');
+    await linkStore(conflicting, 'NDG_6284');
+    await linkStore('test-moved-uber-store', 'SAINT_LEONARD');
+    await manager('saint-manager', ['SAINT_LEONARD']);
+
+    const owner = await discover(inventoryRequest('discover'), ctx);
+    expect(owner.status).toBe(200);
+    expect(await owner.json()).toMatchObject({ stores });
+    const saint = await discover(inventoryRequest('discover', 'saint-manager'), ctx);
+    expect(saint.status).toBe(200);
+    expect(await saint.json()).toMatchObject({ stores: [stores[0], stores[3]] });
   });
 });

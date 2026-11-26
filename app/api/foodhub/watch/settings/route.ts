@@ -12,6 +12,7 @@ export const GET = withPerm('view', async (_req, _ctx, actor) => {
   const settings = await getWatchSettings();
   return ok({
     settings: { ...settings, screenAlertPhone: can(actor.role, 'admin') ? settings.screenAlertPhone : null },
+    screenAlertPhoneConfigured: Boolean(settings.screenAlertPhone),
     kinds: INCIDENT_KINDS.map((k) => ({ kind: k, ...KIND_LABEL[k] })),
     channels: channelsStatus(),
   });

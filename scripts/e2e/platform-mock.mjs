@@ -57,6 +57,7 @@ export const mockState = {
   cloverAtomicMode: 'ok', // 'down' = Clover answers 503 to new orders (automatic retry checks)
   uberFetchFails: 0, // Uber order fetches to refuse for "uber-flaky-…" orders
   uberReportCsv: '',
+  beforeTwilioCall: null, // optionally hold a simulated call response while another worker runs
 };
 // The merchant's Clover menus (Clover → Items → Menus): the DoorDash menu holds the items sold on DoorDash, at Clover × 1.20.
 const cloverMenus = [{ id: 'MENU-POS', name: 'Default POS Menu', type: 'DEFAULT_POS_MENU' }, { id: 'MENU-DD', name: 'DoorDash (Po Poulet +20%)', type: 'OLO_MENU', channel: 'DoorDash' }];
@@ -280,7 +281,11 @@ export const mock = http.createServer(async (req, res) => {
   if (p.startsWith('/twilio/2010-04-01/Accounts/AC_e2e/')) {
     if (req.headers.authorization !== `Basic ${Buffer.from('AC_e2e:tw-e2e').toString('base64')}`) return send(401, { message: 'auth' });
     if (p.endsWith('/Messages.json')) return send(201, { sid: `SM${++twilioSeq}` });
-    if (p.endsWith('/Calls.json')) return send(201, { sid: `CA${(++twilioSeq).toString(16).padStart(32, '0')}` });
+    if (p.endsWith('/Calls.json')) {
+      const sid = `CA${(++twilioSeq).toString(16).padStart(32, '0')}`;
+      await mockState.beforeTwilioCall?.(new URLSearchParams(raw).get('To'));
+      return send(201, { sid });
+    }
   }
   // ---- team chat incoming webhook (Slack / Teams / Google Chat) ----
   if (p === '/chat') return send(200, { ok: true });

@@ -119,7 +119,7 @@ describe('Uber OAuth scope refusal in status sync', () => {
     const recovered = await runSync({ force: true, trigger: 'test-scope-recovered' });
     expect(recovered.ran).toBe(true);
     expect(tokenScopes).toEqual([EXPLICIT_SCOPE, EXPLICIT_SCOPE]);
-    expect(uberReads.toSorted()).toEqual(storesBefore.map((s) => s.channelStoreId).toSorted());
+    expect([...uberReads].sort()).toEqual(storesBefore.map((s) => s.channelStoreId).sort());
     expect(recovered.report?.platformErrors?.uber_eats).toBeUndefined();
     expect((await getRepo().getStore(storesBefore[0].id))).toMatchObject({ online: true, pausedUntil: null, meta: { platformStatus: { state: 'online' } } });
     expect(unexpected).toEqual([]);

@@ -1,3 +1,11 @@
+## 2026-11-26 — Attribution des commandes Uber et onglet du relais web
+
+La checklist Uber direct demande un contrôle fournisseur enregistré pour le compte lié, avec Food Hub comme gestionnaire et les webhooks actifs. Une ancienne vérification sans compte identifié doit être refaite dans Restaurants → Liaisons. L’essai de réception en cuisine reste suivi dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+Le relais web reconnaît la page marchand et les pages de connexion prises en charge. Un onglet interne de Chrome ou une page sur un autre site déclenche un statut indisponible. Pour l’installation manuelle, utiliser la même adresse marchand pour Chrome et `SCREEN_START_URL`. La vérification sur le poste existant reste ouverte.
+
+— signé : Codex (automatisation) @ cloud · 2026-11-26
+
 ## 2026-11-26 — Vérifier un passage Watchtower en arrière-plan
 
 Dans la réponse détaillée de `GET /api/health`, `checks.watchtower.lastBackgroundCompletion` donne l’heure et le déclencheur du dernier passage achevé par minuterie ou cron. Ce contrôle complète l’horodatage de démarrage. La réception réelle des commandes et des appels reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

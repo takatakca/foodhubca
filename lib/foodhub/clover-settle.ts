@@ -9,7 +9,7 @@
 import { logActivity } from './activity';
 import { mevOnOrderChange } from './mev/hooks';
 import { CHANNEL_LABELS, nowIso } from './config';
-import { closeCancelledCloverOrder, recordCloverPayment } from './pos/clover-books';
+import { closeCancelledCloverOrder, cloverRecordPaymentEnabled, recordCloverPayment } from './pos/clover-books';
 import { getRepo } from './repo';
 import { isTgtgEmailOrder } from './tgtg-email/ids';
 import type { OrderTimeline, StoredOrder } from './types';
@@ -39,8 +39,14 @@ async function settleCloverOnly(order: StoredOrder | null): Promise<StoredOrder 
     // screen, so it is paid as soon as it is accepted (the owner's "send it to Clover as paid already").
     const leftKitchen = order.status === 'dispatched' || order.status === 'completed';
     const paidOnAccept = order.viaHub === 'screen' && (order.status === 'accepted' || order.status === 'ready');
-    if ((leftKitchen || paidOnAccept) && !order.timeline?.posPaymentId) {
+    if ((leftKitchen || paidOnAccept) && !order.timeline?.posPaymentId && cloverRecordPaymentEnabled()) {
       const store = await repo.findStore(order.channel, order.channelStoreId);
+      if (order.locationCode && store?.locationCode && order.locationCode !== store.locationCode) {
+        const error = 'The store is now mapped to a different kitchen. Verify the payment on the original Clover order and record it on that register if needed.';
+        if (order.timeline?.posPaymentError === error) return order;
+        await repo.addEvent(order.id, 'pos_payment_failed', { error });
+        return patch(order, { posPaymentError: error });
+      }
       const r = await recordCloverPayment(order, store?.cloverMerchantId);
       if (r.ok) {
         await repo.addEvent(order.id, 'pos_paid', { message: `Recorded as paid in Clover (${r.amount.toFixed(2)} $, ${CHANNEL_LABELS[order.channel]} tender)`, paymentId: r.paymentId });

@@ -4,7 +4,15 @@ Watchtower affiche « Résultat de l’appel non confirmé » si la réponse Twi
 
 Une notification Skip conserve sa session fournisseur et sa progression. Les demandes de lancement restent en attente d’une association vérifiée. La configuration explicite demande la session et le code POS confirmés pour le même établissement.
 
+Sur `4003e5b`, 194 essais ciblés ont validé les réponses Twilio et Skip simulées et l’impression Clover. Le lot Linux a ignoré les six essais natifs du relais Windows.
+
 — signé : Codex (automatisation) @ cloud · 2026-11-26
+
+## 2026-11-26 — Impression Clover et démarrage du relais Windows
+
+L’impression de cuisine utilise la caisse résolue par la même règle que la création dans Clover. Le marchand explicite et le défaut configuré ont priorité, puis le compte OAuth unique approuvé. Le kit Windows conserve son dossier d’installation dans la tâche planifiée et dans le raccourci de démarrage. La relève du poste existant et les essais marchands restent suivis dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
 
 ## 2026-11-26 — Vérifications du relais dans Mise en service
 

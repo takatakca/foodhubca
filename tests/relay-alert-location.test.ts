@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { GET as cronWatch } from '../app/api/foodhub/cron/watch/route';
 import { PATCH as moveTablet } from '../app/api/foodhub/devices/[id]/route';
 import { GET as getScopedIncidents, POST as actScopedIncident } from '../app/api/foodhub/incidents/route';
-import { PATCH as moveScreen } from '../app/api/foodhub/screens/[id]/route';
+import { PATCH as moveScreen, POST as screenCommand } from '../app/api/foodhub/screens/[id]/route';
 import { POST as heartbeat } from '../app/api/foodhub/screens/heartbeat/route';
 import type { Actor } from '../lib/foodhub/activity';
 import { hashPassword } from '../lib/foodhub/auth';
@@ -12,7 +12,7 @@ import { allDayWeek, saveHours } from '../lib/foodhub/hours';
 import { enrollDevice, getDevice, heartbeat as tabletHeartbeat } from '../lib/foodhub/identity/devices';
 import { listOutbox } from '../lib/foodhub/notify';
 import { getRepo } from '../lib/foodhub/repo';
-import { addScreen, type Heartbeat } from '../lib/foodhub/screens';
+import { addScreen, getScreen, SCREENS, type AgentCommand, type Heartbeat } from '../lib/foodhub/screens';
 import { INCIDENTS, actOnIncident, getIncident, saveWatchSettings, type WatchReport } from '../lib/foodhub/watch/engine';
 import type { Incident } from '../lib/foodhub/watch/types';
 
@@ -45,6 +45,7 @@ async function relayReport(screen: Heartbeat['screens'][number]) {
     body: JSON.stringify({ screens: [screen] }),
   }));
   expect(response.status).toBe(200);
+  return await response.json() as { commands: AgentCommand[] };
 }
 
 async function runCron(): Promise<WatchReport> {
@@ -96,6 +97,94 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+});
+
+it('keeps a kitchen reassignment when an in-flight heartbeat already read the old screen', async () => {
+  await saveWatchSettings({ smsAfterMin: 0 }, OWNER);
+  const screen = await addScreen({ name: 'Test screen', platform: 'skip', locationCode: ORIGINAL.code,
+    viewUrl: 'https://relay.example.test/s01/', storeIds: ['store-before-move'] }, OWNER);
+  if ('error' in screen) throw new Error(screen.error);
+  const repo = getRepo();
+  // Existing screen rows can have no stored revision until their first conditional update.
+  await repo.putDocs(SCREENS, [{ id: screen.id, key: screen.locationCode, at: screen.createdAt, data: screen }]);
+  const getDoc = repo.getDoc.bind(repo);
+  let readFinished!: () => void;
+  const read = new Promise<void>((resolve) => { readFinished = resolve; });
+  let resume!: () => void;
+  const blocked = new Promise<void>((resolve) => { resume = resolve; });
+  let blockFirstRead = true;
+  const reader = vi.spyOn(repo, 'getDoc').mockImplementation(async (collection, id) => {
+    const doc = await getDoc(collection, id);
+    if (collection !== SCREENS || id !== screen.id || !blockFirstRead) return doc;
+    blockFirstRead = false;
+    const snapshot = structuredClone(doc);
+    readFinished();
+    await blocked;
+    return snapshot;
+  });
+  const pending = relayReport({ id: screen.id, state: 'login' });
+  try {
+    await read;
+    const move = await moveScreen(new Request(`${BASE}/screens/${screen.id}`, {
+      method: 'PATCH', headers: { ...basicHeaders('owner'), 'content-type': 'application/json' },
+      body: JSON.stringify({ locationCode: DESTINATION.code, storeIds: ['store-after-move'] }),
+    }), { params: Promise.resolve({ id: screen.id }) });
+    expect(move.status).toBe(200);
+    const moved = (await move.json()).screen;
+    expect(moved).toMatchObject({ locationCode: DESTINATION.code, storeIds: ['store-after-move'] });
+    expect(moved).not.toHaveProperty('revision');
+    const queued = await screenCommand(new Request(`${BASE}/screens/${screen.id}`, {
+      method: 'POST', headers: { ...basicHeaders('owner'), 'content-type': 'application/json' }, body: JSON.stringify({ action: 'reload' }),
+    }), { params: Promise.resolve({ id: screen.id }) });
+    expect(queued.status).toBe(200);
+    expect((await queued.json()).screen.command).toMatchObject({ kind: 'reload' });
+  } finally {
+    resume();
+    await pending;
+    reader.mockRestore();
+  }
+  expect(await pending).toMatchObject({ commands: [] });
+  expect(await getScreen(screen.id)).toMatchObject({ locationCode: DESTINATION.code, storeIds: ['store-after-move'], lastSeenAt: null, command: { kind: 'reload' } });
+  expect(await runCron()).toMatchObject({ opened: 0, escalated: 0 });
+  expect(fetchMock).not.toHaveBeenCalled();
+
+  advanceTo(1);
+  expect(await relayReport({ id: screen.id, state: 'login' })).toMatchObject({ commands: [{ id: screen.id, kind: 'reload' }] });
+  expect(await runCron()).toMatchObject({ opened: 1, escalated: 1 });
+  expect((await readIncidents(DESTINATION.manager)).map((incident) => incident.locationCode)).toEqual([DESTINATION.code]);
+  expect(await readIncidents(ORIGINAL.manager)).toEqual([]);
+  expect(calls().map((call) => call.get('To'))).toEqual([DESTINATION.phone]);
+  expect(await relayReport({ id: screen.id, state: 'login' })).toMatchObject({ commands: [] });
+});
+
+it('hands one queued command to only one of two heartbeats reading the same screen revision', async () => {
+  const screen = await addScreen({ name: 'Test screen', platform: 'skip', locationCode: ORIGINAL.code, viewUrl: 'https://relay.example.test/s01/' }, OWNER);
+  if ('error' in screen) throw new Error(screen.error);
+  const queued = await screenCommand(new Request(`${BASE}/screens/${screen.id}`, {
+    method: 'POST', headers: { ...basicHeaders('owner'), 'content-type': 'application/json' }, body: JSON.stringify({ action: 'reload' }),
+  }), { params: Promise.resolve({ id: screen.id }) });
+  expect(queued.status).toBe(200);
+  const repo = getRepo();
+  const getDoc = repo.getDoc.bind(repo);
+  let releaseReads!: () => void;
+  const bothRead = new Promise<void>((resolve) => { releaseReads = resolve; });
+  let readers = 0;
+  const reader = vi.spyOn(repo, 'getDoc').mockImplementation(async (collection, id) => {
+    const doc = await getDoc(collection, id);
+    if (collection !== SCREENS || id !== screen.id || readers === 2) return doc;
+    const snapshot = structuredClone(doc);
+    if (++readers === 2) releaseReads();
+    await bothRead;
+    return snapshot;
+  });
+  try {
+    const reports = await Promise.all([relayReport({ id: screen.id, state: 'ok' }), relayReport({ id: screen.id, state: 'ok' })]);
+    expect(reports.flatMap((report) => report.commands)).toEqual([{ id: screen.id, kind: 'reload' }]);
+  } finally {
+    releaseReads();
+    reader.mockRestore();
+  }
+  expect((await getScreen(screen.id))?.command).toBeNull();
 });
 
 const scenarios = [

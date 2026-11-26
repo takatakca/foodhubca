@@ -19,9 +19,13 @@ export const GET = withPerm('view', async (req, _ctx, actor) => {
   const q = new URL(req.url).searchParams;
   const status = (q.get('status') || '').split(',').filter((s) => STATUSES.includes(s as IncidentStatus)) as IncidentStatus[];
   const days = Math.max(1, Math.min(30, Number(q.get('days') || 3)));
-  const found = await listIncidents({ status, since: new Date(Date.now() - days * 86400_000).toISOString(), locationCodes: scopeFilter(actor, list(q.get('locations'))) });
-  const one = q.get('id');
-  return ok({ incidents: one ? found.filter((i) => i.id === one) : found });
+  const incidents = await listIncidents({
+    id: q.get('id') || undefined,
+    status,
+    since: new Date(Date.now() - days * 86400_000).toISOString(),
+    locationCodes: scopeFilter(actor, list(q.get('locations'))),
+  });
+  return ok({ incidents });
 });
 
 // { id, action: 'ack' | 'resolve' | 'snooze' | 'note' | 'reopen' | 'customer_sms', minutes?, note?, text? }

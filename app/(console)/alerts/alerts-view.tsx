@@ -26,26 +26,32 @@ import { watchtowerCallSid, type CallStatus } from '@/lib/foodhub/notify/call-st
 import { cn } from '@/lib/ui/cn';
 
 type Channels = AlertChannels;
+type AlertTab = 'open' | 'resolved' | 'messages';
 const SEV = { critical: 'bg-stop', warning: 'bg-wait', info: 'bg-info' } as const;
 
 export function AlertsView() {
+  const focus = useSearchParams().get('i');
+  return <AlertsViewContent key={focus ?? ''} focus={focus} />;
+}
+
+function AlertsViewContent({ focus }: { focus: string | null }) {
   const { t, loc } = useI18n();
   const product = useProduct();
   const { can, allLocations, full, viewer } = useViewer();
   const canCheckCalls = allLocations && can('admin') && !viewer.device;
   const { setSite } = usePulse();
   const label = useScopeLabel();
-  const params = useSearchParams();
   const toast = useToast();
-  const [tab, setTab] = useState<'open' | 'resolved' | 'messages'>('open');
+  const [selectedTab, setTab] = useState<AlertTab | null>(null);
   const [channels, setChannels] = useState<Channels | null>(null);
   const [messages, setMessages] = useState<OutboxEntry[]>([]);
   const [busy, setBusy] = useState(false);
-  const focus = params.get('i');
 
   // The alerts of the console's scope: location on the server, brand and platform here (an alert for the whole location
   // always shows). The bell keeps counting every alert of the location.
   const { list, filtered, reload: load } = useScopedIncidents({ status: '', days: 3, poll: 10_000, focusId: focus });
+  const focused = focus ? list?.find((incident) => incident.id === focus) : null;
+  const tab = selectedTab ?? (focused?.status === 'resolved' ? 'resolved' : 'open');
   const seeAll = () => setSite({ kitchen: null, brand: null, channel: undefined });
   useEffect(() => { api<{ channels: Channels }>('/api/foodhub/watch/settings').then((d) => setChannels(d.channels)).catch(() => undefined); }, []);
   useEffect(() => { if (tab === 'messages') api<{ messages: OutboxEntry[] }>('/api/foodhub/messages').then((d) => setMessages(d.messages)).catch(() => undefined); }, [tab]);

@@ -385,8 +385,14 @@ describe('Watchtower: calls a configured phone for screen and tablet incidents',
       });
       const res = await watchSettingsRoute(req, {});
       expect(res.status).toBe(200);
-      expect((await res.json()).settings.screenAlertPhone).toBe(role === 'owner' ? sharedPhone : null);
+      const body = await res.json();
+      expect(body.screenAlertPhoneConfigured).toBe(true);
+      expect(body.settings.screenAlertPhone).toBe(role === 'owner' ? sharedPhone : null);
     }
+    await saveWatchSettings({ screenAlertPhone: null }, ACTOR);
+    const auth = `Basic ${Buffer.from(`alert-test-operator:${password}`).toString('base64')}`;
+    const res = await watchSettingsRoute(new Request('http://hub.local/api/foodhub/watch/settings', { headers: { authorization: auth } }), {});
+    expect(await res.json()).toMatchObject({ screenAlertPhoneConfigured: false, settings: { screenAlertPhone: null } });
   });
 });
 

@@ -89,20 +89,36 @@ export async function saveWatchSettings(patch: Partial<WatchSettings>, actor: Ac
 
 // ---------- incidents store ----------
 
+function visibleIncident({ successorDetection: _reserved, ...incident }: Incident): Incident {
+  return incident;
+}
+
 export async function listIncidents(filter: { status?: IncidentStatus[]; since?: string; limit?: number; locationCodes?: string[] } = {}): Promise<Incident[]> {
   let list = (await getRepo().listDocs<Incident>(INCIDENTS, { since: filter.since, limit: filter.limit ?? 500 })).map((d) => d.data);
   if (filter.status?.length) list = list.filter((i) => filter.status!.includes(i.status));
   if (filter.locationCodes?.length) list = list.filter((i) => !i.locationCode || filter.locationCodes!.includes(i.locationCode));
-  return list.sort((a, b) => SEV[b.severity] - SEV[a.severity] || b.openedAt.localeCompare(a.openedAt));
+  return list.map(visibleIncident).sort((a, b) => SEV[b.severity] - SEV[a.severity] || b.openedAt.localeCompare(a.openedAt));
 }
 
 export async function getIncident(id: string): Promise<Incident | null> {
-  return (await getRepo().getDoc<Incident>(INCIDENTS, id))?.data ?? null;
+  const doc = await getRepo().getDoc<Incident>(INCIDENTS, id);
+  return doc ? structuredClone(doc.data) : null;
 }
 
-async function saveIncident(i: Incident) {
-  await getRepo().putDocs<Incident>(INCIDENTS, [{ id: i.id, key: i.key, at: i.openedAt, data: i }]);
-  return i;
+function incidentDoc(i: Incident) {
+  return { id: i.id, key: i.key, at: i.openedAt, data: i };
+}
+
+async function saveIncident(i: Incident): Promise<boolean> {
+  const repo = getRepo();
+  if (SHARED_PHONE_KINDS.includes(i.kind)) {
+    const revision = crypto.randomUUID();
+    if (!(await repo.replaceDocIfRevision(INCIDENTS, incidentDoc({ ...i, revision }), i.revision))) return false;
+    i.revision = revision;
+  } else {
+    await repo.putDocs(INCIDENTS, [incidentDoc(i)]);
+  }
+  return true;
 }
 
 // ---------- detection ----------
@@ -430,6 +446,7 @@ function callText(i: Incident, lang: 'fr' | 'en') {
 const SHARED_PHONE_KINDS: IncidentKind[] = ['device_offline', 'screen_down', 'screen_waiting'];
 const KITCHEN_KINDS: IncidentKind[] = ['order_unaccepted', 'order_unseen', 'device_offline', 'device_muted', 'screen_down', 'screen_waiting', 'courier_waiting', 'pos_failed'];
 const FIRST_SCREEN_CALL_NEEDS_VOICE = 'Premier appel en attente de la configuration de Twilio Voice. / First call pending until Twilio Voice is configured.';
+const FIRST_SCREEN_CALL_RESERVED = 'Premier appel déjà réservé. Vérifiez le journal des messages pour connaître le résultat. / First call already reserved. Check the message log for its outcome.';
 
 /** The first destination for an incident that can be handled by the kitchen. */
 export function firstAlertCallTarget(kind: IncidentKind, sharedPhone: string | null, kitchenPhone?: string): { to: string; purpose: 'alert_shared_screen' | 'alert_kitchen' } | null {
@@ -440,7 +457,7 @@ export function firstAlertCallTarget(kind: IncidentKind, sharedPhone: string | n
 }
 
 async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now: number, quiet: boolean, kitchenPhones: Map<string, string> = new Map()): Promise<boolean> {
-  if (i.status !== 'open') return false;
+  if (i.status !== 'open' || i.awaitingFreshDetection) return false;
   const rule = s.rules[i.kind] ?? { enabled: true, escalate: false };
   if (!rule.escalate || i.severity === 'info') return false;
   if (quiet && i.severity !== 'critical') return false;
@@ -479,7 +496,13 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
       } else {
         if (i.screenFirstCallPending) { delete i.screenFirstCallPending; changed = true; }
         if (claimed) await call(target.to, target.purpose === 'alert_shared_screen' ? 'screen hotline' : i.locationCode ?? 'kitchen', 'fr', target.purpose);
-        else called.add(normalizePhone(target.to) ?? target.to);
+        else {
+          called.add(normalizePhone(target.to) ?? target.to);
+          if (!i.steps.some((entry) => entry.kind === 'note' && entry.message === FIRST_SCREEN_CALL_RESERVED)) {
+            i.steps.push({ at: new Date(now).toISOString(), kind: 'note', by: 'Watchtower', message: FIRST_SCREEN_CALL_RESERVED });
+            changed = true;
+          }
+        }
       }
     } else if (screenAlert) {
       if (!i.screenFirstCallPending) { i.screenFirstCallPending = true; changed = true; }
@@ -528,6 +551,16 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
 
 export interface WatchReport { at: string; trigger: string; ran: boolean; detections: number; opened: number; updated: number; resolved: number; escalated: number; open: number }
 
+function canReopenIncident(i: Incident, now: number): boolean {
+  return i.status === 'resolved' && !i.successorReserved && i.resolvedBy === 'auto' && Boolean(i.resolvedAt) && now - Date.parse(i.resolvedAt!) < 10 * 60_000;
+}
+
+/** Concurrent readers of the same predecessor must try the same insert before any call. */
+function nextScreenIncidentId(key: string, predecessorId?: string): string {
+  const hash = crypto.createHash('sha256').update(JSON.stringify([key, predecessorId ?? null])).digest('hex');
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-8${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+}
+
 export async function runWatch(opts: { trigger?: string; force?: boolean; now?: number } = {}): Promise<WatchReport> {
   const now = opts.now ?? Date.now();
   const repo = getRepo();
@@ -544,9 +577,15 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
     const report = empty(true);
     const detections = await detect(s, now);
     report.detections = detections.length;
-    const all = (await repo.listDocs<Incident>(INCIDENTS, { since: new Date(now - 3 * 86400_000).toISOString(), limit: 2000 })).map((d) => d.data);
-    const live = new Map(all.filter((i) => i.status !== 'resolved').map((i) => [i.key, i]));
-    const recentlyResolved = new Map(all.filter((i) => i.status === 'resolved' && i.resolvedAt && now - Date.parse(i.resolvedAt) < 10 * 60_000 && i.resolvedBy === 'auto').map((i) => [i.key, i]));
+    const [recentDocs, activeScreenDocs] = await Promise.all([
+      repo.listDocs<Incident>(INCIDENTS, { since: new Date(now - 3 * 86400_000).toISOString(), limit: 2000 }),
+      repo.listDocs<Incident>(INCIDENTS, { kinds: SHARED_PHONE_KINDS, statuses: ['open', 'acknowledged', 'snoozed'], limit: 2000 }),
+    ]);
+    const all = recentDocs.map((d) => d.data);
+    const live = new Map(all.filter((i) => i.status !== 'resolved' && !SHARED_PHONE_KINDS.includes(i.kind)).map((i) => [i.key, i]));
+    for (const { data } of activeScreenDocs) if (!live.has(data.key)) live.set(data.key, structuredClone(data));
+    const newest = new Map([...all].reverse().map((i) => [i.key, i.id]));
+    const recentlyResolved = new Map(all.filter((i) => canReopenIncident(i, now)).map((i) => [i.key, i]));
     const seen = new Set<string>();
     const iso = new Date(now).toISOString();
     const fresh: Incident[] = [];
@@ -554,8 +593,33 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
 
     for (const d of detections) {
       seen.add(d.key);
-      const cur = live.get(d.key) ?? recentlyResolved.get(d.key);
+      const screenIncident = SHARED_PHONE_KINDS.includes(d.kind);
+      let cur = live.get(d.key) ?? recentlyResolved.get(d.key);
+      let predecessorId = cur?.id;
+      let resolvedPredecessor: Incident | undefined;
+      if (screenIncident && (!cur || cur.status === 'resolved' || newest.get(d.key) !== cur.id)) {
+        const [previous] = await repo.listDocs<Incident>(INCIDENTS, { keys: [d.key], limit: 1 });
+        const latest = previous?.data;
+        predecessorId = latest?.id;
+        cur = latest && (latest.status !== 'resolved' || canReopenIncident(latest, now)) ? structuredClone(latest) : undefined;
+        // A more recent worker may already have resolved the outage after this observation.
+        if (latest && (latest.updatedAt > iso || (latest.resolvedAt && latest.resolvedAt >= iso))) continue;
+        if (!cur && latest?.status === 'resolved') resolvedPredecessor = latest;
+      }
+      if (screenIncident && cur && cur.updatedAt > iso) continue;
       if (cur) {
+        if (cur.awaitingFreshDetection) {
+          if ((cur.locationCode ?? null) !== (d.locationCode ?? null)) {
+            Object.assign(cur, { status: 'resolved', resolvedAt: iso, resolvedBy: 'Watchtower', updatedAt: iso });
+            cur.steps.push({ at: iso, kind: 'resolved', by: 'Watchtower', message: 'Appareil réaffecté à une autre cuisine. / Device reassigned to another kitchen.' });
+            live.set(d.key, cur);
+            dirty.set(cur.id, cur);
+            report.resolved++;
+            continue;
+          }
+          cur.severity = d.severity;
+          delete cur.awaitingFreshDetection;
+        }
         const up = SEV[d.severity] > SEV[cur.severity];
         const reopened = cur.status === 'resolved';
         const unsnoozed = cur.status === 'snoozed' && cur.snoozedUntil && Date.parse(cur.snoozedUntil) <= now;
@@ -564,16 +628,29 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
         if (up) { cur.severity = d.severity; cur.count += 1; if (cur.status === 'acknowledged') { cur.status = 'open'; cur.steps.push({ at: iso, kind: 'reopened', message: 'Plus grave — réouvert / Got worse — reopened' }); } }
         if (reopened) { cur.status = 'open'; cur.resolvedAt = null; cur.resolvedBy = null; cur.steps.push({ at: iso, kind: 'reopened', message: 'Le problème est revenu / Problem came back' }); }
         if (unsnoozed) { cur.status = 'open'; cur.snoozedUntil = null; cur.steps.push({ at: iso, kind: 'reopened', message: 'Fin de la sourdine / Snooze ended' }); }
+        if (screenIncident) live.set(d.key, cur);
         dirty.set(cur.id, cur);
         report.updated++;
       } else {
         const p = PLAYBOOK[d.kind];
         const i: Incident = {
-          id: crypto.randomUUID(), key: d.key, kind: d.kind, severity: d.severity, status: 'open', title: d.title, titleEn: d.titleEn, detail: d.detail, detailEn: d.detailEn,
+          id: screenIncident ? nextScreenIncidentId(d.key, predecessorId) : crypto.randomUUID(), key: d.key, kind: d.kind, severity: d.severity, status: 'open', title: d.title, titleEn: d.titleEn, detail: d.detail, detailEn: d.detailEn,
           locationCode: d.locationCode ?? null, brandName: d.brandName ?? null, channel: d.channel ?? null, orderId: d.orderId ?? null, storeId: d.storeId ?? null, deviceId: d.deviceId ?? null,
           openedAt: iso, updatedAt: iso, lastSeenAt: iso, level: 0, steps: [{ at: iso, kind: 'opened', message: KIND_LABEL[d.kind].fr }],
           explanation: `${p.fr}\n\n${p.en}`, suggestions: p.doFr, customer: d.customer ?? null, count: 1,
         };
+        if (screenIncident) {
+          // A manual reopen and the next generation compete on the last resolved record's revision.
+          // The reservation survives a failed insert, so a later tick can use the same successor ID.
+          if (resolvedPredecessor && !resolvedPredecessor.successorReserved) {
+            const { severity, title, titleEn, detail, detailEn, locationCode, brandName, channel, orderId, storeId, deviceId, lastSeenAt } = i;
+            const successorDetection = { severity, title, titleEn, detail, detailEn, locationCode, brandName, channel, orderId, storeId, deviceId, lastSeenAt };
+            if (!(await saveIncident({ ...resolvedPredecessor, successorReserved: true, successorDetection }))) continue;
+          }
+          i.revision = crypto.randomUUID();
+          // The winner will escalate. A loser defers to the persisted row on the next pass.
+          if (!(await repo.insertDocIfAbsent(INCIDENTS, incidentDoc(i)))) continue;
+        }
         fresh.push(i);
         dirty.set(i.id, i);
         report.opened++;
@@ -582,6 +659,7 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
     // Problems that went away close by themselves.
     for (const i of live.values()) {
       if (seen.has(i.key)) continue;
+      if (SHARED_PHONE_KINDS.includes(i.kind) && i.updatedAt > iso) continue;
       Object.assign(i, { status: 'resolved', resolvedAt: iso, resolvedBy: 'auto', updatedAt: iso });
       i.steps.push({ at: iso, kind: 'resolved', by: 'auto', message: 'Réglé / Fixed' });
       dirty.set(i.id, i);
@@ -617,9 +695,15 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
     const quiet = inQuietHours(s, now, foodhubTimeZone());
     const users = await repo.listUsers();
     const kitchenPhones = new Map((await getCatalog()).locations.filter((l) => l.phone).map((l) => [l.code, l.phone!] as const));
-    for (const i of dirty.values()) if (await escalate(i, s, users, now, quiet, kitchenPhones)) report.escalated++;
+    for (const i of dirty.values()) {
+      const screenIncident = SHARED_PHONE_KINDS.includes(i.kind);
+      // Persist the current status before escalation. A late writer must not overwrite a resolution or send from a stale snapshot.
+      if (screenIncident && !(await saveIncident(i))) { dirty.delete(i.id); continue; }
+      if (await escalate(i, s, users, now, quiet, kitchenPhones)) report.escalated++;
+      else if (screenIncident) dirty.delete(i.id);
+    }
     // Open incidents not touched this run can still need the next escalation step.
-    for (const i of live.values()) if (!dirty.has(i.id) && (await escalate(i, s, users, now, quiet, kitchenPhones))) dirty.set(i.id, i);
+    for (const i of live.values()) if (!SHARED_PHONE_KINDS.includes(i.kind) && !dirty.has(i.id) && (await escalate(i, s, users, now, quiet, kitchenPhones))) dirty.set(i.id, i);
 
     for (const i of dirty.values()) await saveIncident(i);
     for (const i of fresh.filter((x) => x.severity === 'critical')) {
@@ -639,27 +723,67 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
 
 // ---------- people actions ----------
 
+export class SupersededIncidentError extends Error {}
+
+/** Recover the same reserved generation an interrupted Watchtower run would have inserted. */
+function reservedSuccessor(i: Incident, iso: string): Incident {
+  const detection = i.successorDetection;
+  if (!detection || (detection.locationCode ?? null) !== (i.locationCode ?? null)) {
+    throw new SupersededIncidentError('Vérifiez l’alerte depuis la cuisine de destination. / Review the alert from the destination kitchen.');
+  }
+  const p = PLAYBOOK[i.kind];
+  return {
+    ...detection, id: nextScreenIncidentId(i.key, i.id), key: i.key, kind: i.kind, status: 'open',
+    explanation: `${p.fr}\n\n${p.en}`, suggestions: p.doFr,
+    openedAt: iso, updatedAt: iso, revision: crypto.randomUUID(), level: 0, count: 1, awaitingFreshDetection: true,
+    steps: [{ at: iso, kind: 'opened', message: KIND_LABEL[i.kind].fr }],
+  };
+}
+
+async function changeIncident(id: string, apply: (i: Incident) => void | Incident | Promise<void | Incident>): Promise<Incident | null> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const i = await getIncident(id);
+    if (!i) return null;
+    const materialized = await apply(i);
+    if (materialized) return materialized;
+    if (await saveIncident(i)) return i;
+  }
+  throw new Error('Watchtower incident changed while saving. Try again.');
+}
+
 export async function actOnIncident(id: string, action: 'ack' | 'resolve' | 'snooze' | 'note' | 'reopen', actor: Actor, opts: { minutes?: number; note?: string } = {}): Promise<Incident | null> {
-  const i = await getIncident(id);
-  if (!i) return null;
   const iso = new Date().toISOString();
-  if (action === 'ack') { if (i.status === 'open' || i.status === 'snoozed') Object.assign(i, { status: 'acknowledged', ackBy: actor.name, ackAt: iso }); i.steps.push({ at: iso, kind: 'ack', by: actor.name, message: 'Pris en charge / On it' }); }
-  if (action === 'resolve') { Object.assign(i, { status: 'resolved', resolvedAt: iso, resolvedBy: actor.name }); i.steps.push({ at: iso, kind: 'resolved', by: actor.name, message: opts.note || 'Réglé / Fixed' }); }
-  if (action === 'snooze') { const m = Math.max(5, Math.min(240, Math.round(opts.minutes ?? 30))); Object.assign(i, { status: 'snoozed', snoozedUntil: new Date(Date.now() + m * 60_000).toISOString() }); i.steps.push({ at: iso, kind: 'snooze', by: actor.name, message: `Sourdine ${m} min / Snoozed ${m} min` }); }
-  if (action === 'reopen') { Object.assign(i, { status: 'open', resolvedAt: null, resolvedBy: null, snoozedUntil: null }); i.steps.push({ at: iso, kind: 'reopened', by: actor.name }); }
-  if (action === 'note' && opts.note) i.steps.push({ at: iso, kind: 'note', by: actor.name, message: opts.note.slice(0, 500) });
-  i.updatedAt = iso;
-  await saveIncident(i);
-  if (action !== 'note') await logActivity({ actor: actor.name, source: actor.source, kind: 'incident', action: `incident_${action}`, status: 'success', locationCode: i.locationCode, orderId: i.orderId, summary: `${actor.name}: ${action} — ${i.titleEn}` });
-  return i;
+  const i = await changeIncident(id, async (original) => {
+    let current = original;
+    if (SHARED_PHONE_KINDS.includes(current.kind) && current.status === 'resolved' && (action === 'reopen' || action === 'snooze')) {
+      const [latest] = await getRepo().listDocs<Incident>(INCIDENTS, { keys: [current.key], limit: 1 });
+      if (latest?.id !== current.id) {
+        throw new SupersededIncidentError('Une alerte plus récente prend le relais. / A newer alert has taken over.');
+      }
+      if (current.successorReserved) current = reservedSuccessor(current, iso);
+    }
+    if (action === 'ack') { if (current.status === 'open' || current.status === 'snoozed') Object.assign(current, { status: 'acknowledged', ackBy: actor.name, ackAt: iso }); current.steps.push({ at: iso, kind: 'ack', by: actor.name, message: 'Pris en charge / On it' }); }
+    if (action === 'resolve') { Object.assign(current, { status: 'resolved', resolvedAt: iso, resolvedBy: actor.name }); current.steps.push({ at: iso, kind: 'resolved', by: actor.name, message: opts.note || 'Réglé / Fixed' }); }
+    if (action === 'snooze') { const m = Math.max(5, Math.min(240, Math.round(opts.minutes ?? 30))); Object.assign(current, { status: 'snoozed', snoozedUntil: new Date(Date.now() + m * 60_000).toISOString() }); current.steps.push({ at: iso, kind: 'snooze', by: actor.name, message: `Sourdine ${m} min / Snoozed ${m} min` }); }
+    if (action === 'reopen') { Object.assign(current, { status: 'open', resolvedAt: null, resolvedBy: null, snoozedUntil: null }); current.steps.push({ at: iso, kind: 'reopened', by: actor.name }); }
+    if (action === 'note' && opts.note) current.steps.push({ at: iso, kind: 'note', by: actor.name, message: opts.note.slice(0, 500) });
+    current.updatedAt = iso;
+    if (current !== original) {
+      if (!(await getRepo().insertDocIfAbsent(INCIDENTS, incidentDoc(current)))) {
+        throw new SupersededIncidentError('Une alerte plus récente prend le relais. / A newer alert has taken over.');
+      }
+      return current;
+    }
+  });
+  if (i && action !== 'note') await logActivity({ actor: actor.name, source: actor.source, kind: 'incident', action: `incident_${action}`, status: 'success', locationCode: i.locationCode, orderId: i.orderId, summary: `${actor.name}: ${action} — ${i.titleEn}` });
+  return i && visibleIncident(i);
 }
 
 export async function addIncidentStep(id: string, step: Incident['steps'][number]): Promise<void> {
-  const i = await getIncident(id);
-  if (!i) return;
-  i.steps.push(step);
-  i.updatedAt = new Date().toISOString();
-  await saveIncident(i);
+  await changeIncident(id, (i) => {
+    i.steps.push(step);
+    i.updatedAt = new Date().toISOString();
+  });
 }
 
 export function isOpenStatus(s: IncidentStatus) { return s === 'open' || s === 'acknowledged'; }

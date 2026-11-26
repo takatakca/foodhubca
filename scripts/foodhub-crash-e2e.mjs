@@ -15,9 +15,10 @@
 //      KILLED (SIGKILL to its process group / taskkill /F /T) and restarted on the same database: the recovery runner
 //      must process the saved webhook — exactly ONE order row, ONE Clover order, ONE kitchen ticket, ONE Uber accept;
 //   2. lets a second order finish, kills the server, restarts it: nothing is processed again.
+//   3. forces two workers to read the same empty screen-incident snapshots: one durable row and one simulated first call.
 // FOODHUB_E2E_INBOX_STUCK_MS (same guard) makes "interrupted" mean 3 s instead of 2 minutes so the check is quick.
 import { spawn, spawnSync } from 'node:child_process';
-import { APP, APP_PORT, MOCK_PORT, appEnv, call, log, mock, sleep, uberWebhook, waitFor } from './e2e/platform-mock.mjs';
+import { APP, APP_PORT, MOCK_PORT, SCREENS_TOKEN, appEnv, basic, call, log, mock, sleep, uberWebhook, waitFor } from './e2e/platform-mock.mjs';
 import { startRestProxy } from './e2e/postgrest.mjs';
 
 const REST = String(process.env.FOODHUB_CRASH_POSTGREST_URL || '').replace(/\/+$/, '');
@@ -35,6 +36,7 @@ if (!['127.0.0.1', 'localhost', '[::1]'].includes(new URL(REST).hostname)) {
 
 const STUCK_MS = 3000; // "interrupted" after 3 s in this check (2 minutes in real life)
 const PROXY_PORT = Number(process.env.FOODHUB_CRASH_PROXY_PORT) || APP_PORT + 1;
+const SECOND_WORKER_PORT = Math.max(APP_PORT, MOCK_PORT, PROXY_PORT) + 1;
 const RUN = Date.now().toString(36); // order ids unique per run, in case the same database is used twice
 
 let passed = 0; let failed = 0;
@@ -65,6 +67,7 @@ const uberFetches = (mark, id) => since(mark, 'GET', new RegExp(`/uber/v2/eats/o
 // ---- the app process: start, hard kill, restart ----
 let appLog = '';
 let app = null;
+let secondWorker = null;
 const baseEnv = appEnv();
 for (const k of ['FOODHUB_FORCE_MEMORY', 'SUPABASE_URL', 'FOODHUB_E2E_PROCESS_DELAY_MS', 'FOODHUB_E2E_INBOX_STUCK_MS']) delete baseEnv[k];
 Object.assign(baseEnv, {
@@ -75,8 +78,8 @@ Object.assign(baseEnv, {
   FOODHUB_WATCH_INTERVAL_S: '0', // no server timer unless a step turns it on (the restarts do)
 });
 
-function startApp(label, extra = {}) {
-  const proc = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '-p', String(APP_PORT), '-H', '127.0.0.1'], {
+function startApp(label, extra = {}, port = APP_PORT) {
+  const proc = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '-p', String(port), '-H', '127.0.0.1'], {
     env: { ...baseEnv, ...extra },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: process.platform !== 'win32', // its own process group, so SIGKILL reaches every child
@@ -86,7 +89,7 @@ function startApp(label, extra = {}) {
   proc.stderr.on('data', keep);
   return proc;
 }
-const appUp = () => waitFor(async () => { try { return (await fetch(`${APP}/api/foodhub/channels`)).status > 0; } catch { return false; } }, 60_000);
+const appUp = (origin = APP) => waitFor(async () => { try { return [200, 401].includes((await fetch(`${origin}/api/foodhub/channels`)).status); } catch { return false; } }, 60_000);
 const appDown = () => waitFor(async () => { try { await fetch(`${APP}/api/foodhub/channels`); return false; } catch { return true; } }, 15_000);
 
 /** The crash: no shutdown hook, no after() callback, nothing gets to finish. */
@@ -100,7 +103,15 @@ async function hardKill(proc) {
 
 // ---------------- run ----------------
 await new Promise((r) => mock.listen(MOCK_PORT, '127.0.0.1', r));
-const proxy = await startRestProxy({ target: REST, port: PROXY_PORT });
+let incidentReadBarrier;
+let canonicalReadBarrier;
+const proxy = await startRestProxy({ target: REST, port: PROXY_PORT, beforeResponse(method, path) {
+  if (method !== 'GET') return;
+  const url = new URL(path, REST);
+  if (url.pathname !== '/fh_docs' || url.searchParams.get('collection') !== 'eq.incidents') return;
+  if (url.searchParams.get('key')?.includes('screen_down:s01')) return canonicalReadBarrier?.();
+  if (url.searchParams.has('at') && !url.searchParams.has('key')) return incidentReadBarrier?.();
+} });
 baseEnv.NEXT_PUBLIC_SUPABASE_URL = proxy.url;
 
 try {
@@ -173,13 +184,80 @@ try {
   const afterCounts = { rows: (await orderRows(done)).length, clover: cloverOrders(mark2).length, prints: prints(mark2).length, accepts: uberAccepts(mark2, done).length };
   check('still exactly ONE order row, ONE Clover order, ONE ticket, ONE Uber accept', Object.values(afterCounts).every((n) => n === 1), JSON.stringify(afterCounts));
 
+  console.log('\n3. Two Watchtower workers see the same screen outage at the same time');
+  await hardKill(app); app = null;
+  await appDown();
+  const workerEnv = { FOODHUB_SCREENS_VIEW_HOSTS: 'screens.e2e.test', FOODHUB_INTERNAL_SYNC_MIN: '0' };
+  app = startApp('watch-1', workerEnv);
+  secondWorker = startApp('watch-2', workerEnv, SECOND_WORKER_PORT);
+  const secondary = `http://127.0.0.1:${SECOND_WORKER_PORT}`;
+  check('two fresh worker processes start on the same database', (await Promise.all([appUp(), appUp(secondary)])).every(Boolean));
+  const location = 'TEST_WATCH';
+  const phone = '+15145550124';
+  await call('POST', '/api/foodhub/catalog', { body: { location: { code: location, name: 'Watch fixture', active: true } } });
+  const week = Object.fromEntries(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+    .map((day) => [day, [{ open: '00:00', close: '23:59' }]]));
+  await call('PUT', '/api/foodhub/hours', { body: { hours: { locations: { [location]: week }, brands: {}, holidays: [] } } });
+  const settings = await call('PUT', '/api/foodhub/watch/settings', { body: { settings: {
+    enabled: true, smsAfterMin: 0, screenAlertPhone: phone, postToChat: false, aiExplain: false,
+  } } });
+  const setup = await call('POST', '/api/foodhub/screens/setup', { body: {
+    baseUrl: 'https://screens.e2e.test', locationCode: location, counts: { skip: 1 },
+  } });
+  const heartbeat = await call('POST', '/api/foodhub/screens/heartbeat', {
+    auth: false, headers: { authorization: `Bearer ${SCREENS_TOKEN}` },
+    body: { version: 'watch-pg-e2e', screens: [{ id: 's01', state: 'login' }] },
+  });
+  const screenKey = 'screen_down:s01';
+  const screenIncidents = () => rest(`fh_docs?collection=eq.incidents&key=eq.${q(screenKey)}&select=id,data`);
+  check('test screen needs sign-in, the zero-minute phone is configured, and no prior incident exists',
+    settings.json?.settings?.smsAfterMin === 0 && settings.json.settings.screenAlertPhone === phone
+    && setup.json?.created === 1 && heartbeat.status === 200 && (await screenIncidents()).length === 0);
+
+  // Hold the first incident snapshot response for each worker until both PostgreSQL reads have completed.
+  let releaseReaders;
+  const bothRead = new Promise((resolve) => { releaseReaders = resolve; });
+  let readers = 0;
+  incidentReadBarrier = () => {
+    if (++readers === 2) { incidentReadBarrier = undefined; releaseReaders(); }
+    return bothRead;
+  };
+  let releaseCanonical;
+  const bothReadCanonical = new Promise((resolve) => { releaseCanonical = resolve; });
+  let canonicalReaders = 0;
+  canonicalReadBarrier = () => {
+    if (++canonicalReaders === 2) { canonicalReadBarrier = undefined; releaseCanonical(); }
+    return bothReadCanonical;
+  };
+  const readDeadline = setTimeout(() => { releaseReaders(); releaseCanonical(); }, 8_000);
+  const mark3 = log.length;
+  try {
+    const checks = await Promise.all([APP, secondary].map(async (origin) => {
+      const response = await fetch(`${origin}/api/foodhub/watch/run`, {
+        method: 'POST', headers: { authorization: basic }, signal: AbortSignal.timeout(20_000),
+      });
+      return (await response.json()).report;
+    }));
+    check('both workers reached their original incident read before either proceeded', readers === 2 && canonicalReaders === 2 && checks.every((report) => report?.ran), JSON.stringify({ readers, canonicalReaders }));
+  } finally {
+    clearTimeout(readDeadline);
+    releaseReaders();
+    releaseCanonical();
+    incidentReadBarrier = canonicalReadBarrier = undefined;
+  }
+  const incidents = await screenIncidents();
+  const calls = since(mark3, 'POST', /Calls\.json$/).filter((entry) => new URLSearchParams(entry.body).get('To') === phone);
+  check('one active screen incident in PostgreSQL and one request to simulated Twilio',
+    incidents.length === 1 && incidents[0]?.data.status === 'open' && calls.length === 1,
+    JSON.stringify({ activeIncidents: incidents.filter((entry) => entry.data.status === 'open').length, simulatedCalls: calls.length }));
+
   const crashes = appLog.split('\n').filter((l) => /\[foodhub\] .* failed|Unhandled|TypeError|ReferenceError/.test(l) && !/kept in the inbox/.test(l));
-  check('no background job crashed in any of the four boots', crashes.length === 0, crashes.slice(0, 3).join(' | '));
+  check('no background job crashed during the checks', crashes.length === 0, crashes.slice(0, 3).join(' | '));
 } catch (e) {
   failed += 1;
   console.log(`  FAIL  the check itself stopped: ${e instanceof Error ? e.stack : e}`);
 } finally {
-  await hardKill(app);
+  await Promise.all([hardKill(app), hardKill(secondWorker)]);
   mock.close();
   await proxy.close();
 }

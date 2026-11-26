@@ -3,7 +3,7 @@ import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { maskContact, sendSms } from '@/lib/foodhub/notify';
 import { getRepo } from '@/lib/foodhub/repo';
 import { customerContact } from '@/lib/foodhub/watch/customer';
-import { actOnIncident, addIncidentStep, getIncident, listIncidents } from '@/lib/foodhub/watch/engine';
+import { actOnIncident, addIncidentStep, getIncident, listIncidents, SupersededIncidentError } from '@/lib/foodhub/watch/engine';
 import type { IncidentStatus } from '@/lib/foodhub/watch/types';
 
 export const dynamic = 'force-dynamic';
@@ -43,6 +43,11 @@ export const POST = withPerm('orders:act', async (req, _ctx, actor) => {
     return r.ok ? ok({ result: r }) : fail(r.message, 502);
   }
   if (!['ack', 'resolve', 'snooze', 'note', 'reopen'].includes(action)) return fail('action must be ack, resolve, snooze, note, reopen or customer_sms');
-  const i = await actOnIncident(inc.id, action as 'ack', actor, { minutes: Number(b.minutes) || undefined, note: b.note ? String(b.note) : undefined });
-  return ok({ incident: i });
+  try {
+    const i = await actOnIncident(inc.id, action as 'ack', actor, { minutes: Number(b.minutes) || undefined, note: b.note ? String(b.note) : undefined });
+    return ok({ incident: i });
+  } catch (error) {
+    if (error instanceof SupersededIncidentError) return fail(error.message, 409);
+    throw error;
+  }
 });

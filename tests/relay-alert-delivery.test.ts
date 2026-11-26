@@ -1,17 +1,20 @@
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET as cronWatch } from '../app/api/foodhub/cron/watch/route';
+import { POST as incidentAction } from '../app/api/foodhub/incidents/route';
 import { GET as callStatus } from '../app/api/foodhub/messages/call-status/route';
 import { GET as messages } from '../app/api/foodhub/messages/route';
 import { POST as heartbeat } from '../app/api/foodhub/screens/heartbeat/route';
 import type { Actor } from '../lib/foodhub/activity';
+import { hashPassword } from '../lib/foodhub/auth';
 import { saveLocation } from '../lib/foodhub/catalog';
 import { allDayWeek, saveHours } from '../lib/foodhub/hours';
 import type { OutboxEntry } from '../lib/foodhub/notify';
 import type { CallStatus } from '../lib/foodhub/notify/call-status';
-import { getRepo } from '../lib/foodhub/repo';
+import { getRepo, type Doc } from '../lib/foodhub/repo';
 import { addScreen, getScreen, updateScreen, type Heartbeat, type ScreenPlatform } from '../lib/foodhub/screens';
-import { INCIDENTS, actOnIncident, getIncident, listIncidents, saveWatchSettings, type WatchReport } from '../lib/foodhub/watch/engine';
+import { INCIDENTS, actOnIncident, getIncident, listIncidents, runWatch, saveWatchSettings, type WatchReport } from '../lib/foodhub/watch/engine';
+import type { Incident } from '../lib/foodhub/watch/types';
 
 const BASE = 'https://hub.example.test/api/foodhub';
 const RELAY_TOKEN = 'test-relay-token-for-alert-delivery';
@@ -105,6 +108,431 @@ describe('Screen relay alerts without a console open', () => {
   ]);
 
   const offlineScreen = { platform: 'skip' as const, kind: 'screen_down', detectedAt: 6 };
+
+  function gate() {
+    let resolve!: () => void;
+    const promise = new Promise<void>((done) => { resolve = done; });
+    return { promise, resolve };
+  }
+
+  async function prepareZeroMinuteScreenCall() {
+    await saveLocation({ code: KITCHEN, name: 'Test kitchen', address: '', active: true });
+    await saveHours({ locations: { [KITCHEN]: allDayWeek() }, brands: {}, holidays: [] });
+    await saveWatchSettings({ enabled: true, screenAlertPhone: SHARED_PHONE, smsAfterMin: 0, postToChat: false, aiExplain: false }, OWNER);
+    const screen = await addScreen({ name: 'Test platform screen', platform: 'skip', locationCode: KITCHEN, viewUrl: 'https://relay.example.test/s01/' }, OWNER);
+    if ('error' in screen) throw new Error(screen.error);
+    await reportScreen(screen.id, 'skip', 0);
+    advanceTo(6);
+    return screen.id;
+  }
+
+  it('does not redial a zero-minute screen call after interruption saving its incident', async () => {
+    await prepareZeroMinuteScreenCall();
+    fetchMock.mockImplementation(async () => Response.json({ sid: CALL_SID, status: 'queued' }, { status: 201 }));
+    const repo = getRepo();
+    const replaceDoc = repo.replaceDocIfRevision.bind(repo);
+    const save = vi.spyOn(repo, 'replaceDocIfRevision').mockImplementation(async (collection, doc, expected) => {
+      if (collection === INCIDENTS && (doc.data as Incident).steps.some((step) => step.kind === 'call')) {
+        throw new Error('Synthetic interruption persisting the incident after its call');
+      }
+      return replaceDoc(collection, doc, expected);
+    });
+    try {
+      expect((await cronRequest()).status).toBe(500);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      save.mockRestore();
+    }
+
+    advanceTo(7);
+    await runCron();
+    const evidence = (await readOutbox()).filter((entry) => entry.channel === 'call');
+    expect(evidence.map((entry) => entry.incidentId)).toEqual([evidence[0]?.incidentId]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(await listIncidents({ status: ['open'] })).toHaveLength(1);
+  });
+
+  it('does not redial a zero-minute screen call during an overlapping Watchtower tick', async () => {
+    await prepareZeroMinuteScreenCall();
+    const whenFirstCallStarts = gate();
+    const letFirstCallFinish = gate();
+    fetchMock.mockImplementationOnce(async () => {
+      whenFirstCallStarts.resolve();
+      await letFirstCallFinish.promise;
+      return Response.json({ sid: CALL_SID, status: 'queued' }, { status: 201 });
+    }).mockResolvedValueOnce(Response.json({ sid: `CA${'3'.repeat(32)}`, status: 'queued' }, { status: 201 }));
+    const firstTick = runWatch({ trigger: 'timer' });
+    try {
+      await whenFirstCallStarts.promise;
+      expect(await runWatch({ trigger: 'manual', force: true, now: Date.now() + 59_000 })).toMatchObject({ ran: false });
+      advanceTo(7);
+      await runWatch({ trigger: 'manual', force: true });
+    } finally {
+      letFirstCallFinish.resolve();
+      await firstTick;
+    }
+
+    const evidence = (await readOutbox()).filter((entry) => entry.channel === 'call');
+    expect(evidence.map((entry) => entry.incidentId)).toEqual([evidence[0]?.incidentId]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(await listIncidents({ status: ['open'] })).toHaveLength(1);
+  });
+
+  it.each(['recent', 'exact'] as const)('coordinates the zero-minute call when overlapping ticks both read no incident in the %s query', async (query) => {
+    await prepareZeroMinuteScreenCall();
+    fetchMock.mockImplementation(async () => Response.json({ sid: CALL_SID, status: 'queued' }, { status: 201 }));
+    const snapshotRead = gate();
+    const releaseSnapshot = gate();
+    const repo = getRepo();
+    const originalListDocs = repo.listDocs.bind(repo);
+    let firstIncidentRead = true;
+    const listDocs = vi.spyOn(repo, 'listDocs').mockImplementation(async (collection, filter) => {
+      const snapshot = await originalListDocs(collection, filter);
+      const targetRead = query === 'exact' ? filter?.keys?.length : filter?.since;
+      if (collection === INCIDENTS && firstIncidentRead && targetRead) {
+        firstIncidentRead = false;
+        snapshotRead.resolve();
+        await releaseSnapshot.promise;
+      }
+      return snapshot;
+    });
+    const firstTick = runWatch({ trigger: 'timer' });
+    try {
+      await snapshotRead.promise;
+      advanceTo(7);
+      await runWatch({ trigger: 'manual', force: true });
+    } finally {
+      releaseSnapshot.resolve();
+      await firstTick;
+      listDocs.mockRestore();
+    }
+
+    const evidence = (await readOutbox()).filter((entry) => entry.channel === 'call');
+    expect(evidence.map((entry) => entry.incidentId)).toEqual([evidence[0]?.incidentId]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(await listIncidents({ status: ['open'] })).toHaveLength(1);
+  });
+
+  it('defers the zero-minute call when it cannot read the previous incident', async () => {
+    await prepareZeroMinuteScreenCall();
+    const repo = getRepo();
+    const originalListDocs = repo.listDocs.bind(repo);
+    const listDocs = vi.spyOn(repo, 'listDocs').mockImplementation(async (collection, filter) => {
+      if (collection === INCIDENTS && filter?.keys?.length) throw new Error('Synthetic incident lookup failure');
+      return originalListDocs(collection, filter);
+    });
+    try {
+      expect((await cronRequest()).status).toBe(500);
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      listDocs.mockRestore();
+    }
+
+    advanceTo(7);
+    fetchMock.mockResolvedValueOnce(Response.json({ sid: CALL_SID, status: 'queued' }, { status: 201 }));
+    expect(await runCron()).toMatchObject({ opened: 1, escalated: 1 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('recovers the same incident after the zero-minute allocation response is lost', async () => {
+    await prepareZeroMinuteScreenCall();
+    const repo = getRepo();
+    const originalInsert = repo.insertDocIfAbsent.bind(repo);
+    const insert = vi.spyOn(repo, 'insertDocIfAbsent').mockImplementationOnce(async (collection, doc) => {
+      await originalInsert(collection, doc);
+      throw new Error('Synthetic lost incident allocation response');
+    });
+    try {
+      expect((await cronRequest()).status).toBe(500);
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      insert.mockRestore();
+    }
+
+    const [allocated] = await listIncidents({ status: ['open'] });
+    advanceTo(7);
+    fetchMock.mockResolvedValueOnce(Response.json({ sid: CALL_SID, status: 'queued' }, { status: 201 }));
+    expect(await runCron()).toMatchObject({ opened: 0, escalated: 1 });
+    expect((await readOutbox()).map((entry) => entry.incidentId)).toEqual([allocated.id]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not reopen an operator-resolved incident when its zero-minute call comes back', async () => {
+    await prepareZeroMinuteScreenCall();
+    const enteredCall = gate();
+    const releaseCall = gate();
+    fetchMock.mockImplementationOnce(async () => {
+      enteredCall.resolve();
+      await releaseCall.promise;
+      return Response.json({ sid: CALL_SID, status: 'queued' }, { status: 201 });
+    });
+    const running = runWatch({ trigger: 'timer' });
+    let incidentId: string;
+    try {
+      await enteredCall.promise;
+      const [active] = await listIncidents({ status: ['open'] });
+      incidentId = active.id;
+      expect(await actOnIncident(incidentId, 'resolve', OWNER)).toMatchObject({ status: 'resolved' });
+    } finally {
+      releaseCall.resolve();
+      await running;
+    }
+
+    expect(await getIncident(incidentId)).toMatchObject({ status: 'resolved', resolvedBy: OWNER.name });
+    expect((await readOutbox()).map((entry) => entry.incidentId)).toEqual([incidentId]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves the zero-minute call across a short recovery and re-arms it for a later outage', async () => {
+    const screenId = await prepareZeroMinuteScreenCall();
+    fetchMock.mockImplementation(async () => Response.json({ sid: CALL_SID, status: 'queued' }, { status: 201 }));
+    expect(await runCron()).toMatchObject({ opened: 1, escalated: 1 });
+    const [original] = await listIncidents({ status: ['open'] });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    advanceTo(7);
+    await reportScreen(screenId, 'skip', 0);
+    expect(await runCron()).toMatchObject({ resolved: 1 });
+    advanceTo(13);
+    expect(await runCron()).toMatchObject({ opened: 0 });
+    expect(await listIncidents({ status: ['open'] })).toMatchObject([{ id: original.id }]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    advanceTo(14);
+    await reportScreen(screenId, 'skip', 0);
+    expect(await runCron()).toMatchObject({ resolved: 1 });
+    advanceTo(25);
+    expect(await runCron()).toMatchObject({ opened: 1, escalated: 1 });
+    const [newIncident] = await listIncidents({ status: ['open'] });
+    expect(newIncident.id).not.toBe(original.id);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('recovers a reserved zero-minute successor without reactivating its resolved predecessor', async () => {
+    const screenId = await prepareZeroMinuteScreenCall();
+    fetchMock.mockImplementation(async () => Response.json({ sid: CALL_SID, status: 'queued' }, { status: 201 }));
+    await runCron();
+    const [first] = await listIncidents({ status: ['open'] });
+    advanceTo(7);
+    await reportScreen(screenId, 'skip', 0);
+    expect(await runCron()).toMatchObject({ resolved: 1 });
+
+    advanceTo(18);
+    const insert = vi.spyOn(getRepo(), 'insertDocIfAbsent').mockRejectedValueOnce(new Error('Synthetic successor insert failure'));
+    try {
+      expect((await cronRequest()).status).toBe(500);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(await getIncident(first.id)).toMatchObject({ status: 'resolved', successorReserved: true });
+      expect(await listIncidents({ status: ['open'] })).toEqual([]);
+    } finally {
+      insert.mockRestore();
+    }
+
+    advanceTo(19);
+    expect(await runCron()).toMatchObject({ opened: 1, escalated: 1 });
+    expect(await getIncident(first.id)).toMatchObject({ status: 'resolved', successorReserved: true });
+    const [next] = await listIncidents({ status: ['open'] });
+    expect(next.id).not.toBe(first.id);
+    expect((await readOutbox()).map((entry) => entry.incidentId)).toEqual([next.id, first.id]);
+    const reopen = new Request(ownerRequest('incidents'), {
+      method: 'POST', body: JSON.stringify({ id: first.id, action: 'reopen' }),
+    });
+    expect((await incidentAction(reopen, undefined)).status).toBe(409);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([{ action: 'reopen', status: 'open' }, { action: 'snooze', status: 'snoozed' }])(
+    'can $action an abandoned successor after the detector clears', async ({ action, status }) => {
+      const screenId = await prepareZeroMinuteScreenCall();
+      fetchMock.mockResolvedValueOnce(Response.json({ sid: CALL_SID, status: 'queued' }, { status: 201 }));
+      await runCron();
+      const [first] = await listIncidents({ status: ['open'] });
+      advanceTo(7);
+      await reportScreen(screenId, 'skip', 0);
+      expect(await runCron()).toMatchObject({ resolved: 1 });
+
+      advanceTo(18);
+      const repo = getRepo();
+      let delayedInsert: Doc<Incident> | undefined;
+      const insert = vi.spyOn(repo, 'insertDocIfAbsent').mockImplementationOnce(async (_collection, doc) => {
+        delayedInsert = doc as Doc<Incident>;
+        throw new Error('Synthetic successor insert failure');
+      });
+      try {
+        expect((await cronRequest()).status).toBe(500);
+      } finally {
+        insert.mockRestore();
+      }
+      if (!delayedInsert) throw new Error('Expected a reserved successor');
+      advanceTo(19);
+      await reportScreen(screenId, 'skip', 0);
+      expect(await runCron()).toMatchObject({ detections: 0, opened: 0 });
+
+      const request = new Request(ownerRequest('incidents'), { method: 'POST', body: JSON.stringify({ id: first.id, action }) });
+      const response = await incidentAction(request, undefined);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ incident: { id: delayedInsert.id, status, level: 0 } });
+      expect(await repo.insertDocIfAbsent(INCIDENTS, delayedInsert)).toBe(false);
+      expect(await getIncident(first.id)).toMatchObject({ status: 'resolved', successorReserved: true });
+      expect(await getIncident(delayedInsert.id)).toMatchObject({ status });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(['warning', 'critical'] as const)('keeps quiet hours when a reserved %s starts with a fresh warning', async (reservedSeverity) => {
+    const screenId = await prepareZeroMinuteScreenCall();
+    fetchMock.mockImplementation(async () => Response.json({ sid: CALL_SID, status: 'queued' }, { status: 201 }));
+    await runCron();
+    const [first] = await listIncidents({ status: ['open'] });
+    expect(first.severity).toBe('critical');
+    advanceTo(7);
+    await reportScreen(screenId, 'skip', 0);
+    expect(await runCron()).toMatchObject({ resolved: 1 });
+    await saveWatchSettings({ quietFrom: '11:00', quietTo: '15:00' }, OWNER);
+    if (reservedSeverity === 'warning') { advanceTo(15); await reportScreen(screenId, 'skip', 0); }
+
+    advanceTo(18);
+    const insert = vi.spyOn(getRepo(), 'insertDocIfAbsent').mockRejectedValueOnce(new Error('Synthetic successor insert failure'));
+    try {
+      expect((await cronRequest()).status).toBe(500);
+    } finally {
+      insert.mockRestore();
+    }
+    expect(await getIncident(first.id)).toMatchObject({ successorDetection: { severity: reservedSeverity, locationCode: KITCHEN } });
+    if (reservedSeverity === 'critical') await reportScreen(screenId, 'skip', 0);
+    const reopen = new Request(ownerRequest('incidents'), { method: 'POST', body: JSON.stringify({ id: first.id, action: 'reopen' }) });
+    const response = await incidentAction(reopen, undefined);
+    expect(response.status).toBe(200);
+    const { incident: successor } = await response.json();
+    expect(successor).toMatchObject({ severity: reservedSeverity, awaitingFreshDetection: true });
+    advanceTo(reservedSeverity === 'warning' ? 19 : 21);
+    expect(await runCron()).toMatchObject({ updated: 1, escalated: 0 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(await getIncident(successor.id)).toMatchObject({ severity: 'warning', status: 'open', level: 0 });
+    expect((await getIncident(successor.id))?.awaitingFreshDetection).toBeUndefined();
+  });
+
+  it('rejects a prior-kitchen operator reopening or snoozing a reserved successor at a different kitchen', async () => {
+    const screenId = await prepareZeroMinuteScreenCall();
+    fetchMock.mockResolvedValueOnce(Response.json({ sid: CALL_SID, status: 'queued' }, { status: 201 }));
+    await runCron();
+    const [first] = await listIncidents({ status: ['open'] });
+    advanceTo(7);
+    await reportScreen(screenId, 'skip', 0);
+    expect(await runCron()).toMatchObject({ resolved: 1 });
+
+    const destination = 'TEST_DESTINATION';
+    await saveLocation({ code: destination, name: 'Synthetic destination', address: '', active: true });
+    await saveHours({ locations: { [KITCHEN]: allDayWeek(), [destination]: allDayWeek() }, brands: {}, holidays: [] });
+    const manager = 'original-kitchen-manager';
+    const password = 'synthetic-prior-kitchen-password';
+    await getRepo().saveUser({ username: manager, name: manager, role: 'manager', active: true, locations: [KITCHEN], passwordHash: hashPassword(password) });
+    advanceTo(15);
+    await updateScreen(screenId, { locationCode: destination }, OWNER);
+    await reportScreen(screenId, 'skip', 0);
+    advanceTo(18);
+    const insert = vi.spyOn(getRepo(), 'insertDocIfAbsent').mockRejectedValueOnce(new Error('Synthetic successor insert failure'));
+    try {
+      expect((await cronRequest()).status).toBe(500);
+    } finally {
+      insert.mockRestore();
+    }
+    const historical = await getIncident(first.id);
+    expect(historical).toMatchObject({ status: 'resolved', locationCode: KITCHEN, successorDetection: { locationCode: destination } });
+    const [visible] = await listIncidents({ status: ['resolved'], locationCodes: [KITCHEN] });
+    expect(visible.successorDetection).toBeUndefined();
+    for (const action of ['reopen', 'snooze']) {
+      const reopen = new Request(`${BASE}/incidents`, {
+        method: 'POST', headers: { authorization: `Basic ${Buffer.from(`${manager}:${password}`).toString('base64')}` },
+        body: JSON.stringify({ id: first.id, action }),
+      });
+      expect((await incidentAction(reopen, undefined)).status).toBe(409);
+    }
+    expect(await getIncident(first.id)).toEqual(historical);
+    expect(await listIncidents({ status: ['open', 'snoozed'] })).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes a recovered successor in its original kitchen if the next detection comes from a new kitchen', async () => {
+    const screenId = await prepareZeroMinuteScreenCall();
+    fetchMock.mockImplementation(async () => Response.json({ sid: CALL_SID, status: 'queued' }, { status: 201 }));
+    await runCron();
+    const [first] = await listIncidents({ status: ['open'] });
+    advanceTo(7);
+    await reportScreen(screenId, 'skip', 0);
+    expect(await runCron()).toMatchObject({ resolved: 1 });
+
+    advanceTo(18);
+    const insert = vi.spyOn(getRepo(), 'insertDocIfAbsent').mockRejectedValueOnce(new Error('Synthetic successor insert failure'));
+    try {
+      expect((await cronRequest()).status).toBe(500);
+    } finally {
+      insert.mockRestore();
+    }
+    const restored = await actOnIncident(first.id, 'reopen', OWNER);
+    if (!restored) throw new Error('Expected a recovered successor');
+    expect(restored).toMatchObject({ locationCode: KITCHEN, awaitingFreshDetection: true });
+
+    const destination = 'TEST_DESTINATION';
+    await saveLocation({ code: destination, name: 'Synthetic destination', address: '', active: true });
+    await saveHours({ locations: { [KITCHEN]: allDayWeek(), [destination]: allDayWeek() }, brands: {}, holidays: [] });
+    advanceTo(19);
+    await updateScreen(screenId, { locationCode: destination }, OWNER);
+    expect(await runCron()).toMatchObject({ opened: 0, resolved: 1, escalated: 0 });
+    expect(await getIncident(restored.id)).toMatchObject({ locationCode: KITCHEN, status: 'resolved', resolvedBy: 'Watchtower' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    advanceTo(20);
+    expect(await runCron()).toMatchObject({ opened: 1, escalated: 1 });
+    const [current] = await listIncidents({ status: ['open'] });
+    expect(current).toMatchObject({ locationCode: destination, deviceId: screenId });
+    expect(current.id).not.toBe(restored.id);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('honors a manual reopen that wins the zero-minute successor reservation race', async () => {
+    const screenId = await prepareZeroMinuteScreenCall();
+    fetchMock.mockImplementation(async () => Response.json({ sid: CALL_SID, status: 'queued' }, { status: 201 }));
+    await runCron();
+    const [first] = await listIncidents({ status: ['open'] });
+    advanceTo(7);
+    await reportScreen(screenId, 'skip', 0);
+    expect(await runCron()).toMatchObject({ resolved: 1 });
+
+    advanceTo(18);
+    const repo = getRepo();
+    const replaceDoc = repo.replaceDocIfRevision.bind(repo);
+    let competingReopen = true;
+    const save = vi.spyOn(repo, 'replaceDocIfRevision').mockImplementation(async (collection, doc, expected) => {
+      if (competingReopen && collection === INCIDENTS && (doc.data as Incident).successorReserved) {
+        competingReopen = false;
+        expect(await actOnIncident(first.id, 'reopen', OWNER)).toMatchObject({ status: 'open' });
+      }
+      return replaceDoc(collection, doc, expected);
+    });
+    try {
+      expect(await runCron()).toMatchObject({ opened: 0, escalated: 0 });
+    } finally {
+      save.mockRestore();
+    }
+    expect(await listIncidents({ status: ['open'] })).toMatchObject([{ id: first.id }]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('still closes a screen incident opened outside the three-day history window', async () => {
+    const screenId = await prepareZeroMinuteScreenCall();
+    fetchMock.mockImplementation(async () => Response.json({ sid: CALL_SID, status: 'queued' }, { status: 201 }));
+    await runCron();
+    const [incident] = await listIncidents({ status: ['open'] });
+    const openedAt = new Date(START - 4 * 86_400_000).toISOString();
+    await getRepo().putDocs(INCIDENTS, [{ id: incident.id, key: incident.key, at: openedAt, data: { ...incident, openedAt } }]);
+
+    advanceTo(7);
+    await reportScreen(screenId, 'skip', 0);
+    expect(await runCron()).toMatchObject({ resolved: 1 });
+    expect(await getIncident(incident.id)).toMatchObject({ status: 'resolved', resolvedBy: 'auto' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 
   async function openScreenIncident({ platform, kind, detectedAt }: typeof scenarios[number], kitchenPhone: string | null = null) {
     await saveLocation({ code: KITCHEN, name: 'Test kitchen', address: '', active: true, phone: kitchenPhone });
@@ -203,6 +631,21 @@ describe('Screen relay alerts without a console open', () => {
     } finally {
       claim.mockRestore();
     }
+  });
+
+  it('shows an existing first-call reservation without repeating a request or fabricating a receipt', async () => {
+    const { incident, tick } = await openScreenIncident(offlineScreen);
+    await tick(1);
+    await saveWatchSettings({ screenAlertPhone: SHARED_PHONE }, OWNER);
+    expect(await getRepo().claimKv(`watch:first-screen-call:${incident.id}`, { at: new Date().toISOString() })).toBe(true);
+
+    await tick(2);
+    await tick(3);
+    const saved = await getIncident(incident.id);
+    expect(saved?.steps.filter((step) => step.kind === 'note' && step.message?.includes('First call already reserved'))).toHaveLength(1);
+    expect(saved?.screenFirstCallPending).toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await readOutbox()).toEqual([]);
   });
 
   it.each([

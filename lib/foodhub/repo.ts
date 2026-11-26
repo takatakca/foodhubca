@@ -7,7 +7,7 @@ export interface OrderFilter { limit?: number; statuses?: OrderStatus[]; since?:
 export interface ActivityFilter { limit?: number; since?: string; until?: string; kinds?: ActivityKind[]; locationCodes?: string[] }
 /** Generic document store (payout lines, statement imports, reconciliation cases, ledger approvals…). */
 export interface Doc<T = Record<string, unknown>> { id: string; key?: string | null; at?: string | null; data: T }
-export interface DocFilter { since?: string; until?: string; keys?: string[]; limit?: number }
+export interface DocFilter { since?: string; until?: string; keys?: string[]; kinds?: string[]; statuses?: string[]; limit?: number }
 
 export interface FoodHubRepo {
   mode: 'supabase' | 'memory';
@@ -54,6 +54,10 @@ export interface FoodHubRepo {
   getUser(username: string): Promise<FoodHubUser | null>;
   saveUser(user: Omit<FoodHubUser, 'id' | 'createdAt'> & { id?: string; createdAt?: string }): Promise<FoodHubUser>;
   putDocs<T>(collection: string, docs: Doc<T>[]): Promise<void>;
+  /** False means the document ID already exists. Other failures are reported to the caller. */
+  insertDocIfAbsent<T>(collection: string, doc: Doc<T>): Promise<boolean>;
+  /** Replace only the requested revision. An absent revision matches historical documents. */
+  replaceDocIfRevision<T extends { revision?: string }>(collection: string, doc: Doc<T>, expected?: string): Promise<boolean>;
   listDocs<T>(collection: string, filter?: DocFilter): Promise<Doc<T>[]>;
   getDoc<T>(collection: string, id: string): Promise<Doc<T> | null>;
   deleteDocs(collection: string, ids: string[]): Promise<void>;
@@ -200,13 +204,26 @@ const memoryRepo: FoodHubRepo = {
     for (const d of docs) col.set(d.id, JSON.parse(JSON.stringify(d)));
     st.docs.set(collection, col);
   },
+  async insertDocIfAbsent(collection, doc) {
+    if (memState().docs?.get(collection)?.has(doc.id)) return false;
+    await memoryRepo.putDocs(collection, [doc]);
+    return true;
+  },
+  async replaceDocIfRevision(collection, doc, expected) {
+    const current = memState().docs?.get(collection)?.get(doc.id);
+    if (!current || (current.data.revision ?? undefined) !== expected) return false;
+    await memoryRepo.putDocs(collection, [doc]);
+    return true;
+  },
   async listDocs<T>(collection: string, filter: DocFilter = {}) {
     const col = memState().docs?.get(collection);
     let list = col ? [...col.values()] as Doc<T>[] : [];
     if (filter.since) list = list.filter((d) => (d.at ?? '') >= filter.since!);
     if (filter.until) list = list.filter((d) => (d.at ?? '') < filter.until!);
     if (filter.keys?.length) list = list.filter((d) => d.key && filter.keys!.includes(d.key));
-    list.sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''));
+    if (filter.kinds?.length) list = list.filter((d) => filter.kinds!.includes((d.data as { kind: string }).kind));
+    if (filter.statuses?.length) list = list.filter((d) => filter.statuses!.includes((d.data as { status: string }).status));
+    list.sort((a, b) => (b.at ?? '').localeCompare(a.at ?? '') || ((filter.keys?.length || filter.kinds?.length) ? a.id.localeCompare(b.id) : 0));
     return list.slice(0, filter.limit ?? 100_000);
   },
   async getDoc<T>(collection: string, id: string) { return (memState().docs?.get(collection)?.get(id) as Doc<T> | undefined) ?? null; },
@@ -509,6 +526,17 @@ function supabaseRepo(): FoodHubRepo {
         must(await db.from('fh_docs').upsert(rows, { onConflict: 'collection,id' }));
       }
     },
+    async insertDocIfAbsent(collection, doc) {
+      const res = await db.from('fh_docs').insert({ collection, id: doc.id, key: doc.key ?? null, at: doc.at ?? null, data: doc.data, updated_at: nowIso() });
+      if (!res.error) return true;
+      if (res.error.code === '23505') return false;
+      throw new Error(`Supabase: ${res.error.message}`);
+    },
+    async replaceDocIfRevision(collection, doc, expected) {
+      let update = db.from('fh_docs').update({ key: doc.key ?? null, at: doc.at ?? null, data: doc.data, updated_at: nowIso() }).eq('collection', collection).eq('id', doc.id);
+      update = expected === undefined ? update.is('data->>revision', null) : update.eq('data->>revision', expected);
+      return Boolean(must(await update.select('id').maybeSingle()));
+    },
     async listDocs<T>(collection: string, filter: DocFilter = {}) {
       const limit = filter.limit ?? 100_000;
       const out: Doc<T>[] = [];
@@ -519,6 +547,8 @@ function supabaseRepo(): FoodHubRepo {
         if (filter.since) q = q.gte('at', filter.since);
         if (filter.until) q = q.lt('at', filter.until);
         if (keys) q = q.in('key', keys.slice(0, 500));
+        if (filter.kinds?.length) q = q.in('data->>kind', filter.kinds);
+        if (filter.statuses?.length) q = q.in('data->>status', filter.statuses);
         const rows = (must(await q) ?? []) as Row[];
         out.push(...rows.map((r) => ({ id: r.id, key: r.key, at: r.at, data: r.data as T })));
         if (rows.length < to - from + 1) break;

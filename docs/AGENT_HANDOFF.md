@@ -1,3 +1,15 @@
+## 2026-11-26 — Premier appel d’un incident d’écran enregistré
+
+Sur deux processus Next.js reliés au même PostgreSQL 17.12 local et à PostgREST 12.2.3, le scénario passe de deux incidents et deux demandes d’appel simulées à un incident et une demande. Les 29 contrôles de reprise réussissent sur le nouvel arbre.
+
+Watchtower enregistre l’identifiant du nouvel incident avant de demander un appel immédiat. Deux passages qui observent la même panne utilisent le même identifiant et la même réservation d’appel. Une erreur de lecture ou d’enregistrement avant la réservation reporte la demande d’appel au prochain passage. Une réservation déjà enregistrée demande de vérifier le résultat dans le journal des messages. Si une résolution concurrente est enregistrée, ce journal conserve le résultat de la demande même lorsque la chronologie de l’incident ne peut plus être mise à jour.
+
+La réapparition dans les dix minutes après une résolution automatique réutilise l’incident existant. Si une occurrence réservée n’a pas été créée, Rouvrir ou Mettre en sourdine peut la récupérer dans sa cuisine avec le même identifiant et les données de la détection qui a créé la réservation. La prochaine détection dans cette cuisine confirme la gravité avant l’appel. Lorsque l’écran a changé de cuisine, Watchtower clôture l’alerte rétablie dans la cuisine d’origine et peut créer la nouvelle alerte au passage suivant. L’historique de la cuisine d’origine conserve son périmètre.
+
+La base utilise la clé unique et les documents existants. Les scénarios locaux couvrent une interruption après acceptation par Twilio simulé, une lecture simultanée sans incident, des erreurs de persistance, les heures silencieuses et la réaffectation pendant une réouverture. Les 178 tests ciblés passent. La vérification PostgreSQL à deux processus fait partie de la revue. La réception sur les téléphones réels reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Numéro de relève ajouté pendant un incident d’écran
 
 Watchtower garde le premier appel en attente quand aucun numéro de relève ni de cuisine n’est disponible au premier palier. Si un numéro devient disponible pendant que l’incident reste ouvert, Watchtower peut demander l’appel au prochain passage. Une réservation en base limite cette demande à une fois par incident. La situation se vérifie dans Alertes et le journal des messages. Les essais sur les téléphones de relève restent suivis dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

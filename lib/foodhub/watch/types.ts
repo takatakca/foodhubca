@@ -65,6 +65,14 @@ export interface Incident {
   deviceId?: string | null;
   openedAt: string;
   updatedAt: string;
+  /** Optimistic revision of a screen or tablet incident. Older stored incidents may omit it. */
+  revision?: string;
+  /** A later occurrence has been reserved from this resolved record. */
+  successorReserved?: true;
+  /** Reserved detector data is internal to the predecessor and can name another kitchen. */
+  successorDetection?: Pick<Incident, 'severity' | 'title' | 'titleEn' | 'detail' | 'detailEn' | 'locationCode' | 'brandName' | 'channel' | 'orderId' | 'storeId' | 'deviceId' | 'lastSeenAt'>;
+  /** An operator materialized the reservation. Its current severity needs a matching detection. */
+  awaitingFreshDetection?: true;
   /** Last time the rule saw the problem still there. */
   lastSeenAt: string;
   resolvedAt?: string | null;

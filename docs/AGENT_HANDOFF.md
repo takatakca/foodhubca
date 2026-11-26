@@ -1,3 +1,9 @@
+## 2026-11-26 — Impression Clover et démarrage du relais Windows
+
+L’impression de cuisine utilise la caisse résolue par la même règle que la création dans Clover. Le marchand explicite et le défaut configuré ont priorité, puis le compte OAuth unique approuvé. Le kit Windows conserve son dossier d’installation dans la tâche planifiée et dans le raccourci de démarrage. La relève du poste existant et les essais marchands restent suivis dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Vérifier un passage Watchtower en arrière-plan
 
 Dans la réponse détaillée de `GET /api/health`, `checks.watchtower.lastBackgroundCompletion` donne l’heure et le déclencheur du dernier passage achevé par minuterie ou cron. Ce contrôle complète l’horodatage de démarrage. La réception réelle des commandes et des appels reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

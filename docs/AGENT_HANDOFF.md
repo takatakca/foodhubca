@@ -2,6 +2,28 @@
 
 Quand la cuisine de la liaison a changé depuis la réception, les relances et impressions Clover sont bloquées et signalées. Une commande planifiée arrivée à son heure de préparation est affichée avec l’erreur d’impression dans sa cuisine d’origine. Avant de relancer, vérifier la liaison et la commande dans la caisse appropriée. Une commande qui attend sa première liaison peut toujours être acheminée une fois la cuisine attribuée. La preuve de livraison en cuisine reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
 
+La reprise sur `2313f4f` a vérifié la première liaison d’une commande retenue, puis le déplacement de cette liaison après une réponse Clover incertaine. La relance conserve la première cuisine et attend la vérification de la liaison avant de contacter Clover.
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Vérifications du relais dans Mise en service
+
+Les avis du relais et des appels utilisent les écrans du périmètre autorisé. Ils montrent l’état des signaux et le type de destination configuré, avec un lien vers les réglages concernés. Les preuves de réception réelle sont suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+Le workflow « Verify Food Hub production release » conserve le message et le résumé d’un écart de SHA, tout en gardant un résultat en échec pour une publication encore à confirmer.
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Commandes sans liaison et caisse Clover partagée
+
+Lorsque plusieurs cuisines ont des liaisons et qu’une seule caisse Clover est configurée, une commande sans liaison ni cuisine enregistrée reste au tableau sans être envoyée à la caisse. Ce contrôle s’applique à l’arrivée et aux relances. Confirmer la cuisine dans Restaurants → Liaisons, puis utiliser « Envoyer à Clover » sur la commande. Une relance vérifie aussi l’existence d’une commande Clover après une réponse incertaine. Les essais marchands en cuisine restent suivis dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Refus de portée Uber pendant la synchronisation
+
+Quand le jeton OAuth Uber renvoie HTTP 400 `invalid_scope` après le parcours habituel de demande, la synchronisation signale ce refus pour Uber et laisse les autres vérifications de statut Uber en attente jusqu’au prochain passage. Le dernier état des magasins reste disponible. Les autres plateformes continuent leur vérification. La portée accordée à l’application en production et les essais marchands restent suivis dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46#issuecomment-7194255617).
+
 — signé : Codex @ cloud · 2026-11-26
 
 ## 2026-11-26 — Vérifier un passage Watchtower en arrière-plan

@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import { logActivity, type Actor } from './activity';
 import { getAdapter } from './adapters';
 import { CHANNEL_LABELS, nowIso } from './config';
-import { allCloverMerchants, cloverAutoPrintEnabled, cloverBaseUrl, cloverExpected, cloverToken, defaultCloverMerchant, injectOrder, type InjectResult } from './pos/clover';
+import { allCloverMerchants, cloverAutoPrintEnabled, cloverBaseUrl, cloverExpected, cloverInjectionEnabled, cloverToken, defaultCloverMerchant, injectOrder, type InjectResult } from './pos/clover';
 import { CLOVER_REPRINT_KITCHEN_CHANGED, cloverKitchenChanged, cloverOrderTypeForOrder, cloverTotalGap, describeMappingWarnings, findCloverOrderByTitle, mapOrderLines, platformFoodCents, printKitchenTicket } from './pos/clover-order';
 import { cloverRetryDelaysS, noteLastOrder, scheduleCloverRetry } from './order-retry';
 import { settleInClover } from './clover-settle';
@@ -59,6 +59,22 @@ async function autoPrint(order: StoredOrder, merchantId?: string | null): Promis
 function actionsFor(order: { channel: ChannelKey; viaHub?: 'relay' | 'screen' }): Pick<ChannelAdapter, 'acceptOrder' | 'denyOrder' | 'markReady' | 'cancelOrder'> {
   if (order.viaHub === 'screen') return screenActions(order.channel);
   return order.viaHub === 'relay' ? relayActions : getAdapter(order.channel);
+}
+
+async function unmappedCloverHold(order: Pick<StoredOrder, 'channelStoreId' | 'locationCode'>, store: ChannelStore | null): Promise<string | null> {
+  if (store) return null;
+  const merchantCount = (await allCloverMerchants()).length;
+  let reason: string;
+  if (merchantCount > 1) {
+    reason = 'there are several Clover registers';
+  } else if (merchantCount === 1 && cloverInjectionEnabled() && !order.locationCode) {
+    const kitchens = new Set((await getRepo().listStores()).map((mapping) => mapping.locationCode).filter(Boolean));
+    if (kitchens.size < 2) return null;
+    reason = 'its kitchen is unknown among several mapped kitchens';
+  } else {
+    return null;
+  }
+  return `Store ${order.channelStoreId || '(no id)'} is not mapped in Food Hub and ${reason} — map it under Stores → Mapping, then use "Send to Clover".`;
 }
 
 /**
@@ -145,13 +161,12 @@ export async function processIncomingOrder(n: NormalizedOrder, opts: { holdClove
   if (await cancelledMeanwhile()) return { order: (await repo.getOrder(order.id)) ?? current, duplicate: false, pos: { ok: false, skipped: true, error: 'Cancelled by the platform before processing.' } };
 
   // 1) POS injection (+ order type, payment record, kitchen ticket).
-  // An order from a store nobody mapped is never dropped into a guessed register when several Clover merchants
-  // exist: it waits on the Command Center until the store is mapped (then "Send to Clover").
-  const severalRegisters = !store && (await allCloverMerchants()).length > 1;
+  // One register may serve several kitchens. Hold an order whose route cannot be determined until it has a mapping.
+  const routingHold = opts.holdClover ? null : await unmappedCloverHold(current, store);
   const pos: InjectResult = opts.holdClover
     ? { ok: false, skipped: true, error: opts.holdClover }
-    : severalRegisters
-    ? { ok: false, skipped: false, error: `Store ${n.channelStoreId || '(no id)'} is not mapped in Food Hub and there are several Clover registers — map it under Stores → Mapping, then use "Send to Clover".` }
+    : routingHold
+    ? { ok: false, skipped: false, error: routingHold }
     : await sendToClover(current, store);
   if (pos.ok) {
     current = await recordCloverSuccess(current, store, pos);
@@ -192,7 +207,7 @@ export async function processIncomingOrder(n: NormalizedOrder, opts: { holdClove
         await logActivity({ actor: 'TAKATAK automation', source: 'automation', kind: 'order', action: 'skip_tablet_fallback', status: 'failed', channel: 'skip', brandName, locationCode: store?.locationCode, orderId: order.id,
           summary: `${tag}: Clover did not receive it and the Skip tablet hand-off was NOT sent (${fallback.message}) — retry "Send to Skip tablet" or send it to Clover` });
       }
-    } else if (!severalRegisters && (await scheduleCloverRetry(current, pos))) {
+    } else if (!routingHold && (await scheduleCloverRetry(current, pos))) {
       current = (await repo.getOrder(order.id)) ?? current;
       await repo.addEvent(order.id, 'needs_attention', { reason: `Clover injection failed — Food Hub tries again by itself (${cloverRetryDelaysS().map((s) => `${s} s`).join(', then ')}) before waking a manager. Nothing is accepted on the platform until Clover has the order.` });
     } else {
@@ -336,9 +351,9 @@ type CloverResendOutcome = { order: StoredOrder; pos: InjectResult; store: Chann
  *  2. when the last answer was lost, looks in Clover first and links the order Clover already has (no second ticket);
  *  3. injects, then reads the order again: a copy someone else put in Clover meanwhile wins (ours is removed), and an
  *     order the platform cancelled meanwhile gets no kitchen ticket (removed from Clover); otherwise records and prints.
- * An order keeps the kitchen saved at arrival when its mapping moves. A store nobody mapped waits when there are
- * several Clover merchants. One send per order at a time on any server (the button, the timer and cron can meet, so the
- * guard is a claim in the database, not only this process's memory). Accepting is the caller's decision.
+ * An order keeps the kitchen saved at arrival when its mapping moves. An unmapped store waits until its Clover
+ * register and kitchen can be determined. A database claim limits sends to one at a time per order, across servers.
+ * Accepting is the caller's decision.
  */
 export async function resendToClover(order: StoredOrder, opts: { manual?: boolean; by?: string; attempt?: number } = {}): Promise<CloverResendOutcome> {
   if (!(await claimCloverSending(order.id))) return { order, pos: { ok: false, skipped: true, error: 'Food Hub is already sending this order to Clover — check again in a few seconds.' }, store: null };
@@ -418,8 +433,9 @@ async function resendNow(order: StoredOrder, opts: { manual?: boolean; by?: stri
   if (Object.keys(patch).length) current = (await repo.updateOrder(order.id, patch)) ?? { ...current, ...patch };
 
   let pos: InjectResult | null = null;
-  if (!store && (await allCloverMerchants()).length > 1) {
-    pos = { ok: false, skipped: false, error: `Store ${order.channelStoreId || '(no id)'} is not mapped in Food Hub and there are several Clover registers — map it under Stores → Mapping, then use "Send to Clover".` };
+  const routingHold = await unmappedCloverHold(current, store);
+  if (routingHold) {
+    pos = { ok: false, skipped: false, error: routingHold, uncertain: maybeInClover(current) };
   } else if (maybeInClover(current)) {
     const mid = store?.cloverMerchantId || (await defaultCloverMerchant());
     const token = mid ? await cloverToken(mid).catch(() => null) : null;
@@ -451,7 +467,14 @@ async function resendNow(order: StoredOrder, opts: { manual?: boolean; by?: stri
     }
     return { order: await recordCloverSuccess(latest, store, pos, tag), pos, store };
   }
-  current = (await repo.updateOrder(order.id, { posError: pos.error })) ?? current;
+  const priorRetry = current.timeline?.posRetry;
+  if (routingHold && pos.uncertain && !priorRetry?.uncertain) {
+    // Keep an earlier lost response trace after the routing error replaces the old POS error.
+    const posRetry = { ...priorRetry, attempts: priorRetry?.attempts ?? 0, nextAt: priorRetry?.nextAt ?? null, lastError: pos.error, uncertain: true };
+    current = await patchTimeline(current, { posRetry }, { posError: pos.error });
+  } else {
+    current = (await repo.updateOrder(order.id, { posError: pos.error })) ?? current;
+  }
   await repo.addEvent(order.id, 'pos_failed', { error: pos.error, ...tag, ...(pos.uncertain ? { uncertain: true } : {}) });
   return { order: current, pos, store };
 }

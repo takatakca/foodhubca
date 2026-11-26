@@ -1,3 +1,9 @@
+## 2026-11-26 — Suivi des appels Watchtower
+
+Dans Alertes → Messages envoyés, le propriétaire non limité à une cuisine peut vérifier auprès de Twilio l’état d’un appel Watchtower déjà demandé. La consultation utilise la référence enregistrée, affiche seulement l’état et ne déclenche aucun appel. L’état « Appel terminé » indique que la réponse humaine est encore à vérifier. Le relevé marchand en lecture seule et les preuves encore ouvertes sont consignés dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46#issuecomment-7185162194).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Preuve d’acceptation Too Good To Go en simulation
 
 Le contrôle simulé attend ensemble la création dans Clover, l’état accepté et l’événement qui confirme qu’aucune requête d’acceptation ne part vers Too Good To Go. Le script complet a réussi ses 644 contrôles. La validation des commandes et des appels chez les marchands reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

@@ -1,3 +1,15 @@
+## 2026-11-26 — Réponse téléphonique et session d’intégration Skip
+
+Watchtower affiche « Résultat de l’appel non confirmé » si la réponse Twilio ne contient pas de référence d’appel valide ou si la demande se termine avec un résultat réseau incertain. Les anciens messages au statut positif sans référence valide portent aussi cet avis. L’état fournisseur reste consultable pour un appel identifié, et la réception sur le téléphone est suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+Une notification Skip conserve sa session fournisseur et sa progression. Les demandes de lancement restent en attente d’une association vérifiée. La configuration explicite demande la session et le code POS confirmés pour le même établissement.
+
+Sur `4003e5b`, 194 essais ciblés ont validé les réponses Twilio et Skip simulées et l’impression Clover. Le lot Linux a ignoré les six essais natifs du relais Windows.
+
+Sur `0edc9c8`, TypeScript et 237 essais ciblés ont validé ensemble les réponses Twilio et Skip simulées, l’attribution Uber et le relais web sous Chromium local. Les six essais natifs PowerShell nécessitent Windows.
+
+— signé : Codex (automatisation) @ cloud · 2026-11-26
+
 ## 2026-11-26 — Changement de plateforme du relais et annulation Clover
 
 Un écran déjà vu passe à indisponible quand sa plateforme change. Food Hub écarte l’état et le nombre de commandes d’un domaine marchand ou d’une application Android reconnus comme appartenant à une autre plateforme. Watchtower peut signaler l’écran indisponible, même si le relais continue d’envoyer les signaux de l’ancienne plateforme. Si la réponse d’ouverture se perd, la commande « Page de connexion » crée une nouvelle demande.

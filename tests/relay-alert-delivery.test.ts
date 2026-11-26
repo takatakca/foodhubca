@@ -103,6 +103,36 @@ describe('Screen relay alerts without a console open', () => {
     { platform, kind: 'screen_down', detectedAt: 6 },
   ]);
 
+  it('keeps an unconfirmed provider response without retrying the same stage', async () => {
+    await saveLocation({ code: KITCHEN, name: 'Test kitchen', address: '', active: true, phone: KITCHEN_PHONE });
+    await saveHours({ locations: { [KITCHEN]: allDayWeek() }, brands: {}, holidays: [] });
+    await saveWatchSettings({ enabled: true, screenAlertPhone: SHARED_PHONE, smsAfterMin: 1, postToChat: false, aiExplain: false }, OWNER);
+    const screen = await addScreen({ name: 'Test platform screen', platform: 'skip', locationCode: KITCHEN, viewUrl: 'https://relay.example.test/s01/' }, OWNER);
+    if ('error' in screen) throw new Error(screen.error);
+    await reportScreen(screen.id, 'skip', 0);
+
+    advanceTo(6);
+    expect(await runCron()).toMatchObject({ opened: 1, escalated: 0 });
+    const [incident] = await listIncidents({ status: ['open'] });
+    expect(incident).toMatchObject({ kind: 'screen_down' });
+
+    advanceTo(7);
+    fetchMock.mockResolvedValueOnce(Response.json({ status: 'queued' }, { status: 201 }));
+    expect(await runCron()).toMatchObject({ escalated: 1 });
+    const entries = await readOutbox();
+    expect(entries).toHaveLength(1);
+    const [entry] = entries;
+    expect(entry).toMatchObject({ channel: 'call', incidentId: incident.id, ok: false, uncertain: true });
+    expect(entry.ref).toBeUndefined();
+    expect((await getIncident(incident.id))?.steps).toContainEqual(expect.objectContaining({ kind: 'call', ok: false, uncertain: true }));
+    const status = await callStatus(ownerRequest(`messages/call-status?id=${entry.id}`), undefined);
+    expect(status.status).toBe(404);
+
+    advanceTo(8);
+    expect(await runCron()).toMatchObject({ escalated: 0 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it.each(scenarios)('routes $platform $kind to the shared phone and reads its recorded call status', async ({ platform, kind, detectedAt }) => {
     await saveLocation({ code: KITCHEN, name: 'Test kitchen', address: '', active: true, phone: KITCHEN_PHONE });
     await saveHours({ locations: { [KITCHEN]: allDayWeek() }, brands: {}, holidays: [] });

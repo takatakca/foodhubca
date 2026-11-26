@@ -154,13 +154,14 @@ function coveredMinutes(spans: Array<[number, number]>): number {
   return total / 60000;
 }
 
-async function detect(s: WatchSettings, now: number): Promise<{ detections: Detection[]; inactiveLocations: Set<string> }> {
+async function detect(s: WatchSettings, now: number) {
   const repo = getRepo();
   const tz = foodhubTimeZone();
-  const [catalog, hours, orders, stores, devices, jobs, sync, screens] = await Promise.all([
+  const [catalog, hours, orders, stores, devices, jobs, sync, relaySnapshot] = await Promise.all([
     getCatalog({ strict: true }), getHours(), repo.listOrders({ since: new Date(now - 24 * 3600_000).toISOString(), limit: 3000 }),
-    repo.listStores(), listDevices(), repo.listJobs(200), repo.getKv<{ at: string }>('sync:last').catch(() => null), listScreens().catch(() => []),
+    repo.listStores(), listDevices(), repo.listJobs(200), repo.getKv<{ at: string }>('sync:last').catch(() => null), listScreens().catch(() => null),
   ]);
+  const screens = relaySnapshot ?? [];
   // Existing bindings in unknown kitchens retain the opening-hours fallback. Only an explicit inactive flag stops monitoring.
   const inactiveLocations = new Set(catalog.locations.filter(({ active }) => active === false).map(({ code }) => code));
   const loc = (code?: string | null) => (code ? catalog.locations.find((l) => l.code === code)?.name ?? code : 'magasin non relié');
@@ -404,7 +405,7 @@ async function detect(s: WatchSettings, now: number): Promise<{ detections: Dete
         detail: `${j.lastError ?? j.wait ?? ''}`.slice(0, 200) || undefined, detailEn: `${j.lastError ?? j.wait ?? ''}`.slice(0, 200) || undefined });
     }
   }
-  return { detections: out, inactiveLocations };
+  return { detections: out, inactiveLocations, relayUnavailable: relaySnapshot === null };
 }
 
 // ---------- escalation ----------
@@ -544,7 +545,11 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
 
 // ---------- the run ----------
 
-export interface WatchReport { at: string; trigger: string; ran: boolean; detections: number; opened: number; updated: number; resolved: number; escalated: number; open: number }
+export interface WatchReport {
+  at: string; trigger: string; ran: boolean; detections: number; opened: number; updated: number; resolved: number; escalated: number; open: number;
+  /** The relay list failed to load while other incident checks ran. */
+  relayUnavailable?: true;
+}
 
 export async function runWatch(opts: { trigger?: string; force?: boolean; now?: number } = {}): Promise<WatchReport> {
   const now = opts.now ?? Date.now();
@@ -560,7 +565,9 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
   try {
     await repo.setKv(LAST_KEY, { at: new Date(now).toISOString() });
     const report = empty(true);
-    const { detections, inactiveLocations } = await detect(s, now);
+    const { detections, inactiveLocations, relayUnavailable } = await detect(s, now);
+    if (relayUnavailable) report.relayUnavailable = true;
+    const missingRelayEvidence = (i: Incident) => relayUnavailable && (i.kind === 'screen_down' || i.kind === 'screen_waiting');
     report.detections = detections.length;
     const all = (await repo.listDocs<Incident>(INCIDENTS, { since: new Date(now - 3 * 86400_000).toISOString(), limit: 2000 })).map((d) => d.data);
     const live = new Map(all.filter((i) => i.status !== 'resolved').map((i) => [i.key, i]));
@@ -610,8 +617,9 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
     // Problems that went away close by themselves.
     for (const i of live.values()) {
       if (seen.has(i.key)) continue;
-      Object.assign(i, { status: 'resolved', resolvedAt: iso, resolvedBy: 'auto', updatedAt: iso });
       const disabledKitchen = i.locationCode && isScreenDeviceIncident(i.kind) && inactiveLocations.has(i.locationCode);
+      if (!disabledKitchen && missingRelayEvidence(i)) continue;
+      Object.assign(i, { status: 'resolved', resolvedAt: iso, resolvedBy: 'auto', updatedAt: iso });
       const message = disabledKitchen ? 'Surveillance arrêtée pour cette cuisine désactivée. / Monitoring stopped for this inactive kitchen.' : 'Réglé / Fixed';
       i.steps.push({ at: iso, kind: 'resolved', by: 'auto', message });
       dirty.set(i.id, i);
@@ -651,16 +659,16 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
       ordinaryCatalog ??= getCatalog();
       return (await ordinaryCatalog).locations.find((location) => location.code === code)?.phone ?? undefined;
     };
-    for (const i of dirty.values()) if (await escalate(i, s, users, now, quiet, ordinaryKitchenPhone)) report.escalated++;
+    for (const i of dirty.values()) if (!missingRelayEvidence(i) && await escalate(i, s, users, now, quiet, ordinaryKitchenPhone)) report.escalated++;
     // Open incidents not touched this run can still need the next escalation step.
-    for (const i of live.values()) if (!dirty.has(i.id) && (await escalate(i, s, users, now, quiet, ordinaryKitchenPhone))) dirty.set(i.id, i);
+    for (const i of live.values()) if (!dirty.has(i.id) && !missingRelayEvidence(i) && await escalate(i, s, users, now, quiet, ordinaryKitchenPhone)) dirty.set(i.id, i);
 
     for (const i of dirty.values()) await saveIncident(i);
     for (const i of fresh.filter((x) => x.severity === 'critical')) {
       await logActivity({ actor: 'Watchtower', source: 'automation', kind: 'incident', action: i.kind, status: 'info', locationCode: i.locationCode, brandName: i.brandName, orderId: i.orderId, summary: i.titleEn });
     }
     report.open = [...live.values(), ...fresh].filter((i) => i.status === 'open' || i.status === 'acknowledged').length;
-    if (report.trigger === 'timer' || report.trigger === 'cron') {
+    if (!relayUnavailable && (report.trigger === 'timer' || report.trigger === 'cron')) {
       const completion: WatchBackgroundCompletion = { at: new Date().toISOString(), trigger: report.trigger };
       // Diagnostic only. The existing watch:last marker still controls throttling and liveness.
       await repo.setKv(WATCH_BACKGROUND_COMPLETION_KEY, completion).catch(() => undefined);

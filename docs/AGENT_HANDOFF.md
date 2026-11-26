@@ -1,3 +1,9 @@
+## 2026-11-26 — Preuve d’acceptation Too Good To Go en simulation
+
+Le contrôle simulé attend ensemble la création dans Clover, l’état accepté et l’événement qui confirme qu’aucune requête d’acceptation ne part vers Too Good To Go. Le script complet a réussi ses 644 contrôles. La validation des commandes et des appels chez les marchands reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-21 — Navigation mobile de la vitrine
 
 Les liens Produit et Intégrations sont visibles sur mobile en français et en anglais. La navigation prévoit des cibles tactiles de 44 px et les sections ont une marge de défilement sous l’en-tête fixe. Après fusion, vérifier les deux ancres à 375 px et le SHA servi sur `/api/release`.

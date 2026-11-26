@@ -14,6 +14,7 @@ import { closeCancelledCloverOrder } from './pos/clover-books';
 import { doorDashMerchantCancelEnabled } from './adapters/doordash';
 import { relayActions } from './adapters/relay';
 import { reportSkipMissingItems } from './adapters/skip';
+import { isViaClover } from './adapters/via-clover';
 import { adjustDoorDashOrder, adjustmentFromMissing, doorDashAdjustEnabled } from './doordash/orders';
 import { adjustUberOrderPrice, isUberMerchantDelivery, reportUberOutOfItems, setUberRestaurantDeliveryStatus, type UberAdjustReason } from './adapters/uber-api';
 import { applyCourierUpdate, pendingKey, readPending } from './courier';
@@ -59,6 +60,10 @@ async function autoPrint(order: StoredOrder, merchantId?: string | null): Promis
 function actionsFor(order: { channel: ChannelKey; viaHub?: 'relay' | 'screen' }): Pick<ChannelAdapter, 'acceptOrder' | 'denyOrder' | 'markReady' | 'cancelOrder'> {
   if (order.viaHub === 'screen') return screenActions(order.channel);
   return order.viaHub === 'relay' ? relayActions : getAdapter(order.channel);
+}
+
+function isDirectSkipOrder(order: Pick<NormalizedOrder, 'channel' | 'viaHub' | 'viaPos'>): boolean {
+  return order.channel === 'skip' && !order.viaHub && !order.viaPos && !isViaClover('skip');
 }
 
 async function unmappedCloverHold(order: Pick<StoredOrder, 'channelStoreId' | 'locationCode'>, store: ChannelStore | null): Promise<string | null> {
@@ -179,7 +184,9 @@ export async function processIncomingOrder(n: NormalizedOrder, opts: { holdClove
   // (wrong brand, wrong location or wrong kitchen are all possible): a person decides.
   if (!store) await repo.addEvent(order.id, 'needs_attention', { reason: `Not accepted automatically: store ${n.channelStoreId || '(no id)'} is not mapped in Food Hub. Check the brand and kitchen, then accept or reject.` });
   else if (opts.holdClover) await repo.addEvent(order.id, 'needs_attention', { reason: `Not sent to Clover, not accepted automatically: ${opts.holdClover}` });
-  const posBlocksAccept = !pos.ok && !pos.skipped;
+  // JET's success means it can stop its tablet backup because the POS has the order.
+  const skipNeedsReceipt = store?.autoAccept && isDirectSkipOrder(n) && !opts.holdClover;
+  const posBlocksAccept = !pos.ok && (!pos.skipped || skipNeedsReceipt);
   let accept: ChannelResult | undefined;
   // Entered by hand from a platform screen: already accepted on that screen, so it is accepted (and paid in Clover) as
   // soon as Clover has it — never before (posBlocksAccept), and only for a mapped store.
@@ -196,9 +203,9 @@ export async function processIncomingOrder(n: NormalizedOrder, opts: { holdClove
       const tag = `Skip #${order.displayId || order.externalOrderId.slice(0, 8)}`;
       if (fallback.ok) {
         await repo.addEvent(order.id, 'routed_to_skip_tablet', { status: fallback.status, message: fallback.message });
-        if (!(await cancelledMeanwhile())) current = (await repo.updateOrder(order.id, { status: 'failed', channelError: 'Clover failed — order sent to the Skip tablet (backup flow).' })) ?? current;
+        if (!(await cancelledMeanwhile())) current = (await repo.updateOrder(order.id, { status: 'failed', channelError: 'Food Hub could not confirm the Clover order — Skip acknowledged the tablet fallback request.' })) ?? current;
         await logActivity({ actor: 'TAKATAK automation', source: 'automation', kind: 'order', action: 'skip_tablet_fallback', status: 'info', channel: 'skip', brandName, locationCode: store?.locationCode, orderId: order.id,
-          summary: `${tag} sent to the Skip tablet (Clover did not receive it)` });
+          summary: `${tag}: Skip acknowledged the tablet fallback request (Food Hub could not confirm the Clover order)` });
       } else {
         // JET did not get sent-to-pos-failed (live switch off, key missing, HTTP error): never claim it did.
         // The order stays "new" with Accept / Send to Skip tablet available so the operator can retry.
@@ -307,8 +314,8 @@ export async function recordCloverSuccess(order: StoredOrder, store: ChannelStor
 }
 
 /**
- * Accept on the platform once Clover has the order (or Clover is not part of this deployment). A cancellation that
- * lands meanwhile always wins: nothing is accepted over it, and the Clover copy is removed.
+ * Accept on the platform once Clover has the order, or when Clover is optional for this deployment. Direct Skip
+ * requires a receipt. A cancellation that lands meanwhile always wins, and the Clover copy is removed.
  */
 export async function autoAcceptAfterClover(order: StoredOrder, posOrderId?: string): Promise<{ order: StoredOrder; accept?: ChannelResult }> {
   const repo = getRepo();
@@ -317,6 +324,9 @@ export async function autoAcceptAfterClover(order: StoredOrder, posOrderId?: str
   if (await cancelledMeanwhile()) {
     await repo.addEvent(order.id, 'accept_skipped', { reason: 'Cancelled by the platform while it was being put in Clover — nothing sent to the platform; the Clover copy is removed.' });
     return { order: (await settleInClover((await repo.getOrder(order.id)) ?? current)) ?? current };
+  }
+  if (isDirectSkipOrder(order) && !posOrderId?.trim() && !order.posOrderId?.trim()) {
+    return { order, accept: { channel: 'skip', status: 'blocked', ok: false, message: 'Skip requires a Clover order ID for automatic confirmation.' } };
   }
   const accept = await actionsFor(current).acceptOrder(current, posOrderId);
   if (accept.ok && (await cancelledMeanwhile())) {

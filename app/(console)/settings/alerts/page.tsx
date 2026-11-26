@@ -14,6 +14,7 @@ import { Hint } from '@/components/help/hint';
 import { useViewer } from '@/components/shell/viewer';
 import { readAlertSettings, writeAlertSettings, type AlertSettings } from '@/components/live/incoming';
 import { Section, SettingsHead } from '../settings-ui';
+import type { SharedScreenCallPreview } from '@/lib/foodhub/watch/types';
 import { api } from '@/lib/ui/api';
 import { useAutosave } from '@/lib/ui/use-autosave';
 import { useUndo } from '@/lib/ui/use-undo';
@@ -56,14 +57,16 @@ const showPhone = (p: string) => p.replace(/^\+1(\d{3})(\d{3})(\d{4})$/, '+1 $1 
 
 export default function AlertSettingsPage() {
   const { t, lang, loc } = useI18n();
-  const { viewer, can } = useViewer();
+  const { viewer, can, allLocations } = useViewer();
   const toast = useToast();
   const edit = can('admin');
+  const canPreviewSharedCall = edit && allLocations && !viewer.device;
   const [w, setW] = useState<Rules | null>(null);
   const [changed, setChanged] = useState<{ at?: string; by?: string }>({});
   const [kinds, setKinds] = useState<Kind[]>([]);
   const [channels, setChannels] = useState<Channels | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [sharedPreview, setSharedPreview] = useState<{ settingsAt?: string; result: SharedScreenCallPreview } | null>(null);
   const [err, setErr] = useState('');
   // A number typed but not added yet is kept on this device (reload, crash) until "Add".
   const newPhone = useFormDraft(formDraftId('alert-phone'), viewer.username, '', { enabled: edit });
@@ -99,6 +102,8 @@ export default function AlertSettingsPage() {
     onSaved: (r) => setW(r),
   });
   const undo = useUndo<Rules>(w, (r) => setW(r), { enabled: edit });
+  const previewSavePending = autosave.dirty || autosave.status === 'saving';
+  const latestSharedPreview = !previewSavePending && sharedPreview?.settingsAt === changed.at ? sharedPreview?.result : null;
   const { markLoaded } = autosave;
   const resetUndo = undo.reset;
 
@@ -142,6 +147,20 @@ export default function AlertSettingsPage() {
       const r = await api<{ result: { ok: boolean; message: string } }>('/api/foodhub/watch/test', { method: 'POST', json: { channel } });
       if (r.result.ok) toast.success(t('Test envoyé', 'Test sent'), r.result.message); else toast.warn(t('Pas envoyé', 'Not sent'), r.result.message);
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(null); }
+  }
+
+  async function previewSharedCall() {
+    if (!canPreviewSharedCall || previewSavePending) return;
+    setBusy('shared-call-preview');
+    setSharedPreview(null);
+    try {
+      const result = await api<SharedScreenCallPreview>('/api/foodhub/watch/test');
+      setSharedPreview({ settingsAt: changed.at, result });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
   }
 
   const chip = (ok: boolean | undefined, label: string, icon: ReactNode, hint: string) => (
@@ -211,6 +230,17 @@ export default function AlertSettingsPage() {
                   value={w.screenAlertPhone ?? ''} invalid={screenPhoneInvalid}
                   onChange={(e) => set({ screenAlertPhone: e.target.value.trim() ? e.target.value : null })} />
               </Field>
+            )}
+            {canPreviewSharedCall && (
+              <div className="mt-3 max-w-md">
+                <Button variant="outline" onClick={previewSharedCall} disabled={previewSavePending} loading={busy === 'shared-call-preview'}>
+                  {t('Simuler la relève des écrans', 'Simulate screen alert routing')}
+                </Button>
+                <p className="text-small mt-1 text-ink-3">{t('Vérifie les réglages enregistrés sans passer d’appel.', 'Checks the saved settings without placing a call.')}</p>
+                <div aria-live="polite">
+                  {latestSharedPreview && <SharedCallPreview result={latestSharedPreview} />}
+                </div>
+              </div>
             )}
             <Hint id="alerts.phones"><div className="mt-4">
               <div className="text-[13px] font-semibold text-ink-2">{t('Numéros qui reçoivent toutes les urgences (soutien, agent en direct)', 'Numbers that get every critical alert (support, live agent)')}</div>
@@ -296,6 +326,30 @@ export default function AlertSettingsPage() {
  * A number box that can be cleared and retyped freely: the rules get the number as typed, and a value out of range is
  * flagged (validate blocks the save) instead of being changed under the person's fingers.
  */
+function SharedCallPreview({ result }: { result: SharedScreenCallPreview }) {
+  const { t } = useI18n();
+  const status = {
+    'watch-off': t('Surveillance arrêtée', 'Watchtower off'),
+    'rule-off': t('Relève désactivée pour cette règle', 'Escalation off for this rule'),
+    'missing-number': t('Numéro partagé à configurer', 'Shared number needed'),
+  };
+  return (
+    <div className="mt-3 rounded-md border border-line bg-raised p-3">
+      <dl className="text-small space-y-2">
+        {result.checks.map(({ kind, state, destination }) => (
+          <div key={kind} className="flex flex-wrap justify-between gap-x-3 gap-y-1">
+            <dt className="font-semibold">{kind === 'screen_down' ? t('Écran indisponible', 'Screen unavailable') : t('Commandes en attente', 'Orders waiting')}</dt>
+            <dd className="text-ink-3">{state === 'simulated' ? t(`Relève simulée vers ${destination}`, `Simulated routing to ${destination}`) : status[state]}</dd>
+          </div>
+        ))}
+      </dl>
+      {!result.callConfigured && result.checks.some(({ state }) => state === 'simulated') && (
+        <p className="text-small mt-2 text-ink-3">{t('Configurez Twilio pour les appels réels.', 'Set up Twilio for real calls.')}</p>
+      )}
+    </div>
+  );
+}
+
 function NumField({ value, range, onChange, disabled, className, inputSize }: { value: number; range: Range; onChange: (v: number) => void; disabled?: boolean; className?: string; inputSize?: 'sm' | 'md' }) {
   const [min, max] = range;
   const [text, setText] = useState(String(value));

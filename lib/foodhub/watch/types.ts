@@ -90,6 +90,17 @@ export interface RuleSetting {
   escalate: boolean;
 }
 
+export interface SharedScreenCallPreviewCheck {
+  kind: 'screen_down' | 'screen_waiting';
+  state: 'watch-off' | 'rule-off' | 'missing-number' | 'simulated';
+  destination: string | null;
+}
+
+export interface SharedScreenCallPreview {
+  callConfigured: boolean;
+  checks: SharedScreenCallPreviewCheck[];
+}
+
 export interface WatchSettings {
   enabled: boolean;
   /** Minutes after opening before each escalation step (an acknowledged incident stops escalating). */

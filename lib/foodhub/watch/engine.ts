@@ -430,6 +430,14 @@ function callText(i: Incident, lang: 'fr' | 'en') {
 const SHARED_PHONE_KINDS: IncidentKind[] = ['device_offline', 'screen_down', 'screen_waiting'];
 const KITCHEN_KINDS: IncidentKind[] = ['order_unaccepted', 'order_unseen', 'device_offline', 'device_muted', 'screen_down', 'screen_waiting', 'courier_waiting', 'pos_failed'];
 
+/** The first destination for an incident that can be handled by the kitchen. */
+export function firstAlertCallTarget(kind: IncidentKind, sharedPhone: string | null, kitchenPhone?: string): { to: string; purpose: 'alert_shared_screen' | 'alert_kitchen' } | null {
+  if (!KITCHEN_KINDS.includes(kind)) return null;
+  const shared = SHARED_PHONE_KINDS.includes(kind) ? sharedPhone : null;
+  const to = shared ?? kitchenPhone;
+  return to ? { to, purpose: shared ? 'alert_shared_screen' : 'alert_kitchen' } : null;
+}
+
 async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now: number, quiet: boolean, kitchenPhones: Map<string, string> = new Map()): Promise<boolean> {
   if (i.status !== 'open') return false;
   const rule = s.rules[i.kind] ?? { enabled: true, escalate: false };
@@ -456,10 +464,9 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
   if (i.level < 1 && elapsed >= s.smsAfterMin) {
     i.level = 1; changed = true;
     const kitchen = i.locationCode ? kitchenPhones.get(i.locationCode) : undefined;
-    const shared = SHARED_PHONE_KINDS.includes(i.kind) ? s.screenAlertPhone : null;
-    const firstPhone = shared ?? kitchen;
-    if (firstPhone && KITCHEN_KINDS.includes(i.kind)) {
-      await call(firstPhone, shared ? 'screen hotline' : i.locationCode ?? 'kitchen', 'fr', shared ? 'alert_shared_screen' : 'alert_kitchen');
+    const target = firstAlertCallTarget(i.kind, s.screenAlertPhone, kitchen);
+    if (target) {
+      await call(target.to, target.purpose === 'alert_shared_screen' ? 'screen hotline' : i.locationCode ?? 'kitchen', 'fr', target.purpose);
     }
     const to = recipients(users, i, ['manager'], 'sms');
     const list = to.length ? to : recipients(users, i, ['owner'], 'sms');

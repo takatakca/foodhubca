@@ -29,6 +29,30 @@ export const allowedUrl = (url) => siteOf(url) !== null;
 /** The Android order app to launch for a platform address, or null. */
 export const packageForUrl = (url) => { const s = siteOf(url); return s ? ORDER_APPS[s] : null; };
 
+const MERCHANT_HOSTS = new Set(['order.doordash.com', 'merchants.ubereats.com', 'restaurants.skipthedishes.com']);
+const LOGIN_HOSTS = ['auth.uber.com', 'identity.doordash.com'];
+const LOGIN_PATH = /\/(login|signin|sign-in|log-in|auth)(\/|$)/i;
+
+function webAddress(raw) {
+  try {
+    const url = new URL(raw);
+    return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password ? url : null;
+  } catch { return null; }
+}
+
+/** Match the configured origin or a known merchant/sign-in redirect for the same provider. */
+export function matchScreenPage(startUrl, pageUrl) {
+  const start = webAddress(startUrl);
+  const page = webAddress(pageUrl);
+  if (!start || !page) return null;
+  const login = LOGIN_PATH.test(page.pathname) || LOGIN_HOSTS.some((host) => page.hostname === host || page.hostname.endsWith(`.${host}`));
+  const state = login ? 'login' : 'ok';
+  if (start.origin === page.origin) return { state, priority: start.pathname === page.pathname ? 3 : 2 };
+  const provider = packageForUrl(start);
+  if (provider && provider === packageForUrl(page) && (login || MERCHANT_HOSTS.has(page.hostname))) return { state, priority: 1 };
+  return null;
+}
+
 /**
  * The commands meant for this screen, in order: { kind: 'reload' } | { kind: 'open', url } |
  * { kind: 'refused', reason } (an open to anything but a platform site, or a kind this agent does not know).

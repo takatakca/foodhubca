@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import { getRepo } from '../repo';
 import { dryRun, recordDry } from '../dry-run';
 import { neverSent, timedFetch } from '../env-utils';
-import { isCallStatus, watchtowerCallSid, type CallStatus } from './call-status';
+import { isCallStatus, isTwilioCallSid, watchtowerCallSid, type CallStatus } from './call-status';
 import { emailConfigured, emailFrom, emailProvider, emailSetupMessage, sendMail } from './email';
 
 // The shared email helpers live in ./email; re-exported so existing imports from '../notify' keep working.
@@ -18,7 +18,7 @@ export interface SendResult {
   uncertain?: boolean;
 }
 export interface OutboxEntry {
-  id: string; at: string; channel: MessageChannel; to: string; purpose: string; ok: boolean; skipped?: boolean;
+  id: string; at: string; channel: MessageChannel; to: string; purpose: string; ok: boolean; skipped?: boolean; uncertain?: boolean;
   message: string; ref?: string; incidentId?: string; orderId?: string; by?: string; preview?: string;
 }
 
@@ -167,13 +167,15 @@ export async function placeCall(input: { to: string; say: string; lang?: 'fr' | 
         body: new URLSearchParams({ To: to, From: process.env.TWILIO_FROM!, Twiml: twiml }).toString(),
       });
       const body = await res.json().catch(() => ({}));
-      r = res.ok ? { ok: true, channel: 'call', message: 'Calling', ref: body?.sid } : { ok: false, channel: 'call', message: `Twilio HTTP ${res.status}: ${body?.message ?? ''}`.trim() };
+      if (!res.ok) r = { ok: false, channel: 'call', message: `Twilio HTTP ${res.status}: ${body?.message ?? ''}`.trim() };
+      else if (isTwilioCallSid(body?.sid)) r = { ok: true, channel: 'call', message: 'Calling', ref: body.sid };
+      else r = { ok: false, channel: 'call', message: 'Twilio did not confirm the call reference.', uncertain: true };
       await twilioCredit(res.ok, res.status, body);
     } catch (e) {
       r = networkFailure('call', e);
     }
   }
-  await record({ channel: 'call', to: to ? maskPhone(to) : '?', purpose: meta.purpose, ok: r.ok, skipped: r.skipped, message: r.message, ref: r.ref, incidentId: meta.incidentId, orderId: meta.orderId, by: meta.by, preview: input.say.slice(0, 160) });
+  await record({ channel: 'call', to: to ? maskPhone(to) : '?', purpose: meta.purpose, ok: r.ok, skipped: r.skipped, uncertain: r.uncertain, message: r.message, ref: r.ref, incidentId: meta.incidentId, orderId: meta.orderId, by: meta.by, preview: input.say.slice(0, 160) });
   return r;
 }
 

@@ -280,7 +280,7 @@ export const mock = http.createServer(async (req, res) => {
   if (p.startsWith('/twilio/2010-04-01/Accounts/AC_e2e/')) {
     if (req.headers.authorization !== `Basic ${Buffer.from('AC_e2e:tw-e2e').toString('base64')}`) return send(401, { message: 'auth' });
     if (p.endsWith('/Messages.json')) return send(201, { sid: `SM${++twilioSeq}` });
-    if (p.endsWith('/Calls.json')) return send(201, { sid: `CA${++twilioSeq}` });
+    if (p.endsWith('/Calls.json')) return send(201, { sid: `CA${(++twilioSeq).toString(16).padStart(32, '0')}` });
   }
   // ---- team chat incoming webhook (Slack / Teams / Google Chat) ----
   if (p === '/chat') return send(200, { ok: true });

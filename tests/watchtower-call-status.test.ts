@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET } from '../app/api/foodhub/messages/call-status/route';
 import { hashPassword } from '../lib/foodhub/auth';
-import { OUTBOX, type OutboxEntry } from '../lib/foodhub/notify';
+import { runDry, type DryRun } from '../lib/foodhub/dry-run';
+import { listOutbox, OUTBOX, placeCall, type OutboxEntry } from '../lib/foodhub/notify';
 import { getRepo } from '../lib/foodhub/repo';
 
 const ID = '00000000-0000-4000-8000-000000000001';
@@ -32,6 +33,7 @@ beforeEach(() => {
   vi.stubEnv('DASHBOARD_PASSWORD', PASSWORD);
   vi.stubEnv('TWILIO_ACCOUNT_SID', ACCOUNT);
   vi.stubEnv('TWILIO_AUTH_TOKEN', 'test-token');
+  vi.stubEnv('TWILIO_FROM', '+15145550100');
   vi.stubEnv('TWILIO_BASE_URL', BASE_URL);
   (globalThis as any).__foodhubMem = undefined;
   fetchMock.mockReset();
@@ -41,6 +43,65 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+});
+
+describe('Watchtower call confirmation', () => {
+  const alertCall = () => placeCall({ to: '+15145550124', say: 'Test alert' }, { purpose: 'alert_shared_screen', incidentId: 'test-incident' });
+
+  it('saves an accepted call and the provider reference for its existing status lookup', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ sid: SID, status: 'queued' }, { status: 201 }));
+    expect(await alertCall()).toMatchObject({ ok: true, ref: SID });
+    const [entry] = await listOutbox();
+    expect(entry).toMatchObject({ ok: true, ref: SID, incidentId: 'test-incident', to: '+1••••••0124' });
+    expect(entry).not.toHaveProperty('uncertain');
+    fetchMock.mockResolvedValueOnce(Response.json({ sid: SID, status: 'no-answer' }));
+    expect(await (await request(`?id=${entry.id}`)).json()).toEqual({ ok: true, status: 'no-answer' });
+    expect(fetchMock.mock.calls.map(([, init]) => init?.method)).toEqual(['POST', 'GET']);
+  });
+
+  it.each([
+    ['a missing reference', () => Response.json({}, { status: 201 })],
+    ['an invalid reference', () => Response.json({ sid: `${SID}/not-a-call` }, { status: 201 })],
+    ['a malformed response', () => new Response('<html>fixture</html>', { status: 200 })],
+  ] as const)('leaves the outcome unconfirmed when a 2xx reply has %s', async (_label, response) => {
+    fetchMock.mockResolvedValueOnce(response());
+    const result = await alertCall();
+    expect(result).toEqual({ ok: false, channel: 'call', message: 'Twilio did not confirm the call reference.', uncertain: true });
+    const [entry] = await listOutbox();
+    expect(entry).toMatchObject({ ok: false, uncertain: true, message: result.message });
+    expect(entry).not.toHaveProperty('ref');
+    expect((await request(`?id=${entry.id}`)).status).toBe(404);
+    expect(fetchMock.mock.calls.map(([, init]) => init?.method)).toEqual(['POST']);
+  });
+
+  it('persists an ambiguous network failure as unconfirmed with no new request', async () => {
+    fetchMock.mockRejectedValueOnce(new DOMException('Test connection interrupted', 'TimeoutError'));
+    expect(await alertCall()).toMatchObject({ ok: false, uncertain: true });
+    expect(await listOutbox()).toMatchObject([{ channel: 'call', ok: false, uncertain: true }]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains the result of a known provider refusal and a network failure before sending', async () => {
+    fetchMock
+      .mockResolvedValueOnce(Response.json({ message: 'Test refusal' }, { status: 400 }))
+      .mockRejectedValueOnce(new Error('Test connection refused', { cause: { code: 'ECONNREFUSED' } }));
+    for (const message of ['Twilio HTTP 400: Test refusal', 'Network error: Test connection refused']) {
+      const result = await alertCall();
+      expect(result).toEqual({ ok: false, channel: 'call', message });
+    }
+    const entries = await listOutbox();
+    expect(entries).toHaveLength(2);
+    for (const entry of entries) expect(entry).not.toHaveProperty('uncertain');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps simulated calls in the dry-run context', async () => {
+    const dry: DryRun = { sent: [] };
+    expect(await runDry(dry, alertCall)).toMatchObject({ ok: true, ref: 'simulated' });
+    expect(dry.sent).toMatchObject([{ channel: 'call', purpose: 'alert_shared_screen' }]);
+    expect(await listOutbox()).toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('Watchtower call status', () => {

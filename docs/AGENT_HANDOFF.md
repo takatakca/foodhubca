@@ -1,6 +1,6 @@
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison
 
-La paire caisse et commande confirmée reste stable dans les événements et la lecture Suite. La note de facture Clover, quand elle est activée, utilise aussi la caisse confirmée si la liaison a changé. Le repli historique garde la liaison courante pour une commande sans caisse enregistrée. Deux tests reproduisent les destinations erronées avec des fournisseurs simulés. Sur `46e87b6`, 133 tests ciblés, TypeScript et ESLint passent.
+La paire caisse et commande confirmée reste stable dans les événements et la lecture Suite. La note de facture Clover, quand elle est activée, utilise aussi la caisse confirmée si la liaison a changé. Le repli historique garde la liaison courante pour une commande sans caisse enregistrée. Deux tests reproduisent les destinations erronées avec des fournisseurs simulés. Sur `b59c904`, 133 tests ciblés, TypeScript et ESLint passent.
 
 La cuisine enregistrée sur la commande peut marquer la remise au livreur et la commande terminée. Si la liaison actuelle désigne une autre cuisine, Food Hub affiche un paiement Clover en attente. Le contrôle intervient avant la recherche du type de paiement et l’envoi à Clover. Pour une commande déjà terminée, vérifier le paiement sur la commande de la caisse Clover d’origine et l’enregistrer dans Clover si nécessaire. Le contrôle compare les deux cuisines lorsqu’elles sont connues. La preuve marchande reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
 
@@ -11,6 +11,18 @@ L’impression à l’arrivée, le déclenchement planifié et la réimpression 
 L’annulation et la relève vers la tablette Skip ferment la commande sur la caisse qui l’a confirmée. Si cette caisse diffère de la caisse configurée, Food Hub y vérifie l’identifiant et le titre avant de demander une modification. Lors d’un envoi concurrent, la copie excédentaire est retirée de la caisse qui l’a créée. Une même référence sur deux caisses distingue toujours deux copies lorsque les deux caisses sont confirmées. Les 117 tests ciblés utilisent des réponses Clover simulées.
 
 Si l’annulation arrive pendant le premier envoi, Food Hub ferme la commande sur la caisse confirmée avant impression. L’arrêt s’applique aussi lorsque l’acceptation automatique est désactivée. Quand Clover renvoie un échec après l’annulation, la relève vers la tablette Skip est abandonnée. Les trois scénarios reproduisaient l’erreur avant correction. Sur `df03fc9`, les 136 tests ciblés, TypeScript et ESLint réussissent avec des fournisseurs simulés.
+
+## 2026-11-26 — Alertes d’un écran réaffecté
+
+Si un écran ou une tablette change de cuisine pendant un incident, Watchtower clôture l’incident dans la cuisine d’origine et ouvre l’alerte dans la cuisine qui reçoit l’appareil si le problème persiste. Les appels et l’historique suivent le périmètre de chaque incident. Le changement de cuisine d’une tablette exige une destination active et autorisée. La livraison aux téléphones et aux appareils réels reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+Sur `cdde075`, les 148 essais ciblés couvrent les cinq scénarios simulés de réaffectation ainsi que les contrôles de plateforme du relais et des annulations Clover. TypeScript et ESLint réussissent.
+
+Sur `a1e0841`, les 185 essais ciblés couvrent la réaffectation avec les contrôles de destination partagée et de simulation téléphonique de #173.
+
+La répétition sur l’arbre de #175 `6d2ff10` a passé 224 essais ciblés. Un scénario simulé vérifie que le premier appel encore en attente dans l’ancienne cuisine est clos lors du déplacement et que la nouvelle cuisine reçoit un seul appel quand Twilio Voice devient disponible.
+
+— signé : Codex @ cloud · 2026-11-26
 
 ## 2026-11-26 — Numéro de relève ajouté pendant un incident d’écran
 

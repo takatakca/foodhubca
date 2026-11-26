@@ -554,7 +554,17 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
 
     for (const d of detections) {
       seen.add(d.key);
-      const cur = live.get(d.key) ?? recentlyResolved.get(d.key);
+      let cur = live.get(d.key) ?? recentlyResolved.get(d.key);
+      if (cur && d.deviceId && (cur.locationCode ?? null) !== (d.locationCode ?? null)) {
+        // The device ID stays the same after a move, but its alert history and phone belong to the original kitchen.
+        if (cur.status !== 'resolved') {
+          Object.assign(cur, { status: 'resolved', resolvedAt: iso, resolvedBy: 'Watchtower', updatedAt: iso });
+          cur.steps.push({ at: iso, kind: 'resolved', by: 'Watchtower', message: 'Appareil réaffecté à une autre cuisine. / Device reassigned to another kitchen.' });
+          dirty.set(cur.id, cur);
+          report.resolved++;
+        }
+        cur = undefined;
+      }
       if (cur) {
         const up = SEV[d.severity] > SEV[cur.severity];
         const reopened = cur.status === 'resolved';

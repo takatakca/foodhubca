@@ -71,6 +71,10 @@ export async function runCloverRetries(opts: { now?: number; trigger?: string } 
       continue;
     }
     out.failed++;
+    if (sent.mappingChanged) {
+      out.gaveUp++;
+      continue;
+    }
     const nextS = delays[attempt];
     const gaveUp = nextS === undefined;
     const state = { attempts: attempt, nextAt: gaveUp ? null : new Date(now + nextS * 1000).toISOString(), lastError: sent.pos.error, uncertain: Boolean(sent.pos.uncertain || pr.uncertain), ...(gaveUp ? { gaveUpAt: new Date(now).toISOString() } : {}) };

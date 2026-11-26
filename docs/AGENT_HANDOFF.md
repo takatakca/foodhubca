@@ -1,3 +1,9 @@
+## 2026-11-26 — État de santé dans la preuve de publication
+
+`verify:live` affiche l'état global `ok` ou `degraded` avec la base `ok`, sans traiter un avertissement comme une certification des services. La sonde isolée de build signale séparément l'absence de base. L'accès HTTPS public a échoué depuis cette session ; prochaine étape : vérifier le SHA publié et les alertes dans un environnement autorisé, puis poursuivre les essais marchands de l'[issue #46](https://github.com/takatakca/foodhubca/issues/46). Lire `scripts/verify-live.mjs` et `docs/DEPLOYMENT.md`.
+
+— signé : Copilot @ cloud · 2026-11-26
+
 ## 2026-11-26 — Commandes sans liaison et caisse Clover partagée
 
 Lorsque plusieurs cuisines ont des liaisons et qu’une seule caisse Clover est configurée, une commande sans liaison ni cuisine enregistrée reste au tableau sans être envoyée à la caisse. Ce contrôle s’applique à l’arrivée et aux relances. Confirmer la cuisine dans Restaurants → Liaisons, puis utiliser « Envoyer à Clover » sur la commande. Une relance vérifie aussi l’existence d’une commande Clover après une réponse incertaine. Les essais marchands en cuisine restent suivis dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

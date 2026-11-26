@@ -14,7 +14,7 @@ import { Hint } from '@/components/help/hint';
 import { useViewer } from '@/components/shell/viewer';
 import { readAlertSettings, writeAlertSettings, type AlertSettings } from '@/components/live/incoming';
 import { Section, SettingsHead } from '../settings-ui';
-import type { SharedScreenCallPreview } from '@/lib/foodhub/watch/types';
+import type { KitchenCallPreview, SharedScreenCallPreview } from '@/lib/foodhub/watch/types';
 import { api } from '@/lib/ui/api';
 import { useAutosave } from '@/lib/ui/use-autosave';
 import { useUndo } from '@/lib/ui/use-undo';
@@ -57,16 +57,17 @@ const showPhone = (p: string) => p.replace(/^\+1(\d{3})(\d{3})(\d{4})$/, '+1 $1 
 
 export default function AlertSettingsPage() {
   const { t, lang, loc } = useI18n();
-  const { viewer, can, allLocations } = useViewer();
+  const { viewer, can, allLocations, locations } = useViewer();
   const toast = useToast();
   const edit = can('admin');
-  const canPreviewSharedCall = edit && allLocations && !viewer.device;
+  const canPreviewCall = edit && allLocations && !viewer.device;
   const [w, setW] = useState<Rules | null>(null);
   const [changed, setChanged] = useState<{ at?: string; by?: string }>({});
   const [kinds, setKinds] = useState<Kind[]>([]);
   const [channels, setChannels] = useState<Channels | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [sharedPreview, setSharedPreview] = useState<{ settingsAt?: string; result: SharedScreenCallPreview } | null>(null);
+  const [previewLocation, setPreviewLocation] = useState('');
+  const [callPreview, setCallPreview] = useState<{ settingsAt?: string; locationCode: string; result: SharedScreenCallPreview | KitchenCallPreview } | null>(null);
   const [err, setErr] = useState('');
   // A number typed but not added yet is kept on this device (reload, crash) until "Add".
   const newPhone = useFormDraft(formDraftId('alert-phone'), viewer.username, '', { enabled: edit });
@@ -103,7 +104,10 @@ export default function AlertSettingsPage() {
   });
   const undo = useUndo<Rules>(w, (r) => setW(r), { enabled: edit });
   const previewSavePending = autosave.dirty || autosave.status === 'saving';
-  const latestSharedPreview = !previewSavePending && sharedPreview?.settingsAt === changed.at ? sharedPreview?.result : null;
+  const previewLocationCode = locations.some(({ code }) => code === previewLocation) ? previewLocation : '';
+  const previewKitchenLabel = t('Cuisine à vérifier', 'Kitchen to check');
+  const latestCallPreview = !previewSavePending && callPreview?.settingsAt === changed.at
+    && callPreview?.locationCode === previewLocationCode ? callPreview.result : null;
   const { markLoaded } = autosave;
   const resetUndo = undo.reset;
 
@@ -149,13 +153,14 @@ export default function AlertSettingsPage() {
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(null); }
   }
 
-  async function previewSharedCall() {
-    if (!canPreviewSharedCall || previewSavePending) return;
-    setBusy('shared-call-preview');
-    setSharedPreview(null);
+  async function previewCallRouting() {
+    if (!canPreviewCall || previewSavePending) return;
+    setBusy('call-routing-preview');
+    setCallPreview(null);
     try {
-      const result = await api<SharedScreenCallPreview>('/api/foodhub/watch/test');
-      setSharedPreview({ settingsAt: changed.at, result });
+      const query = previewLocationCode ? `?${new URLSearchParams({ locationCode: previewLocationCode })}` : '';
+      const result = await api<SharedScreenCallPreview | KitchenCallPreview>(`/api/foodhub/watch/test${query}`);
+      setCallPreview({ settingsAt: changed.at, locationCode: previewLocationCode, result });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
@@ -231,14 +236,22 @@ export default function AlertSettingsPage() {
                   onChange={(e) => set({ screenAlertPhone: e.target.value.trim() ? e.target.value : null })} />
               </Field>
             )}
-            {canPreviewSharedCall && (
+            {canPreviewCall && (
               <div className="mt-3 max-w-md">
-                <Button variant="outline" onClick={previewSharedCall} disabled={previewSavePending} loading={busy === 'shared-call-preview'}>
+                {locations.length > 0 && (
+                  <Field className="mb-2" label={previewKitchenLabel}>
+                    <Select aria-label={previewKitchenLabel} value={previewLocationCode} disabled={busy === 'call-routing-preview'} onChange={(event) => { setPreviewLocation(event.target.value); setCallPreview(null); }}>
+                      <option value="">{t('Numéro commun seulement', 'Shared number only')}</option>
+                      {locations.map(({ code, name }) => <option key={code} value={code}>{name}</option>)}
+                    </Select>
+                  </Field>
+                )}
+                <Button variant="outline" onClick={previewCallRouting} disabled={previewSavePending} loading={busy === 'call-routing-preview'}>
                   {t('Simuler la relève des écrans', 'Simulate screen alert routing')}
                 </Button>
                 <p className="text-small mt-1 text-ink-3">{t('Vérifie les réglages enregistrés sans passer d’appel.', 'Checks the saved settings without placing a call.')}</p>
                 <div aria-live="polite">
-                  {latestSharedPreview && <SharedCallPreview result={latestSharedPreview} />}
+                  {latestCallPreview && <CallRoutingPreview result={latestCallPreview} />}
                 </div>
               </div>
             )}
@@ -326,20 +339,31 @@ export default function AlertSettingsPage() {
  * A number box that can be cleared and retyped freely: the rules get the number as typed, and a value out of range is
  * flagged (validate blocks the save) instead of being changed under the person's fingers.
  */
-function SharedCallPreview({ result }: { result: SharedScreenCallPreview }) {
+function CallRoutingPreview({ result }: { result: SharedScreenCallPreview | KitchenCallPreview }) {
   const { t } = useI18n();
+  const labels = {
+    device_offline: t('Tablette de cuisine hors ligne', 'Kitchen tablet offline'),
+    screen_down: t('Écran indisponible', 'Screen unavailable'),
+    screen_waiting: t('Commandes en attente', 'Orders waiting'),
+  };
+  const sources = { shared: t('Numéro commun', 'Shared number'), kitchen: t('Numéro de la cuisine', 'Kitchen number') };
   const status = {
     'watch-off': t('Surveillance arrêtée', 'Watchtower off'),
     'rule-off': t('Relève désactivée pour cette règle', 'Escalation off for this rule'),
-    'missing-number': t('Numéro partagé à configurer', 'Shared number needed'),
+    'missing-number': 'locationCode' in result
+      ? t('Aucun numéro utilisable pour cette cuisine', 'No usable phone for this kitchen')
+      : t('Aucun numéro commun enregistré', 'No saved shared number'),
   };
   return (
     <div className="mt-3 rounded-md border border-line bg-raised p-3">
       <dl className="text-small space-y-2">
-        {result.checks.map(({ kind, state, destination }) => (
-          <div key={kind} className="flex flex-wrap justify-between gap-x-3 gap-y-1">
-            <dt className="font-semibold">{kind === 'screen_down' ? t('Écran indisponible', 'Screen unavailable') : t('Commandes en attente', 'Orders waiting')}</dt>
-            <dd className="text-ink-3">{state === 'simulated' ? t(`Relève simulée vers ${destination}`, `Simulated routing to ${destination}`) : status[state]}</dd>
+        {result.checks.map((check) => (
+          <div key={check.kind} className="flex flex-wrap justify-between gap-x-3 gap-y-1">
+            <dt className="font-semibold">{labels[check.kind]}</dt>
+            <dd className="text-ink-3">
+              {check.state === 'simulated' ? t(`Relève simulée vers ${check.destination}`, `Simulated routing to ${check.destination}`) : status[check.state]}
+              {'source' in check && check.source && <span> · {sources[check.source]}</span>}
+            </dd>
           </div>
         ))}
       </dl>

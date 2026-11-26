@@ -1,35 +1,48 @@
 import { withPerm } from '@/lib/foodhub/auth';
-import { runDry, type DryRun } from '@/lib/foodhub/dry-run';
+import { getCatalog } from '@/lib/foodhub/catalog';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
-import { callConfigured, channelsStatus, placeCall, postToChat, sendEmail, sendSms } from '@/lib/foodhub/notify';
+import { callConfigured, channelsStatus, maskPhone, normalizePhone, placeCall, postToChat, sendEmail, sendSms } from '@/lib/foodhub/notify';
 import { getRepo } from '@/lib/foodhub/repo';
 import { firstAlertCallTarget, getWatchSettings } from '@/lib/foodhub/watch/engine';
-import type { SharedScreenCallPreview, SharedScreenCallPreviewCheck, WatchSettings } from '@/lib/foodhub/watch/types';
+import type { KitchenCallPreview, KitchenCallPreviewCheck, SharedScreenCallPreview, WatchSettings } from '@/lib/foodhub/watch/types';
 
 export const dynamic = 'force-dynamic';
 
 const screenAlertKinds = ['screen_down', 'screen_waiting'] as const;
+const kitchenAlertKinds = ['device_offline', ...screenAlertKinds] as const;
 
-async function simulateSharedCall(kind: SharedScreenCallPreviewCheck['kind'], settings: WatchSettings): Promise<SharedScreenCallPreviewCheck> {
-  if (!settings.enabled) return { kind, state: 'watch-off', destination: null };
+function simulateCall(kind: KitchenCallPreviewCheck['kind'], settings: WatchSettings, kitchenPhone?: string): KitchenCallPreviewCheck {
+  const unavailable = { kind, destination: null, source: null };
+  if (!settings.enabled) return { ...unavailable, state: 'watch-off' };
   const rule = settings.rules[kind];
-  if (rule.enabled === false || !rule.escalate) return { kind, state: 'rule-off', destination: null };
-  const target = firstAlertCallTarget(kind, settings.screenAlertPhone);
-  if (!target) return { kind, state: 'missing-number', destination: null };
-
-  // The run covers only the call; full Watchtower runs also create and update incidents.
-  const dry: DryRun = { sent: [] };
-  await runDry(dry, () => placeCall({ to: target.to, say: 'Test de destination des alertes d’écran.' }, { purpose: target.purpose }));
-  const destination = dry.sent[0]?.to;
-  return destination ? { kind, state: 'simulated', destination } : { kind, state: 'missing-number', destination: null };
+  if (rule.enabled === false || !rule.escalate) return { ...unavailable, state: 'rule-off' };
+  const target = firstAlertCallTarget(kind, settings.screenAlertPhone, kitchenPhone);
+  const destination = normalizePhone(target?.to);
+  if (!target || !destination) return { ...unavailable, state: 'missing-number' };
+  return { kind, state: 'simulated', destination: maskPhone(destination), source: target.purpose === 'alert_shared_screen' ? 'shared' : 'kitchen' };
 }
 
-const preview = withPerm('admin', async (_req, _ctx, actor) => {
+const preview = withPerm('admin', async (req, _ctx, actor) => {
   if (actor.locations.length || actor.deviceId) return fail('This check requires account-wide access.', 403);
   const settings = await getWatchSettings();
+  const locationCode = new URL(req.url).searchParams.get('locationCode');
+  if (locationCode !== null) {
+    const catalog = await getCatalog({ strict: true }).catch(() => null);
+    if (!catalog) return fail('Could not load the saved kitchens.', 503);
+    const kitchen = catalog.locations.find((location) => location.code === locationCode && location.active);
+    if (!kitchen) return fail('Active kitchen not found.', 404);
+    const result: KitchenCallPreview = {
+      callConfigured: callConfigured(), locationCode,
+      checks: kitchenAlertKinds.map((kind) => simulateCall(kind, settings, kitchen.phone ?? undefined)),
+    };
+    return ok({ ...result });
+  }
   const result: SharedScreenCallPreview = {
     callConfigured: callConfigured(),
-    checks: await Promise.all(screenAlertKinds.map((kind) => simulateSharedCall(kind, settings))),
+    checks: screenAlertKinds.map((kind) => {
+      const { state, destination } = simulateCall(kind, settings);
+      return { kind, state, destination };
+    }),
   };
   return ok({ ...result });
 });

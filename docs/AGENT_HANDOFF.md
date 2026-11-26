@@ -2,6 +2,8 @@
 
 Le premier appel de relève et le texto aux gérants peuvent être planifiés à zéro minute après l’ouverture de l’alerte. Watchtower continue d’appliquer les seuils de détection, les règles d’escalade et les heures calmes. Chromium a vérifié en français sur mobile et en anglais sur ordinateur la sauvegarde de zéro, sa conservation après rechargement, la modification du numéro commun et la simulation sans appel. La réception réelle reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
 
+La simulation peut utiliser une cuisine sélectionnée. Elle indique la destination masquée du premier appel pour la tablette hors ligne, l’écran indisponible et les commandes qui attendent. Watchtower privilégie le numéro commun enregistré, puis le téléphone de la cuisine. Les états de configuration sont affichés sans création d’incident et sans envoi.
+
 — signé : Codex @ cloud · 2026-11-26
 
 ## 2026-11-26 — Contrôle manuel d’une liaison Uber Eats

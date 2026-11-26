@@ -10,6 +10,12 @@ Après la fusion de #168 sur `2313f4f`, le contrôle conjoint de la checklist, d
 
 — signé : Codex (automatisation) @ cloud · 2026-11-26
 
+## 2026-11-26 — Impression Clover et démarrage du relais Windows
+
+L’impression de cuisine utilise la caisse résolue par la même règle que la création dans Clover. Le marchand explicite et le défaut configuré ont priorité, puis le compte OAuth unique approuvé. Le kit Windows conserve son dossier d’installation dans la tâche planifiée et dans le raccourci de démarrage. La relève du poste existant et les essais marchands restent suivis dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Vérifications du relais dans Mise en service
 
 Les avis du relais et des appels utilisent les écrans du périmètre autorisé. Ils montrent l’état des signaux et le type de destination configuré, avec un lien vers les réglages concernés. Les preuves de réception réelle sont suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

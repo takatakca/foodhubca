@@ -1,3 +1,13 @@
+## 2026-11-26 — Relances et impressions Clover après déplacement d’une liaison
+
+Quand la cuisine de la liaison a changé depuis la réception, les relances et impressions Clover sont bloquées et signalées. Une commande planifiée arrivée à son heure de préparation est affichée avec l’erreur d’impression dans sa cuisine d’origine. Avant de relancer, vérifier la liaison et la commande dans la caisse appropriée. Une commande qui attend sa première liaison peut toujours être acheminée une fois la cuisine attribuée. La preuve de livraison en cuisine reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+La reprise sur `2313f4f` a vérifié la première liaison d’une commande retenue, puis le déplacement de cette liaison après une réponse Clover incertaine. La relance conserve la première cuisine et attend la vérification de la liaison avant de contacter Clover.
+
+La répétition sur l’arbre de #173 `ab73a76` a passé 208 essais ciblés. Ils couvrent la relance Clover après une réponse incertaine, la confirmation Skip après réception et les accès aux commandes et à la vitrine.
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Relève des écrans et confirmation Skip
 
 Dans Réglages → Alertes, « Simuler la relève des écrans » vérifie les deux règles et le numéro commun enregistré, affiché masqué. La simulation reproduit la sélection du premier appel. L’indication de configuration Twilio est distincte. La réception sur un téléphone fait partie des essais marchands dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

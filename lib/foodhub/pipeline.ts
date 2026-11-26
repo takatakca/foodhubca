@@ -6,7 +6,7 @@ import { logActivity, type Actor } from './activity';
 import { getAdapter } from './adapters';
 import { CHANNEL_LABELS, nowIso } from './config';
 import { allCloverMerchants, cloverAutoPrintEnabled, cloverBaseUrl, cloverExpected, cloverInjectionEnabled, cloverToken, defaultCloverMerchant, injectOrder, type InjectResult } from './pos/clover';
-import { cloverOrderTypeForOrder, cloverTotalGap, describeMappingWarnings, findCloverOrderByTitle, mapOrderLines, platformFoodCents, printKitchenTicket } from './pos/clover-order';
+import { CLOVER_REPRINT_KITCHEN_CHANGED, cloverKitchenChanged, cloverOrderTypeForOrder, cloverTotalGap, describeMappingWarnings, findCloverOrderByTitle, mapOrderLines, platformFoodCents, printKitchenTicket } from './pos/clover-order';
 import { cloverRetryDelaysS, noteLastOrder, scheduleCloverRetry } from './order-retry';
 import { settleInClover } from './clover-settle';
 import { mevOnOrderChange } from './mev/hooks';
@@ -268,10 +268,11 @@ async function resumeUnsentOrder(order: StoredOrder): Promise<PipelineOutcome> {
   if (sent.pos.ok) {
     // As on arrival; an order that arrived from a store nobody had mapped keeps waiting for a person.
     if (sent.store?.autoAccept && order.locationCode && current.status === 'new') ({ order: current, accept } = await autoAcceptAfterClover(current, sent.pos.posOrderId));
-  } else if (!sent.pos.skipped && (await scheduleCloverRetry(current, sent.pos))) {
-    await repo.addEvent(order.id, 'needs_attention', { reason: `Clover injection failed — Food Hub tries again by itself (${cloverRetryDelaysS().map((s) => `${s} s`).join(', then ')}) before waking a manager. Nothing is accepted on the platform until Clover has the order.` });
-  } else if (!sent.pos.skipped) {
-    await repo.addEvent(order.id, 'needs_attention', { reason: 'Clover injection failed — use "Send to Clover" (or "Accept without Clover" after entering it by hand).' });
+  } else if (!sent.mappingChanged && !sent.pos.skipped) {
+    const retrying = await scheduleCloverRetry(current, sent.pos);
+    await repo.addEvent(order.id, 'needs_attention', { reason: retrying
+      ? `Clover injection failed — Food Hub tries again by itself (${cloverRetryDelaysS().map((s) => `${s} s`).join(', then ')}) before waking a manager. Nothing is accepted on the platform until Clover has the order.`
+      : 'Clover injection failed — use "Send to Clover" (or "Accept without Clover" after entering it by hand).' });
   }
   const tag = `${CHANNEL_LABELS[order.channel]} #${order.displayId || order.externalOrderId.slice(0, 8)}`;
   await logActivity({ actor: 'Food Hub', source: 'automation', kind: 'order', action: 'order_resumed', status: sent.pos.ok ? 'success' : 'failed', channel: order.channel, brandName: order.brandName, locationCode: order.locationCode, orderId: order.id,
@@ -352,20 +353,23 @@ function maybeInClover(order: StoredOrder): boolean {
   return Boolean(order.timeline?.posRetry?.uncertain) || /network error|timed out|aborted|HTTP 5\d\d|did not include an order id/i.test(order.posError ?? '');
 }
 
+type CloverResendOutcome = { order: StoredOrder; pos: InjectResult; store: ChannelStore | null; mappingChanged?: true };
+
 /**
  * Sends an order Clover does not have yet — "Send to Clover" and the automatic retries:
  *  1. re-links its lines and brand (the store may have been mapped since it arrived);
  *  2. when the last answer was lost, looks in Clover first and links the order Clover already has (no second ticket);
  *  3. injects, then reads the order again: a copy someone else put in Clover meanwhile wins (ours is removed), and an
  *     order the platform cancelled meanwhile gets no kitchen ticket (removed from Clover); otherwise records and prints.
- * A store nobody mapped waits when its Clover register or kitchen cannot be determined. One send per
- * order at a time on any server (the button, the timer and the cron can meet — on several servers at once, so the
- * guard is a claim in the database, not only this process's memory). Accepting is the caller's decision.
+ * An order keeps the kitchen saved at arrival when its mapping moves. An unmapped store waits until its Clover
+ * register and kitchen can be determined. A database claim limits sends to one at a time per order, across servers.
+ * Accepting is the caller's decision.
  */
-export async function resendToClover(order: StoredOrder, opts: { manual?: boolean; by?: string; attempt?: number } = {}): Promise<{ order: StoredOrder; pos: InjectResult; store: ChannelStore | null }> {
+export async function resendToClover(order: StoredOrder, opts: { manual?: boolean; by?: string; attempt?: number } = {}): Promise<CloverResendOutcome> {
   if (!(await claimCloverSending(order.id))) return { order, pos: { ok: false, skipped: true, error: 'Food Hub is already sending this order to Clover — check again in a few seconds.' }, store: null };
   try {
-    return await resendNow(order, opts);
+    const current = (await getRepo().getOrder(order.id)) ?? order;
+    return await resendNow(current, opts);
   } finally {
     await releaseCloverSending(order.id);
   }
@@ -413,9 +417,19 @@ export async function isSendingToClover(orderId: string): Promise<boolean> {
   return !Number.isFinite(at) || Date.now() - at <= CLOVER_SEND_CLAIM_STUCK_MS;
 }
 
-async function resendNow(order: StoredOrder, opts: { manual?: boolean; by?: string; attempt?: number }): Promise<{ order: StoredOrder; pos: InjectResult; store: ChannelStore | null }> {
+async function resendNow(order: StoredOrder, opts: { manual?: boolean; by?: string; attempt?: number }): Promise<CloverResendOutcome> {
   const repo = getRepo();
   const store = await repo.findStore(order.channel, order.channelStoreId);
+  const tag = { ...(opts.manual ? { manual: true } : {}), ...(opts.by ? { by: opts.by } : {}), ...(opts.attempt ? { attempt: opts.attempt } : {}) };
+  if (cloverKitchenChanged(order, store)) {
+    const error = 'This store is now mapped to a different kitchen. Review the order and store mapping before using "Send to Clover".';
+    const previous = order.timeline?.posRetry;
+    // Keep an uncertain prior attempt so recovery can look for the original Clover order after the mapping is repaired.
+    const posRetry = { ...previous, attempts: previous?.attempts ?? 0, nextAt: null, lastError: error, uncertain: maybeInClover(order) };
+    const held = await patchTimeline(order, { posRetry }, { posError: error });
+    await repo.addEvent(order.id, 'needs_attention', { reason: error, ...tag });
+    return { order: held, pos: { ok: false, error }, store, mappingChanged: true };
+  }
   let current = order;
   const patch: Partial<StoredOrder> = {};
   if (store && !order.locationCode) Object.assign(patch, { locationCode: store.locationCode, brandName: store.brandName });
@@ -427,7 +441,6 @@ async function resendNow(order: StoredOrder, opts: { manual?: boolean; by?: stri
     if (mapped.lines.some((l, i) => l.posItemRef !== order.lines[i].posItemRef)) Object.assign(patch, { lines: mapped.lines, mappingWarnings: mapped.warnings.length ? mapped.warnings : undefined });
   }
   if (Object.keys(patch).length) current = (await repo.updateOrder(order.id, patch)) ?? { ...current, ...patch };
-  const tag = { ...(opts.manual ? { manual: true } : {}), ...(opts.by ? { by: opts.by } : {}), ...(opts.attempt ? { attempt: opts.attempt } : {}) };
 
   let pos: InjectResult | null = null;
   const routingHold = await unmappedCloverHold(current, store);
@@ -640,9 +653,11 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
   }
 
   if (action === 'retry_pos' || action === 'print') {
-    const store = await repo.findStore(order.channel, order.channelStoreId);
     if (action === 'print') {
-      const p = await printKitchenTicket(order.posOrderId!, store?.cloverMerchantId, order.locationCode);
+      const store = await repo.findStore(order.channel, order.channelStoreId);
+      const p = cloverKitchenChanged(order, store)
+        ? { ok: false, message: CLOVER_REPRINT_KITCHEN_CHANGED }
+        : await printKitchenTicket(order.posOrderId!, store?.cloverMerchantId, order.locationCode);
       await repo.addEvent(order.id, p.ok ? 'printed' : 'print_failed', { message: p.message, manual: true, by: actor.name });
       const updated = await patchTimeline(order, p.ok ? { printedAt: nowIso(), printError: undefined } : { printError: p.message });
       await log(p.ok ? 'success' : 'failed', p.message);

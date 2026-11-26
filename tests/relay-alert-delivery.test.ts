@@ -179,6 +179,217 @@ describe('Screen relay alerts without a console open', () => {
     expect(await listIncidents({ status: ['open'] })).toHaveLength(1);
   });
 
+  it.each([
+    { role: 'manager', threshold: 1, priorLevel: 1, phone: '+15145550126', purpose: 'alert' },
+    { role: 'owner', threshold: 2, priorLevel: 2, phone: '+15145550127', purpose: 'alert_owner' },
+  ] as const)('does not redial the $role when a second process reads the first process pre-call write', async ({ role, threshold, priorLevel, phone, purpose }) => {
+    await prepareZeroMinuteScreenCall();
+    await saveWatchSettings({ callAfterMin: 1, ownerAfterMin: 2 }, OWNER);
+    const repo = getRepo();
+    const createdAt = new Date().toISOString();
+    await repo.saveUser({ id: 'manager', username: 'manager', name: 'On duty manager', role: 'manager', locations: [KITCHEN], phone: '+15145550126', active: true, createdAt });
+    await repo.saveUser({ id: 'owner2', username: 'owner2', name: 'On duty owner', role: 'owner', locations: [KITCHEN], phone: '+15145550127', active: true, createdAt });
+    const firstDestinationStarts = gate();
+    const letFirstDestinationFinish = gate();
+    const calls: string[] = [];
+    const sms: string[] = [];
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = new URL(String(input));
+      const to = new URLSearchParams(String(init?.body)).get('To') ?? '';
+      if (url.pathname.endsWith('Messages.json')) {
+        sms.push(to);
+        return Response.json({ sid: 'SMsimulated' }, { status: 201 });
+      }
+      if (url.origin !== TWILIO_BASE || !url.pathname.endsWith('Calls.json')) throw new Error('Unexpected external call');
+      calls.push(to);
+      if (to === phone && calls.filter((destination) => destination === phone).length === 1) {
+        firstDestinationStarts.resolve();
+        await letFirstDestinationFinish.promise;
+      }
+      const sid = `CA${calls.length.toString(16).padStart(32, '0')}`;
+      return Response.json({ sid, status: 'queued' }, { status: 201 });
+    });
+    expect(await runWatch({ trigger: 'timer' })).toMatchObject({ opened: 1, escalated: 1 });
+    const [incident] = await listIncidents({ status: ['open'] });
+    expect(incident.level).toBe(1);
+    if (threshold === 2) {
+      advanceTo(7);
+      expect(await runWatch({ trigger: 'timer' })).toMatchObject({ escalated: 1 });
+    }
+    advanceTo(6 + threshold);
+    const firstTime = new Date().toISOString();
+    const firstWorker = runWatch({ trigger: 'timer' });
+    try {
+      await firstDestinationStarts.promise;
+      const persisted = await getIncident(incident.id);
+      expect(persisted).toMatchObject({ updatedAt: firstTime, level: priorLevel });
+      // A second server process has a different global guard but reads the same incident revisions and KV rows.
+      const workerGlobal = globalThis as typeof globalThis & { __takatakWatchRunning?: number };
+      workerGlobal.__takatakWatchRunning = 0;
+      vi.setSystemTime(Date.now() + 1);
+      expect(await runWatch({ trigger: 'manual', force: true })).toMatchObject({ ran: true });
+    } finally {
+      letFirstDestinationFinish.resolve();
+      await firstWorker;
+    }
+    const evidence = (await readOutbox()).filter((entry) => entry.incidentId === incident.id && entry.channel === 'call' && entry.purpose === purpose);
+    const history = (await getIncident(incident.id))?.steps.filter((entry) => entry.kind === 'call' && entry.to?.includes(phone.slice(-4)));
+    const report = { role, callsToDestination: calls.filter((destination) => destination === phone).length, outboxCalls: evidence.length, historyCalls: history?.length, ownerMessages: sms.filter((destination) => destination === '+15145550127').length };
+    expect(report).toMatchObject({ callsToDestination: 1, outboxCalls: 1, historyCalls: 1, ownerMessages: role === 'owner' ? 1 : 0 });
+  });
+
+  it.each(['open', 'acknowledged'] as const)('honors grouping and escalation order when the operator leaves the incident %s', async (status) => {
+    await prepareZeroMinuteScreenCall();
+    const phone = '+15145550126';
+    const secondManagerPhone = '+15145550128';
+    const support = '+15145550129';
+    await saveWatchSettings({ callAfterMin: 1, ownerAfterMin: 1, supportPhones: [support] }, OWNER);
+    const repo = getRepo();
+    await repo.saveUser({ username: 'manager', name: 'On duty manager', role: 'manager', locations: [KITCHEN], phone, active: true });
+    if (status === 'acknowledged') {
+      await repo.saveUser({ username: 'manager-z', name: 'Second manager', role: 'manager', locations: [KITCHEN], phone: secondManagerPhone, active: true });
+    }
+    await repo.saveUser({ username: 'owner2', name: 'On duty owner', role: 'owner', locations: [KITCHEN], phone, active: true });
+
+    const reachedManager = gate();
+    const releaseManager = gate();
+    const calls: string[] = [];
+    const messages: string[] = [];
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = new URL(String(input));
+      expect(url.origin).toBe(TWILIO_BASE);
+      const form = new URLSearchParams(String(init?.body));
+      if (url.pathname.endsWith('Messages.json')) {
+        messages.push(form.get('Body') ?? '');
+        return Response.json({ sid: 'SMsimulated' }, { status: 201 });
+      }
+      expect(url.pathname).toMatch(/Calls\.json$/);
+      const called = form.get('To') ?? '';
+      calls.push(called);
+      if (called === phone && calls.filter((destination) => destination === phone).length === 1) {
+        reachedManager.resolve();
+        await releaseManager.promise;
+      }
+      return Response.json({ sid: CALL_SID }, { status: 201 });
+    });
+
+    expect(await runCron()).toMatchObject({ opened: 1, escalated: 1 });
+    const [incident] = await listIncidents({ status: ['open'] });
+    advanceTo(7);
+    const worker = runWatch({ trigger: 'timer' });
+    try {
+      await reachedManager.promise;
+      const workerGlobal = globalThis as typeof globalThis & { __takatakWatchRunning?: number };
+      workerGlobal.__takatakWatchRunning = 0;
+      vi.setSystemTime(Date.now() + 1);
+      expect(await runWatch({ trigger: 'manual', force: true })).toMatchObject({ ran: true, escalated: 0 });
+      expect((await getIncident(incident.id))?.level).toBe(1);
+      expect(calls).toEqual([SHARED_PHONE, phone]);
+      expect(messages.filter((message) => message.includes('min sans réponse'))).toHaveLength(0);
+      if (status === 'acknowledged') await actOnIncident(incident.id, 'ack', OWNER);
+    } finally {
+      releaseManager.resolve();
+      await worker;
+    }
+    const expectedCalls = status === 'open' ? [SHARED_PHONE, phone, support] : [SHARED_PHONE, phone];
+    expect(calls).toEqual(expectedCalls);
+    expect(messages.filter((message) => message.includes('min sans réponse'))).toHaveLength(status === 'open' ? 1 : 0);
+    advanceTo(8);
+    await runCron();
+    advanceTo(9);
+    await runCron();
+    expect(await getIncident(incident.id)).toMatchObject({ status, level: status === 'open' ? 3 : 1 });
+    expect(calls).toEqual(expectedCalls);
+    if (status === 'acknowledged') {
+      expect(calls).not.toContain(secondManagerPhone);
+      const history = (await getIncident(incident.id))?.steps.filter((step) => step.kind === 'call' && step.to?.includes(phone.slice(-4)));
+      expect(history).toHaveLength(1);
+      const outbox = (await readOutbox()).filter((entry) => entry.incidentId === incident.id && entry.channel === 'call');
+      expect(outbox).toHaveLength(2);
+    }
+  });
+
+  it.each(['database error', 'abandoned reservation'] as const)('defers later sends on %s and resumes without replaying a claim', async (reason) => {
+    await prepareZeroMinuteScreenCall();
+    await saveWatchSettings({ callAfterMin: 1, ownerAfterMin: 1 }, OWNER);
+    const repo = getRepo();
+    const managerPhone = '+15145550126';
+    const ownerPhone = '+15145550127';
+    await repo.saveUser({ username: 'manager', name: 'On duty manager', role: 'manager', locations: [KITCHEN], phone: managerPhone, active: true });
+    await repo.saveUser({ username: 'owner2', name: 'On duty owner', role: 'owner', locations: [KITCHEN], phone: ownerPhone, active: true });
+    const calls: string[] = [];
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = new URL(String(input));
+      expect(url.origin).toBe(TWILIO_BASE);
+      if (url.pathname.endsWith('Messages.json')) return Response.json({ sid: 'SMsimulated' }, { status: 201 });
+      expect(url.pathname).toMatch(/Calls\.json$/);
+      calls.push(new URLSearchParams(String(init?.body)).get('To') ?? '');
+      return Response.json({ sid: CALL_SID }, { status: 201 });
+    });
+    await runCron();
+    const [incident] = await listIncidents({ status: ['open'] });
+    const key = `watch:screen-stage:${incident.id}:2`;
+    advanceTo(7);
+    if (reason === 'abandoned reservation') expect(await repo.claimKv(key, { startedAt: Date.now() })).toBe(true);
+    const claim = repo.claimKv.bind(repo);
+    const ruled = vi.spyOn(repo, 'claimKv').mockImplementation(async (name, value) => {
+      if (name === key && reason === 'database error') throw new Error('Synthetic database failure');
+      return claim(name, value);
+    });
+    try {
+      await runCron();
+      expect((await getIncident(incident.id))?.level).toBe(1);
+      expect(calls).toEqual([SHARED_PHONE]);
+    } finally {
+      ruled.mockRestore();
+    }
+    advanceTo(9);
+    await runCron();
+    if (reason === 'abandoned reservation') {
+      const deferred = await getIncident(incident.id);
+      expect(deferred?.level).toBe(2);
+      expect(deferred?.steps).toContainEqual(expect.objectContaining({ kind: 'note', message: expect.stringContaining('Stage 3 already reserved') }));
+      expect(calls).toEqual([SHARED_PHONE]);
+      advanceTo(10);
+      await runCron();
+    }
+    expect((await getIncident(incident.id))?.level).toBe(3);
+    expect(calls).toEqual(reason === 'database error' ? [SHARED_PHONE, managerPhone, ownerPhone] : [SHARED_PHONE, ownerPhone]);
+  });
+
+  it('does not start a manager call when the operator acknowledged during the reservation response', async () => {
+    await prepareZeroMinuteScreenCall();
+    await saveWatchSettings({ callAfterMin: 1, ownerAfterMin: 2 }, OWNER);
+    const repo = getRepo();
+    const managerPhone = '+15145550126';
+    await repo.saveUser({ id: 'manager', username: 'manager', name: 'On duty manager', role: 'manager', locations: [KITCHEN], phone: managerPhone, active: true, createdAt: new Date().toISOString() });
+    const providerCalls: string[] = [];
+    fetchMock.mockImplementation(async (input, init) => {
+      const pathname = new URL(String(input)).pathname;
+      if (pathname.endsWith('Calls.json')) providerCalls.push(new URLSearchParams(String(init?.body)).get('To') ?? '');
+      return Response.json({ sid: pathname.endsWith('Calls.json') ? CALL_SID : 'SMsimulated', status: 'queued' }, { status: 201 });
+    });
+    await runWatch({ trigger: 'timer' });
+    const [incident] = await listIncidents({ status: ['open'] });
+    expect(incident.level).toBe(1);
+    const originalClaim = repo.claimKv.bind(repo);
+    const claim = vi.spyOn(repo, 'claimKv').mockImplementation(async (key, value) => {
+      const won = await originalClaim(key, value);
+      if (won && key === `watch:screen-stage:${incident.id}:2`) {
+        expect(await actOnIncident(incident.id, 'ack', OWNER)).toMatchObject({ status: 'acknowledged' });
+      }
+      return won;
+    });
+    try {
+      advanceTo(7);
+      await runWatch({ trigger: 'timer' });
+    } finally {
+      claim.mockRestore();
+    }
+    expect(await getIncident(incident.id)).toMatchObject({ status: 'acknowledged' });
+    expect(providerCalls).not.toContain(managerPhone);
+  });
+
   it.each(['recent', 'exact'] as const)('coordinates the zero-minute call when overlapping ticks both read no incident in the %s query', async (query) => {
     await prepareZeroMinuteScreenCall();
     fetchMock.mockImplementation(async () => Response.json({ sid: CALL_SID, status: 'queued' }, { status: 201 }));
@@ -678,7 +889,16 @@ describe('Screen relay alerts without a console open', () => {
   it('keeps the first call pending until its database claim can be stored', async () => {
     const { incident, tick } = await openScreenIncident(offlineScreen);
     await saveWatchSettings({ screenAlertPhone: SHARED_PHONE }, OWNER);
-    const claim = vi.spyOn(getRepo(), 'claimKv').mockRejectedValueOnce(new Error('Temporary database failure'));
+    const repo = getRepo();
+    const original = repo.claimKv.bind(repo);
+    let failFirstClaim = true;
+    const claim = vi.spyOn(repo, 'claimKv').mockImplementation(async (key, value) => {
+      if (key === `watch:first-screen-call:${incident.id}` && failFirstClaim) {
+        failFirstClaim = false;
+        throw new Error('Temporary database failure');
+      }
+      return original(key, value);
+    });
     try {
       expect(await tick(1)).toMatchObject({ escalated: 1 });
       expect(await getIncident(incident.id)).toMatchObject({ level: 1, screenFirstCallPending: true });

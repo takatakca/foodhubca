@@ -456,6 +456,46 @@ export function firstAlertCallTarget(kind: IncidentKind, sharedPhone: string | n
   return to ? { to, purpose: shared ? 'alert_shared_screen' : 'alert_kitchen' } : null;
 }
 
+const SCREEN_STAGE_SETTLE_MS = 2 * 60_000;
+type ScreenStageReservation = { startedAt: number; settled?: true };
+type ScreenStageDecision = 'dispatch' | 'defer' | 'settled' | 'unconfirmed';
+
+/** A reservation never expires for sending. Its age only bounds how long a later stage waits after a crash. */
+function screenStageReservations(i: Incident) {
+  const repo = getRepo();
+  const owned = new Map<string, ScreenStageReservation>();
+  async function stillOpen() {
+    const current = await getIncident(i.id);
+    return current?.key === i.key && current.locationCode === i.locationCode
+      && current.status === 'open' && !current.awaitingFreshDetection;
+  }
+  return {
+    stillOpen,
+    async reserve(level: number): Promise<ScreenStageDecision> {
+      if (!(await stillOpen())) return 'defer';
+      const key = `watch:screen-stage:${i.id}:${level}`;
+      const startedAt = Date.now();
+      if (await repo.claimKv(key, { startedAt })) {
+        if (!(await stillOpen())) return 'defer';
+        owned.set(key, { startedAt });
+        return 'dispatch';
+      }
+      const previous = await repo.getKv<ScreenStageReservation>(key);
+      if (previous?.settled) return 'settled';
+      return previous && Number.isFinite(previous.startedAt) && startedAt - previous.startedAt >= SCREEN_STAGE_SETTLE_MS
+        ? 'unconfirmed' : 'defer';
+    },
+    async settle() {
+      // Keep every owned stage in flight until this run has used its shared destination dedupe set.
+      for (const [key, reservation] of owned) {
+        await repo.setKv(key, { ...reservation, settled: true }).catch(() => {
+          console.warn('[foodhub] Watchtower could not settle a screen escalation reservation.');
+        });
+      }
+    },
+  };
+}
+
 async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now: number, quiet: boolean, kitchenPhones: Map<string, string> = new Map()): Promise<boolean> {
   if (i.status !== 'open' || i.awaitingFreshDetection) return false;
   const rule = s.rules[i.kind] ?? { enabled: true, escalate: false };
@@ -467,85 +507,133 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
     i.steps.push({ at: new Date(now).toISOString(), kind, to, ok, message, ...(uncertain ? { uncertain } : {}), ...(dispatchId ? { dispatchId } : {}) });
     changed = true;
   };
+  const screenAlert = SHARED_PHONE_KINDS.includes(i.kind);
+  const reservations = screenAlert ? screenStageReservations(i) : null;
+  const note = (message: string) => {
+    if (i.steps.some((entry) => entry.kind === 'note' && entry.message === message)) return;
+    i.steps.push({ at: new Date(now).toISOString(), kind: 'note', by: 'Watchtower', message });
+    changed = true;
+  };
+  const mayNotify = () => reservations?.stillOpen().catch(() => {
+    note('Envois restants suspendus car l’alerte n’a pas pu être vérifiée. / Remaining notifications paused because the incident could not be checked.');
+    return false;
+  }) ?? true;
 
   // A delayed tick can make several escalation stages due at once. One phone
   // can be listed in multiple roles; later ticks can still escalate normally.
   const called = new Set<string>();
   const call = async (to: string, label: string, lang: 'fr' | 'en', purpose: string) => {
     const destination = normalizePhone(to) ?? to;
-    if (called.has(destination)) return;
+    if (called.has(destination)) return true;
+    if (!(await mayNotify())) return false;
     called.add(destination);
     const result = await placeCall({ to: destination, say: callText(i, lang), lang }, { purpose, incidentId: i.id });
     const dispatchId = SHARED_PHONE_KINDS.includes(i.kind) ? crypto.randomUUID() : undefined;
     step('call', `${label} (${maskContact(destination)})`, result.ok, result.message, result.uncertain, dispatchId);
+    return true;
   };
 
-  const firstStageDue = elapsed >= s.smsAfterMin;
-  const smsDue = firstStageDue && i.level < 1;
-  if (firstStageDue && (smsDue || i.screenFirstCallPending)) {
-    const screenAlert = SHARED_PHONE_KINDS.includes(i.kind);
-    const kitchen = i.locationCode ? kitchenPhones.get(i.locationCode) : undefined;
-    const target = firstAlertCallTarget(i.kind, s.screenAlertPhone, kitchen);
-    const waitingForVoice = screenAlert && Boolean(target) && !callConfigured();
-    if (target && !waitingForVoice) {
-      // Keep the claim across ticks and restarts, including when Twilio's reply is uncertain.
-      const claimed = screenAlert
-        ? await getRepo().claimKv(`watch:first-screen-call:${i.id}`, { at: new Date(now).toISOString() }).catch(() => null)
-        : true;
-      if (claimed === null) {
-        if (!i.screenFirstCallPending) { i.screenFirstCallPending = true; changed = true; }
-      } else {
-        if (i.screenFirstCallPending) { delete i.screenFirstCallPending; changed = true; }
-        if (claimed) await call(target.to, target.purpose === 'alert_shared_screen' ? 'screen hotline' : i.locationCode ?? 'kitchen', 'fr', target.purpose);
-        else {
-          called.add(normalizePhone(target.to) ?? target.to);
-          if (!i.steps.some((entry) => entry.kind === 'note' && entry.message === FIRST_SCREEN_CALL_RESERVED)) {
-            i.steps.push({ at: new Date(now).toISOString(), kind: 'note', by: 'Watchtower', message: FIRST_SCREEN_CALL_RESERVED });
-            changed = true;
+  const reserve = async (level: number): Promise<ScreenStageDecision> => {
+    if (!reservations) return 'dispatch';
+    try {
+      return await reservations.reserve(level);
+    } catch {
+      note('Réservation de l’escalade à vérifier au prochain passage. / Escalation reservation will be checked on the next pass.');
+      return 'defer';
+    }
+  };
+  const advance = (level: number, decision: ScreenStageDecision) => {
+    i.level = level;
+    changed = true;
+    if (decision === 'unconfirmed') {
+      note(`Palier ${level + 1} déjà réservé. Vérifiez son résultat dans le journal des messages. / Stage ${level + 1} already reserved. Check its outcome in the message log.`);
+    }
+  };
+
+  try {
+    const firstStageDue = elapsed >= s.smsAfterMin;
+    const smsDue = firstStageDue && i.level < 1;
+    const firstStage = smsDue ? await reserve(1) : 'dispatch';
+    if (firstStage === 'defer') return changed;
+    if (firstStageDue && (smsDue || i.screenFirstCallPending)) {
+      const kitchen = i.locationCode ? kitchenPhones.get(i.locationCode) : undefined;
+      const target = firstAlertCallTarget(i.kind, s.screenAlertPhone, kitchen);
+      const waitingForVoice = screenAlert && Boolean(target) && !callConfigured();
+      if (target && !waitingForVoice) {
+        // Keep the claim across ticks and restarts, including when Twilio's reply is uncertain.
+        const claimed = screenAlert
+          ? await getRepo().claimKv(`watch:first-screen-call:${i.id}`, { at: new Date(now).toISOString() }).catch(() => null)
+          : true;
+        if (claimed === null) {
+          if (!i.screenFirstCallPending) { i.screenFirstCallPending = true; changed = true; }
+        } else {
+          if (i.screenFirstCallPending) { delete i.screenFirstCallPending; changed = true; }
+          if (claimed) {
+            if (!(await call(target.to, target.purpose === 'alert_shared_screen' ? 'screen hotline' : i.locationCode ?? 'kitchen', 'fr', target.purpose))) return changed;
+          } else {
+            called.add(normalizePhone(target.to) ?? target.to);
+            if (!i.steps.some((entry) => entry.kind === 'note' && entry.message === FIRST_SCREEN_CALL_RESERVED)) {
+              i.steps.push({ at: new Date(now).toISOString(), kind: 'note', by: 'Watchtower', message: FIRST_SCREEN_CALL_RESERVED });
+              changed = true;
+            }
           }
         }
-      }
-    } else if (screenAlert) {
-      if (!i.screenFirstCallPending) { i.screenFirstCallPending = true; changed = true; }
-      if (waitingForVoice && !i.steps.some((entry) => entry.kind === 'note' && entry.message === FIRST_SCREEN_CALL_NEEDS_VOICE)) {
-        i.steps.push({ at: new Date(now).toISOString(), kind: 'note', by: 'Watchtower', message: FIRST_SCREEN_CALL_NEEDS_VOICE });
-        changed = true;
+      } else if (screenAlert) {
+        if (!i.screenFirstCallPending) { i.screenFirstCallPending = true; changed = true; }
+        if (waitingForVoice && !i.steps.some((entry) => entry.kind === 'note' && entry.message === FIRST_SCREEN_CALL_NEEDS_VOICE)) {
+          i.steps.push({ at: new Date(now).toISOString(), kind: 'note', by: 'Watchtower', message: FIRST_SCREEN_CALL_NEEDS_VOICE });
+          changed = true;
+        }
       }
     }
-  }
-  if (smsDue) {
-    i.level = 1; changed = true;
-    const to = recipients(users, i, ['manager'], 'sms');
-    const list = to.length ? to : recipients(users, i, ['owner'], 'sms');
-    for (const u of list) {
-      const r = await sendSms({ to: u.phone!, body: smsText(i, u.prefs?.lang ?? 'fr') }, { purpose: 'alert', incidentId: i.id });
-      step('sms', `${u.name} (${maskContact(u.phone!)})`, r.ok, r.message);
+    if (smsDue) {
+      advance(1, firstStage);
+      if (firstStage !== 'dispatch') return changed;
+      const to = recipients(users, i, ['manager'], 'sms');
+      const list = to.length ? to : recipients(users, i, ['owner'], 'sms');
+      for (const u of list) {
+        if (!(await mayNotify())) return changed;
+        const r = await sendSms({ to: u.phone!, body: smsText(i, u.prefs?.lang ?? 'fr') }, { purpose: 'alert', incidentId: i.id });
+        step('sms', `${u.name} (${maskContact(u.phone!)})`, r.ok, r.message);
+      }
+      if (i.severity === 'critical') {
+        for (const p of s.supportPhones) {
+          if (!(await mayNotify())) return changed;
+          const r = await sendSms({ to: p, body: smsText(i, 'fr') }, { purpose: 'alert_support', incidentId: i.id });
+          step('sms', `support (${maskContact(p)})`, r.ok, r.message);
+        }
+      }
+      if (!list.length) step('sms', '—', false, 'Aucun gérant de garde avec un cellulaire. / No manager on duty with a phone.');
     }
-    if (i.severity === 'critical') {
+    if (i.level < 2 && elapsed >= s.callAfterMin && i.severity === 'critical') {
+      const permission = await reserve(2);
+      if (permission === 'defer') return changed;
+      advance(2, permission);
+      if (permission !== 'dispatch') return changed;
+      const to = recipients(users, i, ['manager'], 'call');
+      for (const u of (to.length ? to : recipients(users, i, ['owner'], 'call')).slice(0, 2)) {
+        if (!(await call(u.phone!, u.name, u.prefs?.lang ?? 'fr', 'alert'))) return changed;
+      }
+    }
+    if (i.level < 3 && elapsed >= s.ownerAfterMin && i.severity === 'critical') {
+      const permission = await reserve(3);
+      if (permission === 'defer') return changed;
+      advance(3, permission);
+      if (permission !== 'dispatch') return changed;
+      for (const u of recipients(users, i, ['owner'], 'sms')) {
+        if (!(await mayNotify())) return changed;
+        const r = await sendSms({ to: u.phone!, body: `${smsText(i, u.prefs?.lang ?? 'fr')}\n(${Math.round(elapsed)} min sans réponse / no answer)` }, { purpose: 'alert_owner', incidentId: i.id });
+        step('owner', `${u.name} (${maskContact(u.phone!)})`, r.ok, r.message);
+        if (u.prefs?.alertCall !== false && !(await call(u.phone!, u.name, u.prefs?.lang ?? 'fr', 'alert_owner'))) return changed;
+      }
       for (const p of s.supportPhones) {
-        const r = await sendSms({ to: p, body: smsText(i, 'fr') }, { purpose: 'alert_support', incidentId: i.id });
-        step('sms', `support (${maskContact(p)})`, r.ok, r.message);
+        if (!(await call(p, 'support', 'fr', 'alert_support'))) return changed;
       }
     }
-    if (!list.length) step('sms', '—', false, 'Aucun gérant de garde avec un cellulaire. / No manager on duty with a phone.');
+    return changed;
+  } finally {
+    await reservations?.settle();
   }
-  if (i.level < 2 && elapsed >= s.callAfterMin && i.severity === 'critical') {
-    i.level = 2; changed = true;
-    const to = recipients(users, i, ['manager'], 'call');
-    for (const u of (to.length ? to : recipients(users, i, ['owner'], 'call')).slice(0, 2)) {
-      await call(u.phone!, u.name, u.prefs?.lang ?? 'fr', 'alert');
-    }
-  }
-  if (i.level < 3 && elapsed >= s.ownerAfterMin && i.severity === 'critical') {
-    i.level = 3; changed = true;
-    for (const u of recipients(users, i, ['owner'], 'sms')) {
-      const r = await sendSms({ to: u.phone!, body: `${smsText(i, u.prefs?.lang ?? 'fr')}\n(${Math.round(elapsed)} min sans réponse / no answer)` }, { purpose: 'alert_owner', incidentId: i.id });
-      step('owner', `${u.name} (${maskContact(u.phone!)})`, r.ok, r.message);
-      if (u.prefs?.alertCall !== false) await call(u.phone!, u.name, u.prefs?.lang ?? 'fr', 'alert_owner');
-    }
-    for (const p of s.supportPhones) await call(p, 'support', 'fr', 'alert_support');
-  }
-  return changed;
 }
 
 // ---------- the run ----------

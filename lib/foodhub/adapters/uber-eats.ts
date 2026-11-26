@@ -19,21 +19,31 @@ export function uberTokenUrl() { return process.env.UBER_AUTH_URL || (sandbox() 
 export function uberAuthorizeUrl() { return process.env.UBER_LOGIN_URL || (sandbox() ? 'https://sandbox-login.uber.com/oauth/v2/authorize' : 'https://auth.uber.com/oauth/v2/authorize'); }
 const base = uberApiBase;
 
-// Client-credentials tokens, one per scope set: 'orders' (eats.order eats.store eats.store.status.write), 'report'
-// (eats.report) and 'poll' (eats.store.orders.read, for the missed-order check). Uber allows 100 token requests per
-// hour per app and invalidates the oldest token past 100, and a token lives 30 days — so a token is kept in memory AND
+// Client-credentials tokens, one per scope set: orders and store writes, reporting, missed-order polling, and manual
+// store inspection (eats.store). Uber allows 100 token requests per hour per app and invalidates the oldest token past
+// 100. A token lives 30 days, so it is kept in memory AND
 // in the database (fh_kv, server-only), shared by every instance and restart, instead of one new token per cold start.
 // While a request is pending its promise is shared, so concurrent callers make ONE token call.
-type TokenKind = 'orders' | 'report' | 'poll';
+const STORE_INSPECTION_SCOPE = 'eats.store';
+type TokenKind = 'orders' | 'report' | 'poll' | 'store-inspection';
 class UberOAuthScopeRefusedError extends Error {}
 type TokenCache = { value: string; expiresAt: number; fp: string } | null;
-const tokens: Record<TokenKind, { cached: TokenCache; inflight: Promise<string> | null }> = { orders: { cached: null, inflight: null }, report: { cached: null, inflight: null }, poll: { cached: null, inflight: null } };
+const tokens: Record<TokenKind, { cached: TokenCache; inflight: Promise<string> | null }> = {
+  orders: { cached: null, inflight: null },
+  report: { cached: null, inflight: null },
+  poll: { cached: null, inflight: null },
+  'store-inspection': { cached: null, inflight: null },
+};
 const TOKEN_KV = (kind: TokenKind) => `uber:token:${kind}`;
 /** Which app + host a stored token belongs to: a new client id/secret or a sandbox switch never reuses an old token. */
 const tokenFp = (kind: TokenKind) => crypto.createHash('sha256').update(`${kind}|${process.env.UBER_CLIENT_ID}|${process.env.UBER_CLIENT_SECRET}|${uberTokenUrl()}`).digest('hex').slice(0, 24);
 const fresh = (c: TokenCache, kind: TokenKind): c is NonNullable<TokenCache> => Boolean(c && c.fp === tokenFp(kind) && c.expiresAt > Date.now() + 60_000);
 
 async function fetchClientToken(kind: TokenKind): Promise<string> {
+  const orderScope = process.env.UBER_OAUTH_SCOPE;
+  if (kind === 'store-inspection' && orderScope && !orderScope.split(/\s+/).includes(STORE_INSPECTION_SCOPE)) {
+    throw new Error(`UBER_OAUTH_SCOPE does not include ${STORE_INSPECTION_SCOPE}, which Uber requires for store inspection.`);
+  }
   const slot = tokens[kind];
   if (fresh(slot.cached, kind)) return slot.cached.value;
   if (slot.inflight) return slot.inflight;
@@ -45,17 +55,26 @@ async function fetchClientToken(kind: TokenKind): Promise<string> {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ client_id: process.env.UBER_CLIENT_ID || '', client_secret: process.env.UBER_CLIENT_SECRET || '', grant_type: 'client_credentials', scope }).toString(),
     });
-    const wanted = kind === 'report' ? process.env.UBER_REPORT_SCOPE || 'eats.report' : kind === 'poll' ? 'eats.store.orders.read' : process.env.UBER_OAUTH_SCOPE || 'eats.order eats.store eats.store.status.write';
+    const wanted = {
+      orders: orderScope || 'eats.order eats.store eats.store.status.write',
+      report: process.env.UBER_REPORT_SCOPE || 'eats.report',
+      poll: 'eats.store.orders.read',
+      'store-inspection': STORE_INSPECTION_SCOPE,
+    }[kind];
     let res = await request(wanted);
     // eats.store.status.write is approved separately by Uber: without it the combined request is refused (invalid_scope)
     // and NOTHING would work. Fall back to orders + menus so orders keep flowing (pause/resume then fails on its own).
-    if (!res.ok && kind === 'orders' && !process.env.UBER_OAUTH_SCOPE && res.status === 400) {
+    if (!res.ok && kind === 'orders' && !orderScope && res.status === 400) {
       const body = await res.clone().text().catch(() => '');
       if (/invalid_scope|scope/i.test(body)) res = await request('eats.order eats.store');
     }
     if (!res.ok) {
-      // Uber answers { error, error_description } (invalid_scope, invalid_client…): that is what the owner needs to see.
       const payload = await res.json().catch(() => null);
+      if (kind === 'store-inspection') {
+        const hint = payload?.error === 'invalid_scope' ? ` (invalid_scope). Confirm Uber granted ${STORE_INSPECTION_SCOPE} to this app.` : '.';
+        throw new Error(`Uber store inspection token refused: HTTP ${res.status}${hint}`);
+      }
+      // Uber answers { error, error_description } (invalid_scope, invalid_client…): that is what the owner needs to see.
       const detail = [payload?.error, payload?.error_description].filter(Boolean).join(' — ');
       const why = detail ? ` (${String(detail).slice(0, 200)})` : '';
       const message = kind === 'report'
@@ -91,15 +110,15 @@ export async function uberAccessToken(): Promise<string> {
   return fetchClientToken('orders');
 }
 
-/** Separate token for the Reporting API (scope eats.report), so an app without it keeps working for orders. */
-const uberReportToken = () => fetchClientToken('report');
-
 /** fetch with the Uber token; on 401 the cached token is invalidated and the call retried once with a fresh one. */
 async function uberFetch(url: string, init: RequestInit = {}, kind: TokenKind = 'orders'): Promise<Response> {
-  const token = kind === 'report' ? uberReportToken : kind === 'poll' ? () => fetchClientToken('poll') : uberAccessToken;
-  const run = async () => timedFetch(url, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), Authorization: `Bearer ${await token()}` } });
+  const staticToken = kind === 'orders' || kind === 'store-inspection' ? process.env.UBER_ACCESS_TOKEN : undefined;
+  const run = async () => timedFetch(url, {
+    ...init,
+    headers: { ...(init.headers as Record<string, string> | undefined), Authorization: `Bearer ${staticToken || await fetchClientToken(kind)}` },
+  });
   const res = await run();
-  if (res.status !== 401 || (kind === 'orders' && process.env.UBER_ACCESS_TOKEN)) return res;
+  if (res.status !== 401 || staticToken) return res;
   await invalidateUberToken(kind);
   return run();
 }
@@ -444,11 +463,11 @@ export interface UberPosState {
   checkedAt: string;
 }
 
-/** Read-only: this app's pos_data for one store (scope eats.store). Runs whenever credentials exist (LOCKED_DECISIONS). */
-export async function fetchUberPosData(storeId: string): Promise<{ ok: boolean; state?: UberPosState; raw?: unknown; error?: string; httpStatus?: number }> {
+/** Read this app's pos_data. Manual inspection can use its own scope outside the activation flow. */
+export async function fetchUberPosData(storeId: string, { inspection = false }: { inspection?: boolean } = {}): Promise<{ ok: boolean; state?: UberPosState; raw?: unknown; error?: string; httpStatus?: number }> {
   if (!readiness().configured) return { ok: false, error: 'Uber Eats credentials missing' };
   try {
-    const res = await uberFetch(`${base()}/v1/eats/stores/${encodeURIComponent(storeId)}/pos_data`);
+    const res = await uberFetch(`${base()}/v1/eats/stores/${encodeURIComponent(storeId)}/pos_data`, {}, inspection ? 'store-inspection' : 'orders');
     if (!res.ok) return { ok: false, httpStatus: res.status, error: `Uber pos_data HTTP ${res.status}` };
     const raw = await res.json();
     const enabled = raw?.integration_enabled ?? raw?.pos_integration_enabled;

@@ -1,4 +1,5 @@
 import { isChannelKey } from '@/lib/foodhub/adapters';
+import { UBER_LINK_STATUS_FIELDS } from '@/lib/foodhub/adapters/uber-link';
 import { logActivity } from '@/lib/foodhub/activity';
 import { inScope, withPerm, type AuthUser } from '@/lib/foodhub/auth';
 import { getCatalog } from '@/lib/foodhub/catalog';
@@ -57,6 +58,10 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
   if (badMerchant) return fail(badMerchant.en);
   // "Never change this store's menu" + the platform's own store number (DoorDash store number ≠ merchant_supplied_id).
   const meta: Record<string, unknown> = { ...(existing?.meta ?? {}) };
+  if (existing?.channel === 'uber_eats' && (channel !== 'uber_eats' || existing.channelStoreId !== channelStoreId)) {
+    delete meta.uberPos;
+    for (const key of UBER_LINK_STATUS_FIELDS) delete meta[key];
+  }
   if (b.platformStoreId !== undefined) {
     const n = String(b.platformStoreId ?? '').trim().slice(0, 80);
     if (n) meta.platformStoreId = n; else delete meta.platformStoreId;

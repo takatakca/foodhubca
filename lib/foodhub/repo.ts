@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { createServiceClient, hasSupabaseEnv } from '../supabase/server';
 import { nowIso } from './config';
 import type { ActivityEntry, ActivityKind, ChannelKey, ChannelStore, FoodHubJob, FoodHubUser, MasterMenu, NormalizedOrder, OrderEvent, OrderStatus, OrderTimeline, StoredOrder } from './types';
@@ -8,6 +9,8 @@ export interface ActivityFilter { limit?: number; since?: string; until?: string
 /** Generic document store (payout lines, statement imports, reconciliation cases, ledger approvals…). */
 export interface Doc<T = Record<string, unknown>> { id: string; key?: string | null; at?: string | null; data: T }
 export interface DocFilter { since?: string; until?: string; keys?: string[]; kinds?: string[]; statuses?: string[]; limit?: number }
+
+type StoreSnapshot = Pick<ChannelStore, 'channel' | 'channelStoreId' | 'locationCode' | 'updatedAt' | 'meta'>;
 
 export interface FoodHubRepo {
   mode: 'supabase' | 'memory';
@@ -28,7 +31,8 @@ export interface FoodHubRepo {
   findStore(channel: ChannelKey, channelStoreId: string): Promise<ChannelStore | null>;
   getStore(id: string): Promise<ChannelStore | null>;
   upsertStore(store: Omit<ChannelStore, 'id'> & { id?: string }): Promise<ChannelStore>;
-  updateStore(id: string, patch: Partial<ChannelStore>): Promise<ChannelStore | null>;
+  /** With a snapshot, update only if the stored identity, location and metadata still match. */
+  updateStore(id: string, patch: Partial<ChannelStore>, expected?: StoreSnapshot): Promise<ChannelStore | null>;
   deleteStore(id: string): Promise<void>;
   getMenu(brandName: string): Promise<MasterMenu | null>;
   saveMenu(menu: MasterMenu): Promise<MasterMenu>;
@@ -145,10 +149,12 @@ const memoryRepo: FoodHubRepo = {
     s.stores.set(next.id, next);
     return next;
   },
-  async updateStore(id, patch) {
+  async updateStore(id, patch, expected) {
     const s = memState();
     const cur = s.stores.get(id);
     if (!cur) return null;
+    if (expected && (cur.channel !== expected.channel || cur.channelStoreId !== expected.channelStoreId || cur.locationCode !== expected.locationCode
+      || cur.updatedAt !== expected.updatedAt || !isDeepStrictEqual(cur.meta, expected.meta))) return null;
     const next = { ...cur, ...patch, updatedAt: nowIso() };
     s.stores.set(id, next);
     return next;
@@ -442,8 +448,14 @@ function supabaseRepo(): FoodHubRepo {
         : await db.from('fh_channel_stores').upsert(row, { onConflict: 'channel,channel_store_id' }).select('*').single();
       return rowToStore(must(res));
     },
-    async updateStore(id, patch) {
-      const data = must(await db.from('fh_channel_stores').update({ ...storeToRow(patch), updated_at: nowIso() }).eq('id', id).select('*').maybeSingle());
+    async updateStore(id, patch, expected) {
+      let query = db.from('fh_channel_stores').update({ ...storeToRow(patch), updated_at: nowIso() }).eq('id', id);
+      if (expected) {
+        if (!expected.updatedAt) return null;
+        query = query.eq('channel', expected.channel).eq('channel_store_id', expected.channelStoreId)
+          .eq('location_code', expected.locationCode).eq('updated_at', expected.updatedAt).eq('meta', JSON.stringify(expected.meta));
+      }
+      const data = must(await query.select('*').maybeSingle());
       return data ? rowToStore(data) : null;
     },
     async deleteStore(id) { must(await db.from('fh_channel_stores').delete().eq('id', id)); },

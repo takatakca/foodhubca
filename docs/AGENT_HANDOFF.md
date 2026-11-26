@@ -1,3 +1,11 @@
+## 2026-11-26 — Réservation de chaque palier de relève
+
+Deux processus Watchtower peuvent lire la même occurrence alors que le premier vient d’écrire sa révision et attend le fournisseur simulé. Une réservation durable par palier empêche un second envoi pour cette occurrence. Le processus qui observe un palier déjà réservé attend la fin de son envoi ou consigne un résultat non confirmé après deux minutes. Une réservation ambiguë ne déclenche aucun rappel automatique pour le palier concerné. Les paliers ultérieurs reprennent selon les règles existantes.
+
+Avant une demande qui n’a pas encore démarré, la relève vérifie que l’incident est toujours ouvert dans la même cuisine. Le journal conserve le résultat des demandes déjà parties. La preuve de réception réelle reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Premier appel d’un incident d’écran enregistré
 
 Sur deux processus reliés au même PostgreSQL, la réaffectation pendant la détection ferme l’ancienne alerte, ouvre une alerte dans la nouvelle cuisine et demande un seul appel simulé vers son numéro. Le lot complet passe 33 contrôles de reprise et 644 contrôles simulés. Le conflit d’écriture pendant une prise en charge ou une résolution conserve le résultat observé sans modifier la décision de l’opérateur. Les 209 essais ciblés couvrent aussi les conflits persistants sans bloquer les autres alertes.
@@ -13,6 +21,24 @@ La base utilise la clé unique et les documents existants. Les scénarios locaux
 Sur l’arbre attendu de #176, Watchtower enregistre la résolution dans la cuisine de départ et la réservation pour la cuisine de destination dans la même mise à jour conditionnelle. Un conflit reporte l’ouverture de destination au passage suivant. Les 207 essais ciblés couvrent aussi le retour dans la cuisine d’origine, avec trois alertes et trois confirmations d’appel simulées distinctes, et le déplacement d’une tablette sans son. Les 33 contrôles locaux sur PostgreSQL ont confirmé qu’une seule demande simulée partait vers la destination après une lecture simultanée par deux processus.
 
 Sur le commit fusionné `b59c904`, 209 essais ciblés réussissent. Les scénarios de prise en charge et de résolution pendant la demande d’appel conservent le résultat dans l’incident et la décision de l’opérateur. Si la mise à jour reste en conflit, Watchtower consigne un avertissement et enregistre les autres alertes. L’essai d’une tablette muette vérifie que son appel est enregistré et ne repart pas au passage suivant.
+
+Sur l’arbre attendu de #178 `85c8163`, les 353 essais ciblés couvrent la saisie par magasin et la reprise Clover, la vérification des liaisons Uber ainsi que le routage et la concurrence des alertes Watchtower. Le code de persistance des liaisons et des incidents est identique à celui préparé sur l’arbre attendu de #177, où 261 essais ciblés réussissent. TypeScript et ESLint réussissent sur le nouvel arbre. La preuve PostgreSQL ci-dessus se rapporte au lot antérieur.
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Numéro de commande saisi à partir d’un écran
+
+La saisie manuelle distingue désormais deux commandes qui portent le même numéro affiché dans deux magasins. Saisir deux fois le même numéro pour le même magasin reste un doublon, même depuis un autre écran ou si la première saisie date d’une version antérieure. Clover utilise une référence de magasin dans le titre de reprise des nouvelles commandes pour retrouver la bonne commande quand plusieurs magasins partagent une caisse. L’import reconnaît ce titre sans écarter une commande native de Clover qui porte le même numéro. Le numéro affiché reste celui de la plateforme. Les preuves de réception physique restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+Le paiement Clover d’une nouvelle saisie utilise une référence stable de 32 caractères dérivée de l’identifiant complet de la commande, qui inclut la référence du magasin. Les essais simulés couvrent deux magasins partageant une caisse avec le même numéro long, une nouvelle tentative et la compatibilité des références de paiement antérieures.
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Contrôle manuel d’une liaison Uber Eats
+
+« Vérifier avec Uber » consulte les liaisons accessibles au compte en utilisant un jeton OAuth distinct avec la portée `eats.store`. Si `UBER_OAUTH_SCOPE` est renseignée, elle doit inclure cette portée. Un jeton statique `UBER_ACCESS_TOKEN` reste prioritaire. L’autorisation de l’application en production et la réception réelle restent à vérifier auprès d’Uber. [Suivi marchand](https://github.com/takatakca/foodhubca/issues/46#issuecomment-7194255617) · [Référence Uber](https://developer.uber.com/docs/eats/references/api/v1/get-eats-stores-storeid-posdata)
+
+Un changement d’identifiant marchand écarte les preuves de l’ancienne liaison tout en conservant les protections locales. Une réponse reçue après un déplacement ou une déconnexion invite à relancer la vérification. Une modification des réglages du même magasin peut coexister avec le résultat. Les essais utilisent des réponses Uber et Supabase simulées.
 
 — signé : Codex @ cloud · 2026-11-26
 

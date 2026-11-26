@@ -24,14 +24,13 @@ import { modifierPriceFor, priceFor, sortedCategories } from './menu/translate';
 import { processIncomingOrder } from './pipeline';
 import { FORBIDDEN_STORE_IDS } from './public-directory';
 import { getRepo } from './repo';
+import { SCREEN_ENTRY_PREFIX, screenEntryOrderId } from './screen-entry-id';
 import type { PlatformScreen, ScreenPlatform } from './screens';
 import { foodTaxes, locationProvince, type Province } from './taxes';
 import type { ChannelKey, ChannelStore, Fulfillment, MasterMenu, NormalizedOrder, OrderLine, StoredOrder } from './types';
 
-/** externalOrderId of an order entered by hand: "screen-<platform order number>" (one order per number and platform). */
-export const SCREEN_ENTRY_PREFIX = 'screen-';
-
 const CHANNEL_OF: Partial<Record<ScreenPlatform, ChannelKey>> = { ubereats: 'uber_eats', doordash: 'doordash', skip: 'skip' };
+const INVALID_ORDER_CODE = 'Numéro de commande de la plateforme invalide (lettres et chiffres, 3 au moins). / Invalid platform order number (letters and digits, 3 or more).';
 
 /** The Food Hub channel of a screen's platform (null for "other"). */
 export function screenEntryChannel(platform: ScreenPlatform): ChannelKey | null {
@@ -43,8 +42,6 @@ export function normalizeOrderCode(raw: unknown): string | null {
   const s = String(raw ?? '').trim().replace(/^#+/, '').replace(/\s+/g, '').toUpperCase();
   return /^[A-Z0-9-]{3,40}$/.test(s) ? s : null;
 }
-
-export const screenEntryOrderId = (code: string) => `${SCREEN_ENTRY_PREFIX}${code}`;
 
 /** A store nobody may act on from Food Hub (Po Poulet NDG and every locked DoorDash store). */
 export function isProtectedStore(channelStoreId: string): boolean {
@@ -84,7 +81,7 @@ export interface BuildContext {
 /** The Food Hub order a hand entry becomes. Pure: every price comes from the menu (or the screen, for a dish not in it). */
 export function buildScreenEntryOrder(input: ScreenEntryInput, ctx: BuildContext): { order: NormalizedOrder } | { error: string } {
   const code = normalizeOrderCode(input.orderCode);
-  if (!code) return { error: 'Numéro de commande de la plateforme invalide (lettres et chiffres, 3 au moins). / Invalid platform order number (letters and digits, 3 or more).' };
+  if (!code) return { error: INVALID_ORDER_CODE };
   const marketplace = ctx.channel;
   const items = new Map((ctx.menu?.items ?? []).map((i) => [i.ref, i]));
   const mods = new Map((ctx.menu?.modifierGroups ?? []).flatMap((g) => g.modifiers.map((m) => [m.ref, m] as const)));
@@ -122,7 +119,7 @@ export function buildScreenEntryOrder(input: ScreenEntryInput, ctx: BuildContext
     order: {
       channel: ctx.channel,
       marketplace,
-      externalOrderId: screenEntryOrderId(code),
+      externalOrderId: screenEntryOrderId(code, ctx.store.channelStoreId),
       displayId: code,
       channelStoreId: ctx.store.channelStoreId,
       brandName: ctx.store.brandName,
@@ -192,7 +189,7 @@ const noStoreMessage = (channel: ChannelKey) => `Aucun magasin ${CHANNEL_LABELS[
 
 export type ScreenEntryResult =
   | { ok: true; order: StoredOrder; inClover: boolean; paid: boolean; printed: boolean; message: string }
-  | { ok: false; error: string; status: number; order?: StoredOrder };
+  | { ok: false; error: string; status: number };
 
 /** Enters one order typed from a platform screen: Clover order, paid with the platform tender, printed. */
 export async function enterScreenOrder(screen: PlatformScreen, body: unknown, actor: Actor, now = Date.now()): Promise<ScreenEntryResult> {
@@ -209,10 +206,12 @@ export async function enterScreenOrder(screen: PlatformScreen, body: unknown, ac
   if (!store) return { ok: false, status: 400, error: stores.length ? 'Choisissez le magasin (la marque) de la commande. / Choose the order’s store (brand).' : noStoreMessage(channel) };
 
   const code = normalizeOrderCode(input.orderCode);
+  if (!code) return { ok: false, status: 400, error: INVALID_ORDER_CODE };
   const repo = getRepo();
-  if (code) {
-    const existing = await repo.findOrder(channel, screenEntryOrderId(code));
-    if (existing) return { ok: false, status: 409, order: existing, error: `${CHANNEL_LABELS[channel]} #${code} est déjà entrée (rien n’est imprimé deux fois). / ${CHANNEL_LABELS[channel]} #${code} was already entered (nothing prints twice).` };
+  const existing = await repo.findOrder(channel, screenEntryOrderId(code, store.channelStoreId));
+  const legacy = existing ? null : await repo.findOrder(channel, `${SCREEN_ENTRY_PREFIX}${code}`);
+  if (existing || (legacy?.viaHub === 'screen' && legacy.channelStoreId === store.channelStoreId)) {
+    return { ok: false, status: 409, error: `${CHANNEL_LABELS[channel]} #${code} est déjà entrée (rien n’est imprimé deux fois). / ${CHANNEL_LABELS[channel]} #${code} was already entered (nothing prints twice).` };
   }
 
   const catalog = await getCatalog();
@@ -222,7 +221,7 @@ export async function enterScreenOrder(screen: PlatformScreen, body: unknown, ac
   if ('error' in built) return { ok: false, status: 400, error: built.error };
 
   const out = await processIncomingOrder(built.order);
-  if (out.duplicate) return { ok: false, status: 409, order: out.order, error: `${CHANNEL_LABELS[channel]} #${code} est déjà entrée. / ${CHANNEL_LABELS[channel]} #${code} was already entered.` };
+  if (out.duplicate) return { ok: false, status: 409, error: `${CHANNEL_LABELS[channel]} #${code} est déjà entrée. / ${CHANNEL_LABELS[channel]} #${code} was already entered.` };
   const order = (await repo.getOrder(out.order.id)) ?? out.order;
   await repo.addEvent(order.id, 'screen_entry', { message: `Entered by hand by ${actor.name} from the screen "${screen.name}" (${screen.id})`, by: actor.name, screenId: screen.id });
 

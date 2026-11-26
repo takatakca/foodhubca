@@ -5,7 +5,7 @@
 // ports and profile folders from the example list, skips the Android screen, writes nothing, and refuses a list that
 // carries a secret, like deploy/screens/generate.mjs does.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -157,7 +157,8 @@ describe('windows kit: PowerShell parse and dry runs (when powershell is on PATH
   });
 
   itPs('Install-Screens.ps1 -DryRun plans unique ports and folders from the example, skips Android, writes nothing', () => {
-    const root = mkdtempSync(path.join(tmpdir(), 'foodhub-screens-'));
+    // TEMP can use an 8.3 alias on Windows; PowerShell expands it when resolving -Root.
+    const root = mkdtempSync(path.join(realpathSync.native(tmpdir()), 'foodhub-screens-'));
     const target = path.join(root, 'Food Hub Profiles');
     try {
       const r = runScript('Install-Screens.ps1', ['-DryRun', '-AsJson', '-ScreensFile', EXAMPLE, '-EnvFile', path.join(root, 'missing.env'), '-Root', target]);

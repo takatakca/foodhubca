@@ -1,3 +1,9 @@
+## 2026-11-26 — Vérifier un passage Watchtower en arrière-plan
+
+Dans la réponse détaillée de `GET /api/health`, `checks.watchtower.lastBackgroundCompletion` donne l’heure et le déclencheur du dernier passage achevé par minuterie ou cron. Ce contrôle complète l’horodatage de démarrage. La réception réelle des commandes et des appels reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Vérification de la caisse Clover par défaut
 
 Mise en service affiche les liaisons autorisées qui utilisent la caisse Clover par défaut. L’avis renvoie vers Restaurants → Liaisons pour vérifier la caisse de chaque cuisine. Le contrôle des identifiants Clover et les essais de réception et d’impression restent suivis séparément dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

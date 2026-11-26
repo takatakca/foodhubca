@@ -1,3 +1,11 @@
+## 2026-11-26 — Préparation des plateformes et du téléphone de relève
+
+Mise en service distingue les liaisons directes, le relais de commandes, DoorDash en bac à sable et l’import Clover. Un relais nécessite son webhook et une liaison de magasin vers une cuisine active. Une liaison directe enregistrée indique le niveau de configuration et invite à vérifier la réception par une commande d’essai. Le bandeau de fin indique que la configuration est terminée.
+
+Les téléphones de cuisine suivent la même validation que les appels Watchtower. Quand aucune destination utilisable n’est configurée pour le relais, les réglages indiquent où ajouter un téléphone. Une saisie invalide dans Entreprise est refusée avant sauvegarde. Une modification qui omet le téléphone le conserve. Vider volontairement le champ le retire. Les preuves de commande, d’impression et d’appel restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Numéro de commande saisi à partir d’un écran
 
 La saisie manuelle distingue désormais deux commandes qui portent le même numéro affiché dans deux magasins. Saisir deux fois le même numéro pour le même magasin reste un doublon, même depuis un autre écran ou si la première saisie date d’une version antérieure. Clover utilise une référence de magasin dans le titre de reprise des nouvelles commandes pour retrouver la bonne commande quand plusieurs magasins partagent une caisse. L’import reconnaît ce titre sans écarter une commande native de Clover qui porte le même numéro. Le numéro affiché reste celui de la plateforme. Les preuves de réception physique restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

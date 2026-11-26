@@ -1,11 +1,13 @@
 import { CHANNEL_KEYS, getAdapter } from '@/lib/foodhub/adapters';
 import { liveConnectorsGloballyEnabled, publicBaseUrl } from '@/lib/foodhub/config';
+import { doorDashIntegrationIsSandbox } from '@/lib/foodhub/doordash/sandbox';
 import { withPerm } from '@/lib/foodhub/auth';
 import { ok } from '@/lib/foodhub/http';
 import { can } from '@/lib/foodhub/session';
 import { VERIFY_KEY, cloverInventorySyncEnabled } from '@/lib/foodhub/clover-sync';
 import { cloverReadiness, cloverTokenFor, knownCloverMerchants } from '@/lib/foodhub/pos/clover';
 import { cloverAppReadiness, listCloverConnections } from '@/lib/foodhub/pos/clover-oauth';
+import { cloverPlatformOrdersEnabled } from '@/lib/foodhub/pos/clover-platform-orders';
 import { cloverAppsOverview } from '@/lib/foodhub/pos/clover-apps-status';
 import { cloverOrderTypesEnabled, cloverRecordPaymentEnabled } from '@/lib/foodhub/pos/clover-books';
 import { lastCloverTestOrder } from '@/lib/foodhub/pos/clover-test-order';
@@ -29,6 +31,7 @@ export const GET = withPerm('stores:map', async (req, _ctx, actor) => {
     const r = getAdapter(k).readiness();
     return {
       ...r,
+      ...(k === 'doordash' ? { sandbox: doorDashIntegrationIsSandbox() } : {}),
       webhookUrl: `${base}${r.webhookPath}`,
       extraWebhooks: (r.extraWebhooks ?? []).map((w) => ({ label: w.label, url: `${base}${w.path}` })),
       handoff: (r.handoff ?? []).map((h) => ({ label: h.label, envKey: h.envKey, set: Boolean(process.env[h.envKey]), value: reveal ? process.env[h.envKey] || '' : undefined })),
@@ -53,6 +56,7 @@ export const GET = withPerm('stores:map', async (req, _ctx, actor) => {
       recordPayments: cloverRecordPaymentEnabled(),
       orderTypes: cloverOrderTypesEnabled(),
       inventorySync: cloverInventorySyncEnabled(),
+      platformOrdersEnabled: cloverPlatformOrdersEnabled(),
       // Clover App Market app: Site URL + launch path to enter in the Clover developer dashboard, connected merchants.
       app: {
         ...cloverAppReadiness(), connectUrl: `${base}/api/foodhub/clover-connect/start`, merchants: await listCloverConnections().catch(() => []),

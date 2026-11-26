@@ -6,6 +6,8 @@
 //   - The progress ring and the stepper (goLiveProgress, goLiveStages) count what is left « À faire »: 100 % = nothing.
 import type { T } from '@/lib/i18n';
 import type { GoLiveFacts } from '@/lib/foodhub/go-live';
+import { isRelayKitchenStore } from '@/lib/foodhub/order-tools/kitchen-status';
+import { normalizePhone } from '@/lib/foodhub/phone-number';
 import { PUBLIC_URL_PROBLEM_TEXT, type PublicUrlProblem } from '@/lib/foodhub/public-url';
 import type { PlatformScreen, ScreenStatus } from '@/lib/foodhub/screens';
 import type { RuleSetting } from '@/lib/foodhub/watch/types';
@@ -111,6 +113,24 @@ export type RelayGoLiveInput = {
   kitchenPhoneLocations: string[];
 };
 
+export function goLiveKitchenCoverage(
+  relay: RelayGoLiveInput['relay'],
+  catalog: ReadonlyArray<{ code: string; name: string; phone?: string | null; active: boolean }>,
+  locations: ReadonlyArray<{ code: string }>,
+) {
+  const allowed = new Set(locations.map(({ code }) => code));
+  const kitchens = catalog.filter(({ code, active }) => active && allowed.has(code));
+  const activeCodes = new Set(kitchens.map(({ code }) => code));
+  const phoneCodes = new Set(kitchens.filter(({ phone }) => normalizePhone(phone)).map(({ code }) => code));
+  return {
+    relay: relay && { ...relay, screens: relay.screens.filter(({ locationCode }) => activeCodes.has(locationCode)) },
+    activeLocations: activeCodes,
+    kitchenCount: activeCodes.size,
+    kitchenPhoneLocations: [...phoneCodes],
+    missingPhoneLocations: kitchens.filter(({ code }) => !phoneCodes.has(code)).map(({ code, name }) => ({ code, name })),
+  };
+}
+
 function relayScreenStep(relay: RelayGoLiveInput['relay'], t: T): Step {
   const step: Step = {
     group: t('Cuisine', 'Kitchen'), key: 'screens-relay', title: t('Relais des écrans de commande', 'Order screen relay'),
@@ -157,6 +177,12 @@ function relayCallStep({ relay, watch, kitchenPhoneLocations }: RelayGoLiveInput
   }
   if (!watch.callConfigured) return { ...step, body: t('Configurez Twilio pour passer les appels d’alerte.', 'Set up Twilio to make alert calls.') };
   if (!relay?.agentConfigured || !relay.screens.length) {
+    if (!watch.sharedPhoneConfigured && !kitchenPhoneLocations.length) {
+      return { ...step, href: '/settings/business', cta: t('Téléphones', 'Phones'), body: t(
+        'Aucun téléphone de cuisine utilisable. Ajoutez un téléphone dans Entreprise ou un numéro commun dans Alertes.',
+        'No usable kitchen phone. Add a kitchen phone in Business or a shared number in Alerts.',
+      ) };
+    }
     const destination = watch.sharedPhoneConfigured
       ? t('La ligne partagée est configurée.', 'The shared line is configured.')
       : t('La destination prévue est le téléphone de chaque cuisine.', 'The planned destination is each kitchen’s phone.');
@@ -204,6 +230,68 @@ export function uberDirectStep(label: string, evidence: GoLiveFacts['uberDirect'
     ? t('Vérifiez la réception en cuisine avec une commande d’essai.', 'Verify kitchen receipt with a test order.')
     : t('Vérifiez les liaisons restantes chez Uber.', 'Check the remaining mappings with Uber.');
   return { ...base, state: done ? 'done' : 'todo', body: `${proof} ${next}` };
+}
+
+export type GoLivePlatform = 'uber_eats' | 'doordash' | 'skip';
+export type PlatformGoLiveInput = {
+  readiness?: { label: string; configured: boolean; missing: string[]; viaClover?: boolean; sandbox?: boolean };
+  stores: Array<{ channel: string; channelStoreId?: string; locationCode: string }>;
+  activeLocations: ReadonlySet<string>;
+  relay?: { channels: string[]; webhookReady?: boolean };
+  cloverPlatformOrdersEnabled?: boolean;
+  uberDirect?: GoLiveFacts['uberDirect'];
+};
+
+export function platformGoLiveStep(key: GoLivePlatform, input: PlatformGoLiveInput, t: T): Step {
+  const { readiness, stores, activeLocations, relay, cloverPlatformOrdersEnabled, uberDirect } = input;
+  const base = { group: t('Plateformes', 'Platforms'), key, title: readiness?.label ?? key };
+  const settings = { ...base, href: '/settings/channels', cta: t('Voir les connexions', 'See connections') };
+  const mapping = { ...base, href: '/stores/mapping', cta: t('Voir les liaisons', 'See mappings') };
+  const verifyReceipt = t('Vérifiez la réception en cuisine avec une commande d’essai.', 'Confirm kitchen receipt with a test order.');
+
+  if (readiness?.viaClover) {
+    if (cloverPlatformOrdersEnabled !== true) {
+      const body = cloverPlatformOrdersEnabled === false
+        ? t('L’import des commandes de plateforme depuis Clover est désactivé.', 'Clover platform order import is disabled.')
+        : t('Impossible de confirmer le réglage de l’import Clover.', 'Clover platform order import configuration is unavailable.');
+      return { ...settings, state: 'todo', body };
+    }
+    return { ...settings, state: 'warn', body: `${t('Import Clover en lecture seule activé. Vérifiez la liaison chez Clover.', 'Read-only Clover import enabled. Check the connection in Clover.')} ${verifyReceipt}` };
+  }
+
+  let directCount = 0;
+  let relayCount = 0;
+  for (const store of stores) {
+    const channelStoreId = store.channelStoreId?.trim();
+    if (store.channel !== key || !activeLocations.has(store.locationCode) || !channelStoreId) continue;
+    if (isRelayKitchenStore({ channelStoreId })) {
+      if (channelStoreId.indexOf(':') !== channelStoreId.length - 1) relayCount++;
+    } else {
+      directCount++;
+    }
+  }
+  if (readiness?.configured && !readiness.sandbox && directCount) {
+    if (key === 'uber_eats') return uberDirectStep(readiness.label, uberDirect, t);
+    const description = directCount === 1
+      ? t('1 liaison directe enregistrée.', '1 direct store mapping saved.')
+      : t(`${directCount} liaisons directes enregistrées.`, `${directCount} direct store mappings saved.`);
+    return { ...mapping, state: 'warn', body: `${description} ${verifyReceipt}` };
+  }
+
+  if (relay?.channels.includes(key)) {
+    if (relay.webhookReady !== true) return { ...settings, state: 'todo', body: t('Le webhook du relais de commandes n’est pas configuré.', 'The order relay webhook is not configured.') };
+    if (!relayCount) return { ...mapping, state: 'todo', body: t('Le relais de commandes est configuré. Jumelez un magasin du relais à une cuisine active.', 'The order relay is configured. Map a relay store to an active kitchen.') };
+    return { ...settings, state: 'warn', body: `${t('Le relais de commandes est configuré pour cette plateforme.', 'Order relay configured for this platform.')} ${verifyReceipt}` };
+  }
+
+  if (readiness?.sandbox) {
+    return { ...settings, state: 'todo', body: t('DoorDash est en mode bac à sable. Vérifiez la liaison de production avant un essai de réception en cuisine.', 'DoorDash is in sandbox mode. Verify the production connection before testing kitchen receipt.') };
+  }
+  if (!readiness?.configured) {
+    const missing = readiness?.missing.join(', ');
+    return { ...settings, state: 'todo', body: missing ? `${t('Manque :', 'Missing:')} ${missing}` : t('Configuration directe indisponible.', 'Direct configuration unavailable.') };
+  }
+  return { ...mapping, state: 'todo', body: t('Aucun magasin n’est jumelé directement à une cuisine active.', 'No direct store mapped to an active kitchen.') };
 }
 
 export type CloverAppInfo = {

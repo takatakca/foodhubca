@@ -5,11 +5,12 @@ import crypto from 'node:crypto';
 import { getRepo } from '../repo';
 import { dryRun, recordDry } from '../dry-run';
 import { neverSent, timedFetch } from '../env-utils';
+import { normalizePhone } from '../phone-number';
 import { isCallStatus, isTwilioCallSid, watchtowerCallSid, type CallStatus } from './call-status';
 import { emailConfigured, emailFrom, emailProvider, emailSetupMessage, sendMail } from './email';
 
-// The shared email helpers live in ./email; re-exported so existing imports from '../notify' keep working.
-export { emailConfigured, emailFrom };
+// Keep existing notification helper imports working when the implementation lives in a shared module.
+export { emailConfigured, emailFrom, normalizePhone };
 
 export type MessageChannel = 'email' | 'sms' | 'call' | 'chat';
 export interface SendResult {
@@ -32,17 +33,6 @@ export function aiConfigured(): boolean { return Boolean(process.env.ANTHROPIC_A
 
 export function channelsStatus() {
   return { email: emailConfigured(), emailProvider: emailProvider(), sms: smsConfigured(), call: callConfigured(), chat: chatConfigured(), ai: aiConfigured() };
-}
-
-/** North-American numbers to E.164 (+15145550123). Returns null when it does not look like a phone number. */
-export function normalizePhone(raw: string | null | undefined): string | null {
-  if (!raw) return null;
-  const s = String(raw).trim();
-  const digits = s.replace(/[^\d]/g, '');
-  if (s.startsWith('+') && digits.length >= 8 && digits.length <= 15) return `+${digits}`;
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
-  return null;
 }
 
 export function normalizeEmail(raw: string | null | undefined): string | null {

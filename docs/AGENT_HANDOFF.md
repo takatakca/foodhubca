@@ -1,3 +1,9 @@
+## 2026-11-26 — Vérification de la liaison au moment de la saisie d’écran
+
+La saisie d’une commande depuis un écran vérifie que la liaison choisie correspond encore à la cuisine, à la marque et à la caisse Clover au moment de traiter la commande. Si la liaison a été modifiée, supprimée ou recréée pendant la saisie, Food Hub demande de recharger l’écran et de confirmer la cuisine. Le conflit est signalé avant l’enregistrement de la commande et l’envoi à Clover. Le paiement de la saisie utilise la même liaison que la création de la commande Clover. Les essais marchands restent suivis dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Commandes sans liaison et caisse Clover partagée
 
 Lorsque plusieurs cuisines ont des liaisons et qu’une seule caisse Clover est configurée, une commande sans liaison ni cuisine enregistrée reste au tableau sans être envoyée à la caisse. Ce contrôle s’applique à l’arrivée et aux relances. Confirmer la cuisine dans Restaurants → Liaisons, puis utiliser « Envoyer à Clover » sur la commande. Une relance vérifie aussi l’existence d’une commande Clover après une réponse incertaine. Les essais marchands en cuisine restent suivis dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

@@ -299,9 +299,13 @@ try {
 
   console.log('\n13. Too Good To Go (inbound only)');
   await call('POST', '/api/foodhub/webhooks/tgtg', { auth: false, headers: { authorization: 'tgtg-hook-e2e' }, body: { id: 'tgtg-1', storeId: 'tgtg-ndg', items: [{ name: 'Surprise Bag', quantity: 1, price: 5.99 }], total: 5.99 } });
-  const o7 = await waitFor(async () => { const o = await findOrder('tgtg-1'); return o?.posOrderId ? o : null; });
-  const ev7 = (await call('GET', `/api/foodhub/orders/${o7?.id}`)).json?.events || [];
-  check('TGTG bag order received, in Clover; accept logged as "nothing sent" (no fake API call)', o7?.locationCode === 'NDG_MAIN' && o7.status === 'accepted' && ev7.some((e) => e.type === 'accepted' && e.detail?.response?.status === 'skipped'));
+  const acceptedTgtg = await waitFor(async () => {
+    const order = await findOrder('tgtg-1');
+    if (!order?.posOrderId || order.locationCode !== 'NDG_MAIN' || order.status !== 'accepted') return null;
+    const { json } = await call('GET', `/api/foodhub/orders/${order.id}`);
+    return (json?.events ?? []).find((event) => event.type === 'accepted' && event.detail?.response?.status === 'skipped');
+  });
+  check('TGTG bag order received, in Clover; accept logged as "nothing sent" (no fake API call)', Boolean(acceptedTgtg));
   await call('POST', '/api/foodhub/webhooks/tgtg', { auth: false, headers: { authorization: 'tgtg-hook-e2e' }, body: { weird: true } });
   const unparsedTgtg = await waitFor(async () => ((await call('GET', '/api/foodhub/channels')).json?.unparsed || []).find((j) => j.channel === 'tgtg'));
   check('unknown payload kept, not lost', !!unparsedTgtg && JSON.stringify(unparsedTgtg.request).includes('weird'), JSON.stringify(unparsedTgtg)?.slice(0, 160));

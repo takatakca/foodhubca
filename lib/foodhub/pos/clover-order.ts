@@ -318,11 +318,11 @@ export const CLOVER_REPRINT_KITCHEN_CHANGED = 'This store is now mapped to a dif
 
 /** The kitchen ticket for an order: that kitchen's printer when one is set for its location, else the merchant's. */
 export async function printKitchenTicket(posOrderId: string, merchantId: string | null | undefined, locationCode?: string | null): Promise<{ ok: boolean; message: string; printEventId?: string }> {
-  const { cloverBaseUrl, cloverToken, printCloverOrder } = await import('./clover');
-  const mid = merchantId || process.env.CLOVER_MERCHANT_ID;
+  const { cloverBaseUrl, cloverToken, defaultCloverMerchant, printCloverOrder } = await import('./clover');
+  const mid = merchantId || (await defaultCloverMerchant());
   const device = mid ? cloverPrintDeviceForLocation(mid, locationCode) : null;
   if (mid && device) return printCloverOrderOn(posOrderId, mid, device, { token: await cloverToken(mid), base: cloverBaseUrl() });
-  return printCloverOrder(posOrderId, merchantId);
+  return printCloverOrder(posOrderId, mid);
 }
 
 // ---------------------------------------------------------------- order types

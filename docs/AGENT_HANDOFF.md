@@ -6,6 +6,26 @@ Sur `cdde075`, les 148 essais ciblés couvrent les cinq scénarios simulés de r
 
 Sur `a1e0841`, les 185 essais ciblés couvrent la réaffectation avec les contrôles de destination partagée et de simulation téléphonique de #173.
 
+La répétition sur l’arbre de #175 `6d2ff10` a passé 224 essais ciblés. Un scénario simulé vérifie que le premier appel encore en attente dans l’ancienne cuisine est clos lors du déplacement et que la nouvelle cuisine reçoit un seul appel quand Twilio Voice devient disponible.
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Numéro de relève ajouté pendant un incident d’écran
+
+Watchtower garde le premier appel en attente quand aucun numéro de relève ni de cuisine n’est disponible au premier palier. Si un numéro devient disponible pendant que l’incident reste ouvert, Watchtower peut demander l’appel au prochain passage. Une réservation en base limite cette demande à une fois par incident. La situation se vérifie dans Alertes et le journal des messages. Les essais sur les téléphones de relève restent suivis dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+Si le numéro est déjà configuré et que la configuration de Twilio Voice est incomplète, Watchtower consigne le report dans l’incident sans consommer la réservation du premier appel. Le premier passage suivant la configuration peut demander l’appel si l’incident est encore ouvert. Les tests de cron simulés couvrent un écran hors ligne et une commande en attente, ainsi que l’absence de renvoi après la première demande. Le lot local passe 142 tests ciblés, TypeScript et ESLint.
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Relances et impressions Clover après déplacement d’une liaison
+
+Quand la cuisine de la liaison a changé depuis la réception, les relances et impressions Clover sont bloquées et signalées. Une commande planifiée arrivée à son heure de préparation est affichée avec l’erreur d’impression dans sa cuisine d’origine. Avant de relancer, vérifier la liaison et la commande dans la caisse appropriée. Une commande qui attend sa première liaison peut toujours être acheminée une fois la cuisine attribuée. La preuve de livraison en cuisine reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+La reprise sur `2313f4f` a vérifié la première liaison d’une commande retenue, puis le déplacement de cette liaison après une réponse Clover incertaine. La relance conserve la première cuisine et attend la vérification de la liaison avant de contacter Clover.
+
+La répétition sur l’arbre de #173 `ab73a76` a passé 208 essais ciblés. Ils couvrent la relance Clover après une réponse incertaine, la confirmation Skip après réception et les accès aux commandes et à la vitrine.
+
 — signé : Codex @ cloud · 2026-11-26
 
 ## 2026-11-26 — Relève des écrans et confirmation Skip

@@ -13,7 +13,7 @@ import { inboxSummary } from '../inbox';
 import { effectiveHours, getHours, holidaysFor, isOpenAt, localDate, openIntervals } from '../hours';
 import { DEVICE_OFFLINE_AFTER_MS, listDevices } from '../identity/devices';
 import { listScreens, SCREEN_PLATFORM_LABEL, screenStatus } from '../screens';
-import { aiConfigured, maskContact, normalizePhone, placeCall, postToChat, sendSms } from '../notify';
+import { aiConfigured, callConfigured, maskContact, normalizePhone, placeCall, postToChat, sendSms } from '../notify';
 import { listCases, RECOVERABLE } from '../recon/engine';
 import { getRepo } from '../repo';
 import { isWaitingScheduled } from '../scheduling';
@@ -429,6 +429,7 @@ function callText(i: Incident, lang: 'fr' | 'en') {
 /** Incidents the kitchen itself can fix: the kitchen phone rings first (like Uber calling the restaurant). */
 const SHARED_PHONE_KINDS: IncidentKind[] = ['device_offline', 'screen_down', 'screen_waiting'];
 const KITCHEN_KINDS: IncidentKind[] = ['order_unaccepted', 'order_unseen', 'device_offline', 'device_muted', 'screen_down', 'screen_waiting', 'courier_waiting', 'pos_failed'];
+const FIRST_SCREEN_CALL_NEEDS_VOICE = 'Premier appel en attente de la configuration de Twilio Voice. / First call pending until Twilio Voice is configured.';
 
 /** The first destination for an incident that can be handled by the kitchen. */
 export function firstAlertCallTarget(kind: IncidentKind, sharedPhone: string | null, kitchenPhone?: string): { to: string; purpose: 'alert_shared_screen' | 'alert_kitchen' } | null {
@@ -461,13 +462,35 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
     step('call', `${label} (${maskContact(destination)})`, result.ok, result.message, result.uncertain);
   };
 
-  if (i.level < 1 && elapsed >= s.smsAfterMin) {
-    i.level = 1; changed = true;
+  const firstStageDue = elapsed >= s.smsAfterMin;
+  const smsDue = firstStageDue && i.level < 1;
+  if (firstStageDue && (smsDue || i.screenFirstCallPending)) {
+    const screenAlert = SHARED_PHONE_KINDS.includes(i.kind);
     const kitchen = i.locationCode ? kitchenPhones.get(i.locationCode) : undefined;
     const target = firstAlertCallTarget(i.kind, s.screenAlertPhone, kitchen);
-    if (target) {
-      await call(target.to, target.purpose === 'alert_shared_screen' ? 'screen hotline' : i.locationCode ?? 'kitchen', 'fr', target.purpose);
+    const waitingForVoice = screenAlert && Boolean(target) && !callConfigured();
+    if (target && !waitingForVoice) {
+      // Keep the claim across ticks and restarts, including when Twilio's reply is uncertain.
+      const claimed = screenAlert
+        ? await getRepo().claimKv(`watch:first-screen-call:${i.id}`, { at: new Date(now).toISOString() }).catch(() => null)
+        : true;
+      if (claimed === null) {
+        if (!i.screenFirstCallPending) { i.screenFirstCallPending = true; changed = true; }
+      } else {
+        if (i.screenFirstCallPending) { delete i.screenFirstCallPending; changed = true; }
+        if (claimed) await call(target.to, target.purpose === 'alert_shared_screen' ? 'screen hotline' : i.locationCode ?? 'kitchen', 'fr', target.purpose);
+        else called.add(normalizePhone(target.to) ?? target.to);
+      }
+    } else if (screenAlert) {
+      if (!i.screenFirstCallPending) { i.screenFirstCallPending = true; changed = true; }
+      if (waitingForVoice && !i.steps.some((entry) => entry.kind === 'note' && entry.message === FIRST_SCREEN_CALL_NEEDS_VOICE)) {
+        i.steps.push({ at: new Date(now).toISOString(), kind: 'note', by: 'Watchtower', message: FIRST_SCREEN_CALL_NEEDS_VOICE });
+        changed = true;
+      }
     }
+  }
+  if (smsDue) {
+    i.level = 1; changed = true;
     const to = recipients(users, i, ['manager'], 'sms');
     const list = to.length ? to : recipients(users, i, ['owner'], 'sms');
     for (const u of list) {

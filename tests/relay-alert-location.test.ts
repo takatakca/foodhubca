@@ -38,14 +38,25 @@ function basicHeaders(username: string) {
   return { authorization: `Basic ${Buffer.from(`${username}:${PASSWORD}`).toString('base64')}` };
 }
 
-async function relayReport(screen: Heartbeat['screens'][number]) {
-  const response = await heartbeat(new Request(`${BASE}/screens/heartbeat`, {
+function relayRequest(...screens: Heartbeat['screens']) {
+  return heartbeat(new Request(`${BASE}/screens/heartbeat`, {
     method: 'POST',
     headers: { authorization: `Bearer ${RELAY_TOKEN}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ screens: [screen] }),
+    body: JSON.stringify({ screens }),
   }));
+}
+
+async function relayReport(screen: Heartbeat['screens'][number]) {
+  const response = await relayRequest(screen);
   expect(response.status).toBe(200);
   return await response.json() as { commands: AgentCommand[] };
+}
+
+async function addQueuedScreen(slot: string) {
+  const screen = await addScreen({ name: slot, platform: 'skip', locationCode: ORIGINAL.code, viewUrl: `https://relay.example.test/${slot}/` }, OWNER);
+  if ('error' in screen) throw new Error(screen.error);
+  await requestReload(screen.id, OWNER);
+  return screen.id;
 }
 
 async function runCron(): Promise<WatchReport> {
@@ -188,14 +199,8 @@ it('hands one queued command to only one of two heartbeats reading the same scre
 });
 
 it('returns saved commands for the batch when another screen repeatedly conflicts', async () => {
-  const add = async (slot: string) => {
-    const screen = await addScreen({ name: slot, platform: 'skip', locationCode: ORIGINAL.code, viewUrl: `https://relay.example.test/${slot}/` }, OWNER);
-    if ('error' in screen) throw new Error(screen.error);
-    await requestReload(screen.id, OWNER);
-    return screen.id;
-  };
-  const first = await add('s01');
-  const contended = await add('s02');
+  const first = await addQueuedScreen('s01');
+  const contended = await addQueuedScreen('s02');
   const repo = getRepo();
   const replace = repo.replaceDocIfRevision.bind(repo);
   let conflicts = 0;
@@ -207,12 +212,11 @@ it('returns saved commands for the batch when another screen repeatedly conflict
     return replace(collection, doc, revision);
   });
   try {
-    const response = await heartbeat(new Request(`${BASE}/screens/heartbeat`, {
-      method: 'POST', headers: { authorization: `Bearer ${RELAY_TOKEN}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ screens: [first, contended].map((id) => ({ id, state: 'ok' })) }),
-    }));
+    const response = await relayRequest({ id: first, state: 'ok' }, { id: contended, state: 'ok' });
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ commands: [{ id: first, kind: 'reload' }], unknown: [] });
+    const body = await response.json();
+    expect(body).toMatchObject({ commands: [{ id: first, kind: 'reload' }], unknown: [] });
+    expect(body).not.toHaveProperty('partial');
   } finally {
     update.mockRestore();
   }
@@ -220,6 +224,53 @@ it('returns saved commands for the batch when another screen repeatedly conflict
   expect((await getScreen(first))?.command).toBeNull();
   expect(await getScreen(contended)).toMatchObject({ lastSeenAt: null, command: { kind: 'reload' } });
   expect(await relayReport({ id: contended, state: 'ok' })).toMatchObject({ commands: [{ id: contended, kind: 'reload' }] });
+});
+
+it.each(['read', 'write response'] as const)('returns only confirmed commands after a later screen loses its storage %s', async (failure) => {
+  const first = await addQueuedScreen('s01');
+  const failed = await addQueuedScreen('s02');
+  const later = await addQueuedScreen('s03');
+  const repo = getRepo();
+  const read = repo.getDoc.bind(repo);
+  const replace = repo.replaceDocIfRevision.bind(repo);
+  const error = new Error('Synthetic storage error with private detail');
+  const getDoc = vi.spyOn(repo, 'getDoc').mockImplementation(async (collection, id) => {
+    if (failure === 'read' && collection === SCREENS && id === failed) throw error;
+    return read(collection, id);
+  });
+  const save = vi.spyOn(repo, 'replaceDocIfRevision').mockImplementation(async (collection, doc, revision) => {
+    const saved = await replace(collection, doc, revision);
+    if (failure === 'write response' && collection === SCREENS && doc.id === failed) {
+      expect(saved).toBe(true);
+      throw error;
+    }
+    return saved;
+  });
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  const reports = [first, failed, later].map((id) => ({ id, state: 'ok' as const }));
+  try {
+    const response = await relayRequest(...reports);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({ ok: true, partial: true, unknown: [], commands: [{ id: first, kind: 'reload' }] });
+    expect(JSON.stringify(body)).not.toContain(error.message);
+    expect(warning).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(warning.mock.calls)).not.toContain(error.message);
+    await expect(relayRequest({ id: failed, state: 'ok' })).rejects.toBe(error);
+  } finally {
+    getDoc.mockRestore();
+    save.mockRestore();
+    warning.mockRestore();
+  }
+  expect((await getScreen(first))?.command).toBeNull();
+  expect((await getScreen(failed))?.command?.kind ?? null).toBe(failure === 'read' ? 'reload' : null);
+  expect(await getScreen(later)).toMatchObject({ lastSeenAt: null, command: { kind: 'reload' } });
+  const retry = await relayRequest(...reports);
+  expect(retry.status).toBe(200);
+  const body = await retry.json();
+  const retryIds = failure === 'read' ? [failed, later] : [later];
+  expect(body.commands).toEqual(retryIds.map((id) => ({ id, kind: 'reload' })));
+  expect(body).not.toHaveProperty('partial');
 });
 
 const scenarios = [

@@ -4,6 +4,8 @@ Les écritures concurrentes d’un écran vérifient la révision enregistrée. 
 
 Lors d’un signal groupé, si la sauvegarde d’un écran reste en conflit, ses instructions attendent le passage suivant. Le relais reçoit les instructions déjà récupérées pour les autres écrans. La suppression vérifie la portée de la cuisine et la version de la fiche cible afin de protéger un écran réaffecté ou recréé.
 
+Si une erreur de stockage survient après le retrait confirmé d’une instruction pour un autre écran, la réponse remet les instructions déjà confirmées et indique qu’elle est partielle. Le relais renverra ses prochains signaux selon son rythme habituel. Une écriture dont le résultat est inconnu n’entraîne pas de seconde remise. Les essais simulent une lecture interrompue et une réponse perdue après écriture PostgreSQL.
+
 Le lien d’alerte recherche l’incident autorisé directement par son identifiant dans la fenêtre de recherche prévue. Quand l’incident est déjà résolu, le lien ouvre l’onglet Réglées. Les vérifications d’accès, les filtres et les choix d’onglet restent appliqués. La preuve sur un écran et un téléphone réels est suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
 
 — signé : Codex @ cloud · 2026-11-26

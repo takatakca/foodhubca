@@ -416,7 +416,7 @@ function sameScreenBinding(a: PlatformScreen, b: PlatformScreen): boolean {
     && JSON.stringify(a.storeIds ?? []) === JSON.stringify(b.storeIds ?? []);
 }
 
-export async function recordHeartbeat(hb: Heartbeat, now = new Date()): Promise<{ commands: AgentCommand[]; unknown: string[] }> {
+export async function recordHeartbeat(hb: Heartbeat, now = new Date()): Promise<{ commands: AgentCommand[]; unknown: string[]; partial?: true }> {
   const commands: AgentCommand[] = [];
   const unknown: string[] = [];
   const seenAt = now.toISOString();
@@ -435,10 +435,13 @@ export async function recordHeartbeat(hb: Heartbeat, now = new Date()): Promise<
         autoReloads: r.autoReloads ?? s.autoReloads ?? null, agentVersion: hb.version ?? s.agentVersion ?? null, command: null,
       });
     }).catch((error: unknown) => {
-      if (!(error instanceof ScreenWriteConflict)) throw error;
-      // Leave this screen for the next heartbeat and return commands already claimed for other screens.
-      return undefined;
+      // A confirmed conflict leaves this row untouched. Other errors may have followed a committed write.
+      if (error instanceof ScreenWriteConflict) return undefined;
+      if (!commands.length) throw error;
+      console.warn('[foodhub] Screen relay heartbeat could not confirm a screen report. Returning previously claimed commands.');
+      return 'partial' as const;
     });
+    if (saved === 'partial') return { commands, unknown, partial: true };
     if (saved === undefined) continue;
     if (!saved || 'error' in saved) { unknown.push(r.id); continue; }
     if (!saved.changed) continue;

@@ -72,7 +72,7 @@ export const GET = withPerm('stores:map', async (req, _ctx, actor) => {
     },
     jobs: jobs.filter((j) => j.kind !== 'webhook_unparsed'),
     unparsed: jobs.filter((j) => j.kind === 'webhook_unparsed'),
-    // Settings → Go-live: stores that cannot reach their Clover register, SESSION_SECRET set / long / stable (no secret values).
-    goLive: await goLiveFacts(),
+    // Settings → Go-live: local Clover routing checks and session-secret status.
+    goLive: await goLiveFacts(actor),
   });
 });

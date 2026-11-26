@@ -4,8 +4,10 @@
 // /api/health, the unmapped-store incident, the silence alarm in opening minutes, SESSION_SECRET set / long / stable.
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { GET as channels } from '../app/api/foodhub/channels/route';
 import { saveUberWebhook } from '../lib/foodhub/adapters/uber-inbox';
-import { cloverUnreachableStores, sessionSecretCheck } from '../lib/foodhub/go-live';
+import { hashPassword, OWNER as RECOVERY_OWNER } from '../lib/foodhub/auth';
+import { goLiveFacts, sessionSecretCheck } from '../lib/foodhub/go-live';
 import { buildHealth, cachedHealth, syncMaxAgeMin } from '../lib/foodhub/health';
 import { allDayWeek, saveHours } from '../lib/foodhub/hours';
 import { getInboxEntry, INBOX, inboxSummary, MAX_RECOVERY_ATTEMPTS, receiveWebhook, refuseInboxEntry, replayInboxEntry, runInboxEntry, sweepInbox, type InboxEntry } from '../lib/foodhub/inbox';
@@ -431,6 +433,11 @@ describe('Watchtower', () => {
 });
 
 describe('Go-live facts', () => {
+  const clover = async () => (await goLiveFacts(RECOVERY_OWNER)).clover;
+  const map = (channel: 'uber_eats' | 'doordash', channelStoreId: string, locationCode: string, cloverMerchantId: string | null) => getRepo().upsertStore({
+    channel, channelStoreId, brandName: 'Po Poulet', locationCode, cloverMerchantId, autoAccept: true, online: true, meta: {},
+  });
+
   it('SESSION_SECRET: set, at least 32 characters, and the same as before (a change is dated)', async () => {
     expect(await sessionSecretCheck()).toMatchObject({ set: false, strong: false, since: null });
     process.env.SESSION_SECRET = 'short';
@@ -446,10 +453,71 @@ describe('Go-live facts', () => {
   });
 
   it('a mapped store whose register has no token keeps the Clover row to-do', async () => {
-    expect(await cloverUnreachableStores()).toEqual([]);
-    await getRepo().upsertStore({ channel: 'doordash', channelStoreId: 'dd-verdun', brandName: 'Po Poulet', locationCode: 'VERDUN', cloverMerchantId: MID2, autoAccept: true, online: true, meta: {} });
-    expect(await cloverUnreachableStores()).toEqual([{ channel: 'doordash', brandName: 'Po Poulet', locationCode: 'VERDUN', merchantId: MID2, reason: 'no_token' }]);
+    expect((await clover()).unreachableStores).toEqual([]);
+    await map('doordash', 'dd-verdun', 'VERDUN', MID2);
+    expect((await clover()).unreachableStores).toEqual([{ channel: 'doordash', brandName: 'Po Poulet', locationCode: 'VERDUN', merchantId: MID2, reason: 'no_token' }]);
     process.env.FOODHUB_VIA_CLOVER = 'doordash'; // Clover's own DoorDash integration has those orders
-    expect(await cloverUnreachableStores()).toEqual([]);
+    expect((await clover()).unreachableStores).toEqual([]);
+  });
+
+  it('reports a reachable fallback, skips via-Clover and injection-off, and keeps an unreachable fallback in the existing list', async () => {
+    await map('doordash', 'dd-verdun', 'VERDUN', null);
+    const fallback = { channel: 'doordash', brandName: 'Po Poulet', locationCode: 'VERDUN' };
+    expect(await clover()).toEqual({ injectionEnabled: true, unreachableStores: [], defaultRoutedStores: [fallback] });
+
+    process.env.FOODHUB_VIA_CLOVER = 'doordash';
+    expect(await clover()).toEqual({ injectionEnabled: true, unreachableStores: [], defaultRoutedStores: [] });
+    delete process.env.FOODHUB_VIA_CLOVER;
+
+    process.env.CLOVER_MERCHANT_TOKENS = JSON.stringify({ [MID2]: 'explicit-token' });
+    await map('uber_eats', 'ue-popoulet-ndg', 'NDG_6284', MID2);
+    delete process.env.CLOVER_ACCESS_TOKEN;
+    expect(await clover()).toEqual({ injectionEnabled: true, unreachableStores: [{ ...fallback, merchantId: MID, reason: 'no_token' }], defaultRoutedStores: [] });
+
+    process.env.FOODHUB_POS_INJECTION = 'off';
+    expect(await clover()).toEqual({ injectionEnabled: false, unreachableStores: [], defaultRoutedStores: [] });
+    expect(calls).toEqual([]);
+  });
+
+  it('uses the only approved OAuth merchant as fallback when there is no environment default', async () => {
+    delete process.env.CLOVER_MERCHANT_ID;
+    delete process.env.CLOVER_ACCESS_TOKEN;
+    await map('doordash', 'dd-verdun', 'VERDUN', null);
+    const fallback = { channel: 'doordash', brandName: 'Po Poulet', locationCode: 'VERDUN' };
+    const account = { merchantId: MID, accessToken: 'test-oauth-token', connectedAt: '2026-10-01T00:00:00.000Z', accessTokenExpiration: Math.floor(Date.now() / 1000) + 3600 };
+    await getRepo().setKv('clover_oauth_merchants', { [MID]: { ...account, status: 'active' }, [MID2]: { ...account, merchantId: MID2, status: 'pending' } });
+    expect(await clover()).toEqual({ injectionEnabled: true, unreachableStores: [], defaultRoutedStores: [fallback] });
+
+    await getRepo().setKv('clover_oauth_merchants', { [MID]: { ...account, accessTokenExpiration: 1 } });
+    expect(await clover()).toEqual({ injectionEnabled: true, defaultRoutedStores: [], unreachableStores: [
+      { channel: 'uber_eats', brandName: 'Po Poulet', locationCode: 'NDG_6284', merchantId: MID, reason: 'reconnect' },
+      { ...fallback, merchantId: MID, reason: 'reconnect' },
+    ] });
+    expect(calls).toEqual([]);
+  });
+
+  it('returns only location-authorized Clover routing diagnostics and requires a session', async () => {
+    const password = 'go-live-diagnostic-test';
+    process.env.DASHBOARD_PASSWORD = password;
+    await getRepo().saveUser({ username: 'scope-manager', name: 'Scope manager', role: 'manager', locations: ['NDG_6284'], active: true, passwordHash: hashPassword(password) });
+    await map('uber_eats', 'ue-ndg-default', 'NDG_6284', null);
+    await map('doordash', 'dd-verdun-default', 'VERDUN', null);
+    await map('doordash', 'dd-verdun-unreachable', 'VERDUN', MID2);
+    const request = (username?: string) => channels(new Request('http://hub.local/api/foodhub/channels', {
+      headers: username ? { authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}` } : undefined,
+    }), undefined);
+
+    expect((await request()).status).toBe(401);
+    const ownerResponse = await request('owner');
+    expect(ownerResponse.status).toBe(200);
+    const owner = (await ownerResponse.json()).goLive.clover;
+    expect(owner.defaultRoutedStores.map((store: { locationCode: string }) => store.locationCode).sort()).toEqual(['NDG_6284', 'VERDUN']);
+    expect(owner.unreachableStores).toHaveLength(1);
+    const managerResponse = await request('scope-manager');
+    expect(managerResponse.status).toBe(200);
+    expect((await managerResponse.json()).goLive.clover).toEqual({ injectionEnabled: true, unreachableStores: [], defaultRoutedStores: [
+      { channel: 'uber_eats', brandName: 'Po Poulet', locationCode: 'NDG_6284' },
+    ] });
+    expect(calls).toEqual([]);
   });
 });

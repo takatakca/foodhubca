@@ -1,3 +1,9 @@
+## 2026-11-26 — Vérification de la caisse Clover par défaut
+
+Mise en service affiche les liaisons autorisées qui utilisent la caisse Clover par défaut. L’avis renvoie vers Restaurants → Liaisons pour vérifier la caisse de chaque cuisine. Le contrôle des identifiants Clover et les essais de réception et d’impression restent suivis séparément dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Caisse de destination lors d’un déplacement Uber Eats
 
 Dans Restaurants → Liaisons, « Déplacer » ouvre la liaison avec la cuisine proposée et demande le marchand Clover de destination. La sauvegarde et l’activation Uber exigent cette destination quand une liaison existante change de cuisine. Les identifiants de caisse restent à valider chez Clover avant de déplacer des magasins réels. Voir les preuves marchandes dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46#issuecomment-7185601085).

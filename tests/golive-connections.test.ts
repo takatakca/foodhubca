@@ -215,6 +215,9 @@ describe('Go-live screen relay and alert routing review', () => {
     expect(calls({ ...watch, rules: { screen_down: activeRule } }).body).toContain('calls for waiting orders');
     expect(calls({ ...watch, callConfigured: false }).body).toContain('Set up Twilio');
     expect(steps({ relay: { agentConfigured: false, screens: [] } })[1]).toMatchObject({ state: 'warn', href: '/stores/screens' });
+    const empty = { agentConfigured: true, screens: [] };
+    expect(steps({ relay: empty })[1].body).toContain('The planned destination is each kitchen’s phone.');
+    expect(steps({ relay: empty, watch: { ...watch, sharedPhoneConfigured: true } })[1].body).toContain('The shared line is configured.');
   });
 
   it('uses a shared line first, or checks the phone of each distinct enrolled kitchen', () => {

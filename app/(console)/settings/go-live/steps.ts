@@ -156,7 +156,11 @@ function relayCallStep({ relay, watch, kitchenPhoneLocations }: RelayGoLiveInput
   }
   if (!watch.callConfigured) return { ...step, body: t('Configurez Twilio pour passer les appels d’alerte.', 'Set up Twilio to make alert calls.') };
   if (!relay?.agentConfigured || !relay.screens.length) {
-    return { ...step, href: '/stores/screens', cta: t('Écrans', 'Screens'), body: t('Vérifiez le relais pour connaître les écrans couverts par les alertes.', 'Check the relay to see which screens are covered by alerts.') };
+    const destination = watch.sharedPhoneConfigured
+      ? t('La ligne partagée est configurée.', 'The shared line is configured.')
+      : t('La destination prévue est le téléphone de chaque cuisine.', 'The planned destination is each kitchen’s phone.');
+    const check = t('Vérifiez le relais pour connaître les écrans couverts par les alertes.', 'Check the relay to see which screens are covered by alerts.');
+    return { ...step, href: '/stores/screens', cta: t('Écrans', 'Screens'), body: `${destination} ${check}` };
   }
   if (watch.sharedPhoneConfigured) {
     return { ...step, state: 'done', body: t('La ligne partagée est configurée pour les alertes de ces écrans.', 'The shared line is configured for alerts from these screens.') };

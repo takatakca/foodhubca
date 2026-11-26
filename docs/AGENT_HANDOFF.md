@@ -8,7 +8,15 @@ La reprise sur `394ecff` a passé 185 essais ciblés, dont la vérification des 
 
 La reprise sur `2313f4f` conserve les mêmes changements et les tests de préparation du relais de #168. TypeScript et 124 tests ciblés réussissent, dont les signaux de relais sous Chromium sur une plateforme simulée.
 
+La reprise sur `4003e5b` conserve aussi l’impression Clover et le dossier de démarrage du relais Windows de #169. TypeScript, ESLint sur les fichiers TypeScript concernés et 181 tests ciblés réussissent. Les scénarios du relais web ont utilisé Chromium avec un serveur Food Hub simulé. Les six tests PowerShell exigent Windows.
+
 — signé : Codex (automatisation) @ cloud · 2026-11-26
+
+## 2026-11-26 — Impression Clover et démarrage du relais Windows
+
+L’impression de cuisine utilise la caisse résolue par la même règle que la création dans Clover. Le marchand explicite et le défaut configuré ont priorité, puis le compte OAuth unique approuvé. Le kit Windows conserve son dossier d’installation dans la tâche planifiée et dans le raccourci de démarrage. La relève du poste existant et les essais marchands restent suivis dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
 
 ## 2026-11-26 — Vérifications du relais dans Mise en service
 

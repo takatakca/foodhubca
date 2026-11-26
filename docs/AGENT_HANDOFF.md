@@ -1,3 +1,11 @@
+## 2026-11-26 — Contrôle manuel d’une liaison Uber Eats
+
+« Vérifier avec Uber » consulte les liaisons accessibles au compte en utilisant un jeton OAuth distinct avec la portée `eats.store`. Si `UBER_OAUTH_SCOPE` est renseignée, elle doit inclure cette portée. Un jeton statique `UBER_ACCESS_TOKEN` reste prioritaire. L’autorisation de l’application en production et la réception réelle restent à vérifier auprès d’Uber. [Suivi marchand](https://github.com/takatakca/foodhubca/issues/46#issuecomment-7194255617) · [Référence Uber](https://developer.uber.com/docs/eats/references/api/v1/get-eats-stores-storeid-posdata)
+
+Un changement d’identifiant marchand écarte les preuves de l’ancienne liaison tout en conservant les protections locales. Une réponse reçue après un déplacement ou une déconnexion invite à relancer la vérification. Une modification des réglages du même magasin peut coexister avec le résultat. Les essais utilisent des réponses Uber et Supabase simulées.
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Alertes d’un écran réaffecté
 
 Si un écran ou une tablette change de cuisine pendant un incident, Watchtower clôture l’incident dans la cuisine d’origine et ouvre l’alerte dans la cuisine qui reçoit l’appareil si le problème persiste. Les appels et l’historique suivent le périmètre de chaque incident. Le changement de cuisine d’une tablette exige une destination active et autorisée. La livraison aux téléphones et aux appareils réels reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

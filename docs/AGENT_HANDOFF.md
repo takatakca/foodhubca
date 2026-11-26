@@ -1,3 +1,9 @@
+## 2026-11-26 — Refus de portée Uber pendant la synchronisation
+
+Quand le jeton OAuth Uber renvoie HTTP 400 `invalid_scope` après le parcours habituel de demande, la synchronisation signale ce refus pour Uber et laisse les autres vérifications de statut Uber en attente jusqu’au prochain passage. Le dernier état des magasins reste disponible. Les autres plateformes continuent leur vérification. La portée accordée à l’application en production et les essais marchands restent suivis dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46#issuecomment-7194255617).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Vérifier un passage Watchtower en arrière-plan
 
 Dans la réponse détaillée de `GET /api/health`, `checks.watchtower.lastBackgroundCompletion` donne l’heure et le déclencheur du dernier passage achevé par minuterie ou cron. Ce contrôle complète l’horodatage de démarrage. La réception réelle des commandes et des appels reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

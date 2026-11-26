@@ -134,7 +134,7 @@ async function pool<T, R>(items: T[], size: number, fn: (t: T) => Promise<R>): P
 type Fetched = { ok: boolean; state: PlatformState; detail?: string; until?: string | null; error?: string };
 
 /** Polls one store; `timedOut` reports back so the caller can stop hammering a platform that stopped answering. */
-async function pollStore(store: ChannelStore, opts: { skipReason?: string; timedOut?: (v: boolean) => void } = {}): Promise<StoreSyncRow> {
+async function pollStore(store: ChannelStore, opts: { skipReason?: string; timedOut?: (v: boolean) => void; onUberScopeRefused?: (reason: string) => void } = {}): Promise<StoreSyncRow> {
   const base = { storeId: store.id, channel: store.channel, brandName: store.brandName, locationCode: store.locationCode, channelStoreId: store.channelStoreId };
   const previous = (store.meta?.platformStatus ?? null) as PlatformStatus | null;
   let fetched: Fetched | null = null;
@@ -144,7 +144,12 @@ async function pollStore(store: ChannelStore, opts: { skipReason?: string; timed
     return { ...base, polled: true, ok: false, state: previous?.state ?? 'unknown', detail: previous?.detail, error: opts.skipReason, changed: false };
   }
   if (polled) {
-    const read = store.channel === 'uber_eats' ? fetchUberStoreStatus(store.channelStoreId) : fetchDoorDashStoreStatus(store.channelStoreId);
+    const read = store.channel === 'uber_eats'
+      ? fetchUberStoreStatus(store.channelStoreId).then((result) => {
+        if (result.oauthScopeRefused && result.error) opts.onUberScopeRefused?.(result.error);
+        return result;
+      })
+      : fetchDoorDashStoreStatus(store.channelStoreId);
     try {
       fetched = await withTimeout(read, STATUS_READ_TIMEOUT_MS, `${CHANNEL_LABELS[store.channel]} status read`);
       opts.timedOut?.(false);
@@ -267,13 +272,21 @@ export async function runSync(opts: { trigger?: string; force?: boolean } = {}):
       storeId: s.id, channel: s.channel, brandName: s.brandName, locationCode: s.locationCode, channelStoreId: s.channelStoreId,
       polled: true, ok: false, state: 'unknown' as PlatformState, error: e instanceof Error ? e.message : String(e), changed: false,
     });
-    const pollPlatform = (channel: ChannelKey) => {
+    const pollPlatform = async (channel: ChannelKey) => {
       let streak = 0;
-      return pool(stores.filter((s) => s.channel === channel), 4, (s) => {
-        const skipReason = streak >= MAX_CONSECUTIVE_TIMEOUTS ? `${CHANNEL_LABELS[channel]} stopped answering (${streak} status reads timed out) — skipped for this run` : undefined;
+      let uberScopeRefusal: string | undefined;
+      const rows = await pool(stores.filter((s) => s.channel === channel), 4, (s) => {
+        const skipReason = uberScopeRefusal ?? (streak >= MAX_CONSECUTIVE_TIMEOUTS ? `${CHANNEL_LABELS[channel]} stopped answering (${streak} status reads timed out) — skipped for this run` : undefined);
         if (skipReason) platformErrors[channel] = skipReason;
-        return pollStore(s, { skipReason, timedOut: (t) => { streak = t ? streak + 1 : 0; } }).catch((e) => errorRow(s, e));
+        return pollStore(s, {
+          skipReason,
+          timedOut: (t) => { streak = t ? streak + 1 : 0; },
+          onUberScopeRefused: (reason) => { uberScopeRefusal ??= reason; },
+        }).catch((e) => errorRow(s, e));
       });
+      // A late reply can still stop queued reads. Only report what was observed before this group finished.
+      if (uberScopeRefusal) platformErrors[channel] = uberScopeRefusal;
+      return rows;
     };
     const groups: Array<[string, Promise<StoreSyncRow[]>]> = [
       ['uber_eats', pollPlatform('uber_eats')],

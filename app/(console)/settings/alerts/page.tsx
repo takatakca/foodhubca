@@ -36,9 +36,9 @@ type Kind = { kind: string; fr: string; en: string };
 type NumKey = 'smsAfterMin' | 'callAfterMin' | 'ownerAfterMin' | 'unacceptedAfterSec' | 'unseenAfterSec' | 'lateAfterMin' | 'courierWaitMin' | 'silenceAfterMin';
 type Range = [min: number, max: number, unit: string];
 
-/** What each number may be (the limits this screen always had): inside them the server keeps the value exactly as typed. */
+/** Input bounds, including an immediate first escalation after the alert opens. */
 const RANGE: Record<NumKey, Range> = {
-  smsAfterMin: [1, 120, 'min'], callAfterMin: [1, 120, 'min'], ownerAfterMin: [1, 120, 'min'],
+  smsAfterMin: [0, 120, 'min'], callAfterMin: [1, 120, 'min'], ownerAfterMin: [1, 120, 'min'],
   unacceptedAfterSec: [20, 600, 's'], unseenAfterSec: [30, 900, 's'], lateAfterMin: [1, 60, 'min'], courierWaitMin: [1, 30, 'min'], silenceAfterMin: [30, 1440, 'min'],
 };
 const MAX_PHONES = 5;
@@ -206,8 +206,8 @@ export default function AlertSettingsPage() {
             <Hint id="alerts.steps"><ol className="grid grid-cols-1 gap-2 md:grid-cols-4">
               {([
                 { icon: <Volume2 className="size-4" />, label: t('Écran + bip en cuisine', 'Screen + beep in the kitchen'), field: null },
-                { icon: <MessageSquareText className="size-4" />, label: t('Texto aux gérants de garde', 'Text the managers on duty'), field: 'smsAfterMin' },
-                { icon: <PhoneCall className="size-4" />, label: t('Appel (urgences seulement)', 'Phone call (urgent only)'), field: 'callAfterMin' },
+                { icon: <MessageSquareText className="size-4" />, label: t('Appel de relève et texto aux gérants', 'First alert call and text to managers'), field: 'smsAfterMin' },
+                { icon: <PhoneCall className="size-4" />, label: t('Appel aux gérants (urgences)', 'Phone call to managers (urgent only)'), field: 'callAfterMin' },
                 { icon: <Crown className="size-4" />, label: t('Propriétaire + soutien', 'Owner + support line'), field: 'ownerAfterMin' },
               ] as Array<{ icon: ReactNode; label: string; field: NumKey | null }>).map((s, i) => (
                 <li key={i} className="relative rounded-md border border-line bg-raised p-3">

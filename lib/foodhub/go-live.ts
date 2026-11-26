@@ -10,6 +10,7 @@ import { isRelayStore } from './adapters/relay';
 import type { UberPosState } from './adapters/uber-eats';
 import { isViaClover } from './adapters/via-clover';
 import { inScope, type AuthUser } from './auth';
+import { getCatalog } from './catalog';
 import { cloverInjectionEnabled, cloverTokenFor, defaultCloverMerchant } from './pos/clover';
 import { listCloverConnections } from './pos/clover-oauth';
 import { getRepo } from './repo';
@@ -120,10 +121,15 @@ export async function goLiveFacts(actor: AuthUser, now = new Date()): Promise<Go
   const scopedStores = injectionEnabled || !uberViaClover
     ? getRepo().listStores().then((stores) => stores.filter((store) => inScope(actor, store.locationCode))).catch(() => null)
     : Promise.resolve(null);
-  const [clover, sessionSecret, stores] = await Promise.all([
+  const activeUberLocations = uberViaClover ? Promise.resolve(null) : getCatalog({ strict: true })
+    .then(({ locations }) => new Set(locations.filter((location) => location.active).map((location) => location.code)))
+    .catch(() => null);
+  const [clover, sessionSecret, stores, activeLocations] = await Promise.all([
     cloverRoutingFacts(scopedStores, injectionEnabled).catch(() => ({ injectionEnabled, unreachableStores: [], defaultRoutedStores: [] })),
     sessionSecretCheck(now),
     scopedStores,
+    activeUberLocations,
   ]);
-  return { clover, uberDirect: !uberViaClover && stores ? uberDirectFacts(stores) : null, sessionSecret };
+  const uberDirect = stores && activeLocations ? uberDirectFacts(stores.filter((store) => activeLocations.has(store.locationCode))) : null;
+  return { clover, uberDirect, sessionSecret };
 }

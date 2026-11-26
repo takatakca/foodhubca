@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET as channels } from '../app/api/foodhub/channels/route';
 import { hashPassword, OWNER } from '../lib/foodhub/auth';
+import { saveLocation } from '../lib/foodhub/catalog';
 import { goLiveFacts } from '../lib/foodhub/go-live';
 import { getRepo } from '../lib/foodhub/repo';
 import type { ChannelStore } from '../lib/foodhub/types';
@@ -24,7 +25,7 @@ const request = (username?: string) => channels(new Request('http://hub.local/ap
   headers: username ? { authorization: `Basic ${Buffer.from(`${username}:${PASSWORD}`).toString('base64')}` } : undefined,
 }), undefined);
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.stubEnv('FOODHUB_FORCE_MEMORY', 'true');
   vi.stubEnv('DASHBOARD_PASSWORD', PASSWORD);
   vi.stubEnv('SESSION_SECRET', undefined);
@@ -33,6 +34,7 @@ beforeEach(() => {
   (globalThis as { __foodhubMem?: unknown }).__foodhubMem = undefined;
   fetchMock.mockReset();
   vi.stubGlobal('fetch', fetchMock);
+  for (const code of ['NDG', 'OTHER']) await saveLocation({ code, name: `Test kitchen ${code}`, address: '', active: true });
 });
 
 afterEach(() => {
@@ -81,6 +83,32 @@ describe('Go-live saved Uber activation', () => {
     await store('positive-provision', { uberPos: CONFIRMED, provisioned: true, provisionChangedAt: LATER });
     await store('checked-after-disconnect', { uberPos: CONFIRMED, uberDisconnectedAt: EARLIER, provisioned: false });
     expect((await goLiveFacts(OWNER)).uberDirect).toEqual({ confirmed: 2, mapped: 5 });
+  });
+
+  it('counts only direct mappings to active catalog kitchens', async () => {
+    await saveLocation({ code: 'INACTIVE', name: 'Inactive test kitchen', address: '', active: false });
+    await store('active-confirmed', { uberPos: CONFIRMED });
+    await store('inactive-unconfirmed', {}, 'INACTIVE');
+    await store('missing-kitchen', { uberPos: CONFIRMED }, 'UNKNOWN');
+
+    const response = await request('owner');
+    expect(response.status).toBe(200);
+    expect((await response.json()).goLive.uberDirect).toEqual({ confirmed: 1, mapped: 1 });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('returns unavailable Uber evidence when the active catalog cannot be read', async () => {
+    await store('active-confirmed', { uberPos: CONFIRMED });
+    const clover = (await goLiveFacts(OWNER)).clover;
+    const repo = getRepo();
+    const getKv = repo.getKv.bind(repo);
+    vi.spyOn(repo, 'getKv').mockImplementation(async (key) => {
+      if (key === 'catalog') throw new Error('catalog unavailable');
+      return getKv(key);
+    });
+
+    expect(await goLiveFacts(OWNER)).toMatchObject({ clover, uberDirect: null });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('keeps Clover-disabled behavior and distinguishes via-Clover mode from unavailable data', async () => {

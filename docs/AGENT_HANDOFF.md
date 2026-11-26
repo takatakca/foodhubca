@@ -1,6 +1,6 @@
 ## 2026-11-26 — Préparation des plateformes et du téléphone de relève
 
-Mise en service distingue les liaisons directes, le relais de commandes, DoorDash en bac à sable et l’import Clover. Un relais nécessite son webhook et une liaison de magasin vers une cuisine active. Une liaison directe enregistrée indique le niveau de configuration et invite à vérifier la réception par une commande d’essai. Le bandeau de fin indique que la configuration est terminée.
+Mise en service distingue les liaisons directes, le relais de commandes, DoorDash en bac à sable et l’import Clover. Un relais nécessite son webhook et une liaison de magasin vers une cuisine active. Une liaison directe enregistrée indique le niveau de configuration et invite à vérifier la réception par une commande d’essai. La confirmation Uber enregistrée est comptée pour les cuisines actives du périmètre. Si la lecture du catalogue échoue, la checklist signale que la confirmation est à vérifier. Le bandeau de fin indique que la configuration est terminée.
 
 Les téléphones de cuisine suivent la même validation que les appels Watchtower. Quand aucune destination utilisable n’est configurée pour le relais, les réglages indiquent où ajouter un téléphone. Une saisie invalide dans Entreprise est refusée avant sauvegarde. Une modification qui omet le téléphone le conserve. Vider volontairement le champ le retire. Les preuves de commande, d’impression et d’appel restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
 

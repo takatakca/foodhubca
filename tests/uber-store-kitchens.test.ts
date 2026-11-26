@@ -7,9 +7,10 @@ import rawLocations from '../data/actual/locations.json';
 import { POST } from '../app/api/foodhub/stores/route';
 import { GET as listKnown } from '../app/api/foodhub/stores/known/route';
 import { POST as discover } from '../app/api/foodhub/stores/discover/route';
+import { POST as activate } from '../app/api/foodhub/uber-connect/activate/route';
 import * as uber from '../lib/foodhub/adapters/uber-eats';
 import { hashPassword } from '../lib/foodhub/auth';
-import { suggestMapping } from '../lib/foodhub/adapters/uber-provision';
+import * as uberProvision from '../lib/foodhub/adapters/uber-provision';
 import { KNOWN_UBER_KITCHENS, knownStores } from '../lib/foodhub/known-stores';
 import { getRepo } from '../lib/foodhub/repo';
 
@@ -37,7 +38,8 @@ afterEach(() => {
 });
 
 const ctx = { params: Promise.resolve({}) } as any;
-const save = (body: Record<string, unknown>) => POST(new Request('http://hub.local/api/foodhub/stores', { method: 'POST', headers: { authorization: `Basic ${Buffer.from('owner:Owner-pass-123').toString('base64')}`, 'content-type': 'application/json' }, body: JSON.stringify(body) }) as any, ctx);
+const ownerPost = (path: string, body: Record<string, unknown>) => new Request(`http://hub.local/api/foodhub/${path}`, { method: 'POST', headers: { authorization: `Basic ${Buffer.from('owner:Owner-pass-123').toString('base64')}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+const save = (body: Record<string, unknown>) => POST(ownerPost('stores', body), ctx);
 
 describe('the 7 known Uber stores are in the Saint-Léonard kitchen', () => {
   it('data/actual records SAINT_LEONARD and 5839 Jean-Talon for exactly those 7 UUIDs', () => {
@@ -48,9 +50,9 @@ describe('the 7 known Uber stores are in the Saint-Léonard kitchen', () => {
   });
 
   it("Uber's own name and address pick Saint-Léonard: the civic number beats the \"(Hochelaga)\" in the name", () => {
-    for (const s of stores) expect(suggestMapping(s.name_on_uber, s.address_on_uber).suggestedLocation, s.name_on_uber).toBe('SAINT_LEONARD');
+    for (const s of stores) expect(uberProvision.suggestMapping(s.name_on_uber, s.address_on_uber).suggestedLocation, s.name_on_uber).toBe('SAINT_LEONARD');
     // Without an address, the name alone says Hochelaga — the reason the known kitchen is used instead of the name.
-    expect(suggestMapping('Pi pita (Hochelaga)').suggestedLocation).toBe('HOCHELAGA');
+    expect(uberProvision.suggestMapping('Pi pita (Hochelaga)').suggestedLocation).toBe('HOCHELAGA');
   });
 
   it('the NDG stores are only a reference list: other UUIDs, at 6280 Somerled, never Po Poulet', () => {
@@ -69,21 +71,64 @@ describe('Stores → Mapping: known Uber stores', () => {
     expect(list.every((k) => !k.confirmedByPlatform && k.suggestedLocation === 'SAINT_LEONARD' && k.expectedLocation === 'SAINT_LEONARD' && !k.locationMismatch)).toBe(true);
   });
 
-  it('flags a store mapped to NDG_6284, and moving it keeps its brand, Clover register and menu lock', async () => {
+  it('flags a store mapped to NDG_6284 and moves it only with an explicit destination Clover merchant', async () => {
     const id = '627d09f0-8fb4-57f2-8ec1-6a71984ad267';
-    const first = await save({ channel: 'uber_eats', channelStoreId: id, brandName: 'PPP Pizzeria', locationCode: 'NDG_6284', cloverMerchantId: 'TESTMERCH0002', menuLocked: true, autoAccept: false });
+    const mapping = { channel: 'uber_eats', channelStoreId: id, brandName: 'PPP Pizzeria' };
+    const first = await save({ ...mapping, locationCode: 'NDG_6284', cloverMerchantId: 'TESTMERCH0002', menuLocked: true, autoAccept: false });
     expect(first.status).toBe(200);
     const wrong = (await knownStores()).find((k) => k.storeId === id)!;
     expect(wrong).toMatchObject({ expectedLocation: 'SAINT_LEONARD', locationMismatch: true, mapped: { brandName: 'PPP Pizzeria', locationCode: 'NDG_6284' } });
     expect((await knownStores()).filter((k) => k.locationMismatch)).toHaveLength(1);
 
-    // What the console's "Move" button sends.
-    const moved = await save({ id: wrong.mapped!.id, channel: 'uber_eats', channelStoreId: id, brandName: 'PPP Pizzeria', locationCode: 'SAINT_LEONARD' });
-    expect(moved.status).toBe(200);
-    const store = await getRepo().findStore('uber_eats', id);
-    expect(store).toMatchObject({ id: wrong.mapped!.id, locationCode: 'SAINT_LEONARD', brandName: 'PPP Pizzeria', cloverMerchantId: 'TESTMERCH0002', autoAccept: false });
-    expect(store?.meta?.menuLocked).toBe(true);
+    const before = await getRepo().findStore('uber_eats', id);
+    const move = { ...mapping, locationCode: 'SAINT_LEONARD' };
+    const rowId = wrong.mapped!.id;
+    for (const incomplete of [move, { ...move, id: rowId, cloverMerchantId: ' ' }, { ...move, id: '00000000-0000-4000-8000-000000000001' }]) {
+      const refused = await save(incomplete);
+      expect(refused.status).toBe(400);
+      expect((await refused.json()).error).toMatch(/destination Clover merchant/);
+    }
+    expect((await save({ ...move, id: rowId, cloverMerchantId: '123456789' })).status).toBe(400);
+    expect(await getRepo().findStore('uber_eats', id)).toEqual(before);
+
+    for (const permit of [{ cloverMerchantId: ' TESTMERCH0003 ' }, {}]) {
+      expect((await save({ ...move, id: rowId, ...permit })).status).toBe(200);
+      const store = await getRepo().findStore('uber_eats', id);
+      expect(store).toMatchObject({ id: rowId, locationCode: 'SAINT_LEONARD', brandName: 'PPP Pizzeria', cloverMerchantId: 'TESTMERCH0003', autoAccept: false });
+      expect(store?.meta?.menuLocked).toBe(true);
+    }
     expect((await knownStores()).some((k) => k.locationMismatch)).toBe(false);
+
+    // Kitchens sharing a Clover merchant can explicitly select that same register.
+    expect((await save({ ...mapping, id: rowId, locationCode: 'NDG_6284', cloverMerchantId: 'TESTMERCH0003' })).status).toBe(200);
+    expect(await getRepo().findStore('uber_eats', id)).toMatchObject({ id: rowId, locationCode: 'NDG_6284', cloverMerchantId: 'TESTMERCH0003' });
+  });
+
+  it('validates every Uber activation pick before calling the provider or saving any mapping', async () => {
+    const storeId = 'synthetic-moved-uber-store';
+    const brandName = 'PPP Pizzeria';
+    expect((await save({ channel: 'uber_eats', channelStoreId: storeId, brandName, locationCode: 'NDG_6284', cloverMerchantId: 'TESTMERCH0002', autoAccept: false, menuLocked: true })).status).toBe(200);
+    const before = await getRepo().findStore('uber_eats', storeId);
+    const readiness = uber.uberEatsAdapter.readiness();
+    vi.spyOn(uber.uberEatsAdapter, 'readiness').mockReturnValue({ ...readiness, canSend: true });
+    const provider = vi.spyOn(uberProvision, 'activateUberStores').mockImplementation(async (_id, picks) => picks.map((pick) => ({
+      storeId: pick.storeId, result: { channel: 'uber_eats', status: 'done', ok: true, message: 'OK' }, enabled: null, pos: null, message: 'OK',
+    })));
+    const destination = { storeId, brandName, locationCode: 'SAINT_LEONARD' };
+    const fresh = { storeId: 'synthetic-new-uber-store', brandName, locationCode: 'NDG_6284' };
+    const request = (pick: typeof destination & { cloverMerchantId?: string }) => activate(ownerPost('uber-connect/activate', { id: 'synthetic-session', stores: [fresh, pick] }), ctx);
+
+    const refused = await request(destination);
+    expect(refused.status).toBe(400);
+    expect((await refused.json()).error).toMatch(/destination Clover merchant/);
+    expect(provider).not.toHaveBeenCalled();
+    expect(await getRepo().listStores('uber_eats')).toEqual([before]);
+
+    expect((await request({ ...destination, cloverMerchantId: 'TESTMERCH0003' })).status).toBe(200);
+    expect((await request(destination)).status).toBe(200);
+    expect(provider).toHaveBeenCalledTimes(2);
+    expect(await getRepo().findStore('uber_eats', fresh.storeId)).toMatchObject({ locationCode: fresh.locationCode, cloverMerchantId: null });
+    expect(await getRepo().findStore('uber_eats', storeId)).toMatchObject({ id: before!.id, locationCode: destination.locationCode, brandName, cloverMerchantId: 'TESTMERCH0003', autoAccept: false, meta: { menuLocked: true } });
   });
 });
 

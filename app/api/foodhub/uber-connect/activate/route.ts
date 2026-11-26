@@ -4,7 +4,7 @@ import { logActivity } from '@/lib/foodhub/activity';
 import { inScope, withPerm } from '@/lib/foodhub/auth';
 import { getCatalog } from '@/lib/foodhub/catalog';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
-import { cloverMerchantIdProblem } from '@/lib/foodhub/pos/clover';
+import { storeCloverMerchantIdProblem } from '@/lib/foodhub/pos/clover';
 import { getRepo } from '@/lib/foodhub/repo';
 
 export const dynamic = 'force-dynamic';
@@ -25,12 +25,12 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
   if (badBrand) return fail(`Unknown brand "${badBrand.brandName}". Add it in Brands & Locations first.`);
   const badLocation = picks.find((p) => !catalog.locations.some((l) => l.code === p.locationCode));
   if (badLocation) return fail(`Unknown location "${badLocation.locationCode}". Add it in Brands & Locations first.`);
-  const badMerchant = picks.map((p) => cloverMerchantIdProblem(p.cloverMerchantId)).find(Boolean);
-  if (badMerchant) return fail(badMerchant.en);
   const repo = getRepo();
   for (const p of picks) {
     const existing = await repo.findStore('uber_eats', p.storeId);
     if (existing && !inScope(actor, existing.locationCode)) return fail(`Store ${p.storeId} is mapped to ${existing.locationCode}, which is outside your locations.`, 403);
+    const badMerchant = storeCloverMerchantIdProblem({ channel: 'uber_eats', locationCode: p.locationCode, cloverMerchantId: p.cloverMerchantId }, existing);
+    if (badMerchant) return fail(badMerchant.en);
   }
   const r = uberEatsAdapter.readiness();
   if (!r.canSend) return fail(`Activation changes your Uber stores, so it needs the live switch: ${r.note}`, 409);

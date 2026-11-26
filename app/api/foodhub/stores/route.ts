@@ -4,7 +4,7 @@ import { inScope, withPerm, type AuthUser } from '@/lib/foodhub/auth';
 import { getCatalog } from '@/lib/foodhub/catalog';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { menuLockOf } from '@/lib/foodhub/menu/lock';
-import { cloverMerchantIdProblem } from '@/lib/foodhub/pos/clover';
+import { storeCloverMerchantIdProblem } from '@/lib/foodhub/pos/clover';
 import { getRepo } from '@/lib/foodhub/repo';
 
 /** A manager limited to some locations may only map stores at those locations. */
@@ -35,18 +35,26 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
   const channel = String(b.channel);
   if (!isChannelKey(channel)) return fail('channel must be one of uber_eats, doordash, skip, tgtg');
   if (!b.channelStoreId || !b.brandName || !b.locationCode) return fail('channelStoreId, brandName and locationCode are required');
+  const channelStoreId = String(b.channelStoreId).trim();
   const brandName = String(b.brandName).trim();
   const locationCode = String(b.locationCode).trim();
   const scoped = scopeError(actor, locationCode);
   if (scoped) return fail(scoped, 403);
   const unknown = await catalogError(brandName, locationCode);
   if (unknown) return fail(unknown);
-  const badMerchant = cloverMerchantIdProblem(b.cloverMerchantId);
-  if (badMerchant) return fail(badMerchant.en);
   const repo = getRepo();
-  const existing = b.id ? await repo.getStore(String(b.id)) : await repo.findStore(channel, String(b.channelStoreId).trim());
+  const byId = b.id ? await repo.getStore(String(b.id)) : null;
+  // A missing or stale row id does not make an already mapped Uber store a fresh mapping.
+  const mapped = !b.id || channel === 'uber_eats' ? await repo.findStore(channel, channelStoreId) : null;
+  const existing = byId ?? mapped;
   // Re-mapping a store that belongs to another location is out of scope too.
   if (existing && !inScope(actor, existing.locationCode)) return fail(scopeError(actor, existing.locationCode)!, 403);
+  if (byId && mapped && byId.id !== mapped.id) {
+    if (!inScope(actor, mapped.locationCode)) return fail(scopeError(actor, mapped.locationCode)!, 403);
+    return fail('This Uber Eats store already has a mapping. Open that mapping before moving it.', 409);
+  }
+  const badMerchant = storeCloverMerchantIdProblem({ channel, locationCode, cloverMerchantId: b.cloverMerchantId }, existing);
+  if (badMerchant) return fail(badMerchant.en);
   // "Never change this store's menu" + the platform's own store number (DoorDash store number ≠ merchant_supplied_id).
   const meta: Record<string, unknown> = { ...(existing?.meta ?? {}) };
   if (b.platformStoreId !== undefined) {
@@ -55,7 +63,7 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
   }
   if (b.menuLocked !== undefined) {
     const want = Boolean(b.menuLocked);
-    const before = menuLockOf({ channel, channelStoreId: String(b.channelStoreId).trim(), meta });
+    const before = menuLockOf({ channel, channelStoreId, meta });
     // A store locked by the owner's standing instruction (built in) or by the hosting setup cannot be unlocked here.
     if (!want && before.locked && before.source !== 'store') return fail(`This store's menu stays locked: ${before.reason}`, 409);
     if (want) {
@@ -70,13 +78,13 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
   // changing the platform store number, moving the mapping to another id or platform — may leave the store without it.
   const standing = existing ? menuLockOf(existing) : null;
   if (standing?.locked && standing.source !== 'store') {
-    const next = menuLockOf({ channel, channelStoreId: String(b.channelStoreId).trim(), meta });
+    const next = menuLockOf({ channel, channelStoreId, meta });
     if (!next.locked || next.source === 'store') return fail(`This store's menu stays locked: ${standing.reason}`, 409);
   }
   const store = await repo.upsertStore({
     id: existing?.id,
     channel,
-    channelStoreId: String(b.channelStoreId).trim(),
+    channelStoreId,
     brandName,
     locationCode,
     cloverMerchantId: b.cloverMerchantId ? String(b.cloverMerchantId).trim() : existing?.cloverMerchantId ?? null,

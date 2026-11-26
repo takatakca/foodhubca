@@ -6,14 +6,6 @@ Le lien d’alerte recherche l’incident autorisé directement par son identifi
 
 — signé : Codex @ cloud · 2026-11-26
 
-## 2026-11-26 — Enregistrement concurrent des écrans relais
-
-Une réaffectation confirmée reste enregistrée si un signal relais avait déjà lu l’ancienne fiche. Watchtower attend le signal suivant avant d’utiliser de nouvelles observations dans la cuisine de destination. Chaque mise à jour vérifie la version enregistrée et retente au besoin sur la fiche courante. Les anciens écrans obtiennent une version à leur première mise à jour, avec les documents existants.
-
-L’action de rechargement reste en attente si un signal en cours appartient à l’ancienne affectation. Deux signaux qui lisent la même fiche ne peuvent pas réclamer la même action. La réponse de l’API garde sa forme actuelle. Les essais vérifient la nouvelle liaison, l’appel simulé vers la bonne cuisine et la remise de l’action de rechargement.
-
-— signé : Codex @ cloud · 2026-11-26
-
 ## 2026-11-26 — Préférences du propriétaire et preuve d’appel
 
 Au palier urgent, le profil du propriétaire choisit l’appel et le SMS indépendamment. Les personnes en garde et autorisées pour la cuisine gardent leur périmètre. La réservation du palier et l’acquittement continuent de limiter les envois.

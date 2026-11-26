@@ -6,7 +6,7 @@ import { logActivity, type Actor } from './activity';
 import { getAdapter } from './adapters';
 import { CHANNEL_LABELS, nowIso } from './config';
 import { allCloverMerchants, cloverAutoPrintEnabled, cloverBaseUrl, cloverExpected, cloverToken, defaultCloverMerchant, injectOrder, type InjectResult } from './pos/clover';
-import { cloverKitchenChanged, cloverOrderTypeForOrder, cloverTotalGap, describeMappingWarnings, findCloverOrderByTitle, mapOrderLines, platformFoodCents, printKitchenTicket } from './pos/clover-order';
+import { CLOVER_REPRINT_KITCHEN_CHANGED, cloverKitchenChanged, cloverOrderTypeForOrder, cloverTotalGap, describeMappingWarnings, findCloverOrderByTitle, mapOrderLines, platformFoodCents, printKitchenTicket } from './pos/clover-order';
 import { cloverRetryDelaysS, noteLastOrder, scheduleCloverRetry } from './order-retry';
 import { settleInClover } from './clover-settle';
 import { mevOnOrderChange } from './mev/hooks';
@@ -623,7 +623,7 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
     if (action === 'print') {
       const store = await repo.findStore(order.channel, order.channelStoreId);
       const p = cloverKitchenChanged(order, store)
-        ? { ok: false, message: 'This store is now mapped to a different kitchen. Review the order and store mapping before reprinting.' }
+        ? { ok: false, message: CLOVER_REPRINT_KITCHEN_CHANGED }
         : await printKitchenTicket(order.posOrderId!, store?.cloverMerchantId, order.locationCode);
       await repo.addEvent(order.id, p.ok ? 'printed' : 'print_failed', { message: p.message, manual: true, by: actor.name });
       const updated = await patchTimeline(order, p.ok ? { printedAt: nowIso(), printError: undefined } : { printError: p.message });

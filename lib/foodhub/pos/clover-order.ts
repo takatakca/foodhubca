@@ -314,6 +314,8 @@ export function cloverKitchenChanged(order: Pick<StoredOrder, 'locationCode'>, s
   return Boolean(store && order.locationCode && order.locationCode !== store.locationCode);
 }
 
+export const CLOVER_REPRINT_KITCHEN_CHANGED = 'This store is now mapped to a different kitchen. Review the order and store mapping before reprinting.';
+
 /** The kitchen ticket for an order: that kitchen's printer when one is set for its location, else the merchant's. */
 export async function printKitchenTicket(posOrderId: string, merchantId: string | null | undefined, locationCode?: string | null): Promise<{ ok: boolean; message: string; printEventId?: string }> {
   const { cloverBaseUrl, cloverToken, printCloverOrder } = await import('./clover');

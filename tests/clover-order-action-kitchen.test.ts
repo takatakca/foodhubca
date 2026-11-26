@@ -98,7 +98,9 @@ describe('Clover order actions after a store changes kitchens', () => {
       status: 'accepted', locationCode: SAVED_KITCHEN, posOrderId: 'original-pos-ref',
       timeline: { firedAt: expect.any(String), printError: expect.stringMatching(/different kitchen/i) },
     });
-    expect(await repo.listEvents(order.id)).toContainEqual(expect.objectContaining({ type: 'print_failed' }));
+    const events = await repo.listEvents(order.id);
+    expect(events).toContainEqual(expect.objectContaining({ type: 'print_failed' }));
+    expect(events).toContainEqual(expect.objectContaining({ type: 'fired', detail: expect.objectContaining({ message: expect.stringContaining('original kitchen') }) }));
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

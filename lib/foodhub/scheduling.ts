@@ -4,7 +4,7 @@
 import { logActivity } from './activity';
 import { CHANNEL_LABELS, nowIso } from './config';
 import { cloverAutoPrintEnabled } from './pos/clover';
-import { cloverKitchenChanged, printKitchenTicket } from './pos/clover-order';
+import { CLOVER_REPRINT_KITCHEN_CHANGED, cloverKitchenChanged, printKitchenTicket } from './pos/clover-order';
 import { getRepo } from './repo';
 import { localTimeLabel } from './time';
 import type { NormalizedOrder, StoredOrder } from './types';
@@ -48,7 +48,7 @@ export async function fireDueScheduled(now = Date.now()): Promise<number> {
     const mappingChanged = Boolean(o.posOrderId) && autoPrint && cloverKitchenChanged(o, store);
     const attempts = (o.timeline?.printAttempts ?? 0) + 1;
     if (mappingChanged) {
-      printError = 'This store is now mapped to a different kitchen. Review the order and store mapping before reprinting.';
+      printError = CLOVER_REPRINT_KITCHEN_CHANGED;
       await repo.addEvent(o.id, 'print_failed', { message: printError });
     } else if (o.posOrderId && autoPrint) {
       const p = await printKitchenTicket(o.posOrderId, store?.cloverMerchantId, o.locationCode);
@@ -65,7 +65,10 @@ export async function fireDueScheduled(now = Date.now()): Promise<number> {
       continue;
     }
     await repo.patchOrder(o.id, { firedAt: nowIso(), ...(!mappingChanged ? { printAttempts: attempts } : {}), ...(printedAt ? { printedAt, printError: undefined } : printError ? { printError } : {}) });
-    await repo.addEvent(o.id, 'fired', { message: printError ? 'Scheduled order released to the kitchen lane — ticket NOT printed, use Reprint' : 'Scheduled order sent to the kitchen' });
+    const firedMessage = mappingChanged
+      ? 'Scheduled order released to the original kitchen lane for review.'
+      : printError ? 'Scheduled order released to the kitchen lane — ticket NOT printed, use Reprint' : 'Scheduled order sent to the kitchen';
+    await repo.addEvent(o.id, 'fired', { message: firedMessage });
     const summary = mappingChanged
       ? `Scheduled ${tag}: ${printError} (due ${dueLabel})`
       : printError ? `Scheduled ${tag}: kitchen ticket did NOT print after ${attempts} attempts (${printError}) — press Reprint (due ${dueLabel})`

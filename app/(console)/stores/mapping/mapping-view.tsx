@@ -23,12 +23,12 @@ import { useI18n } from '@/lib/i18n/client';
 import { countEn, countFr, enWord, frWord } from '@/lib/ui/count-label';
 import type { ChannelStore } from '@/lib/foodhub/types';
 
-type Form = { id?: string; channel: string; channelStoreId: string; brandName: string; locationCode: string; cloverMerchantId: string; autoAccept: boolean; doNotTouch: boolean; platformStoreId?: string; menuLocked?: boolean; menuLockedReason?: string };
+type Form = { id?: string; channel: string; channelStoreId: string; brandName: string; locationCode: string; cloverMerchantId: string; destinationCloverLocation?: string; autoAccept: boolean; doNotTouch: boolean; platformStoreId?: string; menuLocked?: boolean; menuLockedReason?: string };
 /** Whether Food Hub may change this store's menu (menu/lock.ts): built-in and environment locks cannot be lifted here. */
 type MenuLock = { locked: boolean; source?: 'built_in' | 'env' | 'store'; reason?: string; reasonFr?: string };
 type StoreRow = ChannelStore & { menuLock?: MenuLock };
 /** The link form being shown: its draft id (one per store, per discovered Uber store, or 'new') and starting values. */
-type OpenForm = { draftId: string; initial: Form; lock?: MenuLock };
+type OpenForm = { draftId: string; initial: Form; sourceLocation?: string; lock?: MenuLock };
 type OrderManager = 'foodhub' | 'pending' | 'other' | 'unknown';
 type Pick = { storeId: string; name: string; address?: string; brandName: string; locationCode: string; cloverMerchantId: string; orderManager?: OrderManager; include: boolean };
 type CloverMerchant = { id: string; name: string | null; isDefault: boolean };
@@ -101,9 +101,18 @@ export function MappingView() {
     try { const d = await api<{ stores: Array<{ id: string; name: string; address?: string }> }>('/api/foodhub/stores/discover', { method: 'POST', json: { channel: 'uber_eats' } }); setDiscovered(d.stores); if (!d.stores.length) toast.info(t('Uber n’a renvoyé aucun magasin.', 'Uber returned no store.')); }
     catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
   }
+
+  function activationMovesKitchen(pick: Pick) {
+    return stores?.some((store) => store.channel === 'uber_eats' && store.channelStoreId === pick.storeId && store.locationCode !== pick.locationCode) ?? false;
+  }
+
   async function activate() {
     const chosen = picks.filter((p) => p.include);
     if (chosen.some((p) => !p.brandName || !p.locationCode)) { toast.warn(t('Choisissez une marque et une cuisine pour chaque magasin coché.', 'Pick a brand and a kitchen for every selected store.')); return; }
+    if (chosen.some((p) => activationMovesKitchen(p) && !p.cloverMerchantId)) {
+      toast.warn(t('Choisissez le marchand Clover de destination pour chaque magasin qui change de cuisine.', 'Choose the destination Clover merchant for each store moving to another kitchen.'));
+      return;
+    }
     if (!(await checkPrice(chosen.map((p) => ({ brandName: p.brandName, channel: 'uber_eats', merchantId: p.cloverMerchantId }))))) return;
     setBusy('activate');
     try {
@@ -170,18 +179,26 @@ export function MappingView() {
       load();
     } finally { setBusy(''); }
   }
-  /** Moves a mapped store to its kitchen (Uber's address, or the one recorded for it): brand, Clover and menu lock stay. */
-  async function moveKnown(k: Known) {
-    if (!k.mapped || !k.expectedLocation) return;
-    const to = shortLoc(locName(k.expectedLocation));
-    const yes = await confirm({
-      title: t(`Déplacer ${k.name} vers ${to} ?`, `Move ${k.name} to ${to}?`), confirmLabel: t('Déplacer', 'Move'),
-      body: t(`Ses commandes s’afficheront dans la cuisine ${to} (écran, heures, alertes). Marque, caisse Clover et verrou du menu ne changent pas.`, `Its orders will show in the ${to} kitchen (screen, hours, alerts). Brand, Clover register and menu lock stay the same.`),
+  function editStore(store: StoreRow, locationCode = store.locationCode) {
+    const moving = locationCode !== store.locationCode;
+    setForm({
+      draftId: formDraftId('store-link', moving ? `${store.id}:move:${locationCode}` : store.id),
+      sourceLocation: store.locationCode,
+      lock: store.menuLock,
+      initial: {
+        id: store.id, channel: store.channel, channelStoreId: store.channelStoreId, brandName: store.brandName, locationCode,
+        cloverMerchantId: moving ? '' : store.cloverMerchantId ?? '', autoAccept: store.autoAccept,
+        doNotTouch: store.meta?.doNotTouch === true,
+        platformStoreId: typeof store.meta?.platformStoreId === 'string' ? store.meta.platformStoreId : '',
+        menuLocked: Boolean(store.menuLock?.locked),
+        menuLockedReason: typeof store.meta?.menuLockedReason === 'string' ? store.meta.menuLockedReason : '',
+      },
     });
-    if (!yes) return;
-    setBusy(`move-${k.storeId}`);
-    try { await api('/api/foodhub/stores', { method: 'POST', json: { id: k.mapped.id, channel: k.channel, channelStoreId: k.storeId, brandName: k.mapped.brandName, locationCode: k.expectedLocation } }); toast.success(`${k.name} → ${to}`); load(); }
-    catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
+  }
+
+  function moveKnown(k: Known) {
+    const store = stores?.find((s) => s.id === k.mapped?.id);
+    if (store && k.expectedLocation) editStore(store, k.expectedLocation);
   }
   const unlinked = known.filter((k) => !k.mapped);
   const misplaced = known.filter((k) => k.locationMismatch);
@@ -206,8 +223,8 @@ export function MappingView() {
                   <Td label={t('Activer', 'Activate')}><input type="checkbox" className="size-5" aria-label={t(`Activer ${p.name}`, `Activate ${p.name}`)} checked={p.include} onChange={(e) => upd({ include: e.target.checked })} /></Td>
                   <Td primary><div className="font-semibold">{p.name}</div><div className="text-small text-ink-3">{p.address}</div></Td>
                   <Td label={t('Marque', 'Brand')}><Select selectSize="sm" aria-label={t(`Marque de ${p.name}`, `${p.name} brand`)} value={p.brandName} onChange={(e) => upd({ brandName: e.target.value })}><option value="">—</option>{brands.map((b) => <option key={b}>{b}</option>)}</Select></Td>
-                  <Td label={t('Cuisine', 'Kitchen')}><Select selectSize="sm" aria-label={t(`Cuisine de ${p.name}`, `${p.name} kitchen`)} value={p.locationCode} onChange={(e) => upd({ locationCode: e.target.value })}><option value="">—</option>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select></Td>
-                  <Td label="Clover"><Select selectSize="sm" value={p.cloverMerchantId} onChange={(e) => upd({ cloverMerchantId: e.target.value })} aria-label="Clover"><option value="">{t('par défaut', 'default')}</option>{cloverMerchants.map((m) => <option key={m.id} value={m.id}>{m.name ? `${m.name} · ${m.id}` : m.id}{m.isDefault ? t(' (défaut)', ' (default)') : ''}</option>)}</Select></Td>
+                  <Td label={t('Cuisine', 'Kitchen')}><Select selectSize="sm" aria-label={t(`Cuisine de ${p.name}`, `${p.name} kitchen`)} value={p.locationCode} onChange={(e) => upd({ locationCode: e.target.value, cloverMerchantId: '' })}><option value="">—</option>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select></Td>
+                  <Td label="Clover"><Select selectSize="sm" value={p.cloverMerchantId} onChange={(e) => upd({ cloverMerchantId: e.target.value })} aria-label="Clover"><option value="">{activationMovesKitchen(p) ? t('Choisir la caisse de destination', 'Choose the destination register') : t('par défaut', 'default')}</option>{cloverMerchants.map((m) => <option key={m.id} value={m.id}>{m.name ? `${m.name} · ${m.id}` : m.id}{m.isDefault ? t(' (défaut)', ' (default)') : ''}</option>)}</Select></Td>
                   <Td label={t('Commandes vont à', 'Orders go to')}><ManagerBadge value={r?.orderManager ?? p.orderManager} /></Td>
                   <Td>{r && <Badge tone={r.ok ? (r.orderManager === 'other' ? 'wait' : 'go') : 'stop'} title={r.message}>{r.ok ? t('activé', 'activated') : t('échec', 'failed')}</Badge>}
                     {((r?.orderManager ?? p.orderManager) === 'foodhub' || (r?.orderManager ?? p.orderManager) === 'pending') && (
@@ -228,7 +245,7 @@ export function MappingView() {
             <li key={k.storeId} className="flex flex-wrap items-center gap-2">
               <span className="font-semibold text-ink">{k.name}</span><span className="font-mono text-micro text-ink-3">{k.storeId}</span>
               <span>{shortLoc(locName(k.mapped?.locationCode))} → <strong>{shortLoc(locName(k.expectedLocation))}</strong></span>
-              <Button size="sm" variant="outline" loading={busy === `move-${k.storeId}`} onClick={() => moveKnown(k)}>{t('Déplacer', 'Move')}</Button>
+              <Button size="sm" variant="outline" disabled={!stores?.some((s) => s.id === k.mapped?.id)} onClick={() => moveKnown(k)}>{t('Déplacer', 'Move')}</Button>
             </li>
           ))}</ul>
         </Banner>
@@ -298,7 +315,7 @@ export function MappingView() {
                       </div>
                     </Td>
                     <Td className="whitespace-nowrap text-right">
-                      <button type="button" className="inline-flex size-11 items-center justify-center rounded-md text-ink-3 hover:bg-sunken hover:text-ink" onClick={() => setForm({ draftId: formDraftId('store-link', s.id), initial: { id: s.id, channel: s.channel, channelStoreId: s.channelStoreId, brandName: s.brandName, locationCode: s.locationCode, cloverMerchantId: s.cloverMerchantId ?? '', autoAccept: s.autoAccept, doNotTouch: s.meta?.doNotTouch === true, platformStoreId: typeof s.meta?.platformStoreId === 'string' ? s.meta.platformStoreId : '', menuLocked: Boolean(s.menuLock?.locked), menuLockedReason: typeof s.meta?.menuLockedReason === 'string' ? s.meta.menuLockedReason : '' }, lock: s.menuLock })} aria-label={t('Modifier', 'Edit')}><Pencil className="size-4" /></button>
+                      <button type="button" className="inline-flex size-11 items-center justify-center rounded-md text-ink-3 hover:bg-sunken hover:text-ink" onClick={() => editStore(s)} aria-label={t('Modifier', 'Edit')}><Pencil className="size-4" /></button>
                       <Hint id="mapping.disconnect"><button type="button" className="inline-flex size-11 items-center justify-center rounded-md text-ink-3 hover:bg-sunken hover:text-stop" onClick={() => remove(s)} aria-label={t('Débrancher', 'Disconnect')}><Trash2 className="size-4" /></button></Hint>
                     </Td>
                   </Tr>
@@ -309,7 +326,7 @@ export function MappingView() {
         )}
       </Card>
 
-      {form && <StoreLinkForm key={form.draftId} draftId={form.draftId} initial={form.initial} lock={form.lock} onClose={() => setForm(null)} onSaved={() => { setForm(null); load(); }} />}
+      {form && <StoreLinkForm key={form.draftId} {...form} onClose={() => setForm(null)} onSaved={() => { setForm(null); load(); }} />}
     </div>
   );
 }
@@ -327,13 +344,16 @@ function ManagerBadge({ value, title }: { value?: OrderManager | null; title?: s
  * Connect a store / edit a connection. What is typed is kept on this tablet (closing by mistake, a reload or a crash
  * loses nothing) and only sent by the form's own button; a successful save forgets the draft.
  */
-function StoreLinkForm({ draftId, initial, lock, onClose, onSaved }: { draftId: string; initial: Form; lock?: MenuLock; onClose: () => void; onSaved: () => void }) {
+function StoreLinkForm({ draftId, initial, sourceLocation, lock, onClose, onSaved }: OpenForm & { onClose: () => void; onSaved: () => void }) {
   const { t } = useI18n();
   const { viewer, locations, brands } = useViewer();
   const toast = useToast();
   const draft = useFormDraft<Form>(draftId, viewer.username, initial);
   const form = draft.value;
   const setForm = draft.set;
+  const movingUber = form.channel === 'uber_eats' && Boolean(sourceLocation) && form.locationCode !== sourceLocation;
+  // Require a choice for the destination kitchen, including when restoring an older draft.
+  const cloverMerchantId = movingUber && form.destinationCloverLocation !== form.locationCode ? '' : form.cloverMerchantId;
   const [saving, setSaving] = useState(false);
   const checkPrice = useExtraBrandPriceConfirm();
   // Built-in / environment locks are shown, never offered as a switch (the server refuses to lift them anyway).
@@ -351,25 +371,43 @@ function StoreLinkForm({ draftId, initial, lock, onClose, onSaved }: { draftId: 
     if (draft.dirty) toast.info(t('Gardé — rouvrez pour terminer', 'Kept — reopen to finish'));
     onClose();
   }
+
+  function changeKitchen(locationCode: string) {
+    const next = { ...form, locationCode };
+    if (sourceLocation && form.channel === 'uber_eats') {
+      next.cloverMerchantId = locationCode === sourceLocation ? initial.cloverMerchantId : '';
+      next.destinationCloverLocation = undefined;
+    }
+    setForm(next);
+  }
+
   async function save() {
-    if (!(await checkPrice({ brandName: form.brandName, channel: form.channel, merchantId: form.cloverMerchantId, storeId: form.id }))) return;
+    if (!(await checkPrice({ brandName: form.brandName, channel: form.channel, merchantId: cloverMerchantId, storeId: form.id }))) return;
     setSaving(true);
-    try { await api('/api/foodhub/stores', { method: 'POST', json: fixedLock ? { ...form, menuLocked: undefined } : form }); draft.clear(); toast.success(t('Magasin branché', 'Store connected')); onSaved(); }
+    const payload = {
+      id: initial.id, channel: form.channel, channelStoreId: form.channelStoreId, brandName: form.brandName,
+      locationCode: form.locationCode, cloverMerchantId, autoAccept: form.autoAccept, doNotTouch: form.doNotTouch,
+      platformStoreId: form.platformStoreId, menuLocked: fixedLock ? undefined : form.menuLocked, menuLockedReason: form.menuLockedReason,
+    };
+    try { await api('/api/foodhub/stores', { method: 'POST', json: payload }); draft.clear(); toast.success(t('Magasin branché', 'Store connected')); onSaved(); }
     catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setSaving(false); }
   }
 
   return (
     <Modal title={form.id ? t('Modifier le branchement', 'Edit the connection') : t('Brancher un magasin', 'Connect a store')} onClose={close}
-      footer={<><Button variant="ghost" size="lg" onClick={close}>{t('Annuler', 'Cancel')}</Button><Button size="lg" loading={saving} disabled={!form.channelStoreId.trim() || !form.brandName || !form.locationCode} onClick={save}>{t('Enregistrer', 'Save')}</Button></>}>
+      footer={<><Button variant="ghost" size="lg" onClick={close}>{t('Annuler', 'Cancel')}</Button><Button size="lg" loading={saving} disabled={!form.channelStoreId.trim() || !form.brandName || !form.locationCode || (movingUber && !cloverMerchantId.trim())} onClick={save}>{t('Enregistrer', 'Save')}</Button></>}>
       <FormDraftNote restored={draft.restored} onDiscard={draft.discard} />
       <div className="space-y-4">
         <Field label={t('Plateforme', 'Platform')}><Select value={form.channel} onChange={(e) => setForm({ ...form, channel: e.target.value })} disabled={Boolean(form.id)}>{[['uber_eats', 'Uber Eats'], ['doordash', 'DoorDash'], ['skip', 'SkipTheDishes'], ['tgtg', 'Too Good To Go']].map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Select></Field>
         <Field label={t('Identifiant du magasin', 'Store id')} hint={ID_HINT[form.channel]}><Input value={form.channelStoreId} onChange={(e) => setForm({ ...form, channelStoreId: e.target.value })} className="font-mono" /></Field>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label={t('Marque', 'Brand')}><Select value={form.brandName} onChange={(e) => setForm({ ...form, brandName: e.target.value })}>{brands.map((b) => <option key={b}>{b}</option>)}</Select></Field>
-          <Field label={t('Cuisine', 'Kitchen')}><Select value={form.locationCode} onChange={(e) => setForm({ ...form, locationCode: e.target.value })}>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select></Field>
+          <Field label={t('Cuisine', 'Kitchen')}><Select value={form.locationCode} onChange={(e) => changeKitchen(e.target.value)}>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select></Field>
         </div>
-        <Field label={t('Marchand Clover (optionnel)', 'Clover merchant (optional)')} hint={t('Vide = la caisse Clover par défaut. Les ruptures venues de Clover suivent ce marchand ; une cuisine n’en reçoit que si tous ses magasins suivent le même marchand. Sinon le code de lettres et de chiffres dans l’adresse du tableau de bord Clover (clover.com/home/m/…), pas le numéro de marchand du terminal de paiement.', 'Empty = the default Clover register. 86s coming from Clover follow this merchant; a location only gets them when all its stores follow the same merchant. Otherwise the code of letters and digits in the Clover dashboard address (clover.com/home/m/…), not the payment terminal’s merchant number.')}><Input value={form.cloverMerchantId} onChange={(e) => setForm({ ...form, cloverMerchantId: e.target.value })} className="font-mono" /></Field>
+        <Field label={movingUber ? t('Marchand Clover de destination (requis)', 'Destination Clover merchant (required)') : t('Marchand Clover (optionnel)', 'Clover merchant (optional)')}
+          hint={movingUber ? t('Vérifiez la caisse de cette cuisine dans le tableau de bord Clover et saisissez son identifiant marchand.', 'Check this kitchen’s register in the Clover dashboard and enter its merchant ID.') : t('Vide = la caisse Clover par défaut. Les ruptures venues de Clover suivent ce marchand ; une cuisine n’en reçoit que si tous ses magasins suivent le même marchand. Sinon le code de lettres et de chiffres dans l’adresse du tableau de bord Clover (clover.com/home/m/…), pas le numéro de marchand du terminal de paiement.', 'Empty = the default Clover register. 86s coming from Clover follow this merchant; a location only gets them when all its stores follow the same merchant. Otherwise the code of letters and digits in the Clover dashboard address (clover.com/home/m/…), not the payment terminal’s merchant number.')}>
+          <Input value={cloverMerchantId} required={movingUber} onChange={(e) => setForm({ ...form, cloverMerchantId: e.target.value, destinationCloverLocation: form.locationCode })} className="font-mono" />
+        </Field>
         <Hint id="mapping.autoaccept"><Switch checked={form.autoAccept} onChange={(v) => setForm({ ...form, autoAccept: v })} label={t('Accepter automatiquement', 'Accept automatically')} description={t('Seulement si Clover a bien reçu la commande. La cuisine doit quand même appuyer sur « Vu ».', 'Only when Clover received the order. The kitchen still taps “Seen”.')} /></Hint>
         <Field label={t('Numéro du magasin chez la plateforme (optionnel)', 'Platform store number (optional)')} hint={t('Ex. le numéro de magasin DoorDash (différent du merchant_supplied_id). Sert à reconnaître le magasin, p. ex. pour le verrou du menu.', 'E.g. the DoorDash store number (not the merchant_supplied_id). Used to recognise the store, e.g. for the menu lock.')}><Input value={form.platformStoreId ?? ''} onChange={(e) => setForm({ ...form, platformStoreId: e.target.value })} className="font-mono" inputMode="numeric" /></Field>
         {fixedLock
@@ -379,7 +417,7 @@ function StoreLinkForm({ draftId, initial, lock, onClose, onSaved }: { draftId: 
             {form.menuLocked && <Field label={t('Pourquoi (optionnel)', 'Why (optional)')}><Input value={form.menuLockedReason ?? ''} onChange={(e) => setForm({ ...form, menuLockedReason: e.target.value })} maxLength={200} /></Field>}
           </>}
         <Switch checked={Boolean(form.doNotTouch)} onChange={(v) => setForm({ ...form, doNotTouch: v })} label={t('Ne pas toucher au menu de ce magasin', 'Do not touch this store’s menu')} description={t('Food Hub ne lui envoie jamais de menu, d’heures de fériés ni de rupture (ex. : encore chez UrbanPiper, menu spécial). Les commandes et la pause continuent.', 'Food Hub never sends it a menu, holiday hours or an 86 (e.g. still on UrbanPiper, a special menu). Orders and pause keep working.')} />
-        <ExtraBrandPriceNotice brandName={form.brandName} channel={form.channel} merchantId={form.cloverMerchantId} storeId={form.id} />
+        <ExtraBrandPriceNotice brandName={form.brandName} channel={form.channel} merchantId={cloverMerchantId} storeId={form.id} />
         {form.channel === 'tgtg' && <Banner tone="info">{t('Too Good To Go n’a pas d’API publique : TAKATAK reçoit seulement ce que TGTG envoie.', 'Too Good To Go has no public API: TAKATAK only receives what TGTG sends.')}</Banner>}
       </div>
     </Modal>

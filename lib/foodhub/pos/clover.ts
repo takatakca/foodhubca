@@ -6,7 +6,7 @@
 //    managed once and pushed to every channel.
 import { fromCents, missingEnv, stripSlash, toCents, MARKETPLACE_LABELS } from '../config';
 import { cloverFetch } from './clover-http';
-import type { Marketplace, MasterMenu, StoredOrder } from '../types';
+import type { ChannelStore, Marketplace, MasterMenu, StoredOrder } from '../types';
 import { cloverAppConfigured, cloverOAuthToken, connectedCloverMerchantIds } from './clover-oauth';
 import { buildCloverOrderCart } from './clover-order';
 import { buildMenuFromClover, cloverMenuItems, listCloverMenus, type CloverImportReport, type CloverMenuItem } from '../menu/clover-import';
@@ -318,6 +318,21 @@ export function cloverMerchantIdProblem(id: string | null | undefined): { en: st
     };
   }
   return null;
+}
+
+/** An Uber mapping moved to another kitchen needs an explicit choice of destination register. */
+export function storeCloverMerchantIdProblem(
+  destination: Pick<ChannelStore, 'channel' | 'locationCode'> & { cloverMerchantId?: string | null },
+  existing: Pick<ChannelStore, 'locationCode'> | null,
+): ReturnType<typeof cloverMerchantIdProblem> {
+  if (destination.channel === 'uber_eats' && existing && existing.locationCode !== destination.locationCode
+    && (typeof destination.cloverMerchantId !== 'string' || !destination.cloverMerchantId.trim())) {
+    return {
+      en: 'Choose the destination Clover merchant before moving an Uber Eats store to another kitchen.',
+      fr: 'Choisissez le marchand Clover de destination avant de déplacer un magasin Uber Eats vers une autre cuisine.',
+    };
+  }
+  return cloverMerchantIdProblem(destination.cloverMerchantId);
 }
 
 /**

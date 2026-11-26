@@ -1,3 +1,9 @@
+## 2026-11-26 — Caisse de destination lors d’un déplacement Uber Eats
+
+Dans Restaurants → Liaisons, « Déplacer » ouvre la liaison avec la cuisine proposée et demande le marchand Clover de destination. La sauvegarde et l’activation Uber exigent cette destination quand une liaison existante change de cuisine. Les identifiants de caisse restent à valider chez Clover avant de déplacer des magasins réels. Voir les preuves marchandes dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46#issuecomment-7185601085).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Suivi des appels Watchtower
 
 Dans Alertes → Messages envoyés, le propriétaire non limité à une cuisine peut vérifier auprès de Twilio l’état d’un appel Watchtower déjà demandé. La consultation utilise la référence enregistrée, affiche seulement l’état et ne déclenche aucun appel. L’état « Appel terminé » indique que la réponse humaine est encore à vérifier. Le relevé marchand en lecture seule et les preuves encore ouvertes sont consignés dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46#issuecomment-7185162194).

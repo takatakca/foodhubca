@@ -9,6 +9,7 @@ import type { Actor } from '../lib/foodhub/activity';
 import { hashPassword } from '../lib/foodhub/auth';
 import { saveLocation } from '../lib/foodhub/catalog';
 import { allDayWeek, saveHours } from '../lib/foodhub/hours';
+import { enrollDevice, heartbeat as tabletHeartbeat } from '../lib/foodhub/identity/devices';
 import type { OutboxEntry } from '../lib/foodhub/notify';
 import type { CallStatus } from '../lib/foodhub/notify/call-status';
 import { getRepo, type Doc } from '../lib/foodhub/repo';
@@ -257,8 +258,10 @@ describe('Screen relay alerts without a console open', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('does not reopen an operator-resolved incident when its zero-minute call comes back', async () => {
-    await prepareZeroMinuteScreenCall();
+  it.each([
+    { action: 'ack', status: 'acknowledged' }, { action: 'resolve', status: 'resolved' },
+  ] as const)('preserves operator $action and one call-result step when the zero-minute call returns', async ({ action, status }) => {
+    const screenId = await prepareZeroMinuteScreenCall();
     const enteredCall = gate();
     const releaseCall = gate();
     fetchMock.mockImplementationOnce(async () => {
@@ -272,15 +275,72 @@ describe('Screen relay alerts without a console open', () => {
       await enteredCall.promise;
       const [active] = await listIncidents({ status: ['open'] });
       incidentId = active.id;
-      expect(await actOnIncident(incidentId, 'resolve', OWNER)).toMatchObject({ status: 'resolved' });
+      advanceTo(6.5);
+      expect(await actOnIncident(incidentId, action, OWNER)).toMatchObject({ status });
     } finally {
       releaseCall.resolve();
       await running;
     }
 
-    expect(await getIncident(incidentId)).toMatchObject({ status: 'resolved', resolvedBy: OWNER.name });
+    const saved = await getIncident(incidentId);
+    expect(saved).toMatchObject({
+      status, locationCode: KITCHEN, level: 0, updatedAt: new Date(START + 6.5 * 60_000).toISOString(),
+      ...(action === 'ack' ? { ackBy: OWNER.name } : { resolvedBy: OWNER.name }),
+    });
+    expect(saved?.steps.filter((step) => step.kind === 'call')).toMatchObject([{ kind: 'call', ok: true, message: 'Calling', dispatchId: expect.any(String) }]);
     expect((await readOutbox()).map((entry) => entry.incidentId)).toEqual([incidentId]);
+    expect(await running).toMatchObject({ escalated: 1 });
+    advanceTo(7);
+    if (action === 'resolve') await reportScreen(screenId, 'skip', 0);
+    expect(await runCron()).toMatchObject({ escalated: 0 });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('still saves another tablet alert when all attempts to append an earlier call result conflict', async () => {
+    await saveLocation({ code: KITCHEN, name: 'Test kitchen', address: '', active: true, phone: KITCHEN_PHONE });
+    await saveHours({ locations: { [KITCHEN]: allDayWeek() }, brands: {}, holidays: [] });
+    await saveWatchSettings({ enabled: true, screenAlertPhone: SHARED_PHONE, smsAfterMin: 0, postToChat: false, aiExplain: false }, OWNER);
+    const { device: offline } = await enrollDevice({ name: 'A offline tablet', locationCode: KITCHEN }, OWNER);
+    const { device: muted } = await enrollDevice({ name: 'B muted tablet', locationCode: KITCHEN }, OWNER);
+    advanceTo(6);
+    await tabletHeartbeat(muted, { soundOn: false, visible: true });
+    fetchMock.mockImplementationOnce(async () => {
+      const [first] = await listIncidents({ status: ['open'] });
+      expect(first.deviceId).toBe(offline.id);
+      await actOnIncident(first.id, 'ack', OWNER);
+      return Response.json({ sid: CALL_SID, status: 'queued' }, { status: 201 });
+    }).mockResolvedValueOnce(Response.json({ sid: `CA${'3'.repeat(32)}`, status: 'queued' }, { status: 201 }));
+
+    const repo = getRepo();
+    const originalReplace = repo.replaceDocIfRevision.bind(repo);
+    let conflicts = 0;
+    const replace = vi.spyOn(repo, 'replaceDocIfRevision').mockImplementation(async (collection, doc, expected) => {
+      const incident = doc.data as Incident;
+      if (collection === INCIDENTS && incident.deviceId === offline.id && incident.steps.some((step) => step.kind === 'call')) {
+        conflicts++;
+        return false;
+      }
+      return originalReplace(collection, doc, expected);
+    });
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      expect(await runWatch({ trigger: 'timer' })).toMatchObject({ opened: 2, escalated: 2 });
+      expect(conflicts).toBe(3);
+      expect(warning).toHaveBeenCalledExactlyOnceWith('[foodhub] Watchtower could not save a call result after a concurrent incident update.');
+    } finally {
+      replace.mockRestore();
+      warning.mockRestore();
+    }
+    const incidents = await listIncidents();
+    expect(incidents.find((entry) => entry.deviceId === offline.id)).toMatchObject({ status: 'acknowledged' });
+    expect(incidents.find((entry) => entry.deviceId === muted.id)).toMatchObject({
+      kind: 'device_muted', level: 1, steps: expect.arrayContaining([expect.objectContaining({ kind: 'call', ok: true })]),
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    advanceTo(7);
+    await tabletHeartbeat(muted, { soundOn: false, visible: true });
+    expect(await runCron()).toMatchObject({ escalated: 0 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('preserves the zero-minute call across a short recovery and re-arms it for a later outage', async () => {

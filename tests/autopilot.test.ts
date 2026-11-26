@@ -452,8 +452,12 @@ describe('retry refused sends', () => {
     expect((await getChains())[skip.id]).toMatchObject({ status: 'skipped', note: expect.stringMatching(/too late/) });
     // A whole day without a sync: the same.
     h.queue[`store:${ids.alphaUber}`] = ['error'];
-    await setStoresOnline([ids.alphaUber], false, { untilMs: t0 + 2 * 86400_000, actor: PERSON });
-    const later = (await getRepo().listJobs(5))[0];
+    const laterUntilMs = t0 + 2 * 86400_000;
+    await setStoresOnline([ids.alphaUber], false, { untilMs: laterUntilMs, actor: PERSON });
+    const timedFailures = (await getRepo().listJobs(5)).filter((job) => job.kind === 'store_toggle' && job.status === 'error'
+      && job.request?.storeId === ids.alphaUber && job.request.untilMs === laterUntilMs);
+    expect(timedFailures).toHaveLength(1);
+    const [later] = timedFailures;
     await runAutopilot({ now: Date.now() + MIN });
     expect((await getChains())[later.id]).toMatchObject({ status: 'waiting' });
     await runAutopilot({ now: Date.now() + 26 * 3600_000 });

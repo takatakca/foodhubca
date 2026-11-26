@@ -16,6 +16,7 @@
 //      must process the saved webhook — exactly ONE order row, ONE Clover order, ONE kitchen ticket, ONE Uber accept;
 //   2. lets a second order finish, kills the server, restarts it: nothing is processed again.
 //   3. forces two workers to read the same empty screen-incident snapshots: one durable row and one simulated first call.
+//   4. moves the failing screen while both workers observe the source incident: one destination row and one new call.
 // FOODHUB_E2E_INBOX_STUCK_MS (same guard) makes "interrupted" mean 3 s instead of 2 minutes so the check is quick.
 import { spawn, spawnSync } from 'node:child_process';
 import { APP, APP_PORT, MOCK_PORT, SCREENS_TOKEN, appEnv, basic, call, log, mock, sleep, uberWebhook, waitFor } from './e2e/platform-mock.mjs';
@@ -250,6 +251,52 @@ try {
   check('one active screen incident in PostgreSQL and one request to simulated Twilio',
     incidents.length === 1 && incidents[0]?.data.status === 'open' && calls.length === 1,
     JSON.stringify({ activeIncidents: incidents.filter((entry) => entry.data.status === 'open').length, simulatedCalls: calls.length }));
+
+  console.log('\n4. Two Watchtower workers observe the same reassignment');
+  const destination = 'TEST_WATCH_DEST';
+  const destinationPhone = '+15145550125';
+  const catalog = await call('POST', '/api/foodhub/catalog', { body: {
+    location: { code: destination, name: 'Watch destination fixture', phone: destinationPhone, active: true },
+  } });
+  const hours = await call('PUT', '/api/foodhub/hours', { body: {
+    hours: { locations: { [location]: week, [destination]: week }, brands: {}, holidays: [] },
+  } });
+  const routing = await call('PUT', '/api/foodhub/watch/settings', { body: { settings: { screenAlertPhone: null } } });
+  const move = await call('PATCH', '/api/foodhub/screens/s01', { body: { locationCode: destination } });
+  check('the failing screen is re-assigned to the destination kitchen with its own call number',
+    catalog.status === 200 && hours.status === 200 && routing.json?.settings?.screenAlertPhone === null
+    && move.json?.screen?.locationCode === destination && incidents.length === 1);
+  let movedReaders = 0;
+  let releaseMovedReaders;
+  const bothReadMove = new Promise((resolve) => { releaseMovedReaders = resolve; });
+  incidentReadBarrier = () => {
+    if (++movedReaders === 2) { incidentReadBarrier = undefined; releaseMovedReaders(); }
+    return bothReadMove;
+  };
+  const moveDeadline = setTimeout(releaseMovedReaders, 8_000);
+  const mark4 = log.length;
+  try {
+    const checks = await Promise.all([APP, secondary].map(async (origin) => {
+      const response = await fetch(`${origin}/api/foodhub/watch/run`, {
+        method: 'POST', headers: { authorization: basic }, signal: AbortSignal.timeout(20_000),
+      });
+      return (await response.json()).report;
+    }));
+    check('both workers reached their incident read during reassignment', movedReaders === 2 && checks.every((report) => report?.ran));
+  } finally {
+    clearTimeout(moveDeadline);
+    releaseMovedReaders();
+    incidentReadBarrier = undefined;
+  }
+  const movedIncidents = await screenIncidents();
+  const sourceIncident = movedIncidents.find((entry) => entry.id === incidents[0]?.id);
+  const destinationIncident = movedIncidents.find((entry) => entry.data.locationCode === destination);
+  const newRequests = since(mark4, 'POST', /Calls\.json$/);
+  check('the source occurrence is resolved and one destination occurrence is opened',
+    movedIncidents.length === 2 && sourceIncident?.data.locationCode === location && sourceIncident.data.status === 'resolved'
+    && destinationIncident?.data.status === 'open' && sourceIncident.id !== destinationIncident.id);
+  check('one new simulated call targets the destination kitchen phone',
+    newRequests.length === 1 && new URLSearchParams(newRequests[0].body).get('To') === destinationPhone);
 
   const crashes = appLog.split('\n').filter((l) => /\[foodhub\] .* failed|Unhandled|TypeError|ReferenceError/.test(l) && !/kept in the inbox/.test(l));
   check('no background job crashed during the checks', crashes.length === 0, crashes.slice(0, 3).join(' | '));

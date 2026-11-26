@@ -41,6 +41,8 @@ export interface IncidentStep {
   to?: string;
   ok?: boolean;
   uncertain?: boolean;
+  /** Identity of a Watchtower dispatch result when it is appended after a concurrent update. */
+  dispatchId?: string;
   by?: string;
   message?: string;
 }

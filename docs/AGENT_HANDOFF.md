@@ -1,12 +1,30 @@
 ## 2026-11-26 — Premier appel d’un incident d’écran enregistré
 
+Sur deux processus reliés au même PostgreSQL, la réaffectation pendant la détection ferme l’ancienne alerte, ouvre une alerte dans la nouvelle cuisine et demande un seul appel simulé vers son numéro. Le lot complet passe 33 contrôles de reprise et 644 contrôles simulés. Le conflit d’écriture pendant une prise en charge ou une résolution conserve le résultat observé sans modifier la décision de l’opérateur. Les 209 essais ciblés couvrent aussi les conflits persistants sans bloquer les autres alertes.
+
 Sur deux processus Next.js reliés au même PostgreSQL 17.12 local et à PostgREST 12.2.3, le scénario passe de deux incidents et deux demandes d’appel simulées à un incident et une demande. Les 29 contrôles de reprise réussissent sur le nouvel arbre.
 
-Watchtower enregistre l’identifiant du nouvel incident avant de demander un appel immédiat. Deux passages qui observent la même panne utilisent le même identifiant et la même réservation d’appel. Une erreur de lecture ou d’enregistrement avant la réservation reporte la demande d’appel au prochain passage. Une réservation déjà enregistrée demande de vérifier le résultat dans le journal des messages. Si une résolution concurrente est enregistrée, ce journal conserve le résultat de la demande même lorsque la chronologie de l’incident ne peut plus être mise à jour.
+Watchtower enregistre l’identifiant du nouvel incident avant de demander un appel immédiat. Deux passages qui observent la même panne utilisent le même identifiant et la même réservation d’appel. Une erreur de lecture ou d’enregistrement avant la réservation reporte la demande d’appel au prochain passage. Une réservation déjà enregistrée demande de vérifier le résultat dans le journal des messages. Si un opérateur prend en charge ou résout l’alerte pendant une demande, Watchtower peut rattacher le résultat à la chronologie actuelle selon le périmètre de l’incident. Le journal des messages conserve également l’issue de la demande.
 
 La réapparition dans les dix minutes après une résolution automatique réutilise l’incident existant. Si une occurrence réservée n’a pas été créée, Rouvrir ou Mettre en sourdine peut la récupérer dans sa cuisine avec le même identifiant et les données de la détection qui a créé la réservation. La prochaine détection dans cette cuisine confirme la gravité avant l’appel. Lorsque l’écran a changé de cuisine, Watchtower clôture l’alerte rétablie dans la cuisine d’origine et peut créer la nouvelle alerte au passage suivant. L’historique de la cuisine d’origine conserve son périmètre.
 
 La base utilise la clé unique et les documents existants. Les scénarios locaux couvrent une interruption après acceptation par Twilio simulé, une lecture simultanée sans incident, des erreurs de persistance, les heures silencieuses et la réaffectation pendant une réouverture. Les 178 tests ciblés passent. La vérification PostgreSQL à deux processus fait partie de la revue. La réception sur les téléphones réels reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+Sur l’arbre attendu de #176, Watchtower enregistre la résolution dans la cuisine de départ et la réservation pour la cuisine de destination dans la même mise à jour conditionnelle. Un conflit reporte l’ouverture de destination au passage suivant. Les 207 essais ciblés couvrent aussi le retour dans la cuisine d’origine, avec trois alertes et trois confirmations d’appel simulées distinctes, et le déplacement d’une tablette sans son. Les 33 contrôles locaux sur PostgreSQL ont confirmé qu’une seule demande simulée partait vers la destination après une lecture simultanée par deux processus.
+
+Sur le commit fusionné `b59c904`, 209 essais ciblés réussissent. Les scénarios de prise en charge et de résolution pendant la demande d’appel conservent le résultat dans l’incident et la décision de l’opérateur. Si la mise à jour reste en conflit, Watchtower consigne un avertissement et enregistre les autres alertes. L’essai d’une tablette muette vérifie que son appel est enregistré et ne repart pas au passage suivant.
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Alertes d’un écran réaffecté
+
+Si un écran ou une tablette change de cuisine pendant un incident, Watchtower clôture l’incident dans la cuisine d’origine et ouvre l’alerte dans la cuisine qui reçoit l’appareil si le problème persiste. Les appels et l’historique suivent le périmètre de chaque incident. Le changement de cuisine d’une tablette exige une destination active et autorisée. La livraison aux téléphones et aux appareils réels reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+Sur `cdde075`, les 148 essais ciblés couvrent les cinq scénarios simulés de réaffectation ainsi que les contrôles de plateforme du relais et des annulations Clover. TypeScript et ESLint réussissent.
+
+Sur `a1e0841`, les 185 essais ciblés couvrent la réaffectation avec les contrôles de destination partagée et de simulation téléphonique de #173.
+
+La répétition sur l’arbre de #175 `6d2ff10` a passé 224 essais ciblés. Un scénario simulé vérifie que le premier appel encore en attente dans l’ancienne cuisine est clos lors du déplacement et que la nouvelle cuisine reçoit un seul appel quand Twilio Voice devient disponible.
 
 — signé : Codex @ cloud · 2026-11-26
 

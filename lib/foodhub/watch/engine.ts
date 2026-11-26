@@ -463,8 +463,8 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
   if (quiet && i.severity !== 'critical') return false;
   const elapsed = (now - Date.parse(i.openedAt)) / 60000;
   let changed = false;
-  const step = (kind: Incident['steps'][number]['kind'], to: string, ok: boolean, message: string, uncertain?: boolean) => {
-    i.steps.push({ at: new Date(now).toISOString(), kind, to, ok, message, ...(uncertain ? { uncertain } : {}) });
+  const step = (kind: Incident['steps'][number]['kind'], to: string, ok: boolean, message: string, uncertain?: boolean, dispatchId?: string) => {
+    i.steps.push({ at: new Date(now).toISOString(), kind, to, ok, message, ...(uncertain ? { uncertain } : {}), ...(dispatchId ? { dispatchId } : {}) });
     changed = true;
   };
 
@@ -476,7 +476,8 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
     if (called.has(destination)) return;
     called.add(destination);
     const result = await placeCall({ to: destination, say: callText(i, lang), lang }, { purpose, incidentId: i.id });
-    step('call', `${label} (${maskContact(destination)})`, result.ok, result.message, result.uncertain);
+    const dispatchId = SHARED_PHONE_KINDS.includes(i.kind) ? crypto.randomUUID() : undefined;
+    step('call', `${label} (${maskContact(destination)})`, result.ok, result.message, result.uncertain, dispatchId);
   };
 
   const firstStageDue = elapsed >= s.smsAfterMin;
@@ -597,6 +598,7 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
       let cur = live.get(d.key) ?? recentlyResolved.get(d.key);
       let predecessorId = cur?.id;
       let resolvedPredecessor: Incident | undefined;
+      let closingRelocation = false;
       if (screenIncident && (!cur || cur.status === 'resolved' || newest.get(d.key) !== cur.id)) {
         const [previous] = await repo.listDocs<Incident>(INCIDENTS, { keys: [d.key], limit: 1 });
         const latest = previous?.data;
@@ -607,16 +609,30 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
         if (!cur && latest?.status === 'resolved') resolvedPredecessor = latest;
       }
       if (screenIncident && cur && cur.updatedAt > iso) continue;
-      if (cur) {
-        if (cur.awaitingFreshDetection) {
-          if ((cur.locationCode ?? null) !== (d.locationCode ?? null)) {
-            Object.assign(cur, { status: 'resolved', resolvedAt: iso, resolvedBy: 'Watchtower', updatedAt: iso });
-            cur.steps.push({ at: iso, kind: 'resolved', by: 'Watchtower', message: 'Appareil réaffecté à une autre cuisine. / Device reassigned to another kitchen.' });
-            live.set(d.key, cur);
-            dirty.set(cur.id, cur);
-            report.resolved++;
+      if (cur && d.deviceId && (cur.locationCode ?? null) !== (d.locationCode ?? null)) {
+        // The device keeps its ID, but each occurrence and its calls belong to their original kitchen.
+        const wasOpen = cur.status !== 'resolved';
+        const previous: Incident = wasOpen ? {
+          ...cur, status: 'resolved', resolvedAt: iso, resolvedBy: 'Watchtower', updatedAt: iso,
+          steps: [...cur.steps, { at: iso, kind: 'resolved', by: 'Watchtower', message: 'Appareil réaffecté à une autre cuisine. / Device reassigned to another kitchen.' }],
+        } : cur;
+        if (screenIncident) {
+          if (wasOpen && cur.awaitingFreshDetection) {
+            if (await saveIncident(previous)) { live.set(d.key, previous); report.resolved++; }
             continue;
           }
+          // Close the old occurrence and reserve its successor together, before opening or calling the destination.
+          resolvedPredecessor = previous;
+          closingRelocation = wasOpen;
+        } else if (wasOpen) {
+          live.set(d.key, previous);
+          dirty.set(previous.id, previous);
+          report.resolved++;
+        }
+        cur = undefined;
+      }
+      if (cur) {
+        if (cur.awaitingFreshDetection) {
           cur.severity = d.severity;
           delete cur.awaitingFreshDetection;
         }
@@ -633,20 +649,24 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
         report.updated++;
       } else {
         const p = PLAYBOOK[d.kind];
+        // Exact-key reads are ordered by opening time. Keep a successor newer even on a same-millisecond move.
+        const openedAt = resolvedPredecessor && resolvedPredecessor.openedAt >= iso
+          ? new Date(Date.parse(resolvedPredecessor.openedAt) + 1).toISOString() : iso;
         const i: Incident = {
           id: screenIncident ? nextScreenIncidentId(d.key, predecessorId) : crypto.randomUUID(), key: d.key, kind: d.kind, severity: d.severity, status: 'open', title: d.title, titleEn: d.titleEn, detail: d.detail, detailEn: d.detailEn,
           locationCode: d.locationCode ?? null, brandName: d.brandName ?? null, channel: d.channel ?? null, orderId: d.orderId ?? null, storeId: d.storeId ?? null, deviceId: d.deviceId ?? null,
-          openedAt: iso, updatedAt: iso, lastSeenAt: iso, level: 0, steps: [{ at: iso, kind: 'opened', message: KIND_LABEL[d.kind].fr }],
+          openedAt, updatedAt: iso, lastSeenAt: iso, level: 0, steps: [{ at: iso, kind: 'opened', message: KIND_LABEL[d.kind].fr }],
           explanation: `${p.fr}\n\n${p.en}`, suggestions: p.doFr, customer: d.customer ?? null, count: 1,
         };
         if (screenIncident) {
           // A manual reopen and the next generation compete on the last resolved record's revision.
           // The reservation survives a failed insert, so a later tick can use the same successor ID.
-          if (resolvedPredecessor && !resolvedPredecessor.successorReserved) {
+          if (resolvedPredecessor && (closingRelocation || !resolvedPredecessor.successorReserved)) {
             const { severity, title, titleEn, detail, detailEn, locationCode, brandName, channel, orderId, storeId, deviceId, lastSeenAt } = i;
             const successorDetection = { severity, title, titleEn, detail, detailEn, locationCode, brandName, channel, orderId, storeId, deviceId, lastSeenAt };
             if (!(await saveIncident({ ...resolvedPredecessor, successorReserved: true, successorDetection }))) continue;
           }
+          if (closingRelocation && resolvedPredecessor) { live.set(d.key, resolvedPredecessor); report.resolved++; }
           i.revision = crypto.randomUUID();
           // The winner will escalate. A loser defers to the persisted row on the next pass.
           if (!(await repo.insertDocIfAbsent(INCIDENTS, incidentDoc(i)))) continue;
@@ -695,17 +715,28 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
     const quiet = inQuietHours(s, now, foodhubTimeZone());
     const users = await repo.listUsers();
     const kitchenPhones = new Map((await getCatalog()).locations.filter((l) => l.phone).map((l) => [l.code, l.phone!] as const));
+    const callResults = new Map<string, Incident['steps']>();
     for (const i of dirty.values()) {
       const screenIncident = SHARED_PHONE_KINDS.includes(i.kind);
       // Persist the current status before escalation. A late writer must not overwrite a resolution or send from a stale snapshot.
       if (screenIncident && !(await saveIncident(i))) { dirty.delete(i.id); continue; }
-      if (await escalate(i, s, users, now, quiet, kitchenPhones)) report.escalated++;
-      else if (screenIncident) dirty.delete(i.id);
+      const stepCount = i.steps.length;
+      if (await escalate(i, s, users, now, quiet, kitchenPhones)) {
+        report.escalated++;
+        const dispatched = i.steps.slice(stepCount).filter((entry) => entry.kind === 'call' && entry.dispatchId);
+        if (dispatched.length) callResults.set(i.id, dispatched);
+      } else if (screenIncident) dirty.delete(i.id);
     }
     // Open incidents not touched this run can still need the next escalation step.
     for (const i of live.values()) if (!SHARED_PHONE_KINDS.includes(i.kind) && !dirty.has(i.id) && (await escalate(i, s, users, now, quiet, kitchenPhones))) dirty.set(i.id, i);
 
-    for (const i of dirty.values()) await saveIncident(i);
+    for (const i of dirty.values()) {
+      if (await saveIncident(i)) continue;
+      const dispatched = callResults.get(i.id);
+      if (dispatched) await appendCallResults(i, dispatched).catch(() => {
+        console.warn('[foodhub] Watchtower could not save a call result after a concurrent incident update.');
+      });
+    }
     for (const i of fresh.filter((x) => x.severity === 'critical')) {
       await logActivity({ actor: 'Watchtower', source: 'automation', kind: 'incident', action: i.kind, status: 'info', locationCode: i.locationCode, brandName: i.brandName, orderId: i.orderId, summary: i.titleEn });
     }
@@ -740,15 +771,29 @@ function reservedSuccessor(i: Incident, iso: string): Incident {
   };
 }
 
-async function changeIncident(id: string, apply: (i: Incident) => void | Incident | Promise<void | Incident>): Promise<Incident | null> {
+type IncidentChange = void | Incident | false;
+
+async function changeIncident(id: string, apply: (i: Incident) => IncidentChange | Promise<IncidentChange>): Promise<Incident | null> {
   for (let attempt = 0; attempt < 2; attempt++) {
     const i = await getIncident(id);
     if (!i) return null;
     const materialized = await apply(i);
+    if (materialized === false) return i;
     if (materialized) return materialized;
     if (await saveIncident(i)) return i;
   }
   throw new Error('Watchtower incident changed while saving. Try again.');
+}
+
+async function appendCallResults(source: Incident, dispatched: Incident['steps']): Promise<void> {
+  await changeIncident(source.id, (current) => {
+    if (current.key !== source.key || (current.locationCode ?? null) !== (source.locationCode ?? null)) return false;
+    const saved = new Set(current.steps.map((entry) => entry.dispatchId));
+    const missing = dispatched.filter((entry) => !saved.has(entry.dispatchId));
+    if (!missing.length) return false;
+    // Retain the newer action and escalation state. The network request has already happened.
+    current.steps.push(...missing);
+  });
 }
 
 export async function actOnIncident(id: string, action: 'ack' | 'resolve' | 'snooze' | 'note' | 'reopen', actor: Actor, opts: { minutes?: number; note?: string } = {}): Promise<Incident | null> {

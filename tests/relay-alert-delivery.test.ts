@@ -205,6 +205,34 @@ describe('Screen relay alerts without a console open', () => {
     }
   });
 
+  it.each([
+    { ...offlineScreen, phone: SHARED_PHONE, purpose: 'alert_shared_screen' },
+    { platform: 'doordash' as const, kind: 'screen_waiting', detectedAt: 2, phone: KITCHEN_PHONE, purpose: 'alert_kitchen' },
+  ])('requests the first $kind call after Twilio Voice becomes configured', async ({ phone, purpose, ...scenario }) => {
+    const kitchenFallback = purpose === 'alert_kitchen';
+    const { incident, tick } = await openScreenIncident(scenario, kitchenFallback ? phone : null);
+    if (!kitchenFallback) await saveWatchSettings({ screenAlertPhone: phone }, OWNER);
+    vi.stubEnv('TWILIO_FROM', undefined);
+
+    expect(await tick(1)).toMatchObject({ escalated: 1 });
+    await tick(2);
+    expect(fetchMock).not.toHaveBeenCalled();
+    const pending = structuredClone(await getIncident(incident.id));
+    const claimWhileBlocked = await getRepo().getKv(`watch:first-screen-call:${incident.id}`);
+
+    vi.stubEnv('TWILIO_FROM', TWILIO_FROM);
+    fetchMock.mockResolvedValueOnce(Response.json({ sid: CALL_SID, status: 'queued' }, { status: 201 }));
+    await tick(3);
+    await tick(4);
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(`${CALLS}.json`, expect.objectContaining({ method: 'POST' }));
+    expect(new URLSearchParams(String(fetchMock.mock.calls[0][1]?.body)).get('To')).toBe(phone);
+    expect(await readOutbox()).toMatchObject([{ incidentId: incident.id, purpose, ok: true, ref: CALL_SID }]);
+    expect(pending).toMatchObject({ level: 1, screenFirstCallPending: true });
+    expect(pending?.steps.filter((step) => step.kind === 'note' && step.message?.includes('Twilio Voice'))).toHaveLength(1);
+    expect(claimWhileBlocked).toBeNull();
+    expect((await getIncident(incident.id))?.screenFirstCallPending).toBeUndefined();
+  });
+
   it('leaves an acknowledged screen incident quiet when a shared number is saved later', async () => {
     const { incident, tick } = await openScreenIncident(offlineScreen);
     expect(await tick(1)).toMatchObject({ escalated: 1 });

@@ -1,5 +1,5 @@
 // Platform screens: the relay host's Uber Eats / DoorDash order screens inside Food Hub (docs/PLATFORM_SCREENS.md).
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { saveLocation } from '../lib/foodhub/catalog';
 import * as notify from '../lib/foodhub/notify';
 import { hashPassword } from '../lib/foodhub/auth';
@@ -289,6 +289,9 @@ describe('Watchtower: orders waiting on a screen (screen_waiting)', () => {
 });
 
 describe('Watchtower: calls a configured phone for screen and tablet incidents', () => {
+  beforeEach(() => { vi.spyOn(notify, 'callConfigured').mockReturnValue(true); });
+  afterEach(() => { vi.mocked(notify.callConfigured).mockRestore(); });
+
   const sharedPhone = '+15145550124';
   const cases = (['doordash', 'ubereats', 'skip'] as const).flatMap((platform) =>
     [false, true].flatMap((waiting) => [false, true].map((shared) => ({ platform, waiting, shared }))));

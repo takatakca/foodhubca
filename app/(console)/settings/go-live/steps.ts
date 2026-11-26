@@ -5,6 +5,7 @@
 //   - The sentences with a setting name or a command fold under « Détails techniques » (tech-text.ts splitTech).
 //   - The progress ring and the stepper (goLiveProgress, goLiveStages) count what is left « À faire »: 100 % = nothing.
 import type { T } from '@/lib/i18n';
+import type { GoLiveFacts } from '@/lib/foodhub/go-live';
 import { PUBLIC_URL_PROBLEM_TEXT, type PublicUrlProblem } from '@/lib/foodhub/public-url';
 import { plainTitle, splitTech } from '../tech-text';
 
@@ -95,6 +96,30 @@ export function alertSteps(n: Notify, t: T): Step[] {
     { group: g, key: 'chat', state: n.chat ? 'done' : 'warn', optional: true, title: t('Clavardage de l’équipe', 'Team chat'), body: n.chat ? t('Les alertes sont publiées.', 'Alerts are posted.') : t('Optionnel : ALERT_WEBHOOK_URL (Slack, Teams, Google Chat).', 'Optional: ALERT_WEBHOOK_URL (Slack, Teams, Google Chat).'), href: '/settings/alerts', cta: t('Voir', 'See') },
     { group: g, key: 'ai', state: n.ai ? 'done' : 'warn', optional: true, title: t('Surveillance IA (Claude)', 'AI watchtower (Claude)'), body: n.ai ? t('Claude explique les alertes et répond au copilote.', 'Claude explains alerts and answers the copilot.') : t('Optionnel : ANTHROPIC_API_KEY. Sans clé, les règles intégrées expliquent les alertes.', 'Optional: ANTHROPIC_API_KEY. Without it, built-in rules explain alerts.'), href: '/settings/alerts', cta: t('Voir', 'See') },
   ];
+}
+
+/** Direct Uber setup also requires a saved confirmation of the order manager and webhooks. */
+export function uberDirectStep(label: string, evidence: GoLiveFacts['uberDirect'] | undefined, t: T): Step {
+  const base = {
+    group: t('Plateformes', 'Platforms'),
+    key: 'uber_eats',
+    title: label,
+    href: '/stores/mapping',
+    cta: t('Vérifier chez Uber', 'Check with Uber'),
+  };
+  if (!evidence?.mapped) {
+    return { ...base, state: 'todo', body: t('Vérifiez les liaisons chez Uber pour confirmer qui reçoit les commandes et si les webhooks sont actifs.', 'Check the mappings with Uber to confirm who receives orders and whether webhooks are on.') };
+  }
+  const { confirmed, mapped } = evidence;
+  const proof = t(
+    `Au dernier contrôle enregistré, Food Hub est désigné pour recevoir les commandes et les webhooks sont actifs pour ${confirmed} liaison(s) sur ${mapped}.`,
+    `At the last recorded check, Food Hub was the order manager and webhooks were on for ${confirmed} of ${mapped} mapping(s).`,
+  );
+  const done = confirmed === mapped;
+  const next = done
+    ? t('Vérifiez la réception en cuisine avec une commande d’essai.', 'Verify kitchen receipt with a test order.')
+    : t('Vérifiez les liaisons restantes chez Uber.', 'Check the remaining mappings with Uber.');
+  return { ...base, state: done ? 'done' : 'todo', body: `${proof} ${next}` };
 }
 
 export type CloverAppInfo = {

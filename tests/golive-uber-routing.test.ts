@@ -12,9 +12,13 @@ const LATER = '2026-11-26T11:00:00.000Z';
 const CONFIRMED = { orderManager: 'foodhub', integrationEnabled: true, checkedAt: CHECKED_AT, orderManagerClientId: 'synthetic-app' };
 const fetchMock = vi.fn<typeof fetch>();
 
-const store = (channelStoreId: string, meta: ChannelStore['meta'] = {}, locationCode = 'NDG', channel: ChannelStore['channel'] = 'uber_eats') => getRepo().upsertStore({
-  channelStoreId, meta, locationCode, channel, brandName: 'Test brand', cloverMerchantId: 'TESTMERCH0001', autoAccept: true, online: true,
-});
+const store = (channelStoreId: string, meta: ChannelStore['meta'] = {}, locationCode = 'NDG', channel: ChannelStore['channel'] = 'uber_eats') => {
+  const pos = meta?.uberPos;
+  const checked = pos && typeof pos === 'object' ? { ...meta, uberPos: { storeId: channelStoreId, ...pos } } : meta;
+  return getRepo().upsertStore({
+    channelStoreId, meta: checked, locationCode, channel, brandName: 'Test brand', cloverMerchantId: 'TESTMERCH0001', autoAccept: true, online: true,
+  });
+};
 
 const request = (username?: string) => channels(new Request('http://hub.local/api/foodhub/channels', {
   headers: username ? { authorization: `Basic ${Buffer.from(`${username}:${PASSWORD}`).toString('base64')}` } : undefined,
@@ -52,6 +56,8 @@ describe('Go-live saved Uber activation', () => {
       { uberPos: { ...CONFIRMED, checkedAt: undefined } },
       { uberPos: { ...CONFIRMED, checkedAt: 'invalid-time' } },
       { uberPos: { ...CONFIRMED, checkedAt: '0' } },
+      { uberPos: { ...CONFIRMED, storeId: 'a-previous-account' } },
+      { uberPos: { ...CONFIRMED, storeId: undefined } },
       {},
     ];
     for (const [i, meta] of rows.entries()) await store(`direct-${i}`, meta);

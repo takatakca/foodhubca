@@ -80,7 +80,8 @@ function uberDirectFacts(stores: ChannelStore[]): NonNullable<GoLiveFacts['uberD
     const meta = store.meta;
     const pos = meta?.uberPos as Partial<UberPosState> | undefined;
     const checkedAt = storedTimestamp(pos?.checkedAt);
-    if (pos?.orderManager !== 'foodhub' || pos.integrationEnabled !== true || !Number.isFinite(checkedAt)) continue;
+    // An edited mapping can keep old metadata, or an in-flight check can finish after the edit.
+    if (pos?.storeId !== store.channelStoreId || pos.orderManager !== 'foodhub' || pos.integrationEnabled !== true || !Number.isFinite(checkedAt)) continue;
 
     // A successful provision event records provisionChangedAt after the provider check it stored alongside it.
     // Only compare disconnects so the fresh check from that same successful event still counts.

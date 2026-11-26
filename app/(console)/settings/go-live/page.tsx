@@ -16,7 +16,8 @@ import { api } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { CELEBRATION_KEYS } from '@/lib/ui/celebrate';
 import { cn } from '@/lib/ui/cn';
-import { alertSteps, cloverAppSteps, goLiveProgress, goLiveStages, stepBadge, stepKind, stepTally, stepText, tallyLine, type CloverAppInfo, type GoLiveStage, type Step } from './steps';
+import type { GoLiveFacts } from '@/lib/foodhub/go-live';
+import { alertSteps, cloverAppSteps, goLiveProgress, goLiveStages, stepBadge, stepKind, stepTally, stepText, tallyLine, uberDirectStep, type CloverAppInfo, type GoLiveStage, type Step } from './steps';
 
 type Readiness = { channel: string; label: string; configured: boolean; canSend: boolean; missing: string[]; viaClover?: boolean };
 /** A mapped store whose orders cannot get into Clover (lib/foodhub/go-live.ts, sent by /api/foodhub/channels). */
@@ -26,7 +27,11 @@ type ChannelsData = {
   mode: string; liveEnabled: boolean; dashboardProtected: boolean;
   clover: { configured: boolean; appConfigured?: boolean; tokenMerchants?: number; missing: string[]; webhookAuthSet?: boolean; verification?: { code: string } | null; app?: CloverAppInfo };
   channels: Readiness[]; relay?: { channels: string[] };
-  goLive?: { clover: { injectionEnabled: boolean; unreachableStores: CloverStoreProblem[]; defaultRoutedStores?: Store[] }; sessionSecret: SessionSecretInfo };
+  goLive?: {
+    clover: { injectionEnabled: boolean; unreachableStores: CloverStoreProblem[]; defaultRoutedStores?: Store[] };
+    sessionSecret: SessionSecretInfo;
+    uberDirect?: GoLiveFacts['uberDirect'];
+  };
 };
 /** A SESSION_SECRET that changed less than this long ago is pointed out (everyone, tablets included, had to sign in again). */
 const SECRET_CHANGE_WARN_MS = 7 * 86400_000;
@@ -200,10 +205,11 @@ export default function GoLivePage() {
         ...cloverDefaultSteps(ch, t, locName),
         ...(['uber_eats', 'doordash', 'skip'] as const).map((k): Step => {
           const r = ready(k);
-          const n = byCh(k);
+          const n = k === 'uber_eats' ? ch.goLive?.uberDirect?.mapped ?? byCh(k) : byCh(k);
           if (r?.viaClover) return { group: t('Plateformes', 'Platforms'), key: k, state: 'done', title: r.label, body: t('Relié par Clover : les commandes arrivent dans Clover et Food Hub les lit (lecture seule).', 'Linked through Clover: orders arrive in Clover and Food Hub reads them (read-only).'), href: '/settings/channels', cta: t('Voir', 'See') };
           // A partner pushing this platform's orders to the Food Hub Order Relay (FOODHUB_RELAY_CHANNELS) is a working path too.
           if (ch.relay?.channels.includes(k) && !(r?.configured && n)) return { group: t('Plateformes', 'Platforms'), key: k, state: 'done', title: r?.label ?? k, body: t('Par le relais de commandes Food Hub : un partenaire envoie ces commandes.', 'Through the Food Hub Order Relay: a partner sends these orders.'), href: '/settings/channels', cta: t('Voir', 'See') };
+          if (k === 'uber_eats' && r?.configured && n) return uberDirectStep(r.label, ch.goLive?.uberDirect, t);
           return { group: t('Plateformes', 'Platforms'), key: k, state: r?.configured && n ? 'done' : 'todo', title: r?.label ?? k, body: !r?.configured ? `${t('Manque :', 'Missing:')} ${r?.missing.join(', ') || '—'}` : n ? t(`${n} magasin(s) jumelé(s).`, `${n} store(s) mapped.`) : t('Branché, mais aucun magasin jumelé.', 'Connected, but no store mapped.'), href: r?.configured ? '/stores/mapping' : '/settings/channels', cta: r?.configured ? t('Jumeler', 'Map') : t('Brancher', 'Connect') };
         }),
         ...cloverCheckSteps(ck, t),

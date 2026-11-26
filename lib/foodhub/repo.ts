@@ -22,8 +22,9 @@ export interface FoodHubRepo {
    * Merges a timeline patch (plus optional top-level fields) into the order as stored NOW, so two writers
    * (courier webhook + operator click, auto-complete + cancel) do not overwrite each other's timeline fields.
    * Supabase: optimistic concurrency on updated_at with one retry; memory: read-merge-write.
+   * A guard applies to each fresh snapshot and disables the final unconditional write.
    */
-  patchOrder(id: string, timeline: OrderTimeline, extra?: Partial<StoredOrder>): Promise<StoredOrder | null>;
+  patchOrder(id: string, timeline: OrderTimeline, extra?: Partial<StoredOrder>, guard?: (order: StoredOrder) => boolean): Promise<StoredOrder | null>;
   listOrders(filter?: OrderFilter): Promise<StoredOrder[]>;
   addEvent(orderId: string, type: string, detail?: Record<string, unknown>): Promise<void>;
   listEvents(orderId: string): Promise<OrderEvent[]>;
@@ -112,9 +113,9 @@ const memoryRepo: FoodHubRepo = {
     s.orders.set(id, next);
     return next;
   },
-  async patchOrder(id, timeline, extra = {}) {
+  async patchOrder(id, timeline, extra = {}, guard) {
     const cur = memState().orders.get(id);
-    if (!cur) return null;
+    if (!cur || (guard && !guard(cur))) return null;
     return memoryRepo.updateOrder(id, { ...extra, timeline: { ...(cur.timeline ?? {}), ...timeline } });
   },
   async listOrders(filter = {}) {
@@ -373,16 +374,20 @@ function supabaseRepo(): FoodHubRepo {
       const data = must(res);
       return data ? rowToOrder(data) : null;
     },
-    async patchOrder(id, timeline, extra = {}) {
+    async patchOrder(id, timeline, extra = {}, guard) {
       // Optimistic concurrency: write only if nobody changed the row since we read it; re-read and retry once.
       for (let attempt = 0; attempt < 2; attempt++) {
         const cur = await repo.getOrder(id);
-        if (!cur) return null;
+        if (!cur || (guard && !guard(cur))) return null;
         const row: Row = { ...orderToRow({ ...extra, timeline: { ...(cur.timeline ?? {}), ...timeline } }), updated_at: nowIso() };
-        const res = await db.from('fh_orders').update(row).eq('id', id).eq('updated_at', cur.updatedAt).select('*').maybeSingle();
+        const update = db.from('fh_orders').update(row).eq('id', id).eq('updated_at', cur.updatedAt);
+        // Status may change within the same timestamp even though the revision check still matches.
+        if (guard) update.eq('status', cur.status);
+        const res = await update.select('*').maybeSingle();
         const data = must(res);
         if (data) return rowToOrder(data);
       }
+      if (guard) return null;
       // Still racing after a retry: last writer wins (same as before), never lose the patch itself.
       const cur = await repo.getOrder(id);
       return cur ? repo.updateOrder(id, { ...extra, timeline: { ...(cur.timeline ?? {}), ...timeline } }) : null;

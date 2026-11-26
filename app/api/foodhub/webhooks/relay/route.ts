@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { parseRelayOrder, parseRelayStatus, relayStatusApplies, relayTargetStatus, verifyRelayWebhook } from '@/lib/foodhub/adapters/relay';
-import { acceptNeedsClover, applyExternalStatus } from '@/lib/foodhub/pipeline';
+import { parseRelayOrder, parseRelayStatus, relayTargetStatus, verifyRelayWebhook } from '@/lib/foodhub/adapters/relay';
+import { applyExternalStatus } from '@/lib/foodhub/pipeline';
 import { applyTgtgEvent, tgtgEventKind } from '@/lib/foodhub/tgtg-feed';
 import { getRepo } from '@/lib/foodhub/repo';
 import { readTextOr413 } from '@/lib/foodhub/http';
@@ -52,16 +52,11 @@ export async function POST(req: NextRequest) {
       if (!order && !cancelsOrder) {
         return keepUnparsed(status.channel, body, 'Relay status for an order Food Hub does not have (yet)', status.externalOrderId);
       }
-      // Forward-only: a late or repeated delivery never moves an order back or reopens a closed one.
-      if (order && !relayStatusApplies(order, status.state, { needsClover: acceptNeedsClover(order) })) {
-        await getRepo().addEvent(order.id, 'platform_status_ignored', { state: status.state, reason: status.message, source: 'relay', note: `Not applied: the order is already ${order.status}.` });
-        return;
-      }
       // The shared status handler knows cancellation and failure terms. Normalize partner rejections on both paths.
       const state = cancelsOrder && !/cancel|fail/i.test(status.state) ? 'cancelled' : status.state;
       return applyExternalStatus(status.channel, status.externalOrderId, state, {
         reason: status.message, source: 'relay', ...(cancelsOrder ? { partnerState: status.state } : {}),
-      });
+      }, { relayState: status.state });
     }, { channel: status.channel, body, reference: status.externalOrderId, kind: 'order' });
     return NextResponse.json({ ok: true });
   }

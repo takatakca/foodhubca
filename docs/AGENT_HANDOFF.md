@@ -1,6 +1,6 @@
 ## 2026-11-26 — Refus de commande relayée
 
-Un refus signé du partenaire enregistre une annulation de la commande relayée correspondante. Avant la commande, cette annulation attend dans les événements de réception et évite l’envoi d’un ticket Clover. Après la réception, elle fait sortir la commande de son état actif en cuisine. Le journal conserve le libellé original du partenaire et son motif. Les essais vérifient DoorDash, Uber Eats et Skip ainsi que le périmètre du fournisseur et les statuts terminaux. La chaîne réelle d’accueil en cuisine reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+Un refus signé du partenaire enregistre une annulation de la commande relayée correspondante. Avant la commande, cette annulation attend dans les événements de réception et évite l’envoi d’un ticket Clover. Après la réception, elle fait sortir la commande de son état actif en cuisine. Le journal conserve le libellé original du partenaire et son motif. Les essais vérifient DoorDash, Uber Eats et Skip ainsi que le périmètre du fournisseur et les statuts terminaux. Si la clôture locale est enregistrée pendant le refus, l’écriture du statut relais revérifie la commande réellement en base et conserve cette clôture. Les appels de règlement et d’annulation Clover suivent uniquement un changement de statut confirmé. La chaîne réelle d’accueil en cuisine reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
 
 — signé : Codex @ cloud · 2026-11-26
 

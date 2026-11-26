@@ -12,7 +12,7 @@ import { settleInClover } from './clover-settle';
 import { mevOnOrderChange } from './mev/hooks';
 import { closeCancelledCloverOrder } from './pos/clover-books';
 import { doorDashMerchantCancelEnabled } from './adapters/doordash';
-import { relayActions } from './adapters/relay';
+import { relayActions, relayStatusApplies } from './adapters/relay';
 import { reportSkipMissingItems } from './adapters/skip';
 import { isViaClover } from './adapters/via-clover';
 import { adjustDoorDashOrder, adjustmentFromMissing, doorDashAdjustEnabled } from './doordash/orders';
@@ -723,7 +723,7 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
 }
 
 /** Status changes pushed by a platform (customer cancellation, courier picked up, completed…). */
-export async function applyExternalStatus(channel: ChannelKey, externalOrderId: string, platformState: string, detail: Record<string, unknown> = {}) {
+export async function applyExternalStatus(channel: ChannelKey, externalOrderId: string, platformState: string, detail: Record<string, unknown> = {}, { relayState }: { relayState?: string } = {}) {
   const repo = getRepo();
   let order = await repo.findOrder(channel, externalOrderId);
   if (!order) {
@@ -735,6 +735,14 @@ export async function applyExternalStatus(channel: ChannelKey, externalOrderId: 
     if (!order) return null;
     await repo.setKv(pendingKey(channel, externalOrderId), { ...prev, status: { platformState, detail, at: nowIso() }, consumedAt: nowIso() }).catch(() => undefined);
   }
+  const guard = relayState === undefined ? undefined
+    : (current: StoredOrder) => relayStatusApplies(current, relayState, { needsClover: acceptNeedsClover(current) });
+  async function ignoreIneligibleRelayStatus(current: StoredOrder): Promise<boolean> {
+    if (!guard || guard(current)) return false;
+    await repo.addEvent(current.id, 'platform_status_ignored', { state: relayState, reason: detail.reason, source: 'relay', note: `Not applied: the order is already ${current.status}.` });
+    return true;
+  }
+  if (guard && await ignoreIneligibleRelayStatus(order)) return order;
   const s = platformState.toLowerCase();
   const status: OrderStatus | null =
     s.includes('cancel') || s.includes('fail') ? 'cancelled'
@@ -746,17 +754,25 @@ export async function applyExternalStatus(channel: ChannelKey, externalOrderId: 
   if (status && status !== order.status) {
     const now = nowIso();
     const t: OrderTimeline = {};
+    const logCancellation = (current: StoredOrder) => logActivity({ actor: CHANNEL_LABELS[channel], source: 'platform', kind: 'order', action: 'platform_cancel', status: 'info', channel, brandName: current.brandName, locationCode: current.locationCode, orderId: current.id,
+      summary: `${CHANNEL_LABELS[channel]} cancelled #${current.displayId || current.externalOrderId.slice(0, 8)}${t.cancelReason ? ` — ${t.cancelReason}` : ''}` });
     if (status === 'cancelled') {
       const why = String(detail.reason ?? detail.event ?? '').toLowerCase();
       Object.assign(t, { cancelledAt: now, cancelledBy: why.includes('customer') || why.includes('eater') ? 'customer' : 'platform', cancelStage: order.timeline?.acceptedAt ? 'after_accept' : 'before_accept', cancelReason: String(detail.reason ?? detail.event ?? 'Cancelled on the platform') });
-      await logActivity({ actor: CHANNEL_LABELS[channel], source: 'platform', kind: 'order', action: 'platform_cancel', status: 'info', channel, brandName: order.brandName, locationCode: order.locationCode, orderId: order.id,
-        summary: `${CHANNEL_LABELS[channel]} cancelled #${order.displayId || order.externalOrderId.slice(0, 8)}${t.cancelReason ? ` — ${t.cancelReason}` : ''}` });
+      if (!guard) await logCancellation(order);
     }
     if (status === 'completed') t.completedAt = now;
     if (status === 'dispatched') t.dispatchedAt = now;
     if (status === 'ready') t.readyAt = now;
     if (status === 'accepted') t.acceptedAt = order.timeline?.acceptedAt ?? now;
-    const updated = await patchTimeline(order, t, { status });
+    const updated = guard ? await repo.patchOrder(order.id, t, { status }, guard) : await patchTimeline(order, t, { status });
+    if (!updated) {
+      const current = await repo.getOrder(order.id);
+      if (current && await ignoreIneligibleRelayStatus(current)) return current;
+      // No write won and the relay change still looks eligible. Preserve the notice through deferred-work failure handling.
+      throw new Error('The order changed while applying the relay status.');
+    }
+    if (guard && status === 'cancelled') await logCancellation(updated);
     order = (await settleInClover(updated)) ?? updated;
   }
   await repo.addEvent(order.id, 'platform_status', { state: platformState, ...detail, at: nowIso() });

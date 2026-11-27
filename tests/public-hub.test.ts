@@ -217,6 +217,14 @@ describe('metadata', () => {
 });
 
 describe('page content', () => {
+  it('links to a focusable main landmark before the shared navigation in both languages', () => {
+    for (const lang of LANGS) for (const key of HUB_PAGE_KEYS) {
+      const html = render(key, lang);
+      expect(html).toMatch(/<a href="#contenu"[^>]*>[^<]+<\/a><header/);
+      expect(html).toMatch(/<main id="contenu" tabindex="-1"[^>]*>/);
+    }
+  });
+
   it('renders one H1, the FAQ, the legal links and no banned words, in both languages (no page-specific client component or tracker)', () => {
     for (const key of HUB_PAGE_KEYS) for (const lang of LANGS) {
       const html = render(key, lang);

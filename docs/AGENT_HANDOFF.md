@@ -1,3 +1,11 @@
+## 2026-11-26 — Avis de repli Skip après une annulation
+
+Un avis signé de repli Skip conserve son accusé JET et ne remplace plus une commande annulée ou terminée par une instruction de préparation. Une annulation reçue avant la commande prévaut sur le repli. Une notification qui désigne un autre magasin déjà mappé est conservée pour vérification. Les commandes de repli valides restent visibles.
+
+Les essais signés couvrent l’ordre inversé, l’avis tardif, l’annulation concurrente et le registre d’annulations inaccessible avant l’enregistrement. Les preuves de réception réelle restent suivies dans [la checklist #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Refus de commande relayée
 
 Un refus signé du partenaire enregistre une annulation de la commande relayée correspondante. Avant la commande, cette annulation attend dans les événements de réception et évite l’envoi d’un ticket Clover. Après la réception, elle fait sortir la commande de son état actif en cuisine. Le journal conserve le libellé original du partenaire et son motif. Les essais vérifient DoorDash, Uber Eats et Skip ainsi que le périmètre du fournisseur et les statuts terminaux. Si la clôture locale est enregistrée pendant le refus, l’écriture du statut relais revérifie la commande réellement en base et conserve cette clôture. Les appels de règlement et d’annulation Clover suivent uniquement un changement de statut confirmé. La chaîne réelle d’accueil en cuisine reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

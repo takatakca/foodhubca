@@ -1,15 +1,19 @@
 import crypto from 'node:crypto';
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { POST as actOnOrder } from '../app/api/foodhub/orders/[id]/route';
 import { POST as receiveSkipCancellation } from '../app/api/foodhub/webhooks/skip/cancel/route';
 import { POST as receiveSkipBackup } from '../app/api/foodhub/webhooks/skip/failed/route';
 import { POST as receiveSkipOrder } from '../app/api/foodhub/webhooks/skip/orders/route';
 import { parseSkipOrder } from '../lib/foodhub/adapters/skip';
+import { hashPassword } from '../lib/foodhub/auth';
 import { readPending } from '../lib/foodhub/courier';
 import { INBOX, inboxOrderCutoff, runInboxEntry, sweepInbox, type InboxEntry } from '../lib/foodhub/inbox';
-import { autoAcceptAfterClover, processIncomingOrder, runOrderAction } from '../lib/foodhub/pipeline';
+import { allowedActions, autoAcceptAfterClover, processIncomingOrder, runOrderAction } from '../lib/foodhub/pipeline';
 import { cloverOrderTitle } from '../lib/foodhub/pos/clover-order';
 import { getRepo } from '../lib/foodhub/repo';
+import { runCloverRetries } from '../lib/foodhub/recovery';
+import { fireDueScheduled } from '../lib/foodhub/scheduling';
 
 const afterCallbacks = vi.hoisted(() => [] as Array<() => Promise<unknown>>);
 vi.mock('next/server', async (original) => ({
@@ -164,6 +168,212 @@ afterEach(() => {
 });
 
 describe('automatic receipt of direct Skip orders', () => {
+  it('removes a held historical Skip order from automatic Clover retries without a provider call', async () => {
+    const repo = getRepo();
+    const now = Date.now();
+    const { order } = await repo.insertOrderIfNew({ ...parseSkipOrder(event())!, locationCode: 'TEST' });
+    const prior = { attempts: 1, uncertain: true, nextAt: new Date(now - 1000).toISOString(), lastError: 'Clover network error: connection dropped' };
+    await repo.patchOrder(order.id, { posRetry: prior });
+    expect(await runCloverRetries({ now })).toEqual({ due: 0, recovered: 0, failed: 0, gaveUp: 0 });
+    expect(await runCloverRetries({ now: now + 1000 })).toEqual({ due: 0, recovered: 0, failed: 0, gaveUp: 0 });
+    expect(await repo.getOrder(order.id)).toMatchObject({
+      status: 'new', posError: expect.stringContaining('Skip Clover receipt needs review:'),
+      timeline: { posRetry: { ...prior, nextAt: null } },
+    });
+    expect((await repo.listEvents(order.id)).filter(({ type }) => type === 'needs_attention')).toHaveLength(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(['accept_no_pos', 'deny'] as const)('holds operator action %s after a legacy Clover timeout with unknown original register', async (action) => {
+    vi.stubEnv('FOODHUB_POS_INJECTION', undefined);
+    const repo = getRepo();
+    const incoming = event();
+    const { order } = await repo.insertOrderIfNew({ ...parseSkipOrder(incoming)!, locationCode: 'TEST' });
+    const legacy = await repo.updateOrder(order.id, { posError: 'Clover network error: connection dropped after sending the request' });
+    if (!legacy) throw new Error('The legacy order was not saved');
+
+    const result = await runOrderAction(legacy.id, action);
+
+    expect({ visible: allowedActions(legacy).includes(action), ok: result.result.ok, status: result.order?.status, requests: outbound() })
+      .toEqual({ visible: false, ok: false, status: 'new', requests: [] });
+  });
+
+  it('holds an uncertain legacy retry instead of trying the replaced register when its earlier request has no saved provenance', async () => {
+    vi.stubEnv('FOODHUB_POS_INJECTION', undefined);
+    const repo = getRepo();
+    const { order } = await repo.insertOrderIfNew({ ...parseSkipOrder(event())!, locationCode: 'TEST' });
+    await repo.patchOrder(order.id, { posRetry: { attempts: 1, nextAt: null, uncertain: true, lastError: 'Earlier response could not be confirmed' } });
+    const replacement = 'TESTMERCH0002';
+    vi.stubEnv('CLOVER_MERCHANT_TOKENS', JSON.stringify({ [replacement]: 'fixture-replacement-clover-token' }));
+    const mapping = await repo.findStore('skip', STORE);
+    if (!mapping) throw new Error('The fixture mapping was not saved');
+    await repo.updateStore(mapping.id, { cloverMerchantId: replacement });
+
+    const result = await runOrderAction(order.id, 'retry_pos');
+
+    expect({ ok: result.result.ok, receipt: result.order?.posOrderId, requests: outbound() })
+      .toEqual({ ok: false, receipt: undefined, requests: [] });
+  });
+
+  it.each(['accept_no_pos', 'deny'] as const)('checks fresh legacy uncertainty inside the atomic decision for operator action %s', async (action) => {
+    vi.stubEnv('FOODHUB_POS_INJECTION', undefined);
+    const repo = getRepo();
+    const { order } = await repo.insertOrderIfNew({ ...parseSkipOrder(event())!, locationCode: 'TEST' });
+    const before = await repo.updateOrder(order.id, { posError: 'Clover returned HTTP 422: could not validate' });
+    if (!before) throw new Error('The fixture order was not saved');
+    expect(allowedActions(before)).toContain(action);
+    const uncertain = 'Clover network error: response lost';
+    const apply = repo.applySkipLifecycle.bind(repo);
+    let changed = false;
+    vi.spyOn(repo, 'applySkipLifecycle').mockImplementation(async (input) => {
+      if (input.kind === 'prepare_jet') {
+        await repo.updateOrder(order.id, { posError: uncertain });
+        changed = true;
+      }
+      return apply(input);
+    });
+
+    const result = await runOrderAction(order.id, action);
+
+    expect(changed).toBe(true);
+    expect({ ok: result.result.ok, status: result.order?.status, requests: outbound() })
+      .toEqual({ ok: false, status: 'new', requests: [] });
+  });
+
+  it('lets an explicitly tagged expired pre-send lease finish the first Clover send', async () => {
+    vi.stubEnv('FOODHUB_POS_INJECTION', undefined);
+    const repo = getRepo();
+    const incoming = event();
+    const expired = new Date(Date.now() - 110_000).toISOString();
+    const { order } = await repo.insertOrderIfNew({ ...parseSkipOrder(incoming)!, locationCode: 'TEST', createdAt: expired });
+    const lease = { attempts: 0, nextAt: null, uncertain: true, claim: 'fixture-expired-resume-only-lease', claimedAt: expired, resumeOnly: true as const };
+    await repo.patchOrder(order.id, { posRetry: lease });
+
+    const resumed = await processQueuedOrder(incoming);
+
+    expect(resumed).toMatchObject({ status: 'accepted', posOrderId: POS });
+    expect(outbound().filter((url) => url.endsWith('/atomic_order/orders'))).toEqual([`${CLOVER}/v3/merchants/${MERCHANT}/atomic_order/orders`]);
+  });
+
+  it('holds an identically shaped untagged historical lease instead of resending to Clover or confirming to JET', async () => {
+    vi.stubEnv('FOODHUB_POS_INJECTION', undefined);
+    const repo = getRepo();
+    const incoming = event();
+    const expired = new Date(Date.now() - 110_000).toISOString();
+    const { order } = await repo.insertOrderIfNew({ ...parseSkipOrder(incoming)!, locationCode: 'TEST', createdAt: expired });
+    await repo.patchOrder(order.id, { posRetry: { attempts: 0, nextAt: null, uncertain: true, claim: 'fixture-legacy-untagged-lease', claimedAt: expired } });
+
+    const held = await processQueuedOrder(incoming);
+
+    expect({ status: held.status, receipt: held.posOrderId, requests: outbound() }).toEqual({ status: 'new', receipt: undefined, requests: [] });
+  });
+
+  it.each(['accept_no_pos', 'deny'] as const)('allows an authenticated kitchen manager to perform %s after a definite live-path Clover 422', async (action) => {
+    vi.stubEnv('FOODHUB_POS_INJECTION', undefined);
+    const repo = getRepo();
+    const incoming = event();
+    const create = `${CLOVER}/v3/merchants/${MERCHANT}/atomic_order/orders`;
+    const respond = fetchMock.getMockImplementation()!;
+    fallbackStatus = 422;
+    fetchMock.mockImplementation(async (url, init) => {
+      if (String(url) === create && init?.method === 'POST') return Response.json({ error: 'Fixture validation refusal' }, { status: 422 });
+      return respond(url, init);
+    });
+    const refused = await processQueuedOrder(incoming);
+    expect(refused).toMatchObject({ status: 'new', posError: expect.stringContaining('HTTP 422') });
+    expect(refused.timeline?.posCreateAttempt).toBeUndefined();
+    expect(allowedActions(refused)).toContain(action);
+    expect(outbound()).toEqual([create, jetRequest(incoming.id, 'failed')]);
+
+    fallbackStatus = 204;
+    const password = 'synthetic-operator-password';
+    const user = await repo.saveUser({ username: 'fixture-kitchen-manager', name: 'Fixture manager', role: 'manager', locations: ['TEST'], active: true, passwordHash: hashPassword(password) });
+    const url = `https://hub.example.test/api/foodhub/orders/${refused.id}`;
+    const response = await actOnOrder(new Request(url, { method: 'POST', headers: {
+      authorization: `Basic ${Buffer.from(`${user.username}:${password}`).toString('base64')}`, 'content-type': 'application/json',
+    }, body: JSON.stringify({ action }) }), { params: Promise.resolve({ id: refused.id }) });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { ok: true }, order: { status: action === 'deny' ? 'failed' : 'accepted' } });
+    expect(outbound()).toEqual([create, jetRequest(incoming.id, 'failed'), jetRequest(incoming.id, action === 'deny' ? 'failed' : 'success')]);
+  });
+
+  it('never prints a due scheduled Skip ticket when an uncertain older receipt has no confirmed register', async () => {
+    vi.stubEnv('FOODHUB_CLOVER_AUTOPRINT', 'on');
+    const repo = getRepo();
+    const { order } = await repo.insertOrderIfNew({ ...parseSkipOrder(event())!, locationCode: 'TEST' });
+    const store = await repo.findStore('skip', STORE);
+    if (!store) throw new Error('The fixture mapping was not saved');
+    await repo.updateStore(store.id, { cloverMerchantId: MERCHANT });
+    await repo.patchOrder(order.id, { fireAt: '2026-11-02T12:00:00Z' }, {
+      status: 'accepted', posOrderId: POS, posError: 'Clover network error: earlier response dropped',
+    });
+    const print = `${CLOVER}/v3/merchants/${MERCHANT}/print_event`;
+    const respond = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (url, init) => {
+      if (String(url) === print && init?.method === 'POST') return Response.json({ id: 'fixture-queued-print' });
+      return respond(url, init);
+    });
+
+    await fireDueScheduled(Date.parse('2026-11-02T12:01:00Z'));
+
+    expect((await repo.getOrder(order.id))?.timeline?.printedAt).toBeUndefined();
+    expect(outbound()).toEqual([]);
+  });
+
+  const terminalReceiptCases = (['cancel', 'backup'] as const).flatMap((notice) =>
+    (['uncertain', 'partial pointer', 'refused', 'confirmed pair'] as const).map((receipt) => ({ notice, receipt })));
+  it.each(terminalReceiptCases)('handles a signed $notice with a legacy $receipt Clover result', async ({ notice, receipt }) => {
+    vi.stubEnv('FOODHUB_CLOVER_DELETE_CANCELLED', 'on');
+    const repo = getRepo();
+    const incoming = event();
+    const savedKitchen = receipt === 'uncertain' ? undefined : 'TEST';
+    const { order } = await repo.insertOrderIfNew({ ...parseSkipOrder(incoming)!, locationCode: savedKitchen });
+    const uncertain = 'Clover network error: response dropped';
+    const refusal = 'Clover returned HTTP 422: could not validate';
+    const history = receipt === 'refused' ? refusal : uncertain;
+    const known = receipt === 'confirmed pair';
+    const hasPointer = known || receipt === 'partial pointer';
+    const needsReview = receipt === 'uncertain' || receipt === 'partial pointer';
+    await repo.patchOrder(order.id, {
+      posRetry: { attempts: 1, nextAt: null, lastError: history, ...(receipt === 'refused' ? {} : { uncertain: true }) },
+      ...(known ? { posMerchantId: MERCHANT } : {}),
+    }, { posError: history, ...(hasPointer ? { posOrderId: POS } : {}) });
+    const original = `${CLOVER}/v3/merchants/${MERCHANT}/orders/${POS}`;
+    const replacement = 'TESTMERCH0002';
+    if (hasPointer) {
+      vi.stubEnv('CLOVER_MERCHANT_TOKENS', JSON.stringify({ [replacement]: 'synthetic-replacement-token' }));
+      const mapping = await repo.findStore('skip', STORE);
+      if (!mapping) throw new Error('The fixture mapping was not saved');
+      await repo.updateStore(mapping.id, { cloverMerchantId: replacement });
+    }
+    const respond = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (url, init) => {
+      if ([original, `${CLOVER}/v3/merchants/${replacement}/orders/${POS}`].includes(String(url)) && init?.method === 'DELETE') return new Response(null, { status: 204 });
+      return respond(url, init);
+    });
+    const terminal = async () => {
+      if (notice === 'cancel') await (await saveCancellationWithWorkerWithheld(incoming.id))();
+      else await processSignedBackup(incoming.id);
+    };
+
+    await terminal();
+    await terminal();
+
+    const saved = await repo.getOrder(order.id);
+    expect(saved).toMatchObject({ status: notice === 'cancel' ? 'cancelled' : 'failed' });
+    expect(saved?.locationCode).toBe(savedKitchen);
+    const review = (await repo.listEvents(order.id)).filter((entry) => entry.type === 'needs_attention');
+    expect(outbound()).toEqual(known ? [original] : []);
+    expect(review).toHaveLength(needsReview ? 1 : 0);
+    if (needsReview) {
+      expect(review[0].detail?.reason).toMatch(/Clover/i);
+      expect(saved?.timeline?.posRetry?.uncertain).toBe(true);
+    }
+    expect(saved?.posOrderId).toBe(hasPointer ? POS : undefined);
+    expect(Boolean(saved?.timeline?.posClosedAt)).toBe(known);
+  });
+
   it.each(['OTHER_UNMAPPED_STORE', ''] as const)('holds a signed backup with a different or missing store after its worker runs (%s)', async (storeId) => {
     const repo = getRepo();
     const incoming = event();

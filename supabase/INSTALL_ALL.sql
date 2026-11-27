@@ -174,6 +174,13 @@ declare
   cancel_timeline jsonb := '{}'::jsonb;
   pending_key text := 'pending:skip:' || p_external_id;
   blank_store_chars constant text := E' \t\n\r\f' || chr(11);
+  legacy_error_prefix constant text := '^(?:(?:clover )?(?:network error|(?:(?:request|operation) (?:was )?|(?:the|this) operation was )?(?:timeout|timed out|aborted)|(?:returned )?http 5[0-9]{2}|(?:response )?did not include an order id)|skip clover receipt needs review)(?:[[:space:]:.]|$)';
+  definite_error_prefix constant text := '^Clover returned HTTP (?:400|401|403|404|405|415|422|429)(?:[[:space:]:.]|$)';
+  legacy_hold constant text := 'Skip Clover receipt needs review: Verify the original register and the earlier result before retrying.';
+  legacy_hold_source constant text := 'legacy_skip_clover_receipt';
+  previous_pos_error text;
+  held_pos_error text;
+  held_timeline jsonb;
   event_at text;
   observed_at timestamptz;
   cancellation_reason text;
@@ -199,6 +206,9 @@ declare
   stored_merchant text;
   clover_attempt jsonb;
   invalid_attempt boolean := false;
+  legacy_retry jsonb;
+  resume_only_lease boolean;
+  legacy_uncertain boolean := false;
   active_order boolean;
   active_attempt_check boolean;
   receipt_timeline jsonb;
@@ -207,7 +217,7 @@ declare
   recorded boolean := false;
 begin
   if p_kind is null or p_kind not in ('backup', 'cancel', 'intake', 'check_intake', 'record_receipt', 'check_receipt',
-      'prepare_clover', 'clear_clover_attempt', 'prepare_jet', 'finish_jet')
+      'prepare_clover', 'clear_clover_attempt', 'hold_legacy_clover', 'prepare_jet', 'finish_jet')
       or p_external_id is null or p_external_id = '' then
     raise exception 'Invalid Skip lifecycle notice' using errcode = '22023';
   end if;
@@ -234,6 +244,44 @@ begin
     or coalesce(btrim(clover_attempt->>'merchantId', blank_store_chars), '') = '');
   active_order := current_order.status in ('new', 'accepted', 'ready', 'dispatched');
   active_attempt_check := active_order and clover_attempt is not null and not invalid_attempt;
+  legacy_retry := current_order.timeline->'posRetry';
+  resume_only_lease := coalesce(legacy_retry->'resumeOnly' = 'true'::jsonb and legacy_retry->'uncertain' = 'true'::jsonb
+    and legacy_retry->'attempts' = '0'::jsonb and legacy_retry->'nextAt' = 'null'::jsonb
+    and jsonb_typeof(legacy_retry->'claim') = 'string' and coalesce(btrim(legacy_retry->>'claim', blank_store_chars), '') <> ''
+    and jsonb_typeof(legacy_retry->'claimedAt') = 'string' and coalesce(btrim(legacy_retry->>'claimedAt', blank_store_chars), '') <> ''
+    and legacy_retry->>'lastError' is null and legacy_retry->>'gaveUpAt' is null and legacy_retry->>'doneAt' is null, false);
+  -- Without a confirmed pair or new durable marker, a legacy timeout/abort can still represent a physical Clover order.
+  legacy_uncertain := clover_attempt is null and not (coalesce(btrim(current_order.pos_order_id, blank_store_chars), '') <> ''
+      and coalesce(btrim(stored_merchant, blank_store_chars), '') <> '')
+    and (coalesce(btrim(current_order.pos_error, blank_store_chars), '') ~* legacy_error_prefix
+      or coalesce(btrim(legacy_retry->>'lastError', blank_store_chars), '') ~* legacy_error_prefix
+      or (legacy_retry->'uncertain' = 'true'::jsonb and not resume_only_lease));
+  if p_kind = 'hold_legacy_clover' then
+    if current_order.id is null or current_order.id::text is distinct from p_detail->>'orderId'
+        or coalesce(current_order.data->>'viaHub', '') <> '' or coalesce(current_order.data->>'viaPos', '') <> '' then
+      return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'conflicting_attempt');
+    end if;
+    if not coalesce(legacy_uncertain, false) then
+      return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'ignored');
+    end if;
+    previous_pos_error := case when coalesce(btrim(current_order.pos_error, blank_store_chars), '') <> '' then current_order.pos_error
+      when jsonb_typeof(legacy_retry->'lastError') = 'string' and coalesce(btrim(legacy_retry->>'lastError', blank_store_chars), '') <> ''
+        then legacy_retry->>'lastError' end;
+    held_pos_error := case when left(previous_pos_error, length(legacy_hold)) = legacy_hold then previous_pos_error
+      else legacy_hold || coalesce(' ' || previous_pos_error, '') end;
+    held_timeline := case when jsonb_typeof(legacy_retry) = 'object' then jsonb_set(current_order.timeline, '{posRetry,nextAt}', 'null'::jsonb)
+      else current_order.timeline end;
+    if current_order.pos_error is distinct from held_pos_error or current_order.timeline is distinct from held_timeline then
+      update public.fh_orders set pos_error = held_pos_error, timeline = held_timeline, updated_at = observed_at
+        where id = current_order.id returning * into current_order;
+    end if;
+    if not exists (select 1 from public.fh_order_events where order_id = current_order.id and type = 'needs_attention'
+        and detail->>'source' = legacy_hold_source) then
+      insert into public.fh_order_events (order_id, type, detail) values (current_order.id, 'needs_attention',
+        jsonb_build_object('reason', held_pos_error, 'source', legacy_hold_source));
+    end if;
+    return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'legacy_clover_uncertain');
+  end if;
   jet_attempt := current_order.timeline->'skipJetAttempt';
   invalid_jet_attempt := jet_attempt is not null and (jsonb_typeof(jet_attempt) <> 'object'
     or jsonb_typeof(jet_attempt->'id') is distinct from 'string' or coalesce(jet_attempt->>'id', '') = ''
@@ -255,7 +303,8 @@ begin
         or coalesce(btrim(clover_merchant, blank_store_chars), '') = '' then
       return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'conflicting_attempt');
     end if;
-    if coalesce(current_order.pos_order_id, '') <> '' or (prepare_mode and not active_order and current_order.status <> 'cancelled') then
+    if (coalesce(current_order.pos_order_id, '') <> '' and (not prepare_mode or not coalesce(legacy_uncertain, false)))
+        or (prepare_mode and not active_order and current_order.status <> 'cancelled') then
       return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'ignored');
     end if;
     if p_kind = 'clear_clover_attempt' then
@@ -263,7 +312,8 @@ begin
           or clover_attempt->>'merchantId' is distinct from clover_merchant then
         return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'conflicting_attempt');
       end if;
-      update public.fh_orders set timeline = timeline - 'posCreateAttempt', updated_at = observed_at
+      update public.fh_orders set timeline = timeline - 'posCreateAttempt', updated_at = observed_at,
+        pos_error = case when p_detail->>'definiteError' ~* definite_error_prefix then p_detail->>'definiteError' else current_order.pos_error end
         where id = current_order.id returning * into current_order;
       return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'attempt_cleared');
     end if;
@@ -384,6 +434,10 @@ begin
     end if;
   end if;
 
+  if cancellation is null and legacy_uncertain and ((prepare_mode and active_order) or (p_kind = 'prepare_jet' and current_order.status = 'new')) then
+    return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'legacy_clover_uncertain');
+  end if;
+
   if jet_mode and cancellation is null then
     if current_order.status = 'cancelled' then
       return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'cancelled');
@@ -479,7 +533,9 @@ begin
     end) then
       return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'mapping_changed');
     end if;
-    update public.fh_orders set timeline = timeline || jsonb_build_object('posCreateAttempt',
+    update public.fh_orders set timeline = (case when resume_only_lease then
+      jsonb_set(timeline, '{posRetry}', (legacy_retry - 'resumeOnly') || '{"uncertain":false}'::jsonb)
+      else timeline end) || jsonb_build_object('posCreateAttempt',
       jsonb_build_object('merchantId', clover_merchant, 'at', event_at, 'id', gen_random_uuid())), updated_at = observed_at
       where id = current_order.id returning * into current_order;
     return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'prepared');

@@ -8,7 +8,7 @@ import { CHANNEL_LABELS, nowIso } from './config';
 import { allCloverMerchants, cloverAutoPrintEnabled, cloverBaseUrl, cloverExpected, cloverInjectionEnabled, cloverToken, defaultCloverMerchant, injectOrder, type InjectResult } from './pos/clover';
 import { CLOVER_REPRINT_KITCHEN_CHANGED, cloverKitchenChanged, cloverOrderTypeForOrder, cloverReceiptMarker, cloverTotalGap, describeMappingWarnings, findCloverOrderByTitle, mapOrderLines, platformFoodCents, printKitchenTicket } from './pos/clover-order';
 import { cloverRetryDelaysS, noteLastOrder, scheduleCloverRetry } from './order-retry';
-import { settleInClover } from './clover-settle';
+import { holdUnresolvedLegacySkipCloverReceipt, settleInClover } from './clover-settle';
 import { mevOnOrderChange } from './mev/hooks';
 import { closeCancelledCloverOrder } from './pos/clover-books';
 import { doorDashMerchantCancelEnabled } from './adapters/doordash';
@@ -21,7 +21,7 @@ import { applyCourierUpdate, pendingKey, readPending } from './courier';
 import { getBrandMenu } from './menu/shared';
 import { prepFor } from './prep';
 import { isWaitingScheduled, scheduledInfo } from './scheduling';
-import { getRepo, type SkipLifecycleInput, type SkipLifecycleResult } from './repo';
+import { getRepo, hasUnresolvedLegacySkipCloverReceipt, LEGACY_SKIP_CLOVER_REVIEW, type SkipLifecycleInput, type SkipLifecycleResult } from './repo';
 import { localTimeLabel } from './time';
 import { CANCEL_REASON_LABELS, type CancelReason, type ChannelAdapter, type ChannelKey, type ChannelResult, type ChannelStore, type NormalizedOrder, type OrderStatus, type OrderTimeline, type StoredOrder } from './types';
 
@@ -96,7 +96,7 @@ async function stopCancelledSkipIntake(order: StoredOrder, transitioned?: true):
     await logActivity({ actor: CHANNEL_LABELS.skip, source: 'platform', kind: 'order', action: 'platform_cancel', status: 'info', channel: 'skip', brandName: order.brandName, locationCode: order.locationCode, orderId: order.id,
       summary: `Skip cancelled #${order.displayId || order.externalOrderId.slice(0, 8)} before processing${reason ? ` — ${reason}` : ''}` });
   }
-  const settled = order.posOrderId ? (await settleInClover(order)) ?? order : order;
+  const settled = order.posOrderId || hasUnresolvedLegacySkipCloverReceipt(order) ? (await settleInClover(order)) ?? order : order;
   return { order: settled, duplicate: false, pos: { ok: false, skipped: true, error: 'Cancelled by the platform before processing.' } };
 }
 
@@ -164,6 +164,11 @@ export async function processIncomingOrder(n: NormalizedOrder, opts: { holdClove
   const cancelledAtIntake = skipIntake?.outcome === 'cancelled';
   const sameStore = !order.channelStoreId?.trim() || !n.channelStoreId?.trim() || order.channelStoreId === n.channelStoreId;
   const sameSource = !directSkip || (isDirectSkipSource(order) && sameStore);
+  if (!isNew && directSkip && sameSource && hasUnresolvedLegacySkipCloverReceipt(order)) {
+    if (cancelledAtIntake) return stopCancelledSkipIntake(order, skipIntake?.transitioned);
+    const held = await holdUnresolvedLegacySkipCloverReceipt(order);
+    return { order: held, duplicate: false, pos: { ok: false, skipped: true, error: LEGACY_SKIP_CLOVER_REVIEW } };
+  }
   if (!isNew && directSkip && sameSource && hasPendingSkipCloverAttempt(order)
     && (opts.retrying || Date.now() - Date.parse(order.createdAt) >= RESUME_AFTER_MS)) {
     if (skipIntake?.transitioned) await logSkipReceiptCancellation(order);
@@ -261,6 +266,10 @@ export async function processIncomingOrder(n: NormalizedOrder, opts: { holdClove
       const latest = await checkSkipBeforeClover(order);
       if (hasPendingSkipCloverAttempt(latest.order)) throw new Error(pos.error);
       if (latest.order.status === 'cancelled') return stopCancelledSkipIntake(latest.order, latest.transitioned);
+      if (hasUnresolvedLegacySkipCloverReceipt(latest.order)) {
+        const held = await holdUnresolvedLegacySkipCloverReceipt(latest.order);
+        return { order: held, duplicate: false, pos: { ok: false, skipped: true, error: LEGACY_SKIP_CLOVER_REVIEW } };
+      }
       if (latest.order.status === 'failed') {
         const backedUp = (await settleInClover(latest.order)) ?? latest.order;
         return { order: backedUp, duplicate: false, pos: { ok: false, skipped: true, error: 'Skip sent this order to its tablet.' } };
@@ -344,7 +353,7 @@ function waitingForFirstCloverSend(order: StoredOrder): boolean {
   const retry = order.timeline?.posRetry;
   if (!retry) return true;
   // A direct Skip resume can stop between claiming it and starting Clover. Other retry schedules have their own runner.
-  return isDirectSkipSource(order) && retry.attempts === 0 && retry.nextAt === null && retry.uncertain === true
+  return isDirectSkipSource(order) && retry.resumeOnly === true && retry.attempts === 0 && retry.nextAt === null && retry.uncertain === true
     && Boolean(retry.claim && retry.claimedAt) && !retry.lastError && !retry.gaveUpAt && !retry.doneAt;
 }
 
@@ -364,7 +373,7 @@ export function neverSentToClover(order: StoredOrder, now = Date.now()): boolean
 async function resumeUnsentOrder(order: StoredOrder): Promise<PipelineOutcome> {
   const repo = getRepo();
   const claim = crypto.randomUUID();
-  await repo.patchOrder(order.id, { posRetry: { attempts: 0, nextAt: null, uncertain: true, claim, claimedAt: nowIso() } }, {}, (fresh) => neverSentToClover(fresh));
+  await repo.patchOrder(order.id, { posRetry: { attempts: 0, nextAt: null, uncertain: true, claim, claimedAt: nowIso(), ...(isDirectSkipSource(order) ? { resumeOnly: true } : {}) } }, {}, (fresh) => neverSentToClover(fresh));
   let current = await repo.getOrder(order.id);
   if (!current || current.timeline?.posRetry?.claim !== claim || current.status !== 'new' || current.posOrderId) {
     await repo.addEvent(order.id, 'duplicate_delivery', { note: 'Webhook delivered again while the order was being finished; ignored.' });
@@ -429,6 +438,10 @@ async function sendSkipJetDecision(order: StoredOrder, signal: SkipJetSignal, op
   if (current.status === 'cancelled' || current.status === 'failed') current = (await settleInClover(current)) ?? current;
   const attempt = current.timeline?.skipJetAttempt;
   if (reservation.outcome !== 'jet_prepared' || !attempt?.id) {
+    if (reservation.outcome === 'legacy_clover_uncertain') {
+      current = await holdUnresolvedLegacySkipCloverReceipt(current);
+      return { order: current, result: { channel: 'skip', status: 'blocked', ok: false, message: LEGACY_SKIP_CLOVER_REVIEW } satisfies ChannelResult, finished: false };
+    }
     const message = hasPendingSkipCloverAttempt(current)
       ? 'Check the pending receipt on the original Clover register before responding to Skip.'
       : hasPendingSkipJetAttempt(current)
@@ -509,6 +522,10 @@ export async function settleTerminalSkipOrder(order: StoredOrder): Promise<void>
 
 /** Puts an order into Clover (the store's merchant, the right order type); its lines are already linked to the inventory. */
 export async function sendToClover(order: StoredOrder, store: ChannelStore | null, allowAfterManualAcceptance?: true): Promise<InjectResult> {
+  if (hasUnresolvedLegacySkipCloverReceipt(order)) {
+    await holdUnresolvedLegacySkipCloverReceipt(order);
+    return { ok: false, skipped: true, uncertain: true, error: LEGACY_SKIP_CLOVER_REVIEW };
+  }
   if (hasPendingSkipCloverAttempt(order)) return recoverSkipCloverAttempt(order);
   if (hasPendingSkipJetAttempt(order)) return { ok: false, skipped: true, error: 'A Skip response is already pending. Verify its result before sending to Clover.' };
   const mid = store?.cloverMerchantId || (await defaultCloverMerchant());
@@ -524,6 +541,10 @@ export async function sendToClover(order: StoredOrder, store: ChannelStore | nul
         merchantId, storeMapping: store, allowAfterManualAcceptance });
       if (!prepare.result.order) throw new Error('Skip Clover posting could not reserve its originating register.');
       if (prepare.result.outcome === 'prepared') return;
+      if (prepare.result.outcome === 'legacy_clover_uncertain') {
+        await holdUnresolvedLegacySkipCloverReceipt(prepare.result.order);
+        return { ok: false, skipped: true, uncertain: true, error: LEGACY_SKIP_CLOVER_REVIEW };
+      }
       if (prepare.result.outcome === 'mapping_changed') {
         return { ok: false, skipped: true, mappingChanged: true, error: 'The Skip store mapping changed before Clover received the order. Review the kitchen and register before sending.' };
       }
@@ -537,7 +558,7 @@ export async function sendToClover(order: StoredOrder, store: ChannelStore | nul
   if (!attempt) return pos;
   // A clear refusal permits Skip's normal tablet fallback. Timeouts, conflicts and server errors may have committed.
   if (prepare.result.outcome === 'prepared' && [400, 401, 403, 404, 405, 415, 422, 429].includes(pos.httpStatus ?? 0)) {
-    const cleared = await repo.applySkipLifecycle({ kind: 'clear_clover_attempt', externalOrderId: order.externalOrderId, orderId: order.id, merchantId: attempt.merchantId, attemptId: attempt.id });
+    const cleared = await repo.applySkipLifecycle({ kind: 'clear_clover_attempt', externalOrderId: order.externalOrderId, orderId: order.id, merchantId: attempt.merchantId, attemptId: attempt.id, definiteError: pos.error });
     if (cleared.outcome === 'attempt_cleared') return pos;
   }
   return recoverSkipCloverAttempt(prepared, prepare.result.outcome === 'prepared' ? pos.error : undefined);
@@ -604,6 +625,10 @@ export async function autoAcceptAfterClover(order: StoredOrder, posOrderId?: str
     return { order: (await settleInClover(current)) ?? current };
   }
   if (recordedSkip && current.status !== 'new') return { order: current };
+  if (hasUnresolvedLegacySkipCloverReceipt(current)) {
+    const held = await holdUnresolvedLegacySkipCloverReceipt(current);
+    return { order: held, accept: { channel: 'skip', status: 'blocked', ok: false, message: LEGACY_SKIP_CLOVER_REVIEW } };
+  }
   if (isDirectSkipOrder(order) && !posOrderId?.trim() && !current.posOrderId?.trim()) {
     return { order: current, accept: { channel: 'skip', status: 'blocked', ok: false, message: 'Skip requires a Clover order ID for automatic confirmation.' } };
   }
@@ -658,6 +683,7 @@ export async function autoAcceptAfterClover(order: StoredOrder, posOrderId?: str
 
 /** The last Clover answer may have been lost after Clover created the order (time-out, dropped connection, 5xx). */
 function maybeInClover(order: StoredOrder): boolean {
+  if (isDirectSkipSource(order)) return hasPendingSkipCloverAttempt(order) || order.timeline?.posRetry?.resumeOnly === true;
   return Boolean(order.timeline?.posRetry?.uncertain) || /network error|timed out|aborted|HTTP 5\d\d|did not include an order id/i.test(order.posError ?? '');
 }
 
@@ -729,6 +755,10 @@ async function resendNow(order: StoredOrder, opts: { manual?: boolean; by?: stri
   const repo = getRepo();
   const store = await repo.findStore(order.channel, order.channelStoreId);
   const tag = { ...(opts.manual ? { manual: true } : {}), ...(opts.by ? { by: opts.by } : {}), ...(opts.attempt ? { attempt: opts.attempt } : {}) };
+  if (hasUnresolvedLegacySkipCloverReceipt(order)) {
+    const held = await holdUnresolvedLegacySkipCloverReceipt(order);
+    return { order: held, pos: { ok: false, skipped: true, uncertain: true, error: LEGACY_SKIP_CLOVER_REVIEW }, store };
+  }
   if (hasPendingSkipCloverAttempt(order)) {
     const pos = await recoverSkipCloverAttempt(order);
     const current = pos.ok ? await recordCloverSuccess(order, store, pos, tag) : (await repo.getOrder(order.id)) ?? order;
@@ -829,7 +859,7 @@ async function resendNow(order: StoredOrder, opts: { manual?: boolean; by?: stri
     return { order: await recordCloverSuccess(latest, store, pos, tag), pos, store };
   }
   const latest = isDirectSkipSource(current) ? await repo.getOrder(order.id) : null;
-  if (latest && (hasPendingSkipCloverAttempt(latest) || hasPendingSkipJetAttempt(latest))) return { order: latest, pos, store };
+  if (latest && (hasPendingSkipCloverAttempt(latest) || hasPendingSkipJetAttempt(latest) || hasUnresolvedLegacySkipCloverReceipt(latest))) return { order: latest, pos, store };
   if (pos.mappingChanged) {
     current = (await repo.updateOrder(order.id, { posError: pos.error })) ?? current;
     await repo.addEvent(order.id, 'needs_attention', { reason: pos.error, ...tag });
@@ -876,7 +906,8 @@ export function allowedActions(order: StoredOrder): OrderAction[] {
     if (order.posOrderId) a.push('print');
     return a;
   }
-  if (order.status === 'new' && !hasPendingSkipCloverAttempt(order) && !hasPendingSkipJetAttempt(order)) a.push(acceptNeedsClover(order) ? 'accept_no_pos' : 'accept', 'deny');
+  const legacyCloverHeld = hasUnresolvedLegacySkipCloverReceipt(order);
+  if (order.status === 'new' && !legacyCloverHeld && !hasPendingSkipCloverAttempt(order) && !hasPendingSkipJetAttempt(order)) a.push(acceptNeedsClover(order) ? 'accept_no_pos' : 'accept', 'deny');
   // Uber Eats lets a store cancel an accepted order by API; DoorDash too once it allowlisted the integration. Skip (and
   // DoorDash otherwise) cancellations are done in their merchant portal / tablet and arrive back here through webhooks.
   // DoorDash only when DoorDash allowlisted merchant cancellations for this integration (DOORDASH_MERCHANT_CANCEL=true).
@@ -886,8 +917,8 @@ export function allowedActions(order: StoredOrder): OrderAction[] {
   if (order.status === 'ready') a.push('dispatch', 'complete', ...(canCancel ? (['cancel'] as const) : []));
   if (order.status === 'dispatched') a.push('complete');
   // "Send to Clover" only while the order is still ours to make — never for orders on the Skip tablet, cancelled or closed.
-  if (!order.posOrderId && !hasPendingSkipJetAttempt(order) && ['new', 'accepted', 'ready', 'dispatched'].includes(order.status)) a.push('retry_pos');
-  if (order.posOrderId) a.push('print');
+  if (!order.posOrderId && !legacyCloverHeld && !hasPendingSkipJetAttempt(order) && ['new', 'accepted', 'ready', 'dispatched'].includes(order.status)) a.push('retry_pos');
+  if (order.posOrderId && !legacyCloverHeld) a.push('print');
   // SkipTheDishes (JET Connect) lets the store report an out-of-stock item after accepting; Skip adjusts the customer's bill.
   // (Not for Skip orders that came through the relay: Skip's API does not know them.)
   if (order.channel === 'skip' && !order.viaHub && ['accepted', 'ready'].includes(order.status)) a.push('report_missing');
@@ -915,6 +946,10 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
     summary: `${ACTION_LABEL[action]}: ${tag}${opts.reasonCode ? ` — ${CANCEL_REASON_LABELS[opts.reasonCode]}` : opts.reason ? ` — ${opts.reason}` : ''}${opts.approvedBy ? ` (approved by ${opts.approvedBy})` : ''}${status === 'failed' ? ` (failed: ${message})` : ''}`,
   });
 
+  if (['accept', 'accept_no_pos', 'deny', 'retry_pos', 'print'].includes(action) && hasUnresolvedLegacySkipCloverReceipt(order)) {
+    const held = await holdUnresolvedLegacySkipCloverReceipt(order);
+    return { order: held, result: { ok: false, message: LEGACY_SKIP_CLOVER_REVIEW } };
+  }
   if ((action === 'accept' || action === 'accept_no_pos' || action === 'deny') && hasPendingSkipCloverAttempt(order)) {
     return { order, result: { ok: false, message: 'Check the pending receipt on the original Clover register before responding to Skip.' } };
   }

@@ -11,7 +11,7 @@ import { logActivity } from './activity';
 import { mevOnOrderChange } from './mev/hooks';
 import { CHANNEL_LABELS, nowIso } from './config';
 import { closeCancelledCloverOrder, recordCloverPayment } from './pos/clover-books';
-import { getRepo } from './repo';
+import { getRepo, hasUnresolvedLegacySkipCloverReceipt, LEGACY_SKIP_CLOVER_REVIEW } from './repo';
 import { isTgtgEmailOrder } from './tgtg-email/ids';
 import type { OrderTimeline, StoredOrder } from './types';
 
@@ -53,13 +53,21 @@ async function claimSkipReceiptClose(order: StoredOrder) {
   return { claimed: null, claim };
 }
 
+export async function holdUnresolvedLegacySkipCloverReceipt(order: StoredOrder): Promise<StoredOrder> {
+  if (order.posError?.startsWith(LEGACY_SKIP_CLOVER_REVIEW) && order.timeline?.posRetry?.nextAt == null) return order;
+  const held = await getRepo().applySkipLifecycle({ kind: 'hold_legacy_clover', externalOrderId: order.externalOrderId, orderId: order.id });
+  return held.order ?? order;
+}
+
 /**
  * Every status change of a platform order goes through here, so this is also where the Revenu Québec invoice (Takatak
  * MEV) follows the order: sale once accepted, credit note when cancelled after it (mev/hooks.ts). Off = no cost.
  */
 export async function settleInClover(order: StoredOrder | null): Promise<StoredOrder | null> {
-  const settled = await settleCloverOnly(order);
-  await mevOnOrderChange(settled ?? order);
+  const current = order && hasUnresolvedLegacySkipCloverReceipt(order)
+    ? await holdUnresolvedLegacySkipCloverReceipt(order) : order;
+  const settled = current && hasUnresolvedLegacySkipCloverReceipt(current) ? current : await settleCloverOnly(current);
+  await mevOnOrderChange(settled ?? current);
   return settled;
 }
 

@@ -1,3 +1,9 @@
+## 2026-11-26 — Ancien résultat Clover sans caisse attestée
+
+Un ancien refus incertain ou un ancien verrou de reprise sans attestation avant envoi met la commande directe Skip en vérification. La mise en attente conserve l’erreur d’origine, signale une fois le besoin de vérification et suspend les relances automatiques. Elle bloque la recherche dans une caisse déduite de la liaison actuelle, une nouvelle création Clover, une impression et les sorties JET. Les avis signés conservent leur état terminal. Un reçu avec sa caisse attestée reste conciliable sur cette caisse. Un refus définitif reconnu et une nouvelle préparation déclarée avant envoi gardent leur parcours habituel.
+
+Le contrat PostgreSQL de #192 inclut la mise en attente du résultat historique. Vérifier le rôle serveur et le contrat complet PostgREST avant la publication. [Suivi #155](https://github.com/takatakca/foodhubca/issues/155)
+
 ## 2026-11-26 — Avis Skip déjà reçu avant le traitement du repli
 
 Quand le webhook de repli signé est enregistré, l’arbitrage vérifie le numéro complet de la commande et le magasin du fournisseur. Un avis correspondant bloque la prise en charge Clover et JET même si le traitement de l’avis attend. Si Clover avait déjà reçu la création, le reçu demeure lié et la copie est fermée sur la caisse d’origine sans impression. Une annulation signée reste prioritaire. Un magasin différent ou manquant ne peut pas modifier une commande directe dont le magasin est connu.

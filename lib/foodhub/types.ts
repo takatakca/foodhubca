@@ -73,6 +73,8 @@ export interface OrderTimeline {
     nextAt: string | null;
     lastError?: string;
     uncertain?: boolean;
+    /** This claim was persisted before an authorized Clover request started. */
+    resumeOnly?: true;
     gaveUpAt?: string;
     doneAt?: string;
     claim?: string;

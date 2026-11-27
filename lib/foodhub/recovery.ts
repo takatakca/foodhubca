@@ -14,7 +14,8 @@ import { deadlineFor } from './deadline';
 import { armRetryTimer, CLOVER_RETRY_WINDOW_MS, cloverRetryDelaysS, cloverRetryOpen } from './order-retry';
 import { autoAcceptAfterClover, isSendingToClover, resendToClover } from './pipeline';
 import type { StoredOrder } from './types';
-import { getRepo } from './repo';
+import { getRepo, hasUnresolvedLegacySkipCloverReceipt } from './repo';
+import { holdUnresolvedLegacySkipCloverReceipt } from './clover-settle';
 
 const CLAIM_TTL_MS = 90_000;
 
@@ -40,6 +41,10 @@ export async function runCloverRetries(opts: { now?: number; trigger?: string } 
     const fresh = await repo.getOrder(o.id);
     const pr = fresh?.timeline?.posRetry;
     if (!fresh || !pr?.nextAt || Date.parse(pr.nextAt) > now) continue;
+    if (hasUnresolvedLegacySkipCloverReceipt(fresh)) {
+      await holdUnresolvedLegacySkipCloverReceipt(fresh);
+      continue;
+    }
     if (!cloverRetryOpen(fresh)) { await repo.patchOrder(fresh.id, { posRetry: { ...pr, nextAt: null } }); continue; }
     if (pr.claimedAt && now - Date.parse(pr.claimedAt) < CLAIM_TTL_MS) continue;
     const late = cloverRetryTooLate(fresh, now);
@@ -70,6 +75,7 @@ export async function runCloverRetries(opts: { now?: number; trigger?: string } 
       if (sent.store?.autoAccept && mine.locationCode && sent.order.status === 'new') await autoAcceptAfterClover(sent.order, sent.pos.posOrderId);
       continue;
     }
+    if (hasUnresolvedLegacySkipCloverReceipt(sent.order)) continue;
     out.failed++;
     if (sent.mappingChanged) {
       out.gaveUp++;

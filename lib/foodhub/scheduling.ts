@@ -5,7 +5,8 @@ import { logActivity } from './activity';
 import { CHANNEL_LABELS, nowIso } from './config';
 import { cloverAutoPrintEnabled } from './pos/clover';
 import { CLOVER_REPRINT_KITCHEN_CHANGED, cloverKitchenChanged, printKitchenTicket } from './pos/clover-order';
-import { getRepo } from './repo';
+import { getRepo, hasUnresolvedLegacySkipCloverReceipt } from './repo';
+import { holdUnresolvedLegacySkipCloverReceipt } from './clover-settle';
 import { localTimeLabel } from './time';
 import type { NormalizedOrder, StoredOrder } from './types';
 
@@ -39,6 +40,10 @@ export async function fireDueScheduled(now = Date.now()): Promise<number> {
   const due = open.filter((o) => o.timeline?.fireAt && !o.timeline.firedAt && Date.parse(o.timeline.fireAt) <= now);
   let fired = 0;
   for (const o of due) {
+    if (hasUnresolvedLegacySkipCloverReceipt(o)) {
+      await holdUnresolvedLegacySkipCloverReceipt(o);
+      continue;
+    }
     const store = await repo.findStore(o.channel, o.channelStoreId);
     const tag = `${CHANNEL_LABELS[o.channel]} #${o.displayId || o.externalOrderId.slice(0, 8)}`;
     const dueLabel = localTimeLabel(o.timeline!.scheduledFor ?? o.timeline!.fireAt!);

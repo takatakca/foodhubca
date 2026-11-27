@@ -30,7 +30,8 @@ export type SkipLifecycleInput =
   | { kind: 'intake'; order: NormalizedOrder & { locationCode?: string } }
   | { kind: 'check_intake'; externalOrderId: string }
   | ({ kind: 'prepare_clover'; storeMapping?: SkipCloverStoreSnapshot | null; allowAfterManualAcceptance?: true } & SkipCloverIdentity)
-  | ({ kind: 'clear_clover_attempt'; attemptId: string } & SkipCloverIdentity)
+  | ({ kind: 'clear_clover_attempt'; attemptId: string; definiteError?: string } & SkipCloverIdentity)
+  | ({ kind: 'hold_legacy_clover' } & SkipOrderIdentity)
   | ({ kind: 'record_receipt'; adopted: boolean; evidence?: Record<string, unknown> } & SkipReceiptIdentity)
   | ({ kind: 'check_receipt' } & SkipReceiptIdentity)
   | SkipJetInput;
@@ -39,7 +40,8 @@ export interface SkipLifecycleResult {
   order: StoredOrder | null;
   isNew: boolean;
   outcome: 'conflicting_store' | 'conflicting_receipt' | 'conflicting_attempt' | 'ignored' | 'cancelled' | 'parked' | 'backed_up' | 'received'
-    | 'prepared' | 'attempt_pending' | 'attempt_cleared' | 'conflicting_jet' | 'jet_prepared' | 'jet_pending' | 'jet_finished' | 'mapping_changed';
+    | 'prepared' | 'attempt_pending' | 'attempt_cleared' | 'conflicting_jet' | 'jet_prepared' | 'jet_pending' | 'jet_finished' | 'mapping_changed'
+    | 'legacy_clover_uncertain';
   transitioned?: true;
   recorded?: true;
   finished?: true;
@@ -160,6 +162,28 @@ function validSkipJetAttempt(attempt: SkipJetAttempt | undefined): attempt is Sk
     && (attempt.outcome === undefined || ['accepted', 'fallback', 'uncertain'].includes(attempt.outcome));
 }
 
+// Recognize generated transport outcomes by prefix. A definite 4xx can mention a timeout in its response body.
+const LEGACY_CLOVER_UNCERTAIN_ERROR = /^(?:(?:clover )?(?:network error|(?:(?:request|operation) (?:was )?|(?:the|this) operation was )?(?:timeout|timed out|aborted)|(?:returned )?http 5[0-9]{2}|(?:response )?did not include an order id)|skip clover receipt needs review)(?:[\s:.]|$)/i;
+const DEFINITE_CLOVER_REFUSAL = /^Clover returned HTTP (?:400|401|403|404|405|415|422|429)(?:[\s:.]|$)/i;
+export const LEGACY_SKIP_CLOVER_REVIEW = 'Skip Clover receipt needs review: Verify the original register and the earlier result before retrying.';
+type CloverRetryLease = NonNullable<OrderTimeline['posRetry']>;
+const nonblank = (value: unknown): boolean => typeof value === 'string' && Boolean(value.trim());
+
+function isOnlyCloverResumeLease(retry: CloverRetryLease | undefined): retry is CloverRetryLease {
+  return retry?.resumeOnly === true && retry.uncertain === true && retry.attempts === 0 && retry.nextAt === null
+    && nonblank(retry.claim) && nonblank(retry.claimedAt) && retry.lastError == null && retry.gaveUpAt == null && retry.doneAt == null;
+}
+
+export function hasUnresolvedLegacySkipCloverReceipt(order: Pick<StoredOrder, 'channel' | 'viaHub' | 'viaPos' | 'posOrderId' | 'posError' | 'timeline'>): boolean {
+  const timeline = order.timeline;
+  const uncertainError = (value: unknown) => typeof value === 'string' && LEGACY_CLOVER_UNCERTAIN_ERROR.test(value.trim());
+  if (order.channel !== 'skip' || order.viaHub || order.viaPos || timeline?.posCreateAttempt !== undefined
+    || (nonblank(order.posOrderId) && nonblank(timeline?.posMerchantId))) return false;
+  const retry = timeline?.posRetry;
+  if (uncertainError(order.posError) || uncertainError(retry?.lastError)) return true;
+  return retry?.uncertain === true && !isOnlyCloverResumeLease(retry);
+}
+
 function skipJetResult(order: StoredOrder, input: SkipJetInput, now: string): SkipLifecycleResult {
   const timeline = (order.timeline ?? {});
   const { skipJetAttempt: attempt, ...unclaimed } = timeline;
@@ -218,6 +242,25 @@ function applySkipLifecycleInMemory(input: SkipLifecycleInput): SkipLifecycleRes
   const invalidAttempt = attempt !== undefined && (typeof attempt?.id !== 'string' || !attempt.id
     || typeof attempt.at !== 'string' || !attempt.at || typeof attempt.merchantId !== 'string' || !attempt.merchantId.trim());
   const active = existing && ['new', 'accepted', 'ready', 'dispatched'].includes(existing.status);
+  const legacyUncertain = existing && hasUnresolvedLegacySkipCloverReceipt(existing);
+  if (input.kind === 'hold_legacy_clover') {
+    if (!existing || !direct || existing.id !== input.orderId) return { order: null, isNew: false, outcome: 'conflicting_attempt' };
+    if (!legacyUncertain) return { order: existing, isNew: false, outcome: 'ignored' };
+    const retry = timeline?.posRetry;
+    const previous = nonblank(existing.posError) ? existing.posError : nonblank(retry?.lastError) ? retry?.lastError : undefined;
+    const reason = previous?.startsWith(LEGACY_SKIP_CLOVER_REVIEW) ? previous : `${LEGACY_SKIP_CLOVER_REVIEW}${previous ? ` ${previous}` : ''}`;
+    const clearRetry = Boolean(retry && typeof retry === 'object' && !Array.isArray(retry) && retry.nextAt !== null);
+    if (existing.posError !== reason || clearRetry) {
+      existing = { ...existing, posError: reason, updatedAt: now, ...(clearRetry && retry ? { timeline: { ...timeline, posRetry: { ...retry, nextAt: null } } } : {}) };
+      state.orders.set(existing.id, existing);
+    }
+    const orderId = existing.id;
+    const source = 'legacy_skip_clover_receipt';
+    if (!state.events.some((event) => event.orderId === orderId && event.type === 'needs_attention' && event.detail?.source === source)) {
+      state.events.push({ id: crypto.randomUUID(), orderId, type: 'needs_attention', detail: { reason, source }, at: now });
+    }
+    return { order: existing, isNew: false, outcome: 'legacy_clover_uncertain' };
+  }
   const jet = input.kind === 'prepare_jet' || input.kind === 'finish_jet' ? input : null;
   const jetAttempt = timeline?.skipJetAttempt;
   if (jet && (!existing || !direct || existing.id !== jet.orderId
@@ -238,7 +281,7 @@ function applySkipLifecycleInMemory(input: SkipLifecycleInput): SkipLifecycleRes
     if (!existing || !direct || existing.id !== input.orderId || !input.merchantId.trim()) {
       return { order: null, isNew: false, outcome: 'conflicting_attempt' };
     }
-    if (existing.posOrderId || (preparing && !active && existing.status !== 'cancelled')) {
+    if ((existing.posOrderId && (!preparing || !legacyUncertain)) || (preparing && !active && existing.status !== 'cancelled')) {
       return { order: existing, isNew: false, outcome: 'ignored' };
     }
     if (input.kind === 'clear_clover_attempt') {
@@ -246,7 +289,9 @@ function applySkipLifecycleInMemory(input: SkipLifecycleInput): SkipLifecycleRes
         return { order: null, isNew: false, outcome: 'conflicting_attempt' };
       }
       const { posCreateAttempt: _cleared, ...rest } = timeline ?? {};
-      const order = { ...existing, timeline: rest, updatedAt: now };
+      // A reconciliation while the HTTP request was in flight may have left an uncertainty message on this exact attempt.
+      const refused = input.definiteError && DEFINITE_CLOVER_REFUSAL.test(input.definiteError) ? input.definiteError : existing.posError;
+      const order = { ...existing, timeline: rest, posError: refused, updatedAt: now };
       state.orders.set(existing.id, order);
       return { order, isNew: false, outcome: 'attempt_cleared' };
     }
@@ -271,6 +316,10 @@ function applySkipLifecycleInMemory(input: SkipLifecycleInput): SkipLifecycleRes
     : parked?.status ?? pendingInboxCancel(state, externalOrderId);
 
   const backup = (preparing || jet || receipt) && direct && existing && !cancellation ? pendingInboxBackup(state, existing) : undefined;
+
+  if (!cancellation && !backup && existing && legacyUncertain && ((preparing && active) || (jet?.kind === 'prepare_jet' && existing.status === 'new'))) {
+    return { order: existing, isNew: false, outcome: 'legacy_clover_uncertain' };
+  }
 
   if (jet && existing && !cancellation && !backup) {
     const result = skipJetResult(existing, jet, now);
@@ -301,6 +350,11 @@ function applySkipLifecycleInMemory(input: SkipLifecycleInput): SkipLifecycleRes
     const nextTimeline: OrderTimeline = {
       ...timeline, posCreateAttempt: { merchantId: input.merchantId, at: now, id: crypto.randomUUID() },
     };
+    const retry = timeline?.posRetry;
+    if (isOnlyCloverResumeLease(retry)) {
+      const { resumeOnly: _consumed, ...rest } = retry;
+      nextTimeline.posRetry = { ...rest, uncertain: false };
+    }
     const order = { ...existing, timeline: nextTimeline, updatedAt: now };
     state.orders.set(existing.id, order);
     return { order, isNew: false, outcome: 'prepared' };
@@ -663,7 +717,7 @@ function supabaseRepo(): FoodHubRepo {
         if ('merchantId' in input) detail.merchantId = input.merchantId;
         if ('posOrderId' in input) detail.posOrderId = input.posOrderId;
         if (input.kind === 'record_receipt') Object.assign(detail, { adopted: input.adopted, evidence: input.evidence });
-        if (input.kind === 'clear_clover_attempt') detail.attemptId = input.attemptId;
+        if (input.kind === 'clear_clover_attempt') Object.assign(detail, { attemptId: input.attemptId, definiteError: input.definiteError });
         if (input.kind === 'prepare_jet') Object.assign(detail, { signal: input.signal, manual: input.manual });
         if (input.kind === 'finish_jet') Object.assign(detail, { attemptId: input.attemptId, result: input.result, fields: input.fields });
         if (input.kind === 'prepare_clover') {

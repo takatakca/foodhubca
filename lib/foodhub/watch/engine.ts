@@ -21,7 +21,7 @@ import { foodhubTimeZone, localParts } from '../time';
 import type { ChannelKey, ChannelStore, FoodHubUser, HoursConfig, PlatformStatus, StoredOrder } from '../types';
 import { explainIncident, PLAYBOOK } from './ai';
 import { customerContact, lateMessage } from './customer';
-import { DEFAULT_RULES, DEFAULT_WATCH, INCIDENT_KINDS, KIND_LABEL, WATCH_BACKGROUND_COMPLETION_KEY, type Incident, type IncidentKind, type IncidentStatus, type Severity, type WatchBackgroundCompletion, type WatchSettings } from './types';
+import { DEFAULT_RULES, DEFAULT_WATCH, INACTIVE_KITCHEN_CLOSURE, INCIDENT_KINDS, KIND_LABEL, WATCH_BACKGROUND_COMPLETION_KEY, type Incident, type IncidentKind, type IncidentStatus, type Severity, type WatchBackgroundCompletion, type WatchSettings } from './types';
 
 export const INCIDENTS = 'incidents';
 const SETTINGS_KEY = 'watch:settings';
@@ -647,8 +647,10 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
       const disabledKitchen = i.locationCode && isScreenDeviceIncident(i.kind) && inactiveLocations.has(i.locationCode);
       if (!disabledKitchen && missingRelayEvidence(i)) continue;
       Object.assign(i, { status: 'resolved', resolvedAt: iso, resolvedBy: 'auto', updatedAt: iso });
-      const message = disabledKitchen ? 'Surveillance arrêtée pour cette cuisine désactivée. / Monitoring stopped for this inactive kitchen.' : 'Réglé / Fixed';
-      i.steps.push({ at: iso, kind: 'resolved', by: 'auto', message });
+      i.steps.push({
+        at: iso, kind: 'resolved', by: 'auto', message: disabledKitchen ? INACTIVE_KITCHEN_CLOSURE : 'Réglé / Fixed',
+        ...(disabledKitchen ? { resolutionReason: 'inactive-kitchen' } : {}),
+      });
       dirty.set(i.id, i);
       report.resolved++;
     }

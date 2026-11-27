@@ -20,7 +20,7 @@ import { useScopeLabel } from '@/components/shell/scope-switcher';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { api, ApiError, ago, timeOf } from '@/lib/ui/api';
 import { useI18n, useProduct } from '@/lib/i18n/client';
-import type { Incident } from '@/lib/foodhub/watch/types';
+import { INACTIVE_KITCHEN_CLOSURE, type Incident } from '@/lib/foodhub/watch/types';
 import type { OutboxEntry } from '@/lib/foodhub/notify';
 import { watchtowerCallSid, type CallStatus } from '@/lib/foodhub/notify/call-status';
 import { cn } from '@/lib/ui/cn';
@@ -143,6 +143,19 @@ function CallStatusCheck({ id }: { id: string }) {
   );
 }
 
+export function IncidentResolutionBadge({ incident }: { incident: Incident }) {
+  const { t } = useI18n();
+  if (incident.status !== 'resolved') return null;
+  const automatic = incident.resolvedBy === 'auto';
+  const closure = automatic ? incident.steps.filter((step) => step.kind === 'resolved').at(-1) : undefined;
+  // A call receipt can be appended after closure. Match the current automatic closing step, including older records.
+  if (closure?.by === 'auto' && closure.at === incident.resolvedAt
+    && (closure.resolutionReason === 'inactive-kitchen' || closure.message === INACTIVE_KITCHEN_CLOSURE)) {
+    return <Badge tone="neutral">{t('surveillance arrêtée', 'monitoring stopped')}</Badge>;
+  }
+  return <Badge tone="go" icon={<CheckCheck className="size-3" />}>{automatic ? t('réglé tout seul', 'fixed itself') : `${t('réglé par', 'fixed by')} ${incident.resolvedBy}`}</Badge>;
+}
+
 function IncidentCard({ i, focus, defaultOpen, onChanged }: { i: Incident; focus: boolean; defaultOpen: boolean; onChanged: () => void }) {
   const { t, lang, loc } = useI18n();
   const { can, locName } = useViewer();
@@ -179,7 +192,7 @@ function IncidentCard({ i, focus, defaultOpen, onChanged }: { i: Incident; focus
                 <span className="text-body font-bold text-ink">{lang === 'fr' ? i.title : i.titleEn}</span>
                 {i.status === 'acknowledged' && <Badge tone="info" icon={<Hand className="size-3" />}>{t('pris en charge par', 'on it:')} {i.ackBy}</Badge>}
                 {i.status === 'snoozed' && <Badge tone="neutral" icon={<BellOff className="size-3" />}>{t('sourdine jusqu’à', 'snoozed until')} {timeOf(i.snoozedUntil, loc)}</Badge>}
-                {i.status === 'resolved' && <Badge tone="go" icon={<CheckCheck className="size-3" />}>{i.resolvedBy === 'auto' ? t('réglé tout seul', 'fixed itself') : `${t('réglé par', 'fixed by')} ${i.resolvedBy}`}</Badge>}
+                <IncidentResolutionBadge incident={i} />
               </div>
               <div className="text-small mt-0.5 text-ink-3">{[lang === 'fr' ? i.detail : i.detailEn ?? i.detail, i.locationCode ? shortLoc(locName(i.locationCode)) : null, ago(i.openedAt, lang)].filter(Boolean).join(' · ')}</div>
             </div>

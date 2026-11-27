@@ -132,7 +132,7 @@ it('closes an existing offline incident on deactivation and reopens it without i
   await saveLocation({ ...kitchen, active: false });
   expect(await tick(7)).toMatchObject({ resolved: 1, escalated: 0 });
   expect(await getIncident(opened.id)).toMatchObject({ status: 'resolved', resolvedBy: 'auto', lastSeenAt: opened.lastSeenAt });
-  expect((await getIncident(opened.id))?.steps.at(-1)?.message).toContain('Monitoring stopped for this inactive kitchen');
+  expect((await getIncident(opened.id))?.steps.at(-1)).toMatchObject({ resolutionReason: 'inactive-kitchen', message: expect.stringContaining('Monitoring stopped for this inactive kitchen') });
   expect((await getDevice(device.id))?.lastSeenAt).toBe(device.lastSeenAt);
 
   await saveLocation(kitchen);

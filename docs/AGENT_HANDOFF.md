@@ -2,6 +2,8 @@
 
 Après une demande téléphonique ou un texto, Watchtower vérifie à nouveau le catalogue avant l’envoi suivant pour les incidents de tablette et de relais. Une cuisine désactivée ou un catalogue indisponible suspend les envois restants. L’appel déjà accepté reste consigné. Lorsque la lecture redevient possible, un palier qui n’avait pas commencé peut reprendre sans rejouer le premier appel. Un palier déjà commencé garde son comportement de non-répétition.
 
+La fiche de l’alerte indique « surveillance arrêtée » quand sa cuisine a été désactivée.
+
 Les essais signés reproduisent une désactivation pendant la réponse du fournisseur, la reprise après une lecture indisponible et la conservation de la preuve d’appel dans le périmètre d’accès prévu. Les preuves de réception réelle restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
 
 — signé : Codex @ cloud · 2026-11-26

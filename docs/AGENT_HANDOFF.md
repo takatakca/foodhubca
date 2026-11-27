@@ -1,3 +1,35 @@
+## 2026-11-26 — Résultat partiel d’une vérification Watchtower
+
+Dans Alertes, « Vérifier maintenant » signale une lecture indisponible du relais tout en affichant les compteurs des contrôles effectués. Une vérification qui n’a pas démarré reçoit son propre avis. Un passage complet conserve le message habituel.
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — État de l’appareil entre deux notifications
+
+La relève vérifie l’appareil et sa cuisine avant les envois, puis les vérifie de nouveau après une réponse du fournisseur. Un changement de jumelage, une révocation ou la fin de l’attente suspend les envois de l’alerte précédente. Le reçu du premier appel reste consultable. Si l’appareil déplacé remplit les conditions d’alerte au prochain passage, sa nouvelle cuisine reçoit son propre incident. Une lecture momentanément impossible reporte les paliers qui n’ont pas commencé.
+
+Les preuves de réception en cuisine et par téléphone restent dans [la checklist #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Désactivation pendant un appel de relève
+
+Après une demande téléphonique ou un texto, Watchtower vérifie à nouveau le catalogue avant l’envoi suivant pour les incidents de tablette et de relais. Une cuisine désactivée ou un catalogue indisponible suspend les envois restants. L’appel déjà accepté reste consigné, y compris l’appel au numéro de la cuisine pour une tablette muette. Lorsque la lecture redevient possible, un palier qui n’avait pas commencé peut reprendre sans rejouer le premier appel. Un palier déjà commencé garde son comportement de non-répétition.
+
+La fiche de l’alerte indique « surveillance arrêtée » quand sa cuisine a été désactivée.
+
+Les essais signés reproduisent une désactivation pendant la réponse du fournisseur, la reprise après une lecture indisponible et la conservation de la preuve d’appel dans le périmètre d’accès prévu. Les preuves de réception réelle restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Surveillance des cuisines désactivées
+
+Watchtower cesse de détecter les alertes de tablette et de relais pour une cuisine désactivée dans le catalogue. Les appareils restent jumelés et la surveillance reprend à la réactivation. L’historique d’un incident déjà ouvert précise le motif de fermeture. Avant chaque incident d’appareil admissible à la relève, une lecture récente du catalogue reporte l’ensemble de sa relève si la cuisine est devenue inactive ou si son état ne peut être lu. Un ancien jumelage vers une cuisine absente d’un catalogue accessible garde son comportement. Si la lecture des écrans du relais échoue, Watchtower conserve leur dernier état et reporte leur relève. La surveillance des tablettes natives continue, et le passage partiel ne remplace pas le dernier passage complet.
+
+Les essais signés couvrent les quatre types d’alerte de tablette et de relais, la réactivation, l’indisponibilité du catalogue et une désactivation pendant que le fournisseur répond à l’alerte précédente. Les preuves de réception sur appareil et téléphone sont suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Numéro de commande saisi à partir d’un écran
 
 La saisie manuelle distingue désormais deux commandes qui portent le même numéro affiché dans deux magasins. Saisir deux fois le même numéro pour le même magasin reste un doublon, même depuis un autre écran ou si la première saisie date d’une version antérieure. Clover utilise une référence de magasin dans le titre de reprise des nouvelles commandes pour retrouver la bonne commande quand plusieurs magasins partagent une caisse. L’import reconnaît ce titre sans écarter une commande native de Clover qui porte le même numéro. Le numéro affiché reste celui de la plateforme. Les preuves de réception physique restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

@@ -4,6 +4,7 @@
 // It never accepts, cancels, refunds or changes anything by itself (AI = supervisor only).
 
 export const WATCH_BACKGROUND_COMPLETION_KEY = 'watch:last-background-completion';
+export const INACTIVE_KITCHEN_CLOSURE = 'Surveillance arrêtée pour cette cuisine désactivée. / Monitoring stopped for this inactive kitchen.';
 
 export interface WatchBackgroundCompletion {
   at: string;
@@ -43,6 +44,7 @@ export interface IncidentStep {
   uncertain?: boolean;
   by?: string;
   message?: string;
+  resolutionReason?: 'inactive-kitchen';
 }
 
 export interface Incident {

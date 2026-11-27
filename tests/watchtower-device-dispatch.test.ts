@@ -1,9 +1,11 @@
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { GET as cronWatch } from '../app/api/foodhub/cron/watch/route';
+import { DELETE as revokeTablet } from '../app/api/foodhub/devices/[id]/route';
 import { GET as incidentsById } from '../app/api/foodhub/incidents/route';
 import { GET as getCallStatus } from '../app/api/foodhub/messages/call-status/route';
 import { POST as relayHeartbeat } from '../app/api/foodhub/screens/heartbeat/route';
+import { PATCH as updateRelayScreen } from '../app/api/foodhub/screens/[id]/route';
 import type { Actor } from '../lib/foodhub/activity';
 import { hashPassword } from '../lib/foodhub/auth';
 import { saveLocation } from '../lib/foodhub/catalog';
@@ -11,7 +13,7 @@ import { allDayWeek, saveHours } from '../lib/foodhub/hours';
 import { enrollDevice, heartbeat as tabletHeartbeat } from '../lib/foodhub/identity/devices';
 import { listOutbox } from '../lib/foodhub/notify';
 import { getRepo } from '../lib/foodhub/repo';
-import { addScreen, type Heartbeat } from '../lib/foodhub/screens';
+import { addScreen, SCREENS, type Heartbeat } from '../lib/foodhub/screens';
 import { listIncidents, saveWatchSettings } from '../lib/foodhub/watch/engine';
 
 const BASE = 'https://foodhub.example.test/api/foodhub';
@@ -340,4 +342,89 @@ it('recovers a muted tablet SMS without replaying its already accepted kitchen c
   expect(receipts.filter((entry) => entry.channel === 'call')).toHaveLength(1);
   expect(receipts).toContainEqual(expect.objectContaining({ channel: 'sms', incidentId: incident.id, ok: true }));
   expect(await repo.getKv(`watch:first-screen-call:${incident.id}`)).toEqual(expect.objectContaining({ at: expect.any(String) }));
+});
+
+
+it.each(['move to another active kitchen', 'clear the waiting count'] as const)('stops follow-up sends when a relay screen changes during its initial call: %s', async (change) => {
+  await configureSameIncidentRecipients();
+  const password = 'fixture-relay-move-password';
+  vi.stubEnv('DASHBOARD_PASSWORD', password);
+  const destination = { ...KITCHEN, code: 'TEST_NEW_KITCHEN' };
+  await saveLocation(destination);
+  const { incident, tick } = await openIncident('screen_waiting');
+  const id = incident.deviceId;
+  if (!id) throw new Error('Missing relay fixture id');
+
+  afterFirstAcceptedCall(async () => {
+    if (change === 'move to another active kitchen') {
+      const move = await updateRelayScreen(new Request(`${BASE}/screens/${id}`, {
+        method: 'PATCH', headers: { authorization: `Basic ${Buffer.from(`owner:${password}`).toString('base64')}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ locationCode: destination.code }),
+      }), { params: Promise.resolve({ id }) });
+      expect(move.status).toBe(200);
+      expect(await move.json()).toMatchObject({ screen: { id, locationCode: destination.code } });
+    } else {
+      await relayReport({ id, state: 'ok', mode: 'android', waiting: 0 });
+    }
+  });
+  expect(await tick(9)).toMatchObject({ escalated: 1 });
+  expect(provider.mock.calls.map(([input]) => String(input).split('/').at(-1))).toEqual(['Calls.json']);
+  expect(await listOutbox()).toMatchObject([{ channel: 'call', purpose: 'alert_shared_screen', ref: ACCEPTED_CALL_SID, ok: true, incidentId: incident.id }]);
+  expect(await getRepo().getKv(`watch:first-screen-call:${incident.id}`)).toBeTruthy();
+  expect((await listIncidents()).find((item) => item.id === incident.id)?.level).toBe(0);
+  if (change === 'clear the waiting count') {
+    at(10);
+    expect(await runCron()).toMatchObject({ resolved: 1, escalated: 0 });
+    expect((await listIncidents()).find((item) => item.id === incident.id)).toMatchObject({ status: 'resolved' });
+  }
+});
+
+
+it('stops same-incident follow-ups when the native tablet is revoked during its initial call', async () => {
+  await configureSameIncidentRecipients();
+  const password = 'fixture-tablet-revocation-password';
+  vi.stubEnv('DASHBOARD_PASSWORD', password);
+  const { incident, tick } = await openIncident('device_offline');
+  const id = incident.deviceId;
+  if (!id) throw new Error('Missing native tablet fixture id');
+
+  afterFirstAcceptedCall(async () => {
+    const revoked = await revokeTablet(new Request(`${BASE}/devices/${id}`, {
+      method: 'DELETE', headers: { authorization: `Basic ${Buffer.from(`owner:${password}`).toString('base64')}` },
+    }), { params: Promise.resolve({ id }) });
+    expect(revoked.status).toBe(200);
+    expect(await revoked.json()).toEqual({ ok: true });
+  });
+  expect(await tick(9)).toMatchObject({ escalated: 1 });
+  expect(provider).toHaveBeenCalledTimes(1);
+  expect(await listOutbox()).toMatchObject([{ channel: 'call', ref: ACCEPTED_CALL_SID, ok: true, incidentId: incident.id }]);
+  expect(await tick(10)).toMatchObject({ resolved: 1, escalated: 0 });
+});
+
+it('defers on loss of a live device read and resumes without duplicating the accepted call', async () => {
+  const { incident, tick } = await openIncident('screen_waiting');
+  const repo = getRepo();
+  const getDoc = repo.getDoc.bind(repo);
+  let interruptBinding = false;
+  let failed = false;
+  const fault = vi.spyOn(repo, 'getDoc').mockImplementation(async <T>(collection: string, id: string) => {
+    if (collection === SCREENS && id === incident.deviceId && interruptBinding) {
+      interruptBinding = false;
+      failed = true;
+      throw new Error('Temporary screen read failure following the accepted call');
+    }
+    return getDoc<T>(collection, id);
+  });
+  afterFirstAcceptedCall(async () => { interruptBinding = true; });
+  try {
+    expect(await tick(7)).toMatchObject({ escalated: 1, resolved: 0 });
+  } finally {
+    fault.mockRestore();
+  }
+  expect(failed).toBe(true);
+  expect(provider).toHaveBeenCalledTimes(1);
+  expect(await tick(8)).toMatchObject({ escalated: 1, resolved: 0 });
+  const receipts = await listOutbox();
+  expect(receipts.filter((entry) => entry.channel === 'call')).toMatchObject([{ ref: ACCEPTED_CALL_SID, ok: true, incidentId: incident.id }]);
+  expect(receipts).toContainEqual(expect.objectContaining({ channel: 'sms', incidentId: incident.id, ok: true }));
 });

@@ -1,3 +1,11 @@
+## 2026-11-26 — État de l’appareil entre deux notifications
+
+La relève vérifie l’appareil et sa cuisine avant les envois, puis les vérifie de nouveau après une réponse du fournisseur. Un changement de jumelage, une révocation ou la fin de l’attente suspend les envois de l’alerte précédente. Le reçu du premier appel reste consultable. Si l’appareil déplacé remplit les conditions d’alerte au prochain passage, sa nouvelle cuisine reçoit son propre incident. Une lecture momentanément impossible reporte les paliers qui n’ont pas commencé.
+
+Les preuves de réception en cuisine et par téléphone restent dans [la checklist #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Désactivation pendant un appel de relève
 
 Après une demande téléphonique ou un texto, Watchtower vérifie à nouveau le catalogue avant l’envoi suivant pour les incidents de tablette et de relais. Une cuisine désactivée ou un catalogue indisponible suspend les envois restants. L’appel déjà accepté reste consigné, y compris l’appel au numéro de la cuisine pour une tablette muette. Lorsque la lecture redevient possible, un palier qui n’avait pas commencé peut reprendre sans rejouer le premier appel. Un palier déjà commencé garde son comportement de non-répétition.

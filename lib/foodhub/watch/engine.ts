@@ -11,8 +11,8 @@ import { getCatalog } from '../catalog';
 import { deadlineFor } from '../deadline';
 import { inboxSummary } from '../inbox';
 import { effectiveHours, getHours, holidaysFor, isOpenAt, localDate, openIntervals } from '../hours';
-import { DEVICE_OFFLINE_AFTER_MS, listDevices } from '../identity/devices';
-import { listScreens, SCREEN_PLATFORM_LABEL, screenStatus } from '../screens';
+import { DEVICE_OFFLINE_AFTER_MS, getDevice, listDevices, type Device } from '../identity/devices';
+import { getScreen, listScreens, SCREEN_PLATFORM_LABEL, screenStatus, type PlatformScreen } from '../screens';
 import { aiConfigured, callConfigured, maskContact, normalizePhone, placeCall, postToChat, sendSms } from '../notify';
 import { listCases, RECOVERABLE } from '../recon/engine';
 import { getRepo } from '../repo';
@@ -154,6 +154,26 @@ function coveredMinutes(spans: Array<[number, number]>): number {
   return total / 60000;
 }
 
+function tabletSignal(device: Device, now: number) {
+  const seenAgo = device.lastSeenAt ? now - Date.parse(device.lastSeenAt) : Infinity;
+  if (device.revoked) return { seenAgo, kind: null };
+  if (seenAgo > DEVICE_OFFLINE_AFTER_MS) return { seenAgo, kind: 'device_offline' } as const;
+  if (seenAgo <= DEVICE_OFFLINE_AFTER_MS && (device.soundOn === false || device.visible === false)) {
+    return { seenAgo, kind: 'device_muted' } as const;
+  }
+  return { seenAgo, kind: null };
+}
+
+function screenIsDown(status: ReturnType<typeof screenStatus>) {
+  return status !== 'online' && status !== 'never';
+}
+
+function screenWaitingSeconds(screen: PlatformScreen, now: number, delaySec: number): number | null {
+  if (screenStatus(screen, now) !== 'online' || !screen.titleCount || !screen.waitingSince) return null;
+  const waited = (now - Date.parse(screen.waitingSince)) / 1000;
+  return waited >= delaySec ? waited : null;
+}
+
 async function detect(s: WatchSettings, now: number) {
   const repo = getRepo();
   const tz = foodhubTimeZone();
@@ -278,17 +298,18 @@ async function detect(s: WatchSettings, now: number) {
   }
 
   for (const d of devices) {
-    if (d.revoked || inactiveLocations.has(d.locationCode)) continue;
+    if (inactiveLocations.has(d.locationCode)) continue;
+    const { seenAgo, kind } = tabletSignal(d, now);
+    if (!kind) continue;
     const open = locationOpen(hours, d.locationCode, brandsAt(d.locationCode), now, tz);
     if (!open) continue;
-    const seenAgo = d.lastSeenAt ? now - Date.parse(d.lastSeenAt) : Infinity;
     const base = { locationCode: d.locationCode, deviceId: d.id };
-    if (on('device_offline') && seenAgo > DEVICE_OFFLINE_AFTER_MS) {
+    if (on('device_offline') && kind === 'device_offline') {
       const min = Number.isFinite(seenAgo) ? Math.round(seenAgo / 60000) : null;
       out.push({ ...base, key: `device_offline:${d.id}`, kind: 'device_offline', severity: seenAgo > 5 * 60_000 ? 'critical' : 'warning',
         title: `Tablette « ${d.name} » éteinte — ${loc(d.locationCode)}`, titleEn: `Tablet “${d.name}” is off — ${loc(d.locationCode)}`,
         detail: min !== null ? `Aucun signal depuis ${min} min${d.battery !== null && d.battery !== undefined ? ` · batterie ${Math.round(d.battery * 100)} %` : ''}` : 'Jamais connectée', detailEn: min !== null ? `No signal for ${min} min` : 'Never connected' });
-    } else if (on('device_muted') && seenAgo <= DEVICE_OFFLINE_AFTER_MS && (d.soundOn === false || d.visible === false)) {
+    } else if (on('device_muted') && kind === 'device_muted') {
       out.push({ ...base, key: `device_muted:${d.id}`, kind: 'device_muted', severity: 'warning',
         title: `Tablette « ${d.name} » ${d.soundOn === false ? 'sans son' : 'écran caché'} — ${loc(d.locationCode)}`, titleEn: `Tablet “${d.name}” ${d.soundOn === false ? 'muted' : 'screen hidden'} — ${loc(d.locationCode)}` });
     }
@@ -298,7 +319,7 @@ async function detect(s: WatchSettings, now: number) {
   // shows its sign-in page or a crashed page rings like a tablet that is off. A screen never set up (no heartbeat yet) waits.
   for (const sc of screens) {
     const st = screenStatus(sc, now);
-    if (!on('screen_down') || st === 'online' || st === 'never') continue;
+    if (!on('screen_down') || !screenIsDown(st)) continue;
     if (inactiveLocations.has(sc.locationCode) || !locationOpen(hours, sc.locationCode, brandsAt(sc.locationCode), now, tz)) continue;
     const label = `${SCREEN_PLATFORM_LABEL[sc.platform]} « ${sc.name} »`;
     const labelEn = `${SCREEN_PLATFORM_LABEL[sc.platform]} “${sc.name}”`;
@@ -315,9 +336,9 @@ async function detect(s: WatchSettings, now: number) {
   // longer than the "order waiting" delay, during opening hours: nobody is answering that screen. Only an online screen
   // counts — a screen that is down rings as screen_down instead.
   for (const sc of screens) {
-    if (!on('screen_waiting') || screenStatus(sc, now) !== 'online' || !sc.titleCount || !sc.waitingSince) continue;
-    const waitedSec = (now - Date.parse(sc.waitingSince)) / 1000;
-    if (!(waitedSec >= s.unacceptedAfterSec)) continue;
+    if (!on('screen_waiting')) continue;
+    const waitedSec = screenWaitingSeconds(sc, now, s.unacceptedAfterSec);
+    if (waitedSec === null) continue;
     if (inactiveLocations.has(sc.locationCode) || !locationOpen(hours, sc.locationCode, brandsAt(sc.locationCode), now, tz)) continue;
     const min = Math.max(1, Math.round(waitedSec / 60));
     out.push({ key: `screen_waiting:${sc.id}`, kind: 'screen_waiting', severity: 'critical', locationCode: sc.locationCode, deviceId: sc.id,
@@ -439,6 +460,32 @@ function isScreenDeviceIncident(kind: IncidentKind): boolean {
   return kind === 'device_muted' || SHARED_PHONE_KINDS.includes(kind);
 }
 
+async function currentDeviceBinding(i: Incident, s: WatchSettings, now: number): Promise<string | null> {
+  if (!i.deviceId) return null;
+  if (i.kind === 'screen_waiting' || i.kind === 'screen_down') {
+    const screen = await getScreen(i.deviceId);
+    if (!screen || screen.locationCode !== i.locationCode) return null;
+    if (i.kind === 'screen_down' && !screenIsDown(screenStatus(screen, now))) return null;
+    if (i.kind === 'screen_waiting' && screenWaitingSeconds(screen, now, s.unacceptedAfterSec) === null) return null;
+    return JSON.stringify([
+      screen.createdAt, screen.platform, [...(screen.storeIds ?? [])].sort(),
+      i.kind === 'screen_waiting' ? screen.waitingSince : null,
+    ]);
+  }
+  const tablet = await getDevice(i.deviceId);
+  if (!tablet || tablet.locationCode !== i.locationCode || tabletSignal(tablet, now).kind !== i.kind) return null;
+  return tablet.enrolledAt;
+}
+
+async function readDeviceDispatch(i: Incident, s: WatchSettings, now: number) {
+  const scope = await Promise.all([getCatalog({ strict: true }), currentDeviceBinding(i, s, now)]).catch(() => null);
+  if (!scope) return null;
+  const [catalog, binding] = scope;
+  const location = catalog.locations.find(({ code }) => code === i.locationCode);
+  if (binding === null || location?.active === false) return null;
+  return { binding, phone: location?.phone ?? undefined };
+}
+
 /** The first destination for an incident that can be handled by the kitchen. */
 export function firstAlertCallTarget(kind: IncidentKind, sharedPhone: string | null, kitchenPhone?: string): { to: string; purpose: 'alert_shared_screen' | 'alert_kitchen' } | null {
   if (!KITCHEN_KINDS.includes(kind)) return null;
@@ -462,16 +509,15 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
 
   // Check each device incident before claiming or sending anything. An earlier incident may have spent time awaiting the provider.
   const deviceAlert = isScreenDeviceIncident(i.kind);
-  const dispatchCatalog = deviceAlert ? await getCatalog({ strict: true }).catch(() => null) : null;
-  const deviceLocation = dispatchCatalog?.locations.find((location) => location.code === i.locationCode);
-  if (deviceAlert && (!dispatchCatalog || deviceLocation?.active === false)) return false;
+  const deviceDispatch = deviceAlert ? await readDeviceDispatch(i, s, now) : null;
+  if (deviceAlert && !deviceDispatch) return false;
 
   // A reservation uses the latest successful check. Only a provider attempt makes that check stale for the next send.
   let recheckBeforeSend = false;
   const mayContinue = async () => {
     if (!recheckBeforeSend) return true;
-    const latest = await getCatalog({ strict: true }).catch(() => null);
-    if (!latest || latest.locations.some((location) => location.code === i.locationCode && location.active === false)) return false;
+    const latest = await readDeviceDispatch(i, s, now);
+    if (!latest || latest.binding !== deviceDispatch?.binding) return false;
     recheckBeforeSend = false;
     return true;
   };
@@ -503,7 +549,7 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
 
   if (firstCallDue) {
     const screenAlert = SHARED_PHONE_KINDS.includes(i.kind);
-    const kitchen = deviceAlert ? deviceLocation?.phone ?? undefined : i.locationCode ? await ordinaryKitchenPhone(i.locationCode) : undefined;
+    const kitchen = deviceAlert ? deviceDispatch?.phone : i.locationCode ? await ordinaryKitchenPhone(i.locationCode) : undefined;
     const target = firstAlertCallTarget(i.kind, s.screenAlertPhone, kitchen);
     const waitingForVoice = screenAlert && Boolean(target) && !callConfigured();
     if (target && !waitingForVoice) {

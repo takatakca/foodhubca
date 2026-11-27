@@ -31,24 +31,38 @@ async function cloverGet(mid: string, token: string, path: string, qs: Record<st
   return res.json();
 }
 
+type InventoryRow = {
+  id: string; name?: string; hidden?: boolean; deleted?: boolean;
+  printers?: { elements?: Array<{ id: string }> }; tags?: { elements?: Array<{ id: string }> };
+};
+
+async function readPrintInventory(mid: string, token: string, path: 'tags' | 'items'): Promise<InventoryRow[]> {
+  const limit = 1000;
+  const rows = new Map<string, InventoryRow>();
+  const expand = path === 'tags' ? 'printers' : 'tags';
+  for (let offset = 0; ; offset += limit) {
+    const page = await cloverGet(mid, token, path, { expand, limit: String(limit), offset: String(offset) });
+    if (!Array.isArray(page?.elements)) throw new Error(`Clover returned an incomplete ${path} page. Retry the printing check.`);
+    for (const row of page.elements) {
+      if (!row?.id || rows.has(row.id)) throw new Error(`Clover returned a missing or repeated ${path} ID. Retry the printing check.`);
+      rows.set(row.id, row);
+    }
+    if (page.elements.length < limit) return [...rows.values()];
+  }
+}
+
 export async function cloverLabelReport(mid: string): Promise<CloverLabelReport> {
   const empty: CloverLabelReport = { merchantId: mid, ok: false, labels: [], kitchenLabels: [], items: 0, unprinted: [] };
   const token = await cloverToken(mid);
   if (!token) return { ...empty, error: `No Clover API token for merchant ${mid}` };
   try {
-    const tagsJson = await cloverGet(mid, token, 'tags', { expand: 'printers', limit: '500' });
-    const labels: CloverLabel[] = (tagsJson?.elements ?? []).map((t: any) => ({ id: String(t.id), name: String(t.name ?? ''), printers: (t.printers?.elements ?? []).length }));
-    const kitchen = new Set(labels.filter((l) => l.printers > 0).map((l) => l.id));
-    const items: any[] = [];
-    for (let page = 0; page < 20; page++) {
-      const json = await cloverGet(mid, token, 'items', { expand: 'tags', limit: '1000', offset: String(page * 1000) });
-      const rows: any[] = json?.elements ?? [];
-      items.push(...rows);
-      if (rows.length < 1000) break;
-    }
+    const tags = await readPrintInventory(mid, token, 'tags');
+    const labels = tags.map((tag) => ({ id: tag.id, name: tag.name ?? '', printers: tag.printers?.elements?.length ?? 0 }));
+    const kitchen = new Set(labels.filter((label) => label.printers > 0).map((label) => label.id));
+    const items = await readPrintInventory(mid, token, 'items');
     const live = items.filter((i) => !i.hidden && !i.deleted);
     const unprinted = live
-      .filter((i) => !(i.tags?.elements ?? []).some((t: any) => kitchen.has(String(t.id))))
+      .filter((i) => !(i.tags?.elements ?? []).some((tag) => kitchen.has(tag.id)))
       .map((i) => ({ id: String(i.id), name: String(i.name ?? '') }))
       .sort((a, b) => a.name.localeCompare(b.name));
     return { merchantId: mid, ok: true, labels, kitchenLabels: labels.filter((l) => l.printers > 0), items: live.length, unprinted };

@@ -1,3 +1,15 @@
+## 2026-11-27 — Préparation de #184 après la publication de #204
+
+Le SHA public `04dcc86` était stable et les sept contrôles de santé répondaient correctement. Les deux passages automatiques Watchtower de 23:03:58 et 23:04:58 UTC ont été observés dans la base Food Hub. Le rapprochement local conserve le diagnostic d’impression Clover publié et le rejeu des paliers de relève ajouté par #186 à la branche de #184. La vérification sur un téléphone marchand reste dans [#46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-27
+
+## Diagnostic des étiquettes d’impression Clover
+
+La vérification dans Réglages → Canaux lit les pages d’étiquettes et d’articles du marchand. Une réponse incomplète, en erreur ou répétée interrompt le diagnostic et l’affectation. Le résultat affiché porte sur les étiquettes configurées. La confirmation de réception du ticket et la preuve d’appel sont suivies dans [la checklist marchande](https://github.com/takatakca/foodhubca/issues/46). La branche part de #178 et suit la [file de publication](https://github.com/takatakca/foodhubca/issues/155).
+
+— Codex @ navigateur marchand · 2026-11-27
+
 ## 2026-11-26 — Réglages indisponibles et reprise du premier appel
 
 Si la lecture des réglages échoue, Watchtower suspend le passage avant la création d’un incident, le marqueur de réussite et les envois. Une modification partielle ne remplace plus les réglages enregistrés dans ce cas. L’API de réglages répond `503`. Une installation sans réglages enregistrés conserve ses valeurs par défaut.

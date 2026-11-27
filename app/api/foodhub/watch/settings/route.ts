@@ -1,6 +1,7 @@
 import { approvalGate, withPerm, type AuthUser } from '@/lib/foodhub/auth';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { channelsStatus } from '@/lib/foodhub/notify';
+import { KvUpdateConflict } from '@/lib/foodhub/repo';
 import { can } from '@/lib/foodhub/session';
 import { getWatchSettings, saveWatchSettings, WatchSettingsReadError } from '@/lib/foodhub/watch/engine';
 import { INCIDENT_KINDS, KIND_LABEL, type WatchSettings } from '@/lib/foodhub/watch/types';
@@ -44,6 +45,9 @@ export const PUT = withPerm('admin', async (req, _ctx, actor) => {
     return settingsResponse(await saveWatchSettings(patch, actor), actor);
   } catch (error) {
     if (error instanceof WatchSettingsReadError) return unavailable();
+    if (error instanceof KvUpdateConflict) {
+      return fail('Les réglages viennent de changer. Rechargez-les puis réessayez. / Alert settings changed. Reload them and try again.', 409);
+    }
     throw error;
   }
 });

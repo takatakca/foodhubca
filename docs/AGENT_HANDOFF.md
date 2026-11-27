@@ -1,3 +1,11 @@
+## 2026-11-26 — Signal natif concurrent d’un déplacement ou d’une révocation
+
+Une révision interne empêche un signal de tablette déjà en cours de restaurer une ancienne cuisine ou un jumelage révoqué. Un signal qui croise un déplacement demande une nouvelle lecture. Un signal dont le jumelage est révoqué est refusé. Le signal signé suivant peut lire la nouvelle cuisine. Les anciennes fiches de tablette continuent d’être utilisables et la révision reste interne.
+
+Les essais signés vérifient les courses avec les actions d’administration et le périmètre des compteurs. Les preuves sur les postes réels restent suivies dans [la checklist #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Signaux concurrents du relais et lien d’alerte
 
 Les écritures concurrentes d’un écran vérifient la révision enregistrée. Un signal qui a déjà lu l’ancienne affectation et la voit changer pendant l’écriture est écarté. Un nouveau signal valide remet l’instruction en attente une seule fois et alimente la relève de la cuisine actuelle. L’ancien format d’écran reste compatible. Les scénarios simulés utilisent les requêtes d’administration et de relais ainsi que le passage Watchtower signé.

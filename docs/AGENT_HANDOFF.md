@@ -1,3 +1,9 @@
+## 2026-11-27 — Source de la cuisine proposée pour un magasin Uber
+
+Dans Restaurants → Liaisons, la découverte et la lecture de l’adresse utilisent le jeton de lecture des magasins. Le commerçant peut consulter les magasins accessibles avant d’autoriser les écritures. Une suggestion de cuisine qui vient du registre historique est signalée comme telle. Dans ce cas, le bouton de vérification ouvre la liaison actuelle. La vérification des sept fiches marchandes et les refus distincts de l’inspection et du parcours d’autorisation sont consignés dans [la checklist marchande](https://github.com/takatakca/foodhubca/issues/46#issuecomment-7210321209). La publication suit la file de déploiement du [backlog](https://github.com/takatakca/foodhubca/issues/155).
+
+— signé : Codex @ Chrome marchand · 2026-11-27
+
 ## 2026-11-26 — Numéro de commande saisi à partir d’un écran
 
 La saisie manuelle distingue désormais deux commandes qui portent le même numéro affiché dans deux magasins. Saisir deux fois le même numéro pour le même magasin reste un doublon, même depuis un autre écran ou si la première saisie date d’une version antérieure. Clover utilise une référence de magasin dans le titre de reprise des nouvelles commandes pour retrouver la bonne commande quand plusieurs magasins partagent une caisse. L’import reconnaît ce titre sans écarter une commande native de Clover qui porte le même numéro. Le numéro affiché reste celui de la plateforme. Les preuves de réception physique restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

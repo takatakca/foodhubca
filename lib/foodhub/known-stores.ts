@@ -13,7 +13,7 @@ export interface KnownStore {
   address: string | null;
   suggestedBrand: string | null;
   suggestedLocation: string | null;
-  /** Read from Uber (address confirmed) or only from the name the owner gave. */
+  /** The current Uber address yielded the suggested kitchen. */
   confirmedByPlatform: boolean;
   mapped: { id: string; brandName: string; locationCode: string } | null;
   /** The store's kitchen: Uber's live address when it matches a location, else the kitchen recorded in data/actual. */
@@ -52,7 +52,7 @@ export async function knownStores(): Promise<KnownStore[]> {
     const m = mapped.get(k.store_id);
     return {
       channel: 'uber_eats' as const, storeId: k.store_id, name, address,
-      suggestedBrand: s.suggestedBrand ?? null, suggestedLocation: expectedLocation ?? s.suggestedLocation ?? null, confirmedByPlatform: Boolean(details?.ok),
+      suggestedBrand: s.suggestedBrand ?? null, suggestedLocation: expectedLocation ?? s.suggestedLocation ?? null, confirmedByPlatform: Boolean(fromAddress),
       mapped: m ? { id: m.id, brandName: m.brandName, locationCode: m.locationCode } : null,
       expectedLocation, locationMismatch: Boolean(m && expectedLocation && m.locationCode !== expectedLocation),
     };

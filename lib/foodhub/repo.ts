@@ -15,12 +15,14 @@ type StoreSnapshot = Pick<ChannelStore, 'channel' | 'channelStoreId' | 'location
 
 export type SkipLifecycleInput =
   | { kind: 'backup'; order: NormalizedOrder & { locationCode?: string }; mappedStore: boolean; message: string; detail: Record<string, unknown> }
-  | { kind: 'cancel'; externalOrderId: string; detail: Record<string, unknown> };
+  | { kind: 'cancel'; externalOrderId: string; detail: Record<string, unknown> }
+  | { kind: 'intake'; order: NormalizedOrder & { locationCode?: string } }
+  | { kind: 'check_intake'; externalOrderId: string };
 
 export interface SkipLifecycleResult {
   order: StoredOrder | null;
   isNew: boolean;
-  outcome: 'conflicting_store' | 'ignored' | 'cancelled' | 'parked' | 'backed_up';
+  outcome: 'conflicting_store' | 'ignored' | 'cancelled' | 'parked' | 'backed_up' | 'received';
   transitioned?: true;
 }
 
@@ -103,8 +105,8 @@ function memState(): MemState {
 }
 
 function skipNoticeReference(input: SkipLifecycleInput): string {
-  const reference = input.kind === 'backup' ? input.order.externalOrderId : input.externalOrderId;
-  if (!reference || (input.kind === 'backup' && input.order.channel !== 'skip')) throw new Error('Invalid Skip lifecycle notice');
+  const reference = 'order' in input ? input.order.externalOrderId : input.externalOrderId;
+  if (!reference || ('order' in input && input.order.channel !== 'skip')) throw new Error('Invalid Skip lifecycle notice');
   return reference;
 }
 
@@ -127,6 +129,20 @@ function applySkipLifecycleInMemory(input: SkipLifecycleInput): SkipLifecycleRes
   const key = `pending:skip:${externalOrderId}`;
   const pending = state.kv.get(key) as PendingPlatformEvents | undefined;
   const existing = [...state.orders.values()].find((order) => order.channel === 'skip' && order.externalOrderId === externalOrderId);
+  const direct = existing && !existing.viaHub && !existing.viaPos;
+  if (input.kind === 'check_intake' && (!existing || !direct || existing.status !== 'new' || existing.posOrderId)) {
+    return { order: existing ?? null, isNew: false, outcome: 'ignored' };
+  }
+  if (input.kind === 'intake') {
+    if (input.order.viaHub || input.order.viaPos) return { order: null, isNew: false, outcome: 'ignored' };
+    const existingStore = existing?.channelStoreId;
+    const inputStore = input.order.channelStoreId;
+    const blank = /^[ \t\n\r\f\v]*$/;
+    if (!blank.test(existingStore ?? '') && !blank.test(inputStore ?? '') && existingStore !== inputStore) {
+      return { order: null, isNew: false, outcome: 'conflicting_store' };
+    }
+    if (existing && (!direct || existing.status !== 'new')) return { order: existing, isNew: false, outcome: 'received' };
+  }
   const parked = pending && !pending.consumedAt && pending.status && /cancel|fail/i.test(pending.status.platformState) ? pending : undefined;
   const cancellation = input.kind === 'cancel'
     ? { platformState: 'cancelled', detail: input.detail, at: now }
@@ -144,7 +160,7 @@ function applySkipLifecycleInMemory(input: SkipLifecycleInput): SkipLifecycleRes
     return { order: null, isNew: false, outcome: 'ignored' };
   }
   const isNew = !existing;
-  const order = existing ?? (input.kind === 'backup'
+  const order = existing ?? ('order' in input
     ? { ...input.order, id: crypto.randomUUID(), createdAt: now, updatedAt: now }
     : null);
   if (!order) throw new Error('Missing Skip order');
@@ -153,11 +169,10 @@ function applySkipLifecycleInMemory(input: SkipLifecycleInput): SkipLifecycleRes
     state.events.push({ id: crypto.randomUUID(), orderId: order.id, type, detail: JSON.parse(JSON.stringify(detail)), at: now });
   };
   const consumePending = () => {
-    if (input.kind === 'backup' && parked) state.kv.set(key, { ...parked, consumedAt: now });
+    if (input.kind !== 'cancel' && parked) state.kv.set(key, { ...parked, consumedAt: now });
   };
 
   if (existing) {
-    const direct = !existing.viaHub && !existing.viaPos;
     if (direct && input.kind === 'backup' && !cancellation && existing.status === 'failed'
       && state.events.some((event) => event.orderId === order.id && event.type === 'routed_to_skip_tablet')) {
       return { order: existing, isNew: false, outcome: 'backed_up' };
@@ -188,6 +203,12 @@ function applySkipLifecycleInMemory(input: SkipLifecycleInput): SkipLifecycleRes
     consumePending();
     addEvent('platform_status', { ...cancellation.detail, state: cancellation.platformState, at: cancellation.at ?? now });
     return { order: cancelled, isNew, outcome: 'cancelled', transitioned: true };
+  }
+  if (input.kind === 'intake' || input.kind === 'check_intake') {
+    if (existing) return { order: existing, isNew: false, outcome: 'received' };
+    const received: StoredOrder = { ...order, status: 'new', timeline: {} };
+    state.orders.set(order.id, received);
+    return { order: received, isNew: true, outcome: 'received' };
   }
   if (input.kind !== 'backup') throw new Error('Missing Skip cancellation');
   const backedUp: StoredOrder = { ...order, status: 'failed', updatedAt: now, channelError: input.message, timeline: existing?.timeline ?? {} };
@@ -444,10 +465,11 @@ function supabaseRepo(): FoodHubRepo {
     mode: 'supabase',
     async applySkipLifecycle(input) {
       const backup = input.kind === 'backup' ? input : null;
+      const seed = 'order' in input ? input.order : null;
       const result = must(await db.rpc('fh_apply_skip_lifecycle', {
         p_kind: input.kind, p_external_id: skipNoticeReference(input),
-        p_order: backup ? { ...orderToRow(backup.order), data: backup.order } : null,
-        p_mapped: backup?.mappedStore ?? false, p_message: backup?.message ?? null, p_detail: input.detail,
+        p_order: seed ? { ...orderToRow(seed), data: seed } : null,
+        p_mapped: backup?.mappedStore ?? false, p_message: backup?.message ?? null, p_detail: 'detail' in input ? input.detail : {},
       })) as Omit<SkipLifecycleResult, 'order'> & { order: Row | null };
       return { ...result, order: result.order ? rowToOrder(result.order) : null };
     },

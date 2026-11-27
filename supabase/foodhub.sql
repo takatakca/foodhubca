@@ -145,7 +145,7 @@ begin;
 create index if not exists fh_skip_cancel_inbox_reference_idx on public.fh_docs ((data->>'reference'), at desc)
   where collection = 'webhook_inbox' and data->>'channel' = 'skip' and data->>'kind' = 'skip_cancel';
 
--- Apply direct JET Connect notices without exposing a transient new order. The lock also covers an absent order row.
+-- Arbitrate direct JET Connect intake and lifecycle notices on the same order lock, even before a row exists.
 create or replace function public.fh_apply_skip_lifecycle(
   p_kind text, p_external_id text, p_order jsonb, p_mapped boolean, p_message text, p_detail jsonb
 ) returns jsonb
@@ -160,6 +160,7 @@ declare
   event_detail jsonb;
   cancel_timeline jsonb := '{}'::jsonb;
   pending_key text := 'pending:skip:' || p_external_id;
+  blank_store_chars constant text := E' \t\n\r\f' || chr(11);
   event_at text;
   observed_at timestamptz;
   cancellation_reason text;
@@ -169,13 +170,13 @@ declare
   parked_cancel boolean := false;
   transitioned boolean := false;
 begin
-  if p_kind is null or p_kind not in ('backup', 'cancel') or p_external_id is null or p_external_id = '' then
+  if p_kind is null or p_kind not in ('backup', 'cancel', 'intake', 'check_intake') or p_external_id is null or p_external_id = '' then
     raise exception 'Invalid Skip lifecycle notice' using errcode = '22023';
   end if;
-  if p_kind = 'backup' then
+  if p_kind in ('backup', 'intake') then
     seed := jsonb_populate_record(null::public.fh_orders, p_order);
     if seed.channel is distinct from 'skip' or seed.external_order_id is distinct from p_external_id then
-      raise exception 'Invalid Skip backup order' using errcode = '22023';
+      raise exception 'Invalid Skip order seed' using errcode = '22023';
     end if;
   end if;
 
@@ -185,6 +186,26 @@ begin
   event_detail := coalesce(p_detail, '{}'::jsonb);
   select * into current_order from public.fh_orders
     where channel = 'skip' and external_order_id = p_external_id for update;
+
+  if p_kind = 'check_intake' and (current_order.id is null or current_order.status <> 'new' or coalesce(current_order.pos_order_id, '') <> ''
+      or coalesce(current_order.data->>'viaHub', '') <> '' or coalesce(current_order.data->>'viaPos', '') <> '') then
+    return jsonb_build_object('order', case when current_order.id is null then null else to_jsonb(current_order) end,
+      'isNew', false, 'outcome', 'ignored');
+  end if;
+  if p_kind = 'intake' then
+    if coalesce(seed.data->>'viaHub', '') <> '' or coalesce(seed.data->>'viaPos', '') <> '' then
+      return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'ignored');
+    end if;
+    if coalesce(btrim(current_order.channel_store_id, blank_store_chars), '') <> ''
+        and coalesce(btrim(seed.channel_store_id, blank_store_chars), '') <> ''
+        and current_order.channel_store_id is distinct from seed.channel_store_id then
+      return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'conflicting_store');
+    end if;
+    if current_order.id is not null and (current_order.status <> 'new'
+        or coalesce(current_order.data->>'viaHub', '') <> '' or coalesce(current_order.data->>'viaPos', '') <> '') then
+      return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'received');
+    end if;
+  end if;
 
   if p_kind = 'cancel' then
     desired_status := 'cancelled';
@@ -196,7 +217,7 @@ begin
         on conflict (key) do update set
           value = (existing.value - 'consumedAt') || excluded.value, updated_at = excluded.updated_at;
       parked_cancel := true;
-      -- Ordinary intake is outside this lock and may have inserted while the cancellation was parked.
+      -- Legacy intake or another source may insert outside this lock while the cancellation is parked.
       select * into current_order from public.fh_orders
         where channel = 'skip' and external_order_id = p_external_id for update;
       if current_order.id is null then
@@ -204,7 +225,7 @@ begin
       end if;
     end if;
   else
-    desired_status := 'failed';
+    desired_status := case when p_kind = 'backup' then 'failed' else 'new' end;
     select value into pending from public.fh_kv where key = pending_key for update;
     if coalesce(pending->>'consumedAt', '') = '' and pending->'status'->>'platformState' ~* 'cancel|fail' then
       cancellation := pending->'status';
@@ -252,8 +273,18 @@ begin
       and current_order.channel_store_id is distinct from seed.channel_store_id then
     return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'conflicting_store');
   end if;
+  -- An intake outside this lock may have won the unique insert since the first read.
+  if p_kind = 'intake' and not inserted and coalesce(btrim(current_order.channel_store_id, blank_store_chars), '') <> ''
+      and coalesce(btrim(seed.channel_store_id, blank_store_chars), '') <> ''
+      and current_order.channel_store_id is distinct from seed.channel_store_id then
+    return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'conflicting_store');
+  end if;
   if not inserted then
-    if p_kind = 'backup' and (coalesce(current_order.data->>'viaHub', '') <> '' or coalesce(current_order.data->>'viaPos', '') <> '') then
+    if p_kind in ('intake', 'check_intake') and (desired_status = 'new' or current_order.status <> 'new'
+        or coalesce(current_order.data->>'viaHub', '') <> '' or coalesce(current_order.data->>'viaPos', '') <> '') then
+      disposition := 'received';
+      parked_cancel := false;
+    elsif p_kind = 'backup' and (coalesce(current_order.data->>'viaHub', '') <> '' or coalesce(current_order.data->>'viaPos', '') <> '') then
       disposition := 'ignored';
     elsif desired_status = 'cancelled' and current_order.status = 'cancelled' then
       disposition := 'cancelled';
@@ -285,10 +316,12 @@ begin
           jsonb_build_object('state', cancellation->>'platformState', 'at', coalesce(cancellation->>'at', event_at)));
       disposition := 'cancelled';
       transitioned := true;
-    else
+    elsif desired_status = 'failed' then
       insert into public.fh_order_events (order_id, type, detail)
         values (current_order.id, 'routed_to_skip_tablet', event_detail || jsonb_build_object('message', p_message));
       disposition := 'backed_up';
+    else
+      disposition := 'received';
     end if;
   elsif disposition = 'ignored' and p_kind = 'backup' then
     event_detail := event_detail || jsonb_build_object('status', current_order.status);

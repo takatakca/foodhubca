@@ -1,3 +1,4 @@
+- 2026-11-26 | Codex @ cloud | fix/relay-partner-rejection → PR #192 | PR #192 | vérifier l’annulation Skip avant envoi et reprise Clover, reprendre les avis après panne | vérifier les preuves signées et la fonction PostgREST avant publication — signé : Codex @ cloud · 2026-11-26
 - 2026-11-26 | Codex @ cloud | fix/relay-partner-rejection → PR #192 | PR #192 | enregistrer les avis d’annulation et de repli Skip avant l’accusé, arbitre PostgreSQL | vérifier CI et installer le bloc SQL avant toute publication — signé : Codex @ cloud · 2026-11-26
 - 2026-11-26 | Codex @ cloud | fix/relay-partner-rejection → PR #192 | conserver les avis Final Picked pour le rapprochement | suivre CI et preuve marchande — signé : Codex @ cloud · 2026-11-26
 - 2026-11-26 | Codex @ cloud | fix/relay-partner-rejection → PR #192 | protéger les annulations et états terminaux lors du repli Skip | suivre CI et preuves dans #105 et #46 — signé : Codex @ cloud · 2026-11-26

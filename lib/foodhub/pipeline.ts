@@ -62,8 +62,22 @@ function actionsFor(order: { channel: ChannelKey; viaHub?: 'relay' | 'screen' })
   return order.viaHub === 'relay' ? relayActions : getAdapter(order.channel);
 }
 
+function isDirectSkipSource(order: Pick<NormalizedOrder, 'channel' | 'viaHub' | 'viaPos'>): boolean {
+  return order.channel === 'skip' && !order.viaHub && !order.viaPos;
+}
+
 function isDirectSkipOrder(order: Pick<NormalizedOrder, 'channel' | 'viaHub' | 'viaPos'>): boolean {
-  return order.channel === 'skip' && !order.viaHub && !order.viaPos && !isViaClover('skip');
+  return isDirectSkipSource(order) && !isViaClover('skip');
+}
+
+async function stopCancelledSkipIntake(order: StoredOrder, transitioned?: true): Promise<PipelineOutcome> {
+  if (transitioned) {
+    const reason = order.timeline?.cancelReason;
+    await logActivity({ actor: CHANNEL_LABELS.skip, source: 'platform', kind: 'order', action: 'platform_cancel', status: 'info', channel: 'skip', brandName: order.brandName, locationCode: order.locationCode, orderId: order.id,
+      summary: `Skip cancelled #${order.displayId || order.externalOrderId.slice(0, 8)} before processing${reason ? ` — ${reason}` : ''}` });
+  }
+  const settled = order.posOrderId ? (await settleInClover(order)) ?? order : order;
+  return { order: settled, duplicate: false, pos: { ok: false, skipped: true, error: 'Cancelled by the platform before processing.' } };
 }
 
 async function unmappedCloverHold(order: Pick<StoredOrder, 'channelStoreId' | 'locationCode'>, store: ChannelStore | null): Promise<string | null> {
@@ -102,7 +116,7 @@ export function screenActions(channel: ChannelKey): Pick<ChannelAdapter, 'accept
  * name is not mapped): it is stored and shown on the Command Center, never sent to Clover, never printed, never
  * accepted automatically — the reason is kept as its POS error until the store is mapped (or a person sends it).
  */
-export async function processIncomingOrder(n: NormalizedOrder, opts: { holdClover?: string } = {}): Promise<PipelineOutcome> {
+export async function processIncomingOrder(n: NormalizedOrder, opts: { holdClover?: string; retrying?: boolean } = {}): Promise<PipelineOutcome> {
   const repo = getRepo();
   const store = n.channelStoreId ? await repo.findStore(n.channel, n.channelStoreId) : null;
   const brandName = store?.brandName || n.brandName;
@@ -120,29 +134,44 @@ export async function processIncomingOrder(n: NormalizedOrder, opts: { holdClove
     n.mappingWarnings = mapped.warnings.length ? mapped.warnings : undefined;
   }
 
-  const { order, isNew } = await repo.insertOrderIfNew({ ...n, brandName, locationCode: store?.locationCode });
-  if (!isNew) {
-    // Stored, but the server stopped before Clover was even tried: this later delivery (inbox recovery, a platform
-    // re-delivery, a Replay) finishes the job instead of answering "duplicate" and leaving the kitchen without it.
-    if (neverSentToClover(order)) return resumeUnsentOrder(order);
+  const directSkip = isDirectSkipSource(n);
+  const mappedOrder = { ...n, brandName, locationCode: store?.locationCode };
+  // The signed cancellation may be in the durable inbox even while its own worker is stopped.
+  const skipIntake = directSkip ? await repo.applySkipLifecycle({ kind: 'intake', order: mappedOrder }) : null;
+  if (skipIntake?.outcome === 'conflicting_store') throw new Error('Skip order reference is already recorded for a different store.');
+  const { order, isNew } = skipIntake ?? await repo.insertOrderIfNew(mappedOrder);
+  if (!order) throw new Error('Skip intake returned no stored order.');
+  const cancelledAtIntake = skipIntake?.outcome === 'cancelled';
+  if (!isNew && !cancelledAtIntake) {
+    // A later delivery can finish an interrupted send for this direct store or for the original non-Skip path.
+    const sameStore = !order.channelStoreId?.trim() || !n.channelStoreId?.trim() || order.channelStoreId === n.channelStoreId;
+    const sameSource = !directSkip || (isDirectSkipSource(order) && sameStore);
+    if (sameSource && neverSentToClover(order)) return resumeUnsentOrder(order);
+    // Keep this receipt retryable until an interrupted Skip intake is eligible for recovery.
+    if (directSkip && sameSource && opts.retrying && waitingForFirstCloverSend(order)) {
+      throw new Error('Skip order is waiting for its previous Clover processing window.');
+    }
     await repo.addEvent(order.id, 'duplicate_delivery', { note: 'Webhook delivered again; ignored.' });
     return { order, duplicate: true };
   }
-  await noteLastOrder(n.channel, order.createdAt);
-
-  await repo.addEvent(order.id, 'received', { channel: n.channel, marketplace: n.marketplace, total: n.total, lines: n.lines.length });
-  if (!store) {
-    await repo.addEvent(order.id, 'unmapped_store', { channelStoreId: n.channelStoreId, hint: 'Map this store in Food Hub → Stores so orders route to the right brand, location and Clover merchant.' });
+  if (isNew) {
+    await noteLastOrder(n.channel, order.createdAt);
+    await repo.addEvent(order.id, 'received', { channel: n.channel, marketplace: n.marketplace, total: n.total, lines: n.lines.length });
+    if (!store) {
+      await repo.addEvent(order.id, 'unmapped_store', { channelStoreId: n.channelStoreId, hint: 'Map this store in Food Hub → Stores so orders route to the right brand, location and Clover merchant.' });
+    }
+    if (n.mappingWarnings?.length) {
+      const said = describeMappingWarnings(n.mappingWarnings);
+      await repo.addEvent(order.id, 'mapping_warning', { message: said.map((w) => w.en).join(' '), messageFr: said.map((w) => w.fr).join(' '), warnings: n.mappingWarnings });
+    }
   }
-  if (n.mappingWarnings?.length) {
-    const said = describeMappingWarnings(n.mappingWarnings);
-    await repo.addEvent(order.id, 'mapping_warning', { message: said.map((w) => w.en).join(' '), messageFr: said.map((w) => w.fr).join(' '), warnings: n.mappingWarnings });
-  }
+  if (cancelledAtIntake) return stopCancelledSkipIntake(order, skipIntake?.transitioned);
 
   // A cancellation that arrived before the order was stored: do not cook it, do not put it in Clover, do not accept it.
   const pending = await readPending(n.channel, n.externalOrderId);
-  if (pending) await repo.setKv(pendingKey(n.channel, n.externalOrderId), { ...pending, consumedAt: nowIso() }).catch(() => undefined);
-  if (pending?.status && /cancel|fail/i.test(pending.status.platformState)) {
+  const pendingCancellation = pending?.status && /cancel|fail/i.test(pending.status.platformState);
+  if (pending && (!directSkip || !pendingCancellation)) await repo.setKv(pendingKey(n.channel, n.externalOrderId), { ...pending, consumedAt: nowIso() }).catch(() => undefined);
+  if (!directSkip && pending?.status && pendingCancellation) {
     const why = String(pending.status.detail.reason ?? pending.status.detail.event ?? 'Cancelled on the platform');
     const cancelled = await patchTimeline(order, { cancelledAt: nowIso(), cancelledBy: /customer|eater/i.test(why) ? 'customer' : 'platform', cancelStage: 'before_accept', cancelReason: why }, { status: 'cancelled' });
     await repo.addEvent(order.id, 'platform_status', { state: pending.status.platformState, ...pending.status.detail, at: pending.status.at, note: 'Arrived before the order itself; applied on arrival — nothing sent to Clover or the platform.' });
@@ -168,6 +197,14 @@ export async function processIncomingOrder(n: NormalizedOrder, opts: { holdClove
   // 1) POS injection (+ order type, payment record, kitchen ticket).
   // One register may serve several kitchens. Hold an order whose route cannot be determined until it has a mapping.
   const routingHold = opts.holdClover ? null : await unmappedCloverHold(current, store);
+  if (directSkip) {
+    // A signed cancellation can reach the inbox during local prep and mapping, before its worker runs.
+    const check = await repo.applySkipLifecycle({ kind: 'check_intake', externalOrderId: order.externalOrderId });
+    if (!check.order || check.order.id !== order.id) throw new Error('Skip order changed before Clover processing.');
+    if (check.order.status === 'cancelled') return stopCancelledSkipIntake(check.order, check.transitioned);
+    if (check.outcome !== 'received') return { order: check.order, duplicate: true };
+    current = check.order;
+  }
   const pos: InjectResult = opts.holdClover
     ? { ok: false, skipped: true, error: opts.holdClover }
     : routingHold
@@ -223,7 +260,7 @@ export async function processIncomingOrder(n: NormalizedOrder, opts: { holdClove
   }
 
   // Platform events that arrived before the order (courier assigned, non-cancel status): apply them now.
-  if (pending?.status) await applyExternalStatus(n.channel, n.externalOrderId, pending.status.platformState, pending.status.detail).catch(() => null);
+  if (pending?.status && (!directSkip || !pendingCancellation)) await applyExternalStatus(n.channel, n.externalOrderId, pending.status.platformState, pending.status.detail).catch(() => null);
   for (const c of pending?.courier ?? []) await applyCourierUpdate(n.channel, n.externalOrderId, c.update, c.source).catch(() => null);
   if (pending) current = (await repo.getOrder(order.id)) ?? current;
 
@@ -233,13 +270,21 @@ export async function processIncomingOrder(n: NormalizedOrder, opts: { holdClove
 /** A first processing still under way is given this long before a later delivery takes the order over. */
 export const RESUME_AFTER_MS = 90_000;
 
-/**
- * Stored but never sent to Clover, and not being sent: still new, no Clover id, no Clover error, no retry planned or
- * claimed, Clover expected, and old enough that its first processing has stopped (RESUME_AFTER_MS).
- */
-export function neverSentToClover(o: StoredOrder, now = Date.now()): boolean {
-  return o.status === 'new' && !o.posOrderId && !o.posError && !o.timeline?.posRetry && !o.viaPos && cloverExpected()
-    && now - Date.parse(o.createdAt) >= RESUME_AFTER_MS;
+function waitingForFirstCloverSend(order: StoredOrder): boolean {
+  if (order.status !== 'new' || order.posOrderId || order.posError || order.viaPos || !cloverExpected()) return false;
+  const retry = order.timeline?.posRetry;
+  if (!retry) return true;
+  // A direct Skip resume can stop between claiming it and starting Clover. Other retry schedules have their own runner.
+  return isDirectSkipSource(order) && retry.attempts === 0 && retry.nextAt === null && retry.uncertain === true
+    && Boolean(retry.claim && retry.claimedAt) && !retry.lastError && !retry.gaveUpAt && !retry.doneAt;
+}
+
+/** A stalled first send whose receipt is old enough to resume. A direct Skip resume lease must also have expired. */
+export function neverSentToClover(order: StoredOrder, now = Date.now()): boolean {
+  const waitedLongEnough = now - Date.parse(order.createdAt) >= RESUME_AFTER_MS;
+  if (!waitedLongEnough || !waitingForFirstCloverSend(order)) return false;
+  const claimedAt = order.timeline?.posRetry?.claimedAt;
+  return !claimedAt || now - Date.parse(claimedAt) >= RESUME_AFTER_MS;
 }
 
 /**
@@ -250,18 +295,30 @@ export function neverSentToClover(o: StoredOrder, now = Date.now()): boolean {
 async function resumeUnsentOrder(order: StoredOrder): Promise<PipelineOutcome> {
   const repo = getRepo();
   const claim = crypto.randomUUID();
-  await repo.patchOrder(order.id, { posRetry: { attempts: 0, nextAt: null, uncertain: true, claim, claimedAt: nowIso() } });
+  await repo.patchOrder(order.id, { posRetry: { attempts: 0, nextAt: null, uncertain: true, claim, claimedAt: nowIso() } }, {}, (fresh) => neverSentToClover(fresh));
   let current = await repo.getOrder(order.id);
   if (!current || current.timeline?.posRetry?.claim !== claim || current.status !== 'new' || current.posOrderId) {
     await repo.addEvent(order.id, 'duplicate_delivery', { note: 'Webhook delivered again while the order was being finished; ignored.' });
     return { order: current ?? order, duplicate: true };
   }
-  await repo.addEvent(order.id, 'resumed', { message: 'Stored earlier, but processing stopped before Clover got it (server restart) — finished now; Clover is checked first so it is never sent twice.' });
   if (!current.timeline?.readyTarget) {
     const prep = await prepFor(current.locationCode);
     const scheduled = scheduledInfo(current, prep.minutes);
     current = await patchTimeline(current, { readyTarget: scheduled?.scheduledFor ?? new Date(Date.now() + prep.minutes * 60_000).toISOString(), ...(scheduled ?? {}) });
   }
+  if (isDirectSkipSource(current)) {
+    const check = await repo.applySkipLifecycle({ kind: 'check_intake', externalOrderId: order.externalOrderId }).catch(async (error: unknown) => {
+      // No Clover request has started. Give back only our claim so the same durable receipt can retry.
+      await repo.patchOrder(order.id, { posRetry: undefined }, {}, (fresh) => fresh.status === 'new' && !fresh.posOrderId && fresh.timeline?.posRetry?.claim === claim).catch(() => undefined);
+      throw error;
+    });
+    if (check.order?.status === 'cancelled') return stopCancelledSkipIntake(check.order, check.transitioned);
+    if (check.outcome !== 'received' || !check.order || check.order.id !== order.id || check.order.timeline?.posRetry?.claim !== claim) {
+      return { order: check.order ?? current, duplicate: true };
+    }
+    current = check.order;
+  }
+  await repo.addEvent(order.id, 'resumed', { message: 'Stored earlier, but processing stopped before Clover got it (server restart) — finished now; Clover is checked first so it is never sent twice.' });
   const sent = await resendToClover(current, { by: 'Food Hub (resumed)' });
   current = sent.order;
   let accept: ChannelResult | undefined;

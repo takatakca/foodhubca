@@ -138,7 +138,7 @@ async function visibleTo(e: Pick<InboxEntry, 'channel' | 'kind' | 'body'>, locat
   return Boolean(loc && locations.includes(loc));
 }
 
-type Handler = (body: any) => Promise<{ result: string; orderId?: string | null }>;
+type Handler = (body: any, retrying: boolean) => Promise<{ result: string; orderId?: string | null }>;
 
 async function handlerFor(kind: InboxKind, sandbox?: string | null): Promise<Handler> {
   // Tagged as a DoorDash sandbox test when it arrived: the test list only, never processIncomingOrder.
@@ -151,8 +151,8 @@ async function handlerFor(kind: InboxKind, sandbox?: string | null): Promise<Han
   if (kind === 'skip_backup') return (await import('./webhooks/skip')).handleSkipBackupWebhook;
   if (kind === 'skip_cancel') return (await import('./webhooks/skip')).handleSkipCancelWebhook;
   const { pipelineOutcomeText, processIncomingOrder } = await import('./pipeline');
-  return async (body: NormalizedOrder) => {
-    const out = await processIncomingOrder(body);
+  return async (body: NormalizedOrder, retrying) => {
+    const out = await processIncomingOrder(body, { retrying });
     return { result: pipelineOutcomeText(out), orderId: out.order.id };
   };
 }
@@ -226,7 +226,7 @@ export async function runInboxEntry(id: string, opts: { now?: number; replayBy?:
   const holdMs = e2eHookMs('FOODHUB_E2E_PROCESS_DELAY_MS', { max: 120_000 });
   if (holdMs) await new Promise((resolve) => setTimeout(resolve, holdMs));
   try {
-    const out = await (await handlerFor(entry.kind, entry.sandbox))(entry.body);
+    const out = await (await handlerFor(entry.kind, entry.sandbox))(entry.body, entry.attempts > 0);
     const done: InboxEntry = { ...started, status: 'done', nextAt: null, lastError: null, result: out.result, orderId: out.orderId ?? entry.orderId ?? null, updatedAt: nowIso() };
     await save(done);
     if (opts.replayBy) {

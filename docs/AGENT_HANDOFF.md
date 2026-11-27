@@ -1,3 +1,11 @@
+## 2026-11-26 — Annulation Skip avant une commande directe ou sa reprise
+
+La commande directe Skip consulte la même transaction que le repli. Une annulation déjà reçue est appliquée même si son traitement asynchrone attend encore. Une seconde vérification intervient après les préparatifs locaux, avant l’envoi initial à Clover. La reprise revérifie après sa prise en charge et avant de chercher ou d’envoyer la commande à Clover. En cas d’indisponibilité, l’avis reste relançable et une prise en charge interrompue peut être reprise après son expiration. Les commandes relayées, saisies à l’écran ou importées de Clover gardent leur origine et une référence déjà rattachée à un autre magasin reste protégée.
+
+La fonction PostgreSQL élargie doit être disponible via PostgREST au rôle serveur avant le déploiement de ce code. Les contrôles s’appliquent avant de démarrer le parcours Clover décrit. Les réponses Clover déjà en transit et la suite du traitement externe demeurent à vérifier dans [le backlog #155](https://github.com/takatakca/foodhubca/issues/155).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Enregistrement durable du repli et de l’annulation Skip
 
 Les deux webhooks signés enregistrent l’avis dans la boîte de réception avant l’accusé JET. La reprise traite les deux types comme des avis de statut et la relance des anciens replis conserve leur type. Un repli dont l’écriture échoue reste en attente, sans commande provisoire. La transaction PostgreSQL choisit le statut et écrit la preuve de transition ensemble. Une annulation déjà enregistrée prévaut même si son traitement attend encore. Un repli valide conserve le suivi tablette et la règle MEV existante.

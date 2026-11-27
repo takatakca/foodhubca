@@ -1,3 +1,9 @@
+## 2026-11-27 — Cuisine désactivée dans le parcours Clover
+
+Le parcours par marchand ou par cuisine exclut ses liaisons et tablettes lorsque la cuisine est explicitement désactivée. Les réglages Entreprise permettent de vérifier son état. Le parcours utilise les liaisons héritées déjà attribuées si la lecture du catalogue confirme qu’aucune désactivation ne s’y applique. Si la lecture du catalogue échoue, le parcours signale que la vérification de la cuisine est temporairement indisponible. Le propriétaire sans restriction garde son bilan global.
+
+— signé : Codex @ cloud · 2026-11-27
+
 ## 2026-11-26 — Vérification de mise en route par marchand Clover
 
 L’accueil Clover évalue les liaisons de la caisse du marchand dans les cuisines autorisées. Il annonce une caisse par défaut quand celle-ci fournit la liaison, puis vérifie les tablettes et le NIP dans le même périmètre. Une caisse sans liaison renvoie vers Restaurants → Liaisons. L’accueil de la console applique les cuisines du compte et le propriétaire sans restriction garde son bilan global.

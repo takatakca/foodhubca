@@ -6,6 +6,7 @@
 import { CHANNEL_KEYS, getAdapter } from './adapters';
 import { isRelayStore, relayReadiness } from './adapters/relay';
 import { isViaClover } from './adapters/via-clover';
+import { getCatalog } from './catalog';
 import { CHANNEL_LABELS } from './config';
 import { listDevices } from './identity/devices';
 import { cloverInjectionEnabled, cloverTokenFor, defaultCloverMerchant } from './pos/clover';
@@ -37,18 +38,24 @@ export async function onboardingSteps(opts: OnboardingScope = {}): Promise<Onboa
   const repo = getRepo();
   const viewerScope = new Set(opts.locationCodes);
   const scoped = Boolean(opts.merchantId || viewerScope.size);
-  const [stores, menus, devices, users, injectionDefault, connections] = await Promise.all([
+  const [stores, menus, devices, users, injectionDefault, connections, catalog] = await Promise.all([
     repo.listStores().catch(() => []),
     repo.listMenus().catch(() => []),
     listDevices().catch(() => []),
     repo.listUsers().catch(() => []),
     scoped ? defaultCloverMerchant().catch(() => null) : Promise.resolve(null),
     scoped ? listCloverConnections().catch(() => []) : Promise.resolve([]),
+    scoped ? getCatalog({ strict: true }).catch(() => null) : Promise.resolve(null),
   ]);
 
-  const scopedStores = stores.filter((store) => store.locationCode && (!viewerScope.size || viewerScope.has(store.locationCode))
+  const catalogUnavailable = scoped && !catalog;
+  const disabled = new Set(catalog?.locations.filter(({ active }) => active === false).map(({ code }) => code));
+  // Existing bindings can refer to older kitchen codes. Only an explicit deactivation excludes one after a successful read.
+  const permittedStores = stores.filter((store) => store.locationCode && (!viewerScope.size || viewerScope.has(store.locationCode))
     && (!opts.merchantId || routeMerchant(store, injectionDefault) === opts.merchantId));
-  const kitchens = opts.merchantId ? new Set(scopedStores.map(({ locationCode }) => locationCode)) : viewerScope;
+  const scopedStores = catalogUnavailable ? [] : permittedStores.filter(({ locationCode }) => !disabled.has(locationCode));
+  const scopedLocations = [...viewerScope].filter((code) => !disabled.has(code));
+  const kitchens = new Set(opts.merchantId ? scopedStores.map(({ locationCode }) => locationCode) : catalogUnavailable ? [] : scopedLocations);
   const connected = new Set(connections.filter((connection) => connection.status !== 'pending' && !connection.needsReconnect).map(({ merchantId }) => merchantId));
   const relay = relayReadiness();
   const scopedRoutes = scoped ? scopedStores.filter((store) => {
@@ -79,9 +86,19 @@ export async function onboardingSteps(opts: OnboardingScope = {}): Promise<Onboa
   const tabletKitchens = new Set(enrolled.map(({ locationCode }) => locationCode));
   const pinHolder = Boolean(opts.viewerHasPin) || users.some((user) => user.active && user.pinHash && (user.role === 'owner' || user.role === 'manager')
     && (!scoped || !user.locations?.length || user.locations.some((location) => tabletKitchens.has(location))));
-  const unmapped = scoped && !scopedStores.length;
+  const scopeDisabled = viewerScope.size > 0 && !scopedLocations.length;
+  const mappedDisabled = !catalogUnavailable && permittedStores.length > 0 && !scopedStores.length;
+  const platformsDisabled = scoped && (scopeDisabled || mappedDisabled);
+  const kitchenDisabled = scopeDisabled || Boolean(opts.merchantId && mappedDisabled);
+  const unmapped = scoped && !catalogUnavailable && !platformsDisabled && !scopedStores.length;
+  const unavailable = { fr: 'Catalogue des cuisines temporairement indisponible. Réessayez dans un moment.', en: 'The kitchen catalog is temporarily unavailable. Try again shortly.' };
+  const disabledKitchens = { fr: 'Les cuisines associées sont désactivées. Vérifiez leur état dans Entreprise.', en: 'The linked kitchens are disabled. Review their status in Business.' };
   let platforms = { fr: 'Aucune plateforme ne peut encore envoyer de commandes.', en: 'No platform can send orders yet.' };
-  if (unmapped) {
+  if (catalogUnavailable) {
+    platforms = unavailable;
+  } else if (platformsDisabled) {
+    platforms = disabledKitchens;
+  } else if (unmapped) {
     platforms = { fr: 'Associez une plateforme à une cuisine autorisée dans Restaurants → Liaisons.', en: 'Link a platform to an authorized kitchen under Stores → Mapping.' };
   } else if (live.length && scoped) {
     platforms = { fr: `Plateformes configurées : ${names}.${usesDefault ? ' Une liaison utilise la caisse Clover par défaut.' : ''}`,
@@ -92,9 +109,14 @@ export async function onboardingSteps(opts: OnboardingScope = {}): Promise<Onboa
     platforms = { fr: 'Aucune plateforme n’est prête à recevoir des commandes pour cette configuration.', en: 'No platform is ready to receive orders for this setup.' };
   }
 
+  const kitchen = tablets && pinHolder
+    ? { fr: `${tablets} tablette(s) inscrite(s), NIP en place.`, en: `${tablets} tablet(s) enrolled, PIN set.` }
+    : tablets
+      ? { fr: `${tablets} tablette(s) inscrite(s) ; ajoutez un NIP de gérant.`, en: `${tablets} tablet(s) enrolled; add a manager PIN.` }
+      : { fr: 'Ouvrez Food Hub sur la tablette de la cuisine et inscrivez-la.', en: 'Open Food Hub on the kitchen tablet and enrol it.' };
   return [
     {
-      key: 'platforms', done: live.length > 0, href: unmapped ? '/stores/mapping' : '/settings/channels', detail: platforms,
+      key: 'platforms', done: live.length > 0, href: platformsDisabled ? '/settings/business' : unmapped ? '/stores/mapping' : '/settings/channels', detail: platforms,
     },
     {
       key: 'menu', done: withItems.length > 0, href: '/menu',
@@ -103,12 +125,9 @@ export async function onboardingSteps(opts: OnboardingScope = {}): Promise<Onboa
         : { fr: 'Menus → Importer de Clover, pour chaque marque.', en: 'Menus → Import from Clover, for each brand.' },
     },
     {
-      key: 'kitchen', done: tablets > 0 && pinHolder, href: tablets ? '/settings/profile' : '/settings/devices',
-      detail: tablets && pinHolder
-        ? { fr: `${tablets} tablette(s) inscrite(s), NIP en place.`, en: `${tablets} tablet(s) enrolled, PIN set.` }
-        : tablets
-          ? { fr: `${tablets} tablette(s) inscrite(s) ; ajoutez un NIP de gérant.`, en: `${tablets} tablet(s) enrolled; add a manager PIN.` }
-          : { fr: 'Ouvrez Food Hub sur la tablette de la cuisine et inscrivez-la.', en: 'Open Food Hub on the kitchen tablet and enrol it.' },
+      key: 'kitchen', done: tablets > 0 && pinHolder,
+      href: kitchenDisabled ? '/settings/business' : tablets ? '/settings/profile' : '/settings/devices',
+      detail: catalogUnavailable ? unavailable : kitchenDisabled ? disabledKitchens : kitchen,
     },
   ];
 }

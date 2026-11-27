@@ -133,7 +133,8 @@ function LocationDialog({ draft, onClose, onSaved }: { draft: LocDraft; onClose:
   }
   async function saveLocation() {
     setBusy(true); setErr('');
-    try { await api('/api/foodhub/catalog', { method: 'POST', json: { location: loc } }); f.clear(); onSaved(loc.code); }
+    const phone = draft.isNew || loc.phone !== draft.form.phone ? loc.phone : undefined;
+    try { await api('/api/foodhub/catalog', { method: 'POST', json: { location: { ...loc, phone } } }); f.clear(); onSaved(loc.code); }
     catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
 

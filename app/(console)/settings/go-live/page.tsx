@@ -18,16 +18,20 @@ import type { WatchSettings } from '@/lib/foodhub/watch/types';
 import { CELEBRATION_KEYS } from '@/lib/ui/celebrate';
 import { cn } from '@/lib/ui/cn';
 import type { GoLiveFacts } from '@/lib/foodhub/go-live';
-import { alertSteps, cloverAppSteps, goLiveProgress, goLiveStages, relayGoLiveSteps, stepBadge, stepKind, stepTally, stepText, tallyLine, uberDirectStep, type CloverAppInfo, type GoLiveStage, type RelayGoLiveInput, type Step } from './steps';
+import {
+  alertSteps, cloverAppSteps, goLiveKitchenCoverage, goLiveProgress, goLiveStages, nativeTabletCallGoLiveSteps, nativeTabletGoLiveStep, platformGoLiveStep, relayGoLiveSteps,
+  stepBadge, stepKind, stepTally, stepText, tallyLine,
+  type CloverAppInfo, type GoLiveStage, type GoLiveTablet, type PlatformGoLiveInput, type RelayGoLiveInput, type Step,
+} from './steps';
 
-type Readiness = { channel: string; label: string; configured: boolean; canSend: boolean; missing: string[]; viaClover?: boolean };
+type Readiness = NonNullable<PlatformGoLiveInput['readiness']> & { channel: string };
 /** A mapped store whose orders cannot get into Clover (lib/foodhub/go-live.ts, sent by /api/foodhub/channels). */
 type CloverStoreProblem = { channel: string; brandName: string; locationCode: string; merchantId: string | null; reason: 'no_merchant' | 'no_token' | 'reconnect' };
 type SessionSecretInfo = { source: 'env' | 'password' | 'dev' | null; set: boolean; strong: boolean; since: string | null; changedAt: string | null };
 type ChannelsData = {
   mode: string; liveEnabled: boolean; dashboardProtected: boolean;
-  clover: { configured: boolean; appConfigured?: boolean; tokenMerchants?: number; missing: string[]; webhookAuthSet?: boolean; verification?: { code: string } | null; app?: CloverAppInfo };
-  channels: Readiness[]; relay?: { channels: string[] };
+  clover: { configured: boolean; appConfigured?: boolean; tokenMerchants?: number; missing: string[]; webhookAuthSet?: boolean; verification?: { code: string } | null; app?: CloverAppInfo; platformOrdersEnabled?: boolean };
+  channels: Readiness[]; relay?: PlatformGoLiveInput['relay'];
   goLive?: {
     clover: { injectionEnabled: boolean; unreachableStores: CloverStoreProblem[]; defaultRoutedStores?: Store[] };
     sessionSecret: SessionSecretInfo;
@@ -39,8 +43,7 @@ const SECRET_CHANGE_WARN_MS = 7 * 86400_000;
 type Notify = { email: boolean; sms: boolean; call: boolean; chat: boolean; ai: boolean };
 type WatchGoLive = { channels: Notify; settings?: Pick<WatchSettings, 'enabled' | 'rules'>; screenAlertPhoneConfigured?: boolean };
 type User = { username: string; name: string; role: string; locations: string[]; email: string | null; phone: string | null; active: boolean; hasPin: boolean };
-type Device = { id: string; locationCode: string; status: string };
-type Store = { channel: string; brandName: string; locationCode: string };
+type Store = { channel: string; brandName: string; locationCode: string; channelStoreId?: string };
 type Fees = { confirmed: Record<string, boolean> };
 
 /** A step's text for the owner: plain sentences in view, setting names and commands under « Détails techniques » (steps.ts). */
@@ -175,32 +178,29 @@ export default function GoLivePage() {
         api<ChannelsData>('/api/foodhub/channels'),
         api<WatchGoLive>('/api/foodhub/watch/settings'),
         api<{ users: User[] }>('/api/foodhub/users'),
-        api<{ devices: Device[] }>('/api/foodhub/devices'),
+        api<{ devices: GoLiveTablet[] }>('/api/foodhub/devices'),
         api<{ stores: Store[] }>('/api/foodhub/stores'),
         api<{ fees: Fees }>('/api/foodhub/recon/fees').catch((): { fees: Fees } => ({ fees: { confirmed: {} } })),
         api<{ locations: Array<{ code: string; name: string; phone?: string | null; active: boolean }> }>('/api/foodhub/catalog'),
         api<CloverCheck>('/api/foodhub/clover-labels').catch((): CloverCheck => ({ report: null })),
         api<RelayGoLiveInput['relay']>('/api/foodhub/screens').catch(() => null),
       ]);
-      const noPhone = cat.locations.filter((l) => l.active && !l.phone);
+      const {
+        relay: scopedRelay, activeLocations, kitchenCount, kitchenPhoneLocations, missingPhoneLocations: noPhone,
+      } = goLiveKitchenCoverage(relay, cat.locations, locations);
       const users = u.users.filter((x) => x.active);
       const owner = users.some((x) => x.role === 'owner' && (x.email || x.phone));
       const locNoManager = locations.filter((l) => !users.some((x) => (x.role === 'manager' || x.role === 'owner') && x.phone && x.hasPin && (!x.locations.length || x.locations.includes(l.code))));
-      const locNoTablet = locations.filter((l) => !d.devices.some((x) => x.locationCode === l.code));
-      const tabletsOff = d.devices.filter((x) => x.status !== 'online').length;
       const staffNoPin = users.filter((x) => x.role === 'operator' && !x.hasPin).length;
-      const byCh = (k: string) => s.stores.filter((x) => x.channel === k).length;
       const ready = (k: string) => ch.channels.find((x) => x.channel === k);
       const unconfirmed = ['uber_eats', 'doordash', 'skip'].filter((k) => !f.fees.confirmed[k]);
       const list = (xs: Array<{ name: string }>) => xs.map((l) => shortLoc(l.name)).join(', ');
-      const relayChecks = relayGoLiveSteps({
-        relay,
-        watch: w.settings ? {
-          enabled: w.settings.enabled, rules: w.settings.rules, callConfigured: w.channels.call,
-          sharedPhoneConfigured: w.screenAlertPhoneConfigured === true,
-        } : null,
-        kitchenPhoneLocations: cat.locations.filter((l) => l.phone).map((l) => l.code),
-      }, t, (code) => shortLoc(locName(code)));
+      const shortName = (code: string) => shortLoc(locName(code));
+      const watch = w.settings ? {
+        enabled: w.settings.enabled, rules: w.settings.rules, callConfigured: w.channels.call,
+        sharedPhoneConfigured: w.screenAlertPhoneConfigured === true,
+      } : null;
+      const relayChecks = relayGoLiveSteps({ relay: scopedRelay, watch, kitchenPhoneLocations }, t, shortName);
 
       const out: Step[] = [
         { group: t('Fondations', 'Foundations'), key: 'db', state: ch.mode === 'memory' ? 'todo' : 'done', title: t('Base de données Supabase', 'Supabase database'), body: ch.mode === 'memory' ? t('Mode démo : rien n’est gardé au redémarrage. Lancez npm run setup avec l’URL et la clé Supabase, puis exécutez INSTALL_ALL.sql.', 'Demo mode: nothing is kept across restarts. Run npm run setup with the Supabase URL and key, then run INSTALL_ALL.sql.') : t('Branchée.', 'Connected.'), href: '/settings/channels', cta: t('Voir', 'See') },
@@ -210,20 +210,19 @@ export default function GoLivePage() {
         { group: t('Équipe', 'Team'), key: 'owner', state: owner ? 'done' : 'todo', title: t('Votre compte propriétaire', 'Your owner account'), body: owner ? t('Connexion par code, sans mot de passe.', 'Code sign-in, no password.') : t('Créez votre compte avec votre courriel ou cellulaire, puis ne gardez le mot de passe que pour le secours.', 'Create your account with your email or cell, then keep the password for recovery only.'), href: '/settings/team', cta: t('Ajouter', 'Add') },
         { group: t('Équipe', 'Team'), key: 'managers', state: locNoManager.length ? 'todo' : 'done', title: t('Un gérant joignable par succursale', 'A reachable manager per location'), body: locNoManager.length ? `${t('Sans gérant avec cellulaire et NIP :', 'No manager with cell and PIN:')} ${list(locNoManager)}` : t('Chaque succursale a un gérant avec cellulaire et NIP.', 'Every location has a manager with a cell and a PIN.'), href: '/settings/team', cta: t('Équipe', 'Team') },
         { group: t('Équipe', 'Team'), key: 'pins', state: staffNoPin ? 'warn' : 'done', title: t('NIP des employés', 'Staff PINs'), body: staffNoPin ? t(`${staffNoPin} employé(s) sans NIP — ils ne peuvent pas déverrouiller une tablette.`, `${staffNoPin} staff without a PIN — they cannot unlock a tablet.`) : t('Tous les employés ont un NIP.', 'All staff have a PIN.'), href: '/settings/team', cta: t('Équipe', 'Team') },
-        { group: t('Cuisine', 'Kitchen'), key: 'tablets', state: locNoTablet.length ? 'todo' : tabletsOff ? 'warn' : 'done', title: t('Une tablette par cuisine', 'A tablet per kitchen'), body: locNoTablet.length ? `${t('Sans tablette :', 'No tablet:')} ${list(locNoTablet)}` : tabletsOff ? t(`${tabletsOff} tablette(s) hors ligne en ce moment.`, `${tabletsOff} tablet(s) offline right now.`) : t('Toutes en ligne.', 'All online.'), href: '/settings/devices', cta: t('Tablettes', 'Tablets') },
-        { group: t('Cuisine', 'Kitchen'), key: 'kphone', state: noPhone.length ? 'warn' : 'done', title: t('Téléphone de chaque cuisine', 'Each kitchen’s phone'), body: noPhone.length ? `${t('La surveillance ne peut pas appeler :', 'The watchtower cannot call:')} ${list(noPhone)}` : t('La surveillance appelle la cuisine en premier, comme Uber.', 'The watchtower calls the kitchen first, like Uber.'), href: '/settings/business', cta: t('Ajouter', 'Add') },
+        nativeTabletGoLiveStep(activeLocations, d.devices, t, shortName),
+        ...nativeTabletCallGoLiveSteps({ activeLocations, devices: d.devices, watch, kitchenPhoneLocations }, t, shortName),
+        { group: t('Cuisine', 'Kitchen'), key: 'kphone', state: !kitchenCount || noPhone.length ? 'warn' : 'done', title: t('Téléphone de chaque cuisine', 'Each kitchen’s phone'), body: !kitchenCount
+          ? t('Aucune cuisine active dans votre périmètre.', 'No active kitchens in your scope.')
+          : noPhone.length ? t(`Téléphone de cuisine à vérifier pour ${list(noPhone)}.`, `Check the kitchen phone for ${list(noPhone)}.`)
+            : t('Chaque cuisine active de votre périmètre a un téléphone configuré.', 'Each active kitchen in your scope has a configured phone.'), href: '/settings/business', cta: t('Téléphones', 'Phones') },
         ...relayChecks,
         cloverStep(ch, t, locName),
         ...cloverDefaultSteps(ch, t, locName),
-        ...(['uber_eats', 'doordash', 'skip'] as const).map((k): Step => {
-          const r = ready(k);
-          const n = k === 'uber_eats' ? ch.goLive?.uberDirect?.mapped ?? byCh(k) : byCh(k);
-          if (r?.viaClover) return { group: t('Plateformes', 'Platforms'), key: k, state: 'done', title: r.label, body: t('Relié par Clover : les commandes arrivent dans Clover et Food Hub les lit (lecture seule).', 'Linked through Clover: orders arrive in Clover and Food Hub reads them (read-only).'), href: '/settings/channels', cta: t('Voir', 'See') };
-          // A partner pushing this platform's orders to the Food Hub Order Relay (FOODHUB_RELAY_CHANNELS) is a working path too.
-          if (ch.relay?.channels.includes(k) && !(r?.configured && n)) return { group: t('Plateformes', 'Platforms'), key: k, state: 'done', title: r?.label ?? k, body: t('Par le relais de commandes Food Hub : un partenaire envoie ces commandes.', 'Through the Food Hub Order Relay: a partner sends these orders.'), href: '/settings/channels', cta: t('Voir', 'See') };
-          if (k === 'uber_eats' && r?.configured && n) return uberDirectStep(r.label, ch.goLive?.uberDirect, t);
-          return { group: t('Plateformes', 'Platforms'), key: k, state: r?.configured && n ? 'done' : 'todo', title: r?.label ?? k, body: !r?.configured ? `${t('Manque :', 'Missing:')} ${r?.missing.join(', ') || '—'}` : n ? t(`${n} magasin(s) jumelé(s).`, `${n} store(s) mapped.`) : t('Branché, mais aucun magasin jumelé.', 'Connected, but no store mapped.'), href: r?.configured ? '/stores/mapping' : '/settings/channels', cta: r?.configured ? t('Jumeler', 'Map') : t('Brancher', 'Connect') };
-        }),
+        ...(['uber_eats', 'doordash', 'skip'] as const).map((key) => platformGoLiveStep(key, {
+          readiness: ready(key), stores: s.stores, activeLocations, relay: ch.relay,
+          cloverPlatformOrdersEnabled: ch.clover.platformOrdersEnabled, uberDirect: ch.goLive?.uberDirect,
+        }, t)),
         ...cloverCheckSteps(ck, t),
         ...cloverAppSteps(ch.clover, t),
         { group: t('Argent', 'Money'), key: 'fees', state: unconfirmed.length ? 'warn' : 'done', title: t('Plans de commission confirmés', 'Commission plans confirmed'), body: unconfirmed.length ? `${t('À confirmer :', 'To confirm:')} ${unconfirmed.map((k) => ready(k)?.label ?? k).join(', ')}` : t('Conformes à vos contrats.', 'Match your contracts.'), href: '/money/fees', cta: t('Vérifier', 'Check') },
@@ -258,7 +257,7 @@ export default function GoLivePage() {
               ariaLabel={t(`Prêt à ${progress.percent} % : ${progress.ready} étape(s) obligatoire(s) faite(s) sur ${progress.counted}`, `${progress.percent}% ready: ${progress.ready} of ${progress.counted} required step(s) done`)} />
             <div className="min-w-0 flex-1 basis-56">
               <div className="text-heading text-ink">{progress.complete
-                ? t('Tout est prêt pour ouvrir.', 'Everything is ready to open.')
+                ? t('Configuration requise terminée.', 'Required setup is complete.')
                 : t(`Encore ${left} étape${left > 1 ? 's' : ''} à faire avant d’ouvrir.`, `${left} step${left === 1 ? '' : 's'} left before opening.`)}</div>
               <div className="text-small mt-1 text-ink-3">{t(`${done}/${total} étapes prêtes`, `${done}/${total} steps ready`)} · {tallyLine(t, tally)}</div>
             </div>
@@ -267,8 +266,8 @@ export default function GoLivePage() {
         </Card>
       )}
       {celebrate && !celebrationClosed && (
-        <CelebrationBanner className="mb-5" title={t('Mise en service terminée !', 'Go-live complete!')}
-          body={t('Plus rien à faire : chaque étape obligatoire est prête. Gardez un œil sur les lignes « À vérifier ».', 'Nothing left to do: every required step is ready. Keep an eye on the “To check” lines.')}
+        <CelebrationBanner className="mb-5" title={t('Configuration terminée', 'Setup complete')}
+          body={t('Vérifiez la réception en cuisine avec une commande d’essai pour chaque mode de réception utilisé.', 'Verify kitchen receipt with a test order for each intake method you use.')}
           onClose={() => setCelebrationClosed(true)} closeLabel={t('Fermer', 'Close')} />
       )}
       {!steps && !err && <div className="h-96 animate-pulse rounded-lg bg-sunken" />}

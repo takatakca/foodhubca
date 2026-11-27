@@ -74,9 +74,14 @@ export async function activeLocations(): Promise<LocationDef[]> {
 export async function saveLocation(def: LocationDef): Promise<Catalog> {
   if (!/^[A-Z0-9_]{2,30}$/.test(def.code)) throw new Error('Location code: 2–30 capital letters, digits or _ (e.g. LAVAL).');
   if (!def.name?.trim()) throw new Error('Location name is required.');
+  const enteredPhone = def.phone?.trim();
+  const normalizedPhone = enteredPhone ? normalizePhone(enteredPhone) : null;
+  if (enteredPhone && !normalizedPhone) throw new Error('Entrez un numéro de téléphone de cuisine valide ou laissez le champ vide. / Enter a valid kitchen phone number or leave it blank.');
   const stored = (await getRepo().getKv<Partial<Catalog>>(KEY)) ?? {};
+  const previous = stored.locations?.find((l) => l.code === def.code);
+  const phone = def.phone === undefined ? previous?.phone ?? null : normalizedPhone;
   const list = (stored.locations ?? []).filter((l) => l.code !== def.code);
-  list.push({ code: def.code, name: def.name.trim(), address: (def.address || '').trim(), city: def.city?.trim(), province: parseProvince(def.province) ?? undefined, postalCode: def.postalCode?.trim(), phone: def.phone ? normalizePhone(def.phone) : null, active: def.active !== false });
+  list.push({ code: def.code, name: def.name.trim(), address: (def.address || '').trim(), city: def.city?.trim(), province: parseProvince(def.province) ?? undefined, postalCode: def.postalCode?.trim(), phone, active: def.active !== false });
   await getRepo().setKv(KEY, { ...stored, locations: list });
   return getCatalog();
 }

@@ -6,6 +6,9 @@
 //   - The progress ring and the stepper (goLiveProgress, goLiveStages) count what is left « À faire »: 100 % = nothing.
 import type { T } from '@/lib/i18n';
 import type { GoLiveFacts } from '@/lib/foodhub/go-live';
+import type { DeviceStatus } from '@/lib/foodhub/identity/devices';
+import { isRelayKitchenStore } from '@/lib/foodhub/order-tools/kitchen-status';
+import { normalizePhone } from '@/lib/foodhub/phone-number';
 import { PUBLIC_URL_PROBLEM_TEXT, type PublicUrlProblem } from '@/lib/foodhub/public-url';
 import type { PlatformScreen, ScreenStatus } from '@/lib/foodhub/screens';
 import type { RuleSetting } from '@/lib/foodhub/watch/types';
@@ -106,10 +109,100 @@ export type RelayGoLiveInput = {
     enabled: boolean;
     sharedPhoneConfigured: boolean;
     callConfigured: boolean;
-    rules: Partial<Record<'screen_down' | 'screen_waiting', RuleSetting>>;
+    rules: Partial<Record<'device_offline' | 'screen_down' | 'screen_waiting', RuleSetting>>;
   } | null;
   kitchenPhoneLocations: string[];
 };
+
+export function goLiveKitchenCoverage(
+  relay: RelayGoLiveInput['relay'],
+  catalog: ReadonlyArray<{ code: string; name: string; phone?: string | null; active: boolean }>,
+  locations: ReadonlyArray<{ code: string }>,
+) {
+  const allowed = new Set(locations.map(({ code }) => code));
+  const kitchens = catalog.filter(({ code, active }) => active && allowed.has(code));
+  const activeCodes = new Set(kitchens.map(({ code }) => code));
+  const phoneCodes = new Set(kitchens.filter(({ phone }) => normalizePhone(phone)).map(({ code }) => code));
+  return {
+    relay: relay && { ...relay, screens: relay.screens.filter(({ locationCode }) => activeCodes.has(locationCode)) },
+    activeLocations: activeCodes,
+    kitchenCount: activeCodes.size,
+    kitchenPhoneLocations: [...phoneCodes],
+    missingPhoneLocations: kitchens.filter(({ code }) => !phoneCodes.has(code)).map(({ code, name }) => ({ code, name })),
+  };
+}
+
+export type GoLiveTablet = { locationCode: string; status: DeviceStatus };
+
+export function nativeTabletGoLiveStep(
+  activeLocations: ReadonlySet<string>, devices: ReadonlyArray<GoLiveTablet>, t: T, locName: (code: string) => string,
+): Step {
+  const base = {
+    group: t('Cuisine', 'Kitchen'), key: 'tablets', title: t('Une tablette par cuisine', 'A tablet per kitchen'),
+    href: '/settings/devices', cta: t('Tablettes', 'Tablets'),
+  };
+  if (!activeLocations.size) {
+    return { ...base, state: 'warn', body: t('Aucune cuisine active dans votre périmètre.', 'No active kitchens in your scope.'), href: '/settings/business', cta: t('Cuisines', 'Kitchens') };
+  }
+
+  const paired = new Set<string>();
+  const online = new Set<string>();
+  for (const { locationCode, status } of devices) {
+    if (status === 'revoked' || !activeLocations.has(locationCode)) continue;
+    paired.add(locationCode);
+    if (status === 'online') online.add(locationCode);
+  }
+  const kitchens = [...activeLocations];
+  const missing = kitchens.filter((code) => !paired.has(code));
+  if (missing.length) {
+    const names = missing.map(locName).join(', ');
+    return { ...base, state: 'todo', body: t(`Jumelez une tablette pour ${names}.`, `Pair a tablet for ${names}.`) };
+  }
+  const offline = kitchens.filter((code) => !online.has(code));
+  if (offline.length) {
+    const names = offline.map(locName).join(', ');
+    return { ...base, state: 'warn', body: t(`Aucune tablette en ligne pour ${names}.`, `No tablet online for ${names}.`) };
+  }
+  return { ...base, state: 'done', body: t('Chaque cuisine active a une tablette en ligne.', 'Every active kitchen has a tablet online.') };
+}
+
+type NativeTabletCallInput = Pick<RelayGoLiveInput, 'watch' | 'kitchenPhoneLocations'> & {
+  activeLocations: ReadonlySet<string>;
+  devices: ReadonlyArray<GoLiveTablet>;
+};
+
+export function nativeTabletCallGoLiveSteps(
+  { activeLocations, devices, watch, kitchenPhoneLocations }: NativeTabletCallInput, t: T, locName: (code: string) => string,
+): Step[] {
+  const kitchens = new Set(devices.filter((d) => d.status !== 'revoked' && activeLocations.has(d.locationCode)).map((d) => d.locationCode));
+  if (!kitchens.size) return [];
+  const base: Step = {
+    group: t('Cuisine', 'Kitchen'), key: 'tablet-calls', title: t('Appels pour les tablettes hors ligne', 'Calls for offline tablets'),
+    state: 'warn', optional: true, body: '', href: '/settings/alerts', cta: t('Alertes', 'Alerts'),
+  };
+  if (!watch) return [{ ...base, body: t('Réglages des appels indisponibles.', 'Call settings unavailable.') }];
+  if (!watch.enabled) return [{ ...base, body: t('Activez le Watchtower pour surveiller les tablettes.', 'Turn on Watchtower to monitor the tablets.') }];
+  if (!watch.rules.device_offline?.enabled) return [{ ...base, body: t('Activez la règle « Tablette éteinte ».', 'Enable the “Tablet off” rule.') }];
+  if (!watch.rules.device_offline.escalate) return [{ ...base, body: t('Activez l’escalade de la règle « Tablette éteinte » pour permettre les appels.', 'Enable escalation for the “Tablet off” rule to allow calls.') }];
+  if (!watch.callConfigured) return [{ ...base, body: t('Configurez Twilio Voice pour passer les appels d’alerte.', 'Set up Twilio Voice to make alert calls.') }];
+
+  if (!watch.sharedPhoneConfigured) {
+    const knownPhones = new Set(kitchenPhoneLocations);
+    const missing = [...kitchens].filter((code) => !knownPhones.has(code));
+    if (missing.length) {
+      const listed = missing.slice(0, 4).map(locName).join(', ') + (missing.length > 4 ? ` (+${missing.length - 4})` : '');
+      return [{ ...base, href: '/settings/business', cta: t('Téléphones', 'Phones'), body: t(
+        `Ajoutez un téléphone de cuisine pour ${listed} ou un numéro commun dans Alertes.`,
+        `Add a kitchen phone for ${listed} or a shared number in Alerts.`,
+      ) }];
+    }
+  }
+  const destination = watch.sharedPhoneConfigured
+    ? t('La ligne partagée est configurée pour les tablettes.', 'The shared line is configured for the tablets.')
+    : t('Un téléphone est configuré pour chaque cuisine avec une tablette jumelée.', 'A phone is configured for each kitchen with a paired tablet.');
+  const verification = t('Confirmez la réception du premier appel lors d’un essai contrôlé.', 'Confirm receipt of the first call in a controlled test.');
+  return [{ ...base, state: 'done', body: `${destination} ${verification}` }];
+}
 
 function relayScreenStep(relay: RelayGoLiveInput['relay'], t: T): Step {
   const step: Step = {
@@ -157,6 +250,12 @@ function relayCallStep({ relay, watch, kitchenPhoneLocations }: RelayGoLiveInput
   }
   if (!watch.callConfigured) return { ...step, body: t('Configurez Twilio pour passer les appels d’alerte.', 'Set up Twilio to make alert calls.') };
   if (!relay?.agentConfigured || !relay.screens.length) {
+    if (!watch.sharedPhoneConfigured && !kitchenPhoneLocations.length) {
+      return { ...step, href: '/settings/business', cta: t('Téléphones', 'Phones'), body: t(
+        'Aucun téléphone de cuisine utilisable. Ajoutez un téléphone dans Entreprise ou un numéro commun dans Alertes.',
+        'No usable kitchen phone. Add a kitchen phone in Business or a shared number in Alerts.',
+      ) };
+    }
     const destination = watch.sharedPhoneConfigured
       ? t('La ligne partagée est configurée.', 'The shared line is configured.')
       : t('La destination prévue est le téléphone de chaque cuisine.', 'The planned destination is each kitchen’s phone.');
@@ -204,6 +303,68 @@ export function uberDirectStep(label: string, evidence: GoLiveFacts['uberDirect'
     ? t('Vérifiez la réception en cuisine avec une commande d’essai.', 'Verify kitchen receipt with a test order.')
     : t('Vérifiez les liaisons restantes chez Uber.', 'Check the remaining mappings with Uber.');
   return { ...base, state: done ? 'done' : 'todo', body: `${proof} ${next}` };
+}
+
+export type GoLivePlatform = 'uber_eats' | 'doordash' | 'skip';
+export type PlatformGoLiveInput = {
+  readiness?: { label: string; configured: boolean; missing: string[]; viaClover?: boolean; sandbox?: boolean };
+  stores: Array<{ channel: string; channelStoreId?: string; locationCode: string }>;
+  activeLocations: ReadonlySet<string>;
+  relay?: { channels: string[]; webhookReady?: boolean };
+  cloverPlatformOrdersEnabled?: boolean;
+  uberDirect?: GoLiveFacts['uberDirect'];
+};
+
+export function platformGoLiveStep(key: GoLivePlatform, input: PlatformGoLiveInput, t: T): Step {
+  const { readiness, stores, activeLocations, relay, cloverPlatformOrdersEnabled, uberDirect } = input;
+  const base = { group: t('Plateformes', 'Platforms'), key, title: readiness?.label ?? key };
+  const settings = { ...base, href: '/settings/channels', cta: t('Voir les connexions', 'See connections') };
+  const mapping = { ...base, href: '/stores/mapping', cta: t('Voir les liaisons', 'See mappings') };
+  const verifyReceipt = t('Vérifiez la réception en cuisine avec une commande d’essai.', 'Confirm kitchen receipt with a test order.');
+
+  if (readiness?.viaClover) {
+    if (cloverPlatformOrdersEnabled !== true) {
+      const body = cloverPlatformOrdersEnabled === false
+        ? t('L’import des commandes de plateforme depuis Clover est désactivé.', 'Clover platform order import is disabled.')
+        : t('Impossible de confirmer le réglage de l’import Clover.', 'Clover platform order import configuration is unavailable.');
+      return { ...settings, state: 'todo', body };
+    }
+    return { ...settings, state: 'warn', body: `${t('Import Clover en lecture seule activé. Vérifiez la liaison chez Clover.', 'Read-only Clover import enabled. Check the connection in Clover.')} ${verifyReceipt}` };
+  }
+
+  let directCount = 0;
+  let relayCount = 0;
+  for (const store of stores) {
+    const channelStoreId = store.channelStoreId?.trim();
+    if (store.channel !== key || !activeLocations.has(store.locationCode) || !channelStoreId) continue;
+    if (isRelayKitchenStore({ channelStoreId })) {
+      if (channelStoreId.indexOf(':') !== channelStoreId.length - 1) relayCount++;
+    } else {
+      directCount++;
+    }
+  }
+  if (readiness?.configured && !readiness.sandbox && directCount) {
+    if (key === 'uber_eats') return uberDirectStep(readiness.label, uberDirect, t);
+    const description = directCount === 1
+      ? t('1 liaison directe enregistrée.', '1 direct store mapping saved.')
+      : t(`${directCount} liaisons directes enregistrées.`, `${directCount} direct store mappings saved.`);
+    return { ...mapping, state: 'warn', body: `${description} ${verifyReceipt}` };
+  }
+
+  if (relay?.channels.includes(key)) {
+    if (relay.webhookReady !== true) return { ...settings, state: 'todo', body: t('Le webhook du relais de commandes n’est pas configuré.', 'The order relay webhook is not configured.') };
+    if (!relayCount) return { ...mapping, state: 'todo', body: t('Le relais de commandes est configuré. Jumelez un magasin du relais à une cuisine active.', 'The order relay is configured. Map a relay store to an active kitchen.') };
+    return { ...settings, state: 'warn', body: `${t('Le relais de commandes est configuré pour cette plateforme.', 'Order relay configured for this platform.')} ${verifyReceipt}` };
+  }
+
+  if (readiness?.sandbox) {
+    return { ...settings, state: 'todo', body: t('DoorDash est en mode bac à sable. Vérifiez la liaison de production avant un essai de réception en cuisine.', 'DoorDash is in sandbox mode. Verify the production connection before testing kitchen receipt.') };
+  }
+  if (!readiness?.configured) {
+    const missing = readiness?.missing.join(', ');
+    return { ...settings, state: 'todo', body: missing ? `${t('Manque :', 'Missing:')} ${missing}` : t('Configuration directe indisponible.', 'Direct configuration unavailable.') };
+  }
+  return { ...mapping, state: 'todo', body: t('Aucun magasin n’est jumelé directement à une cuisine active.', 'No direct store mapped to an active kitchen.') };
 }
 
 export type CloverAppInfo = {

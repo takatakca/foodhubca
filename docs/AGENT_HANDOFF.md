@@ -1,3 +1,9 @@
+## 2026-11-27 — Lecture indisponible des réglages de relève
+
+Quand la lecture des réglages d’alerte renvoie HTTP 503, la page Mise en service garde les autres contrôles visibles et laisse la vérification des alertes à faire. La ligne des téléphones indique les coordonnées configurées dans le catalogue. Les essais de chargement couvrent les deux langues, la réponse normale et les autres erreurs.
+
+— signé : Codex @ cloud · 2026-11-27
+
 ## 2026-11-27 — Préparation de #184 après la publication de #204
 
 Le SHA public `04dcc86` était stable et les sept contrôles de santé répondaient correctement. Les deux passages automatiques Watchtower de 23:03:58 et 23:04:58 UTC ont été observés dans la base Food Hub. Le rapprochement local conserve le diagnostic d’impression Clover publié et le rejeu des paliers de relève ajouté par #186 à la branche de #184. La vérification sur un téléphone marchand reste dans [#46](https://github.com/takatakca/foodhubca/issues/46).

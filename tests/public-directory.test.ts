@@ -10,6 +10,7 @@ import {
 } from '../lib/foodhub/public-directory';
 import { livePublicPages } from '../lib/foodhub/storefront/settings';
 import { allDayWeek, normalizeWeek } from '../lib/foodhub/hours';
+import releaseProbe from '../lib/foodhub/release-probe.json';
 import type { HoursConfig, MasterMenu, WeeklyHours } from '../lib/foodhub/types';
 
 const week = (open: string, close: string): WeeklyHours =>
@@ -231,6 +232,13 @@ describe('CORS and the route', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('access-control-allow-origin')).toBe('https://on2go.ca');
     expect(res.headers.get('cache-control')).toMatch(/max-age=300/);
+    const probe = await GET(new Request(`http://hub.local/api/public/directory?${releaseProbe.query}=${'a'.repeat(32)}`, {
+      headers: { origin: 'https://on2go.ca' },
+    }));
+    expect(probe.status).toBe(200);
+    expect(probe.headers.get('cache-control')).toBe('private, no-store');
+    expect(probe.headers.get('access-control-allow-origin')).toBe('https://on2go.ca');
+    expect(probe.headers.get('vary')).toBe('Origin');
     const body = await res.json();
     expect(body.version).toBe(1);
     expect(body.brands).toHaveLength(17);

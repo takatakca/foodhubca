@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { parseOptions, verifyLiveDeployment } from '../scripts/verify-live.mjs';
 
 const SHA = 'a'.repeat(40);
+const PROBE_QUERY = '__foodhub_release_probe';
+const PROBE_SHA = 'x-foodhub-release-sha';
+const PROBE_NONCE = 'x-foodhub-release-nonce';
+const CAPABILITY = 'sha-nonce-v1';
 function mockFetch({ sha = SHA, publicStatus = 200, privateStatus = 401, healthStatus = 200, database = 'ok', cors = true } = {}) {
   return async (url, options) => {
     const path = new URL(url).pathname;
@@ -26,6 +30,29 @@ function mockFetch({ sha = SHA, publicStatus = 200, privateStatus = 401, healthS
   };
 }
 
+function identityFetch({ alter = () => {}, capability = () => CAPABILITY } = {}) {
+  const nonces = [];
+  const legacy = mockFetch();
+  let markerReads = 0;
+  return {
+    nonces,
+    async fetchImpl(url, options) {
+      const { pathname, searchParams } = new URL(url);
+      const nonce = searchParams.get(PROBE_QUERY);
+      nonces.push(nonce);
+      let response = await legacy(url, options);
+      if (pathname === '/api/release') {
+        const marker = capability(markerReads++);
+        response = Response.json({ ...await response.json(), ...(marker && { probeIdentity: marker }) });
+      }
+      response.headers.set(PROBE_SHA, SHA);
+      if (nonce) response.headers.set(PROBE_NONCE, nonce);
+      alter(pathname, response.headers);
+      return response;
+    },
+  };
+}
+
 describe('Food Hub live release verification (no network)', () => {
   it('verifies version, directory, health, login and protected orders', async () => {
     const report = await verifyLiveDeployment({
@@ -35,6 +62,46 @@ describe('Food Hub live release verification (no network)', () => {
     });
     expect(report.sha).toBe(SHA);
     expect(report.checks).toHaveLength(5);
+    expect(report.checks[0]).toMatch(/marker only/);
+  });
+
+  it('binds each response to a different request nonce when both markers advertise it', async () => {
+    const { fetchImpl, nonces } = identityFetch();
+    const report = await verifyLiveDeployment({ url: 'https://foodhub.on2go.ca/', sha: SHA, fetchImpl });
+    expect(nonces).toHaveLength(6);
+    expect(new Set(nonces).size).toBe(nonces.length);
+    expect(nonces.every((nonce) => /^[a-f0-9]{32}$/.test(nonce ?? ''))).toBe(true);
+    expect(report.checks[0]).toMatch(/each probe response/);
+  });
+
+  it.each([
+    ['/api/public/directory', PROBE_SHA, 'b'.repeat(40), /directory.*different release SHA/],
+    ['/api/foodhub/orders', PROBE_SHA, null, /orders.*missing release identity/],
+    ['/login', PROBE_NONCE, 'b'.repeat(32), /login.*probe nonce/],
+    ['/api/health', PROBE_NONCE, null, /health.*missing release identity/],
+  ])('refuses %s when its response identity disagrees with the markers', async (badPath, name, value, error) => {
+    const { fetchImpl } = identityFetch({ alter(path, headers) {
+      if (path !== badPath) return;
+      if (value === null) headers.delete(name);
+      else headers.set(name, value);
+    } });
+    await expect(verifyLiveDeployment({ url: 'https://foodhub.on2go.ca/', sha: SHA, fetchImpl })).rejects.toThrow(error);
+  });
+
+  it('rejects explicit response mismatch even without advertised support', async () => {
+    const { fetchImpl } = identityFetch({ capability: () => undefined, alter(path, headers) {
+      if (path === '/api/health') headers.set(PROBE_SHA, 'malformed');
+    } });
+    await expect(verifyLiveDeployment({ url: 'https://foodhub.on2go.ca/', sha: SHA, fetchImpl })).rejects.toThrow(/health.*different release SHA/);
+  });
+
+  it.each([
+    [(read) => read === 0 ? CAPABILITY : undefined, /capability changed/],
+    [(read) => read === 0 ? undefined : CAPABILITY, /capability changed/],
+    [() => 'next-version', /unsupported release identity capability/],
+  ])('refuses changing or unknown marker capability', async (capability, error) => {
+    const { fetchImpl } = identityFetch({ capability });
+    await expect(verifyLiveDeployment({ url: 'https://foodhub.on2go.ca/', sha: SHA, fetchImpl })).rejects.toThrow(error);
   });
 
   it('fails closed when the expected revision is missing, before any HTTP request', async () => {

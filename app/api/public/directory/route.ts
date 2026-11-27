@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { allowedOrigin, buildPublicDirectory, getPublicDirectory } from '@/lib/foodhub/public-directory';
+import { releaseProbeNonce } from '@/lib/foodhub/release';
+import releaseProbe from '@/lib/foodhub/release-probe.json';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,6 +17,7 @@ function corsHeaders(req: Request): Record<string, string> {
 }
 
 export async function GET(req: Request) {
+  const probe = releaseProbeNonce(new URL(req.url).searchParams);
   const body = await getPublicDirectory().catch((error) => {
     console.error('[foodhub] public directory fell back to the seed —', error instanceof Error ? error.message : error);
     return buildPublicDirectory();
@@ -22,7 +25,7 @@ export async function GET(req: Request) {
   return NextResponse.json(body, {
     headers: {
       ...corsHeaders(req),
-      'Cache-Control': 'public, max-age=300, s-maxage=300, stale-while-revalidate=3600',
+      'Cache-Control': probe ? releaseProbe.cacheControl : 'public, max-age=300, s-maxage=300, stale-while-revalidate=3600',
       'X-Content-Type-Options': 'nosniff',
     },
   });

@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { basicOwner, clientIp, DEVICE_COOKIE, ownerSessionVersion, readCookie, sessionSecretSource, verifyDevice, verifySession } from './lib/foodhub/session';
 import { framePolicyFor } from './lib/foodhub/frame-policy';
 import { HUB_HOME, isIndexablePath, isPublicSitePath, PUBLIC_LANG_HEADER, PUBLIC_PAGE_CACHE, publicHomeEnabled, publicSiteLang } from './lib/foodhub/public-site';
+import { releaseProbeNonce, releaseSha, validatedReleaseSha } from './lib/foodhub/release';
+import releaseProbe from './lib/foodhub/release-probe.json';
 
 // Sign-in gate for the whole console and its APIs.
 //  - Platform webhooks stay public (each verifies its own signature / token); cron uses CRON_SECRET;
@@ -48,6 +50,8 @@ const PUBLIC_PATHS = new Set([
   '/courier', '/api/courier', // our couriers' page: the personal signed link (Bearer) is the credential (lib/foodhub/delivery/courier-app.ts)
 ]);
 
+const RELEASE_PROBE_PATHS = new Set(['/api/release', '/api/public/directory', '/api/health', '/login', '/api/foodhub/orders']);
+
 // The public TAKATAK Food Hub site (/hub, /en/hub, robots.txt, sitemap.xml, llms.txt, /og/, /hub-media/, favicon) is open to everyone and
 // indexable, like the legal pages; every other response says "noindex" (lib/foodhub/public-site.ts).
 export async function proxy(req: NextRequest) {
@@ -56,6 +60,15 @@ export async function proxy(req: NextRequest) {
   // Anti-clickjacking: the console and its sign-in pages only inside Food Hub itself or Clover (lib/foodhub/frame-policy.ts).
   const frame = framePolicyFor(req.nextUrl.pathname);
   if (frame && !res.headers.has('Content-Security-Policy')) res.headers.set('Content-Security-Policy', frame);
+  const nonce = req.method === 'GET' && RELEASE_PROBE_PATHS.has(req.nextUrl.pathname) && releaseProbeNonce(req.nextUrl.searchParams);
+  if (nonce) {
+    res.headers.set('Cache-Control', releaseProbe.cacheControl);
+    const sha = validatedReleaseSha(releaseSha());
+    if (sha) {
+      res.headers.set(releaseProbe.shaHeader, sha);
+      res.headers.set(releaseProbe.nonceHeader, nonce);
+    }
+  }
   return res;
 }
 

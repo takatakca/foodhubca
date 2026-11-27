@@ -1,3 +1,11 @@
+## 2026-11-27 — Version de chaque réponse des sondes de publication
+
+Le vérificateur joint un nonce distinct à chaque requête. Une version qui annonce la prise en charge de cette preuve doit retourner le SHA attendu et le nonce correspondant sur chaque réponse, y compris un refus de commande sans session. Les deux lectures de `/api/release` doivent annoncer la même capacité. Les versions antérieures gardent le contrôle initial et final du marqueur, identifié comme tel dans le rapport.
+
+Les sondes explicites désactivent le cache HTTP pour leurs propres réponses. L’annuaire garde le cache et le CORS habituels pour les autres requêtes. Cette preuve rattache les réponses publiques à une révision. L’attestation des passages Watchtower et les trajets marchands restent suivis séparément.
+
+— signé : Codex @ cloud · 2026-11-27
+
 ## 2026-11-26 — Preuve de version pendant une bascule
 
 Le vérificateur HTTPS relit `/api/release` après ses sondes. Une révision différente au début ou à la fin invalide la preuve, y compris lorsque les endpoints intermédiaires répondent normalement.

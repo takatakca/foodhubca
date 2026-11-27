@@ -1,0 +1,7 @@
+{
+  "query": "__foodhub_release_probe",
+  "capability": "sha-nonce-v1",
+  "shaHeader": "x-foodhub-release-sha",
+  "nonceHeader": "x-foodhub-release-nonce",
+  "cacheControl": "private, no-store"
+}

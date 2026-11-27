@@ -16,7 +16,8 @@ import { getRepo } from '../repo';
 import { neverSent } from '../env-utils';
 import { screenEntryStoreRef } from '../screen-entry-id';
 import type { ChannelKey, StoredOrder } from '../types';
-import { cloverBaseUrl, cloverToken, defaultCloverMerchant } from './clover';
+import { cloverBaseUrl, cloverToken, cloverTokenFor, defaultCloverMerchant } from './clover';
+import { readCloverConnection } from './clover-oauth';
 import { cloverOrderTitle, cloverTipCents } from './clover-order';
 
 const KV = 'clover_refs';
@@ -37,13 +38,17 @@ export function platformLabel(channel: ChannelKey) {
   return CHANNEL_LABELS[channel];
 }
 
-async function cloverJson(mid: string, path: string, init: RequestInit = {}, beforeAttempt?: () => Promise<void>): Promise<{ ok: boolean; status: number; json: any }> {
-  const token = await cloverToken(mid);
+const PAYMENT_PROOF_TIMEOUT_MS = 5_000;
+
+async function cloverJson(mid: string, path: string, init: RequestInit = {}, beforeAttempt?: () => Promise<void>,
+  proofToken?: string): Promise<{ ok: boolean; status: number; json: any }> {
+  const token = proofToken ?? await cloverToken(mid);
   if (!token) return { ok: false, status: 0, json: { message: `No Clover API token for merchant ${mid}` } };
   const res = await cloverFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}${path}`, {
     ...init,
+    ...(proofToken && { cache: 'no-store' as const, redirect: 'error' as const, signal: AbortSignal.timeout(PAYMENT_PROOF_TIMEOUT_MS) }),
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json', ...(init.headers || {}) },
-  }, beforeAttempt ? { beforeAttempt } : undefined);
+  }, proofToken ? { timeoutMs: PAYMENT_PROOF_TIMEOUT_MS, retries: 0 } : { beforeAttempt });
   const text = await res.text();
   let json: any = {};
   try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text.slice(0, 300) }; }
@@ -202,9 +207,22 @@ export async function recordCloverPayment(order: StoredOrder, mid: string | null
 }
 
 /** Positive evidence only. Missing, repeated, or unavailable payment records leave the attempt held. */
-export async function confirmedCloverPayment(mid: string, posOrderId: string, paymentReference: string): Promise<string | null> {
+export async function confirmedCloverPayment(mid: string, posOrderId: string, paymentReference: string,
+  { background = false }: { background?: boolean } = {}): Promise<string | null> {
   try {
-    const res = await cloverJson(mid, `/orders/${encodeURIComponent(posOrderId)}/payments?limit=100`);
+    // Scheduled proof only uses an already usable credential. It has no authority to refresh OAuth.
+    let token: string | undefined;
+    if (background) {
+      token = cloverTokenFor(mid) ?? undefined;
+      if (!token) {
+        const connection = await readCloverConnection(mid);
+        if (!connection || connection.status === 'pending'
+            || (connection.accessTokenExpiration && connection.accessTokenExpiration <= Math.floor(Date.now() / 1000))) return null;
+        token = connection.accessToken;
+      }
+      if (!token) return null;
+    }
+    const res = await cloverJson(mid, `/orders/${encodeURIComponent(posOrderId)}/payments?limit=100`, {}, undefined, token);
     if (!res.ok || !Array.isArray(res.json?.elements) || res.json.elements.length >= 100 || res.json?.links?.next) return null;
     const matching = res.json.elements.filter((payment: any) => payment?.externalPaymentId === paymentReference
       && payment.order?.id === posOrderId);

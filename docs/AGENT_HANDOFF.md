@@ -1,3 +1,11 @@
+## 2026-11-27 — Rapprochement automatique des règlements Skip
+
+La reprise des commandes vérifie jusqu’à quatre tentatives Skip admissibles par passage. Un règlement en attente peut être vérifié après deux minutes. La base réserve chaque lecture pendant 90 secondes et reporte de cinq minutes une vérification terminée. L’expiration de la réservation permet une autre lecture. La tentative de règlement d’origine reste conservée.
+
+Le balayage lit uniquement les paiements du reçu sur sa caisse attestée avec une autorisation déjà valide. La synchronisation Clover habituelle continue de renouveler les autorisations approuvées. Un seul paiement réussi, lié à ce reçu et portant la référence exacte, permet le rapprochement. Un échec de lecture ou une preuve ambiguë conserve la mise en attente. Une commande terminale déjà payée peut récupérer le marqueur local et son événement dans une seule transaction.
+
+Avant publication de #192, vérifier le contrat précédent de `fh_apply_skip_lifecycle`, son option de clôture locale et les opérations `fh_claim_skip_payment_recoveries` et `fh_reschedule_skip_payment_recovery` via PostgREST. L’accès reste réservé au rôle serveur. [Suivi #155](https://github.com/takatakca/foodhubca/issues/155)
+
 ## 2026-11-27 — Réservation du règlement Skip sur le reçu Clover
 
 Les avis signés de ramassage et de livraison peuvent arriver pendant la même réponse Clover. Le règlement direct Skip réserve le reçu et sa caisse attestée avant le POST de paiement. La base limite le règlement à une tentative par commande et par reçu. Le même agent peut reprendre après un refus HTTP 429 tant que la commande demeure admissible. Un refus certain libère la tentative. Une réponse perdue, ambiguë ou contradictoire conserve la réservation.

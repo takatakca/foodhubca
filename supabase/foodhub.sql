@@ -163,6 +163,14 @@ create table if not exists public.fh_skip_clover_payments (
 );
 alter table public.fh_skip_clover_payments enable row level security;
 revoke all on public.fh_skip_clover_payments from public;
+alter table public.fh_skip_clover_payments
+  add column if not exists recovery_due_at timestamptz,
+  add column if not exists recovery_lease_id uuid;
+create index if not exists fh_skip_payment_recovery_due_idx on public.fh_skip_clover_payments
+  ((coalesce(recovery_due_at, attempted_at)), attempted_at, attempt_id) where state <> 'paid';
+create index if not exists fh_skip_payment_terminal_open_idx on public.fh_orders (id)
+  where channel = 'skip' and status in ('cancelled', 'failed') and pos_order_id is not null
+    and nullif(timeline->>'posClosedAt', '') is null;
 create index if not exists fh_orders_physical_clover_receipt_idx on public.fh_orders ((timeline->>'posMerchantId'), pos_order_id)
   where pos_order_id is not null;
 
@@ -209,6 +217,8 @@ declare
   payment_result text := p_detail->>'result';
   payment_refusal text := left(p_detail->>'error', 500);
   new_payment_id text := p_detail->>'paymentId';
+  close_paid_terminal boolean := coalesce(p_detail->'closeTerminal' = 'true'::jsonb, false);
+  completed_closure boolean := false;
   payment_active boolean;
   payment_review boolean := false;
   payment_error text;
@@ -730,8 +740,15 @@ begin
       end if;
       if payment_attempt.state = 'paid' then
         if payment_result <> 'paid' or payment_attempt.payment_id is distinct from new_payment_id
-            or current_order.timeline->>'posPaymentId' is distinct from new_payment_id then
+            or (current_order.timeline->>'posPaymentId' is distinct from new_payment_id and not (
+              close_paid_terminal and current_order.status in ('cancelled', 'failed')
+              and nullif(current_order.timeline->>'posPaymentId', '') is null
+            )) then
           return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'conflicting_payment');
+        end if;
+        if current_order.timeline->>'posPaymentId' is distinct from new_payment_id then
+          update public.fh_orders set timeline = (timeline - 'posPaymentError') || jsonb_build_object('posPaymentId', new_payment_id),
+            updated_at = observed_at where id = current_order.id returning * into current_order;
         end if;
         disposition := 'payment_finished';
       elsif payment_result = 'refused' and payment_attempt.state = 'sending' then
@@ -798,6 +815,20 @@ begin
       end if;
     end if;
 
+    if p_kind = 'finish_payment' and payment_result = 'paid' and close_paid_terminal
+        and disposition = 'payment_finished' and current_order.status in ('cancelled', 'failed')
+        and nullif(current_order.timeline->>'posClosedAt', '') is null
+        and (current_order.timeline->'posCloseClaim' is null or current_order.timeline->'posCloseClaim' = 'null'::jsonb
+          or ((current_order.timeline->'posCloseClaim'->>'at') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z$'
+            and (current_order.timeline->'posCloseClaim'->>'at') <= to_char(
+              (observed_at - interval '5 minutes') at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))) then
+      update public.fh_orders set timeline = (timeline - 'posCloseClaim') || jsonb_build_object('posClosedAt', event_at),
+        updated_at = observed_at where id = current_order.id returning * into current_order;
+      insert into public.fh_order_events (order_id, type, detail) values (current_order.id, 'pos_paid_then_cancelled',
+        jsonb_build_object('message', 'Cancelled after it was recorded as paid in Clover — refund it in the Clover app if the platform did not pay you.'));
+      completed_closure := true;
+    end if;
+
     if payment_review then
       if current_order.timeline->>'posPaymentError' is distinct from payment_review_reason then
         update public.fh_orders set timeline = timeline || jsonb_build_object('posPaymentError', payment_review_reason),
@@ -819,16 +850,78 @@ begin
 
   return jsonb_build_object('order', to_jsonb(current_order), 'isNew', inserted, 'outcome', disposition)
     || case when transitioned then '{"transitioned":true}'::jsonb else '{}'::jsonb end
-    || case when recorded then '{"recorded":true}'::jsonb else '{}'::jsonb end || payment_response;
+    || case when recorded then '{"recorded":true}'::jsonb else '{}'::jsonb end
+    || case when completed_closure then '{"completedClosure":true}'::jsonb else '{}'::jsonb end || payment_response;
 end;
 $skip_lifecycle$;
 
+-- Reserve only a read-only check of an existing attempt. An interrupted worker yields after 90 seconds.
+create or replace function public.fh_claim_skip_payment_recoveries(p_limit integer)
+returns jsonb language sql security invoker set search_path = pg_catalog
+as $claim_recoveries$
+  with waiting as materialized (
+    select p.attempt_id, p.attempted_at, coalesce(p.recovery_due_at, p.attempted_at) as due_at, to_jsonb(o) as order_data
+    from public.fh_skip_clover_payments p join public.fh_orders o on o.id = p.order_id
+    where p.state <> 'paid' and p.attempted_at <= statement_timestamp() - interval '2 minutes'
+      and coalesce(p.recovery_due_at, p.attempted_at) <= statement_timestamp()
+      and o.channel = 'skip' and coalesce(o.data->>'viaHub', '') = '' and coalesce(o.data->>'viaPos', '') = ''
+      and o.pos_order_id = p.pos_order_id and o.timeline->>'posMerchantId' = p.merchant_id
+      and nullif(o.timeline->>'posPaymentId', '') is null
+    order by due_at, p.attempted_at, p.attempt_id
+    limit greatest(0, least(coalesce(p_limit, 0), 12)) for update of p skip locked
+  ), terminal_paid as materialized (
+    select p.attempt_id, p.attempted_at, coalesce(p.recovery_due_at, p.attempted_at) as due_at, to_jsonb(o) as order_data
+    from public.fh_orders o join public.fh_skip_clover_payments p on p.order_id = o.id
+    where o.channel = 'skip' and o.status in ('cancelled', 'failed') and o.pos_order_id is not null
+      and nullif(o.timeline->>'posClosedAt', '') is null and p.state = 'paid'
+      and coalesce(p.recovery_due_at, p.attempted_at) <= statement_timestamp()
+      and coalesce(o.data->>'viaHub', '') = '' and coalesce(o.data->>'viaPos', '') = ''
+      and o.pos_order_id = p.pos_order_id and o.timeline->>'posMerchantId' = p.merchant_id
+      and (nullif(o.timeline->>'posPaymentId', '') is null or o.timeline->>'posPaymentId' = p.payment_id)
+    order by due_at, p.attempted_at, p.attempt_id
+    limit greatest(0, least(coalesce(p_limit, 0), 12)) for update of p skip locked
+  ), selected as (
+    select * from (select * from waiting union all select * from terminal_paid) eligible
+    order by due_at, attempted_at, attempt_id limit greatest(0, least(coalesce(p_limit, 0), 12))
+  ), leased as (
+    update public.fh_skip_clover_payments p
+    set recovery_due_at = statement_timestamp() + interval '90 seconds', recovery_lease_id = gen_random_uuid()
+    from selected s where p.attempt_id = s.attempt_id
+    returning p.*, s.order_data, s.due_at
+  )
+  select coalesce(jsonb_agg(jsonb_build_object('order', order_data, 'leaseId', recovery_lease_id,
+    'paymentAttempt', jsonb_strip_nulls(jsonb_build_object(
+      'id', attempt_id, 'at', to_char(attempted_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+      'merchantId', merchant_id, 'posOrderId', pos_order_id, 'paymentReference', payment_reference,
+      'state', state, 'paymentId', payment_id))) order by due_at, attempted_at, attempt_id), '[]'::jsonb)
+  from leased;
+$claim_recoveries$;
+
+create or replace function public.fh_reschedule_skip_payment_recovery(p_attempt_id uuid, p_lease_id uuid, p_next_check_at timestamptz)
+returns boolean language sql security invoker set search_path = pg_catalog
+as $reschedule_recovery$
+  with moved as (
+    update public.fh_skip_clover_payments
+    set recovery_due_at = greatest(statement_timestamp() + interval '15 seconds',
+      least(p_next_check_at, statement_timestamp() + interval '30 minutes')), recovery_lease_id = null
+    where attempt_id = p_attempt_id and recovery_lease_id = p_lease_id
+      and recovery_due_at > statement_timestamp() and p_next_check_at is not null
+    returning 1
+  ) select exists (select 1 from moved);
+$reschedule_recovery$;
+
 revoke all on function public.fh_apply_skip_lifecycle(text, text, jsonb, boolean, text, jsonb) from public;
+revoke all on function public.fh_claim_skip_payment_recoveries(integer) from public;
+revoke all on function public.fh_reschedule_skip_payment_recovery(uuid, uuid, timestamptz) from public;
 do $skip_lifecycle_permissions$
 declare role_name text;
 begin
   for role_name in select rolname from pg_roles where rolname in ('anon', 'authenticated', 'service_role') loop
     execute format('%s on function public.fh_apply_skip_lifecycle(text, text, jsonb, boolean, text, jsonb) %s %I',
+      case when role_name = 'service_role' then 'grant execute' else 'revoke all' end,
+      case when role_name = 'service_role' then 'to' else 'from' end, role_name);
+    execute format('%s on function public.fh_claim_skip_payment_recoveries(integer),
+      public.fh_reschedule_skip_payment_recovery(uuid, uuid, timestamptz) %s %I',
       case when role_name = 'service_role' then 'grant execute' else 'revoke all' end,
       case when role_name = 'service_role' then 'to' else 'from' end, role_name);
     execute format('%s on public.fh_skip_clover_payments %s %I',
@@ -838,4 +931,5 @@ begin
 end;
 $skip_lifecycle_permissions$;
 
+notify pgrst, 'reload schema';
 commit;

@@ -21,7 +21,7 @@ type SkipPaymentInput =
   | ({ kind: 'check_payment' } & SkipPaymentIdentity)
   | ({ kind: 'prepare_payment'; attemptId?: string } & SkipPaymentIdentity)
   | ({ kind: 'finish_payment'; attemptId: string } & (
-    | { result: 'paid'; paymentId: string }
+    | { result: 'paid'; paymentId: string; closeTerminal?: true }
     | { result: 'refused'; error?: string }
     | { result: 'uncertain' }
   ) & SkipPaymentIdentity);
@@ -36,8 +36,17 @@ export interface SkipPaymentAttempt {
   paymentId?: string;
 }
 
+export interface SkipPaymentRecoveryClaim {
+  order: StoredOrder;
+  paymentAttempt: SkipPaymentAttempt;
+  leaseId: string;
+}
+
 const SKIP_PAYMENT_REVIEW = 'Skip Clover payment needs review: Verify the outcome on the recorded register before retrying.';
 const DEFINITE_PAYMENT_REFUSAL = /^(?:0|400|401|403|404|405|415|422|429)$/;
+const PAYMENT_RECOVERY_MIN_AGE_MS = 120_000;
+const PAYMENT_RECOVERY_LEASE_MS = 90_000;
+const PAYMENT_RECOVERY_LIMIT = 12;
 
 function hasUncertainEarlierPayment(error: string | undefined): boolean {
   if (!error) return false;
@@ -81,11 +90,14 @@ export interface SkipLifecycleResult {
   recorded?: true;
   finished?: true;
   driverAdvanced?: true;
+  completedClosure?: true;
 }
 
 export interface FoodHubRepo {
   mode: 'supabase' | 'memory';
   applySkipLifecycle(input: SkipLifecycleInput): Promise<SkipLifecycleResult>;
+  claimSkipPaymentRecoveries(input: { now: string; limit: number }): Promise<SkipPaymentRecoveryClaim[]>;
+  rescheduleSkipPaymentRecovery(input: { attemptId: string; leaseId: string; nextCheckAt: string }): Promise<boolean>;
   insertOrderIfNew(order: NormalizedOrder & { locationCode?: string; createdAt?: string }): Promise<{ order: StoredOrder; isNew: boolean }>;
   getOrder(id: string): Promise<StoredOrder | null>;
   findOrder(channel: ChannelKey, externalOrderId: string): Promise<StoredOrder | null>;
@@ -144,6 +156,7 @@ export interface FoodHubRepo {
 type MemState = {
   orders: Map<string, StoredOrder>;
   skipPayments?: Map<string, SkipPaymentAttempt>;
+  skipPaymentRecovery?: Map<string, { due: number; leaseId?: string }>;
   events: OrderEvent[];
   stores: Map<string, ChannelStore>;
   menus: Map<string, MasterMenu>;
@@ -320,15 +333,34 @@ function applySkipPaymentInMemory(input: SkipPaymentInput): SkipLifecycleResult 
     }
     return result(kind !== 'finish_payment' && order.status === 'cancelled' ? 'cancelled' : 'payment_pending', reviewed);
   };
+  const confirmPaid = (paid: StoredOrder): SkipLifecycleResult => {
+    if (input.kind !== 'finish_payment' || input.result !== 'paid' || !input.closeTerminal
+        || (paid.status !== 'cancelled' && paid.status !== 'failed') || paid.timeline?.posClosedAt) return result('payment_finished', paid);
+    const close = paid.timeline?.posCloseClaim;
+    if (close && !(Date.parse(close.at) <= Date.now() - 5 * 60_000)) return result('payment_finished', paid);
+    const at = nowIso();
+    const finalized = { ...paid, timeline: { ...paid.timeline, posClosedAt: at, posCloseClaim: undefined }, updatedAt: at };
+    state.orders.set(paid.id, finalized);
+    state.events.push({ id: crypto.randomUUID(), orderId: paid.id, type: 'pos_paid_then_cancelled',
+      detail: { message: 'Cancelled after it was recorded as paid in Clover — refund it in the Clover app if the platform did not pay you.' }, at });
+    return { ...result('payment_finished', finalized), completedClosure: true };
+  };
 
   if (kind === 'finish_payment') {
     if (!attempt || attempt.id !== input.attemptId) return conflict;
     const storedPaymentId = order.timeline?.posPaymentId;
-    if (attempt.state === 'paid') return input.result === 'paid' && attempt.paymentId === input.paymentId
-      && storedPaymentId === input.paymentId ? result('payment_finished') : conflict;
+    if (attempt.state === 'paid') {
+      if (input.result !== 'paid' || attempt.paymentId !== input.paymentId) return conflict;
+      if (storedPaymentId === input.paymentId) return confirmPaid(order);
+      if (storedPaymentId || !input.closeTerminal || (order.status !== 'cancelled' && order.status !== 'failed')) return conflict;
+      const restored = { ...order, timeline: { ...order.timeline, posPaymentId: input.paymentId, posPaymentError: undefined }, updatedAt: nowIso() };
+      state.orders.set(order.id, restored);
+      return confirmPaid(restored);
+    }
     if (input.result === 'refused') {
       if (attempt.state !== 'sending' || storedPaymentId) return conflict;
       attempts.delete(order.id);
+      state.skipPaymentRecovery?.delete(attempt.id);
       attempt = undefined;
       if (!input.error?.trim() || (order.status !== 'dispatched' && order.status !== 'completed')) return result('payment_finished');
       const error = input.error.slice(0, 500);
@@ -351,7 +383,7 @@ function applySkipPaymentInMemory(input: SkipPaymentInput): SkipLifecycleResult 
     state.orders.set(order.id, paid);
     if (!storedPaymentId) state.events.push({ id: crypto.randomUUID(), orderId: order.id, type: 'pos_paid',
       detail: { message: 'Recorded as paid in Clover (Skip tender)', paymentId: input.paymentId }, at: paid.updatedAt });
-    return result('payment_finished', paid);
+    return confirmPaid(paid);
   }
 
   if (kind === 'prepare_payment' && input.attemptId && (!attempt || attempt.id !== input.attemptId)) return conflict;
@@ -633,6 +665,40 @@ function applySkipLifecycleInMemory(input: SkipLifecycleInput): SkipLifecycleRes
 const memoryRepo: FoodHubRepo = {
   mode: 'memory',
   async applySkipLifecycle(input) { return applySkipLifecycleInMemory(input); },
+  async claimSkipPaymentRecoveries(input) {
+    const state = memState();
+    const schedule = state.skipPaymentRecovery ??= new Map();
+    const now = Date.parse(input.now);
+    const due = [...(state.skipPayments?.entries() ?? [])].flatMap(([orderId, paymentAttempt]) => {
+      const order = state.orders.get(orderId);
+      if (!order || order.channel !== 'skip' || order.viaHub || order.viaPos
+          || order.posOrderId !== paymentAttempt.posOrderId || order.timeline?.posMerchantId !== paymentAttempt.merchantId) return [];
+      const marker = order.timeline?.posPaymentId;
+      const attemptedAt = Date.parse(paymentAttempt.at);
+      const dueAt = schedule.get(paymentAttempt.id)?.due ?? attemptedAt;
+      if (!(dueAt <= now)) return [];
+      if (paymentAttempt.state === 'paid') {
+        if ((order.status !== 'cancelled' && order.status !== 'failed') || order.timeline?.posClosedAt
+            || (marker && marker !== paymentAttempt.paymentId)) return [];
+      } else if (marker || !(attemptedAt <= now - PAYMENT_RECOVERY_MIN_AGE_MS)) return [];
+      return [{ order, paymentAttempt, dueAt, attemptedAt }];
+    });
+    return due.sort((a, b) => a.dueAt - b.dueAt || a.attemptedAt - b.attemptedAt || a.paymentAttempt.id.localeCompare(b.paymentAttempt.id))
+      .slice(0, Math.max(0, Math.min(PAYMENT_RECOVERY_LIMIT, input.limit))).map(({ order, paymentAttempt }) => {
+        const leaseId = crypto.randomUUID();
+        schedule.set(paymentAttempt.id, { due: now + PAYMENT_RECOVERY_LEASE_MS, leaseId });
+        return { order, paymentAttempt, leaseId };
+      });
+  },
+  async rescheduleSkipPaymentRecovery({ attemptId, leaseId, nextCheckAt }) {
+    const schedule = memState().skipPaymentRecovery;
+    const current = schedule?.get(attemptId);
+    const now = Date.now();
+    const next = Date.parse(nextCheckAt);
+    if (!schedule || !current || current.leaseId !== leaseId || current.due <= now || !Number.isFinite(next)) return false;
+    schedule.set(attemptId, { due: Math.max(now + 15_000, Math.min(now + 30 * 60_000, next)) });
+    return true;
+  },
   async insertOrderIfNew(order) {
     const s = memState();
     for (const o of s.orders.values()) {
@@ -892,7 +958,7 @@ function supabaseRepo(): FoodHubRepo {
         if ('paymentReference' in input) detail.paymentReference = input.paymentReference;
         if (input.kind === 'prepare_payment') detail.attemptId = input.attemptId;
         if (input.kind === 'finish_payment') Object.assign(detail, {
-          attemptId: input.attemptId, result: input.result, ...(input.result === 'paid' && { paymentId: input.paymentId }),
+          attemptId: input.attemptId, result: input.result, ...(input.result === 'paid' && { paymentId: input.paymentId, closeTerminal: input.closeTerminal }),
           ...(input.result === 'refused' && { error: input.error }),
         });
         if (input.kind === 'prepare_clover') {
@@ -910,6 +976,16 @@ function supabaseRepo(): FoodHubRepo {
         p_mapped: backup?.mappedStore ?? false, p_message: backup?.message ?? null, p_detail: detail,
       })) as Omit<SkipLifecycleResult, 'order'> & { order: Row | null };
       return { ...result, order: result.order ? rowToOrder(result.order) : null };
+    },
+    async claimSkipPaymentRecoveries({ limit }) {
+      const claims = must(await db.rpc('fh_claim_skip_payment_recoveries', { p_limit: limit })) as
+        (Omit<SkipPaymentRecoveryClaim, 'order'> & { order: Row })[];
+      return claims.map(({ order, ...claim }) => ({ ...claim, order: rowToOrder(order) }));
+    },
+    async rescheduleSkipPaymentRecovery({ attemptId, leaseId, nextCheckAt }) {
+      return must(await db.rpc('fh_reschedule_skip_payment_recovery', {
+        p_attempt_id: attemptId, p_lease_id: leaseId, p_next_check_at: nextCheckAt,
+      })) === true;
     },
     async insertOrderIfNew(order) {
       const existing = await repo.findOrder(order.channel, order.externalOrderId);

@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { GET as cronWatch } from '../app/api/foodhub/cron/watch/route';
 import { POST as receiveCancel } from '../app/api/foodhub/webhooks/skip/cancel/route';
 import { POST as receiveDriver } from '../app/api/foodhub/webhooks/skip/driver/route';
 import { POST as receiveBackup } from '../app/api/foodhub/webhooks/skip/failed/route';
@@ -10,6 +11,7 @@ import { CHANNEL_LABELS } from '../lib/foodhub/config';
 import { INBOX, type InboxEntry } from '../lib/foodhub/inbox';
 import { externalPaymentId } from '../lib/foodhub/pos/clover-books';
 import { getRepo } from '../lib/foodhub/repo';
+import { recoverSkipCloverPayments } from '../lib/foodhub/skip-payment-recovery';
 
 const deferred = vi.hoisted(() => [] as Array<() => Promise<unknown>>);
 vi.mock('next/server', async (original) => ({
@@ -395,6 +397,215 @@ describe('Skip driver observations cannot reopen a terminal order', () => {
     expect((await repo.getOrder(id))?.timeline?.posPaymentError).toBeUndefined();
     expect((await repo.listEvents(id)).filter(({ type }) => type === 'pos_paid')).toHaveLength(1);
     expect(posts).toBe(1);
+  });
+
+  it.each([
+    { state: 'dispatched', exactProof: true },
+    { state: 'cancelled', exactProof: true },
+    { state: 'cancelled', exactProof: false },
+  ] as const)('sweeps dormant $state payment claims with exact Clover proof=$exactProof', async ({ state, exactProof }) => {
+    const repo = getRepo();
+    const start = Date.parse('2026-11-27T05:00:00Z');
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(start);
+    try {
+      const id = await seed();
+      const reference = externalPaymentId((await repo.getOrder(id))!);
+      const path = `/v3/merchants/${MERCHANT}/orders/${POS}/payments`;
+      const store = (await repo.findStore('skip', STORE))!;
+      const schedulerKey = 'fixture-skip-recovery-cron';
+      vi.stubEnv('CRON_SECRET', schedulerKey);
+      vi.stubEnv('LIVE_CONNECTORS_GLOBAL_ENABLED', 'false');
+      vi.stubEnv('FOODHUB_CLOVER_WEBSITE_ORDERS', 'off');
+      vi.stubEnv('FOODHUB_MEV_CLOVER_REGISTER', 'off');
+      vi.stubEnv('FOODHUB_CLOVER_DELETE_CANCELLED', 'on');
+      vi.stubEnv('TGTG_IMAP_HOST', '');
+      const defaultFetch = provider.getMockImplementation()!;
+      let showExactPayment = false;
+      provider.mockImplementation(async (input, init) => {
+        const url = new URL(String(input));
+        if (!url.pathname.endsWith('/payments')) return defaultFetch(input, init);
+        expect(url.origin).toBe(CLOVER);
+        expect(url.pathname).toBe(path);
+        if (init?.method === 'POST') throw new Error('Fixture Clover accepted payment but the response was lost');
+        expect(init?.method ?? 'GET').toBe('GET');
+        return Response.json({ elements: [
+          { id: 'fixture-wrong-order', externalPaymentId: reference, result: 'SUCCESS', order: { id: 'different-order' } },
+          { id: 'fixture-wrong-reference', externalPaymentId: 'another-reference', result: 'SUCCESS', order: { id: POS } },
+          ...(showExactPayment ? [{ id: 'fixture-recovered', externalPaymentId: reference, result: 'SUCCESS', order: { id: POS } }] : []),
+        ] });
+      });
+
+      await (await receive('driver', driver('onItsWay')))();
+      if (state === 'cancelled') await (await receive('cancel', cancel()))();
+      const held = (await repo.getOrder(id))!;
+      expect(held).toMatchObject({ status: state, timeline: { posPaymentError: expect.stringContaining('payment needs review') } });
+      expect(held.timeline?.posPaymentId).toBeUndefined();
+      expect(held.timeline?.posClosedAt).toBeUndefined();
+      expect(provider.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
+      const completedInbox = await repo.listDocs<InboxEntry>(INBOX);
+      expect(completedInbox.map(({ data }) => [data.kind, data.status])).toEqual(state === 'cancelled' ? [['skip_cancel', 'done']] : []);
+
+      // The register mapping changed after the payment; proof must still come from the attested receipt.
+      await repo.updateStore(store.id, { cloverMerchantId: 'fixture-replacement-merchant' });
+      showExactPayment = exactProof;
+      provider.mockClear();
+      vi.setSystemTime(start + 5 * 60_000);
+      const response = await cronWatch(new NextRequest('http://hub.local/api/foodhub/cron/watch', {
+        headers: { authorization: `Bearer ${schedulerKey}` },
+      }));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ recovery: { ran: true, inbox: { processed: 0, failed: 0 } } });
+      expect(await repo.listDocs<InboxEntry>(INBOX)).toEqual(completedInbox);
+      const latest = (await repo.getOrder(id))!;
+      const events = (await repo.listEvents(id)).map(({ type }) => type);
+      expect({
+        state: latest.status,
+        paid: latest.timeline?.posPaymentId,
+        closed: Boolean(latest.timeline?.posClosedAt),
+        review: Boolean(latest.timeline?.posPaymentError),
+        payments: events.filter((type) => type === 'pos_paid').length,
+        closures: events.filter((type) => type === 'pos_paid_then_cancelled').length,
+        requests: provider.mock.calls.map(([url, init]) => [new URL(String(url)).pathname, init?.method ?? 'GET']),
+      }).toEqual({
+        state,
+        paid: exactProof ? 'fixture-recovered' : undefined,
+        closed: exactProof && state === 'cancelled',
+        review: !exactProof,
+        payments: exactProof ? 1 : 0,
+        closures: exactProof && state === 'cancelled' ? 1 : 0,
+        requests: [[path, 'GET']],
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('claims one provider read across workers and waits before looking up held proof again', async () => {
+    const repo = getRepo();
+    const now = Date.now();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(now);
+    try {
+      const id = await seed();
+      provider.mockImplementation(async (input, init) => {
+        expect(new URL(String(input)).origin).toBe(CLOVER);
+        if (new URL(String(input)).pathname.endsWith('/tenders')) return Response.json({ elements: [{ id: 'fixture-tender', label: CHANNEL_LABELS.skip }] });
+        if (init?.method === 'POST') throw new Error('fixture ambiguous Clover payment');
+        return Response.json({ elements: [] });
+      });
+      await (await receive('driver', driver('onItsWay')))();
+      provider.mockClear();
+      vi.setSystemTime(now + 2 * 60_000);
+      const results = await Promise.all([recoverSkipCloverPayments(Date.now()), recoverSkipCloverPayments(Date.now())]);
+      expect(results.map(({ claimed }) => claimed).sort()).toEqual([0, 1]);
+      expect(results.map(({ held }) => held).sort()).toEqual([0, 1]);
+      expect(provider).toHaveBeenCalledTimes(1);
+      expect((await recoverSkipCloverPayments(Date.now() + 60_000)).claimed).toBe(0);
+      expect(provider).toHaveBeenCalledTimes(1);
+      vi.setSystemTime(now + 7 * 60_000);
+      expect((await recoverSkipCloverPayments(Date.now())).held).toBe(1);
+      expect(provider).toHaveBeenCalledTimes(2);
+      expect((await repo.getOrder(id))?.timeline?.posPaymentId).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('completes the existing terminal paid marker once without calling Clover', async () => {
+    const repo = getRepo();
+    const id = await seed();
+    await (await receive('driver', driver('onItsWay')))();
+    // A dormant row left by an interrupted cancellation has a paid ledger and no local terminal marker.
+    await repo.patchOrder(id, { cancelledAt: new Date().toISOString() }, { status: 'cancelled' });
+    provider.mockClear();
+    expect(await recoverSkipCloverPayments(Date.now())).toMatchObject({ claimed: 1, recovered: 0, terminalClosed: 1, failed: 0 });
+    expect(await recoverSkipCloverPayments(Date.now())).toMatchObject({ claimed: 0, terminalClosed: 0 });
+    expect(await repo.getOrder(id)).toMatchObject({ status: 'cancelled', timeline: { posPaymentId: 'fixture-payment', posClosedAt: expect.any(String) } });
+    expect((await repo.listEvents(id)).filter(({ type }) => type === 'pos_paid_then_cancelled')).toHaveLength(1);
+    expect(provider).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { status: 'active', expiryOffsetSeconds: 10, canRead: true },
+    { status: 'active', expiryOffsetSeconds: -10, canRead: false },
+    { status: 'pending', expiryOffsetSeconds: 600, canRead: false },
+  ] as const)('keeps scheduler GET-only with $status OAuth expiring in $expiryOffsetSeconds seconds', async ({ status, expiryOffsetSeconds, canRead }) => {
+    const repo = getRepo();
+    const now = Date.now();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(now);
+    try {
+      const id = await seed();
+      const reference = externalPaymentId((await repo.getOrder(id))!);
+      const original = provider.getMockImplementation()!;
+      provider.mockImplementation(async (input, init) => {
+        if (String(input).endsWith('/payments') && init?.method === 'POST') throw new Error('fixture ambiguous result');
+        return original(input, init);
+      });
+      await (await receive('driver', driver('onItsWay')))();
+      vi.stubEnv('CLOVER_ACCESS_TOKEN', undefined);
+      vi.stubEnv('CLOVER_MERCHANT_TOKENS', undefined);
+      vi.stubEnv('CLOVER_CLIENT_ID', 'fixture-configured-oauth-client');
+      vi.stubEnv('CLOVER_CLIENT_SECRET', 'fixture-configured-oauth-secret');
+      vi.setSystemTime(now + 3 * 60_000);
+      await repo.setKv('clover_oauth_merchants', { [MERCHANT]: {
+        merchantId: MERCHANT, status, accessToken: 'fixture-saved-oauth-token', refreshToken: 'fixture-never-refreshed',
+        accessTokenExpiration: Math.floor(Date.now() / 1000) + expiryOffsetSeconds, connectedAt: new Date(now).toISOString(),
+      } });
+      provider.mockReset().mockImplementation(async (input, init) => {
+        expect(String(input)).toBe(`${CLOVER}/v3/merchants/${MERCHANT}/orders/${POS}/payments?limit=100`);
+        expect(init?.method ?? 'GET').toBe('GET');
+        expect(init?.redirect).toBe('error');
+        expect(new Headers(init?.headers).get('authorization')).toBe('Bearer fixture-saved-oauth-token');
+        return Response.json({ elements: [{ order: { id: POS }, id: 'fixture-oauth-proof', externalPaymentId: reference, result: 'SUCCESS' }] });
+      });
+      const report = await recoverSkipCloverPayments(Date.now());
+      expect(report).toMatchObject({ claimed: 1, recovered: canRead ? 1 : 0, held: canRead ? 0 : 1 });
+      expect(provider).toHaveBeenCalledTimes(canRead ? 1 : 0);
+      expect((await repo.getOrder(id))?.timeline?.posPaymentId).toBe(canRead ? 'fixture-oauth-proof' : undefined);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cannot finalize a newer attempt after an aging read was started on its predecessor', async () => {
+    const repo = getRepo();
+    const now = Date.now();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(now);
+    try {
+      const id = await seed();
+      const original = (await repo.patchOrder(id, {}, { status: 'dispatched' }))!;
+      const identity = { orderId: id, externalOrderId: ORDER, merchantId: MERCHANT, posOrderId: POS, paymentReference: externalPaymentId(original) };
+      const older = await repo.applySkipLifecycle({ kind: 'prepare_payment', ...identity });
+      const olderId = older.paymentAttempt!.id;
+      const readStarted = gate();
+      const readResponse = gate();
+      provider.mockImplementation(async (_input, init) => {
+        expect(init?.method ?? 'GET').toBe('GET');
+        readStarted.release();
+        await readResponse.waiting;
+        return Response.json({ elements: [{ order: { id: POS }, id: 'fixture-earlier-proof', externalPaymentId: identity.paymentReference, result: 'SUCCESS' }] });
+      });
+      vi.setSystemTime(now + 3 * 60_000);
+      const recovering = recoverSkipCloverPayments(Date.now());
+      expect(await Promise.race([readStarted.waiting.then(() => true), recovering.then(() => false)])).toBe(true);
+      try {
+        await repo.applySkipLifecycle({ kind: 'finish_payment', ...identity, attemptId: olderId, result: 'refused' });
+        const newer = await repo.applySkipLifecycle({ kind: 'prepare_payment', ...identity });
+        expect(newer.paymentAttempt?.id).toBeTruthy();
+        expect(newer.paymentAttempt?.id).not.toBe(olderId);
+      } finally {
+        readResponse.release();
+      }
+      expect(await recovering).toMatchObject({ claimed: 1, recovered: 0, held: 1 });
+      expect((await repo.getOrder(id))?.timeline?.posPaymentId).toBeUndefined();
+      expect((await repo.listEvents(id)).filter(({ type }) => type === 'pos_paid')).toHaveLength(0);
+      expect(provider).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('releases a definite payment rejection only for a subsequent eligible attempt', async () => {

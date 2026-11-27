@@ -17,7 +17,7 @@ export async function timedFetch(url: string, init: RequestInit = {}, opts: { ti
   const ms = typeof opts.timeoutMs === 'number' && opts.timeoutMs > 0 ? opts.timeoutMs : timeoutMs();
   const timer = setTimeout(() => controller.abort(), ms);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    return await fetch(url, { ...init, signal: init.signal ? AbortSignal.any([controller.signal, init.signal]) : controller.signal });
   } finally {
     clearTimeout(timer);
   }
